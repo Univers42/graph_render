@@ -1,0 +1,3 @@
+[submodule "SciGraphs"]
+	path = SciGraphs
+	url = git@github.com:Univers42/SciGraphs.git
