@@ -15,6 +15,21 @@ pub mod snapshot;
 pub mod codegen {
     use serde_json::{Map, Value};
 
+    /// Where the generated files are committed, relative to the workspace root.
+    pub const GENERATED_DIR: &str = "crates/graph-contract/generated";
+
+    /// Every generated file: its name under [`GENERATED_DIR`] and its exact contents.
+    /// Committed, so a change to the contract types shows up as a diff in review.
+    pub fn outputs() -> [(&'static str, String); 2] {
+        [
+            (
+                "snapshot-header.schema.json",
+                format!("{:#}\n", json_schema()),
+            ),
+            ("snapshot-header.d.ts", typescript()),
+        ]
+    }
+
     /// The JSON Schema (draft 2020-12) of the snapshot header and everything it references.
     pub fn json_schema() -> Value {
         schemars::schema_for!(crate::snapshot::SnapshotHeader).to_value()
@@ -99,6 +114,11 @@ pub mod codegen {
             for field in ["stage_count", "node_count", "edge_count"] {
                 assert_eq!(schema["properties"][field]["format"], "uint32", "{field}");
             }
+            let stage_count = &schema["properties"]["stage_count"];
+            assert_eq!(
+                (&stage_count["minimum"], &stage_count["maximum"]),
+                (&1.into(), &1.into())
+            );
             for field in ["major", "minor"] {
                 assert_eq!(
                     schema["$defs"]["FormatVersion"]["properties"][field]["format"],
@@ -132,6 +152,19 @@ pub mod codegen {
                     "runtime construct {runtime:?} in generated TS"
                 );
             }
+        }
+
+        #[test]
+        fn the_committed_files_are_what_codegen_generates() {
+            let [(schema_name, schema), (ts_name, ts)] = outputs();
+            let committed = [
+                include_str!("../generated/snapshot-header.schema.json"),
+                include_str!("../generated/snapshot-header.d.ts"),
+            ];
+            let stale = "stale: run `graph-cli codegen` and commit the result";
+            assert_eq!(committed[0], schema, "{schema_name} {stale}");
+            assert_eq!(committed[1], ts, "{ts_name} {stale}");
+            assert!(GENERATED_DIR.ends_with("graph-contract/generated"));
         }
 
         #[test]

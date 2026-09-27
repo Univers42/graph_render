@@ -31,9 +31,10 @@ Toolchain: {tools}. wasm32 artifact `graph_wasm.wasm` sha256 `{wasm_sha}`.
 
 ## The sweep
 
-Defined once in `crates/graph-wasm/src/lib.rs` (`mod probe`) and executed unchanged on both
-targets: natively inside `graph-cli`, and as wasm32 through `harness/wasm-run.mjs` under Node. The
-two runs are checked to have swept bit-identical inputs before any output is compared.
+Defined once in `crates/graph-wasm/src/probe.rs` and executed unchanged on both targets:
+natively inside `graph-cli`, and as wasm32 (built with `--features probe`) through
+`harness/wasm-run.mjs` under Node. The two runs are checked to have swept bit-identical inputs
+before any output is compared.
 
 - **Specials** ({specials} magnitudes, each with its negation, plus ±0): denormals (`5e-324`,
   `1e-320`, `2.225e-309`, the largest subnormal), `1e-300` … `0.5`, values around 1.0

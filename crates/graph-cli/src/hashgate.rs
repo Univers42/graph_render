@@ -73,7 +73,7 @@ type Arm = (&'static str, Vec<String>);
 
 fn collect_arms(seeds: u32) -> Result<Vec<Arm>, String> {
     let exe = std::env::current_exe().map_err(|e| format!("locating graph-cli: {e}"))?;
-    let wasm = build_wasm()?;
+    let wasm = build_wasm(&[])?;
     let count = seeds.to_string();
     let native = || run_lines(Command::new(&exe).args(["hashgate-arm", "--seeds", &count]));
     let wasm32 = || run_lines(node_harness(&wasm).args(["synthetic", &count]));
@@ -145,9 +145,18 @@ fn diverged(seeds: u32, arms: &[Arm]) -> Result<Vec<usize>, String> {
         }
     }
     let first = &arms[0].1;
+    if seeds > 1 && first.iter().all(|line| digest(line) == digest(&first[0])) {
+        return Err(format!(
+            "every seed hashed to one digest: the seed never reaches the output, so {seeds} seeds test one input"
+        ));
+    }
     Ok((0..seeds as usize)
         .filter(|&i| arms.iter().any(|(_, l)| l[i] != first[i]))
         .collect())
+}
+
+fn digest(line: &str) -> &str {
+    line.rsplit(' ').next().unwrap_or("")
 }
 
 fn well_formed(line: &str, seed: usize) -> bool {
@@ -207,6 +216,17 @@ mod tests {
         let mut renumbered = arms([['a', 'b']; 4]);
         renumbered[1].1[1] = line(0, 'b');
         assert!(diverged(2, &renumbered).is_err());
+    }
+
+    #[test]
+    fn seeds_that_all_hash_alike_are_refused_as_one_input() {
+        let err = diverged(2, &arms([['a', 'a']; 4])).expect_err("one digest for two seeds");
+        assert!(err.contains("every seed hashed to one digest"), "{err}");
+        let one = arms([['a', 'a']; 4])
+            .into_iter()
+            .map(|(name, lines)| (name, lines[..1].to_vec()))
+            .collect::<Vec<_>>();
+        assert_eq!(diverged(1, &one), Ok(vec![]));
     }
 
     #[test]

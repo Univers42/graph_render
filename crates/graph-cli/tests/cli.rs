@@ -36,6 +36,35 @@ fn hashgate_passes_and_its_negative_control_goes_red() {
 }
 
 #[test]
+fn a_failed_wasm_build_is_could_not_run_and_seed_counts_are_capped() {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_graph-cli"));
+    let broken = command
+        .args(["hashgate", "--seeds", "2"])
+        .env("CARGO", "false")
+        .output()
+        .expect("graph-cli runs");
+    assert_eq!(broken.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&broken.stderr);
+    assert!(
+        stderr.contains("building graph-wasm for wasm32 failed"),
+        "{stderr}"
+    );
+    assert_eq!(
+        graph_cli(&["hashgate", "--seeds", "100001"], None)
+            .status
+            .code(),
+        Some(2)
+    );
+}
+
+#[test]
+fn codegen_check_finds_the_committed_files_current() {
+    let check = graph_cli(&["codegen", "--check"], None);
+    assert_eq!(check.status.code(), Some(0), "{}", stdout(&check));
+    assert_eq!(stdout(&check).matches("up to date").count(), 2);
+}
+
+#[test]
 fn hashgate_arm_prints_one_line_per_seed() {
     let arm = graph_cli(&["hashgate-arm", "--seeds", "3"], None);
     assert_eq!(arm.status.code(), Some(0));

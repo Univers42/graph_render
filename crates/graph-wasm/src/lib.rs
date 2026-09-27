@@ -3,9 +3,10 @@
 //! plain numbers. A buffer comes back as a pointer to `[len: u32 LE][len bytes]`,
 //! valid until the next export call.
 //!
-//! Phase 0 exports two functions: `gm_synthetic` proves the hash arm works, and
-//! `gm_probe` carries the D1 measurement to wasm32 so it can be compared bit for bit
-//! against the same code run natively.
+//! Phase 0 exports `gm_synthetic`, which proves the hash arm works. With the `probe`
+//! feature it also exports `gm_probe`, which carries the D1 measurement to wasm32 so it
+//! can be compared bit for bit against the same code run natively; the shipped module
+//! is built without it, so a measurement instrument never reaches the browser.
 
 #[cfg(target_arch = "wasm32")]
 mod exports {
@@ -38,8 +39,9 @@ mod exports {
         publish(graph_core::synthetic_snapshot(seed, graph_core::REFERENCE_DEGREE).ok())
     }
 
-    /// The D1 probe buffer (see [`crate::probe`]).
+    /// The D1 probe buffer (see [`crate::probe`]). Only in the `probe` build.
     // SAFETY: as above — `gm_probe` is the only symbol with this name.
+    #[cfg(feature = "probe")]
     #[unsafe(no_mangle)]
     pub extern "C" fn gm_probe() -> u32 {
         publish(Some(crate::probe::probe_bytes()))

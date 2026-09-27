@@ -1,0 +1,111 @@
+{
+  "$defs": {
+    "EdgeGeometryKind": {
+      "description": "How every edge in one snapshot is shaped.",
+      "oneOf": [
+        {
+          "const": "Line",
+          "description": "No columns: endpoints derive from node geometry, so straight edges cost zero bytes.",
+          "type": "string"
+        },
+        {
+          "const": "Polyline",
+          "description": "CSR-shaped `offsets[]` (m+1) and `pts[]`: layered bends, orthogonal routes, bundles.",
+          "type": "string"
+        },
+        {
+          "const": "Curve",
+          "description": "`offsets[]`, `pts[]` and a degree tag: bezier and quadratic styles, FDEB output.",
+          "type": "string"
+        }
+      ]
+    },
+    "FormatVersion": {
+      "description": "A snapshot format version. A reader refuses any major above the one it knows.",
+      "properties": {
+        "major": {
+          "description": "Incremented on any change an older reader would misread.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "minor": {
+          "description": "Incremented on additive changes an older reader can safely ignore.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "major",
+        "minor"
+      ],
+      "type": "object"
+    },
+    "NodeGeometryKind": {
+      "description": "How every node in one snapshot is shaped.",
+      "oneOf": [
+        {
+          "const": "Point",
+          "description": "Columns `x[]`, `y[]`: force, spectral, MDS, circular, grid, geographic.",
+          "type": "string"
+        },
+        {
+          "const": "Circle",
+          "description": "Columns `x[]`, `y[]`, `r[]`: circle packing.",
+          "type": "string"
+        },
+        {
+          "const": "Box",
+          "description": "Columns `x[]`, `y[]`, `w[]`, `h[]`: treemap, matrix cell, layered node.",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "The fixed-size head of every snapshot: one geometry discriminant for the whole payload.",
+  "properties": {
+    "edge_count": {
+      "description": "Number of edges.",
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "edge_kind": {
+      "$ref": "#/$defs/EdgeGeometryKind",
+      "description": "Shape of every edge in the snapshot."
+    },
+    "node_count": {
+      "description": "Number of nodes, and the length of every node column.",
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "node_kind": {
+      "$ref": "#/$defs/NodeGeometryKind",
+      "description": "Shape of every node in the snapshot."
+    },
+    "stage_count": {
+      "description": "Named geometries carried for one topology. Reserved: exactly `1` until implemented.",
+      "format": "uint32",
+      "maximum": 1,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "version": {
+      "$ref": "#/$defs/FormatVersion",
+      "description": "Format version the payload was written with."
+    }
+  },
+  "required": [
+    "version",
+    "node_kind",
+    "edge_kind",
+    "stage_count",
+    "node_count",
+    "edge_count"
+  ],
+  "title": "SnapshotHeader",
+  "type": "object"
+}

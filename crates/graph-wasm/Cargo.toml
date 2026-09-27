@@ -11,6 +11,10 @@ publish.workspace = true
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[features]
+# Exports `gm_probe` from the wasm module, for `graph-cli determinism-probe` only.
+probe = []
+
 [dependencies]
 graph-core = { path = "../graph-core" }
 libm = "0.2"

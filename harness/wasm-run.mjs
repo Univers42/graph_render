@@ -45,6 +45,7 @@ if (mode === "synthetic") {
   }
   process.stdout.write(lines.join(""));
 } else if (mode === "probe") {
+  if (typeof exports.gm_probe !== "function") fail("no gm_probe export: build graph-wasm with --features probe");
   process.stdout.write(`${Buffer.from(framed(exports.gm_probe())).toString("hex")}\n`);
 } else {
   fail(`unknown mode ${mode}`);

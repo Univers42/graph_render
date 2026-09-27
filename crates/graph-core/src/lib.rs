@@ -7,13 +7,16 @@
 //! constant inside that computation to perturb.
 
 use graph_contract::geometry::{EdgeGeometryKind, NodeGeometryKind};
-use graph_contract::snapshot::{CURRENT_VERSION, NonFinite, SnapshotHeader, push_f32_column};
+use graph_contract::snapshot::{
+    CURRENT_VERSION, NonFinite, SnapshotHeader, StageCount, push_f32_column,
+};
 
 /// Degree at which a node's weight saturates to 1.0 (`src/core/model/weights.ts:12`).
 pub const REFERENCE_DEGREE: u32 = 8;
 
-/// A small deterministic snapshot for seed `seed`: a ring of 16–63 `Point` nodes whose
-/// radius is the degree weight of a pseudo-random degree, relative to `reference_degree`.
+/// A small deterministic snapshot for seed `seed`: a ring of 16–63 `Circle` nodes
+/// (columns `x`, `y`, `r`) whose radius is the degree weight of a pseudo-random degree,
+/// relative to `reference_degree`, and whose distance from the centre is that radius too.
 ///
 /// Exercises integer mixing, `libm` `log1p`/`sin`/`cos`, f64→f32 narrowing and the
 /// contract's header and column writer — the operations every later stage leans on.
@@ -26,9 +29,9 @@ pub fn synthetic_snapshot(seed: u32, reference_degree: u32) -> Result<Vec<u8>, N
     let (xs, ys) = ring(&weights);
     let header = SnapshotHeader {
         version: CURRENT_VERSION,
-        node_kind: NodeGeometryKind::Point,
+        node_kind: NodeGeometryKind::Circle,
         edge_kind: EdgeGeometryKind::Line,
-        stage_count: 1,
+        stage_count: StageCount::ONE,
         node_count,
         edge_count: 0,
     };

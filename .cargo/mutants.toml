@@ -20,10 +20,10 @@ exclude_re = [
     # Equivalent in Phase 0: the registry is empty by definition, so `vec![]` is the
     # function. Remove this line when Phase 1 registers the first row.
     "replace registry -> Vec<Capability> with vec!\\[\\]",
-    # Equivalent on a working toolchain: forcing "the wasm build succeeded" only differs
-    # when cargo fails, which no test can arrange without breaking the build it runs in.
-    "replace match guard s.success\\(\\) with true in build_wasm",
     # Equivalent: in `probe::from_bits` the shifted exponent and the masked mantissa
     # occupy disjoint bits, so `|` and `^` compute the same value for every input.
     "replace \\| with \\^ in from_bits",
+    # Equivalent by construction: `StageCount::ONE` is the only value that can exist, so
+    # `get` returns 1 for every input it can ever receive.
+    "replace StageCount::get -> u32 with 1",
 ]

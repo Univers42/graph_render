@@ -5,7 +5,7 @@ const HEADER: SnapshotHeader = SnapshotHeader {
     version: CURRENT_VERSION,
     node_kind: NodeGeometryKind::Circle,
     edge_kind: EdgeGeometryKind::Polyline,
-    stage_count: 1,
+    stage_count: StageCount::ONE,
     node_count: 7,
     edge_count: 3,
 };
@@ -15,6 +15,14 @@ fn read(h: SnapshotHeader, patch: impl FnOnce(&mut Vec<u8>)) -> Result<SnapshotH
     h.encode(&mut bytes);
     patch(&mut bytes);
     SnapshotHeader::decode(&bytes)
+}
+
+#[test]
+fn a_stage_count_can_only_be_one() {
+    assert_eq!(StageCount::try_from(1), Ok(StageCount::ONE));
+    assert_eq!(StageCount::try_from(0), Err(ReservedStageCount(0)));
+    assert_eq!(StageCount::try_from(2), Err(ReservedStageCount(2)));
+    assert_eq!((StageCount::ONE.get(), u32::from(StageCount::ONE)), (1, 1));
 }
 
 #[test]

@@ -1,4 +1,4 @@
-# guard-osionos baseline v1
+# guard-osionos baseline v2
 # UNCAPTURED
 #
 # This file is the committed snapshot scripts/guard-osionos.sh --check compares osionos

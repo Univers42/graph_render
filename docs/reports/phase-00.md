@@ -1,7 +1,8 @@
 # Phase 0 report — foundation
 
 Shape: `prompt.md` §12. Every command output quoted below was re-run for this report on
-2026-09-27 (commit `192a0bd`, then this report), inside `ge-rust` unless stated.
+2026-09-27 inside `ge-rust` unless stated: first at commit `192a0bd`, then again after the review
+fix-up (§9), whose numbers replace the earlier ones below.
 
 **Sandbox note.** This session runs in a cloud container behind a TLS-intercepting egress proxy. So
 `docker run --rm -v "$PWD:/w" ge-rust …` was run through a wrapper that adds only `--network host`,
@@ -19,8 +20,11 @@ apply.
 `scripts/osionos-baseline.txt`, and `.gitignore` (added `/target`).
 
 **Modified. Both are on the envelope:** `package.json` (the `oracle:diff` stub only; it exits 1) and
-`opencode.json` (deny-list prefix gap closed: `git -C * push*`, `git commit*`, `git switch*`,
-`git merge*`, `git submodule*`).
+`opencode.json`. The first version of this report said the deny-list prefix gap was **closed**. The
+review showed that was false: `git -C <path> commit|switch|merge|…`, `git -c …` and `git --git-dir=…`
+still passed. The list was rewritten against opencode's actual matcher, and the gap is now
+**narrowed, not closed**. §9 lists the holes it still has, and a test proves both the denials and
+the holes.
 
 **Deviations — outside the envelope, each named with its cause:**
 
@@ -34,6 +38,10 @@ apply.
 | `crates/graph-cli/tests/cli.rs` | The glue that spawns processes can only be tested as the real binary. This file puts the gate **and its negative control** inside `cargo test`, and it is what killed the glue's surviving mutants. |
 | `docker/mutants.Dockerfile`, `.cargo/mutants.toml` | Needed to run the mutation step (ONBOARDING §6.2, DoD 5) in Docker (rule 0.2). The toml carries the written reason for every exclusion. |
 | `docs/reports/phase-00.md` | This report. The phase does not name a path for it. |
+| `crates/graph-core/Cargo.toml` → `graph-contract` | graph-core writes the snapshot header and columns through graph-contract. graph-contract is not on the closed allow-list (libm, indexmap, petgraph). It is a workspace crate with no default features and no dependencies of its own, so no third-party code enters graph-core this way. |
+| `crates/graph-cli/src/codegen.rs`, `crates/graph-contract/generated/*` | Review fix-up (§9). The phase requires codegen output that is "committed and diffable". It was generated only in memory, so nothing was committed. |
+| `scripts/opencode-deny-test.mjs` | Review fix-up (§9). It is the only way to prove what the deny-list actually does, instead of claiming it. |
+| `CLAUDE.md` (repo root) | Your instruction (communication and git rules). It is a copy of `~/.claude/CLAUDE.md`, committed so the rules outlive the container. The `.claude` submodule is untouched. |
 
 No file under `src/`, `tests/` or `verify/` was touched. The existing `Dockerfile` is unchanged, and
 nothing in osionos was touched.
@@ -59,7 +67,7 @@ That green is vacuous and is not evidence of coverage.
 | 5 | `cargo build -p graph-core --target wasm32-unknown-unknown` | 0 | 0 | PASS |
 | 6 | `cargo fmt --check` | 0 | 0 | PASS |
 | 7 | `cargo clippy --workspace -- -D warnings` | 0 | 0 | PASS |
-| 8 | `cargo test --workspace` | 0 | 0 | PASS — 53 tests: graph-cli 22 + cli 4, graph-contract 14, graph-core 6, graph-wasm 7 |
+| 8 | `cargo test --workspace` | 0 | 0 | PASS — 61 tests: graph-cli 26 + cli 6, graph-contract 16, graph-core 6, graph-wasm 7 |
 | 9 | `cargo run -p graph-cli -- hashgate --seeds 100` | 0 | 0 | PASS — `4-way equal on 100/100 seeds` |
 | 10 | `GM_MUTATE_REFERENCE_DEGREE=9 … hashgate --seeds 8` | non-zero | **1** | PASS — `4-way equal on 0/8 seeds` / `FAIL: 8 of 8 seeds diverge` |
 | 11 | `cargo run -p graph-cli -- capabilities --check` | 0 | 0 | PASS — `0 rows, 0 problems` (vacuous, see §2) |
@@ -74,10 +82,15 @@ Beyond the listed gate:
 | `cargo clippy --workspace --all-targets --all-features -- -D warnings` | 0 | 0 | PASS |
 | `cargo test --workspace --all-features --release` | 0 | 0 | PASS |
 | `GM_MUTATE_REFERENCE_DEGREE=nine … hashgate --seeds 8` (a typo in the control) | 2 | 2 | PASS — `invalid digit found in string`. A mistyped control cannot pass as green. |
-| `bash scripts/guard-osionos.sh --self-test` (throwaway dirty repo) | 0 | 0 | PASS — 14/14 expectations |
+| `bash scripts/guard-osionos.sh --self-test` (throwaway dirty repo with a submodule) | 0 | 0 | PASS — 31/31 expectations |
+| `node scripts/opencode-deny-test.mjs` | 0 | 0 | PASS — 67/67: 48 denied, 13 allowed, 5 known bypasses still allowed, as declared |
+| `graph-cli codegen --check` | 0 | 0 | PASS — both committed files up to date |
+| `CARGO=false graph-cli hashgate --seeds 2` | 2 | 2 | PASS — `building graph-wasm for wasm32 failed: exit status: 1` |
+| `graph-cli hashgate --seeds 100001` | 2 | 2 | PASS — refused by the seed cap (cli test) |
 | `bash scripts/guard-osionos.sh --check` against the committed baseline | 1 | 1 | PASS — refuses: `baseline … was never captured` |
 | `npm ci && npm run check` inside ge-rust (ge-check equivalent, Node 22.23.3) | 0 | 0 | PASS — 27/27 tests, typecheck and lint clean |
 | `cargo mutants` over the whole workspace (ge-mutants, cargo-mutants 27.1.0) | — | — | 390 mutants: 382 caught, 6 unviable, 2 missed. Both are now resolved: one is killed by a new assertion (a re-run of the 19 mutants in that area: 18 caught, 1 unviable), the other excluded as equivalent. See §5. |
+| `cargo mutants --in-diff` over the review fix-up | — | — | 65 mutants: 50 caught, 14 unviable, 1 missed. The miss, `StageCount::get → 1`, is equivalent by construction and is excluded with its reason. |
 
 **Image size** (read from `docker images`): `ge-rust:latest 1.62GB`.
 
@@ -90,11 +103,13 @@ Beyond the listed gate:
 
 | stage | seeds | native run 1 | native run 2 | wasm32 run 1 | wasm32 run 2 | equal |
 |---|---:|---|---|---|---|---:|
-| `synthetic` | 100 | `bcc53f40…10c43f5` | `bcc53f40…10c43f5` | `bcc53f40…10c43f5` | `bcc53f40…10c43f5` | 100/100 |
-| `synthetic`, mutated native (`=9`) | 8 | `8f2466ae…29eb00` | `8f2466ae…29eb00` | `7b31a1eb…a7f01e` | `7b31a1eb…a7f01e` | 0/8 |
+| `synthetic` | 100 | `0933f40d…2d4176ec` | `0933f40d…2d4176ec` | `0933f40d…2d4176ec` | `0933f40d…2d4176ec` | 100/100 |
+| `synthetic`, mutated native (`=9`) | 8 | `b43b0b3f…b5c17cf3` | `b43b0b3f…b5c17cf3` | `24dcbb02…40ed4b43` | `24dcbb02…40ed4b43` | 0/8 |
 
 The digest is the SHA-256 of the per-seed lines; each line is itself the SHA-256 of one snapshot. The
-wasm32 artifact is `graph_wasm.wasm`, sha256 `def57716031146b8f352c5820f8878f79f84d9ab81f21fd5baf06c883a8ddd04`.
+wasm32 artifact is `graph_wasm.wasm` (the shipped build, without the `probe` feature), sha256
+`c1d1053772dd59c1b02043d56428d5c256961d691093b61f1c1ceb858b46bbcd`. The digests changed with the
+review fix-up because the synthetic header now says `Circle` (§9).
 The native arm hashes with the `sha2` crate and the wasm arm with Node's `crypto`: two independent
 implementations.
 
@@ -114,9 +129,12 @@ implementations.
 |---|---|
 | `geometry::{NodeGeometryKind,EdgeGeometryKind}::{tag,from_tag}` | `every_node_kind_round_trips_through_its_tag`, `every_edge_kind_round_trips_through_its_tag`, `reserved_edge_tags_are_refused_as_reserved_not_unknown` |
 | `TagError`, `ReadError`, `NonFinite` Display | `every_refusal_message_names_the_value_it_refused` |
+| `StageCount::{ONE,get,try_from}`, `From<StageCount> for u32` | `a_stage_count_can_only_be_one`, `header_is_exactly_…`, `reader_refuses_reserved_fields_and_short_input` |
 | `SnapshotHeader::{encode,decode}`, `check_reserved`, `le_u32` | `header_is_exactly_header_len_bytes_and_round_trips`, `reader_refuses_a_major_above_the_one_it_knows`, `reader_accepts_a_newer_minor`, `reader_refuses_reserved_fields_and_short_input` |
 | `push_f32_column` | `column_writer_refuses_nan_and_infinity_and_writes_nothing`, `column_writer_emits_little_endian_bytes` |
-| `codegen::{json_schema,typescript,declaration,ts_type,doc_comment}` | `schema_pins_every_wire_integer_to_uint32`, `schema_never_lists_a_reserved_kind_as_producible`, `typescript_is_declarations_only`, `ts_type_maps_every_json_schema_type_it_knows` |
+| `codegen::{json_schema,typescript,declaration,ts_type,doc_comment}` | `schema_pins_every_wire_integer_to_uint32` (now also pins `stage_count` to exactly 1), `schema_never_lists_a_reserved_kind_as_producible`, `typescript_is_declarations_only`, `ts_type_maps_every_json_schema_type_it_knows` |
+| `codegen::{outputs,GENERATED_DIR}` | `the_committed_files_are_what_codegen_generates` |
+| graph-cli `codegen::{run,sync}` | `check_counts_stale_files_and_a_write_makes_them_current`, cli `codegen_check_finds_the_committed_files_current` |
 | `graph_core::synthetic_snapshot` | `synthetic_snapshot_is_deterministic_and_sized_by_seed`, `reference_degree_reaches_the_hashed_bytes`, cli `hashgate_*` |
 | `degree_weight` | `degree_weight_matches_the_h3_endpoints` |
 | `mix_seed` | `mix_seed_is_splitmix64` (Vigna's published vector for state 0, plus an independent Python value for seed 1) |
@@ -127,25 +145,29 @@ implementations.
 | `probe::evaluate` | `evaluate_maps_each_index_to_its_named_function` |
 | `probe::probe_bytes` | `probe_bytes_frames_every_function_and_record` |
 | `exports::{publish,gm_synthetic,gm_probe}` (wasm32 only) | cli `hashgate_passes_and_its_negative_control_goes_red`, `determinism_probe_writes_…` (through Node) |
-| `hashgate::{diverged,well_formed}` | `agreeing_arms_have_no_divergence`, `one_arm_differing_on_one_seed_names_that_seed`, `vacuous_comparisons_are_refused` |
+| `hashgate::{diverged,well_formed,digest}` | `agreeing_arms_have_no_divergence`, `one_arm_differing_on_one_seed_names_that_seed`, `vacuous_comparisons_are_refused`, `seeds_that_all_hash_alike_are_refused_as_one_input` |
 | `hashgate::{parse_reference_degree,reference_degree}` | `the_mutation_variable_parses_strictly`, cli (`=9` → 1, `=nine` → 2) |
 | `hashgate::report` | `report_exit_code_is_pass_fail_or_could_not_run`, cli |
 | `hashgate::{run,arm,collect_arms}` | cli `hashgate_passes_and_its_negative_control_goes_red`, `hashgate_arm_prints_one_line_per_seed` |
 | `runner::{sha256_hex,file_sha256,workspace_root,run_lines}` | `sha256_matches_the_fips_180_2_vector`, `workspace_root_holds_the_harness_and_file_sha256_hashes_its_bytes`, `run_lines_returns_stdout_lines_and_refuses_a_failing_command` |
-| `runner::{build_wasm,node_harness}` | cli (every wasm arm) |
+| `runner::{run_lines_within,run_status,wait_within,drain,joined}` | `a_child_past_its_time_limit_is_killed_and_reported`, `a_large_output_does_not_stall_the_child`, `run_lines_returns_…` |
+| `runner::{build_wasm,node_harness}` | cli (every wasm arm), `a_failed_wasm_build_is_could_not_run_and_seed_counts_are_capped` |
 | `determinism_probe::{parse,u32_at,compare,ulps,decode_hex}` | `parse_reads_two_functions_and_refuses_truncation`, `compare_counts_each_kind_of_split_separately`, `compare_refuses_inputs_that_differ_between_targets`, `ulps_counts_across_zero_and_between_neighbours`, `hex_round_trips_and_rejects_garbage`, `native_buffer_parses_back_into_every_function` |
 | `determinism_probe::{run,measure,write,tool_version}` | cli `determinism_probe_writes_a_measurement_with_libm_agreeing_across_targets` |
 | `probe_report::{render,conclusion}` | `render_fills_every_placeholder_and_one_row_per_function`, `conclusion_follows_the_two_split_counts` |
-| `capabilities::{problems,run}`, `Status` | `an_honest_gated_row_passes`, `gated_without_hash_equality_or_oracle_diff_is_refused`, `empty_required_fields_and_zero_ceiling_are_refused`, `duplicate_ids_are_refused`, `status_serialises_to_the_four_ledger_words`, cli `capabilities_needs_a_flag_…` |
+| `capabilities::{problems,run}`, `Status` | `an_implemented_row_with_every_field_passes`, `a_gated_row_is_refused_however_good_its_hand_typed_evidence_looks`, `empty_required_fields_and_zero_ceiling_are_refused`, `duplicate_ids_are_refused`, `status_serialises_to_the_four_ledger_words`, cli `capabilities_needs_a_flag_…` |
 | `capabilities::registry` | `the_phase_0_registry_is_empty_and_serialises_to_an_empty_array` |
 | `harness/wasm-run.mjs` | cli (both modes) |
-| `scripts/guard-osionos.sh` | `--self-test`, 14 expectations |
+| `scripts/guard-osionos.sh` | `--self-test`, 31 expectations |
+| `opencode.json` | `scripts/opencode-deny-test.mjs`, 67 cases |
 
 **Mutation exceptions**, each with its reason in `.cargo/mutants.toml`:
 
 - `exports::publish`: wasm32-only, so it is never compiled for the native test run; the wasm arm covers it.
 - `registry → vec![]`: equivalent in Phase 0.
-- `build_wasm`'s `s.success()` guard forced to `true`: equivalent on a working toolchain.
+- ~~`build_wasm`'s `s.success()` guard forced to `true`~~. **Removed.** The review showed the
+  exclusion was wrong: a test *can* make cargo fail (`CARGO=false`), and that test now kills the mutant.
+- `StageCount::get → 1`: equivalent, because `ONE` is the only value that can exist.
 - `from_bits` `|`→`^`: equivalent, because the bits are disjoint.
 
 ## 6. Ponytail markers added
@@ -154,6 +176,8 @@ implementations.
 |---|---|---|---|
 | `graph_wasm::probe` (the D1 sampler) | an input where `std` and `libm` round differently that the sweep never visits | **under-reports** divergence (the dangerous direction) | raise `RANDOM_PER_FUNCTION`, or add the input to `SPECIALS`; D1 stands regardless |
 | `scripts/guard-osionos.sh` | a write to a path osionos's `.gitignore` excludes (`node_modules/`, `build/`, `.env`) | **under-reports** (the write passes the guard) | `--include-ignored` (slow, so not the default) |
+| `scripts/guard-osionos.sh` | a bare `touch`, a `chown`, a mode change on a non-empty directory, a `*.lock` file | **under-reports** | none; declared in the script header |
+| `scripts/opencode-deny-test.mjs` / `opencode.json` | the `BYPASSES` list: quoted verbs, variables, split strings, pre-existing aliases, `xargs` | **under-reports** (the command runs) | the guard is the enforcement; the deny-list is a speed bump |
 
 As the phase requires, there is no marker on the NaN/∞ refusal in `push_f32_column`: it is exact.
 
@@ -164,7 +188,9 @@ As the phase requires, there is no marker on the NaN/∞ refusal in `push_f32_co
   - The Phase 0 envelope forbids changing that `Dockerfile`, and turning TLS verification off is not acceptable.
   - The same `npm ci && npm run check` passed inside ge-rust with the CA mounted (27/27). That is evidence about the TypeScript gate, **not** about the ge-check image.
 - **UNKNOWN — every osionos guard row against the real tree.** `/home/dlesieur/Documents/osionos` does not exist in this container, and `scripts/osionos-baseline.txt` is still the `# UNCAPTURED` placeholder. The guard's logic is proven only on a throwaway dirty repo by `--self-test`, which includes the append-a-byte-to-an-already-dirty-file case that `git status --porcelain` cannot see: 90 while the byte is present, 0 after the revert. It has **not** been run against osionos.
-- **SKIP — `devil` / `reviewer` agents from `.claude`.** The rules repo is read-only here and its agents are not installed in this session. The review was done in this session instead, which is not the independent pass the rules intend.
+- **Review.** The `reviewer` agent definition from the rules repo was then run as a separate agent
+  over the Phase 0 diff. Its verdict was **CHANGES REQUESTED**; §9 shows how each finding was handled.
+  **SKIP — `devil`.** It is not due until before Phase 6 (guardrail 7).
 
 ## 8. Stop-and-ask items
 
@@ -186,3 +212,48 @@ As the phase requires, there is no marker on the NaN/∞ refusal in `push_f32_co
    - **F6.** Phase 5's degradation list omits the reference's iteration, transpose and priority-budget
      steps.
    - **F7.** The document sizes quoted in the pasted summary are stale.
+
+## 9. Review fix-up
+
+The reviewer's verdict was **CHANGES REQUESTED**. Each finding and what was done:
+
+| # | severity | finding | resolution | evidence |
+|---:|---|---|---|---|
+| 1 | BLOCKER | `guard-osionos.sh` misses writes under `.git/`: `switch -c`, `config`, hooks. | The fingerprint now covers the symbolic HEAD, every ref (`for-each-ref`), every file in the git dir outside the object store (by content and mode), the object store's names and sizes, and `.git/modules`. Submodules are covered the same way. | **RED:** the committed guard exited **0** on all 7 of `switch -c`, `branch`, `config`, a new hook, `chmod +x`, an empty `mkdir`, and a submodule `config`. **GREEN:** the self-test expects 90 on each and passes (31/31). |
+| 1b | BLOCKER, found while fixing 1 | A failure mid-fingerprint wrote a **truncated baseline and exited 0**. `snapshot_to` was called under `&&`, where bash turns errexit off for the whole call tree. | Fingerprinting now never runs under `&&`, `\|\|` or `if`. An `ERR` trap turns any failure into exit 1. `--check` reports through a variable instead of its exit status. | **RED:** with a failing `xargs`, the committed guard wrote a 4-entry baseline with zero file hashes and exited 0. **GREEN:** exit 1, and the self-test injects a failing `stat` into `--snapshot` and into `--check` (both 1). |
+| 2 | BLOCKER | The `opencode.json` deny-list is bypassable (`git -C <p> <verb>`, `git -c`, `--git-dir`), and the report wrongly said the gap was closed. | The matcher was read from opencode's source (see below). Each write verb is now denied as `*git* <verb>*`. `*` is `.*` there, so this covers `git -C p verb`, `git -c k=v verb`, `env git verb`, `/usr/bin/git verb` and `bash -c 'git verb'`. `*git* -c *`, `--git-dir` and `--work-tree` are denied too. §1's claim is corrected. | **RED:** the old list failed 36 of the 67 cases. **GREEN:** `opencode-deny-test.mjs` passes 67/67, and its 5 known bypasses are asserted to still get through. |
+| 3 | MAJOR | `build_wasm` guessed where cargo wrote the artifact, so it could hash a stale one. | `--target-dir` is now passed to cargo, and the returned path is that same directory. | cli tests plus hashgate rows 9–10 |
+| 4 | MAJOR | The `s.success()` mutation exclusion was wrong. | The exclusion is removed. A new test runs with `CARGO=false` and expects exit 2 and the message `building graph-wasm for wasm32 failed`. | gate row: exit 2. The mutant is caught (`delete ! in build_wasm`). |
+| 5 | MAJOR | Codegen output was neither committed nor diffable. | Added `graph-cli codegen [--check]`, plus `crates/graph-contract/generated/snapshot-header.{schema.json,d.ts}` (committed), plus a graph-contract test that fails when a committed file is stale. | `codegen --check` exits 0; `the_committed_files_are_what_codegen_generates` |
+| 6 | MAJOR | The capability fields `hash_4way` and `oracle_diff` are typed by hand. | `--check` now refuses **every** `gated` row until the ledger reads recorded gate results. Phase 1, which registers the first rows, has to build that reader before any row can say `gated`. | `a_gated_row_is_refused_however_good_its_hand_typed_evidence_looks` |
+| 7 | MAJOR | The osionos baseline was never captured. | **Open.** osionos is not in this container. This is a host task, and it stays in §8 item 2. | §7 UNKNOWN |
+| 8 | MINOR | The guard mishandles tab and newline file names, `chmod`, and empty directories, and `awk -v` processes escapes. | Paths are `%q`-quoted in the records. Files carry their mode. Untracked directories are recorded. The client-owned regex is read via `ENVIRON`. | self-test cases for a tab name, a newline name, `chmod`, and `mkdir` |
+| 9 | MINOR | The synthetic header said `Point` but wrote 3 columns, and `stage_count` could be set to a value the reader refuses. | The header now says `Circle` (x, y, r). `stage_count` is a `StageCount` that can only be `ONE`, the schema pins it to minimum 1 and maximum 1, and serde refuses any other value. | `a_stage_count_can_only_be_one`; new digests in §4 |
+| 10 | MINOR | The hashgate passes if every seed hashes to the same value. | When seeds > 1, it refuses if every seed has one digest. | `seeds_that_all_hash_alike_are_refused_as_one_input` |
+| 11 | MINOR | There is no cap on `--seeds` and no timeout on child processes. | `--seeds` is capped at 0..=100000 (clap, so exit 2). Every child is killed after 900 s. Its pipes are drained on threads, so a large output cannot deadlock. | `a_child_past_its_time_limit_…`, `a_large_output_…`, cli seed-cap test |
+| 12 | MINOR | The shipped wasm exports `gm_probe`. | `gm_probe` is now behind the `probe` feature. Only `determinism-probe` builds with it, and the harness refuses to probe without it. | determinism-probe gate row; the hashgate artifact sha changed |
+| 13 | MINOR | The D1 doc points at `lib.rs` for the probe source. | It now points at `crates/graph-wasm/src/probe.rs`, and the doc was regenerated. | `docs/measurements/d1-ln1p.md` diff |
+| 14 | MINOR | graph-core → graph-contract was not listed as a deviation. | Now listed in §1. | §1 |
+
+**How opencode matches, from its source.** Fetched on 2026-09-27 from `sst/opencode` branch `dev`:
+- `packages/core/src/util/wildcard.ts` `match`: `*` → `.*`, anchored, with the `s` flag, and a trailing ` *` is optional.
+- `packages/opencode/src/permission/index.ts` `evaluate`: rules in config order, and the last match wins.
+- `packages/opencode/src/tool/shell.ts`: tree-sitter-bash checks every `command` node separately.
+
+A newer opencode may match differently: re-fetch and re-run the test after an upgrade.
+
+**Known bypasses, still allowed and asserted as such:**
+- `git "commit"` (a quoted verb);
+- `$g commit` (the command name in a variable);
+- `sh -c "gi""t commit"` (the name split inside a string);
+- `git co` (a pre-existing alias in `~/.gitconfig`);
+- `xargs … git`.
+
+The deny-list is a speed bump. `guard-osionos.sh -- <cmd>` is the enforcement, because it does not
+care how a write was spelled.
+
+**Gate re-run after the fix-up.**
+- Rows 1–12 all PASS.
+- Rows 13–14 are still UNKNOWN (§7).
+- The extra rows are listed in §3.
+- `cargo fmt --check`, `clippy --all-targets --all-features -D warnings` and `test --all-features --release` all pass.

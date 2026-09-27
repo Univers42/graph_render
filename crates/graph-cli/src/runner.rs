@@ -2,8 +2,14 @@
 //! what they produce. Shared by the hash gate and the determinism probe.
 
 use sha2::{Digest, Sha256};
+use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Child, Command, ExitStatus, Stdio};
+use std::time::{Duration, Instant};
+
+/// How long any one child (cargo, node, a gate arm) may run before it is killed. A hung
+/// child is a gate that could not run (exit 2), never one that waits forever.
+pub const CHILD_TIMEOUT: Duration = Duration::from_secs(900);
 
 pub fn sha256_hex(bytes: &[u8]) -> String {
     Sha256::digest(bytes)
@@ -22,27 +28,28 @@ pub fn workspace_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..")
 }
 
-/// Builds `graph_wasm.wasm` in release mode and returns its path.
-pub fn build_wasm() -> Result<PathBuf, String> {
+/// Builds `graph_wasm.wasm` in release mode with `features` and returns its path.
+///
+/// The target directory is passed to cargo, not guessed after the fact: the path this
+/// returns is the one cargo just wrote, so a stale artifact elsewhere cannot be hashed.
+pub fn build_wasm(features: &[&str]) -> Result<PathBuf, String> {
     let root = workspace_root();
-    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
-    let args = [
-        "build",
-        "--quiet",
-        "--release",
-        "-p",
-        "graph-wasm",
-        "--target",
-        "wasm32-unknown-unknown",
-    ];
-    let status = Command::new(cargo).current_dir(&root).args(args).status();
-    match status {
-        Ok(s) if s.success() => {}
-        Ok(s) => return Err(format!("building graph-wasm for wasm32 failed: {s}")),
-        Err(e) => return Err(format!("running cargo: {e}")),
-    }
     let target =
         std::env::var_os("CARGO_TARGET_DIR").map_or_else(|| root.join("target"), PathBuf::from);
+    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+    let mut command = Command::new(cargo);
+    command
+        .current_dir(&root)
+        .args(["build", "--quiet", "--release"]);
+    command.args(["-p", "graph-wasm", "--target", "wasm32-unknown-unknown"]);
+    command.arg("--target-dir").arg(&target);
+    if !features.is_empty() {
+        command.args(["--features", &features.join(",")]);
+    }
+    let status = run_status(&mut command, CHILD_TIMEOUT)?;
+    if !status.success() {
+        return Err(format!("building graph-wasm for wasm32 failed: {status}"));
+    }
     Ok(target
         .join("wasm32-unknown-unknown")
         .join("release")
@@ -60,19 +67,74 @@ pub fn node_harness(wasm: &Path) -> Command {
 
 /// Runs `command` to completion and returns its stdout lines, or why it failed.
 pub fn run_lines(command: &mut Command) -> Result<Vec<String>, String> {
-    let output = command
-        .output()
+    run_lines_within(command, CHILD_TIMEOUT)
+}
+
+/// [`run_lines`] with an explicit time limit; a child still running at `limit` is killed.
+pub fn run_lines_within(command: &mut Command, limit: Duration) -> Result<Vec<String>, String> {
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = command
+        .spawn()
         .map_err(|e| format!("spawning {command:?}: {e}"))?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!(
-            "{command:?} exited {}: {}",
-            output.status,
-            stderr.trim()
-        ));
+    let stdout = drain(child.stdout.take());
+    let stderr = drain(child.stderr.take());
+    let status = wait_within(&mut child, limit).map_err(|e| format!("{command:?}: {e}"))?;
+    let (stdout, stderr) = (joined(stdout)?, joined(stderr)?);
+    if !status.success() {
+        let stderr = String::from_utf8_lossy(&stderr);
+        return Err(format!("{command:?} exited {status}: {}", stderr.trim()));
     }
-    let stdout = String::from_utf8(output.stdout).map_err(|e| format!("non-UTF-8 output: {e}"))?;
+    let stdout = String::from_utf8(stdout).map_err(|e| format!("non-UTF-8 output: {e}"))?;
     Ok(stdout.lines().map(str::to_owned).collect())
+}
+
+/// Runs `command` with inherited output and returns its exit status, within `limit`.
+fn run_status(command: &mut Command, limit: Duration) -> Result<ExitStatus, String> {
+    let mut child = command
+        .spawn()
+        .map_err(|e| format!("spawning {command:?}: {e}"))?;
+    wait_within(&mut child, limit).map_err(|e| format!("{command:?}: {e}"))
+}
+
+/// Waits for `child`, killing it once `limit` has passed.
+fn wait_within(child: &mut Child, limit: Duration) -> Result<ExitStatus, String> {
+    let deadline = Instant::now() + limit;
+    loop {
+        if let Some(status) = child.try_wait().map_err(|e| format!("waiting: {e}"))? {
+            return Ok(status);
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!(
+                "killed after {}ms without exiting",
+                limit.as_millis()
+            ));
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+type Drain = Option<std::thread::JoinHandle<std::io::Result<Vec<u8>>>>;
+
+/// Reads a child's pipe to the end on its own thread, so a full pipe cannot stall the child.
+fn drain(pipe: Option<impl Read + Send + 'static>) -> Drain {
+    pipe.map(|mut pipe| {
+        std::thread::spawn(move || {
+            let mut bytes = Vec::new();
+            pipe.read_to_end(&mut bytes).map(|_| bytes)
+        })
+    })
+}
+
+fn joined(drain: Drain) -> Result<Vec<u8>, String> {
+    match drain {
+        None => Ok(Vec::new()),
+        Some(handle) => handle
+            .join()
+            .map_err(|_| "a pipe reader panicked".to_owned())?
+            .map_err(|e| format!("reading a child's output: {e}")),
+    }
 }
 
 #[cfg(test)]
@@ -94,6 +156,30 @@ mod tests {
         failing.args(["-c", "echo why >&2; exit 3"]);
         let err = run_lines(&mut failing).expect_err("exit 3 is a failure");
         assert!(err.contains("why"), "{err}");
+    }
+
+    #[test]
+    fn a_child_past_its_time_limit_is_killed_and_reported() {
+        let mut slow = Command::new("sh");
+        slow.args(["-c", "sleep 5"]);
+        let started = Instant::now();
+        let err = run_lines_within(&mut slow, Duration::from_millis(200)).expect_err("killed");
+        assert!(err.contains("killed after 200ms"), "{err}");
+        assert!(started.elapsed() < Duration::from_secs(4));
+        let mut quick = Command::new("sh");
+        quick.args(["-c", "exit 0"]);
+        assert_eq!(
+            run_lines_within(&mut quick, Duration::from_secs(60)),
+            Ok(vec![])
+        );
+    }
+
+    #[test]
+    fn a_large_output_does_not_stall_the_child() {
+        let mut loud = Command::new("sh");
+        loud.args(["-c", "yes gm | head -n 200000"]);
+        let lines = run_lines_within(&mut loud, Duration::from_secs(60)).expect("runs");
+        assert_eq!(lines.len(), 200_000);
     }
 
     #[test]

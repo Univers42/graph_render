@@ -57,11 +57,49 @@ pub struct SnapshotHeader {
     /// Shape of every edge in the snapshot.
     pub edge_kind: EdgeGeometryKind,
     /// Named geometries carried for one topology. Reserved: exactly `1` until implemented.
-    pub stage_count: u32,
+    #[cfg_attr(feature = "codegen", schemars(with = "u32", range(min = 1, max = 1)))]
+    pub stage_count: StageCount,
     /// Number of nodes, and the length of every node column.
     pub node_count: u32,
     /// Number of edges.
     pub edge_count: u32,
+}
+
+/// The header's stage count. Reserved: [`StageCount::ONE`] is the only value that can be
+/// built, so no writer can emit a header its own reader would refuse.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(
+    feature = "codegen",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(try_from = "u32", into = "u32")
+)]
+pub struct StageCount(u32);
+
+impl StageCount {
+    /// One stage: the only count implemented.
+    pub const ONE: Self = Self(1);
+
+    /// The count as it goes on the wire.
+    pub const fn get(self) -> u32 {
+        self.0
+    }
+}
+
+impl TryFrom<u32> for StageCount {
+    type Error = ReadError;
+
+    fn try_from(count: u32) -> Result<Self, ReadError> {
+        match count {
+            1 => Ok(Self::ONE),
+            other => Err(ReadError::ReservedStageCount(other)),
+        }
+    }
+}
+
+impl From<StageCount> for u32 {
+    fn from(count: StageCount) -> Self {
+        count.0
+    }
 }
 
 /// Why a snapshot header was refused.
@@ -131,7 +169,7 @@ impl SnapshotHeader {
         out.extend_from_slice(&self.version.major.to_le_bytes());
         out.extend_from_slice(&self.version.minor.to_le_bytes());
         out.extend_from_slice(&[self.node_kind.tag(), self.edge_kind.tag(), 0, 0]);
-        out.extend_from_slice(&self.stage_count.to_le_bytes());
+        out.extend_from_slice(&self.stage_count.get().to_le_bytes());
         out.extend_from_slice(&self.node_count.to_le_bytes());
         out.extend_from_slice(&self.edge_count.to_le_bytes());
     }
@@ -157,27 +195,24 @@ impl SnapshotHeader {
                 known: CURRENT_VERSION.major,
             });
         }
-        check_reserved(head[14], head[15], le_u32(head, 16))?;
+        check_reserved(head[14], head[15])?;
         Ok(Self {
             version,
             node_kind: NodeGeometryKind::from_tag(head[12]).map_err(ReadError::Geometry)?,
             edge_kind: EdgeGeometryKind::from_tag(head[13]).map_err(ReadError::Geometry)?,
-            stage_count: le_u32(head, 16),
+            stage_count: StageCount::try_from(le_u32(head, 16))?,
             node_count: le_u32(head, 20),
             edge_count: le_u32(head, 24),
         })
     }
 }
 
-fn check_reserved(z_channel: u8, padding: u8, stage_count: u32) -> Result<(), ReadError> {
+fn check_reserved(z_channel: u8, padding: u8) -> Result<(), ReadError> {
     if z_channel != 0 {
         return Err(ReadError::ReservedZChannel(z_channel));
     }
     if padding != 0 {
         return Err(ReadError::NonZeroPadding(padding));
-    }
-    if stage_count != 1 {
-        return Err(ReadError::ReservedStageCount(stage_count));
     }
     Ok(())
 }

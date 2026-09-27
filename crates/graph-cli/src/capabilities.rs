@@ -4,6 +4,10 @@
 //! `scale_ceiling`, `degradation` and `ponytail` are plain non-optional fields: a row
 //! cannot be written without them, so no later phase can register a capability that
 //! skips them. `--check` then refuses any row that claims more than its evidence.
+//!
+//! `hash_4way` and `oracle_diff` are typed by hand, so `--check` refuses every `gated`
+//! row outright: a gate result nobody re-ran against the current tree is not evidence.
+//! The status becomes reachable when the ledger reads recorded gate results instead.
 
 use serde::Serialize;
 use std::collections::BTreeSet;
@@ -27,6 +31,7 @@ pub enum Status {
     /// Computes the real thing; its gate evidence is not (yet) complete.
     Implemented,
     /// Its 4-way hash and its oracle differential both passed in the current tree.
+    /// Refused by [`problems`] until the ledger reads recorded gate evidence.
     Gated,
 }
 
@@ -85,11 +90,9 @@ pub fn problems(rows: &[Capability]) -> Vec<String> {
         if row.scale_ceiling == 0 {
             found.push(format!("{}: scale_ceiling is 0", row.id));
         }
-        if row.status == Status::Gated
-            && (row.hash_4way != "equal" || row.oracle_diff.trim().is_empty())
-        {
+        if row.status == Status::Gated {
             found.push(format!(
-                "{}: gated without a passing 4-way hash and oracle diff",
+                "{}: gated on hand-typed hash_4way/oracle_diff; no recorded gate result backs it",
                 row.id
             ));
         }
@@ -152,18 +155,15 @@ mod tests {
     }
 
     #[test]
-    fn an_honest_gated_row_passes() {
-        assert!(problems(&[row(Status::Gated)]).is_empty());
+    fn an_implemented_row_with_every_field_passes() {
+        assert!(problems(&[row(Status::Implemented)]).is_empty());
     }
 
     #[test]
-    fn gated_without_hash_equality_or_oracle_diff_is_refused() {
-        let mut unhashed = row(Status::Gated);
-        unhashed.hash_4way = "diverged";
-        let mut undiffed = row(Status::Gated);
-        undiffed.oracle_diff = "";
-        assert_eq!(problems(&[unhashed]).len(), 1);
-        assert_eq!(problems(&[undiffed]).len(), 1);
+    fn a_gated_row_is_refused_however_good_its_hand_typed_evidence_looks() {
+        let found = problems(&[row(Status::Gated)]);
+        assert_eq!(found.len(), 1);
+        assert!(found[0].contains("no recorded gate result"), "{found:?}");
     }
 
     #[test]
