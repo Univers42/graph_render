@@ -1,0 +1,51 @@
+{
+  "name": "@osionos/graph-engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Self-contained force-graph engine (Canvas2D + Web Worker d3-force) with an aurora-glass visual language and a thin React adapter. Decoupled from any host app: feed it a GraphModel, it renders. Theme resolves --osio-* CSS custom properties at runtime — see README's Limitations section for what that means standalone.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./styles/graph.css": "./src/styles/graph.css"
+  },
+  "sideEffects": [
+    "*.css"
+  ],
+  "peerDependencies": {
+    "d3-force": "^3.0.0",
+    "motion": "^12.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "peerDependenciesMeta": {
+    "motion": {
+      "optional": true
+    }
+  },
+  "//engines": "Node >=22.6 is REQUIRED, not advisory: the test script uses --experimental-strip-types, and `node --test` on Node 20 dies with `node: bad option: --experimental-strip-types`. Matches the host repo, which pins 22.x. Run the gate in Docker (see Dockerfile) so you never depend on the host's Node.",
+  "engines": {
+    "node": ">=22.6"
+  },
+  "//devDependencies": "Peers are duplicated here on purpose: npm install does not install peer deps, so without these the standalone typecheck cannot resolve them and the check fails on a package that is actually fine. Versions are the ones osionos's own pnpm-lock.yaml resolved, not guessed — and the eslint toolchain is PINNED EXACT rather than caret-ranged, because a range silently pulled eslint-plugin-react-hooks 7.1.1, whose new `react-hooks/refs` rule fails on src/react/useGraphEngine.ts:35 under a rule the host's locked 7.0.1 does not have. Same class of drift as a stale lockfile; pin it. vite is deliberately ABSENT: the package ships no build and no dev server, and a bundler is the consumer's choice.",
+  "devDependencies": {
+    "@eslint/js": "9.39.4",
+    "@types/d3-force": "3.0.10",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.4",
+    "d3-force": "3.0.0",
+    "eslint": "9.39.4",
+    "eslint-plugin-react": "7.37.5",
+    "eslint-plugin-react-hooks": "7.0.1",
+    "react": "19.2.5",
+    "react-dom": "19.2.5",
+    "typescript": "~5.7.3",
+    "typescript-eslint": "8.58.1"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test --experimental-strip-types --experimental-loader ./tests/ts-extension-loader.mjs tests/*.test.ts",
+    "lint": "eslint src --max-warnings=0",
+    "check": "npm run typecheck && npm run lint && npm test"
+  }
+}
