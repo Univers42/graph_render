@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-palette="warm">
+  <head>
+    <meta charset="utf-8" />
+    <title>graph-engine visual parity</title>
+    <script>
+      /*
+        Palette selection is a URL parameter so the sweep can render each
+        theme/palette combination from a cold load rather than mutating the
+        document under a live engine. Cold loading matters: switching
+        data-palette in place would require the engine to re-resolve its tokens
+        mid-flight, which is a different code path from the one a host exercises
+        on first paint.
+      */
+      (function () {
+        var q = new URLSearchParams(location.search);
+        var t = q.get("theme");
+        var p = q.get("palette");
+        if (t) document.documentElement.dataset.theme = t;
+        if (p) document.documentElement.dataset.palette = p;
+      })();
+    </script>
+    <!--
+      The host's real `--osio-*` token values, extracted verbatim by
+      extract-tokens.mjs. This is the environment the app renders in, and the one
+      the engine reads at runtime via getComputedStyle. Loading it for all three
+      panels is what makes the diff a test of the engine rather than of CSS.
+
+      Injected rather than linked, and that is load-bearing. A <link> to this file
+      was tried first and failed twice over: the file lives outside Vite's served
+      root, so the dev server answered with its index.html SPA fallback — HTTP
+      200, content-type text/html — and a 200 is invisible to both a console-error
+      listener and a requestfailed listener. Every one of those runs compared two
+      renders using the engine's hardcoded fallback colours, because
+      getPropertyValue returned "" for all 27 tokens. Serving it from inside the
+      root fixed the 404 but not the next problem: Vite then served it with
+      content-type text/javascript, which a stylesheet link cannot consume.
+      The driver now injects the CSS text directly, and the rig asserts that the
+      tokens actually resolve, so neither failure can pass again.
+    -->
+    <script>
+      (function () {
+        var css = window.__TOKENS_CSS__;
+        if (typeof css !== "string" || css.length === 0) {
+          document.title = "PARITY RIG: token CSS missing";
+          return;
+        }
+        var el = document.createElement("style");
+        el.setAttribute("data-parity-tokens", "1");
+        el.textContent = css;
+        document.head.appendChild(el);
+      })();
+    </script>
+    <style>
+      /*
+        Fixed geometry so the three canvases are directly comparable.
+
+        The explicit absolute positioning is load-bearing, not decoration. Without
+        it this harness hits a canvas-sizing feedback loop: `.osio-graph` is
+        `height: 100%` in the package's own graph.css, but the harness does not
+        load graph.css (the canvas is driven entirely by JS + tokens, so the
+        stylesheet is irrelevant to what is being compared). With no height
+        constraint the div is auto-height, the canvas's own height attribute then
+        drives that height, the ResizeObserver reports it back, and the canvas
+        grows every frame — it reached 663,544 px tall during development, which
+        made "identical" trivially true because 99.9% of the compared area was
+        empty. Pinning the box to the cell removes the loop and makes the
+        comparison cover the graph that is actually drawn.
+      */
+      html, body { margin: 0; padding: 0; background: #000; }
+      .row { display: flex; }
+      .cell { width: 600px; height: 620px; position: relative; overflow: hidden; }
+      .cell > .osio-graph { position: absolute; inset: 0; width: 100%; height: 100%; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./main.tsx"></script>
+  </body>
+</html>

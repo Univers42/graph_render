@@ -1,0 +1,29 @@
+# Visual-parity verification rig — NOT part of the published package.
+#
+# Based on the official Playwright image so Chromium is present. This is the
+# whole point: the parity check must run somewhere reproducible, and the VM has
+# no browser and cannot install one (no writable /opt, sudo needs a tty). The
+# upstream browser-tests image does the same thing but drags in osionos' full
+# pnpm install; this one carries only the two dev dependencies the rig needs.
+#
+# Built in two stages so the shipped dependency surface of the *package* stays
+# untouched: vite is installed here, in the rig, and never added to the package's
+# package.json ("a bundler is the consumer's choice").
+
+FROM mcr.microsoft.com/playwright:v1.49.1-noble
+
+WORKDIR /rig
+
+RUN npm init -y >/dev/null 2>&1 \
+  && npm install --no-audit --no-fund \
+    vite@5.4.11 \
+    @vitejs/plugin-react@4.3.4 \
+    @playwright/test@1.49.1
+
+ENV NODE_ENV=development
+ENV SELF=/work
+ENV HOST_APP=/osionos
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+
+# The repo (with its node_modules) and the host app are bind-mounted at runtime.
+EXPOSE 5555
