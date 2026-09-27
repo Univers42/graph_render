@@ -55,7 +55,7 @@ newly extracted primitives, a comment correction, and three stale CSS fallback v
 | `tests/ts-extension-loader.mjs` | new | ported (partial — §3) |
 | `README.md` | edited | Limitations + Standalone usage added; stale API block fixed |
 | `Dockerfile`, `.dockerignore`, `.gitignore`, `package-lock.json` | new | reproducible containerised gate |
-| `PARITY.md` | byte-for-byte | nothing |
+| `PARITY.md` | copied + 8-line provenance header | nothing removed — a note was **prepended** marking the file as host history, since the reviewer's NIT asked for labelling rather than deletion (§4.1 requires the copy) |
 
 ### Deviations from the runbook, and why
 
