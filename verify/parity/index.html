@@ -38,19 +38,6 @@
       The driver now injects the CSS text directly, and the rig asserts that the
       tokens actually resolve, so neither failure can pass again.
     -->
-    <script>
-      (function () {
-        var css = window.__TOKENS_CSS__;
-        if (typeof css !== "string" || css.length === 0) {
-          document.title = "PARITY RIG: token CSS missing";
-          return;
-        }
-        var el = document.createElement("style");
-        el.setAttribute("data-parity-tokens", "1");
-        el.textContent = css;
-        document.head.appendChild(el);
-      })();
-    </script>
     <style>
       /*
         Fixed geometry so the three canvases are directly comparable.

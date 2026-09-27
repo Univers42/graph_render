@@ -18,7 +18,15 @@
 import { chromium } from "@playwright/test";
 import { readFileSync } from "node:fs";
 
-const BASE = process.env.PARITY_URL ?? "http://127.0.0.1:5555/";
+/**
+ * Where the rig is served. Derived from PARITY_PORT so the check and the dev
+ * server cannot disagree: they used to be two independent literals (5555 in this
+ * file, 5555 in the vite config), which meant moving the rig to a firewall-allowed
+ * port would have left the check polling a dead port and reporting INCONCLUSIVE
+ * for the wrong reason.
+ */
+const PORT = Number(process.env.PARITY_PORT ?? 4322);
+const BASE = process.env.PARITY_URL ?? `http://127.0.0.1:${PORT}/`;
 const SHOT = process.env.PARITY_SHOT ?? "/work/verify/parity.png";
 const PAGE_W = Number(process.env.PARITY_W ?? 1820);
 const PAGE_H = Number(process.env.PARITY_H ?? 660);

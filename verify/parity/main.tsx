@@ -24,12 +24,58 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { ReactElement } from "react";
 
+// Both stylesheets are pulled in as strings via Vite's `?inline`, then injected.
+// Two reasons, both learned the hard way:
+//
+//   - `?inline` is the only reliable way to get CSS text here. A `<link>` to the
+//     generated token file was served with `content-type: text/javascript` (and,
+//     before that, from outside the dev root, answered with the index.html SPA
+//     fallback under an HTTP 200). Serving the text as a module sidesteps both.
+//   - Injecting means the page is self-sufficient: opening it in any browser
+//     renders the real host palette, with no test driver involved. The parity
+//     driver still injects its own copy, which is harmless and keeps the rig
+//     usable from a headless run.
+import tokensCss from "./tokens.host.css?inline";
+import graphCss from "../../src/styles/graph.css?inline";
+
 import { GraphView as HostView, useControls as useHostControls } from "@ge-host";
 import {
   GraphView as StandaloneView,
   useControls as useStandaloneControls,
   buildSyntheticModel,
 } from "@ge-standalone";
+
+for (const css of [tokensCss, graphCss]) {
+  const el = document.createElement("style");
+  el.textContent = css;
+  document.head.appendChild(el);
+}
+
+/**
+ * Replace the clock with one that advances once per frame and is shared by all
+ * three panels, and ask for reduced motion.
+ *
+ * Done here rather than only in the test driver so that simply OPENING this page
+ * is already deterministic — the demo then reports the same numbers as the headless
+ * run instead of drifting with animation phase.
+ *
+ * A constant clock would be wrong: it froze the reveal stagger at progress 0 and
+ * every node rendered transparent, which compared "identical" while being empty.
+ * A real wall clock is also wrong: the panels are built microseconds apart, so
+ * the edge-flow dashes land at different phases. Advancing per frame and being
+ * shared gives both a completed reveal and a common phase.
+ */
+{
+  const START = 1_700_000_000_000;
+  const STEP = 1000 / 60;
+  let frame = 0;
+  const tick = (): void => {
+    frame += 1;
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+  performance.now = (): number => START + frame * STEP;
+}
 
 /**
  * Both variants get the identical model object, so input is held constant.

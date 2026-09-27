@@ -39,7 +39,7 @@ SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HOST_APP="${HOST_APP:-/home/dlesieur/Documents/osionos}"
 IMAGE="${PARITY_IMAGE:-ge-parity-rig}"
 CONTAINER="${PARITY_CONTAINER:-ge-parity-rig}"
-PORT="${PARITY_PORT:-5555}"
+PORT="${PARITY_PORT:-4322}"
 
 GLOBAL_CSS="$HOST_APP/src/app/styles/global.css"
 IN_TREE="$HOST_APP/packages/graph-engine/src"
@@ -58,12 +58,11 @@ docker build -q -f "$SELF/verify/Dockerfile.rig" -t "$IMAGE" "$SELF" >/dev/null
 docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
 printf '[parity] starting rig on 127.0.0.1:%s\n' "$PORT"
 docker run -d --name "$CONTAINER" \
-  -p "127.0.0.1:${PORT}:5555" \
+  -p "127.0.0.1:${PORT}:${PORT}" \
   -v "$SELF:/work" \
   -v "$HOST_APP:/osionos:ro" \
-  -e SELF=/work -e HOST_APP=/osionos \
+  -e SELF=/work -e HOST_APP=/osionos -e PARITY_PORT="$PORT" \
   "$IMAGE" \
-  sh -c 'npx vite --config /work/verify/vite.verify.config.ts --host 0.0.0.0 --port 5555' \
   >/dev/null
 
 cleanup() {
@@ -85,7 +84,9 @@ printf '[parity] running check across 7 palettes x light/dark\n'
 # The script is copied into the rig so its imports resolve against the rig's own
 # node_modules rather than the package's (which has no bundler, by design).
 set +e
-docker exec "$CONTAINER" sh -c \
+# PARITY_PORT is passed through so the check polls the port the rig is actually
+# serving, not a second hardcoded default.
+docker exec -e PARITY_PORT="$PORT" "$CONTAINER" sh -c \
   'cp /work/verify/parity-check.mjs /rig/ && node /rig/parity-check.mjs'
 STATUS=$?
 set -e

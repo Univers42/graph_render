@@ -34,11 +34,19 @@
 const SELF = process.env.SELF ?? "/work";
 const HOST_APP = process.env.HOST_APP ?? "/home/dlesieur/Documents/osionos";
 const NM = `${SELF}/node_modules`;
+/**
+ * Dev-server port. 4322 by default rather than something arbitrary: it is the
+ * port this VM's firewall is configured to allow for the rig, and it was
+ * previously hardcoded as 5555 in three separate places (this file, the rig CMD,
+ * and run-parity.sh), which is exactly how a port drifts out of sync with the
+ * firewall. Override with PARITY_PORT.
+ */
+const PORT = Number(process.env.PARITY_PORT ?? 4322);
 
 export default {
   root: `${SELF}/verify/parity`,
   server: {
-    port: 5555,
+    port: PORT,
     strictPort: true,
     host: "0.0.0.0",
     // The rig reads the osionos checkout, which lives outside the served root.

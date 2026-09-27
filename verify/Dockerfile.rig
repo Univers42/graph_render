@@ -24,6 +24,12 @@ ENV NODE_ENV=development
 ENV SELF=/work
 ENV HOST_APP=/osionos
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+# Matches PARITY_PORT in vite.verify.config.ts and run-parity.sh. Keep the three in
+# step: the dev server uses strictPort, so a mismatch fails loudly rather than
+# silently moving to a different port. 4322 is the port this VM's firewall allows
+# for the rig.
+ENV PARITY_PORT=4322
 
 # The repo (with its node_modules) and the host app are bind-mounted at runtime.
-EXPOSE 5555
+EXPOSE 4322
+CMD ["sh", "-c", "npx vite --config /work/verify/vite.verify.config.ts --host 0.0.0.0 --port \"$PARITY_PORT\""]
