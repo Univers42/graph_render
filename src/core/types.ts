@@ -79,11 +79,22 @@ export interface GraphStats {
   notes: number;
 }
 
-/** Incremental change between two models. */
+/**
+ * Incremental change between two models.
+ *
+ * `updatedEdges` exists because an edge id is content-addressed over
+ * `endpoints:kind:label` only (`makeEdgeId`). Without a separate updated list, a
+ * same-id edge whose `strength` or `recordId` changed would appear in neither
+ * `addedEdges` nor `removedEdgeIds`, so `isEmptyPatch` would report "nothing
+ * happened" and a consumer would skip the work — silently dropping a real edit.
+ * `strength` is both the layout pull and the rendered thickness, and `recordId`
+ * is the row identity used for delete/demote, so this is not a cosmetic field.
+ */
 export interface GraphPatch {
   addedNodes: GraphNode[];
   updatedNodes: GraphNode[];
   removedNodeIds: NodeId[];
   addedEdges: GraphEdge[];
+  updatedEdges: GraphEdge[];
   removedEdgeIds: EdgeId[];
 }

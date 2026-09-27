@@ -35,7 +35,7 @@ export {
 export { applyDegreeWeights } from "./core/model/weights";
 // Wire-type -> internal-kind classifier + incremental diff
 export { edgeKindFromType } from "./core/model/edgeKind";
-export { diffGraph, isEmptyPatch } from "./core/model/diff";
+export { diffGraph, isEmptyPatch, edgesEqual } from "./core/model/diff";
 
 // Engine + control state
 export { GraphEngine, type GraphEngineOptions, type EngineCallbacks, type MinimapData } from "./core/engine";

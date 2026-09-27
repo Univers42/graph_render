@@ -41,9 +41,39 @@ import type { EdgeKind } from "../types";
 export function edgeKindFromType(type: string | undefined): EdgeKind {
   if (!type) return "relation";
   const lowered = type.toLowerCase();
-  if (lowered === "parent" || lowered === "parent_of" || lowered === "child_of" || lowered.includes("hierarchy")) return "hierarchy";
+
+  // Hierarchy: exact literals plus a "hierarchy" substring. "hierarchy" is an
+  // engine-generated marker, so the substring is safe here — no ordinary English
+  // word a user would name a field after contains it.
+  if (lowered === "parent" || lowered === "parent_of" || lowered === "child_of" || lowered.includes("hierarchy")) {
+    return "hierarchy";
+  }
+
+  // Note relations: engine-generated markers, so substring matching is safe.
   if (lowered.includes("note_link") || lowered === "links_to") return "note_link";
   if (lowered.includes("note_of") || lowered === "annotates") return "note_of";
-  if (lowered === "tagged" || lowered === "tag" || lowered.includes("tag")) return "tag";
+
+  // Tag: EXACT literals only. This is the one branch that must not substring-match.
+  //
+  // A previous version used `lowered.includes("tag")` here, on the reasoning that
+  // tag edges are named after their tag. That is wrong because the wire `type` is
+  // not a closed enum — the graph contract states it is "your explicit types, plus
+  // note_link, tagged, and <field-name> for references", and a relation property is
+  // free text chosen by whoever built the database. `includes("tag")` therefore
+  // claimed, among others:
+  //
+  //     vintage    heritage    advantage    montage    frontage    cottage    stage
+  //
+  // (he-ri-TAG-e, advanTAG-e, monTAG-e, fronTAG-e, cotTAG-e, sTAG-e) — all ordinary
+  // field names for a product catalogue, an estate, or a photography archive. Those
+  // edges would be painted with the tag colour, bucketed into the tag geometry
+  // tier, and matched by the tag filter predicate. A user would see miscoloured
+  // edges with no error anywhere.
+  //
+  // Only `tagged` and `tag` are contract literals, so only those are matched. A
+  // user-defined reference field lands on `relation`, which is the documented
+  // default and the visually neutral choice.
+  if (lowered === "tagged" || lowered === "tag") return "tag";
+
   return "relation";
 }

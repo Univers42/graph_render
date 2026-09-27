@@ -19,9 +19,14 @@ export function nodesEqual(a: GraphNode, b: GraphNode): boolean {
     a.hasNote === b.hasNote &&
     // `icon` participates: the engine renders it on the node glyph, so an
     // icon-only change is a real visual change. Omitting it made an icon-only
-    // edit produce an empty patch, which read as "nothing changed" and left the
-    // renderer and layout worker untouched. The host app's hand-mirrored copy
-    // already compared this field; this is the package catching up to it.
+    // edit produce an empty `diffGraph` patch, which a consumer would read as
+    // "nothing changed" and skip work for.
+    //
+    // Not observable in either repo today: the only consumer of `nodesEqual` is
+    // `diffGraph`, which has no caller, and the live data path is an
+    // unconditional full replace (`setModel` → `setGraph` + `layout.rebuild`).
+    // This is correctness for a consumer that adopts the diff path, not a fix for
+    // a production incident.
     a.icon === b.icon
   );
 }

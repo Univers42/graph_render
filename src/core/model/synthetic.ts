@@ -1,4 +1,3 @@
-
 /**
  * Deterministic synthetic GraphModel for benchmarks and visual tests.
  * Preferential-attachment topology gives a realistic hub/leaf degree
@@ -86,9 +85,17 @@ function syntheticEdges(count: number, rnd: () => number, ids: string[]): GraphE
 
 /** Build a deterministic n-node model (icons included for LOD testing). */
 export function buildSyntheticModel(n: number): GraphModel {
+  // `Math.floor` first, and NaN explicitly to 2. Without them `n` is trusted to be
+  // a non-negative integer and it is not: `buildSyntheticModel(2.5)` produced 3
+  // nodes while the edge loop indexed `ids` up to 4 and emitted `undefined`
+  // endpoints that `indexModel` silently dropped, and `buildSyntheticModel(NaN)`
+  // produced a 0-node model — `Math.max(2, NaN)` is NaN, the loop body never ran,
+  // and the caller got an empty graph with no error. A bench harness that silently
+  // benchmarks nothing is worse than one that throws.
+  const requested = Number.isFinite(n) ? Math.floor(n) : 2;
   // Cap at 100k: the render pipeline (LOD cluster-blobs + node budget) is designed
   // for this band; higher would OOM the resident per-node model.
-  const count = Math.max(2, Math.min(n, 100_000));
+  const count = Math.max(2, Math.min(requested, 100_000));
   const rnd = mulberry32(0x051042);
   const nodes: GraphNode[] = [];
   for (let i = 0; i < count; i += 1) nodes.push(syntheticNode(i, rnd));

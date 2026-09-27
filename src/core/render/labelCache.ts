@@ -17,7 +17,7 @@ const BAKES_PER_FRAME = 6;
 
 export class LabelCache {
   private readonly cache = new Map<string, HTMLCanvasElement>();
-  private color = "#e7e9f5";
+  private color = "#edeae3";
   private halo = "rgba(11, 10, 31, 0.85)";
   private dpr = 1;
   private bakeBudget = BAKES_PER_FRAME;

@@ -18,8 +18,28 @@
  * icon-only edit diffed to an empty patch.
  */
 
-import type { GraphModel, GraphPatch } from "../types";
+import type { GraphEdge, GraphModel, GraphPatch } from "../types";
 import { nodesEqual } from "./model";
+
+/**
+ * Value-equality for diffing an edge whose id survived.
+ *
+ * The mirror of `nodesEqual`, and needed for the same reason: an edge id is
+ * content-addressed over `endpoints:kind:label` only, so `strength` and
+ * `recordId` live entirely outside it. Without this, changing an edge's strength
+ * produces an empty patch.
+ */
+export function edgesEqual(a: GraphEdge, b: GraphEdge): boolean {
+  return (
+    a.source === b.source &&
+    a.target === b.target &&
+    a.kind === b.kind &&
+    a.label === b.label &&
+    a.strength === b.strength &&
+    a.directed === b.directed &&
+    a.recordId === b.recordId
+  );
+}
 
 export function diffGraph(previous: GraphModel, next: GraphModel): GraphPatch {
   const addedNodes = [];
@@ -36,8 +56,11 @@ export function diffGraph(previous: GraphModel, next: GraphModel): GraphPatch {
   }
 
   const addedEdges = [];
+  const updatedEdges = [];
   for (const edge of next.edgeById.values()) {
-    if (!previous.edgeById.has(edge.id)) addedEdges.push(edge);
+    const before = previous.edgeById.get(edge.id);
+    if (!before) addedEdges.push(edge);
+    else if (!edgesEqual(before, edge)) updatedEdges.push(edge);
   }
 
   const removedEdgeIds = [];
@@ -45,7 +68,7 @@ export function diffGraph(previous: GraphModel, next: GraphModel): GraphPatch {
     if (!next.edgeById.has(id)) removedEdgeIds.push(id);
   }
 
-  return { addedNodes, updatedNodes, removedNodeIds, addedEdges, removedEdgeIds };
+  return { addedNodes, updatedNodes, removedNodeIds, addedEdges, updatedEdges, removedEdgeIds };
 }
 
 /** True when a patch carries no changes (skip worker/render work entirely). */
@@ -55,6 +78,7 @@ export function isEmptyPatch(patch: GraphPatch): boolean {
     patch.updatedNodes.length === 0 &&
     patch.removedNodeIds.length === 0 &&
     patch.addedEdges.length === 0 &&
+    patch.updatedEdges.length === 0 &&
     patch.removedEdgeIds.length === 0
   );
 }

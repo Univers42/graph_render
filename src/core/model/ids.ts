@@ -22,23 +22,53 @@ export function makeTagNodeId(tagValue: string): NodeId {
   return `tag:${tagValue}`;
 }
 
-/** The parts of a record node id, as produced by `parseNodeId`. */
+/**
+ * The coordinates of a record node id, as produced by `parseNodeId`.
+ *
+ * Field names deliberately match `makeRecordNodeId`'s parameters — `source`,
+ * `databaseId`, `recordId` — so the round trip reads as one grammar. An earlier
+ * draft returned `{ mount, resource, pk }`, the host's BaaS wire vocabulary, which
+ * meant `parseNodeId(id).databaseId` was `undefined` on a public type. Same three
+ * values, two names for each, in one file.
+ */
 export interface RecordRef {
-  mount: string;
-  resource: string;
-  pk: string;
+  source: string;
+  databaseId: string;
+  recordId: string;
 }
+
+/** The two id prefixes `makeRecordNodeId` never produces. */
+const NOTE_PREFIX = "note:";
+const TAG_PREFIX = "tag:";
 
 /**
  * Split a record node id back into the coordinates `makeRecordNodeId` joined.
  * The inverse of the write half above, which the package previously lacked: hosts
  * had to hand-roll a splitter (and one of them re-implemented `makeRecordNodeId` a
- * third time while doing it). `pk` may itself contain `:`, so everything after the
+ * third time while doing it).
+ *
+ * Returns `null` for anything that is not a record node id — currently `note:` and
+ * `tag:` ids, which `makeNoteNodeId` / `makeTagNodeId` three lines either side of
+ * this function manufacture. The previous version returned a non-nullable
+ * `RecordRef` for those, so `parseNodeId("tag:vintage")` confidently reported
+ * `{ source: "tag", databaseId: "vintage", recordId: "" }` — a populated-looking
+ * answer to a question that has none. A host filtering records by resource would
+ * silently test a field that means something else.
+ *
+ * `recordId` may itself contain `:` (composite keys), so everything after the
  * second segment rejoins.
+ *
+ * PONYTAIL: `source` and `databaseId` containing `:` cannot be represented — the
+ * grammar is ambiguous, and no amount of parsing recovers which colon was the
+ * separator. `makeRecordNodeId("my:db", …)` therefore produces an id that does not
+ * round-trip, and the parse returns a shifted, wrong result rather than `null`.
+ * The fix is a caller-side constraint (reject `:` in those coordinates), not
+ * something this function can detect.
  */
-export function parseNodeId(nodeId: string): RecordRef {
-  const [mount = "", resource = "", ...rest] = nodeId.split(":");
-  return { mount, resource, pk: rest.join(":") };
+export function parseNodeId(nodeId: string): RecordRef | null {
+  if (nodeId.startsWith(NOTE_PREFIX) || nodeId.startsWith(TAG_PREFIX)) return null;
+  const [source = "", databaseId = "", ...rest] = nodeId.split(":");
+  return { source, databaseId, recordId: rest.join(":") };
 }
 
 /**

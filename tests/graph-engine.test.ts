@@ -15,7 +15,13 @@ import test from "node:test";
 
 import type { GraphEdge, GraphNode } from "../src/core/types.ts";
 import { clamp, lerp, smoothstep } from "../src/core/math.ts";
-import { makeEdgeId, makeRecordNodeId, parseNodeId } from "../src/core/model/ids.ts";
+import {
+  makeEdgeId,
+  makeNoteNodeId,
+  makeRecordNodeId,
+  makeTagNodeId,
+  parseNodeId,
+} from "../src/core/model/ids.ts";
 import { emptyModel, indexModel, nodesEqual } from "../src/core/model/model.ts";
 import { applyDegreeWeights, weightToRadius } from "../src/core/model/weights.ts";
 import { neighborhood, neighborhoodEdges } from "../src/core/model/neighborhood.ts";
@@ -287,7 +293,11 @@ test("neighborhoodEdges: returns the edges walked alongside the nodes", () => {
   assert.deepEqual([...far.nodeIds].sort(), ["a", "b", "c"]);
   assert.deepEqual([...far.edgeIds].sort(), ["e1", "e2"]);
 
-  // Must agree with the nodes-only view — they share one traversal.
+  // The nodes-only view must agree with the edge-returning one. This is a
+  // delegation check, not an independent one: `neighborhood` IS defined as
+  // `bfs(...).nodeIds`, so it can only fail if that delegation is removed. Kept
+  // as a cheap tripwire on the refactor, and labelled so it is not mistaken for
+  // independent evidence that the two traversals agree.
   assert.deepEqual([...neighborhood(model, "a", 2)].sort(), [...far.nodeIds].sort());
 });
 
@@ -295,18 +305,32 @@ test("synthetic: buildSyntheticModel is deterministic and respects its cap", () 
   const a = buildSyntheticModel(64);
   const b = buildSyntheticModel(64);
   // Seeded PRNG: identical inputs must give byte-identical models, or every
-  // benchmark run and screenshot comparison is noise.
-  assert.deepEqual(
-    a.nodes.map((n) => `${n.id}:${n.kind}:${n.label}`),
-    b.nodes.map((n) => `${n.id}:${n.kind}:${n.label}`),
-  );
+  // benchmark run and screenshot comparison is noise. Compare the whole model,
+  // not a sampled projection of it: a previous version compared only
+  // id/kind/label, so a PRNG that drifted purely on icon, group, weight, edge
+  // strength or the hasNote mix would still have passed. Those are exactly the
+  // fields this fixture exists to vary.
+  assert.deepEqual(a, b);
+  assert.deepEqual(a.nodes.map((n) => n.icon), b.nodes.map((n) => n.icon));
+  assert.deepEqual(a.nodes.map((n) => n.weight), b.nodes.map((n) => n.weight));
+  assert.deepEqual(a.edges.map((e) => e.strength), b.edges.map((e) => e.strength));
   assert.equal(a.nodes.length, 64);
   // Indexes are built, not just the raw arrays.
   assert.equal(a.nodeById.size, 64);
   assert.ok(a.edges.length > 0);
-  // Floor of 2, ceiling 100k (the resident per-node model's limit).
-  assert.equal(buildSyntheticModel(0).nodes.length, 2);
-  assert.equal(buildSyntheticModel(1).nodes.length, 2);
+  // Floor of 2, ceiling 100k (the resident per-node model's limit). The ceiling is
+  // asserted rather than described: a previous version asserted the floor twice
+  // and claimed to cover the ceiling without ever building a model near it.
+  assert.equal(buildSyntheticModel(0).nodes.length, 2, "floor");
+  assert.equal(buildSyntheticModel(-99).nodes.length, 2, "floor clamps negatives");
+  assert.equal(buildSyntheticModel(1_000_000).nodes.length, 100_000, "ceiling");
+  // Non-integer and non-finite input must not silently yield a wrong-sized or
+  // empty model. buildSyntheticModel(2.5) used to give 3 nodes while the edge
+  // loop indexed past the end of the id list, and buildSyntheticModel(NaN) used
+  // to give 0 nodes — an empty graph, no error, so a bench run measured nothing.
+  assert.equal(buildSyntheticModel(2.5).nodes.length, 2, "fractional input floors");
+  assert.equal(buildSyntheticModel(NaN).nodes.length, 2, "NaN falls back to the floor");
+  assert.ok(buildSyntheticModel(Infinity).nodes.length <= 100_000, "Infinity clamps to the ceiling");
 });
 
 test("edgeKindFromType: wire type -> internal kind, unknown falls back to relation", () => {
@@ -320,32 +344,63 @@ test("edgeKindFromType: wire type -> internal kind, unknown falls back to relati
   assert.equal(edgeKindFromType("annotates"), "note_of");
   assert.equal(edgeKindFromType("tagged"), "tag");
   assert.equal(edgeKindFromType("tag"), "tag");
-  assert.equal(edgeKindFromType("tagged_by"), "tag"); // substring match, case-insensitive
-  assert.equal(edgeKindFromType("Tags"), "tag");
+  assert.equal(edgeKindFromType("TAGGED"), "tag", "case-insensitive on contract literals");
+  // NOT tags any more. These used to be asserted as "tag" on the strength of a
+  // substring match, which is what let "vintage" and "heritage" through as well.
+  // The contract's tag literals are exactly `tagged` and `tag`; anything else is
+  // a user-named type and lands on the neutral default.
+  assert.equal(edgeKindFromType("tagged_by"), "relation");
+  assert.equal(edgeKindFromType("Tags"), "relation");
+  assert.equal(edgeKindFromType("tags"), "relation");
   // Everything unrecognized is a plain structural relation — this is the
   // default every relation-property edge lands on, so it must be the fallback.
   assert.equal(edgeKindFromType("assignee"), "relation");
   // Branch order is observable and worth pinning: the hierarchy test is an exact
   // match on three literals plus a "hierarchy" substring, NOT a "parent"
-  // substring — so a compound type containing "tag" falls through to the tag
-  // branch. Documented here so a future "wider match" change is deliberate.
-  assert.equal(edgeKindFromType("parent_tag"), "tag");
+  // substring. Documented so a future "widening" is a deliberate change.
   assert.equal(edgeKindFromType("parent_hierarchy"), "hierarchy");
   assert.equal(edgeKindFromType("project"), "relation");
+
+  // The tag branch must NOT substring-match. The wire `type` is free text chosen
+  // by whoever built the database, and these are all ordinary field names:
+  // he-ri-TAG-e, advanTAG-e, monTAG-e, fronTAG-e, cotTAG-e, sTAG-e. A previous
+  // version used `includes("tag")` and classified every one of them as a tag
+  // edge, which repaints them with the tag colour, the tag geometry tier, and
+  // the tag filter predicate — silently, with no error anywhere.
+  for (const word of ["vintage", "heritage", "advantage", "montage", "frontage", "cottage", "stage"]) {
+    assert.equal(edgeKindFromType(word), "relation", `"${word}" must not classify as a tag edge`);
+  }
+  // Same for the other substring branches, whose markers are engine-generated
+  // and so genuinely unambiguous.
+  assert.equal(edgeKindFromType("my_page_hierarchy"), "hierarchy");
   assert.equal(edgeKindFromType(undefined), "relation");
   assert.equal(edgeKindFromType(""), "relation");
 });
 
 test("parseNodeId: the read half round-trips the write half", () => {
   const id = makeRecordNodeId("db", "people", "rec-42");
-  assert.deepEqual(parseNodeId(id), { mount: "db", resource: "people", pk: "rec-42" });
-  // pk may itself contain ':' — everything after the 2nd segment must rejoin,
-  // otherwise a composite primary key silently truncates and the id addresses
-  // a different record than it was built for.
-  const colonPk = makeRecordNodeId("db", "people", "a:b:c");
-  assert.deepEqual(parseNodeId(colonPk), { mount: "db", resource: "people", pk: "a:b:c" });
-  // Degenerate input must not throw.
-  assert.deepEqual(parseNodeId("bare"), { mount: "bare", resource: "", pk: "" });
+  assert.deepEqual(parseNodeId(id), { source: "db", databaseId: "people", recordId: "rec-42" });
+  // recordId may itself contain ':' — everything after the 2nd segment must
+  // rejoin, otherwise a composite primary key silently truncates and the id
+  // addresses a different record than it was built for.
+  assert.deepEqual(parseNodeId(makeRecordNodeId("db", "people", "a:b:c")), {
+    source: "db", databaseId: "people", recordId: "a:b:c",
+  });
+  // Degenerate input must not throw. "bare" has no second segment, so databaseId
+  // and recordId are empty rather than absent.
+  assert.deepEqual(parseNodeId("bare"), { source: "bare", databaseId: "", recordId: "" });
+});
+
+test("parseNodeId: refuses non-record ids instead of inventing coordinates", () => {
+  // makeNoteNodeId / makeTagNodeId manufacture these two prefixes, and the
+  // previous non-nullable return type answered them with a populated-looking
+  // RecordRef whose fields meant something else entirely.
+  assert.equal(parseNodeId(makeNoteNodeId("n1")), null);
+  assert.equal(parseNodeId(makeTagNodeId("vintage")), null);
+  assert.equal(parseNodeId("tag:"), null);
+  assert.equal(parseNodeId("note:"), null);
+  // A real record id is unaffected.
+  assert.notEqual(parseNodeId(makeRecordNodeId("db", "people", "r")), null);
 });
 
 test("diffGraph: an icon-only edit is an update, not a no-op (regression)", () => {
@@ -360,6 +415,42 @@ test("diffGraph: an icon-only edit is an update, not a no-op (regression)", () =
   assert.equal(patch.updatedNodes[0].icon, "🚀");
   assert.deepEqual(patch.addedNodes, []);
   assert.deepEqual(patch.removedNodeIds, []);
+});
+
+test("diffGraph: a same-id edge change is an update, not a no-op (regression)", () => {
+  // An edge id is content-addressed over endpoints:kind:label only, so strength
+  // and recordId live outside it. Without an updatedEdges list, changing either
+  // produced an empty patch and `isEmptyPatch` told a consumer to skip the work —
+  // silently dropping a real edit. `strength` is both the layout pull and the
+  // rendered thickness; `recordId` is the row identity used for delete/demote.
+  const before = indexModel([node("a", "record", "db1", 1), node("b", "record", "db1", 0.5)], [
+    edge("e1", "a", "b", "relation", 0.4),
+  ]);
+  const restrung = indexModel([node("a", "record", "db1", 1), node("b", "record", "db1", 0.5)], [
+    edge("e1", "a", "b", "relation", 2.9),
+  ]);
+  assert.equal(before.edges[0].id, restrung.edges[0].id, "precondition: the id is unchanged");
+
+  const patch = diffGraph(before, restrung);
+  assert.equal(isEmptyPatch(patch), false, "a real edge change must not read as empty");
+  assert.equal(patch.updatedEdges.length, 1);
+  assert.equal(patch.updatedEdges[0].strength, 2.9);
+  assert.deepEqual(patch.addedEdges, [], "same id is an update, not an add");
+  assert.deepEqual(patch.removedEdgeIds, [], "same id is an update, not a remove");
+
+  // recordId changing on a stable id is the same class of miss.
+  const reidentified = indexModel([node("a", "record", "db1", 1), node("b", "record", "db1", 0.5)], [
+    { ...edge("e1", "a", "b", "relation", 0.4), recordId: "row-9" },
+  ]);
+  assert.equal(isEmptyPatch(diffGraph(before, reidentified)), false);
+
+  // And an edge that genuinely did not change must still read as empty.
+  assert.equal(isEmptyPatch(diffGraph(before, before)), true);
+  // kind/label changes alter the id, so they were already visible as add+remove.
+  assert.equal(
+    isEmptyPatch(diffGraph(before, indexModel(before.nodes, [edge("e1", "a", "b", "hierarchy", 0.4)]))),
+    false,
+  );
 });
 
 test("diffGraph: add / remove / edge changes and the empty case", () => {
@@ -385,7 +476,7 @@ test("diffGraph: add / remove / edge changes and the empty case", () => {
   const dropped = diffGraph(withEdge, base);
   assert.deepEqual(dropped.removedEdgeIds, ["e1"]);
   assert.deepEqual(dropped.removedNodeIds, ["n2"]);
-  // An edge whose endpoint is absent is dropped by indexModel, so it can never
-  // appear in a patch — the diff only ever walks ids the model actually holds.
+  // Pre-existing `indexModel` behaviour, not part of this change: a dangling edge
+  // is dropped at assembly, so the diff only ever walks ids the model holds.
   assert.equal(indexModel([n1], [edge("e1", "n1", "ghost", "relation", 1)]).edges.length, 0);
 });
