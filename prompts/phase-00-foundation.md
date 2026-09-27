@@ -218,6 +218,10 @@ check as evidence of coverage (rule 0.5, and `quality-bar.md`: skipped ≠ passe
   dangerous direction.
 - The binary format's NaN assertion is exact, not heuristic. **Do not** put a marker on it
   (`ponytail.md`: a marker on deterministic code trains readers to skip markers).
+- **`guard-osionos.sh` is a sampler over a file set**, so it owes a marker naming what it cannot see:
+  paths excluded by osionos's `.gitignore` (`node_modules/`, `build/`, `.env`) are outside the hashed set,
+  so a write there passes the guard. Direction: **under-reporting — the dangerous one.** Escape hatch: a
+  `--include-ignored` mode, slow enough that it is not the default.
 
 ## Stop-and-ask
 
