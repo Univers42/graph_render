@@ -24,8 +24,18 @@ export type {
 
 // Model assembly + identity
 export { indexModel, emptyModel, nodesEqual } from "./core/model/model";
-export { makeRecordNodeId, makeNoteNodeId, makeTagNodeId, makeEdgeId } from "./core/model/ids";
+export {
+  makeRecordNodeId,
+  makeNoteNodeId,
+  makeTagNodeId,
+  makeEdgeId,
+  parseNodeId,
+  type RecordRef,
+} from "./core/model/ids";
 export { applyDegreeWeights } from "./core/model/weights";
+// Wire-type -> internal-kind classifier + incremental diff
+export { edgeKindFromType } from "./core/model/edgeKind";
+export { diffGraph, isEmptyPatch } from "./core/model/diff";
 
 // Engine + control state
 export { GraphEngine, type GraphEngineOptions, type EngineCallbacks, type MinimapData } from "./core/engine";

@@ -15,11 +15,13 @@ import test from "node:test";
 
 import type { GraphEdge, GraphNode } from "../src/core/types.ts";
 import { clamp, lerp, smoothstep } from "../src/core/math.ts";
-import { makeEdgeId } from "../src/core/model/ids.ts";
+import { makeEdgeId, makeRecordNodeId, parseNodeId } from "../src/core/model/ids.ts";
 import { emptyModel, indexModel, nodesEqual } from "../src/core/model/model.ts";
 import { applyDegreeWeights, weightToRadius } from "../src/core/model/weights.ts";
 import { neighborhood, neighborhoodEdges } from "../src/core/model/neighborhood.ts";
 import { buildSyntheticModel } from "../src/core/model/synthetic.ts";
+import { edgeKindFromType } from "../src/core/model/edgeKind.ts";
+import { diffGraph, isEmptyPatch } from "../src/core/model/diff.ts";
 import { deriveLegend } from "../src/core/model/legend.ts";
 import { screenToWorld, worldToScreen } from "../src/core/camera/transform.ts";
 import { fitBounds, zoomAt } from "../src/core/camera/controls.ts";
@@ -305,4 +307,85 @@ test("synthetic: buildSyntheticModel is deterministic and respects its cap", () 
   // Floor of 2, ceiling 100k (the resident per-node model's limit).
   assert.equal(buildSyntheticModel(0).nodes.length, 2);
   assert.equal(buildSyntheticModel(1).nodes.length, 2);
+});
+
+test("edgeKindFromType: wire type -> internal kind, unknown falls back to relation", () => {
+  assert.equal(edgeKindFromType("parent"), "hierarchy");
+  assert.equal(edgeKindFromType("parent_of"), "hierarchy");
+  assert.equal(edgeKindFromType("child_of"), "hierarchy");
+  assert.equal(edgeKindFromType("page_hierarchy"), "hierarchy");
+  assert.equal(edgeKindFromType("note_link"), "note_link");
+  assert.equal(edgeKindFromType("links_to"), "note_link");
+  assert.equal(edgeKindFromType("note_of"), "note_of");
+  assert.equal(edgeKindFromType("annotates"), "note_of");
+  assert.equal(edgeKindFromType("tagged"), "tag");
+  assert.equal(edgeKindFromType("tag"), "tag");
+  assert.equal(edgeKindFromType("tagged_by"), "tag"); // substring match, case-insensitive
+  assert.equal(edgeKindFromType("Tags"), "tag");
+  // Everything unrecognized is a plain structural relation — this is the
+  // default every relation-property edge lands on, so it must be the fallback.
+  assert.equal(edgeKindFromType("assignee"), "relation");
+  // Branch order is observable and worth pinning: the hierarchy test is an exact
+  // match on three literals plus a "hierarchy" substring, NOT a "parent"
+  // substring — so a compound type containing "tag" falls through to the tag
+  // branch. Documented here so a future "wider match" change is deliberate.
+  assert.equal(edgeKindFromType("parent_tag"), "tag");
+  assert.equal(edgeKindFromType("parent_hierarchy"), "hierarchy");
+  assert.equal(edgeKindFromType("project"), "relation");
+  assert.equal(edgeKindFromType(undefined), "relation");
+  assert.equal(edgeKindFromType(""), "relation");
+});
+
+test("parseNodeId: the read half round-trips the write half", () => {
+  const id = makeRecordNodeId("db", "people", "rec-42");
+  assert.deepEqual(parseNodeId(id), { mount: "db", resource: "people", pk: "rec-42" });
+  // pk may itself contain ':' — everything after the 2nd segment must rejoin,
+  // otherwise a composite primary key silently truncates and the id addresses
+  // a different record than it was built for.
+  const colonPk = makeRecordNodeId("db", "people", "a:b:c");
+  assert.deepEqual(parseNodeId(colonPk), { mount: "db", resource: "people", pk: "a:b:c" });
+  // Degenerate input must not throw.
+  assert.deepEqual(parseNodeId("bare"), { mount: "bare", resource: "", pk: "" });
+});
+
+test("diffGraph: an icon-only edit is an update, not a no-op (regression)", () => {
+  const a = node("n1", "record", "db1", 1);
+  const before = indexModel([a], []);
+  const after = indexModel([{ ...a, icon: "🚀" }], []);
+  // Without `icon` in nodesEqual this was an empty patch, so the renderer and
+  // layout worker were never told the glyph changed.
+  const patch = diffGraph(before, after);
+  assert.equal(isEmptyPatch(patch), false);
+  assert.equal(patch.updatedNodes.length, 1);
+  assert.equal(patch.updatedNodes[0].icon, "🚀");
+  assert.deepEqual(patch.addedNodes, []);
+  assert.deepEqual(patch.removedNodeIds, []);
+});
+
+test("diffGraph: add / remove / edge changes and the empty case", () => {
+  const n1 = node("n1", "record", "db1", 1);
+  const n2 = node("n2", "record", "db1", 0.5);
+  const base = indexModel([n1], []);
+
+  assert.equal(isEmptyPatch(diffGraph(base, base)), true, "identical models -> empty patch");
+
+  const addedNodesOnly = diffGraph(base, indexModel([n1, n2], []));
+  assert.deepEqual(addedNodesOnly.addedNodes.map((x) => x.id), ["n2"]);
+  assert.deepEqual(addedNodesOnly.removedNodeIds, []);
+  assert.deepEqual(addedNodesOnly.addedEdges, []);
+
+  const removed = diffGraph(base, indexModel([], []));
+  assert.deepEqual(removed.removedNodeIds, ["n1"]);
+
+  const withEdge = indexModel([n1, n2], [edge("e1", "n1", "n2", "relation", 1)]);
+  const added = diffGraph(base, withEdge);
+  assert.equal(added.addedEdges.length, 1);
+  assert.deepEqual(added.addedNodes.map((x) => x.id), ["n2"]);
+  // ...and going back drops both again, so a patch is symmetric in both directions.
+  const dropped = diffGraph(withEdge, base);
+  assert.deepEqual(dropped.removedEdgeIds, ["e1"]);
+  assert.deepEqual(dropped.removedNodeIds, ["n2"]);
+  // An edge whose endpoint is absent is dropped by indexModel, so it can never
+  // appear in a patch — the diff only ever walks ids the model actually holds.
+  assert.equal(indexModel([n1], [edge("e1", "n1", "ghost", "relation", 1)]).edges.length, 0);
 });
