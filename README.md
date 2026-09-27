@@ -103,6 +103,31 @@ versions instead of ranges.
 The package ships TypeScript source (`exports` points at `./src/index.ts`), so a consumer must
 resolve it through a bundler or a TypeScript-aware resolver rather than plain Node `require`.
 
+## Verifying parity against the host
+
+The extraction is checked against osionos' in-tree engine in a real browser:
+
+```sh
+./verify/run-parity.sh
+```
+
+It mounts the host's engine and this package's engine in one document, feeds both the identical
+model, and diffs their canvases pixel by pixel for every host palette in light and dark. Current
+result: **0 differing pixels of 744,000 per combination, 16/16 combinations**, with node positions
+bit-identical (0/220 differ) and no console or page errors.
+
+Two things make that number mean something. A third panel mounts the host engine a *second* time as a
+control, because a time-driven force layout makes even identical code render differently between two
+panels — without that floor, a difference is uninterpretable. And the rig is shown to be capable of
+failing: perturbing one hex in this package's palette flips the verdict to `DIVERGENT` while the
+control stays at zero.
+
+`EXTRACTION_REPORT.md` §4 records the result, the exit codes, and three false passes the rig
+initially reported and had to be fixed for (a blank canvas that compared "identical", a token
+stylesheet that 404'd into an HTML fallback with a 200 status, and a palette sweep that was not
+actually discriminating). Exit `1` means *inconclusive*, which is deliberately distinct from exit
+`0`: "I could not tell" is not "they match".
+
 ## Limitations
 
 **The theme is coupled to the `--osio-*` CSS custom properties by name.** `resolveSceneTheme()`
@@ -124,8 +149,11 @@ The real cost is therefore **silent divergence, not a crash**:
   host that renames them, produces a wrong-but-plausible graph with nothing to detect it.
 - Theme switching is likewise unavailable standalone: the light/dark `mode` is inferred from the
   luminance of `--osio-graph-bg-1`, so with the fallback it is always `dark`.
-- `src/styles/graph.css` mirrors the coupling on the CSS side (`var(--osio-graph-bg-1, #160c30)`),
-  so it degrades the same way rather than failing.
+- `src/styles/graph.css` mirrors the coupling on the CSS side (`var(--osio-graph-bg-1, #15140f)`),
+  so it degrades the same way rather than failing. Its three fallback values were stale until this
+  extraction: they were cold-indigo leftovers (`#160c30`, `#e7e9f5`, `#a5b4fc`) from a pre-"Warm
+  Constellation" design, disagreeing with both the host and this package's own TypeScript fallbacks,
+  so a standalone consumer got cold-indigo chrome around a warm-charcoal canvas.
 
 Escape hatch, if you need to theme this from a non-osionos host: define the `--osio-graph-*` tokens
 yourself before mounting (`--osio-graph-ink`, `--osio-graph-bg-0`/`-1`, `--osio-graph-select`,

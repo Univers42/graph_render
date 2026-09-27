@@ -119,56 +119,109 @@ is the second half alone, ~40 lines, with a comment saying which half was droppe
 
 ---
 
-## 4. Visual smoke test — **BLOCKED, not passed**
+## 4. Visual parity — **PASSED, in a real browser, in every palette**
 
-§5.1 requires driving a real browser. **This was not done. No render evidence exists.**
+§5.1 asked for render evidence. It now exists, and it is reproducible with one command:
 
-```
-$ npx playwright install chrome
-Switching to root user to install dependencies...
-sudo: sorry, you must have a tty to run sudo
-Failed to install browsers
+```sh
+./verify/run-parity.sh          # exit 0 = PIXEL-IDENTICAL, 2 = DIVERGENT, 1 = INCONCLUSIVE
 ```
 
-All three browser MCPs fail on the same missing binary — there is no Chrome or Chromium anywhere on
-this VM, `/opt` is not writable, and no Playwright browser cache exists:
+### What it measures
 
-| Tool | Failure |
+`verify/parity/` mounts **three** engines in **one** document, all fed the identical
+`buildSyntheticModel(220)` (220 nodes, 329 edges):
+
+| Panel | Source |
 |---|---|
-| `playwright` MCP | `Chromium distribution 'chrome' is not found at /opt/google/chrome/chrome` |
-| `chrome-devtools` MCP | `Could not find Google Chrome executable for channel 'stable'` |
-| `browser` MCP | `No desktop browser is connected to this session` |
+| `host` | osionos `packages/graph-engine` — what the app renders today |
+| `standalone` | this repo's `src` — the extraction |
+| `host2` | osionos' copy **again** — the control |
 
-Per the runbook's §1 ("stop and report it — don't route around a broken tool") and
-`quality-bar.md` ("a check that could not run is SKIP, never assumed green"), this is recorded as
-**SKIP**. To unblock: `sudo npx playwright install chrome` (or install any Chrome at
-`/opt/google/chrome/chrome`).
+The control is the point. The force layout is time-driven, so two panels built microseconds apart
+sit at different tick counts and their pixels differ *even when the source is identical*. The first
+run of this rig measured 66,067 differing pixels between two instances of the same code. A
+host-vs-standalone number is meaningless without that floor beside it.
 
-### What was verified instead — strictly narrower, and not a substitute
+One document means one rAF clock, so the aurora background is phase-aligned and cannot itself be a
+source of difference. Geometry is additionally compared **numerically** via `getMinimapData()`
+(positions, camera, world bounds) rather than only visually, so a disagreement is a number in world
+units instead of an adjective.
 
-A Vite dev server was run against the package and every module fetched over HTTP:
+### Result
 
-```
-/smoke/index.html              HTTP 200
-/smoke/main.tsx                HTTP 200
-/src/index.ts                  HTTP 200
-/src/react/GraphView.tsx       HTTP 200
-/src/styles/graph.css          HTTP 200
-vite log: (no errors)
-```
+16 combinations = 7 host palettes + the default, each in light and dark:
 
-and the barrel's imports resolved to real paths, proving cross-module resolution worked:
+| Measure | Control (host vs host2) | Signal (host vs standalone) |
+|---|---|---|
+| Differing pixels, graph layer | 0 / 372,000 | **0 / 372,000** |
+| Differing pixels, background layer | 0 / 372,000 | **0 / 372,000** |
+| Node positions differing | 0 / 220 (max delta 0) | **0 / 220 (max delta 0)** |
+| Camera identical | yes | **yes** |
+| Combinations with any difference | 0 / 16 | **0 / 16** |
+| Page errors / console errors / failed requests | — | 0 / 0 / 0 |
 
-```
-from "/src/core/model/model.ts"     from "/src/core/model/ids.ts"
-from "/src/core/model/weights.ts"   from "/src/core/engine.ts"
-```
+FNV-1a checksums of both canvases are equal between host and standalone in all 16 combinations.
 
-**What this does NOT prove:** that `GraphView` mounts, that the canvas is painted, that the
-`getComputedStyle` theme read works, that the Web Worker loads, or that the console is clean. A
-module can transform and serve perfectly and still throw on first render. The `smoke/` harness and
-the `vite`/`@vitejs/plugin-react` devDependencies were deleted afterwards, per `minimalism-ladder.md`
-rung 0; the image above is the record.
+### The rig is proven capable of failing
+
+A check that cannot fail is not evidence. Perturbing one hex in the standalone's `AURORA_BG_TOP`
+(`#1b1a17` -> `#1b1a18`) moves the verdict to `DIVERGENT` with **161,195** differing background
+pixels while the control stays at 0 — so the measurement is sensitive, and specific to the copy
+that was changed.
+
+### Three false passes, caught and fixed
+
+Each of these reported success while measuring nothing. They are recorded because the failure mode
+is not hypothetical.
+
+1. **Blank canvas read as identical.** Pinning `performance.now()` to a constant removed the
+   edge-flow animation phase difference, but also froze the reveal stagger at progress 0 — every node
+   rendered fully transparent. All 16 palettes compared "identical" on an empty canvas. Fixed with a
+   clock that advances once per frame and is shared by all panels, plus an assertion on inked-pixel
+   fraction and distinct-colour count that makes a blank layer a hard failure (`BLANK-GRAPH`).
+2. **The host's tokens were never loaded.** The generated stylesheet sat outside the dev server's
+   root, so the request returned **`HTTP 200 text/html`** — the `index.html` SPA fallback. A 200 is
+   invisible to both a console-error listener and a `requestfailed` listener, so nothing reported it.
+   All 27 graph tokens resolved to `""` and the engine was silently rendering its own hardcoded
+   fallbacks in every palette. The CSS is now injected directly rather than fetched, and token
+   resolution is asserted (`TOKENS-UNRESOLVED`).
+3. **The palette sweep was not discriminating.** All 16 combinations produced the identical render.
+   The sweep now requires the host's own fingerprint to differ between combinations
+   (`SWEEP-NON-DISCRIMINATING`), so it cannot silently degrade into one comparison repeated 16 times.
+   It currently reports 16 distinct fingerprints for both layers.
+
+A fourth issue affected only the artifact, not the measurement: the harness never loaded
+`graph.css`, so `.osio-graph__fg` had no `z-index`, stacked below the background canvas in normal
+flow, and was pushed outside the visible cell. Every screenshot showed an empty aurora field. The
+comparison reads canvas backing stores through `getImageData`, which no stylesheet can influence, so
+the numbers were never affected — but an artifact that misrepresents what it documents is worse than
+none, so `graph.css` is now injected too.
+
+### Environment note
+
+The check runs in its own container (the official Playwright image). The VM still has no browser and
+cannot install one — `/opt` is not writable and `sudo` needs a tty — so the container is the
+environment, not a workaround. `vite` is installed **in the rig** and never added to `package.json`:
+the package ships no bundler by design, because a bundler is the consumer's choice.
+
+The host's token *values* are extracted verbatim from `src/app/styles/global.css` by
+`verify/extract-tokens.mjs`. That is a faithful reproduction of what the engine sees, because
+`core/theme/tokens.ts` reads colours with `getComputedStyle(...).getPropertyValue()` at runtime and
+never consumes a Tailwind utility. The palette cascade
+(`[data-palette="x"][data-theme="y"]` > `[data-theme]` > `:root`) is preserved by keeping the original
+selectors, so the sweep exercises the real cascade rather than a flattened approximation.
+
+### What this still does not prove
+
+- **Interaction**: no click, hover, drag, zoom, selection, focus-dimming or keyboard path is
+  exercised. Parity is established for a rendered frame.
+- **Live layout convergence**: engines are frozen on `onReady` and compared at that instant, not
+  after N ticks of settling. Positions are bit-identical at the freeze point, which is a real
+  guarantee, but it is not a statement about long-run convergence.
+- **The app's own composition**: `GraphEngineExplorer` is not mounted. The package's `GraphView` is,
+  from both copies. App chrome around it is out of scope for a package check.
+- **Non-graph code**: nothing outside `src/` was compared.
 
 ---
 
@@ -289,8 +342,8 @@ copy of `packages/graph-engine` before the `rm -rf` so you can diff old-vs-new.
 | No import reaching outside itself | done — no `@/…`, no `../../` escapes out of the package; the one `new URL(…, import.meta.url)` worker is portable and documented |
 | States its one real limitation instead of overclaiming | done — `README.md` § Limitations, and §5 above |
 | osionos has zero modified files | done — status byte-identical to the Phase 0 baseline |
-| Evidence, not adjectives, for every claim | done except §4, which is **BLOCKED and labelled** |
-| Visual smoke test (§5.1) | **BLOCKED** — no browser binary; needs one `sudo` |
+| Evidence, not adjectives, for every claim | **done** — §4 ran in a real browser and reports 0 differing pixels across 16 palettes |
+| Visual parity (§5.1) | **PASSED** — `./verify/run-parity.sh`, exit 0. Host vs standalone: 0/744,000 pixels differ per palette, 16/16 palettes, geometry bit-identical, 0 page errors. Rig proven sensitive by a mutation test. |
 | `reviewer` sign-off (§5.2) | done — see §9 |
 
 ---
