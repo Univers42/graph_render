@@ -1,17 +1,21 @@
-//! The capabilities ledger (`prompt.md` §8): generated from the registry, never
-//! hand-written, so it cannot rot the way a PROGRESS.md does.
+//! The capabilities ledger (`prompt.md` §8): generated from the registry plus the last
+//! recorded gate runs, never hand-written, so it cannot rot the way a PROGRESS.md does.
 //!
 //! `scale_ceiling`, `degradation` and `ponytail` are plain non-optional fields: a row
 //! cannot be written without them, so no later phase can register a capability that
-//! skips them. `--check` then refuses any row that claims more than its evidence.
-//!
-//! `hash_4way` and `oracle_diff` are typed by hand, so `--check` refuses every `gated`
-//! row outright: a gate result nobody re-ran against the current tree is not evidence.
-//! The status becomes reachable when the ledger reads recorded gate results instead.
+//! skips them. `hash_4way` and `oracle_diff` are not typed by anyone: they are derived
+//! from `target/gates/*.json` (see `evidence.rs`), and a `gated` row stands only while
+//! both verdicts hold for the tree as it is now. `--check` refuses every other claim.
+
+mod registry;
+mod verdict;
 
 use serde::Serialize;
 use std::collections::BTreeSet;
 use std::process::ExitCode;
+use verdict::Evidence;
+
+pub use registry::registry;
 
 /// Where a capability stands. Serialised lowercase: `absent | stub | implemented | gated`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -20,7 +24,7 @@ use std::process::ExitCode;
     not(test),
     expect(
         dead_code,
-        reason = "the Phase-0 registry is empty by definition; Phase 1 registers the first row"
+        reason = "the ledger's vocabulary (§8); every Phase-1 row is gated, lower statuses are for rows in progress"
     )
 )]
 pub enum Status {
@@ -31,7 +35,6 @@ pub enum Status {
     /// Computes the real thing; its gate evidence is not (yet) complete.
     Implemented,
     /// Its 4-way hash and its oracle differential both passed in the current tree.
-    /// Refused by [`problems`] until the ledger reads recorded gate evidence.
     Gated,
 }
 
@@ -46,14 +49,20 @@ pub struct Capability {
     pub stage: &'static str,
     /// Geometry kind it emits, for stages that emit geometry.
     pub geometry: Option<&'static str>,
-    /// Where it stands.
+    /// Where it claims to stand; `--check` refuses a claim its evidence does not back.
     pub status: Status,
     /// The reference it is differentially tested against.
     pub oracle: &'static str,
-    /// Outcome of that differential, e.g. `byte-equal/1000 seeds`.
-    pub oracle_diff: &'static str,
-    /// Outcome of the 4-way hash gate: `equal` or why not.
-    pub hash_4way: &'static str,
+    /// The oracle functions whose differential backs it.
+    #[serde(skip)]
+    pub functions: &'static [&'static str],
+    /// The hash-gate stage that covers it.
+    #[serde(skip)]
+    pub hash_stage: &'static str,
+    /// Outcome of that differential, from the recorded run.
+    pub oracle_diff: String,
+    /// Outcome of the 4-way hash gate, from the recorded run.
+    pub hash_4way: String,
     /// Node count past which it stops being usable. Required.
     pub scale_ceiling: u64,
     /// What happens past the ceiling. Required.
@@ -64,13 +73,22 @@ pub struct Capability {
     pub complexity: &'static str,
 }
 
-/// Every registered capability. Empty in Phase 0: no capability exists yet.
-pub fn registry() -> Vec<Capability> {
-    Vec::new()
+/// The rows with `oracle_diff` and `hash_4way` filled from `evidence`: the verdict, or
+/// `not backed: <why>`.
+pub fn ledger(evidence: &Evidence) -> Vec<Capability> {
+    let text = |verdict: Result<String, String>| {
+        verdict.unwrap_or_else(|why| format!("not backed: {why}"))
+    };
+    let mut rows = registry();
+    for row in &mut rows {
+        row.oracle_diff = text(verdict::oracle_diff(evidence, row.functions));
+        row.hash_4way = text(verdict::hash_4way(evidence, row.hash_stage));
+    }
+    rows
 }
 
 /// Every reason a row may not stand as written; empty means the ledger is honest.
-pub fn problems(rows: &[Capability]) -> Vec<String> {
+pub fn problems(rows: &[Capability], evidence: &Evidence) -> Vec<String> {
     let mut seen = BTreeSet::new();
     let mut found = Vec::new();
     for row in rows {
@@ -91,10 +109,13 @@ pub fn problems(rows: &[Capability]) -> Vec<String> {
             found.push(format!("{}: scale_ceiling is 0", row.id));
         }
         if row.status == Status::Gated {
-            found.push(format!(
-                "{}: gated on hand-typed hash_4way/oracle_diff; no recorded gate result backs it",
-                row.id
-            ));
+            let verdicts = [
+                verdict::hash_4way(evidence, row.hash_stage),
+                verdict::oracle_diff(evidence, row.functions),
+            ];
+            for why in verdicts.into_iter().filter_map(Result::err) {
+                found.push(format!("{}: gated, but {why}", row.id));
+            }
         }
     }
     found
@@ -106,7 +127,14 @@ pub fn run(json: bool, check: bool) -> ExitCode {
         eprintln!("capabilities: pass --json, --check, or both");
         return ExitCode::from(2);
     }
-    let rows = registry();
+    let evidence = match Evidence::load() {
+        Ok(evidence) => evidence,
+        Err(err) => {
+            eprintln!("capabilities: reading the gate records: {err}");
+            return ExitCode::from(2);
+        }
+    };
+    let rows = ledger(&evidence);
     if json {
         match serde_json::to_string_pretty(&rows) {
             Ok(text) => println!("{text}"),
@@ -117,7 +145,7 @@ pub fn run(json: bool, check: bool) -> ExitCode {
         }
     }
     if check {
-        let found = problems(&rows);
+        let found = problems(&rows, &evidence);
         for problem in &found {
             println!("  {problem}");
         }
@@ -134,73 +162,4 @@ pub fn run(json: bool, check: bool) -> ExitCode {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn row(status: Status) -> Capability {
-        Capability {
-            id: "layout.example",
-            tier: 1,
-            stage: "layout",
-            geometry: Some("Point"),
-            status,
-            oracle: "d3-hierarchy@3.1.2",
-            oracle_diff: "byte-equal/1000 seeds",
-            hash_4way: "equal",
-            scale_ceiling: 200_000,
-            degradation: "none",
-            ponytail: "none: exact arithmetic",
-            complexity: "O(n)",
-        }
-    }
-
-    #[test]
-    fn an_implemented_row_with_every_field_passes() {
-        assert!(problems(&[row(Status::Implemented)]).is_empty());
-    }
-
-    #[test]
-    fn a_gated_row_is_refused_however_good_its_hand_typed_evidence_looks() {
-        let found = problems(&[row(Status::Gated)]);
-        assert_eq!(found.len(), 1);
-        assert!(found[0].contains("no recorded gate result"), "{found:?}");
-    }
-
-    #[test]
-    fn empty_required_fields_and_zero_ceiling_are_refused() {
-        let mut bare = row(Status::Implemented);
-        bare.ponytail = " ";
-        bare.degradation = "";
-        bare.scale_ceiling = 0;
-        assert_eq!(problems(&[bare]).len(), 3);
-    }
-
-    #[test]
-    fn duplicate_ids_are_refused() {
-        assert_eq!(problems(&[row(Status::Stub), row(Status::Stub)]).len(), 1);
-    }
-
-    #[test]
-    fn status_serialises_to_the_four_ledger_words() {
-        let words = [
-            Status::Absent,
-            Status::Stub,
-            Status::Implemented,
-            Status::Gated,
-        ]
-        .map(|s| serde_json::to_string(&s).expect("serialisable"));
-        assert_eq!(
-            words,
-            ["\"absent\"", "\"stub\"", "\"implemented\"", "\"gated\""]
-        );
-    }
-
-    #[test]
-    fn the_phase_0_registry_is_empty_and_serialises_to_an_empty_array() {
-        assert!(registry().is_empty());
-        assert_eq!(
-            serde_json::to_string(&registry()).expect("serialisable"),
-            "[]"
-        );
-    }
-}
+mod tests;

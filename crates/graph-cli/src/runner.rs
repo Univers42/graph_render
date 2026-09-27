@@ -89,7 +89,7 @@ pub fn run_lines_within(command: &mut Command, limit: Duration) -> Result<Vec<St
 }
 
 /// Runs `command` with inherited output and returns its exit status, within `limit`.
-fn run_status(command: &mut Command, limit: Duration) -> Result<ExitStatus, String> {
+pub fn run_status(command: &mut Command, limit: Duration) -> Result<ExitStatus, String> {
     let mut child = command
         .spawn()
         .map_err(|e| format!("spawning {command:?}: {e}"))?;

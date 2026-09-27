@@ -1,21 +1,29 @@
-//! The 4-way hash gate (`prompt.md` §7.1): for every seed, native run 1, native run 2,
-//! wasm32 run 1 and wasm32 run 2 must produce the same SHA-256 (D7) — cross-target
-//! and run-to-run in one check. Each run is its own process, so nothing (an allocator
-//! address, a hash seed) can leak from one run into the next.
+//! The 4-way hash gate (`prompt.md` §7.1): for every stage and seed, native run 1,
+//! native run 2, wasm32 run 1 and wasm32 run 2 must produce the same SHA-256 (D7) —
+//! cross-target and run-to-run in one check. Each run is its own process, so nothing (an
+//! allocator address, a hash seed) can leak from one run into the next.
 //!
 //! The wasm arm is the real `graph_wasm.wasm` driven by `harness/wasm-run.mjs` under
 //! Node, which hashes with its built-in crypto: two independent SHA-256
 //! implementations, so a broken hasher cannot agree with itself and pass.
+//!
+//! An honest run records its result in `target/gates/hashgate.json` and a negative
+//! control in `hashgate-control.json`, for the capabilities ledger to read.
 
+mod compare;
+
+use crate::evidence;
 use crate::runner::{build_wasm, file_sha256, node_harness, run_lines, sha256_hex};
+use compare::{Arm, diverged, per_stage};
+use serde_json::json;
 use std::process::{Command, ExitCode};
 
-/// Stage name of the Phase-0 synthetic buffer.
-const STAGE: &str = "synthetic";
+/// Every stage the gate hashes, in the order both arms print them.
+pub const STAGES: [&str; 2] = ["synthetic", "topology"];
 /// Set by the negative control (`prompt.md` §7.2).
 const MUTATE_ENV: &str = "GM_MUTATE_REFERENCE_DEGREE";
 
-/// Runs all four arms over seeds `0..seeds` and compares them seed by seed.
+/// Runs all four arms over seeds `0..seeds` and compares them line by line.
 pub fn run(seeds: u32) -> ExitCode {
     match collect_arms(seeds) {
         Ok(arms) => report(seeds, &arms),
@@ -26,7 +34,7 @@ pub fn run(seeds: u32) -> ExitCode {
     }
 }
 
-/// Body of the hidden `hashgate-arm` subcommand: one native run.
+/// Body of the hidden `hashgate-arm` subcommand: one native run, every stage.
 pub fn arm(seeds: u32) -> ExitCode {
     let degree = match reference_degree() {
         Ok(degree) => degree,
@@ -36,17 +44,27 @@ pub fn arm(seeds: u32) -> ExitCode {
         }
     };
     let mut lines = String::new();
-    for seed in 0..seeds {
-        match graph_core::synthetic_snapshot(seed, degree) {
-            Ok(bytes) => lines.push_str(&format!("{STAGE} {seed} {}\n", sha256_hex(&bytes))),
-            Err(err) => {
-                eprintln!("hashgate-arm: seed {seed}: {err}");
-                return ExitCode::from(2);
+    for stage in STAGES {
+        for seed in 0..seeds {
+            match stage_bytes(stage, seed, degree) {
+                Ok(bytes) => lines.push_str(&format!("{stage} {seed} {}\n", sha256_hex(&bytes))),
+                Err(err) => {
+                    eprintln!("hashgate-arm: {stage} seed {seed}: {err}");
+                    return ExitCode::from(2);
+                }
             }
         }
     }
     print!("{lines}");
     ExitCode::SUCCESS
+}
+
+fn stage_bytes(stage: &str, seed: u32, degree: u32) -> Result<Vec<u8>, String> {
+    match stage {
+        "synthetic" => graph_core::synthetic_snapshot(seed, degree).map_err(|e| e.to_string()),
+        "topology" => graph_core::topology_stage(seed, degree).map_err(|e| e.to_string()),
+        other => Err(format!("unknown stage {other}")),
+    }
 }
 
 /// The native arm's reference degree. The negative control overrides it here and only
@@ -69,14 +87,12 @@ fn parse_reference_degree(value: Result<String, std::env::VarError>) -> Result<u
     }
 }
 
-type Arm = (&'static str, Vec<String>);
-
 fn collect_arms(seeds: u32) -> Result<Vec<Arm>, String> {
     let exe = std::env::current_exe().map_err(|e| format!("locating graph-cli: {e}"))?;
     let wasm = build_wasm(&[])?;
     let count = seeds.to_string();
     let native = || run_lines(Command::new(&exe).args(["hashgate-arm", "--seeds", &count]));
-    let wasm32 = || run_lines(node_harness(&wasm).args(["synthetic", &count]));
+    let wasm32 = || run_lines(node_harness(&wasm).args(["hash", &count]).args(STAGES));
     let arms = vec![
         ("native run 1", native()?),
         ("native run 2", native()?),
@@ -92,161 +108,63 @@ fn collect_arms(seeds: u32) -> Result<Vec<Arm>, String> {
 }
 
 fn report(seeds: u32, arms: &[Arm]) -> ExitCode {
-    println!("hashgate: stage={STAGE} seeds={seeds}");
-    let diverged = match diverged(seeds, arms) {
-        Ok(diverged) => diverged,
+    println!("hashgate: stages={} seeds={seeds}", STAGES.join(","));
+    let lines = match diverged(seeds, arms) {
+        Ok(lines) => lines,
         Err(err) => {
             eprintln!("hashgate: arms not comparable: {err}");
             return ExitCode::from(2);
         }
     };
-    for (name, lines) in arms {
-        println!(
-            "  {name:<13} digest {}",
-            sha256_hex(lines.join("\n").as_bytes())
-        );
+    for (name, output) in arms {
+        let digest = sha256_hex(output.join("\n").as_bytes());
+        println!("  {name:<13} digest {digest}");
     }
-    for &i in diverged.iter().take(3) {
-        println!("  DIVERGED seed {i}:");
-        for (name, lines) in arms {
-            println!("    {name:<13} {}", lines[i]);
+    for &i in lines.iter().take(3) {
+        println!(
+            "  DIVERGED {}:",
+            arms[0].1[i].rsplit_once(' ').map_or("", |p| p.0)
+        );
+        for (name, output) in arms {
+            println!("    {name:<13} {}", output[i]);
         }
     }
-    let equal = seeds as usize - diverged.len();
-    println!("  4-way equal on {equal}/{seeds} seeds");
-    if diverged.is_empty() {
+    let stages = per_stage(seeds, &lines);
+    for (stage, equal) in STAGES.iter().zip(&stages.equal) {
+        println!("  {stage}: 4-way equal on {equal}/{seeds} seeds");
+    }
+    let bad = stages.diverged_seeds;
+    println!("  4-way equal on {}/{seeds} seeds", seeds - bad);
+    record(seeds, &stages.equal, bad == 0);
+    if bad == 0 {
         println!("PASS");
         ExitCode::SUCCESS
     } else {
-        println!("FAIL: {} of {seeds} seeds diverge", diverged.len());
+        println!("FAIL: {bad} of {seeds} seeds diverge");
         ExitCode::from(1)
     }
 }
 
-/// Seeds on which the four arms disagree — or why they cannot be compared at all.
-/// Vacuous comparisons are refused: zero seeds, a missing arm, a short arm, or a line
-/// that is not `stage seed <64 hex>` for its own seed would otherwise all "agree".
-fn diverged(seeds: u32, arms: &[Arm]) -> Result<Vec<usize>, String> {
-    if seeds == 0 {
-        return Err("0 seeds: a gate over nothing proves nothing".into());
+/// Writes this run's result for the ledger: `hashgate.json` for an honest run,
+/// `hashgate-control.json` for the negative control. A run that cannot record says so;
+/// the ledger then finds no evidence, which is the safe direction.
+fn record(seeds: u32, equal: &[u32], pass: bool) {
+    let control = std::env::var_os(MUTATE_ENV).is_some();
+    let name = if control {
+        "hashgate-control"
+    } else {
+        "hashgate"
+    };
+    let stages: serde_json::Map<_, _> = STAGES
+        .iter()
+        .zip(equal)
+        .map(|(stage, equal)| ((*stage).to_owned(), json!(equal)))
+        .collect();
+    let body = json!({ "seeds": seeds, "pass": pass, "equal": stages });
+    if let Err(err) = evidence::write(name, body) {
+        eprintln!("hashgate: not recorded: {err}");
     }
-    if arms.len() != 4 {
-        return Err(format!("{} arms, need 4", arms.len()));
-    }
-    for (name, lines) in arms {
-        if lines.len() != seeds as usize {
-            return Err(format!(
-                "{name} printed {} lines for {seeds} seeds",
-                lines.len()
-            ));
-        }
-        if let Some((i, bad)) = lines.iter().enumerate().find(|(i, l)| !well_formed(l, *i)) {
-            return Err(format!("{name} line {i} is malformed: {bad:?}"));
-        }
-    }
-    let first = &arms[0].1;
-    if seeds > 1 && first.iter().all(|line| digest(line) == digest(&first[0])) {
-        return Err(format!(
-            "every seed hashed to one digest: the seed never reaches the output, so {seeds} seeds test one input"
-        ));
-    }
-    Ok((0..seeds as usize)
-        .filter(|&i| arms.iter().any(|(_, l)| l[i] != first[i]))
-        .collect())
-}
-
-fn digest(line: &str) -> &str {
-    line.rsplit(' ').next().unwrap_or("")
-}
-
-fn well_formed(line: &str, seed: usize) -> bool {
-    let mut parts = line.split(' ');
-    let prefix_ok = parts.next() == Some(STAGE) && parts.next() == Some(seed.to_string().as_str());
-    let digest = parts.next().unwrap_or("");
-    prefix_ok
-        && parts.next().is_none()
-        && digest.len() == 64
-        && digest.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn line(seed: usize, fill: char) -> String {
-        format!("{STAGE} {seed} {}", fill.to_string().repeat(64))
-    }
-
-    fn arms(fills: [[char; 2]; 4]) -> Vec<Arm> {
-        let names = [
-            "native run 1",
-            "native run 2",
-            "wasm32 run 1",
-            "wasm32 run 2",
-        ];
-        names
-            .iter()
-            .zip(fills)
-            .map(|(n, f)| (*n, vec![line(0, f[0]), line(1, f[1])]))
-            .collect()
-    }
-
-    #[test]
-    fn agreeing_arms_have_no_divergence() {
-        assert_eq!(diverged(2, &arms([['a', 'b']; 4])), Ok(vec![]));
-    }
-
-    #[test]
-    fn one_arm_differing_on_one_seed_names_that_seed() {
-        let mut fills = [['a', 'b']; 4];
-        fills[3][1] = 'c';
-        assert_eq!(diverged(2, &arms(fills)), Ok(vec![1]));
-        fills[0][0] = 'd';
-        assert_eq!(diverged(2, &arms(fills)), Ok(vec![0, 1]));
-    }
-
-    #[test]
-    fn vacuous_comparisons_are_refused() {
-        assert!(diverged(0, &[]).is_err());
-        assert!(diverged(2, &arms([['a', 'b']; 4])[..3]).is_err());
-        assert!(diverged(3, &arms([['a', 'b']; 4])).is_err());
-        let mut bad = arms([['a', 'b']; 4]);
-        bad[2].1[1] = format!("{STAGE} 1 xyzzy");
-        assert!(diverged(2, &bad).is_err());
-        let mut renumbered = arms([['a', 'b']; 4]);
-        renumbered[1].1[1] = line(0, 'b');
-        assert!(diverged(2, &renumbered).is_err());
-    }
-
-    #[test]
-    fn seeds_that_all_hash_alike_are_refused_as_one_input() {
-        let err = diverged(2, &arms([['a', 'a']; 4])).expect_err("one digest for two seeds");
-        assert!(err.contains("every seed hashed to one digest"), "{err}");
-        let one = arms([['a', 'a']; 4])
-            .into_iter()
-            .map(|(name, lines)| (name, lines[..1].to_vec()))
-            .collect::<Vec<_>>();
-        assert_eq!(diverged(1, &one), Ok(vec![]));
-    }
-
-    #[test]
-    fn the_mutation_variable_parses_strictly() {
-        use std::env::VarError;
-        assert_eq!(
-            parse_reference_degree(Err(VarError::NotPresent)),
-            Ok(graph_core::REFERENCE_DEGREE)
-        );
-        assert_eq!(parse_reference_degree(Ok(" 9 ".into())), Ok(9));
-        assert!(parse_reference_degree(Ok("nine".into())).is_err());
-        assert!(parse_reference_degree(Ok(String::new())).is_err());
-    }
-
-    #[test]
-    fn report_exit_code_is_pass_fail_or_could_not_run() {
-        let mut fills = [['a', 'b']; 4];
-        assert_eq!(report(2, &arms(fills)), ExitCode::SUCCESS);
-        fills[2][0] = 'c';
-        assert_eq!(report(2, &arms(fills)), ExitCode::from(1));
-        assert_eq!(report(0, &[]), ExitCode::from(2));
-    }
-}
+mod tests;

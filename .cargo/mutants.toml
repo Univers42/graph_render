@@ -17,9 +17,6 @@ exclude_re = [
     # native test can reach it. It is exercised by the hash gate's wasm arm, which fails
     # to read a mis-framed buffer (graph-cli/tests/cli.rs, hashgate test).
     "exports::publish",
-    # Equivalent in Phase 0: the registry is empty by definition, so `vec![]` is the
-    # function. Remove this line when Phase 1 registers the first row.
-    "replace registry -> Vec<Capability> with vec!\\[\\]",
     # Equivalent: in `probe::from_bits` the shifted exponent and the masked mantissa
     # occupy disjoint bits, so `|` and `^` compute the same value for every input.
     "replace \\| with \\^ in from_bits",

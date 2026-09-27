@@ -7,9 +7,16 @@
 
 use std::process::{Command, Output};
 
+/// Gate records land here, never in `target/gates`: a test run must not overwrite (or
+/// stand in for) the evidence of a real gate run.
+fn gates_dir() -> std::path::PathBuf {
+    std::env::temp_dir().join(format!("gm-cli-gates-{}", std::process::id()))
+}
+
 fn graph_cli(args: &[&str], mutate: Option<&str>) -> Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_graph-cli"));
     command.args(args).env_remove("GM_MUTATE_REFERENCE_DEGREE");
+    command.env("GM_GATES_DIR", gates_dir());
     if let Some(value) = mutate {
         command.env("GM_MUTATE_REFERENCE_DEGREE", value);
     }
@@ -24,11 +31,21 @@ fn stdout(output: &Output) -> String {
 fn hashgate_passes_and_its_negative_control_goes_red() {
     let honest = graph_cli(&["hashgate", "--seeds", "4"], None);
     assert_eq!(honest.status.code(), Some(0), "{}", stdout(&honest));
-    assert!(stdout(&honest).contains("4-way equal on 4/4 seeds"));
+    assert!(stdout(&honest).contains("  topology: 4-way equal on 4/4 seeds"));
+    assert!(stdout(&honest).contains("  4-way equal on 4/4 seeds"));
+    let record = std::fs::read_to_string(gates_dir().join("hashgate.json")).expect("recorded");
+    assert!(
+        record.contains("\"pass\": true") && record.contains("\"topology\": 4"),
+        "{record}"
+    );
 
     let mutated = graph_cli(&["hashgate", "--seeds", "4"], Some("9"));
     assert_eq!(mutated.status.code(), Some(1), "{}", stdout(&mutated));
-    assert!(stdout(&mutated).contains("4-way equal on 0/4 seeds"));
+    assert!(stdout(&mutated).contains("  topology: 4-way equal on 0/4 seeds"));
+    assert!(stdout(&mutated).contains("  4-way equal on 0/4 seeds"));
+    let control = gates_dir().join("hashgate-control.json");
+    let control = std::fs::read_to_string(control).expect("control recorded");
+    assert!(control.contains("\"pass\": false"), "{control}");
     assert!(stdout(&mutated).contains("FAIL: 4 of 4 seeds diverge"));
 
     let typo = graph_cli(&["hashgate", "--seeds", "4"], Some("nine"));
@@ -65,23 +82,30 @@ fn codegen_check_finds_the_committed_files_current() {
 }
 
 #[test]
-fn hashgate_arm_prints_one_line_per_seed() {
+fn hashgate_arm_prints_one_line_per_stage_and_seed() {
     let arm = graph_cli(&["hashgate-arm", "--seeds", "3"], None);
     assert_eq!(arm.status.code(), Some(0));
     let lines: Vec<String> = stdout(&arm).lines().map(str::to_owned).collect();
-    assert_eq!(lines.len(), 3);
+    assert_eq!(lines.len(), 6);
     assert!(lines[2].starts_with("synthetic 2 ") && lines[2].len() == "synthetic 2 ".len() + 64);
+    assert!(lines[5].starts_with("topology 2 ") && lines[5].len() == "topology 2 ".len() + 64);
 }
 
 #[test]
-fn capabilities_needs_a_flag_and_checks_the_empty_phase_0_ledger() {
+fn capabilities_needs_a_flag_and_refuses_gated_rows_no_recorded_run_backs() {
     assert_eq!(graph_cli(&["capabilities"], None).status.code(), Some(2));
     let check = graph_cli(&["capabilities", "--check"], None);
-    assert_eq!(check.status.code(), Some(0));
-    assert!(stdout(&check).contains("capabilities --check: 0 rows, 0 problems"));
+    assert_eq!(check.status.code(), Some(1), "{}", stdout(&check));
+    assert!(stdout(&check).contains("capabilities --check: 8 rows, 16 problems"));
     let json = graph_cli(&["capabilities", "--json"], None);
     assert_eq!(json.status.code(), Some(0));
-    assert_eq!(stdout(&json).trim(), "[]");
+    let rows: serde_json::Value = serde_json::from_str(&stdout(&json)).expect("json");
+    assert_eq!(rows.as_array().map(Vec::len), Some(8));
+    assert!(
+        rows[0]["oracle_diff"]
+            .as_str()
+            .is_some_and(|s| s.starts_with("not backed: "))
+    );
 }
 
 #[test]

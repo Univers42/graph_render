@@ -1,0 +1,31 @@
+{
+  "about": "H1 (prompts/phase-01-topology.md step 5): hand-written id pairs for makeEdgeId. The oracle orders undirected endpoints with localeCompare (src/core/model/ids.ts, stable sort, so a 0 keeps argument order); graph-core orders them by UTF-8 bytes. `diverges` says whether the two orderings pick a different first endpoint for at least one argument order. harness/oracle-diff.mjs checks every declaration against what it observes, so a wrong line here fails the differential. Non-ASCII is written as escapes so no editor can renormalise it.",
+  "measured": {
+    "runtime": "node:22-slim",
+    "node": "v22.23.3",
+    "icu": "78.3",
+    "locale": "en-US"
+  },
+  "pairs": [
+    { "a": "a", "b": "A", "diverges": true, "why": "case: ICU puts lowercase first at the tertiary level; bytes put 'A' (0x41) before 'a' (0x61)" },
+    { "a": "Z", "b": "a", "diverges": true, "why": "the Z/a boundary: ICU sorts alphabetically across case; bytes put every uppercase letter first" },
+    { "a": "note:1", "b": "NOTE:1", "diverges": true, "why": "a realistic prefixed id pair differing only in case" },
+    { "a": "tag:x", "b": "TAG:x", "diverges": true, "why": "the tag prefix, differing only in case" },
+    { "a": "pg:db:Row", "b": "pg:db:row", "diverges": true, "why": "a record id differing only in case after two equal coordinates" },
+    { "a": "B", "b": "a", "diverges": true, "why": "uppercase before lowercase in bytes, alphabetical in ICU" },
+    { "a": "a_b", "b": "a-b", "diverges": true, "why": "punctuation: ICU ranks '_' before '-'; bytes put '-' (0x2D) before '_' (0x5F)" },
+    { "a": "é", "b": "f", "diverges": true, "why": "an accented letter sorts with its base letter in ICU and after all ASCII in bytes" },
+    { "a": "É", "b": "f", "diverges": true, "why": "as above, uppercase accented" },
+    { "a": "x", "b": "🚀", "diverges": true, "why": "ICU ranks the symbol before letters; bytes put the 4-byte sequence last" },
+    { "a": "日", "b": "🚀", "diverges": true, "why": "ICU ranks the symbol before the ideograph; bytes put the astral code point last" },
+    { "a": "Ａ", "b": "🚀", "diverges": true, "why": "UTF-16 code-unit order and UTF-8 byte order disagree here too (surrogates sort below U+FF21): the contract is UTF-8 bytes, not JavaScript's `<`" },
+    { "a": "é", "b": "é", "diverges": true, "why": "canonically equivalent (NFC vs NFD): localeCompare returns 0, so the oracle keeps argument order and A-B, B-A do not collapse; bytes order them one way" },
+    { "a": "_x", "b": "ax", "diverges": false, "why": "control: both put '_x' first" },
+    { "a": "é", "b": "e", "diverges": false, "why": "control: both put 'e' first" },
+    { "a": "10", "b": "9", "diverges": false, "why": "control: localeCompare without the numeric option compares digit by digit, as bytes do" },
+    { "a": "a-b", "b": "ab", "diverges": false, "why": "control: both put 'a-b' first" },
+    { "a": "", "b": "a", "diverges": false, "why": "control: the empty id is first in both" },
+    { "a": "a", "b": "a ", "diverges": false, "why": "control: a prefix is first in both" },
+    { "a": "a", "b": "Ａ", "diverges": false, "why": "control: both put ASCII 'a' before the fullwidth letter" }
+  ]
+}

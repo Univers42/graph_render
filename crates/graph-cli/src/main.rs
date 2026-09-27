@@ -1,5 +1,6 @@
 //! graph-cli — the instruments around graph-core: the 4-way hash gate and its negative
-//! control, the capabilities ledger, the contract codegen, and the D1 determinism probe.
+//! control, the oracle differential's fixtures, the capabilities ledger, the contract
+//! codegen, and the D1 determinism probe.
 //!
 //! Exit codes: `0` the check passed · `1` the check ran and failed (a gate went red) ·
 //! `2` the check could not run (a tool, a file or an artifact was missing).
@@ -7,7 +8,9 @@
 mod capabilities;
 mod codegen;
 mod determinism_probe;
+mod evidence;
 mod hashgate;
+mod oracle_fixtures;
 mod probe_report;
 mod runner;
 
@@ -52,6 +55,17 @@ enum Command {
         #[arg(long)]
         check: bool,
     },
+    /// Writes the oracle differential's cases and graph-core's expected outputs.
+    EmitFixtures {
+        /// Number of seeds, 0..N.
+        #[arg(long, default_value_t = 1000, value_parser = seed_count())]
+        seeds: u32,
+        /// Output directory; `target/oracle-fixtures` by default.
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
+    /// Runs `harness/oracle-diff.mjs` over the emitted fixtures (the TypeScript arm).
+    OracleDiff,
     /// D1: std against libm transcendentals, native against wasm32, bit for bit.
     DeterminismProbe {
         /// Where to write the measurement, relative to the workspace root.
@@ -74,6 +88,10 @@ fn main() -> ExitCode {
         Command::HashgateArm { seeds } => hashgate::arm(seeds),
         Command::Capabilities { json, check } => capabilities::run(json, check),
         Command::Codegen { check } => codegen::run(check),
+        Command::EmitFixtures { seeds, out } => {
+            oracle_fixtures::run(seeds, &out.unwrap_or_else(oracle_fixtures::default_out))
+        }
+        Command::OracleDiff => oracle_fixtures::diff(),
         Command::DeterminismProbe { out } => determinism_probe::run(&out),
     }
 }

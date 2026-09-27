@@ -3,7 +3,7 @@
 //! plain numbers. A buffer comes back as a pointer to `[len: u32 LE][len bytes]`,
 //! valid until the next export call.
 //!
-//! Phase 0 exports `gm_synthetic`, which proves the hash arm works. With the `probe`
+//! `gm_synthetic` (Phase 0) and `gm_topology` (Phase 1) are the hash gate's stages. With the `probe`
 //! feature it also exports `gm_probe`, which carries the D1 measurement to wasm32 so it
 //! can be compared bit for bit against the same code run natively; the shipped module
 //! is built without it, so a measurement instrument never reaches the browser.
@@ -37,6 +37,13 @@ mod exports {
     #[unsafe(no_mangle)]
     pub extern "C" fn gm_synthetic(seed: u32) -> u32 {
         publish(graph_core::synthetic_snapshot(seed, graph_core::REFERENCE_DEGREE).ok())
+    }
+
+    /// The Phase-1 topology stage for `seed` (`graph_core::topology_stage`).
+    // SAFETY: as above — `gm_topology` is the only symbol with this name.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn gm_topology(seed: u32) -> u32 {
+        publish(graph_core::topology_stage(seed, graph_core::REFERENCE_DEGREE).ok())
     }
 
     /// The D1 probe buffer (see [`crate::probe`]). Only in the `probe` build.

@@ -2,8 +2,9 @@
 // same graph_wasm.wasm the browser loads. No wasm-bindgen, no generated glue, and the
 // module must import nothing — a self-contained arm tests the real shipped binary.
 //
-//   node harness/wasm-run.mjs <graph_wasm.wasm> synthetic <seeds>
-//        prints "synthetic <seed> <sha256>" for seeds 0..N-1
+//   node harness/wasm-run.mjs <graph_wasm.wasm> hash <seeds> <stage>...
+//        prints "<stage> <seed> <sha256>" for each stage in order, seeds 0..N-1;
+//        stages: synthetic (gm_synthetic), topology (gm_topology)
 //   node harness/wasm-run.mjs <graph_wasm.wasm> probe
 //        prints the D1 probe buffer as one hex line
 //
@@ -20,8 +21,8 @@ function fail(message) {
   process.exit(2);
 }
 
-const [wasmPath, mode, count] = process.argv.slice(2);
-if (!wasmPath || !mode) fail("usage: wasm-run.mjs <wasm> synthetic <seeds> | probe");
+const [wasmPath, mode, count, ...stages] = process.argv.slice(2);
+if (!wasmPath || !mode) fail("usage: wasm-run.mjs <wasm> hash <seeds> <stage>... | probe");
 
 const module = await WebAssembly.compile(await readFile(wasmPath));
 const imports = WebAssembly.Module.imports(module);
@@ -35,13 +36,20 @@ function framed(ptr) {
   return new Uint8Array(exports.memory.buffer, ptr + 4, len).slice();
 }
 
-if (mode === "synthetic") {
+const STAGE_EXPORTS = { synthetic: "gm_synthetic", topology: "gm_topology" };
+
+if (mode === "hash") {
   const seeds = Number.parseInt(count ?? "", 10);
-  if (!Number.isInteger(seeds) || seeds < 0 || seeds > 0xffffffff) fail(`bad seed count ${count}`);
+  if (!/^[0-9]+$/.test(count ?? "") || seeds > 0xffffffff) fail(`bad seed count ${count}`);
+  if (stages.length === 0) fail("hash needs at least one stage");
   const lines = [];
-  for (let seed = 0; seed < seeds; seed += 1) {
-    const digest = createHash("sha256").update(framed(exports.gm_synthetic(seed))).digest("hex");
-    lines.push(`synthetic ${seed} ${digest}\n`);
+  for (const stage of stages) {
+    const run = exports[STAGE_EXPORTS[stage]];
+    if (!Object.hasOwn(STAGE_EXPORTS, stage) || typeof run !== "function") fail(`unknown stage ${stage}`);
+    for (let seed = 0; seed < seeds; seed += 1) {
+      const digest = createHash("sha256").update(framed(run(seed))).digest("hex");
+      lines.push(`${stage} ${seed} ${digest}\n`);
+    }
   }
   process.stdout.write(lines.join(""));
 } else if (mode === "probe") {
