@@ -1,0 +1,12 @@
+# guard-osionos baseline v1
+# UNCAPTURED
+#
+# This file is the committed snapshot scripts/guard-osionos.sh --check compares osionos
+# against. It has not been captured yet: osionos lives only on the host
+# (/home/dlesieur/Documents/osionos), and the environment that wrote the guard had no
+# copy of it. --check refuses to run against this placeholder (exit 1), so an
+# uncaptured baseline can never read as a passing guard. Capture it on the host:
+#
+#   bash scripts/guard-osionos.sh --snapshot
+#
+# and commit the result. The capture replaces every line of this file.

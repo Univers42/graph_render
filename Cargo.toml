@@ -1,0 +1,24 @@
+# graph-motor — the cargo workspace (prompt.md §3.1).
+#
+# prompt.md §3.1 lists five crates; graph-sdk-js is a JS package over graph-wasm,
+# not a Rust crate, so it is not a cargo member. The four members below are all of
+# the Rust side.
+
+[workspace]
+resolver = "2"
+members = [
+    "crates/graph-contract",
+    "crates/graph-core",
+    "crates/graph-wasm",
+    "crates/graph-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98"
+publish = false
+
+[workspace.lints.rust]
+missing_docs = "warn"
+unsafe_op_in_unsafe_fn = "deny"

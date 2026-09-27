@@ -1,0 +1,19 @@
+[package]
+name = "graph-wasm"
+description = "Thin extern \"C\" glue over graph-core for wasm32. No wasm-bindgen."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+# cdylib: the .wasm the browser and the Node harness load.
+# rlib: so graph-cli can run the very same probe code natively for the D1 comparison.
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+graph-core = { path = "../graph-core" }
+libm = "0.2"
+
+[lints]
+workspace = true

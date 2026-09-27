@@ -6,3 +6,6 @@ verify/parity/tokens.host.css
 verify/parity.png
 verify/shot-*.png
 verify/dist/
+
+# cargo build output (graph-motor workspace)
+/target

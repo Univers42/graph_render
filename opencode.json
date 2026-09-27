@@ -19,6 +19,11 @@
       "find * -exec rm*": "deny",
 
       "git push*": "deny",
+      "git -C * push*": "deny",
+      "git commit*": "deny",
+      "git switch*": "deny",
+      "git merge*": "deny",
+      "git submodule*": "deny",
       "git remote add*": "deny",
       "git reset --hard*": "deny",
       "git checkout -- *": "deny",

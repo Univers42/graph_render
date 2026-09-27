@@ -1,0 +1,21 @@
+[package]
+name = "graph-cli"
+description = "graph-motor gates: the 4-way hash gate, the capabilities ledger, the D1 probe."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+graph-contract = { path = "../graph-contract", features = ["codegen"] }
+graph-core = { path = "../graph-core" }
+graph-wasm = { path = "../graph-wasm" }
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# D7: the hash is an explicit algorithm. SHA-256 because Node's built-in crypto
+# computes the same digest for the wasm arm with nothing added to its side.
+sha2 = "0.10"
+
+[lints]
+workspace = true

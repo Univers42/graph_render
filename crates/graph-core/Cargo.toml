@@ -1,0 +1,17 @@
+[package]
+name = "graph-core"
+description = "The graph-motor: pure graph and diagram geometry. No I/O, no clock, no bindings."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+# The external dependency list is CLOSED (prompt.md §3.1): libm, indexmap, and
+# petgraph from Phase 7. Adding anything else is a stop-and-ask. graph-contract is
+# the workspace's own type crate, used with its default (dependency-free) features.
+[dependencies]
+graph-contract = { path = "../graph-contract", default-features = false }
+libm = "0.2"
+
+[lints]
+workspace = true
