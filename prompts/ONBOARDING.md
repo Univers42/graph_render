@@ -96,8 +96,17 @@ Two things that look like details and are not:
   layout needed radii they were smuggled into a side channel nothing else reads.
 - **Data structures were chosen before the code**: CSR adjacency (`offsets: Vec<u32>`, `targets: Vec<u32>`)
   for O(1) neighbour ranges and cache-linear traversal; SoA typed columns which *are* the transport
-  format; `IndexMap` + a string arena for insertion-ordered determinism. ~33 B/node and ~4.8 MB of CSR
-  at 100k/300k, against ~30 MB for adjacency-lists-of-objects.
+  format; `IndexMap` + a string arena for insertion-ordered determinism. **33 B/node** — the per-column
+  byte table is `prompt.md` §5.1, where radius is *derived* from weight rather than stored, which is why
+  it is 33 and not 37 — plus 4.8 MB of CSR at 100k/300k, against ~30 MB for adjacency-lists-of-objects.
+  The 33 B **excludes the string arena**, which is data-dependent and unbounded, so memory is always
+  reported as two numbers, never one total.
+- **The performance budget is derived, not invented** (`prompt.md` §5.2): 16.67 ms per frame at 60 FPS and
+  112 ticks to settle (`src/core/layout/forceLayout.ts:150` sets `alphaDecay(0.06)`; d3's default
+  `alphaMin` is 0.001, so `0.94^k < 0.001` → k = 112). **One tick under ~16.7 ms** buys both
+  interactivity and a sub-2-second settle. The deliverable is a **crossover N** per arm — native, wasm32,
+  TypeScript oracle — not a pass/fail, because a single verdict hides both the win at scale and the
+  likely regression at N = 220 where boundary-crossing cost dominates.
 
 ---
 
@@ -172,9 +181,12 @@ must be used:
 - **`SciGraphs`** (Python) — the *algorithmic* oracle. It is a linked directory on disk. Its spectral and
   Pivot-MDS implementations are original and carry determinism engineering worth more than the math
   (§14.3). Use it to validate algorithm *semantics*.
-- **The existing TypeScript graph engine** in this repo — the *behavioural* oracle. 14 portable pure
-  functions, plus `d3-force`, `d3-hierarchy` and `dagre-d3-es` already resolved in the lockfile. It is
-  **kept permanently** as test infrastructure and is never deleted. Byte-compare over ≥1000 seeded inputs.
+- **The existing TypeScript graph engine** in this repo — the *behavioural* oracle. **17** portable pure
+  functions (`prompt.md` §7.4 lists them; the count is the differential's coverage denominator, so treat a
+  disagreement about it as a defect, not a rounding), plus `d3-force`, `d3-hierarchy` and `dagre-d3-es`
+  already resolved in the lockfile. It is **kept permanently** as test infrastructure and is never deleted.
+  Byte-compare over ≥1000 seeded inputs. Its `ForceLayout.tick()` (`src/core/layout/forceLayout.ts:163`) is
+  also the *performance* baseline — DOM-free and manually driven, so it runs headlessly in `node:22-slim`.
 
 ### 6.5 Metamorphic testing — how to test algorithms that have no oracle
 
@@ -328,7 +340,7 @@ The aim is legible, maintainable code — enforced by tools, not by good intenti
 |---|---|---|
 | Repo, PRs, issues, **CI run status and failing logs** | **GitHub MCP** | This is the one that makes "CI must be green" actionable — you can read a failed run's logs instead of guessing. Highest priority. |
 | Local file access | **Filesystem MCP** | Only in Claude Code / desktop, not claude.ai web. |
-| Browser automation for the debug console | **Playwright MCP** / **chrome-devtools MCP** | Already configured against a CDP reverse tunnel to the host Chrome (`--cdp-endpoint http://127.0.0.1:9222`). This replaced a 3.72 GB Playwright image. |
+| Browser automation for the debug console | **Playwright MCP** / **chrome-devtools MCP** | Configured against a CDP reverse tunnel to the host Chrome (`--cdp-endpoint http://127.0.0.1:9222`). It does **not** replace the local Playwright images — the tunnel is one-way, so it can *drive* host Chrome but cannot hand it a page the VM serves. Those images stay (`prompt.md` §9). |
 | Project-specific bridge | the repo's own MCP server | **Currently failing** with `CONNECTION_CLOSED`. Fix or remove it — a broken connector that looks configured is worse than none. |
 
 Do not assume a server exists because a name sounds plausible. Verify the connector is attached before
@@ -428,7 +440,9 @@ pipeline whose negative control also passes is a pipeline that proves nothing.
 10. Coverage table mapping every changed symbol to the test that exercises it. A row reading "none" is
     tested or the symbol is deleted.
 11. An ADR written for any decision whose reason is not obvious from the code.
-12. Benchmarks re-measured; no regression, and wins under 3% reported as noise.
+12. Benchmarks re-measured **against the derived budget** (`prompt.md` §5.2: 16.67 ms/tick, 112 ticks to
+    settle), measuring **layout compute** and not rendering; no regression, and wins under 3% reported as
+    noise. Memory reported as two numbers — columns and string arena — never one total.
 
 ---
 
@@ -471,6 +485,22 @@ adversarial fixture, and hence the mandatory negative control.
 dispatches Dijkstra. Negative-weight shortest paths do not work and nothing says so. That is the failure
 mode the ledger's evidence requirement exists to prevent — and it is why no algorithm counts as done
 without its oracle differential and its measured ceiling.
+
+**14.6 A benchmark pointed at the wrong layer.** The runbook named `osionos/scripts/graph-bench.mjs` as the
+baseline that would prove the project's premise. Reading it: `:83` waits 12 s for worker layout to *finish*,
+then `:97` drags and `:112` scrolls, and `:51` reports FPS. It measures **Canvas2D pan/zoom draw cost after
+layout is already complete** — the single component a motor does not replace. Had that stood, the number
+justifying the whole project could not have moved whatever we built. The correct baseline was already on
+disk: `forceLayout.ts:163 tick()`, DOM-free and manually driven, runnable in `node:22-slim`. This was a
+worse error than any factual one on this list, because it was *structural*: the gate would have passed
+while measuring nothing relevant. **Before trusting a benchmark, name the layer it measures.**
+
+**14.7 A recommendation built on an unmeasured number.** The runbook told the reader to delete two Docker
+images to reclaim "~4 GB". `docker system df` reports `Images 5.216GB / RECLAIMABLE 4.542MB (0%)` — the
+unused images share nearly all their layers with the active ones, so the deletion frees **4.5 MB**. The
+supporting argument ("the CDP tunnel replaces them") was also unsound: the tunnel is one-way, so it can
+drive host Chrome but cannot hand it a page the VM serves. Two plausible-sounding claims, neither checked,
+producing an irreversible recommendation. **Run the command before recommending the deletion.**
 
 ---
 

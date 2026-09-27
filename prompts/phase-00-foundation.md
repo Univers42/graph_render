@@ -148,6 +148,15 @@ Three requirements, each from a defect in the scratchpad version:
    untracked set instead.
 3. **Exit 90 on any change**, distinct from 1, so a wrapper can tell "the invariant broke" from "the
    command failed".
+4. **Partition the tree into agent-owned and client-owned paths, and report them separately.** Discovered
+   by running the check: `.claude/settings.json` was rewritten mid-session by the Claude Code client — a
+   JSON round-trip that reordered every key and **dropped six `allow` rules** (`Bash(cargo clippy:*)`,
+   `Bash(cargo fmt:*)`, `Bash(eslint:*)`, `Bash(fd:*)`, `Bash(.claude/tools/*.sh:*)`,
+   `Bash(./tools/*.sh:*)`). No agent wrote it. A guard that treats every byte identically fires 90 on
+   that, blocks the run, and gets switched off within a day — the exact failure mode requirement 1 is
+   about. So `.claude/settings*.json` (and anything else the client owns) goes in a declared
+   client-owned list: changes there are **reported, never fatal**; changes anywhere else are fatal.
+   Hard-coding the tolerance without declaring it would just reintroduce a silent blind spot.
 
 Interface: `guard-osionos.sh --snapshot` writes the baseline; `--check` verifies; `-- <cmd…>` snapshots,
 runs, re-checks, and returns 90 if the invariant broke even when the command itself succeeded.

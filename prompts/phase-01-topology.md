@@ -1,4 +1,4 @@
-# Phase 1 — Topology core, and the 14 oracle functions
+# Phase 1 — Topology core, and the 17 oracle functions
 
 **Read `prompt.md` first.** Rules 0.1–0.7 apply. Phase 0's gate must be green, **including its negative
 control going red**, before starting.
@@ -6,7 +6,9 @@ control going red**, before starting.
 ## Goal
 
 Build the topology layer — dense indices, string arena, three CSR adjacencies, SoA attribute columns —
-and port the 14 portable pure functions from the TypeScript oracle, proving byte-equality against it.
+and port the **17** portable pure functions from the TypeScript oracle, proving byte-equality against it.
+(The count is the differential's coverage denominator, so an undercount is a silently untested function.
+`prompt.md` §7.4 lists all 17 — an earlier revision said 14 and then listed 15.)
 
 No layout in this phase. No geometry. Topology and attributes only.
 

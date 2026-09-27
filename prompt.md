@@ -17,9 +17,16 @@ which references are not on disk), then the phase file you are on.
 ## 0. Rules that override everything below
 
 **0.1 — `/home/dlesieur/Documents/osionos` is READ ONLY.** Read it freely; never create, modify or
-delete a single byte in it. `scratchpad/delegate.sh` diffs `git status --porcelain` before and after
-every run and exits 90 if anything changed. There is no task in this project that requires writing to
-osionos.
+delete a single byte in it. There is no task in this project that requires writing to osionos.
+
+Enforced by **`scripts/guard-osionos.sh`** — in *this* repo, because a guard written into the tree it
+protects would violate the rule on its first commit. **Phase 0 creates it** (see
+`prompts/phase-00-foundation.md` step 9); until then the rule is discipline only, which is exactly why it
+gets an owner in the first phase. Two things it must get right, both learned from the throwaway version
+it replaces: osionos is **already dirty**, so it compares against a committed baseline rather than
+demanding a clean tree; and it **hashes contents** rather than reading `git status --porcelain`, which
+cannot see a second edit to an already-dirty file — the blind spot that would cover nearly every file at
+risk here. Exit code **90** means the invariant broke, distinct from 1 meaning the command failed.
 
 **0.2 — Docker only. Nothing is installed on the host.** There is no host `node`, no host `cargo`, no
 host `rustup`. Every command runs in a container. If you catch yourself typing a bare `cargo` or `npm`,
@@ -80,8 +87,9 @@ The existing TypeScript gate is unchanged and must stay green:
 docker build -t ge-check . && docker run --rm ge-check
 ```
 
-**`ge-rig` and `ge-parity-rig` (3.72 GB each, playwright-based) are to be deleted, not rebuilt.** The
-CDP reverse tunnel to host Chrome replaces them. See §9.
+**`ge-rig` and `ge-parity-rig` are kept as-is: not deleted, not rebuilt, not extended.** An earlier
+revision of this file said delete them for ~4 GB; measured, that frees 4.5 MB (0%). See §9 for the
+measurement and for why they are a *documented* exception to rule 0.3 rather than a contradiction of it.
 
 ---
 
@@ -512,7 +520,7 @@ gate is not green.
 | # | File | Delivers |
 |---|---|---|
 | 0 | `prompts/phase-00-foundation.md` | image, workspace, contract types, codegen, hash harness, **negative control**, ledger, the D1 measurement |
-| 1 | `prompts/phase-01-topology.md` | dense index ↔ stable id, arena, 3× CSR, SoA columns, the 14 oracle functions, **H1 fixed to byte order** |
+| 1 | `prompts/phase-01-topology.md` | dense index ↔ stable id, arena, 3× CSR, SoA columns, the **17** oracle functions, **H1 fixed to byte order** |
 | 2 | `prompts/phase-02-contract-registry-grid.md` | geometry vocabulary, stage/layout registry, **grid layout end-to-end**, JSON↔binary round-trip |
 | 3 | `prompts/phase-03-deterministic-layouts.md` | tidy tree, squarified treemap, circular/radial, **circle packing** (`Circle` geometry) |
 | 4 | `prompts/phase-04-wasm-sdk.md` | columnar zero-copy transport, the JS SDK. **The motor becomes usable by any app here.** |
