@@ -59,8 +59,9 @@ including the NFC/NFD case where the oracle does not.
 
 Any other difference is unexplained and fails the run. The harness also checks each
 adversarial pair's `diverges` flag against what it observed. It fails if it observes
-fewer than 3 H1 divergences. Result at 1000 seeds: 1080 `makeEdgeId` cases, 930 byte-equal,
-150 declared H1 divergences over 148 distinct pairs, 0 unexplained.
+fewer than 3 H1 divergences. Result at 1000 seeds, on the final Phase 1 tree: 1080
+`makeEdgeId` cases, 931 byte-equal, 149 declared H1 divergences over 148 distinct pairs,
+0 unexplained.
 
 ## Blast radius — re-verified by grep, not copied
 

@@ -27,16 +27,29 @@ deliberate deviation from the oracle.
 ## How the differential holds us to it
 
 This is not a function the oracle exports. It is the body of
-`LayoutController.rebuild`. So `harness/oracle-diff.mjs` runs a **transcription** of
-lines 76-87 and names it `layoutGroups`. The transcription is refused (exit 2) unless
-each of its lines is still in `layoutBridge.ts`, verbatim.
+`LayoutController.rebuild`. So `harness/oracle-h9.mjs` holds a **transcription** of
+lines 76-87, and `harness/oracle-diff.mjs` runs it under the name `layoutGroups`:
 
-The cases come from `graph-cli emit-fixtures`: every 10th seed has `1 + seed % 400`
-sources over as many nodes, plus 5 repeats. Seeds 260-390 therefore cross 255 groups.
+- it runs over the model `rebuild` receives: `indexModel`'s de-duplicated nodes, with
+  `idList` set to their ids, as `rebuild` sets it;
+- it is refused (exit 2) unless its twelve lines are still one contiguous block of
+  `layoutBridge.ts`, verbatim.
 
-A mismatch is accepted only where graph-core's group is ≥ 256 and the oracle's is that
-value `& 0xff`. Any other difference fails the run. At 1000 seeds there were 100 cases:
-72 equal, 28 declared H9 divergences (every case that crossed 255), and 0 unexplained.
+The cases come from `graph-cli emit-fixtures`. Every 10th seed has `1 + seed % 400`
+sources over as many nodes, plus 5 repeats, so seeds 260-390 cross 255 groups. A last
+node repeats the first id under a new source. `indexModel` drops it, so an arm that
+grouped the raw nodes would see one group too many and fail.
+
+The harness also runs the same loop with neither the `Uint8Array` nor the mask
+(`widenedGroups`). A mismatch is accepted as H9 only if graph-core's line is exactly
+those widened groups **and** the oracle's line is exactly them `& 0xff`. Any other
+difference fails the run. That includes a wrong group that happens to agree in its low
+byte (300 where 44 is right). The cli test corrupts one group by +256 and expects red.
+The first version of this rule accepted any graph-core group ≥ 256 whose low byte
+matched the oracle's, and it passed that corruption. The review caught it.
+
+Result at 1000 seeds, on the final Phase 1 tree: 100 cases, 72 equal, 28 declared H9
+divergences (every case that crossed 255 groups), 0 unexplained.
 
 ## What it does not change
 
