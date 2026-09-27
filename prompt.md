@@ -69,6 +69,11 @@ docker run --rm -v "$PWD:/w" ge-rust cargo fmt --check
 docker run --rm -v "$PWD:/w" -w /w node:22-slim npm run oracle:diff
 ```
 
+**`oracle:diff` does not exist yet.** `package.json` currently defines only `typecheck`, `test`, `lint`
+and `check`. Phase 0 adds the script as a stub and Phase 1 implements it — so treat it as a command you
+*create*, not one you inherit. Every gate listing below that invokes it is valid only from the phase that
+creates it onward.
+
 The existing TypeScript gate is unchanged and must stay green:
 
 ```sh
@@ -113,8 +118,8 @@ why this port is feasible: the topology layer generalizes nearly for free.
 |---|---|---|---|
 | H1 | `makeEdgeId` sorts undirected endpoints with **`localeCompare`** | `ids.ts:87` | **Measured: 3 of 7 adversarial pairs diverge from byte order** (§6.3). Different sort → different edge id → different dedupe → different graph. |
 | H2 | JS `Map` iteration is insertion-ordered; `indexModel` de-dupes first-wins in that order | `model.ts:35,41-42` | a `HashMap` port is non-deterministic → **D4** |
-| H3 | `weight = clamp(0.2 + 0.8·log1p(deg)/log1p(8), 0.2, 1)` | `weights.ts:12,14` | `Math.log1p` vs Rust `ln_1p` may differ by 1 ULP → **D1**. Note degree ≥ 8 clamps to exactly `1.0` (`weights.ts:20-24`), so only **8 distinct values** are reachable — a far smaller surface than it looks. |
-| H4 | `hashString` uses `Math.imul` then `Math.abs` | `model/value.ts` | needs `wrapping_mul` on `i32`; `Math.abs(i32::MIN)` overflows |
+| H3 | `weight = clamp(0.2 + 0.8·log1p(deg)/log1p(8), 0.2, 1)` | `weights.ts:12,24` (`REFERENCE_DEGREE = 8`) | `Math.log1p` vs Rust `ln_1p` may differ by 1 ULP → **D1**. **Exactly 9 distinct weights are reachable**: `deg=0 → 0.2`, `deg=1..7 → 7 intermediate values`, and `deg=8 → exactly 1.0` *by the formula* (`0.2 + 0.8·1`), with `deg>8` clamped to the same `1.0`. Enumerate **9**, not 8 — this count scopes the bit-comparison test, so an off-by-one leaves a value untested. |
+| H4 | `hashString` uses `Math.imul` then `Math.abs` | **`src/core/math.ts:11`** | needs `wrapping_mul` on `i32`; `Math.abs(i32::MIN)` overflows. (An earlier revision cited `model/value.ts`, which does not exist — see §14 in `prompts/ONBOARDING.md`.) |
 | H5 | Node-id grammar cannot represent `:` in `source`/`databaseId` | `ids.ts:61-66` (its own PONYTAIL) | "any data source" makes this **worse** — arbitrary sources contain `:` |
 | H6 | `groupValue` depends on `Object.values()` ordering | `deriveGraph.ts:92-98` | non-deterministic across JSON reserializations; declared roles fix it |
 | H7 | `legend.ts` is **not** pure — imports `databaseColor`, emits OKLCH | `legend.ts:8` | the one file in `core/model/` that must not move wholesale: **counts to Rust, colour stays in TS** |
@@ -345,10 +350,17 @@ stored-data blast radius.
 
 ### 7.4 Secondary — differential against the TypeScript oracle
 
-These 14 portable pure exports from `src/index.ts` must match byte-for-byte over ≥1000 seeded inputs:
-`indexModel`, `nodesEqual`, `makeRecordNodeId`, `makeNoteNodeId`, `makeTagNodeId`, `makeEdgeId`,
-`parseNodeId`, `applyDegreeWeights`, `edgeKindFromType`, `diffGraph`, `isEmptyPatch`, `edgesEqual`,
-`deriveLegend`, `neighborhood`, `neighborhoodEdges`.
+These **17** portable pure exports from `src/index.ts` must match byte-for-byte over ≥1000 seeded inputs:
+`indexModel`, `emptyModel`, `nodesEqual`, `makeRecordNodeId`, `makeNoteNodeId`, `makeTagNodeId`,
+`makeEdgeId`, `parseNodeId`, `applyDegreeWeights`, `edgeKindFromType`, `diffGraph`, `isEmptyPatch`,
+`edgesEqual`, `deriveLegend`, `neighborhood`, `neighborhoodEdges`, `buildSyntheticModel`.
+
+**`buildSyntheticModel` is on this list deliberately, and it is the subtle one.** It generates the
+benchmark and differential inputs, so if a Rust reimplementation of it drifts from the TypeScript, the two
+arms compare *different graphs* and the differential reports green while proving nothing. Two defences,
+both required: it is byte-compared like any other function, **and** fixtures are treated as **data, not
+code** — `graph-cli emit-fixtures` writes them once and *both* arms load the same file, so there is no
+second generator to drift.
 
 Each layout additionally differentials against its JS oracle. **Verified present in the lockfile, not
 assumed:** `mermaid@11.15.0` transitively resolves `d3-hierarchy@3.1.2` (tree/cluster/treemap/pack/
@@ -399,15 +411,36 @@ and we hold the same standard.
 
 ---
 
-## 9. Docker — build one, delete four gigabytes
+## 9. Docker — build one, delete nothing
 
 - **Build:** `docker/rust.Dockerfile` — `debian:trixie-slim` + rustup `--profile minimal`, pinned
   version, `wasm32-unknown-unknown` target, `CARGO_HOME`/`RUSTUP_HOME` under `/opt` so a mounted `/w`
   cannot shadow them. Keep the header-comment convention of the existing `./Dockerfile`.
-- **Delete, do not rebuild:** `ge-rig` and `ge-parity-rig`, 3.72 GB each, playwright-based. The CDP
-  reverse tunnel to host Chrome (working, Chrome 149) replaces them. Ladder rung 1 — *delete instead*.
 - **Reuse:** `node:22-slim`, already the base of the existing `Dockerfile`, for the oracle and the wasm
   hash arm.
+- **Do NOT delete `ge-rig` / `ge-parity-rig`.** An earlier revision of this file told you to, claiming it
+  would reclaim ~4 GB. **That was wrong, measured:**
+
+  ```
+  docker system df
+  TYPE      TOTAL  ACTIVE  SIZE      RECLAIMABLE
+  Images    18     2       5.216GB   4.542MB (0%)
+  ```
+
+  The 16 unused images share nearly all their layers with the 2 active ones, so deleting them frees
+  **4.5 MB**, not 4 GB. The only real slack is **271 MB of reclaimable build cache**
+  (`docker builder prune`), on a disk with 19 GB free. There is no space problem to solve.
+
+  The deletion was also justified by the claim that "the CDP reverse tunnel replaces them." That reasoning
+  is unsound: the tunnel is **one-way**. It forwards VM→host so the VM can *drive* host Chrome's CDP, but
+  the VM is NAT'd (user-mode QEMU, `10.0.2.15`), so host Chrome **cannot load a page the VM serves** without
+  an explicit `hostfwd`. Driving a browser and delivering it a page are different capabilities.
+
+- **A documented §0.3 exception.** `ge-parity-rig` is built `FROM mcr.microsoft.com/playwright`, the exact
+  base §0.3 bans, and §7.5 keeps the pixel rig as a migration safety net — so §0.3, §7.5 and the old §9
+  were mutually contradictory. Resolution: **§0.3 governs images we build; this pre-existing rig is
+  grandfathered, not rebuilt, and not extended.** If it ever needs rebuilding, it gets a slim base or it
+  goes. Recording the exception is the point — an unstated exception is how a rule quietly dies.
 
 ---
 
