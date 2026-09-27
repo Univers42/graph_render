@@ -30,8 +30,9 @@ Two honesty requirements, both of which must survive into the report:
 ```
 crates/graph-core/src/scale/{mod.rs,lod.rs,simplify.rs,adaptive.rs}
 crates/graph-cli/src/bench.rs
+harness/oracle-tick-bench.mjs                                 (drives forceLayout.ts:163 tick() headlessly)
 fixtures/scale/{n220.json,n10k.json,n100k.json,n1m.json}      (generated, seeded, committed as generators)
-docs/measurements/phase09-{bench,lod,ceilings}.md
+docs/measurements/phase09-{bench,crossover,lod,ceilings}.md
 BENCHMARKS.md                                                  (the published summary)
 ```
 
@@ -51,8 +52,17 @@ crates/graph-cli/src/{capabilities.rs,main.rs}
   >60 FPS to ~200k nodes and >20 FPS at 10⁶; after Geometry-Nodes setup, interactivity holds to ~500k
   (`SciGraphs/docs/guide/architecture.qmd:48-51`, `README.md:97`). Its UI warns above 1,000/10,000 nodes
   for Spring layouts (`docs/panels/scigraphs/layout.qmd:7-10`).
-- The existing TypeScript baseline: `osionos/scripts/graph-bench.mjs` targets ≥30 FPS at 10k. Read it for
-  methodology; **do not modify it** (osionos is read-only).
+- **The TypeScript baseline is `src/core/layout/forceLayout.ts:163` `tick()`, in this repo.** Its header
+  states it is *"DOM-free … driven by manual `tick()` calls … never touches React or the canvas"*, and the
+  constructor `.stop()`s the simulation (`:150`), so it runs in `node:22-slim` in a plain loop — no page,
+  no worker, no renderer. Same d3-force, same parameters, same graph as the Rust arm.
+- **`osionos/scripts/graph-bench.mjs` is NOT the baseline, and this is a correction.** An earlier revision
+  of this file named it. Read what it does: `:83` `page.waitForTimeout(12000)` waits for worker layout to
+  *finish*, then `:97 page.mouse.down()` drags and `:112 page.mouse.wheel()` zooms, and `:51` reports
+  `fps`. It measures **Canvas2D pan/zoom draw cost after layout has already completed** — the one component
+  this motor does not replace. Gating the project's justification on it would yield a number that cannot
+  move whatever we build. (It is also in osionos, which is read-only; it is not modified, it is simply not
+  used.)
 
 ## Steps
 
@@ -103,11 +113,17 @@ For each gated layout, at N = **220, 10k, 100k, 1M**:
 | Metric | Notes |
 |---|---|
 | Build time (ingest → indexed topology) | the O(n+m) claim, checked |
-| Layout time (one-shot) or tick time (iterative) | the headline number |
-| Peak memory | against the SoA/CSR budgets in `prompt.md` §5 — ~33 B/node and ~4.8 MB for 3 CSRs at 100k/300k |
+| Layout time (one-shot) or tick time (iterative) | the headline number, against the **16.67 ms** frame budget (`prompt.md` §5.2) |
+| Settle time | tick time × **112** ticks (`alphaDecay(0.06)` vs d3's default `alphaMin` 0.001) |
+| Peak memory — **two numbers, never one** | columns against the 33 B/node table (`prompt.md` §5.1) **and** the string arena separately; the arena is data-dependent and unbounded, so a single total hides which half grew |
 | Snapshot bytes (binary and JSON) | the transport cost |
 | WASM vs native, same N | the boundary cost, measured not assumed |
 | Rust vs the TypeScript oracle, same N | **the project's justification** |
+
+**The headline deliverable is a crossover N, not a pass/fail.** For each of the three arms — native,
+wasm32, TypeScript oracle — report the largest N whose tick still fits 16.67 ms. The ratio between those
+three numbers *is* the project's justification, stated in the units the premise was stated in. A single
+verdict would hide both the win at scale and the regression at N=220.
 
 Report medians over repeated runs with the run count stated. A single timing is noise. Under 3% is noise
 (`benchmarker.md`) — do not report a 2% win as a win.
@@ -141,6 +157,14 @@ docker run --rm -v "$PWD:/w" ge-rust cargo test -p graph-core simplify_reversibl
 # the campaign
 docker run --rm -v "$PWD:/w" ge-rust cargo run -p graph-cli -- bench --n 220,10000,100000,1000000 \
   --repeat 5 --out docs/measurements/phase09-bench.md                                          # 0
+
+# the crossover N per arm, against the 16.67 ms frame budget
+docker run --rm -v "$PWD:/w" ge-rust cargo run -p graph-cli -- bench --crossover --budget-ms 16.67 \
+  --out docs/measurements/phase09-crossover.md                                                 # 0
+
+# the TypeScript oracle arm: layout COMPUTE, no browser, no renderer
+docker run --rm -v "$PWD:/w" -w /w node:22-slim node harness/oracle-tick-bench.mjs \
+  --n 220,10000,100000 --repeat 5                                                              # 0
 
 # every ledger ceiling is now measured, not reasoned
 docker run --rm -v "$PWD:/w" ge-rust cargo run -p graph-cli -- capabilities --check --ceilings-measured  # 0

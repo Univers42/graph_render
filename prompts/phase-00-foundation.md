@@ -30,12 +30,15 @@ crates/graph-wasm/{Cargo.toml,src/lib.rs}          (one numeric export, to prove
 crates/graph-cli/{Cargo.toml,src/main.rs,src/hashgate.rs,src/capabilities.rs,src/determinism_probe.rs}
 harness/wasm-run.mjs             (the Node-side wasm arm)
 docs/measurements/d1-ln1p.md     (the D1 measurement, committed)
+scripts/guard-osionos.sh         (the read-only invariant, with an owner at last)
+scripts/osionos-baseline.txt     (the committed dirty-state snapshot the guard compares against)
 .gitignore                       (add /target)
 ```
 
 **MODIFY — exactly these:**
 ```
 package.json                     (add the `oracle:diff` script stub only)
+opencode.json                    (close the deny-list prefix gap — step 9)
 ```
 
 **FORBIDDEN in this phase:** any file under `src/`, `tests/`, `verify/`. Any layout algorithm. Any
@@ -122,6 +125,38 @@ bit patterns per function per target pair, and the conclusion. If `std` and `lib
 say so — that is a valid and useful result, and the `libm` constraint stays as insurance with the
 measurement as its recorded reason.
 
+### 9. `scripts/guard-osionos.sh` — rule 0.1 finally gets an enforcement owner
+
+Rule 0.1 says osionos is read-only. Until now nothing enforced it: the wrapper that checked the invariant
+existed only in a session scratchpad, and **a rule whose only enforcement lives in a temp directory
+expires with the session.** Phase 0 promotes it.
+
+It lives in **graph-engine**, not osionos — writing the guard into the tree it protects would violate the
+rule on its first commit.
+
+Three requirements, each from a defect in the scratchpad version:
+
+1. **Compare against a committed baseline, not against "clean".** osionos is *already dirty*: a staged
+   `.claude`, plus untracked `AGENTS.md`, `opencode.json`, `prompt_opencode*.md`, `.opencode/`,
+   `.playwright-mcp/`. A guard that demands a clean tree fires on its first run and gets switched off,
+   which is worse than no guard. Capture the baseline once into `scripts/osionos-baseline.txt` and diff
+   against that.
+2. **Hash contents; do not read status codes.** The scratchpad version diffed `git status --porcelain`,
+   which is **blind to further edits of an already-dirty file** — a file listed `??` or ` M` keeps the
+   same two characters no matter how its contents change. Since every interesting file in osionos is
+   already dirty, that blind spot covers exactly the files most at risk. Hash the tracked **and**
+   untracked set instead.
+3. **Exit 90 on any change**, distinct from 1, so a wrapper can tell "the invariant broke" from "the
+   command failed".
+
+Interface: `guard-osionos.sh --snapshot` writes the baseline; `--check` verifies; `-- <cmd…>` snapshots,
+runs, re-checks, and returns 90 if the invariant broke even when the command itself succeeded.
+
+**Also close the deny-list prefix gap in `opencode.json`.** Its patterns are prefix-matched, so
+`git -C <path> push` slips straight past a `git push*` rule. Add `git commit`, `git -C * push`,
+`git switch`, `git merge`, `git submodule*`. This matters because `"ask"` was *measured* to execute
+silently in headless runs, so the deny-list is the only real barrier.
+
 ## Gate — every command, with its expected exit code
 
 ```sh
@@ -154,7 +189,19 @@ docker run --rm -v "$PWD:/w" ge-rust cargo run -p graph-cli -- determinism-probe
 
 # the existing TypeScript gate is untouched and still green
 docker build -t ge-check . && docker run --rm ge-check                                   # 0
+
+# the osionos read-only guard works in BOTH directions — a guard that cannot fire is not a guard
+bash scripts/guard-osionos.sh --snapshot                                                 # 0
+bash scripts/guard-osionos.sh --check                                                    # 0
+#   then, as a deliberate self-test: append a byte to an ALREADY-DIRTY osionos file
+#   (this is the case `git status --porcelain` cannot see), re-check, and REVERT it.
+#   --check must return 90 while the byte is present.                                     # 90
+bash scripts/guard-osionos.sh --check                                                    # 0  (after revert)
 ```
+
+The guard self-test is the one command in this phase that must be run **and then undone**. Report the
+exact file touched and the diff proving it was reverted — a self-test that leaves a mark has broken the
+invariant it was testing.
 
 Also report the final `ge-rust` image size, read from `docker images`, not estimated.
 

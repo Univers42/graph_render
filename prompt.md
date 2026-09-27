@@ -245,7 +245,7 @@ float `Display` emits the shortest decimal that round-trips (≤9 significant di
 | Concern | Structure | Why | At 100k nodes / 300k edges |
 |---|---|---|---|
 | Adjacency (out, in, **and** parent→child) | **CSR**: `offsets: Vec<u32>` (n+1), `targets: Vec<u32>` (m) | O(1) neighbour range, cache-linear traversal; every layout family needs neighbour iteration | ~1.6 MB per direction; 3 CSRs ≈ **4.8 MB** vs ~30 MB for adjacency-lists-of-objects |
-| Attributes | **SoA typed columns** by dense index | cache-friendly, no per-node header, **and it is already the transport format** | ~33 B/node vs 200–400 B for a JS object graph |
+| Attributes | **SoA typed columns** by dense index | cache-friendly, no per-node header, **and it is already the transport format** | **33 B/node** (§5.1) vs 200–400 B for a JS object graph |
 | Identity | `IndexMap<interned, u32>` + string arena | insertion-ordered → deterministic iteration (**H2**) | — |
 | Strings | one `Vec<u8>` arena + `(offset,len)`, interned | labels dominate graph memory | — |
 | Spatial (Barnes-Hut, hit-test, grid routing) | quadtree / uniform grid over the dense arrays, into a **reused** buffer | no per-tick allocation in the layout loop | — |
@@ -261,6 +261,66 @@ dense symmetric eigendecomposition **O(n³)**, which is why `_DENSE_EIG_LIMIT = 
 same applies to the Python→Rust claim overall: the real win is removing the interpreter from the
 iteration loop, and it must be **measured**, never asserted. No O-notation argument substitutes for a
 number.
+
+### 5.1 The memory budget, with its arithmetic
+
+Phase 9 gates peak memory against this number, so it has to be re-derivable. A budget you cannot
+re-derive is not a budget.
+
+| Column | Type | Bytes |
+|---|---|---|
+| `x`, `y` | `f32` ×2 | 8 |
+| `weight` | `f32` | 4 |
+| `degree` | `u32` | 4 |
+| `component` | `u32` | 4 |
+| `group` (interned id) | `u32` | 4 |
+| `label` slice into the arena | `(u32, u32)` | 8 |
+| `kind` | `u8` | 1 |
+| **total** | | **33 B/node** |
+
+**Radius is derived from `weight` at render time, not stored** — that is why the total is 33 and not 37,
+and it is the one row a reader would otherwise reconstruct wrongly. At 100k nodes: **3.3 MB** of columns
++ **4.8 MB** of CSR = **8.1 MB** of topology and attributes.
+
+**What the 33 B excludes, and it matters:** the string arena itself. A label is a `(offset, len)` slice
+here; the bytes live in the arena and are **data-dependent and unbounded** — 100k nodes with 40-char
+labels adds ~4 MB, more than everything above it combined. So Phase 9 reports **two** numbers, columns
+and arena, never one total. A single figure would make a fixed cost look variable and hide which half
+grew.
+
+### 5.2 The performance budget — derived from the frame budget
+
+`scale_ceiling` in the ledger is a **node count**: it says where an algorithm stops being usable, never
+how fast it is at any N. So without this section the premise *"Python is too slow, Rust will be fast
+enough"* has no target it can be checked against, and Phase 9 would gate against nothing.
+
+| Budget | Number | Derivation |
+|---|---|---|
+| One frame | **16.67 ms** | 60 FPS |
+| Ticks to settle | **112** | `src/core/layout/forceLayout.ts:150` sets `alphaDecay(0.06)`; d3's default `alphaMin` is `0.001`, so `0.94^k < 0.001` → k = 112 |
+| Tick budget, 60 FPS interactive | **≤ 16.67 ms** | one tick per frame |
+| Tick budget, ≤ 2 s settle | **≤ 17.9 ms** | 2000 / 112 |
+
+The two budgets landing on the same figure is a coincidence, but a usable one: **one tick under ~16.7 ms
+buys both interactivity and a sub-2-second settle.** That is the single number to hold.
+
+**The deliverable is a crossover N, not a pass/fail.** For each arm — native, wasm32, and the TypeScript
+oracle — report the largest N whose tick fits 16.67 ms. Three numbers, and the ratio between them *is*
+the project's justification, expressed in the units the premise was stated in. A single pass/fail would
+hide both the win and the regression at small N. Per `minimalism-ladder.md`, under 3% is noise and is
+reported as noise.
+
+**Measure the oracle's compute, not its rendering.** The baseline is
+`src/core/layout/forceLayout.ts:163` `tick()`. Its own header states it is *"DOM-free … driven by manual
+`tick()` calls … never touches React or the canvas"*, and the constructor `.stop()`s the simulation
+(`:150`), so it can be driven from `node:22-slim` in a plain loop — no page, no worker, no renderer.
+Same d3-force, same parameters, same graph: an apples-to-apples compute comparison.
+
+**Do not use `osionos/scripts/graph-bench.mjs`.** An earlier revision named it as the baseline. It waits
+`page.waitForTimeout(12000)` for worker layout to *finish* (`:83`), then drags (`:97`) and scrolls
+(`:112`) and reports `fps` (`:51`). That is **Canvas2D pan/zoom draw cost, measured after layout is
+already done** — the one component a motor does not replace. Gating the project's justification on it
+would produce a number that could not move whatever we built.
 
 ---
 
