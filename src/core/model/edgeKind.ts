@@ -19,6 +19,24 @@ import type { EdgeKind } from "../types";
  * contract (`note_link`, `tagged`, and `<field-name>` references). Unknown types —
  * including reference edges named after a field — fall through to `relation`,
  * our default structural edge.
+ *
+ * PONYTAIL: this is a heuristic, not a parser, and it is exact in the wrong places.
+ *
+ *  - The hierarchy test is three exact matches plus a `"hierarchy"` substring. It
+ *    is NOT a `"parent"` substring, so `"parent_tag"` classifies as `tag`, not
+ *    `hierarchy`. Pinned by a test so a future "widening" is deliberate.
+ *  - Three of the five branches match on a *substring anywhere* in the type. A
+ *    field named `"contested"` contains `"test"`… and `"tags_in_review"` matches
+ *    `tag` before any later branch could claim it. Branch order is therefore
+ *    load-bearing and not obviously reorderable.
+ *  - **Unknown types degrade silently to `relation`.** There is no error, no
+ *    warning, and no log. A renamed or newly invented wire type renders as a
+ *    plain structural edge that looks intentional, so the misclassification is
+ *    undetectable from the output. That is the same failure shape as the
+ *    unresolved-theme-token problem in README § Limitations: a wrong-but-plausible
+ *    render with nothing to detect it.
+ *  - Extracted verbatim from the host, whose behaviour this preserves. Any
+ *    tightening is a behaviour change for existing hosts and is not a bug fix.
  */
 export function edgeKindFromType(type: string | undefined): EdgeKind {
   if (!type) return "relation";

@@ -9,17 +9,45 @@
 
 ## 1. What was copied, and what was rewritten
 
-`src/` is a **byte-for-byte copy** — 71 files, 5,819 LOC (57 in `core/`, 12 in `react/`). No file
-under `src/` was edited, so the §4.1 and §4.7 "identical copy" gates hold:
+> **This section describes commit `751a389` — the state the reviewer signed off, and the
+> state the runbook's §4.1 "identical copy" gate was applied to. It is NOT the state of
+> `HEAD`.** Two later commits changed `src/` substantively (see §10). An earlier revision of
+> this report kept claiming byte-for-byte identity after those commits; that claim was false
+> and is corrected here rather than quietly deleted, because the diff is the evidence.
+
+At `751a389`, `src/` was a **byte-for-byte copy** — 71 files, 5,819 LOC (57 in `core/`, 12 in
+`react/`), no file edited, so the §4.1 and §4.7 gates held:
 
 ```
 $ diff -rq /home/dlesieur/Documents/osionos/packages/graph-engine/src src
 (no output)
 ```
 
+**At `HEAD` that command prints 9 lines.** The package is no longer an identical copy, by design
+and with intent:
+
+```
+$ diff -rq /home/dlesieur/Documents/osionos/packages/graph-engine/src src
+Only in src/core/model: diff.ts
+Only in src/core/model: edgeKind.ts
+Only in src/core/model: synthetic.ts
+Files src/core/model/ids.ts … differ
+Files src/core/model/model.ts … differ
+Files src/core/model/neighborhood.ts … differ
+Files src/core/render/background.ts … differ
+Files src/index.ts … differ
+Files src/styles/graph.css … differ
+```
+
+`src/` is 74 files at `HEAD`. Two of the six modifications are **bug fixes the package was
+missing and the host's hand-mirrored copies already had** (`nodesEqual` not comparing `icon`;
+`neighborhood` returning a phantom singleton for a missing id) — see §10. The other four are the
+newly extracted primitives, a comment correction, and three stale CSS fallback values.
+
 | File | Verbatim? | What changed |
 |---|---|---|
-| `src/**` (71 files) | **byte-for-byte** | nothing |
+| `src/**` at `751a389` (71 files) | **byte-for-byte** | nothing |
+| `src/**` at `HEAD` (74 files) | **no longer identical** | §10 — 3 files added, 6 modified, 442 insertions |
 | `tests/graph-engine.test.ts` | copied, 2 edits | 18 import paths rewritten (`../../packages/graph-engine/src/` → `../src/`); 2 lines replaced by 6 to fix a real type error (§4) |
 | `package.json` | rewritten | new `exports`, `peerDependenciesMeta`, `devDependencies`, `engines`, scripts |
 | `tsconfig.json` | rewritten | was 3 lines (`extends ../../tsconfig.json`) whose parent does not exist standalone; now self-contained |
@@ -55,10 +83,16 @@ $ docker build -t graph-engine-check . && docker run --rm graph-engine-check
 > tsc -p tsconfig.json --noEmit          # exit 0
 > eslint src --max-warnings=0           # exit 0
 > node --test --experimental-strip-types --experimental-loader ./tests/ts-extension-loader.mjs tests/*.test.ts
-# tests 17
+# tests 17        # at 751a389
 # pass 17
 # fail 0
                                                           GATE_EXIT=0
+
+$ docker build -t ge-final . && docker run --rm ge-final   # at HEAD
+# tests 25        # 8 added in §10
+# pass 25
+# fail 0
+GATE_EXIT=0
 ```
 
 Four failures surfaced on the way. **Every one was config/version drift, not a defect in the engine.**
@@ -338,7 +372,7 @@ copy of `packages/graph-engine` before the `rm -rf` so you can diff old-vs-new.
 | Requirement | Status |
 |---|---|
 | Standalone repo at `/home/dlesieur/Documents/graph-engine` | done |
-| Own `typecheck` / `lint` / `test` green, real runner (`node --test`) | done — 17/17, in a clean container |
+| Own `typecheck` / `lint` / `test` green, real runner (`node --test`) | done — **25/25** at `HEAD` (17/17 at sign-off), in a clean container |
 | No import reaching outside itself | done — no `@/…`, no `../../` escapes out of the package; the one `new URL(…, import.meta.url)` worker is portable and documented |
 | States its one real limitation instead of overclaiming | done — `README.md` § Limitations, and §5 above |
 | osionos has zero modified files | done — status byte-identical to the Phase 0 baseline |
@@ -374,11 +408,14 @@ $ docker build -t graph-engine-check . && docker run --rm graph-engine-check
 > tsc -p tsconfig.json --noEmit
 > eslint src --max-warnings=0
 > node --test --experimental-strip-types --experimental-loader ./tests/ts-extension-loader.mjs tests/*.test.ts
-# tests 17
+# tests 17        # as reviewed at 751a389
 # pass 17
 # fail 0
 GATE_EXIT=0
 ```
+
+Re-run at `HEAD` (after the §10 changes): **25/25, `GATE_EXIT=0`**. The 8 added tests are listed
+in §10.
 
 Independently confirmed by the reviewer: `src/` byte-identical (71 files), the host untouched (no
 `packages/` or `tests/` file modified — host `tsconfig.json` is still the 3-line `extends`, host
@@ -388,3 +425,104 @@ the React firewall load-bearing (a `--stdin` probe importing `react` into `src/c
 exits 1).
 
 **Net:** one blocker found and fixed before commit. The extraction was not signed off unmodified.
+
+---
+
+## 10. Changes made AFTER reviewer sign-off — unreviewed at the time
+
+`751a389` is what §5.2's reviewer examined. Two later commits changed `src/` and `tests/`
+substantively. **That work had no second-party review when it landed**, and an earlier revision
+of this report continued to assert byte-for-byte identity and a 17-test suite, which was false at
+`HEAD`. Both claims are corrected in §1 and §2 above rather than removed, because the diff is the
+evidence and a quietly-edited report is not auditable.
+
+```
+$ git diff --stat 751a389..HEAD -- src/ tests/
+ src/core/model/diff.ts         |  60 ++++++++++++++++
+ src/core/model/edgeKind.ts     |  31 +++++++
+ src/core/model/ids.ts          |  19 +++++
+ src/core/model/model.ts        |   8 ++-
+ src/core/model/neighborhood.ts |  56 +++++++++++++++---
+ src/core/model/synthetic.ts    |  98 ++++++++++++++++++++++++++
+ src/core/render/background.ts  |   6 +-
+ src/index.ts                   |  18 ++++-
+ src/styles/graph.css           |  14 ++--
+ tests/graph-engine.test.ts     | 156 ++++++++++++++++++++++++++++++++++++-
+ 10 files changed, 442 insertions(+), 24 deletions(-)
+```
+
+### Two of these are bug fixes the package was missing
+
+Not new features — corrections where the package had drifted **behind** osionos' hand-mirrored
+copies, so copying host→package would have propagated the package's bug outward:
+
+- **`nodesEqual` did not compare `icon`.** An icon-only edit therefore produced an *empty patch*:
+  neither the layout worker nor the renderer was told anything happened. Invisible in osionos
+  because a double assertion (`model as unknown as EngineGraphModel`) hid the type gap.
+- **`neighborhood()` seeded its BFS frontier unconditionally**, so an id no longer in the model
+  came back as a one-element set — which callers read as "selected and in focus". Now returns empty,
+  plus a frontier early-break. The signature is unchanged, so the live osionos consumer still
+  compiles.
+
+Also: three `graph.css` fallback values were cold-indigo leftovers disagreeing with both the host
+and this package's own TypeScript fallbacks; and a comment claimed the aurora bands came from
+palette tokens when they are derived at runtime.
+
+### Six new public exports, three of them with no in-package caller
+
+`edgeKindFromType`, `parseNodeId`, `diffGraph`, `isEmptyPatch`, `neighborhoodEdges` and
+`buildSyntheticModel` are exported from `src/index.ts`. `buildSyntheticModel` is a fixture and is
+called by the parity rig. The other five are **extracted from osionos, which does not import them
+from this package** — so within this repo they are API surface with no consumer. That is a
+deliberate bet (the package is meant to be the single source of truth, and §7 recommends deleting
+the host's duplicates), but it is a bet, and it lands on the public API where a consumer can bind
+to it.
+
+### The coverage gap — §4's verdict does NOT cover anything in this section
+
+This is the most important thing in §10, and it was not stated anywhere before.
+
+**The pixel-parity rig and these changes are disjoint surfaces.** The rig mounts the *rendering*
+path and compares canvases. None of the above is on that path:
+
+| Changed after sign-off | Why the rig cannot see it |
+|---|---|
+| `synthetic.ts` | The rig builds the model once from the standalone and feeds the *same object* to all three panels, so any difference in it cancels by construction |
+| `nodesEqual` (+`icon`) | Its only in-package consumer is `diff.ts`; `setModel` is called once per engine, so the diff path never runs |
+| `neighborhood` contract | Runs only on selection; the rig drives no clicks |
+| `graph.css` (3 hex) | All three are `var(--token, fallback)` fallbacks, and the rig *asserts the tokens resolved*, so the fallbacks are never reached |
+| `diffGraph`, `edgeKindFromType`, `parseNodeId` | Not invoked anywhere in the package |
+
+So "0 differing pixels across 16 palettes" is true, reproducible, and is **not evidence about any
+change in this section**. Two further limits on that evidence:
+
+- **The mutation test does not generalise to these files.** It perturbed `AURORA_BG_TOP` — a render
+  input — and moved the verdict to `DIVERGENT`. It demonstrates the rig is sensitive to the
+  *rendering* surface. It says nothing about whether the rig would catch a divergence in
+  `model.ts`, because none of the code above is on the render path.
+- **The 8 new tests were written by the same implementer as the code they cover**, with no second
+  party. They are regression guards — each one fails if the specific drift it names is reintroduced
+  — but they are not independent verification.
+
+What actually backs this section: the containerised gate (25/25, `tsc`, `eslint --max-warnings=0`),
+a second `reviewer` pass over `git diff 751a389..HEAD -- src/ tests/`, and the host-side copies,
+which remain byte-identical to osionos and are independently readable. That is weaker than §4's
+evidence and is not dressed up as equal to it.
+
+### Deliberately still deferred
+
+`tagEdges` / `relationEdges` / `deriveGraph` / `deriveTagConfig` / `explicitEdges` are **not**
+extracted. All of them import `@notion-db/contract-types`, which resolves to a path inside the host
+app and is not declared in this package's `peerDependencies`. Extracting them as-is would drag a
+vendored host contract inside the framework-agnostic `core/` firewall. They need a generic-core /
+host-adapter split, which is a design decision and not a copy — recorded here so the deferral is
+tracked rather than living only in this conversation.
+
+### Phase 4 remains gated
+
+Wiring this back into osionos as a submodule is **not** done and must not be started uninvited. It
+needs its own risk verdict and a human-supplied remote URL. When it happens, the §7.1 deletions
+(host-side `model/graphModel.ts`, `model/weights.ts`, the `as unknown as EngineGraphModel` double
+assertion) and the `useControls` storage-key difference (`"osionos-graph-engine"` in the app vs the
+package default `"osio-graph-controls"` — swapping components without passing `storageKey` would
+silently discard every user's saved console settings) are the two things most likely to bite.
