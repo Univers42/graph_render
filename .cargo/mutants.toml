@@ -25,11 +25,6 @@ exclude_re = [
     "replace StageCount::get -> u32 with 1",
     # Equivalent: `empty_model` is `Topology::default()`, so the mutant is the original.
     "replace empty_model -> Topology with Default::default\\(\\)",
-    # Equivalent in output: deleting `nodes`/`edges` from the struct literal in
-    # `index_model` only drops the up-front reservation; the columns then grow on push
-    # and hold the same values. The reservation itself is pinned by
-    # `columns::tests::with_capacity_reserves_room_in_every_column`.
-    "delete field (nodes|edges) from struct Topology expression in index_model",
     # Equivalent on every reachable input: mulberry32 draws k / 2^32 for a u32 k, so a
     # draw never equals 0.6 or 0.8 (neither is a multiple of 2^-32), and it equals 0.5
     # only when k = 2^31, which none of the first 1 000 000 draws from the synthetic seed

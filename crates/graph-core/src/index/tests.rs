@@ -160,3 +160,25 @@ fn the_last_u32_is_never_handed_out_as_an_index() {
         assert_eq!(next_index(beyond, "edge index"), Err(refused));
     }
 }
+
+/// The columns are reserved once, for the input's length, before anything is pushed: a
+/// build never pays for growth slack (the memory measurement depends on it). Grown by
+/// pushes instead, 5 nodes would leave room for 8 and 3 edges room for 4.
+#[test]
+fn index_model_reserves_each_column_once_for_its_input() {
+    let nodes: Vec<_> = ["a", "b", "c", "d", "e"].map(|id| node(id, "")).into();
+    let edges = [
+        edge("e1", "a", "b"),
+        edge("e2", "b", "c"),
+        edge("e3", "c", "d"),
+    ];
+    let t = index_model(&nodes, &edges).expect("fits");
+    assert_eq!(
+        (t.nodes().id.capacity(), t.nodes().weight.capacity()),
+        (5, 5)
+    );
+    assert_eq!(
+        (t.edges().id.capacity(), t.edges().source.capacity()),
+        (3, 3)
+    );
+}
