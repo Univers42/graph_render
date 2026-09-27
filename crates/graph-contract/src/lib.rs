@@ -1,12 +1,17 @@
 //! graph-contract — the single source of truth for the graph-motor wire format.
 //!
-//! Types, not logic: the geometry vocabulary (`prompt.md` §4), the versioned snapshot
-//! header, and the one place bytes are laid out for hashing. With the `codegen`
-//! feature it also emits the JSON Schema and the TypeScript types that describe the
-//! semantic face, derived from these same Rust types so the three cannot drift.
+//! The geometry vocabulary (`prompt.md` §4), the format version every reader checks,
+//! and a snapshot's two faces: the binary face the hash is taken over
+//! (`docs/contract/binary-layout.md`, authoritative) and the canonical JSON face any
+//! third-party frontend reads. Dependency-free by default, so graph-core and graph-wasm
+//! can write both faces. With the `codegen` feature it also emits the JSON Schemas and
+//! the TypeScript types, derived from Rust types so they cannot drift from the code.
 
+pub mod binary;
+pub mod canonical_json;
 pub mod geometry;
 pub mod snapshot;
+pub mod version;
 
 /// JSON Schema and TypeScript emitted from the contract types. Types only: the
 /// generated TypeScript declares shapes and ships **zero runtime bytes** — no
@@ -15,19 +20,34 @@ pub mod snapshot;
 pub mod codegen {
     use serde_json::{Map, Value};
 
-    /// Where the generated files are committed, relative to the workspace root.
+    /// Where the header's generated files are committed, relative to the workspace root.
     pub const GENERATED_DIR: &str = "crates/graph-contract/generated";
 
-    /// Every generated file: its name under [`GENERATED_DIR`] and its exact contents.
+    /// Where the JSON face's schema is committed, relative to the workspace root.
+    pub const SNAPSHOT_SCHEMA: &str = "docs/contract/snapshot-schema.json";
+
+    /// Every generated file: its path from the workspace root and its exact contents.
     /// Committed, so a change to the contract types shows up as a diff in review.
-    pub fn outputs() -> [(&'static str, String); 2] {
+    pub fn outputs() -> [(String, String); 3] {
         [
             (
-                "snapshot-header.schema.json",
+                format!("{GENERATED_DIR}/snapshot-header.schema.json"),
                 format!("{:#}\n", json_schema()),
             ),
-            ("snapshot-header.d.ts", typescript()),
+            (
+                format!("{GENERATED_DIR}/snapshot-header.d.ts"),
+                typescript(),
+            ),
+            (
+                SNAPSHOT_SCHEMA.to_owned(),
+                format!("{:#}\n", snapshot_schema()),
+            ),
         ]
+    }
+
+    /// The JSON Schema (draft 2020-12) of the canonical JSON face: a whole snapshot.
+    pub fn snapshot_schema() -> Value {
+        schemars::schema_for!(crate::canonical_json::schema::Snapshot).to_value()
     }
 
     /// The JSON Schema (draft 2020-12) of the snapshot header and everything it references.
@@ -156,14 +176,15 @@ pub mod codegen {
 
         #[test]
         fn the_committed_files_are_what_codegen_generates() {
-            let [(schema_name, schema), (ts_name, ts)] = outputs();
             let committed = [
                 include_str!("../generated/snapshot-header.schema.json"),
                 include_str!("../generated/snapshot-header.d.ts"),
+                include_str!("../../../docs/contract/snapshot-schema.json"),
             ];
             let stale = "stale: run `graph-cli codegen` and commit the result";
-            assert_eq!(committed[0], schema, "{schema_name} {stale}");
-            assert_eq!(committed[1], ts, "{ts_name} {stale}");
+            for ((name, generated), committed) in outputs().iter().zip(committed) {
+                assert_eq!(committed, generated, "{name} {stale}");
+            }
             assert!(GENERATED_DIR.ends_with("graph-contract/generated"));
         }
 

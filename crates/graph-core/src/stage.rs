@@ -1,21 +1,36 @@
-//! The topology stage of the 4-way hash gate: a synthetic model, remixed by seed so every
-//! part of the topology is populated, indexed, and written out as bytes — so native and
-//! wasm32 are compared on everything the topology holds, not only on what the oracle's
-//! benchmark graph happens to exercise.
+//! The pipeline (`prompt.md` §3): pure stages in a fixed order, each stage's output hashed
+//! on its own, so a cross-target divergence names the stage it started in.
+//!
+//! Pure means (D8): a stage reads an immutable topology and its own parameters and
+//! returns new geometry. [`Stage::run`] is an associated function that receives `&Topology`
+//! and `&Params` and nothing else: there is no `self` to carry state from one run to the
+//! next, no `&mut` into anything another stage sees, and no clock or I/O in graph-core to
+//! reach for.
 
 use crate::arena::CapacityError;
-use crate::edgekind::EdgeKind;
 use crate::index::{Topology, index_model};
+use crate::layout::{self, Geometry};
 use crate::records::{EdgeRecord, NodeRecord};
-use crate::synthetic::{Mulberry32, synthetic_records};
-use crate::weights::apply_degree_weights_against;
 use core::fmt;
+use graph_contract::binary::Snapshot;
+use graph_contract::snapshot::SnapshotError;
 
-/// Distinct sources the remix draws from: more than 256, so the group column crosses
-/// the oracle's `Uint8Array` limit (H9) on every large enough seed.
-const SOURCES: usize = 300;
+mod topology;
 
-/// Why a stage produced no bytes.
+pub use topology::{gate_node_count, seeded_model};
+
+/// One stage of the pipeline that turns a topology into geometry.
+pub trait Stage {
+    /// Its parameters. `Default` is the stated default a hashed snapshot is pinned to.
+    type Params: Default;
+    /// The capability id it is registered and hashed under, e.g. `layout.grid`.
+    const ID: &'static str;
+    /// Runs the stage: the same topology and parameters give the same geometry, bit for
+    /// bit, on every target.
+    fn run(topology: &Topology, params: &Self::Params) -> Result<Geometry, StageError>;
+}
+
+/// Why a stage produced nothing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StageError {
     /// The topology did not fit the `u32` index space.
@@ -25,6 +40,15 @@ pub enum StageError {
         /// Which column.
         column: &'static str,
     },
+    /// A parameter outside what the stage accepts.
+    Param {
+        /// The parameter.
+        name: &'static str,
+        /// What it must be.
+        rule: &'static str,
+    },
+    /// The stage's geometry broke a rule of the snapshot contract.
+    Snapshot(SnapshotError),
 }
 
 impl fmt::Display for StageError {
@@ -32,196 +56,127 @@ impl fmt::Display for StageError {
         match self {
             Self::Capacity(err) => err.fmt(f),
             Self::NonFinite { column } => write!(f, "non-finite value in column {column}"),
+            Self::Param { name, rule } => write!(f, "parameter {name}: {rule}"),
+            Self::Snapshot(err) => write!(f, "snapshot: {err}"),
         }
     }
 }
 
-/// Bytes of the topology for `seed`: `2 + seed % 600` synthetic nodes, sources and edge
-/// kinds redrawn from the seed, weights against `reference_degree`. Every column, every
-/// CSR and every string is written in a fixed little-endian layout, so a divergence
-/// anywhere in the topology changes the bytes.
-pub fn topology_stage(seed: u32, reference_degree: u32) -> Result<Vec<u8>, StageError> {
-    let (mut nodes, mut edges) = synthetic_records(2 + seed % 600);
-    remix(seed, &mut nodes, &mut edges);
-    apply_degree_weights_against(&mut nodes, &edges, reference_degree);
-    let topology = index_model(&nodes, &edges).map_err(StageError::Capacity)?;
-    let mut out = Vec::new();
-    encode(&topology, &mut out)?;
-    Ok(out)
+/// What one pipeline run produced, stage by stage.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PipelineRun {
+    /// The topology stage's bytes.
+    pub topology: Vec<u8>,
+    /// The layout stage's id.
+    pub layout: &'static str,
+    /// The layout stage's output, as the snapshot its bytes are hashed from.
+    pub snapshot: Snapshot,
 }
 
-fn remix(seed: u32, nodes: &mut [NodeRecord], edges: &mut [EdgeRecord]) {
-    let mut rnd = Mulberry32::new(seed);
-    for node in nodes {
-        node.source = format!("s{}", rnd.pick(SOURCES));
-    }
-    for edge in edges {
-        edge.kind = EdgeKind::ALL[rnd.pick(EdgeKind::ALL.len())];
+impl PipelineRun {
+    /// Each stage's id and the bytes hashed for it, in pipeline order.
+    pub fn stages(&self) -> [(&'static str, Vec<u8>); 2] {
+        [
+            ("topology", self.topology.clone()),
+            (self.layout, self.snapshot.to_bytes()),
+        ]
     }
 }
 
-fn encode(t: &Topology, out: &mut Vec<u8>) -> Result<(), StageError> {
-    let stats = t.stats();
-    for count in [stats.nodes, stats.edges, stats.databases, stats.notes] {
-        put_u32(out, count);
-    }
-    (0..t.node_count()).try_for_each(|i| encode_node(t, i, out))?;
-    (0..t.edge_count()).try_for_each(|e| encode_edge(t, e, out))?;
-    for csr in [t.out(), t.inbound(), t.hierarchy()] {
-        (0..csr.rows()).for_each(|r| put_u32s(out, csr.row(r)));
-    }
-    for (database, members) in t.by_database() {
-        put_str(out, database);
-        put_u32s(out, members);
-    }
-    Ok(())
+/// Runs the topology stage over the records, then `S` at `params`.
+pub fn run_pipeline<S: Stage>(
+    nodes: &[NodeRecord],
+    edges: &[EdgeRecord],
+    params: &S::Params,
+) -> Result<PipelineRun, StageError> {
+    run_with(nodes, edges, S::ID, |t| S::run(t, params))
 }
 
-fn encode_node(t: &Topology, i: u32, out: &mut Vec<u8>) -> Result<(), StageError> {
-    let node = t.node(i);
-    put_str(out, node.id);
-    out.push(node.kind as u8);
-    for text in [
-        node.database_id,
-        Some(node.source),
-        Some(node.label),
-        node.group,
-        node.icon,
-    ] {
-        put_opt(out, text);
-    }
-    put_f64(out, node.weight, "weight")?;
-    put_f64(out, node.version, "version")?;
-    out.push(u8::from(node.has_note));
-    put_u32(out, t.nodes().group[i as usize]);
-    put_u32(out, t.nodes().degree[i as usize]);
-    Ok(())
-}
-
-fn encode_edge(t: &Topology, e: u32, out: &mut Vec<u8>) -> Result<(), StageError> {
-    let (edge, columns) = (t.edge(e), t.edges());
-    put_str(out, edge.id);
-    put_u32(out, columns.source[e as usize]);
-    put_u32(out, columns.target[e as usize]);
-    out.extend([edge.kind as u8, u8::from(edge.directed)]);
-    put_str(out, edge.label);
-    put_opt(out, edge.record_id);
-    put_f64(out, edge.strength, "strength")
-}
-
-fn put_u32(out: &mut Vec<u8>, value: u32) {
-    out.extend_from_slice(&value.to_le_bytes());
-}
-
-fn put_u32s(out: &mut Vec<u8>, values: &[u32]) {
-    put_u32(out, values.len() as u32);
-    values.iter().for_each(|&v| put_u32(out, v));
-}
-
-fn put_str(out: &mut Vec<u8>, text: &str) {
-    put_u32(out, text.len() as u32);
-    out.extend_from_slice(text.as_bytes());
-}
-
-fn put_opt(out: &mut Vec<u8>, text: Option<&str>) {
-    match text {
-        None => out.push(0),
-        Some(text) => {
-            out.push(1);
-            put_str(out, text);
-        }
-    }
-}
-
-fn put_f64(out: &mut Vec<u8>, value: f64, column: &'static str) -> Result<(), StageError> {
-    if !value.is_finite() {
-        return Err(StageError::NonFinite { column });
-    }
-    out.extend_from_slice(&value.to_bits().to_le_bytes());
-    Ok(())
+/// The pipeline driver: indexes the records, writes the topology's bytes, runs `layout`
+/// over the finished topology, and turns its geometry into a snapshot. The layout gets a
+/// shared borrow of a topology no stage can change.
+pub fn run_with(
+    nodes: &[NodeRecord],
+    edges: &[EdgeRecord],
+    id: &'static str,
+    layout: impl FnOnce(&Topology) -> Result<Geometry, StageError>,
+) -> Result<PipelineRun, StageError> {
+    let topology = index_model(nodes, edges).map_err(StageError::Capacity)?;
+    let mut bytes = Vec::new();
+    topology::encode(&topology, &mut bytes)?;
+    let geometry = layout(&topology)?;
+    Ok(PipelineRun {
+        topology: bytes,
+        layout: id,
+        snapshot: layout::snapshot(&topology, geometry)?,
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::records::build::{edge, node};
+    use crate::layout::grid::{Grid, GridParams};
     use crate::weights::REFERENCE_DEGREE;
 
-    #[test]
-    fn the_stage_is_deterministic_and_seed_and_reference_reach_it() {
-        let a = topology_stage(5, REFERENCE_DEGREE).expect("fits");
-        assert!(!a.is_empty());
-        assert_eq!(a, topology_stage(5, REFERENCE_DEGREE).expect("fits"));
-        assert_ne!(a, topology_stage(6, REFERENCE_DEGREE).expect("fits"));
-        assert_ne!(a, topology_stage(5, REFERENCE_DEGREE + 1).expect("fits"));
+    fn seeded(seed: u32) -> (Vec<NodeRecord>, Vec<EdgeRecord>) {
+        seeded_model(seed, gate_node_count(seed), REFERENCE_DEGREE)
     }
 
     #[test]
-    fn a_non_finite_float_is_refused_not_hashed() {
-        let mut nan = node("a", "");
-        nan.weight = f64::NAN;
-        let mut out = Vec::new();
-        let topology = index_model(&[nan], &[]).expect("fits");
-        let err = encode(&topology, &mut out).expect_err("NaN weight");
-        assert_eq!(err, StageError::NonFinite { column: "weight" });
-        assert_eq!(err.to_string(), "non-finite value in column weight");
-        let mut far = edge("e", "a", "a");
-        far.strength = f64::INFINITY;
-        let topology = index_model(&[node("a", "")], &[far]).expect("fits");
-        let err = encode(&topology, &mut Vec::new()).expect_err("infinite strength");
-        assert_eq!(err, StageError::NonFinite { column: "strength" });
+    fn the_pipeline_hashes_each_stage_on_its_own() {
+        let (nodes, edges) = seeded(7);
+        let run = run_pipeline::<Grid>(&nodes, &edges, &GridParams::default()).expect("runs");
+        let [(first, topology), (second, layout)] = run.stages();
+        assert_eq!((first, second), ("topology", "layout.grid"));
+        assert_eq!(topology, run.topology);
+        assert_eq!(layout, run.snapshot.to_bytes());
+        assert_eq!(run.snapshot.parts().node_ids.len(), gate_node_count(7));
+        let again = run_pipeline::<Grid>(&nodes, &edges, &GridParams::default()).expect("runs");
+        assert_eq!(again, run, "pure: the same inputs, the same run");
     }
 
     #[test]
-    fn the_remix_populates_every_edge_kind_and_crosses_256_groups() {
-        let (mut nodes, mut edges) = synthetic_records(600);
-        remix(599, &mut nodes, &mut edges);
-        let topology = index_model(&nodes, &edges).expect("fits");
-        assert!(topology.nodes().group.iter().any(|&g| g > 255));
-        for kind in EdgeKind::ALL {
-            assert!(edges.iter().any(|e| e.kind == kind), "{kind:?}");
-        }
-        assert!(!topology.hierarchy().is_empty());
+    fn a_parameter_moves_only_its_own_stage_and_the_model_moves_both() {
+        let (nodes, edges) = seeded(9);
+        let honest = run_pipeline::<Grid>(&nodes, &edges, &GridParams::default()).expect("runs");
+        let wide = GridParams { spacing: 2.0 };
+        let spaced = run_pipeline::<Grid>(&nodes, &edges, &wide).expect("runs");
+        assert_eq!(spaced.topology, honest.topology);
+        assert_ne!(spaced.snapshot, honest.snapshot);
+        let (heavier, _) = seeded_model(9, gate_node_count(9), REFERENCE_DEGREE + 1);
+        let reweighted = run_pipeline::<Grid>(&heavier, &edges, &GridParams::default());
+        let reweighted = reweighted.expect("runs");
+        assert_ne!(reweighted.topology, honest.topology);
+        assert_eq!(
+            reweighted.snapshot, honest.snapshot,
+            "the grid ignores weights"
+        );
     }
 
     #[test]
-    fn the_layout_is_pinned_for_a_tiny_topology() {
-        let mut out = Vec::new();
-        encode(&index_model(&[], &[]).expect("fits"), &mut out).expect("finite");
-        assert_eq!(out, [0u8; 16], "four zero counts, nothing else");
-        let mut opt = Vec::new();
-        put_opt(&mut opt, Some("ab"));
-        put_opt(&mut opt, None);
-        assert_eq!(opt, [1, 2, 0, 0, 0, b'a', b'b', 0]);
-        let mut list = Vec::new();
-        put_u32s(&mut list, &[7, 0x0102_0304]);
-        assert_eq!(list, [2, 0, 0, 0, 7, 0, 0, 0, 4, 3, 2, 1]);
-    }
-
-    #[test]
-    fn the_seed_sizes_the_graph_at_two_plus_seed_mod_600_nodes() {
-        for (seed, nodes) in [(0, 2), (5, 7), (599, 601), (600, 2), (1205, 7)] {
-            let bytes = topology_stage(seed, REFERENCE_DEGREE).expect("fits");
-            assert_eq!(bytes[..4], u32::to_le_bytes(nodes), "seed {seed}");
-        }
-    }
-
-    #[test]
-    fn the_adjacency_and_database_members_reach_the_bytes() {
-        let nodes = [node("a", "db"), node("b", "db")];
-        let encoded = |edges: &[EdgeRecord]| {
-            let mut out = Vec::new();
-            encode(&index_model(&nodes, edges).expect("fits"), &mut out).expect("finite");
-            out
+    fn a_stage_error_stops_the_run_and_every_error_says_what() {
+        let (nodes, edges) = seeded(3);
+        let refused = StageError::Param {
+            name: "spacing",
+            rule: "finite and above 0",
         };
-        let (bare, linked) = (encoded(&[]), encoded(&[edge("e", "a", "b")]));
-        // by_database: "db" then members [0, 1] closes both encodings.
-        let tail = [2, 0, 0, 0, b'd', b'b', 2, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0];
-        assert!(bare.ends_with(&tail) && linked.ends_with(&tail));
-        // Before it: b's in-row [0], then the two empty hierarchy rows.
-        let rows = |out: &[u8]| out[..out.len() - tail.len()].to_vec();
-        let last = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-        assert!(rows(&linked).ends_with(&last));
-        assert!(rows(&bare).ends_with(&[0; 16]));
+        assert_eq!(
+            run_with(&nodes, &edges, "x", |_| Err(refused)),
+            Err(refused)
+        );
+        let cases = [
+            (refused.to_string(), "parameter spacing: finite and above 0"),
+            (
+                StageError::NonFinite { column: "weight" }.to_string(),
+                "non-finite value in column weight",
+            ),
+            (
+                StageError::Snapshot(SnapshotError::CurveDegree).to_string(),
+                "snapshot: edge.degree",
+            ),
+        ];
+        for (message, needle) in cases {
+            assert!(message.contains(needle), "{message:?} lacks {needle:?}");
+        }
     }
 }

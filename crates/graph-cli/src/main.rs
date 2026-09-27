@@ -1,6 +1,6 @@
 //! graph-cli — the instruments around graph-core: the 4-way hash gate and its negative
-//! control, the oracle differential's fixtures, the capabilities ledger, the contract
-//! codegen, and the D1 determinism probe.
+//! controls, the oracle differential's fixtures, the capabilities ledger, the contract
+//! codegen, the snapshot's two faces and their round trip, and the D1 determinism probe.
 //!
 //! Exit codes: `0` the check passed · `1` the check ran and failed (a gate went red) ·
 //! `2` the check could not run (a tool, a file or an artifact was missing).
@@ -14,6 +14,7 @@ mod hashgate;
 mod oracle_fixtures;
 mod probe_report;
 mod runner;
+mod snapshot_cmd;
 
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
@@ -71,6 +72,31 @@ enum Command {
         #[arg(long)]
         fixtures: Option<PathBuf>,
     },
+    /// Runs one seed's model through a layout and writes the snapshot's binary face, its
+    /// canonical JSON face, or both. A summary goes to standard error.
+    Snapshot {
+        /// Seed of the synthetic model.
+        #[arg(long)]
+        seed: u32,
+        /// Node count; by default the hash gate's for this seed, 2 + seed % 600.
+        #[arg(long, value_parser = clap::value_parser!(u32).range(1..=snapshot_cmd::MAX_NODES))]
+        nodes: Option<u32>,
+        /// Registered layout.
+        #[arg(long, value_parser = clap::builder::PossibleValuesParser::new(snapshot_cmd::layout_names()))]
+        layout: String,
+        /// Where to write the binary face; `-` for standard output.
+        #[arg(long, value_name = "PATH", required_unless_present = "out_json")]
+        out_bin: Option<PathBuf>,
+        /// Where to write the canonical JSON face; `-` for standard output.
+        #[arg(long, value_name = "PATH")]
+        out_json: Option<PathBuf>,
+    },
+    /// Binary <-> JSON round trip over seeds 0..N, byte-exact, plus the grid's hand oracle.
+    Roundtrip {
+        /// Number of seeds, 0..N.
+        #[arg(long, default_value_t = 100, value_parser = seed_count())]
+        seeds: u32,
+    },
     /// D1: std against libm transcendentals, native against wasm32, bit for bit.
     DeterminismProbe {
         /// Where to write the measurement, relative to the workspace root.
@@ -99,6 +125,20 @@ fn main() -> ExitCode {
         Command::OracleDiff { fixtures } => {
             oracle_fixtures::diff(&fixtures.unwrap_or_else(oracle_fixtures::default_out))
         }
+        Command::Snapshot {
+            seed,
+            nodes,
+            layout,
+            out_bin,
+            out_json,
+        } => {
+            let out = snapshot_cmd::Outputs {
+                bin: out_bin,
+                json: out_json,
+            };
+            snapshot_cmd::snapshot(seed, nodes, &layout, &out)
+        }
+        Command::Roundtrip { seeds } => snapshot_cmd::roundtrip(seeds),
         Command::DeterminismProbe { out } => determinism_probe::run(&out),
     }
 }

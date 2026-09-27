@@ -3,31 +3,113 @@
 //! cross-target and run-to-run in one check. Each run is its own process, so nothing (an
 //! allocator address, a hash seed) can leak from one run into the next.
 //!
-//! The wasm arm is the real `graph_wasm.wasm` driven by `harness/wasm-run.mjs` under
+//! The stages are the pipeline's (`graph_core::run_pipeline`): the topology, then every
+//! registered layout, each hashed on its own, so a divergence names the stage it began
+//! in. The wasm arm is the real `graph_wasm.wasm` driven by `harness/wasm-run.mjs` under
 //! Node, which hashes with its built-in crypto: two independent SHA-256
 //! implementations, so a broken hasher cannot agree with itself and pass.
 //!
-//! An honest run records its result in `target/gates/hashgate.json` and a negative
-//! control in `hashgate-control.json`, for the capabilities ledger to read.
+//! An honest run records its result in `target/gates/hashgate.json`, and a negative
+//! control (one [`Knob`] set) in that knob's own record, for the capabilities ledger.
 
 mod compare;
 
 use crate::evidence;
 use crate::runner::{build_wasm, file_sha256, node_harness, run_lines, sha256_hex};
 use compare::{Arm, diverged, per_stage};
+use graph_core::{Grid, GridParams, REFERENCE_DEGREE, gate_node_count, run_pipeline, seeded_model};
 use serde_json::json;
+use std::env::VarError;
 use std::process::{Command, ExitCode};
 
-/// Every stage the gate hashes, in the order both arms print them.
-pub const STAGES: [&str; 2] = ["synthetic", "topology"];
-/// Set by the negative control (`prompt.md` §7.2).
-const MUTATE_ENV: &str = "GM_MUTATE_REFERENCE_DEGREE";
+/// Every stage the gate hashes, in the order both arms print them: the topology, then
+/// every layout of `graph_core::registry::LAYOUTS`.
+pub const STAGES: [&str; 2] = ["topology", "layout.grid"];
+
+/// A negative control (`prompt.md` §7.2): a variable that perturbs the native arm only,
+/// so a wired mutation surfaces as exactly the cross-target divergence the gate must
+/// catch. Each moves one stage's input: the grid ignores weights, so the reference
+/// degree cannot reach `layout.grid`, and the grid's spacing is what backs that stage.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Knob {
+    /// `GM_MUTATE_REFERENCE_DEGREE`: the degree the topology's weights are taken against.
+    ReferenceDegree,
+    /// `GM_MUTATE_GRID_SPACING`: the grid's spacing.
+    GridSpacing,
+}
+
+impl Knob {
+    /// Every knob.
+    pub const ALL: [Self; 2] = [Self::ReferenceDegree, Self::GridSpacing];
+
+    /// The variable that sets it.
+    pub const fn env(self) -> &'static str {
+        match self {
+            Self::ReferenceDegree => "GM_MUTATE_REFERENCE_DEGREE",
+            Self::GridSpacing => "GM_MUTATE_GRID_SPACING",
+        }
+    }
+
+    /// The record its run writes.
+    pub const fn record(self) -> &'static str {
+        match self {
+            Self::ReferenceDegree => "hashgate-control-reference-degree",
+            Self::GridSpacing => "hashgate-control-grid-spacing",
+        }
+    }
+}
+
+/// What the native arm runs with: the compiled-in defaults, or one knob's perturbation.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Setting {
+    reference_degree: u32,
+    grid: GridParams,
+    control: Option<Knob>,
+}
+
+/// Reads the knobs through `read`. At most one may be set, and a set one must parse:
+/// a typo falling back to the default would let the control pass as green. A spacing the
+/// grid refuses is left for the grid to refuse, so the rule lives in one place.
+fn setting(read: impl Fn(&str) -> Result<String, VarError>) -> Result<Setting, String> {
+    let mut setting = Setting {
+        reference_degree: REFERENCE_DEGREE,
+        grid: GridParams::default(),
+        control: None,
+    };
+    for knob in Knob::ALL {
+        let text = match read(knob.env()) {
+            Err(VarError::NotPresent) => continue,
+            Err(err) => return Err(format!("{}: {err}", knob.env())),
+            Ok(text) => text,
+        };
+        if let Some(other) = setting.control {
+            let (a, b) = (other.env(), knob.env());
+            return Err(format!("{a} and {b} are both set: one control at a time"));
+        }
+        setting.control = Some(knob);
+        let bad = |e: &dyn std::fmt::Display| format!("{}={text:?}: {e}", knob.env());
+        match knob {
+            Knob::ReferenceDegree => {
+                setting.reference_degree = text.trim().parse().map_err(|e| bad(&e))?;
+            }
+            Knob::GridSpacing => setting.grid.spacing = text.trim().parse().map_err(|e| bad(&e))?,
+        }
+    }
+    Ok(setting)
+}
+
+fn env_setting() -> Result<Setting, String> {
+    setting(|name| std::env::var(name))
+}
 
 /// Runs all four arms over seeds `0..seeds` and compares them line by line.
 pub fn run(seeds: u32) -> ExitCode {
-    let started = evidence::Stamp::take().and_then(|stamp| Ok((stamp, collect_arms(seeds)?)));
+    let started = env_setting().and_then(|setting| {
+        let stamp = evidence::Stamp::take()?;
+        Ok((setting.control, stamp, collect_arms(seeds)?))
+    });
     match started {
-        Ok((stamp, arms)) => report(&stamp, seeds, &arms),
+        Ok((control, stamp, arms)) => report(&stamp, control, seeds, &arms),
         Err(err) => {
             eprintln!("hashgate: could not run: {err}");
             ExitCode::from(2)
@@ -37,55 +119,36 @@ pub fn run(seeds: u32) -> ExitCode {
 
 /// Body of the hidden `hashgate-arm` subcommand: one native run, every stage.
 pub fn arm(seeds: u32) -> ExitCode {
-    let degree = match reference_degree() {
-        Ok(degree) => degree,
+    match env_setting().and_then(|setting| arm_lines(seeds, &setting)) {
+        Ok(lines) => {
+            print!("{lines}");
+            ExitCode::SUCCESS
+        }
         Err(err) => {
             eprintln!("hashgate-arm: {err}");
-            return ExitCode::from(2);
-        }
-    };
-    let mut lines = String::new();
-    for stage in STAGES {
-        for seed in 0..seeds {
-            match stage_bytes(stage, seed, degree) {
-                Ok(bytes) => lines.push_str(&format!("{stage} {seed} {}\n", sha256_hex(&bytes))),
-                Err(err) => {
-                    eprintln!("hashgate-arm: {stage} seed {seed}: {err}");
-                    return ExitCode::from(2);
-                }
-            }
+            ExitCode::from(2)
         }
     }
-    print!("{lines}");
-    ExitCode::SUCCESS
 }
 
-fn stage_bytes(stage: &str, seed: u32, degree: u32) -> Result<Vec<u8>, String> {
-    match stage {
-        "synthetic" => graph_core::synthetic_snapshot(seed, degree).map_err(|e| e.to_string()),
-        "topology" => graph_core::topology_stage(seed, degree).map_err(|e| e.to_string()),
-        other => Err(format!("unknown stage {other}")),
+/// `stage seed sha256` lines, stage by stage, seed by seed: the pipeline runs once per
+/// seed and each of its stages lands in its own block.
+fn arm_lines(seeds: u32, setting: &Setting) -> Result<String, String> {
+    let mut blocks = vec![String::new(); STAGES.len()];
+    for seed in 0..seeds {
+        let stages = stage_bytes(seed, setting).map_err(|err| format!("seed {seed}: {err}"))?;
+        for (block, (stage, bytes)) in blocks.iter_mut().zip(stages) {
+            block.push_str(&format!("{stage} {seed} {}\n", sha256_hex(&bytes)));
+        }
     }
+    Ok(blocks.concat())
 }
 
-/// The native arm's reference degree. The negative control overrides it here and only
-/// here: the wasm arm runs the compiled-in constant and never sees the variable, so a
-/// wired mutation surfaces as exactly the cross-target divergence the gate must catch.
-/// A set but unparseable value is an error, never a silent fallback to the constant —
-/// that fallback would let a typo in the control pass as green.
-fn reference_degree() -> Result<u32, String> {
-    parse_reference_degree(std::env::var(MUTATE_ENV))
-}
-
-fn parse_reference_degree(value: Result<String, std::env::VarError>) -> Result<u32, String> {
-    match value {
-        Err(std::env::VarError::NotPresent) => Ok(graph_core::REFERENCE_DEGREE),
-        Err(err) => Err(format!("{MUTATE_ENV}: {err}")),
-        Ok(text) => text
-            .trim()
-            .parse()
-            .map_err(|e| format!("{MUTATE_ENV}={text:?}: {e}")),
-    }
+/// Every stage's id and bytes for `seed`, in pipeline order.
+fn stage_bytes(seed: u32, setting: &Setting) -> Result<[(&'static str, Vec<u8>); 2], String> {
+    let (nodes, edges) = seeded_model(seed, gate_node_count(seed), setting.reference_degree);
+    let run = run_pipeline::<Grid>(&nodes, &edges, &setting.grid).map_err(|e| e.to_string())?;
+    Ok(run.stages())
 }
 
 fn collect_arms(seeds: u32) -> Result<Vec<Arm>, String> {
@@ -108,8 +171,12 @@ fn collect_arms(seeds: u32) -> Result<Vec<Arm>, String> {
     Ok(arms)
 }
 
-fn report(stamp: &evidence::Stamp, seeds: u32, arms: &[Arm]) -> ExitCode {
-    println!("hashgate: stages={} seeds={seeds}", STAGES.join(","));
+fn report(stamp: &evidence::Stamp, control: Option<Knob>, seeds: u32, arms: &[Arm]) -> ExitCode {
+    let mutation = control.map_or("none", Knob::env);
+    println!(
+        "hashgate: stages={} seeds={seeds} control={mutation}",
+        STAGES.join(",")
+    );
     let lines = match diverged(seeds, arms) {
         Ok(lines) => lines,
         Err(err) => {
@@ -124,7 +191,7 @@ fn report(stamp: &evidence::Stamp, seeds: u32, arms: &[Arm]) -> ExitCode {
     }
     let bad = stages.diverged_seeds;
     println!("  4-way equal on {}/{seeds} seeds", seeds - bad);
-    if let Err(err) = record(stamp, seeds, &stages.equal, bad == 0) {
+    if let Err(err) = record(stamp, control, seeds, (&stages.equal, bad == 0)) {
         eprintln!("hashgate: not recorded: {err}");
         return ExitCode::from(2);
     }
@@ -154,22 +221,23 @@ fn print_arms(arms: &[Arm], lines: &[usize]) {
     }
 }
 
-/// Writes this run's result for the ledger: `hashgate.json` for an honest run,
-/// `hashgate-control.json` for the negative control. A run that cannot record exits 2:
-/// its verdict would otherwise stand with no evidence behind it.
-fn record(stamp: &evidence::Stamp, seeds: u32, equal: &[u32], pass: bool) -> Result<(), String> {
-    let control = std::env::var_os(MUTATE_ENV).is_some();
-    let name = if control {
-        "hashgate-control"
-    } else {
-        "hashgate"
-    };
+/// Writes this run's result for the ledger: `hashgate.json` for an honest run, the
+/// knob's own record for a negative control. A run that cannot record exits 2: its
+/// verdict would otherwise stand with no evidence behind it.
+fn record(
+    stamp: &evidence::Stamp,
+    control: Option<Knob>,
+    seeds: u32,
+    (equal, pass): (&[u32], bool),
+) -> Result<(), String> {
+    let name = control.map_or("hashgate", Knob::record);
     let stages: serde_json::Map<_, _> = STAGES
         .iter()
         .zip(equal)
         .map(|(stage, equal)| ((*stage).to_owned(), json!(equal)))
         .collect();
-    let body = json!({ "seeds": seeds, "pass": pass, "equal": stages });
+    let mutation = control.map(Knob::env);
+    let body = json!({ "seeds": seeds, "pass": pass, "equal": stages, "mutation": mutation });
     evidence::write(stamp, name, body).map(drop)
 }
 

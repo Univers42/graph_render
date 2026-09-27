@@ -4,12 +4,12 @@
 //
 //   node harness/wasm-run.mjs <graph_wasm.wasm> hash <seeds> <stage>...
 //        prints "<stage> <seed> <sha256>" for each stage in order, seeds 0..N-1;
-//        stages: synthetic (gm_synthetic), topology (gm_topology)
+//        stages: topology (gm_topology), layout.grid (gm_layout_grid)
 //   node harness/wasm-run.mjs <graph_wasm.wasm> probe
 //        prints the D1 probe buffer as one hex line
 //
-// It reads no environment variable. The negative control (GM_MUTATE_REFERENCE_DEGREE)
-// perturbs the native arm only, so a wired mutation has to surface as divergence.
+// It reads no environment variable. The negative controls (GM_MUTATE_*) perturb the
+// native arm only, so a wired mutation has to surface as divergence.
 //
 // Exit codes follow graph-cli: 0 ran, 2 could not run.
 
@@ -36,7 +36,7 @@ function framed(ptr) {
   return new Uint8Array(exports.memory.buffer, ptr + 4, len).slice();
 }
 
-const STAGE_EXPORTS = { synthetic: "gm_synthetic", topology: "gm_topology" };
+const STAGE_EXPORTS = { topology: "gm_topology", "layout.grid": "gm_layout_grid" };
 
 if (mode === "hash") {
   const seeds = Number.parseInt(count ?? "", 10);

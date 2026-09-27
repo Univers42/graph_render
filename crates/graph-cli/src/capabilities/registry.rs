@@ -1,7 +1,10 @@
 //! The registered capabilities. Phase 1: the topology layer, eight rows, each naming the
-//! oracle functions whose differential backs it.
+//! oracle functions whose differential backs it. Phase 2: every layout of graph-core's
+//! registry, one row each, its metadata taken from there as declared.
 
 use super::{Capability, Status};
+use graph_contract::canonical_json::NODE_KINDS;
+use graph_core::registry::{self as core, LAYOUTS};
 
 /// Node count past which the topology layer stops being usable, and why it is this one.
 ///
@@ -100,9 +103,9 @@ test runs first; unknown types silently become relation",
     ),
 ];
 
-/// Every registered capability.
+/// Every registered capability: the topology rows, then the layouts.
 pub fn registry() -> Vec<Capability> {
-    TOPOLOGY
+    let topology = TOPOLOGY
         .iter()
         .map(|&(id, functions, complexity, ponytail)| Capability {
             id,
@@ -111,6 +114,7 @@ pub fn registry() -> Vec<Capability> {
             geometry: None,
             status: Status::Gated,
             oracle: ORACLE,
+            oracle_record: "oracle-diff",
             functions,
             hash_stage: "topology",
             oracle_diff: String::new(),
@@ -119,6 +123,30 @@ pub fn registry() -> Vec<Capability> {
             degradation: DEGRADES,
             ponytail,
             complexity,
-        })
-        .collect()
+        });
+    topology.chain(LAYOUTS.iter().map(layout)).collect()
+}
+
+/// A layout's row. Its hand oracle is checked per seed by `roundtrip`, which records it
+/// under the layout's id; its hash stage is its id.
+fn layout(layout: &'static core::Capability) -> Capability {
+    let m = layout.meta;
+    let geometry = NODE_KINDS.iter().find(|(kind, _)| *kind == m.nodes);
+    Capability {
+        id: layout.id,
+        tier: m.tier,
+        stage: m.stage,
+        geometry: geometry.map(|(_, name)| *name),
+        status: Status::Gated,
+        oracle: m.oracle,
+        oracle_record: "roundtrip",
+        functions: std::slice::from_ref(&layout.id),
+        hash_stage: layout.id,
+        oracle_diff: String::new(),
+        hash_4way: String::new(),
+        scale_ceiling: m.scale_ceiling,
+        degradation: m.degradation,
+        ponytail: m.ponytail,
+        complexity: m.complexity,
+    }
 }

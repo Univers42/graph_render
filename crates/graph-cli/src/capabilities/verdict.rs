@@ -3,6 +3,7 @@
 //! reason when it does not.
 
 use crate::evidence;
+use crate::hashgate::Knob;
 use serde_json::Value;
 
 /// Fewest seeds a gate run may cover and still back a `gated` row (`prompt.md` §7).
@@ -14,21 +15,37 @@ pub struct Evidence {
     pub fingerprint: String,
     /// `hashgate.json`: the honest 4-way run.
     pub hashgate: Option<Value>,
-    /// `hashgate-control.json`: the negative control.
-    pub control: Option<Value>,
+    /// Every negative control's record, by name, in `Knob::ALL` order.
+    pub controls: Vec<(&'static str, Option<Value>)>,
     /// `oracle-diff.json`: the TypeScript arm's verdict.
     pub oracle: Option<Value>,
+    /// `roundtrip.json`: the contract round trip and the grid's hand oracle.
+    pub roundtrip: Option<Value>,
 }
 
 impl Evidence {
     /// Reads every record from the gates directory.
     pub fn load() -> Result<Self, String> {
+        let controls = Knob::ALL
+            .iter()
+            .map(|knob| Ok((knob.record(), evidence::read(knob.record())?)))
+            .collect::<Result<_, String>>()?;
         Ok(Self {
             fingerprint: evidence::tree_fingerprint()?,
             hashgate: evidence::read("hashgate")?,
-            control: evidence::read("hashgate-control")?,
+            controls,
             oracle: evidence::read("oracle-diff")?,
+            roundtrip: evidence::read("roundtrip")?,
         })
+    }
+
+    /// The oracle record a row names: `oracle-diff` or `roundtrip`.
+    fn oracle_record(&self, name: &str) -> Option<&Value> {
+        match name {
+            "oracle-diff" => self.oracle.as_ref(),
+            "roundtrip" => self.roundtrip.as_ref(),
+            _ => None,
+        }
     }
 }
 
@@ -66,17 +83,34 @@ pub fn hash_4way(e: &Evidence, stage: &str) -> Result<String, String> {
             "hashgate: stage {stage} not 4-way equal on all {seeds} seeds"
         ));
     }
-    let control = current(e, e.control.as_ref(), "hashgate-control")?;
-    if control["pass"] != Value::Bool(false) {
-        return Err("the negative control did not go red".into());
-    }
-    if !diverged(control, stage) {
-        return Err(format!(
-            "the negative control did not go red on the {stage} stage"
-        ));
-    }
+    let control = red_control(e, stage)?;
     Ok(format!(
-        "equal/{seeds} seeds ({stage} stage; negative control red)"
+        "equal/{seeds} seeds ({stage} stage; negative control {control} red)"
+    ))
+}
+
+/// The first negative control that ran on the current tree and went red on `stage`, or
+/// every control's reason for not backing it.
+fn red_control(e: &Evidence, stage: &str) -> Result<&'static str, String> {
+    let mut why = Vec::new();
+    for (name, record) in &e.controls {
+        match current(e, record.as_ref(), name) {
+            Err(err) => why.push(err),
+            Ok(run) if run["pass"] != Value::Bool(false) => {
+                why.push(format!("{name} did not go red"));
+            }
+            Ok(run) if !diverged(run, stage) => {
+                why.push(format!("{name} did not go red on the {stage} stage"));
+            }
+            Ok(_) => return Ok(name),
+        }
+    }
+    if why.is_empty() {
+        why.push("no control is registered".into());
+    }
+    Err(format!(
+        "no negative control backs the {stage} stage: {}",
+        why.join("; ")
     ))
 }
 
@@ -89,25 +123,23 @@ fn diverged(control: &Value, stage: &str) -> bool {
     }
 }
 
-/// The oracle verdict over `functions`: a passing run in which every one of them had
-/// cases and no unexplained mismatch.
-pub fn oracle_diff(e: &Evidence, functions: &[&str]) -> Result<String, String> {
-    let run = current(e, e.oracle.as_ref(), "oracle-diff")?;
-    let seeds = seeds_of(run, "oracle-diff")?;
+/// The oracle verdict over `functions` from the record `name`: a passing run in which
+/// every one of them had cases and no unexplained mismatch.
+pub fn oracle_diff(e: &Evidence, name: &str, functions: &[&str]) -> Result<String, String> {
+    let run = current(e, e.oracle_record(name), name)?;
+    let seeds = seeds_of(run, name)?;
     if run["pass"] != Value::Bool(true) {
-        return Err("oracle-diff did not pass".into());
+        return Err(format!("{name} did not pass"));
     }
     let (mut cases, mut declared) = (0, 0);
     for function in functions {
         let counts = &run["functions"][*function];
         let n = counts["cases"].as_u64().unwrap_or(0);
         if n == 0 {
-            return Err(format!("oracle-diff ran no {function} case"));
+            return Err(format!("{name} ran no {function} case"));
         }
         if counts["unexplained"].as_u64() != Some(0) {
-            return Err(format!(
-                "oracle-diff: {function} has unexplained mismatches"
-            ));
+            return Err(format!("{name}: {function} has unexplained mismatches"));
         }
         cases += n;
         declared += counts["declared"].as_u64().unwrap_or(0);

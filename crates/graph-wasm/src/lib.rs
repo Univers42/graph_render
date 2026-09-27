@@ -3,13 +3,15 @@
 //! plain numbers. A buffer comes back as a pointer to `[len: u32 LE][len bytes]`,
 //! valid until the next export call.
 //!
-//! `gm_synthetic` (Phase 0) and `gm_topology` (Phase 1) are the hash gate's stages. With the `probe`
+//! `gm_topology` and `gm_layout_grid` are the hash gate's stages: each runs the pipeline
+//! over the gate's model for a seed and returns its own stage's bytes. With the `probe`
 //! feature it also exports `gm_probe`, which carries the D1 measurement to wasm32 so it
 //! can be compared bit for bit against the same code run natively; the shipped module
 //! is built without it, so a measurement instrument never reaches the browser.
 
 #[cfg(target_arch = "wasm32")]
 mod exports {
+    use graph_core::{PipelineRun, REFERENCE_DEGREE, gate_node_count, run_with, seeded_model};
     use std::cell::RefCell;
 
     thread_local! {
@@ -31,19 +33,27 @@ mod exports {
         })
     }
 
-    /// The Phase-0 synthetic snapshot for `seed`, at the compiled-in reference degree.
-    // SAFETY: `no_mangle` exports this symbol under its Rust name; no other symbol in
-    // the module is named `gm_synthetic`, so the export cannot collide.
-    #[unsafe(no_mangle)]
-    pub extern "C" fn gm_synthetic(seed: u32) -> u32 {
-        publish(graph_core::synthetic_snapshot(seed, graph_core::REFERENCE_DEGREE).ok())
+    /// The pipeline over the gate's model for `seed`, with the registered layout `id` at
+    /// its default parameters and the compiled-in reference degree.
+    fn pipeline(seed: u32, id: &str) -> Option<PipelineRun> {
+        let layout = graph_core::registry::find(id)?;
+        let (nodes, edges) = seeded_model(seed, gate_node_count(seed), REFERENCE_DEGREE);
+        run_with(&nodes, &edges, layout.id, layout.run).ok()
     }
 
-    /// The Phase-1 topology stage for `seed` (`graph_core::topology_stage`).
-    // SAFETY: as above — `gm_topology` is the only symbol with this name.
+    /// The topology stage's bytes for `seed`.
+    // SAFETY: `no_mangle` exports this symbol under its Rust name; no other symbol in
+    // the module is named `gm_topology`, so the export cannot collide.
     #[unsafe(no_mangle)]
     pub extern "C" fn gm_topology(seed: u32) -> u32 {
-        publish(graph_core::topology_stage(seed, graph_core::REFERENCE_DEGREE).ok())
+        publish(pipeline(seed, "layout.grid").map(|run| run.topology))
+    }
+
+    /// The `layout.grid` stage's snapshot bytes for `seed`.
+    // SAFETY: as above — `gm_layout_grid` is the only symbol with this name.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn gm_layout_grid(seed: u32) -> u32 {
+        publish(pipeline(seed, "layout.grid").map(|run| run.snapshot.to_bytes()))
     }
 
     /// The D1 probe buffer (see [`crate::probe`]). Only in the `probe` build.

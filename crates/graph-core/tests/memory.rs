@@ -81,3 +81,29 @@ fn topology_memory_per_node() {
         assert!(held > 0 && peak >= held, "the allocator counted the build");
     }
 }
+
+/// The measurement behind `layout.grid`'s `scale_ceiling`: the highest net heap while
+/// the pipeline runs the topology stage and the grid and writes the snapshot's bytes —
+/// what a consumer holds at once. The input records are built before the count starts.
+#[test]
+#[ignore = "a measurement, not a check: run alone with --release -- --ignored --nocapture"]
+fn grid_pipeline_memory_per_node() {
+    println!("| n | m | snapshot bytes | peak | peak / node |");
+    println!("|---|---|---|---|---|");
+    for n in [1_000_u32, 10_000, 100_000] {
+        let (nodes, edges) = graph_core::seeded_model(1, n, graph_core::REFERENCE_DEGREE);
+        let base = CURRENT.load(Relaxed);
+        PEAK.store(base, Relaxed);
+        let params = graph_core::GridParams::default();
+        let run = graph_core::run_pipeline::<graph_core::Grid>(&nodes, &edges, &params);
+        let bytes = run.expect("fits").snapshot.to_bytes();
+        let peak = PEAK.load(Relaxed) - base;
+        println!(
+            "| {n} | {} | {} | {peak} | {:.1} B |",
+            edges.len(),
+            bytes.len(),
+            peak as f64 / f64::from(n),
+        );
+        assert!(peak > bytes.len(), "the allocator counted the run");
+    }
+}

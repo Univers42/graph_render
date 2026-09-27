@@ -7,6 +7,7 @@
 //! only recognisable. Adding one later is additive — reserve the tag, not the
 //! implementation.
 
+use crate::snapshot::SnapshotError;
 use core::fmt;
 
 /// How every node in one snapshot is shaped.
@@ -99,43 +100,191 @@ impl EdgeGeometryKind {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+/// Every node's geometry in one snapshot, as columns. The variant is the snapshot's one
+/// node discriminant; each column holds one `f32` per node, in node order.
+#[derive(Debug, Clone, PartialEq)]
+pub enum NodeGeometry {
+    /// Centres.
+    Point {
+        /// Horizontal centre.
+        x: Vec<f32>,
+        /// Vertical centre.
+        y: Vec<f32>,
+    },
+    /// Centres and radii.
+    Circle {
+        /// Horizontal centre.
+        x: Vec<f32>,
+        /// Vertical centre.
+        y: Vec<f32>,
+        /// Radius, never negative.
+        r: Vec<f32>,
+    },
+    /// Boxes.
+    Box {
+        /// Horizontal centre.
+        x: Vec<f32>,
+        /// Vertical centre.
+        y: Vec<f32>,
+        /// Width, never negative.
+        w: Vec<f32>,
+        /// Height, never negative.
+        h: Vec<f32>,
+    },
+}
 
-    #[test]
-    fn every_node_kind_round_trips_through_its_tag() {
-        for kind in [
-            NodeGeometryKind::Point,
-            NodeGeometryKind::Circle,
-            NodeGeometryKind::Box,
-        ] {
-            assert_eq!(NodeGeometryKind::from_tag(kind.tag()), Ok(kind));
+/// Every edge's geometry in one snapshot. The variant is the snapshot's one edge
+/// discriminant.
+#[derive(Debug, Clone, PartialEq)]
+pub enum EdgeGeometry {
+    /// Straight from source to target: nothing stored, endpoints come from node geometry.
+    Line,
+    /// Straight segments through each edge's interior points.
+    Polyline(Paths),
+    /// A curve of one degree for the whole snapshot through each edge's control points.
+    Curve {
+        /// The curve degree, at least 1 (2 quadratic, 3 cubic).
+        degree: u32,
+        /// Each edge's control points.
+        paths: Paths,
+    },
+}
+
+/// The points of every edge, CSR-shaped like the adjacency: edge `e` owns points
+/// `offsets[e]..offsets[e + 1]`, and point `p` is `(pts[2p], pts[2p + 1])`. A row holds
+/// the **interior** points, source to target; an empty row is drawn straight.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Paths {
+    /// `m + 1` point offsets, from 0, never decreasing.
+    pub offsets: Vec<u32>,
+    /// `2 × offsets[m]` coordinates, `x` then `y` for each point.
+    pub pts: Vec<f32>,
+}
+
+impl NodeGeometry {
+    /// The discriminant written in the header.
+    pub const fn kind(&self) -> NodeGeometryKind {
+        match self {
+            Self::Point { .. } => NodeGeometryKind::Point,
+            Self::Circle { .. } => NodeGeometryKind::Circle,
+            Self::Box { .. } => NodeGeometryKind::Box,
         }
     }
 
-    #[test]
-    fn every_edge_kind_round_trips_through_its_tag() {
-        for kind in [
-            EdgeGeometryKind::Line,
-            EdgeGeometryKind::Polyline,
-            EdgeGeometryKind::Curve,
-        ] {
-            assert_eq!(EdgeGeometryKind::from_tag(kind.tag()), Ok(kind));
+    /// Every column with its wire name, in wire order.
+    pub fn columns(&self) -> Vec<(&'static str, &[f32])> {
+        match self {
+            Self::Point { x, y } => vec![("x", x), ("y", y)],
+            Self::Circle { x, y, r } => vec![("x", x), ("y", y), ("r", r)],
+            Self::Box { x, y, w, h } => vec![("x", x), ("y", y), ("w", w), ("h", h)],
         }
     }
 
-    #[test]
-    fn reserved_edge_tags_are_refused_as_reserved_not_unknown() {
-        assert_eq!(
-            EdgeGeometryKind::from_tag(RIBBON_TAG),
-            Err(TagError::Reserved(3))
-        );
-        assert_eq!(
-            EdgeGeometryKind::from_tag(ARC_TAG),
-            Err(TagError::Reserved(4))
-        );
-        assert_eq!(EdgeGeometryKind::from_tag(5), Err(TagError::Unknown(5)));
-        assert_eq!(NodeGeometryKind::from_tag(3), Err(TagError::Unknown(3)));
+    /// `Ok` when every column has `n` finite values and no size is negative.
+    pub fn check(&self, n: u32) -> Result<(), SnapshotError> {
+        for (name, column) in self.columns() {
+            let column_name = node_column(name);
+            check_len(column_name, u64::from(n), column.len())?;
+            check_finite(column_name, column)?;
+            if matches!(name, "r" | "w" | "h")
+                && let Some(bad) = column.iter().position(|v| *v < 0.0)
+            {
+                return Err(SnapshotError::Negative {
+                    column: column_name,
+                    index: index_u32(bad),
+                });
+            }
+        }
+        Ok(())
     }
 }
+
+impl EdgeGeometry {
+    /// The discriminant written in the header.
+    pub const fn kind(&self) -> EdgeGeometryKind {
+        match self {
+            Self::Line => EdgeGeometryKind::Line,
+            Self::Polyline(_) => EdgeGeometryKind::Polyline,
+            Self::Curve { .. } => EdgeGeometryKind::Curve,
+        }
+    }
+
+    /// `Ok` when the paths fit `m` edges and a curve's degree is at least 1.
+    pub fn check(&self, m: u32) -> Result<(), SnapshotError> {
+        match self {
+            Self::Line => Ok(()),
+            Self::Polyline(paths) => paths.check(m),
+            Self::Curve { degree: 0, .. } => Err(SnapshotError::CurveDegree),
+            Self::Curve { paths, .. } => paths.check(m),
+        }
+    }
+}
+
+impl Paths {
+    /// `Ok` when there are `m + 1` offsets from 0, never decreasing, and exactly the
+    /// finite coordinates the last one calls for.
+    pub fn check(&self, m: u32) -> Result<(), SnapshotError> {
+        check_len("edge.offsets", u64::from(m) + 1, self.offsets.len())?;
+        if self.offsets[0] != 0 {
+            return Err(SnapshotError::Offsets {
+                column: "edge.offsets",
+                index: 0,
+            });
+        }
+        if let Some(bad) = self.offsets.windows(2).position(|w| w[1] < w[0]) {
+            return Err(SnapshotError::Offsets {
+                column: "edge.offsets",
+                index: index_u32(bad + 1),
+            });
+        }
+        let points = self.offsets[self.offsets.len() - 1];
+        check_len("edge.pts", 2 * u64::from(points), self.pts.len())?;
+        check_finite("edge.pts", &self.pts)
+    }
+}
+
+fn node_column(name: &str) -> &'static str {
+    match name {
+        "x" => "node.x",
+        "y" => "node.y",
+        "r" => "node.r",
+        "w" => "node.w",
+        _ => "node.h",
+    }
+}
+
+/// `Ok` when `found` is `expected`.
+pub(crate) fn check_len(
+    column: &'static str,
+    expected: u64,
+    found: usize,
+) -> Result<(), SnapshotError> {
+    let found = u64::try_from(found).unwrap_or(u64::MAX);
+    if found != expected {
+        return Err(SnapshotError::Length {
+            column,
+            expected,
+            found,
+        });
+    }
+    Ok(())
+}
+
+/// `Ok` when no value is NaN or ±∞ (D9).
+pub(crate) fn check_finite(column: &'static str, values: &[f32]) -> Result<(), SnapshotError> {
+    match values.iter().position(|v| !v.is_finite()) {
+        Some(bad) => Err(SnapshotError::NonFinite {
+            column,
+            index: index_u32(bad),
+        }),
+        None => Ok(()),
+    }
+}
+
+/// A position as it is reported; positions past `u32::MAX` cannot be built.
+pub(crate) fn index_u32(index: usize) -> u32 {
+    u32::try_from(index).unwrap_or(u32::MAX)
+}
+
+#[cfg(test)]
+mod tests;

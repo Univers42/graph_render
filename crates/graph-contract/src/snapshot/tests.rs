@@ -1,5 +1,6 @@
 use super::ReadError::*;
 use super::*;
+use crate::version::CURRENT_VERSION;
 
 const HEADER: SnapshotHeader = SnapshotHeader {
     version: CURRENT_VERSION,
@@ -34,16 +35,15 @@ fn header_is_exactly_header_len_bytes_and_round_trips() {
 }
 
 #[test]
-fn reader_refuses_a_major_above_the_one_it_knows() {
+fn version_refusal_of_a_header_one_major_ahead() {
     let mut newer = HEADER;
     newer.version.major = CURRENT_VERSION.major + 1;
-    let known = CURRENT_VERSION.major;
     assert_eq!(
         read(newer, |_| ()),
-        Err(UnsupportedMajor {
-            found: known + 1,
-            known
-        })
+        Err(UnsupportedMajor(NewerMajor {
+            found: newer.version,
+            known: CURRENT_VERSION
+        }))
     );
 }
 
@@ -72,27 +72,6 @@ fn reader_refuses_reserved_fields_and_short_input() {
 }
 
 #[test]
-fn column_writer_refuses_nan_and_infinity_and_writes_nothing() {
-    let mut out = Vec::new();
-    assert_eq!(
-        push_f32_column(&[1.0, f32::NAN], &mut out),
-        Err(NonFinite { index: 1 })
-    );
-    assert_eq!(
-        push_f32_column(&[f32::NEG_INFINITY], &mut out),
-        Err(NonFinite { index: 0 })
-    );
-    assert!(out.is_empty());
-}
-
-#[test]
-fn column_writer_emits_little_endian_bytes() {
-    let mut out = Vec::new();
-    assert_eq!(push_f32_column(&[1.0, -2.5], &mut out), Ok(()));
-    assert_eq!(out, [0, 0, 0x80, 0x3f, 0, 0, 0x20, 0xc0]);
-}
-
-#[test]
 fn every_refusal_message_names_the_value_it_refused() {
     let cases = [
         (
@@ -105,8 +84,12 @@ fn every_refusal_message_names_the_value_it_refused() {
         ),
         (BadMagic.to_string(), "bad magic"),
         (
-            UnsupportedMajor { found: 7, known: 0 }.to_string(),
-            "major 7 > known 0",
+            UnsupportedMajor(NewerMajor {
+                found: FormatVersion { major: 7, minor: 1 },
+                known: CURRENT_VERSION,
+            })
+            .to_string(),
+            "format 7.1 is newer than this reader's 0.2",
         ),
         (
             Geometry(TagError::Reserved(4)).to_string(),
@@ -119,9 +102,87 @@ fn every_refusal_message_names_the_value_it_refused() {
         (ReservedZChannel(1).to_string(), "z channel 1"),
         (NonZeroPadding(9).to_string(), "byte is 9"),
         (ReservedStageCount(2).to_string(), "stage count 2"),
-        (NonFinite { index: 3 }.to_string(), "index 3"),
     ];
     for (message, needle) in cases {
+        assert!(message.contains(needle), "{message:?} lacks {needle:?}");
+    }
+}
+
+#[test]
+fn every_snapshot_refusal_names_its_column_and_position() {
+    use SnapshotError as E;
+    let cases = [
+        (E::Header(BadMagic), "bad magic"),
+        (
+            E::Truncated { column: "node.x" },
+            "node.x: the snapshot ends inside it",
+        ),
+        (
+            E::TrailingBytes { count: 3 },
+            "3 bytes after the last column",
+        ),
+        (
+            E::Length {
+                column: "edge.pts",
+                expected: 4,
+                found: 2,
+            },
+            "edge.pts: 2 values, need 4",
+        ),
+        (
+            E::NonFinite {
+                column: "node.y",
+                index: 5,
+            },
+            "node.y[5]: NaN or infinite",
+        ),
+        (
+            E::Negative {
+                column: "node.r",
+                index: 1,
+            },
+            "node.r[1]: negative",
+        ),
+        (
+            E::Offsets {
+                column: "node.id",
+                index: 2,
+            },
+            "node.id[2]: offsets must start at 0",
+        ),
+        (
+            E::Utf8 {
+                column: "edge.id",
+                index: 0,
+            },
+            "edge.id[0]: not UTF-8",
+        ),
+        (
+            E::Padding { column: "node.id" },
+            "node.id: padding bytes must be 0",
+        ),
+        (
+            E::DuplicateId {
+                column: "node.id",
+                index: 9,
+            },
+            "node.id[9]: repeats an earlier id",
+        ),
+        (
+            E::Endpoint {
+                column: "edge.target",
+                index: 4,
+            },
+            "edge.target[4]: not a node",
+        ),
+        (E::CurveDegree, "degree 1 or more"),
+        (
+            E::Capacity { column: "edge.id" },
+            "edge.id: more than a u32",
+        ),
+    ];
+    for (err, needle) in cases {
+        let message = err.to_string();
         assert!(message.contains(needle), "{message:?} lacks {needle:?}");
     }
 }

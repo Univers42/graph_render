@@ -21,7 +21,8 @@
       ]
     },
     "FormatVersion": {
-      "description": "A snapshot format version. A reader refuses any major above the one it knows.",
+      "additionalProperties": false,
+      "description": "A snapshot format version.",
       "properties": {
         "major": {
           "description": "Incremented on any change an older reader would misread.",

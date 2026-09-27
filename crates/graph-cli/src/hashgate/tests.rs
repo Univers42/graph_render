@@ -52,7 +52,7 @@ fn vacuous_comparisons_are_refused() {
     renumbered[1].1[1] = renumbered[1].1[0].clone();
     assert!(diverged(2, &renumbered).is_err());
     let mut restaged = arms(HONEST);
-    restaged[0].1[2] = restaged[0].1[2].replace("topology", "synthetic");
+    restaged[0].1[2] = restaged[0].1[2].replace("layout.grid", "topology");
     assert!(diverged(2, &restaged).is_err());
 }
 
@@ -60,7 +60,7 @@ fn vacuous_comparisons_are_refused() {
 fn a_stage_whose_seeds_all_hash_alike_is_refused_as_one_input() {
     let err = diverged(2, &arms([['a', 'b', 'c', 'c']; 4])).expect_err("one digest");
     assert!(
-        err.starts_with("topology: every seed hashed to one digest"),
+        err.starts_with("layout.grid: every seed hashed to one digest"),
         "{err}"
     );
     let one: Vec<Arm> = arms(HONEST)
@@ -84,28 +84,128 @@ fn per_stage_counts_equal_seeds_per_stage_and_distinct_bad_seeds() {
     assert_eq!(per_stage(2, &[]).equal, [2, 2]);
 }
 
-#[test]
-fn the_mutation_variable_parses_strictly() {
-    use std::env::VarError;
-    assert_eq!(
-        parse_reference_degree(Err(VarError::NotPresent)),
-        Ok(graph_core::REFERENCE_DEGREE)
-    );
-    assert_eq!(parse_reference_degree(Ok(" 9 ".into())), Ok(9));
-    assert!(parse_reference_degree(Ok("nine".into())).is_err());
-    assert!(parse_reference_degree(Ok(String::new())).is_err());
+/// A reader of the variables in `pairs`, every other one unset.
+fn env(pairs: &'static [(&str, &str)]) -> impl Fn(&str) -> Result<String, VarError> {
+    |name| {
+        let found = pairs.iter().find(|(key, _)| *key == name);
+        found
+            .map(|(_, value)| (*value).to_owned())
+            .ok_or(VarError::NotPresent)
+    }
+}
+
+fn honest() -> Setting {
+    setting(env(&[])).expect("no knob set")
 }
 
 #[test]
-fn stage_bytes_knows_both_stages_and_refuses_others() {
-    let degree = graph_core::REFERENCE_DEGREE;
+fn the_mutation_variables_parse_strictly_and_one_at_a_time() {
+    let defaults = (REFERENCE_DEGREE, GridParams::default(), None);
+    let h = honest();
+    assert_eq!((h.reference_degree, h.grid, h.control), defaults);
+    let degree = setting(env(&[("GM_MUTATE_REFERENCE_DEGREE", " 9 ")])).expect("parses");
+    assert_eq!((degree.reference_degree, degree.grid), (9, h.grid));
+    assert_eq!(degree.control, Some(Knob::ReferenceDegree));
+    let spacing = setting(env(&[("GM_MUTATE_GRID_SPACING", "2.5")])).expect("parses");
     assert_eq!(
-        stage_bytes("synthetic", 1, degree),
-        graph_core::synthetic_snapshot(1, degree).map_err(|e| e.to_string())
+        (spacing.reference_degree, spacing.grid.spacing),
+        (REFERENCE_DEGREE, 2.5)
+    );
+    assert_eq!(spacing.control, Some(Knob::GridSpacing));
+    let bad: [&'static [(&str, &str)]; 3] = [
+        &[("GM_MUTATE_REFERENCE_DEGREE", "nine")],
+        &[("GM_MUTATE_REFERENCE_DEGREE", "")],
+        &[("GM_MUTATE_GRID_SPACING", "wide")],
+    ];
+    for pairs in bad {
+        let err = setting(env(pairs)).expect_err("refused");
+        assert!(err.starts_with(pairs[0].0), "{err}");
+    }
+    let both = env(&[
+        ("GM_MUTATE_REFERENCE_DEGREE", "9"),
+        ("GM_MUTATE_GRID_SPACING", "2"),
+    ]);
+    let err = setting(both).expect_err("two controls");
+    assert!(err.ends_with("one control at a time"), "{err}");
+    let unreadable = setting(|_| Err(VarError::NotUnicode("\u{fffd}".into())));
+    assert!(unreadable.is_err());
+}
+
+#[test]
+fn each_knob_names_its_own_variable_and_record() {
+    let envs = Knob::ALL.map(Knob::env);
+    let records = Knob::ALL.map(Knob::record);
+    assert_eq!(
+        envs,
+        ["GM_MUTATE_REFERENCE_DEGREE", "GM_MUTATE_GRID_SPACING"]
     );
     assert_eq!(
-        stage_bytes("topology", 1, degree),
-        graph_core::topology_stage(1, degree).map_err(|e| e.to_string())
+        records,
+        [
+            "hashgate-control-reference-degree",
+            "hashgate-control-grid-spacing"
+        ]
     );
-    assert!(stage_bytes("layout", 1, degree).is_err());
+}
+
+#[test]
+fn the_stages_are_the_topology_then_every_registered_layout() {
+    let layouts: Vec<&str> = graph_core::registry::LAYOUTS.iter().map(|l| l.id).collect();
+    assert_eq!(STAGES[0], "topology");
+    assert_eq!(STAGES[1..], layouts);
+}
+
+#[test]
+fn stage_bytes_are_the_registered_pipeline_and_each_knob_moves_one_stage() {
+    let [(t, topology), (l, layout)] = stage_bytes(4, &honest()).expect("runs");
+    assert_eq!([t, l], STAGES);
+    let grid = graph_core::registry::find(l).expect("registered");
+    let (nodes, edges) = seeded_model(4, gate_node_count(4), REFERENCE_DEGREE);
+    let registered = graph_core::run_with(&nodes, &edges, grid.id, grid.run).expect("runs");
+    assert_eq!(
+        (&registered.topology, registered.snapshot.to_bytes()),
+        (&topology, layout.clone())
+    );
+    let degree = Setting {
+        reference_degree: REFERENCE_DEGREE + 1,
+        ..honest()
+    };
+    let [(_, moved), (_, kept)] = stage_bytes(4, &degree).expect("runs");
+    assert_ne!(moved, topology);
+    assert_eq!(kept, layout, "the grid ignores weights");
+    let spacing = Setting {
+        grid: GridParams { spacing: 2.0 },
+        ..honest()
+    };
+    let [(_, kept), (_, moved)] = stage_bytes(4, &spacing).expect("runs");
+    assert_eq!(kept, topology);
+    assert_ne!(moved, layout);
+    let refused = Setting {
+        grid: GridParams { spacing: 0.0 },
+        ..honest()
+    };
+    let err = stage_bytes(4, &refused).expect_err("zero spacing");
+    assert_eq!(err, "parameter spacing: finite and above 0");
+}
+
+#[test]
+fn an_arm_prints_every_seed_of_one_stage_before_the_next() {
+    let lines = arm_lines(2, &honest()).expect("runs");
+    let prefixes: Vec<_> = lines
+        .lines()
+        .map(|l| l.rsplit_once(' ').expect("digest").0)
+        .collect();
+    assert_eq!(
+        prefixes,
+        ["topology 0", "topology 1", "layout.grid 0", "layout.grid 1"]
+    );
+    let refused = Setting {
+        grid: GridParams { spacing: -1.0 },
+        ..honest()
+    };
+    assert!(
+        arm_lines(2, &refused)
+            .expect_err("refused")
+            .starts_with("seed 0: ")
+    );
 }

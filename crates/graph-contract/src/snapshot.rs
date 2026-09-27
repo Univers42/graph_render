@@ -1,47 +1,32 @@
-//! The snapshot header and the column writer — the bytes the hash is taken over.
+//! The snapshot's fixed header, and every reason a snapshot is refused.
 //!
-//! Binary layout, little-endian, no implicit padding (Phase 0; `docs/contract/binary-layout.md`
-//! becomes authoritative in Phase 2):
+//! The header is the first 28 bytes of the binary face; the full byte layout, header
+//! included, is `docs/contract/binary-layout.md`, which is authoritative. Little-endian,
+//! no implicit padding:
 //!
-//! | offset | size | field                                            |
-//! |-------:|-----:|--------------------------------------------------|
-//! |      0 |    4 | magic `b"GMSN"`                                  |
-//! |      4 |    4 | format major, `u32`                              |
-//! |      8 |    4 | format minor, `u32`                              |
-//! |     12 |    1 | node geometry tag (`NodeGeometryKind`)           |
-//! |     13 |    1 | edge geometry tag (`EdgeGeometryKind`)           |
-//! |     14 |    1 | z channel: `0` absent; `1` reserved, refused     |
-//! |     15 |    1 | padding, must be `0`                             |
+//! | offset | size | field                                             |
+//! |-------:|-----:|---------------------------------------------------|
+//! |      0 |    4 | magic `b"GMSN"`                                   |
+//! |      4 |    4 | format major, `u32`                               |
+//! |      8 |    4 | format minor, `u32`                               |
+//! |     12 |    1 | node geometry tag (`NodeGeometryKind`)            |
+//! |     13 |    1 | edge geometry tag (`EdgeGeometryKind`)            |
+//! |     14 |    1 | z channel: `0` absent; `1` reserved, refused      |
+//! |     15 |    1 | padding, must be `0`                              |
 //! |     16 |    4 | stage count, `u32`; reserved, must be `1` for now |
-//! |     20 |    4 | node count, `u32`                                |
-//! |     24 |    4 | edge count, `u32`                                |
-//! |     28 |    … | columns, each `count × f32` little-endian        |
+//! |     20 |    4 | node count, `u32`                                 |
+//! |     24 |    4 | edge count, `u32`                                 |
 //!
 //! Every integer on the wire is `u32` or a single tag byte — never `usize` (D6).
 
 use crate::geometry::{EdgeGeometryKind, NodeGeometryKind, TagError};
+use crate::version::{FormatVersion, NewerMajor, check_readable};
 use core::fmt;
 
 /// The four bytes every snapshot starts with.
 pub const MAGIC: [u8; 4] = *b"GMSN";
 /// Length of the fixed header in bytes.
 pub const HEADER_LEN: u32 = 28;
-
-/// A snapshot format version. A reader refuses any major above the one it knows.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(
-    feature = "codegen",
-    derive(serde::Serialize, serde::Deserialize, schemars::JsonSchema)
-)]
-pub struct FormatVersion {
-    /// Incremented on any change an older reader would misread.
-    pub major: u32,
-    /// Incremented on additive changes an older reader can safely ignore.
-    pub minor: u32,
-}
-
-/// The version this crate writes and the highest major it reads. `0.x` is pre-release.
-pub const CURRENT_VERSION: FormatVersion = FormatVersion { major: 0, minor: 1 };
 
 /// The fixed-size head of every snapshot: one geometry discriminant for the whole payload.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -114,13 +99,8 @@ pub enum ReadError {
     },
     /// The first four bytes are not `GMSN`.
     BadMagic,
-    /// Written by a newer major version than this reader knows.
-    UnsupportedMajor {
-        /// Major version found in the payload.
-        found: u32,
-        /// Highest major version this reader knows.
-        known: u32,
-    },
+    /// Written in a newer major version than this reader knows.
+    UnsupportedMajor(NewerMajor),
     /// A geometry tag byte was reserved or unallocated.
     Geometry(TagError),
     /// The reserved z channel is set; z is allocated but not implemented.
@@ -138,27 +118,12 @@ impl fmt::Display for ReadError {
                 write!(f, "header needs {needed} bytes, got {found}")
             }
             Self::BadMagic => write!(f, "not a graph-motor snapshot: bad magic"),
-            Self::UnsupportedMajor { found, known } => {
-                write!(f, "format major {found} > known {known}")
-            }
+            Self::UnsupportedMajor(newer) => newer.fmt(f),
             Self::Geometry(err) => write!(f, "{err}"),
             Self::ReservedZChannel(v) => write!(f, "z channel {v} is reserved and not implemented"),
             Self::NonZeroPadding(v) => write!(f, "header padding byte is {v}, must be 0"),
             Self::ReservedStageCount(n) => write!(f, "stage count {n} is reserved; only 1 is read"),
         }
-    }
-}
-
-/// A column held a NaN or an infinity, which may not be hashed (D9).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct NonFinite {
-    /// Index of the first non-finite value in the column.
-    pub index: u32,
-}
-
-impl fmt::Display for NonFinite {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "non-finite value at column index {}", self.index)
     }
 }
 
@@ -189,12 +154,7 @@ impl SnapshotHeader {
             major: le_u32(head, 4),
             minor: le_u32(head, 8),
         };
-        if version.major > CURRENT_VERSION.major {
-            return Err(ReadError::UnsupportedMajor {
-                found: version.major,
-                known: CURRENT_VERSION.major,
-            });
-        }
+        check_readable(version).map_err(ReadError::UnsupportedMajor)?;
         check_reserved(head[14], head[15])?;
         Ok(Self {
             version,
@@ -221,20 +181,117 @@ fn le_u32(head: &[u8], at: usize) -> u32 {
     u32::from_le_bytes([head[at], head[at + 1], head[at + 2], head[at + 3]])
 }
 
-/// Appends one `f32` column little-endian, refusing NaN and infinities (D9).
-///
-/// Checks the whole column before writing any of it, so a refused column leaves
-/// `out` untouched rather than half-written.
-pub fn push_f32_column(column: &[f32], out: &mut Vec<u8>) -> Result<(), NonFinite> {
-    if let Some(bad) = column.iter().position(|v| !v.is_finite()) {
-        return Err(NonFinite {
-            index: u32::try_from(bad).unwrap_or(u32::MAX),
-        });
+/// Why a snapshot was refused, by either face or at construction. Every variant names
+/// the column (`node.id`, `edge.source`, `node.x`, `edge.pts`, …) and, where there is one,
+/// the position that broke the rule.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SnapshotError {
+    /// The fixed header was refused.
+    Header(ReadError),
+    /// The payload ends inside a column the header's counts call for.
+    Truncated {
+        /// The column that was cut short.
+        column: &'static str,
+    },
+    /// Bytes remain after the last column.
+    TrailingBytes {
+        /// How many.
+        count: u64,
+    },
+    /// A column's length is not the one the counts require.
+    Length {
+        /// The column.
+        column: &'static str,
+        /// Values it must hold.
+        expected: u64,
+        /// Values it holds.
+        found: u64,
+    },
+    /// NaN or ±∞, which may not be hashed (D9).
+    NonFinite {
+        /// The column.
+        column: &'static str,
+        /// The first bad position.
+        index: u32,
+    },
+    /// A negative radius, width or height.
+    Negative {
+        /// The column.
+        column: &'static str,
+        /// The first bad position.
+        index: u32,
+    },
+    /// Offsets that do not start at 0, decrease, or run past their data.
+    Offsets {
+        /// The column.
+        column: &'static str,
+        /// The first bad offset.
+        index: u32,
+    },
+    /// An id whose bytes are not UTF-8.
+    Utf8 {
+        /// The column.
+        column: &'static str,
+        /// The id's position.
+        index: u32,
+    },
+    /// A padding byte that is not 0.
+    Padding {
+        /// The column the padding closes.
+        column: &'static str,
+    },
+    /// An id equal to an earlier one in the same table.
+    DuplicateId {
+        /// The column.
+        column: &'static str,
+        /// The later of the two positions.
+        index: u32,
+    },
+    /// An edge endpoint that is not a node of this snapshot.
+    Endpoint {
+        /// `edge.source` or `edge.target`.
+        column: &'static str,
+        /// The edge.
+        index: u32,
+    },
+    /// A curve of degree 0.
+    CurveDegree,
+    /// More ids, id bytes or points than a `u32` counts.
+    Capacity {
+        /// The column.
+        column: &'static str,
+    },
+}
+
+impl fmt::Display for SnapshotError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::Header(err) => err.fmt(f),
+            Self::Truncated { column } => write!(f, "{column}: the snapshot ends inside it"),
+            Self::TrailingBytes { count } => write!(f, "{count} bytes after the last column"),
+            Self::Length {
+                column,
+                expected,
+                found,
+            } => write!(f, "{column}: {found} values, need {expected}"),
+            Self::NonFinite { column, index } => write!(f, "{column}[{index}]: NaN or infinite"),
+            Self::Negative { column, index } => write!(f, "{column}[{index}]: negative"),
+            Self::Offsets { column, index } => {
+                write!(
+                    f,
+                    "{column}[{index}]: offsets must start at 0, never decrease and end at the data's end"
+                )
+            }
+            Self::Utf8 { column, index } => write!(f, "{column}[{index}]: not UTF-8"),
+            Self::Padding { column } => write!(f, "{column}: padding bytes must be 0"),
+            Self::DuplicateId { column, index } => {
+                write!(f, "{column}[{index}]: repeats an earlier id")
+            }
+            Self::Endpoint { column, index } => write!(f, "{column}[{index}]: not a node"),
+            Self::CurveDegree => write!(f, "edge.degree: a curve needs degree 1 or more"),
+            Self::Capacity { column } => write!(f, "{column}: more than a u32 can count"),
+        }
     }
-    for value in column {
-        out.extend_from_slice(&value.to_le_bytes());
-    }
-    Ok(())
 }
 
 #[cfg(test)]

@@ -19,7 +19,7 @@ export interface SnapshotHeader {
 /** How every edge in one snapshot is shaped. */
 export type EdgeGeometryKind = "Line" | "Polyline" | "Curve";
 
-/** A snapshot format version. A reader refuses any major above the one it knows. */
+/** A snapshot format version. */
 export interface FormatVersion {
   /** Incremented on any change an older reader would misread. */
   major: number;

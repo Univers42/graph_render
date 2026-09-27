@@ -13,12 +13,17 @@ fn gates_dir() -> std::path::PathBuf {
     std::env::temp_dir().join(format!("gm-cli-gates-{}", std::process::id()))
 }
 
-fn graph_cli(args: &[&str], mutate: Option<&str>) -> Output {
+const KNOBS: [&str; 2] = ["GM_MUTATE_REFERENCE_DEGREE", "GM_MUTATE_GRID_SPACING"];
+
+/// `graph-cli args` with every knob unset but `mutate`, if given.
+fn graph_cli(args: &[&str], mutate: Option<(&str, &str)>) -> Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_graph-cli"));
-    command.args(args).env_remove("GM_MUTATE_REFERENCE_DEGREE");
-    command.env("GM_GATES_DIR", gates_dir());
-    if let Some(value) = mutate {
-        command.env("GM_MUTATE_REFERENCE_DEGREE", value);
+    command.args(args).env("GM_GATES_DIR", gates_dir());
+    for knob in KNOBS {
+        command.env_remove(knob);
+    }
+    if let Some((knob, value)) = mutate {
+        command.env(knob, value);
     }
     command.output().expect("graph-cli runs")
 }
@@ -27,32 +32,64 @@ fn stdout(output: &Output) -> String {
     String::from_utf8_lossy(&output.stdout).into_owned()
 }
 
+fn record(name: &str) -> String {
+    std::fs::read_to_string(gates_dir().join(format!("{name}.json"))).expect("recorded")
+}
+
 #[test]
-fn hashgate_passes_and_its_negative_control_goes_red() {
+fn hashgate_passes_and_each_negative_control_goes_red_on_its_own_stage() {
     let honest = graph_cli(&["hashgate", "--seeds", "4"], None);
     assert_eq!(honest.status.code(), Some(0), "{}", stdout(&honest));
     assert!(stdout(&honest).contains("  topology: 4-way equal on 4/4 seeds"));
+    assert!(stdout(&honest).contains("  layout.grid: 4-way equal on 4/4 seeds"));
     assert!(stdout(&honest).contains("  4-way equal on 4/4 seeds"));
     assert!(stdout(&honest).contains("  native run 1  digest "));
     assert!(!stdout(&honest).contains("DIVERGED"));
-    let record = std::fs::read_to_string(gates_dir().join("hashgate.json")).expect("recorded");
+    let honest = record("hashgate");
     assert!(
-        record.contains("\"pass\": true") && record.contains("\"topology\": 4"),
-        "{record}"
+        honest.contains("\"pass\": true") && honest.contains("\"layout.grid\": 4"),
+        "{honest}"
     );
 
-    let mutated = graph_cli(&["hashgate", "--seeds", "4"], Some("9"));
-    assert_eq!(mutated.status.code(), Some(1), "{}", stdout(&mutated));
-    assert!(stdout(&mutated).contains("  topology: 4-way equal on 0/4 seeds"));
-    assert!(stdout(&mutated).contains("  4-way equal on 0/4 seeds"));
-    assert!(stdout(&mutated).contains("  DIVERGED synthetic 0:"));
-    let control = gates_dir().join("hashgate-control.json");
-    let control = std::fs::read_to_string(control).expect("control recorded");
+    let degree = graph_cli(&["hashgate", "--seeds", "4"], Some((KNOBS[0], "9")));
+    assert_eq!(degree.status.code(), Some(1), "{}", stdout(&degree));
+    assert!(stdout(&degree).contains("  topology: 4-way equal on 0/4 seeds"));
+    assert!(stdout(&degree).contains("  layout.grid: 4-way equal on 4/4 seeds"));
+    assert!(stdout(&degree).contains("  DIVERGED topology 0:"));
+    assert!(stdout(&degree).contains("FAIL: 4 of 4 seeds diverge"));
+    let control = record("hashgate-control-reference-degree");
     assert!(control.contains("\"pass\": false"), "{control}");
-    assert!(stdout(&mutated).contains("FAIL: 4 of 4 seeds diverge"));
+    assert!(
+        control.contains("\"mutation\": \"GM_MUTATE_REFERENCE_DEGREE\""),
+        "{control}"
+    );
 
-    let typo = graph_cli(&["hashgate", "--seeds", "4"], Some("nine"));
-    assert_eq!(typo.status.code(), Some(2), "a typo must not pass as green");
+    let spacing = graph_cli(&["hashgate", "--seeds", "4"], Some((KNOBS[1], "2")));
+    assert_eq!(spacing.status.code(), Some(1), "{}", stdout(&spacing));
+    assert!(stdout(&spacing).contains("  topology: 4-way equal on 4/4 seeds"));
+    assert!(stdout(&spacing).contains("  layout.grid: 4-way equal on 0/4 seeds"));
+    assert!(stdout(&spacing).contains("  DIVERGED layout.grid 0:"));
+    let control = record("hashgate-control-grid-spacing");
+    assert!(control.contains("\"pass\": false"), "{control}");
+
+    for (knob, typo) in [(KNOBS[0], "nine"), (KNOBS[1], "wide"), (KNOBS[1], "0")] {
+        let run = graph_cli(&["hashgate", "--seeds", "4"], Some((knob, typo)));
+        assert_eq!(
+            run.status.code(),
+            Some(2),
+            "{knob}={typo} must not pass as a control"
+        );
+    }
+    let mut both = Command::new(env!("CARGO_BIN_EXE_graph-cli"));
+    let both = both
+        .args(["hashgate", "--seeds", "4"])
+        .env("GM_GATES_DIR", gates_dir());
+    let both = both
+        .env(KNOBS[0], "9")
+        .env(KNOBS[1], "2")
+        .output()
+        .expect("runs");
+    assert_eq!(both.status.code(), Some(2), "one control at a time");
 }
 
 #[test]
@@ -81,7 +118,7 @@ fn a_failed_wasm_build_is_could_not_run_and_seed_counts_are_capped() {
 fn codegen_check_finds_the_committed_files_current() {
     let check = graph_cli(&["codegen", "--check"], None);
     assert_eq!(check.status.code(), Some(0), "{}", stdout(&check));
-    assert_eq!(stdout(&check).matches("up to date").count(), 2);
+    assert_eq!(stdout(&check).matches("up to date").count(), 3);
 }
 
 #[test]
@@ -90,8 +127,115 @@ fn hashgate_arm_prints_one_line_per_stage_and_seed() {
     assert_eq!(arm.status.code(), Some(0));
     let lines: Vec<String> = stdout(&arm).lines().map(str::to_owned).collect();
     assert_eq!(lines.len(), 6);
-    assert!(lines[2].starts_with("synthetic 2 ") && lines[2].len() == "synthetic 2 ".len() + 64);
-    assert!(lines[5].starts_with("topology 2 ") && lines[5].len() == "topology 2 ".len() + 64);
+    assert!(lines[2].starts_with("topology 2 ") && lines[2].len() == "topology 2 ".len() + 64);
+    let last = "layout.grid 2 ";
+    assert!(lines[5].starts_with(last) && lines[5].len() == last.len() + 64);
+}
+
+/// The consumer's command: both faces, one to standard output, and the refusals, each
+/// with the exit code a script can branch on.
+#[test]
+fn snapshot_emits_either_face_and_refuses_what_it_cannot_do() {
+    let bin = std::env::temp_dir().join(format!("gm-cli-snapshot-{}.bin", std::process::id()));
+    let path = bin.to_str().expect("utf-8");
+    let args = [
+        "snapshot", "--seed", "1", "--nodes", "50", "--layout", "grid",
+    ];
+    let run = graph_cli(
+        &[&args[..], &["--out-bin", path, "--out-json", "-"]].concat(),
+        None,
+    );
+    assert_eq!(
+        run.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    let json = stdout(&run);
+    assert!(
+        json.starts_with("{\"edges\":{\"id\":[") && json.ends_with("}\n"),
+        "{json}"
+    );
+    assert!(
+        json.contains("\"version\":{\"major\":0,\"minor\":2}"),
+        "{json}"
+    );
+    let summary = String::from_utf8_lossy(&run.stderr).into_owned();
+    assert!(
+        summary.starts_with("snapshot: seed 1, layout.grid, 50 nodes, "),
+        "{summary}"
+    );
+    let bytes = std::fs::read(&bin).expect("written");
+    assert_eq!(&bytes[..4], b"GMSN");
+    std::fs::remove_file(&bin).expect("cleanup");
+    let refusals: [(&[&str], i32); 4] = [
+        (&["snapshot", "--seed", "1", "--layout", "grid"], 2),
+        (
+            &[
+                "snapshot",
+                "--seed",
+                "1",
+                "--layout",
+                "spiral",
+                "--out-json",
+                "-",
+            ],
+            2,
+        ),
+        (
+            &[
+                "snapshot",
+                "--seed",
+                "1",
+                "--nodes",
+                "0",
+                "--layout",
+                "grid",
+                "--out-json",
+                "-",
+            ],
+            2,
+        ),
+        (
+            &[
+                "snapshot",
+                "--seed",
+                "1",
+                "--layout",
+                "grid",
+                "--out-bin",
+                "-",
+                "--out-json",
+                "-",
+            ],
+            2,
+        ),
+    ];
+    for (args, code) in refusals {
+        let run = graph_cli(args, None);
+        assert_eq!(run.status.code(), Some(code), "{args:?}");
+        assert!(run.stdout.is_empty(), "{args:?} wrote to stdout");
+    }
+}
+
+#[test]
+fn roundtrip_passes_and_records_the_grids_hand_oracle() {
+    let run = graph_cli(&["roundtrip", "--seeds", "20"], None);
+    assert_eq!(run.status.code(), Some(0), "{}", stdout(&run));
+    assert!(stdout(&run).contains("  binary <-> JSON byte-exact on 40/40 snapshots"));
+    assert!(stdout(&run).contains("  layout.grid on its stated conventions on 20/20 seeds"));
+    assert!(stdout(&run).ends_with("PASS\n"));
+    let roundtrip = record("roundtrip");
+    assert!(
+        roundtrip.contains("\"pass\": true") && roundtrip.contains("\"cases\": 20"),
+        "{roundtrip}"
+    );
+    assert_eq!(
+        graph_cli(&["roundtrip", "--seeds", "0"], None)
+            .status
+            .code(),
+        Some(2)
+    );
 }
 
 #[test]
@@ -99,11 +243,11 @@ fn capabilities_needs_a_flag_and_refuses_gated_rows_no_recorded_run_backs() {
     assert_eq!(graph_cli(&["capabilities"], None).status.code(), Some(2));
     let check = graph_cli(&["capabilities", "--check"], None);
     assert_eq!(check.status.code(), Some(1), "{}", stdout(&check));
-    assert!(stdout(&check).contains("capabilities --check: 8 rows, 16 problems"));
+    assert!(stdout(&check).contains("capabilities --check: 9 rows, 18 problems"));
     let json = graph_cli(&["capabilities", "--json"], None);
     assert_eq!(json.status.code(), Some(0));
     let rows: serde_json::Value = serde_json::from_str(&stdout(&json)).expect("json");
-    assert_eq!(rows.as_array().map(Vec::len), Some(8));
+    assert_eq!(rows.as_array().map(Vec::len), Some(9));
     assert!(
         rows[0]["oracle_diff"]
             .as_str()
@@ -118,11 +262,11 @@ fn the_ledger_reads_a_recorded_run_and_names_what_it_lacks() {
     let dir = std::env::temp_dir().join(format!("gm-cli-ledger-{}", std::process::id()));
     let run = |args: &[&str]| {
         let mut command = Command::new(env!("CARGO_BIN_EXE_graph-cli"));
-        let command = command.args(args).env("GM_GATES_DIR", &dir);
-        command
-            .env_remove("GM_MUTATE_REFERENCE_DEGREE")
-            .output()
-            .expect("graph-cli runs")
+        command.args(args).env("GM_GATES_DIR", &dir);
+        for knob in KNOBS {
+            command.env_remove(knob);
+        }
+        command.output().expect("graph-cli runs")
     };
     assert_eq!(run(&["hashgate", "--seeds", "2"]).status.code(), Some(0));
     let json = run(&["capabilities", "--json"]);

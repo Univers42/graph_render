@@ -53,6 +53,9 @@ pub struct Capability {
     pub status: Status,
     /// The reference it is differentially tested against.
     pub oracle: &'static str,
+    /// The gate record its oracle verdict is read from: `oracle-diff` or `roundtrip`.
+    #[serde(skip)]
+    pub oracle_record: &'static str,
     /// The oracle functions whose differential backs it.
     #[serde(skip)]
     pub functions: &'static [&'static str],
@@ -81,7 +84,11 @@ pub fn ledger(evidence: &Evidence) -> Vec<Capability> {
     };
     let mut rows = registry();
     for row in &mut rows {
-        row.oracle_diff = text(verdict::oracle_diff(evidence, row.functions));
+        row.oracle_diff = text(verdict::oracle_diff(
+            evidence,
+            row.oracle_record,
+            row.functions,
+        ));
         row.hash_4way = text(verdict::hash_4way(evidence, row.hash_stage));
     }
     rows
@@ -111,7 +118,7 @@ pub fn problems(rows: &[Capability], evidence: &Evidence) -> Vec<String> {
         if row.status == Status::Gated {
             let verdicts = [
                 verdict::hash_4way(evidence, row.hash_stage),
-                verdict::oracle_diff(evidence, row.functions),
+                verdict::oracle_diff(evidence, row.oracle_record, row.functions),
             ];
             for why in verdicts.into_iter().filter_map(Result::err) {
                 found.push(format!("{}: gated, but {why}", row.id));
