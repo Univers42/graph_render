@@ -320,13 +320,16 @@ internals, and one copy has already rotted:
 | `model/graphModel.ts:143-193` `indexModel` | `core/model/model.ts:24-64` | duplicate, live in 5 files |
 | `model/graphModel.ts:93-122` id builders | `core/model/ids.ts:11-40` | byte-identical **including doc comments** |
 | `model/weights.ts:23-43` `applyDegreeWeights` | `core/model/weights.ts:12-26` | byte-identical down to the `clamp(0.2 + 0.8 * …)` expression; live in 5 files |
-| **`model/graphModel.ts:125-137` `nodesEqual`** | `core/model/model.ts:10-21` | **ALREADY DIVERGED** — the app copy compares `a.icon === b.icon`; the package's does not |
+| **`model/graphModel.ts:125-137` `nodesEqual`** | `core/model/model.ts:10-21` | **WAS DIVERGED — now fixed in the package.** The app copy compared `a.icon === b.icon`; the package's did not, so an icon-only edit produced an empty patch. Corrected package-side in §10; the app copy is still the duplicate to delete |
 | `model/palette.ts` | `core/theme/{palette,categorical}.ts` | self-declared hand-mirror; **dead** (barrel re-export with zero importers) |
 | `model/selectors.ts:27-52` `neighborhood` | `core/model/neighborhood.ts:9-28` | weaker duplicate; dead in app code, kept alive by one test |
 
 `nodesEqual` is the proof this is worth acting on: a hand-mirror with no test against the original
 drifts, and this one already has. The `as unknown as` cast at `GraphEngineExplorer.tsx:43` is what
-keeps the drift from being a compile error.
+keeps the drift from being a compile error. Note the direction: the hand-mirror was *ahead* of the
+extracted original, so the correction had to travel package-ward (§10) — copying host→package, which
+is the obvious move, would have made it worse. The app-side duplicate is still the thing to delete;
+that part is untouched and remains gated behind Phase 4.
 
 **This was not touched.** It modifies 6+ live app files in a working application, which the runbook's
 §0 forbids and Phase 4 does not authorise. The clean end state — delete the app-side mirrors, import
