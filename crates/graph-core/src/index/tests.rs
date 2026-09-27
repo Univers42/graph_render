@@ -143,3 +143,15 @@ fn nodes_equal_sees_every_compared_field() {
         assert!(!nodes_equal(&base.view(), &changed.view()), "edit {i}");
     }
 }
+
+#[test]
+fn the_last_u32_is_never_handed_out_as_an_index() {
+    let last = u32::MAX as usize;
+    assert_eq!(next_index(0, "node index"), Ok(0));
+    assert_eq!(next_index(last - 1, "node index"), Ok(u32::MAX - 1));
+    let refused = CapacityError { what: "edge index" };
+    assert_eq!(next_index(last, "edge index"), Err(refused));
+    if let Some(beyond) = last.checked_add(1) {
+        assert_eq!(next_index(beyond, "edge index"), Err(refused));
+    }
+}

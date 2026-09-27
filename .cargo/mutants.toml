@@ -23,4 +23,11 @@ exclude_re = [
     # Equivalent by construction: `StageCount::ONE` is the only value that can exist, so
     # `get` returns 1 for every input it can ever receive.
     "replace StageCount::get -> u32 with 1",
+    # Equivalent: `empty_model` is `Topology::default()`, so the mutant is the original.
+    "replace empty_model -> Topology with Default::default\\(\\)",
+    # Equivalent in output: deleting `nodes`/`edges` from the struct literal in
+    # `index_model` only drops the up-front reservation; the columns then grow on push
+    # and hold the same values. The reservation itself is pinned by
+    # `columns::tests::with_capacity_reserves_room_in_every_column`.
+    "delete field (nodes|edges) from struct Topology expression in index_model",
 ]
