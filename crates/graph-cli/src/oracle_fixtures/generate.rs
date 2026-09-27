@@ -6,6 +6,7 @@
 //! strings, `:` inside coordinates, mixed case, astral code points, `-0`, `NaN`, and
 //! more than 256 sources for the H9 arm.
 
+use super::pools::{FLOATS, ID_POOL, TEXT_POOL, TYPE_POOL, VERSIONS};
 use super::wire::{WireEdge, WireNode, hex};
 use graph_core::{EdgeKind, NodeKind};
 use serde_json::{Value, json};
@@ -46,71 +47,6 @@ impl Rng {
         pool[self.below(pool.len())]
     }
 }
-
-/// Ids where byte order and `localeCompare` disagree, and ids that parse oddly.
-pub const ID_POOL: [&str; 22] = [
-    "a",
-    "A",
-    "b",
-    "B",
-    "Z",
-    "z",
-    "note:1",
-    "NOTE:1",
-    "tag:x",
-    "\u{e9}",
-    "e",
-    "_x",
-    "ax",
-    "10",
-    "9",
-    "a-b",
-    "ab",
-    "",
-    "pg:db:1",
-    "pg:db:1:2",
-    "x",
-    "\u{1F680}",
-];
-const TEXT_POOL: [&str; 9] = [
-    "",
-    "Label",
-    "\u{e9}t\u{e9}",
-    "\u{65e5}\u{672c}",
-    "a\"b\\c",
-    "line\nbreak",
-    "tab\there",
-    "\u{1F5FA}\u{FE0F}",
-    "\u{7f}\u{1}",
-];
-const TYPE_POOL: [&str; 24] = [
-    "parent",
-    "PARENT",
-    "parent_of",
-    "child_of",
-    "Child_Of",
-    "x_hierarchy_y",
-    "HIERARCHY",
-    "note_link",
-    "my_note_link",
-    "links_to",
-    "LIN\u{212A}S_TO",
-    "note_of",
-    "annotates",
-    "tagged",
-    "TAG",
-    "tag",
-    "parent_tag",
-    "vintage",
-    "stage",
-    "child-of",
-    "note_link_note_of",
-    "note_link_hierarchy",
-    "",
-    "relation",
-];
-const FLOATS: [f64; 8] = [0.5, 0.0, -0.0, 1.0, 0.2, 1e-300, 1.0 / 3.0, f64::NAN];
-const VERSIONS: [f64; 6] = [0.0, 1.0, 2.0, -1.0, 9_007_199_254_740_992.0, 0.5];
 
 fn text(rng: &mut Rng, i: usize) -> String {
     if rng.chance(30) {

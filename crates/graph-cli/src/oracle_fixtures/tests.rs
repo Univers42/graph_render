@@ -88,6 +88,8 @@ fn emitting_twice_writes_the_same_bytes_and_a_manifest_that_pins_them() {
 #[test]
 fn nothing_to_emit_and_malformed_pairs_are_refused() {
     assert!(emit(0, &scratch("zero")).is_err());
+    assert!(!scratch("zero").exists(), "a refused emit writes nothing");
+    assert!(default_out().ends_with("target/oracle-fixtures"));
     let dir = scratch("pairs");
     std::fs::create_dir_all(&dir).expect("dir");
     let bad = dir.join("bad.json");

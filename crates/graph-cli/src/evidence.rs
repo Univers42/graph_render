@@ -79,15 +79,22 @@ fn collect(root: &Path, path: &Path, files: &mut Vec<String>) -> Result<(), Stri
 }
 
 /// Writes `body` plus `gate` and the current fingerprint as `<gates>/<name>.json`.
-pub fn write(name: &str, mut body: Value) -> Result<PathBuf, String> {
-    let fingerprint = tree_fingerprint()?;
+pub fn write(name: &str, body: Value) -> Result<PathBuf, String> {
+    write_to(&gates_dir(), name, body, tree_fingerprint()?)
+}
+
+fn write_to(
+    dir: &Path,
+    name: &str,
+    mut body: Value,
+    fingerprint: String,
+) -> Result<PathBuf, String> {
     let object = body
         .as_object_mut()
         .ok_or("a gate record is a JSON object")?;
     object.insert("gate".into(), Value::from(name));
     object.insert("fingerprint".into(), Value::from(fingerprint));
-    let dir = gates_dir();
-    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let path = dir.join(format!("{name}.json"));
     let text = serde_json::to_string_pretty(&body).map_err(|e| e.to_string())?;
     std::fs::write(&path, text + "\n").map_err(|e| format!("{}: {e}", path.display()))?;
@@ -96,7 +103,11 @@ pub fn write(name: &str, mut body: Value) -> Result<PathBuf, String> {
 
 /// `<gates>/<name>.json`, or `None` when no run has recorded it.
 pub fn read(name: &str) -> Result<Option<Value>, String> {
-    let path = gates_dir().join(format!("{name}.json"));
+    read_from(&gates_dir(), name)
+}
+
+fn read_from(dir: &Path, name: &str) -> Result<Option<Value>, String> {
+    let path = dir.join(format!("{name}.json"));
     match std::fs::read_to_string(&path) {
         Ok(text) => serde_json::from_str(&text)
             .map(Some)
@@ -143,6 +154,26 @@ mod tests {
         let x = sha256_hex(b"x");
         let want = sha256_hex(format!("a\0{empty}\nsub/b\0{x}\n").as_bytes());
         assert_eq!(fingerprint_of(&dir, &["sub", "a"]), Ok(want));
+        std::fs::remove_dir_all(&dir).expect("cleanup");
+    }
+
+    #[test]
+    fn a_record_reads_back_as_written_and_only_absence_is_none() {
+        let dir = scratch("records");
+        let body = serde_json::json!({ "seeds": 3, "pass": true });
+        let path = write_to(&dir, "gate", body, "f".into()).expect("written");
+        assert_eq!(path, dir.join("gate.json"));
+        let record = read_from(&dir, "gate").expect("readable").expect("present");
+        assert_eq!(
+            record,
+            serde_json::json!({ "seeds": 3, "pass": true, "gate": "gate", "fingerprint": "f" })
+        );
+        assert_eq!(read_from(&dir, "absent"), Ok(None));
+        std::fs::write(dir.join("torn.json"), "{").expect("write");
+        assert!(read_from(&dir, "torn").is_err());
+        std::fs::create_dir(dir.join("dir.json")).expect("dir");
+        assert!(read_from(&dir, "dir").is_err(), "unreadable is not absent");
+        assert!(write_to(&dir, "list", serde_json::json!([]), "f".into()).is_err());
         std::fs::remove_dir_all(&dir).expect("cleanup");
     }
 

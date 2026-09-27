@@ -160,6 +160,39 @@ mod tests {
         );
     }
 
+    /// Pre-sized, never grown by one in the build loop (`dsa-and-memory.md`).
+    #[test]
+    fn with_capacity_reserves_room_in_every_column() {
+        let n = NodeColumns::with_capacity(9);
+        let caps = [
+            n.id.capacity(),
+            n.kind.capacity(),
+            n.database.capacity(),
+            n.source.capacity(),
+            n.label.capacity(),
+            n.group_label.capacity(),
+            n.weight.capacity(),
+            n.version.capacity(),
+            n.has_note.capacity(),
+            n.icon.capacity(),
+            n.group.capacity(),
+            n.degree.capacity(),
+        ];
+        assert!(caps.iter().all(|&c| c >= 9), "{caps:?}");
+        let e = EdgeColumns::with_capacity(9);
+        let caps = [
+            e.id.capacity(),
+            e.source.capacity(),
+            e.target.capacity(),
+            e.kind.capacity(),
+            e.label.capacity(),
+            e.strength.capacity(),
+            e.directed.capacity(),
+            e.record_id.capacity(),
+        ];
+        assert!(caps.iter().all(|&c| c >= 9), "{caps:?}");
+    }
+
     #[test]
     fn byte_len_counts_one_element_of_every_column() {
         let mut nodes = NodeColumns::with_capacity(4);

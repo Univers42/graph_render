@@ -10,6 +10,7 @@
 mod cases;
 mod eval;
 mod generate;
+mod pools;
 mod wire;
 
 use crate::evidence::{FINGERPRINTED, tree_fingerprint};

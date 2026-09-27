@@ -162,6 +162,16 @@ mod tests {
     }
 
     #[test]
+    fn a_capacity_error_names_what_overflowed() {
+        let err = CapacityError {
+            what: "string arena",
+        };
+        let text = "string arena exceeds the u32 index space";
+        assert_eq!(err.to_string(), text);
+        assert_eq!(crate::StageError::Capacity(err).to_string(), text);
+    }
+
+    #[test]
     fn fnv1a_matches_the_published_64_bit_vectors() {
         let hash = |bytes: &[u8]| {
             let mut h = Fnv1a::default();
