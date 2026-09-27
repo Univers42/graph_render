@@ -1,0 +1,29 @@
+# cargo-mutants settings for the per-phase mutation run (ONBOARDING §6.2):
+#   docker run --rm -v "$PWD:/w" ge-mutants cargo mutants --in-diff phase.diff
+#
+# The gate is "no surviving mutant in new code, or a written reason per exception".
+# Every exclusion below is such an exception and carries its reason; add to this list
+# only with one.
+
+# The codegen module and its tests exist only with the `codegen` feature.
+all_features = true
+
+# Integration tests in one crate (graph-cli/tests/cli.rs) are what exercise the others'
+# process glue, so every mutant is tested against the whole workspace.
+test_workspace = true
+
+exclude_re = [
+    # wasm32-only: `graph_wasm::exports` is not compiled for the native test run, so no
+    # native test can reach it. It is exercised by the hash gate's wasm arm, which fails
+    # to read a mis-framed buffer (graph-cli/tests/cli.rs, hashgate test).
+    "exports::publish",
+    # Equivalent in Phase 0: the registry is empty by definition, so `vec![]` is the
+    # function. Remove this line when Phase 1 registers the first row.
+    "replace registry -> Vec<Capability> with vec!\\[\\]",
+    # Equivalent on a working toolchain: forcing "the wasm build succeeded" only differs
+    # when cargo fails, which no test can arrange without breaking the build it runs in.
+    "replace match guard s.success\\(\\) with true in build_wasm",
+    # Equivalent: in `probe::from_bits` the shifted exponent and the masked mantissa
+    # occupy disjoint bits, so `|` and `^` compute the same value for every input.
+    "replace \\| with \\^ in from_bits",
+]

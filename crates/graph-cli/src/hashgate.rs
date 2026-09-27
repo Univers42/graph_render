@@ -7,8 +7,7 @@
 //! Node, which hashes with its built-in crypto: two independent SHA-256
 //! implementations, so a broken hasher cannot agree with itself and pass.
 
-use sha2::{Digest, Sha256};
-use std::path::{Path, PathBuf};
+use crate::runner::{build_wasm, file_sha256, node_harness, run_lines, sha256_hex};
 use std::process::{Command, ExitCode};
 
 /// Stage name of the Phase-0 synthetic buffer.
@@ -161,76 +160,6 @@ fn well_formed(line: &str, seed: usize) -> bool {
         && digest.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
-pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
-}
-
-pub(crate) fn file_sha256(path: &Path) -> Result<String, String> {
-    std::fs::read(path)
-        .map(|b| sha256_hex(&b))
-        .map_err(|e| format!("reading {}: {e}", path.display()))
-}
-
-pub(crate) fn workspace_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..")
-}
-
-/// Builds `graph_wasm.wasm` in release mode and returns its path.
-pub(crate) fn build_wasm() -> Result<PathBuf, String> {
-    let root = workspace_root();
-    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
-    let args = [
-        "build",
-        "--quiet",
-        "--release",
-        "-p",
-        "graph-wasm",
-        "--target",
-        "wasm32-unknown-unknown",
-    ];
-    let status = Command::new(cargo).current_dir(&root).args(args).status();
-    match status {
-        Ok(s) if s.success() => {}
-        Ok(s) => return Err(format!("building graph-wasm for wasm32 failed: {s}")),
-        Err(e) => return Err(format!("running cargo: {e}")),
-    }
-    let target =
-        std::env::var_os("CARGO_TARGET_DIR").map_or_else(|| root.join("target"), PathBuf::from);
-    Ok(target
-        .join("wasm32-unknown-unknown")
-        .join("release")
-        .join("graph_wasm.wasm"))
-}
-
-/// `node harness/wasm-run.mjs <wasm>`, ready for the mode arguments.
-pub(crate) fn node_harness(wasm: &Path) -> Command {
-    let mut command = Command::new("node");
-    command
-        .arg(workspace_root().join("harness").join("wasm-run.mjs"))
-        .arg(wasm);
-    command
-}
-
-/// Runs `command` to completion and returns its stdout lines, or why it failed.
-pub(crate) fn run_lines(command: &mut Command) -> Result<Vec<String>, String> {
-    let output = command
-        .output()
-        .map_err(|e| format!("spawning {command:?}: {e}"))?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!(
-            "{command:?} exited {}: {}",
-            output.status,
-            stderr.trim()
-        ));
-    }
-    let stdout = String::from_utf8(output.stdout).map_err(|e| format!("non-UTF-8 output: {e}"))?;
-    Ok(stdout.lines().map(str::to_owned).collect())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -281,12 +210,6 @@ mod tests {
     }
 
     #[test]
-    fn sha256_matches_the_fips_180_2_vector() {
-        let abc = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
-        assert_eq!(sha256_hex(b"abc"), abc);
-    }
-
-    #[test]
     fn the_mutation_variable_parses_strictly() {
         use std::env::VarError;
         assert_eq!(
@@ -296,5 +219,14 @@ mod tests {
         assert_eq!(parse_reference_degree(Ok(" 9 ".into())), Ok(9));
         assert!(parse_reference_degree(Ok("nine".into())).is_err());
         assert!(parse_reference_degree(Ok(String::new())).is_err());
+    }
+
+    #[test]
+    fn report_exit_code_is_pass_fail_or_could_not_run() {
+        let mut fills = [['a', 'b']; 4];
+        assert_eq!(report(2, &arms(fills)), ExitCode::SUCCESS);
+        fills[2][0] = 'c';
+        assert_eq!(report(2, &arms(fills)), ExitCode::from(1));
+        assert_eq!(report(0, &[]), ExitCode::from(2));
     }
 }

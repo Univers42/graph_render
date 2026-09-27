@@ -122,13 +122,35 @@ pub mod codegen {
             assert!(
                 ts.contains("export type NodeGeometryKind = \"Point\" | \"Circle\" | \"Box\";")
             );
-            assert!(ts.contains("  node_count: number;"));
+            assert!(ts.contains(
+                "  /** Number of nodes, and the length of every node column. */\n  node_count: number;"
+            ));
             assert!(ts.contains("  version: FormatVersion;"));
             for runtime in ["const ", "function", "enum ", "class ", "=>"] {
                 assert!(
                     !ts.contains(runtime),
                     "runtime construct {runtime:?} in generated TS"
                 );
+            }
+        }
+
+        #[test]
+        fn ts_type_maps_every_json_schema_type_it_knows() {
+            use serde_json::json;
+            let cases = [
+                (json!({"type": "integer"}), "number"),
+                (json!({"type": "number"}), "number"),
+                (json!({"type": "string"}), "string"),
+                (json!({"type": "boolean"}), "boolean"),
+                (
+                    json!({"type": "array", "items": {"type": "string"}}),
+                    "string[]",
+                ),
+                (json!({"$ref": "#/$defs/FormatVersion"}), "FormatVersion"),
+                (json!({"type": "object"}), "unknown"),
+            ];
+            for (spec, want) in cases {
+                assert_eq!(ts_type(&spec), want, "{spec}");
             }
         }
     }

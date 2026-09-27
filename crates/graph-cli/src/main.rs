@@ -7,6 +7,8 @@
 mod capabilities;
 mod determinism_probe;
 mod hashgate;
+mod probe_report;
+mod runner;
 
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;

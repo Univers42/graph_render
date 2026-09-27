@@ -105,4 +105,39 @@ mod tests {
         assert_eq!(degree_weight(8, 8), 1.0);
         assert_eq!(degree_weight(11, 8), 1.0);
     }
+
+    #[test]
+    fn mix_seed_is_splitmix64() {
+        // Vigna's published first output for state 0; seed 1 from an independent
+        // Python implementation of the same finaliser.
+        assert_eq!(mix_seed(0), 0xE220_A839_7B1D_CDAF);
+        assert_eq!(mix_seed(1), 0x910A_2DEC_8902_5CC1);
+    }
+
+    #[test]
+    fn next_u32_is_xorshift64_13_7_17_high_half() {
+        // Reference states from an independent Python implementation.
+        let mut state = 0x0123_4567_89AB_CDEF;
+        let expected = [
+            (0x3F28_00D6_569E_01B4, 0x3F28_00D6),
+            (0x606F_949A_3CEB_D0B7, 0x606F_949A),
+            (0xC69B_BA40_DDDC_CAD6, 0xC69B_BA40),
+        ];
+        for (state_after, high) in expected {
+            assert_eq!(next_u32(&mut state), high);
+            assert_eq!(state, state_after);
+        }
+    }
+
+    #[test]
+    fn ring_places_node_i_at_angle_two_pi_i_over_n_scaled_by_its_weight() {
+        let (xs, ys) = ring(&[0.5; 4]);
+        let expected = [(0.5, 0.0), (0.0, 0.5), (-0.5, 0.0), (0.0, -0.5)];
+        for (i, (x, y)) in expected.into_iter().enumerate() {
+            assert!(
+                (xs[i] - x).abs() < 1e-6 && (ys[i] - y).abs() < 1e-6,
+                "node {i}"
+            );
+        }
+    }
 }
