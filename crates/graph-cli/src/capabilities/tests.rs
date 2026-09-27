@@ -41,7 +41,10 @@ fn honest() -> Evidence {
             "fingerprint": "tree", "seeds": 1000, "pass": true,
             "equal": { "synthetic": 1000, "topology": 1000 }
         })),
-        control: Some(json!({ "fingerprint": "tree", "seeds": 8, "pass": false })),
+        control: Some(json!({
+            "fingerprint": "tree", "seeds": 8, "pass": false,
+            "equal": { "synthetic": 0, "topology": 0 }
+        })),
         oracle: Some(json!({
             "fingerprint": "tree", "seeds": 1000, "pass": true, "functions": functions
         })),
@@ -120,6 +123,13 @@ fn a_failed_run_a_short_stage_or_a_green_control_is_refused() {
         control[0].contains("negative control did not go red"),
         "{control:?}"
     );
+    for (topology, why) in [(json!(8), "8 of 8 equal"), (json!(null), "no count")] {
+        let blind = refused(|e| control_equal(e)["topology"] = topology.clone());
+        assert!(
+            blind[0].contains("did not go red on the topology stage"),
+            "{why}: {blind:?}"
+        );
+    }
     let control = refused(|e| e.control = None);
     assert!(
         control[0].contains("no hashgate-control record"),
@@ -127,6 +137,10 @@ fn a_failed_run_a_short_stage_or_a_green_control_is_refused() {
     );
     let oracle = refused(|e| e.oracle.as_mut().expect("set")["pass"] = json!(false));
     assert!(oracle[0].contains("oracle-diff did not pass"), "{oracle:?}");
+}
+
+fn control_equal(e: &mut Evidence) -> &mut Value {
+    &mut e.control.as_mut().expect("set")["equal"]
 }
 
 fn functions(e: &mut Evidence) -> &mut Value {

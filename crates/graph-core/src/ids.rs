@@ -66,13 +66,14 @@ pub fn parse_node_id(node_id: &str) -> Option<RecordRef<'_>> {
 /// bytes (`str::cmp`), not by `localeCompare` as in the oracle. The two disagree on
 /// mixed case (`"a"`/`"A"`), on the `Z`/`a` boundary and on `note:1`/`NOTE:1`; for those
 /// pairs this id intentionally differs from the oracle's by endpoint order.
-pub fn make_edge_id(
-    source: &str,
-    target: &str,
-    kind: EdgeKind,
-    label: &str,
-    directed: bool,
-) -> String {
+pub fn make_edge_id(edge: &EdgeIdParts<'_>) -> String {
+    let EdgeIdParts {
+        source,
+        target,
+        kind,
+        label,
+        directed,
+    } = *edge;
     let kind = kind.as_str();
     if directed {
         return format!("{source}->{target}:{kind}:{label}");
@@ -83,6 +84,22 @@ pub fn make_edge_id(
         (target, source)
     };
     format!("{low}--{high}:{kind}:{label}")
+}
+
+/// The five arguments of the oracle's `makeEdgeId`, in one value (house limit: four
+/// parameters).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EdgeIdParts<'a> {
+    /// The edge's source node id.
+    pub source: &'a str,
+    /// The edge's target node id.
+    pub target: &'a str,
+    /// The edge's kind.
+    pub kind: EdgeKind,
+    /// The edge's label, possibly empty.
+    pub label: &'a str,
+    /// Whether `source → target` is kept as given.
+    pub directed: bool,
 }
 
 /// The oracle's `hashString` (`math.ts:11-16`), bit for bit: `h = imul(31, h) + c` over
@@ -98,24 +115,25 @@ pub fn make_edge_id(
 /// oracle's observable value ("xfjfxtf" is one such input); a caller narrowing the
 /// result to `i32` gets it wrong silently. Pinned by a test.
 pub fn hash_string(value: &str) -> u32 {
-    let mut units = value.encode_utf16().peekable();
     let mut hash: i64 = 0;
-    while let Some(unit) = units.next() {
-        let point = code_point_at(unit, units.peek().copied());
+    for point in code_points_at(value) {
         hash = i64::from((hash as i32).wrapping_mul(31)) + i64::from(point);
     }
     hash.unsigned_abs() as u32
 }
 
-/// `String.prototype.codePointAt` at a code unit `unit` followed by `next`: the whole
-/// code point at the high half of a surrogate pair, the unit itself anywhere else.
-fn code_point_at(unit: u16, next: Option<u16>) -> u32 {
-    match next {
-        Some(low) if (0xD800..0xDC00).contains(&unit) && (0xDC00..0xE000).contains(&low) => {
-            0x1_0000 + ((u32::from(unit) - 0xD800) << 10) + (u32::from(low) - 0xDC00)
-        }
-        _ => u32::from(unit),
-    }
+/// `value.codePointAt(i)` for every code unit index `i`. A `&str` holds no lone
+/// surrogate, so a character outside the BMP is always a whole pair: its code point at
+/// the high half, then the low half by itself.
+fn code_points_at(value: &str) -> impl Iterator<Item = u32> + '_ {
+    value.chars().flat_map(|c| {
+        let mut units = [0u16; 2];
+        let low = match *c.encode_utf16(&mut units) {
+            [_, low] => Some(u32::from(low)),
+            _ => None,
+        };
+        core::iter::once(u32::from(c)).chain(low)
+    })
 }
 
 #[cfg(test)]
@@ -165,21 +183,25 @@ mod tests {
 
     #[test]
     fn edge_ids_keep_direction_or_order_endpoints_by_bytes() {
+        let id = |(source, target): (&str, &str), kind, label, directed| {
+            make_edge_id(&EdgeIdParts {
+                source,
+                target,
+                kind,
+                label,
+                directed,
+            })
+        };
         let kind = EdgeKind::NoteLink;
-        assert_eq!(make_edge_id("b", "a", kind, "l", true), "b->a:note_link:l");
-        assert_eq!(make_edge_id("b", "a", kind, "l", false), "a--b:note_link:l");
-        assert_eq!(make_edge_id("a", "b", kind, "", false), "a--b:note_link:");
+        assert_eq!(id(("b", "a"), kind, "l", true), "b->a:note_link:l");
+        assert_eq!(id(("b", "a"), kind, "l", false), "a--b:note_link:l");
+        assert_eq!(id(("a", "b"), kind, "", false), "a--b:note_link:");
         // H1: byte order puts "A" (0x41) before "a" (0x61); localeCompare does not.
+        assert_eq!(id(("a", "A"), EdgeKind::Tag, "", false), "A--a:tag:");
+        let prefixed = id(("note:1", "NOTE:1"), EdgeKind::Relation, "x", false);
+        assert_eq!(prefixed, "NOTE:1--note:1:relation:x");
         assert_eq!(
-            make_edge_id("a", "A", EdgeKind::Tag, "", false),
-            "A--a:tag:"
-        );
-        assert_eq!(
-            make_edge_id("note:1", "NOTE:1", EdgeKind::Relation, "x", false),
-            "NOTE:1--note:1:relation:x"
-        );
-        assert_eq!(
-            make_edge_id("x", "x", EdgeKind::Relation, "", false),
+            id(("x", "x"), EdgeKind::Relation, "", false),
             "x--x:relation:"
         );
     }

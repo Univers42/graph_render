@@ -65,35 +65,8 @@ fn encode(t: &Topology, out: &mut Vec<u8>) -> Result<(), StageError> {
     for count in [stats.nodes, stats.edges, stats.databases, stats.notes] {
         put_u32(out, count);
     }
-    for i in 0..t.node_count() {
-        let node = t.node(i);
-        put_str(out, node.id);
-        out.push(node.kind as u8);
-        for text in [
-            node.database_id,
-            Some(node.source),
-            Some(node.label),
-            node.group,
-            node.icon,
-        ] {
-            put_opt(out, text);
-        }
-        put_f64(out, node.weight, "weight")?;
-        put_f64(out, node.version, "version")?;
-        out.push(u8::from(node.has_note));
-        put_u32(out, t.nodes().group[i as usize]);
-        put_u32(out, t.nodes().degree[i as usize]);
-    }
-    for e in 0..t.edge_count() {
-        let (edge, columns) = (t.edge(e), t.edges());
-        put_str(out, edge.id);
-        put_u32(out, columns.source[e as usize]);
-        put_u32(out, columns.target[e as usize]);
-        out.extend([edge.kind as u8, u8::from(edge.directed)]);
-        put_str(out, edge.label);
-        put_opt(out, edge.record_id);
-        put_f64(out, edge.strength, "strength")?;
-    }
+    (0..t.node_count()).try_for_each(|i| encode_node(t, i, out))?;
+    (0..t.edge_count()).try_for_each(|e| encode_edge(t, e, out))?;
     for csr in [t.out(), t.inbound(), t.hierarchy()] {
         (0..csr.rows()).for_each(|r| put_u32s(out, csr.row(r)));
     }
@@ -102,6 +75,38 @@ fn encode(t: &Topology, out: &mut Vec<u8>) -> Result<(), StageError> {
         put_u32s(out, members);
     }
     Ok(())
+}
+
+fn encode_node(t: &Topology, i: u32, out: &mut Vec<u8>) -> Result<(), StageError> {
+    let node = t.node(i);
+    put_str(out, node.id);
+    out.push(node.kind as u8);
+    for text in [
+        node.database_id,
+        Some(node.source),
+        Some(node.label),
+        node.group,
+        node.icon,
+    ] {
+        put_opt(out, text);
+    }
+    put_f64(out, node.weight, "weight")?;
+    put_f64(out, node.version, "version")?;
+    out.push(u8::from(node.has_note));
+    put_u32(out, t.nodes().group[i as usize]);
+    put_u32(out, t.nodes().degree[i as usize]);
+    Ok(())
+}
+
+fn encode_edge(t: &Topology, e: u32, out: &mut Vec<u8>) -> Result<(), StageError> {
+    let (edge, columns) = (t.edge(e), t.edges());
+    put_str(out, edge.id);
+    put_u32(out, columns.source[e as usize]);
+    put_u32(out, columns.target[e as usize]);
+    out.extend([edge.kind as u8, u8::from(edge.directed)]);
+    put_str(out, edge.label);
+    put_opt(out, edge.record_id);
+    put_f64(out, edge.strength, "strength")
 }
 
 fn put_u32(out: &mut Vec<u8>, value: u32) {
@@ -188,5 +193,35 @@ mod tests {
         put_opt(&mut opt, Some("ab"));
         put_opt(&mut opt, None);
         assert_eq!(opt, [1, 2, 0, 0, 0, b'a', b'b', 0]);
+        let mut list = Vec::new();
+        put_u32s(&mut list, &[7, 0x0102_0304]);
+        assert_eq!(list, [2, 0, 0, 0, 7, 0, 0, 0, 4, 3, 2, 1]);
+    }
+
+    #[test]
+    fn the_seed_sizes_the_graph_at_two_plus_seed_mod_600_nodes() {
+        for (seed, nodes) in [(0, 2), (5, 7), (599, 601), (600, 2), (1205, 7)] {
+            let bytes = topology_stage(seed, REFERENCE_DEGREE).expect("fits");
+            assert_eq!(bytes[..4], u32::to_le_bytes(nodes), "seed {seed}");
+        }
+    }
+
+    #[test]
+    fn the_adjacency_and_database_members_reach_the_bytes() {
+        let nodes = [node("a", "db"), node("b", "db")];
+        let encoded = |edges: &[EdgeRecord]| {
+            let mut out = Vec::new();
+            encode(&index_model(&nodes, edges).expect("fits"), &mut out).expect("finite");
+            out
+        };
+        let (bare, linked) = (encoded(&[]), encoded(&[edge("e", "a", "b")]));
+        // by_database: "db" then members [0, 1] closes both encodings.
+        let tail = [2, 0, 0, 0, b'd', b'b', 2, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0];
+        assert!(bare.ends_with(&tail) && linked.ends_with(&tail));
+        // Before it: b's in-row [0], then the two empty hierarchy rows.
+        let rows = |out: &[u8]| out[..out.len() - tail.len()].to_vec();
+        let last = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        assert!(rows(&linked).ends_with(&last));
+        assert!(rows(&bare).ends_with(&[0; 16]));
     }
 }

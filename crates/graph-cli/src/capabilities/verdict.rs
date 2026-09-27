@@ -70,9 +70,23 @@ pub fn hash_4way(e: &Evidence, stage: &str) -> Result<String, String> {
     if control["pass"] != Value::Bool(false) {
         return Err("the negative control did not go red".into());
     }
+    if !diverged(control, stage) {
+        return Err(format!(
+            "the negative control did not go red on the {stage} stage"
+        ));
+    }
     Ok(format!(
         "equal/{seeds} seeds ({stage} stage; negative control red)"
     ))
+}
+
+/// Whether the control saw `stage` differ on at least one of its seeds: a control that
+/// went red on another stage says nothing about this one.
+fn diverged(control: &Value, stage: &str) -> bool {
+    match (control["equal"][stage].as_u64(), control["seeds"].as_u64()) {
+        (Some(equal), Some(seeds)) => equal < seeds,
+        _ => false,
+    }
 }
 
 /// The oracle verdict over `functions`: a passing run in which every one of them had

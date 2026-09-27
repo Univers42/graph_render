@@ -25,8 +25,9 @@ const MUTATE_ENV: &str = "GM_MUTATE_REFERENCE_DEGREE";
 
 /// Runs all four arms over seeds `0..seeds` and compares them line by line.
 pub fn run(seeds: u32) -> ExitCode {
-    match collect_arms(seeds) {
-        Ok(arms) => report(seeds, &arms),
+    let started = evidence::Stamp::take().and_then(|stamp| Ok((stamp, collect_arms(seeds)?)));
+    match started {
+        Ok((stamp, arms)) => report(&stamp, seeds, &arms),
         Err(err) => {
             eprintln!("hashgate: could not run: {err}");
             ExitCode::from(2)
@@ -107,7 +108,7 @@ fn collect_arms(seeds: u32) -> Result<Vec<Arm>, String> {
     Ok(arms)
 }
 
-fn report(seeds: u32, arms: &[Arm]) -> ExitCode {
+fn report(stamp: &evidence::Stamp, seeds: u32, arms: &[Arm]) -> ExitCode {
     println!("hashgate: stages={} seeds={seeds}", STAGES.join(","));
     let lines = match diverged(seeds, arms) {
         Ok(lines) => lines,
@@ -116,6 +117,28 @@ fn report(seeds: u32, arms: &[Arm]) -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    print_arms(arms, &lines);
+    let stages = per_stage(seeds, &lines);
+    for (stage, equal) in STAGES.iter().zip(&stages.equal) {
+        println!("  {stage}: 4-way equal on {equal}/{seeds} seeds");
+    }
+    let bad = stages.diverged_seeds;
+    println!("  4-way equal on {}/{seeds} seeds", seeds - bad);
+    if let Err(err) = record(stamp, seeds, &stages.equal, bad == 0) {
+        eprintln!("hashgate: not recorded: {err}");
+        return ExitCode::from(2);
+    }
+    if bad == 0 {
+        println!("PASS");
+        ExitCode::SUCCESS
+    } else {
+        println!("FAIL: {bad} of {seeds} seeds diverge");
+        ExitCode::from(1)
+    }
+}
+
+/// Each arm's digest, then every arm's line for the first three diverging lines.
+fn print_arms(arms: &[Arm], lines: &[usize]) {
     for (name, output) in arms {
         let digest = sha256_hex(output.join("\n").as_bytes());
         println!("  {name:<13} digest {digest}");
@@ -129,26 +152,12 @@ fn report(seeds: u32, arms: &[Arm]) -> ExitCode {
             println!("    {name:<13} {}", output[i]);
         }
     }
-    let stages = per_stage(seeds, &lines);
-    for (stage, equal) in STAGES.iter().zip(&stages.equal) {
-        println!("  {stage}: 4-way equal on {equal}/{seeds} seeds");
-    }
-    let bad = stages.diverged_seeds;
-    println!("  4-way equal on {}/{seeds} seeds", seeds - bad);
-    record(seeds, &stages.equal, bad == 0);
-    if bad == 0 {
-        println!("PASS");
-        ExitCode::SUCCESS
-    } else {
-        println!("FAIL: {bad} of {seeds} seeds diverge");
-        ExitCode::from(1)
-    }
 }
 
 /// Writes this run's result for the ledger: `hashgate.json` for an honest run,
-/// `hashgate-control.json` for the negative control. A run that cannot record says so;
-/// the ledger then finds no evidence, which is the safe direction.
-fn record(seeds: u32, equal: &[u32], pass: bool) {
+/// `hashgate-control.json` for the negative control. A run that cannot record exits 2:
+/// its verdict would otherwise stand with no evidence behind it.
+fn record(stamp: &evidence::Stamp, seeds: u32, equal: &[u32], pass: bool) -> Result<(), String> {
     let control = std::env::var_os(MUTATE_ENV).is_some();
     let name = if control {
         "hashgate-control"
@@ -161,9 +170,7 @@ fn record(seeds: u32, equal: &[u32], pass: bool) {
         .map(|(stage, equal)| ((*stage).to_owned(), json!(equal)))
         .collect();
     let body = json!({ "seeds": seeds, "pass": pass, "equal": stages });
-    if let Err(err) = evidence::write(name, body) {
-        eprintln!("hashgate: not recorded: {err}");
-    }
+    evidence::write(stamp, name, body).map(drop)
 }
 
 #[cfg(test)]

@@ -9,6 +9,7 @@ mod capabilities;
 mod codegen;
 mod determinism_probe;
 mod evidence;
+mod fingerprint;
 mod hashgate;
 mod oracle_fixtures;
 mod probe_report;

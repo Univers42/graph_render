@@ -13,7 +13,7 @@ mod generate;
 mod pools;
 mod wire;
 
-use crate::evidence::{FINGERPRINTED, tree_fingerprint};
+use crate::evidence::{FINGERPRINTED, Stamp};
 use crate::runner::{CHILD_TIMEOUT, file_sha256, run_status, workspace_root};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -84,7 +84,10 @@ fn emit(seeds: u32, out: &Path) -> Result<BTreeMap<String, u64>, String> {
     if seeds == 0 {
         return Err("0 seeds: a differential over nothing proves nothing".into());
     }
+    let stamp = Stamp::take()?;
     std::fs::create_dir_all(out).map_err(|e| format!("{}: {e}", out.display()))?;
+    let manifest_path = out.join("manifest.json");
+    remove_stale(&manifest_path)?;
     let pairs = adversarial_pairs(&workspace_root().join(ADVERSARIAL))?;
     let cases_path = out.join("cases.jsonl");
     write_cases(&cases_path, seeds, &pairs)?;
@@ -99,13 +102,25 @@ fn emit(seeds: u32, out: &Path) -> Result<BTreeMap<String, u64>, String> {
             "cases.jsonl": file_sha256(&cases_path)?,
             "expect.jsonl": file_sha256(&out.join("expect.jsonl"))?,
         },
-        "fingerprint": tree_fingerprint()?,
+        "fingerprint": stamp.fingerprint(),
         "fingerprinted": FINGERPRINTED,
     });
     let text = serde_json::to_string_pretty(&manifest).map_err(|e| e.to_string())?;
-    let path = out.join("manifest.json");
-    std::fs::write(&path, text + "\n").map_err(|e| format!("{}: {e}", path.display()))?;
+    stamp.still_current()?;
+    std::fs::write(&manifest_path, text + "\n")
+        .map_err(|e| format!("{}: {e}", manifest_path.display()))?;
     Ok(counts)
+}
+
+/// Removes a previous run's manifest first, so a run that fails partway leaves fixtures
+/// the harness refuses rather than new files under an old manifest.
+fn remove_stale(path: &Path) -> Result<(), String> {
+    match std::fs::remove_file(path) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+            Err(format!("{}: {e}", path.display()))
+        }
+        _ => Ok(()),
+    }
 }
 
 /// The `[a, b]` of every pair in the adversarial fixture.

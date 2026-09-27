@@ -5,28 +5,23 @@
 //! current tree's, so an edit to any input a gate depends on voids the evidence until
 //! the gate is re-run. `<gates>` is `target/gates`, or `$GM_GATES_DIR` (the tests use a
 //! temporary one, so `cargo test` never overwrites a real run's record).
+//!
+//! A run is pinned to one tree from build to record: it takes a [`Stamp`] before it
+//! does anything, which refuses unless the tree is the one this binary was built from,
+//! and [`write`] refuses unless the tree is still that one. An edit at any point in
+//! between leaves no record, never a record of one tree's results under another's name.
 
-use crate::runner::{sha256_hex, workspace_root};
+pub use crate::fingerprint::FINGERPRINTED;
+use crate::fingerprint::fingerprint_of;
+use crate::runner::workspace_root;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
 /// Overrides where records are read and written.
 pub const GATES_ENV: &str = "GM_GATES_DIR";
 
-/// Every input a gate result depends on, relative to the workspace root: the Rust
-/// sources, the harnesses and fixtures, the TypeScript oracle, and the manifests that
-/// pin their toolchains. Documentation is deliberately not in it — rewording a report
-/// does not void a measurement.
-pub const FINGERPRINTED: [&str; 8] = [
-    "Cargo.toml",
-    "Cargo.lock",
-    "crates",
-    "harness",
-    "fixtures",
-    "src",
-    "package.json",
-    "tests/ts-extension-loader.mjs",
-];
+/// The fingerprint of the tree this binary was built from (`build.rs`).
+pub const BUILT_FROM: &str = env!("GM_BUILD_FINGERPRINT");
 
 /// Where records live.
 pub fn gates_dir() -> PathBuf {
@@ -36,51 +31,56 @@ pub fn gates_dir() -> PathBuf {
     )
 }
 
-/// SHA-256 over `path NUL sha256(content) LF` for every fingerprinted file, in byte
-/// order of path. A missing root is an error: a fingerprint over less than the tree
-/// would match a tree it never saw.
+/// The current tree's fingerprint (see [`FINGERPRINTED`]).
 pub fn tree_fingerprint() -> Result<String, String> {
     fingerprint_of(&workspace_root(), &FINGERPRINTED)
 }
 
-fn fingerprint_of(root: &Path, entries: &[&str]) -> Result<String, String> {
-    let mut files = Vec::new();
-    for entry in entries {
-        collect(root, &root.join(entry), &mut files)?;
+/// The tree a run started on, checked to be the tree its binary was built from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Stamp(String);
+
+impl Stamp {
+    /// Takes the stamp: first thing in a run that records.
+    pub fn take() -> Result<Self, String> {
+        Self::against(BUILT_FROM, tree_fingerprint()?)
     }
-    files.sort();
-    let mut listing = String::new();
-    for relative in files {
-        let bytes = std::fs::read(root.join(&relative))
-            .map_err(|e| format!("fingerprint: reading {relative}: {e}"))?;
-        listing.push_str(&format!("{relative}\0{}\n", sha256_hex(&bytes)));
+
+    fn against(built: &str, now: String) -> Result<Self, String> {
+        if now != built {
+            return Err(format!(
+                "graph-cli was built from tree {built:.12}… but the tree is now {now:.12}…: rebuild before recording"
+            ));
+        }
+        Ok(Self(now))
     }
-    Ok(sha256_hex(listing.as_bytes()))
+
+    /// The fingerprint the run is pinned to.
+    pub fn fingerprint(&self) -> &str {
+        &self.0
+    }
+
+    /// `Ok` while the tree is still the stamped one.
+    pub fn still_current(&self) -> Result<(), String> {
+        self.unchanged(&tree_fingerprint()?)
+    }
+
+    fn unchanged(&self, now: &str) -> Result<(), String> {
+        if now != self.0 {
+            return Err(format!(
+                "the tree changed during the run ({:.12}… → {now:.12}…): not recorded",
+                self.0
+            ));
+        }
+        Ok(())
+    }
 }
 
-fn collect(root: &Path, path: &Path, files: &mut Vec<String>) -> Result<(), String> {
-    let meta =
-        std::fs::metadata(path).map_err(|e| format!("fingerprint: {}: {e}", path.display()))?;
-    if meta.is_file() {
-        let relative = path.strip_prefix(root).map_err(|e| e.to_string())?;
-        let text = relative
-            .to_str()
-            .ok_or_else(|| format!("non-UTF-8 path {}", relative.display()))?;
-        files.push(text.replace('\\', "/"));
-        return Ok(());
-    }
-    let listing =
-        std::fs::read_dir(path).map_err(|e| format!("fingerprint: {}: {e}", path.display()))?;
-    for child in listing {
-        let child = child.map_err(|e| format!("fingerprint: {}: {e}", path.display()))?;
-        collect(root, &child.path(), files)?;
-    }
-    Ok(())
-}
-
-/// Writes `body` plus `gate` and the current fingerprint as `<gates>/<name>.json`.
-pub fn write(name: &str, body: Value) -> Result<PathBuf, String> {
-    write_to(&gates_dir(), name, body, tree_fingerprint()?)
+/// Writes `body` plus `gate` and the stamped fingerprint as `<gates>/<name>.json`,
+/// unless the tree moved since the stamp was taken.
+pub fn write(stamp: &Stamp, name: &str, body: Value) -> Result<PathBuf, String> {
+    stamp.still_current()?;
+    write_to(&gates_dir(), name, body, stamp.fingerprint().to_owned())
 }
 
 fn write_to(
@@ -120,6 +120,7 @@ fn read_from(dir: &Path, name: &str) -> Result<Option<Value>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::runner::sha256_hex;
 
     fn scratch(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("gm-evidence-{name}-{}", std::process::id()));
@@ -178,8 +179,22 @@ mod tests {
     }
 
     #[test]
-    fn the_real_tree_fingerprints() {
+    fn a_stamp_needs_the_built_tree_and_goes_stale_when_the_tree_moves() {
+        let stamp = Stamp::against("abc", "abc".into()).expect("same tree");
+        assert_eq!(stamp.fingerprint(), "abc");
+        assert_eq!(stamp.unchanged("abc"), Ok(()));
+        let moved = stamp.unchanged("abd").expect_err("moved");
+        assert!(moved.contains("changed during the run"), "{moved}");
+        let rebuilt = Stamp::against("abc", "abd".into()).expect_err("other tree");
+        assert!(rebuilt.contains("rebuild before recording"), "{rebuilt}");
+    }
+
+    #[test]
+    fn the_real_tree_is_the_one_this_binary_was_built_from() {
         let fingerprint = tree_fingerprint().expect("every root exists");
         assert_eq!(fingerprint.len(), 64);
+        let stamp = Stamp::take().expect("built from this tree");
+        assert_eq!(stamp.fingerprint(), BUILT_FROM);
+        assert_eq!(stamp.still_current(), Ok(()));
     }
 }

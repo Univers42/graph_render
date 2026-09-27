@@ -147,12 +147,13 @@ fn ids(function: &str, args: &Value) -> Result<String, String> {
             let kind = text(args, "kind")?;
             let kind = core::EdgeKind::from_name(kind).ok_or(format!("edge kind {kind}"))?;
             let directed = args["directed"].as_bool().ok_or("directed is not a bool")?;
-            let (s, t, label) = (
-                text(args, "source")?,
-                text(args, "target")?,
-                text(args, "label")?,
-            );
-            core::make_edge_id(s, t, kind, label, directed)
+            core::make_edge_id(&core::EdgeIdParts {
+                source: text(args, "source")?,
+                target: text(args, "target")?,
+                kind,
+                label: text(args, "label")?,
+                directed,
+            })
         }
     })
 }

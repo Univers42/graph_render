@@ -278,7 +278,12 @@ impl Topology {
         &self.inbound
     }
 
-    /// Parent → its `hierarchy` edges (source is the parent), ascending.
+    /// Source → its `hierarchy` edges, ascending. Read as parent → children.
+    ///
+    /// Ponytail: orientation. `child_of` classifies as `Hierarchy` too, and there the
+    /// source is the child, so an A→B `child_of` edge lands in row A and the tree is
+    /// silently inverted for it (wrong result, no error). Nothing reads this CSR yet;
+    /// Phase 3, its first reader, must decide the orientation of `child_of` first.
     pub fn hierarchy(&self) -> &Csr {
         &self.hierarchy
     }

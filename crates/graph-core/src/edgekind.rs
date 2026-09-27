@@ -12,7 +12,8 @@ pub enum EdgeKind {
     NoteOf = 2,
     /// Note → note link.
     NoteLink = 3,
-    /// Parent → child. The hierarchy CSR reads `source` as the parent.
+    /// Parent → child. The hierarchy CSR reads `source` as the parent, which is wrong
+    /// for `child_of` (see the Ponytail on `Topology::hierarchy`).
     Hierarchy = 4,
 }
 

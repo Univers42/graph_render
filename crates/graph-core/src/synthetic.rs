@@ -30,7 +30,7 @@ const ICONS: [&str; 4] = ["icon:rocket", "icon:book", "icon:target", "icon:map"]
 /// The oracle's fixed seed (`synthetic.ts:99`).
 const SEED: u32 = 0x05_1042;
 /// Largest model the oracle builds (`synthetic.ts:97`).
-pub const MAX_SYNTHETIC_NODES: u32 = 100_000;
+pub(crate) const MAX_SYNTHETIC_NODES: u32 = 100_000;
 
 /// mulberry32 (`synthetic.ts:27-35`): integer steps, then `/ 2^32`, so every target
 /// produces the same `f64` stream.
@@ -64,13 +64,13 @@ pub fn build_synthetic_model(n: f64) -> Result<Topology, CapacityError> {
 
 /// The oracle's node count for a requested `n`: floored, `NaN` and ±∞ read as 2, then
 /// clamped to `2..=100_000`.
-pub fn synthetic_count(n: f64) -> u32 {
+pub(crate) fn synthetic_count(n: f64) -> u32 {
     let requested = if n.is_finite() { libm::floor(n) } else { 2.0 };
     requested.clamp(2.0, f64::from(MAX_SYNTHETIC_NODES)) as u32
 }
 
 /// The raw nodes and edges of the `count`-node model, weights not yet applied.
-pub fn synthetic_records(count: u32) -> (Vec<NodeRecord>, Vec<EdgeRecord>) {
+pub(crate) fn synthetic_records(count: u32) -> (Vec<NodeRecord>, Vec<EdgeRecord>) {
     let mut rnd = Mulberry32::new(SEED);
     let nodes: Vec<_> = (0..count).map(|i| synthetic_node(i, &mut rnd)).collect();
     let edges = synthetic_edges(count, &mut rnd, &nodes);

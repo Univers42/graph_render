@@ -21,7 +21,7 @@ pub fn apply_degree_weights(nodes: &mut [NodeRecord], edges: &[EdgeRecord]) {
 
 /// [`apply_degree_weights`] against another reference degree. Exists for the hash
 /// gate's negative control, which perturbs the reference in one arm only.
-pub fn apply_degree_weights_against(
+pub(crate) fn apply_degree_weights_against(
     nodes: &mut [NodeRecord],
     edges: &[EdgeRecord],
     reference_degree: u32,

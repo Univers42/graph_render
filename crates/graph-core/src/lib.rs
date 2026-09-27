@@ -30,18 +30,16 @@ pub use csr::{Csr, Incident};
 pub use diff::{Patch, diff_graph, edges_equal, is_empty_patch};
 pub use edgekind::{EdgeKind, edge_kind_from_type};
 pub use ids::{
-    RecordRef, hash_string, make_edge_id, make_note_node_id, make_record_node_id, make_tag_node_id,
-    parse_node_id,
+    EdgeIdParts, RecordRef, hash_string, make_edge_id, make_note_node_id, make_record_node_id,
+    make_tag_node_id, parse_node_id,
 };
 pub use index::{Stats, Topology, empty_model, index_model, nodes_equal};
 pub use legend::{DatabaseCount, LegendCounts, TagCount, derive_legend};
 pub use neighborhood::{Neighborhood, neighborhood, neighborhood_edges};
 pub use records::{EdgeRecord, EdgeView, NodeRecord, NodeView};
 pub use stage::{StageError, topology_stage};
-pub use synthetic::{
-    MAX_SYNTHETIC_NODES, build_synthetic_model, synthetic_count, synthetic_records,
-};
-pub use weights::{REFERENCE_DEGREE, apply_degree_weights, apply_degree_weights_against};
+pub use synthetic::build_synthetic_model;
+pub use weights::{REFERENCE_DEGREE, apply_degree_weights};
 
 use graph_contract::geometry::{EdgeGeometryKind, NodeGeometryKind};
 use graph_contract::snapshot::{
