@@ -2,17 +2,51 @@
 //! wasm-bindgen. It compiles for `wasm32-unknown-unknown` and native in every phase,
 //! and every transcendental goes through `libm` so both targets round alike (D1).
 //!
-//! Phase 0 skeleton: no algorithm yet. [`synthetic_snapshot`] exists so the hash gate
-//! has a deterministic computation to hash, and so its negative control has a
-//! constant inside that computation to perturb.
+//! Phase 1: the topology layer — string arena, dense indices, SoA columns, three CSR
+//! adjacencies — and the 17 pure functions of the TypeScript oracle's `core/model`,
+//! byte-compared against it by `harness/oracle-diff.mjs`. No layout, no geometry.
+//!
+//! [`synthetic_snapshot`] and [`topology_stage`] are what the 4-way hash gate hashes;
+//! both take the reference degree as a parameter so its negative control can perturb
+//! one arm.
+
+mod arena;
+mod columns;
+mod csr;
+mod diff;
+mod edgekind;
+mod ids;
+mod index;
+mod legend;
+mod neighborhood;
+mod records;
+mod stage;
+mod synthetic;
+mod weights;
+
+pub use arena::{CapacityError, Interned, StringArena};
+pub use columns::{EdgeColumns, NodeColumns, NodeKind};
+pub use csr::{Csr, Incident};
+pub use diff::{Patch, diff_graph, edges_equal, is_empty_patch};
+pub use edgekind::{EdgeKind, edge_kind_from_type};
+pub use ids::{
+    RecordRef, hash_string, make_edge_id, make_note_node_id, make_record_node_id, make_tag_node_id,
+    parse_node_id,
+};
+pub use index::{Stats, Topology, empty_model, index_model, nodes_equal};
+pub use legend::{DatabaseCount, LegendCounts, TagCount, derive_legend};
+pub use neighborhood::{Neighborhood, neighborhood, neighborhood_edges};
+pub use records::{EdgeRecord, EdgeView, NodeRecord, NodeView};
+pub use stage::{StageError, topology_stage};
+pub use synthetic::{
+    MAX_SYNTHETIC_NODES, build_synthetic_model, synthetic_count, synthetic_records,
+};
+pub use weights::{REFERENCE_DEGREE, apply_degree_weights, apply_degree_weights_against};
 
 use graph_contract::geometry::{EdgeGeometryKind, NodeGeometryKind};
 use graph_contract::snapshot::{
     CURRENT_VERSION, NonFinite, SnapshotHeader, StageCount, push_f32_column,
 };
-
-/// Degree at which a node's weight saturates to 1.0 (`src/core/model/weights.ts:12`).
-pub const REFERENCE_DEGREE: u32 = 8;
 
 /// A small deterministic snapshot for seed `seed`: a ring of 16–63 `Circle` nodes
 /// (columns `x`, `y`, `r`) whose radius is the degree weight of a pseudo-random degree,
@@ -24,7 +58,10 @@ pub fn synthetic_snapshot(seed: u32, reference_degree: u32) -> Result<Vec<u8>, N
     let node_count = 16 + seed % 48;
     let mut state = mix_seed(seed);
     let weights: Vec<f32> = (0..node_count)
-        .map(|_| degree_weight(next_u32(&mut state) % 12, reference_degree))
+        .map(|_| {
+            let degree = next_u32(&mut state) % 12;
+            weights::degree_weight(u64::from(degree), reference_degree) as f32
+        })
         .collect();
     let (xs, ys) = ring(&weights);
     let header = SnapshotHeader {
@@ -41,12 +78,6 @@ pub fn synthetic_snapshot(seed: u32, reference_degree: u32) -> Result<Vec<u8>, N
         push_f32_column(column, &mut out)?;
     }
     Ok(out)
-}
-
-/// `clamp(0.2 + 0.8·log1p(degree)/log1p(reference), 0.2, 1)`, the H3 formula.
-fn degree_weight(degree: u32, reference_degree: u32) -> f32 {
-    let ratio = libm::log1p(f64::from(degree)) / libm::log1p(f64::from(reference_degree));
-    (0.2 + 0.8 * ratio).clamp(0.2, 1.0) as f32
 }
 
 fn ring(weights: &[f32]) -> (Vec<f32>, Vec<f32>) {
@@ -100,13 +131,6 @@ mod tests {
         let honest = synthetic_snapshot(3, REFERENCE_DEGREE).expect("finite");
         let mutated = synthetic_snapshot(3, REFERENCE_DEGREE + 1).expect("finite");
         assert_ne!(honest, mutated);
-    }
-
-    #[test]
-    fn degree_weight_matches_the_h3_endpoints() {
-        assert_eq!(degree_weight(0, 8), 0.2);
-        assert_eq!(degree_weight(8, 8), 1.0);
-        assert_eq!(degree_weight(11, 8), 1.0);
     }
 
     #[test]

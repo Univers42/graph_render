@@ -11,6 +11,7 @@ publish.workspace = true
 # the workspace's own type crate, used with its default (dependency-free) features.
 [dependencies]
 graph-contract = { path = "../graph-contract", default-features = false }
+indexmap = "2.14"
 libm = "0.2"
 
 [lints]
