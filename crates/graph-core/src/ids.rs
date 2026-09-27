@@ -196,6 +196,8 @@ mod tests {
             ("\u{1F680}", 4_044_800),
             ("xfjfxtf", 2_147_483_648),
             ("xfjfxtf\0", 2_147_483_648),
+            // Past −2³¹ the sign of the sum shows: a negated hash would give 2147483745.
+            ("xfjfxtfa", 2_147_483_551),
         ];
         for (text, want) in cases {
             assert_eq!(hash_string(text), want, "{text:?}");
