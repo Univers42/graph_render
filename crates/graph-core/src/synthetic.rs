@@ -168,6 +168,15 @@ mod tests {
         }
     }
 
+    /// Why `<` and `<=` are one mutant here (`.cargo/mutants.toml`): the largest model
+    /// draws at most 2 per node, 7 per attachment step and 3 per extra edge — under
+    /// 1 000 000 — and none of the first 1 000 000 draws is exactly one half.
+    #[test]
+    fn no_draw_a_synthetic_model_can_reach_is_exactly_one_half() {
+        let mut rnd = Mulberry32::new(SEED);
+        assert!((0..1_000_000).all(|_| rnd.next_f64() != 0.5));
+    }
+
     /// `buildSyntheticModel(6)` printed by the oracle under node:22-slim.
     #[test]
     fn six_nodes_match_the_oracle() {

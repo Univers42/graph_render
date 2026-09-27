@@ -14,18 +14,18 @@
     { "a": "pg:db:Row", "b": "pg:db:row", "diverges": true, "why": "a record id differing only in case after two equal coordinates" },
     { "a": "B", "b": "a", "diverges": true, "why": "uppercase before lowercase in bytes, alphabetical in ICU" },
     { "a": "a_b", "b": "a-b", "diverges": true, "why": "punctuation: ICU ranks '_' before '-'; bytes put '-' (0x2D) before '_' (0x5F)" },
-    { "a": "é", "b": "f", "diverges": true, "why": "an accented letter sorts with its base letter in ICU and after all ASCII in bytes" },
-    { "a": "É", "b": "f", "diverges": true, "why": "as above, uppercase accented" },
-    { "a": "x", "b": "🚀", "diverges": true, "why": "ICU ranks the symbol before letters; bytes put the 4-byte sequence last" },
-    { "a": "日", "b": "🚀", "diverges": true, "why": "ICU ranks the symbol before the ideograph; bytes put the astral code point last" },
-    { "a": "Ａ", "b": "🚀", "diverges": true, "why": "UTF-16 code-unit order and UTF-8 byte order disagree here too (surrogates sort below U+FF21): the contract is UTF-8 bytes, not JavaScript's `<`" },
-    { "a": "é", "b": "é", "diverges": true, "why": "canonically equivalent (NFC vs NFD): localeCompare returns 0, so the oracle keeps argument order and A-B, B-A do not collapse; bytes order them one way" },
+    { "a": "\u00e9", "b": "f", "diverges": true, "why": "an accented letter sorts with its base letter in ICU and after all ASCII in bytes" },
+    { "a": "\u00c9", "b": "f", "diverges": true, "why": "as above, uppercase accented" },
+    { "a": "x", "b": "\ud83d\ude80", "diverges": true, "why": "ICU ranks the symbol before letters; bytes put the 4-byte sequence last" },
+    { "a": "\u65e5", "b": "\ud83d\ude80", "diverges": true, "why": "ICU ranks the symbol before the ideograph; bytes put the astral code point last" },
+    { "a": "\uff21", "b": "\ud83d\ude80", "diverges": true, "why": "UTF-16 code-unit order and UTF-8 byte order disagree here too (surrogates sort below U+FF21): the contract is UTF-8 bytes, not JavaScript's `<`" },
+    { "a": "\u00e9", "b": "e\u0301", "diverges": true, "why": "canonically equivalent (NFC vs NFD): localeCompare returns 0, so the oracle keeps argument order and A-B, B-A do not collapse; bytes order them one way" },
     { "a": "_x", "b": "ax", "diverges": false, "why": "control: both put '_x' first" },
-    { "a": "é", "b": "e", "diverges": false, "why": "control: both put 'e' first" },
+    { "a": "\u00e9", "b": "e", "diverges": false, "why": "control: both put 'e' first" },
     { "a": "10", "b": "9", "diverges": false, "why": "control: localeCompare without the numeric option compares digit by digit, as bytes do" },
     { "a": "a-b", "b": "ab", "diverges": false, "why": "control: both put 'a-b' first" },
     { "a": "", "b": "a", "diverges": false, "why": "control: the empty id is first in both" },
     { "a": "a", "b": "a ", "diverges": false, "why": "control: a prefix is first in both" },
-    { "a": "a", "b": "Ａ", "diverges": false, "why": "control: both put ASCII 'a' before the fullwidth letter" }
+    { "a": "a", "b": "\uff21", "diverges": false, "why": "control: both put ASCII 'a' before the fullwidth letter" }
   ]
 }

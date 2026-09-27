@@ -108,6 +108,29 @@ fn capabilities_needs_a_flag_and_refuses_gated_rows_no_recorded_run_backs() {
     );
 }
 
+/// The ledger reads what a gate recorded: a short honest run is found, and refused for
+/// its seed count rather than reported missing.
+#[test]
+fn the_ledger_reads_a_recorded_run_and_names_what_it_lacks() {
+    let dir = std::env::temp_dir().join(format!("gm-cli-ledger-{}", std::process::id()));
+    let run = |args: &[&str]| {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_graph-cli"));
+        let command = command.args(args).env("GM_GATES_DIR", &dir);
+        command
+            .env_remove("GM_MUTATE_REFERENCE_DEGREE")
+            .output()
+            .expect("graph-cli runs")
+    };
+    assert_eq!(run(&["hashgate", "--seeds", "2"]).status.code(), Some(0));
+    let json = run(&["capabilities", "--json"]);
+    let rows: serde_json::Value = serde_json::from_str(&stdout(&json)).expect("json");
+    assert_eq!(
+        rows[0]["hash_4way"],
+        "not backed: hashgate ran 2 seeds, need 1000"
+    );
+    std::fs::remove_dir_all(&dir).expect("cleanup");
+}
+
 /// The oracle differential end to end: emit, run the TypeScript arm, then feed it a
 /// graph-core line one byte off (manifest digest fixed up, as a real bug would leave it)
 /// and expect red — the harness's negative control, inside `cargo test`.
@@ -123,20 +146,15 @@ fn oracle_diff_passes_on_emitted_fixtures_and_goes_red_on_a_wrong_line() {
     let record = std::fs::read_to_string(gates_dir().join("oracle-diff.json")).expect("recorded");
     assert!(record.contains("\"pass\": true"), "{record}");
 
-    let expect = dir.join("expect.jsonl");
-    let text = std::fs::read_to_string(&expect).expect("expect.jsonl");
-    let wrong = text.replacen("\"notes\":0}", "\"notes\":1}", 1);
-    assert_ne!(wrong, text, "an indexModel line to corrupt");
-    std::fs::write(&expect, &wrong).expect("write");
-    let manifest = dir.join("manifest.json");
-    let old = sha256_hex(text.as_bytes());
-    let fixed = std::fs::read_to_string(&manifest)
-        .expect("manifest")
-        .replace(&old, &sha256_hex(wrong.as_bytes()));
-    std::fs::write(&manifest, fixed).expect("write");
-    let red = graph_cli(&["oracle-diff", "--fixtures", out], None);
+    let text = std::fs::read_to_string(dir.join("expect.jsonl")).expect("expect.jsonl");
+    let red = diff_corrupted(&dir, &text, ("\"notes\":0}", "\"notes\":1}"));
     assert_eq!(red.status.code(), Some(1), "{}", stdout(&red));
     assert!(stdout(&red).contains("MISMATCH") && stdout(&red).contains("FAIL: 1 unexplained"));
+    // H9's rule accepts graph-core's group only where it is the untruncated index: a
+    // group off by 256 agrees with the oracle's byte and must still be red.
+    let off = diff_corrupted(&dir, &text, ("\n[0,0,0,0,0,0]\n", "\n[256,0,0,0,0,0]\n"));
+    assert_eq!(off.status.code(), Some(1), "{}", stdout(&off));
+    assert!(stdout(&off).contains("MISMATCH line") && stdout(&off).contains("layoutGroups"));
 
     std::fs::remove_dir_all(&dir).expect("cleanup");
     let missing = graph_cli(&["oracle-diff", "--fixtures", out], None);
@@ -145,6 +163,25 @@ fn oracle_diff_passes_on_emitted_fixtures_and_goes_red_on_a_wrong_line() {
         Some(2),
         "no fixtures is could-not-run"
     );
+}
+
+/// Runs the harness on the fixtures in `dir` with `expect.jsonl` set to `text` with one
+/// line corrupted, and the manifest's digest updated to match, so only the harness's
+/// comparison can catch it.
+fn diff_corrupted(dir: &std::path::Path, text: &str, (from, to): (&str, &str)) -> Output {
+    let (expect, manifest) = (dir.join("expect.jsonl"), dir.join("manifest.json"));
+    let wrong = text.replacen(from, to, 1);
+    assert_ne!(wrong, text, "a line holding {from:?} to corrupt");
+    let before = std::fs::read(&expect).expect("expect.jsonl");
+    std::fs::write(&expect, &wrong).expect("write");
+    let fixed = std::fs::read_to_string(&manifest)
+        .expect("manifest")
+        .replace(&sha256_hex(&before), &sha256_hex(wrong.as_bytes()));
+    std::fs::write(&manifest, fixed).expect("write");
+    graph_cli(
+        &["oracle-diff", "--fixtures", dir.to_str().expect("utf-8")],
+        None,
+    )
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {

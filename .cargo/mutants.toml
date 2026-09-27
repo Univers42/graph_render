@@ -30,4 +30,11 @@ exclude_re = [
     # and hold the same values. The reservation itself is pinned by
     # `columns::tests::with_capacity_reserves_room_in_every_column`.
     "delete field (nodes|edges) from struct Topology expression in index_model",
+    # Equivalent on every reachable input: mulberry32 draws k / 2^32 for a u32 k, so a
+    # draw never equals 0.6 or 0.8 (neither is a multiple of 2^-32), and it equals 0.5
+    # only when k = 2^31, which none of the first 1 000 000 draws from the synthetic seed
+    # does, and the 100 000-node model, the largest, uses fewer (both pinned by
+    # `synthetic::tests::no_draw_a_synthetic_model_can_reach_is_exactly_one_half`). `<`
+    # and `<=` therefore choose the same branch for every model the oracle can build.
+    "replace < with <= in synthetic_(node|edges)",
 ]

@@ -35,6 +35,11 @@ fn edges_skip_taken_ids_and_dangling_endpoints_without_claiming_the_id() {
         None,
         "a dropped edge interns nothing"
     );
+    let kept = t
+        .strings()
+        .find("e2")
+        .expect("a kept edge's id is interned");
+    assert_eq!(t.strings().get(kept), "e2");
 }
 
 #[test]

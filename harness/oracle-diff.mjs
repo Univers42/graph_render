@@ -10,7 +10,7 @@
 //   H1  makeEdgeId, undirected: the oracle orders endpoints by localeCompare, graph-core
 //       by UTF-8 bytes (docs/decisions/h1-byte-order.md);
 //   H9  layoutGroups: the oracle stores groups in a Uint8Array, graph-core in u32
-//       (docs/decisions/h9-group-width.md).
+//       (docs/decisions/h9-group-width.md; the transcription is in oracle-h9.mjs).
 // Anything else is an unexplained mismatch and fails the run.
 //
 // Exit codes follow graph-cli: 0 pass · 1 ran and failed · 2 could not run. The verdict
@@ -21,6 +21,7 @@ import { createHash } from "node:crypto";
 import { join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { canonical, hex, unhex, node, edge, wireModel, wirePatch, wireLegend } from "./oracle-wire.mjs";
+import { checkTranscription, groupModel, h9Explains, layoutGroups, widenedGroups } from "./oracle-h9.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const FIXTURES = resolve(process.argv[2] ?? join(ROOT, "target", "oracle-fixtures"));
@@ -71,38 +72,6 @@ async function publicSurface() {
   return oracle;
 }
 
-// H9: layoutGroups is not a function the oracle exports — it is the body of
-// LayoutController's rebuild (src/core/layout/layoutBridge.ts:76-87), transcribed here.
-// The transcription is refused unless every line of it is still in that file verbatim.
-const H9_SOURCE = [
-  "const nodeGroups = new Uint8Array(this.idList.length);",
-  "const sourceIndex = new Map<string, number>();",
-  "for (let i = 0; i < model.nodes.length; i += 1) {",
-  "const source = model.nodes[i].source;",
-  "if (source == null) continue;",
-  "let g = sourceIndex.get(source);",
-  "if (g === undefined) {",
-  "g = sourceIndex.size;",
-  "sourceIndex.set(source, g);",
-  "nodeGroups[i] = g & 0xff;",
-];
-
-function layoutGroups(nodes) {
-  const nodeGroups = new Uint8Array(nodes.length);
-  const sourceIndex = new Map();
-  for (let i = 0; i < nodes.length; i += 1) {
-    const source = nodes[i].source;
-    if (source == null) continue;
-    let g = sourceIndex.get(source);
-    if (g === undefined) {
-      g = sourceIndex.size;
-      sourceIndex.set(source, g);
-    }
-    nodeGroups[i] = g & 0xff;
-  }
-  return [...nodeGroups];
-}
-
 /** The tree fingerprint, computed exactly as graph-cli's evidence.rs computes it. */
 function fingerprint(entries) {
   const files = [];
@@ -146,30 +115,41 @@ class Canonical {
   }
 }
 
-function evaluator(oracle) {
+/** Graphs are defined once per seed and read by name; each read gets fresh objects. */
+function graphStore(oracle) {
   const graphs = new Map();
   const fresh = (name) => {
     const [nodes, edges] = graphs.get(name) ?? fail(`graph ${name} is not defined`);
     return [nodes.map(node), edges.map(edge)];
   };
-  const indexed = (name) => oracle.indexModel(...fresh(name));
-  const PATCH = ["addedNodes", "updatedNodes", "removedNodeIds", "addedEdges", "updatedEdges", "removedEdgeIds"];
-  const run = {
-    graph: (a) => {
-      graphs.set(a.name, [a.nodes, a.edges]);
-      return null;
-    },
-    makeRecordNodeId: (a) => oracle.makeRecordNodeId(a.source, a.databaseId, a.recordId),
-    makeNoteNodeId: (a) => oracle.makeNoteNodeId(a.noteId),
-    makeTagNodeId: (a) => oracle.makeTagNodeId(a.tagValue),
-    makeEdgeId: (a) => oracle.makeEdgeId(a.source, a.target, a.kind, a.label, a.directed),
-    parseNodeId: (a) => oracle.parseNodeId(a.nodeId),
-    edgeKindFromType: (a) => oracle.edgeKindFromType(a.type ?? undefined),
-    hashString: (a) => oracle.hashString(a.value),
-    nodesEqual: (a) => oracle.nodesEqual(node(a.a), node(a.b)),
-    edgesEqual: (a) => oracle.edgesEqual(edge(a.a), edge(a.b)),
-    isEmptyPatch: (a) => oracle.isEmptyPatch(Object.fromEntries(PATCH.map((k, i) => [k, new Array(a.lengths[i]).fill(0)]))),
-    emptyModel: () => wireModel(oracle.emptyModel()),
+  const define = (a) => {
+    graphs.set(a.name, [a.nodes, a.edges]);
+    return null;
+  };
+  return { define, fresh, indexed: (name) => oracle.indexModel(...fresh(name)) };
+}
+
+const PATCH = ["addedNodes", "updatedNodes", "removedNodeIds", "addedEdges", "updatedEdges", "removedEdgeIds"];
+
+/** The functions over ids, strings and single values. */
+const valueFunctions = (oracle) => ({
+  makeRecordNodeId: (a) => oracle.makeRecordNodeId(a.source, a.databaseId, a.recordId),
+  makeNoteNodeId: (a) => oracle.makeNoteNodeId(a.noteId),
+  makeTagNodeId: (a) => oracle.makeTagNodeId(a.tagValue),
+  makeEdgeId: (a) => oracle.makeEdgeId(a.source, a.target, a.kind, a.label, a.directed),
+  parseNodeId: (a) => oracle.parseNodeId(a.nodeId),
+  edgeKindFromType: (a) => oracle.edgeKindFromType(a.type ?? undefined),
+  hashString: (a) => oracle.hashString(a.value),
+  nodesEqual: (a) => oracle.nodesEqual(node(a.a), node(a.b)),
+  edgesEqual: (a) => oracle.edgesEqual(edge(a.a), edge(a.b)),
+  isEmptyPatch: (a) => oracle.isEmptyPatch(Object.fromEntries(PATCH.map((k, i) => [k, new Array(a.lengths[i]).fill(0)]))),
+  emptyModel: () => wireModel(oracle.emptyModel()),
+});
+
+/** The functions over whole graphs. */
+function modelFunctions(oracle, { define, fresh, indexed }) {
+  return {
+    graph: define,
     applyDegreeWeights: (a) => {
       const [nodes, edges] = fresh(a.graph);
       oracle.applyDegreeWeights(nodes, edges);
@@ -187,8 +167,12 @@ function evaluator(oracle) {
       const text = canonical(wireModel(oracle.buildSyntheticModel(unhex(a.n))));
       return a.digest ? { sha256: sha256(text) } : new Canonical(text);
     },
-    layoutGroups: (a) => layoutGroups(a.nodes),
+    layoutGroups: (a) => layoutGroups(groupModel(oracle, a)),
   };
+}
+
+function evaluator(oracle) {
+  const run = { ...valueFunctions(oracle), ...modelFunctions(oracle, graphStore(oracle)) };
   return (fn, args) => {
     if (!Object.hasOwn(run, fn)) fail(`unknown function ${fn}`);
     const result = run[fn](args);
@@ -208,14 +192,8 @@ function h1Explains(a, got, want) {
   return byBytes !== byLocale && JSON.parse(want) === ordered(byBytes) && JSON.parse(got) === ordered(byLocale);
 }
 
-/** H9: every differing group is ≥ 256 in graph-core and that value & 0xff in the oracle. */
-function h9Explains(got, want) {
-  const [oracle, core] = [JSON.parse(got), JSON.parse(want)];
-  if (oracle.length !== core.length) return false;
-  return core.every((g, i) => g === oracle[i] || (g >= 256 && oracle[i] === (g & 0xff)));
-}
-
-function compare({ cases, expect }, run) {
+/** `widen(args)`: the untruncated groups of a layoutGroups case, for the H9 rule. */
+function compare({ cases, expect }, run, widen) {
   const functions = {};
   const mismatches = [];
   const h1Pairs = new Set();
@@ -231,7 +209,7 @@ function compare({ cases, expect }, run) {
     else if (fn === "makeEdgeId" && h1Explains(args, got, expect[i])) {
       counts.declared += 1;
       h1Pairs.add(JSON.stringify([args.source, args.target]));
-    } else if (fn === "layoutGroups" && h9Explains(got, expect[i])) counts.declared += 1;
+    } else if (fn === "layoutGroups" && h9Explains(widen(args), got, expect[i])) counts.declared += 1;
     else {
       counts.unexplained += 1;
       mismatches.push({ line: i + 1, seed, fn, args, oracle: got, core: expect[i] });
@@ -249,24 +227,20 @@ function checkDeclarations(pairs, h1Pairs) {
 
 const clip = (text) => (text.length > 300 ? `${text.slice(0, 300)}…` : text);
 
-async function main() {
-  const fixtures = loadFixtures();
-  const source = read(join(ROOT, "src", "core", "layout", "layoutBridge.ts"));
-  const lines = new Set(source.split("\n").map((l) => l.trim()));
-  for (const line of H9_SOURCE) if (!lines.has(line)) fail(`H9 transcription: layoutBridge.ts no longer has "${line}"`);
-  const oracle = await publicSurface();
-  const result = compare(fixtures, evaluator(oracle));
-  const { manifest } = fixtures;
-  const problems = checkDeclarations(fixtures.pairs, result.h1Pairs);
+/** What the run must have covered, beyond matching: H1 and H9 seen, every case run. */
+function coverageProblems(manifest, result) {
+  const problems = [];
   const declaredH1 = result.functions.makeEdgeId?.declared ?? 0;
   if (declaredH1 < 3) problems.push(`H1: ${declaredH1} divergences observed, the fixture guarantees at least 3`);
   if (manifest.seeds >= 1000 && result.h9Crossed === 0) problems.push("H9: no layoutGroups case crossed 255 groups");
   for (const [fn, n] of Object.entries(manifest.counts)) {
     if (result.functions[fn]?.cases !== n) problems.push(`${fn}: manifest counts ${n} cases, ran ${result.functions[fn]?.cases ?? 0}`);
   }
-  const unexplained = result.mismatches.length;
-  const pass = unexplained === 0 && problems.length === 0;
-  console.log(`oracle-diff: ${manifest.seeds} seeds, ${fixtures.cases.length} lines, node ${process.version}, icu ${process.versions.icu}`);
+  return problems;
+}
+
+function printReport({ manifest, cases }, result, problems) {
+  console.log(`oracle-diff: ${manifest.seeds} seeds, ${cases.length} lines, node ${process.version}, icu ${process.versions.icu}`);
   for (const [fn, c] of Object.entries(result.functions).sort()) {
     console.log(`  ${fn.padEnd(20)} ${String(c.cases).padStart(6)} cases  ${String(c.equal).padStart(6)} equal  ${String(c.declared).padStart(5)} declared  ${c.unexplained} unexplained`);
   }
@@ -275,20 +249,35 @@ async function main() {
     console.log(`  MISMATCH line ${m.line} seed ${m.seed} ${m.fn} ${clip(JSON.stringify(m.args))}\n    oracle ${clip(m.oracle)}\n    core   ${clip(m.core)}`);
   }
   for (const p of problems) console.log(`  PROBLEM ${p}`);
-  const locale = Intl.DateTimeFormat().resolvedOptions().locale;
+}
+
+/** Records the verdict, unless the tree moved while the run was reading it. */
+function writeRecord(manifest, result, pass) {
+  if (fingerprint(manifest.fingerprinted) !== manifest.fingerprint) fail("the tree changed during the run: not recorded");
   const record = {
     gate: "oracle-diff",
     fingerprint: manifest.fingerprint,
     seeds: manifest.seeds,
     pass,
-    runtime: { node: process.version, icu: process.versions.icu, locale },
+    runtime: { node: process.version, icu: process.versions.icu, locale: Intl.DateTimeFormat().resolvedOptions().locale },
     functions: result.functions,
     h1: { pairs: result.h1Pairs.size },
     h9: { crossed: result.h9Crossed },
   };
   mkdirSync(GATES, { recursive: true });
   writeFileSync(join(GATES, "oracle-diff.json"), `${JSON.stringify(record, null, 2)}\n`);
-  console.log(pass ? "PASS" : `FAIL: ${unexplained} unexplained mismatches, ${problems.length} problems`);
+}
+
+async function main() {
+  const fixtures = loadFixtures();
+  checkTranscription(ROOT);
+  const oracle = await publicSurface();
+  const result = compare(fixtures, evaluator(oracle), (args) => widenedGroups(groupModel(oracle, args)));
+  const problems = [...checkDeclarations(fixtures.pairs, result.h1Pairs), ...coverageProblems(fixtures.manifest, result)];
+  const pass = result.mismatches.length === 0 && problems.length === 0;
+  printReport(fixtures, result, problems);
+  writeRecord(fixtures.manifest, result, pass);
+  console.log(pass ? "PASS" : `FAIL: ${result.mismatches.length} unexplained mismatches, ${problems.length} problems`);
   process.exit(pass ? 0 : 1);
 }
 

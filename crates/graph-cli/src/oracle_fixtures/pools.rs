@@ -1,7 +1,9 @@
 //! The generator's value pools: adversarial on purpose (see `generate.rs`).
 
-/// Ids where byte order and `localeCompare` disagree, and ids that parse oddly.
-pub const ID_POOL: [&str; 22] = [
+/// Ids where byte order and `localeCompare` disagree, ids that parse oddly, and two
+/// whose `hashString` sum reaches −2³¹ (H4: `"xfjfxtf"` ends there, `"xfjfxtfa"` passes
+/// through it).
+pub const ID_POOL: [&str; 24] = [
     "a",
     "A",
     "b",
@@ -24,6 +26,8 @@ pub const ID_POOL: [&str; 22] = [
     "pg:db:1:2",
     "x",
     "\u{1F680}",
+    "xfjfxtf",
+    "xfjfxtfa",
 ];
 /// Labels: empty, accented, CJK, JSON escapes, control characters, an emoji sequence.
 pub const TEXT_POOL: [&str; 9] = [
