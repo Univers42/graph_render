@@ -16,7 +16,13 @@ export function nodesEqual(a: GraphNode, b: GraphNode): boolean {
     a.group === b.group &&
     a.weight === b.weight &&
     a.version === b.version &&
-    a.hasNote === b.hasNote
+    a.hasNote === b.hasNote &&
+    // `icon` participates: the engine renders it on the node glyph, so an
+    // icon-only change is a real visual change. Omitting it made an icon-only
+    // edit produce an empty patch, which read as "nothing changed" and left the
+    // renderer and layout worker untouched. The host app's hand-mirrored copy
+    // already compared this field; this is the package catching up to it.
+    a.icon === b.icon
   );
 }
 

@@ -9,7 +9,7 @@
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background: var(--osio-graph-bg-1, #160c30);
+  background: var(--osio-graph-bg-1, #15140f);
   border-radius: var(--osio-radius-lg, 12px);
 }
 
@@ -48,9 +48,9 @@
   max-height: calc(100% - 24px);
   display: flex;
   flex-direction: column;
-  color: var(--osio-fg-default, #e7e9f5);
+  color: var(--osio-fg-default, #edeae3);
   font-size: 13px;
-  background: color-mix(in srgb, var(--osio-graph-bg-1, #160c30) 72%, transparent);
+  background: color-mix(in srgb, var(--osio-graph-bg-1, #15140f) 72%, transparent);
   border: 1px solid color-mix(in srgb, #fff 14%, transparent);
   border-radius: 12px;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
@@ -127,7 +127,7 @@
 
 .osio-gc-tab.is-active {
   opacity: 1;
-  border-bottom-color: var(--osio-accent, #a5b4fc);
+  border-bottom-color: var(--osio-accent, #e0937a);
 }
 
 .osio-gc-body {
@@ -212,7 +212,7 @@
 
 .osio-gc-slider input[type="range"] {
   width: 100%;
-  accent-color: var(--osio-accent, #a5b4fc);
+  accent-color: var(--osio-accent, #e0937a);
 }
 
 .osio-gc-row {
@@ -266,7 +266,7 @@
 
 .osio-gc-seg__btn.is-active {
   opacity: 1;
-  background: color-mix(in srgb, var(--osio-accent, #a5b4fc) 28%, transparent);
+  background: color-mix(in srgb, var(--osio-accent, #e0937a) 28%, transparent);
 }
 
 .osio-graph-minimap {
@@ -276,7 +276,7 @@
   cursor: pointer;
   border-radius: 10px;
   border: 1px solid color-mix(in srgb, #fff 15%, transparent);
-  background: color-mix(in srgb, var(--osio-graph-bg-1, #160c30) 55%, transparent);
+  background: color-mix(in srgb, var(--osio-graph-bg-1, #15140f) 55%, transparent);
   backdrop-filter: blur(8px);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
 }

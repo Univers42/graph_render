@@ -7,8 +7,10 @@
  *   1. a vertical ramp (cream→parchment / charcoal→warm-black)
  *   2. a broad centre LIFT — the field reads as a lit space, not a painted wall
  *   3. paper grain (also the thing that hides gradient banding at 1x)
- *   4. three drifting AURORA bands — the palette's own `--osio-graph-aurora-*` hues,
- *      squashed into slow ellipses on independent orbits
+ *   4. four drifting AURORA bands — the `--osio-graph-aurora-1..4` hues if the host
+ *      defines them, otherwise derived from the select/note hues (see
+ *      `core/theme/tokens.ts`: no palette defines them, and a hardcoded warm
+ *      fallback would wash a cold Nord field in terracotta)
  *   5. a vignette that closes the edges so the eye lands on the data
  *
  * PERF — the reason this is affordable: 1–3 never change between frames, so they are

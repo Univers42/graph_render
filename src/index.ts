@@ -42,7 +42,11 @@ export { type LayoutParams, DEFAULT_LAYOUT_PARAMS } from "./core/layout/params";
 
 // Model helpers for hosts that build a legend / focus themselves
 export { deriveLegend, type Legend, type LegendEntry, type KindEntry } from "./core/model/legend";
-export { neighborhood } from "./core/model/neighborhood";
+export {
+  neighborhood,
+  neighborhoodEdges,
+} from "./core/model/neighborhood";
+export { buildSyntheticModel } from "./core/model/synthetic";
 
 // React adapter
 export { GraphView, type GraphViewProps } from "./react/GraphView";

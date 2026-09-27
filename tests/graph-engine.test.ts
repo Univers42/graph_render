@@ -16,9 +16,10 @@ import test from "node:test";
 import type { GraphEdge, GraphNode } from "../src/core/types.ts";
 import { clamp, lerp, smoothstep } from "../src/core/math.ts";
 import { makeEdgeId } from "../src/core/model/ids.ts";
-import { emptyModel, indexModel } from "../src/core/model/model.ts";
+import { emptyModel, indexModel, nodesEqual } from "../src/core/model/model.ts";
 import { applyDegreeWeights, weightToRadius } from "../src/core/model/weights.ts";
-import { neighborhood } from "../src/core/model/neighborhood.ts";
+import { neighborhood, neighborhoodEdges } from "../src/core/model/neighborhood.ts";
+import { buildSyntheticModel } from "../src/core/model/synthetic.ts";
 import { deriveLegend } from "../src/core/model/legend.ts";
 import { screenToWorld, worldToScreen } from "../src/core/camera/transform.ts";
 import { fitBounds, zoomAt } from "../src/core/camera/controls.ts";
@@ -238,4 +239,70 @@ test("ForceLayout converges to finite, spread positions", () => {
   }
   const spread = Math.hypot(x[0] - x[2], y[0] - y[2]);
   assert.ok(spread > 1, "endpoints separate under the link force");
+});
+
+// --- Extraction additions -------------------------------------------------
+// These lock in behaviour that was WRONG in the package and correct in the host
+// app's hand-mirrored copy. Each one is a regression guard, not a new feature:
+// if the package's copy is ever re-derived from the app's, the diff that broke
+// it is visible here.
+
+test("nodesEqual: an icon-only change is a real change (regression)", () => {
+  const base: GraphNode = {
+    id: "n1", kind: "record", databaseId: "db", source: "local",
+    label: "Same", group: null, weight: 1, version: 1, hasNote: false, icon: "🚀",
+  };
+  const reIconed: GraphNode = { ...base, icon: "📚" };
+  // The package omitted `icon`, so this returned true and the diff produced an
+  // empty patch: an icon edit looked like no edit at all.
+  assert.equal(nodesEqual(base, reIconed), false);
+  assert.equal(nodesEqual(base, { ...base }), true);
+  // Still ignores the lazy `fields` bag — unchanged contract.
+  assert.equal(nodesEqual(base, { ...base, fields: { a: 1 } } as GraphNode), true);
+});
+
+test("neighborhood: an unknown id yields nothing, not a phantom singleton (regression)", () => {
+  const model = indexModel(
+    [node("a", "record", "db1", 1), node("b", "record", "db1", 0.5)],
+    [edge("e1", "a", "b", "relation", 1)],
+  );
+  // Previously seeded the frontier unconditionally, so a just-deleted id came
+  // back as Set { "<deleted id>" } — read by callers as "selected and in focus".
+  assert.equal(neighborhood(model, "gone", 1).size, 0);
+  assert.equal(neighborhood(model, "a", 1).size, 2);
+});
+
+test("neighborhoodEdges: returns the edges walked alongside the nodes", () => {
+  const model = indexModel(
+    [node("a", "record", "db1", 1), node("b", "record", "db1", 0.5), node("c", "record", "db1", 0.4)],
+    [edge("e1", "a", "b", "relation", 1), edge("e2", "b", "c", "relation", 1)],
+  );
+  const near = neighborhoodEdges(model, "a", 1);
+  assert.deepEqual([...near.nodeIds].sort(), ["a", "b"]);
+  assert.deepEqual([...near.edgeIds], ["e1"]);
+
+  const far = neighborhoodEdges(model, "a", 2);
+  assert.deepEqual([...far.nodeIds].sort(), ["a", "b", "c"]);
+  assert.deepEqual([...far.edgeIds].sort(), ["e1", "e2"]);
+
+  // Must agree with the nodes-only view — they share one traversal.
+  assert.deepEqual([...neighborhood(model, "a", 2)].sort(), [...far.nodeIds].sort());
+});
+
+test("synthetic: buildSyntheticModel is deterministic and respects its cap", () => {
+  const a = buildSyntheticModel(64);
+  const b = buildSyntheticModel(64);
+  // Seeded PRNG: identical inputs must give byte-identical models, or every
+  // benchmark run and screenshot comparison is noise.
+  assert.deepEqual(
+    a.nodes.map((n) => `${n.id}:${n.kind}:${n.label}`),
+    b.nodes.map((n) => `${n.id}:${n.kind}:${n.label}`),
+  );
+  assert.equal(a.nodes.length, 64);
+  // Indexes are built, not just the raw arrays.
+  assert.equal(a.nodeById.size, 64);
+  assert.ok(a.edges.length > 0);
+  // Floor of 2, ceiling 100k (the resident per-node model's limit).
+  assert.equal(buildSyntheticModel(0).nodes.length, 2);
+  assert.equal(buildSyntheticModel(1).nodes.length, 2);
 });
