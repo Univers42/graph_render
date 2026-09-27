@@ -50,9 +50,8 @@ pub fn run(seeds: u32, out: &Path) -> ExitCode {
 }
 
 /// `graph-cli oracle-diff`: the TypeScript arm, exactly as `npm run oracle:diff` runs it,
-/// over the fixtures in [`default_out`]. The harness's own exit code passes through;
-/// anything else it could end with (a signal, a missing `node`) is "could not run".
-pub fn diff() -> ExitCode {
+/// over the fixtures in `fixtures`.
+pub fn diff(fixtures: &Path) -> ExitCode {
     let root = workspace_root();
     let mut command = std::process::Command::new("node");
     command
@@ -60,16 +59,22 @@ pub fn diff() -> ExitCode {
         .args(["--experimental-strip-types", "--experimental-loader"])
         .arg(root.join("tests").join("ts-extension-loader.mjs"))
         .arg(root.join("harness").join("oracle-diff.mjs"))
-        .arg(default_out());
-    match run_status(&mut command, CHILD_TIMEOUT) {
+        .arg(fixtures);
+    ExitCode::from(diff_code(run_status(&mut command, CHILD_TIMEOUT)))
+}
+
+/// The harness's own `0` and `1` pass through; anything else it could end with (`2`, a
+/// signal, a missing `node`, a timeout) is "could not run".
+fn diff_code(status: Result<std::process::ExitStatus, String>) -> u8 {
+    match status {
         Ok(status) => match status.code() {
-            Some(0) => ExitCode::SUCCESS,
-            Some(1) => ExitCode::from(1),
-            _ => ExitCode::from(2),
+            Some(0) => 0,
+            Some(1) => 1,
+            _ => 2,
         },
         Err(err) => {
             eprintln!("oracle-diff: could not run: {err}");
-            ExitCode::from(2)
+            2
         }
     }
 }

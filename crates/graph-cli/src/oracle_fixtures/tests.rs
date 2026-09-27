@@ -99,3 +99,18 @@ fn nothing_to_emit_and_malformed_pairs_are_refused() {
     assert_eq!(adversarial_pairs(&bad), Ok(vec![("x".into(), "y".into())]));
     std::fs::remove_dir_all(&dir).expect("cleanup");
 }
+
+#[test]
+fn the_harness_verdict_passes_through_and_everything_else_is_could_not_run() {
+    let exit = |code: i32| {
+        std::process::Command::new("sh")
+            .args(["-c", &format!("exit {code}")])
+            .status()
+            .map_err(|e| e.to_string())
+    };
+    assert_eq!(diff_code(exit(0)), 0);
+    assert_eq!(diff_code(exit(1)), 1);
+    assert_eq!(diff_code(exit(2)), 2);
+    assert_eq!(diff_code(exit(3)), 2);
+    assert_eq!(diff_code(Err("no node".into())), 2);
+}

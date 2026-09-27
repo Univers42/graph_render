@@ -16,8 +16,8 @@ pub const TOPOLOGY_CEILING: u64 = 9_700_000;
 const ORACLE: &str = "src/core/model (TypeScript, this repo)";
 
 const DEGRADES: &str = "past the ceiling wasm32 cannot allocate and the module traps (no partial \
-result); natively index_model refuses with CapacityError when the arena passes 2^32-1 bytes — a \
-refusal, never a wrap or a truncation";
+result); natively, memory permitting, index_model refuses with CapacityError once the arena would \
+pass 2^32-1 bytes — a refusal, never a wrap or a truncation";
 
 fn topology(
     id: &'static str,

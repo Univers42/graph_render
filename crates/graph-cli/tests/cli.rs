@@ -108,6 +108,53 @@ fn capabilities_needs_a_flag_and_refuses_gated_rows_no_recorded_run_backs() {
     );
 }
 
+/// The oracle differential end to end: emit, run the TypeScript arm, then feed it a
+/// graph-core line one byte off (manifest digest fixed up, as a real bug would leave it)
+/// and expect red — the harness's negative control, inside `cargo test`.
+#[test]
+fn oracle_diff_passes_on_emitted_fixtures_and_goes_red_on_a_wrong_line() {
+    let dir = std::env::temp_dir().join(format!("gm-cli-fixtures-{}", std::process::id()));
+    let out = dir.to_str().expect("utf-8");
+    let emit = graph_cli(&["emit-fixtures", "--seeds", "3", "--out", out], None);
+    assert_eq!(emit.status.code(), Some(0), "{}", stdout(&emit));
+    let diff = graph_cli(&["oracle-diff", "--fixtures", out], None);
+    assert_eq!(diff.status.code(), Some(0), "{}", stdout(&diff));
+    assert!(stdout(&diff).contains("0 unexplained") && stdout(&diff).ends_with("PASS\n"));
+    let record = std::fs::read_to_string(gates_dir().join("oracle-diff.json")).expect("recorded");
+    assert!(record.contains("\"pass\": true"), "{record}");
+
+    let expect = dir.join("expect.jsonl");
+    let text = std::fs::read_to_string(&expect).expect("expect.jsonl");
+    let wrong = text.replacen("\"notes\":0}", "\"notes\":1}", 1);
+    assert_ne!(wrong, text, "an indexModel line to corrupt");
+    std::fs::write(&expect, &wrong).expect("write");
+    let manifest = dir.join("manifest.json");
+    let old = sha256_hex(text.as_bytes());
+    let fixed = std::fs::read_to_string(&manifest)
+        .expect("manifest")
+        .replace(&old, &sha256_hex(wrong.as_bytes()));
+    std::fs::write(&manifest, fixed).expect("write");
+    let red = graph_cli(&["oracle-diff", "--fixtures", out], None);
+    assert_eq!(red.status.code(), Some(1), "{}", stdout(&red));
+    assert!(stdout(&red).contains("MISMATCH") && stdout(&red).contains("FAIL: 1 unexplained"));
+
+    std::fs::remove_dir_all(&dir).expect("cleanup");
+    let missing = graph_cli(&["oracle-diff", "--fixtures", out], None);
+    assert_eq!(
+        missing.status.code(),
+        Some(2),
+        "no fixtures is could-not-run"
+    );
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
 #[test]
 fn determinism_probe_writes_a_measurement_with_libm_agreeing_across_targets() {
     let out = std::env::temp_dir().join(format!("gm-d1-{}.md", std::process::id()));

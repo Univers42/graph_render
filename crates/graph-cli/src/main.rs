@@ -65,7 +65,11 @@ enum Command {
         out: Option<PathBuf>,
     },
     /// Runs `harness/oracle-diff.mjs` over the emitted fixtures (the TypeScript arm).
-    OracleDiff,
+    OracleDiff {
+        /// Fixtures directory; `target/oracle-fixtures` by default.
+        #[arg(long)]
+        fixtures: Option<PathBuf>,
+    },
     /// D1: std against libm transcendentals, native against wasm32, bit for bit.
     DeterminismProbe {
         /// Where to write the measurement, relative to the workspace root.
@@ -91,7 +95,9 @@ fn main() -> ExitCode {
         Command::EmitFixtures { seeds, out } => {
             oracle_fixtures::run(seeds, &out.unwrap_or_else(oracle_fixtures::default_out))
         }
-        Command::OracleDiff => oracle_fixtures::diff(),
+        Command::OracleDiff { fixtures } => {
+            oracle_fixtures::diff(&fixtures.unwrap_or_else(oracle_fixtures::default_out))
+        }
         Command::DeterminismProbe { out } => determinism_probe::run(&out),
     }
 }
