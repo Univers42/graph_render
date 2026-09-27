@@ -47,6 +47,6 @@
     "test": "node --test --experimental-strip-types --experimental-loader ./tests/ts-extension-loader.mjs tests/*.test.ts",
     "lint": "eslint src --max-warnings=0",
     "check": "npm run typecheck && npm run lint && npm test",
-    "oracle:diff": "node -e \"console.error('oracle:diff is a Phase 0 stub; Phase 1 implements it'); process.exit(1)\""
+    "oracle:diff": "node --experimental-strip-types --experimental-loader ./tests/ts-extension-loader.mjs harness/oracle-diff.mjs"
   }
 }
