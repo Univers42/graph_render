@@ -116,3 +116,20 @@ fn the_harness_verdict_passes_through_and_everything_else_is_could_not_run() {
     assert_eq!(diff_code(exit(3)), 2);
     assert_eq!(diff_code(Err("no node".into())), 2);
 }
+
+#[test]
+fn a_stale_manifest_is_removed_and_only_absence_is_not_an_error() {
+    let dir = scratch("stale");
+    std::fs::create_dir_all(&dir).expect("dir");
+    let manifest = dir.join("manifest.json");
+    assert_eq!(remove_stale(&manifest), Ok(()), "nothing to remove");
+    std::fs::write(&manifest, "{}").expect("write");
+    assert_eq!(remove_stale(&manifest), Ok(()));
+    assert!(!manifest.exists(), "removed");
+    std::fs::create_dir(&manifest).expect("a directory in its place");
+    assert!(
+        remove_stale(&manifest).is_err(),
+        "cannot remove is an error"
+    );
+    std::fs::remove_dir_all(&dir).expect("cleanup");
+}

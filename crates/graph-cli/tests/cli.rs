@@ -33,6 +33,8 @@ fn hashgate_passes_and_its_negative_control_goes_red() {
     assert_eq!(honest.status.code(), Some(0), "{}", stdout(&honest));
     assert!(stdout(&honest).contains("  topology: 4-way equal on 4/4 seeds"));
     assert!(stdout(&honest).contains("  4-way equal on 4/4 seeds"));
+    assert!(stdout(&honest).contains("  native run 1  digest "));
+    assert!(!stdout(&honest).contains("DIVERGED"));
     let record = std::fs::read_to_string(gates_dir().join("hashgate.json")).expect("recorded");
     assert!(
         record.contains("\"pass\": true") && record.contains("\"topology\": 4"),
@@ -43,6 +45,7 @@ fn hashgate_passes_and_its_negative_control_goes_red() {
     assert_eq!(mutated.status.code(), Some(1), "{}", stdout(&mutated));
     assert!(stdout(&mutated).contains("  topology: 4-way equal on 0/4 seeds"));
     assert!(stdout(&mutated).contains("  4-way equal on 0/4 seeds"));
+    assert!(stdout(&mutated).contains("  DIVERGED synthetic 0:"));
     let control = gates_dir().join("hashgate-control.json");
     let control = std::fs::read_to_string(control).expect("control recorded");
     assert!(control.contains("\"pass\": false"), "{control}");

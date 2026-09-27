@@ -183,6 +183,10 @@ mod tests {
         let stamp = Stamp::against("abc", "abc".into()).expect("same tree");
         assert_eq!(stamp.fingerprint(), "abc");
         assert_eq!(stamp.unchanged("abc"), Ok(()));
+        let stale = Stamp("0".repeat(64))
+            .still_current()
+            .expect_err("not this tree");
+        assert!(stale.contains("changed during the run"), "{stale}");
         let moved = stamp.unchanged("abd").expect_err("moved");
         assert!(moved.contains("changed during the run"), "{moved}");
         let rebuilt = Stamp::against("abc", "abd".into()).expect_err("other tree");
