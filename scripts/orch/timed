@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# timed <cmd...> — run a timed gate (hashgate, mutants, full gate.sh) under a host-wide lock so only one
+# runs at a time; parallel branches otherwise starve it past runner.rs CHILD_TIMEOUT (2700 s hit on
+# 2026-09-28 with mutants alongside). Untimed cargo work does not take the lock.
+set -euo pipefail
+exec flock "${TIMED_LOCK:-/goinfre/dlesieur/orch/timed.lock}" "$@"
