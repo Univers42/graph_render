@@ -94,6 +94,11 @@ reference's compatibility threshold prunes most pairs — port that pruning, and
 ceiling honestly. Use the Phase-8 grid index to limit candidate pairs spatially if the measurement
 demands it, and record that as a deviation with its number.
 
+Gather form (D10, `docs/decisions/compute-tiers.md`): each subdivision point computes its own
+displacement from its compatible edges' points, reading start-of-iteration state and writing only
+itself — so FDEB can later run on the SIMD, threaded and GPU tiers unchanged (FDEB is the other
+GPU candidate). MINGLE's greedy merge is inherently sequential; keep it single-threaded and say so.
+
 Determinism: fixed subdivision schedule, fixed accumulation order over compatible pairs (sort the pair
 list by (edge index, edge index)), **no parallel reduction** (D3), no `mul_add` (D2).
 
