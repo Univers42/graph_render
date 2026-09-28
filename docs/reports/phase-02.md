@@ -11,7 +11,8 @@ committed between rows), tree fingerprint `960add74dfaf2cdf57c3d060a65ea5c897725
 moved on to `900cf13` afterward (Q5's compute-tiers ADR and roadmap docs only, outside the
 fingerprint); a fresh `capabilities --check` re-run at report time from `900cf13` still reads
 `9 rows, 0 problems`, so the records are current. The seed‑1/N=50 snapshot in §3 was run live,
-now, for this report. Mutation testing was intentionally **not** run for this report (§5).
+now, for this report. Mutation testing ran as a separate fix-up after this report's gate row
+(§5): 0 missed over the refreshed Phase 2 diff.
 
 **Sandbox note.** As in Phases 0–1, this container sits behind a TLS-intercepting egress
 proxy. `ge_check` first failed because the sandbox helper's temporary Dockerfile used
@@ -142,7 +143,7 @@ Rows in run order, `target/phase02-gate/summary.txt`:
 |---|---:|---:|---|
 | `capabilities --json` | 0 | 0 | PASS — 9 rows, all `gated` (§2) |
 | `capabilities --check` re-run at report time on `900cf13` | 0 | 0 | PASS — `9 rows, 0 problems` (confirms the fingerprint is still current after the docs-only commits) |
-| `cargo mutants --in-diff` | — | — | **PENDING — cargo-mutants over git diff c307300..ac44ae4 is running; filled in by the mutation fix-up.** |
+| `cargo mutants --in-diff` | 0 missed | — | PASS — 591 tested, 512 caught, 0 missed, 73 unviable, 6 timeout (§5) |
 
 **Seed 1, N = 50 — the deliverable, emitted live for this report:**
 
@@ -228,7 +229,32 @@ No row reads "none".
 
 ### Mutation testing
 
-PENDING — cargo-mutants over git diff c307300..ac44ae4 is running; filled in by the mutation fix-up.
+`cargo mutants --in-diff` over `git diff c307300..HEAD -- '*.rs'` (the Phase 2 diff, refreshed
+after the mutation fix-up — the original diff base against `ac44ae4` no longer applied cleanly
+once `snapshot_cmd.rs` gained `all_clear`/`write_findings`), run in the `ge-mutants` image
+(`.cargo/mutants.toml`, `all_features = true`, `test_workspace = true`):
+`target/mutants-p2m/mutants.out/`.
+
+| tested | caught | missed | unviable | timeout |
+|---:|---:|---:|---:|---:|
+| 591 | 512 | 0 | 73 | 6 |
+
+0 missed — no surviving mutant in the diff. 73 unviable (does not build under those mutants,
+e.g. type/borrow errors from a mutated signature). The 6 timeouts are all `+=`→`*=`/`-=` in
+`canonical_json/parse.rs`'s `skip_space`, `digits`, `string` and `escape` (an index-advance
+turned into a no-op or reversed step, hanging on the input the mutated function is already
+scanning) — genuinely different behavior, not equivalent, just caught by the 29s test-timeout
+budget rather than an assertion; no exclusion added, since a timeout is not a missed (surviving)
+mutant.
+
+Eight prior exclusions in `exclude_re`, each equivalent-by-construction or arid, carry their own
+reason inline in `.cargo/mutants.toml`: `exports::publish` (wasm32-only, unreachable natively),
+`probe::from_bits`'s `|`/`^` (disjoint bits), `StageCount::get` (only value `1` exists),
+`empty_model` (already `Topology::default()`), `synthetic_(node|edges)`'s `<`/`<=` (no draw in
+range hits the boundary), `StringTable::from_strs`'s length guard (needs ~16 GiB to reach),
+the surrogate match arm in `Parser` (already refused identically via `char::from_u32`), and
+`faces_agree`/`floats_survive_f64` (both proven `Ok(())` on every value the public API can
+build). No new exclusion was needed for this fix-up.
 
 ## 6. Ponytail markers added
 
@@ -242,6 +268,20 @@ or the version check — all exact, per `ponytail.md` and the phase's own "no ma
 carried-over Phase 1 markers (`edge_kind_from_type`, `parse_node_id` H5, `hash_string` H4,
 `Topology::hierarchy` orientation, `topology.index` `scale_ceiling`, `FINGERPRINTED`) are
 unchanged and still stand in `phase-01.md` §6.
+
+## 6a. Reviewer minors (mutation fix-up)
+
+- **`StringTable::is_empty` (`graph-contract/src/binary.rs`) is kept** even though nothing in
+  this workspace calls it: `StringTable` also exposes `len`, and clippy's
+  `clippy::len_without_is_empty` (part of the `-D warnings` gate) fails the build without a
+  matching `is_empty`. Not dead code by choice — the lint requires it.
+- **`SnapshotHeader::decode`'s refusal order does not match `binary-layout.md`'s table order.**
+  The table lists faults by byte offset (node tag at 12, edge tag at 13, then the z-channel at
+  14, then padding at 15), but `decode` (`snapshot.rs`) calls `check_reserved` — z-channel, then
+  padding — *before* it reads either geometry tag, so a header wrong in more than one way names
+  the reserved field first. Pinned by
+  `snapshot::tests::reserved_fields_are_checked_before_the_geometry_tag`; `binary-layout.md`
+  now says so in prose under its refusal table.
 
 ## 7. What could not be verified
 
@@ -260,7 +300,7 @@ unchanged and still stand in `phase-01.md` §6.
 - **Review — SKIP.** No fresh `reviewer` run over the Phase 2 diff yet (Phase 1's review and
   fix-up are already recorded in `phase-01.md` §9; nothing here plays that role for Phase 2).
   **SKIP — `devil`.** Not due until before Phase 6, per Q5 / `docs/decisions/compute-tiers.md`.
-- **Mutation testing — see §5.** Running separately; not claimed here either way.
+- **Mutation testing — see §5.** Run separately as the mutation fix-up: 0 missed.
 - **Not scanned exhaustively — function-length/parameter-count house limits** beyond the
   specific fix-ups named in §1. File-length compliance (≤ 300 lines) for every changed file was
   checked directly and holds, the generated schema JSON excepted.
@@ -284,6 +324,8 @@ unchanged and still stand in `phase-01.md` §6.
    none of which were on the phase's MODIFY/CREATE list.
 4. **Still open, carried from Phase 1** (`phase-01.md` §8): osionos host items (baseline, guard
    rows, whether osionos persists `makeEdgeId` output); documentation corrections F1–F8.
-5. **Mutation testing result is unknown at report time** (§5, §7) — a decision on any surviving
-   mutants or new exclusions still needs the fix-up step before Phase 2 can be called fully
-   closed, the same shape as Phase 1's own mutation fix-up.
+5. **Mutation testing — RESOLVED by the fix-up** (§5, §6a): 591 tested, 0 missed, 73 unviable,
+   6 timeout (genuine infinite-loop mutants caught by the test timeout, not equivalent); no new
+   `exclude_re` entry was needed. `snapshot_cmd.rs`'s `all_clear`/`write_findings` split and
+   `exercise.rs`'s independent-reimplementation tests were added to kill what the first run
+   missed; two reviewer minors (§6a) were also closed in the same pass.
