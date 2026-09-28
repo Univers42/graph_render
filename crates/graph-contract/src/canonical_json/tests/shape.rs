@@ -39,14 +39,14 @@ fn a_document_off_the_shape_names_the_path_and_the_fault() {
 fn a_value_of_the_wrong_type_names_its_path_and_the_type_it_needs() {
     let integer = shape_at("version.minor", "must be an integer from 0 to 4294967295");
     assert_eq!(
-        read_edited(r#""minor":2"#, r#""minor":2.0"#),
+        read_edited(r#""minor":3"#, r#""minor":2.0"#),
         integer.clone()
     );
     assert_eq!(
-        read_edited(r#""minor":2"#, r#""minor":4294967296"#),
+        read_edited(r#""minor":3"#, r#""minor":4294967296"#),
         integer.clone()
     );
-    assert_eq!(read_edited(r#""minor":2"#, r#""minor":-1"#), integer);
+    assert_eq!(read_edited(r#""minor":3"#, r#""minor":-1"#), integer);
     let number = shape_at("geometry.nodes.x[1]", "must be a number");
     assert_eq!(read_edited("[1,-0]", r#"[1,"-0"]"#), number);
     let string = shape_at("nodes.id[0]", "must be a string");

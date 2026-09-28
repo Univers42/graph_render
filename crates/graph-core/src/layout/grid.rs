@@ -56,6 +56,7 @@ impl Stage for Grid {
         Ok(Geometry {
             nodes: NodeGeometry::Point { x, y },
             edges: EdgeGeometry::Line,
+            notes: Vec::new(),
         })
     }
 }

@@ -66,6 +66,12 @@ pub fn parse_node_id(node_id: &str) -> Option<RecordRef<'_>> {
 /// bytes (`str::cmp`), not by `localeCompare` as in the oracle. The two disagree on
 /// mixed case (`"a"`/`"A"`), on the `Z`/`a` boundary and on `note:1`/`NOTE:1`; for those
 /// pairs this id intentionally differs from the oracle's by endpoint order.
+///
+/// Ponytail: orientation-blind, for oracle parity — `child_first` is not an argument, so
+/// an A→B `child_of` and an A→B `parent_of` with the same label get one id although they
+/// name opposite parents. Direction: two distinct hierarchy facts collapse to one id and
+/// the later is dropped as a duplicate by `index_model`. Escape hatch: the host gives
+/// the two edges distinct labels (or ids of its own).
 pub fn make_edge_id(edge: &EdgeIdParts<'_>) -> String {
     let EdgeIdParts {
         source,

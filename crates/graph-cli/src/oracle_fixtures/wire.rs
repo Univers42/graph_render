@@ -109,6 +109,9 @@ impl WireEdge {
             strength: unhex(&self.strength)?,
             directed: self.directed,
             record_id: self.record_id.clone(),
+            // The oracle's `GraphEdge` carries no orientation: every wire edge reads as
+            // parent first, as the oracle itself reads it.
+            child_first: false,
         })
     }
 }

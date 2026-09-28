@@ -48,6 +48,10 @@ pub struct EdgeRecord {
     pub directed: bool,
     /// Backing edge-row id, if any.
     pub record_id: Option<String>,
+    /// The wire type named the child first (`child_of`): `source` is the child and
+    /// `target` the parent. Set it with [`crate::child_first_from_type`]; only the
+    /// hierarchy reads it, and `source`/`target` stay as they arrived.
+    pub child_first: bool,
 }
 
 /// A node's fields, borrowed — from a [`NodeRecord`] or from a topology's columns.
@@ -95,6 +99,8 @@ pub struct EdgeView<'a> {
     pub directed: bool,
     /// Backing row id.
     pub record_id: Option<&'a str>,
+    /// `source` is the child (`child_of`).
+    pub child_first: bool,
 }
 
 impl NodeRecord {
@@ -127,6 +133,7 @@ impl EdgeRecord {
             strength: self.strength,
             directed: self.directed,
             record_id: self.record_id.as_deref(),
+            child_first: self.child_first,
         }
     }
 }
@@ -171,6 +178,7 @@ pub(crate) mod build {
             strength: 0.5,
             directed: false,
             record_id: None,
+            child_first: false,
         }
     }
 }

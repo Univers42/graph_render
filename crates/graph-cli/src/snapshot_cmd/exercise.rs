@@ -1,11 +1,12 @@
 //! The contract exercise: one snapshot per seed that no layout would produce — every
-//! node and edge kind, the floats a text face most easily gets wrong, and ids a JSON
-//! writer must escape — so `roundtrip` checks the whole contract, not only the grid's
-//! half-integers.
+//! node and edge kind, the floats a text face most easily gets wrong, ids a JSON writer
+//! must escape, and every notes case (a 0.2-labelled snapshot, none, each code) — so
+//! `roundtrip` checks the whole contract, not only the grid's half-integers.
 
 use graph_contract::binary::{Snapshot, SnapshotParts, StringTable};
 use graph_contract::geometry::{EdgeGeometry, NodeGeometry, Paths};
-use graph_contract::version::CURRENT_VERSION;
+use graph_contract::notes::{Note, NoteCode, Notes, SNAPSHOT_WIDE};
+use graph_contract::version::{CURRENT_VERSION, FormatVersion};
 
 /// Floats a shortest-round-trip writer or a double-rounding reader is likeliest to get
 /// wrong: signed zeros, the subnormal ends, the finite ends, and values whose shortest
@@ -103,7 +104,7 @@ pub fn snapshot(seed: u32) -> Result<Snapshot, String> {
     let table = |column, items: &[String]| {
         StringTable::from_strs(column, items.iter().map(String::as_str)).map_err(|e| e.to_string())
     };
-    let parts = SnapshotParts {
+    let mut parts = SnapshotParts {
         version: CURRENT_VERSION,
         node_ids: table("node.id", &node_ids)?,
         edge_ids: table("edge.id", &edge_ids)?,
@@ -111,8 +112,51 @@ pub fn snapshot(seed: u32) -> Result<Snapshot, String> {
         target: (0..m).map(|_| s.below(u64::from(n))).collect(),
         nodes: nodes(&mut s, seed % 3, n),
         edges: edges(&mut s, seed / 3 % 3, m),
+        notes: Notes::default(),
     };
+    (parts.version, parts.notes) = notes(&mut s, seed, m);
     Snapshot::new(parts).map_err(|e| format!("exercise seed {seed}: {e}"))
+}
+
+/// Seed `seed`'s version and notes, by `seed % 5`: a 0.2-labelled snapshot (no notes
+/// section on either face), 0.3 with `k = 0`, then notes of code 1, of code 2, and of
+/// every code. Edge notes fall on edge 0 and on each later edge with odd probability,
+/// so any five consecutive seeds with edges draw every case.
+fn notes(s: &mut Stream, seed: u32, m: u32) -> (FormatVersion, Notes) {
+    let codes: &[NoteCode] = match seed % 5 {
+        0 => return (FormatVersion { major: 0, minor: 2 }, Notes::default()),
+        1 => &[],
+        2 => &[NoteCode::CycleEdgeDropped],
+        3 => &[NoteCode::ExtraParentDropped],
+        _ => &NoteCode::ALL,
+    };
+    let mut notes = Vec::new();
+    for &code in codes {
+        if code == NoteCode::PackingApproximate {
+            notes.push(Note {
+                code,
+                index: SNAPSHOT_WIDE,
+            });
+            continue;
+        }
+        let picked = (0..m).filter(|&e| e == 0 || s.below(2) == 0);
+        notes.extend(picked.map(|index| Note { code, index }));
+    }
+    (CURRENT_VERSION, Notes::of(&notes))
+}
+
+/// Tallies which notes cases `snapshot` draws: `[0.2-labelled, 0.3 with k = 0, a code-1
+/// note, a code-2 note, a code-3 note]`.
+pub fn count_notes_cases(snapshot: &Snapshot, cases: &mut [u64; 5]) {
+    let p = snapshot.parts();
+    if p.version.minor < 3 {
+        cases[0] += 1;
+    } else if p.notes.is_empty() {
+        cases[1] += 1;
+    }
+    for (code, slot) in (1..=3).zip(&mut cases[2..]) {
+        *slot += u64::from(p.notes.code.contains(&code));
+    }
 }
 
 fn nodes(s: &mut Stream, kind: u32, n: u32) -> NodeGeometry {

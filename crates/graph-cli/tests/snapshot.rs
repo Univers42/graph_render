@@ -60,7 +60,9 @@ fn snapshot_emits_either_face_on_success() {
         "{json}"
     );
     assert!(
-        json.contains("\"version\":{\"major\":0,\"minor\":2}"),
+        json.contains(
+            "\"notes\":{\"code\":[],\"index\":[]},\"version\":{\"major\":0,\"minor\":3}}"
+        ),
         "{json}"
     );
     let summary = String::from_utf8_lossy(&run.stderr).into_owned();
@@ -134,6 +136,9 @@ fn roundtrip_passes_and_records_the_grids_hand_oracle() {
     assert_eq!(run.status.code(), Some(0), "{}", stdout(&run));
     assert!(stdout(&run).contains("  binary <-> JSON byte-exact on 40/40 snapshots"));
     assert!(stdout(&run).contains("  layout.grid on its stated conventions on 20/20 seeds"));
+    assert!(stdout(&run).contains(
+        "  notes cases drawn (exercise, each needed): 0.2-labelled 4, 0.3 k=0 5, code 1 "
+    ));
     assert!(stdout(&run).ends_with("PASS\n"));
     let roundtrip = record("roundtrip");
     assert!(

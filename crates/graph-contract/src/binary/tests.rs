@@ -2,6 +2,8 @@ use super::*;
 use crate::snapshot::HEADER_LEN;
 use crate::version::{CURRENT_VERSION, NewerMajor};
 
+mod pinned;
+
 fn table(column: &'static str, items: &[&str]) -> StringTable {
     StringTable::from_strs(column, items.iter().copied()).expect("fits")
 }
@@ -15,6 +17,7 @@ fn parts(nodes: NodeGeometry, edges: EdgeGeometry) -> SnapshotParts {
         target: vec![1],
         nodes,
         edges,
+        notes: Notes::default(),
     }
 }
 
@@ -72,45 +75,6 @@ fn every_kind_round_trips_to_the_same_bytes_and_every_column_is_word_aligned() {
 }
 
 #[test]
-fn the_layout_is_pinned_byte_for_byte_for_a_tiny_snapshot() {
-    let snapshot = Snapshot::new(parts(point(), EdgeGeometry::Line)).expect("valid");
-    #[rustfmt::skip]
-    let expected: Vec<u8> = [
-        &b"GMSN"[..], &[0, 0, 0, 0], &[2, 0, 0, 0], &[0, 0, 0, 0],
-        &[1, 0, 0, 0], &[2, 0, 0, 0], &[1, 0, 0, 0],
-        &[0, 0, 0, 0, 1, 0, 0, 0, 3, 0, 0, 0], b"abc", &[0],
-        &[0, 0, 0, 0, 1, 0, 0, 0], b"e", &[0, 0, 0],
-        &[0, 0, 0, 0], &[1, 0, 0, 0],
-        &[0, 0, 0x80, 0x3f, 0, 0, 0x20, 0xc0],
-        &[0, 0, 0, 0, 0, 0, 0, 0x3f],
-    ]
-    .concat();
-    assert_eq!(snapshot.to_bytes(), expected);
-    let polyline = Paths {
-        offsets: vec![0, 1],
-        pts: vec![1.0, 0.5],
-    };
-    let curve = EdgeGeometry::Curve {
-        degree: 2,
-        paths: polyline,
-    };
-    let bytes = Snapshot::new(parts(point(), curve))
-        .expect("valid")
-        .to_bytes();
-    let tail = [
-        2, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0x80, 0x3f, 0, 0, 0, 0x3f,
-    ];
-    let mut head = expected.clone();
-    head[13] = 2;
-    assert_eq!(
-        bytes[..head.len()],
-        head[..],
-        "the same, but for the edge tag"
-    );
-    assert_eq!(bytes[head.len()..], tail, "degree, offsets, pts");
-}
-
-#[test]
 fn the_header_is_derived_from_what_the_snapshot_holds() {
     let snapshot = &every_kind()[5];
     let header = snapshot.header();
@@ -139,7 +103,7 @@ fn version_refusal_of_a_full_snapshot_one_major_ahead() {
     assert!(
         refusal
             .to_string()
-            .contains("1.2 is newer than this reader's 0.2")
+            .contains("1.3 is newer than this reader's 0.3")
     );
     let mut built = parts(point(), EdgeGeometry::Line);
     built.version = found;
@@ -149,6 +113,11 @@ fn version_refusal_of_a_full_snapshot_one_major_ahead() {
 #[test]
 fn version_refusal_spares_a_newer_minor_of_this_major() {
     let mut bytes = every_kind()[0].to_bytes();
+    assert_eq!(
+        CURRENT_VERSION.minor + 1,
+        4,
+        "a 0.4 snapshot, notes and all"
+    );
     bytes[8..12].copy_from_slice(&(CURRENT_VERSION.minor + 1).to_le_bytes());
     let back = Snapshot::from_bytes(&bytes).expect("a newer minor reads");
     assert_eq!(back.parts().version.minor, CURRENT_VERSION.minor + 1);
@@ -245,7 +214,7 @@ fn the_decoder_refuses_every_malformed_column() {
         index: 1,
     });
     assert_eq!(
-        decode_patched(|b| b[h + 48..].copy_from_slice(&nan)),
+        decode_patched(|b| b[h + 48..h + 52].copy_from_slice(&nan)),
         non_finite
     );
     let trailing = Err(E::TrailingBytes { count: 1 });

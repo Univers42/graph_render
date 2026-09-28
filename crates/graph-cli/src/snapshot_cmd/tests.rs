@@ -1,6 +1,7 @@
 use super::*;
 use graph_contract::binary::SnapshotParts;
 use graph_contract::geometry::{EdgeGeometryKind, NodeGeometryKind};
+use graph_contract::notes::{Note, NoteCode, Notes, SNAPSHOT_WIDE};
 use std::collections::BTreeSet;
 
 #[test]
@@ -48,6 +49,41 @@ fn nine_seeds_of_the_exercise_cover_every_pair_of_kinds_and_the_escapes() {
     );
 }
 
+/// Any five consecutive seeds of the exercise draw a 0.2-labelled snapshot, a 0.3 one
+/// with no notes, and notes of every implemented code; each is byte-exact both ways.
+#[test]
+fn the_exercise_draws_every_notes_case_and_each_round_trips() {
+    let mut cases = [0; 5];
+    for seed in 0..5 {
+        let snapshot = exercise::snapshot(seed).expect("valid");
+        assert_eq!(faces_agree(&snapshot), Ok(()), "seed {seed}");
+        exercise::count_notes_cases(&snapshot, &mut cases);
+    }
+    assert!(cases.iter().all(|&c| c > 0), "{cases:?}");
+    let mut sweep = [0; 5];
+    (0..1000).for_each(|seed| {
+        let snapshot = exercise::snapshot(seed).expect("valid");
+        exercise::count_notes_cases(&snapshot, &mut sweep);
+    });
+    assert_eq!(sweep[0], 200, "every fifth seed is 0.2-labelled");
+    assert!(sweep[1..].iter().all(|&c| c >= 200), "{sweep:?}");
+}
+
+#[test]
+fn snapshots_differing_only_in_notes_hash_differently() {
+    let bare = pipeline(4, 30, "grid").expect("runs").snapshot;
+    let mut parts = bare.clone().into_parts();
+    parts.notes = Notes::of(&[Note {
+        code: NoteCode::PackingApproximate,
+        index: SNAPSHOT_WIDE,
+    }]);
+    let noted = Snapshot::new(parts).expect("valid");
+    assert_eq!(bare.parts().nodes, noted.parts().nodes);
+    let (a, b) = (bare.to_bytes(), noted.to_bytes());
+    assert_ne!(a, b);
+    assert_ne!(sha256_hex(&a), sha256_hex(&b));
+}
+
 /// A grid snapshot of `n` nodes with node `moved`'s x shifted by `by`.
 fn grid_with(n: u32, moved: usize, by: f32) -> Snapshot {
     let mut parts: SnapshotParts = pipeline(3, n, "grid").expect("runs").snapshot.into_parts();
@@ -82,6 +118,11 @@ fn the_hand_oracle_catches_a_moved_node_and_a_foreign_kind() {
 fn the_sweep_records_nothing_wrong_and_refuses_zero_seeds() {
     let found = sweep(12).expect("runs");
     assert!(found.faces.is_empty() && found.grid.is_empty(), "{found:?}");
+    assert!(found.pass(), "every notes case drawn: {:?}", found.notes);
+    assert!(
+        !sweep(4).expect("runs").pass(),
+        "four seeds cannot draw every case"
+    );
     assert!(sweep(0).expect_err("empty").starts_with("0 seeds"));
 }
 
@@ -101,7 +142,7 @@ fn snapshot_writes_the_faces_it_is_asked_for_and_nothing_else() {
         summary.starts_with("snapshot: seed 1, layout.grid, 50 nodes, "),
         "{summary}"
     );
-    assert!(summary.contains("Point/Line, format 0.2\n"), "{summary}");
+    assert!(summary.contains("Point/Line, format 0.3\n"), "{summary}");
     let want = pipeline(1, 50, "grid").expect("runs").snapshot;
     assert_eq!(std::fs::read(&bin).expect("bin"), want.to_bytes());
     assert_eq!(

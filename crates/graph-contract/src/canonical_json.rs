@@ -6,13 +6,19 @@
 //! arrays in snapshot order, one trailing newline. A float is written with Rust's `f32`
 //! `Display` — the shortest decimal that reads back as the same `f32`, never an exponent
 //! — and read back rounded straight to `f32`. An edge's endpoints are written as node
-//! **ids**, never positions: the dense index does not leave the binary face.
+//! **ids**, never positions: the dense **node** index does not leave the binary face.
+//! The one position the JSON face does carry is a note's `index` (format 0.3,
+//! `crate::notes`): an **edge position**, an index into `edges.id` (and so into every
+//! edge column), or for a snapshot-wide note the literal `4294967295` (`u32::MAX`).
+//! `notes` is written from 0.3 on, required from 0.3 on, and optional below (absent
+//! reads as no notes).
 //!
 //! [`to_json`] then [`from_json`] gives back the same snapshot, so binary → JSON →
 //! binary is byte-exact; `graph-cli roundtrip` proves it over the seed sweep.
 
 use crate::binary::Snapshot;
 use crate::geometry::{EdgeGeometry, EdgeGeometryKind, NodeGeometry, NodeGeometryKind, Paths};
+use crate::notes::carries_notes;
 use crate::snapshot::SnapshotError;
 use crate::version::{FormatVersion, NewerMajor, UNVERSIONED, check_readable};
 use core::fmt::{self, Write};
@@ -22,7 +28,7 @@ mod read;
 #[cfg(feature = "codegen")]
 pub mod schema;
 
-pub use parse::Value;
+pub use parse::{Value, parse};
 
 /// Why a JSON document was refused.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -105,12 +111,20 @@ pub fn to_json(snapshot: &Snapshot) -> String {
         ("major", p.version.major.to_string()),
         ("minor", p.version.minor.to_string()),
     ]);
-    let mut out = object(vec![
+    let mut members = vec![
         ("edges", edges),
         ("geometry", geometry),
         ("nodes", nodes),
         ("version", version),
-    ]);
+    ];
+    if carries_notes(p.version) {
+        let notes = [
+            ("code", u32s(&p.notes.code)),
+            ("index", u32s(&p.notes.index)),
+        ];
+        members.push(("notes", object(notes.into())));
+    }
+    let mut out = object(members);
     out.push('\n');
     out
 }

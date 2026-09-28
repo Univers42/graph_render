@@ -1,11 +1,13 @@
 //! From a parsed JSON value to a [`Snapshot`]: the shape of
-//! `docs/contract/snapshot-schema.json`, every member required except `version`, no
-//! member the shape does not name.
+//! `docs/contract/snapshot-schema.json`, every member required except `version`, and
+//! `notes` below format 0.3 (absent there means no notes); no member the shape does not
+//! name.
 
 use super::parse::Value;
 use super::{EDGE_KINDS, JsonError, NODE_KINDS, declared};
 use crate::binary::{Snapshot, SnapshotParts, StringTable};
 use crate::geometry::{EdgeGeometry, EdgeGeometryKind, NodeGeometry, NodeGeometryKind, Paths};
+use crate::notes::{Notes, carries_notes};
 use crate::version::FormatVersion;
 use std::collections::BTreeMap;
 
@@ -28,6 +30,7 @@ pub(super) fn snapshot(root: Value) -> Result<Snapshot, JsonError> {
     let node_geometry = node_geometry(geometry.object("nodes")?)?;
     let edge_geometry = edge_geometry(geometry.object("edges")?)?;
     geometry.finish()?;
+    let notes = notes(root.maybe("notes"), version)?;
     root.finish()?;
     Snapshot::new(SnapshotParts {
         version,
@@ -37,6 +40,7 @@ pub(super) fn snapshot(root: Value) -> Result<Snapshot, JsonError> {
         target,
         nodes: node_geometry,
         edges: edge_geometry,
+        notes,
     })
     .map_err(JsonError::Snapshot)
 }
@@ -194,6 +198,22 @@ fn version(value: Option<Value>) -> Result<FormatVersion, JsonError> {
     }))?;
     object.finish()?;
     Ok(found)
+}
+
+/// The notes columns: required from 0.3, absent below it read as none. Whether they are
+/// a valid, canonical set is [`Snapshot::new`]'s to say, as for the binary face.
+fn notes(value: Option<Value>, version: FormatVersion) -> Result<Notes, JsonError> {
+    let Some(value) = value else {
+        if carries_notes(version) {
+            return Err(shape("notes", "is missing"));
+        }
+        return Ok(Notes::default());
+    };
+    let mut object = Object::of(value, "notes".into())?;
+    let code = list(object.take("code")?, u32_of)?;
+    let index = list(object.take("index")?, u32_of)?;
+    object.finish()?;
+    Ok(Notes { code, index })
 }
 
 fn kind<K: Copy>(object: &mut Object, kinds: &[(K, &str)]) -> Result<K, JsonError> {

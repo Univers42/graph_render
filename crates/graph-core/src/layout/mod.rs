@@ -1,28 +1,42 @@
 //! LAYOUT (`prompt.md` §3): the pluggable seam, topology in, geometry out. Every layout
 //! is a [`crate::stage::Stage`] and is listed in [`crate::registry`]. Phase 2 has one,
-//! the grid; its job is to prove the pipeline, not to be interesting.
+//! the grid; its job is to prove the pipeline, not to be interesting. Phase 3 adds the
+//! tidy tree, treemap, circular and circle-packing layouts; [`hierarchy`] is the one
+//! repaired tree the tree layouts share.
 
+pub mod circle_packing;
+pub mod circular;
 pub mod grid;
+pub mod hierarchy;
+pub mod planarity;
+pub mod tidy_tree;
+pub mod treemap;
 
 use crate::index::Topology;
 use crate::stage::StageError;
 use graph_contract::binary::{Snapshot, SnapshotParts, StringTable};
 use graph_contract::geometry::{EdgeGeometry, NodeGeometry};
+use graph_contract::notes::{Note, Notes};
 use graph_contract::version::CURRENT_VERSION;
 
-/// What a layout stage produces: one geometry for the whole snapshot.
+/// What a layout stage produces: one geometry for the whole snapshot, and what it
+/// repaired or approximated on the way.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Geometry {
     /// Every node's geometry, in the topology's node order.
     pub nodes: NodeGeometry,
     /// Every edge's geometry, in the topology's edge order.
     pub edges: EdgeGeometry,
+    /// The stage's notes, in any order: [`snapshot`] sorts them.
+    pub notes: Vec<Note>,
 }
 
 /// The snapshot of `geometry` laid over `topology`: the topology's stable ids and edge
-/// endpoints in its own order, then the geometry. Refused when the geometry does not fit
-/// the topology or holds a non-finite value (D9).
-pub fn snapshot(topology: &Topology, geometry: Geometry) -> Result<Snapshot, StageError> {
+/// endpoints in its own order, then the geometry, then the notes sorted by
+/// `(code, index)` — the whole of a note, so the order is total and a repeat is two equal
+/// notes, which the snapshot refuses. Refused too when the geometry does not fit the
+/// topology or holds a non-finite value (D9).
+pub fn snapshot(topology: &Topology, mut geometry: Geometry) -> Result<Snapshot, StageError> {
     let node_ids = (0..topology.node_count()).map(|i| topology.node(i).id);
     let edge_ids = (0..topology.edge_count()).map(|e| topology.edge(e).id);
     let parts = SnapshotParts {
@@ -33,6 +47,10 @@ pub fn snapshot(topology: &Topology, geometry: Geometry) -> Result<Snapshot, Sta
         target: topology.edges().target.clone(),
         nodes: geometry.nodes,
         edges: geometry.edges,
+        notes: {
+            geometry.notes.sort();
+            Notes::of(&geometry.notes)
+        },
     };
     Snapshot::new(parts).map_err(StageError::Snapshot)
 }
@@ -42,6 +60,7 @@ mod tests {
     use super::*;
     use crate::index::index_model;
     use crate::records::build::{edge, node};
+    use graph_contract::notes::{NoteCode, Notes, SNAPSHOT_WIDE};
     use graph_contract::snapshot::SnapshotError;
 
     fn topology() -> Topology {
@@ -61,6 +80,7 @@ mod tests {
                 y: vec![1.0; n],
             },
             edges: EdgeGeometry::Line,
+            notes: Vec::new(),
         }
     }
 
@@ -73,6 +93,31 @@ mod tests {
         assert_eq!(p.edge_ids.iter().collect::<Vec<_>>(), ["e1", "e3"]);
         assert_eq!((&p.source[..], &p.target[..]), (&[1, 0][..], &[0, 0][..]));
         assert_eq!(p.nodes, points(2).nodes);
+    }
+
+    #[test]
+    fn a_stages_notes_reach_the_snapshot_sorted_and_a_repeat_is_refused() {
+        let note = |code, index| Note { code, index };
+        let mut geometry = points(2);
+        geometry.notes = vec![
+            note(NoteCode::PackingApproximate, SNAPSHOT_WIDE),
+            note(NoteCode::CycleEdgeDropped, 1),
+            note(NoteCode::ExtraParentDropped, 0),
+            note(NoteCode::CycleEdgeDropped, 0),
+        ];
+        let s = snapshot(&topology(), geometry.clone()).expect("fits");
+        let want = Notes {
+            code: vec![1, 1, 2, 3],
+            index: vec![0, 1, 0, SNAPSHOT_WIDE],
+        };
+        assert_eq!(s.parts().notes, want, "sorted by (code, index)");
+        geometry.notes.push(note(NoteCode::CycleEdgeDropped, 1));
+        let repeat = SnapshotError::NoteOrder { index: 2 };
+        assert_eq!(
+            snapshot(&topology(), geometry),
+            Err(StageError::Snapshot(repeat)),
+            "(code, index) is the whole note: a tie is a repeat, and refused"
+        );
     }
 
     #[test]

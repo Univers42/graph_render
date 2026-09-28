@@ -53,8 +53,7 @@ and the caller's input records are not counted. Re-measure with crates/graph-cor
         "O(n + m)",
         "builder exact (counting sort), no marker owed. Evidence gap: the oracle compares only \
 indexModel's merged adjacency, so the out/in split and the hierarchy CSR rest on unit tests and \
-the 4-way hash. Ponytail (orientation): child_of edges enter the hierarchy CSR source-first, i.e. \
-the child as parent (Topology::hierarchy); Phase 3 decides before reading it",
+the 4-way hash",
     ),
     (
         "topology.weights",

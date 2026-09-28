@@ -90,7 +90,7 @@ fn every_refusal_message_names_the_value_it_refused() {
                 known: CURRENT_VERSION,
             })
             .to_string(),
-            "format 7.1 is newer than this reader's 0.2",
+            "format 7.1 is newer than this reader's 0.3",
         ),
         (
             Geometry(TagError::Reserved(4)).to_string(),

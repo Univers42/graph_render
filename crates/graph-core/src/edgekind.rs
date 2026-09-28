@@ -12,8 +12,8 @@ pub enum EdgeKind {
     NoteOf = 2,
     /// Note → note link.
     NoteLink = 3,
-    /// Parent → child. The hierarchy CSR reads `source` as the parent, which is wrong
-    /// for `child_of` (see the Ponytail on `Topology::hierarchy`).
+    /// Parent and child. Which end is the parent is the edge's `child_first` flag
+    /// ([`child_first_from_type`]); `Topology::parent`/`child` read it.
     Hierarchy = 4,
 }
 
@@ -76,6 +76,16 @@ pub fn edge_kind_from_type(wire_type: Option<&str>) -> EdgeKind {
     EdgeKind::Relation
 }
 
+/// Whether a wire `type` names its **child first** — source the child, target the
+/// parent — which is `child_of` and nothing else: its lowercased text equal to
+/// `"child_of"`, exactly (user decision D-Q1, option c). `parent`, `parent_of` and every
+/// `*hierarchy*` type keep the source as the parent, and a type that merely contains
+/// `child_of` is not flipped. Kept apart from [`edge_kind_from_type`], whose result is
+/// the oracle's and stays so.
+pub fn child_first_from_type(wire_type: Option<&str>) -> bool {
+    wire_type.is_some_and(|t| t.to_lowercase() == "child_of")
+}
+
 #[cfg(test)]
 mod tests {
     use super::EdgeKind::*;
@@ -111,6 +121,28 @@ mod tests {
         for (wire, want) in cases {
             assert_eq!(edge_kind_from_type(wire), want, "{wire:?}");
         }
+    }
+
+    #[test]
+    fn only_an_exact_child_of_puts_the_child_first() {
+        for wire in ["child_of", "CHILD_OF", "Child_Of"] {
+            assert!(child_first_from_type(Some(wire)), "{wire}");
+            assert_eq!(edge_kind_from_type(Some(wire)), Hierarchy, "{wire}");
+        }
+        let parent_first = [
+            None,
+            Some(""),
+            Some("parent"),
+            Some("parent_of"),
+            Some("x_hierarchy_y"),
+            Some("child_of_hierarchy"),
+            Some("child-of"),
+        ];
+        for wire in parent_first {
+            assert!(!child_first_from_type(wire), "{wire:?}");
+        }
+        assert_eq!(edge_kind_from_type(Some("child-of")), Relation);
+        assert_eq!(edge_kind_from_type(Some("child_of_hierarchy")), Hierarchy);
     }
 
     #[test]

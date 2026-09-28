@@ -20,8 +20,9 @@ pub const fn gate_node_count(seed: u32) -> u32 {
     2 + seed % 600
 }
 
-/// The records of the `count`-node synthetic model, sources and edge kinds redrawn from
-/// `seed`, weights against `reference_degree`: the pipeline's input for one seed.
+/// The records of the `count`-node synthetic model, sources, edge kinds and hierarchy
+/// orientation redrawn from `seed`, weights against `reference_degree`: the pipeline's
+/// input for one seed.
 pub fn seeded_model(
     seed: u32,
     count: u32,
@@ -40,6 +41,7 @@ fn remix(seed: u32, nodes: &mut [NodeRecord], edges: &mut [EdgeRecord]) {
     }
     for edge in edges {
         edge.kind = EdgeKind::ALL[rnd.pick(EdgeKind::ALL.len())];
+        edge.child_first = edge.kind == EdgeKind::Hierarchy && rnd.pick(2) == 1;
     }
 }
 
@@ -88,7 +90,11 @@ fn encode_edge(t: &Topology, e: u32, out: &mut Vec<u8>) -> Result<(), StageError
     put_str(out, edge.id);
     put_u32(out, columns.source[e as usize]);
     put_u32(out, columns.target[e as usize]);
-    out.extend([edge.kind as u8, u8::from(edge.directed)]);
+    out.extend([
+        edge.kind as u8,
+        u8::from(edge.directed),
+        u8::from(edge.child_first),
+    ]);
     put_str(out, edge.label);
     put_opt(out, edge.record_id);
     put_f64(out, edge.strength, "strength")
@@ -178,6 +184,30 @@ mod tests {
             assert!(edges.iter().any(|e| e.kind == kind), "{kind:?}");
         }
         assert!(!topology.hierarchy().is_empty());
+        let hierarchy = || edges.iter().filter(|e| e.kind == EdgeKind::Hierarchy);
+        assert!(hierarchy().any(|e| e.child_first) && hierarchy().any(|e| !e.child_first));
+        assert!(
+            edges
+                .iter()
+                .all(|e| !e.child_first || e.kind == EdgeKind::Hierarchy)
+        );
+    }
+
+    #[test]
+    fn the_child_first_flag_reaches_the_bytes() {
+        let nodes = [node("a", ""), node("b", "")];
+        let mut parent_of = edge("h", "a", "b");
+        parent_of.kind = EdgeKind::Hierarchy;
+        let child_of = EdgeRecord {
+            child_first: true,
+            ..parent_of.clone()
+        };
+        let bytes = |e: EdgeRecord| {
+            let mut out = Vec::new();
+            encode(&index_model(&nodes, &[e]).expect("fits"), &mut out).expect("finite");
+            out
+        };
+        assert_ne!(bytes(parent_of), bytes(child_of));
     }
 
     #[test]

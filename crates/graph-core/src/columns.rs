@@ -118,6 +118,8 @@ pub struct EdgeColumns {
     pub directed: Vec<bool>,
     /// Backing row id.
     pub record_id: Vec<Option<Interned>>,
+    /// `source` is the child (`child_of`); read by `Topology::parent`/`child`.
+    pub child_first: Vec<bool>,
 }
 
 impl EdgeColumns {
@@ -132,6 +134,7 @@ impl EdgeColumns {
             strength: Vec::with_capacity(m),
             directed: Vec::with_capacity(m),
             record_id: Vec::with_capacity(m),
+            child_first: Vec::with_capacity(m),
         }
     }
 
@@ -139,7 +142,7 @@ impl EdgeColumns {
     pub fn byte_len(&self) -> usize {
         let m = self.id.len();
         m * (3 * size_of::<Interned>() + 2 * size_of::<u32>() + size_of::<EdgeKind>())
-            + m * (size_of::<f64>() + size_of::<bool>())
+            + m * (size_of::<f64>() + 2 * size_of::<bool>())
     }
 }
 
@@ -189,6 +192,7 @@ mod tests {
             e.strength.capacity(),
             e.directed.capacity(),
             e.record_id.capacity(),
+            e.child_first.capacity(),
         ];
         assert!(caps.iter().all(|&c| c >= 9), "{caps:?}");
     }
@@ -206,7 +210,8 @@ mod tests {
         assert_eq!(nodes.byte_len(), 24 + 1 + 16 + 1 + 8);
         let mut edges = EdgeColumns::with_capacity(4);
         edges.id.push(nodes.id[0]);
-        // 3 handles × 4 + source/target 2 × 4 + kind 1 + strength 8 + directed 1.
-        assert_eq!(edges.byte_len(), 12 + 8 + 1 + 8 + 1);
+        // 3 handles × 4 + source/target 2 × 4 + kind 1 + strength 8 + directed and
+        // child_first 2 × 1.
+        assert_eq!(edges.byte_len(), 12 + 8 + 1 + 8 + 2);
     }
 }

@@ -121,13 +121,25 @@ fn emit(path: &Path, bytes: &[u8]) -> Result<(), String> {
     written.map_err(|err| format!("writing {}: {err}", path.display()))
 }
 
-/// What the sweep found wrong, by check. Both empty is a pass.
+/// What the sweep found wrong, by check, and which notes cases it drew. Both lists
+/// empty and every notes case drawn is a pass.
 #[derive(Debug, Default)]
 struct Findings {
     /// Snapshots whose faces did not round-trip.
     faces: Vec<String>,
     /// Seeds whose grid is off its conventions.
     grid: Vec<String>,
+    /// Exercise snapshots per notes case (`exercise::count_notes_cases`).
+    notes: [u64; 5],
+}
+
+/// The notes cases, in `Findings::notes` order.
+const NOTES_CASES: [&str; 5] = ["0.2-labelled", "0.3 k=0", "code 1", "code 2", "code 3"];
+
+impl Findings {
+    fn pass(&self) -> bool {
+        self.faces.is_empty() && self.grid.is_empty() && self.notes.iter().all(|&c| c > 0)
+    }
 }
 
 /// `roundtrip --seeds N`.
@@ -140,12 +152,16 @@ pub fn roundtrip(seeds: u32) -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    let pass = found.faces.is_empty() && found.grid.is_empty();
+    let pass = found.pass();
     print_findings(seeds, &found);
     let grid = json!({ "cases": seeds, "declared": 0, "unexplained": found.grid.len() });
+    let notes: serde_json::Map<_, _> = (NOTES_CASES.iter().zip(found.notes))
+        .map(|(case, count)| ((*case).to_owned(), json!(count)))
+        .collect();
     let body = json!({
         "seeds": seeds, "pass": pass, "snapshots": 2 * u64::from(seeds),
-        "faces_failed": found.faces.len(), "functions": { "layout.grid": grid }
+        "faces_failed": found.faces.len(), "notes_cases": notes,
+        "functions": { "layout.grid": grid }
     });
     if let Err(err) = evidence::write(&stamp, "roundtrip", body) {
         eprintln!("roundtrip: not recorded: {err}");
@@ -162,7 +178,9 @@ fn sweep(seeds: u32) -> Result<Findings, String> {
     let mut found = Findings::default();
     for seed in 0..seeds {
         let grid = pipeline(seed, gate_node_count(seed), "grid")?.snapshot;
-        for (what, snapshot) in [("grid", &grid), ("exercise", &exercise::snapshot(seed)?)] {
+        let exercise = exercise::snapshot(seed)?;
+        exercise::count_notes_cases(&exercise, &mut found.notes);
+        for (what, snapshot) in [("grid", &grid), ("exercise", &exercise)] {
             if let Err(why) = faces_agree(snapshot) {
                 found.faces.push(format!("seed {seed} {what}: {why}"));
             }
@@ -181,6 +199,12 @@ fn print_findings(seeds: u32, found: &Findings) {
     println!("  binary <-> JSON byte-exact on {faces_ok}/{snapshots} snapshots");
     let grid_ok = u64::from(seeds) - found.grid.len() as u64;
     println!("  layout.grid on its stated conventions on {grid_ok}/{seeds} seeds");
+    let cases = NOTES_CASES.iter().zip(found.notes);
+    let drawn: Vec<String> = cases.map(|(case, n)| format!("{case} {n}")).collect();
+    println!(
+        "  notes cases drawn (exercise, each needed): {}",
+        drawn.join(", ")
+    );
     for line in found.faces.iter().chain(&found.grid).take(6) {
         println!("  FAILED {line}");
     }

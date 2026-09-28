@@ -6,6 +6,7 @@ use super::{Snapshot, SnapshotParts, StringTable, padding};
 use crate::geometry::{
     EdgeGeometry, EdgeGeometryKind, NodeGeometry, NodeGeometryKind, Paths, index_u32,
 };
+use crate::notes::{Notes, carries_notes};
 use crate::snapshot::{HEADER_LEN, SnapshotError, SnapshotHeader};
 
 pub(super) fn decode(bytes: &[u8]) -> Result<Snapshot, SnapshotError> {
@@ -18,6 +19,11 @@ pub(super) fn decode(bytes: &[u8]) -> Result<Snapshot, SnapshotError> {
     let target = r.u32s("edge.target", u64::from(m))?;
     let nodes = r.nodes(header.node_kind, n)?;
     let edges = r.edges(header.edge_kind, m)?;
+    let notes = if carries_notes(header.version) {
+        r.notes()?
+    } else {
+        Notes::default()
+    };
     if !r.0.is_empty() {
         let count = u64::try_from(r.0.len()).unwrap_or(u64::MAX);
         return Err(SnapshotError::TrailingBytes { count });
@@ -30,6 +36,7 @@ pub(super) fn decode(bytes: &[u8]) -> Result<Snapshot, SnapshotError> {
         target,
         nodes,
         edges,
+        notes,
     })
 }
 
@@ -117,6 +124,15 @@ impl<'a> Reader<'a> {
                 EdgeGeometry::Curve { degree, paths }
             }
         })
+    }
+
+    /// `k`, then `k` codes, then `k` indices; whether they are a valid, canonical set is
+    /// [`Snapshot::new`]'s to say.
+    fn notes(&mut self) -> Result<Notes, SnapshotError> {
+        let k = u64::from(self.u32s("note.count", 1)?[0]);
+        let code = self.u32s("note.code", k)?;
+        let index = self.u32s("note.index", k)?;
+        Ok(Notes { code, index })
     }
 
     /// The offsets, then as many coordinates as the last offset calls for; whether the

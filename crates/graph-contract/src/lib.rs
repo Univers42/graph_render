@@ -10,6 +10,7 @@
 pub mod binary;
 pub mod canonical_json;
 pub mod geometry;
+pub mod notes;
 pub mod snapshot;
 pub mod version;
 

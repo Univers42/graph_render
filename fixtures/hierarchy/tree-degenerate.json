@@ -1,0 +1,22 @@
+{
+  "about": "A degenerate tree: an 8-node chain n0 > n1 > ... > n7, every edge child_of (source the child), nodes listed deepest first so the root n0 has the highest dense index. Weights include 0 and a negative value. Nothing to repair: no notes.",
+  "nodes": [
+    { "id": "n7", "weight": 5 },
+    { "id": "n6", "weight": 1 },
+    { "id": "n5", "weight": 0.25 },
+    { "id": "n4", "weight": 2 },
+    { "id": "n3", "weight": 1 },
+    { "id": "n2", "weight": -1 },
+    { "id": "n1", "weight": 0 },
+    { "id": "n0", "weight": 3 }
+  ],
+  "edges": [
+    { "id": "n1-n0", "source": "n1", "target": "n0", "type": "child_of" },
+    { "id": "n2-n1", "source": "n2", "target": "n1", "type": "child_of" },
+    { "id": "n3-n2", "source": "n3", "target": "n2", "type": "child_of" },
+    { "id": "n4-n3", "source": "n4", "target": "n3", "type": "child_of" },
+    { "id": "n5-n4", "source": "n5", "target": "n4", "type": "child_of" },
+    { "id": "n6-n5", "source": "n6", "target": "n5", "type": "child_of" },
+    { "id": "n7-n6", "source": "n7", "target": "n6", "type": "child_of" }
+  ]
+}
