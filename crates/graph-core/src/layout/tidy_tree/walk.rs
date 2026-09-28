@@ -6,6 +6,8 @@
 
 use crate::layout::hierarchy::Hierarchy;
 
+mod contour;
+
 /// Every per-node field `firstWalk`/`apportion`/`secondWalk` read or wrote, indexed by
 /// dense id (`0..=n`, row `n` the virtual root's when there is one). Field names match
 /// `TreeNode` in `tree.js` (`z` prelim, `m` mod, `c` change, `s` shift, `t` thread).
@@ -152,59 +154,6 @@ impl<'h> Walk<'h> {
             let updated = self.apportion(v, w, default);
             self.st.big_a[p as usize] = Some(updated);
         }
-    }
-
-    /// `apportion(v, w, ancestor)`: the contour walk that threads and shifts subtrees so
-    /// `v` clears its left sibling `w`.
-    fn apportion(&mut self, v: u32, w: Option<u32>, ancestor: u32) -> u32 {
-        let Some(w) = w else { return ancestor };
-        let parent = self.parent_of(v).expect("w is Some only for a non-root");
-        let (mut vim, mut vip) = (Some(w), Some(v));
-        let mut vom = self.h.children(parent)[0];
-        let mut vop = v;
-        let (mut sip, mut sop) = (self.st.m[v as usize], self.st.m[v as usize]);
-        let (mut sim, mut som) = (self.st.m[w as usize], self.st.m[vom as usize]);
-        let mut ancestor = ancestor;
-        loop {
-            vim = vim.and_then(|x| self.next_right(x));
-            vip = vip.and_then(|x| self.next_left(x));
-            let (Some(a), Some(b)) = (vim, vip) else {
-                break;
-            };
-            vom = self
-                .next_left(vom)
-                .expect("the outside contour reaches as far");
-            vop = self
-                .next_right(vop)
-                .expect("the outside contour reaches as far");
-            self.st.anc[vop as usize] = v;
-            let shift =
-                self.st.z[a as usize] + sim - self.st.z[b as usize] - sip + self.separation(a, b);
-            if shift > 0.0 {
-                let wm = self.next_ancestor(a, v, ancestor);
-                self.move_subtree(wm, v, shift);
-                sip += shift;
-                sop += shift;
-            }
-            sim += self.st.m[a as usize];
-            sip += self.st.m[b as usize];
-            som += self.st.m[vom as usize];
-            sop += self.st.m[vop as usize];
-        }
-        if let Some(a) = vim
-            && self.next_right(vop).is_none()
-        {
-            self.st.thread[vop as usize] = Some(a);
-            self.st.m[vop as usize] += sim - sop;
-        }
-        if let Some(b) = vip
-            && self.next_left(vom).is_none()
-        {
-            self.st.thread[vom as usize] = Some(b);
-            self.st.m[vom as usize] += sip - som;
-            ancestor = v;
-        }
-        ancestor
     }
 
     /// `nextAncestor(vim, v, ancestor)`.
