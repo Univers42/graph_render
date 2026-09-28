@@ -1,3 +1,5 @@
+> **Status (2026-09-28):** BUILT on branch p5 (4b5ad8a) — module + fixtures + crossings measured (5242 vs dagre 7657, pass); needs registration, oracle arm, schema regen, mutants, report. See docs/reports/STATUS.md.
+
 # Phase 5 — Sugiyama layered DAG
 
 **Read `prompt.md` and `prompts/REFERENCES.md` first.** Phase 4's gate must be green.

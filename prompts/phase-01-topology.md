@@ -1,3 +1,5 @@
+> **Status (2026-09-28):** DONE — merged into develop (report docs/reports/phase-01.md). See docs/reports/STATUS.md.
+
 # Phase 1 — Topology core, and the 17 oracle functions
 
 **Read `prompt.md` first.** Rules 0.1–0.7 apply. Phase 0's gate must be green, **including its negative
