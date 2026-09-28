@@ -22,7 +22,7 @@ pub(super) fn lay_out_packing(
     let map = half_edge_map(triangles);
     let mut walk = Walk::new(n);
     let [a0, b0, c0] = triangles[0];
-    seed_triangle(&mut walk, radii, a0, b0, c0);
+    seed_triangle(&mut walk, radii, triangles[0]);
     let mut queue = VecDeque::from([(b0, a0), (c0, b0), (a0, c0)]);
     let mut done: IndexSet<(u32, u32)> = IndexSet::new();
     while let Some((a, b)) = queue.pop_front() {
@@ -46,7 +46,7 @@ pub(super) fn lay_out_packing(
 /// The opening triangle's three centres (`circle_packing.py:189-196`): `a0` at the
 /// origin, `b0` tangent along the positive x axis, `c0` at the exact angle the three
 /// radii dictate.
-fn seed_triangle(walk: &mut Walk, radii: &[f64], a0: u32, b0: u32, c0: u32) {
+fn seed_triangle(walk: &mut Walk, radii: &[f64], [a0, b0, c0]: [u32; 3]) {
     walk.set(a0, (0.0, 0.0));
     walk.set(b0, (radii[a0 as usize] + radii[b0 as usize], 0.0));
     let angle = packing_angle(radii[a0 as usize], radii[b0 as usize], radii[c0 as usize]);
