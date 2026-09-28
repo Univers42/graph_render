@@ -1,3 +1,5 @@
+> **Status (2026-09-28):** DONE — merged into develop. See docs/reports/STATUS.md.
+
 # Phase 0 — Foundation: toolchain, contract skeleton, and an instrument that can fail
 
 **Read `prompt.md` first.** Rules 0.1–0.7 apply. This file adds only what is specific to Phase 0.

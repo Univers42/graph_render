@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# gr [-e K=V]... <cmd...> — run <cmd> in the ge-rust image (or $GR_IMAGE) with the current git
+# top-level mounted at /w and the cargo registry in a named volume. Docker-only toolchain (rule 0.2).
+set -euo pipefail
+top=$(git rev-parse --show-toplevel)
+envs=()
+while [[ ${1-} == -e ]]; do envs+=(-e "$2"); shift 2; done
+exec docker run --rm ${envs[@]+"${envs[@]}"} -v "$top:/w" -w /w \
+  -v ge-cargo-registry:/opt/cargo/registry "${GR_IMAGE:-ge-rust}" "$@"

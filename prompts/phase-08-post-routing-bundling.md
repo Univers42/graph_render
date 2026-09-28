@@ -1,3 +1,5 @@
+> **Status (2026-09-28):** NOT STARTED. See docs/reports/STATUS.md.
+
 # Phase 8 — The POST stage: edge styles, routing, bundling
 
 **Read `prompt.md` and `prompts/REFERENCES.md` first.** Phase 7's gate must be green.

@@ -26,3 +26,6 @@
 - Stay inside each phase's authorization envelope; report every deviation.
 - Never print secret values.
 - Do not modify the `graph_render/.claude` submodule.
+
+## Reference
+- The TypeScript oracle engine (commands, architecture): `docs/oracle-engine.md`. Agent brief: `prompts/AGENT_BRIEF.md`.

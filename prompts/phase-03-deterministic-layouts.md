@@ -1,3 +1,5 @@
+> **Status (2026-09-28):** IN CLOSE-OUT on branch p3 — built + integrated, gate green at 0b9fa62; develop merged in, review done, mutants + phase-03.md pending, then merge. See docs/reports/STATUS.md.
+
 # Phase 3 — The deterministic one-shot layouts
 
 **Read `prompt.md` and `prompts/REFERENCES.md` first.** Phase 2's gate must be green.
