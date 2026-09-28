@@ -212,6 +212,14 @@ the fixed header, whose faults report the exact byte offset above.
 | `NonZeroPadding(v)` | the byte | 15 |
 | `ReservedStageCount(n)` | the `u32` | 16..20 |
 
+The table above is ordered by byte offset, not by check order: a header wrong in more
+than one way reports whichever fault `decode` reaches first, which is `Truncated`,
+`BadMagic`, `UnsupportedMajor`, the reserved z-channel (byte 14), the padding byte
+(byte 15), the node tag (byte 12), the edge tag (byte 13), then `ReservedStageCount` —
+so a reserved z-channel or nonzero padding is reported ahead of a bad geometry tag even
+though the tag bytes sit earlier in the layout (`snapshot.rs`'s `decode`, pinned by
+`reserved_fields_are_checked_before_the_geometry_tag`).
+
 ### Body (`SnapshotError`, `snapshot/error.rs:13-113`)
 
 | variant | example columns | position reported |

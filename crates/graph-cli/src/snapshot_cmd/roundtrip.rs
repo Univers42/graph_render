@@ -123,23 +123,39 @@ fn sweep(seeds: u32) -> Result<Findings, String> {
 }
 
 fn print_findings(seeds: u32, found: &Findings) {
+    let mut text = String::new();
+    write_findings(&mut text, seeds, found);
+    print!("{text}");
+}
+
+/// `print_findings`'s text, built in memory so the counts it reports can be checked.
+fn write_findings(out: &mut String, seeds: u32, found: &Findings) {
+    use std::fmt::Write as _;
     let snapshots = u64::from(seeds) * (1 + registry::LAYOUTS.len() as u64);
-    println!(
+    let _ = writeln!(
+        out,
         "roundtrip: seeds={seeds} snapshots={snapshots} (every registered layout + contract exercise)"
     );
     let faces_ok = snapshots - found.faces.len() as u64;
-    println!("  binary <-> JSON byte-exact on {faces_ok}/{snapshots} snapshots");
+    let _ = writeln!(
+        out,
+        "  binary <-> JSON byte-exact on {faces_ok}/{snapshots} snapshots"
+    );
     for (name, findings) in [
         ("layout.grid", &found.grid),
         ("layout.circular.radial", &found.circular),
         ("layout.packing.circle", &found.packing),
     ] {
         let ok = u64::from(seeds) - findings.len() as u64;
-        println!("  {name} on its stated conventions on {ok}/{seeds} seeds");
+        let _ = writeln!(
+            out,
+            "  {name} on its stated conventions on {ok}/{seeds} seeds"
+        );
     }
     let cases = NOTES_CASES.iter().zip(found.notes);
     let drawn: Vec<String> = cases.map(|(case, n)| format!("{case} {n}")).collect();
-    println!(
+    let _ = writeln!(
+        out,
         "  notes cases drawn (exercise, each needed): {}",
         drawn.join(", ")
     );
@@ -150,13 +166,75 @@ fn print_findings(seeds: u32, found: &Findings) {
         .chain(&found.circular)
         .chain(&found.packing);
     for line in all_failures.take(6) {
-        println!("  FAILED {line}");
+        let _ = writeln!(out, "  FAILED {line}");
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::sweep;
+    use super::{Findings, sweep, write_findings};
+
+    #[test]
+    fn overall_pass_requires_every_check_clean_and_every_notes_case_drawn() {
+        assert!(!Findings::default().pass(), "no notes case drawn yet");
+        let all_drawn = Findings {
+            notes: [1; 5],
+            ..Findings::default()
+        };
+        assert!(all_drawn.pass());
+        for bad in [
+            Findings {
+                faces: vec!["x".into()],
+                notes: [1; 5],
+                ..Findings::default()
+            },
+            Findings {
+                grid: vec!["x".into()],
+                notes: [1; 5],
+                ..Findings::default()
+            },
+            Findings {
+                circular: vec!["x".into()],
+                notes: [1; 5],
+                ..Findings::default()
+            },
+            Findings {
+                packing: vec!["x".into()],
+                notes: [1; 5],
+                ..Findings::default()
+            },
+        ] {
+            assert!(!bad.pass(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn print_findings_subtracts_failures_from_the_total_not_adds() {
+        let found = Findings {
+            faces: vec!["a".into(), "b".into()],
+            grid: vec!["c".into()],
+            notes: [1; 5],
+            ..Findings::default()
+        };
+        let mut text = String::new();
+        write_findings(&mut text, 5, &found);
+        let snapshots = 5 * (1 + super::registry::LAYOUTS.len());
+        assert!(
+            text.contains(&format!(
+                "byte-exact on {}/{snapshots} snapshots",
+                snapshots - 2
+            )),
+            "{text}"
+        );
+        assert!(
+            text.contains("layout.grid on its stated conventions on 4/5 seeds"),
+            "{text}"
+        );
+        assert!(
+            text.contains("layout.circular.radial on its stated conventions on 5/5 seeds"),
+            "{text}"
+        );
+    }
 
     #[test]
     fn the_sweep_records_nothing_wrong_and_refuses_zero_seeds() {

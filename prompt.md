@@ -335,7 +335,8 @@ would produce a number that could not move whatever we built.
 ## 6. Determinism — the engineering behind "bit-identical"
 
 WASM mandates IEEE-754 for `+ - * / sqrt` and native x86-64 SSE2 matches, so basic arithmetic is
-bit-identical for free. Nine things break it. All nine are constraints on our code.
+bit-identical for free. Ten things break it (D10 added by `docs/decisions/compute-tiers.md`). All ten are
+constraints on our code.
 
 | # | Constraint | What breaks without it |
 |---|---|---|
@@ -348,6 +349,7 @@ bit-identical for free. Nine things break it. All nine are constraints on our co
 | D7 | Output hash is an explicit algorithm (BLAKE3 or SHA-256), never `DefaultHasher` | not stable across versions or platforms |
 | D8 | No wall-clock in the motor — tick counts only; time is an input | — |
 | D9 | Assert no NaN/Inf before hashing | WASM does not mandate NaN bit patterns |
+| D10 | **Per-step kernels are gathers**: element `i` reads only start-of-step state and writes only `out[i]`, summing its terms in a fixed order; no scatter into another element's accumulator. SIMD vectorises across outputs, never across one sum; no `relaxed-simd`, no FTZ/DAZ | without it the SIMD, threaded and GPU tiers (Phase 11) either race or reorder sums, so they cannot be bit-identical to scalar — and retrofitting gather form later is a redesign |
 
 D6 and D7 fail *silently and only across targets* — the worst failure mode available.
 
@@ -530,6 +532,7 @@ gate is not green.
 | 8 | `prompts/phase-08-post-routing-bundling.md` | edge styles, FDEB, MINGLE, obstacle-avoiding grid routing |
 | 9 | `prompts/phase-09-scale-bench.md` | LOD, simplification, adaptive budgets, the 10k/100k/1M benchmarks |
 | 10 | `prompts/phase-10-ingest-sdk-publish.md` | role-based ingest contract, two adapters, published SDK surface |
+| 11 | `prompts/phase-11-compute-tiers.md` | compute tiers after the numbers: SIMD, then threads (bit-identical, N-way hash gate), then a GPU tier **only** if Phase 9 proves it necessary, under its own per-device id. ADR: `docs/decisions/compute-tiers.md` |
 
 **Value lands at Phase 4, not Phase 10.** Phases 0–4 produce a genuinely reusable motor with a working
 SDK and five layouts. 5–10 broaden the catalogue. The ordering deliberately puts *deterministic one-shot*
@@ -540,8 +543,9 @@ That is the reverse of the obvious order, which is why it is written down.
 
 The 8 Graphviz engines · igraph DrL/LGL/Graphopt/Davidson-Harel · SBEB bundling · 3D and the 3D-only
 geometric layouts · `graph-server` (axum/HTTP) · the mutation/write path · a declarative mapping DSL ·
-`SharedArrayBuffer` (needs COOP/COEP, touches the Vercel config, can break embeds) · **any change to
-osionos**.
+`SharedArrayBuffer` (needs COOP/COEP, touches the Vercel config, can break embeds — Phase 11 brings it back
+as stop-and-ask 1, with measurements) · a GPU tier that is not bit-identical (Phase 11 stop-and-ask 2) ·
+**any change to osionos**.
 
 ---
 
