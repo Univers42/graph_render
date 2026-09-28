@@ -94,6 +94,16 @@ a new `sugiyama` module nor `package.json`/`package-lock.json`), so it is left a
 recorded here as a gap for whichever phase next touches schema generation, rather than
 opportunistically patched.
 
+A second file has the identical gap: `docs/decisions/snapshot-notes.md` (the Phase-3 ADR
+for the notes section) still documents codes 4-6 as a block of "reserved, not `NoteCode`
+variants" (its lines on "4 (reserved) dag.dummy_budget_exceeded", "5 (reserved)
+dag.edge_reversed", "The reserved codes 4-6 are not `NoteCode` variants, so no writer can
+emit one", and "every code is 1-3 (4-6 are refused as `Reserved`...)"), which is now
+false for codes 4 and 5. It is also out of this phase's envelope (not one of the four
+`docs/decisions/sugiyama-heuristics.md` / `docs/measurements/phase05-crossings.md` /
+fixture / `sugiyama/*.rs` files this phase may create or modify), so it is named here,
+not edited, for whichever phase next touches note-code docs.
+
 ### Note codes 4 and 5 activated here, as pre-authorized
 
 `dag.dummy_budget_exceeded` (4) and `dag.edge_reversed` (5) were reserved codes in
