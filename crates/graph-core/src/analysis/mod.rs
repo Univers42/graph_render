@@ -1,11 +1,14 @@
 //! ANALYSIS stage (`prompts/phase-07-analysis.md`): components, shortest paths,
-//! centrality, community detection — all pure functions over the existing
-//! [`crate::index::Topology`], no new graph representation, no I/O, no wall-clock (D9).
+//! centrality, community detection, hierarchy depth — all pure functions over the
+//! existing [`crate::index::Topology`], no new graph representation, no I/O, no
+//! wall-clock (D9).
 //!
-//! `depth` (hierarchy-derived depth) is **not** registered here: it needs p3's
-//! `hierarchy.rs`, which is not on this branch's base. A recorded deviation
-//! (`docs/measurements/phase07-analysis.md`), not an improvisation — `analysis.depth`
-//! stays absent from the capability ledger until the merge step.
+//! [`depth`] is the odd one out: p3's `layout/hierarchy.rs` is not on this branch's
+//! base, so depth reads the root/forest convention through its own [`depth::Roots`]
+//! trait rather than re-deriving it — re-deriving would be the second convention step 6
+//! forbids. `impl depth::Roots for Hierarchy {}` is the whole of the re-point at merge
+//! time. A recorded deviation (`docs/measurements/phase07-analysis.md`), not an
+//! improvisation — `analysis.depth` stays absent from the capability ledger until then.
 //!
 //! Exposing these results in the snapshot/JSON/SDK, and folding them into the 4-way
 //! hashgate as their own stage, is deferred to the merge step (`graph-wasm` and the
@@ -17,12 +20,66 @@
 pub mod centrality;
 pub mod communities;
 pub mod components;
+pub mod depth;
 pub mod paths;
 
 #[cfg(test)]
 mod determinism {
-    use crate::index::index_model;
+    use crate::analysis::depth::{self, Roots};
+    use crate::index::{Topology, index_model};
     use crate::records::build::{edge, node};
+
+    /// The hierarchy CSR read as it stands — **no repair**. Enough to give `depth` a
+    /// [`Roots`] here, where the only property under test is that two runs agree; the
+    /// depth convention itself is pinned in `analysis/depth/tests.rs`, and the repaired
+    /// forest is p3's `Hierarchy` at the merge step.
+    struct AsIs {
+        topology: Topology,
+        children: Vec<Vec<u32>>,
+        roots: Vec<u32>,
+    }
+
+    impl AsIs {
+        /// A node with no hierarchy edge leaving it is a root, ascending.
+        fn of(topology: &Topology) -> Self {
+            let children: Vec<Vec<u32>> = (0..topology.node_count())
+                .map(|v| {
+                    topology
+                        .hierarchy()
+                        .row(v)
+                        .iter()
+                        .map(|&e| topology.edges().target[e as usize])
+                        .collect()
+                })
+                .collect();
+            let roots = (0..topology.node_count())
+                .filter(|&v| children[v as usize].is_empty())
+                .collect();
+            Self {
+                topology: topology.clone(),
+                children,
+                roots,
+            }
+        }
+    }
+
+    impl Roots for AsIs {
+        fn node_count(&self) -> u32 {
+            self.topology.node_count()
+        }
+
+        fn roots(&self) -> &[u32] {
+            &self.roots
+        }
+
+        fn virtual_root(&self) -> Option<u32> {
+            (self.roots.len() >= 2).then_some(self.topology.node_count())
+        }
+
+        fn children(&self, v: u32) -> &[u32] {
+            &self.children[v as usize]
+        }
+    }
 
     /// Every analysis function, run twice over the same input, must agree bit for bit —
     /// the in-target half of the property the hashgate checks across targets. This
@@ -64,6 +121,16 @@ mod determinism {
         assert_eq!(
             super::communities::louvain(&t),
             super::communities::louvain(&t)
+        );
+        let forest = AsIs::of(&t);
+        assert_eq!(
+            depth::bfs_depth(&forest),
+            depth::bfs_depth(&forest),
+            "depth reads the forest, not a hash order"
+        );
+        assert_eq!(
+            depth::depth_from(&forest, &[0]),
+            depth::depth_from(&forest, &[0])
         );
     }
 }

@@ -135,8 +135,10 @@ docker run --rm -v "$PWD:/w" ge-rust cargo test -p graph-core negative_cycle_det
 docker run --rm -v "$PWD:/w" ge-rust cargo test -p graph-core analysis_determinism              # 0
 
 # only petgraph was added
+# (`graph-contract` is in the regex because it is graph-core's own workspace path
+#  dependency, present since Phase 0 — without it this row fails on the pristine base)
 docker run --rm -v "$PWD:/w" ge-rust sh -c \
-  'cargo tree -p graph-core --depth 1 | tail -n +2 | grep -vE "libm|indexmap|petgraph" | grep . && exit 1 || exit 0'  # 0
+  'cargo tree -p graph-core --depth 1 | tail -n +2 | grep -vE "libm|indexmap|petgraph|graph-contract" | grep . && exit 1 || exit 0'  # 0
 
 docker run --rm -v "$PWD:/w" ge-rust cargo run -p graph-cli -- capabilities --check             # 0
 docker run --rm -v "$PWD:/w" -w /w node:22-slim node harness/sdk-smoke.mjs                      # 0

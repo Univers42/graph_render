@@ -130,6 +130,38 @@ regression caused by adding petgraph, it is the same command failing the same wa
 or without this phase's changes. Reported honestly rather than silently patched (the
 gate script itself is outside this phase's file envelope) or its failure hidden.
 
+**Fixed since, as a prompt-row bug.** The row lives in
+`prompts/phase-07-analysis.md` — a prompt file, not a source file, so the edit is a
+**deviation** from this phase's envelope and is recorded as one. One token added:
+
+```sh
+cargo tree -p graph-core --depth 1 | tail -n +2 | grep -vE "libm|indexmap|petgraph|graph-contract" | grep . && exit 1 || exit 0
+```
+
+`graph-contract` is `graph-core`'s own workspace path dependency, present since Phase 0
+and dependency-free by construction, so admitting it to the allow-list admits no
+third-party code. The row is not weakened: the negative control still bites — feeding
+the filter a non-allow-listed line (`├── serde v1.0.0`) leaves it in the residual and
+the row fails.
+
+**`analysis.depth` is now delivered** (`crates/graph-core/src/analysis/depth.rs` plus
+`analysis/depth/tests.rs`, 13 tests, RED observed as 13 failures before the
+implementation and two assertion failures after it — both of which caught a real defect
+in the first draft, not a stale expectation). p3's `layout/hierarchy.rs` is still not on
+this base, so depth owns **no** root/forest logic: it reads the convention through a
+four-method `Roots` trait whose methods are p3's `Hierarchy` accessors verbatim
+(`node_count`, `roots`, `virtual_root`, `children`), and the re-point at merge time is
+`impl Roots for Hierarchy {}` plus `bfs_depth(&Hierarchy::of(&t)?)`. Re-deriving roots
+inside depth would be the second convention step 6 forbids, and it would be a *silent*
+one — the two would disagree on exactly the inputs where p3's repair records a note.
+
+One deliberate divergence from p3, documented in the module: p3's `Hierarchy::depth`
+leaves an unreachable node at 0, which is safe there because its column is only read on
+a repaired tree where nothing is unreachable. `Depth` is an analysis result a frontend
+may colour by, so an unreachable node is `UNREACHED = u32::MAX` rather than 0 — 0 would
+render an orphan as a root. `analysis.depth` still stays out of the capability ledger
+until the merge supplies the `Topology` entry point.
+
 ## 5. `capabilities --check` — real exit code, and why it is not 0
 
 Required gate row `capabilities --check` (expect 0) exits **1** in this worktree, with
