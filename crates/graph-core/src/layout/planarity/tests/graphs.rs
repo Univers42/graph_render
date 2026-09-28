@@ -80,6 +80,43 @@ pub(super) fn outerplanar_fan(n: u32) -> Vec<(u32, u32)> {
     edges
 }
 
+/// Three internally disjoint paths from node `0` to node `6`, of lengths 4, 2 and 2
+/// (7 nodes, 8 edges). Its three faces have lengths `4 + 2`, `2 + 2` and `2 + 4`, so the
+/// two six-node faces **tie for longest** and are different cycles — the one case in
+/// this file where "leave the largest face alone" is a real choice between two
+/// candidates rather than a formality.
+pub(super) fn tied_longest_faces() -> (u32, Vec<(u32, u32)>) {
+    let edges = [
+        (0, 1),
+        (1, 2),
+        (2, 3),
+        (3, 6), // the length-4 path
+        (0, 4),
+        (4, 6), // the first length-2 path
+        (0, 5),
+        (5, 6), // the second length-2 path
+    ];
+    (7, edges.to_vec())
+}
+
+/// The suspension of a path: nodes `0..span` form a path, and nodes `span` and
+/// `span + 1` are two **independent** apexes, each joined to every path node and not to
+/// each other. Planar by construction — draw the path along a line, one apex above it and
+/// one below.
+///
+/// It is the smallest family that reaches the part of the LR test where a whole conflict
+/// pair is dropped off the stack and its left interval's lowest return edge is marked
+/// side `-1` (`remove_back_edges`). A path, a star, a cycle, a fan, a grid, a wheel and an
+/// Apollonian network all leave that first `while` loop unentered, so nothing else in the
+/// suite says what happens *after* it.
+pub(super) fn apexed_path(span: u32) -> (u32, Vec<(u32, u32)>) {
+    let mut edges: Vec<(u32, u32)> = path(span);
+    for apex in [span, span + 1] {
+        edges.extend((0..span).map(|v| (v, apex)));
+    }
+    (span + 2, edges)
+}
+
 /// A random maximal planar graph (an Apollonian network): start from a triangle, then
 /// `n - 3` times split a uniformly chosen existing triangular face by stacking the next
 /// node inside it and joining it to the face's three corners — `3n - 6` edges, every

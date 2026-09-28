@@ -162,8 +162,9 @@ impl<'a> Lr<'a> {
 
 /// A graph denser than the maximum a simple planar graph can have (`m > 3n - 6` for
 /// `n > 2`) is rejected without running the test — a cheap, exact necessary condition,
-/// not a heuristic.
-fn too_dense(n: u32, m: u32) -> bool {
+/// not a heuristic. `pub(super)` so the negative tests can assert on the mechanism
+/// itself rather than only on the `None` that follows from it.
+pub(super) fn too_dense(n: u32, m: u32) -> bool {
     n > 2 && u64::from(m) > 3 * u64::from(n) - 6
 }
 
@@ -223,6 +224,30 @@ mod tests {
         assert!(full.conflicts_with(0, &lowpt)); // lowpt[2]=9 > lowpt[0]=5
         assert!(!full.conflicts_with(2, &lowpt)); // lowpt[2]=9 > lowpt[2]=9 is false
         assert!(!Interval::default().conflicts_with(0, &lowpt));
+    }
+
+    /// `is_empty` means "this interval holds no return edge at all", not "both of its
+    /// ends happen to be cleared". The two ends are written independently —
+    /// `trim_interval` walks `high` down the reference chain while `low` stays put, and
+    /// `merge_lower_conflicts` assigns `p.left.low` on its own — so a half-set interval
+    /// is a real intermediate state, and while any end is still set there is a return
+    /// edge to rank. `conflicts_with` depends on this: it goes on to read `high`, so an
+    /// interval with only `low` set must be treated as holding an edge rather than as
+    /// vacuously non-conflicting.
+    #[test]
+    fn is_empty_means_no_return_edge_at_all_not_both_ends_cleared() {
+        let high_only = Interval {
+            low: None,
+            high: Some(0),
+        };
+        let low_only = Interval {
+            low: Some(0),
+            high: None,
+        };
+        assert!(Interval::default().is_empty(), "neither end set");
+        assert!(!Interval::edge(0).is_empty(), "both ends set");
+        assert!(!high_only.is_empty(), "high alone is still a return edge");
+        assert!(!low_only.is_empty(), "low alone is still a return edge");
     }
 
     #[test]

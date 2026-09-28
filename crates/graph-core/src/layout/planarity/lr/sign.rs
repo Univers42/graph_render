@@ -121,4 +121,60 @@ mod tests {
         assert_eq!(lr.resolve_side(1), 1); // -1 (edge 1) * -1 (edge 0)
         assert_eq!(lr.resolve_side(2), -1); // 1 (edge 2) * -1 (edge 0), read only, not re-cut
     }
+
+    /// The other half of the phase, and the one every other test here bypasses: the
+    /// driver loops over *every* slot, so it must (a) skip the ones the orientation never
+    /// touched and (b) multiply each resolved side into that slot's nesting depth, which
+    /// is what `order_by_nesting_depth`'s second pass turns into the final rotation. The
+    /// `reference` chain is consumed on the way, so it is all `None` afterwards.
+    ///
+    /// The rig needs a real adjacency, because the driver walks
+    /// `adjacency.total_slots()`, not a table length: an empty one would leave the loop
+    /// body unentered and the test would pass without asserting anything.
+    #[test]
+    fn resolve_signs_folds_each_side_into_its_own_slot_and_cuts_the_chain() {
+        // A path 0 - 1 - 2: four half-edges, so the rig can address all four.
+        let adjacency = Adjacency::simple(3, &[(0, 1), (1, 2)]);
+        // Chain 3 -> 2 -> 1 -> 0, two links flipping the side; slot 3 has no reference.
+        let mut lr = rig(
+            &adjacency,
+            4,
+            &[None, Some(0), Some(1), None],
+            &[1, -1, -1, 1],
+        );
+        lr.oriented = [true; 4].to_vec();
+        lr.nesting_depth = vec![3, 5, 7, 9];
+        lr.resolve_signs();
+        assert_eq!(
+            lr.side,
+            [1, -1, 1, 1],
+            "slot 2 is -1 * -1 * 1, slot 1 is -1 * 1"
+        );
+        assert_eq!(
+            lr.nesting_depth,
+            [3, -5, 7, 9],
+            "each into its own slot, not shifted"
+        );
+        assert_eq!(lr.reference, [None; 4], "every link cut on the way");
+    }
+
+    /// The skip arm of that same loop. An unoriented slot is a half-edge the DFS pointed
+    /// the other way; its nesting depth is never read (it is in nobody's `ordered` row)
+    /// and its `reference` is never set, so signing it would corrupt a table the rest of
+    /// the phase left alone.
+    #[test]
+    fn an_unoriented_slot_is_left_completely_alone() {
+        let adjacency = Adjacency::simple(3, &[(0, 1), (1, 2)]);
+        let mut lr = rig(&adjacency, 4, &[Some(0), None, None, None], &[1, 1, 1, 1]);
+        lr.oriented = [false, true, true, true].to_vec();
+        lr.nesting_depth = vec![4, 6, 8, 10];
+        lr.resolve_signs();
+        assert_eq!(lr.side, [1; 4], "no side to read off, so none is written");
+        assert_eq!(lr.nesting_depth, [4, 6, 8, 10], "and no depth is signed");
+        assert_eq!(
+            lr.reference,
+            [Some(0), None, None, None],
+            "nor is a link cut"
+        );
+    }
 }

@@ -128,6 +128,27 @@ mod tests {
         assert_eq!(a.edge_count(), 1);
     }
 
+    /// `n` is the node *count*, so the largest node is `n - 1`: an endpoint **equal to**
+    /// `n` is out of range exactly as one past it is. The two endpoint checks are
+    /// independent, so both orderings of the same out-of-range edge are pinned here, and
+    /// so is an edge that names `n` on one side and a real node on the other (which the
+    /// range check must drop on its own, before the scatter can index past `offsets`).
+    #[test]
+    fn an_endpoint_exactly_at_n_is_out_of_range_on_either_side() {
+        for edges in [
+            vec![(1u32, 2u32), (2, 1)], // n = 2: the high endpoint is exactly n
+            vec![(0u32, 2u32), (2, 0)],
+            vec![(0u32, 2u32), (2, 0), (0, 1)], // one real edge survives, the rest do not
+        ] {
+            let a = Adjacency::simple(2, &edges);
+            assert_eq!(
+                a.total_slots(),
+                if edges.contains(&(0, 1)) { 2 } else { 0 },
+                "{edges:?}: node 2 is not a node of a 2-node graph, so no edge to it may survive"
+            );
+        }
+    }
+
     #[test]
     fn slot_and_slot_neighbour_round_trip() {
         let a = Adjacency::simple(3, &[(0, 1), (1, 2), (0, 2)]);

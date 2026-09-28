@@ -11,8 +11,10 @@
 //! build.
 
 mod checks;
+mod faces;
 mod graphs;
 mod negative;
 mod positive;
 mod properties;
+mod sweep;
 mod triangulate;

@@ -3,7 +3,7 @@
 
 use super::checks::assert_valid_embedding;
 use super::graphs::{
-    complete_graph, cycle, grid, maximal_planar, outerplanar_fan, path, star, wheel,
+    apexed_path, complete_graph, cycle, grid, maximal_planar, outerplanar_fan, path, star, wheel,
 };
 use crate::layout::planarity::planar_embedding;
 
@@ -91,6 +91,20 @@ fn seeded_maximal_planar_graphs_are_planar_and_edge_maximal() {
             3 * n - 6,
             "an Apollonian network is edge-maximal"
         );
+        check(n, &edges);
+    }
+}
+
+/// Two independent apexes over a path, the shape that makes the LR test drop a whole
+/// conflict pair off the stack in `remove_back_edges` and mark its left interval's lowest
+/// return edge side `-1`. Every other family in this file leaves that loop unentered, so
+/// this is the only positive test that says what happens *after* it: the graph is still
+/// planar and still certified, and the marking is a side assignment inside the rotation,
+/// not a rejection.
+#[test]
+fn two_apexes_over_a_path_are_planar() {
+    for span in [3u32, 4, 5, 8, 17, 40] {
+        let (n, edges) = apexed_path(span);
         check(n, &edges);
     }
 }
