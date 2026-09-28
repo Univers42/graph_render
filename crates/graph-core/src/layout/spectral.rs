@@ -89,6 +89,19 @@ pub(crate) fn simple_neighbors(topology: &Topology) -> Vec<Vec<u32>> {
     neighbors
 }
 
+/// Maps each component member's dense index to its local index (position in
+/// `members`). Shared by `layout::spectral`'s Laplacian [`graph::ComponentGraph`] and
+/// `layout::pivot_mds`'s BFS graph — both address neighbours by local index, neither
+/// needs the other's per-node payload (degree here, none there), so the types stay
+/// separate but this ~5-line construction does not.
+pub(crate) fn local_index_map(members: &[u32], n: usize) -> Vec<u32> {
+    let mut local_of = vec![u32::MAX; n];
+    for (li, &g) in members.iter().enumerate() {
+        local_of[g as usize] = li as u32;
+    }
+    local_of
+}
+
 /// Connected components by BFS from the lowest unvisited index, members sorted
 /// ascending (`_connected_component_indices`), components in discovery order — which is
 /// already ascending by minimum index.

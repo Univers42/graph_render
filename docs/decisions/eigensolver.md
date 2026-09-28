@@ -246,6 +246,25 @@ rename from the phase text's `lanczos.rs`, decision 4 / devil ask 2).
   side)` (drop the third cube coordinate), spacing `_COMPONENT_SPACING = 2.5` unchanged.
   Component placement order: stable sort on `(-size, min_index)`.
 
+## File layout note (envelope)
+
+`P56_SPEC.md`'s branch `p6e` CREATE list names `linalg/{mod.rs,dense_sym.rs,lobpcg.rs}`
+and `layout/{spectral.rs,pivot_mds.rs}` literally, "+ child test files under the 300-line
+cap, reported". This branch also split six **non-test** files out of those, mechanically
+required to keep the listed files under the hard 300-line-per-file and 40-line-per-
+function caps: `layout/spectral/graph.rs`, `linalg/dense_sym/tql2.rs`,
+`linalg/dense_sym/tred2.rs`, `linalg/lobpcg/ops.rs`, `linalg/lobpcg/ritz.rs`,
+`linalg/lobpcg/ritz/generalized.rs`. Calling this out explicitly, not folded into a
+"house-limit fix" bullet, because a reviewer should not have to rediscover it: the same
+pattern — a CREATE-listed file split into non-test child submodules — is already
+established precedent in this repo, from commit `b7a068a` (this branch's own base):
+`layout/hierarchy/fixture.rs`, `graph-contract/src/binary/decode.rs`,
+`graph-contract/src/canonical_json/schema.rs`, `graph-contract/src/snapshot/error.rs`.
+No file outside the CREATE list's `MODIFY`-forbidden set (`registry.rs`, `hashgate.rs`,
+`capabilities*`, `main.rs`, `graph-wasm`, `harness/*`, `src/`, `tests/`, `verify/`) was
+touched; `layout/mod.rs` and `lib.rs` carry only the authorized trivial `pub mod`/`mod`
+additions.
+
 ## Corrections found during implementation (this branch, post-first-draft)
 
 Required tests (closed-form spectra, `n ≤ 256` and `n > 256`, `C_300` as a circle) were

@@ -21,7 +21,8 @@ use crate::linalg::{EigBlock, orthonormal, pin_signs, residual_converged};
 
 use super::Geometry;
 use super::spectral::{
-    DIMS, find_components, nothing_solved, pack_components, scatter, simple_neighbors, to_geometry,
+    DIMS, find_components, local_index_map, nothing_solved, pack_components, scatter,
+    simple_neighbors, to_geometry,
 };
 
 /// `_MDS_PIVOTS` (reference constant).
@@ -60,10 +61,7 @@ struct ComponentGraph<'a> {
 
 impl<'a> ComponentGraph<'a> {
     fn build(members: &'a [u32], neighbors: &'a [Vec<u32>], n: usize) -> Self {
-        let mut local_of = vec![u32::MAX; n];
-        for (li, &g) in members.iter().enumerate() {
-            local_of[g as usize] = li as u32;
-        }
+        let local_of = local_index_map(members, n);
         Self {
             members,
             neighbors,

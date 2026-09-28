@@ -11,10 +11,7 @@ pub(super) struct ComponentGraph<'a> {
 
 impl<'a> ComponentGraph<'a> {
     pub(super) fn build(members: &'a [u32], neighbors: &'a [Vec<u32>], n: usize) -> Self {
-        let mut local_of = vec![u32::MAX; n];
-        for (li, &g) in members.iter().enumerate() {
-            local_of[g as usize] = li as u32;
-        }
+        let local_of = super::local_index_map(members, n);
         let degree = members
             .iter()
             .map(|&g| neighbors[g as usize].len() as f64)

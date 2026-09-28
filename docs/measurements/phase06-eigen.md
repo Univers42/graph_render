@@ -75,10 +75,11 @@ below (`docs/decisions/eigensolver.md`, "Corrections found during implementation
 
 `n = 1000`'s strict flag (`out.converged`, the reference's own unscaled `tol = 1e-6`) is
 `false` — the block has not tightened to `1e-6` in 962 iterations — but the loosely-scaled
-caller gate (`residual_converged` at `1e-2`, `orthonormal` at `1e-4`) still accepts it; the
-strict flag is diagnostic only (`LobpcgOutcome::converged`), never the acceptance
-criterion (`layout::spectral`'s `converged` function, `1e-2`/`1e-6` on the actual
-component residual). `n = 4096` fails outright even under the loose gate: a genuine,
+caller gate (`layout::spectral::converged`/`layout::pivot_mds::converged`:
+`residual_converged` at `1e-2`, `orthonormal` at `1e-6`) still accepts it; the strict flag
+is diagnostic only (`LobpcgOutcome::converged`), never the acceptance criterion. (The
+`1e-4` orthonormality bound seen elsewhere is `linalg/lobpcg/tests.rs`'s own direct
+assertions on raw LOBPCG output, not this caller gate.) `n = 4096` fails outright even under the loose gate: a genuine,
 disclosed scaling limit of this simplified port (deterministic broadband start
 vectors converging somewhat slower than the reference's true-random ones, plus a weak
 constant-diagonal preconditioner — see the ADR), not a bug, and not asserted past in the

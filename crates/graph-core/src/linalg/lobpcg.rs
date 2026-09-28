@@ -57,7 +57,7 @@ pub struct LobpcgOutcome {
     /// Every column's final residual was at most [`TOL`] (scipy's own, unscaled, exit
     /// criterion — the caller applies its own scaled gate separately).
     pub converged: bool,
-    /// Iterations actually run, at most 300.
+    /// Iterations actually run, at most 1500 (`MAXITER`).
     pub iterations: u32,
 }
 
@@ -180,17 +180,7 @@ fn lobpcg_step(
     }
     let active_ar = ops::apply_matvec_block(matvec, &active_r, n);
 
-    let mut active_p = if it.has_p {
-        ops::gather_columns(it.p, n, idx)
-    } else {
-        Vec::new()
-    };
-    let mut active_ap = if it.has_p {
-        ops::gather_columns(it.ap, n, idx)
-    } else {
-        Vec::new()
-    };
-    let p_ready = it.has_p && ops::mgs_orthonormalize(&mut active_p, Some(&mut active_ap), n, m);
+    let (active_p, active_ap, p_ready) = gather_active_p(it, idx, n, m);
 
     let p_ap = p_ready.then_some((active_p.as_slice(), active_ap.as_slice()));
     let (small, use_p) = ritz::step_rayleigh_ritz((it.x, it.ax), (&active_r, &active_ar), p_ap, n);
@@ -204,6 +194,27 @@ fn lobpcg_step(
         new_ax[i] += app[i];
     }
     Some((new_x, new_ax, lambda, pp, app))
+}
+
+/// Gathers the previous search direction's active columns (`P`, `AP`) at `idx` and
+/// orthonormalizes them against each other (scipy's restart-on-failure path):
+/// `p_ready` is `false` when there is no previous direction yet (iteration 0) or when
+/// the gathered columns collapse under Gram-Schmidt, either way telling the caller to
+/// drop `P` from this step's Rayleigh-Ritz span. Split out of [`lobpcg_step`] to stay
+/// under the house line cap.
+fn gather_active_p(
+    it: &Iterate<'_>,
+    idx: &[usize],
+    n: usize,
+    m: usize,
+) -> (Vec<f64>, Vec<f64>, bool) {
+    if !it.has_p {
+        return (Vec::new(), Vec::new(), false);
+    }
+    let mut active_p = ops::gather_columns(it.p, n, idx);
+    let mut active_ap = ops::gather_columns(it.ap, n, idx);
+    let p_ready = ops::mgs_orthonormalize(&mut active_p, Some(&mut active_ap), n, m);
+    (active_p, active_ap, p_ready)
 }
 
 /// The final "exact" Rayleigh-Ritz pass on the best iterate seen (scipy's

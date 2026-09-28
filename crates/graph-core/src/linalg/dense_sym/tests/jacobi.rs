@@ -10,8 +10,10 @@ fn sign(x: f64) -> f64 {
     if x >= 0.0 { 1.0 } else { -1.0 }
 }
 
-/// One Jacobi rotation zeroing `a[p][q]`, applied to `a` and accumulated into `v`.
-fn rotate(a: &mut [f64], v: &mut [f64], n: usize, p: usize, q: usize) {
+/// One Jacobi rotation zeroing `a[p][q]` (`pq = (p, q)`, bundled to stay at the
+/// house's 4-parameter cap), applied to `a` and accumulated into `v`.
+fn rotate(a: &mut [f64], v: &mut [f64], n: usize, pq: (usize, usize)) {
+    let (p, q) = pq;
     let apq = a[p * n + q];
     if apq == 0.0 {
         return;
@@ -67,7 +69,7 @@ pub(crate) fn cyclic_jacobi(input: &[f64], n: usize) -> EigBlock {
         }
         for p in 0..n {
             for q in (p + 1)..n {
-                rotate(&mut a, &mut v, n, p, q);
+                rotate(&mut a, &mut v, n, (p, q));
             }
         }
     }
