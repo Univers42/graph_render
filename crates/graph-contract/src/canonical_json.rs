@@ -22,7 +22,7 @@ mod read;
 #[cfg(feature = "codegen")]
 pub mod schema;
 
-pub use parse::Value;
+pub use parse::{Value, parse};
 
 /// Why a JSON document was refused.
 #[derive(Debug, Clone, PartialEq, Eq)]

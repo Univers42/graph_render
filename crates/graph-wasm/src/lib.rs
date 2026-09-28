@@ -10,7 +10,7 @@
 //! is built without it, so a measurement instrument never reaches the browser.
 
 #[cfg(target_arch = "wasm32")]
-mod exports {
+mod gate_exports {
     use graph_core::{PipelineRun, REFERENCE_DEGREE, gate_node_count, run_with, seeded_model};
     use std::cell::RefCell;
 
@@ -66,3 +66,24 @@ mod exports {
 }
 
 pub mod probe;
+
+// C21: everything below is target-independent and unit-tested natively (`cargo test`,
+// no wasm32 target needed) — but its only *non-test* caller is `exports.rs`, which is
+// itself wasm32-only. Gated on `any(test, target_arch = "wasm32")` so a plain native
+// `cargo build`/`clippy` (neither test nor wasm32) does not compile modules it cannot
+// call, which is what a `-D warnings` dead-code lint would otherwise catch on that one
+// build; `cargo test` and the wasm32 release build both still get the real thing.
+#[cfg(any(test, target_arch = "wasm32"))]
+mod alloc;
+#[cfg(any(test, target_arch = "wasm32"))]
+mod errors;
+mod exports;
+#[cfg(any(test, target_arch = "wasm32"))]
+mod handle;
+#[cfg(any(test, target_arch = "wasm32"))]
+mod ingest;
+mod memory_measure;
+#[cfg(any(test, target_arch = "wasm32"))]
+mod seed_ingest;
+#[cfg(any(test, target_arch = "wasm32"))]
+pub(crate) mod views;

@@ -103,7 +103,31 @@ test runs first; unknown types silently become relation",
     ),
 ];
 
-/// Every registered capability: the topology rows, then the layouts.
+/// Node count past which the provisional-ingest transport path stops being usable
+/// (`docs/measurements/phase04-transport.md`, `crates/graph-wasm/src/memory_measure.rs`):
+/// measured natively, the counted span from ingest JSON text already in memory through
+/// `ingest::read`, `index_model`, `layout.grid`'s run and the encoded snapshot bytes —
+/// exactly `gm_build` + `gm_run` + `gm_snapshot_bytes` — peaks at **2862.3 B per node** at
+/// 100 000 synthetic nodes and 154 978 edges. wasm32 addresses at most 4 GiB, so
+/// 4 GiB / 2862.3 B ≈ 1.50 M nodes, rounded down to two figures. Heavier than
+/// `layout.grid`'s own ceiling: the JSON parse tree and the intermediate `NodeRecord`/
+/// `EdgeRecord` vectors this row's own path holds (and the grid pipeline's own
+/// measurement does not) cost more than the pipeline itself.
+pub const TRANSPORT_CEILING: u64 = 1_500_000;
+
+const TRANSPORT_DEGRADES: &str = "past the ceiling wasm32 cannot allocate and gm_build returns 0 \
+with AllocFailed (never a partial handle); gm_alloc's own reservation can fail earlier still, for \
+the same reason, on a large ingest buffer alone";
+
+const SDK_DEGRADES: &str = "the SDK holds no per-node memory of its own: its column views are \
+zero-copy typed-array aliases over transport.wasm.columnar's buffers, so it degrades exactly when \
+the module it loads does — same ceiling, not independently measured in JS this phase";
+
+/// Every registered capability: the topology rows, the layouts, then the transport rows
+/// Phase 4 adds. Both new rows are `Implemented`, never `Gated`: this phase records no
+/// `hashgate.json`/`oracle-diff.json` entry under either row's `hash_stage`/
+/// `oracle_record` name, so `ledger()` reads them back as `not backed`, honestly, rather
+/// than a claim `--check` would have to refuse (`docs/contract/wasm-abi.md` "Ledger").
 pub fn registry() -> Vec<Capability> {
     let topology = TOPOLOGY
         .iter()
@@ -124,7 +148,64 @@ pub fn registry() -> Vec<Capability> {
             ponytail,
             complexity,
         });
-    topology.chain(LAYOUTS.iter().map(layout)).collect()
+    topology
+        .chain(LAYOUTS.iter().map(layout))
+        .chain(transport())
+        .collect()
+}
+
+/// The two Phase 4 transport rows: the wasm ABI's columnar handle/build/run/column
+/// surface, and the JS SDK that wraps it.
+fn transport() -> [Capability; 2] {
+    [
+        Capability {
+            id: "transport.wasm.columnar",
+            tier: 1,
+            stage: "transport",
+            geometry: None,
+            status: Status::Implemented,
+            oracle: "harness/wasm-run.mjs hash mode: gm_seed_ingest -> gm_alloc -> gm_build -> \
+gm_run -> gm_snapshot_bytes, compared byte for byte against the retained gm_layout_grid shim \
+(the same pipeline through the old hash-gate-only exports)",
+            oracle_record: "wasm-run-hash",
+            functions: &[
+                "gm_build",
+                "gm_run",
+                "gm_column_ptr",
+                "gm_column_len",
+                "gm_snapshot_bytes",
+            ],
+            hash_stage: "transport.wasm.columnar",
+            oracle_diff: String::new(),
+            hash_4way: String::new(),
+            scale_ceiling: TRANSPORT_CEILING,
+            degradation: TRANSPORT_DEGRADES,
+            ponytail: "Ponytail (scale_ceiling): measured natively (crates/graph-wasm/src/\
+memory_measure.rs) and projected onto wasm32's 4 GiB, not re-measured on the wasm32 target \
+itself. Escape hatch: none this phase — Phase 10 owns the real ingest contract and may cost \
+differently",
+            complexity: "O(n + m) in the ingest JSON's size",
+        },
+        Capability {
+            id: "sdk.js",
+            tier: 1,
+            stage: "sdk",
+            geometry: None,
+            status: Status::Implemented,
+            oracle: "harness/sdk-smoke.mjs: a third party importing only crates/graph-sdk-js's \
+published entry point, never the raw wasm exports",
+            oracle_record: "sdk-smoke",
+            functions: &["createMotor", "build", "layout", "release"],
+            hash_stage: "sdk.js",
+            oracle_diff: String::new(),
+            hash_4way: String::new(),
+            scale_ceiling: TRANSPORT_CEILING,
+            degradation: SDK_DEGRADES,
+            ponytail: "Ponytail (scale_ceiling): not independently measured — see \
+transport.wasm.columnar, which this row's ceiling is taken from. Escape hatch: none this phase",
+            complexity: "O(n + m), the module it loads",
+        },
+    ]
 }
 
 /// A layout's row. Its hand oracle is checked per seed by `roundtrip`, which records it

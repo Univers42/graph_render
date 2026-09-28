@@ -20,8 +20,16 @@ fn the_registry_covers_every_oracle_function_once_its_ids_are_unique() {
     assert_eq!(covered, want);
     let ids: BTreeSet<&str> = rows.iter().map(|r| r.id).collect();
     assert_eq!(ids.len(), rows.len());
-    assert!(rows.iter().all(|r| r.status == Status::Gated));
-    for r in &rows {
+    // Phase 4's two transport rows are `Implemented`, not `Gated` (C22: no evidence file
+    // this phase backs either, so a `gated` claim would be one `--check` must refuse).
+    // Every topology and layout row still stands `Gated`, unchanged.
+    let (transport, gated): (Vec<_>, Vec<_>) = rows
+        .iter()
+        .partition(|r| r.id == "transport.wasm.columnar" || r.id == "sdk.js");
+    assert_eq!(transport.len(), 2, "{rows:?}");
+    assert!(transport.iter().all(|r| r.status == Status::Implemented));
+    assert!(gated.iter().all(|r| r.status == Status::Gated));
+    for r in &gated {
         let expected = if r.id.starts_with("topology.") {
             ("oracle-diff", "topology")
         } else {
@@ -29,6 +37,16 @@ fn the_registry_covers_every_oracle_function_once_its_ids_are_unique() {
         };
         assert_eq!((r.oracle_record, r.hash_stage), expected, "{}", r.id);
     }
+    assert_eq!(
+        transport
+            .iter()
+            .map(|r| (r.oracle_record, r.hash_stage))
+            .collect::<Vec<_>>(),
+        [
+            ("wasm-run-hash", "transport.wasm.columnar"),
+            ("sdk-smoke", "sdk.js"),
+        ]
+    );
 }
 
 #[test]

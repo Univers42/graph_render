@@ -199,6 +199,7 @@ dependencies = [
 name = "graph-wasm"
 version = "0.1.0"
 dependencies = [
+ "graph-contract",
  "graph-core",
  "libm",
 ]
