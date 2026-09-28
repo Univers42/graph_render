@@ -20,10 +20,26 @@ fn the_registry_covers_every_oracle_function_once_its_ids_are_unique() {
     assert_eq!(covered, want);
     let ids: BTreeSet<&str> = rows.iter().map(|r| r.id).collect();
     assert_eq!(ids.len(), rows.len());
-    assert!(rows.iter().all(|r| r.status == Status::Gated));
+    // Phase 7's analysis.* rows are honestly `Implemented`, not `gated`: their 4-way
+    // hash and oracle-diff wiring is deferred to the merge step (`docs/measurements/
+    // phase07-analysis.md`), and the ledger's own rule (`prompt.md` §8) is that a row
+    // stands as `gated` only while both verdicts hold — everything from before Phase 7
+    // keeps the original blanket invariant.
+    assert!(
+        rows.iter()
+            .filter(|r| !r.id.starts_with("analysis."))
+            .all(|r| r.status == Status::Gated)
+    );
+    assert!(
+        rows.iter()
+            .filter(|r| r.id.starts_with("analysis."))
+            .all(|r| r.status == Status::Implemented)
+    );
     for r in &rows {
         let expected = if r.id.starts_with("topology.") {
             ("oracle-diff", "topology")
+        } else if r.id.starts_with("analysis.") {
+            ("oracle-diff", "analysis")
         } else {
             ("roundtrip", r.id)
         };

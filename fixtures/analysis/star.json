@@ -1,0 +1,14 @@
+{
+  "about": "Phase 7 (prompts/phase-07-analysis.md step 4, eigenvector Ponytail): the textbook bipartite graph — one hub against 3 leaves, no edge among the leaves. Named separately from weighted.json because its role here is specifically the eigenvector non-convergence case (`analysis::centrality::tests::eigenvector_on_a_bipartite_star_reports_non_convergence_not_a_plausible_lie`), not general centrality. A star's adjacency matrix has eigenvalues +sqrt(3), -sqrt(3) and 0 (twice): the two extremal eigenvalues tie in magnitude, so plain power iteration from a uniform start vector oscillates between their eigenvectors' signs forever rather than settling — this is a property of the graph's shape, not a bug in the iteration.",
+  "nodes": ["center", "leaf0", "leaf1", "leaf2"],
+  "edges": [
+    { "id": "e0", "source": "center", "target": "leaf0", "directed": false, "strength": 0.5 },
+    { "id": "e1", "source": "center", "target": "leaf1", "directed": false, "strength": 0.5 },
+    { "id": "e2", "source": "center", "target": "leaf2", "directed": false, "strength": 0.5 }
+  ],
+  "expect": {
+    "eigenvector_converged": false,
+    "why": "bipartite: center vs. {leaf0, leaf1, leaf2}; the +/-sqrt(3) eigenvalue tie means the returned bool must be false, never a plausible-looking score claimed as converged"
+  },
+  "contrast": "crates/graph-core/src/analysis/centrality.rs's triangle_with_pendant() test helper is the non-bipartite control: hub-x, hub-y, x-y (a triangle: an odd cycle) plus hub-leaf converges cleanly, because an odd cycle breaks the bipartite tie"
+}

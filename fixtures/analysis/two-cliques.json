@@ -1,0 +1,19 @@
+{
+  "about": "Phase 7 (prompts/phase-07-analysis.md step 5): the textbook Louvain example — two triangles joined by a single bridge edge. `analysis::communities::louvain` must keep each triangle together and must not let the bridge merge them; `analysis::communities::modularity` scores that partition strictly higher than the trivial one-community lump, which scores exactly 0.0 by definition (Newman's Q for one community is always 0 — the bug this fixture's own test caught: an earlier draft summed the null-model term only over existing edges instead of every same-community pair, which silently overstated Q for a lumped, sparsely-connected community).",
+  "nodes": ["a0", "a1", "a2", "b0", "b1", "b2"],
+  "edges": [
+    { "id": "a01", "source": "a0", "target": "a1", "directed": false, "strength": 0.5 },
+    { "id": "a12", "source": "a1", "target": "a2", "directed": false, "strength": 0.5 },
+    { "id": "a20", "source": "a2", "target": "a0", "directed": false, "strength": 0.5 },
+    { "id": "b01", "source": "b0", "target": "b1", "directed": false, "strength": 0.5 },
+    { "id": "b12", "source": "b1", "target": "b2", "directed": false, "strength": 0.5 },
+    { "id": "b20", "source": "b2", "target": "b0", "directed": false, "strength": 0.5 },
+    { "id": "bridge", "source": "a0", "target": "b0", "directed": false, "strength": 0.5 }
+  ],
+  "expect": {
+    "louvain_communities": { "a0": 0, "a1": 0, "a2": 0, "b0": 1, "b1": 1, "b2": 1 },
+    "modularity_of_that_partition": 0.3571428571428571,
+    "modularity_of_one_lump": 0.0,
+    "measured_by": "docs/measurements/phase07-analysis.md (real Docker run, not hand-derived — the value above is copied from that run's output, not the other way round)"
+  }
+}

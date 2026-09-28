@@ -138,11 +138,15 @@ fn capabilities_needs_a_flag_and_refuses_gated_rows_no_recorded_run_backs() {
     assert_eq!(graph_cli(&["capabilities"], None).status.code(), Some(2));
     let check = graph_cli(&["capabilities", "--check"], None);
     assert_eq!(check.status.code(), Some(1), "{}", stdout(&check));
-    assert!(stdout(&check).contains("capabilities --check: 9 rows, 18 problems"));
+    // 9 pre-Phase-7 rows (all gated, 2 checks apiece with nothing recorded) plus Phase
+    // 7's 8 analysis.* rows, `Implemented` rather than `gated` so they add rows without
+    // adding problems (`capabilities.rs`: `problems()` only checks evidence for a
+    // `gated` row).
+    assert!(stdout(&check).contains("capabilities --check: 17 rows, 18 problems"));
     let json = graph_cli(&["capabilities", "--json"], None);
     assert_eq!(json.status.code(), Some(0));
     let rows: serde_json::Value = serde_json::from_str(&stdout(&json)).expect("json");
-    assert_eq!(rows.as_array().map(Vec::len), Some(9));
+    assert_eq!(rows.as_array().map(Vec::len), Some(17));
     assert!(
         rows[0]["oracle_diff"]
             .as_str()

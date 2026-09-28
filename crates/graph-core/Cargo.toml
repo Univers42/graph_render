@@ -13,6 +13,12 @@ publish.workspace = true
 graph-contract = { path = "../graph-contract", default-features = false }
 indexmap = "2.14"
 libm = "0.2"
+# Phase 7 (prompts/phase-07-analysis.md): the allow-list's one addition, pinned exactly
+# and released well over the house's 7-day hold (0.8.3: 2025-09-30). `default-features =
+# false` then only `std` drops `graphmap`/`stable_graph`/`matrix_graph` — we implement
+# petgraph's traits on our own CSR (csr_petgraph.rs) and never build a petgraph
+# container, so none of its own graph types are wanted.
+petgraph = { version = "=0.8.3", default-features = false, features = ["std"] }
 
 [lints]
 workspace = true

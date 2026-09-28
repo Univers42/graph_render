@@ -1,0 +1,27 @@
+{
+  "about": "Phase 7 (prompts/phase-07-analysis.md step 3, 'the point of the phase'): the two graphs `analysis::paths::tests` proves against. `defect` is a directed graph with one negative edge where Dijkstra finalises a node before its true shortest path (through the negative edge) is found — the exact defect SciGraphs's operator hides by always dispatching Dijkstra instead of the Bellman-Ford it also offers (docs/tutorials/panels/scigraphs/algorithms.qmd:74-75). `cycle` is a directed graph whose only path back to itself has negative total weight, which must be reported by name, not folded into a distance.",
+  "defect": {
+    "nodes": ["a", "b", "c"],
+    "edges": [
+      { "id": "ab", "source": "a", "target": "b", "directed": true, "strength": 2.0 },
+      { "id": "ac", "source": "a", "target": "c", "directed": true, "strength": 3.0 },
+      { "id": "cb", "source": "c", "target": "b", "directed": true, "strength": -2.0 }
+    ],
+    "source": "a",
+    "dijkstra_distances": [0.0, 2.0, 3.0],
+    "dijkstra_is_wrong_because": "b is finalised at cost 2 (direct edge) before c (cost 3) is even settled, so the c->b edge, though it would drop b to 1, never gets to relax it",
+    "bellman_ford_distances": [0.0, 1.0, 3.0],
+    "bellman_ford_is_correct_because": "a->c->b costs 3 + (-2) = 1, less than the direct a->b edge's 2"
+  },
+  "cycle": {
+    "nodes": ["a", "b", "c"],
+    "edges": [
+      { "id": "ab", "source": "a", "target": "b", "directed": true, "strength": 1.0 },
+      { "id": "bc", "source": "b", "target": "c", "directed": true, "strength": -3.0 },
+      { "id": "ca", "source": "c", "target": "a", "directed": true, "strength": 1.0 }
+    ],
+    "source": "a",
+    "cycle_total_weight": -1.0,
+    "expect": "ShortestPaths::NegativeCycle naming every node of a, b, c (order not asserted past sorted membership — no duplicate, no ghost node), never a Distances(...) value"
+  }
+}

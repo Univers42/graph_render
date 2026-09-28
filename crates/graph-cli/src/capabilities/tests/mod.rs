@@ -73,7 +73,10 @@ fn row(status: Status) -> Capability {
 fn every_registered_row_stands_on_honest_evidence_and_reads_it_back() {
     let evidence = honest();
     let rows = ledger(&evidence);
-    assert_eq!(rows.len(), 9);
+    // 9 pre-Phase-7 rows (8 topology + layout.grid) plus Phase 7's 8 analysis.* rows,
+    // appended after them (`Status::Implemented`, so honest evidence for the first 9
+    // leaves them with zero problems regardless — checked below).
+    assert_eq!(rows.len(), 17);
     assert_eq!(problems(&rows, &evidence), Vec::<String>::new());
     assert_eq!(
         rows[0].hash_4way,
