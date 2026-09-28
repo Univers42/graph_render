@@ -1,4 +1,83 @@
 use super::*;
+use std::path::PathBuf;
+
+/// A temporary directory this test owns, emptied first.
+fn scratch(name: &str) -> PathBuf {
+    let dir =
+        std::env::temp_dir().join(format!("gm-layout-fixtures-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("temp dir");
+    dir
+}
+
+/// `write`'s two files, exactly: one line per seed, each that seed's own `fixture_line`,
+/// and a manifest pinning the digest, the seed count, the format and the tree it was
+/// written from. The harness reads the manifest and refuses anything else.
+#[test]
+fn writing_the_fixtures_pins_every_line_and_the_manifest_that_covers_them() {
+    let dir = scratch("write");
+    let stamp = crate::evidence::Stamp::take().expect("this tree");
+    write(3, &dir, &stamp).expect("writes");
+    let text = std::fs::read_to_string(dir.join("layouts.jsonl")).expect("layouts.jsonl");
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(lines.len(), 3, "one line per seed");
+    for (i, line) in lines.iter().enumerate() {
+        let value: Value = serde_json::from_str(line).expect("json line");
+        assert_eq!(value, fixture_line(i as u32).expect("valid"), "seed {i}");
+    }
+    let manifest: Value = serde_json::from_str(
+        &std::fs::read_to_string(dir.join("layout-manifest.json")).expect("manifest"),
+    )
+    .expect("manifest json");
+    assert_eq!(
+        manifest["generator"],
+        Value::from("graph-cli emit-fixtures: the gate model, graph_core::seeded_model")
+    );
+    assert_eq!(manifest["format"], 1);
+    assert_eq!(manifest["seeds"], 3);
+    assert_eq!(
+        manifest["sha256"]["layouts.jsonl"],
+        file_sha256(&dir.join("layouts.jsonl")).expect("digest")
+    );
+    assert_eq!(manifest["fingerprint"], stamp.fingerprint());
+    assert_eq!(manifest["fingerprinted"], json!(FINGERPRINTED));
+    std::fs::remove_dir_all(&dir).expect("cleanup");
+}
+
+/// The manifest is a manifest of *these* bytes: a second run writes the same ones, and a
+/// file that moved under it is a different file.
+#[test]
+fn the_manifest_digest_follows_the_bytes_it_covers() {
+    let dir = scratch("digest");
+    let stamp = crate::evidence::Stamp::take().expect("this tree");
+    write(2, &dir, &stamp).expect("writes");
+    let read = |name: &str| -> Value {
+        serde_json::from_str(&std::fs::read_to_string(dir.join(name)).expect(name)).expect(name)
+    };
+    let first = read("layout-manifest.json");
+    write(2, &dir, &stamp).expect("writes again");
+    assert_eq!(
+        read("layout-manifest.json"),
+        first,
+        "same seeds, same bytes"
+    );
+    std::fs::write(dir.join("layouts.jsonl"), "{}").expect("tamper");
+    assert_ne!(
+        read("layout-manifest.json")["sha256"]["layouts.jsonl"],
+        file_sha256(&dir.join("layouts.jsonl")).expect("digest")
+    );
+    std::fs::remove_dir_all(&dir).expect("cleanup");
+}
+
+/// A run that cannot write is a could-not-run, not an empty manifest: the harness would
+/// otherwise read "0 seeds" as agreement.
+#[test]
+fn a_directory_that_does_not_exist_is_refused_rather_than_written_around() {
+    let dir = scratch("missing").join("no-such-dir");
+    let stamp = crate::evidence::Stamp::take().expect("this tree");
+    let err = write(1, &dir, &stamp).expect_err("no such directory");
+    assert!(err.contains("layouts.jsonl"), "{err}");
+}
 
 #[test]
 fn a_seeds_line_carries_a_tree_and_both_layouts_arrays_the_same_length() {

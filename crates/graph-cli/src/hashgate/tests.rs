@@ -1,6 +1,8 @@
 use super::compare::{Tally, diverged, per_stage};
 use super::*;
 
+mod report;
+
 /// Two seeds per stage; `fills[arm][line]` is the digest's repeated hex digit.
 fn arms(fills: [[char; 4]; 4]) -> Vec<Arm> {
     let names = [

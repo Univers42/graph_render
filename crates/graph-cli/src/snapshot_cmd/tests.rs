@@ -4,9 +4,51 @@ use graph_contract::geometry::{EdgeGeometryKind, NodeGeometry, NodeGeometryKind}
 use graph_contract::notes::{Note, NoteCode, Notes, SNAPSHOT_WIDE};
 use std::collections::BTreeSet;
 
+/// The whole list, exactly: one pair per registered layout, in registry order, with no
+/// name offered twice — a new layout has to appear here or this goes red.
 #[test]
-fn every_registered_layout_is_offered_by_its_short_name_and_its_full_id() {
+fn layout_names_offers_every_registered_layout_once_by_both_of_its_names() {
     let names = layout_names();
+    assert_eq!(
+        names,
+        [
+            "layout.grid",
+            "grid",
+            "layout.tree.tidy",
+            "tree.tidy",
+            "layout.treemap.squarified",
+            "treemap.squarified",
+            "layout.circular.radial",
+            "circular.radial",
+            "layout.packing.circle",
+            "packing.circle",
+        ]
+    );
+    let mut once = names.clone();
+    once.sort_unstable();
+    once.dedup();
+    assert_eq!(
+        once.len(),
+        names.len(),
+        "no layout is offered twice: {names:?}"
+    );
+    for id in registry::LAYOUTS.iter().map(|l| l.id) {
+        assert!(names.contains(&id), "{names:?} missing {id}");
+        assert!(
+            names.contains(&short_name(id)),
+            "{names:?} missing {id}'s short name"
+        );
+    }
+    assert_eq!(short_name("layout.grid"), "grid");
+    assert_eq!(
+        short_name("grid"),
+        "grid",
+        "an id already short stays as it is"
+    );
+}
+
+#[test]
+fn each_layout_name_runs_the_same_pipeline_and_an_unregistered_one_names_all_the_rest() {
     for (id, short) in [
         ("layout.grid", "grid"),
         ("layout.tree.tidy", "tree.tidy"),
@@ -14,8 +56,6 @@ fn every_registered_layout_is_offered_by_its_short_name_and_its_full_id() {
         ("layout.circular.radial", "circular.radial"),
         ("layout.packing.circle", "packing.circle"),
     ] {
-        assert!(names.contains(&id), "{names:?} missing {id}");
-        assert!(names.contains(&short), "{names:?} missing {short}");
         let by_short = pipeline(1, 50, short).expect("runs by short name");
         let by_id = pipeline(1, 50, id).expect("runs by full id");
         assert_eq!(
@@ -25,7 +65,10 @@ fn every_registered_layout_is_offered_by_its_short_name_and_its_full_id() {
         assert_eq!(by_short.snapshot, by_id.snapshot);
     }
     let err = pipeline(1, 50, "spiral").expect_err("unregistered");
-    assert!(err.starts_with("no layout \"spiral\": one of "), "{err}");
+    assert_eq!(
+        err,
+        format!("no layout \"spiral\": one of {}", layout_names().join(", "))
+    );
 }
 
 #[test]
@@ -77,8 +120,9 @@ fn the_exercise_draws_every_notes_case_and_each_round_trips() {
         let snapshot = exercise::snapshot(seed).expect("valid");
         exercise::count_notes_cases(&snapshot, &mut sweep);
     });
-    assert_eq!(sweep[0], 200, "every fifth seed is 0.2-labelled");
-    assert!(sweep[1..].iter().all(|&c| c >= 200), "{sweep:?}");
+    // Exact, not a floor: a case drawn only on its own seed's `seed % 5` would still
+    // clear 200 for two of these, and the gate's claim is that every case is drawn.
+    assert_eq!(sweep, [200, 257, 342, 343, 200], "the five notes cases");
 }
 
 #[test]
