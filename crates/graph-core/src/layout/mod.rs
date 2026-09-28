@@ -6,6 +6,8 @@
 
 pub mod circle_packing;
 pub mod circular;
+pub mod force;
+pub mod forceatlas2;
 pub mod grid;
 pub mod hierarchy;
 pub mod planarity;

@@ -1,0 +1,9 @@
+{
+  "about": "One node, no edges: the degenerate case every force must not divide by zero on.",
+  "nodes": [
+    {
+      "id": "solo"
+    }
+  ],
+  "edges": []
+}

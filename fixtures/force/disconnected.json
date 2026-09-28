@@ -1,0 +1,112 @@
+{
+  "about": "3 components with no edges between them: a triangle, a 6-node star, a 4-node path.",
+  "nodes": [
+    {
+      "id": "t0"
+    },
+    {
+      "id": "t1"
+    },
+    {
+      "id": "t2"
+    },
+    {
+      "id": "s0"
+    },
+    {
+      "id": "s1"
+    },
+    {
+      "id": "s2"
+    },
+    {
+      "id": "s3"
+    },
+    {
+      "id": "s4"
+    },
+    {
+      "id": "s5"
+    },
+    {
+      "id": "p0"
+    },
+    {
+      "id": "p1"
+    },
+    {
+      "id": "p2"
+    },
+    {
+      "id": "p3"
+    }
+  ],
+  "edges": [
+    {
+      "id": "e0",
+      "source": "t0",
+      "target": "t1",
+      "strength": 1.0
+    },
+    {
+      "id": "e1",
+      "source": "t1",
+      "target": "t2",
+      "strength": 1.0
+    },
+    {
+      "id": "e2",
+      "source": "t2",
+      "target": "t0",
+      "strength": 1.0
+    },
+    {
+      "id": "e3",
+      "source": "s0",
+      "target": "s1",
+      "strength": 1.0
+    },
+    {
+      "id": "e4",
+      "source": "s0",
+      "target": "s2",
+      "strength": 1.0
+    },
+    {
+      "id": "e5",
+      "source": "s0",
+      "target": "s3",
+      "strength": 1.0
+    },
+    {
+      "id": "e6",
+      "source": "s0",
+      "target": "s4",
+      "strength": 1.0
+    },
+    {
+      "id": "e7",
+      "source": "s0",
+      "target": "s5",
+      "strength": 1.0
+    },
+    {
+      "id": "e8",
+      "source": "p0",
+      "target": "p1",
+      "strength": 1.0
+    },
+    {
+      "id": "e9",
+      "source": "p1",
+      "target": "p2",
+      "strength": 1.0
+    },
+    {
+      "id": "e10",
+      "source": "p2",
+      "target": "p3",
+      "strength": 1.0
+    }
+  ]
+}

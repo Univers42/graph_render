@@ -25,6 +25,7 @@ mod legend;
 mod neighborhood;
 mod records;
 pub mod registry;
+mod rng;
 mod stage;
 mod synthetic;
 mod weights;
