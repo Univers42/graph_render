@@ -107,3 +107,65 @@ fn grid_pipeline_memory_per_node() {
         assert!(peak > bytes.len(), "the allocator counted the run");
     }
 }
+
+/// The measurement behind the four Phase 3 hierarchy/graph layouts' `scale_ceiling`s: the
+/// highest net heap while the pipeline runs the topology stage, the named layout, and
+/// writes the snapshot's bytes, plus the wall-clock the layout call itself took (never
+/// read by graph-core, D8 — this is a measurement script, not the motor). tidy tree,
+/// treemap and circular are all O(n)/O(n log n) over the hierarchy substrate, so they are
+/// swept to 100 000 nodes like the grid. Circle packing's exact path is comparable, but a
+/// random synthetic graph at this density is essentially always non-planar, so it takes
+/// the fallback's force relaxation (`layout/circle_packing/fallback.rs`), whose two
+/// O(n^2) passes (edge-pull/overlap-push, then settle) dominate; it is swept over a much
+/// smaller range so the measurement itself finishes.
+/// A layout's bare `run`: `graph_core::Stage::run` at default params, already erased.
+type Run = fn(&graph_core::Topology) -> Result<graph_core::Geometry, graph_core::StageError>;
+
+#[test]
+#[ignore = "a measurement, not a check: run alone with --release -- --ignored --nocapture"]
+fn hierarchy_layout_pipeline_memory_per_node() {
+    use graph_core::layout::{circular, tidy_tree, treemap};
+    println!("| layout | n | m | snapshot bytes | peak | peak / node | wall |");
+    println!("|---|---|---|---|---|---|---|");
+    let layouts: [(&str, Run); 3] = [
+        ("layout.tree.tidy", tidy_tree::run),
+        ("layout.treemap.squarified", treemap::run),
+        ("layout.circular.radial", circular::run),
+    ];
+    for (id, run) in layouts {
+        for n in [1_000_u32, 10_000, 100_000] {
+            print_measurement(id, run, n);
+        }
+    }
+}
+
+/// Circle packing on its own, much smaller sweep: the fallback's two O(n^2) relaxation
+/// passes make 100 000 nodes impractical to even measure, let alone ship.
+#[test]
+#[ignore = "a measurement, not a check: run alone with --release -- --ignored --nocapture"]
+fn circle_packing_pipeline_memory_per_node() {
+    use graph_core::layout::circle_packing;
+    println!("| layout | n | m | snapshot bytes | peak | peak / node | wall |");
+    println!("|---|---|---|---|---|---|---|");
+    for n in [300_u32, 1_000, 3_000] {
+        print_measurement("layout.packing.circle", circle_packing::run, n);
+    }
+}
+
+fn print_measurement(id: &'static str, run: Run, n: u32) {
+    let (nodes, edges) = graph_core::seeded_model(1, n, graph_core::REFERENCE_DEGREE);
+    let base = CURRENT.load(Relaxed);
+    PEAK.store(base, Relaxed);
+    let started = std::time::Instant::now();
+    let run = graph_core::run_with(&nodes, &edges, id, run).expect("fits");
+    let wall = started.elapsed();
+    let bytes = run.snapshot.to_bytes();
+    let peak = PEAK.load(Relaxed) - base;
+    println!(
+        "| {id} | {n} | {} | {} | {peak} | {:.1} B | {wall:.2?} |",
+        edges.len(),
+        bytes.len(),
+        peak as f64 / f64::from(n),
+    );
+    assert!(peak > bytes.len(), "the allocator counted the run");
+}

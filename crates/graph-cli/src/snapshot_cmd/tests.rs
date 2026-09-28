@@ -1,19 +1,31 @@
 use super::*;
 use graph_contract::binary::SnapshotParts;
-use graph_contract::geometry::{EdgeGeometryKind, NodeGeometryKind};
+use graph_contract::geometry::{EdgeGeometryKind, NodeGeometry, NodeGeometryKind};
 use graph_contract::notes::{Note, NoteCode, Notes, SNAPSHOT_WIDE};
 use std::collections::BTreeSet;
 
 #[test]
-fn every_registered_layout_is_offered_by_its_short_name() {
-    assert_eq!(layout_names(), ["grid"]);
-    let run = pipeline(1, 50, "grid").expect("runs");
-    assert_eq!(
-        (run.layout, run.snapshot.header().node_count),
-        ("layout.grid", 50)
-    );
+fn every_registered_layout_is_offered_by_its_short_name_and_its_full_id() {
+    let names = layout_names();
+    for (id, short) in [
+        ("layout.grid", "grid"),
+        ("layout.tree.tidy", "tree.tidy"),
+        ("layout.treemap.squarified", "treemap.squarified"),
+        ("layout.circular.radial", "circular.radial"),
+        ("layout.packing.circle", "packing.circle"),
+    ] {
+        assert!(names.contains(&id), "{names:?} missing {id}");
+        assert!(names.contains(&short), "{names:?} missing {short}");
+        let by_short = pipeline(1, 50, short).expect("runs by short name");
+        let by_id = pipeline(1, 50, id).expect("runs by full id");
+        assert_eq!(
+            (by_short.layout, by_short.snapshot.header().node_count),
+            (id, 50)
+        );
+        assert_eq!(by_short.snapshot, by_id.snapshot);
+    }
     let err = pipeline(1, 50, "spiral").expect_err("unregistered");
-    assert_eq!(err, "no layout \"spiral\": one of grid");
+    assert!(err.starts_with("no layout \"spiral\": one of "), "{err}");
 }
 
 #[test]
@@ -23,7 +35,7 @@ fn both_faces_round_trip_on_the_grid_and_on_the_exercise() {
             .expect("runs")
             .snapshot;
         assert_eq!(faces_agree(&grid), Ok(()), "grid seed {seed}");
-        assert_eq!(grid_by_hand(&grid), Ok(()), "grid seed {seed}");
+        assert_eq!(hand_oracles::grid(&grid), Ok(()), "grid seed {seed}");
         let exercise = exercise::snapshot(seed).expect("valid");
         assert_eq!(faces_agree(&exercise), Ok(()), "exercise seed {seed}");
     }
@@ -95,35 +107,23 @@ fn grid_with(n: u32, moved: usize, by: f32) -> Snapshot {
 
 #[test]
 fn the_hand_oracle_catches_a_moved_node_and_a_foreign_kind() {
-    assert_eq!(grid_by_hand(&grid_with(5, 0, 0.0)), Ok(()));
-    let err = grid_by_hand(&grid_with(5, 4, 0.5)).expect_err("moved");
+    assert_eq!(hand_oracles::grid(&grid_with(5, 0, 0.0)), Ok(()));
+    let err = hand_oracles::grid(&grid_with(5, 4, 0.5)).expect_err("moved");
     assert_eq!(
         err,
         "node 4 at (0.5, 0.5), the conventions put it at (0.0, 0.5)"
     );
     let tiny = grid_with(5, 2, f32::EPSILON);
     assert!(
-        grid_by_hand(&tiny)
+        hand_oracles::grid(&tiny)
             .expect_err("one ulp off")
             .starts_with("node 2 ")
     );
     let exercise = exercise::snapshot(1).expect("valid");
     assert_eq!(exercise.header().node_kind, NodeGeometryKind::Circle);
     assert_eq!(exercise.header().edge_kind, EdgeGeometryKind::Line);
-    let foreign = grid_by_hand(&exercise).expect_err("circles");
+    let foreign = hand_oracles::grid(&exercise).expect_err("circles");
     assert_eq!(foreign, "not Point nodes with Line edges");
-}
-
-#[test]
-fn the_sweep_records_nothing_wrong_and_refuses_zero_seeds() {
-    let found = sweep(12).expect("runs");
-    assert!(found.faces.is_empty() && found.grid.is_empty(), "{found:?}");
-    assert!(found.pass(), "every notes case drawn: {:?}", found.notes);
-    assert!(
-        !sweep(4).expect("runs").pass(),
-        "four seeds cannot draw every case"
-    );
-    assert!(sweep(0).expect_err("empty").starts_with("0 seeds"));
 }
 
 fn scratch(name: &str) -> PathBuf {

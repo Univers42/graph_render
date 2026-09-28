@@ -4,7 +4,11 @@
 //
 //   node harness/wasm-run.mjs <graph_wasm.wasm> hash <seeds> <stage>...
 //        prints "<stage> <seed> <sha256>" for each stage in order, seeds 0..N-1;
-//        stages: topology (gm_topology), layout.grid (gm_layout_grid)
+//        stages: topology (gm_topology), layout.grid (gm_layout_grid),
+//        layout.tree.tidy (gm_layout_tree_tidy),
+//        layout.treemap.squarified (gm_layout_treemap_squarified),
+//        layout.circular.radial (gm_layout_circular_radial),
+//        layout.packing.circle (gm_layout_packing_circle)
 //   node harness/wasm-run.mjs <graph_wasm.wasm> probe
 //        prints the D1 probe buffer as one hex line
 //
@@ -36,7 +40,14 @@ function framed(ptr) {
   return new Uint8Array(exports.memory.buffer, ptr + 4, len).slice();
 }
 
-const STAGE_EXPORTS = { topology: "gm_topology", "layout.grid": "gm_layout_grid" };
+const STAGE_EXPORTS = {
+  topology: "gm_topology",
+  "layout.grid": "gm_layout_grid",
+  "layout.tree.tidy": "gm_layout_tree_tidy",
+  "layout.treemap.squarified": "gm_layout_treemap_squarified",
+  "layout.circular.radial": "gm_layout_circular_radial",
+  "layout.packing.circle": "gm_layout_packing_circle",
+};
 
 if (mode === "hash") {
   const seeds = Number.parseInt(count ?? "", 10);

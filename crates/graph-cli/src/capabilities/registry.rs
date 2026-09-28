@@ -126,11 +126,26 @@ pub fn registry() -> Vec<Capability> {
     topology.chain(LAYOUTS.iter().map(layout)).collect()
 }
 
-/// A layout's row. Its hand oracle is checked per seed by `roundtrip`, which records it
-/// under the layout's id; its hash stage is its id.
+/// Layouts held to `harness/oracle-layouts.mjs`'s d3-hierarchy differential instead of a
+/// hand oracle: tidy tree and treemap both restate an exact d3-hierarchy call sequence,
+/// so the honest oracle is the library itself, byte-compared after `Math.fround`. Circular
+/// and packing have no third-party equivalent to differential-test against (radial
+/// placement and circle packing are hand conventions, not d3 calls this phase pins), so
+/// they stand on the hand oracle `roundtrip` already checks per seed
+/// (`snapshot_cmd::hand_oracles`), same as grid.
+const D3_ORACLE_LAYOUTS: [&str; 2] = ["layout.tree.tidy", "layout.treemap.squarified"];
+
+/// A layout's row. Tidy tree and treemap are gated on `oracle-layouts` (the d3-hierarchy
+/// differential); grid, circular and packing are gated on `roundtrip`'s hand oracle,
+/// which records each under its own id. Its hash stage is its id either way.
 fn layout(layout: &'static core::Capability) -> Capability {
     let m = layout.meta;
     let geometry = NODE_KINDS.iter().find(|(kind, _)| *kind == m.nodes);
+    let oracle_record = if D3_ORACLE_LAYOUTS.contains(&layout.id) {
+        "oracle-layouts"
+    } else {
+        "roundtrip"
+    };
     Capability {
         id: layout.id,
         tier: m.tier,
@@ -138,7 +153,7 @@ fn layout(layout: &'static core::Capability) -> Capability {
         geometry: geometry.map(|(_, name)| *name),
         status: Status::Gated,
         oracle: m.oracle,
-        oracle_record: "roundtrip",
+        oracle_record,
         functions: std::slice::from_ref(&layout.id),
         hash_stage: layout.id,
         oracle_diff: String::new(),

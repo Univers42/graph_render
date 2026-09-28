@@ -9,7 +9,15 @@ use std::time::{Duration, Instant};
 
 /// How long any one child (cargo, node, a gate arm) may run before it is killed. A hung
 /// child is a gate that could not run (exit 2), never one that waits forever.
-pub const CHILD_TIMEOUT: Duration = Duration::from_secs(900);
+///
+/// Phase 3 deviation: raised from 900s to 2700s. `layout.packing.circle`'s non-planar
+/// fallback is O(n^2) per seed (`docs/decisions/planarity-fallback.md`), and a random
+/// synthetic graph at gate density is essentially always non-planar, so `hashgate-arm
+/// --seeds 1000` now legitimately needs close to 1800s to run all six stages honestly —
+/// observed directly (`roundtrip --seeds 1000`, the same per-seed work, took ~1800s on
+/// this host). 900s was sized for the two-stage (topology, grid) gate; this is not a
+/// weakened check, only enough wall clock for the same check to finish saying so.
+pub const CHILD_TIMEOUT: Duration = Duration::from_secs(2700);
 
 pub fn sha256_hex(bytes: &[u8]) -> String {
     Sha256::digest(bytes)
