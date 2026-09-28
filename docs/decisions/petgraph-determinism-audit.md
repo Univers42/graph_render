@@ -84,6 +84,12 @@ algorithm" in the phase text is answered in one place:
   a local `BinaryHeap<MinScore>` and `Vec`s throughout — `MinScore`'s `Ord` breaks ties
   by the smaller dense index (D5), so even the heap's pop order is fixed, not merely the
   final scores.
+- `centrality::eigenvector` — plain `Vec<f64>` accumulation over `CsrDigraph`'s own
+  fixed, dense-index-order edge iteration (the same iteration this audit already clears
+  above), summed node `0..n` ascending each power-iteration step. No `HashMap`, no
+  petgraph algorithm call. **No determinism defect** — listed here only so "every
+  algorithm this phase reuses" (this file's own stated scope) is answered for it too, not
+  because power iteration itself was ever in question.
 - `communities::louvain` visits nodes `0..n` and each node's neighbour-community weights
   sorted by community id (`neighbor_weights`) — no hashing, a `Vec<(u32, f64)>` linear
   scan (small per-node degree; a `HashMap` would be the wrong tool here even ignoring

@@ -2,6 +2,13 @@
 //! topology column, closeness from weighted shortest-path distances (`paths.rs`),
 //! betweenness by Brandes' algorithm (petgraph has none), eigenvector by power
 //! iteration. Degree, closeness and betweenness are exact — no `Ponytail` owed.
+//!
+//! **Precondition, both Dijkstra-based: every edge weight is non-negative** — the same
+//! precondition `paths::dijkstra_distances` documents on itself. A graph that may carry a
+//! negative edge belongs to `paths::bellman_ford` instead; checked with a `debug_assert`
+//! in [`closeness`] and [`betweenness`] (same discipline as `components::weak`'s
+//! cross-check) so a violation fails loudly in debug/test builds rather than silently
+//! returning a wrong number in release.
 
 use crate::analysis::paths::dijkstra_distances;
 use crate::csr_petgraph::{CsrDigraph, NodeIx};
@@ -16,10 +23,22 @@ pub fn degree(topology: &Topology) -> &[u32] {
     &topology.nodes().degree
 }
 
+/// The module-doc precondition, checked: every edge's `strength` is non-negative. Not a
+/// `Ponytail` — this is an exact, deterministic guard, not a heuristic (`ponytail.md`:
+/// "not on exact code").
+fn non_negative_weights(topology: &Topology) -> bool {
+    topology.edges().strength.iter().all(|&w| w >= 0.0)
+}
+
 /// Closeness, Wasserman & Faust's disconnected-safe form: the fraction of the graph `v`
 /// reaches, scaled by the mean weighted distance to what it reaches. Zero for an
 /// isolated node or a graph of one node.
 pub fn closeness(topology: &Topology) -> Vec<f32> {
+    debug_assert!(
+        non_negative_weights(topology),
+        "closeness requires non-negative edge weights (module doc precondition); a graph \
+         that may carry a negative edge belongs to paths::bellman_ford instead"
+    );
     let n = topology.node_count();
     if n < 2 {
         return vec![0.0; n as usize];
@@ -73,6 +92,11 @@ impl Ord for MinScore {
 /// (`docs/measurements/phase07-analysis.md`). Never silently sampled: a sampled variant,
 /// if it ever ships, is a separately named capability (step 4, stop-and-ask).
 pub fn betweenness(topology: &Topology) -> Vec<f32> {
+    debug_assert!(
+        non_negative_weights(topology),
+        "betweenness requires non-negative edge weights (module doc precondition); a graph \
+         that may carry a negative edge belongs to paths::bellman_ford instead"
+    );
     let n = topology.node_count() as usize;
     let mut score = vec![0.0f64; n];
     for s in 0..n as u32 {
@@ -99,6 +123,8 @@ fn accumulate_from(topology: &Topology, s: u32, score: &mut [f64]) {
 
 /// Dijkstra from `s`, additionally tracking the path count and every tied predecessor
 /// of each node — Brandes' shortest-path DAG, not exposed by petgraph's own `dijkstra`.
+/// **Precondition: every edge weight is non-negative** (module doc) — [`betweenness`],
+/// this function's only caller, is the one that guards it.
 #[allow(clippy::type_complexity)]
 fn shortest_path_dag(topology: &Topology, s: u32, n: usize) -> (Vec<u32>, Vec<f64>, Vec<Vec<u32>>) {
     let graph = CsrDigraph::new(topology);
@@ -199,99 +225,7 @@ fn normalize_and_pin(next: &mut [f64], previous: &[f64]) -> Option<f64> {
     )
 }
 
+// House limit: <=300 lines per file. Split the same way `csr_petgraph.rs` is
+// (`csr_petgraph/tests.rs`), rather than let a growing test module push this file over.
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::index::index_model;
-    use crate::records::build::{edge, node};
-
-    /// A 4-point star: `center` is the sole cut vertex on every leaf-leaf path.
-    fn star(leaves: u32) -> Topology {
-        let mut nodes = vec![node("center", "")];
-        let mut edges = Vec::new();
-        for i in 0..leaves {
-            let leaf = format!("leaf{i}");
-            nodes.push(node(&leaf, ""));
-            edges.push(edge(&format!("e{i}"), "center", &leaf));
-        }
-        index_model(&nodes, &edges).expect("fits")
-    }
-
-    #[test]
-    fn degree_is_the_topology_column_not_a_recomputation() {
-        let t = star(3);
-        assert_eq!(degree(&t), t.nodes().degree.as_slice());
-        assert_eq!(degree(&t)[0], 3, "the center touches every leaf");
-    }
-
-    #[test]
-    fn on_a_star_only_the_center_has_positive_betweenness() {
-        let t = star(4);
-        let b = betweenness(&t);
-        assert!(
-            b[0] > 0.0,
-            "every leaf pair's shortest path crosses the center"
-        );
-        assert!(
-            b[1..].iter().all(|&v| v == 0.0),
-            "leaves sit on no one else's path"
-        );
-    }
-
-    #[test]
-    fn the_center_of_a_star_is_closer_to_everyone_than_any_leaf() {
-        let t = star(3);
-        let c = closeness(&t);
-        assert!(c[0] > c[1], "center: {}, leaf: {}", c[0], c[1]);
-    }
-
-    /// hub-x, hub-y, x-y (a triangle: an odd cycle, so this graph is *not* bipartite)
-    /// plus hub-leaf. Power iteration on a bipartite graph oscillates between the two
-    /// eigenvectors of `+lambda_max` and `-lambda_max` forever (equal magnitude, so
-    /// neither dominates) rather than converging — [`star`] below is exactly that case,
-    /// which is why convergence is checked against this graph instead.
-    fn triangle_with_pendant() -> Topology {
-        let nodes = [
-            node("hub", ""),
-            node("x", ""),
-            node("y", ""),
-            node("leaf", ""),
-        ];
-        let edges = [
-            edge("hx", "hub", "x"),
-            edge("hy", "hub", "y"),
-            edge("xy", "x", "y"),
-            edge("hl", "hub", "leaf"),
-        ];
-        index_model(&nodes, &edges).expect("fits")
-    }
-
-    #[test]
-    fn eigenvector_converges_and_favours_the_higher_degree_node() {
-        let (scores, converged) = eigenvector(&triangle_with_pendant());
-        assert!(converged);
-        assert!(scores[0] > scores[3], "the hub outranks the pendant leaf");
-        assert!(scores[0] > 0.0);
-    }
-
-    #[test]
-    fn eigenvector_on_a_bipartite_star_reports_non_convergence_not_a_plausible_lie() {
-        // Ponytail (module doc): a bipartite graph's two extremal eigenvalues tie in
-        // magnitude, so plain power iteration never settles. The star is bipartite
-        // (center vs. leaves) by construction — this must come back `false`, not a
-        // number that merely looks like an answer.
-        let (_, converged) = eigenvector(&star(3));
-        assert!(
-            !converged,
-            "a star is bipartite: this must not silently claim convergence"
-        );
-    }
-
-    #[test]
-    fn repeated_runs_agree_bit_for_bit() {
-        let t = star(3);
-        assert_eq!(closeness(&t), closeness(&t));
-        assert_eq!(betweenness(&t), betweenness(&t));
-        assert_eq!(eigenvector(&t), eigenvector(&t));
-    }
-}
+mod tests;

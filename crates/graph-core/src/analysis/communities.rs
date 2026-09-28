@@ -74,52 +74,61 @@ pub fn louvain(topology: &Topology) -> Vec<u32> {
     }
     let degree = weighted_degree(&adjacency);
     let mut total = degree.clone();
-    let mut moved = true;
-    while moved {
-        moved = false;
-        for u in 0..n {
-            moved |= move_node(
-                u,
-                &adjacency,
-                &degree,
-                &mut community,
-                &mut total,
-                total_weight,
-            );
+    {
+        let mut state = LouvainState {
+            adjacency: &adjacency,
+            degree: &degree,
+            community: &mut community,
+            total: &mut total,
+            m: total_weight,
+        };
+        let mut moved = true;
+        while moved {
+            moved = false;
+            for u in 0..n {
+                moved |= move_node(u, &mut state);
+            }
         }
     }
     canonicalize(&community)
+}
+
+/// The mutable Louvain bookkeeping [`move_node`] reads and updates for one node, bundled
+/// into a struct rather than passed as five loose parameters — `move_node` plus this
+/// state stays inside the house's <=4-parameter limit (`refactor-rust.md`). `adjacency`
+/// and `degree` are read-only per pass; `community` and `total` (each community's
+/// running weighted degree) are what a move mutates.
+struct LouvainState<'a> {
+    adjacency: &'a [Vec<(u32, f64)>],
+    degree: &'a [f64],
+    community: &'a mut [u32],
+    total: &'a mut [f64],
+    m: f64,
 }
 
 /// One node's move: removes it from its community's totals, finds the best neighbour
 /// community by modularity gain (a *strict* improvement over staying; ties among
 /// neighbours favour the lower community id, since `weights` is scanned ascending and
 /// only a strictly larger gain replaces the current best), and re-inserts it there.
-fn move_node(
-    u: usize,
-    adjacency: &[Vec<(u32, f64)>],
-    degree: &[f64],
-    community: &mut [u32],
-    total: &mut [f64],
-    m: f64,
-) -> bool {
-    let (home, du) = (community[u], degree[u]);
-    total[home as usize] -= du;
-    let weights = neighbor_weights(u, adjacency, community);
+fn move_node(u: usize, state: &mut LouvainState) -> bool {
+    let (home, du) = (state.community[u], state.degree[u]);
+    state.total[home as usize] -= du;
+    let weights = neighbor_weights(u, state.adjacency, state.community);
     let home_weight = weights
         .iter()
         .find(|&&(c, _)| c == home)
         .map_or(0.0, |&(_, w)| w);
-    let remove_cost = -home_weight / m + total[home as usize] * du / (2.0 * m * m);
+    let m = state.m;
+    let remove_cost = -home_weight / m + state.total[home as usize] * du / (2.0 * m * m);
     let mut best = (home, 0.0f64);
     for &(c, w) in &weights {
-        let gain = remove_cost + w / m - total[c as usize] * du / (2.0 * m * m);
+        let gain = remove_cost + w / m - state.total[c as usize] * du / (2.0 * m * m);
         if gain > best.1 {
             best = (c, gain);
         }
     }
-    total[best.0 as usize] += du;
-    community[u] = best.0;
+    state.total[best.0 as usize] += du;
+    state.community[u] = best.0;
     best.0 != home
 }
 
@@ -239,5 +248,31 @@ mod tests {
     fn repeated_runs_agree_bit_for_bit() {
         let t = two_cliques();
         assert_eq!(louvain(&t), louvain(&t));
+    }
+
+    /// Regression for the BLOCKER finding (phase-07 review): `move_node` took 6 loose
+    /// parameters, over the house's <=4-parameter limit. This drives it through the
+    /// bundled `LouvainState` instead, on the smallest case that actually moves a node —
+    /// two singleton communities across one edge must merge into one.
+    #[test]
+    fn move_node_via_bundled_state_merges_two_connected_singletons() {
+        let adjacency = vec![vec![(1u32, 1.0)], vec![(0u32, 1.0)]];
+        let degree = vec![1.0, 1.0];
+        let mut community = vec![0u32, 1u32];
+        let mut total = degree.clone();
+        let mut state = LouvainState {
+            adjacency: &adjacency,
+            degree: &degree,
+            community: &mut community,
+            total: &mut total,
+            m: 1.0,
+        };
+        let moved = move_node(1, &mut state);
+        assert!(
+            moved,
+            "joining the only neighbour's community is a strict gain"
+        );
+        assert_eq!(community, [0, 0]);
+        assert_eq!(total, [2.0, 0.0]);
     }
 }

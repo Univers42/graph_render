@@ -159,4 +159,79 @@ existing assertions. `crates/graph-core/src/csr_petgraph/tests.rs` is a fourth n
 not on the phase's literal CREATE list, but is the pre-existing house pattern (see
 `crates/graph-core/src/index/tests.rs`) for keeping `csr_petgraph.rs` — itself an
 authorized CREATE — under the 300-line house limit; nothing in it changed the tests
-themselves, only their file.
+themselves, only their file. `crates/graph-core/src/analysis/centrality/tests.rs`
+(review response, §7 below) is a fifth, same pattern, same reason: the review's added
+precondition tests pushed `centrality.rs` itself past 300 lines, so the existing
+`mod tests { ... }` block moved out verbatim into its own file, unchanged in content.
+
+## 7. Review response (fresh reviewer, phase-07 CHANGES REQUESTED) — fixed on branch `p7`
+
+All six findings independently re-verified before any code changed; TDD (test first,
+observed RED, then green) followed for every behavioural fix.
+
+1. **BLOCKER, `communities.rs` `move_node` at 6 parameters** (house limit: <=4). Fixed:
+   the five loose parameters besides `u` (`adjacency`, `degree`, `community`, `total`,
+   `m`) are now one `LouvainState<'a>` struct, so `move_node(u, &mut state)` is 2
+   parameters. `louvain()`'s own external behaviour, and every existing test, is
+   unchanged — this is a pure signature refactor, verified by running the full existing
+   `communities::` test set unchanged before and after. Regression test (RED first —
+   observed as a compile error, `LouvainState` not yet existing, then green once it did):
+   `move_node_via_bundled_state_merges_two_connected_singletons`.
+
+2. **MAJOR, `centrality.rs`: `closeness`/`betweenness` documented no non-negative-weight
+   precondition and were untested on a negative-weight graph.** Fixed with the stronger
+   of the finding's two suggested options: a `debug_assert` guard (same discipline as
+   `components::weak`'s own cross-check) in both public entry points, plus the module doc
+   precondition mirroring `paths.rs`'s wording — a violation now fails loudly in
+   debug/test builds instead of silently returning a wrong number (release builds keep
+   today's behaviour; the assert compiles out, same as every other `debug_assert` in this
+   codebase). Three regression tests, all RED first (the two `#[should_panic]` cases were
+   observed genuinely failing — "test did not panic as expected" — before the guard
+   existed; the third already passed on RED, which is itself the proof the underlying
+   arithmetic really does diverge, not just a hypothetical):
+   `closeness_panics_in_debug_on_a_negative_weight_graph`,
+   `betweenness_panics_in_debug_on_a_negative_weight_graph`,
+   `closeness_of_diverges_between_dijkstras_wrong_distance_and_bellman_fords_correct_one`
+   (the last feeds `closeness_of` — the guard-free pure arithmetic core — Dijkstra's wrong
+   distance and Bellman-Ford's correct one for the same graph and shows they differ, the
+   direct wrong-vs-correct proof `paths.rs` itself gives for Dijkstra vs Bellman-Ford).
+
+3. **MAJOR, `fixtures/analysis/*.json` are never parsed by any test.** Confirmed: still
+   true, `grep -rn "fixtures/analysis" crates/` finds only the two pre-existing comment
+   references. **Not fixed by parsing them**, a deliberate decision, not an oversight:
+   `graph-core`'s dependency allow-list is closed to `libm`/`indexmap`/`petgraph`
+   (`prompt.md` §3.1) and carries no JSON parser, so a fixture-consuming test cannot live
+   in `graph-core` without either violating that allow-list or hand-rolling fragile
+   string-search JSON extraction in its place — neither is a fix worth making. Moving the
+   fixture-consuming test into `graph-cli` (which already has `serde_json`, per
+   `oracle_fixtures.rs`'s own pattern) is possible in principle but is not on this
+   phase's authorized `graph-cli` MODIFY list (`capabilities.rs`, `main.rs` only) and
+   would be new test surface outside its envelope. Taking the finding's own offered
+   alternative instead: recorded here, explicitly, that `fixtures/analysis/*.json` are
+   **documentation/reference fixtures, hand-cross-checked against the inline Rust tests
+   they mirror (the same numbers, independently re-typed), not machine-parsed inputs** —
+   so a future reader does not assume editing one changes what the gate checks.
+
+4. **MAJOR, two gate rows (`capabilities --check`, the `cargo tree` allow-list check)
+   fail on this branch.** Independently re-reproduced, exit 1 both — see the gate table
+   below. This finding also independently reproduced what §4 and §5 above already
+   recorded from this same phase's own work: both failures are byte-for-byte identical on
+   the pristine base commit (`900cf13`), so neither is introduced by this diff or by this
+   review's fixes. No code change made in response — `hashgate.rs`, `graph-wasm` and the
+   allow-list regex are outside this phase's file envelope, and the finding's own
+   suggested remedies (fix the regex to admit the workspace-path `graph-contract`
+   dependency; wire the missing hashgate/oracle-diff evidence) are exactly the merge-step
+   decision §4/§5 already flagged. Confirmed again, not re-litigated.
+
+5. **MINOR, the determinism audit's completeness section omitted `centrality::
+   eigenvector`.** Fixed: one entry added, same shape as the `betweenness`/`louvain`
+   entries already there (`docs/decisions/petgraph-determinism-audit.md`). No functional
+   defect existed — eigenvector uses only `Vec`s and `CsrDigraph`'s own fixed iteration —
+   so this is a documentation-completeness fix only, no test.
+
+6. **MINOR, no preserved RED transcript for the phase's own original TDD process
+   (the modularity bug).** Verified true: one commit for the whole phase, no failing-test
+   output captured anywhere. The finding itself asks for no retroactive fix ("future
+   phases should capture and keep the literal RED output"), so none is made; this
+   review's own fixes above each keep their observed RED command output instead, which is
+   the practice being asked for.
