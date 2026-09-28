@@ -77,6 +77,18 @@ impl Topology {
 
     /// The parent end of edge `e`: its target when the wire named the child first
     /// (`child_of`), else its source. Only hierarchy edges are read this way.
+    ///
+    /// # Precondition
+    ///
+    /// `e < self.edge_count()`. Unlike the `Option`-returning accessors beside it
+    /// ([`node_index`](Self::node_index), [`edge_index`](Self::edge_index)), this indexes
+    /// the column directly and **panics** on an out-of-range `e` rather than returning
+    /// `None`. The distinction is deliberate: every call site reads `e` out of a CSR row
+    /// or a `0..edge_count()` walk — `self.hierarchy()`, `self.out()`,
+    /// `self.inbound()` — which is valid by construction, so the checked form would only
+    /// add an `expect` saying "this cannot happen" at each of them. An out-of-range index
+    /// is a caller bug, not a runtime condition, and panicking on one beats silently
+    /// reading an adjacent edge's endpoints.
     pub fn parent(&self, e: u32) -> u32 {
         let i = e as usize;
         if self.edges.child_first[i] {
@@ -87,6 +99,11 @@ impl Topology {
     }
 
     /// The child end of edge `e`: the end [`parent`](Self::parent) is not.
+    ///
+    /// # Precondition
+    ///
+    /// `e < self.edge_count()`, exactly as for [`parent`](Self::parent); the same
+    /// reasoning, and the same panic, apply.
     pub fn child(&self, e: u32) -> u32 {
         let i = e as usize;
         if self.edges.child_first[i] {

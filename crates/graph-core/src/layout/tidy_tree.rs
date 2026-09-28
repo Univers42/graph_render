@@ -40,6 +40,7 @@
 
 use super::Geometry;
 use super::hierarchy::Hierarchy;
+use crate::arena::CapacityError;
 use crate::index::Topology;
 use crate::stage::StageError;
 use graph_contract::geometry::{EdgeGeometry, NodeGeometry, Paths};
@@ -67,7 +68,7 @@ pub fn run(topology: &Topology) -> Result<Geometry, StageError> {
     let n = topology.node_count();
     let x = (0..n).map(|v| walk.st.x[v as usize] as f32).collect();
     let y = (0..n).map(|v| walk.st.y[v as usize] as f32).collect();
-    let edges = build_edges(topology, &hierarchy, &walk.st);
+    let edges = build_edges(topology, &hierarchy, &walk.st).map_err(StageError::Capacity)?;
     Ok(Geometry {
         nodes: NodeGeometry::Point { x, y },
         edges,
@@ -77,7 +78,16 @@ pub fn run(topology: &Topology) -> Result<Geometry, StageError> {
 
 /// Every topology edge as a [`EdgeGeometry::Polyline`]: the kept tree edges get the
 /// mid-depth elbow, every other edge is drawn straight.
-fn build_edges(t: &Topology, h: &Hierarchy, st: &walk::State) -> EdgeGeometry {
+///
+/// Refused rather than truncated past `u32::MAX` points (D6): the wire's `offsets` are
+/// `u32`, so a `usize` count beyond `2^32 - 1` would silently wrap to a small number and
+/// describe a completely different set of paths. [`path_offset`] is the one conversion
+/// that does it.
+fn build_edges(
+    t: &Topology,
+    h: &Hierarchy,
+    st: &walk::State,
+) -> Result<EdgeGeometry, CapacityError> {
     let m = t.edge_count();
     let mut kept = vec![false; m as usize];
     for v in 0..t.node_count() {
@@ -96,9 +106,19 @@ fn build_edges(t: &Topology, h: &Hierarchy, st: &walk::State) -> EdgeGeometry {
             let ym = ((st.y[p as usize] + st.y[v as usize]) / 2.0) as f32;
             pts.extend_from_slice(&[px, ym, cx, ym]);
         }
-        offsets.push((pts.len() / 2) as u32);
+        offsets.push(path_offset(pts.len())?);
     }
-    EdgeGeometry::Polyline(Paths { offsets, pts })
+    Ok(EdgeGeometry::Polyline(Paths { offsets, pts }))
+}
+
+/// A `Polyline` CSR offset: `points` scalar `f32`s, so the number of *points* is half
+/// that, and the wire's offset is a `u32` (D6). `points` is always even here — every kept
+/// edge appends four scalars, two points — so the halving is exact; the checked
+/// conversion is what refuses an input too large to describe, never a silent truncation.
+fn path_offset(points: usize) -> Result<u32, CapacityError> {
+    u32::try_from(points / 2).map_err(|_| CapacityError {
+        what: "tidy tree polyline offsets",
+    })
 }
 
 #[cfg(test)]
