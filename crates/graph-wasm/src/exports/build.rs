@@ -1,43 +1,17 @@
-//! The ABI's `extern "C"` surface beyond the retained hash-gate shims
-//! (`docs/contract/wasm-abi.md` is authoritative; `crate::gate_exports` is the shim
-//! module C20 keeps green). Wasm32-only: this is the pointer layer over the
-//! target-independent `alloc`, `handle`, `ingest`, `views`, `seed_ingest` and `errors`
-//! modules (C21) — every one of those is unit-tested natively; only the functions below
-//! need the real target to exist at all.
+//! Graph lifecycle: `gm_build` through a run's geometry tags, plus the two exports that
+//! do not touch a handle at all (`gm_last_error`, `gm_seed_ingest`). Reading a finished
+//! run's column/snapshot data back out is `super::columns` instead (the 300-line split).
 
-#![cfg(target_arch = "wasm32")]
-
+use super::state::{HANDLES, publish};
 use crate::alloc::is_live;
 use crate::errors::{self, Code};
-use crate::handle::{Handle, Handles};
+use crate::handle::Handle;
 use crate::ingest;
 use crate::seed_ingest;
-use crate::views::{self, Column};
+use crate::views;
 use graph_contract::binary::Snapshot;
 use graph_core::index_model;
 use graph_core::registry::LAYOUTS;
-use std::cell::RefCell;
-
-thread_local! {
-    static HANDLES: RefCell<Handles> = RefCell::new(Handles::new());
-    static OUT: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
-}
-
-/// Frames `bytes` as `[len: u32 LE][len bytes]` in the shared out-buffer and returns its
-/// address. The motor owns this buffer; it is valid until the next motor call (C7).
-fn publish(bytes: Vec<u8>) -> u32 {
-    let Ok(len) = u32::try_from(bytes.len()) else {
-        errors::set(Code::AllocFailed);
-        return 0;
-    };
-    OUT.with(|cell| {
-        let mut out = cell.borrow_mut();
-        out.clear();
-        out.extend_from_slice(&len.to_le_bytes());
-        out.extend_from_slice(&bytes);
-        u32::try_from(out.as_ptr() as usize).unwrap_or(0)
-    })
-}
 
 /// Registry-driven layout count (C1). p3's four new rows change this with no ABI change.
 // SAFETY: `no_mangle` exports this symbol under its Rust name; no other symbol in this
@@ -199,97 +173,6 @@ fn with_snapshot(handle: u32, read: impl FnOnce(&Snapshot) -> u32) -> u32 {
         errors::clear();
         read(snapshot)
     })
-}
-
-/// Offset of column `column_id`'s data for `handle`'s last run; `0` if the handle is
-/// invalid, there is no geometry yet, or the id is reserved/inapplicable (C3) — an
-/// ambiguous `0`, resolved by `gm_last_error` (C4).
-// SAFETY: as `gm_layout_count`.
-#[unsafe(no_mangle)]
-pub extern "C" fn gm_column_ptr(handle: u32, column_id: u32) -> u32 {
-    resolve_column(handle, column_id, false)
-}
-
-/// Element count of column `column_id` for `handle`'s last run; never assumes the node
-/// or edge count — a notes column (Phase 3, reserved here) has its own length `k` (C3).
-// SAFETY: as `gm_layout_count`.
-#[unsafe(no_mangle)]
-pub extern "C" fn gm_column_len(handle: u32, column_id: u32) -> u32 {
-    resolve_column(handle, column_id, true)
-}
-
-fn resolve_column(handle: u32, column_id: u32, want_len: bool) -> u32 {
-    HANDLES.with(|handles| {
-        let handles = handles.borrow();
-        let Some(entry) = handles.get(handle) else {
-            errors::set(Code::InvalidHandle);
-            return 0;
-        };
-        let Some(snapshot) = &entry.snapshot else {
-            errors::set(Code::NoGeometryYet);
-            return 0;
-        };
-        errors::clear();
-        let (ptr, len) = match views::column(snapshot, column_id) {
-            Column::Absent => return 0,
-            Column::F32(v) => (v.as_ptr() as usize, v.len()),
-            Column::U32(v) => (v.as_ptr() as usize, v.len()),
-        };
-        u32::try_from(if want_len { len } else { ptr }).unwrap_or(0)
-    })
-}
-
-/// The canonical JSON face of `handle`'s last run, framed UTF-8. Re-validates every
-/// coordinate as finite first (D9, C8): the SDK's column views are writable aliases
-/// directly into this snapshot's buffers, and neither face re-checks on its own.
-// SAFETY: as `gm_layout_count`.
-#[unsafe(no_mangle)]
-pub extern "C" fn gm_snapshot_json(handle: u32) -> u32 {
-    with_valid_snapshot(handle, |snapshot| {
-        graph_contract::canonical_json::to_json(snapshot).into_bytes()
-    })
-}
-
-/// The binary face of `handle`'s last run, framed. Same D9 re-validation as
-/// `gm_snapshot_json`. An extra export beyond the phase's minimum surface, needed so
-/// `harness/wasm-run.mjs`'s hash mode can compare the real-ABI path against the retained
-/// `gm_layout_grid` shim's bytes (C20): both are the binary face, so their hashes are
-/// directly comparable.
-// SAFETY: as `gm_layout_count`.
-#[unsafe(no_mangle)]
-pub extern "C" fn gm_snapshot_bytes(handle: u32) -> u32 {
-    with_valid_snapshot(handle, Snapshot::to_bytes)
-}
-
-fn with_valid_snapshot(handle: u32, encode: impl FnOnce(&Snapshot) -> Vec<u8>) -> u32 {
-    HANDLES.with(|handles| {
-        let handles = handles.borrow();
-        let Some(entry) = handles.get(handle) else {
-            errors::set(Code::InvalidHandle);
-            return 0;
-        };
-        let Some(snapshot) = &entry.snapshot else {
-            errors::set(Code::NoGeometryYet);
-            return 0;
-        };
-        if views::has_non_finite(snapshot) {
-            errors::set(Code::TamperedGeometry);
-            return 0;
-        }
-        errors::clear();
-        publish(encode(snapshot))
-    })
-}
-
-/// Releases `handle`. The id is never reissued (C6); using it again after this always
-/// reads `InvalidHandle`, never the next graph built.
-// SAFETY: as `gm_layout_count`.
-#[unsafe(no_mangle)]
-pub extern "C" fn gm_release(handle: u32) {
-    match HANDLES.with(|handles| handles.borrow_mut().remove(handle)) {
-        Some(_) => errors::clear(),
-        None => errors::set(Code::InvalidHandle),
-    }
 }
 
 /// Why the most recent call returned its failure sentinel; `0` ([`Code::None`]) after a

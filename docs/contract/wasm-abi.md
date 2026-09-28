@@ -1,6 +1,6 @@
 # WASM ABI — the motor's `extern "C"` surface
 
-Status: **authoritative** (Phase 4). Scope: `crates/graph-wasm/src/{exports.rs,alloc.rs,
+Status: **authoritative** (Phase 4). Scope: `crates/graph-wasm/src/{exports/,alloc.rs,
 handle.rs,views.rs,ingest.rs,seed_ingest.rs,errors.rs,lib.rs}`. No wasm-bindgen, no
 wasm-pack anywhere in the tree (`cargo tree -p graph-wasm`, verified — see
 `docs/measurements/phase04-transport.md`). Every export takes and returns plain `u32`
@@ -15,9 +15,9 @@ caller for an application; this document is what it is built against.
    4-way proof (native × wasm32, run × run) stays exactly the green Phase 2/3 check it
    already was — this phase does not touch `crates/graph-cli/src/hashgate.rs`'s `STAGES`
    or the arms it drives. `crates/graph-sdk-js` never calls these.
-2. **The real ABI** (`exports.rs`, wasm32-only), below: `gm_build`/`gm_run`/`gm_release`
-   and everything a caller needs around them. This is what the SDK, and C20's own proof,
-   actually call.
+2. **The real ABI** (`exports/{build,columns,state}.rs`, wasm32-only), below:
+   `gm_build`/`gm_run`/`gm_release` and everything a caller needs around them. This is
+   what the SDK, and C20's own proof, actually call.
 
 ## Exports
 
@@ -230,7 +230,13 @@ Deviations).
   `alloc.rs`/`handle.rs`/`ingest.rs`/`seed_ingest.rs`/`views.rs`, each with its own
   `mod tests` submodule, plus `crates/graph-wasm/src/memory_measure.rs` (new — a
   `#[cfg(test)]`-only unit-test measurement file, not part of the ABI itself; see
-  `docs/measurements/phase04-transport.md`).
+  `docs/measurements/phase04-transport.md`). The real-ABI export surface itself
+  (`exports.rs` in the phase's literal CREATE list) is `exports/{mod.rs,state.rs,
+  build.rs,columns.rs}` — a single-file `exports.rs` measured 312 lines, over the limit;
+  `state.rs` holds the shared handle table and out-buffer, `build.rs` is graph lifecycle
+  through a successful run, `columns.rs` is reading a finished run back out. The split is
+  invisible on the wire: every `#[unsafe(no_mangle)] extern "C"` symbol is a real crate
+  export regardless of which of the three files defines it.
 - `gm_layout_count`, `gm_layout_id`, `gm_last_error`, `gm_edge_geometry_kind`,
   `gm_snapshot_bytes` and `gm_seed_ingest` are exports beyond the phase's literally
   stated minimum surface — each is justified in the export table above.

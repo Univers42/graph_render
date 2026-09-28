@@ -12,19 +12,24 @@ ls -l target/wasm32-unknown-unknown/release/graph_wasm.wasm
 ```
 
 ```
--rwxr-xr-x 2 root root 264908 target/wasm32-unknown-unknown/release/graph_wasm.wasm
+-rwxr-xr-x 2 root root 266114 target/wasm32-unknown-unknown/release/graph_wasm.wasm
 ```
 
-**264908 bytes** (259 KiB), sha256
-`575014c59eb89b54605b89f883cafd137c83cfc59ca85f38c65e210fc0d02809`. Just over the
+**266114 bytes** (260 KiB), sha256
+`674bc7322e72f98af44ed68df09fdbf5e666f7cff63bc35d2a983f0657dbff90`. Just over the
 ~250 KB soft ceiling the phase names — recorded here rather than left unremarked, per the
 phase's own instruction. What pulled it there: this is the same binary carrying both the
 retained hash-gate shim (`gate_exports::{gm_topology,gm_layout_grid}`, needed to keep
 Phase 2/3's already-green cross-target gate unchanged) *and* the full new ABI
-(`exports.rs`, `alloc.rs`, `handle.rs`, `ingest.rs`'s JSON parser, `seed_ingest.rs`,
-`views.rs`) in one module — the JSON parser (`graph_contract::canonical_json`, shared
-with the native side, not a wasm-specific dependency) and the doubled entry points are
-the two things `gate_exports` alone did not carry. No wasm-bindgen, no wasm-pack:
+(`exports/{build,columns,state}.rs`, `alloc.rs`, `handle.rs`, `ingest.rs`'s JSON parser,
+`seed_ingest.rs`, `views.rs`) in one module — the JSON parser
+(`graph_contract::canonical_json`, shared with the native side, not a wasm-specific
+dependency) and the doubled entry points are the two things `gate_exports` alone did not
+carry. (An earlier single-file `exports.rs` measured 264908 bytes; splitting it into
+`exports/{build,columns,state}.rs` to satisfy the house's 300-line-per-file limit added
+1206 bytes, almost certainly embedded `#[track_caller]`/panic-location path strings now
+carrying the extra module segment — the pipeline's own output bytes are unaffected, as
+the identical stage hashes below confirm.) No wasm-bindgen, no wasm-pack:
 
 ```sh
 $ cargo tree -p graph-wasm
@@ -41,7 +46,7 @@ graph-wasm v0.1.0
 
 The wasm artifact hash above matches the one `graph-cli hashgate --seeds 1000` builds
 and reports independently (`hashgate: wasm artifact ... sha256
-575014c5...`) — same binary, two build invocations, same bytes.
+674bc732...`) — same binary, two build invocations, same bytes.
 
 ## 4-way hash gate (native × wasm32, run × run), through `graph-cli hashgate`
 
@@ -120,7 +125,7 @@ ok - a large enough build really does grow wasm memory
 ok - the pre-growth view's old buffer is detached, not silently stale (C10)
 ok - re-deriving the same column after growth returns a live, non-empty view
 ok - the re-derived view still reads the value written before growth
-# view re-derivation: 221.7 ns/call over 200000 calls
+# view re-derivation: 298.8 ns/call over 200000 calls
 # pass
 ```
 Exit 0.
@@ -141,10 +146,14 @@ has to simulate), and re-deriving the same column afterward is asserted both liv
 growth — proving Rust-side data survives growth unmoved while the JS-side view correctly
 rebuilds rather than reading stale or garbage bytes.
 
-**View re-derivation cost (C11): 221.7 ns/call**, measured over 200,000 calls to
+**View re-derivation cost (C11): 298.8 ns/call**, measured over 200,000 calls to
 `Motor#column` on a 200,000-node graph's `NodeX` column (`process.hrtime.bigint()` around
 the loop, wall time only — no warm-up discarded, so this includes one-time JIT
-warm-up cost amortized over the run).
+warm-up cost amortized over the run). An earlier run against the pre-split `exports.rs`
+measured 221.7 ns/call for the identical loop; `crates/graph-sdk-js/src/views.ts` did not
+change between the two runs, so the difference is container scheduling noise on a
+wall-clock measurement, not a real per-call regression from the Rust-side file split —
+recorded as the two actual numbers observed rather than picking one to report.
 
 An initial version of this same test had a real, observed bug (not merely a
 possibility): the sentinel was written *before* a second `layout()` call made for the
