@@ -5,6 +5,7 @@
 //! [`solve`]: solve
 
 mod solve;
+mod solver;
 
 use super::{TOLERANCE, bisect_share, packing_aims, packing_angle};
 use core::f64::consts::PI;

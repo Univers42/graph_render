@@ -198,7 +198,7 @@ trustworthy sign the packing is exact.
 
 `prompt.md` §6's D10 requires per-step kernels to be gathers: element `i` reads only
 start-of-step state and writes only `out[i]`, summing its own terms in a fixed order, with
-no scatter into another element's accumulator. Three of this module's per-step kernels are
+no scatter into another element's accumulator. Four of this module's per-step kernels are
 gathers, and two are not.
 
 **Gather, as of this revision.** `placement::refine_tangency`'s gradient accumulation and
@@ -207,10 +207,30 @@ edge list's own order and then write only their own node's slot; the `v` term is
 negation of the very same product the `u` term is. `fallback::seed::FrField::step` is
 Jacobi for the same reason — every displacement is read from the round's starting
 positions, and only then do the nodes move, as networkx 3.6's vectorised `pos += delta_pos`
-is. Each of the three is pinned against the form it replaced, over seeded random inputs,
-at `to_bits()` equality: `placement::tests::the_gather_is_bit_identical_to_the_scatter_over_seeded_random_cases`,
-`fallback::relax::tests::the_edge_pull_gather_is_bit_identical_to_the_scatter_over_seeded_cases`
-and `fallback::seed::tests::a_step_is_jacobi_so_no_node_sees_another_nodes_move`.
+is.
+
+`radii::angle_sums` is the fourth. It is the per-sweep angle sum of the radius solver, and
+it was a scatter: one loop over the flat corner array, each corner adding into its own
+centre's accumulator. It is now a gather over each vertex's own corners, in **the corner
+array's own order** — which is the order `np.bincount` accumulates in
+(`circle_packing.py:143`, `:162`), because the reference flattens the flowers
+vertex-major, so a vertex's run of the array *is* its own flower in flower order. The
+gather reads only start-of-sweep `radii` and writes only its own vertex's slot, so a
+vertex with no corners stays at exact `+0.0` (a `-0.0` seed would be a different `f64`
+and is caught). Pinned against the scatter over 128 seeded flowers at `to_bits()`
+equality by
+`radii::tests::solver::gather::the_angle_sum_gather_is_bit_identical_to_the_scatter_over_seeded_flowers`,
+and — because a gather that folded the same corners in a different order would also
+match a scatter that did — separately against a deliberately reversed fold by
+`radii::tests::solver::gather::the_corner_order_is_load_bearing_and_the_gather_takes_the_array_order`,
+which *searches* the seed sweep for cases where the two orders actually separate rather
+than assuming they do.
+
+Each of the four is pinned against the form it replaced, over seeded random inputs, at
+`to_bits()` equality: `placement::tests::the_gather_is_bit_identical_to_the_scatter_over_seeded_random_cases`,
+`fallback::relax::tests::the_edge_pull_gather_is_bit_identical_to_the_scatter_over_seeded_cases`,
+`fallback::seed::tests::a_step_is_jacobi_so_no_node_sees_another_nodes_move` and the
+`radii::tests::solver` pair above.
 
 **The exception, and why.** `fallback::relax::overlap_and_repel` stays a pairwise scatter.
 It is the `O(n²)` all-pairs scan — every close pair, visited once, both endpoints updated
@@ -220,6 +240,19 @@ reduction in work. So the result is bit-exact only in this scalar ascending-`(i,
 order, and the function is **not** eligible for the Phase 11 compute tiers, whose entire
 value is bit-identity with the scalar build. `settle_round` is in the same position and is
 left as it is for the same reason.
+
+**A note on the two corner angles, since the sweep changed.** The reference has one
+`_packing_angle` helper (`circle_packing.py:93-105`) which *guards* `denom < 1e-12` and
+returns `pi/3`, and it uses that helper only for placement (`:196`). The per-sweep angles
+at `:160-161` are written inline and *clamp* instead — `np.maximum(2 * a * b, 1e-12)`,
+with no `pi/3` branch. The two differ by up to 2.1 radians wherever the denominator
+underflows, so the port keeps them as two functions: `radii::solver_angle` for the solver
+and `packing_angle` for placement. Conflating them put a `pi/3` in every corner of every
+flower whose radii are small enough to underflow, which is a wrong angle sum and so a
+wrong radius. Note also that the clamp is a fixed floor on the denominator, not a limit
+of the corner formula, so under it a triangle's three angles no longer close to `pi` —
+that is the reference's own behaviour, reproduced rather than corrected, and pinned as
+such by `radii::tests::solver::angle::a_whole_flower_whose_denominators_all_underflow_sums_60_degrees_never`.
 
 **Direction and escape hatch.** A tier that vectorised or reordered these passes would
 change the packing's last bits, never its correctness: the whole path is already flagged

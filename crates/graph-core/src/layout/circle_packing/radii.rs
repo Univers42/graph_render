@@ -1,9 +1,16 @@
-//! Collins–Stephenson's radius solver: the angle at one packed corner
-//! (`_packing_angle`, `circle_packing.py:93-105`), each vertex's target angle sum
-//! (`_packing_aims`, `:107-132`), and the Jacobi sweep that finds radii whose corners
-//! close on those aims (`_solve_packing_radii`, `:132-176`). Exact port, `f64`
-//! throughout; the only approximation is the fixed-point iteration itself, which is
-//! SciGraphs' own algorithm, not a shortcut this port takes.
+//! Collins–Stephenson's radius solver: the angle at one packed corner, each vertex's
+//! target angle sum (`_packing_aims`, `circle_packing.py:107-132`), and the Jacobi sweep
+//! that finds radii whose corners close on those aims (`_solve_packing_radii`,
+//! `:134-177`). Exact port, `f64` throughout; the only approximation is the fixed-point
+//! iteration itself, which is SciGraphs' own algorithm, not a shortcut this port takes.
+//!
+//! **The solver and the placement walk use two different corner angles.** The reference
+//! has one `_packing_angle` helper (`:93-105`) that *guards* `denom < 1e-12` and returns
+//! `pi/3`, and it uses that helper only for placement (`:196`). The per-sweep angles at
+//! `:160-161` are written inline and *clamp* instead — `np.maximum(2 * a * b, 1e-12)`
+//! with no `pi/3` branch. So the solver's angle is [`solver_angle`] and placement keeps
+//! [`packing_angle`]; conflating them puts a wrong angle in every corner of every flower
+//! whose radii are small enough to underflow the denominator.
 
 use core::f64::consts::PI;
 
@@ -19,9 +26,10 @@ pub(super) struct Solved {
 }
 
 /// The angle at the shared corner of three mutually tangent circles of radii `r_i`,
-/// `r_j`, `r_k` (`_packing_angle`, `circle_packing.py:93-105`). Degenerates to `PI / 3`
-/// when the three centres would coincide (denominator underflow), exactly as the
-/// reference does.
+/// `r_j`, `r_k` — `_packing_angle`, `circle_packing.py:93-105`, which the reference uses
+/// for **placement only** (`:196`). Degenerates to `PI / 3` when the three centres would
+/// coincide (denominator underflow), exactly as the reference does. The solver needs
+/// [`solver_angle`] instead.
 pub(super) fn packing_angle(r_i: f64, r_j: f64, r_k: f64) -> f64 {
     let (a, b, c) = (r_i + r_j, r_i + r_k, r_j + r_k);
     let denom = 2.0 * a * b;
@@ -30,6 +38,19 @@ pub(super) fn packing_angle(r_i: f64, r_j: f64, r_k: f64) -> f64 {
     }
     let cos_val = ((a * a + b * b - c * c) / denom).clamp(-1.0, 1.0);
     libm::acos(cos_val)
+}
+
+/// The same corner as [`packing_angle`], but in the form the **radius solver** uses
+/// (`circle_packing.py:160-161`): `denom = np.maximum(2 * a * b, 1e-12)` *clamps* the
+/// denominator and takes the `arccos` of whatever survives, where `_packing_angle`
+/// *guards* it and returns `PI / 3` instead. The two differ by up to 2.1 radians once
+/// `2ab` underflows, and only the placement walk may use the guard — see
+/// `tests/solver/angle.rs::a_collapsed_sweep_sums_the_clamped_angles_and_not_sixty_degrees`,
+/// which pins the kernel against the reference's own formula.
+pub(super) fn solver_angle(r_i: f64, r_j: f64, r_k: f64) -> f64 {
+    let (a, b, c) = (r_i + r_j, r_i + r_k, r_j + r_k);
+    let denom = (2.0 * a * b).max(1e-12);
+    libm::acos(((a * a + b * b - c * c) / denom).clamp(-1.0, 1.0))
 }
 
 /// Every vertex's target angle sum (`_packing_aims`, `circle_packing.py:107-132`): `2*PI`
@@ -99,7 +120,7 @@ pub(super) fn solve_packing_radii(
     let coeffs = Coeffs::build(&corners, aims, &free_mask, n);
     let mut max_error = 0.0;
     for _ in 0..max_sweeps.max(1) {
-        let angle_sum = angle_sums(n, &corners, &radii);
+        let angle_sum = angle_sums(at, &radii);
         max_error = worst_free_error(&angle_sum, aims, &coeffs.free);
         if max_error < TOLERANCE {
             break;
@@ -146,13 +167,28 @@ impl Coeffs {
     }
 }
 
-fn angle_sums(n: usize, corners: &[(u32, u32, u32)], radii: &[f64]) -> Vec<f64> {
-    let mut sums = vec![0.0; n];
-    for &(c, l, r) in corners {
-        let angle = packing_angle(radii[c as usize], radii[l as usize], radii[r as usize]);
-        sums[c as usize] += angle;
-    }
-    sums
+/// Every vertex's corner angles summed into `out[i]` — the gather D10 requires: element
+/// `i` reads only start-of-step `radii` and writes only its own slot, folding its own
+/// corners in the **corner array's** order, which is exactly the order `np.bincount`
+/// accumulates them in (`circle_packing.py:143`, `:162` — the corners are flattened
+/// vertex-major, so a vertex's run of the array is its own flower, in flower order).
+///
+/// This replaces a scatter that walked the flat corner array writing into each centre's
+/// accumulator; it is bit-identical to it, proved over seeded flowers by
+/// `tests/solver/gather.rs::the_angle_sum_gather_is_bit_identical_to_the_scatter_over_seeded_flowers`.
+/// The angle is [`solver_angle`], not [`packing_angle`] — the solver clamps its
+/// denominator where placement guards it.
+fn angle_sums(at: &[Vec<(u32, u32)>], radii: &[f64]) -> Vec<f64> {
+    (0..at.len())
+        .map(|i| {
+            let r_i = radii[i];
+            let mut sum = 0.0;
+            for &(l, r) in &at[i] {
+                sum += solver_angle(r_i, radii[l as usize], radii[r as usize]);
+            }
+            sum
+        })
+        .collect()
 }
 
 fn worst_free_error(angle_sum: &[f64], aims: &[f64], free: &[bool]) -> f64 {
