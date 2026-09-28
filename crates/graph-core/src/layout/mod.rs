@@ -8,7 +8,9 @@ pub mod circle_packing;
 pub mod circular;
 pub mod grid;
 pub mod hierarchy;
+pub mod pivot_mds;
 pub mod planarity;
+pub mod spectral;
 pub mod tidy_tree;
 pub mod treemap;
 
