@@ -1,3 +1,5 @@
+> **Status (2026-09-28):** NOT STARTED (after Phase 9). See docs/reports/STATUS.md.
+
 # Phase 11 — Compute tiers: SIMD, threads, and (only if measured necessary) GPU
 
 **Read `prompt.md` first**, then `docs/decisions/compute-tiers.md` (the ADR this phase implements),

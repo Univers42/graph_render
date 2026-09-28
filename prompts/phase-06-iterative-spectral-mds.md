@@ -1,3 +1,5 @@
+> **Status (2026-09-28):** BUILT on branches p6e (spectral/MDS/eigen) and p6f (Barnes-Hut/FA2) — cores only; wiring, hashgate stages, stress/bench, python oracle image pending. Yifan Hu absent by decision. See docs/reports/STATUS.md.
+
 # Phase 6 — Iterative and spectral layouts. The hard one.
 
 **Read `prompt.md` and `prompts/REFERENCES.md` first.** Phase 5's gate must be green.
