@@ -1,6 +1,6 @@
 //! The small shared pieces that do not belong to either packing path: the `n < 3` special
-//! cases (`circle_packing.py:296-303`), centring and final scaling
-//! (`circle_packing.py:365-371`, `:496-501`), and the cast into [`Geometry`].
+//! cases (`circle_packing.py:295-303`), centring and final scaling
+//! (`circle_packing.py:363-370`, `:515-522`), and the cast into [`Geometry`].
 
 use super::CirclePackingParams;
 use crate::layout::Geometry;
@@ -27,12 +27,12 @@ impl Packed {
     }
 }
 
-/// `n == 0`: nothing to place (`circle_packing.py:296-297`).
+/// `n == 0`: nothing to place (`circle_packing.py:295-296`).
 pub(super) fn empty() -> Packed {
     Packed::empty()
 }
 
-/// `n == 1`: one circle at the origin, radius half the scale (`circle_packing.py:299-300`).
+/// `n == 1`: one circle at the origin, radius half the scale (`circle_packing.py:298-299`).
 pub(super) fn single(scale: f32) -> Packed {
     Packed {
         x: vec![0.0],
@@ -42,7 +42,7 @@ pub(super) fn single(scale: f32) -> Packed {
     }
 }
 
-/// `n == 2`: two tangent circles either side of the origin (`circle_packing.py:302-303`).
+/// `n == 2`: two tangent circles either side of the origin (`circle_packing.py:301-303`).
 pub(super) fn pair(scale: f32) -> Packed {
     let r = f64::from(scale) * 0.25;
     Packed {
@@ -53,7 +53,7 @@ pub(super) fn pair(scale: f32) -> Packed {
     }
 }
 
-/// Centres `positions` on their own mean (`circle_packing.py:365-366`, `:496-497`).
+/// Centres `positions` on their own mean (`circle_packing.py:363-364`, `:515-516`).
 pub(super) fn center(positions: &mut [(f64, f64)]) {
     let n = positions.len() as f64;
     if n == 0.0 {
@@ -71,7 +71,7 @@ pub(super) fn center(positions: &mut [(f64, f64)]) {
 
 /// Scales `positions` and `radii` together so the packing's full extent (its furthest
 /// centre coordinate plus its largest radius) becomes `0.45` of `scale`
-/// (`circle_packing.py:368-371`, `:498-501`); a no-op on a packing too small to measure.
+/// (`circle_packing.py:366-370`, `:518-522`); a no-op on a packing too small to measure.
 pub(super) fn fit_to_scale(positions: &mut [(f64, f64)], radii: &mut [f64], scale: f64) {
     let max_pos = positions
         .iter()
@@ -131,3 +131,6 @@ pub(super) fn to_geometry(packed: Packed) -> Geometry {
         notes,
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -193,3 +193,40 @@ trustworthy sign the packing is exact.
   pack finitely with no `NaN`/`Inf`.
 - `crates/graph-core/src/layout/circle_packing/tests/small.rs`: `n = 0, 1, 2` exact values;
   parameter validation (`scale` must be finite and above `0`).
+
+## D10 exception
+
+`prompt.md` §6's D10 requires per-step kernels to be gathers: element `i` reads only
+start-of-step state and writes only `out[i]`, summing its own terms in a fixed order, with
+no scatter into another element's accumulator. Three of this module's per-step kernels are
+gathers, and two are not.
+
+**Gather, as of this revision.** `placement::refine_tangency`'s gradient accumulation and
+`fallback::relax::edge_pull`'s spring forces each build a per-node incidence list in the
+edge list's own order and then write only their own node's slot; the `v` term is the
+negation of the very same product the `u` term is. `fallback::seed::FrField::step` is
+Jacobi for the same reason — every displacement is read from the round's starting
+positions, and only then do the nodes move, as networkx 3.6's vectorised `pos += delta_pos`
+is. Each of the three is pinned against the form it replaced, over seeded random inputs,
+at `to_bits()` equality: `placement::tests::the_gather_is_bit_identical_to_the_scatter_over_seeded_random_cases`,
+`fallback::relax::tests::the_edge_pull_gather_is_bit_identical_to_the_scatter_over_seeded_cases`
+and `fallback::seed::tests::a_step_is_jacobi_so_no_node_sees_another_nodes_move`.
+
+**The exception, and why.** `fallback::relax::overlap_and_repel` stays a pairwise scatter.
+It is the `O(n²)` all-pairs scan — every close pair, visited once, both endpoints updated
+in place. A gather would need each node's list of close pairs, which is the same `O(n²)`
+enumeration with an `O(n²)`-sized incidence list built and carried to do it, for no
+reduction in work. So the result is bit-exact only in this scalar ascending-`(i, j)`
+order, and the function is **not** eligible for the Phase 11 compute tiers, whose entire
+value is bit-identity with the scalar build. `settle_round` is in the same position and is
+left as it is for the same reason.
+
+**Direction and escape hatch.** A tier that vectorised or reordered these passes would
+change the packing's last bits, never its correctness: the whole path is already flagged
+approximate (note code 3) and its own Ponytail says neither tangency nor non-overlap is
+guaranteed. Nothing downstream can mistake the result for a certified one.
+
+**Ownership.** Phase 9 owns replacing this `O(n²)` fallback — it is the layout's
+asymptotic weak point, not this form. **That replacement must be gather form (D10)**, and
+must be bit-comparing against this scatter on the way in, exactly as the three above are,
+so the change is a measured one rather than a silent reordering.

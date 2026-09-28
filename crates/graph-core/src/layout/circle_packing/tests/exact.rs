@@ -2,7 +2,7 @@
 //! two circles overlap beyond it, and no note is recorded — `docs/decisions/
 //! planarity-fallback.md`'s three exact-path requirements. Tangency is measured against
 //! the *original* graph's edges, not the triangulation's own (`circle_packing.py:
-//! 353-357`: "report against the original graph's edges, not the triangulated ones").
+//! 355-359, :372`: "report against the original graph's edges, not the triangulated ones").
 
 use super::support::{cycle, grid, topology, wheel};
 use crate::layout::circle_packing::run;

@@ -1,6 +1,6 @@
 //! Builds the per-vertex "flower" the radius solver and the placement walk need from a
 //! triangulated embedding: every triangle each vertex sits in, and which vertices sit on
-//! the outer boundary (`circle_packing.py:46-92`, `_planar_triangulation`, the part after
+//! the outer boundary (`circle_packing.py:46-91`, `_planar_triangulation`, the part after
 //! `triangulate_embedding` itself, which [`crate::layout::planarity`] already ports).
 
 use crate::layout::planarity::{Embedding, Faces, faces};
@@ -21,7 +21,7 @@ pub(super) struct Flower {
 /// own boundary), and builds every other face's flower — `None` when tracing does not
 /// close into a disk of triangles (an interior face was not length 3, or there was none):
 /// the same defensive refusal as `_planar_triangulation`'s own
-/// `if not triangles or any(len(f) != 3 ...)` (`circle_packing.py:79-83`), so the caller
+/// `if not triangles or any(len(f) != 3 ...)` (`circle_packing.py:88-89`), so the caller
 /// falls back exactly as SciGraphs does for a graph its planarity test cannot certify.
 pub(super) fn flower(n: u32, embedding: &Embedding, outer: &[u32]) -> Option<Flower> {
     let traced = faces(embedding);
@@ -64,7 +64,7 @@ fn build_flower(n: u32, triangles: &[[u32; 3]], outer: &[u32]) -> Flower {
 }
 
 /// The traced face matching `outer`'s node cycle, in either rotation direction
-/// (`_face_key`, `circle_packing.py:36-42,74-76`): both tracers use the same
+/// (`_face_key`, `circle_packing.py:38-44, :82-85`): both tracers use the same
 /// "predecessor about the shared neighbour" rule, so a match should need no reversal,
 /// but SciGraphs checks both and so does this port.
 fn outer_index(faces: &Faces, outer: &[u32]) -> Option<u32> {
@@ -80,7 +80,7 @@ fn outer_index(faces: &Faces, outer: &[u32]) -> Option<u32> {
 
 /// Canonical rotation of a cyclic node sequence: rotated so its lowest dense index leads,
 /// so two traces of the same cycle compare equal regardless of where each started
-/// (`_face_key`, `circle_packing.py:36-42`).
+/// (`_face_key`, `circle_packing.py:38-44`).
 fn face_key(face: &[u32]) -> Vec<u32> {
     if face.is_empty() {
         return Vec::new();
@@ -95,7 +95,7 @@ fn face_key(face: &[u32]) -> Vec<u32> {
 
 /// Every triangulation edge once, ascending `(min, max)`: the surface
 /// [`super::placement::refine_tangency`] chases, not the graph's own edges
-/// (`circle_packing.py:353-357`: "report against the original graph's edges, not the
+/// (`circle_packing.py:355-359, :372`: "report against the original graph's edges, not the
 /// triangulated ones" is about the *test*, this is the *relaxation*, which explicitly
 /// runs on the triangulation so the chords hold the packing together too).
 pub(super) fn tri_edges(triangles: &[[u32; 3]]) -> Vec<(u32, u32)> {
@@ -109,3 +109,6 @@ pub(super) fn tri_edges(triangles: &[[u32; 3]]) -> Vec<(u32, u32)> {
     pairs.dedup();
     pairs
 }
+
+#[cfg(test)]
+mod tests;

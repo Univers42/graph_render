@@ -1,4 +1,4 @@
-//! `n < 3` (`circle_packing.py:296-303`, exact, no note) and parameter validation.
+//! `n < 3` (`circle_packing.py:295-303`, exact, no note) and parameter validation.
 
 use super::support::topology;
 use crate::layout::circle_packing::{CirclePackingParams, run, run_with};

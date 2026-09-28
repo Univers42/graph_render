@@ -1,6 +1,6 @@
 //! Places every packed circle's centre by walking the triangulation's dual graph
-//! (`_lay_out_packing`, `circle_packing.py:178-224`), then relaxes the walk's rounding
-//! drift back toward exact tangency (`_refine_tangency`, `circle_packing.py:226-260`).
+//! (`_lay_out_packing`, `circle_packing.py:179-241`), then relaxes the walk's rounding
+//! drift back toward exact tangency (`_refine_tangency`, `circle_packing.py:243-279`).
 //! `f64` throughout; positions are plain `(x, y)` pairs, not `complex`, since Rust has no
 //! native complex type worth pulling a dependency in for two fields.
 
@@ -43,7 +43,7 @@ pub(super) fn lay_out_packing(
     (walk.centres, walk.placed)
 }
 
-/// The opening triangle's three centres (`circle_packing.py:189-196`): `a0` at the
+/// The opening triangle's three centres (`circle_packing.py:192-197`): `a0` at the
 /// origin, `b0` tangent along the positive x axis, `c0` at the exact angle the three
 /// radii dictate.
 fn seed_triangle(walk: &mut Walk, radii: &[f64], [a0, b0, c0]: [u32; 3]) {
@@ -58,7 +58,7 @@ fn polar(r: f64, theta: f64) -> (f64, f64) {
 }
 
 /// `w` lies left of `u -> v` in every triangle, so `(u, v) -> w` finds the next circle to
-/// place from any already-placed edge (`half_edge_map`, `circle_packing.py:179-183`). An
+/// place from any already-placed edge (`half_edge_map`, `circle_packing.py:182-188`). An
 /// `IndexMap` keeps this at `O(triangles)` memory — a dense `n * n` table would not.
 fn half_edge_map(triangles: &[[u32; 3]]) -> IndexMap<(u32, u32), u32> {
     let mut map = IndexMap::with_capacity(triangles.len() * 3);
@@ -93,7 +93,7 @@ impl Walk {
         self.placed[v as usize]
     }
 
-    /// Places `c` tangent to already-placed `a` and `b` (`circle_packing.py:198-216`):
+    /// Places `c` tangent to already-placed `a` and `b` (`circle_packing.py:213-231`):
     /// the angle at `a` between `b` and `c`, from the *measured* `a`-`b` distance so
     /// rounding drift never breaks closure. Leaves `c` unplaced when `a` and `b`
     /// coincide (should not happen once seeded from a non-degenerate triangle).
@@ -121,7 +121,7 @@ impl Walk {
 }
 
 /// Gradient descent pulling `edges` back to tangency, damped by the whole step's own
-/// norm so one bad node cannot dominate (`_refine_tangency`, `circle_packing.py:226-260`).
+/// norm so one bad node cannot dominate (`_refine_tangency`, `circle_packing.py:243-279`).
 /// Runs on the triangulation's edges, not the graph's own: chasing the graph's edges
 /// alone would let the packing pull apart along the chords the triangulation added.
 pub(super) fn refine_tangency(
@@ -137,41 +137,97 @@ pub(super) fn refine_tangency(
         .iter()
         .map(|&(u, v)| radii[u as usize] + radii[v as usize])
         .collect();
+    let incidence = incidence_lists(edges, positions.len());
     for _ in 0..iterations {
-        let mut gradients = vec![(0.0, 0.0); positions.len()];
-        let mut worst = 0.0_f64;
-        for (i, &edge) in edges.iter().enumerate() {
-            worst = worst.max(accumulate_step(&positions, &mut gradients, edge, target[i]));
+        let (pulls, worst) = edge_pulls(&positions, edges, &target);
+        if worst < 1e-9 {
+            break;
         }
-        if worst < 1e-9 || !apply_gradients(&mut positions, &gradients) {
+        let gradients = gather_gradients(&pulls, &incidence, edges);
+        if !apply_gradients(&mut positions, &gradients) {
             break;
         }
     }
     positions
 }
 
-/// One edge's pull toward `target`, added into both endpoints' gradient; `0.0` (no pull,
-/// no move) for a pair too close to have a direction, same guard as the placement walk.
-fn accumulate_step(
+/// `incidence[i]`: every index into `edges` incident to node `i`, ascending — the order
+/// the edge loop visited them in, which is the order the gather below must sum them in
+/// to stay bit-identical. A self-loop (which `tri_edges` never emits, but a caller may)
+/// appears twice, so its `+` then `-` on the same node survives the rewrite.
+fn incidence_lists(edges: &[(u32, u32)], n: usize) -> Vec<Vec<usize>> {
+    let mut incidence = vec![Vec::new(); n];
+    for (i, &(u, v)) in edges.iter().enumerate() {
+        incidence[u as usize].push(i);
+        incidence[v as usize].push(i);
+    }
+    incidence
+}
+
+/// Every edge's own pull, from the round's start-of-step positions, in edge order, plus
+/// the worst error among them. `pulls[e]` is the term added into edge `e`'s `u` endpoint
+/// (and negated into its `v`); a pair too close to have a direction contributes nothing,
+/// as the reference's `alive` mask does (`circle_packing.py:255-266`).
+fn edge_pulls(
     positions: &[(f64, f64)],
-    gradients: &mut [(f64, f64)],
-    edge: (u32, u32),
-    target: f64,
-) -> f64 {
+    edges: &[(u32, u32)],
+    target: &[f64],
+) -> (Vec<Option<(f64, f64)>>, f64) {
+    let mut pulls = Vec::with_capacity(edges.len());
+    let mut worst = 0.0_f64;
+    for (i, &edge) in edges.iter().enumerate() {
+        match edge_pull(positions, edge, target[i]) {
+            Some((pull, error)) => {
+                worst = worst.max(error);
+                pulls.push(Some(pull));
+            }
+            None => pulls.push(None),
+        }
+    }
+    (pulls, worst)
+}
+
+/// One edge's pull toward `target` and the error behind it; `None` for a pair too close
+/// to have a direction, the same guard as the placement walk.
+fn edge_pull(positions: &[(f64, f64)], edge: (u32, u32), target: f64) -> Option<((f64, f64), f64)> {
     let (u, v) = edge;
     let (pu, pv) = (positions[u as usize], positions[v as usize]);
     let diff = (pu.0 - pv.0, pu.1 - pv.1);
     let dist = libm::hypot(diff.0, diff.1);
     if dist <= 1e-12 {
-        return 0.0;
+        return None;
     }
     let error = dist - target;
-    let (sx, sy) = (error / dist * diff.0, error / dist * diff.1);
-    gradients[u as usize].0 += sx;
-    gradients[u as usize].1 += sy;
-    gradients[v as usize].0 -= sx;
-    gradients[v as usize].1 -= sy;
-    error.abs()
+    Some(((error / dist * diff.0, error / dist * diff.1), error.abs()))
+}
+
+/// Each node's gradient, summed from its own incident edges in [`incidence_lists`]
+/// order — the gather D10 requires: element `i` reads only start-of-step state and
+/// writes only `out[i]`, and `v`'s term is the negation of the very same product `u`'s
+/// is, so this is bit-identical to the `gradients[u] += / gradients[v] -=` scatter it
+/// replaces (proved bit for bit by `tests::the_gather_is_bit_identical_to_the_scatter_over_seeded_random_cases`).
+fn gather_gradients(
+    pulls: &[Option<(f64, f64)>],
+    incidence: &[Vec<usize>],
+    edges: &[(u32, u32)],
+) -> Vec<(f64, f64)> {
+    let mut gradients = vec![(0.0, 0.0); incidence.len()];
+    for (i, incident) in incidence.iter().enumerate() {
+        let mut gx = 0.0;
+        let mut gy = 0.0;
+        for &e in incident {
+            let Some((sx, sy)) = pulls[e] else { continue };
+            if edges[e].0 as usize == i {
+                gx += sx;
+                gy += sy;
+            } else {
+                gx -= sx;
+                gy -= sy;
+            }
+        }
+        gradients[i] = (gx, gy);
+    }
+    gradients
 }
 
 const LEARNING_RATE: f64 = 0.1;
@@ -190,3 +246,6 @@ fn apply_gradients(positions: &mut [(f64, f64)], gradients: &[(f64, f64)]) -> bo
     }
     true
 }
+
+#[cfg(test)]
+mod tests;

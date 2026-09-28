@@ -1,5 +1,5 @@
 //! Deterministic initial positions for [`super::pack`]'s force pass: a port of
-//! networkx 3.6's dense `_fruchterman_reingold` (`drawing/layout.py:660-711`), seeded by
+//! networkx 3.6's dense `_fruchterman_reingold` (`drawing/layout.py:660-720`), seeded by
 //! a fixed spiral instead of `numpy`'s RNG.
 //!
 //! Ponytail: SciGraphs seeds this fallback with `nx.spring_layout`'s own uniform-random
@@ -55,7 +55,7 @@ struct FrField<'a> {
 
 impl FrField<'_> {
     /// One node's net displacement force from every other node
-    /// (`drawing/layout.py:696-701`): `k^2 / dist^2` repulsion from everyone, `A[i][j] *
+    /// (`drawing/layout.py:697-705`): `k^2 / dist^2` repulsion from everyone, `A[i][j] *
     /// dist / k` attraction along an edge's weight, distance floored at `0.01`.
     fn displacement(&self, pos: &[(f64, f64)], i: usize) -> (f64, f64) {
         let n = self.n as usize;
@@ -75,23 +75,36 @@ impl FrField<'_> {
     }
 
     /// One temperature-capped step for every node, returning the Frobenius norm of the
-    /// whole move (`drawing/layout.py:702-711`).
+    /// whole move (`drawing/layout.py:707-719`).
+    ///
+    /// Jacobi, as the reference is: it computes the whole `delta_pos` matrix from `pos`'s
+    /// starting state and only then evaluates `pos += delta_pos` (`layout.py:711`, `:715`),
+    /// so a node never reads a neighbour's move from the same round. Computing each
+    /// displacement from the live array instead would be Gauss–Seidel, a different
+    /// iteration with a different fixed point and different output — the reduction is in
+    /// the same ascending-`j` order either way (D3), so the only difference is the
+    /// snapshot the terms are read from.
     fn step(&self, pos: &mut [(f64, f64)], t: f64) -> f64 {
+        let start: Vec<(f64, f64)> = pos.to_vec();
+        let mut delta_pos = Vec::with_capacity(start.len());
         let mut moved_sq = 0.0;
-        for i in 0..self.n as usize {
-            let d = self.displacement(pos, i);
+        for i in 0..start.len() {
+            let d = self.displacement(&start, i);
             let len = libm::hypot(d.0, d.1).max(0.01);
             let (dx, dy) = (d.0 * t / len, d.1 * t / len);
-            pos[i].0 += dx;
-            pos[i].1 += dy;
+            delta_pos.push((dx, dy));
             moved_sq += dx * dx + dy * dy;
+        }
+        for (p, &(dx, dy)) in pos.iter_mut().zip(&delta_pos) {
+            p.0 += dx;
+            p.1 += dy;
         }
         libm::sqrt(moved_sq)
     }
 }
 
 /// `(max - min)` over each axis of `pos`, times `0.1` — the reference's own initial
-/// "temperature" (`drawing/layout.py:679-683`).
+/// "temperature" (`drawing/layout.py:685-687`).
 fn initial_temperature(pos: &[(f64, f64)]) -> f64 {
     let (mut min_x, mut max_x, mut min_y, mut max_y) = (f64::MAX, f64::MIN, f64::MAX, f64::MIN);
     for &(x, y) in pos {
@@ -104,10 +117,10 @@ fn initial_temperature(pos: &[(f64, f64)]) -> f64 {
 }
 
 /// Below this per-node average move, the walk has settled (`spring_layout`'s own
-/// `threshold` default, `drawing/layout.py:507`).
+/// `threshold` default, `drawing/layout.py:509, :662`).
 const THRESHOLD: f64 = 1e-4;
 
-/// networkx 3.6's dense `_fruchterman_reingold` (`drawing/layout.py:660-711`), `k = None`
+/// networkx 3.6's dense `_fruchterman_reingold` (`drawing/layout.py:660-720`), `k = None`
 /// so `k = sqrt(1 / n)`, seeded by [`seed_positions`] instead of `seed.rand`.
 pub(super) fn fruchterman_reingold(
     n: u32,
@@ -133,7 +146,7 @@ pub(super) fn fruchterman_reingold(
     pos
 }
 
-/// `rescale_layout` (`drawing/layout.py:1882-1922`): mean-centre, then scale so the
+/// `rescale_layout` (`drawing/layout.py:1882-1924`): mean-centre, then scale so the
 /// largest-magnitude coordinate on either axis becomes `scale`.
 pub(super) fn rescale_to(positions: &mut [(f64, f64)], scale: f64) {
     super::super::geometry::center(positions);
@@ -147,3 +160,6 @@ pub(super) fn rescale_to(positions: &mut [(f64, f64)], scale: f64) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

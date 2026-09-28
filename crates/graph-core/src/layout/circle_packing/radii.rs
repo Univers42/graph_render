@@ -1,13 +1,13 @@
 //! Collins–Stephenson's radius solver: the angle at one packed corner
-//! (`_packing_angle`, `circle_packing.py:93-104`), each vertex's target angle sum
-//! (`_packing_aims`, `:106-130`), and the Jacobi sweep that finds radii whose corners
+//! (`_packing_angle`, `circle_packing.py:93-105`), each vertex's target angle sum
+//! (`_packing_aims`, `:107-132`), and the Jacobi sweep that finds radii whose corners
 //! close on those aims (`_solve_packing_radii`, `:132-176`). Exact port, `f64`
 //! throughout; the only approximation is the fixed-point iteration itself, which is
 //! SciGraphs' own algorithm, not a shortcut this port takes.
 
 use core::f64::consts::PI;
 
-/// Below this angle-sum error a sweep has converged (`circle_packing.py:132`, its own
+/// Below this angle-sum error a sweep has converged (`circle_packing.py:134`, its own
 /// `tolerance=1e-9` default — every caller in SciGraphs uses the default).
 pub(super) const TOLERANCE: f64 = 1e-9;
 
@@ -19,7 +19,7 @@ pub(super) struct Solved {
 }
 
 /// The angle at the shared corner of three mutually tangent circles of radii `r_i`,
-/// `r_j`, `r_k` (`_packing_angle`, `circle_packing.py:93-104`). Degenerates to `PI / 3`
+/// `r_j`, `r_k` (`_packing_angle`, `circle_packing.py:93-105`). Degenerates to `PI / 3`
 /// when the three centres would coincide (denominator underflow), exactly as the
 /// reference does.
 pub(super) fn packing_angle(r_i: f64, r_j: f64, r_k: f64) -> f64 {
@@ -32,7 +32,7 @@ pub(super) fn packing_angle(r_i: f64, r_j: f64, r_k: f64) -> f64 {
     libm::acos(cos_val)
 }
 
-/// Every vertex's target angle sum (`_packing_aims`, `circle_packing.py:106-130`): `2*PI`
+/// Every vertex's target angle sum (`_packing_aims`, `circle_packing.py:107-132`): `2*PI`
 /// inside, and on the boundary a share of `(len(boundary) - 2) * PI` in proportion to
 /// each boundary vertex's triangle count, capped at `PI` and found by 60 rounds of
 /// bisection — discrete Gauss–Bonnet, so the two halves add up exactly.
@@ -55,7 +55,7 @@ pub(super) fn packing_aims(at: &[Vec<(u32, u32)>], boundary: &[u32]) -> Vec<f64>
 }
 
 /// The per-triangle-count multiplier whose capped sum matches `total`, by 60 rounds of
-/// bisection over `[0, PI]` (`circle_packing.py:120-127`: 60 is the reference's own
+/// bisection over `[0, PI]` (`circle_packing.py:121-128`: 60 is the reference's own
 /// fixed round count, not a tolerance this port chose).
 fn bisect_share(counts: &[f64], total: f64) -> f64 {
     let (mut lo, mut hi) = (0.0, PI);
@@ -71,7 +71,7 @@ fn bisect_share(counts: &[f64], total: f64) -> f64 {
     0.5 * (lo + hi)
 }
 
-/// Collins–Stephenson's Jacobi sweep (`_solve_packing_radii`, `circle_packing.py:132-176`):
+/// Collins–Stephenson's Jacobi sweep (`_solve_packing_radii`, `circle_packing.py:134-177`):
 /// each sweep replaces every vertex's flower with a uniform-neighbour flower of the same
 /// angle sum, then rescales so it closes on the vertex's aim. `free` lists which vertices
 /// move; the rest hold radius `1`. Vectorised in SciGraphs (Jacobi, not Gauss-Seidel, so
@@ -163,7 +163,7 @@ fn worst_free_error(angle_sum: &[f64], aims: &[f64], free: &[bool]) -> f64 {
 }
 
 /// One Jacobi sweep: every free vertex's radius replaced by its uniform-neighbour
-/// closure, then the whole array renormalised by its mean (`circle_packing.py:159-176`).
+/// closure, then the whole array renormalised by its mean (`circle_packing.py:168-175`).
 fn sweep(radii: &mut [f64], angle_sum: &[f64], c: &Coeffs) {
     for i in 0..radii.len() {
         if !c.free[i] {
@@ -180,3 +180,6 @@ fn sweep(radii: &mut [f64], angle_sum: &[f64], c: &Coeffs) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -4,6 +4,8 @@
 //! moment it was written, before a line of the module's real code existed.
 
 mod determinism;
+mod edges;
+mod embed;
 mod exact;
 mod fallback;
 mod small;
