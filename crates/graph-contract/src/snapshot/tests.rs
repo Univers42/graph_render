@@ -73,6 +73,23 @@ fn reader_refuses_reserved_fields_and_short_input() {
 }
 
 #[test]
+fn reserved_fields_are_checked_before_the_geometry_tag() {
+    // decode() calls check_reserved (z channel, then padding) before it reads either
+    // geometry tag, so a header wrong in both ways names the reserved field, not the
+    // tag; a reorder that let the tag jump the queue would flip this.
+    let arc_and_z = |b: &mut Vec<u8>| {
+        b[13] = crate::geometry::ARC_TAG;
+        b[14] = 1;
+    };
+    assert_eq!(read(HEADER, arc_and_z), Err(ReservedZChannel(1)));
+    let unknown_and_padding = |b: &mut Vec<u8>| {
+        b[12] = 200;
+        b[15] = 9;
+    };
+    assert_eq!(read(HEADER, unknown_and_padding), Err(NonZeroPadding(9)));
+}
+
+#[test]
 fn every_refusal_message_names_the_value_it_refused() {
     let cases = [
         (

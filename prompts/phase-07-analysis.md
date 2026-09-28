@@ -1,3 +1,5 @@
+> **Status (2026-09-28):** BUILT on branch p7 (79f4701, pre-p3 base) — reviewed + repaired; needs allow-list row fix, depth.rs on hierarchy.rs, column exposure, mutants, report. See docs/reports/STATUS.md.
+
 # Phase 7 — The ANALYSIS stage
 
 **Read `prompt.md` and `prompts/REFERENCES.md` first.** Phase 6's gate must be green.

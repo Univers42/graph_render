@@ -1,3 +1,5 @@
+> **Status (2026-09-28):** BUILT on branch p4 (9389255, pre-p3 base) — reviewed + repaired; needs merge of develop, registry-driven ABI reconciliation, ledger evidence wiring, mutants, report. See docs/reports/STATUS.md.
+
 # Phase 4 — WASM transport and the JS SDK. The motor becomes usable here.
 
 **Read `prompt.md` first**, especially §3.2 (no wasm-bindgen) and §4.1 (two faces). Phase 3's gate must

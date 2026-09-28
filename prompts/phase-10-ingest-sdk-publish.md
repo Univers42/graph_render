@@ -1,3 +1,5 @@
+> **Status (2026-09-28):** NOT STARTED. Replaces p4 provisional ingest JSON. See docs/reports/STATUS.md.
+
 # Phase 10 — The ingest contract, two adapters, and the published SDK
 
 **Read `prompt.md` first**, especially §4.1 (two faces). Phase 9's gate must be green.

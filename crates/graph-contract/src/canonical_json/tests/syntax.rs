@@ -40,6 +40,25 @@ fn every_json_syntax_fault_is_refused_with_its_offset() {
 }
 
 #[test]
+fn nested_objects_are_depth_checked_one_level_at_a_time() {
+    let over = "{\"a\":".repeat(parse::MAX_DEPTH as usize + 2);
+    let fault = match parse::parse(&over) {
+        Err(JsonError::Syntax { at, what }) => (at, what),
+        other => panic!("{over:?}: {other:?}"),
+    };
+    assert_eq!(fault, (5 * (parse::MAX_DEPTH + 1), "nested too deep"));
+    let at_the_limit = format!(
+        "{}1{}",
+        "{\"a\":".repeat(parse::MAX_DEPTH as usize),
+        "}".repeat(parse::MAX_DEPTH as usize)
+    );
+    assert!(
+        parse::parse(&at_the_limit).is_ok(),
+        "MAX_DEPTH nested objects are read"
+    );
+}
+
+#[test]
 fn the_reader_keeps_every_json_value_it_accepts() {
     let value = parse::parse(
         " {\"n\":null,\"t\":true,\"f\":false,\"x\":-0.5E-3,\"s\":\"\\b\\f\\n\\r\\t\\/\\\\\\\"\",\"a\":[[]],\"o\":{}} ",

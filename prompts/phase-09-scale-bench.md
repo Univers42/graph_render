@@ -1,3 +1,5 @@
+> **Status (2026-09-28):** NOT STARTED. Also owns: circle-packing O(n^2) fallback makes hashgate --seeds 1000 ~30 min/arm. See docs/reports/STATUS.md.
+
 # Phase 9 — The SCALE stage, and the benchmarks that justify the whole project
 
 **Read `prompt.md` first.** Phase 8's gate must be green.
