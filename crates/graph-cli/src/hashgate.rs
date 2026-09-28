@@ -16,7 +16,7 @@ mod compare;
 
 use crate::evidence;
 use crate::runner::{build_wasm, file_sha256, node_harness, run_lines, sha256_hex};
-use compare::{Arm, diverged, per_stage};
+use compare::{Arm, Tally, diverged, per_stage};
 use graph_core::{Grid, GridParams, REFERENCE_DEGREE, gate_node_count, run_pipeline, seeded_model};
 use serde_json::json;
 use std::env::VarError;
@@ -191,7 +191,7 @@ fn report(stamp: &evidence::Stamp, control: Option<Knob>, seeds: u32, arms: &[Ar
     }
     let bad = stages.diverged_seeds;
     println!("  4-way equal on {}/{seeds} seeds", seeds - bad);
-    if let Err(err) = record(stamp, control, seeds, (&stages.equal, bad == 0)) {
+    if let Err(err) = record(stamp, control, seeds, &stages) {
         eprintln!("hashgate: not recorded: {err}");
         return ExitCode::from(2);
     }
@@ -228,15 +228,16 @@ fn record(
     stamp: &evidence::Stamp,
     control: Option<Knob>,
     seeds: u32,
-    (equal, pass): (&[u32], bool),
+    tally: &Tally,
 ) -> Result<(), String> {
     let name = control.map_or("hashgate", Knob::record);
     let stages: serde_json::Map<_, _> = STAGES
         .iter()
-        .zip(equal)
+        .zip(&tally.equal)
         .map(|(stage, equal)| ((*stage).to_owned(), json!(equal)))
         .collect();
     let mutation = control.map(Knob::env);
+    let pass = tally.diverged_seeds == 0;
     let body = json!({ "seeds": seeds, "pass": pass, "equal": stages, "mutation": mutation });
     evidence::write(stamp, name, body).map(drop)
 }

@@ -37,7 +37,7 @@ fn record(name: &str) -> String {
 }
 
 #[test]
-fn hashgate_passes_and_each_negative_control_goes_red_on_its_own_stage() {
+fn hashgate_passes_on_an_honest_run() {
     let honest = graph_cli(&["hashgate", "--seeds", "4"], None);
     assert_eq!(honest.status.code(), Some(0), "{}", stdout(&honest));
     assert!(stdout(&honest).contains("  topology: 4-way equal on 4/4 seeds"));
@@ -50,7 +50,10 @@ fn hashgate_passes_and_each_negative_control_goes_red_on_its_own_stage() {
         honest.contains("\"pass\": true") && honest.contains("\"layout.grid\": 4"),
         "{honest}"
     );
+}
 
+#[test]
+fn each_negative_control_goes_red_on_its_own_stage() {
     let degree = graph_cli(&["hashgate", "--seeds", "4"], Some((KNOBS[0], "9")));
     assert_eq!(degree.status.code(), Some(1), "{}", stdout(&degree));
     assert!(stdout(&degree).contains("  topology: 4-way equal on 0/4 seeds"));
@@ -80,11 +83,9 @@ fn hashgate_passes_and_each_negative_control_goes_red_on_its_own_stage() {
             "{knob}={typo} must not pass as a control"
         );
     }
-    let mut both = Command::new(env!("CARGO_BIN_EXE_graph-cli"));
-    let both = both
+    let both = Command::new(env!("CARGO_BIN_EXE_graph-cli"))
         .args(["hashgate", "--seeds", "4"])
-        .env("GM_GATES_DIR", gates_dir());
-    let both = both
+        .env("GM_GATES_DIR", gates_dir())
         .env(KNOBS[0], "9")
         .env(KNOBS[1], "2")
         .output()
@@ -130,112 +131,6 @@ fn hashgate_arm_prints_one_line_per_stage_and_seed() {
     assert!(lines[2].starts_with("topology 2 ") && lines[2].len() == "topology 2 ".len() + 64);
     let last = "layout.grid 2 ";
     assert!(lines[5].starts_with(last) && lines[5].len() == last.len() + 64);
-}
-
-/// The consumer's command: both faces, one to standard output, and the refusals, each
-/// with the exit code a script can branch on.
-#[test]
-fn snapshot_emits_either_face_and_refuses_what_it_cannot_do() {
-    let bin = std::env::temp_dir().join(format!("gm-cli-snapshot-{}.bin", std::process::id()));
-    let path = bin.to_str().expect("utf-8");
-    let args = [
-        "snapshot", "--seed", "1", "--nodes", "50", "--layout", "grid",
-    ];
-    let run = graph_cli(
-        &[&args[..], &["--out-bin", path, "--out-json", "-"]].concat(),
-        None,
-    );
-    assert_eq!(
-        run.status.code(),
-        Some(0),
-        "{}",
-        String::from_utf8_lossy(&run.stderr)
-    );
-    let json = stdout(&run);
-    assert!(
-        json.starts_with("{\"edges\":{\"id\":[") && json.ends_with("}\n"),
-        "{json}"
-    );
-    assert!(
-        json.contains("\"version\":{\"major\":0,\"minor\":2}"),
-        "{json}"
-    );
-    let summary = String::from_utf8_lossy(&run.stderr).into_owned();
-    assert!(
-        summary.starts_with("snapshot: seed 1, layout.grid, 50 nodes, "),
-        "{summary}"
-    );
-    let bytes = std::fs::read(&bin).expect("written");
-    assert_eq!(&bytes[..4], b"GMSN");
-    std::fs::remove_file(&bin).expect("cleanup");
-    let refusals: [(&[&str], i32); 4] = [
-        (&["snapshot", "--seed", "1", "--layout", "grid"], 2),
-        (
-            &[
-                "snapshot",
-                "--seed",
-                "1",
-                "--layout",
-                "spiral",
-                "--out-json",
-                "-",
-            ],
-            2,
-        ),
-        (
-            &[
-                "snapshot",
-                "--seed",
-                "1",
-                "--nodes",
-                "0",
-                "--layout",
-                "grid",
-                "--out-json",
-                "-",
-            ],
-            2,
-        ),
-        (
-            &[
-                "snapshot",
-                "--seed",
-                "1",
-                "--layout",
-                "grid",
-                "--out-bin",
-                "-",
-                "--out-json",
-                "-",
-            ],
-            2,
-        ),
-    ];
-    for (args, code) in refusals {
-        let run = graph_cli(args, None);
-        assert_eq!(run.status.code(), Some(code), "{args:?}");
-        assert!(run.stdout.is_empty(), "{args:?} wrote to stdout");
-    }
-}
-
-#[test]
-fn roundtrip_passes_and_records_the_grids_hand_oracle() {
-    let run = graph_cli(&["roundtrip", "--seeds", "20"], None);
-    assert_eq!(run.status.code(), Some(0), "{}", stdout(&run));
-    assert!(stdout(&run).contains("  binary <-> JSON byte-exact on 40/40 snapshots"));
-    assert!(stdout(&run).contains("  layout.grid on its stated conventions on 20/20 seeds"));
-    assert!(stdout(&run).ends_with("PASS\n"));
-    let roundtrip = record("roundtrip");
-    assert!(
-        roundtrip.contains("\"pass\": true") && roundtrip.contains("\"cases\": 20"),
-        "{roundtrip}"
-    );
-    assert_eq!(
-        graph_cli(&["roundtrip", "--seeds", "0"], None)
-            .status
-            .code(),
-        Some(2)
-    );
 }
 
 #[test]

@@ -1,4 +1,5 @@
 use super::ReadError::*;
+use super::SnapshotError as E;
 use super::*;
 use crate::version::CURRENT_VERSION;
 
@@ -108,10 +109,21 @@ fn every_refusal_message_names_the_value_it_refused() {
     }
 }
 
+/// Asserts each `(error, needle)` case's `Display` contains its needle. Shared by the
+/// `every_snapshot_refusal_*` tests below, split by fault kind to stay under the house
+/// line limit; the cases and assertions together are unchanged from before the split.
+fn assert_refusals_name_their_fault(
+    cases: impl IntoIterator<Item = (SnapshotError, &'static str)>,
+) {
+    for (err, needle) in cases {
+        let message = err.to_string();
+        assert!(message.contains(needle), "{message:?} lacks {needle:?}");
+    }
+}
+
 #[test]
-fn every_snapshot_refusal_names_its_column_and_position() {
-    use SnapshotError as E;
-    let cases = [
+fn every_snapshot_refusal_names_its_column_and_position_for_header_and_length_faults() {
+    assert_refusals_name_their_fault([
         (E::Header(BadMagic), "bad magic"),
         (
             E::Truncated { column: "node.x" },
@@ -129,6 +141,12 @@ fn every_snapshot_refusal_names_its_column_and_position() {
             },
             "edge.pts: 2 values, need 4",
         ),
+    ]);
+}
+
+#[test]
+fn every_snapshot_refusal_names_its_column_and_position_for_value_faults() {
+    assert_refusals_name_their_fault([
         (
             E::NonFinite {
                 column: "node.y",
@@ -161,6 +179,12 @@ fn every_snapshot_refusal_names_its_column_and_position() {
             E::Padding { column: "node.id" },
             "node.id: padding bytes must be 0",
         ),
+    ]);
+}
+
+#[test]
+fn every_snapshot_refusal_names_its_column_and_position_for_id_and_topology_faults() {
+    assert_refusals_name_their_fault([
         (
             E::DuplicateId {
                 column: "node.id",
@@ -180,9 +204,5 @@ fn every_snapshot_refusal_names_its_column_and_position() {
             E::Capacity { column: "edge.id" },
             "edge.id: more than a u32",
         ),
-    ];
-    for (err, needle) in cases {
-        let message = err.to_string();
-        assert!(message.contains(needle), "{message:?} lacks {needle:?}");
-    }
+    ]);
 }
