@@ -9,6 +9,7 @@ pub mod circular;
 pub mod grid;
 pub mod hierarchy;
 pub mod planarity;
+pub mod sugiyama;
 pub mod tidy_tree;
 pub mod treemap;
 

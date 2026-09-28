@@ -1,0 +1,1182 @@
+[
+  {
+    "name": "chain",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "diamond",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "cyclic",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "multi-span",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "wide-layer",
+    "ours": 36,
+    "dagre": 36
+  },
+  {
+    "name": "disconnected",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-0",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-1",
+    "ours": 37,
+    "dagre": 40
+  },
+  {
+    "name": "synthetic-2",
+    "ours": 25,
+    "dagre": 42
+  },
+  {
+    "name": "synthetic-3",
+    "ours": 49,
+    "dagre": 76
+  },
+  {
+    "name": "synthetic-4",
+    "ours": 54,
+    "dagre": 69
+  },
+  {
+    "name": "synthetic-5",
+    "ours": 21,
+    "dagre": 32
+  },
+  {
+    "name": "synthetic-6",
+    "ours": 7,
+    "dagre": 12
+  },
+  {
+    "name": "synthetic-7",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-8",
+    "ours": 1,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-9",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-10",
+    "ours": 8,
+    "dagre": 12
+  },
+  {
+    "name": "synthetic-11",
+    "ours": 5,
+    "dagre": 8
+  },
+  {
+    "name": "synthetic-12",
+    "ours": 0,
+    "dagre": 4
+  },
+  {
+    "name": "synthetic-13",
+    "ours": 44,
+    "dagre": 63
+  },
+  {
+    "name": "synthetic-14",
+    "ours": 2,
+    "dagre": 3
+  },
+  {
+    "name": "synthetic-15",
+    "ours": 3,
+    "dagre": 3
+  },
+  {
+    "name": "synthetic-16",
+    "ours": 25,
+    "dagre": 16
+  },
+  {
+    "name": "synthetic-17",
+    "ours": 36,
+    "dagre": 60
+  },
+  {
+    "name": "synthetic-18",
+    "ours": 0,
+    "dagre": 2
+  },
+  {
+    "name": "synthetic-19",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-20",
+    "ours": 50,
+    "dagre": 99
+  },
+  {
+    "name": "synthetic-21",
+    "ours": 2,
+    "dagre": 3
+  },
+  {
+    "name": "synthetic-22",
+    "ours": 75,
+    "dagre": 70
+  },
+  {
+    "name": "synthetic-23",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-24",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-25",
+    "ours": 13,
+    "dagre": 39
+  },
+  {
+    "name": "synthetic-26",
+    "ours": 3,
+    "dagre": 1
+  },
+  {
+    "name": "synthetic-27",
+    "ours": 4,
+    "dagre": 6
+  },
+  {
+    "name": "synthetic-28",
+    "ours": 2,
+    "dagre": 5
+  },
+  {
+    "name": "synthetic-29",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-30",
+    "ours": 59,
+    "dagre": 73
+  },
+  {
+    "name": "synthetic-31",
+    "ours": 16,
+    "dagre": 17
+  },
+  {
+    "name": "synthetic-32",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-33",
+    "ours": 6,
+    "dagre": 7
+  },
+  {
+    "name": "synthetic-34",
+    "ours": 14,
+    "dagre": 19
+  },
+  {
+    "name": "synthetic-35",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-36",
+    "ours": 125,
+    "dagre": 186
+  },
+  {
+    "name": "synthetic-37",
+    "ours": 11,
+    "dagre": 7
+  },
+  {
+    "name": "synthetic-38",
+    "ours": 24,
+    "dagre": 55
+  },
+  {
+    "name": "synthetic-39",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-40",
+    "ours": 13,
+    "dagre": 40
+  },
+  {
+    "name": "synthetic-41",
+    "ours": 58,
+    "dagre": 95
+  },
+  {
+    "name": "synthetic-42",
+    "ours": 26,
+    "dagre": 34
+  },
+  {
+    "name": "synthetic-43",
+    "ours": 79,
+    "dagre": 131
+  },
+  {
+    "name": "synthetic-44",
+    "ours": 52,
+    "dagre": 71
+  },
+  {
+    "name": "synthetic-45",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-46",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-47",
+    "ours": 24,
+    "dagre": 47
+  },
+  {
+    "name": "synthetic-48",
+    "ours": 54,
+    "dagre": 71
+  },
+  {
+    "name": "synthetic-49",
+    "ours": 1,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-50",
+    "ours": 9,
+    "dagre": 8
+  },
+  {
+    "name": "synthetic-51",
+    "ours": 0,
+    "dagre": 1
+  },
+  {
+    "name": "synthetic-52",
+    "ours": 0,
+    "dagre": 1
+  },
+  {
+    "name": "synthetic-53",
+    "ours": 1,
+    "dagre": 1
+  },
+  {
+    "name": "synthetic-54",
+    "ours": 1,
+    "dagre": 3
+  },
+  {
+    "name": "synthetic-55",
+    "ours": 4,
+    "dagre": 6
+  },
+  {
+    "name": "synthetic-56",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-57",
+    "ours": 51,
+    "dagre": 56
+  },
+  {
+    "name": "synthetic-58",
+    "ours": 2,
+    "dagre": 2
+  },
+  {
+    "name": "synthetic-59",
+    "ours": 1,
+    "dagre": 4
+  },
+  {
+    "name": "synthetic-60",
+    "ours": 2,
+    "dagre": 2
+  },
+  {
+    "name": "synthetic-61",
+    "ours": 6,
+    "dagre": 11
+  },
+  {
+    "name": "synthetic-62",
+    "ours": 25,
+    "dagre": 36
+  },
+  {
+    "name": "synthetic-63",
+    "ours": 1,
+    "dagre": 1
+  },
+  {
+    "name": "synthetic-64",
+    "ours": 62,
+    "dagre": 92
+  },
+  {
+    "name": "synthetic-65",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-66",
+    "ours": 1,
+    "dagre": 1
+  },
+  {
+    "name": "synthetic-67",
+    "ours": 113,
+    "dagre": 206
+  },
+  {
+    "name": "synthetic-68",
+    "ours": 5,
+    "dagre": 8
+  },
+  {
+    "name": "synthetic-69",
+    "ours": 35,
+    "dagre": 74
+  },
+  {
+    "name": "synthetic-70",
+    "ours": 57,
+    "dagre": 53
+  },
+  {
+    "name": "synthetic-71",
+    "ours": 15,
+    "dagre": 28
+  },
+  {
+    "name": "synthetic-72",
+    "ours": 0,
+    "dagre": 1
+  },
+  {
+    "name": "synthetic-73",
+    "ours": 20,
+    "dagre": 29
+  },
+  {
+    "name": "synthetic-74",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-75",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-76",
+    "ours": 4,
+    "dagre": 5
+  },
+  {
+    "name": "synthetic-77",
+    "ours": 2,
+    "dagre": 1
+  },
+  {
+    "name": "synthetic-78",
+    "ours": 0,
+    "dagre": 11
+  },
+  {
+    "name": "synthetic-79",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-80",
+    "ours": 39,
+    "dagre": 85
+  },
+  {
+    "name": "synthetic-81",
+    "ours": 68,
+    "dagre": 130
+  },
+  {
+    "name": "synthetic-82",
+    "ours": 8,
+    "dagre": 28
+  },
+  {
+    "name": "synthetic-83",
+    "ours": 50,
+    "dagre": 52
+  },
+  {
+    "name": "synthetic-84",
+    "ours": 2,
+    "dagre": 6
+  },
+  {
+    "name": "synthetic-85",
+    "ours": 8,
+    "dagre": 11
+  },
+  {
+    "name": "synthetic-86",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-87",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-88",
+    "ours": 69,
+    "dagre": 81
+  },
+  {
+    "name": "synthetic-89",
+    "ours": 151,
+    "dagre": 194
+  },
+  {
+    "name": "synthetic-90",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-91",
+    "ours": 19,
+    "dagre": 42
+  },
+  {
+    "name": "synthetic-92",
+    "ours": 10,
+    "dagre": 10
+  },
+  {
+    "name": "synthetic-93",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-94",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-95",
+    "ours": 14,
+    "dagre": 21
+  },
+  {
+    "name": "synthetic-96",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-97",
+    "ours": 12,
+    "dagre": 24
+  },
+  {
+    "name": "synthetic-98",
+    "ours": 14,
+    "dagre": 20
+  },
+  {
+    "name": "synthetic-99",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-100",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-101",
+    "ours": 1,
+    "dagre": 1
+  },
+  {
+    "name": "synthetic-102",
+    "ours": 21,
+    "dagre": 61
+  },
+  {
+    "name": "synthetic-103",
+    "ours": 2,
+    "dagre": 5
+  },
+  {
+    "name": "synthetic-104",
+    "ours": 161,
+    "dagre": 218
+  },
+  {
+    "name": "synthetic-105",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-106",
+    "ours": 0,
+    "dagre": 1
+  },
+  {
+    "name": "synthetic-107",
+    "ours": 159,
+    "dagre": 199
+  },
+  {
+    "name": "synthetic-108",
+    "ours": 0,
+    "dagre": 4
+  },
+  {
+    "name": "synthetic-109",
+    "ours": 71,
+    "dagre": 105
+  },
+  {
+    "name": "synthetic-110",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-111",
+    "ours": 155,
+    "dagre": 170
+  },
+  {
+    "name": "synthetic-112",
+    "ours": 9,
+    "dagre": 13
+  },
+  {
+    "name": "synthetic-113",
+    "ours": 40,
+    "dagre": 71
+  },
+  {
+    "name": "synthetic-114",
+    "ours": 7,
+    "dagre": 10
+  },
+  {
+    "name": "synthetic-115",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-116",
+    "ours": 145,
+    "dagre": 163
+  },
+  {
+    "name": "synthetic-117",
+    "ours": 0,
+    "dagre": 2
+  },
+  {
+    "name": "synthetic-118",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-119",
+    "ours": 68,
+    "dagre": 139
+  },
+  {
+    "name": "synthetic-120",
+    "ours": 98,
+    "dagre": 168
+  },
+  {
+    "name": "synthetic-121",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-122",
+    "ours": 37,
+    "dagre": 43
+  },
+  {
+    "name": "synthetic-123",
+    "ours": 61,
+    "dagre": 72
+  },
+  {
+    "name": "synthetic-124",
+    "ours": 35,
+    "dagre": 51
+  },
+  {
+    "name": "synthetic-125",
+    "ours": 86,
+    "dagre": 150
+  },
+  {
+    "name": "synthetic-126",
+    "ours": 10,
+    "dagre": 12
+  },
+  {
+    "name": "synthetic-127",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-128",
+    "ours": 3,
+    "dagre": 6
+  },
+  {
+    "name": "synthetic-129",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-130",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-131",
+    "ours": 2,
+    "dagre": 2
+  },
+  {
+    "name": "synthetic-132",
+    "ours": 3,
+    "dagre": 3
+  },
+  {
+    "name": "synthetic-133",
+    "ours": 13,
+    "dagre": 21
+  },
+  {
+    "name": "synthetic-134",
+    "ours": 2,
+    "dagre": 13
+  },
+  {
+    "name": "synthetic-135",
+    "ours": 1,
+    "dagre": 1
+  },
+  {
+    "name": "synthetic-136",
+    "ours": 3,
+    "dagre": 4
+  },
+  {
+    "name": "synthetic-137",
+    "ours": 81,
+    "dagre": 117
+  },
+  {
+    "name": "synthetic-138",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-139",
+    "ours": 5,
+    "dagre": 14
+  },
+  {
+    "name": "synthetic-140",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-141",
+    "ours": 37,
+    "dagre": 56
+  },
+  {
+    "name": "synthetic-142",
+    "ours": 20,
+    "dagre": 41
+  },
+  {
+    "name": "synthetic-143",
+    "ours": 44,
+    "dagre": 73
+  },
+  {
+    "name": "synthetic-144",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-145",
+    "ours": 8,
+    "dagre": 13
+  },
+  {
+    "name": "synthetic-146",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-147",
+    "ours": 1,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-148",
+    "ours": 15,
+    "dagre": 24
+  },
+  {
+    "name": "synthetic-149",
+    "ours": 1,
+    "dagre": 2
+  },
+  {
+    "name": "synthetic-150",
+    "ours": 45,
+    "dagre": 76
+  },
+  {
+    "name": "synthetic-151",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-152",
+    "ours": 2,
+    "dagre": 3
+  },
+  {
+    "name": "synthetic-153",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-154",
+    "ours": 1,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-155",
+    "ours": 2,
+    "dagre": 4
+  },
+  {
+    "name": "synthetic-156",
+    "ours": 3,
+    "dagre": 3
+  },
+  {
+    "name": "synthetic-157",
+    "ours": 1,
+    "dagre": 1
+  },
+  {
+    "name": "synthetic-158",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-159",
+    "ours": 2,
+    "dagre": 5
+  },
+  {
+    "name": "synthetic-160",
+    "ours": 129,
+    "dagre": 160
+  },
+  {
+    "name": "synthetic-161",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-162",
+    "ours": 61,
+    "dagre": 81
+  },
+  {
+    "name": "synthetic-163",
+    "ours": 7,
+    "dagre": 7
+  },
+  {
+    "name": "synthetic-164",
+    "ours": 1,
+    "dagre": 1
+  },
+  {
+    "name": "synthetic-165",
+    "ours": 24,
+    "dagre": 37
+  },
+  {
+    "name": "synthetic-166",
+    "ours": 32,
+    "dagre": 50
+  },
+  {
+    "name": "synthetic-167",
+    "ours": 159,
+    "dagre": 188
+  },
+  {
+    "name": "synthetic-168",
+    "ours": 1,
+    "dagre": 1
+  },
+  {
+    "name": "synthetic-169",
+    "ours": 2,
+    "dagre": 1
+  },
+  {
+    "name": "synthetic-170",
+    "ours": 67,
+    "dagre": 114
+  },
+  {
+    "name": "synthetic-171",
+    "ours": 10,
+    "dagre": 23
+  },
+  {
+    "name": "synthetic-172",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-173",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-174",
+    "ours": 21,
+    "dagre": 24
+  },
+  {
+    "name": "synthetic-175",
+    "ours": 9,
+    "dagre": 17
+  },
+  {
+    "name": "synthetic-176",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-177",
+    "ours": 45,
+    "dagre": 58
+  },
+  {
+    "name": "synthetic-178",
+    "ours": 86,
+    "dagre": 132
+  },
+  {
+    "name": "synthetic-179",
+    "ours": 50,
+    "dagre": 57
+  },
+  {
+    "name": "synthetic-180",
+    "ours": 82,
+    "dagre": 129
+  },
+  {
+    "name": "synthetic-181",
+    "ours": 3,
+    "dagre": 8
+  },
+  {
+    "name": "synthetic-182",
+    "ours": 132,
+    "dagre": 186
+  },
+  {
+    "name": "synthetic-183",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-184",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-185",
+    "ours": 53,
+    "dagre": 81
+  },
+  {
+    "name": "synthetic-186",
+    "ours": 26,
+    "dagre": 36
+  },
+  {
+    "name": "synthetic-187",
+    "ours": 47,
+    "dagre": 75
+  },
+  {
+    "name": "synthetic-188",
+    "ours": 15,
+    "dagre": 21
+  },
+  {
+    "name": "synthetic-189",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-190",
+    "ours": 6,
+    "dagre": 12
+  },
+  {
+    "name": "synthetic-191",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-192",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-193",
+    "ours": 9,
+    "dagre": 32
+  },
+  {
+    "name": "synthetic-194",
+    "ours": 37,
+    "dagre": 67
+  },
+  {
+    "name": "synthetic-195",
+    "ours": 46,
+    "dagre": 85
+  },
+  {
+    "name": "synthetic-196",
+    "ours": 36,
+    "dagre": 42
+  },
+  {
+    "name": "synthetic-197",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-198",
+    "ours": 149,
+    "dagre": 229
+  },
+  {
+    "name": "synthetic-199",
+    "ours": 93,
+    "dagre": 149
+  },
+  {
+    "name": "synthetic-200",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-201",
+    "ours": 1,
+    "dagre": 7
+  },
+  {
+    "name": "synthetic-202",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-203",
+    "ours": 98,
+    "dagre": 111
+  },
+  {
+    "name": "synthetic-204",
+    "ours": 16,
+    "dagre": 17
+  },
+  {
+    "name": "synthetic-205",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-206",
+    "ours": 35,
+    "dagre": 43
+  },
+  {
+    "name": "synthetic-207",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-208",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-209",
+    "ours": 1,
+    "dagre": 1
+  },
+  {
+    "name": "synthetic-210",
+    "ours": 67,
+    "dagre": 112
+  },
+  {
+    "name": "synthetic-211",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-212",
+    "ours": 13,
+    "dagre": 11
+  },
+  {
+    "name": "synthetic-213",
+    "ours": 6,
+    "dagre": 6
+  },
+  {
+    "name": "synthetic-214",
+    "ours": 2,
+    "dagre": 2
+  },
+  {
+    "name": "synthetic-215",
+    "ours": 2,
+    "dagre": 3
+  },
+  {
+    "name": "synthetic-216",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-217",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-218",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-219",
+    "ours": 1,
+    "dagre": 1
+  },
+  {
+    "name": "synthetic-220",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-221",
+    "ours": 7,
+    "dagre": 16
+  },
+  {
+    "name": "synthetic-222",
+    "ours": 3,
+    "dagre": 3
+  },
+  {
+    "name": "synthetic-223",
+    "ours": 28,
+    "dagre": 46
+  },
+  {
+    "name": "synthetic-224",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-225",
+    "ours": 0,
+    "dagre": 0
+  },
+  {
+    "name": "synthetic-226",
+    "ours": 9,
+    "dagre": 13
+  },
+  {
+    "name": "synthetic-227",
+    "ours": 38,
+    "dagre": 25
+  },
+  {
+    "name": "synthetic-228",
+    "ours": 67,
+    "dagre": 91
+  },
+  {
+    "name": "synthetic-229",
+    "ours": 4,
+    "dagre": 7
+  }
+]

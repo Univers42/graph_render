@@ -1,0 +1,31 @@
+{
+  "about": "Complete bipartite K4,4: four sources s1-s4, all layer 0, each connected to all four sinks t1-t4, all layer 1. Sixteen edges, one wide layer each side, real crossing-reduction work for median+transpose (no order is crossing-free).",
+  "nodes": [
+    { "id": "s1" },
+    { "id": "s2" },
+    { "id": "s3" },
+    { "id": "s4" },
+    { "id": "t1" },
+    { "id": "t2" },
+    { "id": "t3" },
+    { "id": "t4" }
+  ],
+  "edges": [
+    { "id": "s1t1", "source": "s1", "target": "t1" },
+    { "id": "s1t2", "source": "s1", "target": "t2" },
+    { "id": "s1t3", "source": "s1", "target": "t3" },
+    { "id": "s1t4", "source": "s1", "target": "t4" },
+    { "id": "s2t1", "source": "s2", "target": "t1" },
+    { "id": "s2t2", "source": "s2", "target": "t2" },
+    { "id": "s2t3", "source": "s2", "target": "t3" },
+    { "id": "s2t4", "source": "s2", "target": "t4" },
+    { "id": "s3t1", "source": "s3", "target": "t1" },
+    { "id": "s3t2", "source": "s3", "target": "t2" },
+    { "id": "s3t3", "source": "s3", "target": "t3" },
+    { "id": "s3t4", "source": "s3", "target": "t4" },
+    { "id": "s4t1", "source": "s4", "target": "t1" },
+    { "id": "s4t2", "source": "s4", "target": "t2" },
+    { "id": "s4t3", "source": "s4", "target": "t3" },
+    { "id": "s4t4", "source": "s4", "target": "t4" }
+  ]
+}

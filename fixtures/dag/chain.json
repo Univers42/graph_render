@@ -1,0 +1,16 @@
+{
+  "about": "A plain 5-node path, a->b->c->d->e: every span is 1, no dummy vertex, no crossing possible. The trivial case every stage must leave untouched.",
+  "nodes": [
+    { "id": "a" },
+    { "id": "b" },
+    { "id": "c" },
+    { "id": "d" },
+    { "id": "e" }
+  ],
+  "edges": [
+    { "id": "ab", "source": "a", "target": "b" },
+    { "id": "bc", "source": "b", "target": "c" },
+    { "id": "cd", "source": "c", "target": "d" },
+    { "id": "de", "source": "d", "target": "e" }
+  ]
+}
