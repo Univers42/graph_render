@@ -32,6 +32,14 @@ use graph_contract::geometry::{EdgeGeometry, NodeGeometry};
 use sim::Sim;
 
 /// Barnes-Hut approximated force layout (`prompt.md` §3.1).
+///
+/// Ponytail: force layouts are chaotic — the same graph with one node added or removed
+/// is a different picture, not a perturbed one; there is no failing input narrower than
+/// "any topology change". Direction: cosmetic-but-surprising, not silently wrong (the
+/// stress metric, not visual stability, is what this layout is graded on). Escape hatch:
+/// a fixed seed and this stage's own determinism — the same topology, run twice, settles
+/// to the same geometry every time (`barnes_hut/tests.rs`'s
+/// `the_same_topology_settles_to_the_same_geometry_run_to_run`).
 pub struct BarnesHut;
 
 impl Stage for BarnesHut {

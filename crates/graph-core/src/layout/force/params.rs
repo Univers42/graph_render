@@ -28,6 +28,14 @@ pub struct ForceParams {
     /// Many-body (Barnes-Hut) repulsion strength, the same scalar for every node.
     pub charge_strength: f64,
     /// Barnes-Hut opening angle.
+    ///
+    /// Ponytail: trades accuracy for speed. Failing input: two dense, well-separated
+    /// clusters whose combined bounding box is small relative to their distance from a
+    /// far node — the opening-angle test then treats a whole cluster as one point mass
+    /// too eagerly. Direction: over-clumping (distant structure visibly collapses
+    /// together), not under-reporting. Escape hatch: `theta` is a fixed engine constant
+    /// here, not a per-call knob; a future override would trade the speed back for
+    /// accuracy (`phase-06-iterative-spectral-mds.md`'s Ponytail requirements).
     pub theta: f64,
     /// Many-body: force is not computed for two points closer than this.
     pub distance_min: f64,

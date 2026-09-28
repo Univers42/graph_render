@@ -1,10 +1,10 @@
 //! The dense simulation state, ported field-for-field from networkx 3.6's
-//! `forceatlas2_layout` (`/home/user/refs/networkx-3.6/networkx/drawing/layout.py:1900-
-//! 1875`), scoped to its default configuration: `linlog=False`, `distributed_action=
-//! False`, `strong_gravity=False`, `adjust_sizes=False`, `dim=2`, `weight=None` (every
-//! edge weight 1). `swing`/`traction` are carried **cumulatively across iterations**,
-//! never reset inside the loop — that looks like a quirk, but it is what the reference
-//! implementation actually does, and this is a port, not a rewrite.
+//! `forceatlas2_layout` (`/home/user/refs/networkx-3.6/networkx/drawing/layout.py:1604-
+//! 1875`, the whole function), scoped to its default configuration: `linlog=False`,
+//! `distributed_action=False`, `strong_gravity=False`, `adjust_sizes=False`, `dim=2`,
+//! `weight=None` (every edge weight 1). `swing`/`traction` are carried **cumulatively
+//! across iterations**, never reset inside the loop — that looks like a quirk, but it is
+//! what the reference implementation actually does, and this is a port, not a rewrite.
 
 use crate::index::Topology;
 use crate::layout::force::{SimpleGraph, simple_graph};

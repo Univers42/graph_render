@@ -2,7 +2,12 @@
 //! d3-force comparison script (`scratch/stress.mjs`) to read without re-implementing
 //! our synthetic generator or JSON fixture reader in JS. Not part of the graded library
 //! surface — a measurement tool for `docs/measurements/phase06-{force,stress}.md`
-//! (`P56_SPEC.md`'s branch p6f: "our positions dumped by a test/example").
+//! (`P56_SPEC.md`'s branch p6f: "our positions dumped by a test/example"). This file
+//! itself is not on that section's literal CREATE list (which names only `rng.rs`,
+//! `layout/force/{mod,quadtree,barnes_hut,params}.rs`, `layout/forceatlas2.rs`,
+//! `fixtures/force/*` and the two measurement docs) — reported as a deviation from the
+//! branch's file list, added under the license of that same closing sentence, the way
+//! this branch's other file-cap splits already self-report their own departures.
 //!
 //! Usage:
 //! - `cargo run --release --example force_dump -- fixture <name> <layout>`

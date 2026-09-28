@@ -21,6 +21,11 @@ use state::Fa2State;
 /// ForceAtlas2 layout (`prompt.md` §3.1): a dense, O(n²)-per-iteration alternative to
 /// [`super::force::BarnesHut`] for the graph sizes it stays practical at — see
 /// `docs/measurements/phase06-force.md` for the measured ceiling.
+///
+/// Ponytail: force layouts are chaotic — the same graph with one node added or removed
+/// is a different picture, not a perturbed one (`phase-06-iterative-spectral-mds.md`'s
+/// Ponytail requirements; see [`super::force::BarnesHut`]'s own marker for the full
+/// direction/escape-hatch statement, identical here).
 pub struct ForceAtlas2;
 
 impl Stage for ForceAtlas2 {
