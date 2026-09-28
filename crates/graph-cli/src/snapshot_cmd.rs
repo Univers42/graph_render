@@ -140,7 +140,7 @@ pub fn roundtrip(seeds: u32) -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    let pass = found.faces.is_empty() && found.grid.is_empty();
+    let pass = all_clear(&found);
     print_findings(seeds, &found);
     let grid = json!({ "cases": seeds, "declared": 0, "unexplained": found.grid.len() });
     let body = json!({
@@ -174,15 +174,37 @@ fn sweep(seeds: u32) -> Result<Findings, String> {
     Ok(found)
 }
 
+/// Both checks clean: the only way `roundtrip` passes.
+fn all_clear(found: &Findings) -> bool {
+    found.faces.is_empty() && found.grid.is_empty()
+}
+
 fn print_findings(seeds: u32, found: &Findings) {
+    let mut text = String::new();
+    write_findings(&mut text, seeds, found);
+    print!("{text}");
+}
+
+/// `print_findings`'s text, built in memory so the counts it reports can be checked.
+fn write_findings(out: &mut String, seeds: u32, found: &Findings) {
+    use std::fmt::Write as _;
     let snapshots = 2 * u64::from(seeds);
-    println!("roundtrip: seeds={seeds} snapshots={snapshots} (grid pipeline + contract exercise)");
+    let _ = writeln!(
+        out,
+        "roundtrip: seeds={seeds} snapshots={snapshots} (grid pipeline + contract exercise)"
+    );
     let faces_ok = snapshots - found.faces.len() as u64;
-    println!("  binary <-> JSON byte-exact on {faces_ok}/{snapshots} snapshots");
+    let _ = writeln!(
+        out,
+        "  binary <-> JSON byte-exact on {faces_ok}/{snapshots} snapshots"
+    );
     let grid_ok = u64::from(seeds) - found.grid.len() as u64;
-    println!("  layout.grid on its stated conventions on {grid_ok}/{seeds} seeds");
+    let _ = writeln!(
+        out,
+        "  layout.grid on its stated conventions on {grid_ok}/{seeds} seeds"
+    );
     for line in found.faces.iter().chain(&found.grid).take(6) {
-        println!("  FAILED {line}");
+        let _ = writeln!(out, "  FAILED {line}");
     }
 }
 

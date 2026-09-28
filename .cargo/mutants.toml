@@ -32,4 +32,26 @@ exclude_re = [
     # `synthetic::tests::no_draw_a_synthetic_model_can_reach_is_exactly_one_half`). `<`
     # and `<=` therefore choose the same branch for every model the oracle can build.
     "replace < with <= in synthetic_(node|edges)",
+    # Arid: the guard only refuses a table once `offsets` (a Vec<u32>) already holds
+    # more than u32::MAX entries — reaching that needs ~4.3 billion pushed strings,
+    # over 16 GiB just for the offsets vector, which no test can allocate or iterate
+    # inside a normal test run (or the mutants timeout).
+    "match guard .* in StringTable::from_strs",
+    # Equivalent: deleting the explicit low-surrogate arm only lets 0xDC00..=0xDFFF
+    # fall through to `_ => unit`; `char::from_u32` already rejects every surrogate
+    # scalar (high or low), so both paths return the identical
+    # `Err(fault("an unpaired surrogate"))`.
+    "delete match arm 0xDC00\\.\\.= 0xDFFF in Parser",
+    # Equivalent: `to_bytes`/`from_bytes` and `to_json`/`from_json` are proven
+    # exhaustively inverse elsewhere (graph-contract's `every_kind` fixtures and the
+    # f32-sweep `f32_display_is_the_shortest_decimal_...` test), so no `Snapshot`
+    # buildable through the public API can fail any check `faces_agree` runs; the
+    # mutant computes the same `Ok(())` as the original on every reachable input.
+    "replace faces_agree -> Result<\\(\\), String> with Ok\\(\\(\\)\\)",
+    # Equivalent: `check_finite` refuses NaN/Inf before a `Snapshot` can exist, and
+    # every finite f32's shortest round-trip `Display` recovers exactly through an
+    # f64 widen then narrow (the same graph-contract f32-sweep test), so this
+    # function's `Err` branch is unreachable for any value the public API can
+    # produce.
+    "replace floats_survive_f64 -> Result<\\(\\), String> with Ok\\(\\(\\)\\)",
 ]
