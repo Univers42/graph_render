@@ -155,57 +155,63 @@ pub fn registry() -> Vec<Capability> {
 }
 
 /// The two Phase 4 transport rows: the wasm ABI's columnar handle/build/run/column
-/// surface, and the JS SDK that wraps it.
+/// surface, and the JS SDK that wraps it. Split one row per function (house limit;
+/// mirrors `layout`'s one-row-per-call shape below) rather than building both in one.
 fn transport() -> [Capability; 2] {
-    [
-        Capability {
-            id: "transport.wasm.columnar",
-            tier: 1,
-            stage: "transport",
-            geometry: None,
-            status: Status::Implemented,
-            oracle: "harness/wasm-run.mjs hash mode: gm_seed_ingest -> gm_alloc -> gm_build -> \
+    [transport_wasm_columnar(), transport_sdk_js()]
+}
+
+fn transport_wasm_columnar() -> Capability {
+    Capability {
+        id: "transport.wasm.columnar",
+        tier: 1,
+        stage: "transport",
+        geometry: None,
+        status: Status::Implemented,
+        oracle: "harness/wasm-run.mjs hash mode: gm_seed_ingest -> gm_alloc -> gm_build -> \
 gm_run -> gm_snapshot_bytes, compared byte for byte against the retained gm_layout_grid shim \
 (the same pipeline through the old hash-gate-only exports)",
-            oracle_record: "wasm-run-hash",
-            functions: &[
-                "gm_build",
-                "gm_run",
-                "gm_column_ptr",
-                "gm_column_len",
-                "gm_snapshot_bytes",
-            ],
-            hash_stage: "transport.wasm.columnar",
-            oracle_diff: String::new(),
-            hash_4way: String::new(),
-            scale_ceiling: TRANSPORT_CEILING,
-            degradation: TRANSPORT_DEGRADES,
-            ponytail: "Ponytail (scale_ceiling): measured natively (crates/graph-wasm/src/\
+        oracle_record: "wasm-run-hash",
+        functions: &[
+            "gm_build",
+            "gm_run",
+            "gm_column_ptr",
+            "gm_column_len",
+            "gm_snapshot_bytes",
+        ],
+        hash_stage: "transport.wasm.columnar",
+        oracle_diff: String::new(),
+        hash_4way: String::new(),
+        scale_ceiling: TRANSPORT_CEILING,
+        degradation: TRANSPORT_DEGRADES,
+        ponytail: "Ponytail (scale_ceiling): measured natively (crates/graph-wasm/src/\
 memory_measure.rs) and projected onto wasm32's 4 GiB, not re-measured on the wasm32 target \
 itself. Escape hatch: none this phase — Phase 10 owns the real ingest contract and may cost \
 differently",
-            complexity: "O(n + m) in the ingest JSON's size",
-        },
-        Capability {
-            id: "sdk.js",
-            tier: 1,
-            stage: "sdk",
-            geometry: None,
-            status: Status::Implemented,
-            oracle: "harness/sdk-smoke.mjs: a third party importing only crates/graph-sdk-js's \
+        complexity: "O(n + m) in the ingest JSON's size",
+    }
+}
+
+fn transport_sdk_js() -> Capability {
+    Capability {
+        id: "sdk.js",
+        tier: 1,
+        stage: "sdk",
+        geometry: None,
+        status: Status::Implemented,
+        oracle: "harness/sdk-smoke.mjs: a third party importing only crates/graph-sdk-js's \
 published entry point, never the raw wasm exports",
-            oracle_record: "sdk-smoke",
-            functions: &["createMotor", "build", "layout", "release"],
-            hash_stage: "sdk.js",
-            oracle_diff: String::new(),
-            hash_4way: String::new(),
-            scale_ceiling: TRANSPORT_CEILING,
-            degradation: SDK_DEGRADES,
-            ponytail: "Ponytail (scale_ceiling): not independently measured — see \
+        oracle_record: "sdk-smoke",
+        functions: &["createMotor", "build", "layout", "release"],
+        hash_stage: "sdk.js",
+        oracle_diff: String::new(),
+        hash_4way: String::new(),
+        scale_ceiling: TRANSPORT_CEILING,
+        degradation: SDK_DEGRADES,
+        ponytail: "Ponytail (scale_ceiling): not independently measured — see \
 transport.wasm.columnar, which this row's ceiling is taken from. Escape hatch: none this phase",
-            complexity: "O(n + m), the module it loads",
-        },
-    ]
+        complexity: "O(n + m), the module it loads",
+    }
 }
 
 /// A layout's row. Its hand oracle is checked per seed by `roundtrip`, which records it

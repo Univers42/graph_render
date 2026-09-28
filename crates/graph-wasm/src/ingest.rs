@@ -101,21 +101,36 @@ fn check_ids(nodes: &[NodeRecord], edges: &[EdgeRecord]) -> Result<(), IngestErr
     Ok(())
 }
 
+/// Field names `node`/`edge` require, exactly (`require_only`). Module-level rather than
+/// a `let` inside each function (house limit: the array itself was most of what pushed
+/// both functions past 40 lines).
+const NODE_FIELDS: [&str; 10] = [
+    "id",
+    "kind",
+    "database_id",
+    "source",
+    "label",
+    "group",
+    "weight",
+    "version",
+    "has_note",
+    "icon",
+];
+
+const EDGE_FIELDS: [&str; 8] = [
+    "id",
+    "source",
+    "target",
+    "kind",
+    "label",
+    "strength",
+    "directed",
+    "record_id",
+];
+
 fn node(value: &Value, path: &str) -> Result<NodeRecord, IngestError> {
-    let fields = [
-        "id",
-        "kind",
-        "database_id",
-        "source",
-        "label",
-        "group",
-        "weight",
-        "version",
-        "has_note",
-        "icon",
-    ];
     let members = object(value, path)?;
-    require_only(members, &fields, path)?;
+    require_only(members, &NODE_FIELDS, path)?;
     let kind_name = string(member(members, "kind", path)?, &format!("{path}.kind"))?;
     let kind = NodeKind::from_name(kind_name).ok_or_else(|| {
         shape(
@@ -147,18 +162,8 @@ fn node(value: &Value, path: &str) -> Result<NodeRecord, IngestError> {
 }
 
 fn edge(value: &Value, path: &str) -> Result<EdgeRecord, IngestError> {
-    let fields = [
-        "id",
-        "source",
-        "target",
-        "kind",
-        "label",
-        "strength",
-        "directed",
-        "record_id",
-    ];
     let members = object(value, path)?;
-    require_only(members, &fields, path)?;
+    require_only(members, &EDGE_FIELDS, path)?;
     let kind_name = string(member(members, "kind", path)?, &format!("{path}.kind"))?;
     let kind = EdgeKind::from_name(kind_name).ok_or_else(|| {
         shape(

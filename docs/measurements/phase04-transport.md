@@ -12,15 +12,18 @@ ls -l target/wasm32-unknown-unknown/release/graph_wasm.wasm
 ```
 
 ```
--rwxr-xr-x 2 root root 266114 target/wasm32-unknown-unknown/release/graph_wasm.wasm
+-rwxr-xr-x 2 root root 265838 target/wasm32-unknown-unknown/release/graph_wasm.wasm
 ```
 
-**266114 bytes** (260 KiB), sha256
-`674bc7322e72f98af44ed68df09fdbf5e666f7cff63bc35d2a983f0657dbff90`. Just over the
-~250 KB soft ceiling the phase names — recorded here rather than left unremarked, per the
-phase's own instruction. What pulled it there: this is the same binary carrying both the
-retained hash-gate shim (`gate_exports::{gm_topology,gm_layout_grid}`, needed to keep
-Phase 2/3's already-green cross-target gate unchanged) *and* the full new ABI
+**265838 bytes** (~259.6 KiB), sha256
+`1349dc10490caeef129f1401d42237aa570678cd2797f08a8759927be75019bf`. Re-measured after the
+phase-04 review round (`ingest.rs`'s `node`/`edge` split to satisfy the 40-line-per-function
+house limit — see `docs/contract/wasm-abi.md`'s review-response note); 276 bytes smaller
+than the pre-review 266114, both figures over the same ~250 KB soft ceiling the phase
+names (~4% either way) — recorded here rather than left unremarked, per the phase's own
+instruction. What pulled it there in the first place: this is the same binary carrying
+both the retained hash-gate shim (`gate_exports::{gm_topology,gm_layout_grid}`, needed to
+keep Phase 2/3's already-green cross-target gate unchanged) *and* the full new ABI
 (`exports/{build,columns,state}.rs`, `alloc.rs`, `handle.rs`, `ingest.rs`'s JSON parser,
 `seed_ingest.rs`, `views.rs`) in one module — the JSON parser
 (`graph_contract::canonical_json`, shared with the native side, not a wasm-specific
@@ -46,7 +49,7 @@ graph-wasm v0.1.0
 
 The wasm artifact hash above matches the one `graph-cli hashgate --seeds 1000` builds
 and reports independently (`hashgate: wasm artifact ... sha256
-674bc732...`) — same binary, two build invocations, same bytes.
+1349dc10...`) — same binary, two build invocations, same bytes.
 
 ## 4-way hash gate (native × wasm32, run × run), through `graph-cli hashgate`
 
@@ -125,7 +128,7 @@ ok - a large enough build really does grow wasm memory
 ok - the pre-growth view's old buffer is detached, not silently stale (C10)
 ok - re-deriving the same column after growth returns a live, non-empty view
 ok - the re-derived view still reads the value written before growth
-# view re-derivation: 298.8 ns/call over 200000 calls
+# view re-derivation: 228.5 ns/call over 200000 calls
 # pass
 ```
 Exit 0.
@@ -146,14 +149,15 @@ has to simulate), and re-deriving the same column afterward is asserted both liv
 growth — proving Rust-side data survives growth unmoved while the JS-side view correctly
 rebuilds rather than reading stale or garbage bytes.
 
-**View re-derivation cost (C11): 298.8 ns/call**, measured over 200,000 calls to
+**View re-derivation cost (C11): 228.5 ns/call**, measured over 200,000 calls to
 `Motor#column` on a 200,000-node graph's `NodeX` column (`process.hrtime.bigint()` around
 the loop, wall time only — no warm-up discarded, so this includes one-time JIT
-warm-up cost amortized over the run). An earlier run against the pre-split `exports.rs`
-measured 221.7 ns/call for the identical loop; `crates/graph-sdk-js/src/views.ts` did not
-change between the two runs, so the difference is container scheduling noise on a
-wall-clock measurement, not a real per-call regression from the Rust-side file split —
-recorded as the two actual numbers observed rather than picking one to report.
+warm-up cost amortized over the run). Earlier runs (pre-split `exports.rs`, and again
+just after the phase-04 review round's `index.ts`/`views.ts` changes) measured 221.7 and
+225.6 ns/call for the identical loop; none of those changes touched the hot loop itself
+(`ColumnViews#get`'s cache check), so the spread is container scheduling noise on a
+wall-clock measurement, not a real per-call regression — recorded as the actual number
+observed on this run rather than picking one to report.
 
 An initial version of this same test had a real, observed bug (not merely a
 possibility): the sentinel was written *before* a second `layout()` call made for the

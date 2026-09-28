@@ -97,7 +97,15 @@ export class ColumnViews {
    * `null` if `columnId` is reserved or does not apply to this geometry (C3). Zero-copy:
    * re-derived whenever the epoch, the pointer, the length or the backing buffer itself
    * has moved on since the last time this exact `(handle, columnId)` was fetched — never
-   * reused across a call this SDK cannot prove did not change it (C7, C10). */
+   * reused across a call this SDK cannot prove did not change it (C7, C10).
+   *
+   * Ponytail: the cache below is only as good as `bump()` being called on every export
+   * that can move or grow wasm memory. A view fetched, then held across a motor call that
+   * allocates, then read without going through this method again reads **silent garbage
+   * (or a detached buffer), never a thrown error** — the dangerous direction, because it
+   * looks like data. Escape hatch: never hold a `Column` past the next call on this
+   * `Motor` (any handle) — re-derive it via `Motor#column` after every call, which this
+   * cache then serves for free when nothing actually moved. */
   get(handle: Handle, columnId: ColumnId, nodeKind: NodeGeometryKind, edgeKind: EdgeGeometryKind): Column {
     if (!columnApplies(nodeKind, edgeKind, columnId)) return null;
     const ptr = this.#exports.gm_column_ptr(handle, columnId);

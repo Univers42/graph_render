@@ -175,7 +175,9 @@ the process lifetime — a deliberate trade, escape hatch: reload the page, or t
 test-only `resetForTests()`), and a `globalThis.__GM_DISABLE_WASM__` kill switch checked
 before the latch. Modeled on
 `refs/notion-database-sys/docs/cheatsheet/wasm_native/wasm-bridge.md`'s pattern (see
-Deviations).
+Deviations). `loadMotor` itself still rejects on any of these; `index.ts`'s
+`createMotor`/`Motor.create` is the layer that never does — it catches that rejection and
+returns a degraded `Motor` (see Deviations).
 
 ## Coverage
 
@@ -194,6 +196,7 @@ Deviations).
 | `gm_last_error` | Every refusal path above — `crates/graph-wasm/src/errors.rs` unit tests natively |
 | `gm_seed_ingest` | `crates/graph-wasm/src/seed_ingest.rs` unit tests (native, round-trips to `seeded_model`); `harness/wasm-run.mjs`'s `abiSnapshotBytes` |
 | `gate_exports::gm_topology` / `gm_layout_grid` | `graph-cli hashgate` (unchanged Phase 2/3 proof) |
+| `createMotor`/`Motor.create` degrading rather than throwing (kill switch, compile failure) | `harness/sdk-smoke.mjs`'s `createMotor_never_throws_on_kill_switch` / `createMotor_never_throws_on_compile_failure` / `degraded_motor_build_fails_predictably_*` checks |
 
 ## Deviations
 
@@ -203,15 +206,21 @@ Deviations).
   `refs/notion-database-sys/docs/cheatsheet/wasm_native/wasm-bridge.md` instead, which
   documents the same house pattern (singleton, deduped `initPromise`, `initFailed`
   latch, kill switch, degrade) in prose; `wasm.ts` implements it from that description.
-  One difference from the literal Phase 4 prompt: **`loadMotor` throws
-  `WasmUnavailableError` on failure rather than warning-and-degrading with safe-default
-  return values.** A safe-default degrade is straightforward for functions that
-  naturally have a defined default (a scalar reading `0`), but this ABI's calls return
-  handles and typed-array views threaded through by the caller — a fabricated "default"
-  handle would itself need to answer `gm_node_count`/`gm_run`/etc. with more fabricated
-  values, silently, which is a worse failure mode than a caught, typed exception at the
-  one call site (`createMotor`) that already has to be `await`ed and can already fail.
-  Named here as a deviation rather than silently narrowed.
+  `wasm.ts`'s own `loadMotor` still rejects on failure (kill switch, the latched
+  `initFailed`, or a compile/instantiate error) — a plain, typed `Promise` rejection is
+  the ordinary shape for an async loader and is exercised directly where useful. The
+  phase's literal "never throw" requirement is met one level up, at `createMotor`/
+  `Motor.create` (`index.ts`), the actual published entry point: it never rejects.
+  A load failure there resolves to a *degraded* `Motor` instead — its `available` getter
+  reads `false`, and every method that would need the real module (`build`, `layout`,
+  `column`, `toJSON`/`toBytes`, `release`) throws the latched `WasmUnavailableError`
+  predictably at first use via a shared `#requireLoaded` guard, rather than at
+  `createMotor` itself. This is deliberately not a fabricated safe-default return value
+  (a fake handle would itself need to answer `gm_node_count`/`gm_run`/etc. with more
+  fabricated values, silently, which is a worse failure mode) — it is "the host page
+  does not go down at load", the literal harm the requirement names, met without
+  inventing data. See `harness/sdk-smoke.mjs`'s `createMotor_never_throws_on_kill_switch`
+  / `createMotor_never_throws_on_compile_failure` checks.
 - `crates/graph-cli/src/capabilities.rs` in the phase's literal MODIFY list is
   `crates/graph-cli/src/capabilities/registry.rs` in this tree — `capabilities.rs` was
   already split into a `capabilities/` module (registry, verdict, tests) before this

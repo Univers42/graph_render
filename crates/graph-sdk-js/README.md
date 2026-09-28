@@ -46,11 +46,17 @@ silently reused after it, even if the pointer, length, and backing buffer all st
 to match — and if the module's memory grew in between, the backing `ArrayBuffer` itself
 was replaced, which alone forces a fresh view regardless of the epoch.
 
-## Kill switch
+## Kill switch and load failure
 
 Set `globalThis.__GM_DISABLE_WASM__ = true` before the first `createMotor` call to refuse
-loading the module at all this session (a `WasmUnavailableError`, never a silent no-op). A
-load that fails on its own latches the same way — `resetForTests()` (test-only) clears it.
+loading the module at all this session. `createMotor` itself never throws for this, or for
+any other load failure (a bad `.wasm`, a network error): it resolves to a *degraded*
+`Motor` whose `available` getter reads `false`, and whose `build`/`layout`/`column`/
+`toJSON`/`toBytes`/`release` throw `WasmUnavailableError` predictably the first time one
+is actually called — never a silent no-op, never fabricated data, and never at load time
+itself (a motor that throws on load takes the host page down with it). A load that fails
+on its own latches the same way for the rest of the session — `resetForTests()`
+(test-only) clears it.
 
 ## `options`
 

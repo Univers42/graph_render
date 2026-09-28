@@ -11,7 +11,14 @@
 // Exit codes follow graph-cli: 0 pass, 1 ran and failed, 2 could not run.
 
 import { readFile } from "node:fs/promises";
-import { ColumnId, InvalidOptionsError, TamperedGeometryError, createMotor } from "../crates/graph-sdk-js/src/index.ts";
+import {
+  ColumnId,
+  InvalidOptionsError,
+  TamperedGeometryError,
+  WasmUnavailableError,
+  createMotor,
+  resetForTests,
+} from "../crates/graph-sdk-js/src/index.ts";
 
 function fail(message) {
   process.stderr.write(`sdk-smoke: could not run: ${message}\n`);
@@ -115,6 +122,50 @@ try {
   releasedRefuses = true;
 }
 check("a released handle is refused, not silently answered (C6)", releasedRefuses);
+
+// Regression (review finding, MAJOR): createMotor() must never throw on a load failure
+// (prompt.md §3.2, phase-04-wasm-sdk.md step 5: "warn-and-degrade rather than throw ...
+// A motor that throws on load takes the host page down with it") — it must resolve to a
+// degraded Motor whose own calls fail predictably instead, never fabricated data.
+{
+  const priorKillSwitch = globalThis.__GM_DISABLE_WASM__;
+  globalThis.__GM_DISABLE_WASM__ = true;
+  let threw = false;
+  let degraded;
+  try {
+    degraded = await createMotor(bytes);
+  } catch {
+    threw = true;
+  }
+  check("createMotor_never_throws_on_kill_switch", !threw);
+  let buildRefused = false;
+  try {
+    degraded?.build(ingest);
+  } catch (error) {
+    buildRefused = error instanceof WasmUnavailableError;
+  }
+  check("degraded_motor_build_fails_predictably_kill_switch", buildRefused);
+  globalThis.__GM_DISABLE_WASM__ = priorKillSwitch;
+}
+{
+  resetForTests();
+  let threw = false;
+  let degraded;
+  try {
+    degraded = await createMotor(new Uint8Array([0, 1, 2, 3]));
+  } catch {
+    threw = true;
+  }
+  check("createMotor_never_throws_on_compile_failure", !threw);
+  let buildRefused = false;
+  try {
+    degraded?.build(ingest);
+  } catch (error) {
+    buildRefused = error instanceof WasmUnavailableError;
+  }
+  check("degraded_motor_build_fails_predictably_compile_failure", buildRefused);
+  resetForTests();
+}
 
 process.stdout.write(`# ${failures === 0 ? "pass" : `${failures} failed`}\n`);
 process.exit(failures === 0 ? 0 : 1);

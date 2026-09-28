@@ -90,6 +90,12 @@ export async function loadMotor(source: WasmSource): Promise<RawExports> {
   if (killSwitchIsOn()) {
     throw new WasmUnavailableError("__GM_DISABLE_WASM__ is set: the motor will not load this session");
   }
+  // Ponytail: the latch below never retries for the process lifetime. Failing input: a
+  // transient failure on the *first* load (a flaky network, a momentarily-offline CDN) —
+  // a network that recovers a second later is never exploited automatically. Direction:
+  // deliberately the strict one (never-retry, not retry-forever): a caller sees a stable
+  // "unavailable" rather than an unbounded pile of retries against a host that is down.
+  // Escape hatch: reload the page, or the test-only resetForTests() below.
   if (initFailed !== null) {
     throw new WasmUnavailableError("a previous load already failed this session; call resetForTests() to retry", initFailed);
   }
