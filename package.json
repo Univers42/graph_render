@@ -47,6 +47,9 @@
     "test": "node --test --experimental-strip-types --experimental-loader ./tests/ts-extension-loader.mjs tests/*.test.ts",
     "lint": "eslint src --max-warnings=0",
     "check": "npm run typecheck && npm run lint && npm test",
-    "oracle:diff": "node --experimental-strip-types --experimental-loader ./tests/ts-extension-loader.mjs harness/oracle-diff.mjs"
+    "oracle:diff": "node --experimental-strip-types --experimental-loader ./tests/ts-extension-loader.mjs harness/oracle-diff.mjs",
+    "sdk:typecheck": "tsc -p crates/graph-sdk-js/tsconfig.json --noEmit",
+    "sdk:smoke": "node --experimental-strip-types harness/sdk-smoke.mjs target/wasm32-unknown-unknown/release/graph_wasm.wasm",
+    "wasm:assert-zero-copy": "node --experimental-strip-types harness/wasm-run.mjs target/wasm32-unknown-unknown/release/graph_wasm.wasm --assert-zero-copy"
   }
 }
