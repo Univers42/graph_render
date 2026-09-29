@@ -11,6 +11,7 @@
 // than silently answered (C6), and `options` acceptance (C16).
 //
 //   node --experimental-strip-types harness/sdk-smoke.mjs <graph_wasm.wasm>
+//   node --experimental-strip-types harness/sdk-smoke.mjs --adapter-convergence
 //
 // Exit codes follow graph-cli: 0 pass, 1 ran and failed, 2 could not run.
 
@@ -23,14 +24,16 @@ import {
   createMotor,
   resetForTests,
 } from "../crates/graph-sdk-js/src/index.ts";
+import { canonicalJson, expectedIngest, ingestFromNotion, ingestFromRows } from "./adapter-convergence.mjs";
 
 function fail(message) {
   process.stderr.write(`sdk-smoke: could not run: ${message}\n`);
   process.exit(2);
 }
 
-const [wasmPath] = process.argv.slice(2);
-if (!wasmPath) fail("usage: sdk-smoke.mjs <wasm>");
+const args = process.argv.slice(2);
+const convergenceOnly = args.includes("--adapter-convergence");
+const [wasmPath] = args.filter((arg) => !arg.startsWith("--"));
 
 let failures = 0;
 function check(name, condition) {
@@ -42,6 +45,28 @@ function check(name, condition) {
   }
 }
 
+// The phase's proof, in the one runtime that can run the adapters: the same logical
+// dataset in two source shapes, mapped by two independent adapters, must produce one
+// contract document — byte for byte. The other half of the proof (that document derives
+// `expected-graph.json`'s graph) is Rust, in `crates/graph-core/src/ingest/tests.rs`,
+// because the derivation lives there and only there. Both halves read the same
+// committed file, so the two runtimes are pinned to one artifact rather than to two
+// that can drift.
+if (convergenceOnly) {
+  const fromRows = canonicalJson(await ingestFromRows());
+  const fromNotion = canonicalJson(await ingestFromNotion());
+  const expected = canonicalJson(await expectedIngest());
+  check("the rows adapter maps fixtures/ingest/rows.json", fromRows.length > 0);
+  check("the notion adapter maps fixtures/ingest/notion.json", fromNotion.length > 0);
+  check("two adapters, one contract document, identical bytes", fromRows === fromNotion);
+  check("both adapters produce the document expected-graph.json pins", fromRows === expected);
+  reportDifference(fromRows, { notion: fromNotion, expected });
+  process.stdout.write(`# ${failures === 0 ? "pass" : `${failures} failed`}\n`);
+  process.exit(failures === 0 ? 0 : 1);
+}
+
+if (!wasmPath) fail("usage: sdk-smoke.mjs <wasm> | --adapter-convergence");
+
 async function refusedWith(errorClass, run) {
   try {
     await run();
@@ -49,6 +74,29 @@ async function refusedWith(errorClass, run) {
   } catch (error) {
     return error instanceof errorClass;
   }
+}
+
+/** Where two canonical documents first differ, and the bytes around it. A convergence
+ * failure with no position in it is a failure a reader has to bisect by hand, which is
+ * the opposite of what a gate row should hand them. */
+function reportDifference(left, others) {
+  for (const [name, other] of Object.entries(others)) {
+    if (left === other) continue;
+    const at = firstDifference(left, other);
+    process.stdout.write(
+      `#   rows vs ${name}: first difference at byte ${at}\n` +
+        `#     rows    ${JSON.stringify(left.slice(Math.max(0, at - 48), at + 48))}\n` +
+        `#     ${name.padEnd(7)}${JSON.stringify(other.slice(Math.max(0, at - 48), at + 48))}\n`,
+    );
+  }
+}
+
+function firstDifference(a, b) {
+  const limit = Math.min(a.length, b.length);
+  for (let i = 0; i < limit; i += 1) {
+    if (a[i] !== b[i]) return i;
+  }
+  return limit;
 }
 
 // `docs/contract/wasm-abi.md` "Columns", restated here the way a third-party consumer

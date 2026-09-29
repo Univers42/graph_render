@@ -189,7 +189,10 @@ fn a_failed_wasm_build_is_could_not_run_and_seed_counts_are_capped() {
 fn codegen_check_finds_the_committed_files_current() {
     let check = graph_cli(&["codegen", "--check"], None);
     assert_eq!(check.status.code(), Some(0), "{}", stdout(&check));
-    assert_eq!(stdout(&check).matches("up to date").count(), 3);
+    // One line per committed generated file, which is the four the contract emits: the
+    // snapshot header's schema and TypeScript, the snapshot JSON face's schema, and the
+    // ingest contract's.
+    assert_eq!(stdout(&check).matches("up to date").count(), 4);
 }
 
 #[test]
@@ -218,13 +221,19 @@ fn capabilities_needs_a_flag_and_refuses_gated_rows_no_recorded_run_backs() {
     assert_eq!(graph_cli(&["capabilities"], None).status.code(), Some(2));
     let check = graph_cli(&["capabilities", "--check"], None);
     assert_eq!(check.status.code(), Some(1), "{}", stdout(&check));
-    // 18 rows before Phase 7, its 8 analysis.* rows (`Implemented`, no problems), and
-    // Phase 4's transport (gated, refused twice) and sdk.js rows.
-    assert!(stdout(&check).contains("capabilities --check: 28 rows, 34 problems"));
+    // 18 rows before Phase 7, its 8 analysis.* rows (`Implemented`, no problems), Phase
+    // 4's transport (gated, refused twice) and sdk.js rows, and Phase 10's four
+    // `ingest.*`/`adapter.*` rows — also `Implemented`, because the convergence fixture
+    // and the contract round trip are not recorded gate runs yet.
+    assert!(
+        stdout(&check).contains("capabilities --check: 32 rows, 34 problems"),
+        "{}",
+        stdout(&check)
+    );
     let json = graph_cli(&["capabilities", "--json"], None);
     assert_eq!(json.status.code(), Some(0));
     let rows: serde_json::Value = serde_json::from_str(&stdout(&json)).expect("json");
-    assert_eq!(rows.as_array().map(Vec::len), Some(28));
+    assert_eq!(rows.as_array().map(Vec::len), Some(32));
     assert!(
         rows[0]["oracle_diff"]
             .as_str()

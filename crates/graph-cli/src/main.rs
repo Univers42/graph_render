@@ -12,6 +12,7 @@ mod determinism_probe;
 mod evidence;
 mod fingerprint;
 mod hashgate;
+mod ingest_cmd;
 mod oracle_fixtures;
 mod oracle_python;
 mod probe_report;
@@ -59,6 +60,25 @@ enum Command {
         /// Write nothing; exit 1 if a committed file is stale.
         #[arg(long)]
         check: bool,
+    },
+    /// The ingest contract to a graph: `graph_core::ingest::build`, the one derivation,
+    /// on the command line. `--check` compares against a committed file instead of
+    /// writing, so the same command regenerates a fixture and gates it.
+    Ingest {
+        /// A JSON document holding the contract, or an object with it as a member.
+        #[arg(long)]
+        from: PathBuf,
+        /// Which member of that document is the contract. `ingest` for the committed
+        /// convergence fixture, which keeps the derived graph beside it.
+        #[arg(long, default_value = "ingest")]
+        member: String,
+        /// Where the derived graph goes; standard output when absent.
+        #[arg(long, conflicts_with = "check")]
+        out: Option<PathBuf>,
+        /// Compare against this file and exit 1 if it differs, writing nothing. The
+        /// same command that regenerates a fixture and the one that gates it.
+        #[arg(long, value_name = "PATH")]
+        check: Option<PathBuf>,
     },
     /// Writes the oracle differential's cases and graph-core's expected outputs.
     EmitFixtures {
@@ -194,6 +214,24 @@ fn main() -> ExitCode {
         Command::HashgateArm { seeds } => hashgate::arm(seeds),
         Command::Capabilities { json, check } => capabilities::run(json, check),
         Command::Codegen { check } => codegen::run(check),
+        Command::Ingest {
+            from,
+            member,
+            out,
+            check,
+        } => {
+            let mode = if check.is_some() {
+                ingest_cmd::Mode::Check
+            } else {
+                ingest_cmd::Mode::Write
+            };
+            ingest_cmd::run(&ingest_cmd::Plan {
+                from,
+                member,
+                out: check.or(out),
+                mode,
+            })
+        }
         Command::EmitFixtures { seeds, out } => {
             oracle_fixtures::run(seeds, &out.unwrap_or_else(oracle_fixtures::default_out))
         }

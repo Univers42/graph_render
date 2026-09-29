@@ -32,6 +32,11 @@ fn the_registry_covers_every_oracle_function_once_its_ids_are_unique() {
             ("oracle-diff", "topology", Status::Gated)
         } else if r.id.starts_with("analysis.") {
             ("oracle-diff", "analysis", Status::Implemented)
+        } else if r.id.starts_with("ingest.") || r.id.starts_with("adapter.") {
+            // Phase 10: honest, not yet evidence-backed. The oracles these rows have are
+            // the convergence fixture and the contract round trip, neither of which is a
+            // recorded gate run yet, so `Implemented` is what the evidence supports.
+            ("roundtrip", "ingest.build", Status::Implemented)
         } else if r.id == "layout.tree.tidy" || r.id == "layout.treemap.squarified" {
             ("oracle-layouts", r.id, Status::Gated)
         } else if r.id == "layout.force.barnes_hut" {

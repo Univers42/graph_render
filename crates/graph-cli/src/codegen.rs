@@ -53,13 +53,17 @@ mod tests {
     fn check_counts_stale_files_and_a_write_makes_them_current() {
         let dir = std::env::temp_dir().join(format!("gm-codegen-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        assert_eq!(sync(&dir, true), Ok(3), "missing files are stale");
+        assert_eq!(
+            sync(&dir, true),
+            Ok(graph_contract::codegen::outputs().len() as usize),
+            "every committed generated file that is missing counts as stale"
+        );
         assert!(!dir.exists(), "--check writes nothing");
         assert_eq!(sync(&dir, false), Ok(0));
         assert_eq!(sync(&dir, true), Ok(0));
         let (name, _) = &outputs()[1];
         std::fs::write(dir.join(name), "edited by hand").expect("writable");
-        assert_eq!(sync(&dir, true), Ok(1));
+        assert_eq!(sync(&dir, true), Ok(1), "one edited file is stale");
         std::fs::remove_dir_all(&dir).expect("temp dir removable");
     }
 }

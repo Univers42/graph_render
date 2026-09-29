@@ -1,0 +1,217 @@
+{
+  "$defs": {
+    "Cardinality": {
+      "description": "How many records a `link` field may name. Declared, not inferred: a one-valued list and a single value are different schema shapes, and reading one as the other would hide a mistake.",
+      "oneOf": [
+        {
+          "const": "one"
+        },
+        {
+          "const": "many"
+        }
+      ],
+      "type": "string"
+    },
+    "Collection": {
+      "additionalProperties": false,
+      "description": "A collection of records and the roles of its fields.",
+      "properties": {
+        "fields": {
+          "description": "Its declared fields, in canonical order (sorted by field id).",
+          "items": {
+            "$ref": "#/$defs/Field"
+          },
+          "type": "array"
+        },
+        "id": {
+          "description": "Stable id, unique in the document; the middle coordinate of a node id. May not\ncontain `:` (H5).",
+          "type": "string"
+        },
+        "name": {
+          "description": "Human name, for diagnostics only.",
+          "type": "string"
+        },
+        "titleField": {
+          "description": "Id of the field whose value is a record's label. That field's role is `title`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "fields",
+        "id",
+        "name",
+        "titleField"
+      ],
+      "type": "object"
+    },
+    "Field": {
+      "additionalProperties": false,
+      "description": "One declared field of a collection.",
+      "properties": {
+        "id": {
+          "description": "Stable id, unique within its collection; the key a record's `values` uses.",
+          "type": "string"
+        },
+        "link": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Link"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What a `link` field points at; `null` for every other role. Required in the\nschema even though it is nullable, so \"no link\" is stated rather than omitted —\nsee [`required_link`], which is what puts it there."
+        },
+        "name": {
+          "description": "Human name, for diagnostics only.",
+          "type": "string"
+        },
+        "role": {
+          "$ref": "#/$defs/Role",
+          "description": "What the field means. Declared, never inferred."
+        }
+      },
+      "required": [
+        "id",
+        "link",
+        "name",
+        "role"
+      ],
+      "type": "object"
+    },
+    "JsonValue": {
+      "description": "Any JSON value. The contract constrains the envelope and never the payload: a source's own cell types survive it untouched, so what a `title` must hold is a role the declaration states, not a JSON type here."
+    },
+    "Link": {
+      "additionalProperties": false,
+      "description": "What a `link` field points at.",
+      "properties": {
+        "cardinality": {
+          "$ref": "#/$defs/Cardinality",
+          "description": "How many references the field may hold."
+        },
+        "collection": {
+          "description": "Id of the collection the references name.",
+          "type": "string"
+        },
+        "symmetric": {
+          "description": "Whether the relation is undirected: `A → B` and `B → A` are one edge, drawn\nwithout an arrowhead.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "cardinality",
+        "collection",
+        "symmetric"
+      ],
+      "type": "object"
+    },
+    "Record": {
+      "additionalProperties": false,
+      "description": "One record: its identity, its collection, and its values keyed by field id.",
+      "properties": {
+        "collection": {
+          "description": "The collection this record belongs to.",
+          "type": "string"
+        },
+        "deleted": {
+          "description": "Whether the source has deleted it. A deleted record derives nothing at all.",
+          "type": "boolean"
+        },
+        "id": {
+          "description": "Stable id within its collection; the last coordinate of a node id. May contain\n`:` — it is the last segment, so it round-trips.",
+          "type": "string"
+        },
+        "updatedAt": {
+          "description": "Source-assigned version.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "values": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "description": "Its cells, keyed by field id. A `BTreeMap`, not a `HashMap`: the schema is\ngenerated from these types and must not depend on a random seed (D4).",
+          "type": "object"
+        }
+      },
+      "required": [
+        "collection",
+        "deleted",
+        "id",
+        "updatedAt",
+        "values"
+      ],
+      "type": "object"
+    },
+    "Role": {
+      "description": "What a declared field means. Declared, never inferred: a wrong role silently changes the graph, so the explicit declaration is the escape hatch and this contract offers no convenience inference on top of it.",
+      "oneOf": [
+        {
+          "const": "title"
+        },
+        {
+          "const": "label"
+        },
+        {
+          "const": "group"
+        },
+        {
+          "const": "tags"
+        },
+        {
+          "const": "link"
+        },
+        {
+          "const": "scalar"
+        },
+        {
+          "const": "weight"
+        },
+        {
+          "const": "parent"
+        }
+      ],
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The graph-motor ingest contract: declared roles and records, the neutral front of the pipeline. Written by every adapter, read by one derivation. Every object refuses an unknown member, and every object is written in canonical order — object keys sorted by bytes, a collection's fields sorted by field id, a record's cells sorted by field id — so a document's bytes depend on what it declares and not on the order the source listed it in.",
+  "properties": {
+    "collections": {
+      "description": "The declared collections, in document order.",
+      "items": {
+        "$ref": "#/$defs/Collection"
+      },
+      "type": "array"
+    },
+    "records": {
+      "description": "The records, in document order.",
+      "items": {
+        "$ref": "#/$defs/Record"
+      },
+      "type": "array"
+    },
+    "source": {
+      "description": "The backend the records came from; the first coordinate of every node id. May\nnot contain `:` (H5).",
+      "type": "string"
+    },
+    "version": {
+      "const": 1,
+      "description": "The document's version. 1 is the only one this reader accepts, and the schema\nsays exactly that rather than a range a future version would widen.",
+      "format": "uint32",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "collections",
+    "records",
+    "source",
+    "version"
+  ],
+  "title": "Ingest",
+  "type": "object"
+}

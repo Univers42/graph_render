@@ -1,0 +1,40 @@
+{
+  "_comment": "The rows source shape: flat SQL-ish columns and rows. One half of the convergence pair — `notion.json` is the same dataset in the other shape, and both must derive a byte-identical graph (`expected-graph.json`). Hand-written, not generated: a fixture generated from the code it pins cannot catch that code being wrong.",
+  "source": "lib",
+  "tables": [
+    {
+      "id": "task",
+      "name": "Tasks",
+      "titleColumn": "name",
+      "columns": [
+        { "name": "name", "label": "Name", "role": "title" },
+        { "name": "state", "label": "State", "role": "group" },
+        { "name": "labels", "label": "Labels", "role": "tags" },
+        { "name": "effort", "label": "Effort", "role": "weight" },
+        { "name": "up", "label": "Up", "role": "parent" },
+        { "name": "blocks", "label": "Blocks", "role": "link", "link": { "collection": "task", "cardinality": "many", "symmetric": false } },
+        { "name": "slug", "label": "Slug", "role": "label" },
+        { "name": "body", "label": "Body", "role": "scalar" }
+      ],
+      "rows": [
+        { "id": "t1", "updatedAt": 1700000001, "values": { "name": "Write the contract", "state": "doing", "labels": ["docs", "p0"], "effort": 3, "slug": "write-the-contract", "body": "long text nobody reads" } },
+        { "id": "t2", "updatedAt": 1700000002, "values": { "name": "Ship the adapters", "state": "doing", "labels": ["p0"], "effort": 5, "up": ["t1"], "blocks": ["t3"], "slug": "ship-the-adapters" } },
+        { "id": "t3", "updatedAt": 1700000003, "values": { "name": "Prove convergence", "state": "todo", "labels": ["p0", "graph"], "effort": 8, "up": ["t2"], "slug": "prove-convergence" } },
+        { "id": "t4", "updatedAt": 1700000004, "deleted": true, "values": { "name": "Retired task", "state": "done", "slug": "retired-task" } }
+      ]
+    },
+    {
+      "id": "person",
+      "name": "People",
+      "titleColumn": "name",
+      "columns": [
+        { "name": "name", "label": "Name", "role": "title" },
+        { "name": "reports_to", "label": "Reports to", "role": "parent" }
+      ],
+      "rows": [
+        { "id": "p1", "updatedAt": 1700000010, "values": { "name": "Ada" } },
+        { "id": "p2", "updatedAt": 1700000011, "values": { "name": "Grace", "reports_to": ["p1"] } }
+      ]
+    }
+  ]
+}
