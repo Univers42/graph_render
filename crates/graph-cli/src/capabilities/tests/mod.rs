@@ -83,7 +83,8 @@ fn control(name: &'static str, diverged: &[&str]) -> (&'static str, Option<Value
 /// restricted here to the layouts no other control reaches, since reference degree and
 /// grid spacing already back topology/grid/treemap on their own (a real run may show it
 /// diverging those too; the ledger only needs one control per stage to hold) — and one
-/// control per force layout, which reach nothing else at all.
+/// control per stage that reaches nothing else at all: the two force layouts, and the
+/// four Phase 3 layouts, each of which now has a control filed under its own stage id.
 fn honest_controls() -> Vec<(&'static str, Option<Value>)> {
     vec![
         control(
@@ -114,6 +115,16 @@ fn honest_controls() -> Vec<(&'static str, Option<Value>)> {
             "hashgate-control-fa2-scaling-ratio",
             &["layout.forceatlas2"],
         ),
+        control("hashgate-control-tree-tidy-nodes", &["layout.tree.tidy"]),
+        control(
+            "hashgate-control-treemap-nodes",
+            &["layout.treemap.squarified"],
+        ),
+        control(
+            "hashgate-control-circular-nodes",
+            &["layout.circular.radial"],
+        ),
+        control("hashgate-control-packing-scale", &["layout.packing.circle"]),
     ]
 }
 
