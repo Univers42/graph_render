@@ -5,12 +5,20 @@
 // refusal is a `GraphMotorError` subclass, never a bare string or a raw
 // `WebAssembly.RuntimeError`), and D9's tamper re-check surfaced as `TamperedGeometryError`
 // rather than a silent `0`.
+//
+// **Two ways in, deliberately.** `build` is the ABI's `gm_build`: the provisional
+// node/edge JSON. `buildContract` is `gm_build_contract`: the phase-10 ingest contract
+// document, which is what this package's own adapters produce and what the motor derives a
+// graph from. Each refuses the other's document with its own error class, because they are
+// different documents with different meanings — `docs/contract/wasm-abi.md` "Two build
+// paths" has the table and the reasoning.
 
 import { loadMotor, toU32, type RawExports, type WasmSource } from "./wasm.ts";
 import { ColumnViews } from "./views.ts";
 import {
   AnalysisRefusedError,
   BuildRefusedError,
+  ContractRefusedError,
   InvalidHandleError,
   InvalidOptionsError,
   MotorTrapError,
@@ -357,6 +365,42 @@ export class Motor {
       const handle = this.#invoke("gm_build", () => exports.gm_build(ptr, len));
       views.bump();
       if (handle === 0) throw new BuildRefusedError("gm_build refused the ingest buffer", this.#lastError(exports));
+      return handle as Handle;
+    } finally {
+      this.#invoke("gm_free", () => exports.gm_free(ptr, len));
+      views.bump();
+    }
+  }
+
+  /** Builds a graph from `contractJson`, an **ingest contract** document — the one shape
+   * every source maps to (`docs/contract/ingest-schema.json`, written by this package's
+   * own `rowsToIngest`/`notionToIngest` adapters).
+   *
+   *  This is the other way in from {@link build}, which takes the provisional node/edge
+   *  JSON. The two are separate exports and stay separate: `build` is what the host
+   *  studio and the hash gate already speak, and the derivation from a contract document
+   *  — roles to nodes, tags to hubs, hierarchy to edges — is `graph_core::ingest`'s one
+   *  derivation, which this package cannot do in JS without becoming a second copy of it.
+   *  So a caller maps its source into a contract document (one of the adapters, or its
+   *  own) and hands it here, and the motor does the rest. Staged and freed exactly as
+   *  {@link build} does (C7: the staging buffer is this method's job, not the caller's).
+   *
+   *  A document that is not a valid contract is refused with
+   *  {@link ContractRefusedError} — an unknown member, a role outside the eight, a
+   *  dangling collection, a `:` in a coordinate that cannot round-trip — never half-read.
+   *  A provisional node/edge document is *not* one of these refusals in spirit: it is
+   *  simply not a contract, and it is refused as one. */
+  buildContract(contractJson: string): Handle {
+    const { exports, views } = this.#requireLoaded();
+    const bytes = encoder.encode(contractJson);
+    const len = toU32(bytes.length);
+    const ptr = this.#invoke("gm_alloc", () => exports.gm_alloc(len));
+    if (ptr === 0) throw new BuildRefusedError("gm_alloc could not reserve the contract buffer", this.#lastError(exports));
+    try {
+      new Uint8Array(exports.memory.buffer, ptr, len).set(bytes);
+      const handle = this.#invoke("gm_build_contract", () => exports.gm_build_contract(ptr, len));
+      views.bump();
+      if (handle === 0) throw new ContractRefusedError("gm_build_contract refused the contract document", this.#lastError(exports));
       return handle as Handle;
     } finally {
       this.#invoke("gm_free", () => exports.gm_free(ptr, len));

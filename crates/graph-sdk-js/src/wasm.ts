@@ -17,6 +17,7 @@ export interface RawExports {
   gm_layout_count(): number;
   gm_layout_id(i: number): number;
   gm_build(ingestPtr: number, ingestLen: number): number;
+  gm_build_contract(contractPtr: number, contractLen: number): number;
   gm_run(handle: number, layoutId: number, paramsPtr: number, paramsLen: number): number;
   gm_node_count(handle: number): number;
   gm_geometry_kind(handle: number): number;

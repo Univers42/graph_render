@@ -45,6 +45,19 @@ pub enum Code {
     /// The registered POST capability returned a `StageError` for this geometry, or the
     /// edges it produced did not fit the snapshot.
     PostFailed = 13,
+    /// `gm_build_contract`'s buffer failed the phase-10 ingest contract: either the
+    /// contract's own strict reader refused the document, or the derivation refused the
+    /// graph it describes (a tag value that cannot round-trip through the node-id
+    /// grammar, H5). One code for both, deliberately: a caller asking "was my document
+    /// accepted" needs one answer, and the two refusals are already distinguishable by
+    /// which one is reachable — the reader's checks run first and cover everything it can
+    /// see.
+    ///
+    /// **Not** `IngestInvalid`: that is the *provisional* node/edge JSON's code, and
+    /// `gm_build` keeps it. The two formats are different documents with different
+    /// meanings, and a code that did not say which one was refused would let a caller
+    /// handle a contract rejection as a node/edge rejection.
+    ContractInvalid = 14,
 }
 
 thread_local! {
@@ -101,6 +114,7 @@ mod tests {
             Code::BuildSourceInvalid,
             Code::IndexOutOfRange,
             Code::PostFailed,
+            Code::ContractInvalid,
         ];
         let mut values: Vec<u32> = codes.iter().map(|&c| c as u32).collect();
         values.sort_unstable();
@@ -114,6 +128,40 @@ mod tests {
             Code::None as u32,
             0,
             "0 is both a data value and a code: ambiguous"
+        );
+    }
+
+    /// Append-only, and this is what makes that a promise rather than a hope: a code
+    /// added in the middle would renumber every later one, and `CODE_NAMES` in
+    /// `crates/graph-sdk-js/src/errors.ts` indexes the same order — an ABI rename that
+    /// silently turned a caller's `UnknownLayoutId` into a `NoGeometryYet`.
+    #[test]
+    fn the_new_code_appends_and_does_not_move_any_other() {
+        assert_eq!(
+            [
+                Code::None as u32,
+                Code::InvalidHandle as u32,
+                Code::AllocFailed as u32,
+                Code::FreeRefused as u32,
+                Code::IngestInvalid as u32,
+                Code::UnknownLayoutId as u32,
+                Code::ParamsMustBeEmpty as u32,
+                Code::HandlesExhausted as u32,
+                Code::LayoutFailed as u32,
+                Code::TamperedGeometry as u32,
+                Code::NoGeometryYet as u32,
+                Code::BuildSourceInvalid as u32,
+                Code::IndexOutOfRange as u32,
+                Code::PostFailed as u32,
+                Code::ContractInvalid as u32,
+            ],
+            [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
+            "every code keeps the wire value it already had"
+        );
+        assert_ne!(
+            Code::ContractInvalid as u32,
+            Code::IngestInvalid as u32,
+            "a refused contract document must not read as a refused node/edge one"
         );
     }
 }

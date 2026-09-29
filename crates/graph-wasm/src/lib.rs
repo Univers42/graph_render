@@ -3,6 +3,13 @@
 //! plain numbers. A buffer comes back as a pointer to `[len: u32 LE][len bytes]`,
 //! valid until the next export call.
 //!
+//! Two ways to build a handle, and that is not an accident: [`exports::gm_build`] reads
+//! the **provisional** node/edge JSON (C13) and is unchanged; [`exports::gm_build_contract`]
+//! reads the phase-10 **ingest contract** (`docs/contract/ingest-schema.json`) and derives
+//! the graph through `graph_core::ingest`'s single derivation. Each reader refuses the other
+//! format's document, so neither can quietly drift into the other's meaning — see
+//! `docs/contract/wasm-abi.md` "Two build paths".
+//!
 //! `gm_topology` and one `gm_layout_*` export per registered layout are the hash gate's
 //! stages: each runs the pipeline over the gate's model for a seed and returns its own
 //! stage's bytes, always at the compiled-in defaults (the wasm arm never sees a negative
@@ -143,6 +150,8 @@ pub mod probe;
 mod alloc;
 #[cfg(any(test, target_arch = "wasm32"))]
 mod analysis;
+#[cfg(any(test, target_arch = "wasm32"))]
+mod contract;
 #[cfg(any(test, target_arch = "wasm32"))]
 mod errors;
 mod exports;
