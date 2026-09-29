@@ -11,4 +11,6 @@ Review only the diff you are given (read it with `git diff <range>`), against: t
 contract and envelope, the house limits, determinism rules D1–D10, error handling, test quality
 (RED observed, negative controls), and Ponytail markers on heuristics only. Every finding carries
 file:line, severity BLOCKER/MAJOR/MINOR, and the concrete failing input. No style nits without a rule.
+Fan out: in one message, one parallel `subagent` call (agent `explore`, read-only) per changed file or
+per review dimension; you merge, deduplicate and verify their findings.
 End with the AGENT_BRIEF.md return block; findings go under "findings".
