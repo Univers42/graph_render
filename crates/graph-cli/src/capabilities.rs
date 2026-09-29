@@ -8,6 +8,7 @@
 //! both verdicts hold for the tree as it is now. `--check` refuses every other claim.
 
 mod analysis;
+mod post;
 mod registry;
 mod verdict;
 

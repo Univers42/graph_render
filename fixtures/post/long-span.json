@@ -1,0 +1,23 @@
+{
+  "about": "Two banks four long apart, four edges spanning the gap, each 0.1 along and 0.1 across. The long-span case MINGLE exists for: the four edges are near-parallel and nearly coincident at both ends, so they share one trunk and the drawn ink falls from 16 to about 5. The bundles are the same length as the gap, which is what makes the trunk worth drawing once rather than four times. Pairs of parallel edges (bank i to bank i, and the diagonal i to i+1) are included so a caller that also runs the style presets sees a case where offsetting is the wrong answer and bundling the right one. Long-span bundling, not a routing problem: nothing here needs to go around anything.",
+  "nodes": [
+    { "id": "a0", "weight": 1 },
+    { "id": "a1", "weight": 1 },
+    { "id": "a2", "weight": 1 },
+    { "id": "a3", "weight": 1 },
+    { "id": "b0", "weight": 1 },
+    { "id": "b1", "weight": 1 },
+    { "id": "b2", "weight": 1 },
+    { "id": "b3", "weight": 1 }
+  ],
+  "edges": [
+    { "id": "a0-b0", "source": "a0", "target": "b0", "type": "relates_to" },
+    { "id": "a1-b1", "source": "a1", "target": "b1", "type": "relates_to" },
+    { "id": "a2-b2", "source": "a2", "target": "b2", "type": "relates_to" },
+    { "id": "a3-b3", "source": "a3", "target": "b3", "type": "relates_to" },
+    { "id": "a0-b1", "source": "a0", "target": "b1", "type": "relates_to" },
+    { "id": "a1-b2", "source": "a1", "target": "b2", "type": "relates_to" },
+    { "id": "a2-b3", "source": "a2", "target": "b3", "type": "relates_to" },
+    { "id": "a3-b0", "source": "a3", "target": "b0", "type": "relates_to" }
+  ]
+}

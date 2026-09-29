@@ -219,13 +219,23 @@ fn capabilities_needs_a_flag_and_refuses_gated_rows_no_recorded_run_backs() {
     let check = graph_cli(&["capabilities", "--check"], None);
     assert_eq!(check.status.code(), Some(1), "{}", stdout(&check));
     // 18 rows before Phase 7, its 8 analysis.* rows (`Implemented`, no problems), and
-    // Phase 4's transport (gated, refused twice) and sdk.js rows, then Phase 9's three
-    // `scale.*` rows (`Implemented`, no problems).
-    assert!(stdout(&check).contains("capabilities --check: 31 rows, 34 problems"));
+    // Phase 4's transport (gated, refused twice) and sdk.js rows, Phase 8's
+    // `post.route.grid` and Phase 9's three `scale.*` rows (all `implemented`, no problem).
+    assert!(stdout(&check).contains("capabilities --check: 32 rows, 34 problems"));
     let json = graph_cli(&["capabilities", "--json"], None);
     assert_eq!(json.status.code(), Some(0));
     let rows: serde_json::Value = serde_json::from_str(&stdout(&json)).expect("json");
-    assert_eq!(rows.as_array().map(Vec::len), Some(31));
+    assert_eq!(rows.as_array().map(Vec::len), Some(32));
+    let post = rows
+        .as_array()
+        .expect("an array")
+        .iter()
+        .find(|r| r["id"] == "post.route.grid")
+        .expect("post.route.grid is registered");
+    assert_eq!(
+        post["status"], "implemented",
+        "and it does not claim to be gated"
+    );
     assert!(
         rows[0]["oracle_diff"]
             .as_str()
