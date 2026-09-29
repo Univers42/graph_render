@@ -1,12 +1,14 @@
 /**
  * The end-to-end check the unit tests cannot be: the REAL wasm module, the REAL
  * SDK, every layout the module registers, and the studio's own column → draw
- * list mapping over each result.
+ * list mapping over each result. The POST and ANALYSIS halves live in
+ * `checkStages.ts` — same module, same run, split because they are a different
+ * question about a different part of the ABI.
  *
- * It is a script rather than a `*.test.ts` because it needs `app/public/graph_wasm.wasm`
- * — a build artefact. `scripts/studio.sh check` stages that first and then runs
- * this, so the check is never silently skipped: if the wasm is missing, this
- * fails loudly instead of passing quietly.
+ * It is a script rather than a `*.test.ts` because it needs
+ * `app/public/graph_wasm.wasm` — a build artefact. `scripts/studio.sh check`
+ * stages that first and then runs this, so the check is never silently skipped:
+ * if the wasm is missing, this fails loudly instead of passing quietly.
  *
  * Run directly with:
  *   node --experimental-strip-types --experimental-loader /w/tests/ts-extension-loader.mjs scripts/verify-motor.ts
@@ -23,6 +25,7 @@ import { type ColumnInput, buildDrawList, describeColumns } from "../src/core/dr
 import { normaliseIngest } from "../src/core/ingestText.ts";
 import { syntheticIngest } from "../src/core/synthetic.ts";
 import { edgeKinds, stylesFor } from "../src/render/palette.ts";
+import { checkAnalyses, checkList, checkPostComposition, checkPosts, checkRampEnds, readColumns } from "./checkStages.ts";
 
 const failures: string[] = [];
 
@@ -34,42 +37,14 @@ function ms(value: number): string {
   return `${value.toFixed(2)}ms`;
 }
 
-/** Every column this run can carry, read in one block: the next motor call
- *  invalidates them all (C7). */
-function readColumns(motor: Motor, handle: Handle, nodeKind: ColumnInput["nodeKind"], edgeKind: ColumnInput["edgeKind"]): ColumnInput {
-  const read = (id: number): Float32Array | Uint32Array | null => motor.column(handle, id as never);
-  return {
-    nodeKind, edgeKind,
-    x: read(0) as Float32Array | null, y: read(1) as Float32Array | null,
-    r: read(2) as Float32Array | null, w: read(3) as Float32Array | null, h: read(4) as Float32Array | null,
-    source: read(5) as Uint32Array | null, target: read(6) as Uint32Array | null,
-    offsets: read(9) as Uint32Array | null, pts: read(10) as Float32Array | null,
-    curveDegree: read(11) as Uint32Array | null,
-  };
-}
-
-/** The per-kind invariants the renderer depends on, checked on real output. */
-function checkList(layoutId: string, list: ReturnType<typeof buildDrawList>, nodeCount: number): void {
-  check(list.nodes.length === nodeCount, `${layoutId}: draw list has ${list.nodes.length} of ${nodeCount} nodes`);
-  check(
-    list.edges.every((edge) => edge.pts.length % 2 === 0),
-    `${layoutId}: an edge path has an odd coordinate count`,
-  );
-  for (const node of list.nodes) {
-    check(Number.isFinite(node.x) && Number.isFinite(node.y), `${layoutId}: node ${node.index} is not finite`);
-    if (list.nodeKind === "Box") check(node.w > 0 && node.h > 0, `${layoutId}: Box node ${node.index} has no extent`);
-    if (list.nodeKind === "Circle") check(node.r >= 0, `${layoutId}: Circle node ${node.index} has r=${node.r}`);
-  }
-}
-
 /** One build + one run over `handle`, printed as a row. */
 function runOnce(motor: Motor, handle: Handle, layoutId: string): string {
   const started = performance.now();
   const result = motor.layout(handle, layoutId);
   const elapsed = performance.now() - started;
-  const columns = readColumns(motor, handle, result.nodeKind, result.edgeKind);
+  const columns: ColumnInput = readColumns(motor, handle, result.nodeKind, result.edgeKind);
   const list = buildDrawList(columns);
-  checkList(layoutId, list, result.nodeCount);
+  checkList(failures, layoutId, list, result.nodeCount);
   const present = describeColumns(columns).filter((row) => row.length !== null).length;
   return [
     layoutId.padEnd(26),
@@ -129,9 +104,13 @@ async function main(): Promise<void> {
   }
 
   const layouts = motor.layouts();
+  const posts = motor.posts();
+  const analyses = motor.analyses();
   console.log(`layouts registered by the module: ${layouts.length}`);
   for (const id of layouts) console.log(`  ${id}`);
   check(layouts.length > 0, "the module registered no layouts");
+  check(posts.length > 0, "the module registered no POST capabilities");
+  check(analyses.length > 0, "the module registered no analyses");
 
   const ingest = syntheticIngest({ seed: 1, nodeCount: 120, degree: 3 });
   const doc = normaliseIngest(ingest, "synthetic").doc;
@@ -144,14 +123,24 @@ async function main(): Promise<void> {
   console.log(`build: ${ms(performance.now() - buildStart)}`);
   checkLayouts(motor, handle, layouts);
   await checkFixtures(motor, new Set(layouts));
+  checkPosts(motor, handle, posts, failures);
+  checkPostComposition(motor, handle, posts, failures);
   motor.release(handle);
+
+  // Analyses run against a handle that has run NO layout, which is the ABI's own
+  // claim: every analysis is a function of the topology.
+  const analysisHandle = motor.build(ingest);
+  checkAnalyses(motor, analysisHandle, analyses, failures);
+  const centrality = motor.analysis(analysisHandle, "analysis.centrality.betweenness");
+  if (centrality.kind === "f64") checkRampEnds(centrality, failures);
+  motor.release(analysisHandle);
 
   if (failures.length > 0) {
     console.error(`\n${failures.length} FAILURE(S):`);
     for (const failure of failures) console.error(`  - ${failure}`);
     process.exit(1);
   }
-  console.log("\nall layouts and fixtures mapped cleanly");
+  console.log("\nall layouts, post passes, analyses and fixtures mapped cleanly");
 }
 
 await main();

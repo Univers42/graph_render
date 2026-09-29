@@ -96,7 +96,7 @@ function edges(kind: DrawList["edgeKind"], count: number): EdgeDraw[] {
   }));
 }
 
-function paint(list: DrawList, camera: Camera = CAMERA): Recorded[] {
+function paint(list: DrawList, camera: Camera = CAMERA, fills: readonly string[] | null = null): Recorded[] {
   const made = makeContext();
   const state: PaintState = {
     ctx: made.ctx,
@@ -111,6 +111,7 @@ function paint(list: DrawList, camera: Camera = CAMERA): Recorded[] {
     hover: -1,
     selected: -1,
     neighbors: new Set<number>(),
+    fills,
     alpha: 1,
     dpr: 2,
   };
@@ -174,6 +175,53 @@ check(curveCalls.filter((call) => call.name === "lineTo").length === 4, "a Curve
 const highlighted = paint({ ...pointList, nodes: [pointList.nodes[0], node(1, 3, 0, 0, 0, 4.5)] });
 const faded = highlighted.find((call) => call.name === "drawImage");
 check(faded !== undefined, "an overlapping node still draws");
+
+// An analysis overlay replaces the ingest-derived fill: one colour per node,
+// from the face's own value, and it must win over the style's own fill for every
+// geometry kind — a Point sprite, a Circle sprite, a Box body and the far-zoom
+// disc all take it, or a ramp would leave the Box nodes in their record colour.
+const OVERLAY = ["#12324a", "#e2603f"];
+
+const overlayPoint = paint(pointList, CAMERA, OVERLAY);
+check(
+  overlayPoint.some((call) => call.name === "drawImage"),
+  "an overlaid Point node still blits a sprite",
+);
+const overlayBox = paint(boxList, CAMERA, OVERLAY);
+check(
+  overlayBox.some((call) => call.name === "fill" && call.fill === "#12324a"),
+  "an overlaid Box body takes the overlay fill, not the record colour",
+);
+check(
+  overlayBox.some((call) => call.name === "fill" && call.fill === DARK_THEME.nodeBacking),
+  "a Box Backing is still the theme's own, never the overlay's",
+);
+check(
+  !overlayBox.some((call) => call.name === "fill" && call.fill === "#e0937a"),
+  "an overlaid Box never shows the record's own colour",
+);
+const overlayFar = paint(pointList, { x: 0, y: 0, scale: 0.2 }, OVERLAY);
+check(
+  overlayFar.some((call) => call.name === "arc" && call.fill === "#e2603f"),
+  "an overlaid far node's disc takes the overlay fill",
+);
+
+// A partial overlay — a face over a different document — falls back to the
+// style's own fill for the nodes it does not cover, rather than painting them
+// grey. A grey node would read as "the engine said nothing about this one".
+const shortOverlay = paint(pointList, CAMERA, ["#12324a"]);
+const shortSpriteKeys = shortOverlay.filter((call) => call.name === "drawImage");
+check(
+  shortSpriteKeys.length === 2 && shortOverlay.some((call) => call.name === "drawImage" && call.args[2] !== undefined),
+  "a partial overlay still draws every node",
+);
+
+// No overlay at all is the layout-only case and must be untouched.
+const plainPoint = paint(pointList);
+check(
+  plainPoint.filter((call) => call.name === "drawImage").length === 2,
+  "with no overlay, every node draws as before",
+);
 
 // The world's transform: the camera must be applied, not assumed.
 const moved = paint(pointList, { x: 100, y: 50, scale: 1 });

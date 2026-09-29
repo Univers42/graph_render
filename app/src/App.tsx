@@ -8,6 +8,7 @@ import { useFailureSink } from "./studio/useFailureSink.ts";
 import { useIngest } from "./studio/useIngest.ts";
 import { useMotorSession } from "./studio/useMotorSession.ts";
 import { useRunner } from "./studio/useRunner.ts";
+import { useStages } from "./studio/useStages.ts";
 import { StudioMain } from "./ui/StudioMain.tsx";
 import { StudioSide } from "./ui/StudioSide.tsx";
 
@@ -35,15 +36,26 @@ export function App(): React.JSX.Element {
     generation: ingest.generation,
     fail,
   });
+  // The two stage overlays act on the SAME handle the runner built, so they are
+  // wired to the run on screen rather than owning a graph of their own.
+  const stages = useStages({
+    session: motor.session,
+    run: runner.run,
+    onRun: runner.replaceRun,
+    generation: ingest.generation,
+    fail,
+  });
 
   return (
     <div className="studio">
       <StudioHeader />
       <div className="studio__body">
-        <StudioSide ingest={ingest} runner={runner} motor={motor} />
+        <StudioSide ingest={ingest} runner={runner} motor={motor} stages={stages} />
         <StudioMain
           ingest={ingest}
           runner={runner}
+          fills={stages.fills}
+          analysis={stages.analysis}
           degraded={motor.degraded}
           errors={errors}
           onDismiss={clear}

@@ -5,6 +5,7 @@
 
 import { useMemo } from "react";
 
+import type { AnalysisResult } from "../../../crates/graph-sdk-js/src/index.ts";
 import type { ShownError } from "../core/errors.ts";
 import type { IngestDoc } from "../core/ingestText.ts";
 import type { IngestState } from "../studio/useIngest.ts";
@@ -19,6 +20,9 @@ const NO_DOCUMENT: IngestDoc = { version: 1, nodes: [], edges: [] };
 export interface StudioMainProps {
   readonly ingest: IngestState;
   readonly runner: RunnerState;
+  /** One fill per node from an applied analysis, or `null`. */
+  readonly fills: readonly string[] | null;
+  readonly analysis: AnalysisResult | null;
   readonly degraded: ShownError | null;
   readonly errors: readonly ShownError[];
   readonly onDismiss: () => void;
@@ -43,6 +47,8 @@ export function StudioMain(props: StudioMainProps): React.JSX.Element {
         second={props.runner.compare ? props.runner.second : null}
         styles={styles}
         edgeKinds={kinds}
+        fills={props.fills}
+        analysis={props.analysis}
         nodeCount={doc?.nodes.length ?? 0}
         edgeCount={doc?.edges.length ?? 0}
       />

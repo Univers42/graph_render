@@ -3,41 +3,34 @@
  *
  * Every `Motor` call happens here, inside a try, and every column is COPIED out
  * before the next call: a `Column` is a window on the motor's own memory that
- * `Motor#build`/`#layout`/`#release` invalidate (C7/C10), so a renderer that
- * held one would draw freed memory. `run` therefore returns a `DrawList` — plain
- * arrays — and nothing downstream ever sees a wasm pointer again.
+ * `Motor#build`/`#layout`/`#post`/`#release` invalidate (C7/C10), so a renderer
+ * that held one would draw freed memory. `run` and `post` therefore return a
+ * `RunReport` — plain arrays — and nothing downstream ever sees a wasm pointer
+ * again.
  *
- * The two durations the status panel shows are wall-clock measurements of the
- * HOST around those two calls (`performance.now`). They are never fed back into
- * the engine, never hashed and never compared: D8 keeps the clock out of the
- * motor, and this is the studio measuring the motor from outside, which is the
- * one place a duration is a fact about the machine rather than about the graph.
+ * The durations are wall-clock measurements of the HOST around those calls
+ * (`performance.now`). They are never fed back into the engine, never hashed and
+ * never compared: D8 keeps the clock out of the motor, and this is the studio
+ * measuring the motor from outside, which is the one place a duration is a fact
+ * about the machine rather than about the graph.
  */
 
 import {
   ColumnId,
   GraphMotorError,
+  type AnalysisResult,
   type Column,
   type EdgeGeometryKind,
   type Handle,
   type Motor,
   type NodeGeometryKind,
+  type PostResult,
 } from "../../../crates/graph-sdk-js/src/index.ts";
 import { createMotor } from "../../../crates/graph-sdk-js/src/index.ts";
-import { type ColumnInput, type DrawList, buildDrawList, describeColumns } from "../core/drawList.ts";
+import { type ColumnInput } from "../core/drawList.ts";
+import { type RunReport, layoutReport, withPost } from "./report.ts";
 
-/** What one run produced, plus how long the two calls took. */
-export interface RunReport {
-  readonly layoutId: string;
-  readonly nodeKind: NodeGeometryKind;
-  readonly edgeKind: EdgeGeometryKind;
-  readonly nodeCount: number;
-  readonly edgeCount: number;
-  readonly buildMs: number;
-  readonly layoutMs: number;
-  readonly columns: readonly { name: string; length: number | null }[];
-  readonly list: DrawList;
-}
+export type { RunReport } from "./report.ts";
 
 /** A motor plus the ingest it last built, and the handles it is holding. */
 export class MotorSession {
@@ -67,6 +60,18 @@ export class MotorSession {
     return this.#motor.layouts();
   }
 
+  /** Every POST capability the module registers, in registry order (C1) — the
+   *  panel's picker, filled the same way the layout picker is, so a capability
+   *  registered after this file was written appears with no change here. */
+  posts(): readonly string[] {
+    return this.#motor.posts();
+  }
+
+  /** Every analysis the module registers, in registry order (C1). */
+  analyses(): readonly string[] {
+    return this.#motor.analyses();
+  }
+
   /** Builds `ingestJson` and returns the handle plus the build duration. The
    *  previous handle is released first: one live graph at a time, and the studio
    *  has no reason to hold two. */
@@ -87,12 +92,38 @@ export class MotorSession {
     const result = this.#motor.layout(handle, layoutId);
     const layoutMs = performance.now() - started;
     const columns = this.#readColumns(handle, result.nodeKind, result.edgeKind);
-    const list = buildDrawList(columns);
-    return {
-      layoutId, nodeKind: result.nodeKind, edgeKind: result.edgeKind,
-      nodeCount: result.nodeCount, edgeCount: list.edges.length,
-      buildMs, layoutMs, columns: describeColumns(columns), list,
-    };
+    return layoutReport(layoutId, result, { buildMs, layoutMs }, columns);
+  }
+
+  /**
+   * Runs the POST capability `postId` over the SAME handle, immediately after
+   * `base`'s layout, and copies the whole run out again: a pass REPLACES the
+   * handle's edge geometry and may change its kind, so the columns — and the two
+   * geometry tags — are read after it, not before.
+   *
+   * The pass reads the layout's own edges, never `base`'s post-pass edges
+   * (`docs/contract/wasm-abi.md` "POST"), so two passes in a row are the same as
+   * the second alone; the studio therefore reports only the last one.
+   */
+  post(base: RunReport, postId: string): RunReport {
+    const handle = this.#handle;
+    if (handle === null) throw new GraphMotorError("no graph has been built yet");
+    const started = performance.now();
+    const result: PostResult = this.#motor.post(handle, postId);
+    const postMs = performance.now() - started;
+    const columns = this.#readColumns(handle, result.nodeKind, result.edgeKind);
+    return withPost(base, result, columns, postMs);
+  }
+
+  /**
+   * Runs the analysis `analysisId` over the live handle's topology and returns
+   * the ABI's parsed face. No layout run is required — every analysis is a pure
+   * function of the topology — so this works straight after {@link build}.
+   */
+  analysis(analysisId: string): AnalysisResult {
+    const handle = this.#handle;
+    if (handle === null) throw new GraphMotorError("no graph has been built yet");
+    return this.#motor.analysis(handle, analysisId);
   }
 
   release(): void {

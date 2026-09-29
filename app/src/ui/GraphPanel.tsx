@@ -11,8 +11,10 @@
 import { useEffect, useRef, useState } from "react";
 
 import { GraphView } from "../render/graphView.ts";
+import { tooltipText } from "./tooltip.ts";
 import type { Point } from "../core/hitTest.ts";
 import type { RunReport } from "../motor/session.ts";
+import type { AnalysisResult } from "../../../crates/graph-sdk-js/src/index.ts";
 import type { EdgeKind } from "../../../src/core/types.ts";
 import type { NodeStyle } from "../render/palette.ts";
 
@@ -21,6 +23,11 @@ export interface GraphPanelProps {
   readonly second: RunReport | null;
   readonly styles: readonly NodeStyle[];
   readonly edgeKinds: readonly EdgeKind[];
+  /** One fill per node from an applied analysis, or `null` for the layout-only
+   *  case. The overlay is per-GRAPH, so compare mode shows it on both panes. */
+  readonly fills: readonly string[] | null;
+  /** The applied face, for the hover readout. `null` when none is applied. */
+  readonly analysis: AnalysisResult | null;
   readonly nodeCount: number;
   readonly edgeCount: number;
 }
@@ -35,6 +42,8 @@ interface PaneProps {
   readonly report: RunReport | null;
   readonly styles: readonly NodeStyle[];
   readonly edgeKinds: readonly EdgeKind[];
+  readonly fills: readonly string[] | null;
+  readonly analysis: AnalysisResult | null;
   readonly fileName: string;
 }
 
@@ -45,16 +54,13 @@ function download(name: string, url: string): void {
   link.click();
 }
 
-/** The tooltip line for the node under the cursor: its label, its kind, and the
- *  dense index the click handlers speak in. */
-function tooltipText(styles: readonly NodeStyle[], index: number): string {
-  const style = styles[index];
-  return style === undefined ? `#${index}` : `${style.label} · ${style.kind} · #${index}`;
-}
-
+/** The pane's title line: which layout, which geometry kinds, how many nodes —
+ *  and, when a pass is applied on top, WHICH pass, since the edge kind on the
+ *  canvas is that pass's and not the layout's. */
 function paneTitle(report: RunReport | null): string {
   if (report === null) return "no run yet";
-  return `${report.layoutId} · ${report.nodeKind}/${report.edgeKind} · ${report.nodeCount} nodes`;
+  const run = `${report.layoutId} · ${report.nodeKind}/${report.edgeKind} · ${report.nodeCount} nodes`;
+  return report.postId === null ? run : `${run} · post ${report.postId}`;
 }
 
 /** Create the view once per pane and feed it every run. The callbacks are made
@@ -75,8 +81,8 @@ function useCreateView(
 ): PaneView {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<GraphView | null>(null);
-  const latest = useRef({ report: props.report, styles: props.styles });
-  latest.current = { report: props.report, styles: props.styles };
+  const latest = useRef({ report: props.report, styles: props.styles, analysis: props.analysis });
+  latest.current = { report: props.report, styles: props.styles, analysis: props.analysis };
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -86,7 +92,7 @@ function useCreateView(
       onHover: (index, at) => {
         const current = latest.current;
         setTooltip(index < 0 || at === null || current.report === null ? null : {
-          text: tooltipText(current.styles, index),
+          text: tooltipText(current.styles, index, current.analysis),
           at,
         });
       },
@@ -113,11 +119,14 @@ function useRunData(props: PaneProps, viewRef: React.RefObject<GraphView | null>
       list: props.report.list,
       styles: props.styles,
       edgeKinds: props.edgeKinds,
+      fills: props.fills,
       // Animate from what is on screen only when it is the SAME graph: a new
-      // document must not morph into the next one.
+      // document must not morph into the next one. A POST pass keeps the node
+      // count, so it DOES animate — an edge whose point count changed cross-fades
+      // rather than morphs, which is exactly right for a routed arc.
       animate: view.hasData() && view.nodeCount() === props.report.list.nodes.length,
     });
-  }, [props.edgeKinds, props.report, props.styles, viewRef]);
+  }, [props.edgeKinds, props.fills, props.report, props.styles, viewRef]);
 }
 
 /** One canvas panel bound to one run. */
@@ -152,7 +161,12 @@ function Pane(props: PaneProps): React.JSX.Element {
 }
 
 export function GraphPanel(props: GraphPanelProps): React.JSX.Element {
-  const shared = { styles: props.styles, edgeKinds: props.edgeKinds };
+  const shared = {
+    styles: props.styles,
+    edgeKinds: props.edgeKinds,
+    fills: props.fills,
+    analysis: props.analysis,
+  };
   return (
     <div className={props.second === null ? "graph" : "graph graph--compare"}>
       <Pane {...shared} title="primary" report={props.run} fileName="graph-motor-studio.png" />

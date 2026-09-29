@@ -6,7 +6,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { BuildRefusedError, GraphMotorError, RunRefusedError, WasmUnavailableError } from "../../crates/graph-sdk-js/src/index.ts";
+import {
+  AnalysisRefusedError,
+  BuildRefusedError,
+  GraphMotorError,
+  PostRefusedError,
+  RunRefusedError,
+  WasmUnavailableError,
+} from "../../crates/graph-sdk-js/src/index.ts";
 import { describeError } from "../src/core/errors.ts";
 
 test("a motor refusal shows its subclass name, its wire code and its message", () => {
@@ -48,6 +55,20 @@ test("a non-Error throw is stringified rather than rendered as [object Object]",
   const shown = describeError("boom");
   assert.equal(shown.title, "Error");
   assert.equal(shown.detail, "boom");
+});
+
+test("a post refusal says a pass needs a layout run, which is what NoGeometryYet means", () => {
+  const shown = describeError(new PostRefusedError("handle 1 has no successful layout run to draw over", 10));
+  assert.equal(shown.title, "PostRefusedError");
+  assert.equal(shown.code, "code 10 (NoGeometryYet)");
+  assert.match(shown.hint, /finished layout run/);
+});
+
+test("an analysis refusal is not confused with a post refusal", () => {
+  const shown = describeError(new AnalysisRefusedError("gm_analysis_run refused (IndexOutOfRange)", 12));
+  assert.equal(shown.title, "AnalysisRefusedError");
+  assert.equal(shown.code, "code 12 (IndexOutOfRange)");
+  assert.match(shown.hint, /function of the topology/);
 });
 
 test("every GraphMotorError subclass keeps its own name through describeError", () => {
