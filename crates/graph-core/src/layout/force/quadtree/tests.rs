@@ -12,10 +12,11 @@ fn built(points: &[(f64, f64)]) -> (Quadtree, Vec<f64>, Vec<f64>) {
     (tree, xs, ys)
 }
 
-/// Collects every point reached by an unpruned `visit`, in whatever order it arrives.
-fn visited_points(tree: &mut Quadtree) -> Vec<u32> {
+/// Collects every point reached by an unpruned `visit_in`, in whatever order it arrives.
+fn visited_points(tree: &Quadtree) -> Vec<u32> {
     let mut seen = Vec::new();
-    tree.visit(|t, node, _| {
+    let mut stack = Vec::new();
+    tree.visit_in(&mut stack, |t, node, _| {
         if t.children(node).is_none() {
             seen.extend(t.leaf_points(node));
         }
@@ -26,24 +27,24 @@ fn visited_points(tree: &mut Quadtree) -> Vec<u32> {
 
 #[test]
 fn an_empty_or_all_nan_point_set_builds_an_empty_tree() {
-    let (mut empty, ..) = built(&[]);
+    let (empty, ..) = built(&[]);
     assert!(empty.root.is_none());
-    assert_eq!(visited_points(&mut empty), Vec::<u32>::new());
+    assert_eq!(visited_points(&empty), Vec::<u32>::new());
     let (nan_only, ..) = built(&[(f64::NAN, 1.0), (2.0, f64::NAN)]);
     assert!(nan_only.root.is_none(), "every point had a NaN coordinate");
 }
 
 #[test]
 fn a_single_point_is_the_root_leaf() {
-    let (mut tree, ..) = built(&[(3.0, 4.0)]);
-    assert_eq!(visited_points(&mut tree), [0]);
+    let (tree, ..) = built(&[(3.0, 4.0)]);
+    assert_eq!(visited_points(&tree), [0]);
     assert_eq!(tree.len(), 1);
 }
 
 #[test]
 fn exactly_coincident_points_chain_on_one_leaf_others_split_apart() {
-    let (mut tree, ..) = built(&[(1.0, 1.0), (1.0, 1.0), (9.0, 9.0), (1.0, 1.0)]);
-    let mut seen = visited_points(&mut tree);
+    let (tree, ..) = built(&[(1.0, 1.0), (1.0, 1.0), (9.0, 9.0), (1.0, 1.0)]);
+    let mut seen = visited_points(&tree);
     seen.sort_unstable();
     assert_eq!(seen, [0, 1, 2, 3], "every point reachable exactly once");
     // The three coincident points (0, 1, 3) share one leaf's chain.
@@ -54,8 +55,8 @@ fn exactly_coincident_points_chain_on_one_leaf_others_split_apart() {
 
 #[test]
 fn a_nan_point_is_ignored_and_never_reached_by_visit() {
-    let (mut tree, ..) = built(&[(0.0, 0.0), (f64::NAN, 2.0), (5.0, 5.0)]);
-    let mut seen = visited_points(&mut tree);
+    let (tree, ..) = built(&[(0.0, 0.0), (f64::NAN, 2.0), (5.0, 5.0)]);
+    let mut seen = visited_points(&tree);
     seen.sort_unstable();
     assert_eq!(seen, [0, 2]);
 }
@@ -119,9 +120,10 @@ fn cover_grows_a_square_that_contains_every_point() {
 
 #[test]
 fn visit_can_prune_a_whole_quadrant() {
-    let (mut tree, ..) = built(&[(0.0, 0.0), (50.0, 50.0)]);
+    let (tree, ..) = built(&[(0.0, 0.0), (50.0, 50.0)]);
     let mut visits = 0u32;
-    tree.visit(|_, _, _| {
+    let mut stack = Vec::new();
+    tree.visit_in(&mut stack, |_, _, _| {
         visits += 1;
         true // prune everything past the root
     });

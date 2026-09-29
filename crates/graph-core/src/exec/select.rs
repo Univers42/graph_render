@@ -61,26 +61,27 @@ pub struct Thresholds {
 }
 
 impl Thresholds {
-    /// The table as committed in `docs/decisions/tier-thresholds.md`: every node threshold
-    /// at `u32::MAX` and one worker, so `auto` stays on scalar at every size.
+    /// The table as committed in `docs/decisions/tier-thresholds.md`.
     ///
-    /// **Provisional, and deliberately inert.** Phase 9 measured where the *scalar* motor
-    /// stops fitting the frame budget (`docs/measurements/phase09-crossover.md`); it did
-    /// not measure a SIMD or threaded arm, so this phase has no crossover for either yet.
-    /// Writing a guess here would put a number in the ledger with no measurement behind it
-    /// — the one thing `compute-tiers.md` rule 4 forbids. Until
-    /// `docs/decisions/tier-thresholds.md` carries a measured row, the honest table is the
-    /// one that promotes nothing: `exec: "auto"` selects scalar, and a host that wants a
-    /// tier asks for it by name, which is always allowed.
+    /// **`threads_nodes` and `threads_max` are measured** (`docs/measurements/phase11-threads.md`,
+    /// `graph-cli bench --tiers scalar,threads --repeat 5`, release, 16-core host): threads
+    /// lose at n=220 (0.52x..0.75x — the partitions' own cost with nothing to overlap) and
+    /// win from n=10 000 (1.34x at two workers, 2.97x at seven), so the row is the smallest
+    /// measured size at which they won. **`simd_nodes` is not measured**: no SIMD arm exists,
+    /// so it stays at `u32::MAX + 1`, one past the largest node count a `u32` index can
+    /// hold, and no graph reaches it (the comparison is `>=`).
     ///
-    /// Two independent guards, so neither alone is load-bearing: `4_294_967_296` is
-    /// `u32::MAX + 1`, one past the largest node count the `u32` index space can hold, so no
-    /// node count reaches it (the comparison is `>=`), and `threads_max: 1` makes the
-    /// threads branch unreachable at any size.
+    /// Two independent guards on the row that is not measured, so neither alone is
+    /// load-bearing: `4_294_967_296` is unreachable by any node count, and `simd` is
+    /// additionally refused for a host that reports no SIMD build.
+    ///
+    /// A speedup measured on one host is a sample of one host, which is why the table's
+    /// Ponytail lives in `tier-thresholds.md` next to the numbers: a wrong row costs time,
+    /// never bytes, because every tier it can select is hash-equal to scalar per stage.
     pub const MEASURED: Thresholds = Thresholds {
         simd_nodes: 4_294_967_296,
-        threads_nodes: 4_294_967_296,
-        threads_max: 1,
+        threads_nodes: 10_000,
+        threads_max: 7,
     };
 }
 

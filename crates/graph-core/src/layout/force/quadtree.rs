@@ -57,7 +57,6 @@ pub(crate) struct Quadtree {
     chain_next: Vec<Option<u32>>,
     stack_a: Vec<u32>,
     stack_b: Vec<u32>,
-    visit_stack: Vec<(u32, Bounds)>,
 }
 
 impl Quadtree {
@@ -162,25 +161,16 @@ impl Quadtree {
         out.extend(self.stack_b.iter().rev());
     }
 
-    /// A pruned preorder walk (d3's `visit.js`): `prune` runs on every node reached, and a
-    /// `true` return skips its children. Children queue `3,2,1,0`, so they visit `0,1,2,3`.
-    pub(crate) fn visit(&mut self, prune: impl FnMut(&Self, u32, Bounds) -> bool) {
-        // The stack is moved out and back rather than borrowed in place: `visit_in` takes
-        // `&self`, and `&mut self.visit_stack` alongside `&self` is two borrows of one
-        // struct. Moving keeps the buffer's capacity between calls (the reason it is a
-        // field at all) and leaves the field empty only for the duration of the walk.
-        let mut stack = core::mem::take(&mut self.visit_stack);
-        self.visit_in(&mut stack, prune);
-        self.visit_stack = stack;
-    }
-
-    /// [`visit`](Self::visit) over a caller-owned stack, so a `&self` walk is possible.
+    /// A pruned preorder walk (d3's `visit.js`) over a **caller-owned** stack: `prune`
+    /// runs on every node reached, and a `true` return skips its children. Children queue
+    /// `3,2,1,0`, so they visit `0,1,2,3`.
     ///
-    /// This is what makes a range kernel over the tree legal (D10): `visit` needs `&mut`
-    /// only for its reused stack, so without this the walk would be a `&mut` borrow of
-    /// shared start-of-step state and no two workers could take it at once. The order is
-    /// `visit`'s own — a pop from a per-caller stack visits the same nodes in the same
-    /// sequence as a pop from the tree's — so this is a buffer, not a behaviour.
+    /// **The walk takes `&self` and the caller owns the buffer, and that is the whole
+    /// reason this shape exists** (D10): the reused-buffer form needed `&mut` only for its
+    /// stack, so without this the walk was a `&mut` borrow of shared start-of-step state
+    /// and no two workers could take it at once. Every gathered pass now holds the tree
+    /// read-only while several workers walk it, so there is no tree-owned walk buffer to
+    /// keep and no `&mut self` walk to offer.
     pub(crate) fn visit_in(
         &self,
         stack: &mut Vec<(u32, Bounds)>,

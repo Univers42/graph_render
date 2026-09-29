@@ -25,7 +25,7 @@ use crate::evidence;
 use crate::runner::{build_wasm, file_sha256, node_harness, run_lines, sha256_hex};
 use compare::{Arm, Tally, diverged, per_stage};
 use graph_core::Stage;
-use graph_core::layout::force::BarnesHut;
+use graph_core::layout::force::{BarnesHut, Split};
 pub use knob::Knob;
 use knob::{Setting, env_setting};
 pub(crate) use stages::{LAYOUT, TRANSPORT};
@@ -39,6 +39,10 @@ use std::process::{Command, ExitCode};
 
 pub(crate) use crate::exec_native::Threads;
 pub(crate) use tier::Tiers;
+/// The gate's own worker counts, re-exported so the benchmark sweep can hold every width
+/// it times to one the gate has proved hash-equal: a threshold promoting a width nothing
+/// was compared at would be a claim with no equality behind it.
+pub(crate) use tier::WORKER_COUNTS;
 /// `--tiers` as `main.rs`'s flag parser reads it: the arm list's own [`tier::parse`], so
 /// the accepted words and the arms they add are one definition.
 pub(crate) fn parse_tiers(text: &str) -> Result<Tiers, String> {
@@ -48,6 +52,7 @@ pub(crate) fn parse_tiers(text: &str) -> Result<Tiers, String> {
 /// Runs every arm over seeds `0..seeds` and compares them line by line.
 pub fn run(seeds: u32, tiers: Tiers) -> ExitCode {
     let started = env_setting().and_then(|setting| {
+        refuse_a_vacuous_control(seeds, setting.split_sum)?;
         let stamp = evidence::Stamp::take()?;
         Ok((setting.control, stamp, collect_arms(seeds, tiers)?))
     });
@@ -58,6 +63,27 @@ pub fn run(seeds: u32, tiers: Tiers) -> ExitCode {
             ExitCode::from(2)
         }
     }
+}
+
+/// **A control that cannot bite refuses the run; it does not pass it.**
+///
+/// `split` is the pass whose merge the control splits, and `seeds` is how many the row runs.
+/// Collide's own control moves nothing below five seeds — see
+/// [`graph_core::layout::force::Split::min_seeds`], which measures it — so a row at two
+/// seeds would corrupt no bytes and exit **0**, a *vacuous pass*: an exit code that reads as
+/// evidence for a control that never ran. Refusing is the only honest answer, and the
+/// existing `Err` path already carries it as exit 2, "could not run".
+fn refuse_a_vacuous_control(seeds: u32, split: Split) -> Result<(), String> {
+    let floor = split.min_seeds();
+    if seeds < floor {
+        return Err(format!(
+            "GM_MUTATE_SPLIT_SUM splits a merge that cannot move anything in {seeds} \
+             seed(s): the collide pass needs at least {floor} seeds, because below that the \
+             gate's model leaves it no overlap to resolve. Run with --seeds {floor} or more, \
+             or with GM_MUTATE_SPLIT_SUM naming another pass."
+        ));
+    }
+    Ok(())
 }
 
 /// Body of the hidden `hashgate-arm` subcommand: one native run, every stage.

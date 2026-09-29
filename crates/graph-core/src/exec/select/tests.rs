@@ -81,17 +81,51 @@ fn a_tier_the_host_cannot_run_is_not_selected_even_past_its_threshold() {
     assert_eq!(select(10_000, 0, no_simd, t), Tier::Threads(4));
 }
 
+/// **The committed table is the measured one**, and this is what it now decides: scalar
+/// below `threads_nodes` (measured: threads lose there), threads at and above it, still
+/// scalar on a host with fewer than two workers, and still nothing at `u32::MAX` for SIMD,
+/// which has no measurement behind it.
 #[test]
-fn the_committed_table_promotes_nothing_until_it_is_measured() {
-    // Every node count the `u32` index space can hold, and nothing is promoted. `n` is a
-    // node count, so `u64::MAX` is outside the domain and is not asserted here.
-    for n in [0_u64, 220, 10_000, u32::MAX as u64] {
-        assert_eq!(
-            select(n, n, FULL, Thresholds::MEASURED),
-            Tier::Scalar,
-            "at n={n}"
-        );
+fn the_committed_table_promotes_threads_only_past_the_measured_crossover() {
+    let t = Thresholds::MEASURED;
+    // Below the crossover, every worker count is measured to lose (n=220: 0.52x..0.75x).
+    for n in [0_u64, 2, 220, 9_999] {
+        assert_eq!(select(n, n, FULL, t), Tier::Scalar, "at n={n}");
     }
+    // At and above it: threads, at the width the table allows, capped by the host.
+    assert_eq!(select(10_000, 5, FULL, t), Tier::Threads(4));
+    assert_eq!(select(u32::MAX as u64, 5, FULL, t), Tier::Threads(4));
+    // A host that cannot run threads gets the serial bytes, not a promise.
+    let one = Caps { workers: 1, ..FULL };
+    assert_eq!(select(100_000, 5, one, t), Tier::Scalar);
+    // And SIMD is still not auto-selected anywhere: no arm has measured it.
+    for n in [10_000_u64, 100_000, u32::MAX as u64] {
+        assert_ne!(select(n, n, FULL, t), Tier::Simd, "at n={n}");
+    }
+}
+
+/// The measured `threads_max` is one width the N-way gate runs, or a threshold could
+/// promote a width nothing has proved hash-equal.
+#[test]
+fn the_measured_worker_cap_is_a_width_the_gate_runs() {
+    assert!(
+        [1_u32, 2, 3, 4, 7].contains(&Thresholds::MEASURED.threads_max),
+        "threads_max {} is not a gated width",
+        Thresholds::MEASURED.threads_max
+    );
+    assert_eq!(Thresholds::MEASURED.threads_max, 7);
+    assert_eq!(
+        select(100_000, 5, FULL, Thresholds::MEASURED),
+        Tier::Threads(4)
+    );
+    let wide = Caps {
+        workers: 64,
+        ..FULL
+    };
+    assert_eq!(
+        select(100_000, 5, wide, Thresholds::MEASURED),
+        Tier::Threads(7)
+    );
 }
 
 #[test]

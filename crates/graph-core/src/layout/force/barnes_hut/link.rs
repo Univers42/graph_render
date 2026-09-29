@@ -8,8 +8,19 @@
 //! already collapsed that direction, so "source" and "target" are redefined here as the
 //! pair's lower and higher node index respectively — a fixed, deterministic stand-in,
 //! not the original edge's own orientation.
+//!
+//! **Why this pass is a gather when charge's already was.** An edge's force has *two*
+//! endpoints: computing it once and adding it into both is a scatter, which D10 forbids,
+//! so a naive port of this loop into a range kernel would have one range write into
+//! another's slot. `docs/decisions/link-gather.md` states the argument this port is built
+//! on: partition by **node**, recompute the pair's
+//! one shared difference from either end — bit-identical, since IEEE754 subtraction is
+//! antisymmetric — and sum each node's own share over its own incident edges, in the row
+//! order [`SimpleGraph`] already fixes.
 
 use super::sim::Sim;
+use super::step::LinkPass;
+use crate::exec::Runner;
 use crate::layout::force::SimpleGraph;
 use crate::layout::force::params::ForceParams;
 use crate::rng::jiggle;
@@ -43,23 +54,42 @@ pub(super) fn geometry(
 }
 
 /// One Jacobi pass over every simple edge (`link.js`'s own `iterations` defaults to,
-/// and here is fixed at, 1).
-pub(super) fn apply(sim: &mut Sim) {
-    sim.dvx.iter_mut().for_each(|v| *v = 0.0);
-    sim.dvy.iter_mut().for_each(|v| *v = 0.0);
-    for e in 0..sim.graph.lo.len() {
-        edge_delta(sim, e);
-    }
-    for i in 0..sim.vx.len() {
-        sim.vx[i] += sim.dvx[i];
-        sim.vy[i] += sim.dvy[i];
+/// and here is fixed at, 1), with the per-node gather divided by `runner` over `workers`
+/// workers.
+///
+/// `split` is this pass's own slice of the negative control: it makes the merge read the
+/// next node's delta as well, the shape a wrong partition of the outputs would take.
+pub(super) fn apply_with(
+    sim: &mut Sim,
+    runner: &impl Runner,
+    workers: u32,
+    deltas: &mut Vec<(f64, f64)>,
+    split: bool,
+) {
+    runner.run(&LinkPass::of(&*sim), workers, deltas);
+    merge(sim, deltas, split);
+}
+
+/// `vx[i] += deltas[i]` in ascending node index, and the same for `y` — the merge every
+/// gathered pass ends with, in the same shape as `charge::merge`, so a partition mistake
+/// shows up in the same place for all three.
+fn merge(sim: &mut Sim, deltas: &[(f64, f64)], split: bool) {
+    for (i, (dvx, dvy)) in deltas.iter().enumerate() {
+        let stolen = if split {
+            deltas.get(i + 1).copied().unwrap_or((0.0, 0.0))
+        } else {
+            (0.0, 0.0)
+        };
+        sim.vx[i] += dvx + stolen.0;
+        sim.vy[i] += dvy + stolen.1;
     }
 }
 
-fn edge_delta(sim: &mut Sim, e: usize) {
+/// Simple edge `e`'s two halves of the force, in `(x, y)`: the share that moves its higher
+/// endpoint and the share that moves its lower one, already weighted by the edge's bias.
+pub(super) fn halves(sim: &Sim, e: usize) -> ((f64, f64), (f64, f64)) {
     let (lo, hi) = (sim.graph.lo[e] as usize, sim.graph.hi[e] as usize);
-    let mut dx = (sim.x[hi] + sim.vx[hi]) - (sim.x[lo] + sim.vx[lo]);
-    let mut dy = (sim.y[hi] + sim.vy[hi]) - (sim.y[lo] + sim.vy[lo]);
+    let (mut dx, mut dy) = displaced(sim, hi, lo);
     if dx == 0.0 {
         dx = jiggle(sim.seed, sim.tick_no, PASS_X, (lo as u32, hi as u32));
     }
@@ -70,39 +100,42 @@ fn edge_delta(sim: &mut Sim, e: usize) {
     let factor = (l - sim.link_distance[e]) / l * sim.alpha * sim.link_strength[e];
     let (fx, fy) = (dx * factor, dy * factor);
     let b = sim.link_bias[e];
-    sim.dvx[hi] -= fx * b;
-    sim.dvy[hi] -= fy * b;
-    sim.dvx[lo] += fx * (1.0 - b);
-    sim.dvy[lo] += fy * (1.0 - b);
+    ((fx * (1.0 - b), fy * (1.0 - b)), (-fx * b, -fy * b))
+}
+
+/// Edge `e`'s delta scattered into both its endpoints, at `out[lo]` and `out[hi]`.
+///
+/// **The serial reference for [`LinkPass`], and the shape D10 forbids inside a range**: it
+/// writes two elements that may fall in two different ranges. It stays as a named
+/// function because it *is* what the kernel must reproduce — one edge's contribution,
+/// identically ordered from either end — and because a test compares the two.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the serial reference a test compares the kernel to"
+    )
+)]
+pub(super) fn scatter(sim: &Sim, e: usize, out: &mut [(f64, f64)]) {
+    let (lo, hi) = (sim.graph.lo[e] as usize, sim.graph.hi[e] as usize);
+    let ((lox, loy), (hix, hiy)) = halves(sim, e);
+    out[lo].0 += lox;
+    out[lo].1 += loy;
+    out[hi].0 += hix;
+    out[hi].1 += hiy;
+}
+
+/// `x[a] + vx[a]` minus `x[b] + vx[b]`: the pair's one shared difference, read from the
+/// higher endpoint. Both endpoints of an edge compute it here, so the subtraction is
+/// performed once per direction and is antisymmetric in IEEE754 — `a - b` and `b - a` are
+/// exact negations, including the `+0.0` each becomes when the two coincide, which is
+/// exactly the case the `jiggle` branch below then replaces.
+fn displaced(sim: &Sim, hi: usize, lo: usize) -> (f64, f64) {
+    (
+        (sim.x[hi] + sim.vx[hi]) - (sim.x[lo] + sim.vx[lo]),
+        (sim.y[hi] + sim.vy[hi]) - (sim.y[lo] + sim.vy[lo]),
+    )
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::index::index_model;
-    use crate::layout::force::simple_graph;
-    use crate::records::build::{edge, node};
-
-    #[test]
-    fn bias_favours_the_lower_degree_endpoint_moving_more() {
-        // hub (many edges) -- mid (one edge): hub's degree dwarfs mid's.
-        let nodes = [
-            node("hub", ""),
-            node("mid", ""),
-            node("a", ""),
-            node("b", ""),
-            node("c", ""),
-        ];
-        let edges = [
-            edge("e0", "hub", "mid"),
-            edge("e1", "hub", "a"),
-            edge("e2", "hub", "b"),
-            edge("e3", "hub", "c"),
-        ];
-        let t = index_model(&nodes, &edges).expect("fits");
-        let g = simple_graph(&t);
-        let (_, _, bias) = geometry(&g, &ForceParams::default());
-        // edge0 is (hub=lo=0, mid=hi=1): bias = degree(lo)/(degree(lo)+degree(hi)) = 4/5.
-        assert!((bias[0] - 0.8).abs() < 1e-12);
-    }
-}
+mod tests;

@@ -3,10 +3,13 @@
 //! reformulation of link (devil C7) is most at risk from, since every hub pulls from a
 //! fixed pre-tick snapshot instead of seeing the others' corrections mid-pass.
 
+#[cfg(test)]
+mod kernels;
+
 use super::charge;
 use super::sim::{How, Sim};
 use super::step::Pass;
-use super::{BarnesHut, TICKS};
+use super::{BarnesHut, Split, TICKS};
 use crate::exec::{Runner, Serial};
 use crate::index::index_model;
 use crate::layout::force::params::ForceParams;
@@ -94,7 +97,7 @@ fn the_jacobi_link_stability_fixture_stays_finite_and_bounded_devil_c9() {
             runner: &Serial,
             workers: 1,
             deltas: &mut deltas,
-            split_sum: false,
+            split: Split::None,
         };
         sim.tick(&mut how);
         let e: f64 = sim
@@ -262,7 +265,8 @@ fn the_split_sum_control_moves_the_layout() {
     let params = ForceParams::default();
     let honest = BarnesHut::run_with(&t, &params, &Serial, 1).expect("finite");
     for workers in [1_u32, 2, 3, 4, 7] {
-        let mutated = BarnesHut::run_under(&t, &params, &Serial, workers, true).expect("finite");
+        let mutated =
+            BarnesHut::run_under(&t, &params, &Serial, workers, Split::Charge).expect("finite");
         assert_ne!(
             mutated, honest,
             "workers={workers}: the split-sum control changed nothing, so it would pass a gate"
@@ -270,9 +274,9 @@ fn the_split_sum_control_moves_the_layout() {
     }
     // And it is the *same* control whatever the worker count, so a threaded arm that
     // ignored it would be distinguishable from one that applied it.
-    let threaded = BarnesHut::run_under(&t, &params, &Serial, 4, true).expect("finite");
+    let threaded = BarnesHut::run_under(&t, &params, &Serial, 4, Split::Charge).expect("finite");
     assert_eq!(
         threaded,
-        BarnesHut::run_under(&t, &params, &Serial, 7, true).expect("finite")
+        BarnesHut::run_under(&t, &params, &Serial, 7, Split::Charge).expect("finite")
     );
 }

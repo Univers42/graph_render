@@ -1,6 +1,14 @@
 //! Each knob is read strictly, one at a time, and moves only the stages it backs.
 
-use super::*;
+use super::super::*;
+use super::env;
+use super::honest;
+use super::{Knob, Setting, setting, stage_bytes};
+use graph_core::layout::force::BarnesHut;
+use graph_core::layout::force::Split;
+use graph_core::layout::forceatlas2::ForceAtlas2;
+use graph_core::{GridParams, REFERENCE_DEGREE};
+use std::env::VarError;
 
 #[test]
 fn the_mutation_variables_parse_strictly_and_one_at_a_time() {
@@ -10,25 +18,47 @@ fn the_mutation_variables_parse_strictly_and_one_at_a_time() {
         (h.reference_degree, h.grid, h.extra_nodes, h.control),
         defaults
     );
+
+    assert_parses_reference_degree(&h);
+    assert_parses_grid_spacing(&h);
+    assert_parses_sugiyama_layer_spacing(&h);
+    assert_parses_node_count(&h);
+    assert_refuses_bad_values();
+    assert_refuses_two_controls();
+    assert_refuses_unreadable_variable();
+}
+
+fn assert_parses_reference_degree(h: &Setting) {
     let degree = setting(env(vec![("GM_MUTATE_REFERENCE_DEGREE", " 9 ")])).expect("parses");
     assert_eq!((degree.reference_degree, degree.grid), (9, h.grid));
     assert_eq!(degree.control, Some(Knob::ReferenceDegree));
+}
+
+fn assert_parses_grid_spacing(_h: &Setting) {
     let spacing = setting(env(vec![("GM_MUTATE_GRID_SPACING", "2.5")])).expect("parses");
     assert_eq!(
         (spacing.reference_degree, spacing.grid.spacing),
         (REFERENCE_DEGREE, 2.5)
     );
     assert_eq!(spacing.control, Some(Knob::GridSpacing));
-    assert_eq!(h.sugiyama, SugiyamaParams::default());
+}
+
+fn assert_parses_sugiyama_layer_spacing(h: &Setting) {
     let layers = setting(env(vec![("GM_MUTATE_SUGIYAMA_LAYER_SPACING", "3.5")])).expect("parses");
     assert_eq!(layers.sugiyama.layer_spacing, 3.5);
     assert_eq!(
         (layers.reference_degree, layers.grid, layers.control),
         (REFERENCE_DEGREE, h.grid, Some(Knob::SugiyamaLayerSpacing))
     );
+}
+
+fn assert_parses_node_count(_h: &Setting) {
     let nodes = setting(env(vec![("GM_MUTATE_NODE_COUNT", " 1 ")])).expect("parses");
     assert_eq!(nodes.extra_nodes, 1);
     assert_eq!(nodes.control, Some(Knob::NodeCount));
+}
+
+fn assert_refuses_bad_values() {
     let bad: [&'static [(&str, &str)]; 5] = [
         &[("GM_MUTATE_SUGIYAMA_LAYER_SPACING", "tall")],
         &[("GM_MUTATE_REFERENCE_DEGREE", "nine")],
@@ -40,12 +70,18 @@ fn the_mutation_variables_parse_strictly_and_one_at_a_time() {
         let err = setting(env(pairs.to_vec())).expect_err("refused");
         assert!(err.starts_with(pairs[0].0), "{err}");
     }
+}
+
+fn assert_refuses_two_controls() {
     let both = env(vec![
         ("GM_MUTATE_REFERENCE_DEGREE", "9"),
         ("GM_MUTATE_GRID_SPACING", "2"),
     ]);
     let err = setting(both).expect_err("two controls");
     assert!(err.ends_with("one control at a time"), "{err}");
+}
+
+fn assert_refuses_unreadable_variable() {
     let unreadable = setting(|_| Err(VarError::NotUnicode("\u{fffd}".into())));
     assert!(unreadable.is_err());
 }
@@ -88,34 +124,109 @@ fn each_knob_names_its_own_variable_and_record() {
     }
 }
 
-/// `GM_MUTATE_SPLIT_SUM` is parsed, not treated as a presence flag: `0` is the honest run
-/// and a typo is an error rather than a silent mutation.
+/// `GM_MUTATE_SPLIT_SUM` names **which** gathered pass's merge to split, and is parsed
+/// rather than treated as a presence flag: `0` is the honest run and a typo is an error
+/// instead of a silent mutation.
 #[test]
-fn the_split_sum_knob_takes_a_boolean_and_refuses_anything_else() {
-    let on = setting(env(vec![("GM_MUTATE_SPLIT_SUM", "true")])).expect("true");
-    assert!(on.split_sum);
-    assert_eq!(on.control, Some(Knob::SplitSum));
-    for truthy in ["1", "true", "TRUE", " 1 "] {
-        let read = env(vec![("GM_MUTATE_SPLIT_SUM", truthy)]);
-        assert!(
-            setting(read).expect(truthy).split_sum,
-            "{truthy:?} must set it"
-        );
+fn the_split_sum_knob_names_the_pass_it_corrupts() {
+    for (word, want) in [
+        ("1", Split::All),
+        ("true", Split::All),
+        ("TRUE", Split::All),
+        (" 1 ", Split::All),
+        ("0", Split::None),
+        ("false", Split::None),
+        ("FALSE", Split::None),
+        ("charge", Split::Charge),
+        ("collide", Split::Collide),
+        ("link", Split::Link),
+    ] {
+        let read = env(vec![("GM_MUTATE_SPLIT_SUM", word)]);
+        let got = setting(read).expect(word);
+        assert_eq!(got.split_sum, want, "GM_MUTATE_SPLIT_SUM={word:?}");
+        assert_eq!(got.control, Some(Knob::SplitSum));
     }
-    for falsy in ["0", "false", "FALSE"] {
-        let read = env(vec![("GM_MUTATE_SPLIT_SUM", falsy)]);
-        assert!(
-            !setting(read).expect(falsy).split_sum,
-            "{falsy:?} must leave it off"
-        );
-    }
-    for typo in ["yes", "2", "", "on"] {
+    for typo in ["yes", "2", "", "on", "manybody"] {
         let read = env(vec![("GM_MUTATE_SPLIT_SUM", typo)]);
         let err = setting(read).expect_err(typo);
         assert!(err.contains("GM_MUTATE_SPLIT_SUM"), "{err}");
     }
     // And it is off by default: an unset variable must not mutate anything.
-    assert!(!honest().split_sum);
+    assert_eq!(honest().split_sum, Split::None);
+}
+
+/// Every word the knob accepts is a pass the stage actually hands to the runner: a control
+/// for a pass that no longer exists would go red for the wrong reason, and one for a pass
+/// that was threaded without being listed would go red for no reason at all.
+///
+/// Compared as a **set**, because the two lists are the same three names and the order is
+/// not the claim: the knob takes one word at a time and the stage's list is printed in the
+/// tick's own order. What must hold is that neither list has a name the other lacks.
+#[test]
+fn every_word_the_split_knob_accepts_is_a_threaded_pass() {
+    let mut accepted: Vec<&str> = ["charge", "collide", "link"].to_vec();
+    let mut listed: Vec<&str> = BarnesHut::THREADED_PASSES.to_vec();
+    accepted.sort_unstable();
+    listed.sort_unstable();
+    assert_eq!(
+        accepted, listed,
+        "the knob's words and the stage's passes are one set, whatever their order"
+    );
+}
+
+/// **A control that cannot bite must refuse the run, not pass it.** Collide's own control
+/// moves nothing below five seeds — at two or three nodes link and many-body have already
+/// pushed every pair past `2 * collideRadius`, so the deltas it would split are all zero
+/// (measured in `barnes_hut/tests/kernels.rs`, where collide first bites at seed 4). A row
+/// run at two seeds would exit 0 having corrupted nothing: a **vacuous pass**, which is
+/// worse than a failure because it reads as evidence. So the gate refuses the run instead,
+/// and the refusal is exit 2, "could not run" — never exit 0.
+#[test]
+fn a_control_that_cannot_bite_at_this_seed_count_refuses_rather_than_passing() {
+    for split in [Split::Collide, Split::All] {
+        for seeds in 0..5 {
+            let err = refuse_a_vacuous_control(seeds, split).expect_err("refused");
+            assert!(
+                err.contains("collide") && err.contains(&format!("{seeds}")),
+                "the refusal must name the pass and the count: {err:?}"
+            );
+        }
+        assert!(
+            refuse_a_vacuous_control(5, split).is_ok(),
+            "{split:?} bites at five seeds and must run"
+        );
+        assert!(
+            refuse_a_vacuous_control(8, split).is_ok(),
+            "{split:?} at the phase gate's eight seeds must run"
+        );
+    }
+    // The other two bites at the first seed, and an honest run sets no control at all: a
+    // floor on those would refuse rows the gate has always run and needs.
+    for split in [Split::None, Split::Charge, Split::Link] {
+        assert!(
+            refuse_a_vacuous_control(1, split).is_ok(),
+            "{split:?} bites at one seed"
+        );
+    }
+    assert!(
+        refuse_a_vacuous_control(2, Split::None).is_ok(),
+        "an honest run has no control to be vacuous"
+    );
+}
+
+/// The floor is the model's, not a constant invented beside the gate: graph-core measures
+/// which seed each pass's control first bites at, and the gate reads the same number.
+#[test]
+fn the_collide_controls_floor_is_the_one_graph_core_measures() {
+    assert_eq!(
+        Split::Collide.min_seeds(),
+        5,
+        "collide first bites at seed 4, so five seeds is the floor"
+    );
+    assert_eq!(Split::All.min_seeds(), Split::Collide.min_seeds());
+    assert_eq!(Split::Charge.min_seeds(), 1);
+    assert_eq!(Split::Link.min_seeds(), 1);
+    assert_eq!(Split::None.min_seeds(), 1);
 }
 
 /// A force layout's own negative control must move that stage and *only* that stage: a

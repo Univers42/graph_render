@@ -19,10 +19,12 @@ pub(super) struct How<'a, R: crate::exec::Runner> {
     pub(super) runner: &'a R,
     /// How many workers it may use.
     pub(super) workers: u32,
-    /// The scratch the gather writes, reused across ticks.
+    /// The scratch the gathers write, reused across ticks and across the passes within a
+    /// tick: every range kernel's output is a per-node `(dvx, dvy)` column, so one buffer
+    /// of `n` serves all three.
     pub(super) deltas: &'a mut Vec<(f64, f64)>,
-    /// The negative control: read the next node's delta too.
-    pub(super) split_sum: bool,
+    /// The negative control: which merge, if any, reads a neighbouring node's delta.
+    pub(super) split: super::Split,
 }
 
 pub(super) struct Sim {
@@ -35,8 +37,6 @@ pub(super) struct Sim {
     pub(super) y: Vec<f64>,
     pub(super) vx: Vec<f64>,
     pub(super) vy: Vec<f64>,
-    pub(super) dvx: Vec<f64>,
-    pub(super) dvy: Vec<f64>,
     pub(super) px: Vec<f64>,
     pub(super) py: Vec<f64>,
     pub(super) charge_tree: Quadtree,
@@ -64,8 +64,6 @@ impl Sim {
             tick_no: 0,
             vx: vec![0.0; n],
             vy: vec![0.0; n],
-            dvx: vec![0.0; n],
-            dvy: vec![0.0; n],
             px: vec![0.0; n],
             py: vec![0.0; n],
             charge_tree: Quadtree::default(),
@@ -101,18 +99,20 @@ impl Sim {
         super::charge::node_delta_with(self, i, stack)
     }
 
-    /// One tick with the many-body pass divided by `runner` over `workers` workers:
+    /// One tick with the three gathered passes divided by `runner` over `workers` workers:
     /// `alpha` decays first (`simulation.js`'s own order, `alphaTarget = 0`), then link,
     /// many-body, center and collide run in the engine's registration order
     /// (`forceLayout.ts`'s `.force("link",...).force("charge",...).force("center",...)
     /// .force("collide",...)`), then velocities integrate into position.
     ///
-    /// The **only** tier-sensitive line is the many-body pass: everything else — the decay,
-    /// link, center, collide, integrate, and the pass order itself — is the same
-    /// straight-line code, and the many-body pass's own prologue (tree build, bottom-up
-    /// aggregate) is single-threaded in both. That is deliberate and it is the whole safety
+    /// The **only** tier-sensitive lines are those three passes' range kernels:
+    /// everything else — the decay, center, integrate, and the pass order itself — is the
+    /// same straight-line code in every tier. That is deliberate and it is the whole safety
     /// argument: the sequence of reads and writes per node is unchanged, so tick `t + 1`
-    /// sees exactly what tick `t` left whether one thread or seven made it.
+    /// sees exactly what tick `t` left whether one thread or seven made it. Each pass's own
+    /// prologue (charge's and collide's tree build, the bottom-up aggregate) stays
+    /// single-threaded and ahead of its ranges, as `phase-11-compute-tiers.md` step 2
+    /// prescribes.
     ///
     /// `deltas` is the caller's scratch, reused across ticks so a steady-state run
     /// allocates nothing here — one buffer for the whole layout, not one per tick.
@@ -121,14 +121,32 @@ impl Sim {
             runner,
             workers,
             deltas,
-            split_sum,
+            split,
         } = how;
-        let (runner, workers, split_sum) = (*runner, *workers, *split_sum);
+        let (runner, workers, split) = (*runner, *workers, *split);
         self.alpha += -self.alpha * self.params.alpha_decay;
-        super::link::apply(self);
-        super::charge::apply_with(self, runner, workers, deltas, split_sum);
+        super::link::apply_with(
+            self,
+            runner,
+            workers,
+            deltas,
+            split.splits(super::Split::Link),
+        );
+        super::charge::apply_with(
+            self,
+            runner,
+            workers,
+            deltas,
+            split.splits(super::Split::Charge),
+        );
         self.center();
-        super::collide::apply(self);
+        super::collide::apply_with(
+            self,
+            runner,
+            workers,
+            deltas,
+            split.splits(super::Split::Collide),
+        );
         self.integrate();
         self.tick_no += 1;
     }

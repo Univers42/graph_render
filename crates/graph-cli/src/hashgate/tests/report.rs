@@ -2,7 +2,10 @@
 //! the exit code, each pinned to its exact words, keys and counts.
 
 use super::super::report::{arm_report, body, exit};
-use super::*;
+use super::super::stages::stages as stage_ids;
+
+use super::compare::{HONEST, arms};
+use super::{Arm, Knob, Tally};
 use crate::runner::sha256_hex;
 use std::process::ExitCode;
 
@@ -57,10 +60,10 @@ fn the_detail_report_names_three_diverged_lines_at_most_and_all_four_arms() {
 #[test]
 fn the_record_holds_the_exact_counts_it_reports() {
     let clean = Tally {
-        equal: vec![3; super::super::stages().len()],
+        equal: vec![3; stage_ids().len()],
         diverged_seeds: 0,
     };
-    let four = super::super::tests::arms(super::super::tests::HONEST);
+    let four = arms(HONEST);
     let text = serde_json::to_string(&body(None, 3, &clean, 3, &four)).expect("json");
     assert_eq!(
         text,
@@ -73,7 +76,7 @@ fn the_record_holds_the_exact_counts_it_reports() {
         4
     );
     let diverged = Tally {
-        equal: vec![3; super::super::stages().len()],
+        equal: vec![3; stage_ids().len()],
         diverged_seeds: 1,
     };
     let control = body(Some(Knob::GridSpacing), 3, &diverged, 3, &four);

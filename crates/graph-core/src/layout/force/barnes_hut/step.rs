@@ -5,29 +5,36 @@
 //! and tick `t + 1` reads the positions tick `t` wrote, so the tick loop cannot be
 //! partitioned at all — it is one thread's straight-line code above the kernel, and the
 //! barrier lands at the end of the pass, once per tick. What *is* partitionable is the
-//! per-node tree walk inside a pass, and that is what this file is: the gather
-//! `charge::apply` already performed, with the division of the nodes handed to a
-//! [`Runner`] instead of written as a `for` loop.
+//! per-node gather inside each pass, and that is what this file holds: one kernel per
+//! gathered pass, each with the same shape.
 //!
-//! **What makes it legal.** The pass reads only start-of-step state — the built quadtree,
-//! the aggregate masses and centres, the positions, `alpha` — and writes only element
-//! `i`'s own velocity delta into `out`. Nothing accumulates into another element, no term
-//! is reordered, and a node's walk visits its subtree in the quadtree's own `visit` order
-//! regardless of which slice of the node range the node fell into. So `partition(n,
-//! workers)` is a scheduling decision and nothing else, and a tier is byte-identical
-//! rather than close (D3, D10).
+//! **What makes it legal.** A pass reads only start-of-step state — the built quadtrees,
+//! the aggregate masses and centres, the positions, `alpha`, the frozen per-edge link
+//! geometry — and writes only element `i`'s own velocity delta into `out`. Nothing
+//! accumulates into another element, no term is reordered, and a node's walk visits its
+//! subtree in the quadtree's own `visit` order regardless of which slice of the node
+//! range the node fell into. So `partition(n, workers)` is a scheduling decision and
+//! nothing else, and a tier is byte-identical rather than close (D3, D10).
 //!
-//! The tree build and the aggregate stay **single-threaded and ahead of the ranges**,
+//! | kernel | partitions by | the scatter it replaces |
+//! |---|---|---|
+//! | [`Pass`] (charge) | node | none — it was already a gather |
+//! | [`CollidePass`] | node | none — the same gather shape |
+//! | [`LinkPass`] | node | one edge writing both endpoints — see `link-gather.md` |
+//!
+//! All three share one output type — a per-node `(dvx, dvy)` — so they share the tick's
+//! single scratch buffer and the one merge each ends with.
+//!
+//! The tree builds and the aggregate stay **single-threaded and ahead of the ranges**,
 //! which is `phase-11-compute-tiers.md` step 2's own prescription: the tree is a shared,
 //! start-of-step read, and the aggregate is a bottom-up pass whose every arena node reads
 //! its children's already-final values, so it could be partitioned by arena node but buys
 //! nothing next to the queries it feeds. `docs/measurements/phase11-threads.md` is where a
 //! measurement that says otherwise would land.
 //!
-//! **Not the only kernel, and not claimed to be.** `collide` is the same shape and `link`
-//! is not (it writes both endpoints of an edge, so it partitions by edge and sums into two
-//! nodes); `post::fdeb`'s iteration partitions by point. Each gets its own kernel when it
-//! gets a tier, and none of them reorders a sum to get one.
+//! **Not the only kernels, and not claimed to be.** `post::fdeb`'s iteration partitions by
+//! point and gets its own kernel when it gets a tier; none of them reorders a sum to get
+//! one.
 
 use super::sim::Sim;
 use crate::exec::StepRange;
@@ -69,5 +76,82 @@ impl StepRange for Pass<'_> {
         for (slot, i) in out.iter_mut().zip(range) {
             *slot = self.sim.node_delta(i, &mut stack);
         }
+    }
+}
+
+/// The per-node collide gather over an already-projected, already-built [`Sim`].
+pub struct CollidePass<'a> {
+    sim: &'a Sim,
+}
+
+impl<'a> CollidePass<'a> {
+    /// The pass over `sim`, which the caller has already projected and built.
+    pub fn of(sim: &'a Sim) -> CollidePass<'a> {
+        CollidePass { sim }
+    }
+}
+
+impl StepRange for CollidePass<'_> {
+    type Out = (f64, f64);
+
+    fn len(&self) -> u32 {
+        self.sim.px.len() as u32
+    }
+
+    fn step_range(&self, range: Range<u32>, out: &mut [(f64, f64)]) {
+        let reach = super::collide::reach_squared(self.sim);
+        let mut stack = Vec::new();
+        for (slot, i) in out.iter_mut().zip(range) {
+            *slot = super::collide::node_delta(self.sim, i, reach, &mut stack);
+        }
+    }
+}
+
+/// The per-node link gather: node `i`'s own share of every edge incident to it, summed in
+/// its CSR row's order.
+///
+/// The gather half of `docs/decisions/link-gather.md`: the row order is the simple-edge
+/// index order the old single loop visited, so the per-node sum sees its terms in the
+/// order it saw them when the whole column was accumulated by one thread.
+pub struct LinkPass<'a> {
+    sim: &'a Sim,
+}
+
+impl<'a> LinkPass<'a> {
+    /// The pass over `sim`, whose edges carry their frozen geometry already.
+    pub fn of(sim: &'a Sim) -> LinkPass<'a> {
+        LinkPass { sim }
+    }
+}
+
+impl StepRange for LinkPass<'_> {
+    type Out = (f64, f64);
+
+    fn len(&self) -> u32 {
+        self.sim.x.len() as u32
+    }
+
+    fn step_range(&self, range: Range<u32>, out: &mut [(f64, f64)]) {
+        for (slot, i) in out.iter_mut().zip(range) {
+            *slot = self.node_share(i);
+        }
+    }
+}
+
+impl LinkPass<'_> {
+    /// Node `i`'s own share of every simple edge incident to it, in its row's order.
+    fn node_share(&self, node: u32) -> (f64, f64) {
+        let (mut dvx, mut dvy) = (0.0, 0.0);
+        for &e in self.sim.graph.rows.row(node) {
+            let ((lox, loy), (hix, hiy)) = super::link::halves(self.sim, e as usize);
+            let share = if self.sim.graph.hi[e as usize] == node {
+                (hix, hiy)
+            } else {
+                (lox, loy)
+            };
+            dvx += share.0;
+            dvy += share.1;
+        }
+        (dvx, dvy)
     }
 }

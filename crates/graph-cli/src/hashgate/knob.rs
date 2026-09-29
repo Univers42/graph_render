@@ -1,7 +1,7 @@
 //! The negative controls' knobs and the setting the native arm runs with: every
 //! variable is read strictly and at most one may be set.
 
-use graph_core::layout::force::ForceParams;
+use graph_core::layout::force::{ForceParams, Split};
 use graph_core::layout::forceatlas2::Fa2Params;
 use graph_core::{GridParams, REFERENCE_DEGREE, SugiyamaParams};
 use std::env::VarError;
@@ -42,15 +42,22 @@ pub enum Knob {
     Fa2ScalingRatio,
     /// `GM_MUTATE_SPLIT_SUM`: **native arms only, and the threaded ones above all.**
     ///
-    /// Phase 11's own control, and the one the phase prompt names: it makes the many-body
-    /// merge read a *neighbouring* node's delta — the shape a wrong partition of the
-    /// outputs would take — so the threaded arms must diverge from the scalar one. It is
-    /// the control that proves the threaded arms are actually reading their own results:
-    /// a threaded arm that ignored the merge entirely would agree with a mutated one.
+    /// Phase 11's own control, and the one the phase prompt names: it makes a gathered
+    /// pass's merge read a *neighbouring* node's delta — the shape a wrong partition of
+    /// the outputs would take — so the threaded arms must diverge from the scalar one. It
+    /// is the control that proves the threaded arms are actually reading their own
+    /// results: a threaded arm that ignored the merge entirely would agree with a mutated
+    /// one.
     ///
-    /// The perturbation lives in `barnes_hut::charge`'s merge, and the setting it reads is
-    /// carried on the [`Setting`] so a knob cannot change behaviour without being declared
-    /// here — the same discipline every other knob obeys.
+    /// The variable takes the **pass** whose merge is split (`charge`, `collide`, `link`),
+    /// because each kernel needs its own control to be shown to be compared: a knob that
+    /// only ever split the charge merge would leave the other two kernels' equality
+    /// resting on nothing. `1`/`true` means all three, `0`/`false` none.
+    ///
+    /// The perturbation lives in that pass's merge (`barnes_hut::charge`,
+    /// `barnes_hut::collide`, `barnes_hut::link`), and the setting it reads is carried on
+    /// the [`Setting`] so a knob cannot change behaviour without being declared here — the
+    /// same discipline every other knob obeys.
     SplitSum,
 }
 
@@ -105,12 +112,12 @@ pub(super) struct Setting {
     pub(super) force: ForceParams,
     /// ForceAtlas2's parameters, native arm only ([`Knob::Fa2ScalingRatio`] perturbs).
     pub(super) fa2: Fa2Params,
-    /// Whether the many-body merge reads a neighbouring node's delta
+    /// Which gathered pass's merge reads a neighbouring node's delta
     /// ([`Knob::SplitSum`]), the phase-11 control for the threaded arms.
     ///
-    /// A `bool` and not a mode because there is exactly one mutation to express, and a
-    /// setting that only ever takes two values should not read as if it took more.
-    pub(super) split_sum: bool,
+    /// A [`Split`] and not a `bool` because the control names *which* kernel it corrupts,
+    /// and each kernel needs its own row to be shown to be compared.
+    pub(super) split_sum: Split,
     pub(super) control: Option<Knob>,
 }
 
@@ -125,7 +132,7 @@ pub(super) fn setting(read: impl Fn(&str) -> Result<String, VarError>) -> Result
         extra_nodes: 0,
         force: ForceParams::default(),
         fa2: Fa2Params::default(),
-        split_sum: false,
+        split_sum: Split::None,
         control: None,
     };
     for knob in Knob::ALL {
@@ -158,7 +165,7 @@ pub(super) fn setting(read: impl Fn(&str) -> Result<String, VarError>) -> Result
             // mutation. `1`/`0` are accepted beside `true`/`false` because a gate row
             // reads `GM_MUTATE_SPLIT_SUM=1`, and a control whose documented spelling did
             // not work would be a control nobody runs.
-            Knob::SplitSum => setting.split_sum = truthy(&text).ok_or_else(|| bad(&text))?,
+            Knob::SplitSum => setting.split_sum = split(&text).ok_or_else(|| bad(&text))?,
         }
     }
     Ok(setting)
@@ -168,11 +175,16 @@ pub(super) fn env_setting() -> Result<Setting, String> {
     setting(|name| std::env::var(name))
 }
 
-/// `1`/`true` and `0`/`false`, case-insensitively, or `None`.
-fn truthy(text: &str) -> Option<bool> {
+/// Which merge `GM_MUTATE_SPLIT_SUM` corrupts: a pass's own name, or `1`/`true` for all
+/// three. An unknown word is `None`, and the caller turns that into the parse error — a
+/// control whose spelling did not work would be a control nobody runs.
+fn split(text: &str) -> Option<Split> {
     match text.trim().to_ascii_lowercase().as_str() {
-        "1" | "true" => Some(true),
-        "0" | "false" => Some(false),
+        "1" | "true" | "all" => Some(Split::All),
+        "0" | "false" | "none" => Some(Split::None),
+        "charge" => Some(Split::Charge),
+        "collide" => Some(Split::Collide),
+        "link" => Some(Split::Link),
         _ => None,
     }
 }

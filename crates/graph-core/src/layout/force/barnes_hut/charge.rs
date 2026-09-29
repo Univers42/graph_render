@@ -26,9 +26,9 @@ const PASS_Y: u32 = 3;
 /// left to the runner: each node adds its *own* delta to its *own* velocity, and
 /// `i += delta[i]` cannot pick up a neighbour's term no matter how the gather was sliced.
 ///
-/// `split_sum` is the phase-11 negative control (`GM_MUTATE_SPLIT_SUM`): it makes the merge
-/// read the **next** node's delta as well, the shape a wrong partition of the outputs
-/// would take. It is a parameter rather than a `cfg` or an environment read so that
+/// `split` is this pass's own slice of the negative control (`Split::CHARGE`): it makes the
+/// merge read the **next** node's delta as well, the shape a wrong partition of the
+/// outputs would take. It is a parameter rather than a `cfg` or an environment read so that
 /// (a) the mutated path is a compiled-in branch a test can call directly, and (b) graph-core
 /// reads no clock, no environment and no hardware — the host supplies even the mutation.
 pub(super) fn apply_with(
@@ -36,18 +36,19 @@ pub(super) fn apply_with(
     runner: &impl Runner,
     workers: u32,
     deltas: &mut Vec<(f64, f64)>,
-    split_sum: bool,
+    split: bool,
 ) {
     prepare(sim);
     runner.run(&super::step::Pass::of(&*sim), workers, deltas);
-    merge(sim, deltas, split_sum);
+    merge(sim, deltas, split);
 }
 
 /// `vx[i] += deltas[i]`, in ascending node index — and, under the control, the next node's
-/// delta too.
-fn merge(sim: &mut Sim, deltas: &[(f64, f64)], split_sum: bool) {
+/// delta too. Ascending index and one node's own delta, which is why the control has to
+/// *steal* a neighbour's term to move anything.
+fn merge(sim: &mut Sim, deltas: &[(f64, f64)], split: bool) {
     for (i, (dvx, dvy)) in deltas.iter().enumerate() {
-        let stolen = if split_sum {
+        let stolen = if split {
             deltas.get(i + 1).copied().unwrap_or((0.0, 0.0))
         } else {
             (0.0, 0.0)
