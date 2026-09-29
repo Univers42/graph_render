@@ -16,9 +16,11 @@
 //! so the comparison never meets a disconnected graph or a larger one; those rest on
 //! graph-core's own tests.
 
+mod closed_form;
 mod fa2;
 mod spectral;
 
+pub use closed_form::CLOSED_FORM;
 pub use fa2::FA2;
 pub use spectral::SPECTRAL;
 

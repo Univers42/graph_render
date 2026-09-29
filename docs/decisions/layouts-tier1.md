@@ -27,8 +27,11 @@ offers in 2D; this records which the motor gained, which it did not, and why.
 
 ## Differentials
 
-Closed-form layouts compare to networkx within 1e-6 (networkx narrows the ring angle to
-`f32`). `random` has no numeric oracle by construction.
+Closed-form layouts compare to networkx (`harness/oracle-closed-form.py`, `oracle-closed-form`):
+ring 1e-6 (networkx narrows the angle to `f32`), spiral and bipartite 1e-7; worst cases over 1000
+seeds are in `docs/measurements/closed-form-oracle.md`. `random` has no numeric oracle by
+construction.
 
-Ponytail: the ring, spiral and bipartite scale ceilings are estimated from the grid's
-measured per-node cost, not measured per layout.
+Ponytail: the scale ceilings are measured (`docs/measurements/tier1-scale.md`): the closed forms
+to 1 000 000 nodes, the largest size `bench` accepts, so a lower bound; Yifan Hu at 100 000, one
+timing.

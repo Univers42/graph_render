@@ -2,8 +2,18 @@
 //! `layout.circular.ring`, `layout.spiral`, `layout.bipartite`), kept apart from
 //! `registry.rs` for the house line cap.
 
-use super::{GRID_CEILING, Metadata};
+use super::Metadata;
 use graph_contract::geometry::{EdgeGeometryKind, NodeGeometryKind};
+
+/// Node count these four layouts were run at, the largest size `graph-cli bench` accepts
+/// (`docs/measurements/tier1-scale.md`). At 1 000 000 nodes and 1 549 929 edges the
+/// registered run takes 9.2 ms (random), 13.2 ms (ring), 32.0 ms (spiral) and 272 ms
+/// (bipartite), native release. Nothing was run above it.
+///
+/// Ponytail (scale_ceiling): a measured lower bound, not the wall: the layouts are linear,
+/// so the memory wall the grid's 4 600 000 projects onto wasm32 is far above what was run,
+/// and this figure understates it. Timings are `--repeat 3` medians on one host.
+pub const CLOSED_FORM_CEILING: u64 = 1_000_000;
 
 const DEGRADATION: &str = "past the ceiling wasm32 cannot allocate and the module traps (no \
 partial result); natively, memory permitting, the snapshot refuses with \
@@ -19,12 +29,12 @@ pub(super) const RANDOM: Metadata = Metadata {
 node); the stream is the crate's Mulberry32 at a fixed seed, so coordinates are pinned by unit \
 test, not compared against numpy's generator",
     complexity: "O(n)",
-    scale_ceiling: GRID_CEILING,
+    scale_ceiling: CLOSED_FORM_CEILING,
     degradation: DEGRADATION,
     ponytail: "Ponytail: the stream is not numpy's Mersenne Twister, so no coordinate equals \
 networkx's for any seed; only the distribution is reproduced. Direction: none visible, a random \
-layout has no correct answer. Ponytail (scale_ceiling): estimated, not measured — see \
-crates/graph-core/src/registry/closed_form.rs.",
+layout has no correct answer. Ponytail (scale_ceiling): a measured lower \
+bound — see CLOSED_FORM_CEILING.",
 };
 
 pub(super) const RING: Metadata = Metadata {
@@ -36,11 +46,11 @@ pub(super) const RING: Metadata = Metadata {
 rescale_layout; compared by harness/oracle-closed-form.py within 1e-6 (networkx narrows theta to \
 f32)",
     complexity: "O(n)",
-    scale_ceiling: GRID_CEILING,
+    scale_ceiling: CLOSED_FORM_CEILING,
     degradation: DEGRADATION,
     ponytail: "Ponytail: angles are f64 where networkx narrows them to f32, so the differential \
 is a 1e-6 tolerance, never bytes; the layout itself is exact. Ponytail (scale_ceiling): \
-estimated, not measured — see crates/graph-core/src/registry/closed_form.rs.",
+a measured lower bound — see CLOSED_FORM_CEILING.",
 };
 
 pub(super) const SPIRAL: Metadata = Metadata {
@@ -50,13 +60,13 @@ pub(super) const SPIRAL: Metadata = Metadata {
     edges: EdgeGeometryKind::Line,
     oracle: "networkx@3.6 spiral_layout, 2D, at its defaults (resolution 0.35, equidistant \
 false; SciGraphs' 2D dispatcher passes none) — compared by harness/oracle-closed-form.py \
-within 1e-6",
+within 1e-7",
     complexity: "O(n)",
-    scale_ceiling: GRID_CEILING,
+    scale_ceiling: CLOSED_FORM_CEILING,
     degradation: DEGRADATION,
     ponytail: "Ponytail: the parameters are networkx's defaults, not a SciGraphs setting, since \
 SciGraphs has no 2D spiral; a caller wanting the equidistant curve uses run_with. Ponytail \
-(scale_ceiling): estimated, not measured — see crates/graph-core/src/registry/closed_form.rs.",
+(scale_ceiling): a measured lower bound — see CLOSED_FORM_CEILING.",
 };
 
 pub(super) const BIPARTITE: Metadata = Metadata {
@@ -65,15 +75,15 @@ pub(super) const BIPARTITE: Metadata = Metadata {
     nodes: NodeGeometryKind::Point,
     edges: EdgeGeometryKind::Line,
     oracle: "networkx@3.6 bipartite_layout (vertical, aspect 4/3) given SciGraphs' node sets \
-(hierarchical.py _bipartite_parts); compared by harness/oracle-closed-form.py within 1e-6, the \
-sets restated independently in the oracle",
+(hierarchical.py _bipartite_parts); compared by harness/oracle-closed-form.py within 1e-7 given \
+our own node sets (the partition rule itself is not compared)",
     complexity: "O(n + m)",
-    scale_ceiling: GRID_CEILING,
+    scale_ceiling: CLOSED_FORM_CEILING,
     degradation: "a graph that does not two-colour (odd cycle, self-loop) is split by a greedy \
 maximum cut refined by 8 passes and drawn anyway, some edges then running inside a column; it \
 never panics or refuses. Past the ceiling wasm32 cannot allocate and the module traps",
     ponytail: "Ponytail (non-bipartite fallback): the greedy cut is a 1/2-approximation, not \
 the maximum; on a non-bipartite graph edges inside a set draw as vertical lines in one column — \
-cosmetic. Ponytail (scale_ceiling): estimated, not measured — see \
-crates/graph-core/src/registry/closed_form.rs.",
+cosmetic. Ponytail (scale_ceiling): a measured lower \
+bound — see CLOSED_FORM_CEILING.",
 };

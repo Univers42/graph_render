@@ -82,3 +82,15 @@ fn a_disconnected_graph_stays_finite() {
     let (x, y) = points(&t, true);
     assert!(x.iter().chain(&y).all(|v| v.is_finite()));
 }
+
+/// Pins the exact multilevel output on a 40-node path (three levels), as f32 bit
+/// patterns so a change in coarsening, tick count or restart alpha cannot pass as
+/// "still finite". Regenerate only on a deliberate change, recorded in a decision.
+#[test]
+fn the_output_on_a_path_of_40_is_pinned() {
+    let (x, y) = points(&path(40), true);
+    let bits =
+        |v: &[f32]| -> Vec<u32> { [0, 13, 26, 39].iter().map(|&i| v[i].to_bits()).collect() };
+    assert_eq!(bits(&x), [1132881269, 1125832160, 1111216345, 3275666193]);
+    assert_eq!(bits(&y), [3260434285, 1129122063, 1127494705, 1127018024]);
+}

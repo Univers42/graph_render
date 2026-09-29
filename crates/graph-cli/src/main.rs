@@ -134,6 +134,21 @@ enum Command {
         #[arg(long, default_value = "target/fa2-fixtures")]
         dir: PathBuf,
     },
+    /// Writes the closed-form differential's fixtures for `harness/oracle-closed-form.py`.
+    EmitClosedFormFixtures {
+        /// Number of seeds, 0..N.
+        #[arg(long, default_value_t = 1000, value_parser = seed_count())]
+        seeds: u32,
+        /// Output directory.
+        #[arg(long, default_value = "target/closed-form-fixtures")]
+        out: PathBuf,
+    },
+    /// Checks the closed-form differential's result against its ceiling and records it.
+    OracleClosedForm {
+        /// Directory holding the fixtures and `closed-form-result.json`.
+        #[arg(long, default_value = "target/closed-form-fixtures")]
+        dir: PathBuf,
+    },
     /// Runs `harness/oracle-layouts.mjs` over the emitted fixtures (the d3-hierarchy arm).
     OracleLayouts {
         /// Fixtures directory; `target/oracle-fixtures` by default.
@@ -199,44 +214,7 @@ enum Command {
     },
     /// Wall time and Kruskal stress-1 of the Phase 6 layouts (or `--layout`) at the given
     /// node counts, refusing a size past a layout's own registered `scale_ceiling`.
-    Bench {
-        /// Node counts, comma separated; `220,10000,100000` is the phase gate's set.
-        #[arg(long, value_delimiter = ',', default_value = "220,10000,100000",
-              value_parser = clap::value_parser!(u32).range(1..=i64::from(bench::scale::MAX_SCALE_NODES)))]
-        n: Vec<u32>,
-        /// Registered layout ids; repeat for several. Default: the Phase 6 layouts.
-        #[arg(long)]
-        layout: Vec<String>,
-        /// Seed of the synthetic model.
-        #[arg(long, default_value_t = 0)]
-        seed: u32,
-        /// Run sizes past a layout's `scale_ceiling` too, labelled as such.
-        #[arg(long)]
-        past_ceiling: bool,
-        /// Also time the d3-force arm (`harness/stress-d3.mjs`) on the same graph, for
-        /// `layout.force.barnes_hut`.
-        #[arg(long)]
-        vs_d3: bool,
-        /// Report which sizes each layout would run or refuse, and run none of them.
-        #[arg(long)]
-        dry_run: bool,
-        /// Phase 9: runs per cell. The campaign reports the median, never one timing.
-        #[arg(long, default_value_t = 5)]
-        repeat: u32,
-        /// Phase 9: write the campaign's markdown here.
-        #[arg(long)]
-        out: Option<PathBuf>,
-        /// Phase 9: report the largest N per arm that fits the frame budget.
-        #[arg(long)]
-        crossover: bool,
-        /// Phase 9: the frame budget in milliseconds (`prompt.md` §5.2: 16.67).
-        #[arg(long, default_value_t = crate::bench::campaign::FRAME_BUDGET_MS)]
-        budget_ms: f64,
-        /// Phase 9: write the scale fixture for `--n` and `--seed` here and measure
-        /// nothing. The generator is the artefact; the file is one sample of it.
-        #[arg(long, value_name = "PATH")]
-        emit_scale_fixture: Option<PathBuf>,
-    },
+    Bench(bench::Plan),
 }
 
 /// Most seeds one gate run may ask for. Every seed is four child computations; past this
@@ -291,6 +269,12 @@ fn main() -> ExitCode {
             out,
         } => oracle_python::emit(&oracle_python::FA2, seeds, max_iter, &out),
         Command::OracleFa2 { dir } => oracle_python::ingest(&oracle_python::FA2, &dir),
+        Command::EmitClosedFormFixtures { seeds, out } => {
+            oracle_python::emit(&oracle_python::CLOSED_FORM, seeds, None, &out)
+        }
+        Command::OracleClosedForm { dir } => {
+            oracle_python::ingest(&oracle_python::CLOSED_FORM, &dir)
+        }
         Command::OracleLayouts { fixtures } => {
             oracle_fixtures::diff_layouts(&fixtures.unwrap_or_else(oracle_fixtures::default_out))
         }
@@ -319,30 +303,6 @@ fn main() -> ExitCode {
         }),
         Command::DeterminismProbe { out } => determinism_probe::run(&out),
         Command::Stress { oracle, seeds } => stress::run(&oracle, seeds),
-        Command::Bench {
-            n,
-            layout,
-            seed,
-            past_ceiling,
-            vs_d3,
-            dry_run,
-            repeat,
-            out,
-            crossover,
-            budget_ms,
-            emit_scale_fixture,
-        } => bench::run(&bench::Plan {
-            sizes: n,
-            layouts: layout,
-            seed,
-            past_ceiling,
-            vs_d3,
-            dry_run,
-            repeat,
-            out,
-            crossover,
-            budget_ms,
-            emit_scale_fixture,
-        }),
+        Command::Bench(plan) => bench::run(&plan),
     }
 }

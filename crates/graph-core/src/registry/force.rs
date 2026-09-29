@@ -148,7 +148,7 @@ pub(super) const YIFAN_HU: Metadata = Metadata {
     coordinates and scale differ from sfdp's for the same graph. Coarsening is a greedy \
     index-order matching (not label-invariant) and refinement is a fixed 48 ticks from alpha \
     0.3, so a folded coarse layout can survive into the result. Force layouts are chaotic: \
-    one added node is a different picture. Ponytail (scale_ceiling): borrowed from \
-    layout.force.barnes_hut's measured 100 000, not measured for this layout, whose extra \
-    levels cost more per node",
+    one added node is a different picture. Ponytail (scale_ceiling): measured, single run, 60.9 s at 100 000 nodes / 154 978 edges \
+    (3.1 s at 10 000); nothing was run above it, so it is a lower bound on the wall, and one \
+    timing on one host is not a median",
 };
