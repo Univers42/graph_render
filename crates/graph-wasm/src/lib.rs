@@ -87,6 +87,20 @@ mod exports {
         publish(pipeline(seed, "layout.packing.circle").map(|run| run.snapshot.to_bytes()))
     }
 
+    /// The `layout.spectral` stage's snapshot bytes for `seed`.
+    // SAFETY: as above — `gm_layout_spectral` is the only symbol with this name.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn gm_layout_spectral(seed: u32) -> u32 {
+        publish(pipeline(seed, "layout.spectral").map(|run| run.snapshot.to_bytes()))
+    }
+
+    /// The `layout.pivot_mds` stage's snapshot bytes for `seed`.
+    // SAFETY: as above — `gm_layout_pivot_mds` is the only symbol with this name.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn gm_layout_pivot_mds(seed: u32) -> u32 {
+        publish(pipeline(seed, "layout.pivot_mds").map(|run| run.snapshot.to_bytes()))
+    }
+
     /// The D1 probe buffer (see [`crate::probe`]). Only in the `probe` build.
     // SAFETY: as above — `gm_probe` is the only symbol with this name.
     #[cfg(feature = "probe")]

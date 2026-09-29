@@ -5,6 +5,7 @@
 //! Exit codes: `0` the check passed · `1` the check ran and failed (a gate went red) ·
 //! `2` the check could not run (a tool, a file or an artifact was missing).
 
+mod bench_cmd;
 mod capabilities;
 mod codegen;
 mod determinism_probe;
@@ -12,6 +13,7 @@ mod evidence;
 mod fingerprint;
 mod hashgate;
 mod oracle_fixtures;
+mod oracle_spectral;
 mod probe_report;
 mod runner;
 mod snapshot_cmd;
@@ -72,6 +74,21 @@ enum Command {
         #[arg(long)]
         fixtures: Option<PathBuf>,
     },
+    /// Writes the spectral/pivot-MDS differential's fixtures for `harness/oracle-spectral.py`.
+    EmitSpectralFixtures {
+        /// Number of seeds, 0..N.
+        #[arg(long, default_value_t = 1000, value_parser = seed_count())]
+        seeds: u32,
+        /// Output directory.
+        #[arg(long, default_value = "target/spectral-fixtures")]
+        out: PathBuf,
+    },
+    /// Checks the spectral differential's result against its ceilings and records it.
+    OracleSpectral {
+        /// Directory holding the fixtures and `spectral-result.json`.
+        #[arg(long, default_value = "target/spectral-fixtures")]
+        dir: PathBuf,
+    },
     /// Runs `harness/oracle-layouts.mjs` over the emitted fixtures (the d3-hierarchy arm).
     OracleLayouts {
         /// Fixtures directory; `target/oracle-fixtures` by default.
@@ -103,6 +120,19 @@ enum Command {
         #[arg(long, default_value_t = 100, value_parser = seed_count())]
         seeds: u32,
     },
+    /// Wall time and stress-1 of one registered layout at the given node counts.
+    Bench {
+        /// Registered layout id, e.g. `layout.spectral`.
+        #[arg(long)]
+        layout: String,
+        /// Node counts, comma separated.
+        #[arg(long, value_delimiter = ',', required = true,
+              value_parser = clap::value_parser!(u32).range(1..=snapshot_cmd::MAX_NODES))]
+        nodes: Vec<u32>,
+        /// Seed of the synthetic model.
+        #[arg(long, default_value_t = 0)]
+        seed: u32,
+    },
     /// D1: std against libm transcendentals, native against wasm32, bit for bit.
     DeterminismProbe {
         /// Where to write the measurement, relative to the workspace root.
@@ -131,6 +161,8 @@ fn main() -> ExitCode {
         Command::OracleDiff { fixtures } => {
             oracle_fixtures::diff(&fixtures.unwrap_or_else(oracle_fixtures::default_out))
         }
+        Command::EmitSpectralFixtures { seeds, out } => oracle_spectral::emit(seeds, &out),
+        Command::OracleSpectral { dir } => oracle_spectral::ingest(&dir),
         Command::OracleLayouts { fixtures } => {
             oracle_fixtures::diff_layouts(&fixtures.unwrap_or_else(oracle_fixtures::default_out))
         }
@@ -148,6 +180,11 @@ fn main() -> ExitCode {
             snapshot_cmd::snapshot(seed, nodes, &layout, &out)
         }
         Command::Roundtrip { seeds } => snapshot_cmd::roundtrip(seeds),
+        Command::Bench {
+            layout,
+            nodes,
+            seed,
+        } => bench_cmd::run(&layout, &nodes, seed),
         Command::DeterminismProbe { out } => determinism_probe::run(&out),
     }
 }

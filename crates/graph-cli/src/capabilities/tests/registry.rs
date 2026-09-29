@@ -26,6 +26,8 @@ fn the_registry_covers_every_oracle_function_once_its_ids_are_unique() {
             ("oracle-diff", "topology")
         } else if r.id == "layout.tree.tidy" || r.id == "layout.treemap.squarified" {
             ("oracle-layouts", r.id)
+        } else if r.id == "layout.spectral" || r.id == "layout.pivot_mds" {
+            ("oracle-spectral", r.id)
         } else {
             ("roundtrip", r.id)
         };

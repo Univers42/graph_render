@@ -22,6 +22,7 @@ mod ids;
 mod index;
 pub mod layout;
 mod legend;
+mod linalg;
 mod neighborhood;
 mod records;
 pub mod registry;

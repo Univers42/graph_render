@@ -30,13 +30,15 @@ use std::process::{Command, ExitCode};
 /// built from `LAYOUTS` at runtime so its length is usable as an array size below;
 /// [`tests::the_stages_are_the_topology_then_every_registered_layout`] is the guard that
 /// keeps it honest as the registry grows.
-pub const STAGES: [&str; 6] = [
+pub const STAGES: [&str; 8] = [
     "topology",
     "layout.grid",
     "layout.tree.tidy",
     "layout.treemap.squarified",
     "layout.circular.radial",
     "layout.packing.circle",
+    "layout.spectral",
+    "layout.pivot_mds",
 ];
 
 /// `STAGES.len()`, named for the fixed-size arrays it sizes.

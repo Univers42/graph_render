@@ -30,13 +30,15 @@ const COVERED: [&str; 19] = [
 /// Every hashgate stage's key, in `hashgate::STAGES` order, so this fixture's `equal`
 /// maps can be built at the same shape a real record has, without importing the
 /// hashgate module just for the constant.
-const STAGES: [&str; 6] = [
+const STAGES: [&str; 8] = [
     "topology",
     "layout.grid",
     "layout.tree.tidy",
     "layout.treemap.squarified",
     "layout.circular.radial",
     "layout.packing.circle",
+    "layout.spectral",
+    "layout.pivot_mds",
 ];
 
 /// A hashgate-shaped `equal` map: `seeds` for every stage, except `diverged`'s, at `0`.
@@ -86,6 +88,8 @@ fn honest_controls() -> Vec<(&'static str, Option<Value>)> {
                 "layout.treemap.squarified",
                 "layout.circular.radial",
                 "layout.packing.circle",
+                "layout.spectral",
+                "layout.pivot_mds",
             ],
         ),
     ]
@@ -119,6 +123,13 @@ fn honest() -> Evidence {
                 "layout.treemap.squarified": hand(11),
             }
         })),
+        spectral: Some(json!({
+            "fingerprint": "tree", "seeds": 1000, "pass": true, "tolerance": true,
+            "functions": {
+                "layout.spectral": hand(12),
+                "layout.pivot_mds": hand(13),
+            }
+        })),
     }
 }
 
@@ -132,7 +143,7 @@ fn row(status: Status) -> Capability {
 fn every_registered_row_stands_on_honest_evidence_and_reads_it_back() {
     let evidence = honest();
     let rows = ledger(&evidence);
-    assert_eq!(rows.len(), 13);
+    assert_eq!(rows.len(), 15);
     assert_eq!(problems(&rows, &evidence), Vec::<String>::new());
     assert_eq!(
         rows[0].hash_4way,
@@ -188,9 +199,10 @@ fn without_records_every_gated_row_is_refused_twice() {
         oracle: None,
         roundtrip: None,
         layouts: None,
+        spectral: None,
     };
     let rows = ledger(&bare);
-    assert_eq!(problems(&rows, &bare).len(), 26);
+    assert_eq!(problems(&rows, &bare).len(), 30);
     assert!(
         rows[0]
             .hash_4way

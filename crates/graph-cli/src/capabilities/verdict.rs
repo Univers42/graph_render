@@ -25,6 +25,8 @@ pub struct Evidence {
     /// `oracle-layouts.json`: `harness/oracle-layouts.mjs`'s d3-hierarchy differential
     /// for tidy tree and treemap.
     pub layouts: Option<Value>,
+    /// `oracle-spectral.json`: the scipy differential for spectral and pivot MDS.
+    pub spectral: Option<Value>,
 }
 
 impl Evidence {
@@ -41,6 +43,7 @@ impl Evidence {
             oracle: evidence::read("oracle-diff")?,
             roundtrip: evidence::read("roundtrip")?,
             layouts: evidence::read("oracle-layouts")?,
+            spectral: evidence::read("oracle-spectral")?,
         })
     }
 
@@ -50,6 +53,7 @@ impl Evidence {
             "oracle-diff" => self.oracle.as_ref(),
             "roundtrip" => self.roundtrip.as_ref(),
             "oracle-layouts" => self.layouts.as_ref(),
+            "oracle-spectral" => self.spectral.as_ref(),
             _ => None,
         }
     }
@@ -155,5 +159,10 @@ pub fn oracle_diff(e: &Evidence, name: &str, functions: &[&str]) -> Result<Strin
     } else {
         format!(", {declared} declared divergences")
     };
+    if run["tolerance"] == Value::Bool(true) {
+        return Ok(format!(
+            "within measured ceiling of the oracle/{seeds} seeds ({cases} cases)"
+        ));
+    }
     Ok(format!("byte-equal/{seeds} seeds ({cases} cases{known})"))
 }

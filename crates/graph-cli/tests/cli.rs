@@ -112,6 +112,8 @@ fn the_node_count_control_goes_red_on_every_stage_it_touches() {
         "layout.treemap.squarified",
         "layout.circular.radial",
         "layout.packing.circle",
+        "layout.spectral",
+        "layout.pivot_mds",
     ] {
         assert!(
             stdout(&grown).contains(&format!("  {stage}: 4-way equal on 0/4 seeds")),
@@ -167,10 +169,10 @@ fn hashgate_arm_prints_one_line_per_stage_and_seed() {
     let arm = graph_cli(&["hashgate-arm", "--seeds", "3"], None);
     assert_eq!(arm.status.code(), Some(0));
     let lines: Vec<String> = stdout(&arm).lines().map(str::to_owned).collect();
-    assert_eq!(lines.len(), 18, "6 stages * 3 seeds");
+    assert_eq!(lines.len(), 24, "8 stages * 3 seeds");
     assert!(lines[2].starts_with("topology 2 ") && lines[2].len() == "topology 2 ".len() + 64);
-    let last = "layout.packing.circle 2 ";
-    assert!(lines[17].starts_with(last) && lines[17].len() == last.len() + 64);
+    let last = "layout.pivot_mds 2 ";
+    assert!(lines[23].starts_with(last) && lines[23].len() == last.len() + 64);
 }
 
 #[test]
@@ -178,11 +180,11 @@ fn capabilities_needs_a_flag_and_refuses_gated_rows_no_recorded_run_backs() {
     assert_eq!(graph_cli(&["capabilities"], None).status.code(), Some(2));
     let check = graph_cli(&["capabilities", "--check"], None);
     assert_eq!(check.status.code(), Some(1), "{}", stdout(&check));
-    assert!(stdout(&check).contains("capabilities --check: 13 rows, 26 problems"));
+    assert!(stdout(&check).contains("capabilities --check: 15 rows, 30 problems"));
     let json = graph_cli(&["capabilities", "--json"], None);
     assert_eq!(json.status.code(), Some(0));
     let rows: serde_json::Value = serde_json::from_str(&stdout(&json)).expect("json");
-    assert_eq!(rows.as_array().map(Vec::len), Some(13));
+    assert_eq!(rows.as_array().map(Vec::len), Some(15));
     assert!(
         rows[0]["oracle_diff"]
             .as_str()
