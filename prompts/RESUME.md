@@ -46,6 +46,17 @@ The previous session ran out of time at a user deadline. The user's order: every
 | `sim` | 5ae4210 | force-session M1 (live simulation for the Obsidian-style drag): `layout/force/session.rs`, `session/`, `barnes_hut/sim/`, `docs/decisions/live-force-session.md` | merge develop in (conflicts in `barnes_hut.rs`/`sim.rs`: p11's `How` tick must be kept); frozen-acceptance and setters tests; the 65-digest golden check against 8e8e93b (`orch/prompts/sim-m1b.txt`); delete `scratch/fmtprobe_p.rs`; floor + wasm32 + hashgate 8. Conditions: `orch/prompts/sim-conditions.txt` |
 | `followups2` | 3ddd308 | phase-7 follow-ups: graph-wasm analysis/post registries, hashgate knobs/staged | merge develop in (hashgate conflicts with p11 likely: keep both), floor |
 
+`followups2` merge was tried at 00:15 and aborted (not enough time to run the floor after):
+7 files, 17 hunks, all in `crates/graph-cli/src/hashgate/{knob.rs, tests/{knob,mod,report,stages}.rs}`
+and `crates/graph-cli/tests/{cli,cli_ledger}.rs`. They are additive: p11 has 11 knobs (the 10 plus
+`SplitSum`), followups2 has 25 (the 10 plus 15 ANALYSIS/POST stage knobs, held against
+`knobs::ANALYSIS_POST_STAGES` by `the_analysis_and_post_controls_are_the_knobs_table`). The union is
+26 knobs: keep the 10, then the 15 in table order, then `SplitSum` last so the table test's
+slice still lines up, and check any p11 test that indexes `Knob::ALL`.
+
+No job was running at 00:15 (`oc-status.sh`: every job done or DEAD). Nothing was relaunched,
+because OpenCode's free models were hanging and the user asked to hand off.
+
 Merge each one at a time into develop under the floor (merge develop into the branch first,
 never rebase), in this order: `followups2`, `sim`, `p12-igraph`.
 
