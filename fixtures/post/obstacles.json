@@ -1,0 +1,46 @@
+{
+  "about": "The three cases obstacle-avoiding grid routing gets wrong, laid out so each is a node's position rather than a graph property. Node positions are given explicitly, because a routing fixture is about GEOMETRY: which cells are obstacles, and whether a route can get past them. Read with grid_index::GridParams { resolution: 8, margin: 2, clearance: 0 }, under which the span 0..8 gives a cell of exactly 1 and a cell index is the coordinate. Node order is the order below, so a node's dense index is its position in `nodes`.",
+  "cases": {
+    "a_wall_across_the_middle": {
+      "why": "A route from west to east must go round. This is the ordinary case, and the one that would silently regress to a straight line through the wall if the obstacle rule were dropped.",
+      "wall": "seven nodes at x = 7, y = 1 to 7, leaving gaps at y = 0 and y = 8"
+    },
+    "a_symmetric_wall": {
+      "why": "The same wall made symmetric about the line joining the endpoints, so the two ways round it cost EXACTLY the same. Equal-cost paths are the normal case on a uniform grid, not an edge case, and this is the fixture that forces the tie-break to be total: the route must be one specific answer, and the same one every run. Tests: routed::tests::a_symmetric_wall_makes_two_exactly_equal_detours_and_the_lower_cell_route_wins.",
+      "note": "The wall in the end-to-end test is built in code rather than read from this file, because graph-core is pure and cannot read files; this records the geometry those tests construct."
+    },
+    "an_enclosed_node": {
+      "why": "A node ringed by eight others, so every cell it could step into belongs to a node. No route exists, and the honest answer is the straight segment plus straight_fallback = true in the output struct — a downstream program reads that field, not a log line. The ring is at ONE cell spacing: at two, the ring is not sealed and the enclosed node walks out between the gaps, which is a different (and wrong) answer.",
+      "ring": "eight nodes one cell from the centre, at the four diagonals and the four axis neighbours"
+    }
+  },
+  "nodes": [
+    { "id": "w", "x": 0, "y": 4, "weight": 1, "role": "wall case: the west endpoint" },
+    { "id": "e", "x": 8, "y": 4, "weight": 1, "role": "wall case: the east endpoint" },
+    { "id": "wall0", "x": 7, "y": 0, "weight": 1, "role": "wall case: the gap at the bottom" },
+    { "id": "wall1", "x": 7, "y": 1, "weight": 1, "role": "wall case" },
+    { "id": "wall2", "x": 7, "y": 2, "weight": 1, "role": "wall case" },
+    { "id": "wall3", "x": 7, "y": 3, "weight": 1, "role": "wall case" },
+    { "id": "wall4", "x": 7, "y": 4, "weight": 1, "role": "wall case: directly ahead of the route" },
+    { "id": "wall5", "x": 7, "y": 5, "weight": 1, "role": "wall case" },
+    { "id": "wall6", "x": 7, "y": 6, "weight": 1, "role": "wall case" },
+    { "id": "wall7", "x": 7, "y": 7, "weight": 1, "role": "wall case" },
+    { "id": "gap", "x": 7, "y": 8, "weight": 1, "role": "wall case: the gap at the top" },
+    { "id": "hub", "x": 4, "y": 4, "weight": 1, "role": "enclosed case: the node with no way out" },
+    { "id": "ring_nw", "x": 3, "y": 3, "weight": 1, "role": "enclosed case: the ring" },
+    { "id": "ring_n", "x": 4, "y": 3, "weight": 1, "role": "enclosed case: the ring" },
+    { "id": "ring_ne", "x": 5, "y": 3, "weight": 1, "role": "enclosed case: the ring" },
+    { "id": "ring_w", "x": 3, "y": 4, "weight": 1, "role": "enclosed case: the ring" },
+    { "id": "ring_e", "x": 5, "y": 4, "weight": 1, "role": "enclosed case: the ring" },
+    { "id": "ring_sw", "x": 3, "y": 5, "weight": 1, "role": "enclosed case: the ring" },
+    { "id": "ring_s", "x": 4, "y": 5, "weight": 1, "role": "enclosed case: the ring" },
+    { "id": "ring_se", "x": 5, "y": 5, "weight": 1, "role": "enclosed case: the ring" }
+  ],
+  "edges": [
+    { "id": "w-e", "source": "w", "target": "e", "type": "relates_to", "case": "wall: a route exists and must go round" },
+    { "id": "w-wall4", "source": "w", "target": "wall4", "type": "relates_to", "case": "wall: the two endpoints are adjacent, so the route is one step" },
+    { "id": "hub-w", "source": "hub", "target": "w", "type": "relates_to", "case": "enclosed: no route exists, straight_fallback is set" },
+    { "id": "ring_nw-hub", "source": "ring_nw", "target": "hub", "type": "relates_to", "case": "enclosed: adjacent, so a route does exist even from inside the ring" },
+    { "id": "ring_nw-ring_se", "source": "ring_nw", "target": "ring_se", "type": "relates_to", "case": "enclosed: a diagonal that must not pass through the hub" }
+  ]
+}
