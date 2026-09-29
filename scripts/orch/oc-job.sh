@@ -33,7 +33,8 @@ else
   cat "${OC_COMMON:-/sgoinfre/students/dlesieur/orch/prompts/common-v2.txt}" "$body" >"$prompt"
 fi
 "$bin/oc-run.sh" "$label" "$wt" "$agent" "$prompt"; rc=$?
-# A provider 429 (`provider.quota`, seen 2026-09-29 on every free model in turn) ends the run
+# A provider 429 (`provider.quota`, seen 2026-09-29 on every free model in turn), or an
+# "aborted ... inactivity" end (a quota-cut stream, same evening), ends the run
 # with rc 1. The job resumes its session at once on the next model of OC_FALLBACK (the free
 # models that passed a tool probe on 2026-09-29, 20:50; the user named longcat, and ruled out
 # nemotron and big-pickle), starting after the one that was refused, and waits OC_QUOTA_WAIT
@@ -43,7 +44,7 @@ fi
 read -ra fb <<<"${OC_FALLBACK:-opencode/longcat-2.5-preview-free opencode/mimo-v2.6-flash-free}"
 off=0; for i in "${!fb[@]}"; do [[ ${fb[i]} == "${OC_MODEL-}" ]] && off=$((i + 1)); done
 for ((t = 0; rc != 0 && t < ${OC_QUOTA_TRIES:-3} * ${#fb[@]}; t++)); do
-  tail -n 1 "$wf/$label.jsonl" | jq -e '.error.type == "provider.quota"' >/dev/null || break
+  tail -n 1 "$wf/$label.jsonl" | jq -e '.error.type == "provider.quota" or (.error.type == "aborted" and ((.error.message // "") | test("inactivity")))' >/dev/null || break
   ((t > 0 && t % ${#fb[@]} == 0)) && { echo "every model limited: wait ${OC_QUOTA_WAIT:-600} s"; sleep "${OC_QUOTA_WAIT:-600}"; }
   echo "provider quota: resume $((t + 1)) on ${fb[(t + off) % ${#fb[@]}]}"
   printf '%s\n' "$resume" >"$prompt"
