@@ -3,6 +3,7 @@ use super::*;
 use serde_json::{Value, json};
 
 mod registry;
+mod sugiyama;
 
 /// The 17 oracle functions of `prompt.md` §7.4, plus the H4 and H9 arms.
 const COVERED: [&str; 19] = [
@@ -166,29 +167,6 @@ fn every_registered_row_stands_on_honest_evidence_and_reads_it_back() {
 hashgate-control-sugiyama-layer-spacing red)"
     );
     assert_eq!(dag.oracle_diff, "byte-equal/1000 seeds (9 cases)");
-}
-
-#[test]
-fn the_sugiyama_row_stands_only_on_its_own_control() {
-    let dag = || vec![registry().remove(13)];
-    let mut evidence = honest();
-    evidence.controls.truncate(2);
-    let blind = problems(&dag(), &evidence);
-    assert_eq!(blind.len(), 1, "{blind:?}");
-    assert!(
-        blind[0].contains(
-            "hashgate-control-grid-spacing did not go red on the layout.dag.sugiyama stage"
-        ),
-        "{blind:?}"
-    );
-    let mut evidence = honest();
-    evidence.roundtrip.as_mut().expect("set")["functions"]["layout.dag.sugiyama"]["cases"] =
-        json!(0);
-    let empty = problems(&dag(), &evidence);
-    assert!(
-        empty[0].contains("ran no layout.dag.sugiyama case"),
-        "{empty:?}"
-    );
 }
 
 #[test]

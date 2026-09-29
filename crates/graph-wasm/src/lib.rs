@@ -88,9 +88,9 @@ mod exports {
     }
 
     /// The `layout.dag.sugiyama` stage's snapshot bytes for `seed`.
-    // SAFETY: as above — `gm_layout_sugiyama` is the only symbol with this name.
+    // SAFETY: as above — `gm_layout_dag_sugiyama` is the only symbol with this name.
     #[unsafe(no_mangle)]
-    pub extern "C" fn gm_layout_sugiyama(seed: u32) -> u32 {
+    pub extern "C" fn gm_layout_dag_sugiyama(seed: u32) -> u32 {
         publish(pipeline(seed, "layout.dag.sugiyama").map(|run| run.snapshot.to_bytes()))
     }
 
