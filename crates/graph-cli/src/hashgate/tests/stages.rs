@@ -40,7 +40,10 @@ fn a_second_registered_layout_joins_the_gate_with_no_change_to_the_stage_list() 
     let one = [*grid];
     let two = [*grid, second_layout()];
     let setting = honest();
-    assert_eq!(ids(&one, &setting).expect("one layout"), stages());
+    assert_eq!(
+        ids(&one, &setting).expect("one layout"),
+        ["topology", LAYOUT, TRANSPORT]
+    );
     assert_eq!(
         ids(&two, &setting).expect("two layouts"),
         ["topology", LAYOUT, "layout.grid.second", TRANSPORT],

@@ -117,7 +117,7 @@ const NODE_FIELDS: [&str; 10] = [
     "icon",
 ];
 
-const EDGE_FIELDS: [&str; 8] = [
+const EDGE_FIELDS: [&str; 9] = [
     "id",
     "source",
     "target",
@@ -126,6 +126,7 @@ const EDGE_FIELDS: [&str; 8] = [
     "strength",
     "directed",
     "record_id",
+    "child_first",
 ];
 
 fn node(value: &Value, path: &str) -> Result<NodeRecord, IngestError> {
@@ -190,10 +191,12 @@ fn edge(value: &Value, path: &str) -> Result<EdgeRecord, IngestError> {
             member(members, "record_id", path)?,
             &format!("{path}.record_id"),
         )?,
-        // The wire edge carries no `type`, so no hierarchy direction; the same default as
-        // `graph-cli`'s `oracle_fixtures/wire.rs`. Repair item: the wasm ingest must learn
-        // the edge type before a hierarchy layout runs through the real ABI.
-        child_first: false,
+        // Optional: an edge document written before p3's hierarchy direction reads as
+        // parent-first, the same default as `graph-cli`'s `oracle_fixtures/wire.rs`.
+        child_first: match members.iter().find(|(k, _)| k == "child_first") {
+            Some((_, value)) => boolean(value, &format!("{path}.child_first"))?,
+            None => false,
+        },
     })
 }
 

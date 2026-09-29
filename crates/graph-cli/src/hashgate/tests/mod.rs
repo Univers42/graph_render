@@ -249,9 +249,19 @@ fn an_arm_prints_every_seed_of_one_stage_before_the_next() {
     );
 }
 
+/// A wasm arm's lines over the three stages the C20 tally reads, 2 seeds each.
+fn transport_arm(fill: char) -> Vec<String> {
+    ["topology", LAYOUT, TRANSPORT]
+        .iter()
+        .flat_map(|stage| {
+            (0..2).map(move |seed| format!("{stage} {seed} {}", fill.to_string().repeat(64)))
+        })
+        .collect()
+}
+
 #[test]
 fn the_transport_tally_counts_the_seeds_where_the_real_abi_matches_the_shim() {
-    let wasm = |fill: char| arms([[fill; 6]; 4]).remove(2).1;
+    let wasm = |fill: char| transport_arm(fill);
     assert_eq!(transport::agree_with_shim(2, &wasm('a')), Ok(2));
     let mut diverged_at_1 = wasm('a');
     diverged_at_1[5] = format!("{TRANSPORT} 1 {}", "b".repeat(64));

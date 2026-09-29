@@ -87,6 +87,8 @@ fn push_edge(out: &mut String, e: &EdgeRecord) {
     boolean(out, e.directed);
     field(out, "record_id", false);
     opt_string(out, e.record_id.as_deref());
+    field(out, "child_first", false);
+    boolean(out, e.child_first);
     out.push('}');
 }
 
