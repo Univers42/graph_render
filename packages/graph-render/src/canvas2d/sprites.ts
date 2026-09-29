@@ -1,0 +1,129 @@
+/**
+ * Labels baked once and blitted after: a `drawImage` costs a fraction of a haloed
+ * `strokeText` + `fillText` in the rasteriser, which is where the first studio spent its
+ * frame (docs/measurements/studio-perf-baseline.md).
+ *
+ * Ponytail: the cache is bounded by count, not bytes, and evicts the least recently drawn
+ * sprite. A view that shows more than CAPACITY distinct labels at once re-bakes on every
+ * frame; the label budget (160) keeps a frame far below that.
+ */
+import { LABEL_HEIGHT } from "../labels.ts";
+import type { Theme } from "../theme.ts";
+import type { SpriteFactory, SpriteSurface } from "./surface.ts";
+
+export interface Sprite<Image = CanvasImageSource> {
+  readonly image: Image;
+  /** CSS pixels. */
+  readonly width: number;
+  readonly height: number;
+}
+
+export interface SpriteCache<Image = CanvasImageSource> {
+  /** The sprite for `text`, baked on a miss while this frame's allowance lasts. */
+  get(text: string): Sprite<Image> | null;
+  /** Width of a sprite already baked, else 0. */
+  widthOf(text: string): number;
+  /** Starts a frame: a fresh allowance of bakes. */
+  beginFrame(): void;
+  /** True when this frame asked for more bakes than its allowance: paint another. */
+  starved(): boolean;
+  reset(theme: Theme, dpr: number): void;
+}
+
+const CAPACITY = 512;
+const BAKES_PER_FRAME = 32;
+const PADDING = 4;
+const MAX_CHARACTERS = 48;
+
+interface Entry<Image> {
+  readonly sprite: Sprite<Image>;
+  readonly surface: SpriteSurface<Image>;
+}
+
+interface State<Image> {
+  theme: Theme;
+  dpr: number;
+  allowance: number;
+  starved: boolean;
+  readonly factory: SpriteFactory<Image>;
+  readonly entries: Map<string, Entry<Image>>;
+  readonly spare: SpriteSurface<Image>[];
+}
+
+function shown(text: string): string {
+  return text.length > MAX_CHARACTERS ? `${text.slice(0, MAX_CHARACTERS - 1)}…` : text;
+}
+
+function bake<Image>(state: State<Image>, surface: SpriteSurface<Image>, text: string): Sprite<Image> {
+  const { theme, dpr } = state;
+  surface.ctx.font = theme.labelFont;
+  const width = Math.ceil(surface.ctx.measureText(text).width) + PADDING * 2;
+  surface.resize(Math.ceil(width * dpr), Math.ceil(LABEL_HEIGHT * dpr));
+  const ctx = surface.ctx;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.font = theme.labelFont;
+  ctx.textBaseline = "middle";
+  ctx.lineJoin = "round";
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = theme.labelHalo;
+  ctx.strokeText(text, PADDING, LABEL_HEIGHT / 2);
+  ctx.fillStyle = theme.label;
+  ctx.fillText(text, PADDING, LABEL_HEIGHT / 2);
+  return { image: surface.image, width, height: LABEL_HEIGHT };
+}
+
+function surfaceFor<Image>(state: State<Image>): SpriteSurface<Image> | null {
+  const spare = state.spare.pop();
+  if (spare !== undefined) return spare;
+  if (state.entries.size < CAPACITY) return state.factory();
+  // A Map iterates in insertion order and a hit re-inserts, so the first key is the oldest.
+  const oldest = state.entries.entries().next().value;
+  if (oldest === undefined) return state.factory();
+  state.entries.delete(oldest[0]);
+  return oldest[1].surface;
+}
+
+function lookUp<Image>(state: State<Image>, text: string): Sprite<Image> | null {
+  const key = shown(text);
+  const hit = state.entries.get(key);
+  if (hit !== undefined) {
+    state.entries.delete(key);
+    state.entries.set(key, hit);
+    return hit.sprite;
+  }
+  if (state.allowance === 0) {
+    state.starved = true;
+    return null;
+  }
+  const surface = surfaceFor(state);
+  if (surface === null) return null;
+  state.allowance -= 1;
+  const entry = { sprite: bake(state, surface, key), surface };
+  state.entries.set(key, entry);
+  return entry.sprite;
+}
+
+export function createSpriteCache<Image = CanvasImageSource>(
+  factory: SpriteFactory<Image>,
+  theme: Theme,
+): SpriteCache<Image> {
+  const state: State<Image> = {
+    theme, dpr: 1, allowance: BAKES_PER_FRAME, starved: false, factory, entries: new Map(), spare: [],
+  };
+  return {
+    get: (text) => lookUp(state, text),
+    widthOf: (text) => state.entries.get(shown(text))?.sprite.width ?? 0,
+    beginFrame: () => {
+      state.allowance = BAKES_PER_FRAME;
+      state.starved = false;
+    },
+    starved: () => state.starved,
+    reset: (next, dpr) => {
+      if (next === state.theme && dpr === state.dpr) return;
+      for (const entry of state.entries.values()) state.spare.push(entry.surface);
+      state.entries.clear();
+      state.theme = next;
+      state.dpr = dpr;
+    },
+  };
+}

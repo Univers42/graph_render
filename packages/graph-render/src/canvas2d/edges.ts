@@ -1,0 +1,112 @@
+/**
+ * Edges, batched: one path and one stroke per CHUNK of segments, not one per edge. The
+ * first studio issued 180 394 strokes over 80 frames at 2000 nodes and spent its frame
+ * in the rasteriser (docs/measurements/studio-perf-baseline.md).
+ *
+ * Ponytail: an edge is culled by its two endpoints, so a routed or curved edge whose ends
+ * are both off one side of the screen is dropped even when its bend would have reached
+ * into view. And while the view moves, a frame with more than MOVING_BUDGET edges draws
+ * every k-th one; the whole set is drawn as soon as it stops.
+ */
+import type { PaintCounts, PaintInput } from "./input.ts";
+
+const CHUNK = 2048;
+export const MOVING_BUDGET = 16000;
+const CULL_MARGIN = 48;
+
+/** One device pixel until the zoom is close enough for weight to read. */
+export function edgeWidth(scale: number, dpr: number): number {
+  return Math.max(1 / dpr, Math.min(1.5, scale * 0.6));
+}
+
+interface Tracer {
+  readonly input: PaintInput;
+  readonly counts: PaintCounts;
+  pending: number;
+}
+
+function flush(tracer: Tracer): void {
+  if (tracer.pending === 0) return;
+  tracer.input.ctx.stroke();
+  tracer.input.ctx.beginPath();
+  tracer.counts.draws += 1;
+  tracer.pending = 0;
+}
+
+function outside(input: PaintInput, ax: number, ay: number, bx: number, by: number): boolean {
+  const { width, height } = input.viewport;
+  return (ax < -CULL_MARGIN && bx < -CULL_MARGIN) || (ax > width + CULL_MARGIN && bx > width + CULL_MARGIN)
+    || (ay < -CULL_MARGIN && by < -CULL_MARGIN) || (ay > height + CULL_MARGIN && by > height + CULL_MARGIN);
+}
+
+/** Interior points as control points when the count fits the degree, else as a polyline. */
+function traceInterior(input: PaintInput, edge: number, bx: number, by: number): void {
+  const { ctx, camera, frame } = input;
+  const pts = frame.pts ?? new Float32Array(0);
+  const from = frame.offsets?.[edge] ?? 0;
+  const to = frame.offsets?.[edge + 1] ?? 0;
+  const sx = (p: number): number => (pts[2 * p] ?? 0) * camera.scale + camera.x;
+  const sy = (p: number): number => (pts[2 * p + 1] ?? 0) * camera.scale + camera.y;
+  const curved = frame.edgeKind === "Curve" && to - from === frame.curveDegree - 1;
+  if (curved && frame.curveDegree === 2) {
+    ctx.quadraticCurveTo(sx(from), sy(from), bx, by);
+  } else if (curved && frame.curveDegree === 3) {
+    ctx.bezierCurveTo(sx(from), sy(from), sx(from + 1), sy(from + 1), bx, by);
+  } else {
+    for (let p = from; p < to; p += 1) ctx.lineTo(sx(p), sy(p));
+    ctx.lineTo(bx, by);
+  }
+}
+
+function traceEdge(tracer: Tracer, edge: number): void {
+  const { input } = tracer;
+  const { camera, frame, x, y } = input;
+  const s = frame.source[edge] ?? 0;
+  const t = frame.target[edge] ?? 0;
+  const hidden = input.style.hidden;
+  if (hidden !== null && (hidden[s] === 1 || hidden[t] === 1)) return;
+  const ax = (x[s] ?? 0) * camera.scale + camera.x;
+  const ay = (y[s] ?? 0) * camera.scale + camera.y;
+  const bx = (x[t] ?? 0) * camera.scale + camera.x;
+  const by = (y[t] ?? 0) * camera.scale + camera.y;
+  if (outside(input, ax, ay, bx, by)) return;
+  input.ctx.moveTo(ax, ay);
+  if (frame.edgeKind === "Line" || !input.settled) input.ctx.lineTo(bx, by);
+  else traceInterior(input, edge, bx, by);
+  tracer.counts.edges += 1;
+  tracer.pending += 1;
+  if (tracer.pending >= CHUNK) flush(tracer);
+}
+
+function paintAll(tracer: Tracer): void {
+  const { input } = tracer;
+  const count = input.frame.edgeCount;
+  const stride = input.moving && count > MOVING_BUDGET ? Math.ceil(count / MOVING_BUDGET) : 1;
+  input.ctx.strokeStyle = input.theme.edge;
+  input.ctx.globalAlpha = input.focus >= 0 ? input.theme.dimAlpha : 1;
+  input.ctx.beginPath();
+  for (let edge = 0; edge < count; edge += stride) traceEdge(tracer, edge);
+  flush(tracer);
+}
+
+function paintLit(tracer: Tracer): void {
+  const { input } = tracer;
+  const { adjacency, focus } = input;
+  input.ctx.strokeStyle = input.theme.edgeLit;
+  input.ctx.globalAlpha = 1;
+  input.ctx.beginPath();
+  // Drawn a second time, over their dimmed selves: not counted twice.
+  const counted = tracer.counts.edges;
+  const end = adjacency.start[focus + 1] ?? 0;
+  for (let at = adjacency.start[focus] ?? 0; at < end; at += 1) traceEdge(tracer, adjacency.edge[at] ?? 0);
+  flush(tracer);
+  tracer.counts.edges = counted;
+}
+
+export function paintEdges(input: PaintInput, counts: PaintCounts): void {
+  const tracer: Tracer = { input, counts, pending: 0 };
+  input.ctx.lineWidth = edgeWidth(input.camera.scale, input.dpr);
+  paintAll(tracer);
+  if (input.focus >= 0) paintLit(tracer);
+  input.ctx.globalAlpha = 1;
+}

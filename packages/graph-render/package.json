@@ -1,0 +1,14 @@
+{
+  "name": "@graph-motor/render",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Draws a graph-motor snapshot. Input is snapshot bytes; output is pixels on a canvas the host owns. No runtime dependency, no framework, no motor import. Ships no build: import the .ts sources from src/ (there is no index), or bundle them.",
+  "exports": {
+    "./*": "./src/*"
+  },
+  "//toolchain": "No devDependencies of its own: it type-checks, lints and tests with the toolchain installed in app/ (scripts/studio.sh check).",
+  "engines": {
+    "node": ">=22.6"
+  }
+}
