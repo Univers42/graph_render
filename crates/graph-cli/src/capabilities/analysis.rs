@@ -7,8 +7,11 @@
 //! JSON and SDK, is deferred to the merge step (`docs/measurements/phase07-analysis.md`).
 //! Every row below is therefore `Status::Implemented`, honestly not `gated`: `problems()`
 //! only demands hash/oracle evidence from a `gated` row, so an `Implemented` one never
-//! reports a claim its evidence cannot back (`prompt.md` §8). `analysis.depth` is not
-//! registered: it needs Phase 3's `hierarchy.rs`, which is not on this branch's base.
+//! reports a claim its evidence cannot back (`prompt.md` §8). `analysis.depth` is
+//! registered too: it was held back only because p3's `layout/hierarchy.rs` was not on
+//! the base its phase was written on, and `impl depth::Roots for Hierarchy` is now in
+//! `graph-core` (`analysis/depth.rs`), so the row's oracle is a call that exists rather
+//! than a sentence. See `docs/reports/phase-07.md` §2 and §7 for that row's history.
 //!
 //! Split out of `capabilities.rs` itself only to keep that file under the house's
 //! 300-line limit — same reason `registry.rs` and `verdict.rs` are already separate
@@ -40,7 +43,7 @@ const MEMORY_PONYTAIL: &str = "none owed on the algorithm itself (exact). Ponyta
 (scale_ceiling): inherited from topology's measured per-node cost, not independently \
 re-measured for this column's own shape; re-measure with crates/graph-core/tests/memory.rs";
 
-const ROWS: [Row; 8] = [
+const ROWS: [Row; 9] = [
     (
         "analysis.components",
         "hand: union-find (weak) + petgraph::algo::tarjan_scc (strong); no TS oracle exists for \
@@ -126,6 +129,31 @@ modularity gains between two candidate moves; direction: cosmetic, never dangero
 valid partition, just not necessarily the highest-modularity one; escape hatch: none needed for \
 reproducibility (no seed to vary); a different fixed visit order is a different, equally valid \
 answer",
+    ),
+    (
+        "analysis.depth",
+        "Phase 3's repaired layout/hierarchy.rs — one Hierarchy, one root set, one depth. \
+analysis/depth.rs owns no root/forest logic of its own: it declares a four-method `Roots` \
+trait and p3's `Hierarchy` implements it by delegation (`impl depth::Roots for Hierarchy`), \
+so the two are one convention with two names, and this row differs against Phase 3's own \
+`Hierarchy::depth` column node by node over its four fixtures rather than against a \
+TypeScript oracle — none exists for breadth-first depth over a repaired tree",
+        "O(n + m): one breadth-first pass, each node's children row read once",
+        TOPOLOGY_CEILING,
+        MEMORY_DEGRADES,
+        "none owed on the walk (exact: no threshold, no sampling, no fallback, no estimate). \
+Ponytail (UNREACHED): a node no declared root reaches reads `u32::MAX`, deliberately not 0 — \
+Phase 3's own column leaves an unreachable node at 0, but that column is only ever read on a \
+repaired tree where nothing is unreachable, while this one is an analysis result a frontend \
+may colour by and 0 would render an orphan as a root. Failing input: a forest whose roots \
+were declared by hand rather than repaired, i.e. `depth_from` over a partial tree. Direction: \
+cosmetic, and the dangerous reading is refused rather than rendered: `u32::MAX` is not a \
+depth a layout can place a ring at. Escape hatch: `bfs_depth` over a repaired `Hierarchy`, \
+where every node is reached — pinned by graph-core \
+analysis/depth/hierarchy.rs::a_repaired_hierarchy_reaches_every_node_so_unreached_never_appears. \
+Ponytail (scale_ceiling): inherited from topology's measured per-node cost, not independently \
+re-measured for this column's own shape (one `u32` per node plus a queue of the same order); \
+re-measure with crates/graph-core/tests/memory.rs",
     ),
 ];
 

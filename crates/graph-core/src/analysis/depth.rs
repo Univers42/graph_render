@@ -3,20 +3,32 @@
 //!
 //! **The interface is deliberately the smallest thing that can be re-pointed.** Step 6
 //! says "reusing Phase 3's `hierarchy.rs` root/forest logic. One convention across the
-//! codebase, not two", and `layout/hierarchy.rs` is not on this branch's base
-//! (`docs/measurements/phase07-analysis.md`, deviation 3). So this module owns *no*
-//! root/forest logic of its own: it reads the convention through [`Roots`], whose four
-//! methods are p3's `Hierarchy` accessors verbatim — `node_count`, `roots`,
-//! `virtual_root`, `children`. At the merge step the whole of the re-point is
+//! codebase, not two", and `layout/hierarchy.rs` was not on the branch this module was
+//! written on (`docs/measurements/phase07-analysis.md`, deviation 3). So this module owns
+//! *no* root/forest logic of its own: it reads the convention through [`Roots`], whose
+//! four methods are p3's `Hierarchy` accessors verbatim — `node_count`, `roots`,
+//! `virtual_root`, `children`.
+//!
+//! **The re-point has happened.** p3's [`Hierarchy`](crate::layout::hierarchy::Hierarchy)
+//! implements [`Roots`] below, by delegation and nothing else, so the two are one
+//! convention with two names:
 //!
 //! ```ignore
-//! impl Roots for Hierarchy {}
-//! let d = depth::bfs_depth(&Hierarchy::of(&topology)?);
+//! let hierarchy = crate::layout::hierarchy::Hierarchy::of(&topology)?;
+//! let d = depth::bfs_depth(&hierarchy);
 //! ```
+//!
+//! (`ignore`, not a compiled example: a doctest is an external crate, so `crate::` does
+//! not resolve into this one.)
 //!
 //! Re-deriving roots, breaking cycles or dropping extra parents here would be the second
 //! convention step 6 forbids, and it would be a *silent* one: the two would disagree on
-//! the exact inputs where p3's repair records a note.
+//! the exact inputs where p3's repair records a note. That call is not evidence, so
+//! neither is the example: `depth/hierarchy.rs` compares this walk against p3's own
+//! `depth` column node by node over p3's four fixtures, and graph-cli's
+//! `capabilities::tests::depth` writes the same call out as a type bound, so undoing the
+//! re-point breaks a build rather than leaving a row that describes a function which no
+//! longer exists.
 //!
 //! # The convention, as p3 states it (`docs/decisions/hierarchy-repair.md`, D-H)
 //!
@@ -66,6 +78,30 @@ pub trait Roots {
 
     /// Node `v`'s children, ascending, for a real node `v < node_count`.
     fn children(&self, v: u32) -> &[u32];
+}
+
+/// The re-point: p3's repaired [`Hierarchy`](crate::layout::hierarchy::Hierarchy) *is*
+/// the root/forest convention, so it reads as a [`Roots`] by delegation. The four
+/// methods are that type's own accessors called through their inherent path, never
+/// through this trait's — an inherent method wins method resolution, so spelling it out
+/// is what stops a future removal of one of the four from silently turning
+/// `self.node_count()` into infinite recursion instead of a compile error.
+impl Roots for crate::layout::hierarchy::Hierarchy {
+    fn node_count(&self) -> u32 {
+        crate::layout::hierarchy::Hierarchy::node_count(self)
+    }
+
+    fn roots(&self) -> &[u32] {
+        crate::layout::hierarchy::Hierarchy::roots(self)
+    }
+
+    fn virtual_root(&self) -> Option<u32> {
+        crate::layout::hierarchy::Hierarchy::virtual_root(self)
+    }
+
+    fn children(&self, v: u32) -> &[u32] {
+        crate::layout::hierarchy::Hierarchy::children(self, v)
+    }
 }
 
 /// One depth per node, indexed by dense index. The analysis column step 7 wants
@@ -163,3 +199,9 @@ fn claim(levels: &mut [u32], queue: &mut Vec<u32>, v: u32, level: u32) {
 // file over.
 #[cfg(test)]
 mod tests;
+
+/// The re-point onto p3's repaired `layout::hierarchy::Hierarchy`, which *is* on the
+/// base now: the merge step this module's own doc has been waiting for, and the one
+/// convention p3 and this stage must share rather than derive twice.
+#[cfg(test)]
+mod hierarchy;

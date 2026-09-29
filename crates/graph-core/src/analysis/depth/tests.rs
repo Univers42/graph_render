@@ -1,10 +1,17 @@
 use super::*;
 
-/// A hand-built stand-in for p3's `layout::hierarchy::Hierarchy`, which is not on this
-/// branch's base. It is deliberately *only* the structure [`Roots`] asks for — no
-/// repair, no cycle-breaking, no multi-parent drop — so pinning the depth convention
-/// here cannot smuggle a second repair into shipped code. At the merge step the tests
-/// read `Hierarchy::of(&topology)` and this file loses its reason to exist.
+/// A hand-built stand-in for p3's `layout::hierarchy::Hierarchy`, which was not on the
+/// branch this file was written on. It is deliberately *only* the structure [`Roots`]
+/// asks for — no repair, no cycle-breaking, no multi-parent drop — so pinning the depth
+/// convention here cannot smuggle a second repair into shipped code.
+///
+/// **It stays, now that p3 *is* on the base**, because it is the only way to reach the
+/// cases a repaired [`Hierarchy`](crate::layout::hierarchy::Hierarchy) can never produce:
+/// a `Roots` that declares two roots and no virtual root (which p3's repair makes
+/// impossible), a declared root that is not the forest's own, a cycle in the `children`
+/// rows, a partial forest whose unreachable node is `UNREACHED` rather than 0. Those are
+/// this module's tests. The agreement between the two conventions is `hierarchy.rs`'s,
+/// over p3's own fixtures.
 struct Forest {
     node_count: u32,
     children: Vec<Vec<u32>>,

@@ -29,6 +29,19 @@ const REQUIRED: [&str; 6] = [
     "geometry",
 ];
 
+/// The same list for a row that emits no geometry: an `analysis.*` labelling, a `scale.*`
+/// hint, an `ingest.*` reader. `geometry` is null there **by design** — none of those
+/// stages produces a node or edge geometry kind — so demanding a value would be demanding
+/// a lie. Everything §8 calls required is still required, and `geometry` is asserted
+/// separately, as null.
+const REQUIRED_LABEL: [&str; 5] = [
+    "oracle",
+    "complexity",
+    "degradation",
+    "ponytail",
+    "scale_ceiling",
+];
+
 /// The POST rows Phase 8 registered, by id. Found by id throughout: a registry entry
 /// inserted before a row moves every index after it, so an assertion on a position tests
 /// the order rather than the row.
@@ -49,11 +62,12 @@ fn capabilities_needs_a_flag_and_refuses_gated_rows_no_recorded_run_backs() {
     assert_eq!(check.status.code(), Some(1), "{}", stdout(&check));
     // 18 rows before Phase 7, its 8 analysis.* rows (`Implemented`, no problems),
     // Phase 4's transport (gated, refused twice) and sdk.js rows, Phase 8's seven
-    // `post.*` rows, Phase 9's three `scale.*` rows and Phase 10's four
-    // `ingest.*`/`adapter.*` rows (all `implemented`, no problem). Every problem is a
-    // `gated` row with no record behind it; the `implemented` rows never produce one.
+    // `post.*` rows, Phase 9's three `scale.*` rows, Phase 10's four
+    // `ingest.*`/`adapter.*` rows and `analysis.depth` (all `implemented`, no problem).
+    // Every problem is a `gated` row with no record behind it; the `implemented` rows
+    // never produce one.
     assert!(
-        stdout(&check).contains("capabilities --check: 42 rows, 34 problems"),
+        stdout(&check).contains("capabilities --check: 43 rows, 34 problems"),
         "{}",
         stdout(&check)
     );
@@ -70,8 +84,8 @@ fn every_post_row_is_published_implemented_and_fully_filled() {
     let listed = rows.as_array().expect("an array");
     assert_eq!(
         listed.len(),
-        42,
-        "36 before Phase 8's six bundling and style rows"
+        43,
+        "42 before analysis.depth, and 36 before Phase 8's six bundling and style rows"
     );
     for id in POST_IDS {
         let row = listed
@@ -119,10 +133,51 @@ fn the_ledger_reads_a_recorded_run_and_names_what_it_lacks() {
     assert_eq!(run(&["hashgate", "--seeds", "2"]).status.code(), Some(0));
     let json = run(&["capabilities", "--json"]);
     let rows: serde_json::Value = serde_json::from_str(&stdout(&json)).expect("json");
-    let first = &rows.as_array().expect("an array")[0];
+    let first = rows
+        .as_array()
+        .expect("an array")
+        .iter()
+        .find(|r| r["id"] == "topology.index")
+        .unwrap_or_else(|| panic!("topology.index is a row"));
     assert_eq!(
         first["hash_4way"],
         "not backed: hashgate ran 2 seeds, need 1000"
     );
     std::fs::remove_dir_all(&dir).expect("cleanup");
+}
+
+/// `analysis.depth`, the ninth `analysis.*` row, as the real binary publishes it: the
+/// row the process prints, found by id, carrying every required field. A row that
+/// exists in the registry but not in `capabilities --json` is a row no consumer can see,
+/// and Phase 7's row is the one that was missing for exactly that length of time.
+///
+/// The count is asserted on the process's own output line, and the problem count is
+/// pinned beside it: an `implemented` row contributes no problem, so a new row may move
+/// the first number and never the second.
+#[test]
+fn the_depth_row_is_published_by_the_binary_and_adds_no_problem() {
+    let check = graph_cli(&["capabilities", "--check"]);
+    assert_eq!(check.status.code(), Some(1), "{}", stdout(&check));
+    assert!(
+        stdout(&check).contains("capabilities --check: 43 rows, 34 problems"),
+        "the new row is implemented, so it adds a row and not a problem: {}",
+        stdout(&check)
+    );
+    let json = graph_cli(&["capabilities", "--json"]);
+    let rows: serde_json::Value = serde_json::from_str(&stdout(&json)).expect("json");
+    let row = rows
+        .as_array()
+        .expect("an array")
+        .iter()
+        .find(|r| r["id"] == "analysis.depth")
+        .unwrap_or_else(|| panic!("analysis.depth is published"));
+    assert_eq!(row["stage"], "analysis");
+    assert_eq!(row["status"], "implemented");
+    assert!(
+        row["geometry"].is_null(),
+        "a labelling, not a geometry kind"
+    );
+    for field in REQUIRED_LABEL {
+        assert!(!row[field].is_null(), "analysis.depth: {field} is filled");
+    }
 }
