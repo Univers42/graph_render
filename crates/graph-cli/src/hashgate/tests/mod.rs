@@ -2,9 +2,11 @@ mod stages;
 
 use super::compare::{Tally, diverged, per_stage};
 use super::knob::setting;
+use super::stages::{CIRCULAR, PACKING, TIDY_TREE, TREEMAP};
 use super::transport;
 use super::*;
 use graph_core::Stage;
+use graph_core::layout::circle_packing::CirclePackingParams;
 use graph_core::layout::force::BarnesHut;
 use graph_core::layout::forceatlas2::ForceAtlas2;
 use graph_core::{GridParams, REFERENCE_DEGREE, SugiyamaParams, gate_node_count, seeded_model};

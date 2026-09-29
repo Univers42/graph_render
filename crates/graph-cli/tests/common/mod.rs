@@ -7,13 +7,24 @@ use std::path::Path;
 use std::process::{Command, Output};
 
 /// Every negative-control variable `graph-cli hashgate` reads.
-pub const KNOBS: [&str; 6] = [
+///
+/// Extended additively as stages gained a control of their own: the four Phase 3 layouts
+/// (tidy tree, treemap, circular, circle packing) each have one, so `hashgate` turns red
+/// on a stage the way it already did for Barnes-Hut, ForceAtlas2, the grid, the layered
+/// drawing and the topology. The order is the order of `hashgate::Knob::ALL`, which the
+/// unit test `each_knob_names_its_own_variable_and_record` pins against this list's twin
+/// in `crates/graph-cli/src/hashgate/tests/knob.rs`.
+pub const KNOBS: [&str; 10] = [
     "GM_MUTATE_REFERENCE_DEGREE",
     "GM_MUTATE_GRID_SPACING",
     "GM_MUTATE_SUGIYAMA_LAYER_SPACING",
     "GM_MUTATE_NODE_COUNT",
     "GM_MUTATE_FORCE_THETA",
     "GM_MUTATE_FA2_SCALING_RATIO",
+    "GM_MUTATE_TREE_TIDY_NODES",
+    "GM_MUTATE_TREEMAP_NODES",
+    "GM_MUTATE_CIRCULAR_NODES",
+    "GM_MUTATE_PACKING_SCALE",
 ];
 
 /// `graph-cli` recording under `gates`, never `target/gates` (a test run must not stand

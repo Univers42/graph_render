@@ -122,10 +122,11 @@ fn the_spacing_control_goes_red_on_the_grid_stage_and_the_transport_that_restate
     assert_eq!(both.status.code(), Some(2), "one control at a time");
 }
 
-/// Tidy tree, circular and packing take no parameters, so nothing but the model itself
-/// can move them natively; [`GM_MUTATE_NODE_COUNT`] backs their stages (and, honestly,
-/// topology's and the others' too, since one more node moves every stage that is a
-/// function of the topology at all).
+/// The shared-model control, and the reason it is not a substitute for the four
+/// per-layout controls in `cli_p3.rs`: one more node moves the gate's single model, so
+/// every stage that is a function of the topology at all diverges with it. That backs the
+/// two stages nothing else reaches (spectral, pivot MDS), and it is honest about moving
+/// the rest — but a run it turns red says nothing about which stage caused it.
 #[test]
 fn the_node_count_control_goes_red_on_every_stage_it_touches() {
     let grown = graph_cli(&["hashgate", "--seeds", "4"], Some((KNOBS[3], "1")));

@@ -48,6 +48,14 @@ pass (4/4). A fresh worktree needs `npm ci` before `cargo test`.
 - Studio: the redesign session works on branch `studio`/`studio-look`; it was sent `orch/prompts/studio-scigraphs-look.txt`.
 - Then: merge the repair branches, re-run the full gate on develop, repair its red rows.
 
+## Update 2026-09-29 evening
+
+- Merged into develop under the floor: `fa2fix` (FA2 gated at `max_iter` 2, `CEILING` 1e-7, measured 3.156e-8), `lesmis` (4f82f36, `fixtures/scigraphs/lesmis.json`; labels differ from fig6, documented in `docs/decisions/scigraphs-reference-fixture.md`), `repair-evidence`, `reports`, `negctl` (7f0cab6: knobs `GM_MUTATE_{TREE_TIDY,TREEMAP,CIRCULAR}_NODES`, `GM_MUTATE_PACKING_SCALE`, each red at 8 seeds; merged tree fmt 0, clippy 0, 1015 tests passed / 0 failed). Their rows are in `develop-full.rows`.
+- negctl's open decisions: (1) `phase-06.md:153,196` call `GM_MUTATE_FORCE_THETA` inert; stale since b142c9a, needs a dated addendum, not a rewrite. (2) the four p3 stage ids exist twice (registry literals and `hashgate/stages.rs` consts, held by a test); promote to `Stage::ID` in graph-core.
+- Several merge commits carry git's default message instead of `updated`; not rewritten (force push). Merges use `-m updated` from now on.
+- In flight (`/goinfre/dlesieur/orch/bin/oc-status.sh`): `ledger-rows` (Phase 8/7 ledger rows), `p11-reconcile` (verifies the uncommitted work two racing agents left in the p11 worktree; p11 must land before `sim`, both edit barnes_hut), `sim-m1` (Track M: the live-simulation session API for the Obsidian-style studio graph, plan `orch/prompts/obsidian-graph-plan.txt`; devil verdict PROCEED-WITH-CONDITIONS, conditions in `orch/prompts/sim-conditions.txt`; next job `sim-m1b.txt` captures goldens from 79aef00), `orchfix` (oc-job/oc-status liveness fenced on the OpenCode service session list instead of pid files).
+- Then: merge ledger-rows and p11, run the full gate on develop, repair its red rows.
+
 ## Remaining, in order
 
 1. Done: train and p4 are on develop. Still to do: p7's SDK row (p4 → p7 dependency), and check the folded p4 CLI test listed under p4 above.

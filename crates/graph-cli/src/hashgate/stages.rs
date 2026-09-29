@@ -15,6 +15,7 @@
 
 use super::Setting;
 use graph_core::layout::Geometry;
+use graph_core::layout::circle_packing;
 use graph_core::layout::force::BarnesHut;
 use graph_core::layout::forceatlas2::ForceAtlas2;
 use graph_core::registry::{self as core, LAYOUTS};
@@ -28,6 +29,19 @@ use std::collections::BTreeSet;
 /// drives `gm_run` with exactly this one, so the transport stage is the real ABI over
 /// this layout and nothing else.
 pub const LAYOUT: &str = "layout.grid";
+
+/// The Phase 3 hierarchy layouts' stage ids, named here for the knobs that perturb one of
+/// them. `graph_core::registry` spells them as literals inside its own `LAYOUTS` and they
+/// are not `Stage` impls, so there is no `Stage::ID` to take: these four constants and the
+/// registry are the two places the ids exist, and
+/// `the_p3_stage_ids_are_the_registry_s_own` is what keeps them in step.
+pub const TIDY_TREE: &str = "layout.tree.tidy";
+/// The squarified treemap's stage id — see [`TIDY_TREE`].
+pub const TREEMAP: &str = "layout.treemap.squarified";
+/// The circular layout's stage id — see [`TIDY_TREE`].
+pub const CIRCULAR: &str = "layout.circular.radial";
+/// Circle packing's stage id — see [`TIDY_TREE`].
+pub const PACKING: &str = "layout.packing.circle";
 
 /// The transport stage: `gm_seed_ingest → gm_alloc → gm_build → gm_run →
 /// gm_snapshot_bytes` over the gate's own model — the real ABI, not the retained shim.
@@ -80,6 +94,10 @@ pub fn stage_bytes_for(
                 .map_err(|e| e.to_string())?
                 .snapshot
                 .to_bytes(),
+            PACKING => run_force(&topology, |t| circle_packing::run_with(t, &setting.packing))?,
+            _ if owns_own_model(layout.id, setting) => {
+                stage_bytes_from_own_model(seed, setting, layout)?
+            }
             _ => layout_bytes(&topology, layout)?,
         };
         out.push((layout.id, bytes));
@@ -105,6 +123,33 @@ fn check(layouts: &[core::Capability]) -> Result<(), String> {
         ));
     }
     Ok(())
+}
+
+/// Whether `id` is the one Phase 3 stage whose own model `setting` re-draws with extra
+/// nodes ([`Setting::stage_nodes`]).
+///
+/// The perturbation is deliberately *not* the shared `extra_nodes`: that one grows the
+/// gate's single model, so every stage that is a function of the topology moves with it
+/// and the gate can no longer say which stage a divergence came from. This one re-draws
+/// the model for the stage named in the setting alone, so `topology`, the other layouts
+/// and the transport stage are byte-identical and the one stage that moved is named in
+/// the gate's own output.
+fn owns_own_model(id: &str, setting: &Setting) -> bool {
+    setting.stage_nodes.is_some_and(|(stage, _)| stage == id)
+}
+
+/// [`stage_bytes`]'s one stage, over a model re-drawn with `count` more nodes than the
+/// gate's own: the gate model plus that stage's control, and nothing else.
+fn stage_bytes_from_own_model(
+    seed: u32,
+    setting: &Setting,
+    layout: &core::Capability,
+) -> Result<Vec<u8>, String> {
+    let extra = setting.stage_nodes.map_or(0, |(_, count)| count);
+    let count = gate_node_count(seed) + setting.extra_nodes + extra;
+    let (nodes, edges) = seeded_model(seed, count, setting.reference_degree);
+    let topology = index_model(&nodes, &edges).map_err(|e| e.to_string())?;
+    layout_bytes(&topology, layout)
 }
 
 fn layout_bytes(topology: &Topology, layout: &core::Capability) -> Result<Vec<u8>, String> {
