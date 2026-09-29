@@ -30,11 +30,8 @@ fn hashgate_passes_on_an_honest_run() {
     assert_eq!(honest.status.code(), Some(0), "{}", stdout(&honest));
     assert!(stdout(&honest).contains("  topology: 4-way equal on 4/4 seeds"));
     assert!(stdout(&honest).contains("  layout.grid: 4-way equal on 4/4 seeds"));
-<<<<<<< HEAD
     assert!(stdout(&honest).contains("  layout.dag.sugiyama: 4-way equal on 4/4 seeds"));
-=======
     assert!(stdout(&honest).contains("  transport.wasm.columnar: 4-way equal on 4/4 seeds"));
->>>>>>> origin/p4
     assert!(stdout(&honest).contains("  4-way equal on 4/4 seeds"));
     assert!(stdout(&honest).contains("  native run 1  digest "));
     assert!(!stdout(&honest).contains("DIVERGED"));
@@ -87,7 +84,6 @@ fn the_spacing_control_goes_red_on_the_grid_stage_and_the_transport_that_restate
     assert!(stdout(&spacing).contains("  DIVERGED layout.grid 0:"));
     let control = record("hashgate-control-grid-spacing");
     assert!(control.contains("\"pass\": false"), "{control}");
-<<<<<<< HEAD
     assert!(stdout(&spacing).contains("  layout.dag.sugiyama: 4-way equal on 4/4 seeds"));
 
     let layers = graph_cli(&["hashgate", "--seeds", "4"], Some((KNOBS[2], "2")));
@@ -106,17 +102,6 @@ fn the_spacing_control_goes_red_on_the_grid_stage_and_the_transport_that_restate
         (KNOBS[2], "tall"),
         (KNOBS[2], "0"),
     ] {
-=======
-    assert!(
-        control.contains("\"transport.wasm.columnar\": 0"),
-        "the control's own record must carry the stage's count"
-    );
-}
-
-#[test]
-fn a_misspelt_knob_or_two_at_once_is_could_not_run_never_a_green_control() {
-    for (knob, typo) in [(KNOBS[0], "nine"), (KNOBS[1], "wide"), (KNOBS[1], "0")] {
->>>>>>> origin/p4
         let run = graph_cli(&["hashgate", "--seeds", "4"], Some((knob, typo)));
         assert_eq!(
             run.status.code(),
@@ -208,25 +193,20 @@ fn hashgate_arm_prints_one_line_per_stage_and_seed() {
     let arm = graph_cli(&["hashgate-arm", "--seeds", "3"], None);
     assert_eq!(arm.status.code(), Some(0));
     let lines: Vec<String> = stdout(&arm).lines().map(str::to_owned).collect();
-<<<<<<< HEAD
-    assert_eq!(lines.len(), 33, "11 stages * 3 seeds");
+    assert_eq!(lines.len(), 36, "12 stages * 3 seeds");
     assert!(lines[2].starts_with("topology 2 ") && lines[2].len() == "topology 2 ".len() + 64);
     let grid = "layout.grid 2 ";
     assert!(lines[5].starts_with(grid) && lines[5].len() == grid.len() + 64);
-    let last = "layout.dag.sugiyama 2 ";
-    assert!(lines[32].starts_with(last) && lines[32].len() == last.len() + 64);
-=======
-    assert_eq!(lines.len(), 9);
-    assert!(lines[2].starts_with("topology 2 ") && lines[2].len() == "topology 2 ".len() + 64);
+    let dag = "layout.dag.sugiyama 2 ";
+    assert!(lines[32].starts_with(dag) && lines[32].len() == dag.len() + 64);
     let last = "transport.wasm.columnar 2 ";
-    assert!(lines[8].starts_with(last) && lines[8].len() == last.len() + 64);
+    assert!(lines[35].starts_with(last) && lines[35].len() == last.len() + 64);
     // The transport stage is the real ABI's snapshot over the same model, so natively it
     // restates the layout stage's bytes rather than inventing a second computation.
     assert_eq!(
         lines[5].rsplit_once(' ').map(|(_, d)| d),
-        lines[8].rsplit_once(' ').map(|(_, d)| d)
+        lines[35].rsplit_once(' ').map(|(_, d)| d)
     );
->>>>>>> origin/p4
 }
 
 #[test]
@@ -234,22 +214,13 @@ fn capabilities_needs_a_flag_and_refuses_gated_rows_no_recorded_run_backs() {
     assert_eq!(graph_cli(&["capabilities"], None).status.code(), Some(2));
     let check = graph_cli(&["capabilities", "--check"], None);
     assert_eq!(check.status.code(), Some(1), "{}", stdout(&check));
-<<<<<<< HEAD
-    // 18 rows before Phase 7 plus its 8 analysis.* rows, `Implemented`, so they add
-    // rows without adding problems.
-    assert!(stdout(&check).contains("capabilities --check: 26 rows, 32 problems"));
+    // 18 rows before Phase 7, its 8 analysis.* rows (`Implemented`, no problems), and
+    // Phase 4's transport (gated, refused twice) and sdk.js rows.
+    assert!(stdout(&check).contains("capabilities --check: 28 rows, 34 problems"));
     let json = graph_cli(&["capabilities", "--json"], None);
     assert_eq!(json.status.code(), Some(0));
     let rows: serde_json::Value = serde_json::from_str(&stdout(&json)).expect("json");
-    assert_eq!(rows.as_array().map(Vec::len), Some(26));
-=======
-    // 10 gated rows (8 topology, layout.grid, transport.wasm.columnar), each refused twice.
-    assert!(stdout(&check).contains("capabilities --check: 11 rows, 20 problems"));
-    let json = graph_cli(&["capabilities", "--json"], None);
-    assert_eq!(json.status.code(), Some(0));
-    let rows: serde_json::Value = serde_json::from_str(&stdout(&json)).expect("json");
-    assert_eq!(rows.as_array().map(Vec::len), Some(11));
->>>>>>> origin/p4
+    assert_eq!(rows.as_array().map(Vec::len), Some(28));
     assert!(
         rows[0]["oracle_diff"]
             .as_str()

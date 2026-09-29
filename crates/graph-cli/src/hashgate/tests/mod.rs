@@ -1,16 +1,13 @@
 mod stages;
 
 use super::compare::{Tally, diverged, per_stage};
-<<<<<<< HEAD:crates/graph-cli/src/hashgate/tests.rs
 use super::knob::setting;
-=======
 use super::transport;
->>>>>>> origin/p4:crates/graph-cli/src/hashgate/tests/mod.rs
 use super::*;
 use graph_core::Stage;
 use graph_core::layout::force::BarnesHut;
 use graph_core::layout::forceatlas2::ForceAtlas2;
-use graph_core::{GridParams, REFERENCE_DEGREE, SugiyamaParams};
+use graph_core::{GridParams, REFERENCE_DEGREE, SugiyamaParams, gate_node_count, seeded_model};
 use std::env::VarError;
 
 mod knob;
@@ -41,54 +38,52 @@ fn arms(fills: [[char; 6]; 4]) -> Vec<Arm> {
 
 const HONEST: [[char; 6]; 4] = [['a', 'b', 'c', 'd', 'e', 'f']; 4];
 
-/// `arms()` above fixes 2 stages, 2 seeds each (4 lines per arm); the real [`STAGES`]
+/// `arms()` above fixes 3 stages, 2 seeds each (6 lines per arm); the real [`stages`]
 /// has grown past that, so these tests exercise [`compare::diverged`] and
 /// [`compare::per_stage`] at this small, fixed size, taken from the front of the real
 /// list so the stage names printed still match production.
-const TEST_STAGES: [&str; 2] = [STAGES[0], STAGES[1]];
+fn test_stages() -> Vec<&'static str> {
+    stages()[..3].to_vec()
+}
 
 #[test]
 fn agreeing_arms_have_no_divergence() {
-    assert_eq!(diverged(2, &TEST_STAGES, &arms(HONEST)), Ok(vec![]));
+    assert_eq!(diverged(2, &test_stages(), &arms(HONEST)), Ok(vec![]));
 }
 
 #[test]
 fn one_arm_differing_on_one_line_names_that_line() {
     let mut fills = HONEST;
     fills[3][3] = 'e';
-    assert_eq!(diverged(2, &TEST_STAGES, &arms(fills)), Ok(vec![3]));
+    assert_eq!(diverged(2, &test_stages(), &arms(fills)), Ok(vec![3]));
     fills[0][0] = 'f';
-    assert_eq!(diverged(2, &TEST_STAGES, &arms(fills)), Ok(vec![0, 3]));
+    assert_eq!(diverged(2, &test_stages(), &arms(fills)), Ok(vec![0, 3]));
 }
 
 #[test]
 fn vacuous_comparisons_are_refused() {
-    assert!(diverged(0, &TEST_STAGES, &[]).is_err());
-    assert!(diverged(2, &TEST_STAGES, &arms(HONEST)[..3]).is_err());
-    assert!(diverged(3, &TEST_STAGES, &arms(HONEST)).is_err());
+    assert!(diverged(0, &test_stages(), &[]).is_err());
+    assert!(diverged(2, &test_stages(), &arms(HONEST)[..3]).is_err());
+    assert!(diverged(3, &test_stages(), &arms(HONEST)).is_err());
     let mut bad = arms(HONEST);
     bad[2].1[1] = "synthetic 1 xyzzy".into();
-    assert!(diverged(2, &TEST_STAGES, &bad).is_err());
+    assert!(diverged(2, &test_stages(), &bad).is_err());
     let mut renumbered = arms(HONEST);
     renumbered[1].1[1] = renumbered[1].1[0].clone();
-    assert!(diverged(2, &TEST_STAGES, &renumbered).is_err());
+    assert!(diverged(2, &test_stages(), &renumbered).is_err());
     let mut restaged = arms(HONEST);
-<<<<<<< HEAD:crates/graph-cli/src/hashgate/tests.rs
     restaged[0].1[2] = restaged[0].1[2].replace("layout.grid", "topology");
-    assert!(diverged(2, &TEST_STAGES, &restaged).is_err());
-=======
-    restaged[0].1[4] = restaged[0].1[4].replace(TRANSPORT, "layout.grid");
-    assert!(diverged(2, &restaged).is_err());
->>>>>>> origin/p4:crates/graph-cli/src/hashgate/tests/mod.rs
+    assert!(diverged(2, &test_stages(), &restaged).is_err());
 }
 
 #[test]
 fn a_stage_whose_seeds_all_hash_alike_is_refused_as_one_input() {
-<<<<<<< HEAD:crates/graph-cli/src/hashgate/tests.rs
-    let err = diverged(2, &TEST_STAGES, &arms([['a', 'b', 'c', 'c']; 4])).expect_err("one digest");
-=======
-    let err = diverged(2, &arms([['a', 'b', 'c', 'c', 'e', 'f']; 4])).expect_err("one digest");
->>>>>>> origin/p4:crates/graph-cli/src/hashgate/tests/mod.rs
+    let err = diverged(
+        2,
+        &test_stages(),
+        &arms([['a', 'b', 'c', 'c', 'e', 'f']; 4]),
+    )
+    .expect_err("one digest");
     assert!(
         err.starts_with("layout.grid: every seed hashed to one digest"),
         "{err}"
@@ -97,18 +92,13 @@ fn a_stage_whose_seeds_all_hash_alike_is_refused_as_one_input() {
         .into_iter()
         .map(|(n, l)| (n, vec![l[0].clone(), l[2].clone(), l[4].clone()]))
         .collect();
-    assert_eq!(diverged(1, &TEST_STAGES, &one), Ok(vec![]));
+    assert_eq!(diverged(1, &test_stages(), &one), Ok(vec![]));
 }
 
 #[test]
 fn per_stage_counts_equal_seeds_per_stage_and_distinct_bad_seeds() {
-<<<<<<< HEAD:crates/graph-cli/src/hashgate/tests.rs
-    let tally = per_stage(2, 2, &[1, 3]);
-=======
-    let tally = per_stage(2, &[1, 3]);
-    let mut equal = vec![1, 1];
-    equal.resize(stages().len(), 2);
->>>>>>> origin/p4:crates/graph-cli/src/hashgate/tests/mod.rs
+    let tally = per_stage(2, 3, &[1, 3]);
+    let equal = vec![1, 1, 2];
     assert_eq!(
         tally,
         Tally {
@@ -116,13 +106,8 @@ fn per_stage_counts_equal_seeds_per_stage_and_distinct_bad_seeds() {
             diverged_seeds: 1
         }
     );
-<<<<<<< HEAD:crates/graph-cli/src/hashgate/tests.rs
-    assert_eq!(per_stage(2, 2, &[0, 3]).diverged_seeds, 2);
-    assert_eq!(per_stage(2, 2, &[]).equal, [2, 2]);
-=======
-    assert_eq!(per_stage(2, &[0, 5]).diverged_seeds, 2);
-    assert_eq!(per_stage(2, &[]).equal, vec![2; stages().len()]);
->>>>>>> origin/p4:crates/graph-cli/src/hashgate/tests/mod.rs
+    assert_eq!(per_stage(2, 3, &[0, 5]).diverged_seeds, 2);
+    assert_eq!(per_stage(2, 3, &[]).equal, [2, 2, 2]);
 }
 
 /// A reader of the variables in `pairs`, every other one unset.
@@ -140,61 +125,7 @@ fn honest() -> Setting {
 }
 
 #[test]
-<<<<<<< HEAD:crates/graph-cli/src/hashgate/tests.rs
-fn the_stages_are_the_topology_then_every_registered_layout() {
-=======
-fn the_mutation_variables_parse_strictly_and_one_at_a_time() {
-    let defaults = (REFERENCE_DEGREE, GridParams::default(), None);
-    let h = honest();
-    assert_eq!((h.reference_degree, h.grid, h.control), defaults);
-    let degree = setting(env(&[("GM_MUTATE_REFERENCE_DEGREE", " 9 ")])).expect("parses");
-    assert_eq!((degree.reference_degree, degree.grid), (9, h.grid));
-    assert_eq!(degree.control, Some(Knob::ReferenceDegree));
-    let spacing = setting(env(&[("GM_MUTATE_GRID_SPACING", "2.5")])).expect("parses");
-    assert_eq!(
-        (spacing.reference_degree, spacing.grid.spacing),
-        (REFERENCE_DEGREE, 2.5)
-    );
-    assert_eq!(spacing.control, Some(Knob::GridSpacing));
-    let bad: [&'static [(&str, &str)]; 3] = [
-        &[("GM_MUTATE_REFERENCE_DEGREE", "nine")],
-        &[("GM_MUTATE_REFERENCE_DEGREE", "")],
-        &[("GM_MUTATE_GRID_SPACING", "wide")],
-    ];
-    for pairs in bad {
-        let err = setting(env(pairs)).expect_err("refused");
-        assert!(err.starts_with(pairs[0].0), "{err}");
-    }
-    let both = env(&[
-        ("GM_MUTATE_REFERENCE_DEGREE", "9"),
-        ("GM_MUTATE_GRID_SPACING", "2"),
-    ]);
-    let err = setting(both).expect_err("two controls");
-    assert!(err.ends_with("one control at a time"), "{err}");
-    let unreadable = setting(|_| Err(VarError::NotUnicode("\u{fffd}".into())));
-    assert!(unreadable.is_err());
-}
-
-#[test]
-fn each_knob_names_its_own_variable_and_record() {
-    let envs = Knob::ALL.map(Knob::env);
-    let records = Knob::ALL.map(Knob::record);
-    assert_eq!(
-        envs,
-        ["GM_MUTATE_REFERENCE_DEGREE", "GM_MUTATE_GRID_SPACING"]
-    );
-    assert_eq!(
-        records,
-        [
-            "hashgate-control-reference-degree",
-            "hashgate-control-grid-spacing"
-        ]
-    );
-}
-
-#[test]
 fn the_stages_are_the_topology_then_every_registered_layout_then_the_transport() {
->>>>>>> origin/p4:crates/graph-cli/src/hashgate/tests/mod.rs
     let layouts: Vec<&str> = graph_core::registry::LAYOUTS.iter().map(|l| l.id).collect();
     let mut want = vec!["topology"];
     want.extend(layouts);
@@ -203,14 +134,13 @@ fn the_stages_are_the_topology_then_every_registered_layout_then_the_transport()
 }
 
 #[test]
-<<<<<<< HEAD:crates/graph-cli/src/hashgate/tests.rs
 fn stage_bytes_are_the_registered_pipeline_and_the_reference_and_spacing_knobs_move_theirs() {
-    let stages = stage_bytes(4, &honest()).expect("runs");
-    let ids: Vec<&str> = stages.iter().map(|(id, _)| *id).collect();
-    assert_eq!(ids, STAGES);
-    let (topology, layout) = (stages[0].1.clone(), stages[1].1.clone());
+    let honest_run = stage_bytes(4, &honest()).expect("runs");
+    let ids: Vec<&str> = honest_run.iter().map(|(id, _)| *id).collect();
+    assert_eq!(ids, stages());
+    let (topology, layout) = (honest_run[0].1.clone(), honest_run[1].1.clone());
     let (nodes, edges) = seeded_model(4, gate_node_count(4), REFERENCE_DEGREE);
-    for (id, bytes) in &stages[1..] {
+    for (id, bytes) in &honest_run[1..honest_run.len() - 1] {
         let layout = graph_core::registry::find(id).expect("registered");
         let registered = graph_core::run_with(&nodes, &edges, layout.id, layout.run).expect("runs");
         assert_eq!(
@@ -227,11 +157,12 @@ fn stage_bytes_are_the_registered_pipeline_and_the_reference_and_spacing_knobs_m
     assert_ne!(moved[0].1, topology);
     assert_eq!(moved[1].1, layout, "the grid ignores weights");
     assert_ne!(
-        moved[3].1, stages[3].1,
+        moved[3].1, honest_run[3].1,
         "treemap reads node weight, so the reference degree moves it too"
     );
     assert_eq!(
-        moved[DAG].1, stages[DAG].1,
+        moved[dag()].1,
+        honest_run[dag()].1,
         "the layered drawing ignores weights"
     );
     let spacing = Setting {
@@ -241,23 +172,28 @@ fn stage_bytes_are_the_registered_pipeline_and_the_reference_and_spacing_knobs_m
     let spaced = stage_bytes(4, &spacing).expect("runs");
     assert_eq!(spaced[0].1, topology);
     assert_ne!(spaced[1].1, layout);
-    assert_eq!(spaced[DAG].1, stages[DAG].1);
+    assert_eq!(spaced[dag()].1, honest_run[dag()].1);
 }
 
-/// Where `layout.dag.sugiyama` sits in [`STAGES`].
-const DAG: usize = STAGE_COUNT - 1;
+/// Where `layout.dag.sugiyama` sits in [`stages`].
+fn dag() -> usize {
+    stages()
+        .iter()
+        .position(|id| *id == "layout.dag.sugiyama")
+        .expect("registered")
+}
 
 #[test]
 fn the_layer_spacing_knob_moves_only_the_layered_drawing_and_zero_is_refused() {
-    let stages = stage_bytes(4, &honest()).expect("runs");
-    assert_eq!(stages[DAG].0, "layout.dag.sugiyama");
+    let honest_run = stage_bytes(4, &honest()).expect("runs");
+    assert_eq!(honest_run[dag()].0, "layout.dag.sugiyama");
     let layers = Setting {
         sugiyama: SugiyamaParams { layer_spacing: 2.0 },
         ..honest()
     };
     let moved = stage_bytes(4, &layers).expect("runs");
-    for (index, (moved, honest)) in moved.iter().zip(&stages).enumerate() {
-        assert_eq!(moved.1 != honest.1, index == DAG, "{}", moved.0);
+    for (index, (moved, honest)) in moved.iter().zip(&honest_run).enumerate() {
+        assert_eq!(moved.1 != honest.1, index == dag(), "{}", moved.0);
     }
     let flat = Setting {
         sugiyama: SugiyamaParams { layer_spacing: 0.0 },
@@ -269,13 +205,13 @@ fn the_layer_spacing_knob_moves_only_the_layered_drawing_and_zero_is_refused() {
 
 #[test]
 fn the_node_count_knob_moves_every_stage_and_zero_spacing_is_refused() {
-    let stages = stage_bytes(4, &honest()).expect("runs");
+    let honest_run = stage_bytes(4, &honest()).expect("runs");
     let more_nodes = Setting {
         extra_nodes: 1,
         ..honest()
     };
     let grown = stage_bytes(4, &more_nodes).expect("runs");
-    for (grown, honest) in grown.iter().zip(&stages) {
+    for (grown, honest) in grown.iter().zip(&honest_run) {
         assert_ne!(
             grown.1, honest.1,
             "{}: one more node must move every stage",
@@ -297,7 +233,7 @@ fn an_arm_prints_every_seed_of_one_stage_before_the_next() {
         .lines()
         .map(|l| l.rsplit_once(' ').expect("digest").0)
         .collect();
-    let expected: Vec<String> = STAGES
+    let expected: Vec<String> = stages()
         .iter()
         .flat_map(|stage| (0..2).map(move |seed| format!("{stage} {seed}")))
         .collect();
@@ -311,7 +247,9 @@ fn an_arm_prints_every_seed_of_one_stage_before_the_next() {
             .expect_err("refused")
             .starts_with("seed 0: ")
     );
-=======
+}
+
+#[test]
 fn the_transport_tally_counts_the_seeds_where_the_real_abi_matches_the_shim() {
     let wasm = |fill: char| arms([[fill; 6]; 4]).remove(2).1;
     assert_eq!(transport::agree_with_shim(2, &wasm('a')), Ok(2));
@@ -326,5 +264,4 @@ fn the_transport_tally_counts_the_seeds_where_the_real_abi_matches_the_shim() {
     no_layout[2] = no_layout[2].replace(LAYOUT, "topology");
     assert!(transport::agree_with_shim(2, &no_layout).is_err());
     assert!(transport::agree_with_shim(0, &[]).is_err());
->>>>>>> origin/p4:crates/graph-cli/src/hashgate/tests/mod.rs
 }

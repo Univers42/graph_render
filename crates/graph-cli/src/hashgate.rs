@@ -28,9 +28,10 @@ use knob::{Setting, env_setting};
 pub(crate) use stages::{LAYOUT, TRANSPORT};
 // `stage_bytes_for` is the test seam behind `stage_bytes` (`tests/stages.rs`), not a second
 // call site: the gate itself always runs the real registry.
+use stages::stage_bytes;
 #[cfg(test)]
 use stages::stage_bytes_for;
-use stages::{stage_bytes, stages};
+pub(crate) use stages::stages;
 use std::process::{Command, ExitCode};
 
 /// Runs all four arms over seeds `0..seeds` and compares them line by line.
@@ -144,7 +145,10 @@ fn conclude(
         return ExitCode::from(2);
     }
     if c20 != seeds {
-        println!("FAIL: {TRANSPORT} diverges from {LAYOUT} on {} seeds", seeds - c20);
+        println!(
+            "FAIL: {TRANSPORT} diverges from {LAYOUT} on {} seeds",
+            seeds - c20
+        );
         return ExitCode::from(1);
     }
     if bad == 0 {

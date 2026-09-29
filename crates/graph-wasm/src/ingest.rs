@@ -190,6 +190,10 @@ fn edge(value: &Value, path: &str) -> Result<EdgeRecord, IngestError> {
             member(members, "record_id", path)?,
             &format!("{path}.record_id"),
         )?,
+        // The wire edge carries no `type`, so no hierarchy direction; the same default as
+        // `graph-cli`'s `oracle_fixtures/wire.rs`. Repair item: the wasm ingest must learn
+        // the edge type before a hierarchy layout runs through the real ABI.
+        child_first: false,
     })
 }
 

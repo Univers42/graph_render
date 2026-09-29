@@ -3,18 +3,6 @@
 // module must import nothing — a self-contained arm tests the real shipped binary.
 //
 //   node harness/wasm-run.mjs <graph_wasm.wasm> hash <seeds> <stage>...
-<<<<<<< HEAD
-//        prints "<stage> <seed> <sha256>" for each stage in order, seeds 0..N-1;
-//        stages: topology (gm_topology), layout.grid (gm_layout_grid),
-//        layout.tree.tidy (gm_layout_tree_tidy),
-//        layout.treemap.squarified (gm_layout_treemap_squarified),
-//        layout.circular.radial (gm_layout_circular_radial),
-//        layout.packing.circle (gm_layout_packing_circle),
-//        layout.spectral (gm_layout_spectral), layout.mds.pivot (gm_layout_mds_pivot),
-//        layout.force.barnes_hut (gm_layout_force_barnes_hut),
-//        layout.forceatlas2 (gm_layout_forceatlas2),
-//        layout.dag.sugiyama (gm_layout_dag_sugiyama)
-=======
 //        prints "<stage> <seed> <sha256>" for each stage in order, seeds 0..N-1.
 //        The stage list is the module's own registry, not a literal list here (C1):
 //          topology  gm_topology, the retained shim
@@ -28,7 +16,6 @@
 //            itself
 //          transport.wasm.columnar  the real ABI over layout.grid, so the tally against
 //            the shim's hash is the C20 measurement the ledger reads
->>>>>>> origin/p4
 //   node harness/wasm-run.mjs <graph_wasm.wasm> probe
 //        prints the D1 probe buffer as one hex line
 //   node harness/wasm-run.mjs <graph_wasm.wasm> stages
@@ -73,21 +60,6 @@ function framed(ptr) {
   return new Uint8Array(exports.memory.buffer, ptr + 4, len).slice();
 }
 
-<<<<<<< HEAD
-const STAGE_EXPORTS = {
-  topology: "gm_topology",
-  "layout.grid": "gm_layout_grid",
-  "layout.tree.tidy": "gm_layout_tree_tidy",
-  "layout.treemap.squarified": "gm_layout_treemap_squarified",
-  "layout.circular.radial": "gm_layout_circular_radial",
-  "layout.packing.circle": "gm_layout_packing_circle",
-  "layout.spectral": "gm_layout_spectral",
-  "layout.mds.pivot": "gm_layout_mds_pivot",
-  "layout.force.barnes_hut": "gm_layout_force_barnes_hut",
-  "layout.forceatlas2": "gm_layout_forceatlas2",
-  "layout.dag.sugiyama": "gm_layout_dag_sugiyama",
-};
-=======
 function decodeUtf8(bytes) {
   return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
 }
@@ -170,7 +142,6 @@ const STAGE_BYTES = Object.assign(Object.create(null), {
   [SHIM_LAYOUT]: (seed) => framed(exports.gm_layout_grid(seed)),
   "transport.wasm.columnar": (seed) => abiSnapshotBytes(seed, SHIM_LAYOUT),
 });
->>>>>>> origin/p4
 
 if (mode === "hash") {
   const seeds = Number.parseInt(count ?? "", 10);

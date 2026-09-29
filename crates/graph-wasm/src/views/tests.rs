@@ -13,6 +13,7 @@ fn snapshot(nodes: NodeGeometry, edges: EdgeGeometry, ids: &[&str], edge_ids: &[
         target: vec![n.saturating_sub(1); edge_ids.len()],
         nodes,
         edges,
+        notes: graph_contract::notes::Notes::default(),
     };
     Snapshot::new(parts).expect("valid by construction")
 }

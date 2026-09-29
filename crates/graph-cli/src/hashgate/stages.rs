@@ -14,8 +14,14 @@
 //! slice as an argument so that is testable here rather than only at the next merge.
 
 use super::Setting;
+use graph_core::layout::Geometry;
+use graph_core::layout::force::BarnesHut;
+use graph_core::layout::forceatlas2::ForceAtlas2;
 use graph_core::registry::{self as core, LAYOUTS};
-use graph_core::{Grid, Topology, gate_node_count, index_model, run_pipeline, seeded_model};
+use graph_core::{
+    Grid, Stage, StageError, Sugiyama, Topology, gate_node_count, index_model, run_pipeline,
+    seeded_model,
+};
 use std::collections::BTreeSet;
 
 /// The layout the transport stage runs: `harness/wasm-run.mjs`'s `abiSnapshotBytes`
@@ -54,7 +60,8 @@ pub fn stage_bytes_for(
     layouts: &[core::Capability],
 ) -> Result<Vec<(&'static str, Vec<u8>)>, String> {
     check(layouts)?;
-    let (nodes, edges) = seeded_model(seed, gate_node_count(seed), setting.reference_degree);
+    let count = gate_node_count(seed) + setting.extra_nodes;
+    let (nodes, edges) = seeded_model(seed, count, setting.reference_degree);
     let grid = run_pipeline::<Grid>(&nodes, &edges, &setting.grid).map_err(|e| e.to_string())?;
     if grid.layout != LAYOUT {
         return Err(format!("the pipeline ran {}, not {LAYOUT}", grid.layout));
@@ -62,10 +69,18 @@ pub fn stage_bytes_for(
     let topology = index_model(&nodes, &edges).map_err(|e| e.to_string())?;
     let mut out = vec![("topology", grid.topology)];
     for layout in layouts {
-        let bytes = if layout.id == LAYOUT {
-            grid.snapshot.to_bytes()
-        } else {
-            layout_bytes(&topology, layout)?
+        // The knob-aware stages run at `setting`'s parameters rather than the registry's
+        // compiled-in default; the wasm arm cannot see the knobs, which is exactly the
+        // divergence a wired control must surface.
+        let bytes = match layout.id {
+            LAYOUT => grid.snapshot.to_bytes(),
+            BarnesHut::ID => run_force(&topology, |t| BarnesHut::run(t, &setting.force))?,
+            ForceAtlas2::ID => run_force(&topology, |t| ForceAtlas2::run(t, &setting.fa2))?,
+            Sugiyama::ID => run_pipeline::<Sugiyama>(&nodes, &edges, &setting.sugiyama)
+                .map_err(|e| e.to_string())?
+                .snapshot
+                .to_bytes(),
+            _ => layout_bytes(&topology, layout)?,
         };
         out.push((layout.id, bytes));
     }
@@ -93,7 +108,14 @@ fn check(layouts: &[core::Capability]) -> Result<(), String> {
 }
 
 fn layout_bytes(topology: &Topology, layout: &core::Capability) -> Result<Vec<u8>, String> {
-    let geometry = (layout.run)(topology).map_err(|e| e.to_string())?;
+    run_force(topology, layout.run)
+}
+
+fn run_force(
+    topology: &Topology,
+    layout: impl FnOnce(&Topology) -> Result<Geometry, StageError>,
+) -> Result<Vec<u8>, String> {
+    let geometry = layout(topology).map_err(|e| e.to_string())?;
     graph_core::layout::snapshot(topology, geometry)
         .map(|snapshot| snapshot.to_bytes())
         .map_err(|e| e.to_string())
