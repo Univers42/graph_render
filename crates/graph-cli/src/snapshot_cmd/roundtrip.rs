@@ -8,8 +8,9 @@
 //! treemap are gated on `harness/oracle-layouts.mjs` instead: see
 //! `crate::capabilities::registry`).
 
-use super::{exercise, hand_oracles, pipeline};
+use super::{exercise, hand_oracles, pipeline, short_name};
 use crate::evidence;
+use graph_contract::binary::Snapshot;
 use graph_core::{gate_node_count, registry};
 use serde_json::json;
 use std::process::ExitCode;
@@ -33,16 +34,40 @@ struct Findings {
     packing: Vec<String>,
     /// Exercise snapshots per notes case (`exercise::count_notes_cases`).
     notes: [u64; 5],
+    /// Snapshots the sweep actually put through both faces, over every seed.
+    checked: u64,
 }
 
 /// The notes cases, in `Findings::notes` order.
 const NOTES_CASES: [&str; 5] = ["0.2-labelled", "0.3 k=0", "code 1", "code 2", "code 3"];
 
+/// Every layout the sweep runs, by short name, in registry order: taken from the registry
+/// itself rather than listed, so a layout added there is swept here without being added
+/// here, and [`OTHER_LAYOUTS`] is checked against it rather than trusted.
+fn swept_layouts() -> Vec<&'static str> {
+    let names: Vec<&'static str> = registry::LAYOUTS
+        .iter()
+        .map(|layout| short_name(layout.id))
+        .collect();
+    for d3_only in OTHER_LAYOUTS {
+        assert!(names.contains(&d3_only), "{d3_only} is not registered");
+    }
+    names
+}
+
+/// Snapshots `seeds` seeds check: every registered layout, plus the contract exercise.
+fn snapshot_total(seeds: u32) -> u64 {
+    u64::from(seeds) * (1 + registry::LAYOUTS.len() as u64)
+}
+
 impl Findings {
-    fn pass(&self) -> bool {
-        [&self.faces, &self.grid, &self.circular, &self.packing]
-            .into_iter()
-            .all(Vec::is_empty)
+    /// Every check clean, every notes case drawn, and exactly the snapshots the registry
+    /// promises actually checked — so a layout swept by accident less is a failure.
+    fn pass(&self, seeds: u32) -> bool {
+        self.checked == snapshot_total(seeds)
+            && [&self.faces, &self.grid, &self.circular, &self.packing]
+                .into_iter()
+                .all(Vec::is_empty)
             && self.notes.iter().all(|&c| c > 0)
     }
 }
@@ -57,29 +82,42 @@ pub fn run(seeds: u32) -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    let pass = found.pass();
     print_findings(seeds, &found);
+    if let Err(err) = evidence::write(&stamp, "roundtrip", body(seeds, &found)) {
+        eprintln!("roundtrip: not recorded: {err}");
+        return ExitCode::from(2);
+    }
+    let pass = found.pass(seeds);
+    println!("{}", if pass { "PASS" } else { "FAIL" });
+    verdict(&found, seeds)
+}
+
+/// The run's exit code, the one thing a gate reads: `0` only when every check is clean.
+fn verdict(found: &Findings, seeds: u32) -> ExitCode {
+    if found.pass(seeds) {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(1)
+    }
+}
+
+/// The record the ledger reads, built here so a test can hold it to the exact JSON: no
+/// count, name or flag in it can move without that going red.
+fn body(seeds: u32, found: &Findings) -> serde_json::Value {
     let hand =
         |unexplained: usize| json!({ "cases": seeds, "declared": 0, "unexplained": unexplained });
     let notes: serde_json::Map<_, _> = (NOTES_CASES.iter().zip(found.notes))
         .map(|(case, count)| ((*case).to_owned(), json!(count)))
         .collect();
-    let snapshots = u64::from(seeds) * (1 + registry::LAYOUTS.len() as u64);
-    let body = json!({
-        "seeds": seeds, "pass": pass, "snapshots": snapshots,
+    json!({
+        "seeds": seeds, "pass": found.pass(seeds), "snapshots": snapshot_total(seeds),
         "faces_failed": found.faces.len(), "notes_cases": notes,
         "functions": {
             "layout.grid": hand(found.grid.len()),
             "layout.circular.radial": hand(found.circular.len()),
             "layout.packing.circle": hand(found.packing.len()),
         }
-    });
-    if let Err(err) = evidence::write(&stamp, "roundtrip", body) {
-        eprintln!("roundtrip: not recorded: {err}");
-        return ExitCode::from(2);
-    }
-    println!("{}", if pass { "PASS" } else { "FAIL" });
-    ExitCode::from(if pass { 0 } else { 1 })
+    })
 }
 
 fn sweep(seeds: u32) -> Result<Findings, String> {
@@ -89,37 +127,46 @@ fn sweep(seeds: u32) -> Result<Findings, String> {
     let mut found = Findings::default();
     for seed in 0..seeds {
         let nodes = gate_node_count(seed);
-        let grid = pipeline(seed, nodes, "grid")?.snapshot;
-        let circular = pipeline(seed, nodes, "circular.radial")?.snapshot;
-        let packing = pipeline(seed, nodes, "packing.circle")?.snapshot;
         let exercise = exercise::snapshot(seed)?;
         exercise::count_notes_cases(&exercise, &mut found.notes);
-        let mut faces = vec![("grid", &grid), ("exercise", &exercise)];
-        faces.push(("circular.radial", &circular));
-        faces.push(("packing.circle", &packing));
-        let others: Vec<_> = OTHER_LAYOUTS
-            .iter()
-            .map(|&name| pipeline(seed, nodes, name).map(|r| (name, r.snapshot)))
-            .collect::<Result<_, _>>()?;
-        for (name, snapshot) in &others {
-            faces.push((name, snapshot));
+        found.checked += 1;
+        if let Err(why) = super::faces_agree(&exercise) {
+            found.faces.push(format!("seed {seed} exercise: {why}"));
         }
-        for (what, snapshot) in faces {
-            if let Err(why) = super::faces_agree(snapshot) {
-                found.faces.push(format!("seed {seed} {what}: {why}"));
+        for name in swept_layouts() {
+            let snapshot = pipeline(seed, nodes, name)?.snapshot;
+            found.checked += 1;
+            if let Err(why) = super::faces_agree(&snapshot) {
+                found.faces.push(format!("seed {seed} {name}: {why}"));
             }
-        }
-        if let Err(why) = hand_oracles::grid(&grid) {
-            found.grid.push(format!("seed {seed}: {why}"));
-        }
-        if let Err(why) = hand_oracles::circular(seed, nodes, &circular) {
-            found.circular.push(format!("seed {seed}: {why}"));
-        }
-        if let Err(why) = hand_oracles::packing(&packing) {
-            found.packing.push(format!("seed {seed}: {why}"));
+            if let Err(why) = hand_oracle(name, seed, nodes, &snapshot) {
+                convention(&mut found, name, format!("seed {seed}: {why}"));
+            }
         }
     }
     Ok(found)
+}
+
+/// The hand oracle for `name`, or `Ok(())` for the layouts gated on the d3-hierarchy
+/// differential instead (`OTHER_LAYOUTS`).
+fn hand_oracle(name: &str, seed: u32, nodes: u32, snapshot: &Snapshot) -> Result<(), String> {
+    match name {
+        "grid" => hand_oracles::grid(snapshot),
+        "circular.radial" => hand_oracles::circular(seed, nodes, snapshot),
+        "packing.circle" => hand_oracles::packing(snapshot),
+        _ => Ok(()),
+    }
+}
+
+/// Records a convention failure under the layout that owns it, so the ledger's three
+/// function rows stay the three it has always published.
+fn convention(found: &mut Findings, name: &str, why: String) {
+    match name {
+        "grid" => found.grid.push(why),
+        "circular.radial" => found.circular.push(why),
+        "packing.circle" => found.packing.push(why),
+        _ => {}
+    }
 }
 
 fn print_findings(seeds: u32, found: &Findings) {
@@ -131,12 +178,12 @@ fn print_findings(seeds: u32, found: &Findings) {
 /// `print_findings`'s text, built in memory so the counts it reports can be checked.
 fn write_findings(out: &mut String, seeds: u32, found: &Findings) {
     use std::fmt::Write as _;
-    let snapshots = u64::from(seeds) * (1 + registry::LAYOUTS.len() as u64);
+    let snapshots = snapshot_total(seeds);
     let _ = writeln!(
         out,
         "roundtrip: seeds={seeds} snapshots={snapshots} (every registered layout + contract exercise)"
     );
-    let faces_ok = snapshots - found.faces.len() as u64;
+    let faces_ok = found.checked - found.faces.len() as u64;
     let _ = writeln!(
         out,
         "  binary <-> JSON byte-exact on {faces_ok}/{snapshots} snapshots"
@@ -171,84 +218,4 @@ fn write_findings(out: &mut String, seeds: u32, found: &Findings) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{Findings, sweep, write_findings};
-
-    #[test]
-    fn overall_pass_requires_every_check_clean_and_every_notes_case_drawn() {
-        assert!(!Findings::default().pass(), "no notes case drawn yet");
-        let all_drawn = Findings {
-            notes: [1; 5],
-            ..Findings::default()
-        };
-        assert!(all_drawn.pass());
-        for bad in [
-            Findings {
-                faces: vec!["x".into()],
-                notes: [1; 5],
-                ..Findings::default()
-            },
-            Findings {
-                grid: vec!["x".into()],
-                notes: [1; 5],
-                ..Findings::default()
-            },
-            Findings {
-                circular: vec!["x".into()],
-                notes: [1; 5],
-                ..Findings::default()
-            },
-            Findings {
-                packing: vec!["x".into()],
-                notes: [1; 5],
-                ..Findings::default()
-            },
-        ] {
-            assert!(!bad.pass(), "{bad:?}");
-        }
-    }
-
-    #[test]
-    fn print_findings_subtracts_failures_from_the_total_not_adds() {
-        let found = Findings {
-            faces: vec!["a".into(), "b".into()],
-            grid: vec!["c".into()],
-            notes: [1; 5],
-            ..Findings::default()
-        };
-        let mut text = String::new();
-        write_findings(&mut text, 5, &found);
-        let snapshots = 5 * (1 + super::registry::LAYOUTS.len());
-        assert!(
-            text.contains(&format!(
-                "byte-exact on {}/{snapshots} snapshots",
-                snapshots - 2
-            )),
-            "{text}"
-        );
-        assert!(
-            text.contains("layout.grid on its stated conventions on 4/5 seeds"),
-            "{text}"
-        );
-        assert!(
-            text.contains("layout.circular.radial on its stated conventions on 5/5 seeds"),
-            "{text}"
-        );
-    }
-
-    #[test]
-    fn the_sweep_records_nothing_wrong_and_refuses_zero_seeds() {
-        let found = sweep(12).expect("runs");
-        assert!(found.faces.is_empty() && found.grid.is_empty(), "{found:?}");
-        assert!(
-            found.circular.is_empty() && found.packing.is_empty(),
-            "{found:?}"
-        );
-        assert!(found.pass(), "every notes case drawn: {:?}", found.notes);
-        assert!(
-            !sweep(4).expect("runs").pass(),
-            "four seeds cannot draw every case"
-        );
-        assert!(sweep(0).expect_err("empty").starts_with("0 seeds"));
-    }
-}
+mod tests;

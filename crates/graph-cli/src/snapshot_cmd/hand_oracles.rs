@@ -4,7 +4,7 @@
 //! layout's own stated convention independently of `graph-core`'s implementation and
 //! compares bit for bit — the same shape as `grid`'s, just over a different formula.
 
-use graph_contract::binary::Snapshot;
+use graph_contract::binary::{Snapshot, SnapshotParts};
 use graph_contract::geometry::{EdgeGeometry, NodeGeometry};
 use graph_contract::notes::NoteCode;
 use graph_core::layout::hierarchy::Hierarchy;
@@ -80,20 +80,23 @@ pub fn circular(seed: u32, nodes: u32, snapshot: &Snapshot) -> Result<(), String
     Ok(())
 }
 
-/// `layout.packing.circle`'s promise restated: every circle finite with a positive
-/// radius, always; full edge tangency, within the crate's own stated 1e-3 (f32) bound,
-/// whenever note code 3 is absent — its absence is the only trustworthy sign the packing
-/// is exact (module doc), so that is exactly what this hand oracle can honestly hold it
-/// to. It does not re-verify a fallback packing's tangency: none is promised.
+/// `layout.packing.circle`'s promise restated: every circle finite with a non-negative
+/// radius, always — the same bound the contract itself enforces on the wire
+/// (`graph_contract::geometry::NodeGeometry::check` refuses `r < 0.0` and nothing
+/// stricter, so `r == 0.0` is a legal circle here too); full edge tangency, within the
+/// crate's own stated 1e-3 (f32) bound, whenever note code 3 is absent — its absence is
+/// the only trustworthy sign the packing is exact (module doc), so that is exactly what
+/// this hand oracle can honestly hold it to. It does not re-verify a fallback packing's
+/// tangency: none is promised.
 pub fn packing(snapshot: &Snapshot) -> Result<(), String> {
     let p = snapshot.parts();
     let (NodeGeometry::Circle { x, y, r }, EdgeGeometry::Line) = (&p.nodes, &p.edges) else {
         return Err("not Circle nodes with Line edges".into());
     };
     for (i, ((&cx, &cy), &cr)) in x.iter().zip(y).zip(r).enumerate() {
-        if !(cx.is_finite() && cy.is_finite() && cr.is_finite() && cr > 0.0) {
+        if !(cx.is_finite() && cy.is_finite() && cr.is_finite() && cr >= 0.0) {
             return Err(format!(
-                "circle {i} at ({cx}, {cy}) r={cr}: not finite and positive"
+                "circle {i} at ({cx}, {cy}) r={cr}: not finite and non-negative"
             ));
         }
     }
@@ -103,13 +106,27 @@ pub fn packing(snapshot: &Snapshot) -> Result<(), String> {
     {
         return Ok(()); // the fallback: no tangency promised, per the module's own doc.
     }
-    const TANGENCY: f32 = 1e-3;
+    tangency(p, x, y, r)
+}
+
+/// How close to tangent two circles must be, as `f32`: the crate's own stated bound
+/// (`graph-core`'s circle-packing tests hold the same `1e-3` against the exact path).
+const TANGENCY: f32 = 1e-3;
+
+/// Every edge of the graph `p` describes is tangent, within [`TANGENCY`] of the two radii
+/// summed and at least an absolute [`TANGENCY`] (the `max(1.0)`), so a packing scaled
+/// below unit radius is held to a relative bound and never to a vacuous one. A self-loop
+/// is its own edge with no two circles to place, so it is skipped; the exact path reduces
+/// loops away before packing, so only a hand-built snapshot can carry one.
+fn tangency(p: &SnapshotParts, x: &[f32], y: &[f32], r: &[f32]) -> Result<(), String> {
     for (e, (&u, &v)) in p.source.iter().zip(&p.target).enumerate() {
         if u == v {
             continue;
         }
         let (u, v) = (u as usize, v as usize);
-        let dist = ((x[u] - x[v]).powi(2) + (y[u] - y[v]).powi(2)).sqrt();
+        // D2: no `powi`, no `mul_add` — the two squares and their sum, as written.
+        let (dx, dy) = (x[u] - x[v], y[u] - y[v]);
+        let dist = (dx * dx + dy * dy).sqrt();
         let want = r[u] + r[v];
         if (dist - want).abs() > TANGENCY * want.max(1.0) {
             return Err(format!(
@@ -119,3 +136,6 @@ pub fn packing(snapshot: &Snapshot) -> Result<(), String> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;

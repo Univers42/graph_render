@@ -28,16 +28,25 @@ pub use roundtrip::run as roundtrip;
 /// Most nodes `snapshot` builds: the synthetic model's own limit.
 pub const MAX_NODES: i64 = 100_000;
 
-/// Every value `snapshot --layout` accepts: each registered layout's short name (its id
-/// without the `layout.` prefix) and its full id, so either form works.
+/// Every value `snapshot --layout` accepts, in registry order: each registered layout's
+/// full id and its short name, so either form works. A layout whose id already *is* its
+/// own short name contributes it once, so no name is ever offered twice.
 pub fn layout_names() -> Vec<&'static str> {
-    registry::LAYOUTS
-        .iter()
-        .flat_map(|layout| {
-            let short = layout.id.strip_prefix("layout.").unwrap_or(layout.id);
-            [layout.id, short]
-        })
-        .collect()
+    let mut names = Vec::with_capacity(2 * registry::LAYOUTS.len());
+    for layout in &registry::LAYOUTS {
+        names.push(layout.id);
+        let short = short_name(layout.id);
+        if short != layout.id {
+            names.push(short);
+        }
+    }
+    names
+}
+
+/// A layout id without its `layout.` prefix — the form `--layout` is documented in, and
+/// the one rule [`layout_names`] and [`pipeline`] share rather than each spelling out.
+pub fn short_name(id: &str) -> &str {
+    id.strip_prefix("layout.").unwrap_or(id)
 }
 
 /// Where `snapshot` writes each face; `-` is standard output.
@@ -67,8 +76,7 @@ pub fn snapshot(seed: u32, nodes: Option<u32>, layout: &str, out: &Outputs) -> E
 /// The pipeline over the gate's model for `seed` at `nodes`, through layout `name`:
 /// either its short name or its full id.
 fn pipeline(seed: u32, nodes: u32, name: &str) -> Result<PipelineRun, String> {
-    let short = name.strip_prefix("layout.").unwrap_or(name);
-    let id = format!("layout.{short}");
+    let id = format!("layout.{}", short_name(name));
     let known = || layout_names().join(", ");
     let layout =
         registry::find(&id).ok_or_else(|| format!("no layout {name:?}: one of {}", known()))?;

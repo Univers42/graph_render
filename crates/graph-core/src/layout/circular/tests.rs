@@ -80,6 +80,51 @@ fn three_children_share_ring_one_ascending_dense_index_from_the_positive_x_axis(
     );
 }
 
+/// The ring-1 slots pinned to **independent** values, not to [`point`]'s own output.
+///
+/// The test above compares `run` against `point(...)`, which is self-referential: a
+/// mistake *inside* `point` is invisible to it, and the module doc's `2 * PI` step and the
+/// `ring * RING_SPACING` radius both live there. This test pins the same three slots to
+/// the closed-form values of `cos`/`sin` at `0`, `2*pi/3` and `4*pi/3`:
+///
+/// | slot | angle | cos | sin |
+/// |---|---|---|---|
+/// | 0 | 0 | 1 | 0 |
+/// | 1 | 2π/3 | −1/2 | √3/2 ≈ 0.8660254 |
+/// | 2 | 4π/3 | −1/2 | −√3/2 |
+///
+/// A tolerance, not `to_bits()`: this layout's oracle is **hand**, not d3 (module doc),
+/// and the values come from `libm`'s `cos`/`sin`, whose own accuracy is the bound. The
+/// tolerance is `1e-6` — four orders of magnitude above `libm`'s documented error and far
+/// below the 0.5 that separates the slots, so it pins the convention without pretending to
+/// bit-exactness the module does not claim. It is still sharp enough to catch a halved
+/// step: slot 1 would land on `+1/2` instead of `−1/2`.
+#[test]
+fn ring_one_slots_sit_at_the_closed_form_angles() {
+    let edges = [
+        tree("r-a", "r", "a", "parent_of"),
+        tree("r-b", "r", "b", "parent_of"),
+        tree("r-c", "r", "c", "parent_of"),
+    ];
+    let topology = build(&nodes(&["r", "a", "b", "c"]), &edges);
+    let (x, y) = points(&run(&topology).expect("fits"));
+    let sqrt3_over_2 = 0.866_025_4_f64;
+    let want = [
+        (1.0_f64, 0.0_f64),
+        (-0.5, sqrt3_over_2),
+        (-0.5, -sqrt3_over_2),
+    ];
+    for (slot, (wx, wy)) in want.iter().enumerate() {
+        let i = slot + 1;
+        assert!(
+            (f64::from(x[i]) - wx).abs() < 1e-6 && (f64::from(y[i]) - wy).abs() < 1e-6,
+            "slot {slot}: got ({}, {}), want ({wx}, {wy})",
+            x[i],
+            y[i]
+        );
+    }
+}
+
 /// D-H's repairs reach the snapshot through this layout's notes, unchanged.
 #[test]
 fn the_hierarchy_repairs_reach_geometry_notes_unchanged() {

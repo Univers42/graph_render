@@ -210,3 +210,6 @@ impl Lr<'_> {
         side
     }
 }
+
+#[cfg(test)]
+mod tests;

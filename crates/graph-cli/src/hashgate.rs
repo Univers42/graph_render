@@ -13,6 +13,7 @@
 //! control (one [`Knob`] set) in that knob's own record, for the capabilities ledger.
 
 mod compare;
+mod report;
 
 use crate::evidence;
 use crate::runner::{build_wasm, file_sha256, node_harness, run_lines, sha256_hex};
@@ -21,7 +22,6 @@ use graph_core::{
     Grid, GridParams, REFERENCE_DEGREE, gate_node_count, registry, run_pipeline, run_with,
     seeded_model,
 };
-use serde_json::json;
 use std::env::VarError;
 use std::process::{Command, ExitCode};
 
@@ -227,7 +227,9 @@ fn report(stamp: &evidence::Stamp, control: Option<Knob>, seeds: u32, arms: &[Ar
             return ExitCode::from(2);
         }
     };
-    print_arms(arms, &lines);
+    let mut detail = String::new();
+    report::arm_report(&mut detail, arms, &lines);
+    print!("{detail}");
     let stages = per_stage(seeds, STAGES.len(), &lines);
     for (stage, equal) in STAGES.iter().zip(&stages.equal) {
         println!("  {stage}: 4-way equal on {equal}/{seeds} seeds");
@@ -240,28 +242,10 @@ fn report(stamp: &evidence::Stamp, control: Option<Knob>, seeds: u32, arms: &[Ar
     }
     if bad == 0 {
         println!("PASS");
-        ExitCode::SUCCESS
     } else {
         println!("FAIL: {bad} of {seeds} seeds diverge");
-        ExitCode::from(1)
     }
-}
-
-/// Each arm's digest, then every arm's line for the first three diverging lines.
-fn print_arms(arms: &[Arm], lines: &[usize]) {
-    for (name, output) in arms {
-        let digest = sha256_hex(output.join("\n").as_bytes());
-        println!("  {name:<13} digest {digest}");
-    }
-    for &i in lines.iter().take(3) {
-        println!(
-            "  DIVERGED {}:",
-            arms[0].1[i].rsplit_once(' ').map_or("", |p| p.0)
-        );
-        for (name, output) in arms {
-            println!("    {name:<13} {}", output[i]);
-        }
-    }
+    report::exit(bad)
 }
 
 /// Writes this run's result for the ledger: `hashgate.json` for an honest run, the
@@ -274,15 +258,7 @@ fn record(
     tally: &Tally,
 ) -> Result<(), String> {
     let name = control.map_or("hashgate", Knob::record);
-    let stages: serde_json::Map<_, _> = STAGES
-        .iter()
-        .zip(&tally.equal)
-        .map(|(stage, equal)| ((*stage).to_owned(), json!(equal)))
-        .collect();
-    let mutation = control.map(Knob::env);
-    let pass = tally.diverged_seeds == 0;
-    let body = json!({ "seeds": seeds, "pass": pass, "equal": stages, "mutation": mutation });
-    evidence::write(stamp, name, body).map(drop)
+    evidence::write(stamp, name, report::body(control, seeds, tally)).map(drop)
 }
 
 #[cfg(test)]

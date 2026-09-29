@@ -209,3 +209,6 @@ impl Builder {
         Embedding::new(n, offsets, neighbours)
     }
 }
+
+#[cfg(test)]
+mod tests;

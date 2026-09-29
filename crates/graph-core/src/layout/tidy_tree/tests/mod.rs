@@ -1,4 +1,4 @@
-use super::run;
+use super::{path_offset, run};
 use crate::edgekind::child_first_from_type;
 use crate::index::{Topology, index_model};
 use crate::layout::Geometry;
@@ -10,8 +10,10 @@ use crate::stage::seeded_model;
 use graph_contract::geometry::{EdgeGeometry, NodeGeometry, Paths};
 use graph_contract::notes::NoteCode::{CycleEdgeDropped, ExtraParentDropped};
 
+mod golden;
+
 /// A hierarchy edge `source` → `target` of wire type `wire`, as `hierarchy::tests::tree`.
-fn tree(id: &str, source: &str, target: &str, wire: &str) -> EdgeRecord {
+pub(super) fn tree(id: &str, source: &str, target: &str, wire: &str) -> EdgeRecord {
     EdgeRecord {
         kind: crate::edgekind::EdgeKind::Hierarchy,
         child_first: child_first_from_type(Some(wire)),
@@ -20,23 +22,23 @@ fn tree(id: &str, source: &str, target: &str, wire: &str) -> EdgeRecord {
     }
 }
 
-fn nodes(ids: &[&str]) -> Vec<NodeRecord> {
+pub(super) fn nodes(ids: &[&str]) -> Vec<NodeRecord> {
     ids.iter().map(|id| node(id, "")).collect()
 }
 
-fn build(nodes: &[NodeRecord], edges: &[EdgeRecord]) -> Topology {
+pub(super) fn build(nodes: &[NodeRecord], edges: &[EdgeRecord]) -> Topology {
     index_model(nodes, edges).expect("fits")
 }
 
 /// The point columns, or a panic: every test here is `layout.tree.tidy`, `Point` nodes.
-fn points(g: &Geometry) -> (Vec<f32>, Vec<f32>) {
+pub(super) fn points(g: &Geometry) -> (Vec<f32>, Vec<f32>) {
     let NodeGeometry::Point { x, y } = &g.nodes else {
         panic!("point nodes");
     };
     (x.clone(), y.clone())
 }
 
-fn paths(g: &Geometry) -> &Paths {
+pub(super) fn paths(g: &Geometry) -> &Paths {
     let EdgeGeometry::Polyline(paths) = &g.edges else {
         panic!("polyline edges");
     };
@@ -121,6 +123,32 @@ fn an_empty_topology_has_no_geometry_and_no_notes() {
     assert_eq!(points(&geometry), (vec![], vec![]));
     assert_eq!(paths(&geometry), &Paths::default());
     assert_eq!(geometry.notes, []);
+}
+
+/// D6: a `Polyline` offset counts **points**, and the wire's offset is a `u32`. The
+/// conversion is checked, so a point count past `u32::MAX` is refused rather than
+/// wrapping to a small number and describing a different set of paths — which is the
+/// failure `pts.len() as u32` had, silently, and only on inputs large enough to reach it.
+///
+/// Note the boundary: `points / 2` is halved **before** the checked conversion, so
+/// `2 * u32::MAX` scalars is still exactly `u32::MAX` points and must be accepted, while
+/// one point more is refused.
+#[test]
+fn path_offset_counts_points_and_refuses_past_the_u32_wire() {
+    assert_eq!(path_offset(0).expect("empty"), 0, "no points yet");
+    assert_eq!(path_offset(2).expect("one point"), 1);
+    assert_eq!(path_offset(4).expect("two points"), 2);
+    let max = usize::try_from(u32::MAX).expect("64-bit host");
+    assert_eq!(
+        path_offset(max * 2).expect("u32::MAX points"),
+        u32::MAX,
+        "the boundary is inclusive"
+    );
+    let err = path_offset(max * 2 + 2).expect_err("one point past the wire");
+    assert_eq!(
+        err.what, "tidy tree polyline offsets",
+        "the refusal names what overflowed"
+    );
 }
 
 /// D-H's repairs reach the snapshot through this layout's notes, unchanged.

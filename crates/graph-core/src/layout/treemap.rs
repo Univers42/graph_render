@@ -41,6 +41,9 @@ use crate::index::Topology;
 use crate::stage::StageError;
 use graph_contract::geometry::{EdgeGeometry, NodeGeometry};
 use graph_contract::notes::Note;
+use rows::{extend_row, node_values, sorted_children};
+
+mod rows;
 
 /// A non-positive or non-finite weight clamps here (module Ponytail).
 const WEIGHT_EPSILON: f64 = 1e-6;
@@ -100,77 +103,6 @@ impl<'a> Layout<'a> {
     }
 }
 
-/// Every row's `value`: own (clamped) weight plus children, summed last-child-first
-/// (`hierarchy/sum.js`'s `while (--i >= 0) sum += children[i].value`) over
-/// [`Hierarchy::order`] reversed — every child strictly deeper than its parent, so a node
-/// is never summed before all of its own children are.
-fn node_values(topology: &Topology, hierarchy: &Hierarchy) -> Vec<f64> {
-    let n = topology.node_count();
-    let rows = n + u32::from(hierarchy.virtual_root().is_some());
-    let mut value = vec![0.0; rows as usize];
-    for &v in hierarchy.order().iter().rev() {
-        let own = if v < n {
-            clamp_weight(topology.node(v).weight)
-        } else {
-            0.0
-        };
-        let mut sum = own;
-        for &child in hierarchy.children(v).iter().rev() {
-            sum += value[child as usize];
-        }
-        value[v as usize] = sum;
-    }
-    value
-}
-
-/// `node.children.sort((a, b) => b.value - a.value)`: descending value; stable, so a tie
-/// keeps the ascending dense index [`Hierarchy::children`] already hands in.
-fn sorted_children(children: &[u32], value: &[f64]) -> Vec<u32> {
-    let mut sorted = children.to_vec();
-    sorted.sort_by(|&a, &b| value[b as usize].total_cmp(&value[a as usize]));
-    sorted
-}
-
-/// The row's worst aspect ratio so far (`squarify.js`): `beta = sum^2 * alpha` folds in
-/// the row's accumulated value and the box aspect.
-fn ratio(max_value: f64, min_value: f64, sum_value: f64, alpha: f64) -> f64 {
-    let beta = sum_value * sum_value * alpha;
-    (max_value / beta).max(beta / min_value)
-}
-
-/// The next row from `children[i0..]` (`squarify.js`'s greedy grouping): grows it while
-/// doing so keeps the worst ratio the same or better. Returns the row's end (exclusive)
-/// and its summed value. Values are always positive (the weight clamp), so the zero-skip
-/// `squarify.js` guards against never triggers here; kept so a looser future clamp does
-/// not silently drop it.
-fn extend_row(children: &[u32], i0: usize, alpha: f64, value: &[f64]) -> (usize, f64) {
-    let n = children.len();
-    let mut i1 = i0;
-    let mut sum_value = value[children[i1] as usize];
-    i1 += 1;
-    while sum_value == 0.0 && i1 < n {
-        sum_value = value[children[i1] as usize];
-        i1 += 1;
-    }
-    let (mut min_value, mut max_value) = (sum_value, sum_value);
-    let mut min_ratio = ratio(max_value, min_value, sum_value, alpha);
-    while i1 < n {
-        let node_value = value[children[i1] as usize];
-        let (next_sum, next_min, next_max) = (
-            sum_value + node_value,
-            min_value.min(node_value),
-            max_value.max(node_value),
-        );
-        let new_ratio = ratio(next_max, next_min, next_sum, alpha);
-        if new_ratio > min_ratio {
-            break;
-        }
-        (sum_value, min_value, max_value, min_ratio) = (next_sum, next_min, next_max, new_ratio);
-        i1 += 1;
-    }
-    (i1, sum_value)
-}
-
 /// `n / d`, or `fallback` when `d` is exactly zero — the one division-by-zero guard
 /// `dice`/`slice`/`squarify_children` all need, in one place instead of four.
 fn ratio_or(n: f64, d: f64, fallback: f64) -> f64 {
@@ -208,6 +140,11 @@ fn slice(row: &[u32], rect: Rect, row_value: f64, layout: &mut Layout) {
 /// `parent_value` (the tiled node's own aggregate, own weight included) the denominator
 /// throughout — so a node with positive own weight leaves its children short of the full
 /// box, the gap being its own share.
+///
+/// **The zero-remaining fallback.** d3 writes the row's far edge as
+/// `value ? y0 += dy * sumValue / value : y1`: once `value` has cancelled to zero the
+/// row's edge is exactly `y1` (or `x1`) and the cursor stays put. `y0 + dy` is not
+/// `y1` in `f64` when `x0 != 0`, so the fallback names the far edge itself.
 fn squarify_children(children: &[u32], parent_value: f64, rect: Rect, layout: &mut Layout) {
     let n = children.len();
     let (mut x0, mut y0, x1, y1) = (rect.x0, rect.y0, rect.x1, rect.y1);
@@ -219,13 +156,25 @@ fn squarify_children(children: &[u32], parent_value: f64, rect: Rect, layout: &m
         let (i1, sum_value) = extend_row(children, i0, alpha, layout.value);
         let row = &children[i0..i1];
         if dx < dy {
-            let end_y = y0 + ratio_or(dy * sum_value, remaining, dy);
+            let end_y = if remaining != 0.0 {
+                y0 + dy * sum_value / remaining
+            } else {
+                y1
+            };
             dice(row, Rect::new(x0, y0, x1, end_y), sum_value, layout);
-            y0 = end_y;
+            if remaining != 0.0 {
+                y0 = end_y;
+            }
         } else {
-            let end_x = x0 + ratio_or(dx * sum_value, remaining, dx);
+            let end_x = if remaining != 0.0 {
+                x0 + dx * sum_value / remaining
+            } else {
+                x1
+            };
             slice(row, Rect::new(x0, y0, end_x, y1), sum_value, layout);
-            x0 = end_x;
+            if remaining != 0.0 {
+                x0 = end_x;
+            }
         }
         remaining -= sum_value;
         i0 = i1;

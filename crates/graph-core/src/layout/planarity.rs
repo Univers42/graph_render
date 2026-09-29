@@ -5,10 +5,24 @@
 //! - [`planar_embedding`]: the Left-Right planarity test of Brandes 2009
 //!   (`algorithms/planarity.py`, `LRPlanarity`/`check_planarity`), in [`lr`] and
 //!   [`embed`]. **Never trust a planarity test's "planar" on its own** (user decision,
-//!   `docs/decisions/planarity-fallback.md`): the returned [`Embedding`] is checked
-//!   against Euler's formula before it is handed back, so a bug in the LR port itself —
-//!   the dangerous direction, a wrong embedding for a non-planar graph — still shows up
-//!   as `None`, never as silently overlapping circles downstream.
+//!   `docs/decisions/planarity-fallback.md`): the returned [`Embedding`] goes through
+//!   [`euler_certificate`] before it is handed back, and that gate is worth stating
+//!   exactly, because it is narrower than "a wrong embedding is caught".
+//!
+//!   What it checks: the **face count**. It traces the faces of the returned rotation
+//!   system and asks only whether `V - E + F == 1 + C`. A rotation system of a
+//!   non-planar graph has no genus-zero rotation — its trace cannot produce that count —
+//!   so an embedding built for a non-planar graph is refused, and the failure the phase
+//!   most fears (a wrong embedding for a non-planar graph, silently overlapping circles
+//!   downstream) surfaces as `None` rather than as a packing. That is a real guarantee,
+//!   and it is the reason the gate exists — see
+//!   `tests::faces::a_rotation_system_of_a_non_planar_graph_never_hits_the_euler_face_count`.
+//!
+//!   What it does **not** check: that the rotation is the *right* one. `V`, `E` and the
+//!   face count are the same for every planar rotation of a given planar graph, so a
+//!   mis-ordered but still-planar embedding passes here untouched. It is a necessary
+//!   condition on one number, not a proof of planarity, and nothing downstream may read
+//!   it as one.
 //! - [`triangulate_embedding`]: `algorithms/planar_drawing.py`'s `triangulate_embedding`
 //!   with `fully_triangulate = false`, the only mode SciGraphs calls.
 //!
@@ -79,14 +93,28 @@ impl Embedding {
 /// Every face of an [`Embedding`], as the cyclic node sequence bordering it, CSR-shaped.
 /// Built by [`faces`]; a plain half-edge trace, no correction for an isolated node (it
 /// borders no face this way) — [`euler_certificate`] accounts for that separately.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+///
+/// `offsets` always holds one more entry than there are faces, *including* in the
+/// [`Default`] value: a `Default` is a well-formed zero-face CSR (`offsets == [0]`), not
+/// a malformed one, so [`Faces::len`]'s subtraction never underflows.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Faces {
     offsets: Vec<u32>,
     nodes: Vec<u32>,
 }
 
+impl Default for Faces {
+    /// The zero-face CSR: one offset (`0`), no node entries.
+    fn default() -> Self {
+        Self {
+            offsets: vec![0],
+            nodes: Vec::new(),
+        }
+    }
+}
+
 impl Faces {
-    /// Faces traced.
+    /// Faces traced. Zero on the [`Default`] value.
     pub fn len(&self) -> u32 {
         self.offsets.len() as u32 - 1
     }
@@ -165,7 +193,6 @@ pub fn faces(embedding: &Embedding) -> Faces {
     let positions = Positions::build(embedding);
     let mut visited = vec![false; embedding.neighbours.len()];
     let mut faces = Faces::default();
-    faces.offsets.push(0);
     for start in 0..embedding.neighbours.len() as u32 {
         if visited[start as usize] {
             continue;
@@ -223,6 +250,11 @@ fn components(embedding: &Embedding) -> (u32, u32) {
 /// `isolated` corrects for a zero-edge component, which borders no traced face but
 /// still shares the one common outer face with everything else (so `C` isolated nodes
 /// alone contribute one face overall, not `C`).
+///
+/// This reads one number — `F` — and compares it. It is a **necessary** condition: a
+/// non-planar graph admits no genus-zero rotation, so a rotation built for one fails
+/// here, but every planar rotation of a planar graph has the same `V`, `E` and `F` and
+/// passes, however wrongly ordered. See the module doc.
 pub fn euler_certificate(embedding: &Embedding) -> bool {
     let v = u64::from(embedding.node_count());
     let e = u64::from(embedding.edge_count());
@@ -233,8 +265,10 @@ pub fn euler_certificate(embedding: &Embedding) -> bool {
 
 /// Tests whether the simple graph on `n` nodes with `edges` (multi-edges and self-loops
 /// removed first, as SciGraphs' own `simple` reduction does) is planar, returning a
-/// combinatorial embedding when it is. `Some` only when [`euler_certificate`] confirms
-/// it: a bug in the LR port fails safe, as `None`, never as a wrong "planar".
+/// combinatorial embedding when it is. `Some` only when [`euler_certificate`] accepts
+/// the embedding — so a bug in the LR port that yields a rotation no drawing can have
+/// fails safe, as `None`, never as a wrong "planar". The certificate checks the face
+/// count only; see the module doc for what that does and does not rule out.
 pub fn planar_embedding(n: u32, edges: &[(u32, u32)]) -> Option<Embedding> {
     let adjacency = Adjacency::simple(n, edges);
     let sides = lr::test(&adjacency)?;
