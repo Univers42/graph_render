@@ -177,7 +177,7 @@ fn row(status: Status) -> Capability {
 fn every_registered_row_stands_on_honest_evidence_and_reads_it_back() {
     let evidence = honest();
     let rows = ledger(&evidence);
-    assert_eq!(rows.len(), 32);
+    assert_eq!(rows.len(), 36);
     assert_eq!(problems(&rows, &evidence), Vec::<String>::new());
     assert_eq!(
         rows[0].hash_4way,
@@ -267,5 +267,81 @@ fn without_records_every_gated_row_is_refused_twice() {
         rows[0]
             .oracle_diff
             .starts_with("not backed: no oracle-diff record")
+    );
+}
+
+/// Phase 9's three scale rows, and what they are allowed to claim: `implemented`, never
+/// `gated` — nothing hashes them yet (the hash gate's stage list is outside this phase's
+/// envelope), and a row that claimed `gated` without that evidence would be refused by
+/// [`problems`] for exactly the right reason.
+#[test]
+fn the_scale_stage_publishes_three_implemented_rows_with_every_required_field() {
+    let rows = registry();
+    let scale: Vec<&Capability> = rows.iter().filter(|r| r.stage == "scale").collect();
+    let ids: Vec<&str> = scale.iter().map(|r| r.id).collect();
+    assert_eq!(ids, ["scale.lod", "scale.simplify", "scale.adaptive"]);
+    for row in scale {
+        assert_eq!(row.status, Status::Implemented, "{}", row.id);
+        assert!(row.scale_ceiling > 0, "{}", row.id);
+        for (field, value) in [
+            ("degradation", row.degradation),
+            ("ponytail", row.ponytail),
+            ("complexity", row.complexity),
+            ("oracle", row.oracle),
+        ] {
+            assert!(!value.trim().is_empty(), "{}: {field} is empty", row.id);
+        }
+    }
+}
+
+/// The ledger grew by exactly the three scale rows and Phase 10's four ingest rows (on top of develop's post row), and no row lost its evidence.
+#[test]
+fn the_ledger_is_the_registry_plus_the_scale_rows_and_still_stands() {
+    let evidence = honest();
+    let rows = ledger(&evidence);
+    assert_eq!(rows.len(), 36);
+    assert_eq!(problems(&rows, &evidence), Vec::<String>::new());
+}
+
+/// `--ceilings-measured`: a row the table covers must carry a number, an id the ledger
+/// does not have is a finding, and a row the table says nothing about is *counted* as
+/// still reasoned rather than counted as measured.
+#[test]
+fn the_ceilings_table_is_read_as_measured_unmeasured_and_unknown() {
+    let rows = vec![
+        {
+            let mut first = row(Status::Implemented);
+            first.id = "layout.grid";
+            first
+        },
+        {
+            let mut second = row(Status::Implemented);
+            second.id = "layout.other";
+            second
+        },
+    ];
+    let table = "| id | declared | measured |\n|---|---:|---|\n\
+                 | layout.grid | 100000 | 220 |\n\
+                 | layout.other | 500 | not measured |\n";
+    let findings = ceiling_findings(&rows, table);
+    assert_eq!(
+        findings,
+        vec![
+            "layout.other: the table's measured cell is `not measured`, not a number (declared 9700000)"
+                .to_string(),
+        ]
+    );
+    assert_eq!(
+        ceiling_coverage(&rows, table),
+        (1, 1),
+        "one measured, one still reasoned"
+    );
+    assert!(
+        ceiling_findings(
+            &rows,
+            "| id | declared | measured |\n| layout.nope | 1 | 2 |\n"
+        )
+        .iter()
+        .any(|f| f.contains("layout.nope") && f.contains("the ledger does not have"))
     );
 }

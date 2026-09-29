@@ -1,0 +1,22 @@
+{
+  "about": "Parallel edges and self-loops, the two cases a style generator gets wrong. Grouping is by unordered node pair, so the four edges between p and q are one group of four however they are directed: e0 p->q, e2 q->p, e3 p->q, e5 q->p. The r-s pair is interleaved with it on purpose — e1 and e4 sit between the p-q edges — so a fan that read the groups as one contiguous run per endpoint would call r-s two groups of one and give both its edges no offset. That interleaving is the whole reason the fan is two chained counting sorts rather than one. t carries two self-loops, which are a parallel group of their own and whose fan moves the loop's centre rather than a perpendicular chord. u->p is a group of one, so it must take no offset at all. Node order is interleaved with edge order on purpose: p, r, q, s, t, u, so the lower dense index of a pair is not always its first edge's source.",
+  "nodes": [
+    { "id": "p", "weight": 1 },
+    { "id": "r", "weight": 2 },
+    { "id": "q", "weight": 1 },
+    { "id": "s", "weight": 1 },
+    { "id": "t", "weight": 3 },
+    { "id": "u", "weight": 1 }
+  ],
+  "edges": [
+    { "id": "e0", "source": "p", "target": "q", "type": "relates_to" },
+    { "id": "e1", "source": "r", "target": "s", "type": "relates_to" },
+    { "id": "e2", "source": "q", "target": "p", "type": "relates_to" },
+    { "id": "e3", "source": "p", "target": "q", "type": "relates_to" },
+    { "id": "e4", "source": "r", "target": "s", "type": "relates_to" },
+    { "id": "e5", "source": "q", "target": "p", "type": "relates_to" },
+    { "id": "e6", "source": "t", "target": "t", "type": "relates_to" },
+    { "id": "e7", "source": "t", "target": "t", "type": "relates_to" },
+    { "id": "e8", "source": "u", "target": "p", "type": "relates_to" }
+  ]
+}

@@ -13,6 +13,7 @@ mod evidence;
 mod fingerprint;
 mod hashgate;
 mod ingest_cmd;
+mod ink_cmd;
 mod oracle_fixtures;
 mod oracle_python;
 mod probe_report;
@@ -54,6 +55,10 @@ enum Command {
         /// Exit non-zero if any row claims more than its evidence supports.
         #[arg(long)]
         check: bool,
+        /// Phase 9: also check docs/measurements/phase09-ceilings.md, the before/after
+        /// table of every declared `scale_ceiling` against what was measured.
+        #[arg(long)]
+        ceilings_measured: bool,
     },
     /// Writes the contract's JSON Schema and TypeScript to their committed files.
     Codegen {
@@ -156,6 +161,20 @@ enum Command {
         #[arg(long, default_value_t = 100, value_parser = seed_count())]
         seeds: u32,
     },
+    /// Ink saved by every registered bundler on a POST fixture, or the wall time of one
+    /// pass on the hairball generator at `--nodes` (the `scale_ceiling` sweep). Exit 1 when a
+    /// bundler did not reduce the occupied cells.
+    Ink {
+        /// A committed POST fixture, by name: `hairball` or `long-span`.
+        #[arg(long, conflicts_with = "nodes", required_unless_present = "nodes")]
+        fixture: Option<String>,
+        /// The hairball generator's node count.
+        #[arg(long, value_parser = clap::value_parser!(u32).range(2..=100_000))]
+        nodes: Option<u32>,
+        /// The layout that draws the graph first.
+        #[arg(long, default_value = "circular.radial")]
+        layout: String,
+    },
     /// D1: std against libm transcendentals, native against wasm32, bit for bit.
     DeterminismProbe {
         /// Where to write the measurement, relative to the workspace root.
@@ -179,7 +198,7 @@ enum Command {
     Bench {
         /// Node counts, comma separated; `220,10000,100000` is the phase gate's set.
         #[arg(long, value_delimiter = ',', default_value = "220,10000,100000",
-              value_parser = clap::value_parser!(u32).range(1..=snapshot_cmd::MAX_NODES))]
+              value_parser = clap::value_parser!(u32).range(1..=i64::from(bench::scale::MAX_SCALE_NODES)))]
         n: Vec<u32>,
         /// Registered layout ids; repeat for several. Default: the Phase 6 layouts.
         #[arg(long)]
@@ -197,6 +216,22 @@ enum Command {
         /// Report which sizes each layout would run or refuse, and run none of them.
         #[arg(long)]
         dry_run: bool,
+        /// Phase 9: runs per cell. The campaign reports the median, never one timing.
+        #[arg(long, default_value_t = 5)]
+        repeat: u32,
+        /// Phase 9: write the campaign's markdown here.
+        #[arg(long)]
+        out: Option<PathBuf>,
+        /// Phase 9: report the largest N per arm that fits the frame budget.
+        #[arg(long)]
+        crossover: bool,
+        /// Phase 9: the frame budget in milliseconds (`prompt.md` §5.2: 16.67).
+        #[arg(long, default_value_t = crate::bench::campaign::FRAME_BUDGET_MS)]
+        budget_ms: f64,
+        /// Phase 9: write the scale fixture for `--n` and `--seed` here and measure
+        /// nothing. The generator is the artefact; the file is one sample of it.
+        #[arg(long, value_name = "PATH")]
+        emit_scale_fixture: Option<PathBuf>,
     },
 }
 
@@ -212,7 +247,11 @@ fn main() -> ExitCode {
     match Cli::parse().command {
         Command::Hashgate { seeds } => hashgate::run(seeds),
         Command::HashgateArm { seeds } => hashgate::arm(seeds),
-        Command::Capabilities { json, check } => capabilities::run(json, check),
+        Command::Capabilities {
+            json,
+            check,
+            ceilings_measured,
+        } => capabilities::run(json, check, ceilings_measured),
         Command::Codegen { check } => codegen::run(check),
         Command::Ingest {
             from,
@@ -263,6 +302,15 @@ fn main() -> ExitCode {
             snapshot_cmd::snapshot(seed, nodes, &layout, &out)
         }
         Command::Roundtrip { seeds } => snapshot_cmd::roundtrip(seeds),
+        Command::Ink {
+            fixture,
+            nodes,
+            layout,
+        } => ink_cmd::run(&ink_cmd::Request {
+            fixture: fixture.as_deref(),
+            nodes,
+            layout: &layout,
+        }),
         Command::DeterminismProbe { out } => determinism_probe::run(&out),
         Command::Stress { oracle, seeds } => stress::run(&oracle, seeds),
         Command::Bench {
@@ -272,6 +320,11 @@ fn main() -> ExitCode {
             past_ceiling,
             vs_d3,
             dry_run,
+            repeat,
+            out,
+            crossover,
+            budget_ms,
+            emit_scale_fixture,
         } => bench::run(&bench::Plan {
             sizes: n,
             layouts: layout,
@@ -279,6 +332,11 @@ fn main() -> ExitCode {
             past_ceiling,
             vs_d3,
             dry_run,
+            repeat,
+            out,
+            crossover,
+            budget_ms,
+            emit_scale_fixture,
         }),
     }
 }

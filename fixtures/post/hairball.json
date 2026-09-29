@@ -1,0 +1,1243 @@
+{
+  "about": "The ink measurement's subject: two clusters of 21 record nodes, 178 relation edges, listed cluster A then cluster B. Every A node reaches four B nodes at fixed strides, so the cross edges run in four near-parallel families that a bundler has a reason to bundle; each cluster adds a path, a stride cycle and a fan from its first node, so there is long-span structure inside a cluster as well as across the gap. A graph, not a drawing: it carries no positions, and every layout is free to place it somewhere a bundler then has to cope with. Nothing here needs routing around anything: this is the bundling fixture, and the pairs that are meant to bundle are the ones a viewer would expect to see bundled.",
+  "nodes": [
+    {
+      "id": "a0",
+      "weight": 1
+    },
+    {
+      "id": "a1",
+      "weight": 1.25
+    },
+    {
+      "id": "a2",
+      "weight": 1.5
+    },
+    {
+      "id": "a3",
+      "weight": 1.75
+    },
+    {
+      "id": "a4",
+      "weight": 1
+    },
+    {
+      "id": "a5",
+      "weight": 1.25
+    },
+    {
+      "id": "a6",
+      "weight": 1.5
+    },
+    {
+      "id": "a7",
+      "weight": 1.75
+    },
+    {
+      "id": "a8",
+      "weight": 1
+    },
+    {
+      "id": "a9",
+      "weight": 1.25
+    },
+    {
+      "id": "a10",
+      "weight": 1.5
+    },
+    {
+      "id": "a11",
+      "weight": 1.75
+    },
+    {
+      "id": "a12",
+      "weight": 1
+    },
+    {
+      "id": "a13",
+      "weight": 1.25
+    },
+    {
+      "id": "a14",
+      "weight": 1.5
+    },
+    {
+      "id": "a15",
+      "weight": 1.75
+    },
+    {
+      "id": "a16",
+      "weight": 1
+    },
+    {
+      "id": "a17",
+      "weight": 1.25
+    },
+    {
+      "id": "a18",
+      "weight": 1.5
+    },
+    {
+      "id": "a19",
+      "weight": 1.75
+    },
+    {
+      "id": "a20",
+      "weight": 1
+    },
+    {
+      "id": "b0",
+      "weight": 1
+    },
+    {
+      "id": "b1",
+      "weight": 1.25
+    },
+    {
+      "id": "b2",
+      "weight": 1.5
+    },
+    {
+      "id": "b3",
+      "weight": 1.75
+    },
+    {
+      "id": "b4",
+      "weight": 1
+    },
+    {
+      "id": "b5",
+      "weight": 1.25
+    },
+    {
+      "id": "b6",
+      "weight": 1.5
+    },
+    {
+      "id": "b7",
+      "weight": 1.75
+    },
+    {
+      "id": "b8",
+      "weight": 1
+    },
+    {
+      "id": "b9",
+      "weight": 1.25
+    },
+    {
+      "id": "b10",
+      "weight": 1.5
+    },
+    {
+      "id": "b11",
+      "weight": 1.75
+    },
+    {
+      "id": "b12",
+      "weight": 1
+    },
+    {
+      "id": "b13",
+      "weight": 1.25
+    },
+    {
+      "id": "b14",
+      "weight": 1.5
+    },
+    {
+      "id": "b15",
+      "weight": 1.75
+    },
+    {
+      "id": "b16",
+      "weight": 1
+    },
+    {
+      "id": "b17",
+      "weight": 1.25
+    },
+    {
+      "id": "b18",
+      "weight": 1.5
+    },
+    {
+      "id": "b19",
+      "weight": 1.75
+    },
+    {
+      "id": "b20",
+      "weight": 1
+    }
+  ],
+  "edges": [
+    {
+      "id": "e0",
+      "source": "a0",
+      "target": "b0",
+      "type": "relates_to"
+    },
+    {
+      "id": "e1",
+      "source": "a0",
+      "target": "b3",
+      "type": "relates_to"
+    },
+    {
+      "id": "e2",
+      "source": "a0",
+      "target": "b6",
+      "type": "relates_to"
+    },
+    {
+      "id": "e3",
+      "source": "a0",
+      "target": "b9",
+      "type": "relates_to"
+    },
+    {
+      "id": "e4",
+      "source": "a1",
+      "target": "b1",
+      "type": "relates_to"
+    },
+    {
+      "id": "e5",
+      "source": "a1",
+      "target": "b8",
+      "type": "relates_to"
+    },
+    {
+      "id": "e6",
+      "source": "a1",
+      "target": "b17",
+      "type": "relates_to"
+    },
+    {
+      "id": "e7",
+      "source": "a1",
+      "target": "b5",
+      "type": "relates_to"
+    },
+    {
+      "id": "e8",
+      "source": "a2",
+      "target": "b2",
+      "type": "relates_to"
+    },
+    {
+      "id": "e9",
+      "source": "a2",
+      "target": "b13",
+      "type": "relates_to"
+    },
+    {
+      "id": "e10",
+      "source": "a2",
+      "target": "b7",
+      "type": "relates_to"
+    },
+    {
+      "id": "e11",
+      "source": "a2",
+      "target": "b1",
+      "type": "relates_to"
+    },
+    {
+      "id": "e12",
+      "source": "a3",
+      "target": "b3",
+      "type": "relates_to"
+    },
+    {
+      "id": "e13",
+      "source": "a3",
+      "target": "b18",
+      "type": "relates_to"
+    },
+    {
+      "id": "e14",
+      "source": "a3",
+      "target": "b18",
+      "type": "relates_to"
+    },
+    {
+      "id": "e15",
+      "source": "a3",
+      "target": "b18",
+      "type": "relates_to"
+    },
+    {
+      "id": "e16",
+      "source": "a4",
+      "target": "b4",
+      "type": "relates_to"
+    },
+    {
+      "id": "e17",
+      "source": "a4",
+      "target": "b2",
+      "type": "relates_to"
+    },
+    {
+      "id": "e18",
+      "source": "a4",
+      "target": "b8",
+      "type": "relates_to"
+    },
+    {
+      "id": "e19",
+      "source": "a4",
+      "target": "b14",
+      "type": "relates_to"
+    },
+    {
+      "id": "e20",
+      "source": "a5",
+      "target": "b5",
+      "type": "relates_to"
+    },
+    {
+      "id": "e21",
+      "source": "a5",
+      "target": "b7",
+      "type": "relates_to"
+    },
+    {
+      "id": "e22",
+      "source": "a5",
+      "target": "b19",
+      "type": "relates_to"
+    },
+    {
+      "id": "e23",
+      "source": "a5",
+      "target": "b10",
+      "type": "relates_to"
+    },
+    {
+      "id": "e24",
+      "source": "a6",
+      "target": "b6",
+      "type": "relates_to"
+    },
+    {
+      "id": "e25",
+      "source": "a6",
+      "target": "b12",
+      "type": "relates_to"
+    },
+    {
+      "id": "e26",
+      "source": "a6",
+      "target": "b9",
+      "type": "relates_to"
+    },
+    {
+      "id": "e27",
+      "source": "a6",
+      "target": "b6",
+      "type": "relates_to"
+    },
+    {
+      "id": "e28",
+      "source": "a7",
+      "target": "b7",
+      "type": "relates_to"
+    },
+    {
+      "id": "e29",
+      "source": "a7",
+      "target": "b17",
+      "type": "relates_to"
+    },
+    {
+      "id": "e30",
+      "source": "a7",
+      "target": "b20",
+      "type": "relates_to"
+    },
+    {
+      "id": "e31",
+      "source": "a7",
+      "target": "b2",
+      "type": "relates_to"
+    },
+    {
+      "id": "e32",
+      "source": "a8",
+      "target": "b8",
+      "type": "relates_to"
+    },
+    {
+      "id": "e33",
+      "source": "a8",
+      "target": "b1",
+      "type": "relates_to"
+    },
+    {
+      "id": "e34",
+      "source": "a8",
+      "target": "b10",
+      "type": "relates_to"
+    },
+    {
+      "id": "e35",
+      "source": "a8",
+      "target": "b19",
+      "type": "relates_to"
+    },
+    {
+      "id": "e36",
+      "source": "a9",
+      "target": "b9",
+      "type": "relates_to"
+    },
+    {
+      "id": "e37",
+      "source": "a9",
+      "target": "b6",
+      "type": "relates_to"
+    },
+    {
+      "id": "e38",
+      "source": "a9",
+      "target": "b0",
+      "type": "relates_to"
+    },
+    {
+      "id": "e39",
+      "source": "a9",
+      "target": "b15",
+      "type": "relates_to"
+    },
+    {
+      "id": "e40",
+      "source": "a10",
+      "target": "b10",
+      "type": "relates_to"
+    },
+    {
+      "id": "e41",
+      "source": "a10",
+      "target": "b11",
+      "type": "relates_to"
+    },
+    {
+      "id": "e42",
+      "source": "a10",
+      "target": "b11",
+      "type": "relates_to"
+    },
+    {
+      "id": "e43",
+      "source": "a10",
+      "target": "b11",
+      "type": "relates_to"
+    },
+    {
+      "id": "e44",
+      "source": "a11",
+      "target": "b11",
+      "type": "relates_to"
+    },
+    {
+      "id": "e45",
+      "source": "a11",
+      "target": "b16",
+      "type": "relates_to"
+    },
+    {
+      "id": "e46",
+      "source": "a11",
+      "target": "b1",
+      "type": "relates_to"
+    },
+    {
+      "id": "e47",
+      "source": "a11",
+      "target": "b7",
+      "type": "relates_to"
+    },
+    {
+      "id": "e48",
+      "source": "a12",
+      "target": "b12",
+      "type": "relates_to"
+    },
+    {
+      "id": "e49",
+      "source": "a12",
+      "target": "b0",
+      "type": "relates_to"
+    },
+    {
+      "id": "e50",
+      "source": "a12",
+      "target": "b12",
+      "type": "relates_to"
+    },
+    {
+      "id": "e51",
+      "source": "a12",
+      "target": "b3",
+      "type": "relates_to"
+    },
+    {
+      "id": "e52",
+      "source": "a13",
+      "target": "b13",
+      "type": "relates_to"
+    },
+    {
+      "id": "e53",
+      "source": "a13",
+      "target": "b5",
+      "type": "relates_to"
+    },
+    {
+      "id": "e54",
+      "source": "a13",
+      "target": "b2",
+      "type": "relates_to"
+    },
+    {
+      "id": "e55",
+      "source": "a13",
+      "target": "b20",
+      "type": "relates_to"
+    },
+    {
+      "id": "e56",
+      "source": "a14",
+      "target": "b14",
+      "type": "relates_to"
+    },
+    {
+      "id": "e57",
+      "source": "a14",
+      "target": "b10",
+      "type": "relates_to"
+    },
+    {
+      "id": "e58",
+      "source": "a14",
+      "target": "b13",
+      "type": "relates_to"
+    },
+    {
+      "id": "e59",
+      "source": "a14",
+      "target": "b16",
+      "type": "relates_to"
+    },
+    {
+      "id": "e60",
+      "source": "a15",
+      "target": "b15",
+      "type": "relates_to"
+    },
+    {
+      "id": "e61",
+      "source": "a15",
+      "target": "b15",
+      "type": "relates_to"
+    },
+    {
+      "id": "e62",
+      "source": "a15",
+      "target": "b3",
+      "type": "relates_to"
+    },
+    {
+      "id": "e63",
+      "source": "a15",
+      "target": "b12",
+      "type": "relates_to"
+    },
+    {
+      "id": "e64",
+      "source": "a16",
+      "target": "b16",
+      "type": "relates_to"
+    },
+    {
+      "id": "e65",
+      "source": "a16",
+      "target": "b20",
+      "type": "relates_to"
+    },
+    {
+      "id": "e66",
+      "source": "a16",
+      "target": "b14",
+      "type": "relates_to"
+    },
+    {
+      "id": "e67",
+      "source": "a16",
+      "target": "b8",
+      "type": "relates_to"
+    },
+    {
+      "id": "e68",
+      "source": "a17",
+      "target": "b17",
+      "type": "relates_to"
+    },
+    {
+      "id": "e69",
+      "source": "a17",
+      "target": "b4",
+      "type": "relates_to"
+    },
+    {
+      "id": "e70",
+      "source": "a17",
+      "target": "b4",
+      "type": "relates_to"
+    },
+    {
+      "id": "e71",
+      "source": "a17",
+      "target": "b4",
+      "type": "relates_to"
+    },
+    {
+      "id": "e72",
+      "source": "a18",
+      "target": "b18",
+      "type": "relates_to"
+    },
+    {
+      "id": "e73",
+      "source": "a18",
+      "target": "b9",
+      "type": "relates_to"
+    },
+    {
+      "id": "e74",
+      "source": "a18",
+      "target": "b15",
+      "type": "relates_to"
+    },
+    {
+      "id": "e75",
+      "source": "a18",
+      "target": "b0",
+      "type": "relates_to"
+    },
+    {
+      "id": "e76",
+      "source": "a19",
+      "target": "b19",
+      "type": "relates_to"
+    },
+    {
+      "id": "e77",
+      "source": "a19",
+      "target": "b14",
+      "type": "relates_to"
+    },
+    {
+      "id": "e78",
+      "source": "a19",
+      "target": "b5",
+      "type": "relates_to"
+    },
+    {
+      "id": "e79",
+      "source": "a19",
+      "target": "b17",
+      "type": "relates_to"
+    },
+    {
+      "id": "e80",
+      "source": "a20",
+      "target": "b20",
+      "type": "relates_to"
+    },
+    {
+      "id": "e81",
+      "source": "a20",
+      "target": "b19",
+      "type": "relates_to"
+    },
+    {
+      "id": "e82",
+      "source": "a20",
+      "target": "b16",
+      "type": "relates_to"
+    },
+    {
+      "id": "e83",
+      "source": "a20",
+      "target": "b13",
+      "type": "relates_to"
+    },
+    {
+      "id": "e84",
+      "source": "a0",
+      "target": "a1",
+      "type": "relates_to"
+    },
+    {
+      "id": "e85",
+      "source": "a1",
+      "target": "a2",
+      "type": "relates_to"
+    },
+    {
+      "id": "e86",
+      "source": "a2",
+      "target": "a3",
+      "type": "relates_to"
+    },
+    {
+      "id": "e87",
+      "source": "a3",
+      "target": "a4",
+      "type": "relates_to"
+    },
+    {
+      "id": "e88",
+      "source": "a4",
+      "target": "a5",
+      "type": "relates_to"
+    },
+    {
+      "id": "e89",
+      "source": "a5",
+      "target": "a6",
+      "type": "relates_to"
+    },
+    {
+      "id": "e90",
+      "source": "a6",
+      "target": "a7",
+      "type": "relates_to"
+    },
+    {
+      "id": "e91",
+      "source": "a7",
+      "target": "a8",
+      "type": "relates_to"
+    },
+    {
+      "id": "e92",
+      "source": "a8",
+      "target": "a9",
+      "type": "relates_to"
+    },
+    {
+      "id": "e93",
+      "source": "a9",
+      "target": "a10",
+      "type": "relates_to"
+    },
+    {
+      "id": "e94",
+      "source": "a10",
+      "target": "a11",
+      "type": "relates_to"
+    },
+    {
+      "id": "e95",
+      "source": "a11",
+      "target": "a12",
+      "type": "relates_to"
+    },
+    {
+      "id": "e96",
+      "source": "a12",
+      "target": "a13",
+      "type": "relates_to"
+    },
+    {
+      "id": "e97",
+      "source": "a13",
+      "target": "a14",
+      "type": "relates_to"
+    },
+    {
+      "id": "e98",
+      "source": "a14",
+      "target": "a15",
+      "type": "relates_to"
+    },
+    {
+      "id": "e99",
+      "source": "a15",
+      "target": "a16",
+      "type": "relates_to"
+    },
+    {
+      "id": "e100",
+      "source": "a16",
+      "target": "a17",
+      "type": "relates_to"
+    },
+    {
+      "id": "e101",
+      "source": "a17",
+      "target": "a18",
+      "type": "relates_to"
+    },
+    {
+      "id": "e102",
+      "source": "a18",
+      "target": "a19",
+      "type": "relates_to"
+    },
+    {
+      "id": "e103",
+      "source": "a19",
+      "target": "a20",
+      "type": "relates_to"
+    },
+    {
+      "id": "e104",
+      "source": "a0",
+      "target": "a7",
+      "type": "relates_to"
+    },
+    {
+      "id": "e105",
+      "source": "a1",
+      "target": "a8",
+      "type": "relates_to"
+    },
+    {
+      "id": "e106",
+      "source": "a2",
+      "target": "a9",
+      "type": "relates_to"
+    },
+    {
+      "id": "e107",
+      "source": "a3",
+      "target": "a10",
+      "type": "relates_to"
+    },
+    {
+      "id": "e108",
+      "source": "a4",
+      "target": "a11",
+      "type": "relates_to"
+    },
+    {
+      "id": "e109",
+      "source": "a5",
+      "target": "a12",
+      "type": "relates_to"
+    },
+    {
+      "id": "e110",
+      "source": "a6",
+      "target": "a13",
+      "type": "relates_to"
+    },
+    {
+      "id": "e111",
+      "source": "a7",
+      "target": "a14",
+      "type": "relates_to"
+    },
+    {
+      "id": "e112",
+      "source": "a8",
+      "target": "a15",
+      "type": "relates_to"
+    },
+    {
+      "id": "e113",
+      "source": "a9",
+      "target": "a16",
+      "type": "relates_to"
+    },
+    {
+      "id": "e114",
+      "source": "a10",
+      "target": "a17",
+      "type": "relates_to"
+    },
+    {
+      "id": "e115",
+      "source": "a11",
+      "target": "a18",
+      "type": "relates_to"
+    },
+    {
+      "id": "e116",
+      "source": "a12",
+      "target": "a19",
+      "type": "relates_to"
+    },
+    {
+      "id": "e117",
+      "source": "a13",
+      "target": "a20",
+      "type": "relates_to"
+    },
+    {
+      "id": "e118",
+      "source": "a14",
+      "target": "a0",
+      "type": "relates_to"
+    },
+    {
+      "id": "e119",
+      "source": "a15",
+      "target": "a1",
+      "type": "relates_to"
+    },
+    {
+      "id": "e120",
+      "source": "a16",
+      "target": "a2",
+      "type": "relates_to"
+    },
+    {
+      "id": "e121",
+      "source": "a17",
+      "target": "a3",
+      "type": "relates_to"
+    },
+    {
+      "id": "e122",
+      "source": "a18",
+      "target": "a4",
+      "type": "relates_to"
+    },
+    {
+      "id": "e123",
+      "source": "a19",
+      "target": "a5",
+      "type": "relates_to"
+    },
+    {
+      "id": "e124",
+      "source": "a20",
+      "target": "a6",
+      "type": "relates_to"
+    },
+    {
+      "id": "e125",
+      "source": "a0",
+      "target": "a3",
+      "type": "relates_to"
+    },
+    {
+      "id": "e126",
+      "source": "a0",
+      "target": "a6",
+      "type": "relates_to"
+    },
+    {
+      "id": "e127",
+      "source": "a0",
+      "target": "a9",
+      "type": "relates_to"
+    },
+    {
+      "id": "e128",
+      "source": "a0",
+      "target": "a12",
+      "type": "relates_to"
+    },
+    {
+      "id": "e129",
+      "source": "a0",
+      "target": "a15",
+      "type": "relates_to"
+    },
+    {
+      "id": "e130",
+      "source": "a0",
+      "target": "a18",
+      "type": "relates_to"
+    },
+    {
+      "id": "e131",
+      "source": "b0",
+      "target": "b1",
+      "type": "relates_to"
+    },
+    {
+      "id": "e132",
+      "source": "b1",
+      "target": "b2",
+      "type": "relates_to"
+    },
+    {
+      "id": "e133",
+      "source": "b2",
+      "target": "b3",
+      "type": "relates_to"
+    },
+    {
+      "id": "e134",
+      "source": "b3",
+      "target": "b4",
+      "type": "relates_to"
+    },
+    {
+      "id": "e135",
+      "source": "b4",
+      "target": "b5",
+      "type": "relates_to"
+    },
+    {
+      "id": "e136",
+      "source": "b5",
+      "target": "b6",
+      "type": "relates_to"
+    },
+    {
+      "id": "e137",
+      "source": "b6",
+      "target": "b7",
+      "type": "relates_to"
+    },
+    {
+      "id": "e138",
+      "source": "b7",
+      "target": "b8",
+      "type": "relates_to"
+    },
+    {
+      "id": "e139",
+      "source": "b8",
+      "target": "b9",
+      "type": "relates_to"
+    },
+    {
+      "id": "e140",
+      "source": "b9",
+      "target": "b10",
+      "type": "relates_to"
+    },
+    {
+      "id": "e141",
+      "source": "b10",
+      "target": "b11",
+      "type": "relates_to"
+    },
+    {
+      "id": "e142",
+      "source": "b11",
+      "target": "b12",
+      "type": "relates_to"
+    },
+    {
+      "id": "e143",
+      "source": "b12",
+      "target": "b13",
+      "type": "relates_to"
+    },
+    {
+      "id": "e144",
+      "source": "b13",
+      "target": "b14",
+      "type": "relates_to"
+    },
+    {
+      "id": "e145",
+      "source": "b14",
+      "target": "b15",
+      "type": "relates_to"
+    },
+    {
+      "id": "e146",
+      "source": "b15",
+      "target": "b16",
+      "type": "relates_to"
+    },
+    {
+      "id": "e147",
+      "source": "b16",
+      "target": "b17",
+      "type": "relates_to"
+    },
+    {
+      "id": "e148",
+      "source": "b17",
+      "target": "b18",
+      "type": "relates_to"
+    },
+    {
+      "id": "e149",
+      "source": "b18",
+      "target": "b19",
+      "type": "relates_to"
+    },
+    {
+      "id": "e150",
+      "source": "b19",
+      "target": "b20",
+      "type": "relates_to"
+    },
+    {
+      "id": "e151",
+      "source": "b0",
+      "target": "b4",
+      "type": "relates_to"
+    },
+    {
+      "id": "e152",
+      "source": "b1",
+      "target": "b5",
+      "type": "relates_to"
+    },
+    {
+      "id": "e153",
+      "source": "b2",
+      "target": "b6",
+      "type": "relates_to"
+    },
+    {
+      "id": "e154",
+      "source": "b3",
+      "target": "b7",
+      "type": "relates_to"
+    },
+    {
+      "id": "e155",
+      "source": "b4",
+      "target": "b8",
+      "type": "relates_to"
+    },
+    {
+      "id": "e156",
+      "source": "b5",
+      "target": "b9",
+      "type": "relates_to"
+    },
+    {
+      "id": "e157",
+      "source": "b6",
+      "target": "b10",
+      "type": "relates_to"
+    },
+    {
+      "id": "e158",
+      "source": "b7",
+      "target": "b11",
+      "type": "relates_to"
+    },
+    {
+      "id": "e159",
+      "source": "b8",
+      "target": "b12",
+      "type": "relates_to"
+    },
+    {
+      "id": "e160",
+      "source": "b9",
+      "target": "b13",
+      "type": "relates_to"
+    },
+    {
+      "id": "e161",
+      "source": "b10",
+      "target": "b14",
+      "type": "relates_to"
+    },
+    {
+      "id": "e162",
+      "source": "b11",
+      "target": "b15",
+      "type": "relates_to"
+    },
+    {
+      "id": "e163",
+      "source": "b12",
+      "target": "b16",
+      "type": "relates_to"
+    },
+    {
+      "id": "e164",
+      "source": "b13",
+      "target": "b17",
+      "type": "relates_to"
+    },
+    {
+      "id": "e165",
+      "source": "b14",
+      "target": "b18",
+      "type": "relates_to"
+    },
+    {
+      "id": "e166",
+      "source": "b15",
+      "target": "b19",
+      "type": "relates_to"
+    },
+    {
+      "id": "e167",
+      "source": "b16",
+      "target": "b20",
+      "type": "relates_to"
+    },
+    {
+      "id": "e168",
+      "source": "b17",
+      "target": "b0",
+      "type": "relates_to"
+    },
+    {
+      "id": "e169",
+      "source": "b18",
+      "target": "b1",
+      "type": "relates_to"
+    },
+    {
+      "id": "e170",
+      "source": "b19",
+      "target": "b2",
+      "type": "relates_to"
+    },
+    {
+      "id": "e171",
+      "source": "b20",
+      "target": "b3",
+      "type": "relates_to"
+    },
+    {
+      "id": "e172",
+      "source": "b0",
+      "target": "b3",
+      "type": "relates_to"
+    },
+    {
+      "id": "e173",
+      "source": "b0",
+      "target": "b6",
+      "type": "relates_to"
+    },
+    {
+      "id": "e174",
+      "source": "b0",
+      "target": "b9",
+      "type": "relates_to"
+    },
+    {
+      "id": "e175",
+      "source": "b0",
+      "target": "b12",
+      "type": "relates_to"
+    },
+    {
+      "id": "e176",
+      "source": "b0",
+      "target": "b15",
+      "type": "relates_to"
+    },
+    {
+      "id": "e177",
+      "source": "b0",
+      "target": "b18",
+      "type": "relates_to"
+    }
+  ]
+}

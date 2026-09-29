@@ -2,6 +2,7 @@
 //! oracle functions whose differential backs it. Phase 2: every layout of graph-core's
 //! registry, one row each, its metadata taken from there as declared.
 
+use super::post;
 use super::{Capability, Status};
 use graph_contract::canonical_json::NODE_KINDS;
 use graph_core::registry::{self as core, LAYOUTS};
@@ -128,7 +129,7 @@ the module it loads does — same ceiling, not independently measured in JS this
 /// `hashgate.json` records beside it. `sdk.js` is `Implemented`: its gate is
 /// `harness/sdk-smoke.mjs`, a smoke script over one fixture rather than a recorded seed
 /// sweep, so no record backs it yet and a `gated` claim would be one `--check` has to
-/// refuse (`docs/contract/wasm-abi.md` "Ledger").
+/// refuse (`docs/contract/wasm-abi.md` "Ledger"). Phase 8's POST rows (`post.rs`) come last.
 pub fn registry() -> Vec<Capability> {
     let topology = TOPOLOGY
         .iter()
@@ -152,6 +153,7 @@ pub fn registry() -> Vec<Capability> {
     topology
         .chain(LAYOUTS.iter().map(layout))
         .chain(transport())
+        .chain(post::rows())
         .collect()
 }
 

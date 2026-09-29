@@ -39,8 +39,12 @@ pub enum Code {
     NoGeometryYet = 10,
     /// `gm_build`'s `(ptr, len)` is not exactly a live `gm_alloc` allocation.
     BuildSourceInvalid = 11,
-    /// An index argument (e.g. `gm_layout_id`) is past the end of its list.
+    /// An index argument (e.g. `gm_layout_id`, `gm_post_id`, `gm_analysis_id`) is past
+    /// the end of its list.
     IndexOutOfRange = 12,
+    /// The registered POST capability returned a `StageError` for this geometry, or the
+    /// edges it produced did not fit the snapshot.
+    PostFailed = 13,
 }
 
 thread_local! {
@@ -96,6 +100,7 @@ mod tests {
             Code::NoGeometryYet,
             Code::BuildSourceInvalid,
             Code::IndexOutOfRange,
+            Code::PostFailed,
         ];
         let mut values: Vec<u32> = codes.iter().map(|&c| c as u32).collect();
         values.sort_unstable();

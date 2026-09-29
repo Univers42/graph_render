@@ -9,11 +9,12 @@
 //! a *different* handle must not count as one).
 
 use graph_contract::binary::Snapshot;
+use graph_core::Geometry;
 use graph_core::Topology;
 use std::collections::BTreeMap;
 
 /// One built graph: its topology (fixed at `gm_build`), and the last successful
-/// [`gm_run`](crate::exports::gm_run)'s snapshot, cleared on a failed run (C4).
+/// [`gm_run`](crate::exports::gm_run)'s geometry, cleared on a failed run (C4).
 #[derive(Default)]
 pub struct Handle {
     /// The ingested, indexed graph. Never replaced after `gm_build`.
@@ -21,6 +22,18 @@ pub struct Handle {
     /// The last run's geometry, or `None` before the first successful run, or right
     /// after a run that failed.
     pub snapshot: Option<Snapshot>,
+    /// The **layout's** geometry — the node positions and the notes, with the layout's
+    /// own edges — kept beside the snapshot so a POST pass has the layout's output to
+    /// read.
+    ///
+    /// Distinct from `snapshot` on purpose, and this is the reason a post pass cannot
+    /// be driven off the snapshot: the snapshot's edge columns are whatever the last
+    /// POST pass wrote, so a second pass over it would compose two passes' output rather
+    /// than the layout's, and a caller running style-then-bundle and then bundle again
+    /// would get a different answer from a caller running bundle once. `snapshot` is the
+    /// transport face (what the columns read) and this is the input face (what a stage
+    /// downstream of LAYOUT reads); both are replaced together, both cleared together.
+    pub geometry: Option<Geometry>,
 }
 
 /// Live handles, keyed by the id `gm_build` returned.
@@ -75,6 +88,7 @@ mod tests {
         Handle {
             topology: index_model(&[], &[]).expect("empty fits"),
             snapshot: None,
+            geometry: None,
         }
     }
 
@@ -118,5 +132,16 @@ mod tests {
         handles.get_mut(id).expect("live").snapshot = None;
         assert!(handles.get(id).is_some());
         assert!(handles.get(id + 1).is_none(), "an unissued id is not live");
+    }
+
+    /// A handle holds both faces of a run, and both are `None` before any run: a POST
+    /// pass reads `geometry`, the column views read `snapshot`, and a handle that had one
+    /// without the other would let a post pass draw a layout's output the transport
+    /// cannot show, or serve columns for geometry no stage produced.
+    #[test]
+    fn a_fresh_handle_has_neither_face_of_a_run() {
+        let handle = handle();
+        assert!(handle.snapshot.is_none());
+        assert!(handle.geometry.is_none());
     }
 }

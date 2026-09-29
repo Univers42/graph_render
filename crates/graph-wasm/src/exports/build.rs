@@ -68,6 +68,7 @@ pub extern "C" fn gm_build(ingest_ptr: u32, ingest_len: u32) -> u32 {
     let handle = Handle {
         topology,
         snapshot: None,
+        geometry: None,
     };
     match HANDLES.with(|handles| handles.borrow_mut().insert(handle)) {
         Some(id) => {
@@ -98,6 +99,7 @@ pub extern "C" fn gm_run(handle: u32, layout_id: u32, params_ptr: u32, params_le
             return 0;
         };
         entry.snapshot = None;
+        entry.geometry = None;
         if params_len != 0 {
             errors::set(Code::ParamsMustBeEmpty);
             return 0;
@@ -109,11 +111,13 @@ pub extern "C" fn gm_run(handle: u32, layout_id: u32, params_ptr: u32, params_le
         let ran = (layout.run)(&entry.topology)
             .map_err(|_| Code::LayoutFailed)
             .and_then(|geometry| {
-                graph_core::layout::snapshot(&entry.topology, geometry)
+                graph_core::layout::snapshot(&entry.topology, geometry.clone())
+                    .map(|snapshot| (geometry, snapshot))
                     .map_err(|_| Code::LayoutFailed)
             });
         match ran {
-            Ok(snapshot) => {
+            Ok((geometry, snapshot)) => {
+                entry.geometry = Some(geometry);
                 entry.snapshot = Some(snapshot);
                 errors::clear();
                 1
