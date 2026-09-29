@@ -34,3 +34,27 @@ fn a_worst_over_its_ceiling_or_no_component_fails_that_layout_only() {
 fn a_result_without_a_measured_worst_is_refused() {
     assert!(judge(SPECTRAL.ceilings, &json!({ "layouts": {} })).is_err());
 }
+
+#[test]
+fn an_igraph_layout_with_no_ours_column_is_not_run_and_fails() {
+    let result = json!({ "layouts": {
+        "fruchterman_reingold": { "cases": 0, "worst": 0.0 },
+        "kamada_kawai": { "cases": 5, "worst": 1.2 },
+        "drl": { "cases": 5, "worst": 2.5 },
+        "lgl": { "cases": 5, "worst": 2.0 },
+        "davidson_harel": { "cases": 5, "worst": 0.9 },
+        "graphopt": { "cases": 5, "worst": 1.0 },
+    }});
+    let (pass, functions) = judge(IGRAPH.ceilings, &result).expect("judged");
+    assert!(!pass);
+    let mut failed: Vec<&str> = functions
+        .iter()
+        .filter(|(_, v)| v["unexplained"] == 1)
+        .map(|(k, _)| k.as_str())
+        .collect();
+    failed.sort_unstable();
+    assert_eq!(
+        failed,
+        ["layout.force.drl", "layout.force.fruchterman_reingold"]
+    );
+}

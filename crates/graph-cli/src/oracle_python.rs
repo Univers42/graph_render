@@ -16,10 +16,14 @@
 //! so the comparison never meets a disconnected graph or a larger one; those rest on
 //! graph-core's own tests.
 
+mod cli;
 mod fa2;
+mod igraph;
 mod spectral;
 
+pub use cli::Cli;
 pub use fa2::FA2;
+pub use igraph::IGRAPH;
 pub use spectral::SPECTRAL;
 
 use crate::evidence::{FINGERPRINTED, Stamp};

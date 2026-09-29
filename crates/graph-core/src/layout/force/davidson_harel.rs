@@ -1,0 +1,243 @@
+//! Davidson-Harel (`layout.force.davidson_harel`), written from
+//! `docs/layouts/layout.force.davidson_harel.md` and the paper (ACM TOG 15(4), 1996) only,
+//! per `docs/decisions/layouts-igraph.md`. 2D simulated annealing over five energy terms.
+
+mod energy;
+#[cfg(test)]
+mod tests;
+
+use crate::index::Topology;
+use crate::layout::Geometry;
+use crate::rng::Mulberry32;
+use crate::stage::{Stage, StageError};
+use energy::{Field, delta};
+use graph_contract::geometry::{EdgeGeometry, NodeGeometry};
+
+/// Energy weights.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Weights {
+    /// Node-node repulsion.
+    pub node_dist: f64,
+    /// Border repulsion.
+    pub border: f64,
+    /// Squared edge length penalty.
+    pub edge_lengths: f64,
+    /// Crossing count penalty.
+    pub edge_crossings: f64,
+    /// Node-to-edge closeness penalty; fine-tuning rounds only.
+    pub node_edge_dist: f64,
+}
+
+/// SciGraphs' defaults: fine-tuning off, so `node_edge_dist` never runs by default.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DhParams {
+    /// Annealing rounds.
+    pub maxiter: u32,
+    /// Fine-tuning rounds (strict improvement only).
+    pub fineiter: u32,
+    /// Radius multiplier per round, in (0, 1).
+    pub cool_fact: f64,
+    /// Energy weights.
+    pub weights: Weights,
+    /// Seeds placement, shuffles and acceptance draws (D5).
+    pub seed: u32,
+}
+
+impl Default for DhParams {
+    fn default() -> Self {
+        Self {
+            maxiter: 10,
+            fineiter: 0,
+            cool_fact: 0.95,
+            weights: Weights {
+                node_dist: 1.0,
+                border: 0.0,
+                edge_lengths: 1.0,
+                edge_crossings: 1.0,
+                node_edge_dist: 1.0,
+            },
+            seed: 0,
+        }
+    }
+}
+
+/// Node count past which the rounds are no longer usable: each round is O(30 n (n + deg m)).
+pub const DH_CEILING: u64 = 500;
+
+/// Candidate moves per node per round.
+const TRIALS: usize = 30;
+
+/// Davidson-Harel layout stage.
+///
+/// Ponytail: simulated annealing finds a local optimum only and quality depends on the
+/// weights, which igraph calls graph dependent. Coincident nodes are floored at a squared
+/// distance of 1e-12 where the spec divides by zero. The random stream is ours, so
+/// coordinates never match igraph's.
+pub struct DavidsonHarel;
+
+impl Stage for DavidsonHarel {
+    type Params = DhParams;
+    const ID: &'static str = "layout.force.davidson_harel";
+
+    fn run(topology: &Topology, params: &Self::Params) -> Result<Geometry, StageError> {
+        let n = topology.node_count() as usize;
+        let pos = if n == 0 {
+            Vec::new()
+        } else {
+            anneal(topology, params)?
+        };
+        Ok(Geometry {
+            nodes: NodeGeometry::Point {
+                x: pos.iter().map(|p| p[0] as f32).collect(),
+                y: pos.iter().map(|p| p[1] as f32).collect(),
+            },
+            edges: EdgeGeometry::Line,
+            notes: Vec::new(),
+        })
+    }
+}
+
+fn anneal(topology: &Topology, params: &DhParams) -> Result<Vec<[f64; 2]>, StageError> {
+    let n = topology.node_count() as usize;
+    let half = 5.0 * libm::sqrt(n as f64);
+    let mut rng = Mulberry32::new(params.seed);
+    let mut pos: Vec<[f64; 2]> = (0..n)
+        .map(|_| {
+            let x = (rng.next_f64() - 0.5) * 2.0 * half;
+            [x, (rng.next_f64() - 0.5) * 2.0 * half]
+        })
+        .collect();
+    let (edges, adj) = edge_lists(topology);
+    let mut bounds = bounding(&pos);
+    let mut radius = half;
+    for round in 0..params.maxiter + params.fineiter {
+        let fine = round >= params.maxiter;
+        if fine {
+            radius = 0.01 * (bounds[2] - bounds[0]).min(bounds[3] - bounds[1]);
+        }
+        let shape = Shape {
+            adj: &adj,
+            edges: &edges,
+            half,
+        };
+        let mut w = params.weights;
+        if !fine {
+            w.node_edge_dist = 0.0;
+        }
+        let mut order: Vec<u32> = (0..n as u32).collect();
+        shuffle(&mut order, &mut rng);
+        for &v in &order {
+            let round_state = Round {
+                fine,
+                radius,
+                weights: w,
+            };
+            try_node(&shape, &round_state, (&mut pos, &mut bounds), (v, &mut rng));
+        }
+        radius *= params.cool_fact;
+    }
+    if pos.iter().flatten().any(|v| !v.is_finite()) {
+        return Err(StageError::NonFinite { column: "node.x" });
+    }
+    Ok(pos)
+}
+
+/// The graph and canvas, fixed for the whole run.
+struct Shape<'a> {
+    adj: &'a [Vec<u32>],
+    edges: &'a [(u32, u32)],
+    half: f64,
+}
+
+/// What one round holds constant while its nodes move.
+struct Round {
+    fine: bool,
+    radius: f64,
+    weights: Weights,
+}
+
+/// Up to 30 shuffled trial moves of node `v`, each judged against the current positions.
+fn try_node(
+    shape: &Shape,
+    round: &Round,
+    state: (&mut Vec<[f64; 2]>, &mut [f64; 4]),
+    who: (u32, &mut Mulberry32),
+) {
+    let (pos, bounds) = state;
+    let (v, rng) = who;
+    let mut angles: Vec<usize> = (0..TRIALS).collect();
+    shuffle(&mut angles, rng);
+    for k in angles {
+        let q = candidate(pos[v as usize], round.radius, k, shape.half);
+        let field = Field {
+            pos,
+            adj: shape.adj,
+            edges: shape.edges,
+            half_width: shape.half,
+        };
+        let d_e = delta(&field, &round.weights, v, (pos[v as usize], q));
+        let accept = d_e < 0.0 || (!round.fine && rng.next_f64() < libm::exp(-d_e / round.radius));
+        if accept {
+            pos[v as usize] = q;
+            grow(bounds, q);
+        }
+    }
+}
+
+/// Directed edge list and per-node neighbour list (multi-edges repeated), ids from the topology.
+fn edge_lists(t: &Topology) -> (Vec<(u32, u32)>, Vec<Vec<u32>>) {
+    let e = t.edges();
+    let mut adj = vec![Vec::new(); t.node_count() as usize];
+    let mut edges = Vec::new();
+    for i in 0..t.edge_count() as usize {
+        let (a, b) = (e.source[i], e.target[i]);
+        edges.push((a, b));
+        adj[a as usize].push(b);
+        adj[b as usize].push(a);
+    }
+    (edges, adj)
+}
+
+/// Move by `radius` at angle `2 pi k / 30`; a coordinate past the canvas is set to the edge
+/// minus 1e-6, exactly as the spec's (asymmetric) clamp says.
+fn candidate(at: [f64; 2], radius: f64, k: usize, half: f64) -> [f64; 2] {
+    let angle = 2.0 * core::f64::consts::PI * k as f64 / TRIALS as f64;
+    let mut q = [
+        at[0] + radius * libm::cos(angle),
+        at[1] + radius * libm::sin(angle),
+    ];
+    for c in &mut q {
+        if *c > half {
+            *c = half - 1e-6;
+        } else if *c < -half {
+            *c = -half - 1e-6;
+        }
+    }
+    q
+}
+
+fn shuffle<T>(items: &mut [T], rng: &mut Mulberry32) {
+    for i in (1..items.len()).rev() {
+        items.swap(i, rng.pick(i + 1));
+    }
+}
+
+/// `[min_x, min_y, max_x, max_y]`.
+fn bounding(pos: &[[f64; 2]]) -> [f64; 4] {
+    let mut b = [f64::MAX, f64::MAX, f64::MIN, f64::MIN];
+    for &p in pos {
+        grow(&mut b, p);
+    }
+    b
+}
+
+/// Else-if chain of the spec: a point that is a new minimum does not also test the maximum.
+fn grow(b: &mut [f64; 4], p: [f64; 2]) {
+    for a in 0..2 {
+        if p[a] < b[a] {
+            b[a] = p[a];
+        } else if p[a] > b[a + 2] {
+            b[a + 2] = p[a];
+        }
+    }
+}

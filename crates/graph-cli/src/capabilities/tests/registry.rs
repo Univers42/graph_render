@@ -167,6 +167,8 @@ fn the_registry_covers_every_oracle_function_once_its_ids_are_unique() {
             ("stress", r.id, Status::Implemented)
         } else if r.id == "layout.forceatlas2" {
             ("oracle-fa2", r.id, Status::Implemented)
+        } else if r.id.starts_with("layout.force.") {
+            ("oracle-igraph", r.id, Status::Implemented)
         } else if r.id == "layout.spectral" || r.id == "layout.mds.pivot" {
             ("oracle-spectral", r.id, Status::Gated)
         } else if r.id == "transport.wasm.columnar" {
@@ -207,6 +209,12 @@ fn a_force_row_is_implemented_and_names_its_own_oracle_record() {
     for (id, record) in [
         ("layout.force.barnes_hut", "stress"),
         ("layout.forceatlas2", "oracle-fa2"),
+        ("layout.force.fruchterman_reingold", "oracle-igraph"),
+        ("layout.force.kamada_kawai", "oracle-igraph"),
+        ("layout.force.drl", "oracle-igraph"),
+        ("layout.force.lgl", "oracle-igraph"),
+        ("layout.force.davidson_harel", "oracle-igraph"),
+        ("layout.force.graphopt", "oracle-igraph"),
     ] {
         let row = rows.iter().find(|r| r.id == id).expect("registered");
         assert_eq!(row.status, Status::Implemented, "{id}");

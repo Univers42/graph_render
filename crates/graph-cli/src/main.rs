@@ -100,40 +100,8 @@ enum Command {
         #[arg(long)]
         fixtures: Option<PathBuf>,
     },
-    /// Writes the spectral/pivot-MDS differential's fixtures for `harness/oracle-spectral.py`.
-    EmitSpectralFixtures {
-        /// Number of seeds, 0..N.
-        #[arg(long, default_value_t = 1000, value_parser = seed_count())]
-        seeds: u32,
-        /// Output directory.
-        #[arg(long, default_value = "target/spectral-fixtures")]
-        out: PathBuf,
-    },
-    /// Checks the spectral differential's result against its ceilings and records it.
-    OracleSpectral {
-        /// Directory holding the fixtures and `spectral-result.json`.
-        #[arg(long, default_value = "target/spectral-fixtures")]
-        dir: PathBuf,
-    },
-    /// Writes the ForceAtlas2 differential's fixtures for `harness/oracle-fa2.py`.
-    EmitFa2Fixtures {
-        /// Number of seeds, 0..N.
-        #[arg(long, default_value_t = 1000, value_parser = seed_count())]
-        seeds: u32,
-        /// Iteration budget both arms run, over the differential's own gated one. The
-        /// escape hatch `docs/measurements/fa2-chaos.md` measures the chaos with.
-        #[arg(long, value_parser = clap::value_parser!(u32).range(1..=100))]
-        max_iter: Option<u32>,
-        /// Output directory.
-        #[arg(long, default_value = "target/fa2-fixtures")]
-        out: PathBuf,
-    },
-    /// Checks the ForceAtlas2 differential's result against its ceiling and records it.
-    OracleFa2 {
-        /// Directory holding the fixtures and `fa2-result.json`.
-        #[arg(long, default_value = "target/fa2-fixtures")]
-        dir: PathBuf,
-    },
+    #[command(flatten)]
+    PythonOracle(oracle_python::Cli),
     /// Runs `harness/oracle-layouts.mjs` over the emitted fixtures (the d3-hierarchy arm).
     OracleLayouts {
         /// Fixtures directory; `target/oracle-fixtures` by default.
@@ -281,16 +249,7 @@ fn main() -> ExitCode {
         Command::OracleDiff { fixtures } => {
             oracle_fixtures::diff(&fixtures.unwrap_or_else(oracle_fixtures::default_out))
         }
-        Command::EmitSpectralFixtures { seeds, out } => {
-            oracle_python::emit(&oracle_python::SPECTRAL, seeds, None, &out)
-        }
-        Command::OracleSpectral { dir } => oracle_python::ingest(&oracle_python::SPECTRAL, &dir),
-        Command::EmitFa2Fixtures {
-            seeds,
-            max_iter,
-            out,
-        } => oracle_python::emit(&oracle_python::FA2, seeds, max_iter, &out),
-        Command::OracleFa2 { dir } => oracle_python::ingest(&oracle_python::FA2, &dir),
+        Command::PythonOracle(command) => command.run(),
         Command::OracleLayouts { fixtures } => {
             oracle_fixtures::diff_layouts(&fixtures.unwrap_or_else(oracle_fixtures::default_out))
         }
