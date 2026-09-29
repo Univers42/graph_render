@@ -24,7 +24,13 @@ for p in $(pgrep -f '/opencode run' || true); do
   [[ $(readlink "/proc/$p/cwd" 2>/dev/null) == "$wt" ]] && { echo "refused: pid $p already works in $wt"; exit 3; }
 done
 wf=$wt/target/wf; mkdir -p "$wf"; prompt=$wf/$label.prompt
-cat "${OC_COMMON:-/sgoinfre/students/dlesieur/orch/prompts/common-v2.txt}" "$body" >"$prompt"
+# OC_SESSION=<id> resumes that session (oc-run.sh): the rules and body are already in its history,
+# so the prompt is only a continue order.
+if [[ -n ${OC_SESSION-} ]]; then
+  printf '%s\n' "Continue this task from where it stopped. Re-dispatch any cancelled or unfinished subagent slice in ONE message of parallel calls, then finish with the return block." >"$prompt"
+else
+  cat "${OC_COMMON:-/sgoinfre/students/dlesieur/orch/prompts/common-v2.txt}" "$body" >"$prompt"
+fi
 "$bin/oc-run.sh" "$label" "$wt" "$agent" "$prompt"; rc=$?
 # The verdict reads the whole last text part: a return block longer than the printed 30 lines once
 # cut `status: done` off and turned a done job into exit 2 (s1-nav, 2026-09-29).
