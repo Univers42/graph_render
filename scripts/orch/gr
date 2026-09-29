@@ -5,5 +5,13 @@ set -euo pipefail
 top=$(git rev-parse --show-toplevel)
 envs=()
 while [[ ${1-} == -e ]]; do envs+=(-e "$2"); shift 2; done
-exec docker run --rm ${envs[@]+"${envs[@]}"} -v "$top:/w" -w /w \
+# CARGO_BUILD_JOBS / RUST_TEST_THREADS pass through so parallel builder jobs cannot starve a timed gate
+# run (runner.rs CHILD_TIMEOUT). Ponytail: a thread cap, not a CPU cap (docker --cpus is unsupported on
+# this kernel) — one job's test binary spawning its own threads can still exceed it.
+for v in CARGO_BUILD_JOBS RUST_TEST_THREADS; do [[ -n ${!v-} ]] && envs+=(-e "$v=${!v}"); done
+# Memory cap: a mutant that loops while allocating OOM-killed the rootless Docker daemon on 2026-09-28;
+# a capped container dies alone. Ponytail: 8g is a guess above any gate row seen so far — raise GR_MEM
+# if a legitimate row is OOM-killed (exit 137).
+mem=${GR_MEM:-8g}
+exec docker run --rm --memory "$mem" --memory-swap "$mem" ${envs[@]+"${envs[@]}"} -v "$top:/w" -w /w \
   -v ge-cargo-registry:/opt/cargo/registry "${GR_IMAGE:-ge-rust}" "$@"
