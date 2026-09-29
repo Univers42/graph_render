@@ -1,0 +1,50 @@
+// The dock: the sections in order, every action in one of them, and why one is refused.
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { createElement } from "react";
+
+import { DOCK_SECTIONS, studioActions } from "../../src/actions/all.ts";
+import { Dock } from "../../src/ui/Dock.tsx";
+import { DRAWN, IDLE, markup, studioWith } from "./desk.ts";
+
+function dock(state = DRAWN): string {
+  const { studio } = studioWith(state);
+  return markup(createElement(Dock, { studio, state, open: true, onToggle: () => undefined }));
+}
+
+test("the section titles stand in the order the sections are declared", () => {
+  const html = dock();
+  const at = DOCK_SECTIONS.map((name) => html.indexOf(`>${name}<`));
+  assert.ok(at.every((where) => where > 0), "every section title is in the markup");
+  assert.deepEqual([...at].sort((a, b) => a - b), at, "and they are in order");
+});
+
+test("every action that names a section has its title in the markup", () => {
+  const html = dock();
+  for (const action of studioActions()) {
+    if (action.section === null) continue;
+    assert.ok(html.includes(action.title), action.title);
+  }
+});
+
+test("a header says whether its section is open, and points at the body it owns", () => {
+  const html = dock();
+  assert.match(html, /aria-expanded="true"[^>]*aria-controls="gs-dock-source"/);
+  assert.match(html, /aria-expanded="false"[^>]*aria-controls="gs-dock-export"/);
+  assert.match(html, /id="gs-dock-source"[^>]*aria-labelledby="gs-dock-source-head"/);
+});
+
+test("with nothing drawn the layout is refused, in place, with its reason", () => {
+  const html = dock(IDLE);
+  assert.match(html, /class="gs-reason">no graph is loaded</);
+  const layout = html.slice(html.indexOf(">Layout<"), html.indexOf(">Edges<"));
+  assert.match(layout, /disabled/, "every control of the layout is disabled");
+  assert.ok(html.includes("Save the picture"), "a refused action stays visible");
+});
+
+test("the dock collapses as one, and the button that does it says so", () => {
+  const html = dock();
+  assert.match(html, /aria-expanded="true"[^>]*aria-controls="gs-dock-body"/);
+  assert.match(html, />Controls</);
+  assert.match(html, /id="gs-dock-body"/);
+});
