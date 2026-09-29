@@ -5,6 +5,7 @@
 //! Exit codes: `0` the check passed · `1` the check ran and failed (a gate went red) ·
 //! `2` the check could not run (a tool, a file or an artifact was missing).
 
+mod bench;
 mod capabilities;
 mod codegen;
 mod determinism_probe;
@@ -15,6 +16,7 @@ mod oracle_fixtures;
 mod probe_report;
 mod runner;
 mod snapshot_cmd;
+mod stress;
 
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
@@ -109,6 +111,28 @@ enum Command {
         #[arg(long, default_value = "docs/measurements/d1-ln1p.md")]
         out: PathBuf,
     },
+    /// Force-layout quality: our stress correlation against a real d3-force simulation
+    /// of the same graph, under the frozen margin.
+    Stress {
+        /// The oracle to compare against; `d3` is the only one wired. Required, not
+        /// defaulted: a quality gate that silently picked its own baseline would be a
+        /// gate comparing the implementation against itself.
+        #[arg(long)]
+        oracle: String,
+        /// Number of seeds, 0..N.
+        #[arg(long, default_value_t = 8, value_parser = seed_count())]
+        seeds: u32,
+    },
+    /// Times the force layouts at the given node counts, refusing a size past a layout's
+    /// own registered `scale_ceiling`.
+    Bench {
+        /// Comma-separated node counts; `220,10000,100000` is the phase gate's set.
+        #[arg(long, default_value = "220,10000,100000")]
+        n: String,
+        /// Report which sizes each layout would run or refuse, and run none of them.
+        #[arg(long)]
+        dry_run: bool,
+    },
 }
 
 /// Most seeds one gate run may ask for. Every seed is four child computations; past this
@@ -149,5 +173,7 @@ fn main() -> ExitCode {
         }
         Command::Roundtrip { seeds } => snapshot_cmd::roundtrip(seeds),
         Command::DeterminismProbe { out } => determinism_probe::run(&out),
+        Command::Stress { oracle, seeds } => stress::run(&oracle, seeds),
+        Command::Bench { n, dry_run } => bench::run(&n, dry_run),
     }
 }

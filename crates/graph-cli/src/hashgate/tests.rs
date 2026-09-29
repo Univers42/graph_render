@@ -1,5 +1,8 @@
 use super::compare::{Tally, diverged, per_stage};
 use super::*;
+use graph_core::Stage;
+use graph_core::layout::force::BarnesHut;
+use graph_core::layout::forceatlas2::ForceAtlas2;
 
 mod report;
 
@@ -155,7 +158,9 @@ fn each_knob_names_its_own_variable_and_record() {
         [
             "GM_MUTATE_REFERENCE_DEGREE",
             "GM_MUTATE_GRID_SPACING",
-            "GM_MUTATE_NODE_COUNT"
+            "GM_MUTATE_NODE_COUNT",
+            "GM_MUTATE_FORCE_THETA",
+            "GM_MUTATE_FA2_SCALING_RATIO"
         ]
     );
     assert_eq!(
@@ -163,10 +168,74 @@ fn each_knob_names_its_own_variable_and_record() {
         [
             "hashgate-control-reference-degree",
             "hashgate-control-grid-spacing",
-            "hashgate-control-node-count"
+            "hashgate-control-node-count",
+            "hashgate-control-force-theta",
+            "hashgate-control-fa2-scaling-ratio"
         ]
     );
 }
+
+/// A force layout's own negative control must move that stage and *only* that stage: a
+/// control that also moved the topology would back every stage at once and prove nothing
+/// about the stage it is filed under.
+fn only_stage_moved(
+    base: &[(&'static str, Vec<u8>)],
+    moved: &[(&'static str, Vec<u8>)],
+    stage: &str,
+) {
+    for ((id, a), (_, b)) in base.iter().zip(moved) {
+        assert_eq!(
+            a == b,
+            *id != stage,
+            "only {stage} may move, but {id} did not"
+        );
+    }
+}
+
+#[test]
+fn each_force_layout_has_its_own_negative_control_that_moves_only_its_stage() {
+    let base = stage_bytes(FORCE_SEED, &honest()).expect("runs");
+    let theta = setting(env(&[("GM_MUTATE_FORCE_THETA", "0.5")])).expect("parses");
+    assert_eq!(theta.control, Some(Knob::ForceTheta));
+    assert_eq!(theta.force.theta, 0.5);
+    only_stage_moved(
+        &base,
+        &stage_bytes(FORCE_SEED, &theta).expect("runs"),
+        BarnesHut::ID,
+    );
+    let scaling = setting(env(&[("GM_MUTATE_FA2_SCALING_RATIO", "3")])).expect("parses");
+    assert_eq!(scaling.control, Some(Knob::Fa2ScalingRatio));
+    assert_eq!(scaling.fa2.scaling_ratio, 3.0);
+    only_stage_moved(
+        &base,
+        &stage_bytes(FORCE_SEED, &scaling).expect("runs"),
+        ForceAtlas2::ID,
+    );
+    let both = env(&[
+        ("GM_MUTATE_FORCE_THETA", "0.5"),
+        ("GM_MUTATE_FA2_SCALING_RATIO", "3"),
+    ]);
+    assert!(
+        setting(both)
+            .expect_err("one at a time")
+            .ends_with("one control at a time")
+    );
+    // A typo in either new variable must be refused, not fall back to the default and
+    // let the control pass as green.
+    let bad: [&'static [(&str, &str)]; 2] = [
+        &[("GM_MUTATE_FORCE_THETA", "wide")],
+        &[("GM_MUTATE_FA2_SCALING_RATIO", "")],
+    ];
+    for pairs in bad {
+        let err = setting(env(pairs)).expect_err("refused");
+        assert!(err.starts_with(pairs[0].0), "{err}");
+    }
+}
+
+/// The seed whose model is large enough that a theta change reaches the quadtree's
+/// opening test. At the gate's smallest models every cell is already inside theta and
+/// the two values coincide, which would make the control vacuous.
+const FORCE_SEED: u32 = 30;
 
 #[test]
 fn the_stages_are_the_topology_then_every_registered_layout() {

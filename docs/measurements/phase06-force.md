@@ -110,3 +110,55 @@ This is a genuine, run test result, not an assumption — verified run-twice
 bit-identical as part of the branch-local gate's determinism checks. C9's "stop and
 report" branch was not needed; reported here as the negative result it is (no
 instability found), not omitted because it happened not to trigger.
+
+## The wiring run (2026-09-29): `graph-cli bench`, and where the ceilings come from
+
+The ceilings registered in `crates/graph-core/src/registry.rs` (`FORCE_CEILING`,
+`FA2_CEILING`) are derived from measurements taken with
+`cargo run --release --example force_dump`, and are now reproducible as a gate:
+
+```sh
+cargo run --release -p graph-cli -- bench --n 220,10000,100000
+```
+
+On this machine (release, x86_64, inside the toolchain image):
+
+| n | edges | `layout.force.barnes_hut` | `layout.forceatlas2` |
+|---:|---:|---:|---:|
+| 220 | 329 | 17.83 ms | 6.96 ms |
+| 10 000 | 15 474 | 2 375.95 ms | 13 860.56 ms |
+| 100 000 | 154 978 | 57 793.99 ms | **refused** (past `FA2_CEILING` 14 000) |
+
+**`FORCE_CEILING = 100 000`**, chosen as the largest round size inside a 60-second
+budget: 100 000 measures 46.8–57.8 s natively, and 200 000 is extrapolated (not run —
+it is itself impractically slow) to land past it. This is a **time** ceiling, not a
+memory wall, and unlike the grid's and the hierarchy layouts' ceilings it is *not*
+projected onto wasm32's 4 GiB: inside wasm32 the same curve runs on a slower machine
+with no new refusal to detect it by.
+
+**`FA2_CEILING = 14 000`**, from the same command with `fa2`. The 5 000 → 10 000 step
+is 4.09x for exactly 2x the nodes, the `O(n^2)` networkx's dense all-pairs repulsion
+predicts; under a 30-second budget `10 000 * sqrt(30 / 13.522) = 14 880`, rounded down
+to two figures. 14 000 is not run — 13.5 s is already the slowest thing measured here,
+and the point is the shape rather than the digit. The measured ratio between the two
+ceilings is 100 000 / 14 000 = **7.14x**; `registry.rs`'s test pins "materially below"
+at 5x rather than inventing a round factor the measurements do not support.
+
+**`bench` refuses rather than runs past a ceiling**, and exits 0 doing so: the phase
+gate's own size set contains 100 000, which FA2 refuses, so a non-zero code there would
+make the gate row unsatisfiable. The refusal is printed with the ceiling it came from,
+so the ceiling is checkable rather than a number in a doc. `--dry-run` reports which
+sizes each layout would run and times none of them, which is what makes the ceiling
+logic testable — Barnes-Hut at 15 000 nodes takes about 25 s.
+
+### The honest answer the phase prompt asked for
+
+> WASM is *slower* than the TypeScript at N=220 → report it, do not hide it.
+
+**Not measured, and therefore not claimed.** Every number above is native x86_64. The
+wasm32 arm is exercised by the 4-way hash gate, which proves the two targets produce
+*bit-identical output* — it does not, and cannot, compare their speed, and the
+cross-target timing the prompt asks for needs Phase 9's harness. What the gate does
+establish at every size it runs is the thing that actually matters for correctness: the
+force layouts are deterministic across targets, which is a stronger claim than being
+fast, and is the one this project gates on.

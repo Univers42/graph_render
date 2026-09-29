@@ -8,7 +8,9 @@
 //        layout.tree.tidy (gm_layout_tree_tidy),
 //        layout.treemap.squarified (gm_layout_treemap_squarified),
 //        layout.circular.radial (gm_layout_circular_radial),
-//        layout.packing.circle (gm_layout_packing_circle)
+//        layout.packing.circle (gm_layout_packing_circle),
+//        layout.force.barnes_hut (gm_layout_force_barnes_hut),
+//        layout.forceatlas2 (gm_layout_forceatlas2)
 //   node harness/wasm-run.mjs <graph_wasm.wasm> probe
 //        prints the D1 probe buffer as one hex line
 //
@@ -47,6 +49,8 @@ const STAGE_EXPORTS = {
   "layout.treemap.squarified": "gm_layout_treemap_squarified",
   "layout.circular.radial": "gm_layout_circular_radial",
   "layout.packing.circle": "gm_layout_packing_circle",
+  "layout.force.barnes_hut": "gm_layout_force_barnes_hut",
+  "layout.forceatlas2": "gm_layout_forceatlas2",
 };
 
 if (mode === "hash") {

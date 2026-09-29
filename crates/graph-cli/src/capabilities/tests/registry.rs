@@ -20,17 +20,58 @@ fn the_registry_covers_every_oracle_function_once_its_ids_are_unique() {
     assert_eq!(covered, want);
     let ids: BTreeSet<&str> = rows.iter().map(|r| r.id).collect();
     assert_eq!(ids.len(), rows.len());
-    assert!(rows.iter().all(|r| r.status == Status::Gated));
     for r in &rows {
         let expected = if r.id.starts_with("topology.") {
-            ("oracle-diff", "topology")
+            ("oracle-diff", "topology", Status::Gated)
         } else if r.id == "layout.tree.tidy" || r.id == "layout.treemap.squarified" {
-            ("oracle-layouts", r.id)
+            ("oracle-layouts", r.id, Status::Gated)
+        } else if r.id == "layout.force.barnes_hut" {
+            ("stress", r.id, Status::Implemented)
+        } else if r.id == "layout.forceatlas2" {
+            ("oracle-fa2", r.id, Status::Implemented)
         } else {
-            ("roundtrip", r.id)
+            ("roundtrip", r.id, Status::Gated)
         };
-        assert_eq!((r.oracle_record, r.hash_stage), expected, "{}", r.id);
+        assert_eq!(
+            (r.oracle_record, r.hash_stage, r.status),
+            expected,
+            "{}",
+            r.id
+        );
     }
+}
+
+/// The two force rows are `implemented`, and the *reason* is structural rather than
+/// provisional: `Status::Gated` means a 4-way hash **and** an oracle differential
+/// passed on this tree, and a force layout's differential is a margin rather than a
+/// byte-equality (a force simulation amplifies a 1-ULP difference into a different
+/// picture). Each names its own record, so neither can be promoted by borrowing the
+/// other's evidence.
+#[test]
+fn a_force_row_is_implemented_and_names_its_own_oracle_record() {
+    let rows = registry();
+    for (id, record) in [
+        ("layout.force.barnes_hut", "stress"),
+        ("layout.forceatlas2", "oracle-fa2"),
+    ] {
+        let row = rows.iter().find(|r| r.id == id).expect("registered");
+        assert_eq!(row.status, Status::Implemented, "{id}");
+        assert_eq!(row.oracle_record, record, "{id}");
+        assert_eq!(row.hash_stage, id, "{id}: its hash stage is its own id");
+        assert_eq!(row.stage, "layout");
+        assert_eq!(row.geometry, Some("Point"), "{id}");
+        assert!(row.scale_ceiling > 0, "{id}");
+    }
+    // Neither may borrow a record that does not speak for it: the d3-force stress arm
+    // knows nothing of networkx's FA2, and the other way round.
+    let other = |id: &str, record: &str| {
+        assert!(
+            !rows.iter().any(|r| r.id == id && r.oracle_record == record),
+            "{id} must not be held to {record}"
+        );
+    };
+    other("layout.forceatlas2", "stress");
+    other("layout.force.barnes_hut", "oracle-fa2");
 }
 
 #[test]

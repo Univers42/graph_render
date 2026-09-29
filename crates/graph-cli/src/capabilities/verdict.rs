@@ -25,6 +25,10 @@ pub struct Evidence {
     /// `oracle-layouts.json`: `harness/oracle-layouts.mjs`'s d3-hierarchy differential
     /// for tidy tree and treemap.
     pub layouts: Option<Value>,
+    /// `stress.json`: the d3-force@3.0.0 stress differential for Barnes-Hut.
+    pub stress: Option<Value>,
+    /// `oracle-fa2.json`: the networkx 3.6 `forceatlas2_layout` differential for FA2.
+    pub fa2: Option<Value>,
 }
 
 impl Evidence {
@@ -41,15 +45,20 @@ impl Evidence {
             oracle: evidence::read("oracle-diff")?,
             roundtrip: evidence::read("roundtrip")?,
             layouts: evidence::read("oracle-layouts")?,
+            stress: evidence::read("stress")?,
+            fa2: evidence::read("oracle-fa2")?,
         })
     }
 
-    /// The oracle record a row names: `oracle-diff`, `roundtrip` or `oracle-layouts`.
+    /// The oracle record a row names: `oracle-diff`, `roundtrip`, `oracle-layouts`,
+    /// `stress` or `oracle-fa2`.
     fn oracle_record(&self, name: &str) -> Option<&Value> {
         match name {
             "oracle-diff" => self.oracle.as_ref(),
             "roundtrip" => self.roundtrip.as_ref(),
             "oracle-layouts" => self.layouts.as_ref(),
+            "stress" => self.stress.as_ref(),
+            "oracle-fa2" => self.fa2.as_ref(),
             _ => None,
         }
     }

@@ -22,6 +22,10 @@ fn layout_names_offers_every_registered_layout_once_by_both_of_its_names() {
             "circular.radial",
             "layout.packing.circle",
             "packing.circle",
+            "layout.force.barnes_hut",
+            "force.barnes_hut",
+            "layout.forceatlas2",
+            "forceatlas2",
         ]
     );
     let mut once = names.clone();

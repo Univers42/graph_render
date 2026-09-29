@@ -18,9 +18,11 @@ mod report;
 use crate::evidence;
 use crate::runner::{build_wasm, file_sha256, node_harness, run_lines, sha256_hex};
 use compare::{Arm, Tally, diverged, per_stage};
+use graph_core::layout::force::{BarnesHut, ForceParams};
+use graph_core::layout::forceatlas2::{Fa2Params, ForceAtlas2};
 use graph_core::{
-    Grid, GridParams, REFERENCE_DEGREE, gate_node_count, registry, run_pipeline, run_with,
-    seeded_model,
+    EdgeRecord, Geometry, Grid, GridParams, NodeRecord, REFERENCE_DEGREE, Stage, StageError,
+    Topology, gate_node_count, registry, run_pipeline, run_with, seeded_model,
 };
 use std::env::VarError;
 use std::process::{Command, ExitCode};
@@ -30,13 +32,15 @@ use std::process::{Command, ExitCode};
 /// built from `LAYOUTS` at runtime so its length is usable as an array size below;
 /// [`tests::the_stages_are_the_topology_then_every_registered_layout`] is the guard that
 /// keeps it honest as the registry grows.
-pub const STAGES: [&str; 6] = [
+pub const STAGES: [&str; 8] = [
     "topology",
     "layout.grid",
     "layout.tree.tidy",
     "layout.treemap.squarified",
     "layout.circular.radial",
     "layout.packing.circle",
+    "layout.force.barnes_hut",
+    "layout.forceatlas2",
 ];
 
 /// `STAGES.len()`, named for the fixed-size arrays it sizes.
@@ -59,11 +63,31 @@ pub enum Knob {
     GridSpacing,
     /// `GM_MUTATE_NODE_COUNT`: nodes added to the model, native arm only.
     NodeCount,
+    /// `GM_MUTATE_FORCE_THETA`: Barnes-Hut's opening angle, native arm only.
+    ///
+    /// Its own control, and the only one that reaches `layout.force.barnes_hut`
+    /// without touching anything else: theta is read by the quadtree's opening test
+    /// alone, so perturbing it re-aggregates that stage's many-body force and leaves
+    /// the other seven stages — including `layout.forceatlas2`, which shares no code
+    /// with it — byte-identical. A shared knob would back both force stages at once
+    /// and prove nothing about either.
+    ForceTheta,
+    /// `GM_MUTATE_FA2_SCALING_RATIO`: ForceAtlas2's repulsion scale, native arm only.
+    ///
+    /// Its own control for the same reason, on the other side: `scaling_ratio` is
+    /// read by `Fa2State::repulsion` alone.
+    Fa2ScalingRatio,
 }
 
 impl Knob {
     /// Every knob.
-    pub const ALL: [Self; 3] = [Self::ReferenceDegree, Self::GridSpacing, Self::NodeCount];
+    pub const ALL: [Self; 5] = [
+        Self::ReferenceDegree,
+        Self::GridSpacing,
+        Self::NodeCount,
+        Self::ForceTheta,
+        Self::Fa2ScalingRatio,
+    ];
 
     /// The variable that sets it.
     pub const fn env(self) -> &'static str {
@@ -71,6 +95,8 @@ impl Knob {
             Self::ReferenceDegree => "GM_MUTATE_REFERENCE_DEGREE",
             Self::GridSpacing => "GM_MUTATE_GRID_SPACING",
             Self::NodeCount => "GM_MUTATE_NODE_COUNT",
+            Self::ForceTheta => "GM_MUTATE_FORCE_THETA",
+            Self::Fa2ScalingRatio => "GM_MUTATE_FA2_SCALING_RATIO",
         }
     }
 
@@ -80,6 +106,8 @@ impl Knob {
             Self::ReferenceDegree => "hashgate-control-reference-degree",
             Self::GridSpacing => "hashgate-control-grid-spacing",
             Self::NodeCount => "hashgate-control-node-count",
+            Self::ForceTheta => "hashgate-control-force-theta",
+            Self::Fa2ScalingRatio => "hashgate-control-fa2-scaling-ratio",
         }
     }
 }
@@ -91,6 +119,10 @@ struct Setting {
     grid: GridParams,
     /// Extra nodes added to the gate's model, native arm only ([`Knob::NodeCount`]).
     extra_nodes: u32,
+    /// Barnes-Hut's parameters, native arm only ([`Knob::ForceTheta`] perturbs them).
+    force: ForceParams,
+    /// ForceAtlas2's parameters, native arm only ([`Knob::Fa2ScalingRatio`] perturbs).
+    fa2: Fa2Params,
     control: Option<Knob>,
 }
 
@@ -102,6 +134,8 @@ fn setting(read: impl Fn(&str) -> Result<String, VarError>) -> Result<Setting, S
         reference_degree: REFERENCE_DEGREE,
         grid: GridParams::default(),
         extra_nodes: 0,
+        force: ForceParams::default(),
+        fa2: Fa2Params::default(),
         control: None,
     };
     for knob in Knob::ALL {
@@ -122,6 +156,10 @@ fn setting(read: impl Fn(&str) -> Result<String, VarError>) -> Result<Setting, S
             }
             Knob::GridSpacing => setting.grid.spacing = text.trim().parse().map_err(|e| bad(&e))?,
             Knob::NodeCount => setting.extra_nodes = text.trim().parse().map_err(|e| bad(&e))?,
+            Knob::ForceTheta => setting.force.theta = text.trim().parse().map_err(|e| bad(&e))?,
+            Knob::Fa2ScalingRatio => {
+                setting.fa2.scaling_ratio = text.trim().parse().map_err(|e| bad(&e))?
+            }
         }
     }
     Ok(setting)
@@ -187,11 +225,31 @@ fn stage_bytes(
     out[0].1 = grid.topology;
     out[1].1 = grid.snapshot.to_bytes();
     for slot in &mut out[2..] {
-        let layout = registry::find(slot.0).ok_or_else(|| format!("{}: not registered", slot.0))?;
-        let run = run_with(&nodes, &edges, layout.id, layout.run).map_err(|e| e.to_string())?;
-        slot.1 = run.snapshot.to_bytes();
+        slot.1 = match slot.0 {
+            BarnesHut::ID => run_force(&nodes, &edges, |t| BarnesHut::run(t, &setting.force))?,
+            ForceAtlas2::ID => run_force(&nodes, &edges, |t| ForceAtlas2::run(t, &setting.fa2))?,
+            id => {
+                let layout = registry::find(id).ok_or_else(|| format!("{id}: not registered"))?;
+                let run =
+                    run_with(&nodes, &edges, layout.id, layout.run).map_err(|e| e.to_string())?;
+                run.snapshot.to_bytes()
+            }
+        };
     }
     Ok(out)
+}
+
+/// A force stage run at the knob-aware parameters rather than the registry's compiled-in
+/// default, so [`Knob::ForceTheta`] and [`Knob::Fa2ScalingRatio`] can reach them. The
+/// wasm arm always runs the compiled-in default (it cannot see these variables), which
+/// is exactly the divergence a wired control must surface.
+fn run_force(
+    nodes: &[NodeRecord],
+    edges: &[EdgeRecord],
+    layout: impl FnOnce(&Topology) -> Result<Geometry, StageError>,
+) -> Result<Vec<u8>, String> {
+    let run = run_with(nodes, edges, "", layout).map_err(|e| e.to_string())?;
+    Ok(run.snapshot.to_bytes())
 }
 
 fn collect_arms(seeds: u32) -> Result<Vec<Arm>, String> {

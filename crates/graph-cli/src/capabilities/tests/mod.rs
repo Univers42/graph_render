@@ -30,13 +30,15 @@ const COVERED: [&str; 19] = [
 /// Every hashgate stage's key, in `hashgate::STAGES` order, so this fixture's `equal`
 /// maps can be built at the same shape a real record has, without importing the
 /// hashgate module just for the constant.
-const STAGES: [&str; 6] = [
+const STAGES: [&str; 8] = [
     "topology",
     "layout.grid",
     "layout.tree.tidy",
     "layout.treemap.squarified",
     "layout.circular.radial",
     "layout.packing.circle",
+    "layout.force.barnes_hut",
+    "layout.forceatlas2",
 ];
 
 /// A hashgate-shaped `equal` map: `seeds` for every stage, except `diverged`'s, at `0`.
@@ -67,11 +69,12 @@ fn control(name: &'static str, diverged: &[&str]) -> (&'static str, Option<Value
     )
 }
 
-/// The three controls: reference degree (topology, treemap — it reads node weight),
-/// grid spacing (grid alone), and node count — restricted here to the four layouts
-/// neither other control reaches, since reference degree and grid spacing already back
+/// The five controls: reference degree (topology, treemap — it reads node weight),
+/// grid spacing (grid alone), node count — restricted here to the layouts neither
+/// other control reaches, since reference degree and grid spacing already back
 /// topology/grid/treemap on their own (a real run may show it diverging those too; the
-/// ledger only needs one control per stage to hold).
+/// ledger only needs one control per stage to hold) — and one control per force
+/// layout, which reach nothing else at all.
 fn honest_controls() -> Vec<(&'static str, Option<Value>)> {
     vec![
         control(
@@ -87,6 +90,11 @@ fn honest_controls() -> Vec<(&'static str, Option<Value>)> {
                 "layout.circular.radial",
                 "layout.packing.circle",
             ],
+        ),
+        control("hashgate-control-force-theta", &["layout.force.barnes_hut"]),
+        control(
+            "hashgate-control-fa2-scaling-ratio",
+            &["layout.forceatlas2"],
         ),
     ]
 }
@@ -119,6 +127,14 @@ fn honest() -> Evidence {
                 "layout.treemap.squarified": hand(11),
             }
         })),
+        stress: Some(json!({
+            "fingerprint": "tree", "seeds": 1000, "pass": true,
+            "functions": { "layout.force.barnes_hut": hand(4) }
+        })),
+        fa2: Some(json!({
+            "fingerprint": "tree", "seeds": 1000, "pass": true,
+            "functions": { "layout.forceatlas2": hand(4) }
+        })),
     }
 }
 
@@ -132,7 +148,7 @@ fn row(status: Status) -> Capability {
 fn every_registered_row_stands_on_honest_evidence_and_reads_it_back() {
     let evidence = honest();
     let rows = ledger(&evidence);
-    assert_eq!(rows.len(), 13);
+    assert_eq!(rows.len(), 15);
     assert_eq!(problems(&rows, &evidence), Vec::<String>::new());
     assert_eq!(
         rows[0].hash_4way,
@@ -188,6 +204,8 @@ fn without_records_every_gated_row_is_refused_twice() {
         oracle: None,
         roundtrip: None,
         layouts: None,
+        stress: None,
+        fa2: None,
     };
     let rows = ledger(&bare);
     assert_eq!(problems(&rows, &bare).len(), 26);
@@ -207,6 +225,90 @@ fn refused(edit: impl FnOnce(&mut Evidence)) -> Vec<String> {
     let mut evidence = honest();
     edit(&mut evidence);
     problems(&[row(Status::Gated)], &evidence)
+}
+
+/// One real force row out of the registry, promoted to `gated` — the claim the phase
+/// prompt forbids making without both oracles behind it.
+fn force_row(id: &str) -> Capability {
+    let mut row = registry()
+        .into_iter()
+        .find(|r| r.id == id)
+        .expect("registered");
+    row.status = Status::Gated;
+    row
+}
+
+/// A force row may be promoted to `gated` only with a 4-way hash **and** its own
+/// oracle differential, both on this tree and both over 1000 seeds. Every way of
+/// shortchanging it is refused, including the tempting one: borrowing the *other*
+/// force layout's record, which names a different library and a different metric.
+#[test]
+fn a_force_row_is_refused_gated_without_its_own_hash_and_its_own_oracle() {
+    for (id, record, other_record) in [
+        ("layout.force.barnes_hut", "stress", "oracle-fa2"),
+        ("layout.forceatlas2", "oracle-fa2", "stress"),
+    ] {
+        let promoted = force_row(id);
+        assert!(
+            problems(std::slice::from_ref(&promoted), &honest()).is_empty(),
+            "{id}: honest evidence backs it"
+        );
+        let gone = |e: &mut Evidence| match id {
+            "layout.force.barnes_hut" => e.stress = None,
+            _ => e.fa2 = None,
+        };
+        let no_oracle = refused_like(&promoted, gone);
+        assert_eq!(no_oracle.len(), 1, "{id}: {no_oracle:?}");
+        assert!(
+            no_oracle[0].contains(&format!("no {record} record")),
+            "{id}: {no_oracle:?}"
+        );
+        let no_hash = problems(std::slice::from_ref(&promoted), &{
+            let mut e = honest();
+            e.hashgate = None;
+            e
+        });
+        assert!(
+            no_hash[0].contains("no hashgate record"),
+            "{id}: {no_hash:?}"
+        );
+        // With only the *other* force layout's record present, this row's own
+        // `oracle_diff` must read as unbacked rather than borrowing a passing verdict
+        // from a record that names a different library and a different metric.
+        let only_other = ledger(&{
+            let mut e = honest();
+            match id {
+                "layout.force.barnes_hut" => {
+                    e.stress = None;
+                    e.fa2 = Some(json!({
+                        "fingerprint": "tree", "seeds": 1000, "pass": true,
+                        "functions": { "layout.forceatlas2": hand(4) }
+                    }));
+                }
+                _ => {
+                    e.fa2 = None;
+                    e.stress = Some(json!({
+                        "fingerprint": "tree", "seeds": 1000, "pass": true,
+                        "functions": { "layout.force.barnes_hut": hand(4) }
+                    }));
+                }
+            }
+            e
+        });
+        let mine = only_other.iter().find(|r| r.id == id).expect("row");
+        assert!(
+            mine.oracle_diff.contains(&format!("no {record} record")),
+            "{id}: {other_record} must not stand in for {record}: {}",
+            mine.oracle_diff
+        );
+    }
+}
+
+/// `problems` over one given row against evidence `edit` has changed.
+fn refused_like(row: &Capability, edit: impl FnOnce(&mut Evidence)) -> Vec<String> {
+    let mut evidence = honest();
+    edit(&mut evidence);
+    problems(std::slice::from_ref(row), &evidence)
 }
 
 #[test]

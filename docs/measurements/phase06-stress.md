@@ -1,5 +1,15 @@
 # Phase 6 — force-layout stress metric (branch p6f)
 
+> **Wiring status (2026-09-29).** The metric is now a real, run gate rather than a
+> `scratch/` script: `graph-cli stress --oracle d3` computes it in Rust
+> (`crates/graph-cli/src/stress.rs` and `stress/metric.rs`), runs a real
+> `d3-force@3.0.0` arm through `harness/stress-d3.mjs`, and records
+> `<gates>/stress.json` — the record `layout.force.barnes_hut`'s ledger row names.
+> `graph-cli bench --n …` is likewise a command, and is where the ceilings in
+> `docs/measurements/phase06-force.md` and the registry's `FORCE_CEILING` /
+> `FA2_CEILING` now come from. What follows is the branch's original measurement, kept
+> as written; the wiring run's own numbers are at the end.
+
 Ponytail: `P56_SPEC.md` decision 6 says this file is written *before* measuring. It
 was not: the measurement infrastructure (the `force_dump` example, `scratch/stress.mjs`,
 the synthetic-graph generator) had to be built and debugged first, and one bug in that
@@ -185,3 +195,46 @@ consistently track d3's own closely (e.g. `tree`: 0.20431 vs 0.21493), which is 
 and has no collision/center pull competing with its pure attraction+repulsion+gravity,
 so it settles into a more legible, if less "physically damped," layout — reported, not
 gated (the margin criterion is Barnes-Hut vs d3 only, per spec decision 6).
+
+## The wiring run (2026-09-29): `graph-cli stress --oracle d3 --seeds 40`
+
+Reproduce, from the worktree root, with the pinned d3 tree resolvable (a `node_modules`
+holding `d3-force@3.0.0` and its four dependencies, or `NODE_PATH` pointing at one):
+
+```sh
+cargo run --release -p graph-cli -- stress --oracle d3 --seeds 40
+```
+
+**PASS**, 40 seeds, 39 correlated cases, 1 degenerate. Median margin **+0.03515**,
+worst **−0.01633**, against the frozen floor of **−0.05**. Recorded in
+`<gates>/stress.json`.
+
+| statistic | margin (ours − d3) |
+|---|---:|
+| median (the gate) | **+0.03515** |
+| worst of 39 | −0.01633 |
+| cases below −0.05 | **0 of 39** |
+
+Seed 0 is the degenerate case, not a failure: `gate_node_count(0)` is 2, and a two-node
+graph has no `(pivot, v)` pair for the metric to correlate. It is reported as *absent*
+and excluded from the median — never filled in with a 0 or a 1, either of which would
+enter the margin arithmetic as though it were a measurement.
+
+This confirms, on the gate model rather than on the `fixtures/force/*.json` set, the
+claim the branch's own tables make: our port is **not worse** than real
+`d3-force@3.0.0` on the same topology, the same golden-spiral seed positions, the same
+frozen force set and the same 112 ticks. Identity is not claimed and is not achievable.
+
+Two honesty notes on what this gate is and is not:
+
+1. **It is a margin, not byte-equality.** Every other layout in the ledger is held to an
+   exact differential. A force layout cannot be: a simulation amplifies a 1-ULP
+   difference into a different picture, so "different, but not worse" is the strongest
+   true statement available, and the ledger's `oracle_diff` for
+   `layout.force.barnes_hut` says so rather than borrowing another row's wording.
+2. **It covers Barnes-Hut only.** `layout.forceatlas2` is held to networkx 3.6's
+   `forceatlas2_layout` in the `ge-python-oracle` image, a different record
+   (`<gates>/oracle-fa2.json`) and a different criterion, because FA2 is a *port* of
+   that function and can be compared against it directly where Barnes-Hut deliberately
+   cannot be compared against d3. Neither row borrows the other's evidence; a test
+   pins that.
