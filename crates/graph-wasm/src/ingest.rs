@@ -2,8 +2,10 @@
 //! versioned JSON array of node/edge records in the shape `graph_core::records` already
 //! uses, parsed with `graph_contract::canonical_json`'s strict RFC 8259 reader.
 //!
-//! **Phase 10 owns the real ingest contract.** This one exists so Phase 4 has something
-//! to build `gm_build` against; it is deliberately narrow: every member is named and
+//! **The real ingest contract lives in [`crate::contract`]**, read by
+//! `gm_build_contract`. This one is unchanged and stays: it is what the host studio and
+//! the hash gate's C20 stage already speak, so replacing it would move a published ABI's
+//! meaning. It is deliberately narrow: every member is named and
 //! required (a present `null` where a field may be absent, never an omitted key), an
 //! unknown member refuses the whole document (so a stray `hasNote` — the oracle's own
 //! camelCase — is refused loudly, not silently ignored), and `kind` strings are matched

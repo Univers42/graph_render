@@ -20,6 +20,7 @@ export const CODE_NAMES = [
   "BuildSourceInvalid",
   "IndexOutOfRange",
   "PostFailed",
+  "ContractInvalid",
 ] as const;
 
 /** One `Code`'s name, or `"Unknown(<n>)"` for a wire value this SDK does not know yet —
@@ -45,6 +46,17 @@ export class GraphMotorError extends Error {
 
 /** `gm_build` refused the ingest buffer, or the handle table is exhausted. */
 export class BuildRefusedError extends GraphMotorError {}
+
+/** `gm_build_contract` refused the contract document: the strict reader said no
+ *  (`ContractInvalid` covers both it and a derivation refusal — a caller debugging a
+ *  rejection wants to know the document was refused, not which of the two steps said
+ *  so, and `docs/contract/wasm-abi.md` names both), or the handle table is exhausted.
+ *
+ *  Distinct from {@link BuildRefusedError} rather than a subclass: the two take
+ *  different documents, so a caller that catches only this one is saying "a contract
+ *  document was refused" and must not silently keep a handle it got from
+ *  {@link Motor.build}, whose document means something else. */
+export class ContractRefusedError extends GraphMotorError {}
 
 /** `gm_run` refused: an unknown handle, an unknown layout id, or non-empty params
  * (registry layouts take none this phase, C2). */

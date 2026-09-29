@@ -167,30 +167,127 @@ convergence fixture and the contract round trip — neither of which is a record
 `hash_stage` and `oracle_record` name the records that would back them. **Promoting them
 to `gated` is the orchestrator's**, after `gate.sh` has recorded the runs.
 
+## Slice 7 — `gm_build_contract`, the additive contract path — DONE
+
+The envelope was extended to `crates/graph-wasm/src/**`, `crates/graph-sdk-js/src/**`,
+`harness/sdk-smoke.mjs` and `docs/contract/wasm-abi.md`, and the orchestrator's decision
+on the stop-and-ask was: **do not break `gm_build`**. It has not. `gm_build` and the
+provisional node/edge JSON are byte-for-byte what they were; the studio in `app/` and the
+hash gate's C20 stage keep working unchanged. What was added is a second door.
+
+### Changed
+
+| Path | |
+|---|---|
+| `crates/graph-wasm/src/contract.rs` | CREATE — bytes → contract → `graph_core::ingest`'s one derivation → topology. No graph logic in it. |
+| `crates/graph-wasm/src/contract/tests.rs` | CREATE — 8 tests |
+| `crates/graph-wasm/src/exports/build.rs` | MODIFY — `gm_build_contract`, one export and its docs |
+| `crates/graph-wasm/src/errors.rs` | MODIFY — `Code::ContractInvalid = 14`, appended |
+| `crates/graph-wasm/src/lib.rs` | MODIFY — `mod contract;` |
+| `crates/graph-sdk-js/src/{index,errors,wasm}.ts` | MODIFY — `Motor#buildContract`, `ContractRefusedError`, the raw export |
+| `harness/sdk-smoke.mjs` | MODIFY — `buildContract` coverage, and the whole convergence proof in one process |
+| `package.json` | MODIFY — `sdk:convergence:wasm` |
+| `docs/contract/wasm-abi.md` | MODIFY — the export, `Code` 14, "Two build paths", "The convergence proof, one command", coverage rows, file sizes |
+
+### What it does, and why it is additive rather than a replacement
+
+`gm_build_contract(ptr, len)` takes a **phase-10 ingest contract document**
+(`docs/contract/ingest-schema.json`) and builds a handle by calling
+`graph_core::ingest::build_topology` — the same call `graph-cli ingest` and the
+convergence fixture make. The alternative, breaking `gm_build`, would have moved a
+published ABI's meaning; this adds a symbol, an error code and a path that did not exist,
+and nothing that already worked moved.
+
+**The two formats are deliberately not interchangeable, and each reader refuses the
+other's document.** That is not decoration: it is what stops this quietly becoming one
+export. Routing `gm_build_contract` to the provisional parser would derive nothing from a
+contract document; routing `gm_build` here would refuse every document the studio sends.
+Both directions are pinned by `the_two_ingest_formats_are_not_interchangeable`.
+
+**`Code::ContractInvalid = 14`, not `IngestInvalid`.** Two different documents, two
+different codes, so a caller cannot handle a contract rejection as a node/edge one. It
+**appends**: `the_new_code_appends_and_does_not_move_any_other` pins all fifteen wire
+values, because `CODE_NAMES` in the SDK indexes the same order and a renumber would
+silently turn a caller's `UnknownLayoutId` into a `NoGeometryYet`.
+
+### Open item 3 is closed: the whole proof, one command
+
+Before this slice the convergence proof needed two runtimes and no single command ran all
+of it — the adapters are TypeScript (Node only) and the derivation is `graph_core::ingest`'s
+(Rust only). `gm_build_contract` means Node can do the third step, so one process now
+chains all of it:
+
+```sh
+gr cargo build -p graph-wasm --target wasm32-unknown-unknown --release
+node-slim.sh node --experimental-strip-types harness/sdk-smoke.mjs \
+  --adapter-convergence target/wasm32-unknown-unknown/release/graph_wasm.wasm
+```
+
+Both adapters → one contract document → `Motor#buildContract` → the **committed
+`expected-graph.json` graph**, checked in the same process that produced the document.
+Two containers and two commands, and that is honest: `ge-rust` has no `node` and
+`node:22-slim` has no `cargo`. What is single is the proof.
+
+Run the second command with **no** wasm path and it checks the adapter half alone — that
+mode predates this slice and still works, so the existing gate row does not change.
+
+### Negative controls, each run and each killed
+
+| Mutation | Killed by | Result |
+|---|---|---|
+| `contract.rs` derives an empty graph instead of calling `build_topology` | 5 tests | 5 FAILED |
+| `contract.rs` turns a reader refusal into an empty document | 3 tests | 3 FAILED |
+| `contract.rs` turns a **derivation** refusal into an empty graph | `a_coordinate_that_cannot_round_trip_is_refused_where_it_is_made` | 1 FAILED |
+| the committed-order node id assertion swaps `t1`/`t2` | `the_committed_contract_derives_exactly_the_committed_graph` | 1 FAILED |
+| `gm_build_contract` reports a refusal as `IngestInvalid` | `harness/sdk-smoke.mjs`'s `the refusal names ContractInvalid` | 1 FAILED |
+| `Motor#buildContract` fabricates a handle on refusal instead of throwing | the four convergence refusals | 4 FAILED |
+| the convergence proof compares against the reversed committed order | `the derived node ids are the committed ones` | 1 FAILED |
+
+### The four refused mutations in the end-to-end proof
+
+An unknown member, a role outside the eight, an unsupported version, and a tag value that
+cannot round-trip through the node-id grammar. Each is asserted to have **actually changed
+the text** first, so a mutation that stopped matching cannot pass as one — which is what
+caught the first attempt at that check while it was being written. Each is a document a
+lenient reader would derive *something* from, which is why the assertion is the refusal and
+not "it produced a graph".
+
+A document with no records at all is asserted to be a **legal empty graph**, not a
+refusal: an empty dataset and a broken document are different facts and only one is a bug.
+
+---
+
 ## Checks, with real exit codes
 
 | Command | Exit |
 |---|---|
 | `gr cargo fmt --all --check` | 0 |
 | `gr cargo clippy --workspace --all-targets -- -D warnings` | 0 |
-| `gr cargo test --workspace` | 0 — 833 passed, 0 failed, 9 ignored |
+| `gr cargo test --workspace --no-fail-fast` | 0 — **995 passed, 0 failed, 11 ignored** (was 833 + 8 + 1 before; the growth is this slice's 8 native tests plus the one code-order test, and the earlier count did not include doc/integration binaries the same way) |
+| `gr cargo test -p graph-wasm contract` | 0 — 8 passed |
 | `gr cargo test -p graph-core ingest_id_grammar` | 0 — 3 passed |
-| `node harness/sdk-smoke.mjs --adapter-convergence` | 0 |
+| `gr cargo build -p graph-wasm --target wasm32-unknown-unknown --release` | 0 |
+| `node harness/sdk-smoke.mjs <wasm>` | 0 — 185 checks |
+| `node harness/sdk-smoke.mjs --adapter-convergence <wasm>` | 0 — **17 checks: the whole proof** |
+| `node harness/sdk-smoke.mjs --adapter-convergence` (no path) | 0 — 4 checks, the adapter half alone |
+| `node harness/wasm-run.mjs <wasm> --assert-zero-copy` | 0 |
 | `node harness/read-snapshot-raw.mjs` | 0 |
-| `gr cargo run -p graph-cli -- codegen --check` | 0 — 4 files up to date |
-| `gr cargo run -p graph-cli -- ingest --check <file>` | 0 up to date / 1 stale |
 | `tsc -p crates/graph-sdk-js/tsconfig.json --noEmit` | 0 |
 | `eslint crates/graph-sdk-js/src --max-warnings=0` | 0 |
 | `gr cargo run -p graph-cli -- capabilities --check` | **1** — see below |
 
-**`capabilities --check` exits 1, and it did before this slice.** It reports 34 problems,
-every one of them a pre-existing `Gated` row with no recorded run in `target/gates`:
-"gated, but no hashgate record: run the gate". **Zero** of the 34 name an `ingest.*` or
-`adapter.*` row, verified by grepping the output. The row cannot go green here: it needs
+**`capabilities --check` exits 1, and it did before this slice.** It reports 34 problems
+over 36 rows, every one a pre-existing `Gated` row with no recorded run in `target/gates`:
+"gated, but no hashgate record: run the gate". **Zero** name an `ingest.*`, `adapter.*` or
+contract row, verified by grepping the output. The row cannot go green here: it needs
 `hashgate`, `roundtrip` and `capabilities` themselves recorded, which is `gate.sh`'s job
 under the host-wide lock this phase does not take. Not run, and not claimed: `hashgate`,
-`roundtrip`, the wasm32 build, `ge-check`, any negative control, `gate.sh`, `cargo
-mutants`.
+`roundtrip`, `ge-check`, `gate.sh`, `cargo mutants`.
+
+Note on the `cargo test` total: the earlier slices' progress note reported 833 passed. The
+full `--workspace --no-fail-fast` run in this slice reports 995, and the difference is
+mostly integration/doc-test binaries counted this way rather than that one — the
+authoritative number is the one from the command actually run, recorded above.
 
 ## The Ponytails
 
@@ -212,7 +309,14 @@ mutants`.
 
 ## Coverage
 
-Every changed symbol has a test that exercises it: the contract's types, reader, writer
+Every changed symbol has a test that exercises it, and slice 7's additions specifically:
+`contract::derive` and `ContractError` by `crates/graph-wasm/src/contract/tests.rs` (8);
+`Code::ContractInvalid`'s wire value and its not-renumbering by `errors.rs`'s
+`the_new_code_appends_and_does_not_move_any_other`; `gm_build_contract` and
+`Motor#buildContract` and `ContractRefusedError` by `harness/sdk-smoke.mjs`; the raw
+export declaration by `wasm.ts`'s `RawExports` (checked away by `tsc --noEmit`).
+
+Every changed symbol from the earlier slices has a test that exercises it: the contract's types, reader, writer
 and schema by `crates/graph-contract/src/ingest/tests/*` (34); the roles and the
 derivation by `crates/graph-core/src/ingest/tests/*` (44); the two adapters and the
 canonicalizer by `harness/sdk-smoke.mjs --adapter-convergence`; the raw snapshot reader by
@@ -221,23 +325,25 @@ canonicalizer by `harness/sdk-smoke.mjs --adapter-convergence`; the raw snapshot
 
 ## Open
 
-1. **The wasm ABI still takes the provisional node/edge JSON.** `graph-wasm` is not in
-   the phase's authorization envelope, and the gate row for the convergence test runs
-   under `node:22-slim` with no cargo in the container, so the derivation could not be
-   reached from Node without changing the ABI. **The consequence is a real gap**: a JS
-   consumer can produce the contract but cannot yet hand it to the wasm module. Wiring
-   `gm_build` to accept the contract is the next slice and it needs the envelope extended
-   to `crates/graph-wasm/src/ingest.rs` (and to `docs/contract/wasm-abi.md`, which
-   documents the current format and would go stale). **Stop-and-ask: that is a breaking
-   change to a published ABI and should be a decision, not a side effect.**
+1. **CLOSED (slice 7). The wasm ABI takes the ingest contract.** `gm_build_contract`
+   accepts a contract document and derives it through `graph_core::ingest`, additively —
+   `gm_build` and the provisional format are unchanged. A JS consumer can now hand a
+   contract to the module. See "Slice 7" above.
 2. **`graph-cli ingest --check` and `capabilities --check` are not wired into
-   `gate.sh`.** Both commands exist and work; adding the rows is the orchestrator's.
-3. **The two halves of the convergence proof run in different runtimes** (Node for the
-   adapters, Rust for the derivation), because the adapters are TypeScript and the
-   derivation is Rust and no single container in the gate list has both. They read one
-   committed file, so they cannot drift; but a reviewer looking for a single command
-   that runs the whole proof will not find one.
+   `gate.sh`.** Both commands exist and work; adding the rows is the orchestrator's. Still
+   open. A third candidate now exists for the same list:
+   `sdk:convergence:wasm` (the one-command proof) — whether that is a gate row or a manual
+   check is the orchestrator's call, since it needs the wasm build to have run.
+3. **CLOSED (slice 7). The two halves of the convergence proof ran in different
+   runtimes.** They still *can* be checked in two runtimes, and the Rust half still is
+   (`cargo test -p graph-core ingest`), but the whole proof is now also a single Node
+   process through wasm: `sdk-smoke.mjs --adapter-convergence <wasm>`. See "Slice 7" above.
 4. **`docs/decisions/edge-strength-table.md` is still documentation-incomplete** on the
    per-kind old values: the host source tree is not readable from this worktree, so the
    client's `1.2 / 1.8 / 0.7 / 0.5` per-kind assignment and the query router's third set
    are recorded as the phase prompt states them, not as verified. Unchanged from slice 1.
+5. **`Motor#buildContract` is not in `EXAMPLES.md`.** `EXAMPLES.md`'s five examples were
+   copied from gate rows that pass (slice 5), and a sixth one for `buildContract` would
+   have to be copied from a row that does not exist in `gate.sh` yet — `EXAMPLES.md` is
+   outside this slice's envelope in any case. It is the one place a consumer would look
+   first for the method, and the gap closes the moment open item 2's rows are wired.

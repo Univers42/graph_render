@@ -21,8 +21,8 @@ const DEFAULT_HINT = "Unexpected studio error — see the browser console for th
 const HINTS: ReadonlyMap<string, string> = new Map([
   ["BuildRefusedError", "The ingest document was refused. Check the JSON, or regenerate the synthetic graph."],
   ["RunRefusedError", "The layout refused to run on this graph. Pick another layout, or load a graph it accepts."],
-  ["PostRefusedError", "The edge pass refused this drawing. The layout's own edges are shown instead."],
-  ["AnalysisRefusedError", "The analysis refused this graph. Pick another analysis."],
+  ["PostRefusedError", "The edge pass refused: it needs a finished layout run on the same graph. The layout's own edges are shown instead."],
+  ["AnalysisRefusedError", "The analysis refused this graph. It is a function of the topology: pick another analysis, or load the graph again."],
   ["InvalidHandleError", "The graph handle is no longer live. Load the graph again."],
   ["TamperedGeometryError", "A column view wrote a non-finite value. Reload the page and rebuild."],
   ["MotorTrapError", "The wasm module trapped. Reload the page; if it repeats, that stage is broken."],

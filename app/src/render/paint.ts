@@ -14,6 +14,7 @@ import type { SceneTheme } from "../../../src/core/theme/tokens.ts";
 import { NodeSpriteCache, DISC_FRACTION } from "../../../src/core/render/sprites.ts";
 import { styleKey } from "../../../src/core/render/nodeShape.ts";
 import type { EdgeKind } from "../../../src/core/types.ts";
+import { fillFor } from "../core/analysis.ts";
 import type { DrawList } from "../core/drawList.ts";
 import type { Frame } from "../core/frame.ts";
 import type { NodeStyle } from "./palette.ts";
@@ -45,6 +46,11 @@ export interface PaintState {
   readonly hover: number;
   readonly selected: number;
   readonly neighbors: ReadonlySet<number>;
+  /** One fill per node from an applied analysis, or `null` for the layout-only
+   *  case. It REPLACES the ingest-derived fill rather than tinting it: a ramped
+   *  node whose true colour is still visible under the overlay would be a value
+   *  the reader cannot trust. */
+  readonly fills: readonly string[] | null;
   /** Global alpha for the whole pass (1, or `t` mid-cross-fade). */
   readonly alpha: number;
   /** Backing-store ratio: the camera below is in CSS pixels. */
@@ -125,6 +131,23 @@ function drawBox(
   ctx.stroke();
 }
 
+/** The colour one node is painted in: the applied analysis's fill when it
+ *  covers that node, else the ingest-derived style's own fill, else the neutral
+ *  grey. A face over a DIFFERENT document is shorter than the run, and the nodes
+ *  it does not cover fall back rather than going grey — grey would read as "the
+ *  engine had nothing to say about this node", which is not what happened.
+ *
+ *  Ponytail: a ramp gives every node its OWN colour, so the sprite key is
+ *  per-node and the engine's LRU cache (384 entries) can rebake on a large graph.
+ *  Failing input: a several-thousand-node graph zoomed in far enough that sprites
+ *  are legible. Direction: quantise the ramp to a fixed number of buckets in
+ *  `core/analysis.ts`, at the cost of banding a continuous scale. Escape hatch:
+ *  zoom out — below `DOT_MAX_SCREEN_RADIUS` the far pass paints plain discs and
+ *  bakes nothing, so the cache is never the hot path there. */
+function fillOf(state: PaintState, index: number, style: NodeStyle | null): string {
+  return fillFor(state.fills, index) ?? style?.fill ?? NEUTRAL_FILL;
+}
+
 /** Every node: a blitted sprite for `Point`/`Circle`, a painted rect for `Box`,
  *  and a batched plain disc for the far-zoom case where no sprite is legible. */
 export function drawNodes(state: PaintState): void {
@@ -136,22 +159,23 @@ export function drawNodes(state: PaintState): void {
     const y = frame.y[node.index];
     if (!inView(state.view, x, y, 32)) continue;
     const style = styleAt(state.styles, node.index);
+    const fill = fillOf(state, node.index, style);
     const faded = state.alpha * alphaFor(state, node.index, dimmed);
     if (faded <= 0.01) continue;
     const radius = node.r > 0 ? node.r : 4.5;
     ctx.globalAlpha = faded;
     if (list.nodeKind === "Box") {
-      drawBox(ctx, node, x, y, camera.scale, style?.fill ?? NEUTRAL_FILL, theme);
+      drawBox(ctx, node, x, y, camera.scale, fill, theme);
       continue;
     }
     if (radius * camera.scale <= DOT_MAX_SCREEN_RADIUS) {
-      ctx.fillStyle = style?.fill ?? NEUTRAL_FILL;
+      ctx.fillStyle = fill;
       ctx.beginPath();
       ctx.arc(x, y, radius, 0, Math.PI * 2);
       ctx.fill();
       continue;
     }
-    const sprite = sprites.get(styleKey(style?.shape ?? "disc", style?.fill ?? NEUTRAL_FILL));
+    const sprite = sprites.get(styleKey(style?.shape ?? "disc", fill));
     // The disc fills DISC_FRACTION of the sprite, so the sprite spans r / DISC_FRACTION
     // each side (same as src/core/render/nodes.ts) — never a factor of sprite.width.
     const half = radius / DISC_FRACTION;

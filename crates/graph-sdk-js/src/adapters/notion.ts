@@ -300,7 +300,7 @@ function titleFieldOf(database: NotionDatabase, properties: readonly NotionPrope
   return declared.id;
 }
 
-function record(page: NotionPage, overrides: NotionOverrides, path: string): IngestRecord {
+function record(page: NotionPage, path: string): IngestRecord {
   const values: Record<string, JsonValue> = {};
   for (const [propertyId, value] of Object.entries(page.properties)) {
     const cellValue = cell(value, `${path}.${propertyId}`);
@@ -326,7 +326,7 @@ function record(page: NotionPage, overrides: NotionOverrides, path: string): Ing
 export function notionToIngest(source: NotionSource, overrides: NotionOverrides = {}): Ingest {
   const collections = source.databases.map((d) => collection(d, overrides));
   const records = source.pages
-    .map((p, i) => record(p, overrides, `pages[${i}]`))
+    .map((p, i) => record(p, `pages[${i}]`))
     // A page in a database the export does not carry derives nothing: the contract's
     // reader would refuse the dangling collection, and saying so here names the page.
     .filter((r) => source.databases.some((d) => d.id === r.collection));

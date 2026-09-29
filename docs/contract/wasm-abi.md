@@ -1,7 +1,8 @@
 # WASM ABI — the motor's `extern "C"` surface
 
-Status: **authoritative** (Phase 4; POST and ANALYSIS added after). Scope:
-`crates/graph-wasm/src/{exports/,alloc.rs,handle.rs,views.rs,ingest.rs,seed_ingest.rs,
+Status: **authoritative** (Phase 4; POST and ANALYSIS added after; `gm_build_contract`
+added in Phase 10 slice 7). Scope:
+`crates/graph-wasm/src/{exports/,alloc.rs,handle.rs,views.rs,ingest.rs,contract.rs,seed_ingest.rs,
 errors.rs,post.rs,analysis.rs,stage_exports.rs,lib.rs}`. No wasm-bindgen, no
 wasm-pack anywhere in the tree (`cargo tree -p graph-wasm`, verified — see
 `docs/measurements/phase04-transport.md`). Every export takes and returns plain `u32`
@@ -18,9 +19,10 @@ caller for an application; this document is what it is built against.
    ABI as a stage of its own beside them (see "Hash-gate wiring"); it does not replace
    them. `crates/graph-sdk-js` never calls these.
 2. **The real ABI** (`exports/{build,columns,stages,state}.rs`, wasm32-only), below:
-   `gm_build`/`gm_run`/`gm_release` and everything a caller needs around them, plus the
-   two stages downstream of LAYOUT — `gm_post_*` and `gm_analysis_*` (see POST and
-   ANALYSIS below). This is what the SDK, and C20's own proof, actually call.
+   `gm_build`/`gm_build_contract`/`gm_run`/`gm_release` and everything a caller needs
+   around them, plus the two stages downstream of LAYOUT — `gm_post_*` and
+   `gm_analysis_*` (see POST and ANALYSIS below). This is what the SDK, and C20's own
+   proof, actually call.
 
 ## Exports
 
@@ -30,7 +32,8 @@ caller for an application; this document is what it is built against.
 | `gm_free` | `(ptr: u32, len: u32)` | `(ptr, len)` must be exactly a live, un-freed `gm_alloc` allocation, or the call is refused (`Code::FreeRefused`) and nothing is deallocated — a double free and a length lie are both caught this way, not just an unaligned or out-of-range pointer. |
 | `gm_layout_count` | `() -> u32` | The registry's row count (`graph_core::registry::LAYOUTS`). Registry-driven (C1): a new layout changes this with no ABI change. |
 | `gm_layout_id` | `(i: u32) -> u32` | Framed UTF-8 id of registry row `i`; `0` (`Code::IndexOutOfRange`) past the end. `gm_run`'s `layout_id` argument *is* this index — a caller finds it by scanning `0..gm_layout_count()` once at load, never a hard-coded constant. |
-| `gm_build` | `(ingest_ptr: u32, ingest_len: u32) -> u32` | `(ingest_ptr, ingest_len)` must be a live `gm_alloc` allocation (C5); copies out of it, never frees it — the caller's buffer, the caller's job to free, always, even on refusal. Parses the provisional ingest JSON (below), indexes it into a topology, and returns a fresh handle, or `0` on any refusal (`IngestInvalid`, `BuildSourceInvalid`, `HandlesExhausted`). |
+| `gm_build` | `(ingest_ptr: u32, ingest_len: u32) -> u32` | `(ingest_ptr, ingest_len)` must be a live `gm_alloc` allocation (C5); copies out of it, never frees it — the caller's buffer, the caller's job to free, always, even on refusal. Parses the **provisional** ingest JSON (below), indexes it into a topology, and returns a fresh handle, or `0` on any refusal (`IngestInvalid`, `BuildSourceInvalid`, `HandlesExhausted`). |
+| `gm_build_contract` | `(contract_ptr: u32, contract_len: u32) -> u32` | Same buffer contract and the same handle table as `gm_build`, one ownership rule for both. Takes the **phase-10 ingest contract** (`docs/contract/ingest-schema.json`) instead of the provisional node/edge JSON, and derives the graph through `graph_core::ingest`'s single derivation (`crates/graph-wasm/src/contract.rs`). `0` on any refusal (`ContractInvalid`, `BuildSourceInvalid`, `HandlesExhausted`). **Additive: `gm_build` and its provisional format are unchanged**, so nothing already speaking it moves — see "Two build paths" below. |
 | `gm_run` | `(handle: u32, layout_id: u32, params_ptr: u32, params_len: u32) -> u32` | Runs registry layout `layout_id` over `handle`'s topology at its default parameters — every registered `run: fn(&Topology)` this phase takes none (C2), so `params_len` must be exactly `0`; any other value is refused (`ParamsMustBeEmpty`), never silently ignored, and `params_ptr` is never read. `1` on success, `0` on refusal. A failed run clears the handle's previous geometry first (`Code::NoGeometryYet` on the next read), so a refusal never serves a stale snapshot. |
 | `gm_node_count` | `(handle: u32) -> u32` | Nodes in `handle`'s topology, available right after `gm_build`, before any run. `0` is ambiguous (empty graph vs. invalid handle) — resolved by `gm_last_error`. |
 | `gm_geometry_kind` | `(handle: u32) -> u32` | Node geometry tag of the last successful run: `0` Point, `1` Circle, `2` Box (`docs/contract/binary-layout.md`). `u32::MAX` — never a real tag — before any run has succeeded. |
@@ -44,10 +47,55 @@ caller for an application; this document is what it is built against.
 | `gm_seed_ingest` | `(seed: u32) -> u32` | Gate-only: the hash gate's model at `seed`, framed as the same provisional ingest JSON `gm_build` reads. Not part of the published SDK surface — `harness/sdk-smoke.mjs` never calls it; only `harness/wasm-run.mjs`'s hash mode does, to drive `gm_build`/`gm_run`/`gm_snapshot_bytes` over the gate's own seeded model for C20. |
 
 `gm_layout_count`/`gm_layout_id`/`gm_last_error`/`gm_edge_geometry_kind`/
-`gm_snapshot_bytes`/`gm_seed_ingest` are all beyond the phase's literally stated minimum
-surface (`gm_alloc`, `gm_free`, `gm_build`, `gm_run`, `gm_node_count`, `gm_column_ptr`,
-`gm_column_len`, `gm_geometry_kind`, `gm_snapshot_json`, `gm_release`) — each is named
-above with why it exists; none replaces or hides one of the ten.
+`gm_snapshot_bytes`/`gm_seed_ingest`/`gm_build_contract` are all beyond the phase's
+literally stated minimum surface (`gm_alloc`, `gm_free`, `gm_build`, `gm_run`,
+`gm_node_count`, `gm_column_ptr`, `gm_column_len`, `gm_geometry_kind`, `gm_snapshot_json`,
+`gm_release`) — each is named above with why it exists; none replaces or hides one of the
+ten. `gm_build_contract` in particular **adds a path rather than changing one**:
+`gm_build` and the provisional document it reads are byte-for-byte what they were.
+
+## The convergence proof, one command
+
+The phase's proof is that the same logical dataset, in two source shapes, produces **one**
+contract document and **one** graph. It used to need two runtimes — the adapters are
+TypeScript (Node only) and the derivation is `graph_core::ingest`'s (Rust only) — so no
+single command ran all of it. `gm_build_contract` closes that: Node can now do the third
+step, so one command runs the whole chain.
+
+```sh
+# 1. build the module (the gate image has no node)
+gr cargo build -p graph-wasm --target wasm32-unknown-unknown --release
+# 2. run the whole proof: two adapters -> one document -> the committed graph
+node-slim.sh node --experimental-strip-types harness/sdk-smoke.mjs \
+  --adapter-convergence target/wasm32-unknown-unknown/release/graph_wasm.wasm
+```
+
+Two containers, two commands, and that is the honest shape of it: `ge-rust` has no
+`node` and `node:22-slim` has no `cargo`. What is now single is the **proof** — all three
+steps are checked by one process against one committed artifact
+(`fixtures/ingest/expected-graph.json`), where before the adapter half and the derivation
+half were two runtimes reading two halves of the same file. `npm run
+sdk:convergence:wasm` is step 2 with the path filled in; step 1 is the standard wasm build
+every gate row already needs, so no new build step is introduced.
+
+Run step 2 with **no** wasm path and it checks the adapter half alone — that mode predates
+this slice and still works, so the existing gate row does not have to change.
+
+What step 2 asserts, in order: both adapters map their source to byte-identical documents;
+the documents equal the committed `ingest`; the document handed to `Motor#buildContract`
+derives the committed `graph`'s node count, node ids in derivation order, and each edge
+column in derivation order; four mutated documents are each **refused** (an unknown member,
+a role outside the eight, an unsupported version, a tag value that cannot round-trip
+through the node-id grammar); and a document with no records is a legal empty graph rather
+than a refusal. Every mutation is asserted to have actually changed the text first, so a
+"mutation" that no longer matches cannot pass as one.
+
+The Rust half of the same proof is unchanged and still runs: `crates/graph-core`'s
+`the_committed_graph_is_exactly_what_the_derivation_produces` pins the same committed
+graph against the same derivation natively, and `crates/graph-wasm/src/contract/tests.rs`
+pins it through this module. Three runtimes checking one artifact is redundant on purpose —
+they catch different mistakes (an adapter's mapping, a derivation change, and a boundary
+that stopped deriving), and none of them can pass by agreeing with itself.
 
 ## Hash-gate wiring
 
@@ -292,17 +340,60 @@ graph-core-only capability.
 | 11 | `BuildSourceInvalid` | `gm_build`'s `(ptr, len)` is not exactly a live `gm_alloc` allocation |
 | 12 | `IndexOutOfRange` | An index argument (`gm_layout_id`, `gm_post_id`, `gm_analysis_id`) is past the end of its list |
 | 13 | `PostFailed` | The registered POST capability returned a `StageError`, or its edges did not fit the snapshot. The handle keeps the geometry it had |
+| 14 | `ContractInvalid` | `gm_build_contract`'s buffer is not a valid ingest contract document — the contract's strict reader refused it (unknown member, unnamed role, unsupported version, dangling collection, a `:` in a coordinate that cannot round-trip) **or** the derivation refused the graph it describes (a tag value containing `:`). One code for both, because "was my document accepted" is the question a caller asks and the reader's checks all run first; which of the two said no is a question about the document's content, and both are loud. |
+
+Codes are **append-only**: `ContractInvalid` was added as `14` and moved no existing
+code, which `crates/graph-wasm/src/errors.rs`'s
+`the_new_code_appends_and_does_not_move_any_other` pins — an SDK indexes
+`CODE_NAMES` (`crates/graph-sdk-js/src/errors.ts`) by the same order, so renumbering
+would silently turn a caller's `UnknownLayoutId` into a `NoGeometryYet`. `ContractInvalid`
+is deliberately **not** `IngestInvalid`: the two name different documents, and a code that
+did not say which was refused would let a caller handle a contract rejection as a
+node/edge rejection.
 
 `0` is both the wire's generic failure sentinel *and* a legitimate data value (an empty
 graph's `gm_node_count`, an absent column's `gm_column_ptr`) — every ambiguous `0` is
 documented above as resolved by `gm_last_error`, never left for a caller to guess at.
 
+## Two build paths — `gm_build` and `gm_build_contract`
+
+Two exports take a document and return a handle. They take **different documents**, they
+hand back handles from the same table with the same rules, and neither accepts the
+other's document.
+
+| | `gm_build` | `gm_build_contract` |
+|---|---|---|
+| document | the **provisional** node/edge JSON (below, C13) | the phase-10 **ingest contract** (`docs/contract/ingest-schema.json`) |
+| who derives the graph | the caller already wrote nodes and edges | `graph_core::ingest`'s single derivation |
+| refusal code | `IngestInvalid` | `ContractInvalid` |
+| who uses it | the host studio, `harness/wasm-run.mjs`, `gm_seed_ingest`'s output | this package's `rowsToIngest`/`notionToIngest` adapters |
+
+**`gm_build` and its format are unchanged.** The provisional shape is what the host studio
+and the hash gate's C20 stage already speak, and rewriting it would move a published ABI's
+meaning without adding anything a caller can use. `gm_build_contract` is purely additive:
+a new symbol, a new code, and a path that did not exist before.
+
+The two formats are deliberately **not interchangeable**, and each reader refuses the
+other's document — `crates/graph-wasm/src/contract/tests.rs`'s
+`the_two_ingest_formats_are_not_interchangeable` pins both directions. That is what stops
+this from quietly becoming one export: routing `gm_build_contract` to the provisional
+parser would derive an empty graph from a contract document, and routing `gm_build` here
+would refuse every document the studio sends.
+
+What the contract path adds is that the graph is derived **once, by the motor**. Before it
+existed, a JS consumer could produce a contract document but had no way to hand it to the
+module — and deriving the graph in JS instead would have been a second copy of the
+derivation, which is the exact thing this phase exists to end (graph derivation existed in
+three copies in the host and they had already diverged, so two live code paths produced
+different layouts for the same data).
+
 ## Ingest — PROVISIONAL (C13)
 
-**Phase 10 owns the real ingest contract.** `gm_build` takes a versioned JSON document in
+`gm_build` takes a versioned JSON document in
 `graph_core::records`' own shape, parsed by `graph_contract::canonical_json`'s strict
 RFC 8259 reader (`crates/graph-wasm/src/ingest.rs`). This exists only so Phase 4 has
-something concrete to build `gm_build` against.
+something concrete to build `gm_build` against, and it remains the format the host studio
+and the hash gate speak — see "Two build paths" above.
 
 ```json
 {
@@ -354,6 +445,17 @@ names, covering one layout forever. On a degraded motor `layouts()` refuses like
 other method that needs the module; it never answers `[]`, which would be
 indistinguishable from "this module has no layouts".
 
+**`Motor#buildContract(contractJson)`** is the SDK's method for `gm_build_contract`: it
+takes an ingest contract document — the shape `rowsToIngest`/`notionToIngest` produce, and
+`docs/contract/ingest-schema.json` describes — stages and frees the buffer exactly as
+`Motor#build` does, and returns a `Handle` usable with every other method from there on
+(`nodeCount`, `layout`, `column`, `toJSON`, `analysis`, `release`). It is a **separate**
+method rather than an overload of `build`, and the two refuse each other's documents with
+different error classes (`ContractRefusedError`, `codeName: "ContractInvalid"`, vs.
+`BuildRefusedError`, `"IngestInvalid"`), so a caller that catches one can never mistake a
+contract rejection for a node/edge one. On a degraded motor it throws the latched
+`WasmUnavailableError` like every other method that needs the module.
+
 **`Motor#posts()`, `Motor#post(handle, id)`, `Motor#analyses()`,
 `Motor#analysis(handle, id)`** extend the same rule to the two stages downstream of
 LAYOUT, and each pair refuses on a degraded motor for the same reason. `post` returns a
@@ -389,6 +491,7 @@ returns a degraded `Motor` (see Deviations).
 | `gm_alloc` / `gm_free` | `crates/graph-wasm/src/alloc.rs` unit tests (native); `Motor#build`'s stage/free (`harness/sdk-smoke.mjs`) |
 | `gm_layout_count` / `gm_layout_id` | `Motor#layouts` (`harness/sdk-smoke.mjs`, `harness/wasm-run.mjs`'s `layoutIndex` helper) |
 | `gm_build` | `crates/graph-wasm/src/ingest.rs` unit tests (native, the parser); `harness/sdk-smoke.mjs`, `harness/wasm-run.mjs --assert-zero-copy` |
+| `gm_build_contract` | `crates/graph-wasm/src/contract/tests.rs` (native, 8: the committed document derives the committed graph byte for byte, the derivation is `graph_core`'s and not a copy, the two formats are not interchangeable, every reader refusal, a tag value that cannot round-trip, deletion honoured); `harness/sdk-smoke.mjs` (via `Motor#buildContract`: node count and derivation order, both non-interchangeability directions, an unknown member refused, the code named) |
 | `gm_run` | `harness/sdk-smoke.mjs`, `harness/wasm-run.mjs --assert-zero-copy`, `abiSnapshotBytes` (C20) |
 | `gm_node_count` | `harness/sdk-smoke.mjs` (including the released-handle refusal, C6) |
 | `gm_geometry_kind` / `gm_edge_geometry_kind` | `harness/sdk-smoke.mjs` (`layout.grid reports Point/Line geometry`) |
@@ -416,19 +519,24 @@ returns a degraded `Motor` (see Deviations).
 
 ## File-size deviations (the house's ≤300-line limit)
 
-`crates/graph-sdk-js/src/index.ts` measures 476 lines and `harness/sdk-smoke.mjs` 542,
+`crates/graph-sdk-js/src/index.ts` measures 554 lines and `harness/sdk-smoke.mjs` 727,
 both over the limit; `crates/graph-wasm/src/{post,analysis}/tests.rs` (379 and 404) are
-over it too. Both were already at or near it before this change (`index.ts` 281,
-`sdk-smoke.mjs` 303), and the house's own answer — split into child modules, never
-compress — is not available for either file without a restructuring outside this task's
-envelope: `index.ts` is *the published entry point* (a consumer imports that one file,
-and splitting the `Motor` class across modules would mean exporting an implementation
-detail or re-exporting through a barrel the type surface then has to mirror), and
-`sdk-smoke.mjs` is a single top-level script whose `check`/`failures` counters and
-`process.exit` are deliberately process-global. The two test files are the ordinary
-`views.rs` → `views/tests.rs` split already applied; their parents are under the limit.
-Recorded here rather than hidden, and the two over-limit non-test files are the ones a
-reviewer should look at first.
+over it too. `index.ts` grew from 476 with `Motor#buildContract` and `sdk-smoke.mjs` from
+542 with that method's coverage plus the end-to-end convergence mode. Both were already
+at or near it before this change (`index.ts` 281, `sdk-smoke.mjs` 303), and the house's
+own answer — split into child modules, never compress — is not available for either file
+without a restructuring outside this task's envelope: `index.ts` is *the published entry
+point* (a consumer imports that one file, and splitting the `Motor` class across modules
+would mean exporting an implementation detail or re-exporting through a barrel the type
+surface then has to mirror), and `sdk-smoke.mjs` is a single top-level script whose
+`check`/`failures` counters and `process.exit` are deliberately process-global. The two
+test files are the ordinary `views.rs` → `views/tests.rs` split already applied; their
+parents are under the limit. Recorded here rather than hidden, and the two over-limit
+non-test files are the ones a reviewer should look at first.
+
+`crates/graph-wasm/src/contract.rs` (76) and `contract/tests.rs` (269) are both **under**
+the limit — the new module is the ordinary `ingest.rs` → `ingest/{,tests/}.rs` shape, not
+an exception to it.
 
 ## Deviations
 

@@ -42,6 +42,12 @@ export interface PanelData {
   readonly list: DrawList;
   readonly styles: readonly NodeStyle[];
   readonly edgeKinds: readonly EdgeKind[];
+  /** One fill per node from an applied analysis, or `null` for none. The overlay
+   *  is passed RAW — unscaled — because it is a colour, not geometry: the world
+   *  scale multiplies coordinates and sizes, and a colour times 56 is nonsense.
+   *  It survives a transition because it is indexed by dense index, which a
+   *  transition does not renumber. */
+  readonly fills: readonly string[] | null;
   /** Animate from the previous run's geometry? False for a first run. */
   readonly animate: boolean;
 }
@@ -64,6 +70,7 @@ export class GraphView implements PointerHost {
   #list: DrawList | null = null;
   #styles: readonly NodeStyle[] = [];
   #edgeKinds: readonly EdgeKind[] = [];
+  #fills: readonly string[] | null = null;
   #from: DrawList | null = null;
   #transitionStart = 0;
   #transitioning = false;
@@ -120,6 +127,7 @@ export class GraphView implements PointerHost {
     this.#list = toStudioWorld(data.list);
     this.#styles = data.styles;
     this.#edgeKinds = data.edgeKinds;
+    this.#fills = data.fills;
     this.#transitioning = data.animate && !this.#reducedMotion;
     this.#transitionStart = performance.now();
     this.#selected = -1;
@@ -237,7 +245,7 @@ export class GraphView implements PointerHost {
       view: visibleWorldRect(this.#camera, this.#width, this.#height),
       list, frame, styles: this.#styles, edgeKinds: this.#edgeKinds,
       sprites: this.#sprites, hover: this.#hover, selected: this.#selected,
-      neighbors: this.#neighbors, alpha: frame.alpha, dpr: this.#dpr,
+      neighbors: this.#neighbors, fills: this.#fills, alpha: frame.alpha, dpr: this.#dpr,
     };
   }
 

@@ -87,9 +87,51 @@ body {
   color: var(--osio-fg-muted, #a9a296);
 }
 
-.panel-card--slot {
-  border-style: dashed;
-  opacity: 0.9;
+/* The analysis readout and its legend: a two-column key/value grid like the run
+   card's, and a wrapping list of swatches under it. */
+.rows {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 10px;
+  margin: 8px 0 0;
+  font-size: 12px;
+}
+
+.rows dt {
+  color: var(--osio-fg-muted, #a9a296);
+  font-size: 11px;
+}
+
+.rows dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  font-size: 11px;
+  color: var(--osio-fg-muted, #a9a296);
+  font-variant-numeric: tabular-nums;
+}
+
+.legend li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  border: 1px solid var(--osio-border, rgba(255, 240, 210, 0.16));
 }
 
 .fields {

@@ -18,6 +18,9 @@ export interface RunnerState {
   readonly runLayouts: (primary: string, other: string | null) => void;
   readonly setCompare: (on: boolean) => void;
   readonly setCompareId: (id: string) => void;
+  /** Replace the primary run in place — how a POST pass, which runs on the same
+   *  handle, hands the canvas its new geometry without a second build. */
+  readonly replaceRun: (report: RunReport) => void;
 }
 
 export interface RunnerArgs {
@@ -97,9 +100,11 @@ export function useRunner(args: RunnerArgs): RunnerState {
   const open = useCallback((id: string) => runLayouts(id, null), [runLayouts]);
   useAutoRun(args, open);
 
+  const replaceRun = useCallback((report: RunReport) => setRun(report), []);
+
   return {
     layoutId: slots.layoutId, compareId: slots.compareId, compare: slots.compare,
     run: slots.run, second: slots.second,
-    runLayouts, setCompare, setCompareId,
+    runLayouts, setCompare, setCompareId, replaceRun,
   };
 }
