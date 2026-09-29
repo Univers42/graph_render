@@ -79,6 +79,12 @@ fn main() -> ExitCode {
             out,
         } => oracle_python::emit(&oracle_python::FA2, seeds, max_iter, &out),
         Command::OracleFa2 { dir } => oracle_python::ingest(&oracle_python::FA2, &dir),
+        Command::EmitClosedFormFixtures { seeds, out } => {
+            oracle_python::emit(&oracle_python::CLOSED_FORM, seeds, None, &out)
+        }
+        Command::OracleClosedForm { dir } => {
+            oracle_python::ingest(&oracle_python::CLOSED_FORM, &dir)
+        }
         Command::OracleLayouts { fixtures } => {
             oracle_fixtures::diff_layouts(&fixtures.unwrap_or_else(oracle_fixtures::default_out))
         }
@@ -107,34 +113,6 @@ fn main() -> ExitCode {
         }),
         Command::DeterminismProbe { out } => determinism_probe::run(&out),
         Command::Stress { oracle, seeds } => stress::run(&oracle, seeds),
-        Command::Bench {
-            n,
-            layout,
-            seed,
-            past_ceiling,
-            vs_d3,
-            dry_run,
-            repeat,
-            out,
-            crossover,
-            budget_ms,
-            emit_scale_fixture,
-            tiers,
-            workers,
-        } => bench::run(&bench::Plan {
-            sizes: n,
-            layouts: layout,
-            seed,
-            past_ceiling,
-            vs_d3,
-            dry_run,
-            repeat,
-            out,
-            crossover,
-            budget_ms,
-            emit_scale_fixture,
-            tiers,
-            workers,
-        }),
+        Command::Bench(plan) => bench::run(&plan),
     }
 }

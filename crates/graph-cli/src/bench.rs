@@ -52,29 +52,54 @@ const D3_ARM: &str = "layout.force.barnes_hut";
 
 const SOURCES: usize = 16;
 
-/// What one `graph-cli bench` invocation runs.
+/// What one `graph-cli bench` invocation runs: wall time and Kruskal stress-1 of the given
+/// layouts at the given node counts, refusing a size past a layout's own registered
+/// `scale_ceiling` unless `--past-ceiling` asks for it.
+#[derive(clap::Args)]
 pub struct Plan {
+    /// Node counts, comma separated; `220,10000,100000` is the phase gate's set.
+    #[arg(long = "n", value_delimiter = ',', default_value = "220,10000,100000",
+          value_parser = clap::value_parser!(u32).range(1..=i64::from(scale::MAX_SCALE_NODES)))]
     pub sizes: Vec<u32>,
+    /// Registered layout ids; repeat for several. Default: the Phase 6 layouts.
+    #[arg(long = "layout")]
     pub layouts: Vec<String>,
+    /// Seed of the synthetic model.
+    #[arg(long, default_value_t = 0)]
     pub seed: u32,
+    /// Run sizes past a layout's `scale_ceiling` too, labelled as such.
+    #[arg(long)]
     pub past_ceiling: bool,
+    /// Also time the d3-force arm (`harness/stress-d3.mjs`) on the same graph, for
+    /// `layout.force.barnes_hut`.
+    #[arg(long)]
     pub vs_d3: bool,
+    /// Report which sizes each layout would run or refuse, and run none of them.
+    #[arg(long)]
     pub dry_run: bool,
     /// Phase 9: runs per cell; the campaign reports their median, never one timing.
+    #[arg(long, default_value_t = 5)]
     pub repeat: u32,
     /// Phase 9: where the campaign's markdown goes, or nothing.
+    #[arg(long)]
     pub out: Option<PathBuf>,
     /// Phase 9: report the largest N per arm that fits the frame budget.
+    #[arg(long)]
     pub crossover: bool,
-    /// Phase 9: the frame budget, in milliseconds.
+    /// Phase 9: the frame budget, in milliseconds (`prompt.md` §5.2: 16.67).
+    #[arg(long, default_value_t = campaign::FRAME_BUDGET_MS)]
     pub budget_ms: f64,
     /// Phase 9: write the scale fixture for `--seed` and the first `--n` here, and
-    /// measure nothing.
+    /// measure nothing. The generator is the artefact; the file is one sample of it.
+    #[arg(long, value_name = "PATH")]
     pub emit_scale_fixture: Option<PathBuf>,
     /// Phase 11: time the layout under each named execution tier instead of one run per
     /// size. `scalar` and `threads` are built; `simd` and `gpu` are refused by name.
+    #[arg(long, value_delimiter = ',', value_parser = tiers::parse_asked_list())]
     pub tiers: Option<Vec<tiers::Asked>>,
     /// Phase 11: the worker counts `threads` is timed at.
+    #[arg(long, value_delimiter = ',', default_value = tiers::WORKERS_DEFAULT,
+          value_parser = clap::value_parser!(u32).range(1..))]
     pub workers: Vec<u32>,
 }
 

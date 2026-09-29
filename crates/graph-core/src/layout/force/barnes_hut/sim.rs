@@ -53,8 +53,18 @@ pub(super) struct Sim {
 impl Sim {
     pub(super) fn new(topology: &Topology, params: ForceParams, seed: u32) -> Self {
         let graph = simple_graph(topology);
-        let n = topology.node_count() as usize;
-        let (x, y) = golden_spiral(n as u32);
+        let (x, y) = golden_spiral(topology.node_count());
+        Self::from_parts(graph, params, seed, (x, y))
+    }
+
+    /// A simulation over `graph` starting from the given positions (one per node).
+    pub(super) fn from_parts(
+        graph: SimpleGraph,
+        params: ForceParams,
+        seed: u32,
+        (x, y): (Vec<f64>, Vec<f64>),
+    ) -> Self {
+        let n = x.len();
         let (link_distance, link_strength, link_bias) = super::link::geometry(&graph, &params);
         Self {
             alpha: params.initial_alpha,

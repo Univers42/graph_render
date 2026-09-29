@@ -19,6 +19,7 @@ mod charge;
 mod collide;
 mod link;
 mod seed;
+mod settle;
 mod sim;
 mod step;
 
@@ -91,6 +92,8 @@ impl Split {
         }
     }
 }
+
+pub(crate) use settle::{golden_seed, settle};
 
 /// Barnes-Hut approximated force layout (`prompt.md` §3.1).
 ///

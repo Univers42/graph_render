@@ -67,7 +67,7 @@ fn the_record_holds_the_exact_counts_it_reports() {
     let text = serde_json::to_string(&body(None, 3, &clean, 3, &four)).expect("json");
     assert_eq!(
         text,
-        r#"{"arm_names":["native run 1","native run 2","wasm32 run 1","wasm32 run 2"],"arms":4,"equal":{"layout.circular.radial":3,"layout.dag.sugiyama":3,"layout.force.barnes_hut":3,"layout.forceatlas2":3,"layout.grid":3,"layout.mds.pivot":3,"layout.packing.circle":3,"layout.spectral":3,"layout.tree.tidy":3,"layout.treemap.squarified":3,"topology":3,"transport.wasm.columnar":3},"mutation":null,"pass":true,"seeds":3,"transport":{"equal":3,"reference":"layout.grid","stage":"transport.wasm.columnar"}}"#
+        r#"{"arm_names":["native run 1","native run 2","wasm32 run 1","wasm32 run 2"],"arms":4,"equal":{"layout.bipartite":3,"layout.circular.radial":3,"layout.circular.ring":3,"layout.dag.sugiyama":3,"layout.force.barnes_hut":3,"layout.force.yifan_hu":3,"layout.forceatlas2":3,"layout.grid":3,"layout.mds.pivot":3,"layout.packing.circle":3,"layout.random":3,"layout.spectral":3,"layout.spiral":3,"layout.tree.tidy":3,"layout.treemap.squarified":3,"topology":3,"transport.wasm.columnar":3},"mutation":null,"pass":true,"seeds":3,"transport":{"equal":3,"reference":"layout.grid","stage":"transport.wasm.columnar"}}"#
     );
     // The arm count is in the record because the per-stage counts mean nothing without
     // it: `equal: 8` is a different claim at four arms than at nine.

@@ -6,8 +6,11 @@ mod depth;
 mod force;
 mod refusals;
 mod registry;
+mod stages;
 mod sugiyama;
 mod transport;
+
+use stages::equal_map;
 
 /// The 17 oracle functions of `prompt.md` §7.4, plus the H4 and H9 arms.
 const COVERED: [&str; 19] = [
@@ -31,36 +34,6 @@ const COVERED: [&str; 19] = [
     "hashString",
     "layoutGroups",
 ];
-
-/// Every hashgate stage's key, in `hashgate::STAGES` order, so this fixture's `equal`
-/// maps can be built at the same shape a real record has, without importing the
-/// hashgate module just for the constant.
-const STAGES: [&str; 12] = [
-    "topology",
-    "layout.grid",
-    "layout.tree.tidy",
-    "layout.treemap.squarified",
-    "layout.circular.radial",
-    "layout.packing.circle",
-    "layout.spectral",
-    "layout.mds.pivot",
-    "layout.force.barnes_hut",
-    "layout.forceatlas2",
-    "layout.dag.sugiyama",
-    "transport.wasm.columnar",
-];
-
-/// A hashgate-shaped `equal` map: `seeds` for every stage, except `diverged`'s, at `0`.
-fn equal_map(seeds: u64, diverged: &[&str]) -> Value {
-    let map: serde_json::Map<String, Value> = STAGES
-        .iter()
-        .map(|&stage| {
-            let count = if diverged.contains(&stage) { 0 } else { seeds };
-            (stage.to_owned(), json!(count))
-        })
-        .collect();
-    Value::Object(map)
-}
 
 /// One `{cases, declared: 0, unexplained: 0}` function entry.
 fn hand(cases: u64) -> Value {
@@ -352,7 +325,7 @@ fn the_ledger_is_the_registry_plus_the_scale_rows_and_still_stands() {
     }
     assert_eq!(
         rows.len(),
-        43,
+        48,
         "42 before analysis.depth, and 36 before Phase 8's six bundling and style rows"
     );
     assert_eq!(problems(&rows, &evidence), Vec::<String>::new());

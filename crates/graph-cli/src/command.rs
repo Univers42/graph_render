@@ -131,6 +131,21 @@ pub enum Command {
         #[arg(long, default_value = "target/fa2-fixtures")]
         dir: PathBuf,
     },
+    /// Writes the closed-form differential's fixtures for `harness/oracle-closed-form.py`.
+    EmitClosedFormFixtures {
+        /// Number of seeds, 0..N.
+        #[arg(long, default_value_t = 1000, value_parser = seed_count())]
+        seeds: u32,
+        /// Output directory.
+        #[arg(long, default_value = "target/closed-form-fixtures")]
+        out: PathBuf,
+    },
+    /// Checks the closed-form differential's result against its ceiling and records it.
+    OracleClosedForm {
+        /// Directory holding the fixtures and `closed-form-result.json`.
+        #[arg(long, default_value = "target/closed-form-fixtures")]
+        dir: PathBuf,
+    },
     /// Runs `harness/oracle-layouts.mjs` over the emitted fixtures (the d3-hierarchy arm).
     OracleLayouts {
         /// Fixtures directory; `target/oracle-fixtures` by default.
@@ -196,51 +211,5 @@ pub enum Command {
     },
     /// Wall time and Kruskal stress-1 of the Phase 6 layouts (or `--layout`) at the given
     /// node counts, refusing a size past a layout's own registered `scale_ceiling`.
-    Bench {
-        /// Node counts, comma separated; `220,10000,100000` is the phase gate's set.
-        #[arg(long, value_delimiter = ',', default_value = "220,10000,100000",
-              value_parser = clap::value_parser!(u32).range(1..=i64::from(crate::bench::scale::MAX_SCALE_NODES)))]
-        n: Vec<u32>,
-        /// Registered layout ids; repeat for several. Default: the Phase 6 layouts.
-        #[arg(long)]
-        layout: Vec<String>,
-        /// Seed of the synthetic model.
-        #[arg(long, default_value_t = 0)]
-        seed: u32,
-        /// Run sizes past a layout's `scale_ceiling` too, labelled as such.
-        #[arg(long)]
-        past_ceiling: bool,
-        /// Also time the d3-force arm (`harness/stress-d3.mjs`) on the same graph, for
-        /// `layout.force.barnes_hut`.
-        #[arg(long)]
-        vs_d3: bool,
-        /// Report which sizes each layout would run or refuse, and run none of them.
-        #[arg(long)]
-        dry_run: bool,
-        /// Phase 9: runs per cell. The campaign reports the median, never one timing.
-        #[arg(long, default_value_t = 5)]
-        repeat: u32,
-        /// Phase 9: write the campaign's markdown here.
-        #[arg(long)]
-        out: Option<PathBuf>,
-        /// Phase 9: report the largest N per arm that fits the frame budget.
-        #[arg(long)]
-        crossover: bool,
-        /// Phase 9: the frame budget in milliseconds (`prompt.md` §5.2: 16.67).
-        #[arg(long, default_value_t = crate::bench::campaign::FRAME_BUDGET_MS)]
-        budget_ms: f64,
-        /// Phase 9: write the scale fixture for `--n` and `--seed` here and measure
-        /// nothing. The generator is the artefact; the file is one sample of it.
-        #[arg(long, value_name = "PATH")]
-        emit_scale_fixture: Option<PathBuf>,
-        /// Phase 11: time the layout under each named execution tier (`scalar`, `threads`)
-        /// instead of one run per size, and check every arm against the serial arm's
-        /// bytes. `simd` and `gpu` are refused until those tiers exist.
-        #[arg(long, value_delimiter = ',', value_parser = crate::bench::tiers::parse_asked_list())]
-        tiers: Option<Vec<crate::bench::tiers::Asked>>,
-        /// Phase 11: the worker counts `threads` is timed at.
-        #[arg(long, value_delimiter = ',', default_value = crate::bench::tiers::WORKERS_DEFAULT,
-              value_parser = clap::value_parser!(u32).range(1..))]
-        workers: Vec<u32>,
-    },
+    Bench(crate::bench::Plan),
 }
