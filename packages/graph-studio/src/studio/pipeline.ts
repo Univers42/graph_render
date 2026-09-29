@@ -24,7 +24,7 @@ export type ViewFace = Pick<
   View,
   | "setFrame" | "setStyle" | "setTheme" | "setLabels"
   | "fit" | "reset" | "zoomBy" | "panBy" | "limits"
-  | "focus" | "select" | "on" | "toPNG"
+  | "focus" | "select" | "local" | "showAll" | "on" | "toPNG"
 >;
 
 export interface Pipeline {

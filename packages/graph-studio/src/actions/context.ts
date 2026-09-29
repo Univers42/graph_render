@@ -1,6 +1,6 @@
 /** What an action may touch. The studio builds it; an action never reaches past it. */
 import type { StudioState } from "../state/model.ts";
-import type { Settings } from "../state/settings.ts";
+import type { Settings, Source } from "../state/settings.ts";
 import type { Pipeline, ViewFace } from "../studio/pipeline.ts";
 import type { Action, ArgValue, Args, ParamSpec } from "./registry.ts";
 
@@ -15,6 +15,8 @@ export interface StudioContext extends Pipeline {
   readonly save: Save;
   readonly clearLog: () => void;
   readonly actions: () => readonly StudioAction[];
+  /** The settings last kept for `source`, or null. */
+  readonly recall: (source: Source) => Settings | null;
 }
 
 export type StudioAction = Action<StudioState, StudioContext>;

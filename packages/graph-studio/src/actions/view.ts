@@ -1,7 +1,7 @@
 /** The camera, the console and the running motor: what the viewer does, not the drawing. */
 import type { GraphMeta } from "../source/meta.ts";
 import type { StudioState } from "../state/model.ts";
-import { type StudioAction, type StudioParam, numberArg, textArg } from "./context.ts";
+import { type StudioAction, type StudioParam, numberArg, textArg, flagArg } from "./context.ts";
 import { ActionRefusal, matchChoice } from "./registry.ts";
 
 const CANDIDATES_SHOWN = 8;
@@ -79,9 +79,10 @@ const pan: StudioAction = {
 };
 
 const deselect: StudioAction = {
-  id: "view.clear", alias: "deselect", title: "Clear the selection", section: null, params: [],
+  id: "view.clear", alias: "deselect", title: "Clear the selection and leave the local graph", section: null, params: [],
   run: (context) => {
     context.view.select(-1);
+    context.view.showAll();
     return { message: "selection cleared" };
   },
 };
@@ -96,6 +97,30 @@ const focus: StudioAction = {
     const node = nodeNamed(meta, textArg(args, "node"));
     context.view.focus(node);
     return { message: `${meta.labels[node] ?? ""} (${meta.ids[node] ?? ""})` };
+  },
+};
+
+const local: StudioAction = {
+  id: "view.local", alias: "local", title: "Show the local graph around a node", section: null,
+  params: [
+    { name: "id", kind: "text", title: "Node", value: () => "" },
+    { name: "depth", kind: "int", title: "Depth", min: 1, max: 5, value: () => 1 },
+    { name: "incoming", kind: "flag", title: "Incoming", value: () => false },
+    { name: "outgoing", kind: "flag", title: "Outgoing", value: () => false },
+    { name: "neighbours", kind: "flag", title: "Neighbours", value: () => false },
+  ],
+  available: described,
+  run: (context, args) => {
+    const { meta } = context.state();
+    if (meta === null) throw new ActionRefusal("unavailable", "nothing is drawn");
+    const node = nodeNamed(meta, textArg(args, "id"));
+    const depth = numberArg(args, "depth");
+    const incoming = flagArg(args, "incoming");
+    const outgoing = flagArg(args, "outgoing");
+    const neighbours = flagArg(args, "neighbours");
+    const options = { depth, incoming, outgoing, neighbours };
+    const visible = context.view.local(node, options);
+    return { message: `local graph depth ${depth}`, digest: JSON.stringify(visible) };
   },
 };
 
@@ -127,4 +152,4 @@ const help: StudioAction = {
 };
 
 export const VIEW_ACTIONS: readonly StudioAction[] =
-  [fit, reset, zoom, pan, focus, cancel, deselect, emptyConsole, help];
+  [fit, reset, zoom, pan, focus, local, cancel, deselect, emptyConsole, help];

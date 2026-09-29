@@ -14,7 +14,7 @@ function generated(state: StudioState): typeof OPENING_SOURCE {
 }
 
 function open(context: StudioContext, source: Source): Promise<Outcome> {
-  return context.apply(withSettings(context.state().settings, { source }));
+  return context.apply(context.recall(source) ?? withSettings(context.state().settings, { source }));
 }
 
 const synthetic: StudioAction = {

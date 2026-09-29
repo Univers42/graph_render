@@ -17,6 +17,7 @@ import type { Save } from "./actions/context.ts";
 import { createClient } from "./motor/client.ts";
 import type { Assets, Spawn } from "./motor/protocol.ts";
 import { workerPort } from "./motor/workerPort.ts";
+import { type SettingsStorage, openingSettings } from "./state/persist.ts";
 import { type Studio, createStudio } from "./studio/studio.ts";
 import { STUDIO_CSS } from "./styles/studio.css.ts";
 import { Shell } from "./ui/Shell.tsx";
@@ -79,6 +80,15 @@ function assetsOf(host: HTMLElement): Assets {
   return { wasmUrl: absolute("wasm", "graph_wasm.wasm"), fixturesUrl: absolute("fixtures", "fixtures/") };
 }
 
+/** `localStorage`, or null where reading the property itself throws (blocked site data). */
+function pageStorage(): SettingsStorage | null {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
 function mount(host: HTMLElement, options: StudioElementOptions): Mounted {
   const shadow = host.shadowRoot ?? host.attachShadow({ mode: "open" });
   const style = document.createElement("style");
@@ -90,11 +100,13 @@ function mount(host: HTMLElement, options: StudioElementOptions): Mounted {
   // Focusable, so a click on the graph brings the shortcuts to this studio and no other.
   if (!host.hasAttribute("tabindex")) host.tabIndex = 0;
   const view = createView(canvas);
+  const storage = pageStorage();
   const studio = createStudio({
     client: createClient(options.spawn ?? spawnWorker, assetsOf(host)),
     view,
     save: options.save ?? download,
     now: () => performance.now(),
+    ...(storage === null ? {} : { storage, settings: openingSettings(storage) }),
   });
   const root = createRoot(chrome);
   root.render(createElement(Shell, { studio, view, keys: host.getAttribute("keys") === "page" ? window : host }));

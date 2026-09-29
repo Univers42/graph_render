@@ -14,12 +14,13 @@ import {
   type Controller, fit, hover, measure, moveTo, newState, pickAt, select, showFrame,
 } from "./canvas2d/controller.ts";
 import { type LoopState, invalidate } from "./canvas2d/loop.ts";
+import { rebaseLocal, setBaseStyle, showAll, showLocal } from "./canvas2d/local.ts";
 import { fpsOf } from "./canvas2d/rate.ts";
 import type { Frame } from "./frame.ts";
 import { DOUBLE_CLICK_ZOOM, centreOf } from "./gesture.ts";
 import { type LabelPolicy, newLabelPlan } from "./labels.ts";
+import { type LocalOptions, newLocalLayer } from "./local.ts";
 import { bindPointer } from "./pointer.ts";
-import { sceneOf } from "./scene.ts";
 import type { Style } from "./style.ts";
 import type { Theme } from "./theme.ts";
 
@@ -76,6 +77,13 @@ export interface View {
   /** Centres the node and selects it. */
   focus(node: number): void;
   select(node: number): void;
+  /**
+   * Shows only `node` and what a walk of `options` reaches, and fits them. Returns those nodes
+   * ascending, or none (and changes nothing) when `node` is not in the frame.
+   */
+  local(node: number, options: LocalOptions): readonly number[];
+  /** Leaves the local graph: every node the style does not hide is shown again, and fitted. */
+  showAll(): void;
   /** The node under a canvas-relative point, or -1. */
   pick(at: Point): number;
   on<Name extends keyof ViewEvents>(name: Name, handler: (payload: ViewEvents[Name]) => void): () => void;
@@ -87,7 +95,7 @@ export interface View {
 type Handlers = { [Name in keyof ViewEvents]: Set<(payload: ViewEvents[Name]) => void> };
 type SceneApi = Pick<View, "setFrame" | "setStyle" | "setTheme" | "setLabels">;
 type CameraApi = Pick<
-  View, "setCamera" | "camera" | "fit" | "reset" | "zoomBy" | "panBy" | "limits" | "focus" | "select" | "pick"
+  View, "setCamera" | "camera" | "fit" | "reset" | "zoomBy" | "panBy" | "limits" | "focus" | "select" | "pick" | "local" | "showAll"
 >;
 
 function statsOf(state: LoopState): ViewStats {
@@ -119,12 +127,12 @@ function sceneApi(controller: Controller): SceneApi {
   return {
     setFrame: (frame, options = {}) => {
       showFrame(state, frame, options.animate === true);
+      rebaseLocal(controller);
       if (options.fit === false) invalidate(state);
       else fit(controller);
     },
     setStyle: (style) => {
-      state.scene = sceneOf(state.scene.frame, style, state.scene);
-      invalidate(state);
+      setBaseStyle(controller, style);
     },
     setTheme: (theme) => {
       state.theme = theme;
@@ -157,6 +165,8 @@ function cameraApi(controller: Controller): CameraApi {
       moveTo(controller, centreOn(near, world, state.viewport), false);
     },
     select: (node) => select(controller, node),
+    local: (node, options) => showLocal(controller, node, options),
+    showAll: () => showAll(controller),
     pick: (at) => pickAt(state, at),
   };
 }
@@ -202,7 +212,7 @@ export function createView(canvas: HTMLCanvasElement, options: ViewOptions = {})
     select: (node: number): void => emit("select", node),
     camera: (camera: Camera): void => emit("camera", camera),
   };
-  const controller: Controller = { canvas, state, notify, fitted: true };
+  const controller: Controller = { canvas, state, notify, fitted: true, local: newLocalLayer() };
   measure(controller);
   const unbind = bindInputs(controller);
   return {

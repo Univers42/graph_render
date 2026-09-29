@@ -4,6 +4,7 @@ import {
 } from "../camera.ts";
 import type { Frame } from "../frame.ts";
 import { DEFAULT_POLICY, type LabelPolicy, newLabelPlan, occupancyFor } from "../labels.ts";
+import type { LocalLayer } from "../local.ts";
 import { EMPTY_FRAME, pickIn, sceneOf } from "../scene.ts";
 import { plainStyle } from "../style.ts";
 import { DARK_THEME, type Theme } from "../theme.ts";
@@ -26,6 +27,8 @@ export interface Controller {
   readonly notify: Notify;
   /** True until the user moves the camera: a resize then re-fits instead of cropping. */
   fitted: boolean;
+  /** The local graph, when one is shown: a fit frames it and not the whole graph. */
+  readonly local: LocalLayer;
 }
 
 export interface Setup {
@@ -91,7 +94,7 @@ export function moveTo(controller: Controller, camera: Camera, byFit: boolean): 
 
 export function fit(controller: Controller): void {
   const { state } = controller;
-  moveTo(controller, fitCamera(state.scene.bounds, state.viewport), true);
+  moveTo(controller, fitCamera(controller.local.bounds ?? state.scene.bounds, state.viewport), true);
 }
 
 export function hover(controller: Controller, node: number): void {

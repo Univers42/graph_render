@@ -11,6 +11,7 @@ import { type MotorClient, MotorFailure } from "../motor/client.ts";
 import { type ShownError, describeError } from "../state/errors.ts";
 import { type LogEntry, type StudioState, initialState, withEntry } from "../state/model.ts";
 import type { Settings, Source } from "../state/settings.ts";
+import { type SettingsStorage, keepSettings, recall } from "../state/persist.ts";
 import { type Store, createStore } from "../state/store.ts";
 import { type ViewFace, createPipeline } from "./pipeline.ts";
 
@@ -20,6 +21,8 @@ export interface StudioDeps {
   readonly save: Save;
   readonly now: () => number;
   readonly settings?: Settings;
+  /** Where settings are kept per source; absent means nothing is remembered. */
+  readonly storage?: SettingsStorage;
 }
 
 export interface Studio {
@@ -128,6 +131,7 @@ function contextOf(deps: StudioDeps, store: Store<StudioState>, registry: () => 
     save: deps.save,
     clearLog: () => store.update((state) => ({ ...state, log: [] })),
     actions: () => registry().actions,
+    recall: (source) => (deps.storage === undefined ? null : recall(deps.storage, source)),
   };
 }
 
@@ -136,6 +140,7 @@ export function createStudio(deps: StudioDeps): Studio {
   const registry = createRegistry<StudioState, StudioContext>(studioActions());
   const context = contextOf(deps, store, () => registry);
   const desk: Desk = { deps, store, registry, context, seq: 0 };
+  const unkeep = deps.storage === undefined ? () => undefined : keepSettings(store, deps.storage);
   const unselect = deps.view.on("select", (selected) => store.update((state) => ({ ...state, selected })));
   return {
     store,
@@ -150,6 +155,7 @@ export function createStudio(deps: StudioDeps): Studio {
     dismiss: () => store.update((state) => ({ ...state, error: null })),
     destroy: () => {
       unselect();
+      unkeep();
       deps.client.close();
     },
   };
