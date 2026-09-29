@@ -79,6 +79,15 @@ impl Default for CirclePackingParams {
     }
 }
 
+/// The layout's capability id, which is also its hash-gate stage.
+///
+/// Not a `Stage::ID`: the module publishes [`CirclePackingParams`] and a `run_with`, but
+/// no `impl Stage` (the pipeline entry point takes the parameters explicitly), and `Stage`
+/// requires a `Params: Default` *and* a `Stage::ID`. The id lives here instead, the one
+/// place that names this layout, and `crate::registry::LAYOUTS` and graph-cli's
+/// `hashgate` knobs take it from here rather than restating it.
+pub const ID: &str = "layout.packing.circle";
+
 /// Runs circle packing over `topology` at [`CirclePackingParams::default`].
 pub fn run(topology: &Topology) -> Result<Geometry, StageError> {
     run_with(topology, &CirclePackingParams::default())

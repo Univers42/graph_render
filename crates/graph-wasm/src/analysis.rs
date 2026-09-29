@@ -4,10 +4,11 @@
 //!
 //! **Every row is graph-core's own function, called as it is.** Nothing in
 //! `graph_core::analysis` is re-derived, re-weighted or re-ordered here: this module is
-//! the registry (`id` + a `fn(&Topology)`), the one adapter graph-core's trait-shaped
-//! entry point needs, and the JSON writer. A number that differs between this face and
-//! the one graph-core's own tests pin is a bug in one of the two, and the tests below
-//! compare them rather than restating a second set of expectations.
+//! the registry (`id` + a `fn(&Topology)`), the JSON writer, and, for depth only, the one
+//! place `Hierarchy::of`'s refusal becomes a caller-bug panic — `depth::bfs_depth` then
+//! takes `&Hierarchy` directly, because graph-core implements `Roots` on that type. A number
+//! that differs between this face and the one graph-core's own tests pin is a bug in one of
+//! the two, and the tests below compare them rather than restating expectations.
 //!
 //! **What the JSON says, and what it does not.** Keys are in ascending order, one fixed
 //! order for every analysis, so the face is canonical and byte-comparable (D7: the text
@@ -25,7 +26,7 @@
 //! order out of every function called here (D2, D3, D4, D5, D8, D10).
 
 use graph_core::Topology;
-use graph_core::analysis::depth::{self, Roots};
+use graph_core::analysis::depth;
 use graph_core::analysis::{centrality, communities, components};
 use graph_core::layout::hierarchy::Hierarchy;
 use std::fmt::Write as _;
@@ -283,8 +284,9 @@ fn plain(id: &'static str, values: Vec<f64>) -> Report {
     }
 }
 
-/// BFS depth over the repaired hierarchy — graph-core's own `Hierarchy`, reached through
-/// the one `impl` it does not have (see [`Forest`]).
+/// BFS depth over the repaired hierarchy — graph-core's own `Hierarchy`, which
+/// graph-core's `analysis::depth` reads directly, so this face and graph-core's own
+/// depth column are one convention and not two (see [`depth::Roots`]).
 fn bfs_depth(topology: &Topology) -> Report {
     let depth = forest_depth(topology);
     Report {
@@ -293,31 +295,6 @@ fn bfs_depth(topology: &Topology) -> Report {
         converged: None,
         modularity: None,
         max: Some(depth.max()),
-    }
-}
-
-/// `graph_core::analysis::depth`'s root/forest convention, read from p3's repaired
-/// [`Hierarchy`]. The four methods are that type's own accessors verbatim, so this is a
-/// forwarding adapter and **not** a second derivation of the convention: one
-/// `Hierarchy`, one root set, one depth. `graph-core`'s `analysis` module names this
-/// re-point as the whole of the merge step; this is it.
-struct Forest(Hierarchy);
-
-impl Roots for Forest {
-    fn node_count(&self) -> u32 {
-        self.0.node_count()
-    }
-
-    fn roots(&self) -> &[u32] {
-        self.0.roots()
-    }
-
-    fn virtual_root(&self) -> Option<u32> {
-        self.0.virtual_root()
-    }
-
-    fn children(&self, v: u32) -> &[u32] {
-        self.0.children(v)
     }
 }
 
@@ -331,5 +308,5 @@ impl Roots for Forest {
 /// takes for an out-of-range row, and not a path a real handle reaches.
 fn forest_depth(topology: &Topology) -> depth::Depth {
     let hierarchy = Hierarchy::of(topology).expect("n + 1 fits u32 for any indexed topology");
-    depth::bfs_depth(&Forest(hierarchy))
+    depth::bfs_depth(&hierarchy)
 }

@@ -1,10 +1,10 @@
 //! The negative controls' knobs and the setting the native arm runs with: every
 //! variable is read strictly and at most one may be set.
 
-use super::stages::{CIRCULAR, TIDY_TREE, TREEMAP};
 use graph_core::layout::circle_packing::CirclePackingParams;
 use graph_core::layout::force::ForceParams;
 use graph_core::layout::forceatlas2::Fa2Params;
+use graph_core::layout::{circular, tidy_tree, treemap};
 use graph_core::{GridParams, REFERENCE_DEGREE, SugiyamaParams};
 use std::env::VarError;
 
@@ -200,9 +200,15 @@ fn apply(knob: Knob, text: &str, setting: &mut Setting) -> Result<(), String> {
         Knob::NodeCount => setting.extra_nodes = text.parse().map_err(|e| bad(&e))?,
         Knob::ForceTheta => setting.force.theta = text.parse().map_err(|e| bad(&e))?,
         Knob::Fa2ScalingRatio => setting.fa2.scaling_ratio = text.parse().map_err(|e| bad(&e))?,
-        Knob::TreeTidyNodes => setting.stage_nodes = Some((TIDY_TREE, nodes(text, knob)?)),
-        Knob::TreemapNodes => setting.stage_nodes = Some((TREEMAP, nodes(text, knob)?)),
-        Knob::CircularNodes => setting.stage_nodes = Some((CIRCULAR, nodes(text, knob)?)),
+        Knob::TreeTidyNodes => {
+            setting.stage_nodes = Some((tidy_tree::ID, nodes(text, knob)?));
+        }
+        Knob::TreemapNodes => {
+            setting.stage_nodes = Some((treemap::ID, nodes(text, knob)?));
+        }
+        Knob::CircularNodes => {
+            setting.stage_nodes = Some((circular::ID, nodes(text, knob)?));
+        }
         Knob::PackingScale => setting.packing.scale = text.parse().map_err(|e| bad(&e))?,
     }
     Ok(())

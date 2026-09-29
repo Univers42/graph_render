@@ -12,6 +12,15 @@
 //! meaningful, and a second layout registered in `LAYOUTS` therefore joins the gate by
 //! being registered, with no edit to this file. [`stage_bytes_for`] takes the registry
 //! slice as an argument so that is testable here rather than only at the next merge.
+//!
+//! **The four Phase 3 hierarchy layouts' ids are the layout modules' own**, not copies
+//! spelled here: `graph_core::layout::{tidy_tree, treemap, circular, circle_packing}::ID`.
+//! None of the four has an `impl Stage` — their modules pin every convention and say so,
+//! and `Stage` requires a `Params: Default` — so each publishes a `pub const ID` the way
+//! `graph_core::post::fdeb::ID` does, and both the knobs below and
+//! `graph_core::registry::LAYOUTS` take the id from there. There is one place each id is
+//! written, and `the_p3_stage_ids_are_the_registry_s_own` keeps the registry row and the
+//! stage the knobs name the same one.
 
 use super::Setting;
 use graph_core::layout::Geometry;
@@ -29,19 +38,6 @@ use std::collections::BTreeSet;
 /// drives `gm_run` with exactly this one, so the transport stage is the real ABI over
 /// this layout and nothing else.
 pub const LAYOUT: &str = "layout.grid";
-
-/// The Phase 3 hierarchy layouts' stage ids, named here for the knobs that perturb one of
-/// them. `graph_core::registry` spells them as literals inside its own `LAYOUTS` and they
-/// are not `Stage` impls, so there is no `Stage::ID` to take: these four constants and the
-/// registry are the two places the ids exist, and
-/// `the_p3_stage_ids_are_the_registry_s_own` is what keeps them in step.
-pub const TIDY_TREE: &str = "layout.tree.tidy";
-/// The squarified treemap's stage id — see [`TIDY_TREE`].
-pub const TREEMAP: &str = "layout.treemap.squarified";
-/// The circular layout's stage id — see [`TIDY_TREE`].
-pub const CIRCULAR: &str = "layout.circular.radial";
-/// Circle packing's stage id — see [`TIDY_TREE`].
-pub const PACKING: &str = "layout.packing.circle";
 
 /// The transport stage: `gm_seed_ingest → gm_alloc → gm_build → gm_run →
 /// gm_snapshot_bytes` over the gate's own model — the real ABI, not the retained shim.
@@ -94,7 +90,9 @@ pub fn stage_bytes_for(
                 .map_err(|e| e.to_string())?
                 .snapshot
                 .to_bytes(),
-            PACKING => run_force(&topology, |t| circle_packing::run_with(t, &setting.packing))?,
+            circle_packing::ID => {
+                run_force(&topology, |t| circle_packing::run_with(t, &setting.packing))?
+            }
             _ if owns_own_model(layout.id, setting) => {
                 stage_bytes_from_own_model(seed, setting, layout)?
             }

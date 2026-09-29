@@ -167,22 +167,22 @@ pub static LAYOUTS: [Capability; 10] = [
         meta: GRID,
     },
     Capability {
-        id: "layout.tree.tidy",
+        id: tidy_tree::ID,
         run: tidy_tree::run,
         meta: TIDY_TREE,
     },
     Capability {
-        id: "layout.treemap.squarified",
+        id: treemap::ID,
         run: treemap::run,
         meta: TREEMAP,
     },
     Capability {
-        id: "layout.circular.radial",
+        id: circular::ID,
         run: circular::run,
         meta: CIRCULAR,
     },
     Capability {
-        id: "layout.packing.circle",
+        id: circle_packing::ID,
         run: circle_packing::run,
         meta: PACKING,
     },

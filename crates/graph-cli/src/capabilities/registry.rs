@@ -231,7 +231,10 @@ transport.wasm.columnar, which this row's ceiling is taken from. Escape hatch: n
 /// placement and circle packing are hand conventions, not d3 calls this phase pins), so
 /// they stand on the hand oracle `roundtrip` already checks per seed
 /// (`snapshot_cmd::hand_oracles`), same as grid.
-const D3_ORACLE_LAYOUTS: [&str; 2] = ["layout.tree.tidy", "layout.treemap.squarified"];
+const D3_ORACLE_LAYOUTS: [&str; 2] = [
+    graph_core::layout::tidy_tree::ID,
+    graph_core::layout::treemap::ID,
+];
 
 /// Layouts held to a force-layout oracle rather than to a byte-exact one, keyed by the
 /// record their differential writes.

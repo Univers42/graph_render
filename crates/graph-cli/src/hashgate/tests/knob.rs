@@ -1,4 +1,11 @@
 //! Each knob is read strictly, one at a time, and moves only the stages it backs.
+//!
+//! [`TIDY_TREE`], [`TREEMAP`], [`CIRCULAR`] and [`PACKING`] are the four Phase 3 stage ids
+//! re-exported by the parent module from the layout module that owns each one (see
+//! `hashgate/stages.rs`'s module doc) — one spelling of each id, in the crate that
+//! implements the layout, rather than a copy here.
+
+mod ids;
 
 use super::*;
 
@@ -131,28 +138,6 @@ fn every_p3_layout_has_its_own_negative_control_that_moves_only_its_stage() {
         let moved = setting(env(pairs)).expect("parses");
         only_stage_moved(&base, &stage_bytes(P3_SEED, &moved).expect("runs"), stage);
     }
-}
-
-/// The four Phase 3 stage ids are the registry's own: a constant here that drifted from
-/// `graph_core::registry::LAYOUTS` would file a control under a stage the gate does not
-/// hash, and it would then move nothing at all.
-#[test]
-fn the_p3_stage_ids_are_the_registry_s_own() {
-    for id in [TIDY_TREE, TREEMAP, CIRCULAR, PACKING] {
-        assert!(
-            graph_core::registry::find(id).is_some(),
-            "{id} is registered"
-        );
-    }
-    assert_eq!(
-        stage_bytes(P3_SEED, &honest())
-            .expect("runs")
-            .iter()
-            .map(|(id, _)| *id)
-            .collect::<Vec<_>>(),
-        stages(),
-        "the ids the knobs name are the ids the gate hashes, in the same order"
-    );
 }
 
 /// The three node-count controls name a *stage*, not a count: the same three variables

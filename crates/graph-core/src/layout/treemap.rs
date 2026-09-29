@@ -235,6 +235,14 @@ fn to_geometry(boxes: &Boxes, n: u32, notes: Vec<Note>) -> Geometry {
     }
 }
 
+/// The layout's capability id, which is also its hash-gate stage.
+///
+/// Not a `Stage::ID`: the run below takes no `Params` — "none of it configurable, so there
+/// is no `Params` to take" — and `Stage` requires a `Params: Default`. The id lives here
+/// instead, the one place that names this layout, and `crate::registry::LAYOUTS` and
+/// graph-cli's `hashgate` knobs take it from here rather than restating it.
+pub const ID: &str = "layout.treemap.squarified";
+
 /// Runs the squarified treemap at its one, fixed convention: size `[1, 1]`, no padding,
 /// no rounding, ratio `phi` — none of it configurable, so there is no `Params` to take.
 pub fn run(topology: &Topology) -> Result<Geometry, StageError> {

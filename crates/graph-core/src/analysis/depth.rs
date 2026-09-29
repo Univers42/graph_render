@@ -1,18 +1,18 @@
 //! BFS depth (`prompts/phase-07-analysis.md` step 6): the depth of every node below the
 //! root of a hierarchy, by breadth first. Exact — no `Ponytail` owed.
 //!
-//! **The interface is deliberately the smallest thing that can be re-pointed.** Step 6
+//! **The interface is deliberately the smallest thing that could be re-pointed.** Step 6
 //! says "reusing Phase 3's `hierarchy.rs` root/forest logic. One convention across the
-//! codebase, not two", and `layout/hierarchy.rs` is not on this branch's base
-//! (`docs/measurements/phase07-analysis.md`, deviation 3). So this module owns *no*
-//! root/forest logic of its own: it reads the convention through [`Roots`], whose four
-//! methods are p3's `Hierarchy` accessors verbatim — `node_count`, `roots`,
-//! `virtual_root`, `children`. At the merge step the whole of the re-point is
+//! codebase, not two", and this module owns *no* root/forest logic of its own: it reads
+//! the convention through [`Roots`], whose four methods are p3's `Hierarchy` accessors
+//! verbatim — `node_count`, `roots`, `virtual_root`, `children`. The re-point is done
+//! rather than pending: [`Hierarchy`] implements [`Roots`] below, so
+//! `bfs_depth(&Hierarchy::of(&topology)?)` *is* the merged call, and no adapter stands
+//! between the layout's convention and this analysis.
 //!
-//! ```ignore
-//! impl Roots for Hierarchy {}
-//! let d = depth::bfs_depth(&Hierarchy::of(&topology)?);
-//! ```
+//! [`Roots`] nonetheless stays generic, because a `Roots` is not only a hierarchy.
+//! `analysis::AsIs` and this module's own test doubles implement it too, and
+//! [`depth_from`] takes a *declared* root list, which `Hierarchy` has no field to carry.
 //!
 //! Re-deriving roots, breaking cycles or dropping extra parents here would be the second
 //! convention step 6 forbids, and it would be a *silent* one: the two would disagree on
@@ -38,6 +38,8 @@
 //! uniquely determined) visit. No `HashMap`, no tie-break to arbitrate — every output
 //! entry has exactly one value that satisfies "shortest path from a root", so the
 //! traversal order cannot change the answer (`Depth` is `Eq` and the tests pin it).
+
+use crate::layout::hierarchy::Hierarchy;
 
 /// The depth of a node no root reaches. `u32::MAX` leaves room for any real depth and
 /// cannot be confused with one.
@@ -66,6 +68,34 @@ pub trait Roots {
 
     /// Node `v`'s children, ascending, for a real node `v < node_count`.
     fn children(&self, v: u32) -> &[u32];
+}
+
+/// p3's [`Hierarchy`] **is** a [`Roots`]. This is the re-point step 6 asked for, not a
+/// second derivation of the convention: every body below is that type's own accessor,
+/// forwarded verbatim, so the workspace holds one root set, one virtual root and one
+/// child row rather than one here and one in the layout. Nothing in this `impl` detects
+/// a root, repairs a cycle or drops an extra parent — that is [`Hierarchy::of`]'s job
+/// and stays there.
+///
+/// Each body names the **inherent** accessor, which wins method resolution over the
+/// trait's, so every one is a forward rather than a recursive call. That is the whole
+/// mechanism, which is why it is worth saying out loud.
+impl Roots for Hierarchy {
+    fn node_count(&self) -> u32 {
+        self.node_count()
+    }
+
+    fn roots(&self) -> &[u32] {
+        self.roots()
+    }
+
+    fn virtual_root(&self) -> Option<u32> {
+        self.virtual_root()
+    }
+
+    fn children(&self, v: u32) -> &[u32] {
+        self.children(v)
+    }
 }
 
 /// One depth per node, indexed by dense index. The analysis column step 7 wants
@@ -155,6 +185,54 @@ fn claim(levels: &mut [u32], queue: &mut Vec<u32>, v: u32, level: u32) {
     if *slot == UNREACHED {
         *slot = level;
         queue.push(v);
+    }
+}
+
+// The one test of the `impl Roots for Hierarchy` above, so it sits here and not in
+// `tests.rs`, whose `Forest` double pins the convention over structures carrying no
+// repair at all (a cycle to break, a second parent to drop) rather than over a real one.
+#[cfg(test)]
+mod repointed {
+    use super::*;
+    use crate::edgekind::{EdgeKind, child_first_from_type};
+    use crate::index::index_model;
+    use crate::records::EdgeRecord;
+    use crate::records::build::{edge, node};
+
+    /// BFS depth of a **real** [`Hierarchy`], with no adapter in between: this pins the
+    /// type graph-wasm now hands to `bfs_depth` directly. That is the re-point step 6 of
+    /// `prompts/phase-07-analysis.md`, and the impl it asks for is the one written above.
+    ///
+    /// The fixture is the two-root forest the ABI face pins — `a` above `b` above `c`,
+    /// plus an isolated `z` — and the expected column is the one that face pins, `[1, 2, 3,
+    /// 1]`, restated rather than recomputed. That is the point: the value does not change,
+    /// the code producing it does, and a test that moved its expectation along with the code
+    /// would agree with anything.
+    #[test]
+    fn a_real_hierarchy_is_the_roots_depth_reads() {
+        let nodes: Vec<_> = ["a", "b", "c", "z"].iter().map(|id| node(id, "")).collect();
+        let edges = [tree("t0", "a", "b"), tree("t1", "b", "c")];
+        let topology = index_model(&nodes, &edges).expect("four nodes fit");
+        let hierarchy = Hierarchy::of(&topology).expect("n + 1 fits");
+        assert_eq!(
+            hierarchy.roots(),
+            [0, 3],
+            "two roots: `a` and the isolated `z`"
+        );
+        let d = bfs_depth(&hierarchy);
+        assert_eq!(d.levels(), [1, 2, 3, 1], "the pinned column, unchanged");
+        assert_eq!(d.max(), 3, "the deepest level reached");
+    }
+
+    /// A `hierarchy` edge with the parent as source, which is what `Hierarchy`'s CSR
+    /// reads.
+    fn tree(id: &str, source: &str, target: &str) -> EdgeRecord {
+        EdgeRecord {
+            kind: EdgeKind::Hierarchy,
+            child_first: child_first_from_type(Some("parent_of")),
+            label: "parent_of".into(),
+            ..edge(id, source, target)
+        }
     }
 }
 
