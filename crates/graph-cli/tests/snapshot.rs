@@ -1,11 +1,13 @@
 //! `snapshot` and `roundtrip`: the two consumer-facing subcommands whose output a
 //! script reads directly. Split out of `cli.rs` to keep both files under the house line
-//! limit; the small process helpers below are duplicated from `cli.rs` rather than
-//! shared, so each file stays self-contained.
+//! limit; the process helpers are `tests/common`'s.
 //!
 //! Needs `node` and the `wasm32-unknown-unknown` target, as `cli.rs` does.
 
-use std::process::{Command, Output};
+mod common;
+
+use common::stdout;
+use std::process::Output;
 
 /// Gate records land here, never in `target/gates`: a test run must not overwrite (or
 /// stand in for) the evidence of a real gate run.
@@ -13,23 +15,8 @@ fn gates_dir() -> std::path::PathBuf {
     std::env::temp_dir().join(format!("gm-cli-gates-{}", std::process::id()))
 }
 
-const KNOBS: [&str; 2] = ["GM_MUTATE_REFERENCE_DEGREE", "GM_MUTATE_GRID_SPACING"];
-
-/// `graph-cli args` with every knob unset but `mutate`, if given.
 fn graph_cli(args: &[&str], mutate: Option<(&str, &str)>) -> Output {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_graph-cli"));
-    command.args(args).env("GM_GATES_DIR", gates_dir());
-    for knob in KNOBS {
-        command.env_remove(knob);
-    }
-    if let Some((knob, value)) = mutate {
-        command.env(knob, value);
-    }
-    command.output().expect("graph-cli runs")
-}
-
-fn stdout(output: &Output) -> String {
-    String::from_utf8_lossy(&output.stdout).into_owned()
+    common::graph_cli(&gates_dir(), args, mutate)
 }
 
 fn record(name: &str) -> String {
