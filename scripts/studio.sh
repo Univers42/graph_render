@@ -18,6 +18,9 @@ here=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 root=$(git -C "$here" rev-parse --show-toplevel)
 gr=${GR:-$root/scripts/orch/gr}
 node_image=${NODE_IMAGE:-node:22-slim}
+# The pinned read-only references (prompts/REFERENCES.md). Tests read them at /refs, so a
+# pinned comparison that is not mounted is a skip, and a skipped row is not a pass.
+refs=${STUDIO_REFS:-/goinfre/dlesieur/refs}
 port=${STUDIO_PORT:-5174}
 command=${1:-serve}
 packages=(graph-render graph-studio)
@@ -31,7 +34,7 @@ in_node() {
   shift
   # `docker run -it` refuses without a terminal, which a gate never has.
   [[ -t 0 && -t 1 ]] && tty=(-it)
-  docker run --rm "${tty[@]}" "${publish[@]}" -v "$root:/w" -w "/w/$dir" "$node_image" "$@"
+  docker run --rm "${tty[@]}" "${publish[@]}" -v "$root:/w" -v "$refs:/refs:ro" -w "/w/$dir" "$node_image" "$@"
 }
 
 build_wasm() {

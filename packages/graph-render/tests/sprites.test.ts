@@ -8,6 +8,11 @@ import { DARK_THEME, LIGHT_THEME } from "../src/theme.ts";
 interface Bench {
   surfaces: number;
   bakes: number;
+  /** Times a label box was filled behind the text. */
+  boxes: number;
+  /** Times a halo was stroked around the text. */
+  halos: number;
+  fills: string[];
   factory: () => SpriteSurface<string>;
 }
 
@@ -15,13 +20,22 @@ function bench(): Bench {
   const state: Bench = {
     surfaces: 0,
     bakes: 0,
+    boxes: 0,
+    halos: 0,
+    fills: [],
     factory: () => {
       state.surfaces += 1;
       const ctx: TextSurface2D = {
         font: "", fillStyle: "", strokeStyle: "", lineWidth: 1, lineJoin: "round", textBaseline: "middle",
         setTransform: () => undefined,
         measureText: (text) => ({ width: text.length * 7 }),
-        strokeText: () => undefined,
+        fillRect: (): void => {
+          state.boxes += 1;
+          state.fills.push(typeof ctx.fillStyle === "string" ? ctx.fillStyle : "(not a colour)");
+        },
+        strokeText: () => {
+          state.halos += 1;
+        },
         fillText: () => {
           state.bakes += 1;
         },
@@ -68,6 +82,22 @@ test("past the capacity the least recently drawn surface is reused", () => {
   assert.equal(made.surfaces, 512);
   assert.equal(cache.widthOf("label 1"), 0);
   assert.notEqual(cache.widthOf("label 0"), 0);
+});
+
+test("a theme with a label box fills one behind the text, and strokes no halo", () => {
+  const made = bench();
+  const box = createSpriteCache(made.factory, { ...DARK_THEME, labelBox: { fill: "rgba(0,0,0,0.6)", padding: 3 } });
+  const sprite = box.get("hello");
+  // 5 characters at 7 px each, plus 3 px of padding on each side.
+  assert.equal(sprite?.width, 5 * 7 + 6);
+  assert.equal(made.boxes, 1);
+  assert.deepEqual(made.fills, ["rgba(0,0,0,0.6)"]);
+  assert.equal(made.halos, 0);
+  // The same theme without a box keeps the halo the studio has always drawn.
+  const halo = bench();
+  createSpriteCache(halo.factory, DARK_THEME).get("hello");
+  assert.equal(halo.boxes, 0);
+  assert.equal(halo.halos, 1);
 });
 
 test("a new theme or pixel ratio re-bakes on the surfaces it already has", () => {

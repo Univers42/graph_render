@@ -102,9 +102,20 @@ function paintLit(tracer: Tracer): void {
   tracer.counts.edges = counted;
 }
 
+/**
+ * The stroke width. A look carries its own, the diameter of the source's edge tube
+ * (05-reproducible-pipeline.qmd:127 gives the radius; EDGE_WIDTH_REL doubles it); with no
+ * look width, the studio's own weight by zoom (edges.ts:18-20).
+ */
+export function strokeWidth(input: PaintInput): number {
+  const carried = input.style.edgeWidth;
+  if (carried === null || !(carried > 0)) return edgeWidth(input.camera.scale, input.dpr);
+  return carried * input.camera.scale;
+}
+
 export function paintEdges(input: PaintInput, counts: PaintCounts): void {
   const tracer: Tracer = { input, counts, pending: 0 };
-  input.ctx.lineWidth = edgeWidth(input.camera.scale, input.dpr);
+  input.ctx.lineWidth = strokeWidth(input);
   paintAll(tracer);
   if (input.focus >= 0) paintLit(tracer);
   input.ctx.globalAlpha = 1;

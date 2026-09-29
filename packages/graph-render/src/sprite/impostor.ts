@@ -67,7 +67,7 @@ function shadePixel(base: Rgb, px: number, py: number, size: number): readonly [
  * sprite cache keyed on radius times device pixel ratio can hand over a fraction and
  * the buffer would no longer be size*size RGBA.
  */
-export function shadeSphere(base: Rgb, size: number): Uint8ClampedArray {
+export function shadeSphere(base: Rgb, size: number): Uint8ClampedArray<ArrayBuffer> {
   if (!Number.isInteger(size) || size <= 0) {
     throw new RangeError(`sprite size must be a positive integer, got ${size}`);
   }

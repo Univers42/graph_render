@@ -2,6 +2,7 @@
  * What the nodes look like, joined to the frame by dense index. A style outlives a layout
  * run and a frame outlives a restyle, so neither is rebuilt for the other.
  */
+import type { Rgb } from "./colour/srgb.ts";
 
 export interface StyleInput {
   /** One label per node; a missing one draws no label. */
@@ -14,7 +15,16 @@ export interface StyleInput {
   readonly sizing?: Sizing;
   /** 1 hides the node and every edge touching it. */
   readonly hidden?: Uint8Array | null;
+  /** Where a label sits on its node; `below` is the studio default (labels.ts:110). */
+  readonly placement?: LabelPlacement;
+  /** Stroke width of an edge in world units, or null for the zoom-driven one. */
+  readonly edgeWidth?: number | null;
+  /** One linear base colour per palette entry, for the impostor spheres; null for flat. */
+  readonly spheres?: readonly Rgb[] | null;
 }
+
+/** `below` puts a label under its node; `centred` is the SciGraphs overlay (text_overlay.py:231). */
+export type LabelPlacement = "below" | "centred";
 
 export interface Sizing {
   /** Radius of a weightless node, in world units. */
@@ -30,12 +40,17 @@ export interface Style {
   readonly radius: Float32Array;
   readonly maxRadius: number;
   readonly palette: readonly string[];
+  /** Index into `palette` per node, as it came in: the impostor path reads it. */
+  readonly colours: Uint16Array;
   /** Nodes grouped by palette entry: bucket `c` is `bucketItems[bucketStart[c]..bucketStart[c+1]]`. */
   readonly bucketStart: Uint32Array;
   readonly bucketItems: Uint32Array;
   /** Node indices, heaviest first; ties keep index order. */
   readonly rank: Uint32Array;
   readonly hidden: Uint8Array | null;
+  readonly placement: LabelPlacement;
+  readonly edgeWidth: number | null;
+  readonly spheres: readonly Rgb[] | null;
 }
 
 export const DEFAULT_SIZING: Sizing = { base: 4, gain: 2.5 };
@@ -88,9 +103,13 @@ export function styleFrom(input: StyleInput): Style {
     radius,
     maxRadius,
     palette,
+    colours: input.colours,
     ...bucketsOf(input.colours, palette.length),
     rank: rankOf(input.weights),
     hidden: input.hidden ?? null,
+    placement: input.placement ?? "below",
+    edgeWidth: input.edgeWidth ?? null,
+    spheres: input.spheres ?? null,
   };
 }
 

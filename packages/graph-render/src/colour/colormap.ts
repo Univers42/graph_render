@@ -24,6 +24,17 @@ export interface NodeColours {
   readonly palette: readonly string[];
   /** slots[i] is the palette entry of node i. */
   readonly slots: Uint16Array;
+  /**
+   * The linear triple each palette entry was built from, in the same order. This is the
+   * value a lit impostor is shaded from (sprite/impostor.ts), so the sphere and the flat
+   * fill come out of one sample of one ramp.
+   *
+   * Ponytail: the palette is keyed on the 8-bit CSS string, so two t values inside one
+   * rounding step share an entry and the entry's triple is the first of them; a sphere
+   * shaded from it can sit one byte off the flat fill of the other. The escape hatch is
+   * to pass values already quantised (see MAX_DISTINCT) so no two share an entry.
+   */
+  readonly bases: readonly Rgb[];
 }
 
 function channelAt(name: ColormapName, stop: number, channel: number): number {
@@ -83,19 +94,22 @@ function quantise(t: number): number {
 export function coloursOf(norm: Float64Array, name: ColormapName): NodeColours {
   const quantised = distinctCount(norm) > MAX_DISTINCT;
   const palette: string[] = [];
+  const bases: Rgb[] = [];
   const index = new Map<string, number>();
   const slots = new Uint16Array(norm.length);
   for (let i = 0; i < norm.length; i += 1) {
     const value = norm[i] ?? Number.NaN;
     const t = quantised && Number.isFinite(value) ? quantise(value) : value;
-    const css = cssOf(sampleColormap(name, t));
+    const base = sampleColormap(name, t);
+    const css = cssOf(base);
     let slot = index.get(css);
     if (slot === undefined) {
       slot = palette.length;
       index.set(css, slot);
       palette.push(css);
+      bases.push(base);
     }
     slots[i] = slot;
   }
-  return { palette, slots };
+  return { palette, slots, bases };
 }

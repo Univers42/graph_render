@@ -44,6 +44,8 @@ function spriteSurface(): SpriteSurface | null {
   return {
     image: canvas,
     ctx,
+    // The impostor spheres arrive as raw RGBA; the ImageData constructor is the host's.
+    pixels: { putPixels: (data, width, height) => ctx.putImageData(new ImageData(data, width, height), 0, 0) },
     resize: (width, height) => {
       canvas.width = Math.max(1, width);
       canvas.height = Math.max(1, height);

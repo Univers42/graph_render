@@ -45,6 +45,8 @@ export interface LabelInput {
   readonly policy: LabelPolicy;
   /** Measured width in CSS pixels, or 0 when the label was never drawn. */
   readonly widthOf: (node: number) => number;
+  /** The sprite box height of a baked label, in CSS pixels (theme.labelHeight). */
+  readonly height: number;
 }
 
 export const DEFAULT_POLICY: LabelPolicy = { threshold: 1.1, budget: 160 };
@@ -95,18 +97,42 @@ function claimCells(occupancy: Occupancy, left: number, top: number, width: numb
   return true;
 }
 
+interface Placement {
+  readonly top: number;
+  /** 0 to leave the label to the coarse grid, 1 to keep it whatever the grid says. */
+  readonly keep: boolean;
+}
+
+/**
+ * Where a label's sprite box sits. `below` is the studio's own: under the node's lower
+ * edge and a gap down. `centred` is the SciGraphs overlay, whose text is centred on the
+ * node (text_overlay.py:231-233, 545-556), and it keeps every label: the declutter that
+ * drops the ones that collide (labels2d/declutter.ts) has already run, on the source's
+ * own boxes, before the style reaches the painter.
+ */
+function placementOf(input: LabelInput, node: number, sy: number): Placement {
+  if (input.style.placement === "centred") {
+    return { top: sy - input.height / 2, keep: true };
+  }
+  const under = sy + (input.extent[node] ?? 0) * input.camera.scale + LABEL_GAP;
+  return { top: under, keep: false };
+}
+
 function place(input: LabelInput, node: number, alpha: number, out: { plan: LabelPlan; occupancy: Occupancy }): void {
   const text = input.style.labels[node];
   if (text === undefined || text === "" || input.style.hidden?.[node] === 1) return;
   const { camera, viewport } = input;
   const sx = (input.x[node] ?? 0) * camera.scale + camera.x;
-  const top = (input.y[node] ?? 0) * camera.scale + camera.y + (input.extent[node] ?? 0) * camera.scale + LABEL_GAP;
-  if (sx < 0 || sx > viewport.width || top < -LABEL_HEIGHT || top > viewport.height) return;
-  const width = input.widthOf(node) || text.length * ESTIMATED_GLYPH + 8;
-  if (!claimCells(out.occupancy, sx - width / 2, top, width)) return;
+  const sy = (input.y[node] ?? 0) * camera.scale + camera.y;
+  const { top, keep } = placementOf(input, node, sy);
+  if (sx < 0 || sx > viewport.width || top < -input.height || top > viewport.height) return;
+  if (!keep) {
+    const width = input.widthOf(node) || text.length * ESTIMATED_GLYPH + 8;
+    if (!claimCells(out.occupancy, sx - width / 2, top, width)) return;
+  }
   const at = out.plan.count;
   out.plan.node[at] = node;
-  out.plan.alpha[at] = alpha;
+  out.plan.alpha[at] = keep ? 1 : alpha;
   out.plan.x[at] = sx;
   out.plan.y[at] = top;
   out.plan.count = at + 1;
@@ -118,13 +144,17 @@ export function planLabels(input: LabelInput, plan: LabelPlan, occupancy: Occupa
   const out = { plan, occupancy };
   const budget = Math.min(input.policy.budget, plan.node.length);
   const { rank, weights } = input.style;
+  // A SciGraphs overlay is a figure's own label set: the zoom fade is the studio's
+  // affordance and the source has none, so a centred label is drawn at full opacity
+  // whatever the scale, and the threshold never culls one.
+  const centred = input.style.placement === "centred";
   for (let at = 0; at < rank.length && plan.count < budget; at += 1) {
     const node = rank[at] ?? 0;
     if (input.lit !== null) {
       if (input.lit[node] === 1) place(input, node, 1, out);
       continue;
     }
-    const alpha = zoomAlpha(input.camera.scale, weights[node] ?? 0, input.policy.threshold);
+    const alpha = centred ? 1 : zoomAlpha(input.camera.scale, weights[node] ?? 0, input.policy.threshold);
     // Rank is by weight, so every node after the first invisible one is invisible too.
     if (alpha <= 0.02) break;
     place(input, node, alpha, out);

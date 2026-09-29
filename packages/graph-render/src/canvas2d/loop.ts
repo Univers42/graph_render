@@ -95,6 +95,7 @@ function plan(state: LoopState, focus: number): void {
     lit: focus >= 0 ? state.lit : null,
     policy: state.policy,
     widthOf: (node) => sprites.widthOf(scene.style.labels[node] ?? ""),
+    height: state.theme.labelHeight,
   }, state.plan, state.occupancy);
 }
 

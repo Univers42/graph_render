@@ -66,6 +66,9 @@ export default tseslint.config(
     rules: banned(ORACLE),
   },
   { files: ["app/src/**"], rules: banned(ORACLE, SDK, INSIDE) },
+  // The parity page is the studio's own second page: it mounts the parity module directly,
+  // with no motor behind it (packages/graph-studio/src/parity/page.ts).
+  { files: ["app/src/parity.ts"], rules: banned(ORACLE, SDK) },
   // Config files: no tsconfig holds them, and a bundler's config is its default export.
   {
     files: ["**/*.{js,mjs}", "app/vite.config.ts"],

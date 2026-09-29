@@ -22,7 +22,7 @@ interface Extent {
 
 /** Python len() counts code points, so an astral glyph is one and not two. */
 function codePoints(text: string): number {
-  return [...text].length;
+  return Array.from(text).length;
 }
 
 /** Half-width 0.30 of the font size per character, half-height 0.62 of it (:314,317). */

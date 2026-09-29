@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>graph-motor parity: SciGraphs fig6</title>
+    <link rel="icon" href="data:," />
+    <!-- 100vw/100vh and no scrollbars: the canvas is the 1920x1080 fig1 frame exactly, and
+         a scrollbar would shrink it off the fixture's own pixel coordinates. -->
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #09090d; }
+      canvas { display: block; width: 100vw; height: 100vh; }
+    </style>
+  </head>
+  <body>
+    <canvas id="parity" width="1920" height="1080"></canvas>
+    <script type="module" src="/src/parity.ts"></script>
+  </body>
+</html>

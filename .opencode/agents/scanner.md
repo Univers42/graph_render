@@ -8,4 +8,5 @@ permission:
   webfetch: deny
 ---
 Run the scan the task names and report counts with file:line hits. No opinions, no fixes.
+Split a wide scan into parallel `subagent` calls (agent `explore`) in one message, one per directory or pattern.
 End with the AGENT_BRIEF.md return block.
