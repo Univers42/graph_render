@@ -38,7 +38,7 @@ test("the background is the CSS of the linear triple, encoded exactly once", () 
 });
 
 test("the edge colour is the preset's edge_color, opaque, as the tube is drawn opaque", () => {
-  // 05-reproducible-pipeline.qmd:132-137 carries edge_base_color [0.16, 0.16, 0.19].
+  // 05-reproducible-pipeline.qmd:132-137 carries edge_base_color [0.12, 0.16, 0.19].
   const theme = lookTheme(pick("scigraphs"));
   assert.equal(theme.edge, "rgb(111, 111, 121)");
   assert.equal(theme.edgeLit, cssOf([0.55, 0.6, 0.68]));
@@ -58,7 +58,7 @@ test("the ring is the flat node colour and the rim the background it is cut agai
   const theme = lookTheme(pick("scigraphs"));
   assert.equal(theme.ring, "rgb(196, 203, 215)");
   assert.equal(theme.rim, theme.background);
-  assert.equal(theme.dimAlpha, 0.16);
+  assert.equal(theme.dimAlpha, 0.12);
 });
 
 test("the studio's own themes keep the halo and the 16 px label box they had", () => {

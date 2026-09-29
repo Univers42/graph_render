@@ -60,6 +60,17 @@ function recordingView(seen: Seen, handlers: Handlers): ViewFace {
     limits: () => ({ min: 0.02, max: 40 }),
     focus: (node) => void seen.calls.push(`focus ${node}`),
     select: (node) => void seen.calls.push(`select ${node}`),
+    local: (node, options) => {
+      seen.calls.push(`local ${node} ${JSON.stringify(options)}`);
+      if (node === 0 && options.depth === 2 && options.incoming && !options.outgoing && options.neighbours) {
+        return [0, 1, 2] as const;
+      }
+      if (node === 1 && options.depth === 1 && !options.incoming && !options.outgoing && !options.neighbours) {
+        return [1] as const;
+      }
+      return [node] as const;
+    },
+    showAll: () => void seen.calls.push("showAll"),
     on: (name, handler) => {
       handlers[name].add(handler);
       return () => void handlers[name].delete(handler);
@@ -70,7 +81,7 @@ function recordingView(seen: Seen, handlers: Handlers): ViewFace {
 
 export function desk(client: MotorClient, settings?: Settings): Desk {
   const seen: Seen = { frames: [], styles: [], themes: [], policies: [], calls: [], cameras: [] };
-  const handlers: Handlers = { hover: new Set(), select: new Set(), camera: new Set(), frame: new Set() };
+  const handlers: Handlers = { hover: new Set(), select: new Set(), selection: new Set(), camera: new Set(), context: new Set(), frame: new Set() };
   const saved: Saved[] = [];
   let clock = 0;
   const view = recordingView(seen, handlers);

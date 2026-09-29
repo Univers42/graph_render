@@ -21,7 +21,22 @@ export interface StyleInput {
   readonly edgeWidth?: number | null;
   /** One linear base colour per palette entry, for the impostor spheres; null for flat. */
   readonly spheres?: readonly Rgb[] | null;
+  readonly edges?: EdgeLook;
+  /** Halo strength around every node; 0 or absent draws none. */
+  readonly glow?: number;
 }
+
+/** How edges are drawn on top of the look's own width: the studio's display panel. */
+export interface EdgeLook {
+  /** Multiplies the stroke width; the head of an arrow follows it. */
+  readonly scale: number;
+  /** Bend a straight (Line) edge into a quadratic; routed edges keep their own path. */
+  readonly curve: boolean;
+  /** A head on every edge, pointing at its target. */
+  readonly arrows: boolean;
+}
+
+export const PLAIN_EDGES: EdgeLook = { scale: 1, curve: false, arrows: false };
 
 /** `below` puts a label under its node; `centred` is the SciGraphs overlay (text_overlay.py:231). */
 export type LabelPlacement = "below" | "centred";
@@ -31,6 +46,9 @@ export interface Sizing {
   readonly base: number;
   /** A node of weight 1 has radius `base · (1 + gain)`. */
   readonly gain: number;
+  /** The smallest and largest radius, in world units; absent is unbounded. */
+  readonly min?: number;
+  readonly max?: number;
 }
 
 export interface Style {
@@ -51,6 +69,8 @@ export interface Style {
   readonly placement: LabelPlacement;
   readonly edgeWidth: number | null;
   readonly spheres: readonly Rgb[] | null;
+  readonly edges: EdgeLook;
+  readonly glow: number;
 }
 
 export const DEFAULT_SIZING: Sizing = { base: 4, gain: 2.5 };
@@ -59,6 +79,10 @@ export const DEFAULT_SIZING: Sizing = { base: 4, gain: 2.5 };
 export function radiusFor(weight: number, sizing: Sizing): number {
   const bounded = Math.min(1, Math.max(0, Number.isFinite(weight) ? weight : 0));
   return sizing.base * (1 + sizing.gain * Math.sqrt(bounded));
+}
+
+function clamped(radius: number, sizing: Sizing): number {
+  return Math.min(sizing.max ?? Infinity, Math.max(sizing.min ?? 0, radius));
 }
 
 function bucketsOf(colours: Uint16Array, paletteSize: number): Pick<Style, "bucketStart" | "bucketItems"> {
@@ -91,7 +115,7 @@ export function styleFrom(input: StyleInput): Style {
   const radius = new Float32Array(input.weights.length);
   let maxRadius = 0;
   for (let i = 0; i < radius.length; i += 1) {
-    const value = radiusFor(input.weights[i] ?? 0, sizing);
+    const value = clamped(radiusFor(input.weights[i] ?? 0, sizing), sizing);
     radius[i] = value;
     if (value > maxRadius) maxRadius = value;
   }
@@ -110,6 +134,8 @@ export function styleFrom(input: StyleInput): Style {
     placement: input.placement ?? "below",
     edgeWidth: input.edgeWidth ?? null,
     spheres: input.spheres ?? null,
+    edges: input.edges ?? PLAIN_EDGES,
+    glow: input.glow ?? 0,
   };
 }
 

@@ -47,6 +47,7 @@ function silentView(calls: string[]): ViewFace {
     zoomBy: () => void calls.push("zoomBy"), panBy: () => void calls.push("panBy"),
     limits: () => ({ min: 0.02, max: 40 }),
     focus: () => void calls.push("focus"), select: () => void calls.push("select"),
+    local: (node) => [node], showAll: () => void calls.push("showAll"),
     on: () => noop,
     toPNG: () => Promise.resolve(new Blob(["png"], { type: "image/png" })),
     setCamera: () => void calls.push("setCamera"),
@@ -76,12 +77,15 @@ function studio(settings: Settings = BASE): Studio {
     stop: () => false,
     save: () => undefined,
     clearLog: () => undefined,
+    animation: { start: () => ({ message: "animating" }), cancel: () => ({ message: "cancelled" }) },
     actions: () => ACTIONS,
+    recall: () => null,
     apply: (next) => Promise.resolve(look(next)),
     look,
     bytes: () => null,
     neighbours: () => [],
     fitResults: () => ({ message: "fitted" }),
+    reveal: () => undefined,
   };
   return { context, calls, settings: () => held };
 }

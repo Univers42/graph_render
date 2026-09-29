@@ -1,6 +1,7 @@
 /** One frame on a 2D context: background, edges, nodes, labels — in that order. */
 import { type PaintCounts, type PaintInput, newCounts } from "./input.ts";
 import { paintEdges } from "./edges.ts";
+import { paintGlow } from "./glow.ts";
 import { paintNodes } from "./nodes.ts";
 
 function paintLabels(input: PaintInput, counts: PaintCounts): void {
@@ -25,6 +26,7 @@ export function paintFrame(input: PaintInput): PaintCounts {
   ctx.fillStyle = input.theme.background;
   ctx.fillRect(0, 0, viewport.width, viewport.height);
   paintEdges(input, counts);
+  paintGlow(input, counts);
   paintNodes(input, counts);
   paintLabels(input, counts);
   return counts;

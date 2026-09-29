@@ -44,7 +44,7 @@ export const DRAWN: StudioState = {
 export const IDLE: StudioState = initialState();
 
 export const STATS: ViewStats = {
-  backend: "canvas2d", nodes: 3, edges: 2, drawnNodes: 3, drawnEdges: 2, drawnLabels: 2,
+  backend: "canvas2d", nodes: 3, edges: 2, drawnNodes: 3, drawnEdges: 2, drawnLabels: 2, drawnArrows: 0, arrowSize: 0, curvedEdges: 0, strokeWidth: 0,
   draws: 12, frameMs: 4.2, fps: 60, frames: 42,
 };
 
@@ -55,8 +55,13 @@ export function studioWith(state: StudioState = DRAWN): Desk {
 }
 
 /** The parts of a view the chrome uses, recording nothing: effects do not run here. */
-export function fakeView(): Pick<View, "stats" | "on" | "focus" | "select"> {
+export function fakeView(pinned: readonly number[] = []): Pick<View, "stats" | "on" | "focus" | "select" | "camera" | "position" | "hide" | "togglePin" | "pinned"> {
   return {
+    camera: () => ({ x: 0, y: 0, scale: 1 }),
+    position: () => ({ x: 0, y: 0 }),
+    hide: () => undefined,
+    togglePin: () => undefined,
+    pinned: () => pinned,
     stats: () => STATS,
     focus: () => undefined,
     select: () => undefined,

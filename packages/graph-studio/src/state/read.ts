@@ -61,3 +61,9 @@ export function textsOf(fields: Fields, at: string, key: string): readonly strin
     return item;
   });
 }
+
+export function flagOf(fields: Fields, at: string, key: string): boolean {
+  const value = fields[key];
+  if (typeof value !== "boolean") throw new SettingsRefusal(`${at}.${key}`, "not true or false");
+  return value;
+}

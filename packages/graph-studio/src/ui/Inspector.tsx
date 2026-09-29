@@ -54,6 +54,23 @@ function Neighbours(props: {
   );
 }
 
+/** Several nodes selected: how many, and the first of them to jump to. */
+function Selection(props: { readonly view: Pick<View, "focus">; readonly meta: GraphMeta; readonly nodes: readonly number[] }): ReactElement | null {
+  const { view, meta, nodes } = props;
+  if (nodes.length < 2) return null;
+  return (
+    <div className="gs-neighbours" role="group" aria-label="Selection">
+      <span className="gs-more">{`${nodes.length} selected`}</span>
+      {nodes.slice(0, SHOWN).map((node) => (
+        <button key={node} type="button" className="gs-btn" aria-label={`Centre ${meta.labels[node] ?? ""}`} onClick={() => view.focus(node)}>
+          {meta.labels[node] ?? ""}
+        </button>
+      ))}
+      {nodes.length > SHOWN && <span className="gs-more">{`+${nodes.length - SHOWN} more`}</span>}
+    </div>
+  );
+}
+
 export function Inspector(props: InspectorProps): ReactElement | null {
   const { studio, state, view } = props;
   const { meta, selected, analysis } = state;
@@ -67,6 +84,7 @@ export function Inspector(props: InspectorProps): ReactElement | null {
         <h2 className="gs-head-name gs-title">{label}</h2>
         <button type="button" className="gs-btn" aria-label="Close the inspector" onClick={() => view.select(-1)}>×</button>
       </div>
+      <Selection view={view} meta={meta} nodes={state.selection} />
       <Row name="Id" value={meta.ids[selected] ?? ""} />
       <Row name="Kind" value={meta.kinds[selected] ?? ""} />
       <Row name="Group" value={meta.groups[meta.group[selected] ?? 0] ?? ""} />

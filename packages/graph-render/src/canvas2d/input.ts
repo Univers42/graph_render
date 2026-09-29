@@ -41,8 +41,15 @@ export interface PaintCounts {
   labels: number;
   /** Path fills and strokes issued: the number batching keeps small. */
   draws: number;
+  /** Heads drawn, and the length in CSS pixels of the last one (0 when there are none). */
+  arrows: number;
+  arrowSize: number;
+  /** Edges traced with a control point. */
+  curves: number;
+  /** The stroke width of an edge in CSS pixels in the last frame. */
+  stroke: number;
 }
 
 export function newCounts(): PaintCounts {
-  return { nodes: 0, edges: 0, labels: 0, draws: 0 };
+  return { nodes: 0, edges: 0, labels: 0, draws: 0, arrows: 0, arrowSize: 0, curves: 0, stroke: 0 };
 }

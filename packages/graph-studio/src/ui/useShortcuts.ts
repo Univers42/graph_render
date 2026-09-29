@@ -8,7 +8,7 @@ import type { StudioState } from "../state/model.ts";
 import type { Studio } from "../studio/studio.ts";
 import { type Held, type NavKey, navKeyOf } from "./navKeys.ts";
 
-export type Shortcut = "console" | "search" | "escape" | null;
+export type Shortcut = "console" | "search" | "help" | "escape" | null;
 
 const TYPING = new Set(["INPUT", "SELECT", "TEXTAREA"]);
 
@@ -22,6 +22,7 @@ export function chromeOf(pressed: Pressed, typing: boolean): Shortcut {
   // on a keyboard that has no backquote there.
   if (pressed.key === "`" || pressed.code === "Backquote") return "console";
   if (pressed.key === "/") return typing ? null : "search";
+  if (pressed.key === "?") return typing ? null : "help";
   if (pressed.key === "Escape") return "escape";
   return null;
 }
@@ -53,10 +54,12 @@ export interface ShortcutProps {
   readonly consoleOpen: boolean;
   readonly setConsole: (open: boolean) => void;
   readonly focusSearch: () => void;
+  readonly toggleHelp: () => void;
+  readonly helpOpen: boolean;
 }
 
 export function useShortcuts(props: ShortcutProps): void {
-  const { studio, state, keys, consoleOpen, setConsole, focusSearch } = props;
+  const { studio, state, keys, consoleOpen, setConsole, focusSearch, toggleHelp, helpOpen } = props;
   const busy = state.busy.length > 0;
   useEffect(() => {
     const onKey = (event: Event): void => {
@@ -66,6 +69,11 @@ export function useShortcuts(props: ShortcutProps): void {
       if (event.key === "Escape" && consoleOpen) {
         event.preventDefault();
         setConsole(false);
+        return;
+      }
+      if (event.key === "Escape" && helpOpen) {
+        event.preventDefault();
+        toggleHelp();
         return;
       }
       if (busy && event.key === "Escape") {
@@ -79,6 +87,7 @@ export function useShortcuts(props: ShortcutProps): void {
         event.preventDefault();
         if (chrome === "console") setConsole(!consoleOpen);
         else if (chrome === "search") focusSearch();
+        else if (chrome === "help") toggleHelp();
         else void studio.dispatch("view.clear");
         return;
       }
@@ -91,5 +100,5 @@ export function useShortcuts(props: ShortcutProps): void {
     };
     keys.addEventListener("keydown", onKey);
     return () => keys.removeEventListener("keydown", onKey);
-  }, [studio, keys, consoleOpen, busy, setConsole, focusSearch]);
+  }, [studio, keys, consoleOpen, busy, setConsole, focusSearch, toggleHelp, helpOpen]);
 }

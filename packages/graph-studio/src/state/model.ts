@@ -57,6 +57,12 @@ export interface StudioState {
   readonly layoutCalls: number;
   /** The filter in force when the last layout ran, as JSON; "" before the first one. */
   readonly runFilter: string;
+  /** Every selected node, the primary last; `[]` when none. */
+  readonly selection: readonly number[];
+  /** The last text the studio copied: what the page holds when the browser refuses a read. */
+  readonly clipboard: string;
+  /** Nodes an animation has shown, in ingest order; null when none is under way or kept. Never saved. */
+  readonly reveal: number | null;
 }
 
 /** The console keeps this many entries; older ones are dropped, oldest first. */
@@ -65,7 +71,8 @@ export const LOG_LIMIT = 500;
 export function initialState(settings: Settings = DEFAULT_SETTINGS): StudioState {
   return {
     settings, catalog: null, graph: null, meta: null, run: null, analysis: null,
-    busy: [], error: null, log: [], selected: -1, layoutCalls: 0, runFilter: "",
+    busy: [], error: null, log: [], selected: -1, selection: [], clipboard: "", reveal: null,
+    layoutCalls: 0, runFilter: "",
   };
 }
 

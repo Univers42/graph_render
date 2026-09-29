@@ -11,8 +11,10 @@ import { type MotorClient, MotorFailure } from "../motor/client.ts";
 import { type ShownError, describeError } from "../state/errors.ts";
 import { type LogEntry, type StudioState, initialState, withEntry } from "../state/model.ts";
 import type { Settings, Source } from "../state/settings.ts";
+import { type SettingsStorage, keepSettings, recall } from "../state/persist.ts";
 import { type Store, createStore } from "../state/store.ts";
 import { type ViewFace, createPipeline } from "./pipeline.ts";
+import { createReveal } from "./reveal.ts";
 
 export interface StudioDeps {
   readonly client: MotorClient;
@@ -20,6 +22,8 @@ export interface StudioDeps {
   readonly save: Save;
   readonly now: () => number;
   readonly settings?: Settings;
+  /** Where settings are kept per source; absent means nothing is remembered. */
+  readonly storage?: SettingsStorage;
 }
 
 export interface Studio {
@@ -31,6 +35,8 @@ export interface Studio {
   /** Opens the motor and draws the settings' source. */
   start(): Promise<LogEntry>;
   neighbours(node: number): readonly number[];
+  /** Keeps the text in the state, and offers it to the system clipboard where that is allowed. */
+  copy(text: string): void;
   dismiss(): void;
   destroy(): void;
 }
@@ -119,15 +125,37 @@ async function start(desk: Desk): Promise<LogEntry> {
   return execute(desk, id, () => desk.registry.resolve(id, raw, desk.store.get()));
 }
 
+/**
+ * Ponytail: the system clipboard is written without waiting and without reporting a refusal
+ * (no permission, an insecure page, headless): the state copy is what a caller can rely on.
+ */
+function copyText(store: Store<StudioState>, text: string): void {
+  store.update((state) => ({ ...state, clipboard: text }));
+  try {
+    void globalThis.navigator.clipboard.writeText(text).catch(() => undefined);
+  } catch {
+    // The state holds the text; there is nothing else to do.
+  }
+}
+
 function contextOf(deps: StudioDeps, store: Store<StudioState>, registry: () => Registry<StudioState, StudioContext>): StudioContext {
+  const pipeline = createPipeline({ client: deps.client, view: deps.view, store });
   return {
-    ...createPipeline({ client: deps.client, view: deps.view, store }),
+    ...pipeline,
+    animation: createReveal({
+      total: () => store.get().meta?.nodeCount ?? 0, show: (count) => pipeline.reveal(count), now: deps.now,
+      schedule: (step, ms) => {
+        const timer = setTimeout(step, ms);
+        return () => clearTimeout(timer);
+      },
+    }),
     state: store.get,
     view: deps.view,
     stop: () => deps.client.cancel(),
     save: deps.save,
     clearLog: () => store.update((state) => ({ ...state, log: [] })),
     actions: () => registry().actions,
+    recall: (source) => (deps.storage === undefined ? null : recall(deps.storage, source)),
   };
 }
 
@@ -136,7 +164,9 @@ export function createStudio(deps: StudioDeps): Studio {
   const registry = createRegistry<StudioState, StudioContext>(studioActions());
   const context = contextOf(deps, store, () => registry);
   const desk: Desk = { deps, store, registry, context, seq: 0 };
+  const unkeep = deps.storage === undefined ? () => undefined : keepSettings(store, deps.storage);
   const unselect = deps.view.on("select", (selected) => store.update((state) => ({ ...state, selected })));
+  const unselectMany = deps.view.on("selection", (selection) => store.update((state) => ({ ...state, selection })));
   return {
     store,
     registry,
@@ -147,9 +177,12 @@ export function createStudio(deps: StudioDeps): Studio {
     }),
     start: () => start(desk),
     neighbours: (node) => context.neighbours(node),
+    copy: (text) => copyText(store, text),
     dismiss: () => store.update((state) => ({ ...state, error: null })),
     destroy: () => {
       unselect();
+      unkeep();
+      unselectMany();
       deps.client.close();
     },
   };

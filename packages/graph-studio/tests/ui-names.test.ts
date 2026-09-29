@@ -7,7 +7,7 @@ import type { ViewStats } from "../../graph-render/src/view.ts";
 import { digest8, frameLine, ms, shortName, sig3 } from "../src/ui/names.ts";
 
 const STATS: ViewStats = {
-  backend: "canvas2d", nodes: 3, edges: 2, drawnNodes: 3, drawnEdges: 2, drawnLabels: 2,
+  backend: "canvas2d", nodes: 3, edges: 2, drawnNodes: 3, drawnEdges: 2, drawnLabels: 2, drawnArrows: 0, arrowSize: 0, curvedEdges: 0, strokeWidth: 0,
   draws: 12, frameMs: 4.2, fps: 60, frames: 42,
 };
 

@@ -8,6 +8,7 @@
  * glyphs (CJK, emoji). Both err towards fewer labels. Hovering a node forces its label.
  */
 import type { Camera, Viewport } from "./camera.ts";
+import { fadeFactor } from "./labels2d/fade.ts";
 import type { Style } from "./style.ts";
 
 export interface LabelPolicy {
@@ -15,6 +16,8 @@ export interface LabelPolicy {
   readonly threshold: number;
   /** Labels per frame, forced ones included. */
   readonly budget: number;
+  /** The text-fade slider, -3..3; absent is 0 (labels2d/fade.ts). */
+  readonly fade?: number;
 }
 
 export interface LabelPlan {
@@ -126,7 +129,8 @@ function place(input: LabelInput, node: number, alpha: number, out: { plan: Labe
   const sy = (input.y[node] ?? 0) * camera.scale + camera.y;
   const { top, keep } = placementOf(input, node, sy);
   if (sx < 0 || sx > viewport.width || top < -input.height || top > viewport.height) return;
-  if (!keep) {
+  // A focus's labels are forced: the neighbourhood is named even where two texts touch.
+  if (!keep && input.lit === null) {
     const width = input.widthOf(node) || text.length * ESTIMATED_GLYPH + 8;
     if (!claimCells(out.occupancy, sx - width / 2, top, width)) return;
   }
@@ -148,13 +152,17 @@ export function planLabels(input: LabelInput, plan: LabelPlan, occupancy: Occupa
   // affordance and the source has none, so a centred label is drawn at full opacity
   // whatever the scale, and the threshold never culls one.
   const centred = input.style.placement === "centred";
+  const factor = fadeFactor(input.policy.fade ?? 0);
+  // Fading later than the default is the one thing that does cull a centred label, and it
+  // culls the whole set together: the source has no per-label weight to rank by.
+  if (centred && input.lit === null && input.camera.scale < input.policy.threshold * (factor - 1)) return;
   for (let at = 0; at < rank.length && plan.count < budget; at += 1) {
     const node = rank[at] ?? 0;
     if (input.lit !== null) {
       if (input.lit[node] === 1) place(input, node, 1, out);
       continue;
     }
-    const alpha = centred ? 1 : zoomAlpha(input.camera.scale, weights[node] ?? 0, input.policy.threshold);
+    const alpha = centred ? 1 : zoomAlpha(input.camera.scale, weights[node] ?? 0, input.policy.threshold * factor);
     // Rank is by weight, so every node after the first invisible one is invisible too.
     if (alpha <= 0.02) break;
     place(input, node, alpha, out);

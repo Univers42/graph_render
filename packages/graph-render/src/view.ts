@@ -10,18 +10,24 @@
 import {
   type Camera, type Point, type Viewport, type ZoomLimits, centreOn, panBy, resetCamera, zoomAt,
 } from "./camera.ts";
+import { clickAt, contextAt, pressAt, setSelection } from "./canvas2d/choose.ts";
 import {
   type Controller, fit, hover, measure, moveTo, newState, pickAt, select, showFrame,
 } from "./canvas2d/controller.ts";
+import { hideNodes, togglePin } from "./canvas2d/keep.ts";
 import { type LoopState, invalidate } from "./canvas2d/loop.ts";
+import { rebaseLocal, setBaseStyle, showAll, showLocal } from "./canvas2d/local.ts";
+import { type EdgeEnds, edgeEndsOf, edgeOpacity, labelledNodes, nodeOpacity } from "./canvas2d/probe.ts";
 import { fpsOf } from "./canvas2d/rate.ts";
 import type { Frame } from "./frame.ts";
 import { DOUBLE_CLICK_ZOOM, centreOf } from "./gesture.ts";
 import { type LabelPolicy, newLabelPlan } from "./labels.ts";
+import { type LocalOptions, newLocalLayer } from "./local.ts";
 import { bindPointer } from "./pointer.ts";
-import { sceneOf } from "./scene.ts";
 import type { Style } from "./style.ts";
 import type { Theme } from "./theme.ts";
+
+export type { EdgeEnds } from "./canvas2d/probe.ts";
 
 export interface ViewOptions {
   readonly theme?: Theme;
@@ -35,6 +41,13 @@ export interface ViewStats {
   readonly drawnNodes: number;
   readonly drawnEdges: number;
   readonly drawnLabels: number;
+  /** Arrow heads in the last frame, and the length of one in CSS pixels. */
+  readonly drawnArrows: number;
+  readonly arrowSize: number;
+  /** Edges drawn with a control point. */
+  readonly curvedEdges: number;
+  /** The stroke width of an edge in CSS pixels in the last frame. */
+  readonly strokeWidth: number;
   /** Path fills and strokes in the last frame. */
   readonly draws: number;
   /** Script time of the last frame; the rasteriser's time is not in it. */
@@ -47,6 +60,10 @@ export interface ViewStats {
 export interface ViewEvents {
   readonly hover: number;
   readonly select: number;
+  /** Every selected node, the primary last. */
+  readonly selection: readonly number[];
+  /** A secondary click at a canvas point; `node` is what was under it, or -1. */
+  readonly context: { readonly node: number; readonly at: Point };
   readonly camera: Camera;
   readonly frame: ViewStats;
 }
@@ -86,21 +103,41 @@ export interface View {
   /** Centres the node and selects it. */
   focus(node: number): void;
   select(node: number): void;
+  /**
+   * Shows only `node` and what a walk of `options` reaches, and fits them. Returns those nodes
+   * ascending, or none (and changes nothing) when `node` is not in the frame.
+   */
+  local(node: number, options: LocalOptions): readonly number[];
+  /** Leaves the local graph: every node the style does not hide is shown again, and fitted. */
+  showAll(): void;
+  selectMany(nodes: readonly number[]): void;
+  selection(): readonly number[];
+  /** Hides nodes from the drawing and from picking; view-only. */
+  hide(nodes: readonly number[]): void;
+  /** View-only pin flag, drawn as a dashed ring. */
+  togglePin(node: number): void;
+  pinned(): readonly number[];
+  /** Where a node is drawn, in world units: a dragged node is where the pointer put it. */
+  position(node: number): Point;
+  /** The ends of an edge as drawn, in world units, with the nodes they join (null past the last edge). */
+  edgeEnds(edge: number): EdgeEnds | null;
+  /** What the view draws a node or an edge at right now (1 in the focus, faded outside it). */
+  opacity(kind: "node" | "edge", index: number): number;
+  /** The nodes whose labels the last frame placed. */
+  labelled(): readonly number[];
   /** The node under a canvas-relative point, or -1. */
   pick(at: Point): number;
   on<Name extends keyof ViewEvents>(name: Name, handler: (payload: ViewEvents[Name]) => void): () => void;
   toPNG(): Promise<Blob>;
   stats(): ViewStats;
+  /** World radius of every node by dense index: what the style drew, after the min and max clamp. */
+  radii(): Float32Array;
   destroy(): void;
 }
 
 type Handlers = { [Name in keyof ViewEvents]: Set<(payload: ViewEvents[Name]) => void> };
 type SceneApi = Pick<View, "setFrame" | "setStyle" | "setTheme" | "setLabels">;
-type CameraApi = Pick<
-  View,
-  | "setCamera" | "camera" | "frame" | "style" | "viewport"
-  | "fit" | "reset" | "zoomBy" | "panBy" | "limits" | "focus" | "select" | "pick"
->;
+type CameraApi = Omit<View, keyof SceneApi | "on" | "toPNG" | "stats" | "radii" | "destroy">;
 
 function statsOf(state: LoopState): ViewStats {
   return {
@@ -110,6 +147,10 @@ function statsOf(state: LoopState): ViewStats {
     drawnNodes: state.counts.nodes,
     drawnEdges: state.counts.edges,
     drawnLabels: state.counts.labels,
+    drawnArrows: state.counts.arrows,
+    arrowSize: state.counts.arrowSize,
+    curvedEdges: state.counts.curves,
+    strokeWidth: state.counts.stroke,
     draws: state.counts.draws,
     frameMs: state.frameMs,
     fps: fpsOf(state.rate, performance.now()),
@@ -131,12 +172,12 @@ function sceneApi(controller: Controller): SceneApi {
   return {
     setFrame: (frame, options = {}) => {
       showFrame(state, frame, options.animate === true);
+      rebaseLocal(controller);
       if (options.fit === false) invalidate(state);
       else fit(controller);
     },
     setStyle: (style) => {
-      state.scene = sceneOf(state.scene.frame, style, state.scene);
-      invalidate(state);
+      setBaseStyle(controller, style);
     },
     setTheme: (theme) => {
       state.theme = theme;
@@ -172,6 +213,17 @@ function cameraApi(controller: Controller): CameraApi {
       moveTo(controller, centreOn(near, world, state.viewport), false);
     },
     select: (node) => select(controller, node),
+    local: (node, options) => showLocal(controller, node, options),
+    showAll: () => showAll(controller),
+    selectMany: (nodes) => setSelection(controller, nodes),
+    selection: () => state.selection,
+    hide: (nodes) => hideNodes(controller, nodes),
+    togglePin: (node) => togglePin(controller, node),
+    pinned: () => state.pinned,
+    position: (node) => ({ x: state.x[node] ?? 0, y: state.y[node] ?? 0 }),
+    edgeEnds: (edge) => edgeEndsOf(state, edge),
+    opacity: (kind, index) => (kind === "node" ? nodeOpacity : edgeOpacity)(state, index, performance.now()),
+    labelled: () => labelledNodes(state),
     pick: (at) => pickAt(state, at),
   };
 }
@@ -183,7 +235,9 @@ function bindInputs(controller: Controller): () => void {
     zoom: (at, factor) => moveTo(controller, zoomAt(state.camera, at, factor, state.limits), false),
     pan: (delta) => moveTo(controller, panBy(state.camera, delta), false),
     hover: (at) => hover(controller, at === null ? -1 : pickAt(state, at)),
-    click: (at) => select(controller, pickAt(state, at)),
+    click: (at, shift) => clickAt(controller, at, shift),
+    press: (at, shift) => pressAt(controller, at, shift),
+    context: (at) => contextAt(controller, at),
     doubleClick: (at) => {
       // A double-click on a node is the node's own gesture (S2); on the background it zooms.
       if (pickAt(state, at) >= 0) return;
@@ -205,7 +259,7 @@ function bindInputs(controller: Controller): () => void {
 }
 
 export function createView(canvas: HTMLCanvasElement, options: ViewOptions = {}): View {
-  const handlers: Handlers = { hover: new Set(), select: new Set(), camera: new Set(), frame: new Set() };
+  const handlers: Handlers = { hover: new Set(), select: new Set(), selection: new Set(), context: new Set(), camera: new Set(), frame: new Set() };
   const emit = <Name extends keyof ViewEvents>(name: Name, payload: ViewEvents[Name]): void => {
     for (const handler of handlers[name]) handler(payload);
   };
@@ -215,9 +269,11 @@ export function createView(canvas: HTMLCanvasElement, options: ViewOptions = {})
   const notify = {
     hover: (node: number): void => emit("hover", node),
     select: (node: number): void => emit("select", node),
+    selection: (nodes: readonly number[]): void => emit("selection", nodes),
+    context: (node: number, at: Point): void => emit("context", { node, at }),
     camera: (camera: Camera): void => emit("camera", camera),
   };
-  const controller: Controller = { canvas, state, notify, fitted: true };
+  const controller: Controller = { canvas, state, notify, fitted: true, local: newLocalLayer() };
   measure(controller);
   const unbind = bindInputs(controller);
   return {
@@ -229,6 +285,7 @@ export function createView(canvas: HTMLCanvasElement, options: ViewOptions = {})
     },
     toPNG: () => toBlob(canvas),
     stats: () => statsOf(state),
+    radii: () => state.scene.style.radius,
     destroy: () => {
       state.destroyed = true;
       if (state.scheduled !== 0) cancelAnimationFrame(state.scheduled);

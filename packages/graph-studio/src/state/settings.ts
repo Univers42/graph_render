@@ -6,8 +6,9 @@
  * Not in here: the camera, the selection, what is open. Those are the viewer's, not the
  * drawing's, and a recipe that carried them would replay someone else's scrolling.
  */
+import { THEME_NAMES } from "../../../graph-render/src/look/themes.ts";
 import { MAX_DEGREE, MAX_NODES, SHAPES, type SyntheticShape } from "../source/synthetic.ts";
-import { type Fields, SettingsRefusal, fieldsOf, numberOf, oneOf, textOf, textOrNull, textsOf } from "./read.ts";
+import { type Fields, SettingsRefusal, fieldsOf, flagOf, numberOf, oneOf, textOf, textOrNull, textsOf } from "./read.ts";
 
 export { SettingsRefusal };
 
@@ -16,7 +17,7 @@ export type Source =
   | { readonly kind: "fixture"; readonly path: string }
   | { readonly kind: "document"; readonly name: string; readonly text: string };
 
-export const THEMES = ["dark", "light"] as const;
+export const THEMES: readonly string[] = THEME_NAMES;
 /**
  * `tag` and `db` colour by the two columns the provisional document gives every node;
  * `analysis` is the metric colouring — a number the motor measured, not a name. It keeps
@@ -25,15 +26,28 @@ export const THEMES = ["dark", "light"] as const;
 export const COLOUR_BY = ["group", "kind", "tag", "db", "analysis", "none"] as const;
 export const SIZE_BY = ["weight", "degree", "analysis", "uniform"] as const;
 export const LABEL_MODES = ["auto", "more", "none"] as const;
-export const NODE_SCALE = { min: 0.25, max: 4, whole: false } as const;
+export const EDGE_STYLES = ["straight", "curve"] as const;
+export const NODE_SCALE = { min: 0.2, max: 5, whole: false } as const;
+export const LINK_THICKNESS = { min: 0.1, max: 5, whole: false } as const;
+export const TEXT_FADE = { min: -3, max: 3, whole: false } as const;
+export const GLOW_STRENGTH = { min: 0, max: 3, whole: false } as const;
 
 export interface Appearance {
-  readonly theme: (typeof THEMES)[number];
+  readonly theme: string;
   readonly colourBy: (typeof COLOUR_BY)[number];
   readonly sizeBy: (typeof SIZE_BY)[number];
   /** Multiplies every node's radius. */
   readonly nodeScale: number;
   readonly labels: (typeof LABEL_MODES)[number];
+  /** Draw a head on every directed edge; its size follows `linkThickness`. */
+  readonly arrows: boolean;
+  /** Where labels start to appear by zoom, -3 (early) to 3 (late). */
+  readonly textFade: number;
+  /** Multiplies every edge's stroke width. */
+  readonly linkThickness: number;
+  readonly edgeStyle: (typeof EDGE_STYLES)[number];
+  readonly glow: boolean;
+  readonly glowStrength: number;
 }
 
 /** Filters hide nodes in the drawing. The layout still ran over the whole graph. */
@@ -83,6 +97,8 @@ function sourceOf(source: Source): Source {
 function appearanceOf(look: Appearance): Appearance {
   return Object.freeze({
     theme: look.theme, colourBy: look.colourBy, sizeBy: look.sizeBy, nodeScale: look.nodeScale, labels: look.labels,
+    arrows: look.arrows, textFade: look.textFade, linkThickness: look.linkThickness, edgeStyle: look.edgeStyle,
+    glow: look.glow, glowStrength: look.glowStrength,
   });
 }
 
@@ -128,7 +144,10 @@ export const DEFAULT_SETTINGS: Settings = settingsOf({
   layout: "layout.forceatlas2",
   edges: null,
   analysis: null,
-  appearance: { theme: "dark", colourBy: "group", sizeBy: "weight", nodeScale: 1, labels: "auto" },
+  appearance: {
+    theme: "dark", colourBy: "group", sizeBy: "weight", nodeScale: 1, labels: "auto",
+    arrows: false, textFade: 0, linkThickness: 1, edgeStyle: "straight", glow: false, glowStrength: 1,
+  },
   groups: [],
   filter: {
     query: "", text: "", hiddenKinds: [], hiddenGroups: [],
@@ -174,24 +193,22 @@ function readSource(value: unknown, at: string): Source {
 }
 
 function readAppearance(value: unknown, at: string): Appearance {
-  const fields = fieldsOf(value, at, ["theme", "colourBy", "sizeBy", "nodeScale", "labels"]);
+  const fields = fieldsOf(value, at, [
+    "theme", "colourBy", "sizeBy", "nodeScale", "labels", "arrows", "textFade", "linkThickness", "edgeStyle", "glow", "glowStrength",
+  ]);
   return {
     theme: oneOf(fields, at, "theme", THEMES),
     colourBy: oneOf(fields, at, "colourBy", COLOUR_BY),
     sizeBy: oneOf(fields, at, "sizeBy", SIZE_BY),
     nodeScale: numberOf(fields, at, "nodeScale", NODE_SCALE),
     labels: oneOf(fields, at, "labels", LABEL_MODES),
+    arrows: flagOf(fields, at, "arrows"),
+    textFade: numberOf(fields, at, "textFade", TEXT_FADE),
+    linkThickness: numberOf(fields, at, "linkThickness", LINK_THICKNESS),
+    edgeStyle: oneOf(fields, at, "edgeStyle", EDGE_STYLES),
+    glow: flagOf(fields, at, "glow"),
+    glowStrength: numberOf(fields, at, "glowStrength", GLOW_STRENGTH),
   };
-}
-
-/**
- * `read.ts` has no boolean reader, and the studio has one kind of flag to read, so it
- * lives here rather than widening a module another slice owns.
- */
-function flagOf(fields: Fields, at: string, key: string): boolean {
-  const value = fields[key];
-  if (typeof value !== "boolean") throw new SettingsRefusal(`${at}.${key}`, "not on or off");
-  return value;
 }
 
 function readFilter(value: unknown, at: string): Filter {

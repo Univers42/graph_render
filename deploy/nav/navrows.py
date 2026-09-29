@@ -29,7 +29,7 @@ def _cam(camera):
 def row_drag(studio):
     """A 200 px drag on the background moves the camera offset 200 px, and the scale not at all."""
     before = studio.camera()
-    studio.drag(CENTRE, 200, 0)
+    studio.drag(studio.background(CENTRE), 200, 0)
     after = studio.settle()
     moved = after["x"] - before["x"]
     expected = studio.expect_drag
@@ -42,7 +42,7 @@ def row_drag(studio):
 def row_vertical_drag(studio):
     """The y of a drag is the y of the camera: panning is not a horizontal-only affordance."""
     before = studio.camera()
-    studio.drag(CENTRE, 0, -140)
+    studio.drag(studio.background(CENTRE), 0, -140)
     after = studio.settle()
     moved = after["y"] - before["y"]
     return row("nav-drag-y", "a 140 px drag up moves the offset 140 px up",
@@ -53,7 +53,7 @@ def row_space_drag(studio):
     """Space held, then a drag: the camera pans, as it does for the middle button."""
     before = studio.camera()
     studio.hold_space()
-    studio.drag(CENTRE, -120, 0)
+    studio.drag(studio.background(CENTRE), -120, 0)
     studio.release_space()
     after = studio.settle()
     moved = after["x"] - before["x"]
@@ -64,7 +64,7 @@ def row_space_drag(studio):
 def row_middle_drag(studio):
     """The middle button pans: no modifier held, and no autoscroll either."""
     before = studio.camera()
-    studio.drag(CENTRE, 0, -120, button="middle", buttons=4)
+    studio.drag(studio.background(CENTRE), 0, -120, button="middle", buttons=4)
     after = studio.settle()
     moved = after["y"] - before["y"]
     return row("nav-middle-drag", "middle-drag pans 120 px up",
@@ -76,7 +76,7 @@ def row_middle_drag(studio):
 
 def _anchor_row(studio, name, notch, ctrl):
     before = studio.camera()
-    at = CENTRE if not ctrl else OFF_CENTRE
+    at = studio.background(OFF_CENTRE if ctrl else CENTRE)
     world = screen_to_world(before, at)
     studio.wheel(at, notch, ctrl=ctrl)
     after = studio.settle()
@@ -102,7 +102,7 @@ def row_pinch(studio):
 def row_double_click(studio):
     """A double-click on the background zooms in by two, at the cursor."""
     before = studio.camera()
-    at = OFF_CENTRE
+    at = studio.background(OFF_CENTRE)
     world = screen_to_world(before, at)
     studio.double_click(at)
     after = studio.settle()
@@ -190,7 +190,7 @@ def row_fit(studio):
     cut_before = studio.border_drawn()
     studio.key("f")
     first = studio.settle()
-    studio.drag(CENTRE, 60, 0)
+    studio.drag(studio.background(CENTRE), 60, 0)
     studio.key("f")
     second = studio.settle()
     cut_after = studio.border_drawn()
