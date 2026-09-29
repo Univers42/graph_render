@@ -14,8 +14,8 @@ use crate::stage::{Stage, StageError};
 use graph_contract::geometry::{EdgeGeometryKind, NodeGeometryKind};
 
 mod spectral;
-pub use spectral::{PIVOT_MDS_CEILING, SPECTRAL_CEILING};
 use spectral::{PIVOT_MDS, SPECTRAL};
+pub use spectral::{PIVOT_MDS_CEILING, SPECTRAL_CEILING};
 
 /// What the ledger says about a layout. Every field is required.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -267,6 +267,8 @@ pub static LAYOUTS: [Capability; 8] = [
         id: "layout.mds.pivot",
         run: spectral_stage::pivot_mds,
         meta: PIVOT_MDS,
+    },
+    Capability {
         id: Sugiyama::ID,
         run: run_default::<Sugiyama>,
         meta: SUGIYAMA,
