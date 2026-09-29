@@ -147,6 +147,18 @@ pass (4/4). A fresh worktree needs `npm ci` before `cargo test`.
     - p13-gv1 `ses_f114f15a3ffe5X0BotPtVWYn3y`;
     - p13-3d `ses_f114ec78affe6pzAwmdN3NeQl3`;
     - followups2c `ses_f11b6612bffeSYUGh7YTLDrxwK`.
+- About 23:30: p12-t1 relaunched on the engine as `wf_14bf57f8-c2f` (commit c377215 carries its WIP;
+  `capabilities --check` removed from its rows: it exits 1 on every tree without 1000-seed records).
+- Obsidian-style live forces (user request): split into three jobs, because the physics must come
+  from graph-core `ForceSession` (branch `sim`, uncommitted WIP) and no TypeScript simulation is allowed.
+  - `studio-force` (engine, `orch/prompts/studio-force.txt`): the `LiveForce` port, worker loop,
+    drag glue, Forces panel (Center, Repel, Link force, Link distance) and tests. **Pushed 15ce426**
+    on branch `studio-force` (merges into `studio`). Gate: studio-check 0 (re-run by the lead: the
+    engine's red row did not reproduce; 298+271+55 tests pass), studio-nav 0, studio-forces 0, negctl 1.
+    The panel shows "live forces need the motor session (force-wasm)" until the adapter exists.
+  - `force-wasm` (`orch/prompts/force-wasm.txt`, `orch/rows/force-wasm.rows`): graph-wasm ABI + SDK
+    `ForceSession` + a 4-way session hash row. Starts from `sim` once sim-m1fix2e commits.
+  - Then a wiring job: the real adapter in the studio worker, and a CDP probe that neighbours move.
 ## Remaining, in order
 
 1. Done: train and p4 are on develop. Still to do: p7's SDK row (p4 → p7 dependency), and check the folded p4 CLI test listed under p4 above.
