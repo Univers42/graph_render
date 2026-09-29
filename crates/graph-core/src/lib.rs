@@ -25,6 +25,7 @@ mod csr;
 mod csr_petgraph;
 mod diff;
 mod edgekind;
+pub mod exec;
 mod ids;
 mod index;
 pub mod layout;

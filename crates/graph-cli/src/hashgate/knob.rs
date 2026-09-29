@@ -40,17 +40,30 @@ pub enum Knob {
     /// Its own control for the same reason, on the other side: `scaling_ratio` is
     /// read by `Fa2State::repulsion` alone.
     Fa2ScalingRatio,
+    /// `GM_MUTATE_SPLIT_SUM`: **native arms only, and the threaded ones above all.**
+    ///
+    /// Phase 11's own control, and the one the phase prompt names: it makes the many-body
+    /// merge read a *neighbouring* node's delta — the shape a wrong partition of the
+    /// outputs would take — so the threaded arms must diverge from the scalar one. It is
+    /// the control that proves the threaded arms are actually reading their own results:
+    /// a threaded arm that ignored the merge entirely would agree with a mutated one.
+    ///
+    /// The perturbation lives in `barnes_hut::charge`'s merge, and the setting it reads is
+    /// carried on the [`Setting`] so a knob cannot change behaviour without being declared
+    /// here — the same discipline every other knob obeys.
+    SplitSum,
 }
 
 impl Knob {
     /// Every knob.
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::ReferenceDegree,
         Self::GridSpacing,
         Self::SugiyamaLayerSpacing,
         Self::NodeCount,
         Self::ForceTheta,
         Self::Fa2ScalingRatio,
+        Self::SplitSum,
     ];
 
     /// The variable that sets it.
@@ -62,6 +75,7 @@ impl Knob {
             Self::NodeCount => "GM_MUTATE_NODE_COUNT",
             Self::ForceTheta => "GM_MUTATE_FORCE_THETA",
             Self::Fa2ScalingRatio => "GM_MUTATE_FA2_SCALING_RATIO",
+            Self::SplitSum => "GM_MUTATE_SPLIT_SUM",
         }
     }
 
@@ -74,6 +88,7 @@ impl Knob {
             Self::NodeCount => "hashgate-control-node-count",
             Self::ForceTheta => "hashgate-control-force-theta",
             Self::Fa2ScalingRatio => "hashgate-control-fa2-scaling-ratio",
+            Self::SplitSum => "hashgate-control-split-sum",
         }
     }
 }
@@ -90,6 +105,12 @@ pub(super) struct Setting {
     pub(super) force: ForceParams,
     /// ForceAtlas2's parameters, native arm only ([`Knob::Fa2ScalingRatio`] perturbs).
     pub(super) fa2: Fa2Params,
+    /// Whether the many-body merge reads a neighbouring node's delta
+    /// ([`Knob::SplitSum`]), the phase-11 control for the threaded arms.
+    ///
+    /// A `bool` and not a mode because there is exactly one mutation to express, and a
+    /// setting that only ever takes two values should not read as if it took more.
+    pub(super) split_sum: bool,
     pub(super) control: Option<Knob>,
 }
 
@@ -104,6 +125,7 @@ pub(super) fn setting(read: impl Fn(&str) -> Result<String, VarError>) -> Result
         extra_nodes: 0,
         force: ForceParams::default(),
         fa2: Fa2Params::default(),
+        split_sum: false,
         control: None,
     };
     for knob in Knob::ALL {
@@ -131,6 +153,12 @@ pub(super) fn setting(read: impl Fn(&str) -> Result<String, VarError>) -> Result
             Knob::Fa2ScalingRatio => {
                 setting.fa2.scaling_ratio = text.trim().parse().map_err(|e| bad(&e))?
             }
+            // Parsed rather than treated as a presence flag, so `GM_MUTATE_SPLIT_SUM=0` is
+            // the honest run and a typo (`=maybe`) is an error instead of a silent
+            // mutation. `1`/`0` are accepted beside `true`/`false` because a gate row
+            // reads `GM_MUTATE_SPLIT_SUM=1`, and a control whose documented spelling did
+            // not work would be a control nobody runs.
+            Knob::SplitSum => setting.split_sum = truthy(&text).ok_or_else(|| bad(&text))?,
         }
     }
     Ok(setting)
@@ -138,4 +166,13 @@ pub(super) fn setting(read: impl Fn(&str) -> Result<String, VarError>) -> Result
 
 pub(super) fn env_setting() -> Result<Setting, String> {
     setting(|name| std::env::var(name))
+}
+
+/// `1`/`true` and `0`/`false`, case-insensitively, or `None`.
+fn truthy(text: &str) -> Option<bool> {
+    match text.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" => Some(true),
+        "0" | "false" => Some(false),
+        _ => None,
+    }
 }

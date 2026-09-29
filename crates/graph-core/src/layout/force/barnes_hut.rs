@@ -20,16 +20,18 @@ mod collide;
 mod link;
 mod seed;
 mod sim;
+mod step;
 
 #[cfg(test)]
 mod tests;
 
 use super::params::{ForceParams, TICKS};
+use crate::exec::Serial;
 use crate::index::Topology;
 use crate::layout::Geometry;
 use crate::stage::{Stage, StageError};
 use graph_contract::geometry::{EdgeGeometry, NodeGeometry};
-use sim::Sim;
+use sim::{How, Sim};
 
 /// Barnes-Hut approximated force layout (`prompt.md` §3.1).
 ///
@@ -46,10 +48,58 @@ impl Stage for BarnesHut {
     type Params = ForceParams;
     const ID: &'static str = "layout.force.barnes_hut";
 
+    /// The serial tier, which is the stage: [`run_with`](Self::run_with) over
+    /// [`Serial`] with one worker, and the arm every other runner must hash-equal.
     fn run(topology: &Topology, params: &Self::Params) -> Result<Geometry, StageError> {
+        Self::run_with(topology, params, &Serial, 1)
+    }
+}
+
+impl BarnesHut {
+    /// The same layout, with the many-body pass handed to `runner` over `workers` workers.
+    ///
+    /// The point of the signature is what it does **not** change: the tick order, the
+    /// `alpha` decay, the tree build, the link and collide passes and the integration are
+    /// all the same code the serial stage runs, and only the division of the many-body
+    /// queries differs. So `run_with(..., &Serial, 1)` is [`Stage::run`] by construction,
+    /// and any other runner is a *schedule* of the same computation — which is the claim
+    /// the N-way hash gate checks and `barnes_hut/tests.rs` pins at the unit level.
+    ///
+    /// `workers` below 2 is the serial path (see [`crate::exec::Runner`]), so a host
+    /// reporting no threads gets the same bytes rather than a fast failure.
+    pub fn run_with(
+        topology: &Topology,
+        params: &ForceParams,
+        runner: &impl crate::exec::Runner,
+        workers: u32,
+    ) -> Result<Geometry, StageError> {
+        Self::run_under(topology, params, runner, workers, false)
+    }
+
+    /// [`run_with`](Self::run_with) with the negative control reachable, so the host can
+    /// run a *deliberately wrong* tier and the gate must go red.
+    ///
+    /// Separate from [`run_with`](Self::run_with) rather than a defaulted argument on it
+    /// because the default would be one boolean away from a stage that silently mutated
+    /// itself — and a control that a caller can forget to pass is not a control, it is a
+    /// fourth path nobody exercises.
+    pub fn run_under(
+        topology: &Topology,
+        params: &ForceParams,
+        runner: &impl crate::exec::Runner,
+        workers: u32,
+        split_sum: bool,
+    ) -> Result<Geometry, StageError> {
         let mut sim = Sim::new(topology, *params, 0);
+        let mut deltas: Vec<(f64, f64)> = Vec::new();
         for _ in 0..TICKS {
-            sim.tick();
+            let mut how = How {
+                runner,
+                workers,
+                deltas: &mut deltas,
+                split_sum,
+            };
+            sim.tick(&mut how);
         }
         let (x, y) = sim.positions();
         if x.iter().chain(y).any(|v| !v.is_finite()) {

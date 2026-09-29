@@ -164,12 +164,33 @@ impl Quadtree {
 
     /// A pruned preorder walk (d3's `visit.js`): `prune` runs on every node reached, and a
     /// `true` return skips its children. Children queue `3,2,1,0`, so they visit `0,1,2,3`.
-    pub(crate) fn visit(&mut self, mut prune: impl FnMut(&Self, u32, Bounds) -> bool) {
-        self.visit_stack.clear();
+    pub(crate) fn visit(&mut self, prune: impl FnMut(&Self, u32, Bounds) -> bool) {
+        // The stack is moved out and back rather than borrowed in place: `visit_in` takes
+        // `&self`, and `&mut self.visit_stack` alongside `&self` is two borrows of one
+        // struct. Moving keeps the buffer's capacity between calls (the reason it is a
+        // field at all) and leaves the field empty only for the duration of the walk.
+        let mut stack = core::mem::take(&mut self.visit_stack);
+        self.visit_in(&mut stack, prune);
+        self.visit_stack = stack;
+    }
+
+    /// [`visit`](Self::visit) over a caller-owned stack, so a `&self` walk is possible.
+    ///
+    /// This is what makes a range kernel over the tree legal (D10): `visit` needs `&mut`
+    /// only for its reused stack, so without this the walk would be a `&mut` borrow of
+    /// shared start-of-step state and no two workers could take it at once. The order is
+    /// `visit`'s own — a pop from a per-caller stack visits the same nodes in the same
+    /// sequence as a pop from the tree's — so this is a buffer, not a behaviour.
+    pub(crate) fn visit_in(
+        &self,
+        stack: &mut Vec<(u32, Bounds)>,
+        mut prune: impl FnMut(&Self, u32, Bounds) -> bool,
+    ) {
+        stack.clear();
         if let Some(root) = self.root {
-            self.visit_stack.push((root, self.root_bounds));
+            stack.push((root, self.root_bounds));
         }
-        while let Some((node, bounds)) = self.visit_stack.pop() {
+        while let Some((node, bounds)) = stack.pop() {
             if prune(self, node, bounds) {
                 continue;
             }
@@ -178,7 +199,7 @@ impl Quadtree {
             };
             for slot in (0..4).rev() {
                 if let Some(child) = children[slot] {
-                    self.visit_stack.push((child, bounds.quadrant(slot)));
+                    stack.push((child, bounds.quadrant(slot)));
                 }
             }
         }

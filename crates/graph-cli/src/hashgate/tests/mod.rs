@@ -14,7 +14,7 @@ mod knob;
 mod report;
 
 /// Two seeds per stage; `fills[arm][line]` is the digest's repeated hex digit.
-fn arms(fills: [[char; 6]; 4]) -> Vec<Arm> {
+pub(super) fn arms(fills: [[char; 6]; 4]) -> Vec<Arm> {
     let names = [
         "native run 1",
         "native run 2",
@@ -36,7 +36,7 @@ fn arms(fills: [[char; 6]; 4]) -> Vec<Arm> {
         .collect()
 }
 
-const HONEST: [[char; 6]; 4] = [['a', 'b', 'c', 'd', 'e', 'f']; 4];
+pub(super) const HONEST: [[char; 6]; 4] = [['a', 'b', 'c', 'd', 'e', 'f']; 4];
 
 /// `arms()` above fixes 3 stages, 2 seeds each (6 lines per arm); the real [`stages`]
 /// has grown past that, so these tests exercise [`compare::diverged`] and
@@ -51,6 +51,60 @@ fn agreeing_arms_have_no_divergence() {
     assert_eq!(diverged(2, &test_stages(), &arms(HONEST)), Ok(vec![]));
 }
 
+/// The N-way claim: any number of arms compares, and **one** of them differing is caught
+/// however late in the list it sits.
+///
+/// This is the gate step 1 makes about tiers — `--tiers all` runs nine arms, and the fifth
+/// threaded arm diverging must be as visible as the first native one diverging. A rule
+/// that only compared the first four would pass it silently.
+#[test]
+fn any_arm_of_any_count_diverging_is_caught_wherever_it_sits() {
+    // Four original arms plus what `--tiers all` adds: a scalar reference and one arm per
+    // worker count in {1, 2, 3, 4, 7} — ten in all.
+    let names: [&str; 10] = [
+        "native run 1",
+        "native run 2",
+        "wasm32 run 1",
+        "wasm32 run 2",
+        "native scalar",
+        "native threads 1",
+        "native threads 2",
+        "native threads 3",
+        "native threads 4",
+        "native threads 7",
+    ];
+    let all: Vec<Arm> = names
+        .iter()
+        .map(|name| (*name, arms(HONEST)[0].1.clone()))
+        .collect();
+    assert_eq!(all.len(), 10);
+    assert_eq!(diverged(2, &test_stages(), &all), Ok(vec![]));
+    for (index, name) in names.iter().enumerate() {
+        let mut broken = all.clone();
+        broken[index].1[3] = format!("{} 1 {}", test_stages()[1], "0".repeat(64));
+        assert_eq!(
+            diverged(2, &test_stages(), &broken),
+            Ok(vec![3]),
+            "{name} diverged and was not caught"
+        );
+    }
+    // And two arms differing on different lines are both reported, not just the first.
+    // Line `i` is stage `i / 2`, seed `i % 2`, so the prefix has to be the stage that line
+    // really belongs to — a well-formedness check that fires first is the gate working.
+    let mut two = all.clone();
+    two[1].1[0] = format!("{} 0 {}", test_stages()[0], "1".repeat(64));
+    two[9].1[5] = format!("{} 1 {}", test_stages()[2], "2".repeat(64));
+    assert_eq!(diverged(2, &test_stages(), &two), Ok(vec![0, 5]));
+    // Ten arms really is the gate's own `--tiers all` count: four base plus a scalar
+    // reference plus one per worker count in {1, 2, 3, 4, 7}. Pinned so adding a tier is
+    // a deliberate edit to this number rather than a silent change in the gate's width.
+    assert_eq!(names.len(), 4 + 1 + super::tier::WORKER_COUNTS.len());
+    assert!(
+        names.contains(&"native threads 7"),
+        "the odd count must be in the run"
+    );
+}
+
 #[test]
 fn one_arm_differing_on_one_line_names_that_line() {
     let mut fills = HONEST;
@@ -63,7 +117,16 @@ fn one_arm_differing_on_one_line_names_that_line() {
 #[test]
 fn vacuous_comparisons_are_refused() {
     assert!(diverged(0, &test_stages(), &[]).is_err());
-    assert!(diverged(2, &test_stages(), &arms(HONEST)[..3]).is_err());
+    // A single arm cannot disagree with itself, and a comparison that cannot fail is not a
+    // check. (Three arms *can* disagree, so a three-arm list is compared, not refused —
+    // that is the whole point of moving from 4-way to N-way.)
+    assert!(diverged(2, &test_stages(), &arms(HONEST)[..1]).is_err());
+    assert!(diverged(0, &test_stages(), &[]).is_err());
+    // A short arm — one that printed fewer lines than the stage list demands — is refused
+    // whatever the list length: a missing seed is a missing check, not a passing one.
+    let mut short = arms(HONEST);
+    short[1].1.pop();
+    assert!(diverged(2, &test_stages(), &short).is_err());
     assert!(diverged(3, &test_stages(), &arms(HONEST)).is_err());
     let mut bad = arms(HONEST);
     bad[2].1[1] = "synthetic 1 xyzzy".into();
@@ -111,8 +174,12 @@ fn per_stage_counts_equal_seeds_per_stage_and_distinct_bad_seeds() {
 }
 
 /// A reader of the variables in `pairs`, every other one unset.
-fn env(pairs: &'static [(&str, &str)]) -> impl Fn(&str) -> Result<String, VarError> {
-    |name| {
+///
+/// Takes an owned `Vec` rather than a `&'static` slice so a test can build its pairs from
+/// a loop variable; a `'static` bound here would have forced every such test to spell out
+/// a `const` table, which is noise around the claim being made.
+fn env(pairs: Vec<(&str, &str)>) -> impl Fn(&str) -> Result<String, VarError> {
+    move |name| {
         let found = pairs.iter().find(|(key, _)| *key == name);
         found
             .map(|(_, value)| (*value).to_owned())
@@ -121,7 +188,7 @@ fn env(pairs: &'static [(&str, &str)]) -> impl Fn(&str) -> Result<String, VarErr
 }
 
 fn honest() -> Setting {
-    setting(env(&[])).expect("no knob set")
+    setting(env(Vec::new())).expect("no knob set")
 }
 
 #[test]
@@ -257,6 +324,45 @@ fn transport_arm(fill: char) -> Vec<String> {
             (0..2).map(move |seed| format!("{stage} {seed} {}", fill.to_string().repeat(64)))
         })
         .collect()
+}
+
+/// The threaded arm and the scalar arm must be **the same list of lines**, in the same
+/// order — not merely equal digests.
+///
+/// This is the test that a bug in `threads_lines` actually caught while this slice was
+/// being written: the arm was built seed-major while the comparison reads stage-major, so
+/// the gate refused it as malformed at line 1 rather than comparing anything. A test that
+/// only compared the *sets* of lines would have passed that arm, and the gate would still
+/// have been red — but the failure would have been "not comparable" (exit 2) instead of the
+/// "equal" the arm claims.
+#[test]
+fn the_threaded_arm_prints_its_stages_in_the_same_order_as_the_scalar_one() {
+    let setting = honest();
+    let scalar: Vec<String> = arm_lines(2, &setting)
+        .expect("runs")
+        .lines()
+        .map(str::to_owned)
+        .collect();
+    for workers in tier::WORKER_COUNTS {
+        let threaded = super::threads_lines(2, &setting, workers).expect("runs");
+        assert_eq!(
+            threaded.len(),
+            scalar.len(),
+            "workers={workers}: wrong line count"
+        );
+        assert_eq!(
+            threaded, scalar,
+            "workers={workers}: the threaded arm is not the scalar arm's lines"
+        );
+    }
+    // And the order is stage-major: line 0 and line 1 are the same stage, two seeds.
+    let prefixes: Vec<&str> = scalar
+        .iter()
+        .map(|line| line.rsplit_once(' ').expect("digest").0)
+        .collect();
+    assert_eq!(prefixes[0], format!("{} 0", stages()[0]));
+    assert_eq!(prefixes[1], format!("{} 1", stages()[0]));
+    assert_eq!(prefixes[2], format!("{} 0", stages()[1]));
 }
 
 #[test]

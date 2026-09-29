@@ -10,6 +10,7 @@ mod capabilities;
 mod codegen;
 mod determinism_probe;
 mod evidence;
+mod exec_native;
 mod fingerprint;
 mod hashgate;
 mod ink_cmd;
@@ -33,11 +34,16 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// 4-way snapshot hash gate: native x2 and wasm32 x2 must agree on every seed.
+    /// The snapshot hash gate: every arm must agree on every seed, per stage.
     Hashgate {
         /// Number of seeds, 0..N.
         #[arg(long, default_value_t = 100, value_parser = seed_count())]
         seeds: u32,
+        /// Which arms to run: `base` is native x2 and wasm32 x2, `all` adds one native arm
+        /// per thread count in {1, 2, 3, 4, 7}. The odd counts are the point — an even
+        /// split hides a range-boundary bug.
+        #[arg(long, default_value = "base", value_parser = parse_tiers())]
+        tiers: hashgate::Tiers,
     },
     /// One native arm of the gate, printing `stage seed sha256` lines. Spawned by `hashgate`.
     #[command(hide = true)]
@@ -223,9 +229,21 @@ fn seed_count() -> clap::builder::RangedI64ValueParser<u32> {
     clap::value_parser!(u32).range(0..=MAX_SEEDS)
 }
 
+/// `--tiers`, parsed by `hashgate`'s own list so the flag and the arm list cannot drift.
+///
+/// `PossibleValuesParser` over the accepted words and `try_map` into the enum: the value
+/// parser vets the word, and the map is a lookup in the same two-entry list, so the error a
+/// mistyped word gets is clap's (which names the possibilities) rather than a second
+/// hand-written message.
+fn parse_tiers() -> impl clap::builder::TypedValueParser {
+    use clap::builder::TypedValueParser as _;
+    clap::builder::PossibleValuesParser::new(["base", "all"])
+        .try_map(|word| hashgate::parse_tiers(word.as_str()))
+}
+
 fn main() -> ExitCode {
     match Cli::parse().command {
-        Command::Hashgate { seeds } => hashgate::run(seeds),
+        Command::Hashgate { seeds, tiers } => hashgate::run(seeds, tiers),
         Command::HashgateArm { seeds } => hashgate::arm(seeds),
         Command::Capabilities {
             json,

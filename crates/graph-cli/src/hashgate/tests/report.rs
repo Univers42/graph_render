@@ -60,16 +60,23 @@ fn the_record_holds_the_exact_counts_it_reports() {
         equal: vec![3; super::super::stages().len()],
         diverged_seeds: 0,
     };
-    let text = serde_json::to_string(&body(None, 3, &clean, 3)).expect("json");
+    let four = super::super::tests::arms(super::super::tests::HONEST);
+    let text = serde_json::to_string(&body(None, 3, &clean, 3, &four)).expect("json");
     assert_eq!(
         text,
-        r#"{"equal":{"layout.circular.radial":3,"layout.dag.sugiyama":3,"layout.force.barnes_hut":3,"layout.forceatlas2":3,"layout.grid":3,"layout.mds.pivot":3,"layout.packing.circle":3,"layout.spectral":3,"layout.tree.tidy":3,"layout.treemap.squarified":3,"topology":3,"transport.wasm.columnar":3},"mutation":null,"pass":true,"seeds":3,"transport":{"equal":3,"reference":"layout.grid","stage":"transport.wasm.columnar"}}"#
+        r#"{"arm_names":["native run 1","native run 2","wasm32 run 1","wasm32 run 2"],"arms":4,"equal":{"layout.circular.radial":3,"layout.dag.sugiyama":3,"layout.force.barnes_hut":3,"layout.forceatlas2":3,"layout.grid":3,"layout.mds.pivot":3,"layout.packing.circle":3,"layout.spectral":3,"layout.tree.tidy":3,"layout.treemap.squarified":3,"topology":3,"transport.wasm.columnar":3},"mutation":null,"pass":true,"seeds":3,"transport":{"equal":3,"reference":"layout.grid","stage":"transport.wasm.columnar"}}"#
+    );
+    // The arm count is in the record because the per-stage counts mean nothing without
+    // it: `equal: 8` is a different claim at four arms than at nine.
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&text).expect("json")["arms"],
+        4
     );
     let diverged = Tally {
         equal: vec![3; super::super::stages().len()],
         diverged_seeds: 1,
     };
-    let control = body(Some(Knob::GridSpacing), 3, &diverged, 3);
+    let control = body(Some(Knob::GridSpacing), 3, &diverged, 3, &four);
     assert_eq!(control["pass"], serde_json::json!(false));
     assert_eq!(control["mutation"], "GM_MUTATE_GRID_SPACING");
     assert_eq!(Knob::GridSpacing.record(), "hashgate-control-grid-spacing");
