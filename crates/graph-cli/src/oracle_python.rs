@@ -141,7 +141,7 @@ fn verdict(differential: &Differential, dir: &Path) -> Result<bool, String> {
         "oracle": result["oracle"], "tolerance": true,
     });
     stamp.still_current()?;
-    crate::evidence::write(&stamp, &format!("oracle-{name}"), body)?;
+    crate::evidence::record(&stamp, &format!("oracle-{name}"), body)?;
     println!("{}", if pass { "PASS" } else { "FAIL" });
     Ok(pass)
 }

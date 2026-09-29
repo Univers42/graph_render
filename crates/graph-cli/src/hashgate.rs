@@ -171,9 +171,11 @@ fn conclude(
 
 /// Writes this run's result for the ledger: `hashgate.json` for an honest run, the
 /// knob's own record for a negative control. A run that cannot record exits 2: its
-/// verdict would otherwise stand with no evidence behind it. The `transport` tally goes
-/// in the same record, because it *is* the hash gate's verdict — the C20 count
-/// `capabilities/verdict.rs` reads for the `transport.wasm.columnar` row.
+/// verdict would otherwise stand with no evidence behind it. A run that is refused
+/// because a passing record stands is only a warning — the gate ran, and its exit code
+/// is the verdict (`evidence::record` draws that line for every gate). The `transport`
+/// tally goes in the same record, because it *is* the hash gate's verdict — the C20
+/// count `capabilities/verdict.rs` reads for the `transport.wasm.columnar` row.
 fn record(
     stamp: &evidence::Stamp,
     control: Option<Knob>,
@@ -182,7 +184,7 @@ fn record(
     c20: u32,
 ) -> Result<(), String> {
     let name = control.map_or("hashgate", Knob::record);
-    evidence::write(stamp, name, report::body(control, seeds, tally, c20)).map(drop)
+    evidence::record(stamp, name, report::body(control, seeds, tally, c20))
 }
 
 #[cfg(test)]

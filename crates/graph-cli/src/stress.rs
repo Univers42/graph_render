@@ -165,7 +165,7 @@ fn report(seeds: Vec<Seed>) -> ExitCode {
             }
         },
     });
-    if let Err(err) = crate::evidence::write(&stamp, RECORD, body).map(drop) {
+    if let Err(err) = crate::evidence::record(&stamp, RECORD, body) {
         eprintln!("stress: not recorded: {err}");
         return ExitCode::from(2);
     }
