@@ -163,6 +163,11 @@ pass (4/4). A fresh worktree needs `npm ci` before `cargo test`.
   - `force-wasm` (`orch/prompts/force-wasm.txt`, `orch/rows/force-wasm.rows`): graph-wasm ABI + SDK
     `ForceSession` + a 4-way session hash row. Starts from `sim` once sim-m1fix2e commits.
   - Then a wiring job: the real adapter in the studio worker, and a CDP probe that neighbours move.
+- About 23:55: all three free OpenCode models hang (a 90 s probe gave rc=124 on bunny, longcat and
+  mimo); the four OpenCode jobs died with the previous session. Reassigned to the Claude engine:
+  sim-m1fix2 `wf_2c97e1c6-ddb` (critical path to force-wasm), p12-igraph `wf_fbd5ccd9-6db` (on its
+  WIP), merge-p11 as a sonnet agent in `/goinfre/dlesieur/wt/integ` (18 conflict hunks; the lead
+  gates, commits and pushes). Queued: p12-t2 (fresh), studio-ux2c. Re-probe OpenCode before each launch.
 ## Remaining, in order
 
 1. Done: train and p4 are on develop. Still to do: p7's SDK row (p4 → p7 dependency), and check the folded p4 CLI test listed under p4 above.
