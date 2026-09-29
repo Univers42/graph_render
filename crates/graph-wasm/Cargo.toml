@@ -17,6 +17,12 @@ probe = []
 
 [dependencies]
 graph-core = { path = "../graph-core" }
+# Phase 4 (deviation, docs/contract/wasm-abi.md): the ABI's handle/column layer names
+# graph_contract::binary::Snapshot and graph_contract::geometry directly. graph-core
+# does not re-export them (`prompt.md` §3.1's crate boundary), so graph-wasm depends on
+# graph-contract itself, default features only (no serde/schemars: `codegen` stays
+# graph-cli's alone).
+graph-contract = { path = "../graph-contract" }
 libm = "0.2"
 
 [lints]

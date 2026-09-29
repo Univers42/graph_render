@@ -3,11 +3,16 @@
 //! reason when it does not.
 
 use crate::evidence;
-use crate::hashgate::Knob;
+use crate::hashgate::{Knob, LAYOUT, TRANSPORT};
 use serde_json::Value;
 
 /// Fewest seeds a gate run may cover and still back a `gated` row (`prompt.md` §7).
 pub const MIN_SEEDS: u64 = 1000;
+
+/// The `oracle_record` of a row whose differential is the hash gate's own C20 tally
+/// rather than a TypeScript or round-trip record: the per-seed count of the seeds where
+/// the real ABI reached the retained shim's bytes, in `hashgate.json`.
+pub const TRANSPORT_RECORD: &str = "wasm-transport";
 
 /// The recorded gate runs, and the tree they must have run on.
 pub struct Evidence {
@@ -53,8 +58,8 @@ impl Evidence {
         })
     }
 
-    /// The oracle record a row names: `oracle-diff`, `roundtrip`, `oracle-layouts`,
-    /// `stress` or `oracle-fa2`.
+    /// The oracle record a row names: `oracle-diff`, `roundtrip`, or the transport row's
+    /// own C20 tally, which lives in `hashgate.json`.
     fn oracle_record(&self, name: &str) -> Option<&Value> {
         match name {
             "oracle-diff" => self.oracle.as_ref(),
@@ -63,6 +68,7 @@ impl Evidence {
             "stress" => self.stress.as_ref(),
             "oracle-fa2" => self.fa2.as_ref(),
             "oracle-spectral" => self.spectral.as_ref(),
+            TRANSPORT_RECORD => self.hashgate.as_ref(),
             _ => None,
         }
     }
@@ -145,6 +151,9 @@ fn diverged(control: &Value, stage: &str) -> bool {
 /// The oracle verdict over `functions` from the record `name`: a passing run in which
 /// every one of them had cases and no unexplained mismatch.
 pub fn oracle_diff(e: &Evidence, name: &str, functions: &[&str]) -> Result<String, String> {
+    if name == TRANSPORT_RECORD {
+        return transport(e);
+    }
     let run = current(e, e.oracle_record(name), name)?;
     let seeds = seeds_of(run, name)?;
     if run["pass"] != Value::Bool(true) {
@@ -174,4 +183,33 @@ pub fn oracle_diff(e: &Evidence, name: &str, functions: &[&str]) -> Result<Strin
         ));
     }
     Ok(format!("byte-equal/{seeds} seeds ({cases} cases{known})"))
+}
+
+/// C20: the transport row's differential — the hash gate's own tally of the seeds where
+/// the real ABI's snapshot reached the retained shim's bytes. Named explicitly, so a
+/// tally about some other pair of stages is refused rather than read as this one.
+fn transport(e: &Evidence) -> Result<String, String> {
+    let run = current(e, e.hashgate.as_ref(), "hashgate")?;
+    let seeds = seeds_of(run, "hashgate")?;
+    let tally = run
+        .get("transport")
+        .ok_or("no transport tally: hashgate recorded no C20 count")?;
+    for (key, want) in [("stage", TRANSPORT), ("reference", LAYOUT)] {
+        let found = tally[key].as_str().unwrap_or("");
+        if found.is_empty() {
+            return Err(format!("no transport tally: no {key} in hashgate's count"));
+        }
+        if found != want {
+            return Err(format!(
+                "hashgate: transport tally is {key} {found}, not {want}"
+            ));
+        }
+    }
+    let equal = tally["equal"].as_u64().unwrap_or(0);
+    if equal != seeds {
+        return Err(format!(
+            "hashgate: {TRANSPORT} matched the shim on {equal} of {seeds} seeds"
+        ));
+    }
+    Ok(format!("byte-equal/{seeds} seeds ({seeds} cases)"))
 }

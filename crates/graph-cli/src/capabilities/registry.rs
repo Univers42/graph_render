@@ -102,7 +102,33 @@ test runs first; unknown types silently become relation",
     ),
 ];
 
-/// Every registered capability: the topology rows, then the layouts.
+/// Node count past which the provisional-ingest transport path stops being usable
+/// (`docs/measurements/phase04-transport.md`, `crates/graph-wasm/src/memory_measure.rs`):
+/// measured natively, the counted span from ingest JSON text already in memory through
+/// `ingest::read`, `index_model`, `layout.grid`'s run and the encoded snapshot bytes —
+/// exactly `gm_build` + `gm_run` + `gm_snapshot_bytes` — peaks at **2862.3 B per node** at
+/// 100 000 synthetic nodes and 154 978 edges. wasm32 addresses at most 4 GiB, so
+/// 4 GiB / 2862.3 B ≈ 1.50 M nodes, rounded down to two figures. Heavier than
+/// `layout.grid`'s own ceiling: the JSON parse tree and the intermediate `NodeRecord`/
+/// `EdgeRecord` vectors this row's own path holds (and the grid pipeline's own
+/// measurement does not) cost more than the pipeline itself.
+pub const TRANSPORT_CEILING: u64 = 1_500_000;
+
+const TRANSPORT_DEGRADES: &str = "past the ceiling wasm32 cannot allocate and gm_build returns 0 \
+with AllocFailed (never a partial handle); gm_alloc's own reservation can fail earlier still, for \
+the same reason, on a large ingest buffer alone";
+
+const SDK_DEGRADES: &str = "the SDK holds no per-node memory of its own: its column views are \
+zero-copy typed-array aliases over transport.wasm.columnar's buffers, so it degrades exactly when \
+the module it loads does — same ceiling, not independently measured in JS this phase";
+
+/// Every registered capability: the topology rows, the layouts, then the transport rows
+/// Phase 4 adds. `transport.wasm.columnar` is `Gated` on the hash gate's own two
+/// verdicts — its `transport.wasm.columnar` stage 4-way equal, and the C20 tally
+/// `hashgate.json` records beside it. `sdk.js` is `Implemented`: its gate is
+/// `harness/sdk-smoke.mjs`, a smoke script over one fixture rather than a recorded seed
+/// sweep, so no record backs it yet and a `gated` claim would be one `--check` has to
+/// refuse (`docs/contract/wasm-abi.md` "Ledger").
 pub fn registry() -> Vec<Capability> {
     let topology = TOPOLOGY
         .iter()
@@ -123,7 +149,77 @@ pub fn registry() -> Vec<Capability> {
             ponytail,
             complexity,
         });
-    topology.chain(LAYOUTS.iter().map(layout)).collect()
+    topology
+        .chain(LAYOUTS.iter().map(layout))
+        .chain(transport())
+        .collect()
+}
+
+/// The wasm ABI's columnar handle/build/run/column surface. Gated on the hash gate's own
+/// evidence: `graph-cli hashgate` hashes the real ABI as a stage of its own
+/// (`hashgate/stages.rs`), so a divergence names the transport, and it records the
+/// per-seed count of the seeds where that real ABI reached the retained shim's bytes —
+/// the C20 acceptance criterion, read back by `verdict::oracle_diff` rather than asserted
+/// in prose. Split one row per function (house limit; mirrors `layout`'s one-row-per-call
+/// shape below) rather than building both in one.
+fn transport() -> [Capability; 2] {
+    [transport_wasm_columnar(), transport_sdk_js()]
+}
+
+fn transport_wasm_columnar() -> Capability {
+    Capability {
+        id: "transport.wasm.columnar",
+        tier: 1,
+        stage: "transport",
+        geometry: None,
+        status: Status::Gated,
+        oracle: "the retained hash-gate shim, through the same module: hashgate's \
+transport.wasm.columnar stage (gm_seed_ingest -> gm_alloc -> gm_build -> gm_run -> \
+gm_snapshot_bytes) against gm_layout_grid, per seed, natively and on wasm32",
+        oracle_record: "wasm-transport",
+        functions: &[
+            "gm_build",
+            "gm_run",
+            "gm_column_ptr",
+            "gm_column_len",
+            "gm_snapshot_bytes",
+        ],
+        hash_stage: "transport.wasm.columnar",
+        oracle_diff: String::new(),
+        hash_4way: String::new(),
+        scale_ceiling: TRANSPORT_CEILING,
+        degradation: TRANSPORT_DEGRADES,
+        ponytail: "Ponytail (scale_ceiling): measured natively (crates/graph-wasm/src/\
+memory_measure.rs) and projected onto wasm32's 4 GiB, not re-measured on the wasm32 target \
+itself. Escape hatch: none this phase — Phase 10 owns the real ingest contract and may cost \
+differently",
+        complexity: "O(n + m) in the ingest JSON's size",
+    }
+}
+
+fn transport_sdk_js() -> Capability {
+    Capability {
+        id: "sdk.js",
+        tier: 1,
+        stage: "sdk",
+        geometry: None,
+        status: Status::Implemented,
+        oracle: "harness/sdk-smoke.mjs: a third party importing only crates/graph-sdk-js's \
+published entry point, never the raw wasm exports. It runs every layout Motor#layouts \
+reports and asserts the contract's column table per layout, so a newly registered layout is \
+covered with no edit to it. Not recorded as evidence, so the row's two verdict columns read \
+`not backed` until a sweep writes a record a `gated` claim may stand on",
+        oracle_record: "sdk-smoke",
+        functions: &["createMotor", "build", "layouts", "layout", "release"],
+        hash_stage: "sdk.js",
+        oracle_diff: String::new(),
+        hash_4way: String::new(),
+        scale_ceiling: TRANSPORT_CEILING,
+        degradation: SDK_DEGRADES,
+        ponytail: "Ponytail (scale_ceiling): not independently measured — see \
+transport.wasm.columnar, which this row's ceiling is taken from. Escape hatch: none this phase",
+        complexity: "O(n + m), the module it loads",
+    }
 }
 
 /// Layouts held to `harness/oracle-layouts.mjs`'s d3-hierarchy differential instead of a

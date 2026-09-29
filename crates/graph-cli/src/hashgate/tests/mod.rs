@@ -1,5 +1,11 @@
+mod stages;
+
 use super::compare::{Tally, diverged, per_stage};
+<<<<<<< HEAD:crates/graph-cli/src/hashgate/tests.rs
 use super::knob::setting;
+=======
+use super::transport;
+>>>>>>> origin/p4:crates/graph-cli/src/hashgate/tests/mod.rs
 use super::*;
 use graph_core::Stage;
 use graph_core::layout::force::BarnesHut;
@@ -11,7 +17,7 @@ mod knob;
 mod report;
 
 /// Two seeds per stage; `fills[arm][line]` is the digest's repeated hex digit.
-fn arms(fills: [[char; 4]; 4]) -> Vec<Arm> {
+fn arms(fills: [[char; 6]; 4]) -> Vec<Arm> {
     let names = [
         "native run 1",
         "native run 2",
@@ -21,7 +27,7 @@ fn arms(fills: [[char; 4]; 4]) -> Vec<Arm> {
     let line = |i: usize, fill: char| {
         format!(
             "{} {} {}",
-            STAGES[i / 2],
+            stages()[i / 2],
             i % 2,
             fill.to_string().repeat(64)
         )
@@ -29,11 +35,11 @@ fn arms(fills: [[char; 4]; 4]) -> Vec<Arm> {
     names
         .iter()
         .zip(fills)
-        .map(|(n, f)| (*n, (0..4).map(|i| line(i, f[i])).collect()))
+        .map(|(n, f)| (*n, (0..6).map(|i| line(i, f[i])).collect()))
         .collect()
 }
 
-const HONEST: [[char; 4]; 4] = [['a', 'b', 'c', 'd']; 4];
+const HONEST: [[char; 6]; 4] = [['a', 'b', 'c', 'd', 'e', 'f']; 4];
 
 /// `arms()` above fixes 2 stages, 2 seeds each (4 lines per arm); the real [`STAGES`]
 /// has grown past that, so these tests exercise [`compare::diverged`] and
@@ -67,36 +73,56 @@ fn vacuous_comparisons_are_refused() {
     renumbered[1].1[1] = renumbered[1].1[0].clone();
     assert!(diverged(2, &TEST_STAGES, &renumbered).is_err());
     let mut restaged = arms(HONEST);
+<<<<<<< HEAD:crates/graph-cli/src/hashgate/tests.rs
     restaged[0].1[2] = restaged[0].1[2].replace("layout.grid", "topology");
     assert!(diverged(2, &TEST_STAGES, &restaged).is_err());
+=======
+    restaged[0].1[4] = restaged[0].1[4].replace(TRANSPORT, "layout.grid");
+    assert!(diverged(2, &restaged).is_err());
+>>>>>>> origin/p4:crates/graph-cli/src/hashgate/tests/mod.rs
 }
 
 #[test]
 fn a_stage_whose_seeds_all_hash_alike_is_refused_as_one_input() {
+<<<<<<< HEAD:crates/graph-cli/src/hashgate/tests.rs
     let err = diverged(2, &TEST_STAGES, &arms([['a', 'b', 'c', 'c']; 4])).expect_err("one digest");
+=======
+    let err = diverged(2, &arms([['a', 'b', 'c', 'c', 'e', 'f']; 4])).expect_err("one digest");
+>>>>>>> origin/p4:crates/graph-cli/src/hashgate/tests/mod.rs
     assert!(
         err.starts_with("layout.grid: every seed hashed to one digest"),
         "{err}"
     );
     let one: Vec<Arm> = arms(HONEST)
         .into_iter()
-        .map(|(n, l)| (n, vec![l[0].clone(), l[2].clone()]))
+        .map(|(n, l)| (n, vec![l[0].clone(), l[2].clone(), l[4].clone()]))
         .collect();
     assert_eq!(diverged(1, &TEST_STAGES, &one), Ok(vec![]));
 }
 
 #[test]
 fn per_stage_counts_equal_seeds_per_stage_and_distinct_bad_seeds() {
+<<<<<<< HEAD:crates/graph-cli/src/hashgate/tests.rs
     let tally = per_stage(2, 2, &[1, 3]);
+=======
+    let tally = per_stage(2, &[1, 3]);
+    let mut equal = vec![1, 1];
+    equal.resize(stages().len(), 2);
+>>>>>>> origin/p4:crates/graph-cli/src/hashgate/tests/mod.rs
     assert_eq!(
         tally,
         Tally {
-            equal: vec![1, 1],
+            equal,
             diverged_seeds: 1
         }
     );
+<<<<<<< HEAD:crates/graph-cli/src/hashgate/tests.rs
     assert_eq!(per_stage(2, 2, &[0, 3]).diverged_seeds, 2);
     assert_eq!(per_stage(2, 2, &[]).equal, [2, 2]);
+=======
+    assert_eq!(per_stage(2, &[0, 5]).diverged_seeds, 2);
+    assert_eq!(per_stage(2, &[]).equal, vec![2; stages().len()]);
+>>>>>>> origin/p4:crates/graph-cli/src/hashgate/tests/mod.rs
 }
 
 /// A reader of the variables in `pairs`, every other one unset.
@@ -114,13 +140,70 @@ fn honest() -> Setting {
 }
 
 #[test]
+<<<<<<< HEAD:crates/graph-cli/src/hashgate/tests.rs
 fn the_stages_are_the_topology_then_every_registered_layout() {
-    let layouts: Vec<&str> = graph_core::registry::LAYOUTS.iter().map(|l| l.id).collect();
-    assert_eq!(STAGES[0], "topology");
-    assert_eq!(STAGES[1..], layouts);
+=======
+fn the_mutation_variables_parse_strictly_and_one_at_a_time() {
+    let defaults = (REFERENCE_DEGREE, GridParams::default(), None);
+    let h = honest();
+    assert_eq!((h.reference_degree, h.grid, h.control), defaults);
+    let degree = setting(env(&[("GM_MUTATE_REFERENCE_DEGREE", " 9 ")])).expect("parses");
+    assert_eq!((degree.reference_degree, degree.grid), (9, h.grid));
+    assert_eq!(degree.control, Some(Knob::ReferenceDegree));
+    let spacing = setting(env(&[("GM_MUTATE_GRID_SPACING", "2.5")])).expect("parses");
+    assert_eq!(
+        (spacing.reference_degree, spacing.grid.spacing),
+        (REFERENCE_DEGREE, 2.5)
+    );
+    assert_eq!(spacing.control, Some(Knob::GridSpacing));
+    let bad: [&'static [(&str, &str)]; 3] = [
+        &[("GM_MUTATE_REFERENCE_DEGREE", "nine")],
+        &[("GM_MUTATE_REFERENCE_DEGREE", "")],
+        &[("GM_MUTATE_GRID_SPACING", "wide")],
+    ];
+    for pairs in bad {
+        let err = setting(env(pairs)).expect_err("refused");
+        assert!(err.starts_with(pairs[0].0), "{err}");
+    }
+    let both = env(&[
+        ("GM_MUTATE_REFERENCE_DEGREE", "9"),
+        ("GM_MUTATE_GRID_SPACING", "2"),
+    ]);
+    let err = setting(both).expect_err("two controls");
+    assert!(err.ends_with("one control at a time"), "{err}");
+    let unreadable = setting(|_| Err(VarError::NotUnicode("\u{fffd}".into())));
+    assert!(unreadable.is_err());
 }
 
 #[test]
+fn each_knob_names_its_own_variable_and_record() {
+    let envs = Knob::ALL.map(Knob::env);
+    let records = Knob::ALL.map(Knob::record);
+    assert_eq!(
+        envs,
+        ["GM_MUTATE_REFERENCE_DEGREE", "GM_MUTATE_GRID_SPACING"]
+    );
+    assert_eq!(
+        records,
+        [
+            "hashgate-control-reference-degree",
+            "hashgate-control-grid-spacing"
+        ]
+    );
+}
+
+#[test]
+fn the_stages_are_the_topology_then_every_registered_layout_then_the_transport() {
+>>>>>>> origin/p4:crates/graph-cli/src/hashgate/tests/mod.rs
+    let layouts: Vec<&str> = graph_core::registry::LAYOUTS.iter().map(|l| l.id).collect();
+    let mut want = vec!["topology"];
+    want.extend(layouts);
+    want.push(TRANSPORT);
+    assert_eq!(stages(), want);
+}
+
+#[test]
+<<<<<<< HEAD:crates/graph-cli/src/hashgate/tests.rs
 fn stage_bytes_are_the_registered_pipeline_and_the_reference_and_spacing_knobs_move_theirs() {
     let stages = stage_bytes(4, &honest()).expect("runs");
     let ids: Vec<&str> = stages.iter().map(|(id, _)| *id).collect();
@@ -228,4 +311,20 @@ fn an_arm_prints_every_seed_of_one_stage_before_the_next() {
             .expect_err("refused")
             .starts_with("seed 0: ")
     );
+=======
+fn the_transport_tally_counts_the_seeds_where_the_real_abi_matches_the_shim() {
+    let wasm = |fill: char| arms([[fill; 6]; 4]).remove(2).1;
+    assert_eq!(transport::agree_with_shim(2, &wasm('a')), Ok(2));
+    let mut diverged_at_1 = wasm('a');
+    diverged_at_1[5] = format!("{TRANSPORT} 1 {}", "b".repeat(64));
+    assert_eq!(transport::agree_with_shim(2, &diverged_at_1), Ok(1));
+    assert!(transport::agree_with_shim(2, &wasm('a')[..4]).is_err());
+    let mut no_transport = wasm('a');
+    no_transport[4] = no_transport[4].replace(TRANSPORT, "topology");
+    assert!(transport::agree_with_shim(2, &no_transport).is_err());
+    let mut no_layout = wasm('a');
+    no_layout[2] = no_layout[2].replace(LAYOUT, "topology");
+    assert!(transport::agree_with_shim(2, &no_layout).is_err());
+    assert!(transport::agree_with_shim(0, &[]).is_err());
+>>>>>>> origin/p4:crates/graph-cli/src/hashgate/tests/mod.rs
 }

@@ -5,7 +5,11 @@ use serde_json::{Value, json};
 mod force;
 mod refusals;
 mod registry;
+<<<<<<< HEAD
 mod sugiyama;
+=======
+mod transport;
+>>>>>>> origin/p4
 
 /// The 17 oracle functions of `prompt.md` §7.4, plus the H4 and H9 arms.
 const COVERED: [&str; 19] = [
@@ -30,6 +34,7 @@ const COVERED: [&str; 19] = [
     "layoutGroups",
 ];
 
+<<<<<<< HEAD
 /// Every hashgate stage's key, in `hashgate::STAGES` order, so this fixture's `equal`
 /// maps can be built at the same shape a real record has, without importing the
 /// hashgate module just for the constant.
@@ -50,12 +55,47 @@ const STAGES: [&str; 11] = [
 /// A hashgate-shaped `equal` map: `seeds` for every stage, except `diverged`'s, at `0`.
 fn equal_map(seeds: u64, diverged: &[&str]) -> Value {
     let map: serde_json::Map<String, Value> = STAGES
+=======
+/// One negative control's record: red, on the current tree, over 8 seeds. The degree
+/// control moves the topology stage only (the grid ignores weights, and the transport
+/// stage restates the grid's bytes natively), so the transport stage stays 4-way equal
+/// there; the spacing control moves both grid-derived stages.
+fn control(topology: u32, grid: u32, transport: u32) -> Option<Value> {
+    Some(json!({
+        "fingerprint": "tree", "seeds": 8, "pass": false,
+        "equal": {
+            "topology": topology, "layout.grid": grid,
+            "transport.wasm.columnar": transport
+        }
+    }))
+}
+
+/// A `hashgate.json` over `seeds` seeds: every stage 4-way equal, and the C20 tally saying
+/// the real ABI reached the shim's bytes on every one of them.
+fn hashgate_record(seeds: u32, transport_equal: u32) -> Value {
+    json!({
+        "fingerprint": "tree", "seeds": seeds, "pass": true,
+        "equal": {
+            "topology": seeds, "layout.grid": seeds,
+            "transport.wasm.columnar": seeds
+        },
+        "transport": {
+            "stage": "transport.wasm.columnar", "reference": "layout.grid",
+            "equal": transport_equal
+        }
+    })
+}
+
+fn honest() -> Evidence {
+    let functions: serde_json::Map<String, Value> = COVERED
+>>>>>>> origin/p4
         .iter()
         .map(|&stage| {
             let count = if diverged.contains(&stage) { 0 } else { seeds };
             (stage.to_owned(), json!(count))
         })
         .collect();
+<<<<<<< HEAD
     Value::Object(map)
 }
 
@@ -121,6 +161,15 @@ fn honest() -> Evidence {
             "equal": equal_map(1000, &[])
         })),
         controls: honest_controls(),
+=======
+    Evidence {
+        fingerprint: "tree".into(),
+        hashgate: Some(hashgate_record(1000, 1000)),
+        controls: vec![
+            ("hashgate-control-reference-degree", control(0, 8, 8)),
+            ("hashgate-control-grid-spacing", control(8, 0, 0)),
+        ],
+>>>>>>> origin/p4
         oracle: Some(json!({
             "fingerprint": "tree", "seeds": 1000, "pass": true, "functions": functions
         })),
@@ -168,7 +217,15 @@ fn row(status: Status) -> Capability {
 fn every_registered_row_stands_on_honest_evidence_and_reads_it_back() {
     let evidence = honest();
     let rows = ledger(&evidence);
+<<<<<<< HEAD
     assert_eq!(rows.len(), 26);
+=======
+    assert_eq!(
+        rows.len(),
+        11,
+        "8 topology + layout.grid + the 2 Phase 4 transport rows"
+    );
+>>>>>>> origin/p4
     assert_eq!(problems(&rows, &evidence), Vec::<String>::new());
     assert_eq!(
         rows[0].hash_4way,
@@ -196,6 +253,14 @@ fn every_registered_row_stands_on_honest_evidence_and_reads_it_back() {
 hashgate-control-sugiyama-layer-spacing red)"
     );
     assert_eq!(dag.oracle_diff, "byte-equal/1000 seeds (9 cases)");
+}
+
+/// One row of the ledger over `evidence`, by id.
+pub(super) fn find_row(evidence: &Evidence, id: &str) -> Capability {
+    ledger(evidence)
+        .into_iter()
+        .find(|r| r.id == id)
+        .unwrap_or_else(|| panic!("no {id} row"))
 }
 
 #[test]
@@ -240,7 +305,12 @@ fn without_records_every_gated_row_is_refused_twice() {
         spectral: None,
     };
     let rows = ledger(&bare);
+<<<<<<< HEAD
     assert_eq!(problems(&rows, &bare).len(), 32);
+=======
+    // 8 topology + layout.grid + transport.wasm.columnar, each refused twice.
+    assert_eq!(problems(&rows, &bare).len(), 20);
+>>>>>>> origin/p4
     assert!(
         rows[0]
             .hash_4way
