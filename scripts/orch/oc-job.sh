@@ -33,14 +33,21 @@ else
   cat "${OC_COMMON:-/sgoinfre/students/dlesieur/orch/prompts/common-v2.txt}" "$body" >"$prompt"
 fi
 "$bin/oc-run.sh" "$label" "$wt" "$agent" "$prompt"; rc=$?
-# A provider 429 (`provider.quota`, seen 2026-09-29 on the free model) ends the run with rc 1.
-# Ponytail: the wait is fixed (OC_QUOTA_WAIT, 600 s) and ignores any Retry-After; after
-# OC_QUOTA_TRIES (3) resumes a still-limited job exits 2 like any unfinished one.
-for ((t = 0; rc != 0 && t < ${OC_QUOTA_TRIES:-3}; t++)); do
+# A provider 429 (`provider.quota`, seen 2026-09-29 on every free model in turn) ends the run
+# with rc 1. The job resumes its session at once on the next model of OC_FALLBACK (the free
+# models that passed a tool probe on 2026-09-29), starting after the one that was refused, and
+# waits OC_QUOTA_WAIT only once a full round of the list was refused.
+# Ponytail: the wait is fixed (600 s) and ignores any Retry-After; a model that is still limited
+# costs one short resume; after OC_QUOTA_TRIES (3) rounds a still-limited job exits 2.
+read -ra fb <<<"${OC_FALLBACK:-opencode/big-pickle opencode/longcat-2.5-preview-free opencode/mimo-v2.6-flash-free opencode/nemotron-3.5-lightning-free}"
+off=0; for i in "${!fb[@]}"; do [[ ${fb[i]} == "${OC_MODEL-}" ]] && off=$((i + 1)); done
+for ((t = 0; rc != 0 && t < ${OC_QUOTA_TRIES:-3} * ${#fb[@]}; t++)); do
   tail -n 1 "$wf/$label.jsonl" | jq -e '.error.type == "provider.quota"' >/dev/null || break
-  echo "provider quota: resume $((t + 1)) in ${OC_QUOTA_WAIT:-600} s"; sleep "${OC_QUOTA_WAIT:-600}"
+  ((t > 0 && t % ${#fb[@]} == 0)) && { echo "every model limited: wait ${OC_QUOTA_WAIT:-600} s"; sleep "${OC_QUOTA_WAIT:-600}"; }
+  echo "provider quota: resume $((t + 1)) on ${fb[(t + off) % ${#fb[@]}]}"
   printf '%s\n' "$resume" >"$prompt"
-  OC_SESSION=$(<"$wf/$label.session-id") "$bin/oc-run.sh" "$label" "$wt" "$agent" "$prompt"; rc=$?
+  OC_MODEL=${fb[(t + off) % ${#fb[@]}]} OC_SESSION=$(<"$wf/$label.session-id") \
+    "$bin/oc-run.sh" "$label" "$wt" "$agent" "$prompt"; rc=$?
 done
 # The verdict reads the whole last text part: a return block longer than the printed 30 lines once
 # cut `status: done` off and turned a done job into exit 2 (s1-nav, 2026-09-29).
