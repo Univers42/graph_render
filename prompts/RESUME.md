@@ -100,6 +100,10 @@ pass (4/4). A fresh worktree needs `npm ci` before `cargo test`.
   - Relaunched: `followups2b`, `studio-ux2b`, `p11-reconcile3b`, and `sim-m1fix2`. sim-m1fix2 continues sim-m1fix, whose slices B and C were cut; it first maps items 1 to 4, then dispatches whatever is not done.
   - The peer session was told how to relaunch on the fallback model.
 - The Obsidian-style forces (gravity, repel, link and center sliders, reheat, freeze) are item S6 of `orch/prompts/obsidian-graph-plan.txt`. S6 depends on M1 (sim-m1fix2), then M2 (contract, wasm and SDK, after a devil verdict), then M3 (gates), and then on M landing on develop. Until then the studio has only `layout.run`: no live physics.
+- p8 leftovers (the peer flagged them). `origin/p8` has been an ancestor of develop since its merge, as have `p8-route`, `p8-styles` and `p8-p8-bundle`.
+  - Superseded, not to be merged: `p8-fdeb`, `p8-mingle`, `p8-p8-grid`, `p8-p8-route` and `p8-p8-styles`. Each is 1 or 2 commits ahead and 118 behind, and each is an earlier slice attempt.
+  - develop already has `post/{fdeb,mingle,grid_index,routed,...}`. `p8-p8-route`'s `routed/{graph,output,search}.rs` became `routed/{csr,measure,trace}.rs` on develop.
+  - The remote branches were left in place. Deleting them is the user's call.
 
 ## Remaining, in order
 
