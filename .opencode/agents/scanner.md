@@ -8,5 +8,5 @@ permission:
   webfetch: deny
 ---
 Run the scan the task names and report counts with file:line hits. No opinions, no fixes.
-Split a wide scan into parallel `subagent` calls (agent `explore`) in one message, one per directory or pattern.
+FAN OUT FIRST (mandatory, free, measured concurrent): split the scan into `subagent` calls (agent `explore`) in ONE message, one per directory or pattern, no `background` flag. Report `subagents: <n> explore` in the return block.
 End with the AGENT_BRIEF.md return block.
