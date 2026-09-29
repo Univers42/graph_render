@@ -95,7 +95,7 @@ fn c_300_lays_out_as_a_circle_equal_radii_uniform_angles() {
 }
 
 #[test]
-fn is_deterministic_run_twice_across_both_tiers() {
+fn eigen_determinism_run_twice_across_both_tiers() {
     let dense = topology(40, &path_pairs(40));
     assert_eq!(
         run(&dense),
@@ -108,6 +108,28 @@ fn is_deterministic_run_twice_across_both_tiers() {
         run(&big),
         run(&big),
         "lobpcg tier: same input bits, same output bits"
+    );
+}
+
+#[test]
+fn eigen_determinism_on_degenerate_grid_pins_basis_and_signs() {
+    // 6x6 grid: lambda2 == lambda3, the case where an unpinned start vector rotates the basis.
+    let pairs: Vec<(usize, usize)> = (0..6)
+        .flat_map(|r| (0..6).map(move |c| (r, c)))
+        .flat_map(|(r, c)| {
+            let i = r * 6 + c;
+            let right = (c + 1 < 6).then_some((i, i + 1));
+            let down = (r + 1 < 6).then_some((i, i + 6));
+            right.into_iter().chain(down)
+        })
+        .collect();
+    let grid = topology(36, &pairs);
+    let first = run(&grid);
+    assert!(first.is_ok(), "grid must solve");
+    assert_eq!(
+        first,
+        run(&grid),
+        "degenerate eigenspace: same bits every run"
     );
 }
 
