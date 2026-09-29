@@ -24,8 +24,8 @@ fn layout_names_offers_every_registered_layout_once_by_both_of_its_names() {
             "packing.circle",
             "layout.spectral",
             "spectral",
-            "layout.pivot_mds",
-            "pivot_mds",
+            "layout.mds.pivot",
+            "mds.pivot",
         ]
     );
     let mut once = names.clone();
@@ -60,7 +60,7 @@ fn each_layout_name_runs_the_same_pipeline_and_an_unregistered_one_names_all_the
         ("layout.circular.radial", "circular.radial"),
         ("layout.packing.circle", "packing.circle"),
         ("layout.spectral", "spectral"),
-        ("layout.pivot_mds", "pivot_mds"),
+        ("layout.mds.pivot", "mds.pivot"),
     ] {
         let by_short = pipeline(1, 50, short).expect("runs by short name");
         let by_id = pipeline(1, 50, id).expect("runs by full id");

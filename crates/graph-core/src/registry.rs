@@ -209,7 +209,7 @@ measured at the ceiling itself — see PACKING_CEILING's derivation.",
 /// at 100 000 nodes in 6.9 s, so the ceiling is a property of the spectrum, not of n.
 pub const SPECTRAL_CEILING: u64 = 700;
 
-/// Node count past which `layout.pivot_mds` is not measured, and why it is this one.
+/// Node count past which `layout.mds.pivot` is not measured, and why it is this one.
 ///
 /// Measured, release build, gate model: 273 ms at 10 000 nodes, 795 ms at 30 000 and
 /// 4.3 s at 100 000 (`graph-cli bench`). Its O(n k) distance matrix is 80 MB at 100 000
@@ -302,7 +302,7 @@ pub static LAYOUTS: [Capability; 7] = [
         meta: SPECTRAL,
     },
     Capability {
-        id: "layout.pivot_mds",
+        id: "layout.mds.pivot",
         run: spectral_stage::pivot_mds,
         meta: PIVOT_MDS,
     },

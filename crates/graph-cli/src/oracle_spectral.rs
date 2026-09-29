@@ -1,4 +1,4 @@
-//! Differential of `layout.spectral` and `layout.pivot_mds` against SciGraphs' own
+//! Differential of `layout.spectral` and `layout.mds.pivot` against SciGraphs' own
 //! networkx/scipy implementations (`harness/oracle-spectral.py`, run in the
 //! `ge-python-oracle` image, whose scipy is 1.16.2). Three steps, because the Python arm
 //! cannot run inside the Rust image:
@@ -32,7 +32,7 @@ use std::process::ExitCode;
 /// Ledger id, oracle-result key and the ceiling on its worst component.
 pub const CEILINGS: [(&str, &str, f64); 2] = [
     ("layout.spectral", "spectral", 1e-5),
-    ("layout.pivot_mds", "pivot_mds", 1e-7),
+    ("layout.mds.pivot", "pivot_mds", 1e-7),
 ];
 
 fn coords(
@@ -178,7 +178,7 @@ mod tests {
         assert!(pass);
         assert_eq!(functions["layout.spectral"]["cases"], 9);
         assert_eq!(functions["layout.spectral"]["unexplained"], 0);
-        assert_eq!(functions["layout.pivot_mds"]["ceiling"], 1e-7);
+        assert_eq!(functions["layout.mds.pivot"]["ceiling"], 1e-7);
     }
 
     #[test]
@@ -186,10 +186,10 @@ mod tests {
         let (pass, functions) = judge(&result((9, 1.1e-5), (4, 0.0))).expect("judged");
         assert!(!pass);
         assert_eq!(functions["layout.spectral"]["unexplained"], 1);
-        assert_eq!(functions["layout.pivot_mds"]["unexplained"], 0);
+        assert_eq!(functions["layout.mds.pivot"]["unexplained"], 0);
         let (pass, functions) = judge(&result((9, 0.0), (0, 0.0))).expect("judged");
         assert!(!pass);
-        assert_eq!(functions["layout.pivot_mds"]["unexplained"], 1);
+        assert_eq!(functions["layout.mds.pivot"]["unexplained"], 1);
     }
 
     #[test]

@@ -137,7 +137,7 @@ const D3_ORACLE_LAYOUTS: [&str; 2] = ["layout.tree.tidy", "layout.treemap.squari
 
 /// Layouts held to `harness/oracle-spectral.py`'s scipy/networkx differential, to a
 /// measured ceiling rather than byte equality.
-const SCIPY_ORACLE_LAYOUTS: [&str; 2] = ["layout.spectral", "layout.pivot_mds"];
+const SCIPY_ORACLE_LAYOUTS: [&str; 2] = ["layout.spectral", "layout.mds.pivot"];
 
 /// A layout's row. Tidy tree and treemap are gated on `oracle-layouts` (the d3-hierarchy
 /// differential); grid, circular and packing are gated on `roundtrip`'s hand oracle,

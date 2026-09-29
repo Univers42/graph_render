@@ -113,7 +113,7 @@ fn the_node_count_control_goes_red_on_every_stage_it_touches() {
         "layout.circular.radial",
         "layout.packing.circle",
         "layout.spectral",
-        "layout.pivot_mds",
+        "layout.mds.pivot",
     ] {
         assert!(
             stdout(&grown).contains(&format!("  {stage}: 4-way equal on 0/4 seeds")),
@@ -171,7 +171,7 @@ fn hashgate_arm_prints_one_line_per_stage_and_seed() {
     let lines: Vec<String> = stdout(&arm).lines().map(str::to_owned).collect();
     assert_eq!(lines.len(), 24, "8 stages * 3 seeds");
     assert!(lines[2].starts_with("topology 2 ") && lines[2].len() == "topology 2 ".len() + 64);
-    let last = "layout.pivot_mds 2 ";
+    let last = "layout.mds.pivot 2 ";
     assert!(lines[23].starts_with(last) && lines[23].len() == last.len() + 64);
 }
 

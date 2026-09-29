@@ -38,7 +38,7 @@ pub const STAGES: [&str; 8] = [
     "layout.circular.radial",
     "layout.packing.circle",
     "layout.spectral",
-    "layout.pivot_mds",
+    "layout.mds.pivot",
 ];
 
 /// `STAGES.len()`, named for the fixed-size arrays it sizes.

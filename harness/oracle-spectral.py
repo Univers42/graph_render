@@ -1,4 +1,4 @@
-"""Differential of layout.spectral and layout.pivot_mds against SciGraphs' own
+"""Differential of layout.spectral and layout.mds.pivot against SciGraphs' own
 networkx/scipy implementations, run in the ge-python-oracle image (scipy 1.16.2):
 
   graph-cli emit-spectral-fixtures --seeds 1000

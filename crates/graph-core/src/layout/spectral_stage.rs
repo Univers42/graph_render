@@ -1,4 +1,4 @@
-//! Registry-facing entry points for `layout.spectral` and `layout.pivot_mds`: the
+//! Registry-facing entry points for `layout.spectral` and `layout.mds.pivot`: the
 //! layouts' own `run` returns per-component reports, the registry wants a bare
 //! [`Geometry`]. A run in which every attempted component failed the residual gate is
 //! refused (C12), never turned into a random picture.
@@ -19,7 +19,7 @@ pub fn spectral(topology: &Topology) -> Result<Geometry, StageError> {
         .map_err(|_| NOTHING_SOLVED)
 }
 
-/// `layout.pivot_mds` at its defaults.
+/// `layout.mds.pivot` at its defaults.
 pub fn pivot_mds(topology: &Topology) -> Result<Geometry, StageError> {
     pivot_mds::run(topology)
         .map(|(geometry, _)| geometry)
@@ -39,7 +39,7 @@ mod tests {
             run_with(&nodes, &edges, id, f).expect("runs").snapshot
         };
         let s = run("layout.spectral", spectral);
-        let m = run("layout.pivot_mds", pivot_mds);
+        let m = run("layout.mds.pivot", pivot_mds);
         assert_ne!(s.to_bytes(), m.to_bytes(), "two layouts, two pictures");
     }
 }

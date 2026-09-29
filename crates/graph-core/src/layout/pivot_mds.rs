@@ -1,4 +1,4 @@
-//! `layout.pivot_mds` (`docs/decisions/eigensolver.md`): pivot selection by a
+//! `layout.mds.pivot` (`docs/decisions/eigensolver.md`): pivot selection by a
 //! farthest-point BFS heuristic, double-centered squared hop-distances, then the
 //! largest `dims = 2` eigenpairs of the `k x k` `Cᵀ C` Gram matrix
 //! (`k = min(100, n_c)`), projected back to `n_c` points and sign-pinned. Ports

@@ -63,7 +63,7 @@ fn the_record_holds_the_exact_counts_it_reports() {
     let text = serde_json::to_string(&body(None, 3, &clean)).expect("json");
     assert_eq!(
         text,
-        r#"{"equal":{"layout.circular.radial":3,"layout.grid":3,"layout.packing.circle":3,"layout.pivot_mds":3,"layout.spectral":3,"layout.tree.tidy":3,"layout.treemap.squarified":3,"topology":3},"mutation":null,"pass":true,"seeds":3}"#
+        r#"{"equal":{"layout.circular.radial":3,"layout.grid":3,"layout.mds.pivot":3,"layout.packing.circle":3,"layout.spectral":3,"layout.tree.tidy":3,"layout.treemap.squarified":3,"topology":3},"mutation":null,"pass":true,"seeds":3}"#
     );
     let diverged = Tally {
         equal: vec![3; super::super::STAGE_COUNT],

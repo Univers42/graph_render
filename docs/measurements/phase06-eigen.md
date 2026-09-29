@@ -125,7 +125,7 @@ A path is the worst case (spectral gap `O(1/n^2)`), so `SPECTRAL_CEILING = 700`.
 gate model (`graph-cli bench --layout layout.spectral --nodes N`) solves at every size
 tried, up to 100 000 nodes in 6.9 s.
 
-`graph-cli bench --layout layout.pivot_mds` on the gate model: 100 nodes 2.3 ms, 1000
+`graph-cli bench --layout layout.mds.pivot` on the gate model: 100 nodes 2.3 ms, 1000
 14.5 ms, 10 000 273 ms, 30 000 795 ms, 100 000 4.3 s. `PIVOT_MDS_CEILING = 100000` is the
 largest size measured, not a limit found.
 
@@ -136,7 +136,7 @@ Gate model, seeds 0..999 (2 to 601 nodes), image `ge-python-oracle`:
 | layout | components compared | degenerate, not compared | worst | ceiling in graph-cli |
 |---|---|---|---|---|
 | layout.spectral (sine of the largest principal angle) | 984 | 14 | 7.2e-6 | 1e-5 |
-| layout.pivot_mds (peak-normalised coordinate difference) | 996 | 2 | 3.7e-8 | 1e-7 |
+| layout.mds.pivot (peak-normalised coordinate difference) | 996 | 2 | 3.7e-8 | 1e-7 |
 
 The gate model is one connected graph per seed, so no disconnected component and no
 large degenerate eigenspace is compared; those rest on the closed-form spectra in

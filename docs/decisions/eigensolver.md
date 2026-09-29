@@ -327,7 +327,7 @@ to, the D1 probe list. With every reduction sequential (dot products, norms, mea
 no `f32/f64::mul_add`, `powi`, or std transcendental anywhere in `linalg/` or the two
 layout files, the computation is a deterministic function of the input bits on both
 targets. No per-platform exception is registered in advance (C16). Both stages are now in `hashgate::STAGES` and exported from `graph-wasm`
-(`gm_layout_spectral`, `gm_layout_pivot_mds`); `cargo test -p graph-cli` runs the 4-way gate
+(`gm_layout_spectral`, `gm_layout_mds_pivot`); `cargo test -p graph-cli` runs the 4-way gate
 over 4 seeds with both stages equal and `GM_MUTATE_NODE_COUNT` red on both. The 1000-seed
 run is the orchestrator's gate, not this branch's, so its result is not claimed here.
 

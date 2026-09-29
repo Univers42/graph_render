@@ -38,7 +38,7 @@ const STAGES: [&str; 8] = [
     "layout.circular.radial",
     "layout.packing.circle",
     "layout.spectral",
-    "layout.pivot_mds",
+    "layout.mds.pivot",
 ];
 
 /// A hashgate-shaped `equal` map: `seeds` for every stage, except `diverged`'s, at `0`.
@@ -89,7 +89,7 @@ fn honest_controls() -> Vec<(&'static str, Option<Value>)> {
                 "layout.circular.radial",
                 "layout.packing.circle",
                 "layout.spectral",
-                "layout.pivot_mds",
+                "layout.mds.pivot",
             ],
         ),
     ]
@@ -127,7 +127,7 @@ fn honest() -> Evidence {
             "fingerprint": "tree", "seeds": 1000, "pass": true, "tolerance": true,
             "functions": {
                 "layout.spectral": hand(12),
-                "layout.pivot_mds": hand(13),
+                "layout.mds.pivot": hand(13),
             }
         })),
     }
