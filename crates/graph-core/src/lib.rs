@@ -35,6 +35,7 @@ pub mod post;
 mod records;
 pub mod registry;
 mod rng;
+pub mod scale;
 mod stage;
 mod synthetic;
 mod weights;
