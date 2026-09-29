@@ -1,5 +1,6 @@
 use super::*;
 use crate::binary::{SnapshotParts, StringTable};
+use crate::notes::Notes;
 use crate::version::CURRENT_VERSION;
 
 mod shape;
@@ -15,6 +16,7 @@ fn snapshot(nodes: NodeGeometry, edges: EdgeGeometry) -> Snapshot {
         target: vec![0],
         nodes,
         edges,
+        notes: Notes::default(),
     })
     .expect("valid")
 }
@@ -67,7 +69,7 @@ fn the_text_is_pinned_for_a_tiny_snapshot() {
         "\u{7f}é\u{1F680}",
         r#""],"target":["a"]},"geometry":{"edges":{"kind":"Line"},"nodes":{"kind":"Point","x":[1,-0],"y":[0.1,0.000000000000000000000000000000000000000000001]}},"nodes":{"id":["a","q\"\\\n\u0001"#,
         "\u{7f}é\u{1F680}",
-        r#""]},"version":{"major":0,"minor":2}}"#,
+        r#""]},"notes":{"code":[],"index":[]},"version":{"major":0,"minor":3}}"#,
         "\n"
     );
     assert_eq!(text, expected);
@@ -130,14 +132,14 @@ fn version_refusal_of_a_json_snapshot_one_major_ahead() {
     let text = to_json(&every_kind()[3]);
     let newer = text.replace(r#""major":0"#, r#""major":1"#);
     let refusal = JsonError::Version(NewerMajor {
-        found: crate::version::FormatVersion { major: 1, minor: 2 },
+        found: crate::version::FormatVersion { major: 1, minor: 3 },
         known: CURRENT_VERSION,
     });
     assert_eq!(from_json(&newer), Err(refusal.clone()));
     assert!(
         refusal
             .to_string()
-            .contains("1.2 is newer than this reader's 0.2")
+            .contains("1.3 is newer than this reader's 0.3")
     );
     let reshaped = newer.replace(r#""geometry""#, r#""geometries""#);
     assert_eq!(
@@ -150,11 +152,14 @@ fn version_refusal_of_a_json_snapshot_one_major_ahead() {
 #[test]
 fn version_refusal_is_not_a_missing_version_which_reads_as_0_0() {
     let text = to_json(&every_kind()[0]);
-    let bare = text.replace(r#","version":{"major":0,"minor":2}"#, "");
+    let bare = text.replace(
+        r#","notes":{"code":[],"index":[]},"version":{"major":0,"minor":3}"#,
+        "",
+    );
     let s = from_json(&bare).expect("an unversioned document reads");
     assert_eq!(s.parts().version, UNVERSIONED);
     assert!(to_json(&s).ends_with("\"version\":{\"major\":0,\"minor\":0}}\n"));
-    let newer_minor = text.replace(r#""minor":2"#, r#""minor":9"#);
+    let newer_minor = text.replace(r#""minor":3"#, r#""minor":9"#);
     assert_eq!(
         from_json(&newer_minor)
             .expect("reads")
@@ -253,7 +258,7 @@ fn the_schema_types_read_every_canonical_text_and_write_what_it_reads_back() {
         let written = serde_json::to_string(&typed).expect("serialises");
         assert_eq!(from_json(&written).expect("reads serde's text"), s);
     }
-    let bare = to_json(&every_kind()[0]).replace(r#","version":{"major":0,"minor":2}"#, "");
+    let bare = to_json(&every_kind()[0]).replace(r#","version":{"major":0,"minor":3}"#, "");
     let typed: schema::Snapshot = serde_json::from_str(&bare).expect("version is optional");
     assert_eq!(typed.version, UNVERSIONED);
     let extra =

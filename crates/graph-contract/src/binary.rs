@@ -7,6 +7,7 @@
 //! fail and the decoder refuses exactly what the constructor refuses.
 
 use crate::geometry::{EdgeGeometry, NodeGeometry, Paths, check_len, index_u32};
+use crate::notes::{Notes, carries_notes};
 use crate::snapshot::{ReadError, SnapshotError, SnapshotHeader, StageCount};
 use crate::version::{FormatVersion, check_readable};
 use std::collections::BTreeSet;
@@ -106,6 +107,8 @@ pub struct SnapshotParts {
     pub nodes: NodeGeometry,
     /// Edge geometry, one discriminant for all edges.
     pub edges: EdgeGeometry,
+    /// What the stages repaired or approximated (`crate::notes`); none below 0.3.
+    pub notes: Notes,
 }
 
 /// A snapshot every reader of this version accepts: the only kind that can exist.
@@ -114,7 +117,8 @@ pub struct Snapshot(SnapshotParts);
 
 impl Snapshot {
     /// Checks `parts` against every rule of the layout: a readable version, unique ids,
-    /// endpoints inside the node table, and geometry that fits the counts, finite (D9).
+    /// endpoints inside the node table, geometry that fits the counts, finite (D9), and
+    /// notes from the closed set in canonical order, only where the version carries them.
     pub fn new(parts: SnapshotParts) -> Result<Self, SnapshotError> {
         check_readable(parts.version)
             .map_err(|newer| SnapshotError::Header(ReadError::UnsupportedMajor(newer)))?;
@@ -136,6 +140,7 @@ impl Snapshot {
         }
         parts.nodes.check(n)?;
         parts.edges.check(m)?;
+        parts.notes.check(parts.version, m)?;
         Ok(Self(parts))
     }
 
@@ -180,6 +185,11 @@ impl Snapshot {
                 put_u32s(&mut out, &[*degree]);
                 put_paths(&mut out, paths);
             }
+        }
+        if carries_notes(parts.version) {
+            put_u32s(&mut out, &[parts.notes.len()]);
+            put_u32s(&mut out, &parts.notes.code);
+            put_u32s(&mut out, &parts.notes.index);
         }
         out
     }

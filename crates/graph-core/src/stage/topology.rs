@@ -20,8 +20,9 @@ pub const fn gate_node_count(seed: u32) -> u32 {
     2 + seed % 600
 }
 
-/// The records of the `count`-node synthetic model, sources and edge kinds redrawn from
-/// `seed`, weights against `reference_degree`: the pipeline's input for one seed.
+/// The records of the `count`-node synthetic model, sources, edge kinds and hierarchy
+/// orientation redrawn from `seed`, weights against `reference_degree`: the pipeline's
+/// input for one seed.
 pub fn seeded_model(
     seed: u32,
     count: u32,
@@ -40,6 +41,7 @@ fn remix(seed: u32, nodes: &mut [NodeRecord], edges: &mut [EdgeRecord]) {
     }
     for edge in edges {
         edge.kind = EdgeKind::ALL[rnd.pick(EdgeKind::ALL.len())];
+        edge.child_first = edge.kind == EdgeKind::Hierarchy && rnd.pick(2) == 1;
     }
 }
 
@@ -88,7 +90,11 @@ fn encode_edge(t: &Topology, e: u32, out: &mut Vec<u8>) -> Result<(), StageError
     put_str(out, edge.id);
     put_u32(out, columns.source[e as usize]);
     put_u32(out, columns.target[e as usize]);
-    out.extend([edge.kind as u8, u8::from(edge.directed)]);
+    out.extend([
+        edge.kind as u8,
+        u8::from(edge.directed),
+        u8::from(edge.child_first),
+    ]);
     put_str(out, edge.label);
     put_opt(out, edge.record_id);
     put_f64(out, edge.strength, "strength")
@@ -127,97 +133,4 @@ fn put_f64(out: &mut Vec<u8>, value: f64, column: &'static str) -> Result<(), St
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::index::index_model;
-    use crate::records::build::{edge, node};
-    use crate::weights::REFERENCE_DEGREE;
-
-    fn topology_stage(seed: u32, reference_degree: u32) -> Result<Vec<u8>, StageError> {
-        let (nodes, edges) = seeded_model(seed, gate_node_count(seed), reference_degree);
-        let mut out = Vec::new();
-        encode(
-            &index_model(&nodes, &edges).map_err(StageError::Capacity)?,
-            &mut out,
-        )?;
-        Ok(out)
-    }
-
-    #[test]
-    fn the_stage_is_deterministic_and_seed_and_reference_reach_it() {
-        let a = topology_stage(5, REFERENCE_DEGREE).expect("fits");
-        assert!(!a.is_empty());
-        assert_eq!(a, topology_stage(5, REFERENCE_DEGREE).expect("fits"));
-        assert_ne!(a, topology_stage(6, REFERENCE_DEGREE).expect("fits"));
-        assert_ne!(a, topology_stage(5, REFERENCE_DEGREE + 1).expect("fits"));
-    }
-
-    #[test]
-    fn a_non_finite_float_is_refused_not_hashed() {
-        let mut nan = node("a", "");
-        nan.weight = f64::NAN;
-        let mut out = Vec::new();
-        let topology = index_model(&[nan], &[]).expect("fits");
-        let err = encode(&topology, &mut out).expect_err("NaN weight");
-        assert_eq!(err, StageError::NonFinite { column: "weight" });
-        assert_eq!(err.to_string(), "non-finite value in column weight");
-        let mut far = edge("e", "a", "a");
-        far.strength = f64::INFINITY;
-        let topology = index_model(&[node("a", "")], &[far]).expect("fits");
-        let err = encode(&topology, &mut Vec::new()).expect_err("infinite strength");
-        assert_eq!(err, StageError::NonFinite { column: "strength" });
-    }
-
-    #[test]
-    fn the_remix_populates_every_edge_kind_and_crosses_256_groups() {
-        let (mut nodes, mut edges) = synthetic_records(600);
-        remix(599, &mut nodes, &mut edges);
-        let topology = index_model(&nodes, &edges).expect("fits");
-        assert!(topology.nodes().group.iter().any(|&g| g > 255));
-        for kind in EdgeKind::ALL {
-            assert!(edges.iter().any(|e| e.kind == kind), "{kind:?}");
-        }
-        assert!(!topology.hierarchy().is_empty());
-    }
-
-    #[test]
-    fn the_layout_is_pinned_for_a_tiny_topology() {
-        let mut out = Vec::new();
-        encode(&index_model(&[], &[]).expect("fits"), &mut out).expect("finite");
-        assert_eq!(out, [0u8; 16], "four zero counts, nothing else");
-        let mut opt = Vec::new();
-        put_opt(&mut opt, Some("ab"));
-        put_opt(&mut opt, None);
-        assert_eq!(opt, [1, 2, 0, 0, 0, b'a', b'b', 0]);
-        let mut list = Vec::new();
-        put_u32s(&mut list, &[7, 0x0102_0304]);
-        assert_eq!(list, [2, 0, 0, 0, 7, 0, 0, 0, 4, 3, 2, 1]);
-    }
-
-    #[test]
-    fn the_seed_sizes_the_graph_at_two_plus_seed_mod_600_nodes() {
-        for (seed, nodes) in [(0, 2), (5, 7), (599, 601), (600, 2), (1205, 7)] {
-            let bytes = topology_stage(seed, REFERENCE_DEGREE).expect("fits");
-            assert_eq!(bytes[..4], u32::to_le_bytes(nodes), "seed {seed}");
-        }
-    }
-
-    #[test]
-    fn the_adjacency_and_database_members_reach_the_bytes() {
-        let nodes = [node("a", "db"), node("b", "db")];
-        let encoded = |edges: &[EdgeRecord]| {
-            let mut out = Vec::new();
-            encode(&index_model(&nodes, edges).expect("fits"), &mut out).expect("finite");
-            out
-        };
-        let (bare, linked) = (encoded(&[]), encoded(&[edge("e", "a", "b")]));
-        // by_database: "db" then members [0, 1] closes both encodings.
-        let tail = [2, 0, 0, 0, b'd', b'b', 2, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0];
-        assert!(bare.ends_with(&tail) && linked.ends_with(&tail));
-        // Before it: b's in-row [0], then the two empty hierarchy rows.
-        let rows = |out: &[u8]| out[..out.len() - tail.len()].to_vec();
-        let last = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-        assert!(rows(&linked).ends_with(&last));
-        assert!(rows(&bare).ends_with(&[0; 16]));
-    }
-}
+mod tests;

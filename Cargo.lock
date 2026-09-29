@@ -172,6 +172,7 @@ dependencies = [
  "graph-contract",
  "graph-core",
  "graph-wasm",
+ "libm",
  "serde",
  "serde_json",
  "sha2",

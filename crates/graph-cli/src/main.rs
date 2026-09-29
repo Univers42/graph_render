@@ -72,6 +72,12 @@ enum Command {
         #[arg(long)]
         fixtures: Option<PathBuf>,
     },
+    /// Runs `harness/oracle-layouts.mjs` over the emitted fixtures (the d3-hierarchy arm).
+    OracleLayouts {
+        /// Fixtures directory; `target/oracle-fixtures` by default.
+        #[arg(long)]
+        fixtures: Option<PathBuf>,
+    },
     /// Runs one seed's model through a layout and writes the snapshot's binary face, its
     /// canonical JSON face, or both. A summary goes to standard error.
     Snapshot {
@@ -124,6 +130,9 @@ fn main() -> ExitCode {
         }
         Command::OracleDiff { fixtures } => {
             oracle_fixtures::diff(&fixtures.unwrap_or_else(oracle_fixtures::default_out))
+        }
+        Command::OracleLayouts { fixtures } => {
+            oracle_fixtures::diff_layouts(&fixtures.unwrap_or_else(oracle_fixtures::default_out))
         }
         Command::Snapshot {
             seed,

@@ -19,8 +19,12 @@ pub struct Evidence {
     pub controls: Vec<(&'static str, Option<Value>)>,
     /// `oracle-diff.json`: the TypeScript arm's verdict.
     pub oracle: Option<Value>,
-    /// `roundtrip.json`: the contract round trip and the grid's hand oracle.
+    /// `roundtrip.json`: the contract round trip and the hand oracles (grid, circular,
+    /// packing).
     pub roundtrip: Option<Value>,
+    /// `oracle-layouts.json`: `harness/oracle-layouts.mjs`'s d3-hierarchy differential
+    /// for tidy tree and treemap.
+    pub layouts: Option<Value>,
 }
 
 impl Evidence {
@@ -36,14 +40,16 @@ impl Evidence {
             controls,
             oracle: evidence::read("oracle-diff")?,
             roundtrip: evidence::read("roundtrip")?,
+            layouts: evidence::read("oracle-layouts")?,
         })
     }
 
-    /// The oracle record a row names: `oracle-diff` or `roundtrip`.
+    /// The oracle record a row names: `oracle-diff`, `roundtrip` or `oracle-layouts`.
     fn oracle_record(&self, name: &str) -> Option<&Value> {
         match name {
             "oracle-diff" => self.oracle.as_ref(),
             "roundtrip" => self.roundtrip.as_ref(),
+            "oracle-layouts" => self.layouts.as_ref(),
             _ => None,
         }
     }

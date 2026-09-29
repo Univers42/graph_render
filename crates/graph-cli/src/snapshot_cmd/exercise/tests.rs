@@ -6,6 +6,7 @@
 //! real one shows up as a mismatch instead of hiding behind identical output bytes.
 
 use super::*;
+use graph_contract::notes::SNAPSHOT_WIDE;
 use std::collections::BTreeSet;
 
 /// splitmix64's own arithmetic, kept independent of [`Stream::next`].
@@ -117,6 +118,47 @@ fn odd_seeds_blank_the_first_node_id_even_seeds_do_not() {
             assert_ne!(first, "", "seed {seed}");
         }
     }
+}
+
+/// The notes each seed really draws, pinned: which case `seed % 5` picks, and — for the
+/// edge notes — exactly which edges it picked, so the "`edge == 0 || odd`" rule is
+/// pinned from both sides and cannot quietly become "`&&`" (every later edge dropped) or
+/// "`always`" (every edge noted). Values measured by running this module (2026-09-28,
+/// branch p3); they are the generator's own output, not a restatement of its arithmetic.
+#[test]
+fn each_seed_draws_the_notes_its_case_names_and_no_others() {
+    for (seed, code, index) in [
+        (2u32, vec![1, 1], vec![0, 1]),
+        (3, vec![2, 2], vec![0, 1]),
+        (
+            4,
+            vec![1, 1, 1, 2, 2, 2, 3],
+            vec![0, 1, 3, 0, 1, 3, SNAPSHOT_WIDE],
+        ),
+        (9, vec![1, 1, 2, 3], vec![0, 1, 0, SNAPSHOT_WIDE]),
+        (13, vec![2, 2, 2], vec![0, 1, 2]),
+        (14, vec![3], vec![SNAPSHOT_WIDE]),
+        (17, vec![1, 1, 1], vec![0, 1, 2]),
+        (19, vec![1, 1, 2, 2, 3], vec![0, 1, 0, 3, SNAPSHOT_WIDE]),
+    ] {
+        let notes = snapshot(seed).expect("valid").parts().notes.clone();
+        assert_eq!((notes.code, notes.index), (code, index), "seed {seed}");
+    }
+    // A seed with no edges can draw no edge note, and a case of `k = 0` draws none at all.
+    for seed in [0u32, 1, 5, 6, 7, 10, 11, 15, 16] {
+        let notes = &snapshot(seed).expect("valid").into_parts().notes;
+        assert!(notes.is_empty(), "seed {seed}: {notes:?}");
+    }
+}
+
+/// The five cases over the whole 1000-seed sweep, exactly: the gate needs every one, and
+/// each is a different count, so none of them can be quietly halved or doubled. Measured
+/// by running this module (2026-09-28, branch p3).
+#[test]
+fn the_tally_of_the_thousand_seed_sweep_is_exact() {
+    let mut cases = [0; 5];
+    (0..1000).for_each(|seed| count_notes_cases(&snapshot(seed).expect("valid"), &mut cases));
+    assert_eq!(cases, [200, 257, 342, 343, 200]);
 }
 
 #[test]

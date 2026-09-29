@@ -33,7 +33,7 @@ pub use arena::{CapacityError, Interned, StringArena};
 pub use columns::{EdgeColumns, NodeColumns, NodeKind};
 pub use csr::{Csr, Incident};
 pub use diff::{Patch, diff_graph, edges_equal, is_empty_patch};
-pub use edgekind::{EdgeKind, edge_kind_from_type};
+pub use edgekind::{EdgeKind, child_first_from_type, edge_kind_from_type};
 pub use ids::{
     EdgeIdParts, RecordRef, hash_string, make_edge_id, make_note_node_id, make_record_node_id,
     make_tag_node_id, parse_node_id,

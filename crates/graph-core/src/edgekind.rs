@@ -12,8 +12,8 @@ pub enum EdgeKind {
     NoteOf = 2,
     /// Note → note link.
     NoteLink = 3,
-    /// Parent → child. The hierarchy CSR reads `source` as the parent, which is wrong
-    /// for `child_of` (see the Ponytail on `Topology::hierarchy`).
+    /// Parent and child. Which end is the parent is the edge's `child_first` flag
+    /// ([`child_first_from_type`]); `Topology::parent`/`child` read it.
     Hierarchy = 4,
 }
 
@@ -76,6 +76,37 @@ pub fn edge_kind_from_type(wire_type: Option<&str>) -> EdgeKind {
     EdgeKind::Relation
 }
 
+/// Whether a wire `type` names its **child first** — source the child, target the
+/// parent — which is `child_of` and nothing else: its lowercased text equal to
+/// `"child_of"`, exactly (user decision D-Q1, option c). `parent`, `parent_of` and every
+/// `*hierarchy*` type keep the source as the parent, and a type that merely contains
+/// `child_of` is not flipped. Kept apart from [`edge_kind_from_type`], whose result is
+/// the oracle's and stays so.
+///
+/// **Ponytail (child-first orientation lookup).** The comparison itself is exact, so
+/// there is nothing approximate about it — but the *convention* it encodes has no
+/// near-miss handling, and that is worth stating, because a miss here is silent and
+/// inverts a whole subtree.
+///
+/// - **Failing input:** a near-miss spelling such as `"child_of_hierarchy"` (or
+///   `"child-of"`, `"childOf"`, `"child_of_v2"`). Such a type is a `Hierarchy` edge to
+///   [`edge_kind_from_type`] — it *contains* `hierarchy` — and it is **not** flipped here,
+///   so `Topology::parent` returns the **source** when the producer meant the **target**.
+///   Every edge in that subtree is then upside down.
+/// - **Direction:** a silently inverted tree — no error, no warning, no note. The
+///   orientation is carried in this one flag alone, so nothing downstream can detect it
+///   and the resulting layout is wrong, not merely cosmetically off. This is the
+///   dangerous direction.
+/// - **Escape hatch:** the accepted spellings are exactly `"child_of"`, `"CHILD_OF"`,
+///   `"Child_Of"` and any other casing thereof — the comparison is on `to_lowercase()`.
+///   Everything else is parent-first by definition. A producer whose vocabulary sits
+///   outside that set must normalise the wire types upstream (or compare the raw type
+///   itself); widening this to a prefix or substring match would change the host's
+///   behaviour, which is a product decision (D-Q1, option c), not a fix.
+pub fn child_first_from_type(wire_type: Option<&str>) -> bool {
+    wire_type.is_some_and(|t| t.to_lowercase() == "child_of")
+}
+
 #[cfg(test)]
 mod tests {
     use super::EdgeKind::*;
@@ -111,6 +142,28 @@ mod tests {
         for (wire, want) in cases {
             assert_eq!(edge_kind_from_type(wire), want, "{wire:?}");
         }
+    }
+
+    #[test]
+    fn only_an_exact_child_of_puts_the_child_first() {
+        for wire in ["child_of", "CHILD_OF", "Child_Of"] {
+            assert!(child_first_from_type(Some(wire)), "{wire}");
+            assert_eq!(edge_kind_from_type(Some(wire)), Hierarchy, "{wire}");
+        }
+        let parent_first = [
+            None,
+            Some(""),
+            Some("parent"),
+            Some("parent_of"),
+            Some("x_hierarchy_y"),
+            Some("child_of_hierarchy"),
+            Some("child-of"),
+        ];
+        for wire in parent_first {
+            assert!(!child_first_from_type(wire), "{wire:?}");
+        }
+        assert_eq!(edge_kind_from_type(Some("child-of")), Relation);
+        assert_eq!(edge_kind_from_type(Some("child_of_hierarchy")), Hierarchy);
     }
 
     #[test]

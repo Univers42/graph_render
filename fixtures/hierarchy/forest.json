@@ -1,0 +1,21 @@
+{
+  "about": "A forest: tree p (p > p1 > p11, p > p2), tree q (q > q1) and two isolated nodes s and u, nodes interleaved. Four roots, so the hidden virtual root parents q, p, s and u. A relates_to edge joins the trees and u has a relation self-loop; neither is a hierarchy edge. Nothing to repair: no notes.",
+  "nodes": [
+    { "id": "q", "weight": 2 },
+    { "id": "p", "weight": 1 },
+    { "id": "s", "weight": 3 },
+    { "id": "p1", "weight": 1 },
+    { "id": "q1", "weight": 4 },
+    { "id": "p2", "weight": 2 },
+    { "id": "u", "weight": 1 },
+    { "id": "p11", "weight": 0.5 }
+  ],
+  "edges": [
+    { "id": "p-p2", "source": "p", "target": "p2", "type": "parent_of" },
+    { "id": "q1-q", "source": "q1", "target": "q", "type": "child_of" },
+    { "id": "p2-q1", "source": "p2", "target": "q1", "type": "relates_to" },
+    { "id": "p1-p", "source": "p1", "target": "p", "type": "child_of" },
+    { "id": "u-u", "source": "u", "target": "u", "type": "relates_to" },
+    { "id": "p1-p11", "source": "p1", "target": "p11", "type": "parent" }
+  ]
+}

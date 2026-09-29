@@ -1,0 +1,30 @@
+{
+  "about": "Everything D-H repairs. A self-loop hierarchy edge on r (never a parent, never a note). m has two parents whose dense order and edge order disagree: a (dense 1, edge 3) and b (dense 2, edge 1); the lowest edge index wins, so b is kept and edge 3 is note (2, 3). r parents a twice (edges 2 and 4): the repeat is note (2, 4). Two parent cycles: x > y > z > x (its last edge a child_of) broken at x, the lowest dense index, dropping edge 7, note (1, 7); c > d > c (a child_of and a parent_of) with a tail c > t, broken at c, dropping edge 8, note (1, 8). z parents b, so m hangs off the broken cycle. One relates_to edge. Roots r, x, c: a virtual root.",
+  "nodes": [
+    { "id": "r", "weight": 1 },
+    { "id": "a", "weight": 2 },
+    { "id": "b", "weight": 1 },
+    { "id": "m", "weight": 3 },
+    { "id": "x", "weight": 1 },
+    { "id": "y", "weight": 2 },
+    { "id": "z", "weight": 1 },
+    { "id": "c", "weight": 4 },
+    { "id": "d", "weight": 1 },
+    { "id": "t", "weight": 2 }
+  ],
+  "edges": [
+    { "id": "r-r", "source": "r", "target": "r", "type": "parent_of" },
+    { "id": "b-m", "source": "b", "target": "m", "type": "parent_of" },
+    { "id": "r-a", "source": "r", "target": "a", "type": "parent_of" },
+    { "id": "a-m", "source": "a", "target": "m", "type": "parent_of" },
+    { "id": "r-a-again", "source": "r", "target": "a", "type": "parent" },
+    { "id": "x-y", "source": "x", "target": "y", "type": "parent_of" },
+    { "id": "y-z", "source": "y", "target": "z", "type": "parent_of" },
+    { "id": "x-z", "source": "x", "target": "z", "type": "child_of" },
+    { "id": "c-d", "source": "c", "target": "d", "type": "child_of" },
+    { "id": "c-d-back", "source": "c", "target": "d", "type": "parent_of" },
+    { "id": "c-t", "source": "c", "target": "t", "type": "tree_hierarchy" },
+    { "id": "z-b", "source": "z", "target": "b", "type": "parent_of" },
+    { "id": "a-x", "source": "a", "target": "x", "type": "relates_to" }
+  ]
+}

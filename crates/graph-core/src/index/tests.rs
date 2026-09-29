@@ -62,16 +62,29 @@ fn incident_lists_edges_in_edge_order_and_a_self_loop_twice() {
     );
 }
 
+/// A→B `child_of` says A is B's child: the edge is filed under B, the wire's endpoints
+/// stay as they arrived, and only `parent`/`child` read the flag.
 #[test]
-fn hierarchy_rows_hold_each_parents_hierarchy_edges_only() {
-    let mut child_of = edge("h", "p", "c");
-    child_of.kind = EdgeKind::Hierarchy;
-    let plain = edge("r", "p", "c");
-    let t = index_model(&[node("p", ""), node("c", "")], &[plain, child_of]).expect("fits");
+fn a_child_of_edge_is_filed_under_its_target_and_keeps_its_endpoints() {
+    let mut child_of = edge("h", "a", "b");
+    (child_of.kind, child_of.child_first) = (EdgeKind::Hierarchy, true);
+    let mut parent_of = edge("p", "a", "b");
+    parent_of.kind = EdgeKind::Hierarchy;
+    let plain = edge("r", "a", "b");
+    let t = index_model(
+        &[node("a", ""), node("b", "")],
+        &[plain, child_of, parent_of],
+    )
+    .expect("fits");
     assert_eq!(
         (t.hierarchy().row(0), t.hierarchy().row(1)),
-        (&[1][..], &[][..])
+        (&[2][..], &[1][..])
     );
+    assert_eq!((t.parent(1), t.child(1)), (1, 0), "child_of: b parents a");
+    assert_eq!((t.parent(2), t.child(2)), (0, 1), "parent_of: a parents b");
+    assert_eq!((t.edge(1).source, t.edge(1).target), ("a", "b"));
+    assert!(t.edge(1).child_first && !t.edge(2).child_first);
+    assert_eq!(t.edges().child_first, [false, true, false]);
     assert_eq!(t.hierarchy().rows(), 2);
 }
 

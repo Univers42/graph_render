@@ -53,7 +53,8 @@ pub struct Capability {
     pub status: Status,
     /// The reference it is differentially tested against.
     pub oracle: &'static str,
-    /// The gate record its oracle verdict is read from: `oracle-diff` or `roundtrip`.
+    /// The gate record its oracle verdict is read from: `oracle-diff`, `roundtrip` or
+    /// `oracle-layouts`.
     #[serde(skip)]
     pub oracle_record: &'static str,
     /// The oracle functions whose differential backs it.

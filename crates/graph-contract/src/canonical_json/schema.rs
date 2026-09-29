@@ -18,6 +18,12 @@ pub struct Snapshot {
     pub geometry: Geometry,
     /// Every node's identity, in node order.
     pub nodes: Nodes,
+    /// What the stages repaired or approximated. Required from format 0.3; below 0.3 a
+    /// snapshot carries none and an absent member reads as none. JSON Schema cannot tie
+    /// a member's presence to the version's value, so this schema lists it as optional
+    /// and the reader enforces the rule.
+    #[serde(default)]
+    pub notes: Notes,
     /// The format version. A reader refuses a newer major; absent reads as 0.0.
     #[serde(default = "unversioned")]
     pub version: FormatVersion,
@@ -25,6 +31,30 @@ pub struct Snapshot {
 
 fn unversioned() -> FormatVersion {
     UNVERSIONED
+}
+
+/// The notes section (format 0.3), one entry per note in both columns, strictly
+/// ascending by `(code, index)`: a closed, canonical set, so a reserved or unallocated
+/// code, a repeat or an out-of-order note is refused.
+#[derive(Debug, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Notes {
+    /// Each note's code: 1 hierarchy.cycle_edge_dropped, 2 hierarchy.extra_parent_dropped,
+    /// 3 packing.approximate. 4-6 are reserved for later phases and refused, as is any
+    /// other.
+    #[schemars(schema_with = "note_codes")]
+    pub code: Vec<u32>,
+    /// Each note's index: for codes 1 and 2 an edge position (an index into edges.id,
+    /// below its length); for code 3 the literal 4294967295 (u32::MAX), the whole
+    /// snapshot.
+    pub index: Vec<u32>,
+}
+
+fn note_codes(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    schemars::json_schema!({
+        "type": "array",
+        "items": { "type": "integer", "format": "uint32", "enum": [1, 2, 3] }
+    })
 }
 
 /// Node identity.

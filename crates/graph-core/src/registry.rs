@@ -8,6 +8,7 @@
 use crate::index::Topology;
 use crate::layout::Geometry;
 use crate::layout::grid::Grid;
+use crate::layout::{circle_packing, circular, tidy_tree, treemap};
 use crate::stage::{Stage, StageError};
 use graph_contract::geometry::{EdgeGeometryKind, NodeGeometryKind};
 
@@ -76,12 +77,157 @@ measured natively on 64-bit and projected onto wasm32's 4 GiB; re-measure with \
 crates/graph-core/tests/memory.rs",
 };
 
+/// Node count past which the three hierarchy layouts (tidy tree, treemap, circular) stop
+/// being usable, and why it is this one.
+///
+/// Measured, not estimated (`crates/graph-core/tests/memory.rs`,
+/// `hierarchy_layout_pipeline_memory_per_node`): each holds within a few percent of the
+/// grid's own 919 B/node at 100 000 synthetic nodes and 154 978 edges — tidy tree 933 B,
+/// treemap 930 B, circular 922 B/node — because all three add only an O(n) hierarchy
+/// repair (`layout/hierarchy.rs`) and O(n) geometry over the same topology and snapshot
+/// substrate the grid does. wasm32 addresses at most 4 GiB, so 4 GiB / 933 B = 4.60 M
+/// nodes at the heaviest of the three (tidy tree), rounded down to two figures, same as
+/// `GRID_CEILING`. The hierarchy repair's own `u32` limit binds far later:
+/// `Hierarchy::of` needs `n + 1` rows to fit `u32`, i.e. up to 2^32 − 2 nodes.
+pub const HIERARCHY_LAYOUT_CEILING: u64 = 4_600_000;
+
+const TIDY_TREE: Metadata = Metadata {
+    tier: 1,
+    stage: "layout",
+    nodes: NodeGeometryKind::Point,
+    edges: EdgeGeometryKind::Polyline,
+    oracle: "d3-hierarchy@3.1.2 tree() — an exact f64 port of tree.js's Buchheim/Jünger/ \
+Leipert/Walker algorithm at d3's own defaults (size([1,1]), the default separation), stated in \
+the module doc; byte-compared after Math.fround by harness/oracle-layouts.mjs over >=1000 seeds",
+    complexity: "O(n)",
+    scale_ceiling: HIERARCHY_LAYOUT_CEILING,
+    degradation: "past the ceiling wasm32 cannot allocate and the module traps (no partial \
+result); natively, memory permitting, the snapshot refuses with SnapshotError::Capacity once an \
+id table's text would pass 2^32-1 bytes — a refusal, never a wrap or a truncation",
+    ponytail: "No Ponytail on the algorithm: the port is exact, nothing here is a heuristic, an \
+estimate or a fallback, so none is owed (module doc). Ponytail (scale_ceiling): measured, not \
+estimated — see HIERARCHY_LAYOUT_CEILING's derivation and \
+crates/graph-core/tests/memory.rs::hierarchy_layout_pipeline_memory_per_node.",
+};
+
+const TREEMAP: Metadata = Metadata {
+    tier: 1,
+    stage: "layout",
+    nodes: NodeGeometryKind::Box,
+    edges: EdgeGeometryKind::Line,
+    oracle: "d3-hierarchy@3.1.2 treemap().tile(treemapSquarify) — an exact f64 port of \
+squarify.js and hierarchy.sum at d3's own defaults (size([1,1]), no padding, no rounding), \
+stated in the module doc; byte-compared after Math.fround by harness/oracle-layouts.mjs over \
+>=1000 seeds",
+    complexity: "O(n log n)",
+    scale_ceiling: HIERARCHY_LAYOUT_CEILING,
+    degradation: "past the ceiling wasm32 cannot allocate and the module traps (no partial \
+result); natively, memory permitting, the snapshot refuses with SnapshotError::Capacity once an \
+id table's text would pass 2^32-1 bytes — a refusal, never a wrap or a truncation",
+    ponytail: "a non-positive or non-finite weight clamps to WEIGHT_EPSILON (1e-6) rather than \
+vanishing or handing squarify a zero/NaN value — the oracle applies the identical clamp. \
+Direction: cosmetic under-representation, a hairline never a wrong containment; escape hatch: \
+fix the weight upstream (module doc). Ponytail (scale_ceiling): measured, not estimated — see \
+HIERARCHY_LAYOUT_CEILING's derivation and \
+crates/graph-core/tests/memory.rs::hierarchy_layout_pipeline_memory_per_node.",
+};
+
+const CIRCULAR: Metadata = Metadata {
+    tier: 1,
+    stage: "layout",
+    nodes: NodeGeometryKind::Point,
+    edges: EdgeGeometryKind::Line,
+    oracle: "hand: the ring/angle/radius conventions worked by hand in graph-core \
+layout/circular.rs (docs/decisions/circular-conventions.md), restated independently in f64 and \
+checked per seed by graph-cli roundtrip; no third-party circular/radial hierarchy layout is a \
+meaningful byte-for-byte oracle (SciGraphs' own hierarchical.py normalises differently, per that \
+decision doc)",
+    complexity: "O(n)",
+    scale_ceiling: HIERARCHY_LAYOUT_CEILING,
+    degradation: "past the ceiling wasm32 cannot allocate and the module traps (no partial \
+result); natively, memory permitting, the snapshot refuses with SnapshotError::Capacity once an \
+id table's text would pass 2^32-1 bytes — a refusal, never a wrap or a truncation",
+    ponytail: "the radius step and the start angle are conventions pinned by this module, not a \
+computation with one right answer (docs/decisions/circular-conventions.md). Failing input: a \
+ring holding many nodes at a small radius (a shallow, bushy tree) crowds them close together. \
+Direction: cosmetic, never wrong — every node keeps its own ring and a distinct slot, so no two \
+real nodes ever collide. Escape hatch: a variant that inflates the radius by ring population, \
+under its own id (module doc). Ponytail (scale_ceiling): measured, not estimated — see \
+HIERARCHY_LAYOUT_CEILING's derivation and \
+crates/graph-core/tests/memory.rs::hierarchy_layout_pipeline_memory_per_node.",
+};
+
+/// Node count past which `layout.packing.circle` stops being usable, and why it is this
+/// one — a different shape of ceiling than the other three, and much lower.
+///
+/// Labelled, not a hard memory wall: the exact Collins–Stephenson path (genuinely planar
+/// input) is close to linear in `n`, like the other three layouts. But a random or dense
+/// graph at synthetic-model density is essentially always non-planar (the planar bound is
+/// `m <= 3n - 6`), so the realistic case takes `circle_packing/fallback.rs`'s two O(n^2)
+/// relaxation passes. Measured natively, `--release`
+/// (`crates/graph-core/tests/memory.rs::circle_packing_pipeline_memory_per_node`): one
+/// pipeline call takes 304 ms at n=300, 2.81 s at n=1000, 22.63 s at n=3000 — the O(n^2)
+/// shape shows in the timing and in peak memory, which does *not* hold flat per node the
+/// way the other three layouts' does (3.2 KB/node at n=300 rising to 24.9 KB/node at
+/// n=3000). Fitting that quadratic, a single call already crosses a 1-second budget
+/// around n=600. 5,000 is a round, stated cutoff at which a fallback packing already
+/// costs tens of seconds even natively; it is not measured directly at that size because
+/// doing so is itself impractically slow — the same reason this ceiling exists.
+pub const PACKING_CEILING: u64 = 5_000;
+
+const PACKING: Metadata = Metadata {
+    tier: 1,
+    stage: "layout",
+    nodes: NodeGeometryKind::Circle,
+    edges: EdgeGeometryKind::Line,
+    oracle: "hand + planarity certificate: the Collins-Stephenson exact path is checked against \
+its own Euler-formula certificate (planarity::planar_embedding + triangulate_embedding); the \
+per-seed hand oracle (graph-cli roundtrip) restates finite radii, no NaN/Inf, and edge tangency \
+within tolerance whenever note code 3 is absent — no third-party packer is pinned to this exact \
+convention",
+    complexity: "O(n) exact path; O(n^2) per relaxation round on the non-planar fallback",
+    scale_ceiling: PACKING_CEILING,
+    degradation: "past the ceiling the fallback still runs and still returns finite geometry, \
+never a refusal or a trap — it simply gets slower at O(n^2), with no built-in cutoff, so a \
+caller must apply its own timeout; the exact planar path is unaffected and stays fast at any n \
+this crate's u32 index space allows",
+    ponytail: "the packing is exact only for planar input. The failing input is any graph with a \
+K5 or K3,3 minor (or one whose planar embedding cannot be triangulated into a genuine disk, \
+treated the same defensively). Direction: overlap, the dangerous one — the fallback does not \
+guarantee tangency or non-overlap either. Escape hatch: read note code 3 off the snapshot; its \
+absence is the only trustworthy sign the packing is exact (module doc; full account in \
+docs/decisions/planarity-fallback.md). Ponytail (scale_ceiling): labelled, time-bound, not \
+measured at the ceiling itself — see PACKING_CEILING's derivation.",
+};
+
 /// Every registered layout, in the order the hash gate runs them.
-pub static LAYOUTS: [Capability; 1] = [Capability {
-    id: Grid::ID,
-    run: run_default::<Grid>,
-    meta: GRID,
-}];
+pub static LAYOUTS: [Capability; 5] = [
+    Capability {
+        id: Grid::ID,
+        run: run_default::<Grid>,
+        meta: GRID,
+    },
+    Capability {
+        id: "layout.tree.tidy",
+        run: tidy_tree::run,
+        meta: TIDY_TREE,
+    },
+    Capability {
+        id: "layout.treemap.squarified",
+        run: treemap::run,
+        meta: TREEMAP,
+    },
+    Capability {
+        id: "layout.circular.radial",
+        run: circular::run,
+        meta: CIRCULAR,
+    },
+    Capability {
+        id: "layout.packing.circle",
+        run: circle_packing::run,
+        meta: PACKING,
+    },
+];
 
 /// The layout registered under `id`.
 pub fn find(id: &str) -> Option<&'static Capability> {

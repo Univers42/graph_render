@@ -7,8 +7,11 @@
 //! reads a file with no `format` row by the rules it has.
 //!
 //! `0.x` is pre-release: a minor may still change the payload. `0.1` was the Phase-0
-//! stub (header plus bare columns), hashed but never persisted and never decoded. The
-//! byte layout this crate writes is `docs/contract/binary-layout.md`.
+//! stub (header plus bare columns), hashed but never persisted and never decoded. `0.2`
+//! is the Phase-2 layout; `0.3` appends the notes section (`crate::notes`), which a 0.3
+//! reader reads only from a snapshot labelled 0.3 or later — a 0.2 snapshot still reads,
+//! as one with no notes. The byte layout this crate writes is
+//! `docs/contract/binary-layout.md`.
 
 use core::fmt;
 
@@ -27,7 +30,7 @@ pub struct FormatVersion {
 }
 
 /// The version this crate writes and the highest major it reads.
-pub const CURRENT_VERSION: FormatVersion = FormatVersion { major: 0, minor: 2 };
+pub const CURRENT_VERSION: FormatVersion = FormatVersion { major: 0, minor: 3 };
 
 /// What a JSON document that carries no version is read as.
 pub const UNVERSIONED: FormatVersion = FormatVersion { major: 0, minor: 0 };
@@ -88,7 +91,7 @@ mod tests {
         );
         assert_eq!(
             err.to_string(),
-            "snapshot format 1.0 is newer than this reader's 0.2: refusing rather than guessing at a newer layout"
+            "snapshot format 1.0 is newer than this reader's 0.3: refusing rather than guessing at a newer layout"
         );
     }
 

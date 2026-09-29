@@ -25,6 +25,13 @@ pub struct Patch {
 
 /// `edgesEqual` (`diff.ts:31-41`): every field but `id`, `strength` compared with IEEE
 /// `==` as JS `===` compares it.
+///
+/// Ponytail: orientation-blind, for oracle parity — the oracle's edge has no
+/// `child_first`, so it is not compared. Failing input: the same edge id switched
+/// between `parent_of` and `child_of` with the same endpoints and label. Direction: the
+/// patch under-reports (no update listed) while the hierarchy the layouts read flips.
+/// Escape hatch: a host that re-types a hierarchy edge rebuilds the topology rather
+/// than patching it, or compares `EdgeView::child_first` itself.
 pub fn edges_equal(a: &EdgeView<'_>, b: &EdgeView<'_>) -> bool {
     a.source == b.source
         && a.target == b.target
@@ -116,6 +123,24 @@ mod tests {
             (patch.added_edges, patch.updated_edges, patch.removed_edges),
             (vec![1], vec![0], vec![0])
         );
+    }
+
+    /// Oracle parity: the oracle's edge has no orientation, so neither its diff nor its id
+    /// sees one — the same edge switched from `parent_of` to `child_of` is no change.
+    #[test]
+    fn switching_an_edge_between_parent_of_and_child_of_is_no_patch() {
+        let nodes = [node("a", ""), node("b", "")];
+        let mut parent_of = edge("h", "a", "b");
+        parent_of.kind = EdgeKind::Hierarchy;
+        let child_of = EdgeRecord {
+            child_first: true,
+            ..parent_of.clone()
+        };
+        assert!(edges_equal(&parent_of.view(), &child_of.view()));
+        let p = index_model(&nodes, &[parent_of]).expect("fits");
+        let n = index_model(&nodes, &[child_of]).expect("fits");
+        assert_ne!(p.parent(0), n.parent(0), "the hierarchy does see it");
+        assert!(is_empty_patch(&diff_graph(&p, &n)));
     }
 
     #[test]

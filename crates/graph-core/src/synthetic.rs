@@ -124,6 +124,7 @@ fn synthetic_edges(count: u32, rnd: &mut Mulberry32, nodes: &[NodeRecord]) -> Ve
             strength: 0.4 + rnd.next_f64() * 0.4,
             directed: kind == EdgeKind::Relation,
             record_id: None,
+            child_first: false,
         });
     };
     let earlier = |rnd: &mut Mulberry32, i: u32| {
