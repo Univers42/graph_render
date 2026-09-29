@@ -20,6 +20,10 @@ export interface ShownError {
 const HINTS: Record<string, string> = {
   BuildRefusedError: "The ingest document was refused. Check the JSON, or regenerate the synthetic graph.",
   RunRefusedError: "The layout refused to run on this graph. Pick another layout, or load a graph it accepts.",
+  PostRefusedError:
+    "The post pass refused. It needs a finished layout run on the same handle, so run a layout first, then apply it.",
+  AnalysisRefusedError:
+    "The analysis refused. It is a function of the topology, so rebuild the graph if the handle is stale.",
   InvalidHandleError: "The graph handle is no longer live. Rebuild the graph and run again.",
   TamperedGeometryError: "A column view wrote a non-finite value. Reload the page and rebuild.",
   MotorTrapError: "The wasm module trapped. Reload the page; if it repeats, that layout is broken.",

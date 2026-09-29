@@ -1,6 +1,12 @@
 /**
- * What the last run cost and produced: the two durations, the counts, the node and
- * edge geometry kind, and every column the run carried (or did not).
+ * The status card: the two build/layout durations, the post pass's own, the
+ * counts, the node and edge geometry kinds, and every column the run carried (or
+ * did not).
+ *
+ * The geometry kinds and the column list are RESTATED after a POST pass rather
+ * than left showing the layout's, because a pass changes both — `post.route.grid`
+ * over a `Line` layout makes the handle a `Polyline` run with an `edge.pts`
+ * column that was absent a moment ago (docs/contract/wasm-abi.md "POST").
  */
 
 import type { RunReport } from "../motor/session.ts";
@@ -43,6 +49,8 @@ function RunCard(props: { report: RunReport; title: string }): React.JSX.Element
       <dl>
         <Figure label="build" value={ms(report.buildMs)} />
         <Figure label="layout" value={ms(report.layoutMs)} />
+        {report.postId !== null && <Figure label="post pass" value={report.postId} />}
+        {report.postId !== null && <Figure label="post time" value={ms(report.postMs)} />}
         <Figure label="nodes" value={report.nodeCount} />
         <Figure label="edges" value={report.edgeCount} />
         <Figure label="node geometry" value={report.nodeKind} />
