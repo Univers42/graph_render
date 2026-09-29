@@ -110,11 +110,29 @@ impl Hierarchy {
     }
 
     /// Node `v`'s children, ascending; `v` may be the virtual root `n`.
+    ///
+    /// # Precondition
+    ///
+    /// `v <= self.node_count()`, i.e. `v` is a real node or the virtual root — the same
+    /// bound [`parent`](Self::parent) and [`parent_edge`](Self::parent_edge) accept as a
+    /// `None`-returning `Option` without needing one. Those two return `Option` because
+    /// "this node is a root" is a real, common answer; "is this row in range" is not, and
+    /// every caller here reads `v` from a CSR row or an `order()` walk. Out of range
+    /// panics via the CSR's own row bound rather than returning an empty slice that would
+    /// read as "this node is a leaf" and silently swallow a caller's subtree.
     pub fn children(&self, v: u32) -> &[u32] {
         self.children.row(v)
     }
 
     /// Node `v`'s depth below [`root`](Self::root); `v` may be the virtual root `n`.
+    ///
+    /// # Precondition
+    ///
+    /// `v <= self.node_count()`, the same bound and the same reasoning as
+    /// [`children`](Self::children). A node reachable from [`root`](Self::root) always
+    /// has its depth written by `breadth_first`, and a virtual-rooted `v` is `n`, the
+    /// last row; anything else is a caller bug and panics rather than reading `0` out of
+    /// an unrelated node's slot, which would place the node at ring 0 without any error.
     pub fn depth(&self, v: u32) -> u32 {
         self.depth[v as usize]
     }

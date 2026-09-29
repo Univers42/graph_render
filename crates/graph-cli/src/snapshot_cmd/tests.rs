@@ -1,19 +1,74 @@
 use super::*;
 use graph_contract::binary::SnapshotParts;
-use graph_contract::geometry::{EdgeGeometryKind, NodeGeometryKind};
+use graph_contract::geometry::{EdgeGeometryKind, NodeGeometry, NodeGeometryKind};
 use graph_contract::notes::{Note, NoteCode, Notes, SNAPSHOT_WIDE};
 use std::collections::BTreeSet;
 
+/// The whole list, exactly: one pair per registered layout, in registry order, with no
+/// name offered twice — a new layout has to appear here or this goes red.
 #[test]
-fn every_registered_layout_is_offered_by_its_short_name() {
-    assert_eq!(layout_names(), ["grid"]);
-    let run = pipeline(1, 50, "grid").expect("runs");
+fn layout_names_offers_every_registered_layout_once_by_both_of_its_names() {
+    let names = layout_names();
     assert_eq!(
-        (run.layout, run.snapshot.header().node_count),
-        ("layout.grid", 50)
+        names,
+        [
+            "layout.grid",
+            "grid",
+            "layout.tree.tidy",
+            "tree.tidy",
+            "layout.treemap.squarified",
+            "treemap.squarified",
+            "layout.circular.radial",
+            "circular.radial",
+            "layout.packing.circle",
+            "packing.circle",
+        ]
     );
+    let mut once = names.clone();
+    once.sort_unstable();
+    once.dedup();
+    assert_eq!(
+        once.len(),
+        names.len(),
+        "no layout is offered twice: {names:?}"
+    );
+    for id in registry::LAYOUTS.iter().map(|l| l.id) {
+        assert!(names.contains(&id), "{names:?} missing {id}");
+        assert!(
+            names.contains(&short_name(id)),
+            "{names:?} missing {id}'s short name"
+        );
+    }
+    assert_eq!(short_name("layout.grid"), "grid");
+    assert_eq!(
+        short_name("grid"),
+        "grid",
+        "an id already short stays as it is"
+    );
+}
+
+#[test]
+fn each_layout_name_runs_the_same_pipeline_and_an_unregistered_one_names_all_the_rest() {
+    for (id, short) in [
+        ("layout.grid", "grid"),
+        ("layout.tree.tidy", "tree.tidy"),
+        ("layout.treemap.squarified", "treemap.squarified"),
+        ("layout.circular.radial", "circular.radial"),
+        ("layout.packing.circle", "packing.circle"),
+    ] {
+        let by_short = pipeline(1, 50, short).expect("runs by short name");
+        let by_id = pipeline(1, 50, id).expect("runs by full id");
+        assert_eq!(
+            (by_short.layout, by_short.snapshot.header().node_count),
+            (id, 50)
+        );
+        assert_eq!(by_short.snapshot, by_id.snapshot);
+    }
     let err = pipeline(1, 50, "spiral").expect_err("unregistered");
-    assert_eq!(err, "no layout \"spiral\": one of grid");
+    assert_eq!(
+        err,
+        format!("no layout \"spiral\": one of {}", layout_names().join(", "))
+    );
 }
 
 #[test]
@@ -23,7 +78,7 @@ fn both_faces_round_trip_on_the_grid_and_on_the_exercise() {
             .expect("runs")
             .snapshot;
         assert_eq!(faces_agree(&grid), Ok(()), "grid seed {seed}");
-        assert_eq!(grid_by_hand(&grid), Ok(()), "grid seed {seed}");
+        assert_eq!(hand_oracles::grid(&grid), Ok(()), "grid seed {seed}");
         let exercise = exercise::snapshot(seed).expect("valid");
         assert_eq!(faces_agree(&exercise), Ok(()), "exercise seed {seed}");
     }
@@ -65,8 +120,9 @@ fn the_exercise_draws_every_notes_case_and_each_round_trips() {
         let snapshot = exercise::snapshot(seed).expect("valid");
         exercise::count_notes_cases(&snapshot, &mut sweep);
     });
-    assert_eq!(sweep[0], 200, "every fifth seed is 0.2-labelled");
-    assert!(sweep[1..].iter().all(|&c| c >= 200), "{sweep:?}");
+    // Exact, not a floor: a case drawn only on its own seed's `seed % 5` would still
+    // clear 200 for two of these, and the gate's claim is that every case is drawn.
+    assert_eq!(sweep, [200, 257, 342, 343, 200], "the five notes cases");
 }
 
 #[test]
@@ -95,68 +151,23 @@ fn grid_with(n: u32, moved: usize, by: f32) -> Snapshot {
 
 #[test]
 fn the_hand_oracle_catches_a_moved_node_and_a_foreign_kind() {
-    assert_eq!(grid_by_hand(&grid_with(5, 0, 0.0)), Ok(()));
-    let err = grid_by_hand(&grid_with(5, 4, 0.5)).expect_err("moved");
+    assert_eq!(hand_oracles::grid(&grid_with(5, 0, 0.0)), Ok(()));
+    let err = hand_oracles::grid(&grid_with(5, 4, 0.5)).expect_err("moved");
     assert_eq!(
         err,
         "node 4 at (0.5, 0.5), the conventions put it at (0.0, 0.5)"
     );
     let tiny = grid_with(5, 2, f32::EPSILON);
     assert!(
-        grid_by_hand(&tiny)
+        hand_oracles::grid(&tiny)
             .expect_err("one ulp off")
             .starts_with("node 2 ")
     );
     let exercise = exercise::snapshot(1).expect("valid");
     assert_eq!(exercise.header().node_kind, NodeGeometryKind::Circle);
     assert_eq!(exercise.header().edge_kind, EdgeGeometryKind::Line);
-    let foreign = grid_by_hand(&exercise).expect_err("circles");
+    let foreign = hand_oracles::grid(&exercise).expect_err("circles");
     assert_eq!(foreign, "not Point nodes with Line edges");
-}
-
-#[test]
-fn overall_pass_requires_both_checks_clean_not_either_one() {
-    assert!(all_clear(&Findings::default()));
-    let only_faces_bad = Findings {
-        faces: vec!["x".into()],
-        grid: vec![],
-    };
-    assert!(!all_clear(&only_faces_bad), "faces alone must fail it");
-    let only_grid_bad = Findings {
-        faces: vec![],
-        grid: vec!["y".into()],
-    };
-    assert!(!all_clear(&only_grid_bad), "grid alone must fail it");
-}
-
-#[test]
-fn print_findings_subtracts_failures_from_the_total_not_adds() {
-    let found = Findings {
-        faces: vec!["a".into(), "b".into()],
-        grid: vec!["c".into()],
-    };
-    let mut text = String::new();
-    write_findings(&mut text, 5, &found);
-    assert!(
-        text.contains("binary <-> JSON byte-exact on 8/10 snapshots"),
-        "{text}"
-    );
-    assert!(
-        text.contains("layout.grid on its stated conventions on 4/5 seeds"),
-        "{text}"
-    );
-}
-
-#[test]
-fn the_sweep_records_nothing_wrong_and_refuses_zero_seeds() {
-    let found = sweep(12).expect("runs");
-    assert!(found.faces.is_empty() && found.grid.is_empty(), "{found:?}");
-    assert!(found.pass(), "every notes case drawn: {:?}", found.notes);
-    assert!(
-        !sweep(4).expect("runs").pass(),
-        "four seeds cannot draw every case"
-    );
-    assert!(sweep(0).expect_err("empty").starts_with("0 seeds"));
 }
 
 fn scratch(name: &str) -> PathBuf {

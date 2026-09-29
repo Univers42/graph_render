@@ -27,38 +27,97 @@ const COVERED: [&str; 19] = [
     "layoutGroups",
 ];
 
-fn honest() -> Evidence {
-    let functions: serde_json::Map<String, Value> = COVERED
+/// Every hashgate stage's key, in `hashgate::STAGES` order, so this fixture's `equal`
+/// maps can be built at the same shape a real record has, without importing the
+/// hashgate module just for the constant.
+const STAGES: [&str; 6] = [
+    "topology",
+    "layout.grid",
+    "layout.tree.tidy",
+    "layout.treemap.squarified",
+    "layout.circular.radial",
+    "layout.packing.circle",
+];
+
+/// A hashgate-shaped `equal` map: `seeds` for every stage, except `diverged`'s, at `0`.
+fn equal_map(seeds: u64, diverged: &[&str]) -> Value {
+    let map: serde_json::Map<String, Value> = STAGES
         .iter()
-        .map(|f| {
-            (
-                (*f).to_owned(),
-                json!({ "cases": 5, "declared": 0, "unexplained": 0 }),
-            )
+        .map(|&stage| {
+            let count = if diverged.contains(&stage) { 0 } else { seeds };
+            (stage.to_owned(), json!(count))
         })
         .collect();
-    let control = |topology: u32, grid: u32| {
+    Value::Object(map)
+}
+
+/// One `{cases, declared: 0, unexplained: 0}` function entry.
+fn hand(cases: u64) -> Value {
+    json!({ "cases": cases, "declared": 0, "unexplained": 0 })
+}
+
+/// One control's record: red, over `seeds` seeds, diverging exactly `diverged`'s stages.
+fn control(name: &'static str, diverged: &[&str]) -> (&'static str, Option<Value>) {
+    (
+        name,
         Some(json!({
             "fingerprint": "tree", "seeds": 8, "pass": false,
-            "equal": { "topology": topology, "layout.grid": grid }
-        }))
-    };
+            "equal": equal_map(8, diverged)
+        })),
+    )
+}
+
+/// The three controls: reference degree (topology, treemap — it reads node weight),
+/// grid spacing (grid alone), and node count — restricted here to the four layouts
+/// neither other control reaches, since reference degree and grid spacing already back
+/// topology/grid/treemap on their own (a real run may show it diverging those too; the
+/// ledger only needs one control per stage to hold).
+fn honest_controls() -> Vec<(&'static str, Option<Value>)> {
+    vec![
+        control(
+            "hashgate-control-reference-degree",
+            &["topology", "layout.treemap.squarified"],
+        ),
+        control("hashgate-control-grid-spacing", &["layout.grid"]),
+        control(
+            "hashgate-control-node-count",
+            &[
+                "layout.tree.tidy",
+                "layout.treemap.squarified",
+                "layout.circular.radial",
+                "layout.packing.circle",
+            ],
+        ),
+    ]
+}
+
+fn honest() -> Evidence {
+    let functions: serde_json::Map<String, Value> =
+        COVERED.iter().map(|f| ((*f).to_owned(), hand(5))).collect();
     Evidence {
         fingerprint: "tree".into(),
         hashgate: Some(json!({
             "fingerprint": "tree", "seeds": 1000, "pass": true,
-            "equal": { "topology": 1000, "layout.grid": 1000 }
+            "equal": equal_map(1000, &[])
         })),
-        controls: vec![
-            ("hashgate-control-reference-degree", control(0, 8)),
-            ("hashgate-control-grid-spacing", control(8, 0)),
-        ],
+        controls: honest_controls(),
         oracle: Some(json!({
             "fingerprint": "tree", "seeds": 1000, "pass": true, "functions": functions
         })),
         roundtrip: Some(json!({
             "fingerprint": "tree", "seeds": 1000, "pass": true,
-            "functions": { "layout.grid": { "cases": 7, "declared": 0, "unexplained": 0 } }
+            "functions": {
+                "layout.grid": hand(7),
+                "layout.circular.radial": hand(6),
+                "layout.packing.circle": hand(5),
+            }
+        })),
+        layouts: Some(json!({
+            "fingerprint": "tree", "seeds": 1000, "pass": true,
+            "functions": {
+                "layout.tree.tidy": hand(9),
+                "layout.treemap.squarified": hand(11),
+            }
         })),
     }
 }
@@ -73,7 +132,7 @@ fn row(status: Status) -> Capability {
 fn every_registered_row_stands_on_honest_evidence_and_reads_it_back() {
     let evidence = honest();
     let rows = ledger(&evidence);
-    assert_eq!(rows.len(), 9);
+    assert_eq!(rows.len(), 13);
     assert_eq!(problems(&rows, &evidence), Vec::<String>::new());
     assert_eq!(
         rows[0].hash_4way,
@@ -128,9 +187,10 @@ fn without_records_every_gated_row_is_refused_twice() {
         controls: vec![],
         oracle: None,
         roundtrip: None,
+        layouts: None,
     };
     let rows = ledger(&bare);
-    assert_eq!(problems(&rows, &bare).len(), 18);
+    assert_eq!(problems(&rows, &bare).len(), 26);
     assert!(
         rows[0]
             .hash_4way

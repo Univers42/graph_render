@@ -13,6 +13,9 @@ graph-wasm = { path = "../graph-wasm" }
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# D1: the circular/radial hand oracle (snapshot_cmd/hand_oracles.rs) restates
+# graph-core's own convention independently and must round the same way it does.
+libm = "0.2"
 # D7: the hash is an explicit algorithm. SHA-256 because Node's built-in crypto
 # computes the same digest for the wasm arm with nothing added to its side.
 sha2 = "0.10"

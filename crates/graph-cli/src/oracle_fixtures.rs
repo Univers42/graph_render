@@ -6,10 +6,17 @@
 //! `manifest.json` (generator, seed count, per-function counts, file digests and the
 //! tree fingerprint). The expected outputs are computed from `cases.jsonl` *as read
 //! back from disk*, so the Rust arm consumes exactly the bytes the TypeScript arm will.
+//!
+//! Two more, under their own manifest ([`layouts`]): `layouts.jsonl` and
+//! `layout-manifest.json`, for `harness/oracle-layouts.mjs`'s d3-hierarchy differential
+//! — a different oracle (a library, not `src/core/model`) over a different generator
+//! (the gate model, not this module's own), so its files and manifest are kept separate
+//! rather than folded into the shape above.
 
 mod cases;
 mod eval;
 mod generate;
+mod layouts;
 mod pools;
 mod wire;
 
@@ -64,6 +71,18 @@ pub fn diff(fixtures: &Path) -> ExitCode {
     ExitCode::from(diff_code(run_status(&mut command, CHILD_TIMEOUT)))
 }
 
+/// `graph-cli oracle-layouts`: the d3-hierarchy arm, over the fixtures in `fixtures`. No
+/// TypeScript loader — this harness imports only `d3-hierarchy` and `node:*`.
+pub fn diff_layouts(fixtures: &Path) -> ExitCode {
+    let root = workspace_root();
+    let mut command = std::process::Command::new("node");
+    command
+        .current_dir(&root)
+        .arg(root.join("harness").join("oracle-layouts.mjs"))
+        .arg(fixtures);
+    ExitCode::from(diff_code(run_status(&mut command, CHILD_TIMEOUT)))
+}
+
 /// The harness's own `0` and `1` pass through; anything else it could end with (`2`, a
 /// signal, a missing `node`, a timeout) is "could not run".
 fn diff_code(status: Result<std::process::ExitStatus, String>) -> u8 {
@@ -92,6 +111,7 @@ fn emit(seeds: u32, out: &Path) -> Result<BTreeMap<String, u64>, String> {
     let cases_path = out.join("cases.jsonl");
     write_cases(&cases_path, seeds, &pairs)?;
     let counts = write_expected(&cases_path, &out.join("expect.jsonl"))?;
+    layouts::write(seeds, out, &stamp)?;
     let manifest = json!({
         "generator": "graph-cli emit-fixtures: splitmix64 per seed (oracle_fixtures/generate.rs)",
         "format": 1,

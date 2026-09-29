@@ -1,7 +1,9 @@
 //! Comparing the four arms' output: line by line, after refusing every comparison that
-//! would agree vacuously.
+//! would agree vacuously. `stages` names the stages in the order both arms printed them
+//! (`super::STAGES` at the real call sites) — a parameter, not a global, so this module's
+//! own tests can exercise it at a small, fixed size independent of how many layouts the
+//! registry carries.
 
-use super::STAGES;
 use std::collections::BTreeSet;
 
 /// One arm: its name and its `stage seed sha256` lines, stage by stage, seed by seed.
@@ -11,14 +13,14 @@ pub type Arm = (&'static str, Vec<String>);
 /// Refused: zero seeds, a missing arm, a short arm, a line that is not
 /// `stage seed <64 hex>` for its own position, and a stage whose every seed hashed alike
 /// (the seed never reached the output, so `seeds` seeds tested one input).
-pub fn diverged(seeds: u32, arms: &[Arm]) -> Result<Vec<usize>, String> {
+pub fn diverged(seeds: u32, stages: &[&str], arms: &[Arm]) -> Result<Vec<usize>, String> {
     if seeds == 0 {
         return Err("0 seeds: a gate over nothing proves nothing".into());
     }
     if arms.len() != 4 {
         return Err(format!("{} arms, need 4", arms.len()));
     }
-    let per_arm = seeds as usize * STAGES.len();
+    let per_arm = seeds as usize * stages.len();
     for (name, lines) in arms {
         if lines.len() != per_arm {
             return Err(format!(
@@ -29,13 +31,13 @@ pub fn diverged(seeds: u32, arms: &[Arm]) -> Result<Vec<usize>, String> {
         if let Some((i, bad)) = lines
             .iter()
             .enumerate()
-            .find(|(i, l)| !well_formed(l, seeds, *i))
+            .find(|(i, l)| !well_formed(l, seeds, *i, stages))
         {
             return Err(format!("{name} line {i} is malformed: {bad:?}"));
         }
     }
     let first = &arms[0].1;
-    for (stage, block) in STAGES.iter().zip(first.chunks(seeds as usize)) {
+    for (stage, block) in stages.iter().zip(first.chunks(seeds as usize)) {
         if seeds > 1 && block.iter().all(|line| digest(line) == digest(&block[0])) {
             return Err(format!(
                 "{stage}: every seed hashed to one digest: the seed never reaches the output, so {seeds} seeds test one input"
@@ -50,16 +52,17 @@ pub fn diverged(seeds: u32, arms: &[Arm]) -> Result<Vec<usize>, String> {
 /// Divergent lines folded back to stages and seeds.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Tally {
-    /// Seeds on which all four arms agree, per stage in [`STAGES`] order.
+    /// Seeds on which all four arms agree, per stage in the caller's `stages` order.
     pub equal: Vec<u32>,
     /// Seeds with a divergence in any stage.
     pub diverged_seeds: u32,
 }
 
-/// Folds the line indices from [`diverged`] into per-stage and per-seed counts.
-pub fn per_stage(seeds: u32, lines: &[usize]) -> Tally {
+/// Folds the line indices from [`diverged`] into per-stage and per-seed counts, over
+/// `stage_count` stages (`stages.len()` at the real call sites).
+pub fn per_stage(seeds: u32, stage_count: usize, lines: &[usize]) -> Tally {
     let per = seeds as usize;
-    let mut equal = vec![seeds; STAGES.len()];
+    let mut equal = vec![seeds; stage_count];
     let mut bad_seeds = BTreeSet::new();
     for &line in lines {
         equal[line / per] -= 1;
@@ -75,8 +78,8 @@ fn digest(line: &str) -> &str {
     line.rsplit(' ').next().unwrap_or("")
 }
 
-fn well_formed(line: &str, seeds: u32, index: usize) -> bool {
-    let (stage, seed) = (STAGES[index / seeds as usize], index % seeds as usize);
+fn well_formed(line: &str, seeds: u32, index: usize, stages: &[&str]) -> bool {
+    let (stage, seed) = (stages[index / seeds as usize], index % seeds as usize);
     let mut parts = line.split(' ');
     let prefix_ok = parts.next() == Some(stage) && parts.next() == Some(seed.to_string().as_str());
     let digest = parts.next().unwrap_or("");

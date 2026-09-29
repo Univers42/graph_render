@@ -1,7 +1,8 @@
 # Binary layout — the graph-motor snapshot's byte contract
 
-Status: **authoritative** (Phase 2). Scope: `graph-contract::binary`,
-`crates/graph-contract/src/{binary.rs,binary/decode.rs,version.rs,geometry.rs,snapshot.rs}`.
+Status: **authoritative** (Phase 2; format **0.3** adds the notes section in Phase 3, user
+decision D-N, `docs/decisions/snapshot-notes.md`). Scope: `graph-contract::binary`,
+`crates/graph-contract/src/{binary.rs,binary/decode.rs,version.rs,geometry.rs,snapshot.rs,snapshot/error.rs,notes.rs}`.
 `binary.rs`'s own module doc points back here: this file is normative, the code follows it.
 
 Columnar, little-endian, word-aligned throughout: every section's length is a multiple of
@@ -27,7 +28,7 @@ refuses, plus truncation and trailing bytes.
 | 24 | 4 | edge count `m` | `u32` LE | length of every edge column |
 
 Source of the table: `snapshot.rs:7-19` (`SnapshotHeader::encode`/`decode`,
-`crates/graph-contract/src/snapshot.rs:130-167`). `HEADER_LEN = 28`.
+`crates/graph-contract/src/snapshot.rs:132-167`). `HEADER_LEN = 28`.
 
 **Reserved geometry tags.** `geometry.rs:45-48` allocates edge tag `3` to Sankey ribbons
 and `4` to chord arcs: recognised (so a future reader knows they exist) but refused by
@@ -47,10 +48,12 @@ After the header, for a snapshot with `n` nodes and `m` edges:
    Point has no third column. Each column is `f32 × n`.
 6. **edge geometry**, shaped by the edge tag: nothing (Line), or offsets+points
    (Polyline), or a degree then offsets+points (Curve).
+7. **notes** (format 0.3 and later only) — `k: u32`, then `code: u32 × k`, then
+   `index: u32 × k`. The **last** section: nothing follows it.
 
-Order and column names come from `Snapshot::to_bytes` (`binary.rs:165-185`) and
-`Reader::decode` (`binary/decode.rs:11-34`), which read the same six sections in the same
-order.
+Order and column names come from `Snapshot::to_bytes` (`binary.rs:170-195`) and
+`decode` (`binary/decode.rs:12-41`), which write and read the same seven sections in the
+same order — the seventh only when the snapshot's version carries notes (see below).
 
 ### String tables (node id / edge id) — CSR-shaped
 
@@ -92,16 +95,44 @@ Each column is `n` little-endian `f32`s (`geometry.rs:174-181`, `NodeGeometry::c
 A curve's `degree` is one value for the whole snapshot (2 quadratic, 3 cubic, …) and must
 be at least 1. `u32`/`f32` arrays never need padding: every element is already 4 bytes.
 
-## The pinned 80-byte example (ground truth)
+### Notes (format 0.3)
 
-`binary/tests.rs:75-111`, `the_layout_is_pinned_byte_for_byte_for_a_tiny_snapshot`: 2 nodes
-(`"a"`, `"bc"`), 1 edge (`"e"`, `a → bc`), Point nodes, Line edges. Annotated byte for byte:
+What a stage repaired or approximated, recorded in the snapshot itself so a consumer can
+tell an exact result from a degraded one (`notes.rs:1-24`). Columnar like the rest:
+`k: u32`, then the `k` codes, then the `k` indices, all `u32` LE, so no padding.
+
+| code | name | `index` |
+|---:|---|---|
+| 1 | `hierarchy.cycle_edge_dropped` | the dropped edge's position |
+| 2 | `hierarchy.extra_parent_dropped` | the dropped edge's position |
+| 3 | `packing.approximate` | `4294967295` (`u32::MAX`): snapshot-wide |
+| 4 | reserved: `dag.dummy_budget_exceeded` (Phase 5) | refused as `Reserved` |
+| 5 | reserved: `dag.edge_reversed` (Phase 5) | refused as `Reserved` |
+| 6 | reserved: `post.route_fallback` (Phase 8) | refused as `Reserved` |
+
+- An `index` is an **edge position** — an index into the edge id table and every edge
+  column, `0..m` — or, for a snapshot-wide note, `u32::MAX`. Codes 1 and 2 need
+  `index < m`; code 3 needs `index == u32::MAX` (`notes.rs:148-170`).
+- **Closed set**, like the geometry tags: 1-3 are read; 4-6 are allocated and refused as
+  `NoteCodeError::Reserved`; anything else is `NoteCodeError::Unknown`
+  (`notes.rs:86-94`). Turning a reserved code on is a **minor bump**: a 0.3 reader
+  refuses it.
+- **Canonical**: strictly ascending by `(code, index)`. That pair is the whole note, so
+  the order is total and a repeated note is refused (`NoteOrder`). Producers sort before
+  building; the constructor checks and never sorts (graph-core's `layout::snapshot` sorts
+  a stage's notes before it builds).
+
+## The pinned 84-byte example (ground truth)
+
+`binary/tests/pinned.rs:9-51`, `the_layout_is_pinned_byte_for_byte_for_a_tiny_snapshot`: 2
+nodes (`"a"`, `"bc"`), 1 edge (`"e"`, `a → bc`), Point nodes, Line edges, format 0.3, no
+notes. Annotated byte for byte:
 
 | offset | bytes (hex) | len | field | value |
 |---:|---|---:|---|---|
 | 0 | `47 4D 53 4E` | 4 | magic | `"GMSN"` |
 | 4 | `00 00 00 00` | 4 | version.major | 0 |
-| 8 | `02 00 00 00` | 4 | version.minor | 2 |
+| 8 | `03 00 00 00` | 4 | version.minor | 3 |
 | 12 | `00` | 1 | node_kind tag | 0 = Point |
 | 13 | `00` | 1 | edge_kind tag | 0 = Line |
 | 14 | `00` | 1 | z channel | 0 |
@@ -124,12 +155,14 @@ be at least 1. `u32`/`f32` arrays never need padding: every element is already 4
 | 68 | `00 00 20 C0` | 4 | node.x[1] | −2.5 |
 | 72 | `00 00 00 00` | 4 | node.y[0] | 0.0 |
 | 76 | `00 00 00 3F` | 4 | node.y[1] | 0.5 |
+| 80 | `00 00 00 00` | 4 | note.count (k) | 0 |
 
-80 bytes total; edges are Line, so nothing follows offset 80.
+84 bytes total; edges are Line, so the edge geometry is empty and the notes section — just
+`k = 0` — follows the node columns at offset 80.
 
 The same test reuses this snapshot with `edges = Curve { degree: 2, paths }` (offsets
 `[0, 1]`, one point `(1.0, 0.5)`): only byte 13 changes (`00` → `02`), everything through
-offset 79 is identical, and a Curve tail follows:
+offset 79 is identical, and a Curve tail, then `k = 0`, follows:
 
 | offset (from 80) | bytes (hex) | len | field | value |
 |---:|---|---:|---|---|
@@ -138,6 +171,28 @@ offset 79 is identical, and a Curve tail follows:
 | 8 | `01 00 00 00` | 4 | edge.offsets[1] | 1 |
 | 12 | `00 00 80 3F` | 4 | edge.pts[0] (x) | 1.0 |
 | 16 | `00 00 00 3F` | 4 | edge.pts[1] (y) | 0.5 |
+| 20 | `00 00 00 00` | 4 | note.count (k) | 0 |
+
+### The pinned one-note example
+
+`binary/tests/pinned.rs:53-66`, `a_snapshot_with_one_note_is_pinned_byte_for_byte`: the
+84-byte snapshot above carrying one note, `packing.approximate` for the whole snapshot.
+Bytes 0-79 are identical; the notes section becomes:
+
+| offset | bytes (hex) | len | field | value |
+|---:|---|---:|---|---|
+| 80 | `01 00 00 00` | 4 | note.count (k) | 1 |
+| 84 | `03 00 00 00` | 4 | note.code[0] | 3 = `packing.approximate` |
+| 88 | `FF FF FF FF` | 4 | note.index[0] | 4294967295 (`u32::MAX`, snapshot-wide) |
+
+92 bytes total. It reads back and writes the same 92 bytes.
+
+### A 0.2 snapshot
+
+The 84-byte example's first 80 bytes with byte 8 = `02` — no notes section at all — is a
+valid 0.2 snapshot: a 0.3 reader reads it as `k = 0` and writes back the same 80 bytes
+(`binary/tests/pinned.rs:68-85`). The first 80 bytes left labelled 0.3 are refused as
+`Truncated { column: "note.count" }`, never read as `k = 0` (`pinned.rs:87-95`).
 
 ## Decode-time refusals
 
@@ -165,14 +220,14 @@ so a reserved z-channel or nonzero padding is reported ahead of a bad geometry t
 though the tag bytes sit earlier in the layout (`snapshot.rs`'s `decode`, pinned by
 `reserved_fields_are_checked_before_the_geometry_tag`).
 
-### Body (`SnapshotError`, `snapshot.rs:188-264`)
+### Body (`SnapshotError`, `snapshot/error.rs:13-113`)
 
 | variant | example columns | position reported |
 |---|---|---|
 | `Header(ReadError)` | — | wraps the table above |
-| `Truncated { column }` | any | decode only: the payload ends inside this column |
+| `Truncated { column }` | any, `note.count`/`note.code`/`note.index` included | decode only: the payload ends inside this column |
 | `TrailingBytes { count }` | — | bytes left after the last column |
-| `Length { column, expected, found }` | `edge.source`, `edge.target`, `node.x`, `edge.offsets`, `edge.pts` | construction only: wrong element count |
+| `Length { column, expected, found }` | `edge.source`, `edge.target`, `node.x`, `edge.offsets`, `edge.pts`, `note.index` | construction only: wrong element count (`note.index`: not as long as `note.code`) |
 | `Offsets { column, index }` | `node.id`, `edge.id`, `edge.offsets` | first offset that isn't 0, decreases, or overruns the data |
 | `Utf8 { column, index }` | `node.id`, `edge.id` | the string whose bytes are not UTF-8 |
 | `Padding { column }` | `node.id`, `edge.id` | a string table's padding byte is nonzero |
@@ -182,18 +237,37 @@ though the tag bytes sit earlier in the layout (`snapshot.rs`'s `decode`, pinned
 | `Negative { column, index }` | `node.r`, `node.w`, `node.h` | first negative value |
 | `CurveDegree` | — | a Curve's degree is 0 |
 | `Capacity { column }` | `node.id`, `edge.id` | construction only: more ids/bytes/points than a `u32` counts |
+| `NoteCode { index, error }` | `note.code` | the note whose code is `Reserved` (4-6) or `Unknown` |
+| `NoteOrder { index }` | `note.*` | the note not strictly after the one before it by `(code, index)` — a repeat included |
+| `NoteTarget { index }` | `note.index` | the note whose index its code does not allow (`≥ m` for 1-2, not `u32::MAX` for 3) |
+| `NotesUnsupported { version }` | `notes` | construction only: a note on a snapshot labelled below 0.3 (0.0 included) |
 
-`binary/tests.rs:224-277` pins one decode-time patch per variant above (e.g. flipping
-byte `h+48` to NaN yields `NonFinite { column: "node.y", index: 1 }`) and confirms every
+`binary/tests.rs:184-246` pins one decode-time patch per variant above (e.g. writing a
+NaN at byte `h+48` yields `NonFinite { column: "node.y", index: 1 }`) and confirms every
 truncation length is refused as `Truncated`, and that a header claiming more nodes than
-the payload holds is refused before any allocation for those nodes.
+the payload holds is refused before any allocation for those nodes. `notes/tests.rs:183-234`
+does the same for each note refusal the bytes can carry (`NoteCode` reserved and unknown,
+`NoteOrder`, `NoteTarget`, a short or long section, trailing bytes), and
+`notes/tests/json.rs` refuses each on the JSON face too. `Length { column: "note.index" }`
+and `NotesUnsupported` cannot be written in bytes — one `k` sizes both columns, and a
+snapshot below 0.3 has no section to read — so they are construction and JSON refusals.
 
 ## Version policy
 
-`version.rs:1-11,60-69`. A reader **refuses** a major above the one it knows
+`version.rs:1-14,63-72`. A reader **refuses** a major above the one it knows
 (`check_readable`), naming both versions, rather than guess at a newer layout. A newer
-minor of a known major is read. `CURRENT_VERSION` is **0.2**; a JSON document with no
-`version` reads as `UNVERSIONED` (0.0), which a 0.2 reader also accepts.
+minor of a known major is read. `CURRENT_VERSION` is **0.3**; a JSON document with no
+`version` reads as `UNVERSIONED` (0.0), which a 0.3 reader also accepts.
+
+The notes section is dispatched on the **version**, never by sniffing for bytes at the
+end (`carries_notes`, `notes.rs:173-178`): a 0.3 reader reads it from a snapshot labelled
+0.3 or later and treats `k` as 0 below, then applies the trailing-bytes check as before.
+So a **0.2 snapshot still reads**, as one with no notes, and a **0.2 reader refuses a 0.3
+snapshot as `TrailingBytes`** — the section is bytes after what it knows as the last
+column: refused, never misread. Writing follows the snapshot's own version: `to_bytes` and
+`to_json` emit the section only from 0.3 on, and a snapshot labelled below 0.3 cannot hold
+a note (`NotesUnsupported`). Turning on a reserved note code (4-6) is a **minor bump**,
+because a 0.3 reader refuses those codes.
 
 Under `0.x` the crate treats a minor bump as license for a breaking payload change — a 0.2
 reader does not refuse a 0.1-labelled or unlabelled snapshot even if its shape moved. That
@@ -203,13 +277,19 @@ decision Q2, `docs/reports/HANDOFF.md`.)
 
 ## The JSON face
 
-`canonical_json.rs:1-13`. Same information, different shape, for any third-party frontend.
+`canonical_json.rs:1-17`. Same information, different shape, for any third-party frontend.
 `to_json`/`from_json` round-trip a `Snapshot` byte-exact through the binary face
-(`graph-cli roundtrip`, `crates/graph-cli/src/snapshot_cmd.rs:189-208`).
+(`graph-cli roundtrip`, `crates/graph-cli/src/snapshot_cmd.rs:214-232`; its sweep draws a
+0.2-labelled snapshot, a 0.3 one with `k = 0` and one with each implemented code).
 
 - **Shape**: `{"edges":{"id","source","target"}, "geometry":{"edges","nodes"},
-  "nodes":{"id"}, "version":{"major","minor"}}`. Edge endpoints are node **ids** (strings),
-  never the dense positions the binary face uses. Node/edge geometry objects carry a
+  "nodes":{"id"}, "notes":{"code","index"}, "version":{"major","minor"}}`. Edge endpoints
+  are node **ids** (strings), never the dense node positions the binary face uses. The one
+  position the JSON face carries is a note's `index`: an **edge position** (an index into
+  `edges.id`), or the literal `4294967295` (`u32::MAX`) for a snapshot-wide note.
+  `notes` is written from 0.3 on, **required** from 0.3 on and **optional** below (absent
+  reads as no notes; `canonical_json/read.rs:205-217`); the schema marks it with a
+  default and enumerates the codes `1, 2, 3`. Node/edge geometry objects carry a
   `"kind"` string (`Point`/`Circle`/`Box`, `Line`/`Polyline`/`Curve`) plus that kind's
   columns; the full shape is `docs/contract/snapshot-schema.json`.
 - **Canonical**: compact (no insignificant whitespace), object keys sorted by UTF-8 bytes
@@ -232,7 +312,9 @@ text. `crates/graph-cli/src/snapshot_cmd.rs:96-104` writes the binary face then 
 implements `sha256_hex` with the `sha2` crate's `Sha256::digest`. Because a `Snapshot` can
 only be constructed valid, this hash is always taken over a payload with no NaN/±∞ (D9)
 and no `usize` on the wire (D6) — a refused snapshot never reaches `to_bytes()`, so it
-never reaches the hash either.
+never reaches the hash either. The notes section is part of those bytes, so two snapshots
+that differ only in their notes hash differently
+(`snapshot_cmd/tests.rs:73`, `notes/tests.rs:237`).
 
 ## Verification note
 
@@ -243,4 +325,6 @@ against `SnapshotHeader::encode`/`decode`, the hex dump against
 `check_readable`, and the hash against `snapshot_cmd.rs`/`runner.rs`. No disagreement was
 found between the code and `docs/reports/HANDOFF.md` item 2's checklist for this document;
 where the handoff is silent (the reserved Ribbon/Arc tags, the z-channel/stage-count
-reservation, `Capacity`), this document adds the detail the code carries.
+reservation, `Capacity`), this document adds the detail the code carries. The format 0.3
+update (notes) was checked the same way, against `notes.rs`, `binary.rs`/`decode.rs`, the
+pinned tests in `binary/tests/pinned.rs` and the refusal tests in `notes/tests.rs`.
