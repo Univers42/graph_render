@@ -8,6 +8,8 @@
  * into view. And while the view moves, a frame with more than MOVING_BUDGET edges draws
  * every k-th one; the whole set is drawn as soon as it stops.
  */
+import { controlPoint } from "../edges2d/curve.ts";
+import { paintArrows } from "./arrows.ts";
 import type { PaintCounts, PaintInput } from "./input.ts";
 
 const CHUNK = 2048;
@@ -57,21 +59,53 @@ function traceInterior(input: PaintInput, edge: number, bx: number, by: number):
   }
 }
 
-function traceEdge(tracer: Tracer, edge: number): void {
-  const { input } = tracer;
+/** Screen ends of one edge, or null when a hidden node or the cull drops it. */
+export interface Ends {
+  ax: number;
+  ay: number;
+  bx: number;
+  by: number;
+}
+
+export function screenEnds(input: PaintInput, edge: number, out: Ends): Ends | null {
   const { camera, frame, x, y } = input;
   const s = frame.source[edge] ?? 0;
   const t = frame.target[edge] ?? 0;
   const hidden = input.style.hidden;
-  if (hidden !== null && (hidden[s] === 1 || hidden[t] === 1)) return;
-  const ax = (x[s] ?? 0) * camera.scale + camera.x;
-  const ay = (y[s] ?? 0) * camera.scale + camera.y;
-  const bx = (x[t] ?? 0) * camera.scale + camera.x;
-  const by = (y[t] ?? 0) * camera.scale + camera.y;
-  if (beyond(ax, bx, input.viewport.width) || beyond(ay, by, input.viewport.height)) return;
-  input.ctx.moveTo(ax, ay);
-  if (frame.edgeKind === "Line" || !input.settled) input.ctx.lineTo(bx, by);
-  else traceInterior(input, edge, bx, by);
+  if (hidden !== null && (hidden[s] === 1 || hidden[t] === 1)) return null;
+  out.ax = (x[s] ?? 0) * camera.scale + camera.x;
+  out.ay = (y[s] ?? 0) * camera.scale + camera.y;
+  out.bx = (x[t] ?? 0) * camera.scale + camera.x;
+  out.by = (y[t] ?? 0) * camera.scale + camera.y;
+  if (beyond(out.ax, out.bx, input.viewport.width) || beyond(out.ay, out.by, input.viewport.height)) return null;
+  return out;
+}
+
+/**
+ * The bend of a straight edge under the "curve" style: SciGraphs' AUTO control point
+ * (edges2d/curve.ts), taken in y-up as that file asks. Null for a routed edge, for one
+ * mid-transition, and for a degenerate one.
+ */
+export function bendOf(input: PaintInput, ends: Ends): { x: number; y: number } | null {
+  if (!input.style.edges.curve || input.frame.edgeKind !== "Line" || !input.settled) return null;
+  const point = controlPoint({ x: ends.ax, y: -ends.ay }, { x: ends.bx, y: -ends.by });
+  return point === null ? null : { x: point.x, y: -point.y };
+}
+
+const scratch: Ends = { ax: 0, ay: 0, bx: 0, by: 0 };
+
+function traceEdge(tracer: Tracer, edge: number): void {
+  const { input } = tracer;
+  const ends = screenEnds(input, edge, scratch);
+  if (ends === null) return;
+  const { frame } = input;
+  input.ctx.moveTo(ends.ax, ends.ay);
+  const bend = bendOf(input, ends);
+  if (bend !== null) {
+    input.ctx.quadraticCurveTo(bend.x, bend.y, ends.bx, ends.by);
+    tracer.counts.curves += 1;
+  } else if (frame.edgeKind === "Line" || !input.settled) input.ctx.lineTo(ends.bx, ends.by);
+  else traceInterior(input, edge, ends.bx, ends.by);
   tracer.counts.edges += 1;
   tracer.pending += 1;
   if (tracer.pending >= CHUNK) flush(tracer);
@@ -109,14 +143,16 @@ function paintLit(tracer: Tracer): void {
  */
 export function strokeWidth(input: PaintInput): number {
   const carried = input.style.edgeWidth;
-  if (carried === null || !(carried > 0)) return edgeWidth(input.camera.scale, input.dpr);
-  return carried * input.camera.scale;
+  if (carried === null || !(carried > 0)) return edgeWidth(input.camera.scale, input.dpr) * input.style.edges.scale;
+  return carried * input.camera.scale * input.style.edges.scale;
 }
 
 export function paintEdges(input: PaintInput, counts: PaintCounts): void {
   const tracer: Tracer = { input, counts, pending: 0 };
   input.ctx.lineWidth = strokeWidth(input);
+  counts.stroke = input.ctx.lineWidth;
   paintAll(tracer);
   if (input.focus >= 0) paintLit(tracer);
   input.ctx.globalAlpha = 1;
+  if (input.style.edges.arrows) paintArrows(input, counts);
 }

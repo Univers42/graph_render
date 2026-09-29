@@ -35,6 +35,13 @@ export interface ViewStats {
   readonly drawnNodes: number;
   readonly drawnEdges: number;
   readonly drawnLabels: number;
+  /** Arrow heads in the last frame, and the length of one in CSS pixels. */
+  readonly drawnArrows: number;
+  readonly arrowSize: number;
+  /** Edges drawn with a control point. */
+  readonly curvedEdges: number;
+  /** The stroke width of an edge in CSS pixels in the last frame. */
+  readonly strokeWidth: number;
   /** Path fills and strokes in the last frame. */
   readonly draws: number;
   /** Script time of the last frame; the rasteriser's time is not in it. */
@@ -81,6 +88,8 @@ export interface View {
   on<Name extends keyof ViewEvents>(name: Name, handler: (payload: ViewEvents[Name]) => void): () => void;
   toPNG(): Promise<Blob>;
   stats(): ViewStats;
+  /** World radius of every node by dense index: what the style drew, after the min and max clamp. */
+  radii(): Float32Array;
   destroy(): void;
 }
 
@@ -98,6 +107,10 @@ function statsOf(state: LoopState): ViewStats {
     drawnNodes: state.counts.nodes,
     drawnEdges: state.counts.edges,
     drawnLabels: state.counts.labels,
+    drawnArrows: state.counts.arrows,
+    arrowSize: state.counts.arrowSize,
+    curvedEdges: state.counts.curves,
+    strokeWidth: state.counts.stroke,
     draws: state.counts.draws,
     frameMs: state.frameMs,
     fps: fpsOf(state.rate, performance.now()),
@@ -214,6 +227,7 @@ export function createView(canvas: HTMLCanvasElement, options: ViewOptions = {})
     },
     toPNG: () => toBlob(canvas),
     stats: () => statsOf(state),
+    radii: () => state.scene.style.radius,
     destroy: () => {
       state.destroyed = true;
       if (state.scheduled !== 0) cancelAnimationFrame(state.scheduled);

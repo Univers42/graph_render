@@ -89,7 +89,7 @@ export const STUDIO_CSS = `
   border-radius: 6px;
 }
 .gs-range { width: 100%; height: 26px; accent-color: var(--gs-accent); }
-.gs-check { width: 16px; height: 16px; accent-color: var(--gs-accent); }
+.gs-check { width: 24px; height: 24px; accent-color: var(--gs-accent); }
 
 .gs-field { display: grid; grid-template-columns: 84px 1fr; align-items: center; gap: 6px; padding: 2px 8px; }
 .gs-field-label { color: var(--gs-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

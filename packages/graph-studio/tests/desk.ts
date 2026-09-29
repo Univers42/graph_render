@@ -72,3 +72,19 @@ export function desk(client: MotorClient, settings?: Settings): Desk {
     },
   };
 }
+
+/** Nothing in the chrome asks the motor; these refuse if anything ever does. */
+export function refusingClient(): MotorClient {
+  const never = (what: string): never => {
+    throw new Error(`the test client was asked to ${what}`);
+  };
+  return {
+    catalog: () => never("open"),
+    load: () => never("load"),
+    layout: () => never("lay out"),
+    analysis: () => never("analyse"),
+    cancel: () => false,
+    busy: () => false,
+    close: () => undefined,
+  };
+}

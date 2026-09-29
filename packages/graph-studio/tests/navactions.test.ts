@@ -2,8 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { desk } from "./desk.ts";
-import { refusingClient } from "./ui/desk.ts";
+import { desk, refusingClient } from "./desk.ts";
 
 test("fit, reset, zoom, pan and clear each ask the view for one named change", async () => {
   const made = desk(refusingClient());

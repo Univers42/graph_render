@@ -53,6 +53,8 @@ export interface StudioState {
   readonly log: readonly LogEntry[];
   /** Dense index of the selected node, or -1. */
   readonly selected: number;
+  /** Nodes an animation has shown, in ingest order; null when none is under way or kept. Never saved. */
+  readonly reveal: number | null;
 }
 
 /** The console keeps this many entries; older ones are dropped, oldest first. */
@@ -61,7 +63,7 @@ export const LOG_LIMIT = 500;
 export function initialState(settings: Settings = DEFAULT_SETTINGS): StudioState {
   return {
     settings, catalog: null, graph: null, meta: null, run: null, analysis: null,
-    busy: [], error: null, log: [], selected: -1,
+    busy: [], error: null, log: [], selected: -1, reveal: null,
   };
 }
 

@@ -35,7 +35,7 @@ test("by default nodes are coloured by group and sized by weight", () => {
   assert.deepEqual([...style.colours], [0, 1, 0, 2]);
   assert.deepEqual(style.palette.slice(0, 3), [GROUP_PALETTE[0], GROUP_PALETTE[1], GROUP_PALETTE[2]]);
   assert.deepEqual([...style.weights], [1, 0.5, 0.25, 0]);
-  assert.deepEqual(style.sizing, { base: 4, gain: 2.5 });
+  assert.deepEqual(style.sizing, { base: 4, gain: 2.5, min: 0.5, max: 120 });
   assert.equal(style.hidden, null);
 });
 
@@ -44,7 +44,7 @@ test("sizing by degree reads the link counts, and uniform keeps the rank but not
   assert.deepEqual([...byDegree.weights], [1, 0.5, 0.5, 0]);
   const uniform = styleInputOf(look({ appearance: { ...BASE.appearance, sizeBy: "uniform", nodeScale: 2 } }));
   assert.deepEqual([...uniform.weights], [1, 0.5, 0.25, 0]);
-  assert.deepEqual(uniform.sizing, { base: 8, gain: 0 });
+  assert.deepEqual(uniform.sizing, { base: 8, gain: 0, min: 0.5, max: 120 });
 });
 
 test("colouring by kind uses one colour per node kind", () => {
@@ -100,4 +100,12 @@ test("the legend counts what each colour stands for", () => {
     { colour: RAMP[0], label: "0", count: 2 },
     { colour: RAMP[23], label: "10", count: 1 },
   ]);
+});
+
+test("the display panel reaches the style: thickness, curve, arrows and glow", () => {
+  const appearance = { ...DEFAULT_SETTINGS.appearance, linkThickness: 3, edgeStyle: "curve", arrows: true, glow: true, glowStrength: 2 } as const;
+  const style = styleInputOf(look({ appearance }));
+  assert.deepEqual(style.edges, { scale: 3, curve: true, arrows: true });
+  assert.equal(style.glow, 2);
+  assert.equal(styleInputOf(look({ appearance: { ...appearance, glow: false } })).glow, 0);
 });

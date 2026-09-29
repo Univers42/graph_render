@@ -6,6 +6,7 @@ import type { StyleInput } from "../../../graph-render/src/style.ts";
 import { NODE_KINDS } from "../source/ingest.ts";
 import type { GraphMeta } from "../source/meta.ts";
 import type { Appearance, Filter } from "../state/settings.ts";
+import { withReveal } from "./reveal.ts";
 import { GROUP_PALETTE, MUTED, RAMP } from "./palette.ts";
 
 export interface AnalysisValues {
@@ -19,6 +20,8 @@ export interface LookInput {
   readonly appearance: Appearance;
   readonly filter: Filter;
   readonly analysis: AnalysisValues | null;
+  /** How many nodes an animation has shown so far, in ingest order; absent or null is all. */
+  readonly reveal?: number | null;
 }
 
 export interface LegendEntry {
@@ -36,6 +39,9 @@ interface Colouring {
 
 const BASE_RADIUS = 4;
 const GAIN = 2.5;
+/** Ponytail: fixed pixel bounds picked by eye, not derived from the viewport; a huge graph wants a smaller max. */
+const MIN_RADIUS = 0.5;
+const MAX_RADIUS = 120;
 const LEGEND_ROWS = 12;
 
 /**
@@ -127,14 +133,16 @@ export function hiddenOf(meta: GraphMeta, filter: Filter): Uint8Array | null {
 
 export function styleInputOf(input: LookInput): StyleInput {
   const { colours, palette } = colouringOf(input);
-  const { nodeScale, sizeBy } = input.appearance;
+  const { nodeScale, sizeBy, linkThickness, edgeStyle, arrows, glow, glowStrength } = input.appearance;
   return {
     labels: input.meta.labels,
     weights: weightsOf(input),
     colours,
     palette,
-    sizing: { base: BASE_RADIUS * nodeScale, gain: sizeBy === "uniform" ? 0 : GAIN },
-    hidden: hiddenOf(input.meta, input.filter),
+    sizing: { base: BASE_RADIUS * nodeScale, gain: sizeBy === "uniform" ? 0 : GAIN, min: MIN_RADIUS, max: MAX_RADIUS },
+    edges: { scale: linkThickness, curve: edgeStyle === "curve", arrows },
+    glow: glow ? glowStrength : 0,
+    hidden: withReveal(hiddenOf(input.meta, input.filter), input.reveal ?? null, input.meta.nodeCount),
   };
 }
 

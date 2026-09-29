@@ -13,6 +13,7 @@ import { type LogEntry, type StudioState, initialState, withEntry } from "../sta
 import type { Settings, Source } from "../state/settings.ts";
 import { type Store, createStore } from "../state/store.ts";
 import { type ViewFace, createPipeline } from "./pipeline.ts";
+import { createReveal } from "./reveal.ts";
 
 export interface StudioDeps {
   readonly client: MotorClient;
@@ -120,8 +121,16 @@ async function start(desk: Desk): Promise<LogEntry> {
 }
 
 function contextOf(deps: StudioDeps, store: Store<StudioState>, registry: () => Registry<StudioState, StudioContext>): StudioContext {
+  const pipeline = createPipeline({ client: deps.client, view: deps.view, store });
   return {
-    ...createPipeline({ client: deps.client, view: deps.view, store }),
+    ...pipeline,
+    animation: createReveal({
+      total: () => store.get().meta?.nodeCount ?? 0, show: (count) => pipeline.reveal(count), now: deps.now,
+      schedule: (step, ms) => {
+        const timer = setTimeout(step, ms);
+        return () => clearTimeout(timer);
+      },
+    }),
     state: store.get,
     view: deps.view,
     stop: () => deps.client.cancel(),

@@ -9,7 +9,7 @@ import { DEFAULT_POLICY, type LabelPolicy } from "../../../graph-render/src/labe
 import { EMPTY_FRAME } from "../../../graph-render/src/scene.ts";
 import { type Snapshot, decodeSnapshot } from "../../../graph-render/src/snapshot/decode.ts";
 import { styleFrom } from "../../../graph-render/src/style.ts";
-import { DARK_THEME, LIGHT_THEME, type Theme } from "../../../graph-render/src/theme.ts";
+import { themeNamed } from "../../../graph-render/src/look/themes.ts";
 import type { View } from "../../../graph-render/src/view.ts";
 import type { Outcome } from "../actions/registry.ts";
 import { styleInputOf } from "../look/styleOf.ts";
@@ -35,6 +35,8 @@ export interface Pipeline {
   /** The snapshot that is drawn. */
   bytes(): Uint8Array | null;
   neighbours(node: number): readonly number[];
+  /** Shows the first `count` nodes in ingest order, or all of them for null; not part of the settings. */
+  reveal(count: number | null): void;
 }
 
 export interface PipelineDeps {
@@ -54,13 +56,15 @@ interface Part {
   readonly notes: readonly string[];
 }
 
-const THEMES: Readonly<Record<Appearance["theme"], Theme>> = { dark: DARK_THEME, light: LIGHT_THEME };
-
 export const LABEL_POLICIES: Readonly<Record<Appearance["labels"], LabelPolicy>> = {
   auto: DEFAULT_POLICY,
   more: { threshold: 0.45, budget: 400 },
   none: { threshold: DEFAULT_POLICY.threshold, budget: 0 },
 };
+
+function policyOf(appearance: Appearance): LabelPolicy {
+  return { ...LABEL_POLICIES[appearance.labels], fade: appearance.textFade };
+}
 
 const NOTES_SHOWN = 5;
 
@@ -82,15 +86,17 @@ function sameSource(a: Source, b: Source): boolean {
 }
 
 function restyle(rig: Rig, look: Settings): void {
-  const { meta, analysis } = rig.store.get();
+  const { meta, analysis, reveal } = rig.store.get();
   if (meta === null) return;
-  rig.view.setStyle(styleFrom(styleInputOf({ meta, appearance: look.appearance, filter: look.filter, analysis })));
+  rig.view.setStyle(styleFrom(styleInputOf({ meta, appearance: look.appearance, filter: look.filter, analysis, reveal })));
 }
 
 function showLook(rig: Rig, look: Settings): void {
   const { appearance, filter } = look;
-  if (rig.shown?.theme !== appearance.theme) rig.view.setTheme(THEMES[appearance.theme]);
-  if (rig.shown?.labels !== appearance.labels) rig.view.setLabels(LABEL_POLICIES[appearance.labels]);
+  if (rig.shown?.theme !== appearance.theme) rig.view.setTheme(themeNamed(appearance.theme));
+  if (rig.shown?.labels !== appearance.labels || rig.shown.textFade !== appearance.textFade) {
+    rig.view.setLabels(policyOf(appearance));
+  }
   rig.shown = appearance;
   patch(rig, (state) => ({ settings: withSettings(state.settings, { appearance, filter }) }));
 }
@@ -98,12 +104,12 @@ function showLook(rig: Rig, look: Settings): void {
 function clear(rig: Rig): void {
   rig.held = null;
   rig.view.setFrame(EMPTY_FRAME);
-  patch(rig, () => ({ meta: null, run: null, selected: -1 }));
+  patch(rig, () => ({ meta: null, run: null, selected: -1, reveal: null }));
 }
 
 async function load(rig: Rig, source: Source): Promise<Part> {
   const graph: GraphSummary = await rig.client.load(source);
-  patch(rig, (state) => ({ graph, analysis: null, settings: withSettings(state.settings, { source }) }));
+  patch(rig, (state) => ({ graph, analysis: null, reveal: null, settings: withSettings(state.settings, { source }) }));
   return { message: `${graph.name}: ${graph.nodeCount} nodes, ${graph.edgeCount} links`, notes: firstOf(graph.notes) };
 }
 
@@ -236,6 +242,10 @@ export function createPipeline(deps: PipelineDeps): Pipeline {
       showLook(rig, next);
       restyle(rig, next);
       return { message: "restyled" };
+    },
+    reveal: (count) => {
+      patch(rig, () => ({ reveal: count }));
+      restyle(rig, rig.store.get().settings);
     },
     bytes: () => rig.held?.bytes ?? null,
     neighbours: (node) => (rig.held === null ? [] : neighboursOf(rig.held.ends, node)),

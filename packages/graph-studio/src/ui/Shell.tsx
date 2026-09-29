@@ -4,6 +4,7 @@
  */
 import { useCallback, useRef, useState, type ReactElement } from "react";
 
+import { isLightTheme } from "../../../graph-render/src/look/themes.ts";
 import type { View } from "../../../graph-render/src/view.ts";
 import type { Studio } from "../studio/studio.ts";
 import { Console } from "./Console.tsx";
@@ -39,7 +40,7 @@ export function Shell(props: ShellProps): ReactElement {
   }, [keys]);
   useShortcuts({ studio, state, keys, consoleOpen, setConsole, focusSearch });
   return (
-    <div className="gs-chrome" data-theme={state.settings.appearance.theme}>
+    <div className="gs-chrome" data-theme={isLightTheme(state.settings.appearance.theme) ? "light" : "dark"}>
       <div className="gs-left">
         <Search studio={studio} meta={state.meta} inputRef={searchInput} />
         <Inspector studio={studio} state={state} view={view} />

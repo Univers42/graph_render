@@ -2,6 +2,7 @@
 import type { StudioState } from "../state/model.ts";
 import type { Settings } from "../state/settings.ts";
 import type { Pipeline, ViewFace } from "../studio/pipeline.ts";
+import type { Reveal } from "../studio/reveal.ts";
 import type { Action, ArgValue, Args, ParamSpec } from "./registry.ts";
 
 /** Hands a file to whoever is using the studio: a download on a page, a message in a host. */
@@ -14,6 +15,7 @@ export interface StudioContext extends Pipeline {
   readonly stop: () => boolean;
   readonly save: Save;
   readonly clearLog: () => void;
+  readonly animation: Reveal;
   readonly actions: () => readonly StudioAction[];
 }
 
