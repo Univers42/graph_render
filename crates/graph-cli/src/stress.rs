@@ -203,7 +203,7 @@ mod tests {
         );
         assert_eq!(row.hash_stage, STAGE);
         assert!(
-            crate::hashgate::STAGES.contains(&STAGE),
+            crate::hashgate::stages().contains(&STAGE),
             "the 4-way gate must cover the stage this measures"
         );
     }

@@ -6,6 +6,7 @@ mod force;
 mod refusals;
 mod registry;
 mod sugiyama;
+mod transport;
 
 /// The 17 oracle functions of `prompt.md` §7.4, plus the H4 and H9 arms.
 const COVERED: [&str; 19] = [
@@ -33,7 +34,7 @@ const COVERED: [&str; 19] = [
 /// Every hashgate stage's key, in `hashgate::STAGES` order, so this fixture's `equal`
 /// maps can be built at the same shape a real record has, without importing the
 /// hashgate module just for the constant.
-const STAGES: [&str; 11] = [
+const STAGES: [&str; 12] = [
     "topology",
     "layout.grid",
     "layout.tree.tidy",
@@ -45,6 +46,7 @@ const STAGES: [&str; 11] = [
     "layout.force.barnes_hut",
     "layout.forceatlas2",
     "layout.dag.sugiyama",
+    "transport.wasm.columnar",
 ];
 
 /// A hashgate-shaped `equal` map: `seeds` for every stage, except `diverged`'s, at `0`.
@@ -87,7 +89,10 @@ fn honest_controls() -> Vec<(&'static str, Option<Value>)> {
             "hashgate-control-reference-degree",
             &["topology", "layout.treemap.squarified"],
         ),
-        control("hashgate-control-grid-spacing", &["layout.grid"]),
+        control(
+            "hashgate-control-grid-spacing",
+            &["layout.grid", "transport.wasm.columnar"],
+        ),
         control(
             "hashgate-control-sugiyama-layer-spacing",
             &["layout.dag.sugiyama"],
@@ -118,7 +123,11 @@ fn honest() -> Evidence {
         fingerprint: "tree".into(),
         hashgate: Some(json!({
             "fingerprint": "tree", "seeds": 1000, "pass": true,
-            "equal": equal_map(1000, &[])
+            "equal": equal_map(1000, &[]),
+            "transport": {
+                "stage": "transport.wasm.columnar", "reference": "layout.grid",
+                "equal": 1000
+            }
         })),
         controls: honest_controls(),
         oracle: Some(json!({
@@ -168,7 +177,7 @@ fn row(status: Status) -> Capability {
 fn every_registered_row_stands_on_honest_evidence_and_reads_it_back() {
     let evidence = honest();
     let rows = ledger(&evidence);
-    assert_eq!(rows.len(), 26);
+    assert_eq!(rows.len(), 28);
     assert_eq!(problems(&rows, &evidence), Vec::<String>::new());
     assert_eq!(
         rows[0].hash_4way,
@@ -196,6 +205,14 @@ fn every_registered_row_stands_on_honest_evidence_and_reads_it_back() {
 hashgate-control-sugiyama-layer-spacing red)"
     );
     assert_eq!(dag.oracle_diff, "byte-equal/1000 seeds (9 cases)");
+}
+
+/// One row of the ledger over `evidence`, by id.
+pub(super) fn find_row(evidence: &Evidence, id: &str) -> Capability {
+    ledger(evidence)
+        .into_iter()
+        .find(|r| r.id == id)
+        .unwrap_or_else(|| panic!("no {id} row"))
 }
 
 #[test]
@@ -240,7 +257,7 @@ fn without_records_every_gated_row_is_refused_twice() {
         spectral: None,
     };
     let rows = ledger(&bare);
-    assert_eq!(problems(&rows, &bare).len(), 32);
+    assert_eq!(problems(&rows, &bare).len(), 34);
     assert!(
         rows[0]
             .hash_4way

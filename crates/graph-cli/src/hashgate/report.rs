@@ -3,7 +3,7 @@
 //! (`String`, `serde_json::Value`, `ExitCode`) rather than printed in place, so a test can
 //! hold every word, key and count of them exactly.
 
-use super::{Arm, Knob, STAGES, Tally};
+use super::{Arm, Knob, LAYOUT, TRANSPORT, Tally, stages};
 use crate::runner::sha256_hex;
 use serde_json::json;
 use std::process::ExitCode;
@@ -40,17 +40,18 @@ pub fn arm_report(out: &mut String, arms: &[Arm], lines: &[usize]) {
 }
 
 /// The record itself: every stage name and its count of seeds the four arms agreed on,
-/// the mutation this run perturbed, and the verdict.
-pub fn body(control: Option<Knob>, seeds: u32, tally: &Tally) -> serde_json::Value {
-    let stages: serde_json::Map<_, _> = STAGES
+/// the C20 transport tally, the mutation this run perturbed, and the verdict.
+pub fn body(control: Option<Knob>, seeds: u32, tally: &Tally, c20: u32) -> serde_json::Value {
+    let stages: serde_json::Map<_, _> = stages()
         .iter()
         .zip(&tally.equal)
         .map(|(stage, equal)| ((*stage).to_owned(), json!(equal)))
         .collect();
     json!({
         "seeds": seeds,
-        "pass": tally.diverged_seeds == 0,
+        "pass": tally.diverged_seeds == 0 && c20 == seeds,
         "equal": stages,
+        "transport": {"stage": TRANSPORT, "reference": LAYOUT, "equal": c20},
         "mutation": control.map(Knob::env),
     })
 }

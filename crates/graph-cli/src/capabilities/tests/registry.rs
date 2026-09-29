@@ -1,9 +1,16 @@
-//! The registry's own shape: coverage, unique ids, and the ledger row's serialised form
-//! (`prompt.md` §8). Split out of the parent test module to keep both files under the
-//! house line limit; the assertions are unchanged.
+//! The registry's own shape: coverage, unique ids, the record each row's two verdicts are
+//! read from, and the ledger row's serialised form (`prompt.md` §8). Split out of the
+//! parent test module to keep both files under the house line limit.
 
 use super::*;
 use std::collections::BTreeSet;
+
+/// The record a row names, as `(oracle_record, hash_stage)`. Each row's two names must be
+/// a record `graph-cli` actually writes — a name nothing writes is a row that can never
+/// be backed, however often the gate is re-run.
+fn records_of(row: &Capability) -> (&'static str, &'static str) {
+    (row.oracle_record, row.hash_stage)
+}
 
 #[test]
 fn the_registry_covers_every_oracle_function_once_its_ids_are_unique() {
@@ -33,6 +40,10 @@ fn the_registry_covers_every_oracle_function_once_its_ids_are_unique() {
             ("oracle-fa2", r.id, Status::Implemented)
         } else if r.id == "layout.spectral" || r.id == "layout.mds.pivot" {
             ("oracle-spectral", r.id, Status::Gated)
+        } else if r.id == "transport.wasm.columnar" {
+            ("wasm-transport", r.id, Status::Gated)
+        } else if r.id == "sdk.js" {
+            ("sdk-smoke", r.id, Status::Implemented)
         } else {
             ("roundtrip", r.id, Status::Gated)
         };
@@ -43,6 +54,8 @@ fn the_registry_covers_every_oracle_function_once_its_ids_are_unique() {
             r.id
         );
     }
+    let sdk = rows.iter().find(|r| r.id == "sdk.js").expect("row");
+    assert_eq!(records_of(sdk), ("sdk-smoke", "sdk.js"));
 }
 
 /// The two force rows are `implemented`, and the *reason* is structural rather than
