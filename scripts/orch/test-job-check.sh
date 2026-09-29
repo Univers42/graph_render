@@ -103,6 +103,8 @@ case_commit() {
   has "pushed to origin" 0 "$sha" git --git-dir="$tmp/origin.git" rev-parse feat
   has "author and message" 0 '^LESdylan <dev.pro.photo@gmail.com> updated$' git log -1 --format='%an <%ae> %s'
   has "state dir not committed" 0 '^$' git ls-files target
+  gate "$tmp/pass.rows" >/dev/null
+  has "an empty diff is UNCHANGED" 0 "^UNCHANGED $(git rev-parse --short HEAD) on feat, pushed$" "$JC" commit
   g checkout -q develop
   has "commit refused on develop" 2 "refusing to commit on 'develop'" "$JC" commit
 }

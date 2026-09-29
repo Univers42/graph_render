@@ -213,19 +213,20 @@ cmd_lint() {
 }
 
 cmd_commit() {
-  local br rc
+  local br rc word=COMMITTED
   br=$(git rev-parse --abbrev-ref HEAD)
   case $br in develop | main | HEAD) die "refusing to commit on '$br'" ;; esac
   [[ $(cat "$st/exit" 2>/dev/null) == 0 ]] || die "the gate is not PASS here: start + wait first"
   [[ $(tree_sum) == "$(cat "$st/tree")" ]] || die "the tree changed after the gate started: start it again"
   cmd_lint >/dev/null || die "rule ERRORs remain: run job-check.sh lint"
   { git add -A && git reset -q -- "$st"; } || die "git add failed"
-  git diff --cached --quiet ||
-    git -c user.name=LESdylan -c user.email=dev.pro.photo@gmail.com commit -q -m updated || die "commit failed"
+  # An empty diff says UNCHANGED, so a caller can tell a cycle that made no progress from one that did.
+  if git diff --cached --quiet; then word=UNCHANGED
+  else git -c user.name=LESdylan -c user.email=dev.pro.photo@gmail.com commit -q -m updated || die "commit failed"; fi
   git push -q origin HEAD 2>&1 | tail -n 2
   rc=${PIPESTATUS[0]}
-  ((rc == 0)) || { echo "COMMITTED $(git rev-parse --short HEAD) on $br, PUSH FAILED (exit $rc)"; return 1; }
-  echo "COMMITTED $(git rev-parse --short HEAD) on $br, pushed"
+  ((rc == 0)) || { echo "$word $(git rev-parse --short HEAD) on $br, PUSH FAILED (exit $rc)"; return 1; }
+  echo "$word $(git rev-parse --short HEAD) on $br, pushed"
 }
 
 cmd=${1:-}
