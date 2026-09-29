@@ -115,6 +115,9 @@ pass (4/4). A fresh worktree needs `npm ci` before `cargo test`.
   - followups2b and p11-reconcile3b were stuck in the quota retry loop and were stopped. sim-m1fix2 had a child hung for more than 30 min on item 3 (golden provenance); it was interrupted and stopped.
   - All three were resumed on big-pickle with `OC_SESSION`, as `followups2c`, `p11-reconcile3c` and `sim-m1fix2c`. studio-ux2b stays on nemotron while it streams.
   - Before each relaunch, probe space-bunny, then nemotron, then big-pickle.
+- About 21:10: space-bunny still answers 429. Probes at 20:50 and 21:10: `opencode/longcat-2.5-preview-free` and `opencode/mimo-v2.6-flash-free` run a shell tool (rc 0).
+  - `oc-job.sh` now resumes a job on the next model of `OC_FALLBACK` (default: longcat, then mimo) as soon as a run ends in `provider.quota`, and waits `OC_QUOTA_WAIT` only after a full round was refused. Jobs still start on space-bunny (`OC_MODEL` unset).
+  - studio-ux2b ended `aborted` (not quota) and was resumed on longcat as `studio-ux2c`.
 
 ## Remaining, in order
 

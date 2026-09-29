@@ -35,11 +35,12 @@ fi
 "$bin/oc-run.sh" "$label" "$wt" "$agent" "$prompt"; rc=$?
 # A provider 429 (`provider.quota`, seen 2026-09-29 on every free model in turn) ends the run
 # with rc 1. The job resumes its session at once on the next model of OC_FALLBACK (the free
-# models that passed a tool probe on 2026-09-29), starting after the one that was refused, and
-# waits OC_QUOTA_WAIT only once a full round of the list was refused.
+# models that passed a tool probe on 2026-09-29, 20:50; the user named longcat, and ruled out
+# nemotron and big-pickle), starting after the one that was refused, and waits OC_QUOTA_WAIT
+# only once a full round of the list was refused.
 # Ponytail: the wait is fixed (600 s) and ignores any Retry-After; a model that is still limited
 # costs one short resume; after OC_QUOTA_TRIES (3) rounds a still-limited job exits 2.
-read -ra fb <<<"${OC_FALLBACK:-opencode/big-pickle opencode/longcat-2.5-preview-free opencode/mimo-v2.6-flash-free opencode/nemotron-3.5-lightning-free}"
+read -ra fb <<<"${OC_FALLBACK:-opencode/longcat-2.5-preview-free opencode/mimo-v2.6-flash-free}"
 off=0; for i in "${!fb[@]}"; do [[ ${fb[i]} == "${OC_MODEL-}" ]] && off=$((i + 1)); done
 for ((t = 0; rc != 0 && t < ${OC_QUOTA_TRIES:-3} * ${#fb[@]}; t++)); do
   tail -n 1 "$wf/$label.jsonl" | jq -e '.error.type == "provider.quota"' >/dev/null || break
