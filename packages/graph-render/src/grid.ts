@@ -1,6 +1,10 @@
 /**
  * Which node is under the pointer: a uniform grid over node centres, built in O(n) per
  * frame and read in O(nodes in the cells the query touches).
+ *
+ * Ponytail: the cell size assumes about 2 nodes per cell on a uniform spread, and cells
+ * coarsen once MAX_CELLS is hit. A clustered layout piles nodes into few cells, so a
+ * query degrades toward O(n) candidates; the fix is a finer or adaptive cell size.
  */
 import type { Bounds } from "./camera.ts";
 

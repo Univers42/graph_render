@@ -147,7 +147,23 @@ def row_drag_node(studio):
       const canvas = host.shadowRoot.querySelector('canvas'); const box = canvas.getBoundingClientRect();
       return {{ x: p.x * cam.scale + cam.x + box.left, y: p.y * cam.scale + cam.y + box.top }};""")
     miss = ((got["x"] - (x + DRAG_PX)) ** 2 + (got["y"] - y) ** 2) ** 0.5
-    return row(name, text, f"node {node} {miss:.2f} px from the pointer", miss <= FOLLOW_TOLERANCE)
+    edge = edge_gap(studio, node)
+    detail = f"node {node} {miss:.2f} px from the pointer; " + (
+        f"edge {edge['edge']} end {edge['gap']:.2f} px from the node" if edge else "no edge on the node")
+    return row(name, text, detail, miss <= FOLLOW_TOLERANCE and edge is not None and edge["gap"] <= FOLLOW_TOLERANCE)
+
+
+def edge_gap(studio, node):
+    """The first edge on the node, and how far its drawn end is from the node's screen position."""
+    return evaluate(studio, f"""
+      const cam = view.camera();
+      for (let e = 0; e < view.stats().edges; e += 1) {{
+        const ends = view.edgeEnds(e);
+        if (!ends || (ends.source !== {node} && ends.target !== {node})) continue;
+        const end = ends.source === {node} ? ends.from : ends.to; const p = view.position({node});
+        return {{ edge: e, gap: Math.hypot((end.x - p.x) * cam.scale, (end.y - p.y) * cam.scale) }};
+      }}
+      return null;""")
 
 
 def menu_button(studio, label):

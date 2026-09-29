@@ -66,6 +66,13 @@ export interface FrameOptions {
   readonly fit?: boolean;
 }
 
+export interface EdgeEnds {
+  readonly source: number;
+  readonly target: number;
+  readonly from: Point;
+  readonly to: Point;
+}
+
 export interface View {
   setFrame(frame: Frame, options?: FrameOptions): void;
   setStyle(style: Style): void;
@@ -100,6 +107,8 @@ export interface View {
   pinned(): readonly number[];
   /** Where a node is drawn, in world units: a dragged node is where the pointer put it. */
   position(node: number): Point;
+  /** The ends of an edge as drawn, in world units, with the nodes they join (null past the last edge). */
+  edgeEnds(edge: number): EdgeEnds | null;
   /** What the view draws a node or an edge at right now (1 in the focus, faded outside it). */
   opacity(kind: "node" | "edge", index: number): number;
   /** The nodes whose labels the last frame placed. */
@@ -117,8 +126,20 @@ type SceneApi = Pick<View, "setFrame" | "setStyle" | "setTheme" | "setLabels">;
 type CameraApi = Pick<
   View,
   | "setCamera" | "camera" | "fit" | "reset" | "zoomBy" | "panBy" | "limits" | "focus" | "select" | "selectMany"
-  | "selection" | "hide" | "togglePin" | "pinned" | "position" | "opacity" | "labelled" | "pick" | "local" | "showAll"
+  | "selection" | "hide" | "togglePin" | "pinned" | "position" | "edgeEnds" | "opacity" | "labelled" | "pick" | "local" | "showAll"
 >;
+
+function edgeEndsOf(state: LoopState, edge: number): EdgeEnds | null {
+  const { source, target } = state.scene.frame;
+  const a = source[edge];
+  const b = target[edge];
+  if (a === undefined || b === undefined) return null;
+  return {
+    source: a, target: b,
+    from: { x: state.x[a] ?? 0, y: state.y[a] ?? 0 },
+    to: { x: state.x[b] ?? 0, y: state.y[b] ?? 0 },
+  };
+}
 
 function statsOf(state: LoopState): ViewStats {
   return {
@@ -195,6 +216,7 @@ function cameraApi(controller: Controller): CameraApi {
     togglePin: (node) => togglePin(controller, node),
     pinned: () => state.pinned,
     position: (node) => ({ x: state.x[node] ?? 0, y: state.y[node] ?? 0 }),
+    edgeEnds: (edge) => edgeEndsOf(state, edge),
     opacity: (kind, index) => (kind === "node" ? nodeOpacity : edgeOpacity)(state, index, performance.now()),
     labelled: () => labelledNodes(state),
     pick: (at) => pickAt(state, at),
