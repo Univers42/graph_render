@@ -120,6 +120,10 @@ enum Command {
         /// Number of seeds, 0..N.
         #[arg(long, default_value_t = 1000, value_parser = seed_count())]
         seeds: u32,
+        /// Iteration budget both arms run, over the differential's own gated one. The
+        /// escape hatch `docs/measurements/fa2-chaos.md` measures the chaos with.
+        #[arg(long, value_parser = clap::value_parser!(u32).range(1..=100))]
+        max_iter: Option<u32>,
         /// Output directory.
         #[arg(long, default_value = "target/fa2-fixtures")]
         out: PathBuf,
@@ -278,12 +282,14 @@ fn main() -> ExitCode {
             oracle_fixtures::diff(&fixtures.unwrap_or_else(oracle_fixtures::default_out))
         }
         Command::EmitSpectralFixtures { seeds, out } => {
-            oracle_python::emit(&oracle_python::SPECTRAL, seeds, &out)
+            oracle_python::emit(&oracle_python::SPECTRAL, seeds, None, &out)
         }
         Command::OracleSpectral { dir } => oracle_python::ingest(&oracle_python::SPECTRAL, &dir),
-        Command::EmitFa2Fixtures { seeds, out } => {
-            oracle_python::emit(&oracle_python::FA2, seeds, &out)
-        }
+        Command::EmitFa2Fixtures {
+            seeds,
+            max_iter,
+            out,
+        } => oracle_python::emit(&oracle_python::FA2, seeds, max_iter, &out),
         Command::OracleFa2 { dir } => oracle_python::ingest(&oracle_python::FA2, &dir),
         Command::OracleLayouts { fixtures } => {
             oracle_fixtures::diff_layouts(&fixtures.unwrap_or_else(oracle_fixtures::default_out))

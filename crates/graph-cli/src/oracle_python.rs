@@ -37,23 +37,35 @@ pub struct Differential {
     pub name: &'static str,
     /// Ledger id, oracle-result key and the ceiling on its worst case.
     pub ceilings: &'static [(&'static str, &'static str, f64)],
-    /// The fixture line for one seed.
-    pub line: fn(u32) -> Result<Value, String>,
+    /// The fixture line for one seed. The second argument is the emit's `--max-iter`
+    /// override, or `None` for the differential's own iteration budget.
+    pub line: fn(u32, Option<u32>) -> Result<Value, String>,
 }
 
 /// `id`'s registered run over the model, as `{x, y}` columns.
 fn coords(id: &str, nodes: &[NodeRecord], edges: &[EdgeRecord]) -> Result<Value, String> {
     let layout = registry::find(id).ok_or_else(|| format!("{id}: not registered"))?;
     let run = run_with(nodes, edges, layout.id, layout.run).map_err(|e| e.to_string())?;
-    match &run.snapshot.parts().nodes {
+    points(id, &run.snapshot.parts().nodes)
+}
+
+/// A layout's node geometry as `{x, y}` columns. Only a point layout is a coordinate
+/// comparison; anything else is named rather than silently compared as something else.
+pub(super) fn points(id: &str, nodes: &NodeGeometry) -> Result<Value, String> {
+    match nodes {
         NodeGeometry::Point { x, y } => Ok(json!({ "x": x, "y": y })),
         other => Err(format!("{id}: expected Point geometry, got {other:?}")),
     }
 }
 
 /// `graph-cli emit-<name>-fixtures`.
-pub fn emit(differential: &Differential, seeds: u32, out: &Path) -> ExitCode {
-    match write(differential, seeds, out) {
+pub fn emit(
+    differential: &Differential,
+    seeds: u32,
+    max_iter: Option<u32>,
+    out: &Path,
+) -> ExitCode {
+    match write(differential, seeds, max_iter, out) {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
             eprintln!("emit-{}-fixtures: {err}", differential.name);
@@ -62,7 +74,12 @@ pub fn emit(differential: &Differential, seeds: u32, out: &Path) -> ExitCode {
     }
 }
 
-fn write(differential: &Differential, seeds: u32, out: &Path) -> Result<(), String> {
+fn write(
+    differential: &Differential,
+    seeds: u32,
+    max_iter: Option<u32>,
+    out: &Path,
+) -> Result<(), String> {
     let stamp = Stamp::take()?;
     std::fs::create_dir_all(out).map_err(|e| format!("{}: {e}", out.display()))?;
     let name = differential.name;
@@ -72,7 +89,7 @@ fn write(differential: &Differential, seeds: u32, out: &Path) -> Result<(), Stri
         std::fs::File::create(&path).map_err(|e| format!("{}: {e}", path.display()))?,
     );
     for seed in 0..seeds {
-        let text = (differential.line)(seed).map_err(|e| format!("seed {seed}: {e}"))?;
+        let text = (differential.line)(seed, max_iter).map_err(|e| format!("seed {seed}: {e}"))?;
         writeln!(file, "{text}").map_err(|e| format!("{}: {e}", path.display()))?;
     }
     file.flush()
@@ -124,7 +141,7 @@ fn verdict(differential: &Differential, dir: &Path) -> Result<bool, String> {
         "oracle": result["oracle"], "tolerance": true,
     });
     stamp.still_current()?;
-    crate::evidence::write(&stamp, &format!("oracle-{name}"), body)?;
+    crate::evidence::record(&stamp, &format!("oracle-{name}"), body)?;
     println!("{}", if pass { "PASS" } else { "FAIL" });
     Ok(pass)
 }

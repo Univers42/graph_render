@@ -216,59 +216,10 @@ fn hashgate_arm_prints_one_line_per_stage_and_seed() {
     );
 }
 
-#[test]
-fn capabilities_needs_a_flag_and_refuses_gated_rows_no_recorded_run_backs() {
-    assert_eq!(graph_cli(&["capabilities"], None).status.code(), Some(2));
-    let check = graph_cli(&["capabilities", "--check"], None);
-    assert_eq!(check.status.code(), Some(1), "{}", stdout(&check));
-    // 18 rows before Phase 7, its 8 analysis.* rows (`Implemented`, no problems),
-    // Phase 4's transport (gated, refused twice) and sdk.js rows, Phase 8's
-    // `post.route.grid`, Phase 9's three `scale.*` rows and Phase 10's four
-    // `ingest.*`/`adapter.*` rows (all `implemented`, no problem).
-    assert!(
-        stdout(&check).contains("capabilities --check: 36 rows, 34 problems"),
-        "{}",
-        stdout(&check)
-    );
-    let json = graph_cli(&["capabilities", "--json"], None);
-    assert_eq!(json.status.code(), Some(0));
-    let rows: serde_json::Value = serde_json::from_str(&stdout(&json)).expect("json");
-    assert_eq!(rows.as_array().map(Vec::len), Some(36));
-    let post = rows
-        .as_array()
-        .expect("an array")
-        .iter()
-        .find(|r| r["id"] == "post.route.grid")
-        .expect("post.route.grid is registered");
-    assert_eq!(
-        post["status"], "implemented",
-        "and it does not claim to be gated"
-    );
-    assert!(
-        rows[0]["oracle_diff"]
-            .as_str()
-            .is_some_and(|s| s.starts_with("not backed: "))
-    );
-}
-
-/// The ledger reads what a gate recorded: a short honest run is found, and refused for
-/// its seed count rather than reported missing.
-#[test]
-fn the_ledger_reads_a_recorded_run_and_names_what_it_lacks() {
-    let dir = std::env::temp_dir().join(format!("gm-cli-ledger-{}", std::process::id()));
-    let run = |args: &[&str]| common::graph_cli(&dir, args, None);
-    assert_eq!(run(&["hashgate", "--seeds", "2"]).status.code(), Some(0));
-    let json = run(&["capabilities", "--json"]);
-    let rows: serde_json::Value = serde_json::from_str(&stdout(&json)).expect("json");
-    assert_eq!(
-        rows[0]["hash_4way"],
-        "not backed: hashgate ran 2 seeds, need 1000"
-    );
-    std::fs::remove_dir_all(&dir).expect("cleanup");
-}
-
-// The oracle differentials (`oracle-diff`, `oracle-layouts`) and their own negative
-// controls live in `cli_oracles.rs`, split out to stay under the house's 300-line limit.
+// The capabilities ledger (`--check` and the rows it publishes) lives in
+// `cli_ledger.rs`, and the oracle differentials (`oracle-diff`, `oracle-layouts`) and
+// their own negative controls in `cli_oracles.rs` — split out to stay under the house's
+// 300-line limit.
 
 #[test]
 fn determinism_probe_writes_a_measurement_with_libm_agreeing_across_targets() {

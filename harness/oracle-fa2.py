@@ -12,9 +12,13 @@ defaults otherwise. The metric per seed is max |ours - theirs| over both coordin
 divided by the reference layout's extent (the larger side of its bounding box), so it is
 scale-free. The result holds the worst and the median; graph-cli holds the ceiling.
 
-Ponytail: ours arrive rounded to f32 by the snapshot, a floor near 1e-7 of the extent;
-and FA2 is chaotic, so the worst seed measures how far one-ulp summation-order
-differences grow in 100 iterations on the gate model, not a bound for every graph.
+Ponytail: ours arrive rounded to f32 by the snapshot, a floor near 1e-7 of the extent. The
+iteration budget in the fixtures is small on purpose, and it is the only honest one: FA2 is
+chaotic, so the differential gates at the largest budget at which networkx still
+reproduces itself to under 1e-6 from a start perturbed by one float32 ulp
+(`harness/fa2-chaos.py`; the full table, and the full-100-iteration comparison that gates
+nothing, in `docs/measurements/fa2-chaos.md`). Past that budget a coordinate gap measures
+the dynamics amplifying arithmetic rather than this port disagreeing with the reference.
 """
 import hashlib, json, os, sys
 import numpy as np

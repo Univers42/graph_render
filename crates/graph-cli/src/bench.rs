@@ -24,6 +24,8 @@ pub mod campaign;
 pub mod scale;
 
 #[cfg(test)]
+mod staging;
+#[cfg(test)]
 mod tests;
 
 use crate::stress::cases;
