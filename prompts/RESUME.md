@@ -111,6 +111,10 @@ pass (4/4). A fresh worktree needs `npm ci` before `cargo test`.
   - The bunny merges with `--no-ff --no-commit`, and oc-job commits and pushes `integ` once the floor is green.
   - The orchestrator then fast-forwards develop: `git push origin origin/integ:develop`. That push refuses anything that is not a fast-forward.
   - A contract or registry conflict comes back `blocked`, for an opus verdict.
+- About 20:40: nemotron also answered 429 `provider.quota`, and only `opencode/big-pickle` answered a probe.
+  - followups2b and p11-reconcile3b were stuck in the quota retry loop and were stopped. sim-m1fix2 had a child hung for more than 30 min on item 3 (golden provenance); it was interrupted and stopped.
+  - All three were resumed on big-pickle with `OC_SESSION`, as `followups2c`, `p11-reconcile3c` and `sim-m1fix2c`. studio-ux2b stays on nemotron while it streams.
+  - Before each relaunch, probe space-bunny, then nemotron, then big-pickle.
 
 ## Remaining, in order
 
