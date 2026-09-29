@@ -11,7 +11,7 @@ import { styleFrom } from "../src/style.ts";
 import { DARK_THEME } from "../src/theme.ts";
 import { type Recorder, lineFrame, randomFrame, recorder } from "./support.ts";
 
-const NO_SPRITES = { get: () => null, sphere: () => null, widthOf: () => 0, beginFrame: () => undefined, starved: () => false, reset: () => undefined };
+const NO_SPRITES = { get: () => null, sphere: () => null, widthOf: () => 0, rasterised: () => 0, baked: () => 0, beginFrame: () => undefined, starved: () => false, reset: () => undefined };
 
 function inputFor(frame: Frame, record: Recorder, patch: Partial<PaintInput> = {}): PaintInput {
   const colours = Uint16Array.from({ length: frame.nodeCount }, (_, i) => i % 3);
@@ -24,15 +24,35 @@ function inputFor(frame: Frame, record: Recorder, patch: Partial<PaintInput> = {
   };
 }
 
-test("6000 edges are three strokes and 2000 nodes are three fills", () => {
+test("6000 edges are one stroke and 2000 nodes are three fills", () => {
   const record = recorder();
   const counts = paintFrame(inputFor(randomFrame(2000, 6000, 3), record));
   assert.equal(counts.edges, 6000);
   assert.equal(counts.nodes, 2000);
-  assert.equal(record.calls.get("stroke"), 3);
+  assert.equal(record.calls.get("stroke"), 1);
   assert.equal(record.calls.get("fill"), 3);
   assert.deepEqual(record.fills, ["red", "green", "blue"]);
-  assert.equal(counts.draws, 6);
+  assert.equal(counts.draws, 4);
+  assert.deepEqual([counts.strokes, counts.edgeStyles], [1, 1]);
+});
+
+test("20000 edges are still one stroke per style, and a focus adds the lit style", () => {
+  const frame = randomFrame(10000, 20000, 7);
+  const plain = paintFrame(inputFor(frame, recorder()));
+  assert.deepEqual([plain.strokes, plain.edgeStyles], [1, 1]);
+  const lit = Uint8Array.from({ length: 10000 }, (_, i) => (i < 50 ? 1 : 0));
+  const focused = paintFrame(inputFor(frame, recorder(), { focus: 0, lit }));
+  assert.equal(focused.strokes, focused.edgeStyles);
+  assert.ok(focused.edgeStyles <= 2);
+});
+
+test("arrows and glow are counted as their own budgets", () => {
+  const frame = lineFrame({ x: [10, 50, 90], y: [10, 50, 90], edges: [[0, 1], [1, 2]] });
+  const given = inputFor(frame, recorder());
+  const arrows = paintFrame({ ...given, style: { ...given.style, edges: { ...given.style.edges, arrows: true } } });
+  assert.deepEqual([arrows.arrowFills, arrows.strokes], [1, 1]);
+  const glow = paintFrame({ ...given, style: { ...given.style, glow: 1 } });
+  assert.equal(glow.glowFills, 6);
 });
 
 test("an edge with both ends off one side is not traced", () => {

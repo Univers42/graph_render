@@ -4,6 +4,8 @@ The budgets were written down before the first measurement (the approved plan, Â
 baseline file holds what the first studio reached and is only ever a comparison point.
 """
 
+import os
+
 IDLE_CALLBACKS_PER_SECOND = 0
 BLOCK_MS = 50
 JS_P95_MS = 4
@@ -14,7 +16,17 @@ FPS_NODES = (120, 2000)
 # The frame clock stops at 60 Hz, so twice a 31 fps baseline cannot be measured. Above
 # this floor a case is at the cap and passes.
 FPS_AT_CAP = 54
-RECORDED_NODES = 20000
+RECORDED_NODES = 10000
+# Arrow heads are one fill; glow is two layers per colour, so its budget is set by the palette.
+ARROW_FILL_BUDGET = 1
+STATS_NODES = (2000, 10000)
+# STUDIO_PERF_BREAK=1 is the negative control: the stroke budget becomes one less than what
+# was measured, so the row must fail.
+BREAK = "STUDIO_PERF_BREAK"
+# Ponytail: the counter rows are exact counts read from the view, not timings, so they hold
+# on a loaded host. They count one settled frame per case: a frame that draws a sample while
+# the view moves (edges.ts MOVING_BUDGET) is not measured, and a hover redraw is not driven
+# (probes/stats.js says why).
 
 
 def worst_fps(case):
@@ -84,18 +96,65 @@ def _fps(report, baseline):
     return _row("perf-fps", expectation, "; ".join(parts), _verdict(passed and bool(parts)))
 
 
+def _stats_cases(report):
+    cases = [case for case in report["frames"] if case["nodes"] in STATS_NODES and case["dpr"] == 1]
+    return cases if cases and all("stats" in case for case in cases) else None
+
+
+def _counter_row(report, name, expectation, check):
+    cases = _stats_cases(report)
+    if cases is None:
+        return _row(name, expectation, "the stats probe did not run", "NOT-RUN")
+    results = [(case["nodes"], case["stats"], *check(case["stats"])) for case in cases]
+    measured = "; ".join(f"{nodes} nodes: {text}" for nodes, _, _, text in results)
+    return _row(name, expectation, measured, _verdict(all(ok for _, _, ok, _ in results)))
+
+
+def _edge_batch(report):
+    def check(stats):
+        broken = os.environ.get(BREAK) == "1"
+        budget = stats["strokeCalls"] - 1 if broken else stats["edgeStyles"]
+        ok = stats["drawnEdges"] > 0 and stats["strokeCalls"] <= budget and stats["arrowFills"] <= ARROW_FILL_BUDGET
+        return ok, (f"{stats['strokeCalls']} strokes for {stats['edgeStyles']} style(s), {stats['drawnEdges']} edges, "
+                    f"{stats['arrowFills']} arrow fill(s), {stats['glowFills']} glow fill(s) (budget {budget})")
+    return _counter_row(report, "perf-edge-batch",
+                        f"stroke() calls per frame <= edge styles in the frame; arrow fills <= {ARROW_FILL_BUDGET}", check)
+
+
+def _sprite_cache(report):
+    def check(stats):
+        return stats["spritesSecondFrame"] == 0 and stats["redrawFrames"] > 0, (
+            f"{stats['spritesSecondFrame']} sprites rasterised on the second frame ({stats['drawnLabels']} labels, "
+            f"{stats['redrawFrames']} frame(s))")
+    return _counter_row(report, "perf-sprite-cache", "0 label sprites rasterised on a second identical frame", check)
+
+
+def _label_layout(report):
+    def check(stats):
+        ok = (stats["layoutRunsRedraw"] == 0 and stats["layoutRunsParked"] == 0
+              and stats["layoutRunsZoom"] >= 1 and stats["redrawFrames"] > 0)
+        return ok, (f"redraw {stats['layoutRunsRedraw']}, parked {stats['layoutRunsParked']}, "
+                    f"after zoom {stats['layoutRunsZoom']}")
+    return _counter_row(report, "perf-label-layout",
+                        "label layout runs: 0 over a redraw, 0 over a parked frame, >= 1 after a zoom", check)
+
+
 def _recorded(report):
     parts = []
     for case in report["frames"]:
         if case["nodes"] != RECORDED_NODES:
             continue
-        value = case["notRun"] if "notRun" in case else f"{worst_fps(case)} fps"
+        value = case["notRun"] if "notRun" in case else f"{worst_fps(case)} fps, p95 JS {worst_js_p95(case)} ms"
         parts.append(f"DPR {case['dpr']}: {value}")
-    return _row("perf-20k", "recorded, not gated", "; ".join(parts), "RECORDED", gating=False)
+    edges = next((case["stats"]["edges"] for case in report["frames"] if case["nodes"] == RECORDED_NODES and "stats" in case), "?")
+    # Ponytail: pan/zoom p95 on a shared, software-rastered host; recorded, never gated.
+    return _row("perf-10k", f"{RECORDED_NODES} nodes / {edges} edges pan/zoom, recorded not gated",
+                "; ".join(parts), "RECORDED", gating=False)
 
 
 def judge(report, baseline):
-    return [_idle(report), _block(report), _js(report), _fps(report, baseline), _recorded(report)]
+    return [_idle(report), _block(report), _js(report), _fps(report, baseline),
+            _edge_batch(report), _sprite_cache(report), _label_layout(report), _recorded(report)]
 
 
 def baseline_of(report):

@@ -45,6 +45,7 @@ export function paintGlow(input: PaintInput, counts: PaintCounts): void {
       ctx.fillStyle = style.palette[bucket] ?? "#9a9a9a";
       ctx.fill();
       counts.draws += 1;
+      counts.glowFills += 1;
     }
   }
   ctx.globalAlpha = 1;

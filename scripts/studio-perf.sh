@@ -56,7 +56,7 @@ fi
 baseline=()
 [[ -f "$root/deploy/perf/baseline.json" ]] && baseline=(--baseline deploy/perf/baseline.json)
 
-exec docker run --rm --memory 4g --memory-swap 4g -v "$root:/w" -w /w "$image" \
+exec docker run --rm --memory 4g --memory-swap 4g -e STUDIO_PERF_BREAK="${STUDIO_PERF_BREAK:-}" -v "$root:/w" -w /w "$image" \
   python3 deploy/perf/run.py --dist app/dist --out "target/studio-perf/$label" \
   --driver "$driver" --commit "$(git -C "$root" rev-parse --short HEAD)" \
   "${baseline[@]}" "${record[@]}"

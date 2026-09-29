@@ -1,7 +1,8 @@
 /**
- * Edges, batched: one path and one stroke per CHUNK of segments, not one per edge. The
- * first studio issued 180 394 strokes over 80 frames at 2000 nodes and spent its frame
- * in the rasteriser (docs/measurements/studio-perf-baseline.md).
+ * Edges, batched: one path and one stroke per edge style, not one per edge. The first
+ * studio issued 180 394 strokes over 80 frames at 2000 nodes and spent its frame in the
+ * rasteriser (docs/measurements/studio-perf-baseline.md). Gate row `perf-edge-batch`
+ * holds the stroke count to the style count.
  *
  * Ponytail: an edge is culled by its two endpoints, so a routed or curved edge whose ends
  * are both off one side of the screen is dropped even when its bend would have reached
@@ -12,7 +13,6 @@ import { controlPoint } from "../edges2d/curve.ts";
 import { paintArrows } from "./arrows.ts";
 import type { PaintCounts, PaintInput } from "./input.ts";
 
-const CHUNK = 2048;
 export const MOVING_BUDGET = 16000;
 const CULL_MARGIN = 48;
 
@@ -32,7 +32,14 @@ function flush(tracer: Tracer): void {
   tracer.input.ctx.stroke();
   tracer.input.ctx.beginPath();
   tracer.counts.draws += 1;
+  tracer.counts.strokes += 1;
   tracer.pending = 0;
+}
+
+/** Closes one style's pass: a style that drew nothing costs no stroke and is not counted. */
+function endStyle(tracer: Tracer): void {
+  if (tracer.pending > 0) tracer.counts.edgeStyles += 1;
+  flush(tracer);
 }
 
 /** Both ends beyond the same side of one axis: the segment cannot cross the screen. */
@@ -108,7 +115,6 @@ function traceEdge(tracer: Tracer, edge: number): void {
   else traceInterior(input, edge, ends.bx, ends.by);
   tracer.counts.edges += 1;
   tracer.pending += 1;
-  if (tracer.pending >= CHUNK) flush(tracer);
 }
 
 function paintAll(tracer: Tracer): void {
@@ -119,7 +125,7 @@ function paintAll(tracer: Tracer): void {
   input.ctx.globalAlpha = input.focus >= 0 ? input.theme.dimAlpha : 1;
   input.ctx.beginPath();
   for (let edge = 0; edge < count; edge += stride) traceEdge(tracer, edge);
-  flush(tracer);
+  endStyle(tracer);
 }
 
 function paintLit(tracer: Tracer): void {
@@ -132,7 +138,7 @@ function paintLit(tracer: Tracer): void {
   const counted = tracer.counts.edges;
   const end = adjacency.start[focus + 1] ?? 0;
   for (let at = adjacency.start[focus] ?? 0; at < end; at += 1) traceEdge(tracer, adjacency.edge[at] ?? 0);
-  flush(tracer);
+  endStyle(tracer);
   tracer.counts.edges = counted;
 }
 

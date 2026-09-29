@@ -46,10 +46,16 @@ export interface PaintCounts {
   arrowSize: number;
   /** Edges traced with a control point. */
   curves: number;
+  /** `stroke()` calls on edges, and the edge styles (base, lit) that drew at least one edge. */
+  strokes: number;
+  edgeStyles: number;
+  /** Fills issued for arrow heads and for glow discs: each a named budget of its own. */
+  arrowFills: number;
+  glowFills: number;
   /** The stroke width of an edge in CSS pixels in the last frame. */
   stroke: number;
 }
 
 export function newCounts(): PaintCounts {
-  return { nodes: 0, edges: 0, labels: 0, draws: 0, arrows: 0, arrowSize: 0, curves: 0, stroke: 0 };
+  return { nodes: 0, edges: 0, labels: 0, draws: 0, arrows: 0, arrowSize: 0, curves: 0, strokes: 0, edgeStyles: 0, arrowFills: 0, glowFills: 0, stroke: 0 };
 }

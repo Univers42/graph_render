@@ -9,6 +9,7 @@ import { type LabelPlan, type LabelPolicy, type Occupancy, planLabels } from "..
 import type { Scene } from "../scene.ts";
 import type { Theme } from "../theme.ts";
 import { TRANSITION_MS, blend, easeInOutCubic } from "../transition.ts";
+import { type LayoutKey, layoutChanged } from "./layout-key.ts";
 import { MOVING_BUDGET } from "./edges.ts";
 import type { PaintCounts } from "./input.ts";
 import { paintOverlay } from "./overlay.ts";
@@ -48,6 +49,11 @@ export interface LoopState {
   /** The box a shift-drag is drawing, in canvas pixels, or null. */
   marquee: Bounds | null;
   plan: LabelPlan;
+  /** What the last layout ran for, and whether a writer (a drag) changed it since. */
+  layoutKey: LayoutKey | null;
+  layoutDirty: boolean;
+  /** Label layouts run since the view was made. */
+  layoutRuns: number;
   occupancy: Occupancy;
   scheduled: number;
   settleTimer: ReturnType<typeof setTimeout> | null;
@@ -87,6 +93,7 @@ export function invalidate(state: LoopState): void {
 
 export function markMoved(state: LoopState): void {
   state.movedAt = performance.now();
+  state.layoutDirty = true;
   invalidate(state);
 }
 
@@ -106,7 +113,9 @@ function advance(state: LoopState, now: number): boolean {
   return true;
 }
 
-function plan(state: LoopState, focus: number): void {
+function plan(state: LoopState, focus: number, travelling: boolean): void {
+  if (!layoutChanged(state, focus, travelling)) return;
+  state.layoutRuns += 1;
   const { scene, sprites } = state;
   planLabels({
     style: scene.style,
@@ -123,9 +132,10 @@ function plan(state: LoopState, focus: number): void {
 }
 
 function paint(state: LoopState, moving: boolean, settled: boolean): void {
+  const travelling = !settled;
   const focus = focusOf(state);
   const theme = { ...state.theme, dimAlpha: dimOpacity(state, performance.now()) };
-  plan(state, focus);
+  plan(state, focus, travelling);
   const { scene } = state;
   state.counts = paintFrame({
     ctx: state.ctx, viewport: state.viewport, dpr: state.dpr, camera: state.camera, theme,

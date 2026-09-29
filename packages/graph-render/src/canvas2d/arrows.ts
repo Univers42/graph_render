@@ -52,6 +52,7 @@ export function paintArrows(input: PaintInput, counts: PaintCounts): void {
   }
   ctx.fill();
   counts.draws += 1;
+  counts.arrowFills += 1;
   ctx.globalAlpha = 1;
   counts.arrowSize = counts.arrows > 0 ? length : 0;
 }

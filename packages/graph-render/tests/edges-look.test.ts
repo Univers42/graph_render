@@ -11,7 +11,7 @@ import { type EdgeLook, styleFrom } from "../src/style.ts";
 import { DARK_THEME } from "../src/theme.ts";
 import { type Recorder, lineFrame, recorder } from "./support.ts";
 
-const NO_SPRITES = { get: () => null, sphere: () => null, widthOf: () => 0, beginFrame: () => undefined, starved: () => false, reset: () => undefined };
+const NO_SPRITES = { get: () => null, sphere: () => null, widthOf: () => 0, rasterised: () => 0, baked: () => 0, beginFrame: () => undefined, starved: () => false, reset: () => undefined };
 const PLAIN: EdgeLook = { scale: 1, curve: false, arrows: false };
 
 function inputFor(frame: Frame, record: Recorder, edges: Partial<EdgeLook> = {}): PaintInput {

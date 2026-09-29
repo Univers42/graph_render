@@ -26,6 +26,10 @@ export interface SpriteCache<Image = SpriteImage> {
   sphere(base: Rgb, size: number): Sprite<Image> | null;
   /** Width of a sprite already baked, else 0. */
   widthOf(text: string): number;
+  /** Labels rasterised since `beginFrame`: 0 on a frame that finds every sprite baked. */
+  rasterised(): number;
+  /** Labels rasterised since the cache was made; a change means widths may have changed. */
+  baked(): number;
   /** Starts a frame: a fresh allowance of bakes. */
   beginFrame(): void;
   /** True when this frame asked for more bakes than its allowance: paint another. */
@@ -48,6 +52,8 @@ interface State<Image> {
   dpr: number;
   allowance: number;
   starved: boolean;
+  rasterised: number;
+  baked: number;
   readonly factory: SpriteFactory<Image>;
   readonly entries: Map<string, Entry<Image>>;
   readonly spare: SpriteSurface<Image>[];
@@ -109,6 +115,8 @@ function lookUp<Image>(state: State<Image>, text: string): Sprite<Image> | null 
   const surface = surfaceFor(state);
   if (surface === null) return null;
   state.allowance -= 1;
+  state.rasterised += 1;
+  state.baked += 1;
   const entry = { sprite: bake(state, surface, key), surface };
   state.entries.set(key, entry);
   return entry.sprite;
@@ -119,14 +127,17 @@ export function createSpriteCache<Image = SpriteImage>(
   theme: Theme,
 ): SpriteCache<Image> {
   const state: State<Image> = {
-    theme, dpr: 1, allowance: BAKES_PER_FRAME, starved: false, factory, entries: new Map(), spare: [],
+    theme, dpr: 1, allowance: BAKES_PER_FRAME, starved: false, rasterised: 0, baked: 0, factory, entries: new Map(), spare: [],
   };
   const spheres = createImpostorCache<Image>(factory);
   return {
     get: (text) => lookUp(state, text),
     sphere: (base, size) => spheres.get(base, size),
     widthOf: (text) => state.entries.get(shown(text))?.sprite.width ?? 0,
+    rasterised: () => state.rasterised,
+    baked: () => state.baked,
     beginFrame: () => {
+      state.rasterised = 0;
       state.allowance = BAKES_PER_FRAME;
       state.starved = false;
       spheres.beginFrame();
@@ -137,6 +148,7 @@ export function createSpriteCache<Image = SpriteImage>(
       if (next === state.theme && dpr === state.dpr) return;
       for (const entry of state.entries.values()) state.spare.push(entry.surface);
       state.entries.clear();
+      state.baked += 1;
       state.theme = next;
       state.dpr = dpr;
     },

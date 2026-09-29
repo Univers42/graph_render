@@ -118,3 +118,14 @@ test("a long label is cut, and a host with no canvas gets no sprite", () => {
   assert.equal(cache.get("x".repeat(200))?.width, 48 * 7 + 8);
   assert.equal(createSpriteCache(() => null, DARK_THEME).get("hello"), null);
 });
+
+test("a second identical frame rasterises no sprite", () => {
+  const cache = createSpriteCache(bench().factory, DARK_THEME);
+  cache.beginFrame();
+  for (const text of ["a", "b", "c"]) cache.get(text);
+  assert.equal(cache.rasterised(), 3);
+  cache.beginFrame();
+  for (const text of ["a", "b", "c"]) cache.get(text);
+  assert.equal(cache.rasterised(), 0);
+  assert.equal(cache.baked(), 3);
+});
