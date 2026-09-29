@@ -85,6 +85,10 @@ fn the_spacing_control_goes_red_on_the_grid_stage_and_the_transport_that_restate
     let control = record("hashgate-control-grid-spacing");
     assert!(control.contains("\"pass\": false"), "{control}");
     assert!(stdout(&spacing).contains("  layout.dag.sugiyama: 4-way equal on 4/4 seeds"));
+    assert!(
+        control.contains("\"transport.wasm.columnar\": 0"),
+        "the control's own record must carry the stage's count"
+    );
 
     let layers = graph_cli(&["hashgate", "--seeds", "4"], Some((KNOBS[2], "2")));
     assert_eq!(layers.status.code(), Some(1), "{}", stdout(&layers));
