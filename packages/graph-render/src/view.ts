@@ -11,7 +11,8 @@ import { type Camera, type Point, centreOn, panBy, zoomAt } from "./camera.ts";
 import {
   type Controller, fit, hover, measure, moveTo, newState, pickAt, select, showFrame,
 } from "./canvas2d/controller.ts";
-import { type LoopState, invalidate, measuredFps } from "./canvas2d/loop.ts";
+import { type LoopState, invalidate } from "./canvas2d/loop.ts";
+import { fpsOf } from "./canvas2d/rate.ts";
 import type { Frame } from "./frame.ts";
 import { type LabelPolicy, newLabelPlan } from "./labels.ts";
 import { bindPointer } from "./pointer.ts";
@@ -35,7 +36,7 @@ export interface ViewStats {
   readonly draws: number;
   /** Script time of the last frame; the rasteriser's time is not in it. */
   readonly frameMs: number;
-  /** 0 while parked. */
+  /** Frames painted per second while the view moves; 0 while parked. */
   readonly fps: number;
   readonly frames: number;
 }
@@ -88,7 +89,7 @@ function statsOf(state: LoopState): ViewStats {
     drawnLabels: state.counts.labels,
     draws: state.counts.draws,
     frameMs: state.frameMs,
-    fps: measuredFps(state, performance.now()),
+    fps: fpsOf(state.rate, performance.now()),
     frames: state.frames,
   };
 }

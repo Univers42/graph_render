@@ -5,11 +5,22 @@ import { createElement } from "react";
 
 import type { View } from "../../../graph-render/src/view.ts";
 import { Hud } from "../../src/ui/Hud.tsx";
-import { DRAWN, IDLE, fakeView, markup } from "./desk.ts";
+import { DRAWN, IDLE, STATS, fakeView, markup } from "./desk.ts";
 
 function hud(state = DRAWN, view: Pick<View, "stats" | "on"> = fakeView()): string {
   return markup(createElement(Hud, { state, view }));
 }
+
+function viewAt(fps: number): Pick<View, "stats" | "on"> {
+  return { ...fakeView(), stats: () => ({ ...STATS, fps }) };
+}
+
+test("a rate is a whole number, and a parked view has none", () => {
+  assert.match(hud(DRAWN, viewAt(59.62)), /· 60 fps ·/);
+  const parked = hud(DRAWN, viewAt(0));
+  assert.match(parked, /· idle ·/);
+  assert.ok(!parked.includes("fps"), "no rate is printed for a view that does not move");
+});
 
 test("what the view drew is on the line, and the backend is named", () => {
   const html = hud();

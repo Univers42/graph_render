@@ -11,11 +11,11 @@ import { TRANSITION_MS, blend, easeInOutCubic } from "../transition.ts";
 import { MOVING_BUDGET } from "./edges.ts";
 import type { PaintCounts } from "./input.ts";
 import { paintFrame } from "./paint.ts";
+import { type Rate, stamp } from "./rate.ts";
 import type { SpriteCache } from "./sprites.ts";
 
 /** How long after the last camera change the view still counts as moving. */
 const MOVING_MS = 140;
-const STAMPS = 32;
 
 export interface LoopState {
   readonly ctx: CanvasRenderingContext2D;
@@ -46,7 +46,7 @@ export interface LoopState {
   counts: PaintCounts;
   frameMs: number;
   frames: number;
-  readonly stamps: Float64Array;
+  readonly rate: Rate;
 }
 
 export function focusOf(state: LoopState): number {
@@ -128,28 +128,9 @@ function renderFrame(state: LoopState, now: number): void {
   const started = performance.now();
   paint(state, moving, !travelling);
   state.frameMs = performance.now() - started;
-  state.stamps[state.frames % STAMPS] = now;
+  stamp(state.rate, now, moving);
   state.frames += 1;
   state.onFrame();
   if (travelling || state.sprites.starved()) invalidate(state);
   else if (moving && state.scene.frame.edgeCount > MOVING_BUDGET) armSettle(state);
-}
-
-/** Frames per second over the last second; 0 when nothing was painted in the last 400 ms. */
-export function measuredFps(state: LoopState, now: number): number {
-  let count = 0;
-  let oldest = now;
-  let newest = 0;
-  for (const stamp of state.stamps) {
-    if (stamp === 0 || now - stamp > 1000) continue;
-    count += 1;
-    oldest = Math.min(oldest, stamp);
-    newest = Math.max(newest, stamp);
-  }
-  if (count < 2 || now - newest > 400) return 0;
-  return ((count - 1) * 1000) / (newest - oldest);
-}
-
-export function newStamps(): Float64Array {
-  return new Float64Array(STAMPS);
 }

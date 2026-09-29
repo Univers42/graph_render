@@ -8,8 +8,9 @@ import { EMPTY_FRAME, pickIn, sceneOf } from "../scene.ts";
 import { plainStyle } from "../style.ts";
 import { DARK_THEME, type Theme } from "../theme.ts";
 import { newCounts } from "./input.ts";
-import { type LoopState, invalidate, markMoved, newStamps, relight } from "./loop.ts";
+import { type LoopState, invalidate, markMoved, relight } from "./loop.ts";
 import { MIN_SCREEN_RADIUS } from "./nodes.ts";
+import { newRate } from "./rate.ts";
 import { createSpriteCache } from "./sprites.ts";
 import type { SpriteSurface } from "./surface.ts";
 
@@ -64,7 +65,7 @@ export function newState(canvas: HTMLCanvasElement, setup: Setup): LoopState {
     lit: new Uint8Array(0), hovered: -1, selected: -1,
     plan: newLabelPlan(policy.budget), occupancy: occupancyFor(viewport),
     scheduled: 0, settleTimer: null, movedAt: 0, destroyed: false,
-    counts: newCounts(), frameMs: 0, frames: 0, stamps: newStamps(),
+    counts: newCounts(), frameMs: 0, frames: 0, rate: newRate(),
   };
 }
 

@@ -32,6 +32,8 @@ export const STUDIO_CSS = `
   --gs-danger: #c62d33;
 }
 .gs-chrome *, .gs-chrome *::before, .gs-chrome *::after { box-sizing: border-box; }
+/* A class that sets display wins over the hidden attribute: a closed section stayed open. */
+.gs-chrome [hidden] { display: none !important; }
 
 .gs-panel {
   position: absolute;

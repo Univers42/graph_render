@@ -1,5 +1,5 @@
 /** The console: the log, and the one line a command is typed on. */
-import { useRef, useState, type KeyboardEvent, type ReactElement, type RefObject } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactElement } from "react";
 
 import { complete } from "../console/complete.ts";
 import type { StudioState } from "../state/model.ts";
@@ -15,7 +15,6 @@ export interface ConsoleProps {
   readonly studio: Studio;
   readonly state: StudioState;
   readonly onClose: () => void;
-  readonly inputRef: RefObject<HTMLInputElement | null>;
 }
 
 interface Line {
@@ -72,9 +71,13 @@ function Offered(props: { readonly candidates: readonly string[] }): ReactElemen
 }
 
 export function Console(props: ConsoleProps): ReactElement {
-  const { studio, state, onClose, inputRef } = props;
+  const { studio, state, onClose } = props;
   const line = useCommandLine({ studio, state });
   const boxRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  // WHY here and not where the key is handled: the line is not in the document until the
+  // console has rendered, and whoever opened it with a click asked for the line as well.
+  useEffect(() => inputRef.current?.focus(), []);
   return (
     <div className="gs-panel gs-console">
       <div className="gs-head">

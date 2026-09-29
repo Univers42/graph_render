@@ -12,11 +12,18 @@ export type Shortcut = "console" | "search" | "fit" | "escape" | null;
 
 const TYPING = new Set(["INPUT", "SELECT", "TEXTAREA"]);
 
-export function shortcutOf(key: string, typing: boolean): Shortcut {
-  if (key === "Backquote") return "console";
-  if (key === "/") return typing ? null : "search";
-  if (key === "f") return typing ? null : "fit";
-  if (key === "Escape") return "escape";
+/** What a key press says about itself; a `KeyboardEvent` is one. */
+export type Pressed = Pick<KeyboardEvent, "key" | "code" | "ctrlKey" | "metaKey" | "altKey">;
+
+export function shortcutOf(pressed: Pressed, typing: boolean): Shortcut {
+  // A key held with one of these is the browser's or the host's: Ctrl+F finds in the page.
+  if (pressed.ctrlKey || pressed.metaKey || pressed.altKey) return null;
+  // WHY the code too: `key` is what the layout prints, and the key left of 1 prints º or ²
+  // on a keyboard that has no backquote there.
+  if (pressed.key === "`" || pressed.code === "Backquote") return "console";
+  if (pressed.key === "/") return typing ? null : "search";
+  if (pressed.key === "f") return typing ? null : "fit";
+  if (pressed.key === "Escape") return "escape";
   return null;
 }
 
@@ -37,23 +44,21 @@ export interface ShortcutProps {
   readonly keys: Pick<EventTarget, "addEventListener" | "removeEventListener">;
   readonly consoleOpen: boolean;
   readonly setConsole: (open: boolean) => void;
-  readonly focusConsole: () => void;
   readonly focusSearch: () => void;
 }
 
 export function useShortcuts(props: ShortcutProps): void {
-  const { studio, state, view, keys, consoleOpen, setConsole, focusConsole, focusSearch } = props;
+  const { studio, state, view, keys, consoleOpen, setConsole, focusSearch } = props;
   const busy = state.busy.length > 0;
   useEffect(() => {
     const onKey = (event: Event): void => {
       if (!(event instanceof KeyboardEvent)) return;
-      const what = shortcutOf(event.key, typingAt(event.composedPath()));
+      const what = shortcutOf(event, typingAt(event.composedPath()));
       if (what === null) return;
       // The browser's own meaning is never wanted here: `/` opens quick find, `f` types.
       event.preventDefault();
       if (what === "console") {
         setConsole(!consoleOpen);
-        focusConsole();
       } else if (what === "search") {
         focusSearch();
       } else if (what === "fit") {
@@ -68,5 +73,5 @@ export function useShortcuts(props: ShortcutProps): void {
     };
     keys.addEventListener("keydown", onKey);
     return () => keys.removeEventListener("keydown", onKey);
-  }, [studio, view, keys, consoleOpen, busy, setConsole, focusConsole, focusSearch]);
+  }, [studio, view, keys, consoleOpen, busy, setConsole, focusSearch]);
 }

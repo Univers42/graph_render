@@ -26,13 +26,17 @@ export interface ShellProps {
 export function Shell(props: ShellProps): ReactElement {
   const { studio, view, keys } = props;
   const state = useStudioState(studio);
-  const [consoleOpen, setConsole] = useState(false);
+  const [consoleOpen, setOpen] = useState(false);
   const [dockOpen, setDock] = useState(true);
-  const consoleInput = useRef<HTMLInputElement | null>(null);
   const searchInput = useRef<HTMLInputElement | null>(null);
-  const focusConsole = useCallback(() => consoleInput.current?.focus(), []);
   const focusSearch = useCallback(() => searchInput.current?.focus(), []);
-  useShortcuts({ studio, state, view, keys, consoleOpen, setConsole, focusConsole, focusSearch });
+  // WHY the focus is handed back: the line that held it leaves the document with the
+  // console, and a studio that listens on its own element would hear no key after that.
+  const setConsole = useCallback((open: boolean) => {
+    setOpen(open);
+    if (!open && keys instanceof HTMLElement) keys.focus();
+  }, [keys]);
+  useShortcuts({ studio, state, view, keys, consoleOpen, setConsole, focusSearch });
   return (
     <div className="gs-chrome" data-theme={state.settings.appearance.theme}>
       <div className="gs-left">
@@ -46,7 +50,7 @@ export function Shell(props: ShellProps): ReactElement {
         <Hud state={state} view={view} />
       </div>
       {consoleOpen && (
-        <Console studio={studio} state={state} onClose={() => setConsole(false)} inputRef={consoleInput} />
+        <Console studio={studio} state={state} onClose={() => setConsole(false)} />
       )}
     </div>
   );

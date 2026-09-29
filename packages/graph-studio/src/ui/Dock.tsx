@@ -7,8 +7,8 @@ import type { Studio } from "../studio/studio.ts";
 import { ActionForm } from "./ActionForm.tsx";
 import { signatureOf, valuesOf } from "./draft.ts";
 
-/** The sections a reader is shown open: the three that say what is on screen at all. */
-const OPEN_AT_FIRST: readonly string[] = ["Source", "Layout", "Appearance"];
+/** One section open: with three, the dock was as tall as the page and covered the graph. */
+const OPEN_AT_FIRST: readonly string[] = ["Layout"];
 const BODY = "gs-dock-body";
 
 export interface DockProps {

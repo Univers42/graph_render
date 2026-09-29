@@ -33,6 +33,10 @@ test("the two themes are the custom properties the panels read", () => {
   assert.match(STUDIO_CSS, /@media \(prefers-reduced-motion: reduce\)/);
 });
 
+test("what is hidden is not displayed, whatever its class says about display", () => {
+  assert.match(PLAIN, /\.gs-chrome \[hidden\]\s*\{\s*display:\s*none\s*!important;?\s*\}/);
+});
+
 test("the chrome lets the canvas through: the root takes no pointer, the panels take it back", () => {
   const root = SELECTORS.join(" ").includes(".gs-chrome");
   assert.ok(root);

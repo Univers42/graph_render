@@ -1,7 +1,7 @@
 // The console: what the log says, and the one line that runs something.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createElement, createRef } from "react";
+import { createElement } from "react";
 
 import type { LogEntry } from "../../src/state/model.ts";
 import { Console } from "../../src/ui/Console.tsx";
@@ -23,9 +23,7 @@ const FAILED: LogEntry = {
 function console(): string {
   const state = { ...DRAWN, log: [RAN, FAILED] };
   const { studio } = studioWith(state);
-  return markup(createElement(Console, {
-    studio, state, onClose: () => undefined, inputRef: createRef<HTMLInputElement>(),
-  }));
+  return markup(createElement(Console, { studio, state, onClose: () => undefined }));
 }
 
 test("the log is polite, and an entry is the command, how long it took and what it said", () => {

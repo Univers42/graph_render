@@ -17,8 +17,13 @@ export interface HudProps {
   readonly view: Pick<View, "stats" | "on">;
 }
 
+/** The view reports 0 while nothing moves: it paints on demand, and a parked graph has no rate. */
+function rateOf(fps: number): string {
+  return fps > 0 ? `${Math.round(fps)} fps` : "idle";
+}
+
 function frameLine(stats: ViewStats): string {
-  return `${stats.nodes} n · ${stats.edges} e · ${stats.fps} fps · ${ms(stats.frameMs)} · ${stats.backend}`;
+  return `${stats.nodes} n · ${stats.edges} e · ${rateOf(stats.fps)} · ${ms(stats.frameMs)} · ${stats.backend}`;
 }
 
 export function Hud(props: HudProps): ReactElement {

@@ -29,9 +29,16 @@ test("every action that names a section has its title in the markup", () => {
 
 test("a header says whether its section is open, and points at the body it owns", () => {
   const html = dock();
-  assert.match(html, /aria-expanded="true"[^>]*aria-controls="gs-dock-source"/);
+  assert.match(html, /aria-expanded="true"[^>]*aria-controls="gs-dock-layout"/);
   assert.match(html, /aria-expanded="false"[^>]*aria-controls="gs-dock-export"/);
   assert.match(html, /id="gs-dock-source"[^>]*aria-labelledby="gs-dock-source-head"/);
+});
+
+test("the dock opens on the layout alone: the graph is what the page is for", () => {
+  const html = dock();
+  assert.equal(html.match(/aria-expanded="true"[^>]*aria-controls="gs-dock-(?!body)/g)?.length, 1);
+  assert.match(html, /<div[^>]*id="gs-dock-source"[^>]*hidden=""/, "a closed section is hidden, not removed");
+  assert.doesNotMatch(html, /<div[^>]*id="gs-dock-layout"[^>]*hidden/);
 });
 
 test("with nothing drawn the layout is refused, in place, with its reason", () => {
