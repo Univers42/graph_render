@@ -8,7 +8,10 @@ use graph_contract::geometry::NodeGeometry;
 fn row(n: u32) -> NodeGeometry {
     let half = f64::from(n - 1) / 2.0;
     NodeGeometry::Point {
-        x: (0..n).map(|i| f64::from(i) - half).map(|v| v as f32).collect(),
+        x: (0..n)
+            .map(|i| f64::from(i) - half)
+            .map(|v| v as f32)
+            .collect(),
         y: vec![0.0; n as usize],
     }
 }
@@ -29,7 +32,11 @@ fn a_point_exactly_on_a_boundary_takes_the_cell_that_boundary_opens() {
     assert_eq!(axis_cell(3.0, 0.0, 1.0, 4), 3);
     // Clear of the snap radius on either side, so the rule is the arithmetic and not the
     // tolerance: 1e-6 is a million times BOUNDARY_TOL.
-    assert_eq!(axis_cell(1.0 - 1e-6, 0.0, 1.0, 4), 0, "just below the boundary");
+    assert_eq!(
+        axis_cell(1.0 - 1e-6, 0.0, 1.0, 4),
+        0,
+        "just below the boundary"
+    );
     assert_eq!(axis_cell(1.0 + 1e-6, 0.0, 1.0, 4), 1, "just above it");
 }
 
@@ -42,8 +49,15 @@ fn a_boundary_point_snaps_up_even_when_the_division_rounds_down() {
     let q = (0.3_f64 - origin) / cell;
     assert!(q < 2.0, "the quotient itself rounds down: {q}");
     assert_eq!(libm::floor(q) as u32, 1, "a bare floor would answer 1");
-    assert_eq!(axis_cell(0.3, origin, cell, 4), 2, "snapped to the boundary instead");
-    assert_eq!(BOUNDARY_TOL, 1e-9, "a named constant, so the snap is auditable");
+    assert_eq!(
+        axis_cell(0.3, origin, cell, 4),
+        2,
+        "snapped to the boundary instead"
+    );
+    assert_eq!(
+        BOUNDARY_TOL, 1e-9,
+        "a named constant, so the snap is auditable"
+    );
 }
 
 #[test]
@@ -109,18 +123,32 @@ fn a_point_node_occupies_its_own_cell_and_the_clearance_ring_around_it() {
         },
     )
     .expect("builds");
-    assert_eq!(without.node_cell(0), 4 * 8 + 4, "the centre cell, as a number");
+    assert_eq!(
+        without.node_cell(0),
+        4 * 8 + 4,
+        "the centre cell, as a number"
+    );
     assert_eq!(without.occupied_cells(), 3, "three points, three cells");
     for iy in 3..=5u32 {
         for ix in 3..=5u32 {
-            assert!(with.is_occupied(iy * 8 + ix), "the 3x3 block at ({ix}, {iy})");
+            assert!(
+                with.is_occupied(iy * 8 + ix),
+                "the 3x3 block at ({ix}, {iy})"
+            );
         }
     }
-    assert!(!with.is_occupied(2 * 8 + 4), "two cells out, the ring has stopped");
+    assert!(
+        !with.is_occupied(2 * 8 + 4),
+        "two cells out, the ring has stopped"
+    );
     // The ring is Chebyshev, so the centre node's own 3x3 is all of it: 9 cells. The
     // corner nodes have theirs clipped by the grid edge — (0, 0) reaches cells 0..1 on
     // each axis and (8, 8) only cell (7, 7) — which is why the total is not 3 + 3 * 9.
-    assert_eq!(with.occupied_cells(), 9 + 4 + 1, "9 + a clipped 4 + a clipped 1");
+    assert_eq!(
+        with.occupied_cells(),
+        9 + 4 + 1,
+        "9 + a clipped 4 + a clipped 1"
+    );
 }
 
 /// The two corner nodes at (0, 0) and (8, 8) in the fixtures below are not decoration:
@@ -148,7 +176,11 @@ fn a_whole_cell_of_clearance_seals_every_node_which_is_why_the_default_is_zero()
     bare.build(&nodes, &params(0.0)).expect("builds");
     let mut sealed = GridIndex::new();
     sealed.build(&nodes, &params(1.0)).expect("builds");
-    assert_eq!(bare.occupied_cells(), 3, "no clearance: three cells, one per node");
+    assert_eq!(
+        bare.occupied_cells(),
+        3,
+        "no clearance: three cells, one per node"
+    );
     // All three are interior, so all three blocks are whole: 3 x 9.
     assert_eq!(sealed.occupied_cells(), 27, "three solid 3x3 blocks");
     let width = sealed.shape().0;
@@ -162,7 +194,10 @@ fn a_whole_cell_of_clearance_seals_every_node_which_is_why_the_default_is_zero()
                 }
                 let x = u32::try_from(i64::from(cx) + i64::from(dx)).expect("interior");
                 let y = u32::try_from(i64::from(cy) + i64::from(dy)).expect("interior");
-                assert!(sealed.is_occupied(y * width + x), "node {node}: ({dx}, {dy}) blocked");
+                assert!(
+                    sealed.is_occupied(y * width + x),
+                    "node {node}: ({dx}, {dy}) blocked"
+                );
             }
         }
     }
@@ -230,17 +265,33 @@ fn an_unequal_layout_still_gets_square_cells_so_a_diagonal_costs_the_same_either
         },
     )
     .expect("builds");
-    assert_eq!(grid.cell_size(), 1.0, "the longer span, y's 8, over resolution 8");
-    assert_eq!(grid.shape(), (2, 8), "x is covered at that same cell size, not its own");
+    assert_eq!(
+        grid.cell_size(),
+        1.0,
+        "the longer span, y's 8, over resolution 8"
+    );
+    assert_eq!(
+        grid.shape(),
+        (2, 8),
+        "x is covered at that same cell size, not its own"
+    );
     // The consequence, in the only terms that matter downstream: a cell is as wide as it is
     // tall, so `centre` sits half a cell from each edge, and the cell's own lower corner is
     // inside it.
     let (x, y) = grid.centre(0);
     let half = 0.5 * grid.cell_size();
-    assert_eq!(grid.cell_of(x - half, y - half), 0, "the cell's lower corner is inside it");
+    assert_eq!(
+        grid.cell_of(x - half, y - half),
+        0,
+        "the cell's lower corner is inside it"
+    );
     // The *upper* corner is exactly on the next boundary, so by the module's rule it opens
     // the next cell — which is the boundary tie-break showing up where it matters.
-    assert_eq!(grid.cell_of(x + half, y + half), 3, "and it opens the next one");
+    assert_eq!(
+        grid.cell_of(x + half, y + half),
+        3,
+        "and it opens the next one"
+    );
 }
 
 #[test]
@@ -251,8 +302,15 @@ fn a_circle_node_occupies_every_cell_its_disc_covers() {
         r: vec![1.5, 0.0, 0.0],
     };
     let mut grid = GridIndex::new();
-    grid.build(&nodes, &GridParams { resolution: 8, margin: 0, clearance: 0.0 })
-        .expect("builds");
+    grid.build(
+        &nodes,
+        &GridParams {
+            resolution: 8,
+            margin: 0,
+            clearance: 0.0,
+        },
+    )
+    .expect("builds");
     assert_eq!(grid.cell_size(), 1.0, "span 8 over resolution 8");
     assert_eq!(grid.shape(), (8, 8));
     // r = 1.5 from (4, 4) reaches x and y in [2.5, 5.5]: cells 2..=5 on each axis, 16 of
@@ -282,8 +340,15 @@ fn a_box_node_occupies_every_cell_its_rectangle_covers() {
         h: vec![1.0, 0.0, 0.0],
     };
     let mut grid = GridIndex::new();
-    grid.build(&nodes, &GridParams { resolution: 8, margin: 0, clearance: 0.0 })
-        .expect("builds");
+    grid.build(
+        &nodes,
+        &GridParams {
+            resolution: 8,
+            margin: 0,
+            clearance: 0.0,
+        },
+    )
+    .expect("builds");
     assert_eq!(grid.cell_size(), 1.0);
     for iy in 0..8u32 {
         for ix in 0..8u32 {
@@ -296,7 +361,11 @@ fn a_box_node_occupies_every_cell_its_rectangle_covers() {
             );
         }
     }
-    assert_eq!(grid.occupied_cells(), 6 + 2, "the box's 6, plus two corners");
+    assert_eq!(
+        grid.occupied_cells(),
+        6 + 2,
+        "the box's 6, plus two corners"
+    );
 }
 
 #[test]
@@ -316,17 +385,27 @@ fn the_margin_puts_empty_cells_around_the_drawing_so_a_route_can_bow_outside_it(
     )
     .expect("builds");
     let (nx, ny) = grid.shape();
-    assert_eq!((nx, ny), (6, 6), "2 cells of span at cell 0.5, plus 2 a side");
+    assert_eq!(
+        (nx, ny),
+        (6, 6),
+        "2 cells of span at cell 0.5, plus 2 a side"
+    );
     let occupied = grid.occupied_cells();
     assert_eq!(occupied, 2, "the two nodes' cells only, one each");
     // The outermost ring is free on every side.
     for x in 0..nx {
         assert!(!grid.is_occupied(x), "bottom row x={x} is clear");
-        assert!(!grid.is_occupied((ny - 1) * nx + x), "top row x={x} is clear");
+        assert!(
+            !grid.is_occupied((ny - 1) * nx + x),
+            "top row x={x} is clear"
+        );
     }
     for y in 0..ny {
         assert!(!grid.is_occupied(y * nx), "left column y={y} is clear");
-        assert!(!grid.is_occupied(y * nx + nx - 1), "right column y={y} is clear");
+        assert!(
+            !grid.is_occupied(y * nx + nx - 1),
+            "right column y={y} is clear"
+        );
     }
 }
 
@@ -351,11 +430,18 @@ fn an_empty_layout_gives_an_empty_grid_and_every_query_answers_zero() {
         &small(),
     )
     .expect("builds");
-    assert_eq!((grid.cells(), grid.node_count(), grid.occupied_cells()), (0, 0, 0));
+    assert_eq!(
+        (grid.cells(), grid.node_count(), grid.occupied_cells()),
+        (0, 0, 0)
+    );
     assert_eq!(grid.cell_of(1.0, 2.0), 0, "no cell to name, so 0");
     assert_eq!(grid.centre(0).0, 0.0, "and no centre to report");
     assert!(!grid.is_occupied(0));
-    assert_eq!(grid.node_cell(7), 0, "a node past the layout is 0, never a panic");
+    assert_eq!(
+        grid.node_cell(7),
+        0,
+        "a node past the layout is 0, never a panic"
+    );
 }
 
 #[test]
@@ -413,15 +499,30 @@ fn rebuilding_refills_the_same_allocation_rather_than_reallocating() {
         y: (0..33).map(|i| (i % 3) as f32 * 0.25).collect(),
     };
     grid.build(&narrow, &params).expect("rebuilds");
-    assert_eq!(grid.bytes(), bytes, "the buffers were reused, not reallocated");
-    assert!(grid.cells() < cells, "and the smaller layout really is smaller");
+    assert_eq!(
+        grid.bytes(),
+        bytes,
+        "the buffers were reused, not reallocated"
+    );
+    assert!(
+        grid.cells() < cells,
+        "and the smaller layout really is smaller"
+    );
     assert!(grid.occupied_cells() > 0, "with its own contents");
 
     // Shrinking keeps the larger allocation: that is what reuse means, and it is the
     // point of taking the buffer as `&mut self` rather than returning a fresh grid.
     grid.build(&row(3), &params).expect("builds");
-    assert_eq!(grid.bytes(), bytes, "a smaller layout does not give memory back");
-    assert_eq!(grid.node_count(), 3, "but it does report its own node count");
+    assert_eq!(
+        grid.bytes(),
+        bytes,
+        "a smaller layout does not give memory back"
+    );
+    assert_eq!(
+        grid.node_count(),
+        3,
+        "but it does report its own node count"
+    );
 }
 
 #[test]
@@ -430,6 +531,9 @@ fn a_node_index_past_the_layout_is_zero_rather_than_a_panic() {
     grid.build(&row(3), &small()).expect("builds");
     assert!(grid.node_cell(2) < grid.cells());
     assert_eq!(grid.node_cell(3), 0);
-    assert!(!grid.is_occupied(grid.cells()), "a cell past the grid is unoccupied");
+    assert!(
+        !grid.is_occupied(grid.cells()),
+        "a cell past the grid is unoccupied"
+    );
     assert!(!grid.is_occupied(u32::MAX));
 }

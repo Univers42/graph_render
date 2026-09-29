@@ -118,5 +118,6 @@ fn step(
             best = Some((cost, there, next));
         }
     }
-    best.filter(|&(_, there, _)| there < here).map(|(_, _, cell)| cell)
+    best.filter(|&(_, there, _)| there < here)
+        .map(|(_, _, cell)| cell)
 }

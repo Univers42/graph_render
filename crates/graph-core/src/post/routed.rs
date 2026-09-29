@@ -49,6 +49,7 @@
 pub mod csr;
 #[cfg(test)]
 mod measure;
+pub mod petgraph_impls;
 pub mod trace;
 
 #[cfg(test)]
@@ -60,7 +61,8 @@ use crate::stage::StageError;
 use graph_contract::geometry::{NodeGeometry, Paths};
 use petgraph::algo::dijkstra;
 
-pub use csr::{GridCsr, GridGraph, build_csr};
+pub use csr::{GridCsr, build_csr};
+pub use petgraph_impls::GridGraph;
 pub use trace::Trace;
 
 /// How many cells a route may cross before the walk is called a failure. A shortest path
@@ -170,13 +172,7 @@ pub fn route_over(
 /// One edge's route: the traced cells as a polyline, or the straight segment when the walk
 /// fails. The polyline's endpoints are the two nodes' own positions, so the route starts
 /// and ends exactly where an edge starts and ends.
-fn one_route(
-    grid: &GridIndex,
-    graph: &GridCsr,
-    nodes: &NodeGeometry,
-    a: u32,
-    b: u32,
-) -> Route {
+fn one_route(grid: &GridIndex, graph: &GridCsr, nodes: &NodeGeometry, a: u32, b: u32) -> Route {
     let from = grid.node_cell(a);
     let to = grid.node_cell(b);
     let straight = || Route {

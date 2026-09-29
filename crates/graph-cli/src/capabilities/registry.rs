@@ -2,8 +2,8 @@
 //! oracle functions whose differential backs it. Phase 2: every layout of graph-core's
 //! registry, one row each, its metadata taken from there as declared.
 
-use super::{Capability, Status};
 use super::post;
+use super::{Capability, Status};
 use graph_contract::canonical_json::NODE_KINDS;
 use graph_core::registry::{self as core, LAYOUTS};
 

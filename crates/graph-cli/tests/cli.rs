@@ -192,7 +192,10 @@ fn capabilities_needs_a_flag_and_refuses_gated_rows_no_recorded_run_backs() {
         .iter()
         .find(|r| r["id"] == "post.route.grid")
         .expect("post.route.grid is registered");
-    assert_eq!(post["status"], "implemented", "and it does not claim to be gated");
+    assert_eq!(
+        post["status"], "implemented",
+        "and it does not claim to be gated"
+    );
     assert!(
         rows[0]["oracle_diff"]
             .as_str()

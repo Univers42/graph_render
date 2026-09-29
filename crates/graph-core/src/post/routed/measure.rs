@@ -31,7 +31,10 @@ fn spanned_layout(count: u32, pitch_cells: f64) -> NodeGeometry {
     let pitch = pitch_cells * span / 128.0;
     // Square lattice, as wide as the count allows, so the drawing fills 0..8 on both axes.
     let cols = (f64::from(count).sqrt().ceil() as u32).max(2);
-    let (mut x, mut y) = (Vec::with_capacity(count as usize), Vec::with_capacity(count as usize));
+    let (mut x, mut y) = (
+        Vec::with_capacity(count as usize),
+        Vec::with_capacity(count as usize),
+    );
     for i in 0..count {
         let (col, row) = (i % cols, i / cols);
         // A deterministic offset per node, from its index — no RNG to pin, and enough to
@@ -68,10 +71,14 @@ fn gate_edges(n: u32, spacing_cells: f64) -> (NodeGeometry, EdgeColumns) {
 #[ignore = "a measurement, not a gate: prints the table behind docs/measurements"]
 fn routing_measurement() {
     let params = GridParams::default();
-    println!("post.route.grid — resolution {}, margin {}, clearance {}",
-        params.resolution, params.margin, params.clearance);
-    println!("{:>7} {:>7} {:>9} {:>9} {:>10} {:>12} {:>10}",
-        "n", "m", "cells", "occupied", "bytes", "wall-clock", "per edge");
+    println!(
+        "post.route.grid — resolution {}, margin {}, clearance {}",
+        params.resolution, params.margin, params.clearance
+    );
+    println!(
+        "{:>7} {:>7} {:>9} {:>9} {:>10} {:>12} {:>10}",
+        "n", "m", "cells", "occupied", "bytes", "wall-clock", "per edge"
+    );
     for n in [200u32, 500, 1_000, 2_000, 5_000] {
         let (nodes, edges) = gate_edges(n, 4.0);
         let mut grid = GridIndex::new();
@@ -83,9 +90,16 @@ fn routing_measurement() {
         let elapsed = started.elapsed();
         let m = edges.source.len() as u32;
         let per_edge = elapsed.as_secs_f64() / f64::from(m.max(1));
-        println!("{:>7} {:>7} {:>9} {:>9} {:>10} {:>11.3}ms {:>9.1}us",
-            n, m, cells, grid.occupied_cells(), bytes,
-            elapsed.as_secs_f64() * 1e3, per_edge * 1e6);
+        println!(
+            "{:>7} {:>7} {:>9} {:>9} {:>10} {:>11.3}ms {:>9.1}us",
+            n,
+            m,
+            cells,
+            grid.occupied_cells(),
+            bytes,
+            elapsed.as_secs_f64() * 1e3,
+            per_edge * 1e6
+        );
         assert_eq!(routed.routes.len(), m as usize, "one route per edge");
     }
 }
@@ -97,8 +111,10 @@ fn resolution_measurement() {
     // cell count is quadratic in the resolution, and the wall-clock follows it.
     let (nodes, edges) = gate_edges(count_for(4.0, 0.25), 4.0);
     println!("post.route.grid — 1000 nodes, {} edges", edges.source.len());
-    println!("{:>11} {:>9} {:>9} {:>10} {:>12} {:>12}",
-        "resolution", "cells", "occupied", "bytes", "wall-clock", "fallbacks");
+    println!(
+        "{:>11} {:>9} {:>9} {:>10} {:>12} {:>12}",
+        "resolution", "cells", "occupied", "bytes", "wall-clock", "fallbacks"
+    );
     for resolution in [16u32, 32, 64, 128, 256] {
         let params = GridParams {
             resolution,
@@ -109,9 +125,15 @@ fn resolution_measurement() {
         let started = Instant::now();
         let routed = route_over(&mut grid, &nodes, &edges).expect("routes");
         let elapsed = started.elapsed();
-        println!("{:>11} {:>9} {:>9} {:>10} {:>11.3}ms {:>12}",
-            resolution, grid.cells(), grid.occupied_cells(), grid.bytes(),
-            elapsed.as_secs_f64() * 1e3, routed.fallbacks);
+        println!(
+            "{:>11} {:>9} {:>9} {:>10} {:>11.3}ms {:>12}",
+            resolution,
+            grid.cells(),
+            grid.occupied_cells(),
+            grid.bytes(),
+            elapsed.as_secs_f64() * 1e3,
+            routed.fallbacks
+        );
     }
 }
 
@@ -132,7 +154,10 @@ fn density_measurement() {
         for clearance in [0.0f64, 0.4, 0.9, 1.0] {
             let n = count_for(pitch, 0.25);
             let (nodes, edges) = gate_edges(n, pitch);
-            let params = GridParams { clearance, ..GridParams::default() };
+            let params = GridParams {
+                clearance,
+                ..GridParams::default()
+            };
             let mut grid = GridIndex::new();
             grid.build(&nodes, &params).expect("builds");
             let routed = route_over(&mut grid, &nodes, &edges).expect("routes");
@@ -141,7 +166,14 @@ fn density_measurement() {
             let blocked = 100.0 * f64::from(grid.occupied_cells()) / f64::from(grid.cells().max(1));
             println!(
                 "{:>13} {:>6} {:>6} {:>6} {:>10} {:>8.1}% {:>8} {:>10}",
-                pitch, n, m, clearance, grid.occupied_cells(), blocked, ok, routed.fallbacks
+                pitch,
+                n,
+                m,
+                clearance,
+                grid.occupied_cells(),
+                blocked,
+                ok,
+                routed.fallbacks
             );
         }
     }
@@ -155,9 +187,12 @@ fn gap_measurement() {
     // cannot represent the gap, and the route either detours or falls back — this is where
     // that shows up, as a number.
     println!("post.route.grid — gap sweep, resolution 32 over a span of 8 (cell = 0.25)");
-    println!("{:>10} {:>12} {:>12} {:>12}", "gap", "cells wide", "fallbacks", "wall-clock");
+    println!(
+        "{:>10} {:>12} {:>12} {:>12}",
+        "gap", "cells wide", "fallbacks", "wall-clock"
+    );
     for gap_cells in [8u32, 4, 2, 1, 0] {
-        let cell = (8.0_f32 / 32.0_f32) as f32;
+        let cell = 8.0_f32 / 32.0_f32;
         let gap = gap_cells as f32 * cell;
         let mut points = vec![(0.0_f32, 4.0_f32), (8.0, 4.0)];
         // A wall from the bottom up to `4 - gap / 2` and from the top down to
@@ -180,16 +215,28 @@ fn gap_measurement() {
             .map(|i| crate::records::build::node(&format!("n{i}"), ""))
             .collect();
         let links = vec![crate::records::build::edge("e0", "n0", "n1")];
-        let edges = crate::index::index_model(&records, &links).expect("fits").edges().clone();
+        let edges = crate::index::index_model(&records, &links)
+            .expect("fits")
+            .edges()
+            .clone();
         let mut grid = GridIndex::new();
-        grid.build(&nodes, &GridParams { resolution: 32, margin: 2, clearance: 0.0 })
-            .expect("builds");
+        grid.build(
+            &nodes,
+            &GridParams {
+                resolution: 32,
+                margin: 2,
+                clearance: 0.0,
+            },
+        )
+        .expect("builds");
         let started = Instant::now();
         let routed = route_over(&mut grid, &nodes, &edges).expect("routes");
-        println!("{:>10} {:>12} {:>12} {:>11.3}ms",
+        println!(
+            "{:>10} {:>12} {:>12} {:>11.3}ms",
             format!("{gap_cells} cells"),
             format!("{:.2}", gap),
             routed.fallbacks,
-            started.elapsed().as_secs_f64() * 1e3);
+            started.elapsed().as_secs_f64() * 1e3
+        );
     }
 }

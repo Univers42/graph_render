@@ -5,8 +5,8 @@
 use super::*;
 use crate::columns::EdgeColumns;
 use crate::index::index_model;
-use crate::records::{EdgeRecord, NodeRecord};
 use crate::records::build::{edge, node};
+use crate::records::{EdgeRecord, NodeRecord};
 
 /// The parameters every test here uses: a cell of exactly 1 over a span of 8, so a cell
 /// index **is** the coordinate and every expected route is readable as numbers.
@@ -62,18 +62,31 @@ fn an_obstacle_between_the_endpoints_is_avoided_rather_than_crossed() {
     let edges = columns(points.len(), &[(2, 4)]);
     let routed = route_over(&mut grid.clone(), &nodes, &edges).expect("routes");
     let route = routed.route(0);
-    assert!(!route.straight_fallback, "a route exists: the row is not sealed");
+    assert!(
+        !route.straight_fallback,
+        "a route exists: the row is not sealed"
+    );
     // The straight segment from (0, 4) to (8, 4) runs through the middle node's cells.
     // No crossed cell may be that node's.
     let middle = grid.node_cell(3);
-    assert!(!route.cells.contains(&middle), "the obstacle's own cell is not crossed");
+    assert!(
+        !route.cells.contains(&middle),
+        "the obstacle's own cell is not crossed"
+    );
     // And no crossed cell is occupied at all, other than the two endpoints' own.
     for cell in &route.cells {
         let owned = *cell == grid.node_cell(2) || *cell == grid.node_cell(4);
-        assert!(!grid.is_occupied(*cell) || owned, "cell {cell} is an obstacle");
+        assert!(
+            !grid.is_occupied(*cell) || owned,
+            "cell {cell} is an obstacle"
+        );
     }
     // It really did detour: more than the 8 cells of the straight run.
-    assert!(route.points.len() > 2, "bowed off the row: {:?}", route.points);
+    assert!(
+        route.points.len() > 2,
+        "bowed off the row: {:?}",
+        route.points
+    );
     assert_eq!(routed.fallbacks, 0);
 }
 
@@ -103,8 +116,16 @@ fn an_enclosed_node_falls_back_to_the_straight_segment_and_sets_the_flag() {
     // A ring of eight nodes around (4, 4), with a ninth inside it. The inside node's
     // every neighbour cell is a ring node's, so no route leaves it.
     let mut points = spanned(&[(4.0, 4.0)]);
-    for (dx, dy) in [(-1.0, -1.0), (0.0, -1.0), (1.0, -1.0), (-1.0, 0.0), (1.0, 0.0),
-                      (-1.0, 1.0), (0.0, 1.0), (1.0, 1.0)] {
+    for (dx, dy) in [
+        (-1.0, -1.0),
+        (0.0, -1.0),
+        (1.0, -1.0),
+        (-1.0, 0.0),
+        (1.0, 0.0),
+        (-1.0, 1.0),
+        (0.0, 1.0),
+        (1.0, 1.0),
+    ] {
         points.push((4.0 + dx, 4.0 + dy));
     }
     let nodes = NodeGeometry::Point {
@@ -131,8 +152,16 @@ fn a_sealed_ring_around_an_edge_falls_back_and_never_claims_a_route() {
     // Same ring, but the *edge* runs from one ring node to the other across the middle.
     // The enclosed node is in the way and may not be crossed, so this must fall back too.
     let mut points = spanned(&[(4.0, 4.0)]);
-    for (dx, dy) in [(-1.0, -1.0), (0.0, -1.0), (1.0, -1.0), (-1.0, 0.0), (1.0, 0.0),
-                      (-1.0, 1.0), (0.0, 1.0), (1.0, 1.0)] {
+    for (dx, dy) in [
+        (-1.0, -1.0),
+        (0.0, -1.0),
+        (1.0, -1.0),
+        (-1.0, 0.0),
+        (1.0, 0.0),
+        (-1.0, 1.0),
+        (0.0, 1.0),
+        (1.0, 1.0),
+    ] {
         points.push((4.0 + dx, 4.0 + dy));
     }
     let nodes = NodeGeometry::Point {
@@ -148,7 +177,10 @@ fn a_sealed_ring_around_an_edge_falls_back_and_never_claims_a_route() {
     // The ring is not sealed at the top and bottom, so a route may exist; what it must
     // never do is cross the enclosed node's cell.
     let enclosed = grid.node_cell(2);
-    assert!(!route.cells.contains(&enclosed), "never through the enclosed node");
+    assert!(
+        !route.cells.contains(&enclosed),
+        "never through the enclosed node"
+    );
 }
 
 #[test]
@@ -164,7 +196,10 @@ fn two_edges_whose_nodes_share_a_cell_report_a_straight_segment_honestly() {
     let edges = columns(points.len(), &[(2, 3)]);
     let routed = route_over(&mut grid, &nodes, &edges).expect("routes");
     let route = routed.route(0);
-    assert!(route.straight_fallback, "flagged, so a caller is not misled");
+    assert!(
+        route.straight_fallback,
+        "flagged, so a caller is not misled"
+    );
     assert!(route.cells.is_empty(), "and it claims no cells");
     assert_eq!(routed.fallbacks, 1);
 }
@@ -183,10 +218,17 @@ fn equal_cost_routes_take_the_lower_cell_index_so_the_choice_is_total() {
     let edges = columns(points.len(), &[(2, 3)]);
     let (from, to) = (grid.node_cell(2), grid.node_cell(3));
     let (start, end) = (grid.xy(from), grid.xy(to));
-    assert_eq!((start, end), ((4, 4), (6, 6)), "the two endpoints' cells, as numbers");
+    assert_eq!(
+        (start, end),
+        ((4, 4), (6, 6)),
+        "the two endpoints' cells, as numbers"
+    );
     let routed = route_over(&mut grid, &nodes, &edges).expect("routes");
     let cells = &routed.route(0).cells;
-    assert!(!routed.route(0).straight_fallback, "a clear diagonal is routable");
+    assert!(
+        !routed.route(0).straight_fallback,
+        "a clear diagonal is routable"
+    );
     let coords: Vec<(u32, u32)> = cells.iter().map(|c| grid.xy(*c)).collect();
     assert_eq!(coords.first(), Some(&start), "starts at the source's cell");
     assert_eq!(coords.last(), Some(&end), "ends at the target's cell");
@@ -315,7 +357,11 @@ fn a_symmetric_wall_makes_two_exactly_equal_detours_and_the_lower_cell_route_win
     let mut grid = grid_over(&points);
     let source = grid.node_cell(2);
     let target = grid.node_cell(3);
-    assert_eq!((grid.xy(source), grid.xy(target)), ((2, 6), (10, 6)), "the endpoints");
+    assert_eq!(
+        (grid.xy(source), grid.xy(target)),
+        ((2, 6), (10, 6)),
+        "the endpoints"
+    );
     let nx = grid.shape().0;
     // The wall really does block the direct line, and it is symmetric about y = 4.
     let wall: Vec<u32> = (3..=9).map(|iy| iy * nx + 9).collect();
@@ -326,21 +372,30 @@ fn a_symmetric_wall_makes_two_exactly_equal_detours_and_the_lower_cell_route_win
     let edges = columns(points.len(), &[(2, 3)]);
     let routed = route_over(&mut grid, &nodes, &edges).expect("routes");
     let route = routed.route(0);
-    assert!(!route.straight_fallback, "the wall has two ends, so a route exists");
+    assert!(
+        !route.straight_fallback,
+        "the wall has two ends, so a route exists"
+    );
 
     // It must not cross the wall, and the two candidate first steps must be the pair the
     // tie-break is choosing between.
     for cell in &route.cells {
         let owned = *cell == source || *cell == target;
-        assert!(!grid.is_occupied(*cell) || owned, "cell {cell} is a wall cell");
+        assert!(
+            !grid.is_occupied(*cell) || owned,
+            "cell {cell} is a wall cell"
+        );
     }
     // The two candidates, named by the grid's own numbering rather than by hand. The walk
     // runs source → target, so the tie is on the **last** step, into the target: the cell
     // above it and the cell below it, which differ only in y.
     let (tx, ty) = grid.xy(target);
-    let up = u32::try_from(ty - 1).expect("in range") * nx + tx;
-    let down = u32::try_from(ty + 1).expect("in range") * nx + tx;
-    assert!(up < down, "in an x-fastest numbering, up is the lower cell index");
+    let up = (ty - 1) * nx + tx;
+    let down = (ty + 1) * nx + tx;
+    assert!(
+        up < down,
+        "in an x-fastest numbering, up is the lower cell index"
+    );
     // The tie-break is what picks this route, and it fires at five of the eleven steps,
     // where the wall's symmetry leaves two neighbours at bit-identical cost. Walking
     // destination → source (the order `trace` decides in), the ties are at cells
@@ -357,11 +412,14 @@ fn a_symmetric_wall_makes_two_exactly_equal_detours_and_the_lower_cell_route_win
         vec![74, 63, 64, 53, 42, 31, 32, 33, 46, 58, 70, 82],
         "every exact tie resolved to the lower cell index"
     );
-    assert_eq!((source, target), (74, 82), "and those are the endpoints' own cells");
+    assert_eq!(
+        (source, target),
+        (74, 82),
+        "and those are the endpoints' own cells"
+    );
     let last = route.cells[route.cells.len() - 2];
     assert_eq!(
-        last,
-        up,
+        last, up,
         "the equal-cost pair {up}/{down} resolved to the lower cell index: {:?}",
         route.cells
     );
@@ -412,8 +470,16 @@ fn the_polyline_runs_from_the_endpoints_through_the_crossed_cell_centres() {
     let edges = columns(points.len(), &[(2, 3)]);
     let routed = route_over(&mut grid, &nodes, &edges).expect("routes");
     let route = routed.route(0);
-    assert_eq!(route.points.first(), Some(&(0.0, 4.0)), "starts at the source node");
-    assert_eq!(route.points.last(), Some(&(8.0, 4.0)), "ends at the target node");
+    assert_eq!(
+        route.points.first(),
+        Some(&(0.0, 4.0)),
+        "starts at the source node"
+    );
+    assert_eq!(
+        route.points.last(),
+        Some(&(8.0, 4.0)),
+        "ends at the target node"
+    );
     // One interior point per crossed cell between the endpoints.
     assert_eq!(route.points.len(), route.cells.len());
     for (point, cell) in route.points[1..route.points.len() - 1]
@@ -436,13 +502,19 @@ fn the_paths_column_set_carries_every_route_with_well_formed_offsets() {
     let paths = routed.paths();
     assert_eq!(paths.offsets.len(), edges.source.len() + 1, "m + 1 offsets");
     assert_eq!(paths.offsets[0], 0, "offsets start at 0");
-    assert!(paths.offsets.windows(2).all(|w| w[1] >= w[0]), "never decreasing");
+    assert!(
+        paths.offsets.windows(2).all(|w| w[1] >= w[0]),
+        "never decreasing"
+    );
     assert_eq!(
         paths.pts.len(),
         2 * paths.offsets[paths.offsets.len() - 1] as usize,
         "2 coordinates per point"
     );
-    assert!(paths.check(edges.source.len() as u32).is_ok(), "the contract accepts it");
+    assert!(
+        paths.check(edges.source.len() as u32).is_ok(),
+        "the contract accepts it"
+    );
 }
 
 #[test]
@@ -470,6 +542,9 @@ fn a_self_loop_routes_to_its_own_cell_and_reports_no_route_needed() {
     grid.build(&nodes, &unit()).expect("builds");
     let edges = columns(points.len(), &[(2, 2)]);
     let routed = route_over(&mut grid, &nodes, &edges).expect("routes");
-    assert!(routed.route(0).straight_fallback, "a self-loop is a point, not a route");
+    assert!(
+        routed.route(0).straight_fallback,
+        "a self-loop is a point, not a route"
+    );
     assert_eq!(routed.route(0).points, vec![(4.0, 4.0), (4.0, 4.0)]);
 }
