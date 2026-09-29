@@ -34,6 +34,24 @@ pub const FINGERPRINTED: [&str; 13] = [
     "tests/ts-extension-loader.mjs",
 ];
 
+/// Whether `path` lies inside one of [`FINGERPRINTED`].
+///
+/// A file written there — even a transient one a test stages and removes — is a file
+/// the listing names, so the fingerprint moves for as long as it exists. A binary built
+/// before the write then refuses its own tree (`Stamp::take`), and a fingerprint taken
+/// while it exists misses a file deleted before its bytes are read. Every path a run
+/// writes transiently must therefore be outside this set, which is what
+/// [`crate::runner::harness_mutant`] stages into.
+///
+/// Test-only, and this file is also compiled into `build.rs`, which computes the
+/// fingerprint and never stages anything.
+#[cfg(test)]
+pub fn is_fingerprinted(root: &Path, path: &Path) -> bool {
+    FINGERPRINTED
+        .iter()
+        .any(|entry| path.starts_with(root.join(entry)))
+}
+
 /// SHA-256 over `path NUL sha256(content) LF` for every file under `entries`, in byte
 /// order of path. A missing entry is an error: a fingerprint over less than the tree
 /// would match a tree it never saw.
