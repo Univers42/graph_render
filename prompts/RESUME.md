@@ -73,10 +73,21 @@ distance, gravity, centre) like Obsidian. Chain:
 
 ### Studio branches (owned by the session graph-motor-studio-redesign)
 
-- It merges `studio` then `studio-s7` into develop after this push; `studio-ux` (855a876) and
-  `studio-force` stay branches.
-- `studio-ux` is unfinished: drawer wiring; its chrome gate had 11 FAIL + 1 NOT-RUN rows
+- `studio` (S1-S5, S3 gaps, parity) is on develop since 984f433. Gates on that tree: fmt, clippy,
+  cargo test, studio-check, studio-parity (+negctl) green; local, nav, interact (+negctls) green on
+  b6a7551.
+- `studio-s7` (S7 perf: 10k/20k case, stats() counters, three gating rows, `STUDIO_PERF_BREAK`
+  negctl, `docs/measurements/studio-s7.md`) is being finished in `wt/studio-s7`; it merges into
+  develop once quick.rows and the studio rows are green on the merged tree.
+- `studio-ux` (855a876) is unfinished: drawer wiring; its chrome gate had 11 FAIL + 1 NOT-RUN rows
   (`orch/rows/studio-ux.rows`). Plan: `~/.claude/plans/mellow-snuggling-quiche.md` (slices A-D).
+- `studio-force` (15ce426) is ungated; it waits for the force-wasm ABI (chain above).
+- `limits` (in `wt/limits`, from 984f433): splits the 19 files over 300 lines and removes the
+  unexplained `#[allow(clippy::too_many_arguments)]` in `graph-cli/src/capabilities/post.rs`. It is a
+  pure structure change, gated by quick.rows, the hashgate --seeds 8 row and its negctl, and sdk
+  typecheck and smoke.
+- Still open: S6 (live physics, needs force-wasm) and S8 (`orch/prompts/obsidian-graph-plan.txt`
+  lines 146-174), and the §12 reports for the studio phases.
 
 ### Queued, not started
 
