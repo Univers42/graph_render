@@ -10,6 +10,12 @@
 //! does anything, which refuses unless the tree is the one this binary was built from,
 //! and [`write`] refuses unless the tree is still that one. An edit at any point in
 //! between leaves no record, never a record of one tree's results under another's name.
+//!
+//! A record that did not pass never replaces one that did ([`Outcome::Refused`]). That
+//! refusal is a warning and not a failure to run: the gate ran, judged and has an exit
+//! code, which is the thing its caller reports. Only a record that is *missing* —
+//! because the tree moved or the file could not be written — leaves a verdict unbacked,
+//! and that is the one outcome callers read as "could not run" ([`record`]).
 
 pub use crate::fingerprint::FINGERPRINTED;
 use crate::fingerprint::fingerprint_of;
@@ -76,29 +82,91 @@ impl Stamp {
     }
 }
 
-/// Writes `body` plus `gate` and the stamped fingerprint as `<gates>/<name>.json`,
-/// unless the tree moved since the stamp was taken.
-pub fn write(stamp: &Stamp, name: &str, body: Value) -> Result<PathBuf, String> {
-    stamp.still_current()?;
-    write_to(&gates_dir(), name, body, stamp.fingerprint().to_owned())
+/// What became of a run's record, and what a caller may read out of it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Outcome {
+    /// Written to this path.
+    Recorded(PathBuf),
+    /// Refused: a *passing* record of the same name stands, so this run's — which did
+    /// not pass — was not written. The gate ran and judged either way, so the run keeps
+    /// its exit code and the ledger keeps the stronger claim.
+    Refused(String),
+    /// Not written, and nothing stands in its place: the tree moved since the stamp, the
+    /// body was not a record, or the file could not be written. The run's verdict would
+    /// be unbacked, so this is the one outcome that is a failure to run.
+    Failed(String),
 }
 
-fn write_to(
-    dir: &Path,
-    name: &str,
-    mut body: Value,
-    fingerprint: String,
-) -> Result<PathBuf, String> {
-    let object = body
-        .as_object_mut()
-        .ok_or("a gate record is a JSON object")?;
+/// Writes `body` plus `gate` and the stamped fingerprint as `<gates>/<name>.json`, and
+/// reports what became of it (see [`Outcome`]).
+pub fn write(stamp: &Stamp, name: &str, body: Value) -> Outcome {
+    match stamp.still_current() {
+        Ok(()) => write_to(&gates_dir(), name, body, stamp.fingerprint().to_owned()),
+        Err(err) => Outcome::Failed(err),
+    }
+}
+
+/// Records `body` under `name`, printing a refusal on stderr as a warning, and returns
+/// `Err` only when nothing at all was written for a reason that is the run's own
+/// ([`Outcome::Failed`]).
+///
+/// Every gate records through this, so a gate that ran and failed says so (exit 1) and
+/// a gate that could not be recorded at all says that too (exit 2), whatever its record
+/// name.
+pub fn record(stamp: &Stamp, name: &str, body: Value) -> Result<(), String> {
+    handled(write(stamp, name, body))
+}
+
+/// [`write`]'s outcome as a caller reads it: the one shape every gate handles alike.
+fn handled(outcome: Outcome) -> Result<(), String> {
+    match outcome {
+        Outcome::Recorded(_) => Ok(()),
+        Outcome::Refused(why) => {
+            eprintln!("warning: {why}");
+            Ok(())
+        }
+        Outcome::Failed(err) => Err(err),
+    }
+}
+
+/// Writes `body` as `<dir>/<name>.json`, unless it would replace a *passing* record of
+/// the same name with one that did not pass.
+///
+/// A record is evidence, and the run that writes one is not always the run that is
+/// right about it: a negative control, a short `--seeds` sweep, or a run against a tree
+/// that has since regressed all write the same `<name>.json` a full honest run did, and
+/// each would leave the ledger holding the weaker claim while the gate's own exit code
+/// was the only warning. The ledger reads these files long after the run that made them,
+/// so a record that passed is kept: a later failing run is
+/// [`refused`](Outcome::Refused) and the passing one stands. A later *passing* run does
+/// replace it, which is what re-running the gate for a fix must do.
+fn write_to(dir: &Path, name: &str, mut body: Value, fingerprint: String) -> Outcome {
+    let Some(object) = body.as_object_mut() else {
+        return Outcome::Failed("a gate record is a JSON object".into());
+    };
     object.insert("gate".into(), Value::from(name));
     object.insert("fingerprint".into(), Value::from(fingerprint));
-    std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let path = dir.join(format!("{name}.json"));
-    let text = serde_json::to_string_pretty(&body).map_err(|e| e.to_string())?;
-    std::fs::write(&path, text + "\n").map_err(|e| format!("{}: {e}", path.display()))?;
-    Ok(path)
+    if body["pass"] == Value::Bool(false)
+        && let Ok(Some(existing)) = read_from(dir, name)
+        && existing["pass"] == Value::Bool(true)
+    {
+        return Outcome::Refused(format!(
+            "{name}: not recorded — the existing record passed and this run did \
+             not, so the passing record stands (re-run the gate to replace it)"
+        ));
+    }
+    if let Err(err) = std::fs::create_dir_all(dir) {
+        return Outcome::Failed(format!("{}: {err}", dir.display()));
+    }
+    let text = match serde_json::to_string_pretty(&body) {
+        Ok(text) => text,
+        Err(err) => return Outcome::Failed(err.to_string()),
+    };
+    match std::fs::write(&path, text + "\n") {
+        Ok(()) => Outcome::Recorded(path),
+        Err(err) => Outcome::Failed(format!("{}: {err}", path.display())),
+    }
 }
 
 /// `<gates>/<name>.json`, or `None` when no run has recorded it.
@@ -118,87 +186,4 @@ fn read_from(dir: &Path, name: &str) -> Result<Option<Value>, String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::runner::sha256_hex;
-
-    fn scratch(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("gm-evidence-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(dir.join("sub")).expect("temp dir");
-        dir
-    }
-
-    #[test]
-    fn the_fingerprint_moves_with_content_names_and_new_files_only() {
-        let dir = scratch("fp");
-        std::fs::write(dir.join("a.txt"), "one").expect("write");
-        std::fs::write(dir.join("sub/b.txt"), "two").expect("write");
-        let entries = ["a.txt", "sub"];
-        let first = fingerprint_of(&dir, &entries).expect("fingerprint");
-        assert_eq!(first, fingerprint_of(&dir, &entries).expect("again"));
-        std::fs::write(dir.join("sub/b.txt"), "tw0").expect("write");
-        let edited = fingerprint_of(&dir, &entries).expect("edited");
-        assert_ne!(first, edited);
-        std::fs::write(dir.join("sub/c.txt"), "").expect("write");
-        assert_ne!(edited, fingerprint_of(&dir, &entries).expect("added"));
-        assert!(fingerprint_of(&dir, &["missing"]).is_err());
-        std::fs::remove_dir_all(&dir).expect("cleanup");
-    }
-
-    #[test]
-    fn the_listing_is_path_nul_digest_lines_in_byte_order() {
-        let dir = scratch("listing");
-        std::fs::write(dir.join("sub/b"), "x").expect("write");
-        std::fs::write(dir.join("a"), "").expect("write");
-        let empty = sha256_hex(b"");
-        let x = sha256_hex(b"x");
-        let want = sha256_hex(format!("a\0{empty}\nsub/b\0{x}\n").as_bytes());
-        assert_eq!(fingerprint_of(&dir, &["sub", "a"]), Ok(want));
-        std::fs::remove_dir_all(&dir).expect("cleanup");
-    }
-
-    #[test]
-    fn a_record_reads_back_as_written_and_only_absence_is_none() {
-        let dir = scratch("records");
-        let body = serde_json::json!({ "seeds": 3, "pass": true });
-        let path = write_to(&dir, "gate", body, "f".into()).expect("written");
-        assert_eq!(path, dir.join("gate.json"));
-        let record = read_from(&dir, "gate").expect("readable").expect("present");
-        assert_eq!(
-            record,
-            serde_json::json!({ "seeds": 3, "pass": true, "gate": "gate", "fingerprint": "f" })
-        );
-        assert_eq!(read_from(&dir, "absent"), Ok(None));
-        std::fs::write(dir.join("torn.json"), "{").expect("write");
-        assert!(read_from(&dir, "torn").is_err());
-        std::fs::create_dir(dir.join("dir.json")).expect("dir");
-        assert!(read_from(&dir, "dir").is_err(), "unreadable is not absent");
-        assert!(write_to(&dir, "list", serde_json::json!([]), "f".into()).is_err());
-        std::fs::remove_dir_all(&dir).expect("cleanup");
-    }
-
-    #[test]
-    fn a_stamp_needs_the_built_tree_and_goes_stale_when_the_tree_moves() {
-        let stamp = Stamp::against("abc", "abc".into()).expect("same tree");
-        assert_eq!(stamp.fingerprint(), "abc");
-        assert_eq!(stamp.unchanged("abc"), Ok(()));
-        let stale = Stamp("0".repeat(64))
-            .still_current()
-            .expect_err("not this tree");
-        assert!(stale.contains("changed during the run"), "{stale}");
-        let moved = stamp.unchanged("abd").expect_err("moved");
-        assert!(moved.contains("changed during the run"), "{moved}");
-        let rebuilt = Stamp::against("abc", "abd".into()).expect_err("other tree");
-        assert!(rebuilt.contains("rebuild before recording"), "{rebuilt}");
-    }
-
-    #[test]
-    fn the_real_tree_is_the_one_this_binary_was_built_from() {
-        let fingerprint = tree_fingerprint().expect("every root exists");
-        assert_eq!(fingerprint.len(), 64);
-        let stamp = Stamp::take().expect("built from this tree");
-        assert_eq!(stamp.fingerprint(), BUILT_FROM);
-        assert_eq!(stamp.still_current(), Ok(()));
-    }
-}
+mod tests;

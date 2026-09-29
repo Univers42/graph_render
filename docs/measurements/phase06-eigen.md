@@ -1,6 +1,7 @@
 # Phase 6 — eigensolver residuals, LOBPCG iterations and timings
 
-Measured in the Docker toolchain (`/home/user/gr`, debug build, x86_64 host) against
+Measured in the Docker toolchain (`/goinfre/dlesieur/orch/bin/gr`, written
+`/home/user/gr` on the older host; debug build, x86_64 host) against
 `crates/graph-core/src/layout/spectral.rs`'s per-component solve
 (`docs/decisions/eigensolver.md`). Every number below came from an actual test run this
 session; none is estimated. The dense tier is `tred2`/`tql2` (JAMA); the LOBPCG tier is
@@ -122,7 +123,7 @@ All numbers below were produced by the commands shown; the differential is one r
 | grid | 10 000 | solved, 745 iterations | 1.3 s |
 
 A path is the worst case (spectral gap `O(1/n^2)`), so `SPECTRAL_CEILING = 700`. The
-gate model (`graph-cli bench --layout layout.spectral --nodes N`) solves at every size
+gate model (`graph-cli bench --layout layout.spectral --n <sizes>`) solves at every size
 tried, up to 100 000 nodes in 6.9 s.
 
 `graph-cli bench --layout layout.mds.pivot` on the gate model: 100 nodes 2.3 ms, 1000
