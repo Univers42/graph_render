@@ -118,6 +118,16 @@ pass (4/4). A fresh worktree needs `npm ci` before `cargo test`.
 - About 21:10: space-bunny still answers 429. Probes at 20:50 and 21:10: `opencode/longcat-2.5-preview-free` and `opencode/mimo-v2.6-flash-free` run a shell tool (rc 0).
   - `oc-job.sh` now resumes a job on the next model of `OC_FALLBACK` (default: longcat, then mimo) as soon as a run ends in `provider.quota`, and waits `OC_QUOTA_WAIT` only after a full round was refused. Jobs still start on space-bunny (`OC_MODEL` unset).
   - studio-ux2b ended `aborted` (not quota) and was resumed on longcat as `studio-ux2c`.
+  - sim-m1fix2c and p11-reconcile3c stalled for about 40 min on big-pickle. Their stale sessions were interrupted, and both were resumed on longcat as `sim-m1fix2d` and `p11-reconcile3d`. followups2c is still on big-pickle.
+- About 21:30: SciGraphs layout parity (user: "we need to build all the others"). The picker reads the registry, so a layout appears in the studio once it reaches develop, develop is merged into studio, and the wasm is rebuilt into `app/public/graph_wasm.wasm`.
+  - Building, each in its own worktree and branch (prompts in `orch/prompts/`):
+    - `p12-igraph`: FR, KK, DrL (2D), LGL, Davidson-Harel, Graphopt;
+    - `p12-t1`: random, circular.ring, circular.shell, bipartite, spiral, force.yifan_hu, plus any other networkx 2D entry;
+    - `p12-t2`: force.spring (networkx spring_layout 2D), circular.hierarchy (SciGraphs CIRCULAR_HIERARCHY).
+  - p12-igraph and p12-t1 died on quota with 0 commits and were resumed on longcat (`p12-igraphb`, `p12-t1b`).
+  - Not started; each waits on a user decision:
+    - 8 Graphviz entries (DOT, NEATO, FDP, SFDP, TWOPI, CIRCO, OSAGE, PATCHWORK): no Graphviz reference on disk, which is a stop until a pinned source is added to `fetch-refs.sh`.
+    - 9 3D entries (SPHERE, SPIRAL_3D, HELIX, CUBE, SPECTRAL_3D, MDS_3D, HIERARCHICAL_3D, BIPARTITE_3D, SPRING_3D, plus 3D variants of FR, KK and DrL): the wire contract is 2D, so these need a contract change (public surface, devil verdict) or 2D variants.
 
 ## Remaining, in order
 
