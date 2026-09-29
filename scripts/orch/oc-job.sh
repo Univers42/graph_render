@@ -9,6 +9,7 @@
 # scan below stays as a second fence, not the only one: it catches an `opencode run` the service
 # has not registered yet, and oc-live's drain set misses a live session idling between turns.
 # Test seams: OC_LIVE_BIN (which oc-live.sh to ask), OC_JOB_BIN (the bin dir with oc-run.sh).
+# OC_COMMON picks the shared rules file (default common-v2.txt; studio jobs pass common-studio.txt).
 set -uo pipefail
 label=$1 wt=$2 agent=$3 body=$4 rows=${5-}
 bin=${OC_JOB_BIN:-/goinfre/dlesieur/orch/bin}
@@ -23,7 +24,7 @@ for p in $(pgrep -f '/opencode run' || true); do
   [[ $(readlink "/proc/$p/cwd" 2>/dev/null) == "$wt" ]] && { echo "refused: pid $p already works in $wt"; exit 3; }
 done
 wf=$wt/target/wf; mkdir -p "$wf"; prompt=$wf/$label.prompt
-cat /sgoinfre/students/dlesieur/orch/prompts/common-v2.txt "$body" >"$prompt"
+cat "${OC_COMMON:-/sgoinfre/students/dlesieur/orch/prompts/common-v2.txt}" "$body" >"$prompt"
 "$bin/oc-run.sh" "$label" "$wt" "$agent" "$prompt"; rc=$?
 # The verdict reads the whole last text part: a return block longer than the printed 30 lines once
 # cut `status: done` off and turned a done job into exit 2 (s1-nav, 2026-09-29).
