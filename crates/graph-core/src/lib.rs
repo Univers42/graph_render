@@ -12,6 +12,11 @@
 //! with its ledger metadata, in [`registry`]. [`seeded_model`] is the model the 4-way
 //! hash gate runs the pipeline over; it takes the reference degree as a parameter so the
 //! gate's negative control can perturb one arm.
+//!
+//! Phase 8: [`post`], the edge-geometry stage downstream of LAYOUT — force-directed edge
+//! bundling ([`post::fdeb`]) and multilevel ink-minimising bundling ([`post::mingle`]) over a
+//! finished layout's geometry, and the ink measurement ([`post::measure`]) that says whether
+//! either did anything.
 
 mod arena;
 mod columns;
@@ -23,6 +28,7 @@ mod index;
 pub mod layout;
 mod legend;
 mod neighborhood;
+pub mod post;
 mod records;
 pub mod registry;
 mod stage;

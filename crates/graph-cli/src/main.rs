@@ -11,6 +11,7 @@ mod determinism_probe;
 mod evidence;
 mod fingerprint;
 mod hashgate;
+mod ink_cmd;
 mod oracle_fixtures;
 mod probe_report;
 mod runner;
@@ -103,6 +104,20 @@ enum Command {
         #[arg(long, default_value_t = 100, value_parser = seed_count())]
         seeds: u32,
     },
+    /// Ink saved by every registered bundler on a POST fixture, or the wall time of one
+    /// pass on the hairball generator at `--nodes` (the `scale_ceiling` sweep). Exit 1 when a
+    /// bundler did not reduce the occupied cells.
+    Ink {
+        /// A committed POST fixture, by name: `hairball` or `long-span`.
+        #[arg(long, conflicts_with = "nodes", required_unless_present = "nodes")]
+        fixture: Option<String>,
+        /// The hairball generator's node count.
+        #[arg(long, value_parser = clap::value_parser!(u32).range(2..=100_000))]
+        nodes: Option<u32>,
+        /// The layout that draws the graph first.
+        #[arg(long, default_value = "circular.radial")]
+        layout: String,
+    },
     /// D1: std against libm transcendentals, native against wasm32, bit for bit.
     DeterminismProbe {
         /// Where to write the measurement, relative to the workspace root.
@@ -148,6 +163,15 @@ fn main() -> ExitCode {
             snapshot_cmd::snapshot(seed, nodes, &layout, &out)
         }
         Command::Roundtrip { seeds } => snapshot_cmd::roundtrip(seeds),
+        Command::Ink {
+            fixture,
+            nodes,
+            layout,
+        } => ink_cmd::run(&ink_cmd::Request {
+            fixture: fixture.as_deref(),
+            nodes,
+            layout: &layout,
+        }),
         Command::DeterminismProbe { out } => determinism_probe::run(&out),
     }
 }
