@@ -22,11 +22,26 @@ record=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --label) label=$2; shift 2 ;;
-    --driver) driver=$2; shift 2 ;;
-    --record-baseline) record=(--record-baseline deploy/perf/baseline.json); shift ;;
-    --help) sed -n '2,15p' "${BASH_SOURCE[0]}"; exit 0 ;;
-    *) echo "studio-perf: unknown argument $1" >&2; exit 2 ;;
+    --label)
+      label=$2
+      shift 2
+      ;;
+    --driver)
+      driver=$2
+      shift 2
+      ;;
+    --record-baseline)
+      record=(--record-baseline deploy/perf/baseline.json)
+      shift
+      ;;
+    --help)
+      sed -n '2,15p' "${BASH_SOURCE[0]}"
+      exit 0
+      ;;
+    *)
+      echo "studio-perf: unknown argument $1" >&2
+      exit 2
+      ;;
   esac
 done
 
