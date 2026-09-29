@@ -3,6 +3,7 @@
 # current directory; one log per row, <logdir>/summary.txt with PASS/FAIL, exit 1 if any row fails.
 # A row whose command cannot run still records its real exit code: SKIP never counts as a pass.
 set -uo pipefail
+source "$(dirname "$(readlink -f "$0")")/docker-env.sh"
 logdir=$1 rows=$2
 mkdir -p "$logdir"; summary=$logdir/summary.txt; : >"$summary"; fail=0
 while IFS='|' read -r name expect cmd; do

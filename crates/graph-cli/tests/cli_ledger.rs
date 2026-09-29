@@ -67,7 +67,7 @@ fn capabilities_needs_a_flag_and_refuses_gated_rows_no_recorded_run_backs() {
     // Every problem is a `gated` row with no record behind it; the `implemented` rows
     // never produce one.
     assert!(
-        stdout(&check).contains("capabilities --check: 43 rows, 34 problems"),
+        stdout(&check).contains("capabilities --check: 48 rows, 34 problems"),
         "{}",
         stdout(&check)
     );
@@ -84,7 +84,7 @@ fn every_post_row_is_published_implemented_and_fully_filled() {
     let listed = rows.as_array().expect("an array");
     assert_eq!(
         listed.len(),
-        43,
+        48,
         "42 before analysis.depth, and 36 before Phase 8's six bundling and style rows"
     );
     for id in POST_IDS {
@@ -159,7 +159,7 @@ fn the_depth_row_is_published_by_the_binary_and_adds_no_problem() {
     let check = graph_cli(&["capabilities", "--check"]);
     assert_eq!(check.status.code(), Some(1), "{}", stdout(&check));
     assert!(
-        stdout(&check).contains("capabilities --check: 43 rows, 34 problems"),
+        stdout(&check).contains("capabilities --check: 48 rows, 34 problems"),
         "the new row is implemented, so it adds a row and not a problem: {}",
         stdout(&check)
     );

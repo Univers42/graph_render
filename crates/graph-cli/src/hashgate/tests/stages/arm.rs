@@ -11,7 +11,8 @@
 //! honest is that they agree, and the only thing keeping the arm honest is that it
 //! refuses a name it does not have rather than hashing something else under it.
 
-use super::super::{LAYOUT, stages};
+use super::super::super::LAYOUT;
+use super::super::super::stages::stages as stage_ids;
 use crate::runner::{build_wasm, node_harness, run_lines};
 use std::path::Path;
 
@@ -46,14 +47,30 @@ fn the_wasm_arm_can_hash_every_stage_the_gate_asks_for() {
         .map(String::as_str)
         .filter(|l| !l.trim().is_empty())
         .collect();
-    for stage in stages() {
+    for stage in stage_ids() {
         assert!(
             offered.contains(&stage),
             "the wasm arm cannot hash {stage}; it offers {offered:?}"
         );
     }
     // And nothing more: an extra id is a stage the native arm has no bytes for.
-    assert_eq!(offered.len(), stages().len(), "{offered:?}");
+    assert_eq!(offered.len(), stage_ids().len(), "{offered:?}");
+}
+
+fn assert_refused(wasm: &Path, stage: &str) {
+    let refused = hashed(wasm, stage).expect_err("an unknown stage is refused, never hashed");
+    assert!(
+        refused.contains(&format!("unknown stage {stage}")),
+        "{stage}: {refused}"
+    );
+    assert!(
+        refused.contains("exited exit status: 2"),
+        "{stage}: could-not-run is exit 2, never a raw trap: {refused}"
+    );
+}
+
+fn assert_hashable(wasm: &Path, stage: &str) {
+    assert!(hashed(wasm, stage).is_ok(), "{stage} should be hashable");
 }
 
 #[test]
@@ -76,15 +93,7 @@ fn a_stage_the_arm_cannot_hash_is_refused_however_it_is_named() {
         "valueOf",
         "layout.not.registered",
     ] {
-        let refused = hashed(&wasm, stage).expect_err("an unknown stage is refused, never hashed");
-        assert!(
-            refused.contains(&format!("unknown stage {stage}")),
-            "{stage}: {refused}"
-        );
-        assert!(
-            refused.contains("exited exit status: 2"),
-            "{stage}: could-not-run is exit 2, never a raw trap: {refused}"
-        );
+        assert_refused(&wasm, stage);
     }
     // And the control, in the other direction: the same shape of name that the shim
     // table *does* carry is hashed, so the refusals above are about the name being
@@ -95,6 +104,6 @@ fn a_stage_the_arm_cannot_hash_is_refused_however_it_is_named() {
         hashed_grid[0].starts_with(&format!("{LAYOUT} 0 ")),
         "{hashed_grid:?}"
     );
-    assert!(hashed(&wasm, "topology").is_ok());
-    assert!(hashed(&wasm, "transport.wasm.columnar").is_ok());
+    assert_hashable(&wasm, "topology");
+    assert_hashable(&wasm, "transport.wasm.columnar");
 }

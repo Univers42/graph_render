@@ -4,6 +4,105 @@ Paste this to the next session as its first instruction. It replaces the "where 
 parts of `docs/reports/STATUS.md` and `HANDOFF.md` until those are rewritten. The standing
 rules are still in `CLAUDE.md`, `prompt.md`, `prompts/ONBOARDING.md`, `prompts/AGENT_BRIEF.md`.
 
+## HANDOFF 2026-09-30 00:40 — read this first, it overrides the sections below
+
+The previous session ran out of time at a user deadline. The user's order: everything goes on
+`develop` with this prompt. What landed, what did not, and how to finish each item follows.
+
+### develop now
+
+- develop = the `integ` branch (worktree `/goinfre/dlesieur/wt/integ`), fast-forwarded.
+  It holds, on top of 63cde33 (last develop that passed the full merge floor):
+  - **p11 compute tiers** (merge c84c869): `exec/` runners (`Serial`, threaded), `hashgate` Threads/Tiers
+    arms and 11 knobs in `hashgate/knob.rs` (new `hashgate/tests/knob/p3.rs`), `bench/` tier plans,
+    `main.rs` enum moved to `command.rs`.
+  - **p12-t1** (merge b182b7e): yifan_hu multilevel over Barnes-Hut (`barnes_hut/settle.rs`),
+    `EmitClosedFormFixtures` / `OracleClosedForm` commands, `bench --tiers --workers`.
+    Merge fix: `settle.rs` now calls `sim.tick(&mut How { runner: &Serial, workers: 1, .. })`
+    (p11 changed `tick`'s signature).
+- Merge floor on that tree (b182b7e), run 2026-09-30 00:10-00:20: fmt 0, clippy `-D warnings` 0,
+  `cargo test --workspace --no-fail-fast` rc=0, 17 test binaries, 1122 passed / 0 failed / 11 ignored.
+  The two `self-check FAILED: the settle is 112 ticks` lines in that log are the harness's own
+  negative-control output inside passing tests, not failures. Log: `/goinfre/dlesieur/integ-test.log`
+  (wiped on host change).
+- **Not run on this tree:** wasm32 build of graph-core, hashgate (8 or 1000 seeds), negctl rows,
+  oracles, mutants, `capabilities --check`, `codegen --check`. Run them first — UNKNOWN = FAIL.
+
+### First tasks for the next session, in order
+
+1. `scripts/orch/gr cargo build -p graph-core --target wasm32-unknown-unknown`, then
+   `hashgate --seeds 8` and one negctl (`GM_MUTATE_REFERENCE_DEGREE=9` must be NON-zero).
+   `report.rs`'s expected `equal` set now lists yifan_hu; check it matches the run.
+2. Full gate on develop, one timed gate at a time:
+   `scripts/orch/gate.sh <logdir> /sgoinfre/students/dlesieur/orch/rows/develop-full.rows`.
+   Add rows for p11 (threads arms, the 11 knobs each red) and p12-t1 (closed-form oracle,
+   `p12-t1.rows`). Red rows become repair tasks.
+
+### Branches pushed but NOT on develop (unverified agent output; each has 1 commit on top)
+
+| Branch | Head | What | To finish |
+|---|---|---|---|
+| `p12-igraph` | 8238039 | igraph layouts DRL, LGL, DavidsonHarel, Graphopt, Kamada-Kawai, Fruchterman-Reingold; `registry/igraph.rs`; `harness/oracle-igraph.py`; capabilities/registry split | (a) merge develop in, compile the registry split; (b) fix the tests that hard-code layout counts: `hashgate/tests/report.rs:64`, snapshot_cmd, roundtrip, 3 `cli_ledger` tests (look rows up by id); (c) Rust `oracle-igraph` reads 0 cases for DRL/LGL while Python writes 100 — fixture/case-name mismatch; (d) DavidsonHarel measured 51.91 and Graphopt 15.39 against a 2e0 ceiling: decide (stress metric or a documented wider ceiling) in `docs/measurements/`; (e) `.hypot` at `drl/tests.rs:82`, `lgl/tests.rs:32` must go through `libm`; (f) confirm the negctl rows in `orch/rows/p12-igraph.rows` fail; (g) lint 0 ERROR |
+| `sim` | 5ae4210 | force-session M1 (live simulation for the Obsidian-style drag): `layout/force/session.rs`, `session/`, `barnes_hut/sim/`, `docs/decisions/live-force-session.md` | merge develop in (conflicts in `barnes_hut.rs`/`sim.rs`: p11's `How` tick must be kept); frozen-acceptance and setters tests; the 65-digest golden check against 8e8e93b (`orch/prompts/sim-m1b.txt`); delete `scratch/fmtprobe_p.rs`; floor + wasm32 + hashgate 8. Conditions: `orch/prompts/sim-conditions.txt` |
+| `followups2` | 3ddd308 | phase-7 follow-ups: graph-wasm analysis/post registries, hashgate knobs/staged | merge develop in (hashgate conflicts with p11 likely: keep both), floor |
+
+`followups2` merge was tried at 00:15 and aborted (not enough time to run the floor after):
+7 files, 17 hunks, all in `crates/graph-cli/src/hashgate/{knob.rs, tests/{knob,mod,report,stages}.rs}`
+and `crates/graph-cli/tests/{cli,cli_ledger}.rs`. They are additive: p11 has 11 knobs (the 10 plus
+`SplitSum`), followups2 has 25 (the 10 plus 15 ANALYSIS/POST stage knobs, held against
+`knobs::ANALYSIS_POST_STAGES` by `the_analysis_and_post_controls_are_the_knobs_table`). The union is
+26 knobs: keep the 10, then the 15 in table order, then `SplitSum` last so the table test's
+slice still lines up, and check any p11 test that indexes `Knob::ALL`.
+
+No job was running at 00:15 (`oc-status.sh`: every job done or DEAD). Nothing was relaunched,
+because OpenCode's free models were hanging and the user asked to hand off.
+
+Merge each one at a time into develop under the floor (merge develop into the branch first,
+never rebase), in this order: `followups2`, `sim`, `p12-igraph`.
+
+### The Obsidian drag + forces panel (user request, still open)
+
+The user wants to drag nodes with the neighbours following, plus a panel (repulsion, link
+distance, gravity, centre) like Obsidian. Chain:
+1. `sim` M1 on develop (above).
+2. `force-wasm`: worktree from `sim`; prompt `orch/prompts/force-wasm.txt`, rows
+   `orch/rows/force-wasm.rows` (wasm ABI for the session: create/tick/set/pin/drag).
+3. Studio side, branch `studio-force` (15ce426, owned by the studio session): worker adapter
+   over the force-wasm ABI, the forces panel, and a CDP probe proving the neighbours move on drag.
+4. Merge `studio-force` into `studio`, rebuild `app/public/graph_wasm.wasm`, then studio → develop.
+
+### Studio branches (owned by the session graph-motor-studio-redesign)
+
+- It merges `studio` then `studio-s7` into develop after this push; `studio-ux` (855a876) and
+  `studio-force` stay branches.
+- `studio-ux` is unfinished: drawer wiring; its chrome gate had 11 FAIL + 1 NOT-RUN rows
+  (`orch/rows/studio-ux.rows`). Plan: `~/.claude/plans/mellow-snuggling-quiche.md` (slices A-D).
+
+### Queued, not started
+
+- `p12-t2` (its job died with 0 commits; relaunch from develop with `orch/prompts/p12-t2.txt`).
+- `p13-gv1` (native Graphviz engines, `orch/prompts/p13-gv1.txt`), then p13-gv2.
+- `p13-3d`: a devil verdict FIRST (user approved 3D subject to it), then `orch/prompts/p13-3d.txt`.
+- Thread tier bench numbers (p11) into `docs/measurements/`.
+- Every SciGraphs layout must be in the motor AND the studio picker (user request).
+- CPU only, multi-threaded (user request).
+
+### Environment facts that bit this session
+
+- **Docker**: the rootless daemon was restarted with `--exec-opt native.cgroupdriver=cgroupfs`
+  (socket `/tmp/xdg-101889/docker.sock`, picked up by `scripts/orch/docker-env.sh`). The cgroup
+  driver is "none", so `--memory` / `GR_MEM` is **not enforced**: a runaway test can take the host.
+  If `docker run --rm alpine true` fails with "Interactive authentication required", the daemon is
+  back on systemd cgroups; restart it the same way.
+- **OpenCode**: all free models hung at 2026-09-29 23:53. Re-probe before any bunny launch
+  (a 1-line `opencode run` with a timeout). If they still hang, use the Claude fallback: haiku for
+  scouting and gates, sonnet for build and review, opus only for judgement or the last repair.
+  Job engine: `/sgoinfre/students/dlesieur/orch/engine/jobs.js`, args
+  `{ label, wt, branch, rows, base, kind: 'rust'|'studio', steps?, cycles?, pre?, specs?, licence? }`.
+- The user must run, themselves (deleting remote branches was denied to the agent):
+  `git push origin --delete p8-fdeb p8-mingle p8-p8-grid p8-p8-route p8-p8-styles`.
+
+
 ## Mode the user asked for (2026-09-29)
 
 - **Merge first, repair on develop.** The per-branch gating (1000-seed hashgate + mutants

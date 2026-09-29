@@ -127,3 +127,28 @@ pub(super) const FA2: Metadata = Metadata {
     do different amounts of work. Ponytail (scale_ceiling): time-bound, and the projection past \
     10 000 assumes the O(n^2) the measured ratios support holds at larger n",
 };
+
+pub(super) const YIFAN_HU: Metadata = Metadata {
+    tier: 1,
+    stage: "layout",
+    nodes: NodeGeometryKind::Point,
+    edges: EdgeGeometryKind::Line,
+    oracle: "none: NOT Graphviz sfdp and never compared against it. A multilevel scheme (greedy \
+    matching coarsening, the Barnes-Hut force simulation of layout.force.barnes_hut at the \
+    coarsest level and as the refinement solver at each finer one). Held only to unit tests \
+    (coarsening maps, determinism, neighbours nearer than the average pair) and to the stress \
+    metric's method; no differential has run",
+    complexity: "O(n log n) per tick per level; levels shrink by about half, so the total is \
+    O(n log n) x (112 + 48 x levels) ticks worst case",
+    scale_ceiling: FORCE_CEILING,
+    degradation: "past the ceiling there is no refusal: every level is a Barnes-Hut solve, so \
+    time grows as O(n log n) and the caller must apply its own timeout; a non-finite position \
+    refuses with StageError::NonFinite rather than reaching the snapshot",
+    ponytail: "Ponytail: this is NOT Graphviz sfdp; it shares only the multilevel idea, so \
+    coordinates and scale differ from sfdp's for the same graph. Coarsening is a greedy \
+    index-order matching (not label-invariant) and refinement is a fixed 48 ticks from alpha \
+    0.3, so a folded coarse layout can survive into the result. Force layouts are chaotic: \
+    one added node is a different picture. Ponytail (scale_ceiling): measured, single run, 60.9 s at 100 000 nodes / 154 978 edges \
+    (3.1 s at 10 000); nothing was run above it, so it is a lower bound on the wall, and one \
+    timing on one host is not a median",
+};
