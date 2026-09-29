@@ -52,6 +52,14 @@ export const STUDIO_CSS = `
 .gs-toast { top: 12px; left: 50%; transform: translateX(-50%); width: min(560px, calc(100% - 24px)); z-index: 3; }
 .gs-console { right: 12px; bottom: 12px; width: min(720px, calc(100% - 24px)); height: 240px; display: flex; flex-direction: column; z-index: 2; }
 
+.gs-keymap { left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(520px, calc(100% - 24px)); max-height: calc(100% - 48px); display: flex; flex-direction: column; z-index: 4; }
+.gs-keymap-head { display: flex; align-items: center; justify-content: space-between; padding: 6px 8px; border-bottom: 1px solid var(--gs-border); }
+.gs-keymap-head h2 { margin: 0; font-size: 13px; }
+.gs-keymap-close { min-width: 24px; min-height: 24px; }
+.gs-keymap-scroll { overflow: auto; padding: 4px 8px 8px; }
+.gs-keymap table { border-collapse: collapse; width: 100%; }
+.gs-keymap th, .gs-keymap td { text-align: left; padding: 3px 6px; }
+.gs-keymap kbd { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .gs-head { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-bottom: 1px solid var(--gs-border); color: var(--gs-muted); }
 .gs-head-name { flex: 1 1 auto; font-weight: 600; }
 .gs-console, .gs-hud { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
@@ -77,7 +85,7 @@ export const STUDIO_CSS = `
 .gs-btn:hover:not([disabled]) { border-color: var(--gs-accent); }
 .gs-btn[aria-pressed="true"] { background: var(--gs-accent); border-color: var(--gs-accent); color: #ffffff; }
 .gs-btn[disabled], .gs-input[disabled], .gs-select[disabled], .gs-range[disabled], .gs-check[disabled] { opacity: .45; cursor: not-allowed; }
-.gs-btn:focus-visible, .gs-input:focus-visible, .gs-select:focus-visible, .gs-range:focus-visible, .gs-check:focus-visible { outline: 2px solid var(--gs-accent); outline-offset: 1px; }
+.gs-btn:focus-visible, .gs-keymap-close:focus-visible, .gs-input:focus-visible, .gs-select:focus-visible, .gs-range:focus-visible, .gs-check:focus-visible { outline: 2px solid var(--gs-accent); outline-offset: 1px; }
 .gs-input, .gs-select {
   height: 26px;
   width: 100%;
@@ -139,6 +147,11 @@ export const STUDIO_CSS = `
 .gs-alert { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; }
 .gs-alert-head { display: flex; align-items: center; gap: 6px; }
 .gs-alert-title { flex: 1 1 auto; color: var(--gs-danger); font-weight: 600; }
+
+/* The scrim takes the click that dismisses the menu; the canvas under it hears nothing. */
+.gs-menu-scrim { position: absolute; inset: 0; pointer-events: auto; z-index: 4; }
+.gs-menu { display: flex; flex-direction: column; min-width: 140px; padding: 4px; gap: 2px; z-index: 5; }
+.gs-menu-item { min-height: 28px; text-align: left; }
 
 @media (prefers-reduced-motion: reduce) {
   .gs-btn { transition: none; }

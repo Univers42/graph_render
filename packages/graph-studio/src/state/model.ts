@@ -53,6 +53,10 @@ export interface StudioState {
   readonly log: readonly LogEntry[];
   /** Dense index of the selected node, or -1. */
   readonly selected: number;
+  /** Every selected node, the primary last; `[]` when none. */
+  readonly selection: readonly number[];
+  /** The last text the studio copied: what the page holds when the browser refuses a read. */
+  readonly clipboard: string;
   /** Nodes an animation has shown, in ingest order; null when none is under way or kept. Never saved. */
   readonly reveal: number | null;
 }
@@ -63,7 +67,7 @@ export const LOG_LIMIT = 500;
 export function initialState(settings: Settings = DEFAULT_SETTINGS): StudioState {
   return {
     settings, catalog: null, graph: null, meta: null, run: null, analysis: null,
-    busy: [], error: null, log: [], selected: -1, reveal: null,
+    busy: [], error: null, log: [], selected: -1, selection: [], clipboard: "", reveal: null,
   };
 }
 

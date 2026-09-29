@@ -11,7 +11,7 @@ test("fit, reset, zoom, pan and clear each ask the view for one named change", a
   assert.equal((await made.studio.dispatch("view.zoom", { factor: 2 })).ok, true);
   assert.equal((await made.studio.dispatch("view.pan", { dx: 50, dy: -10 })).ok, true);
   assert.equal((await made.studio.dispatch("view.clear")).ok, true);
-  assert.deepEqual(made.seen.calls, ["fit", "reset", "zoomBy 2", "panBy 50 -10", "select -1"]);
+  assert.deepEqual(made.seen.calls, ["fit", "reset", "zoomBy 2", "panBy 50 -10", "select -1", "showAll"]);
 });
 
 test("a pan that is not a number is refused before the view is asked", async () => {

@@ -33,7 +33,7 @@ function zoom(factor: number): NavKey {
  * The keys that move the camera, and what each one asks for. `=` and `_` are the two
  * characters the + and - keys print on a layout where the unshifted key is not a symbol.
  */
-const KEYS: Readonly<Record<string, NavKey>> = {
+export const KEYS: Readonly<Record<string, NavKey>> = {
   f: { id: "view.fit", args: {} },
   "0": { id: "view.reset", args: {} },
   "+": zoom(ZOOM_STEP),

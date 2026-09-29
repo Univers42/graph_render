@@ -192,6 +192,28 @@ class Studio:
         })()
         """)
 
+    def background(self, preferred):
+        """The point nearest `preferred` that no node is under, by the view's own hit-test.
+
+        Ponytail: the search steps 12 px out to 480 px and stops at the first miss with a 14 px
+        clear margin on four sides; a graph that covers the whole canvas returns `preferred`.
+        """
+        found = self.page.evaluate(f"""
+        (() => {{
+          const view = document.querySelector('graph-studio').view;
+          const clear = (x, y) => [[0, 0], [14, 0], [-14, 0], [0, 14], [0, -14]].every(([dx, dy]) => view.pick({{ x: x + dx, y: y + dy }}) < 0);
+          for (let r = 0; r <= 480; r += 12) {{
+            for (let a = 0; a < 16; a += 1) {{
+              const x = Math.round({preferred[0]} + r * Math.cos(a * Math.PI / 8));
+              const y = Math.round({preferred[1]} + r * Math.sin(a * Math.PI / 8));
+              if (x > 20 && x < 1380 && y > 20 && y < 880 && clear(x, y)) return [x, y];
+            }}
+          }}
+          return null;
+        }})()
+        """)
+        return tuple(found) if found is not None else tuple(preferred)
+
     def border_drawn(self):
         """How many pixels of the canvas' outer band are not the background it was filled with."""
         return self.page.evaluate("""

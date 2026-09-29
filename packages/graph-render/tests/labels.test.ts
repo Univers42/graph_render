@@ -66,6 +66,12 @@ test("a lit neighbourhood is labelled at any zoom, and nothing else is", () => {
   assert.deepEqual(planned(given), [0, 2]);
 });
 
+test("a lit neighbour is labelled even where its text touches another lit label", () => {
+  const lit = Uint8Array.from([1, 1]);
+  assert.deepEqual(planned(input([1, 1], [100, 102], { lit })), [0, 1]);
+  assert.deepEqual(planned(input([1, 1], [100, 102])), [0]);
+});
+
 test("a node off screen or without a label draws none", () => {
   assert.deepEqual(planned(input([1, 1], [5000, 100])), [1]);
   const bare = input([1], [100]);
