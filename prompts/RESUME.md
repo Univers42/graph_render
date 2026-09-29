@@ -86,6 +86,17 @@ pass (4/4). A fresh worktree needs `npm ci` before `cargo test`.
   - Merge order into `studio` (from the peer session): S2, parity, s5, s3, s4, then studio-ux last. Merge `studio` into studio-ux after s3 lands, since s3 adds display actions to the same registry. The peer owns look/theme and the display panel; studio-ux owns `console/*` and set/get.
   - Before it merges: a devil review, plus `studio-perf` run alone.
 
+## Update 2026-09-29 late
+
+- Merged `followups` into develop (746f3a8): fmt 0, clippy 0, 1023 passed / 0 failed; review verdict MERGE.
+- Launched `followups2` (branch `followups2` in `/goinfre/dlesieur/wt/followups`, prompt `orch/prompts/followups2.txt`). Decisions it carries:
+  - authorised: graph-wasm `analysis`/`post` reachable natively for hashgate stages, with the ABI unchanged;
+  - authorised: `analysis.components` split into weak and strong rows;
+  - deferred: `gm_analysis_paths_run` (dijkstra, bellman_ford). It is an ABI change and waits for a user decision.
+- Provider limits (measured 19:15Z): new `opencode run` sessions got `provider.quota` 429 on the first step, and running sessions got "stream ended without finish_reason". Both killed studio-ux (rc=2, C and D partly done, A and B missing) and p11-reconcile2 (rc=2 after item 0 went green).
+  - Continuations: `studio-ux2.txt` (with `OC_COMMON=common-studio.txt`) and `p11-reconcile3.txt`. They are relaunched through a retry wrapper: sleep 600 s after each 429, 8 tries at most, staggered.
+- Hung subagents (a provider stream open for more than 40 min) were interrupted through `POST /api/session/<id>/interrupt`. The peer session was told about its own hung subagents and did not act on ours.
+
 ## Remaining, in order
 
 1. Done: train and p4 are on develop. Still to do: p7's SDK row (p4 → p7 dependency), and check the folded p4 CLI test listed under p4 above.
