@@ -136,6 +136,17 @@ pass (4/4). A fresh worktree needs `npm ci` before `cargo test`.
     - `p13-gv2` (neato, fdp, sfdp, dot) after p12 lands, reusing KK, FR, Yifan Hu and the Sugiyama pipeline;
     - an opus devil verdict on contract-3d, then the 3D implementation and the easiest 3D layouts;
     - after p11 merges: extend the thread tier to every layout and bench each one.
+- About 22:40: quota triage. bunny and longcat answer 429; mimo works. Hung longcat subagent streams
+  stalled p13-gv1, p13-3d, p12-t2 and followups2c. Their children were interrupted and p13 and
+  followups2c were queued. `oc-job.sh` now also rotates the model on an "aborted ... inactivity" end.
+  - OpenCode is capped at four jobs: merge-p11, studio-ux2c, sim-m1fix2e and p12-t2.
+  - p12-igraph and p12-t1 each died twice on quota, so both moved to the Claude job engine. It is the
+    Workflow `target/orch-engine/jobs.js`, a copy of `/sgoinfre/students/dlesieur/orch/engine/jobs.js`.
+    Runs: p12-t1 `wf_31284d19-1d9`, p12-igraph `wf_c5c5371d-09c`.
+  - Queued, relaunched with `OC_SESSION` once a slot frees:
+    - p13-gv1 `ses_f114f15a3ffe5X0BotPtVWYn3y`;
+    - p13-3d `ses_f114ec78affe6pzAwmdN3NeQl3`;
+    - followups2c `ses_f11b6612bffeSYUGh7YTLDrxwK`.
 ## Remaining, in order
 
 1. Done: train and p4 are on develop. Still to do: p7's SDK row (p4 → p7 dependency), and check the folded p4 CLI test listed under p4 above.
