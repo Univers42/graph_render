@@ -93,9 +93,13 @@ pass (4/4). A fresh worktree needs `npm ci` before `cargo test`.
   - authorised: graph-wasm `analysis`/`post` reachable natively for hashgate stages, with the ABI unchanged;
   - authorised: `analysis.components` split into weak and strong rows;
   - deferred: `gm_analysis_paths_run` (dijkstra, bellman_ford). It is an ABI change and waits for a user decision.
-- Provider limits (measured 19:15Z): new `opencode run` sessions got `provider.quota` 429 on the first step, and running sessions got "stream ended without finish_reason". Both killed studio-ux (rc=2, C and D partly done, A and B missing) and p11-reconcile2 (rc=2 after item 0 went green).
+- Provider limits (measured 17:15Z): new `opencode run` sessions got `provider.quota` 429 on the first step, and running sessions got "stream ended without finish_reason". Both killed studio-ux (rc=2, C and D partly done, A and B missing) and p11-reconcile2 (rc=2 after item 0 went green).
   - Continuations: `studio-ux2.txt` (with `OC_COMMON=common-studio.txt`) and `p11-reconcile3.txt`. They are relaunched through a retry wrapper: sleep 600 s after each 429, 8 tries at most, staggered.
 - Hung subagents (a provider stream open for more than 40 min) were interrupted through `POST /api/session/<id>/interrupt`. The peer session was told about its own hung subagents and did not act on ours.
+- Fallback model (user decision, 17:50Z). space-bunny-free was still answering 429 after 30 min, and every job, the peer's included, had died on it. Jobs now run with `OC_MODEL=opencode/nemotron-3-ultra-free`, and `opencode/big-pickle` is the second choice. Only the env override changes; the agent files keep space-bunny. Both fallback models passed a probe of 1 shell call and 1 subagent dispatch, rc 0.
+  - Relaunched: `followups2b`, `studio-ux2b`, `p11-reconcile3b`, and `sim-m1fix2`. sim-m1fix2 continues sim-m1fix, whose slices B and C were cut; it first maps items 1 to 4, then dispatches whatever is not done.
+  - The peer session was told how to relaunch on the fallback model.
+- The Obsidian-style forces (gravity, repel, link and center sliders, reheat, freeze) are item S6 of `orch/prompts/obsidian-graph-plan.txt`. S6 depends on M1 (sim-m1fix2), then M2 (contract, wasm and SDK, after a devil verdict), then M3 (gates), and then on M landing on develop. Until then the studio has only `layout.run`: no live physics.
 
 ## Remaining, in order
 
