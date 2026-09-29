@@ -16,6 +16,7 @@ use crate::weights::REFERENCE_DEGREE;
 
 mod golden;
 mod invariants;
+mod shapes;
 
 /// A hierarchy edge `source` -> `target` of wire type `wire` (mirrors `hierarchy`'s own
 /// test helper, private to that module).

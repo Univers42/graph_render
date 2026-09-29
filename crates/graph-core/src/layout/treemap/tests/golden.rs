@@ -142,13 +142,202 @@ fn the_round_trip_control_input_does_not_reach_the_same_bits() {
     );
 }
 
+/// d3's zero-remaining row writes its far edge as `x1` (`squarify.js`: `value ? x0 += ... : x1`),
+/// not `x0 + dx`; with `P`'s column starting at `x0 != 0` the two differ in `f64`. Each
+/// entry is `S`'s weight and the d3 boxes of `D`, `C`, `E` (dense 4, 3, 5).
+const FALLBACK_EDGE: [(f64, [[u64; 4]; 3]); 7] = [
+    (
+        0.5,
+        [
+            [
+                0x3fe8_e38b_af57_a5f7,
+                0x0000_0000_0000_0000,
+                0x3ff0_0000_0000_0000,
+                0x3edd_5c23_e133_069e,
+            ],
+            [
+                0x3ff0_0000_0000_0000,
+                0x0000_0000_0000_0000,
+                0x3ff0_0000_0000_0000,
+                0x3edd_5c23_e133_069e,
+            ],
+            [
+                0x3ff0_0000_0000_0000,
+                0x0000_0000_0000_0000,
+                0x3ff0_0000_0000_0000,
+                0x3edd_5c23_e133_069e,
+            ],
+        ],
+    ),
+    (
+        2.0,
+        [
+            [
+                0x3fed_dddc_f407_9849,
+                0x0000_0000_0000_0000,
+                0x3ff0_0000_0000_0000,
+                0x3edd_5c23_e133_0697,
+            ],
+            [
+                0x3ff0_0000_0000_0000,
+                0x0000_0000_0000_0000,
+                0x3ff0_0000_0000_0000,
+                0x3edd_5c23_e133_0697,
+            ],
+            [
+                0x3ff0_0000_0000_0000,
+                0x0000_0000_0000_0000,
+                0x3ff0_0000_0000_0000,
+                0x3edd_5c23_e133_0697,
+            ],
+        ],
+    ),
+    (
+        3.0,
+        [
+            [
+                0x3fee_8ba2_45ab_5f59,
+                0x0000_0000_0000_0000,
+                0x3ff0_0000_0000_0000,
+                0x3edd_5c23_e133_0697,
+            ],
+            [
+                0x3ff0_0000_0000_0000,
+                0x0000_0000_0000_0000,
+                0x3ff0_0000_0000_0000,
+                0x3edd_5c23_e133_0697,
+            ],
+            [
+                0x3ff0_0000_0000_0000,
+                0x0000_0000_0000_0000,
+                0x3ff0_0000_0000_0000,
+                0x3edd_5c23_e133_0697,
+            ],
+        ],
+    ),
+    (
+        0.3,
+        [
+            [
+                0x3fe5_ad68_259c_c7f4,
+                0x0000_0000_0000_0000,
+                0x3ff0_0000_0000_0000,
+                0x3edd_5c23_e133_069a,
+            ],
+            [
+                0x3ff0_0000_0000_0000,
+                0x0000_0000_0000_0000,
+                0x3ff0_0000_0000_0000,
+                0x3edd_5c23_e133_069a,
+            ],
+            [
+                0x3ff0_0000_0000_0000,
+                0x0000_0000_0000_0000,
+                0x3ff0_0000_0000_0000,
+                0x3edd_5c23_e133_069a,
+            ],
+        ],
+    ),
+    (
+        7.0,
+        [
+            [
+                0x3fef_5c28_ac19_f030,
+                0x0000_0000_0000_0000,
+                0x3ff0_0000_0000_0000,
+                0x3edd_5c23_e133_06b1,
+            ],
+            [
+                0x3ff0_0000_0000_0000,
+                0x0000_0000_0000_0000,
+                0x3ff0_0000_0000_0000,
+                0x3edd_5c23_e133_06b1,
+            ],
+            [
+                0x3ff0_0000_0000_0000,
+                0x0000_0000_0000_0000,
+                0x3ff0_0000_0000_0000,
+                0x3edd_5c23_e133_06b1,
+            ],
+        ],
+    ),
+    (
+        0.1234567,
+        [
+            [
+                0x3fdd_ab33_4679_e5dd,
+                0x0000_0000_0000_0000,
+                0x3ff0_0000_0000_0000,
+                0x3edd_5c23_e133_069c,
+            ],
+            [
+                0x3ff0_0000_0000_0000,
+                0x0000_0000_0000_0000,
+                0x3ff0_0000_0000_0000,
+                0x3edd_5c23_e133_069c,
+            ],
+            [
+                0x3ff0_0000_0000_0000,
+                0x0000_0000_0000_0000,
+                0x3ff0_0000_0000_0000,
+                0x3edd_5c23_e133_069c,
+            ],
+        ],
+    ),
+    (
+        0.001,
+        [
+            [
+                0x0000_0000_0000_0000,
+                0x3fef_f7d0_f16c_2e09,
+                0x3f7c_803f_4a50_1db2,
+                0x3ff0_0000_0000_0000,
+            ],
+            [
+                0x3f7c_803f_4a50_1db2,
+                0x3fef_f7d0_f16c_2e09,
+                0x3f7c_803f_4a50_1db2,
+                0x3ff0_0000_0000_0000,
+            ],
+            [
+                0x3f7c_803f_4a50_1db2,
+                0x3fef_f7d0_f16c_2e09,
+                0x3f7c_803f_4a50_1db2,
+                0x3ff0_0000_0000_0000,
+            ],
+        ],
+    ),
+];
+
+#[test]
+fn the_zero_remaining_row_edge_is_the_far_side_not_origin_plus_extent() {
+    for (s_weight, want) in FALLBACK_EDGE {
+        let topology = fan_tree(s_weight, 1e-300);
+        let boxes = compute(&topology, &Hierarchy::of(&topology).expect("fits"));
+        for (v, edges) in [4_u32, 3, 5].into_iter().zip(want) {
+            let r = boxes.rect(v);
+            assert_eq!(
+                [r.x0, r.y0, r.x1, r.y1].map(f64::to_bits),
+                edges,
+                "S weight {s_weight}, node {v}"
+            );
+        }
+    }
+}
+
 /// `R` (1/7) with children `S` (1) and `P`; `P` with children `C` (1e-300), `D` (1e-6)
 /// and `E` (1e-300). `P`'s own weight is the parameter. Dense index: R 0, S 1, P 2,
 /// C 3, D 4, E 5.
 fn round_trip_tree(p_weight: f64) -> Topology {
+    fan_tree(1.0, p_weight)
+}
+
+/// [`round_trip_tree`] with `S`'s weight as a parameter, so `P`'s column starts at
+/// `x0 != 0`.
+fn fan_tree(s_weight: f64, p_weight: f64) -> Topology {
     let nodes = vec![
         weighted("R", 1.0 / 7.0),
-        weighted("S", 1.0),
+        weighted("S", s_weight),
         weighted("P", p_weight),
         weighted("C", 1e-300),
         weighted("D", 1e-6),

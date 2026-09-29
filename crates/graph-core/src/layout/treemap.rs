@@ -142,17 +142,9 @@ fn slice(row: &[u32], rect: Rect, row_value: f64, layout: &mut Layout) {
 /// box, the gap being its own share.
 ///
 /// **The zero-remaining fallback.** d3 writes the row's far edge as
-/// `value ? y0 += dy * sumValue / value : y1` — once `value` has cancelled to zero it
-/// passes `y1` and leaves the `y0` cursor alone, where this passes `y0 + dy` and advances
-/// it. Both arms are the same `f64` on every input this port can reach, checked by
-/// running d3 over ~930k fallback rows (see the return block): such a row is always
-/// *terminal* — `value == 0` makes `alpha` infinite, so every `ratio` in `extend_row` is
-/// infinite, `new_ratio > min_ratio` is `inf > inf` and therefore false, and the row
-/// swallows all remaining children with `i1 == n` — so the cursor is never reused; and
-/// the box is by then exhausted along the advancing axis, so `edge - cursor` is exact
-/// (`|edge / cursor|` never exceeded `2.0` across that sweep) and
-/// `cursor + (edge - cursor)` returns `edge`. d3's form is recorded here rather than
-/// spelled in the arithmetic, which is the one line a future refactor could get wrong.
+/// `value ? y0 += dy * sumValue / value : y1`: once `value` has cancelled to zero the
+/// row's edge is exactly `y1` (or `x1`) and the cursor stays put. `y0 + dy` is not
+/// `y1` in `f64` when `x0 != 0`, so the fallback names the far edge itself.
 fn squarify_children(children: &[u32], parent_value: f64, rect: Rect, layout: &mut Layout) {
     let n = children.len();
     let (mut x0, mut y0, x1, y1) = (rect.x0, rect.y0, rect.x1, rect.y1);
@@ -164,13 +156,25 @@ fn squarify_children(children: &[u32], parent_value: f64, rect: Rect, layout: &m
         let (i1, sum_value) = extend_row(children, i0, alpha, layout.value);
         let row = &children[i0..i1];
         if dx < dy {
-            let end_y = y0 + ratio_or(dy * sum_value, remaining, dy);
+            let end_y = if remaining != 0.0 {
+                y0 + dy * sum_value / remaining
+            } else {
+                y1
+            };
             dice(row, Rect::new(x0, y0, x1, end_y), sum_value, layout);
-            y0 = end_y;
+            if remaining != 0.0 {
+                y0 = end_y;
+            }
         } else {
-            let end_x = x0 + ratio_or(dx * sum_value, remaining, dx);
+            let end_x = if remaining != 0.0 {
+                x0 + dx * sum_value / remaining
+            } else {
+                x1
+            };
             slice(row, Rect::new(x0, y0, end_x, y1), sum_value, layout);
-            x0 = end_x;
+            if remaining != 0.0 {
+                x0 = end_x;
+            }
         }
         remaining -= sum_value;
         i0 = i1;
