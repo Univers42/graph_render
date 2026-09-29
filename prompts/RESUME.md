@@ -103,7 +103,14 @@ pass (4/4). A fresh worktree needs `npm ci` before `cargo test`.
 - p8 leftovers (the peer flagged them). `origin/p8` has been an ancestor of develop since its merge, as have `p8-route`, `p8-styles` and `p8-p8-bundle`.
   - Superseded, not to be merged: `p8-fdeb`, `p8-mingle`, `p8-p8-grid`, `p8-p8-route` and `p8-p8-styles`. Each is 1 or 2 commits ahead and 118 behind, and each is an earlier slice attempt.
   - develop already has `post/{fdeb,mingle,grid_index,routed,...}`. `p8-p8-route`'s `routed/{graph,output,search}.rs` became `routed/{csr,measure,trace}.rs` on develop.
-  - The remote branches were left in place. Deleting them is the user's call.
+  - The user approved deleting them, but the permission classifier refused the delete (Git Destructive). They are still on the remote, and the user runs the delete themselves: `git push origin --delete p8-fdeb p8-mingle p8-p8-grid p8-p8-route p8-p8-styles`.
+- Merge train through OpenCode. Worktree `/goinfre/dlesieur/wt/integ`, branch `integ`, cut from develop 8292407, with `npm ci` done.
+  - For each green branch:
+    - `sed s/BRANCH/<b>/g orch/prompts/merge-train.txt > orch/prompts/merge-<b>.txt`;
+    - then `oc-job.sh merge-<b> /goinfre/dlesieur/wt/integ builder <that file> orch/rows/quick.rows`.
+  - The bunny merges with `--no-ff --no-commit`, and oc-job commits and pushes `integ` once the floor is green.
+  - The orchestrator then fast-forwards develop: `git push origin origin/integ:develop`. That push refuses anything that is not a fast-forward.
+  - A contract or registry conflict comes back `blocked`, for an opus verdict.
 
 ## Remaining, in order
 
