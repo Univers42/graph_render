@@ -1,3 +1,5 @@
+> **Status (2026-09-28):** BUILT on branch p4 (9389255, pre-p3 base) — reviewed + repaired; needs merge of develop, registry-driven ABI reconciliation, ledger evidence wiring, mutants, report. See docs/reports/STATUS.md.
+
 # Phase 4 — WASM transport and the JS SDK. The motor becomes usable here.
 
 **Read `prompt.md` first**, especially §3.2 (no wasm-bindgen) and §4.1 (two faces). Phase 3's gate must
@@ -113,12 +115,18 @@ render path" is an invariant with a test, not a design intention.
 ```ts
 const motor = await createMotor();                 // lazy, deduped, degrades
 const graph = motor.build(ingest);                 // ingest JSON -> handle
-const geom  = graph.layout("layout.tree.tidy", { /* params */ });
+const geom  = graph.layout("layout.tree.tidy", { /* params */ }, { /* exec options */ });
 geom.nodeCount; geom.kind;                         // "point" | "circle" | "box"
 geom.x; geom.y; geom.r?; geom.w?; geom.h?;         // typed-array views
 geom.toJSON();                                     // the canonical snapshot
 graph.release();
 ```
+
+The third argument of `layout(id, params, options)` is reserved **now** for execution options
+(`options.exec`, Phase 11 — `docs/decisions/compute-tiers.md` rule 3), so adding a compute tier later is
+additive and the call never changes shape. In this phase it accepts `{}` or `{ exec: "auto" }` and
+refuses any other value with an error (never silently ignores it); `sdk-smoke.mjs` passes it, so it has a
+live caller (§11 guardrail 2).
 
 Constraints: **no React, no framework, no DOM**. Works in a browser, in a worker, and under Node — the
 hash harness is itself an SDK consumer, which is a useful forcing function. Generated contract types are

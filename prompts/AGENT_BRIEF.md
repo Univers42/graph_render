@@ -1,0 +1,42 @@
+# Agent brief — graph-motor (read before any task)
+
+Rules of record: `CLAUDE.md`, `prompt.md` §0 and §6 (D1–D10), the phase prompt `prompts/phase-NN-*.md`.
+
+## House limits
+- ≤40 lines per function, ≤4 parameters, ≤300 lines per file. Split into child modules; never compress.
+- One deliverable per task. Touch only the paths the task lists; anything else is a deviation to report.
+- TDD: write the test, run it, observe RED, then implement. Every gate row has a negative control that must fail.
+
+## Determinism (D1–D10, summary; prompt.md §6 is authoritative)
+- libm transcendentals only; no `mul_add`, `powi`, relaxed-simd, FTZ/DAZ.
+- Fixed-order reductions; ties broken by dense index; never iterate a HashMap for output order.
+- No wall-clock, no randomness except the seeded generators; no `usize` on the wire.
+- Kernels in gather form (D10). Output must be bit-identical native vs wasm32.
+
+## Toolchain (Docker only — never a bare cargo, rustc, npm or node)
+- `/goinfre/dlesieur/orch/bin/gr <cmd>`: cargo inside the `ge-rust` image. `gr -e KEY=VAL cmd` passes env.
+- `GR_IMAGE=ge-mutants /goinfre/dlesieur/orch/bin/gr cargo mutants ...`: mutation testing.
+- `/goinfre/dlesieur/orch/bin/node-slim.sh node <script>`: node:22-slim.
+- `/goinfre/dlesieur/orch/bin/ge-check.sh`: the TypeScript oracle gate.
+- `/goinfre/dlesieur/orch/bin/gate.sh <logdir> <rowsfile>`: rows `name|expect|cmd`, writes summary.txt.
+- Pinned references (read-only): `/goinfre/dlesieur/refs/` (`npm/<pkg>-<ver>/`, `networkx-3.6/`,
+  `jama-1.0.3/`, `scipy-1.16.2/lobpcg.py`) and the `SciGraphs/` submodule. Older comments cite
+  `/home/user/refs/...`; same files. A reference not present there is a STOP, never an improvisation.
+
+## Never
+- Run git commands that change state (denied); the orchestrator commits. `git diff/log/show/status` are fine.
+- Touch osionos, the `.claude/` submodule, `src/`, `tests/` or `verify/` unless the task says so.
+- Claim a result you did not run in this task. UNKNOWN = FAIL. A skipped check is not a pass.
+- Write model or vendor names in code, docs or reports. Print a secret.
+- Weaken, delete or skip a test, gate row or negative control to get green.
+- Put a Ponytail marker on exact code; heuristics get one (failing input, direction, escape hatch).
+
+## Return block (last thing you write, ≤25 lines)
+```
+status: done | blocked | partial
+changed: <files, or "none">
+commands: <command -> real exit code, one per line>
+findings: <reviewer/scanner only: file:line SEVERITY what, or "none">
+deviations: <files outside the listed paths, or "none">
+decisions needed: <question + your recommended answer, or "none">
+```

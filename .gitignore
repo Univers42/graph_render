@@ -9,3 +9,6 @@ verify/dist/
 
 # cargo build output (graph-motor workspace)
 /target
+
+# local secrets (never committed)
+.env

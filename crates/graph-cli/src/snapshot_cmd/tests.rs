@@ -115,6 +115,39 @@ fn the_hand_oracle_catches_a_moved_node_and_a_foreign_kind() {
 }
 
 #[test]
+fn overall_pass_requires_both_checks_clean_not_either_one() {
+    assert!(all_clear(&Findings::default()));
+    let only_faces_bad = Findings {
+        faces: vec!["x".into()],
+        grid: vec![],
+    };
+    assert!(!all_clear(&only_faces_bad), "faces alone must fail it");
+    let only_grid_bad = Findings {
+        faces: vec![],
+        grid: vec!["y".into()],
+    };
+    assert!(!all_clear(&only_grid_bad), "grid alone must fail it");
+}
+
+#[test]
+fn print_findings_subtracts_failures_from_the_total_not_adds() {
+    let found = Findings {
+        faces: vec!["a".into(), "b".into()],
+        grid: vec!["c".into()],
+    };
+    let mut text = String::new();
+    write_findings(&mut text, 5, &found);
+    assert!(
+        text.contains("binary <-> JSON byte-exact on 8/10 snapshots"),
+        "{text}"
+    );
+    assert!(
+        text.contains("layout.grid on its stated conventions on 4/5 seeds"),
+        "{text}"
+    );
+}
+
+#[test]
 fn the_sweep_records_nothing_wrong_and_refuses_zero_seeds() {
     let found = sweep(12).expect("runs");
     assert!(found.faces.is_empty() && found.grid.is_empty(), "{found:?}");
