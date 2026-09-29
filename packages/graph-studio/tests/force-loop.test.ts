@@ -1,0 +1,156 @@
+// The live loop against a fake port: the stop condition, frame dropping, the disabled state.
+import assert from "node:assert/strict";
+import { test } from "node:test";
+
+import { type ForceKnobs, type LiveForce, NO_ADAPTER_REASON } from "../src/motor/live.ts";
+import { ALPHA_MIN, createForceHost } from "../src/motor/liveLoop.ts";
+import type { ForceFrame, Result } from "../src/motor/protocol.ts";
+import type { Session } from "../src/motor/session.ts";
+import { serve } from "../src/motor/serve.ts";
+
+const refuse = (): never => { throw new Error("a force request must not reach the session"); };
+const NO_SESSION: Session = { open: refuse, load: refuse, layout: refuse, analysis: refuse };
+const KNOBS: ForceKnobs = { gravity: 0.5, charge: -100, linkStrengthScale: 1, linkDistance: 40 };
+
+interface Clock { now: number; perStep: number }
+
+interface Fake extends LiveForce {
+  readonly calls: string[];
+  alpha: number;
+  decay: number;
+}
+
+function fake(decay: number, clock: Clock = { now: 0, perStep: 0 }): Fake {
+  const port: Fake = {
+    calls: [], alpha: 0, decay,
+    pin: (id, x, y) => { port.calls.push(`pin ${id} ${x} ${y}`); },
+    unpin: (id) => { port.calls.push(`unpin ${id}`); },
+    setParams: () => { port.calls.push("params"); },
+    step: (ticks) => {
+      port.calls.push(`step ${ticks}`);
+      clock.now += clock.perStep;
+      port.alpha *= port.decay;
+      return port.alpha;
+    },
+    positions: () => ({ xs: Float64Array.of(1, 2), ys: Float64Array.of(3, 4) }),
+    reheat: (alpha) => { port.alpha = alpha; port.calls.push("reheat"); },
+  };
+  return port;
+}
+
+interface Rig {
+  readonly emitted: Result[];
+  readonly frames: () => number;
+  readonly tick: () => void;
+  readonly scheduled: () => number;
+}
+
+function lastFrame(emitted: readonly Result[]): ForceFrame {
+  const found = emitted.filter((r) => r.type === "force-frame").at(-1);
+  if (found?.type !== "force-frame") throw new Error("no frame was emitted");
+  return found.frame;
+}
+
+function rig(port: Fake, clock: Clock = { now: 0, perStep: 0 }, budgetMs = 8) {
+  const emitted: Result[] = [];
+  let next: (() => void) | null = null;
+  let scheduled = 0;
+  const host = createForceHost(port, {
+    schedule: (run) => { next = run; scheduled += 1; return () => { next = null; }; },
+    now: () => clock.now,
+    emit: (result) => { emitted.push(result); },
+    budgetMs,
+  });
+  const out: Rig = {
+    emitted,
+    frames: () => emitted.filter((r) => r.type === "force-frame").length,
+    tick: () => { const run = next; next = null; run?.(); },
+    scheduled: () => scheduled,
+  };
+  return { host, out };
+}
+
+test("the loop steps until alpha is under alpha_min, then stops on its own", () => {
+  const port = fake(0.5);
+  const { host, out } = rig(port);
+  host.handle({ type: "force.start" });
+  for (let i = 0; i < 40; i += 1) out.tick();
+  assert.equal(lastFrame(out.emitted).running, false);
+  assert.ok(port.alpha < ALPHA_MIN);
+  const before = out.frames();
+  out.tick();
+  assert.equal(out.frames(), before, "no frame after the loop stopped");
+});
+
+test("a held pin keeps the loop running past alpha_min; release lets it settle", () => {
+  const port = fake(0.5);
+  const { host, out } = rig(port);
+  host.handle({ type: "force.drag", id: "a", x: 5, y: 6 });
+  for (let i = 0; i < 30; i += 1) out.tick();
+  assert.equal(lastFrame(out.emitted).running, true);
+  assert.ok(port.calls.includes("pin a 5 6"));
+  host.handle({ type: "force.release", id: "a" });
+  assert.ok(port.calls.includes("unpin a"));
+  for (let i = 0; i < 30; i += 1) out.tick();
+  assert.equal(lastFrame(out.emitted).running, false);
+});
+
+test("drag events before a frame collapse to the last one", () => {
+  const port = fake(0.9);
+  const { host, out } = rig(port);
+  host.handle({ type: "force.drag", id: "a", x: 1, y: 1 });
+  host.handle({ type: "force.drag", id: "a", x: 2, y: 2 });
+  host.handle({ type: "force.drag", id: "a", x: 3, y: 3 });
+  out.tick();
+  assert.deepEqual(port.calls.filter((c) => c.startsWith("pin")), ["pin a 3 3"]);
+  assert.equal(out.scheduled(), 2, "three requests, one scheduled frame, then the next");
+});
+
+test("a slow motor is stepped once per frame and never queued", () => {
+  const clock = { now: 0, perStep: 20 };
+  const port = fake(0.99, clock);
+  const { host, out } = rig(port, clock, 8);
+  host.handle({ type: "force.start" });
+  out.tick();
+  assert.equal(port.calls.filter((c) => c.startsWith("step")).length, 1, "one tick overran the budget, so one step");
+  assert.equal(out.frames(), 1);
+  assert.equal(out.scheduled(), 2, "exactly one frame is pending");
+});
+
+test("a fast motor fills the budget with several steps in one frame", () => {
+  const clock = { now: 0, perStep: 3 };
+  const port = fake(0.999, clock);
+  const { host, out } = rig(port, clock, 8);
+  host.handle({ type: "force.start" });
+  out.tick();
+  assert.equal(port.calls.filter((c) => c.startsWith("step")).length, 3);
+});
+
+test("params reach the port and reheat; stop unpins and halts", () => {
+  const port = fake(0.9);
+  const { host, out } = rig(port);
+  host.handle({ type: "force.drag", id: "a", x: 0, y: 0 });
+  out.tick();
+  host.handle({ type: "force.params", knobs: KNOBS });
+  assert.ok(port.calls.includes("params"));
+  const state = host.handle({ type: "force.stop" });
+  assert.deepEqual(state, { type: "force-state", running: false, disabled: null });
+  assert.ok(port.calls.includes("unpin a"));
+  const before = out.frames();
+  out.tick();
+  assert.equal(out.frames(), before);
+});
+
+test("frames carry copies: the port's buffers are never handed over", () => {
+  const port = fake(0.5);
+  const { host, out } = rig(port);
+  host.handle({ type: "force.start" });
+  out.tick();
+  assert.deepEqual(Array.from(lastFrame(out.emitted).xs), [1, 2]);
+});
+
+test("with no adapter every force request answers disabled, with the reason", async () => {
+  const answer = await serve(NO_SESSION, { type: "force.drag", id: "a", x: 0, y: 0 });
+  assert.deepEqual(answer.result, { type: "force-state", running: false, disabled: NO_ADAPTER_REASON });
+  assert.equal(NO_ADAPTER_REASON, "live forces need the motor session (force-wasm)");
+});

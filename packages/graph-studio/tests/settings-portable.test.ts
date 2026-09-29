@@ -5,7 +5,7 @@ import { test } from "node:test";
 import { exportSettings, importSettings } from "../src/state/portable.ts";
 import { DEFAULT_SETTINGS, withAppearance, withFilter } from "../src/state/settings.ts";
 import { desk, refusingClient } from "./desk.ts";
-import { DRAWN } from "./ui/desk.ts";
+import { DRAWN } from "./drawn.ts";
 
 const CHANGED = withFilter(withAppearance(DEFAULT_SETTINGS, { theme: "light", nodeScale: 2 }), { minDegree: 3 });
 

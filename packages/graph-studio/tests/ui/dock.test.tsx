@@ -55,3 +55,12 @@ test("the dock collapses as one, and the button that does it says so", () => {
   assert.match(html, />Controls</);
   assert.match(html, /id="gs-dock-body"/);
 });
+
+test("the Forces section shows four labelled sliders, all aria-disabled, with the reason once", () => {
+  const html = dock();
+  for (const title of ["Center force", "Repel force", "Link force", "Link distance", "Reset to defaults", "Animate"]) {
+    assert.ok(html.includes(title), title);
+  }
+  assert.equal(html.match(/type="range"[^>]*aria-disabled="true"/g)?.length, 4);
+  assert.equal(html.split("live forces need the motor session (force-wasm)").length - 1, 1);
+});

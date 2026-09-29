@@ -8,7 +8,7 @@
 import type { ShownError } from "../state/errors.ts";
 import type { Source } from "../state/settings.ts";
 import type {
-  AnalysisReport, Assets, Catalog, Envelope, GraphSummary, Port, Request, Result, RunReport, Spawn,
+  AnalysisReport, Assets, Catalog, Envelope, ForceRequest, GraphSummary, Port, Request, Result, RunReport, Spawn,
 } from "./protocol.ts";
 
 export class CancelledError extends Error {
@@ -37,6 +37,11 @@ export interface MotorClient {
   /** Stops what is running. False when nothing was. */
   cancel(): boolean;
   busy(): boolean;
+  /**
+   * Sends a force request without waiting for a reply; dropped when no motor is open. Optional
+   * so a test double need not carry it.
+   */
+  force?(request: ForceRequest): void;
   close(): void;
 }
 
@@ -106,6 +111,18 @@ function drop(state: State): void {
   for (const waiting of stopped) waiting.reject(new CancelledError());
 }
 
+function cancelWaiting(state: State): boolean {
+  if (state.waiting.size === 0) return false;
+  drop(state);
+  return true;
+}
+
+function fireAndForget(state: State, body: Request): void {
+  if (state.link === null || state.closed) return;
+  state.seq += 1;
+  state.link.port.send({ seq: state.seq, body });
+}
+
 export function createClient(spawn: Spawn, assets: Assets): MotorClient {
   const state: State = { link: null, seq: 0, loaded: null, closed: false, waiting: new Map() };
   const linked = async (): Promise<Link> => {
@@ -134,12 +151,9 @@ export function createClient(spawn: Spawn, assets: Assets): MotorClient {
       if (result.type !== "analysed") throw mismatch("analysis", result);
       return result.analysis;
     },
-    cancel: () => {
-      if (state.waiting.size === 0) return false;
-      drop(state);
-      return true;
-    },
+    cancel: () => cancelWaiting(state),
     busy: () => state.waiting.size > 0,
+    force: (body) => fireAndForget(state, body),
     close: () => {
       state.closed = true;
       drop(state);

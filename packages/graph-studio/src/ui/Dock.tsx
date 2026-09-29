@@ -4,6 +4,7 @@ import { useState, type ReactElement, type ReactNode } from "react";
 import { DOCK_SECTIONS } from "../actions/all.ts";
 import type { StudioState } from "../state/model.ts";
 import type { Studio } from "../studio/studio.ts";
+import { ForcesPanel } from "./ForcesPanel.tsx";
 import { ActionForm } from "./ActionForm.tsx";
 import { signatureOf, valuesOf } from "./draft.ts";
 
@@ -85,7 +86,9 @@ export function Dock(props: DockProps): ReactElement {
       <div className="gs-dock-body" id={BODY} hidden={!open}>
         {DOCK_SECTIONS.map((name) => (
           <Section key={name} name={name} open={shown.includes(name)} onToggle={() => flip(name)}>
-            <Actions studio={studio} state={state} name={name} />
+            {name === "Forces"
+              ? <ForcesPanel studio={studio} state={state} />
+              : <Actions studio={studio} state={state} name={name} />}
           </Section>
         ))}
       </div>

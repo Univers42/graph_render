@@ -22,6 +22,7 @@ import { fpsOf } from "./canvas2d/rate.ts";
 import type { Frame } from "./frame.ts";
 import { DOUBLE_CLICK_ZOOM, centreOf } from "./gesture.ts";
 import { type LabelPolicy, newLabelPlan } from "./labels.ts";
+import type { LiveDrag } from "./drag.ts";
 import { type LocalOptions, newLocalLayer } from "./local.ts";
 import { bindPointer } from "./pointer.ts";
 import type { Style } from "./style.ts";
@@ -32,6 +33,8 @@ export type { EdgeEnds } from "./canvas2d/probe.ts";
 export interface ViewOptions {
   readonly theme?: Theme;
   readonly labels?: LabelPolicy;
+  /** A live force session: a drag pins the node in it while it is enabled. */
+  readonly live?: LiveDrag;
 }
 
 export interface ViewStats {
@@ -264,7 +267,7 @@ export function createView(canvas: HTMLCanvasElement, options: ViewOptions = {})
     context: (node: number, at: Point): void => emit("context", { node, at }),
     camera: (camera: Camera): void => emit("camera", camera),
   };
-  const controller: Controller = { canvas, state, notify, fitted: true, local: newLocalLayer() };
+  const controller: Controller = { canvas, state, notify, fitted: true, local: newLocalLayer(), ...(options.live === undefined ? {} : { live: options.live }) };
   measure(controller);
   const unbind = bindInputs(controller);
   return {

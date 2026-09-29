@@ -84,7 +84,7 @@ export const STUDIO_CSS = `
 }
 .gs-btn:hover:not([disabled]) { border-color: var(--gs-accent); }
 .gs-btn[aria-pressed="true"] { background: var(--gs-accent); border-color: var(--gs-accent); color: #ffffff; }
-.gs-btn[disabled], .gs-input[disabled], .gs-select[disabled], .gs-range[disabled], .gs-check[disabled] { opacity: .45; cursor: not-allowed; }
+.gs-btn[disabled], .gs-input[disabled], .gs-select[disabled], .gs-range[disabled], .gs-check[disabled], .gs-forces [aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
 .gs-btn:focus-visible, .gs-keymap-close:focus-visible, .gs-input:focus-visible, .gs-select:focus-visible, .gs-range:focus-visible, .gs-check:focus-visible { outline: 2px solid var(--gs-accent); outline-offset: 1px; }
 .gs-input, .gs-select {
   height: 26px;

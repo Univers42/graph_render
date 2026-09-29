@@ -2,6 +2,7 @@
  * What crosses between the studio and the motor's worker. The motor runs where it cannot
  * freeze the page, so everything it is asked and everything it answers is one of these.
  */
+import type { ForceKnobs } from "./live.ts";
 import type { GraphMeta } from "../source/meta.ts";
 import type { ShownError } from "../state/errors.ts";
 import type { Source } from "../state/settings.ts";
@@ -56,14 +57,33 @@ export type Request =
   | { readonly type: "open"; readonly wasmUrl: string }
   | { readonly type: "load"; readonly source: Source; readonly fixturesUrl: string }
   | { readonly type: "layout"; readonly layoutId: string; readonly postId: string | null }
-  | { readonly type: "analysis"; readonly analysisId: string };
+  | { readonly type: "analysis"; readonly analysisId: string }
+  | ForceRequest;
+
+export type ForceRequest =
+  | { readonly type: "force.start" }
+  | { readonly type: "force.drag"; readonly id: string; readonly x: number; readonly y: number }
+  | { readonly type: "force.release"; readonly id: string }
+  | { readonly type: "force.params"; readonly knobs: ForceKnobs }
+  | { readonly type: "force.stop" };
+
+/** One frame of the live simulation: the buffers are handed over, not copied. */
+export interface ForceFrame {
+  readonly xs: Float64Array;
+  readonly ys: Float64Array;
+  readonly alpha: number;
+  /** False on the last frame: the loop has stopped and costs nothing until the next request. */
+  readonly running: boolean;
+}
 
 export type Result =
   | { readonly type: "opened"; readonly catalog: Catalog }
   | { readonly type: "loaded"; readonly graph: GraphSummary }
   | { readonly type: "laid-out"; readonly run: RunReport }
   | { readonly type: "analysed"; readonly analysis: AnalysisReport }
-  | { readonly type: "failed"; readonly error: ShownError };
+  | { readonly type: "failed"; readonly error: ShownError }
+  | { readonly type: "force-state"; readonly running: boolean; readonly disabled: string | null }
+  | { readonly type: "force-frame"; readonly frame: ForceFrame };
 
 export interface Envelope<Body> {
   readonly seq: number;
@@ -80,8 +100,13 @@ export interface Port {
 
 export type Spawn = () => Port;
 
-const REQUESTS: readonly string[] = ["open", "load", "layout", "analysis"];
-const RESULTS: readonly string[] = ["opened", "loaded", "laid-out", "analysed", "failed"];
+const FORCE_REQUESTS: readonly string[] = ["force.start", "force.drag", "force.release", "force.params", "force.stop"];
+const REQUESTS: readonly string[] = ["open", "load", "layout", "analysis", ...FORCE_REQUESTS];
+const RESULTS: readonly string[] = ["opened", "loaded", "laid-out", "analysed", "failed", "force-state", "force-frame"];
+
+export function isForceRequest(request: Request): request is ForceRequest {
+  return FORCE_REQUESTS.includes(request.type);
+}
 
 /** Both ends are this package's own code, so the tag is checked and the members trusted. */
 function typeOf(value: unknown): string | null {

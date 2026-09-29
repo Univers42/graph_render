@@ -1,6 +1,8 @@
 /** One request in, one answer out. A failure is an answer too: the pump never throws. */
+import { NO_ADAPTER_REASON } from "./live.ts";
 import { describeError } from "../state/errors.ts";
-import type { Request, Result } from "./protocol.ts";
+import type { ForceHost } from "./liveLoop.ts";
+import { type Request, type Result, isForceRequest } from "./protocol.ts";
 import type { Session } from "./session.ts";
 
 export interface Answer {
@@ -9,7 +11,13 @@ export interface Answer {
   readonly transfer: ArrayBufferLike[];
 }
 
-async function answerTo(session: Session, request: Request): Promise<Answer> {
+async function answerTo(session: Session, request: Request, forces: ForceHost | null): Promise<Answer> {
+  if (isForceRequest(request)) {
+    const result: Result = forces === null
+      ? { type: "force-state", running: false, disabled: NO_ADAPTER_REASON }
+      : forces.handle(request);
+    return { result, transfer: [] };
+  }
   if (request.type === "open") {
     return { result: { type: "opened", catalog: await session.open(request.wasmUrl) }, transfer: [] };
   }
@@ -24,9 +32,9 @@ async function answerTo(session: Session, request: Request): Promise<Answer> {
   return { result: { type: "analysed", analysis }, transfer: [analysis.values.buffer] };
 }
 
-export async function serve(session: Session, request: Request): Promise<Answer> {
+export async function serve(session: Session, request: Request, forces: ForceHost | null = null): Promise<Answer> {
   try {
-    return await answerTo(session, request);
+    return await answerTo(session, request, forces);
   } catch (error) {
     return { result: { type: "failed", error: describeError(error) }, transfer: [] };
   }

@@ -152,7 +152,7 @@ class Studio:
                 "=": ("=", "Equal", 187), "-": ("-", "Minus", 189), "_": ("_", "Minus", 189),
                 "Escape": ("Escape", "Escape", 27), "ArrowLeft": ("ArrowLeft", "ArrowLeft", 37),
                 "ArrowRight": ("ArrowRight", "ArrowRight", 39), "ArrowUp": ("ArrowUp", "ArrowUp", 38),
-                "ArrowDown": ("ArrowDown", "ArrowDown", 40), " ": (" ", "Space", 32)}
+                "ArrowDown": ("ArrowDown", "ArrowDown", 40), " ": (" ", "Space", 32), "Tab": ("Tab", "Tab", 9)}
         if name not in keys:
             raise cdp.CdpError(f"no key named {name}")
         key, code_name, key_vk = keys[name]

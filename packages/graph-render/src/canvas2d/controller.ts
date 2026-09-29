@@ -2,6 +2,7 @@
 import {
   type Camera, type Point, fitCamera, limitsFor, screenToWorld,
 } from "../camera.ts";
+import type { LiveDrag } from "../drag.ts";
 import type { Frame } from "../frame.ts";
 import { DEFAULT_POLICY, type LabelPolicy, newLabelPlan, occupancyFor } from "../labels.ts";
 import type { LocalLayer } from "../local.ts";
@@ -32,6 +33,8 @@ export interface Controller {
   fitted: boolean;
   /** The local graph, when one is shown: a fit frames it and not the whole graph. */
   readonly local: LocalLayer;
+  /** The motor's live session, when the host gave one; a drag goes to it while it is enabled. */
+  readonly live?: LiveDrag;
 }
 
 export interface Setup {

@@ -57,7 +57,8 @@ test("every section of the dock shows an action, and every shown action is in a 
 
 test("every parameter has a control, and a choice control has choices to show", () => {
   for (const action of registry.actions) {
-    assert.equal(action.available?.(DRAWN) ?? null, null, action.id);
+    // Forces are unavailable until the motor's live session is wired: the reason is the point.
+    if (!action.id.startsWith("forces.")) assert.equal(action.available?.(DRAWN) ?? null, null, action.id);
     for (const spec of action.params) {
       const control = controlOf(spec);
       if (spec.kind === "choice") assert.ok((spec.choices?.(DRAWN) ?? []).length > 0, `${action.id}.${spec.name}`);

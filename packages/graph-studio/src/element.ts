@@ -12,6 +12,8 @@
 import { createElement } from "react";
 import { type Root, createRoot } from "react-dom/client";
 
+import { NO_FORCE_LINK } from "./actions/forces.ts";
+import { createLiveDrag } from "./motor/liveDrag.ts";
 import { type View, createView } from "../../graph-render/src/view.ts";
 import type { Save } from "./actions/context.ts";
 import { createClient } from "./motor/client.ts";
@@ -99,15 +101,25 @@ function mount(host: HTMLElement, options: StudioElementOptions): Mounted {
   shadow.replaceChildren(style, canvas, chrome);
   // Focusable, so a click on the graph brings the shortcuts to this studio and no other.
   if (!host.hasAttribute("tabindex")) host.tabIndex = 0;
-  const view = createView(canvas);
+  const client = createClient(options.spawn ?? spawnWorker, assetsOf(host));
+  // The view is made before the studio, and the ids live in the studio's state: read late.
+  const shown: { studio: Studio | null } = { studio: null };
+  const view = createView(canvas, {
+    live: createLiveDrag({
+      ids: () => shown.studio?.store.get().meta?.ids ?? null,
+      disabled: NO_FORCE_LINK.disabled,
+      send: (request) => client.force?.(request),
+    }),
+  });
   const storage = pageStorage();
   const studio = createStudio({
-    client: createClient(options.spawn ?? spawnWorker, assetsOf(host)),
+    client,
     view,
     save: options.save ?? download,
     now: () => performance.now(),
     ...(storage === null ? {} : { storage, settings: openingSettings(storage) }),
   });
+  shown.studio = studio;
   const root = createRoot(chrome);
   root.render(createElement(Shell, { studio, view, keys: host.getAttribute("keys") === "page" ? window : host }));
   void studio.start();
