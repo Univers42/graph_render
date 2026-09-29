@@ -32,15 +32,16 @@ pass (4/4). A fresh worktree needs `npm ci` before `cargo test`.
 | p6e spectral / pivot MDS | **merged via train** (inside p6f). Spectral differential measured (ceilings 1e-5 / 1e-7). No `phase-06.md` report yet |
 | p6f Barnes-Hut / FA2 | **merged via train**. FA2 differential built (`harness/oracle-fa2.py`, `graph-cli emit-fa2-fixtures` / `oracle-fa2`, generic `oracle_python.rs`). BH and FA2 ledger rows stay `Implemented` |
 | p7 analysis | **merged via train** (conflicts in capability tests resolved: 26 rows, 8 `analysis.*` rows `Implemented`) |
-| p4 WASM SDK | **NOT merged** (tried 2026-09-29, aborted: too deep to do safely before shutdown). 34 conflict hunks. p4 moved the stage list into `hashgate/stages.rs`: registry-driven `stages()` = topology + `LAYOUTS` + `transport.wasm.columnar`, native bytes from `(layout.run)(&topology)` except the grid (run_pipeline with `setting.grid`), a `stage_bytes_for(seed, setting, layouts)` test seam and a `check()` for duplicate ids. develop (p6f) instead has a literal `STAGES: [&str; 11]`, 6 knobs in `hashgate/knob.rs` (`Setting` carries `sugiyama`, `extra_nodes`, `force`, `fa2`), and `stage_bytes` special-cases `BarnesHut::ID`/`ForceAtlas2::ID` (`run_force` with `setting.force`/`setting.fa2`) and runs Sugiyama last via `run_pipeline::<Sugiyama>` with `setting.sugiyama`. **Resolution:** keep p4's `stages.rs` shape and its transport stage; keep develop's `knob.rs`; inside `stage_bytes_for`, route BH / FA2 / Sugiyama / NodeCount through `setting` exactly as develop's `stage_bytes` does; drop the literal `STAGES` for `stages()` and fix every `STAGE_COUNT`/array-size use; merge `harness/wasm-run.mjs` so it has p4's real-ABI path and develop's per-layout exports (spectral, mds_pivot, force_barnes_hut, forceatlas2, dag_sugiyama). Then update the pinned stage lists in `report.rs`, `snapshot_cmd/tests.rs`, `tests/snapshot.rs`, `tests/cli*.rs` and the capability row counts |
+| p4 WASM SDK | **merged into develop 2026-09-29 03:53** (507f1c2): fmt 0, clippy 0, `cargo test --workspace --no-fail-fast` 755 passed / 0 failed. Resolution as planned: p4's registry-driven `hashgate/stages.rs` (`stages()` = topology + `LAYOUTS` in registry order + `transport.wasm.columnar`) with develop's knobs routed inside `stage_bytes_for` (BH/FA2 via `run_force` with `setting.force`/`setting.fa2`, Sugiyama via `run_pipeline` with `setting.sugiyama`, `extra_nodes` on the node count); develop's `knob.rs`/`compare.rs`; the C20 tally is in `report::body(control, seeds, tally, c20)` and `conclude()`; `wasm-run.mjs` is p4's real-ABI version (every non-grid layout runs through `gm_run`). **Found by the merge:** the wasm JSON ingest dropped p3's `EdgeRecord.child_first`, so the tidy tree diverged native vs wasm; `child_first` is now an optional 9th edge member (absent = false) written by `seed_ingest.rs`. **Deviation:** p4's CLI test `a_misspelt_knob_or_two_at_once_is_could_not_run_never_a_green_control` was folded into develop's typo loop in `tests/cli.rs` (check it still covers "two knobs at once"); the spacing control's `"transport.wasm.columnar": 0` assertion was re-added; capability rows are now 28, `--check` problems 34 |
 | p8 post-routing / bundling | slices on branches `p8-*`, several worktrees have **uncommitted** work (see below). Two bunny builders were running on the route slice in two different worktrees (`p8-route` and `p8-p8-route`) — duplicate work; keep one |
 | p9 scale bench | branch `p9` started from `train`; a bunny builder was started 03:4x on the native slice; see `docs/reports/phase-09-progress.md` on that branch if it committed |
-| p10, p11 | not started (p10 needs p4; p11 needs p9) |
+| p10 ingest/SDK publish | branch `p10` from develop after the p4 merge; a bunny builder started 03:54 on the first slice (`docs/reports/phase-10-progress.md` if it committed) |
+| p11 compute tiers | not started (needs p9) |
 
 ## Remaining, in order
 
-1. If `train` is not on develop yet: run fmt/clippy/test on `train`, fix, push `train:develop`.
-2. Merge **p4** into develop by hand (see the conflict list above). Then p7's SDK row.
+1. Done: train and p4 are on develop. Still to do: p7's SDK row (p4 → p7 dependency), and check the folded p4 CLI test listed under p4 above.
+2. The WIP of every p8*/p9/p10 worktree was committed as `updated` and pushed to its own branch by `/sgoinfre/students/dlesieur/orch/snap-wip.sh` before shutdown: those commits are unreviewed agent output, gate them before trusting them.
 3. One full gate on develop: the union of `/sgoinfre/students/dlesieur/orch/rows/p6e-full.rows`
    plus p3's rows, with the bench rows rewritten to the unified CLI
    (`bench --layout X --n 220,10000,100000 [--past-ceiling] [--vs-d3]`; the old `--nodes`
@@ -108,5 +109,8 @@ pass (4/4). A fresh worktree needs `npm ci` before `cargo test`.
 - **zsh (`hellish`) quirks**: `echo ===` expands `=`; unmatched globs abort the command
   (`--include=*`), use `git grep`; `sed -n 'a,bp'` needs the comma.
 - Host rustfmt is not configured; always `gr cargo fmt`.
+- **A merge that looks too deep usually isn't.** The p4 merge (34 hunks) was aborted once as "too deep"; done hunk by hand with a small resolver script it took 10 minutes and was green on the third test run. Save a half-resolved merge to a `*-wip` branch (conflict markers and all) instead of aborting, so the work survives.
+- **Run `cargo test --no-fail-fast`**: without it cargo stops at the first failing test binary and hides the other crates' failures.
+- **A new struct field needs every constructor across crates, including the wire formats**: p3's `child_first` was missing from p4's wasm ingest, and only the 4-way hash gate caught it.
 - Don't answer "is it done" from memory: check `git rev-list origin/develop..origin/<b>`,
   the gate `summary.txt`, and running processes first.
