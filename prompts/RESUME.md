@@ -125,10 +125,17 @@ pass (4/4). A fresh worktree needs `npm ci` before `cargo test`.
     - `p12-t1`: random, circular.ring, circular.shell, bipartite, spiral, force.yifan_hu, plus any other networkx 2D entry;
     - `p12-t2`: force.spring (networkx spring_layout 2D), circular.hierarchy (SciGraphs CIRCULAR_HIERARCHY).
   - p12-igraph and p12-t1 died on quota with 0 commits and were resumed on longcat (`p12-igraphb`, `p12-t1b`).
-  - Not started; each waits on a user decision:
-    - 8 Graphviz entries (DOT, NEATO, FDP, SFDP, TWOPI, CIRCO, OSAGE, PATCHWORK): no Graphviz reference on disk, which is a stop until a pinned source is added to `fetch-refs.sh`.
-    - 9 3D entries (SPHERE, SPIRAL_3D, HELIX, CUBE, SPECTRAL_3D, MDS_3D, HIERARCHICAL_3D, BIPARTITE_3D, SPRING_3D, plus 3D variants of FR, KK and DrL): the wire contract is 2D, so these need a contract change (public surface, devil verdict) or 2D variants.
-
+- About 21:40: user decisions on the rest of the SciGraphs list.
+  - Graphviz: no Graphviz binary, library or server. The motor reimplements all eight natively. The pinned Graphviz source is an algorithm reference and a docker-only test oracle (EPL-1.0: read it, don't translate it line by line).
+  - 3D: approved. It needs a contract change (dim once per snapshot, a z column, 2D bytes unchanged), so the design goes through a devil verdict before any code.
+  - Performance: CPU only. Every layout gets the Phase 11 thread tier and a bench-driven optimization pass. Order: easiest first.
+  - Launched:
+    - `p13-gv1`: twopi, circo, patchwork, osage. Step 0 pins the Graphviz source in `fetch-refs.sh`.
+    - `p13-3d`: design doc `docs/decisions/contract-3d.md` only; `docs.rows` = fmt.
+  - Next:
+    - `p13-gv2` (neato, fdp, sfdp, dot) after p12 lands, reusing KK, FR, Yifan Hu and the Sugiyama pipeline;
+    - an opus devil verdict on contract-3d, then the 3D implementation and the easiest 3D layouts;
+    - after p11 merges: extend the thread tier to every layout and bench each one.
 ## Remaining, in order
 
 1. Done: train and p4 are on develop. Still to do: p7's SDK row (p4 → p7 dependency), and check the folded p4 CLI test listed under p4 above.
