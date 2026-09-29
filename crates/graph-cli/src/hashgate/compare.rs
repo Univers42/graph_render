@@ -1,7 +1,7 @@
 //! Comparing the four arms' output: line by line, after refusing every comparison that
 //! would agree vacuously.
 
-use super::STAGES;
+use super::stages;
 use std::collections::BTreeSet;
 
 /// One arm: its name and its `stage seed sha256` lines, stage by stage, seed by seed.
@@ -18,7 +18,7 @@ pub fn diverged(seeds: u32, arms: &[Arm]) -> Result<Vec<usize>, String> {
     if arms.len() != 4 {
         return Err(format!("{} arms, need 4", arms.len()));
     }
-    let per_arm = seeds as usize * STAGES.len();
+    let per_arm = seeds as usize * stages().len();
     for (name, lines) in arms {
         if lines.len() != per_arm {
             return Err(format!(
@@ -35,7 +35,7 @@ pub fn diverged(seeds: u32, arms: &[Arm]) -> Result<Vec<usize>, String> {
         }
     }
     let first = &arms[0].1;
-    for (stage, block) in STAGES.iter().zip(first.chunks(seeds as usize)) {
+    for (stage, block) in stages().iter().zip(first.chunks(seeds as usize)) {
         if seeds > 1 && block.iter().all(|line| digest(line) == digest(&block[0])) {
             return Err(format!(
                 "{stage}: every seed hashed to one digest: the seed never reaches the output, so {seeds} seeds test one input"
@@ -50,7 +50,7 @@ pub fn diverged(seeds: u32, arms: &[Arm]) -> Result<Vec<usize>, String> {
 /// Divergent lines folded back to stages and seeds.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Tally {
-    /// Seeds on which all four arms agree, per stage in [`STAGES`] order.
+    /// Seeds on which all four arms agree, per stage in [`stages`] order.
     pub equal: Vec<u32>,
     /// Seeds with a divergence in any stage.
     pub diverged_seeds: u32,
@@ -59,7 +59,7 @@ pub struct Tally {
 /// Folds the line indices from [`diverged`] into per-stage and per-seed counts.
 pub fn per_stage(seeds: u32, lines: &[usize]) -> Tally {
     let per = seeds as usize;
-    let mut equal = vec![seeds; STAGES.len()];
+    let mut equal = vec![seeds; stages().len()];
     let mut bad_seeds = BTreeSet::new();
     for &line in lines {
         equal[line / per] -= 1;
@@ -76,7 +76,8 @@ fn digest(line: &str) -> &str {
 }
 
 fn well_formed(line: &str, seeds: u32, index: usize) -> bool {
-    let (stage, seed) = (STAGES[index / seeds as usize], index % seeds as usize);
+    let stage = stages()[index / seeds as usize];
+    let seed = index % seeds as usize;
     let mut parts = line.split(' ');
     let prefix_ok = parts.next() == Some(stage) && parts.next() == Some(seed.to_string().as_str());
     let digest = parts.next().unwrap_or("");

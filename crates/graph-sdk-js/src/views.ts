@@ -57,8 +57,9 @@ function edgeColumnApplies(edgeKind: EdgeGeometryKind, columnId: number): boolea
   }
 }
 
-/** Whether `columnId` exists at all for a snapshot of this node/edge kind — reserved ids
- * (`NoteCode`/`NoteIndex`, Phase 3) never do, this phase, whatever the kind. */
+/** Whether `columnId` exists at all for a snapshot of this node/edge kind — the reserved
+ * ids (`NoteCode`/`NoteIndex`, Phase 3's `note.code`/`note.index`) never do, whatever the
+ * kind. */
 export function columnApplies(nodeKind: NodeGeometryKind, edgeKind: EdgeGeometryKind, columnId: number): boolean {
   if (columnId === ColumnId.NoteCode || columnId === ColumnId.NoteIndex) return false;
   return nodeColumnApplies(nodeKind, columnId) || edgeColumnApplies(edgeKind, columnId);

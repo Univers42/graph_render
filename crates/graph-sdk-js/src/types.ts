@@ -9,8 +9,9 @@ import type { EdgeGeometryKind, NodeGeometryKind, SnapshotHeader } from "../../g
 export type { EdgeGeometryKind, NodeGeometryKind, SnapshotHeader };
 
 /** Column ids (`crates/graph-wasm/src/views.rs::id`, `docs/contract/wasm-abi.md`
- * "Columns"): append-only, never renumbered. `NoteCode`/`NoteIndex` are reserved for
- * Phase 3's notes section and always read [`ColumnKind.Absent`](#absent) this phase. */
+ * "Columns"): append-only, never renumbered. `NoteCode`/`NoteIndex` are reserved for the
+ * two fields Phase 3's notes section brings — `note.code` and `note.index` — and read
+ * [`ColumnKind.Absent`](#absent) until that merge, for every graph. */
 export const ColumnId = {
   NodeX: 0,
   NodeY: 1,

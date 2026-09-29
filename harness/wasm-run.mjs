@@ -3,14 +3,25 @@
 // module must import nothing — a self-contained arm tests the real shipped binary.
 //
 //   node harness/wasm-run.mjs <graph_wasm.wasm> hash <seeds> <stage>...
-//        prints "<stage> <seed> <sha256>" for each stage in order, seeds 0..N-1;
-//        stages: topology (gm_topology), layout.grid (gm_layout_grid),
-//        transport.wasm.columnar (the real ABI: gm_seed_ingest -> gm_alloc -> gm_build ->
-//        gm_run -> gm_snapshot_bytes, over the same seed's model — C20: byte-equal to
-//        layout.grid's own hash proves the real ABI reaches the same bytes as the
-//        hash-gate-only shim, not just that the shim itself is internally consistent)
+//        prints "<stage> <seed> <sha256>" for each stage in order, seeds 0..N-1.
+//        The stage list is the module's own registry, not a literal list here (C1):
+//          topology  gm_topology, the retained shim
+//          layout.grid  gm_layout_grid, the retained shim — frozen since Phase 2/3 so
+//            their already-green gate keeps hashing the bytes it always hashed
+//          every other registered layout  the real ABI: gm_seed_ingest -> gm_alloc ->
+//            gm_build -> gm_run(layout id, resolved via gm_layout_id) -> gm_snapshot_bytes,
+//            over the same seed's model. C20, and the same path for any layout registered
+//            after this file was written: byte-equal to the retained shim's own hash proves
+//            the real ABI reaches the pipeline's bytes, not just that it agrees with
+//            itself
+//          transport.wasm.columnar  the real ABI over layout.grid, so the tally against
+//            the shim's hash is the C20 measurement the ledger reads
 //   node harness/wasm-run.mjs <graph_wasm.wasm> probe
 //        prints the D1 probe buffer as one hex line
+//   node harness/wasm-run.mjs <graph_wasm.wasm> stages
+//        prints every stage this arm can hash, one id per line: topology, layout.grid,
+//        transport.wasm.columnar, then every layout the module's registry names. The
+//        stage list is the module's, not a literal list here (C1).
 //   node --experimental-strip-types harness/wasm-run.mjs <graph_wasm.wasm> --assert-zero-copy
 //        proves the SDK's column views are real zero-copy aliases (C8), that a view held
 //        across a memory-growing build is not silently reused stale (C10's growth hazard),
@@ -53,19 +64,54 @@ function decodeUtf8(bytes) {
   return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
 }
 
-function layoutIndex(name) {
-  const total = exports.gm_layout_count();
-  for (let i = 0; i < total; i += 1) {
-    if (decodeUtf8(framed(exports.gm_layout_id(i))) === name) return i;
+/// The layout the transport stage runs, and the one the retained `gm_layout_grid` shim
+/// hashes. Both are this layout, named once: the shim predates this phase's real ABI and
+/// is frozen so Phase 2/3's already-green gate keeps hashing the bytes it always hashed,
+/// so this stage stays shim-backed while every other registered layout is hashed through
+/// the real ABI. `abiSnapshotBytes` drives this id through `gm_run`/`gm_snapshot_bytes`,
+/// and `hashgate`'s native side names it in `hashgate/stages.rs` as `LAYOUT`.
+const SHIM_LAYOUT = "layout.grid";
+
+/// The module's own layout registry, id -> index, read once (C1). Every layout the gate
+/// hashes other than the retained shim's is resolved through here rather than through a
+/// constant, so a layout registered after this file was written is hashable by name.
+///
+/// The one derivation, deliberately: this arm resolves a layout name in three places
+/// (`layoutIndices` for the stage list, `layoutIndex` below for `gm_run`, and the
+/// `hash` mode's own membership test), and three scans of `gm_layout_count` is three
+/// places for the registry to be read differently.
+let registry = null;
+function layoutIndices() {
+  if (registry === null) {
+    registry = new Map();
+    const total = exports.gm_layout_count();
+    for (let i = 0; i < total; i += 1) {
+      registry.set(decodeUtf8(framed(exports.gm_layout_id(i))), i);
+    }
   }
-  fail(`no registered layout named ${name}`);
+  return registry;
+}
+
+/// The registry index of `name`, or could-not-run. `gm_run`'s `layout_id` argument is this
+/// index, so a name the module does not carry is refused here rather than run as whatever
+/// happens to sit at that index.
+function layoutIndex(name) {
+  const index = layoutIndices().get(name);
+  if (index === undefined) fail(`no registered layout named ${name}`);
+  return index;
+}
+
+/// The registered layout ids, in registry order: this arm's layout stage list, which is
+/// the module's registry rather than a literal list here.
+function hashableLayouts() {
+  return [...layoutIndices().keys()];
 }
 
 /// C20: drives the *real* ABI — gm_seed_ingest's provisional-ingest text through
 /// gm_alloc/gm_build/gm_run/gm_snapshot_bytes — for the gate's seed model, so its hash can
 /// be asserted equal to the retained gm_layout_grid shim's (both are the binary face of
 /// the same model run through the same layout).
-function abiSnapshotBytes(seed) {
+function abiSnapshotBytes(seed, layout) {
   const ingest = framed(exports.gm_seed_ingest(seed));
   const ptr = exports.gm_alloc(ingest.length);
   if (ptr === 0) fail(`gm_alloc refused ${ingest.length} bytes (seed ${seed})`);
@@ -73,18 +119,29 @@ function abiSnapshotBytes(seed) {
   const handle = exports.gm_build(ptr, ingest.length);
   exports.gm_free(ptr, ingest.length);
   if (handle === 0) fail(`gm_build refused (seed ${seed}, gm_last_error ${exports.gm_last_error()})`);
-  const ok = exports.gm_run(handle, layoutIndex("layout.grid"), 0, 0);
+  const ok = exports.gm_run(handle, layoutIndex(layout), 0, 0);
   if (ok !== 1) fail(`gm_run refused (seed ${seed}, gm_last_error ${exports.gm_last_error()})`);
   const bytes = framed(exports.gm_snapshot_bytes(handle));
   exports.gm_release(handle);
   return bytes;
 }
 
-const STAGE_BYTES = {
+// The stages this arm can hash without a layout id: the two retained shims, unchanged
+// since Phase 2/3 so their already-green gate keeps hashing the same bytes, and the
+// transport, which is the real ABI over the shim's layout. Every other stage is a
+// registered layout id, hashed through the real ABI (see the `stages` mode above).
+//
+// A **null prototype**, so a lookup cannot fall through to `Object.prototype`: an object
+// literal would answer `STAGE_BYTES["toString"]` with `Object.prototype.toString`, and
+// the arm would then *hash* that member's return value under a stage nobody ran — a
+// digest of the string "[object Undefined]" and exit 0 for a stage that does not exist.
+// An unknown stage is refused by name instead (exit 2, "could not run"), never hashed as
+// something else; `hashgate/tests/stages/arm.rs` holds both directions.
+const STAGE_BYTES = Object.assign(Object.create(null), {
   topology: (seed) => framed(exports.gm_topology(seed)),
-  "layout.grid": (seed) => framed(exports.gm_layout_grid(seed)),
-  "transport.wasm.columnar": abiSnapshotBytes,
-};
+  [SHIM_LAYOUT]: (seed) => framed(exports.gm_layout_grid(seed)),
+  "transport.wasm.columnar": (seed) => abiSnapshotBytes(seed, SHIM_LAYOUT),
+});
 
 if (mode === "hash") {
   const seeds = Number.parseInt(count ?? "", 10);
@@ -93,8 +150,16 @@ if (mode === "hash") {
   const lines = [];
   const digestsByStage = new Map(); // stage -> [digest, ...] by seed, for the C20 check below
   for (const stage of stages) {
-    const bytesOf = STAGE_BYTES[stage];
-    if (typeof bytesOf !== "function") fail(`unknown stage ${stage}`);
+    // A shim-backed stage keeps its frozen hasher. Any other stage must name a layout the
+    // module itself registered, resolved through gm_layout_id (C1): a new registry row
+    // joins the gate with no change to this file, and a misspelt stage is refused rather
+    // than silently hashed as something else.
+    const bytesOf =
+      STAGE_BYTES[stage] ??
+      ((seed) => {
+        if (!layoutIndices().has(stage)) fail(`unknown stage ${stage}: not a registered layout`);
+        return abiSnapshotBytes(seed, stage);
+      });
     const digests = [];
     for (let seed = 0; seed < seeds; seed += 1) {
       const digest = createHash("sha256").update(bytesOf(seed)).digest("hex");
@@ -128,6 +193,13 @@ if (mode === "hash") {
   process.stdout.write(`${Buffer.from(framed(exports.gm_probe())).toString("hex")}\n`);
 } else if (mode === "--assert-zero-copy") {
   await assertZeroCopy();
+} else if (mode === "stages") {
+  // Every stage the gate can hash, one id per line: the two shim-backed ones, the
+  // transport, then every layout the module's own registry names (C1). A test asserts
+  // graph-cli's stage list is exactly this, so the two arms cannot drift apart.
+  process.stdout.write(
+    `${["topology", ...hashableLayouts(), "transport.wasm.columnar"].join("\n")}\n`,
+  );
 } else {
   fail(`unknown mode ${mode}`);
 }

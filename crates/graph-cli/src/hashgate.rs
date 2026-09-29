@@ -5,31 +5,39 @@
 //!
 //! The stages are the pipeline's (`graph_core::run_pipeline`): the topology, then every
 //! registered layout, each hashed on its own, so a divergence names the stage it began
-//! in. The wasm arm is the real `graph_wasm.wasm` driven by `harness/wasm-run.mjs` under
-//! Node, which hashes with its built-in crypto: two independent SHA-256
-//! implementations, so a broken hasher cannot agree with itself and pass.
+//! in, then the transport — the real ABI over the same model, a stage of the gate in its
+//! own right (C20). The wasm arm is the real `graph_wasm.wasm` driven by
+//! `harness/wasm-run.mjs` under Node, which hashes with its built-in crypto: two
+//! independent SHA-256 implementations, so a broken hasher cannot agree with itself and
+//! pass.
 //!
 //! An honest run records its result in `target/gates/hashgate.json`, and a negative
 //! control (one [`Knob`] set) in that knob's own record, for the capabilities ledger.
 
 mod compare;
+mod stages;
+mod transport;
+
+pub(crate) use stages::{LAYOUT, TRANSPORT};
+// `stage_bytes_for` is the test seam behind `stage_bytes` (`tests/stages.rs`), not a second
+// call site: the gate itself always runs the real registry.
+#[cfg(test)]
+use stages::stage_bytes_for;
+use stages::{stage_bytes, stages};
 
 use crate::evidence;
 use crate::runner::{build_wasm, file_sha256, node_harness, run_lines, sha256_hex};
 use compare::{Arm, Tally, diverged, per_stage};
-use graph_core::{Grid, GridParams, REFERENCE_DEGREE, gate_node_count, run_pipeline, seeded_model};
+use graph_core::{GridParams, REFERENCE_DEGREE};
 use serde_json::json;
 use std::env::VarError;
 use std::process::{Command, ExitCode};
 
-/// Every stage the gate hashes, in the order both arms print them: the topology, then
-/// every layout of `graph_core::registry::LAYOUTS`.
-pub const STAGES: [&str; 2] = ["topology", "layout.grid"];
-
 /// A negative control (`prompt.md` §7.2): a variable that perturbs the native arm only,
 /// so a wired mutation surfaces as exactly the cross-target divergence the gate must
-/// catch. Each moves one stage's input: the grid ignores weights, so the reference
-/// degree cannot reach `layout.grid`, and the grid's spacing is what backs that stage.
+/// catch. Each moves one stage's input: the grid ignores weights, so the reference degree
+/// cannot reach `layout.grid` — nor the transport stage, which restates the grid's bytes
+/// — and the grid's spacing is what backs both of those stages.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Knob {
     /// `GM_MUTATE_REFERENCE_DEGREE`: the degree the topology's weights are taken against.
@@ -134,7 +142,7 @@ pub fn arm(seeds: u32) -> ExitCode {
 /// `stage seed sha256` lines, stage by stage, seed by seed: the pipeline runs once per
 /// seed and each of its stages lands in its own block.
 fn arm_lines(seeds: u32, setting: &Setting) -> Result<String, String> {
-    let mut blocks = vec![String::new(); STAGES.len()];
+    let mut blocks = vec![String::new(); stages().len()];
     for seed in 0..seeds {
         let stages = stage_bytes(seed, setting).map_err(|err| format!("seed {seed}: {err}"))?;
         for (block, (stage, bytes)) in blocks.iter_mut().zip(stages) {
@@ -144,19 +152,12 @@ fn arm_lines(seeds: u32, setting: &Setting) -> Result<String, String> {
     Ok(blocks.concat())
 }
 
-/// Every stage's id and bytes for `seed`, in pipeline order.
-fn stage_bytes(seed: u32, setting: &Setting) -> Result<[(&'static str, Vec<u8>); 2], String> {
-    let (nodes, edges) = seeded_model(seed, gate_node_count(seed), setting.reference_degree);
-    let run = run_pipeline::<Grid>(&nodes, &edges, &setting.grid).map_err(|e| e.to_string())?;
-    Ok(run.stages())
-}
-
 fn collect_arms(seeds: u32) -> Result<Vec<Arm>, String> {
     let exe = std::env::current_exe().map_err(|e| format!("locating graph-cli: {e}"))?;
     let wasm = build_wasm(&[])?;
     let count = seeds.to_string();
     let native = || run_lines(Command::new(&exe).args(["hashgate-arm", "--seeds", &count]));
-    let wasm32 = || run_lines(node_harness(&wasm).args(["hash", &count]).args(STAGES));
+    let wasm32 = || run_lines(node_harness(&wasm).args(["hash", &count]).args(stages()));
     let arms = vec![
         ("native run 1", native()?),
         ("native run 2", native()?),
@@ -175,7 +176,7 @@ fn report(stamp: &evidence::Stamp, control: Option<Knob>, seeds: u32, arms: &[Ar
     let mutation = control.map_or("none", Knob::env);
     println!(
         "hashgate: stages={} seeds={seeds} control={mutation}",
-        STAGES.join(",")
+        stages().join(",")
     );
     let lines = match diverged(seeds, arms) {
         Ok(lines) => lines,
@@ -185,19 +186,47 @@ fn report(stamp: &evidence::Stamp, control: Option<Knob>, seeds: u32, arms: &[Ar
         }
     };
     print_arms(arms, &lines);
-    let stages = per_stage(seeds, &lines);
-    for (stage, equal) in STAGES.iter().zip(&stages.equal) {
+    let tally = per_stage(seeds, &lines);
+    for (stage, equal) in stages().iter().zip(&tally.equal) {
         println!("  {stage}: 4-way equal on {equal}/{seeds} seeds");
     }
-    let bad = stages.diverged_seeds;
+    conclude(stamp, control, seeds, &tally, arms)
+}
+
+/// The C20 tally, the record, and the exit code: the last of the gate's work, split out
+/// of [`report`] by the house's 40-line-per-function limit.
+fn conclude(
+    stamp: &evidence::Stamp,
+    control: Option<Knob>,
+    seeds: u32,
+    tally: &Tally,
+    arms: &[Arm],
+) -> ExitCode {
+    // C20, counted from the wasm arm's own lines (run 1; run 2 is 4-way equal to it):
+    // the real ABI's snapshot against the retained shim's, per seed.
+    let c20 = match transport::agree_with_shim(seeds, &arms[2].1) {
+        Ok(agreed) => agreed,
+        Err(err) => {
+            eprintln!("hashgate: the C20 tally could not be read: {err}");
+            return ExitCode::from(2);
+        }
+    };
+    println!("  {TRANSPORT}: the real ABI matched {LAYOUT} on {c20}/{seeds} seeds");
+    let bad = tally.diverged_seeds;
     println!("  4-way equal on {}/{seeds} seeds", seeds - bad);
-    if let Err(err) = record(stamp, control, seeds, &stages) {
+    if let Err(err) = record(stamp, control, seeds, tally, c20) {
         eprintln!("hashgate: not recorded: {err}");
         return ExitCode::from(2);
     }
-    if bad == 0 {
+    if bad == 0 && c20 == seeds {
         println!("PASS");
         ExitCode::SUCCESS
+    } else if c20 != seeds {
+        println!(
+            "FAIL: {TRANSPORT} diverges from {LAYOUT} on {} seeds",
+            seeds - c20
+        );
+        ExitCode::from(1)
     } else {
         println!("FAIL: {bad} of {seeds} seeds diverge");
         ExitCode::from(1)
@@ -223,22 +252,28 @@ fn print_arms(arms: &[Arm], lines: &[usize]) {
 
 /// Writes this run's result for the ledger: `hashgate.json` for an honest run, the
 /// knob's own record for a negative control. A run that cannot record exits 2: its
-/// verdict would otherwise stand with no evidence behind it.
+/// verdict would otherwise stand with no evidence behind it. The `transport` tally goes
+/// in the same record, because it *is* the hash gate's verdict — the C20 count
+/// `capabilities/verdict.rs` reads for the `transport.wasm.columnar` row.
 fn record(
     stamp: &evidence::Stamp,
     control: Option<Knob>,
     seeds: u32,
     tally: &Tally,
+    c20: u32,
 ) -> Result<(), String> {
     let name = control.map_or("hashgate", Knob::record);
-    let stages: serde_json::Map<_, _> = STAGES
+    let stages: serde_json::Map<_, _> = stages()
         .iter()
         .zip(&tally.equal)
         .map(|(stage, equal)| ((*stage).to_owned(), json!(equal)))
         .collect();
     let mutation = control.map(Knob::env);
-    let pass = tally.diverged_seeds == 0;
-    let body = json!({ "seeds": seeds, "pass": pass, "equal": stages, "mutation": mutation });
+    let pass = tally.diverged_seeds == 0 && c20 == seeds;
+    let body = json!({
+        "seeds": seeds, "pass": pass, "equal": stages, "mutation": mutation,
+        "transport": { "stage": TRANSPORT, "reference": LAYOUT, "equal": c20 }
+    });
     evidence::write(stamp, name, body).map(drop)
 }
 

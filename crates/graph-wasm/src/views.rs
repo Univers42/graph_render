@@ -6,8 +6,11 @@
 //! building the [`Snapshot`] by hand.
 //!
 //! Ids are append-only. `id::NOTE_CODE`/`id::NOTE_INDEX` are reserved for Phase 3's
-//! `notes` section (contract 0.3): this snapshot type has no such field yet, so they are
-//! [`Column::Absent`] unconditionally, for every graph, forever until that merge.
+//! `notes` section (contract 0.3) — the two fields it brings are `note.code` and
+//! `note.index`, which is why these two ids are numbered before the edge-path ids: that
+//! merge fills these slots rather than renumbering anything shipped here. This snapshot
+//! type has no such field yet, so both are [`Column::Absent`] unconditionally, for every
+//! graph, until that merge.
 
 use graph_contract::binary::Snapshot;
 use graph_contract::geometry::EdgeGeometry;
@@ -41,9 +44,9 @@ pub mod id {
     pub const EDGE_SOURCE: u32 = 5;
     /// Edge target, dense node index, `u32 x m`. Every edge kind.
     pub const EDGE_TARGET: u32 = 6;
-    /// Reserved: Phase 3's notes section, `u32 x k`. Always absent in this phase.
+    /// Reserved: Phase 3's `note.code`, `u32 x k`. Always absent until that merge.
     pub const NOTE_CODE: u32 = 7;
-    /// Reserved: Phase 3's notes section, `u32 x k`. Always absent in this phase.
+    /// Reserved: Phase 3's `note.index`, `u32 x k`. Always absent until that merge.
     pub const NOTE_INDEX: u32 = 8;
     /// Edge path offsets, `u32 x (m + 1)`. Polyline and Curve only.
     pub const EDGE_OFFSETS: u32 = 9;
@@ -65,9 +68,9 @@ pub fn column(snapshot: &Snapshot, column_id: u32) -> Column<'_> {
         id::EDGE_OFFSETS | id::EDGE_PTS | id::EDGE_CURVE_DEGREE => {
             edge_column(&parts.edges, column_id)
         }
-        // Reserved for Phase 3's notes section (contract 0.3): named here, not folded
-        // into the catch-all below, so the reservation is a real arm a reader — and the
-        // dead-code lint — can see, not just a doc comment.
+        // Reserved for Phase 3's `note.code`/`note.index` (contract 0.3): named here, not
+        // folded into the catch-all below, so the reservation is a real arm a reader —
+        // and the dead-code lint — can see, not just a doc comment.
         id::NOTE_CODE | id::NOTE_INDEX => Column::Absent,
         _ => Column::Absent,
     }

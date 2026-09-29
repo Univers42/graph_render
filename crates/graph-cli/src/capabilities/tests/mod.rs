@@ -3,6 +3,7 @@ use super::*;
 use serde_json::{Value, json};
 
 mod registry;
+mod transport;
 
 /// The 17 oracle functions of `prompt.md` §7.4, plus the H4 and H9 arms.
 const COVERED: [&str; 19] = [
@@ -27,6 +28,36 @@ const COVERED: [&str; 19] = [
     "layoutGroups",
 ];
 
+/// One negative control's record: red, on the current tree, over 8 seeds. The degree
+/// control moves the topology stage only (the grid ignores weights, and the transport
+/// stage restates the grid's bytes natively), so the transport stage stays 4-way equal
+/// there; the spacing control moves both grid-derived stages.
+fn control(topology: u32, grid: u32, transport: u32) -> Option<Value> {
+    Some(json!({
+        "fingerprint": "tree", "seeds": 8, "pass": false,
+        "equal": {
+            "topology": topology, "layout.grid": grid,
+            "transport.wasm.columnar": transport
+        }
+    }))
+}
+
+/// A `hashgate.json` over `seeds` seeds: every stage 4-way equal, and the C20 tally saying
+/// the real ABI reached the shim's bytes on every one of them.
+fn hashgate_record(seeds: u32, transport_equal: u32) -> Value {
+    json!({
+        "fingerprint": "tree", "seeds": seeds, "pass": true,
+        "equal": {
+            "topology": seeds, "layout.grid": seeds,
+            "transport.wasm.columnar": seeds
+        },
+        "transport": {
+            "stage": "transport.wasm.columnar", "reference": "layout.grid",
+            "equal": transport_equal
+        }
+    })
+}
+
 fn honest() -> Evidence {
     let functions: serde_json::Map<String, Value> = COVERED
         .iter()
@@ -37,21 +68,12 @@ fn honest() -> Evidence {
             )
         })
         .collect();
-    let control = |topology: u32, grid: u32| {
-        Some(json!({
-            "fingerprint": "tree", "seeds": 8, "pass": false,
-            "equal": { "topology": topology, "layout.grid": grid }
-        }))
-    };
     Evidence {
         fingerprint: "tree".into(),
-        hashgate: Some(json!({
-            "fingerprint": "tree", "seeds": 1000, "pass": true,
-            "equal": { "topology": 1000, "layout.grid": 1000 }
-        })),
+        hashgate: Some(hashgate_record(1000, 1000)),
         controls: vec![
-            ("hashgate-control-reference-degree", control(0, 8)),
-            ("hashgate-control-grid-spacing", control(8, 0)),
+            ("hashgate-control-reference-degree", control(0, 8, 8)),
+            ("hashgate-control-grid-spacing", control(8, 0, 0)),
         ],
         oracle: Some(json!({
             "fingerprint": "tree", "seeds": 1000, "pass": true, "functions": functions
@@ -96,6 +118,14 @@ fn every_registered_row_stands_on_honest_evidence_and_reads_it_back() {
     assert_eq!(grid.oracle_diff, "byte-equal/1000 seeds (7 cases)");
 }
 
+/// One row of the ledger over `evidence`, by id.
+pub(super) fn find_row(evidence: &Evidence, id: &str) -> Capability {
+    ledger(evidence)
+        .into_iter()
+        .find(|r| r.id == id)
+        .unwrap_or_else(|| panic!("no {id} row"))
+}
+
 #[test]
 fn the_grid_row_stands_only_on_its_own_control_and_its_roundtrip_record() {
     let grid = || vec![registry().remove(8)];
@@ -134,7 +164,8 @@ fn without_records_every_gated_row_is_refused_twice() {
         roundtrip: None,
     };
     let rows = ledger(&bare);
-    assert_eq!(problems(&rows, &bare).len(), 18);
+    // 8 topology + layout.grid + transport.wasm.columnar, each refused twice.
+    assert_eq!(problems(&rows, &bare).len(), 20);
     assert!(
         rows[0]
             .hash_4way

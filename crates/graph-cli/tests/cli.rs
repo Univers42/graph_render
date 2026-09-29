@@ -42,6 +42,7 @@ fn hashgate_passes_on_an_honest_run() {
     assert_eq!(honest.status.code(), Some(0), "{}", stdout(&honest));
     assert!(stdout(&honest).contains("  topology: 4-way equal on 4/4 seeds"));
     assert!(stdout(&honest).contains("  layout.grid: 4-way equal on 4/4 seeds"));
+    assert!(stdout(&honest).contains("  transport.wasm.columnar: 4-way equal on 4/4 seeds"));
     assert!(stdout(&honest).contains("  4-way equal on 4/4 seeds"));
     assert!(stdout(&honest).contains("  native run 1  digest "));
     assert!(!stdout(&honest).contains("DIVERGED"));
@@ -50,14 +51,27 @@ fn hashgate_passes_on_an_honest_run() {
         honest.contains("\"pass\": true") && honest.contains("\"layout.grid\": 4"),
         "{honest}"
     );
+    // The C20 tally: the real ABI reached the shim's bytes on every seed, recorded so the
+    // capabilities ledger can read it rather than take it on trust.
+    assert!(
+        honest.contains("\"transport\": {") && honest.contains("\"equal\": 4"),
+        "{honest}"
+    );
+    assert!(
+        honest.contains("\"stage\": \"transport.wasm.columnar\""),
+        "{honest}"
+    );
 }
 
+/// The degree control moves the topology stage only: the grid ignores weights, and the
+/// transport stage restates the grid's bytes, so neither follows it.
 #[test]
-fn each_negative_control_goes_red_on_its_own_stage() {
+fn the_degree_control_goes_red_on_the_topology_stage_only() {
     let degree = graph_cli(&["hashgate", "--seeds", "4"], Some((KNOBS[0], "9")));
     assert_eq!(degree.status.code(), Some(1), "{}", stdout(&degree));
     assert!(stdout(&degree).contains("  topology: 4-way equal on 0/4 seeds"));
     assert!(stdout(&degree).contains("  layout.grid: 4-way equal on 4/4 seeds"));
+    assert!(stdout(&degree).contains("  transport.wasm.columnar: 4-way equal on 4/4 seeds"));
     assert!(stdout(&degree).contains("  DIVERGED topology 0:"));
     assert!(stdout(&degree).contains("FAIL: 4 of 4 seeds diverge"));
     let control = record("hashgate-control-reference-degree");
@@ -66,15 +80,29 @@ fn each_negative_control_goes_red_on_its_own_stage() {
         control.contains("\"mutation\": \"GM_MUTATE_REFERENCE_DEGREE\""),
         "{control}"
     );
+}
 
+#[test]
+fn the_spacing_control_goes_red_on_the_grid_stage_and_the_transport_that_restates_it() {
     let spacing = graph_cli(&["hashgate", "--seeds", "4"], Some((KNOBS[1], "2")));
     assert_eq!(spacing.status.code(), Some(1), "{}", stdout(&spacing));
     assert!(stdout(&spacing).contains("  topology: 4-way equal on 4/4 seeds"));
     assert!(stdout(&spacing).contains("  layout.grid: 4-way equal on 0/4 seeds"));
+    // The transport stage restates the grid's bytes natively, so the grid's own control is
+    // also the transport stage's control: without it, the stage has no red one and the
+    // ledger must refuse to call it gated.
+    assert!(stdout(&spacing).contains("  transport.wasm.columnar: 4-way equal on 0/4 seeds"));
     assert!(stdout(&spacing).contains("  DIVERGED layout.grid 0:"));
     let control = record("hashgate-control-grid-spacing");
     assert!(control.contains("\"pass\": false"), "{control}");
+    assert!(
+        control.contains("\"transport.wasm.columnar\": 0"),
+        "the control's own record must carry the stage's count"
+    );
+}
 
+#[test]
+fn a_misspelt_knob_or_two_at_once_is_could_not_run_never_a_green_control() {
     for (knob, typo) in [(KNOBS[0], "nine"), (KNOBS[1], "wide"), (KNOBS[1], "0")] {
         let run = graph_cli(&["hashgate", "--seeds", "4"], Some((knob, typo)));
         assert_eq!(
@@ -127,10 +155,16 @@ fn hashgate_arm_prints_one_line_per_stage_and_seed() {
     let arm = graph_cli(&["hashgate-arm", "--seeds", "3"], None);
     assert_eq!(arm.status.code(), Some(0));
     let lines: Vec<String> = stdout(&arm).lines().map(str::to_owned).collect();
-    assert_eq!(lines.len(), 6);
+    assert_eq!(lines.len(), 9);
     assert!(lines[2].starts_with("topology 2 ") && lines[2].len() == "topology 2 ".len() + 64);
-    let last = "layout.grid 2 ";
-    assert!(lines[5].starts_with(last) && lines[5].len() == last.len() + 64);
+    let last = "transport.wasm.columnar 2 ";
+    assert!(lines[8].starts_with(last) && lines[8].len() == last.len() + 64);
+    // The transport stage is the real ABI's snapshot over the same model, so natively it
+    // restates the layout stage's bytes rather than inventing a second computation.
+    assert_eq!(
+        lines[5].rsplit_once(' ').map(|(_, d)| d),
+        lines[8].rsplit_once(' ').map(|(_, d)| d)
+    );
 }
 
 #[test]
@@ -138,7 +172,8 @@ fn capabilities_needs_a_flag_and_refuses_gated_rows_no_recorded_run_backs() {
     assert_eq!(graph_cli(&["capabilities"], None).status.code(), Some(2));
     let check = graph_cli(&["capabilities", "--check"], None);
     assert_eq!(check.status.code(), Some(1), "{}", stdout(&check));
-    assert!(stdout(&check).contains("capabilities --check: 11 rows, 18 problems"));
+    // 10 gated rows (8 topology, layout.grid, transport.wasm.columnar), each refused twice.
+    assert!(stdout(&check).contains("capabilities --check: 11 rows, 20 problems"));
     let json = graph_cli(&["capabilities", "--json"], None);
     assert_eq!(json.status.code(), Some(0));
     let rows: serde_json::Value = serde_json::from_str(&stdout(&json)).expect("json");

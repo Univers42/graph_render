@@ -1,10 +1,14 @@
 // A third party's own smoke test of the published SDK: imports only
 // `crates/graph-sdk-js/src/index.ts`'s public surface — never a raw wasm export, never
 // `wasm.ts`/`views.ts` directly, the same way a real consumer would. Exercises a full
-// build/layout/column/toJSON/release round trip, edge-kind reading (C3), a NaN written
-// through a zero-copy column view refusing at `toJSON` (C8's D9 re-validation), a released
-// handle staying refused rather than silently answered (C6), and `options` acceptance
-// (C16).
+// build/layout/column/toJSON/release round trip, **every layout the module's own registry
+// names** (phase step 7: "runs each gated layout, and prints node counts and bounds" — the
+// list comes from `Motor#layouts`, i.e. `gm_layout_count`/`gm_layout_id`, never a literal
+// name, so a layout registered after this script was written is covered with no edit here),
+// the contract's own column-presence table restated kind by kind (C3: the reserved Circle
+// `r` / Box `w,h` and Polyline columns), a NaN written through a zero-copy column view
+// refusing at `toJSON` (C8's D9 re-validation), a released handle staying refused rather
+// than silently answered (C6), and `options` acceptance (C16).
 //
 //   node --experimental-strip-types harness/sdk-smoke.mjs <graph_wasm.wasm>
 //
@@ -47,6 +51,96 @@ async function refusedWith(errorClass, run) {
   }
 }
 
+// `docs/contract/wasm-abi.md` "Columns", restated here the way a third-party consumer
+// reads it: which node/edge column ids apply to which geometry kind (`null` = every kind; a
+// string or a list of names = those kinds only). Restated rather than imported from the
+// SDK (`views.ts`'s own `columnApplies`), because a consumer checking the SDK against the
+// SDK would agree with any mistake the SDK makes.
+const NODE_COLUMN_KINDS = new Map([
+  [ColumnId.NodeX, null],
+  [ColumnId.NodeY, null],
+  [ColumnId.NodeR, "Circle"],
+  [ColumnId.NodeW, "Box"],
+  [ColumnId.NodeH, "Box"],
+]);
+const EDGE_COLUMN_KINDS = new Map([
+  [ColumnId.EdgeSource, null],
+  [ColumnId.EdgeTarget, null],
+  [ColumnId.EdgeOffsets, ["Polyline", "Curve"]],
+  [ColumnId.EdgePts, ["Polyline", "Curve"]],
+  [ColumnId.EdgeCurveDegree, ["Curve"]],
+]);
+
+function appliesTo(kind, wanted) {
+  if (wanted === null) return true;
+  return Array.isArray(wanted) ? wanted.includes(kind) : wanted === kind;
+}
+
+function boundsOf(motor, handle) {
+  const span = (column) => {
+    let min = Number.POSITIVE_INFINITY;
+    let max = Number.NEGATIVE_INFINITY;
+    for (const value of column) {
+      min = Math.min(min, value);
+      max = Math.max(max, value);
+    }
+    return { min, max };
+  };
+  const xs = span(motor.column(handle, ColumnId.NodeX));
+  const ys = span(motor.column(handle, ColumnId.NodeY));
+  return { minX: xs.min, maxX: xs.max, minY: ys.min, maxY: ys.max };
+}
+
+// Everything the contract's table says about one layout's run over this handle, as a list
+// of problems (empty when the run agrees with it). There is no edge-count export, so `m` is
+// read off the source column: the table's rule is that every edge column shares one `m`.
+function columnProblems(motor, handle, layoutId, run) {
+  const problems = [];
+  const source = motor.column(handle, ColumnId.EdgeSource);
+  const target = motor.column(handle, ColumnId.EdgeTarget);
+  const offsets = motor.column(handle, ColumnId.EdgeOffsets);
+  const m = source === null ? 0 : source.length;
+  for (const [id, wanted] of NODE_COLUMN_KINDS) {
+    const column = motor.column(handle, id);
+    if (!appliesTo(run.nodeKind, wanted)) {
+      if (column !== null) problems.push(`node column ${id} is present but does not apply to ${run.nodeKind}`);
+      continue;
+    }
+    if (column === null) problems.push(`node column ${id} is absent, but applies to ${run.nodeKind}`);
+    else if (column.length !== run.nodeCount) {
+      problems.push(`node column ${id} has ${column.length} elements, not the node count ${run.nodeCount}`);
+    }
+  }
+  for (const [id, wanted] of EDGE_COLUMN_KINDS) {
+    const column = motor.column(handle, id);
+    if (!appliesTo(run.edgeKind, wanted)) {
+      if (column !== null) problems.push(`edge column ${id} is present but does not apply to ${run.edgeKind}`);
+    } else if (column === null) {
+      problems.push(`edge column ${id} is absent, but applies to ${run.edgeKind}`);
+    }
+  }
+  if (source === null || target === null) {
+    problems.push("the edge source/target columns are absent, but apply to every edge kind");
+  } else if (source.length !== target.length) {
+    problems.push(`edge source has ${source.length} elements and edge target ${target.length}`);
+  }
+  if (offsets !== null) {
+    if (offsets.length !== m + 1) problems.push(`edge offsets has ${offsets.length} elements, not m + 1 = ${m + 1}`);
+    const points = motor.column(handle, ColumnId.EdgePts);
+    const want = 2 * offsets[offsets.length - 1];
+    if (points === null) problems.push("edge points are absent where edge offsets are present");
+    else if (points.length !== want) problems.push(`edge points has ${points.length} elements, not 2*offsets[m] = ${want}`);
+  }
+  const degree = motor.column(handle, ColumnId.EdgeCurveDegree);
+  if (degree !== null && degree.length !== 1) problems.push(`edge curve degree has ${degree.length} elements, not 1`);
+  for (const id of [ColumnId.NoteCode, ColumnId.NoteIndex]) {
+    if (motor.column(handle, id) !== null) {
+      problems.push(`reserved note column ${id} is present; it stays reserved until the notes section lands`);
+    }
+  }
+  return problems.map((problem) => `${layoutId}: ${problem}`);
+}
+
 const bytes = await readFile(wasmPath);
 
 // C16: options this phase accept only {} and { exec: "auto" }; anything else is refused
@@ -79,49 +173,77 @@ const ingest = JSON.stringify({
 const handle = motor.build(ingest);
 check("build reports the right node count", motor.nodeCount(handle) === 2);
 
-const run = motor.layout(handle, "layout.grid");
-check("layout.grid reports Point/Line geometry", run.nodeKind === "Point" && run.edgeKind === "Line" && run.nodeCount === 2);
-
-// C3: edge endpoints are readable, and the reserved notes columns stay absent, through the
-// published SDK — not just through the raw ABI.
+// Every layout the module registered, read once through the SDK's own view of the
+// registry (C1). A hard-coded name here would make this file cover exactly one layout
+// forever: p3's four would arrive, the smoke test would keep passing, and none of them
+// would ever have been run through the published SDK.
+const registered = typeof motor.layouts === "function" ? motor.layouts() : [];
+check("the SDK publishes the module's layout registry (C1)", registered.length > 0);
 check(
-  "edge source/target columns are readable",
-  motor.column(handle, ColumnId.EdgeSource) !== null && motor.column(handle, ColumnId.EdgeTarget) !== null,
+  "the registry names layout.grid and repeats no id",
+  registered.includes("layout.grid") && new Set(registered).size === registered.length,
 );
-check(
-  "reserved note columns are absent, this phase, on every graph",
-  motor.column(handle, ColumnId.NoteCode) === null && motor.column(handle, ColumnId.NoteIndex) === null,
-);
-check("Point nodes have no radius column", motor.column(handle, ColumnId.NodeR) === null);
 
-const beforeTamper = motor.toJSON(handle);
-check("toJSON succeeds before any tamper", typeof beforeTamper === "string" && beforeTamper.includes('"a"'));
-
-// C8: a column view is a real zero-copy alias into the motor's own memory — writing NaN
-// through it and then asking the motor to encode a face is refused (D9), not silently
-// written through to the wire.
-const epochBeforeTamper = motor.epoch;
-const x = motor.column(handle, ColumnId.NodeX);
-x[0] = Number.NaN;
-check("writing through a column view does not itself move the epoch", motor.epoch === epochBeforeTamper);
-let tamperRefused = false;
-try {
-  motor.toJSON(handle);
-} catch (error) {
-  tamperRefused = error instanceof TamperedGeometryError;
+let ran = 0;
+for (const layoutId of registered) {
+  const result = motor.layout(handle, layoutId);
+  ran += 1;
+  const bounds = boundsOf(motor, handle);
+  process.stdout.write(
+    `# ${layoutId}: ${result.nodeCount} nodes, ${result.nodeKind} nodes / ${result.edgeKind} edges, ` +
+      `bounds x[${bounds.minX}, ${bounds.maxX}] y[${bounds.minY}, ${bounds.maxY}]\n`,
+  );
+  check(`${layoutId}: every node is placed`, result.nodeCount === 2);
+  check(
+    `${layoutId}: its bounds are finite and not a single point`,
+    [bounds.minX, bounds.maxX, bounds.minY, bounds.maxY].every(Number.isFinite) &&
+      (bounds.maxX > bounds.minX || bounds.maxY > bounds.minY),
+  );
+  const problems = columnProblems(motor, handle, layoutId, result);
+  check(`${layoutId}: its columns match the contract's presence table`, problems.length === 0);
+  for (const problem of problems) process.stdout.write(`#   ${problem}\n`);
+  check(
+    `${layoutId}: its JSON face carries the same nodes`,
+    JSON.parse(motor.toJSON(handle)).nodes.id.length === 2,
+  );
 }
-check("a NaN written through a column view refuses toJSON (D9)", tamperRefused);
+check("every registered layout ran through the published SDK", ran === registered.length && ran > 0);
 
-const epochBeforeRelease = motor.epoch;
-motor.release(handle);
-check("release moves the epoch forward", motor.epoch > epochBeforeRelease);
-let releasedRefuses = false;
-try {
-  motor.nodeCount(handle);
-} catch {
-  releasedRefuses = true;
+// Everything below reads a run the loop above leaves behind (the last registered layout's),
+// so with no layout at all there is nothing to read and every check would be a thrown
+// error rather than a verdict. Said once, here, instead of at each of them.
+if (ran === 0) {
+  check("a layout ran, so the transport could be exercised at all", false);
+} else {
+  const beforeTamper = motor.toJSON(handle);
+  check("toJSON succeeds before any tamper", typeof beforeTamper === "string" && beforeTamper.includes('"a"'));
+
+  // C8: a column view is a real zero-copy alias into the motor's own memory — writing NaN
+  // through it and then asking the motor to encode a face is refused (D9), not silently
+  // written through to the wire.
+  const epochBeforeTamper = motor.epoch;
+  const x = motor.column(handle, ColumnId.NodeX);
+  x[0] = Number.NaN;
+  check("writing through a column view does not itself move the epoch", motor.epoch === epochBeforeTamper);
+  let tamperRefused = false;
+  try {
+    motor.toJSON(handle);
+  } catch (error) {
+    tamperRefused = error instanceof TamperedGeometryError;
+  }
+  check("a NaN written through a column view refuses toJSON (D9)", tamperRefused);
+
+  const epochBeforeRelease = motor.epoch;
+  motor.release(handle);
+  check("release moves the epoch forward", motor.epoch > epochBeforeRelease);
+  let releasedRefuses = false;
+  try {
+    motor.nodeCount(handle);
+  } catch {
+    releasedRefuses = true;
+  }
+  check("a released handle is refused, not silently answered (C6)", releasedRefuses);
 }
-check("a released handle is refused, not silently answered (C6)", releasedRefuses);
 
 // Regression (review finding, MAJOR): createMotor() must never throw on a load failure
 // (prompt.md §3.2, phase-04-wasm-sdk.md step 5: "warn-and-degrade rather than throw ...
@@ -145,6 +267,13 @@ check("a released handle is refused, not silently answered (C6)", releasedRefuse
     buildRefused = error instanceof WasmUnavailableError;
   }
   check("degraded_motor_build_fails_predictably_kill_switch", buildRefused);
+  // A degraded motor must not answer `layouts()` with an empty registry: "this module has
+  // no layouts" and "this module never loaded" are different facts, and only one of them
+  // is true. It refuses like every other method that needs the module.
+  check(
+    "degraded_motor_layouts_fails_predictably_kill_switch",
+    await refusedWith(WasmUnavailableError, () => degraded?.layouts()),
+  );
   globalThis.__GM_DISABLE_WASM__ = priorKillSwitch;
 }
 {

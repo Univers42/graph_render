@@ -124,10 +124,12 @@ zero-copy typed-array aliases over transport.wasm.columnar's buffers, so it degr
 the module it loads does — same ceiling, not independently measured in JS this phase";
 
 /// Every registered capability: the topology rows, the layouts, then the transport rows
-/// Phase 4 adds. Both new rows are `Implemented`, never `Gated`: this phase records no
-/// `hashgate.json`/`oracle-diff.json` entry under either row's `hash_stage`/
-/// `oracle_record` name, so `ledger()` reads them back as `not backed`, honestly, rather
-/// than a claim `--check` would have to refuse (`docs/contract/wasm-abi.md` "Ledger").
+/// Phase 4 adds. `transport.wasm.columnar` is `Gated` on the hash gate's own two
+/// verdicts — its `transport.wasm.columnar` stage 4-way equal, and the C20 tally
+/// `hashgate.json` records beside it. `sdk.js` is `Implemented`: its gate is
+/// `harness/sdk-smoke.mjs`, a smoke script over one fixture rather than a recorded seed
+/// sweep, so no record backs it yet and a `gated` claim would be one `--check` has to
+/// refuse (`docs/contract/wasm-abi.md` "Ledger").
 pub fn registry() -> Vec<Capability> {
     let topology = TOPOLOGY
         .iter()
@@ -154,9 +156,13 @@ pub fn registry() -> Vec<Capability> {
         .collect()
 }
 
-/// The two Phase 4 transport rows: the wasm ABI's columnar handle/build/run/column
-/// surface, and the JS SDK that wraps it. Split one row per function (house limit;
-/// mirrors `layout`'s one-row-per-call shape below) rather than building both in one.
+/// The wasm ABI's columnar handle/build/run/column surface. Gated on the hash gate's own
+/// evidence: `graph-cli hashgate` hashes the real ABI as a stage of its own
+/// (`hashgate/stages.rs`), so a divergence names the transport, and it records the
+/// per-seed count of the seeds where that real ABI reached the retained shim's bytes —
+/// the C20 acceptance criterion, read back by `verdict::oracle_diff` rather than asserted
+/// in prose. Split one row per function (house limit; mirrors `layout`'s one-row-per-call
+/// shape below) rather than building both in one.
 fn transport() -> [Capability; 2] {
     [transport_wasm_columnar(), transport_sdk_js()]
 }
@@ -167,11 +173,11 @@ fn transport_wasm_columnar() -> Capability {
         tier: 1,
         stage: "transport",
         geometry: None,
-        status: Status::Implemented,
-        oracle: "harness/wasm-run.mjs hash mode: gm_seed_ingest -> gm_alloc -> gm_build -> \
-gm_run -> gm_snapshot_bytes, compared byte for byte against the retained gm_layout_grid shim \
-(the same pipeline through the old hash-gate-only exports)",
-        oracle_record: "wasm-run-hash",
+        status: Status::Gated,
+        oracle: "the retained hash-gate shim, through the same module: hashgate's \
+transport.wasm.columnar stage (gm_seed_ingest -> gm_alloc -> gm_build -> gm_run -> \
+gm_snapshot_bytes) against gm_layout_grid, per seed, natively and on wasm32",
+        oracle_record: "wasm-transport",
         functions: &[
             "gm_build",
             "gm_run",
@@ -200,9 +206,12 @@ fn transport_sdk_js() -> Capability {
         geometry: None,
         status: Status::Implemented,
         oracle: "harness/sdk-smoke.mjs: a third party importing only crates/graph-sdk-js's \
-published entry point, never the raw wasm exports",
+published entry point, never the raw wasm exports. It runs every layout Motor#layouts \
+reports and asserts the contract's column table per layout, so a newly registered layout is \
+covered with no edit to it. Not recorded as evidence, so the row's two verdict columns read \
+`not backed` until a sweep writes a record a `gated` claim may stand on",
         oracle_record: "sdk-smoke",
-        functions: &["createMotor", "build", "layout", "release"],
+        functions: &["createMotor", "build", "layouts", "layout", "release"],
         hash_stage: "sdk.js",
         oracle_diff: String::new(),
         hash_4way: String::new(),

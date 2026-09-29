@@ -16,14 +16,18 @@ ls -l target/wasm32-unknown-unknown/release/graph_wasm.wasm
 ```
 
 **265838 bytes** (~259.6 KiB), sha256
-`1349dc10490caeef129f1401d42237aa570678cd2797f08a8759927be75019bf`. Re-measured after the
-phase-04 review round (`ingest.rs`'s `node`/`edge` split to satisfy the 40-line-per-function
-house limit — see `docs/contract/wasm-abi.md`'s review-response note); 276 bytes smaller
-than the pre-review 266114, both figures over the same ~250 KB soft ceiling the phase
-names (~4% either way) — recorded here rather than left unremarked, per the phase's own
-instruction. What pulled it there in the first place: this is the same binary carrying
-both the retained hash-gate shim (`gate_exports::{gm_topology,gm_layout_grid}`, needed to
-keep Phase 2/3's already-green cross-target gate unchanged) *and* the full new ABI
+`1349dc10490caeef129f1401d42237aa570678cd2797f08a8759927be75019bf`. Re-measured on this
+tree (after `develop` was merged into `p4` and after the ledger/evidence wiring, which
+touches only graph-cli — the same bytes and the same digest, as expected, since
+`graph-wasm` is not a dependency of `graph-cli`'s hash-gate stage list). Re-measured
+earlier after the phase-04 review round (`ingest.rs`'s `node`/`edge` split to satisfy
+the 40-line-per-function house limit — see `docs/contract/wasm-abi.md`'s review-response
+note); 276 bytes smaller than the pre-review 266114, both figures over the same ~250 KB
+soft ceiling the phase names (~4% either way) — recorded here rather than left
+unremarked, per the phase's own instruction. What pulled it there in the first place:
+this is the same binary carrying both the retained hash-gate shim
+(`gate_exports::{gm_topology,gm_layout_grid}`, needed to keep Phase 2/3's already-green
+cross-target gate hashing what it always hashed) *and* the full new ABI
 (`exports/{build,columns,state}.rs`, `alloc.rs`, `handle.rs`, `ingest.rs`'s JSON parser,
 `seed_ingest.rs`, `views.rs`) in one module — the JSON parser
 (`graph_contract::canonical_json`, shared with the native side, not a wasm-specific
@@ -65,8 +69,14 @@ hashgate: stages=topology,layout.grid seeds=1000 control=none
   4-way equal on 1000/1000 seeds
 PASS
 ```
-Exit 0. This arm still drives the retained `gate_exports` shim, unchanged from Phase 2/3
-(`docs/contract/wasm-abi.md` "Deviations").
+Exit 0. Quoted verbatim, including the two-stage header: this run predates the transport
+stage joining the gate, so it is a measurement of the `topology`/`layout.grid` pair
+only. Those two stages still drive the retained `gate_exports` shim and still hash exactly
+what Phase 2/3 hashed (`docs/contract/wasm-abi.md` "Deviations"); the gate now prints a
+third stage beside them, measured at 8 seeds in "C20" below. The 1000-seed row itself is
+the phase gate's, re-run by the orchestrator (`docs/reports/phase-04.md` names it as not
+run here — a stale digest block re-labelled with the new stage list would be a report
+that lies about which stage list it measured).
 
 Negative controls, run separately, each expected non-zero:
 
@@ -87,35 +97,128 @@ FAIL: 8 of 8 seeds diverge
 ```
 Exit 1 — diverges on `layout.grid` only, the mirror case.
 
-## C20 — hash equality through the *real* ABI
+Both control logs above are quoted from the two-stage gate, for the same reason as the
+honest one. Under the current stage list the transport stage's own counts are
+`4-way equal on 4/4` for the degree control and `4-way equal on 0/4` for the spacing
+control (measured, and pinned by `crates/graph-cli/tests/cli.rs`'s
+`each_negative_control_goes_red_on_its_own_stage`): the degree never reaches the grid, so
+neither does the transport stage, and the grid's spacing reaches both.
 
-`harness/wasm-run.mjs`'s `hash` mode gained a third stage, `transport.wasm.columnar`,
-driving `gm_seed_ingest → gm_alloc → gm_build → gm_run → gm_snapshot_bytes` — the real
-ABI, not the retained shim — over the same seeded model `layout.grid` uses. When both
-stages are named in one invocation, the harness now also asserts their digests match per
-seed and exits `1` on the first divergence, rather than only printing two lists a human
-would have to compare by eye.
+## C20 — hash equality through the *real* ABI, inside `graph-cli hashgate`
+
+`transport.wasm.columnar` is a stage of the hash gate itself
+(`crates/graph-cli/src/hashgate/stages.rs`), so the real ABI is compared inside a gate
+that already runs rather than in a hand-run harness: the wasm arm drives
+`gm_seed_ingest → gm_alloc → gm_build → gm_run → gm_snapshot_bytes` over the same
+seeded model `layout.grid` uses, and `hashgate/transport.rs` counts the seeds where that
+snapshot equalled the retained shim's.
+
+**Both arms derive their stage list from the registry, and that is pinned.** The gate's
+list is `graph_core::registry::LAYOUTS`; the wasm arm resolves any stage that is not one of
+its three shim-backed ones through `gm_layout_count`/`gm_layout_id`. A stage list that grew
+with the registry while the arms' bytes did not would make the gate refuse its own honest
+run the moment a second layout was registered, which is exactly what a temporary second
+registry row reproduced and this fix removes — see `docs/reports/phase-04.md` §6a.
 
 ```sh
-$ node harness/wasm-run.mjs target/wasm32-unknown-unknown/release/graph_wasm.wasm \
-    hash 1000 topology layout.grid transport.wasm.columnar
-[3000 stage/seed/sha256 lines]
-wasm-run: C20 ok — transport.wasm.columnar == layout.grid on all 1000 seeds
+$ GM_GATES_DIR=/w/target/tmp-gates cargo run -p graph-cli -- hashgate --seeds 8
+hashgate: wasm artifact .../graph_wasm.wasm sha256 1349dc10...
+hashgate: stages=topology,layout.grid,transport.wasm.columnar seeds=8 control=none
+  native run 1  digest 0992397c6155a309c12cf42c04a793085077826a05b69ba193c8315d0c8a0ec7
+  native run 2  digest 0992397c6155a309c12cf42c04a793085077826a05b69ba193c8315d0c8a0ec7
+  wasm32 run 1  digest 0992397c6155a309c12cf42c04a793085077826a05b69ba193c8315d0c8a0ec7
+  wasm32 run 2  digest 0992397c6155a309c12cf42c04a793085077826a05b69ba193c8315d0c8a0ec7
+  topology: 4-way equal on 8/8 seeds
+  layout.grid: 4-way equal on 8/8 seeds
+  transport.wasm.columnar: 4-way equal on 8/8 seeds
+  transport.wasm.columnar: the real ABI matched layout.grid on 8/8 seeds
+  4-way equal on 8/8 seeds
+PASS
 ```
-Exit 0, real time 5.3s for 1000 seeds × 3 stages. Sample (seed 0):
-```
-layout.grid              0 ef1a701c2a105a4525ebb2b920ee60e729eb9f3e3619dab58b9f2a33412935de
-transport.wasm.columnar  0 ef1a701c2a105a4525ebb2b920ee60e729eb9f3e3619dab58b9f2a33412935de
+Exit 0. All four arms print one digest for the whole run, so the transport stage is
+4-way equal by construction of the comparison, not by a hand-checked list.
+
+The record it writes (`target/tmp-gates/hashgate.json`, a scratch gates directory so the
+real `target/gates` is not overwritten by a short run):
+
+```json
+{
+  "equal": { "layout.grid": 8, "topology": 8, "transport.wasm.columnar": 8 },
+  "pass": true, "seeds": 8, "mutation": null,
+  "transport": { "equal": 8, "reference": "layout.grid", "stage": "transport.wasm.columnar" }
+}
 ```
 
-The failure path was also exercised, not just assumed: a one-seed corruption injected
-into `transport.wasm.columnar`'s stage function (reverted immediately after) produced
+The negative control that backs the transport row's 4-way verdict is the grid's own,
+because the transport stage restates the grid's bytes natively:
+
+```sh
+$ GM_MUTATE_GRID_SPACING=2 cargo run -p graph-cli -- hashgate --seeds 8
+  topology: 4-way equal on 8/8 seeds
+  layout.grid: 4-way equal on 0/8 seeds
+  transport.wasm.columnar: 4-way equal on 0/8 seeds
+  transport.wasm.columnar: the real ABI matched layout.grid on 8/8 seeds
+FAIL: 8 of 8 seeds diverge
+```
+Exit 1. The C20 tally stays at 8/8 there, as it must: both sides of that comparison are
+wasm-side, and the control perturbs the native arm only (`prompt.md` §7.2). The row's
+`hash_4way` reads its control from the *stage* count, which is 0/8.
+
+`harness/wasm-run.mjs` still asserts the same per-seed equality itself and exits `1` on
+the first divergence, so the check survives a hand run of the harness as well as inside
+the gate. The 1000-seed row is the phase gate's own (`docs/reports/phase-04.md` names it
+as not run here).
+
+`capabilities --check` against that scratch record refuses the transport row for its seed
+count, exactly as it refuses every other gated row at 8 seeds:
 
 ```
-wasm-run: C20 FAIL — transport.wasm.columnar diverges from layout.grid at seed 2
-  (layout.grid 9a71ed..., transport.wasm.columnar 616055...)
+  transport.wasm.columnar: gated, but hashgate ran 8 seeds, need 1000
+  transport.wasm.columnar: gated, but hashgate ran 8 seeds, need 1000
+capabilities --check: 11 rows, 20 problems
 ```
-exit 1, confirming the check actually fires rather than only ever printing "ok".
+Exit 1 — two verdicts, one per column, both refused for the same honest reason.
+
+## The SDK over its published entry point (`harness/sdk-smoke.mjs`)
+
+```sh
+$ node --experimental-strip-types harness/sdk-smoke.mjs \
+    target/wasm32-unknown-unknown/release/graph_wasm.wasm
+ok - an unknown options key is refused
+ok - options.exec other than "auto" is refused
+ok - build reports the right node count
+ok - the SDK publishes the module's layout registry (C1)
+ok - the registry names layout.grid and repeats no id
+# layout.grid: 2 nodes, Point nodes / Line edges, bounds x[-0.5, 0.5] y[0, 0]
+ok - layout.grid: every node is placed
+ok - layout.grid: its bounds are finite and not a single point
+ok - layout.grid: its columns match the contract's presence table
+ok - layout.grid: its JSON face carries the same nodes
+ok - every registered layout ran through the published SDK
+ok - toJSON succeeds before any tamper
+ok - writing through a column view does not itself move the epoch
+ok - a NaN written through a column view refuses toJSON (D9)
+ok - release moves the epoch forward
+ok - a released handle is refused, not silently answered (C6)
+ok - createMotor_never_throws_on_kill_switch
+ok - degraded_motor_build_fails_predictably_kill_switch
+ok - degraded_motor_layouts_fails_predictably_kill_switch
+ok - createMotor_never_throws_on_compile_failure
+ok - degraded_motor_build_fails_predictably_compile_failure
+# pass
+```
+Exit 0, 20 checks, on the one-layout registry this branch has. The `#` line is the
+per-layout report step 7 asks for (node count, both geometry kinds, bounds), printed for
+**every** layout `Motor#layouts` returns rather than for a name the script carries; with
+this branch's single layout that is `layout.grid`, whose own two-node fixture lands the
+nodes at x ∈ [-0.5, 0.5] and y = 0 (one row of a 2-column lattice, `cols = ceil(sqrt(2))`).
+
+The same run against a temporary three-row registry — the grid plus a Circle/Polyline and a
+Box/Curve row, added and reverted for the purpose, see `docs/reports/phase-04.md` §6b —
+printed one such line per layout and asserted the contract's whole column table for each,
+including the `r`, `w`, `h`, `offsets`, `pts` and `degree` columns that the one-layout tree
+never reaches. That probe is evidence about the checks, not a measurement of this tree: the
+rows are not in the delivered tree and no number here depends on them.
 
 ## Zero-copy and memory-growth hazard (C8, C10, C11)
 
@@ -128,10 +231,12 @@ ok - a large enough build really does grow wasm memory
 ok - the pre-growth view's old buffer is detached, not silently stale (C10)
 ok - re-deriving the same column after growth returns a live, non-empty view
 ok - the re-derived view still reads the value written before growth
-# view re-derivation: 228.5 ns/call over 200000 calls
+# view re-derivation: 137.8 ns/call over 200000 calls
 # pass
 ```
-Exit 0.
+Exit 0. Re-run on this tree; the check list and every verdict are unchanged, only the
+timing differs (§"View re-derivation cost" below, where a second run of this same row reads
+152.0 ns/call).
 
 Method (C8, "prove zero-copy, do not claim it"): a finite sentinel (`918273.5`, not
 `NaN` — that would be refused at encode time by D9, proving tamper detection, not
@@ -149,15 +254,18 @@ has to simulate), and re-deriving the same column afterward is asserted both liv
 growth — proving Rust-side data survives growth unmoved while the JS-side view correctly
 rebuilds rather than reading stale or garbage bytes.
 
-**View re-derivation cost (C11): 228.5 ns/call**, measured over 200,000 calls to
+**View re-derivation cost (C11): 137.8 ns/call**, measured over 200,000 calls to
 `Motor#column` on a 200,000-node graph's `NodeX` column (`process.hrtime.bigint()` around
-the loop, wall time only — no warm-up discarded, so this includes one-time JIT
-warm-up cost amortized over the run). Earlier runs (pre-split `exports.rs`, and again
-just after the phase-04 review round's `index.ts`/`views.ts` changes) measured 221.7 and
-225.6 ns/call for the identical loop; none of those changes touched the hot loop itself
-(`ColumnViews#get`'s cache check), so the spread is container scheduling noise on a
-wall-clock measurement, not a real per-call regression — recorded as the actual number
-observed on this run rather than picking one to report.
+the loop, wall time only — no warm-up discarded, so this includes one-time JIT warm-up cost
+amortized over the run). Re-measured on this tree (after `develop` was merged into `p4` and
+after the ledger/evidence wiring, which touches no SDK code); a second run of the identical
+row on the same tree read **152.0 ns/call**, and later ones **160.3** and **169.0 ns/call**
+(the SDK change since touches `index.ts` only, never this loop). Earlier runs in the same
+phase measured 228.5, 225.6 and 221.7 ns/call for the identical loop. None of the changes
+between any of them touched the hot loop itself (`ColumnViews#get`'s cache check), and two
+runs of the *same* binary differ by 10%, so the spread is container scheduling noise on a
+wall-clock measurement, not a per-call regression — recorded as the actual numbers observed
+rather than picking one to report.
 
 An initial version of this same test had a real, observed bug (not merely a
 possibility): the sentinel was written *before* a second `layout()` call made for the
@@ -220,5 +328,15 @@ Exit 0, zero diagnostics.
 - **wasm32-target peak-memory measurement.** The `TRANSPORT_CEILING` table above is
   native; nothing measured wasm32's own peak allocator use directly (see Ponytail
   above).
-- `docker build -t ge-check . && docker run --rm ge-check` — not run this session per
-  explicit instruction (the orchestrator runs it). SKIP, not a pass.
+- `docker build -t ge-check . && docker run --rm ge-check` — **run** on the tree this report
+  describes (27 passed, 0 failed, 0 skipped, 0 cancelled, 0 todo). It was not run during the
+  ledger/evidence session; it is recorded here because this file claims to hold every number
+  this phase measured, and leaving a stale "not run" beside a row that has since run would
+  be a report that lies about its own coverage.
+- **`graph-cli hashgate --seeds 1000` on the current stage list.** The transport stage
+  was measured at 8 seeds (its honest run, its control, and the record both write, all
+  quoted above) and inside `cargo test`'s own 4-seed integration run; the 1000-seed row
+  is the phase gate's and was not run here, so the transport row's `gated` claim is
+  proven against a 4/8-seed record and not against a 1000-seed one. UNKNOWN, not assumed.
+  The 1000-seed log quoted above is the earlier two-stage run, kept verbatim and labelled
+  as such rather than re-labelled.

@@ -11,10 +11,11 @@ caller for an application; this document is what it is built against.
 
 1. **The retained hash-gate shim** (`crate::gate_exports`, wasm32-only): `gm_topology`,
    `gm_layout_grid`, and (only in a `--features probe` build) `gm_probe`. These predate
-   this phase's real ABI and are kept unchanged so `graph-cli hashgate`'s existing
-   4-way proof (native × wasm32, run × run) stays exactly the green Phase 2/3 check it
-   already was — this phase does not touch `crates/graph-cli/src/hashgate.rs`'s `STAGES`
-   or the arms it drives. `crates/graph-sdk-js` never calls these.
+   this phase's real ABI and are kept unchanged so the two stages they back — `topology`
+   and `layout.grid` — keep hashing exactly the bytes Phase 2/3's already-green
+   cross-target gate hashed. `graph-cli hashgate` still drives them, and adds the real
+   ABI as a stage of its own beside them (see "Hash-gate wiring"); it does not replace
+   them. `crates/graph-sdk-js` never calls these.
 2. **The real ABI** (`exports/{build,columns,state}.rs`, wasm32-only), below:
    `gm_build`/`gm_run`/`gm_release` and everything a caller needs around them. This is
    what the SDK, and C20's own proof, actually call.
@@ -45,6 +46,56 @@ caller for an application; this document is what it is built against.
 surface (`gm_alloc`, `gm_free`, `gm_build`, `gm_run`, `gm_node_count`, `gm_column_ptr`,
 `gm_column_len`, `gm_geometry_kind`, `gm_snapshot_json`, `gm_release`) — each is named
 above with why it exists; none replaces or hides one of the ten.
+
+## Hash-gate wiring
+
+`transport.wasm.columnar` is a **stage of `graph-cli hashgate`**, not a separate
+invocation: `hashgate/stages.rs` builds the stage list from the registry —
+`topology`, every `graph_core::registry::LAYOUTS` row, then `transport.wasm.columnar` — and
+the gate asks `harness/wasm-run.mjs` for all of them by name.
+
+**Both arms are driven by the registry, and both are pinned for it.** The native arm's
+bytes come from `stages::stage_bytes_for`, one producer per stage: the topology stage is
+the pipeline's own topology bytes, and each registered layout's stage is
+`(layout.run)(&topology)` → `graph_core::layout::snapshot`, i.e. that layout's own run over
+that seed's topology. The grid is the one exception and it is deliberate: its stage is the
+perturbed `run_pipeline::<Grid>` run, so `GM_MUTATE_GRID_SPACING` can reach it. On the
+wasm side, the three shim-backed stages keep their frozen hashers and every *other*
+registered layout is hashed through the real ABI with its id resolved through
+`gm_layout_count`/`gm_layout_id`. `harness/wasm-run.mjs stages` prints that arm's own list,
+and `hashgate::tests::stages::the_wasm_arm_can_hash_every_stage_the_gate_asks_for`
+compares the two lists in both directions — every stage the gate asks for is offered by the
+arm, and the arm offers nothing extra.
+
+This is the part that must not drift: a list that grows with the registry while the arms'
+bytes do not makes the gate refuse its own honest run (`native run 1 printed N lines, need
+M`, or `unknown stage` from the wasm arm) the moment a second layout is registered.
+
+The wasm arm reaches the transport stage through the real ABI (`gm_seed_ingest → gm_alloc
+→ gm_build → gm_run → gm_snapshot_bytes`); the native arm has no transport of its own, so
+that stage's native bytes are the pipeline's own snapshot for `layout.grid` — the layout
+`abiSnapshotBytes` runs — restated under the transport's name. The stage's claim is
+therefore exactly: *the shipped module, through its real ABI, reproduces the native
+pipeline's bytes.*
+
+That gives the row two recorded verdicts, both in `hashgate.json`:
+
+| verdict | what it reads | negative control |
+|---|---|---|
+| `hash_4way` | `equal["transport.wasm.columnar"] == seeds` over all four arms | `GM_MUTATE_GRID_SPACING` (the transport stage restates the grid's bytes, so the grid's control is its own: 0/8 seeds) |
+| `oracle_diff` (`wasm-transport`) | `transport.equal == seeds`: the seeds where the real ABI reached the retained shim's bytes, counted from the wasm arm's own lines (C20) | none needed: the same count is what the harness enforces per seed, and a short count is a red gate and a `gated` claim `--check` refuses |
+
+## Ledger
+
+Two rows, `crates/graph-cli/src/capabilities/registry.rs`:
+
+- **`transport.wasm.columnar` — `gated`**, on the two verdicts above. Both come from a
+  real record (`hashgate.json`), on the current tree's fingerprint, with a control that
+  went red on the same stage.
+- **`sdk.js` — `implemented`.** Its gate is `harness/sdk-smoke.mjs`, a smoke script over
+  one fixture, not a recorded seed sweep: no record backs it, so both of its verdict
+  columns read `not backed: …` and `capabilities --check` would refuse a `gated` claim.
+  Raising it needs a sweep that writes a record, not a different status.
 
 ## Framed buffers
 
@@ -79,8 +130,8 @@ meaning.
 | 4 | `NODE_H` | `f32 × n` | node count | Box only |
 | 5 | `EDGE_SOURCE` | `u32 × m` | edge count | every edge kind — dense node index |
 | 6 | `EDGE_TARGET` | `u32 × m` | edge count | every edge kind — dense node index |
-| 7 | `NOTE_CODE` | `u32 × k` | reserved | **reserved for Phase 3's notes section (contract 0.3); always [`Column::Absent`] this phase, for every graph** |
-| 8 | `NOTE_INDEX` | `u32 × k` | reserved | as above |
+| 7 | `NOTE_CODE` | `u32 × k` | reserved | **reserved for Phase 3's notes section (contract 0.3) as `note.code`; always [`Column::Absent`] this phase, for every graph** |
+| 8 | `NOTE_INDEX` | `u32 × k` | reserved | as above — `note.index` |
 | 9 | `EDGE_OFFSETS` | `u32 × (m+1)` | — | Polyline and Curve only |
 | 10 | `EDGE_PTS` | `f32 × 2×offsets[m]` | — | Polyline and Curve only |
 | 11 | `EDGE_CURVE_DEGREE` | `u32 × 1` | 1 | Curve only |
@@ -93,10 +144,24 @@ any nonzero address a bump allocator happens to hand out, so a `ptr === 0` check
 not a valid presence test (`crates/graph-sdk-js/src/views.ts`'s `columnApplies` decides
 presence from the geometry kind instead, mirroring this table exactly).
 
-7 and 8 are reserved column ids only — nothing in this snapshot type has a notes section
-yet, so they resolve to `Absent` unconditionally. 9, 10 and 11 are numbered after them so
-Phase 3's eventual notes columns can land at 12+ without renumbering anything shipped
-here.
+Ids 7 and 8 are reserved for exactly the two fields Phase 3's `notes` section (contract
+0.3) brings — `note.code` and `note.index` — and they are numbered *before* 9/10/11
+deliberately, so that merge fills these two slots instead of renumbering anything shipped
+here. Until it does, nothing in this snapshot type has a notes section, so both resolve to
+`Absent` unconditionally, for every graph, whatever the geometry kinds. Any *further*
+notes field beyond those two lands at 12+, again without renumbering.
+
+**The whole table is exercised per layout, not per kind in the abstract.**
+`harness/sdk-smoke.mjs` restates it — a consumer's copy, deliberately not the SDK's own
+`columnApplies`, so a mistake in one copy cannot agree with itself — and for every
+registered layout asserts that each id is present exactly when the run's declared node/edge
+kind says it should be, that each present node column is `nodeCount` long, that the edge
+source/target columns agree with each other, that `offsets` is `m + 1` and `pts` is
+`2 × offsets[m]`, that a curve degree column is one element, and that both note columns are
+absent. `docs/reports/phase-04.md` §6b records the two temporary registry rows
+(Circle/Polyline and Box/Curve) used to observe that check going red on a wrong table: with
+only the grid registered, every "absent" branch is the only branch there is, and a wrong
+row in this table would pass unnoticed until a layout lands that needs it.
 
 ## Errors (`Code`, `gm_last_error`)
 
@@ -166,6 +231,17 @@ caller; `crates/graph-sdk-js/README.md` documents its own ownership and error po
 JS terms. `harness/sdk-smoke.mjs` is a third party exercising only that published entry
 point — it never imports from `crates/`, never touches the ABI directly.
 
+`Motor#layouts()` returns every registered layout id, in registry order, from
+`gm_layout_count`/`gm_layout_id` (C1). It is the only way a consumer is meant to learn
+what a module can run, and `Motor#layout` resolves the id it is given through the same
+map, so the registry is read once per motor. Without it the surface could only name a
+layout a caller already knew: a layout registered after this ABI shipped would be
+reachable but undiscoverable, and the phase's own smoke test — which is written to run
+*every* registered layout and print its node count and bounds — would have had to hard-code
+names, covering one layout forever. On a degraded motor `layouts()` refuses like every
+other method that needs the module; it never answers `[]`, which would be
+indistinguishable from "this module has no layouts".
+
 ## Loader pattern
 
 `crates/graph-sdk-js/src/wasm.ts`'s `loadMotor`: one module-level singleton, a deduped
@@ -184,19 +260,25 @@ returns a degraded `Motor` (see Deviations).
 | export | exercised by |
 |---|---|
 | `gm_alloc` / `gm_free` | `crates/graph-wasm/src/alloc.rs` unit tests (native); `Motor#build`'s stage/free (`harness/sdk-smoke.mjs`) |
-| `gm_layout_count` / `gm_layout_id` | `Motor#layoutIndex` (`harness/sdk-smoke.mjs`, `harness/wasm-run.mjs`'s `layoutIndex` helper) |
+| `gm_layout_count` / `gm_layout_id` | `Motor#layouts` (`harness/sdk-smoke.mjs`, `harness/wasm-run.mjs`'s `layoutIndex` helper) |
 | `gm_build` | `crates/graph-wasm/src/ingest.rs` unit tests (native, the parser); `harness/sdk-smoke.mjs`, `harness/wasm-run.mjs --assert-zero-copy` |
 | `gm_run` | `harness/sdk-smoke.mjs`, `harness/wasm-run.mjs --assert-zero-copy`, `abiSnapshotBytes` (C20) |
 | `gm_node_count` | `harness/sdk-smoke.mjs` (including the released-handle refusal, C6) |
 | `gm_geometry_kind` / `gm_edge_geometry_kind` | `harness/sdk-smoke.mjs` (`layout.grid reports Point/Line geometry`) |
-| `gm_column_ptr` / `gm_column_len` | `crates/graph-wasm/src/views.rs` unit tests (native, every kind combination); `harness/sdk-smoke.mjs`'s column checks; `harness/wasm-run.mjs --assert-zero-copy`'s zero-copy and growth proofs |
+| `gm_column_ptr` / `gm_column_len` | `crates/graph-wasm/src/views.rs` unit tests (native, every kind combination); `harness/sdk-smoke.mjs`'s per-layout column checks, which restate this table kind by kind for **every** registered layout and read each present column's length; `harness/wasm-run.mjs --assert-zero-copy`'s zero-copy and growth proofs |
 | `gm_snapshot_json` | `harness/sdk-smoke.mjs` (`toJSON`, the D9 tamper refusal) |
 | `gm_snapshot_bytes` | `abiSnapshotBytes` (`harness/wasm-run.mjs`, C20) |
 | `gm_release` | `harness/sdk-smoke.mjs` (C6) |
 | `gm_last_error` | Every refusal path above — `crates/graph-wasm/src/errors.rs` unit tests natively |
 | `gm_seed_ingest` | `crates/graph-wasm/src/seed_ingest.rs` unit tests (native, round-trips to `seeded_model`); `harness/wasm-run.mjs`'s `abiSnapshotBytes` |
-| `gate_exports::gm_topology` / `gm_layout_grid` | `graph-cli hashgate` (unchanged Phase 2/3 proof) |
+| `gate_exports::gm_topology` / `gm_layout_grid` | `graph-cli hashgate` (the `topology` and `layout.grid` stages, unchanged) |
+| `gm_layout_count` / `gm_layout_id` as hash-gate stages | `crates/graph-cli/src/hashgate/tests/stages.rs::the_stages_are_the_topology_then_every_registered_layout_then_the_transport`; `…::a_second_registered_layout_joins_the_gate_with_no_change_to_the_stage_list`; `…::arm::the_wasm_arm_can_hash_every_stage_the_gate_asks_for`; `harness/wasm-run.mjs`'s `layoutIndex` and its `stages` mode |
+| a stage the wasm arm cannot hash being **refused by name**, never hashed as something else | `crates/graph-cli/src/hashgate/tests/stages/arm.rs::a_stage_the_arm_cannot_hash_is_refused_however_it_is_named` — `toString`, `constructor`, `__proto__`, `valueOf`, `hasOwnProperty` and a genuinely unregistered id each exit 2 with `unknown stage <name>`, and the three shim-backed stages still hash |
+| a *newly registered* layout being hashable by the wasm arm without editing the harness | `…::stages::the_wasm_arm_can_hash_every_stage_the_gate_asks_for`; `docs/reports/phase-04.md` §6a, where a temporary second registry row was used to observe the pre-fix failure and the post-fix `PASS` |
+| `transport.wasm.columnar` as a hash-gate stage | `graph-cli hashgate`'s own output and record (`crates/graph-cli/tests/cli.rs::hashgate_passes_on_an_honest_run`, `…::each_negative_control_goes_red_on_its_own_stage`); `hashgate/transport.rs`'s tally unit tests; the `gated` row's two verdicts (`capabilities/tests/transport.rs`) |
 | `createMotor`/`Motor.create` degrading rather than throwing (kill switch, compile failure) | `harness/sdk-smoke.mjs`'s `createMotor_never_throws_on_kill_switch` / `createMotor_never_throws_on_compile_failure` / `degraded_motor_build_fails_predictably_*` checks |
+| `Motor#layouts` (the registry, and every registered layout run through the published SDK with its node count, bounds and columns) | `harness/sdk-smoke.mjs`'s registry checks and its per-layout loop — the list is the module's own, so a newly registered layout is covered with no edit to the harness; `docs/reports/phase-04.md` §6b, where three temporary registry rows (Point/Line, Circle/Polyline, Box/Curve) were used to observe the pre-fix script covering one layout of three and the post-fix script covering all three |
+| a degraded motor refusing `layouts()` rather than answering an empty registry | `harness/sdk-smoke.mjs`'s `degraded_motor_layouts_fails_predictably_kill_switch` |
 
 ## Deviations
 
@@ -228,6 +310,11 @@ returns a degraded `Motor` (see Deviations).
   that actually holds the registry, plus `capabilities/tests/{mod.rs,registry.rs}` and
   `crates/graph-cli/tests/cli.rs` to keep their row-count assertions honest.
   `capabilities.rs` itself (the `ledger`/`problems` driver) was not touched.
+  `crates/graph-cli/src/hashgate{.rs,/stages.rs,/transport.rs,/compare.rs,/tests.rs}` is
+  outside the envelope too, and cannot be avoided: the phase's own Ledger delta asks for
+  `transport.wasm.columnar` "with its own gate", and the only gate that hashes the real
+  ABI is `hashgate` (see "Hash-gate wiring"). `capabilities/tests/transport.rs` and
+  `capabilities/verdict.rs` follow from the same row.
   `Cargo.toml`/`Cargo.lock` picked up `graph-wasm`'s dependency on `graph-contract`
   (already a workspace member; no new external crate).
   `canonical_json.rs` gained one export (`pub use parse::{Value, parse};`, was `Value`
@@ -249,24 +336,28 @@ returns a degraded `Motor` (see Deviations).
 - `gm_layout_count`, `gm_layout_id`, `gm_last_error`, `gm_edge_geometry_kind`,
   `gm_snapshot_bytes` and `gm_seed_ingest` are exports beyond the phase's literally
   stated minimum surface — each is justified in the export table above.
+- The reviewer's BLOCKER on the two transport rows was accepted as **"amend the
+  envelope"** (`docs/reports/STATUS.md` §3 p4), so the `capabilities/` and `hashgate/`
+  paths above are an accepted amendment rather than an undeclared overrun. Recorded in
+  full, with each path and its cause, in `docs/reports/phase-04.md` §1.
 - `gm_alloc`/`gm_free` are implemented with `std::alloc::{alloc, dealloc, Layout}`
   directly, not a `Vec<u8>`-backed buffer — needed to make the documented 4-byte
   alignment guarantee (`alloc::ALIGN`) actually load-bearing rather than incidental.
-- **`transport.wasm.columnar`'s hash-equality proof (C20) is not wired into
-  `graph-cli hashgate`'s own `STAGES`.** That command's wasm arm still drives the
-  retained `gm_topology`/`gm_layout_grid` shim, unchanged, so Phase 2/3's already-green
-  4-way gate is not touched by this phase. Instead, `harness/wasm-run.mjs`'s `hash` mode
-  gained a third stage function, `"transport.wasm.columnar"`
-  (`gm_seed_ingest → gm_alloc → gm_build → gm_run → gm_snapshot_bytes`, the real ABI),
-  and — when both `layout.grid` and `transport.wasm.columnar` are named in the same
-  invocation — asserts their digests match per seed, exiting `1` on the first divergence
-  (`docs/measurements/phase04-transport.md` records a real run of this, both the passing
-  case and an injected-mismatch check that the failure path itself fires). This is the
-  literal C20 acceptance criterion ("hash equality through the real ABI, not just the old
-  shim") as its own, separately invoked proof, matching the phase's own Ledger-delta
-  wording ("register `transport.wasm.columnar` and `sdk.js` as capabilities with their
-  own gates") rather than folding a third stage into an unrelated, already-passing gate.
-  The two new ledger rows are `Status::Implemented` with an `oracle_record`/`hash_stage`
-  `graph-cli`'s `verdict`/`hashgate` modules do not recognise, so `capabilities --check`
-  honestly reports them "not backed" rather than falsely `Gated`; `capabilities --check`
-  itself only fails on unbacked `Gated` rows, so this does not fail the gate.
+- **C20 (hash equality through the real ABI) is wired into `graph-cli hashgate` as a
+  stage of its own**, not left to a hand-run harness. `hashgate/stages.rs` appends
+  `transport.wasm.columnar` to the registry's stages after the topology and every
+  registered layout, so the wasm arm drives `gm_seed_ingest → gm_alloc → gm_build →
+  gm_run → gm_snapshot_bytes` inside the gate that already runs, and a divergence names
+  the transport rather than the layout it re-derives. `harness/wasm-run.mjs` still
+  enforces the per-seed equality itself and exits `1` on the first divergence;
+  `hashgate/transport.rs` counts the same thing from the arm's lines and records it as
+  `hashgate.json`'s `transport` tally, which is what the ledger reads (see "Hash-gate
+  wiring"). The two shim-backed stages are untouched, so Phase 2/3's already-green gate
+  still hashes what it always hashed — the transport is added beside them, not folded
+  into them.
+  What the native arm contributes to this stage is the pipeline's own snapshot for
+  `layout.grid`, restated under the transport's name: the native side has no
+  provisional-ingest transport of its own (that path exists only on the wasm32 target),
+  so the cross-target comparison is the whole of the stage's claim, and it is the claim
+  C20 is about. The `GM_MUTATE_GRID_SPACING` control moves both grid-derived stages
+  together, so the transport stage has a red control of its own.

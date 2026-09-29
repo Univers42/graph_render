@@ -17,6 +17,26 @@ documents — a versioned array of node/edge records in `graph_core::records`' o
 where a field may be absent, never an omitted key; an unknown member (a stray camelCase
 `hasNote`, say) refuses the whole document rather than being silently dropped.
 
+## Layouts
+
+`Motor#layouts()` returns every layout id the loaded module registered, in registry order,
+read from `gm_layout_count`/`gm_layout_id` (C1) and cached for the motor's lifetime.
+`Motor#layout(id, …)` resolves the id you hand it through that same map, so the id is never
+a hard-coded index and a layout registered after this package was written is reachable and
+discoverable with no change here. This is the surface a consumer should enumerate rather
+than a list of names copied out of a release note.
+
+```js
+for (const id of motor.layouts()) {
+  const run = motor.layout(handle, id);
+  console.log(id, run.nodeCount, run.nodeKind, run.edgeKind);
+}
+```
+
+A degraded motor (see below) refuses `layouts()` the way it refuses every other method that
+needs the module. It never answers `[]`: "this module has no layouts" and "this module never
+loaded" are different facts, and only one of them is true.
+
 ## Ownership
 
 | What | Who owns it | Valid until |
@@ -25,6 +45,13 @@ where a field may be absent, never an omitted key; an unknown member (a stray ca
 | A framed return buffer (JSON/bytes/layout id) | The motor | The next motor call, on *any* handle — copied out (`.slice()`) before this package's methods return, so a caller never touches wasm memory directly for these |
 | A column view (`Motor#column`) | The motor | The next motor call, on *any* handle (C7) — this package re-derives it lazily via an epoch counter (`views.ts`), but does not stop a caller from reading a JS reference to an old typed array after that; don't hold one past the next call |
 | A handle | The motor's handle table | `Motor#release`; the id is never reissued (C6) |
+
+Column views are typed-array aliases over the module's own memory, valid until the next
+motor call on any handle. Read `x`/`y` (and `r` for Circle nodes, `w`/`h` for Box nodes,
+`offsets`/`pts` for Polyline and Curve edges, `degree` for Curve) with
+`Motor#column(handle, ColumnId.NodeR)` and friends: which column ids exist for a given run
+is decided by that run's node/edge geometry kind, and an id that does not apply reads `null`
+rather than an empty array.
 
 ## Errors
 

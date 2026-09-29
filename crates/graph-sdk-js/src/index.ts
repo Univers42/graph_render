@@ -137,7 +137,20 @@ export class Motor {
     return new Uint8Array(exports.memory.buffer, ptr + 4, len).slice();
   }
 
-  #layoutIndex(exports: RawExports, layoutId: string): number {
+  /** Every registered layout id, in registry order — this SDK's view of the module's own
+   * registry (`gm_layout_count`/`gm_layout_id`, C1). A consumer asks what the module can
+   * run instead of hard-coding a name, so a layout registered after this SDK was written
+   * is discoverable with no SDK change; `layout` below resolves names through the same
+   * map, so the registry is scanned once per motor, never once per call. Refuses on a
+   * degraded motor like every other method that needs the module, rather than reporting
+   * an empty registry that would read as "this module has no layouts". */
+  layouts(): readonly string[] {
+    const { exports } = this.#requireLoaded();
+    return [...this.#registry(exports).keys()];
+  }
+
+  /** The registry's id -> index map, read once per motor (C1). */
+  #registry(exports: RawExports): Map<string, number> {
     if (this.#layoutIds === null) {
       const ids = new Map<string, number>();
       const count = this.#invoke("gm_layout_count", () => exports.gm_layout_count());
@@ -147,7 +160,11 @@ export class Motor {
       }
       this.#layoutIds = ids;
     }
-    const index = this.#layoutIds.get(layoutId);
+    return this.#layoutIds;
+  }
+
+  #layoutIndex(exports: RawExports, layoutId: string): number {
+    const index = this.#registry(exports).get(layoutId);
     if (index === undefined) throw new RunRefusedError(`unknown layout id "${layoutId}"`);
     return index;
   }
@@ -185,9 +202,10 @@ export class Motor {
     return count;
   }
 
-  /** Runs the registered layout `layoutId` (e.g. `"layout.grid"`, looked up by scanning
-   * `gm_layout_count()`/`gm_layout_id` — never a hard-coded index, C1) over `handle`'s
-   * topology at its default parameters (registry layouts take none this phase, C2). */
+  /** Runs the registered layout `layoutId` (e.g. `"layout.grid"`, from
+   * {@link Motor.layouts} — the id is resolved through `gm_layout_count`/`gm_layout_id`,
+   * never a hard-coded index, C1) over `handle`'s topology at its default parameters
+   * (registry layouts take none this phase, C2). */
   layout(handle: Handle, layoutId: string): RunResult {
     const { exports, views } = this.#requireLoaded();
     const index = this.#layoutIndex(exports, layoutId);
