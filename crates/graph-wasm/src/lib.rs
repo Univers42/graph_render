@@ -70,28 +70,33 @@ mod gate_exports {
     // SAFETY: as above — `gm_layout_tree_tidy` is the only symbol with this name.
     #[unsafe(no_mangle)]
     pub extern "C" fn gm_layout_tree_tidy(seed: u32) -> u32 {
-        publish(pipeline(seed, "layout.tree.tidy").map(|run| run.snapshot.to_bytes()))
+        publish(
+            pipeline(seed, graph_core::layout::tidy_tree::ID).map(|run| run.snapshot.to_bytes()),
+        )
     }
 
     /// The `layout.treemap.squarified` stage's snapshot bytes for `seed`.
     // SAFETY: as above — `gm_layout_treemap_squarified` is the only symbol with this name.
     #[unsafe(no_mangle)]
     pub extern "C" fn gm_layout_treemap_squarified(seed: u32) -> u32 {
-        publish(pipeline(seed, "layout.treemap.squarified").map(|run| run.snapshot.to_bytes()))
+        publish(pipeline(seed, graph_core::layout::treemap::ID).map(|run| run.snapshot.to_bytes()))
     }
 
     /// The `layout.circular.radial` stage's snapshot bytes for `seed`.
     // SAFETY: as above — `gm_layout_circular_radial` is the only symbol with this name.
     #[unsafe(no_mangle)]
     pub extern "C" fn gm_layout_circular_radial(seed: u32) -> u32 {
-        publish(pipeline(seed, "layout.circular.radial").map(|run| run.snapshot.to_bytes()))
+        publish(pipeline(seed, graph_core::layout::circular::ID).map(|run| run.snapshot.to_bytes()))
     }
 
     /// The `layout.packing.circle` stage's snapshot bytes for `seed`.
     // SAFETY: as above — `gm_layout_packing_circle` is the only symbol with this name.
     #[unsafe(no_mangle)]
     pub extern "C" fn gm_layout_packing_circle(seed: u32) -> u32 {
-        publish(pipeline(seed, "layout.packing.circle").map(|run| run.snapshot.to_bytes()))
+        publish(
+            pipeline(seed, graph_core::layout::circle_packing::ID)
+                .map(|run| run.snapshot.to_bytes()),
+        )
     }
 
     /// The `layout.spectral` stage's snapshot bytes for `seed`.

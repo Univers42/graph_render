@@ -5,8 +5,13 @@ use super::knob::setting;
 use super::transport;
 use super::*;
 use graph_core::Stage;
+use graph_core::layout::circle_packing::CirclePackingParams;
+pub use graph_core::layout::circle_packing::ID as PACKING;
+pub use graph_core::layout::circular::ID as CIRCULAR;
 use graph_core::layout::force::BarnesHut;
 use graph_core::layout::forceatlas2::ForceAtlas2;
+pub use graph_core::layout::tidy_tree::ID as TIDY_TREE;
+pub use graph_core::layout::treemap::ID as TREEMAP;
 use graph_core::{GridParams, REFERENCE_DEGREE, SugiyamaParams, gate_node_count, seeded_model};
 use std::env::VarError;
 

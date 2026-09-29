@@ -1,8 +1,10 @@
 //! The negative controls' knobs and the setting the native arm runs with: every
 //! variable is read strictly and at most one may be set.
 
+use graph_core::layout::circle_packing::CirclePackingParams;
 use graph_core::layout::force::ForceParams;
 use graph_core::layout::forceatlas2::Fa2Params;
+use graph_core::layout::{circular, tidy_tree, treemap};
 use graph_core::{GridParams, REFERENCE_DEGREE, SugiyamaParams};
 use std::env::VarError;
 
@@ -10,12 +12,29 @@ use std::env::VarError;
 /// so a wired mutation surfaces as exactly the cross-target divergence the gate must
 /// catch. The grid ignores weights, so the reference degree cannot reach `layout.grid`,
 /// and the grid's spacing is what backs that stage. Treemap reads node weight, so the
-/// reference degree backs it too. Tidy tree, circular and packing take no parameters
-/// (`layout::tidy_tree`/`circular` are pinned with none, and adding one to gain a knob
-/// would be the tail wagging the dog) and read only the topology, so [`Knob::NodeCount`]
-/// perturbs that instead: one more node changes every stage that is a function of the
-/// topology at all, backing every stage no other knob reaches. The layered drawing
-/// ignores weights too; its layer spacing backs `layout.dag.sugiyama`.
+/// reference degree backs it too. The layered drawing ignores weights too; its layer
+/// spacing backs `layout.dag.sugiyama`.
+///
+/// **Every stage the gate hashes has a control of its own, and none of them is
+/// [`Knob::NodeCount`].** Node count perturbs the gate's one shared model, so it moves
+/// every stage that is a function of the topology at all: it backs the stages nothing
+/// else reaches (spectral, pivot MDS), but a control that moves eleven stages at once
+/// cannot say *which* stage a divergence came from, which is the whole point of hashing
+/// them one at a time. So the four Phase 3 layouts and Barnes-Hut each have a control
+/// filed under their own stage id, and the test
+/// `each_p3_layout_has_its_own_negative_control_that_moves_only_its_stage` is what keeps
+/// them honest.
+///
+/// **What each of the four perturbs, and why it is not one thing.** Circle packing is
+/// the only one that publishes parameters ([`graph_core::layout::circle_packing::
+/// CirclePackingParams`]), so [`Knob::PackingScale`] moves a real parameter of that
+/// layout. The other three take none by design — `layout::tidy_tree`,
+/// `layout::treemap` and `layout::circular` pin their own conventions and say in their
+/// own module docs that adding a `Params` to gain a knob would be the tail wagging the
+/// dog — so their controls re-draw *that one stage's* model with one more node instead
+/// ([`Knob::TreeTidyNodes`], [`Knob::TreemapNodes`], [`Knob::CircularNodes`]). Same
+/// probe as node count, scoped to one stage: it is the honest way to move a layout that
+/// has no parameter to move, and it is what makes the divergence *name* the stage.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Knob {
     /// `GM_MUTATE_REFERENCE_DEGREE`: the degree the topology's weights are taken against.
@@ -40,17 +59,41 @@ pub enum Knob {
     /// Its own control for the same reason, on the other side: `scaling_ratio` is
     /// read by `Fa2State::repulsion` alone.
     Fa2ScalingRatio,
+    /// `GM_MUTATE_TREE_TIDY_NODES`: nodes added to `layout.tree.tidy`'s model alone.
+    ///
+    /// The tidy tree takes no parameters (its module pins every d3 convention), so its
+    /// own control perturbs the one thing it does read — the model — for that stage only.
+    TreeTidyNodes,
+    /// `GM_MUTATE_TREEMAP_NODES`: nodes added to `layout.treemap.squarified`'s model
+    /// alone. Squarify takes no parameters either; a new node is a new box, and the
+    /// layout's stage is the only one that sees it.
+    TreemapNodes,
+    /// `GM_MUTATE_CIRCULAR_NODES`: nodes added to `layout.circular.radial`'s model
+    /// alone. Rings come from BFS depth over the hierarchy, so one more node changes
+    /// this stage's ring counts and slots and nothing else's.
+    CircularNodes,
+    /// `GM_MUTATE_PACKING_SCALE`: the packing's `CirclePackingParams::scale`, native arm
+    /// only.
+    ///
+    /// A real parameter rather than a re-drawn model, because circle packing is the one
+    /// of the four that publishes `run_with`; the scale is read by the final centring and
+    /// so changes every circle's centre and radius.
+    PackingScale,
 }
 
 impl Knob {
     /// Every knob.
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 10] = [
         Self::ReferenceDegree,
         Self::GridSpacing,
         Self::SugiyamaLayerSpacing,
         Self::NodeCount,
         Self::ForceTheta,
         Self::Fa2ScalingRatio,
+        Self::TreeTidyNodes,
+        Self::TreemapNodes,
+        Self::CircularNodes,
+        Self::PackingScale,
     ];
 
     /// The variable that sets it.
@@ -62,6 +105,10 @@ impl Knob {
             Self::NodeCount => "GM_MUTATE_NODE_COUNT",
             Self::ForceTheta => "GM_MUTATE_FORCE_THETA",
             Self::Fa2ScalingRatio => "GM_MUTATE_FA2_SCALING_RATIO",
+            Self::TreeTidyNodes => "GM_MUTATE_TREE_TIDY_NODES",
+            Self::TreemapNodes => "GM_MUTATE_TREEMAP_NODES",
+            Self::CircularNodes => "GM_MUTATE_CIRCULAR_NODES",
+            Self::PackingScale => "GM_MUTATE_PACKING_SCALE",
         }
     }
 
@@ -74,6 +121,10 @@ impl Knob {
             Self::NodeCount => "hashgate-control-node-count",
             Self::ForceTheta => "hashgate-control-force-theta",
             Self::Fa2ScalingRatio => "hashgate-control-fa2-scaling-ratio",
+            Self::TreeTidyNodes => "hashgate-control-tree-tidy-nodes",
+            Self::TreemapNodes => "hashgate-control-treemap-nodes",
+            Self::CircularNodes => "hashgate-control-circular-nodes",
+            Self::PackingScale => "hashgate-control-packing-scale",
         }
     }
 }
@@ -90,6 +141,15 @@ pub(super) struct Setting {
     pub(super) force: ForceParams,
     /// ForceAtlas2's parameters, native arm only ([`Knob::Fa2ScalingRatio`] perturbs).
     pub(super) fa2: Fa2Params,
+    /// Circle packing's parameters, native arm only ([`Knob::PackingScale`] perturbs).
+    pub(super) packing: CirclePackingParams,
+    /// The one Phase 3 stage whose own model a control re-draws, native arm only
+    /// ([`Knob::TreeTidyNodes`], [`Knob::TreemapNodes`], [`Knob::CircularNodes`]).
+    ///
+    /// A stage id, never a node count: which stage the extra nodes are *for* is the whole
+    /// claim, and a bare `u32` would let the same perturbation reach the shared model
+    /// again — which is [`Setting::extra_nodes`], and moves every stage at once.
+    pub(super) stage_nodes: Option<(&'static str, u32)>,
     pub(super) control: Option<Knob>,
 }
 
@@ -104,6 +164,8 @@ pub(super) fn setting(read: impl Fn(&str) -> Result<String, VarError>) -> Result
         extra_nodes: 0,
         force: ForceParams::default(),
         fa2: Fa2Params::default(),
+        packing: CirclePackingParams::default(),
+        stage_nodes: None,
         control: None,
     };
     for knob in Knob::ALL {
@@ -117,23 +179,56 @@ pub(super) fn setting(read: impl Fn(&str) -> Result<String, VarError>) -> Result
             return Err(format!("{a} and {b} are both set: one control at a time"));
         }
         setting.control = Some(knob);
-        let bad = |e: &dyn std::fmt::Display| format!("{}={text:?}: {e}", knob.env());
-        match knob {
-            Knob::ReferenceDegree => {
-                setting.reference_degree = text.trim().parse().map_err(|e| bad(&e))?;
-            }
-            Knob::GridSpacing => setting.grid.spacing = text.trim().parse().map_err(|e| bad(&e))?,
-            Knob::SugiyamaLayerSpacing => {
-                setting.sugiyama.layer_spacing = text.trim().parse().map_err(|e| bad(&e))?;
-            }
-            Knob::NodeCount => setting.extra_nodes = text.trim().parse().map_err(|e| bad(&e))?,
-            Knob::ForceTheta => setting.force.theta = text.trim().parse().map_err(|e| bad(&e))?,
-            Knob::Fa2ScalingRatio => {
-                setting.fa2.scaling_ratio = text.trim().parse().map_err(|e| bad(&e))?
-            }
-        }
+        apply(knob, text.trim(), &mut setting)?;
     }
     Ok(setting)
+}
+
+/// The one knob's perturbation, written into `setting`. Split out of [`setting`] by the
+/// house's 40-line-per-function cap, and the place a new knob adds its single line: every
+/// arm parses the *same* way, so a typo is refused whatever the knob perturbs.
+fn apply(knob: Knob, text: &str, setting: &mut Setting) -> Result<(), String> {
+    let bad = |e: &dyn std::fmt::Display| format!("{}={text:?}: {e}", knob.env());
+    match knob {
+        Knob::ReferenceDegree => {
+            setting.reference_degree = text.parse().map_err(|e| bad(&e))?;
+        }
+        Knob::GridSpacing => setting.grid.spacing = text.parse().map_err(|e| bad(&e))?,
+        Knob::SugiyamaLayerSpacing => {
+            setting.sugiyama.layer_spacing = text.parse().map_err(|e| bad(&e))?;
+        }
+        Knob::NodeCount => setting.extra_nodes = text.parse().map_err(|e| bad(&e))?,
+        Knob::ForceTheta => setting.force.theta = text.parse().map_err(|e| bad(&e))?,
+        Knob::Fa2ScalingRatio => setting.fa2.scaling_ratio = text.parse().map_err(|e| bad(&e))?,
+        Knob::TreeTidyNodes => {
+            setting.stage_nodes = Some((tidy_tree::ID, nodes(text, knob)?));
+        }
+        Knob::TreemapNodes => {
+            setting.stage_nodes = Some((treemap::ID, nodes(text, knob)?));
+        }
+        Knob::CircularNodes => {
+            setting.stage_nodes = Some((circular::ID, nodes(text, knob)?));
+        }
+        Knob::PackingScale => setting.packing.scale = text.parse().map_err(|e| bad(&e))?,
+    }
+    Ok(())
+}
+
+/// Nodes added to one stage's own model. Zero is refused: a control that perturbs by
+/// nothing passes vacuously, which is the one failure mode a negative control must not
+/// have (`cli_force.rs`'s `--seeds 2` note is the same lesson at the other end of the
+/// seed range).
+fn nodes(text: &str, knob: Knob) -> Result<u32, String> {
+    let count: u32 = text
+        .parse()
+        .map_err(|e| format!("{}={text:?}: {e}", knob.env()))?;
+    if count == 0 {
+        return Err(format!(
+            "{}={text:?}: a control that adds no node perturbs nothing",
+            knob.env()
+        ));
+    }
+    Ok(count)
 }
 
 pub(super) fn env_setting() -> Result<Setting, String> {

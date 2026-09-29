@@ -2,12 +2,13 @@
 //! roundtrip function entry, never by another layout's.
 
 use super::super::*;
+use super::find_row_by_id;
 use super::honest;
 use serde_json::json;
 
 #[test]
 fn the_sugiyama_row_stands_only_on_its_own_control() {
-    let dag = || vec![registry().remove(17)];
+    let dag = || vec![find_row_by_id("layout.dag.sugiyama")];
     let mut evidence = honest();
     evidence.controls.truncate(2);
     let blind = problems(&dag(), &evidence);

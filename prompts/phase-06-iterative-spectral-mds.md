@@ -256,3 +256,42 @@ reproducible only**. That exception belongs in `degradation`, visible, never imp
 - WASM is *slower* than the TypeScript at N=220 → **report it, do not hide it**. That is a legitimate,
   expected outcome at small N, and the `GraphSource` seam exists so the crossover can be a measured policy
   choice rather than a rewrite.
+
+## Addendum (2026-09-29): `GM_MUTATE_FORCE_THETA` is live
+
+The claim that `GM_MUTATE_FORCE_THETA` is inert, made in `docs/reports/phase-06.md`, is superseded.
+Commit `b142c9a` ("updated", 2026-09-29) made the knob live by wiring the mutation into the
+Barnes-Hut stage.
+
+The negative control is the `negctl-force-theta` row of
+`/sgoinfre/students/dlesieur/orch/rows/develop-full.rows` (line 40; the rows files live outside
+this repository, see `CLAUDE.md:123`), which expects a non-zero exit from:
+
+```sh
+negctl-force-theta|nonzero|/goinfre/dlesieur/orch/bin/gr -e GM_MUTATE_FORCE_THETA=0.5 cargo run -q -p graph-cli -- hashgate --seeds 8
+```
+
+The value is `0.5`, not `0.9`: `0.9` was the compiled-in default
+(`crates/graph-core/src/layout/force/params.rs:66`), so it could not diverge. `prompts/RESUME.md:45`
+records that the row shipped that way — "`negctl-force-theta` mutated theta to 0.9 = the default
+(now 0.5)" — and was fixed to `0.5`. A negative control that cannot fail proves nothing.
+
+The knob reaches the stage through the `setting.force` parameter path:
+`crates/graph-cli/src/hashgate/stages.rs:87` runs `BarnesHut::run(t, &setting.force)` rather than the
+registry's compiled-in default. The mutation is native-arm-only, so a wired control surfaces as a
+native-versus-wasm32 divergence on `layout.force.barnes_hut` and on no other stage. Measured on
+this worktree on 2026-09-29, after `b142c9a`, with
+
+```sh
+gr -e GM_MUTATE_FORCE_THETA=0.5 cargo run -q -p graph-cli -- hashgate --seeds 8
+```
+
+which exited 1: `layout.force.barnes_hut` came back `4-way equal on 2/8 seeds`, and `topology`,
+the other nine layouts and `transport.wasm.columnar` all `4-way equal on 8/8 seeds`. The run ended
+`PASS`-free with a divergence count of 6 of 8 seeds. The knob's own stage diverges on 2 of 8 seeds,
+not all 8, and no other stage moved — which is what a negative control is for. The knob is
+documented as live at `crates/graph-cli/src/hashgate/knob.rs:48-56` — the `ForceTheta` doc comment and
+the variant itself, which is what records that theta reaches the Barnes-Hut stage alone.
+
+The original phase-6 report text in `docs/reports/phase-06.md` is kept as written. This addendum is
+the correction.
