@@ -72,6 +72,9 @@ case_lint() {
   : >run.log
   has "junk file" 1 'ERROR junk +run.log' "$JC" lint
   rm run.log
+  mkdir -p deploy/__pycache__ && : >deploy/__pycache__/m.cpython-313.pyc
+  has "python bytecode is junk" 1 'ERROR junk +deploy/__pycache__/m.cpython-313.pyc' "$JC" lint
+  rm -r deploy
   printf '// TODO later\n' >t.ts
   has "TODO without an issue" 1 'ERROR todo' "$JC" lint
   printf '// TODO later, see #12\n' >t.ts

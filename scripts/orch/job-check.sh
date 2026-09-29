@@ -134,7 +134,7 @@ rule_paths() {
   changed "$1" | awk '
     $0 == ".claude" || /^\.claude\// { print "ERROR submodule   " $0 ": the .claude submodule is read-only" }
     /^\.opencode\// { print "WARN  opencode    " $0 ": changed; allowed only when the task names it" }
-    /\.(log|orig|rej|tmp|swp|bak)$|(^|\/)\.nfs|(^|\/)\.playwright-mcp\/|(^|\/)core$|\.DS_Store$/ {
+    /\.(log|orig|rej|tmp|swp|bak|pyc)$|(^|\/)\.nfs|(^|\/)(\.playwright-mcp|__pycache__)\/|(^|\/)core$|\.DS_Store$/ {
       print "ERROR junk        " $0 ": delete it" }'
 }
 
