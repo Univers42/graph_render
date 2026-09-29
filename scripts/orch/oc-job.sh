@@ -25,8 +25,10 @@ done
 wf=$wt/target/wf; mkdir -p "$wf"; prompt=$wf/$label.prompt
 cat /sgoinfre/students/dlesieur/orch/prompts/common-v2.txt "$body" >"$prompt"
 "$bin/oc-run.sh" "$label" "$wt" "$agent" "$prompt"; rc=$?
-ret=$(jq -r 'select(.part.type=="text") | .part.text' "$wf/$label.jsonl" 2>/dev/null | tail -n 30)
-echo "job rc=$rc"; echo "$ret"
+# The verdict reads the whole last text part: a return block longer than the printed 30 lines once
+# cut `status: done` off and turned a done job into exit 2 (s1-nav, 2026-09-29).
+ret=$(jq -rs '[.[] | select(.part.type=="text") | .part.text] | last // ""' "$wf/$label.jsonl" 2>/dev/null)
+echo "job rc=$rc"; tail -n 30 <<<"$ret"
 [[ $rc -eq 0 ]] && grep -q 'status: done' <<<"$ret" || exit 2
 if [[ -n $rows ]]; then
   (cd "$wt" && "$bin/gate.sh" "target/gate-$label" "$rows") >/dev/null; g=$?
