@@ -9,7 +9,8 @@
 //        layout.treemap.squarified (gm_layout_treemap_squarified),
 //        layout.circular.radial (gm_layout_circular_radial),
 //        layout.packing.circle (gm_layout_packing_circle),
-//        layout.spectral (gm_layout_spectral), layout.mds.pivot (gm_layout_mds_pivot)
+//        layout.spectral (gm_layout_spectral), layout.mds.pivot (gm_layout_mds_pivot),
+//        layout.dag.sugiyama (gm_layout_dag_sugiyama)
 //   node harness/wasm-run.mjs <graph_wasm.wasm> probe
 //        prints the D1 probe buffer as one hex line
 //
@@ -50,6 +51,7 @@ const STAGE_EXPORTS = {
   "layout.packing.circle": "gm_layout_packing_circle",
   "layout.spectral": "gm_layout_spectral",
   "layout.mds.pivot": "gm_layout_mds_pivot",
+  "layout.dag.sugiyama": "gm_layout_dag_sugiyama",
 };
 
 if (mode === "hash") {

@@ -2,6 +2,7 @@
 // (prompts/phase-03-deterministic-layouts.md's "the layout oracles" gate step).
 //
 //   node harness/oracle-layouts.mjs [fixtures-dir]        (graph-cli oracle-layouts)
+//   node harness/oracle-layouts.mjs --dag [dump]          (harness/oracle-dag.mjs)
 //
 // Reads what `graph-cli emit-fixtures` wrote (layouts.jsonl / layout-manifest.json,
 // target/oracle-fixtures by default). For every seed it rebuilds the exact tree
@@ -195,8 +196,13 @@ function main() {
   process.exit(pass ? 0 : 1);
 }
 
-try {
-  main();
-} catch (error) {
-  fail(error.stack ?? String(error));
+// `--dag` is the layered drawing's arm (dagre-d3-es crossing counts), kept in its own
+// file because it shares nothing with the d3-hierarchy differential above but the name.
+if (process.argv[2] === "--dag") await import("./oracle-dag.mjs");
+else {
+  try {
+    main();
+  } catch (error) {
+    fail(error.stack ?? String(error));
+  }
 }

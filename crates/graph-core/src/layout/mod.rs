@@ -12,6 +12,7 @@ pub mod pivot_mds;
 pub mod planarity;
 pub mod spectral;
 pub mod spectral_stage;
+pub mod sugiyama;
 pub mod tidy_tree;
 pub mod treemap;
 

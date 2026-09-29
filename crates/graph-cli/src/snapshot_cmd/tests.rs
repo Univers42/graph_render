@@ -26,6 +26,8 @@ fn layout_names_offers_every_registered_layout_once_by_both_of_its_names() {
             "spectral",
             "layout.mds.pivot",
             "mds.pivot",
+            "layout.dag.sugiyama",
+            "dag.sugiyama",
         ]
     );
     let mut once = names.clone();
@@ -85,6 +87,11 @@ fn both_faces_round_trip_on_the_grid_and_on_the_exercise() {
             .snapshot;
         assert_eq!(faces_agree(&grid), Ok(()), "grid seed {seed}");
         assert_eq!(hand_oracles::grid(&grid), Ok(()), "grid seed {seed}");
+        let layered = pipeline(seed, gate_node_count(seed), "dag.sugiyama")
+            .expect("runs")
+            .snapshot;
+        assert_eq!(faces_agree(&layered), Ok(()), "layered seed {seed}");
+        assert_eq!(dag::invariants(&layered), Ok(()), "layered seed {seed}");
         let exercise = exercise::snapshot(seed).expect("valid");
         assert_eq!(faces_agree(&exercise), Ok(()), "exercise seed {seed}");
     }

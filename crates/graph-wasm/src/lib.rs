@@ -101,6 +101,13 @@ mod exports {
         publish(pipeline(seed, "layout.mds.pivot").map(|run| run.snapshot.to_bytes()))
     }
 
+    /// The `layout.dag.sugiyama` stage's snapshot bytes for `seed`.
+    // SAFETY: as above — `gm_layout_dag_sugiyama` is the only symbol with this name.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn gm_layout_dag_sugiyama(seed: u32) -> u32 {
+        publish(pipeline(seed, "layout.dag.sugiyama").map(|run| run.snapshot.to_bytes()))
+    }
+
     /// The D1 probe buffer (see [`crate::probe`]). Only in the `probe` build.
     // SAFETY: as above — `gm_probe` is the only symbol with this name.
     #[cfg(feature = "probe")]

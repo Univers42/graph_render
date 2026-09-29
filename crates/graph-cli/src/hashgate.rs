@@ -19,8 +19,8 @@ use crate::evidence;
 use crate::runner::{build_wasm, file_sha256, node_harness, run_lines, sha256_hex};
 use compare::{Arm, Tally, diverged, per_stage};
 use graph_core::{
-    Grid, GridParams, REFERENCE_DEGREE, gate_node_count, registry, run_pipeline, run_with,
-    seeded_model,
+    Grid, GridParams, REFERENCE_DEGREE, Sugiyama, SugiyamaParams, gate_node_count, registry,
+    run_pipeline, run_with, seeded_model,
 };
 use std::env::VarError;
 use std::process::{Command, ExitCode};
@@ -30,7 +30,7 @@ use std::process::{Command, ExitCode};
 /// built from `LAYOUTS` at runtime so its length is usable as an array size below;
 /// [`tests::the_stages_are_the_topology_then_every_registered_layout`] is the guard that
 /// keeps it honest as the registry grows.
-pub const STAGES: [&str; 8] = [
+pub const STAGES: [&str; 9] = [
     "topology",
     "layout.grid",
     "layout.tree.tidy",
@@ -39,6 +39,7 @@ pub const STAGES: [&str; 8] = [
     "layout.packing.circle",
     "layout.spectral",
     "layout.mds.pivot",
+    "layout.dag.sugiyama",
 ];
 
 /// `STAGES.len()`, named for the fixed-size arrays it sizes.
@@ -52,26 +53,35 @@ const STAGE_COUNT: usize = STAGES.len();
 /// (`layout::tidy_tree`/`circular` are pinned with none, and adding one to gain a knob
 /// would be the tail wagging the dog) and read only the topology, so [`Knob::NodeCount`]
 /// perturbs that instead: one more node changes every stage that is a function of the
-/// topology at all, backing every stage no other knob reaches.
+/// topology at all, backing every stage no other knob reaches. The layered drawing
+/// ignores weights too; its layer spacing backs `layout.dag.sugiyama`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Knob {
     /// `GM_MUTATE_REFERENCE_DEGREE`: the degree the topology's weights are taken against.
     ReferenceDegree,
     /// `GM_MUTATE_GRID_SPACING`: the grid's spacing.
     GridSpacing,
+    /// `GM_MUTATE_SUGIYAMA_LAYER_SPACING`: the layered drawing's Y step per layer.
+    SugiyamaLayerSpacing,
     /// `GM_MUTATE_NODE_COUNT`: nodes added to the model, native arm only.
     NodeCount,
 }
 
 impl Knob {
     /// Every knob.
-    pub const ALL: [Self; 3] = [Self::ReferenceDegree, Self::GridSpacing, Self::NodeCount];
+    pub const ALL: [Self; 4] = [
+        Self::ReferenceDegree,
+        Self::GridSpacing,
+        Self::SugiyamaLayerSpacing,
+        Self::NodeCount,
+    ];
 
     /// The variable that sets it.
     pub const fn env(self) -> &'static str {
         match self {
             Self::ReferenceDegree => "GM_MUTATE_REFERENCE_DEGREE",
             Self::GridSpacing => "GM_MUTATE_GRID_SPACING",
+            Self::SugiyamaLayerSpacing => "GM_MUTATE_SUGIYAMA_LAYER_SPACING",
             Self::NodeCount => "GM_MUTATE_NODE_COUNT",
         }
     }
@@ -81,6 +91,7 @@ impl Knob {
         match self {
             Self::ReferenceDegree => "hashgate-control-reference-degree",
             Self::GridSpacing => "hashgate-control-grid-spacing",
+            Self::SugiyamaLayerSpacing => "hashgate-control-sugiyama-layer-spacing",
             Self::NodeCount => "hashgate-control-node-count",
         }
     }
@@ -91,6 +102,7 @@ impl Knob {
 struct Setting {
     reference_degree: u32,
     grid: GridParams,
+    sugiyama: SugiyamaParams,
     /// Extra nodes added to the gate's model, native arm only ([`Knob::NodeCount`]).
     extra_nodes: u32,
     control: Option<Knob>,
@@ -103,6 +115,7 @@ fn setting(read: impl Fn(&str) -> Result<String, VarError>) -> Result<Setting, S
     let mut setting = Setting {
         reference_degree: REFERENCE_DEGREE,
         grid: GridParams::default(),
+        sugiyama: SugiyamaParams::default(),
         extra_nodes: 0,
         control: None,
     };
@@ -123,6 +136,9 @@ fn setting(read: impl Fn(&str) -> Result<String, VarError>) -> Result<Setting, S
                 setting.reference_degree = text.trim().parse().map_err(|e| bad(&e))?;
             }
             Knob::GridSpacing => setting.grid.spacing = text.trim().parse().map_err(|e| bad(&e))?,
+            Knob::SugiyamaLayerSpacing => {
+                setting.sugiyama.layer_spacing = text.trim().parse().map_err(|e| bad(&e))?;
+            }
             Knob::NodeCount => setting.extra_nodes = text.trim().parse().map_err(|e| bad(&e))?,
         }
     }
@@ -177,7 +193,9 @@ fn arm_lines(seeds: u32, setting: &Setting) -> Result<String, String> {
 
 /// Every stage's id and bytes for `seed`, in pipeline order: the topology and the grid
 /// from the knob-aware [`run_pipeline`] (so the spacing control still reaches it), then
-/// every other registered layout via [`run_with`], each on the same nodes and edges.
+/// every parameterless registered layout via [`run_with`], then the layered drawing, again
+/// through [`run_pipeline`] so its layer-spacing control reaches it — all on the same nodes
+/// and edges.
 fn stage_bytes(
     seed: u32,
     setting: &Setting,
@@ -188,11 +206,14 @@ fn stage_bytes(
     let mut out: [(&'static str, Vec<u8>); STAGE_COUNT] = STAGES.map(|id| (id, Vec::new()));
     out[0].1 = grid.topology;
     out[1].1 = grid.snapshot.to_bytes();
-    for slot in &mut out[2..] {
+    let last = STAGE_COUNT - 1;
+    for slot in &mut out[2..last] {
         let layout = registry::find(slot.0).ok_or_else(|| format!("{}: not registered", slot.0))?;
         let run = run_with(&nodes, &edges, layout.id, layout.run).map_err(|e| e.to_string())?;
         slot.1 = run.snapshot.to_bytes();
     }
+    let dag = run_pipeline::<Sugiyama>(&nodes, &edges, &setting.sugiyama);
+    out[last].1 = dag.map_err(|e| e.to_string())?.snapshot.to_bytes();
     Ok(out)
 }
 

@@ -8,6 +8,7 @@
 //! binary → JSON return what they started from, and every float read the way a
 //! JavaScript consumer reads it (`JSON.parse` to f64, then `Math.fround`) keeps its bits.
 
+mod dag;
 mod exercise;
 mod hand_oracles;
 mod roundtrip;

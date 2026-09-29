@@ -3,6 +3,7 @@ use super::*;
 use serde_json::{Value, json};
 
 mod registry;
+mod sugiyama;
 
 /// The 17 oracle functions of `prompt.md` §7.4, plus the H4 and H9 arms.
 const COVERED: [&str; 19] = [
@@ -30,7 +31,7 @@ const COVERED: [&str; 19] = [
 /// Every hashgate stage's key, in `hashgate::STAGES` order, so this fixture's `equal`
 /// maps can be built at the same shape a real record has, without importing the
 /// hashgate module just for the constant.
-const STAGES: [&str; 8] = [
+const STAGES: [&str; 9] = [
     "topology",
     "layout.grid",
     "layout.tree.tidy",
@@ -39,6 +40,7 @@ const STAGES: [&str; 8] = [
     "layout.packing.circle",
     "layout.spectral",
     "layout.mds.pivot",
+    "layout.dag.sugiyama",
 ];
 
 /// A hashgate-shaped `equal` map: `seeds` for every stage, except `diverged`'s, at `0`.
@@ -69,8 +71,8 @@ fn control(name: &'static str, diverged: &[&str]) -> (&'static str, Option<Value
     )
 }
 
-/// The three controls: reference degree (topology, treemap — it reads node weight),
-/// grid spacing (grid alone), and node count — restricted here to the four layouts
+/// The four controls: reference degree (topology, treemap — it reads node weight),
+/// grid spacing (grid alone), layer spacing (the layered drawing alone), and node count — restricted here to the four layouts
 /// neither other control reaches, since reference degree and grid spacing already back
 /// topology/grid/treemap on their own (a real run may show it diverging those too; the
 /// ledger only needs one control per stage to hold).
@@ -81,6 +83,10 @@ fn honest_controls() -> Vec<(&'static str, Option<Value>)> {
             &["topology", "layout.treemap.squarified"],
         ),
         control("hashgate-control-grid-spacing", &["layout.grid"]),
+        control(
+            "hashgate-control-sugiyama-layer-spacing",
+            &["layout.dag.sugiyama"],
+        ),
         control(
             "hashgate-control-node-count",
             &[
@@ -114,6 +120,7 @@ fn honest() -> Evidence {
                 "layout.grid": hand(7),
                 "layout.circular.radial": hand(6),
                 "layout.packing.circle": hand(5),
+                "layout.dag.sugiyama": hand(9),
             }
         })),
         layouts: Some(json!({
@@ -143,7 +150,7 @@ fn row(status: Status) -> Capability {
 fn every_registered_row_stands_on_honest_evidence_and_reads_it_back() {
     let evidence = honest();
     let rows = ledger(&evidence);
-    assert_eq!(rows.len(), 15);
+    assert_eq!(rows.len(), 16);
     assert_eq!(problems(&rows, &evidence), Vec::<String>::new());
     assert_eq!(
         rows[0].hash_4way,
@@ -160,6 +167,17 @@ fn every_registered_row_stands_on_honest_evidence_and_reads_it_back() {
         "equal/1000 seeds (layout.grid stage; negative control hashgate-control-grid-spacing red)"
     );
     assert_eq!(grid.oracle_diff, "byte-equal/1000 seeds (7 cases)");
+    let dag = &rows[15];
+    assert_eq!(
+        (dag.id, dag.geometry, dag.scale_ceiling),
+        ("layout.dag.sugiyama", Some("Point"), 200_000)
+    );
+    assert_eq!(
+        dag.hash_4way,
+        "equal/1000 seeds (layout.dag.sugiyama stage; negative control \
+hashgate-control-sugiyama-layer-spacing red)"
+    );
+    assert_eq!(dag.oracle_diff, "byte-equal/1000 seeds (9 cases)");
 }
 
 #[test]
@@ -202,7 +220,7 @@ fn without_records_every_gated_row_is_refused_twice() {
         spectral: None,
     };
     let rows = ledger(&bare);
-    assert_eq!(problems(&rows, &bare).len(), 30);
+    assert_eq!(problems(&rows, &bare).len(), 32);
     assert!(
         rows[0]
             .hash_4way

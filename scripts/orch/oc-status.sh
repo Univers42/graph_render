@@ -14,7 +14,7 @@ for j in "$root"/*/target/wf/*.jsonl; do
   elif [[ -f $base.pid ]] && kill -0 "$(cat "$base.pid")" 2>/dev/null; then
     state=RUNNING; ((age > 30)) && state=STALLED
   else state=DEAD; fi
-  sid=$(cat "$base.session-id" 2>/dev/null)
+  sid=$(cat "$base.session-id" 2>/dev/null); [[ -n $sid ]] || sid=$(jq -r '.sessionID // empty' "$j" 2>/dev/null | head -1)
   last=$(jq -r '.. | objects | select(.type? == "text") | .text? // empty' "$j" 2>/dev/null | tail -c 200 | tr '\n' ' ')
   printf '%-8s %-26s %-12s %4sm %s | %s\n' "$wt" "$label" "$state" "$age" "${sid:--}" "$last"
 done

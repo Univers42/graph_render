@@ -47,7 +47,7 @@ fn every_code() -> Snapshot {
 
 #[test]
 fn note_codes_are_a_closed_set_like_the_geometry_tags() {
-    for (code, want) in (1..=3).zip(NoteCode::ALL) {
+    for (code, want) in (1..=5).zip(NoteCode::ALL) {
         assert_eq!(NoteCode::from_code(code), Ok(want));
         assert_eq!(want.code(), code);
     }
@@ -57,7 +57,9 @@ fn note_codes_are_a_closed_set_like_the_geometry_tags() {
         [
             "hierarchy.cycle_edge_dropped",
             "hierarchy.extra_parent_dropped",
-            "packing.approximate"
+            "packing.approximate",
+            "dag.dummy_budget_exceeded",
+            "dag.edge_reversed",
         ]
     );
     for code in RESERVED_NOTE_CODES {
@@ -66,12 +68,12 @@ fn note_codes_are_a_closed_set_like_the_geometry_tags() {
             Err(NoteCodeError::Reserved(code))
         );
     }
-    assert_eq!(RESERVED_NOTE_CODES, [4, 5, 6]);
+    assert_eq!(RESERVED_NOTE_CODES, [6]);
     for code in [0, 7, u32::MAX] {
         assert_eq!(NoteCode::from_code(code), Err(NoteCodeError::Unknown(code)));
     }
-    let reserved = NoteCodeError::Reserved(5).to_string();
-    assert_eq!(reserved, "note code 5 is reserved and not implemented");
+    let reserved = NoteCodeError::Reserved(6).to_string();
+    assert_eq!(reserved, "note code 6 is reserved and not implemented");
     assert_eq!(
         NoteCodeError::Unknown(9).to_string(),
         "note code 9 is not allocated"
@@ -122,7 +124,7 @@ fn notes_are_the_last_section_and_the_order_is_the_one_given() {
 #[test]
 fn construction_refuses_every_note_outside_the_closed_canonical_set() {
     let code = |index, error| Err(E::NoteCode { index, error });
-    assert_eq!(build(&[4], &[0]), code(0, NoteCodeError::Reserved(4)));
+    assert_eq!(build(&[6], &[0]), code(0, NoteCodeError::Reserved(6)));
     assert_eq!(build(&[1, 6], &[0, 0]), code(1, NoteCodeError::Reserved(6)));
     assert_eq!(build(&[0], &[0]), code(0, NoteCodeError::Unknown(0)));
     assert_eq!(build(&[7], &[0]), code(0, NoteCodeError::Unknown(7)));
@@ -157,9 +159,9 @@ fn every_note_refusal_says_where_and_what() {
         (
             E::NoteCode {
                 index: 2,
-                error: NoteCodeError::Reserved(4),
+                error: NoteCodeError::Reserved(6),
             },
-            "note.code[2]: note code 4 is reserved and not implemented",
+            "note.code[2]: note code 6 is reserved and not implemented",
         ),
         (
             E::NoteOrder { index: 1 },
@@ -191,8 +193,8 @@ fn decode_patched(patch: impl FnOnce(&mut Vec<u8>, usize)) -> Result<Snapshot, S
 #[test]
 fn the_decoder_refuses_what_construction_refuses() {
     let (code, index) = (|i: usize| 4 + 4 * i, |i: usize| 20 + 4 * i);
-    let reserved = decode_patched(|b, at| word(b, at + code(0), 4));
-    let reserved_err = NoteCodeError::Reserved(4);
+    let reserved = decode_patched(|b, at| word(b, at + code(0), 6));
+    let reserved_err = NoteCodeError::Reserved(6);
     assert_eq!(
         reserved,
         Err(E::NoteCode {
@@ -232,6 +234,31 @@ fn the_decoder_refuses_a_section_of_the_wrong_length() {
 /// Overwrites the little-endian word at `at`.
 fn word(bytes: &mut [u8], at: usize, value: u32) {
     bytes[at..at + 4].copy_from_slice(&value.to_le_bytes());
+}
+
+/// Phase 5 deviation (`docs/decisions/sugiyama-heuristics.md`): codes 4 and 5 were
+/// reserved for exactly this and are activated here. Both faces round-trip a note of
+/// each, and each still refuses the one code that stays reserved.
+#[test]
+fn dag_note_codes_activate_and_round_trip_both_faces() {
+    assert_eq!(NoteCode::DummyBudgetExceeded.code(), 4);
+    assert_eq!(NoteCode::EdgeReversed.code(), 5);
+    let s = build(&[4, 5], &[0, 1]).expect("codes 4 and 5 are implemented");
+    assert_eq!(Snapshot::from_bytes(&s.to_bytes()), Ok(s.clone()), "binary");
+    let text = crate::canonical_json::to_json(&s);
+    assert_eq!(crate::canonical_json::from_json(&text), Ok(s), "json");
+    assert!(
+        text.contains(r#""notes":{"code":[4,5],"index":[0,1]}"#),
+        "{text}"
+    );
+    assert_eq!(
+        build(&[6], &[0]),
+        Err(E::NoteCode {
+            index: 0,
+            error: NoteCodeError::Reserved(6)
+        }),
+        "6 stays reserved"
+    );
 }
 
 #[test]

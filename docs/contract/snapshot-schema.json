@@ -317,12 +317,14 @@
       "description": "The notes section (format 0.3), one entry per note in both columns, strictly\nascending by `(code, index)`: a closed, canonical set, so a reserved or unallocated\ncode, a repeat or an out-of-order note is refused.",
       "properties": {
         "code": {
-          "description": "Each note's code: 1 hierarchy.cycle_edge_dropped, 2 hierarchy.extra_parent_dropped,\n3 packing.approximate. 4-6 are reserved for later phases and refused, as is any\nother.",
+          "description": "Each note's code: 1 hierarchy.cycle_edge_dropped, 2 hierarchy.extra_parent_dropped,\n3 packing.approximate, 4 dag.dummy_budget_exceeded, 5 dag.edge_reversed. 6 is\nreserved for a later phase and refused, as is any other.",
           "items": {
             "enum": [
               1,
               2,
-              3
+              3,
+              4,
+              5
             ],
             "format": "uint32",
             "type": "integer"
@@ -330,7 +332,7 @@
           "type": "array"
         },
         "index": {
-          "description": "Each note's index: for codes 1 and 2 an edge position (an index into edges.id,\nbelow its length); for code 3 the literal 4294967295 (u32::MAX), the whole\nsnapshot.",
+          "description": "Each note's index: for codes 1, 2, 4 and 5 an edge position (an index into\nedges.id, below its length); for code 3 the literal 4294967295 (u32::MAX), the whole\nsnapshot.",
           "items": {
             "format": "uint32",
             "minimum": 0,
