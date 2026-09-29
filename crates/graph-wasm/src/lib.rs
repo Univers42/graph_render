@@ -142,6 +142,8 @@ pub mod probe;
 #[cfg(any(test, target_arch = "wasm32"))]
 mod alloc;
 #[cfg(any(test, target_arch = "wasm32"))]
+mod analysis;
+#[cfg(any(test, target_arch = "wasm32"))]
 mod errors;
 mod exports;
 #[cfg(any(test, target_arch = "wasm32"))]
@@ -150,6 +152,10 @@ mod handle;
 mod ingest;
 mod memory_measure;
 #[cfg(any(test, target_arch = "wasm32"))]
+mod post;
+#[cfg(any(test, target_arch = "wasm32"))]
 mod seed_ingest;
+#[cfg(any(test, target_arch = "wasm32"))]
+mod stage_exports;
 #[cfg(any(test, target_arch = "wasm32"))]
 pub(crate) mod views;

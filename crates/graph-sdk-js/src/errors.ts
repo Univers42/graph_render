@@ -19,6 +19,7 @@ export const CODE_NAMES = [
   "NoGeometryYet",
   "BuildSourceInvalid",
   "IndexOutOfRange",
+  "PostFailed",
 ] as const;
 
 /** One `Code`'s name, or `"Unknown(<n>)"` for a wire value this SDK does not know yet —
@@ -51,6 +52,16 @@ export class RunRefusedError extends GraphMotorError {}
 
 /** A handle this motor never issued, or already released (`gm_release`, C6). */
 export class InvalidHandleError extends GraphMotorError {}
+
+/** `gm_post_run` refused: an unknown handle, a post id that is not registered, a handle
+ *  with no successful layout run to read (there is nothing for a pass to draw over), or
+ *  the capability's own failure. Never a silently unchanged drawing. */
+export class PostRefusedError extends GraphMotorError {}
+
+/** `gm_analysis_run` refused: an unknown handle, or an analysis id that is not
+ *  registered. An analysis never needs a layout run, so `NoGeometryYet` is not among
+ *  these — analysing a graph straight after `build` is a supported state. */
+export class AnalysisRefusedError extends GraphMotorError {}
 
 /** `gm_snapshot_json`/`gm_snapshot_bytes` refused: a column view wrote a non-finite value
  * into the motor's own buffer since the last run (D9 tamper re-validation, C8). */

@@ -53,6 +53,50 @@ export interface RunResult {
   readonly nodeCount: number;
 }
 
+/** What `Motor.post` returns. A POST pass replaces the edge geometry of the handle's
+ *  last run and leaves the nodes where they were, so this is the shape `RunResult`
+ *  carries — `edgeKind` is the member a caller cannot predict, since which kind a pass
+ *  emits is the capability's own declaration. */
+export interface PostResult {
+  readonly handle: Handle;
+  /** The capability that ran, e.g. `"post.route.grid"`. */
+  readonly id: string;
+  /** The handle's node geometry tag after the pass — unchanged by a pass, restated so a
+   *  caller does not have to sequence `gm_geometry_kind` itself. */
+  readonly nodeKind: NodeGeometryKind;
+  /** The edge geometry tag the pass produced: `0` Line, `1` Polyline, `2` Curve. */
+  readonly edgeKind: EdgeGeometryKind;
+  readonly nodeCount: number;
+}
+
+/** The element type of an {@link AnalysisResult}'s `values`, as the ABI's JSON names it:
+ *  `f64` for a centrality, `u32` for a labelling, a community id, a depth level or the
+ *  degree count. One discriminant rather than two optional arrays, so a consumer narrows
+ *  on it and cannot read a `u32` label as if it were a score. */
+export type AnalysisValueKind = "f64" | "u32";
+
+/** What `Motor.analysis` returns: the ABI's canonical JSON face, parsed and typed.
+ *
+ *  The three optional members are present exactly when the analysis hands one back, and
+ *  each is the escape hatch that analysis's own `Ponytail` marker names — a caller told
+ *  only `values` would read an un-converged eigenvector iteration as a real centrality.
+ *  `converged` is the power iteration's residual-verified flag (`false` on a bipartite
+ *  or disconnected graph, where the iteration oscillates and never settles);
+ *  `modularity` is the quality of the partition `values` names; `max` is the deepest
+ *  hierarchy level reached. */
+export interface AnalysisResult {
+  /** The analysis that produced this, e.g. `"analysis.components.weak"`. */
+  readonly id: string;
+  /** Nodes in the analysed graph: one `values` entry each. */
+  readonly nodeCount: number;
+  readonly kind: AnalysisValueKind;
+  /** One entry per node, in the motor's dense-index order. */
+  readonly values: readonly number[];
+  readonly converged?: boolean;
+  readonly modularity?: number;
+  readonly max?: number;
+}
+
 /** `createMotor`'s options. Reserved fields read but not yet acted on are rejected, never
  * silently ignored (C16): a caller who thinks `exec` picked a compute tier must be told it
  * did not, not shipped a motor that quietly ran on the default tier anyway. */

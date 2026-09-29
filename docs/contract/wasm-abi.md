@@ -1,7 +1,8 @@
 # WASM ABI — the motor's `extern "C"` surface
 
-Status: **authoritative** (Phase 4). Scope: `crates/graph-wasm/src/{exports/,alloc.rs,
-handle.rs,views.rs,ingest.rs,seed_ingest.rs,errors.rs,lib.rs}`. No wasm-bindgen, no
+Status: **authoritative** (Phase 4; POST and ANALYSIS added after). Scope:
+`crates/graph-wasm/src/{exports/,alloc.rs,handle.rs,views.rs,ingest.rs,seed_ingest.rs,
+errors.rs,post.rs,analysis.rs,stage_exports.rs,lib.rs}`. No wasm-bindgen, no
 wasm-pack anywhere in the tree (`cargo tree -p graph-wasm`, verified — see
 `docs/measurements/phase04-transport.md`). Every export takes and returns plain `u32`
 (D6); nothing wider crosses the boundary. `crates/graph-sdk-js` is the only sanctioned
@@ -16,9 +17,10 @@ caller for an application; this document is what it is built against.
    cross-target gate hashed. `graph-cli hashgate` still drives them, and adds the real
    ABI as a stage of its own beside them (see "Hash-gate wiring"); it does not replace
    them. `crates/graph-sdk-js` never calls these.
-2. **The real ABI** (`exports/{build,columns,state}.rs`, wasm32-only), below:
-   `gm_build`/`gm_run`/`gm_release` and everything a caller needs around them. This is
-   what the SDK, and C20's own proof, actually call.
+2. **The real ABI** (`exports/{build,columns,stages,state}.rs`, wasm32-only), below:
+   `gm_build`/`gm_run`/`gm_release` and everything a caller needs around them, plus the
+   two stages downstream of LAYOUT — `gm_post_*` and `gm_analysis_*` (see POST and
+   ANALYSIS below). This is what the SDK, and C20's own proof, actually call.
 
 ## Exports
 
@@ -118,13 +120,13 @@ Two rows, `crates/graph-cli/src/capabilities/registry.rs`:
 
 ## Framed buffers
 
-Every export that returns a buffer (`gm_layout_id`, `gm_snapshot_json`,
-`gm_snapshot_bytes`, `gm_seed_ingest`, and the retained shim's `gm_topology`/
-`gm_layout_grid`) writes `[len: u32 LE][len bytes]` into the motor's own out-buffer and
-returns its address; `0` means the call was refused, not "an empty buffer" (an empty
-result is still framed: `[0][]`, a real nonzero address). The buffer is valid until the
-next call into the module, on *any* handle — a caller copies out of it (the SDK's
-`Motor#frame` does this with `.slice()`) before doing anything else.
+Every export that returns a buffer (`gm_layout_id`, `gm_post_id`, `gm_analysis_id`,
+`gm_analysis_run`, `gm_snapshot_json`, `gm_snapshot_bytes`, `gm_seed_ingest`, and the
+retained shim's `gm_topology`/`gm_layout_grid`) writes `[len: u32 LE][len bytes]` into the
+motor's own out-buffer and returns its address; `0` means the call was refused, not "an
+empty buffer" (an empty result is still framed: `[0][]`, a real nonzero address). The
+buffer is valid until the next call into the module, on *any* handle — a caller copies out
+of it (the SDK's `Motor#frame` does this with `.slice()`) before doing anything else.
 
 ## Ownership (C7)
 
@@ -132,7 +134,7 @@ next call into the module, on *any* handle — a caller copies out of it (the SD
 |---|---|---|
 | An ingest buffer (`gm_alloc`'d) | The caller | The caller, via `gm_free` — `gm_build` only reads it |
 | A framed return buffer | The motor's shared out-buffer | Overwritten by the module's next call; never explicitly freed |
-| A column's `(ptr, len)` | The handle's snapshot | The handle's own storage; invalid the moment `gm_run` re-runs that handle or `gm_release` drops it |
+| A column's `(ptr, len)` | The handle's snapshot | The handle's own storage; invalid the moment `gm_run` or `gm_post_run` re-runs that handle, or `gm_release` drops it. A POST pass replaces the snapshot, so a column view taken before one is stale after it |
 | A handle | The handle table | `gm_release`; the id is never reissued (C6) |
 
 ## Columns (C3)
@@ -182,6 +184,96 @@ absent. `docs/reports/phase-04.md` §6b records the two temporary registry rows
 only the grid registered, every "absent" branch is the only branch there is, and a wrong
 row in this table would pass unnoticed until a layout lands that needs it.
 
+## POST — `gm_post_count` / `gm_post_id` / `gm_post_run`
+
+The edge-geometry stage (`prompt.md` §3), over the same handle. A POST pass takes a
+finished layout's geometry and returns geometry again, so **it composes with every
+layout**: no capability here is told which layout produced the positions, or which node
+kind it emitted.
+
+| export | signature | notes |
+|---|---|---|
+| `gm_post_count` | `() -> u32` | The registry's row count (`crates/graph-wasm/src/post.rs::CAPABILITIES`). Registry-driven (C1), like `gm_layout_count`: a capability added there changes this with no ABI change. |
+| `gm_post_id` | `(i: u32) -> u32` | Framed UTF-8 id of registry row `i`; `0` past the end (`Code::IndexOutOfRange`). `gm_post_run`'s `post_index` *is* this index. |
+| `gm_post_run` | `(handle: u32, post_index: u32) -> u32` | Runs capability `post_index` at its **default parameters** and **replaces the handle's edge geometry** with the result, so `gm_column_ptr`/`gm_column_len` and the two snapshot faces read the new edges on the next call. `1` on success, `0` on refusal. |
+
+Rows, in order: `post.bundle.fdeb`, `post.bundle.mingle` (both
+`graph_core::post::POSTS`, reached through their own `PostRun`s), `post.route.grid`, and
+`post.style.{straight,orthogonal,quadratic,bezier}` — the last five through **thin
+adapters in `graph-wasm`**, not by changing a signature `graph-core` already publishes.
+Routing and the styles take their parameters explicitly (`GridParams`,
+`StyleParams::for_style`), so a row is a wrapper that supplies the pinned default; a
+future capability registered in `graph-core` is one row away.
+
+Edge geometry kind per row, which is what `gm_edge_geometry_kind` reports after a pass:
+`Line` for `post.style.straight` (it stores no interior point, so it costs zero bytes),
+`Polyline` for routing, orthogonal and both bundlers, `Curve` for quadratic and bezier.
+
+**Two faces of a run, and why the ABI keeps both.** A handle holds the snapshot *and* the
+layout's own geometry. A POST pass reads the **layout's** edges, never the previous pass's,
+so `post` then `post.bundle.fdeb` gives the same answer as `post.bundle.fdeb` alone. A
+caller cannot observe the difference through the transport, and that is the point: POST is
+a stage, not a second transport.
+
+**Refusals.** `InvalidHandle` (never issued, or released), `NoGeometryYet` (`gm_run` has
+not succeeded on this handle — a pass has no positions to draw over), `IndexOutOfRange`
+(`post_index` is not `< gm_post_count()`), `PostFailed` (the capability returned a
+`StageError`, or its edges did not fit the snapshot). **A refused pass leaves the
+handle's geometry exactly as it was**, so the next column read serves the previous good
+drawing rather than nothing or a half-applied one.
+
+`Bundled::unbundled` is the count a caller acts on where a pass has one: routing's
+straight-segment fallbacks (the case a node fully enclosed by other nodes' cells, which
+`routed.rs` reports as a field of its output and not as a log line — a downstream program
+cannot read stderr) and FDEB's edges whose compatibility never cleared the threshold.
+`pairs` is `0` for routing and the styles, honestly: neither attracts anything into a
+bundle, so there is no pair count to report.
+
+## ANALYSIS — `gm_analysis_count` / `gm_analysis_id` / `gm_analysis_run`
+
+| export | signature | notes |
+|---|---|---|
+| `gm_analysis_count` | `() -> u32` | The registry's row count (`crates/graph-wasm/src/analysis.rs::ANALYSES`). Registry-driven (C1). |
+| `gm_analysis_id` | `(i: u32) -> u32` | Framed UTF-8 id of registry row `i`; `0` past the end (`Code::IndexOutOfRange`). |
+| `gm_analysis_run` | `(handle: u32, index: u32) -> u32` | Runs analysis `index` over `handle`'s topology and returns its **canonical JSON face**, framed UTF-8; `0` on refusal. |
+
+**No geometry is required.** Every analysis in `graph_core::analysis` is a pure function of
+the topology, so this works straight after `gm_build` and before any `gm_run`. The only
+refusals are `InvalidHandle` and `IndexOutOfRange`.
+
+Rows, in order: `analysis.components.weak`, `analysis.components.strong`,
+`analysis.communities.louvain`, `analysis.centrality.{degree,closeness,betweenness,
+eigenvector}`, `analysis.depth.bfs`. Each row calls the `graph_core::analysis` function
+its id names, as it is — nothing is re-derived, re-weighted or re-ordered here. Depth
+reaches graph-core's root/forest convention through a forwarding adapter over
+`graph_core::layout::hierarchy::Hierarchy` (the four `Roots` methods are that type's own
+accessors), which is the re-point `analysis/depth.rs`'s module doc names as the whole of
+the merge step; it is not a second derivation of the convention.
+
+The face, one line, **keys in ascending order** so two runs are byte-comparable (D7):
+
+```json
+{"id":"analysis.components.weak","kind":"u32","nodeCount":3,"values":[0,0,0]}
+{"id":"analysis.communities.louvain","kind":"u32","modularity":0,"nodeCount":3,"values":[0,0,0]}
+{"converged":false,"id":"analysis.centrality.eigenvector","kind":"f64","nodeCount":3,"values":[0.5773502588272095,0.5773502588272095,0.5773502588272095]}
+{"id":"analysis.depth.bfs","kind":"u32","max":2,"nodeCount":3,"values":[0,1,2]}
+```
+
+`values` is one entry per node, in the motor's dense-index order — the same order every
+column and both snapshot faces use. `kind` is `"f64"` for a centrality (graph-core states
+those as `f32`; widening is exact) and `"u32"` for a labelling, a community id, a depth
+level or the degree count, so a consumer never has to know which analysis it asked for to
+know how to read `values`. Three optional members are present exactly when the analysis
+hands one back, and each is the escape hatch that analysis's own `Ponytail` marker names:
+`converged` for the eigenvector power iteration (`false` on a bipartite or disconnected
+graph, where the iteration oscillates and returns the last normalised iterate — dropping
+the flag would show a caller three equal numbers as a centrality), `modularity` for the
+partition Louvain returned, `max` for the deepest level depth reached.
+
+**A path query is not exposed.** `analysis/paths.rs` needs a source node and a mode,
+neither of which `(handle, index)` can carry without inventing a convention; it stays a
+graph-core-only capability.
+
 ## Errors (`Code`, `gm_last_error`)
 
 | value | name | when |
@@ -198,7 +290,8 @@ row in this table would pass unnoticed until a layout lands that needs it.
 | 9 | `TamperedGeometry` | A column read back NaN or infinite: a view wrote through the handle's buffers since the last run (D9, C8) |
 | 10 | `NoGeometryYet` | The handle has no geometry yet: `gm_run` has not succeeded on it |
 | 11 | `BuildSourceInvalid` | `gm_build`'s `(ptr, len)` is not exactly a live `gm_alloc` allocation |
-| 12 | `IndexOutOfRange` | An index argument (e.g. `gm_layout_id`) is past the end of its list |
+| 12 | `IndexOutOfRange` | An index argument (`gm_layout_id`, `gm_post_id`, `gm_analysis_id`) is past the end of its list |
+| 13 | `PostFailed` | The registered POST capability returned a `StageError`, or its edges did not fit the snapshot. The handle keeps the geometry it had |
 
 `0` is both the wire's generic failure sentinel *and* a legitimate data value (an empty
 graph's `gm_node_count`, an absent column's `gm_column_ptr`) — every ambiguous `0` is
@@ -261,6 +354,21 @@ names, covering one layout forever. On a degraded motor `layouts()` refuses like
 other method that needs the module; it never answers `[]`, which would be
 indistinguishable from "this module has no layouts".
 
+**`Motor#posts()`, `Motor#post(handle, id)`, `Motor#analyses()`,
+`Motor#analysis(handle, id)`** extend the same rule to the two stages downstream of
+LAYOUT, and each pair refuses on a degraded motor for the same reason. `post` returns a
+`PostResult` — the handle, the capability that ran, and the two geometry kinds, the edge
+kind being the one a caller cannot predict (it is the capability's own declaration).
+`analysis` returns an `AnalysisResult`: the ABI's face parsed, narrowed and **checked**
+member by member rather than cast, because a face whose `id`, `kind` or `nodeCount` did
+not agree with itself would otherwise reach a caller as a plausible-looking object holding
+someone else's numbers. Its three optional members (`converged`, `modularity`, `max`) are
+`undefined` for the analyses that do not hand one back, and a member of the *wrong* type
+is an `AnalysisRefusedError` rather than a silent `undefined` — a caller told
+`converged: undefined` would read it as "no flag was handed back" and trust numbers that
+were never verified. The three registries are read through one shared scan
+(`index.ts`'s `#readRegistry`), so they cannot drift into three differently-shaped reads.
+
 ## Loader pattern
 
 `crates/graph-sdk-js/src/wasm.ts`'s `loadMotor`: one module-level singleton, a deduped
@@ -298,6 +406,29 @@ returns a degraded `Motor` (see Deviations).
 | `createMotor`/`Motor.create` degrading rather than throwing (kill switch, compile failure) | `harness/sdk-smoke.mjs`'s `createMotor_never_throws_on_kill_switch` / `createMotor_never_throws_on_compile_failure` / `degraded_motor_build_fails_predictably_*` checks |
 | `Motor#layouts` (the registry, and every registered layout run through the published SDK with its node count, bounds and columns) | `harness/sdk-smoke.mjs`'s registry checks and its per-layout loop — the list is the module's own, so a newly registered layout is covered with no edit to the harness; `docs/reports/phase-04.md` §6b, where three temporary registry rows (Point/Line, Circle/Polyline, Box/Curve) were used to observe the pre-fix script covering one layout of three and the post-fix script covering all three |
 | a degraded motor refusing `layouts()` rather than answering an empty registry | `harness/sdk-smoke.mjs`'s `degraded_motor_layouts_fails_predictably_kill_switch` |
+| `gm_post_count` / `gm_post_id` | `crates/graph-wasm/src/post.rs` unit tests (native: the id list, and a refusal past the end); `Motor#posts` (`harness/sdk-smoke.mjs`) |
+| `gm_post_run` | `crates/graph-wasm/src/post/tests.rs` (every capability over three layouts and over hand-written geometry; node positions and notes preserved; the CSR well formed at every boundary; a routing fallback reported); `crates/graph-wasm/src/stage_exports/tests.rs` (the handle's edge kind after a pass, a second pass reading the layout, all four refusals, a refusal leaving the geometry untouched, a released handle refused); `harness/sdk-smoke.mjs`'s per-capability loop, which runs **every** id the module's own registry names and checks the contract's edge-kind table, the unmoved nodes, the columns and both snapshot faces |
+| a post pass with no layout run yet | `crates/graph-wasm/src/stage_exports/tests.rs` (`NoGeometryYet`); `harness/sdk-smoke.mjs` (`a post pass with no layout run yet is refused`, and the refusal's `codeName`) |
+| `gm_analysis_count` / `gm_analysis_id` | `crates/graph-wasm/src/analysis/tests.rs` (the id list, a refusal past the end); `Motor#analyses` (`harness/sdk-smoke.mjs`) |
+| `gm_analysis_run` | `crates/graph-wasm/src/analysis/tests.rs` — the whole face pinned **byte for byte** for all eight rows, the keys' ascending order, the contract's own parser reading it, and each row cross-checked against the `graph_core::analysis` function it names over three fixtures; `crates/graph-wasm/src/stage_exports/tests.rs` (runs before any layout, both refusals, a released handle); `harness/sdk-smoke.mjs`'s per-analysis loop plus its pinned weak components, hierarchy depth and degree values |
+| an analysis face that does not name itself | `harness/sdk-smoke.mjs` — the per-analysis loop catches the refusal and reports `not ok` rather than aborting, so a broken face is red *and* the rest of the smoke still runs (observed going red with `analysis.components.weak` reported for every id) |
+| `Motor#posts` / `#analyses` / `#post` / `#analysis` on a degraded motor | `harness/sdk-smoke.mjs`'s `degraded_motor_{posts,analyses,post,analysis}_fails_predictably_kill_switch` |
+
+## File-size deviations (the house's ≤300-line limit)
+
+`crates/graph-sdk-js/src/index.ts` measures 476 lines and `harness/sdk-smoke.mjs` 542,
+both over the limit; `crates/graph-wasm/src/{post,analysis}/tests.rs` (379 and 404) are
+over it too. Both were already at or near it before this change (`index.ts` 281,
+`sdk-smoke.mjs` 303), and the house's own answer — split into child modules, never
+compress — is not available for either file without a restructuring outside this task's
+envelope: `index.ts` is *the published entry point* (a consumer imports that one file,
+and splitting the `Motor` class across modules would mean exporting an implementation
+detail or re-exporting through a barrel the type surface then has to mirror), and
+`sdk-smoke.mjs` is a single top-level script whose `check`/`failures` counters and
+`process.exit` are deliberately process-global. The two test files are the ordinary
+`views.rs` → `views/tests.rs` split already applied; their parents are under the limit.
+Recorded here rather than hidden, and the two over-limit non-test files are the ones a
+reviewer should look at first.
 
 ## Deviations
 
@@ -352,6 +483,14 @@ returns a degraded `Motor` (see Deviations).
   through a successful run, `columns.rs` is reading a finished run back out. The split is
   invisible on the wire: every `#[unsafe(no_mangle)] extern "C"` symbol is a real crate
   export regardless of which of the three files defines it.
+- **POST and ANALYSIS add four files**, for the same reason and the same invisibility:
+  `src/post.rs` and `src/analysis.rs` hold the two registries and their work (unit-tested
+  natively, like the rest of C21's target-independent layer), `src/stage_exports.rs` holds
+  what the two `gm_*_run` exports delegate to — the handle table and the refusal table,
+  which is what makes every branch of both exports testable without a wasm build in the
+  loop — and `exports/stages.rs` holds the six `#[unsafe(no_mangle)]` functions over the
+  shared out-buffer. `post.rs` needed its tests in `post/tests.rs` and `analysis.rs` its
+  tests in `analysis/tests.rs` for the same 300-line reason `views.rs` did.
 - `gm_layout_count`, `gm_layout_id`, `gm_last_error`, `gm_edge_geometry_kind`,
   `gm_snapshot_bytes` and `gm_seed_ingest` are exports beyond the phase's literally
   stated minimum surface — each is justified in the export table above.

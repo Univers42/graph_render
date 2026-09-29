@@ -25,6 +25,12 @@ export interface RawExports {
   gm_column_len(handle: number, columnId: number): number;
   gm_snapshot_json(handle: number): number;
   gm_snapshot_bytes(handle: number): number;
+  gm_post_count(): number;
+  gm_post_id(i: number): number;
+  gm_post_run(handle: number, postIndex: number): number;
+  gm_analysis_count(): number;
+  gm_analysis_id(i: number): number;
+  gm_analysis_run(handle: number, index: number): number;
   gm_release(handle: number): void;
   gm_last_error(): number;
 }

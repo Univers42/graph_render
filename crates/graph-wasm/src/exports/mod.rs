@@ -5,16 +5,19 @@
 //! modules (C21) — every one of those is unit-tested natively; only the functions below
 //! need the real target to exist at all.
 //!
-//! Split across three files by the house's 300-line limit, not by any ABI grouping:
+//! Split across four files by the house's 300-line limit, not by any ABI grouping:
 //! [`state`] holds the shared handle table and out-buffer every export below reaches
 //! into; [`build`] is graph lifecycle (`gm_build`/`gm_run`/`gm_node_count`/geometry
 //! tags/`gm_last_error`/`gm_seed_ingest`); [`columns`] is reading a finished run's data
-//! back out (`gm_column_ptr`/`gm_column_len`/the two snapshot faces/`gm_release`). Every
-//! `#[unsafe(no_mangle)]` function is a real wasm export regardless of which of the
-//! three files defines it — that boundary is invisible on the wire.
+//! back out (`gm_column_ptr`/`gm_column_len`/the two snapshot faces/`gm_release`);
+//! [`stages`] is the two stages downstream of LAYOUT — POST (`gm_post_*`) and ANALYSIS
+//! (`gm_analysis_*`). Every `#[unsafe(no_mangle)]` function is a real wasm export
+//! regardless of which of the four files defines it — that boundary is invisible on the
+//! wire.
 
 #![cfg(target_arch = "wasm32")]
 
 mod build;
 mod columns;
+mod stages;
 mod state;
