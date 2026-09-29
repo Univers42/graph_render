@@ -72,7 +72,7 @@ export function Inspector(props: InspectorProps): ReactElement | null {
       <Row name="Group" value={meta.groups[meta.group[selected] ?? 0] ?? ""} />
       <Row name="Degree" value={String(meta.degree[selected] ?? 0)} />
       <Row name="Weight" value={sig3(meta.weight[selected] ?? 0)} />
-      {measured !== undefined && <Row name={shortName(analysis?.id ?? "")} value={sig3(Number(measured))} />}
+      {measured !== undefined && <Row name={shortName(analysis?.id ?? "")} value={sig3(measured)} />}
       <Neighbours studio={studio} view={view} meta={meta} at={selected} />
     </div>
   );

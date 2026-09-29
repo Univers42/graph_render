@@ -1,26 +1,27 @@
-// Vite config for graph-motor studio.
-//
-// Two things here are load-bearing and not defaults:
-//   1. `server.fs.allow` — the studio IMPORTS the engine, it does not copy it: the wasm
-//      SDK comes from `crates/graph-sdk-js/src/index.ts` and the aurora render layer from
-//      `src/core/render`. Those live ABOVE this package's root, and Vite's dev server
-//      refuses to serve anything outside it, so the repo root is allow-listed explicitly.
-//   2. `optimizeDeps.exclude` — the SDK is a `.ts` source dependency resolved from outside
-//      `node_modules`; pre-bundling it would hand Vite a second copy of the module with
-//      its own wasm-loader singleton, which is exactly the kind of "it works in dev and
-//      not in the build" split this file exists to prevent.
-
+// The standalone host of <graph-studio>. The studio and the renderer are source packages
+// above this directory with no node_modules of their own, which is what every entry here
+// is for:
+//   - `resolve.alias` + `dedupe`: their `react` imports resolve to this package's copy, and
+//     to one copy. Two Reacts on a page fail at the first hook.
+//   - `server.fs.allow`: the dev server refuses files outside its root otherwise.
+//   - `worker.format`: the motor's worker is a module (it imports the SDK's sources).
 import react from "@vitejs/plugin-react";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 
-const here = fileURLToPath(new URL(".", import.meta.url));
+const modules = fileURLToPath(new URL("./node_modules/", import.meta.url));
 const repoRoot = fileURLToPath(new URL("../", import.meta.url));
 
 export default defineConfig({
+  base: "./",
   plugins: [react()],
-  server: { host: "0.0.0.0", port: 5173, fs: { allow: [here, repoRoot] } },
-  preview: { host: "0.0.0.0", port: 5173 },
-  optimizeDeps: { exclude: ["graph-sdk-js"] },
+  resolve: {
+    alias: { react: `${modules}react`, "react-dom": `${modules}react-dom` },
+    dedupe: ["react", "react-dom"],
+  },
+  worker: { format: "es" },
+  // 0.0.0.0 is the container's own interface; scripts/studio.sh publishes it on the
+  // host's loopback only.
+  server: { host: "0.0.0.0", port: 5174, strictPort: true, fs: { allow: [repoRoot] } },
   build: { outDir: "dist", emptyOutDir: true, target: "es2022" },
 });

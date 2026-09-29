@@ -45,9 +45,8 @@ export function Search(props: SearchProps): ReactElement {
     setText("");
   };
   const key = (event: KeyboardEvent<HTMLInputElement>): void => {
-    if (event.key === "Escape") return setText("");
-    if (event.key !== "Enter") return;
-    const first = found[0];
+    if (event.key === "Escape") setText("");
+    const first = event.key === "Enter" ? found[0] : undefined;
     if (first !== undefined) go(first);
   };
   return (

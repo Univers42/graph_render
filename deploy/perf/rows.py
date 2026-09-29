@@ -106,14 +106,14 @@ def baseline_of(report):
 
 
 def _frame_lines(report):
-    lines = ["| nodes | DPR | canvas | worst fps | JS mean ms | JS p95 ms |", "|---:|---:|---|---:|---:|---:|"]
+    lines = ["| nodes | DPR | layout | canvas | worst fps | JS mean ms | JS p95 ms |", "|---:|---:|---|---|---:|---:|---:|"]
     for case in report["frames"]:
         if "notRun" in case:
-            lines.append(f"| {case['nodes']} | {case['dpr']} | not run: {case['notRun']} | | | |")
+            lines.append(f"| {case['nodes']} | {case['dpr']} | | not run: {case['notRun']} | | | |")
             continue
         mean = max(phase["jsMeanMs"] for phase in case["phases"])
         size = "x".join(str(side) for side in case["canvas"])
-        lines.append(f"| {case['nodes']} | {case['dpr']} | {size} | {worst_fps(case)} "
+        lines.append(f"| {case['nodes']} | {case['dpr']} | `{case.get('layout', '?')}` | {size} | {worst_fps(case)} "
                      f"| {mean} | {worst_js_p95(case)} |")
     return lines
 

@@ -37,10 +37,10 @@ test("every action is logged with its command, its time and the digest of what i
   const { studio } = await started();
   const [entry] = studio.store.get().log;
   assert.equal(entry?.command, "synthetic 400 2 1 vault");
-  assert.equal(entry?.digest, studio.store.get().run?.digest);
-  assert.match(entry?.digest ?? "", /^[0-9a-f]{64}$/);
-  assert.match(entry?.message ?? "", /400 nodes, 798 links · layout\.forceatlas2 \d+ ms/);
-  assert.ok((entry?.ms ?? 0) > 0);
+  assert.equal(entry.digest, studio.store.get().run?.digest);
+  assert.match(entry.digest ?? "", /^[0-9a-f]{64}$/);
+  assert.match(entry.message, /400 nodes, 798 links · layout\.forceatlas2 \d+ ms/);
+  assert.ok(entry.ms > 0);
 });
 
 test("another layout keeps the graph, moves the nodes and changes the digest", { skip: SKIP }, async () => {

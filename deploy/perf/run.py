@@ -26,6 +26,11 @@ HERE = Path(__file__).resolve().parent
 VIEWPORT = (1920, 1080)
 DEBUG_PORT = 9222
 FORCE_LAYOUT = "layout.forceatlas2"
+# Measured in the motor alone (2026-09-29): forceatlas2 takes 66 s at 20 000 nodes, pivot MDS
+# 1.3 s. The frame rows time the drawing, not the layout, so the large case is laid out by
+# the one that finishes; each case records which.
+LARGE_LAYOUT = "layout.mds.pivot"
+LARGE_FROM = 5000
 FRAME_CASES = [(120, 1), (120, 2), (2000, 1), (2000, 2), (20000, 1), (20000, 2)]
 BLOCK_NODES = [120, 500]
 PROFILED_CASE = (2000, 2)
@@ -64,7 +69,7 @@ class Studio:
         self.url = url
         self.driver = (HERE / "drivers" / f"{driver}.js").read_text()
 
-    def open(self, nodes, dpr):
+    def open(self, nodes, dpr, layout=FORCE_LAYOUT):
         self.page.set_viewport(VIEWPORT[0], VIEWPORT[1], dpr)
         self.page.navigate("about:blank")
         self.page.navigate(self.url)
@@ -72,7 +77,7 @@ class Studio:
         limit = self.page.evaluate("window.__perf.maxNodes")
         if nodes > limit:
             return f"driver caps at {limit} nodes"
-        self.page.evaluate(f"window.__perf.open({nodes}, {json.dumps(FORCE_LAYOUT)})")
+        self.page.evaluate(f"window.__perf.open({nodes}, {json.dumps(layout)})")
         return None
 
     def probe(self, name, args):
@@ -83,11 +88,12 @@ class Studio:
 def measure_frames(studio, out):
     cases = []
     for nodes, dpr in FRAME_CASES:
-        skipped = studio.open(nodes, dpr)
+        layout = LARGE_LAYOUT if nodes >= LARGE_FROM else FORCE_LAYOUT
+        skipped = studio.open(nodes, dpr, layout)
         if skipped is not None:
             cases.append({"nodes": nodes, "dpr": dpr, "notRun": skipped})
             continue
-        case = {"nodes": nodes, "dpr": dpr, **studio.probe("frame", {"settleMs": 1500, "profile": False})}
+        case = {"nodes": nodes, "dpr": dpr, "layout": layout, **studio.probe("frame", {"settleMs": 1500, "profile": False})}
         if (nodes, dpr) == PROFILED_CASE:
             case["profile"] = studio.probe("frame", {"settleMs": 200, "profile": True})["phases"]
         studio.page.screenshot(str(out / f"frame-{nodes}-dpr{dpr}.png"))

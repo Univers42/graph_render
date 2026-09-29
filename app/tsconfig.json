@@ -1,22 +1,26 @@
 {
+  "//": "The host and everything it bundles. The packages are checked again, more strictly, with their own tsconfig; here the flags are the ones the motor's SDK sources pass.",
   "compilerOptions": {
     "target": "ES2022",
     "module": "ESNext",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "lib": ["ES2022", "DOM", "DOM.Iterable", "WebWorker"],
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
-    "resolveJsonModule": true,
     "isolatedModules": true,
     "moduleDetection": "force",
     "jsx": "react-jsx",
     "strict": true,
-    "noImplicitAny": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
+    "noUncheckedIndexedAccess": true,
     "noFallthroughCasesInSwitch": true,
     "noEmit": true,
     "skipLibCheck": true,
-    "types": ["node"]
+    "types": ["node"],
+    "paths": {
+      "react": ["./node_modules/@types/react"],
+      "react/*": ["./node_modules/@types/react/*"],
+      "react-dom": ["./node_modules/@types/react-dom"],
+      "react-dom/*": ["./node_modules/@types/react-dom/*"]
+    }
   },
-  "include": ["src", "tests", "vite.config.ts"]
+  "include": ["src", "vite.config.ts"]
 }

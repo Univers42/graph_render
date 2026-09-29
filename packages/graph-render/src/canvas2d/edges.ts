@@ -33,10 +33,9 @@ function flush(tracer: Tracer): void {
   tracer.pending = 0;
 }
 
-function outside(input: PaintInput, ax: number, ay: number, bx: number, by: number): boolean {
-  const { width, height } = input.viewport;
-  return (ax < -CULL_MARGIN && bx < -CULL_MARGIN) || (ax > width + CULL_MARGIN && bx > width + CULL_MARGIN)
-    || (ay < -CULL_MARGIN && by < -CULL_MARGIN) || (ay > height + CULL_MARGIN && by > height + CULL_MARGIN);
+/** Both ends beyond the same side of one axis: the segment cannot cross the screen. */
+function beyond(a: number, b: number, size: number): boolean {
+  return (a < -CULL_MARGIN && b < -CULL_MARGIN) || (a > size + CULL_MARGIN && b > size + CULL_MARGIN);
 }
 
 /** Interior points as control points when the count fits the degree, else as a polyline. */
@@ -69,7 +68,7 @@ function traceEdge(tracer: Tracer, edge: number): void {
   const ay = (y[s] ?? 0) * camera.scale + camera.y;
   const bx = (x[t] ?? 0) * camera.scale + camera.x;
   const by = (y[t] ?? 0) * camera.scale + camera.y;
-  if (outside(input, ax, ay, bx, by)) return;
+  if (beyond(ax, bx, input.viewport.width) || beyond(ay, by, input.viewport.height)) return;
   input.ctx.moveTo(ax, ay);
   if (frame.edgeKind === "Line" || !input.settled) input.ctx.lineTo(bx, by);
   else traceInterior(input, edge, bx, by);

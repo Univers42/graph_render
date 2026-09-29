@@ -44,15 +44,10 @@ function useCommandLine(props: { readonly studio: Studio; readonly state: Studio
     setText(next.line ?? "");
   };
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>): void => {
-    if (event.key === "Enter") return run();
-    if (event.key === "ArrowUp") {
-      event.preventDefault();
-      return walk(stepBack);
-    }
-    if (event.key === "ArrowDown") {
-      event.preventDefault();
-      return walk(stepForward);
-    }
+    const step = event.key === "ArrowUp" ? stepBack : event.key === "ArrowDown" ? stepForward : null;
+    if (step !== null) event.preventDefault();
+    if (step !== null) walk(step);
+    if (event.key === "Enter") run();
     if (event.key !== "Tab") return;
     // Tab completes here and nowhere else: the focus never leaves the line being typed.
     event.preventDefault();

@@ -2,7 +2,7 @@
 import type { ReactElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import type { ViewEvents, ViewStats } from "../../../graph-render/src/view.ts";
+import type { ViewStats } from "../../../graph-render/src/view.ts";
 import type { View } from "../../../graph-render/src/view.ts";
 import type { MotorClient } from "../../src/motor/client.ts";
 import { metaOf } from "../../src/source/meta.ts";
@@ -75,7 +75,7 @@ export function fakeView(): Pick<View, "stats" | "on" | "focus" | "select"> {
     stats: () => STATS,
     focus: () => undefined,
     select: () => undefined,
-    on: <Name extends keyof ViewEvents>(_name: Name, _handler: (payload: ViewEvents[Name]) => void) => () => undefined,
+    on: () => () => undefined,
   };
 }
 

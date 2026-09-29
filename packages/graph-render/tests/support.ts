@@ -52,7 +52,7 @@ export interface Recorder {
 export function recorder(): Recorder {
   const calls = new Map<string, number>();
   const fills: string[] = [];
-  const count = (name: string) => (..._ignored: readonly unknown[]): void => {
+  const count = (name: string) => (): void => {
     calls.set(name, (calls.get(name) ?? 0) + 1);
   };
   const ctx: Surface2D = {
@@ -73,7 +73,7 @@ export function recorder(): Recorder {
     globalAlpha: 1,
     fill: (): void => {
       count("fill")();
-      fills.push(String(ctx.fillStyle));
+      fills.push(typeof ctx.fillStyle === "string" ? ctx.fillStyle : "(not a colour)");
     },
   };
   return { ctx, calls, fills };

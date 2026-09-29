@@ -75,7 +75,7 @@ export class SessionRefusal extends Error {
 export async function sha256Hex(bytes: Uint8Array): Promise<string | null> {
   // `crypto.subtle` exists only in a secure context: absent on a page served over plain
   // http from anything but localhost.
-  if (typeof crypto === "undefined" || !("subtle" in crypto) || crypto.subtle === undefined) return null;
+  if (typeof crypto === "undefined" || !("subtle" in crypto)) return null;
   const digest = await crypto.subtle.digest("SHA-256", bytes.slice());
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
@@ -150,6 +150,13 @@ function reportOf(face: AnalysisFace, ms: number): AnalysisReport {
   };
 }
 
+function summaryOf(document: Document, buildMs: number): GraphSummary {
+  return {
+    name: document.name, nodeCount: document.nodes.length, edgeCount: document.edgeCount,
+    notes: document.notes, buildMs,
+  };
+}
+
 export function createSession<Handle>(deps: SessionDeps<Handle>): Session {
   let motor: MotorLike<Handle> | null = null;
   let built: Built<Handle> | null = null;
@@ -170,10 +177,7 @@ export function createSession<Handle>(deps: SessionDeps<Handle>): Session {
       const handle = motor.build(document.json);
       if (built !== null) motor.release(built.handle);
       built = { handle, nodes: document.nodes, described: null };
-      return {
-        name: document.name, nodeCount: document.nodes.length, edgeCount: document.edgeCount,
-        notes: document.notes, buildMs: deps.now() - started,
-      };
+      return summaryOf(document, deps.now() - started);
     },
     layout: async (layoutId, postId) => {
       const live = ready();

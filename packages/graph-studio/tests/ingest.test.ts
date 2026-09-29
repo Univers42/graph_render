@@ -123,7 +123,7 @@ test("an edge `type` maps to a kind, and unknown record members are dropped with
     "weight", "version", "has_note", "icon",
   ]);
   assert.equal(result.doc.edges[0]?.kind, "hierarchy");
-  assert.equal(result.doc.edges[0]?.directed, true);
+  assert.equal(result.doc.edges[0].directed, true);
   assert.ok(result.notes.some((note) => note.includes("role")));
   assert.ok(result.notes.includes('mapped edge `type` "parent" to kind "hierarchy"'));
 });

@@ -146,7 +146,7 @@ export function createStudio(deps: StudioDeps): Studio {
       return registry.resolve(command.id, command.raw, store.get());
     }),
     start: () => start(desk),
-    neighbours: context.neighbours,
+    neighbours: (node) => context.neighbours(node),
     dismiss: () => store.update((state) => ({ ...state, error: null })),
     destroy: () => {
       unselect();

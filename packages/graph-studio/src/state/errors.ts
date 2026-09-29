@@ -43,10 +43,17 @@ function memberOf(error: Error, name: string): unknown {
   return Object.entries(error).find(([key]) => key === name)?.[1];
 }
 
+function textOf(value: unknown): string {
+  if (value instanceof Error) return value.message;
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return Object.prototype.toString.call(value);
+}
+
 function reasonOf(error: Error): string {
   const reason = memberOf(error, "reason");
   if (reason === undefined || reason === null) return "";
-  return ` — ${reason instanceof Error ? reason.message : String(reason)}`;
+  return ` — ${textOf(reason)}`;
 }
 
 function codeOf(error: Error): string | null {

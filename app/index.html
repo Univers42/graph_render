@@ -5,9 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>graph-motor studio</title>
     <link rel="icon" href="data:," />
+    <style>
+      html, body { margin: 0; height: 100%; background: #1b1b1f; }
+      graph-studio { width: 100vw; height: 100vh; }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <graph-studio wasm="graph_wasm.wasm" fixtures="fixtures/" keys="page"></graph-studio>
+    <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

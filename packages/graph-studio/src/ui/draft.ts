@@ -20,7 +20,7 @@ export function valuesOf(action: StudioAction, state: StudioState): Args {
  */
 function signed(value: ArgValue): string {
   if (typeof value === "string" && value.length > LONG) return `${value.length}:${value.slice(0, HEAD)}`;
-  return JSON.stringify(value) ?? "null";
+  return JSON.stringify(value);
 }
 
 /** The values as one string, in name order: equal values always give equal signatures. */
