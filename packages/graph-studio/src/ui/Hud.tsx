@@ -3,42 +3,67 @@
  * into one element by the frame handler, at most four times a second, so that a graph that
  * is being panned does not re-render the chrome on every frame it draws.
  */
-import { useEffect, useRef, useState, type ReactElement } from "react";
+import { useEffect, useRef, useState, type ReactElement, type RefObject } from "react";
 
 import type { View, ViewStats } from "../../../graph-render/src/view.ts";
 import type { StudioState } from "../state/model.ts";
-import { digest8, ms } from "./names.ts";
+import { digest8, frameLine, ms } from "./names.ts";
 import { due } from "./throttle.ts";
 
 const EVERY = 250;
+const LOOK_AGAIN = 500;
 
 export interface HudProps {
   readonly state: StudioState;
   readonly view: Pick<View, "stats" | "on">;
 }
 
-/** The view reports 0 while nothing moves: it paints on demand, and a parked graph has no rate. */
-function rateOf(fps: number): string {
-  return fps > 0 ? `${Math.round(fps)} fps` : "idle";
+interface FrameLine {
+  /** What the first paint shows. After that the frame handler owns the element's text. */
+  readonly first: string;
+  readonly line: RefObject<HTMLSpanElement | null>;
 }
 
-function frameLine(stats: ViewStats): string {
-  return `${stats.nodes} n · ${stats.edges} e · ${rateOf(stats.fps)} · ${ms(stats.frameMs)} · ${stats.backend}`;
+/**
+ * Ponytail: the view says nothing when it parks, so the line looks again half a second
+ * after a frame, and keeps looking while the view moves. It still reads a rate for up to
+ * 900 ms after the last frame of a move (the 400 ms the view waits, then these 500).
+ * Nothing runs once it has read `idle`.
+ */
+function useFrameLine(view: HudProps["view"]): FrameLine {
+  const [first] = useState(() => frameLine(view.stats(), 0));
+  const line = useRef<HTMLSpanElement | null>(null);
+  useEffect(() => {
+    let written = -Infinity;
+    let moved = 0;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const write = (stats: ViewStats): void => {
+      if (stats.fps > 0) moved = stats.fps;
+      if (line.current !== null) line.current.textContent = frameLine(stats, moved);
+    };
+    const look = (): void => {
+      const stats = view.stats();
+      write(stats);
+      timer = stats.fps > 0 ? setTimeout(look, LOOK_AGAIN) : null;
+    };
+    const off = view.on("frame", (stats) => {
+      timer ??= setTimeout(look, LOOK_AGAIN);
+      const now = performance.now();
+      if (!due(written, now, EVERY)) return;
+      written = now;
+      write(stats);
+    });
+    return () => {
+      off();
+      if (timer !== null) clearTimeout(timer);
+    };
+  }, [view]);
+  return { first, line };
 }
 
 export function Hud(props: HudProps): ReactElement {
   const { state, view } = props;
-  // What the first paint shows. After that the frame handler owns this element's text.
-  const [first] = useState(() => frameLine(view.stats()));
-  const line = useRef<HTMLSpanElement | null>(null);
-  const last = useRef(-Infinity);
-  useEffect(() => view.on("frame", (stats) => {
-    const now = performance.now();
-    if (!due(last.current, now, EVERY)) return;
-    last.current = now;
-    const element = line.current;
-    if (element !== null) element.textContent = frameLine(stats);
-  }), [view]);
+  const { first, line } = useFrameLine(view);
   const { run } = state;
   return (
     <div className="gs-panel gs-hud">

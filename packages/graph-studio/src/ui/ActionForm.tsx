@@ -69,7 +69,9 @@ export function ActionForm(props: ActionFormProps): ReactElement {
     ));
   return (
     <div className="gs-action">
-      {action.params.length > 0 && <div className="gs-action-title">{action.title}</div>}
+      {action.params.length > 0 && action.title !== action.section && (
+        <div className="gs-action-title">{action.title}</div>
+      )}
       <div className="gs-form">{body}</div>
       {reason !== null && <p className="gs-reason">{reason}</p>}
     </div>

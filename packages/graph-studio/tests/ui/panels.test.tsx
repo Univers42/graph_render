@@ -23,6 +23,7 @@ test("the search is one labelled input, and offers nothing until it is typed in"
   const { studio } = studioWith(DRAWN);
   const html = markup(createElement(Search, { studio, meta: META, inputRef: { current: null } }));
   assert.match(html, /aria-label="Search nodes"/);
+  assert.match(html, /placeholder="Search \( \/ \)"/, "an empty box says what it is, and the key that reaches it");
   assert.equal(html.match(/class="gs-result"/g), null, "no results for an empty query");
   assert.equal(html.match(/<input/g)?.length, 1);
 });

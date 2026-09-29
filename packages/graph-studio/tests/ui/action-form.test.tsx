@@ -26,6 +26,11 @@ test("a parameter is a labelled control of the kind it asks for", () => {
   assert.match(html, /type="range"/, "Links per node is a slider");
 });
 
+test("an action says its name once: not under a section that already says it", () => {
+  assert.match(form("source.synthetic"), /class="gs-action-title">Generate</);
+  assert.ok(!form("layout.run").includes("gs-action-title"), "Layout, under Layout");
+});
+
 test("the choice that is chosen is the one pressed", () => {
   const html = form("source.synthetic");
   assert.match(html, /aria-pressed="true"[^>]*>vault</);

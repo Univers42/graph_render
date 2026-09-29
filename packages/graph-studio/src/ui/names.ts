@@ -1,4 +1,5 @@
 /** The short strings the chrome prints, so no panel grows its own idea of a number. */
+import type { ViewStats } from "../../../graph-render/src/view.ts";
 
 const DASH = "—";
 const NO_DIGIT = 8;
@@ -29,6 +30,17 @@ export function ms(value: number): string {
   if (value < 1) return "<1 ms";
   if (value < EVERY_MS) return `${Math.round(value)} ms`;
   return `${(value / EVERY_MS).toFixed(1)} s`;
+}
+
+/** The view reports 0 while nothing moves: it paints on demand, and a parked graph has no rate. */
+function rateOf(fps: number, last: number): string {
+  if (fps > 0) return `${Math.round(fps)} fps`;
+  return last > 0 ? `idle, last ${Math.round(last)} fps` : "idle";
+}
+
+/** `last` is the rate of the last move, 0 when the view has not moved yet. */
+export function frameLine(stats: ViewStats, last: number): string {
+  return `${stats.nodes} n · ${stats.edges} e · ${rateOf(stats.fps, last)} · ${ms(stats.frameMs)} · ${stats.backend}`;
 }
 
 /**

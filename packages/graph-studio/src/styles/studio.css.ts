@@ -92,13 +92,16 @@ export const STUDIO_CSS = `
 .gs-field { display: grid; grid-template-columns: 84px 1fr; align-items: center; gap: 6px; padding: 2px 8px; }
 .gs-field-label { color: var(--gs-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gs-form { display: flex; flex-direction: column; gap: 4px; padding: 4px 0 6px; }
-.gs-list, .gs-section-body, .gs-results { display: flex; flex-direction: column; }
+.gs-section-body, .gs-results { display: flex; flex-direction: column; }
+.gs-list { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
 .gs-row { display: flex; gap: 4px; }
 .gs-row > * { flex: 1 1 0; min-width: 0; }
+.gs-form > .gs-row, .gs-form > .gs-list { padding: 0 8px; }
+.gs-form > .gs-btn { margin: 0 8px; }
 .gs-reason { padding: 0 8px 6px; color: var(--gs-danger); }
 .gs-value { color: var(--gs-muted); font-variant-numeric: tabular-nums; }
 .gs-dock-body { overflow-y: auto; }
-.gs-section-head { width: 100%; justify-content: space-between; background: transparent; border: 0; border-radius: 0; color: var(--gs-muted); text-align: left; }
+.gs-section-head { display: flex; align-items: center; width: 100%; justify-content: space-between; background: transparent; border: 0; border-radius: 0; color: var(--gs-muted); text-align: left; }
 .gs-section-body { padding-bottom: 6px; }
 .gs-actions { display: flex; flex-direction: column; gap: 2px; }
 .gs-action-title { padding: 2px 8px; color: var(--gs-muted); font-weight: 600; }

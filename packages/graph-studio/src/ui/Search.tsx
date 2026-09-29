@@ -55,6 +55,7 @@ export function Search(props: SearchProps): ReactElement {
         className="gs-input"
         type="search"
         aria-label="Search nodes"
+        placeholder="Search ( / )"
         value={text}
         ref={inputRef}
         onChange={(event) => setText(event.target.value)}

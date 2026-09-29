@@ -19,7 +19,7 @@ test("a rate is a whole number, and a parked view has none", () => {
   assert.match(hud(DRAWN, viewAt(59.62)), /· 60 fps ·/);
   const parked = hud(DRAWN, viewAt(0));
   assert.match(parked, /· idle ·/);
-  assert.ok(!parked.includes("fps"), "no rate is printed for a view that does not move");
+  assert.ok(!parked.includes("fps"), "no rate is printed for a view that has not moved yet");
 });
 
 test("what the view drew is on the line, and the backend is named", () => {

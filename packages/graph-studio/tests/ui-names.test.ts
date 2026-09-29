@@ -3,7 +3,23 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { digest8, ms, shortName, sig3 } from "../src/ui/names.ts";
+import type { ViewStats } from "../../graph-render/src/view.ts";
+import { digest8, frameLine, ms, shortName, sig3 } from "../src/ui/names.ts";
+
+const STATS: ViewStats = {
+  backend: "canvas2d", nodes: 3, edges: 2, drawnNodes: 3, drawnEdges: 2, drawnLabels: 2,
+  draws: 12, frameMs: 4.2, fps: 60, frames: 42,
+};
+
+test("the line of a frame: what is drawn, how fast, how long the last frame took, and by what", () => {
+  assert.equal(frameLine(STATS, 0), "3 n · 2 e · 60 fps · 4 ms · canvas2d");
+  assert.equal(frameLine({ ...STATS, fps: 59.62 }, 12), "3 n · 2 e · 60 fps · 4 ms · canvas2d");
+});
+
+test("a parked view has no rate, and the rate of its last move stays next to that", () => {
+  assert.equal(frameLine({ ...STATS, fps: 0 }, 0), "3 n · 2 e · idle · 4 ms · canvas2d");
+  assert.equal(frameLine({ ...STATS, fps: 0 }, 37.6), "3 n · 2 e · idle, last 38 fps · 4 ms · canvas2d");
+});
 
 test("an id loses its first dotted segment, and one without a dot is kept", () => {
   assert.equal(shortName("layout.force.barnes_hut"), "force.barnes_hut");

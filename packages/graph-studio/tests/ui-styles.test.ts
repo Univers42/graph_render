@@ -37,6 +37,11 @@ test("what is hidden is not displayed, whatever its class says about display", (
   assert.match(PLAIN, /\.gs-chrome \[hidden\]\s*\{\s*display:\s*none\s*!important;?\s*\}/);
 });
 
+test("a section header is a row with its caret at the far end, and a long list takes two columns", () => {
+  assert.match(PLAIN, /\.gs-section-head\s*\{[^}]*display:\s*flex[^}]*justify-content:\s*space-between/);
+  assert.match(PLAIN, /\.gs-list\s*\{[^}]*display:\s*grid[^}]*grid-template-columns:\s*1fr 1fr/);
+});
+
 test("the chrome lets the canvas through: the root takes no pointer, the panels take it back", () => {
   const root = SELECTORS.join(" ").includes(".gs-chrome");
   assert.ok(root);
