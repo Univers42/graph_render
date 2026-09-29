@@ -4,7 +4,7 @@ The headline deliverable is this number, not a pass or fail. Rust is not faster 
 
 | arm | largest N fitting 16.67 ms | ladder (n, median tick ms) |
 |---|---:|---|
-| native (graph-core, this process) | none | [(220, 17.228341), (10000, 2263.833935)] |
+| native (graph-core, this process) | none | [(220, 17.979466), (10000, 2274.7220669999997)] |
 | wasm32 | not measured | needs Phase 4's real WASM ABI (harness/wasm-run.mjs) — p4 is not merged |
 | TypeScript oracle | not measured | harness/oracle-tick-bench.mjs is not in this slice |
 

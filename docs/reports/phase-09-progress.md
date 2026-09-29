@@ -40,6 +40,29 @@ arena separately**, snapshot bytes in both faces, and the largest N fitting 16.6
   `BENCHMARKS.md`, and the Amdahl / autovectorisation split of §6b (it needs the wasm arm to answer the
   `f32x4` half).
 
+## Check results (re-run in this tree, this session)
+
+| command | exit |
+|---|---|
+| `gr cargo fmt --all --check` | 0 |
+| `gr cargo clippy --workspace --all-targets -- -D warnings` | 0 |
+| `gr cargo test --workspace` | **101** — 2 pre-existing failures in `crates/graph-cli/tests/cli_oracles.rs` (`oracle_layouts_*`): this worktree has no `node_modules/` (0 entries), so `d3-hierarchy` does not resolve inside `harness/oracle-layouts.mjs`. Every other target is green (130 + 9 + 4 passed). Nothing I touched is on that path. |
+
+## Headline numbers this slice measured (release, `--repeat 3`, seed 0, `layout.force.barnes_hut`)
+
+| n | build ms | tick ms (median) | settle ms | columns B | arena B | bin B | json B |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 220 | 0.10 | 17.98 | 2013.7 | 26739 | 8830 | 13112 | 23408 |
+| 10000 | 5.20 | 2274.72 | 254768.7 | 1235726 | 429075 | 644672 | 1160923 |
+
+Crossover at 16.67 ms: **none** on the measured ladder — the native force tick is 17.98 ms already at
+N = 220, one-shot. That is the one-shot `run`, not a per-tick `tick()`: the phase's §6 headline is a
+*tick*, and graph-core's registered force capability is a one-shot run to convergence, so the two are
+not the same number and this row must not be read as "Rust misses the frame budget at N = 220". Making
+the tick-vs-one-shot distinction measurable (an iterative `tick()` entry on the force layout) is the
+first correctness item in the next step, ahead of the oracle arm. N = 100k was not run: the release run
+did not finish inside the session.
+
 ## Next step
 
 1. `harness/oracle-tick-bench.mjs` — the third arm, N = 220 first.

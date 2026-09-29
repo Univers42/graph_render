@@ -8,8 +8,8 @@ seed 0 · repeat 3 · budget 16.67 ms · native, one machine class
 
 | n | edges | build ms | tick ms | settle ms | columns B | arena B | bin B | json B |
 |---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| 220 | 329 | 0.10 | 17.406 | 1949.4 | 26739 | 8830 | 13112 | 23408 |
-| 10000 | 15474 | 5.20 | 2256.622 | 252741.7 | 1235726 | 429075 | 644672 | 1160923 |
+| 220 | 329 | 0.10 | 17.450 | 1954.5 | 26739 | 8830 | 13112 | 23408 |
+| 10000 | 15474 | 5.38 | 2234.433 | 250256.5 | 1235726 | 429075 | 644672 | 1160923 |
 
-columns/node: Map { iter: Iter([Sample { n: 220, edges: 329, build_ms: 0.101562, tick_ms: 17.405574, columns: 26739, arena: 8830, bin: 13112, json: 23408, past_ceiling: false }, Sample { n: 10000, edges: 15474, build_ms: 5.200558, tick_ms: 2256.6219140000003, columns: 1235726, arena: 429075, bin: 644672, json: 1160923, past_ceiling: false }]) }
+columns/node [121.5409090909091, 123.5726] against the 33 B/node table (`prompt.md` §5.1)
 
