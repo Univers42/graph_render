@@ -163,10 +163,19 @@ fn the_registry_covers_every_oracle_function_once_its_ids_are_unique() {
             ("roundtrip", "ingest.build", Status::Implemented)
         } else if r.id == "layout.tree.tidy" || r.id == "layout.treemap.squarified" {
             ("oracle-layouts", r.id, Status::Gated)
-        } else if r.id == "layout.force.barnes_hut" {
+        } else if r.id == "layout.force.barnes_hut" || r.id == "layout.force.yifan_hu" {
             ("stress", r.id, Status::Implemented)
         } else if r.id == "layout.forceatlas2" {
             ("oracle-fa2", r.id, Status::Implemented)
+        } else if [
+            "layout.random",
+            "layout.circular.ring",
+            "layout.spiral",
+            "layout.bipartite",
+        ]
+        .contains(&r.id)
+        {
+            ("oracle-closed-form", r.id, Status::Implemented)
         } else if r.id == "layout.spectral" || r.id == "layout.mds.pivot" {
             ("oracle-spectral", r.id, Status::Gated)
         } else if r.id == "transport.wasm.columnar" {

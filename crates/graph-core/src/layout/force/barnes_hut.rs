@@ -19,6 +19,7 @@ mod charge;
 mod collide;
 mod link;
 mod seed;
+mod settle;
 mod sim;
 
 #[cfg(test)]
@@ -29,6 +30,7 @@ use crate::index::Topology;
 use crate::layout::Geometry;
 use crate::stage::{Stage, StageError};
 use graph_contract::geometry::{EdgeGeometry, NodeGeometry};
+pub(crate) use settle::{golden_seed, settle};
 use sim::Sim;
 
 /// Barnes-Hut approximated force layout (`prompt.md` §3.1).

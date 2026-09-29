@@ -4,16 +4,21 @@
 //! tidy tree, treemap, circular and circle-packing layouts; [`hierarchy`] is the one
 //! repaired tree the tree layouts share.
 
+mod adjacency;
+pub mod bipartite;
 pub mod circle_packing;
 pub mod circular;
+mod coords;
 pub mod force;
 pub mod forceatlas2;
 pub mod grid;
 pub mod hierarchy;
 pub mod pivot_mds;
 pub mod planarity;
+pub mod random;
 pub mod spectral;
 pub mod spectral_stage;
+pub mod spiral;
 pub mod sugiyama;
 pub mod tidy_tree;
 pub mod treemap;
