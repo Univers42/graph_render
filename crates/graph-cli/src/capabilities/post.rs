@@ -1,16 +1,23 @@
-//! Phase 8's POST rows: `post.route.grid`, obstacle-avoiding routing over a uniform grid
-//! of the node geometry.
+//! Phase 8's POST rows: `post.route.grid` (obstacle-avoiding routing over a uniform grid
+//! of the node geometry), the two bundling rows `post.bundle.fdeb` and
+//! `post.bundle.mingle`, and the four `post.style.*` rows.
 //!
 //! Split out of `capabilities.rs` for the same reason Phase 7's `analysis.rs` is: the
 //! 300-line house limit, and a POST row's metadata is long and specific in a way a
 //! topology row's is not.
 //!
-//! `Status::Implemented`, honestly not `gated`: the routing is wired into no hash-gate
-//! stage and no oracle differential — both live in `graph-cli` and `graph-wasm`, outside
-//! this slice's envelope — so there is no evidence to back a `gated` claim, and
-//! `problems()` only demands evidence from a `gated` row (`prompt.md` §8). The wiring is
-//! the merge step's, exactly as it was for Phase 7's analysis rows
-//! (`docs/measurements/phase07-analysis.md`).
+//! `Status::Implemented`, honestly not `gated`: no POST stage is wired into a hash-gate
+//! stage and no oracle differential covers one — both live in `graph-cli` and
+//! `graph-wasm`, outside this slice's envelope — so there is no evidence to back a
+//! `gated` claim, and `problems()` only demands evidence from a `gated` row
+//! (`prompt.md` §8). The wiring is the merge step's, exactly as it was for Phase 7's
+//! analysis rows (`docs/measurements/phase07-analysis.md`).
+//!
+//! Only the routing row's metadata is written out here. The other six are projected from
+//! the `Metadata` their own `graph-core` module already declares
+//! (`post::fdeb::META`, `post::mingle::META`, `post::styles::STYLES`), which is where the
+//! measured ceilings and the Ponytails live. Restating them here would be a second answer
+//! to the same question, free to drift from the code that carries them.
 
 use super::{Capability, Status};
 
@@ -76,23 +83,106 @@ projected to a node count; it is not a memory limit and not a correctness limit"
 
 /// Every POST row, its metadata carried above and its ledger shape filled in here.
 pub fn rows() -> impl Iterator<Item = Capability> {
-    ROUTE.iter().map(
-        |&(id, oracle, complexity, scale_ceiling, degradation, ponytail)| Capability {
-            id,
-            tier: 1,
-            stage: "post",
-            geometry: Some("polyline"),
-            status: Status::Implemented,
-            oracle,
-            oracle_record: "roundtrip",
-            functions: &[],
-            hash_stage: "post",
-            oracle_diff: String::new(),
-            hash_4way: String::new(),
-            scale_ceiling,
-            degradation,
-            ponytail,
-            complexity,
-        },
-    )
+    ROUTE
+        .iter()
+        .map(
+            |&(id, oracle, complexity, scale_ceiling, degradation, ponytail)| {
+                row(
+                    id,
+                    "polyline",
+                    oracle,
+                    complexity,
+                    scale_ceiling,
+                    degradation,
+                    ponytail,
+                )
+            },
+        )
+        .chain(bundles())
+        .chain(styles())
+}
+
+/// The two bundling rows, projected from the metadata their own `graph-core` modules
+/// declare ([`graph_core::post::fdeb::META`], [`graph_core::post::mingle::META`]). Read
+/// across rather than restated: a second, looser copy of a ceiling or a Ponytail is a
+/// second answer, and the two would drift. Neither is `gated` — see the module doc.
+fn bundles() -> impl Iterator<Item = Capability> {
+    [graph_core::post::fdeb::META, graph_core::post::mingle::META]
+        .into_iter()
+        .zip(["post.bundle.fdeb", "post.bundle.mingle"])
+        .map(|(meta, id)| {
+            row(
+                id,
+                edge_kind_name(meta.edges),
+                meta.oracle,
+                meta.complexity,
+                meta.scale_ceiling,
+                meta.degradation,
+                meta.ponytail,
+            )
+        })
+}
+
+/// The four style rows, projected from [`graph_core::post::styles::STYLES`]. They differ
+/// in exactly one field, `edges`: a style never emits two geometry kinds, so each row
+/// names the one its generator emits, and `EdgeGeometry::Line` (the straight chord) is
+/// named as it is stored rather than folded into `polyline`.
+fn styles() -> impl Iterator<Item = Capability> {
+    graph_core::post::styles::STYLES.iter().map(|style| {
+        row(
+            style.id,
+            edge_kind_name(style.meta.edges),
+            style.meta.oracle,
+            style.meta.complexity,
+            style.meta.scale_ceiling,
+            style.meta.degradation,
+            style.meta.ponytail,
+        )
+    })
+}
+
+/// The ledger's name for an edge geometry kind, as `registry::layout` writes it. The
+/// catch-all is unreachable for every registered POST capability today and is named
+/// rather than panicking, so adding a fourth kind later is a value to fill in rather than
+/// a crash in the middle of building the ledger.
+fn edge_kind_name(kind: graph_contract::geometry::EdgeGeometryKind) -> &'static str {
+    match kind {
+        graph_contract::geometry::EdgeGeometryKind::Line => "Line",
+        graph_contract::geometry::EdgeGeometryKind::Polyline => "Polyline",
+        _ => "Curve",
+    }
+}
+
+/// One POST row's ledger shape. `oracle_record` is `roundtrip` and `functions` is empty
+/// for every row here: no POST stage is in the hash gate's list and no differential
+/// covers one, so a `gated` claim would be one `problems()` has to refuse. `hash_stage` is
+/// the row's own id, so adding a stage to the gate later is a one-word change here rather
+/// than a silent mismatch.
+#[allow(clippy::too_many_arguments)]
+fn row(
+    id: &'static str,
+    geometry: &'static str,
+    oracle: &'static str,
+    complexity: &'static str,
+    scale_ceiling: u64,
+    degradation: &'static str,
+    ponytail: &'static str,
+) -> Capability {
+    Capability {
+        id,
+        tier: 1,
+        stage: "post",
+        geometry: Some(geometry),
+        status: Status::Implemented,
+        oracle,
+        oracle_record: "roundtrip",
+        functions: &[],
+        hash_stage: id,
+        oracle_diff: String::new(),
+        hash_4way: String::new(),
+        scale_ceiling,
+        degradation,
+        ponytail,
+        complexity,
+    }
 }

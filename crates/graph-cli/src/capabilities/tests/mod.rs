@@ -177,28 +177,31 @@ fn row(status: Status) -> Capability {
 fn every_registered_row_stands_on_honest_evidence_and_reads_it_back() {
     let evidence = honest();
     let rows = ledger(&evidence);
-    assert_eq!(rows.len(), 36);
+    let of = |id: &str| {
+        rows.iter()
+            .find(|r| r.id == id)
+            .unwrap_or_else(|| panic!("no {id} row"))
+            .clone()
+    };
     assert_eq!(problems(&rows, &evidence), Vec::<String>::new());
+    let topology = of("topology.index");
     assert_eq!(
-        rows[0].hash_4way,
+        topology.hash_4way,
         "equal/1000 seeds (topology stage; negative control hashgate-control-reference-degree red)"
     );
-    assert_eq!(rows[0].oracle_diff, "byte-equal/1000 seeds (25 cases)");
-    let grid = &rows[8];
+    assert_eq!(topology.oracle_diff, "byte-equal/1000 seeds (25 cases)");
+    let grid = of("layout.grid");
     assert_eq!(
-        (grid.id, grid.stage, grid.geometry, grid.complexity),
-        ("layout.grid", "layout", Some("Point"), "O(n)")
+        (grid.stage, grid.geometry, grid.complexity),
+        ("layout", Some("Point"), "O(n)")
     );
     assert_eq!(
         grid.hash_4way,
         "equal/1000 seeds (layout.grid stage; negative control hashgate-control-grid-spacing red)"
     );
     assert_eq!(grid.oracle_diff, "byte-equal/1000 seeds (7 cases)");
-    let dag = &rows[17];
-    assert_eq!(
-        (dag.id, dag.geometry, dag.scale_ceiling),
-        ("layout.dag.sugiyama", Some("Point"), 200_000)
-    );
+    let dag = of("layout.dag.sugiyama");
+    assert_eq!((dag.geometry, dag.scale_ceiling), (Some("Point"), 200_000));
     assert_eq!(
         dag.hash_4way,
         "equal/1000 seeds (layout.dag.sugiyama stage; negative control \
@@ -294,12 +297,31 @@ fn the_scale_stage_publishes_three_implemented_rows_with_every_required_field() 
     }
 }
 
-/// The ledger grew by exactly the three scale rows and Phase 10's four ingest rows (on top of develop's post row), and no row lost its evidence.
+/// The ledger grew by the three scale rows, Phase 10's four ingest rows and Phase 8's six
+/// bundling and style rows (on top of develop's `post.route.grid`), and no row lost its
+/// evidence. The count is pinned by *id*, not by index: `prompt.md` §8's note is that row
+/// indices move whenever a registry entry is inserted before them, so the assertion names
+/// the rows rather than counting past them.
 #[test]
 fn the_ledger_is_the_registry_plus_the_scale_rows_and_still_stands() {
     let evidence = honest();
     let rows = ledger(&evidence);
-    assert_eq!(rows.len(), 36);
+    let ids: Vec<&str> = rows.iter().map(|r| r.id).collect();
+    for id in [
+        "post.bundle.fdeb",
+        "post.bundle.mingle",
+        "post.style.straight",
+        "post.style.orthogonal",
+        "post.style.quadratic",
+        "post.style.bezier",
+    ] {
+        assert!(ids.contains(&id), "{id} is a row");
+    }
+    assert_eq!(
+        rows.len(),
+        42,
+        "36 before Phase 8's six bundling and style rows"
+    );
     assert_eq!(problems(&rows, &evidence), Vec::<String>::new());
 }
 
