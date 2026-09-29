@@ -7,6 +7,7 @@ import { DEFAULT_POLICY, type LabelPolicy, newLabelPlan, occupancyFor } from "..
 import { EMPTY_FRAME, pickIn, sceneOf } from "../scene.ts";
 import { plainStyle } from "../style.ts";
 import { DARK_THEME, type Theme } from "../theme.ts";
+import { setSelection } from "./choose.ts";
 import { newCounts } from "./input.ts";
 import { type LoopState, invalidate, markMoved, relight } from "./loop.ts";
 import { MIN_SCREEN_RADIUS } from "./nodes.ts";
@@ -17,6 +18,8 @@ import type { SpriteSurface } from "./surface.ts";
 export interface Notify {
   hover(node: number): void;
   select(node: number): void;
+  selection(nodes: readonly number[]): void;
+  context(node: number, at: Point): void;
   camera(camera: Camera): void;
 }
 
@@ -64,7 +67,7 @@ export function newState(canvas: HTMLCanvasElement, setup: Setup): LoopState {
     ctx, sprites: createSpriteCache(spriteSurface, theme), onFrame: setup.onFrame, theme, policy, scene,
     camera: fitCamera(null, viewport), limits: limitsFor(null, viewport), viewport, dpr: 1,
     x: scene.frame.x, y: scene.frame.y, fromX: scene.frame.x, fromY: scene.frame.y, transitionStart: -1,
-    lit: new Uint8Array(0), hovered: -1, selected: -1,
+    lit: new Uint8Array(0), hovered: -1, dimStart: -1, selected: -1, selection: [], pinned: [], marquee: null,
     plan: newLabelPlan(policy.budget), occupancy: occupancyFor(viewport),
     scheduled: 0, settleTimer: null, movedAt: 0, destroyed: false,
     counts: newCounts(), frameMs: 0, frames: 0, rate: newRate(),
@@ -107,13 +110,7 @@ export function hover(controller: Controller, node: number): void {
 }
 
 export function select(controller: Controller, node: number): void {
-  const { state } = controller;
-  const bounded = node >= 0 && node < state.scene.frame.nodeCount ? node : -1;
-  if (bounded === state.selected) return;
-  state.selected = bounded;
-  relight(state);
-  invalidate(state);
-  controller.notify.select(bounded);
+  setSelection(controller, node >= 0 ? [node] : []);
 }
 
 /** Starts the move to `frame` from wherever the nodes are drawn now. */
@@ -140,6 +137,8 @@ export function showFrame(state: LoopState, frame: Frame, animate: boolean): voi
     state.lit = new Uint8Array(frame.nodeCount);
     state.hovered = -1;
     state.selected = -1;
+    state.selection = [];
+    state.pinned = [];
   }
   state.limits = limitsFor(state.scene.bounds, state.viewport);
   relight(state);

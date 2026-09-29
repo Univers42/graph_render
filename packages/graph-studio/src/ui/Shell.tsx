@@ -2,7 +2,7 @@
  * The chrome: floating panels over a canvas the studio does not own. It holds the whole
  * state in one subscription and knows only what is open — the console, the dock.
  */
-import { useCallback, useRef, useState, type ReactElement } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
 
 import type { View } from "../../../graph-render/src/view.ts";
 import type { Studio } from "../studio/studio.ts";
@@ -12,6 +12,7 @@ import { Hud } from "./Hud.tsx";
 import { Inspector } from "./Inspector.tsx";
 import { Legend } from "./Legend.tsx";
 import { NavBar } from "./NavBar.tsx";
+import { type MenuAt, NodeMenu, type MenuView } from "./NodeMenu.tsx";
 import { Search } from "./Search.tsx";
 import { Toast } from "./Toast.tsx";
 import { useShortcuts } from "./useShortcuts.ts";
@@ -19,9 +20,34 @@ import { useStudioState } from "./useStudio.ts";
 
 export interface ShellProps {
   readonly studio: Studio;
-  readonly view: Pick<View, "stats" | "on" | "focus" | "select">;
+  readonly view: Pick<View, "stats" | "on" | "focus" | "select" | "camera" | "position"> & MenuView;
   /** Where key presses are listened for. */
   readonly keys: Pick<EventTarget, "addEventListener" | "removeEventListener">;
+}
+
+interface NodeMenuOpening {
+  readonly view: Pick<ShellProps["view"], "on" | "camera" | "position">;
+  readonly keys: ShellProps["keys"];
+  readonly selected: number;
+  readonly open: (menu: MenuAt | null) => void;
+}
+
+/** A secondary click opens the menu at the pointer; the menu key opens it at the selected node. */
+function useNodeMenu(opening: NodeMenuOpening): void {
+  const { view, keys, selected, open } = opening;
+  useEffect(() => view.on("context", ({ node, at }) => open(node >= 0 ? { node, at } : null)), [view, open]);
+  useEffect(() => {
+    const onKey = (event: Event): void => {
+      if (!(event instanceof KeyboardEvent) || selected < 0) return;
+      if (event.key !== "ContextMenu" && !(event.key === "F10" && event.shiftKey)) return;
+      event.preventDefault();
+      const { x, y } = view.position(selected);
+      const camera = view.camera();
+      open({ node: selected, at: { x: x * camera.scale + camera.x, y: y * camera.scale + camera.y } });
+    };
+    keys.addEventListener("keydown", onKey);
+    return () => keys.removeEventListener("keydown", onKey);
+  }, [view, keys, selected, open]);
 }
 
 export function Shell(props: ShellProps): ReactElement {
@@ -37,6 +63,9 @@ export function Shell(props: ShellProps): ReactElement {
     setOpen(open);
     if (!open && keys instanceof HTMLElement) keys.focus();
   }, [keys]);
+  const [menu, setMenu] = useState<MenuAt | null>(null);
+  const closeMenu = useCallback(() => setMenu(null), []);
+  useNodeMenu({ view, keys, selected: state.selected, open: setMenu });
   useShortcuts({ studio, state, keys, consoleOpen, setConsole, focusSearch });
   return (
     <div className="gs-chrome" data-theme={state.settings.appearance.theme}>
@@ -51,6 +80,7 @@ export function Shell(props: ShellProps): ReactElement {
         <Hud state={state} view={view} />
         <NavBar studio={studio} />
       </div>
+      <NodeMenu studio={studio} state={state} view={view} menu={menu} onClose={closeMenu} />
       {consoleOpen && (
         <Console studio={studio} state={state} onClose={() => setConsole(false)} />
       )}

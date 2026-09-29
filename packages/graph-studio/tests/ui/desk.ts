@@ -70,8 +70,13 @@ export function studioWith(state: StudioState = DRAWN): Desk {
 }
 
 /** The parts of a view the chrome uses, recording nothing: effects do not run here. */
-export function fakeView(): Pick<View, "stats" | "on" | "focus" | "select"> {
+export function fakeView(pinned: readonly number[] = []): Pick<View, "stats" | "on" | "focus" | "select" | "camera" | "position" | "hide" | "togglePin" | "pinned"> {
   return {
+    camera: () => ({ x: 0, y: 0, scale: 1 }),
+    position: () => ({ x: 0, y: 0 }),
+    hide: () => undefined,
+    togglePin: () => undefined,
+    pinned: () => pinned,
     stats: () => STATS,
     focus: () => undefined,
     select: () => undefined,

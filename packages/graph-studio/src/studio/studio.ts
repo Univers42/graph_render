@@ -31,6 +31,8 @@ export interface Studio {
   /** Opens the motor and draws the settings' source. */
   start(): Promise<LogEntry>;
   neighbours(node: number): readonly number[];
+  /** Keeps the text in the state, and offers it to the system clipboard where that is allowed. */
+  copy(text: string): void;
   dismiss(): void;
   destroy(): void;
 }
@@ -119,6 +121,19 @@ async function start(desk: Desk): Promise<LogEntry> {
   return execute(desk, id, () => desk.registry.resolve(id, raw, desk.store.get()));
 }
 
+/**
+ * Ponytail: the system clipboard is written without waiting and without reporting a refusal
+ * (no permission, an insecure page, headless): the state copy is what a caller can rely on.
+ */
+function copyText(store: Store<StudioState>, text: string): void {
+  store.update((state) => ({ ...state, clipboard: text }));
+  try {
+    void globalThis.navigator.clipboard.writeText(text).catch(() => undefined);
+  } catch {
+    // The state holds the text; there is nothing else to do.
+  }
+}
+
 function contextOf(deps: StudioDeps, store: Store<StudioState>, registry: () => Registry<StudioState, StudioContext>): StudioContext {
   return {
     ...createPipeline({ client: deps.client, view: deps.view, store }),
@@ -137,6 +152,7 @@ export function createStudio(deps: StudioDeps): Studio {
   const context = contextOf(deps, store, () => registry);
   const desk: Desk = { deps, store, registry, context, seq: 0 };
   const unselect = deps.view.on("select", (selected) => store.update((state) => ({ ...state, selected })));
+  const unselectMany = deps.view.on("selection", (selection) => store.update((state) => ({ ...state, selection })));
   return {
     store,
     registry,
@@ -147,9 +163,11 @@ export function createStudio(deps: StudioDeps): Studio {
     }),
     start: () => start(desk),
     neighbours: (node) => context.neighbours(node),
+    copy: (text) => copyText(store, text),
     dismiss: () => store.update((state) => ({ ...state, error: null })),
     destroy: () => {
       unselect();
+      unselectMany();
       deps.client.close();
     },
   };

@@ -43,3 +43,15 @@ test("an analysis that does not cover every node says nothing about this one", (
   const html = inspector({ ...DRAWN, selected: 2, analysis });
   assert.ok(!html.includes("depth.bfs"));
 });
+
+test("several nodes selected are counted and listed, the primary's details stay", () => {
+  const html = inspector({ ...DRAWN, selected: 2, selection: [0, 2] });
+  assert.match(html, /aria-label="Selection"/);
+  assert.ok(html.includes("2 selected"));
+  assert.ok(html.includes("Centre Alpha") && html.includes("Centre Gamma"));
+  assert.match(html, /gs-title">Gamma</);
+});
+
+test("one node selected has no selection list", () => {
+  assert.ok(!inspector({ ...DRAWN, selected: 0, selection: [0] }).includes('aria-label="Selection"'));
+});

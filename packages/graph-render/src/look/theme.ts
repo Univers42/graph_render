@@ -29,11 +29,11 @@ const LINE_BOX = 1.2;
  * Outside a lit neighbourhood the source draws nothing dimmed, so this is the studio's own
  * affordance value.
  *
- * Ponytail: 0.16 is the studio's dark and light theme value (theme.ts:31,43) rather than
+ * Ponytail: 0.12 is the studio's dark and light theme value (theme.ts:31,43) rather than
  * anything SciGraphs states, so a look and a studio theme dim by the same amount; a theme
  * that wants another has to say so. The escape hatch is `dimAlpha` on the theme.
  */
-const DIM_ALPHA = 0.16;
+const DIM_ALPHA = 0.12;
 
 /** The sprite box of a label: the line box plus the padding on both sides (text_overlay.py:547). */
 export const LABEL_BOX_PX = Math.ceil(LABEL_FONT_PX * LINE_BOX + LABEL_PADDING_PX * 2);

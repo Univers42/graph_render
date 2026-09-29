@@ -126,7 +126,8 @@ function place(input: LabelInput, node: number, alpha: number, out: { plan: Labe
   const sy = (input.y[node] ?? 0) * camera.scale + camera.y;
   const { top, keep } = placementOf(input, node, sy);
   if (sx < 0 || sx > viewport.width || top < -input.height || top > viewport.height) return;
-  if (!keep) {
+  // A focus's labels are forced: the neighbourhood is named even where two texts touch.
+  if (!keep && input.lit === null) {
     const width = input.widthOf(node) || text.length * ESTIMATED_GLYPH + 8;
     if (!claimCells(out.occupancy, sx - width / 2, top, width)) return;
   }

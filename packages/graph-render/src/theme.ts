@@ -39,7 +39,7 @@ export const DARK_THEME: Theme = {
   labelBox: null,
   labelHeight: LABEL_HEIGHT,
   labelFont: '12px ui-sans-serif, system-ui, "Segoe UI", sans-serif',
-  dimAlpha: 0.16,
+  dimAlpha: 0.12,
 };
 
 export const LIGHT_THEME: Theme = {
@@ -53,5 +53,5 @@ export const LIGHT_THEME: Theme = {
   labelBox: null,
   labelHeight: LABEL_HEIGHT,
   labelFont: '12px ui-sans-serif, system-ui, "Segoe UI", sans-serif',
-  dimAlpha: 0.16,
+  dimAlpha: 0.12,
 };

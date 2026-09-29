@@ -98,7 +98,7 @@ function showLook(rig: Rig, look: Settings): void {
 function clear(rig: Rig): void {
   rig.held = null;
   rig.view.setFrame(EMPTY_FRAME);
-  patch(rig, () => ({ meta: null, run: null, selected: -1 }));
+  patch(rig, () => ({ meta: null, run: null, selected: -1, selection: [] }));
 }
 
 async function load(rig: Rig, source: Source): Promise<Part> {
@@ -137,7 +137,7 @@ function draw(rig: Rig, run: RunReport, shown: { readonly look: Settings; readon
   rig.view.setFrame(frame, { animate: !shown.fresh });
   if (shown.fresh) rig.view.select(-1);
   patch(rig, (state) => ({
-    meta, run: summary, selected: shown.fresh ? -1 : state.selected,
+    meta, run: summary, selected: shown.fresh ? -1 : state.selected, selection: shown.fresh ? [] : state.selection,
     settings: withSettings(state.settings, { layout: run.layoutId, edges: run.postId }),
   }));
   restyle(rig, shown.look);
