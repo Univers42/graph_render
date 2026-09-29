@@ -1,0 +1,19 @@
+{
+  "about": "Phase 7 (prompts/phase-07-analysis.md step 2): components and closeness on a graph with more than one piece. `analysis::components::weak` and `::strong` must give every node its own component where nothing connects it, numbered in ascending dense-index-of-first-member order, not discovery order. `analysis::centrality::closeness` must stay finite and well-defined per node without ever dividing by an unreachable count (Wasserman & Faust's disconnected-safe form) — a node with no reachable neighbour scores exactly 0, not NaN or infinity.",
+  "nodes": ["a", "b", "c", "d", "z"],
+  "edges": [
+    { "id": "ab", "source": "a", "target": "b", "directed": true, "strength": 0.5 },
+    { "id": "cd", "source": "c", "target": "d", "directed": false, "strength": 0.5 }
+  ],
+  "expect": {
+    "weak_components": { "a": 0, "b": 0, "c": 1, "d": 1, "z": 2 },
+    "strong_components": {
+      "a": 0, "b": 1, "c": 2, "d": 2, "z": 3,
+      "why": "a->b is directed: no path back from b to a, so they are separate strong components even though one weak component joins them; c-d is undirected, so it is one strong component the same as it is one weak component"
+    },
+    "closeness": {
+      "z": 0.0,
+      "why": "z has no incident edge at all: 0 reachable nodes, so closeness is defined as exactly 0.0, never a division by zero"
+    }
+  }
+}

@@ -23,6 +23,8 @@ fn the_registry_covers_every_oracle_function_once_its_ids_are_unique() {
     for r in &rows {
         let expected = if r.id.starts_with("topology.") {
             ("oracle-diff", "topology", Status::Gated)
+        } else if r.id.starts_with("analysis.") {
+            ("oracle-diff", "analysis", Status::Implemented)
         } else if r.id == "layout.tree.tidy" || r.id == "layout.treemap.squarified" {
             ("oracle-layouts", r.id, Status::Gated)
         } else if r.id == "layout.force.barnes_hut" {

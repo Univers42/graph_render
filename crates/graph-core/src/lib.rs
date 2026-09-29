@@ -13,9 +13,11 @@
 //! hash gate runs the pipeline over; it takes the reference degree as a parameter so the
 //! gate's negative control can perturb one arm.
 
+pub mod analysis;
 mod arena;
 mod columns;
 mod csr;
+mod csr_petgraph;
 mod diff;
 mod edgekind;
 mod ids;

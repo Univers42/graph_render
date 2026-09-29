@@ -7,6 +7,7 @@
 //! from `target/gates/*.json` (see `evidence.rs`), and a `gated` row stands only while
 //! both verdicts hold for the tree as it is now. `--check` refuses every other claim.
 
+mod analysis;
 mod registry;
 mod verdict;
 
@@ -14,8 +15,6 @@ use serde::Serialize;
 use std::collections::BTreeSet;
 use std::process::ExitCode;
 use verdict::Evidence;
-
-pub use registry::registry;
 
 /// Where a capability stands. Serialised lowercase: `absent | stub | implemented | gated`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -75,6 +74,16 @@ pub struct Capability {
     pub ponytail: &'static str,
     /// Time complexity, stated and held.
     pub complexity: &'static str,
+}
+
+/// Every registered capability: Phase 1/2's rows, unchanged, plus Phase 7's `analysis`
+/// rows (`analysis.rs`). `registry::registry()` itself is untouched — this only chains
+/// onto it, so the phase's authorization envelope (`capabilities.rs`, not
+/// `capabilities/registry.rs`) is what actually changed.
+pub fn registry() -> Vec<Capability> {
+    let mut rows = registry::registry();
+    rows.extend(analysis::rows());
+    rows
 }
 
 /// The rows with `oracle_diff` and `hash_4way` filled from `evidence`: the verdict, or

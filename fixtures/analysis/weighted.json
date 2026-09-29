@@ -1,0 +1,24 @@
+{
+  "about": "Phase 7 (prompts/phase-07-analysis.md step 4): a small weighted, undirected graph exercising every centrality function on the same input — degree, closeness (Wasserman & Faust's disconnected-safe form), betweenness (Brandes, weighted), eigenvector (power iteration). Mirrors `analysis::centrality::tests::star` at 4 leaves; the numbers below are hand-checked, not re-derived from the Rust output, so they also serve as an independent check on it.",
+  "nodes": ["center", "leaf0", "leaf1", "leaf2", "leaf3"],
+  "edges": [
+    { "id": "e0", "source": "center", "target": "leaf0", "directed": false, "strength": 0.5 },
+    { "id": "e1", "source": "center", "target": "leaf1", "directed": false, "strength": 0.5 },
+    { "id": "e2", "source": "center", "target": "leaf2", "directed": false, "strength": 0.5 },
+    { "id": "e3", "source": "center", "target": "leaf3", "directed": false, "strength": 0.5 }
+  ],
+  "expect": {
+    "degree": { "center": 4, "leaf0": 1, "leaf1": 1, "leaf2": 1, "leaf3": 1 },
+    "betweenness": {
+      "center": "> 0: every leaf-leaf shortest path (all 6 pairs) crosses it",
+      "leaves": "0: no leaf sits on any other pair's shortest path"
+    },
+    "closeness": {
+      "why": "center reaches all 4 leaves at distance 0.5 each; a leaf reaches the center at 0.5 and every other leaf at 1.0 (through the center) — the center is strictly closer to everyone than any leaf is"
+    },
+    "eigenvector": {
+      "converges": false,
+      "why": "a star is bipartite (center vs. leaves): its two extremal eigenvalues tie in magnitude, so plain power iteration oscillates rather than settling — see fixtures/analysis/star.json and the eigenvector Ponytail in crates/graph-cli/src/capabilities/analysis.rs"
+    }
+  }
+}
