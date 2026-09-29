@@ -7,6 +7,7 @@
 //! from `target/gates/*.json` (see `evidence.rs`), and a `gated` row stands only while
 //! both verdicts hold for the tree as it is now. `--check` refuses every other claim.
 
+mod post;
 mod registry;
 mod verdict;
 

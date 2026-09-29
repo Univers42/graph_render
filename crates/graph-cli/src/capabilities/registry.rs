@@ -3,6 +3,7 @@
 //! registry, one row each, its metadata taken from there as declared.
 
 use super::{Capability, Status};
+use super::post;
 use graph_contract::canonical_json::NODE_KINDS;
 use graph_core::registry::{self as core, LAYOUTS};
 
@@ -102,7 +103,9 @@ test runs first; unknown types silently become relation",
     ),
 ];
 
-/// Every registered capability: the topology rows, then the layouts.
+/// Every registered capability: the topology rows, then the layouts, then Phase 8's POST
+/// rows. Phase 7's `analysis.*` rows are not here: that branch is not merged into this
+/// one, and a row with no implementation behind it would be a lie the ledger cannot check.
 pub fn registry() -> Vec<Capability> {
     let topology = TOPOLOGY
         .iter()
@@ -123,7 +126,10 @@ pub fn registry() -> Vec<Capability> {
             ponytail,
             complexity,
         });
-    topology.chain(LAYOUTS.iter().map(layout)).collect()
+    topology
+        .chain(LAYOUTS.iter().map(layout))
+        .chain(post::rows())
+        .collect()
 }
 
 /// Layouts held to `harness/oracle-layouts.mjs`'s d3-hierarchy differential instead of a

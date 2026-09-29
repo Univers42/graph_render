@@ -13,6 +13,15 @@ publish.workspace = true
 graph-contract = { path = "../graph-contract", default-features = false }
 indexmap = "2.14"
 libm = "0.2"
+# Phase 7 (`prompts/phase-07-analysis.md` step 1) put petgraph on the allow-list and
+# `analysis/paths.rs` reuses `petgraph::algo::dijkstra` rather than a second shortest-path
+# implementation. Phase 8's `post::routed` reuses the *same* function over the grid's own
+# CSR, so the dependency and the pin are exactly Phase 7's, brought forward onto this
+# branch's base (p8-route forked from p3, before p7 landed). `default-features = false`
+# drops only `std`-gated containers (`graphmap`/`stable_graph`/`matrix_graph`): we
+# implement petgraph's traits on our own CSR and never build a petgraph container, so
+# none of its own graph types are wanted.
+petgraph = { version = "=0.8.3", default-features = false, features = ["std"] }
 
 [lints]
 workspace = true

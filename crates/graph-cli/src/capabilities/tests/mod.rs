@@ -132,7 +132,7 @@ fn row(status: Status) -> Capability {
 fn every_registered_row_stands_on_honest_evidence_and_reads_it_back() {
     let evidence = honest();
     let rows = ledger(&evidence);
-    assert_eq!(rows.len(), 13);
+    assert_eq!(rows.len(), 14, "13 from Phases 1-3, plus post.route.grid");
     assert_eq!(problems(&rows, &evidence), Vec::<String>::new());
     assert_eq!(
         rows[0].hash_4way,

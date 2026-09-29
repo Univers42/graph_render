@@ -20,12 +20,28 @@ fn the_registry_covers_every_oracle_function_once_its_ids_are_unique() {
     assert_eq!(covered, want);
     let ids: BTreeSet<&str> = rows.iter().map(|r| r.id).collect();
     assert_eq!(ids.len(), rows.len());
-    assert!(rows.iter().all(|r| r.status == Status::Gated));
+    // Phase 8's `post.*` rows are honestly `Implemented`, not `gated`: routing is wired
+    // into no hash-gate stage and no oracle differential — both live outside this phase's
+    // authorization envelope — so there is no evidence to back a `gated` claim, and the
+    // ledger's own rule (`prompt.md` §8) is that a row stands as `gated` only while both
+    // verdicts hold. Everything from before Phase 8 keeps the blanket invariant.
+    assert!(
+        rows.iter()
+            .filter(|r| !r.id.starts_with("post."))
+            .all(|r| r.status == Status::Gated)
+    );
+    assert!(
+        rows.iter()
+            .filter(|r| r.id.starts_with("post."))
+            .all(|r| r.status == Status::Implemented)
+    );
     for r in &rows {
         let expected = if r.id.starts_with("topology.") {
             ("oracle-diff", "topology")
         } else if r.id == "layout.tree.tidy" || r.id == "layout.treemap.squarified" {
             ("oracle-layouts", r.id)
+        } else if r.id.starts_with("post.") {
+            ("roundtrip", "post")
         } else {
             ("roundtrip", r.id)
         };

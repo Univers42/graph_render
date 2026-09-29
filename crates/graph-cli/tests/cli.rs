@@ -178,11 +178,21 @@ fn capabilities_needs_a_flag_and_refuses_gated_rows_no_recorded_run_backs() {
     assert_eq!(graph_cli(&["capabilities"], None).status.code(), Some(2));
     let check = graph_cli(&["capabilities", "--check"], None);
     assert_eq!(check.status.code(), Some(1), "{}", stdout(&check));
-    assert!(stdout(&check).contains("capabilities --check: 13 rows, 26 problems"));
+    // 14 rows: the 13 of Phases 1-3 plus `post.route.grid`, which is `implemented` and so
+    // reports no problem — the problem count is unchanged, which is the point of an
+    // honest row.
+    assert!(stdout(&check).contains("capabilities --check: 14 rows, 26 problems"));
     let json = graph_cli(&["capabilities", "--json"], None);
     assert_eq!(json.status.code(), Some(0));
     let rows: serde_json::Value = serde_json::from_str(&stdout(&json)).expect("json");
-    assert_eq!(rows.as_array().map(Vec::len), Some(13));
+    assert_eq!(rows.as_array().map(Vec::len), Some(14));
+    let post = rows
+        .as_array()
+        .expect("an array")
+        .iter()
+        .find(|r| r["id"] == "post.route.grid")
+        .expect("post.route.grid is registered");
+    assert_eq!(post["status"], "implemented", "and it does not claim to be gated");
     assert!(
         rows[0]["oracle_diff"]
             .as_str()
