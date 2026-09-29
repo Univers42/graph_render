@@ -5,7 +5,7 @@ pub(crate) mod barnes_hut;
 pub(crate) mod params;
 pub(crate) mod quadtree;
 
-pub use barnes_hut::BarnesHut;
+pub use barnes_hut::{BarnesHut, Split};
 pub use params::ForceParams;
 
 use crate::arena::FixedState;

@@ -6,8 +6,23 @@
 //! implements the layout, rather than a copy here.
 
 mod ids;
+mod p3;
+use p3::{P3_SEED, stage_of};
 
-use super::*;
+use super::super::*;
+use super::env;
+use super::honest;
+use super::{Knob, Setting, setting, stage_bytes};
+use graph_core::layout::circle_packing::CirclePackingParams;
+pub(super) use graph_core::layout::circle_packing::ID as PACKING;
+pub(super) use graph_core::layout::circular::ID as CIRCULAR;
+use graph_core::layout::force::BarnesHut;
+pub(super) use graph_core::layout::tidy_tree::ID as TIDY_TREE;
+pub(super) use graph_core::layout::treemap::ID as TREEMAP;
+use graph_core::layout::force::Split;
+use graph_core::layout::forceatlas2::ForceAtlas2;
+use graph_core::{GridParams, REFERENCE_DEGREE, SugiyamaParams};
+use std::env::VarError;
 
 #[test]
 fn the_mutation_variables_parse_strictly_and_one_at_a_time() {
@@ -17,30 +32,53 @@ fn the_mutation_variables_parse_strictly_and_one_at_a_time() {
         (h.reference_degree, h.grid, h.extra_nodes, h.control),
         defaults
     );
-    let degree = setting(env(&[("GM_MUTATE_REFERENCE_DEGREE", " 9 ")])).expect("parses");
+
+    assert_parses_reference_degree(&h);
+    assert_parses_grid_spacing(&h);
+    assert_parses_sugiyama_layer_spacing(&h);
+    assert_parses_node_count(&h);
+    assert_refuses_bad_values();
+    assert_refuses_two_controls();
+    assert_refuses_unreadable_variable();
+}
+
+fn assert_parses_reference_degree(h: &Setting) {
+    let degree = setting(env(vec![("GM_MUTATE_REFERENCE_DEGREE", " 9 ")])).expect("parses");
     assert_eq!((degree.reference_degree, degree.grid), (9, h.grid));
     assert_eq!(degree.control, Some(Knob::ReferenceDegree));
-    let spacing = setting(env(&[("GM_MUTATE_GRID_SPACING", "2.5")])).expect("parses");
+}
+
+fn assert_parses_grid_spacing(_h: &Setting) {
+    let spacing = setting(env(vec![("GM_MUTATE_GRID_SPACING", "2.5")])).expect("parses");
     assert_eq!(
         (spacing.reference_degree, spacing.grid.spacing),
         (REFERENCE_DEGREE, 2.5)
     );
     assert_eq!(spacing.control, Some(Knob::GridSpacing));
+}
+
+fn assert_parses_sugiyama_layer_spacing(h: &Setting) {
     assert_eq!(h.sugiyama, SugiyamaParams::default());
     assert_eq!(h.packing, CirclePackingParams::default());
     assert_eq!(
         h.stage_nodes, None,
         "no stage re-draws its own model by default"
     );
-    let layers = setting(env(&[("GM_MUTATE_SUGIYAMA_LAYER_SPACING", "3.5")])).expect("parses");
+    let layers = setting(env(vec![("GM_MUTATE_SUGIYAMA_LAYER_SPACING", "3.5")])).expect("parses");
     assert_eq!(layers.sugiyama.layer_spacing, 3.5);
     assert_eq!(
         (layers.reference_degree, layers.grid, layers.control),
         (REFERENCE_DEGREE, h.grid, Some(Knob::SugiyamaLayerSpacing))
     );
-    let nodes = setting(env(&[("GM_MUTATE_NODE_COUNT", " 1 ")])).expect("parses");
+}
+
+fn assert_parses_node_count(_h: &Setting) {
+    let nodes = setting(env(vec![("GM_MUTATE_NODE_COUNT", " 1 ")])).expect("parses");
     assert_eq!(nodes.extra_nodes, 1);
     assert_eq!(nodes.control, Some(Knob::NodeCount));
+}
+
+fn assert_refuses_bad_values() {
     let bad: [&'static [(&str, &str)]; 5] = [
         &[("GM_MUTATE_SUGIYAMA_LAYER_SPACING", "tall")],
         &[("GM_MUTATE_REFERENCE_DEGREE", "nine")],
@@ -49,15 +87,21 @@ fn the_mutation_variables_parse_strictly_and_one_at_a_time() {
         &[("GM_MUTATE_NODE_COUNT", "-1")],
     ];
     for pairs in bad {
-        let err = setting(env(pairs)).expect_err("refused");
+        let err = setting(env(pairs.to_vec())).expect_err("refused");
         assert!(err.starts_with(pairs[0].0), "{err}");
     }
-    let both = env(&[
+}
+
+fn assert_refuses_two_controls() {
+    let both = env(vec![
         ("GM_MUTATE_REFERENCE_DEGREE", "9"),
         ("GM_MUTATE_GRID_SPACING", "2"),
     ]);
     let err = setting(both).expect_err("two controls");
     assert!(err.ends_with("one control at a time"), "{err}");
+}
+
+fn assert_refuses_unreadable_variable() {
     let unreadable = setting(|_| Err(VarError::NotUnicode("\u{fffd}".into())));
     assert!(unreadable.is_err());
 }
@@ -78,7 +122,8 @@ fn each_knob_names_its_own_variable_and_record() {
             "GM_MUTATE_TREE_TIDY_NODES",
             "GM_MUTATE_TREEMAP_NODES",
             "GM_MUTATE_CIRCULAR_NODES",
-            "GM_MUTATE_PACKING_SCALE"
+            "GM_MUTATE_PACKING_SCALE",
+            "GM_MUTATE_SPLIT_SUM"
         ]
     );
     assert_eq!(
@@ -93,15 +138,129 @@ fn each_knob_names_its_own_variable_and_record() {
             "hashgate-control-tree-tidy-nodes",
             "hashgate-control-treemap-nodes",
             "hashgate-control-circular-nodes",
-            "hashgate-control-packing-scale"
+            "hashgate-control-packing-scale",
+            "hashgate-control-split-sum"
         ]
     );
+    // Every variable is distinct and every record is distinct: two knobs sharing a name
+    // would make one of them unreachable, and two sharing a record would overwrite it.
+    for (label, names) in [("variable", envs), ("record", records)] {
+        let mut sorted = names.to_vec();
+        sorted.sort_unstable();
+        sorted.dedup();
+        assert_eq!(sorted.len(), names.len(), "two knobs share a {label}");
+    }
+}
+
+/// `GM_MUTATE_SPLIT_SUM` names **which** gathered pass's merge to split, and is parsed
+/// rather than treated as a presence flag: `0` is the honest run and a typo is an error
+/// instead of a silent mutation.
+#[test]
+fn the_split_sum_knob_names_the_pass_it_corrupts() {
+    for (word, want) in [
+        ("1", Split::All),
+        ("true", Split::All),
+        ("TRUE", Split::All),
+        (" 1 ", Split::All),
+        ("0", Split::None),
+        ("false", Split::None),
+        ("FALSE", Split::None),
+        ("charge", Split::Charge),
+        ("collide", Split::Collide),
+        ("link", Split::Link),
+    ] {
+        let read = env(vec![("GM_MUTATE_SPLIT_SUM", word)]);
+        let got = setting(read).expect(word);
+        assert_eq!(got.split_sum, want, "GM_MUTATE_SPLIT_SUM={word:?}");
+        assert_eq!(got.control, Some(Knob::SplitSum));
+    }
+    for typo in ["yes", "2", "", "on", "manybody"] {
+        let read = env(vec![("GM_MUTATE_SPLIT_SUM", typo)]);
+        let err = setting(read).expect_err(typo);
+        assert!(err.contains("GM_MUTATE_SPLIT_SUM"), "{err}");
+    }
+    // And it is off by default: an unset variable must not mutate anything.
+    assert_eq!(honest().split_sum, Split::None);
+}
+
+/// Every word the knob accepts is a pass the stage actually hands to the runner: a control
+/// for a pass that no longer exists would go red for the wrong reason, and one for a pass
+/// that was threaded without being listed would go red for no reason at all.
+///
+/// Compared as a **set**, because the two lists are the same three names and the order is
+/// not the claim: the knob takes one word at a time and the stage's list is printed in the
+/// tick's own order. What must hold is that neither list has a name the other lacks.
+#[test]
+fn every_word_the_split_knob_accepts_is_a_threaded_pass() {
+    let mut accepted: Vec<&str> = ["charge", "collide", "link"].to_vec();
+    let mut listed: Vec<&str> = BarnesHut::THREADED_PASSES.to_vec();
+    accepted.sort_unstable();
+    listed.sort_unstable();
+    assert_eq!(
+        accepted, listed,
+        "the knob's words and the stage's passes are one set, whatever their order"
+    );
+}
+
+/// **A control that cannot bite must refuse the run, not pass it.** Collide's own control
+/// moves nothing below five seeds — at two or three nodes link and many-body have already
+/// pushed every pair past `2 * collideRadius`, so the deltas it would split are all zero
+/// (measured in `barnes_hut/tests/kernels.rs`, where collide first bites at seed 4). A row
+/// run at two seeds would exit 0 having corrupted nothing: a **vacuous pass**, which is
+/// worse than a failure because it reads as evidence. So the gate refuses the run instead,
+/// and the refusal is exit 2, "could not run" — never exit 0.
+#[test]
+fn a_control_that_cannot_bite_at_this_seed_count_refuses_rather_than_passing() {
+    for split in [Split::Collide, Split::All] {
+        for seeds in 0..5 {
+            let err = refuse_a_vacuous_control(seeds, split).expect_err("refused");
+            assert!(
+                err.contains("collide") && err.contains(&format!("{seeds}")),
+                "the refusal must name the pass and the count: {err:?}"
+            );
+        }
+        assert!(
+            refuse_a_vacuous_control(5, split).is_ok(),
+            "{split:?} bites at five seeds and must run"
+        );
+        assert!(
+            refuse_a_vacuous_control(8, split).is_ok(),
+            "{split:?} at the phase gate's eight seeds must run"
+        );
+    }
+    // The other two bites at the first seed, and an honest run sets no control at all: a
+    // floor on those would refuse rows the gate has always run and needs.
+    for split in [Split::None, Split::Charge, Split::Link] {
+        assert!(
+            refuse_a_vacuous_control(1, split).is_ok(),
+            "{split:?} bites at one seed"
+        );
+    }
+    assert!(
+        refuse_a_vacuous_control(2, Split::None).is_ok(),
+        "an honest run has no control to be vacuous"
+    );
+}
+
+/// The floor is the model's, not a constant invented beside the gate: graph-core measures
+/// which seed each pass's control first bites at, and the gate reads the same number.
+#[test]
+fn the_collide_controls_floor_is_the_one_graph_core_measures() {
+    assert_eq!(
+        Split::Collide.min_seeds(),
+        5,
+        "collide first bites at seed 4, so five seeds is the floor"
+    );
+    assert_eq!(Split::All.min_seeds(), Split::Collide.min_seeds());
+    assert_eq!(Split::Charge.min_seeds(), 1);
+    assert_eq!(Split::Link.min_seeds(), 1);
+    assert_eq!(Split::None.min_seeds(), 1);
 }
 
 /// A force layout's own negative control must move that stage and *only* that stage: a
 /// control that also moved the topology would back every stage at once and prove nothing
 /// about the stage it is filed under.
-fn only_stage_moved(
+pub(super) fn only_stage_moved(
     base: &[(&'static str, Vec<u8>)],
     moved: &[(&'static str, Vec<u8>)],
     stage: &str,
@@ -115,111 +274,10 @@ fn only_stage_moved(
     }
 }
 
-/// Every stage's own control moves that stage and no other, at the same seed for all of
-/// them. The one arm is the native arm; the wasm arm runs the compiled-in defaults and
-/// cannot see a variable, which is what makes a wired knob a cross-target divergence.
-/// The four Phase 3 controls, each with a value that must move its own stage: the
-/// variable's own environment, and the stage it is filed under. One slice per control
-/// because [`env`] reads a `&'static` pair list.
-const P3_NODES: [(&str, &str); 1] = [("GM_MUTATE_TREE_TIDY_NODES", "1")];
-const P3_TREEMAP: [(&str, &str); 1] = [("GM_MUTATE_TREEMAP_NODES", "1")];
-const P3_CIRCULAR: [(&str, &str); 1] = [("GM_MUTATE_CIRCULAR_NODES", "1")];
-const P3_PACKING: [(&str, &str); 1] = [("GM_MUTATE_PACKING_SCALE", "9")];
-
-#[test]
-fn every_p3_layout_has_its_own_negative_control_that_moves_only_its_stage() {
-    let base = stage_bytes(P3_SEED, &honest()).expect("runs");
-    for (pairs, stage) in [
-        (&P3_NODES, TIDY_TREE),
-        (&P3_TREEMAP, TREEMAP),
-        (&P3_CIRCULAR, CIRCULAR),
-        (&P3_PACKING, PACKING),
-    ] {
-        let moved = setting(env(pairs)).expect("parses");
-        only_stage_moved(&base, &stage_bytes(P3_SEED, &moved).expect("runs"), stage);
-    }
-}
-
-/// The three node-count controls name a *stage*, not a count: the same three variables
-/// with the shared `GM_MUTATE_NODE_COUNT`'s meaning would move every stage at once, which
-/// is the thing per-stage controls exist to avoid.
-#[test]
-fn the_p3_node_controls_re_draw_one_stages_model_and_not_the_gate_s_own() {
-    let base = stage_bytes(P3_SEED, &honest()).expect("runs");
-    let moved = setting(env(&[("GM_MUTATE_TREE_TIDY_NODES", "3")])).expect("parses");
-    assert_eq!(moved.stage_nodes, Some((TIDY_TREE, 3)));
-    assert_eq!(moved.extra_nodes, 0, "the gate's own model is untouched");
-    let bytes = stage_bytes(P3_SEED, &moved).expect("runs");
-    only_stage_moved(&base, &bytes, TIDY_TREE);
-    assert_eq!(
-        stage_of(&bytes, "topology"),
-        stage_of(&base, "topology"),
-        "a stage-scoped control must not move the topology the transport stage rests on"
-    );
-}
-
-/// A typo, a negative count and a zero are all refused, per knob: a control that
-/// perturbs by nothing, or that falls back to the default, would pass as green. A
-/// negative `scale` parses, and the *packing* refuses it — the same split the grid's own
-/// spacing keeps, so each layout's rule stays in the layout.
-#[test]
-fn the_p3_controls_are_refused_rather_than_falling_back_to_the_default() {
-    static REFUSED: [[(&str, &str); 1]; 4] = [
-        [("GM_MUTATE_TREE_TIDY_NODES", "one")],
-        [("GM_MUTATE_TREEMAP_NODES", "-1")],
-        [("GM_MUTATE_CIRCULAR_NODES", "0")],
-        [("GM_MUTATE_PACKING_SCALE", "wide")],
-    ];
-    for pairs in &REFUSED {
-        let err = setting(env(pairs)).expect_err("refused");
-        assert!(err.starts_with(pairs[0].0), "{err}");
-    }
-    let both = setting(env(&[
-        ("GM_MUTATE_TREE_TIDY_NODES", "1"),
-        ("GM_MUTATE_CIRCULAR_NODES", "1"),
-    ]))
-    .expect_err("one at a time");
-    assert!(both.ends_with("one control at a time"), "{both}");
-}
-
-/// A `scale` the packing itself refuses stops the run rather than perturbing nothing:
-/// the same division of labour `GridSpacing` keeps, where the knob parses the number and
-/// the layout owns the rule.
-#[test]
-fn a_scale_the_packing_refuses_stops_the_run() {
-    static REFUSED_SCALES: [[(&str, &str); 1]; 2] = [
-        [("GM_MUTATE_PACKING_SCALE", "0")],
-        [("GM_MUTATE_PACKING_SCALE", "-1")],
-    ];
-    for pairs in &REFUSED_SCALES {
-        let value = pairs[0].1;
-        let setting = setting(env(pairs)).expect("parses");
-        assert_eq!(setting.packing.scale, value.parse::<f32>().expect("f32"));
-        let err = stage_bytes(P3_SEED, &setting).expect_err("refused by the packing");
-        assert_eq!(err, "parameter scale: finite and above 0", "{value}");
-    }
-}
-
-/// The seed every Phase 3 control is checked at. `gate_node_count(seed)` is
-/// `2 + seed % 600`, so 4 gives a 6-node model: small enough that the twelve stages
-/// finish in well under a second, large enough that a squarify or a packing is not
-/// degenerate (a 2-node model has one child and one box, and a control that cannot
-/// perturb anything there would pass vacuously).
-const P3_SEED: u32 = 4;
-
-/// The bytes of one stage from a `stage_bytes` result.
-fn stage_of<'a>(stages: &'a [(&'static str, Vec<u8>)], id: &str) -> &'a [u8] {
-    stages
-        .iter()
-        .find(|(name, _)| *name == id)
-        .map(|(_, bytes)| bytes.as_slice())
-        .unwrap_or_else(|| panic!("{id} is a stage"))
-}
-
 #[test]
 fn each_force_layout_has_its_own_negative_control_that_moves_only_its_stage() {
     let base = stage_bytes(FORCE_SEED, &honest()).expect("runs");
-    let theta = setting(env(&[("GM_MUTATE_FORCE_THETA", "0.5")])).expect("parses");
+    let theta = setting(env(vec![("GM_MUTATE_FORCE_THETA", "0.5")])).expect("parses");
     assert_eq!(theta.control, Some(Knob::ForceTheta));
     assert_eq!(theta.force.theta, 0.5);
     only_stage_moved(
@@ -227,7 +285,7 @@ fn each_force_layout_has_its_own_negative_control_that_moves_only_its_stage() {
         &stage_bytes(FORCE_SEED, &theta).expect("runs"),
         BarnesHut::ID,
     );
-    let scaling = setting(env(&[("GM_MUTATE_FA2_SCALING_RATIO", "3")])).expect("parses");
+    let scaling = setting(env(vec![("GM_MUTATE_FA2_SCALING_RATIO", "3")])).expect("parses");
     assert_eq!(scaling.control, Some(Knob::Fa2ScalingRatio));
     assert_eq!(scaling.fa2.scaling_ratio, 3.0);
     only_stage_moved(
@@ -235,7 +293,7 @@ fn each_force_layout_has_its_own_negative_control_that_moves_only_its_stage() {
         &stage_bytes(FORCE_SEED, &scaling).expect("runs"),
         ForceAtlas2::ID,
     );
-    let both = env(&[
+    let both = env(vec![
         ("GM_MUTATE_FORCE_THETA", "0.5"),
         ("GM_MUTATE_FA2_SCALING_RATIO", "3"),
     ]);
@@ -251,7 +309,7 @@ fn each_force_layout_has_its_own_negative_control_that_moves_only_its_stage() {
         &[("GM_MUTATE_FA2_SCALING_RATIO", "")],
     ];
     for pairs in bad {
-        let err = setting(env(pairs)).expect_err("refused");
+        let err = setting(env(pairs.to_vec())).expect_err("refused");
         assert!(err.starts_with(pairs[0].0), "{err}");
     }
 }

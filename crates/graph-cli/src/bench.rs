@@ -22,6 +22,7 @@
 
 pub mod campaign;
 pub mod scale;
+pub mod tiers;
 
 #[cfg(test)]
 mod staging;
@@ -70,6 +71,34 @@ pub struct Plan {
     /// Phase 9: write the scale fixture for `--seed` and the first `--n` here, and
     /// measure nothing.
     pub emit_scale_fixture: Option<PathBuf>,
+    /// Phase 11: time the layout under each named execution tier instead of one run per
+    /// size. `scalar` and `threads` are built; `simd` and `gpu` are refused by name.
+    pub tiers: Option<Vec<tiers::Asked>>,
+    /// Phase 11: the worker counts `threads` is timed at.
+    pub workers: Vec<u32>,
+}
+
+impl Plan {
+    /// A plan with every field at its default but the three a test names, so a test that
+    /// cares about `sizes` does not have to spell the other thirteen.
+    #[cfg(test)]
+    pub fn for_tests() -> Plan {
+        Plan {
+            sizes: Vec::new(),
+            layouts: Vec::new(),
+            seed: 0,
+            past_ceiling: false,
+            vs_d3: false,
+            dry_run: false,
+            repeat: 1,
+            out: None,
+            crossover: false,
+            budget_ms: 16.67,
+            emit_scale_fixture: None,
+            tiers: None,
+            workers: tiers::WORKER_COUNTS.to_vec(),
+        }
+    }
 }
 
 /// `graph-cli bench`: exit 0 ran (refusals included) · 1 a run inside its ceiling failed ·
@@ -88,6 +117,9 @@ pub fn run(plan: &Plan) -> ExitCode {
 fn bench(plan: &Plan) -> Result<bool, String> {
     if let Some(path) = &plan.emit_scale_fixture {
         return emit_fixture(plan, path.as_path());
+    }
+    if plan.tiers.is_some() {
+        return tiers::entry(plan);
     }
     if plan.crossover || plan.out.is_some() {
         return campaign::report::report(plan);

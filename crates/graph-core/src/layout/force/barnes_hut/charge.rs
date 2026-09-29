@@ -8,20 +8,66 @@
 //! `(x, y)` is its plain center of mass.
 
 use super::sim::Sim;
+use crate::exec::Runner;
 use crate::layout::force::quadtree::{Bounds, Quadtree};
 use crate::rng::jiggle;
 
 const PASS_X: u32 = 2;
 const PASS_Y: u32 = 3;
 
-pub(super) fn apply(sim: &mut Sim) {
+/// The many-body pass, with its per-node gather divided by `runner` over `workers` workers.
+///
+/// `charge::apply_with(&Serial, 1, ..)` is the serial pass, and
+/// `BarnesHut::run_with(&Serial, 1)` is the stage — one name, not three, so there is no
+/// second spelling of the same pass to drift.
+///
+/// The merge is a straight loop over `deltas` in ascending node index, which is the one
+/// place the division could go wrong and the reason it is written as a loop rather than
+/// left to the runner: each node adds its *own* delta to its *own* velocity, and
+/// `i += delta[i]` cannot pick up a neighbour's term no matter how the gather was sliced.
+///
+/// `split` is this pass's own slice of the negative control (`Split::CHARGE`): it makes the
+/// merge read the **next** node's delta as well, the shape a wrong partition of the
+/// outputs would take. It is a parameter rather than a `cfg` or an environment read so that
+/// (a) the mutated path is a compiled-in branch a test can call directly, and (b) graph-core
+/// reads no clock, no environment and no hardware — the host supplies even the mutation.
+pub(super) fn apply_with(
+    sim: &mut Sim,
+    runner: &impl Runner,
+    workers: u32,
+    deltas: &mut Vec<(f64, f64)>,
+    split: bool,
+) {
+    prepare(sim);
+    runner.run(&super::step::Pass::of(&*sim), workers, deltas);
+    merge(sim, deltas, split);
+}
+
+/// `vx[i] += deltas[i]`, in ascending node index — and, under the control, the next node's
+/// delta too. Ascending index and one node's own delta, which is why the control has to
+/// *steal* a neighbour's term to move anything.
+fn merge(sim: &mut Sim, deltas: &[(f64, f64)], split: bool) {
+    for (i, (dvx, dvy)) in deltas.iter().enumerate() {
+        let stolen = if split {
+            deltas.get(i + 1).copied().unwrap_or((0.0, 0.0))
+        } else {
+            (0.0, 0.0)
+        };
+        sim.vx[i] += dvx + stolen.0;
+        sim.vy[i] += dvy + stolen.1;
+    }
+}
+
+/// The single-threaded prologue every many-body pass shares: build the quadtree over this
+/// tick's positions, then aggregate masses and centres bottom-up.
+///
+/// Split out of [`apply`] because the range kernel ([`super::step::Pass`]) needs the same
+/// two steps in front of it and must not have its own copy — a second tree build or a
+/// second aggregate order would be a silent divergence from the serial pass, and the
+/// equality test would then be comparing two programs rather than two schedules.
+pub(super) fn prepare(sim: &mut Sim) {
     sim.charge_tree.build(&sim.x, &sim.y);
     aggregate(sim);
-    for i in 0..sim.x.len() {
-        let (dvx, dvy) = node_delta(sim, i as u32);
-        sim.vx[i] += dvx;
-        sim.vy[i] += dvy;
-    }
 }
 
 /// Bottom-up mass/center-of-mass per arena node (`manyBody.js`'s `accumulate`).
@@ -64,7 +110,7 @@ fn aggregate_one(sim: &mut Sim, node: u32) {
     }
 }
 
-struct Ctx<'a> {
+pub(super) struct Ctx<'a> {
     mass: &'a [f64],
     comx: &'a [f64],
     comy: &'a [f64],
@@ -79,15 +125,25 @@ struct Ctx<'a> {
     tick: u32,
 }
 
-struct Query {
+pub(super) struct Query {
     i: u32,
     xi: f64,
     yi: f64,
 }
 
-fn node_delta(sim: &mut Sim, i: u32) -> (f64, f64) {
-    let xi = sim.x[i as usize];
-    let yi = sim.y[i as usize];
+/// Node `i`'s own many-body delta, over an already-prepared [`Sim`], into a caller's
+/// reused walk stack.
+///
+/// `&self` and a borrowed stack, which is what lets the range kernel
+/// ([`super::step::Pass`]) hold one `&Sim` and have every worker walk the same tree at
+/// once: the walk is iterative precisely so its buffer can be borrowed rather than owned
+/// (`quadtree.rs`'s `visit_in`), and each worker brings its own.
+///
+/// The stack is a parameter rather than a local because the serial pass runs this once
+/// per node over `TICKS × n` walks: a local `Vec` here would be an allocation per node,
+/// which is the one thing `dsa-and-memory.md` forbids in a per-tick loop. One buffer per
+/// pass — the serial loop's, or one per range in a threaded run — is the right count.
+pub(super) fn node_delta_with(sim: &Sim, i: u32, stack: &mut Vec<(u32, Bounds)>) -> (f64, f64) {
     let ctx = Ctx {
         mass: &sim.mass,
         comx: &sim.comx,
@@ -102,30 +158,35 @@ fn node_delta(sim: &mut Sim, i: u32) -> (f64, f64) {
         seed: sim.seed,
         tick: sim.tick_no,
     };
-    let q = Query { i, xi, yi };
+    let q = Query {
+        i,
+        xi: sim.x[i as usize],
+        yi: sim.y[i as usize],
+    };
     let mut out = (0.0, 0.0);
     let mut frame = Frame {
         ctx: &ctx,
         q: &q,
         out: &mut out,
     };
-    sim.charge_tree
-        .visit(|tree, node, bounds| step(tree, node, bounds, &mut frame));
+    sim.charge_tree.visit_in(stack, |tree, node, bounds| {
+        step(tree, node, bounds, &mut frame)
+    });
     out
 }
 
 /// `ctx`, `q` and the accumulator bundled so [`step`] stays under the 4-param cap
 /// (`refactor-rust.md`) despite the quadtree visit callback's own fixed 3 arguments.
-struct Frame<'a> {
-    ctx: &'a Ctx<'a>,
-    q: &'a Query,
-    out: &'a mut (f64, f64),
+pub(super) struct Frame<'a> {
+    pub(super) ctx: &'a Ctx<'a>,
+    pub(super) q: &'a Query,
+    pub(super) out: &'a mut (f64, f64),
 }
 
 /// One quadtree node reached while querying node `q.i`: applies the Barnes-Hut
 /// approximation when the opening angle allows it, else falls through to `direct`
 /// (`manyBody.js`'s own `apply`).
-fn step(tree: &Quadtree, node: u32, bounds: Bounds, frame: &mut Frame) -> bool {
+pub(super) fn step(tree: &Quadtree, node: u32, bounds: Bounds, frame: &mut Frame) -> bool {
     if let Some((prune, delta)) = approx(frame.ctx, node, bounds, frame.q) {
         frame.out.0 += delta.0;
         frame.out.1 += delta.1;
@@ -212,53 +273,4 @@ fn direct(ctx: &Ctx, tree: &Quadtree, node: u32, q: &Query) -> (f64, f64) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn ctx_for_direct<'a>(xs: &'a [f64], ys: &'a [f64]) -> Ctx<'a> {
-        Ctx {
-            mass: &[],
-            comx: &[],
-            comy: &[],
-            x: xs,
-            y: ys,
-            theta2: 0.81,
-            dmin2: 1.0,
-            dmax2: 520.0 * 520.0,
-            charge: -90.0,
-            alpha: 1.0,
-            seed: 0,
-            tick: 0,
-        }
-    }
-
-    /// `manyBody.js:77`: `else if (quad.length || l >= distanceMax2) return;` — a leaf
-    /// reached directly (opening-angle test failed, not internal) contributes nothing
-    /// once its distance reaches `distanceMax`, exactly like `approx`'s own `dmax2`
-    /// check. `direct` must not skip this even though it never gets there through
-    /// `approx` (which already returns `Some` and short-circuits `step` for that case).
-    #[test]
-    fn direct_zeroes_a_leaf_beyond_distance_max() {
-        let xs = [1000.0];
-        let ys = [0.0];
-        let mut tree = Quadtree::default();
-        tree.build(&xs, &ys);
-        let root = 0;
-        assert!(
-            tree.children(root).is_none(),
-            "a single point must build a bare leaf"
-        );
-        let ctx = ctx_for_direct(&xs, &ys);
-        let q = Query {
-            i: 7,
-            xi: 0.0,
-            yi: 0.0,
-        };
-        let (dvx, dvy) = direct(&ctx, &tree, root, &q);
-        assert_eq!(
-            (dvx, dvy),
-            (0.0, 0.0),
-            "distance 1000 >= distanceMax 520 must zero the direct contribution"
-        );
-    }
-}
+mod tests;

@@ -139,9 +139,12 @@ docker run --rm -v "$PWD:/w" -e GM_MUTATE_REFERENCE_DEGREE=9 ge-rust \
   cargo run -p graph-cli -- hashgate --seeds 8                                                     # NON-ZERO
 docker run --rm -v "$PWD:/w" -w /w node:22-slim node harness/tier-equality.mjs                      # 0
 
-# no forbidden constructs
-docker run --rm -v "$PWD:/w" ge-rust sh -c \
-  'grep -rnE "mul_add|relaxed|rayon|std::thread|Instant::now" crates/graph-core/src && exit 1 || exit 0'  # 0
+# no forbidden constructs — PRODUCT code only (see scripts/forbidden-constructs.sh for why
+# the bare `grep -rnE` form cannot be used: it matches this repo's own doc comments, which
+# name the forbidden constructs in order to forbid them)
+docker run --rm -v "$PWD:/w" ge-rust bash scripts/forbidden-constructs.sh crates/graph-core/src  # 0
+# its own negative control: the row can go red
+docker run --rm -v "$PWD:/w" ge-rust bash scripts/forbidden-constructs.sh --self-test  # 0
 
 # the numbers that justify each tier
 docker run --rm -v "$PWD:/w" ge-rust cargo run -p graph-cli -- bench --n 220,10000,100000,1000000 \

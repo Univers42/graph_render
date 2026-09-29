@@ -39,9 +39,19 @@ pub fn arm_report(out: &mut String, arms: &[Arm], lines: &[usize]) {
     }
 }
 
-/// The record itself: every stage name and its count of seeds the four arms agreed on,
-/// the C20 transport tally, the mutation this run perturbed, and the verdict.
-pub fn body(control: Option<Knob>, seeds: u32, tally: &Tally, c20: u32) -> serde_json::Value {
+/// The record itself: every stage name and its count of seeds the arms agreed on, the arm
+/// count, the C20 transport tally, the mutation this run perturbed, and the verdict.
+///
+/// `arms` is in the record because the per-stage counts mean nothing without it: `equal:
+/// 8` is a different claim at 4 arms than at 9, and the capabilities ledger reads this
+/// file without re-running the gate.
+pub fn body(
+    control: Option<Knob>,
+    seeds: u32,
+    tally: &Tally,
+    c20: u32,
+    arms: &[Arm],
+) -> serde_json::Value {
     let stages: serde_json::Map<_, _> = stages()
         .iter()
         .zip(&tally.equal)
@@ -49,6 +59,8 @@ pub fn body(control: Option<Knob>, seeds: u32, tally: &Tally, c20: u32) -> serde
         .collect();
     json!({
         "seeds": seeds,
+        "arms": arms.len(),
+        "arm_names": arms.iter().map(|(name, _)| *name).collect::<Vec<_>>(),
         "pass": tally.diverged_seeds == 0 && c20 == seeds,
         "equal": stages,
         "transport": {"stage": TRANSPORT, "reference": LAYOUT, "equal": c20},
