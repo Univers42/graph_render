@@ -21,6 +21,7 @@
 //! for wasm32 (Phase 9's campaign).
 
 pub mod campaign;
+pub mod scale;
 
 #[cfg(test)]
 mod tests;
@@ -31,7 +32,7 @@ use graph_core::layout::Geometry;
 use graph_core::registry::{self, Capability};
 use graph_core::{REFERENCE_DEGREE, Topology, index_model, seeded_model};
 use std::collections::VecDeque;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Instant;
 
@@ -64,6 +65,9 @@ pub struct Plan {
     pub crossover: bool,
     /// Phase 9: the frame budget, in milliseconds.
     pub budget_ms: f64,
+    /// Phase 9: write the scale fixture for `--seed` and the first `--n` here, and
+    /// measure nothing.
+    pub emit_scale_fixture: Option<PathBuf>,
 }
 
 /// `graph-cli bench`: exit 0 ran (refusals included) · 1 a run inside its ceiling failed ·
@@ -80,8 +84,11 @@ pub fn run(plan: &Plan) -> ExitCode {
 }
 
 fn bench(plan: &Plan) -> Result<bool, String> {
+    if let Some(path) = &plan.emit_scale_fixture {
+        return emit_fixture(plan, path.as_path());
+    }
     if plan.crossover || plan.out.is_some() {
-        return campaign::report(plan);
+        return campaign::report::report(plan);
     }
     let entries = resolve(&plan.layouts)?;
     let mut pass = true;
@@ -94,6 +101,20 @@ fn bench(plan: &Plan) -> Result<bool, String> {
         }
     }
     Ok(pass)
+}
+
+/// `--emit-scale-fixture`: the fixture written, its size reported. The generator is the
+/// deliverable, so this is also the command `fixtures/scale/README.md` quotes.
+fn emit_fixture(plan: &Plan, path: &Path) -> Result<bool, String> {
+    let n = *plan.sizes.first().ok_or("--emit-scale-fixture needs --n")?;
+    let json = scale::emit(path, n, plan.seed)?;
+    println!(
+        "emitted {} (n={n}, seed {}, {} bytes) — the generator, not this file, is the artefact",
+        path.display(),
+        plan.seed,
+        json.len()
+    );
+    Ok(true)
 }
 
 /// The registered entries `names` asks for, or Phase 6's when it is empty.

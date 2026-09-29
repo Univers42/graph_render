@@ -44,6 +44,10 @@ fn the_registry_covers_every_oracle_function_once_its_ids_are_unique() {
             ("wasm-transport", r.id, Status::Gated)
         } else if r.id == "sdk.js" {
             ("sdk-smoke", r.id, Status::Implemented)
+        } else if r.stage == "scale" {
+            // Phase 9: not in the hash gate's stage list and no oracle differential, so
+            // `implemented` until the merge step wires them.
+            ("oracle-diff", "topology", Status::Implemented)
         } else {
             ("roundtrip", r.id, Status::Gated)
         };
