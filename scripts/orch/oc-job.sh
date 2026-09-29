@@ -26,12 +26,22 @@ done
 wf=$wt/target/wf; mkdir -p "$wf"; prompt=$wf/$label.prompt
 # OC_SESSION=<id> resumes that session (oc-run.sh): the rules and body are already in its history,
 # so the prompt is only a continue order.
+resume="Continue this task from where it stopped. Re-dispatch any cancelled or unfinished subagent slice in ONE message of parallel calls, then finish with the return block."
 if [[ -n ${OC_SESSION-} ]]; then
-  printf '%s\n' "Continue this task from where it stopped. Re-dispatch any cancelled or unfinished subagent slice in ONE message of parallel calls, then finish with the return block." >"$prompt"
+  printf '%s\n' "$resume" >"$prompt"
 else
   cat "${OC_COMMON:-/sgoinfre/students/dlesieur/orch/prompts/common-v2.txt}" "$body" >"$prompt"
 fi
 "$bin/oc-run.sh" "$label" "$wt" "$agent" "$prompt"; rc=$?
+# A provider 429 (`provider.quota`, seen 2026-09-29 on the free model) ends the run with rc 1.
+# Ponytail: the wait is fixed (OC_QUOTA_WAIT, 600 s) and ignores any Retry-After; after
+# OC_QUOTA_TRIES (3) resumes a still-limited job exits 2 like any unfinished one.
+for ((t = 0; rc != 0 && t < ${OC_QUOTA_TRIES:-3}; t++)); do
+  tail -n 1 "$wf/$label.jsonl" | jq -e '.error.type == "provider.quota"' >/dev/null || break
+  echo "provider quota: resume $((t + 1)) in ${OC_QUOTA_WAIT:-600} s"; sleep "${OC_QUOTA_WAIT:-600}"
+  printf '%s\n' "$resume" >"$prompt"
+  OC_SESSION=$(<"$wf/$label.session-id") "$bin/oc-run.sh" "$label" "$wt" "$agent" "$prompt"; rc=$?
+done
 # The verdict reads the whole last text part: a return block longer than the printed 30 lines once
 # cut `status: done` off and turned a done job into exit 2 (s1-nav, 2026-09-29).
 ret=$(jq -rs '[.[] | select(.part.type=="text") | .part.text] | last // ""' "$wf/$label.jsonl" 2>/dev/null)
