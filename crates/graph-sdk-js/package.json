@@ -3,11 +3,19 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Thin JS/TS wrapper over graph-wasm's raw extern \"C\" ABI: a lazy wasm loader, zero-copy typed-array column views, and a typed-error Motor API. No wasm-bindgen. Ships no build, same as the repo root: run its .ts sources directly with Node's --experimental-strip-types, or bundle them yourself.",
+  "description": "Thin JS/TS wrapper over graph-wasm's raw extern \"C\" ABI: a lazy wasm loader, zero-copy typed-array column views, a typed-error Motor API, and the two source adapters for the role-based ingest contract. No wasm-bindgen. Ships no build, same as the repo root: run its .ts sources directly with Node's --experimental-strip-types, or bundle them yourself.",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./adapters/rows": "./src/adapters/rows.ts",
+    "./adapters/notion": "./src/adapters/notion.ts"
   },
+  "files": [
+    "src",
+    "README.md",
+    "EXAMPLES.md"
+  ],
   "//devDependencies": "No devDependencies of its own: it type-checks against the repo root's installed `typescript` (`npm ci` at the repo root), via `tsc -p crates/graph-sdk-js/tsconfig.json --noEmit`. Adding a second, separately-versioned `typescript` here would risk two compilers disagreeing about the same generated .d.ts.",
+  "//peerDependencies": "The adapters are the only thing here that needs a runtime, and it is one already in every supported engine: `JSON.parse`/`JSON.stringify` and `TextEncoder`. There is no wasm loader dependency, no schema validator and no `fetch` — the ingest contract's reader, its canonical writer and its JSON Schema all live in the Rust side, and `graph-cli ingest` runs them. A consumer that wants to validate a document in JavaScript before sending it should read `docs/contract/ingest-schema.json` with whatever validator they already have; adding one here would be a dependency this package does not otherwise need.",
   "engines": {
     "node": ">=22.6"
   }

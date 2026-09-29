@@ -8,6 +8,7 @@
 //! both verdicts hold for the tree as it is now. `--check` refuses every other claim.
 
 mod analysis;
+mod ingest;
 mod post;
 mod registry;
 mod verdict;
@@ -78,7 +79,7 @@ pub struct Capability {
 }
 
 /// Every registered capability: Phase 1/2's rows, unchanged, Phase 7's `analysis` rows
-/// (`analysis.rs`), and Phase 9's three `scale` rows ([`scale_rows`]). The layout and
+/// (`analysis.rs`), Phase 9's three `scale` rows ([`scale_rows`]) and Phase 10's `ingest` rows (`ingest.rs`). The layout and
 /// analysis registries themselves are untouched — this only chains onto them, so the
 /// phase's authorization envelope (`capabilities.rs`, not `capabilities/registry.rs`) is
 /// what actually changed.
@@ -86,6 +87,7 @@ pub fn registry() -> Vec<Capability> {
     let mut rows = registry::registry();
     rows.extend(analysis::rows());
     rows.extend(scale_rows());
+    rows.extend(ingest::rows());
     rows
 }
 

@@ -10,6 +10,7 @@
 pub mod binary;
 pub mod canonical_json;
 pub mod geometry;
+pub mod ingest;
 pub mod notes;
 pub mod snapshot;
 pub mod version;
@@ -27,9 +28,12 @@ pub mod codegen {
     /// Where the JSON face's schema is committed, relative to the workspace root.
     pub const SNAPSHOT_SCHEMA: &str = "docs/contract/snapshot-schema.json";
 
+    /// Where the ingest contract's schema is committed, relative to the workspace root.
+    pub const INGEST_SCHEMA: &str = "docs/contract/ingest-schema.json";
+
     /// Every generated file: its path from the workspace root and its exact contents.
     /// Committed, so a change to the contract types shows up as a diff in review.
-    pub fn outputs() -> [(String, String); 3] {
+    pub fn outputs() -> [(String, String); 4] {
         [
             (
                 format!("{GENERATED_DIR}/snapshot-header.schema.json"),
@@ -43,7 +47,14 @@ pub mod codegen {
                 SNAPSHOT_SCHEMA.to_owned(),
                 format!("{:#}\n", snapshot_schema()),
             ),
+            (INGEST_SCHEMA.to_owned(), format!("{:#}\n", ingest_schema())),
         ]
+    }
+
+    /// The JSON Schema (draft 2020-12) of the ingest contract: declared roles and
+    /// records, the neutral front of the pipeline (`crates/graph-contract/src/ingest.rs`).
+    pub fn ingest_schema() -> Value {
+        crate::ingest::schema::schema()
     }
 
     /// The JSON Schema (draft 2020-12) of the canonical JSON face: a whole snapshot.
@@ -181,6 +192,7 @@ pub mod codegen {
                 include_str!("../generated/snapshot-header.schema.json"),
                 include_str!("../generated/snapshot-header.d.ts"),
                 include_str!("../../../docs/contract/snapshot-schema.json"),
+                include_str!("../../../docs/contract/ingest-schema.json"),
             ];
             let stale = "stale: run `graph-cli codegen` and commit the result";
             for ((name, generated), committed) in outputs().iter().zip(committed) {

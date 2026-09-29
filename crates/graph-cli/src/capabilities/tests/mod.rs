@@ -177,7 +177,7 @@ fn row(status: Status) -> Capability {
 fn every_registered_row_stands_on_honest_evidence_and_reads_it_back() {
     let evidence = honest();
     let rows = ledger(&evidence);
-    assert_eq!(rows.len(), 32);
+    assert_eq!(rows.len(), 36);
     assert_eq!(problems(&rows, &evidence), Vec::<String>::new());
     assert_eq!(
         rows[0].hash_4way,
@@ -294,12 +294,12 @@ fn the_scale_stage_publishes_three_implemented_rows_with_every_required_field() 
     }
 }
 
-/// The ledger grew by exactly the three scale rows (on top of develop's post row), and no row lost its evidence.
+/// The ledger grew by exactly the three scale rows and Phase 10's four ingest rows (on top of develop's post row), and no row lost its evidence.
 #[test]
 fn the_ledger_is_the_registry_plus_the_scale_rows_and_still_stands() {
     let evidence = honest();
     let rows = ledger(&evidence);
-    assert_eq!(rows.len(), 32);
+    assert_eq!(rows.len(), 36);
     assert_eq!(problems(&rows, &evidence), Vec::<String>::new());
 }
 

@@ -9,13 +9,128 @@ JS without ever letting a raw pointer leak past its own methods.
 Ships no build, same convention as the repo root: import `src/index.ts` directly (bundle it
 yourself, or run it on Node ≥22.6 with `--experimental-strip-types`).
 
-## Provisional ingest
+## What this package does not do
 
-`Motor#build` takes the **provisional** ingest JSON `crates/graph-wasm/src/ingest.rs`
-documents — a versioned array of node/edge records in `graph_core::records`' own shape.
-**Phase 10 owns the real ingest contract.** Every field is named and required; a `null`
-where a field may be absent, never an omitted key; an unknown member (a stray camelCase
-`hasNote`, say) refuses the whole document rather than being silently dropped.
+A page with only a happy path is marketing, so here is the other half.
+
+**Not rendered.** There is no canvas, no SVG, no WebGL, no hit-testing, no camera, no
+animation loop. This package hands you typed arrays over the motor's own memory and gets
+out of the way. Choosing a renderer is the consumer's, and it should be: the transport is
+zero-copy precisely so it can feed any of them.
+
+**Not a data source.** Nothing here connects to a database, issues a query, listens for
+changes, or writes anything back. There is no fetch, no driver, no ORM. The adapters
+below map a structure **you already have** in memory; getting it is your problem, and
+should be, because the shape you can get differs per source and the motor does not care.
+
+**Not 3D.** Two dimensions. The wire format reserves a `z` channel and refuses any
+nonzero one, so a 3D reader fails loudly rather than rendering a flat lie. The 3D
+geometric layouts are out of scope for the project as a whole
+(`prompt.md` §10, "Out of scope — requires a human decision").
+
+**Not a mutation or write path.** The motor is pure: topology in, geometry out, no
+network, no clock, no randomness beyond seeded generators, and no way to write back to a
+source. `docs/decisions/compute-tiers.md` reserves the write path as a separate decision
+with consequences outside this repository.
+
+**Not a graph-theory reference.** The ledger (`graph-cli capabilities --json`) is the
+list of what is actually implemented, and every row there carries its oracle, its measured
+ceiling, what happens past it, and its known approximation. The not-ported list, and why
+each is not ported, is in `prompt.md` §10: the Graphviz engines, igraph's
+DrL/LGL/Graphopt/Davidson-Harel, SBEB bundling, 3D layouts, `graph-server`, a declarative
+mapping DSL, and `SharedArrayBuffer`. Read the ledger rather than this paragraph; the
+ledger cannot go stale, and a paragraph can.
+
+**Not a validator.** The ingest contract's reader is in Rust
+(`graph_contract::ingest::read`) and its JSON Schema is committed at
+`docs/contract/ingest-schema.json`. Use whatever validator you already have if you want
+one in JavaScript; shipping a dependency this package does not otherwise need would be
+worse than the three lines you would have written.
+
+## Adapters — source shape to the ingest contract
+
+Two adapters ship, deliberately unlike each other:
+
+| Import | Source shape | For |
+|---|---|---|
+| `@graph-motor/sdk-js/adapters/rows` | named columns, rows of values | the general case |
+| `@graph-motor/sdk-js/adapters/notion` | property types, type-tagged values | the vendor-shaped case |
+
+Both are **pure mappings**. They decide what a source's fields *mean* — by reading the
+roles a schema declares, or by mapping a vendor's property types onto the eight declared
+roles — and write them down. They build no node ids, derive no edges, choose no
+strengths and synthesise no tag hubs: that is `graph_core::ingest::build`, once, for
+every source. An adapter containing graph logic is the abstraction leaking, and the
+convergence fixture below is what would stop.
+
+### The eight roles
+
+`title`, `label`, `group`, `tags`, `link`, `scalar`, `weight`, `parent`. They replace a
+twenty-member vendor type enum, and a **declared** role is not a heuristic: the code this
+replaces inferred roles from property type strings ("the first `multi_select`, or a field
+named `/^tags?$/i/`"), and a wrong inference *silently changes the graph* — no error, no
+warning, nothing in the output to detect it. Here the declaration is the thing being read,
+so it cannot be wrong in that way.
+
+`typeToRole` in `notion.ts` is the one place a value is chosen rather than declared: a
+property type the table does not name becomes `scalar`, which means *declared and read
+by nobody*. That is the safe direction — a wrong structural role would add or remove
+edges — and the escape hatch is the caller's `roles` override, which is a declaration
+and outranks the table.
+
+### The convergence proof
+
+`fixtures/ingest/{rows.json,notion.json}` are the **same logical dataset in two source
+shapes**. Both adapters map them to one contract document, byte for byte, and that
+document derives one graph, byte for byte. It is a gate row, not a claim:
+
+```sh
+node harness/sdk-smoke.mjs --adapter-convergence     # the adapters agree
+cargo test -p graph-core ingest                      # the derivation is what is pinned
+```
+
+`fixtures/ingest/expected-graph.json` holds both halves — the contract document and the
+graph derived from it — so the two runtimes are pinned to one artifact rather than to two
+that can drift.
+
+### A refusal, not a guess
+
+Both adapters refuse with a dotted path rather than guessing: a cell naming an
+undeclared column, a `link` column with no target, a property type with no role, a
+timestamp that is not RFC 3339. Each would otherwise become a well-formed graph with
+nothing in it to show the mistake. `RowsAdapterError` carries `path` and `what`; the
+message is `${path}: ${what}`.
+
+### The id grammar (H5)
+
+A derived node id is `source:collection:record`, and the grammar **cannot represent `:`**
+inside `source` or a collection id: the parse comes back *shifted and wrong*, not
+`null`. The contract's reader therefore refuses such a coordinate by name, and the
+derivation refuses a `:` in a tag value for the same reason. A **record id** may contain
+`:` freely — it is the last segment, and a test pins the round trip. Broadening the
+grammar would move every existing node id, and a node id that moves is a layout that
+moves, so that is a decision with consequences outside this repository and is not taken
+here.
+
+## Provisional node/edge ingest
+
+`Motor#build` takes the **provisional** node/edge JSON `crates/graph-wasm/src/ingest.rs`
+documents — a versioned array of records in `graph_core::records`' own shape. Every field
+is named and required; a `null` where a field may be absent, never an omitted key; an
+unknown member (a stray camelCase `hasNote`, say) refuses the whole document rather than
+being silently dropped.
+
+The role-based contract above is the front of the pipeline; this provisional shape is
+what the wasm ABI still takes. `graph-cli ingest` runs the derivation from one to the
+other, which is how you can see the boundary without writing Rust.
+
+## Reading the output with no SDK at all
+
+The JSON face is a contract, not a private format, and that is the promise worth keeping.
+`harness/read-snapshot-raw.mjs` reads a real snapshot with `JSON.parse` and nothing else —
+no import from this package, no wasm — and checks the committed schema against it. It is
+also a gate row. `EXAMPLES.md` §4 has the reader written out.
+
 
 ## Layouts
 

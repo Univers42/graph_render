@@ -1,0 +1,109 @@
+{
+  "_comment": "The Notion source shape: property types and type-tagged values. The same dataset as `rows.json` in the vendor's own vocabulary — this is the half of the convergence pair that proves the contract is neutral. Property ids are Notion's (stable across a rename), which is why the rows fixture's column names are the same strings. Hand-written, not generated.",
+  "source": "lib",
+  "databases": [
+    {
+      "id": "task",
+      "title": [{ "plain_text": "Tasks" }],
+      "properties": {
+        "name": { "id": "name", "name": "Name", "type": "title" },
+        "state": { "id": "state", "name": "State", "type": "status" },
+        "labels": { "id": "labels", "name": "Labels", "type": "multi_select" },
+        "effort": { "id": "effort", "name": "Effort", "type": "number" },
+        "up": { "id": "up", "name": "Up", "type": "relation", "relation": { "database_id": "task" } },
+        "blocks": { "id": "blocks", "name": "Blocks", "type": "relation", "relation": { "database_id": "task" } },
+        "slug": { "id": "slug", "name": "Slug", "type": "rich_text" },
+        "body": { "id": "body", "name": "Body", "type": "rich_text" }
+      }
+    },
+    {
+      "id": "person",
+      "title": [{ "plain_text": "People" }],
+      "properties": {
+        "name": { "id": "name", "name": "Name", "type": "title" },
+        "reports_to": { "id": "reports_to", "name": "Reports to", "type": "relation", "relation": { "database_id": "person" } }
+      }
+    }
+  ],
+  "pages": [
+    {
+      "id": "t1",
+      "parent": { "database_id": "task", "type": "database_id" },
+      "last_edited_time": "2023-11-14T22:13:21.000Z",
+      "properties": {
+        "name": { "title": [{ "plain_text": "Write the contract" }] },
+        "state": { "status": { "name": "doing" } },
+        "labels": { "multi_select": [{ "name": "docs" }, { "name": "p0" }] },
+        "effort": { "number": 3 },
+        "up": { "relation": [] },
+        "blocks": { "relation": [] },
+        "slug": { "rich_text": [{ "plain_text": "write-the-contract" }] },
+        "body": { "rich_text": [{ "plain_text": "long text nobody reads" }] }
+      }
+    },
+    {
+      "id": "t2",
+      "parent": { "database_id": "task", "type": "database_id" },
+      "last_edited_time": "2023-11-14T22:13:22.000Z",
+      "properties": {
+        "name": { "title": [{ "plain_text": "Ship the adapters" }] },
+        "state": { "status": { "name": "doing" } },
+        "labels": { "multi_select": [{ "name": "p0" }] },
+        "effort": { "number": 5 },
+        "up": { "relation": [{ "id": "t1" }] },
+        "blocks": { "relation": [{ "id": "t3" }] },
+        "slug": { "rich_text": [{ "plain_text": "ship-the-adapters" }] },
+        "body": { "rich_text": [] }
+      }
+    },
+    {
+      "id": "t3",
+      "parent": { "database_id": "task", "type": "database_id" },
+      "last_edited_time": "2023-11-14T22:13:23.000Z",
+      "properties": {
+        "name": { "title": [{ "plain_text": "Prove convergence" }] },
+        "state": { "status": { "name": "todo" } },
+        "labels": { "multi_select": [{ "name": "p0" }, { "name": "graph" }] },
+        "effort": { "number": 8 },
+        "up": { "relation": [{ "id": "t2" }] },
+        "blocks": { "relation": [] },
+        "slug": { "rich_text": [{ "plain_text": "prove-convergence" }] },
+        "body": { "rich_text": [] }
+      }
+    },
+    {
+      "id": "t4",
+      "parent": { "database_id": "task", "type": "database_id" },
+      "deleted": true,
+      "last_edited_time": "2023-11-14T22:13:24.000Z",
+      "properties": {
+        "name": { "title": [{ "plain_text": "Retired task" }] },
+        "state": { "status": { "name": "done" } },
+        "labels": { "multi_select": [] },
+        "effort": { "number": null },
+        "up": { "relation": [] },
+        "blocks": { "relation": [] },
+        "slug": { "rich_text": [{ "plain_text": "retired-task" }] },
+        "body": { "rich_text": [] }
+      }
+    },
+    {
+      "id": "p1",
+      "parent": { "database_id": "person", "type": "database_id" },
+      "last_edited_time": "2023-11-14T22:13:30.000Z",
+      "properties": {
+        "name": { "title": [{ "plain_text": "Ada" }] },
+        "reports_to": { "relation": [] }
+      }
+    },
+    {
+      "id": "p2",
+      "parent": { "database_id": "person", "type": "database_id" },
+      "last_edited_time": "2023-11-14T22:13:31.000Z",
+      "properties": {
+        "name": { "title": [{ "plain_text": "Grace" }] },
+        "reports_to": { "relation": [{ "id": "p1" }] }
+      }
+    }
+  ]
+}

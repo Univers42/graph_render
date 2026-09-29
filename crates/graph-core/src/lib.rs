@@ -27,6 +27,7 @@ mod diff;
 mod edgekind;
 mod ids;
 mod index;
+pub mod ingest;
 pub mod layout;
 mod legend;
 mod linalg;
