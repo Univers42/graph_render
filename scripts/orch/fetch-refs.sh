@@ -2,8 +2,10 @@
 # fetch-refs.sh [dest] — download the pinned read-only references (prompts/REFERENCES.md) into
 # <dest> (default /goinfre/dlesieur/refs), verify each against its recorded digest, chmod a-w.
 # Digests: npm sha512 = the `integrity` in the branch lockfiles; networkx = PyPI's published sha256;
-# JAMA and lobpcg.py = the sha256 recorded on p6e (dense_sym.rs:5-6, eigensolver.md). A mismatch is
-# a stop (rule 0.6), never a retry against another mirror.
+# JAMA and lobpcg.py = the sha256 recorded on p6e (dense_sym.rs:5-6, eigensolver.md); matplotlib's
+# _cm_listed.py = the file inside PyPI's 3.10.0 sdist (sdist sha256 b886d02a…511278, checked
+# 2026-09-29), fetched alone because the sdist is 36 MB. A mismatch is a stop (rule 0.6), never a
+# retry against another mirror.
 set -euo pipefail
 R=${1:-/goinfre/dlesieur/refs}
 die() { echo "fetch-refs: $*" >&2; exit 1; }
@@ -48,5 +50,11 @@ if [[ ! -f $sp/lobpcg.py ]]; then
 fi
 sha256_is "$sp/lobpcg.py" 09d3378487b4466ee97dd5c0225b7e75d0268498d32c91b1e054f69a0253b88b
 
+mpl=$R/matplotlib-3.10.0
+if [[ ! -f $mpl/_cm_listed.py ]]; then
+  mkdir -p "$mpl"; get https://raw.githubusercontent.com/matplotlib/matplotlib/v3.10.0/lib/matplotlib/_cm_listed.py "$mpl/_cm_listed.py"
+fi
+sha256_is "$mpl/_cm_listed.py" ddad3698f5129ceb1792a445371286c08bc9080298e657b3054aea19c9659ef9
+
 chmod -R a-w "$R"
-echo "fetch-refs: 7 references verified under $R"
+echo "fetch-refs: 8 references verified under $R"
