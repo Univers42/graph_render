@@ -23,6 +23,7 @@ mod index;
 pub mod layout;
 mod legend;
 mod neighborhood;
+pub mod post;
 mod records;
 pub mod registry;
 mod stage;
