@@ -1,25 +1,49 @@
-# Standing rules — graph_render / graph-motor (set by the user, LESdylan)
+# CLAUDE.md
 
-## Talking to the user
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## What this repo is
+
+Two things in one tree:
+
+- **graph-motor** — the Rust workspace under `crates/`. It computes graph and diagram geometry and emits
+  numbers; it is not a renderer and not an application. This is the product. Runbook: `prompt.md`;
+  phases: `prompts/phase-NN-*.md`.
+- **`@osionos/graph-engine`** — the TypeScript engine under `src/` (Canvas2D + d3-force). Since Phase 0
+  it is the **differential oracle** for graph-motor: test infrastructure, never shipped, never deleted.
+  Commands and architecture: `docs/oracle-engine.md`.
+
+Submodules: `.claude/` (house rules) and `SciGraphs/` (a Python Blender extension: the reference design
+and the source of the Python oracles). Run `git submodule update --init` if either is empty.
+
+Current state, newest first: `prompts/RESUME.md`, then `docs/reports/STATUS.md` and `HANDOFF.md`. Older
+docs write paths as `/home/user/...`; that is a previous host, same files.
+
+## Standing rules (set by the user, LESdylan)
+
+Where `prompt.md` §0.7 or `prompts/ONBOARDING.md` §5.7 disagree with this section (they say no
+auto-push and no commits to `develop`), this section wins.
+
+### Talking to the user
 - Be terse. No narration between tool calls, no recaps.
 - Write to the user only when a phase finishes, when blocked, or when a decision is needed.
 - Keep each message to a few lines.
 - Phase reports in `docs/reports/` still follow the rules in full (§12 shape).
 
-## Git
+### Git
 - Author every commit as `LESdylan <dev.pro.photo@gmail.com>`. No Co-Authored-By, no "Generated with" trailer.
 - Commit message is exactly `updated`.
 - Push directly to `develop`. No pull request.
 - Commit and push after every green step or phase, so nothing depends on the container surviving.
 - No model identifiers in commits, PRs, code or docs.
 
-## Working mode
+### Working mode
 - Full autonomy: run phases 0 → 10 (`prompts/phase-NN-*.md`) per `prompts/ONBOARDING.md` and `prompt.md`.
 - Keep an hourly self check-in armed with `send_later`.
 - Follow the `.claude` house rules (rules repo `univers42/claude-deal-with-the-devil`).
 
-## Hard constraints
-- osionos (`/home/dlesieur/Documents/osionos`) is READ ONLY.
+### Hard constraints
+- osionos (`/home/dlesieur/Documents/osionos`) is READ ONLY (`scripts/guard-osionos.sh`, exit 90 = broken).
 - Docker-only toolchain; no prebuilt vendor language images (`FROM rust:*`, playwright, ...).
 - Never claim an unrun result: UNKNOWN = FAIL, SKIP is not a pass.
 - A missing reference is a stop, not an improvisation.
@@ -27,13 +51,15 @@
 - Never print secret values.
 - Do not modify the `graph_render/.claude` submodule.
 
-## Parallel branches (checked on 2026-09-29 with `git merge-tree` and a disk check; worth doing)
+### Parallel branches (checked on 2026-09-29 with `git merge-tree` and a disk check; worth doing)
 - Every independent unit of work (a phase, or a slice inside a phase) gets its own branch and its own worktree under `/goinfre/dlesieur/wt/<branch>`. Exactly one agent per worktree. Two agents in one worktree clobbered each other's edits on 2026-09-28 (p3fix-a and p3fix-c).
 - Start a branch as soon as its dependencies allow it; don't wait for unrelated phases.
   - Dependency order: p3 → {p5, p6e, p6f, p8}; p4 → {p7's SDK row, p10}; p6f → p9 → p11. p4 and p7 are independent of p3.
   - A branch may start from an unmerged dependency branch. Once that dependency lands, merge develop into it.
 - Slices inside a phase use sub-branches `pN-<slice>`, which merge into `pN` and never straight into develop.
-- Merge into develop one branch at a time, in plan order, and only once the branch is resolved (gate green + review + mutants + report). Before the gate, merge the current develop into the branch (never rebase) and gate the merged tree.
+- Merge into develop one branch at a time, in plan order. Merge the current develop into the branch first (never rebase) and check the merged tree.
+  - Merge floor (user, 2026-09-29, `prompts/RESUME.md`): fmt, clippy `-D warnings` and `cargo test --workspace --no-fail-fast` green on the merged tree. The full gate (hashgate-1000, oracles, mutants) then runs once on develop, and its red rows become repair tasks. This replaced full gating per branch, which queued every branch behind one lock for hours.
+  - Review and the phase report are still owed per phase; a gate that has not run is "not run", never "green".
 - Some files are touched by several branches: `lib.rs`, `registry.rs`, `capabilities.rs`, `main.rs`, `Cargo.lock` and `canonical_json/schema.rs`.
   - Edit them additively only.
   - Resolve conflicts by keeping both intents. The measured conflicts are small (p4+p7: 3 hunks; p5+p6e: 1 hunk).
@@ -44,5 +70,159 @@
   - Ponytail: a thread cap is not a CPU cap. A gate that times out is re-run on its own and never counted as a pass.
 - Disk: each worktree's `target/` is about 1 GB, and `/goinfre` had 38 GB free. Remove a worktree after its branch merges.
 
+## Commands
+
+No bare `cargo`, `rustc`, `npm` or `node`: the host has none that match the pins. The wrappers in
+`scripts/orch/` mount the current git top-level at `/w`, so they act on whichever worktree you are in.
+
+```sh
+# images, once per host (the header of each Dockerfile has the proxy/CA variant)
+docker build -f docker/rust.Dockerfile -t ge-rust .
+docker build -f docker/mutants.Dockerfile -t ge-mutants .        # FROM ge-rust
+scripts/orch/fetch-refs.sh                                        # pinned references -> /goinfre/dlesieur/refs
+docker build --build-context nx=/goinfre/dlesieur/refs/networkx-3.6 \
+  -f docker/python-oracle.Dockerfile -t ge-python-oracle .
+
+# the merge floor
+scripts/orch/gr cargo fmt --all --check
+scripts/orch/gr cargo clippy --workspace --all-targets -- -D warnings
+scripts/orch/gr cargo test --workspace --no-fail-fast
+scripts/orch/gr cargo build -p graph-core --target wasm32-unknown-unknown   # graph-core's purity gate
+
+# one test
+scripts/orch/gr cargo test -p graph-core <name_filter>
+scripts/orch/gr cargo test -p graph-cli --test cli <name_filter>
+
+# graph-cli gates. Exit 0 = passed, 1 = ran and failed, 2 = could not run.
+scripts/orch/gr cargo run -q -p graph-cli -- hashgate --seeds 8
+scripts/orch/gr -e GM_MUTATE_REFERENCE_DEGREE=9 cargo run -q -p graph-cli -- hashgate --seeds 8  # negative control: expect NON-zero
+scripts/orch/gr cargo run -q -p graph-cli -- capabilities --check
+scripts/orch/gr cargo run -q -p graph-cli -- codegen --check
+scripts/orch/gr cargo run -q -p graph-cli -- roundtrip --seeds 100
+
+# timed gates: one at a time, under the host-wide lock
+scripts/orch/timed scripts/orch/gr cargo run -q -p graph-cli -- hashgate --seeds 1000
+scripts/orch/mutants.sh <base-rev>
+scripts/orch/gate.sh <logdir> <rowsfile>      # rows are `name|expect|cmd`; writes <logdir>/summary.txt
+
+# TypeScript oracle and the JS SDK
+scripts/orch/node-slim.sh npm ci --ignore-scripts
+scripts/orch/ge-check.sh                       # `npm run check` inside the repo Dockerfile
+scripts/orch/node-slim.sh npm run sdk:typecheck
+scripts/orch/gr cargo build -p graph-wasm --release --target wasm32-unknown-unknown
+scripts/orch/node-slim.sh npm run sdk:smoke
+```
+
+- A fresh worktree needs `npm ci` before `cargo test`: the `cli_oracles` tests run the Node harness and
+  fail on a missing `node_modules`.
+- Without `--no-fail-fast` cargo stops at the first failing test binary and hides the other crates.
+- Host rustfmt is not configured; format with `gr cargo fmt`.
+- `gr` caps memory at 8g (`GR_MEM`); exit 137 on a legitimate row means raise it. `GR_IMAGE` picks the image.
+- `/goinfre` is wiped when the host changes. `mutants.sh` and the rows files call the helpers at
+  `/goinfre/dlesieur/orch/bin/`, which are symlinks to `scripts/orch/`; recreate them, the worktrees and
+  the references after a host change. Rows files live in `/sgoinfre/students/dlesieur/orch/rows/`
+  (`quick.rows` is the merge floor, `develop-full.rows` the full gate).
+- Python differentials run in three steps: `graph-cli emit-spectral-fixtures` (or `emit-fa2-fixtures`),
+  then `harness/oracle-spectral.py` (or `oracle-fa2.py`) inside `ge-python-oracle`, then
+  `graph-cli oracle-spectral` (or `oracle-fa2`), which checks the result against its ceiling and records it.
+- The shell is zsh: an unmatched glob aborts the command and `echo ===` expands `=`. Use `git grep`.
+  Kill by PID; `pkill -f <pattern>` matches your own command line.
+
+## Architecture (graph-motor)
+
+### A staged pipeline over an immutable topology
+
+```
+INGEST -> TOPOLOGY -> ANALYSIS -> LAYOUT -> POST -> SCALE -> GEOMETRY
+```
+
+Each stage is pure, optional and **hashed on its own**, so a native/wasm32 divergence names the stage it
+started in. Only LAYOUT varies per diagram family. `Stage::run` (`crates/graph-core/src/stage.rs`) is an
+associated function over `&Topology` and `&Params`: no `self`, no state carried between runs.
+
+### Crates, in dependency order
+
+| Crate | Role | Constraint |
+|---|---|---|
+| `graph-contract` | The wire format: geometry vocabulary, binary snapshot, canonical JSON, codegen | The single source of truth. `graph-cli codegen` writes the committed schema and TypeScript declarations; `--check` fails on a stale file |
+| `graph-core` | The motor: topology (string arena, dense index, SoA columns, three CSRs), layouts, analysis, post | Pure: no I/O, clock, async or bindings. Builds for native and `wasm32-unknown-unknown`. Dependencies are a closed list (`libm`, `indexmap`, `petgraph`); adding one is a stop-and-ask |
+| `graph-wasm` | `extern "C"` glue over graph-core | No wasm-bindgen: the motor passes numeric buffers, viewed zero-copy over linear memory |
+| `graph-sdk-js` | TypeScript wrapper over the wasm ABI (`crates/graph-sdk-js`) | Not a cargo member. Ships source, no build; type-checks with the root `typescript` |
+| `graph-cli` | The gates: hash gate, ledger, fixtures, differentials, bench | Test instruments, not product |
+
+### The registry drives the ledger and the hash gate
+
+`crates/graph-core/src/registry.rs` lists every layout in `LAYOUTS` with its `Metadata`. No field is an
+`Option`: a layout cannot be registered without its oracle, complexity, `scale_ceiling`, `degradation`
+and `ponytail`. `graph-cli capabilities` builds its layout rows from that list, and `hashgate` hashes
+every entry, in registry order. Analysis and post rows are in `crates/graph-cli/src/capabilities/`.
+
+Progress is never written by hand. A row's status is `absent | stub | implemented | gated`, and `gated`
+needs a recorded 4-way hash and oracle differential for the current tree. Tests that find a capability
+row should look it up by id: row indices move whenever an entry is inserted.
+
+### Evidence is pinned to the tree
+
+A gate writes `target/gates/<name>.json` with the fingerprint of the tree it ran on
+(`crates/graph-cli/src/fingerprint.rs`: crates, harness, fixtures, `src`, docker, Cargo files and the
+oracle's lockfile). Editing any of those voids the record until the gate runs again. Documentation is
+not fingerprinted. The binary also refuses to record against a tree other than the one it was built from,
+so run a gate only on the tree you intend to keep.
+
+### The hash gate and its negative controls
+
+`hashgate` runs native twice and wasm32 twice (under Node, on the real artifact) and requires all four
+SHA-256 hashes to be equal per seed and per stage. Each `GM_MUTATE_*` knob perturbs one arm and must
+turn the gate red; the knob list exists once, in `crates/graph-cli/tests/common/mod.rs`. A child that
+runs past `CHILD_TIMEOUT` (2700 s, `runner.rs`) is reported as "could not run", exit 2.
+
+### Geometry: a closed vocabulary with two faces
+
+Nodes are `Point`, `Circle` or `Box`; edges are `Line`, `Polyline` or `Curve`; `Ribbon` and `Arc` have
+reserved tags and no implementation. The kind is declared **once per snapshot**, not per element, which
+keeps the columns pure SoA and the transport zero-copy. The canonical JSON face is the public contract;
+the binary columnar face is the hot path. The hash is taken over the binary face, and the JSON face must
+round-trip to the identical bytes (`roundtrip`). Only stable string ids cross the wire; the dense index
+never leaves the motor. Specs: `docs/contract/`.
+
+### Determinism (D1–D10, authoritative in `prompt.md` §6)
+
+Output must be bit-identical native vs wasm32. In practice:
+
+- Every transcendental goes through `libm`. No `mul_add`, `powi`, relaxed-simd or FTZ/DAZ.
+- Reductions run in a fixed order; ties break by dense index. Use `IndexMap`/`BTreeMap` wherever
+  iteration order is observable, never `HashMap`.
+- Wire integers are `u32`/`u64`, never `usize`.
+- No clock and no randomness except the seeded generators. Assert no NaN/Inf before hashing.
+- Per-step kernels are gathers: element `i` reads start-of-step state and writes only `out[i]`.
+- A new struct field needs every constructor across crates, wire formats included. The wasm ingest once
+  dropped `EdgeRecord.child_first`, and only the hash gate caught it.
+
+### Differential oracles
+
+| Subject | Oracle | Harness |
+|---|---|---|
+| The 17 pure `core/model` functions | the TypeScript engine in `src/` | `harness/oracle-diff.mjs` |
+| Hierarchy layouts, layered DAG | `d3-hierarchy`, `dagre-d3-es` | `harness/oracle-layouts.mjs` (`--dag`) |
+| Force layout quality | `d3-force` | `harness/stress-d3.mjs`, `graph-cli stress --oracle d3` |
+| Spectral, Pivot MDS | SciGraphs, scipy | `harness/oracle-spectral.py` |
+| ForceAtlas2 | networkx 3.6 | `harness/oracle-fa2.py` |
+
+Fixtures are data, not code: graph-cli emits them once and both arms load the same file, so no second
+generator can drift. Edge ids sort undirected endpoints in **byte order**; the oracle's `localeCompare`
+is the known defect (H1), exercised by `fixtures/adversarial-ids.json`.
+
+Python oracles agree to a tolerance, not bitwise. Ponytail: the ForceAtlas2 coordinate differential
+cannot gate as written, because networkx diverges from itself by the same margin under a 1-ulp
+perturbation of the start (`prompts/RESUME.md` item 4).
+
+### House limits
+
+At most 40 lines per function, 4 parameters and 300 lines per file; split into child modules. Every
+gate row has a negative control that must fail. Every heuristic carries a `Ponytail:` marker, which is
+also a required ledger field. Decisions are recorded in `docs/decisions/`, measurements in
+`docs/measurements/`.
+
 ## Reference
 - The TypeScript oracle engine (commands, architecture): `docs/oracle-engine.md`. Agent brief: `prompts/AGENT_BRIEF.md`.
+- Where the math lives and which references are on disk: `prompts/REFERENCES.md`.
