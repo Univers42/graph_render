@@ -97,7 +97,7 @@ fn node_delta(sim: &mut Sim, i: u32) -> (f64, f64) {
         theta2: sim.params.theta * sim.params.theta,
         dmin2: sim.params.distance_min * sim.params.distance_min,
         dmax2: sim.params.distance_max * sim.params.distance_max,
-        charge: sim.params.charge_strength,
+        charge: sim.params.charge,
         alpha: sim.alpha,
         seed: sim.seed,
         tick: sim.tick_no,

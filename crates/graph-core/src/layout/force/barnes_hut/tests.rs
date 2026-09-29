@@ -6,10 +6,11 @@
 use super::sim::Sim;
 use super::{BarnesHut, TICKS};
 use crate::index::index_model;
+use crate::layout::force::LiveParams;
 use crate::layout::force::params::ForceParams;
 use crate::records::build::{edge, node};
 use crate::records::{EdgeRecord, NodeRecord};
-use crate::stage::Stage;
+use crate::stage::{Stage, StageError};
 use graph_contract::geometry::NodeGeometry;
 
 fn line(n: u32) -> (Vec<NodeRecord>, Vec<EdgeRecord>) {
@@ -57,6 +58,78 @@ fn the_same_topology_settles_to_the_same_geometry_run_to_run() {
     assert_eq!(a, b, "pure: the same topology, the same run, every time");
 }
 
+/// The frozen stage's parameter set predates the live ranges, so it accepts every finite
+/// value and refuses only what is not finite (D9). These four are all legitimate
+/// Barnes-Hut settings the live ranges would refuse: a tighter opening angle than the live
+/// floor, a repelling charge, a stiffer velocity decay and a wider collision radius.
+#[test]
+fn the_frozen_stage_accepts_finite_parameters_the_live_ranges_would_refuse() {
+    let (nodes, edges) = line(12);
+    let t = index_model(&nodes, &edges).expect("fits");
+    for (field, params) in [
+        ("theta", frozen(0.1, -90.0, 0.58, 16.0)),
+        ("charge_strength", frozen(0.9, 90.0, 0.58, 16.0)),
+        ("velocity_decay", frozen(0.9, -90.0, 0.995, 16.0)),
+        ("collide_radius", frozen(0.9, -90.0, 0.58, 500.0)),
+    ] {
+        let geometry = BarnesHut::run(&t, &params);
+        assert!(
+            geometry.is_ok(),
+            "{field} = {} must be accepted by the frozen stage: {geometry:?}",
+            value_of(&params, field),
+        );
+    }
+    let all = frozen(0.1, 90.0, 0.995, 500.0);
+    assert!(
+        BarnesHut::run(&t, &all).is_ok(),
+        "and all four at once, which is what a caller would pass as one set"
+    );
+}
+
+/// The stage's own parameters with the named field replaced, the mirror `m1e.rs` keeps for
+/// `LiveParams`. A field with no arm is a field this file does not cover.
+fn frozen(theta: f64, charge: f64, velocity_decay: f64, collide_radius: f64) -> ForceParams {
+    ForceParams {
+        theta,
+        charge_strength: charge,
+        velocity_decay,
+        collide_radius,
+        ..ForceParams::default()
+    }
+}
+
+/// The one field of `params` this file sets, for a failure message.
+fn value_of(params: &ForceParams, field: &str) -> f64 {
+    match field {
+        "theta" => params.theta,
+        "charge_strength" => params.charge_strength,
+        "velocity_decay" => params.velocity_decay,
+        "collide_radius" => params.collide_radius,
+        other => panic!("no field {other}"),
+    }
+}
+
+/// Finiteness is the *only* thing the frozen stage's parameters are held to, and the refusal
+/// names the field: a non-finite opening angle is a value whose bits wasm32 does not pin
+/// (D9), which is a louder contract than a range the stage never had.
+#[test]
+fn the_frozen_stage_refuses_only_what_is_not_finite() {
+    let (nodes, edges) = line(12);
+    let t = index_model(&nodes, &edges).expect("fits");
+    for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        assert_eq!(
+            BarnesHut::run(&t, &frozen(value, -90.0, 0.58, 16.0)).err(),
+            Some(StageError::NonFinite { column: "theta" }),
+            "theta = {value}"
+        );
+        assert_eq!(
+            BarnesHut::run(&t, &frozen(0.9, value, 0.58, 16.0)).err(),
+            Some(StageError::NonFinite { column: "charge" }),
+            "charge_strength = {value}"
+        );
+    }
+}
+
 /// A mid-degree node `mid` attached to `hubs` hubs, each hub also attached to
 /// `leaves_per_hub` hubs-exclusive leaves — so every hub's degree dwarfs `mid`'s.
 fn hub_fixture(hubs: u32, leaves_per_hub: u32) -> (Vec<NodeRecord>, Vec<EdgeRecord>) {
@@ -83,7 +156,7 @@ fn hub_fixture(hubs: u32, leaves_per_hub: u32) -> (Vec<NodeRecord>, Vec<EdgeReco
 fn the_jacobi_link_stability_fixture_stays_finite_and_bounded_devil_c9() {
     let (nodes, edges) = hub_fixture(6, 15);
     let t = index_model(&nodes, &edges).expect("fits");
-    let mut sim = Sim::new(&t, ForceParams::default(), 0);
+    let mut sim = Sim::new(&t, LiveParams::from(ForceParams::default()), 0);
     let mut energy = Vec::with_capacity(TICKS as usize);
     for _ in 0..TICKS {
         sim.tick();
@@ -99,7 +172,7 @@ fn the_jacobi_link_stability_fixture_stays_finite_and_bounded_devil_c9() {
         );
         energy.push(e);
     }
-    let (x, y) = sim.positions();
+    let (x, y) = (&sim.x, &sim.y);
     assert!(
         x.iter().chain(y).all(|v| v.is_finite()),
         "devil C9: position went non-finite"
@@ -110,4 +183,24 @@ fn the_jacobi_link_stability_fixture_stays_finite_and_bounded_devil_c9() {
         peak < 1.0,
         "devil C9: still oscillating in the last 10 ticks (peak KE {peak}), not settled"
     );
+}
+
+/// The frozen stage refuses only non-finite input; every finite value that ran before the
+/// session refactor still runs, the live ranges notwithstanding.
+#[test]
+fn the_frozen_stage_keeps_its_acceptance_for_every_finite_value() {
+    let (nodes, edges) = line(6);
+    let topology = index_model(&nodes, &edges).unwrap();
+    let base = ForceParams::default();
+    let legacy = [
+        ForceParams { theta: 0.1, ..base },
+        ForceParams { charge_strength: 30.0, ..base },
+        ForceParams { velocity_decay: 0.995, ..base },
+        ForceParams { collide_radius: 500.0, ..base },
+    ];
+    for params in legacy {
+        assert!(BarnesHut::run(&topology, &params).is_ok(), "{params:?}");
+    }
+    let nan = ForceParams { theta: f64::NAN, ..base };
+    assert!(BarnesHut::run(&topology, &nan).is_err());
 }

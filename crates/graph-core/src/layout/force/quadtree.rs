@@ -162,6 +162,13 @@ impl Quadtree {
         out.extend(self.stack_b.iter().rev());
     }
 
+    /// The capacity of every buffer a rebuild refills, for the test that a rebuild
+    /// allocates nothing once the layout has reached steady state.
+    #[cfg(test)]
+    pub(crate) fn capacity(&self) -> usize {
+        self.shape.capacity() + self.chain_next.capacity() + self.visit_stack.capacity()
+    }
+
     /// A pruned preorder walk (d3's `visit.js`): `prune` runs on every node reached, and a
     /// `true` return skips its children. Children queue `3,2,1,0`, so they visit `0,1,2,3`.
     pub(crate) fn visit(&mut self, mut prune: impl FnMut(&Self, u32, Bounds) -> bool) {

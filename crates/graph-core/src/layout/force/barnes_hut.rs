@@ -14,12 +14,17 @@
 //!    graph's own (now-discarded) source/target direction (`barnes_hut/link.rs`).
 //! 4. seed positions centre on the origin, not a viewport (`barnes_hut/seed.rs`).
 //! 5. there is no cluster force (Phase 10's node groups do not exist yet).
+//!
+//! The stage itself is now a thin shell over `super::session`: it builds a session at the
+//! frozen parameters, with no pins and `alpha_target` 0, and steps it `TICKS` times — the
+//! same forces, the same quadtree, the same tick it always ran, expressed as the degenerate
+//! case of the live one (`docs/decisions/live-force-session.md`).
 
 mod charge;
 mod collide;
 mod link;
 mod seed;
-mod sim;
+pub(in crate::layout::force) mod sim;
 
 #[cfg(test)]
 mod tests;
@@ -27,11 +32,18 @@ mod tests;
 use super::params::{ForceParams, TICKS};
 use crate::index::Topology;
 use crate::layout::Geometry;
+use crate::layout::force::session::ForceSession;
 use crate::stage::{Stage, StageError};
 use graph_contract::geometry::{EdgeGeometry, NodeGeometry};
-use sim::Sim;
 
 /// Barnes-Hut approximated force layout (`prompt.md` §3.1).
+///
+/// **The frozen layout is a session, not a layout.** What this stage runs is
+/// `ForceSession::from_frozen(topology, params)`, no pins, `alpha_target` 0,
+/// stepped [`TICKS`] times — the same forces, the same quadtree, the same tick the live
+/// session owns, and the same bytes it always produced
+/// (`docs/decisions/live-force-session.md`; pinned over 65 seeds by
+/// `session/tests/m1a.rs`).
 ///
 /// Ponytail: force layouts are chaotic — the same graph with one node added or removed
 /// is a different picture, not a perturbed one; there is no failing input narrower than
@@ -47,11 +59,9 @@ impl Stage for BarnesHut {
     const ID: &'static str = "layout.force.barnes_hut";
 
     fn run(topology: &Topology, params: &Self::Params) -> Result<Geometry, StageError> {
-        let mut sim = Sim::new(topology, *params, 0);
-        for _ in 0..TICKS {
-            sim.tick();
-        }
-        let (x, y) = sim.positions();
+        let mut session = ForceSession::from_frozen(topology, params)?;
+        session.step(TICKS);
+        let (x, y) = (session.xs(), session.ys());
         if x.iter().chain(y).any(|v| !v.is_finite()) {
             return Err(StageError::NonFinite { column: "node.x" });
         }

@@ -10,19 +10,18 @@
 //! not the original edge's own orientation.
 
 use super::sim::Sim;
+use crate::layout::force::LiveParams;
 use crate::layout::force::SimpleGraph;
-use crate::layout::force::params::ForceParams;
 use crate::rng::jiggle;
 
 const PASS_X: u32 = 0;
 const PASS_Y: u32 = 1;
 
 /// Each simple edge's fixed `(distance, strength, bias)` (`forceLayout.ts:206-207`):
-/// the topology never changes across ticks, so neither do these.
-pub(super) fn geometry(
-    graph: &SimpleGraph,
-    params: &ForceParams,
-) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
+/// the topology never changes across ticks, so neither do these — but the *parameters*
+/// can, mid-run, so this is recomputed whenever they are replaced
+/// ([`Sim::set_params`]).
+pub(super) fn geometry(graph: &SimpleGraph, params: &LiveParams) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
     let m = graph.lo.len();
     let (mut distance, mut strength, mut bias) = (
         Vec::with_capacity(m),
@@ -101,7 +100,7 @@ mod tests {
         ];
         let t = index_model(&nodes, &edges).expect("fits");
         let g = simple_graph(&t);
-        let (_, _, bias) = geometry(&g, &ForceParams::default());
+        let (_, _, bias) = geometry(&g, &crate::layout::force::LiveParams::default());
         // edge0 is (hub=lo=0, mid=hi=1): bias = degree(lo)/(degree(lo)+degree(hi)) = 4/5.
         assert!((bias[0] - 0.8).abs() < 1e-12);
     }
