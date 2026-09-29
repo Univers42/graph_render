@@ -7,7 +7,8 @@ export type ArgValue = string | number | boolean;
 export type Args = Readonly<Record<string, ArgValue>>;
 export type RawArgs = Readonly<Record<string, unknown>>;
 export type ParamKind = "int" | "number" | "text" | "choice" | "flag";
-export type Control = "list" | "select" | "segmented" | "slider" | "number" | "text" | "toggle";
+/** `file` reads the value from a file the user picks; the console takes it as text. */
+export type Control = "list" | "select" | "segmented" | "slider" | "number" | "text" | "toggle" | "file";
 
 export interface ParamSpec<State> {
   readonly name: string;
@@ -186,10 +187,11 @@ export function createRegistry<State, Context>(actions: readonly Action<State, C
       if (action === undefined) {
         throw new ActionRefusal("unknown-action", `\`${idOrAlias}\` is not a command; nearest: ${suggest(idOrAlias).join(", ")}`);
       }
-      const args = argsFrom(action, raw, state);
+      // Asked before the values are read: with nothing drawn a value has nothing to be one of,
+      // and "is not one of:" would hide the reason that matters.
       const reason = action.available?.(state) ?? null;
       if (reason !== null) throw new ActionRefusal("unavailable", `\`${action.alias}\` cannot run: ${reason}`);
-      return { action, args };
+      return { action, args: argsFrom(action, raw, state) };
     },
   };
 }

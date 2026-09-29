@@ -81,8 +81,12 @@ function settingsOf(settings: Settings): Settings {
   });
 }
 
+export const OPENING_SOURCE: Extract<Source, { kind: "synthetic" }> = Object.freeze({
+  kind: "synthetic", seed: 1, nodes: 400, degree: 2, shape: "vault",
+});
+
 export const DEFAULT_SETTINGS: Settings = settingsOf({
-  source: { kind: "synthetic", seed: 1, nodes: 400, degree: 2, shape: "vault" },
+  source: OPENING_SOURCE,
   layout: "layout.forceatlas2",
   edges: null,
   analysis: null,

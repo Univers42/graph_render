@@ -33,6 +33,10 @@ const HINTS: ReadonlyMap<string, string> = new Map([
   ["ActionRefusal", "Type `help` in the console for the commands and their values."],
   ["SettingsRefusal", "The recipe does not hold settings this studio reads. Export a fresh recipe."],
   ["CancelledError", "The run was stopped. Nothing changed."],
+  ["CommandRefusal", "Type `help` in the console for the commands and their values."],
+  ["RecipeMismatch", "This motor does not draw what the recipe recorded. Compare the motor builds, or export a fresh recipe."],
+  ["MetaMismatch", "The snapshot and the document name different nodes. That is a studio or motor bug — nothing was drawn from it."],
+  ["SessionRefusal", "Load a graph first."],
 ]);
 
 function memberOf(error: Error, name: string): unknown {
