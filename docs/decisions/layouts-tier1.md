@@ -17,8 +17,12 @@ offers in 2D; this records which the motor gained, which it did not, and why.
 - `layout.circular.shell`: SciGraphs has no shell rule (`git grep -i shell -- SciGraphs`
   finds none in the layout code). Choosing shells would be an improvisation; a missing
   reference is a stop. Blocked until the shell partition is specified.
-- `multipartite`, `arf`, `bfs`, `planar`: not started in this slice; each needs its own
-  differential and, for `planar`, a planarity test (see `planarity-fallback.md`).
+- `multipartite`, `arf`, `bfs`, `planar`: skipped. The task scope is the SciGraphs layout
+  enum (`SciGraphs/SciGraphs/properties/scene_properties.py:405-450`), and none of the four
+  is an entry there (`git grep -i -e multipartite -e bfs -e planar -- SciGraphs` finds no
+  layout id). Without a SciGraphs caller there are no parameters or partition rule to port,
+  so adding them would be a guess at defaults. networkx 3.6 does implement them
+  (`layout.py` multipartite 1353, arf 1466, bfs 1965, planar 1169).
 - `layout.force.yifan_hu`: added (`layout/force/yifan_hu.rs`). Greedy heavy-edge matching
   coarsens down to 16 nodes or a 10 percent stall; the coarsest level is solved by the
   Barnes-Hut simulation (112 ticks), each finer level restarts from its parent and is
