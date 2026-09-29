@@ -30,8 +30,8 @@ fn the_json_face_writes_notes_sorted_by_key_and_reads_them_back() {
 #[test]
 fn the_json_face_refuses_what_construction_refuses() {
     let code = |error| refused(E::NoteCode { index: 0, error });
-    let reserved = read_edited(r#""code":[1,"#, r#""code":[4,"#);
-    assert_eq!(reserved, code(NoteCodeError::Reserved(4)));
+    let reserved = read_edited(r#""code":[1,"#, r#""code":[6,"#);
+    assert_eq!(reserved, code(NoteCodeError::Reserved(6)));
     let unknown = read_edited(r#""code":[1,"#, r#""code":[8,"#);
     assert_eq!(unknown, code(NoteCodeError::Unknown(8)));
     let repeat = read_edited(r#""index":[0,1,"#, r#""index":[0,0,"#);

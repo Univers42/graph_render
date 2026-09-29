@@ -29,6 +29,8 @@ pub struct Evidence {
     pub stress: Option<Value>,
     /// `oracle-fa2.json`: the networkx 3.6 `forceatlas2_layout` differential for FA2.
     pub fa2: Option<Value>,
+    /// `oracle-spectral.json`: the scipy differential for spectral and pivot MDS.
+    pub spectral: Option<Value>,
 }
 
 impl Evidence {
@@ -47,6 +49,7 @@ impl Evidence {
             layouts: evidence::read("oracle-layouts")?,
             stress: evidence::read("stress")?,
             fa2: evidence::read("oracle-fa2")?,
+            spectral: evidence::read("oracle-spectral")?,
         })
     }
 
@@ -59,6 +62,7 @@ impl Evidence {
             "oracle-layouts" => self.layouts.as_ref(),
             "stress" => self.stress.as_ref(),
             "oracle-fa2" => self.fa2.as_ref(),
+            "oracle-spectral" => self.spectral.as_ref(),
             _ => None,
         }
     }
@@ -164,5 +168,10 @@ pub fn oracle_diff(e: &Evidence, name: &str, functions: &[&str]) -> Result<Strin
     } else {
         format!(", {declared} declared divergences")
     };
+    if run["tolerance"] == Value::Bool(true) {
+        return Ok(format!(
+            "within measured ceiling of the oracle/{seeds} seeds ({cases} cases)"
+        ));
+    }
     Ok(format!("byte-equal/{seeds} seeds ({cases} cases{known})"))
 }

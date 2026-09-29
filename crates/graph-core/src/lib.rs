@@ -22,6 +22,7 @@ mod ids;
 mod index;
 pub mod layout;
 mod legend;
+mod linalg;
 mod neighborhood;
 mod records;
 pub mod registry;
@@ -42,6 +43,7 @@ pub use ids::{
 pub use index::{Stats, Topology, empty_model, index_model, nodes_equal};
 pub use layout::Geometry;
 pub use layout::grid::{Grid, GridParams};
+pub use layout::sugiyama::{Sugiyama, SugiyamaParams};
 pub use legend::{DatabaseCount, LegendCounts, TagCount, derive_legend};
 pub use neighborhood::{Neighborhood, neighborhood, neighborhood_edges};
 pub use records::{EdgeRecord, EdgeView, NodeRecord, NodeView};

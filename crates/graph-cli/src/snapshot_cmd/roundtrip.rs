@@ -3,12 +3,14 @@
 //! Each seed checks the grid pipeline's snapshot, every other registered layout's, and a
 //! contract exercise drawing every kind, adversarial floats and ids from the seed. Three
 //! layouts — grid, circular, packing — are also held to their own stated convention
-//! restated by hand ([`super::hand_oracles`]), which is the evidence `layout.grid`,
-//! `layout.circular.radial` and `layout.packing.circle` are gated on (tidy tree and
+//! restated by hand ([`super::hand_oracles`]), and the layered drawing to its structural
+//! invariants ([`super::dag`]), which is the evidence `layout.grid`,
+//! `layout.circular.radial`, `layout.packing.circle` and `layout.dag.sugiyama` are gated
+//! on (tidy tree and
 //! treemap are gated on `harness/oracle-layouts.mjs` instead: see
 //! `crate::capabilities::registry`).
 
-use super::{exercise, hand_oracles, pipeline, short_name};
+use super::{dag, exercise, hand_oracles, pipeline, short_name};
 use crate::evidence;
 use graph_contract::binary::Snapshot;
 use graph_core::{gate_node_count, registry};
@@ -32,6 +34,8 @@ struct Findings {
     circular: Vec<String>,
     /// Seeds whose circle packing breaks its own promise (finite, positive, tangent).
     packing: Vec<String>,
+    /// Seeds whose layered drawing breaks a structural invariant.
+    dag: Vec<String>,
     /// Exercise snapshots per notes case (`exercise::count_notes_cases`).
     notes: [u64; 5],
     /// Snapshots the sweep actually put through both faces, over every seed.
@@ -65,9 +69,15 @@ impl Findings {
     /// promises actually checked — so a layout swept by accident less is a failure.
     fn pass(&self, seeds: u32) -> bool {
         self.checked == snapshot_total(seeds)
-            && [&self.faces, &self.grid, &self.circular, &self.packing]
-                .into_iter()
-                .all(Vec::is_empty)
+            && [
+                &self.faces,
+                &self.grid,
+                &self.circular,
+                &self.packing,
+                &self.dag,
+            ]
+            .into_iter()
+            .all(Vec::is_empty)
             && self.notes.iter().all(|&c| c > 0)
     }
 }
@@ -116,6 +126,7 @@ fn body(seeds: u32, found: &Findings) -> serde_json::Value {
             "layout.grid": hand(found.grid.len()),
             "layout.circular.radial": hand(found.circular.len()),
             "layout.packing.circle": hand(found.packing.len()),
+            "layout.dag.sugiyama": hand(found.dag.len()),
         }
     })
 }
@@ -154,17 +165,19 @@ fn hand_oracle(name: &str, seed: u32, nodes: u32, snapshot: &Snapshot) -> Result
         "grid" => hand_oracles::grid(snapshot),
         "circular.radial" => hand_oracles::circular(seed, nodes, snapshot),
         "packing.circle" => hand_oracles::packing(snapshot),
+        "dag.sugiyama" => dag::invariants(snapshot),
         _ => Ok(()),
     }
 }
 
-/// Records a convention failure under the layout that owns it, so the ledger's three
-/// function rows stay the three it has always published.
+/// Records a convention failure under the layout that owns it, one ledger function row
+/// per hand-checked layout.
 fn convention(found: &mut Findings, name: &str, why: String) {
     match name {
         "grid" => found.grid.push(why),
         "circular.radial" => found.circular.push(why),
         "packing.circle" => found.packing.push(why),
+        "dag.sugiyama" => found.dag.push(why),
         _ => {}
     }
 }
@@ -199,6 +212,11 @@ fn write_findings(out: &mut String, seeds: u32, found: &Findings) {
             "  {name} on its stated conventions on {ok}/{seeds} seeds"
         );
     }
+    let dag_ok = u64::from(seeds) - found.dag.len() as u64;
+    let _ = writeln!(
+        out,
+        "  layout.dag.sugiyama on its structural invariants on {dag_ok}/{seeds} seeds"
+    );
     let cases = NOTES_CASES.iter().zip(found.notes);
     let drawn: Vec<String> = cases.map(|(case, n)| format!("{case} {n}")).collect();
     let _ = writeln!(
@@ -211,7 +229,8 @@ fn write_findings(out: &mut String, seeds: u32, found: &Findings) {
         .iter()
         .chain(&found.grid)
         .chain(&found.circular)
-        .chain(&found.packing);
+        .chain(&found.packing)
+        .chain(&found.dag);
     for line in all_failures.take(6) {
         let _ = writeln!(out, "  FAILED {line}");
     }

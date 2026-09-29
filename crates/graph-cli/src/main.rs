@@ -13,6 +13,7 @@ mod evidence;
 mod fingerprint;
 mod hashgate;
 mod oracle_fixtures;
+mod oracle_spectral;
 mod probe_report;
 mod runner;
 mod snapshot_cmd;
@@ -74,6 +75,21 @@ enum Command {
         #[arg(long)]
         fixtures: Option<PathBuf>,
     },
+    /// Writes the spectral/pivot-MDS differential's fixtures for `harness/oracle-spectral.py`.
+    EmitSpectralFixtures {
+        /// Number of seeds, 0..N.
+        #[arg(long, default_value_t = 1000, value_parser = seed_count())]
+        seeds: u32,
+        /// Output directory.
+        #[arg(long, default_value = "target/spectral-fixtures")]
+        out: PathBuf,
+    },
+    /// Checks the spectral differential's result against its ceilings and records it.
+    OracleSpectral {
+        /// Directory holding the fixtures and `spectral-result.json`.
+        #[arg(long, default_value = "target/spectral-fixtures")]
+        dir: PathBuf,
+    },
     /// Runs `harness/oracle-layouts.mjs` over the emitted fixtures (the d3-hierarchy arm).
     OracleLayouts {
         /// Fixtures directory; `target/oracle-fixtures` by default.
@@ -123,12 +139,26 @@ enum Command {
         #[arg(long, default_value_t = 8, value_parser = seed_count())]
         seeds: u32,
     },
-    /// Times the force layouts at the given node counts, refusing a size past a layout's
-    /// own registered `scale_ceiling`.
+    /// Wall time and Kruskal stress-1 of the Phase 6 layouts (or `--layout`) at the given
+    /// node counts, refusing a size past a layout's own registered `scale_ceiling`.
     Bench {
-        /// Comma-separated node counts; `220,10000,100000` is the phase gate's set.
-        #[arg(long, default_value = "220,10000,100000")]
-        n: String,
+        /// Node counts, comma separated; `220,10000,100000` is the phase gate's set.
+        #[arg(long, value_delimiter = ',', default_value = "220,10000,100000",
+              value_parser = clap::value_parser!(u32).range(1..=snapshot_cmd::MAX_NODES))]
+        n: Vec<u32>,
+        /// Registered layout ids; repeat for several. Default: the Phase 6 layouts.
+        #[arg(long)]
+        layout: Vec<String>,
+        /// Seed of the synthetic model.
+        #[arg(long, default_value_t = 0)]
+        seed: u32,
+        /// Run sizes past a layout's `scale_ceiling` too, labelled as such.
+        #[arg(long)]
+        past_ceiling: bool,
+        /// Also time the d3-force arm (`harness/stress-d3.mjs`) on the same graph, for
+        /// `layout.force.barnes_hut`.
+        #[arg(long)]
+        vs_d3: bool,
         /// Report which sizes each layout would run or refuse, and run none of them.
         #[arg(long)]
         dry_run: bool,
@@ -155,6 +185,8 @@ fn main() -> ExitCode {
         Command::OracleDiff { fixtures } => {
             oracle_fixtures::diff(&fixtures.unwrap_or_else(oracle_fixtures::default_out))
         }
+        Command::EmitSpectralFixtures { seeds, out } => oracle_spectral::emit(seeds, &out),
+        Command::OracleSpectral { dir } => oracle_spectral::ingest(&dir),
         Command::OracleLayouts { fixtures } => {
             oracle_fixtures::diff_layouts(&fixtures.unwrap_or_else(oracle_fixtures::default_out))
         }
@@ -174,6 +206,20 @@ fn main() -> ExitCode {
         Command::Roundtrip { seeds } => snapshot_cmd::roundtrip(seeds),
         Command::DeterminismProbe { out } => determinism_probe::run(&out),
         Command::Stress { oracle, seeds } => stress::run(&oracle, seeds),
-        Command::Bench { n, dry_run } => bench::run(&n, dry_run),
+        Command::Bench {
+            n,
+            layout,
+            seed,
+            past_ceiling,
+            vs_d3,
+            dry_run,
+        } => bench::run(&bench::Plan {
+            sizes: n,
+            layouts: layout,
+            seed,
+            past_ceiling,
+            vs_d3,
+            dry_run,
+        }),
     }
 }

@@ -165,6 +165,9 @@ fn force_record(id: &str) -> Option<(&'static str, Status)> {
         _ => None,
     }
 }
+/// Layouts held to `harness/oracle-spectral.py`'s scipy/networkx differential, to a
+/// measured ceiling rather than byte equality.
+const SCIPY_ORACLE_LAYOUTS: [&str; 2] = ["layout.spectral", "layout.mds.pivot"];
 
 /// A layout's row. Tidy tree and treemap are gated on `oracle-layouts` (the d3-hierarchy
 /// differential); grid, circular and packing are gated on `roundtrip`'s hand oracle,
@@ -177,6 +180,8 @@ fn layout(layout: &'static core::Capability) -> Capability {
         None => (
             if D3_ORACLE_LAYOUTS.contains(&layout.id) {
                 "oracle-layouts"
+            } else if SCIPY_ORACLE_LAYOUTS.contains(&layout.id) {
+                "oracle-spectral"
             } else {
                 "roundtrip"
             },

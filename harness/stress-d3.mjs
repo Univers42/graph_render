@@ -4,7 +4,8 @@
 //
 // Reads one case per input line — `{"seed", "n", "edges": [[lo,hi], ...]}` — runs a real
 // `d3-force@3.0.0` simulation of that graph with the FROZEN force set, and writes the
-// positions it reached, one line per input line, in order.
+// positions it reached and the wall time of that case (simulation setup plus the 112
+// ticks, `ms`), one line per input line, in order.
 //
 // The frozen set is graph-core's own `ForceParams::default()`, restated from
 // `crates/graph-core/src/layout/force/params.rs` (which cites each value to its source
@@ -132,10 +133,12 @@ for (const [number, line] of lines.entries()) {
   const { seed, n, edges } = input;
   if (!Number.isInteger(n) || n < 0) fail(`case ${number}: no node count`);
   if (!Array.isArray(edges)) fail(`case ${number}: edges is not an array`);
+  const started = performance.now();
   const { x, y } = runD3(n, edges);
+  const ms = performance.now() - started;
   // The harness is a JS program and its arithmetic is f64 throughout, so these are
   // written with full round-trip precision: graph-core widens them to f64 and both
   // arms are then correlated in one type, with no decimal truncation in between.
-  out.push(JSON.stringify({ seed, x, y }));
+  out.push(JSON.stringify({ seed, x, y, ms }));
 }
 writeFileSync(outputPath, out.length === 0 ? "" : `${out.join("\n")}\n`);

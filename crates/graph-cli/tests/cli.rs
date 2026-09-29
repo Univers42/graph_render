@@ -13,9 +13,10 @@ fn gates_dir() -> std::path::PathBuf {
     std::env::temp_dir().join(format!("gm-cli-gates-{}", std::process::id()))
 }
 
-const KNOBS: [&str; 5] = [
+const KNOBS: [&str; 6] = [
     "GM_MUTATE_REFERENCE_DEGREE",
     "GM_MUTATE_GRID_SPACING",
+    "GM_MUTATE_SUGIYAMA_LAYER_SPACING",
     "GM_MUTATE_NODE_COUNT",
     "GM_MUTATE_FORCE_THETA",
     "GM_MUTATE_FA2_SCALING_RATIO",
@@ -48,6 +49,7 @@ fn hashgate_passes_on_an_honest_run() {
     assert_eq!(honest.status.code(), Some(0), "{}", stdout(&honest));
     assert!(stdout(&honest).contains("  topology: 4-way equal on 4/4 seeds"));
     assert!(stdout(&honest).contains("  layout.grid: 4-way equal on 4/4 seeds"));
+    assert!(stdout(&honest).contains("  layout.dag.sugiyama: 4-way equal on 4/4 seeds"));
     assert!(stdout(&honest).contains("  4-way equal on 4/4 seeds"));
     assert!(stdout(&honest).contains("  native run 1  digest "));
     assert!(!stdout(&honest).contains("DIVERGED"));
@@ -102,13 +104,13 @@ fn each_force_layouts_own_control_goes_red_on_only_its_stage() {
     const SEEDS: &str = "40";
     for (knob, value, stage, record_name) in [
         (
-            KNOBS[3],
+            KNOBS[4],
             "0.5",
             "layout.force.barnes_hut",
             "hashgate-control-force-theta",
         ),
         (
-            KNOBS[4],
+            KNOBS[5],
             "3",
             "layout.forceatlas2",
             "hashgate-control-fa2-scaling-ratio",
@@ -179,8 +181,24 @@ fn each_negative_control_goes_red_on_its_own_stage() {
     assert!(stdout(&spacing).contains("  DIVERGED layout.grid 0:"));
     let control = record("hashgate-control-grid-spacing");
     assert!(control.contains("\"pass\": false"), "{control}");
+    assert!(stdout(&spacing).contains("  layout.dag.sugiyama: 4-way equal on 4/4 seeds"));
 
-    for (knob, typo) in [(KNOBS[0], "nine"), (KNOBS[1], "wide"), (KNOBS[1], "0")] {
+    let layers = graph_cli(&["hashgate", "--seeds", "4"], Some((KNOBS[2], "2")));
+    assert_eq!(layers.status.code(), Some(1), "{}", stdout(&layers));
+    assert!(stdout(&layers).contains("  topology: 4-way equal on 4/4 seeds"));
+    assert!(stdout(&layers).contains("  layout.grid: 4-way equal on 4/4 seeds"));
+    assert!(stdout(&layers).contains("  layout.dag.sugiyama: 4-way equal on 0/4 seeds"));
+    assert!(stdout(&layers).contains("  DIVERGED layout.dag.sugiyama 0:"));
+    let control = record("hashgate-control-sugiyama-layer-spacing");
+    assert!(control.contains("\"pass\": false"), "{control}");
+
+    for (knob, typo) in [
+        (KNOBS[0], "nine"),
+        (KNOBS[1], "wide"),
+        (KNOBS[1], "0"),
+        (KNOBS[2], "tall"),
+        (KNOBS[2], "0"),
+    ] {
         let run = graph_cli(&["hashgate", "--seeds", "4"], Some((knob, typo)));
         assert_eq!(
             run.status.code(),
@@ -204,7 +222,7 @@ fn each_negative_control_goes_red_on_its_own_stage() {
 /// function of the topology at all).
 #[test]
 fn the_node_count_control_goes_red_on_every_stage_it_touches() {
-    let grown = graph_cli(&["hashgate", "--seeds", "4"], Some((KNOBS[2], "1")));
+    let grown = graph_cli(&["hashgate", "--seeds", "4"], Some((KNOBS[3], "1")));
     assert_eq!(grown.status.code(), Some(1), "{}", stdout(&grown));
     for stage in [
         "topology",
@@ -213,8 +231,11 @@ fn the_node_count_control_goes_red_on_every_stage_it_touches() {
         "layout.treemap.squarified",
         "layout.circular.radial",
         "layout.packing.circle",
+        "layout.spectral",
+        "layout.mds.pivot",
         "layout.force.barnes_hut",
         "layout.forceatlas2",
+        "layout.dag.sugiyama",
     ] {
         assert!(
             stdout(&grown).contains(&format!("  {stage}: 4-way equal on 0/4 seeds")),
@@ -228,7 +249,7 @@ fn the_node_count_control_goes_red_on_every_stage_it_touches() {
         control.contains("\"mutation\": \"GM_MUTATE_NODE_COUNT\""),
         "{control}"
     );
-    let bad = graph_cli(&["hashgate", "--seeds", "4"], Some((KNOBS[2], "-1")));
+    let bad = graph_cli(&["hashgate", "--seeds", "4"], Some((KNOBS[3], "-1")));
     assert_eq!(
         bad.status.code(),
         Some(2),
@@ -337,10 +358,12 @@ fn hashgate_arm_prints_one_line_per_stage_and_seed() {
     let arm = graph_cli(&["hashgate-arm", "--seeds", "3"], None);
     assert_eq!(arm.status.code(), Some(0));
     let lines: Vec<String> = stdout(&arm).lines().map(str::to_owned).collect();
-    assert_eq!(lines.len(), 24, "8 stages * 3 seeds");
+    assert_eq!(lines.len(), 33, "11 stages * 3 seeds");
     assert!(lines[2].starts_with("topology 2 ") && lines[2].len() == "topology 2 ".len() + 64);
-    let last = "layout.forceatlas2 2 ";
-    assert!(lines[23].starts_with(last) && lines[23].len() == last.len() + 64);
+    let grid = "layout.grid 2 ";
+    assert!(lines[5].starts_with(grid) && lines[5].len() == grid.len() + 64);
+    let last = "layout.dag.sugiyama 2 ";
+    assert!(lines[32].starts_with(last) && lines[32].len() == last.len() + 64);
 }
 
 #[test]
@@ -348,11 +371,11 @@ fn capabilities_needs_a_flag_and_refuses_gated_rows_no_recorded_run_backs() {
     assert_eq!(graph_cli(&["capabilities"], None).status.code(), Some(2));
     let check = graph_cli(&["capabilities", "--check"], None);
     assert_eq!(check.status.code(), Some(1), "{}", stdout(&check));
-    assert!(stdout(&check).contains("capabilities --check: 15 rows, 26 problems"));
+    assert!(stdout(&check).contains("capabilities --check: 18 rows, 32 problems"));
     let json = graph_cli(&["capabilities", "--json"], None);
     assert_eq!(json.status.code(), Some(0));
     let rows: serde_json::Value = serde_json::from_str(&stdout(&json)).expect("json");
-    assert_eq!(rows.as_array().map(Vec::len), Some(15));
+    assert_eq!(rows.as_array().map(Vec::len), Some(18));
     assert!(
         rows[0]["oracle_diff"]
             .as_str()

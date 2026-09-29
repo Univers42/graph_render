@@ -41,14 +41,18 @@ pub fn ours(seeds: u32) -> Result<Vec<Case>, String> {
             let topology = index_model(&nodes, &edges).map_err(|e| format!("seed {seed}: {e}"))?;
             let geometry = BarnesHut::run(&topology, &ForceParams::default())
                 .map_err(|e| format!("seed {seed}: {e}"))?;
-            let n = topology.node_count() as usize;
-            Ok(Case {
-                seed,
-                edges: simple_edges(&topology),
-                positions: points(n, &geometry),
-            })
+            Ok(case(seed, &topology, &geometry))
         })
         .collect()
+}
+
+/// One case from a topology and the force layout's geometry over it.
+pub fn case(seed: u32, topology: &graph_core::Topology, geometry: &Geometry) -> Case {
+    Case {
+        seed,
+        edges: simple_edges(topology),
+        positions: points(topology.node_count() as usize, geometry),
+    }
 }
 
 /// Every simple edge as `[lo, hi]` with `lo < hi`, first by ascending raw edge index —
@@ -58,18 +62,16 @@ pub fn ours(seeds: u32) -> Result<Vec<Case>, String> {
 /// the direction a record happened to carry means nothing here.
 fn simple_edges(t: &graph_core::Topology) -> Vec<[u32; 2]> {
     let edges = t.edges();
-    let mut seen: Vec<[u32; 2]> = Vec::new();
+    let mut seen = std::collections::HashSet::with_capacity(t.edge_count() as usize);
+    let mut simple = Vec::with_capacity(t.edge_count() as usize);
     for e in 0..t.edge_count() as usize {
         let (a, b) = (edges.source[e], edges.target[e]);
-        if a == b {
-            continue;
-        }
         let pair = [a.min(b), a.max(b)];
-        if !seen.contains(&pair) {
-            seen.push(pair);
+        if a != b && seen.insert(pair) {
+            simple.push(pair);
         }
     }
-    seen
+    simple
 }
 
 /// A force layout's point geometry as `f64`, widened from the `f32` the snapshot holds,
@@ -85,7 +87,8 @@ fn points(n: usize, geometry: &Geometry) -> Vec<(f64, f64)> {
         .collect()
 }
 
-/// Runs `harness/stress-d3.mjs` under Node over `cases` and reads its positions back.
+/// Runs `harness/stress-d3.mjs` under Node over `cases` and reads back its positions and
+/// the wall time of each case's 112 ticks.
 ///
 /// Node is in the toolchain image; `d3-force` must be resolvable from the workspace
 /// root (`node_modules`, or `NODE_PATH`; the script falls back to `createRequire`
@@ -93,30 +96,17 @@ fn points(n: usize, geometry: &Geometry) -> Vec<(f64, f64)> {
 /// run" naming the module — never a silent pass, which would be the worst possible
 /// outcome for a quality gate: a gate that cannot reach its baseline would otherwise
 /// report a margin against nothing.
-pub fn d3(scratch: &Path, cases: &[Case]) -> Result<Vec<Case>, String> {
+pub fn d3(scratch: &Path, cases: &[Case]) -> Result<Vec<(Case, f64)>, String> {
     let root = crate::runner::workspace_root();
     let input = scratch.join("stress-in.jsonl");
     let output = scratch.join("stress-d3.jsonl");
     std::fs::write(&input, input_text(cases)).map_err(|e| format!("{}: {e}", input.display()))?;
-    let done = std::process::Command::new("node")
-        .current_dir(&root)
+    let mut node = std::process::Command::new("node");
+    node.current_dir(&root)
         .arg(root.join("harness").join("stress-d3.mjs"))
         .arg(&input)
-        .arg(&output)
-        .output()
-        .map_err(|e| {
-            format!("spawning node: {e} (is it on PATH? `node` is in the toolchain image)")
-        })?;
-    if !done.status.success() {
-        return Err(format!(
-            "node exited {}: {}",
-            done.status,
-            String::from_utf8_lossy(&done.stderr)
-                .lines()
-                .next()
-                .unwrap_or("(no message)")
-        ));
-    }
+        .arg(&output);
+    crate::runner::run_lines(&mut node)?;
     let text =
         std::fs::read_to_string(&output).map_err(|e| format!("{}: {e}", output.display()))?;
     let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
@@ -141,11 +131,13 @@ pub fn d3(scratch: &Path, cases: &[Case]) -> Result<Vec<Case>, String> {
                     case.positions.len()
                 ));
             }
-            Ok(Case {
+            let ms = value["ms"].as_f64().ok_or("the d3 arm reported no time")?;
+            let theirs = Case {
                 seed: case.seed,
                 edges: case.edges.clone(),
                 positions,
-            })
+            };
+            Ok((theirs, ms))
         })
         .collect()
 }

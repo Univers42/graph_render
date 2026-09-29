@@ -10,7 +10,11 @@ pub mod force;
 pub mod forceatlas2;
 pub mod grid;
 pub mod hierarchy;
+pub mod pivot_mds;
 pub mod planarity;
+pub mod spectral;
+pub mod spectral_stage;
+pub mod sugiyama;
 pub mod tidy_tree;
 pub mod treemap;
 

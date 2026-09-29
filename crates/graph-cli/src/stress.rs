@@ -25,7 +25,7 @@
 //! `<gates>/stress.json`, which is the record `layout.force.barnes_hut`'s ledger row
 //! names; a row may only stand as `gated` with it present and current.
 
-mod cases;
+pub(crate) mod cases;
 mod metric;
 
 use crate::evidence::Stamp;
@@ -83,7 +83,9 @@ fn collect(seeds: u32) -> Result<Vec<Seed>, String> {
     let ours: Vec<Case> = cases::ours(seeds)?;
     let scratch = std::env::temp_dir().join(format!("gm-stress-{}", std::process::id()));
     std::fs::create_dir_all(&scratch).map_err(|e| format!("{}: {e}", scratch.display()))?;
-    let theirs = cases::d3(&scratch, &ours)?;
+    let theirs = cases::d3(&scratch, &ours);
+    std::fs::remove_dir_all(&scratch).map_err(|e| format!("{}: {e}", scratch.display()))?;
+    let theirs: Vec<Case> = theirs?.into_iter().map(|(case, _)| case).collect();
     ours.iter()
         .zip(&theirs)
         .map(|(ours, theirs)| {

@@ -22,10 +22,16 @@ fn layout_names_offers_every_registered_layout_once_by_both_of_its_names() {
             "circular.radial",
             "layout.packing.circle",
             "packing.circle",
+            "layout.spectral",
+            "spectral",
+            "layout.mds.pivot",
+            "mds.pivot",
             "layout.force.barnes_hut",
             "force.barnes_hut",
             "layout.forceatlas2",
             "forceatlas2",
+            "layout.dag.sugiyama",
+            "dag.sugiyama",
         ]
     );
     let mut once = names.clone();
@@ -59,6 +65,8 @@ fn each_layout_name_runs_the_same_pipeline_and_an_unregistered_one_names_all_the
         ("layout.treemap.squarified", "treemap.squarified"),
         ("layout.circular.radial", "circular.radial"),
         ("layout.packing.circle", "packing.circle"),
+        ("layout.spectral", "spectral"),
+        ("layout.mds.pivot", "mds.pivot"),
     ] {
         let by_short = pipeline(1, 50, short).expect("runs by short name");
         let by_id = pipeline(1, 50, id).expect("runs by full id");
@@ -83,6 +91,11 @@ fn both_faces_round_trip_on_the_grid_and_on_the_exercise() {
             .snapshot;
         assert_eq!(faces_agree(&grid), Ok(()), "grid seed {seed}");
         assert_eq!(hand_oracles::grid(&grid), Ok(()), "grid seed {seed}");
+        let layered = pipeline(seed, gate_node_count(seed), "dag.sugiyama")
+            .expect("runs")
+            .snapshot;
+        assert_eq!(faces_agree(&layered), Ok(()), "layered seed {seed}");
+        assert_eq!(dag::invariants(&layered), Ok(()), "layered seed {seed}");
         let exercise = exercise::snapshot(seed).expect("valid");
         assert_eq!(faces_agree(&exercise), Ok(()), "exercise seed {seed}");
     }

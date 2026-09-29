@@ -29,6 +29,8 @@ fn the_registry_covers_every_oracle_function_once_its_ids_are_unique() {
             ("stress", r.id, Status::Implemented)
         } else if r.id == "layout.forceatlas2" {
             ("oracle-fa2", r.id, Status::Implemented)
+        } else if r.id == "layout.spectral" || r.id == "layout.mds.pivot" {
+            ("oracle-spectral", r.id, Status::Gated)
         } else {
             ("roundtrip", r.id, Status::Gated)
         };

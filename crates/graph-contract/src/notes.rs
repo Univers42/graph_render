@@ -9,11 +9,16 @@
 //! [`SNAPSHOT_WIDE`] — `u32::MAX`, written `4294967295` — for a note about the whole
 //! snapshot.
 //!
-//! **A closed set**, like the geometry tags: codes 1-3 are implemented; 4-6 are allocated
-//! to later phases and refused as [`NoteCodeError::Reserved`] (they are not
-//! [`NoteCode`] variants, so no writer can emit one); anything else is
+//! **A closed set**, like the geometry tags: codes 1-5 are implemented; 6 is allocated
+//! to a later phase and refused as [`NoteCodeError::Reserved`] (it is not a
+//! [`NoteCode`] variant, so no writer can emit it); anything else is
 //! [`NoteCodeError::Unknown`]. Turning a reserved code on in a later phase is a contract
 //! **minor bump**, because a 0.3 reader refuses it.
+//!
+//! Codes 4 (`dag.dummy_budget_exceeded`) and 5 (`dag.edge_reversed`) were reserved for
+//! Phase 5 and are activated here, by that phase, exactly as reserved (Phase 5 deviation:
+//! `docs/decisions/sugiyama-heuristics.md`) — the phase that needs them turns them on
+//! rather than waiting on an integration step for a change confined to this file.
 //!
 //! **Canonical**: strictly ascending by `(code, index)`, a total order, so a repeat is
 //! refused. A producer sorts before building; [`Snapshot::new`](crate::binary::Snapshot::new) checks the order and
@@ -40,12 +45,18 @@ pub enum NoteCode {
     /// `packing.approximate`: circle packing fell back to its approximation, which is
     /// not guaranteed tangent or non-overlapping; the index is [`SNAPSHOT_WIDE`].
     PackingApproximate = 3,
+    /// `dag.dummy_budget_exceeded`: a Sugiyama edge spanning more than one layer was
+    /// left straight and unrouted because the dummy-vertex budget ran out; the index is
+    /// the edge's position.
+    DummyBudgetExceeded = 4,
+    /// `dag.edge_reversed`: a Sugiyama edge was drawn head to tail to break a cycle; the
+    /// index is the edge's position.
+    EdgeReversed = 5,
 }
 
-/// Codes allocated to later phases and refused as reserved: `4`
-/// `dag.dummy_budget_exceeded` and `5` `dag.edge_reversed` (Phase 5), `6`
-/// `post.route_fallback` (Phase 8).
-pub const RESERVED_NOTE_CODES: [u32; 3] = [4, 5, 6];
+/// Codes allocated to a later phase and refused as reserved: `6` `post.route_fallback`
+/// (Phase 8).
+pub const RESERVED_NOTE_CODES: [u32; 1] = [6];
 
 /// The index of a note about the whole snapshot rather than one edge: `u32::MAX`, on the
 /// JSON face the literal `4294967295`.
@@ -71,10 +82,12 @@ impl fmt::Display for NoteCodeError {
 
 impl NoteCode {
     /// Every implemented code, ascending.
-    pub const ALL: [Self; 3] = [
+    pub const ALL: [Self; 5] = [
         Self::CycleEdgeDropped,
         Self::ExtraParentDropped,
         Self::PackingApproximate,
+        Self::DummyBudgetExceeded,
+        Self::EdgeReversed,
     ];
 
     /// The code as it goes on the wire.
@@ -88,7 +101,9 @@ impl NoteCode {
             1 => Ok(Self::CycleEdgeDropped),
             2 => Ok(Self::ExtraParentDropped),
             3 => Ok(Self::PackingApproximate),
-            4..=6 => Err(NoteCodeError::Reserved(code)),
+            4 => Ok(Self::DummyBudgetExceeded),
+            5 => Ok(Self::EdgeReversed),
+            6 => Err(NoteCodeError::Reserved(code)),
             other => Err(NoteCodeError::Unknown(other)),
         }
     }
@@ -99,6 +114,8 @@ impl NoteCode {
             Self::CycleEdgeDropped => "hierarchy.cycle_edge_dropped",
             Self::ExtraParentDropped => "hierarchy.extra_parent_dropped",
             Self::PackingApproximate => "packing.approximate",
+            Self::DummyBudgetExceeded => "dag.dummy_budget_exceeded",
+            Self::EdgeReversed => "dag.edge_reversed",
         }
     }
 }

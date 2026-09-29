@@ -1,0 +1,16 @@
+{
+  "about": "A 4-layer chain a->b->c->d plus two skip edges, a->c (span 2, one dummy) and a->d (span 3, two dummies), so a single source arc owns two different dummy chains of different lengths.",
+  "nodes": [
+    { "id": "a" },
+    { "id": "b" },
+    { "id": "c" },
+    { "id": "d" }
+  ],
+  "edges": [
+    { "id": "ab", "source": "a", "target": "b" },
+    { "id": "bc", "source": "b", "target": "c" },
+    { "id": "cd", "source": "c", "target": "d" },
+    { "id": "ac", "source": "a", "target": "c" },
+    { "id": "ad", "source": "a", "target": "d" }
+  ]
+}

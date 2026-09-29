@@ -126,10 +126,18 @@ fn the_mutation_variables_parse_strictly_and_one_at_a_time() {
         (REFERENCE_DEGREE, 2.5)
     );
     assert_eq!(spacing.control, Some(Knob::GridSpacing));
+    assert_eq!(h.sugiyama, SugiyamaParams::default());
+    let layers = setting(env(&[("GM_MUTATE_SUGIYAMA_LAYER_SPACING", "3.5")])).expect("parses");
+    assert_eq!(layers.sugiyama.layer_spacing, 3.5);
+    assert_eq!(
+        (layers.reference_degree, layers.grid, layers.control),
+        (REFERENCE_DEGREE, h.grid, Some(Knob::SugiyamaLayerSpacing))
+    );
     let nodes = setting(env(&[("GM_MUTATE_NODE_COUNT", " 1 ")])).expect("parses");
     assert_eq!(nodes.extra_nodes, 1);
     assert_eq!(nodes.control, Some(Knob::NodeCount));
-    let bad: [&'static [(&str, &str)]; 4] = [
+    let bad: [&'static [(&str, &str)]; 5] = [
+        &[("GM_MUTATE_SUGIYAMA_LAYER_SPACING", "tall")],
         &[("GM_MUTATE_REFERENCE_DEGREE", "nine")],
         &[("GM_MUTATE_REFERENCE_DEGREE", "")],
         &[("GM_MUTATE_GRID_SPACING", "wide")],
@@ -158,6 +166,7 @@ fn each_knob_names_its_own_variable_and_record() {
         [
             "GM_MUTATE_REFERENCE_DEGREE",
             "GM_MUTATE_GRID_SPACING",
+            "GM_MUTATE_SUGIYAMA_LAYER_SPACING",
             "GM_MUTATE_NODE_COUNT",
             "GM_MUTATE_FORCE_THETA",
             "GM_MUTATE_FA2_SCALING_RATIO"
@@ -168,6 +177,7 @@ fn each_knob_names_its_own_variable_and_record() {
         [
             "hashgate-control-reference-degree",
             "hashgate-control-grid-spacing",
+            "hashgate-control-sugiyama-layer-spacing",
             "hashgate-control-node-count",
             "hashgate-control-force-theta",
             "hashgate-control-fa2-scaling-ratio"
@@ -250,13 +260,16 @@ fn stage_bytes_are_the_registered_pipeline_and_the_reference_and_spacing_knobs_m
     let ids: Vec<&str> = stages.iter().map(|(id, _)| *id).collect();
     assert_eq!(ids, STAGES);
     let (topology, layout) = (stages[0].1.clone(), stages[1].1.clone());
-    let grid = graph_core::registry::find(stages[1].0).expect("registered");
     let (nodes, edges) = seeded_model(4, gate_node_count(4), REFERENCE_DEGREE);
-    let registered = graph_core::run_with(&nodes, &edges, grid.id, grid.run).expect("runs");
-    assert_eq!(
-        (&registered.topology, registered.snapshot.to_bytes()),
-        (&topology, layout.clone())
-    );
+    for (id, bytes) in &stages[1..] {
+        let layout = graph_core::registry::find(id).expect("registered");
+        let registered = graph_core::run_with(&nodes, &edges, layout.id, layout.run).expect("runs");
+        assert_eq!(
+            (&registered.topology, &registered.snapshot.to_bytes()),
+            (&topology, bytes),
+            "{id}"
+        );
+    }
     let degree = Setting {
         reference_degree: REFERENCE_DEGREE + 1,
         ..honest()
@@ -268,6 +281,10 @@ fn stage_bytes_are_the_registered_pipeline_and_the_reference_and_spacing_knobs_m
         moved[3].1, stages[3].1,
         "treemap reads node weight, so the reference degree moves it too"
     );
+    assert_eq!(
+        moved[DAG].1, stages[DAG].1,
+        "the layered drawing ignores weights"
+    );
     let spacing = Setting {
         grid: GridParams { spacing: 2.0 },
         ..honest()
@@ -275,6 +292,30 @@ fn stage_bytes_are_the_registered_pipeline_and_the_reference_and_spacing_knobs_m
     let spaced = stage_bytes(4, &spacing).expect("runs");
     assert_eq!(spaced[0].1, topology);
     assert_ne!(spaced[1].1, layout);
+    assert_eq!(spaced[DAG].1, stages[DAG].1);
+}
+
+/// Where `layout.dag.sugiyama` sits in [`STAGES`].
+const DAG: usize = STAGE_COUNT - 1;
+
+#[test]
+fn the_layer_spacing_knob_moves_only_the_layered_drawing_and_zero_is_refused() {
+    let stages = stage_bytes(4, &honest()).expect("runs");
+    assert_eq!(stages[DAG].0, "layout.dag.sugiyama");
+    let layers = Setting {
+        sugiyama: SugiyamaParams { layer_spacing: 2.0 },
+        ..honest()
+    };
+    let moved = stage_bytes(4, &layers).expect("runs");
+    for (index, (moved, honest)) in moved.iter().zip(&stages).enumerate() {
+        assert_eq!(moved.1 != honest.1, index == DAG, "{}", moved.0);
+    }
+    let flat = Setting {
+        sugiyama: SugiyamaParams { layer_spacing: 0.0 },
+        ..honest()
+    };
+    let err = stage_bytes(4, &flat).expect_err("zero layer spacing");
+    assert_eq!(err, "parameter layer_spacing: finite and above 0");
 }
 
 #[test]

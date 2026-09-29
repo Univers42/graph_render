@@ -10,9 +10,17 @@ use crate::layout::Geometry;
 use crate::layout::force::BarnesHut;
 use crate::layout::forceatlas2::ForceAtlas2;
 use crate::layout::grid::Grid;
-use crate::layout::{circle_packing, circular, tidy_tree, treemap};
+use crate::layout::sugiyama::Sugiyama;
+use crate::layout::{circle_packing, circular, spectral_stage, tidy_tree, treemap};
 use crate::stage::{Stage, StageError};
 use graph_contract::geometry::{EdgeGeometryKind, NodeGeometryKind};
+
+mod force;
+mod spectral;
+use force::{BARNES_HUT, FA2};
+pub use force::{FA2_CEILING, FORCE_CEILING};
+use spectral::{PIVOT_MDS, SPECTRAL};
+pub use spectral::{PIVOT_MDS_CEILING, SPECTRAL_CEILING};
 
 /// What the ledger says about a layout. Every field is required.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -202,124 +210,34 @@ docs/decisions/planarity-fallback.md). Ponytail (scale_ceiling): labelled, time-
 measured at the ceiling itself — see PACKING_CEILING's derivation.",
 };
 
-/// Node count past which `layout.force.barnes_hut` stops being usable, and why it is
-/// this one.
-///
-/// **Time-bound, measured, not memory-bound** (`docs/measurements/phase06-force.md`;
-/// reproduce with `cargo run --release --example force_dump -- seed 0 <n> barnes_hut`,
-/// which times `Stage::run` only). Natively, release, x86_64, inside the toolchain
-/// image, at 220 nodes / 329 edges 17.15 ms, 10 000 / 15 474 edges 2 271.35 ms, and
-/// 100 000 / 154 978 edges **46 781.60 ms**. Theta-approximated many-body is
-/// `O(n log n)` per tick and there are a fixed 112 of them, so 100 000 sits inside a
-/// 60-second budget and 200 000 — extrapolated, *not* run, because it is itself
-/// impractically slow — lands near 110 s and past it. 100 000 is round and stated at
-/// the size actually measured.
-///
-/// Ponytail (scale_ceiling): the extrapolation past the measured point is an `O(n log n)`
-/// reading of two ratios (45x nodes -> 132x time; 10x nodes -> 20.6x time, the latter
-/// above `n log n`'s own ~12x because quadtree depth and collide's fixed-radius
-/// neighbour queries both grow with n), not a measurement at 200 000. Unlike the grid's
-/// and the hierarchy layouts' ceilings, this one is *not* a memory wall and is *not*
-/// projected onto wasm32's 4 GiB: a caller inside wasm32 gets the same time curve in a
-/// slower machine, with no new refusal to detect it by. The `u32` index space binds
-/// far later (2^32 nodes).
-pub const FORCE_CEILING: u64 = 100_000;
+/// Layered-vertex count past which `layout.dag.sugiyama` routes no more long arcs: the
+/// reference's own `_DUMMY_BUDGET` (`SciGraphs/.../hierarchical.py:7`).
+pub const SUGIYAMA_CEILING: u64 = 200_000;
 
-/// Node count past which `layout.forceatlas2` stops being usable, and why it is this
-/// one — two orders of magnitude below [`FORCE_CEILING`], and for the same structural
-/// reason the two ceilings differ at all.
-///
-/// **Time-bound, measured** (`docs/measurements/phase06-force.md`, same command with
-/// `fa2`): 220 / 329 edges 6.58 ms, 1 000 / 1 541 edges 131.53 ms, 2 000 / 3 075 edges
-/// 524.82 ms, 5 000 / 7 721 edges 3 301.05 ms, 10 000 / 15 474 edges **13 522.24 ms**.
-/// The 5 000 -> 10 000 step is 4.09x for exactly 2x the nodes: this is a clean `O(n^2)`
-/// (networkx 3.6's dense all-pairs repulsion, ported verbatim — there is no spatial
-/// approximation in the algorithm being ported, unlike Barnes-Hut's theta-tree). Under a
-/// 30-second budget, `10 000 * sqrt(30 / 13.522) = 14 880`, rounded down to two figures
-/// and to a round 14 000. 14 000 is *not* run: 13.5 s is already the slowest thing this
-/// branch measures, and the point is the shape, not the digit.
-///
-/// Ponytail (scale_ceiling): the projection past the last measured point assumes the
-/// `O(n^2)` the two measured ratios support (3.97x and 4.09x for 2x nodes) holds at
-/// larger n. It is the *algorithm's* cost, not this port's: `repulsion()` visits each
-/// unordered pair once and never materialises an `n x n` matrix, so this is a time
-/// ceiling and not a memory one. Past it nothing refuses; the layout keeps returning
-/// finite geometry, just for tens of seconds and growing quadratically, so a caller must
-/// apply its own timeout — the honest ceiling is a budget, and a budget needs a
-/// timeout to be real.
-pub const FA2_CEILING: u64 = 14_000;
-
-const BARNES_HUT: Metadata = Metadata {
+const SUGIYAMA: Metadata = Metadata {
     tier: 1,
     stage: "layout",
     nodes: NodeGeometryKind::Point,
-    edges: EdgeGeometryKind::Line,
-    oracle: "d3-force@3.0.0 src/{manyBody,link,center,collide}.js — a port of the frozen force \
-    set (theta 0.9, charge -90, distanceMax 520, linkDistance 60, collideRadius 16, alphaDecay \
-    0.06, velocityDecay 0.42) at TICKS=112, in Jacobi/gather form with a counter-based jiggle; \
-    differentially compared by the d3-force arm of harness/oracle-layouts.mjs over >=1000 seeds. \
-    Identity is NOT claimed and cannot be: link and collide are Jacobi gathers where d3 scatters \
-    in visit order, and a force simulation amplifies a 1-ULP difference into a different \
-    picture, so the gate is the stress metric (Pearson hop/euclid correlation over 32 max-min \
-    pivots, margin -0.05 vs d3) — 'different, but not worse', measured in \
-    docs/measurements/phase06-stress.md",
-    complexity: "O(n log n) per tick x TICKS=112, so O(112 n log n) overall; collide's \
-    fixed-radius neighbour query and the quadtree's depth growth sit on top of the \
-    many-body term's own n log n",
-    scale_ceiling: FORCE_CEILING,
-    degradation: "past the ceiling there is no refusal and no trap: the layout still returns \
-    finite geometry, it just takes longer than a 60-second budget and keeps growing — the caller \
-    must apply its own timeout, exactly as at the ceiling itself. A non-finite position (D9) \
-    refuses with StageError::NonFinite rather than reaching the snapshot",
-    ponytail: "force layouts are CHAOTIC: the same graph with one node added or removed is a \
-    different picture, not a perturbed one, and there is no failing input narrower than 'any \
-    topology change'. Direction: cosmetic-but-surprising, never silently wrong — this layout is \
-    graded on the stress metric, not on visual stability with the input. Escape hatch: a fixed \
-    seed, and this stage's own determinism (the same topology run twice settles to the same \
-    geometry every time, 4-way hash equal). Ponytail (theta): the opening angle trades accuracy \
-    for speed; failing input is two dense well-separated clusters whose combined bounding box is \
-    small relative to a far node's distance from them, where the tree treats a whole cluster as \
-    one point mass too eagerly; direction is OVER-CLUMPING (distant structure collapsing \
-    together), and theta is a frozen engine constant here, not a per-call knob. \
-    Ponytail (scale_ceiling): time-bound and measured at 100 000 only; 200 000 is an O(n log n) \
-    extrapolation, not a run",
-};
-
-const FA2: Metadata = Metadata {
-    tier: 1,
-    stage: "layout",
-    nodes: NodeGeometryKind::Point,
-    edges: EdgeGeometryKind::Line,
-    oracle: "networkx 3.6 forceatlas2_layout (networkx/drawing/layout.py:1604-1875) — a port of \
-    the whole function at its default configuration (linlog=False, distributed_action=False, \
-    strong_gravity=False, adjust_sizes=False, dim=2, weight=None), with swing/traction carried \
-    cumulatively across iterations as the reference itself does; differentially compared against \
-    the real library in the ge-python-oracle image (pinned networkx 3.6, numpy, scipy 1.16.2) \
-    over >=1000 seeds, in harness/oracle-fa2.py. Two deviations from the reference, both stated \
-    rather than hidden: initial positions come from graph-core's own seeded Mulberry32 instead \
-    of numpy's global RNG (D5 — there is no global RNG to reach for), and an exact coincidence \
-    (d2 == 0) is nudged apart by the counter hash so no Infinity/NaN factor can reach a node \
-    (D9), which the reference's dense form has no guard for",
-    complexity: "O(n^2) per iteration x max_iter=100, so O(100 n^2) worst case; attraction is \
-    O(m), gravity is O(n), and neither changes the shape",
-    scale_ceiling: FA2_CEILING,
-    degradation: "past the ceiling there is no refusal and no trap either: the dense all-pairs \
-    repulsion still returns finite geometry, it just takes tens of seconds and keeps growing \
-    quadratically (13.5 s measured at 10 000 nodes), so the caller must apply its own timeout. \
-    A non-finite position (D9) refuses with StageError::NonFinite rather than reaching the \
-    snapshot",
-    ponytail: "force layouts are CHAOTIC, identically to Barnes-Hut: one added node is a \
-    different picture, not a perturbed one. Direction: cosmetic-but-surprising, never silently \
-    wrong; the escape hatch is the same — a fixed seed and the stage's own run-to-run \
-    determinism. Ponytail (early exit): the iteration count is not fixed the way Barnes-Hut's \
-    TICKS is: run() stops as soon as a tick's total movement falls under networkx's own 1e-10, \
-    so a quiet graph finishes in fewer than 100 iterations and two graphs of the same size can \
-    do different amounts of work. Ponytail (scale_ceiling): time-bound, and the projection past \
-    10 000 assumes the O(n^2) the measured ratios support holds at larger n",
+    edges: EdgeGeometryKind::Polyline,
+    oracle: "dagre-d3-es 7.0.14 crossing counts (harness/oracle-layouts.mjs --dag, margin frozen \
+in docs/measurements/phase05-crossings.md) and SciGraphs hierarchical.py; per-seed structural \
+invariants (acyclic after FAS, monotone layers, contiguous dummy chains) checked by graph-cli \
+roundtrip",
+    complexity: "O(n+m) per phase; crossing reduction is a heuristic (median + transpose local \
+search), not a minimiser",
+    scale_ceiling: SUGIYAMA_CEILING,
+    degradation: "past the dummy budget (200000) long arcs are left straight and unrouted and \
+each is reported as note 4 dag.dummy_budget_exceeded; above 150000 layered vertices the transpose \
+rounds drop to 0, so crossings rise while the drawing stays valid",
+    ponytail: "Ponytail (crossing reduction): median + transpose is a local search; a graph \
+whose optimal order it cannot reach draws more crossings than optimal — cosmetic, never \
+incorrect. Ponytail (dummy budget): an unrouted long arc is a straight line that may pass \
+through nodes — visually wrong, the dangerous direction; escape hatch: read note 4 in the \
+snapshot. Ponytail (FAS): greedy, not minimum; extra reversed edges (note 5) are cosmetic",
 };
 
 /// Every registered layout, in the order the hash gate runs them.
-pub static LAYOUTS: [Capability; 7] = [
+pub static LAYOUTS: [Capability; 10] = [
     Capability {
         id: Grid::ID,
         run: run_default::<Grid>,
@@ -346,6 +264,16 @@ pub static LAYOUTS: [Capability; 7] = [
         meta: PACKING,
     },
     Capability {
+        id: "layout.spectral",
+        run: spectral_stage::spectral,
+        meta: SPECTRAL,
+    },
+    Capability {
+        id: "layout.mds.pivot",
+        run: spectral_stage::pivot_mds,
+        meta: PIVOT_MDS,
+    },
+    Capability {
         id: BarnesHut::ID,
         run: run_default::<BarnesHut>,
         meta: BARNES_HUT,
@@ -354,6 +282,11 @@ pub static LAYOUTS: [Capability; 7] = [
         id: ForceAtlas2::ID,
         run: run_default::<ForceAtlas2>,
         meta: FA2,
+    },
+    Capability {
+        id: Sugiyama::ID,
+        run: run_default::<Sugiyama>,
+        meta: SUGIYAMA,
     },
 ];
 
@@ -367,106 +300,4 @@ fn run_default<S: Stage>(topology: &Topology) -> Result<Geometry, StageError> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::layout::grid::GridParams;
-    use crate::stage::{gate_node_count, run_with, seeded_model};
-    use crate::weights::REFERENCE_DEGREE;
-
-    #[test]
-    fn every_layout_is_a_layout_stage_with_its_metadata_filled() {
-        let mut ids: Vec<_> = LAYOUTS.iter().map(|layout| layout.id).collect();
-        ids.sort_unstable();
-        ids.dedup();
-        assert_eq!(ids.len(), LAYOUTS.len(), "unique ids");
-        for layout in &LAYOUTS {
-            let m = layout.meta;
-            assert!(layout.id.starts_with("layout."), "{}", layout.id);
-            assert_eq!(m.stage, "layout");
-            assert!(m.scale_ceiling > 0, "{}", layout.id);
-            for text in [m.oracle, m.complexity, m.degradation, m.ponytail] {
-                assert!(!text.trim().is_empty(), "{}", layout.id);
-            }
-        }
-    }
-
-    #[test]
-    fn the_force_layouts_are_registered_with_the_ceilings_this_branch_measured() {
-        let bh = find("layout.force.barnes_hut").expect("barnes-hut registered");
-        let fa2 = find("layout.forceatlas2").expect("fa2 registered");
-        assert_eq!(
-            (bh.meta.nodes, bh.meta.edges),
-            (NodeGeometryKind::Point, EdgeGeometryKind::Line)
-        );
-        assert_eq!(
-            (fa2.meta.nodes, fa2.meta.edges),
-            (NodeGeometryKind::Point, EdgeGeometryKind::Line)
-        );
-        assert_eq!(bh.meta.scale_ceiling, FORCE_CEILING);
-        assert_eq!(fa2.meta.scale_ceiling, FA2_CEILING);
-        assert!(
-            bh.meta.complexity.contains("O(n log n)"),
-            "{}",
-            bh.meta.complexity
-        );
-        assert!(
-            fa2.meta.complexity.contains("O(n^2)"),
-            "{}",
-            fa2.meta.complexity
-        );
-        // The two ceilings differ by the algorithmic shape, not by taste: theta-
-        // approximated many-body against networkx's dense all-pairs form. The measured
-        // ratio is 100_000 / 14_000 = 7.14x, so pin "materially below" at 5x rather
-        // than inventing a round factor the measurements do not support. A row that
-        // claimed one number for both would hide the whole point of shipping both.
-        const {
-            assert!(
-                FA2_CEILING * 5 < FORCE_CEILING,
-                "the dense FA2 ceiling must sit materially below the theta-tree one"
-            );
-        }
-        for text in [bh.meta.oracle, fa2.meta.oracle] {
-            assert!(
-                text.contains("d3-force") || text.contains("networkx"),
-                "{text}"
-            );
-        }
-        for text in [bh.meta.degradation, fa2.meta.degradation] {
-            assert!(
-                text.contains("Barnes-Hut") || text.contains("refus"),
-                "{text}"
-            );
-        }
-        for text in [bh.meta.ponytail, fa2.meta.ponytail] {
-            // The chaos marker is spelled in caps in both rows, as the phase prompt
-            // requires force layouts to name it; match it case-insensitively.
-            assert!(
-                text.to_lowercase().contains("chaotic"),
-                "a force layout must name the chaos, its direction and its escape hatch: {text}"
-            );
-            assert!(
-                text.contains("Escape hatch") || text.contains("escape hatch"),
-                "{text}"
-            );
-        }
-    }
-
-    #[test]
-    fn a_registered_layout_emits_the_kinds_it_declares_at_its_default_parameters() {
-        let (nodes, edges) = seeded_model(5, gate_node_count(5), REFERENCE_DEGREE);
-        for layout in &LAYOUTS {
-            let run = run_with(&nodes, &edges, layout.id, layout.run).expect("runs");
-            let header = run.snapshot.header();
-            assert_eq!(
-                (header.node_kind, header.edge_kind),
-                (layout.meta.nodes, layout.meta.edges)
-            );
-        }
-        let grid = find("layout.grid").expect("registered");
-        let by_hand = run_with(&nodes, &edges, "layout.grid", |t| {
-            Grid::run(t, &GridParams::default())
-        });
-        assert_eq!(run_with(&nodes, &edges, grid.id, grid.run), by_hand);
-        assert!(find("layout.none").is_none());
-    }
-}
+mod tests;

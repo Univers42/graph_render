@@ -22,7 +22,8 @@ use graph_core::layout::force::{BarnesHut, ForceParams};
 use graph_core::layout::forceatlas2::{Fa2Params, ForceAtlas2};
 use graph_core::{
     EdgeRecord, Geometry, Grid, GridParams, NodeRecord, REFERENCE_DEGREE, Stage, StageError,
-    Topology, gate_node_count, registry, run_pipeline, run_with, seeded_model,
+    Sugiyama, SugiyamaParams, Topology, gate_node_count, registry, run_pipeline, run_with,
+    seeded_model,
 };
 use std::env::VarError;
 use std::process::{Command, ExitCode};
@@ -32,15 +33,18 @@ use std::process::{Command, ExitCode};
 /// built from `LAYOUTS` at runtime so its length is usable as an array size below;
 /// [`tests::the_stages_are_the_topology_then_every_registered_layout`] is the guard that
 /// keeps it honest as the registry grows.
-pub const STAGES: [&str; 8] = [
+pub const STAGES: [&str; 11] = [
     "topology",
     "layout.grid",
     "layout.tree.tidy",
     "layout.treemap.squarified",
     "layout.circular.radial",
     "layout.packing.circle",
+    "layout.spectral",
+    "layout.mds.pivot",
     "layout.force.barnes_hut",
     "layout.forceatlas2",
+    "layout.dag.sugiyama",
 ];
 
 /// `STAGES.len()`, named for the fixed-size arrays it sizes.
@@ -54,13 +58,16 @@ const STAGE_COUNT: usize = STAGES.len();
 /// (`layout::tidy_tree`/`circular` are pinned with none, and adding one to gain a knob
 /// would be the tail wagging the dog) and read only the topology, so [`Knob::NodeCount`]
 /// perturbs that instead: one more node changes every stage that is a function of the
-/// topology at all, backing every stage no other knob reaches.
+/// topology at all, backing every stage no other knob reaches. The layered drawing
+/// ignores weights too; its layer spacing backs `layout.dag.sugiyama`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Knob {
     /// `GM_MUTATE_REFERENCE_DEGREE`: the degree the topology's weights are taken against.
     ReferenceDegree,
     /// `GM_MUTATE_GRID_SPACING`: the grid's spacing.
     GridSpacing,
+    /// `GM_MUTATE_SUGIYAMA_LAYER_SPACING`: the layered drawing's Y step per layer.
+    SugiyamaLayerSpacing,
     /// `GM_MUTATE_NODE_COUNT`: nodes added to the model, native arm only.
     NodeCount,
     /// `GM_MUTATE_FORCE_THETA`: Barnes-Hut's opening angle, native arm only.
@@ -68,7 +75,7 @@ pub enum Knob {
     /// Its own control, and the only one that reaches `layout.force.barnes_hut`
     /// without touching anything else: theta is read by the quadtree's opening test
     /// alone, so perturbing it re-aggregates that stage's many-body force and leaves
-    /// the other seven stages — including `layout.forceatlas2`, which shares no code
+    /// every other stage — including `layout.forceatlas2`, which shares no code
     /// with it — byte-identical. A shared knob would back both force stages at once
     /// and prove nothing about either.
     ForceTheta,
@@ -81,9 +88,10 @@ pub enum Knob {
 
 impl Knob {
     /// Every knob.
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::ReferenceDegree,
         Self::GridSpacing,
+        Self::SugiyamaLayerSpacing,
         Self::NodeCount,
         Self::ForceTheta,
         Self::Fa2ScalingRatio,
@@ -94,6 +102,7 @@ impl Knob {
         match self {
             Self::ReferenceDegree => "GM_MUTATE_REFERENCE_DEGREE",
             Self::GridSpacing => "GM_MUTATE_GRID_SPACING",
+            Self::SugiyamaLayerSpacing => "GM_MUTATE_SUGIYAMA_LAYER_SPACING",
             Self::NodeCount => "GM_MUTATE_NODE_COUNT",
             Self::ForceTheta => "GM_MUTATE_FORCE_THETA",
             Self::Fa2ScalingRatio => "GM_MUTATE_FA2_SCALING_RATIO",
@@ -105,6 +114,7 @@ impl Knob {
         match self {
             Self::ReferenceDegree => "hashgate-control-reference-degree",
             Self::GridSpacing => "hashgate-control-grid-spacing",
+            Self::SugiyamaLayerSpacing => "hashgate-control-sugiyama-layer-spacing",
             Self::NodeCount => "hashgate-control-node-count",
             Self::ForceTheta => "hashgate-control-force-theta",
             Self::Fa2ScalingRatio => "hashgate-control-fa2-scaling-ratio",
@@ -117,6 +127,7 @@ impl Knob {
 struct Setting {
     reference_degree: u32,
     grid: GridParams,
+    sugiyama: SugiyamaParams,
     /// Extra nodes added to the gate's model, native arm only ([`Knob::NodeCount`]).
     extra_nodes: u32,
     /// Barnes-Hut's parameters, native arm only ([`Knob::ForceTheta`] perturbs them).
@@ -133,6 +144,7 @@ fn setting(read: impl Fn(&str) -> Result<String, VarError>) -> Result<Setting, S
     let mut setting = Setting {
         reference_degree: REFERENCE_DEGREE,
         grid: GridParams::default(),
+        sugiyama: SugiyamaParams::default(),
         extra_nodes: 0,
         force: ForceParams::default(),
         fa2: Fa2Params::default(),
@@ -155,6 +167,9 @@ fn setting(read: impl Fn(&str) -> Result<String, VarError>) -> Result<Setting, S
                 setting.reference_degree = text.trim().parse().map_err(|e| bad(&e))?;
             }
             Knob::GridSpacing => setting.grid.spacing = text.trim().parse().map_err(|e| bad(&e))?,
+            Knob::SugiyamaLayerSpacing => {
+                setting.sugiyama.layer_spacing = text.trim().parse().map_err(|e| bad(&e))?;
+            }
             Knob::NodeCount => setting.extra_nodes = text.trim().parse().map_err(|e| bad(&e))?,
             Knob::ForceTheta => setting.force.theta = text.trim().parse().map_err(|e| bad(&e))?,
             Knob::Fa2ScalingRatio => {
@@ -213,7 +228,9 @@ fn arm_lines(seeds: u32, setting: &Setting) -> Result<String, String> {
 
 /// Every stage's id and bytes for `seed`, in pipeline order: the topology and the grid
 /// from the knob-aware [`run_pipeline`] (so the spacing control still reaches it), then
-/// every other registered layout via [`run_with`], each on the same nodes and edges.
+/// every parameterless registered layout via [`run_with`], then the layered drawing, again
+/// through [`run_pipeline`] so its layer-spacing control reaches it — all on the same nodes
+/// and edges.
 fn stage_bytes(
     seed: u32,
     setting: &Setting,
@@ -224,7 +241,8 @@ fn stage_bytes(
     let mut out: [(&'static str, Vec<u8>); STAGE_COUNT] = STAGES.map(|id| (id, Vec::new()));
     out[0].1 = grid.topology;
     out[1].1 = grid.snapshot.to_bytes();
-    for slot in &mut out[2..] {
+    let last = STAGE_COUNT - 1;
+    for slot in &mut out[2..last] {
         slot.1 = match slot.0 {
             BarnesHut::ID => run_force(&nodes, &edges, |t| BarnesHut::run(t, &setting.force))?,
             ForceAtlas2::ID => run_force(&nodes, &edges, |t| ForceAtlas2::run(t, &setting.fa2))?,
@@ -236,6 +254,8 @@ fn stage_bytes(
             }
         };
     }
+    let dag = run_pipeline::<Sugiyama>(&nodes, &edges, &setting.sugiyama);
+    out[last].1 = dag.map_err(|e| e.to_string())?.snapshot.to_bytes();
     Ok(out)
 }
 

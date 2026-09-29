@@ -124,7 +124,8 @@ fn odd_seeds_blank_the_first_node_id_even_seeds_do_not() {
 /// edge notes — exactly which edges it picked, so the "`edge == 0 || odd`" rule is
 /// pinned from both sides and cannot quietly become "`&&`" (every later edge dropped) or
 /// "`always`" (every edge noted). Values measured by running this module (2026-09-28,
-/// branch p3); they are the generator's own output, not a restatement of its arithmetic.
+/// branch p3; re-measured 2026-09-29 on p5 once codes 4 and 5 joined `NoteCode::ALL`); they
+/// are the generator's own output, not a restatement of its arithmetic.
 #[test]
 fn each_seed_draws_the_notes_its_case_names_and_no_others() {
     for (seed, code, index) in [
@@ -132,14 +133,22 @@ fn each_seed_draws_the_notes_its_case_names_and_no_others() {
         (3, vec![2, 2], vec![0, 1]),
         (
             4,
-            vec![1, 1, 1, 2, 2, 2, 3],
-            vec![0, 1, 3, 0, 1, 3, SNAPSHOT_WIDE],
+            vec![1, 1, 1, 2, 2, 2, 3, 4, 5, 5],
+            vec![0, 1, 3, 0, 1, 3, SNAPSHOT_WIDE, 0, 0, 2],
         ),
-        (9, vec![1, 1, 2, 3], vec![0, 1, 0, SNAPSHOT_WIDE]),
+        (
+            9,
+            vec![1, 1, 2, 3, 4, 5],
+            vec![0, 1, 0, SNAPSHOT_WIDE, 0, 0],
+        ),
         (13, vec![2, 2, 2], vec![0, 1, 2]),
         (14, vec![3], vec![SNAPSHOT_WIDE]),
         (17, vec![1, 1, 1], vec![0, 1, 2]),
-        (19, vec![1, 1, 2, 2, 3], vec![0, 1, 0, 3, SNAPSHOT_WIDE]),
+        (
+            19,
+            vec![1, 1, 2, 2, 3, 4, 5, 5, 5, 5],
+            vec![0, 1, 0, 3, SNAPSHOT_WIDE, 0, 0, 2, 3, 4],
+        ),
     ] {
         let notes = snapshot(seed).expect("valid").parts().notes.clone();
         assert_eq!((notes.code, notes.index), (code, index), "seed {seed}");
