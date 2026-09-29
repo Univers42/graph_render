@@ -1,3 +1,5 @@
+> **Status (2026-09-28):** NOT STARTED. Also owns: circle-packing O(n^2) fallback makes hashgate --seeds 1000 ~30 min/arm. See docs/reports/STATUS.md.
+
 # Phase 9 — The SCALE stage, and the benchmarks that justify the whole project
 
 **Read `prompt.md` first.** Phase 8's gate must be green.
@@ -127,6 +129,21 @@ verdict would hide both the win at scale and the regression at N=220.
 
 Report medians over repeated runs with the run count stated. A single timing is noise. Under 3% is noise
 (`benchmarker.md`) — do not report a 2% win as a win.
+
+### 6b. Per-tier numbers for Phase 11
+
+Phase 11 (`prompts/phase-11-compute-tiers.md`) decides SIMD, threads and GPU **from these numbers**.
+So, besides the three arms above, report for the gather kernels (force, FDEB):
+
+- the fraction of tick time spent in the per-node kernels versus the quadtree/grid build and the
+  position update (the Amdahl ceiling for any parallel tier);
+- the largest N at which the **scalar** native and wasm32 tick fits 16.67 ms, which is where the
+  higher tiers start to matter;
+- whether the kernels already autovectorise (inspect the wasm for `f32x4`), as a baseline for tier 1b.
+
+Tier selection is later a pure function of `(n, m, capability flags)` built from this table (D8: never
+elapsed time). Write it as `docs/measurements/phase09-crossover.md`'s last section so Phase 11 reads
+one file.
 
 ### 7. `BENCHMARKS.md` — published, honest, complete
 

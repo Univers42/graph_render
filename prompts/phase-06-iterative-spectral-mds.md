@@ -1,3 +1,5 @@
+> **Status (2026-09-28):** BUILT on branches p6e (spectral/MDS/eigen) and p6f (Barnes-Hut/FA2) — cores only; wiring, hashgate stages, stress/bench, python oracle image pending. Yifan Hu absent by decision. See docs/reports/STATUS.md.
+
 # Phase 6 — Iterative and spectral layouts. The hard one.
 
 **Read `prompt.md` and `prompts/REFERENCES.md` first.** Phase 5's gate must be green.
@@ -105,6 +107,23 @@ unflattering.
 
 Determinism: seeded initial positions (the reference uses a golden-spiral seeder — see
 `forceLayout.ts:63`), fixed accumulation order, **no parallel reduction** (D3), no `mul_add` (D2).
+
+**Gather form from day one (D10, `docs/decisions/compute-tiers.md`).** Every per-tick kernel is written
+as range kernels `step_range(state, range, out)`: node `i` reads only start-of-tick state and writes only
+its own output, summing in a fixed order (quadtree order for many-body, CSR order for links). This is
+the groundwork that lets Phase 11's SIMD, threads and GPU tiers be a port rather than a redesign.
+- `forceManyBody` is already a per-node gather in d3 (`d3-force@3.0.0 src/manyBody.js`: one
+  `tree.visit(apply)` per node) — port it as such.
+- **d3's `forceLink` is a sequential Gauss–Seidel scatter** (`src/link.js` `force(alpha)`): each link
+  adds into *both* endpoints, reading velocities already modified by earlier links. Two threads would
+  race on a node, and the result depends on link order. Implement the **Jacobi/gather** form instead:
+  each node sums its own incident links (CSR order) from start-of-tick state. This is a deliberate
+  deviation from d3 — record it in `phase06-stress.md`; it is legitimate because force is gated on
+  stress quality, not identity.
+- Positions/velocities are double-buffered (reused buffers, no per-tick allocation); the quadtree is
+  built once per tick, single-threaded, before the kernels run.
+- Write the loops over SoA columns so they autovectorise across nodes (Phase 11 tier 1b); no
+  horizontal reductions.
 
 ### 4. ForceAtlas2 and Yifan Hu
 

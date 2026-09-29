@@ -9,7 +9,24 @@ use std::time::{Duration, Instant};
 
 /// How long any one child (cargo, node, a gate arm) may run before it is killed. A hung
 /// child is a gate that could not run (exit 2), never one that waits forever.
-pub const CHILD_TIMEOUT: Duration = Duration::from_secs(900);
+///
+/// Phase 3 deviation: raised from 900s to 2700s. `layout.packing.circle`'s non-planar
+/// fallback is O(n^2) per seed (`docs/decisions/planarity-fallback.md`), and a random
+/// synthetic graph at gate density is essentially always non-planar, so `hashgate-arm
+/// --seeds 1000` now legitimately needs close to 1800s to run all six stages honestly —
+/// observed directly (`roundtrip --seeds 1000`, the same per-seed work, took ~1800s on
+/// this host). 900s was sized for the two-stage (topology, grid) gate; this is not a
+/// weakened check, only enough wall clock for the same check to finish saying so.
+///
+/// Ponytail: the limit is a guess about how long an honest run takes, so it is a guess
+/// about the host as much as about the work. Failing input: a hashgate or roundtrip child
+/// still running at 2700s — `--seeds 1000` on a loaded or shared host, say. Direction: a
+/// correct but slow run is reported as a failure ("killed after 2700000ms without
+/// exiting", exit 2), which reads as a broken gate rather than a slow one. Escape hatch:
+/// re-run on an idle host; fewer seeds is for exploration only, never for a gate row,
+/// whose seed count is the row's own claim. Phase 9 removes the O(n^2) fallback this
+/// budget exists for, and the limit goes back to what the two-stage gate needs.
+pub const CHILD_TIMEOUT: Duration = Duration::from_secs(2700);
 
 pub fn sha256_hex(bytes: &[u8]) -> String {
     Sha256::digest(bytes)
@@ -180,6 +197,15 @@ mod tests {
         loud.args(["-c", "yes gm | head -n 200000"]);
         let lines = run_lines_within(&mut loud, Duration::from_secs(60)).expect("runs");
         assert_eq!(lines.len(), 200_000);
+    }
+
+    #[test]
+    fn the_child_budget_is_the_one_the_deviation_names() {
+        // Pinned with a reason: the O(n^2) circle-packing fallback (`runner.rs`'s
+        // `CHILD_TIMEOUT` doc) needs more than the two-stage gate's 900s, and a gate row
+        // that silently lost that budget would stop being the check it claims to be.
+        assert_eq!(CHILD_TIMEOUT, Duration::from_secs(2700));
+        assert!(CHILD_TIMEOUT > Duration::from_secs(900));
     }
 
     #[test]

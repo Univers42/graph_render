@@ -3,11 +3,14 @@
 //! plain numbers. A buffer comes back as a pointer to `[len: u32 LE][len bytes]`,
 //! valid until the next export call.
 //!
-//! `gm_topology`, `gm_layout_grid` and `gm_layout_sugiyama` are the hash gate's stages: each runs the pipeline
-//! over the gate's model for a seed and returns its own stage's bytes. With the `probe`
-//! feature it also exports `gm_probe`, which carries the D1 measurement to wasm32 so it
-//! can be compared bit for bit against the same code run natively; the shipped module
-//! is built without it, so a measurement instrument never reaches the browser.
+//! `gm_topology` and one `gm_layout_*` export per registered layout are the hash gate's
+//! stages: each runs the pipeline over the gate's model for a seed and returns its own
+//! stage's bytes, always at the compiled-in defaults (the wasm arm never sees a negative
+//! control's mutation — `hashgate.rs`'s [`Knob`]s perturb the native arm only, so a wired
+//! one surfaces as exactly the divergence against this honest wasm baseline). With the
+//! `probe` feature it also exports `gm_probe`, which carries the D1 measurement to wasm32
+//! so it can be compared bit for bit against the same code run natively; the shipped
+//! module is built without it, so a measurement instrument never reaches the browser.
 
 #[cfg(target_arch = "wasm32")]
 mod exports {
@@ -54,6 +57,34 @@ mod exports {
     #[unsafe(no_mangle)]
     pub extern "C" fn gm_layout_grid(seed: u32) -> u32 {
         publish(pipeline(seed, "layout.grid").map(|run| run.snapshot.to_bytes()))
+    }
+
+    /// The `layout.tree.tidy` stage's snapshot bytes for `seed`.
+    // SAFETY: as above — `gm_layout_tree_tidy` is the only symbol with this name.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn gm_layout_tree_tidy(seed: u32) -> u32 {
+        publish(pipeline(seed, "layout.tree.tidy").map(|run| run.snapshot.to_bytes()))
+    }
+
+    /// The `layout.treemap.squarified` stage's snapshot bytes for `seed`.
+    // SAFETY: as above — `gm_layout_treemap_squarified` is the only symbol with this name.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn gm_layout_treemap_squarified(seed: u32) -> u32 {
+        publish(pipeline(seed, "layout.treemap.squarified").map(|run| run.snapshot.to_bytes()))
+    }
+
+    /// The `layout.circular.radial` stage's snapshot bytes for `seed`.
+    // SAFETY: as above — `gm_layout_circular_radial` is the only symbol with this name.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn gm_layout_circular_radial(seed: u32) -> u32 {
+        publish(pipeline(seed, "layout.circular.radial").map(|run| run.snapshot.to_bytes()))
+    }
+
+    /// The `layout.packing.circle` stage's snapshot bytes for `seed`.
+    // SAFETY: as above — `gm_layout_packing_circle` is the only symbol with this name.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn gm_layout_packing_circle(seed: u32) -> u32 {
+        publish(pipeline(seed, "layout.packing.circle").map(|run| run.snapshot.to_bytes()))
     }
 
     /// The `layout.dag.sugiyama` stage's snapshot bytes for `seed`.

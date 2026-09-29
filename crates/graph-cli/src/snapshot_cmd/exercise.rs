@@ -197,3 +197,6 @@ fn edges(s: &mut Stream, kind: u32, m: u32) -> EdgeGeometry {
         },
     }
 }
+
+#[cfg(test)]
+mod tests;

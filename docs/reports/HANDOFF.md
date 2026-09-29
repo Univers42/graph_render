@@ -80,6 +80,22 @@ the `.claude` house rules (read-only rules repo `univers42/claude-deal-with-the-
   under 0.x a breaking change is a minor bump, which a 0.2 reader does not refuse. That
   is acceptable only while nothing saves snapshots.
 
+- **Q3: upstream references → fetch and pin.** networkx 3.6 sdist (sha256
+  `285276002ad1f7f7da0f7b42f004bcba70d381e936559166363707fdad3d72ad`) is the reference for
+  LR-planarity, `triangulate_embedding` (Phase 3 circle packing) and ForceAtlas2 (Phase 6). Read-only,
+  never a runtime dependency. Oracle npm tarballs pinned the same way: d3-hierarchy 3.1.2
+  (`7681875f…360b`), dagre-d3-es 7.0.14 (`488d146f…e157`), d3-force 3.0.0 (`deacfa7e…fa15`).
+- **Q4: messy hierarchies → repair and record.** Forest under a hidden virtual root (only when there
+  are ≥ 2 roots); cycle → lowest-index node becomes a root; multi-parent → first parent by edge order;
+  every dropped edge listed in a new snapshot `notes` section (code + index), contract 0.2 → 0.3.
+  Phases 5 and 8 reuse the reserved note codes.
+- **Q5: compute tiers → roadmap Phase 11.** Tuned scalar → SIMD → threads → GPU only if Phase 9 proves
+  it, under its own per-device id. D10 (gather-form kernels) binds Phases 6 and 8 now.
+  ADR `docs/decisions/compute-tiers.md`, prompt `prompts/phase-11-compute-tiers.md`. Open: SAB/COOP/COEP
+  for browser threads, and accepting a non-bit-identical GPU tier — both asked in Phase 11 with numbers.
+- **Git:** commits authored `LESdylan <dev.pro.photo@gmail.com>` only; the same commit is pushed to
+  `develop` and to the session branch `claude/sharp-turing-er9nve`.
+
 ## Remaining — Phase 2 (finish before Phase 3)
 
 1. **House-limit fixes, not done yet.** Found with a scan of every file changed since
@@ -166,6 +182,7 @@ gate, a commit and push, and a report.
 - **Phase 9**: scale and bench. The memory budget is 442 B/node, against §5.1's
   33 B/node.
 - **Phase 10**: ingest, SDK, publish.
+- **Phase 11**: compute tiers (SIMD, threads, GPU only if measured necessary). See Q5.
 
 ## Still open from Phase 1 (need the user or the osionos host)
 

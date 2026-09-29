@@ -4,6 +4,7 @@ use crate::geometry::{EdgeGeometry, NodeGeometry};
 use crate::snapshot::SnapshotError as E;
 use crate::version::{CURRENT_VERSION, UNVERSIONED};
 
+mod columns;
 mod json;
 
 const V0_2: FormatVersion = FormatVersion { major: 0, minor: 2 };

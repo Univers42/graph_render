@@ -13,27 +13,46 @@
 //! control (one [`Knob`] set) in that knob's own record, for the capabilities ledger.
 
 mod compare;
+mod report;
 
 use crate::evidence;
 use crate::runner::{build_wasm, file_sha256, node_harness, run_lines, sha256_hex};
 use compare::{Arm, Tally, diverged, per_stage};
 use graph_core::{
-    Grid, GridParams, REFERENCE_DEGREE, Sugiyama, SugiyamaParams, gate_node_count, run_pipeline,
-    seeded_model,
+    Grid, GridParams, REFERENCE_DEGREE, Sugiyama, SugiyamaParams, gate_node_count, registry,
+    run_pipeline, run_with, seeded_model,
 };
-use serde_json::json;
 use std::env::VarError;
 use std::process::{Command, ExitCode};
 
 /// Every stage the gate hashes, in the order both arms print them: the topology, then
-/// every layout of `graph_core::registry::LAYOUTS`.
-pub const STAGES: [&str; 3] = ["topology", "layout.grid", "layout.dag.sugiyama"];
+/// every layout of `graph_core::registry::LAYOUTS`. Kept as a literal list rather than
+/// built from `LAYOUTS` at runtime so its length is usable as an array size below;
+/// [`tests::the_stages_are_the_topology_then_every_registered_layout`] is the guard that
+/// keeps it honest as the registry grows.
+pub const STAGES: [&str; 7] = [
+    "topology",
+    "layout.grid",
+    "layout.tree.tidy",
+    "layout.treemap.squarified",
+    "layout.circular.radial",
+    "layout.packing.circle",
+    "layout.dag.sugiyama",
+];
+
+/// `STAGES.len()`, named for the fixed-size arrays it sizes.
+const STAGE_COUNT: usize = STAGES.len();
 
 /// A negative control (`prompt.md` §7.2): a variable that perturbs the native arm only,
 /// so a wired mutation surfaces as exactly the cross-target divergence the gate must
-/// catch. Each moves one stage's input: the grid ignores weights, so the reference
-/// degree cannot reach `layout.grid`, and the grid's spacing is what backs that stage; the
-/// layered drawing likewise ignores weights, and its layer spacing backs its stage.
+/// catch. The grid ignores weights, so the reference degree cannot reach `layout.grid`,
+/// and the grid's spacing is what backs that stage. Treemap reads node weight, so the
+/// reference degree backs it too. Tidy tree, circular and packing take no parameters
+/// (`layout::tidy_tree`/`circular` are pinned with none, and adding one to gain a knob
+/// would be the tail wagging the dog) and read only the topology, so [`Knob::NodeCount`]
+/// perturbs that instead: one more node changes every stage that is a function of the
+/// topology at all, backing every stage no other knob reaches. The layered drawing
+/// ignores weights too; its layer spacing backs `layout.dag.sugiyama`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Knob {
     /// `GM_MUTATE_REFERENCE_DEGREE`: the degree the topology's weights are taken against.
@@ -42,14 +61,17 @@ pub enum Knob {
     GridSpacing,
     /// `GM_MUTATE_SUGIYAMA_LAYER_SPACING`: the layered drawing's Y step per layer.
     SugiyamaLayerSpacing,
+    /// `GM_MUTATE_NODE_COUNT`: nodes added to the model, native arm only.
+    NodeCount,
 }
 
 impl Knob {
     /// Every knob.
-    pub const ALL: [Self; 3] = [
+    pub const ALL: [Self; 4] = [
         Self::ReferenceDegree,
         Self::GridSpacing,
         Self::SugiyamaLayerSpacing,
+        Self::NodeCount,
     ];
 
     /// The variable that sets it.
@@ -58,6 +80,7 @@ impl Knob {
             Self::ReferenceDegree => "GM_MUTATE_REFERENCE_DEGREE",
             Self::GridSpacing => "GM_MUTATE_GRID_SPACING",
             Self::SugiyamaLayerSpacing => "GM_MUTATE_SUGIYAMA_LAYER_SPACING",
+            Self::NodeCount => "GM_MUTATE_NODE_COUNT",
         }
     }
 
@@ -67,6 +90,7 @@ impl Knob {
             Self::ReferenceDegree => "hashgate-control-reference-degree",
             Self::GridSpacing => "hashgate-control-grid-spacing",
             Self::SugiyamaLayerSpacing => "hashgate-control-sugiyama-layer-spacing",
+            Self::NodeCount => "hashgate-control-node-count",
         }
     }
 }
@@ -77,6 +101,8 @@ struct Setting {
     reference_degree: u32,
     grid: GridParams,
     sugiyama: SugiyamaParams,
+    /// Extra nodes added to the gate's model, native arm only ([`Knob::NodeCount`]).
+    extra_nodes: u32,
     control: Option<Knob>,
 }
 
@@ -88,6 +114,7 @@ fn setting(read: impl Fn(&str) -> Result<String, VarError>) -> Result<Setting, S
         reference_degree: REFERENCE_DEGREE,
         grid: GridParams::default(),
         sugiyama: SugiyamaParams::default(),
+        extra_nodes: 0,
         control: None,
     };
     for knob in Knob::ALL {
@@ -110,6 +137,7 @@ fn setting(read: impl Fn(&str) -> Result<String, VarError>) -> Result<Setting, S
             Knob::SugiyamaLayerSpacing => {
                 setting.sugiyama.layer_spacing = text.trim().parse().map_err(|e| bad(&e))?;
             }
+            Knob::NodeCount => setting.extra_nodes = text.trim().parse().map_err(|e| bad(&e))?,
         }
     }
     Ok(setting)
@@ -161,16 +189,30 @@ fn arm_lines(seeds: u32, setting: &Setting) -> Result<String, String> {
     Ok(blocks.concat())
 }
 
-/// Every stage's id and bytes for `seed`, in [`STAGES`] order: the topology's bytes are
-/// the same under every layout, so they are taken from the first pipeline run.
-fn stage_bytes(seed: u32, setting: &Setting) -> Result<[(&'static str, Vec<u8>); 3], String> {
-    let (nodes, edges) = seeded_model(seed, gate_node_count(seed), setting.reference_degree);
+/// Every stage's id and bytes for `seed`, in pipeline order: the topology and the grid
+/// from the knob-aware [`run_pipeline`] (so the spacing control still reaches it), then
+/// every parameterless registered layout via [`run_with`], then the layered drawing, again
+/// through [`run_pipeline`] so its layer-spacing control reaches it — all on the same nodes
+/// and edges.
+fn stage_bytes(
+    seed: u32,
+    setting: &Setting,
+) -> Result<[(&'static str, Vec<u8>); STAGE_COUNT], String> {
+    let count = gate_node_count(seed) + setting.extra_nodes;
+    let (nodes, edges) = seeded_model(seed, count, setting.reference_degree);
     let grid = run_pipeline::<Grid>(&nodes, &edges, &setting.grid).map_err(|e| e.to_string())?;
-    let dag =
-        run_pipeline::<Sugiyama>(&nodes, &edges, &setting.sugiyama).map_err(|e| e.to_string())?;
-    let [topology, grid_layout] = grid.stages();
-    let [_, dag_layout] = dag.stages();
-    Ok([topology, grid_layout, dag_layout])
+    let mut out: [(&'static str, Vec<u8>); STAGE_COUNT] = STAGES.map(|id| (id, Vec::new()));
+    out[0].1 = grid.topology;
+    out[1].1 = grid.snapshot.to_bytes();
+    let last = STAGE_COUNT - 1;
+    for slot in &mut out[2..last] {
+        let layout = registry::find(slot.0).ok_or_else(|| format!("{}: not registered", slot.0))?;
+        let run = run_with(&nodes, &edges, layout.id, layout.run).map_err(|e| e.to_string())?;
+        slot.1 = run.snapshot.to_bytes();
+    }
+    let dag = run_pipeline::<Sugiyama>(&nodes, &edges, &setting.sugiyama);
+    out[last].1 = dag.map_err(|e| e.to_string())?.snapshot.to_bytes();
+    Ok(out)
 }
 
 fn collect_arms(seeds: u32) -> Result<Vec<Arm>, String> {
@@ -199,15 +241,17 @@ fn report(stamp: &evidence::Stamp, control: Option<Knob>, seeds: u32, arms: &[Ar
         "hashgate: stages={} seeds={seeds} control={mutation}",
         STAGES.join(",")
     );
-    let lines = match diverged(seeds, arms) {
+    let lines = match diverged(seeds, &STAGES, arms) {
         Ok(lines) => lines,
         Err(err) => {
             eprintln!("hashgate: arms not comparable: {err}");
             return ExitCode::from(2);
         }
     };
-    print_arms(arms, &lines);
-    let stages = per_stage(seeds, &lines);
+    let mut detail = String::new();
+    report::arm_report(&mut detail, arms, &lines);
+    print!("{detail}");
+    let stages = per_stage(seeds, STAGES.len(), &lines);
     for (stage, equal) in STAGES.iter().zip(&stages.equal) {
         println!("  {stage}: 4-way equal on {equal}/{seeds} seeds");
     }
@@ -219,28 +263,10 @@ fn report(stamp: &evidence::Stamp, control: Option<Knob>, seeds: u32, arms: &[Ar
     }
     if bad == 0 {
         println!("PASS");
-        ExitCode::SUCCESS
     } else {
         println!("FAIL: {bad} of {seeds} seeds diverge");
-        ExitCode::from(1)
     }
-}
-
-/// Each arm's digest, then every arm's line for the first three diverging lines.
-fn print_arms(arms: &[Arm], lines: &[usize]) {
-    for (name, output) in arms {
-        let digest = sha256_hex(output.join("\n").as_bytes());
-        println!("  {name:<13} digest {digest}");
-    }
-    for &i in lines.iter().take(3) {
-        println!(
-            "  DIVERGED {}:",
-            arms[0].1[i].rsplit_once(' ').map_or("", |p| p.0)
-        );
-        for (name, output) in arms {
-            println!("    {name:<13} {}", output[i]);
-        }
-    }
+    report::exit(bad)
 }
 
 /// Writes this run's result for the ledger: `hashgate.json` for an honest run, the
@@ -253,15 +279,7 @@ fn record(
     tally: &Tally,
 ) -> Result<(), String> {
     let name = control.map_or("hashgate", Knob::record);
-    let stages: serde_json::Map<_, _> = STAGES
-        .iter()
-        .zip(&tally.equal)
-        .map(|(stage, equal)| ((*stage).to_owned(), json!(equal)))
-        .collect();
-    let mutation = control.map(Knob::env);
-    let pass = tally.diverged_seeds == 0;
-    let body = json!({ "seeds": seeds, "pass": pass, "equal": stages, "mutation": mutation });
-    evidence::write(stamp, name, body).map(drop)
+    evidence::write(stamp, name, report::body(control, seeds, tally)).map(drop)
 }
 
 #[cfg(test)]

@@ -4,7 +4,12 @@
 //
 //   node harness/wasm-run.mjs <graph_wasm.wasm> hash <seeds> <stage>...
 //        prints "<stage> <seed> <sha256>" for each stage in order, seeds 0..N-1;
-//        stages: topology (gm_topology), layout.grid (gm_layout_grid), layout.dag.sugiyama (gm_layout_sugiyama)
+//        stages: topology (gm_topology), layout.grid (gm_layout_grid),
+//        layout.tree.tidy (gm_layout_tree_tidy),
+//        layout.treemap.squarified (gm_layout_treemap_squarified),
+//        layout.circular.radial (gm_layout_circular_radial),
+//        layout.packing.circle (gm_layout_packing_circle),
+//        layout.dag.sugiyama (gm_layout_sugiyama)
 //   node harness/wasm-run.mjs <graph_wasm.wasm> probe
 //        prints the D1 probe buffer as one hex line
 //
@@ -39,6 +44,10 @@ function framed(ptr) {
 const STAGE_EXPORTS = {
   topology: "gm_topology",
   "layout.grid": "gm_layout_grid",
+  "layout.tree.tidy": "gm_layout_tree_tidy",
+  "layout.treemap.squarified": "gm_layout_treemap_squarified",
+  "layout.circular.radial": "gm_layout_circular_radial",
+  "layout.packing.circle": "gm_layout_packing_circle",
   "layout.dag.sugiyama": "gm_layout_sugiyama",
 };
 
