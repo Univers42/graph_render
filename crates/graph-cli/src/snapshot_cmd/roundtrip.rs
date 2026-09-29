@@ -93,7 +93,7 @@ pub fn run(seeds: u32) -> ExitCode {
         }
     };
     print_findings(seeds, &found);
-    if let Err(err) = evidence::write(&stamp, "roundtrip", body(seeds, &found)) {
+    if let Err(err) = evidence::record(&stamp, "roundtrip", body(seeds, &found)) {
         eprintln!("roundtrip: not recorded: {err}");
         return ExitCode::from(2);
     }

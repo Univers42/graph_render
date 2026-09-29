@@ -1,6 +1,7 @@
 use super::campaign::arms::{self, ArmReading};
 use super::campaign::{SETTLE_TICKS, Sample, largest_fitting, median, settle_ms};
 use super::scale;
+use super::staging::harness_copy_with_in;
 use super::*;
 use graph_core::StageError;
 
@@ -174,20 +175,8 @@ fn oracle_harness(args: &[&str]) -> Vec<String> {
     crate::runner::run_lines(&mut node).expect("the oracle tick harness runs")
 }
 
-/// A temporary sibling of `name` with `from` replaced by `to`: the negative control's
-/// mutant, beside the original so its own relative imports still resolve.
-fn harness_copy_with_in(name: &str, from: &str, to: &str) -> Mutant {
-    let root = crate::runner::workspace_root();
-    let original = root.join("harness").join(name);
-    let copy = original.with_extension("mutant.mjs");
-    let text = std::fs::read_to_string(&original).expect("the harness is readable");
-    assert!(
-        text.contains(from),
-        "the harness no longer holds `{from}`: the negative control would pass vacuously"
-    );
-    std::fs::write(&copy, text.replacen(from, to, 1)).expect("the copy is writable");
-    Mutant(copy)
-}
+// The negative controls' staged mutant copies, and the test that pins where a
+// transient file may be written, live in `bench/staging.rs`.
 
 fn run_node(script: &std::path::Path, args: &[&str]) -> std::process::ExitStatus {
     let mut node = std::process::Command::new("node");
@@ -195,21 +184,6 @@ fn run_node(script: &std::path::Path, args: &[&str]) -> std::process::ExitStatus
         .arg(script)
         .args(args);
     crate::runner::run_status(&mut node, std::time::Duration::from_secs(300)).expect("node runs")
-}
-
-/// The harness copy a negative control made, removed whether or not it was run again.
-struct Mutant(std::path::PathBuf);
-
-impl Mutant {
-    fn cleanup(&self) {
-        let _ = std::fs::remove_file(&self.0);
-    }
-}
-
-impl Drop for Mutant {
-    fn drop(&mut self) {
-        self.cleanup();
-    }
 }
 
 /// The wasm32 arm's own self-check: the ingest document it hands the motor is the strict
