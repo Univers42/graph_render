@@ -116,7 +116,13 @@ cmd_status() {
 base_rev() {
   local b=${1:-}
   [[ -n $b ]] || b=$(cat "$st/base" 2>/dev/null) || true
-  git merge-base HEAD "${b:-origin/develop}" 2>/dev/null || die "no merge-base with '${b:-origin/develop}'"
+  b=${b:-origin/develop}
+  # Mid-merge HEAD has not moved yet: what MERGE_HEAD brings in is the base's work, not this branch's.
+  if git rev-parse -q --verify MERGE_HEAD >/dev/null && git merge-base --is-ancestor "$b" MERGE_HEAD 2>/dev/null; then
+    git rev-parse "$b"
+    return
+  fi
+  git merge-base HEAD "$b" 2>/dev/null || die "no merge-base with '$b'"
 }
 
 changed() { { git diff --name-only "$1" --; untracked; } | sort -u; }
