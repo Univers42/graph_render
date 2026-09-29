@@ -12,3 +12,6 @@ verify/dist/
 
 # local secrets (never committed)
 .env
+
+# Playwright MCP console logs
+.playwright-mcp/

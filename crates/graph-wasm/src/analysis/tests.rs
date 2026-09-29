@@ -199,7 +199,7 @@ fn every_row_over(t: &Topology) {
                 // agree with whatever that function returned. `Hierarchy` counts
                 // breadth-first from the (possibly virtual) root, which is the same
                 // convention `depth::bfs_depth` implements — so agreement is the
-                // one-convention claim the re-point makes, and disagreement is real.
+                // one-convention claim the re-point rests on, and disagreement is real.
                 let hierarchy = Hierarchy::of(t).expect("the hierarchy repairs");
                 let want: Vec<u32> = (0..t.node_count()).map(|v| hierarchy.depth(v)).collect();
                 assert_eq!(report.values, Column::U32(want));
@@ -300,7 +300,7 @@ fn weak_and_strong_components_are_pinned_on_a_directed_two_cycle() {
 fn depth_follows_the_virtual_root_convention_over_a_forest() {
     let t = forest();
     assert_eq!(
-        depth::bfs_depth(&Forest(Hierarchy::of(&t).expect("repairs"))).levels(),
+        depth::bfs_depth(&Hierarchy::of(&t).expect("repairs")).levels(),
         &[1, 2, 3, 1]
     );
     assert_eq!(

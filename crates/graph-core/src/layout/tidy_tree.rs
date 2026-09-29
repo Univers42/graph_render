@@ -48,6 +48,15 @@ use walk::Walk;
 
 mod walk;
 
+/// The layout's capability id, which is also its hash-gate stage.
+///
+/// Not a `Stage::ID`: this module takes no `Params` (its conventions are pinned in the
+/// module doc, and adding a `Params` to gain one would be the tail wagging the dog), and
+/// `Stage` requires a `Params: Default`. The id lives here instead — the one place that
+/// names this layout — and `crate::registry::LAYOUTS` and graph-cli's `hashgate` knobs
+/// take it from here, so there is no second copy to drift.
+pub const ID: &str = "layout.tree.tidy";
+
 /// Runs the tidy tree over `topology`'s repaired hierarchy, at d3's defaults. Refused
 /// only when the hierarchy repair does not fit the `u32` index space.
 pub fn run(topology: &Topology) -> Result<Geometry, StageError> {

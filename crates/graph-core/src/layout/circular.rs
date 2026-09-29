@@ -39,6 +39,14 @@ use crate::index::Topology;
 use crate::stage::StageError;
 use graph_contract::geometry::{EdgeGeometry, NodeGeometry};
 
+/// The layout's capability id, which is also its hash-gate stage.
+///
+/// Not a `Stage::ID`: this module takes no `Params` (`treemap.rs` and `tidy_tree.rs` pin
+/// their conventions the same way), and `Stage` requires a `Params: Default`. The id lives
+/// here instead, the one place that names this layout, and `crate::registry::LAYOUTS` and
+/// graph-cli's `hashgate` knobs take it from here rather than restating it.
+pub const ID: &str = "layout.circular.radial";
+
 /// Distance between adjacent rings; ring 0 is the centre regardless (module Ponytail).
 /// Fixed by this module's convention, not a `Params`: `treemap.rs` and `tidy_tree.rs`
 /// pin their own conventions the same way.

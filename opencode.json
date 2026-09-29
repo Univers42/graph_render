@@ -1,39 +1,35 @@
 {
   "$schema": "https://opencode.ai/config.json",
-
   "instructions": [
     "./.claude/rules/*.md",
     "./prompts/AGENT_BRIEF.md"
   ],
-
   "model": "opencode/space-bunny-free",
   "small_model": "opencode/space-bunny-free",
-
   "provider": {
     "opencode": {
       "models": {
         "space-bunny-free": {
           "variants": {
-            "max": { "reasoningEffort": "high" }
+            "max": {
+              "reasoningEffort": "high"
+            }
           }
         }
       }
     }
   },
-
   "permission": {
     "edit": "allow",
     "webfetch": "allow",
     "bash": {
       "*": "allow",
-
       "rm *": "deny",
       "rmdir *": "deny",
       "shred *": "deny",
       "truncate *": "deny",
       "find * -delete*": "deny",
       "find * -exec rm*": "deny",
-
       "*git* push*": "deny",
       "*git* pull*": "deny",
       "*git* fetch*": "deny",
@@ -72,10 +68,39 @@
       "*git* --git-dir*": "deny",
       "*git* --work-tree*": "deny",
       "gh repo create*": "deny",
-
       "sudo *": "deny",
       "docker system prune*": "deny",
       "docker volume rm*": "deny"
+    },
+    "pw_*": "deny"
+  },
+  "mcp": {
+    "pw": {
+      "type": "local",
+      "command": [
+        "docker",
+        "run",
+        "--pull",
+        "never",
+        "-i",
+        "--rm",
+        "--network",
+        "host",
+        "--user",
+        "0:0",
+        "-v",
+        "/goinfre/dlesieur/mcp-out:/out",
+        "gm-mcp-browser",
+        "--allowed-origins",
+        "http://127.0.0.1:5173;http://127.0.0.1:5174;http://127.0.0.1:5175;http://localhost:5173;http://localhost:5174;http://localhost:5175"
+      ],
+      "enabled": true,
+      "timeout": 20000
     }
+  },
+  "skills": {
+    "paths": [
+      "/sgoinfre/students/dlesieur/graph_render/.claude/skills"
+    ]
   }
 }

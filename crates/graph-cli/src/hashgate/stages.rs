@@ -12,9 +12,19 @@
 //! meaningful, and a second layout registered in `LAYOUTS` therefore joins the gate by
 //! being registered, with no edit to this file. [`stage_bytes_for`] takes the registry
 //! slice as an argument so that is testable here rather than only at the next merge.
+//!
+//! **The four Phase 3 hierarchy layouts' ids are the layout modules' own**, not copies
+//! spelled here: `graph_core::layout::{tidy_tree, treemap, circular, circle_packing}::ID`.
+//! None of the four has an `impl Stage` — their modules pin every convention and say so,
+//! and `Stage` requires a `Params: Default` — so each publishes a `pub const ID` the way
+//! `graph_core::post::fdeb::ID` does, and both the knobs below and
+//! `graph_core::registry::LAYOUTS` take the id from there. There is one place each id is
+//! written, and `the_p3_stage_ids_are_the_registry_s_own` keeps the registry row and the
+//! stage the knobs name the same one.
 
 use super::Setting;
 use graph_core::layout::Geometry;
+use graph_core::layout::circle_packing;
 use graph_core::layout::force::BarnesHut;
 use graph_core::layout::forceatlas2::ForceAtlas2;
 use graph_core::registry::{self as core, LAYOUTS};
@@ -80,6 +90,12 @@ pub fn stage_bytes_for(
                 .map_err(|e| e.to_string())?
                 .snapshot
                 .to_bytes(),
+            circle_packing::ID => {
+                run_force(&topology, |t| circle_packing::run_with(t, &setting.packing))?
+            }
+            _ if owns_own_model(layout.id, setting) => {
+                stage_bytes_from_own_model(seed, setting, layout)?
+            }
             _ => layout_bytes(&topology, layout)?,
         };
         out.push((layout.id, bytes));
@@ -105,6 +121,33 @@ fn check(layouts: &[core::Capability]) -> Result<(), String> {
         ));
     }
     Ok(())
+}
+
+/// Whether `id` is the one Phase 3 stage whose own model `setting` re-draws with extra
+/// nodes ([`Setting::stage_nodes`]).
+///
+/// The perturbation is deliberately *not* the shared `extra_nodes`: that one grows the
+/// gate's single model, so every stage that is a function of the topology moves with it
+/// and the gate can no longer say which stage a divergence came from. This one re-draws
+/// the model for the stage named in the setting alone, so `topology`, the other layouts
+/// and the transport stage are byte-identical and the one stage that moved is named in
+/// the gate's own output.
+fn owns_own_model(id: &str, setting: &Setting) -> bool {
+    setting.stage_nodes.is_some_and(|(stage, _)| stage == id)
+}
+
+/// [`stage_bytes`]'s one stage, over a model re-drawn with `count` more nodes than the
+/// gate's own: the gate model plus that stage's control, and nothing else.
+fn stage_bytes_from_own_model(
+    seed: u32,
+    setting: &Setting,
+    layout: &core::Capability,
+) -> Result<Vec<u8>, String> {
+    let extra = setting.stage_nodes.map_or(0, |(_, count)| count);
+    let count = gate_node_count(seed) + setting.extra_nodes + extra;
+    let (nodes, edges) = seeded_model(seed, count, setting.reference_degree);
+    let topology = index_model(&nodes, &edges).map_err(|e| e.to_string())?;
+    layout_bytes(&topology, layout)
 }
 
 fn layout_bytes(topology: &Topology, layout: &core::Capability) -> Result<Vec<u8>, String> {

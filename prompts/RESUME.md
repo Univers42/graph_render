@@ -48,6 +48,126 @@ pass (4/4). A fresh worktree needs `npm ci` before `cargo test`.
 - Studio: the redesign session works on branch `studio`/`studio-look`; it was sent `orch/prompts/studio-scigraphs-look.txt`.
 - Then: merge the repair branches, re-run the full gate on develop, repair its red rows.
 
+## Update 2026-09-29 evening
+
+- Merged into develop under the floor: `fa2fix` (FA2 gated at `max_iter` 2, `CEILING` 1e-7, measured 3.156e-8), `lesmis` (4f82f36, `fixtures/scigraphs/lesmis.json`; labels differ from fig6, documented in `docs/decisions/scigraphs-reference-fixture.md`), `repair-evidence`, `reports`, `negctl` (7f0cab6: knobs `GM_MUTATE_{TREE_TIDY,TREEMAP,CIRCULAR}_NODES`, `GM_MUTATE_PACKING_SCALE`, each red at 8 seeds; merged tree fmt 0, clippy 0, 1015 tests passed / 0 failed). Their rows are in `develop-full.rows`.
+- negctl's open decisions: (1) `phase-06.md:153,196` call `GM_MUTATE_FORCE_THETA` inert; stale since b142c9a, needs a dated addendum, not a rewrite. (2) the four p3 stage ids exist twice (registry literals and `hashgate/stages.rs` consts, held by a test); promote to `Stage::ID` in graph-core.
+- Several merge commits carry git's default message instead of `updated`; not rewritten (force push). Merges use `-m updated` from now on.
+- In flight (`/goinfre/dlesieur/orch/bin/oc-status.sh`): `ledger-rows` (Phase 8/7 ledger rows), `p11-reconcile` (verifies the uncommitted work two racing agents left in the p11 worktree; p11 must land before `sim`, both edit barnes_hut), `sim-m1` (Track M: the live-simulation session API for the Obsidian-style studio graph, plan `orch/prompts/obsidian-graph-plan.txt`; devil verdict PROCEED-WITH-CONDITIONS, conditions in `orch/prompts/sim-conditions.txt`; next job `sim-m1b.txt` captures goldens from 79aef00), `orchfix` (oc-job/oc-status liveness fenced on the OpenCode service session list instead of pid files).
+- Then: merge ledger-rows and p11, run the full gate on develop, repair its red rows.
+
+## Update 2026-09-29 night
+
+- Fan-out is now RULE 0. The user saw bunny jobs working serially.
+  - Measured: no job journal before this date contains a `subagent` call.
+  - Measured: headless `opencode run` exposes `subagent` (`{agent, description, prompt, sessionID?, background?}`, agents `general`/`explore`); three foreground calls in one message ran concurrently (20 s wall for 3 x 20 s).
+  - The rule is in `orch/prompts/common-v2.txt` and `.opencode/agents/*.md` (099cb7b): no `background` flag; the return block reports `subagents: <n> explore, <n> general`.
+  - Review check: `jq -r 'select(.part.type=="tool") | .part.tool' <journal> | grep -c subagent`.
+- Merged:
+  - `orchfix` (15edd32): `scripts/orch/oc-live.sh` asks the service which sessions are draining; `oc-job.sh` refuses unless oc-live exits 1; `oc-status.sh` shows UNKNOWN instead of DEAD when it cannot ask. 34/34 in `test-oc-live.sh`.
+  - After a host change, also recreate `/goinfre/dlesieur/orch/bin/oc-live.sh -> scripts/orch/oc-live.sh`. Without it every job reads UNKNOWN.
+  - After a host change, also rebuild the browser MCP image before any `ux` job: `docker build -f deploy/mcp-browser.Dockerfile -t gm-mcp-browser deploy`. `opencode.json` runs it with `--pull never`, so a missing image fails the MCP instead of pulling a stranger's name.
+  - The browser MCP server is named `pw` (`tools.pw.*` in OpenCode's code-mode `execute`), because OpenCode's own `tools.browser.*` swallowed a server named `browser`. Screenshots need an absolute `/out/<label>/<name>.png`. Smoke run green on 2026-09-29 (`docs/decisions/opencode-browser-mcp.md`).
+  - Worktree `.claude` submodules are empty, so bunnies had no skills until `opencode.json` `skills.paths` pointed at the main checkout's `.claude/skills` (verified: `frontend` loaded).
+  - `ledger-rows` (3486ca5): `analysis.depth` row, depth re-pointed to `Hierarchy`, index-based row lookups made by-id. Merged tree: fmt 0, clippy 0, 1022 passed / 0 failed.
+  - Its `capabilities --check` 34 problems are all "no record: run the gate" in a fresh worktree; the full gate owns them.
+- In flight: `followups`, which covers:
+  - the phase-06 addendum;
+  - the p3 ids promoted to graph-core;
+  - deleting the dead `Forest` in `graph-wasm/src/analysis.rs:306`;
+  - hashgate stages so the analysis and post rows can reach `gated`. If a wasm export is missing, that is a decision, not an edit.
+
+  Also in flight: `p11-reconcile` and `sim-m1`.
+- Worktrees need `npm ci` before `cargo test` (`cli_oracles`). The orchestrator does it at worktree creation.
+- `studio-ux` (the studio UX plan, step 2) is running in `/goinfre/dlesieur/wt/studio-ux`.
+  - Prompt: `orch/prompts/studio-ux.txt` on top of `common-studio.txt`. Rows: `orch/rows/studio-ux.rows`.
+  - Deviation: it was cut from `studio` a0c346d before S2 landed, because S2 was stalled. It touches `view.ts` with one additive line only.
+  - A branch cut from `studio` lacks the `ux` agent ("Agent not found"). Fix: check out develop's `opencode.json`, `.opencode/agents/ux.md` and `ux-probe.md` (fa953cd); studio had not changed them.
+  - Merge order into `studio` (from the peer session): S2, parity, s5, s3, s4, then studio-ux last. Merge `studio` into studio-ux after s3 lands, since s3 adds display actions to the same registry. The peer owns look/theme and the display panel; studio-ux owns `console/*` and set/get.
+  - Before it merges: a devil review, plus `studio-perf` run alone.
+
+## Update 2026-09-29 late
+
+- Merged `followups` into develop (746f3a8): fmt 0, clippy 0, 1023 passed / 0 failed; review verdict MERGE.
+- Launched `followups2` (branch `followups2` in `/goinfre/dlesieur/wt/followups`, prompt `orch/prompts/followups2.txt`). Decisions it carries:
+  - authorised: graph-wasm `analysis`/`post` reachable natively for hashgate stages, with the ABI unchanged;
+  - authorised: `analysis.components` split into weak and strong rows;
+  - deferred: `gm_analysis_paths_run` (dijkstra, bellman_ford). It is an ABI change and waits for a user decision.
+- Provider limits (measured 17:15Z): new `opencode run` sessions got `provider.quota` 429 on the first step, and running sessions got "stream ended without finish_reason". Both killed studio-ux (rc=2, C and D partly done, A and B missing) and p11-reconcile2 (rc=2 after item 0 went green).
+  - Continuations: `studio-ux2.txt` (with `OC_COMMON=common-studio.txt`) and `p11-reconcile3.txt`. They are relaunched through a retry wrapper: sleep 600 s after each 429, 8 tries at most, staggered.
+- Hung subagents (a provider stream open for more than 40 min) were interrupted through `POST /api/session/<id>/interrupt`. The peer session was told about its own hung subagents and did not act on ours.
+- Fallback model (user decision, 17:50Z). space-bunny-free was still answering 429 after 30 min, and every job, the peer's included, had died on it. Jobs now run with `OC_MODEL=opencode/nemotron-3-ultra-free`, and `opencode/big-pickle` is the second choice. Only the env override changes; the agent files keep space-bunny. Both fallback models passed a probe of 1 shell call and 1 subagent dispatch, rc 0.
+  - Relaunched: `followups2b`, `studio-ux2b`, `p11-reconcile3b`, and `sim-m1fix2`. sim-m1fix2 continues sim-m1fix, whose slices B and C were cut; it first maps items 1 to 4, then dispatches whatever is not done.
+  - The peer session was told how to relaunch on the fallback model.
+- The Obsidian-style forces (gravity, repel, link and center sliders, reheat, freeze) are item S6 of `orch/prompts/obsidian-graph-plan.txt`. S6 depends on M1 (sim-m1fix2), then M2 (contract, wasm and SDK, after a devil verdict), then M3 (gates), and then on M landing on develop. Until then the studio has only `layout.run`: no live physics.
+- p8 leftovers (the peer flagged them). `origin/p8` has been an ancestor of develop since its merge, as have `p8-route`, `p8-styles` and `p8-p8-bundle`.
+  - Superseded, not to be merged: `p8-fdeb`, `p8-mingle`, `p8-p8-grid`, `p8-p8-route` and `p8-p8-styles`. Each is 1 or 2 commits ahead and 118 behind, and each is an earlier slice attempt.
+  - develop already has `post/{fdeb,mingle,grid_index,routed,...}`. `p8-p8-route`'s `routed/{graph,output,search}.rs` became `routed/{csr,measure,trace}.rs` on develop.
+  - The user approved deleting them, but the permission classifier refused the delete (Git Destructive). They are still on the remote, and the user runs the delete themselves: `git push origin --delete p8-fdeb p8-mingle p8-p8-grid p8-p8-route p8-p8-styles`.
+- Merge train through OpenCode. Worktree `/goinfre/dlesieur/wt/integ`, branch `integ`, cut from develop 8292407, with `npm ci` done.
+  - For each green branch:
+    - `sed s/BRANCH/<b>/g orch/prompts/merge-train.txt > orch/prompts/merge-<b>.txt`;
+    - then `oc-job.sh merge-<b> /goinfre/dlesieur/wt/integ builder <that file> orch/rows/quick.rows`.
+  - The bunny merges with `--no-ff --no-commit`, and oc-job commits and pushes `integ` once the floor is green.
+  - The orchestrator then fast-forwards develop: `git push origin origin/integ:develop`. That push refuses anything that is not a fast-forward.
+  - A contract or registry conflict comes back `blocked`, for an opus verdict.
+- About 20:40: nemotron also answered 429 `provider.quota`, and only `opencode/big-pickle` answered a probe.
+  - followups2b and p11-reconcile3b were stuck in the quota retry loop and were stopped. sim-m1fix2 had a child hung for more than 30 min on item 3 (golden provenance); it was interrupted and stopped.
+  - All three were resumed on big-pickle with `OC_SESSION`, as `followups2c`, `p11-reconcile3c` and `sim-m1fix2c`. studio-ux2b stays on nemotron while it streams.
+  - Before each relaunch, probe space-bunny, then nemotron, then big-pickle.
+- About 21:10: space-bunny still answers 429. Probes at 20:50 and 21:10: `opencode/longcat-2.5-preview-free` and `opencode/mimo-v2.6-flash-free` run a shell tool (rc 0).
+  - `oc-job.sh` now resumes a job on the next model of `OC_FALLBACK` (default: longcat, then mimo) as soon as a run ends in `provider.quota`, and waits `OC_QUOTA_WAIT` only after a full round was refused. Jobs still start on space-bunny (`OC_MODEL` unset).
+  - studio-ux2b ended `aborted` (not quota) and was resumed on longcat as `studio-ux2c`.
+  - sim-m1fix2c and p11-reconcile3c stalled for about 40 min on big-pickle. Their stale sessions were interrupted, and both were resumed on longcat as `sim-m1fix2d` and `p11-reconcile3d`. followups2c is still on big-pickle.
+- About 21:30: SciGraphs layout parity (user: "we need to build all the others"). The picker reads the registry, so a layout appears in the studio once it reaches develop, develop is merged into studio, and the wasm is rebuilt into `app/public/graph_wasm.wasm`.
+  - Building, each in its own worktree and branch (prompts in `orch/prompts/`):
+    - `p12-igraph`: FR, KK, DrL (2D), LGL, Davidson-Harel, Graphopt;
+    - `p12-t1`: random, circular.ring, circular.shell, bipartite, spiral, force.yifan_hu, plus any other networkx 2D entry;
+    - `p12-t2`: force.spring (networkx spring_layout 2D), circular.hierarchy (SciGraphs CIRCULAR_HIERARCHY).
+  - p12-igraph and p12-t1 died on quota with 0 commits and were resumed on longcat (`p12-igraphb`, `p12-t1b`).
+- About 21:40: user decisions on the rest of the SciGraphs list.
+  - Graphviz: no Graphviz binary, library or server. The motor reimplements all eight natively. The pinned Graphviz source is an algorithm reference and a docker-only test oracle (EPL-1.0: read it, don't translate it line by line).
+  - 3D: approved. It needs a contract change (dim once per snapshot, a z column, 2D bytes unchanged), so the design goes through a devil verdict before any code.
+  - Performance: CPU only. Every layout gets the Phase 11 thread tier and a bench-driven optimization pass. Order: easiest first.
+  - Launched:
+    - `p13-gv1`: twopi, circo, patchwork, osage. Step 0 pins the Graphviz source in `fetch-refs.sh`.
+    - `p13-3d`: design doc `docs/decisions/contract-3d.md` only; `docs.rows` = fmt.
+  - Next:
+    - `p13-gv2` (neato, fdp, sfdp, dot) after p12 lands, reusing KK, FR, Yifan Hu and the Sugiyama pipeline;
+    - an opus devil verdict on contract-3d, then the 3D implementation and the easiest 3D layouts;
+    - after p11 merges: extend the thread tier to every layout and bench each one.
+- About 22:40: quota triage. bunny and longcat answer 429; mimo works. Hung longcat subagent streams
+  stalled p13-gv1, p13-3d, p12-t2 and followups2c. Their children were interrupted and p13 and
+  followups2c were queued. `oc-job.sh` now also rotates the model on an "aborted ... inactivity" end.
+  - OpenCode is capped at four jobs: merge-p11, studio-ux2c, sim-m1fix2e and p12-t2.
+  - p12-igraph and p12-t1 each died twice on quota, so both moved to the Claude job engine. It is the
+    Workflow `target/orch-engine/jobs.js`, a copy of `/sgoinfre/students/dlesieur/orch/engine/jobs.js`.
+    Runs: p12-t1 `wf_31284d19-1d9`, p12-igraph `wf_c5c5371d-09c`.
+  - Queued, relaunched with `OC_SESSION` once a slot frees:
+    - p13-gv1 `ses_f114f15a3ffe5X0BotPtVWYn3y`;
+    - p13-3d `ses_f114ec78affe6pzAwmdN3NeQl3`;
+    - followups2c `ses_f11b6612bffeSYUGh7YTLDrxwK`.
+- About 23:30: p12-t1 relaunched on the engine as `wf_14bf57f8-c2f` (commit c377215 carries its WIP;
+  `capabilities --check` removed from its rows: it exits 1 on every tree without 1000-seed records).
+  **Done 23:25, 0c72dc5 pushed**, gate green on the final tree (11 rows incl. the closed-form
+  differential vs networkx and its perturbation negctl). Waits in the merge train after p12-igraph.
+  Follow-ups: multipartite, arf, bfs, planar (documented as skipped in `docs/decisions/layouts-tier1.md`);
+  the `oracle-closed-form` record is not read by capabilities, so ring/spiral/bipartite cannot reach gated.
+- Obsidian-style live forces (user request): split into three jobs, because the physics must come
+  from graph-core `ForceSession` (branch `sim`, uncommitted WIP) and no TypeScript simulation is allowed.
+  - `studio-force` (engine, `orch/prompts/studio-force.txt`): the `LiveForce` port, worker loop,
+    drag glue, Forces panel (Center, Repel, Link force, Link distance) and tests. **Pushed 15ce426**
+    on branch `studio-force` (merges into `studio`). Gate: studio-check 0 (re-run by the lead: the
+    engine's red row did not reproduce; 298+271+55 tests pass), studio-nav 0, studio-forces 0, negctl 1.
+    The panel shows "live forces need the motor session (force-wasm)" until the adapter exists.
+  - `force-wasm` (`orch/prompts/force-wasm.txt`, `orch/rows/force-wasm.rows`): graph-wasm ABI + SDK
+    `ForceSession` + a 4-way session hash row. Starts from `sim` once sim-m1fix2e commits.
+  - Then a wiring job: the real adapter in the studio worker, and a CDP probe that neighbours move.
+- About 23:55: all three free OpenCode models hang (a 90 s probe gave rc=124 on bunny, longcat and
+  mimo); the four OpenCode jobs died with the previous session. Reassigned to the Claude engine:
+  sim-m1fix2 `wf_2c97e1c6-ddb` (critical path to force-wasm), p12-igraph `wf_fbd5ccd9-6db` (on its
+  WIP), merge-p11 as a sonnet agent in `/goinfre/dlesieur/wt/integ` (18 conflict hunks; the lead
+  gates, commits and pushes). Queued: p12-t2 (fresh), studio-ux2c. Re-probe OpenCode before each launch.
 ## Remaining, in order
 
 1. Done: train and p4 are on develop. Still to do: p7's SDK row (p4 → p7 dependency), and check the folded p4 CLI test listed under p4 above.
