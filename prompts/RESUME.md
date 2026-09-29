@@ -79,6 +79,12 @@ pass (4/4). A fresh worktree needs `npm ci` before `cargo test`.
 
   Also in flight: `p11-reconcile` and `sim-m1`.
 - Worktrees need `npm ci` before `cargo test` (`cli_oracles`). The orchestrator does it at worktree creation.
+- `studio-ux` (the studio UX plan, step 2) is running in `/goinfre/dlesieur/wt/studio-ux`.
+  - Prompt: `orch/prompts/studio-ux.txt` on top of `common-studio.txt`. Rows: `orch/rows/studio-ux.rows`.
+  - Deviation: it was cut from `studio` a0c346d before S2 landed, because S2 was stalled. It touches `view.ts` with one additive line only.
+  - A branch cut from `studio` lacks the `ux` agent ("Agent not found"). Fix: check out develop's `opencode.json`, `.opencode/agents/ux.md` and `ux-probe.md` (fa953cd); studio had not changed them.
+  - Merge order into `studio` (from the peer session): S2, parity, s5, s3, s4, then studio-ux last. Merge `studio` into studio-ux after s3 lands, since s3 adds display actions to the same registry. The peer owns look/theme and the display panel; studio-ux owns `console/*` and set/get.
+  - Before it merges: a devil review, plus `studio-perf` run alone.
 
 ## Remaining, in order
 
