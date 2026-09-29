@@ -87,15 +87,14 @@ pub fn rows() -> impl Iterator<Item = Capability> {
         .iter()
         .map(
             |&(id, oracle, complexity, scale_ceiling, degradation, ponytail)| {
-                row(
-                    id,
-                    "polyline",
+                let meta = RowMeta {
                     oracle,
                     complexity,
                     scale_ceiling,
                     degradation,
                     ponytail,
-                )
+                };
+                row(id, "polyline", meta)
             },
         )
         .chain(bundles())
@@ -110,17 +109,7 @@ fn bundles() -> impl Iterator<Item = Capability> {
     [graph_core::post::fdeb::META, graph_core::post::mingle::META]
         .into_iter()
         .zip(["post.bundle.fdeb", "post.bundle.mingle"])
-        .map(|(meta, id)| {
-            row(
-                id,
-                edge_kind_name(meta.edges),
-                meta.oracle,
-                meta.complexity,
-                meta.scale_ceiling,
-                meta.degradation,
-                meta.ponytail,
-            )
-        })
+        .map(|(meta, id)| row(id, edge_kind_name(meta.edges), RowMeta::of_post(&meta)))
 }
 
 /// The four style rows, projected from [`graph_core::post::styles::STYLES`]. They differ
@@ -132,11 +121,7 @@ fn styles() -> impl Iterator<Item = Capability> {
         row(
             style.id,
             edge_kind_name(style.meta.edges),
-            style.meta.oracle,
-            style.meta.complexity,
-            style.meta.scale_ceiling,
-            style.meta.degradation,
-            style.meta.ponytail,
+            RowMeta::of_registry(&style.meta),
         )
     })
 }
@@ -153,36 +138,59 @@ fn edge_kind_name(kind: graph_contract::geometry::EdgeGeometryKind) -> &'static 
     }
 }
 
-/// One POST row's ledger shape. `oracle_record` is `roundtrip` and `functions` is empty
-/// for every row here: no POST stage is in the hash gate's list and no differential
-/// covers one, so a `gated` claim would be one `problems()` has to refuse. `hash_stage` is
-/// the row's own id, so adding a stage to the gate later is a one-word change here rather
-/// than a silent mismatch.
-#[allow(clippy::too_many_arguments)]
-fn row(
-    id: &'static str,
-    geometry: &'static str,
+/// The five metadata fields every POST row carries, grouped so `row` stays at three
+/// parameters.
+struct RowMeta {
     oracle: &'static str,
     complexity: &'static str,
     scale_ceiling: u64,
     degradation: &'static str,
     ponytail: &'static str,
-) -> Capability {
+}
+
+impl RowMeta {
+    fn of_post(meta: &graph_core::post::Metadata) -> Self {
+        Self {
+            oracle: meta.oracle,
+            complexity: meta.complexity,
+            scale_ceiling: meta.scale_ceiling,
+            degradation: meta.degradation,
+            ponytail: meta.ponytail,
+        }
+    }
+
+    fn of_registry(meta: &graph_core::registry::Metadata) -> Self {
+        Self {
+            oracle: meta.oracle,
+            complexity: meta.complexity,
+            scale_ceiling: meta.scale_ceiling,
+            degradation: meta.degradation,
+            ponytail: meta.ponytail,
+        }
+    }
+}
+
+/// One POST row's ledger shape. `oracle_record` is `roundtrip` and `functions` is empty
+/// for every row here: no POST stage is in the hash gate's list and no differential
+/// covers one, so a `gated` claim would be one `problems()` has to refuse. `hash_stage` is
+/// the row's own id, so adding a stage to the gate later is a one-word change here rather
+/// than a silent mismatch.
+fn row(id: &'static str, geometry: &'static str, meta: RowMeta) -> Capability {
     Capability {
         id,
         tier: 1,
         stage: "post",
         geometry: Some(geometry),
         status: Status::Implemented,
-        oracle,
+        oracle: meta.oracle,
         oracle_record: "roundtrip",
         functions: &[],
         hash_stage: id,
         oracle_diff: String::new(),
         hash_4way: String::new(),
-        scale_ceiling,
-        degradation,
-        ponytail,
-        complexity,
+        scale_ceiling: meta.scale_ceiling,
+        degradation: meta.degradation,
+        ponytail: meta.ponytail,
+        complexity: meta.complexity,
     }
 }
