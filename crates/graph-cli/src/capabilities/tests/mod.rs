@@ -2,6 +2,7 @@ use super::verdict::{Evidence, MIN_SEEDS};
 use super::*;
 use serde_json::{Value, json};
 
+mod depth;
 mod force;
 mod refusals;
 mod registry;
@@ -178,10 +179,23 @@ fn honest() -> Evidence {
     }
 }
 
+/// One real row, found by id and restated at `status`, for the tests that need a row
+/// the registry does not have. By id, not by index: a registry entry inserted above it
+/// would otherwise hand these tests a different row and the assertion would keep
+/// passing for the wrong reason.
 fn row(status: Status) -> Capability {
-    let mut row = registry().remove(0);
+    let mut row = find_row_by_id("topology.index");
     row.status = status;
     row
+}
+
+/// `registry()`'s row `id`, by id. Panics rather than returning a default: a test that
+/// cannot find the row it is about is a test that must not pass.
+pub(super) fn find_row_by_id(id: &str) -> Capability {
+    registry()
+        .into_iter()
+        .find(|r| r.id == id)
+        .unwrap_or_else(|| panic!("no {id} row"))
 }
 
 #[test]
@@ -231,7 +245,7 @@ pub(super) fn find_row(evidence: &Evidence, id: &str) -> Capability {
 
 #[test]
 fn the_grid_row_stands_only_on_its_own_control_and_its_roundtrip_record() {
-    let grid = || vec![registry().remove(8)];
+    let grid = || vec![find_row_by_id("layout.grid")];
     let mut evidence = honest();
     evidence.controls.truncate(1);
     let blind = problems(&grid(), &evidence);
@@ -272,13 +286,20 @@ fn without_records_every_gated_row_is_refused_twice() {
     };
     let rows = ledger(&bare);
     assert_eq!(problems(&rows, &bare).len(), 34);
+    // By id, not by position: the first row happens to be `topology.index` today, and a
+    // registry entry inserted above it would leave this test passing on a row it never
+    // meant to read.
+    let index = rows
+        .iter()
+        .find(|r| r.id == "topology.index")
+        .expect("topology.index is a row");
     assert!(
-        rows[0]
+        index
             .hash_4way
             .starts_with("not backed: no hashgate record")
     );
     assert!(
-        rows[0]
+        index
             .oracle_diff
             .starts_with("not backed: no oracle-diff record")
     );
@@ -319,6 +340,7 @@ fn the_ledger_is_the_registry_plus_the_scale_rows_and_still_stands() {
     let rows = ledger(&evidence);
     let ids: Vec<&str> = rows.iter().map(|r| r.id).collect();
     for id in [
+        "analysis.depth",
         "post.bundle.fdeb",
         "post.bundle.mingle",
         "post.style.straight",
@@ -330,8 +352,8 @@ fn the_ledger_is_the_registry_plus_the_scale_rows_and_still_stands() {
     }
     assert_eq!(
         rows.len(),
-        42,
-        "36 before Phase 8's six bundling and style rows"
+        43,
+        "42 before analysis.depth, and 36 before Phase 8's six bundling and style rows"
     );
     assert_eq!(problems(&rows, &evidence), Vec::<String>::new());
 }

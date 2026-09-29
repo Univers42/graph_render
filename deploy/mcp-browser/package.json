@@ -1,0 +1,8 @@
+{
+  "name": "gm-mcp-browser",
+  "private": true,
+  "description": "Browser MCP server for the OpenCode ux agent; a test instrument, never shipped",
+  "dependencies": {
+    "@playwright/mcp": "0.0.83"
+  }
+}

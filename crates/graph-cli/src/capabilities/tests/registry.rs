@@ -53,7 +53,7 @@ fn every_post_capability_is_a_row_beside_the_routing_one() {
     }
 }
 
-/// Each new row restates the metadata its own module in `graph-core` declares, rather
+/// Each POST row restates the metadata its own module in `graph-core` declares, rather
 /// than a second and looser answer: the ceiling, oracle, complexity, degradation and
 /// Ponytail are read across, so a change to the module's `META` and a stale ledger row
 /// cannot disagree.
