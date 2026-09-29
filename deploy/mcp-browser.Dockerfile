@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 #
-# The browser MCP server the OpenCode `ux` agent drives (opencode.json `mcp.browser`). A test
+# The browser MCP server the OpenCode `ux` agent drives (opencode.json `mcp.pw`). A test
 # instrument for the studio, never shipped and never a dependency of any package. Debian
 # chromium and Debian node, no vendor browser image (docs/decisions/opencode-browser-mcp.md);
 # @playwright/mcp is pinned by deploy/mcp-browser/package-lock.json and installed with `npm ci`.

@@ -72,10 +72,10 @@
       "docker system prune*": "deny",
       "docker volume rm*": "deny"
     },
-    "browser_*": "deny"
+    "pw_*": "deny"
   },
   "mcp": {
-    "browser": {
+    "pw": {
       "type": "local",
       "command": [
         "docker",
@@ -97,5 +97,10 @@
       "enabled": true,
       "timeout": 20000
     }
+  },
+  "skills": {
+    "paths": [
+      "/sgoinfre/students/dlesieur/graph_render/.claude/skills"
+    ]
   }
 }

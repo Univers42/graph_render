@@ -18,22 +18,34 @@ MCP on this host is held by another session.
   Debian's `chromium` and `nodejs`. `@playwright/mcp` is pinned to 0.0.83 by
   `deploy/mcp-browser/package-lock.json` and installed with `npm ci --ignore-scripts`; no browser
   download.
-- **Wiring.** `opencode.json` `mcp.browser` starts it as a stdio server per OpenCode instance:
+- **Wiring.** `opencode.json` `mcp.pw` starts it as a stdio server per OpenCode instance:
   `docker run --pull never -i --rm --network host --user 0:0 -v /goinfre/dlesieur/mcp-out:/out
   gm-mcp-browser --allowed-origins <the three studio dev ports on 127.0.0.1 and localhost>`.
   `--pull never` because `/goinfre` (the docker root here) is wiped on a host change, and the
   image name is not ours on docker.io. Rebuild it after a host change (`prompts/RESUME.md`).
+- **Server name `pw`, not `browser`.** OpenCode 2.0.18 runs tools in code mode: the model calls
+  one `execute` tool whose JavaScript reaches `tools.<server>.<tool>(args)`. OpenCode already owns
+  a `tools.browser.*` namespace (its desktop-app browser, disconnected here, and not governed by
+  `browser_*` rules). A server named `browser` merged into it; the smoke run's agent called the
+  desktop tools and got `[browser.disconnected]`.
 - **Tool ids.** OpenCode names an MCP tool `<server>_<tool>`, and every Playwright tool already
-  starts with `browser_`, so the permission ids are `browser_browser_navigate`, and so on. The
+  starts with `browser_`, so the permission ids are `pw_browser_navigate`, and so on. The
   last matching rule wins (patterns are anchored, `*` is `.*`), so an agent's rules must come
   after the global deny they override.
-- **Deny by default.** The top-level permission `"browser_*": "deny"` hides the tools from every
+- **Deny by default.** The top-level permission `"pw_*": "deny"` hides the tools from every
   agent. Only `.opencode/agents/ux.md` and `ux-probe.md` re-allow them.
-- **Unsafe tools stay off.** Both agents deny `browser_browser_run_code_unsafe` and
-  `browser_browser_file_upload`, after their `browser_*` allow. `ux-probe` also denies `bash`,
+- **Unsafe tools stay off.** Both agents deny `pw_browser_run_code_unsafe` and
+  `pw_browser_file_upload`, after their `pw_*` allow. `ux-probe` also denies `bash`,
   since it edits nothing. The server cannot drop `browser_run_code_unsafe` itself: it is a `core`
   capability, which `--caps` always keeps, so the client-side deny is the only lever short of a
   filtering stdio proxy.
+- **Screenshots take an absolute `/out/<label>/<name>.png`.** The server resolves a relative
+  filename against the client's root, which OpenCode sends as the worktree path. That path does
+  not exist in the container, so the file died with it. `/out` is the bind mount
+  (`/goinfre/dlesieur/mcp-out` on the host). Both agent files say so.
+- **Skills come from `skills.paths`.** Every worktree's `.claude` submodule is uninitialised, so
+  OpenCode found no skills there, and the bunnies never had the house skills. `opencode.json`
+  points `skills.paths` at the main checkout's `.claude/skills`, which is read, never written.
 
 ## Accounting (minimalism ladder, rung 6: a new dependency)
 
@@ -45,7 +57,7 @@ MCP on this host is held by another session.
 - **Who maintains it.** The Playwright project (Microsoft).
 - **Scope.** A test instrument. It is not a dependency of any package, crate or shipped artifact,
   and no gate row depends on it.
-- **Removal path.** Delete the `mcp` key and the `browser_*` permission lines in `opencode.json`,
+- **Removal path.** Delete the `mcp` key and the `pw_*` permission lines in `opencode.json`,
   the two agent files, `deploy/mcp-browser*`, and the image.
 
 ## Security
@@ -70,9 +82,18 @@ MCP on this host is held by another session.
 
 ## Token cost
 
-`tools/list` returns 25 tools and 21,332 bytes of schema (measured 2026-09-29, 0.0.83). Without the
-top-level deny, every Rust job would carry that in each request. The smoke run records the
-first-step input tokens of `builder` against `ux` to confirm the saving.
+`tools/list` returns 25 tools and 21,332 bytes of schema (measured 2026-09-29, 0.0.83). In code
+mode those schemas are not sent with each request; the model reads them on demand through
+`search`. First-step input tokens, same host, 2026-09-29:
+
+| Run | `ux` (pw allowed) | `builder` (pw denied) |
+|---|---:|---:|
+| smoke 1 | 6,470 | 6,090 |
+| smoke 3 | 7,762 | 7,315 |
+
+The gap is the agent prompt and the task text, not the schemas. The top-level deny therefore
+saves no per-request tokens. It is kept for what it does do: a denied tool is absent from the
+catalog and cannot be called.
 
 ## Measured
 
@@ -93,15 +114,26 @@ base image is a tag, not a digest, and the Debian packages are unpinned.
 Ponytail: every OpenCode instance starts one container, Rust jobs included, even though they are
 denied the tools (63 MiB and 8 pids idle, measured).
 
+The OpenCode smoke run (2026-09-29, `ux` against a `builder` control, journals
+`target/wf/uxsmoke3.jsonl` and `ctlsmoke3.jsonl` in the scratch worktrees):
+
+| Check | Result |
+|---|---|
+| `skill` loads `frontend` | PASS |
+| two `explore` subagents in one message | PASS |
+| `tools.pw.browser_resize`, `_navigate`, `_snapshot`, `_take_screenshot` | PASS, title "graph-motor studio" |
+| the screenshot at `/goinfre/dlesieur/mcp-out/uxsmoke/uxsmoke-375.png` | PASS, 31,245 bytes |
+| `tools.pw.browser_run_code_unsafe` called by name from `ux` | refused: `Unknown tool 'pw.browser_run_code_unsafe'` |
+| `builder` sees any `tools.pw.*` | none; `tools.pw.browser_navigate` is `Unknown tool` |
+
+The static check agrees: replaying the anchored last-match rule over `opencode debug agents`
+gives `deny` for `pw_browser_run_code_unsafe` and `pw_browser_file_upload` in all 13 agents, and
+`allow` for `pw_browser_navigate` only in `ux` and `ux-probe`.
+
 ## Not verified yet
 
-- The permission resolution is checked statically: replaying the anchored last-match rule over
-  `opencode debug agents` gives `deny` for `browser_browser_run_code_unsafe` and
-  `browser_browser_file_upload` in every agent, and `allow` for `browser_browser_navigate` only in
-  `ux` and `ux-probe`. With the old ids (`browser_run_code_unsafe`), `ux` resolved to `allow`. The
-  live refusal is still owed to the smoke run.
-- Whether OpenCode discovers `.claude/skills` without `skills.paths`.
 - Whether the origin filter follows a redirect from an allowed origin to a blocked one.
+- `pw_browser_file_upload` was refused statically only; no live call was made.
 
 ## Verdict
 
@@ -110,7 +142,7 @@ failure 3, confidence 4. The worst axis was confidence: the original deny ids ma
 
 | Condition | Done |
 |---|---|
-| C1. Deny ids `browser_browser_run_code_unsafe` and `browser_browser_file_upload`, after the allow | yes; static resolution above |
+| C1. Deny ids `browser_browser_run_code_unsafe` and `browser_browser_file_upload`, after the allow | yes, renamed to `pw_browser_*` with the server (a deviation in ids, same intent); refused live |
 | C2. `bash: deny` on `ux-probe` | yes; its last shell rule is `shell * deny` |
 | C3. This ADR: real ids, rule order, rootless netns, no "tool set" boundary, Ponytails | yes |
 | C4. `--pull never`, and the image in the host-change recipe | yes |

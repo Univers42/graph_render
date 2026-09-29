@@ -67,6 +67,8 @@ pass (4/4). A fresh worktree needs `npm ci` before `cargo test`.
   - `orchfix` (15edd32): `scripts/orch/oc-live.sh` asks the service which sessions are draining; `oc-job.sh` refuses unless oc-live exits 1; `oc-status.sh` shows UNKNOWN instead of DEAD when it cannot ask. 34/34 in `test-oc-live.sh`.
   - After a host change, also recreate `/goinfre/dlesieur/orch/bin/oc-live.sh -> scripts/orch/oc-live.sh`. Without it every job reads UNKNOWN.
   - After a host change, also rebuild the browser MCP image before any `ux` job: `docker build -f deploy/mcp-browser.Dockerfile -t gm-mcp-browser deploy`. `opencode.json` runs it with `--pull never`, so a missing image fails the MCP instead of pulling a stranger's name.
+  - The browser MCP server is named `pw` (`tools.pw.*` in OpenCode's code-mode `execute`), because OpenCode's own `tools.browser.*` swallowed a server named `browser`. Screenshots need an absolute `/out/<label>/<name>.png`. Smoke run green on 2026-09-29 (`docs/decisions/opencode-browser-mcp.md`).
+  - Worktree `.claude` submodules are empty, so bunnies had no skills until `opencode.json` `skills.paths` pointed at the main checkout's `.claude/skills` (verified: `frontend` loaded).
   - `ledger-rows` (3486ca5): `analysis.depth` row, depth re-pointed to `Hierarchy`, index-based row lookups made by-id. Merged tree: fmt 0, clippy 0, 1022 passed / 0 failed.
   - Its `capabilities --check` 34 problems are all "no record: run the gate" in a fresh worktree; the full gate owns them.
 - In flight: `followups`, which covers:
