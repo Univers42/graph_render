@@ -106,3 +106,21 @@ test("edges are one device pixel wide until the zoom is close", () => {
   assert.equal(edgeWidth(0.2, 1), 1);
   assert.equal(edgeWidth(5, 2), 1.5);
 });
+
+test("a flat backdrop fills the ground with its own colour; the theme's ground is not used", () => {
+  const record = recorder();
+  const theme = { ...DARK_THEME, backdrop: { mode: "flat", colour: "#20232a" } } as const;
+  paintFrame(inputFor(lineFrame({ x: [], y: [] }), record, { theme }));
+  assert.equal(record.ctx.fillStyle, "#20232a");
+  assert.equal(record.calls.get("fillRect"), 1);
+  assert.equal(record.gradients.length, 0);
+});
+
+test("an aurora backdrop is one gradient across the viewport, one rect, no frame scheduled", () => {
+  const record = recorder();
+  const theme = { ...DARK_THEME, backdrop: { mode: "aurora", stops: ["#111111", "#222222", "#333333"] } } as const;
+  paintFrame(inputFor(lineFrame({ x: [], y: [] }), record, { theme }));
+  assert.deepEqual(record.gradients, [[0, 0, 1200, 1200]]);
+  assert.deepEqual(record.stops, ["0:#111111", "0.5:#222222", "1:#333333"]);
+  assert.equal(record.calls.get("fillRect"), 1);
+});

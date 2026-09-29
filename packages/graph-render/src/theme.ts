@@ -8,8 +8,15 @@ export interface LabelBox {
   readonly padding: number;
 }
 
+/** What is painted behind the graph when the host wants something other than `Theme.background`. */
+export type Backdrop =
+  | { readonly mode: "flat"; readonly colour: string }
+  | { readonly mode: "aurora"; readonly stops: readonly [string, string, string] };
+
 export interface Theme {
   readonly background: string;
+  /** Replaces `background` as the ground when present; the rim and label halo keep the theme's own. */
+  readonly backdrop?: Backdrop;
   readonly edge: string;
   /** Edges of the hovered or selected node. */
   readonly edgeLit: string;

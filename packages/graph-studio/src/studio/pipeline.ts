@@ -9,7 +9,8 @@ import { DEFAULT_POLICY, type LabelPolicy } from "../../../graph-render/src/labe
 import { EMPTY_FRAME } from "../../../graph-render/src/scene.ts";
 import { type Snapshot, decodeSnapshot } from "../../../graph-render/src/snapshot/decode.ts";
 import { styleFrom } from "../../../graph-render/src/style.ts";
-import { themeNamed } from "../../../graph-render/src/look/themes.ts";
+import { backdropTheme } from "../../../graph-render/src/look/backdrop.ts";
+import { isLightTheme, themeNamed } from "../../../graph-render/src/look/themes.ts";
 import type { View } from "../../../graph-render/src/view.ts";
 import type { Outcome } from "../actions/registry.ts";
 import { styleInputOf } from "../look/styleOf.ts";
@@ -97,7 +98,9 @@ function restyle(rig: Rig, look: Settings): void {
 
 function showLook(rig: Rig, look: Settings): void {
   const { appearance, filter, groups } = look;
-  if (rig.shown?.theme !== appearance.theme) rig.view.setTheme(themeNamed(appearance.theme));
+  if (rig.shown?.theme !== appearance.theme || rig.shown.background !== appearance.background) {
+    rig.view.setTheme(backdropTheme(themeNamed(appearance.theme), appearance.background, isLightTheme(appearance.theme)));
+  }
   if (rig.shown?.labels !== appearance.labels || rig.shown.textFade !== appearance.textFade) {
     rig.view.setLabels(policyOf(appearance));
   }

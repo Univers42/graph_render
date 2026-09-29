@@ -18,13 +18,30 @@ function paintLabels(input: PaintInput, counts: PaintCounts): void {
   ctx.globalAlpha = 1;
 }
 
+/**
+ * The ground, painted inside the frame the view already draws: no timer, no frame request.
+ * Ponytail: the aurora is one diagonal three-stop gradient, not an animated field; it looks
+ * flat on a very small viewport, and its corners are the first and last stop, not blends.
+ */
+function paintGround(input: PaintInput): void {
+  const { ctx, theme, viewport } = input;
+  const backdrop = theme.backdrop;
+  if (backdrop?.mode === "aurora") {
+    const gradient = ctx.createLinearGradient(0, 0, viewport.width, viewport.height);
+    backdrop.stops.forEach((colour, at) => gradient.addColorStop(at / 2, colour));
+    ctx.fillStyle = gradient;
+  } else {
+    ctx.fillStyle = backdrop?.mode === "flat" ? backdrop.colour : theme.background;
+  }
+  ctx.fillRect(0, 0, viewport.width, viewport.height);
+}
+
 export function paintFrame(input: PaintInput): PaintCounts {
   const counts = newCounts();
-  const { ctx, dpr, viewport } = input;
+  const { ctx, dpr } = input;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.globalAlpha = 1;
-  ctx.fillStyle = input.theme.background;
-  ctx.fillRect(0, 0, viewport.width, viewport.height);
+  paintGround(input);
   paintEdges(input, counts);
   paintGlow(input, counts);
   paintNodes(input, counts);

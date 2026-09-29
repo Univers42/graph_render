@@ -47,11 +47,16 @@ export interface Recorder {
   readonly ctx: Surface2D;
   readonly calls: Map<string, number>;
   readonly fills: string[];
+  /** The endpoints of every linear gradient asked for, and the stops added to them. */
+  readonly gradients: number[][];
+  readonly stops: string[];
 }
 
 export function recorder(): Recorder {
   const calls = new Map<string, number>();
   const fills: string[] = [];
+  const gradients: number[][] = [];
+  const stops: string[] = [];
   const count = (name: string) => (): void => {
     calls.set(name, (calls.get(name) ?? 0) + 1);
   };
@@ -67,6 +72,10 @@ export function recorder(): Recorder {
     rect: count("rect"),
     stroke: count("stroke"),
     drawImage: count("drawImage"),
+    createLinearGradient: (x0, y0, x1, y1) => {
+      gradients.push([x0, y0, x1, y1]);
+      return { addColorStop: (offset, colour) => void stops.push(`${offset}:${colour}`) };
+    },
     fillStyle: "",
     strokeStyle: "",
     lineWidth: 1,
@@ -76,5 +85,5 @@ export function recorder(): Recorder {
       fills.push(typeof ctx.fillStyle === "string" ? ctx.fillStyle : "(not a colour)");
     },
   };
-  return { ctx, calls, fills };
+  return { ctx, calls, fills, gradients, stops };
 }

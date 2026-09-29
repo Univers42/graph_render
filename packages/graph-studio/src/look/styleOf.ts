@@ -35,9 +35,6 @@ export interface LegendEntry {
 
 const BASE_RADIUS = 4;
 const GAIN = 2.5;
-/** Ponytail: fixed pixel bounds picked by eye, not derived from the viewport; a huge graph wants a smaller max. */
-const MIN_RADIUS = 0.5;
-const MAX_RADIUS = 120;
 const LEGEND_ROWS = 12;
 
 /**
@@ -94,13 +91,13 @@ function weightsOf(input: LookInput): Float32Array {
 
 export function styleInputOf(input: LookInput): StyleInput {
   const { colours, palette } = colouringOf(input);
-  const { nodeScale, sizeBy, linkThickness, edgeStyle, arrows, glow, glowStrength } = input.appearance;
+  const { nodeScale, sizeBy, linkThickness, edgeStyle, arrows, glow, glowStrength, minRadius, maxRadius } = input.appearance;
   return {
     labels: input.meta.labels,
     weights: weightsOf(input),
     colours,
     palette,
-    sizing: { base: BASE_RADIUS * nodeScale, gain: sizeBy === "uniform" ? 0 : GAIN, min: MIN_RADIUS, max: MAX_RADIUS },
+    sizing: { base: BASE_RADIUS * nodeScale, gain: sizeBy === "uniform" ? 0 : GAIN, min: minRadius, max: maxRadius },
     edges: { scale: linkThickness, curve: edgeStyle === "curve", arrows },
     glow: glow ? glowStrength : 0,
     hidden: withReveal(hiddenOf(input.meta, input.filter), input.reveal ?? null, input.meta.nodeCount),

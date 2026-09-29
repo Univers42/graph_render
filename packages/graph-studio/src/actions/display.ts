@@ -1,7 +1,8 @@
 /** The display panel's controls beyond theme, colour and size: each an action, so the console drives them too. */
 import {
-  EDGE_STYLES, GLOW_STRENGTH, LINK_THICKNESS, TEXT_FADE,
+  BACKGROUNDS, EDGE_STYLES, NODE_PX, GLOW_STRENGTH, LINK_THICKNESS, TEXT_FADE,
 } from "../state/settings.ts";
+import { ActionRefusal } from "./registry.ts";
 import { type StudioAction, chosen, flagArg, numberArg, textArg } from "./context.ts";
 import { look } from "./look.ts";
 
@@ -53,7 +54,44 @@ const glowStrength: StudioAction = {
   run: (context, args) => look(context, { glowStrength: numberArg(args, "value") }),
 };
 
-const ANIMATE_MS = { min: 0, max: 30_000, initial: 1500 } as const;
+const background: StudioAction = {
+  id: "appearance.background", alias: "background", title: "Background", section: "Appearance",
+  params: [{
+    name: "mode", kind: "choice", title: "Background", control: "segmented",
+    choices: () => BACKGROUNDS, value: (state) => state.settings.appearance.background,
+  }],
+  run: (context, args) => look(context, { background: chosen(BACKGROUNDS, textArg(args, "mode"), "theme") }),
+};
+
+const minPx: StudioAction = {
+  id: "appearance.minpx", alias: "minpx", title: "Smallest node (px)", section: "Appearance",
+  params: [{
+    name: "px", kind: "number", title: "Smallest node (px)", control: "number",
+    min: NODE_PX.min, max: NODE_PX.max, step: 0.5, value: (state) => state.settings.appearance.minRadius,
+  }],
+  run: (context, args) => {
+    const px = numberArg(args, "px");
+    const max = context.state().settings.appearance.maxRadius;
+    if (px > max) throw new ActionRefusal("bad-value", `smallest node ${px} px is above the maximum ${max} px`);
+    return look(context, { minRadius: px });
+  },
+};
+
+const maxPx: StudioAction = {
+  id: "appearance.maxpx", alias: "maxpx", title: "Largest node (px)", section: "Appearance",
+  params: [{
+    name: "px", kind: "number", title: "Largest node (px)", control: "number",
+    min: NODE_PX.min, max: NODE_PX.max, step: 0.5, value: (state) => state.settings.appearance.maxRadius,
+  }],
+  run: (context, args) => {
+    const px = numberArg(args, "px");
+    const min = context.state().settings.appearance.minRadius;
+    if (px < min) throw new ActionRefusal("bad-value", `largest node ${px} px is below the minimum ${min} px`);
+    return look(context, { maxRadius: px });
+  },
+};
+
+const ANIMATE_MS = { min: 0, max: 30_000, initial: 10_000 } as const;
 
 const animate: StudioAction = {
   id: "appearance.animate", alias: "animate", title: "Animate", section: "Appearance",
@@ -71,5 +109,5 @@ const animateStop: StudioAction = {
 };
 
 export const DISPLAY_ACTIONS: readonly StudioAction[] = [
-  arrows, fade, thickness, edgeStyle, glow, glowStrength, animate, animateStop,
+  arrows, fade, thickness, edgeStyle, glow, glowStrength, background, minPx, maxPx, animate, animateStop,
 ];

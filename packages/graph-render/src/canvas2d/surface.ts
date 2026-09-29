@@ -9,7 +9,7 @@ export type SpriteImage = object;
 export interface Surface2D extends Pick<
   CanvasRenderingContext2D,
   | "setTransform" | "fillRect" | "beginPath" | "moveTo" | "lineTo" | "quadraticCurveTo"
-  | "bezierCurveTo" | "arc" | "rect" | "fill" | "stroke"
+  | "bezierCurveTo" | "arc" | "rect" | "fill" | "stroke" | "createLinearGradient"
   | "fillStyle" | "strokeStyle" | "lineWidth" | "globalAlpha"
 > {
   /** Forwarded from a sprite cache, so the argument stays as wide as the sprite is. */

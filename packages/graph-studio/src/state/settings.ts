@@ -31,6 +31,9 @@ export const NODE_SCALE = { min: 0.2, max: 5, whole: false } as const;
 export const LINK_THICKNESS = { min: 0.1, max: 5, whole: false } as const;
 export const TEXT_FADE = { min: -3, max: 3, whole: false } as const;
 export const GLOW_STRENGTH = { min: 0, max: 3, whole: false } as const;
+export const BACKGROUNDS = ["theme", "flat", "aurora"] as const;
+/** Bounds of the node-size pixel range; the defaults are the radii the painter always clamped to. */
+export const NODE_PX = { min: 0.5, max: 120, whole: false } as const;
 
 export interface Appearance {
   readonly theme: string;
@@ -48,6 +51,11 @@ export interface Appearance {
   readonly edgeStyle: (typeof EDGE_STYLES)[number];
   readonly glow: boolean;
   readonly glowStrength: number;
+  /** `theme` paints the theme's own ground, `flat` one solid colour, `aurora` a gradient. */
+  readonly background: (typeof BACKGROUNDS)[number];
+  /** Smallest and largest drawn node radius in pixels; `minRadius <= maxRadius` always. */
+  readonly minRadius: number;
+  readonly maxRadius: number;
 }
 
 /** Filters hide nodes in the drawing. The layout still ran over the whole graph. */
@@ -99,6 +107,7 @@ function appearanceOf(look: Appearance): Appearance {
     theme: look.theme, colourBy: look.colourBy, sizeBy: look.sizeBy, nodeScale: look.nodeScale, labels: look.labels,
     arrows: look.arrows, textFade: look.textFade, linkThickness: look.linkThickness, edgeStyle: look.edgeStyle,
     glow: look.glow, glowStrength: look.glowStrength,
+    background: look.background, minRadius: look.minRadius, maxRadius: look.maxRadius,
   });
 }
 
@@ -147,6 +156,7 @@ export const DEFAULT_SETTINGS: Settings = settingsOf({
   appearance: {
     theme: "dark", colourBy: "group", sizeBy: "weight", nodeScale: 1, labels: "auto",
     arrows: false, textFade: 0, linkThickness: 1, edgeStyle: "straight", glow: false, glowStrength: 1,
+    background: "theme", minRadius: NODE_PX.min, maxRadius: NODE_PX.max,
   },
   groups: [],
   filter: {
@@ -195,6 +205,7 @@ function readSource(value: unknown, at: string): Source {
 function readAppearance(value: unknown, at: string): Appearance {
   const fields = fieldsOf(value, at, [
     "theme", "colourBy", "sizeBy", "nodeScale", "labels", "arrows", "textFade", "linkThickness", "edgeStyle", "glow", "glowStrength",
+    "background", "minRadius", "maxRadius",
   ]);
   return {
     theme: oneOf(fields, at, "theme", THEMES),
@@ -208,7 +219,16 @@ function readAppearance(value: unknown, at: string): Appearance {
     edgeStyle: oneOf(fields, at, "edgeStyle", EDGE_STYLES),
     glow: flagOf(fields, at, "glow"),
     glowStrength: numberOf(fields, at, "glowStrength", GLOW_STRENGTH),
+    background: oneOf(fields, at, "background", BACKGROUNDS),
+    ...readRadii(fields, at),
   };
+}
+
+function readRadii(fields: Fields, at: string): Pick<Appearance, "minRadius" | "maxRadius"> {
+  const minRadius = numberOf(fields, at, "minRadius", NODE_PX);
+  const maxRadius = numberOf(fields, at, "maxRadius", NODE_PX);
+  if (minRadius > maxRadius) throw new SettingsRefusal(`${at}.minRadius`, `above maxRadius (${maxRadius})`);
+  return { minRadius, maxRadius };
 }
 
 function readFilter(value: unknown, at: string): Filter {
