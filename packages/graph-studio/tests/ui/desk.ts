@@ -4,10 +4,9 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import type { ViewStats } from "../../../graph-render/src/view.ts";
 import type { View } from "../../../graph-render/src/view.ts";
-import type { MotorClient } from "../../src/motor/client.ts";
 import { metaOf } from "../../src/source/meta.ts";
 import { type RunSummary, type StudioState, initialState } from "../../src/state/model.ts";
-import { desk, type Desk } from "../desk.ts";
+import { desk, refusingClient, type Desk } from "../desk.ts";
 import { node } from "../support.ts";
 
 const NODES = [
@@ -16,6 +15,8 @@ const NODES = [
   node("c", { label: "Gamma", group: "blue", weight: 2 }),
 ];
 const ENDS = { source: Uint32Array.of(0, 1), target: Uint32Array.of(1, 2) };
+
+export { refusingClient };
 
 export const DIGEST = "0123456789abcdef0123456789abcdef";
 
@@ -46,22 +47,6 @@ export const STATS: ViewStats = {
   backend: "canvas2d", nodes: 3, edges: 2, drawnNodes: 3, drawnEdges: 2, drawnLabels: 2,
   draws: 12, frameMs: 4.2, fps: 60, frames: 42,
 };
-
-/** Nothing in the chrome asks the motor; these refuse if anything ever does. */
-export function refusingClient(): MotorClient {
-  const never = (what: string): never => {
-    throw new Error(`the test client was asked to ${what}`);
-  };
-  return {
-    catalog: () => never("open"),
-    load: () => never("load"),
-    layout: () => never("lay out"),
-    analysis: () => never("analyse"),
-    cancel: () => false,
-    busy: () => false,
-    close: () => undefined,
-  };
-}
 
 export function studioWith(state: StudioState = DRAWN): Desk {
   const made = desk(refusingClient());

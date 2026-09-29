@@ -34,6 +34,7 @@ const HINTS: ReadonlyMap<string, string> = new Map([
   ["SettingsRefusal", "The recipe does not hold settings this studio reads. Export a fresh recipe."],
   ["CancelledError", "The run was stopped. Nothing changed."],
   ["CommandRefusal", "Type `help` in the console for the commands and their values."],
+  ["QueryRefusal", "A field is one of `id` `tag` `kind` `db` `path` `degree`; join with AND and OR, and group with `(` `)`."],
   ["RecipeMismatch", "This motor does not draw what the recipe recorded. Compare the motor builds, or export a fresh recipe."],
   ["MetaMismatch", "The snapshot and the document name different nodes. That is a studio or motor bug — nothing was drawn from it."],
   ["SessionRefusal", "Load a graph first."],

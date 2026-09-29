@@ -2,6 +2,9 @@
  * What the studio knows about each node, as columns in the motor's dense order. The
  * snapshot says where a node is; this says what it is called and how it is grouped.
  * Joined by id against the snapshot's own id table, never by position in the document.
+ *
+ * `tags`, `dbs` and `paths` are the three the document did not always carry: they are
+ * filled with `[]`, `""` and `""` so a query never has to ask whether a column exists.
  */
 import type { IngestNode, NodeKind } from "./ingest.ts";
 
@@ -18,6 +21,12 @@ export interface GraphMeta {
   /** Links per node: a self-loop counts once, a parallel edge each time. */
   readonly degree: Uint32Array;
   readonly maxDegree: number;
+  /** The node's tags, in document order; empty when it carries none. */
+  readonly tags: readonly (readonly string[])[];
+  /** The database it belongs to, or "" when the document names none. */
+  readonly dbs: readonly string[];
+  /** Its path in the source, or "" when the document carries none. */
+  readonly paths: readonly string[];
 }
 
 export interface Ends {
@@ -88,5 +97,8 @@ export function metaOf(nodes: readonly IngestNode[], order: readonly string[], e
     kinds: ordered.map((node) => node.kind),
     groups, group, weight, degree,
     maxDegree: degree.reduce((max, value) => Math.max(max, value), 0),
+    tags: ordered.map((node) => node.tags ?? []),
+    dbs: ordered.map((node) => node.database_id ?? ""),
+    paths: ordered.map((node) => node.path ?? ""),
   };
 }

@@ -4,8 +4,10 @@
  * writes its own members of the settings once it has succeeded, so the settings are what
  * is on screen and a recipe taken at any moment replays.
  */
-import { frameFrom } from "../../../graph-render/src/frame.ts";
+import { type Bounds, type Camera, type Viewport, type ZoomLimits, clamp } from "../../../graph-render/src/camera.ts";
+import { type Frame, frameFrom } from "../../../graph-render/src/frame.ts";
 import { DEFAULT_POLICY, type LabelPolicy } from "../../../graph-render/src/labels.ts";
+import { FIT_MARGIN } from "../../../graph-render/src/look/presets.ts";
 import { EMPTY_FRAME } from "../../../graph-render/src/scene.ts";
 import { type Snapshot, decodeSnapshot } from "../../../graph-render/src/snapshot/decode.ts";
 import { styleFrom } from "../../../graph-render/src/style.ts";
@@ -13,6 +15,7 @@ import { DARK_THEME, LIGHT_THEME, type Theme } from "../../../graph-render/src/t
 import type { View } from "../../../graph-render/src/view.ts";
 import type { Outcome } from "../actions/registry.ts";
 import { styleInputOf } from "../look/styleOf.ts";
+import { highlightOf } from "../look/visibleOf.ts";
 import type { MotorClient } from "../motor/client.ts";
 import type { AnalysisReport, GraphSummary, RunReport } from "../motor/protocol.ts";
 import { type Ends, MetaMismatch } from "../source/meta.ts";
@@ -24,7 +27,7 @@ export type ViewFace = Pick<
   View,
   | "setFrame" | "setStyle" | "setTheme" | "setLabels"
   | "fit" | "reset" | "zoomBy" | "panBy" | "limits"
-  | "focus" | "select" | "on" | "toPNG"
+  | "focus" | "select" | "on" | "toPNG" | "setCamera" | "frame" | "viewport"
 >;
 
 export interface Pipeline {
@@ -32,6 +35,8 @@ export interface Pipeline {
   apply(next: Settings): Promise<Outcome>;
   /** The look and the filters of `next`; never asks the motor. */
   look(next: Settings): Outcome;
+  /** Frames the camera on what the search highlighted. */
+  fitResults(): Outcome;
   /** The snapshot that is drawn. */
   bytes(): Uint8Array | null;
   neighbours(node: number): readonly number[];
@@ -84,15 +89,15 @@ function sameSource(a: Source, b: Source): boolean {
 function restyle(rig: Rig, look: Settings): void {
   const { meta, analysis } = rig.store.get();
   if (meta === null) return;
-  rig.view.setStyle(styleFrom(styleInputOf({ meta, appearance: look.appearance, filter: look.filter, analysis })));
+  rig.view.setStyle(styleFrom(styleInputOf({ meta, appearance: look.appearance, filter: look.filter, groups: look.groups, analysis })));
 }
 
 function showLook(rig: Rig, look: Settings): void {
-  const { appearance, filter } = look;
+  const { appearance, filter, groups } = look;
   if (rig.shown?.theme !== appearance.theme) rig.view.setTheme(THEMES[appearance.theme]);
   if (rig.shown?.labels !== appearance.labels) rig.view.setLabels(LABEL_POLICIES[appearance.labels]);
   rig.shown = appearance;
-  patch(rig, (state) => ({ settings: withSettings(state.settings, { appearance, filter }) }));
+  patch(rig, (state) => ({ settings: withSettings(state.settings, { appearance, filter, groups }) }));
 }
 
 function clear(rig: Rig): void {
@@ -139,6 +144,9 @@ function draw(rig: Rig, run: RunReport, shown: { readonly look: Settings; readon
   patch(rig, (state) => ({
     meta, run: summary, selected: shown.fresh ? -1 : state.selected,
     settings: withSettings(state.settings, { layout: run.layoutId, edges: run.postId }),
+    // The filter the drawing was made under, and the only place it is written: the count
+    // below is what a `relayout` filter is compared against to know it has already run.
+    runFilter: JSON.stringify(shown.look.filter),
   }));
   restyle(rig, shown.look);
   const pass = run.postId === null ? "" : ` + ${run.postId} ${ms(run.postMs)}`;
@@ -146,6 +154,9 @@ function draw(rig: Rig, run: RunReport, shown: { readonly look: Settings; readon
 }
 
 async function arrange(rig: Rig, next: Settings, fresh: boolean): Promise<Part> {
+  // Counted before the await: a run that is cancelled while it waits was still asked for,
+  // and a count that only moved on success would hide that from the studio's own tests.
+  patch(rig, (state) => ({ layoutCalls: state.layoutCalls + 1 }));
   try {
     const run = await rig.client.layout(next.layout, next.edges);
     return draw(rig, run, { look: next, fresh });
@@ -195,7 +206,10 @@ interface Plan {
 function planOf(state: StudioState, next: Settings): Plan {
   const load = state.graph === null || !sameSource(state.settings.source, next.source);
   const { run } = state;
-  const layout = load || run === null || run.layoutId !== next.layout || run.postId !== next.edges;
+  // A filter that asks to be laid out again is one the last run was not made under, or the
+  // layout would repeat the drawing already on screen for a filter nobody changed.
+  const relayout = next.filter.relayout && JSON.stringify(next.filter) !== state.runFilter;
+  const layout = load || run === null || run.layoutId !== next.layout || run.postId !== next.edges || relayout;
   const asked = next.analysis !== null && (load || state.analysis?.id !== next.analysis);
   return { load, layout, analysis: asked || (next.analysis === null && state.analysis !== null) };
 }
@@ -215,6 +229,47 @@ async function apply(rig: Rig, next: Settings): Promise<Outcome> {
     digest: rig.store.get().run?.digest ?? null,
     notes: parts.flatMap((part) => part.notes),
   };
+}
+
+/** The world box of the nodes a mask keeps, radii included; `null` when it keeps none. */
+function spanOf(frame: Frame, mask: Uint8Array | null): Bounds | null {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity, seen = 0;
+  for (let i = 0; i < frame.nodeCount; i += 1) {
+    if (mask !== null && mask[i] !== 1) continue;
+    const r = frame.r?.[i] ?? 0, x = frame.x[i] ?? 0, y = frame.y[i] ?? 0;
+    minX = Math.min(minX, x - r); maxX = Math.max(maxX, x + r);
+    minY = Math.min(minY, y - r); maxY = Math.max(maxY, y + r);
+    seen += 1;
+  }
+  return seen === 0 ? null : { minX, minY, maxX, maxY };
+}
+
+function countOf(mask: Uint8Array | null, nodeCount: number): number {
+  if (mask === null) return nodeCount;
+  let kept = 0;
+  for (let i = 0; i < mask.length; i += 1) if (mask[i] === 1) kept += 1;
+  return kept;
+}
+
+/** The camera that puts a box inside the viewport with the look's slack, within the limits. */
+function cameraFor(bounds: Bounds, viewport: Viewport, limits: ZoomLimits): Camera {
+  const width = Math.max(1, bounds.maxX - bounds.minX), height = Math.max(1, bounds.maxY - bounds.minY);
+  const room = Math.min(viewport.width, viewport.height) / FIT_MARGIN;
+  const scale = clamp(Math.min(room / width, room / height), limits.min, limits.max);
+  const midX = (bounds.minX + bounds.maxX) / 2, midY = (bounds.minY + bounds.maxY) / 2;
+  return { scale, x: viewport.width / 2 - midX * scale, y: viewport.height / 2 - midY * scale };
+}
+
+function fitResults(rig: Rig): Outcome {
+  const { meta, settings } = rig.store.get();
+  if (meta === null) return { message: "nothing is drawn to fit" };
+  const mask = highlightOf(meta, settings.filter), frame = rig.view.frame();
+  // Ponytail: an empty result set has no box, and a camera left where it was reads as a
+  // button that did nothing, so the first node stands in. Escape hatch: `fit` fits all.
+  const bounds = spanOf(frame, mask) ?? (frame.nodeCount > 0 ? { minX: 0, minY: 0, maxX: 1, maxY: 1 } : null);
+  if (bounds === null) return { message: "the drawing holds no nodes" };
+  rig.view.setCamera(cameraFor(bounds, rig.view.viewport(), rig.view.limits()));
+  return { message: `fitted to ${countOf(mask, frame.nodeCount)} of ${frame.nodeCount} nodes` };
 }
 
 function neighboursOf(ends: Ends, node: number): readonly number[] {
@@ -237,6 +292,7 @@ export function createPipeline(deps: PipelineDeps): Pipeline {
       restyle(rig, next);
       return { message: "restyled" };
     },
+    fitResults: () => fitResults(rig),
     bytes: () => rig.held?.bytes ?? null,
     neighbours: (node) => (rig.held === null ? [] : neighboursOf(rig.held.ends, node)),
   };

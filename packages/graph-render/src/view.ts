@@ -8,7 +8,7 @@
  * Not done yet: a WebGL2 backend, pinch with two pointers, keyboard navigation of nodes.
  */
 import {
-  type Camera, type Point, type ZoomLimits, centreOn, panBy, resetCamera, zoomAt,
+  type Camera, type Point, type Viewport, type ZoomLimits, centreOn, panBy, resetCamera, zoomAt,
 } from "./camera.ts";
 import {
   type Controller, fit, hover, measure, moveTo, newState, pickAt, select, showFrame,
@@ -63,6 +63,16 @@ export interface View {
   setStyle(style: Style): void;
   setTheme(theme: Theme): void;
   setLabels(policy: LabelPolicy): void;
+  /**
+   * The frame the last `setFrame` gave the view, as the scene holds it. Read-only: it does
+   * not invalidate or repaint, and before the first frame it is the empty frame. The host
+   * reads it to ask what is on screen without asking the painter.
+   */
+  frame(): Frame;
+  /** The style the last `setStyle` gave the view, under the same rules as `frame`. */
+  style(): Style;
+  /** The canvas box in CSS pixels, which is what a camera's offsets are measured against. */
+  viewport(): Viewport;
   setCamera(camera: Camera): void;
   camera(): Camera;
   fit(): void;
@@ -87,7 +97,9 @@ export interface View {
 type Handlers = { [Name in keyof ViewEvents]: Set<(payload: ViewEvents[Name]) => void> };
 type SceneApi = Pick<View, "setFrame" | "setStyle" | "setTheme" | "setLabels">;
 type CameraApi = Pick<
-  View, "setCamera" | "camera" | "fit" | "reset" | "zoomBy" | "panBy" | "limits" | "focus" | "select" | "pick"
+  View,
+  | "setCamera" | "camera" | "frame" | "style" | "viewport"
+  | "fit" | "reset" | "zoomBy" | "panBy" | "limits" | "focus" | "select" | "pick"
 >;
 
 function statsOf(state: LoopState): ViewStats {
@@ -144,6 +156,9 @@ function cameraApi(controller: Controller): CameraApi {
   return {
     setCamera: (camera) => moveTo(controller, camera, false),
     camera: () => state.camera,
+    frame: () => state.scene.frame,
+    style: () => state.scene.style,
+    viewport: () => state.viewport,
     fit: () => fit(controller),
     reset: () => moveTo(controller, resetCamera(state.viewport), false),
     zoomBy: (factor) => moveTo(controller, zoomAt(state.camera, centreOf(state.viewport), factor, state.limits), false),

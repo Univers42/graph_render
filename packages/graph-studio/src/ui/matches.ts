@@ -5,7 +5,7 @@
  * nothing and the list goes empty rather than showing something near. Escape hatch: clear
  * the field and type the word again.
  */
-export function matchesOf(labels: readonly string[], text: string, limit = 8): readonly number[] {
+export function allMatchesOf(labels: readonly string[], text: string): readonly number[] {
   if (text === "") return [];
   const wanted = text.toLowerCase();
   // One pass, two buckets: sorting every label of a large graph to keep eight would be the
@@ -17,5 +17,10 @@ export function matchesOf(labels: readonly string[], text: string, limit = 8): r
     if (at === 0) starts.push(i);
     else if (at > 0) holds.push(i);
   }
-  return [...starts, ...holds].slice(0, limit);
+  return [...starts, ...holds];
+}
+
+/** The same ranking, cut at `limit` for the box: the mask is made of the whole of it. */
+export function matchesOf(labels: readonly string[], text: string, limit = 8): readonly number[] {
+  return allMatchesOf(labels, text).slice(0, limit);
 }

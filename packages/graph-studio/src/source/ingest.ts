@@ -12,7 +12,8 @@
  * every default it filled and every annotation it dropped (the UI shows them —
  * a silent fill would be a lie about what the engine was given), and refuses
  * everything the contract refuses. Normalising is idempotent: a document this
- * module produced passes through with no notes at all.
+ * module produced passes through with no notes at all. `doc` carries `tags` and
+ * `path`, which `json` — the text the motor reads — never does.
  */
 
 export type NodeKind = "record" | "note" | "database" | "tag";
@@ -32,6 +33,10 @@ export interface IngestNode {
   version: number;
   has_note: boolean;
   icon: string | null;
+  /** The node's own tags, in document order. Optional on input, always present after. */
+  tags?: readonly string[];
+  /** Where the node sits in the source tree. Optional on input, always present after. */
+  path?: string;
 }
 
 export interface IngestEdge {
@@ -63,6 +68,7 @@ export class IngestRefusal extends Error {
 export interface Normalised {
   /** The ingest text to hand `gm_build`, member order per the contract. */
   readonly json: string;
+  /** The contract's shape plus `tags` and `path` per node. */
   readonly doc: IngestDoc;
   /** Every default filled and annotation dropped, in the order they happened. */
   readonly notes: readonly string[];
@@ -70,10 +76,20 @@ export interface Normalised {
 
 type Record_ = Record<string, unknown>;
 
-const NODE_MEMBERS = [
+// The ten the wasm contract names. `tags` and `path` are the two it does not name but
+// the studio needs for `tag:#x` and `path:` queries, so they are kept rather than
+// dropped — and they are NOT defaulted members: a document that never mentioned them is
+// complete as it stands.
+// Ponytail: `gm_build` refuses an unknown member, so the wire text (`json`) still
+// carries only the ten; the two ride in `doc`, which is what `metaOf` reads. Failing
+// input: a document whose nodes carry `tags`, built against the contract shape. It errs
+// toward dropping tags at the motor, never toward a failed build; escape hatch: the
+// query reads `doc`, so nothing here depends on the wire.
+const CONTRACT_MEMBERS = [
   "id", "kind", "database_id", "source", "label", "group",
   "weight", "version", "has_note", "icon",
 ] as const;
+const NODE_MEMBERS = [...CONTRACT_MEMBERS, "tags", "path"] as const;
 
 const EDGE_MEMBERS = [
   "id", "source", "target", "kind", "label", "strength",
@@ -94,6 +110,18 @@ function requireString(source: string, at: string, record: Record_, key: string)
 
 function optionalString(value: unknown): string | null {
   return typeof value === "string" ? value : null;
+}
+
+// Ponytail: `tags` must be a list of strings, or `tag:#x` would have to guess at a
+// number. A list holding one non-string is dropped whole rather than kept in part:
+// half a tag list is a lie about the document. It errs toward a document losing all its
+// tags. Escape hatch: the note names the member, so the user sees what was dropped.
+function stringList(value: unknown): readonly string[] {
+  return isStringList(value) ? [...value] : [];
+}
+
+function isStringList(value: unknown): value is readonly string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
 
 function optionalNumber(value: unknown, fallback: number): number {
@@ -161,8 +189,9 @@ function readNode(source: string, at: string, given: unknown, notes: string[]): 
   noteDropped(notes, at, value, NODE_MEMBERS);
   const kind = nodeKindOf(source, at, value.kind);
   const id = requireString(source, at, value, "id");
-  const filled = missingNodeMembers(value);
+  const filled = CONTRACT_MEMBERS.filter((member) => value[member] === undefined).length;
   if (filled > 0) notes.push(`defaulted ${filled} member(s) on node "${id}"`);
+  if (value.tags !== undefined && !isStringList(value.tags)) notes.push(`dropped \`${at}.tags\`: not a list of strings`);
   return {
     id, kind,
     database_id: optionalString(value.database_id),
@@ -173,11 +202,14 @@ function readNode(source: string, at: string, given: unknown, notes: string[]): 
     version: optionalNumber(value.version, 0),
     has_note: optionalBoolean(value.has_note, kind === "note"),
     icon: optionalString(value.icon),
+    tags: stringList(value.tags),
+    path: optionalString(value.path) ?? "",
   };
 }
 
-function missingNodeMembers(record: Record_): number {
-  return NODE_MEMBERS.filter((member) => record[member] === undefined).length;
+/** The node as the wasm contract names it: the ten, in the contract's own order. */
+function wireNode(node: IngestNode): Record_ {
+  return Object.fromEntries(CONTRACT_MEMBERS.map((member) => [member, node[member]]));
 }
 
 /** A fixture's `type` is its wire spelling of the kind; only the hierarchy spellings
@@ -260,5 +292,6 @@ export function normaliseIngest(text: string, source: string): Normalised {
   const nodes = readNodes(source, readArray(source, root, "nodes"), notes);
   const edges = readEdges(source, readArray(source, root, "edges"), nodes, notes);
   const doc: IngestDoc = { version, nodes, edges };
-  return { json: JSON.stringify(doc), doc, notes };
+  const wire = { version, nodes: nodes.map(wireNode), edges };
+  return { json: JSON.stringify(wire), doc, notes };
 }

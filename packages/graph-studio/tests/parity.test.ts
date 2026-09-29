@@ -30,6 +30,7 @@ const DRAWN: StudioState = {
   graph: { name: "two", nodeCount: 2, edgeCount: 1, notes: [], buildMs: 1 },
   meta: metaOf(NODES, ["a", "b"], { source: Uint32Array.of(0), target: Uint32Array.of(1) }),
   run: RUN,
+  settings: { ...STATE.settings, groups: [{ name: "notes", query: "kind:note", colour: "#7c9cf5" }] },
 };
 const registry = createRegistry<StudioState, StudioContext>(studioActions());
 

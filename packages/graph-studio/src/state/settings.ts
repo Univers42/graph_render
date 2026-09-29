@@ -17,7 +17,12 @@ export type Source =
   | { readonly kind: "document"; readonly name: string; readonly text: string };
 
 export const THEMES = ["dark", "light"] as const;
-export const COLOUR_BY = ["group", "kind", "analysis", "none"] as const;
+/**
+ * `tag` and `db` colour by the two columns the provisional document gives every node;
+ * `analysis` is the metric colouring — a number the motor measured, not a name. It keeps
+ * the name `analysis` because the analysis is what puts a value in that slot.
+ */
+export const COLOUR_BY = ["group", "kind", "tag", "db", "analysis", "none"] as const;
 export const SIZE_BY = ["weight", "degree", "analysis", "uniform"] as const;
 export const LABEL_MODES = ["auto", "more", "none"] as const;
 export const NODE_SCALE = { min: 0.25, max: 4, whole: false } as const;
@@ -33,10 +38,26 @@ export interface Appearance {
 
 /** Filters hide nodes in the drawing. The layout still ran over the whole graph. */
 export interface Filter {
-  /** Case-insensitive; a node is kept when its label contains it. */
+  /** The query grammar; `""` matches every node. */
+  readonly query: string;
+  /** Free text over the label, case-insensitive substring. */
   readonly text: string;
+  readonly hiddenKinds: readonly string[];
   readonly hiddenGroups: readonly string[];
+  /** True hides every node with no link. */
+  readonly orphans: boolean;
+  /** True keeps only the nodes that touch a link. */
+  readonly existingOnly: boolean;
   readonly minDegree: number;
+  /** Ask the motor for a new layout when the filter changes. */
+  readonly relayout: boolean;
+}
+
+/** A named query over the document, drawn in its own colour. The first match wins. */
+export interface Group {
+  readonly name: string;
+  readonly query: string;
+  readonly colour: string;
 }
 
 export interface Settings {
@@ -46,6 +67,8 @@ export interface Settings {
   readonly edges: string | null;
   readonly analysis: string | null;
   readonly appearance: Appearance;
+  /** Ordered; the first group a node matches is the group it is drawn in. */
+  readonly groups: readonly Group[];
   readonly filter: Filter;
 }
 
@@ -65,8 +88,22 @@ function appearanceOf(look: Appearance): Appearance {
 
 function filterOf(filter: Filter): Filter {
   return Object.freeze({
-    text: filter.text, hiddenGroups: Object.freeze([...filter.hiddenGroups]), minDegree: filter.minDegree,
+    query: filter.query,
+    text: filter.text,
+    hiddenKinds: Object.freeze([...filter.hiddenKinds]),
+    hiddenGroups: Object.freeze([...filter.hiddenGroups]),
+    orphans: filter.orphans,
+    existingOnly: filter.existingOnly,
+    minDegree: filter.minDegree,
+    relayout: filter.relayout,
   });
+}
+
+/** A copy, so a list the caller still holds cannot change the document behind its back. */
+export function groupsOf(groups: readonly Group[]): readonly Group[] {
+  return Object.freeze(groups.map((group) => Object.freeze({
+    name: group.name, query: group.query, colour: group.colour,
+  })));
 }
 
 /** Members in one fixed order, so two equal documents are equal as text. */
@@ -77,6 +114,7 @@ function settingsOf(settings: Settings): Settings {
     edges: settings.edges,
     analysis: settings.analysis,
     appearance: Object.isFrozen(settings.appearance) ? settings.appearance : appearanceOf(settings.appearance),
+    groups: Object.isFrozen(settings.groups) ? settings.groups : groupsOf(settings.groups),
     filter: Object.isFrozen(settings.filter) ? settings.filter : filterOf(settings.filter),
   });
 }
@@ -91,7 +129,11 @@ export const DEFAULT_SETTINGS: Settings = settingsOf({
   edges: null,
   analysis: null,
   appearance: { theme: "dark", colourBy: "group", sizeBy: "weight", nodeScale: 1, labels: "auto" },
-  filter: { text: "", hiddenGroups: [], minDegree: 0 },
+  groups: [],
+  filter: {
+    query: "", text: "", hiddenKinds: [], hiddenGroups: [],
+    orphans: false, existingOnly: false, minDegree: 0, relayout: false,
+  },
 });
 
 export function withSettings(settings: Settings, patch: Partial<Settings>): Settings {
@@ -104,6 +146,10 @@ export function withAppearance(settings: Settings, patch: Partial<Appearance>): 
 
 export function withFilter(settings: Settings, patch: Partial<Filter>): Settings {
   return settingsOf({ ...settings, filter: filterOf({ ...settings.filter, ...patch }) });
+}
+
+export function withGroups(settings: Settings, groups: readonly Group[]): Settings {
+  return settingsOf({ ...settings, groups: groupsOf(groups) });
 }
 
 export function sameSettings(a: Settings, b: Settings): boolean {
@@ -138,24 +184,53 @@ function readAppearance(value: unknown, at: string): Appearance {
   };
 }
 
+/**
+ * `read.ts` has no boolean reader, and the studio has one kind of flag to read, so it
+ * lives here rather than widening a module another slice owns.
+ */
+function flagOf(fields: Fields, at: string, key: string): boolean {
+  const value = fields[key];
+  if (typeof value !== "boolean") throw new SettingsRefusal(`${at}.${key}`, "not on or off");
+  return value;
+}
+
 function readFilter(value: unknown, at: string): Filter {
-  const fields = fieldsOf(value, at, ["text", "hiddenGroups", "minDegree"]);
+  const fields = fieldsOf(value, at, [
+    "query", "text", "hiddenKinds", "hiddenGroups", "orphans", "existingOnly", "minDegree", "relayout",
+  ]);
   return {
+    query: textOf(fields, at, "query"),
     text: textOf(fields, at, "text"),
+    hiddenKinds: textsOf(fields, at, "hiddenKinds"),
     hiddenGroups: textsOf(fields, at, "hiddenGroups"),
+    orphans: flagOf(fields, at, "orphans"),
+    existingOnly: flagOf(fields, at, "existingOnly"),
     minDegree: numberOf(fields, at, "minDegree", { min: 0, max: 4294967295, whole: true }),
+    relayout: flagOf(fields, at, "relayout"),
   };
+}
+
+function readGroup(value: unknown, at: string): Group {
+  const fields = fieldsOf(value, at, ["name", "query", "colour"]);
+  return { name: textOf(fields, at, "name"), query: textOf(fields, at, "query"), colour: textOf(fields, at, "colour") };
+}
+
+/** The document's own list of groups, in the order the document gave them. */
+export function readGroups(value: unknown, at = "settings.groups"): readonly Group[] {
+  if (!Array.isArray(value)) throw new SettingsRefusal(at, "not a list");
+  return groupsOf(value.map((group, i) => readGroup(group, `${at}[${i}]`)));
 }
 
 /** Settings from outside the studio, or a refusal naming the member that was wrong. */
 export function readSettings(value: unknown, at = "settings"): Settings {
-  const fields: Fields = fieldsOf(value, at, ["source", "layout", "edges", "analysis", "appearance", "filter"]);
+  const fields: Fields = fieldsOf(value, at, ["source", "layout", "edges", "analysis", "appearance", "groups", "filter"]);
   return settingsOf({
     source: readSource(fields["source"], `${at}.source`),
     layout: textOf(fields, at, "layout"),
     edges: textOrNull(fields, at, "edges"),
     analysis: textOrNull(fields, at, "analysis"),
     appearance: readAppearance(fields["appearance"], `${at}.appearance`),
+    groups: readGroups(fields["groups"], `${at}.groups`),
     filter: readFilter(fields["filter"], `${at}.filter`),
   });
 }

@@ -1,8 +1,12 @@
 /**
- * The console's grammar: a command word, then values by position or as `name=value`.
- * Quotes keep spaces; a value that starts with a quote is never read as `name=value`.
+ * The console's grammar: commands, a command word then values by position or as `name=value`,
+ * and the one query grammar that search, filters and groups share. Quotes keep spaces; a value
+ * that starts with a quote is never read as `name=value`.
  */
 import type { Action, Args, RawArgs, Registry } from "../actions/registry.ts";
+
+export { type Query, type QueryField, QueryRefusal, parseQuery } from "./queryParse.ts";
+export { printQuery } from "./queryPrint.ts";
 
 export class CommandRefusal extends Error {
   constructor(message: string) {

@@ -53,6 +53,10 @@ export interface StudioState {
   readonly log: readonly LogEntry[];
   /** Dense index of the selected node, or -1. */
   readonly selected: number;
+  /** Motor layout calls since the studio opened. A filter that does not re-layout leaves it alone. */
+  readonly layoutCalls: number;
+  /** The filter in force when the last layout ran, as JSON; "" before the first one. */
+  readonly runFilter: string;
 }
 
 /** The console keeps this many entries; older ones are dropped, oldest first. */
@@ -61,7 +65,7 @@ export const LOG_LIMIT = 500;
 export function initialState(settings: Settings = DEFAULT_SETTINGS): StudioState {
   return {
     settings, catalog: null, graph: null, meta: null, run: null, analysis: null,
-    busy: [], error: null, log: [], selected: -1,
+    busy: [], error: null, log: [], selected: -1, layoutCalls: 0, runFilter: "",
   };
 }
 

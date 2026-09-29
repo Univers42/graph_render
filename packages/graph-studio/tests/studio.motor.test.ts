@@ -8,7 +8,7 @@ import { LIGHT_THEME } from "../../graph-render/src/theme.ts";
 import { GROUP_PALETTE } from "../src/look/palette.ts";
 import { sha256Hex } from "../src/motor/session.ts";
 import { DEFAULT_SETTINGS } from "../src/state/settings.ts";
-import { type Desk, desk } from "./desk.ts";
+import { type Desk, desk, scriptedClient } from "./desk.ts";
 import { SKIP, realClient } from "./motor.ts";
 
 async function started(): Promise<Desk> {
@@ -17,6 +17,42 @@ async function started(): Promise<Desk> {
   assert.equal(entry.ok, true, entry.message);
   return made;
 }
+
+/** The same desk over a scripted motor, so the count is checked even without the wasm. */
+async function scripted(): Promise<Desk> {
+  const made = desk(scriptedClient());
+  const entry = await made.studio.start();
+  assert.equal(entry.ok, true, entry.message);
+  return made;
+}
+
+test("the opening graph is one layout call, and its filter is remembered", async () => {
+  const { studio } = await scripted();
+  assert.equal(studio.store.get().layoutCalls, 1);
+  assert.equal(studio.store.get().runFilter, JSON.stringify(studio.store.get().settings.filter));
+});
+
+test("a look and a filter restyle without asking the motor again", async () => {
+  await restyleOnly(await scripted());
+});
+
+test("a relayout filter runs the layout once, and never twice for the same filter", async () => {
+  await relayoutOnce(await scripted());
+});
+
+test("fitting the results frames what the search highlighted, and needs no wasm", async () => {
+  const made = await scripted();
+  const empty = made.pipeline.fitResults();
+  assert.match(empty.message, /fitted to 3 of 3 nodes/, "no search text: the whole drawing");
+  const bounds = made.seen.cameras[0];
+  assert.ok((bounds?.scale ?? 0) > 0);
+  // One result: the camera goes in, and the studio says what it framed.
+  const settings = made.studio.store.get().settings;
+  made.studio.store.update((state) => ({ ...state, settings: { ...settings, filter: { ...settings.filter, text: "alpha" } } }));
+  const one = made.pipeline.fitResults();
+  assert.match(one.message, /fitted to 1 of 3 nodes/);
+  assert.ok((made.seen.cameras.at(-1)?.scale ?? 0) > (bounds?.scale ?? 0), "a smaller set is shown larger");
+});
 
 test("starting draws the opening graph with its own names and sizes", { skip: SKIP }, async () => {
   const { studio, seen } = await started();
@@ -99,6 +135,36 @@ test("an analysis that did not converge says so", { skip: SKIP }, async () => {
   assert.ok(entry.notes.some((note) => note.includes("did not converge")));
 });
 
+/** Across a theme, a scale, a filter and an unfilter: nothing here asks the motor. */
+async function restyleOnly(made: Desk): Promise<void> {
+  const { studio } = made;
+  const calls = studio.store.get().layoutCalls;
+  const filter = studio.store.get().runFilter;
+  assert.ok(calls > 0, "the opening graph was laid out");
+  await studio.dispatch("theme", { name: "light" });
+  await studio.dispatch("scale", { factor: 2 });
+  await studio.dispatch("filter", { text: "graph" });
+  await studio.dispatch("unfilter");
+  assert.equal(studio.store.get().layoutCalls, calls, "the layout count does not move");
+  assert.equal(studio.store.get().runFilter, filter, "and neither does the filter the last run was under");
+}
+
+/** A `relayout` filter is one call, once; asking again with the same one is "already drawn". */
+async function relayoutOnce(made: Desk): Promise<void> {
+  const { studio, pipeline } = made;
+  const before = studio.store.get().layoutCalls;
+  const settings = studio.store.get().settings;
+  const asked = { ...settings, filter: { ...settings.filter, text: "graph", relayout: true } };
+  await pipeline.apply(asked);
+  const after = studio.store.get();
+  assert.equal(after.layoutCalls, before + 1, "one filter change is exactly one layout call");
+  assert.equal(after.runFilter, JSON.stringify(asked.filter), "and the run remembers the filter");
+  assert.equal(after.runFilter.includes("\"relayout\":true"), true, "which is the filter that asked for it");
+  const again = await pipeline.apply({ ...after.settings, filter: asked.filter });
+  assert.equal(studio.store.get().layoutCalls, before + 1, "the same filter is not laid out twice");
+  assert.match(again.message, /already drawn/);
+}
+
 test("the look and the filters restyle without a new layout", { skip: SKIP }, async () => {
   const { studio, seen } = await started();
   const digest = studio.store.get().run?.digest;
@@ -115,6 +181,19 @@ test("the look and the filters restyle without a new layout", { skip: SKIP }, as
   assert.equal((await studio.dispatch("scale", { factor: 9 })).ok, false);
   assert.deepEqual([seen.frames.length, studio.store.get().run?.digest], [1, digest]);
   assert.equal(studio.store.get().settings.appearance.nodeScale, 2);
+});
+
+test("a relayout filter is one call, over the real motor too", { skip: SKIP }, async () => {
+  await relayoutOnce(await started());
+});
+
+test("fitting the results frames what the search highlighted", { skip: SKIP }, async () => {
+  const made = await started();
+  const fit = made.pipeline.fitResults();
+  assert.match(fit.message, /fitted to \d+ of 400 nodes/);
+  assert.equal(made.seen.cameras.length, 1, "the camera moved once");
+  const [camera] = made.seen.cameras;
+  assert.ok((camera?.scale ?? 0) > 0, "and not to nowhere");
 });
 
 test("colouring by an analysis that never ran is refused", { skip: SKIP }, async () => {

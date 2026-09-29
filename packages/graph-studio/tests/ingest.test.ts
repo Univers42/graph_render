@@ -120,7 +120,7 @@ test("an edge `type` maps to a kind, and unknown record members are dropped with
   const result = normaliseIngest(fixture, "hierarchy/tree.json");
   assert.deepEqual(Object.keys(result.doc.nodes[0] ?? {}), [
     "id", "kind", "database_id", "source", "label", "group",
-    "weight", "version", "has_note", "icon",
+    "weight", "version", "has_note", "icon", "tags", "path",
   ]);
   assert.equal(result.doc.edges[0]?.kind, "hierarchy");
   assert.equal(result.doc.edges[0].directed, true);
@@ -133,6 +133,45 @@ test("normalising twice is idempotent — the second pass is a no-op", () => {
   const twice = normaliseIngest(once.json, "x.json");
   assert.equal(twice.json, once.json);
   assert.deepEqual(twice.notes, []);
+});
+
+// `tags` and `path` are the two node members the sources used to be without, so a
+// consumer never has to ask whether the document carried them: they are always there.
+test("a node with tags and a path keeps them, in document order", () => {
+  const given = JSON.stringify({
+    nodes: [{ id: "a", tags: ["Zed", "alpha"], path: "notes/a.md", database_id: "db-1" }],
+    edges: [],
+  });
+  const { doc } = normaliseIngest(given, "keys.json");
+  assert.deepEqual(doc.nodes[0]?.tags, ["Zed", "alpha"]);
+  assert.equal(doc.nodes[0].path, "notes/a.md");
+  assert.equal(doc.nodes[0].database_id, "db-1");
+});
+
+test("a node with no tags and no path ingests to `[]` and `\"\"`, never to undefined", () => {
+  const { doc } = normaliseIngest(JSON.stringify({ nodes: [{ id: "a" }], edges: [] }), "bare.json");
+  assert.deepEqual(doc.nodes[0]?.tags, []);
+  assert.equal(doc.nodes[0].path, "");
+});
+
+// Ponytail: `tags` must be an array of strings or the query `tag:#x` would have to
+// guess at a number. A non-array, or an array holding a non-string, is filled to `[]`
+// rather than refused: refusing the whole document over one annotation would lose the
+// graph, and the note says the member was dropped.
+test("a `tags` that is not a list of strings is dropped whole, and said so", () => {
+  const { doc, notes } = normaliseIngest(
+    JSON.stringify({ nodes: [{ id: "a", tags: ["keep", 7] }, { id: "b", tags: "red,green" }], edges: [] }),
+    "bad-tags.json",
+  );
+  assert.deepEqual(doc.nodes[0]?.tags, []);
+  assert.deepEqual(doc.nodes[1]?.tags, []);
+  assert.ok(notes.some((note) => note.includes("nodes[0].tags")));
+  assert.ok(notes.some((note) => note.includes("nodes[1].tags")));
+});
+
+test("a `path` that is not a string falls back to the empty path", () => {
+  const { doc } = normaliseIngest(JSON.stringify({ nodes: [{ id: "a", path: 42 }], edges: [] }), "p.json");
+  assert.equal(doc.nodes[0]?.path, "");
 });
 
 test("a document that is not JSON is refused, not half-read", () => {

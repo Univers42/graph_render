@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { GROUP_PALETTE, MUTED, RAMP, rampOf } from "../src/look/palette.ts";
-import { type LookInput, hiddenOf, legendOf, styleInputOf } from "../src/look/styleOf.ts";
+import { coloursOf } from "../../graph-render/src/colour/colormap.ts";
+import { normalise } from "../../graph-render/src/colour/normalise.ts";
+import { GROUP_PALETTE, MUTED } from "../src/look/palette.ts";
+import { hiddenOf } from "../src/look/visibleOf.ts";
+import { type LookInput, legendOf, styleInputOf } from "../src/look/styleOf.ts";
 import { metaOf } from "../src/source/meta.ts";
 import { DEFAULT_SETTINGS } from "../src/state/settings.ts";
 import { node } from "./support.ts";
@@ -15,18 +18,16 @@ const NODES = [
 ];
 const META = metaOf(NODES, ["a", "b", "c", "d"], { source: Uint32Array.of(0, 0), target: Uint32Array.of(1, 2) });
 const BASE: LookInput = {
-  meta: META, appearance: DEFAULT_SETTINGS.appearance, filter: DEFAULT_SETTINGS.filter, analysis: null,
+  meta: META, appearance: DEFAULT_SETTINGS.appearance, filter: DEFAULT_SETTINGS.filter, groups: [], analysis: null,
 };
 
 function look(patch: Partial<LookInput>): LookInput {
   return { ...BASE, ...patch };
 }
 
-test("the palettes are hex colours, and the ramp runs between its two ends", () => {
-  for (const colour of [...GROUP_PALETTE, ...RAMP, MUTED]) assert.match(colour, /^#[0-9a-f]{6}$/);
-  assert.equal(RAMP.length, 24);
-  assert.deepEqual(rampOf(2), [RAMP[0], RAMP[23]]);
-  assert.equal(new Set(RAMP).size, 24);
+test("the palettes are distinct hex colours", () => {
+  for (const colour of [...GROUP_PALETTE, MUTED]) assert.match(colour, /^#[0-9a-f]{6}$/);
+  assert.equal(new Set(GROUP_PALETTE).size, GROUP_PALETTE.length);
 });
 
 test("by default nodes are coloured by group and sized by weight", () => {
@@ -49,14 +50,17 @@ test("sizing by degree reads the link counts, and uniform keeps the rank but not
 
 test("colouring by kind uses one colour per node kind", () => {
   const style = styleInputOf(look({ appearance: { ...BASE.appearance, colourBy: "kind" } }));
-  assert.deepEqual([...style.colours], [2, 1, 0, 0]);
+  assert.deepEqual([...style.colours], [0, 1, 2, 2]);
 });
 
 test("a score is coloured along the ramp and sizes the node", () => {
   const analysis = { id: "analysis.centrality.degree", kind: "f64" as const, values: Float64Array.of(10, 5, 0, 0) };
   const style = styleInputOf(look({ analysis, appearance: { ...BASE.appearance, colourBy: "analysis", sizeBy: "analysis" } }));
-  assert.deepEqual(style.palette, RAMP);
-  assert.deepEqual([...style.colours], [23, 12, 0, 0]);
+  const wanted = coloursOf(normalise(analysis.values, { mode: "LINEAR", gamma: 1 }), "inferno");
+  assert.deepEqual(style.palette, wanted.palette);
+  assert.deepEqual([...style.colours], [0, 1, 2, 2]);
+  assert.equal(style.palette[0], "rgb(254, 255, 210)");
+  assert.equal(style.palette[2], "rgb(5, 2, 31)");
   assert.deepEqual([...style.weights], [1, 0.5, 0, 0]);
 });
 
@@ -97,7 +101,7 @@ test("the legend counts what each colour stands for", () => {
   ]);
   const scored = { id: "analysis.centrality.degree", kind: "f64" as const, values: Float64Array.of(10, 5, 0, 0) };
   assert.deepEqual(legendOf(look({ analysis: scored, appearance: { ...BASE.appearance, colourBy: "analysis" } })), [
-    { colour: RAMP[0], label: "0", count: 2 },
-    { colour: RAMP[23], label: "10", count: 1 },
+    { colour: "rgb(5, 2, 31)", label: "0", count: 2 },
+    { colour: "rgb(254, 255, 210)", label: "10", count: 1 },
   ]);
 });

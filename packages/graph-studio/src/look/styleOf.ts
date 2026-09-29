@@ -3,10 +3,12 @@
  * asked for (appearance, filter) to the renderer's style input. Pure: same in, same out.
  */
 import type { StyleInput } from "../../../graph-render/src/style.ts";
-import { NODE_KINDS } from "../source/ingest.ts";
 import type { GraphMeta } from "../source/meta.ts";
-import type { Appearance, Filter } from "../state/settings.ts";
-import { GROUP_PALETTE, MUTED, RAMP } from "./palette.ts";
+import type { Appearance, Filter, Group } from "../state/settings.ts";
+import { hiddenOf } from "./visibleOf.ts";
+import { type Colouring, colouringOf as byColourBy } from "./colourBy.ts";
+import { overlayGroups } from "./groupOverlay.ts";
+import { GROUP_PALETTE, MUTED } from "./palette.ts";
 
 export interface AnalysisValues {
   readonly id: string;
@@ -18,6 +20,7 @@ export interface LookInput {
   readonly meta: GraphMeta;
   readonly appearance: Appearance;
   readonly filter: Filter;
+  readonly groups: readonly Group[];
   readonly analysis: AnalysisValues | null;
 }
 
@@ -27,12 +30,6 @@ export interface LegendEntry {
   readonly count: number;
 }
 
-interface Colouring {
-  readonly colours: Uint16Array;
-  readonly palette: readonly string[];
-  /** What palette entry `i` stands for. */
-  readonly names: (slot: number) => string;
-}
 
 const BASE_RADIUS = 4;
 const GAIN = 2.5;
@@ -66,41 +63,20 @@ function normalised(values: Float64Array | Uint32Array): Float32Array {
   return out;
 }
 
-function number(value: number): string {
-  return String(Number(value.toPrecision(3)));
-}
-
-function byScore(analysis: AnalysisValues): Colouring {
-  const { min, span } = spanOf(analysis.values);
-  const last = RAMP.length - 1;
-  const colours = Uint16Array.from(normalised(analysis.values), (t) => Math.round(t * last));
-  return { colours, palette: RAMP, names: (slot) => number(min + (span * slot) / last) };
-}
-
 function byLabel(analysis: AnalysisValues): Colouring {
   const colours = Uint16Array.from(analysis.values, (value) => value % GROUP_PALETTE.length);
   return { colours, palette: GROUP_PALETTE, names: (slot) => `#${slot}` };
 }
 
-function byGroup(meta: GraphMeta): Colouring {
-  const colours = Uint16Array.from(meta.group, (group) => group % GROUP_PALETTE.length);
-  return { colours, palette: GROUP_PALETTE, names: (slot) => meta.groups[slot] ?? `#${slot}` };
-}
-
-function byKind(meta: GraphMeta): Colouring {
-  const colours = Uint16Array.from(meta.kinds, (kind) => Math.max(0, NODE_KINDS.indexOf(kind)));
-  return { colours, palette: GROUP_PALETTE, names: (slot) => NODE_KINDS[slot] ?? `#${slot}` };
-}
-
+/** One colour path: the labelling case is the only one drawn here, every other goes through colourBy. */
 function colouringOf(input: LookInput): Colouring {
-  const { meta, analysis } = input;
+  const { meta, analysis, groups } = input;
   const by = input.appearance.colourBy;
-  if (by === "group") return byGroup(meta);
-  if (by === "kind") return byKind(meta);
-  if (by === "analysis" && analysis !== null && analysis.values.length === meta.nodeCount) {
-    return isLabelling(analysis.id) ? byLabel(analysis) : byScore(analysis);
+  if (by === "analysis" && analysis !== null && isLabelling(analysis.id) && analysis.values.length === meta.nodeCount) {
+    return overlayGroups(byLabel(analysis), meta, groups);
   }
-  return { colours: new Uint16Array(meta.nodeCount), palette: [MUTED], names: () => "nodes" };
+  const values = analysis !== null && !isLabelling(analysis.id) ? analysis.values : null;
+  return byColourBy({ meta, by, values, groups });
 }
 
 function weightsOf(input: LookInput): Float32Array {
@@ -109,20 +85,6 @@ function weightsOf(input: LookInput): Float32Array {
   if (by === "degree") return Float32Array.from(meta.degree, (degree) => (meta.maxDegree === 0 ? 0 : degree / meta.maxDegree));
   const scored = by === "analysis" && analysis !== null && !isLabelling(analysis.id);
   return scored && analysis.values.length === meta.nodeCount ? normalised(analysis.values) : meta.weight;
-}
-
-/** 1 per hidden node, or `null` when the filter hides nothing. */
-export function hiddenOf(meta: GraphMeta, filter: Filter): Uint8Array | null {
-  const text = filter.text.trim().toLowerCase();
-  const groups = new Set(filter.hiddenGroups);
-  if (text === "" && groups.size === 0 && filter.minDegree === 0) return null;
-  const hidden = new Uint8Array(meta.nodeCount);
-  for (let i = 0; i < meta.nodeCount; i += 1) {
-    const unnamed = text !== "" && !(meta.labels[i] ?? "").toLowerCase().includes(text);
-    const grouped = groups.has(meta.groups[meta.group[i] ?? 0] ?? "");
-    if (unnamed || grouped || (meta.degree[i] ?? 0) < filter.minDegree) hidden[i] = 1;
-  }
-  return hidden;
 }
 
 export function styleInputOf(input: LookInput): StyleInput {
@@ -144,13 +106,30 @@ function countsOf(colouring: Colouring): Map<number, number> {
   return counts;
 }
 
+function extremes(values: Float64Array | Uint32Array): readonly number[] {
+  let low = 0;
+  let high = 0;
+  values.forEach((value, node) => {
+    if (value < (values[low] ?? value)) low = node;
+    if (value > (values[high] ?? value)) high = node;
+  });
+  return values.length === 0 ? [] : [low, high];
+}
+
+/** The slots the legend names: a score shows the colours of its smallest and largest value. */
+function legendSlots(input: LookInput, colouring: Colouring, counts: Map<number, number>): readonly number[] {
+  const { analysis, groups, appearance } = input;
+  const scored = appearance.colourBy === "analysis" && groups.length === 0 && analysis !== null
+    && !isLabelling(analysis.id) && analysis.values.length === input.meta.nodeCount;
+  if (scored) return [...new Set(extremes(analysis.values).map((node) => colouring.colours[node] ?? 0))];
+  return [...counts.keys()].sort((a, b) => a - b).slice(0, LEGEND_ROWS);
+}
+
 /** What each colour on screen stands for, in palette order, the first LEGEND_ROWS of them. */
 export function legendOf(input: LookInput): readonly LegendEntry[] {
   const colouring = colouringOf(input);
   const counts = countsOf(colouring);
-  const scored = colouring.palette === RAMP;
-  const slots = scored ? [0, RAMP.length - 1] : [...counts.keys()].sort((a, b) => a - b).slice(0, LEGEND_ROWS);
-  return slots
+  return legendSlots(input, colouring, counts)
     .filter((slot) => counts.has(slot))
     .map((slot) => ({ colour: colouring.palette[slot] ?? MUTED, label: colouring.names(slot), count: counts.get(slot) ?? 0 }));
 }
