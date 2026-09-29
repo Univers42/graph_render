@@ -333,3 +333,22 @@ wasm32 at all (its per-tier hit count would then read `UNKNOWN`, not a pass, per
 
 A `libm` version bump changes both targets' bits together; that moves the baseline, it is
 not a divergence.
+
+## Python differential oracle image
+
+`docker/python-oracle.Dockerfile` (dev-only, never shipped) pins scipy 1.16.2, numpy 2.3.3
+(hash-locked wheels in `docker/python-oracle.requirements.txt`) and networkx 3.6 (sdist
+sha256-checked, on `PYTHONPATH`). BLAS threads are fixed to 1. Debian's scipy is 1.15.3, so
+apt packages are not used.
+
+```
+docker build --build-context nx=/goinfre/dlesieur/refs/networkx-3.6 \
+  -f docker/python-oracle.Dockerfile -t ge-python-oracle .
+docker run --rm ge-python-oracle python3 -c "import networkx,numpy,scipy;print(networkx.__version__,numpy.__version__,scipy.__version__)"
+# 3.6 2.3.3 1.16.2
+```
+
+Two identical runs (explicit LOBPCG start block and layout seed) produced a byte-identical
+diff. Envelope deviation: the Dockerfile and its lock file are outside the phase-06 envelope;
+authority is `docs/reports/STATUS.md:62`. Agreement with the oracle is to a tolerance, not
+bitwise across BLAS builds.
