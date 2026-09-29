@@ -164,11 +164,12 @@ check(boxCalls.some((call) => call.name === "fill" && call.fill === "#e0937a"), 
 
 const polylineCalls = paint(polylineList);
 const polylinePath = polylineCalls.filter((call) => call.name === "lineTo");
-check(polylinePath.length === 2, `a Polyline edge walks all three of its points (saw ${polylinePath.length})`);
-check(polylinePath.some((call) => call.args[0] === 10 && call.args[1] === 10), "a Polyline edge reaches its last point");
+// Interior points only (the contract): three bends, then the target node.
+check(polylinePath.length === 4, `a Polyline edge walks its three interior points then its target (saw ${polylinePath.length})`);
+check(polylinePath.some((call) => call.args[0] === 10 && call.args[1] === 10), "a Polyline edge reaches its last interior point");
 
 const curveCalls = paint(curveList);
-check(curveCalls.filter((call) => call.name === "lineTo").length === 2, "a Curve edge walks its sampled points");
+check(curveCalls.filter((call) => call.name === "lineTo").length === 4, "a Curve edge walks its sampled points then its target");
 
 const highlighted = paint({ ...pointList, nodes: [pointList.nodes[0], node(1, 3, 0, 0, 0, 4.5)] });
 const faded = highlighted.find((call) => call.name === "drawImage");

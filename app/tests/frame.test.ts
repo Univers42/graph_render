@@ -60,12 +60,11 @@ test("a different node count cross-fades the target instead of morphing", () => 
   assert.equal(frame.x[4], 40);
 });
 
-test("a path of fewer than two points is not a path", () => {
-  // One point cannot be stroked, and passing it on would draw a zero-length
-  // stroke for every frame of a transition. The renderer also checks, but the
-  // frame is where the decision belongs.
-  const frame = frameFor(polyline([[7, 7]]), null, 1);
-  assert.equal(frame.paths[0], null);
+test("a single interior point is a path; an empty row is not", () => {
+  // Polyline/Curve rows carry interior points only (the endpoints are the node
+  // positions), so one bend point is a real two-segment edge.
+  assert.deepEqual([...(frameFor(polyline([[7, 7]]), null, 1).paths[0] ?? [])], [7, 7]);
+  assert.equal(frameFor(polyline([[]]), null, 1).paths[0], null);
 });
 
 test("a Line edge has no path of its own, whatever t is", () => {
@@ -92,4 +91,12 @@ test("a Line -> Polyline change never morphs: the kinds disagree", () => {
   const to = polyline([[0, 0, 1, 1]]);
   const from = list(2, { edges: [{ index: 0, source: 0, target: 1, pts: new Float32Array(0), degree: 0 }] });
   assert.equal(frameFor(to, from, 0.5).paths[0], null);
+});
+
+test("a routed run that follows a Line run draws its own paths once the transition ends", () => {
+  const from = { nodeKind: "Point", edgeKind: "Line", nodes: [], edges: [{ index: 0, source: 0, target: 0, pts: new Float32Array(0), degree: 0 }] } as const;
+  const pts = new Float32Array([0, 0, 5, 5, 10, 10]);
+  const to = { ...from, edgeKind: "Polyline", edges: [{ ...from.edges[0], pts }] } as const;
+  assert.equal(frameFor(to, from, 0.5).paths[0], null);
+  assert.deepEqual([...(frameFor(to, from, 1).paths[0] ?? [])], [0, 0, 5, 5, 10, 10]);
 });

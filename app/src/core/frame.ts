@@ -47,14 +47,18 @@ function pathFor(to: DrawList, from: DrawList | null, index: number, t: number):
   const target = to.edges[index];
   const previous = from.edges[index];
   if (target === undefined || previous === undefined) return null;
+  // At rest the edge is its own geometry; without this, a Line → Polyline switch
+  // left every routed edge unmatched (and so straight) after the transition ended.
+  if (t >= 1) return ownPath(target);
   return interpolatePath(previous.pts, target.pts, t);
 }
 
-/** A `Polyline`/`Curve` edge's own point run, which is its geometry rather than
- *  an interpolation result — a first run draws it as it stands. A `Line` carries
- *  no points at all, so it stays `null` and is drawn from its two endpoints. */
+/** A `Polyline`/`Curve` edge's own INTERIOR points (the contract leaves the
+ *  endpoints to the node positions), which is its geometry rather than an
+ *  interpolation result — a first run draws it as it stands. A `Line`, or a
+ *  routed edge with no bend, has none and stays `null`. */
 function ownPath(edge: DrawList["edges"][number] | undefined): Float32Array | null {
-  if (edge === undefined || edge.pts.length < 4) return null;
+  if (edge === undefined || edge.pts.length < 2) return null;
   return edge.pts;
 }
 

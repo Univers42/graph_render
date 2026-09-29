@@ -23,8 +23,10 @@ import type { Camera, WorldBounds } from "../../../src/core/camera/transform.ts"
 /** Node sprites stop being legible below this on-screen radius; a plain disc
  *  reads the same and costs nothing. */
 const DOT_MAX_SCREEN_RADIUS = 3.2;
-/** Labels are drawn from this zoom up, and only for this many nodes. */
-const LABEL_MIN_SCALE = 1.05;
+/** Labels are drawn from this zoom up (about 50 px between nodes on screen at
+ *  the studio's TARGET_SPACING), and only for this many nodes. */
+const LABEL_MIN_SCALE = 0.9;
+const LABEL_FONT_PX = 11;
 const LABEL_BUDGET = 240;
 const EDGE_LOD_MIN_SCALE = 0.25;
 const EDGE_WIDTH = 1.1;
@@ -57,26 +59,25 @@ function inView(view: WorldBounds, x: number, y: number, margin: number): boolea
   return x >= view.minX - margin && x <= view.maxX + margin && y >= view.minY - margin && y <= view.maxY + margin;
 }
 
-/** Stroke one edge: its own path when it has one, else the segment between its
- *  two node positions. A `Curve`'s points are already sampled, so degree 1 and 3
- *  differ only in how many points the motor emitted. */
+/** Stroke one edge: source node, then its interior points, then target node.
+ *  The contract's Polyline/Curve rows carry INTERIOR points only — the endpoints
+ *  are the node positions — so a routed edge with no bend is a straight segment.
+ *  A `Curve`'s points are already sampled, so degree 1 and 3 differ only in how
+ *  many points the motor emitted. */
 function strokeEdge(state: PaintState, index: number): boolean {
   const { ctx, frame, list } = state;
   const edge = list.edges[index];
+  // A null path is the Frame contract's "no interior points": every Line, and a
+  // routed edge mid-transition whose point count did not match.
   const path = frame.paths[index] ?? null;
   const ax = frame.x[edge.source];
   const ay = frame.y[edge.source];
-  if (path !== null && path.length >= 4) {
-    ctx.moveTo(path[0], path[1]);
-    for (let i = 2; i < path.length; i += 2) ctx.lineTo(path[i], path[i + 1]);
-    return true;
-  }
-  if (path === null && list.edgeKind !== "Line") return false;
-  if (!inView(state.view, ax, ay, 64) && !inView(state.view, frame.x[edge.target], frame.y[edge.target], 64)) {
-    return false;
-  }
+  const bx = frame.x[edge.target];
+  const by = frame.y[edge.target];
+  if (path === null && !inView(state.view, ax, ay, 64) && !inView(state.view, bx, by, 64)) return false;
   ctx.moveTo(ax, ay);
-  ctx.lineTo(frame.x[edge.target], frame.y[edge.target]);
+  if (path !== null) for (let i = 0; i + 1 < path.length; i += 2) ctx.lineTo(path[i], path[i + 1]);
+  ctx.lineTo(bx, by);
   return true;
 }
 
@@ -151,7 +152,9 @@ export function drawNodes(state: PaintState): void {
       continue;
     }
     const sprite = sprites.get(styleKey(style?.shape ?? "disc", style?.fill ?? NEUTRAL_FILL));
-    const half = (radius / DISC_FRACTION) * sprite.width * 0.5;
+    // The disc fills DISC_FRACTION of the sprite, so the sprite spans r / DISC_FRACTION
+    // each side (same as src/core/render/nodes.ts) — never a factor of sprite.width.
+    const half = radius / DISC_FRACTION;
     ctx.drawImage(sprite, x - half, y - half, half * 2, half * 2);
   }
   ctx.globalAlpha = 1;
@@ -186,7 +189,9 @@ export function drawRings(state: PaintState): void {
 export function drawLabels(state: PaintState): void {
   const { ctx, camera, frame, list, theme } = state;
   if (camera.scale < LABEL_MIN_SCALE) return;
-  ctx.font = "11px ui-sans-serif, system-ui, sans-serif";
+  // Screen-constant: the font is sized in world units divided by the zoom, so
+  // zooming in spreads the labels apart instead of blowing them up.
+  ctx.font = `${LABEL_FONT_PX / camera.scale}px ui-sans-serif, system-ui, sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "top";
   let drawn = 0;

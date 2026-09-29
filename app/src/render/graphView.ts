@@ -22,6 +22,7 @@ import { frameFor, type Frame } from "../core/frame.ts";
 import { type Point, hitTestNode, neighborsOf } from "../core/hitTest.ts";
 import { TRANSITION_MS, easeInOutCubic, transitionProgress } from "../core/transition.ts";
 import { boundsOf, fitCamera } from "../core/fit.ts";
+import { toStudioWorld } from "../core/worldScale.ts";
 import { paintFrame, type PaintState } from "./paint.ts";
 import { bindPointer, HIT_TOLERANCE_PX, type PointerHost } from "./pointer.ts";
 import type { EdgeKind } from "../../../src/core/types.ts";
@@ -116,7 +117,7 @@ export class GraphView implements PointerHost {
    *  point, so a layout change reads as one graph moving. */
   setData(data: PanelData): void {
     this.#from = data.animate ? this.#list : null;
-    this.#list = data.list;
+    this.#list = toStudioWorld(data.list);
     this.#styles = data.styles;
     this.#edgeKinds = data.edgeKinds;
     this.#transitioning = data.animate && !this.#reducedMotion;

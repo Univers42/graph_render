@@ -71,6 +71,10 @@ export function useRunner(args: RunnerArgs): RunnerState {
   const runLayouts = useCallback(
     (primary: string, other: string | null) => {
       if (session === null || doc === null) return;
+      // The picker is controlled by these slots: a run that does not record its
+      // ids snaps the select back to the previous layout on the next render.
+      setLayoutId(primary);
+      if (other !== null) setCompareId(other);
       try {
         const { buildMs } = session.build(JSON.stringify(doc));
         setRun(session.run(primary, buildMs));
@@ -79,7 +83,7 @@ export function useRunner(args: RunnerArgs): RunnerState {
         fail(error);
       }
     },
-    [doc, fail, session],
+    [doc, fail, session, setCompareId, setLayoutId],
   );
 
   // Declared before the auto-run so a new document clears the panels in the same
@@ -90,13 +94,7 @@ export function useRunner(args: RunnerArgs): RunnerState {
     setCompare(false);
   }, [generation]);
 
-  const open = useCallback(
-    (id: string) => {
-      setLayoutId(id);
-      runLayouts(id, null);
-    },
-    [runLayouts, setLayoutId],
-  );
+  const open = useCallback((id: string) => runLayouts(id, null), [runLayouts]);
   useAutoRun(args, open);
 
   return {
