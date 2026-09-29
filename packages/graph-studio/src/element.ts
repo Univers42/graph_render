@@ -31,6 +31,11 @@ export interface StudioElementOptions {
 export interface GraphStudioElement extends HTMLElement {
   /** `null` while the element is not in a document. */
   readonly studio: Studio | null;
+  /**
+   * The view the studio draws on, so a host can move the camera or read it. `null` while
+   * the element is not in a document. The studio keeps its own; this is the same one.
+   */
+  readonly view: View | null;
 }
 
 interface Mounted {
@@ -112,6 +117,10 @@ export function defineGraphStudio(options: StudioElementOptions = {}, tag = "gra
 
     get studio(): Studio | null {
       return this.#mounted?.studio ?? null;
+    }
+
+    get view(): View | null {
+      return this.#mounted?.view ?? null;
     }
 
     connectedCallback(): void {

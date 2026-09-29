@@ -7,13 +7,16 @@
  * It does not: run a layout, fetch, read CSS, or keep a frame loop alive while parked.
  * Not done yet: a WebGL2 backend, pinch with two pointers, keyboard navigation of nodes.
  */
-import { type Camera, type Point, centreOn, panBy, zoomAt } from "./camera.ts";
+import {
+  type Camera, type Point, type ZoomLimits, centreOn, panBy, resetCamera, zoomAt,
+} from "./camera.ts";
 import {
   type Controller, fit, hover, measure, moveTo, newState, pickAt, select, showFrame,
 } from "./canvas2d/controller.ts";
 import { type LoopState, invalidate } from "./canvas2d/loop.ts";
 import { fpsOf } from "./canvas2d/rate.ts";
 import type { Frame } from "./frame.ts";
+import { DOUBLE_CLICK_ZOOM, centreOf } from "./gesture.ts";
 import { type LabelPolicy, newLabelPlan } from "./labels.ts";
 import { bindPointer } from "./pointer.ts";
 import { sceneOf } from "./scene.ts";
@@ -63,7 +66,13 @@ export interface View {
   setCamera(camera: Camera): void;
   camera(): Camera;
   fit(): void;
+  /** 1:1 with the world origin in the middle: what the key `0` and the reset button mean. */
+  reset(): void;
   zoomBy(factor: number): void;
+  /** Moves the camera by screen pixels; the world under the cursor goes with it. */
+  panBy(delta: Point): void;
+  /** The scale this view will not go past, and the one it will not fall under. */
+  limits(): ZoomLimits;
   /** Centres the node and selects it. */
   focus(node: number): void;
   select(node: number): void;
@@ -77,7 +86,9 @@ export interface View {
 
 type Handlers = { [Name in keyof ViewEvents]: Set<(payload: ViewEvents[Name]) => void> };
 type SceneApi = Pick<View, "setFrame" | "setStyle" | "setTheme" | "setLabels">;
-type CameraApi = Pick<View, "setCamera" | "camera" | "fit" | "zoomBy" | "focus" | "select" | "pick">;
+type CameraApi = Pick<
+  View, "setCamera" | "camera" | "fit" | "reset" | "zoomBy" | "panBy" | "limits" | "focus" | "select" | "pick"
+>;
 
 function statsOf(state: LoopState): ViewStats {
   return {
@@ -130,12 +141,14 @@ function sceneApi(controller: Controller): SceneApi {
 
 function cameraApi(controller: Controller): CameraApi {
   const { state } = controller;
-  const centre = (): Point => ({ x: state.viewport.width / 2, y: state.viewport.height / 2 });
   return {
     setCamera: (camera) => moveTo(controller, camera, false),
     camera: () => state.camera,
     fit: () => fit(controller),
-    zoomBy: (factor) => moveTo(controller, zoomAt(state.camera, centre(), factor, state.limits), false),
+    reset: () => moveTo(controller, resetCamera(state.viewport), false),
+    zoomBy: (factor) => moveTo(controller, zoomAt(state.camera, centreOf(state.viewport), factor, state.limits), false),
+    panBy: (delta) => moveTo(controller, panBy(state.camera, delta), false),
+    limits: () => state.limits,
     focus: (node) => {
       if (node < 0 || node >= state.scene.frame.nodeCount) return;
       const world = { x: state.scene.frame.x[node] ?? 0, y: state.scene.frame.y[node] ?? 0 };
@@ -156,6 +169,11 @@ function bindInputs(controller: Controller): () => void {
     pan: (delta) => moveTo(controller, panBy(state.camera, delta), false),
     hover: (at) => hover(controller, at === null ? -1 : pickAt(state, at)),
     click: (at) => select(controller, pickAt(state, at)),
+    doubleClick: (at) => {
+      // A double-click on a node is the node's own gesture (S2); on the background it zooms.
+      if (pickAt(state, at) >= 0) return;
+      moveTo(controller, zoomAt(state.camera, at, DOUBLE_CLICK_ZOOM, state.limits), false);
+    },
   });
   const observer = new ResizeObserver(() => {
     measure(controller);

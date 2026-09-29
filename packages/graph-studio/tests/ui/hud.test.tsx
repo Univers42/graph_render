@@ -1,11 +1,12 @@
-// The HUD: one line of numbers, and the part of it that must never go through React.
+// The HUD: the camera's buttons, and the numbers that must never go through React.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createElement } from "react";
 
 import type { View } from "../../../graph-render/src/view.ts";
 import { Hud } from "../../src/ui/Hud.tsx";
-import { DRAWN, IDLE, STATS, fakeView, markup } from "./desk.ts";
+import { NavBar } from "../../src/ui/NavBar.tsx";
+import { DRAWN, IDLE, STATS, fakeView, markup, studioWith } from "./desk.ts";
 
 function hud(state = DRAWN, view: Pick<View, "stats" | "on"> = fakeView()): string {
   return markup(createElement(Hud, { state, view }));
@@ -45,4 +46,27 @@ test("with nothing drawn the line stops at the view", () => {
 test("the numbers from the view are written into one element, not into the tree", () => {
   const html = hud();
   assert.match(html, /class="gs-hud-frame"/, "the part the frame handler writes into is there");
+});
+
+test("the navigation bar has the five camera buttons, each one named for the reader", () => {
+  const { studio } = studioWith();
+  const html = markup(createElement(NavBar, { studio }));
+  for (const title of [
+    "Fit the graph to the view", "Zoom in ×2", "Zoom out ÷2", "Reset the camera to 1:1", "Pan 50 pixels",
+  ]) {
+    assert.ok(html.includes(`aria-label="${title}"`), title);
+  }
+  assert.equal(html.match(/gs-nav-btn/g)?.length, 5, "and no sixth button");
+  assert.ok(!html.includes("Lock"), "the lock is S6: a button that froze nothing would be a lie");
+});
+
+test("a navigation button dispatches the action it names, through the studio", () => {
+  const { studio, seen } = studioWith();
+  markup(createElement(NavBar, { studio }));
+  // The rendered markup carries the handlers, not the calls: the ids are what the gate reads.
+  const ids = ["view.fit", "view.zoom", "view.reset", "view.pan"] as const;
+  for (const id of ids) {
+    assert.ok(studio.registry.find(id) !== undefined, `${id} is an action of the studio`);
+  }
+  assert.deepEqual(seen.calls, [], "rendering the bar moves nothing on its own");
 });

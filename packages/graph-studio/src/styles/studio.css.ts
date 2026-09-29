@@ -56,6 +56,8 @@ export const STUDIO_CSS = `
 .gs-head-name { flex: 1 1 auto; font-weight: 600; }
 .gs-console, .gs-hud { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
 .gs-hud { padding: 4px 8px; color: var(--gs-muted); white-space: nowrap; }
+.gs-nav { display: flex; gap: 4px; }
+.gs-nav-btn { min-width: 30px; padding: 3px 6px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .gs-muted { color: var(--gs-muted); }
 
 .gs-btn {

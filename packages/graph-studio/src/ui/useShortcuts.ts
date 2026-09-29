@@ -4,27 +4,36 @@
  */
 import { useEffect } from "react";
 
-import type { View } from "../../../graph-render/src/view.ts";
 import type { StudioState } from "../state/model.ts";
 import type { Studio } from "../studio/studio.ts";
+import { type Held, type NavKey, navKeyOf } from "./navKeys.ts";
 
-export type Shortcut = "console" | "search" | "fit" | "escape" | null;
+export type Shortcut = "console" | "search" | "escape" | null;
 
 const TYPING = new Set(["INPUT", "SELECT", "TEXTAREA"]);
 
 /** What a key press says about itself; a `KeyboardEvent` is one. */
 export type Pressed = Pick<KeyboardEvent, "key" | "code" | "ctrlKey" | "metaKey" | "altKey">;
 
-export function shortcutOf(pressed: Pressed, typing: boolean): Shortcut {
-  // A key held with one of these is the browser's or the host's: Ctrl+F finds in the page.
+/** The keys the chrome itself owns; the camera keys are actions (navKeys.ts). */
+export function chromeOf(pressed: Pressed, typing: boolean): Shortcut {
   if (pressed.ctrlKey || pressed.metaKey || pressed.altKey) return null;
   // WHY the code too: `key` is what the layout prints, and the key left of 1 prints º or ²
   // on a keyboard that has no backquote there.
   if (pressed.key === "`" || pressed.code === "Backquote") return "console";
   if (pressed.key === "/") return typing ? null : "search";
-  if (pressed.key === "f") return typing ? null : "fit";
   if (pressed.key === "Escape") return "escape";
   return null;
+}
+
+/** The camera key for this press, or null; a field that holds the keyboard takes it away. */
+export function navigationOf(pressed: Pressed, typing: boolean): NavKey | null {
+  if (typing) return null;
+  return navKeyOf(pressed.key, heldOf(pressed));
+}
+
+function heldOf(pressed: Pressed): Held {
+  return { ctrlKey: pressed.ctrlKey, metaKey: pressed.metaKey, altKey: pressed.altKey };
 }
 
 /**
@@ -40,7 +49,6 @@ function typingAt(path: readonly EventTarget[]): boolean {
 export interface ShortcutProps {
   readonly studio: Studio;
   readonly state: StudioState;
-  readonly view: Pick<View, "select">;
   readonly keys: Pick<EventTarget, "addEventListener" | "removeEventListener">;
   readonly consoleOpen: boolean;
   readonly setConsole: (open: boolean) => void;
@@ -48,30 +56,40 @@ export interface ShortcutProps {
 }
 
 export function useShortcuts(props: ShortcutProps): void {
-  const { studio, state, view, keys, consoleOpen, setConsole, focusSearch } = props;
+  const { studio, state, keys, consoleOpen, setConsole, focusSearch } = props;
   const busy = state.busy.length > 0;
   useEffect(() => {
     const onKey = (event: Event): void => {
       if (!(event instanceof KeyboardEvent)) return;
-      const what = shortcutOf(event, typingAt(event.composedPath()));
-      if (what === null) return;
-      // The browser's own meaning is never wanted here: `/` opens quick find, `f` types.
-      event.preventDefault();
-      if (what === "console") {
-        setConsole(!consoleOpen);
-      } else if (what === "search") {
-        focusSearch();
-      } else if (what === "fit") {
-        void studio.dispatch("view.fit");
-      } else if (consoleOpen) {
+      const typing = typingAt(event.composedPath());
+      // The way out of what is open comes first: Escape is never a camera key here.
+      if (event.key === "Escape" && consoleOpen) {
+        event.preventDefault();
         setConsole(false);
-      } else if (busy) {
-        void studio.dispatch("view.cancel");
-      } else {
-        view.select(-1);
+        return;
       }
+      if (busy && event.key === "Escape") {
+        event.preventDefault();
+        void studio.dispatch("view.cancel");
+        return;
+      }
+      const chrome = chromeOf(event, typing);
+      if (chrome !== null) {
+        // The browser's own meaning is never wanted here: `/` opens quick find, `f` types.
+        event.preventDefault();
+        if (chrome === "console") setConsole(!consoleOpen);
+        else if (chrome === "search") focusSearch();
+        else void studio.dispatch("view.clear");
+        return;
+      }
+      const nav = navigationOf(event, typing);
+      if (nav === null) return;
+      // Arrows scroll the page and `+` types into a field: the studio is the whole page here,
+      // but a host that embeds it beside its own inputs keeps them.
+      event.preventDefault();
+      void studio.dispatch(nav.id, { ...nav.args });
     };
     keys.addEventListener("keydown", onKey);
     return () => keys.removeEventListener("keydown", onKey);
-  }, [studio, view, keys, consoleOpen, busy, setConsole, focusSearch]);
+  }, [studio, keys, consoleOpen, busy, setConsole, focusSearch]);
 }

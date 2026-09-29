@@ -20,7 +20,7 @@ test("the root carries the theme the settings ask for", () => {
 
 test("the panels are the ones the layout names, and the console is not among them", () => {
   const html = shell();
-  for (const panel of ["gs-left", "gs-search", "gs-dock", "gs-legend", "gs-hud"]) {
+  for (const panel of ["gs-left", "gs-search", "gs-dock", "gs-legend", "gs-hud", "gs-nav"]) {
     assert.ok(html.includes(panel), panel);
   }
   assert.ok(!html.includes("gs-console"), "the console opens only when it is asked for");

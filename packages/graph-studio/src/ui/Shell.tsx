@@ -11,6 +11,7 @@ import { Dock } from "./Dock.tsx";
 import { Hud } from "./Hud.tsx";
 import { Inspector } from "./Inspector.tsx";
 import { Legend } from "./Legend.tsx";
+import { NavBar } from "./NavBar.tsx";
 import { Search } from "./Search.tsx";
 import { Toast } from "./Toast.tsx";
 import { useShortcuts } from "./useShortcuts.ts";
@@ -36,7 +37,7 @@ export function Shell(props: ShellProps): ReactElement {
     setOpen(open);
     if (!open && keys instanceof HTMLElement) keys.focus();
   }, [keys]);
-  useShortcuts({ studio, state, view, keys, consoleOpen, setConsole, focusSearch });
+  useShortcuts({ studio, state, keys, consoleOpen, setConsole, focusSearch });
   return (
     <div className="gs-chrome" data-theme={state.settings.appearance.theme}>
       <div className="gs-left">
@@ -48,6 +49,7 @@ export function Shell(props: ShellProps): ReactElement {
       <div className="gs-bottom-left">
         <Legend state={state} />
         <Hud state={state} view={view} />
+        <NavBar studio={studio} />
       </div>
       {consoleOpen && (
         <Console studio={studio} state={state} onClose={() => setConsole(false)} />

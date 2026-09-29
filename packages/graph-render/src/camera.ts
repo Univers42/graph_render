@@ -34,7 +34,12 @@ export interface ZoomLimits {
 }
 
 export const IDENTITY: Camera = { x: 0, y: 0, scale: 1 };
-export const DEFAULT_LIMITS: ZoomLimits = { min: 0.15, max: 6 };
+/**
+ * The studio's own limits (S1): a label is readable at ×0.02 and a 20 000-node graph is
+ * still worth looking at ×40. `limitsFor` may drop the floor further for a drawing that
+ * would not fit at all, which is what that function is for.
+ */
+export const DEFAULT_LIMITS: ZoomLimits = { min: 0.02, max: 40 };
 export const FIT_PADDING = 64;
 
 export function clamp(value: number, min: number, max: number): number {
@@ -91,4 +96,9 @@ export function centreOn(camera: Camera, world: Point, viewport: Viewport): Came
     x: viewport.width / 2 - world.x * camera.scale,
     y: viewport.height / 2 - world.y * camera.scale,
   };
+}
+
+/** 1:1 with the world origin in the middle: what the key `0` and the reset button mean. */
+export function resetCamera(viewport: Viewport): Camera {
+  return { scale: 1, x: viewport.width / 2, y: viewport.height / 2 };
 }

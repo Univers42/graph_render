@@ -5,6 +5,12 @@ import { type StudioAction, type StudioParam, numberArg, textArg } from "./conte
 import { ActionRefusal, matchChoice } from "./registry.ts";
 
 const CANDIDATES_SHOWN = 8;
+/**
+ * WHY a bound on a pan: a number in pixels with no bound is a number a typo turns into
+ * 1e300, and the camera that comes back cannot be panned out of. Four screens wide is
+ * already further than any view.
+ */
+export const MAX_PAN = 2000;
 
 function described(state: StudioState): string | null {
   return state.meta === null ? "nothing is drawn" : null;
@@ -40,12 +46,43 @@ const fit: StudioAction = {
   },
 };
 
+const reset: StudioAction = {
+  id: "view.reset", alias: "reset", title: "Reset the camera to 1:1", section: null, params: [],
+  run: (context) => {
+    context.view.reset();
+    return { message: "reset to 1:1" };
+  },
+};
+
 const zoom: StudioAction = {
   id: "view.zoom", alias: "zoom", title: "Zoom by a factor", section: null,
-  params: [{ name: "factor", kind: "number", title: "Factor", min: 0.1, max: 10, value: () => 1.25 }],
+  params: [{ name: "factor", kind: "number", title: "Factor", min: 0.02, max: 40, value: () => 1.25 }],
   run: (context, args) => {
-    context.view.zoomBy(numberArg(args, "factor"));
-    return { message: `zoomed ×${numberArg(args, "factor")}` };
+    const factor = numberArg(args, "factor");
+    context.view.zoomBy(factor);
+    return { message: `zoomed ×${factor}` };
+  },
+};
+
+const pan: StudioAction = {
+  id: "view.pan", alias: "pan", title: "Pan by screen pixels", section: null,
+  params: [
+    { name: "dx", kind: "number", title: "Right", min: -MAX_PAN, max: MAX_PAN, value: () => 0 },
+    { name: "dy", kind: "number", title: "Down", min: -MAX_PAN, max: MAX_PAN, value: () => 0 },
+  ],
+  run: (context, args) => {
+    const dx = numberArg(args, "dx");
+    const dy = numberArg(args, "dy");
+    context.view.panBy({ x: dx, y: dy });
+    return { message: `panned ${dx} × ${dy}` };
+  },
+};
+
+const deselect: StudioAction = {
+  id: "view.clear", alias: "deselect", title: "Clear the selection", section: null, params: [],
+  run: (context) => {
+    context.view.select(-1);
+    return { message: "selection cleared" };
   },
 };
 
@@ -67,7 +104,7 @@ const cancel: StudioAction = {
   run: (context) => ({ message: context.stop() ? "stopped" : "nothing was running" }),
 };
 
-const clear: StudioAction = {
+const emptyConsole: StudioAction = {
   id: "console.clear", alias: "clear", title: "Empty the console", section: null, params: [],
   run: (context) => {
     context.clearLog();
@@ -89,4 +126,5 @@ const help: StudioAction = {
   },
 };
 
-export const VIEW_ACTIONS: readonly StudioAction[] = [fit, zoom, focus, cancel, clear, help];
+export const VIEW_ACTIONS: readonly StudioAction[] =
+  [fit, reset, zoom, pan, focus, cancel, deselect, emptyConsole, help];

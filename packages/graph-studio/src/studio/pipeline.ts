@@ -22,7 +22,9 @@ import type { Store } from "../state/store.ts";
 
 export type ViewFace = Pick<
   View,
-  "setFrame" | "setStyle" | "setTheme" | "setLabels" | "fit" | "zoomBy" | "focus" | "select" | "on" | "toPNG"
+  | "setFrame" | "setStyle" | "setTheme" | "setLabels"
+  | "fit" | "reset" | "zoomBy" | "panBy" | "limits"
+  | "focus" | "select" | "on" | "toPNG"
 >;
 
 export interface Pipeline {

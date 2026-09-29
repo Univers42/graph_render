@@ -20,7 +20,11 @@ interface Extent {
   readonly bottom: number;
 }
 
-/** Python len() counts code points, so an astral glyph is one and not two. */
+/**
+ * Python len() counts code points, so an astral glyph is one and not two. `Array.from`
+ * walks the string iterator, which yields code points, and is what `[...text]` does without
+ * the lint rule that cannot tell the two apart.
+ */
 function codePoints(text: string): number {
   return Array.from(text).length;
 }
