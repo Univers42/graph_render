@@ -83,6 +83,17 @@ pub fn write(stamp: &Stamp, name: &str, body: Value) -> Result<PathBuf, String> 
     write_to(&gates_dir(), name, body, stamp.fingerprint().to_owned())
 }
 
+/// Writes `body` as `<dir>/<name>.json`, unless it would replace a *passing* record of
+/// the same name with one that did not pass.
+///
+/// A record is evidence, and the run that writes one is not always the run that is
+/// right about it: a negative control, a short `--seeds` sweep, or a run against a tree
+/// that has since regressed all write the same `<name>.json` a full honest run did, and
+/// each would leave the ledger holding the weaker claim while the gate's own exit code
+/// was the only warning. The ledger reads these files long after the run that made them,
+/// so a record that passed is kept: a later failing run is refused and the passing one
+/// stands. A later *passing* run does replace it, which is what re-running the gate for
+/// a fix must do.
 fn write_to(
     dir: &Path,
     name: &str,
@@ -94,8 +105,17 @@ fn write_to(
         .ok_or("a gate record is a JSON object")?;
     object.insert("gate".into(), Value::from(name));
     object.insert("fingerprint".into(), Value::from(fingerprint));
-    std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let path = dir.join(format!("{name}.json"));
+    if body["pass"] == Value::Bool(false)
+        && let Ok(Some(existing)) = read_from(dir, name)
+        && existing["pass"] == Value::Bool(true)
+    {
+        return Err(format!(
+            "{name}: not recorded — the existing record passed and this run did \
+             not, so the passing record stands (re-run the gate to replace it)"
+        ));
+    }
+    std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let text = serde_json::to_string_pretty(&body).map_err(|e| e.to_string())?;
     std::fs::write(&path, text + "\n").map_err(|e| format!("{}: {e}", path.display()))?;
     Ok(path)
@@ -175,6 +195,72 @@ mod tests {
         std::fs::create_dir(dir.join("dir.json")).expect("dir");
         assert!(read_from(&dir, "dir").is_err(), "unreadable is not absent");
         assert!(write_to(&dir, "list", serde_json::json!([]), "f".into()).is_err());
+        std::fs::remove_dir_all(&dir).expect("cleanup");
+    }
+
+    #[test]
+    fn a_failing_run_never_overwrites_a_passing_record() {
+        let dir = scratch("no-clobber");
+        let passed = serde_json::json!({ "seeds": 1000, "pass": true });
+        let path = write_to(&dir, "hashgate", passed, "f".into()).expect("written");
+        let kept = std::fs::read_to_string(&path).expect("readable");
+        // A control run, a short sweep, or a run on a tree that has since regressed:
+        // each writes the same record name, and each must leave the passing one standing.
+        let refused = write_to(
+            &dir,
+            "hashgate",
+            serde_json::json!({ "seeds": 8, "pass": false }),
+            "f".into(),
+        )
+        .expect_err("a failing run does not replace a passing record");
+        assert!(refused.contains("hashgate"), "{refused}");
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("readable"),
+            kept,
+            "the passing record is byte-for-byte what it was"
+        );
+        // The reverse is allowed and is the point of a gate: a passing run replaces a
+        // failing one of the same name, which is what re-running for a fix must do.
+        write_to(
+            &dir,
+            "roundtrip",
+            serde_json::json!({ "seeds": 8, "pass": false }),
+            "f".into(),
+        )
+        .expect("a first failing record is written");
+        write_to(
+            &dir,
+            "roundtrip",
+            serde_json::json!({ "seeds": 2000, "pass": true }),
+            "f".into(),
+        )
+        .expect("a passing run replaces it");
+        assert_eq!(
+            read_from(&dir, "roundtrip").expect("readable"),
+            Some(serde_json::json!({
+                "seeds": 2000, "pass": true, "gate": "roundtrip", "fingerprint": "f"
+            }))
+        );
+        // A record with no `pass` member at all is not a failing run and is not
+        // covered by the rule: the oracle harnesses write exactly that shape.
+        write_to(
+            &dir,
+            "oracle-diff",
+            serde_json::json!({ "seeds": 1000 }),
+            "f".into(),
+        )
+        .expect("written");
+        write_to(
+            &dir,
+            "oracle-diff",
+            serde_json::json!({ "seeds": 8 }),
+            "f".into(),
+        )
+        .expect("written");
+        assert_eq!(
+            read_from(&dir, "oracle-diff").expect("readable"),
+            Some(serde_json::json!({ "seeds": 8, "gate": "oracle-diff", "fingerprint": "f" }))
+        );
         std::fs::remove_dir_all(&dir).expect("cleanup");
     }
 
