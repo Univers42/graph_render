@@ -18,7 +18,9 @@ pub const SPECTRAL: Differential = Differential {
     line,
 };
 
-fn line(seed: u32) -> Result<Value, String> {
+/// One seed's line. The spectral layouts are closed-form and take no iteration budget,
+/// so the emit's `--max-iter` (ForceAtlas2's) does not reach them.
+fn line(seed: u32, _max_iter: Option<u32>) -> Result<Value, String> {
     let n = gate_node_count(seed);
     let (nodes, edges) = seeded_model(seed, n, REFERENCE_DEGREE);
     let topology = index_model(&nodes, &edges).map_err(|e| e.to_string())?;

@@ -8,9 +8,22 @@ export interface PointerHandlers {
   pan(delta: Point): void;
   /** `null` when the pointer leaves the canvas. */
   hover(at: Point | null): void;
-  click(at: Point): void;
+  click(at: Point, shift: boolean): void;
+  /**
+   * A left press on the canvas. A gesture takes the drag (a node, or a box with shift held);
+   * `null` leaves it to the camera.
+   */
+  press(at: Point, shift: boolean): Gesture | null;
+  /** The secondary button, or the menu key's stand-in: where, on the canvas. */
+  context(at: Point): void;
   /** The two clicks of a double-click, on the background. */
   doubleClick(at: Point): void;
+}
+
+/** What a drag does when it is not a pan: told where the pointer is, and where it let go. */
+export interface Gesture {
+  move(at: Point): void;
+  end(at: Point): void;
 }
 
 /** A wheel in line mode reports lines, not pixels; the source's 16 px to a line. */
@@ -19,6 +32,7 @@ const LINE_HEIGHT = 16;
 interface Drag {
   readonly pointer: number;
   readonly kind: DragKind;
+  readonly gesture: Gesture | null;
   lastX: number;
   lastY: number;
   travelled: number;
@@ -46,16 +60,17 @@ function onMove(canvas: HTMLCanvasElement, handlers: PointerHandlers, moved: { e
   drag.lastX = event.clientX;
   drag.lastY = event.clientY;
   drag.travelled = travelledBy(dx, dy, drag.travelled);
-  // A drag that selects a node still pans the camera: the node follows the pointer in S2.
-  if (isDrag(drag.travelled) || drag.kind === "pan") handlers.pan({ x: dx, y: dy });
+  if (drag.gesture !== null) {
+    if (isDrag(drag.travelled)) drag.gesture.move(localPoint(canvas, event));
+  } else if (isDrag(drag.travelled) || drag.kind === "pan") handlers.pan({ x: dx, y: dy });
 }
 
-function beginDrag(event: PointerEvent): Drag | null {
+function beginDrag(event: PointerEvent, gesture: Gesture | null): Drag | null {
   const kind = dragKindOf(event.button, space.isDown());
   if (kind === "none") return null;
   // The middle button pastes and autoscrolls where the browser feels like it.
   if (event.button !== 0) event.preventDefault();
-  return { pointer: event.pointerId, kind, lastX: event.clientX, lastY: event.clientY, travelled: 0 };
+  return { pointer: event.pointerId, kind, gesture, lastX: event.clientX, lastY: event.clientY, travelled: 0 };
 }
 
 /** Space is read from the window: a key held while the pointer is captured is still on it. */
@@ -78,7 +93,8 @@ export function bindPointer(
   canvas.addEventListener("pointerdown", (event) => {
     // A second finger on a touchscreen is not a second drag: the first one owns the camera.
     if (drag !== null) return;
-    drag = beginDrag(event);
+    const grab = event.button === 0 && !space.isDown() ? handlers.press(localPoint(canvas, event), event.shiftKey) : null;
+    drag = beginDrag(event, grab);
     if (drag !== null) canvas.setPointerCapture(event.pointerId);
   }, options);
   canvas.addEventListener("pointermove", (event) => onMove(canvas, handlers, { event, drag }), options);
@@ -86,12 +102,17 @@ export function bindPointer(
     const ended = drag;
     drag = null;
     if (ended === null) return;
-    if (isClick(ended.travelled) && ended.kind === "select") handlers.click(localPoint(canvas, event));
+    if (ended.kind !== "select") return;
+    if (isClick(ended.travelled)) handlers.click(localPoint(canvas, event), event.shiftKey);
+    else ended.gesture?.end(localPoint(canvas, event));
   }, options);
   canvas.addEventListener("pointercancel", () => { drag = null; }, options);
   canvas.addEventListener("pointerleave", () => handlers.hover(null), options);
   canvas.addEventListener("dblclick", (event) => handlers.doubleClick(localPoint(canvas, event)), options);
-  canvas.addEventListener("contextmenu", (event) => event.preventDefault(), options);
+  canvas.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    handlers.context(localPoint(canvas, event));
+  }, options);
   bindSpace(owner, stop.signal);
   return () => {
     stop.abort();

@@ -7,20 +7,23 @@
  * sprite. A view that shows more than CAPACITY distinct labels at once re-bakes on every
  * frame; the label budget (160) keeps a frame far below that.
  */
-import { LABEL_HEIGHT } from "../labels.ts";
+import type { Rgb } from "../colour/srgb.ts";
 import type { Theme } from "../theme.ts";
-import type { SpriteFactory, SpriteSurface } from "./surface.ts";
+import { createImpostorCache } from "./impostors.ts";
+import type { SpriteFactory, SpriteImage, SpriteSurface } from "./surface.ts";
 
-export interface Sprite<Image = CanvasImageSource> {
+export interface Sprite<Image = SpriteImage> {
   readonly image: Image;
   /** CSS pixels. */
   readonly width: number;
   readonly height: number;
 }
 
-export interface SpriteCache<Image = CanvasImageSource> {
+export interface SpriteCache<Image = SpriteImage> {
   /** The sprite for `text`, baked on a miss while this frame's allowance lasts. */
   get(text: string): Sprite<Image> | null;
+  /** The lit sphere for a linear base colour, at `size` device pixels square. */
+  sphere(base: Rgb, size: number): Sprite<Image> | null;
   /** Width of a sprite already baked, else 0. */
   widthOf(text: string): number;
   /** Starts a frame: a fresh allowance of bakes. */
@@ -56,20 +59,28 @@ function shown(text: string): string {
 
 function bake<Image>(state: State<Image>, surface: SpriteSurface<Image>, text: string): Sprite<Image> {
   const { theme, dpr } = state;
+  const box = theme.labelBox;
+  const pad = box === null ? PADDING : box.padding;
+  const height = theme.labelHeight;
   surface.ctx.font = theme.labelFont;
-  const width = Math.ceil(surface.ctx.measureText(text).width) + PADDING * 2;
-  surface.resize(Math.ceil(width * dpr), Math.ceil(LABEL_HEIGHT * dpr));
+  const width = Math.ceil(surface.ctx.measureText(text).width) + pad * 2;
+  surface.resize(Math.ceil(width * dpr), Math.ceil(height * dpr));
   const ctx = surface.ctx;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.font = theme.labelFont;
   ctx.textBaseline = "middle";
-  ctx.lineJoin = "round";
-  ctx.lineWidth = 3;
-  ctx.strokeStyle = theme.labelHalo;
-  ctx.strokeText(text, PADDING, LABEL_HEIGHT / 2);
+  if (box === null) {
+    ctx.lineJoin = "round";
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = theme.labelHalo;
+    ctx.strokeText(text, pad, height / 2);
+  } else {
+    ctx.fillStyle = box.fill;
+    ctx.fillRect(0, 0, width, height);
+  }
   ctx.fillStyle = theme.label;
-  ctx.fillText(text, PADDING, LABEL_HEIGHT / 2);
-  return { image: surface.image, width, height: LABEL_HEIGHT };
+  ctx.fillText(text, pad, height / 2);
+  return { image: surface.image, width, height };
 }
 
 function surfaceFor<Image>(state: State<Image>): SpriteSurface<Image> | null {
@@ -103,22 +114,26 @@ function lookUp<Image>(state: State<Image>, text: string): Sprite<Image> | null 
   return entry.sprite;
 }
 
-export function createSpriteCache<Image = CanvasImageSource>(
+export function createSpriteCache<Image = SpriteImage>(
   factory: SpriteFactory<Image>,
   theme: Theme,
 ): SpriteCache<Image> {
   const state: State<Image> = {
     theme, dpr: 1, allowance: BAKES_PER_FRAME, starved: false, factory, entries: new Map(), spare: [],
   };
+  const spheres = createImpostorCache<Image>(factory);
   return {
     get: (text) => lookUp(state, text),
+    sphere: (base, size) => spheres.get(base, size),
     widthOf: (text) => state.entries.get(shown(text))?.sprite.width ?? 0,
     beginFrame: () => {
       state.allowance = BAKES_PER_FRAME;
       state.starved = false;
+      spheres.beginFrame();
     },
-    starved: () => state.starved,
+    starved: () => state.starved || spheres.starved(),
     reset: (next, dpr) => {
+      spheres.reset(dpr);
       if (next === state.theme && dpr === state.dpr) return;
       for (const entry of state.entries.values()) state.spare.push(entry.surface);
       state.entries.clear();

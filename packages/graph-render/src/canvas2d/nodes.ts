@@ -2,6 +2,14 @@
  * Nodes, batched by colour: one path and one fill per palette entry. A node smaller than
  * DOT_RADIUS on screen is a square — at that size the eye cannot tell, and a rect costs
  * the rasteriser less than an arc.
+ *
+ * A SciGraphs look carries a base colour per palette entry instead, and then every node is
+ * a lit sphere baked once and blitted (sprite/impostor.ts).
+ *
+ * Ponytail: one blit per node is a drawImage each, and the sprite cache bakes at most 32 a
+ * frame (canvas2d/impostors.ts:16), so the impostor pass is only taken while a scene fits
+ * inside IMPOSTOR_BUDGET; past it the batched fills are the drawing and the sphere shading
+ * is the detail given up. The escape hatch is to raise the budget, at one blit per node.
  */
 import type { PaintCounts, PaintInput } from "./input.ts";
 
@@ -9,6 +17,9 @@ export const MIN_SCREEN_RADIUS = 1.25;
 const DOT_RADIUS = 1.75;
 const TAU = Math.PI * 2;
 const RING_GAP = 3;
+
+/** Past this many nodes a frame cannot bake a sphere for each of them in one go. */
+export const IMPOSTOR_BUDGET = 4096;
 
 /** Which nodes a pass draws: all of them, or one side of the lit neighbourhood. */
 type Pass = "all" | "dim" | "lit";
@@ -76,6 +87,47 @@ function paintPass(input: PaintInput, counts: PaintCounts, pass: Pass): void {
   }
 }
 
+/** The world radius of a node on screen, floored at the smallest dot worth drawing. */
+function screenRadius(input: PaintInput, node: number): number {
+  return Math.max(MIN_SCREEN_RADIUS, (input.extent[node] ?? 0) * input.camera.scale);
+}
+
+/** The sprite size a sphere is baked at, in device pixels: the drawn diameter. */
+function sphereSize(input: PaintInput, node: number): number {
+  return Math.ceil(screenRadius(input, node) * 2 * input.dpr);
+}
+
+function paintSphere(input: PaintInput, node: number): boolean {
+  const { style } = input;
+  const bases = style.spheres;
+  if (bases === null) return false;
+  const base = bases[style.colours[node] ?? 0];
+  const size = sphereSize(input, node);
+  const sprite = base === undefined ? null : input.sprites.sphere(base, size);
+  if (sprite === null) return false;
+  const { camera } = input;
+  const sx = (input.x[node] ?? 0) * camera.scale + camera.x;
+  const sy = (input.y[node] ?? 0) * camera.scale + camera.y;
+  const width = size / input.dpr;
+  input.ctx.drawImage(sprite.image, sx - width / 2, sy - width / 2, width, width);
+  return true;
+}
+
+function paintSpheres(input: PaintInput, counts: PaintCounts, pass: Pass): void {
+  input.ctx.globalAlpha = pass === "dim" ? input.theme.dimAlpha : 1;
+  for (let node = 0; node < input.frame.nodeCount; node += 1) {
+    if (skipped(input, node, pass)) continue;
+    if (!paintSphere(input, node)) continue;
+    counts.nodes += 1;
+    counts.draws += 1;
+  }
+}
+
+/** True when this scene is drawn as lit spheres rather than as batched fills. */
+export function impostorOf(input: PaintInput): boolean {
+  return input.style.spheres !== null && input.frame.nodeCount <= IMPOSTOR_BUDGET;
+}
+
 function paintRing(input: PaintInput, node: number, width: number): void {
   if (node < 0 || node >= input.frame.nodeCount || input.style.hidden?.[node] === 1) return;
   const { ctx, camera } = input;
@@ -88,7 +140,16 @@ function paintRing(input: PaintInput, node: number, width: number): void {
 }
 
 export function paintNodes(input: PaintInput, counts: PaintCounts): void {
-  if (input.focus >= 0) {
+  if (impostorOf(input)) {
+    // The spheres are drawn in the same two passes as the flat fills, so a lit
+    // neighbourhood dims the rest of a look-driven scene exactly as it dims the studio's.
+    if (input.focus >= 0) {
+      paintSpheres(input, counts, "dim");
+      paintSpheres(input, counts, "lit");
+    } else {
+      paintSpheres(input, counts, "all");
+    }
+  } else if (input.focus >= 0) {
     paintPass(input, counts, "dim");
     paintPass(input, counts, "lit");
   } else {

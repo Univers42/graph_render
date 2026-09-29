@@ -1,16 +1,23 @@
 # Phase 6 — force layout timing and ceilings (branch p6f)
 
 Measured on the Phase 6 (p6f) worktree, release build, x86_64, inside the `ge-rust`
-toolchain image (`/home/user/gr`). Reproduce:
+toolchain image. Reproduce, from the worktree root, with
+`/goinfre/dlesieur/orch/bin/gr` (the docs write it as `/home/user/gr` on the older host)
+standing in for the `cargo` below:
 
 ```sh
-/home/user/gr cargo run --release --example force_dump -- seed 0 <n> barnes_hut
-/home/user/gr cargo run --release --example force_dump -- seed 0 <n> fa2
+gr cargo run --release -p graph-cli -- bench --layout layout.force.barnes_hut --n 220,1000,10000
+gr cargo run --release -p graph-cli -- bench --layout layout.forceatlas2 --n 220,1000,2000,5000,10000
 ```
 
-The `elapsed_ms` on stderr times `Stage::run` only (topology construction and stdout
-formatting are outside it). Saved stderr from this run: `scratch/dumps/timing-n<n>-
-{barnes_hut,fa2}.stderr`.
+`bench` times each registered layout's own `run` over an already indexed topology and
+nothing else — building the model and formatting output are outside the timer, which is
+what the original `elapsed_ms` on stderr measured too. The original run drove the
+`examples/force_dump` binary that the phase branch added; that example is still in
+`crates/graph-core/examples/` but is no longer the way these numbers are reproduced, and
+its saved stderr (`scratch/dumps/timing-n<n>-{barnes_hut,fa2}.stderr`) is what the tables
+below were read from. `--past-ceiling` runs a size past a layout's registered ceiling,
+which the measurements at 100 000 need for Barnes-Hut.
 
 ## Barnes-Hut: tick count and scaling
 
@@ -85,8 +92,9 @@ s it takes to get there.
 
 Per `P56_SPEC.md`'s own decision 3: *"Yifan Hu: stays `absent` — reason: Graphviz sfdp
 source not on disk; SciGraphs' `YIFAN_HU` is a different algorithm."* Neither reference
-this branch would need to port from is available in `/home/user/refs`, and a missing
-reference is a stop, not an improvisation (`AGENT_BRIEF.md`) — so it is not attempted,
+this branch would need to port from is available in `/goinfre/dlesieur/refs` (written
+`/home/user/refs/...` on the older host), and a missing reference is a stop, not an
+improvisation (`AGENT_BRIEF.md`) — so it is not attempted,
 guessed at, or approximated from the Barnes-Hut/FA2 code already here (which are
 different algorithms, not drop-in substitutes for Yifan Hu's own multipole-style
 force approximation). Not part of this branch's `CREATE` list either way
@@ -114,11 +122,13 @@ instability found), not omitted because it happened not to trigger.
 ## The wiring run (2026-09-29): `graph-cli bench`, and where the ceilings come from
 
 The ceilings registered in `crates/graph-core/src/registry.rs` (`FORCE_CEILING`,
-`FA2_CEILING`) are derived from measurements taken with
-`cargo run --release --example force_dump`, and are now reproducible as a gate:
+`FA2_CEILING`) are derived from the measurements above, and are now reproducible as a
+gate, one layout at a time (the old `--nodes` bench form is gone; `--layout` names the
+layout and `--n` the sizes, comma-separated):
 
 ```sh
-cargo run --release -p graph-cli -- bench --n 220,10000,100000
+gr cargo run --release -p graph-cli -- bench --layout layout.force.barnes_hut --n 220,10000,100000
+gr cargo run --release -p graph-cli -- bench --layout layout.forceatlas2 --n 220,10000,100000
 ```
 
 On this machine (release, x86_64, inside the toolchain image):

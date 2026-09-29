@@ -57,8 +57,19 @@ const GALLERY = look("gallery", {
   edge: [0.16, 0.16, 0.19],
 });
 
+/**
+ * The studio's own default: the gallery figure's look under the name the studio offers
+ * it, so a preset list that starts with SciGraphs is the same look the fig6 values are.
+ * It is a copy of GALLERY rather than an alias, so a caller that edits one entry cannot
+ * reach through to the other.
+ */
+const SCIGRAPHS_DEFAULT: Look = { ...GALLERY, name: "scigraphs" };
+
+/** The look the studio starts on: SciGraphs (05-reproducible-pipeline.qmd:591-680). */
+export const DEFAULT_PRESET = "scigraphs";
+
 export const LOOKS: Readonly<Record<string, Look>> = Object.fromEntries(
-  [...SCIGRAPHS, GALLERY].map((entry) => [entry.name, entry]),
+  [...SCIGRAPHS, GALLERY, SCIGRAPHS_DEFAULT].map((entry) => [entry.name, entry]),
 );
 
 export const LOOK_NAMES: readonly string[] = Object.keys(LOOKS);

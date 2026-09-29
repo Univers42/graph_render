@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { IDENTITY } from "../src/camera.ts";
-import { DEFAULT_POLICY, type LabelInput, newLabelPlan, occupancyFor, planLabels, zoomAlpha } from "../src/labels.ts";
+import { DEFAULT_POLICY, LABEL_HEIGHT, type LabelInput, newLabelPlan, occupancyFor, planLabels, zoomAlpha } from "../src/labels.ts";
 import { styleFrom } from "../src/style.ts";
 
 const VIEWPORT = { width: 800, height: 600 };
@@ -15,6 +15,7 @@ function input(weights: readonly number[], x: readonly number[], patch: Partial<
   return {
     style, x: Float32Array.from(x), y: new Float32Array(x.length).fill(100), extent: style.radius,
     camera: { ...IDENTITY, scale: 2 }, viewport: VIEWPORT, lit: null, policy: DEFAULT_POLICY, widthOf: () => 0,
+    height: LABEL_HEIGHT,
     ...patch,
   };
 }
@@ -63,6 +64,12 @@ test("a lit neighbourhood is labelled at any zoom, and nothing else is", () => {
   const lit = Uint8Array.from([1, 0, 1]);
   const given = input([0, 1, 0], [50, 300, 600], { lit, camera: { ...IDENTITY, scale: 0.4 } });
   assert.deepEqual(planned(given), [0, 2]);
+});
+
+test("a lit neighbour is labelled even where its text touches another lit label", () => {
+  const lit = Uint8Array.from([1, 1]);
+  assert.deepEqual(planned(input([1, 1], [100, 102], { lit })), [0, 1]);
+  assert.deepEqual(planned(input([1, 1], [100, 102])), [0]);
 });
 
 test("a node off screen or without a label draws none", () => {

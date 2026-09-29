@@ -45,6 +45,28 @@ pub fn workspace_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..")
 }
 
+/// Where a harness copy is staged for a negative control, named `name`.
+///
+/// `target/`, which is a *direct* child of the workspace root, so the copy's own
+/// `../src` and `../crates` imports — and its `resolve(import.meta.dirname, "..")` root —
+/// still land on the real TypeScript oracle and SDK exactly as the original's do, and
+/// which is outside every entry of [`crate::fingerprint::FINGERPRINTED`], so writing
+/// there cannot move the tree fingerprint. Staging beside the original under `harness/`
+/// did resolve, and did move it: the copy is a file the listing names for as long as it
+/// exists, so `evidence::tests` — in the same test binary, running in parallel — read a
+/// tree the binary was not built from and failed, while passing when run alone. One
+/// level deeper (`target/harness/`) does not move the fingerprint but breaks every
+/// import, which is a negative control passing vacuously on a module-not-found.
+///
+/// Only the negative controls stage a copy, and they are tests, so this is test-only: no
+/// production path needs a staging location that is deliberately outside the tree.
+#[cfg(test)]
+pub fn harness_mutant(name: &str) -> PathBuf {
+    workspace_root()
+        .join("target")
+        .join(name.replace(".mjs", ".mutant.mjs"))
+}
+
 /// Builds `graph_wasm.wasm` in release mode with `features` and returns its path.
 ///
 /// The target directory is passed to cargo, not guessed after the fact: the path this

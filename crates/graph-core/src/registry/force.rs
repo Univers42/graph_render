@@ -8,8 +8,9 @@ use graph_contract::geometry::{EdgeGeometryKind, NodeGeometryKind};
 /// this one.
 ///
 /// **Time-bound, measured, not memory-bound** (`docs/measurements/phase06-force.md`;
-/// reproduce with `cargo run --release --example force_dump -- seed 0 <n> barnes_hut`,
-/// which times `Stage::run` only). Natively, release, x86_64, inside the toolchain
+/// reproduce with `cargo run --release -p graph-cli -- bench --layout
+/// layout.force.barnes_hut --n <n>`, which times the registered run only). Natively,
+/// release, x86_64, inside the toolchain
 /// image, at 220 nodes / 329 edges 17.15 ms, 10 000 / 15 474 edges 2 271.35 ms, and
 /// 100 000 / 154 978 edges **46 781.60 ms**. Theta-approximated many-body is
 /// `O(n log n)` per tick and there are a fixed 112 of them, so 100 000 sits inside a
@@ -31,8 +32,9 @@ pub const FORCE_CEILING: u64 = 100_000;
 /// one — two orders of magnitude below [`FORCE_CEILING`], and for the same structural
 /// reason the two ceilings differ at all.
 ///
-/// **Time-bound, measured** (`docs/measurements/phase06-force.md`, same command with
-/// `fa2`): 220 / 329 edges 6.58 ms, 1 000 / 1 541 edges 131.53 ms, 2 000 / 3 075 edges
+/// **Time-bound, measured** (`docs/measurements/phase06-force.md`, the same command with
+/// `--layout layout.forceatlas2`): 220 / 329 edges 6.58 ms, 1 000 / 1 541 edges 131.53 ms,
+/// 2 000 / 3 075 edges
 /// 524.82 ms, 5 000 / 7 721 edges 3 301.05 ms, 10 000 / 15 474 edges **13 522.24 ms**.
 /// The 5 000 -> 10 000 step is 4.09x for exactly 2x the nodes: this is a clean `O(n^2)`
 /// (networkx 3.6's dense all-pairs repulsion, ported verbatim — there is no spatial
@@ -59,7 +61,8 @@ pub(super) const BARNES_HUT: Metadata = Metadata {
     oracle: "d3-force@3.0.0 src/{manyBody,link,center,collide}.js — a port of the frozen force \
     set (theta 0.9, charge -90, distanceMax 520, linkDistance 60, collideRadius 16, alphaDecay \
     0.06, velocityDecay 0.42) at TICKS=112, in Jacobi/gather form with a counter-based jiggle; \
-    differentially compared by the d3-force arm of harness/oracle-layouts.mjs over >=1000 seeds. \
+    differentially compared by the d3-force arm of harness/stress-d3.mjs, driven by graph-cli \
+    stress --oracle d3, over >=1000 seeds. \
     Identity is NOT claimed and cannot be: link and collide are Jacobi gathers where d3 scatters \
     in visit order, and a force simulation amplifies a 1-ULP difference into a different \
     picture, so the gate is the stress metric (Pearson hop/euclid correlation over 32 max-min \
@@ -97,7 +100,12 @@ pub(super) const FA2: Metadata = Metadata {
     strong_gravity=False, adjust_sizes=False, dim=2, weight=None), with swing/traction carried \
     cumulatively across iterations as the reference itself does; differentially compared against \
     the real library in the ge-python-oracle image (pinned networkx 3.6, numpy, scipy 1.16.2) \
-    over >=1000 seeds, in harness/oracle-fa2.py. Two deviations from the reference, both stated \
+    over >=1000 seeds, in harness/oracle-fa2.py, gating at 2 iterations rather than \
+    networkx's default 100: FA2 is chaotic enough that past 2 iterations networkx diverges \
+    from a ONE-ULP perturbation of its own start by more than the port diverges from it, so \
+    no coordinate tolerance is honest at 100 and the full-100-iteration comparison is \
+    reported, not gated (docs/measurements/fa2-chaos.md). Two deviations from the reference, \
+    both stated \
     rather than hidden: initial positions come from graph-core's own seeded Mulberry32 instead \
     of numpy's global RNG (D5 — there is no global RNG to reach for), and an exact coincidence \
     (d2 == 0) is nudged apart by the counter hash so no Infinity/NaN factor can reach a node \

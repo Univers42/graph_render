@@ -8,6 +8,7 @@ import { test } from "node:test";
 
 import type { Look } from "../src/look/presets.ts";
 import {
+  DEFAULT_PRESET,
   EDGE_WIDTH_REL,
   FIT_MARGIN,
   LABEL_BOX,
@@ -30,10 +31,16 @@ function pick(name: string): Look {
   return found;
 }
 
-test("the six SciGraphs presets are there with gallery beside them (api/render.py:45-101)", () => {
+test("the six SciGraphs presets are there with gallery and scigraphs beside them (api/render.py:45-101)", () => {
   assert.deepEqual(LOOK_NAMES, [
-    "slate", "paper", "ink", "blueprint", "terrain", "relief", "gallery",
+    "slate", "paper", "ink", "blueprint", "terrain", "relief", "gallery", "scigraphs",
   ]);
+  // The studio's default is the gallery look under the studio's own name, so the two
+  // differ in nothing but the name that selects them.
+  const { name: galleryName, ...gallery } = pick("gallery");
+  assert.equal(galleryName, "gallery");
+  assert.deepEqual(pick("scigraphs"), { name: "scigraphs", ...gallery });
+  assert.equal(DEFAULT_PRESET, "scigraphs");
 });
 
 test("slate: background, colormap, color and edge_color of api/render.py:46-54", () => {

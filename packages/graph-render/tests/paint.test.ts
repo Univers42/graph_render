@@ -11,7 +11,7 @@ import { styleFrom } from "../src/style.ts";
 import { DARK_THEME } from "../src/theme.ts";
 import { type Recorder, lineFrame, randomFrame, recorder } from "./support.ts";
 
-const NO_SPRITES = { get: () => null, widthOf: () => 0, beginFrame: () => undefined, starved: () => false, reset: () => undefined };
+const NO_SPRITES = { get: () => null, sphere: () => null, widthOf: () => 0, beginFrame: () => undefined, starved: () => false, reset: () => undefined };
 
 function inputFor(frame: Frame, record: Recorder, patch: Partial<PaintInput> = {}): PaintInput {
   const colours = Uint16Array.from({ length: frame.nodeCount }, (_, i) => i % 3);

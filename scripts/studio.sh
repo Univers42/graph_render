@@ -25,7 +25,7 @@ node_image=${NODE_IMAGE:-node:22-slim}
 # The pinned references the tests read: the look tests compare the generated colour tables
 # against /goinfre/dlesieur/refs/matplotlib-3.10.0/_cm_listed.py, and skip without it. A
 # skipped test is not a pass, so the check would never go green on an unmounted host.
-refs=${REFS:-/goinfre/dlesieur/refs}
+refs=${STUDIO_REFS:-${REFS:-/goinfre/dlesieur/refs}}
 port=${STUDIO_PORT:-5174}
 command=${1:-serve}
 packages=(graph-render graph-studio)

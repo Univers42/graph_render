@@ -66,7 +66,7 @@ function recordingView(seen: Seen, handlers: Handlers): ViewFace {
 
 export function desk(client: MotorClient, settings?: Settings): Desk {
   const seen: Seen = { frames: [], styles: [], themes: [], policies: [], calls: [] };
-  const handlers: Handlers = { hover: new Set(), select: new Set(), camera: new Set(), frame: new Set() };
+  const handlers: Handlers = { hover: new Set(), select: new Set(), selection: new Set(), camera: new Set(), context: new Set(), frame: new Set() };
   const saved: Saved[] = [];
   let clock = 0;
   const studio = createStudio({

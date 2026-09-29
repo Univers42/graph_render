@@ -3,13 +3,15 @@
  * nothing is scheduled while the view is parked (gate row `perf-idle`).
  */
 import { markNeighbourhood } from "../adjacency.ts";
-import type { Camera, Viewport, ZoomLimits } from "../camera.ts";
+import type { Bounds, Camera, Viewport, ZoomLimits } from "../camera.ts";
+import { dimAt, fadeLevel } from "../fade.ts";
 import { type LabelPlan, type LabelPolicy, type Occupancy, planLabels } from "../labels.ts";
 import type { Scene } from "../scene.ts";
 import type { Theme } from "../theme.ts";
 import { TRANSITION_MS, blend, easeInOutCubic } from "../transition.ts";
 import { MOVING_BUDGET } from "./edges.ts";
 import type { PaintCounts } from "./input.ts";
+import { paintOverlay } from "./overlay.ts";
 import { paintFrame } from "./paint.ts";
 import { type Rate, stamp } from "./rate.ts";
 import type { SpriteCache } from "./sprites.ts";
@@ -36,7 +38,15 @@ export interface LoopState {
   transitionStart: number;
   lit: Uint8Array;
   hovered: number;
+  /** `performance.now()` when the focus appeared, or -1 while there is none: the fade's clock. */
+  dimStart: number;
   selected: number;
+  /** Every selected node, the primary (`selected`) last. */
+  selection: readonly number[];
+  /** Nodes marked pinned: a view-only flag drawn as a ring, until the motor owns pinning. */
+  pinned: readonly number[];
+  /** The box a shift-drag is drawing, in canvas pixels, or null. */
+  marquee: Bounds | null;
   plan: LabelPlan;
   occupancy: Occupancy;
   scheduled: number;
@@ -49,12 +59,25 @@ export interface LoopState {
   readonly rate: Rate;
 }
 
-export function focusOf(state: LoopState): number {
+export function focusOf(state: Pick<LoopState, "hovered" | "selected">): number {
   return state.hovered >= 0 ? state.hovered : state.selected;
 }
 
 export function relight(state: LoopState): void {
-  markNeighbourhood(state.scene.adjacency, focusOf(state), state.lit);
+  const focus = focusOf(state);
+  markNeighbourhood(state.scene.adjacency, focus, state.lit);
+  if (focus < 0) state.dimStart = -1;
+  else if (state.dimStart < 0) state.dimStart = performance.now();
+}
+
+/** The opacity of a node outside the focus right now: 1 with no focus, the dim alpha once faded. */
+export function dimOpacity(state: { readonly dimStart: number; readonly theme: { readonly dimAlpha: number } }, now: number): number {
+  return dimAt(state.theme.dimAlpha, fadeLevel(state.dimStart, now));
+}
+
+/** True while the fade is still moving, so the loop asks for another frame. */
+export function fading(state: LoopState, now: number): boolean {
+  return state.dimStart >= 0 && fadeLevel(state.dimStart, now) < 1;
 }
 
 export function invalidate(state: LoopState): void {
@@ -95,19 +118,22 @@ function plan(state: LoopState, focus: number): void {
     lit: focus >= 0 ? state.lit : null,
     policy: state.policy,
     widthOf: (node) => sprites.widthOf(scene.style.labels[node] ?? ""),
+    height: state.theme.labelHeight,
   }, state.plan, state.occupancy);
 }
 
 function paint(state: LoopState, moving: boolean, settled: boolean): void {
   const focus = focusOf(state);
+  const theme = { ...state.theme, dimAlpha: dimOpacity(state, performance.now()) };
   plan(state, focus);
   const { scene } = state;
   state.counts = paintFrame({
-    ctx: state.ctx, viewport: state.viewport, dpr: state.dpr, camera: state.camera, theme: state.theme,
+    ctx: state.ctx, viewport: state.viewport, dpr: state.dpr, camera: state.camera, theme,
     frame: scene.frame, style: scene.style, adjacency: scene.adjacency, extent: scene.extent,
     x: state.x, y: state.y, settled, moving, focus, lit: state.lit, selected: state.selected,
     labels: state.plan, sprites: state.sprites,
   });
+  paintOverlay(state);
 }
 
 /** One full frame once the view has stopped, when the moving frames drew a sample. */
@@ -131,6 +157,6 @@ function renderFrame(state: LoopState, now: number): void {
   stamp(state.rate, now, moving);
   state.frames += 1;
   state.onFrame();
-  if (travelling || state.sprites.starved()) invalidate(state);
+  if (travelling || fading(state, performance.now()) || state.sprites.starved()) invalidate(state);
   else if (moving && state.scene.frame.edgeCount > MOVING_BUDGET) armSettle(state);
 }

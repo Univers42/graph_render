@@ -148,6 +148,11 @@ export const STUDIO_CSS = `
 .gs-alert-head { display: flex; align-items: center; gap: 6px; }
 .gs-alert-title { flex: 1 1 auto; color: var(--gs-danger); font-weight: 600; }
 
+/* The scrim takes the click that dismisses the menu; the canvas under it hears nothing. */
+.gs-menu-scrim { position: absolute; inset: 0; pointer-events: auto; z-index: 4; }
+.gs-menu { display: flex; flex-direction: column; min-width: 140px; padding: 4px; gap: 2px; z-index: 5; }
+.gs-menu-item { min-height: 28px; text-align: left; }
+
 @media (prefers-reduced-motion: reduce) {
   .gs-btn { transition: none; }
 }
