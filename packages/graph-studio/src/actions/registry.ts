@@ -63,6 +63,8 @@ export interface Registry<State, Context> {
   readonly actions: readonly Action<State, Context>[];
   readonly find: (idOrAlias: string) => Action<State, Context> | undefined;
   readonly suggest: (word: string) => readonly string[];
+  /** The one alias a mistyped word was probably meant to be, or `undefined`. */
+  readonly nearest: (word: string) => string | undefined;
   /** Checks everything and runs nothing. */
   readonly resolve: (idOrAlias: string, raw: RawArgs, state: State) => Resolved<State, Context>;
 }
@@ -71,6 +73,9 @@ const FLAGS: ReadonlyMap<string, boolean> = new Map([
   ["on", true], ["true", true], ["1", true], ["yes", true],
   ["off", false], ["false", false], ["0", false], ["no", false],
 ]);
+
+/** How far a mistyped word may reach for a command. Two edits: one letter, or one swap. */
+const NEAR = 2;
 
 function distance(a: string, b: string): number {
   let row = Array.from({ length: b.length + 1 }, (_, j) => j);
@@ -145,6 +150,15 @@ function valueFrom<State>(spec: ParamSpec<State>, raw: unknown, state: State): A
   return textFrom(spec, raw);
 }
 
+/**
+ * The registry's own reading of one value, for a caller that picked the parameter itself
+ * — `set` addressing another action's parameter, for one. Refuses exactly as `resolve`
+ * does, and for the same reason: the words are the registry's.
+ */
+export function readParam<State>(spec: ParamSpec<State>, raw: unknown, state: State): ArgValue {
+  return valueFrom(spec, raw, state);
+}
+
 function argsFrom<State, Context>(action: Action<State, Context>, raw: RawArgs, state: State): Args {
   const names = action.params.map((spec) => spec.name);
   for (const key of Object.keys(raw)) {
@@ -175,13 +189,37 @@ export function createRegistry<State, Context>(actions: readonly Action<State, C
   // Ponytail: nearest means at most two single-character edits away, so a word that is
   // wrong in three places gets the whole list instead. Nothing is ever run from a suggestion.
   const suggest = (word: string): readonly string[] => {
-    const near = aliases.filter((alias) => distance(alias, word.toLowerCase()) <= 2);
+    const near = aliases.filter((alias) => distance(alias, word.toLowerCase()) <= NEAR);
     return near.length > 0 ? near : aliases;
+  };
+  // The one alias a word was probably meant to be, or `undefined`. The first of several
+  // equally near ones, in the order the aliases are read, so it is the same word twice.
+  // Ponytail: plain edit distance, not a keyboard model, and the bound is two edits. It
+  // cannot catch a slip between two short commands that really are that close: `get` and
+  // `set` are two edits apart, so typing one for the other RUNS it — `get theme.name`
+  // prints a value where `set theme.name dark` was meant, and nothing says it was a slip.
+  // A word further than two edits from every alias gets no suggestion at all, and `help`
+  // is what answers for it. Nothing is ever run from a suggestion; a suggestion is a word
+  // the reader retypes.
+  const nearest = (word: string): string | undefined => {
+    const wanted = word.toLowerCase();
+    let best: string | undefined;
+    let closest = NEAR + 1;
+    for (const alias of aliases) {
+      const edits = distance(alias, wanted);
+      if (edits > NEAR || edits > closest) continue;
+      if (edits < closest) {
+        best = alias;
+        closest = edits;
+      }
+    }
+    return best;
   };
   return {
     actions,
     find: (idOrAlias) => byName.get(idOrAlias),
     suggest,
+    nearest,
     resolve: (idOrAlias, raw, state) => {
       const action = byName.get(idOrAlias);
       if (action === undefined) {

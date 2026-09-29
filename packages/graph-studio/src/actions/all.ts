@@ -3,6 +3,7 @@ import { APPEARANCE_ACTIONS } from "./appearance.ts";
 import type { StudioAction } from "./context.ts";
 import { EXPORT_ACTIONS } from "./export.ts";
 import { FILTER_ACTIONS } from "./filter.ts";
+import { paramActions } from "./params.ts";
 import { RUN_ACTIONS } from "./run.ts";
 import { SOURCE_ACTIONS } from "./source.ts";
 import { VIEW_ACTIONS } from "./view.ts";
@@ -10,7 +11,10 @@ import { VIEW_ACTIONS } from "./view.ts";
 export const DOCK_SECTIONS = ["Source", "Layout", "Edges", "Analysis", "Appearance", "Filters", "Export"] as const;
 
 export function studioActions(): readonly StudioAction[] {
-  return [
+  // `set` and `get` are built from the rest, so they address every parameter the studio
+  // holds without listing any of them here.
+  const actions = [
     ...SOURCE_ACTIONS, ...RUN_ACTIONS, ...APPEARANCE_ACTIONS, ...FILTER_ACTIONS, ...EXPORT_ACTIONS, ...VIEW_ACTIONS,
   ];
+  return [...actions, ...paramActions(actions)];
 }

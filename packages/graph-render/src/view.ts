@@ -13,6 +13,7 @@ import {
 import {
   type Controller, fit, hover, measure, moveTo, newState, pickAt, select, showFrame,
 } from "./canvas2d/controller.ts";
+import { watchDpr } from "./canvas2d/dpr.ts";
 import { type LoopState, invalidate } from "./canvas2d/loop.ts";
 import { fpsOf } from "./canvas2d/rate.ts";
 import type { Frame } from "./frame.ts";
@@ -204,6 +205,7 @@ export function createView(canvas: HTMLCanvasElement, options: ViewOptions = {})
   };
   const controller: Controller = { canvas, state, notify, fitted: true };
   measure(controller);
+  watchDpr(controller);
   const unbind = bindInputs(controller);
   return {
     ...sceneApi(controller),

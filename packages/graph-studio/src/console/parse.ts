@@ -107,13 +107,20 @@ function readValues<State, Context>(action: Action<State, Context>, words: reado
   return raw;
 }
 
+/** `help` is the answer to every wrong word, so every refusal points at it. */
+const LISTING = "`help` lists them all";
+
+function unknown<State, Context>(word: string, registry: Registry<State, Context>): CommandRefusal {
+  const near = registry.nearest(word);
+  if (near === undefined) return new CommandRefusal(`\`${word}\` is not a command; ${LISTING}`);
+  return new CommandRefusal(`\`${word}\` is not a command; did you mean \`${near}\`? (${LISTING})`);
+}
+
 export function parseCommand<State, Context>(text: string, registry: Registry<State, Context>): Command {
   const [first, ...rest] = scanWords(text);
   if (first === undefined) throw new CommandRefusal("nothing to run");
   const action = registry.find(first.text);
-  if (action === undefined) {
-    throw new CommandRefusal(`\`${first.text}\` is not a command; nearest: ${registry.suggest(first.text).join(", ")}`);
-  }
+  if (action === undefined) throw unknown(first.text, registry);
   return { id: action.id, raw: readValues(action, rest) };
 }
 

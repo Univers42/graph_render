@@ -1,7 +1,8 @@
 /** The camera, the console and the running motor: what the viewer does, not the drawing. */
+import { listing } from "../console/help.ts";
 import type { GraphMeta } from "../source/meta.ts";
 import type { StudioState } from "../state/model.ts";
-import { type StudioAction, type StudioParam, numberArg, textArg } from "./context.ts";
+import { type StudioAction, numberArg, textArg } from "./context.ts";
 import { ActionRefusal, matchChoice } from "./registry.ts";
 
 const CANDIDATES_SHOWN = 8;
@@ -24,18 +25,6 @@ function nodeNamed(meta: GraphMeta, wanted: string): number {
   if (typeof match === "string") return meta.labels.indexOf(match);
   const some = match.slice(0, CANDIDATES_SHOWN).join(", ");
   throw new ActionRefusal("bad-value", match.length === 0 ? `no node is named \`${wanted}\`` : `\`${wanted}\` fits ${match.length} nodes: ${some}`);
-}
-
-function usage(action: StudioAction): string {
-  const values = action.params.map((spec) => ` <${spec.name}>`).join("");
-  return `${action.alias}${values} — ${action.title}`;
-}
-
-function valuesOf(spec: StudioParam, state: StudioState): string {
-  if (spec.kind === "choice") return (spec.choices?.(state) ?? []).join(", ");
-  if (spec.kind === "flag") return "on, off";
-  if (spec.kind === "text") return "text";
-  return `${spec.kind === "int" ? "a whole number" : "a number"} in ${spec.min ?? "-∞"}..${spec.max ?? "∞"}`;
 }
 
 const fit: StudioAction = {
@@ -115,15 +104,7 @@ const emptyConsole: StudioAction = {
 const help: StudioAction = {
   id: "help", alias: "help", title: "The commands, or one command's values", section: null,
   params: [{ name: "command", kind: "text", title: "Command", value: () => "" }],
-  run: (context, args) => {
-    const word = textArg(args, "command");
-    const actions = context.actions();
-    if (word === "") return { message: `${actions.length} commands`, notes: actions.map(usage) };
-    const action = actions.find((candidate) => candidate.alias === word || candidate.id === word);
-    if (action === undefined) throw new ActionRefusal("bad-value", `\`${word}\` is not a command`);
-    const state = context.state();
-    return { message: usage(action), notes: action.params.map((spec) => `${spec.name}: ${valuesOf(spec, state)}`) };
-  },
+  run: (context, args) => listing(context.actions(), context.state(), textArg(args, "command")),
 };
 
 export const VIEW_ACTIONS: readonly StudioAction[] =

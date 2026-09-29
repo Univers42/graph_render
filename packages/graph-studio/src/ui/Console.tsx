@@ -1,7 +1,7 @@
 /** The console: the log, and the one line a command is typed on. */
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactElement } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactElement } from "react";
 
-import { complete } from "../console/complete.ts";
+import { type Completion, complete, ghost as ghostText } from "../console/complete.ts";
 import type { StudioState } from "../state/model.ts";
 import type { Studio } from "../studio/studio.ts";
 import { EMPTY_HISTORY, type History, type Step, pushLine, stepBack, stepForward } from "./history.ts";
@@ -10,6 +10,21 @@ import { shortName } from "./names.ts";
 
 /** Candidates past this are counted, not listed: the line above the input has one row. */
 const OFFERED = 12;
+/** The input's border and padding: where its first character stands. */
+const TEXT_AT = 7;
+
+/**
+ * Ponytail: the ghost sits after what is typed, and the offset is counted in `ch` — the
+ * width of a zero — which is exact only in the monospace face the console sets on the
+ * panel. With a proportional face the ghost drifts one character per narrow letter.
+ * Its class is `gs-ghost` for the stylesheet; the placement here does not wait for it.
+ */
+function ghostAt(typed: number): CSSProperties {
+  return {
+    position: "absolute", top: 0, left: `calc(${TEXT_AT}px + ${typed}ch)`, lineHeight: "26px",
+    color: "var(--gs-muted)", pointerEvents: "none", whiteSpace: "pre",
+  };
+}
 
 export interface ConsoleProps {
   readonly studio: Studio;
@@ -20,8 +35,44 @@ export interface ConsoleProps {
 interface Line {
   readonly text: string;
   readonly candidates: readonly string[];
+  /** What Tab would add, shown in the line before Tab is pressed. */
+  readonly ghost: string;
   readonly onChange: (text: string) => void;
   readonly onKeyDown: (event: KeyboardEvent<HTMLInputElement>) => void;
+}
+
+interface Keys {
+  readonly studio: Studio;
+  readonly state: StudioState;
+  readonly text: string;
+  readonly onText: (text: string) => void;
+  readonly onOffer: (done: Completion) => void;
+  readonly onRun: () => void;
+  readonly onWalk: (step: (history: History) => Step) => void;
+}
+
+function atEnd(event: KeyboardEvent<HTMLInputElement>): boolean {
+  const input = event.currentTarget;
+  return input.selectionStart === input.value.length && input.selectionEnd === input.value.length;
+}
+
+function onKey(event: KeyboardEvent<HTMLInputElement>, keys: Keys): void {
+  const step = event.key === "ArrowUp" ? stepBack : event.key === "ArrowDown" ? stepForward : null;
+  if (step !== null) event.preventDefault();
+  if (step !== null) keys.onWalk(step);
+  if (event.key === "Enter") keys.onRun();
+  if (event.key === "Tab") {
+    // Tab completes here and nowhere else: the focus never leaves the line being typed.
+    event.preventDefault();
+    keys.onOffer(complete(keys.text, keys.studio.registry, keys.state));
+    return;
+  }
+  if (event.key !== "ArrowRight" || !atEnd(event)) return;
+  // Right at the end of the line takes the ghost, as it does in a shell.
+  const shown = ghostText(keys.text, keys.studio.registry, keys.state);
+  if (shown === "") return;
+  event.preventDefault();
+  keys.onText(keys.text + shown);
 }
 
 /** The line, what it remembers and what Tab would offer: a hook, so the panel stays a panel. */
@@ -30,31 +81,35 @@ function useCommandLine(props: { readonly studio: Studio; readonly state: Studio
   const [text, setText] = useState("");
   const [candidates, setCandidates] = useState<readonly string[]>([]);
   const history = useRef<History>(EMPTY_HISTORY);
-  const run = (): void => {
+  const onText = (shown: string): void => {
+    setText(shown);
+    setCandidates([]);
+  };
+  const onOffer = (done: Completion): void => {
+    setText(done.text);
+    setCandidates(done.candidates);
+  };
+  const onRun = (): void => {
     if (text.trim() === "") return;
     void studio.run(text);
     history.current = pushLine(history.current, text);
-    setText("");
-    setCandidates([]);
+    onText("");
   };
-  const walk = (step: (history: History) => Step): void => {
+  const onWalk = (step: (history: History) => Step): void => {
     const next = step(history.current);
     history.current = next.history;
     setText(next.line ?? "");
   };
-  const onKeyDown = (event: KeyboardEvent<HTMLInputElement>): void => {
-    const step = event.key === "ArrowUp" ? stepBack : event.key === "ArrowDown" ? stepForward : null;
-    if (step !== null) event.preventDefault();
-    if (step !== null) walk(step);
-    if (event.key === "Enter") run();
-    if (event.key !== "Tab") return;
-    // Tab completes here and nowhere else: the focus never leaves the line being typed.
-    event.preventDefault();
-    const done = complete(text, studio.registry, state);
-    setText(done.text);
-    setCandidates(done.candidates);
+  const keys: Keys = { studio, state, text, onText, onOffer, onRun, onWalk };
+  // The ghost follows the last character of the line: the word being completed is the
+  // last one, so the completion always starts where the text ends.
+  return {
+    text,
+    candidates,
+    ghost: ghostText(text, studio.registry, state),
+    onChange: setText,
+    onKeyDown: (event) => onKey(event, keys),
   };
-  return { text, candidates, onChange: setText, onKeyDown };
 }
 
 function Offered(props: { readonly candidates: readonly string[] }): ReactElement | null {
@@ -95,15 +150,18 @@ export function Console(props: ConsoleProps): ReactElement {
       <LogView entries={state.log} boxRef={boxRef} />
       <Offered candidates={line.candidates} />
       <div className="gs-console-form">
-        <input
-          className="gs-input"
-          type="text"
-          aria-label="Console command"
-          value={line.text}
-          ref={inputRef}
-          onChange={(event) => line.onChange(event.target.value)}
-          onKeyDown={line.onKeyDown}
-        />
+        <div style={{ position: "relative", flex: "1 1 auto" }}>
+          <input
+            className="gs-input"
+            type="text"
+            aria-label="Console command"
+            value={line.text}
+            ref={inputRef}
+            onChange={(event) => line.onChange(event.target.value)}
+            onKeyDown={line.onKeyDown}
+          />
+          <span className="gs-ghost" aria-hidden="true" style={ghostAt(line.text.length)}>{line.ghost}</span>
+        </div>
       </div>
     </div>
   );

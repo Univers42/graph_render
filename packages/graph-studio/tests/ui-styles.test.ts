@@ -48,3 +48,26 @@ test("the chrome lets the canvas through: the root takes no pointer, the panels 
   assert.match(STUDIO_CSS, /\.gs-chrome\s*\{[^}]*pointer-events:\s*none/);
   assert.match(STUDIO_CSS, /\.gs-panel\s*\{[^}]*pointer-events:\s*auto/);
 });
+
+test("a closed drawer is off the screen, and the toggle that opens it is not", () => {
+  // The toggles hang off the root, which takes no pointer: without this they never click.
+  assert.match(PLAIN, /\.gs-toggle\s*\{[^}]*position:\s*fixed[^}]*pointer-events:\s*auto/);
+  assert.match(PLAIN, /\.gs-toggle\s*\{[^}]*min-width:\s*30px/);
+  assert.match(PLAIN, /\.gs-toggle-left\s*\{\s*left:/);
+  assert.match(PLAIN, /\.gs-toggle-right\s*\{\s*right:/);
+  // Hidden where the panels are not drawers, so the desktop keeps the arrangement it had.
+  assert.match(PLAIN, /\.gs-toggle\s*\{\s*display:\s*none/);
+  assert.match(PLAIN, /\.gs-left, \.gs-dock\s*\{[^}]*visibility:\s*hidden/);
+  assert.match(PLAIN, /\.gs-left\.gs-open, \.gs-dock\.gs-open\s*\{[^}]*visibility:\s*visible[^}]*translateX\(0\)/);
+  assert.ok(PLAIN.includes(".gs-btn, .gs-toggle { transition: none; }"), "reduced motion takes the toggles too");
+});
+
+test("the open drawer is under the console, so the command line is never behind it", () => {
+  assert.match(PLAIN, /\.gs-console\s*\{[^}]*z-index:\s*2/);
+  const narrow = PLAIN.slice(PLAIN.indexOf("@media (max-width: 768px)"));
+  assert.match(narrow, /\.gs-left, \.gs-dock\s*\{[^}]*z-index:\s*1/);
+});
+
+test("the swatch's box is a target the eye still reads as a 10 px chip", () => {
+  assert.match(PLAIN, /\.gs-swatch\s*\{[^}]*width:\s*24px[^}]*height:\s*24px[^}]*border:\s*7px solid var\(--gs-panel\)/);
+});

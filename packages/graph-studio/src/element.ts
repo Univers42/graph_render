@@ -21,6 +21,8 @@ import { type Studio, createStudio } from "./studio/studio.ts";
 import { STUDIO_CSS } from "./styles/studio.css.ts";
 import { Shell } from "./ui/Shell.tsx";
 
+const themeUnsub = new WeakMap<HTMLElement, () => void>();
+
 export interface StudioElementOptions {
   /** Where the motor runs; a worker when left out. */
   readonly spawn?: Spawn;
@@ -45,7 +47,7 @@ interface Mounted {
 }
 
 const HOST_CSS = `
-:host { display: block; position: relative; overflow: hidden; outline: none; }
+:host { display: block; position: fixed; inset: 0; background: var(--gs-bg); color-scheme: var(--gs-color-scheme); outline: none; }
 .gs-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .gs-root { position: absolute; inset: 0; pointer-events: none; }
 `;
@@ -99,6 +101,23 @@ function mount(host: HTMLElement, options: StudioElementOptions): Mounted {
   const root = createRoot(chrome);
   root.render(createElement(Shell, { studio, view, keys: host.getAttribute("keys") === "page" ? window : host }));
   void studio.start();
+
+  // Keep host CSS variables in sync with the studio's theme so :host { background: var(--gs-bg); color-scheme: var(--gs-color-scheme) } works.
+  // Ponytail: the theme background colors are hardcoded here (from graph-render/src/theme.ts) rather than imported,
+  // so a theme change in theme.ts must be mirrored here. The unsubscribe is stored on the host as a private
+  // property; if multiple <graph-studio> elements exist, unmount() uses document.querySelector which finds
+  // the first one, potentially cleaning up the wrong subscription. A proper fix would store the unsubscribe
+  // on the Mounted object and call it directly from unmount(mounted).
+  const THEME_BG = { dark: "#1b1b1f", light: "#fbfbfc" } as const;
+  const applyTheme = (theme: "dark" | "light"): void => {
+    host.style.setProperty("--gs-bg", THEME_BG[theme]);
+    host.style.setProperty("--gs-color-scheme", theme);
+  };
+  applyTheme(studio.store.get().settings.appearance.theme);
+  const unsubscribe = studio.store.subscribe(() => applyTheme(studio.store.get().settings.appearance.theme));
+  // Store unsubscribe on the host for cleanup.
+  themeUnsub.set(host, unsubscribe);
+
   return { studio, view, root };
 }
 
@@ -107,6 +126,12 @@ function unmount(mounted: Mounted | null): void {
   mounted.root.unmount();
   mounted.studio.destroy();
   mounted.view.destroy();
+  // Clean up theme subscription on the host element.
+  const host = document.querySelector<HTMLElement>("graph-studio");
+  if (host) {
+    const unsub = themeUnsub.get(host);
+    if (unsub) unsub();
+  }
 }
 
 /** Registers the element once; a second call, or a tag already taken, changes nothing. */

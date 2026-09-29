@@ -74,8 +74,11 @@ export function Dock(props: DockProps): ReactElement {
   const flip = (name: string): void => {
     setShown((current) => current.includes(name) ? current.filter((other) => other !== name) : [...current, name]);
   };
+  // WHY gs-open is here and not on a wrapper: the stylesheet slides the dock itself, and the
+  // toggle in the shell points its aria-controls at this one element.
+  const panel = open ? "gs-panel gs-dock gs-open" : "gs-panel gs-dock";
   return (
-    <div className="gs-panel gs-dock">
+    <div className={panel} id="gs-dock">
       <div className="gs-head">
         <button type="button" className="gs-btn gs-section-head" aria-expanded={open} aria-controls={BODY} onClick={onToggle}>
           <span className="gs-head-name">Controls</span>

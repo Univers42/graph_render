@@ -9,11 +9,11 @@ export const STUDIO_CSS = `
 .gs-chrome {
   --gs-panel: #1e1e22;
   --gs-panel-2: #26262b;
-  --gs-border: rgba(255,255,255,.08);
+  --gs-border: rgba(255,255,255,.34);
   --gs-text: #dadada;
   --gs-muted: #8e8e96;
   --gs-accent: #8b7cf6;
-  --gs-danger: #e5484d;
+  --gs-danger: #ff3200;
   --gs-radius: 8px;
   position: absolute;
   inset: 0;
@@ -25,9 +25,9 @@ export const STUDIO_CSS = `
 .gs-chrome[data-theme="light"] {
   --gs-panel: #f6f6f4;
   --gs-panel-2: #ecece9;
-  --gs-border: rgba(0,0,0,.10);
+  --gs-border: rgba(0,0,0,.43);
   --gs-text: #2a2a2e;
-  --gs-muted: #6c6c74;
+  --gs-muted: #6a6a6e;
   --gs-accent: #6c5ce0;
   --gs-danger: #c62d33;
 }
@@ -78,6 +78,12 @@ export const STUDIO_CSS = `
 .gs-btn[aria-pressed="true"] { background: var(--gs-accent); border-color: var(--gs-accent); color: #ffffff; }
 .gs-btn[disabled], .gs-input[disabled], .gs-select[disabled], .gs-range[disabled], .gs-check[disabled] { opacity: .45; cursor: not-allowed; }
 .gs-btn:focus-visible, .gs-input:focus-visible, .gs-select:focus-visible, .gs-range:focus-visible, .gs-check:focus-visible { outline: 2px solid var(--gs-accent); outline-offset: 1px; }
+/* The drawer toggles live on the root, which takes no pointer: they take it back, and they
+   sit at their drawer's own corner so a closed drawer is still one press away. Hidden where
+   the panels are not drawers. */
+.gs-toggle { display: none; position: fixed; top: 8px; min-width: 30px; z-index: 4; pointer-events: auto; }
+.gs-toggle-left { left: 8px; }
+.gs-toggle-right { right: 8px; }
 .gs-input, .gs-select {
   height: 26px;
   width: 100%;
@@ -89,7 +95,7 @@ export const STUDIO_CSS = `
   border-radius: 6px;
 }
 .gs-range { width: 100%; height: 26px; accent-color: var(--gs-accent); }
-.gs-check { width: 16px; height: 16px; accent-color: var(--gs-accent); }
+.gs-check { width: 24px; height: 24px; accent-color: var(--gs-accent); }
 
 .gs-field { display: grid; grid-template-columns: 84px 1fr; align-items: center; gap: 6px; padding: 2px 8px; }
 .gs-field-label { color: var(--gs-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -119,8 +125,10 @@ export const STUDIO_CSS = `
 .gs-title { margin: 0; padding: 6px 8px; font-size: 12px; font-weight: 600; }
 .gs-neighbours { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 8px 6px; }
 .gs-legend { min-width: 180px; }
-.gs-legend-row { display: grid; grid-template-columns: 10px 1fr auto; align-items: center; gap: 6px; padding: 1px 8px; }
-.gs-swatch { width: 10px; height: 10px; border-radius: 2px; }
+.gs-legend-row { display: grid; grid-template-columns: 24px 1fr auto; align-items: center; gap: 6px; padding: 1px 8px; }
+/* The swatch's box is the 24 px target; its ring is the panel's own colour, so the chip the
+   eye reads stays 10 px (the row paints the colour on the element itself, inline). */
+.gs-swatch { width: 24px; height: 24px; border: 7px solid var(--gs-panel); border-radius: 2px; }
 .gs-count { color: var(--gs-muted); font-variant-numeric: tabular-nums; }
 .gs-hud-frame { font-variant-numeric: tabular-nums; }
 
@@ -140,7 +148,39 @@ export const STUDIO_CSS = `
 .gs-alert-head { display: flex; align-items: center; gap: 6px; }
 .gs-alert-title { flex: 1 1 auto; color: var(--gs-danger); font-weight: 600; }
 
+@media (max-width: 768px) {
+  /* The two panels become drawers: in from their own edge, and what a closed one hides is
+     visibility: hidden, so the keyboard never walks into a panel sitting off the screen.
+     z-index 1 is the console's 2 minus one: the open drawer may never cover the command line. */
+  .gs-left, .gs-dock {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    width: min(300px, calc(100% - 24px));
+    max-height: none;
+    padding: 44px 12px 12px;
+    z-index: 1;
+    visibility: hidden;
+    transition: transform 200ms ease, visibility 0s linear 200ms;
+  }
+  .gs-left { left: 0; transform: translateX(-100%); overflow-y: auto; }
+  .gs-dock { right: 0; transform: translateX(100%); }
+  .gs-left.gs-open, .gs-dock.gs-open {
+    visibility: visible;
+    transform: translateX(0);
+    transition: transform 200ms ease, visibility 0s;
+  }
+  /* Below the toggles, not under them: they hold the two top corners at 8..34 px. */
+  .gs-toggle { display: block; }
+  .gs-console { left: 12px; right: 12px; width: auto; }
+  .gs-hud { right: 12px; left: 12px; white-space: normal; word-break: break-word; }
+  .gs-bottom-left { right: 12px; }
+  .gs-nav { flex-wrap: wrap; }
+  .gs-toast { top: 44px; left: 12px; right: 12px; width: auto; transform: none; }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .gs-btn { transition: none; }
+  .gs-btn, .gs-toggle { transition: none; }
+  .gs-left, .gs-dock { transition: none; }
 }
 `;
