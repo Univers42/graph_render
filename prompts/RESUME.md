@@ -149,6 +149,10 @@ pass (4/4). A fresh worktree needs `npm ci` before `cargo test`.
     - followups2c `ses_f11b6612bffeSYUGh7YTLDrxwK`.
 - About 23:30: p12-t1 relaunched on the engine as `wf_14bf57f8-c2f` (commit c377215 carries its WIP;
   `capabilities --check` removed from its rows: it exits 1 on every tree without 1000-seed records).
+  **Done 23:25, 0c72dc5 pushed**, gate green on the final tree (11 rows incl. the closed-form
+  differential vs networkx and its perturbation negctl). Waits in the merge train after p12-igraph.
+  Follow-ups: multipartite, arf, bfs, planar (documented as skipped in `docs/decisions/layouts-tier1.md`);
+  the `oracle-closed-form` record is not read by capabilities, so ring/spiral/bipartite cannot reach gated.
 - Obsidian-style live forces (user request): split into three jobs, because the physics must come
   from graph-core `ForceSession` (branch `sim`, uncommitted WIP) and no TypeScript simulation is allowed.
   - `studio-force` (engine, `orch/prompts/studio-force.txt`): the `LiveForce` port, worker loop,
