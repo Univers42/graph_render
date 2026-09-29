@@ -1,0 +1,16 @@
+{
+  "about": "A 3-cycle a->b->c->a plus a branch a->d and c->d, so breaking the cycle still leaves a genuine DAG to layer. Exercises greedy FAS (one edge reversed, noted dag.edge_reversed) before layering ever runs.",
+  "nodes": [
+    { "id": "a" },
+    { "id": "b" },
+    { "id": "c" },
+    { "id": "d" }
+  ],
+  "edges": [
+    { "id": "ab", "source": "a", "target": "b" },
+    { "id": "bc", "source": "b", "target": "c" },
+    { "id": "ca", "source": "c", "target": "a" },
+    { "id": "ad", "source": "a", "target": "d" },
+    { "id": "cd", "source": "c", "target": "d" }
+  ]
+}

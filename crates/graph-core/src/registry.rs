@@ -7,10 +7,23 @@
 
 use crate::index::Topology;
 use crate::layout::Geometry;
+use crate::layout::force::BarnesHut;
+use crate::layout::forceatlas2::ForceAtlas2;
 use crate::layout::grid::Grid;
-use crate::layout::{circle_packing, circular, tidy_tree, treemap};
+use crate::layout::sugiyama::Sugiyama;
+use crate::layout::{circle_packing, circular, spectral_stage, tidy_tree, treemap};
 use crate::stage::{Stage, StageError};
 use graph_contract::geometry::{EdgeGeometryKind, NodeGeometryKind};
+
+mod force;
+mod hierarchy;
+mod spectral;
+use force::{BARNES_HUT, FA2};
+pub use force::{FA2_CEILING, FORCE_CEILING};
+pub use hierarchy::HIERARCHY_LAYOUT_CEILING;
+use hierarchy::{CIRCULAR, TIDY_TREE, TREEMAP};
+use spectral::{PIVOT_MDS, SPECTRAL};
+pub use spectral::{PIVOT_MDS_CEILING, SPECTRAL_CEILING};
 
 /// What the ledger says about a layout. Every field is required.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -77,86 +90,6 @@ measured natively on 64-bit and projected onto wasm32's 4 GiB; re-measure with \
 crates/graph-core/tests/memory.rs",
 };
 
-/// Node count past which the three hierarchy layouts (tidy tree, treemap, circular) stop
-/// being usable, and why it is this one.
-///
-/// Measured, not estimated (`crates/graph-core/tests/memory.rs`,
-/// `hierarchy_layout_pipeline_memory_per_node`): each holds within a few percent of the
-/// grid's own 919 B/node at 100 000 synthetic nodes and 154 978 edges — tidy tree 933 B,
-/// treemap 930 B, circular 922 B/node — because all three add only an O(n) hierarchy
-/// repair (`layout/hierarchy.rs`) and O(n) geometry over the same topology and snapshot
-/// substrate the grid does. wasm32 addresses at most 4 GiB, so 4 GiB / 933 B = 4.60 M
-/// nodes at the heaviest of the three (tidy tree), rounded down to two figures, same as
-/// `GRID_CEILING`. The hierarchy repair's own `u32` limit binds far later:
-/// `Hierarchy::of` needs `n + 1` rows to fit `u32`, i.e. up to 2^32 − 2 nodes.
-pub const HIERARCHY_LAYOUT_CEILING: u64 = 4_600_000;
-
-const TIDY_TREE: Metadata = Metadata {
-    tier: 1,
-    stage: "layout",
-    nodes: NodeGeometryKind::Point,
-    edges: EdgeGeometryKind::Polyline,
-    oracle: "d3-hierarchy@3.1.2 tree() — an exact f64 port of tree.js's Buchheim/Jünger/ \
-Leipert/Walker algorithm at d3's own defaults (size([1,1]), the default separation), stated in \
-the module doc; byte-compared after Math.fround by harness/oracle-layouts.mjs over >=1000 seeds",
-    complexity: "O(n)",
-    scale_ceiling: HIERARCHY_LAYOUT_CEILING,
-    degradation: "past the ceiling wasm32 cannot allocate and the module traps (no partial \
-result); natively, memory permitting, the snapshot refuses with SnapshotError::Capacity once an \
-id table's text would pass 2^32-1 bytes — a refusal, never a wrap or a truncation",
-    ponytail: "No Ponytail on the algorithm: the port is exact, nothing here is a heuristic, an \
-estimate or a fallback, so none is owed (module doc). Ponytail (scale_ceiling): measured, not \
-estimated — see HIERARCHY_LAYOUT_CEILING's derivation and \
-crates/graph-core/tests/memory.rs::hierarchy_layout_pipeline_memory_per_node.",
-};
-
-const TREEMAP: Metadata = Metadata {
-    tier: 1,
-    stage: "layout",
-    nodes: NodeGeometryKind::Box,
-    edges: EdgeGeometryKind::Line,
-    oracle: "d3-hierarchy@3.1.2 treemap().tile(treemapSquarify) — an exact f64 port of \
-squarify.js and hierarchy.sum at d3's own defaults (size([1,1]), no padding, no rounding), \
-stated in the module doc; byte-compared after Math.fround by harness/oracle-layouts.mjs over \
->=1000 seeds",
-    complexity: "O(n log n)",
-    scale_ceiling: HIERARCHY_LAYOUT_CEILING,
-    degradation: "past the ceiling wasm32 cannot allocate and the module traps (no partial \
-result); natively, memory permitting, the snapshot refuses with SnapshotError::Capacity once an \
-id table's text would pass 2^32-1 bytes — a refusal, never a wrap or a truncation",
-    ponytail: "a non-positive or non-finite weight clamps to WEIGHT_EPSILON (1e-6) rather than \
-vanishing or handing squarify a zero/NaN value — the oracle applies the identical clamp. \
-Direction: cosmetic under-representation, a hairline never a wrong containment; escape hatch: \
-fix the weight upstream (module doc). Ponytail (scale_ceiling): measured, not estimated — see \
-HIERARCHY_LAYOUT_CEILING's derivation and \
-crates/graph-core/tests/memory.rs::hierarchy_layout_pipeline_memory_per_node.",
-};
-
-const CIRCULAR: Metadata = Metadata {
-    tier: 1,
-    stage: "layout",
-    nodes: NodeGeometryKind::Point,
-    edges: EdgeGeometryKind::Line,
-    oracle: "hand: the ring/angle/radius conventions worked by hand in graph-core \
-layout/circular.rs (docs/decisions/circular-conventions.md), restated independently in f64 and \
-checked per seed by graph-cli roundtrip; no third-party circular/radial hierarchy layout is a \
-meaningful byte-for-byte oracle (SciGraphs' own hierarchical.py normalises differently, per that \
-decision doc)",
-    complexity: "O(n)",
-    scale_ceiling: HIERARCHY_LAYOUT_CEILING,
-    degradation: "past the ceiling wasm32 cannot allocate and the module traps (no partial \
-result); natively, memory permitting, the snapshot refuses with SnapshotError::Capacity once an \
-id table's text would pass 2^32-1 bytes — a refusal, never a wrap or a truncation",
-    ponytail: "the radius step and the start angle are conventions pinned by this module, not a \
-computation with one right answer (docs/decisions/circular-conventions.md). Failing input: a \
-ring holding many nodes at a small radius (a shallow, bushy tree) crowds them close together. \
-Direction: cosmetic, never wrong — every node keeps its own ring and a distinct slot, so no two \
-real nodes ever collide. Escape hatch: a variant that inflates the radius by ring population, \
-under its own id (module doc). Ponytail (scale_ceiling): measured, not estimated — see \
-HIERARCHY_LAYOUT_CEILING's derivation and \
-crates/graph-core/tests/memory.rs::hierarchy_layout_pipeline_memory_per_node.",
-};
-
 /// Node count past which `layout.packing.circle` stops being usable, and why it is this
 /// one — a different shape of ceiling than the other three, and much lower.
 ///
@@ -200,8 +133,34 @@ docs/decisions/planarity-fallback.md). Ponytail (scale_ceiling): labelled, time-
 measured at the ceiling itself — see PACKING_CEILING's derivation.",
 };
 
+/// Layered-vertex count past which `layout.dag.sugiyama` routes no more long arcs: the
+/// reference's own `_DUMMY_BUDGET` (`SciGraphs/.../hierarchical.py:7`).
+pub const SUGIYAMA_CEILING: u64 = 200_000;
+
+const SUGIYAMA: Metadata = Metadata {
+    tier: 1,
+    stage: "layout",
+    nodes: NodeGeometryKind::Point,
+    edges: EdgeGeometryKind::Polyline,
+    oracle: "dagre-d3-es 7.0.14 crossing counts (harness/oracle-layouts.mjs --dag, margin frozen \
+in docs/measurements/phase05-crossings.md) and SciGraphs hierarchical.py; per-seed structural \
+invariants (acyclic after FAS, monotone layers, contiguous dummy chains) checked by graph-cli \
+roundtrip",
+    complexity: "O(n+m) per phase; crossing reduction is a heuristic (median + transpose local \
+search), not a minimiser",
+    scale_ceiling: SUGIYAMA_CEILING,
+    degradation: "past the dummy budget (200000) long arcs are left straight and unrouted and \
+each is reported as note 4 dag.dummy_budget_exceeded; above 150000 layered vertices the transpose \
+rounds drop to 0, so crossings rise while the drawing stays valid",
+    ponytail: "Ponytail (crossing reduction): median + transpose is a local search; a graph \
+whose optimal order it cannot reach draws more crossings than optimal — cosmetic, never \
+incorrect. Ponytail (dummy budget): an unrouted long arc is a straight line that may pass \
+through nodes — visually wrong, the dangerous direction; escape hatch: read note 4 in the \
+snapshot. Ponytail (FAS): greedy, not minimum; extra reversed edges (note 5) are cosmetic",
+};
+
 /// Every registered layout, in the order the hash gate runs them.
-pub static LAYOUTS: [Capability; 5] = [
+pub static LAYOUTS: [Capability; 10] = [
     Capability {
         id: Grid::ID,
         run: run_default::<Grid>,
@@ -227,6 +186,31 @@ pub static LAYOUTS: [Capability; 5] = [
         run: circle_packing::run,
         meta: PACKING,
     },
+    Capability {
+        id: "layout.spectral",
+        run: spectral_stage::spectral,
+        meta: SPECTRAL,
+    },
+    Capability {
+        id: "layout.mds.pivot",
+        run: spectral_stage::pivot_mds,
+        meta: PIVOT_MDS,
+    },
+    Capability {
+        id: BarnesHut::ID,
+        run: run_default::<BarnesHut>,
+        meta: BARNES_HUT,
+    },
+    Capability {
+        id: ForceAtlas2::ID,
+        run: run_default::<ForceAtlas2>,
+        meta: FA2,
+    },
+    Capability {
+        id: Sugiyama::ID,
+        run: run_default::<Sugiyama>,
+        meta: SUGIYAMA,
+    },
 ];
 
 /// The layout registered under `id`.
@@ -239,45 +223,4 @@ fn run_default<S: Stage>(topology: &Topology) -> Result<Geometry, StageError> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::layout::grid::GridParams;
-    use crate::stage::{gate_node_count, run_with, seeded_model};
-    use crate::weights::REFERENCE_DEGREE;
-
-    #[test]
-    fn every_layout_is_a_layout_stage_with_its_metadata_filled() {
-        let mut ids: Vec<_> = LAYOUTS.iter().map(|layout| layout.id).collect();
-        ids.sort_unstable();
-        ids.dedup();
-        assert_eq!(ids.len(), LAYOUTS.len(), "unique ids");
-        for layout in &LAYOUTS {
-            let m = layout.meta;
-            assert!(layout.id.starts_with("layout."), "{}", layout.id);
-            assert_eq!(m.stage, "layout");
-            assert!(m.scale_ceiling > 0, "{}", layout.id);
-            for text in [m.oracle, m.complexity, m.degradation, m.ponytail] {
-                assert!(!text.trim().is_empty(), "{}", layout.id);
-            }
-        }
-    }
-
-    #[test]
-    fn a_registered_layout_emits_the_kinds_it_declares_at_its_default_parameters() {
-        let (nodes, edges) = seeded_model(5, gate_node_count(5), REFERENCE_DEGREE);
-        for layout in &LAYOUTS {
-            let run = run_with(&nodes, &edges, layout.id, layout.run).expect("runs");
-            let header = run.snapshot.header();
-            assert_eq!(
-                (header.node_kind, header.edge_kind),
-                (layout.meta.nodes, layout.meta.edges)
-            );
-        }
-        let grid = find("layout.grid").expect("registered");
-        let by_hand = run_with(&nodes, &edges, "layout.grid", |t| {
-            Grid::run(t, &GridParams::default())
-        });
-        assert_eq!(run_with(&nodes, &edges, grid.id, grid.run), by_hand);
-        assert!(find("layout.none").is_none());
-    }
-}
+mod tests;

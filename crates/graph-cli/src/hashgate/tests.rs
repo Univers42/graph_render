@@ -1,6 +1,13 @@
 use super::compare::{Tally, diverged, per_stage};
+use super::knob::setting;
 use super::*;
+use graph_core::Stage;
+use graph_core::layout::force::BarnesHut;
+use graph_core::layout::forceatlas2::ForceAtlas2;
+use graph_core::{GridParams, REFERENCE_DEGREE, SugiyamaParams};
+use std::env::VarError;
 
+mod knob;
 mod report;
 
 /// Two seeds per stage; `fills[arm][line]` is the digest's repeated hex digit.
@@ -107,68 +114,6 @@ fn honest() -> Setting {
 }
 
 #[test]
-fn the_mutation_variables_parse_strictly_and_one_at_a_time() {
-    let defaults = (REFERENCE_DEGREE, GridParams::default(), 0u32, None);
-    let h = honest();
-    assert_eq!(
-        (h.reference_degree, h.grid, h.extra_nodes, h.control),
-        defaults
-    );
-    let degree = setting(env(&[("GM_MUTATE_REFERENCE_DEGREE", " 9 ")])).expect("parses");
-    assert_eq!((degree.reference_degree, degree.grid), (9, h.grid));
-    assert_eq!(degree.control, Some(Knob::ReferenceDegree));
-    let spacing = setting(env(&[("GM_MUTATE_GRID_SPACING", "2.5")])).expect("parses");
-    assert_eq!(
-        (spacing.reference_degree, spacing.grid.spacing),
-        (REFERENCE_DEGREE, 2.5)
-    );
-    assert_eq!(spacing.control, Some(Knob::GridSpacing));
-    let nodes = setting(env(&[("GM_MUTATE_NODE_COUNT", " 1 ")])).expect("parses");
-    assert_eq!(nodes.extra_nodes, 1);
-    assert_eq!(nodes.control, Some(Knob::NodeCount));
-    let bad: [&'static [(&str, &str)]; 4] = [
-        &[("GM_MUTATE_REFERENCE_DEGREE", "nine")],
-        &[("GM_MUTATE_REFERENCE_DEGREE", "")],
-        &[("GM_MUTATE_GRID_SPACING", "wide")],
-        &[("GM_MUTATE_NODE_COUNT", "-1")],
-    ];
-    for pairs in bad {
-        let err = setting(env(pairs)).expect_err("refused");
-        assert!(err.starts_with(pairs[0].0), "{err}");
-    }
-    let both = env(&[
-        ("GM_MUTATE_REFERENCE_DEGREE", "9"),
-        ("GM_MUTATE_GRID_SPACING", "2"),
-    ]);
-    let err = setting(both).expect_err("two controls");
-    assert!(err.ends_with("one control at a time"), "{err}");
-    let unreadable = setting(|_| Err(VarError::NotUnicode("\u{fffd}".into())));
-    assert!(unreadable.is_err());
-}
-
-#[test]
-fn each_knob_names_its_own_variable_and_record() {
-    let envs = Knob::ALL.map(Knob::env);
-    let records = Knob::ALL.map(Knob::record);
-    assert_eq!(
-        envs,
-        [
-            "GM_MUTATE_REFERENCE_DEGREE",
-            "GM_MUTATE_GRID_SPACING",
-            "GM_MUTATE_NODE_COUNT"
-        ]
-    );
-    assert_eq!(
-        records,
-        [
-            "hashgate-control-reference-degree",
-            "hashgate-control-grid-spacing",
-            "hashgate-control-node-count"
-        ]
-    );
-}
-
-#[test]
 fn the_stages_are_the_topology_then_every_registered_layout() {
     let layouts: Vec<&str> = graph_core::registry::LAYOUTS.iter().map(|l| l.id).collect();
     assert_eq!(STAGES[0], "topology");
@@ -181,13 +126,16 @@ fn stage_bytes_are_the_registered_pipeline_and_the_reference_and_spacing_knobs_m
     let ids: Vec<&str> = stages.iter().map(|(id, _)| *id).collect();
     assert_eq!(ids, STAGES);
     let (topology, layout) = (stages[0].1.clone(), stages[1].1.clone());
-    let grid = graph_core::registry::find(stages[1].0).expect("registered");
     let (nodes, edges) = seeded_model(4, gate_node_count(4), REFERENCE_DEGREE);
-    let registered = graph_core::run_with(&nodes, &edges, grid.id, grid.run).expect("runs");
-    assert_eq!(
-        (&registered.topology, registered.snapshot.to_bytes()),
-        (&topology, layout.clone())
-    );
+    for (id, bytes) in &stages[1..] {
+        let layout = graph_core::registry::find(id).expect("registered");
+        let registered = graph_core::run_with(&nodes, &edges, layout.id, layout.run).expect("runs");
+        assert_eq!(
+            (&registered.topology, &registered.snapshot.to_bytes()),
+            (&topology, bytes),
+            "{id}"
+        );
+    }
     let degree = Setting {
         reference_degree: REFERENCE_DEGREE + 1,
         ..honest()
@@ -199,6 +147,10 @@ fn stage_bytes_are_the_registered_pipeline_and_the_reference_and_spacing_knobs_m
         moved[3].1, stages[3].1,
         "treemap reads node weight, so the reference degree moves it too"
     );
+    assert_eq!(
+        moved[DAG].1, stages[DAG].1,
+        "the layered drawing ignores weights"
+    );
     let spacing = Setting {
         grid: GridParams { spacing: 2.0 },
         ..honest()
@@ -206,6 +158,30 @@ fn stage_bytes_are_the_registered_pipeline_and_the_reference_and_spacing_knobs_m
     let spaced = stage_bytes(4, &spacing).expect("runs");
     assert_eq!(spaced[0].1, topology);
     assert_ne!(spaced[1].1, layout);
+    assert_eq!(spaced[DAG].1, stages[DAG].1);
+}
+
+/// Where `layout.dag.sugiyama` sits in [`STAGES`].
+const DAG: usize = STAGE_COUNT - 1;
+
+#[test]
+fn the_layer_spacing_knob_moves_only_the_layered_drawing_and_zero_is_refused() {
+    let stages = stage_bytes(4, &honest()).expect("runs");
+    assert_eq!(stages[DAG].0, "layout.dag.sugiyama");
+    let layers = Setting {
+        sugiyama: SugiyamaParams { layer_spacing: 2.0 },
+        ..honest()
+    };
+    let moved = stage_bytes(4, &layers).expect("runs");
+    for (index, (moved, honest)) in moved.iter().zip(&stages).enumerate() {
+        assert_eq!(moved.1 != honest.1, index == DAG, "{}", moved.0);
+    }
+    let flat = Setting {
+        sugiyama: SugiyamaParams { layer_spacing: 0.0 },
+        ..honest()
+    };
+    let err = stage_bytes(4, &flat).expect_err("zero layer spacing");
+    assert_eq!(err, "parameter layer_spacing: finite and above 0");
 }
 
 #[test]

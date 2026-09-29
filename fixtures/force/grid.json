@@ -1,0 +1,871 @@
+{
+  "about": "An 8x8 lattice: every node linked to its right and below neighbour, strength 1.",
+  "nodes": [
+    {
+      "id": "r0c0"
+    },
+    {
+      "id": "r0c1"
+    },
+    {
+      "id": "r0c2"
+    },
+    {
+      "id": "r0c3"
+    },
+    {
+      "id": "r0c4"
+    },
+    {
+      "id": "r0c5"
+    },
+    {
+      "id": "r0c6"
+    },
+    {
+      "id": "r0c7"
+    },
+    {
+      "id": "r1c0"
+    },
+    {
+      "id": "r1c1"
+    },
+    {
+      "id": "r1c2"
+    },
+    {
+      "id": "r1c3"
+    },
+    {
+      "id": "r1c4"
+    },
+    {
+      "id": "r1c5"
+    },
+    {
+      "id": "r1c6"
+    },
+    {
+      "id": "r1c7"
+    },
+    {
+      "id": "r2c0"
+    },
+    {
+      "id": "r2c1"
+    },
+    {
+      "id": "r2c2"
+    },
+    {
+      "id": "r2c3"
+    },
+    {
+      "id": "r2c4"
+    },
+    {
+      "id": "r2c5"
+    },
+    {
+      "id": "r2c6"
+    },
+    {
+      "id": "r2c7"
+    },
+    {
+      "id": "r3c0"
+    },
+    {
+      "id": "r3c1"
+    },
+    {
+      "id": "r3c2"
+    },
+    {
+      "id": "r3c3"
+    },
+    {
+      "id": "r3c4"
+    },
+    {
+      "id": "r3c5"
+    },
+    {
+      "id": "r3c6"
+    },
+    {
+      "id": "r3c7"
+    },
+    {
+      "id": "r4c0"
+    },
+    {
+      "id": "r4c1"
+    },
+    {
+      "id": "r4c2"
+    },
+    {
+      "id": "r4c3"
+    },
+    {
+      "id": "r4c4"
+    },
+    {
+      "id": "r4c5"
+    },
+    {
+      "id": "r4c6"
+    },
+    {
+      "id": "r4c7"
+    },
+    {
+      "id": "r5c0"
+    },
+    {
+      "id": "r5c1"
+    },
+    {
+      "id": "r5c2"
+    },
+    {
+      "id": "r5c3"
+    },
+    {
+      "id": "r5c4"
+    },
+    {
+      "id": "r5c5"
+    },
+    {
+      "id": "r5c6"
+    },
+    {
+      "id": "r5c7"
+    },
+    {
+      "id": "r6c0"
+    },
+    {
+      "id": "r6c1"
+    },
+    {
+      "id": "r6c2"
+    },
+    {
+      "id": "r6c3"
+    },
+    {
+      "id": "r6c4"
+    },
+    {
+      "id": "r6c5"
+    },
+    {
+      "id": "r6c6"
+    },
+    {
+      "id": "r6c7"
+    },
+    {
+      "id": "r7c0"
+    },
+    {
+      "id": "r7c1"
+    },
+    {
+      "id": "r7c2"
+    },
+    {
+      "id": "r7c3"
+    },
+    {
+      "id": "r7c4"
+    },
+    {
+      "id": "r7c5"
+    },
+    {
+      "id": "r7c6"
+    },
+    {
+      "id": "r7c7"
+    }
+  ],
+  "edges": [
+    {
+      "id": "e0",
+      "source": "r0c0",
+      "target": "r0c1",
+      "strength": 1.0
+    },
+    {
+      "id": "e1",
+      "source": "r0c0",
+      "target": "r1c0",
+      "strength": 1.0
+    },
+    {
+      "id": "e2",
+      "source": "r0c1",
+      "target": "r0c2",
+      "strength": 1.0
+    },
+    {
+      "id": "e3",
+      "source": "r0c1",
+      "target": "r1c1",
+      "strength": 1.0
+    },
+    {
+      "id": "e4",
+      "source": "r0c2",
+      "target": "r0c3",
+      "strength": 1.0
+    },
+    {
+      "id": "e5",
+      "source": "r0c2",
+      "target": "r1c2",
+      "strength": 1.0
+    },
+    {
+      "id": "e6",
+      "source": "r0c3",
+      "target": "r0c4",
+      "strength": 1.0
+    },
+    {
+      "id": "e7",
+      "source": "r0c3",
+      "target": "r1c3",
+      "strength": 1.0
+    },
+    {
+      "id": "e8",
+      "source": "r0c4",
+      "target": "r0c5",
+      "strength": 1.0
+    },
+    {
+      "id": "e9",
+      "source": "r0c4",
+      "target": "r1c4",
+      "strength": 1.0
+    },
+    {
+      "id": "e10",
+      "source": "r0c5",
+      "target": "r0c6",
+      "strength": 1.0
+    },
+    {
+      "id": "e11",
+      "source": "r0c5",
+      "target": "r1c5",
+      "strength": 1.0
+    },
+    {
+      "id": "e12",
+      "source": "r0c6",
+      "target": "r0c7",
+      "strength": 1.0
+    },
+    {
+      "id": "e13",
+      "source": "r0c6",
+      "target": "r1c6",
+      "strength": 1.0
+    },
+    {
+      "id": "e14",
+      "source": "r0c7",
+      "target": "r1c7",
+      "strength": 1.0
+    },
+    {
+      "id": "e15",
+      "source": "r1c0",
+      "target": "r1c1",
+      "strength": 1.0
+    },
+    {
+      "id": "e16",
+      "source": "r1c0",
+      "target": "r2c0",
+      "strength": 1.0
+    },
+    {
+      "id": "e17",
+      "source": "r1c1",
+      "target": "r1c2",
+      "strength": 1.0
+    },
+    {
+      "id": "e18",
+      "source": "r1c1",
+      "target": "r2c1",
+      "strength": 1.0
+    },
+    {
+      "id": "e19",
+      "source": "r1c2",
+      "target": "r1c3",
+      "strength": 1.0
+    },
+    {
+      "id": "e20",
+      "source": "r1c2",
+      "target": "r2c2",
+      "strength": 1.0
+    },
+    {
+      "id": "e21",
+      "source": "r1c3",
+      "target": "r1c4",
+      "strength": 1.0
+    },
+    {
+      "id": "e22",
+      "source": "r1c3",
+      "target": "r2c3",
+      "strength": 1.0
+    },
+    {
+      "id": "e23",
+      "source": "r1c4",
+      "target": "r1c5",
+      "strength": 1.0
+    },
+    {
+      "id": "e24",
+      "source": "r1c4",
+      "target": "r2c4",
+      "strength": 1.0
+    },
+    {
+      "id": "e25",
+      "source": "r1c5",
+      "target": "r1c6",
+      "strength": 1.0
+    },
+    {
+      "id": "e26",
+      "source": "r1c5",
+      "target": "r2c5",
+      "strength": 1.0
+    },
+    {
+      "id": "e27",
+      "source": "r1c6",
+      "target": "r1c7",
+      "strength": 1.0
+    },
+    {
+      "id": "e28",
+      "source": "r1c6",
+      "target": "r2c6",
+      "strength": 1.0
+    },
+    {
+      "id": "e29",
+      "source": "r1c7",
+      "target": "r2c7",
+      "strength": 1.0
+    },
+    {
+      "id": "e30",
+      "source": "r2c0",
+      "target": "r2c1",
+      "strength": 1.0
+    },
+    {
+      "id": "e31",
+      "source": "r2c0",
+      "target": "r3c0",
+      "strength": 1.0
+    },
+    {
+      "id": "e32",
+      "source": "r2c1",
+      "target": "r2c2",
+      "strength": 1.0
+    },
+    {
+      "id": "e33",
+      "source": "r2c1",
+      "target": "r3c1",
+      "strength": 1.0
+    },
+    {
+      "id": "e34",
+      "source": "r2c2",
+      "target": "r2c3",
+      "strength": 1.0
+    },
+    {
+      "id": "e35",
+      "source": "r2c2",
+      "target": "r3c2",
+      "strength": 1.0
+    },
+    {
+      "id": "e36",
+      "source": "r2c3",
+      "target": "r2c4",
+      "strength": 1.0
+    },
+    {
+      "id": "e37",
+      "source": "r2c3",
+      "target": "r3c3",
+      "strength": 1.0
+    },
+    {
+      "id": "e38",
+      "source": "r2c4",
+      "target": "r2c5",
+      "strength": 1.0
+    },
+    {
+      "id": "e39",
+      "source": "r2c4",
+      "target": "r3c4",
+      "strength": 1.0
+    },
+    {
+      "id": "e40",
+      "source": "r2c5",
+      "target": "r2c6",
+      "strength": 1.0
+    },
+    {
+      "id": "e41",
+      "source": "r2c5",
+      "target": "r3c5",
+      "strength": 1.0
+    },
+    {
+      "id": "e42",
+      "source": "r2c6",
+      "target": "r2c7",
+      "strength": 1.0
+    },
+    {
+      "id": "e43",
+      "source": "r2c6",
+      "target": "r3c6",
+      "strength": 1.0
+    },
+    {
+      "id": "e44",
+      "source": "r2c7",
+      "target": "r3c7",
+      "strength": 1.0
+    },
+    {
+      "id": "e45",
+      "source": "r3c0",
+      "target": "r3c1",
+      "strength": 1.0
+    },
+    {
+      "id": "e46",
+      "source": "r3c0",
+      "target": "r4c0",
+      "strength": 1.0
+    },
+    {
+      "id": "e47",
+      "source": "r3c1",
+      "target": "r3c2",
+      "strength": 1.0
+    },
+    {
+      "id": "e48",
+      "source": "r3c1",
+      "target": "r4c1",
+      "strength": 1.0
+    },
+    {
+      "id": "e49",
+      "source": "r3c2",
+      "target": "r3c3",
+      "strength": 1.0
+    },
+    {
+      "id": "e50",
+      "source": "r3c2",
+      "target": "r4c2",
+      "strength": 1.0
+    },
+    {
+      "id": "e51",
+      "source": "r3c3",
+      "target": "r3c4",
+      "strength": 1.0
+    },
+    {
+      "id": "e52",
+      "source": "r3c3",
+      "target": "r4c3",
+      "strength": 1.0
+    },
+    {
+      "id": "e53",
+      "source": "r3c4",
+      "target": "r3c5",
+      "strength": 1.0
+    },
+    {
+      "id": "e54",
+      "source": "r3c4",
+      "target": "r4c4",
+      "strength": 1.0
+    },
+    {
+      "id": "e55",
+      "source": "r3c5",
+      "target": "r3c6",
+      "strength": 1.0
+    },
+    {
+      "id": "e56",
+      "source": "r3c5",
+      "target": "r4c5",
+      "strength": 1.0
+    },
+    {
+      "id": "e57",
+      "source": "r3c6",
+      "target": "r3c7",
+      "strength": 1.0
+    },
+    {
+      "id": "e58",
+      "source": "r3c6",
+      "target": "r4c6",
+      "strength": 1.0
+    },
+    {
+      "id": "e59",
+      "source": "r3c7",
+      "target": "r4c7",
+      "strength": 1.0
+    },
+    {
+      "id": "e60",
+      "source": "r4c0",
+      "target": "r4c1",
+      "strength": 1.0
+    },
+    {
+      "id": "e61",
+      "source": "r4c0",
+      "target": "r5c0",
+      "strength": 1.0
+    },
+    {
+      "id": "e62",
+      "source": "r4c1",
+      "target": "r4c2",
+      "strength": 1.0
+    },
+    {
+      "id": "e63",
+      "source": "r4c1",
+      "target": "r5c1",
+      "strength": 1.0
+    },
+    {
+      "id": "e64",
+      "source": "r4c2",
+      "target": "r4c3",
+      "strength": 1.0
+    },
+    {
+      "id": "e65",
+      "source": "r4c2",
+      "target": "r5c2",
+      "strength": 1.0
+    },
+    {
+      "id": "e66",
+      "source": "r4c3",
+      "target": "r4c4",
+      "strength": 1.0
+    },
+    {
+      "id": "e67",
+      "source": "r4c3",
+      "target": "r5c3",
+      "strength": 1.0
+    },
+    {
+      "id": "e68",
+      "source": "r4c4",
+      "target": "r4c5",
+      "strength": 1.0
+    },
+    {
+      "id": "e69",
+      "source": "r4c4",
+      "target": "r5c4",
+      "strength": 1.0
+    },
+    {
+      "id": "e70",
+      "source": "r4c5",
+      "target": "r4c6",
+      "strength": 1.0
+    },
+    {
+      "id": "e71",
+      "source": "r4c5",
+      "target": "r5c5",
+      "strength": 1.0
+    },
+    {
+      "id": "e72",
+      "source": "r4c6",
+      "target": "r4c7",
+      "strength": 1.0
+    },
+    {
+      "id": "e73",
+      "source": "r4c6",
+      "target": "r5c6",
+      "strength": 1.0
+    },
+    {
+      "id": "e74",
+      "source": "r4c7",
+      "target": "r5c7",
+      "strength": 1.0
+    },
+    {
+      "id": "e75",
+      "source": "r5c0",
+      "target": "r5c1",
+      "strength": 1.0
+    },
+    {
+      "id": "e76",
+      "source": "r5c0",
+      "target": "r6c0",
+      "strength": 1.0
+    },
+    {
+      "id": "e77",
+      "source": "r5c1",
+      "target": "r5c2",
+      "strength": 1.0
+    },
+    {
+      "id": "e78",
+      "source": "r5c1",
+      "target": "r6c1",
+      "strength": 1.0
+    },
+    {
+      "id": "e79",
+      "source": "r5c2",
+      "target": "r5c3",
+      "strength": 1.0
+    },
+    {
+      "id": "e80",
+      "source": "r5c2",
+      "target": "r6c2",
+      "strength": 1.0
+    },
+    {
+      "id": "e81",
+      "source": "r5c3",
+      "target": "r5c4",
+      "strength": 1.0
+    },
+    {
+      "id": "e82",
+      "source": "r5c3",
+      "target": "r6c3",
+      "strength": 1.0
+    },
+    {
+      "id": "e83",
+      "source": "r5c4",
+      "target": "r5c5",
+      "strength": 1.0
+    },
+    {
+      "id": "e84",
+      "source": "r5c4",
+      "target": "r6c4",
+      "strength": 1.0
+    },
+    {
+      "id": "e85",
+      "source": "r5c5",
+      "target": "r5c6",
+      "strength": 1.0
+    },
+    {
+      "id": "e86",
+      "source": "r5c5",
+      "target": "r6c5",
+      "strength": 1.0
+    },
+    {
+      "id": "e87",
+      "source": "r5c6",
+      "target": "r5c7",
+      "strength": 1.0
+    },
+    {
+      "id": "e88",
+      "source": "r5c6",
+      "target": "r6c6",
+      "strength": 1.0
+    },
+    {
+      "id": "e89",
+      "source": "r5c7",
+      "target": "r6c7",
+      "strength": 1.0
+    },
+    {
+      "id": "e90",
+      "source": "r6c0",
+      "target": "r6c1",
+      "strength": 1.0
+    },
+    {
+      "id": "e91",
+      "source": "r6c0",
+      "target": "r7c0",
+      "strength": 1.0
+    },
+    {
+      "id": "e92",
+      "source": "r6c1",
+      "target": "r6c2",
+      "strength": 1.0
+    },
+    {
+      "id": "e93",
+      "source": "r6c1",
+      "target": "r7c1",
+      "strength": 1.0
+    },
+    {
+      "id": "e94",
+      "source": "r6c2",
+      "target": "r6c3",
+      "strength": 1.0
+    },
+    {
+      "id": "e95",
+      "source": "r6c2",
+      "target": "r7c2",
+      "strength": 1.0
+    },
+    {
+      "id": "e96",
+      "source": "r6c3",
+      "target": "r6c4",
+      "strength": 1.0
+    },
+    {
+      "id": "e97",
+      "source": "r6c3",
+      "target": "r7c3",
+      "strength": 1.0
+    },
+    {
+      "id": "e98",
+      "source": "r6c4",
+      "target": "r6c5",
+      "strength": 1.0
+    },
+    {
+      "id": "e99",
+      "source": "r6c4",
+      "target": "r7c4",
+      "strength": 1.0
+    },
+    {
+      "id": "e100",
+      "source": "r6c5",
+      "target": "r6c6",
+      "strength": 1.0
+    },
+    {
+      "id": "e101",
+      "source": "r6c5",
+      "target": "r7c5",
+      "strength": 1.0
+    },
+    {
+      "id": "e102",
+      "source": "r6c6",
+      "target": "r6c7",
+      "strength": 1.0
+    },
+    {
+      "id": "e103",
+      "source": "r6c6",
+      "target": "r7c6",
+      "strength": 1.0
+    },
+    {
+      "id": "e104",
+      "source": "r6c7",
+      "target": "r7c7",
+      "strength": 1.0
+    },
+    {
+      "id": "e105",
+      "source": "r7c0",
+      "target": "r7c1",
+      "strength": 1.0
+    },
+    {
+      "id": "e106",
+      "source": "r7c1",
+      "target": "r7c2",
+      "strength": 1.0
+    },
+    {
+      "id": "e107",
+      "source": "r7c2",
+      "target": "r7c3",
+      "strength": 1.0
+    },
+    {
+      "id": "e108",
+      "source": "r7c3",
+      "target": "r7c4",
+      "strength": 1.0
+    },
+    {
+      "id": "e109",
+      "source": "r7c4",
+      "target": "r7c5",
+      "strength": 1.0
+    },
+    {
+      "id": "e110",
+      "source": "r7c5",
+      "target": "r7c6",
+      "strength": 1.0
+    },
+    {
+      "id": "e111",
+      "source": "r7c6",
+      "target": "r7c7",
+      "strength": 1.0
+    }
+  ]
+}

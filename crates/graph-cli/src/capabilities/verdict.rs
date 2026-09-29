@@ -25,6 +25,12 @@ pub struct Evidence {
     /// `oracle-layouts.json`: `harness/oracle-layouts.mjs`'s d3-hierarchy differential
     /// for tidy tree and treemap.
     pub layouts: Option<Value>,
+    /// `stress.json`: the d3-force@3.0.0 stress differential for Barnes-Hut.
+    pub stress: Option<Value>,
+    /// `oracle-fa2.json`: the networkx 3.6 `forceatlas2_layout` differential for FA2.
+    pub fa2: Option<Value>,
+    /// `oracle-spectral.json`: the scipy differential for spectral and pivot MDS.
+    pub spectral: Option<Value>,
 }
 
 impl Evidence {
@@ -41,15 +47,22 @@ impl Evidence {
             oracle: evidence::read("oracle-diff")?,
             roundtrip: evidence::read("roundtrip")?,
             layouts: evidence::read("oracle-layouts")?,
+            stress: evidence::read("stress")?,
+            fa2: evidence::read("oracle-fa2")?,
+            spectral: evidence::read("oracle-spectral")?,
         })
     }
 
-    /// The oracle record a row names: `oracle-diff`, `roundtrip` or `oracle-layouts`.
+    /// The oracle record a row names: `oracle-diff`, `roundtrip`, `oracle-layouts`,
+    /// `stress` or `oracle-fa2`.
     fn oracle_record(&self, name: &str) -> Option<&Value> {
         match name {
             "oracle-diff" => self.oracle.as_ref(),
             "roundtrip" => self.roundtrip.as_ref(),
             "oracle-layouts" => self.layouts.as_ref(),
+            "stress" => self.stress.as_ref(),
+            "oracle-fa2" => self.fa2.as_ref(),
+            "oracle-spectral" => self.spectral.as_ref(),
             _ => None,
         }
     }
@@ -155,5 +168,10 @@ pub fn oracle_diff(e: &Evidence, name: &str, functions: &[&str]) -> Result<Strin
     } else {
         format!(", {declared} declared divergences")
     };
+    if run["tolerance"] == Value::Bool(true) {
+        return Ok(format!(
+            "within measured ceiling of the oracle/{seeds} seeds ({cases} cases)"
+        ));
+    }
     Ok(format!("byte-equal/{seeds} seeds ({cases} cases{known})"))
 }

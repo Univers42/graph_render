@@ -40,6 +40,10 @@ fn overall_pass_requires_every_check_clean_and_every_notes_case_drawn() {
             ..clean(5)
         },
         Findings {
+            dag: vec!["x".into()],
+            ..clean(5)
+        },
+        Findings {
             notes: [5, 5, 5, 5, 0],
             ..clean(5)
         },
@@ -73,6 +77,7 @@ fn the_record_holds_the_exact_counts_it_reports() {
     let found = Findings {
         faces: vec!["a".into()],
         grid: vec!["b".into(), "c".into()],
+        dag: vec!["d".into()],
         notes: [1, 2, 3, 4, 5],
         checked: snapshot_total(5),
         ..Findings::default()
@@ -80,7 +85,7 @@ fn the_record_holds_the_exact_counts_it_reports() {
     let text = serde_json::to_string(&body(5, &found)).expect("json");
     assert_eq!(
         text,
-        r#"{"faces_failed":1,"functions":{"layout.circular.radial":{"cases":5,"declared":0,"unexplained":0},"layout.grid":{"cases":5,"declared":0,"unexplained":2},"layout.packing.circle":{"cases":5,"declared":0,"unexplained":0}},"notes_cases":{"0.2-labelled":1,"0.3 k=0":2,"code 1":3,"code 2":4,"code 3":5},"pass":false,"seeds":5,"snapshots":30}"#
+        r#"{"faces_failed":1,"functions":{"layout.circular.radial":{"cases":5,"declared":0,"unexplained":0},"layout.dag.sugiyama":{"cases":5,"declared":0,"unexplained":1},"layout.grid":{"cases":5,"declared":0,"unexplained":2},"layout.packing.circle":{"cases":5,"declared":0,"unexplained":0}},"notes_cases":{"0.2-labelled":1,"0.3 k=0":2,"code 1":3,"code 2":4,"code 3":5},"pass":false,"seeds":5,"snapshots":55}"#
     );
     assert_eq!(body(5, &clean(5))["pass"], serde_json::json!(true));
 }
@@ -108,6 +113,7 @@ fn print_findings_subtracts_failures_from_the_total_not_adds() {
     let found = Findings {
         faces: vec!["a".into(), "b".into()],
         grid: vec!["c".into()],
+        dag: vec!["d".into(), "e".into()],
         notes: [1; 5],
         checked: snapshot_total(5),
         ..Findings::default()
@@ -128,6 +134,10 @@ fn print_findings_subtracts_failures_from_the_total_not_adds() {
     );
     assert!(
         text.contains("layout.circular.radial on its stated conventions on 5/5 seeds"),
+        "{text}"
+    );
+    assert!(
+        text.contains("layout.dag.sugiyama on its structural invariants on 3/5 seeds"),
         "{text}"
     );
     assert!(text.contains("notes cases drawn (exercise, each needed): 0.2-labelled 1, 0.3 k=0 1, code 1 1, code 2 1, code 3 1"), "{text}");
@@ -157,7 +167,7 @@ fn the_sweep_records_nothing_wrong_and_refuses_zero_seeds() {
     let found = sweep(12).expect("runs");
     assert!(found.faces.is_empty() && found.grid.is_empty(), "{found:?}");
     assert!(
-        found.circular.is_empty() && found.packing.is_empty(),
+        found.circular.is_empty() && found.packing.is_empty() && found.dag.is_empty(),
         "{found:?}"
     );
     assert!(found.pass(12), "every notes case drawn: {:?}", found.notes);

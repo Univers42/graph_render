@@ -1,0 +1,20 @@
+{
+  "about": "Two weakly-connected components with no edge between them: a chain a->b->c and a separate diamond x->{y,z}->w. Longest-path layering and the breadth-first initial order both run per component with no shared root, so this checks that a missing edge between them never merges their layers or crosses their rows (see docs/decisions/sugiyama-heuristics.md on why no virtual root is needed here).",
+  "nodes": [
+    { "id": "a" },
+    { "id": "b" },
+    { "id": "c" },
+    { "id": "x" },
+    { "id": "y" },
+    { "id": "z" },
+    { "id": "w" }
+  ],
+  "edges": [
+    { "id": "ab", "source": "a", "target": "b" },
+    { "id": "bc", "source": "b", "target": "c" },
+    { "id": "xy", "source": "x", "target": "y" },
+    { "id": "xz", "source": "x", "target": "z" },
+    { "id": "yw", "source": "y", "target": "w" },
+    { "id": "zw", "source": "z", "target": "w" }
+  ]
+}

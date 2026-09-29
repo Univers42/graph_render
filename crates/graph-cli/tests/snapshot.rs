@@ -1,11 +1,13 @@
 //! `snapshot` and `roundtrip`: the two consumer-facing subcommands whose output a
 //! script reads directly. Split out of `cli.rs` to keep both files under the house line
-//! limit; the small process helpers below are duplicated from `cli.rs` rather than
-//! shared, so each file stays self-contained.
+//! limit; the process helpers are `tests/common`'s.
 //!
 //! Needs `node` and the `wasm32-unknown-unknown` target, as `cli.rs` does.
 
-use std::process::{Command, Output};
+mod common;
+
+use common::stdout;
+use std::process::Output;
 
 /// Gate records land here, never in `target/gates`: a test run must not overwrite (or
 /// stand in for) the evidence of a real gate run.
@@ -13,23 +15,8 @@ fn gates_dir() -> std::path::PathBuf {
     std::env::temp_dir().join(format!("gm-cli-gates-{}", std::process::id()))
 }
 
-const KNOBS: [&str; 2] = ["GM_MUTATE_REFERENCE_DEGREE", "GM_MUTATE_GRID_SPACING"];
-
-/// `graph-cli args` with every knob unset but `mutate`, if given.
 fn graph_cli(args: &[&str], mutate: Option<(&str, &str)>) -> Output {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_graph-cli"));
-    command.args(args).env("GM_GATES_DIR", gates_dir());
-    for knob in KNOBS {
-        command.env_remove(knob);
-    }
-    if let Some((knob, value)) = mutate {
-        command.env(knob, value);
-    }
-    command.output().expect("graph-cli runs")
-}
-
-fn stdout(output: &Output) -> String {
-    String::from_utf8_lossy(&output.stdout).into_owned()
+    common::graph_cli(&gates_dir(), args, mutate)
 }
 
 fn record(name: &str) -> String {
@@ -134,13 +121,17 @@ fn snapshot_refuses_what_it_cannot_do() {
 fn roundtrip_passes_and_records_the_grids_hand_oracle() {
     let run = graph_cli(&["roundtrip", "--seeds", "20"], None);
     assert_eq!(run.status.code(), Some(0), "{}", stdout(&run));
-    assert!(stdout(&run).contains("  binary <-> JSON byte-exact on 120/120 snapshots"));
+    // 20 seeds x (every registered layout + the contract exercise) = 20 x (10 + 1).
+    assert!(stdout(&run).contains("  binary <-> JSON byte-exact on 220/220 snapshots"));
     assert!(stdout(&run).contains("  layout.grid on its stated conventions on 20/20 seeds"));
     assert!(
         stdout(&run).contains("  layout.circular.radial on its stated conventions on 20/20 seeds")
     );
     assert!(
         stdout(&run).contains("  layout.packing.circle on its stated conventions on 20/20 seeds")
+    );
+    assert!(
+        stdout(&run).contains("  layout.dag.sugiyama on its structural invariants on 20/20 seeds")
     );
     assert!(stdout(&run).contains(
         "  notes cases drawn (exercise, each needed): 0.2-labelled 4, 0.3 k=0 5, code 1 "
@@ -153,7 +144,8 @@ fn roundtrip_passes_and_records_the_grids_hand_oracle() {
     );
     assert!(
         roundtrip.contains("\"layout.circular.radial\"")
-            && roundtrip.contains("\"layout.packing.circle\""),
+            && roundtrip.contains("\"layout.packing.circle\"")
+            && roundtrip.contains("\"layout.dag.sugiyama\""),
         "{roundtrip}"
     );
     assert_eq!(

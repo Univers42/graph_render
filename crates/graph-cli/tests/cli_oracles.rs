@@ -1,36 +1,20 @@
 //! The two oracle differentials end to end, each with its own negative control inside
 //! `cargo test`: `oracle-diff` (the TypeScript arm) and `oracle-layouts` (the
 //! d3-hierarchy arm). Split out of `cli.rs` to stay under the house's 300-line limit;
-//! shares its shape (`graph_cli`, `gates_dir`, `KNOBS`) rather than importing it, since
-//! each file under `tests/` is its own binary crate.
+//! the process helpers are `tests/common`'s.
 
+mod common;
+
+use common::stdout;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::Output;
 
 fn gates_dir() -> PathBuf {
     std::env::temp_dir().join(format!("gm-cli-oracles-gates-{}", std::process::id()))
 }
 
-const KNOBS: [&str; 3] = [
-    "GM_MUTATE_REFERENCE_DEGREE",
-    "GM_MUTATE_GRID_SPACING",
-    "GM_MUTATE_NODE_COUNT",
-];
-
-/// `graph-cli` with every mutation knob cleared — so a control can never be inherited
-/// from the environment — and its verdict recorded under `gates`, which each test names
-/// for itself: two tests driving one gate at once would read each other's record.
 fn graph_cli(gates: &Path, args: &[&str]) -> Output {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_graph-cli"));
-    command.args(args).env("GM_GATES_DIR", gates);
-    for knob in KNOBS {
-        command.env_remove(knob);
-    }
-    command.output().expect("graph-cli runs")
-}
-
-fn stdout(output: &Output) -> String {
-    String::from_utf8_lossy(&output.stdout).into_owned()
+    common::graph_cli(gates, args, None)
 }
 
 fn stderr(output: &Output) -> String {

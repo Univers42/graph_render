@@ -2,7 +2,10 @@ use super::verdict::{Evidence, MIN_SEEDS};
 use super::*;
 use serde_json::{Value, json};
 
+mod force;
+mod refusals;
 mod registry;
+mod sugiyama;
 
 /// The 17 oracle functions of `prompt.md` §7.4, plus the H4 and H9 arms.
 const COVERED: [&str; 19] = [
@@ -30,13 +33,18 @@ const COVERED: [&str; 19] = [
 /// Every hashgate stage's key, in `hashgate::STAGES` order, so this fixture's `equal`
 /// maps can be built at the same shape a real record has, without importing the
 /// hashgate module just for the constant.
-const STAGES: [&str; 6] = [
+const STAGES: [&str; 11] = [
     "topology",
     "layout.grid",
     "layout.tree.tidy",
     "layout.treemap.squarified",
     "layout.circular.radial",
     "layout.packing.circle",
+    "layout.spectral",
+    "layout.mds.pivot",
+    "layout.force.barnes_hut",
+    "layout.forceatlas2",
+    "layout.dag.sugiyama",
 ];
 
 /// A hashgate-shaped `equal` map: `seeds` for every stage, except `diverged`'s, at `0`.
@@ -67,11 +75,12 @@ fn control(name: &'static str, diverged: &[&str]) -> (&'static str, Option<Value
     )
 }
 
-/// The three controls: reference degree (topology, treemap — it reads node weight),
-/// grid spacing (grid alone), and node count — restricted here to the four layouts
-/// neither other control reaches, since reference degree and grid spacing already back
-/// topology/grid/treemap on their own (a real run may show it diverging those too; the
-/// ledger only needs one control per stage to hold).
+/// The controls: reference degree (topology, treemap — it reads node weight), grid
+/// spacing (grid alone), layer spacing (the layered drawing alone), node count —
+/// restricted here to the layouts no other control reaches, since reference degree and
+/// grid spacing already back topology/grid/treemap on their own (a real run may show it
+/// diverging those too; the ledger only needs one control per stage to hold) — and one
+/// control per force layout, which reach nothing else at all.
 fn honest_controls() -> Vec<(&'static str, Option<Value>)> {
     vec![
         control(
@@ -80,13 +89,24 @@ fn honest_controls() -> Vec<(&'static str, Option<Value>)> {
         ),
         control("hashgate-control-grid-spacing", &["layout.grid"]),
         control(
+            "hashgate-control-sugiyama-layer-spacing",
+            &["layout.dag.sugiyama"],
+        ),
+        control(
             "hashgate-control-node-count",
             &[
                 "layout.tree.tidy",
                 "layout.treemap.squarified",
                 "layout.circular.radial",
                 "layout.packing.circle",
+                "layout.spectral",
+                "layout.mds.pivot",
             ],
+        ),
+        control("hashgate-control-force-theta", &["layout.force.barnes_hut"]),
+        control(
+            "hashgate-control-fa2-scaling-ratio",
+            &["layout.forceatlas2"],
         ),
     ]
 }
@@ -110,6 +130,7 @@ fn honest() -> Evidence {
                 "layout.grid": hand(7),
                 "layout.circular.radial": hand(6),
                 "layout.packing.circle": hand(5),
+                "layout.dag.sugiyama": hand(9),
             }
         })),
         layouts: Some(json!({
@@ -117,6 +138,21 @@ fn honest() -> Evidence {
             "functions": {
                 "layout.tree.tidy": hand(9),
                 "layout.treemap.squarified": hand(11),
+            }
+        })),
+        stress: Some(json!({
+            "fingerprint": "tree", "seeds": 1000, "pass": true,
+            "functions": { "layout.force.barnes_hut": hand(4) }
+        })),
+        fa2: Some(json!({
+            "fingerprint": "tree", "seeds": 1000, "pass": true,
+            "functions": { "layout.forceatlas2": hand(4) }
+        })),
+        spectral: Some(json!({
+            "fingerprint": "tree", "seeds": 1000, "pass": true, "tolerance": true,
+            "functions": {
+                "layout.spectral": hand(12),
+                "layout.mds.pivot": hand(13),
             }
         })),
     }
@@ -132,7 +168,7 @@ fn row(status: Status) -> Capability {
 fn every_registered_row_stands_on_honest_evidence_and_reads_it_back() {
     let evidence = honest();
     let rows = ledger(&evidence);
-    assert_eq!(rows.len(), 13);
+    assert_eq!(rows.len(), 18);
     assert_eq!(problems(&rows, &evidence), Vec::<String>::new());
     assert_eq!(
         rows[0].hash_4way,
@@ -149,6 +185,17 @@ fn every_registered_row_stands_on_honest_evidence_and_reads_it_back() {
         "equal/1000 seeds (layout.grid stage; negative control hashgate-control-grid-spacing red)"
     );
     assert_eq!(grid.oracle_diff, "byte-equal/1000 seeds (7 cases)");
+    let dag = &rows[17];
+    assert_eq!(
+        (dag.id, dag.geometry, dag.scale_ceiling),
+        ("layout.dag.sugiyama", Some("Point"), 200_000)
+    );
+    assert_eq!(
+        dag.hash_4way,
+        "equal/1000 seeds (layout.dag.sugiyama stage; negative control \
+hashgate-control-sugiyama-layer-spacing red)"
+    );
+    assert_eq!(dag.oracle_diff, "byte-equal/1000 seeds (9 cases)");
 }
 
 #[test]
@@ -188,9 +235,12 @@ fn without_records_every_gated_row_is_refused_twice() {
         oracle: None,
         roundtrip: None,
         layouts: None,
+        stress: None,
+        fa2: None,
+        spectral: None,
     };
     let rows = ledger(&bare);
-    assert_eq!(problems(&rows, &bare).len(), 26);
+    assert_eq!(problems(&rows, &bare).len(), 32);
     assert!(
         rows[0]
             .hash_4way
@@ -200,96 +250,5 @@ fn without_records_every_gated_row_is_refused_twice() {
         rows[0]
             .oracle_diff
             .starts_with("not backed: no oracle-diff record")
-    );
-}
-
-fn refused(edit: impl FnOnce(&mut Evidence)) -> Vec<String> {
-    let mut evidence = honest();
-    edit(&mut evidence);
-    problems(&[row(Status::Gated)], &evidence)
-}
-
-#[test]
-fn a_record_from_another_tree_or_too_few_seeds_is_refused() {
-    let stale = refused(|e| e.fingerprint = "edited".into());
-    assert_eq!(stale.len(), 2, "{stale:?}");
-    assert!(stale[0].contains("from another tree"), "{stale:?}");
-    let short = refused(|e| e.hashgate.as_mut().expect("set")["seeds"] = json!(MIN_SEEDS - 1));
-    assert!(short[0].contains("ran 999 seeds, need 1000"), "{short:?}");
-    let short = refused(|e| e.oracle.as_mut().expect("set")["seeds"] = json!(999));
-    assert!(short[0].contains("oracle-diff ran 999 seeds"), "{short:?}");
-}
-
-#[test]
-fn a_failed_run_a_short_stage_or_a_green_control_is_refused() {
-    let red = refused(|e| e.hashgate.as_mut().expect("set")["pass"] = json!(false));
-    assert!(red[0].contains("hashgate did not pass"), "{red:?}");
-    let stage = refused(|e| e.hashgate.as_mut().expect("set")["equal"]["topology"] = json!(999));
-    assert!(
-        stage[0].contains("stage topology not 4-way equal"),
-        "{stage:?}"
-    );
-    let control = refused(|e| degree_control(e)["pass"] = json!(true));
-    assert!(
-        control[0].contains("hashgate-control-reference-degree did not go red;"),
-        "{control:?}"
-    );
-    for (topology, why) in [(json!(8), "8 of 8 equal"), (json!(null), "no count")] {
-        let blind = refused(|e| degree_control(e)["equal"]["topology"] = topology.clone());
-        assert!(
-            blind[0].contains("no negative control backs the topology stage"),
-            "{why}: {blind:?}"
-        );
-        assert!(
-            blind[0].contains("reference-degree did not go red on the topology stage"),
-            "{why}: {blind:?}"
-        );
-    }
-    let control = refused(|e| e.controls[0].1 = None);
-    assert!(
-        control[0].contains("no hashgate-control-reference-degree record"),
-        "{control:?}"
-    );
-    let stale = refused(|e| degree_control(e)["fingerprint"] = json!("old"));
-    assert!(stale[0].contains("from another tree"), "{stale:?}");
-    let none = refused(|e| e.controls.clear());
-    assert!(none[0].ends_with("no control is registered"), "{none:?}");
-    let oracle = refused(|e| e.oracle.as_mut().expect("set")["pass"] = json!(false));
-    assert!(oracle[0].contains("oracle-diff did not pass"), "{oracle:?}");
-}
-
-fn degree_control(e: &mut Evidence) -> &mut Value {
-    e.controls[0].1.as_mut().expect("set")
-}
-
-fn functions(e: &mut Evidence) -> &mut Value {
-    &mut e.oracle.as_mut().expect("set")["functions"]
-}
-
-#[test]
-fn a_function_without_cases_or_with_an_unexplained_mismatch_is_refused() {
-    let none = refused(|e| functions(e)["emptyModel"]["cases"] = json!(0));
-    assert!(none[0].contains("ran no emptyModel case"), "{none:?}");
-    let wrong = refused(|e| functions(e)["indexModel"]["unexplained"] = json!(1));
-    assert!(wrong[0].contains("indexModel has unexplained"), "{wrong:?}");
-    let mut evidence = honest();
-    functions(&mut evidence)["layoutGroups"]["declared"] = json!(3);
-    assert_eq!(
-        ledger(&evidence)[0].oracle_diff,
-        "byte-equal/1000 seeds (25 cases, 3 declared divergences)"
-    );
-}
-
-#[test]
-fn empty_required_fields_zero_ceiling_and_duplicate_ids_are_refused() {
-    let mut bare = row(Status::Implemented);
-    bare.ponytail = " ";
-    bare.degradation = "";
-    bare.scale_ceiling = 0;
-    assert_eq!(problems(&[bare], &honest()).len(), 3);
-    let twice = [row(Status::Stub), row(Status::Stub)];
-    assert_eq!(
-        problems(&twice, &honest()),
-        ["topology.index: duplicate id"]
     );
 }

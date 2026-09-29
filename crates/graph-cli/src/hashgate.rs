@@ -13,16 +13,20 @@
 //! control (one [`Knob`] set) in that knob's own record, for the capabilities ledger.
 
 mod compare;
+mod knob;
 mod report;
 
 use crate::evidence;
 use crate::runner::{build_wasm, file_sha256, node_harness, run_lines, sha256_hex};
 use compare::{Arm, Tally, diverged, per_stage};
+use graph_core::layout::force::BarnesHut;
+use graph_core::layout::forceatlas2::ForceAtlas2;
 use graph_core::{
-    Grid, GridParams, REFERENCE_DEGREE, gate_node_count, registry, run_pipeline, run_with,
-    seeded_model,
+    EdgeRecord, Geometry, Grid, NodeRecord, Stage, StageError, Sugiyama, Topology, gate_node_count,
+    registry, run_pipeline, run_with, seeded_model,
 };
-use std::env::VarError;
+pub use knob::Knob;
+use knob::{Setting, env_setting};
 use std::process::{Command, ExitCode};
 
 /// Every stage the gate hashes, in the order both arms print them: the topology, then
@@ -30,106 +34,22 @@ use std::process::{Command, ExitCode};
 /// built from `LAYOUTS` at runtime so its length is usable as an array size below;
 /// [`tests::the_stages_are_the_topology_then_every_registered_layout`] is the guard that
 /// keeps it honest as the registry grows.
-pub const STAGES: [&str; 6] = [
+pub const STAGES: [&str; 11] = [
     "topology",
     "layout.grid",
     "layout.tree.tidy",
     "layout.treemap.squarified",
     "layout.circular.radial",
     "layout.packing.circle",
+    "layout.spectral",
+    "layout.mds.pivot",
+    "layout.force.barnes_hut",
+    "layout.forceatlas2",
+    "layout.dag.sugiyama",
 ];
 
 /// `STAGES.len()`, named for the fixed-size arrays it sizes.
 const STAGE_COUNT: usize = STAGES.len();
-
-/// A negative control (`prompt.md` §7.2): a variable that perturbs the native arm only,
-/// so a wired mutation surfaces as exactly the cross-target divergence the gate must
-/// catch. The grid ignores weights, so the reference degree cannot reach `layout.grid`,
-/// and the grid's spacing is what backs that stage. Treemap reads node weight, so the
-/// reference degree backs it too. Tidy tree, circular and packing take no parameters
-/// (`layout::tidy_tree`/`circular` are pinned with none, and adding one to gain a knob
-/// would be the tail wagging the dog) and read only the topology, so [`Knob::NodeCount`]
-/// perturbs that instead: one more node changes every stage that is a function of the
-/// topology at all, backing every stage no other knob reaches.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Knob {
-    /// `GM_MUTATE_REFERENCE_DEGREE`: the degree the topology's weights are taken against.
-    ReferenceDegree,
-    /// `GM_MUTATE_GRID_SPACING`: the grid's spacing.
-    GridSpacing,
-    /// `GM_MUTATE_NODE_COUNT`: nodes added to the model, native arm only.
-    NodeCount,
-}
-
-impl Knob {
-    /// Every knob.
-    pub const ALL: [Self; 3] = [Self::ReferenceDegree, Self::GridSpacing, Self::NodeCount];
-
-    /// The variable that sets it.
-    pub const fn env(self) -> &'static str {
-        match self {
-            Self::ReferenceDegree => "GM_MUTATE_REFERENCE_DEGREE",
-            Self::GridSpacing => "GM_MUTATE_GRID_SPACING",
-            Self::NodeCount => "GM_MUTATE_NODE_COUNT",
-        }
-    }
-
-    /// The record its run writes.
-    pub const fn record(self) -> &'static str {
-        match self {
-            Self::ReferenceDegree => "hashgate-control-reference-degree",
-            Self::GridSpacing => "hashgate-control-grid-spacing",
-            Self::NodeCount => "hashgate-control-node-count",
-        }
-    }
-}
-
-/// What the native arm runs with: the compiled-in defaults, or one knob's perturbation.
-#[derive(Debug, Clone, Copy, PartialEq)]
-struct Setting {
-    reference_degree: u32,
-    grid: GridParams,
-    /// Extra nodes added to the gate's model, native arm only ([`Knob::NodeCount`]).
-    extra_nodes: u32,
-    control: Option<Knob>,
-}
-
-/// Reads the knobs through `read`. At most one may be set, and a set one must parse:
-/// a typo falling back to the default would let the control pass as green. A spacing the
-/// grid refuses is left for the grid to refuse, so the rule lives in one place.
-fn setting(read: impl Fn(&str) -> Result<String, VarError>) -> Result<Setting, String> {
-    let mut setting = Setting {
-        reference_degree: REFERENCE_DEGREE,
-        grid: GridParams::default(),
-        extra_nodes: 0,
-        control: None,
-    };
-    for knob in Knob::ALL {
-        let text = match read(knob.env()) {
-            Err(VarError::NotPresent) => continue,
-            Err(err) => return Err(format!("{}: {err}", knob.env())),
-            Ok(text) => text,
-        };
-        if let Some(other) = setting.control {
-            let (a, b) = (other.env(), knob.env());
-            return Err(format!("{a} and {b} are both set: one control at a time"));
-        }
-        setting.control = Some(knob);
-        let bad = |e: &dyn std::fmt::Display| format!("{}={text:?}: {e}", knob.env());
-        match knob {
-            Knob::ReferenceDegree => {
-                setting.reference_degree = text.trim().parse().map_err(|e| bad(&e))?;
-            }
-            Knob::GridSpacing => setting.grid.spacing = text.trim().parse().map_err(|e| bad(&e))?,
-            Knob::NodeCount => setting.extra_nodes = text.trim().parse().map_err(|e| bad(&e))?,
-        }
-    }
-    Ok(setting)
-}
-
-fn env_setting() -> Result<Setting, String> {
-    setting(|name| std::env::var(name))
-}
 
 /// Runs all four arms over seeds `0..seeds` and compares them line by line.
 pub fn run(seeds: u32) -> ExitCode {
@@ -175,7 +95,9 @@ fn arm_lines(seeds: u32, setting: &Setting) -> Result<String, String> {
 
 /// Every stage's id and bytes for `seed`, in pipeline order: the topology and the grid
 /// from the knob-aware [`run_pipeline`] (so the spacing control still reaches it), then
-/// every other registered layout via [`run_with`], each on the same nodes and edges.
+/// every parameterless registered layout via [`run_with`], then the layered drawing, again
+/// through [`run_pipeline`] so its layer-spacing control reaches it — all on the same nodes
+/// and edges.
 fn stage_bytes(
     seed: u32,
     setting: &Setting,
@@ -186,12 +108,35 @@ fn stage_bytes(
     let mut out: [(&'static str, Vec<u8>); STAGE_COUNT] = STAGES.map(|id| (id, Vec::new()));
     out[0].1 = grid.topology;
     out[1].1 = grid.snapshot.to_bytes();
-    for slot in &mut out[2..] {
-        let layout = registry::find(slot.0).ok_or_else(|| format!("{}: not registered", slot.0))?;
-        let run = run_with(&nodes, &edges, layout.id, layout.run).map_err(|e| e.to_string())?;
-        slot.1 = run.snapshot.to_bytes();
+    let last = STAGE_COUNT - 1;
+    for slot in &mut out[2..last] {
+        slot.1 = match slot.0 {
+            BarnesHut::ID => run_force(&nodes, &edges, |t| BarnesHut::run(t, &setting.force))?,
+            ForceAtlas2::ID => run_force(&nodes, &edges, |t| ForceAtlas2::run(t, &setting.fa2))?,
+            id => {
+                let layout = registry::find(id).ok_or_else(|| format!("{id}: not registered"))?;
+                let run =
+                    run_with(&nodes, &edges, layout.id, layout.run).map_err(|e| e.to_string())?;
+                run.snapshot.to_bytes()
+            }
+        };
     }
+    let dag = run_pipeline::<Sugiyama>(&nodes, &edges, &setting.sugiyama);
+    out[last].1 = dag.map_err(|e| e.to_string())?.snapshot.to_bytes();
     Ok(out)
+}
+
+/// A force stage run at the knob-aware parameters rather than the registry's compiled-in
+/// default, so [`Knob::ForceTheta`] and [`Knob::Fa2ScalingRatio`] can reach them. The
+/// wasm arm always runs the compiled-in default (it cannot see these variables), which
+/// is exactly the divergence a wired control must surface.
+fn run_force(
+    nodes: &[NodeRecord],
+    edges: &[EdgeRecord],
+    layout: impl FnOnce(&Topology) -> Result<Geometry, StageError>,
+) -> Result<Vec<u8>, String> {
+    let run = run_with(nodes, edges, "", layout).map_err(|e| e.to_string())?;
+    Ok(run.snapshot.to_bytes())
 }
 
 fn collect_arms(seeds: u32) -> Result<Vec<Arm>, String> {
