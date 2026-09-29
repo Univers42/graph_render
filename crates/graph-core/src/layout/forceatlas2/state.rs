@@ -1,6 +1,6 @@
 //! The dense simulation state, ported field-for-field from networkx 3.6's
-//! `forceatlas2_layout` (`/home/user/refs/networkx-3.6/networkx/drawing/layout.py:1604-
-//! 1875`, the whole function), scoped to its default configuration: `linlog=False`,
+//! `forceatlas2_layout` (`networkx/drawing/layout.py:1604-1875` in the pinned networkx-3.6
+//! source, the whole function), scoped to its default configuration: `linlog=False`,
 //! `distributed_action=False`, `strong_gravity=False`, `adjust_sizes=False`, `dim=2`,
 //! `weight=None` (every edge weight 1). `swing`/`traction` are carried **cumulatively
 //! across iterations**, never reset inside the loop — that looks like a quirk, but it is
@@ -62,7 +62,7 @@ impl Fa2State {
         let graph = simple_graph(topology);
         let n = topology.node_count();
         let mass = (0..n).map(|v| f64::from(graph.degree(v)) + 1.0).collect();
-        let (x, y) = init_positions(n, params.seed);
+        let (x, y) = initial_positions(n, params.seed);
         Self {
             graph,
             params,
@@ -235,8 +235,9 @@ impl Fa2State {
 
 /// networkx's own initial positions are `nx.random_layout` (uniform in the unit square,
 /// `numpy`'s RNG); this port uses the crate's one sequential generator, [`Mulberry32`],
-/// seeded explicitly (devil C8's "two kinds, and only two" — `rng.rs`).
-fn init_positions(n: u32, seed: u32) -> (Vec<f64>, Vec<f64>) {
+/// seeded explicitly (devil C8's "two kinds, and only two" — `rng.rs`). Public so the
+/// networkx differential can start the reference from the very same positions.
+pub fn initial_positions(n: u32, seed: u32) -> (Vec<f64>, Vec<f64>) {
     let mut rng = Mulberry32::new(seed);
     let mut x = Vec::with_capacity(n as usize);
     let mut y = Vec::with_capacity(n as usize);

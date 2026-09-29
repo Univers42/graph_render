@@ -1,5 +1,5 @@
 //! ForceAtlas2: a direct port of networkx 3.6's `forceatlas2_layout`
-//! (`/home/user/refs/networkx-3.6/networkx/drawing/layout.py`), scoped to its default
+//! (`networkx/drawing/layout.py` in the pinned networkx-3.6 source, `fetch-refs.sh`), scoped to its default
 //! configuration (see `forceatlas2/state.rs`'s doc comment for the exact list). Split
 //! across `forceatlas2/{state,tests}.rs` for the house line cap — the same split
 //! `quadtree.rs`/`quadtree/tests.rs` and `barnes_hut.rs`/`barnes_hut/*.rs` already use,
@@ -15,8 +15,8 @@ use crate::index::Topology;
 use crate::layout::Geometry;
 use crate::stage::{Stage, StageError};
 use graph_contract::geometry::{EdgeGeometry, NodeGeometry};
-pub use state::Fa2Params;
 use state::Fa2State;
+pub use state::{Fa2Params, initial_positions};
 
 /// ForceAtlas2 layout (`prompt.md` §3.1): a dense, O(n²)-per-iteration alternative to
 /// [`super::force::BarnesHut`] for the graph sizes it stays practical at — see

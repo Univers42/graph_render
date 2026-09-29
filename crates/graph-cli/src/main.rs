@@ -13,7 +13,7 @@ mod evidence;
 mod fingerprint;
 mod hashgate;
 mod oracle_fixtures;
-mod oracle_spectral;
+mod oracle_python;
 mod probe_report;
 mod runner;
 mod snapshot_cmd;
@@ -88,6 +88,21 @@ enum Command {
     OracleSpectral {
         /// Directory holding the fixtures and `spectral-result.json`.
         #[arg(long, default_value = "target/spectral-fixtures")]
+        dir: PathBuf,
+    },
+    /// Writes the ForceAtlas2 differential's fixtures for `harness/oracle-fa2.py`.
+    EmitFa2Fixtures {
+        /// Number of seeds, 0..N.
+        #[arg(long, default_value_t = 1000, value_parser = seed_count())]
+        seeds: u32,
+        /// Output directory.
+        #[arg(long, default_value = "target/fa2-fixtures")]
+        out: PathBuf,
+    },
+    /// Checks the ForceAtlas2 differential's result against its ceiling and records it.
+    OracleFa2 {
+        /// Directory holding the fixtures and `fa2-result.json`.
+        #[arg(long, default_value = "target/fa2-fixtures")]
         dir: PathBuf,
     },
     /// Runs `harness/oracle-layouts.mjs` over the emitted fixtures (the d3-hierarchy arm).
@@ -185,8 +200,14 @@ fn main() -> ExitCode {
         Command::OracleDiff { fixtures } => {
             oracle_fixtures::diff(&fixtures.unwrap_or_else(oracle_fixtures::default_out))
         }
-        Command::EmitSpectralFixtures { seeds, out } => oracle_spectral::emit(seeds, &out),
-        Command::OracleSpectral { dir } => oracle_spectral::ingest(&dir),
+        Command::EmitSpectralFixtures { seeds, out } => {
+            oracle_python::emit(&oracle_python::SPECTRAL, seeds, &out)
+        }
+        Command::OracleSpectral { dir } => oracle_python::ingest(&oracle_python::SPECTRAL, &dir),
+        Command::EmitFa2Fixtures { seeds, out } => {
+            oracle_python::emit(&oracle_python::FA2, seeds, &out)
+        }
+        Command::OracleFa2 { dir } => oracle_python::ingest(&oracle_python::FA2, &dir),
         Command::OracleLayouts { fixtures } => {
             oracle_fixtures::diff_layouts(&fixtures.unwrap_or_else(oracle_fixtures::default_out))
         }
