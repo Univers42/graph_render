@@ -1,8 +1,8 @@
 use super::compare::{Tally, diverged, per_stage};
 use super::*;
 
-/// Two seeds per stage; `fills[arm][line]` is the digest's repeated hex digit.
-fn arms(fills: [[char; 4]; 4]) -> Vec<Arm> {
+/// Two seeds per stage, three stages; `fills[arm][line]` is the digest's repeated hex digit.
+fn arms(fills: [[char; 6]; 4]) -> Vec<Arm> {
     let names = [
         "native run 1",
         "native run 2",
@@ -20,11 +20,11 @@ fn arms(fills: [[char; 4]; 4]) -> Vec<Arm> {
     names
         .iter()
         .zip(fills)
-        .map(|(n, f)| (*n, (0..4).map(|i| line(i, f[i])).collect()))
+        .map(|(n, f)| (*n, (0..6).map(|i| line(i, f[i])).collect()))
         .collect()
 }
 
-const HONEST: [[char; 4]; 4] = [['a', 'b', 'c', 'd']; 4];
+const HONEST: [[char; 6]; 4] = [['a', 'b', 'c', 'd', 'e', 'f']; 4];
 
 #[test]
 fn agreeing_arms_have_no_divergence() {
@@ -34,10 +34,10 @@ fn agreeing_arms_have_no_divergence() {
 #[test]
 fn one_arm_differing_on_one_line_names_that_line() {
     let mut fills = HONEST;
-    fills[3][3] = 'e';
-    assert_eq!(diverged(2, &arms(fills)), Ok(vec![3]));
-    fills[0][0] = 'f';
-    assert_eq!(diverged(2, &arms(fills)), Ok(vec![0, 3]));
+    fills[3][5] = '1';
+    assert_eq!(diverged(2, &arms(fills)), Ok(vec![5]));
+    fills[0][0] = '2';
+    assert_eq!(diverged(2, &arms(fills)), Ok(vec![0, 5]));
 }
 
 #[test]
@@ -58,14 +58,14 @@ fn vacuous_comparisons_are_refused() {
 
 #[test]
 fn a_stage_whose_seeds_all_hash_alike_is_refused_as_one_input() {
-    let err = diverged(2, &arms([['a', 'b', 'c', 'c']; 4])).expect_err("one digest");
+    let err = diverged(2, &arms([['a', 'b', 'c', 'c', 'e', 'f']; 4])).expect_err("one digest");
     assert!(
         err.starts_with("layout.grid: every seed hashed to one digest"),
         "{err}"
     );
     let one: Vec<Arm> = arms(HONEST)
         .into_iter()
-        .map(|(n, l)| (n, vec![l[0].clone(), l[2].clone()]))
+        .map(|(n, l)| (n, vec![l[0].clone(), l[2].clone(), l[4].clone()]))
         .collect();
     assert_eq!(diverged(1, &one), Ok(vec![]));
 }
@@ -76,12 +76,13 @@ fn per_stage_counts_equal_seeds_per_stage_and_distinct_bad_seeds() {
     assert_eq!(
         tally,
         Tally {
-            equal: vec![1, 1],
+            equal: vec![1, 1, 2],
             diverged_seeds: 1
         }
     );
     assert_eq!(per_stage(2, &[0, 3]).diverged_seeds, 2);
-    assert_eq!(per_stage(2, &[]).equal, [2, 2]);
+    assert_eq!(per_stage(2, &[4]).equal, [2, 2, 1]);
+    assert_eq!(per_stage(2, &[]).equal, [2, 2, 2]);
 }
 
 /// A reader of the variables in `pairs`, every other one unset.
@@ -103,6 +104,13 @@ fn the_mutation_variables_parse_strictly_and_one_at_a_time() {
     let defaults = (REFERENCE_DEGREE, GridParams::default(), None);
     let h = honest();
     assert_eq!((h.reference_degree, h.grid, h.control), defaults);
+    assert_eq!(h.sugiyama, SugiyamaParams::default());
+    let layers = setting(env(&[("GM_MUTATE_SUGIYAMA_LAYER_SPACING", "3.5")])).expect("parses");
+    assert_eq!(layers.sugiyama.layer_spacing, 3.5);
+    assert_eq!(
+        (layers.reference_degree, layers.grid, layers.control),
+        (REFERENCE_DEGREE, h.grid, Some(Knob::SugiyamaLayerSpacing))
+    );
     let degree = setting(env(&[("GM_MUTATE_REFERENCE_DEGREE", " 9 ")])).expect("parses");
     assert_eq!((degree.reference_degree, degree.grid), (9, h.grid));
     assert_eq!(degree.control, Some(Knob::ReferenceDegree));
@@ -112,7 +120,8 @@ fn the_mutation_variables_parse_strictly_and_one_at_a_time() {
         (REFERENCE_DEGREE, 2.5)
     );
     assert_eq!(spacing.control, Some(Knob::GridSpacing));
-    let bad: [&'static [(&str, &str)]; 3] = [
+    let bad: [&'static [(&str, &str)]; 4] = [
+        &[("GM_MUTATE_SUGIYAMA_LAYER_SPACING", "tall")],
         &[("GM_MUTATE_REFERENCE_DEGREE", "nine")],
         &[("GM_MUTATE_REFERENCE_DEGREE", "")],
         &[("GM_MUTATE_GRID_SPACING", "wide")],
@@ -137,13 +146,18 @@ fn each_knob_names_its_own_variable_and_record() {
     let records = Knob::ALL.map(Knob::record);
     assert_eq!(
         envs,
-        ["GM_MUTATE_REFERENCE_DEGREE", "GM_MUTATE_GRID_SPACING"]
+        [
+            "GM_MUTATE_REFERENCE_DEGREE",
+            "GM_MUTATE_GRID_SPACING",
+            "GM_MUTATE_SUGIYAMA_LAYER_SPACING"
+        ]
     );
     assert_eq!(
         records,
         [
             "hashgate-control-reference-degree",
-            "hashgate-control-grid-spacing"
+            "hashgate-control-grid-spacing",
+            "hashgate-control-sugiyama-layer-spacing"
         ]
     );
 }
@@ -157,35 +171,51 @@ fn the_stages_are_the_topology_then_every_registered_layout() {
 
 #[test]
 fn stage_bytes_are_the_registered_pipeline_and_each_knob_moves_one_stage() {
-    let [(t, topology), (l, layout)] = stage_bytes(4, &honest()).expect("runs");
-    assert_eq!([t, l], STAGES);
-    let grid = graph_core::registry::find(l).expect("registered");
+    let [(t, topology), (g, grid), (d, dag)] = stage_bytes(4, &honest()).expect("runs");
+    assert_eq!([t, g, d], STAGES);
     let (nodes, edges) = seeded_model(4, gate_node_count(4), REFERENCE_DEGREE);
-    let registered = graph_core::run_with(&nodes, &edges, grid.id, grid.run).expect("runs");
-    assert_eq!(
-        (&registered.topology, registered.snapshot.to_bytes()),
-        (&topology, layout.clone())
-    );
+    for (id, bytes) in [(g, &grid), (d, &dag)] {
+        let layout = graph_core::registry::find(id).expect("registered");
+        let registered = graph_core::run_with(&nodes, &edges, layout.id, layout.run).expect("runs");
+        assert_eq!(
+            (&registered.topology, &registered.snapshot.to_bytes()),
+            (&topology, bytes)
+        );
+    }
     let degree = Setting {
         reference_degree: REFERENCE_DEGREE + 1,
         ..honest()
     };
-    let [(_, moved), (_, kept)] = stage_bytes(4, &degree).expect("runs");
+    let [(_, moved), (_, grid_kept), (_, dag_kept)] = stage_bytes(4, &degree).expect("runs");
     assert_ne!(moved, topology);
-    assert_eq!(kept, layout, "the grid ignores weights");
+    assert_eq!(grid_kept, grid, "the grid ignores weights");
+    assert_eq!(dag_kept, dag, "the layered drawing ignores weights");
     let spacing = Setting {
         grid: GridParams { spacing: 2.0 },
         ..honest()
     };
-    let [(_, kept), (_, moved)] = stage_bytes(4, &spacing).expect("runs");
-    assert_eq!(kept, topology);
-    assert_ne!(moved, layout);
+    let [(_, kept), (_, moved), (_, dag_kept)] = stage_bytes(4, &spacing).expect("runs");
+    assert_eq!((kept, dag_kept), (topology.clone(), dag.clone()));
+    assert_ne!(moved, grid);
+    let layers = Setting {
+        sugiyama: SugiyamaParams { layer_spacing: 2.0 },
+        ..honest()
+    };
+    let [(_, kept), (_, grid_kept), (_, moved)] = stage_bytes(4, &layers).expect("runs");
+    assert_eq!((kept, grid_kept), (topology, grid));
+    assert_ne!(moved, dag);
     let refused = Setting {
         grid: GridParams { spacing: 0.0 },
         ..honest()
     };
     let err = stage_bytes(4, &refused).expect_err("zero spacing");
     assert_eq!(err, "parameter spacing: finite and above 0");
+    let flat = Setting {
+        sugiyama: SugiyamaParams { layer_spacing: 0.0 },
+        ..honest()
+    };
+    let err = stage_bytes(4, &flat).expect_err("zero layer spacing");
+    assert_eq!(err, "parameter layer_spacing: finite and above 0");
 }
 
 #[test]
@@ -197,7 +227,14 @@ fn an_arm_prints_every_seed_of_one_stage_before_the_next() {
         .collect();
     assert_eq!(
         prefixes,
-        ["topology 0", "topology 1", "layout.grid 0", "layout.grid 1"]
+        [
+            "topology 0",
+            "topology 1",
+            "layout.grid 0",
+            "layout.grid 1",
+            "layout.dag.sugiyama 0",
+            "layout.dag.sugiyama 1"
+        ]
     );
     let refused = Setting {
         grid: GridParams { spacing: -1.0 },

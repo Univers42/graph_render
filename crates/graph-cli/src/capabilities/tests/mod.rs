@@ -37,28 +37,36 @@ fn honest() -> Evidence {
             )
         })
         .collect();
-    let control = |topology: u32, grid: u32| {
+    let control = |topology: u32, grid: u32, dag: u32| {
         Some(json!({
             "fingerprint": "tree", "seeds": 8, "pass": false,
-            "equal": { "topology": topology, "layout.grid": grid }
+            "equal": {
+                "topology": topology, "layout.grid": grid, "layout.dag.sugiyama": dag
+            }
         }))
     };
     Evidence {
         fingerprint: "tree".into(),
         hashgate: Some(json!({
             "fingerprint": "tree", "seeds": 1000, "pass": true,
-            "equal": { "topology": 1000, "layout.grid": 1000 }
+            "equal": {
+                "topology": 1000, "layout.grid": 1000, "layout.dag.sugiyama": 1000
+            }
         })),
         controls: vec![
-            ("hashgate-control-reference-degree", control(0, 8)),
-            ("hashgate-control-grid-spacing", control(8, 0)),
+            ("hashgate-control-reference-degree", control(0, 8, 8)),
+            ("hashgate-control-grid-spacing", control(8, 0, 8)),
+            ("hashgate-control-sugiyama-layer-spacing", control(8, 8, 0)),
         ],
         oracle: Some(json!({
             "fingerprint": "tree", "seeds": 1000, "pass": true, "functions": functions
         })),
         roundtrip: Some(json!({
             "fingerprint": "tree", "seeds": 1000, "pass": true,
-            "functions": { "layout.grid": { "cases": 7, "declared": 0, "unexplained": 0 } }
+            "functions": {
+                "layout.grid": { "cases": 7, "declared": 0, "unexplained": 0 },
+                "layout.dag.sugiyama": { "cases": 9, "declared": 0, "unexplained": 0 }
+            }
         })),
     }
 }
@@ -73,7 +81,7 @@ fn row(status: Status) -> Capability {
 fn every_registered_row_stands_on_honest_evidence_and_reads_it_back() {
     let evidence = honest();
     let rows = ledger(&evidence);
-    assert_eq!(rows.len(), 9);
+    assert_eq!(rows.len(), 10);
     assert_eq!(problems(&rows, &evidence), Vec::<String>::new());
     assert_eq!(
         rows[0].hash_4way,
@@ -90,6 +98,40 @@ fn every_registered_row_stands_on_honest_evidence_and_reads_it_back() {
         "equal/1000 seeds (layout.grid stage; negative control hashgate-control-grid-spacing red)"
     );
     assert_eq!(grid.oracle_diff, "byte-equal/1000 seeds (7 cases)");
+    let dag = &rows[9];
+    assert_eq!(
+        (dag.id, dag.geometry, dag.scale_ceiling),
+        ("layout.dag.sugiyama", Some("Point"), 200_000)
+    );
+    assert_eq!(
+        dag.hash_4way,
+        "equal/1000 seeds (layout.dag.sugiyama stage; negative control \
+hashgate-control-sugiyama-layer-spacing red)"
+    );
+    assert_eq!(dag.oracle_diff, "byte-equal/1000 seeds (9 cases)");
+}
+
+#[test]
+fn the_sugiyama_row_stands_only_on_its_own_control() {
+    let dag = || vec![registry().remove(9)];
+    let mut evidence = honest();
+    evidence.controls.truncate(2);
+    let blind = problems(&dag(), &evidence);
+    assert_eq!(blind.len(), 1, "{blind:?}");
+    assert!(
+        blind[0].contains(
+            "hashgate-control-grid-spacing did not go red on the layout.dag.sugiyama stage"
+        ),
+        "{blind:?}"
+    );
+    let mut evidence = honest();
+    evidence.roundtrip.as_mut().expect("set")["functions"]["layout.dag.sugiyama"]["cases"] =
+        json!(0);
+    let empty = problems(&dag(), &evidence);
+    assert!(
+        empty[0].contains("ran no layout.dag.sugiyama case"),
+        "{empty:?}"
+    );
 }
 
 #[test]
@@ -130,7 +172,7 @@ fn without_records_every_gated_row_is_refused_twice() {
         roundtrip: None,
     };
     let rows = ledger(&bare);
-    assert_eq!(problems(&rows, &bare).len(), 18);
+    assert_eq!(problems(&rows, &bare).len(), 20);
     assert!(
         rows[0]
             .hash_4way

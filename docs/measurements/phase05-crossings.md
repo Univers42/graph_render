@@ -7,9 +7,8 @@ tuning them into passing.
 
 ## The margin (frozen)
 
-Oracle: `dagre-d3-es@7.0.14`, installed by `/home/user/gr npm install -D -E
-dagre-d3-es@7.0.14` (pinned in `package.json`/`package-lock.json`), reference copy at
-`/home/user/refs/npm/dagre-d3-es-7.0.14`.
+Oracle: `dagre-d3-es@7.0.14`, installed by `npm install -D -E dagre-d3-es@7.0.14` (pinned in `package.json`/`package-lock.json`), reference copy at
+`/goinfre/dlesieur/refs/npm/dagre-d3-es-7.0.14`.
 
 **"Materially worse"** means either of:
 
@@ -62,7 +61,7 @@ The root-attachment step reproduces `nesting-graph.js`'s `run` for the flat (no
 subgraphs) case exactly: with no compound children, its `treeDepths` gives every node
 depth 1, so `height = max(depths) - 1 = 0` and `nodeSep = 2*height + 1 = 1` always,
 meaning its own edges would be `{weight: 0, minlen: 1}` from a virtual root to every
-node — precisely what `scratch/measure-crossings.mjs` adds by hand. Re-running this on
+node — precisely what `harness/oracle-layouts.mjs` adds by hand. Re-running this on
 `wide-layer` gives dagre `36`, matching the hand count and our own layout exactly.
 
 Both sides run on **the same graph** (same node ids, same edge list, same direction) —
@@ -75,18 +74,18 @@ before its output was trusted, not an algorithm retuned to pass); see
 
 ```sh
 # 1. Rust side: our own crossing count, for the 6 fixtures + the synthetic sweep,
-#    dumped to scratch/dag-crossings.json (graph + our_crossings per entry).
-/home/user/gr cargo test -p graph-core --locked dump_crossing_measurements -- --ignored --nocapture
+#    dumped to target/dag-crossings.json (graph + our_crossings per entry).
+gr cargo test -p graph-core dump_crossing_measurements -- --ignored
 
 # 2. JS side: dagre-d3-es's own order/crossCount on the same graphs, compared against
-#    ours under the margin above.
-/home/user/node-slim.sh scratch/measure-crossings.mjs
+#    ours under the margin above. Exit 0 within the margin, 1 materially worse, 2 could
+#    not run.
+docker run --rm -v "$PWD:/w" -w /w node:22-slim sh -c 'npm ci --ignore-scripts && node harness/oracle-layouts.mjs --dag'
 ```
 
-`scratch/dag-crossings.json`, `scratch/crossing-comparison.json` and
-`scratch/crossing-verdict.json` are the raw data behind the table below; they are
-committed under `scratch/` as measurement working files (deviation: see
-`docs/decisions/sugiyama-heuristics.md`), not part of the crate's tested surface.
+`package-lock.json` is kept because the arm imports `dagre-d3-es`: `npm ci` needs the
+lock to install the pinned 7.0.14 and its dependencies. The arm refuses to report unless
+dagre counts K4,4 at its hand-counted 36 crossings.
 
 The synthetic sweep (`layout::sugiyama::measurement::synthetic_dag`) draws, per seed
 `0..230`, a node count in `6..26` and includes each `i < j` pair as an edge independently
@@ -135,6 +134,36 @@ its individual margin, and the summed total does not either.
 **status: pass.** Neither margin clause is crossed. No tuning of `ordering.rs`'s
 constants was needed or attempted.
 
-Raw data: `scratch/dag-crossings.json` (our numbers + graphs), `scratch/crossing-
-comparison.json` (both numbers per graph), `scratch/crossing-verdict.json` (the verdict
-booleans and sums this section reports).
+### Raw evidence
+
+The former `scratch/` working files, condensed. Every number regenerates from the two
+commands above. The verdict record of the 2026-09-28 run:
+
+```json
+{
+  "fixtures": "the 6 rows of the fixture table above",
+  "sweep": { "seeds": 230, "sumOurs": 5242, "sumDagre": 7657, "sweepLimit": 8422.7 },
+  "anyFixtureWorse": false,
+  "sweepWorse": false,
+  "materiallyWorse": false
+}
+```
+
+The 14 graphs of the 236 on which ours is strictly worse than dagre:
+
+| graph | ours | dagre | gap |
+|-------|-----:|------:|----:|
+| synthetic-227 | 38 | 25 | +13 |
+| synthetic-16 | 25 | 16 | +9 |
+| synthetic-22 | 75 | 70 | +5 |
+| synthetic-37 | 11 | 7 | +4 |
+| synthetic-70 | 57 | 53 | +4 |
+| synthetic-26 | 3 | 1 | +2 |
+| synthetic-212 | 13 | 11 | +2 |
+| synthetic-8 | 1 | 0 | +1 |
+| synthetic-49 | 1 | 0 | +1 |
+| synthetic-50 | 9 | 8 | +1 |
+| synthetic-77 | 2 | 1 | +1 |
+| synthetic-147 | 1 | 0 | +1 |
+| synthetic-154 | 1 | 0 | +1 |
+| synthetic-169 | 2 | 1 | +1 |

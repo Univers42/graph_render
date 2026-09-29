@@ -8,6 +8,7 @@
 use crate::index::Topology;
 use crate::layout::Geometry;
 use crate::layout::grid::Grid;
+use crate::layout::sugiyama::Sugiyama;
 use crate::stage::{Stage, StageError};
 use graph_contract::geometry::{EdgeGeometryKind, NodeGeometryKind};
 
@@ -76,12 +77,45 @@ measured natively on 64-bit and projected onto wasm32's 4 GiB; re-measure with \
 crates/graph-core/tests/memory.rs",
 };
 
+/// Layered-vertex count past which `layout.dag.sugiyama` routes no more long arcs: the
+/// reference's own `_DUMMY_BUDGET` (`SciGraphs/.../hierarchical.py:7`).
+pub const SUGIYAMA_CEILING: u64 = 200_000;
+
+const SUGIYAMA: Metadata = Metadata {
+    tier: 1,
+    stage: "layout",
+    nodes: NodeGeometryKind::Point,
+    edges: EdgeGeometryKind::Polyline,
+    oracle: "dagre-d3-es 7.0.14 crossing counts (harness/oracle-layouts.mjs --dag, margin frozen \
+in docs/measurements/phase05-crossings.md) and SciGraphs hierarchical.py; per-seed structural \
+invariants (acyclic after FAS, monotone layers, contiguous dummy chains) checked by graph-cli \
+roundtrip",
+    complexity: "O(n+m) per phase; crossing reduction is a heuristic (median + transpose local \
+search), not a minimiser",
+    scale_ceiling: SUGIYAMA_CEILING,
+    degradation: "past the dummy budget (200000) long arcs are left straight and unrouted and \
+each is reported as note 4 dag.dummy_budget_exceeded; above 150000 layered vertices the transpose \
+rounds drop to 0, so crossings rise while the drawing stays valid",
+    ponytail: "Ponytail (crossing reduction): median + transpose is a local search; a graph \
+whose optimal order it cannot reach draws more crossings than optimal — cosmetic, never \
+incorrect. Ponytail (dummy budget): an unrouted long arc is a straight line that may pass \
+through nodes — visually wrong, the dangerous direction; escape hatch: read note 4 in the \
+snapshot. Ponytail (FAS): greedy, not minimum; extra reversed edges (note 5) are cosmetic",
+};
+
 /// Every registered layout, in the order the hash gate runs them.
-pub static LAYOUTS: [Capability; 1] = [Capability {
-    id: Grid::ID,
-    run: run_default::<Grid>,
-    meta: GRID,
-}];
+pub static LAYOUTS: [Capability; 2] = [
+    Capability {
+        id: Grid::ID,
+        run: run_default::<Grid>,
+        meta: GRID,
+    },
+    Capability {
+        id: Sugiyama::ID,
+        run: run_default::<Sugiyama>,
+        meta: SUGIYAMA,
+    },
+];
 
 /// The layout registered under `id`.
 pub fn find(id: &str) -> Option<&'static Capability> {
@@ -133,5 +167,14 @@ mod tests {
         });
         assert_eq!(run_with(&nodes, &edges, grid.id, grid.run), by_hand);
         assert!(find("layout.none").is_none());
+    }
+
+    #[test]
+    fn sugiyama_declares_polyline_edges_and_the_reference_dummy_budget() {
+        let sugiyama = find("layout.dag.sugiyama").expect("registered");
+        assert_eq!(sugiyama.meta.nodes, NodeGeometryKind::Point);
+        assert_eq!(sugiyama.meta.edges, EdgeGeometryKind::Polyline);
+        assert_eq!(sugiyama.meta.scale_ceiling, 200_000);
+        assert!(sugiyama.meta.complexity.contains("heuristic"));
     }
 }

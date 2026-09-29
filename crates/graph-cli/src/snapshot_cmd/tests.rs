@@ -6,14 +6,14 @@ use std::collections::BTreeSet;
 
 #[test]
 fn every_registered_layout_is_offered_by_its_short_name() {
-    assert_eq!(layout_names(), ["grid"]);
+    assert_eq!(layout_names(), ["grid", "dag.sugiyama"]);
     let run = pipeline(1, 50, "grid").expect("runs");
     assert_eq!(
         (run.layout, run.snapshot.header().node_count),
         ("layout.grid", 50)
     );
     let err = pipeline(1, 50, "spiral").expect_err("unregistered");
-    assert_eq!(err, "no layout \"spiral\": one of grid");
+    assert_eq!(err, "no layout \"spiral\": one of grid, dag.sugiyama");
 }
 
 #[test]
@@ -24,6 +24,11 @@ fn both_faces_round_trip_on_the_grid_and_on_the_exercise() {
             .snapshot;
         assert_eq!(faces_agree(&grid), Ok(()), "grid seed {seed}");
         assert_eq!(grid_by_hand(&grid), Ok(()), "grid seed {seed}");
+        let layered = pipeline(seed, gate_node_count(seed), "dag.sugiyama")
+            .expect("runs")
+            .snapshot;
+        assert_eq!(faces_agree(&layered), Ok(()), "layered seed {seed}");
+        assert_eq!(dag::invariants(&layered), Ok(()), "layered seed {seed}");
         let exercise = exercise::snapshot(seed).expect("valid");
         assert_eq!(faces_agree(&exercise), Ok(()), "exercise seed {seed}");
     }

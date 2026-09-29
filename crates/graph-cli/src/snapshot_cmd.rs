@@ -12,6 +12,7 @@
 //! conventions restated in f64 — the hand oracle `layout.grid` is gated on — and the run
 //! is recorded in `target/gates/roundtrip.json` for the ledger.
 
+mod dag;
 mod exercise;
 
 use crate::evidence;
@@ -129,6 +130,8 @@ struct Findings {
     faces: Vec<String>,
     /// Seeds whose grid is off its conventions.
     grid: Vec<String>,
+    /// Seeds whose layered drawing breaks a structural invariant.
+    dag: Vec<String>,
     /// Exercise snapshots per notes case (`exercise::count_notes_cases`).
     notes: [u64; 5],
 }
@@ -138,7 +141,10 @@ const NOTES_CASES: [&str; 5] = ["0.2-labelled", "0.3 k=0", "code 1", "code 2", "
 
 impl Findings {
     fn pass(&self) -> bool {
-        self.faces.is_empty() && self.grid.is_empty() && self.notes.iter().all(|&c| c > 0)
+        self.faces.is_empty()
+            && self.grid.is_empty()
+            && self.dag.is_empty()
+            && self.notes.iter().all(|&c| c > 0)
     }
 }
 
@@ -155,13 +161,14 @@ pub fn roundtrip(seeds: u32) -> ExitCode {
     let pass = found.pass();
     print_findings(seeds, &found);
     let grid = json!({ "cases": seeds, "declared": 0, "unexplained": found.grid.len() });
+    let dag = json!({ "cases": seeds, "declared": 0, "unexplained": found.dag.len() });
     let notes: serde_json::Map<_, _> = (NOTES_CASES.iter().zip(found.notes))
         .map(|(case, count)| ((*case).to_owned(), json!(count)))
         .collect();
     let body = json!({
-        "seeds": seeds, "pass": pass, "snapshots": 2 * u64::from(seeds),
+        "seeds": seeds, "pass": pass, "snapshots": 3 * u64::from(seeds),
         "faces_failed": found.faces.len(), "notes_cases": notes,
-        "functions": { "layout.grid": grid }
+        "functions": { "layout.grid": grid, "layout.dag.sugiyama": dag }
     });
     if let Err(err) = evidence::write(&stamp, "roundtrip", body) {
         eprintln!("roundtrip: not recorded: {err}");
@@ -178,9 +185,14 @@ fn sweep(seeds: u32) -> Result<Findings, String> {
     let mut found = Findings::default();
     for seed in 0..seeds {
         let grid = pipeline(seed, gate_node_count(seed), "grid")?.snapshot;
+        let layered = pipeline(seed, gate_node_count(seed), "dag.sugiyama")?.snapshot;
         let exercise = exercise::snapshot(seed)?;
         exercise::count_notes_cases(&exercise, &mut found.notes);
-        for (what, snapshot) in [("grid", &grid), ("exercise", &exercise)] {
+        for (what, snapshot) in [
+            ("grid", &grid),
+            ("layered", &layered),
+            ("exercise", &exercise),
+        ] {
             if let Err(why) = faces_agree(snapshot) {
                 found.faces.push(format!("seed {seed} {what}: {why}"));
             }
@@ -188,24 +200,37 @@ fn sweep(seeds: u32) -> Result<Findings, String> {
         if let Err(why) = grid_by_hand(&grid) {
             found.grid.push(format!("seed {seed}: {why}"));
         }
+        if let Err(why) = dag::invariants(&layered) {
+            found.dag.push(format!("seed {seed}: {why}"));
+        }
     }
     Ok(found)
 }
 
 fn print_findings(seeds: u32, found: &Findings) {
-    let snapshots = 2 * u64::from(seeds);
-    println!("roundtrip: seeds={seeds} snapshots={snapshots} (grid pipeline + contract exercise)");
+    let snapshots = 3 * u64::from(seeds);
+    println!(
+        "roundtrip: seeds={seeds} snapshots={snapshots} (grid + layered pipelines + contract exercise)"
+    );
     let faces_ok = snapshots - found.faces.len() as u64;
     println!("  binary <-> JSON byte-exact on {faces_ok}/{snapshots} snapshots");
     let grid_ok = u64::from(seeds) - found.grid.len() as u64;
     println!("  layout.grid on its stated conventions on {grid_ok}/{seeds} seeds");
+    let dag_ok = u64::from(seeds) - found.dag.len() as u64;
+    println!("  layout.dag.sugiyama on its structural invariants on {dag_ok}/{seeds} seeds");
     let cases = NOTES_CASES.iter().zip(found.notes);
     let drawn: Vec<String> = cases.map(|(case, n)| format!("{case} {n}")).collect();
     println!(
         "  notes cases drawn (exercise, each needed): {}",
         drawn.join(", ")
     );
-    for line in found.faces.iter().chain(&found.grid).take(6) {
+    for line in found
+        .faces
+        .iter()
+        .chain(&found.grid)
+        .chain(&found.dag)
+        .take(6)
+    {
         println!("  FAILED {line}");
     }
 }

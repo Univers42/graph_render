@@ -134,8 +134,11 @@ fn snapshot_refuses_what_it_cannot_do() {
 fn roundtrip_passes_and_records_the_grids_hand_oracle() {
     let run = graph_cli(&["roundtrip", "--seeds", "20"], None);
     assert_eq!(run.status.code(), Some(0), "{}", stdout(&run));
-    assert!(stdout(&run).contains("  binary <-> JSON byte-exact on 40/40 snapshots"));
+    assert!(stdout(&run).contains("  binary <-> JSON byte-exact on 60/60 snapshots"));
     assert!(stdout(&run).contains("  layout.grid on its stated conventions on 20/20 seeds"));
+    assert!(
+        stdout(&run).contains("  layout.dag.sugiyama on its structural invariants on 20/20 seeds")
+    );
     assert!(stdout(&run).contains(
         "  notes cases drawn (exercise, each needed): 0.2-labelled 4, 0.3 k=0 5, code 1 "
     ));

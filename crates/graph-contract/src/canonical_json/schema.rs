@@ -40,20 +40,24 @@ fn unversioned() -> FormatVersion {
 #[serde(deny_unknown_fields)]
 pub struct Notes {
     /// Each note's code: 1 hierarchy.cycle_edge_dropped, 2 hierarchy.extra_parent_dropped,
-    /// 3 packing.approximate. 4-6 are reserved for later phases and refused, as is any
-    /// other.
+    /// 3 packing.approximate, 4 dag.dummy_budget_exceeded, 5 dag.edge_reversed. 6 is
+    /// reserved for a later phase and refused, as is any other.
     #[schemars(schema_with = "note_codes")]
     pub code: Vec<u32>,
-    /// Each note's index: for codes 1 and 2 an edge position (an index into edges.id,
-    /// below its length); for code 3 the literal 4294967295 (u32::MAX), the whole
+    /// Each note's index: for codes 1, 2, 4 and 5 an edge position (an index into
+    /// edges.id, below its length); for code 3 the literal 4294967295 (u32::MAX), the whole
     /// snapshot.
     pub index: Vec<u32>,
 }
 
 fn note_codes(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    let codes: Vec<u32> = crate::notes::NoteCode::ALL
+        .iter()
+        .map(|c| c.code())
+        .collect();
     schemars::json_schema!({
         "type": "array",
-        "items": { "type": "integer", "format": "uint32", "enum": [1, 2, 3] }
+        "items": { "type": "integer", "format": "uint32", "enum": codes }
     })
 }
 
@@ -145,4 +149,19 @@ pub enum EdgeGeometry {
         /// `2 × offsets[m]` coordinates, x then y for each point.
         pts: Vec<f32>,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::notes::NoteCode;
+
+    #[test]
+    fn the_schema_admits_exactly_the_implemented_note_codes() {
+        let schema = note_codes(&mut schemars::SchemaGenerator::default());
+        let admitted = schema.as_value()["items"]["enum"].clone();
+        let implemented: Vec<u32> = NoteCode::ALL.iter().map(|c| c.code()).collect();
+        assert_eq!(admitted, serde_json::json!(implemented));
+        assert_eq!(implemented, [1, 2, 3, 4, 5]);
+    }
 }

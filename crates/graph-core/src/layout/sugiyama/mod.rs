@@ -15,13 +15,14 @@ mod routing;
 
 use super::Geometry;
 use crate::index::Topology;
+use crate::stage::Stage;
 use crate::stage::StageError;
 use acyclic::{Acyclic, Arcs};
 use coords::Coords;
 use graph_contract::geometry::{EdgeGeometry, NodeGeometry};
 use layering::{DUMMY_BUDGET, Layering, assign_layers};
 use ordering::Ordering;
-use routing::{Routing, edge_paths, node_positions};
+use routing::{LAYER_SPACING, Routing, edge_paths, node_positions};
 
 /// Cycle breaking through crossing reduction, the three stages [`run`] and
 /// [`crossings_for`] share.
@@ -35,16 +36,51 @@ fn layered(topology: &Topology) -> (Acyclic, Layering, Ordering) {
     (acyclic, layering, ordering)
 }
 
+/// The layered-DAG stage.
+#[derive(Debug, Clone, Copy)]
+pub struct Sugiyama;
+
+/// The layered-DAG stage's parameters.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SugiyamaParams {
+    /// Y distance between adjacent layers. Finite and above 0.
+    pub layer_spacing: f32,
+}
+
+impl Default for SugiyamaParams {
+    fn default() -> Self {
+        Self {
+            layer_spacing: LAYER_SPACING,
+        }
+    }
+}
+
+impl Stage for Sugiyama {
+    type Params = SugiyamaParams;
+    const ID: &'static str = "layout.dag.sugiyama";
+
+    fn run(topology: &Topology, params: &SugiyamaParams) -> Result<Geometry, StageError> {
+        run(topology, params.layer_spacing)
+    }
+}
+
 /// Runs the whole pipeline: cycle breaking, layering, crossing reduction, X assignment,
-/// then the geometry itself. Never fails: every `Topology` this crate can build, including
-/// the empty one, has a layered drawing.
-pub fn run(topology: &Topology) -> Result<Geometry, StageError> {
+/// then the geometry itself. Fails only on a `layer_spacing` that is not finite and above
+/// 0: every `Topology` this crate can build, including the empty one, has a layered drawing.
+pub fn run(topology: &Topology, layer_spacing: f32) -> Result<Geometry, StageError> {
+    if !(layer_spacing.is_finite() && layer_spacing > 0.0) {
+        return Err(StageError::Param {
+            name: "layer_spacing",
+            rule: "finite and above 0",
+        });
+    }
     let (acyclic, layering, ordering) = layered(topology);
     let coords = Coords::build(&ordering, &layering, topology.node_count());
     let routing = Routing {
         layering: &layering,
         coords: &coords,
         acyclic: &acyclic,
+        spacing: layer_spacing,
     };
     let (x, y) = node_positions(&routing, topology.node_count());
     let paths = edge_paths(&routing);
@@ -111,7 +147,7 @@ mod tests {
             edge("ac", "a", "c"),
         ];
         let t = index_model(&n, &e).expect("fits");
-        let geometry = run(&t).expect("never fails");
+        let geometry = run(&t, 1.0).expect("never fails");
         assert!(matches!(geometry.nodes, NodeGeometry::Point { .. }));
         let EdgeGeometry::Polyline(paths) = &geometry.edges else {
             panic!("expected Polyline, got {:?}", geometry.edges);
@@ -138,13 +174,35 @@ mod tests {
             edge("cd", "c", "d"),
         ];
         let t = index_model(&n, &e).expect("fits");
-        assert_eq!(run(&t), run(&t));
+        assert_eq!(run(&t, 1.0), run(&t, 1.0));
+    }
+
+    #[test]
+    fn the_stage_is_registered_under_its_id_and_scales_y_by_its_spacing() {
+        assert_eq!(Sugiyama::ID, "layout.dag.sugiyama");
+        assert_eq!(SugiyamaParams::default().layer_spacing, 1.0);
+        let n = ["a", "b", "c"].map(|id| node(id, ""));
+        let e = [edge("ab", "a", "b"), edge("bc", "b", "c")];
+        let t = index_model(&n, &e).expect("fits");
+        let wide = SugiyamaParams { layer_spacing: 2.5 };
+        let NodeGeometry::Point { y, .. } = Sugiyama::run(&t, &wide).expect("runs").nodes else {
+            panic!("Point nodes");
+        };
+        assert_eq!(y, [0.0, 2.5, 5.0]);
+        for bad in [0.0, -1.0, f32::NAN, f32::INFINITY] {
+            let err = Sugiyama::run(&t, &SugiyamaParams { layer_spacing: bad });
+            let want = StageError::Param {
+                name: "layer_spacing",
+                rule: "finite and above 0",
+            };
+            assert_eq!(err, Err(want), "{bad}");
+        }
     }
 }
 
 /// Dumps our own crossing counts on the 6 fixtures plus a synthetic sweep, for the oracle
 /// differential in `docs/measurements/phase05-crossings.md`. Not a correctness check: run
-/// alone, `--ignored`, and read by `scratch/measure-crossings.mjs`.
+/// alone, `--ignored`, and read by `harness/oracle-layouts.mjs --dag`.
 #[cfg(test)]
 mod measurement {
     use super::*;
@@ -265,7 +323,7 @@ mod measurement {
     }
 
     #[test]
-    #[ignore = "writes scratch/dag-crossings.json for the Node oracle differential"]
+    #[ignore = "writes target/dag-crossings.json for the Node oracle differential"]
     fn dump_crossing_measurements() {
         let mut out = String::from("[");
         for (i, (name, fixture)) in FIXTURES.into_iter().enumerate() {
@@ -284,8 +342,8 @@ mod measurement {
             dump_one(&mut out, &format!("synthetic-{seed}"), &nodes, &edges);
         }
         out.push(']');
-        let scratch = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scratch");
-        std::fs::create_dir_all(&scratch).expect("mkdir scratch");
-        std::fs::write(scratch.join("dag-crossings.json"), out).expect("write dump");
+        let target = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
+        std::fs::create_dir_all(&target).expect("mkdir target");
+        std::fs::write(target.join("dag-crossings.json"), out).expect("write dump");
     }
 }

@@ -3,7 +3,7 @@
 //! plain numbers. A buffer comes back as a pointer to `[len: u32 LE][len bytes]`,
 //! valid until the next export call.
 //!
-//! `gm_topology` and `gm_layout_grid` are the hash gate's stages: each runs the pipeline
+//! `gm_topology`, `gm_layout_grid` and `gm_layout_sugiyama` are the hash gate's stages: each runs the pipeline
 //! over the gate's model for a seed and returns its own stage's bytes. With the `probe`
 //! feature it also exports `gm_probe`, which carries the D1 measurement to wasm32 so it
 //! can be compared bit for bit against the same code run natively; the shipped module
@@ -54,6 +54,13 @@ mod exports {
     #[unsafe(no_mangle)]
     pub extern "C" fn gm_layout_grid(seed: u32) -> u32 {
         publish(pipeline(seed, "layout.grid").map(|run| run.snapshot.to_bytes()))
+    }
+
+    /// The `layout.dag.sugiyama` stage's snapshot bytes for `seed`.
+    // SAFETY: as above — `gm_layout_sugiyama` is the only symbol with this name.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn gm_layout_sugiyama(seed: u32) -> u32 {
+        publish(pipeline(seed, "layout.dag.sugiyama").map(|run| run.snapshot.to_bytes()))
     }
 
     /// The D1 probe buffer (see [`crate::probe`]). Only in the `probe` build.

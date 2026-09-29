@@ -17,36 +17,47 @@ mod compare;
 use crate::evidence;
 use crate::runner::{build_wasm, file_sha256, node_harness, run_lines, sha256_hex};
 use compare::{Arm, Tally, diverged, per_stage};
-use graph_core::{Grid, GridParams, REFERENCE_DEGREE, gate_node_count, run_pipeline, seeded_model};
+use graph_core::{
+    Grid, GridParams, REFERENCE_DEGREE, Sugiyama, SugiyamaParams, gate_node_count, run_pipeline,
+    seeded_model,
+};
 use serde_json::json;
 use std::env::VarError;
 use std::process::{Command, ExitCode};
 
 /// Every stage the gate hashes, in the order both arms print them: the topology, then
 /// every layout of `graph_core::registry::LAYOUTS`.
-pub const STAGES: [&str; 2] = ["topology", "layout.grid"];
+pub const STAGES: [&str; 3] = ["topology", "layout.grid", "layout.dag.sugiyama"];
 
 /// A negative control (`prompt.md` §7.2): a variable that perturbs the native arm only,
 /// so a wired mutation surfaces as exactly the cross-target divergence the gate must
 /// catch. Each moves one stage's input: the grid ignores weights, so the reference
-/// degree cannot reach `layout.grid`, and the grid's spacing is what backs that stage.
+/// degree cannot reach `layout.grid`, and the grid's spacing is what backs that stage; the
+/// layered drawing likewise ignores weights, and its layer spacing backs its stage.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Knob {
     /// `GM_MUTATE_REFERENCE_DEGREE`: the degree the topology's weights are taken against.
     ReferenceDegree,
     /// `GM_MUTATE_GRID_SPACING`: the grid's spacing.
     GridSpacing,
+    /// `GM_MUTATE_SUGIYAMA_LAYER_SPACING`: the layered drawing's Y step per layer.
+    SugiyamaLayerSpacing,
 }
 
 impl Knob {
     /// Every knob.
-    pub const ALL: [Self; 2] = [Self::ReferenceDegree, Self::GridSpacing];
+    pub const ALL: [Self; 3] = [
+        Self::ReferenceDegree,
+        Self::GridSpacing,
+        Self::SugiyamaLayerSpacing,
+    ];
 
     /// The variable that sets it.
     pub const fn env(self) -> &'static str {
         match self {
             Self::ReferenceDegree => "GM_MUTATE_REFERENCE_DEGREE",
             Self::GridSpacing => "GM_MUTATE_GRID_SPACING",
+            Self::SugiyamaLayerSpacing => "GM_MUTATE_SUGIYAMA_LAYER_SPACING",
         }
     }
 
@@ -55,6 +66,7 @@ impl Knob {
         match self {
             Self::ReferenceDegree => "hashgate-control-reference-degree",
             Self::GridSpacing => "hashgate-control-grid-spacing",
+            Self::SugiyamaLayerSpacing => "hashgate-control-sugiyama-layer-spacing",
         }
     }
 }
@@ -64,6 +76,7 @@ impl Knob {
 struct Setting {
     reference_degree: u32,
     grid: GridParams,
+    sugiyama: SugiyamaParams,
     control: Option<Knob>,
 }
 
@@ -74,6 +87,7 @@ fn setting(read: impl Fn(&str) -> Result<String, VarError>) -> Result<Setting, S
     let mut setting = Setting {
         reference_degree: REFERENCE_DEGREE,
         grid: GridParams::default(),
+        sugiyama: SugiyamaParams::default(),
         control: None,
     };
     for knob in Knob::ALL {
@@ -93,6 +107,9 @@ fn setting(read: impl Fn(&str) -> Result<String, VarError>) -> Result<Setting, S
                 setting.reference_degree = text.trim().parse().map_err(|e| bad(&e))?;
             }
             Knob::GridSpacing => setting.grid.spacing = text.trim().parse().map_err(|e| bad(&e))?,
+            Knob::SugiyamaLayerSpacing => {
+                setting.sugiyama.layer_spacing = text.trim().parse().map_err(|e| bad(&e))?;
+            }
         }
     }
     Ok(setting)
@@ -144,11 +161,16 @@ fn arm_lines(seeds: u32, setting: &Setting) -> Result<String, String> {
     Ok(blocks.concat())
 }
 
-/// Every stage's id and bytes for `seed`, in pipeline order.
-fn stage_bytes(seed: u32, setting: &Setting) -> Result<[(&'static str, Vec<u8>); 2], String> {
+/// Every stage's id and bytes for `seed`, in [`STAGES`] order: the topology's bytes are
+/// the same under every layout, so they are taken from the first pipeline run.
+fn stage_bytes(seed: u32, setting: &Setting) -> Result<[(&'static str, Vec<u8>); 3], String> {
     let (nodes, edges) = seeded_model(seed, gate_node_count(seed), setting.reference_degree);
-    let run = run_pipeline::<Grid>(&nodes, &edges, &setting.grid).map_err(|e| e.to_string())?;
-    Ok(run.stages())
+    let grid = run_pipeline::<Grid>(&nodes, &edges, &setting.grid).map_err(|e| e.to_string())?;
+    let dag =
+        run_pipeline::<Sugiyama>(&nodes, &edges, &setting.sugiyama).map_err(|e| e.to_string())?;
+    let [topology, grid_layout] = grid.stages();
+    let [_, dag_layout] = dag.stages();
+    Ok([topology, grid_layout, dag_layout])
 }
 
 fn collect_arms(seeds: u32) -> Result<Vec<Arm>, String> {

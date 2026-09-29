@@ -15,7 +15,7 @@ use graph_contract::geometry::Paths;
 
 /// The spacing between adjacent layers on Y. Matches `coords.rs`'s `GAP` on X, so a
 /// dummy's step between layers is the same visual size as a real vertex's step within one.
-const LAYER_SPACING: f32 = 1.0;
+pub(crate) const LAYER_SPACING: f32 = 1.0;
 
 /// `layering`, `coords` and `acyclic`, bundled so [`edge_paths`] and its helper take one
 /// parameter instead of three (≤4 per house style).
@@ -23,6 +23,8 @@ pub(crate) struct Routing<'a> {
     pub(crate) layering: &'a Layering,
     pub(crate) coords: &'a Coords,
     pub(crate) acyclic: &'a Acyclic,
+    /// Y per layer step; [`LAYER_SPACING`] unless a caller asks for another.
+    pub(crate) spacing: f32,
 }
 
 /// Every real node's `(x, y)`, in node order.
@@ -30,7 +32,7 @@ pub(crate) fn node_positions(routing: &Routing, node_count: u32) -> (Vec<f32>, V
     let (mut x, mut y) = (Vec::with_capacity(node_count as usize), Vec::new());
     for v in 0..node_count {
         x.push(routing.coords.0[v as usize] as f32);
-        y.push(routing.layering.layer_of[v as usize] as f32 * LAYER_SPACING);
+        y.push(routing.layering.layer_of[v as usize] as f32 * routing.spacing);
     }
     (x, y)
 }
@@ -62,7 +64,7 @@ fn push_route(pts: &mut Vec<f32>, routing: &Routing, e: u32) {
             first + step
         };
         pts.push(routing.coords.0[d as usize] as f32);
-        pts.push(routing.layering.layer_of[d as usize] as f32 * LAYER_SPACING);
+        pts.push(routing.layering.layer_of[d as usize] as f32 * routing.spacing);
     }
 }
 
@@ -90,6 +92,7 @@ mod tests {
             layering: &layering,
             coords: &coords,
             acyclic: &acyclic,
+            spacing: LAYER_SPACING,
         };
         edge_paths(&routing)
     }
@@ -233,7 +236,7 @@ mod tests {
     /// orientation).
     fn assert_invariants(nodes: &[String], edges: &[(String, String, String)]) {
         let t = dag_topology(nodes, edges);
-        let geometry = run(&t).expect("sugiyama never fails");
+        let geometry = run(&t, LAYER_SPACING).expect("sugiyama never fails");
         let NodeGeometry::Point { y, .. } = &geometry.nodes else {
             panic!("sugiyama always emits Point nodes")
         };

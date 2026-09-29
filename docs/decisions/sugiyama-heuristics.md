@@ -134,14 +134,14 @@ a bug, and is not asserted as a passing test; determinism (same graph, same inpu
 byte-identical output) is what is tested (`run_is_deterministic`, and the module's
 determinism test run twice per the branch-local gate).
 
-### Measurement tooling lives under `scratch/`, committed
+### The measurement lives in the oracle harness, not in `scratch/`
 
-`scratch/measure-crossings.mjs`, `scratch/dag-crossings.json`,
-`scratch/crossing-comparison.json` and `scratch/crossing-verdict.json` are Node-side
-measurement working files, per the phase's authorization that "measurement scripts
-needing Node go under `scratch/`, committed there, listed as a deviation." They are not
-part of the crate's tested surface and are not referenced by any Rust code; they exist
-solely to reproduce `docs/measurements/phase05-crossings.md`'s Results section.
+The Node side is `harness/oracle-layouts.mjs --dag`, the dagre-d3-es arm the phase
+authorizes; its input is `target/dag-crossings.json`, written by graph-core's ignored
+`dump_crossing_measurements` test, so nothing measured is committed as a working file.
+The raw evidence of the recorded run is condensed into
+`docs/measurements/phase05-crossings.md`. `package-lock.json` stays in the tree because
+the arm's `npm ci` needs it to install the pinned `dagre-d3-es`.
 
 ### The first crossing-measurement technique was wrong, and was replaced before being trusted
 
