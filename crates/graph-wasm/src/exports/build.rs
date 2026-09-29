@@ -4,6 +4,7 @@
 
 use super::state::{HANDLES, publish};
 use crate::alloc::is_live;
+use crate::contract;
 use crate::errors::{self, Code};
 use crate::handle::Handle;
 use crate::ingest;
@@ -63,6 +64,64 @@ pub extern "C" fn gm_build(ingest_ptr: u32, ingest_len: u32) -> u32 {
     };
     let Ok(topology) = index_model(&nodes, &edges) else {
         errors::set(Code::IngestInvalid);
+        return 0;
+    };
+    let handle = Handle {
+        topology,
+        snapshot: None,
+        geometry: None,
+    };
+    match HANDLES.with(|handles| handles.borrow_mut().insert(handle)) {
+        Some(id) => {
+            errors::clear();
+            id
+        }
+        None => {
+            errors::set(Code::HandlesExhausted);
+            0
+        }
+    }
+}
+
+/// Builds a graph from the **ingest contract** buffer at `(contract_ptr, contract_len)`,
+/// which must be a live `gm_alloc` allocation (C5) with the same ownership rule as
+/// [`gm_build`]: copied out of, never freed, the caller's to free either way. `0` on any
+/// refusal.
+///
+/// **Additive.** [`gm_build`] and its provisional node/edge JSON are unchanged — that is
+/// the format the host studio and the hash gate's C20 stage already speak, and both still
+/// work. This export is the *other* way in, for the phase-10 contract
+/// (`docs/contract/ingest-schema.json`): the document declares roles, and the graph comes
+/// from `graph_core::ingest`'s single derivation, which is the whole point of the
+/// contract — the motor holds one derivation instead of one per source.
+///
+/// The two formats are deliberately not interchangeable and each reader refuses the
+/// other's document, so this cannot become `gm_build` by accident: routing it to the
+/// provisional parser would derive nothing at all, and routing `gm_build` here would
+/// refuse every document the studio sends. Both directions are pinned by tests in
+/// `crate::contract`.
+///
+/// Refusals are `Code::ContractInvalid` for a document that is not a valid contract or
+/// describes a graph that cannot be derived, `Code::BuildSourceInvalid` for a
+/// `(ptr, len)` that is not a live allocation, and `Code::HandlesExhausted` when every
+/// handle id has been issued. Not `IngestInvalid`: see [`Code::ContractInvalid`].
+// SAFETY: as `gm_layout_count`. The byte range read is confirmed live by `is_live`
+// immediately before the one slice formed from it, and that slice does not outlive this
+// call — `contract::derive` borrows it and returns only owned records and a topology.
+#[unsafe(no_mangle)]
+pub extern "C" fn gm_build_contract(contract_ptr: u32, contract_len: u32) -> u32 {
+    if !is_live(contract_ptr, contract_len) {
+        errors::set(Code::BuildSourceInvalid);
+        return 0;
+    }
+    // SAFETY: `is_live` confirmed this exact `(ptr, len)` is a `gm_alloc` allocation the
+    // caller still owns; the buffer outlives this whole call (freed only by the caller's
+    // own later `gm_free`), so borrowing it for the duration of `contract::derive` is
+    // sound, and nothing here retains the slice past this function.
+    let bytes =
+        unsafe { std::slice::from_raw_parts(contract_ptr as *const u8, contract_len as usize) };
+    let Ok((_, topology)) = contract::derive(bytes) else {
+        errors::set(Code::ContractInvalid);
         return 0;
     };
     let handle = Handle {
