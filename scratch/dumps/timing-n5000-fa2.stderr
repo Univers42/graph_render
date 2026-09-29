@@ -1,3 +1,0 @@
-    Finished `release` profile [optimized] target(s) in 0.04s
-     Running `target/release/examples/force_dump seed 0 5000 fa2`
-layout=fa2 nodes=5000 edges=7721 elapsed_ms=3704.927881

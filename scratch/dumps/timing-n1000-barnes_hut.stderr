@@ -1,3 +1,0 @@
-    Finished `release` profile [optimized] target(s) in 0.04s
-     Running `target/release/examples/force_dump seed 0 1000 barnes_hut`
-layout=barnes_hut nodes=1000 edges=1541 elapsed_ms=220.362571
