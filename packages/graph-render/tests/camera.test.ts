@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  DEFAULT_LIMITS, IDENTITY, centreOn, fitCamera, limitsFor, panBy, screenToWorld, worldToScreen, zoomAt,
+  DEFAULT_LIMITS, IDENTITY, centreOn, fitCamera, limitsFor, panBy, resetCamera, screenToWorld, worldToScreen, zoomAt,
 } from "../src/camera.ts";
 
 const VIEWPORT = { width: 800, height: 600 };
@@ -56,4 +56,39 @@ test("the zoom floor drops for a graph larger than the default floor shows", () 
 test("centring puts the world point in the middle of the viewport", () => {
   const camera = centreOn({ x: 0, y: 0, scale: 2 }, { x: 30, y: 40 }, VIEWPORT);
   assert.deepEqual(worldToScreen(camera, { x: 30, y: 40 }), { x: 400, y: 300 });
+});
+
+test("the zoom limits are the studio's own: 0.02 and 40", () => {
+  assert.deepEqual(DEFAULT_LIMITS, { min: 0.02, max: 40 });
+  assert.equal(zoomAt({ x: 0, y: 0, scale: 39.9 }, { x: 5, y: 5 }, 1.1).scale, 40);
+  assert.equal(zoomAt({ x: 0, y: 0, scale: 0.021 }, { x: 5, y: 5 }, 0.1).scale, 0.02);
+});
+
+// A clamp moves the anchor: the scale stops, so the point under the cursor slides. The gate
+// row is about the wheel inside the limits, which this pins: nothing moves under the cursor.
+test("a zoom that is not clamped keeps the point under the cursor, at any scale", () => {
+  const at = { x: 300, y: 200 };
+  for (const scale of [0.02, 1, 7.5, 39.9]) {
+    const before = screenToWorld({ x: 10, y: 20, scale }, at);
+    const after = screenToWorld(zoomAt({ x: 10, y: 20, scale }, at, 1.2), at);
+    assert.ok(Math.abs(before.x - after.x) < 1e-9 && Math.abs(before.y - after.y) < 1e-9, `at scale ${scale}`);
+  }
+});
+
+// The offset follows the ratio the clamp actually applied, not the factor asked for: at 39.9
+// asking ×9 gives ×1.002506…, so x is 300 - 290 × 1.002506… and y is 200 - 180 × 1.002506….
+test("a clamped zoom anchors with the ratio it applied, not the factor asked for", () => {
+  assert.deepEqual(zoomAt({ x: 10, y: 20, scale: 39.9 }, { x: 300, y: 200 }, 9), {
+    scale: 40, x: 9.273182957393487, y: 19.548872180451127,
+  });
+});
+
+test("a reset is 1:1 with the world origin in the middle of the viewport", () => {
+  assert.deepEqual(resetCamera(VIEWPORT), { x: 400, y: 300, scale: 1 });
+  assert.deepEqual(worldToScreen(resetCamera(VIEWPORT), { x: 0, y: 0 }), { x: 400, y: 300 });
+});
+
+test("a reset does not read the camera it replaces", () => {
+  assert.deepEqual(resetCamera(VIEWPORT), resetCamera(VIEWPORT));
+  assert.equal(resetCamera({ width: 100, height: 200 }).scale, 1);
 });

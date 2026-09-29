@@ -208,7 +208,7 @@ function logNormalise(
   out: Float64Array,
 ): void {
   const eps = logEpsilon(work, bounds[1]);
-  let planLo = Math.log10(Math.max(bounds[0], eps));
+  const planLo = Math.log10(Math.max(bounds[0], eps));
   let planHi = Math.log10(Math.max(bounds[1], eps));
   if (planHi === planLo) planHi = planLo + DEGENERATE;
   for (let i = 0; i < work.length; i += 1) {

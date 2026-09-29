@@ -10,6 +10,10 @@
 #
 # Exit: 0 passed · 1 a row failed, or a test was skipped · 2 misuse, or an asset is missing.
 #
+# Every node container gets $REFS (default /goinfre/dlesieur/refs) read-only at /refs, where
+# the look tests read the pinned tables they compare the generated colour ramps against; the
+# test and check commands refuse to run without it rather than skip a row that cannot pass.
+#
 # The dev server listens on every interface INSIDE its container and is published on the
 # host's loopback only: a studio on a shared machine is not everyone's studio.
 set -euo pipefail
@@ -18,6 +22,10 @@ here=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 root=$(git -C "$here" rev-parse --show-toplevel)
 gr=${GR:-$root/scripts/orch/gr}
 node_image=${NODE_IMAGE:-node:22-slim}
+# The pinned references the tests read: the look tests compare the generated colour tables
+# against /goinfre/dlesieur/refs/matplotlib-3.10.0/_cm_listed.py, and skip without it. A
+# skipped test is not a pass, so the check would never go green on an unmounted host.
+refs=${REFS:-/goinfre/dlesieur/refs}
 port=${STUDIO_PORT:-5174}
 command=${1:-serve}
 packages=(graph-render graph-studio)
@@ -31,7 +39,17 @@ in_node() {
   shift
   # `docker run -it` refuses without a terminal, which a gate never has.
   [[ -t 0 && -t 1 ]] && tty=(-it)
-  docker run --rm "${tty[@]}" "${publish[@]}" -v "$root:/w" -w "/w/$dir" "$node_image" "$@"
+  docker run --rm "${tty[@]}" "${publish[@]}" -v "$root:/w" -w "/w/$dir" \
+    -v "$refs:/refs:ro" "$node_image" "$@"
+}
+
+# A row that could not run is a row that did not run: refuse rather than skip silently.
+require_refs() {
+  if [[ ! -f $refs/matplotlib-3.10.0/_cm_listed.py ]]; then
+    log "MISSING $refs/matplotlib-3.10.0/_cm_listed.py — the look tests would SKIP."
+    log "Fetch the pinned references with scripts/orch/fetch-refs.sh, or set REFS=<dir>."
+    exit 2
+  fi
 }
 
 build_wasm() {
@@ -126,6 +144,7 @@ case "$command" in
     build
     ;;
   test)
+    require_refs
     install_deps
     unit_tests
     render_tests
@@ -135,6 +154,7 @@ case "$command" in
     lint
     ;;
   check)
+    require_refs
     install_deps
     stage_assets
     types

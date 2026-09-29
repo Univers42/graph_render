@@ -10,4 +10,4 @@ permission:
 You receive a failing gate row (with its log path) or a review finding. Reproduce it, find the
 cause, apply the smallest fix inside the phase envelope, and re-run only the rows that were red.
 If the fix needs a file outside the envelope, stop and report it under "decisions needed".
-Never weaken a test or a negative control to make it pass. End with the AGENT_BRIEF.md return block.
+Never weaken a test or a negative control to make it pass. With several red rows or findings, dispatch one parallel `subagent` (agent `general`, `background: true`) per independent cause in one message, each owning disjoint files; you integrate and re-run. End with the AGENT_BRIEF.md return block.

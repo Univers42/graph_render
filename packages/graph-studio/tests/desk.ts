@@ -39,7 +39,10 @@ function recordingView(seen: Seen, handlers: Handlers): ViewFace {
     setTheme: (theme) => void seen.themes.push(theme),
     setLabels: (policy) => void seen.policies.push(policy),
     fit: () => void seen.calls.push("fit"),
+    reset: () => void seen.calls.push("reset"),
     zoomBy: (factor) => void seen.calls.push(`zoomBy ${factor}`),
+    panBy: (delta) => void seen.calls.push(`panBy ${delta.x} ${delta.y}`),
+    limits: () => ({ min: 0.02, max: 40 }),
     focus: (node) => void seen.calls.push(`focus ${node}`),
     select: (node) => void seen.calls.push(`select ${node}`),
     on: (name, handler) => {
