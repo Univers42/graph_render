@@ -23,6 +23,7 @@ mod transport;
 use crate::evidence;
 use crate::runner::{build_wasm, file_sha256, node_harness, run_lines, sha256_hex};
 use compare::{Arm, Tally, diverged, per_stage};
+use graph_core::layout::forceatlas2::Fa2Params;
 pub use knob::Knob;
 use knob::{Setting, env_setting};
 pub(crate) use stages::{LAYOUT, TRANSPORT};
@@ -33,6 +34,15 @@ use stages::stage_bytes;
 use stages::stage_bytes_for;
 pub(crate) use stages::stages;
 use std::process::{Command, ExitCode};
+
+/// The differential's own negative control: `GM_MUTATE_FA2_SCALING_RATIO` applied to the
+/// compiled-in ForceAtlas2 parameters, so `emit-fa2-fixtures` measures a perturbed port
+/// against the very reference the honest run is measured against. Refused on a typo'd or
+/// doubled knob, like every other read here, rather than falling back to the default and
+/// passing as green.
+pub(crate) fn fa2_perturbation() -> Result<Fa2Params, String> {
+    Ok(env_setting()?.fa2)
+}
 
 /// Runs all four arms over seeds `0..seeds` and compares them line by line.
 pub fn run(seeds: u32) -> ExitCode {

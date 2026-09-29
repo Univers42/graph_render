@@ -5,8 +5,8 @@
 > (`crates/graph-cli/src/stress.rs` and `stress/metric.rs`), runs a real
 > `d3-force@3.0.0` arm through `harness/stress-d3.mjs`, and records
 > `<gates>/stress.json` — the record `layout.force.barnes_hut`'s ledger row names.
-> `graph-cli bench --n …` is likewise a command, and is where the ceilings in
-> `docs/measurements/phase06-force.md` and the registry's `FORCE_CEILING` /
+> `graph-cli bench --layout <id> --n <sizes>` is likewise a command, and is where the
+> ceilings in `docs/measurements/phase06-force.md` and the registry's `FORCE_CEILING` /
 > `FA2_CEILING` now come from. What follows is the branch's original measurement, kept
 > as written; the wiring run's own numbers are at the end.
 
@@ -69,7 +69,8 @@ forceCollide().radius(16).iterations(1)
 ## Deviations from d3-force@3.0.0
 
 Every place our port's *behaviour*, not just its file layout, differs from
-`/home/user/refs/npm/d3-force-3.0.0`:
+`/goinfre/dlesieur/refs/npm/d3-force-3.0.0` (the docs write this path as
+`/home/user/refs/...` on the older host; same pinned files):
 
 1. **Link and collide are Jacobi gathers, not Gauss-Seidel scatters** (devil C7). d3
    mutates both endpoints of a link, or both members of a collision, as it visits them
@@ -123,24 +124,22 @@ this time that `seed-0.json` and `seed-1.json` actually differ.
 
 ## Measured results
 
-Reproduce (from the worktree root):
+Reproduce (from the worktree root, with the pinned d3 tree resolvable — a `node_modules`
+holding `d3-force@3.0.0` and its four dependencies, or `NODE_PATH` pointing at one):
 
 ```sh
-/home/user/gr cargo run --release --example force_dump -- fixture grid barnes_hut
-/home/user/gr cargo run --release --example force_dump -- fixture grid fa2
-# ... one pair of dumps per fixture, then:
-docker run --rm --network host -v "$PWD:/w" -v "/home/user/graph_render/node_modules:/w/node_modules:ro" \
-  -v /root/.ccr/ca-bundle.crt:/etc/ssl/extra-ca.crt:ro -e NODE_EXTRA_CA_CERTS=/etc/ssl/extra-ca.crt \
-  -e HTTPS_PROXY -e https_proxy -w /w node:22-slim \
-  node scratch/stress.mjs scratch/dumps fixture-grid fixture-tree fixture-clustered fixture-disconnected fixture-single-node
+gr cargo run --release -p graph-cli -- bench --layout layout.force.barnes_hut --n 64
+gr cargo run --release -p graph-cli -- bench --layout layout.forceatlas2 --n 64
+gr cargo run --release -p graph-cli -- stress --oracle d3 --seeds 50
 ```
 
-(The extra `node_modules` mount is this branch's own deviation from
-`/home/user/node-slim.sh` verbatim: the git worktree at `/home/user/wt-p6f` has no
-`node_modules` of its own — only the original `/home/user/graph_render` checkout does
-— so the wrapper script as written cannot see `d3-force`/`d3-quadtree` from inside the
-worktree. The extra mount is read-only and adds nothing but visibility into an
-already-installed, already-committed dependency tree.)
+The `stress --oracle d3` arm is this measurement as a gate: it builds the same models,
+runs the same `harness/stress-d3.mjs` d3-force arm and the same stress-1 metric in Rust
+(`crates/graph-cli/src/stress/metric.rs`), and applies the same −0.05 margin. The numbers
+in this section are the branch's original run, kept as written; the gate's own numbers are
+at the end of this file. `graph-cli bench` replaces the old `--example force_dump` form for
+the size sweep, and the per-fixture layout dumps it took are no longer needed: `bench`
+times the registered run over the synthetic model directly.
 
 ### Fixtures (`fixtures/force/*.json`)
 
