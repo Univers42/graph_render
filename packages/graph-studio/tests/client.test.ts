@@ -1,0 +1,185 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+
+import { CancelledError, MotorFailure, createClient } from "../src/motor/client.ts";
+import type { Envelope, Port, Request, Result } from "../src/motor/protocol.ts";
+
+const CATALOG = { layouts: ["layout.grid"], posts: [], analyses: [] };
+const GRAPH = { name: "g", nodeCount: 2, edgeCount: 1, notes: [], buildMs: 1 };
+const ASSETS = { wasmUrl: "/graph_wasm.wasm", fixturesUrl: "/fixtures/" };
+const SOURCE = { kind: "fixture", path: "dag/chain.json" } as const;
+
+interface FakePort extends Port {
+  readonly sent: Envelope<Request>[];
+  closed: boolean;
+  reply: (seq: number, body: Result) => void;
+}
+
+interface Rig {
+  readonly ports: FakePort[];
+  readonly spawn: () => Port;
+  /** Answers every request that has no answer yet, the way a healthy worker would. */
+  readonly answer: (port: FakePort) => void;
+}
+
+function fakePort(): FakePort {
+  let handler: (message: Envelope<Result>) => void = () => undefined;
+  const port: FakePort = {
+    sent: [],
+    closed: false,
+    send: (message) => void port.sent.push(message),
+    listen: (next) => {
+      handler = next;
+    },
+    close: () => {
+      port.closed = true;
+    },
+    reply: (seq, body) => handler({ seq, body }),
+  };
+  return port;
+}
+
+function resultFor(request: Request): Result {
+  if (request.type === "open") return { type: "opened", catalog: CATALOG };
+  if (request.type === "load") return { type: "loaded", graph: GRAPH };
+  return { type: "failed", error: { title: "RunRefusedError", code: "code 8 (LayoutFailed)", detail: "refused", hint: "" } };
+}
+
+function rig(): Rig {
+  const ports: FakePort[] = [];
+  const answered = new Set<Envelope<Request>>();
+  return {
+    ports,
+    spawn: () => {
+      const port = fakePort();
+      ports.push(port);
+      return port;
+    },
+    answer: (port) => {
+      for (const message of port.sent) {
+        if (answered.has(message)) continue;
+        answered.add(message);
+        port.reply(message.seq, resultFor(message.body));
+      }
+    },
+  };
+}
+
+const settle = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
+
+function first(ports: readonly FakePort[], index = 0): FakePort {
+  const port = ports[index];
+  assert.ok(port !== undefined, `port ${index} was never spawned`);
+  return port;
+}
+
+test("the worker is spawned on the first call and opened once", async () => {
+  const { ports, spawn, answer } = rig();
+  const client = createClient(spawn, ASSETS);
+  assert.equal(ports.length, 0);
+  const catalog = client.catalog();
+  answer(first(ports));
+  assert.deepEqual(await catalog, CATALOG);
+  const loading = client.load(SOURCE);
+  await settle();
+  answer(first(ports));
+  assert.deepEqual(await loading, GRAPH);
+  assert.deepEqual(first(ports).sent.map((message) => message.body.type), ["open", "load"]);
+  assert.deepEqual(first(ports).sent[1]?.body, { type: "load", source: SOURCE, fixturesUrl: "/fixtures/" });
+  assert.equal(ports.length, 1);
+});
+
+test("a refusal from the motor rejects with what the worker described", async () => {
+  const { ports, spawn, answer } = rig();
+  const client = createClient(spawn, ASSETS);
+  const running = client.layout("layout.grid", null);
+  answer(first(ports));
+  await settle();
+  answer(first(ports));
+  await assert.rejects(running, (error: unknown) => error instanceof MotorFailure && error.shown.code === "code 8 (LayoutFailed)" && error.name === "RunRefusedError");
+  assert.equal(client.busy(), false);
+});
+
+test("stopping closes the worker and rejects what was running", async () => {
+  const { ports, spawn, answer } = rig();
+  const client = createClient(spawn, ASSETS);
+  const loading = client.load(SOURCE);
+  answer(first(ports));
+  await settle();
+  answer(first(ports));
+  await loading;
+  const running = client.layout("layout.grid", null);
+  await settle();
+  assert.equal(client.busy(), true);
+  assert.equal(client.cancel(), true);
+  await assert.rejects(running, CancelledError);
+  assert.equal(first(ports).closed, true);
+  assert.equal(client.busy(), false);
+});
+
+test("after a stop the next call gets a new worker, opened and given the graph again", async () => {
+  const { ports, spawn, answer } = rig();
+  const client = createClient(spawn, ASSETS);
+  const loading = client.load(SOURCE);
+  answer(first(ports));
+  await settle();
+  answer(first(ports));
+  await loading;
+  const stopped = client.layout("layout.grid", null);
+  await settle();
+  client.cancel();
+  await assert.rejects(stopped, CancelledError);
+  const refused = assert.rejects(client.analysis("analysis.depth.bfs"), MotorFailure);
+  for (let round = 0; round < 3; round += 1) {
+    answer(first(ports, 1));
+    await settle();
+  }
+  await refused;
+  assert.deepEqual(first(ports, 1).sent.map((message) => message.body.type), ["open", "load", "analysis"]);
+});
+
+test("a load that was stopped is not the graph a new worker is given", async () => {
+  const { ports, spawn, answer } = rig();
+  const client = createClient(spawn, ASSETS);
+  const loading = client.load(SOURCE);
+  answer(first(ports));
+  await settle();
+  client.cancel();
+  await assert.rejects(loading, CancelledError);
+  void client.catalog();
+  answer(first(ports, 1));
+  await settle();
+  assert.deepEqual(first(ports, 1).sent.map((message) => message.body.type), ["open"]);
+});
+
+test("stopping when nothing runs does nothing", async () => {
+  const { ports, spawn, answer } = rig();
+  const client = createClient(spawn, ASSETS);
+  const catalog = client.catalog();
+  answer(first(ports));
+  await catalog;
+  assert.equal(client.cancel(), false);
+  assert.equal(first(ports).closed, false);
+});
+
+test("an answer nobody waits for is dropped", async () => {
+  const { ports, spawn, answer } = rig();
+  const client = createClient(spawn, ASSETS);
+  const catalog = client.catalog();
+  answer(first(ports));
+  await catalog;
+  first(ports).reply(99, { type: "opened", catalog: CATALOG });
+  assert.equal(client.busy(), false);
+});
+
+test("a closed client refuses every call", async () => {
+  const { ports, spawn, answer } = rig();
+  const client = createClient(spawn, ASSETS);
+  const catalog = client.catalog();
+  answer(first(ports));
+  await catalog;
+  client.close();
+  assert.equal(first(ports).closed, true);
+  await assert.rejects(client.catalog(), /closed/);
+  assert.equal(ports.length, 1);
+});

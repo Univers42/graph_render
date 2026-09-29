@@ -1,0 +1,18 @@
+{
+  "name": "@graph-motor/studio",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The graph-motor studio as a custom element, <graph-studio>: one action registry behind a floating dock, a console, a HUD and an inspector. The motor runs in a Web Worker. Ships no build: a host bundles src/element.ts.",
+  "exports": {
+    "./*": "./src/*"
+  },
+  "peerDependencies": {
+    "react": "19.2.5",
+    "react-dom": "19.2.5"
+  },
+  "//toolchain": "No node_modules of its own: it type-checks, lints, tests and builds with the toolchain installed in app/ (scripts/studio.sh check).",
+  "engines": {
+    "node": ">=22.6"
+  }
+}

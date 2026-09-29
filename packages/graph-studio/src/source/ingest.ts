@@ -4,7 +4,7 @@
  * The provisional ingest shape (`crates/graph-wasm/src/ingest.rs`) names all
  * ten node members and all nine edge members, refuses an unknown one, and
  * refuses a duplicate id or a dangling endpoint. Two things arrive at the studio
- * that are not in that shape: the engine's own `fixtures/*.json`, which are
+ * that are not in that shape: the motor's own `fixtures/*.json`, which are
  * shorthand (`{about, nodes:[{id}], edges:[{id,source,target}]}`) with
  * annotations, and whatever JSON a user drops on the window.
  *
@@ -15,7 +15,8 @@
  * module produced passes through with no notes at all.
  */
 
-import type { EdgeKind, NodeKind } from "../../../src/core/types.ts";
+export type NodeKind = "record" | "note" | "database" | "tag";
+export type EdgeKind = "relation" | "tag" | "note_of" | "note_link" | "hierarchy";
 
 export const NODE_KINDS: readonly NodeKind[] = ["record", "note", "database", "tag"];
 export const EDGE_KINDS: readonly EdgeKind[] = ["relation", "tag", "note_of", "note_link", "hierarchy"];
@@ -115,7 +116,7 @@ function parseDocument(source: string, text: string): Record_ {
 }
 
 function readVersion(source: string, root: Record_, notes: string[]): 1 {
-  const version = root.version;
+  const version = root["version"];
   if (version === undefined) {
     notes.push("no `version` member: assumed 1");
     return 1;
@@ -147,8 +148,16 @@ function nodeKindOf(source: string, at: string, value: unknown): NodeKind {
   return kind;
 }
 
-function readNode(source: string, at: string, value: unknown, notes: string[]): IngestNode {
-  if (!isObject(value)) throw new IngestRefusal(source, `${at} is not an object`);
+/** The analysis fixtures name a node by its id alone. */
+function nodeRecordOf(source: string, at: string, value: unknown, notes: string[]): Record_ {
+  if (isObject(value)) return value;
+  if (typeof value !== "string") throw new IngestRefusal(source, `${at} is neither an object nor an id`);
+  if (value !== "") notes.push(`node ${JSON.stringify(value)} was given as a bare id`);
+  return { id: value };
+}
+
+function readNode(source: string, at: string, given: unknown, notes: string[]): IngestNode {
+  const value = nodeRecordOf(source, at, given, notes);
   noteDropped(notes, at, value, NODE_MEMBERS);
   const kind = nodeKindOf(source, at, value.kind);
   const id = requireString(source, at, value, "id");
@@ -171,20 +180,20 @@ function missingNodeMembers(record: Record_): number {
   return NODE_MEMBERS.filter((member) => record[member] === undefined).length;
 }
 
-/** A fixture's `type` is the wire spelling the engine's own classifier reads
- *  (`src/core/model/edgekind.ts`); only the two hierarchy spellings are honoured
- *  here, and anything else keeps the default. */
-function edgeKindOf(record: Record_, notes: string[], at: string): EdgeKind {
+/** A fixture's `type` is its wire spelling of the kind; only the hierarchy spellings
+ *  are honoured here, and anything else keeps the default. */
+function edgeKindOf(source: string, at: string, record: Record_, notes: string[]): EdgeKind {
   if (record.kind !== undefined) {
     const kind = EDGE_KINDS.find((candidate) => candidate === record.kind);
     if (kind === undefined) {
-      throw new IngestRefusal("edge", `${at}.kind ${JSON.stringify(record.kind)} is not an edge kind`);
+      throw new IngestRefusal(source, `${at}.kind ${JSON.stringify(record.kind)} is not an edge kind`);
     }
     return kind;
   }
-  const wireType = optionalString(record.type)?.toLowerCase() ?? "";
+  const spelling = optionalString(record.type) ?? "";
+  const wireType = spelling.toLowerCase();
   if (wireType.includes("hierarchy") || wireType === "parent" || wireType === "child_of") {
-    notes.push(`mapped edge \`type\` "${String(record.type)}" to kind "hierarchy"`);
+    notes.push(`mapped edge \`type\` "${spelling}" to kind "hierarchy"`);
     return "hierarchy";
   }
   return "relation";
@@ -196,7 +205,7 @@ function readEdge(source: string, at: string, value: unknown, notes: string[]): 
   const id = requireString(source, at, value, "id");
   const from = requireString(source, at, value, "source");
   const to = requireString(source, at, value, "target");
-  const kind = edgeKindOf(value, notes, at);
+  const kind = edgeKindOf(source, at, value, notes);
   const filled = EDGE_MEMBERS.filter((member) => value[member] === undefined).length;
   if (filled > 0) notes.push(`defaulted ${filled} member(s) on edge "${id}"`);
   return {

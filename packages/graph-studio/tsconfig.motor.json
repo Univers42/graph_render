@@ -1,0 +1,18 @@
+{
+  "//": "The files that import the motor's SDK. Its sources do not pass exactOptionalPropertyTypes or noImplicitOverride, and crates/ is not this package's to change, so these are checked with the SDK's own flags and everything else with the stricter set.",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "exactOptionalPropertyTypes": false,
+    "noImplicitOverride": false,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "verbatimModuleSyntax": false
+  },
+  "include": [
+    "src/motor/worker.ts",
+    "src/motor/local.ts",
+    "tests/*.motor.test.ts",
+    "tests/motor.ts"
+  ],
+  "exclude": []
+}

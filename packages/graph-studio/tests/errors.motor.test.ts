@@ -6,8 +6,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { BuildRefusedError, GraphMotorError, RunRefusedError, WasmUnavailableError } from "../../crates/graph-sdk-js/src/index.ts";
-import { describeError } from "../src/core/errors.ts";
+import { BuildRefusedError, GraphMotorError, RunRefusedError, WasmUnavailableError } from "../../../crates/graph-sdk-js/src/index.ts";
+import { describeError } from "../src/state/errors.ts";
 
 test("a motor refusal shows its subclass name, its wire code and its message", () => {
   const shown = describeError(new RunRefusedError("gm_run refused (LayoutFailed)", 8));

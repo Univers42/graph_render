@@ -1,0 +1,56 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "typeRoots": [
+      "../../app/node_modules/@types"
+    ],
+    "types": [
+      "node"
+    ],
+    "paths": {
+      "react": [
+        "../../app/node_modules/@types/react"
+      ],
+      "react/*": [
+        "../../app/node_modules/@types/react/*"
+      ],
+      "react-dom": [
+        "../../app/node_modules/@types/react-dom"
+      ],
+      "react-dom/*": [
+        "../../app/node_modules/@types/react-dom/*"
+      ]
+    }
+  },
+  "include": [
+    "src",
+    "tests"
+  ],
+  "exclude": [
+    "src/motor/worker.ts",
+    "src/motor/local.ts",
+    "tests/*.motor.test.ts",
+    "tests/motor.ts"
+  ]
+}

@@ -33,4 +33,5 @@ export const FIXTURES: readonly string[] = [
   "analysis/star.json",
   "analysis/two-cliques.json",
   "analysis/weighted.json",
+  "scale/n220.json",
 ];

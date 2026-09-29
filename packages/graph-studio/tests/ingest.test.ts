@@ -6,21 +6,21 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { type IngestDoc, IngestRefusal, normaliseIngest } from "../src/core/ingestText.ts";
-import { syntheticIngest, syntheticRecords } from "../src/core/synthetic.ts";
+import { IngestRefusal, normaliseIngest } from "../src/source/ingest.ts";
+import { MAX_NODES, syntheticIngest, syntheticRecords, titleOf } from "../src/source/synthetic.ts";
 
-// The synthetic model, in full: mulberry32 (the stream `src/core/model/synthetic.ts`
-// documents, `next = ((t ^ (t >>> 14)) >>> 0) / 2^32`), then per node two draws
+// The `random` shape, in full: mulberry32 (`next = ((t ^ (t >>> 14)) >>> 0) / 2^32`),
+// then per node two draws
 // (kind roll, group index) and per edge two (target index, kind roll), in that
 // order. The literals below were computed from that stream, not recorded from a
 // run of the implementation, so a drifted PRNG or a reordered draw fails here.
 const SEED_1_EXPECTED =
   '{"version":1,"nodes":[' +
-  '{"id":"n-0","kind":"note","database_id":"db-0","source":"studio","label":"Node 0","group":"Alpha","weight":0.75,"version":0,"has_note":true,"icon":null},' +
-  '{"id":"n-1","kind":"record","database_id":"db-1","source":"studio","label":"Node 1","group":"Gamma","weight":0.25,"version":0,"has_note":false,"icon":null},' +
-  '{"id":"n-2","kind":"database","database_id":"db-2","source":"studio","label":"Node 2","group":"Alpha","weight":1,"version":0,"has_note":false,"icon":null},' +
-  '{"id":"n-3","kind":"record","database_id":"db-3","source":"studio","label":"Node 3","group":"Beta","weight":0.5,"version":0,"has_note":false,"icon":null},' +
-  '{"id":"n-4","kind":"record","database_id":"db-4","source":"studio","label":"Node 4","group":"Gamma","weight":0.5,"version":0,"has_note":false,"icon":null}' +
+  '{"id":"n-0","kind":"note","database_id":"db-0","source":"studio","label":"Graph notes","group":"Alpha","weight":0.75,"version":0,"has_note":true,"icon":null},' +
+  '{"id":"n-1","kind":"record","database_id":"db-1","source":"studio","label":"Layout notes","group":"Gamma","weight":0.25,"version":0,"has_note":false,"icon":null},' +
+  '{"id":"n-2","kind":"database","database_id":"db-2","source":"studio","label":"Memory notes","group":"Alpha","weight":1,"version":0,"has_note":false,"icon":null},' +
+  '{"id":"n-3","kind":"record","database_id":"db-3","source":"studio","label":"Agent notes","group":"Beta","weight":0.5,"version":0,"has_note":false,"icon":null},' +
+  '{"id":"n-4","kind":"record","database_id":"db-4","source":"studio","label":"Vector notes","group":"Gamma","weight":0.5,"version":0,"has_note":false,"icon":null}' +
   '],"edges":[' +
   '{"id":"e-0","source":"n-2","target":"n-0","kind":"hierarchy","label":"hierarchy","strength":0.5,"directed":true,"record_id":null,"child_first":false},' +
   '{"id":"e-1","source":"n-2","target":"n-0","kind":"relation","label":"relation","strength":0.5,"directed":false,"record_id":null,"child_first":false},' +
@@ -72,7 +72,7 @@ test("weight is the node's degree over the graph's maximum degree", () => {
 test("the kind census over 2000 seeded nodes is exactly this", () => {
   const { nodes } = syntheticRecords({ seed: 1, nodeCount: 2000, degree: 2 });
   const census: Record<string, number> = { record: 0, note: 0, database: 0, tag: 0 };
-  for (const node of nodes) census[node.kind] += 1;
+  for (const node of nodes) census[node.kind] = (census[node.kind] ?? 0) + 1;
   assert.deepEqual(census, { record: 1656, note: 94, database: 135, tag: 115 });
 });
 
@@ -80,9 +80,9 @@ test("a spec is clamped, never refused: too few nodes, zero degree, huge seed", 
   const clamped = syntheticRecords({ seed: 4294967295, nodeCount: 1, degree: 0 });
   assert.equal(clamped.nodes.length, 2);
   assert.equal(clamped.edges.length, 0);
-  const capped = syntheticRecords({ seed: 0, nodeCount: 100000, degree: 99 });
-  assert.equal(capped.nodes.length, 2000);
-  assert.equal(capped.edges.length, (2000 - 12) * 12);
+  const capped = syntheticRecords({ seed: 0, nodeCount: 10 * MAX_NODES, degree: 99 });
+  assert.equal(capped.nodes.length, MAX_NODES);
+  assert.equal(capped.edges.length, (MAX_NODES - 12) * 12);
 });
 
 test("a full ingest document passes through the normaliser unchanged, with no notes", () => {
@@ -99,14 +99,15 @@ test("a fixture's shorthand records are filled out to the full shape, and said s
     edges: [{ id: "ab", source: "a", target: "b" }],
   });
   const result = normaliseIngest(fixture, "dag/chain.json");
-  const doc = JSON.parse(result.json) as IngestDoc;
-  assert.equal(doc.nodes.length, 2);
-  assert.equal(doc.nodes[0].id, "a");
-  assert.equal(doc.nodes[0].kind, "record");
-  assert.equal(doc.nodes[0].label, "a");
-  assert.equal(doc.nodes[0].database_id, null);
-  assert.equal(doc.edges[0].kind, "relation");
-  assert.equal(doc.edges[0].directed, false);
+  assert.equal(
+    result.json,
+    '{"version":1,"nodes":[' +
+      '{"id":"a","kind":"record","database_id":null,"source":"file","label":"a","group":null,"weight":0.5,"version":0,"has_note":false,"icon":null},' +
+      '{"id":"b","kind":"record","database_id":null,"source":"file","label":"b","group":null,"weight":0.5,"version":0,"has_note":false,"icon":null}' +
+      '],"edges":[' +
+      '{"id":"ab","source":"a","target":"b","kind":"relation","label":"relation","strength":0.5,"directed":false,"record_id":null,"child_first":false}' +
+      "]}",
+  );
   assert.ok(result.notes.some((note) => note.includes("about")));
   assert.ok(result.notes.some((note) => note.includes("defaulted")));
 });
@@ -117,14 +118,14 @@ test("an edge `type` maps to a kind, and unknown record members are dropped with
     edges: [{ id: "ab", source: "a", target: "a", type: "parent" }],
   });
   const result = normaliseIngest(fixture, "hierarchy/tree.json");
-  const doc = JSON.parse(result.json) as IngestDoc & { nodes: Record<string, unknown>[] };
-  assert.deepEqual(Object.keys(doc.nodes[0]), [
+  assert.deepEqual(Object.keys(result.doc.nodes[0] ?? {}), [
     "id", "kind", "database_id", "source", "label", "group",
     "weight", "version", "has_note", "icon",
   ]);
-  assert.equal(doc.edges[0].kind, "hierarchy");
-  assert.equal(doc.edges[0].directed, true);
+  assert.equal(result.doc.edges[0]?.kind, "hierarchy");
+  assert.equal(result.doc.edges[0]?.directed, true);
   assert.ok(result.notes.some((note) => note.includes("role")));
+  assert.ok(result.notes.includes('mapped edge `type` "parent" to kind "hierarchy"'));
 });
 
 test("normalising twice is idempotent — the second pass is a no-op", () => {
@@ -162,7 +163,7 @@ test("an edge naming a node that is not there is refused, and the message names 
 });
 
 test("a record that is not an object, or has no id, is refused with its index", () => {
-  assert.throws(() => normaliseIngest('{"nodes":[7],"edges":[]}', "r.json"), /r.json: nodes\[0\] is not an object/);
+  assert.throws(() => normaliseIngest('{"nodes":[7],"edges":[]}', "r.json"), /r.json: nodes\[0\] is neither an object nor an id/);
   assert.throws(() => normaliseIngest('{"nodes":[{"label":"x"}],"edges":[]}', "r.json"), /r.json: nodes\[0\] has no string `id`/);
   assert.throws(() => normaliseIngest('{"nodes":[{"id":"a"}],"edges":[{"id":"e"}]}', "r.json"), /r.json: edges\[0\] has no string `source`/);
 });
@@ -172,4 +173,48 @@ test("a node kind the contract does not name is refused", () => {
     () => normaliseIngest('{"nodes":[{"id":"a","kind":"Record"}],"edges":[]}', "k.json"),
     /k.json: nodes\[0\].kind "Record" is not a node kind/,
   );
+});
+
+test("an edge kind the contract does not name is refused, and the message names the file", () => {
+  assert.throws(
+    () => normaliseIngest('{"nodes":[{"id":"a"}],"edges":[{"id":"e","source":"a","target":"a","kind":"link"}]}', "k.json"),
+    /k.json: edges\[0\].kind "link" is not an edge kind/,
+  );
+});
+
+test("titles are unique over the largest graph the studio generates", () => {
+  const seen = new Set<string>();
+  for (let i = 0; i < MAX_NODES; i += 1) seen.add(titleOf(i));
+  assert.equal(seen.size, MAX_NODES);
+  assert.equal(titleOf(0), "Graph notes");
+  assert.equal(titleOf(176), "Graph notes 2");
+});
+
+test("the vault shape has a hub per topic and keeps most links inside a topic", () => {
+  const { nodes, edges } = syntheticRecords({ seed: 1, nodeCount: 400, degree: 2, shape: "vault" });
+  const topicOf = new Map(nodes.map((node) => [node.id, node.group]));
+  const inside = edges.filter((edge) => topicOf.get(edge.source) === topicOf.get(edge.target)).length;
+  assert.equal(nodes.length, 400);
+  assert.equal(edges.length, 399 * 2);
+  assert.equal(new Set(topicOf.values()).size, 10);
+  assert.ok(inside / edges.length > 0.75, `${inside} of ${edges.length} links stay inside a topic`);
+  assert.equal(Math.max(...nodes.map((node) => node.weight)), 1);
+  // Measured on this seed: 14 of 400 nodes carry more than half the largest link count,
+  // and the median node carries about a ninth of it.
+  const weights = nodes.map((node) => node.weight).sort((a, b) => b - a);
+  assert.equal(weights.filter((weight) => weight > 0.5).length, 14);
+  assert.ok((weights[200] ?? 1) < 0.15);
+});
+
+test("the vault shape is the same bytes for the same spec", () => {
+  const spec = { seed: 9, nodeCount: 60, degree: 2, shape: "vault" } as const;
+  assert.equal(syntheticIngest(spec), syntheticIngest(spec));
+  assert.notEqual(syntheticIngest(spec), syntheticIngest({ ...spec, shape: "random" }));
+});
+
+test("a node given as a bare id is read as that node, and said so", () => {
+  const result = normaliseIngest('{"nodes":["a","b"],"edges":[{"id":"ab","source":"a","target":"b"}]}', "analysis/star.json");
+  assert.deepEqual(result.doc.nodes.map((node) => [node.id, node.label, node.kind]), [["a", "a", "record"], ["b", "b", "record"]]);
+  assert.ok(result.notes.includes('node "a" was given as a bare id'));
+  assert.throws(() => normaliseIngest('{"nodes":[""],"edges":[]}', "e.json"), /e.json: nodes\[0\] has no string `id`/);
 });
