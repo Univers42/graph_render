@@ -8,7 +8,8 @@
 //! (D10), and [`mingle`], multilevel ink-minimising bundling, greedy and single-threaded.
 //! [`ink`] is the measurement that says whether either did anything: the cells a drawing
 //! covers, and the length it draws. [`grid_index`] is a uniform grid over the node
-//! geometry with node cells marked as obstacles, and [`routed`] routes edges around them.
+//! geometry with node cells marked as obstacles, and [`routed`] routes edges around them. [`styles`]
+//! draws parallel edges and self-loops apart.
 //!
 //! **Scaffolding, additive.** The styles and routing slices add their own `pub mod` line
 //! and their own row in [`POSTS`]; the matrix in [`tests`] is written to grow with them.
@@ -18,6 +19,7 @@ pub mod grid_index;
 pub mod ink;
 pub mod mingle;
 pub mod routed;
+pub mod styles;
 #[cfg(test)]
 mod tests;
 
