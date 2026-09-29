@@ -56,6 +56,27 @@ pass (4/4). A fresh worktree needs `npm ci` before `cargo test`.
 - In flight (`/goinfre/dlesieur/orch/bin/oc-status.sh`): `ledger-rows` (Phase 8/7 ledger rows), `p11-reconcile` (verifies the uncommitted work two racing agents left in the p11 worktree; p11 must land before `sim`, both edit barnes_hut), `sim-m1` (Track M: the live-simulation session API for the Obsidian-style studio graph, plan `orch/prompts/obsidian-graph-plan.txt`; devil verdict PROCEED-WITH-CONDITIONS, conditions in `orch/prompts/sim-conditions.txt`; next job `sim-m1b.txt` captures goldens from 79aef00), `orchfix` (oc-job/oc-status liveness fenced on the OpenCode service session list instead of pid files).
 - Then: merge ledger-rows and p11, run the full gate on develop, repair its red rows.
 
+## Update 2026-09-29 night
+
+- Fan-out is now RULE 0. The user saw bunny jobs working serially.
+  - Measured: no job journal before this date contains a `subagent` call.
+  - Measured: headless `opencode run` exposes `subagent` (`{agent, description, prompt, sessionID?, background?}`, agents `general`/`explore`); three foreground calls in one message ran concurrently (20 s wall for 3 x 20 s).
+  - The rule is in `orch/prompts/common-v2.txt` and `.opencode/agents/*.md` (099cb7b): no `background` flag; the return block reports `subagents: <n> explore, <n> general`.
+  - Review check: `jq -r 'select(.part.type=="tool") | .part.tool' <journal> | grep -c subagent`.
+- Merged:
+  - `orchfix` (15edd32): `scripts/orch/oc-live.sh` asks the service which sessions are draining; `oc-job.sh` refuses unless oc-live exits 1; `oc-status.sh` shows UNKNOWN instead of DEAD when it cannot ask. 34/34 in `test-oc-live.sh`.
+  - After a host change, also recreate `/goinfre/dlesieur/orch/bin/oc-live.sh -> scripts/orch/oc-live.sh`. Without it every job reads UNKNOWN.
+  - `ledger-rows` (3486ca5): `analysis.depth` row, depth re-pointed to `Hierarchy`, index-based row lookups made by-id. Merged tree: fmt 0, clippy 0, 1022 passed / 0 failed.
+  - Its `capabilities --check` 34 problems are all "no record: run the gate" in a fresh worktree; the full gate owns them.
+- In flight: `followups`, which covers:
+  - the phase-06 addendum;
+  - the p3 ids promoted to graph-core;
+  - deleting the dead `Forest` in `graph-wasm/src/analysis.rs:306`;
+  - hashgate stages so the analysis and post rows can reach `gated`. If a wasm export is missing, that is a decision, not an edit.
+
+  Also in flight: `p11-reconcile` and `sim-m1`.
+- Worktrees need `npm ci` before `cargo test` (`cli_oracles`). The orchestrator does it at worktree creation.
+
 ## Remaining, in order
 
 1. Done: train and p4 are on develop. Still to do: p7's SDK row (p4 → p7 dependency), and check the folded p4 CLI test listed under p4 above.
