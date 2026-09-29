@@ -45,12 +45,13 @@ pub fn post_run(handles: &mut Handles, handle: u32, post_index: u32) -> Result<S
     let Some(geometry) = entry.geometry.clone() else {
         return Err(Code::NoGeometryYet);
     };
-    let Some(ran) = post::run(post_index, &entry.topology, &geometry) else {
+    // The snapshot itself is `crate::post::snapshot`, the same call the hash gate's native
+    // arm makes: one byte path for both arms, so a POST stage's divergence is about wasm32
+    // and not about two writers of the same face (see `hashgate/stages.rs`).
+    let Some(ran) = post::snapshot(post_index, &entry.topology, &geometry) else {
         return Err(Code::IndexOutOfRange);
     };
-    let bundled = ran.map_err(|_| Code::PostFailed)?;
-    let snapshot = graph_core::layout::snapshot(&entry.topology, bundled.geometry)
-        .map_err(|_| Code::PostFailed)?;
+    let snapshot = ran.map_err(|_| Code::PostFailed)?;
     entry.snapshot = Some(snapshot.clone());
     Ok(snapshot)
 }

@@ -8,6 +8,8 @@ use graph_core::layout::{circular, tidy_tree, treemap};
 use graph_core::{GridParams, REFERENCE_DEGREE, SugiyamaParams};
 use std::env::VarError;
 
+use super::knobs;
+
 /// A negative control (`prompt.md` §7.2): a variable that perturbs the native arm only,
 /// so a wired mutation surfaces as exactly the cross-target divergence the gate must
 /// catch. The grid ignores weights, so the reference degree cannot reach `layout.grid`,
@@ -79,11 +81,57 @@ pub enum Knob {
     /// of the four that publishes `run_with`; the scale is read by the final centring and
     /// so changes every circle's centre and radius.
     PackingScale,
+    /// `GM_MUTATE_ANALYSIS_COMPONENTS_WEAK`: weak components, native arm only.
+    ///
+    /// The first of the fifteen ANALYSIS and POST controls, which share one shape and are
+    /// tabulated in [`knobs::ANALYSIS_POST_STAGES`] — that table holds each one's stage
+    /// id (a graph-core constant), its variable and its record, and
+    /// `the_analysis_and_post_controls_are_the_knobs_table` holds this enum's arms to it.
+    ///
+    /// **None of the fifteen moves a parameter**, because no ANALYSIS or POST stage takes
+    /// one: each re-draws *its own* model with one more node, through
+    /// [`Setting::stage_nodes`], and moves that stage alone.
+    AnalysisComponentsWeak,
+    /// `GM_MUTATE_ANALYSIS_COMPONENTS_STRONG`: strong components, native arm only.
+    AnalysisComponentsStrong,
+    /// `GM_MUTATE_ANALYSIS_COMMUNITIES_LOUVAIN`: Louvain communities, native arm only.
+    AnalysisCommunitiesLouvain,
+    /// `GM_MUTATE_ANALYSIS_CENTRALITY_DEGREE`: degree centrality, native arm only.
+    AnalysisCentralityDegree,
+    /// `GM_MUTATE_ANALYSIS_CENTRALITY_CLOSENESS`: closeness centrality, native arm only.
+    AnalysisCentralityCloseness,
+    /// `GM_MUTATE_ANALYSIS_CENTRALITY_BETWEENNESS`: betweenness, native arm only.
+    AnalysisCentralityBetweenness,
+    /// `GM_MUTATE_ANALYSIS_CENTRALITY_EIGENVECTOR`: eigenvector, native arm only.
+    AnalysisCentralityEigenvector,
+    /// `GM_MUTATE_ANALYSIS_DEPTH_BFS`: BFS depth, native arm only.
+    AnalysisDepthBfs,
+    /// `GM_MUTATE_POST_BUNDLE_FDEB`: FDEB bundling, native arm only.
+    PostBundleFdeb,
+    /// `GM_MUTATE_POST_BUNDLE_MINGLE`: MINGLE bundling, native arm only.
+    PostBundleMingle,
+    /// `GM_MUTATE_POST_ROUTE_GRID`: grid routing, native arm only.
+    PostRouteGrid,
+    /// `GM_MUTATE_POST_STYLE_STRAIGHT`: straight edges, native arm only.
+    PostStyleStraight,
+    /// `GM_MUTATE_POST_STYLE_ORTHOGONAL`: orthogonal edges, native arm only.
+    PostStyleOrthogonal,
+    /// `GM_MUTATE_POST_STYLE_QUADRATIC`: quadratic bezier edges, native arm only.
+    PostStyleQuadratic,
+    /// `GM_MUTATE_POST_STYLE_BEZIER`: cubic bezier edges, native arm only.
+    PostStyleBezier,
 }
 
 impl Knob {
-    /// Every knob.
-    pub const ALL: [Self; 10] = [
+    /// Every knob: the ten that move a parameter, then the fifteen ANALYSIS and POST
+    /// stage controls, in [`knobs::ANALYSIS_POST_STAGES`] order.
+    ///
+    /// **A `const`, because `capabilities::verdict::Evidence::load` walks it** to collect
+    /// one control record each — a ledger read cannot be a function call per row. So the
+    /// fifteen are spelled as arms here and held against that one table by
+    /// `the_analysis_and_post_controls_are_the_knobs_table`, which fails on any arm whose
+    /// variable, record or stage the table disagrees with.
+    pub const ALL: [Self; 25] = [
         Self::ReferenceDegree,
         Self::GridSpacing,
         Self::SugiyamaLayerSpacing,
@@ -94,6 +142,21 @@ impl Knob {
         Self::TreemapNodes,
         Self::CircularNodes,
         Self::PackingScale,
+        Self::AnalysisComponentsWeak,
+        Self::AnalysisComponentsStrong,
+        Self::AnalysisCommunitiesLouvain,
+        Self::AnalysisCentralityDegree,
+        Self::AnalysisCentralityCloseness,
+        Self::AnalysisCentralityBetweenness,
+        Self::AnalysisCentralityEigenvector,
+        Self::AnalysisDepthBfs,
+        Self::PostBundleFdeb,
+        Self::PostBundleMingle,
+        Self::PostRouteGrid,
+        Self::PostStyleStraight,
+        Self::PostStyleOrthogonal,
+        Self::PostStyleQuadratic,
+        Self::PostStyleBezier,
     ];
 
     /// The variable that sets it.
@@ -109,6 +172,21 @@ impl Knob {
             Self::TreemapNodes => "GM_MUTATE_TREEMAP_NODES",
             Self::CircularNodes => "GM_MUTATE_CIRCULAR_NODES",
             Self::PackingScale => "GM_MUTATE_PACKING_SCALE",
+            Self::AnalysisComponentsWeak => "GM_MUTATE_ANALYSIS_COMPONENTS_WEAK",
+            Self::AnalysisComponentsStrong => "GM_MUTATE_ANALYSIS_COMPONENTS_STRONG",
+            Self::AnalysisCommunitiesLouvain => "GM_MUTATE_ANALYSIS_COMMUNITIES_LOUVAIN",
+            Self::AnalysisCentralityDegree => "GM_MUTATE_ANALYSIS_CENTRALITY_DEGREE",
+            Self::AnalysisCentralityCloseness => "GM_MUTATE_ANALYSIS_CENTRALITY_CLOSENESS",
+            Self::AnalysisCentralityBetweenness => "GM_MUTATE_ANALYSIS_CENTRALITY_BETWEENNESS",
+            Self::AnalysisCentralityEigenvector => "GM_MUTATE_ANALYSIS_CENTRALITY_EIGENVECTOR",
+            Self::AnalysisDepthBfs => "GM_MUTATE_ANALYSIS_DEPTH_BFS",
+            Self::PostBundleFdeb => "GM_MUTATE_POST_BUNDLE_FDEB",
+            Self::PostBundleMingle => "GM_MUTATE_POST_BUNDLE_MINGLE",
+            Self::PostRouteGrid => "GM_MUTATE_POST_ROUTE_GRID",
+            Self::PostStyleStraight => "GM_MUTATE_POST_STYLE_STRAIGHT",
+            Self::PostStyleOrthogonal => "GM_MUTATE_POST_STYLE_ORTHOGONAL",
+            Self::PostStyleQuadratic => "GM_MUTATE_POST_STYLE_QUADRATIC",
+            Self::PostStyleBezier => "GM_MUTATE_POST_STYLE_BEZIER",
         }
     }
 
@@ -125,6 +203,21 @@ impl Knob {
             Self::TreemapNodes => "hashgate-control-treemap-nodes",
             Self::CircularNodes => "hashgate-control-circular-nodes",
             Self::PackingScale => "hashgate-control-packing-scale",
+            Self::AnalysisComponentsWeak => "hashgate-control-analysis-components-weak",
+            Self::AnalysisComponentsStrong => "hashgate-control-analysis-components-strong",
+            Self::AnalysisCommunitiesLouvain => "hashgate-control-analysis-communities-louvain",
+            Self::AnalysisCentralityDegree => "hashgate-control-analysis-centrality-degree",
+            Self::AnalysisCentralityCloseness => "hashgate-control-analysis-centrality-closeness",
+            Self::AnalysisCentralityBetweenness => "hashgate-control-analysis-centrality-betweenness",
+            Self::AnalysisCentralityEigenvector => "hashgate-control-analysis-centrality-eigenvector",
+            Self::AnalysisDepthBfs => "hashgate-control-analysis-depth-bfs",
+            Self::PostBundleFdeb => "hashgate-control-post-bundle-fdeb",
+            Self::PostBundleMingle => "hashgate-control-post-bundle-mingle",
+            Self::PostRouteGrid => "hashgate-control-post-route-grid",
+            Self::PostStyleStraight => "hashgate-control-post-style-straight",
+            Self::PostStyleOrthogonal => "hashgate-control-post-style-orthogonal",
+            Self::PostStyleQuadratic => "hashgate-control-post-style-quadratic",
+            Self::PostStyleBezier => "hashgate-control-post-style-bezier",
         }
     }
 }
@@ -210,8 +303,24 @@ fn apply(knob: Knob, text: &str, setting: &mut Setting) -> Result<(), String> {
             setting.stage_nodes = Some((circular::ID, nodes(text, knob)?));
         }
         Knob::PackingScale => setting.packing.scale = text.parse().map_err(|e| bad(&e))?,
+        _ => knobs::apply(stage_of(knob), nodes(text, knob)?, setting),
     }
     Ok(())
+}
+
+/// The [`knobs::Stage`] `knob` perturbs — a function of its *variable*, not its arm index.
+///
+/// Resolved by matching the variable name against the one table, so a control cannot be
+/// filed under a stage the table does not agree with: a variable the table does not carry
+/// is a programming error, not a runtime setting, and it panics here rather than quietly
+/// perturbing whichever stage happened to sit at that arm's position.
+fn stage_of(knob: Knob) -> knobs::Stage {
+    let env = knob.env();
+    knobs::ANALYSIS_POST_STAGES
+        .iter()
+        .copied()
+        .find(|row| row.env == env)
+        .unwrap_or_else(|| panic!("{env} is one of the fifteen ANALYSIS and POST controls"))
 }
 
 /// Nodes added to one stage's own model. Zero is refused: a control that perturbs by

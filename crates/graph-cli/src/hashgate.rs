@@ -16,7 +16,9 @@
 
 mod compare;
 mod knob;
+mod knobs;
 mod report;
+mod staged;
 mod stages;
 mod transport;
 

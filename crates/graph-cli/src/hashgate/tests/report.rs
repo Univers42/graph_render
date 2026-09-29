@@ -63,7 +63,7 @@ fn the_record_holds_the_exact_counts_it_reports() {
     let text = serde_json::to_string(&body(None, 3, &clean, 3)).expect("json");
     assert_eq!(
         text,
-        r#"{"equal":{"layout.circular.radial":3,"layout.dag.sugiyama":3,"layout.force.barnes_hut":3,"layout.forceatlas2":3,"layout.grid":3,"layout.mds.pivot":3,"layout.packing.circle":3,"layout.spectral":3,"layout.tree.tidy":3,"layout.treemap.squarified":3,"topology":3,"transport.wasm.columnar":3},"mutation":null,"pass":true,"seeds":3,"transport":{"equal":3,"reference":"layout.grid","stage":"transport.wasm.columnar"}}"#
+        r#"{"equal":{"analysis.centrality.betweenness":3,"analysis.centrality.closeness":3,"analysis.centrality.degree":3,"analysis.centrality.eigenvector":3,"analysis.communities.louvain":3,"analysis.components.strong":3,"analysis.components.weak":3,"analysis.depth.bfs":3,"layout.circular.radial":3,"layout.dag.sugiyama":3,"layout.force.barnes_hut":3,"layout.forceatlas2":3,"layout.grid":3,"layout.mds.pivot":3,"layout.packing.circle":3,"layout.spectral":3,"layout.tree.tidy":3,"layout.treemap.squarified":3,"post.bundle.fdeb":3,"post.bundle.mingle":3,"post.route.grid":3,"post.style.bezier":3,"post.style.orthogonal":3,"post.style.quadratic":3,"post.style.straight":3,"topology":3,"transport.wasm.columnar":3},"mutation":null,"pass":true,"seeds":3,"transport":{"equal":3,"reference":"layout.grid","stage":"transport.wasm.columnar"}}"#
     );
     let diverged = Tally {
         equal: vec![3; super::super::stages().len()],

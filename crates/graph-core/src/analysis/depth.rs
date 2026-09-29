@@ -3,11 +3,12 @@
 //!
 //! **The interface is deliberately the smallest thing that could be re-pointed.** Step 6
 //! says "reusing Phase 3's `hierarchy.rs` root/forest logic. One convention across the
-//! codebase, not two", and `layout/hierarchy.rs` was not on the branch this module was
-//! written on (`docs/measurements/phase07-analysis.md`, deviation 3). So this module owns
-//! *no* root/forest logic of its own: it reads the convention through [`Roots`], whose
-//! four methods are p3's `Hierarchy` accessors verbatim — `node_count`, `roots`,
-//! `virtual_root`, `children`.
+//! codebase, not two". The re-point has happened: p3's
+//! [`layout::hierarchy::Hierarchy`](crate::layout::hierarchy::Hierarchy) implements
+//! [`Roots`] below by delegation and nothing else, so the two are one convention with
+//! two names. This module owns *no* root/forest logic of its own: it reads the
+//! convention through [`Roots`], whose four methods are p3's `Hierarchy` accessors
+//! verbatim — `node_count`, `roots`, `virtual_root`, `children`.
 //!
 //! **The re-point has happened.** p3's [`Hierarchy`](crate::layout::hierarchy::Hierarchy)
 //! implements [`Roots`] below, by delegation and nothing else, so the two are one
@@ -56,6 +57,11 @@ use crate::layout::hierarchy::Hierarchy;
 /// The depth of a node no root reaches. `u32::MAX` leaves room for any real depth and
 /// cannot be confused with one.
 pub const UNREACHED: u32 = u32::MAX;
+
+/// [`bfs_depth`]'s analysis id — the one graph-wasm registers it under and the hash gate
+/// hashes it as. Lives here, not in the registry, for `components::WEAK`'s reason: a
+/// caller naming `analysis.depth.bfs` is asking for *this* walk over `Roots`.
+pub const BFS: &str = "analysis.depth.bfs";
 
 /// The root/forest convention [`bfs_depth`] reads, and nothing else. A [`Roots`] must
 /// satisfy: `roots` is every node with no parent, ascending; `virtual_root` is `Some(n)`

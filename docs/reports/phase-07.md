@@ -293,3 +293,9 @@ Four, as the phase requires, read from the row text `capabilities --json` return
   over a column set and expose the columns in the snapshot and SDK. Until then no
   `analysis.*` row can honestly be `gated`, and the eight rows' `implemented` status is
   correct rather than merely cautious.
+
+---
+
+## Addendum (2026-09-29)
+
+The re-point described as pending in §7 ("`analysis.depth` has no ledger row, and the re-point has not been done") has landed. Commits 3486ca5 and 746f3a8 added `impl Roots for Hierarchy {}` in `crates/graph-core/src/analysis/depth.rs` and the corresponding ledger row for `analysis.depth.bfs`. The `analysis.depth` module now reads p3's repaired `Hierarchy` directly as a `Roots` — there is one convention across the codebase, not two. The stale "pending" language in this report, in `crates/graph-core/src/analysis/mod.rs`, `crates/graph-core/src/analysis/depth.rs`, `crates/graph-core/src/analysis/depth/tests.rs`, and `docs/contract/wasm-abi.md` has been corrected in those files.

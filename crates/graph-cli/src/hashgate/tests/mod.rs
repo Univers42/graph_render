@@ -134,6 +134,8 @@ fn the_stages_are_the_topology_then_every_registered_layout_then_the_transport()
     let layouts: Vec<&str> = graph_core::registry::LAYOUTS.iter().map(|l| l.id).collect();
     let mut want = vec!["topology"];
     want.extend(layouts);
+    want.extend(staged::analyses());
+    want.extend(staged::posts());
     want.push(TRANSPORT);
     assert_eq!(stages(), want);
 }
@@ -145,7 +147,11 @@ fn stage_bytes_are_the_registered_pipeline_and_the_reference_and_spacing_knobs_m
     assert_eq!(ids, stages());
     let (topology, layout) = (honest_run[0].1.clone(), honest_run[1].1.clone());
     let (nodes, edges) = seeded_model(4, gate_node_count(4), REFERENCE_DEGREE);
-    for (id, bytes) in &honest_run[1..honest_run.len() - 1] {
+    // The registered layouts only: the ANALYSIS and POST stages that follow them are hashed
+    // from the graph-wasm registries, not from `graph_core::registry`, and have their own
+    // tests in `hashgate/tests/knob.rs`.
+    let layouts_end = 1 + graph_core::registry::LAYOUTS.len();
+    for (id, bytes) in &honest_run[1..layouts_end] {
         let layout = graph_core::registry::find(id).expect("registered");
         let registered = graph_core::run_with(&nodes, &edges, layout.id, layout.run).expect("runs");
         assert_eq!(

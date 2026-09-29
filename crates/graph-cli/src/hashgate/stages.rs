@@ -2,16 +2,19 @@
 //! (`prompt.md` §7.1). Split out of `hashgate.rs` by the house's 300-line limit.
 //!
 //! The list is registry-driven (C1): the topology, then every layout of
-//! `graph_core::registry::LAYOUTS`, so a new layout joins the gate with no change here,
-//! then the transport — the real ABI over the same model, a stage of the gate in its
-//! own right (C20).
+//! `graph_core::registry::LAYOUTS`, then every analysis of `graph_wasm::analysis::ANALYSES`,
+//! then every post of `graph_wasm::post::CAPABILITIES`, then the transport — the real ABI
+//! over the same model, a stage of the gate in its own right (C20).
 //!
 //! **The native arm's bytes are driven by the same list.** `stages()` and
 //! [`stage_bytes`] are one derivation, not two: an arm that printed a line for every
 //! stage the gate asked for and nothing else is what makes the per-stage comparison
 //! meaningful, and a second layout registered in `LAYOUTS` therefore joins the gate by
 //! being registered, with no edit to this file. [`stage_bytes_for`] takes the registry
-//! slice as an argument so that is testable here rather than only at the next merge.
+//! slice as an argument so that is testable here rather than only at the next merge. The
+//! fifteen ANALYSIS and POST stages are the same argument over the two graph-wasm
+//! registries, and their bytes come from the graph-wasm functions the wasm arm itself
+//! calls — [`staged`], which is where that lives.
 //!
 //! **The four Phase 3 hierarchy layouts' ids are the layout modules' own**, not copies
 //! spelled here: `graph_core::layout::{tidy_tree, treemap, circular, circle_packing}::ID`.
@@ -20,9 +23,12 @@
 //! `graph_core::post::fdeb::ID` does, and both the knobs below and
 //! `graph_core::registry::LAYOUTS` take the id from there. There is one place each id is
 //! written, and `the_p3_stage_ids_are_the_registry_s_own` keeps the registry row and the
-//! stage the knobs name the same one.
+//! stage the knobs name the same one. The fifteen ANALYSIS and POST ids are the same
+//! arrangement one level up: `knobs::ANALYSIS_POST_STAGES` names them from the graph-core
+//! constants their own modules publish, and `each_stage_id_is_the_constant_its_own_module
+//! _publishes` holds every one against the graph-wasm registry the gate walks.
 
-use super::Setting;
+use super::{Setting, staged};
 use graph_core::layout::Geometry;
 use graph_core::layout::circle_packing;
 use graph_core::layout::force::BarnesHut;
@@ -32,6 +38,7 @@ use graph_core::{
     Grid, Stage, StageError, Sugiyama, Topology, gate_node_count, index_model, run_pipeline,
     seeded_model,
 };
+use std::borrow::Cow;
 use std::collections::BTreeSet;
 
 /// The layout the transport stage runs: `harness/wasm-run.mjs`'s `abiSnapshotBytes`
@@ -43,10 +50,13 @@ pub const LAYOUT: &str = "layout.grid";
 /// gm_snapshot_bytes` over the gate's own model — the real ABI, not the retained shim.
 pub const TRANSPORT: &str = "transport.wasm.columnar";
 
-/// Every stage, in the order both arms print them.
+/// Every stage, in the order both arms print them: the topology, every registered layout,
+/// every registered analysis, every registered POST capability, then the transport.
 pub fn stages() -> Vec<&'static str> {
     let mut stages = vec!["topology"];
     stages.extend(LAYOUTS.iter().map(|layout| layout.id));
+    stages.extend(staged::analyses());
+    stages.extend(staged::posts());
     stages.push(TRANSPORT);
     stages
 }
@@ -100,8 +110,66 @@ pub fn stage_bytes_for(
         };
         out.push((layout.id, bytes));
     }
+    out.extend(staged_bytes(seed, setting, &topology)?);
     out.push((TRANSPORT, grid.snapshot.to_bytes()));
     Ok(out)
+}
+
+/// The fifteen ANALYSIS and POST stages' bytes, in [`stages`] order.
+///
+/// **The geometry every POST stage is run over is the grid's own** — the same
+/// `gm_build → gm_run(layout.grid) → gm_post_run` order `harness/wasm-run.mjs` drives
+/// and the transport stage already states. A POST pass reads positions, so hashing one
+/// over some other layout's drawing would be a stage the wasm arm cannot reproduce at
+/// all, and the differential would compare two different questions.
+///
+/// A stage whose control is set is drawn from that control's own re-drawn model (see
+/// [`owns_own_model`]), the same probe the three Phase 3 node controls use; every other
+/// ANALYSIS and POST stage is drawn from the gate's one model, so a control moves one
+/// stage and names it.
+fn staged_bytes(
+    seed: u32,
+    setting: &Setting,
+    gate: &Topology,
+) -> Result<Vec<(&'static str, Vec<u8>)>, String> {
+    let mut out = Vec::new();
+    for id in staged::analyses() {
+        let own = own_topology(seed, setting, gate, id)?;
+        out.push((id, staged::analysis_bytes(id, &own)?));
+    }
+    for id in staged::posts() {
+        let own = own_topology(seed, setting, gate, id)?;
+        let geometry = Grid::run(&own, &setting.grid).map_err(|err| format!("{id}: {err}"))?;
+        out.push((id, staged::post_bytes(id, &own, &geometry)?));
+    }
+    Ok(out)
+}
+
+/// The topology stage `id` is drawn over: the gate's one model, or — for the single stage
+/// whose control is set — that stage's own re-drawn one, with the control's extra nodes.
+///
+/// The one place "re-drawn" is defined, so the analysis and POST arms cannot come to
+/// disagree about it. Every other stage reads `gate` unchanged, which is what makes a
+/// control move one stage and name it.
+fn own_topology<'a>(
+    seed: u32,
+    setting: &Setting,
+    gate: &'a Topology,
+    id: &str,
+) -> Result<Cow<'a, Topology>, String> {
+    match setting.stage_nodes {
+        Some((stage, count)) if stage == id => Ok(Cow::Owned(redraw(seed, setting, count)?)),
+        _ => Ok(Cow::Borrowed(gate)),
+    }
+}
+
+/// `seeded_model(seed, gate_node_count + shared extras + own extras)` indexed: one
+/// derivation for the gate's model and for a stage's re-drawn one, so a control cannot
+/// perturb a stage by a node the gate's own model would not also have grown by.
+fn redraw(seed: u32, setting: &Setting, own: u32) -> Result<Topology, String> {
+    let count = gate_node_count(seed) + setting.extra_nodes + own;
+    let (nodes, edges) = seeded_model(seed, count, setting.reference_degree);
+    index_model(&nodes, &edges).map_err(|e| e.to_string())
 }
 
 /// A stage list the gate cannot print: no stage id twice (a repeated id would fold into

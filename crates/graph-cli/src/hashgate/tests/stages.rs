@@ -34,19 +34,30 @@ fn ids(layouts: &[Capability], setting: &Setting) -> Result<Vec<&'static str>, S
     Ok(ids_of(&stage_bytes_for(4, setting, layouts)?))
 }
 
+/// The gate's stages *after* the layouts: every registered analysis, every registered
+/// POST capability, then the transport. A layout that joins the registry is spliced in
+/// ahead of these without changing any of them — which is what this module's name says.
+fn after_layouts() -> Vec<&'static str> {
+    let mut tail = staged::analyses();
+    tail.extend(staged::posts());
+    tail.push(TRANSPORT);
+    tail
+}
+
 #[test]
 fn a_second_registered_layout_joins_the_gate_with_no_change_to_the_stage_list() {
     let grid = graph_core::registry::find(LAYOUT).expect("the grid is registered");
     let one = [*grid];
     let two = [*grid, second_layout()];
     let setting = honest();
-    assert_eq!(
-        ids(&one, &setting).expect("one layout"),
-        ["topology", LAYOUT, TRANSPORT]
-    );
+    let mut want_one = vec!["topology", LAYOUT];
+    want_one.extend(after_layouts());
+    assert_eq!(ids(&one, &setting).expect("one layout"), want_one);
+    let mut want_two = vec!["topology", LAYOUT, "layout.grid.second"];
+    want_two.extend(after_layouts());
     assert_eq!(
         ids(&two, &setting).expect("two layouts"),
-        ["topology", LAYOUT, "layout.grid.second", TRANSPORT],
+        want_two,
         "one stage per registered layout, in registry order, transport last"
     );
 }
@@ -101,7 +112,7 @@ fn the_stages_are_the_topology_then_every_registered_layout_then_the_transport()
     let layouts: Vec<&str> = graph_core::registry::LAYOUTS.iter().map(|l| l.id).collect();
     let mut want = vec!["topology"];
     want.extend(layouts);
-    want.push(TRANSPORT);
+    want.extend(after_layouts());
     assert_eq!(stages(), want);
     assert_eq!(
         stage_bytes(4, &honest()).expect("runs").len(),
@@ -152,16 +163,9 @@ fn stage<'a>(stages: &'a [(&'static str, Vec<u8>)], id: &str) -> &'a [u8] {
 fn every_layout_gets_its_own_bytes_and_a_perturbed_one_diverges_from_its_own_default() {
     let three = crowded();
     let honest = stage_bytes_for(4, &honest(), &three).expect("runs");
-    assert_eq!(
-        ids_of(&honest),
-        [
-            "topology",
-            LAYOUT,
-            "layout.grid.left",
-            "layout.grid.right",
-            TRANSPORT
-        ]
-    );
+    let mut want = vec!["topology", LAYOUT, "layout.grid.left", "layout.grid.right"];
+    want.extend(after_layouts());
+    assert_eq!(ids_of(&honest), want);
     let [left, right] = marked_layouts();
     let (nodes, edges) = seeded_model(4, gate_node_count(4), REFERENCE_DEGREE);
     assert_eq!(
