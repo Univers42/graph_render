@@ -162,6 +162,33 @@ may colour by, so an unreachable node is `UNREACHED = u32::MAX` rather than 0 �
 render an orphan as a root. `analysis.depth` still stays out of the capability ledger
 until the merge supplies the `Topology` entry point.
 
+### 4a. Depth's branch coverage: five tests added after the fact, and how they were shown to bite
+
+The 13 original tests pinned the convention but left five **documented** branches of
+`depth.rs` unpinned: the out-of-range child guard in `walk`, the `debug_assert` that
+refuses two roots with no virtual root, `Depth::of`'s own out-of-range panic, the
+`&& roots.len() >= 2` clause of `under_virtual_root` (which is the only thing keeping a
+lone root at depth 0 when a source names a virtual root it does not need), and
+`depth_from` with an empty source list on a populated forest (empty ≠ depth 0). Five
+tests were added for them — `a_child_index_past_the_last_node_panics`,
+`two_roots_with_no_virtual_root_are_refused_in_debug`,
+`a_depth_lookup_past_the_last_node_panics`,
+`a_lone_root_sits_at_depth_zero_even_when_the_source_names_a_virtual_root`,
+`declaring_no_root_reaches_nothing_at_all` — 18 in total. **No RED was available or
+needed for these five: no behaviour changed, they pin behaviour that already existed.**
+Passing on the first run is therefore *not* evidence they bite, so each was shown to
+bite by perturbing the implementation once, running the module's tests, and restoring
+the file byte for byte (`git diff` clean afterwards, verified). Literal results:
+
+| Perturbation | RED observed |
+|---|---|
+| `under_virtual_root`: drop `&& roots.len() >= 2` | 17 passed, **1 failed** — `a_lone_root_sits_at_depth_zero_even_when_the_source_names_a_virtual_root` panicked on the level column; no pre-existing test noticed |
+| `walk`: delete `assert!(child < n, …)` | 17 passed, **1 failed** — `a_child_index_past_the_last_node_panics`; the walk then panicked with the standard library's index-out-of-bounds message instead of the refusal, so nothing else in the suite missed the guard |
+
+The first row is the reason these were worth adding: the clause had no test at all. The
+second row shows the guard's own message is load-bearing, not decoration. `depth.rs`
+itself is unmodified from the commit that delivered it.
+
 ## 5. `capabilities --check` — real exit code, and why it is not 0
 
 Required gate row `capabilities --check` (expect 0) exits **1** in this worktree, with

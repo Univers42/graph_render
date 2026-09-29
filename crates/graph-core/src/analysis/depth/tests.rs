@@ -29,6 +29,29 @@ impl Roots for Forest {
     }
 }
 
+/// A `Roots` whose `virtual_root` is whatever the test says it is, so the two ways a
+/// source can break the trait's contract are expressible. Both are p3's job to honour;
+/// depth only has to react to the breakage rather than to it silently.
+struct SaysVirtualRoot(Forest, Option<u32>);
+
+impl Roots for SaysVirtualRoot {
+    fn node_count(&self) -> u32 {
+        self.0.node_count()
+    }
+
+    fn roots(&self) -> &[u32] {
+        self.0.roots()
+    }
+
+    fn virtual_root(&self) -> Option<u32> {
+        self.1
+    }
+
+    fn children(&self, v: u32) -> &[u32] {
+        self.0.children(v)
+    }
+}
+
 /// A well-formed tree: `edges` are `(parent, child)`, children listed in the order the
 /// edges arrive, and the roots derived the way p3 derives them — every node with no
 /// parent, ascending dense index.
@@ -197,6 +220,56 @@ fn a_cycle_in_the_children_is_walked_once_and_the_first_shortest_depth_wins() {
 #[should_panic(expected = "root 9 of 4")]
 fn a_declared_root_out_of_range_panics() {
     depth_from(&forest(4, &[(0, 1)]), &[9]);
+}
+
+#[test]
+#[should_panic(expected = "child 5 of node 0 is past node 3")]
+fn a_child_index_past_the_last_node_panics() {
+    // The same refusal on the other side of the walk: an out-of-range child would
+    // otherwise be written into a 3-entry column, so `walk` checks before `claim`.
+    let f = rows(3, &[&[5], &[], &[]], &[0]);
+    bfs_depth(&f);
+}
+
+// No `expected`: the message is the standard library's, and pinning another crate's
+// wording would make this test a tripwire for a toolchain bump, not for depth.
+#[test]
+#[should_panic]
+fn a_depth_lookup_past_the_last_node_panics() {
+    bfs_depth(&forest(2, &[(0, 1)])).of(2);
+}
+
+#[test]
+#[should_panic(expected = "virtual root")]
+fn two_roots_with_no_virtual_root_are_refused_in_debug() {
+    // The `debug_assert` in `bfs_depth` is the only thing standing between a source
+    // that drops p3's virtual root and a column that reads as if it were never there.
+    let f = SaysVirtualRoot(rows(4, &[&[1], &[], &[3], &[]], &[0, 2]), None);
+    bfs_depth(&f);
+}
+
+#[test]
+fn a_lone_root_sits_at_depth_zero_even_when_the_source_names_a_virtual_root() {
+    // `under_virtual_root` is `is_some() && roots.len() >= 2`: the second clause is
+    // what keeps one root at 0, and it is the only thing pinning that.
+    let f = SaysVirtualRoot(rows(3, &[&[1], &[2], &[]], &[0]), Some(3));
+    assert_eq!(bfs_depth(&f).levels(), [0, 1, 2]);
+}
+
+#[test]
+fn declaring_no_root_reaches_nothing_at_all() {
+    let f = forest(3, &[(0, 1)]);
+    let d = depth_from(&f, &[]);
+    assert_eq!(
+        d.levels(),
+        [UNREACHED; 3],
+        "an empty source list is not depth 0"
+    );
+    assert_eq!(
+        d.max(),
+        0,
+        "nothing was reached, so there is no deepest level"
+    );
 }
 
 #[test]
