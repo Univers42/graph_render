@@ -1,3 +1,4 @@
+use super::campaign::{SETTLE_TICKS, largest_fitting, median, settle_ms};
 use super::*;
 use graph_core::StageError;
 
@@ -9,6 +10,10 @@ fn plan(past_ceiling: bool, dry_run: bool) -> Plan {
         past_ceiling,
         vs_d3: false,
         dry_run,
+        repeat: 1,
+        out: None,
+        crossover: false,
+        budget_ms: 16.67,
     }
 }
 
@@ -84,4 +89,28 @@ fn unreachable_pairs_are_skipped_so_each_component_is_scored_alone() {
     // Two isometric edges far apart: every reachable pair is exact, so 0.
     let (x, y) = ([0.0, 1.0, 100.0, 101.0], [0.0; 4]);
     assert_eq!(stress(&x, &y, &[0, 2], &[1, 3]), 0.0);
+}
+
+#[test]
+fn the_median_of_an_odd_count_is_the_middle_value_and_of_an_even_one_the_mean() {
+    assert_eq!(median(vec![3.0, 1.0, 2.0]), 2.0);
+    assert_eq!(median(vec![4.0, 1.0, 3.0, 2.0]), 2.5);
+    assert_eq!(median(vec![]), 0.0);
+    assert_eq!(median(vec![7.0]), 7.0);
+}
+
+#[test]
+fn settle_is_the_tick_times_the_112_ticks_alpha_decay_needs() {
+    assert_eq!(SETTLE_TICKS, 112);
+    assert_eq!(settle_ms(0.25), 28.0);
+}
+
+#[test]
+fn the_crossover_is_the_largest_n_that_fits_the_budget_and_none_fits_when_all_over() {
+    let samples = [(220, 1.0), (10_000, 8.0), (100_000, 40.0)];
+    assert_eq!(largest_fitting(&samples, 16.67), Some(10_000));
+    // Exactly at the budget still fits: a crossover is not a regression test.
+    assert_eq!(largest_fitting(&samples, 8.0), Some(10_000));
+    assert_eq!(largest_fitting(&samples, 0.5), None);
+    assert_eq!(largest_fitting(&[], 16.67), None);
 }

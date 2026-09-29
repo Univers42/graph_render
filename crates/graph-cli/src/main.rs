@@ -177,6 +177,18 @@ enum Command {
         /// Report which sizes each layout would run or refuse, and run none of them.
         #[arg(long)]
         dry_run: bool,
+        /// Phase 9: runs per cell. The campaign reports the median, never one timing.
+        #[arg(long, default_value_t = 5)]
+        repeat: u32,
+        /// Phase 9: write the campaign's markdown here.
+        #[arg(long)]
+        out: Option<PathBuf>,
+        /// Phase 9: report the largest N per arm that fits the frame budget.
+        #[arg(long)]
+        crossover: bool,
+        /// Phase 9: the frame budget in milliseconds (`prompt.md` §5.2: 16.67).
+        #[arg(long, default_value_t = crate::bench::campaign::FRAME_BUDGET_MS)]
+        budget_ms: f64,
     },
 }
 
@@ -234,6 +246,10 @@ fn main() -> ExitCode {
             past_ceiling,
             vs_d3,
             dry_run,
+            repeat,
+            out,
+            crossover,
+            budget_ms,
         } => bench::run(&bench::Plan {
             sizes: n,
             layouts: layout,
@@ -241,6 +257,10 @@ fn main() -> ExitCode {
             past_ceiling,
             vs_d3,
             dry_run,
+            repeat,
+            out,
+            crossover,
+            budget_ms,
         }),
     }
 }

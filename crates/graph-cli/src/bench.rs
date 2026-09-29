@@ -20,6 +20,8 @@
 //! wall clock, native, not a median: a loaded host inflates it, and nothing here speaks
 //! for wasm32 (Phase 9's campaign).
 
+pub mod campaign;
+
 #[cfg(test)]
 mod tests;
 
@@ -29,6 +31,7 @@ use graph_core::layout::Geometry;
 use graph_core::registry::{self, Capability};
 use graph_core::{REFERENCE_DEGREE, Topology, index_model, seeded_model};
 use std::collections::VecDeque;
+use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Instant;
 
@@ -53,6 +56,14 @@ pub struct Plan {
     pub past_ceiling: bool,
     pub vs_d3: bool,
     pub dry_run: bool,
+    /// Phase 9: runs per cell; the campaign reports their median, never one timing.
+    pub repeat: u32,
+    /// Phase 9: where the campaign's markdown goes, or nothing.
+    pub out: Option<PathBuf>,
+    /// Phase 9: report the largest N per arm that fits the frame budget.
+    pub crossover: bool,
+    /// Phase 9: the frame budget, in milliseconds.
+    pub budget_ms: f64,
 }
 
 /// `graph-cli bench`: exit 0 ran (refusals included) · 1 a run inside its ceiling failed ·
@@ -69,6 +80,9 @@ pub fn run(plan: &Plan) -> ExitCode {
 }
 
 fn bench(plan: &Plan) -> Result<bool, String> {
+    if plan.crossover || plan.out.is_some() {
+        return campaign::report(plan);
+    }
     let entries = resolve(&plan.layouts)?;
     let mut pass = true;
     for &n in &plan.sizes {
