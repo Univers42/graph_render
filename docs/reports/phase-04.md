@@ -2,9 +2,11 @@
 
 Shape: `prompt.md` §12. Every command in §3 was re-run for this report on the tree as it
 stands (p4 with `develop` merged, plus the ledger/evidence wiring, plus this session's
-registry-driven SDK surface). Exit codes are the real ones. **One gate row was not run here**
-— `hashgate --seeds 1000` — and §7 names it as UNKNOWN rather than quoting the earlier
-two-stage run as if it covered the current stage list.
+registry-driven SDK surface, plus §6c's stage-resolution fix — that last session re-ran all
+of §3 again, unchanged, and the artifact is byte-identical to the figure quoted here).
+Exit codes are the real ones. **One gate row was not run here** — `hashgate --seeds 1000` —
+and §7 names it as UNKNOWN rather than quoting the earlier two-stage run as if it covered
+the current stage list.
 
 **Envelope.** The reviewer's BLOCKER was accepted as "amend the envelope": the phase's
 literal MODIFY list could not hold what the phase's own Ledger delta requires (§1).
@@ -23,6 +25,16 @@ and Curve columns checked rather than documented: until this session nothing had
 back through the export layer, because the only registered layout emits Point nodes and
 Line edges. §6b has the RED evidence and the temporary probe rows that made the difference
 observable.
+
+**The session after that one found the gap §6a and §6b both left open on the *wasm* side
+(§6c).** Both made the arms registry-driven, and neither noticed that the arm's stage
+dispatch table was a JS object literal: a stage named after an `Object.prototype` member
+answered with that member instead of `undefined`, so the arm *hashed* a stage the module
+does not have — `toString` printed a digest of the string `"[object Undefined]"` and exited
+0. Registry-driven means every registered layout is reachable; it does not mean every
+unregistered name is refused, and that second half was untested. §6c fixes it, pins it in
+both directions, and collapses the arm's three separate reads of the module's registry into
+one.
 
 ## 1. Authorization compliance
 
@@ -47,7 +59,7 @@ accepted as "amend the envelope" (`docs/reports/STATUS.md` §3 p4).
 | `crates/graph-cli/src/capabilities/tests/{mod.rs,registry.rs}` | The two transport rows' status and record names are asserted here; the row count and the "gated rows are refused" count both move with them. |
 | `crates/graph-cli/src/capabilities/tests/transport.rs` (new) | `tests/mod.rs` passed 300 lines once the transport row's own evidence tests went in (the house limit); split out, mirroring `tests/registry.rs`. |
 | `crates/graph-cli/src/hashgate.rs`, `hashgate/{stages.rs,transport.rs,compare.rs}` | C20's proof had to become a stage of the hash gate for the ledger row to be backed by a record (`docs/contract/wasm-abi.md` "Hash-gate wiring"). `stages.rs` holds the registry-driven stage list and the native arm's bytes, `transport.rs` the C20 tally, `compare.rs` follows `stages()`. Not on the MODIFY list, and the phase's Ledger delta is the cause. |
-| `crates/graph-cli/src/hashgate/tests.rs` → `tests/{mod.rs,stages.rs,stages/marked.rs}` | The house-limit fix-up: the transport stage's own tests pushed the single file past 300; this session's stage-list reconciliation (§6a) added `stages.rs` beside it, and its fixture layouts went one level deeper again rather than compressing. |
+| `crates/graph-cli/src/hashgate/tests.rs` → `tests/{mod.rs,stages.rs,stages/{marked,arm}.rs}` | The house-limit fix-up: the transport stage's own tests pushed the single file past 300; this session's stage-list reconciliation (§6a) added `stages.rs` beside it, and its fixture layouts went one level deeper again rather than compressing. `stages/arm.rs` (§6c) is the same split one level deeper: the tests that shell out to `harness/wasm-run.mjs` over a real artifact are the only ones in the module that need a second program, and `stages.rs` was already at 281 lines. |
 | `crates/graph-core/src/registry.rs` (read, and briefly temporary registry rows in two sessions) | §6a and §6b: both defects are only observable with more than one registered layout, so the proofs need extra rows — §6a's second row, §6b's two (`layout.probe.circle`, `layout.probe.box`, the grid's positions with an `r` column and a Polyline path, and with `w`/`h` and a quadratic Curve). The rows are removed and the file is byte-identical to what it was; `git status` shows it unmodified in the delivered tree. Read-only there. |
 | `crates/graph-cli/tests/cli.rs` | The integration rows for the transport stage: the honest run, both controls, the arm's line count, the ledger's refusal count. Already on the phase's deviation list for the pre-Phase-4 house-limit split. |
 | `crates/graph-wasm/src/{exports/,handle.rs,ingest.rs,seed_ingest.rs,errors.rs,memory_measure.rs,ingest/tests.rs,seed_ingest/tests.rs}` | House limits. The real-ABI export surface is `exports/{mod,state,build,columns}.rs` because a single-file `exports.rs` measured 312 lines; `memory_measure.rs` is a `#[cfg(test)]`-only measurement file, not part of the ABI. |
@@ -108,7 +120,7 @@ for a real record in `target/gates`.
 | `gr … -e GM_MUTATE_REFERENCE_DEGREE=9 hashgate --seeds 8` | **1** | `topology 0/8`, `layout.grid 8/8`, `transport.wasm.columnar 8/8` |
 | `gr … -e GM_MUTATE_GRID_SPACING=2 hashgate --seeds 8` | **1** | `topology 8/8`, `layout.grid 0/8`, `transport.wasm.columnar 0/8` |
 | `gr … capabilities --check` (8-seed scratch record) | 1 | `11 rows, 20 problems`, every one named; both transport refusals read `hashgate ran 8 seeds, need 1000` |
-| `node-slim.sh node --experimental-strip-types harness/wasm-run.mjs … --assert-zero-copy` | 0 | 6/6 checks; view re-derivation 160.3 ns/call on this run, 169.0 ns/call on a re-run of the identical row (wall-clock, scheduling noise — `docs/measurements/phase04-transport.md`) |
+| `node-slim.sh node --experimental-strip-types harness/wasm-run.mjs … --assert-zero-copy` | 0 | 6/6 checks; view re-derivation 162.2 ns/call on this run, 160.3 and 169.0 ns/call on re-runs of the identical row (wall-clock, scheduling noise — `docs/measurements/phase04-transport.md`) |
 | `node-slim.sh node --experimental-strip-types harness/sdk-smoke.mjs …` | 0 | 20/20 checks on this tree, and one `# layout.grid: 2 nodes, Point nodes / Line edges, bounds x[-0.5, 0.5] y[0, 0]` line per registered layout (§6b) |
 | `npx tsc -p crates/graph-sdk-js/tsconfig.json --noEmit` | 0 | zero diagnostics (report-only row, C23) |
 | `ge-check.sh` | 0 | 27/27 oracle tests |
@@ -133,7 +145,8 @@ Measured at 8 seeds, quoted in full in `docs/measurements/phase04-transport.md`.
 |---|---|
 | `hashgate::stages` (registry-driven stage list) | `hashgate::tests::stages::the_stages_are_the_topology_then_every_registered_layout_then_the_transport` |
 | `hashgate::stages::stage_bytes_for` (the native arm's bytes, one producer per stage, over an explicit registry slice) | `…::stages::a_second_registered_layout_joins_the_gate_with_no_change_to_the_stage_list`, `…::stages::every_registered_layouts_native_bytes_are_its_own_run_over_the_same_topology`, `…::stages::every_layout_gets_its_own_bytes_and_a_perturbed_one_diverges_from_its_own_default`, `…::stages::a_registry_without_the_transports_layout_or_with_a_repeated_id_is_refused` |
-| the wasm arm's stage list, resolved from `gm_layout_count`/`gm_layout_id` | `…::stages::the_wasm_arm_can_hash_every_stage_the_gate_asks_for` (reads the harness's own `stages` mode and compares both ways: every stage the gate asks for is offered, and nothing extra) |
+| the wasm arm's stage list, resolved from `gm_layout_count`/`gm_layout_id` | `…::stages::arm::the_wasm_arm_can_hash_every_stage_the_gate_asks_for` (reads the harness's own `stages` mode and compares both ways: every stage the gate asks for is offered, and nothing extra) |
+| a stage the wasm arm does not have being refused by name, never hashed as an `Object.prototype` member (§6c) | `…::stages::arm::a_stage_the_arm_cannot_hash_is_refused_however_it_is_named`, both directions: six unknown names refused with the harness's exit 2, three shim-backed stages still hashed |
 | `hashgate::stages::stage_bytes` (the transport stage's native bytes) | `…::stages::the_native_stages_are_the_registered_pipelines_own_bytes`, `…::stages::the_native_arm_hashes_the_transport_stage_from_the_pipelines_own_snapshot` |
 | `hashgate::transport::agree_with_shim` (the C20 tally) | `…::the_transport_tally_counts_the_seeds_where_the_real_abi_matches_the_shim` (agree, one-seed divergence, short arm, each stage renamed, zero seeds) |
 | `hashgate::LAYOUT`/`TRANSPORT` | `…::the_transport_stage_runs_the_layout_the_wasm_arm_names` |
@@ -271,6 +284,54 @@ the only change needed there), and its own negative control per stage — §7's 
 unchanged. `sdk.js` is still `implemented` rather than `gated`: the smoke test is a script
 over one fixture, not a recorded seed sweep, so it still writes no record a `gated` claim
 could stand on (§2).
+
+## 6c. The wasm arm refuses a stage it does not have, in every spelling
+
+**The defect this session found.** §6a made the wasm arm registry-driven, and the stage
+table it dispatches through is a JS object literal — so it inherits from
+`Object.prototype`. `STAGE_BYTES["toString"]` answered with `Object.prototype.toString`, not
+`undefined`, so the `?? fallback` that is supposed to send an unknown name down the
+"is it a registered layout?" path never ran. Observed, on the shipped harness and the real
+artifact, before the fix:
+
+| stage asked for | before | after |
+|---|---|---|
+| `toString` | `toString 0 f388bc7c…` printed, **exit 0** — a green hash of the string `"[object Undefined]"` | `unknown stage toString: not a registered layout`, exit 2 |
+| `constructor` | uncaught `TypeError: bytesOf is not a function`, node stack trace, exit 1 | refused by name, exit 2 |
+| `__proto__` | `Object.prototype` is not callable — same trap, exit 1 | refused by name, exit 2 |
+| `layout.nope` | refused by name, exit 2 | unchanged — the case the guard was written for and the only one that worked |
+
+This is the gate's worst available failure, and it is silent in the dangerous direction:
+`f388bc7c…` is a real 64-hex digest on a line shaped exactly like every other line the arm
+prints, and `compare::diverged` would compare it happily against three arms that agree with
+each other on nothing. The one thing the stage list must never do is hand back a verdict for
+a stage nobody ran. It cannot happen through the gate's own `stages()` today — a registry id
+must start with `layout.` — but the arm is a *published* file that takes a stage name from
+its command line, and the four prototype names above are four ways in.
+
+**Fixed, and pinned in both directions.** The table is built on a null prototype, so a
+lookup cannot fall through to `Object.prototype` at all — the property is structural rather
+than a check someone can forget to write. `hashgate::tests::stages::arm::a_stage_the_arm_cannot_hash_is_refused_however_it_is_named`
+refuses `toString`, `constructor`, `__proto__`, `valueOf`, `hasOwnProperty` and
+`layout.not.registered`, each demanding the refusal name the stage and the harness's exit 2,
+and then hashes the three shim-backed stages so the refusals cannot be a blanket "refuse
+everything" that passes. Observed red first: the assertion received
+`["toString 0 f388bc7c…"]` — the bug's own output — as a success.
+
+**Refactored while green, not as a separate change.** The arm resolved a layout name three
+ways, and one of them (`layoutIndex`, used by `abiSnapshotBytes`) re-scanned
+`0..gm_layout_count()` on every seed rather than reading the cached registry the other two
+already use. That contradicts the ABI's own promise for `gm_layout_id` ("a caller finds it
+by scanning `0..gm_layout_count()` once at load") and is the same one-derivation
+discipline §6a's `stages::stage_bytes_for` exists to hold. `layoutIndex` is now a two-line
+lookup in the one `layoutIndices()` map; at the gate's 1000 seeds that is 2000 fewer
+registry scans and, more to the point, one place where the registry is read.
+
+**What this does not change.** Nothing about the shipped bytes: the fix touches
+`harness/wasm-run.mjs`, which is not compiled into `graph_wasm.wasm`, so the artifact stays
+265 838 B at sha256 `1349dc10…` (§3). The stage list, the C20 tally and both ledger verdicts
+are untouched, and the negative controls are unaffected — `GM_MUTATE_GRID_SPACING` reaches
+the transport stage through the same `abiSnapshotBytes` call as before.
 
 ## 7. What could not be verified
 

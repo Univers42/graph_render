@@ -63,13 +63,32 @@ perturbed `run_pipeline::<Grid>` run, so `GM_MUTATE_GRID_SPACING` can reach it. 
 wasm side, the three shim-backed stages keep their frozen hashers and every *other*
 registered layout is hashed through the real ABI with its id resolved through
 `gm_layout_count`/`gm_layout_id`. `harness/wasm-run.mjs stages` prints that arm's own list,
-and `hashgate::tests::stages::the_wasm_arm_can_hash_every_stage_the_gate_asks_for`
+and `hashgate::tests::stages::arm::the_wasm_arm_can_hash_every_stage_the_gate_asks_for`
 compares the two lists in both directions — every stage the gate asks for is offered by the
 arm, and the arm offers nothing extra.
 
 This is the part that must not drift: a list that grows with the registry while the arms'
 bytes do not makes the gate refuse its own honest run (`native run 1 printed N lines, need
 M`, or `unknown stage` from the wasm arm) the moment a second layout is registered.
+
+**A stage the arm does not have is refused by name, in every spelling.** The arm's
+shim-backed stages live in a JS table, and a table that inherits from `Object.prototype`
+answers `STAGE_BYTES["toString"]` with a *function*: the arm then hashed that member's
+return value under a stage nobody ran, and printed a digest with exit 0. `toString`,
+`constructor`, `__proto__` and `valueOf` are all names a caller can pass, and a gate that
+prints a green line for a stage it did not run is worse than one that refuses — the
+divergence the gate exists to catch would be a line nothing is compared against. So the
+table has a null prototype and every unknown name is refused with
+`unknown stage <name>: not a registered layout` and the harness's exit 2 for "could not
+run". Pinned in both directions by
+`hashgate::tests::stages::arm::a_stage_the_arm_cannot_hash_is_refused_however_it_is_named`.
+
+The arm also resolves a layout name in more than one place — the stage list, the `gm_run`
+index, and the membership test that decides whether a name is hashable at all — so it reads
+the module's registry **once**, through one `layoutIndices()` derivation, rather than
+re-scanning `0..gm_layout_count()` per call. That is what `gm_layout_id`'s own row above
+promises a caller: find it by scanning once, never by a hard-coded constant, and never
+three ways at once.
 
 The wasm arm reaches the transport stage through the real ABI (`gm_seed_ingest → gm_alloc
 → gm_build → gm_run → gm_snapshot_bytes`); the native arm has no transport of its own, so

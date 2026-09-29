@@ -13,17 +13,20 @@
 
 use super::super::{LAYOUT, stages};
 use crate::runner::{build_wasm, node_harness, run_lines};
+use std::path::Path;
 
-/// The real wasm artifact, built once per call — the same build `hashgate` makes before
-/// it drives the arm, so these tests never read a stale or hand-made module.
+/// The real wasm artifact — the same build `hashgate` makes before it drives the arm, so
+/// these tests never read a stale or hand-made module. One per test, not one per
+/// invocation: `build_wasm` is a cargo build, and paying for it nine times to test nine
+/// stage names is not what this test is about.
 fn artifact() -> std::path::PathBuf {
     build_wasm(&[]).expect("the wasm artifact")
 }
 
-/// One `wasm-run.mjs hash` invocation: its stdout lines on success, or the failure text
-/// `run_lines` builds from the child's status and stderr.
-fn hashed(stage: &str) -> Result<Vec<String>, String> {
-    let mut command = node_harness(&artifact());
+/// `wasm-run.mjs <wasm> hash 1 <stage>`, once: its stdout lines on success, or the failure
+/// text `run_lines` builds from the child's status and stderr.
+fn hashed(wasm: &Path, stage: &str) -> Result<Vec<String>, String> {
+    let mut command = node_harness(wasm);
     command.args(["hash", "1", stage]);
     run_lines(&mut command)
 }
@@ -64,6 +67,7 @@ fn a_stage_the_arm_cannot_hash_is_refused_however_it_is_named() {
     // verdict instead of a refusal, which is the one thing the gate's own stage list must
     // never do: a green line for a stage nobody ran. Every one of these is refused by
     // name, with the harness's own exit 2 for "could not run".
+    let wasm = artifact();
     for stage in [
         "toString",
         "constructor",
@@ -72,7 +76,7 @@ fn a_stage_the_arm_cannot_hash_is_refused_however_it_is_named() {
         "valueOf",
         "layout.not.registered",
     ] {
-        let refused = hashed(stage).expect_err("an unknown stage is refused, never hashed");
+        let refused = hashed(&wasm, stage).expect_err("an unknown stage is refused, never hashed");
         assert!(
             refused.contains(&format!("unknown stage {stage}")),
             "{stage}: {refused}"
@@ -85,12 +89,12 @@ fn a_stage_the_arm_cannot_hash_is_refused_however_it_is_named() {
     // And the control, in the other direction: the same shape of name that the shim
     // table *does* carry is hashed, so the refusals above are about the name being
     // unknown and not about the harness refusing everything.
-    let hashed_grid = hashed(LAYOUT).expect("the shim-backed stage is hashable");
+    let hashed_grid = hashed(&wasm, LAYOUT).expect("the shim-backed stage is hashable");
     assert_eq!(hashed_grid.len(), 1, "one line per seed: {hashed_grid:?}");
     assert!(
         hashed_grid[0].starts_with(&format!("{LAYOUT} 0 ")),
         "{hashed_grid:?}"
     );
-    assert!(hashed("topology").is_ok());
-    assert!(hashed("transport.wasm.columnar").is_ok());
+    assert!(hashed(&wasm, "topology").is_ok());
+    assert!(hashed(&wasm, "transport.wasm.columnar").is_ok());
 }
