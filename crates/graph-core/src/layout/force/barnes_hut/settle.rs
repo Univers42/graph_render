@@ -21,7 +21,7 @@ pub(crate) fn settle(
     start: (Vec<f64>, Vec<f64>),
     (ticks, alpha): (u32, f64),
 ) -> (Vec<f64>, Vec<f64>) {
-    let mut sim = Sim::from_parts(graph, params, 0, start);
+    let mut sim = Sim::from_parts(graph, params.into(), 0, start);
     sim.alpha = alpha;
     let mut deltas: Vec<(f64, f64)> = Vec::new();
     for _ in 0..ticks {

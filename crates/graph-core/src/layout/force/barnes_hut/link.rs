@@ -21,19 +21,18 @@
 use super::sim::Sim;
 use super::step::LinkPass;
 use crate::exec::Runner;
+use crate::layout::force::LiveParams;
 use crate::layout::force::SimpleGraph;
-use crate::layout::force::params::ForceParams;
 use crate::rng::jiggle;
 
 const PASS_X: u32 = 0;
 const PASS_Y: u32 = 1;
 
 /// Each simple edge's fixed `(distance, strength, bias)` (`forceLayout.ts:206-207`):
-/// the topology never changes across ticks, so neither do these.
-pub(super) fn geometry(
-    graph: &SimpleGraph,
-    params: &ForceParams,
-) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
+/// the topology never changes across ticks, so neither do these — but the *parameters*
+/// can, mid-run, so this is recomputed whenever they are replaced
+/// ([`Sim::set_params`]).
+pub(super) fn geometry(graph: &SimpleGraph, params: &LiveParams) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
     let m = graph.lo.len();
     let (mut distance, mut strength, mut bias) = (
         Vec::with_capacity(m),

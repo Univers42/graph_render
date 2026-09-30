@@ -1,13 +1,17 @@
 //! Force-directed layout: Barnes-Hut approximated many-body, plus the Jacobi/gather
-//! ports of d3's link and collide (devil C7). `prompt.md` §3.1, Phase 6 branch p6f.
+//! ports of d3's link and collide (devil C7), driven either as the frozen one-shot
+//! ([`BarnesHut`], which is a default [`session::ForceSession`]) or as a live
+//! [`session::ForceSession`]. `prompt.md` §3.1, Phase 6 branch p6f.
 
 pub(crate) mod barnes_hut;
 pub(crate) mod params;
 pub(crate) mod quadtree;
+pub(crate) mod session;
 pub(crate) mod yifan_hu;
 
 pub use barnes_hut::{BarnesHut, Split};
 pub use params::ForceParams;
+pub use session::{ForceSession, LiveParams, NodeRow, SessionError, StepReport};
 pub use yifan_hu::YifanHu;
 
 use crate::arena::FixedState;

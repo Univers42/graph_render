@@ -89,7 +89,7 @@ fn hub_fixture(hubs: u32, leaves_per_hub: u32) -> (Vec<NodeRecord>, Vec<EdgeReco
 fn the_jacobi_link_stability_fixture_stays_finite_and_bounded_devil_c9() {
     let (nodes, edges) = hub_fixture(6, 15);
     let t = index_model(&nodes, &edges).expect("fits");
-    let mut sim = Sim::new(&t, ForceParams::default(), 0);
+    let mut sim = Sim::new(&t, ForceParams::default().into(), 0);
     let mut deltas = Vec::new();
     let mut energy = Vec::with_capacity(TICKS as usize);
     for _ in 0..TICKS {
@@ -112,7 +112,7 @@ fn the_jacobi_link_stability_fixture_stays_finite_and_bounded_devil_c9() {
         );
         energy.push(e);
     }
-    let (x, y) = sim.positions();
+    let (x, y) = (&sim.x, &sim.y);
     assert!(
         x.iter().chain(y).all(|v| v.is_finite()),
         "devil C9: position went non-finite"
@@ -130,7 +130,7 @@ fn the_jacobi_link_stability_fixture_stays_finite_and_bounded_devil_c9() {
 fn prepared(n: u32, ticks: u32) -> (Vec<NodeRecord>, Vec<EdgeRecord>, Sim) {
     let (nodes, edges) = line(n);
     let t = index_model(&nodes, &edges).expect("fits");
-    let mut sim = Sim::new(&t, ForceParams::default(), 0);
+    let mut sim = Sim::new(&t, ForceParams::default().into(), 0);
     for _ in 0..ticks {
         sim.alpha += -sim.alpha * sim.params.alpha_decay;
         charge::prepare(&mut sim);
@@ -177,7 +177,7 @@ fn the_kernel_and_the_serial_loop_are_the_same_computation() {
     let (nodes, edges) = line(40);
     let t = index_model(&nodes, &edges).expect("fits");
     let params = ForceParams::default();
-    let mut sim = Sim::new(&t, params, 0);
+    let mut sim = Sim::new(&t, params.into(), 0);
     charge::prepare(&mut sim);
     let mut through_kernel = Vec::new();
     Serial.run(&Pass::of(&sim), 1, &mut through_kernel);
