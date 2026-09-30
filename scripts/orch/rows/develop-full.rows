@@ -1,0 +1,211 @@
+# develop-full.rows — the full develop gate, as one committed rows file.
+#
+# Format: `name|expect|cmd`, one per line; expect is `0` or `nonzero`; cmd runs from the
+# worktree root under bash (scripts/orch/gate.sh:9-12). `#` lines and blanks are skipped
+# (scripts/orch/gate.sh:10).
+#
+# `|` is the field separator, but only the FIRST TWO are: `read -r name expect cmd` puts
+# every remaining separator back into `cmd` verbatim, so a `|` in the command half is safe.
+# The three `cargo tree` greps below still write an intermediate file and grep that, because
+# a pipe inside a single-quoted `bash -c` is a row that reads worse than it runs.
+#
+# Every command goes through `scripts/orch/gr` (the ge-rust image), `scripts/orch/node-slim.sh`
+# (node:22-slim) or `docker run --rm --pull never … ge-python-oracle` (the Python oracle arm).
+# Never a bare cargo/rustc/npm/node.
+#
+# The knobs list exists once (the `negctl-*` group below). The 1000-seed and 10^5/10^6 rows
+# are the slow ones and sit last, under `# slow:`.
+#
+# Run: scripts/orch/timed scripts/orch/gate.sh <logdir> scripts/orch/rows/develop-full.rows
+# (`timed` takes the host-wide lock; parallel branches otherwise starve the run).
+
+# ---------------------------------------------------------------------------------------------
+# from scripts/orch/rows/quick.rows:1 — the quick gate, unchanged, first because a fresh
+# worktree needs node_modules (npm-ci) and a built graph-core before anything below.
+# ---------------------------------------------------------------------------------------------
+fmt|0|scripts/orch/gr cargo fmt --all --check
+clippy|0|scripts/orch/gr cargo clippy --workspace --all-targets -- -D warnings
+test|0|scripts/orch/gr cargo test --workspace --no-fail-fast
+wasm32-core|0|scripts/orch/gr cargo build -p graph-core --target wasm32-unknown-unknown
+hashgate-8|0|scripts/orch/gr cargo run -q -p graph-cli -- hashgate --seeds 8
+negctl-degree|0|scripts/orch/gr -e GM_MUTATE_REFERENCE_DEGREE=9 cargo run -q -p graph-cli -- hashgate --seeds 8; test $? -eq 1
+npm-ci|0|scripts/orch/node-slim.sh npm ci --ignore-scripts
+
+# ---------------------------------------------------------------------------------------------
+# from docs/reports/phase-03.md:93 — p3 deterministic layouts: the 1000-seed gate, the fixture
+# differential in both arms, the geometry invariants, the ledger. `hashgate-1000` is the row
+# the whole phase-03..08 chain reports at 3052 s; `# slow:` moves it to the end.
+# ---------------------------------------------------------------------------------------------
+roundtrip-1000|0|scripts/orch/gr cargo run -q -p graph-cli -- roundtrip --seeds 1000
+emit-fixtures-1000|0|scripts/orch/gr cargo run -q -p graph-cli -- emit-fixtures --seeds 1000
+oracle-layouts|0|scripts/orch/gr cargo run -q -p graph-cli -- oracle-layouts
+geometry-invariants|0|scripts/orch/gr cargo test -p graph-core geometry_invariants
+capabilities-check|0|scripts/orch/gr cargo run -q -p graph-cli -- capabilities --check
+codegen-check|0|scripts/orch/gr cargo run -q -p graph-cli -- codegen --check
+ge-check|0|scripts/orch/ge-check.sh
+
+# ---------------------------------------------------------------------------------------------
+# from docs/reports/phase-04.md:106 — the wasm transport: the release binary, the no-bindgen
+# invariant, and the SDK's own typecheck/lint. The TypeScript oracle arm needs the ts loader
+# and node_modules, so npm ci is chained rather than assumed from the row above.
+# ---------------------------------------------------------------------------------------------
+wasm-release|0|scripts/orch/gr cargo build -p graph-wasm --release --target wasm32-unknown-unknown
+no-bindgen|0|scripts/orch/gr bash -c 'cargo tree -p graph-wasm >target/graph-wasm-deps.txt; grep -qi wasm-bindgen target/graph-wasm-deps.txt && exit 1 || exit 0'
+oracle-diff|0|scripts/orch/node-slim.sh bash -c 'npm ci --ignore-scripts >/dev/null && node --experimental-strip-types --experimental-loader ./tests/ts-extension-loader.mjs harness/oracle-diff.mjs'
+sdk-typecheck|0|scripts/orch/node-slim.sh bash -c 'npm ci --ignore-scripts >/dev/null && npx tsc -p crates/graph-sdk-js/tsconfig.json --noEmit'
+sdk-lint|0|scripts/orch/node-slim.sh bash -c 'npm ci --ignore-scripts >/dev/null && npx eslint crates/graph-sdk-js/src --max-warnings=0'
+
+# ---------------------------------------------------------------------------------------------
+# from docs/reports/phase-05.md:87 — p5 Sugiyama: the layout invariants and the layered
+# drawing's dagre oracle. The oracle reads a dump only the ignored measurement test writes,
+# so the test is chained ahead of it (harness/oracle-dag.mjs:4-6).
+# ---------------------------------------------------------------------------------------------
+sugiyama-invariants|0|scripts/orch/gr cargo test -p graph-core sugiyama_invariants
+dag-dump|0|scripts/orch/gr cargo test -p graph-core dump_crossing_measurements -- --ignored
+oracle-layouts-dag|0|scripts/orch/node-slim.sh bash -c 'npm ci --ignore-scripts >/dev/null && node harness/oracle-layouts.mjs --dag'
+
+# ---------------------------------------------------------------------------------------------
+# from docs/reports/phase-06.md:114 — p6 spectral / MDS / force / FA2. `no-mul-add` is the
+# fixed D2 grep: `mul_add[[:space:]]*[(` so it cannot match the doc comments that name the
+# construct in order to forbid it (docs/reports/phase-06.md:145-149, prompts/RESUME.md:293).
+# p11 replaced it with scripts/forbidden-constructs.sh; both rows stand, the script scoped to
+# product code is the one that generalises.
+# ---------------------------------------------------------------------------------------------
+no-mul-add|0|scripts/orch/gr bash -c 'grep -rnE "mul_add[[:space:]]*[("] crates/graph-core/src && exit 1 || exit 0'
+eigen-determinism|0|scripts/orch/gr cargo test -p graph-core eigen_determinism
+stress-d3|0|scripts/orch/gr cargo run -q -p graph-cli -- stress --oracle d3
+bench|0|scripts/orch/gr cargo run -q -p graph-cli -- bench --n 220,10000,100000
+emit-spectral-1000|0|scripts/orch/gr cargo run -q -p graph-cli -- emit-spectral-fixtures --seeds 1000
+oracle-spectral-py|0|docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-python-oracle python3 harness/oracle-spectral.py target/spectral-fixtures
+oracle-spectral|0|scripts/orch/gr cargo run -q -p graph-cli -- oracle-spectral
+bench-spectral|0|scripts/orch/gr cargo run -q -p graph-cli -- bench --layout layout.spectral --n 220,10000,100000
+bench-mds|0|scripts/orch/gr cargo run -q -p graph-cli -- bench --layout layout.mds.pivot --n 220,10000,100000
+
+# ---------------------------------------------------------------------------------------------
+# from docs/reports/phase-07.md:107 — p7 analysis, plus the dependency allow-list. The regex
+# is the corrected one (docs/reports/phase-07.md:131): `graph-contract` is a workspace crate
+# with no external deps, so flagging it was the bug (prompts/RESUME.md:155).
+# ---------------------------------------------------------------------------------------------
+bellman-ford-negative-weight|0|scripts/orch/gr cargo test -p graph-core bellman_ford_negative_weight
+negative-cycle-detected|0|scripts/orch/gr cargo test -p graph-core negative_cycle_detected
+analysis-determinism|0|scripts/orch/gr cargo test -p graph-core analysis_determinism
+only-petgraph-added|0|scripts/orch/gr bash -c 'cargo tree -p graph-core --depth 1 >target/graph-core-deps.txt; grep -vE "libm|indexmap|petgraph|graph-contract" target/graph-core-deps.txt && exit 1 || exit 0'
+
+# ---------------------------------------------------------------------------------------------
+# from docs/reports/phase-08.md:119 — p8 post-processing and bundling.
+# ---------------------------------------------------------------------------------------------
+edge-geometry-invariants|0|scripts/orch/gr cargo test -p graph-core edge_geometry_invariants
+post-composability|0|scripts/orch/gr cargo test -p graph-core post_composability
+ink-hairball|0|scripts/orch/gr cargo run -q -p graph-cli -- ink --fixture hairball
+
+# ---------------------------------------------------------------------------------------------
+# from docs/reports/phase-10-progress.md:260 — p10 ingest, SDK publish and the wasm ABI.
+# sdk-smoke and zero-copy both consume the release binary, so wasm-release above must hold
+# (the ordering bug at prompts/RESUME.md:155).
+# ---------------------------------------------------------------------------------------------
+ingest-id-grammar|0|scripts/orch/gr cargo test -p graph-core ingest_id_grammar
+wasm-contract|0|scripts/orch/gr cargo test -p graph-wasm contract
+snapshot-raw|0|scripts/orch/node-slim.sh bash -c 'npm ci --ignore-scripts >/dev/null && node --experimental-strip-types harness/read-snapshot-raw.mjs'
+sdk-smoke|0|scripts/orch/node-slim.sh bash -c 'npm ci --ignore-scripts >/dev/null && node --experimental-strip-types harness/sdk-smoke.mjs target/wasm32-unknown-unknown/release/graph_wasm.wasm'
+sdk-adapter-convergence|0|scripts/orch/node-slim.sh bash -c 'npm ci --ignore-scripts >/dev/null && node --experimental-strip-types harness/sdk-smoke.mjs --adapter-convergence target/wasm32-unknown-unknown/release/graph_wasm.wasm'
+zero-copy|0|scripts/orch/node-slim.sh bash -c 'npm ci --ignore-scripts >/dev/null && node --experimental-strip-types harness/wasm-run.mjs target/wasm32-unknown-unknown/release/graph_wasm.wasm --assert-zero-copy'
+
+# ---------------------------------------------------------------------------------------------
+# from docs/reports/phase-09-progress.md:66 — p9 scale and the bench campaign: reversibility,
+# the crossover N per arm, and the two JS arms of the campaign.
+# ---------------------------------------------------------------------------------------------
+simplify-reversible|0|scripts/orch/gr cargo test -p graph-core simplify_reversible
+bench-crossover|0|scripts/orch/gr cargo run -q -p graph-cli -- bench --crossover --budget-ms 16.67
+bench-oracle-tick|0|scripts/orch/node-slim.sh bash -c 'npm ci --ignore-scripts >/dev/null && node --experimental-strip-types --experimental-loader ./tests/ts-extension-loader.mjs harness/oracle-tick-bench.mjs --n 220,10000,100000 --repeat 5'
+bench-wasm-tick|0|scripts/orch/node-slim.sh bash -c 'npm ci --ignore-scripts >/dev/null && node --experimental-strip-types harness/wasm-tick-bench.mjs --n 220,10000,100000 --repeat 5'
+capabilities-ceilings-measured|0|scripts/orch/gr cargo run -q -p graph-cli -- capabilities --check --ceilings-measured
+
+# ---------------------------------------------------------------------------------------------
+# from prompts/phase-11-compute-tiers.md:124 and docs/reports/phase-11-progress.md:170 — p11
+# compute tiers. `--tiers all` is the ten-arm gate (one native arm per worker count in
+# {1,2,3,4,7}); `simd128` is the wasm build that makes the wasm arm a real one.
+# forbidden-constructs.sh supersedes the p6 `no-mul-add` grep and carries its own
+# negative control, `--self-test`: a checker that cannot go red proves nothing.
+# ---------------------------------------------------------------------------------------------
+hashgate-8-tiers-all|0|scripts/orch/gr cargo run -q -p graph-cli -- hashgate --seeds 8 --tiers all
+hashgate-1000-tiers-all|0|scripts/orch/gr cargo run -q -p graph-cli -- hashgate --seeds 1000 --tiers all
+wasm-simd128|0|scripts/orch/gr bash -c 'RUSTFLAGS="-C target-feature=+simd128" cargo build -p graph-wasm --release --target wasm32-unknown-unknown'
+bench-tiers-threads|0|scripts/orch/gr cargo run -q -p graph-cli -- bench --n 220,10000,100000 --tiers scalar,threads --repeat 5
+forbidden-constructs|0|scripts/orch/gr bash scripts/forbidden-constructs.sh crates/graph-core/src
+forbidden-constructs-self-test|0|scripts/orch/gr bash scripts/forbidden-constructs.sh --self-test
+
+# ---------------------------------------------------------------------------------------------
+# from crates/graph-cli/src/hashgate/knob.rs:105 (Knob::ALL, 11 knobs) and
+# crates/graph-cli/tests/common/mod.rs:17 (the integration-test clear-list, 10 of them) — the
+# knob list, which exists once. One `negctl-<knob>` row per knob, `expect nonzero`: a knob
+# that fails to move the output leaves the gate agreeing with itself.
+#
+# `GM_MUTATE_FORCE_THETA=0.5`, not 0.9 — 0.9 was the default, so the control moved nothing
+# and the row passed vacuously (prompts/RESUME.md:155).
+# `GM_MUTATE_SPLIT_SUM` needs BOTH `--tiers all` and >= 5 seeds: the control reaches the
+# stage, not just the arm, and below 5 seeds the run refuses with exit 2
+# (docs/reports/phase-11-progress.md:103-108). An `expect nonzero` row would accept that 2
+# as a pass, so the row is written to be a real divergence.
+# ---------------------------------------------------------------------------------------------
+negctl-reference-degree|nonzero|scripts/orch/gr -e GM_MUTATE_REFERENCE_DEGREE=9 cargo run -q -p graph-cli -- hashgate --seeds 8
+negctl-grid-spacing|nonzero|scripts/orch/gr -e GM_MUTATE_GRID_SPACING=2 cargo run -q -p graph-cli -- hashgate --seeds 8
+negctl-sugiyama-layer-spacing|nonzero|scripts/orch/gr -e GM_MUTATE_SUGIYAMA_LAYER_SPACING=2 cargo run -q -p graph-cli -- hashgate --seeds 8
+negctl-node-count|nonzero|scripts/orch/gr -e GM_MUTATE_NODE_COUNT=1 cargo run -q -p graph-cli -- hashgate --seeds 8
+negctl-force-theta|nonzero|scripts/orch/gr -e GM_MUTATE_FORCE_THETA=0.5 cargo run -q -p graph-cli -- hashgate --seeds 8
+negctl-fa2-scaling-ratio|nonzero|scripts/orch/gr -e GM_MUTATE_FA2_SCALING_RATIO=3 cargo run -q -p graph-cli -- hashgate --seeds 8
+negctl-tree-tidy-nodes|nonzero|scripts/orch/gr -e GM_MUTATE_TREE_TIDY_NODES=1 cargo run -q -p graph-cli -- hashgate --seeds 8
+negctl-treemap-nodes|nonzero|scripts/orch/gr -e GM_MUTATE_TREEMAP_NODES=1 cargo run -q -p graph-cli -- hashgate --seeds 8
+negctl-circular-nodes|nonzero|scripts/orch/gr -e GM_MUTATE_CIRCULAR_NODES=1 cargo run -q -p graph-cli -- hashgate --seeds 8
+negctl-packing-scale|nonzero|scripts/orch/gr -e GM_MUTATE_PACKING_SCALE=2 cargo run -q -p graph-cli -- hashgate --seeds 8
+negctl-split-sum|nonzero|scripts/orch/gr -e GM_MUTATE_SPLIT_SUM=collide cargo run -q -p graph-cli -- hashgate --seeds 8 --tiers all
+# the other two split-sum values, and the vacuity refusal (docs/reports/phase-11-progress.md:86-108)
+negctl-split-sum-charge|nonzero|scripts/orch/gr -e GM_MUTATE_SPLIT_SUM=charge cargo run -q -p graph-cli -- hashgate --seeds 8 --tiers all
+negctl-split-sum-link|nonzero|scripts/orch/gr -e GM_MUTATE_SPLIT_SUM=link cargo run -q -p graph-cli -- hashgate --seeds 8 --tiers all
+negctl-split-sum-refuse|nonzero|scripts/orch/gr -e GM_MUTATE_SPLIT_SUM=collide cargo run -q -p graph-cli -- hashgate --seeds 2 --tiers all
+
+# ---------------------------------------------------------------------------------------------
+# from prompts/RESUME.md:285 ("Remaining" item 3) — the FA2 three-step chain, in order: emit
+# the fixtures, run the networkx reference in the oracle image, then ingest the result. A
+# step that runs before its predecessor reads nothing and reports a vacuous pass.
+# ---------------------------------------------------------------------------------------------
+emit-fa2-1000|0|scripts/orch/gr cargo run -q -p graph-cli -- emit-fa2-fixtures --seeds 1000
+oracle-fa2-py|0|docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-python-oracle python3 harness/oracle-fa2.py target/fa2-fixtures
+oracle-fa2|0|scripts/orch/gr cargo run -q -p graph-cli -- oracle-fa2
+
+# ---------------------------------------------------------------------------------------------
+# from docs/measurements/closed-form-oracle.md:6 — p12-t1, the same three-step chain for the
+# closed-form layouts against networkx 3.6. `oracle-closed-form-negctl` is the arm's own
+# negative control (docs/measurements/closed-form-oracle.md:25): a missing directory must
+# refuse with exit 2, not read as agreement.
+# ---------------------------------------------------------------------------------------------
+emit-closed-form-1000|0|scripts/orch/gr cargo run -q -p graph-cli -- emit-closed-form-fixtures --seeds 1000
+oracle-closed-form-py|0|docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-python-oracle python3 harness/oracle-closed-form.py target/closed-form-fixtures
+oracle-closed-form|0|scripts/orch/gr cargo run -q -p graph-cli -- oracle-closed-form
+oracle-closed-form-negctl|nonzero|scripts/orch/gr cargo run -q -p graph-cli -- oracle-closed-form --dir target/closed-form-fixtures-absent
+
+# ---------------------------------------------------------------------------------------------
+# from docs/measurements/tier1-scale.md:7 — p12-t1's bench arms on the unified CLI. `--layout`
+# repeats per layout; the old `--nodes` form is gone (prompts/RESUME.md:287).
+# ---------------------------------------------------------------------------------------------
+bench-tier1-closed-form|0|scripts/orch/gr cargo run -q --release -p graph-cli -- bench --layout layout.random --layout layout.circular.ring --layout layout.spiral --layout layout.bipartite --n 220,10000,100000 --past-ceiling --repeat 3
+bench-yifan-hu|0|scripts/orch/gr cargo run -q --release -p graph-cli -- bench --layout layout.force.yifan_hu --n 220,10000,100000 --past-ceiling --repeat 1
+
+# ---------------------------------------------------------------------------------------------
+# from docs/reports/phase-g0.md:41 — the one G0 studio row that survives on this host: the
+# secret file is ignored by the image build, so it cannot be copied into the layer. The
+# `gm-lint` rows and `perf-baseline` are in the return block under `missing:`.
+# ---------------------------------------------------------------------------------------------
+env-ignored|0|grep -qx '.env' .dockerignore
+
+# ---------------------------------------------------------------------------------------------
+# slow: the 1000-seed gate and the 10^5 / 10^6 arms. They time out on a host of this class
+# (docs/reports/phase-03.md:104 records hashgate-1000 at 3052 s; docs/reports/phase-09-progress.md:72
+# records the 10^6 campaign as not passing for the same reason), so they run last.
+# ---------------------------------------------------------------------------------------------
+hashgate-1000|0|scripts/orch/gr cargo run -q -p graph-cli -- hashgate --seeds 1000
+stress-d3-1000|0|scripts/orch/gr cargo run -q -p graph-cli -- stress --oracle d3 --seeds 1000
+bench-force-1e5|0|scripts/orch/gr cargo run -q --release -p graph-cli -- bench --layout layout.force.barnes_hut --n 220,10000,100000
+bench-fa2-1e5|0|scripts/orch/gr cargo run -q --release -p graph-cli -- bench --layout layout.forceatlas2 --n 220,10000,100000
+bench-vs-d3|0|scripts/orch/gr cargo run -q --release -p graph-cli -- bench --layout layout.force.barnes_hut --n 220,10000 --vs-d3
+bench-p9-campaign|0|scripts/orch/gr cargo run -q --release -p graph-cli -- bench --n 220,10000,100000,1000000 --repeat 5 --out docs/measurements/phase09-bench.md
+bench-tier1-1e6|0|scripts/orch/gr cargo run -q --release -p graph-cli -- bench --layout layout.random --layout layout.circular.ring --layout layout.spiral --layout layout.bipartite --n 220,10000,100000,1000000 --past-ceiling --repeat 3

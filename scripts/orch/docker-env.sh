@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Sourced by the orch wrappers. The rootless daemon was restarted on 2026-09-29 23:57 with its
 # runtime dir in /tmp/xdg-$UID, while /run/user/$UID became root 0700; shells started earlier kept
 # DOCKER_HOST on the old socket and every gate row failed with exit 126. Keep DOCKER_HOST when its
