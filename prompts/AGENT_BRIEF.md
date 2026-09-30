@@ -14,18 +14,18 @@ Rules of record: `CLAUDE.md`, `prompt.md` §0 and §6 (D1–D10), the phase prom
 - Kernels in gather form (D10). Output must be bit-identical native vs wasm32.
 
 ## Toolchain (Docker only — never a bare cargo, rustc, npm or node)
-- `/goinfre/dlesieur/orch/bin/gr <cmd>`: cargo inside the `ge-rust` image. `gr -e KEY=VAL cmd` passes env.
-- `GR_IMAGE=ge-mutants /goinfre/dlesieur/orch/bin/gr cargo mutants ...`: mutation testing.
-- `/goinfre/dlesieur/orch/bin/node-slim.sh node <script>`: node:22-slim.
-- `/goinfre/dlesieur/orch/bin/ge-check.sh`: the TypeScript oracle gate.
-- `/goinfre/dlesieur/orch/bin/gate.sh <logdir> <rowsfile>`: rows `name|expect|cmd`, writes summary.txt.
-- Pinned references (read-only): `/goinfre/dlesieur/refs/` (`npm/<pkg>-<ver>/`, `networkx-3.6/`,
+- `scripts/orch/gr <cmd>`: cargo inside the `ge-rust` image. `gr -e KEY=VAL cmd` passes env.
+- `GR_IMAGE=ge-mutants scripts/orch/gr cargo mutants ...`: mutation testing.
+- `scripts/orch/node-slim.sh node <script>`: node:22-slim.
+- `scripts/orch/ge-check.sh`: the TypeScript oracle gate.
+- `scripts/orch/gate.sh <logdir> <rowsfile>`: rows `name|expect|cmd`, writes summary.txt.
+- Pinned references (read-only): `$GM_SCRATCH/refs/` (`/goinfre/$USER/refs` on the 42 hosts, `~/goinfre/refs` elsewhere: `scripts/orch/scratch.sh`) (`npm/<pkg>-<ver>/`, `networkx-3.6/`,
   `jama-1.0.3/`, `scipy-1.16.2/lobpcg.py`) and the `SciGraphs/` submodule. Older comments cite
   `/home/user/refs/...`; same files. A reference not present there is a STOP, never an improvisation.
 
 ## Never
 - Run git commands that change state (denied); the orchestrator commits. `git diff/log/show/status` are fine.
-- Touch osionos, the `.claude/` submodule, `src/`, `tests/` or `verify/` unless the task says so.
+- Touch osionos, `.claude/`, `.opencode/`, `src/`, `tests/` or `verify/` unless the task says so.
 - Claim a result you did not run in this task. UNKNOWN = FAIL. A skipped check is not a pass.
 - Write model or vendor names in code, docs or reports. Print a secret.
 - Weaken, delete or skip a test, gate row or negative control to get green.

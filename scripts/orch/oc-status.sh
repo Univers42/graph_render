@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # oc-status.sh [root] — one line per OpenCode job journal under <root>/*/target/wf (default
-# /goinfre/dlesieur/wt): label, state, minutes since the last event, session id, and the last
+# $GM_SCRATCH/wt, scripts/orch/scratch.sh): label, state, minutes since the last event, session id, and the last
 # text the model wrote (≤200 chars). Never prints a transcript.
 # State: done(rc) when <label>.rc exists; else the OpenCode service is the liveness authority —
 # RUNNING when oc-live.sh finds this label's .session-id (or any session) draining in the
@@ -13,8 +13,9 @@
 # service empties the drain set without killing any job, so DEAD after a restart is an artefact,
 # not evidence. Test seam: OC_LIVE_BIN (the oc-live.sh to ask).
 set -uo pipefail
-root=${1:-/goinfre/dlesieur/wt}; now=$(date +%s)
-bin=/goinfre/dlesieur/orch/bin
+bin=$(dirname "$(readlink -f "$0")")
+source "$bin/scratch.sh"
+root=${1:-$GM_SCRATCH/wt}; now=$(date +%s)
 oc_live=${OC_LIVE_BIN:-$bin/oc-live.sh}
 for j in "$root"/*/target/wf/*.jsonl; do
   [[ -e $j ]] || continue

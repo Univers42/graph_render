@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repo is
 
-Two things in one tree:
+Three things in one tree:
 
 - **graph-motor** — the Rust workspace under `crates/`. It computes graph and diagram geometry and emits
   numbers; it is not a renderer and not an application. This is the product. Runbook: `prompt.md`;
@@ -12,11 +12,15 @@ Two things in one tree:
 - **`@osionos/graph-engine`** — the TypeScript engine under `src/` (Canvas2D + d3-force). Since Phase 0
   it is the **differential oracle** for graph-motor: test infrastructure, never shipped, never deleted.
   Commands and architecture: `docs/oracle-engine.md`.
+- **The studio** — `packages/graph-render`, `packages/graph-studio` and the host page `app/`: an
+  Obsidian-style interface over the wasm motor. A product in its own right since 2026-09-29
+  (`docs/decisions/studio-is-a-product.md`), with its own gates. See "Architecture (studio)" below.
 
-Submodules: `.claude/` (house rules) and `SciGraphs/` (a Python Blender extension: the reference design
-and the source of the Python oracles). Run `git submodule update --init` if either is empty.
+Submodule: `SciGraphs/` (a Python Blender extension: the reference design and the source of the Python
+oracles); run `git submodule update --init` if it is empty. The house rules come from the `devil` plugin
+(`univers42/claude-deal-with-the-devil`), seeded by its setup; see the block at the end of this file.
 
-Current state, newest first: `prompts/RESUME.md`, then `docs/reports/STATUS.md` and `HANDOFF.md`. Older
+Current state, newest first: `prompts/RESUME.md`, then `docs/reports/STATUS.md` and `docs/reports/HANDOFF.md`. Older
 docs write paths as `/home/user/...`; that is a previous host, same files.
 
 ## Standing rules (set by the user, LESdylan)
@@ -40,7 +44,7 @@ auto-push and no commits to `develop`), this section wins.
 ### Working mode
 - Full autonomy: run phases 0 → 10 (`prompts/phase-NN-*.md`) per `prompts/ONBOARDING.md` and `prompt.md`.
 - Keep an hourly self check-in armed with `send_later`.
-- Follow the `.claude` house rules (rules repo `univers42/claude-deal-with-the-devil`).
+- Follow the `devil` plugin's house rules (`.claude/rules/devil/`, repo `univers42/claude-deal-with-the-devil`).
 
 ### Hard constraints
 - osionos (`/home/dlesieur/Documents/osionos`) is READ ONLY (`scripts/guard-osionos.sh`, exit 90 = broken).
@@ -49,10 +53,10 @@ auto-push and no commits to `develop`), this section wins.
 - A missing reference is a stop, not an improvisation.
 - Stay inside each phase's authorization envelope; report every deviation.
 - Never print secret values.
-- Do not modify the `graph_render/.claude` submodule.
+- Do not hand-edit `.claude/rules/devil/`: change the kit and re-run its setup.
 
 ### Parallel branches (checked on 2026-09-29 with `git merge-tree` and a disk check; worth doing)
-- Every independent unit of work (a phase, or a slice inside a phase) gets its own branch and its own worktree under `/goinfre/dlesieur/wt/<branch>`. Exactly one agent per worktree. Two agents in one worktree clobbered each other's edits on 2026-09-28 (p3fix-a and p3fix-c).
+- Every independent unit of work (a phase, or a slice inside a phase) gets its own branch and its own worktree, made by `scripts/orch/wt-new.sh <branch>` under `$GM_SCRATCH/wt/`. Exactly one agent per worktree. Two agents in one worktree clobbered each other's edits on 2026-09-28 (p3fix-a and p3fix-c).
 - Start a branch as soon as its dependencies allow it; don't wait for unrelated phases.
   - Dependency order: p3 → {p5, p6e, p6f, p8}; p4 → {p7's SDK row, p10}; p6f → p9 → p11. p4 and p7 are independent of p3.
   - A branch may start from an unmerged dependency branch. Once that dependency lands, merge develop into it.
@@ -68,7 +72,7 @@ auto-push and no commits to `develop`), this section wins.
   - Run at most one timed gate at a time (hashgate, mutants) — on 2026-09-28, `hashgate --seeds 1000` hit `CHILD_TIMEOUT` 2700 s while mutants ran alongside it.
   - Other cargo jobs pass `CARGO_BUILD_JOBS`/`RUST_TEST_THREADS` (`scripts/orch/gr`).
   - Ponytail: a thread cap is not a CPU cap. A gate that times out is re-run on its own and never counted as a pass.
-- Disk: each worktree's `target/` is about 1 GB, and `/goinfre` had 38 GB free. Remove a worktree after its branch merges.
+- Disk: each worktree's `target/` is about 1 GB (33 GB free on host dlesieur42, 2026-09-30). Remove a worktree after its branch merges.
 
 ## Commands
 
@@ -76,12 +80,9 @@ No bare `cargo`, `rustc`, `npm` or `node`: the host has none that match the pins
 `scripts/orch/` mount the current git top-level at `/w`, so they act on whichever worktree you are in.
 
 ```sh
-# images, once per host (the header of each Dockerfile has the proxy/CA variant)
-docker build -f docker/rust.Dockerfile -t ge-rust .
-docker build -f docker/mutants.Dockerfile -t ge-mutants .        # FROM ge-rust
-scripts/orch/fetch-refs.sh                                        # pinned references -> /goinfre/dlesieur/refs
-docker build --build-context nx=/goinfre/dlesieur/refs/networkx-3.6 \
-  -f docker/python-oracle.Dockerfile -t ge-python-oracle .
+# once per host: the pinned references, then each image by the build line in its Dockerfile header
+# (docker/{rust,mutants,python-oracle}.Dockerfile, deploy/chromium.Dockerfile; mutants is FROM ge-rust)
+scripts/orch/fetch-refs.sh                                        # -> $GM_SCRATCH/refs
 
 # the merge floor
 scripts/orch/gr cargo fmt --all --check
@@ -111,20 +112,41 @@ scripts/orch/ge-check.sh                       # `npm run check` inside the repo
 scripts/orch/node-slim.sh npm run sdk:typecheck
 scripts/orch/gr cargo build -p graph-wasm --release --target wasm32-unknown-unknown
 scripts/orch/node-slim.sh npm run sdk:smoke
+
+# the studio (node:22-slim in Docker; the header of each script is its manual)
+scripts/studio.sh wasm        # build graph-wasm and stage it with fixtures/ into app/public
+scripts/studio.sh             # dev server on http://127.0.0.1:5174 (STUDIO_PORT)
+scripts/studio.sh check       # the studio's merge floor: tsc, unit + render tests, eslint, vite build
+scripts/studio.sh test        # tests only; needs the pinned refs at $REFS (default $GM_SCRATCH/refs)
+scripts/studio-nav.sh         # one browser gate over app/dist; siblings: perf, parity, interact, filters, ...
+STUDIO_NAV_BREAK=1 scripts/studio-nav.sh   # its negative control: expect non-zero
 ```
 
 - A fresh worktree needs `npm ci` before `cargo test`: the `cli_oracles` tests run the Node harness and
   fail on a missing `node_modules`.
 - Without `--no-fail-fast` cargo stops at the first failing test binary and hides the other crates.
-- Host rustfmt is not configured; format with `gr cargo fmt`.
 - `gr` caps memory at 8g (`GR_MEM`); exit 137 on a legitimate row means raise it. `GR_IMAGE` picks the image.
-- `/goinfre` is wiped when the host changes. `mutants.sh` and the rows files call the helpers at
-  `/goinfre/dlesieur/orch/bin/`, which are symlinks to `scripts/orch/`; recreate them, the worktrees and
-  the references after a host change. Rows files live in `/sgoinfre/students/dlesieur/orch/rows/`
-  (`quick.rows` is the merge floor, `develop-full.rows` the full gate).
+- Host-local state lives under `$GM_SCRATCH` (`scripts/orch/scratch.sh`: `/goinfre/$USER` where
+  `/goinfre` exists, else `~/goinfre`): worktrees, references, logs, locks. A host change loses it; rebuild
+  it with `fetch-refs.sh`, the image builds and `wt-new.sh`. Everything else is versioned: rows files in
+  `scripts/orch/rows/` (`quick.rows` = the merge floor plus wasm32, hashgate 8 and its negctl), the job
+  preamble `scripts/orch/common.md`, job briefs in `prompts/jobs/`.
 - Python differentials run in three steps: `graph-cli emit-spectral-fixtures` (or `emit-fa2-fixtures`),
   then `harness/oracle-spectral.py` (or `oracle-fa2.py`) inside `ge-python-oracle`, then
   `graph-cli oracle-spectral` (or `oracle-fa2`), which checks the result against its ceiling and records it.
+- The studio's tests refuse to run without the pinned references rather than skip, and a skipped
+  `node:test` case fails `studio.sh`. The browser gates need `scripts/studio.sh build` first and never
+  take the host gate lock.
+- `docs/studio.md` describes the first studio. Its port and its `src/core` imports are superseded by
+  `docs/decisions/render-ports-not-imports.md`; the script headers are current.
+- Agent jobs run headless in OpenCode (`opencode.json`, `.opencode/agents/`): `scripts/orch/oc-job.sh`
+  launches one in a worktree and gates it, and `scripts/orch/oc-status.sh` lists every job's state.
+  OpenCode 2.x ignores `opencode.json` `instructions` and reads only `AGENTS.md` (a link to
+  `prompts/AGENT_BRIEF.md`); the kit's bridge `.opencode/plugins/devil.js` adds its always-on rules.
+  The kit's agents, commands and bridge are untracked links that `devil setup --only opencode` makes per
+  worktree (`wt-new.sh` runs it); the house agents under `.opencode/agents/` are tracked.
+  `scripts/orch/job-check.sh start|wait|status|lint|commit` is the deterministic half: it runs the rows
+  gate and commits only on a PASS over the same tree.
 - The shell is zsh: an unmatched glob aborts the command and `echo ===` expands `=`. Use `git grep`.
   Kill by PID; `pkill -f <pattern>` matches your own command line.
 
@@ -187,16 +209,11 @@ never leaves the motor. Specs: `docs/contract/`.
 
 ### Determinism (D1–D10, authoritative in `prompt.md` §6)
 
-Output must be bit-identical native vs wasm32. In practice:
-
-- Every transcendental goes through `libm`. No `mul_add`, `powi`, relaxed-simd or FTZ/DAZ.
-- Reductions run in a fixed order; ties break by dense index. Use `IndexMap`/`BTreeMap` wherever
-  iteration order is observable, never `HashMap`.
-- Wire integers are `u32`/`u64`, never `usize`.
-- No clock and no randomness except the seeded generators. Assert no NaN/Inf before hashing.
-- Per-step kernels are gathers: element `i` reads start-of-step state and writes only `out[i]`.
-- A new struct field needs every constructor across crates, wire formats included. The wasm ingest once
-  dropped `EdgeRecord.child_first`, and only the hash gate caught it.
+Output must be bit-identical native vs wasm32. Read §6 before touching motor math. In short: `libm` for
+every transcendental, no FMA; fixed-order reductions; `IndexMap`/`BTreeMap`, never `HashMap`; wire integers
+`u32`/`u64`, never `usize`; no clock; per-step kernels are gathers. Beyond §6: a new struct field needs
+every constructor across crates, wire formats included. The wasm ingest once dropped
+`EdgeRecord.child_first`, and only the hash gate caught it.
 
 ### Differential oracles
 
@@ -223,6 +240,41 @@ gate row has a negative control that must fail. Every heuristic carries a `Ponyt
 also a required ledger field. Decisions are recorded in `docs/decisions/`, measurements in
 `docs/measurements/`.
 
+## Architecture (studio)
+
+| Layer | Path | Depends on | Must not depend on |
+|---|---|---|---|
+| motor | `crates/*` | as above | `packages/`, `app/`, `deploy/` |
+| render | `packages/graph-render` | nothing at runtime | React, the SDK runtime, `src/`, `fetch` |
+| studio | `packages/graph-studio` | graph-render, the SDK (in the worker only), React | `src/` |
+| host | `app/` | graph-studio | anything else |
+
+- The renderer's only input is snapshot **bytes** (`docs/contract/binary-layout.md`). It ports what it
+  needs from the oracle and never imports `src/`: gate row `no-oracle-import`.
+- Gate row `motor-alone` runs the Rust merge floor with `app`, `packages` and `deploy` removed. Red means
+  the motor has grown a dependency on its viewer.
+- `<graph-studio>` (`packages/graph-studio/src/element.ts`) is a custom element in its own shadow root.
+  The motor runs in a Web Worker behind `src/motor/protocol.ts`.
+- Every user action is registered once in `src/actions/registry.ts`. The dock, console, shortcuts and
+  host all call `resolve`, so arguments are checked in one place.
+- Layout, post and analysis pickers are filled from the motor's own registries (`Motor.layouts()`,
+  `posts()`, `analyses()`). The one id the studio sources name is the default layout in
+  `src/state/settings.ts`.
+- The packages have no `node_modules` of their own: they type-check, lint, test and build with the
+  toolchain pinned in `app/package.json`. The root `package.json`, lockfile and `tsconfig.json` are
+  fingerprinted, so touching them voids gate evidence.
+
 ## Reference
 - The TypeScript oracle engine (commands, architecture): `docs/oracle-engine.md`. Agent brief: `prompts/AGENT_BRIEF.md`.
 - Where the math lives and which references are on disk: `prompts/REFERENCES.md`.
+
+<!-- devil:start -->
+## The devil kit
+
+Installed as the Claude Code plugin `devil`.
+
+- `/devil:guide` lists every command, workflow, skill and agent with its stage.
+- `devil <tool>` runs a tool: `devil digest`, `devil quality --no-audit`, `devil selfcheck`.
+- Its 12 always-on rules are seeded under `.claude/rules/devil/` and load every session.
+- After a plugin update, run `/devil:setup --apply` to re-seed them.
+<!-- devil:end -->

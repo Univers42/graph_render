@@ -18,11 +18,14 @@ mod compare;
 mod knob;
 mod report;
 mod stages;
+mod tier;
 mod transport;
 
 use crate::evidence;
 use crate::runner::{build_wasm, file_sha256, node_harness, run_lines, sha256_hex};
 use compare::{Arm, Tally, diverged, per_stage};
+use graph_core::Stage;
+use graph_core::layout::force::{BarnesHut, Split};
 use graph_core::layout::forceatlas2::Fa2Params;
 pub use knob::Knob;
 use knob::{Setting, env_setting};
@@ -44,11 +47,24 @@ pub(crate) fn fa2_perturbation() -> Result<Fa2Params, String> {
     Ok(env_setting()?.fa2)
 }
 
-/// Runs all four arms over seeds `0..seeds` and compares them line by line.
-pub fn run(seeds: u32) -> ExitCode {
+pub(crate) use crate::exec_native::Threads;
+pub(crate) use tier::Tiers;
+/// The gate's own worker counts, re-exported so the benchmark sweep can hold every width
+/// it times to one the gate has proved hash-equal: a threshold promoting a width nothing
+/// was compared at would be a claim with no equality behind it.
+pub(crate) use tier::WORKER_COUNTS;
+/// `--tiers` as `main.rs`'s flag parser reads it: the arm list's own [`tier::parse`], so
+/// the accepted words and the arms they add are one definition.
+pub(crate) fn parse_tiers(text: &str) -> Result<Tiers, String> {
+    tier::parse(text)
+}
+
+/// Runs every arm over seeds `0..seeds` and compares them line by line.
+pub fn run(seeds: u32, tiers: Tiers) -> ExitCode {
     let started = env_setting().and_then(|setting| {
+        refuse_a_vacuous_control(seeds, setting.split_sum)?;
         let stamp = evidence::Stamp::take()?;
-        Ok((setting.control, stamp, collect_arms(seeds)?))
+        Ok((setting.control, stamp, collect_arms(seeds, tiers)?))
     });
     match started {
         Ok((control, stamp, arms)) => report(&stamp, control, seeds, &arms),
@@ -57,6 +73,27 @@ pub fn run(seeds: u32) -> ExitCode {
             ExitCode::from(2)
         }
     }
+}
+
+/// **A control that cannot bite refuses the run; it does not pass it.**
+///
+/// `split` is the pass whose merge the control splits, and `seeds` is how many the row runs.
+/// Collide's own control moves nothing below five seeds — see
+/// [`graph_core::layout::force::Split::min_seeds`], which measures it — so a row at two
+/// seeds would corrupt no bytes and exit **0**, a *vacuous pass*: an exit code that reads as
+/// evidence for a control that never ran. Refusing is the only honest answer, and the
+/// existing `Err` path already carries it as exit 2, "could not run".
+fn refuse_a_vacuous_control(seeds: u32, split: Split) -> Result<(), String> {
+    let floor = split.min_seeds();
+    if seeds < floor {
+        return Err(format!(
+            "GM_MUTATE_SPLIT_SUM splits a merge that cannot move anything in {seeds} \
+             seed(s): the collide pass needs at least {floor} seeds, because below that the \
+             gate's model leaves it no overlap to resolve. Run with --seeds {floor} or more, \
+             or with GM_MUTATE_SPLIT_SUM naming another pass."
+        ));
+    }
+    Ok(())
 }
 
 /// Body of the hidden `hashgate-arm` subcommand: one native run, every stage.
@@ -86,18 +123,83 @@ fn arm_lines(seeds: u32, setting: &Setting) -> Result<String, String> {
     Ok(blocks.concat())
 }
 
-fn collect_arms(seeds: u32) -> Result<Vec<Arm>, String> {
+/// `stage seed sha256` lines for a Barnes-Hut stage run over `workers` `std::thread`s, and
+/// **every other stage byte-identical to the serial arm's**.
+///
+/// The stages are the gate's own registry list, in its own order, so the comparison is
+/// line-for-line against the scalar arm. The force stage is computed by
+/// `BarnesHut::run_with(..., &Threads, workers)` — the same call the scalar arm reaches
+/// through `Stage::run` with one worker, so the arm checks a *schedule* rather than a
+/// second implementation.
+/// **Stage-major, seed-minor**, exactly as [`arm_lines`] prints them: every seed of one
+/// stage, then every seed of the next. That ordering is not cosmetic — `compare::diverged`
+/// reads line `i` as stage `i / seeds`, seed `i % seeds`, so a seed-major arm would be
+/// refused as malformed at its first line. The two functions must keep the same shape;
+/// `the_threaded_arm_prints_its_stages_in_the_same_order_as_the_scalar_one` holds them to
+/// it.
+fn threads_lines(seeds: u32, setting: &Setting, workers: u32) -> Result<Vec<String>, String> {
+    let mut blocks = vec![String::new(); stages().len()];
+    for seed in 0..seeds {
+        let bytes = stage_bytes_threaded(seed, setting, workers)
+            .map_err(|err| format!("seed {seed}: {err}"))?;
+        for (block, (id, bytes)) in blocks.iter_mut().zip(bytes) {
+            block.push_str(&format!("{id} {seed} {}\n", sha256_hex(&bytes)));
+        }
+    }
+    Ok(blocks.concat().lines().map(str::to_owned).collect())
+}
+
+/// [`stage_bytes`](stages::stage_bytes) with the Barnes-Hut stage run threaded, and with
+/// `setting.split_sum` — the negative control — carried into it.
+///
+/// The control reaches the *stage*, not just the arm, so `GM_MUTATE_SPLIT_SUM=1 --tiers all`
+/// diverges the threaded arms from the scalar one on the force stage and nowhere else. That
+/// is the shape the phase prompt asks the control to have: a mutation a threaded arm cannot
+/// survive, so the gate's red is proof the arms were compared.
+fn stage_bytes_threaded(
+    seed: u32,
+    setting: &Setting,
+    workers: u32,
+) -> Result<Vec<(&'static str, Vec<u8>)>, String> {
+    let count = graph_core::gate_node_count(seed) + setting.extra_nodes;
+    let (nodes, edges) = graph_core::seeded_model(seed, count, setting.reference_degree);
+    let topology = graph_core::index_model(&nodes, &edges).map_err(|e| e.to_string())?;
+    let mut out = Vec::new();
+    for (id, bytes) in stages::stage_bytes(seed, setting)? {
+        let bytes = if id == BarnesHut::ID {
+            let geometry = BarnesHut::run_under(
+                &topology,
+                &setting.force,
+                &Threads,
+                workers,
+                setting.split_sum,
+            )
+            .map_err(|e| e.to_string())?;
+            graph_core::layout::snapshot(&topology, geometry)
+                .map(|snapshot| snapshot.to_bytes())
+                .map_err(|e| e.to_string())?
+        } else {
+            bytes
+        };
+        out.push((id, bytes));
+    }
+    Ok(out)
+}
+
+fn collect_arms(seeds: u32, tiers: Tiers) -> Result<Vec<Arm>, String> {
     let exe = std::env::current_exe().map_err(|e| format!("locating graph-cli: {e}"))?;
     let wasm = build_wasm(&[])?;
     let count = seeds.to_string();
     let native = || run_lines(Command::new(&exe).args(["hashgate-arm", "--seeds", &count]));
     let wasm32 = || run_lines(node_harness(&wasm).args(["hash", &count]).args(stages()));
-    let arms = vec![
+    let mut arms = vec![
         ("native run 1", native()?),
         ("native run 2", native()?),
         ("wasm32 run 1", wasm32()?),
         ("wasm32 run 2", wasm32()?),
     ];
+    arms.extend(tier::arms(seeds, tiers)?);
+    println!("hashgate: {} arms, tiers {}", arms.len(), tiers.as_str());
     println!(
         "hashgate: wasm artifact {} sha256 {}",
         wasm.display(),
@@ -123,8 +225,9 @@ fn report(stamp: &evidence::Stamp, control: Option<Knob>, seeds: u32, arms: &[Ar
     report::arm_report(&mut detail, arms, &lines);
     print!("{detail}");
     let tally = per_stage(seeds, stages().len(), &lines);
+    let ways = arms.len();
     for (stage, equal) in stages().iter().zip(&tally.equal) {
-        println!("  {stage}: 4-way equal on {equal}/{seeds} seeds");
+        println!("  {stage}: {ways}-way equal on {equal}/{seeds} seeds");
     }
     conclude(stamp, control, seeds, &tally, arms)
 }
@@ -149,8 +252,9 @@ fn conclude(
     };
     println!("  {TRANSPORT}: the real ABI matched {LAYOUT} on {c20}/{seeds} seeds");
     let bad = tally.diverged_seeds;
-    println!("  4-way equal on {}/{seeds} seeds", seeds - bad);
-    if let Err(err) = record(stamp, control, seeds, tally, c20) {
+    let ways = arms.len();
+    println!("  {ways}-way equal on {}/{seeds} seeds", seeds - bad);
+    if let Err(err) = record(stamp, control, seeds, tally, c20, arms) {
         eprintln!("hashgate: not recorded: {err}");
         return ExitCode::from(2);
     }
@@ -182,9 +286,10 @@ fn record(
     seeds: u32,
     tally: &Tally,
     c20: u32,
+    arms: &[Arm],
 ) -> Result<(), String> {
     let name = control.map_or("hashgate", Knob::record);
-    evidence::record(stamp, name, report::body(control, seeds, tally, c20))
+    evidence::record(stamp, name, report::body(control, seeds, tally, c20, arms))
 }
 
 #[cfg(test)]

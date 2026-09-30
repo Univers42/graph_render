@@ -34,3 +34,16 @@ fn a_worst_over_its_ceiling_or_no_component_fails_that_layout_only() {
 fn a_result_without_a_measured_worst_is_refused() {
     assert!(judge(SPECTRAL.ceilings, &json!({ "layouts": {} })).is_err());
 }
+
+#[test]
+fn closed_form_ceiling_covers_ring_spiral_and_bipartite() {
+    let result = json!({ "layouts": {
+        "ring": { "cases": 5, "worst": 1e-6 },
+        "spiral": { "cases": 5, "worst": 1e-7 },
+        "bipartite": { "cases": 5, "worst": 2e-7 },
+    }});
+    let (pass, functions) = judge(CLOSED_FORM.ceilings, &result).expect("judged");
+    assert!(!pass);
+    assert_eq!(functions["layout.bipartite"]["unexplained"], 1);
+    assert_eq!(functions["layout.spiral"]["unexplained"], 0);
+}

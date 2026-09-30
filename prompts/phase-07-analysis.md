@@ -1,4 +1,4 @@
-> **Status (2026-09-28):** BUILT on branch p7 (79f4701, pre-p3 base) — reviewed + repaired; needs allow-list row fix, depth.rs on hierarchy.rs, column exposure, mutants, report. See docs/reports/STATUS.md.
+> **Status (2026-09-30):** MERGED into develop, merge ffb837a (branch p7 head ab396f5). Still owed: docs/reports/phase-07.md. See prompts/RESUME.md.
 
 # Phase 7 — The ANALYSIS stage
 

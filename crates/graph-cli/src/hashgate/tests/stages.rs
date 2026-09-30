@@ -3,7 +3,7 @@
 //! 300-line limit, and the module that pins the one invariant the whole gate rests on:
 //! **every stage the gate asks for has a native producer**, in the same order.
 //!
-//! Without it the two derivations drift: `stages()` grew with the registry while
+//! Without it the two derivations drift: `stage_ids()` grew with the registry while
 //! `stage_bytes` named three stages literally, so the arm printed fewer lines than
 //! `compare::diverged` demanded and the gate refused its own honest run the moment a
 //! second layout was registered. The stand-in layouts below live in `marked` — a child
@@ -14,8 +14,12 @@
 mod arm;
 mod marked;
 
-use super::*;
+use super::super::stage_bytes_for;
+use super::super::stages::stages as stage_ids;
+use super::super::{LAYOUT, TRANSPORT, arm_lines, stage_bytes};
+use super::{Setting, honest};
 use graph_core::registry::Capability;
+use graph_core::{GridParams, REFERENCE_DEGREE};
 use graph_core::{gate_node_count, seeded_model};
 use marked::{crowded, ids_of, marked_layouts};
 
@@ -102,10 +106,10 @@ fn the_stages_are_the_topology_then_every_registered_layout_then_the_transport()
     let mut want = vec!["topology"];
     want.extend(layouts);
     want.push(TRANSPORT);
-    assert_eq!(stages(), want);
+    assert_eq!(stage_ids(), want);
     assert_eq!(
         stage_bytes(4, &honest()).expect("runs").len(),
-        stages().len(),
+        stage_ids().len(),
         "one native producer per stage the gate asks for"
     );
 }
@@ -186,15 +190,22 @@ fn the_degree_knob_moves_the_topology_and_the_grid_knob_the_two_grid_stages() {
     let base = honest();
     let honest_run = bytes_under(&base);
     let layout = stage(&honest_run, LAYOUT);
+    assert_degree_changes_topology_only(&base, &honest_run, layout);
+    assert_spacing_changes_grid_stages(&base, &honest_run, layout);
+    assert_zero_spacing_is_refused(&base);
+}
+
+fn assert_degree_changes_topology_only(
+    base: &Setting,
+    honest_run: &[(&'static str, Vec<u8>)],
+    layout: &[u8],
+) {
     let degree = Setting {
         reference_degree: REFERENCE_DEGREE + 1,
-        ..base
+        ..*base
     };
     let by_degree = bytes_under(&degree);
-    assert_ne!(
-        stage(&by_degree, "topology"),
-        stage(&honest_run, "topology")
-    );
+    assert_ne!(stage(&by_degree, "topology"), stage(honest_run, "topology"));
     for id in [LAYOUT, TRANSPORT] {
         assert_eq!(
             stage(&by_degree, id),
@@ -202,14 +213,21 @@ fn the_degree_knob_moves_the_topology_and_the_grid_knob_the_two_grid_stages() {
             "{id}: the grid ignores weights"
         );
     }
+}
+
+fn assert_spacing_changes_grid_stages(
+    base: &Setting,
+    honest_run: &[(&'static str, Vec<u8>)],
+    layout: &[u8],
+) {
     let spacing = Setting {
         grid: GridParams { spacing: 2.0 },
-        ..base
+        ..*base
     };
     let by_spacing = bytes_under(&spacing);
     assert_eq!(
         stage(&by_spacing, "topology"),
-        stage(&honest_run, "topology")
+        stage(honest_run, "topology")
     );
     assert_ne!(stage(&by_spacing, LAYOUT), layout);
     assert_eq!(
@@ -217,9 +235,12 @@ fn the_degree_knob_moves_the_topology_and_the_grid_knob_the_two_grid_stages() {
         stage(&by_spacing, LAYOUT),
         "the transport stage follows the layout it restates"
     );
+}
+
+fn assert_zero_spacing_is_refused(base: &Setting) {
     let refused = Setting {
         grid: GridParams { spacing: 0.0 },
-        ..base
+        ..*base
     };
     let err = stage_bytes(4, &refused).expect_err("zero spacing");
     assert_eq!(err, "parameter spacing: finite and above 0");
@@ -233,12 +254,12 @@ fn an_arm_prints_every_seed_of_one_stage_before_the_next() {
         .lines()
         .map(|l| l.rsplit_once(' ').expect("digest").0)
         .collect();
-    let want: Vec<String> = stages()
+    let want: Vec<String> = stage_ids()
         .iter()
         .flat_map(|stage| (0..seeds).map(move |seed| format!("{stage} {seed}")))
         .collect();
     assert_eq!(prefixes, want);
-    assert_eq!(prefixes.len(), stages().len() * seeds as usize);
+    assert_eq!(prefixes.len(), stage_ids().len() * seeds as usize);
     let refused = Setting {
         grid: GridParams { spacing: -1.0 },
         ..honest()

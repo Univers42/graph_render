@@ -15,8 +15,9 @@
 # stay with the reviewer.
 set -uo pipefail
 here=$(dirname "$(readlink -f "$0")")
+source "$here/scratch.sh"
 st=target/job-check
-locks=${JC_LOCKS:-/goinfre/dlesieur/orch/locks}
+locks=${JC_LOCKS:-$GM_SCRATCH/orch/locks}
 slots=${JC_SLOTS:-3}
 
 die() { echo "job-check: $*" >&2; exit 2; }
@@ -138,7 +139,7 @@ added_lines() {
 
 rule_paths() {
   changed "$1" | awk '
-    $0 == ".claude" || /^\.claude\// { print "ERROR submodule   " $0 ": the .claude submodule is read-only" }
+    $0 == ".claude" || /^\.claude\// { print "ERROR seeded      " $0 ": .claude is seeded by devil setup; change the kit, not the copy" }
     /^\.opencode\// { print "WARN  opencode    " $0 ": changed; allowed only when the task names it" }
     /\.(log|orig|rej|tmp|swp|bak|pyc)$|(^|\/)\.nfs|(^|\/)(\.playwright-mcp|__pycache__)\/|(^|\/)core$|\.DS_Store$/ {
       print "ERROR junk        " $0 ": delete it" }'

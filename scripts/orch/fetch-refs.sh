@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # fetch-refs.sh [dest] — download the pinned read-only references (prompts/REFERENCES.md) into
-# <dest> (default /goinfre/dlesieur/refs), verify each against its recorded digest, chmod a-w.
+# <dest> (default $GM_SCRATCH/refs, scripts/orch/scratch.sh), verify each against its recorded digest, chmod a-w.
 # Digests: npm sha512 = the `integrity` in the branch lockfiles; networkx = PyPI's published sha256;
 # JAMA and lobpcg.py = the sha256 recorded on p6e (dense_sym.rs:5-6, eigensolver.md); matplotlib's
 # _cm_listed.py = the file inside PyPI's 3.10.0 sdist (sdist sha256 b886d02a…511278, checked
 # 2026-09-29), fetched alone because the sdist is 36 MB. A mismatch is a stop (rule 0.6), never a
 # retry against another mirror.
 set -euo pipefail
-R=${1:-/goinfre/dlesieur/refs}
+source "$(dirname "$(readlink -f "$0")")/scratch.sh"
+R=${1:-$GM_SCRATCH/refs}
 die() { echo "fetch-refs: $*" >&2; exit 1; }
 sha256_is() { [[ $(sha256sum "$1" | cut -d' ' -f1) == "$2" ]] || die "sha256 mismatch: $1"; }
 get() { curl -fsSL --retry 3 -o "$2" "$1"; }

@@ -9,17 +9,24 @@ use std::collections::BTreeSet;
 /// One arm: its name and its `stage seed sha256` lines, stage by stage, seed by seed.
 pub type Arm = (&'static str, Vec<String>);
 
-/// Lines on which the four arms disagree — or why they cannot be compared at all.
-/// Refused: zero seeds, a missing arm, a short arm, a line that is not
+/// The fewest arms a gate run may compare. Two is the minimum that can disagree at all;
+/// the honest run has four (native ×2, wasm32 ×2) and `--tiers all` has more, so a lower
+/// bound rather than an exact count is the rule that survives adding a tier.
+pub const MIN_ARMS: usize = 2;
+
+/// Lines on which the arms disagree — or why they cannot be compared at all.
+/// Refused: zero seeds, fewer than [`MIN_ARMS`] arms, a short arm, a line that is not
 /// `stage seed <64 hex>` for its own position, and a stage whose every seed hashed alike
 /// (the seed never reached the output, so `seeds` seeds tested one input).
 pub fn diverged(seeds: u32, stages: &[&str], arms: &[Arm]) -> Result<Vec<usize>, String> {
     if seeds == 0 {
         return Err("0 seeds: a gate over nothing proves nothing".into());
     }
-    if arms.len() != 4 {
-        return Err(format!("{} arms, need 4", arms.len()));
+    if arms.len() < MIN_ARMS {
+        return Err(format!("{} arms, need at least {MIN_ARMS}", arms.len()));
     }
+    // A *short* arm is refused below, when its line count is checked; the count here only
+    // says the list itself is too short to be a comparison at all.
     let per_arm = seeds as usize * stages.len();
     for (name, lines) in arms {
         if lines.len() != per_arm {
@@ -52,7 +59,7 @@ pub fn diverged(seeds: u32, stages: &[&str], arms: &[Arm]) -> Result<Vec<usize>,
 /// Divergent lines folded back to stages and seeds.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Tally {
-    /// Seeds on which all four arms agree, per stage in the caller's `stages` order.
+    /// Seeds on which all arms agree, per stage in the caller's `stages` order.
     pub equal: Vec<u32>,
     /// Seeds with a divergence in any stage.
     pub diverged_seeds: u32,

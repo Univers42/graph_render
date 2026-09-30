@@ -57,7 +57,6 @@ pub(crate) struct Quadtree {
     chain_next: Vec<Option<u32>>,
     stack_a: Vec<u32>,
     stack_b: Vec<u32>,
-    visit_stack: Vec<(u32, Bounds)>,
 }
 
 impl Quadtree {
@@ -162,14 +161,26 @@ impl Quadtree {
         out.extend(self.stack_b.iter().rev());
     }
 
-    /// A pruned preorder walk (d3's `visit.js`): `prune` runs on every node reached, and a
-    /// `true` return skips its children. Children queue `3,2,1,0`, so they visit `0,1,2,3`.
-    pub(crate) fn visit(&mut self, mut prune: impl FnMut(&Self, u32, Bounds) -> bool) {
-        self.visit_stack.clear();
+    /// A pruned preorder walk (d3's `visit.js`) over a **caller-owned** stack: `prune`
+    /// runs on every node reached, and a `true` return skips its children. Children queue
+    /// `3,2,1,0`, so they visit `0,1,2,3`.
+    ///
+    /// **The walk takes `&self` and the caller owns the buffer, and that is the whole
+    /// reason this shape exists** (D10): the reused-buffer form needed `&mut` only for its
+    /// stack, so without this the walk was a `&mut` borrow of shared start-of-step state
+    /// and no two workers could take it at once. Every gathered pass now holds the tree
+    /// read-only while several workers walk it, so there is no tree-owned walk buffer to
+    /// keep and no `&mut self` walk to offer.
+    pub(crate) fn visit_in(
+        &self,
+        stack: &mut Vec<(u32, Bounds)>,
+        mut prune: impl FnMut(&Self, u32, Bounds) -> bool,
+    ) {
+        stack.clear();
         if let Some(root) = self.root {
-            self.visit_stack.push((root, self.root_bounds));
+            stack.push((root, self.root_bounds));
         }
-        while let Some((node, bounds)) = self.visit_stack.pop() {
+        while let Some((node, bounds)) = stack.pop() {
             if prune(self, node, bounds) {
                 continue;
             }
@@ -178,7 +189,7 @@ impl Quadtree {
             };
             for slot in (0..4).rev() {
                 if let Some(child) = children[slot] {
-                    self.visit_stack.push((child, bounds.quadrant(slot)));
+                    stack.push((child, bounds.quadrant(slot)));
                 }
             }
         }

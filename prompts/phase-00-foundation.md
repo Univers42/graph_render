@@ -1,4 +1,4 @@
-> **Status (2026-09-28):** DONE — merged into develop. See docs/reports/STATUS.md.
+> **Status (2026-09-30):** DONE — merged into develop (develop 39d2450 carries p0–p2). Report docs/reports/phase-00.md. See docs/reports/STATUS.md.
 
 # Phase 0 — Foundation: toolchain, contract skeleton, and an instrument that can fail
 

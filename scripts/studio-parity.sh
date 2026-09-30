@@ -20,7 +20,8 @@ set -uo pipefail
 
 root=$(git -C "$(dirname -- "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)
 image=${PARITY_IMAGE:-gm-chromium}
-refs=${STUDIO_REFS:-/goinfre/dlesieur/refs}
+source "$(dirname "$(readlink -f "$0")")/orch/scratch.sh"
+refs=${STUDIO_REFS:-$GM_SCRATCH/refs}
 label=${PARITY_LABEL:-current}
 break_args=()
 

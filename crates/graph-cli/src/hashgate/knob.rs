@@ -2,7 +2,7 @@
 //! variable is read strictly and at most one may be set.
 
 use graph_core::layout::circle_packing::CirclePackingParams;
-use graph_core::layout::force::ForceParams;
+use graph_core::layout::force::{ForceParams, Split};
 use graph_core::layout::forceatlas2::Fa2Params;
 use graph_core::layout::{circular, tidy_tree, treemap};
 use graph_core::{GridParams, REFERENCE_DEGREE, SugiyamaParams};
@@ -79,11 +79,30 @@ pub enum Knob {
     /// of the four that publishes `run_with`; the scale is read by the final centring and
     /// so changes every circle's centre and radius.
     PackingScale,
+    /// `GM_MUTATE_SPLIT_SUM`: **native arms only, and the threaded ones above all.**
+    ///
+    /// Phase 11's own control, and the one the phase prompt names: it makes a gathered
+    /// pass's merge read a *neighbouring* node's delta — the shape a wrong partition of
+    /// the outputs would take — so the threaded arms must diverge from the scalar one. It
+    /// is the control that proves the threaded arms are actually reading their own
+    /// results: a threaded arm that ignored the merge entirely would agree with a mutated
+    /// one.
+    ///
+    /// The variable takes the **pass** whose merge is split (`charge`, `collide`, `link`),
+    /// because each kernel needs its own control to be shown to be compared: a knob that
+    /// only ever split the charge merge would leave the other two kernels' equality
+    /// resting on nothing. `1`/`true` means all three, `0`/`false` none.
+    ///
+    /// The perturbation lives in that pass's merge (`barnes_hut::charge`,
+    /// `barnes_hut::collide`, `barnes_hut::link`), and the setting it reads is carried on
+    /// the [`Setting`] so a knob cannot change behaviour without being declared here — the
+    /// same discipline every other knob obeys.
+    SplitSum,
 }
 
 impl Knob {
     /// Every knob.
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 11] = [
         Self::ReferenceDegree,
         Self::GridSpacing,
         Self::SugiyamaLayerSpacing,
@@ -94,6 +113,7 @@ impl Knob {
         Self::TreemapNodes,
         Self::CircularNodes,
         Self::PackingScale,
+        Self::SplitSum,
     ];
 
     /// The variable that sets it.
@@ -109,6 +129,7 @@ impl Knob {
             Self::TreemapNodes => "GM_MUTATE_TREEMAP_NODES",
             Self::CircularNodes => "GM_MUTATE_CIRCULAR_NODES",
             Self::PackingScale => "GM_MUTATE_PACKING_SCALE",
+            Self::SplitSum => "GM_MUTATE_SPLIT_SUM",
         }
     }
 
@@ -125,6 +146,7 @@ impl Knob {
             Self::TreemapNodes => "hashgate-control-treemap-nodes",
             Self::CircularNodes => "hashgate-control-circular-nodes",
             Self::PackingScale => "hashgate-control-packing-scale",
+            Self::SplitSum => "hashgate-control-split-sum",
         }
     }
 }
@@ -150,6 +172,12 @@ pub(super) struct Setting {
     /// claim, and a bare `u32` would let the same perturbation reach the shared model
     /// again — which is [`Setting::extra_nodes`], and moves every stage at once.
     pub(super) stage_nodes: Option<(&'static str, u32)>,
+    /// Which gathered pass's merge reads a neighbouring node's delta
+    /// ([`Knob::SplitSum`]), the phase-11 control for the threaded arms.
+    ///
+    /// A [`Split`] and not a `bool` because the control names *which* kernel it corrupts,
+    /// and each kernel needs its own row to be shown to be compared.
+    pub(super) split_sum: Split,
     pub(super) control: Option<Knob>,
 }
 
@@ -166,6 +194,7 @@ pub(super) fn setting(read: impl Fn(&str) -> Result<String, VarError>) -> Result
         fa2: Fa2Params::default(),
         packing: CirclePackingParams::default(),
         stage_nodes: None,
+        split_sum: Split::None,
         control: None,
     };
     for knob in Knob::ALL {
@@ -210,6 +239,11 @@ fn apply(knob: Knob, text: &str, setting: &mut Setting) -> Result<(), String> {
             setting.stage_nodes = Some((circular::ID, nodes(text, knob)?));
         }
         Knob::PackingScale => setting.packing.scale = text.parse().map_err(|e| bad(&e))?,
+        // Parsed rather than treated as a presence flag, so `GM_MUTATE_SPLIT_SUM=0` is
+        // the honest run and a typo (`=maybe`) is an error instead of a silent
+        // mutation. `1`/`0` are accepted beside `true`/`false` because a gate row
+        // reads `GM_MUTATE_SPLIT_SUM=1`.
+        Knob::SplitSum => setting.split_sum = split(text).ok_or_else(|| bad(&text))?,
     }
     Ok(())
 }
@@ -233,4 +267,18 @@ fn nodes(text: &str, knob: Knob) -> Result<u32, String> {
 
 pub(super) fn env_setting() -> Result<Setting, String> {
     setting(|name| std::env::var(name))
+}
+
+/// Which merge `GM_MUTATE_SPLIT_SUM` corrupts: a pass's own name, or `1`/`true` for all
+/// three. An unknown word is `None`, and the caller turns that into the parse error — a
+/// control whose spelling did not work would be a control nobody runs.
+fn split(text: &str) -> Option<Split> {
+    match text.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "all" => Some(Split::All),
+        "0" | "false" | "none" => Some(Split::None),
+        "charge" => Some(Split::Charge),
+        "collide" => Some(Split::Collide),
+        "link" => Some(Split::Link),
+        _ => None,
+    }
 }

@@ -36,12 +36,21 @@ dir() {
   printf '%s' "$d"
 }
 
-# port — the service port: OC_LIVE_PORT, else the local address of a listening opencode
+# port — the service port: OC_LIVE_PORT, else the port of the listening `opencode serve --service`.
+# Not the first opencode listener: standalone runs and other sessions listen too, and on 2026-09-30
+# the first one was a stranger, so every job was refused with "service down?".
 port() {
-  local p=${OC_LIVE_PORT-} cmd
+  local p=${OC_LIVE_PORT-} cmd line pid
   if [[ -z $p ]]; then
     read -r -a cmd <<<"${OC_LIVE_SS:-ss}"
-    p=$("${cmd[@]}" -ltnp 2>/dev/null | grep opencode | awk 'NR==1{print $4}' | sed 's/.*://')
+    while IFS= read -r line; do
+      pid=$(sed -n 's/.*pid=\([0-9]*\).*/\1/p' <<<"$line")
+      [[ -n $pid ]] || continue
+      tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null | grep -q -- ' --service' || continue
+      p=$(awk '{print $4}' <<<"$line")
+      p=${p##*:}
+      break
+    done < <("${cmd[@]}" -ltnp 2>/dev/null | grep opencode)
   fi
   [[ $p =~ ^[0-9]+$ ]] || return 1
   printf '%s' "$p"

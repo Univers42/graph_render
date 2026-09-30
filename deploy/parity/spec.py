@@ -13,14 +13,22 @@ harness agrees with itself.
 
 import re
 
-# The gallery's own world colour, linear (05-reproducible-pipeline.qmd:139-145).
+# The gallery's own world colour, linear (05-reproducible-pipeline.qmd:139-145). Blender's
+# Standard view transform (pipeline-schema.qmd:156, 05-reproducible-pipeline.qmd:161) turns
+# it into (53, 53, 60); the reference figure's modal 16-bit corner value is (52.5, 52.5,
+# 59.9) in 8-bit units, so the two agree inside TOLERANCE.
 BACKGROUND = (0.035, 0.035, 0.045)
 
 # The colormap the gallery asks for (05-reproducible-pipeline.qmd:121).
 COLORMAP = "inferno"
 
-# 43 of the 77 nodes have a betweenness of exactly 0, and the RANK transform gives a tie
-# group its mid-rank over n-1: (0+42)/2 = 21 of 76 (colormaps.py:527-530).
+# 43 of the 77 nodes have a betweenness of exactly 0. RANK gives a tie group its mid-rank,
+# (start + end - 1) / 2 (colormaps.py:462-469), divided by n - 1 (colormaps.py:527-530):
+# (0 + 42) / 2 = 21, so t = 21 / 76. The ramp stops are linspace samples (colormaps.py:329-335),
+# placed at i / (count - 1) and interpolated LINEAR (ui/coloring/functions.py:250-270, :408).
+# Ponytail: t = 20 / 76 would give #A24BAF, the hex the task statement writes; this file
+# follows the code, and the figure's lit node centres read (168, 93, 178), whose green sits
+# 14 above the ramp because Cycles lighting is added on top of the base colour.
 FILL_T = 21 / 76
 
 # Blender's ColorRamp accepts 32 stops at most, and SciGraphs asks for exactly that.
@@ -30,9 +38,9 @@ ROWS = 256
 # How far a sampled pixel may sit from the expected one, per channel.
 TOLERANCE = 2
 
-# The hex the task statement writes down for the two values above. They are the same
-# colours to within TOLERANCE of a truncation, not of the rounding the studio performs;
-# the gate compares against the computed value and the report prints both.
+# The hexes the task statement writes down. #34343C is within TOLERANCE of the computed
+# background; #A24BAF is the ramp at 20 / 76, one rank below the tie's mid-rank. The gate
+# compares against the computed value and the report prints both.
 SPEC_BACKGROUND = "#34343C"
 SPEC_FILL = "#A24BAF"
 

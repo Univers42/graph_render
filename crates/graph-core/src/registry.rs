@@ -7,18 +7,22 @@
 
 use crate::index::Topology;
 use crate::layout::Geometry;
-use crate::layout::force::BarnesHut;
+use crate::layout::force::{BarnesHut, YifanHu};
 use crate::layout::forceatlas2::ForceAtlas2;
 use crate::layout::grid::Grid;
 use crate::layout::sugiyama::Sugiyama;
-use crate::layout::{circle_packing, circular, spectral_stage, tidy_tree, treemap};
+use crate::layout::{
+    bipartite, circle_packing, circular, random, spectral_stage, spiral, tidy_tree, treemap,
+};
 use crate::stage::{Stage, StageError};
 use graph_contract::geometry::{EdgeGeometryKind, NodeGeometryKind};
 
+mod closed_form;
 mod force;
 mod hierarchy;
 mod spectral;
-use force::{BARNES_HUT, FA2};
+use closed_form::{BIPARTITE, RANDOM, RING, SPIRAL};
+use force::{BARNES_HUT, FA2, YIFAN_HU};
 pub use force::{FA2_CEILING, FORCE_CEILING};
 pub use hierarchy::HIERARCHY_LAYOUT_CEILING;
 use hierarchy::{CIRCULAR, TIDY_TREE, TREEMAP};
@@ -160,7 +164,7 @@ snapshot. Ponytail (FAS): greedy, not minimum; extra reversed edges (note 5) are
 };
 
 /// Every registered layout, in the order the hash gate runs them.
-pub static LAYOUTS: [Capability; 10] = [
+pub static LAYOUTS: [Capability; 15] = [
     Capability {
         id: Grid::ID,
         run: run_default::<Grid>,
@@ -210,6 +214,31 @@ pub static LAYOUTS: [Capability; 10] = [
         id: Sugiyama::ID,
         run: run_default::<Sugiyama>,
         meta: SUGIYAMA,
+    },
+    Capability {
+        id: random::ID,
+        run: random::run,
+        meta: RANDOM,
+    },
+    Capability {
+        id: circular::ring::ID,
+        run: circular::ring::run,
+        meta: RING,
+    },
+    Capability {
+        id: spiral::ID,
+        run: spiral::run,
+        meta: SPIRAL,
+    },
+    Capability {
+        id: bipartite::ID,
+        run: bipartite::run,
+        meta: BIPARTITE,
+    },
+    Capability {
+        id: YifanHu::ID,
+        run: run_default::<YifanHu>,
+        meta: YIFAN_HU,
     },
 ];
 

@@ -33,6 +33,8 @@
 //! node keeps its own ring and a distinct slot, so no two real nodes ever collide.
 //! Escape hatch: a variant that inflates the radius by ring population, under its own id.
 
+pub mod ring;
+
 use super::Geometry;
 use super::hierarchy::Hierarchy;
 use crate::index::Topology;

@@ -6,7 +6,7 @@
 # Ponytail: checks against a single upstream version (scipy 1.16.2, networkx 3.6) with
 # OpenBLAS numerics, so agreement is to a tolerance, not bitwise across BLAS builds.
 #
-#   docker build --build-context nx=/goinfre/dlesieur/refs/networkx-3.6 \
+#   docker build --build-context nx="$GM_SCRATCH/refs/networkx-3.6" \
 #     -f docker/python-oracle.Dockerfile -t ge-python-oracle .
 #   docker run --rm ge-python-oracle python3 -c "import networkx,numpy,scipy;print(networkx.__version__,numpy.__version__,scipy.__version__)"
 #

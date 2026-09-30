@@ -5,6 +5,8 @@
 # Ponytail: the hard timeout (OC_TIMEOUT, default 4h) kills a slow-but-alive job too; resume it with
 # `opencode run --session <id>` rather than relaunching from scratch: OC_SESSION=<id> does that.
 set -uo pipefail
+# GM_SCRATCH reaches the job and its MCP servers (scripts/orch/pw-mcp.sh) through the environment.
+source "$(dirname "$(readlink -f "$0")")/scratch.sh"
 label=$1 wt=$2 agent=$3 prompt=$4
 OC=${OC:-/home/dlesieur/.opencode/bin/opencode}
 MODEL=${OC_MODEL:-opencode/space-bunny-free#max}

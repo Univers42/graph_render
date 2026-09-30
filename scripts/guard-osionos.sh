@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-#
 # guard-osionos.sh — rule 0.1 of prompt.md, enforced: osionos is READ ONLY.
 #
 # It lives in graph-engine, not in osionos: a guard written into the tree it protects

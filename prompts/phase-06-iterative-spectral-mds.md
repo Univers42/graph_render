@@ -1,4 +1,4 @@
-> **Status (2026-09-28):** BUILT on branches p6e (spectral/MDS/eigen) and p6f (Barnes-Hut/FA2) — cores only; wiring, hashgate stages, stress/bench, python oracle image pending. Yifan Hu absent by decision. See docs/reports/STATUS.md.
+> **Status (2026-09-30):** MERGED into develop — p6e merge 6ae96a1 (head 7788d85), p6f merge 45a653f (head 67543b4). Still owed: docs/reports/phase-06.md and the FA2 chaos-metric ceiling. See prompts/RESUME.md.
 
 # Phase 6 — Iterative and spectral layouts. The hard one.
 

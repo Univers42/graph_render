@@ -11,6 +11,22 @@ use crate::layout::force::params::ForceParams;
 use crate::layout::force::quadtree::Quadtree;
 use crate::layout::force::{SimpleGraph, simple_graph};
 
+/// The tier choice for one run, bundled so [`Sim::tick`] stays under the four-parameter cap
+/// (`refactor-rust.md`) and so the scratch buffer travels with the runner that fills it — a
+/// caller cannot pair a runner with another caller's buffer by accident.
+pub(super) struct How<'a, R: crate::exec::Runner> {
+    /// Who runs the ranges.
+    pub(super) runner: &'a R,
+    /// How many workers it may use.
+    pub(super) workers: u32,
+    /// The scratch the gathers write, reused across ticks and across the passes within a
+    /// tick: every range kernel's output is a per-node `(dvx, dvy)` column, so one buffer
+    /// of `n` serves all three.
+    pub(super) deltas: &'a mut Vec<(f64, f64)>,
+    /// The negative control: which merge, if any, reads a neighbouring node's delta.
+    pub(super) split: super::Split,
+}
+
 pub(super) struct Sim {
     pub(super) graph: SimpleGraph,
     pub(super) params: ForceParams,
@@ -21,8 +37,6 @@ pub(super) struct Sim {
     pub(super) y: Vec<f64>,
     pub(super) vx: Vec<f64>,
     pub(super) vy: Vec<f64>,
-    pub(super) dvx: Vec<f64>,
-    pub(super) dvy: Vec<f64>,
     pub(super) px: Vec<f64>,
     pub(super) py: Vec<f64>,
     pub(super) charge_tree: Quadtree,
@@ -39,8 +53,18 @@ pub(super) struct Sim {
 impl Sim {
     pub(super) fn new(topology: &Topology, params: ForceParams, seed: u32) -> Self {
         let graph = simple_graph(topology);
-        let n = topology.node_count() as usize;
-        let (x, y) = golden_spiral(n as u32);
+        let (x, y) = golden_spiral(topology.node_count());
+        Self::from_parts(graph, params, seed, (x, y))
+    }
+
+    /// A simulation over `graph` starting from the given positions (one per node).
+    pub(super) fn from_parts(
+        graph: SimpleGraph,
+        params: ForceParams,
+        seed: u32,
+        (x, y): (Vec<f64>, Vec<f64>),
+    ) -> Self {
+        let n = x.len();
         let (link_distance, link_strength, link_bias) = super::link::geometry(&graph, &params);
         Self {
             alpha: params.initial_alpha,
@@ -50,8 +74,6 @@ impl Sim {
             tick_no: 0,
             vx: vec![0.0; n],
             vy: vec![0.0; n],
-            dvx: vec![0.0; n],
-            dvy: vec![0.0; n],
             px: vec![0.0; n],
             py: vec![0.0; n],
             charge_tree: Quadtree::default(),
@@ -72,16 +94,69 @@ impl Sim {
         (&self.x, &self.y)
     }
 
-    /// One tick: `alpha` decays first (`simulation.js`'s own order, `alphaTarget = 0`),
-    /// then link, many-body, center and collide run in the engine's registration order
+    /// Node `i`'s own many-body delta, over the tree and aggregate already built, into a
+    /// caller's reused walk stack.
+    ///
+    /// The serial loop `charge::apply` runs, exposed so the range kernel
+    /// ([`super::step::Pass`]) and its tests call the same function rather than a copy of
+    /// the walk. A second copy would be a second program, and the kernel's equality test
+    /// would then compare two programs instead of two schedules.
+    pub(super) fn node_delta(
+        &self,
+        i: u32,
+        stack: &mut Vec<(u32, crate::layout::force::quadtree::Bounds)>,
+    ) -> (f64, f64) {
+        super::charge::node_delta_with(self, i, stack)
+    }
+
+    /// One tick with the three gathered passes divided by `runner` over `workers` workers:
+    /// `alpha` decays first (`simulation.js`'s own order, `alphaTarget = 0`), then link,
+    /// many-body, center and collide run in the engine's registration order
     /// (`forceLayout.ts`'s `.force("link",...).force("charge",...).force("center",...)
     /// .force("collide",...)`), then velocities integrate into position.
-    pub(super) fn tick(&mut self) {
+    ///
+    /// The **only** tier-sensitive lines are those three passes' range kernels:
+    /// everything else — the decay, center, integrate, and the pass order itself — is the
+    /// same straight-line code in every tier. That is deliberate and it is the whole safety
+    /// argument: the sequence of reads and writes per node is unchanged, so tick `t + 1`
+    /// sees exactly what tick `t` left whether one thread or seven made it. Each pass's own
+    /// prologue (charge's and collide's tree build, the bottom-up aggregate) stays
+    /// single-threaded and ahead of its ranges, as `phase-11-compute-tiers.md` step 2
+    /// prescribes.
+    ///
+    /// `deltas` is the caller's scratch, reused across ticks so a steady-state run
+    /// allocates nothing here — one buffer for the whole layout, not one per tick.
+    pub(super) fn tick<R: crate::exec::Runner>(&mut self, how: &mut How<'_, R>) {
+        let How {
+            runner,
+            workers,
+            deltas,
+            split,
+        } = how;
+        let (runner, workers, split) = (*runner, *workers, *split);
         self.alpha += -self.alpha * self.params.alpha_decay;
-        super::link::apply(self);
-        super::charge::apply(self);
+        super::link::apply_with(
+            self,
+            runner,
+            workers,
+            deltas,
+            split.splits(super::Split::Link),
+        );
+        super::charge::apply_with(
+            self,
+            runner,
+            workers,
+            deltas,
+            split.splits(super::Split::Charge),
+        );
         self.center();
-        super::collide::apply(self);
+        super::collide::apply_with(
+            self,
+            runner,
+            workers,
+            deltas,
+            split.splits(super::Split::Collide),
+        );
         self.integrate();
         self.tick_no += 1;
     }
@@ -108,7 +183,12 @@ impl Sim {
     }
 
     /// `simulation.js`'s own tick tail: `node.x += node.vx *= velocityDecay`.
-    fn integrate(&mut self) {
+    ///
+    /// `pub(super)` rather than private because the phase-11 range kernel's tests drive the
+    /// same pass sequence the tick does ([`crate::layout::force::barnes_hut::tests`]), and
+    /// a test that rebuilt the tick in its own words would be testing its own arithmetic
+    /// rather than the kernel's.
+    pub(super) fn integrate(&mut self) {
         let decay = self.params.velocity_decay;
         for i in 0..self.x.len() {
             self.vx[i] *= decay;

@@ -1,4 +1,4 @@
-> **Status (2026-09-28):** BUILT on branch p5 (4b5ad8a) — module + fixtures + crossings measured (5242 vs dagre 7657, pass); needs registration, oracle arm, schema regen, mutants, report. See docs/reports/STATUS.md.
+> **Status (2026-09-30):** MERGED into develop, merge 7788d85 (branch p5 head 4caf184). Still owed: mutants and docs/reports/phase-05.md. See prompts/RESUME.md.
 
 # Phase 5 — Sugiyama layered DAG
 

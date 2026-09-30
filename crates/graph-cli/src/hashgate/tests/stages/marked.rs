@@ -7,7 +7,7 @@
 //! would pass a test written with copies. The marker is what makes that substitution
 //! observable.
 
-use super::super::LAYOUT;
+use super::super::super::LAYOUT;
 use graph_contract::geometry::NodeGeometry;
 use graph_core::registry::Capability;
 use graph_core::{Geometry, StageError, Topology};

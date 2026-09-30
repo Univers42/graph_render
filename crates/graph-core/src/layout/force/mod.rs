@@ -4,9 +4,11 @@
 pub(crate) mod barnes_hut;
 pub(crate) mod params;
 pub(crate) mod quadtree;
+pub(crate) mod yifan_hu;
 
-pub use barnes_hut::BarnesHut;
+pub use barnes_hut::{BarnesHut, Split};
 pub use params::ForceParams;
+pub use yifan_hu::YifanHu;
 
 use crate::arena::FixedState;
 use crate::csr::Csr;
@@ -60,12 +62,19 @@ pub(crate) fn simple_graph(t: &Topology) -> SimpleGraph {
         hi.push(pair.1);
         strength.push(edges.strength[e]);
     }
-    let rows = row_csr(t.node_count(), &lo, &hi);
-    SimpleGraph {
-        lo,
-        hi,
-        strength,
-        rows,
+    SimpleGraph::from_edges(t.node_count(), lo, hi, strength)
+}
+
+impl SimpleGraph {
+    /// A simple graph over `n` nodes from already-deduplicated edges, `lo[e] < hi[e]`.
+    pub(crate) fn from_edges(n: u32, lo: Vec<u32>, hi: Vec<u32>, strength: Vec<f64>) -> Self {
+        let rows = row_csr(n, &lo, &hi);
+        SimpleGraph {
+            lo,
+            hi,
+            strength,
+            rows,
+        }
     }
 }
 
