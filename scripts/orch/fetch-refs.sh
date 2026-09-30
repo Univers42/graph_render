@@ -37,6 +37,14 @@ if [[ ! -d $nx/networkx-3.6 ]]; then
   tar -xzf "$nx/networkx-3.6.tar.gz" -C "$nx"
 fi
 
+gv=$R/graphviz-16.1.0
+if [[ ! -f $gv/graphviz-16.1.0.tar.gz ]]; then
+  mkdir -p "$gv"
+  get https://gitlab.com/api/v4/projects/4207231/packages/generic/graphviz-releases/16.1.0/graphviz-16.1.0.tar.gz "$gv/graphviz-16.1.0.tar.gz"
+  sha256_is "$gv/graphviz-16.1.0.tar.gz" beea483ab130f456c1c3905f4f2e40778a9c493c3d73ae8012367d552d71ca84
+  tar -xzf "$gv/graphviz-16.1.0.tar.gz" -C "$gv"
+fi
+
 jama=$R/jama-1.0.3
 if [[ ! -f $jama/Jama/EigenvalueDecomposition.java ]]; then
   mkdir -p "$jama"; get https://repo1.maven.org/maven2/gov/nist/math/jama/1.0.3/jama-1.0.3-sources.jar "$jama/jama-1.0.3-sources.jar"
@@ -58,4 +66,4 @@ fi
 sha256_is "$mpl/_cm_listed.py" ddad3698f5129ceb1792a445371286c08bc9080298e657b3054aea19c9659ef9
 
 chmod -R a-w "$R"
-echo "fetch-refs: 8 references verified under $R"
+echo "fetch-refs: 9 references verified under $R"
