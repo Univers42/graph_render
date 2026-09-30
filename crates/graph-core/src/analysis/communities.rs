@@ -26,6 +26,12 @@
 use crate::analysis::components::canonicalize;
 use crate::index::Topology;
 
+/// [`louvain`]'s analysis id — the one graph-wasm registers it under and the hash gate
+/// hashes it as. Lives here rather than in the registry because a caller naming
+/// `analysis.communities.louvain` is asking for *this* code, the same argument
+/// `components::WEAK` makes.
+pub const LOUVAIN: &str = "analysis.communities.louvain";
+
 /// Modularity `Q` of `membership` over the undirected weighted projection (edge weight
 /// `strength`, direction ignored — the classical definition). `0.0` for a graph with no
 /// edge weight at all.

@@ -47,8 +47,8 @@ fn the_ledger_is_the_registry_plus_the_scale_rows_and_still_stands() {
     }
     assert_eq!(
         rows.len(),
-        48,
-        "42 before analysis.depth, and 36 before Phase 8's six bundling and style rows"
+        49,
+        "41 before analysis.depth, and 25 before the seven post.* rows"
     );
     assert_eq!(problems(&rows, &evidence), Vec::<String>::new());
 }

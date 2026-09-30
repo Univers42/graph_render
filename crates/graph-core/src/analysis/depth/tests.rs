@@ -1,9 +1,9 @@
 use super::*;
 
-/// A hand-built stand-in for p3's `layout::hierarchy::Hierarchy`, which was not on the
-/// branch this file was written on. It is deliberately *only* the structure [`Roots`]
-/// asks for — no repair, no cycle-breaking, no multi-parent drop — so pinning the depth
-/// convention here cannot smuggle a second repair into shipped code.
+/// A hand-built stand-in for p3's `layout::hierarchy::Hierarchy`. It is deliberately
+/// *only* the structure [`Roots`] asks for — no repair, no cycle-breaking, no
+/// multi-parent drop — so pinning the depth convention here cannot smuggle a second
+/// repair into shipped code.
 ///
 /// **It stays, now that p3 *is* on the base**, because it is the only way to reach the
 /// cases a repaired [`Hierarchy`](crate::layout::hierarchy::Hierarchy) can never produce:

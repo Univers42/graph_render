@@ -153,8 +153,7 @@ pub mod probe;
 // build; `cargo test` and the wasm32 release build both still get the real thing.
 #[cfg(any(test, target_arch = "wasm32"))]
 mod alloc;
-#[cfg(any(test, target_arch = "wasm32"))]
-mod analysis;
+pub mod analysis;
 #[cfg(any(test, target_arch = "wasm32"))]
 mod contract;
 #[cfg(any(test, target_arch = "wasm32"))]
@@ -165,8 +164,7 @@ mod handle;
 #[cfg(any(test, target_arch = "wasm32"))]
 mod ingest;
 mod memory_measure;
-#[cfg(any(test, target_arch = "wasm32"))]
-mod post;
+pub mod post;
 #[cfg(any(test, target_arch = "wasm32"))]
 mod seed_ingest;
 #[cfg(any(test, target_arch = "wasm32"))]

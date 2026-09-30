@@ -5,6 +5,7 @@ contract-3d|build|prompts/jobs/contract-3d.md|scripts/orch/rows/docs.rows|yes
 ci|build|prompts/jobs/ci.md||no
 gv-oracle|build|prompts/jobs/gv-oracle.md||no
 tier-no-tier|build|prompts/jobs/tier-no-tier.md|scripts/orch/rows/quick.rows|no
+merge-sim|build|prompts/jobs/merge-sim.md|scripts/orch/rows/quick.rows|no
 tier-closed-form|build|prompts/jobs/tier-closed-form.md|scripts/orch/rows/quick.rows|no
 p12-t2|build|prompts/jobs/p12-t2.md|scripts/orch/rows/quick.rows|no
 tier-settle|build|prompts/jobs/tier-settle.md|scripts/orch/rows/quick.rows|no

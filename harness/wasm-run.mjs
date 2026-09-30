@@ -16,12 +16,22 @@
 //            itself
 //          transport.wasm.columnar  the real ABI over layout.grid, so the tally against
 //            the shim's hash is the C20 measurement the ledger reads
+//          every registered analysis  the real ABI: gm_seed_ingest -> gm_alloc ->
+//            gm_build -> gm_analysis_run(index, resolved via gm_analysis_id); its framed
+//            canonical-JSON face is hashed. No layout is run — an analysis reads the
+//            topology alone
+//          every registered POST capability  the real ABI over layout.grid, the same run
+//            a POST pass reads: gm_build -> gm_run(layout.grid) -> gm_post_run(index,
+//            resolved via gm_post_id) -> gm_snapshot_bytes, whose bytes are hashed. Both
+//            registries are the module's own, so a capability registered after this file
+//            was written is hashable by name (C1)
 //   node harness/wasm-run.mjs <graph_wasm.wasm> probe
 //        prints the D1 probe buffer as one hex line
 //   node harness/wasm-run.mjs <graph_wasm.wasm> stages
 //        prints every stage this arm can hash, one id per line: topology, layout.grid,
-//        transport.wasm.columnar, then every layout the module's registry names. The
-//        stage list is the module's, not a literal list here (C1).
+//        transport.wasm.columnar, and every layout, analysis and POST capability the
+//        module's registries name, in the gate's own order. The stage list is the
+//        module's, not a literal list here (C1).
 //   node --experimental-strip-types harness/wasm-run.mjs <graph_wasm.wasm> --assert-zero-copy
 //        proves the SDK's column views are real zero-copy aliases (C8), that a view held
 //        across a memory-growing build is not silently reused stale (C10's growth hazard),
@@ -107,11 +117,49 @@ function hashableLayouts() {
   return [...layoutIndices().keys()];
 }
 
-/// C20: drives the *real* ABI — gm_seed_ingest's provisional-ingest text through
-/// gm_alloc/gm_build/gm_run/gm_snapshot_bytes — for the gate's seed model, so its hash can
-/// be asserted equal to the retained gm_layout_grid shim's (both are the binary face of
-/// the same model run through the same layout).
-function abiSnapshotBytes(seed, layout) {
+/// The module's own ANALYSIS registry, id -> index (C1). `gm_analysis_run`'s `index` is
+/// this index, so an analysis name is resolved through `gm_analysis_id` rather than
+/// through a constant here, exactly as a layout name is.
+let analysisRegistry = null;
+function analysisIndices() {
+  if (analysisRegistry === null) {
+    analysisRegistry = new Map();
+    const total = exports.gm_analysis_count();
+    for (let i = 0; i < total; i += 1) {
+      analysisRegistry.set(decodeUtf8(framed(exports.gm_analysis_id(i))), i);
+    }
+  }
+  return analysisRegistry;
+}
+
+/// The registered analysis ids, in registry order: this arm's analysis stage list.
+function hashableAnalyses() {
+  return [...analysisIndices().keys()];
+}
+
+/// The module's own POST registry, id -> index (C1). `gm_post_run`'s `post_index` is this
+/// index, resolved through `gm_post_id` like every other registry here.
+let postRegistry = null;
+function postIndices() {
+  if (postRegistry === null) {
+    postRegistry = new Map();
+    const total = exports.gm_post_count();
+    for (let i = 0; i < total; i += 1) {
+      postRegistry.set(decodeUtf8(framed(exports.gm_post_id(i))), i);
+    }
+  }
+  return postRegistry;
+}
+
+/// The registered POST ids, in registry order: this arm's POST stage list.
+function hashablePosts() {
+  return [...postIndices().keys()];
+}
+
+/// gm_seed_ingest -> gm_alloc -> gm_build: the seed's model on a fresh handle, which the
+/// caller owns and must `gm_release`. The layout, analysis and POST paths all start here,
+/// so a seed's model is built one way and a build refusal is reported once.
+function buildHandle(seed) {
   const ingest = framed(exports.gm_seed_ingest(seed));
   const ptr = exports.gm_alloc(ingest.length);
   if (ptr === 0) fail(`gm_alloc refused ${ingest.length} bytes (seed ${seed})`);
@@ -119,17 +167,56 @@ function abiSnapshotBytes(seed, layout) {
   const handle = exports.gm_build(ptr, ingest.length);
   exports.gm_free(ptr, ingest.length);
   if (handle === 0) fail(`gm_build refused (seed ${seed}, gm_last_error ${exports.gm_last_error()})`);
+  return handle;
+}
+
+/// `gm_run(handle, layout)` over the same seed model, or a refusal.
+function runLayout(handle, seed, layout) {
   const ok = exports.gm_run(handle, layoutIndex(layout), 0, 0);
   if (ok !== 1) fail(`gm_run refused (seed ${seed}, gm_last_error ${exports.gm_last_error()})`);
+}
+
+/// C20: drives the *real* ABI — gm_seed_ingest's provisional-ingest text through
+/// gm_alloc/gm_build/gm_run/gm_snapshot_bytes — for the gate's seed model, so its hash can
+/// be asserted equal to the retained gm_layout_grid shim's (both are the binary face of
+/// the same model run through the same layout).
+function abiSnapshotBytes(seed, layout) {
+  const handle = buildHandle(seed);
+  runLayout(handle, seed, layout);
   const bytes = framed(exports.gm_snapshot_bytes(handle));
   exports.gm_release(handle);
   return bytes;
 }
 
-// The stages this arm can hash without a layout id: the two retained shims, unchanged
-// since Phase 2/3 so their already-green gate keeps hashing the same bytes, and the
-// transport, which is the real ABI over the shim's layout. Every other stage is a
-// registered layout id, hashed through the real ABI (see the `stages` mode above).
+/// The canonical JSON face of analysis `index` over the seed's topology, through the real
+/// ABI: gm_build -> gm_analysis_run. No layout is run — every analysis is a function of
+/// the topology alone — so the framed UTF-8 `gm_analysis_run` publishes is exactly what
+/// the native arm's `analysis::to_json` writes.
+function abiAnalysisBytes(seed, index) {
+  const handle = buildHandle(seed);
+  const bytes = framed(exports.gm_analysis_run(handle, index));
+  exports.gm_release(handle);
+  return bytes;
+}
+
+/// The snapshot POST capability `index` produces over the seed's model, through the real
+/// ABI: gm_build -> gm_run(layout.grid) -> gm_post_run -> gm_snapshot_bytes. The grid is
+/// run first because a POST pass reads positions, and it is the same layout the transport
+/// stage states; the native arm runs the same pass over the same layout's geometry.
+function abiPostBytes(seed, index) {
+  const handle = buildHandle(seed);
+  runLayout(handle, seed, SHIM_LAYOUT);
+  const ok = exports.gm_post_run(handle, index);
+  if (ok !== 1) fail(`gm_post_run refused (seed ${seed}, gm_last_error ${exports.gm_last_error()})`);
+  const bytes = framed(exports.gm_snapshot_bytes(handle));
+  exports.gm_release(handle);
+  return bytes;
+}
+
+// The stages this arm can hash without consulting a registry: the two retained shims,
+// unchanged since Phase 2/3 so their already-green gate keeps hashing the same bytes, and
+// the transport, which is the real ABI over the shim's layout. Every other stage is a
+// registered layout, analysis or POST id, hashed through the real ABI (see `bytesFor`).
 //
 // A **null prototype**, so a lookup cannot fall through to `Object.prototype`: an object
 // literal would answer `STAGE_BYTES["toString"]` with `Object.prototype.toString`, and
@@ -143,6 +230,21 @@ const STAGE_BYTES = Object.assign(Object.create(null), {
   "transport.wasm.columnar": (seed) => abiSnapshotBytes(seed, SHIM_LAYOUT),
 });
 
+// How to hash `stage` for one seed, resolved by name against the module's own registries
+// (C1): the retained shims, then a registered layout, analysis or POST capability, each
+// through the real ABI. A name in none of them is refused here rather than hashed as
+// whatever sits at some index, and a null-prototype STAGE_BYTES means `toString` cannot
+// fall through to `Object.prototype` either.
+function bytesFor(stage) {
+  if (stage in STAGE_BYTES) return STAGE_BYTES[stage];
+  if (layoutIndices().has(stage)) return (seed) => abiSnapshotBytes(seed, stage);
+  const analysis = analysisIndices().get(stage);
+  if (analysis !== undefined) return (seed) => abiAnalysisBytes(seed, analysis);
+  const post = postIndices().get(stage);
+  if (post !== undefined) return (seed) => abiPostBytes(seed, post);
+  fail(`unknown stage ${stage}: not a registered layout, analysis or post capability`);
+}
+
 if (mode === "hash") {
   const seeds = Number.parseInt(count ?? "", 10);
   if (!/^[0-9]+$/.test(count ?? "") || seeds > 0xffffffff) fail(`bad seed count ${count}`);
@@ -150,16 +252,11 @@ if (mode === "hash") {
   const lines = [];
   const digestsByStage = new Map(); // stage -> [digest, ...] by seed, for the C20 check below
   for (const stage of stages) {
-    // A shim-backed stage keeps its frozen hasher. Any other stage must name a layout the
-    // module itself registered, resolved through gm_layout_id (C1): a new registry row
-    // joins the gate with no change to this file, and a misspelt stage is refused rather
-    // than silently hashed as something else.
-    const bytesOf =
-      STAGE_BYTES[stage] ??
-      ((seed) => {
-        if (!layoutIndices().has(stage)) fail(`unknown stage ${stage}: not a registered layout`);
-        return abiSnapshotBytes(seed, stage);
-      });
+    // A shim-backed stage keeps its frozen hasher. Any other stage must name a layout,
+    // analysis or POST capability the module itself registered, each resolved through its
+    // registry (C1): a new registry row joins the gate with no change to this file, and a
+    // misspelt stage is refused rather than silently hashed as something else.
+    const bytesOf = bytesFor(stage);
     const digests = [];
     for (let seed = 0; seed < seeds; seed += 1) {
       const digest = createHash("sha256").update(bytesOf(seed)).digest("hex");
@@ -194,11 +291,18 @@ if (mode === "hash") {
 } else if (mode === "--assert-zero-copy") {
   await assertZeroCopy();
 } else if (mode === "stages") {
-  // Every stage the gate can hash, one id per line: the two shim-backed ones, the
-  // transport, then every layout the module's own registry names (C1). A test asserts
-  // graph-cli's stage list is exactly this, so the two arms cannot drift apart.
+  // Every stage the gate can hash, one id per line: the two shim-backed ones, then every
+  // layout, every analysis and every POST capability the module's own registries name
+  // (C1), then the transport. A test asserts graph-cli's stage list is exactly this, in
+  // this order, so the two arms cannot drift apart.
   process.stdout.write(
-    `${["topology", ...hashableLayouts(), "transport.wasm.columnar"].join("\n")}\n`,
+    `${[
+      "topology",
+      ...hashableLayouts(),
+      ...hashableAnalyses(),
+      ...hashablePosts(),
+      "transport.wasm.columnar",
+    ].join("\n")}\n`,
   );
 } else {
   fail(`unknown mode ${mode}`);

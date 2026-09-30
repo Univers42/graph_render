@@ -23,12 +23,11 @@ Finish (RESUME, "To finish" column for `sim`):
 1. Frozen acceptance: a session with every node frozen (or alpha at 0) must not move any node; a test.
 2. Setters: each session setter (repulsion, link distance, gravity, centre, pin, drag) has a test that
    it changes the next tick and nothing before it.
-3. Golden check: the batch force layout's snapshot digests must not change because of the merge. Run
-   `scripts/orch/gr cargo run -q -p graph-cli -- hashgate --seeds 8` before your edits on develop's
-   tree is not possible here; instead compare against the hashgate report in `target/gates/` produced
-   by the gate in step 4 against `git stash`-free develop: run hashgate 8 on `origin/develop` in a
-   second worktree ONLY if cheap; otherwise state in the return block that the golden comparison is
-   left to the orchestrator.
+3. Golden check: the batch layouts' digests must not change because of the merge. BEFORE the
+   `git merge`, run `scripts/orch/gr cargo run -q -p graph-cli -- hashgate --seeds 8` and copy the
+   report it writes under `target/gates/` to `target/golden-before.json`. After the merge, run it again
+   and compare the per-layout, per-stage hashes: every layout id present in both must be equal. Paste
+   the comparison command and its output.
 4. Checks: `scripts/orch/gr cargo fmt --all --check`, `... clippy --workspace --all-targets -- -D warnings`,
    `... cargo test --workspace --no-fail-fast`, `... cargo build -p graph-core --target wasm32-unknown-unknown`,
    `... cargo run -q -p graph-cli -- hashgate --seeds 8` and its negctl

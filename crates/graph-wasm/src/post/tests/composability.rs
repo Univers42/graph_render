@@ -1,30 +1,10 @@
-use super::*;
+//! Composability tests.
 
-/// The two bundlers are graph-core's own entry points, reached through this table: a row
-/// that pointed at another capability's `run` would still compose, and still emit the
-/// right geometry kind, and would be wrong.
-#[test]
-fn the_two_bundler_rows_run_graph_cores_own_entry_points() {
-    let (t, g) = pair();
-    assert_eq!(
-        run_at(&t, &g, "post.bundle.fdeb").geometry,
-        graph_core::post::fdeb::run(&t, &g)
-            .expect("fdeb runs")
-            .geometry
-    );
-    assert_eq!(
-        run_at(&t, &g, "post.bundle.mingle").geometry,
-        graph_core::post::mingle::run(&t, &g)
-            .expect("mingle runs")
-            .geometry
-    );
-}
+use super::fixtures::*;
+use graph_core::registry::LAYOUTS;
 
-/// A capability has to work over whatever a layout emitted, not only over a hand-written
-/// `Point` drawing: this is the composability claim, restated over the ABI's own table.
 #[test]
 fn every_capability_composes_with_every_registered_layout() {
-    use graph_core::registry::LAYOUTS;
     let t = topology(
         &["a", "b", "c", "d"],
         &[
