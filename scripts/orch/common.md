@@ -13,7 +13,9 @@ flag: calls in one message run concurrently. You merge, deduplicate and verify w
   `mutants.sh`, `gate.sh`): the orchestrator gates your work after you return.
 - Never change git state (commit, add, checkout, stash, ...): it is denied, and the orchestrator
   commits once its own gate run is green.
-- A decision outside the body's envelope is a stop: report it under "decisions needed" with your
-  recommended answer instead of improvising.
+- Never ask a question: nobody is there to answer (the `question` tool is denied). When the body leaves
+  a choice open, take the option that stays inside its paths and is easiest to undo, record it under
+  "decisions taken" with the reason, and carry on. Stop only for a missing reference or a change
+  outside the paths the body allows: report it under "decisions needed" with your recommended answer.
 - End with the AGENTS.md return block, plus one line `subagents: <n> explore, <n> general`.
 

@@ -68,7 +68,8 @@
       "docker system prune*": "deny",
       "docker volume rm*": "deny"
     },
-    "pw_*": "deny"
+    "pw_*": "deny",
+    "question": "deny"
   },
   "mcp": {
     "pw": {
