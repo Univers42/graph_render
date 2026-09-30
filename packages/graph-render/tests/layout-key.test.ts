@@ -4,7 +4,10 @@ import { test } from "node:test";
 
 import { type Keyed, layoutChanged } from "../src/canvas2d/layout-key.ts";
 
-function keyed(): Keyed {
+/** The view writes these fields in place; the test does too. */
+type Mutable<T> = { -readonly [K in keyof T]: T[K] };
+
+function keyed(): Mutable<Keyed> {
   return {
     scene: {}, theme: {}, policy: {}, x: {}, camera: { x: 0, y: 0, scale: 1 },
     viewport: { width: 800, height: 600 }, dpr: 1, sprites: { baked: () => 0 },

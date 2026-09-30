@@ -15,7 +15,7 @@ import {
   type Controller, fit, hover, measure, moveTo, newState, pickAt, select, showFrame,
 } from "./canvas2d/controller.ts";
 import { hideNodes, togglePin } from "./canvas2d/keep.ts";
-import { type LoopState, invalidate } from "./canvas2d/loop.ts";
+import { invalidate } from "./canvas2d/loop.ts";
 import { rebaseLocal, setBaseStyle, showAll, showLocal } from "./canvas2d/local.ts";
 import { type EdgeEnds, edgeEndsOf, edgeOpacity, labelledNodes, nodeOpacity } from "./canvas2d/probe.ts";
 import type { Frame } from "./frame.ts";

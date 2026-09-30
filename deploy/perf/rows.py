@@ -19,6 +19,12 @@ FPS_AT_CAP = 54
 RECORDED_NODES = 10000
 # Arrow heads are one fill; glow is two layers per colour, so its budget is set by the palette.
 ARROW_FILL_BUDGET = 1
+# Segments per edge stroke, the CHUNK in packages/graph-render/src/canvas2d/edges.ts. Each
+# style needs ceil(its edges / EDGE_CHUNK) strokes, which is at most one per style plus
+# floor(all edges / EDGE_CHUNK).
+# Ponytail: the lit pass's edges are not in drawnEdges, so a focused hub with more than
+# EDGE_CHUNK lit edges reads as over budget (a false FAIL, the safe direction).
+EDGE_CHUNK = 2048
 STATS_NODES = (2000, 10000)
 # STUDIO_PERF_BREAK=1 is the negative control: the stroke budget becomes one less than what
 # was measured, so the row must fail.
@@ -113,12 +119,13 @@ def _counter_row(report, name, expectation, check):
 def _edge_batch(report):
     def check(stats):
         broken = os.environ.get(BREAK) == "1"
-        budget = stats["strokeCalls"] - 1 if broken else stats["edgeStyles"]
+        allowed = stats["edgeStyles"] + stats["drawnEdges"] // EDGE_CHUNK
+        budget = stats["strokeCalls"] - 1 if broken else allowed
         ok = stats["drawnEdges"] > 0 and stats["strokeCalls"] <= budget and stats["arrowFills"] <= ARROW_FILL_BUDGET
         return ok, (f"{stats['strokeCalls']} strokes for {stats['edgeStyles']} style(s), {stats['drawnEdges']} edges, "
                     f"{stats['arrowFills']} arrow fill(s), {stats['glowFills']} glow fill(s) (budget {budget})")
     return _counter_row(report, "perf-edge-batch",
-                        f"stroke() calls per frame <= edge styles in the frame; arrow fills <= {ARROW_FILL_BUDGET}", check)
+                        f"stroke() calls per frame <= edge styles + edges / {EDGE_CHUNK}; arrow fills <= {ARROW_FILL_BUDGET}", check)
 
 
 def _sprite_cache(report):

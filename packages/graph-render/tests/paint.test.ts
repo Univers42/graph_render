@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { adjacencyOf } from "../src/adjacency.ts";
-import { MOVING_BUDGET, edgeWidth } from "../src/canvas2d/edges.ts";
+import { CHUNK, MOVING_BUDGET, edgeWidth } from "../src/canvas2d/edges.ts";
 import type { PaintInput } from "../src/canvas2d/input.ts";
 import { paintFrame } from "../src/canvas2d/paint.ts";
 import type { Frame } from "../src/frame.ts";
@@ -24,26 +24,31 @@ function inputFor(frame: Frame, record: Recorder, patch: Partial<PaintInput> = {
   };
 }
 
-test("6000 edges are one stroke and 2000 nodes are three fills", () => {
+test("6000 edges are three chunked strokes and 2000 nodes are three fills", () => {
   const record = recorder();
   const counts = paintFrame(inputFor(randomFrame(2000, 6000, 3), record));
   assert.equal(counts.edges, 6000);
   assert.equal(counts.nodes, 2000);
-  assert.equal(record.calls.get("stroke"), 1);
+  assert.equal(record.calls.get("stroke"), Math.ceil(6000 / CHUNK));
   assert.equal(record.calls.get("fill"), 3);
   assert.deepEqual(record.fills, ["red", "green", "blue"]);
-  assert.equal(counts.draws, 4);
-  assert.deepEqual([counts.strokes, counts.edgeStyles], [1, 1]);
+  assert.equal(counts.draws, Math.ceil(6000 / CHUNK) + 3);
+  assert.deepEqual([counts.strokes, counts.edgeStyles], [Math.ceil(6000 / CHUNK), 1]);
 });
 
-test("20000 edges are still one stroke per style, and a focus adds the lit style", () => {
+test("strokes stay within the chunks each style needs, and a focus adds the lit style", () => {
   const frame = randomFrame(10000, 20000, 7);
   const plain = paintFrame(inputFor(frame, recorder()));
-  assert.deepEqual([plain.strokes, plain.edgeStyles], [1, 1]);
+  assert.deepEqual([plain.strokes, plain.edgeStyles], [Math.ceil(20000 / CHUNK), 1]);
   const lit = Uint8Array.from({ length: 10000 }, (_, i) => (i < 50 ? 1 : 0));
   const focused = paintFrame(inputFor(frame, recorder(), { focus: 0, lit }));
-  assert.equal(focused.strokes, focused.edgeStyles);
+  assert.ok(focused.strokes <= focused.edgeStyles + Math.floor(focused.edges / CHUNK));
   assert.ok(focused.edgeStyles <= 2);
+});
+
+test("a style whose edges fill whole chunks is still counted once", () => {
+  const counts = paintFrame(inputFor(randomFrame(2000, CHUNK * 2, 5), recorder()));
+  assert.deepEqual([counts.strokes, counts.edgeStyles], [2, 1]);
 });
 
 test("arrows and glow are counted as their own budgets", () => {

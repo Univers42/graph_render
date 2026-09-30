@@ -167,6 +167,8 @@ function renderFrame(state: LoopState, now: number): void {
   stamp(state.rate, now, moving);
   state.frames += 1;
   state.onFrame();
-  if (travelling || fading(state, performance.now()) || state.sprites.starved()) invalidate(state);
+  // A frame that baked a label planned it at width 0: one more frame lays it out at its width.
+  const rebake = state.sprites.starved() || state.sprites.rasterised() > 0;
+  if (travelling || fading(state, performance.now()) || rebake) invalidate(state);
   else if (moving && state.scene.frame.edgeCount > MOVING_BUDGET) armSettle(state);
 }
