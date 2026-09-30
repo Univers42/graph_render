@@ -1,3 +1,5 @@
+cargo-features = ["edition2024"]
+
 [package]
 name = "graph-core"
 description = "The graph-motor: pure graph and diagram geometry. No I/O, no clock, no bindings."

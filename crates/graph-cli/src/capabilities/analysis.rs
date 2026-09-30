@@ -43,11 +43,20 @@ const MEMORY_PONYTAIL: &str = "none owed on the algorithm itself (exact). Ponyta
 (scale_ceiling): inherited from topology's measured per-node cost, not independently \
 re-measured for this column's own shape; re-measure with crates/graph-core/tests/memory.rs";
 
-const ROWS: [Row; 9] = [
+const ROWS: [Row; 10] = [
     (
-        "analysis.components",
-        "hand: union-find (weak) + petgraph::algo::tarjan_scc (strong); no TS oracle exists for \
-either, so this differs against unit tests and the 4-way hash rather than a differential",
+        "analysis.components.weak",
+        "hand: union-find; no TS oracle exists, so this differs against unit tests and the \
+4-way hash rather than a differential",
+        "O(n + m)",
+        TOPOLOGY_CEILING,
+        MEMORY_DEGRADES,
+        MEMORY_PONYTAIL,
+    ),
+    (
+        "analysis.components.strong",
+        "hand: petgraph::algo::tarjan_scc; no TS oracle exists, so this differs against \
+unit tests and the 4-way hash rather than a differential",
         "O(n + m)",
         TOPOLOGY_CEILING,
         MEMORY_DEGRADES,

@@ -293,10 +293,10 @@ Rows, in order: `analysis.components.weak`, `analysis.components.strong`,
 `analysis.communities.louvain`, `analysis.centrality.{degree,closeness,betweenness,
 eigenvector}`, `analysis.depth.bfs`. Each row calls the `graph_core::analysis` function
 its id names, as it is — nothing is re-derived, re-weighted or re-ordered here. Depth
-reaches graph-core's root/forest convention through a forwarding adapter over
-`graph_core::layout::hierarchy::Hierarchy` (the four `Roots` methods are that type's own
-accessors), which is the re-point `analysis/depth.rs`'s module doc names as the whole of
-the merge step; it is not a second derivation of the convention.
+uses `graph_core::layout::hierarchy::Hierarchy` directly as a `Roots` — the re-point
+named in `analysis/depth.rs`'s module doc has landed, and `Hierarchy` implements
+`Roots` by delegation. There is no forwarding adapter and no second derivation of the
+convention.
 
 The face, one line, **keys in ascending order** so two runs are byte-comparable (D7):
 

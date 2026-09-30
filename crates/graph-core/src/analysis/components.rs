@@ -11,6 +11,18 @@ use crate::csr_petgraph::{CsrDigraph, NodeIx};
 use crate::index::Topology;
 use petgraph::unionfind::UnionFind;
 
+/// [`weak`]'s analysis id, the one graph-wasm registers it under and the hash gate
+/// hashes it as.
+///
+/// A constant per analysis rather than one `ID` per module because this module holds two:
+/// a caller asking for `analysis.components.weak` is asking for *this* function, so the
+/// string lives beside it the way `layout::tidy_tree::ID` does, and both the registry row
+/// and the gate's stage list read it from here rather than spelling it again.
+pub const WEAK: &str = "analysis.components.weak";
+
+/// [`strong`]'s analysis id, [`WEAK`]'s way.
+pub const STRONG: &str = "analysis.components.strong";
+
 /// Weakly connected components: an edge counts regardless of `directed`. Built with
 /// petgraph's own [`UnionFind`] (`prompts/phase-07-analysis.md`: "reuse before
 /// implement") over the raw edge columns — petgraph's own [`petgraph::algo::

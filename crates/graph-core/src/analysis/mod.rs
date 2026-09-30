@@ -3,12 +3,12 @@
 //! existing [`crate::index::Topology`], no new graph representation, no I/O, no
 //! wall-clock (D9).
 //!
-//! [`depth`] is the odd one out: p3's `layout/hierarchy.rs` is not on this branch's
-//! base, so depth reads the root/forest convention through its own [`depth::Roots`]
-//! trait rather than re-deriving it — re-deriving would be the second convention step 6
-//! forbids. `impl depth::Roots for Hierarchy {}` is the whole of the re-point at merge
-//! time. A recorded deviation (`docs/measurements/phase07-analysis.md`), not an
-//! improvisation — `analysis.depth` stays absent from the capability ledger until then.
+//! [`depth`] is the one that crosses a crate boundary: it reads the root/forest
+//! convention through its own [`depth::Roots`] trait, and p3's
+//! [`layout::hierarchy::Hierarchy`](crate::layout::hierarchy::Hierarchy) implements
+//! that trait by delegation — `impl Roots for Hierarchy {}` is the whole of the
+//! re-point, and it has landed. `analysis.depth` now has its ledger row; there is one
+//! convention across the codebase, not two.
 //!
 //! Exposing these results in the snapshot/JSON/SDK, and folding them into the 4-way
 //! hashgate as their own stage, is deferred to the merge step (`graph-wasm` and the
@@ -32,7 +32,7 @@ mod determinism {
     /// The hierarchy CSR read as it stands — **no repair**. Enough to give `depth` a
     /// [`Roots`] here, where the only property under test is that two runs agree; the
     /// depth convention itself is pinned in `analysis/depth/tests.rs`, and the repaired
-    /// forest is p3's `Hierarchy` at the merge step.
+    /// forest is p3's `Hierarchy`, which now implements `Roots` directly.
     struct AsIs {
         topology: Topology,
         children: Vec<Vec<u32>>,

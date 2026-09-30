@@ -1,12 +1,10 @@
 //! The negative controls' knobs and the setting the native arm runs with: every
 //! variable is read strictly and at most one may be set.
 
-use graph_core::layout::circle_packing::CirclePackingParams;
-use graph_core::layout::force::{ForceParams, Split};
-use graph_core::layout::forceatlas2::Fa2Params;
-use graph_core::layout::{circular, tidy_tree, treemap};
-use graph_core::{GridParams, REFERENCE_DEGREE, SugiyamaParams};
-use std::env::VarError;
+use super::knobs;
+
+pub(super) mod setting;
+pub(super) use setting::{Setting, env_setting};
 
 /// A negative control (`prompt.md` §7.2): a variable that perturbs the native arm only,
 /// so a wired mutation surfaces as exactly the cross-target divergence the gate must
@@ -35,6 +33,13 @@ use std::env::VarError;
 /// ([`Knob::TreeTidyNodes`], [`Knob::TreemapNodes`], [`Knob::CircularNodes`]). Same
 /// probe as node count, scoped to one stage: it is the honest way to move a layout that
 /// has no parameter to move, and it is what makes the divergence *name* the stage.
+///
+/// **The fifteen ANALYSIS and POST controls are the same probe again**, and for the same
+/// reason: no analysis and no POST capability takes a parameter, being a pure function
+/// of the gate's model at fixed conventions, so each of them re-draws *its own* model
+/// with one more node through [`Setting::stage_nodes`] and moves that stage alone. They
+/// are tabulated in [`knobs::ANALYSIS_POST_STAGES`], and
+/// `the_analysis_and_post_controls_are_the_knobs_table` holds this enum's arms to it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Knob {
     /// `GM_MUTATE_REFERENCE_DEGREE`: the degree the topology's weights are taken against.
@@ -79,6 +84,45 @@ pub enum Knob {
     /// of the four that publishes `run_with`; the scale is read by the final centring and
     /// so changes every circle's centre and radius.
     PackingScale,
+    /// `GM_MUTATE_ANALYSIS_COMPONENTS_WEAK`: weak components, native arm only.
+    ///
+    /// The first of the fifteen ANALYSIS and POST controls, which share one shape and are
+    /// tabulated in [`knobs::ANALYSIS_POST_STAGES`] — that table holds each one's stage
+    /// id (a graph-core constant), its variable and its record, and
+    /// `the_analysis_and_post_controls_are_the_knobs_table` holds this enum's arms to it.
+    ///
+    /// **None of the fifteen moves a parameter**, because no ANALYSIS or POST stage takes
+    /// one: each re-draws *its own* model with one more node, through
+    /// [`Setting::stage_nodes`], and moves that stage alone.
+    AnalysisComponentsWeak,
+    /// `GM_MUTATE_ANALYSIS_COMPONENTS_STRONG`: strong components, native arm only.
+    AnalysisComponentsStrong,
+    /// `GM_MUTATE_ANALYSIS_COMMUNITIES_LOUVAIN`: Louvain communities, native arm only.
+    AnalysisCommunitiesLouvain,
+    /// `GM_MUTATE_ANALYSIS_CENTRALITY_DEGREE`: degree centrality, native arm only.
+    AnalysisCentralityDegree,
+    /// `GM_MUTATE_ANALYSIS_CENTRALITY_CLOSENESS`: closeness centrality, native arm only.
+    AnalysisCentralityCloseness,
+    /// `GM_MUTATE_ANALYSIS_CENTRALITY_BETWEENNESS`: betweenness, native arm only.
+    AnalysisCentralityBetweenness,
+    /// `GM_MUTATE_ANALYSIS_CENTRALITY_EIGENVECTOR`: eigenvector, native arm only.
+    AnalysisCentralityEigenvector,
+    /// `GM_MUTATE_ANALYSIS_DEPTH_BFS`: BFS depth, native arm only.
+    AnalysisDepthBfs,
+    /// `GM_MUTATE_POST_BUNDLE_FDEB`: FDEB bundling, native arm only.
+    PostBundleFdeb,
+    /// `GM_MUTATE_POST_BUNDLE_MINGLE`: MINGLE bundling, native arm only.
+    PostBundleMingle,
+    /// `GM_MUTATE_POST_ROUTE_GRID`: grid routing, native arm only.
+    PostRouteGrid,
+    /// `GM_MUTATE_POST_STYLE_STRAIGHT`: straight edges, native arm only.
+    PostStyleStraight,
+    /// `GM_MUTATE_POST_STYLE_ORTHOGONAL`: orthogonal edges, native arm only.
+    PostStyleOrthogonal,
+    /// `GM_MUTATE_POST_STYLE_QUADRATIC`: quadratic bezier edges, native arm only.
+    PostStyleQuadratic,
+    /// `GM_MUTATE_POST_STYLE_BEZIER`: cubic bezier edges, native arm only.
+    PostStyleBezier,
     /// `GM_MUTATE_SPLIT_SUM`: **native arms only, and the threaded ones above all.**
     ///
     /// Phase 11's own control, and the one the phase prompt names: it makes a gathered
@@ -101,8 +145,16 @@ pub enum Knob {
 }
 
 impl Knob {
-    /// Every knob.
-    pub const ALL: [Self; 11] = [
+    /// Every knob: the ten that move a parameter, then the fifteen ANALYSIS and POST
+    /// stage controls in [`knobs::ANALYSIS_POST_STAGES`] order, then the compute-tier
+    /// control last.
+    ///
+    /// **A `const`, because `capabilities::verdict::Evidence::load` walks it** to collect
+    /// one control record each — a ledger read cannot be a function call per row. So the
+    /// fifteen are spelled as arms here and held against that one table by
+    /// `the_analysis_and_post_controls_are_the_knobs_table`, which fails on any arm whose
+    /// variable, record or stage the table disagrees with.
+    pub const ALL: [Self; 26] = [
         Self::ReferenceDegree,
         Self::GridSpacing,
         Self::SugiyamaLayerSpacing,
@@ -113,6 +165,21 @@ impl Knob {
         Self::TreemapNodes,
         Self::CircularNodes,
         Self::PackingScale,
+        Self::AnalysisComponentsWeak,
+        Self::AnalysisComponentsStrong,
+        Self::AnalysisCommunitiesLouvain,
+        Self::AnalysisCentralityDegree,
+        Self::AnalysisCentralityCloseness,
+        Self::AnalysisCentralityBetweenness,
+        Self::AnalysisCentralityEigenvector,
+        Self::AnalysisDepthBfs,
+        Self::PostBundleFdeb,
+        Self::PostBundleMingle,
+        Self::PostRouteGrid,
+        Self::PostStyleStraight,
+        Self::PostStyleOrthogonal,
+        Self::PostStyleQuadratic,
+        Self::PostStyleBezier,
         Self::SplitSum,
     ];
 
@@ -129,6 +196,21 @@ impl Knob {
             Self::TreemapNodes => "GM_MUTATE_TREEMAP_NODES",
             Self::CircularNodes => "GM_MUTATE_CIRCULAR_NODES",
             Self::PackingScale => "GM_MUTATE_PACKING_SCALE",
+            Self::AnalysisComponentsWeak => "GM_MUTATE_ANALYSIS_COMPONENTS_WEAK",
+            Self::AnalysisComponentsStrong => "GM_MUTATE_ANALYSIS_COMPONENTS_STRONG",
+            Self::AnalysisCommunitiesLouvain => "GM_MUTATE_ANALYSIS_COMMUNITIES_LOUVAIN",
+            Self::AnalysisCentralityDegree => "GM_MUTATE_ANALYSIS_CENTRALITY_DEGREE",
+            Self::AnalysisCentralityCloseness => "GM_MUTATE_ANALYSIS_CENTRALITY_CLOSENESS",
+            Self::AnalysisCentralityBetweenness => "GM_MUTATE_ANALYSIS_CENTRALITY_BETWEENNESS",
+            Self::AnalysisCentralityEigenvector => "GM_MUTATE_ANALYSIS_CENTRALITY_EIGENVECTOR",
+            Self::AnalysisDepthBfs => "GM_MUTATE_ANALYSIS_DEPTH_BFS",
+            Self::PostBundleFdeb => "GM_MUTATE_POST_BUNDLE_FDEB",
+            Self::PostBundleMingle => "GM_MUTATE_POST_BUNDLE_MINGLE",
+            Self::PostRouteGrid => "GM_MUTATE_POST_ROUTE_GRID",
+            Self::PostStyleStraight => "GM_MUTATE_POST_STYLE_STRAIGHT",
+            Self::PostStyleOrthogonal => "GM_MUTATE_POST_STYLE_ORTHOGONAL",
+            Self::PostStyleQuadratic => "GM_MUTATE_POST_STYLE_QUADRATIC",
+            Self::PostStyleBezier => "GM_MUTATE_POST_STYLE_BEZIER",
             Self::SplitSum => "GM_MUTATE_SPLIT_SUM",
         }
     }
@@ -146,139 +228,41 @@ impl Knob {
             Self::TreemapNodes => "hashgate-control-treemap-nodes",
             Self::CircularNodes => "hashgate-control-circular-nodes",
             Self::PackingScale => "hashgate-control-packing-scale",
+            Self::AnalysisComponentsWeak => "hashgate-control-analysis-components-weak",
+            Self::AnalysisComponentsStrong => "hashgate-control-analysis-components-strong",
+            Self::AnalysisCommunitiesLouvain => "hashgate-control-analysis-communities-louvain",
+            Self::AnalysisCentralityDegree => "hashgate-control-analysis-centrality-degree",
+            Self::AnalysisCentralityCloseness => "hashgate-control-analysis-centrality-closeness",
+            Self::AnalysisCentralityBetweenness => {
+                "hashgate-control-analysis-centrality-betweenness"
+            }
+            Self::AnalysisCentralityEigenvector => {
+                "hashgate-control-analysis-centrality-eigenvector"
+            }
+            Self::AnalysisDepthBfs => "hashgate-control-analysis-depth-bfs",
+            Self::PostBundleFdeb => "hashgate-control-post-bundle-fdeb",
+            Self::PostBundleMingle => "hashgate-control-post-bundle-mingle",
+            Self::PostRouteGrid => "hashgate-control-post-route-grid",
+            Self::PostStyleStraight => "hashgate-control-post-style-straight",
+            Self::PostStyleOrthogonal => "hashgate-control-post-style-orthogonal",
+            Self::PostStyleQuadratic => "hashgate-control-post-style-quadratic",
+            Self::PostStyleBezier => "hashgate-control-post-style-bezier",
             Self::SplitSum => "hashgate-control-split-sum",
         }
     }
 }
 
-/// What the native arm runs with: the compiled-in defaults, or one knob's perturbation.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub(super) struct Setting {
-    pub(super) reference_degree: u32,
-    pub(super) grid: GridParams,
-    pub(super) sugiyama: SugiyamaParams,
-    /// Extra nodes added to the gate's model, native arm only ([`Knob::NodeCount`]).
-    pub(super) extra_nodes: u32,
-    /// Barnes-Hut's parameters, native arm only ([`Knob::ForceTheta`] perturbs them).
-    pub(super) force: ForceParams,
-    /// ForceAtlas2's parameters, native arm only ([`Knob::Fa2ScalingRatio`] perturbs).
-    pub(super) fa2: Fa2Params,
-    /// Circle packing's parameters, native arm only ([`Knob::PackingScale`] perturbs).
-    pub(super) packing: CirclePackingParams,
-    /// The one Phase 3 stage whose own model a control re-draws, native arm only
-    /// ([`Knob::TreeTidyNodes`], [`Knob::TreemapNodes`], [`Knob::CircularNodes`]).
-    ///
-    /// A stage id, never a node count: which stage the extra nodes are *for* is the whole
-    /// claim, and a bare `u32` would let the same perturbation reach the shared model
-    /// again — which is [`Setting::extra_nodes`], and moves every stage at once.
-    pub(super) stage_nodes: Option<(&'static str, u32)>,
-    /// Which gathered pass's merge reads a neighbouring node's delta
-    /// ([`Knob::SplitSum`]), the phase-11 control for the threaded arms.
-    ///
-    /// A [`Split`] and not a `bool` because the control names *which* kernel it corrupts,
-    /// and each kernel needs its own row to be shown to be compared.
-    pub(super) split_sum: Split,
-    pub(super) control: Option<Knob>,
-}
-
-/// Reads the knobs through `read`. At most one may be set, and a set one must parse:
-/// a typo falling back to the default would let the control pass as green. A spacing the
-/// grid refuses is left for the grid to refuse, so the rule lives in one place.
-pub(super) fn setting(read: impl Fn(&str) -> Result<String, VarError>) -> Result<Setting, String> {
-    let mut setting = Setting {
-        reference_degree: REFERENCE_DEGREE,
-        grid: GridParams::default(),
-        sugiyama: SugiyamaParams::default(),
-        extra_nodes: 0,
-        force: ForceParams::default(),
-        fa2: Fa2Params::default(),
-        packing: CirclePackingParams::default(),
-        stage_nodes: None,
-        split_sum: Split::None,
-        control: None,
-    };
-    for knob in Knob::ALL {
-        let text = match read(knob.env()) {
-            Err(VarError::NotPresent) => continue,
-            Err(err) => return Err(format!("{}: {err}", knob.env())),
-            Ok(text) => text,
-        };
-        if let Some(other) = setting.control {
-            let (a, b) = (other.env(), knob.env());
-            return Err(format!("{a} and {b} are both set: one control at a time"));
-        }
-        setting.control = Some(knob);
-        apply(knob, text.trim(), &mut setting)?;
-    }
-    Ok(setting)
-}
-
-/// The one knob's perturbation, written into `setting`. Split out of [`setting`] by the
-/// house's 40-line-per-function cap, and the place a new knob adds its single line: every
-/// arm parses the *same* way, so a typo is refused whatever the knob perturbs.
-fn apply(knob: Knob, text: &str, setting: &mut Setting) -> Result<(), String> {
-    let bad = |e: &dyn std::fmt::Display| format!("{}={text:?}: {e}", knob.env());
-    match knob {
-        Knob::ReferenceDegree => {
-            setting.reference_degree = text.parse().map_err(|e| bad(&e))?;
-        }
-        Knob::GridSpacing => setting.grid.spacing = text.parse().map_err(|e| bad(&e))?,
-        Knob::SugiyamaLayerSpacing => {
-            setting.sugiyama.layer_spacing = text.parse().map_err(|e| bad(&e))?;
-        }
-        Knob::NodeCount => setting.extra_nodes = text.parse().map_err(|e| bad(&e))?,
-        Knob::ForceTheta => setting.force.theta = text.parse().map_err(|e| bad(&e))?,
-        Knob::Fa2ScalingRatio => setting.fa2.scaling_ratio = text.parse().map_err(|e| bad(&e))?,
-        Knob::TreeTidyNodes => {
-            setting.stage_nodes = Some((tidy_tree::ID, nodes(text, knob)?));
-        }
-        Knob::TreemapNodes => {
-            setting.stage_nodes = Some((treemap::ID, nodes(text, knob)?));
-        }
-        Knob::CircularNodes => {
-            setting.stage_nodes = Some((circular::ID, nodes(text, knob)?));
-        }
-        Knob::PackingScale => setting.packing.scale = text.parse().map_err(|e| bad(&e))?,
-        // Parsed rather than treated as a presence flag, so `GM_MUTATE_SPLIT_SUM=0` is
-        // the honest run and a typo (`=maybe`) is an error instead of a silent
-        // mutation. `1`/`0` are accepted beside `true`/`false` because a gate row
-        // reads `GM_MUTATE_SPLIT_SUM=1`.
-        Knob::SplitSum => setting.split_sum = split(text).ok_or_else(|| bad(&text))?,
-    }
-    Ok(())
-}
-
-/// Nodes added to one stage's own model. Zero is refused: a control that perturbs by
-/// nothing passes vacuously, which is the one failure mode a negative control must not
-/// have (`cli_force.rs`'s `--seeds 2` note is the same lesson at the other end of the
-/// seed range).
-fn nodes(text: &str, knob: Knob) -> Result<u32, String> {
-    let count: u32 = text
-        .parse()
-        .map_err(|e| format!("{}={text:?}: {e}", knob.env()))?;
-    if count == 0 {
-        return Err(format!(
-            "{}={text:?}: a control that adds no node perturbs nothing",
-            knob.env()
-        ));
-    }
-    Ok(count)
-}
-
-pub(super) fn env_setting() -> Result<Setting, String> {
-    setting(|name| std::env::var(name))
-}
-
-/// Which merge `GM_MUTATE_SPLIT_SUM` corrupts: a pass's own name, or `1`/`true` for all
-/// three. An unknown word is `None`, and the caller turns that into the parse error — a
-/// control whose spelling did not work would be a control nobody runs.
-fn split(text: &str) -> Option<Split> {
-    match text.trim().to_ascii_lowercase().as_str() {
-        "1" | "true" | "all" => Some(Split::All),
-        "0" | "false" | "none" => Some(Split::None),
-        "charge" => Some(Split::Charge),
-        "collide" => Some(Split::Collide),
-        "link" => Some(Split::Link),
-        _ => None,
-    }
+/// The [`knobs::Stage`] `knob` perturbs — a function of its *variable*, not its arm index.
+///
+/// Resolved by matching the variable name against the one table, so a control cannot be
+/// filed under a stage the table does not agree with: a variable the table does not carry
+/// is a programming error, not a runtime setting, and it panics here rather than quietly
+/// perturbing whichever stage happened to sit at that arm's position.
+pub(super) fn stage_of(knob: Knob) -> knobs::Stage {
+    let env = knob.env();
+    knobs::ANALYSIS_POST_STAGES
+        .iter()
+        .copied()
+        .find(|row| row.env == env)
+        .unwrap_or_else(|| panic!("{env} is one of the fifteen ANALYSIS and POST controls"))
 }
