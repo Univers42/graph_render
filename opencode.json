@@ -68,8 +68,14 @@
       "docker system prune*": "deny",
       "docker volume rm*": "deny"
     },
-    "pw_*": "deny",
-    "question": "deny"
+    "question": "deny",
+    "pw_browser_run_code_unsafe": "deny",
+    "pw_browser_file_upload": "deny",
+    "ruflo_terminal_*": "deny",
+    "ruflo_github_*": "deny",
+    "ruflo_system_reset": "deny",
+    "ruflo_federation_*": "deny",
+    "ruflo_x_federation_*": "deny"
   },
   "mcp": {
     "pw": {
@@ -77,6 +83,49 @@
       "command": [
         "scripts/orch/pw-mcp.sh"
       ],
+      "enabled": true,
+      "timeout": 20000
+    },
+    "shadcn": {
+      "type": "local",
+      "command": [
+        "docker",
+        "run",
+        "-i",
+        "--rm",
+        "--pull",
+        "never",
+        "shadcn-mcp:latest"
+      ],
+      "enabled": true,
+      "timeout": 20000
+    },
+    "ruflo": {
+      "type": "local",
+      "command": [
+        "{env:HOME}/.local/bin/ruflo",
+        "mcp",
+        "start"
+      ],
+      "enabled": true,
+      "timeout": 30000
+    },
+    "magic": {
+      "type": "local",
+      "command": [
+        "docker",
+        "run",
+        "-i",
+        "--rm",
+        "--pull",
+        "never",
+        "-e",
+        "API_KEY",
+        "magic-mcp:latest"
+      ],
+      "environment": {
+        "API_KEY": "{env:MAGIC_API_KEY}"
+      },
       "enabled": false,
       "timeout": 20000
     },

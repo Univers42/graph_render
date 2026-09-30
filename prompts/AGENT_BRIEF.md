@@ -23,6 +23,11 @@ Rules of record: `CLAUDE.md`, `prompt.md` §0 and §6 (D1–D10), the phase prom
   `jama-1.0.3/`, `scipy-1.16.2/lobpcg.py`) and the `SciGraphs/` submodule. Older comments cite
   `/home/user/refs/...`; same files. A reference not present there is a STOP, never an improvisation.
 
+## Tools to use (MCP servers, skills, subagents)
+- Load the matching skill with the `skill` tool before the work it covers (debug, write-test, browser-testing, frontend, design-review, ...).
+- MCP servers, inside `execute` as `tools.<server>.*`: `pw` (a browser on the studio ports; UI claims need its snapshot or screenshot), `context7` and `deepwiki` (library docs), `shadcn` (components), `ruflo` (memory, analysis). A first `Unknown tool` means the server is still connecting: `search()` again. Page `search()` with `next.offset`.
+- Fan independent slices out to subagents in one message.
+
 ## Never
 - Run git commands that change state (denied); the orchestrator commits. `git diff/log/show/status` are fine.
 - Touch osionos, `.claude/`, `.opencode/`, `src/`, `tests/` or `verify/` unless the task says so.
