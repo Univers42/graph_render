@@ -11,5 +11,6 @@ p12-t2|build|prompts/jobs/p12-t2.md|scripts/orch/rows/quick.rows|no
 tier-settle|build|prompts/jobs/tier-settle.md|scripts/orch/rows/quick.rows|no
 p13-gv1-twopi|build|prompts/jobs/p13-gv1-twopi.md|scripts/orch/rows/quick.rows|no
 merge-p12-igraph|build|prompts/jobs/merge-p12-igraph.md|scripts/orch/rows/quick.rows|no
+merge-tier-settle|build|prompts/jobs/merge-tier-settle.md|scripts/orch/rows/quick.rows|no
 force-wasm|build|prompts/jobs/force-wasm.md|scripts/orch/rows/quick.rows|no
 p13-3d|build|prompts/jobs/p13-3d.md|scripts/orch/rows/quick.rows|no
