@@ -8,8 +8,11 @@
 
 import { WasmUnavailableError } from "./errors.ts";
 
-/** The raw ABI (`docs/contract/wasm-abi.md`). Every export takes and returns plain `u32`s
- * (D6) — `index.ts` is the only place that turns them into the SDK's typed surface. */
+/** The raw ABI (`docs/contract/wasm-abi.md`, and `docs/decisions/force-wasm-abi.md` for the
+ *  `gm_force_session_*` family). Every export takes and returns plain `u32`s
+ * (D6) — `index.ts` is the only
+ *  place that turns them into the SDK's typed surface; `force.ts` does the same for the force
+ *  session, whose `f64` values are fixed-width IEEE-754 rather than pointer-width. */
 export interface RawExports {
   readonly memory: WebAssembly.Memory;
   gm_alloc(len: number): number;
@@ -34,6 +37,18 @@ export interface RawExports {
   gm_analysis_run(handle: number, index: number): number;
   gm_release(handle: number): void;
   gm_last_error(): number;
+  gm_force_session_create(graph: number, paramsPtr: number, paramsLen: number): number;
+  gm_force_session_set_params(session: number, paramsPtr: number, paramsLen: number): number;
+  gm_force_session_params(session: number): number;
+  gm_force_session_tick(session: number, ticks: number): number;
+  gm_force_session_alpha(session: number): number;
+  gm_force_session_reheat(session: number, alpha: number): number;
+  gm_force_session_pin(session: number, row: number, x: number, y: number): number;
+  gm_force_session_unpin(session: number, row: number): number;
+  gm_force_session_unpin_all(session: number): number;
+  gm_force_session_column_ptr(session: number, axis: number): number;
+  gm_force_session_column_len(session: number, axis: number): number;
+  gm_force_session_release(session: number): number;
 }
 
 /** Bytes, or a URL/`Response` `fetch` can resolve (browser only — Node callers always

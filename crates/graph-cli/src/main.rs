@@ -13,6 +13,7 @@ mod determinism_probe;
 mod evidence;
 mod exec_native;
 mod fingerprint;
+mod forcecheck;
 mod hashgate;
 mod ingest_cmd;
 mod ink_cmd;
@@ -39,6 +40,8 @@ fn main() -> ExitCode {
     match Cli::parse().command {
         Command::Hashgate { seeds, tiers } => hashgate::run(seeds, tiers),
         Command::HashgateArm { seeds } => hashgate::arm(seeds),
+        Command::ForceGate { seeds } => forcecheck::run(seeds),
+        Command::ForceGateArm { seeds } => forcecheck::arm(seeds),
         Command::Capabilities {
             json,
             check,

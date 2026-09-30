@@ -3,8 +3,8 @@
 
 use super::knobs;
 
-pub(super) mod setting;
-pub(super) use setting::{Setting, env_setting};
+pub(crate) mod setting;
+pub(crate) use setting::{Setting, env_setting};
 
 /// A negative control (`prompt.md` §7.2): a variable that perturbs the native arm only,
 /// so a wired mutation surfaces as exactly the cross-target divergence the gate must
@@ -171,19 +171,39 @@ pub enum Knob {
     /// merge the three layouts share, and it moves only the threaded arms. Both are kept:
     /// one question each, neither standing in for the other.
     SplitRescale,
+    /// `GM_MUTATE_FORCE_SESSION_GRAVITY`: the **live** force session's `gravity`, native arm
+    /// of `force-gate` only.
+    ///
+    /// Its own control, and the only one that reaches the live session: no other variable in
+    /// this list touches `LiveParams`, because `LiveParams` has no other user on this side —
+    /// the frozen stage runs `from_frozen`, which is a parameter set `ForceParams` holds and
+    /// [`Knob::ForceTheta`] already reaches through. `gravity` is on top of that the one
+    /// parameter the **frozen** set does not have at all (`live_params.rs`), so a control that
+    /// moves it cannot possibly move `layout.force.barnes_hut` and take another stage with it.
+    ///
+    /// It reaches the force gate rather than this gate: the wasm arm builds the seed's model
+    /// from `gm_seed_ingest`, whose document is fixed, so the only perturbation a cross-target
+    /// comparison here can see is one in the *parameters* — and this is that one. A non-zero
+    /// value pulls every node toward the origin, which moves every position in the pair of
+    /// columns the gate hashes, on every seed, from the first tick.
+    ///
+    /// Parsed, not treated as a flag: `=0` must be the honest run and a typo (`=maybe`) an
+    /// error rather than a silent no-op — the same rule every other parameter knob obeys, for
+    /// the same reason.
+    ForceSessionGravity,
 }
 
 impl Knob {
     /// Every knob: the ten that move a parameter, then the fifteen ANALYSIS and POST
     /// stage controls in [`knobs::ANALYSIS_POST_STAGES`] order, then the two compute-tier
-    /// controls last.
+    /// controls, then the live session's own.
     ///
     /// **A `const`, because `capabilities::verdict::Evidence::load` walks it** to collect
     /// one control record each — a ledger read cannot be a function call per row. So the
     /// fifteen are spelled as arms here and held against that one table by
     /// `the_analysis_and_post_controls_are_the_knobs_table`, which fails on any arm whose
     /// variable, record or stage the table disagrees with.
-    pub const ALL: [Self; 27] = [
+    pub const ALL: [Self; 28] = [
         Self::ReferenceDegree,
         Self::GridSpacing,
         Self::SugiyamaLayerSpacing,
@@ -211,6 +231,7 @@ impl Knob {
         Self::PostStyleBezier,
         Self::SplitSum,
         Self::SplitRescale,
+        Self::ForceSessionGravity,
     ];
 
     /// The variable that sets it.
@@ -243,6 +264,7 @@ impl Knob {
             Self::PostStyleBezier => "GM_MUTATE_POST_STYLE_BEZIER",
             Self::SplitSum => "GM_MUTATE_SPLIT_SUM",
             Self::SplitRescale => "GM_MUTATE_SPLIT_RESCALE",
+            Self::ForceSessionGravity => "GM_MUTATE_FORCE_SESSION_GRAVITY",
         }
     }
 
@@ -280,6 +302,7 @@ impl Knob {
             Self::PostStyleBezier => "hashgate-control-post-style-bezier",
             Self::SplitSum => "hashgate-control-split-sum",
             Self::SplitRescale => "hashgate-control-split-rescale",
+            Self::ForceSessionGravity => "forcegate-control-force-session-gravity",
         }
     }
 }

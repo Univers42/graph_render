@@ -14,15 +14,16 @@ use std::process::{Command, Output};
 /// `GM_MUTATE_SPLIT_SUM`, which corrupts a Barnes-Hut gather's merge, and
 /// `GM_MUTATE_SPLIT_RESCALE`, which corrupts the closed-form point layouts' shared
 /// `coords` merge. Both corrupt a merge rather than a parameter, and both are the last two
-/// entries here. The order is the order of `hashgate::Knob::ALL`, which the unit test
-/// `each_knob_names_its_own_variable_and_record` pins against this list's twin in
-/// `crates/graph-cli/src/hashgate/tests/knob/table.rs`.
+/// entries but one here. The last is `GM_MUTATE_FORCE_SESSION_GRAVITY` — the live force
+/// session's own control, which reaches `force-gate` and not this gate. The order is the order
+/// of `hashgate::Knob::ALL`, which the unit test `each_knob_names_its_own_variable_and_record`
+/// pins against this list's twin in `crates/graph-cli/src/hashgate/tests/knob/table.rs`.
 ///
 /// The fifteen ANALYSIS and POST names are spelled out here rather than derived from the
 /// binary's own table: this list is what clears a knob out of a test run's environment, so
 /// a name it failed to carry would let a control leak in and turn an honest run red. Being
 /// an independent copy is the property; the unit test is what makes it hold.
-pub const KNOBS: [&str; 27] = [
+pub const KNOBS: [&str; 28] = [
     "GM_MUTATE_REFERENCE_DEGREE",
     "GM_MUTATE_GRID_SPACING",
     "GM_MUTATE_SUGIYAMA_LAYER_SPACING",
@@ -50,6 +51,7 @@ pub const KNOBS: [&str; 27] = [
     "GM_MUTATE_POST_STYLE_BEZIER",
     "GM_MUTATE_SPLIT_SUM",
     "GM_MUTATE_SPLIT_RESCALE",
+    "GM_MUTATE_FORCE_SESSION_GRAVITY",
 ];
 
 /// `graph-cli` recording under `gates`, never `target/gates` (a test run must not stand
