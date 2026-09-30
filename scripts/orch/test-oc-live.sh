@@ -140,6 +140,21 @@ sess ses_a "$WT" wt-job
 
 is "no listening port -> 2" 2 "" \
   env OC_LIVE_SS="$tmp/bin/ss" OC_LIVE_CURL="$tmp/curl-stub" OC_LIVE_CONFIG="$tmp/service.json" "$LIVE" "$WT"
+# two opencode listeners: a stranger first, the service second; only the service's port is asked
+bash -c 'exec -a opencode sleep 30' &
+stranger=$!
+bash -c 'exec -a "opencode serve --service" sleep 30' &
+service=$!
+printf '#!/bin/sh\necho "LISTEN 0 512 127.0.0.1:1111 0.0.0.0:* users:((\\"opencode\\",pid=%s,fd=9))"\necho "LISTEN 0 512 127.0.0.1:4099 0.0.0.0:* users:((\\"opencode\\",pid=%s,fd=9))"\n' \
+  "$stranger" "$service" >"$tmp/bin/ss2"
+chmod +x "$tmp/bin/ss2"
+active
+is "port discovery skips a non-service listener" 1 "" \
+  env OC_LIVE_SS="$tmp/bin/ss2" OC_LIVE_CURL="$tmp/curl-stub" OC_LIVE_CONFIG="$tmp/service.json" "$LIVE" "$WT"
+if [[ $(<"$tmp/argv") == *127.0.0.1:4099/* ]]; then ok "the service's port is the one asked"
+else no "the service's port is the one asked" "argv=$(<"$tmp/argv")"; fi
+kill "$stranger" "$service" 2>/dev/null
+active ses_a
 is "no service.json -> 2" 2 "" \
   env OC_LIVE_PORT=4099 OC_LIVE_CURL="$tmp/curl-stub" OC_LIVE_CONFIG="$tmp/absent.json" "$LIVE" "$WT"
 printf '{"password":"a\nb"}\n' >"$tmp/nl.json"
