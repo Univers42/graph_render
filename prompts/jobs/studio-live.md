@@ -48,3 +48,5 @@ lives there). Not `crates/` (if the ABI lacks something, stop and name it in `de
 
 Done when: the checks pass, the gate's three assertions pass, the negctl fails, and the return block has
 the gate's output lines.
+
+UI evidence (user rule, 2026-10-01): every claim about what the studio shows needs a `pw` MCP snapshot or screenshot, saved under `target/wf/` and named in the return block. The MCP servers (pw, shadcn, context7, deepwiki, ruflo) and the skills are enabled in `opencode.json`; if a `pw.*` tool reports "Unknown tool", the server is still connecting, so wait about 4 s and call `search()` again.

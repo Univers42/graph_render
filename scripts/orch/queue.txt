@@ -14,3 +14,10 @@ p13-gv1-twopi|build|prompts/jobs/p13-gv1-twopi.md|scripts/orch/rows/quick.rows|n
 merge-p12-igraph|build|prompts/jobs/merge-p12-igraph.md|scripts/orch/rows/quick.rows|no
 merge-tier-settle|build|prompts/jobs/merge-tier-settle.md|scripts/orch/rows/quick.rows|no
 p13-3d|build|prompts/jobs/p13-3d.md|scripts/orch/rows/quick.rows|no
+p13-gv1-circo|build|prompts/jobs/p13-gv1-circo.md|scripts/orch/rows/quick.rows|no
+p13-gv1-osage|build|prompts/jobs/p13-gv1-osage.md|scripts/orch/rows/quick.rows|no
+p13-gv1-patchwork|build|prompts/jobs/p13-gv1-patchwork.md|scripts/orch/rows/quick.rows|no
+p13-gv2-neato|build|prompts/jobs/p13-gv2-neato.md|scripts/orch/rows/quick.rows|no
+p13-gv2-fdp|build|prompts/jobs/p13-gv2-fdp.md|scripts/orch/rows/quick.rows|no
+p13-gv2-sfdp|build|prompts/jobs/p13-gv2-sfdp.md|scripts/orch/rows/quick.rows|no
+p13-gv2-dot|build|prompts/jobs/p13-gv2-dot.md|scripts/orch/rows/quick.rows|no
