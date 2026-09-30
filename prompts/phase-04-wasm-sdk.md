@@ -1,4 +1,4 @@
-> **Status (2026-09-28):** BUILT on branch p4 (9389255, pre-p3 base) — reviewed + repaired; needs merge of develop, registry-driven ABI reconciliation, ledger evidence wiring, mutants, report. See docs/reports/STATUS.md.
+> **Status (2026-09-30):** MERGED into develop, merge efe2452 (branch p4 head 2c49e04). Registry-driven ABI reconciled; 755 tests green on the merged tree. See prompts/RESUME.md.
 
 # Phase 4 — WASM transport and the JS SDK. The motor becomes usable here.
 

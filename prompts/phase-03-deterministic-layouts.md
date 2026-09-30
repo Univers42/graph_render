@@ -1,4 +1,4 @@
-> **Status (2026-09-28):** IN CLOSE-OUT on branch p3 — built + integrated, gate green at 0b9fa62; develop merged in, review done, mutants + phase-03.md pending, then merge. See docs/reports/STATUS.md.
+> **Status (2026-09-30):** MERGED into develop — branch head 2538f0a is an ancestor of develop; p3 landed inside p6f, merge 45a653f. Its 1000-seed gate and mutants run as part of the develop gate. See prompts/RESUME.md.
 
 # Phase 3 — The deterministic one-shot layouts
 
