@@ -22,7 +22,7 @@ else
   git worktree add -q -b "$branch" "$wt" "$base"
 fi
 cd "$wt"
-git submodule update -q --init .claude
+git submodule update -q --init .claude SciGraphs
 "$here/node-slim.sh" npm ci --ignore-scripts >/dev/null
 scripts/orch/oc-kit.sh --check >/dev/null || scripts/orch/oc-kit.sh
 echo "$wt"
