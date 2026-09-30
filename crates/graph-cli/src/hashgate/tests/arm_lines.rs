@@ -2,11 +2,18 @@
 //! lines verbatim, and the C20 tally read off the wasm arm.
 
 use super::super::knob::Setting;
+use super::super::knob::setting::setting;
+use super::super::stages::stage_bytes;
 use super::super::stages::stages as stage_ids;
 use super::super::transport;
-use super::super::{LAYOUT, TRANSPORT, arm_lines, threads_lines};
+use super::super::{
+    FORCE_STAGES, LAYOUT, TRANSPORT, arm_lines, stage_bytes_threaded, threads_lines,
+};
+use super::env;
 use super::honest;
 use graph_core::GridParams;
+use graph_core::Stage as _;
+use graph_core::layout::force::{BarnesHut, Split, YifanHu};
 
 #[test]
 fn an_arm_prints_every_seed_of_one_stage_before_the_next() {
@@ -78,6 +85,58 @@ fn the_threaded_arm_prints_its_stages_in_the_same_order_as_the_scalar_one() {
     assert_eq!(prefixes[0], format!("{} 0", stage_ids()[0]));
     assert_eq!(prefixes[1], format!("{} 1", stage_ids()[0]));
     assert_eq!(prefixes[2], format!("{} 0", stage_ids()[1]));
+}
+
+/// **The negative control for the threaded arm, at the seam the arm is built from.**
+///
+/// `GM_MUTATE_SPLIT_SUM` reaches the threaded arm only through the recompute in
+/// `stage_bytes_threaded`. So with the control on, the arm's bytes must differ from the
+/// scalar run's on **both** force stages and on nothing else — and the ids that moved must
+/// be exactly the ones the arm recomputes. Without this, "10-way equal" on a force stage
+/// whose id was never in the match is a comparison of a run with itself, and the gate is
+/// green on a stage it never ran threaded.
+#[test]
+fn the_split_control_moves_both_force_stages_and_nothing_else() {
+    let split = setting(env(vec![("GM_MUTATE_SPLIT_SUM", "1")])).expect("parses");
+    assert_eq!(split.split_sum, Split::All);
+    let seed = 8_u32;
+    let scalar = stage_bytes(seed, &honest()).expect("runs");
+    let threaded = stage_bytes_threaded(seed, &split, 4).expect("runs");
+    assert_eq!(
+        scalar.len(),
+        threaded.len(),
+        "one line per stage, either way"
+    );
+    let mut moved: Vec<&str> = Vec::new();
+    for ((id, a), (_, b)) in scalar.iter().zip(&threaded) {
+        if a != b {
+            moved.push(id);
+        }
+    }
+    // Spelled out, **not** read from `FORCE_STAGES`: a test that checked the recompute
+    // against the very list that decides the recompute would pass with the list holding
+    // one id, which is the vacuous case this test exists to catch.
+    assert_eq!(
+        moved,
+        vec![BarnesHut::ID, YifanHu::ID],
+        "the control must move both force stages and no other stage — a stage missing from \
+         the match reuses the scalar bytes, so its equality is vacuous"
+    );
+    assert_eq!(
+        FORCE_STAGES.as_slice(),
+        [BarnesHut::ID, YifanHu::ID],
+        "the arm's recompute list and this test must name the same two stages: a stage in one \
+         and not the other is recomputed but unclaimed, or claimed but never compared"
+    );
+    // And with the control off the recompute is byte-identical, at every gated width: that
+    // equality is the claim `--tiers all` rests on, and this is the same recompute.
+    for workers in super::tier::WORKER_COUNTS {
+        assert_eq!(
+            stage_bytes_threaded(seed, &honest(), workers).expect("runs"),
+            scalar,
+            "workers={workers}: the threaded arm is not the scalar run's bytes"
+        );
+    }
 }
 
 #[test]

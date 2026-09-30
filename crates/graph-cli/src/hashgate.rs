@@ -21,13 +21,13 @@ mod report;
 mod staged;
 mod stages;
 mod tier;
+mod tiered;
 mod transport;
 
 use crate::evidence;
 use crate::runner::{build_wasm, file_sha256, node_harness, run_lines, sha256_hex};
 use compare::{Arm, Tally, diverged, per_stage};
-use graph_core::Stage;
-use graph_core::layout::force::{BarnesHut, Split};
+use graph_core::layout::force::Split;
 use graph_core::layout::forceatlas2::Fa2Params;
 pub use knob::Knob;
 use knob::{Setting, env_setting};
@@ -39,6 +39,12 @@ use stages::stage_bytes;
 use stages::stage_bytes_for;
 pub(crate) use stages::stages;
 use std::process::{Command, ExitCode};
+// The threaded arm's own recompute, split into `tiered.rs` for the house's 300-line cap.
+// `stage_bytes_threaded` is the arm's only caller-facing item; `FORCE_STAGES` is re-exported
+// so a test can hold the recompute list against the stages the arm really compared.
+#[cfg(test)]
+pub(crate) use tiered::FORCE_STAGES;
+use tiered::stage_bytes_threaded;
 
 /// The differential's own negative control: `GM_MUTATE_FA2_SCALING_RATIO` applied to the
 /// compiled-in ForceAtlas2 parameters, so `emit-fa2-fixtures` measures a perturbed port
@@ -49,7 +55,6 @@ pub(crate) fn fa2_perturbation() -> Result<Fa2Params, String> {
     Ok(env_setting()?.fa2)
 }
 
-pub(crate) use crate::exec_native::Threads;
 pub(crate) use tier::Tiers;
 /// The gate's own worker counts, re-exported so the benchmark sweep can hold every width
 /// it times to one the gate has proved hash-equal: a threshold promoting a width nothing
@@ -125,14 +130,16 @@ fn arm_lines(seeds: u32, setting: &Setting) -> Result<String, String> {
     Ok(blocks.concat())
 }
 
-/// `stage seed sha256` lines for a Barnes-Hut stage run over `workers` `std::thread`s, and
-/// **every other stage byte-identical to the serial arm's**.
+/// `stage seed sha256` lines for the **force** stages run over `workers` `std::thread`s,
+/// and every other stage byte-identical to the serial arm's.
 ///
 /// The stages are the gate's own registry list, in its own order, so the comparison is
-/// line-for-line against the scalar arm. The force stage is computed by
-/// `BarnesHut::run_with(..., &Threads, workers)` — the same call the scalar arm reaches
-/// through `Stage::run` with one worker, so the arm checks a *schedule* rather than a
-/// second implementation.
+/// line-for-line against the scalar arm. The force stages are computed by
+/// `BarnesHut::run_under(..., &Threads, workers)` and `YifanHu::run_under(..., &Threads,
+/// workers)` — the same call shapes their scalar arms reach through `Stage::run` with one
+/// worker, so the arm checks a *schedule* rather than a second implementation. Only those
+/// two are recomputed; a stage that is not threaded keeps the scalar arm's bytes, which is
+/// why leaving one out would make its "N-way equal" vacuous rather than merely cheap.
 /// **Stage-major, seed-minor**, exactly as [`arm_lines`] prints them: every seed of one
 /// stage, then every seed of the next. That ordering is not cosmetic — `compare::diverged`
 /// reads line `i` as stage `i / seeds`, seed `i % seeds`, so a seed-major arm would be
@@ -149,43 +156,6 @@ fn threads_lines(seeds: u32, setting: &Setting, workers: u32) -> Result<Vec<Stri
         }
     }
     Ok(blocks.concat().lines().map(str::to_owned).collect())
-}
-
-/// [`stage_bytes`](stages::stage_bytes) with the Barnes-Hut stage run threaded, and with
-/// `setting.split_sum` — the negative control — carried into it.
-///
-/// The control reaches the *stage*, not just the arm, so `GM_MUTATE_SPLIT_SUM=1 --tiers all`
-/// diverges the threaded arms from the scalar one on the force stage and nowhere else. That
-/// is the shape the phase prompt asks the control to have: a mutation a threaded arm cannot
-/// survive, so the gate's red is proof the arms were compared.
-fn stage_bytes_threaded(
-    seed: u32,
-    setting: &Setting,
-    workers: u32,
-) -> Result<Vec<(&'static str, Vec<u8>)>, String> {
-    let count = graph_core::gate_node_count(seed) + setting.extra_nodes;
-    let (nodes, edges) = graph_core::seeded_model(seed, count, setting.reference_degree);
-    let topology = graph_core::index_model(&nodes, &edges).map_err(|e| e.to_string())?;
-    let mut out = Vec::new();
-    for (id, bytes) in stages::stage_bytes(seed, setting)? {
-        let bytes = if id == BarnesHut::ID {
-            let geometry = BarnesHut::run_under(
-                &topology,
-                &setting.force,
-                &Threads,
-                workers,
-                setting.split_sum,
-            )
-            .map_err(|e| e.to_string())?;
-            graph_core::layout::snapshot(&topology, geometry)
-                .map(|snapshot| snapshot.to_bytes())
-                .map_err(|e| e.to_string())?
-        } else {
-            bytes
-        };
-        out.push((id, bytes));
-    }
-    Ok(out)
 }
 
 fn collect_arms(seeds: u32, tiers: Tiers) -> Result<Vec<Arm>, String> {

@@ -144,6 +144,8 @@ fn bench(plan: &Plan) -> Result<bool, String> {
         return emit_fixture(plan, path.as_path());
     }
     if plan.tiers.is_some() {
+        // `tiers::entry` resolves the `--layout` itself: the sweep is a table with one
+        // title, so the layout is read inside it rather than validated here and dropped.
         return tiers::entry(plan);
     }
     if plan.crossover || plan.out.is_some() {

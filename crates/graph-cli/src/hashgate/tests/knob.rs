@@ -22,6 +22,7 @@ use super::super::*;
 use super::env;
 use super::honest;
 use super::{Knob, Setting, setting, stage_bytes};
+use graph_core::Stage as _;
 use graph_core::layout::circle_packing::CirclePackingParams;
 pub(super) use graph_core::layout::circle_packing::ID as PACKING;
 pub(super) use graph_core::layout::circular::ID as CIRCULAR;

@@ -3,6 +3,12 @@
 //! is *not* — the control that keeps the equality check from being vacuous — and that the
 //! report it writes carries the machine and the raw runs, not a bare number.
 
+//! The sweep's claims, as tests. Split by the house's 300-line cap: this file holds the
+//! arms it runs and the equality it checks, [`layout`] the routing by `--layout` and the
+//! same equality for the multilevel stage.
+
+mod layout;
+
 use super::markdown::{loadavg_from, markdown};
 use super::*;
 use crate::bench::Plan;
@@ -94,7 +100,12 @@ fn a_width_the_gate_does_not_run_is_refused_rather_than_timed() {
 
 #[test]
 fn every_arm_is_byte_equal_to_the_serial_arm_at_the_same_size() {
-    let (cells, _) = run(&plan(vec![40], 1), &[Tier::Scalar, Tier::Threads(3)]).expect("ran");
+    let (cells, _) = run(
+        &plan(vec![40], 1),
+        Layout::BarnesHut,
+        &[Tier::Scalar, Tier::Threads(3)],
+    )
+    .expect("ran");
     assert_eq!(cells.len(), 2);
     for cell in &cells {
         assert!(
@@ -118,6 +129,7 @@ fn an_arm_whose_merge_was_split_is_reported_unequal_rather_than_timed() {
     // the reference stays the honest one. Without this, `equal` could be `true` forever.
     let (cells, _) = run_under(
         &plan(vec![40], 1),
+        Layout::BarnesHut,
         &[Tier::Scalar, Tier::Threads(3)],
         Split::All,
     )
@@ -135,11 +147,17 @@ fn the_order_the_tiers_were_asked_in_cannot_decide_whether_a_cell_is_compared() 
     // because no reference had been seen yet would be the one lie the whole column rests
     // on, and the split control below is what tells the two cases apart: honest arms agree
     // whichever side of the reference they are timed on.
-    let (honest, _) = run(&plan(vec![40], 1), &[Tier::Threads(3), Tier::Scalar]).expect("ran");
+    let (honest, _) = run(
+        &plan(vec![40], 1),
+        Layout::BarnesHut,
+        &[Tier::Threads(3), Tier::Scalar],
+    )
+    .expect("ran");
     assert!(honest[0].equal, "an honest arm is the serial arm's bytes");
     assert!(honest[1].equal, "the serial arm is its own reference");
     let (split, _) = run_under(
         &plan(vec![40], 1),
+        Layout::BarnesHut,
         &[Tier::Threads(3), Tier::Scalar],
         Split::All,
     )
@@ -253,7 +271,12 @@ fn the_report_carries_the_host_the_repeat_count_every_run_and_the_speedups() {
         cell(10_000, Tier::Scalar, &[100.0, 100.0, 100.0]),
         cell(10_000, Tier::Threads(4), &[40.0, 40.0, 40.0]),
     ];
-    let text = markdown(&plan(vec![220, 10_000], 3), &cells, &host());
+    let text = markdown(
+        &plan(vec![220, 10_000], 3),
+        Layout::BarnesHut,
+        &cells,
+        &host(),
+    );
     for want in [
         "nproc 16",
         "0.78 0.88 0.72",

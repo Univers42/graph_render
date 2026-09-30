@@ -7,7 +7,7 @@
 //! (`mutate`) — because a reference mutated alongside them would agree with them and the
 //! equality column would report nothing.
 
-use super::{Cell, Host, Tier, markdown};
+use super::{Cell, Host, Layout, Tier, markdown};
 use crate::bench::Plan;
 use crate::bench::scale;
 use crate::exec_native::Threads;
@@ -16,7 +16,7 @@ use graph_core::Topology;
 use graph_core::exec::Serial;
 use graph_core::index_model;
 use graph_core::layout::Geometry;
-use graph_core::layout::force::{BarnesHut, ForceParams, Split};
+use graph_core::layout::force::{BarnesHut, ForceParams, Split, YifanHu};
 use std::time::Instant;
 
 /// How an arm is timed: how many times, and under which negative control.
@@ -31,15 +31,20 @@ pub struct Under {
 }
 
 /// The sweep: time every arm at every size, with the serial arm's bytes as the reference.
-pub fn run(plan: &Plan, tiers: &[Tier]) -> Result<(Vec<Cell>, Host), String> {
-    run_under(plan, tiers, Split::None)
+pub fn run(plan: &Plan, layout: Layout, tiers: &[Tier]) -> Result<(Vec<Cell>, Host), String> {
+    run_under(plan, layout, tiers, Split::None)
 }
 
 /// [`run`] with the negative control: `split` makes every **non-scalar** arm's merge read
 /// a neighbouring node's delta too, while the serial arm stays honest. That is the control
 /// for the `equal` column — without it, "every arm is byte-equal to scalar" is a check that
 /// would report true whatever the arms computed.
-pub fn run_under(plan: &Plan, tiers: &[Tier], split: Split) -> Result<(Vec<Cell>, Host), String> {
+pub fn run_under(
+    plan: &Plan,
+    layout: Layout,
+    tiers: &[Tier],
+    split: Split,
+) -> Result<(Vec<Cell>, Host), String> {
     let load_start = markdown::loadavg();
     let under = Under {
         repeat: plan.repeat,
@@ -47,7 +52,7 @@ pub fn run_under(plan: &Plan, tiers: &[Tier], split: Split) -> Result<(Vec<Cell>
     };
     let mut cells = Vec::new();
     for &n in &plan.sizes {
-        cells.extend(size(&topology(plan, n)?, tiers, under)?);
+        cells.extend(size(&topology(plan, n)?, layout, tiers, under)?);
     }
     Ok((cells, markdown::host(load_start, markdown::loadavg())))
 }
@@ -66,14 +71,19 @@ fn topology(plan: &Plan, n: u32) -> Result<Topology, String> {
 /// answered `true` because it had not met the reference yet would be the one lie this
 /// column can tell. A sweep that named no scalar arm is not a special case: it runs one
 /// honest serial pass, untimed, and compares against that.
-fn size(topology: &Topology, tiers: &[Tier], under: Under) -> Result<Vec<Cell>, String> {
+fn size(
+    topology: &Topology,
+    layout: Layout,
+    tiers: &[Tier],
+    under: Under,
+) -> Result<Vec<Cell>, String> {
     let mut timed: Vec<(Tier, (Vec<f64>, Geometry))> = Vec::with_capacity(tiers.len());
     for &tier in tiers {
-        timed.push((tier, time(topology, tier, under)?));
+        timed.push((tier, time(topology, layout, tier, under)?));
     }
     let reference = match timed.iter().find(|(tier, _)| *tier == Tier::Scalar) {
         Some((_, (_, geometry))) => geometry.clone(),
-        None => run_once(topology, Tier::Scalar, Split::None)?,
+        None => run_once(topology, layout, Tier::Scalar, Split::None)?,
     };
     Ok(timed
         .into_iter()
@@ -97,12 +107,17 @@ fn mutate(split: Split, tier: Tier) -> Split {
 }
 
 /// `repeat` timed runs of the stage under `tier`, and the geometry the last one left.
-fn time(topology: &Topology, tier: Tier, under: Under) -> Result<(Vec<f64>, Geometry), String> {
+fn time(
+    topology: &Topology,
+    layout: Layout,
+    tier: Tier,
+    under: Under,
+) -> Result<(Vec<f64>, Geometry), String> {
     let mut runs_ms = Vec::with_capacity(under.repeat.max(1) as usize);
     let mut last = None;
     for _ in 0..under.repeat.max(1) {
         let started = Instant::now();
-        last = Some(run_once(topology, tier, mutate(under.split, tier))?);
+        last = Some(run_once(topology, layout, tier, mutate(under.split, tier))?);
         runs_ms.push(started.elapsed().as_secs_f64() * 1e3);
     }
     Ok((runs_ms, last.expect("at least one run")))
@@ -110,11 +125,29 @@ fn time(topology: &Topology, tier: Tier, under: Under) -> Result<(Vec<f64>, Geom
 
 /// One stage run under `tier`, with the negative control as an argument and never a
 /// second code path: the control a test calls is the control the gate reaches.
-fn run_once(topology: &Topology, tier: Tier, split: Split) -> Result<Geometry, String> {
+///
+/// `Layout` picks **which** force solve, `tier` and the runner pick how it is divided —
+/// and the two are separate because they are separate claims: a sweep of the multilevel
+/// solve at seven workers says nothing about whether the single-level solve was threaded,
+/// which is the mistake the yifan_hu tier row exists to stop repeating.
+fn run_once(
+    topology: &Topology,
+    layout: Layout,
+    tier: Tier,
+    split: Split,
+) -> Result<Geometry, String> {
     let params = ForceParams::default();
-    let geometry = match tier {
-        Tier::Scalar => BarnesHut::run_under(topology, &params, &Serial, 1, split),
-        Tier::Threads(workers) => BarnesHut::run_under(topology, &params, &Threads, workers, split),
+    let geometry = match (layout, tier) {
+        (Layout::BarnesHut, Tier::Scalar) => {
+            BarnesHut::run_under(topology, &params, &Serial, 1, split)
+        }
+        (Layout::BarnesHut, Tier::Threads(w)) => {
+            BarnesHut::run_under(topology, &params, &Threads, w, split)
+        }
+        (Layout::YifanHu, Tier::Scalar) => YifanHu::run_under(topology, &params, &Serial, 1, split),
+        (Layout::YifanHu, Tier::Threads(w)) => {
+            YifanHu::run_under(topology, &params, &Threads, w, split)
+        }
     };
-    geometry.map_err(|e| format!("{tier:?}: {e}"))
+    geometry.map_err(|e| format!("{} {tier:?}: {e}", layout.label()))
 }

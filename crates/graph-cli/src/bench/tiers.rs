@@ -18,9 +18,11 @@
 //!   loaded host is not a smaller speedup, it is a different number, and a table without
 //!   the load next to it cannot be read honestly.
 
+mod layout;
 pub mod markdown;
 mod sweep;
 
+pub use layout::Layout;
 pub use sweep::run;
 /// The control entry point, reachable only from this module's own tests: a host has no
 /// business timing a deliberately wrong tier, and a public one could be taken for a flag.
@@ -31,6 +33,7 @@ pub use sweep::run_under;
 mod tests;
 
 use crate::bench::Plan;
+use layout::layout as pick_layout;
 
 /// The worker counts `threads` is timed at, spelled the way `bench --workers` parses them.
 ///
@@ -231,16 +234,18 @@ fn refuse_unproved_widths(widths: &[u32]) -> Result<(), String> {
 /// `bench --tiers`: measure, print a row per cell, write the report, and answer whether
 /// every arm produced the serial arm's bytes.
 pub fn entry(plan: &Plan) -> Result<bool, String> {
+    let layout = pick_layout(plan)?;
     let widths = widths(plan);
     refuse_unproved_widths(&widths)?;
     let tiers = arms(&plan.tiers.clone().unwrap_or_default(), &widths);
     if tiers.is_empty() {
         return Err("--tiers named no tier to time".into());
     }
-    let (cells, host) = run(plan, &tiers)?;
+    let (cells, host) = run(plan, layout, &tiers)?;
     for cell in &cells {
         println!(
-            "n={n} {tier:<10} {ms:>10.2} ms  equal to scalar: {equal}",
+            "{layout} n={n} {tier:<10} {ms:>10.2} ms  equal to scalar: {equal}",
+            layout = layout.label(),
             n = cell.n,
             tier = cell.tier.arm_name(),
             ms = cell.median_ms(),
@@ -248,7 +253,8 @@ pub fn entry(plan: &Plan) -> Result<bool, String> {
         );
     }
     if let Some(path) = markdown::report_path(plan) {
-        super::campaign::report::write_report(path, &markdown::markdown(plan, &cells, &host))?;
+        let report = markdown::markdown(plan, layout, &cells, &host);
+        super::campaign::report::write_report(path, &report)?;
     }
     Ok(cells.iter().all(|cell| cell.equal))
 }
