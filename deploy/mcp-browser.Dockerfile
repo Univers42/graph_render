@@ -6,7 +6,7 @@
 # @playwright/mcp is pinned by deploy/mcp-browser/package-lock.json and installed with `npm ci`.
 #
 #   docker build -f deploy/mcp-browser.Dockerfile -t gm-mcp-browser deploy
-#   docker run -i --rm --network host --user 0:0 -v /goinfre/dlesieur/mcp-out:/out gm-mcp-browser
+#   docker run -i --rm --network host --user 0:0 -v "$GM_SCRATCH/mcp-out:/out" gm-mcp-browser   # scripts/orch/pw-mcp.sh
 #
 # The image user is `mcp`. This host runs rootless docker, where container root is the invoking
 # host user and uid 1000 is an unowned subuid that cannot write the /out bind mount, so

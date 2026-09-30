@@ -3,4 +3,6 @@
 # runs at a time; parallel branches otherwise starve it past runner.rs CHILD_TIMEOUT (2700 s hit on
 # 2026-09-28 with mutants alongside). Untimed cargo work does not take the lock.
 set -euo pipefail
-exec flock "${TIMED_LOCK:-/goinfre/dlesieur/orch/timed.lock}" "$@"
+source "$(dirname "$(readlink -f "$0")")/scratch.sh"
+mkdir -p "$GM_SCRATCH/orch"
+exec flock "${TIMED_LOCK:-$GM_SCRATCH/orch/timed.lock}" "$@"

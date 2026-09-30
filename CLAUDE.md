@@ -55,7 +55,7 @@ auto-push and no commits to `develop`), this section wins.
 - Do not modify the `graph_render/.claude` submodule.
 
 ### Parallel branches (checked on 2026-09-29 with `git merge-tree` and a disk check; worth doing)
-- Every independent unit of work (a phase, or a slice inside a phase) gets its own branch and its own worktree under `/goinfre/dlesieur/wt/<branch>`. Exactly one agent per worktree. Two agents in one worktree clobbered each other's edits on 2026-09-28 (p3fix-a and p3fix-c).
+- Every independent unit of work (a phase, or a slice inside a phase) gets its own branch and its own worktree, made by `scripts/orch/wt-new.sh <branch>` under `$GM_SCRATCH/wt/`. Exactly one agent per worktree. Two agents in one worktree clobbered each other's edits on 2026-09-28 (p3fix-a and p3fix-c).
 - Start a branch as soon as its dependencies allow it; don't wait for unrelated phases.
   - Dependency order: p3 → {p5, p6e, p6f, p8}; p4 → {p7's SDK row, p10}; p6f → p9 → p11. p4 and p7 are independent of p3.
   - A branch may start from an unmerged dependency branch. Once that dependency lands, merge develop into it.
@@ -71,7 +71,7 @@ auto-push and no commits to `develop`), this section wins.
   - Run at most one timed gate at a time (hashgate, mutants) — on 2026-09-28, `hashgate --seeds 1000` hit `CHILD_TIMEOUT` 2700 s while mutants ran alongside it.
   - Other cargo jobs pass `CARGO_BUILD_JOBS`/`RUST_TEST_THREADS` (`scripts/orch/gr`).
   - Ponytail: a thread cap is not a CPU cap. A gate that times out is re-run on its own and never counted as a pass.
-- Disk: each worktree's `target/` is about 1 GB, and `/goinfre` had 38 GB free. Remove a worktree after its branch merges.
+- Disk: each worktree's `target/` is about 1 GB (33 GB free on host dlesieur42, 2026-09-30). Remove a worktree after its branch merges.
 
 ## Commands
 
@@ -81,7 +81,7 @@ No bare `cargo`, `rustc`, `npm` or `node`: the host has none that match the pins
 ```sh
 # once per host: the pinned references, then each image by the build line in its Dockerfile header
 # (docker/{rust,mutants,python-oracle}.Dockerfile, deploy/chromium.Dockerfile; mutants is FROM ge-rust)
-scripts/orch/fetch-refs.sh                                        # -> /goinfre/dlesieur/refs
+scripts/orch/fetch-refs.sh                                        # -> $GM_SCRATCH/refs
 
 # the merge floor
 scripts/orch/gr cargo fmt --all --check
@@ -116,7 +116,7 @@ scripts/orch/node-slim.sh npm run sdk:smoke
 scripts/studio.sh wasm        # build graph-wasm and stage it with fixtures/ into app/public
 scripts/studio.sh             # dev server on http://127.0.0.1:5174 (STUDIO_PORT)
 scripts/studio.sh check       # the studio's merge floor: tsc, unit + render tests, eslint, vite build
-scripts/studio.sh test        # tests only; needs the pinned refs at $REFS (default /goinfre/dlesieur/refs)
+scripts/studio.sh test        # tests only; needs the pinned refs at $REFS (default $GM_SCRATCH/refs)
 scripts/studio-nav.sh         # one browser gate over app/dist; siblings: perf, parity, interact, filters, ...
 STUDIO_NAV_BREAK=1 scripts/studio-nav.sh   # its negative control: expect non-zero
 ```
@@ -125,10 +125,11 @@ STUDIO_NAV_BREAK=1 scripts/studio-nav.sh   # its negative control: expect non-ze
   fail on a missing `node_modules`.
 - Without `--no-fail-fast` cargo stops at the first failing test binary and hides the other crates.
 - `gr` caps memory at 8g (`GR_MEM`); exit 137 on a legitimate row means raise it. `GR_IMAGE` picks the image.
-- `/goinfre` is wiped when the host changes. `mutants.sh` and the rows files call the helpers at
-  `/goinfre/dlesieur/orch/bin/`, which are symlinks to `scripts/orch/`; recreate them, the worktrees and
-  the references after a host change. Rows files live in `/sgoinfre/students/dlesieur/orch/rows/`
-  (`quick.rows` is the merge floor, `develop-full.rows` the full gate).
+- Host-local state lives under `$GM_SCRATCH` (`scripts/orch/scratch.sh`: `/goinfre/$USER` where
+  `/goinfre` exists, else `~/goinfre`): worktrees, references, logs, locks. A host change loses it; rebuild
+  it with `fetch-refs.sh`, the image builds and `wt-new.sh`. Everything else is versioned: rows files in
+  `scripts/orch/rows/` (`quick.rows` = the merge floor plus wasm32, hashgate 8 and its negctl), the job
+  preamble `scripts/orch/common.md`, job briefs in `prompts/jobs/`.
 - Python differentials run in three steps: `graph-cli emit-spectral-fixtures` (or `emit-fa2-fixtures`),
   then `harness/oracle-spectral.py` (or `oracle-fa2.py`) inside `ge-python-oracle`, then
   `graph-cli oracle-spectral` (or `oracle-fa2`), which checks the result against its ceiling and records it.
@@ -139,6 +140,9 @@ STUDIO_NAV_BREAK=1 scripts/studio-nav.sh   # its negative control: expect non-ze
   `docs/decisions/render-ports-not-imports.md`; the script headers are current.
 - Agent jobs run headless in OpenCode (`opencode.json`, `.opencode/agents/`): `scripts/orch/oc-job.sh`
   launches one in a worktree and gates it, and `scripts/orch/oc-status.sh` lists every job's state.
+  OpenCode 2.x ignores `opencode.json` `instructions` and reads only `AGENTS.md`, so
+  `scripts/orch/oc-kit.sh` generates `AGENTS.md` (the agent brief plus the always-on `.claude` rules) and the kit's
+  agents and commands under `.opencode/`. Rerun it after editing those sources; `--check` catches drift.
   `scripts/orch/job-check.sh start|wait|status|lint|commit` is the deterministic half: it runs the rows
   gate and commits only on a PASS over the same tree.
 - The shell is zsh: an unmatched glob aborts the command and `echo ===` expands `=`. Use `git grep`.

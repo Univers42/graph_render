@@ -9,10 +9,11 @@
 # scan below stays as a second fence, not the only one: it catches an `opencode run` the service
 # has not registered yet, and oc-live's drain set misses a live session idling between turns.
 # Test seams: OC_LIVE_BIN (which oc-live.sh to ask), OC_JOB_BIN (the bin dir with oc-run.sh).
-# OC_COMMON picks the shared rules file (default common-v2.txt; studio jobs pass common-studio.txt).
+# OC_COMMON picks the job preamble (default scripts/orch/common.md). The house rules reach the job
+# through AGENTS.md (scripts/orch/oc-kit.sh), not through this preamble.
 set -uo pipefail
 label=$1 wt=$2 agent=$3 body=$4 rows=${5-}
-bin=${OC_JOB_BIN:-/goinfre/dlesieur/orch/bin}
+bin=${OC_JOB_BIN:-$(dirname "$(readlink -f "$0")")}
 live=$("${OC_LIVE_BIN:-$bin/oc-live.sh}" "$wt" 2>&1); lr=$?
 case $lr in
   1) ;;                                        # the service was asked: nothing drains in $wt
@@ -30,7 +31,7 @@ resume="Continue this task from where it stopped. Re-dispatch any cancelled or u
 if [[ -n ${OC_SESSION-} ]]; then
   printf '%s\n' "$resume" >"$prompt"
 else
-  cat "${OC_COMMON:-/sgoinfre/students/dlesieur/orch/prompts/common-v2.txt}" "$body" >"$prompt"
+  cat "${OC_COMMON:-$bin/common.md}" "$body" >"$prompt"
 fi
 "$bin/oc-run.sh" "$label" "$wt" "$agent" "$prompt"; rc=$?
 # A provider 429 (`provider.quota`, seen 2026-09-29 on every free model in turn), or an
@@ -53,7 +54,17 @@ for ((t = 0; rc != 0 && t < ${OC_QUOTA_TRIES:-3} * ${#fb[@]}; t++)); do
 done
 # The verdict reads the whole last text part: a return block longer than the printed 30 lines once
 # cut `status: done` off and turned a done job into exit 2 (s1-nav, 2026-09-29).
-ret=$(jq -rs '[.[] | select(.part.type=="text") | .part.text] | last // ""' "$wf/$label.jsonl" 2>/dev/null)
+last_text() { jq -rs '[.[] | select(.part.type=="text") | .part.text] | last // ""' "$wf/$label.jsonl" 2>/dev/null; }
+# A space-bunny run can end rc 0 in the middle of its work, with no return block (the kit's jobs,
+# 2026-09-30): resume the same session, at most OC_RESUMES (3) times, before calling it not done.
+for ((r = 0; rc == 0 && r < ${OC_RESUMES:-3}; r++)); do
+  last_text | grep -q '^status:' && break
+  echo "no return block: resume $((r + 1))"
+  printf '%s\n' "$resume" >"$prompt"
+  OC_SESSION=$(<"$wf/$label.session-id") "$bin/oc-run.sh" "$label" "$wt" "$agent" "$prompt"
+  rc=$?
+done
+ret=$(last_text)
 echo "job rc=$rc"; tail -n 30 <<<"$ret"
 [[ $rc -eq 0 ]] && grep -q 'status: done' <<<"$ret" || exit 2
 if [[ -n $rows ]]; then

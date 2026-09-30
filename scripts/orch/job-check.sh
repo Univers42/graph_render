@@ -15,8 +15,9 @@
 # stay with the reviewer.
 set -uo pipefail
 here=$(dirname "$(readlink -f "$0")")
+source "$here/scratch.sh"
 st=target/job-check
-locks=${JC_LOCKS:-/goinfre/dlesieur/orch/locks}
+locks=${JC_LOCKS:-$GM_SCRATCH/orch/locks}
 slots=${JC_SLOTS:-3}
 
 die() { echo "job-check: $*" >&2; exit 2; }

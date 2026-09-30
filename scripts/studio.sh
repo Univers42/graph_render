@@ -10,7 +10,7 @@
 #
 # Exit: 0 passed · 1 a row failed, or a test was skipped · 2 misuse, or an asset is missing.
 #
-# Every node container gets $REFS (default /goinfre/dlesieur/refs) read-only at /refs, where
+# Every node container gets $REFS (default $GM_SCRATCH/refs) read-only at /refs, where
 # the look tests read the pinned tables they compare the generated colour ramps against; the
 # test and check commands refuse to run without it rather than skip a row that cannot pass.
 #
@@ -23,9 +23,10 @@ root=$(git -C "$here" rev-parse --show-toplevel)
 gr=${GR:-$root/scripts/orch/gr}
 node_image=${NODE_IMAGE:-node:22-slim}
 # The pinned references the tests read: the look tests compare the generated colour tables
-# against /goinfre/dlesieur/refs/matplotlib-3.10.0/_cm_listed.py, and skip without it. A
+# against $GM_SCRATCH/refs/matplotlib-3.10.0/_cm_listed.py, and skip without it. A
 # skipped test is not a pass, so the check would never go green on an unmounted host.
-refs=${STUDIO_REFS:-${REFS:-/goinfre/dlesieur/refs}}
+source "$(dirname "$(readlink -f "$0")")/orch/scratch.sh"
+refs=${STUDIO_REFS:-${REFS:-$GM_SCRATCH/refs}}
 port=${STUDIO_PORT:-5174}
 command=${1:-serve}
 packages=(graph-render graph-studio)
