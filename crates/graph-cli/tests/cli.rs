@@ -201,19 +201,19 @@ fn hashgate_arm_prints_one_line_per_stage_and_seed() {
     let arm = graph_cli(&["hashgate-arm", "--seeds", "3"], None);
     assert_eq!(arm.status.code(), Some(0));
     let lines: Vec<String> = stdout(&arm).lines().map(str::to_owned).collect();
-    assert_eq!(lines.len(), 51, "17 stages * 3 seeds");
+    assert_eq!(lines.len(), 96, "32 stages * 3 seeds");
     assert!(lines[2].starts_with("topology 2 ") && lines[2].len() == "topology 2 ".len() + 64);
     let grid = "layout.grid 2 ";
     assert!(lines[5].starts_with(grid) && lines[5].len() == grid.len() + 64);
     let dag = "layout.dag.sugiyama 2 ";
     assert!(lines[32].starts_with(dag) && lines[32].len() == dag.len() + 64);
     let last = "transport.wasm.columnar 2 ";
-    assert!(lines[50].starts_with(last) && lines[50].len() == last.len() + 64);
+    assert!(lines[95].starts_with(last) && lines[95].len() == last.len() + 64);
     // The transport stage is the real ABI's snapshot over the same model, so natively it
     // restates the layout stage's bytes rather than inventing a second computation.
     assert_eq!(
         lines[5].rsplit_once(' ').map(|(_, d)| d),
-        lines[50].rsplit_once(' ').map(|(_, d)| d)
+        lines[95].rsplit_once(' ').map(|(_, d)| d)
     );
 }
 

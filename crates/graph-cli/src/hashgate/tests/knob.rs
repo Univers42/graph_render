@@ -4,10 +4,17 @@
 //! re-exported by the parent module from the layout module that owns each one (see
 //! `hashgate/stages.rs`'s module doc) — one spelling of each id, in the crate that
 //! implements the layout, rather than a copy here.
+//!
+//! Split by the house's 300-line limit: [`controls`] holds the two force controls and the
+//! vacuous-control refusal, [`ids`] the four Phase 3 stage ids, [`p3`] the four Phase 3
+//! controls, and [`table`] the knob table itself — the ten parameter controls, the fifteen
+//! ANALYSIS and POST controls, and the one compute-tier control, each held against the
+//! variable and record it claims.
 
 mod controls;
 mod ids;
 mod p3;
+mod table;
 use controls::only_stage_moved;
 use p3::P3_SEED;
 
@@ -106,52 +113,6 @@ fn assert_refuses_two_controls() {
 fn assert_refuses_unreadable_variable() {
     let unreadable = setting(|_| Err(VarError::NotUnicode("\u{fffd}".into())));
     assert!(unreadable.is_err());
-}
-
-#[test]
-fn each_knob_names_its_own_variable_and_record() {
-    let envs = Knob::ALL.map(Knob::env);
-    let records = Knob::ALL.map(Knob::record);
-    assert_eq!(
-        envs,
-        [
-            "GM_MUTATE_REFERENCE_DEGREE",
-            "GM_MUTATE_GRID_SPACING",
-            "GM_MUTATE_SUGIYAMA_LAYER_SPACING",
-            "GM_MUTATE_NODE_COUNT",
-            "GM_MUTATE_FORCE_THETA",
-            "GM_MUTATE_FA2_SCALING_RATIO",
-            "GM_MUTATE_TREE_TIDY_NODES",
-            "GM_MUTATE_TREEMAP_NODES",
-            "GM_MUTATE_CIRCULAR_NODES",
-            "GM_MUTATE_PACKING_SCALE",
-            "GM_MUTATE_SPLIT_SUM"
-        ]
-    );
-    assert_eq!(
-        records,
-        [
-            "hashgate-control-reference-degree",
-            "hashgate-control-grid-spacing",
-            "hashgate-control-sugiyama-layer-spacing",
-            "hashgate-control-node-count",
-            "hashgate-control-force-theta",
-            "hashgate-control-fa2-scaling-ratio",
-            "hashgate-control-tree-tidy-nodes",
-            "hashgate-control-treemap-nodes",
-            "hashgate-control-circular-nodes",
-            "hashgate-control-packing-scale",
-            "hashgate-control-split-sum"
-        ]
-    );
-    // Every variable is distinct and every record is distinct: two knobs sharing a name
-    // would make one of them unreachable, and two sharing a record would overwrite it.
-    for (label, names) in [("variable", envs), ("record", records)] {
-        let mut sorted = names.to_vec();
-        sorted.sort_unstable();
-        sorted.dedup();
-        assert_eq!(sorted.len(), names.len(), "two knobs share a {label}");
-    }
 }
 
 /// `GM_MUTATE_SPLIT_SUM` names **which** gathered pass's merge to split, and is parsed

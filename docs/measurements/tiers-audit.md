@@ -3,8 +3,10 @@
 What the 15 layouts in `crates/graph-core/src/registry.rs:167` (`LAYOUTS`) would need to run
 under a threaded `exec` runner, and what each would gain. Produced by reading the code: every cell
 is a `file:line` you can open. **No bench was run for this audit**, so every speed-up and effort
-cell is a judgement — the only measured figures in the table are row 11's, which are quoted from
-`docs/measurements/phase11-threads.md` (Barnes-Hut, release, 16-core host, median of 5).
+cell is a judgement — with two exceptions, both measured since: row 11's, quoted from
+`docs/measurements/phase11-threads.md` (Barnes-Hut, release, 16-core host, median of 5), and
+row 5's, measured in `docs/measurements/tier-random.md` (this host, nproc 20, one run on the
+plain bench path and a median of 9 on the campaign path).
 
 Read this with the two corrections at the bottom in view. **The template bench command in
 `prompts/jobs/tiers-audit.md:24` does not run as written, and `bench --tiers` cannot time any
@@ -42,7 +44,7 @@ real answer, not a deferral — §"Sequential by nature" below says what it cost
 | 2 | `layout.grid` | `grid.rs:54` `Stage::run` → `:75` `positions`, hot loop `:84-85` | no | per-node gather, no edge work | none — the whole body is one `f32` product per coordinate (`grid.rs:84`) | `≤2×` | **S** |
 | 3 | `layout.circular.ring` | `circular/ring.rs:21` `run`, hot loop `:27-28` | no | per-node gather (`(0..count).map`), then one shared serial pass | `coords.rs:20-21` centroid `x.iter().sum::<f64>()` / `y.iter().sum::<f64>()` — "summed in index order, so the result is fixed on every target" (`coords.rs:14`); `limit = limit.max(..)` fold `coords.rs:26` | `≤2×` | **S** |
 | 4 | `layout.spiral` | `spiral.rs:26` `run` → `:33` `run_with`; default is the **archimedean** branch (`run` passes `equidistant = false`, `spiral.rs:27`), hot loop `:67-75` | no | archimedean branch: per-node gather. equidistant branch: **sequential by nature** — `theta += CHORD / radius` carries state at `:60` | `coords.rs:20-21`, `:26`, as ring | `≤2×`, archimedean only | **S** |
-| 5 | `layout.random` | `random.rs:25` `run`, hot loop `:26-28` | no | **sequential by nature** — the `Mulberry32` stream is consumed in order, `x` then `y` per node, so node *i*'s pair is draws `2i`, `2i+1` | none | **none** | **S** (the deliverable is a recorded "no tier", not code) |
+| 5 | `layout.random` | `random.rs:25` `run`, hot loop `:26-28` | no | **sequential by nature** — the `Mulberry32` stream is consumed in order, `x` then `y` per node, so node *i*'s pair is draws `2i`, `2i+1`; a chunk-seeding scheme is bit-identical but its serial prologue is 2n draws (the whole stream) against a 1/2 serial fraction, so Amdahl's ceiling is exactly 2.0× and every finite width is below it | none | **none**, *measured* — plain bench one run: 0.00 / 0.06 / 0.72 ms at n=220 / 10 000 / 100 000 (one `Instant` pair per cell, `bench.rs:205-207`; `--repeat` is ignored there); campaign medians of 9: 0.001 / 0.026 / 0.256 ms, and 0.256 / 0.257 / 0.261 at `--repeat 31` so the median is not a function of the repeat count. No tier arm exists, so this bounds the *work*, not a speed-up: at n=220 the whole body is 0.001 ms and cannot pay for 7 threads, and the one crossover in the tree (`phase11-threads.md`) has threads losing below n=10 000. Full record, with the 0.72-vs-0.256 gap between the plain and campaign paths called out, in `docs/measurements/tier-random.md` | **S** (the deliverable is a recorded "no tier", not code) |
 | 6 | `layout.circular.radial` | `circular.rs:59` `run` → `:77` `positions`, hot loop `:82-88` | no | per-node gather reading `Hierarchy::depth`; upstream BFS `hierarchy.rs:238` `breadth_first`, queue walk `:243-249` | the `seen` slot counter `circular.rs:83-84` — a node takes the **first free slot**, so it depends on ascending dense index. `ring_counts` `:94-104` are integer counts, order-free | `≤2×` | M |
 | 7 | `layout.bipartite` | `bipartite.rs:30` `run`, hot loop `:35-41` | no | placement loop is a **scatter**, not a gather — it walks each side's node list and writes `x[node]`/`y[node]` (`:37-40`), so a gather form needs the per-node inverse mapping first. Upstream `bipartite/partition.rs:23` is a BFS two-colouring (`colour_component` `:49`, walk `:53-65`), and its `greedy_max_cut` fallback `:70-95` is a Gauss-Seidel local search over 8 passes — **sequential by nature** | `coords.rs:20-21` centroid sums, as ring and spiral. (`bipartite` calls the same `rescale`; there is no per-layout reduction here) | `≤2×` (emit loop only) | M |
 | 8 | `layout.treemap.squarified` | `treemap.rs:248` `run` → `:194` `compute` → `:148` `squarify_children` (`while i0 < n` `:153`); `treemap/rows.rs:66` `extend_row` (`while i1 < n` `:77`) | no | **sequential per parent** — `squarify_children` carries a cursor each child advances (`treemap.rs:150`). Different parents are independent, so the parallel axis is the **parent list**, not the node list | `node_values` sums children **last-child-first** (`rows.rs:28-30`, pinned bit-for-bit by the module doc); `extend_row`'s deliberate `sum_value += / -=` round trip (`rows.rs:79,84`) exists because `(1.0 + 1e-6) - 1e-6 != 1.0` (`rows.rs:57-65`); `min`/`max` folds `rows.rs:80-81` | `≤2×`, scaling with the tree's **width**, not its size | M |
@@ -60,9 +62,12 @@ Three shapes are not "needs a rewrite", they are "the algorithm is the answer":
 
 1. **An order-dependent stream** — `layout.random`'s `Mulberry32`. A chunk-seeding trick (advance
    the state serially once per chunk, then generate each chunk in parallel) is bit-identical, but
-   the serial prologue is O(n) and the per-node transform is O(1). Amdahl puts the ceiling below
-   2×, and the one crossover measurement in the tree says threads *lose* below n=10 000
-   (`phase11-threads.md`). Shipping a tier here would cost time and gain no bytes.
+   the serial prologue is 2n draws — the whole stream — against a 1/2 serial fraction, so Amdahl's
+   ceiling is exactly 2.0× and every finite width is below it. The one crossover measurement in the
+   tree says threads *lose* below n=10 000 (`phase11-threads.md`), and this layout's whole body is
+   0.001 ms at n=220 (`docs/measurements/tier-random.md`), so it cannot pay for seven threads at
+   any width. Shipping a tier here would cost time and gain no bytes. **This one is now measured,
+   not argued** — the deliverable was that recorded "no", and it is code-free by design.
 2. **A Gauss-Seidel / local-search sweep** — `layout.dag.sugiyama`'s FAS, `reduce_slack` and
    `transpose`; `layout.treemap`'s per-parent cursor; `layout.forceatlas2`'s iteration. Each reads
    the state a neighbour just wrote. Converting any of them to Jacobi changes the output, and the
@@ -102,6 +107,9 @@ marker, while `circle_packing`'s does (`relax.rs:136-148`).
 fourteen stages reuse the scalar run's bytes (`:181-183`). Until a layout's id is in that match,
 "4-way equal" for it is **vacuous**: every arm hashes the same bytes by construction. So each job
 must add its id there, and its negative control must prove the threaded arm was really recomputed.
+**`layout.random` is the deliberate exception**: it has no threaded arm at all, so its base 4
+arms are the whole claim, and `GM_MUTATE_NODE_COUNT` is the control that says the stage is
+hashed. See `docs/measurements/tier-random.md`.
 
 **3. There is no arm named "Threads", and the one knob is Barnes-Hut's.** `--tiers all`
 (`hashgate/tier.rs:82-91`) = the 4 base arms + `native scalar` + one `native threads N` per
@@ -116,14 +124,15 @@ runs at `hashgate.rs:64-68`, but `setting.split_sum` is only read at `:175`), an
 
 ## Groups, and the briefs
 
-Three S groups, one brief each. All three are blocked on correction 1 (the sweep cannot route) and
-correction 2 (the hashgate recomputes one layout).
+Three S groups, one brief each. The two that ship a tier are blocked on correction 1 (the sweep
+cannot route) and correction 2 (the hashgate recomputes one layout). `tier-no-tier` is blocked on
+neither: it delivers no arm, so it measured on the plain and campaign bench paths instead.
 
 | brief | layout(s) | runner | existing knob to reuse | needs a new knob |
 |---|---|---|---|---|
 | `prompts/jobs/tier-settle.md` | `layout.force.yifan_hu` | `Threads`, into a new `run_with` mirroring `barnes_hut.rs:148` | **`GM_MUTATE_SPLIT_SUM`** — becomes live for this layout by changing one literal at `settle.rs:30` | no |
 | `prompts/jobs/tier-closed-form.md` | `layout.grid`, `layout.circular.ring`, `layout.spiral` | `Threads`, one `StepRange` per layout, one shared serial merge loop at `coords.rs:15` | `GM_MUTATE_GRID_SPACING` (grid only, stage-level) | yes — one `rescale`-merge knob serves all three |
-| `prompts/jobs/tier-no-tier.md` | `layout.random` | **none** | `GM_MUTATE_NODE_COUNT` | no |
+| `prompts/jobs/tier-no-tier.md` | `layout.random` | **none** | `GM_MUTATE_NODE_COUNT` | no | **done** — `docs/measurements/tier-random.md`; no code, no arm |
 
 ## Ponytail (the effort and the speed-up columns)
 

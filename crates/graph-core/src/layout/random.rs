@@ -8,6 +8,14 @@
 //!
 //! Ponytail: uniform points overlap and cross freely; that is the layout, not a defect.
 //! Failing input: any graph read as a drawing. Escape hatch: another layout id.
+//!
+//! **No compute tier, measured, not assumed** (`docs/measurements/tier-random.md`). The
+//! one-line reason this id is absent from the threaded arm at `hashgate.rs:169`: the
+//! layout **is** the stream, so there is nothing to hand a `StepRange` — a threaded arm
+//! that recomputed nothing would print "10-way equal" for a stage no arm computed, which
+//! is the one claim the gate exists to make false. `GM_MUTATE_NODE_COUNT` is the control
+//! that says the stage *is* hashed anyway: more nodes, more draws, every coordinate
+//! moves.
 
 use super::Geometry;
 use super::coords::point_geometry;

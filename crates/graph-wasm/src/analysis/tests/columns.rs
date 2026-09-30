@@ -1,4 +1,8 @@
-use super::*;
+use super::fixtures::*;
+use crate::analysis::{run, to_json};
+use graph_contract::canonical_json::parse;
+use graph_core::analysis::{components, depth};
+use graph_core::layout::hierarchy::Hierarchy;
 
 /// The two directed edges of a two-cycle. Both nodes are one weak component and, because
 /// each reaches the other, one strong component too — the pin that would fail if the
