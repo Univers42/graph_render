@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repo is
 
-Two things in one tree:
+Three things in one tree:
 
 - **graph-motor** — the Rust workspace under `crates/`. It computes graph and diagram geometry and emits
   numbers; it is not a renderer and not an application. This is the product. Runbook: `prompt.md`;
@@ -12,11 +12,14 @@ Two things in one tree:
 - **`@osionos/graph-engine`** — the TypeScript engine under `src/` (Canvas2D + d3-force). Since Phase 0
   it is the **differential oracle** for graph-motor: test infrastructure, never shipped, never deleted.
   Commands and architecture: `docs/oracle-engine.md`.
+- **The studio** — `packages/graph-render`, `packages/graph-studio` and the host page `app/`: an
+  Obsidian-style interface over the wasm motor. A product in its own right since 2026-09-29
+  (`docs/decisions/studio-is-a-product.md`), with its own gates. See "Architecture (studio)" below.
 
 Submodules: `.claude/` (house rules) and `SciGraphs/` (a Python Blender extension: the reference design
 and the source of the Python oracles). Run `git submodule update --init` if either is empty.
 
-Current state, newest first: `prompts/RESUME.md`, then `docs/reports/STATUS.md` and `HANDOFF.md`. Older
+Current state, newest first: `prompts/RESUME.md`, then `docs/reports/STATUS.md` and `docs/reports/HANDOFF.md`. Older
 docs write paths as `/home/user/...`; that is a previous host, same files.
 
 ## Standing rules (set by the user, LESdylan)
@@ -111,6 +114,15 @@ scripts/orch/ge-check.sh                       # `npm run check` inside the repo
 scripts/orch/node-slim.sh npm run sdk:typecheck
 scripts/orch/gr cargo build -p graph-wasm --release --target wasm32-unknown-unknown
 scripts/orch/node-slim.sh npm run sdk:smoke
+
+# the studio (node:22-slim in Docker; the header of each script is its manual)
+scripts/studio.sh wasm        # build graph-wasm and stage it with fixtures/ into app/public
+scripts/studio.sh             # dev server on http://127.0.0.1:5174 (STUDIO_PORT)
+scripts/studio.sh check       # the studio's merge floor: tsc, unit + render tests, eslint, vite build
+scripts/studio.sh test        # tests only; needs the pinned refs at $REFS (default /goinfre/dlesieur/refs)
+docker build -f deploy/chromium.Dockerfile -t gm-chromium deploy   # once, for the browser gates
+scripts/studio-nav.sh         # one browser gate over app/dist; siblings: perf, parity, interact, filters, ...
+STUDIO_NAV_BREAK=1 scripts/studio-nav.sh   # its negative control: expect non-zero
 ```
 
 - A fresh worktree needs `npm ci` before `cargo test`: the `cli_oracles` tests run the Node harness and
@@ -125,6 +137,13 @@ scripts/orch/node-slim.sh npm run sdk:smoke
 - Python differentials run in three steps: `graph-cli emit-spectral-fixtures` (or `emit-fa2-fixtures`),
   then `harness/oracle-spectral.py` (or `oracle-fa2.py`) inside `ge-python-oracle`, then
   `graph-cli oracle-spectral` (or `oracle-fa2`), which checks the result against its ceiling and records it.
+- The studio's tests refuse to run without the pinned references rather than skip, and a skipped
+  `node:test` case fails `studio.sh`. The browser gates need `scripts/studio.sh build` first and never
+  take the host gate lock.
+- `docs/studio.md` describes the first studio. Its port and its `src/core` imports are superseded by
+  `docs/decisions/render-ports-not-imports.md`; the script headers are current.
+- Agent jobs run headless in OpenCode (`opencode.json`, `.opencode/agents/`): `scripts/orch/oc-job.sh`
+  launches one in a worktree and gates it, and `scripts/orch/oc-status.sh` lists every job's state.
 - The shell is zsh: an unmatched glob aborts the command and `echo ===` expands `=`. Use `git grep`.
   Kill by PID; `pkill -f <pattern>` matches your own command line.
 
@@ -222,6 +241,30 @@ At most 40 lines per function, 4 parameters and 300 lines per file; split into c
 gate row has a negative control that must fail. Every heuristic carries a `Ponytail:` marker, which is
 also a required ledger field. Decisions are recorded in `docs/decisions/`, measurements in
 `docs/measurements/`.
+
+## Architecture (studio)
+
+| Layer | Path | Depends on | Must not depend on |
+|---|---|---|---|
+| motor | `crates/*` | as above | `packages/`, `app/`, `deploy/` |
+| render | `packages/graph-render` | nothing at runtime | React, the SDK runtime, `src/`, `fetch` |
+| studio | `packages/graph-studio` | graph-render, the SDK (in the worker only), React | `src/` |
+| host | `app/` | graph-studio | anything else |
+
+- The renderer's only input is snapshot **bytes** (`docs/contract/binary-layout.md`). It ports what it
+  needs from the oracle and never imports `src/`: gate row `no-oracle-import`.
+- Gate row `motor-alone` runs the Rust merge floor with `app packages server deploy` removed. Red means
+  the motor has grown a dependency on its viewer.
+- `<graph-studio>` (`packages/graph-studio/src/element.ts`) is a custom element in its own shadow root.
+  The motor runs in a Web Worker behind `src/motor/protocol.ts`.
+- Every user action is registered once in `src/actions/registry.ts`. The dock, console, shortcuts and
+  host all call `resolve`, so arguments are checked in one place.
+- Layout, post and analysis pickers are filled from the motor's own registries (`Motor.layouts()`,
+  `posts()`, `analyses()`). The one id the studio sources name is the default layout in
+  `src/state/settings.ts`.
+- The packages have no `node_modules` of their own: they type-check, lint, test and build with the
+  toolchain pinned in `app/package.json`. The root `package.json`, lockfile and `tsconfig.json` are
+  fingerprinted, so touching them voids gate evidence.
 
 ## Reference
 - The TypeScript oracle engine (commands, architecture): `docs/oracle-engine.md`. Agent brief: `prompts/AGENT_BRIEF.md`.
