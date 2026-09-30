@@ -76,7 +76,7 @@
       "command": [
         "scripts/orch/pw-mcp.sh"
       ],
-      "enabled": true,
+      "enabled": false,
       "timeout": 20000
     },
     "context7": {
