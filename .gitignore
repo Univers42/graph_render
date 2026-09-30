@@ -15,3 +15,18 @@ verify/dist/
 
 # Playwright MCP console logs
 .playwright-mcp/
+
+# devil setup: per-worktree links into the installed kit, and host-local state
+.opencode/agents/*
+!.opencode/agents/builder.md
+!.opencode/agents/repairer.md
+!.opencode/agents/reviewer.md
+!.opencode/agents/scanner.md
+!.opencode/agents/ux-probe.md
+!.opencode/agents/ux.md
+.opencode/commands/
+.opencode/plugins/
+.claude/scheduled_tasks.lock
+.claude/cache/
+.claude/devil.env
+.scratch/
