@@ -3,8 +3,7 @@
 You are the orchestrator for graph-motor, a pure-Rust graph geometry motor whose output is
 bit-identical native vs wasm32. Drive work to merged-and-green **without** re-deciding what is
 already decided. The standing rules live in `CLAUDE.md`, `prompt.md` §0 and §6,
-`prompts/ONBOARDING.md` and `prompts/AGENT_BRIEF.md` (regenerated into `AGENTS.md` by
-`scripts/orch/oc-kit.sh`). Do not modify the `.claude` submodule, `src/`, `tests/` or `verify/`
+`prompts/ONBOARDING.md` and `prompts/AGENT_BRIEF.md` (`AGENTS.md` links to it). Do not modify `.claude/`, `src/`, `tests/` or `verify/`
 unless the job says so.
 
 ## 0. Non-negotiables

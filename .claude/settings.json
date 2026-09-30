@@ -1,0 +1,72 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./tools/*.sh:*)",
+      "Bash(cargo clippy:*)",
+      "Bash(cargo fmt:*)",
+      "Bash(devil:*)",
+      "Bash(eslint:*)",
+      "Bash(fd:*)",
+      "Bash(file:*)",
+      "Bash(git branch:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git ls-files:*)",
+      "Bash(git show:*)",
+      "Bash(git status:*)",
+      "Bash(go vet:*)",
+      "Bash(gofmt:*)",
+      "Bash(head:*)",
+      "Bash(jq:*)",
+      "Bash(ls:*)",
+      "Bash(markdownlint:*)",
+      "Bash(prettier --check:*)",
+      "Bash(rg:*)",
+      "Bash(ruff:*)",
+      "Bash(shellcheck:*)",
+      "Bash(shfmt:*)",
+      "Bash(tail:*)",
+      "Bash(tsc --noEmit:*)",
+      "Bash(wc:*)",
+      "Glob(*)",
+      "Grep(*)",
+      "Read(*)",
+      "WebSearch",
+      "mcp__context7__*",
+      "mcp__deepwiki__*",
+      "mcp__playwright__*"
+    ],
+    "deny": [],
+    "ask": [],
+    "defaultMode": "bypassPermissions"
+  },
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  },
+  "env": {
+    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "80",
+    "DEVIL_AUTONOMY": "1"
+  },
+  "respectGitignore": true,
+  "enableAllProjectMcpServers": true,
+  "outputStyle": "default",
+  "spinnerTipsEnabled": true,
+  "disableAllHooks": false,
+  "statusLine": {
+    "type": "command",
+    "command": "printf '%s' \"$(basename \"$PWD\") · $(git branch --show-current 2>/dev/null || echo no-git)\"",
+    "padding": 0
+  },
+  "enabledPlugins": {
+    "devil@univers42": true
+  },
+  "extraKnownMarketplaces": {
+    "univers42": {
+      "source": {
+        "source": "github",
+        "repo": "Univers42/claude-deal-with-the-devil"
+      }
+    }
+  }
+}

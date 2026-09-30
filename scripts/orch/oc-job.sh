@@ -10,7 +10,7 @@
 # has not registered yet, and oc-live's drain set misses a live session idling between turns.
 # Test seams: OC_LIVE_BIN (which oc-live.sh to ask), OC_JOB_BIN (the bin dir with oc-run.sh).
 # OC_COMMON picks the job preamble (default scripts/orch/common.md). The house rules reach the job
-# through AGENTS.md (scripts/orch/oc-kit.sh), not through this preamble.
+# through AGENTS.md and the kit's OpenCode bridge (devil setup), not through this preamble.
 set -uo pipefail
 label=$1 wt=$2 agent=$3 body=$4 rows=${5-}
 bin=${OC_JOB_BIN:-$(dirname "$(readlink -f "$0")")}
