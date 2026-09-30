@@ -120,3 +120,5 @@ layout count; the twopi row in `docs/measurements/scigraphs-coverage.md` is upda
 its counts block still sums to the number of SciGraphs names; and the return block lists
 every command run with its real exit code, the rung of the minimalism ladder each new
 module sits on, and every file you created.
+
+Resume note (2026-10-01): an earlier run of this job was killed mid-way. The worktree already holds its partial edits (`git status`); read them, keep what is right and finish.
