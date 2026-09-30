@@ -1,4 +1,4 @@
-> **Status (2026-09-28):** DONE — merged into develop 39d2450; gate green, mutants 512 caught / 0 missed (docs/reports/phase-02.md). See docs/reports/STATUS.md.
+> **Status (2026-09-30):** DONE — merged into develop 39d2450 (p2m head f080394); mutants 512 caught / 0 missed. Report docs/reports/phase-02.md. See docs/reports/STATUS.md.
 
 # Phase 2 — Geometry contract, the stage registry, and one layout end to end
 

@@ -16,8 +16,9 @@ Three things in one tree:
   Obsidian-style interface over the wasm motor. A product in its own right since 2026-09-29
   (`docs/decisions/studio-is-a-product.md`), with its own gates. See "Architecture (studio)" below.
 
-Submodules: `.claude/` (house rules) and `SciGraphs/` (a Python Blender extension: the reference design
-and the source of the Python oracles). Run `git submodule update --init` if either is empty.
+Submodule: `SciGraphs/` (a Python Blender extension: the reference design and the source of the Python
+oracles); run `git submodule update --init` if it is empty. The house rules come from the `devil` plugin
+(`univers42/claude-deal-with-the-devil`), seeded by its setup; see the block at the end of this file.
 
 Current state, newest first: `prompts/RESUME.md`, then `docs/reports/STATUS.md` and `docs/reports/HANDOFF.md`. Older
 docs write paths as `/home/user/...`; that is a previous host, same files.
@@ -43,7 +44,7 @@ auto-push and no commits to `develop`), this section wins.
 ### Working mode
 - Full autonomy: run phases 0 → 10 (`prompts/phase-NN-*.md`) per `prompts/ONBOARDING.md` and `prompt.md`.
 - Keep an hourly self check-in armed with `send_later`.
-- Follow the `.claude` house rules (rules repo `univers42/claude-deal-with-the-devil`).
+- Follow the `devil` plugin's house rules (`.claude/rules/devil/`, repo `univers42/claude-deal-with-the-devil`).
 
 ### Hard constraints
 - osionos (`/home/dlesieur/Documents/osionos`) is READ ONLY (`scripts/guard-osionos.sh`, exit 90 = broken).
@@ -52,7 +53,7 @@ auto-push and no commits to `develop`), this section wins.
 - A missing reference is a stop, not an improvisation.
 - Stay inside each phase's authorization envelope; report every deviation.
 - Never print secret values.
-- Do not modify the `graph_render/.claude` submodule.
+- Do not hand-edit `.claude/rules/devil/`: change the kit and re-run its setup.
 
 ### Parallel branches (checked on 2026-09-29 with `git merge-tree` and a disk check; worth doing)
 - Every independent unit of work (a phase, or a slice inside a phase) gets its own branch and its own worktree, made by `scripts/orch/wt-new.sh <branch>` under `$GM_SCRATCH/wt/`. Exactly one agent per worktree. Two agents in one worktree clobbered each other's edits on 2026-09-28 (p3fix-a and p3fix-c).
@@ -140,9 +141,10 @@ STUDIO_NAV_BREAK=1 scripts/studio-nav.sh   # its negative control: expect non-ze
   `docs/decisions/render-ports-not-imports.md`; the script headers are current.
 - Agent jobs run headless in OpenCode (`opencode.json`, `.opencode/agents/`): `scripts/orch/oc-job.sh`
   launches one in a worktree and gates it, and `scripts/orch/oc-status.sh` lists every job's state.
-  OpenCode 2.x ignores `opencode.json` `instructions` and reads only `AGENTS.md`, so
-  `scripts/orch/oc-kit.sh` generates `AGENTS.md` (the agent brief plus the always-on `.claude` rules) and the kit's
-  agents and commands under `.opencode/`. Rerun it after editing those sources; `--check` catches drift.
+  OpenCode 2.x ignores `opencode.json` `instructions` and reads only `AGENTS.md` (a link to
+  `prompts/AGENT_BRIEF.md`); the kit's bridge `.opencode/plugins/devil.js` adds its always-on rules.
+  The kit's agents, commands and bridge are untracked links that `devil setup --only opencode` makes per
+  worktree (`wt-new.sh` runs it); the house agents under `.opencode/agents/` are tracked.
   `scripts/orch/job-check.sh start|wait|status|lint|commit` is the deterministic half: it runs the rows
   gate and commits only on a PASS over the same tree.
 - The shell is zsh: an unmatched glob aborts the command and `echo ===` expands `=`. Use `git grep`.
@@ -265,3 +267,14 @@ also a required ledger field. Decisions are recorded in `docs/decisions/`, measu
 ## Reference
 - The TypeScript oracle engine (commands, architecture): `docs/oracle-engine.md`. Agent brief: `prompts/AGENT_BRIEF.md`.
 - Where the math lives and which references are on disk: `prompts/REFERENCES.md`.
+
+<!-- devil:start -->
+## The devil kit
+
+Installed as the Claude Code plugin `devil`.
+
+- `/devil:guide` lists every command, workflow, skill and agent with its stage.
+- `devil <tool>` runs a tool: `devil digest`, `devil quality --no-audit`, `devil selfcheck`.
+- Its 12 always-on rules are seeded under `.claude/rules/devil/` and load every session.
+- After a plugin update, run `/devil:setup --apply` to re-seed them.
+<!-- devil:end -->

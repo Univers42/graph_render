@@ -1,4 +1,4 @@
-> **Status (2026-09-28):** NOT STARTED. Replaces p4 provisional ingest JSON. See docs/reports/STATUS.md.
+> **Status (2026-09-30):** MERGED into develop, merge e612991 (branch p10 head 1e3a6d9) — partly closed out. See prompts/RESUME.md.
 
 # Phase 10 — The ingest contract, two adapters, and the published SDK
 

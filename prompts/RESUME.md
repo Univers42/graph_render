@@ -355,3 +355,18 @@ pass (4/4). A fresh worktree needs `npm ci` before `cargo test`.
 - **A new struct field needs every constructor across crates, including the wire formats**: p3's `child_first` was missing from p4's wasm ingest, and only the 4-way hash gate caught it.
 - Don't answer "is it done" from memory: check `git rev-list origin/develop..origin/<b>`,
   the gate `summary.txt`, and running processes first.
+
+## New host 2026-09-30
+
+- Host `dlesieur42` since 2026-09-30: 20 cores, 31 GB RAM, no `/goinfre`, no `/sgoinfre`.
+  Host-local state is under `$GM_SCRATCH` (`$HOME/goinfre`): `wt/` worktrees, `refs/` pinned
+  references, `orch/{bin,logs,locks}`, `mcp-out/` screenshots (`scripts/orch/scratch.sh`).
+- Lost with the old host: the `/sgoinfre/students/dlesieur/orch` prompts and rows. Rows now live in
+  `scripts/orch/rows/` (only `quick.rows` so far) and job briefs in `prompts/jobs/`.
+- The HANDOFF 2026-09-30 00:40 section above is still the newest handoff and still stands. The
+  merge floor, the merge train order (`followups2` → `sim` → `p12-igraph`), the dropped `studio-ux`
+  and plan S8, and the decisions of 2026-09-30 are unchanged.
+- develop is at f261baf and holds p0–p11, p12-t1, the studio (S1–S5) and `limits`.
+  Not merged: `followups2`, `sim`, `p12-igraph`, `studio-force`, `studio-s7`, `studio-ux` (dropped).
+- The first tasks are unchanged: wasm32 build of graph-core, `hashgate --seeds 8` plus one negctl
+  (`GM_MUTATE_REFERENCE_DEGREE=9` non-zero), then one full gate on develop; red rows become repairs.

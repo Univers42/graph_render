@@ -1,0 +1,6 @@
+# label|agent|brief|rows|land — read by scripts/orch/queue.sh every minute
+scigraphs-gap|build|prompts/jobs/scigraphs-gap.md|scripts/orch/rows/docs.rows|yes
+tiers-audit|build|prompts/jobs/tiers-audit.md|scripts/orch/rows/docs.rows|yes
+contract-3d|build|prompts/jobs/contract-3d.md|scripts/orch/rows/docs.rows|yes
+ci|build|prompts/jobs/ci.md||no
+gv-oracle|build|prompts/jobs/gv-oracle.md||no

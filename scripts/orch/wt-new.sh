@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # wt-new.sh <branch> [base] — a ready worktree for one job, at $GM_SCRATCH/wt/<branch>: the branch
 # (checked out when it exists locally or on origin, else created from [base], default
-# origin/develop), the .claude submodule (a worktree otherwise has it empty, so a job loads no house
-# rules, skills or tools), the node_modules the cli_oracles tests need, and the OpenCode kit files.
+# origin/develop), the SciGraphs submodule, the node_modules the cli_oracles tests need, and the
+# kit's OpenCode wiring (`devil setup --only opencode`: untracked links into the installed plugin).
 # Prints the worktree path. Exit 0 ready, 2 misuse or the worktree exists, else the failing step's code.
 set -euo pipefail
 here=$(dirname "$(readlink -f "$0")")
@@ -22,7 +22,8 @@ else
   git worktree add -q -b "$branch" "$wt" "$base"
 fi
 cd "$wt"
-git submodule update -q --init .claude
+git submodule update -q --init SciGraphs
 "$here/node-slim.sh" npm ci --ignore-scripts >/dev/null
-scripts/orch/oc-kit.sh --check >/dev/null || scripts/orch/oc-kit.sh
+kit=${DEVIL_ROOT:-$HOME/.claude/plugins/marketplaces/univers42}
+bash "$kit/tools/setup.sh" --apply --only opencode >/dev/null
 echo "$wt"

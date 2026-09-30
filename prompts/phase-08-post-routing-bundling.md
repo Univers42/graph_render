@@ -1,4 +1,4 @@
-> **Status (2026-09-28):** NOT STARTED. See docs/reports/STATUS.md.
+> **Status (2026-09-30):** MERGED into develop — develop commit b980ae8 is branch p8's head; slices p8-p8-bundle, p8-route and p8-styles came with it. Still owed: bundling and styles ledger rows, docs/reports/phase-08.md. See prompts/RESUME.md.
 
 # Phase 8 — The POST stage: edge styles, routing, bundling
 

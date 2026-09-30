@@ -68,7 +68,8 @@
       "docker system prune*": "deny",
       "docker volume rm*": "deny"
     },
-    "pw_*": "deny"
+    "pw_*": "deny",
+    "question": "deny"
   },
   "mcp": {
     "pw": {
@@ -89,5 +90,8 @@
       "url": "https://mcp.deepwiki.com/mcp",
       "enabled": true
     }
-  }
+  },
+  "skills": [
+    "/home/dlesieur/.claude/plugins/marketplaces/univers42/skills"
+  ]
 }

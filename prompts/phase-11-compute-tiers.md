@@ -1,4 +1,4 @@
-> **Status (2026-09-28):** NOT STARTED (after Phase 9). See docs/reports/STATUS.md.
+> **Status (2026-09-30):** MERGED into develop, merge c84c869 (branch p11 head 8543d98) — partly closed out: the thread-tier bench numbers still owe docs/measurements/. See prompts/RESUME.md.
 
 # Phase 11 — Compute tiers: SIMD, threads, and (only if measured necessary) GPU
 

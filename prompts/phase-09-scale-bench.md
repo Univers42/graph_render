@@ -1,4 +1,4 @@
-> **Status (2026-09-28):** NOT STARTED. Also owns: circle-packing O(n^2) fallback makes hashgate --seeds 1000 ~30 min/arm. See docs/reports/STATUS.md.
+> **Status (2026-09-30):** MERGED into develop (develop commit d9912ad is branch p9's head) — partly closed out: the 10^5/10^6 bench arms time out on this host. See docs/reports/phase-09-progress.md and prompts/RESUME.md.
 
 # Phase 9 — The SCALE stage, and the benchmarks that justify the whole project
 

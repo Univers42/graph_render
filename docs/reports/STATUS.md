@@ -1,92 +1,121 @@
-# graph-motor — project status (2026-09-28)
+# graph-motor — project status (2026-09-30)
 
-Read this first. Then read `prompts/CONTINUE.md`, which tells the next agent how to work. The long
-history lives in `docs/reports/HANDOFF.md` and `docs/reports/phase-NN.md`.
+Read this first, then `prompts/CONTINUE.md` (how to work on this host) and `prompts/RESUME.md`
+(the newest handoff, HANDOFF 2026-09-30 00:40). Long history: `docs/reports/HANDOFF.md`,
+`docs/reports/phase-NN*.md`. The tree and `git` are the final authority over all three.
 
-## 1. Where the code is
+Every fact below was checked on 2026-09-30 against `origin/develop` = **f261baf** (251 commits).
 
-| Branch | Head | Phase | State |
+## 1. Branches
+
+Check any row yourself: `git log --oneline origin/develop..origin/<branch>` — **0 lines = merged**,
+n lines = n commits not yet on develop.
+
+### Merged into develop
+
+| Branch | Head | Landed | What |
 |---|---|---|---|
-| `develop` = `claude/sharp-turing-er9nve` | 39d2450 | 0–2 | **merged, gate green** |
-| `p2m` | f080394 | 2 close-out | merged into develop (mutants: 591 run, 512 caught, 0 missed, 73 unviable, 6 timeouts) |
-| `p3` | a9010f5 (local) / 0b9fa62 (origin) | 3 | close-out in progress: develop merged into p3 (3d5ae48), full gate, ge-check, mutants and `phase-03.md` are running |
-| `p3-tidy`, `p3-treemap`, `p3-circular`, `p3-planarity`, `p3-packing` | — | 3 parts | already merged into `p3`; kept for history |
-| `p4` | 9389255 | 4 (wasm ABI + JS SDK) | built, reviewed and repaired on its own branch, based on 900cf13 (before p3). **Not merged.** |
-| `p7` | 79f4701 | 7 (analysis) | built, reviewed and repaired, based on 900cf13. **Not merged.** |
-| `p5` | 4b5ad8a | 5 (Sugiyama) | built, reviewed and repaired, based on b7a068a (p3 substrate). **Not merged.** |
-| `p6e` | d5f1fa3 | 6 eigen (spectral, Pivot MDS, JAMA tred2/tql2, LOBPCG) | built, reviewed and repaired, based on b7a068a. **Not merged.** |
-| `p6f` | 700f7f4 | 6 force (Barnes–Hut, FA2) | built, reviewed and repaired, based on b7a068a. **Not merged.** |
+| p0–p2 | `p2m` f080394 | develop 39d2450 | foundation, topology, geometry contract + stage registry |
+| p3 | 2538f0a | inside p6f, merge 45a653f | the deterministic one-shot layouts |
+| p4 | 2c49e04 | merge efe2452 | wasm transport + JS SDK, registry-driven ABI |
+| p5 | 4caf184 | merge 7788d85 | Sugiyama layered DAG |
+| p6e | 7788d85 | merge 6ae96a1 | spectral, pivot MDS, JAMA tred2/tql2, LOBPCG |
+| p6f | 67543b4 | merge 45a653f | Barnes–Hut, FA2 |
+| p7 | ab396f5 | merge ffb837a | the ANALYSIS stage |
+| p8 | b980ae8 | head is a develop commit | post/routing/bundling (+ `p8-p8-bundle`, `p8-route`, `p8-styles`) |
+| p9 | d9912ad | head is a develop commit | scale stage + benches |
+| p10 | 1e3a6d9 | merge e612991 | ingest contract, `gm_build_contract`, SDK publish |
+| p11 | 8543d98 | merge c84c869 | compute tiers: `exec/` runners, hashgate Threads/Tiers arms, 11 knobs |
+| p12-t1 | 0c72dc5 | merge b182b7e | yifan_hu multilevel, closed-form fixtures + oracle |
+| studio | 984f433 | head is a develop commit | the Vite/React studio, S1–S5 + parity |
+| `limits` | 09db63b | head is a develop commit | the split of the 19 files over 300 lines |
+| `gui`, `abi-post`, `studio-post` | 03ade38 / 77ab863 / ef4e9da | heads are develop commits | studio app, wasm ABI for POST/ANALYSIS, the POST+ANALYSIS panels |
+| `orchfix` | 15edd32 | merge 3486ca5 | oc-live/oc-job/oc-status liveness on the service session list |
 
-Every phase branch is pushed to `origin` under its own name. Worktrees exist locally at
-`/home/user/wt-<branch>`. They are gone after a container restart; recreate them with
-`git worktree add`.
+Also merged and kept for history: `followups` (746f3a8), `negctl` (7f0cab6), `lesmis` (4f82f36),
+`fa2fix` (c6b6ea8), `repair-evidence` (8c1d3c3), `reports` (79aef00), `train` (24d92bc),
+`integ` (8292407), `p3-tidy`, `p3-circular`, `p3-treemap`, `p3-planarity`, `p3-packing`.
 
-## 2. Merge rule (set by the user)
+### Pushed, not merged
 
-Merge into `develop` **strictly in sequence**, and only after that phase's own gate is green, it
-has passed an independent review, cargo-mutants has run over its diff, and its `docs/reports/phase-NN.md` is
-written:
+| Branch | Head | Commits ahead | What |
+|---|---|---|---|
+| `followups2` | 3ddd308 | 1 | phase-7 follow-ups: graph-wasm analysis/post registries, hashgate knobs/stages |
+| `sim` | 5ae4210 | 1 | force-session M1 (live simulation for the Obsidian-style drag) |
+| `p12-igraph` | 8238039 | 1 | igraph layouts DRL, LGL, DavidsonHarel, Graphopt, KK, FR |
+| `studio-force` | 15ce426 | 1 | `LiveForce` port, worker loop, Forces panel (waits on force-wasm) |
+| `studio-s7` | 9af62bc | 3 | S7 perf: 10k/20k case, `stats()` counters, `STUDIO_PERF_BREAK` negctl |
+| `studio-ux` | 855a876 | 2 | **DROPPED by the user 2026-09-30. Do not plan work on it.** |
 
-`p2m` ✅ → `p3` (in progress) → `p4` → `p7` → `p5` → `p6e` + `p6f` → then build 8, 9, 10, 11.
+`studio-ux` and studio plan item **S8** were dropped on 2026-09-30. The branches stay on `origin`;
+they are history, not work.
 
-To merge each branch:
-1. `git merge develop` into the branch (not a rebase; history is published).
-2. Resolve conflicts keeping **both** intents.
-3. Re-run the full phase gate.
-4. Merge into `develop`, then push `develop` and `develop:claude/sharp-turing-er9nve`.
+## 2. Merge rule (user, 2026-09-29 — replaces the old strict-sequence rule)
 
-Pitfall: a branch cut before 900cf13 (p4, p7) makes `git diff develop..branch` show
-`compute-tiers.md` and `phase-11` as "deleted". That is a diff artefact, not a deletion. `develop`'s
-versions win.
+**Merge first, repair on develop.** A branch is merged when the floor is green **on the merged
+tree**, then one full gate runs on `develop` and its red rows become repair tasks. No per-branch
+1000-seed hashgate, no per-branch mutants gate before the merge — that gating became perfectionism
+and blocked the train for hours.
 
-## 3. What each unmerged branch still needs at merge time
+The floor (`scripts/orch/rows/quick.rows`):
 
-- **p3.** Finish the close-out: gate at 1000 seeds, ge-check, mutants, `phase-03.md`, and the 5-param
-  `seed_triangle` fix. Known risk: `hashgate --seeds 1000` now takes about 30 min per arm, because the
-  circle-packing fallback is O(n²). `CHILD_TIMEOUT` was raised from 900 s to 2700 s. Phase 9 must address
-  this.
-- **p4.** Make the ABI registry-driven (`gm_layout_count`/`gm_layout_id`) so p3's layouts need no ABI
-  change. Expose the notes columns (`note.code`, `note.index`) and the Circle r / Box w,h and Polyline
-  columns reserved in `docs/contract/wasm-abi.md`. Build `EdgeRecord` without `..`, so the merge
-  surfaces p3's `child_first`. Back the `transport.*` ledger rows with hashgate/evidence wiring. Record the
-  envelope growth as a deviation; the reviewer's BLOCKER was accepted as "amend the envelope". The wasm
-  binary is 265,838 B, 4% over the 250 KB soft ceiling; this is accepted and documented.
-- **p7.** Fix the allow-list gate row: its regex must admit the workspace crate `graph-contract` (a
-  prompt-row bug). Add `analysis.depth` on top of p3's `hierarchy.rs`. Expose the analysis columns in
-  the snapshot, JSON and SDK after p3 and p4 are merged. The `sdk-smoke.mjs` row passes once p4 is in.
-- **p5.** Register `layout.dag.sugiyama`. Add the dagre-d3-es arm to `harness/oracle-layouts.mjs`.
-  `canonical_json/schema.rs` still lists note codes as [1,2,3]; regenerate it with codes 4 and 5.
-  Measured crossings: ours 5,242 vs dagre 7,657 over 236 graphs, so it passes the frozen margin.
-- **p6e/p6f.** Wire the new layouts: registry entries, one hashgate stage per layout with its own
-  negative control, graph-cli `stress`/`bench`, and the wasm exports through p4's registry-driven ABI.
-  Build the approved Python oracle image (debian:trixie-slim, pinned numpy/scipy, networkx 3.6 from
-  `/home/user/refs`). Review the "Corrections found during implementation" section of `eigensolver.md`.
-  No row goes to `gated` without an oracle differential and a measured ceiling.
+1. `scripts/orch/gr cargo fmt --all --check`
+2. `scripts/orch/gr cargo clippy --workspace --all-targets -- -D warnings`
+3. `scripts/orch/gr cargo test --workspace --no-fail-fast`
 
-## 4. Remaining phases (not started)
+Per merge: `git merge develop` into the branch (never rebase — history is published), resolve
+keeping **both** intents, run the floor on the merged tree, merge into `develop`, push.
+A fresh worktree needs `npm ci` before `cargo test` (`wt-new.sh` does it). A worktree cut before a
+shared file was restructured shows that file as "deleted" in `git diff` — a diff artefact, develop's
+version wins.
 
-- **Phase 8**: post-processing, routing and bundling (FDEB in gather form; MINGLE sequential).
-- **Phase 9**: scale and benchmarks, including the per-tier crossover numbers for Phase 11 and the
-  circle-packing hashgate cost.
-- **Phase 10**: ingest contract, SDK publish. This replaces p4's provisional ingest JSON.
-- **Phase 11**: compute tiers (SIMD, then threads, then GPU only if measured necessary). See
-  `docs/decisions/compute-tiers.md`.
+Still true: UNKNOWN = FAIL, SKIP is not a pass, a gate that did not run is "not run" and never
+"green". Evidence records are fingerprinted to the tree.
+
+## 3. Host
+
+`dlesieur42` since 2026-09-30: **20 cores, 31 GB RAM** (was a 4-CPU host before). No `/goinfre`,
+no `/sgoinfre`. Host-local, unversioned, lost on every host change — `scripts/orch/scratch.sh` puts
+it under `$GM_SCRATCH` = `$HOME/goinfre`:
+
+- `wt/` — worktrees, one per job, made by `scripts/orch/wt-new.sh <branch> [base]`
+- `refs/` — the pinned read-only references (`networkx-3.6`, `scipy-1.16.2`, `jama-1.0.3`,
+  `matplotlib-3.10.0`, `npm/`), rebuilt by `scripts/orch/fetch-refs.sh`
+- `orch/{bin,logs,locks}` — helper symlinks, job logs, gate locks
+- `mcp-out/` — browser screenshots from the `pw` MCP
+
+Lost with the previous host: the `/sgoinfre/students/dlesieur/orch` prompts and rows. Rows now live
+in `scripts/orch/rows/` (only `quick.rows` today) and job briefs in `prompts/jobs/`. Docker is the
+only toolchain: `scripts/orch/{gr,node-slim.sh,ge-check.sh,gate.sh,mutants.sh}`.
+
+## 4. Work queue, in order
+
+1. **First tasks on develop** (unchanged, still not run): wasm32 build of graph-core,
+   `hashgate --seeds 8` and one negctl (`GM_MUTATE_REFERENCE_DEGREE=9` must be non-zero), then one
+   full gate on develop. Red rows become repair tasks.
+2. **The merge train**: `followups2` → `sim` → `p12-igraph`, one at a time, each under the floor.
+3. **Live forces**: `force-wasm` cut from `sim` (the session ABI), then `studio-force`, then merge
+   `studio-force` into `studio`, rebuild `app/public/graph_wasm.wasm`, then `studio` → develop.
+4. **`studio-s7`**: merges into develop once `quick.rows` and the studio rows are green.
+5. **No-cargo lanes** (no gate, run in parallel): SciGraphs layout coverage in the motor *and* the
+   studio picker; the thread-tier audit; the 3D devil verdict (`docs/decisions/contract-3d.md`);
+   the Graphviz oracle; CI.
 
 ## 5. Decisions already taken (do not re-ask)
 
-- networkx 3.6 is pinned as a read-only reference. d3-hierarchy 3.1.2, dagre-d3-es 7.0.14,
-  d3-force 3.0.0, d3-quadtree 3.0.1, JAMA 1.0.3 and scipy 1.16.2 `lobpcg.py` are all pinned, with
-  sha256s in `HANDOFF.md` or `/home/user/ORCH_NOTES.md`, under `/home/user/refs` (read-only).
-- Hierarchy policy is "repair + record": a virtual-root forest, and cycle and multi-parent repair.
-  A snapshot `notes` section was added as contract 0.3. Note codes are 1–3 in p3; 4 and 5 are
-  activated in p5; 6 is reserved.
-- Phase 6:
-  - FA2 is a port of networkx 3.6. Yifan Hu stays `absent`.
-  - Eigen solvers: JAMA tred2/tql2 for n ≤ 256, and scipy LOBPCG (block 4) above that. The file is
-    named `lobpcg.rs`.
-  - The LOBPCG start block does not depend on the seed. There is no shift-invert.
-  - Stress is the Pearson hop/euclid correlation over 32 max-min pivots, with a margin of −0.05 vs d3.
-  - The d3 force set is link, manyBody, center and collide; there is no cluster force.
-- Compute tiers: tuned scalar, then SIMD, then threads, then GPU only on measurement, and a GPU
-  layout gets its own capability id. D10: gather-form kernels.
+- **2026-09-30 — free-model outage means the queue waits.** No paid fallback model. Probe the free
+  models before a launch; if they answer `provider.quota` or hang, the job queue waits.
+- **2026-09-30 — the Graphviz engines must match Graphviz's own output.** Full port set, gated
+  against a Graphviz oracle (no Graphviz binary, library or server on this host).
+- **2026-09-30 — CI approved**: a GitHub Actions merge-floor workflow with an arm64 hashgate arm.
+- Compute tiers: tuned scalar, then SIMD, then threads, then GPU only on measurement; a GPU layout
+  gets its own capability id. D10: gather-form kernels. CPU only, multi-threaded (user).
+- Hierarchy policy is "repair + record": a virtual-root forest, cycle and multi-parent repair. A
+  snapshot `notes` section is contract 0.3; note codes 1–3 in p3, 4–5 in p5, 6 reserved.
+- Phase 6: FA2 is a port of networkx 3.6, Yifan Hu stays `absent`. JAMA tred2/tql2 for n ≤ 256,
+  scipy LOBPCG (block 4) above; the LOBPCG start block does not depend on the seed; no shift-invert.
+  Stress is the Pearson hop/euclid correlation over 32 max-min pivots, margin −0.05 vs d3. The d3
+  force set is link, manyBody, center, collide — no cluster force.
+- References are pinned read-only (networkx 3.6, the four d3 packages, JAMA 1.0.3, scipy 1.16.2
+  `lobpcg.py`); sha256s in `HANDOFF.md`. Docs write the path as `/home/user/refs/...` — same files.
 - The user delegated every non-critical decision to "the recommended option" for autonomous runs.

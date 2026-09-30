@@ -25,7 +25,7 @@ Rules of record: `CLAUDE.md`, `prompt.md` §0 and §6 (D1–D10), the phase prom
 
 ## Never
 - Run git commands that change state (denied); the orchestrator commits. `git diff/log/show/status` are fine.
-- Touch osionos, the `.claude/` submodule, `src/`, `tests/` or `verify/` unless the task says so.
+- Touch osionos, `.claude/`, `.opencode/`, `src/`, `tests/` or `verify/` unless the task says so.
 - Claim a result you did not run in this task. UNKNOWN = FAIL. A skipped check is not a pass.
 - Write model or vendor names in code, docs or reports. Print a secret.
 - Weaken, delete or skip a test, gate row or negative control to get green.
