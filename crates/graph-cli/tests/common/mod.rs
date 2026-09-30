@@ -10,17 +10,19 @@ use std::process::{Command, Output};
 ///
 /// Extended additively as stages gained a control of their own: the four Phase 3 layouts
 /// (tidy tree, treemap, circular, circle packing) each have one, and so does each of the
-/// eight ANALYSIS stages and the seven POST capabilities. The compute tier has one too —
-/// `GM_MUTATE_SPLIT_SUM`, the eleventh of the parameter movers and the last entry here,
-/// which corrupts a gather's merge rather than a parameter. The order is the order of
-/// `hashgate::Knob::ALL`, which the unit test `each_knob_names_its_own_variable_and_record`
-/// pins against this list's twin in `crates/graph-cli/src/hashgate/tests/knob.rs`.
+/// eight ANALYSIS stages and the seven POST capabilities. The compute tier has two —
+/// `GM_MUTATE_SPLIT_SUM`, which corrupts a Barnes-Hut gather's merge, and
+/// `GM_MUTATE_SPLIT_RESCALE`, which corrupts the closed-form point layouts' shared
+/// `coords` merge. Both corrupt a merge rather than a parameter, and both are the last two
+/// entries here. The order is the order of `hashgate::Knob::ALL`, which the unit test
+/// `each_knob_names_its_own_variable_and_record` pins against this list's twin in
+/// `crates/graph-cli/src/hashgate/tests/knob/table.rs`.
 ///
 /// The fifteen ANALYSIS and POST names are spelled out here rather than derived from the
 /// binary's own table: this list is what clears a knob out of a test run's environment, so
 /// a name it failed to carry would let a control leak in and turn an honest run red. Being
 /// an independent copy is the property; the unit test is what makes it hold.
-pub const KNOBS: [&str; 26] = [
+pub const KNOBS: [&str; 27] = [
     "GM_MUTATE_REFERENCE_DEGREE",
     "GM_MUTATE_GRID_SPACING",
     "GM_MUTATE_SUGIYAMA_LAYER_SPACING",
@@ -47,6 +49,7 @@ pub const KNOBS: [&str; 26] = [
     "GM_MUTATE_POST_STYLE_QUADRATIC",
     "GM_MUTATE_POST_STYLE_BEZIER",
     "GM_MUTATE_SPLIT_SUM",
+    "GM_MUTATE_SPLIT_RESCALE",
 ];
 
 /// `graph-cli` recording under `gates`, never `target/gates` (a test run must not stand

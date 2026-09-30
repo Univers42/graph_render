@@ -43,13 +43,21 @@ const PARAMETER_KNOBS: [(&str, &str); 10] = [
     ("GM_MUTATE_PACKING_SCALE", "hashgate-control-packing-scale"),
 ];
 
+/// The compute-tier controls, spelled out rather than counted: each one corrupts a **merge**
+/// rather than a parameter, so it is the control that proves a threaded arm recomputed that
+/// merge. One per merge family — Barnes-Hut's three range kernels share
+/// [`Knob::SplitSum`], the closed-form point layouts' single `coords` merge is
+/// [`Knob::SplitRescale`]. A third arm here would be a merge nobody has, and a control that
+/// perturbs nothing passes vacuously.
+const COMPUTE_TIER_KNOBS: [Knob; 2] = [Knob::SplitSum, Knob::SplitRescale];
+
 #[test]
 fn each_knob_names_its_own_variable_and_record() {
     assert_eq!(
         Knob::ALL.len(),
-        PARAMETER_KNOBS.len() + knobs::ANALYSIS_POST_STAGES.len() + 1,
-        "every knob is a parameter control, one of the fifteen stage controls, or the \
-         compute-tier control"
+        PARAMETER_KNOBS.len() + knobs::ANALYSIS_POST_STAGES.len() + COMPUTE_TIER_KNOBS.len(),
+        "every knob is a parameter control, one of the fifteen stage controls, or one of \
+         the compute-tier controls"
     );
     for (env, record) in PARAMETER_KNOBS {
         let knob = knob_named(env);
@@ -117,13 +125,13 @@ fn the_analysis_and_post_controls_are_the_knobs_table() {
     );
     // The reverse direction: no enum arm claims a variable neither the table nor the
     // parameter list carries, or the table would grow a row `stage_of` could not resolve and
-    // the arm would panic at run time instead of at compile time. The compute-tier control
-    // is the one arm outside both, by design — it is the `+ 1` in the count above.
+    // the arm would panic at run time instead of at compile time. The compute-tier controls
+    // are the arms outside both, by design — they are the `+ 2` in the count above.
     for knob in Knob::ALL {
         let carried = table.iter().any(|row| row.env == knob.env());
         let parameter = PARAMETER_KNOBS.iter().any(|(env, _)| *env == knob.env());
         assert!(
-            carried || parameter || knob == Knob::SplitSum,
+            carried || parameter || COMPUTE_TIER_KNOBS.contains(&knob),
             "{}: no table carries it",
             knob.env()
         );

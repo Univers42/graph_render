@@ -31,7 +31,9 @@ FORCE_LAYOUT = "layout.forceatlas2"
 # the one that finishes; each case records which.
 LARGE_LAYOUT = "layout.mds.pivot"
 LARGE_FROM = 5000
-FRAME_CASES = [(120, 1), (120, 2), (2000, 1), (2000, 2), (20000, 1), (20000, 2)]
+FRAME_CASES = [(120, 1), (120, 2), (2000, 1), (2000, 2), (10000, 1), (10000, 2)]
+# The counter rows read the view at these sizes, at DPR 1 (a counter does not depend on DPR).
+STATS_CASES = [(2000, 1), (10000, 1)]
 BLOCK_NODES = [120, 500]
 PROFILED_CASE = (2000, 2)
 
@@ -93,7 +95,10 @@ def measure_frames(studio, out):
         if skipped is not None:
             cases.append({"nodes": nodes, "dpr": dpr, "notRun": skipped})
             continue
-        case = {"nodes": nodes, "dpr": dpr, "layout": layout, **studio.probe("frame", {"settleMs": 1500, "profile": False})}
+        case = {"nodes": nodes, "dpr": dpr, "layout": layout}
+        if (nodes, dpr) in STATS_CASES:
+            case["stats"] = studio.probe("stats", {"settleMs": 1500})
+        case.update(studio.probe("frame", {"settleMs": 1500, "profile": False}))
         if (nodes, dpr) == PROFILED_CASE:
             case["profile"] = studio.probe("frame", {"settleMs": 200, "profile": True})["phases"]
         studio.page.screenshot(str(out / f"frame-{nodes}-dpr{dpr}.png"))

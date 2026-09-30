@@ -32,6 +32,7 @@
   };
   window.__perf = {
     maxNodes: 20000,
+    view: () => document.querySelector("graph-studio")?.view ?? null,
     canvas: () => document.querySelector("graph-studio")?.shadowRoot?.querySelector("canvas") ?? null,
     layouts: () => studioOf().store.get().catalog?.layouts ?? [],
     run: (id) => ran("layout.run", { id }),
@@ -39,7 +40,9 @@
     // laid out once, by the layout that was asked for.
     open: async (nodes, layout) => {
       await ran("layout.run", { id: layout });
-      await ran("source.synthetic", { ...SOURCE, nodes });
+      // Two links per node past 5000 nodes: 10 000 nodes are then about 20 000 edges, the
+      // size the S7 spec names. The report records the edge count the generator gave.
+      await ran("source.synthetic", { ...SOURCE, degree: nodes >= 5000 ? 2 : SOURCE.degree, nodes });
     },
   };
 })()

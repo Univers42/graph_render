@@ -33,6 +33,8 @@ function spheres(): SpriteCache {
       return SPHERE;
     },
     widthOf: () => 0,
+    rasterised: () => 0,
+    baked: () => 0,
     beginFrame: () => undefined,
     starved: () => false,
     reset: () => undefined,

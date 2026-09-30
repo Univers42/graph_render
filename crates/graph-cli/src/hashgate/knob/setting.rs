@@ -42,6 +42,12 @@ pub(in crate::hashgate) struct Setting {
     /// A [`Split`] and not a `bool` because the control names *which* kernel it corrupts,
     /// and each kernel needs its own row to be shown to be compared.
     pub(in crate::hashgate) split_sum: Split,
+    /// Whether the closed-form point layouts' shared `coords` merge is split
+    /// ([`Knob::SplitRescale`]), the compute-tier control for the non-force threaded arms.
+    ///
+    /// A `bool` because there is one merge to corrupt, against [`Setting::split_sum`]'s
+    /// [`Split`] which names *which* of the three force passes it is.
+    pub(in crate::hashgate) split_rescale: bool,
     pub(in crate::hashgate) control: Option<Knob>,
 }
 
@@ -61,6 +67,7 @@ pub(in crate::hashgate) fn setting(
         packing: CirclePackingParams::default(),
         stage_nodes: None,
         split_sum: Split::None,
+        split_rescale: false,
         control: None,
     };
     for knob in Knob::ALL {
@@ -110,6 +117,11 @@ fn apply(knob: Knob, text: &str, setting: &mut Setting) -> Result<(), String> {
         // mutation. `1`/`0` are accepted beside `true`/`false` because a gate row
         // reads `GM_MUTATE_SPLIT_SUM=1`.
         Knob::SplitSum => setting.split_sum = split(text).ok_or_else(|| bad(&text))?,
+        // Parsed the same way, for the same reason: `=0` must be the honest run and a typo
+        // (`=maybe`) an error rather than a silent mutation.
+        Knob::SplitRescale => {
+            setting.split_rescale = yes(text).ok_or_else(|| bad(&text))?;
+        }
         _ => knobs::apply(stage_of(knob), nodes(text, knob)?, setting),
     }
     Ok(())
@@ -146,6 +158,17 @@ fn split(text: &str) -> Option<Split> {
         "charge" => Some(Split::Charge),
         "collide" => Some(Split::Collide),
         "link" => Some(Split::Link),
+        _ => None,
+    }
+}
+
+/// `GM_MUTATE_SPLIT_RESCALE`'s value: a flag, and `None` for anything else so the caller
+/// turns it into the parse error. Both a split control and its honest setting go through
+/// this one spelling, so the two cannot drift on what counts as "on".
+fn yes(text: &str) -> Option<bool> {
+    match text.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Some(true),
+        "0" | "false" | "no" | "off" => Some(false),
         _ => None,
     }
 }

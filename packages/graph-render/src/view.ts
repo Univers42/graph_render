@@ -15,15 +15,15 @@ import {
   type Controller, fit, hover, measure, moveTo, newState, pickAt, select, showFrame,
 } from "./canvas2d/controller.ts";
 import { hideNodes, togglePin } from "./canvas2d/keep.ts";
-import { type LoopState, invalidate } from "./canvas2d/loop.ts";
+import { invalidate } from "./canvas2d/loop.ts";
 import { rebaseLocal, setBaseStyle, showAll, showLocal } from "./canvas2d/local.ts";
 import { type EdgeEnds, edgeEndsOf, edgeOpacity, labelledNodes, nodeOpacity } from "./canvas2d/probe.ts";
-import { fpsOf } from "./canvas2d/rate.ts";
 import type { Frame } from "./frame.ts";
 import { DOUBLE_CLICK_ZOOM, centreOf } from "./gesture.ts";
 import { type LabelPolicy, newLabelPlan } from "./labels.ts";
 import { type LocalOptions, newLocalLayer } from "./local.ts";
 import { bindPointer } from "./pointer.ts";
+import { statsOf } from "./view-stats.ts";
 import type { Style } from "./style.ts";
 import type { Theme } from "./theme.ts";
 
@@ -50,6 +50,16 @@ export interface ViewStats {
   readonly strokeWidth: number;
   /** Path fills and strokes in the last frame. */
   readonly draws: number;
+  /** `stroke()` calls on edges in the last frame, and the edge styles that drew (base, lit). */
+  readonly strokeCalls: number;
+  readonly edgeStyles: number;
+  /** Fills for arrow heads and for glow discs in the last frame. */
+  readonly arrowFills: number;
+  readonly glowFills: number;
+  /** Label sprites rasterised in the last frame: 0 when every one was already baked. */
+  readonly spritesRasterised: number;
+  /** Label layouts run since the view was made: it grows on a camera change, not on a redraw. */
+  readonly layoutRuns: number;
   /** Script time of the last frame; the rasteriser's time is not in it. */
   readonly frameMs: number;
   /** Frames painted per second while the view moves; 0 while parked. */
@@ -138,25 +148,6 @@ export interface View {
 type Handlers = { [Name in keyof ViewEvents]: Set<(payload: ViewEvents[Name]) => void> };
 type SceneApi = Pick<View, "setFrame" | "setStyle" | "setTheme" | "setLabels">;
 type CameraApi = Omit<View, keyof SceneApi | "on" | "toPNG" | "stats" | "radii" | "destroy">;
-
-function statsOf(state: LoopState): ViewStats {
-  return {
-    backend: "canvas2d",
-    nodes: state.scene.frame.nodeCount,
-    edges: state.scene.frame.edgeCount,
-    drawnNodes: state.counts.nodes,
-    drawnEdges: state.counts.edges,
-    drawnLabels: state.counts.labels,
-    drawnArrows: state.counts.arrows,
-    arrowSize: state.counts.arrowSize,
-    curvedEdges: state.counts.curves,
-    strokeWidth: state.counts.stroke,
-    draws: state.counts.draws,
-    frameMs: state.frameMs,
-    fps: fpsOf(state.rate, performance.now()),
-    frames: state.frames,
-  };
-}
 
 function toBlob(canvas: HTMLCanvasElement): Promise<Blob> {
   return new Promise((resolve, reject) => {

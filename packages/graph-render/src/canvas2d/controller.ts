@@ -71,7 +71,7 @@ export function newState(canvas: HTMLCanvasElement, setup: Setup): LoopState {
     camera: fitCamera(null, viewport), limits: limitsFor(null, viewport), viewport, dpr: 1,
     x: scene.frame.x, y: scene.frame.y, fromX: scene.frame.x, fromY: scene.frame.y, transitionStart: -1,
     lit: new Uint8Array(0), hovered: -1, dimStart: -1, selected: -1, selection: [], pinned: [], marquee: null,
-    plan: newLabelPlan(policy.budget), occupancy: occupancyFor(viewport),
+    plan: newLabelPlan(policy.budget), layoutKey: null, layoutDirty: false, layoutRuns: 0, occupancy: occupancyFor(viewport),
     scheduled: 0, settleTimer: null, movedAt: 0, destroyed: false,
     counts: newCounts(), frameMs: 0, frames: 0, rate: newRate(),
   };

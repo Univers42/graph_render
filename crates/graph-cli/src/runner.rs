@@ -60,11 +60,21 @@ pub fn workspace_root() -> PathBuf {
 ///
 /// Only the negative controls stage a copy, and they are tests, so this is test-only: no
 /// production path needs a staging location that is deliberately outside the tree.
+///
+/// Each call gets its own name. Two tests once staged `wasm-tick-bench.mjs` at one shared
+/// path, and whichever dropped its copy first deleted the other's while it still ran.
 #[cfg(test)]
 pub fn harness_mutant(name: &str) -> PathBuf {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static STAGED: AtomicU32 = AtomicU32::new(0);
+    let tag = format!(
+        ".mutant-{}-{}.mjs",
+        std::process::id(),
+        STAGED.fetch_add(1, Ordering::Relaxed)
+    );
     workspace_root()
         .join("target")
-        .join(name.replace(".mjs", ".mutant.mjs"))
+        .join(name.replace(".mjs", &tag))
 }
 
 /// Builds `graph_wasm.wasm` in release mode with `features` and returns its path.

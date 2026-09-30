@@ -199,8 +199,8 @@ fn the_knob_list_carries_every_p3_control_and_nothing_else() {
     }
     assert_eq!(
         KNOBS.len(),
-        26,
-        "ten parameter controls, then the fifteen stage controls, then the compute-tier \
-         control: {KNOBS:?}"
+        27,
+        "ten parameter controls, then the fifteen stage controls, then the two compute-tier \
+         controls: {KNOBS:?}"
     );
 }

@@ -77,3 +77,20 @@ fn a_staged_mutant_moves_neither_the_fingerprint_nor_another_tests_verdict() {
     );
     mutant.cleanup();
 }
+
+/// Two live mutants of one harness are two files: dropping one leaves the other runnable.
+#[test]
+fn two_mutants_of_one_harness_do_not_share_a_path() {
+    let stage = || {
+        harness_copy_with_in(
+            "wasm-tick-bench.mjs",
+            "const SETTLE_TICKS = 112;",
+            "const SETTLE_TICKS = 111;",
+        )
+    };
+    let first = stage();
+    let second = stage();
+    assert_ne!(first.0, second.0);
+    drop(first);
+    assert!(second.0.exists(), "dropping one mutant deleted the other");
+}

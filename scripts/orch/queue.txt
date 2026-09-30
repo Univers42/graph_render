@@ -9,3 +9,5 @@ merge-sim|build|prompts/jobs/merge-sim.md|scripts/orch/rows/quick.rows|no
 tier-closed-form|build|prompts/jobs/tier-closed-form.md|scripts/orch/rows/quick.rows|no
 p12-t2|build|prompts/jobs/p12-t2.md|scripts/orch/rows/quick.rows|no
 tier-settle|build|prompts/jobs/tier-settle.md|scripts/orch/rows/quick.rows|no
+p13-gv1-twopi|build|prompts/jobs/p13-gv1-twopi.md|scripts/orch/rows/quick.rows|no
+merge-p12-igraph|build|prompts/jobs/merge-p12-igraph.md|scripts/orch/rows/quick.rows|no
