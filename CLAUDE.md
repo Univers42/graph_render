@@ -79,12 +79,9 @@ No bare `cargo`, `rustc`, `npm` or `node`: the host has none that match the pins
 `scripts/orch/` mount the current git top-level at `/w`, so they act on whichever worktree you are in.
 
 ```sh
-# images, once per host (the header of each Dockerfile has the proxy/CA variant)
-docker build -f docker/rust.Dockerfile -t ge-rust .
-docker build -f docker/mutants.Dockerfile -t ge-mutants .        # FROM ge-rust
-scripts/orch/fetch-refs.sh                                        # pinned references -> /goinfre/dlesieur/refs
-docker build --build-context nx=/goinfre/dlesieur/refs/networkx-3.6 \
-  -f docker/python-oracle.Dockerfile -t ge-python-oracle .
+# once per host: the pinned references, then each image by the build line in its Dockerfile header
+# (docker/{rust,mutants,python-oracle}.Dockerfile, deploy/chromium.Dockerfile; mutants is FROM ge-rust)
+scripts/orch/fetch-refs.sh                                        # -> /goinfre/dlesieur/refs
 
 # the merge floor
 scripts/orch/gr cargo fmt --all --check
@@ -120,7 +117,6 @@ scripts/studio.sh wasm        # build graph-wasm and stage it with fixtures/ int
 scripts/studio.sh             # dev server on http://127.0.0.1:5174 (STUDIO_PORT)
 scripts/studio.sh check       # the studio's merge floor: tsc, unit + render tests, eslint, vite build
 scripts/studio.sh test        # tests only; needs the pinned refs at $REFS (default /goinfre/dlesieur/refs)
-docker build -f deploy/chromium.Dockerfile -t gm-chromium deploy   # once, for the browser gates
 scripts/studio-nav.sh         # one browser gate over app/dist; siblings: perf, parity, interact, filters, ...
 STUDIO_NAV_BREAK=1 scripts/studio-nav.sh   # its negative control: expect non-zero
 ```
@@ -128,7 +124,6 @@ STUDIO_NAV_BREAK=1 scripts/studio-nav.sh   # its negative control: expect non-ze
 - A fresh worktree needs `npm ci` before `cargo test`: the `cli_oracles` tests run the Node harness and
   fail on a missing `node_modules`.
 - Without `--no-fail-fast` cargo stops at the first failing test binary and hides the other crates.
-- Host rustfmt is not configured; format with `gr cargo fmt`.
 - `gr` caps memory at 8g (`GR_MEM`); exit 137 on a legitimate row means raise it. `GR_IMAGE` picks the image.
 - `/goinfre` is wiped when the host changes. `mutants.sh` and the rows files call the helpers at
   `/goinfre/dlesieur/orch/bin/`, which are symlinks to `scripts/orch/`; recreate them, the worktrees and
@@ -144,6 +139,8 @@ STUDIO_NAV_BREAK=1 scripts/studio-nav.sh   # its negative control: expect non-ze
   `docs/decisions/render-ports-not-imports.md`; the script headers are current.
 - Agent jobs run headless in OpenCode (`opencode.json`, `.opencode/agents/`): `scripts/orch/oc-job.sh`
   launches one in a worktree and gates it, and `scripts/orch/oc-status.sh` lists every job's state.
+  `scripts/orch/job-check.sh start|wait|status|lint|commit` is the deterministic half: it runs the rows
+  gate and commits only on a PASS over the same tree.
 - The shell is zsh: an unmatched glob aborts the command and `echo ===` expands `=`. Use `git grep`.
   Kill by PID; `pkill -f <pattern>` matches your own command line.
 
@@ -206,16 +203,11 @@ never leaves the motor. Specs: `docs/contract/`.
 
 ### Determinism (D1–D10, authoritative in `prompt.md` §6)
 
-Output must be bit-identical native vs wasm32. In practice:
-
-- Every transcendental goes through `libm`. No `mul_add`, `powi`, relaxed-simd or FTZ/DAZ.
-- Reductions run in a fixed order; ties break by dense index. Use `IndexMap`/`BTreeMap` wherever
-  iteration order is observable, never `HashMap`.
-- Wire integers are `u32`/`u64`, never `usize`.
-- No clock and no randomness except the seeded generators. Assert no NaN/Inf before hashing.
-- Per-step kernels are gathers: element `i` reads start-of-step state and writes only `out[i]`.
-- A new struct field needs every constructor across crates, wire formats included. The wasm ingest once
-  dropped `EdgeRecord.child_first`, and only the hash gate caught it.
+Output must be bit-identical native vs wasm32. Read §6 before touching motor math. In short: `libm` for
+every transcendental, no FMA; fixed-order reductions; `IndexMap`/`BTreeMap`, never `HashMap`; wire integers
+`u32`/`u64`, never `usize`; no clock; per-step kernels are gathers. Beyond §6: a new struct field needs
+every constructor across crates, wire formats included. The wasm ingest once dropped
+`EdgeRecord.child_first`, and only the hash gate caught it.
 
 ### Differential oracles
 
@@ -253,7 +245,7 @@ also a required ledger field. Decisions are recorded in `docs/decisions/`, measu
 
 - The renderer's only input is snapshot **bytes** (`docs/contract/binary-layout.md`). It ports what it
   needs from the oracle and never imports `src/`: gate row `no-oracle-import`.
-- Gate row `motor-alone` runs the Rust merge floor with `app packages server deploy` removed. Red means
+- Gate row `motor-alone` runs the Rust merge floor with `app`, `packages` and `deploy` removed. Red means
   the motor has grown a dependency on its viewer.
 - `<graph-studio>` (`packages/graph-studio/src/element.ts`) is a custom element in its own shadow root.
   The motor runs in a Web Worker behind `src/motor/protocol.ts`.
