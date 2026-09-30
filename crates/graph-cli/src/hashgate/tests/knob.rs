@@ -5,11 +5,11 @@
 //! `hashgate/stages.rs`'s module doc) — one spelling of each id, in the crate that
 //! implements the layout, rather than a copy here.
 //!
-//! Split by the house's 300-line limit: [`controls`] holds the two force controls and the
-//! vacuous-control refusal, [`ids`] the four Phase 3 stage ids, [`p3`] the four Phase 3
-//! controls, and [`table`] the knob table itself — the ten parameter controls, the fifteen
-//! ANALYSIS and POST controls, and the one compute-tier control, each held against the
-//! variable and record it claims.
+//! Split by the house's 300-line limit: [`controls`] holds the two force controls, the
+//! vacuous-control refusal and the rescale-merge control, [`ids`] the four Phase 3 stage
+//! ids, [`p3`] the four Phase 3 controls, and [`table`] the knob table itself — the ten
+//! parameter controls, the fifteen ANALYSIS and POST controls, and the two compute-tier
+//! controls, each held against the variable and record it claims.
 
 mod controls;
 mod ids;
@@ -162,5 +162,43 @@ fn every_word_the_split_knob_accepts_is_a_threaded_pass() {
     assert_eq!(
         accepted, listed,
         "the knob's words and the stage's passes are one set, whatever their order"
+    );
+}
+
+/// `GM_MUTATE_SPLIT_RESCALE` is a flag, parsed rather than tested for presence: `0` is the
+/// honest run and a typo an error rather than a silent mutation — the same discipline as
+/// its sibling, and the reason the two cannot drift on what counts as "on".
+#[test]
+fn the_split_rescale_knob_is_a_flag_parsed_strictly() {
+    for (word, want) in [
+        ("1", true),
+        ("true", true),
+        ("TRUE", true),
+        (" 1 ", true),
+        ("0", false),
+        ("false", false),
+        ("FALSE", false),
+    ] {
+        let read = env(vec![("GM_MUTATE_SPLIT_RESCALE", word)]);
+        let got = setting(read).expect(word);
+        assert_eq!(got.split_rescale, want, "GM_MUTATE_SPLIT_RESCALE={word:?}");
+        assert_eq!(got.control, Some(Knob::SplitRescale));
+    }
+    for typo in ["maybe", "2", "", "charge", "-1"] {
+        let read = env(vec![("GM_MUTATE_SPLIT_RESCALE", typo)]);
+        let err = setting(read).expect_err(typo);
+        assert!(err.contains("GM_MUTATE_SPLIT_RESCALE"), "{err}");
+    }
+    // Off by default, and inert for the other control: an unset variable must not mutate
+    // anything, and the two compute-tier knobs must not share a setting.
+    assert!(!honest().split_rescale);
+    let both = env(vec![
+        ("GM_MUTATE_SPLIT_SUM", "1"),
+        ("GM_MUTATE_SPLIT_RESCALE", "1"),
+    ]);
+    assert!(
+        setting(both)
+            .expect_err("one at a time")
+            .ends_with("one control at a time")
     );
 }

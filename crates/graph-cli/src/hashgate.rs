@@ -26,9 +26,11 @@ mod transport;
 use crate::evidence;
 use crate::runner::{build_wasm, file_sha256, node_harness, run_lines, sha256_hex};
 use compare::{Arm, Tally, diverged, per_stage};
+use graph_core::Grid;
 use graph_core::Stage;
 use graph_core::layout::force::{BarnesHut, Split};
 use graph_core::layout::forceatlas2::Fa2Params;
+use graph_core::layout::{circular::ring, spiral};
 pub use knob::Knob;
 use knob::{Setting, env_setting};
 pub(crate) use stages::{LAYOUT, TRANSPORT};
@@ -85,6 +87,14 @@ pub fn run(seeds: u32, tiers: Tiers) -> ExitCode {
 /// seeds would corrupt no bytes and exit **0**, a *vacuous pass*: an exit code that reads as
 /// evidence for a control that never ran. Refusing is the only honest answer, and the
 /// existing `Err` path already carries it as exit 2, "could not run".
+///
+/// **`GM_MUTATE_SPLIT_RESCALE` has no floor and needs none.** The `coords` merge steals the
+/// next node's term, and the gate's smallest model is `2 + seed % 600` nodes — so seed 0 is
+/// already two nodes, which is where the control bites. That is *measured*, not assumed:
+/// `coords/tests.rs`'s `the_control_cannot_bite_on_a_one_node_cloud_and_does_on_two` is the
+/// statement, and it is why no `min_seeds` sibling is declared for the flag. A floor here
+/// would have been a second number to keep in agreement with that test for no extra
+/// protection.
 fn refuse_a_vacuous_control(seeds: u32, split: Split) -> Result<(), String> {
     let floor = split.min_seeds();
     if seeds < floor {
@@ -125,14 +135,16 @@ fn arm_lines(seeds: u32, setting: &Setting) -> Result<String, String> {
     Ok(blocks.concat())
 }
 
-/// `stage seed sha256` lines for a Barnes-Hut stage run over `workers` `std::thread`s, and
-/// **every other stage byte-identical to the serial arm's**.
+/// `stage seed sha256` lines for every **threaded** stage run over `workers`
+/// `std::thread`s, and every other stage byte-identical to the serial arm's.
 ///
 /// The stages are the gate's own registry list, in its own order, so the comparison is
-/// line-for-line against the scalar arm. The force stage is computed by
-/// `BarnesHut::run_with(..., &Threads, workers)` — the same call the scalar arm reaches
-/// through `Stage::run` with one worker, so the arm checks a *schedule* rather than a
-/// second implementation.
+/// line-for-line against the scalar arm. The four threaded stages are computed by their own
+/// `run_with(..., &Threads, workers)` — the same call the scalar arm reaches with one
+/// worker and [`graph_core::exec::Serial`], so an arm checks a *schedule* rather than a
+/// second implementation. Which four is [`threaded_bytes`]'s match, and a stage absent from
+/// it is hashed from the scalar arm's own bytes: its "equal" is then the arm compared with
+/// itself, which is why that match is the list of what `--tiers all` proves.
 /// **Stage-major, seed-minor**, exactly as [`arm_lines`] prints them: every seed of one
 /// stage, then every seed of the next. That ordering is not cosmetic — `compare::diverged`
 /// reads line `i` as stage `i / seeds`, seed `i % seeds`, so a seed-major arm would be
@@ -151,13 +163,20 @@ fn threads_lines(seeds: u32, setting: &Setting, workers: u32) -> Result<Vec<Stri
     Ok(blocks.concat().lines().map(str::to_owned).collect())
 }
 
-/// [`stage_bytes`](stages::stage_bytes) with the Barnes-Hut stage run threaded, and with
-/// `setting.split_sum` — the negative control — carried into it.
+/// [`stage_bytes`](stages::stage_bytes) with every threaded stage **recomputed** over
+/// `workers` workers, and with both compute-tier controls carried into it.
 ///
-/// The control reaches the *stage*, not just the arm, so `GM_MUTATE_SPLIT_SUM=1 --tiers all`
-/// diverges the threaded arms from the scalar one on the force stage and nowhere else. That
-/// is the shape the phase prompt asks the control to have: a mutation a threaded arm cannot
-/// survive, so the gate's red is proof the arms were compared.
+/// Four stages are recomputed and every other stage reuses the scalar arm's bytes: the
+/// stages whose work a runner can divide. Until an id is in [`threaded_bytes`], a threaded
+/// arm hashes the *scalar* column for it, and "equal" for that stage is vacuous — the arm
+/// would be compared with itself. So this match is the list of what `--tiers all` actually
+/// proves, and a stage added to it later is a stage whose equality is a real claim.
+///
+/// Each control reaches the *stage*, not just the arm, so `GM_MUTATE_SPLIT_SUM=1` diverges
+/// the threaded arms on the force stage and `GM_MUTATE_SPLIT_RESCALE=1` on the three
+/// closed-form point layouts — and on no other stage either way. That is the shape the
+/// phase prompt asks a control to have: a mutation a threaded arm cannot survive, so the
+/// gate's red is proof the arms were compared.
 fn stage_bytes_threaded(
     seed: u32,
     setting: &Setting,
@@ -168,24 +187,46 @@ fn stage_bytes_threaded(
     let topology = graph_core::index_model(&nodes, &edges).map_err(|e| e.to_string())?;
     let mut out = Vec::new();
     for (id, bytes) in stages::stage_bytes(seed, setting)? {
-        let bytes = if id == BarnesHut::ID {
-            let geometry = BarnesHut::run_under(
-                &topology,
-                &setting.force,
-                &Threads,
-                workers,
-                setting.split_sum,
-            )
-            .map_err(|e| e.to_string())?;
-            graph_core::layout::snapshot(&topology, geometry)
-                .map(|snapshot| snapshot.to_bytes())
-                .map_err(|e| e.to_string())?
-        } else {
-            bytes
-        };
-        out.push((id, bytes));
+        out.push((id, threaded_bytes(id, &topology, setting, workers, bytes)?));
     }
     Ok(out)
+}
+
+/// One stage's threaded bytes, or the scalar arm's own when the stage is not threaded.
+///
+/// **One match arm for the three closed-form layouts, not three.** They share the control
+/// and the shape of the claim, and three arms spelling the same routing three times is
+/// three places a stage could be added to one and missed in another.
+fn threaded_bytes(
+    id: &'static str,
+    topology: &graph_core::Topology,
+    setting: &Setting,
+    workers: u32,
+    scalar: Vec<u8>,
+) -> Result<Vec<u8>, String> {
+    let geometry = match id {
+        BarnesHut::ID => BarnesHut::run_under(
+            topology,
+            &setting.force,
+            &Threads,
+            workers,
+            setting.split_sum,
+        ),
+        Grid::ID => Grid::run_with(topology, &setting.grid, &Threads, workers),
+        ring::ID => ring::run_under(topology, &Threads, workers, setting.split_rescale),
+        spiral::ID => spiral::run_under(
+            topology,
+            &spiral::SpiralParams::default(),
+            &Threads,
+            workers,
+            setting.split_rescale,
+        ),
+        _ => return Ok(scalar),
+    }
+    .map_err(|e| format!("{id}: {e}"))?;
+    graph_core::layout::snapshot(topology, geometry)
+        .map(|snapshot| snapshot.to_bytes())
+        .map_err(|e| format!("{id}: {e}"))
 }
 
 fn collect_arms(seeds: u32, tiers: Tiers) -> Result<Vec<Arm>, String> {

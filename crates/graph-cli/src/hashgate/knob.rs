@@ -142,19 +142,48 @@ pub enum Knob {
     /// the [`Setting`] so a knob cannot change behaviour without being declared here — the
     /// same discipline every other knob obeys.
     SplitSum,
+    /// `GM_MUTATE_SPLIT_RESCALE`: **native arms only, and the threaded ones above all.**
+    ///
+    /// The closed-form point layouts' sibling of [`Knob::SplitSum`], and the control that
+    /// makes the *other* half of Phase 11 provable: `coords`' shared merge. It makes the
+    /// `rescale_layout` centroid merge read the **next** node's term into this node's — the
+    /// shape a wrong partition of the outputs would take — so the threaded arms of
+    /// `layout.grid`, `layout.circular.ring` and `layout.spiral` must diverge from the
+    /// scalar one, and the arms of every other stage must not.
+    ///
+    /// **It reaches the merge, not the gather.** A knob that perturbed a layout's own
+    /// arithmetic would move the *scalar* arm too and so would prove only that the stage is
+    /// hashed; this one exists to prove the threaded arm **recomputed** the merge. A
+    /// threaded arm that reused the scalar column would agree with a mutated one, and
+    /// "10-way equal" would be a statement about nothing.
+    ///
+    /// A `bool` and not a `Split`, because there is exactly one merge to name — the three
+    /// Barnes-Hut passes each needed their own variant so a row could prove a *particular*
+    /// kernel was compared, and one merge cannot be told apart from itself. It is a
+    /// compiled-in parameter, never a `cfg` and never an environment read, for
+    /// [`Knob::SplitSum`]'s reason: graph-core reads no clock, no environment and no
+    /// hardware, and the host supplies even the mutation.
+    ///
+    /// **The grid's own control answers a different question.**
+    /// [`Knob::GridSpacing`] is a *pass* control: it moves a real parameter, so it moves
+    /// the scalar arm and every threaded arm alike, and what it proves is that
+    /// `layout.grid` is hashed and compared at all. This one is the *fail* control for the
+    /// merge the three layouts share, and it moves only the threaded arms. Both are kept:
+    /// one question each, neither standing in for the other.
+    SplitRescale,
 }
 
 impl Knob {
     /// Every knob: the ten that move a parameter, then the fifteen ANALYSIS and POST
-    /// stage controls in [`knobs::ANALYSIS_POST_STAGES`] order, then the compute-tier
-    /// control last.
+    /// stage controls in [`knobs::ANALYSIS_POST_STAGES`] order, then the two compute-tier
+    /// controls last.
     ///
     /// **A `const`, because `capabilities::verdict::Evidence::load` walks it** to collect
     /// one control record each — a ledger read cannot be a function call per row. So the
     /// fifteen are spelled as arms here and held against that one table by
     /// `the_analysis_and_post_controls_are_the_knobs_table`, which fails on any arm whose
     /// variable, record or stage the table disagrees with.
-    pub const ALL: [Self; 26] = [
+    pub const ALL: [Self; 27] = [
         Self::ReferenceDegree,
         Self::GridSpacing,
         Self::SugiyamaLayerSpacing,
@@ -181,6 +210,7 @@ impl Knob {
         Self::PostStyleQuadratic,
         Self::PostStyleBezier,
         Self::SplitSum,
+        Self::SplitRescale,
     ];
 
     /// The variable that sets it.
@@ -212,6 +242,7 @@ impl Knob {
             Self::PostStyleQuadratic => "GM_MUTATE_POST_STYLE_QUADRATIC",
             Self::PostStyleBezier => "GM_MUTATE_POST_STYLE_BEZIER",
             Self::SplitSum => "GM_MUTATE_SPLIT_SUM",
+            Self::SplitRescale => "GM_MUTATE_SPLIT_RESCALE",
         }
     }
 
@@ -248,6 +279,7 @@ impl Knob {
             Self::PostStyleQuadratic => "hashgate-control-post-style-quadratic",
             Self::PostStyleBezier => "hashgate-control-post-style-bezier",
             Self::SplitSum => "hashgate-control-split-sum",
+            Self::SplitRescale => "hashgate-control-split-rescale",
         }
     }
 }

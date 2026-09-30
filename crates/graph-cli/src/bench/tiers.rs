@@ -19,11 +19,15 @@
 //!   the load next to it cannot be read honestly.
 
 pub mod markdown;
+mod route;
 mod sweep;
 
-pub use sweep::run;
 /// The control entry point, reachable only from this module's own tests: a host has no
 /// business timing a deliberately wrong tier, and a public one could be taken for a flag.
+#[cfg(test)]
+pub use route::Control;
+pub use route::layouts;
+pub use sweep::run;
 #[cfg(test)]
 pub use sweep::run_under;
 
@@ -125,10 +129,16 @@ pub fn arms(asked: &[Asked], workers: &[u32]) -> Vec<Tier> {
     out
 }
 
-/// One timed (size, tier) cell: every run, and whether the arm's geometry was the serial
-/// arm's bytes.
+/// One timed (layout, size, tier) cell: every run, and whether the arm's geometry was the
+/// serial arm's bytes **of the same layout at the same size**.
+///
+/// The layout is on the cell rather than in the sweep's vocabulary because the sweep times
+/// one layout per run of the same shape: a cell that did not name its layout could not say
+/// which stage a speedup belonged to, and one table of two layouts' rows would be read as
+/// one layout's ladder.
 #[derive(Debug, Clone)]
 pub struct Cell {
+    pub layout: &'static str,
     pub n: u32,
     pub tier: Tier,
     pub runs_ms: Vec<f64>,
@@ -160,25 +170,34 @@ pub struct Host {
     pub load_end: String,
 }
 
-/// The bracket the crossover sits in: the largest measured size at which **every** threaded
-/// arm lost to scalar, and the smallest at which **any** won. `None` when the arms won (or
-/// lost) at every measured size, because then there is no crossover in this table to write
-/// a threshold row from.
+/// One rung of the ladder a crossover is bracketed between: **which layout, at which size**.
+/// A pair rather than a bare `u32` because a sweep can hold several layouts' rows, and a
+/// size without its layout says which of them the number belonged to by nothing at all.
+pub type Size = (&'static str, u32);
+
+/// The bracket the crossover sits in, for one layout: the largest measured size at which
+/// **every** threaded arm lost to scalar, and the smallest at which **any** won. `None` when
+/// the arms won (or lost) at every measured size, because then there is no crossover in
+/// this table to write a threshold row from.
 ///
 /// It is a bracket and not a point because the sweep measures the sizes it was asked for:
 /// a crossover between two measured sizes is reported as the two sizes, and the threshold
 /// row takes the **first winning** one — the smallest size at which the tier was measured
 /// to be the faster choice, which is the only statement the data actually supports.
-pub fn crossover(cells: &[Cell]) -> Option<(u32, u32)> {
-    let mut last_loss: Option<u32> = None;
-    let mut first_win: Option<u32> = None;
-    for n in cells
+///
+/// Grouped by `(layout, n)`, never by `n` alone: a table holding two layouts' rows would
+/// otherwise compare one layout's threaded arm against *the other layout's* serial arm,
+/// which is not a speedup but a subtraction.
+pub fn crossover(cells: &[Cell]) -> Option<(Size, Size)> {
+    let mut last_loss: Option<Size> = None;
+    let mut first_win: Option<Size> = None;
+    for key in cells
         .iter()
-        .map(|c| c.n)
+        .map(|c| (c.layout, c.n))
         .collect::<std::collections::BTreeSet<_>>()
     {
-        let at: Vec<&Cell> = cells.iter().filter(|c| c.n == n).collect();
-        let (Some(reference), _) = (at.iter().find(|c| c.tier == Tier::Scalar), ()) else {
+        let at: Vec<&Cell> = cells.iter().filter(|c| (c.layout, c.n) == key).collect();
+        let Some(reference) = at.iter().find(|c| c.tier == Tier::Scalar) else {
             continue;
         };
         let speeds: Vec<f64> = at
@@ -189,11 +208,10 @@ pub fn crossover(cells: &[Cell]) -> Option<(u32, u32)> {
         if speeds.is_empty() {
             continue;
         }
-        let won = speeds.iter().any(|s| *s > 1.0);
-        if won {
-            first_win = first_win.or(Some(n));
+        if speeds.iter().any(|s| *s > 1.0) {
+            first_win = first_win.or(Some(key));
         } else {
-            last_loss = Some(n);
+            last_loss = Some(key);
         }
     }
     match (last_loss, first_win) {
@@ -233,14 +251,16 @@ fn refuse_unproved_widths(widths: &[u32]) -> Result<(), String> {
 pub fn entry(plan: &Plan) -> Result<bool, String> {
     let widths = widths(plan);
     refuse_unproved_widths(&widths)?;
+    let layouts = layouts(plan)?;
     let tiers = arms(&plan.tiers.clone().unwrap_or_default(), &widths);
     if tiers.is_empty() {
         return Err("--tiers named no tier to time".into());
     }
-    let (cells, host) = run(plan, &tiers)?;
+    let (cells, host) = run(plan, &layouts, &tiers)?;
     for cell in &cells {
         println!(
-            "n={n} {tier:<10} {ms:>10.2} ms  equal to scalar: {equal}",
+            "{layout} n={n} {tier:<10} {ms:>10.2} ms  equal to scalar: {equal}",
+            layout = cell.layout,
             n = cell.n,
             tier = cell.tier.arm_name(),
             ms = cell.median_ms(),
