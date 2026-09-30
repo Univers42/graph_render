@@ -23,7 +23,7 @@ untouched"). The reasons:
 - So moving `CURRENT_VERSION` from 0.3 to 0.4 (`version.rs:33`), as §1 proposes, rewrites
   byte 8 of every 2D snapshot. Every 2D hash changes, and `to_json` changes its `"version"`
   member.
-- The pinned test says so directly: `binary/tests/pinned.rs:27` asserts `expected[8] == 3`.
+- The pinned test says so directly: `binary/tests/pinned.rs:29` asserts `expected[8] == 3`.
 
 U1 ("has anything persisted snapshots?") has an answer: yes. The studio's
 `export.snapshot` action saves the snapshot's bytes to a file (`graph-studio/src/actions/export.ts:37-38`).
@@ -85,7 +85,7 @@ step 4 says it is "omitted for `dim = 0`". The byte-identity claim needs the sec
 - The implementation job (`orch/prompts/p13-3d.txt`) carries conditions 1-6 as acceptance
   criteria. Condition 2 is its first gate row.
 - Two versions are written at once, 0.3 for 2D and 0.4 for 3D. A reader already dispatches
-  on the snapshot's own version for notes (`notes.rs:173-178`), so this adds a rule, not a
+  on the snapshot's own version for notes (`notes.rs:193`, `carries_notes`), so this adds a rule, not a
   mechanism.
 - Still open, and not blocking: the 1.0 declaration, since exported snapshots now exist
   (`export.ts:37`).
