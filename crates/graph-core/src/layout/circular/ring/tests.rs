@@ -1,4 +1,5 @@
-use super::run;
+use super::{run, run_under, run_with};
+use crate::exec::Serial;
 use crate::layout::coords::probe::{assert_close, graph, points};
 
 #[test]
@@ -40,4 +41,27 @@ fn edges_do_not_move_nodes_and_a_disconnected_graph_still_lands_on_the_ring() {
         &[(1.0, 0.0), (0.0, 1.0), (-1.0, 0.0), (0.0, -1.0)],
         1e-6,
     );
+}
+
+/// Every width writes the same ring: the gather is a per-node function and the merge below
+/// it is a serial loop over the whole column, so the division of the outputs cannot move a
+/// byte. Sizes chosen to divide unevenly by every width the gate runs.
+#[test]
+fn the_ring_is_the_same_bytes_at_every_worker_count() {
+    for n in [2, 3, 5, 16, 17, 64, 1000] {
+        let want = points(&run(&graph(n, &[])).unwrap());
+        for workers in [1, 2, 3, 4, 7] {
+            let got = run_with(&graph(n, &[]), &Serial, workers).unwrap();
+            assert_eq!(points(&got), want, "n = {n}, workers = {workers}");
+        }
+    }
+}
+
+/// The negative control reaches the **merge** and not the gather: the angles are untouched
+/// and the centroid is stolen, so a threaded arm that ran the merge is red.
+#[test]
+fn the_control_diverges_the_ring_from_the_honest_run() {
+    let honest = points(&run(&graph(5, &[])).unwrap());
+    let stolen = points(&run_under(&graph(5, &[]), &Serial, 3, true).unwrap());
+    assert_ne!(honest, stolen, "the shared merge did not move");
 }

@@ -4,10 +4,17 @@
 //! re-exported by the parent module from the layout module that owns each one (see
 //! `hashgate/stages.rs`'s module doc) — one spelling of each id, in the crate that
 //! implements the layout, rather than a copy here.
+//!
+//! Split by the house's 300-line limit: [`controls`] holds the two force controls, the
+//! vacuous-control refusal and the rescale-merge control, [`ids`] the four Phase 3 stage
+//! ids, [`p3`] the four Phase 3 controls, and [`table`] the knob table itself — the ten
+//! parameter controls, the fifteen ANALYSIS and POST controls, and the two compute-tier
+//! controls, each held against the variable and record it claims.
 
 mod controls;
 mod ids;
 mod p3;
+mod table;
 use controls::only_stage_moved;
 use p3::P3_SEED;
 
@@ -108,52 +115,6 @@ fn assert_refuses_unreadable_variable() {
     assert!(unreadable.is_err());
 }
 
-#[test]
-fn each_knob_names_its_own_variable_and_record() {
-    let envs = Knob::ALL.map(Knob::env);
-    let records = Knob::ALL.map(Knob::record);
-    assert_eq!(
-        envs,
-        [
-            "GM_MUTATE_REFERENCE_DEGREE",
-            "GM_MUTATE_GRID_SPACING",
-            "GM_MUTATE_SUGIYAMA_LAYER_SPACING",
-            "GM_MUTATE_NODE_COUNT",
-            "GM_MUTATE_FORCE_THETA",
-            "GM_MUTATE_FA2_SCALING_RATIO",
-            "GM_MUTATE_TREE_TIDY_NODES",
-            "GM_MUTATE_TREEMAP_NODES",
-            "GM_MUTATE_CIRCULAR_NODES",
-            "GM_MUTATE_PACKING_SCALE",
-            "GM_MUTATE_SPLIT_SUM"
-        ]
-    );
-    assert_eq!(
-        records,
-        [
-            "hashgate-control-reference-degree",
-            "hashgate-control-grid-spacing",
-            "hashgate-control-sugiyama-layer-spacing",
-            "hashgate-control-node-count",
-            "hashgate-control-force-theta",
-            "hashgate-control-fa2-scaling-ratio",
-            "hashgate-control-tree-tidy-nodes",
-            "hashgate-control-treemap-nodes",
-            "hashgate-control-circular-nodes",
-            "hashgate-control-packing-scale",
-            "hashgate-control-split-sum"
-        ]
-    );
-    // Every variable is distinct and every record is distinct: two knobs sharing a name
-    // would make one of them unreachable, and two sharing a record would overwrite it.
-    for (label, names) in [("variable", envs), ("record", records)] {
-        let mut sorted = names.to_vec();
-        sorted.sort_unstable();
-        sorted.dedup();
-        assert_eq!(sorted.len(), names.len(), "two knobs share a {label}");
-    }
-}
-
 /// `GM_MUTATE_SPLIT_SUM` names **which** gathered pass's merge to split, and is parsed
 /// rather than treated as a presence flag: `0` is the honest run and a typo is an error
 /// instead of a silent mutation.
@@ -201,5 +162,43 @@ fn every_word_the_split_knob_accepts_is_a_threaded_pass() {
     assert_eq!(
         accepted, listed,
         "the knob's words and the stage's passes are one set, whatever their order"
+    );
+}
+
+/// `GM_MUTATE_SPLIT_RESCALE` is a flag, parsed rather than tested for presence: `0` is the
+/// honest run and a typo an error rather than a silent mutation — the same discipline as
+/// its sibling, and the reason the two cannot drift on what counts as "on".
+#[test]
+fn the_split_rescale_knob_is_a_flag_parsed_strictly() {
+    for (word, want) in [
+        ("1", true),
+        ("true", true),
+        ("TRUE", true),
+        (" 1 ", true),
+        ("0", false),
+        ("false", false),
+        ("FALSE", false),
+    ] {
+        let read = env(vec![("GM_MUTATE_SPLIT_RESCALE", word)]);
+        let got = setting(read).expect(word);
+        assert_eq!(got.split_rescale, want, "GM_MUTATE_SPLIT_RESCALE={word:?}");
+        assert_eq!(got.control, Some(Knob::SplitRescale));
+    }
+    for typo in ["maybe", "2", "", "charge", "-1"] {
+        let read = env(vec![("GM_MUTATE_SPLIT_RESCALE", typo)]);
+        let err = setting(read).expect_err(typo);
+        assert!(err.contains("GM_MUTATE_SPLIT_RESCALE"), "{err}");
+    }
+    // Off by default, and inert for the other control: an unset variable must not mutate
+    // anything, and the two compute-tier knobs must not share a setting.
+    assert!(!honest().split_rescale);
+    let both = env(vec![
+        ("GM_MUTATE_SPLIT_SUM", "1"),
+        ("GM_MUTATE_SPLIT_RESCALE", "1"),
+    ]);
+    assert!(
+        setting(both)
+            .expect_err("one at a time")
+            .ends_with("one control at a time")
     );
 }

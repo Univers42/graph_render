@@ -17,6 +17,23 @@ use petgraph::visit::{EdgeRef as _, IntoEdges as _};
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 
+/// One analysis id per function this module offers, the way `components::WEAK` is one.
+///
+/// Four consts rather than one `ID`, because a caller naming
+/// `analysis.centrality.betweenness` is asking for *that* function; the string lives
+/// beside it, and graph-wasm's registry row and the hash gate's stage list both read it
+/// from here instead of spelling it a second time.
+pub const DEGREE: &str = "analysis.centrality.degree";
+
+/// [`closeness`]'s analysis id.
+pub const CLOSENESS: &str = "analysis.centrality.closeness";
+
+/// [`betweenness`]'s analysis id.
+pub const BETWEENNESS: &str = "analysis.centrality.betweenness";
+
+/// [`eigenvector`]'s analysis id.
+pub const EIGENVECTOR: &str = "analysis.centrality.eigenvector";
+
 /// Degree, reused verbatim from the column Phase 1 already built (step 4: "already in
 /// the topology columns — reuse, do not recompute").
 pub fn degree(topology: &Topology) -> &[u32] {

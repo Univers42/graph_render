@@ -17,6 +17,17 @@
 //! coordinate is one `f32` product of a half-integer below 2^16 and the spacing —
 //! exact at the default spacing, correctly rounded at any other, alike on every target.
 //!
+//! Phase 11: [`Grid::run_with`] hands the per-node gather to a runner, and **there is no
+//! merge below it** — the grid is `f32` end to end and `coords::rescale` is not in its
+//! path, so its coordinates are a pure function of the node's own index. The stage is
+//! therefore the whole kernel: a width is a schedule of it, and the only thing a wrong
+//! partition of these outputs could get wrong is a range boundary, which is what
+//! `the_lattice_is_the_same_bytes_at_every_worker_count` and the per-width hash-gate arms
+//! are for. `GM_MUTATE_GRID_SPACING` stays the stage's own control for a different
+//! question — it moves a parameter, so it moves every arm alike and proves the stage is
+//! hashed and compared at all, where the threaded arms need a control that only they can
+//! fail.
+//!
 //! Ponytail: the aspect is a convention, not a computation. When `n` is not a multiple of
 //! `cols` the last row is ragged: it holds `n − (rows − 1) · cols` nodes from column 0,
 //! and the centring is the lattice's, so the nodes' centroid sits off the origin (for
@@ -25,9 +36,11 @@
 //! the last row, under its own id; this one's convention is pinned by its hash.
 
 use super::Geometry;
+use crate::exec::{Runner, Serial, StepRange};
 use crate::index::Topology;
 use crate::stage::{Stage, StageError};
 use graph_contract::geometry::{EdgeGeometry, NodeGeometry};
+use std::ops::Range;
 
 /// The grid stage.
 #[derive(Debug, Clone, Copy)]
@@ -51,8 +64,44 @@ impl Stage for Grid {
     type Params = GridParams;
     const ID: &'static str = "layout.grid";
 
+    /// The serial tier, which is the stage: [`Grid::run_with`] over [`Serial`] with one
+    /// worker, and the arm every other runner must hash-equal.
     fn run(topology: &Topology, params: &GridParams) -> Result<Geometry, StageError> {
-        let (x, y) = positions(topology.node_count(), params.spacing)?;
+        Self::run_with(topology, params, &Serial, 1)
+    }
+}
+
+impl Grid {
+    /// The same lattice, its per-node gather handed to `runner` over `workers` workers.
+    ///
+    /// The point of the signature is what it does **not** change: `cols`, `rows`, the
+    /// centring and the one `f32` product per coordinate are the same code the serial
+    /// stage runs, and only the division of the gather differs. So `run_with(..., &Serial,
+    /// 1)` is [`Stage::run`] by construction, and any other runner is a *schedule* of the
+    /// same computation.
+    ///
+    /// **The grid has no merge, so there is nothing here for a control to corrupt** — the
+    /// coordinates are a pure function of the node's own index, and `coords::rescale` is
+    /// not in the grid's path at all (it is `f32` end to end, where `rescale` narrows
+    /// from `f64`). That is why the grid's negative control is
+    /// `GM_MUTATE_GRID_SPACING` — a *parameter*, which moves every arm, scalar and
+    /// threaded alike, and so answers "is this stage hashed and compared at all?" rather
+    /// than "did the threaded arm recompute the merge?". The answer to the second question
+    /// for the grid is a range-boundary claim, and a width of 1, 2, 3, 4 and 7 is what it
+    /// takes.
+    pub fn run_with(
+        topology: &Topology,
+        params: &GridParams,
+        runner: &impl Runner,
+        workers: u32,
+    ) -> Result<Geometry, StageError> {
+        let mut pairs = Vec::new();
+        runner.run(
+            &cells(topology.node_count(), params.spacing)?,
+            workers,
+            &mut pairs,
+        );
+        let (x, y): (Vec<f32>, Vec<f32>) = pairs.into_iter().unzip();
         Ok(Geometry {
             nodes: NodeGeometry::Point { x, y },
             edges: EdgeGeometry::Line,
@@ -71,8 +120,11 @@ pub const fn dimensions(n: u32) -> (u32, u32) {
     (cols, n.div_ceil(cols))
 }
 
-/// Every node's centre, in index order.
-fn positions(n: u32, spacing: f32) -> Result<(Vec<f32>, Vec<f32>), StageError> {
+/// The lattice kernel over `n` nodes at `spacing`, or the parameter error a bad spacing is.
+///
+/// The validation lives here, **once**: the serial stage and every threaded arm build the
+/// kernel through this, so there is no second place a spacing rule could be stated.
+fn cells(n: u32, spacing: f32) -> Result<Lattice, StageError> {
     if !(spacing.is_finite() && spacing > 0.0) {
         return Err(StageError::Param {
             name: "spacing",
@@ -80,10 +132,51 @@ fn positions(n: u32, spacing: f32) -> Result<(Vec<f32>, Vec<f32>), StageError> {
         });
     }
     let (cols, rows) = dimensions(n);
-    let offset = |cell: u32, cells: u32| (cell as f32 - (cells - 1) as f32 / 2.0) * spacing;
-    let x = (0..n).map(|i| offset(i % cols, cols)).collect();
-    let y = (0..n).map(|i| offset(i / cols, rows)).collect();
-    Ok((x, y))
+    Ok(Lattice {
+        count: n,
+        cols,
+        rows,
+        spacing,
+    })
+}
+
+/// Every node's centre, in index order: node `i` in column `i % cols`, row `i / cols`.
+///
+/// A [`StepRange`] whose `Out` is the node's own `(x, y)`, so one worker writes both of a
+/// node's coordinates and the two columns cannot come out misaligned however the range was
+/// cut. `&self` and no `&mut`: a worker reads the cell count and the spacing and writes
+/// only `out[i - range.start]`, so `0..n` divides any way at all (D10).
+#[derive(Debug)]
+struct Lattice {
+    count: u32,
+    cols: u32,
+    rows: u32,
+    spacing: f32,
+}
+
+impl Lattice {
+    /// The centre of `cell` in a run of `cells` — the lattice's own centring, the one
+    /// product the hot loop is.
+    fn offset(&self, cell: u32, cells: u32) -> f32 {
+        (cell as f32 - (cells - 1) as f32 / 2.0) * self.spacing
+    }
+}
+
+impl StepRange for Lattice {
+    type Out = (f32, f32);
+
+    fn len(&self) -> u32 {
+        self.count
+    }
+
+    fn step_range(&self, range: Range<u32>, out: &mut [(f32, f32)]) {
+        for (i, slot) in range.zip(out) {
+            *slot = (
+                self.offset(i % self.cols, self.cols),
+                self.offset(i / self.cols, self.rows),
+            );
+        }
+    }
 }
 
 #[cfg(test)]
@@ -110,9 +203,10 @@ mod tests {
         }
     }
 
-    /// Worked by hand from the two conventions, not from the code.
+    /// Worked by hand from the two conventions, not from the code, and read back out of the
+    /// kernel the threaded arms run — so the table and the tier cannot be two drawings.
     #[test]
-    fn positions_match_the_hand_worked_grids() {
+    fn the_lattice_matches_the_hand_worked_grids() {
         let cases: [(u32, &[(f32, f32)]); 5] = [
             (1, &[(0.0, 0.0)]),
             (2, &[(-0.5, 0.0), (0.5, 0.0)]),
@@ -130,19 +224,47 @@ mod tests {
             ),
         ];
         for (n, expected) in cases {
-            let (x, y) = positions(n, 1.0).expect("unit spacing");
-            let got: Vec<_> = x.into_iter().zip(y).collect();
-            assert_eq!(got, expected, "n = {n}");
+            assert_eq!(centres(n, 1.0), expected, "n = {n}");
         }
-        let (x, y) = positions(3, 2.5).expect("positive spacing");
-        assert_eq!((x, y), (vec![-1.25, 1.25, -1.25], vec![-1.25, -1.25, 1.25]));
-        assert_eq!(positions(0, 1.0).expect("empty"), (vec![], vec![]));
+        assert_eq!(
+            centres(3, 2.5),
+            vec![(-1.25, -1.25), (1.25, -1.25), (-1.25, 1.25)]
+        );
+        assert_eq!(centres(0, 1.0), vec![]);
+    }
+
+    /// Every node's centre, gathered by the kernel itself — the one the threaded arms run.
+    fn centres(n: u32, spacing: f32) -> Vec<(f32, f32)> {
+        let lattice = cells(n, spacing).expect("a spacing the rule allows");
+        let mut out = vec![(0.0, 0.0); n as usize];
+        lattice.step_range(0..n, &mut out);
+        out
+    }
+
+    /// The gather is a per-node function, so every width writes the same cell centres: this
+    /// is the grid's byte-identity claim at the unit level, and the hash gate's per-width
+    /// arms are the same statement over the gate's own models.
+    #[test]
+    fn the_lattice_is_the_same_bytes_at_every_worker_count() {
+        for n in [0, 1, 2, 3, 5, 16, 17, 64, 1000] {
+            let want = centres(n, 1.0);
+            for workers in [1, 2, 3, 4, 7] {
+                let topology = crate::layout::coords::probe::graph(n, &[]);
+                let got = Grid::run_with(&topology, &GridParams { spacing: 1.0 }, &Serial, workers)
+                    .expect("unit spacing");
+                let NodeGeometry::Point { x, y } = got.nodes else {
+                    panic!("point nodes");
+                };
+                let pairs: Vec<(f32, f32)> = x.into_iter().zip(y).collect();
+                assert_eq!(pairs, want, "n = {n}, workers = {workers}");
+            }
+        }
     }
 
     #[test]
     fn a_spacing_that_is_not_finite_and_positive_is_refused() {
         for spacing in [0.0, -0.0, -1.0, f32::NAN, f32::INFINITY] {
-            let err = positions(4, spacing).expect_err("refused");
+            let err = cells(4, spacing).expect_err("refused");
             assert_eq!(
                 err,
                 StageError::Param {
@@ -152,7 +274,7 @@ mod tests {
                 "{spacing}"
             );
         }
-        assert!(positions(4, f32::MIN_POSITIVE).is_ok());
+        assert!(cells(4, f32::MIN_POSITIVE).is_ok());
     }
 
     #[test]

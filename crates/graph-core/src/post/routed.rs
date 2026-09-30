@@ -130,6 +130,16 @@ impl Routed {
     }
 }
 
+/// This module's capability id, the one the hash gate's POST stage list names.
+///
+/// Not a [`META`](crate::post::META) entry: routing has no `PostRun`-shaped entry point
+/// of its own (it needs a grid index and a node geometry, not a handle's snapshot), so
+/// graph-core's POST registry does not hold it. It still owns the id — a caller asking for
+/// `post.route.grid` is asking for *this* code — so the string lives here, the way
+/// `fdeb::ID` and `mingle::ID` do, and graph-wasm's registry row re-exports it rather than
+/// spelling it a second time.
+pub const ID: &str = "post.route.grid";
+
 /// Routes every edge of `edges` around the nodes in `nodes`, at `params`.
 ///
 /// `edges` supplies only the endpoint columns (`source`, `target`); nothing else about an

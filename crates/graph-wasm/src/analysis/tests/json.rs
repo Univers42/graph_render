@@ -1,4 +1,9 @@
-use super::*;
+//! The exact JSON text, for every analysis, over two fixtures.
+
+use super::fixtures::*;
+use graph_contract::canonical_json::{Value, parse};
+use graph_core::analysis::{components, depth};
+use graph_core::layout::hierarchy::Hierarchy;
 
 /// The exact JSON text, for every analysis, over two fixtures. Every value is derivable
 /// by hand from the path fixture (unit edge weights, so closeness is `1/sum of
@@ -56,10 +61,75 @@ fn the_json_face_is_pinned_byte_for_byte() {
             r#"{"id":"analysis.depth.bfs","kind":"u32","max":1,"nodeCount":3,"values":[1,1,1]}"#,
         ),
     ];
-    assert_eq!(want.len(), count() as usize);
+    assert_eq!(want.len(), crate::analysis::registry::count() as usize);
     for (id, text) in want {
         let index = index_of(id);
-        assert_eq!(to_json(index, &t).as_deref(), Some(text), "{id}");
+        assert_eq!(
+            crate::analysis::registry::to_json(index, &t).as_deref(),
+            Some(text),
+            "{id}"
+        );
+    }
+}
+
+#[test]
+fn weak_and_strong_components_are_pinned_on_a_directed_two_cycle() {
+    let t = two_cycle();
+    assert_eq!(
+        crate::analysis::registry::to_json(0, &t).as_deref(),
+        Some(r#"{"id":"analysis.components.weak","kind":"u32","nodeCount":2,"values":[0,0]}"#)
+    );
+    assert_eq!(
+        crate::analysis::registry::to_json(1, &t).as_deref(),
+        Some(r#"{"id":"analysis.components.strong","kind":"u32","nodeCount":2,"values":[0,0]}"#)
+    );
+    // A one-way edge is the case the two must differ on: strong splits it, weak does not.
+    let one_way = directed(&["a", "b"], &[("e0", "a", "b")]);
+    assert_eq!(components::strong(&one_way), [0, 1]);
+    assert_eq!(components::weak(&one_way), [0, 0]);
+}
+
+#[test]
+fn depth_follows_the_virtual_root_convention_over_a_forest() {
+    let t = forest();
+    assert_eq!(
+        depth::bfs_depth(&Hierarchy::of(&t).expect("repairs")).levels(),
+        &[1, 2, 3, 1]
+    );
+    assert_eq!(
+        crate::analysis::registry::to_json(7, &t).as_deref(),
+        Some(
+            r#"{"id":"analysis.depth.bfs","kind":"u32","max":3,"nodeCount":4,"values":[1,2,3,1]}"#
+        )
+    );
+    // A graph whose only edge is a `relation` has no hierarchy edge at all, so *every*
+    // node is a root: two roots means the virtual root, and both sit at depth 1. This is
+    // the case that would read as "an orphan at depth 0" if the convention were skipped.
+    let single = topology(&["a", "b"], &[("e0", "a", "b")]);
+    assert_eq!(
+        crate::analysis::registry::to_json(7, &single).as_deref(),
+        Some(r#"{"id":"analysis.depth.bfs","kind":"u32","max":1,"nodeCount":2,"values":[1,1]}"#),
+        "no hierarchy edge: every node is a root, and two roots hang off the virtual one"
+    );
+    // One root is at depth 0 — the difference between the two root cases, pinned.
+    let chain = forest_without_the_isolated_node();
+    assert_eq!(
+        crate::analysis::registry::to_json(7, &chain).as_deref(),
+        Some(r#"{"id":"analysis.depth.bfs","kind":"u32","max":2,"nodeCount":3,"values":[0,1,2]}"#),
+        "a single root counts out from itself"
+    );
+}
+
+#[test]
+fn an_empty_graph_answers_an_empty_column_from_every_analysis() {
+    let t = graph_core::empty_model();
+    for id in ids() {
+        let index = index_of(id);
+        let report = crate::analysis::registry::run(index, &t).expect("registered");
+        assert_eq!(report.values.len(), 0, "{id}");
+        let text = crate::analysis::registry::to_json(index, &t).expect("encodes");
+        let parsed = parse(&text).expect("the face is valid JSON");
+        assert_eq!(count_of(&parsed), Some(0), "{id}: {text}");
     }
 }
 
@@ -70,7 +140,7 @@ fn the_face_parses_and_its_keys_are_in_ascending_order() {
     let t = forest();
     for id in ids() {
         let index = index_of(id);
-        let text = to_json(index, &t).expect("encodes");
+        let text = crate::analysis::registry::to_json(index, &t).expect("encodes");
         let Value::Object(members) = parse(&text).expect("the face is valid JSON") else {
             panic!("{id}: not an object");
         };
@@ -88,16 +158,4 @@ fn the_face_parses_and_its_keys_are_in_ascending_order() {
             "{id}: every result names itself"
         );
     }
-}
-
-/// `kind` is the one member of the face that says whether `values` holds scores or
-/// labels, so both of its branches are pinned: an `f64` column and a `u32` one, and the
-/// length a `u32` label column reports.
-#[test]
-fn kind_names_the_element_type_of_both_column_kinds() {
-    assert_eq!(Column::F64(vec![0.5, 1.5]).kind(), "f64");
-    assert_eq!(Column::U32(vec![0, 1]).kind(), "u32");
-    assert_eq!(Column::F64(vec![0.5, 1.5]).len(), 2);
-    assert_eq!(Column::U32(vec![0, 1, 2]).len(), 3);
-    assert_eq!(Column::U32(vec![]).len(), 0);
 }

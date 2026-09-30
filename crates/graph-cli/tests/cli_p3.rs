@@ -187,13 +187,20 @@ fn the_p3_controls_are_refused_on_a_typo_a_zero_or_a_doubled_knob() {
     assert_eq!(both.status.code(), Some(2), "one control at a time");
 }
 
-/// The knob list and the four controls are the same four names. `common::KNOBS` is the
-/// list every test binary clears, so a control missing from it leaks in from the
-/// environment and turns an honest run red — or a control run green.
+/// The knob list carries every Phase 3 control. `common::KNOBS` is the list every test
+/// binary clears, so a control missing from it leaks in from the environment and turns an
+/// honest run red — or a control run green. The list has since grown past Phase 3 to the
+/// eight ANALYSIS and seven POST stage controls and the compute-tier control, so its length
+/// is pinned to the whole set rather than to these four.
 #[test]
 fn the_knob_list_carries_every_p3_control_and_nothing_else() {
     for (knob, _, _, _) in CONTROLS {
         assert!(KNOBS.contains(&knob), "{knob} is missing from KNOBS");
     }
-    assert_eq!(KNOBS.len(), 10, "six before Phase 3, four added: {KNOBS:?}");
+    assert_eq!(
+        KNOBS.len(),
+        27,
+        "ten parameter controls, then the fifteen stage controls, then the two compute-tier \
+         controls: {KNOBS:?}"
+    );
 }

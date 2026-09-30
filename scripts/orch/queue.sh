@@ -41,14 +41,14 @@ land() { # <label>
   ) 9>"$st/land.lock"
 }
 
-# develop moved while the gate ran. Ponytail: a move that touches only docs, prompts and orchestration
+# develop moved while the gate ran. Ponytail: a move that touches only docs, prompts and scripts/orch
 # text is merged without re-gating (none of it is fingerprinted, CLAUDE.md "Evidence is pinned");
 # any other path fails the landing, and the job is landed again from scratch.
 catch_up() {
   local base
   base=$(git rev-parse origin/develop)
   git fetch -q origin develop || return 1
-  git diff --quiet "$base" origin/develop -- . ':!docs' ':!prompts' ':!scripts/orch/queue.txt' ':!*.md' || return 1
+  git diff --quiet "$base" origin/develop -- . ':!docs' ':!prompts' ':!scripts/orch' ':!*.md' || return 1
   "${git_as[@]}" merge -q --no-edit -m updated origin/develop
 }
 

@@ -1,0 +1,175 @@
+# The merge floor on GitHub Actions (approved 2026-09-30, plan step 6b).
+#
+# Three jobs: `floor` runs scripts/orch/rows/quick.rows on x86_64, `hash-arm64` runs the
+# hashgate on arm64, and `hash-compare` diffs the two hash dumps byte for byte. A hash the
+# two architectures do not agree on fails the run.
+#
+# Toolchain rule (CLAUDE.md "Hard constraints"): Docker-only, no prebuilt vendor language
+# image. Everything below runs through scripts/orch/ against ge-rust, built from
+# docker/rust.Dockerfile. `npm ci` runs inside ge-rust too (it carries node), so no second
+# image is pulled as a toolchain.
+#
+# Every action is pinned to a full commit sha with its version in a comment.
+
+name: floor
+
+on:
+  push:
+    branches: [develop, main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # scripts/orch/scratch.sh honours a GM_SCRATCH it inherits; a runner has no /goinfre.
+  GM_SCRATCH: ${{ runner.temp }}/gm
+
+jobs:
+  floor:
+    name: floor (x86_64)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      # SciGraphs' .gitmodules URL is SSH; without an ssh-key checkout rewrites
+      # git@github.com: to https:// over the temp global config, before it ever
+      # syncs submodules. SciGraphs is public, so the default token is enough.
+      # `.claude` is not a submodule (.gitmodules lists only SciGraphs) — it is
+      # ordinary tracked content and arrives with the checkout.
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          submodules: recursive
+
+      # restore/save are split rather than the combined action: that action saves in a
+      # post step gated on success(), so a failing gate would leave nothing cached and
+      # every retry would rebuild the toolchain from scratch.
+      - name: Restore ge-rust
+        id: image-cache
+        uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: ${{ runner.temp }}/ge-rust.tar
+          # runner.arch keeps an x86_64 tarball out of the arm64 job: they cannot load
+          # each other, and a shared key would thrash.
+          key: ge-rust-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('docker/rust.Dockerfile') }}
+
+      - name: Build ge-rust
+        if: steps.image-cache.outputs.cache-hit != 'true'
+        run: |
+          docker build -f docker/rust.Dockerfile -t ge-rust .
+          docker save --output "$RUNNER_TEMP/ge-rust.tar" ge-rust
+
+      - name: Save ge-rust
+        if: steps.image-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: ${{ runner.temp }}/ge-rust.tar
+          key: ge-rust-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('docker/rust.Dockerfile') }}
+
+      - name: Load ge-rust
+        if: steps.image-cache.outputs.cache-hit == 'true'
+        run: docker load --input "$RUNNER_TEMP/ge-rust.tar"
+
+      - name: npm ci
+        # The cli_oracles tests resolve d3 from the workspace root's node_modules.
+        run: scripts/orch/gr npm ci --ignore-scripts
+
+      - name: Merge floor gate
+        run: scripts/orch/gate.sh "$RUNNER_TEMP/gate" scripts/orch/rows/quick.rows
+
+      - name: Hashgate hashes (x86_64)
+        run: |
+          scripts/orch/gr cargo run -q -p graph-cli -- hashgate --seeds 8 \
+            > "$RUNNER_TEMP/hashgate.stdout"
+          # `hashgate: wasm artifact <path> sha256 <digest>` names a build artifact the
+          # run just rebuilt on this runner. It is not a gate result and the two
+          # architectures need not build identical wasm bytes, so it is not compared.
+          grep -v '^hashgate: wasm artifact ' "$RUNNER_TEMP/hashgate.stdout" \
+            > "$RUNNER_TEMP/hashes.txt"
+
+      - name: Upload gate summary
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: gate-summary-x86_64
+          path: ${{ runner.temp }}/gate/
+          if-no-files-found: error
+
+      - name: Upload hashes (x86_64)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: hashes-x86_64
+          path: ${{ runner.temp }}/hashes.txt
+          if-no-files-found: error
+
+  hash-arm64:
+    name: hashgate (arm64)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          submodules: recursive
+
+      - name: Restore ge-rust
+        id: image-cache
+        uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: ${{ runner.temp }}/ge-rust.tar
+          key: ge-rust-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('docker/rust.Dockerfile') }}
+
+      - name: Build ge-rust
+        if: steps.image-cache.outputs.cache-hit != 'true'
+        run: |
+          docker build -f docker/rust.Dockerfile -t ge-rust .
+          docker save --output "$RUNNER_TEMP/ge-rust.tar" ge-rust
+
+      - name: Save ge-rust
+        if: steps.image-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: ${{ runner.temp }}/ge-rust.tar
+          key: ge-rust-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('docker/rust.Dockerfile') }}
+
+      - name: Load ge-rust
+        if: steps.image-cache.outputs.cache-hit == 'true'
+        run: docker load --input "$RUNNER_TEMP/ge-rust.tar"
+
+      - name: Hashgate hashes (arm64)
+        # No npm ci here: hashgate's node arm runs harness/wasm-run.mjs, which imports
+        # only node: builtins, and `cargo run` builds the bin rather than the tests.
+        run: |
+          scripts/orch/gr cargo run -q -p graph-cli -- hashgate --seeds 8 \
+            > "$RUNNER_TEMP/hashgate.stdout"
+          grep -v '^hashgate: wasm artifact ' "$RUNNER_TEMP/hashgate.stdout" \
+            > "$RUNNER_TEMP/hashes.txt"
+
+      - name: Upload hashes (arm64)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: hashes-arm64
+          path: ${{ runner.temp }}/hashes.txt
+          if-no-files-found: error
+
+  hash-compare:
+    name: cross-arch hash diff
+    needs: [floor, hash-arm64]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Download x86_64 hashes
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: hashes-x86_64
+          path: hashes/x86_64
+
+      - name: Download arm64 hashes
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: hashes-arm64
+          path: hashes/arm64
+
+      - name: Diff the two architectures
+        run: diff -u hashes/x86_64/hashes.txt hashes/arm64/hashes.txt

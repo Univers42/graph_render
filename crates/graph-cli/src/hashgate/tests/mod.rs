@@ -21,7 +21,8 @@ mod stages;
 // is one level nearer the gate than it is. Named rather than globbed, so a test file says
 // where each name comes from instead of inheriting whatever the parent happened to import.
 use super::compare::{Arm, Tally};
-use super::knob::{Knob, Setting, setting};
+use super::knob::Knob;
+use super::knob::setting::{Setting, setting};
 use super::stage_bytes;
 use super::tier;
 
