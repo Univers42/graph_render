@@ -103,6 +103,13 @@ pub fn find(id: &str) -> Option<&'static Capability> {
 /// Every node's centre, whatever node kind the layout emitted: the three kinds differ in
 /// the columns they add, never in the two they share, so a POST pass never needs to know
 /// the layout's shape.
+///
+/// A 3D snapshot's z column is **not** here, and cannot be: `z` lives on the snapshot, not
+/// on `NodeGeometry`, and a POST pass is handed `&NodeGeometry`. So a pass reads `x` and `y`,
+/// writes edge geometry, and has no way to reach the z column at all — which is what makes
+/// z survive every pass unchanged (`docs/decisions/contract-3d-verdict.md` condition 6).
+/// POST and SCALE are 2D-only for now; a pass that ever needs z must be given it
+/// explicitly rather than finding it by accident.
 pub fn centres(nodes: &NodeGeometry) -> (&[f32], &[f32]) {
     match nodes {
         NodeGeometry::Point { x, y } | NodeGeometry::Circle { x, y, .. } => (x, y),

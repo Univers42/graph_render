@@ -8,7 +8,7 @@
 
 use crate::geometry::{EdgeGeometry, NodeGeometry, Paths, check_len, index_u32};
 use crate::notes::{Notes, carries_notes};
-use crate::snapshot::{ReadError, SnapshotError, SnapshotHeader, StageCount};
+use crate::snapshot::{Dim, ReadError, SnapshotError, SnapshotHeader, StageCount, carries_dim};
 use crate::version::{FormatVersion, check_readable};
 use std::collections::BTreeSet;
 
@@ -103,12 +103,29 @@ pub struct SnapshotParts {
     pub source: Vec<u32>,
     /// Each edge's target, as a position in `node_ids`.
     pub target: Vec<u32>,
-    /// Node geometry, one discriminant for all nodes.
+    /// Node geometry, one discriminant for all nodes. The `x` and `y` columns, and the
+    /// sizes; the third coordinate, if any, is [`z`](Self::z), not a field here, so that
+    /// a 2D snapshot's geometry type is unchanged by 3D existing.
     pub nodes: NodeGeometry,
+    /// The z column, `Some` for a 3D snapshot and `None` for a 2D one — which is the only
+    /// way to tell them apart, and is what the header's `dim` is derived from. So `Some`
+    /// here and `dim = 1` in the header can never disagree.
+    pub z: Option<Vec<f32>>,
     /// Edge geometry, one discriminant for all edges.
     pub edges: EdgeGeometry,
     /// What the stages repaired or approximated (`crate::notes`); none below 0.3.
     pub notes: Notes,
+}
+
+impl SnapshotParts {
+    /// The header's `dim`: the z column's presence, and nothing else. A snapshot has one
+    /// dimension for the whole payload, so this is the only place it is decided.
+    pub fn dim(&self) -> Dim {
+        match self.z {
+            Some(_) => Dim::D3,
+            None => Dim::D2,
+        }
+    }
 }
 
 /// A snapshot every reader of this version accepts: the only kind that can exist.
@@ -138,7 +155,8 @@ impl Snapshot {
                 return Err(SnapshotError::Endpoint { column, index });
             }
         }
-        parts.nodes.check(n)?;
+        check_dimmed(parts.dim(), parts.version)?;
+        parts.nodes.check(n, parts.z.as_deref())?;
         parts.edges.check(m)?;
         parts.notes.check(parts.version, m)?;
         Ok(Self(parts))
@@ -160,6 +178,7 @@ impl Snapshot {
             version: self.0.version,
             node_kind: self.0.nodes.kind(),
             edge_kind: self.0.edges.kind(),
+            dim: self.0.dim(),
             stage_count: StageCount::ONE,
             node_count: self.0.node_ids.len(),
             edge_count: self.0.edge_ids.len(),
@@ -175,7 +194,7 @@ impl Snapshot {
         put_table(&mut out, &parts.edge_ids);
         put_u32s(&mut out, &parts.source);
         put_u32s(&mut out, &parts.target);
-        for (_, column) in parts.nodes.columns() {
+        for (_, column) in parts.nodes.columns_dim(parts.z.as_deref()) {
             put_f32s(&mut out, column);
         }
         match &parts.edges {
@@ -199,6 +218,18 @@ impl Snapshot {
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, SnapshotError> {
         decode::decode(bytes)
     }
+}
+
+/// A z column needs a version that carries `dim`: a 0.4 label is required of a 3D
+/// snapshot, or the bytes would claim a dimension the version cannot name. A 2D snapshot
+/// may be labelled 0.4 — [`label_for`](crate::snapshot::label_for) will not choose that,
+/// but a reader of one is no worse off. Refusing here rather than writing an
+/// unnameable dimension is the whole point of the label rule.
+fn check_dimmed(dim: Dim, version: FormatVersion) -> Result<(), SnapshotError> {
+    if dim.is_3d() && !carries_dim(version) {
+        return Err(SnapshotError::DimUnnameable { version });
+    }
+    Ok(())
 }
 
 /// Zero bytes that bring `len` up to a multiple of 4.

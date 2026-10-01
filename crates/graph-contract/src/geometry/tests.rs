@@ -84,41 +84,41 @@ fn every_value_carries_its_kind_and_lists_its_columns_in_wire_order() {
 
 #[test]
 fn node_columns_must_match_the_count_be_finite_and_sizes_not_negative() {
-    assert_eq!(point(3).check(3), Ok(()));
+    assert_eq!(point(3).check(3, None), Ok(()));
     let short = SnapshotError::Length {
         column: "node.x",
         expected: 4,
         found: 3,
     };
-    assert_eq!(point(3).check(4), Err(short));
+    assert_eq!(point(3).check(4, None), Err(short));
     let nan = NodeGeometry::Point {
         x: vec![0.0],
         y: vec![f32::NAN],
     };
     let at = |column, index| SnapshotError::NonFinite { column, index };
-    assert_eq!(nan.check(1), Err(at("node.y", 0)));
+    assert_eq!(nan.check(1, None), Err(at("node.y", 0)));
     let circle = |r: f32| NodeGeometry::Circle {
         x: vec![0.0; 2],
         y: vec![0.0; 2],
         r: vec![0.0, r],
     };
     assert_eq!(
-        circle(-0.0).check(2),
+        circle(-0.0).check(2, None),
         Ok(()),
         "negative zero is not negative"
     );
     let negative = |column| SnapshotError::Negative { column, index: 1 };
-    assert_eq!(circle(-1e-30).check(2), Err(negative("node.r")));
-    assert_eq!(circle(f32::INFINITY).check(2), Err(at("node.r", 1)));
+    assert_eq!(circle(-1e-30).check(2, None), Err(negative("node.r")));
+    assert_eq!(circle(f32::INFINITY).check(2, None), Err(at("node.r", 1)));
     let boxes = |w: f32, h: f32| NodeGeometry::Box {
         x: vec![0.0; 2],
         y: vec![0.0; 2],
         w: vec![1.0, w],
         h: vec![1.0, h],
     };
-    assert_eq!(boxes(0.0, 0.0).check(2), Ok(()));
-    assert_eq!(boxes(-1.0, 1.0).check(2), Err(negative("node.w")));
-    assert_eq!(boxes(1.0, -1.0).check(2), Err(negative("node.h")));
+    assert_eq!(boxes(0.0, 0.0).check(2, None), Ok(()));
+    assert_eq!(boxes(-1.0, 1.0).check(2, None), Err(negative("node.w")));
+    assert_eq!(boxes(1.0, -1.0).check(2, None), Err(negative("node.h")));
 }
 
 #[test]

@@ -19,7 +19,7 @@
 use crate::binary::Snapshot;
 use crate::geometry::{EdgeGeometry, EdgeGeometryKind, NodeGeometry, NodeGeometryKind, Paths};
 use crate::notes::carries_notes;
-use crate::snapshot::SnapshotError;
+use crate::snapshot::{SnapshotError, carries_dim};
 use crate::version::{FormatVersion, NewerMajor, UNVERSIONED, check_readable};
 use core::fmt::{self, Write};
 
@@ -104,7 +104,7 @@ pub fn to_json(snapshot: &Snapshot) -> String {
     ]);
     let geometry = object(vec![
         ("edges", edge_geometry(&p.edges)),
-        ("nodes", node_geometry(&p.nodes)),
+        ("nodes", node_geometry(&p.nodes, p.z.as_deref())),
     ]);
     let nodes = object(vec![("id", strings(p.node_ids.iter()))]);
     let version = object(vec![
@@ -117,6 +117,12 @@ pub fn to_json(snapshot: &Snapshot) -> String {
         ("nodes", nodes),
         ("version", version),
     ];
+    // `"dim"` is written from 0.4 on, which by the label rule (`snapshot::label_for`) is
+    // exactly when the snapshot can be 3D; absent below it reads as 0. A 0.4-labelled 2D
+    // snapshot writes `"dim": 0`, so the member and the value can never disagree.
+    if carries_dim(p.version) {
+        members.insert(0, ("dim", p.dim().get().to_string()));
+    }
     if carries_notes(p.version) {
         let notes = [
             ("code", u32s(&p.notes.code)),
@@ -152,9 +158,14 @@ fn object(mut members: Vec<(&str, String)>) -> String {
     out
 }
 
-fn node_geometry(nodes: &NodeGeometry) -> String {
+fn node_geometry(nodes: &NodeGeometry, z: Option<&[f32]>) -> String {
     let mut members = vec![("kind", quoted(node_kind_name(nodes.kind())))];
-    members.extend(nodes.columns().into_iter().map(|(name, c)| (name, f32s(c))));
+    members.extend(
+        nodes
+            .columns_dim(z)
+            .into_iter()
+            .map(|(name, c)| (name, f32s(c))),
+    );
     object(members)
 }
 

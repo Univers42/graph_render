@@ -11,6 +11,10 @@
 //! merge fills these slots rather than renumbering anything shipped here. This snapshot
 //! type has no such field yet, so both are [`Column::Absent`] unconditionally, for every
 //! graph, until that merge.
+//!
+//! `id::NODE_Z` is the 3D z column (contract 0.4), appended after every shipped id for the
+//! same reason. This layer is transport: it carries a 3D snapshot rather than refusing it,
+//! and [`dim`] is how a consumer learns a snapshot is one instead of parsing byte 14 itself.
 
 use graph_contract::binary::Snapshot;
 use graph_contract::geometry::EdgeGeometry;
@@ -54,13 +58,16 @@ pub mod id {
     pub const EDGE_PTS: u32 = 10;
     /// The one curve degree for the whole snapshot, `u32 x 1`. Curve only.
     pub const EDGE_CURVE_DEGREE: u32 = 11;
+    /// Node `z`, `f32 x n`. 3D only (`dim = 1` in the header); absent for every 2D
+    /// snapshot, whatever its node kind. Appended last, never renumbering a shipped id.
+    pub const NODE_Z: u32 = 12;
 }
 
 /// The column `column_id` names in `snapshot`, or [`Column::Absent`].
 pub fn column(snapshot: &Snapshot, column_id: u32) -> Column<'_> {
     let parts = snapshot.parts();
     match column_id {
-        id::NODE_X | id::NODE_Y | id::NODE_R | id::NODE_W | id::NODE_H => {
+        id::NODE_X | id::NODE_Y | id::NODE_R | id::NODE_W | id::NODE_H | id::NODE_Z => {
             node_column(parts, column_id)
         }
         id::EDGE_SOURCE => Column::U32(&parts.source),
@@ -76,17 +83,20 @@ pub fn column(snapshot: &Snapshot, column_id: u32) -> Column<'_> {
     }
 }
 
+/// `columns_dim` with the snapshot's own z, so a `NODE_Z` request finds the z column where
+/// it was written — after `y` — instead of falling through to some other column's name.
 fn node_column(parts: &graph_contract::binary::SnapshotParts, column_id: u32) -> Column<'_> {
     let wire_name = match column_id {
         id::NODE_X => "x",
         id::NODE_Y => "y",
         id::NODE_R => "r",
         id::NODE_W => "w",
+        id::NODE_Z => "z",
         _ => "h",
     };
     parts
         .nodes
-        .columns()
+        .columns_dim(parts.z.as_deref())
         .into_iter()
         .find(|(name, _)| *name == wire_name)
         .map_or(Column::Absent, |(_, values)| Column::F32(values))
@@ -118,15 +128,24 @@ pub fn edge_kind_tag(snapshot: &Snapshot) -> u8 {
     snapshot.header().edge_kind.tag()
 }
 
+/// How many dimensions `snapshot` carries: `0` 2D, `1` 3D. `gm_dim`'s body. The wasm
+/// layer is transport and does not refuse 3D — it carries it, and says so here, so a
+/// consumer is not left parsing byte 14 of a raw snapshot itself.
+pub fn dim(snapshot: &Snapshot) -> u8 {
+    snapshot.header().dim.get()
+}
+
 /// Whether any node or edge coordinate in `snapshot` is NaN or infinite. Checked again
 /// here — not trusted from construction — because the SDK's typed-array views are
 /// writable aliases directly into these `Vec`s (D9, C8): `Snapshot::to_bytes`/`to_json`
 /// do not re-check, so a tampered view would otherwise reach the wire unnoticed.
 pub fn has_non_finite(snapshot: &Snapshot) -> bool {
     let parts = snapshot.parts();
+    // `columns_dim` with the snapshot's own z: a tampered z must be caught here too, or a
+    // 3D snapshot could reach the wire carrying a NaN depth nobody looked at.
     let nodes_bad = parts
         .nodes
-        .columns()
+        .columns_dim(parts.z.as_deref())
         .into_iter()
         .any(|(_, values)| values.iter().any(|v| !v.is_finite()));
     let edges_bad = match &parts.edges {

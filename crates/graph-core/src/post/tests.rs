@@ -92,7 +92,7 @@ fn post_composability() {
             .unwrap_or_else(|e| panic!("{} over the test graph: {e}", layout.id));
         geometry
             .nodes
-            .check(topology.node_count())
+            .check(topology.node_count(), None)
             .unwrap_or_else(|e| panic!("{} emits bad node geometry: {e}", layout.id));
         let (x, y) = centres(&geometry.nodes);
         for input in [geometry.clone(), lines(x, y)] {
@@ -131,7 +131,7 @@ fn check_output(
     bundled
         .geometry
         .nodes
-        .check(topology.node_count())
+        .check(topology.node_count(), None)
         .unwrap_or_else(|e| panic!("{where_}: {e}"));
     bundled
         .geometry

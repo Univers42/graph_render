@@ -2,6 +2,10 @@
 
 /** The fixed-size head of every snapshot: one geometry discriminant for the whole payload. */
 export interface SnapshotHeader {
+  /** How many dimensions every node of the snapshot carries: `0` 2D with no z column,
+`1` 3D with one. Once for the whole payload, so the node section's length follows
+from this and the node kind alone. `2..=255` is reserved and refused. */
+  dim: number;
   /** Number of edges. */
   edge_count: number;
   /** Shape of every edge in the snapshot. */

@@ -7,7 +7,7 @@ use crate::geometry::{
     EdgeGeometry, EdgeGeometryKind, NodeGeometry, NodeGeometryKind, Paths, index_u32,
 };
 use crate::notes::{Notes, carries_notes};
-use crate::snapshot::{HEADER_LEN, SnapshotError, SnapshotHeader};
+use crate::snapshot::{Dim, HEADER_LEN, SnapshotError, SnapshotHeader};
 
 pub(super) fn decode(bytes: &[u8]) -> Result<Snapshot, SnapshotError> {
     let header = SnapshotHeader::decode(bytes).map_err(SnapshotError::Header)?;
@@ -17,7 +17,7 @@ pub(super) fn decode(bytes: &[u8]) -> Result<Snapshot, SnapshotError> {
     let edge_ids = r.table("edge.id", m)?;
     let source = r.u32s("edge.source", u64::from(m))?;
     let target = r.u32s("edge.target", u64::from(m))?;
-    let nodes = r.nodes(header.node_kind, n)?;
+    let (nodes, z) = r.nodes(header.node_kind, header.dim, n)?;
     let edges = r.edges(header.edge_kind, m)?;
     let notes = if carries_notes(header.version) {
         r.notes()?
@@ -35,6 +35,7 @@ pub(super) fn decode(bytes: &[u8]) -> Result<Snapshot, SnapshotError> {
         source,
         target,
         nodes,
+        z,
         edges,
         notes,
     })
@@ -95,10 +96,19 @@ impl<'a> Reader<'a> {
         Ok(StringTable { offsets, text })
     }
 
-    fn nodes(&mut self, kind: NodeGeometryKind, n: u32) -> Result<NodeGeometry, SnapshotError> {
+    /// The node columns, in the order `dim` says: a 3D snapshot's z is taken right after
+    /// `y`, so the sizes it pushes along are read from the shifted position, never a
+    /// fixed offset.
+    fn nodes(
+        &mut self,
+        kind: NodeGeometryKind,
+        dim: Dim,
+        n: u32,
+    ) -> Result<(NodeGeometry, Option<Vec<f32>>), SnapshotError> {
         let n = u64::from(n);
         let (x, y) = (self.f32s("node.x", n)?, self.f32s("node.y", n)?);
-        Ok(match kind {
+        let z = dim.is_3d().then(|| self.f32s("node.z", n)).transpose()?;
+        let nodes = match kind {
             NodeGeometryKind::Point => NodeGeometry::Point { x, y },
             NodeGeometryKind::Circle => NodeGeometry::Circle {
                 x,
@@ -111,7 +121,8 @@ impl<'a> Reader<'a> {
                 w: self.f32s("node.w", n)?,
                 h: self.f32s("node.h", n)?,
             },
-        })
+        };
+        Ok((nodes, z))
     }
 
     fn edges(&mut self, kind: EdgeGeometryKind, m: u32) -> Result<EdgeGeometry, SnapshotError> {
