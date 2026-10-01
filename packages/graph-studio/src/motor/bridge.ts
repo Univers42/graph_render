@@ -7,16 +7,22 @@
  * sixty times a second. So the bar has its own store with its own subscribers, and the
  * positions go straight to the view, which redraws on its own request.
  *
+ * A watchdog sits on top of it: while the strip is up, every message from the worker re-arms a
+ * bounded timer, and a timer that runs out means the worker is gone — so the strip is hidden,
+ * the session is marked dead, and one console line says why.
+ *
  * Ponytail: `disabled()` reads the last state the loop reported, so the panel is greyed
  * until the worker has answered one force request and knows whether it has a session.
  * Failing input: a worker that dies between frames leaves the last state standing, and the
- * panel goes on believing a loop is running; `forces.animate` is what rediscovers it.
+ * panel goes on believing a loop is running; the watchdog is what rediscovers it, and
+ * `forces.animate` is the manual way back.
  * Direction: the state is the worker's, not a guess made here. Escape hatch: `start` is
  * called after every force layout, so a re-layout makes a new session and a new loop.
  */
 import type { ForceLink } from "../actions/forces.ts";
 import { DEFAULT_KNOBS, type ForceKnobs } from "./live.ts";
 import type { ForceFrame, ForceRequest, Result } from "./protocol.ts";
+import { type Watchdog, createWatchdog, later } from "./watchdog.ts";
 import { type Bar, HIDDEN, batchBar, frameBar } from "../ui/progress.ts";
 
 export interface LiveDeps {
@@ -28,6 +34,12 @@ export interface LiveDeps {
   readonly paint: (frame: ForceFrame) => void;
   /** Why the loop cannot run, or null; asked per event, so a late session takes effect. */
   readonly unavailable?: () => string | null;
+  /** The worker failing where the page can hear it; the watchdog's other way in. */
+  readonly onFail?: (handler: (detail: string) => void) => () => void;
+  /** One line in the console, naming why a live session ended; absent in a bare test. */
+  readonly report?: (reason: string) => void;
+  /** Over the watchdog's timer; the wall clock when left out. */
+  readonly schedule?: (run: () => void, ms: number) => () => void;
 }
 
 export interface LiveBridge {
@@ -81,17 +93,51 @@ interface Desk {
   settling: Bar;
   /** How many calls the worker is running. */
   busy: number;
+  /** Re-arms the watchdog while the settle strip is up, and sleeps it when the strip is not. */
+  watchdog: Watchdog;
 }
 
 export const NOT_ASKED = "the motor has not been asked yet";
 
 function newDesk(): Desk {
-  return { knobs: DEFAULT_KNOBS, running: false, paused: false, available: undefined, settling: HIDDEN, busy: 0 };
+  return {
+    knobs: DEFAULT_KNOBS, running: false, paused: false, available: undefined, settling: HIDDEN, busy: 0,
+    watchdog: { touch: () => undefined, rest: () => undefined, lost: () => undefined, stop: () => undefined },
+  };
+}
+
+/**
+ * The watchdog's one handler: a live session ended, so the strip goes, the panel is told why,
+ * and one line reaches the console. Not sticky — the next message from the worker re-arms the
+ * watchdog and `link.disabled()` goes back to null on its own.
+ */
+function dead(desk: Desk, deps: LiveDeps, publish: () => void, reason: string): void {
+  // The last state standing is the worker's word, from a worker that is no longer there.
+  desk.running = false;
+  desk.paused = false;
+  desk.available = reason;
+  desk.settling = HIDDEN;
+  publish();
+  desk.watchdog.rest();
+  deps.report?.(reason);
 }
 
 /** One strip, two things that can want it: the settle wins while it runs. */
 function barOf(desk: Desk): Bar {
   return desk.busy > 0 && !desk.running ? batchBar(desk.busy) : desk.settling;
+}
+
+/**
+ * Publishes the bar and arms the watchdog on it.
+ *
+ * The batch strip is not watched: a batch layout run reports no progress of its own and can
+ * legitimately take longer than the bound, so a worker busy in a layout is not a dead worker.
+ * Only a settle strip is a claim that messages are coming, so only it arms the timer.
+ */
+function show(desk: Desk, publish: () => void): void {
+  publish();
+  if (desk.settling.visible) desk.watchdog.touch();
+  else desk.watchdog.rest();
 }
 
 /**
@@ -123,7 +169,7 @@ function linkOf(desk: Desk, deps: LiveDeps, publish: () => void): ForceLink {
       if (on) return;
       deps.send({ type: "force.stop" });
       desk.settling = HIDDEN;
-      publish();
+      show(desk, publish);
     },
     animating: () => desk.running && !desk.paused,
     pause: () => {
@@ -138,14 +184,19 @@ function linkOf(desk: Desk, deps: LiveDeps, publish: () => void): ForceLink {
   };
 }
 
-/** What the motor pushed, folded into the desk: a frame paints, a state is the truth. */
+/**
+ * What the motor pushed, folded into the desk: a frame paints, a state is the truth.
+ *
+ * Every message re-arms the watchdog through `show`, which is why a live settle that keeps
+ * talking is never declared dead however long it runs.
+ */
 function absorb(desk: Desk, deps: LiveDeps, publish: () => void): (result: Result) => void {
   return (result) => {
     if (result.type === "force-frame") {
       desk.running = result.frame.running;
       desk.settling = frameBar(result.frame);
       deps.paint(result.frame);
-      publish();
+      show(desk, publish);
       return;
     }
     if (result.type === "force-state") {
@@ -153,7 +204,7 @@ function absorb(desk: Desk, deps: LiveDeps, publish: () => void): (result: Resul
       desk.running = result.running;
       desk.paused = result.paused;
       if (!result.running) desk.settling = HIDDEN;
-      publish();
+      show(desk, publish);
     }
   };
 }
@@ -162,16 +213,24 @@ export function createLiveBridge(deps: LiveDeps): LiveBridge {
   const desk = newDesk();
   const progress = listeners();
   const publish = (): void => progress.set(barOf(desk));
+  desk.watchdog = createWatchdog((reason) => dead(desk, deps, publish, reason), {
+    schedule: deps.schedule ?? later,
+  });
   const onPush = deps.onPush(absorb(desk, deps, publish));
+  // A worker that throws reaches the page as an `error` event, and nowhere else: the watchdog
+  // and this are the only two ways a live session is ever declared dead.
+  const onFail = deps.onFail?.((detail) => desk.watchdog.lost(detail)) ?? (() => undefined);
   const start = (): void => {
     desk.running = true;
     // The strip appears before the first frame, so a settle is never invisible.
     desk.settling = { visible: true, fraction: 1, label: "settling" };
-    publish();
+    show(desk, publish);
     deps.send({ type: "force.start" });
   };
   const destroy = (): void => {
     onPush();
+    onFail();
+    desk.watchdog.stop();
     deps.send({ type: "force.stop" });
     desk.running = false;
     desk.paused = false;
@@ -186,7 +245,7 @@ export function createLiveBridge(deps: LiveDeps): LiveBridge {
     start,
     batch: (count) => {
       desk.busy = count;
-      publish();
+      show(desk, publish);
     },
     destroy,
   };

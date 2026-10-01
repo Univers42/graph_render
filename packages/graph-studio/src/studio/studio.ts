@@ -35,6 +35,11 @@ export interface Studio {
   dispatch(idOrAlias: string, raw?: RawArgs): Promise<LogEntry>;
   /** A line as typed in the console. */
   run(text: string): Promise<LogEntry>;
+  /**
+   * One line in the log that no command asked for: something outside the studio ended, and
+   * the reader has to be told. Never a promise, so a caller in an event handler can ignore it.
+   */
+  note: (reason: string) => void;
   /** Opens the motor and draws the settings' source. */
   start(): Promise<LogEntry>;
   neighbours(node: number): readonly number[];
@@ -59,6 +64,7 @@ interface Started {
 }
 
 const LONG_VALUE = 96;
+const MOTOR_HINT = "The motor worker stopped answering mid-settle. Run a layout again to start a new session.";
 
 /** A document pasted as a value would bury the log: the line keeps how it starts. */
 function shortened(args: Args): Args {
@@ -141,6 +147,21 @@ function copyText(store: Store<StudioState>, text: string): void {
   }
 }
 
+/**
+ * A log line with no command behind it, for something the studio did not do: the live motor
+ * worker going away mid-settle. `ok: false` because the studio's own state is not what it
+ * should be — the panel is greyed until a new layout starts a new session.
+ */
+function note(store: Store<StudioState>, desk: Desk, reason: string): void {
+  desk.seq += 1;
+  const shown: ShownError = { title: "MotorWorkerLost", code: null, detail: reason, hint: MOTOR_HINT };
+  const entry: LogEntry = {
+    seq: desk.seq, command: "forces.animate", ok: false, ms: 0, message: reason,
+    digest: null, notes: [], error: shown,
+  };
+  store.update((state) => withEntry({ ...state, error: shown }, entry));
+}
+
 function contextOf(deps: StudioDeps, store: Store<StudioState>, registry: () => Registry<StudioState, StudioContext>): StudioContext {
   const pipeline = createPipeline({ client: deps.client, view: deps.view, store });
   return {
@@ -179,6 +200,7 @@ export function createStudio(deps: StudioDeps): Studio {
       return registry.resolve(command.id, command.raw, store.get());
     }),
     start: () => start(desk),
+    note: (reason) => note(store, desk, reason),
     neighbours: (node) => context.neighbours(node),
     copy: (text) => copyText(store, text),
     dismiss: () => store.update((state) => ({ ...state, error: null })),

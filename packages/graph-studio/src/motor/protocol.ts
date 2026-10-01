@@ -104,6 +104,12 @@ export interface Port {
   readonly listen: (handler: (message: Envelope<Result>) => void) => void;
   /** Stops the motor, whatever it is doing. */
   readonly close: () => void;
+  /**
+   * The worker failing where the page can hear it, and its own words; absent when the
+   * transport cannot report one. A terminated worker raises nothing here, which is why the
+   * live bridge also watches for silence.
+   */
+  readonly onFail?: (handler: (detail: string) => void) => () => void;
 }
 
 export type Spawn = () => Port;

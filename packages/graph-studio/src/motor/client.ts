@@ -44,6 +44,11 @@ export interface MotorClient {
   force?(request: ForceRequest): void;
   /** Every frame the live loop pushes, and its state; returns the cancel. */
   onForce?(handler: (result: Result) => void): () => void;
+  /**
+   * The worker failing where the page can hear it, and nothing else; returns the cancel.
+   * Optional so a test double need not carry it.
+   */
+  onFail?(handler: (detail: string) => void): () => void;
   close(): void;
 }
 
@@ -66,6 +71,8 @@ interface State {
   readonly waiting: Map<number, Waiting>;
   /** Everything the motor pushes without being asked: live frames and the force state. */
   readonly pushed: Set<(result: Result) => void>;
+  /** Every way the worker can fail in the page's hearing, and nothing else. */
+  readonly failures: Set<(detail: string) => void>;
 }
 
 function mismatch(wanted: string, result: Result): Error {
@@ -100,6 +107,9 @@ function isPushed(result: Result): boolean {
 
 function connect(state: State, spawn: Spawn, assets: Assets): Link {
   const port = spawn();
+  port.onFail?.((detail) => {
+    for (const fail of state.failures) fail(detail);
+  });
   port.listen((message) => {
     // Asked first: a pushed message carries UNSOLICITED, and there is no waiter under it.
     if (isPushed(message.body)) {
@@ -154,7 +164,9 @@ function analysed(result: Result): AnalysisReport {
 }
 
 export function createClient(spawn: Spawn, assets: Assets): MotorClient {
-  const state: State = { link: null, seq: 0, loaded: null, closed: false, waiting: new Map(), pushed: new Set() };
+  const state: State = {
+    link: null, seq: 0, loaded: null, closed: false, waiting: new Map(), pushed: new Set(), failures: new Set(),
+  };
   const linked = async (): Promise<Link> => {
     if (state.closed) throw new Error("the motor client is closed");
     const link = state.link ?? connect(state, spawn, assets);
@@ -178,6 +190,10 @@ export function createClient(spawn: Spawn, assets: Assets): MotorClient {
     onForce: (handler) => {
       state.pushed.add(handler);
       return () => void state.pushed.delete(handler);
+    },
+    onFail: (handler) => {
+      state.failures.add(handler);
+      return () => void state.failures.delete(handler);
     },
     close: () => {
       state.closed = true;

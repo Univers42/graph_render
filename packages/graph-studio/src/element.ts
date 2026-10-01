@@ -18,6 +18,7 @@ import type { Save } from "./actions/context.ts";
 import { type LiveBridge, createLiveBridge, settlesLive } from "./motor/bridge.ts";
 import { NOT_ASKED } from "./motor/bridge.ts";
 import { type MotorClient, createClient } from "./motor/client.ts";
+import { SILENCE_MS } from "./motor/watchdog.ts";
 import type { Assets, Spawn } from "./motor/protocol.ts";
 import { workerPort } from "./motor/workerPort.ts";
 import { type SettingsStorage, openingSettings } from "./state/persist.ts";
@@ -40,11 +41,25 @@ export interface GraphStudioElement extends HTMLElement {
    * the element is not in a document. The studio keeps its own; this is the same one.
    */
   readonly view: View | null;
+  /**
+   * Stops the motor worker where it stands and lets nothing replace it: the live settle
+   * ends at once, and the watchdog puts the strip away and names the cause. This is the
+   * one verb a gate needs to watch a dead worker from the outside; the studio never calls
+   * it itself, and the next layout opens a new worker as usual.
+   */
+  stopMotor(): void;
+  /**
+   * How long the watchdog waits, in milliseconds, before it calls a silent worker dead.
+   * Exposed so a gate can say "within the bound" without carrying its own copy of the
+   * number, which would drift from it silently. Read-only, and not a setting.
+   */
+  readonly watchdogBoundMs: number;
 }
 
 interface Mounted {
   readonly studio: Studio;
   readonly view: View;
+  readonly client: MotorClient;
   readonly root: Root;
   /** The live bridge: the drag, the forces panel and the progress strip all read it. */
   readonly bridge: LiveBridge;
@@ -99,8 +114,18 @@ function pageStorage(): SettingsStorage | null {
 /**
  * The live bridge and the view it paints, wired together and handed back: a frame from the
  * worker goes to `view.setPositions` and the forces link is the bridge's.
+ *
+ * `shown.note` is filled in once the studio exists — the bridge is made first — so a watchdog
+ * that fires later still has a console to write its one line into.
  */
-function livePair(canvas: HTMLCanvasElement, client: MotorClient, shown: { studio: Studio | null }): {
+/** What the parts made before the studio need from it, read late through this. */
+interface Shown {
+  studio: Studio | null;
+  /** One line in the console log, naming why a live session ended. */
+  note(reason: string): void;
+}
+
+function livePair(canvas: HTMLCanvasElement, client: MotorClient, shown: Shown): {
   readonly view: View;
   readonly bridge: LiveBridge;
 } {
@@ -122,7 +147,9 @@ function livePair(canvas: HTMLCanvasElement, client: MotorClient, shown: { studi
   const bridge = createLiveBridge({
     send: (request) => client.force?.(request),
     onPush: (handler) => client.onForce?.(handler) ?? (() => undefined),
+    onFail: (handler) => client.onFail?.(handler) ?? (() => undefined),
     paint: (frame) => view.setPositions(frame.xs, frame.ys),
+    report: (reason) => shown.note(reason),
   });
   wires.bridge = bridge;
   return { view, bridge };
@@ -161,7 +188,7 @@ function mount(host: HTMLElement, options: StudioElementOptions): Mounted {
   if (!host.hasAttribute("tabindex")) host.tabIndex = 0;
   const client = createClient(options.spawn ?? spawnWorker, assetsOf(host));
   // The view is made before the studio, and the ids live in the studio's state: read late.
-  const shown: { studio: Studio | null } = { studio: null };
+  const shown: Shown = { studio: null, note: (reason) => shown.studio?.note(reason) };
   const { view, bridge } = livePair(canvas, client, shown);
   const storage = pageStorage();
   const studio = createStudio({
@@ -179,7 +206,7 @@ function mount(host: HTMLElement, options: StudioElementOptions): Mounted {
     studio, view, keys: host.getAttribute("keys") === "page" ? window : host, bar: bridge,
   }));
   void studio.start();
-  return { studio, view, root, bridge, unwatch };
+  return { studio, view, client, root, bridge, unwatch };
 }
 
 function unmount(mounted: Mounted | null): void {
@@ -203,6 +230,16 @@ export function defineGraphStudio(options: StudioElementOptions = {}, tag = "gra
 
     get view(): View | null {
       return this.#mounted?.view ?? null;
+    }
+
+    stopMotor(): void {
+      // `close`, not `destroy`: the studio and its chrome stay, so the page reads as a studio
+      // that lost its motor rather than one that was taken down.
+      this.#mounted?.client.close();
+    }
+
+    get watchdogBoundMs(): number {
+      return SILENCE_MS;
     }
 
     connectedCallback(): void {

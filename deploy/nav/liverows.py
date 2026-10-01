@@ -1,11 +1,12 @@
-"""Rows of the live-force gate: the settle, the drag's neighbours, and the progress bar.
+"""Rows of the live-force gate: the settle, the drag's neighbours, the progress bar, and the
+watchdog over a motor worker that dies under a live strip.
 
 Every position is read through the element's own `view`, and every drag is real CDP mouse
 input, so a row passes only for something a hand could have done.
 
 The negative control takes the motor away from the page — `studio.destroy()` closes the
 worker port, so no force request is ever sent again — and removes the view's paint hook, the
-one edge a live frame takes to the canvas. All three rows must go red.
+one edge a live frame takes to the canvas. All four rows must go red.
 """
 import time
 
@@ -20,6 +21,11 @@ MOVING_PX = 1.0
 # And "the neighbours followed" is this much travel by at least one of them.
 NEIGHBOUR_PX = 5.0
 DRAG_PX = 150
+# What the row allows on top of the page's own bound: the strip is polled, so the watchdog can
+# fire on time and the row still not see it until the next poll. The bound itself is read from
+# the page (`watchdogBoundMs`, SILENCE_MS in packages/graph-studio/src/motor/watchdog.ts) —
+# a row carrying its own copy of the number would drift from it silently.
+BOUND_SLACK_S = 1.5
 
 
 def row(name, expectation, measured, ok):
@@ -149,8 +155,64 @@ def row_progress(studio):
     return row("live-progress", expectation, measured, seen and hidden)
 
 
+def wait_shown(studio, seconds=3.0):
+    """Sleep until the strip is up, or the deadline passes. Returns whether it appeared."""
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if bar(studio)["width"] > 0:
+            return True
+        time.sleep(0.05)
+    return bar(studio)["width"] > 0
+
+
+def dead_note(studio):
+    """What the console was told when a live session ended, or None if it said nothing."""
+    return studio.page.evaluate(f"""
+    (() => {{
+      const entry = {HOST}.studio.store.get().log.find((e) => e.error?.title === 'MotorWorkerLost');
+      return entry === undefined ? null : entry.error.detail;
+    }})()
+    """)
+
+
+def row_dead_worker(studio):
+    """The strip must go away when the motor worker dies under it.
+
+    The worker is stopped from outside the page with `stopMotor()`, which is what a crashed or
+    terminated worker looks like from here: no `error` event, no message, just silence. The
+    watchdog is what turns that silence into a hidden strip and a named cause, and the row
+    measures how long that took against the bound the page itself is using.
+
+    This row kills the motor, so it runs last: every row above it needs a live worker.
+    """
+    expectation = "the progress strip is hidden within the watchdog's bound after the motor worker dies"
+    if not wait_settled(studio):
+        return row("live-dead-worker", expectation, f"the graph never settled: {bar(studio)}", False)
+    studio.page.evaluate(f"{HOST}.studio.dispatch('forces.animate', {{ on: true }})")
+    if not wait_shown(studio):
+        return row("live-dead-worker", expectation, f"the strip never appeared: {bar(studio)}", False)
+    bound_ms = studio.page.evaluate(f"{HOST}.watchdogBoundMs")
+    if not isinstance(bound_ms, (int, float)) or bound_ms <= 0:
+        return not_run("live-dead-worker", expectation, f"the page reports no bound: {bound_ms!r}",
+                       "watchdogBoundMs is what the row measures against; without it the row could pass on any delay")
+    deadline = bound_ms / 1000.0 + BOUND_SLACK_S
+    studio.page.evaluate(f"{HOST}.stopMotor()")
+    began = time.monotonic()
+    took = wait_settled(studio, deadline)
+    elapsed = time.monotonic() - began
+    reported = dead_note(studio)
+    if not took:
+        return row("live-dead-worker", expectation,
+                   f"still visible {elapsed:.1f}s after the worker died (bound {bound_ms / 1000.0:.1f}s): {bar(studio)}",
+                   False)
+    if reported is None:
+        return row("live-dead-worker", expectation, "the strip went but no console line named the cause", False)
+    measured = f"hidden {elapsed:.1f}s after the worker died (bound {bound_ms / 1000.0:.1f}s), console said: {reported}"
+    return row("live-dead-worker", expectation, measured, True)
+
+
 def run_rows(studio, broken):
     if broken:
         break_the_loop(studio)
         time.sleep(0.4)
-    return [row_settle(studio), row_drag_neighbour(studio), row_progress(studio)]
+    return [row_settle(studio), row_drag_neighbour(studio), row_progress(studio), row_dead_worker(studio)]
