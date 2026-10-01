@@ -136,7 +136,49 @@ OSAGE_CLOSED = {
     ],
 }
 
-CLOSED = {"osage": OSAGE_CLOSED}
+# The `fdp` closed answers, in points, **in the frame `-Tplain` prints**.
+#
+# `fdp` is iterative, so these are not derived from a formula the way `osage`'s are: each is
+# what the pinned Graphviz 16.1.0 printed for `fdp -Tplain -Gstart=1` over the matching
+# `CLOSED_CASES` graph, read at full precision out of `-Tjson0` and multiplied by 72. What
+# makes them worth a byte-for-byte comparison is that they are *stable*: each of the six was
+# run four times and every run was byte-identical, which is not true of this engine in
+# general (see `docs/measurements/p13-gv2-fdp.md` — the same engine at the default
+# `maxiter` is not reproducible past roughly a hundred iterations, while at a few dozen nodes
+# it is). `-Tplain` prints five significant digits and this table stores the value those five
+# digits denote, so the round trip through `/ 72` and `%.<DIGITS>g` in `closed_case` is exact.
+FDP_CLOSED = {
+    "one-node": [(27.0, 18.0)],
+    "two-nodes": [(27.0, 27.77616), (92.4336, 18.0)],
+    "three-path": [
+        (27.0, 113.73119999999999),
+        (86.5008, 66.41856),
+        (88.10640000000001, 18.0),
+    ],
+    "four-cycle": [
+        (27.0, 64.51344),
+        (130.3704, 70.97976),
+        (92.988, 18.0),
+        (64.38528000000001, 117.4896),
+    ],
+    "five-star": [
+        (94.4496, 67.94712),
+        (160.76160000000002, 53.830079999999995),
+        (53.31744, 18.0),
+        (27.0, 114.0552),
+        (124.9272, 145.7352),
+    ],
+    "six-branch": [
+        (83.8296, 77.3208),
+        (169.07760000000002, 18.0),
+        (87.15599999999999, 25.269840000000002),
+        (27.0, 124.0416),
+        (157.5, 103.75200000000001),
+        (134.35920000000002, 164.5488),
+    ],
+}
+
+CLOSED = {"osage": OSAGE_CLOSED, "fdp": FDP_CLOSED}
 
 
 def engine_points(tmp, engine, name, count, edges, start):

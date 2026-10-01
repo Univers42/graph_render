@@ -60,6 +60,14 @@ pub(super) fn force_record(id: &str) -> Option<(&'static str, Status)> {
         // Ponytail: no differential exists for the multilevel layout (not sfdp); the
         // stress record is the closest metric and is barnes_hut's, so `implemented` only.
         "layout.force.yifan_hu" => Some(("stress", Status::Implemented)),
+        // Its own differential, and its own record, because this engine is not
+        // reproducible: the pinned Graphviz 16.1.0 `fdp -Tplain -Gstart=1` gives
+        // byte-different output on two runs over the same graph, so no ceiling measured
+        // against it can be a bound on anything, and `gated` on a hash alone would be a
+        // claim the oracle itself contradicts. `implemented` is the honest status; the
+        // measured oracle self-gap is the floor on agreement and is written up in
+        // docs/measurements/p13-gv2-fdp.md.
+        "layout.force.fdp" => Some(("oracle-fdp", Status::Implemented)),
         id if IGRAPH_LAYOUTS.contains(&id) => Some(("oracle-igraph", Status::Implemented)),
         // Its own differential, and its own record, for the same reason `layout.forceatlas2`
         // gets one: the two FR ports share a metric but share no code, so one record

@@ -47,7 +47,7 @@ git log --oneline origin/develop..origin/p12-igraph
 | `GRAPHVIZ_OSAGE` | `dispatcher.py:140` | same, `engine='osage'` | 2D default | `layout.packing.osage` | in flight: p13-gv1 | Graphviz `osage` 16.1.0 `lib/osage/osageinit.c` + `lib/pack/pack.c` | `oracle-graphviz --engine osage`, `capabilities/registry/unproven.rs:65`, `registry/graphviz_osage.rs`; **agrees exactly only below 11 nodes** — see `docs/measurements/p13-gv1-osage.md` |
 | `GRAPHVIZ_PATCHWORK` | `dispatcher.py:140` | same, `engine='patchwork'` | 2D default | — | planned: p13-gv1 | Graphviz `patchwork` | Graphviz's own output, docker-only oracle |
 | `GRAPHVIZ_NEATO` | `dispatcher.py:140` | same, `engine='neato'` | 2D default; 3D eligible (`GRAPHVIZ_NATIVE_3D_ENGINES` `yifan_hu.py:18`) | — | planned: p13-gv2 | Graphviz `neato` | Graphviz's own output, docker-only oracle |
-| `GRAPHVIZ_FDP` | `dispatcher.py:140` | same, `engine='fdp'` | 2D default | — | planned: p13-gv2 | Graphviz `fdp` | Graphviz's own output, docker-only oracle |
+| `GRAPHVIZ_FDP` | `dispatcher.py:140` | same, `engine='fdp'` | 2D default | `layout.force.fdp` | on p13-gv2 (`Status::Implemented`, never gated: the oracle is not self-reproducible) | Graphviz `fdp` | Graphviz's own output, docker-only oracle; `-Gstart` is **effective**, not inert, and the oracle disagrees with itself over the same sweep — `docs/measurements/p13-gv2-fdp.md` |
 | `GRAPHVIZ_SFDP` | `dispatcher.py:140` | same, `engine='sfdp'` | 2D default; 3D eligible (`yifan_hu.py:18`) | — | planned: p13-gv2 | Graphviz `sfdp` | Graphviz's own output, docker-only oracle |
 | `GRAPHVIZ_DOT` | `dispatcher.py:140` | same, `engine='dot'` | 2D default | — | planned: p13-gv2 | Graphviz `dot` | Graphviz's own output, docker-only oracle |
 | `SUGIYAMA` | `dispatcher.py:142` | `_sugiyama_layout` `hierarchical.py:638` | 2D (z=0) | `layout.dag.sugiyama` | on develop | hand, checked on dagre-d3-es crossing counts | `roundtrip` + `harness/oracle-layouts.mjs --dag`, `registry/grid.rs:90` |
@@ -59,8 +59,10 @@ git log --oneline origin/develop..origin/p12-igraph
   `SPECTRAL_3D`, `SPIRAL_3D`, `BIPARTITE_3D`, `MDS_3D`), and 1 as a 2D-only cut of a name SciGraphs makes
   optional by dimension (`YIFAN_HU`, which is 2D/2Z/3 upstream)
 - in flight: p12-igraph = 7 names over 6 ids (`DRL` and `DRL_2D` share `layout.force.drl`) ·
-  p13-gv1 = 2 names over 2 ids (`GRAPHVIZ_TWOPI` → `layout.twopi`, `GRAPHVIZ_OSAGE` → `layout.packing.osage`)
-- planned: p13-gv1 = 2 · planned: p13-gv2 = 4
+  p13-gv1 = 2 names over 2 ids (`GRAPHVIZ_TWOPI` → `layout.twopi`, `GRAPHVIZ_OSAGE` → `layout.packing.osage`) ·
+  p13-gv2 = 1 name over 1 id (`GRAPHVIZ_FDP` → `layout.force.fdp`, landed at `Status::Implemented` and
+  deliberately not gated — its oracle is not self-reproducible, which is measured, not assumed)
+- planned: p13-gv1 = 2 · planned: p13-gv2 = 3
 - missing = 5, all of them 3D: `SPRING_3D`, `SPHERE`, `HELIX`, `CUBE`, `HIERARCHICAL_3D`
 - motor ids with no SciGraphs name = 4 (`layout.tree.tidy`, `layout.treemap.squarified`, `layout.circular.ring`, `layout.force.barnes_hut`); out of scope for a table keyed on SciGraphs names
 

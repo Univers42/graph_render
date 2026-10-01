@@ -12,7 +12,7 @@ use crate::layout::force::{
     BarnesHut, DavidsonHarel, Drl, FruchtermanReingold, Graphopt, KamadaKawai, Lgl, YifanHu,
 };
 use crate::layout::forceatlas2::ForceAtlas2;
-use crate::layout::graphviz::osage;
+use crate::layout::graphviz::{fdp, osage};
 use crate::layout::grid::Grid;
 use crate::layout::radial::twopi;
 use crate::layout::sugiyama::Sugiyama;
@@ -24,6 +24,7 @@ use graph_contract::geometry::{EdgeGeometryKind, NodeGeometryKind};
 
 mod closed_form;
 mod force;
+mod graphviz_fdp;
 mod graphviz_osage;
 mod grid;
 mod hierarchy;
@@ -33,6 +34,8 @@ mod spectral;
 use closed_form::{BIPARTITE, RANDOM, RING, SPIRAL};
 use force::{BARNES_HUT, FA2, SPRING, YIFAN_HU};
 pub use force::{FA2_CEILING, FORCE_CEILING, SPRING_CEILING};
+use graphviz_fdp::FDP;
+pub use graphviz_fdp::FDP_CEILING;
 use graphviz_osage::OSAGE;
 pub use graphviz_osage::OSAGE_CEILING;
 use grid::{GRID, PACKING, SUGIYAMA};
@@ -79,7 +82,7 @@ pub struct Capability {
 }
 
 /// Every registered layout, in the order the hash gate runs them.
-pub static LAYOUTS: [Capability; 25] = [
+pub static LAYOUTS: [Capability; 26] = [
     Capability {
         id: Grid::ID,
         run: run_default::<Grid>,
@@ -204,6 +207,11 @@ pub static LAYOUTS: [Capability; 25] = [
         id: circular::hierarchy::ID,
         run: circular::hierarchy::run,
         meta: CIRCULAR_HIERARCHY,
+    },
+    Capability {
+        id: fdp::ID,
+        run: fdp::run,
+        meta: FDP,
     },
 ];
 

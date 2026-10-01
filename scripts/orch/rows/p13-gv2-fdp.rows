@@ -1,0 +1,95 @@
+# p13-gv2 fdp — the merge floor, the two wasm32 builds, the hash gate at 8 seeds, the
+# existing knob controls, and the fdp differential's three steps plus four controls of its
+# own.
+#
+# Copied from `scripts/orch/rows/quick.rows` (the merge floor plus wasm32 and hashgate 8),
+# with the differential chain in the three-step shape `scripts/orch/rows/p13-gv1-osage.rows`
+# uses, and the engine-specific controls below replacing the osage ones because this engine
+# behaves differently: `-Gstart` is NOT inert for fdp, and the oracle is NOT deterministic.
+#
+# The timed gates — `hashgate --seeds 1000`, `scripts/orch/gate.sh`, `scripts/orch/mutants.sh` —
+# are the orchestrator's and are not rows here: one timed gate at a time (CLAUDE.md).
+# `expect` is `0` or `nonzero`; `#` starts a comment (`scripts/orch/gate.sh:2-4`).
+#
+# **The four `fdp-oracle-*` rows are ordered and share files**: A writes
+# `target/gv-fdp-nd/{a,b}`, B perturbs A's `a` in place and compares it against `b`, and C
+# reads the same `f.jsonl` and writes `s1`, `s7`, `s99`. A must run before B, and B must run
+# before nothing else touches `a`. `gate.sh` runs the rows in file order.
+#
+# **`fdp-oracle-1000` is slow — about two hours — and is deliberately not the row that proves
+# the finding.** The `fdp-oracle-nondeterminism` row costs about two seconds and proves the
+# same thing on a named graph. The 1000-seed row is here for the differential of record, and
+# its measured output is what the ceiling in `docs/measurements/p13-gv2-fdp.md` is set from.
+fmt|0|scripts/orch/gr cargo fmt --all --check
+clippy|0|scripts/orch/gr cargo clippy --workspace --all-targets -- -D warnings
+test|0|scripts/orch/gr cargo test --workspace --no-fail-fast
+wasm32-core|0|scripts/orch/gr cargo build -p graph-core --target wasm32-unknown-unknown
+wasm32-motor|0|scripts/orch/gr cargo build -p graph-wasm --release --target wasm32-unknown-unknown
+hashgate-8|0|scripts/orch/gr cargo run -q -p graph-cli -- hashgate --seeds 8
+
+# The negative controls. The knobs list exists once, in
+# `crates/graph-cli/src/hashgate/knob.rs:236`.
+#
+# **There is deliberately no `negctl-fdp-nodes` row**, for the reason
+# `scripts/orch/rows/p13-gv1-osage.rows:23-31` gives: the per-stage knob for a Graphviz engine
+# re-draws that stage's own model, and `hashgate/knob.rs` plus `hashgate/knob/` are shared with
+# the parallel Graphviz engine jobs (gv2-neato, gv2-sfdp, gv2-dot, gv2-patchwork), so an agent
+# editing that enum is a merge collision on a gate file. The controls below sit where they can
+# be added without touching it, and for this engine they are the ones that matter: the oracle
+# disagrees with *itself* over the same sweep, so what has to be proven is that the comparison
+# sees the oracle's own output, that it sees it to the last digit, and that it cannot pass on
+# nothing.
+negctl-degree|0|scripts/orch/gr -e GM_MUTATE_REFERENCE_DEGREE=9 cargo run -q -p graph-cli -- hashgate --seeds 8; test $? -eq 1
+negctl-twopi-nodes|nonzero|scripts/orch/gr -e GM_MUTATE_TWOPI_NODES=1 cargo run -q -p graph-cli -- hashgate --seeds 8
+
+# The fdp differential at the seed count it is measured at
+# (`docs/measurements/p13-gv2-fdp.md`): emit the fixtures, run Graphviz's own engine over them
+# in the pinned docker-only oracle image, then check the result against the measured ceiling and
+# record it. The oracle rows are the only ones here that talk to Docker.
+#
+# `--release` on the emit, and it is not a nicety: the overlap phase is
+# `O(tries * n^2)` with `tries = 9` and the gate model reaches n = 552, so a debug build of
+# this emit takes hours. The osage row above needs no flag because osage is closed form.
+fdp-emit-1000|0|scripts/orch/gr cargo run -q --release -p graph-cli -- emit-graphviz-fixtures --engine fdp --seeds 1000
+fdp-oracle-1000|0|docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/fdp-fixtures fdp target/gv-fdp --differential
+fdp-check-1000|0|scripts/orch/gr cargo run -q -p graph-cli -- oracle-graphviz --engine fdp
+
+# **Control A — the oracle is NOT deterministic for this engine, and that is the finding.**
+# `twopi`, `circo` and `osage` are byte-identical across two runs over the same fixtures; `fdp`
+# is not, at the default `maxiter=600`.
+#
+# One seed, not a subset and not 1000: seed 620 of the gate model is **n = 22** and gives
+# **8 distinct outputs over 8 runs**, self-gap 7.8e1 points, in about two seconds. A 20-seed
+# strided subset was tried first and was byte-identical over six runs, which is the point worth
+# keeping — whether a given graph is stable is a property of that graph, so a control that
+# sampled for a bad one would be sampling, not measuring. This seed is stable-bad, verified in
+# isolation and repeatedly, and it is named here so a reader can re-run it.
+#
+# `expect 0`, and the row **fails if the two runs come out identical**. That is the honest
+# encoding: the finding is that they differ, so a row that passed when they differ and failed
+# when they agreed would assert the opposite of what was measured, and the failure message says
+# what to do about it. Both runs' exit codes are checked to be 0 first, so a broken oracle run
+# cannot be read as a determinism result.
+fdp-oracle-nondeterminism|0|mkdir -p target/gv-fdp-nd && python3 -c "import json;[open('target/gv-fdp-nd/f.jsonl','w').write(json.dumps(r)+'\n') for r in map(json.loads, open('target/fdp-fixtures/fdp.jsonl')) if r['seed']==620]" && docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/gv-fdp-nd fdp target/gv-fdp-nd/a --fixtures=f.jsonl --start=1 && docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/gv-fdp-nd fdp target/gv-fdp-nd/b --fixtures=f.jsonl --start=1 && { cmp -s target/gv-fdp-nd/a/graphviz-fdp.jsonl target/gv-fdp-nd/b/graphviz-fdp.jsonl && echo "two runs are byte-identical: the nondeterminism finding in docs/measurements/p13-gv2-fdp.md is gone — re-measure the ceiling and this row" >&2 && exit 1; }
+
+# **Control B — the divergence is not the comparison failing to look.** One node coordinate of
+# the same seed-620 output is moved by 1e-6 points, four orders of magnitude below anything this
+# layout computes, and the byte comparison must fail. Without this, "the two runs differ" could
+# mean "the comparison never looks", which is the one thing a determinism row has to rule out.
+# It reads control A's own `a` output, so the two rows cannot drift apart.
+fdp-oracle-perturb-negctl|nonzero|docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 -c "import json; p='target/gv-fdp-nd/a/graphviz-fdp.jsonl'; rows=[json.loads(l) for l in open(p)]; rows[0]['nodes']['n0'][0] += 1e-6; open(p, 'w').write('\n'.join(json.dumps(r) for r in rows) + '\n')" && cmp target/gv-fdp-nd/a/graphviz-fdp.jsonl target/gv-fdp-nd/b/graphviz-fdp.jsonl
+
+# **Control C — `-Gstart` is effective, not inert.** `initPositions` seeds the whole initial
+# placement from it (`tlayout.c:487`), so the same fixtures at start=1, 7 and 99 give three
+# different layouts. For `twopi` and `osage` the equivalent row asserts three *identical*
+# outputs; here it asserts three different ones, and `expect nonzero` is the honest encoding of
+# "the first `cmp` fails", which it does on the very first seed. All three runs use the plain
+# positional call, so all three write the same record shape — comparing a `--differential`
+# output against a positional one would differ in the JSON keys alone and would prove nothing.
+fdp-oracle-start-effective|nonzero|docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/gv-fdp-nd fdp target/gv-fdp-nd/s1 --fixtures=f.jsonl --start=1 && docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/gv-fdp-nd fdp target/gv-fdp-nd/s7 --fixtures=f.jsonl --start=7 && docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/gv-fdp-nd fdp target/gv-fdp-nd/s99 --fixtures=f.jsonl --start=99 && cmp target/gv-fdp-nd/s1/graphviz-fdp.jsonl target/gv-fdp-nd/s7/graphviz-fdp.jsonl
+
+# **Control D: the check cannot pass on nothing.** A directory with no recorded run must be
+# refused rather than read as a pass — the same shape `scripts/orch/rows/p13-gv1-osage.rows:67`
+# uses for the osage oracle, and the reason it matters more here: a differential whose oracle
+# is unstable is exactly the one where a missing run could be mistaken for a passing one.
+fdp-check-negctl|nonzero|scripts/orch/gr cargo run -q -p graph-cli -- oracle-graphviz --engine fdp --dir target/fdp-fixtures-absent

@@ -8,4 +8,5 @@
 //! it stays where it is rather than moving, because a move would put a hash-gate stage's
 //! module path in the diff for no behavioural change.
 
+pub mod fdp;
 pub mod osage;
