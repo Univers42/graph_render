@@ -17,11 +17,11 @@
 
 mod charge;
 mod collide;
-mod link;
+pub(in crate::layout::force) mod link;
 mod seed;
 mod settle;
 pub(in crate::layout::force) mod sim;
-mod step;
+pub(in crate::layout::force) mod step;
 
 #[cfg(test)]
 mod tests;
@@ -32,7 +32,6 @@ use crate::index::Topology;
 use crate::layout::Geometry;
 use crate::layout::force::session::ForceSession;
 use crate::stage::{Stage, StageError};
-use graph_contract::geometry::{EdgeGeometry, NodeGeometry};
 
 /// Which of the tick's range-kernel merges the negative control splits.
 ///
@@ -175,17 +174,6 @@ impl BarnesHut {
         // 4-way hash gate are there to keep true.
         let mut session = ForceSession::from_frozen(topology, params)?;
         session.step_under(runner, workers, split, TICKS);
-        let (x, y) = (session.xs(), session.ys());
-        if x.iter().chain(y).any(|v| !v.is_finite()) {
-            return Err(StageError::NonFinite { column: "node.x" });
-        }
-        Ok(Geometry::planar(
-            NodeGeometry::Point {
-                x: x.iter().map(|&v| v as f32).collect(),
-                y: y.iter().map(|&v| v as f32).collect(),
-            },
-            EdgeGeometry::Line,
-            Vec::new(),
-        ))
+        super::planar_points(session.xs(), session.ys())
     }
 }

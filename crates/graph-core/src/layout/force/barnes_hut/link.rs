@@ -58,7 +58,7 @@ pub(super) fn geometry(graph: &SimpleGraph, params: &LiveParams) -> (Vec<f64>, V
 ///
 /// `split` is this pass's own slice of the negative control: it makes the merge read the
 /// next node's delta as well, the shape a wrong partition of the outputs would take.
-pub(super) fn apply_with(
+pub(in crate::layout::force) fn apply_with(
     sim: &mut Sim,
     runner: &impl Runner,
     workers: u32,

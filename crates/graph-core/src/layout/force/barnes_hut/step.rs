@@ -168,7 +168,7 @@ impl LinkPass<'_> {
 /// three. Each node receives exactly one addition, its own delta, which is why the order
 /// the outputs are laid out in moves no byte and why the control has to *steal* a
 /// neighbour's term to move anything.
-pub(super) fn merge(
+pub(in crate::layout::force) fn merge(
     v: (&mut [f64], &mut [f64]),
     order: Option<&[u32]>,
     deltas: &[(f64, f64)],

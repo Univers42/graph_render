@@ -205,7 +205,7 @@ impl Sim {
 
     /// `center.js`: shifts every position by the mean, toward the origin — position, not
     /// velocity, and with no `alpha` scaling (`center.js`'s `force()` takes no `alpha`).
-    fn center(&mut self) {
+    pub(in crate::layout::force) fn center(&mut self) {
         let n = self.x.len();
         if n == 0 {
             return;
