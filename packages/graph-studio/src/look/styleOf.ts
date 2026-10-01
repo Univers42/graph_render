@@ -91,7 +91,7 @@ function weightsOf(input: LookInput): Float32Array {
 
 export function styleInputOf(input: LookInput): StyleInput {
   const { colours, palette } = colouringOf(input);
-  const { nodeScale, sizeBy, linkThickness, edgeStyle, arrows, glow, glowStrength, minRadius, maxRadius } = input.appearance;
+  const { nodeScale, sizeBy, linkThickness, edgeStyle, edgeColour, arrows, glow, glowStrength, minRadius, maxRadius } = input.appearance;
   return {
     labels: input.meta.labels,
     weights: weightsOf(input),
@@ -99,6 +99,7 @@ export function styleInputOf(input: LookInput): StyleInput {
     palette,
     sizing: { base: BASE_RADIUS * nodeScale, gain: sizeBy === "uniform" ? 0 : GAIN, min: minRadius, max: maxRadius },
     edges: { scale: linkThickness, curve: edgeStyle === "curve", arrows },
+    edgeColour,
     glow: glow ? glowStrength : 0,
     hidden: withReveal(hiddenOf(input.meta, input.filter), input.reveal ?? null, input.meta.nodeCount),
   };

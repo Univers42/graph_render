@@ -23,7 +23,7 @@ already uses for this check, because the full sweep is 4.7 h of engine time:
 ```
 awk 'NR%50==1' target/spectral-fixtures/spectral.jsonl > target/circo-determinism/spectral-fixtures/spectral.jsonl
 for s in 1 7 99; do
-  docker run --rm --pull never --user 0:0 -e GM_ORACLE_START=$s -v "$PWD:/w" -w /w ge-graphviz-oracle \
+  docker run --rm --pull never --user 0:0 -e GM_GV_START=$s -v "$PWD:/w" -w /w ge-graphviz-oracle \
     python3 harness/oracle-graphviz.py target/circo-determinism/spectral-fixtures circo target/circo-determinism/start-$s
 done
 docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle \
@@ -35,7 +35,7 @@ cmp target/circo-determinism/start-1/graphviz-circo.jsonl target/circo-determini
 
 All three `cmp` silent (exit 0), so all four runs are byte-identical. **The engine's output does
 not depend on the seed**, and there is no seed stability left to gate: the gap in §3 is an
-algorithmic difference, not drift. `GM_ORACLE_START` is the one line `harness/oracle-graphviz.py`
+algorithmic difference, not drift. `GM_GV_START` is the one line `harness/oracle-graphviz.py`
 gained for this: `START_SEED` (`harness/gv_plain.py`) reads the environment, defaulting to the
 `1` every recorded run used. Develop's own `--start=N` flag is now the second spelling of the same
 knob, and every arm reads it through `gv_plain.run_engine`, so the runs above and an `--start`

@@ -18,7 +18,7 @@ use super::{Knob, igraph, knobs};
 /// **A `const`, because `capabilities::verdict::Evidence::load` walks it** to collect one
 /// control record each — a ledger read cannot be a function call per row. `Knob::ALL` is
 /// this array, re-exported so the name every caller already used keeps working.
-pub const ALL: [Knob; 37] = [
+pub const ALL: [Knob; 38] = [
     Knob::ReferenceDegree,
     Knob::GridSpacing,
     Knob::SugiyamaLayerSpacing,
@@ -29,6 +29,7 @@ pub const ALL: [Knob; 37] = [
     Knob::TreemapNodes,
     Knob::CircularNodes,
     Knob::TwopiNodes,
+    Knob::PatchworkNodes,
     Knob::SpringIterations,
     Knob::CircularHierarchyNodes,
     Knob::PackingScale,
@@ -71,6 +72,7 @@ pub const fn env(knob: Knob) -> &'static str {
         Knob::TreemapNodes => "GM_MUTATE_TREEMAP_NODES",
         Knob::CircularNodes => "GM_MUTATE_CIRCULAR_NODES",
         Knob::TwopiNodes => "GM_MUTATE_TWOPI_NODES",
+        Knob::PatchworkNodes => "GM_MUTATE_PATCHWORK_NODES",
         Knob::SpringIterations => "GM_MUTATE_SPRING_ITERATIONS",
         Knob::CircularHierarchyNodes => "GM_MUTATE_CIRCULAR_HIERARCHY_NODES",
         Knob::PackingScale => "GM_MUTATE_PACKING_SCALE",

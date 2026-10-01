@@ -102,11 +102,11 @@ impl Grid {
             &mut pairs,
         );
         let (x, y): (Vec<f32>, Vec<f32>) = pairs.into_iter().unzip();
-        Ok(Geometry {
-            nodes: NodeGeometry::Point { x, y },
-            edges: EdgeGeometry::Line,
-            notes: Vec::new(),
-        })
+        Ok(Geometry::planar(
+            NodeGeometry::Point { x, y },
+            EdgeGeometry::Line,
+            Vec::new(),
+        ))
     }
 }
 

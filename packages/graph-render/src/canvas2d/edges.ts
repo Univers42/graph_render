@@ -10,8 +10,14 @@
  * are both off one side of the screen is dropped even when its bend would have reached
  * into view. And while the view moves, a frame with more than MOVING_BUDGET edges draws
  * every k-th one; the whole set is drawn as soon as it stops.
+ *
+ * The style's edge colour picks the pass: `flat` is paintAll, one stroke in the theme's own
+ * colour as above; `gradient` is paintGradient, which batches the edges whose ends share a
+ * colour and gives every edge whose ends do not share one its own colour (edgeGradient.ts).
  */
 import { controlPoint } from "../edges2d/curve.ts";
+import { edgeStops } from "../colour/blend.ts";
+import { type EdgePlan, FALLBACK_COLOUR, meanCss, planOf } from "./edgeGradient.ts";
 import { paintArrows } from "./arrows.ts";
 import type { PaintCounts, PaintInput } from "./input.ts";
 
@@ -134,6 +140,64 @@ function paintAll(tracer: Tracer): void {
   endStyle(tracer, strokesBefore);
 }
 
+/** The edges whose two ends wear one colour, one path and one stroke per CHUNK per slot. */
+function paintSame(tracer: Tracer, plan: EdgePlan): void {
+  const { input } = tracer;
+  for (let slot = 0; slot < plan.start.length - 1; slot += 1) {
+    const from = plan.start[slot] ?? 0;
+    const to = plan.start[slot + 1] ?? 0;
+    if (to <= from) continue;
+    input.ctx.strokeStyle = input.style.palette[slot] ?? "#9a9a9a";
+    input.ctx.beginPath();
+    const strokesBefore = tracer.counts.strokes;
+    for (let at = from; at < to; at += 1) traceEdge(tracer, plan.same[at] ?? 0);
+    endStyle(tracer, strokesBefore);
+  }
+}
+
+/** One gradient from source to target, K stops of the linear mix, and the edge's own path. */
+function paintLive(tracer: Tracer, plan: EdgePlan): void {
+  const { input } = tracer;
+  const ends: Ends = { ax: 0, ay: 0, bx: 0, by: 0 };
+  for (let m = 0; m < plan.mixedEdges.length; m += 1) {
+    const edge = plan.mixedEdges[m] ?? 0;
+    const at = screenEnds(input, edge, ends);
+    if (at === null) continue;
+    const from = plan.mixedFrom[m] ?? 0;
+    const to = plan.mixedTo[m] ?? 0;
+    const a = plan.palette[from] ?? FALLBACK_COLOUR;
+    const b = plan.palette[to] ?? FALLBACK_COLOUR;
+    const gradient = input.ctx.createLinearGradient(at.ax, at.ay, at.bx, at.by);
+    for (const stop of edgeStops(a, b)) gradient.addColorStop(stop.offset, stop.colour);
+    input.ctx.strokeStyle = gradient;
+    input.ctx.beginPath();
+    const strokesBefore = tracer.counts.strokes;
+    traceEdge(tracer, edge);
+    endStyle(tracer, strokesBefore);
+    tracer.counts.gradientStrokes += 1;
+  }
+}
+
+/** Past the budget, or while the view moves: one stroke per colour pair, in its mean. */
+function paintMeans(tracer: Tracer, plan: EdgePlan): void {
+  const { input } = tracer;
+  for (const pair of plan.pairs) {
+    input.ctx.strokeStyle = meanCss(plan, pair.from, pair.to);
+    input.ctx.beginPath();
+    const strokesBefore = tracer.counts.strokes;
+    for (const edge of pair.edges) traceEdge(tracer, edge);
+    endStyle(tracer, strokesBefore);
+  }
+}
+
+function paintGradient(tracer: Tracer, plan: EdgePlan): void {
+  tracer.counts.mixedEdges = plan.mixedEdges.length;
+  tracer.input.ctx.globalAlpha = tracer.input.focus >= 0 ? tracer.input.theme.dimAlpha : 1;
+  paintSame(tracer, plan);
+  if (plan.live) paintLive(tracer, plan);
+  else paintMeans(tracer, plan);
+}
+
 function paintLit(tracer: Tracer): void {
   const { input } = tracer;
   const { adjacency, focus } = input;
@@ -164,8 +228,10 @@ export function paintEdges(input: PaintInput, counts: PaintCounts): void {
   const tracer: Tracer = { input, counts, pending: 0 };
   input.ctx.lineWidth = strokeWidth(input);
   counts.stroke = input.ctx.lineWidth;
-  paintAll(tracer);
+  const plan = planOf(input);
+  if (plan === null) paintAll(tracer);
+  else paintGradient(tracer, plan);
   if (input.focus >= 0) paintLit(tracer);
   input.ctx.globalAlpha = 1;
-  if (input.style.edges.arrows) paintArrows(input, counts);
+  if (input.style.edges.arrows) paintArrows(input, counts, plan);
 }

@@ -8,6 +8,7 @@ use graph_core::layout::circle_packing::CirclePackingParams;
 use graph_core::layout::force::spring::SpringParams;
 use graph_core::layout::force::{ForceParams, LiveParams, Split};
 use graph_core::layout::forceatlas2::Fa2Params;
+use graph_core::layout::graphviz::patchwork;
 use graph_core::layout::radial::twopi;
 use graph_core::layout::{circular, tidy_tree, treemap};
 use graph_core::{GridParams, REFERENCE_DEGREE, SugiyamaParams};
@@ -151,6 +152,9 @@ fn apply(knob: Knob, text: &str, setting: &mut Setting) -> Result<(), String> {
         }
         Knob::TwopiNodes => {
             setting.stage_nodes = Some((twopi::ID, nodes(text, knob)?));
+        }
+        Knob::PatchworkNodes => {
+            setting.stage_nodes = Some((patchwork::ID, nodes(text, knob)?));
         }
         // Parsed, not treated as a presence flag, and `0` is refused below like every
         // other count: an iteration budget of zero would still return the rescaled start

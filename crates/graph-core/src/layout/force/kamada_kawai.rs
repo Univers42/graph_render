@@ -61,14 +61,14 @@ impl Stage for KamadaKawai {
         if pos.iter().flatten().any(|v| !v.is_finite()) {
             return Err(StageError::NonFinite { column: "node.x" });
         }
-        Ok(Geometry {
-            nodes: NodeGeometry::Point {
+        Ok(Geometry::planar(
+            NodeGeometry::Point {
                 x: pos.iter().map(|p| p[0] as f32).collect(),
                 y: pos.iter().map(|p| p[1] as f32).collect(),
             },
-            edges: EdgeGeometry::Line,
-            notes: Vec::new(),
-        })
+            EdgeGeometry::Line,
+            Vec::new(),
+        ))
     }
 }
 

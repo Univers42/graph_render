@@ -22,7 +22,7 @@ n0..n{n-1}, so the mapping back to the fixture's source/target columns is trivia
 but the engine may drop isolated nodes or merge duplicates, so the harness asserts the
 node count matches and refuses otherwise. `START_SEED` is passed as `-Gstart` because
 the job asked for a fixed seed where the engine takes one, and it is measured to be
-INERT for twopi, osage and circo: the same fixture hashes identically with start=1, 7, 99
+INERT for twopi, osage and circo (patchwork: docs/measurements/p13-gv1-patchwork.md): the same fixture hashes identically with start=1, 7, 99
 and with no `-Gstart` at all. Each is deterministic unconditionally, so this harness
 proves determinism, not seed stability. The one measured sensitivity: the output is
 byte-stable to the last digit, and a 1e-6-point perturbation of one node coordinate
@@ -195,6 +195,7 @@ def record_main(options):
     digest = hashlib.sha256(open(out_path, "rb").read()).hexdigest()
     manifest = {
         "engine": engine,
+        "start": START_SEED,
         "seeds": count,
         "sha256": {f"graphviz-{engine}.jsonl": digest},
         "graphviz": "16.1.0",

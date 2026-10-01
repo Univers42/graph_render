@@ -25,10 +25,10 @@ POINTS_PER_INCH = 72.0
 
 # The seed handed to the engine as `-Gstart` when no `--start=N` says otherwise. Two ways to
 # move it, both read here so no arm has to know about the other: the `--start=N` flag, and the
-# `GM_ORACLE_START` environment variable for a run that cannot pass a flag
-# (`docker run -e GM_ORACLE_START=7 ...`). The default is the seed every recorded run used, so
+# `GM_GV_START` environment variable for a run that cannot pass a flag
+# (`docker run -e GM_GV_START=7 ...`). The default is the seed every recorded run used, so
 # nothing else moves.
-START_SEED = int(os.environ.get("GM_ORACLE_START", "1"))
+START_SEED = int(os.environ.get("GM_GV_START", "1"))
 
 
 def write_dot(path, n, source, target):

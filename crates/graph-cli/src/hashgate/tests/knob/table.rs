@@ -16,7 +16,7 @@ use crate::hashgate::knobs;
 /// rather than derived from [`Knob::env`]**, so this test is the independent statement of
 /// what they are called; the twenty-one per-stage controls are absent because their
 /// variables come from `knobs::all()`, which has its own test below.
-const PARAMETER_KNOBS: [(&str, &str); 14] = [
+const PARAMETER_KNOBS: [(&str, &str); 15] = [
     (
         "GM_MUTATE_REFERENCE_DEGREE",
         "hashgate-control-reference-degree",
@@ -42,6 +42,10 @@ const PARAMETER_KNOBS: [(&str, &str); 14] = [
         "hashgate-control-circular-nodes",
     ),
     ("GM_MUTATE_TWOPI_NODES", "hashgate-control-twopi-nodes"),
+    (
+        "GM_MUTATE_PATCHWORK_NODES",
+        "hashgate-control-patchwork-nodes",
+    ),
     (
         "GM_MUTATE_SPRING_ITERATIONS",
         "hashgate-control-spring-iterations",

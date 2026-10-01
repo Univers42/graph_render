@@ -14,3 +14,4 @@
 
 pub mod circo;
 pub mod osage;
+pub mod patchwork;

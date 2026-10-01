@@ -96,6 +96,15 @@ pub enum Knob {
     /// the one thing it does read, the model, for that stage only. Adding a `Params` to
     /// gain a knob would be the tail wagging the dog.
     TwopiNodes,
+    /// `GM_MUTATE_PATCHWORK_NODES`: nodes added to `layout.treemap.patchwork`'s model
+    /// alone.
+    ///
+    /// The same probe as the four node controls above, for the same reason: `patchwork` is a
+    /// closed form with no parameter of its own — it pins Graphviz's default `area` of 1 and
+    /// no `inset`, and its module doc says so — so its own control perturbs the one thing it
+    /// does read, the model, for that stage only. A new node is a new square in the field,
+    /// so it moves the tiling and this stage's bytes and nothing else's.
+    PatchworkNodes,
     /// `GM_MUTATE_SPRING_ITERATIONS`: the spring layout's iteration budget, native arm only.
     ///
     /// Its own control because `iterations` is read by the FR loop's `for` and by
@@ -258,7 +267,7 @@ impl Knob {
     /// twenty-one per-stage arms are spelled out there and held against those two tables by
     /// `the_analysis_and_post_controls_are_the_knobs_table`, which fails on any arm whose
     /// variable, record or stage a table disagrees with.
-    pub const ALL: [Self; 37] = arms::ALL;
+    pub const ALL: [Self; 38] = arms::ALL;
 
     /// The variable that sets it.
     pub const fn env(self) -> &'static str {

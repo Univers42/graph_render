@@ -27,6 +27,11 @@ export const COLOUR_BY = ["group", "kind", "tag", "db", "analysis", "none"] as c
 export const SIZE_BY = ["weight", "degree", "analysis", "uniform"] as const;
 export const LABEL_MODES = ["auto", "more", "none"] as const;
 export const EDGE_STYLES = ["straight", "curve"] as const;
+/**
+ * How an edge takes its colour: `flat` is one stroke in the theme's colour, `gradient` runs
+ * from the source node's colour to the target's, as the SciGraphs edge tubes do.
+ */
+export const EDGE_COLOURS = ["flat", "gradient"] as const;
 export const NODE_SCALE = { min: 0.2, max: 5, whole: false } as const;
 export const LINK_THICKNESS = { min: 0.1, max: 5, whole: false } as const;
 export const TEXT_FADE = { min: -3, max: 3, whole: false } as const;
@@ -49,6 +54,7 @@ export interface Appearance {
   /** Multiplies every edge's stroke width. */
   readonly linkThickness: number;
   readonly edgeStyle: (typeof EDGE_STYLES)[number];
+  readonly edgeColour: (typeof EDGE_COLOURS)[number];
   readonly glow: boolean;
   readonly glowStrength: number;
   /** `theme` paints the theme's own ground, `flat` one solid colour, `aurora` a gradient. */
@@ -106,7 +112,7 @@ function appearanceOf(look: Appearance): Appearance {
   return Object.freeze({
     theme: look.theme, colourBy: look.colourBy, sizeBy: look.sizeBy, nodeScale: look.nodeScale, labels: look.labels,
     arrows: look.arrows, textFade: look.textFade, linkThickness: look.linkThickness, edgeStyle: look.edgeStyle,
-    glow: look.glow, glowStrength: look.glowStrength,
+    edgeColour: look.edgeColour, glow: look.glow, glowStrength: look.glowStrength,
     background: look.background, minRadius: look.minRadius, maxRadius: look.maxRadius,
   });
 }
@@ -155,7 +161,8 @@ export const DEFAULT_SETTINGS: Settings = settingsOf({
   analysis: null,
   appearance: {
     theme: "dark", colourBy: "group", sizeBy: "weight", nodeScale: 1, labels: "auto",
-    arrows: false, textFade: 0, linkThickness: 1, edgeStyle: "straight", glow: false, glowStrength: 1,
+    arrows: false, textFade: 0, linkThickness: 1, edgeStyle: "straight", edgeColour: "flat",
+    glow: false, glowStrength: 1,
     background: "theme", minRadius: NODE_PX.min, maxRadius: NODE_PX.max,
   },
   groups: [],
@@ -204,8 +211,8 @@ function readSource(value: unknown, at: string): Source {
 
 function readAppearance(value: unknown, at: string): Appearance {
   const fields = fieldsOf(value, at, [
-    "theme", "colourBy", "sizeBy", "nodeScale", "labels", "arrows", "textFade", "linkThickness", "edgeStyle", "glow", "glowStrength",
-    "background", "minRadius", "maxRadius",
+    "theme", "colourBy", "sizeBy", "nodeScale", "labels", "arrows", "textFade", "linkThickness", "edgeStyle", "edgeColour",
+    "glow", "glowStrength", "background", "minRadius", "maxRadius",
   ]);
   return {
     theme: oneOf(fields, at, "theme", THEMES),
@@ -217,6 +224,7 @@ function readAppearance(value: unknown, at: string): Appearance {
     textFade: numberOf(fields, at, "textFade", TEXT_FADE),
     linkThickness: numberOf(fields, at, "linkThickness", LINK_THICKNESS),
     edgeStyle: oneOf(fields, at, "edgeStyle", EDGE_STYLES),
+    edgeColour: oneOf(fields, at, "edgeColour", EDGE_COLOURS),
     glow: flagOf(fields, at, "glow"),
     glowStrength: numberOf(fields, at, "glowStrength", GLOW_STRENGTH),
     background: oneOf(fields, at, "background", BACKGROUNDS),

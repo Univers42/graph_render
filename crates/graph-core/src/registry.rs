@@ -14,6 +14,7 @@ use crate::layout::force::{
 use crate::layout::forceatlas2::ForceAtlas2;
 use crate::layout::graphviz::circo;
 use crate::layout::graphviz::osage;
+use crate::layout::graphviz::patchwork;
 use crate::layout::grid::Grid;
 use crate::layout::radial::twopi;
 use crate::layout::sugiyama::Sugiyama;
@@ -27,6 +28,7 @@ mod closed_form;
 mod force;
 mod graphviz_circo;
 mod graphviz_osage;
+mod graphviz_patchwork;
 mod grid;
 mod hierarchy;
 mod igraph;
@@ -39,6 +41,8 @@ use graphviz_circo::CIRCO;
 pub use graphviz_circo::GRAPHVIZ_CIRCO_CEILING;
 use graphviz_osage::OSAGE;
 pub use graphviz_osage::OSAGE_CEILING;
+use graphviz_patchwork::PATCHWORK;
+pub use graphviz_patchwork::PATCHWORK_CEILING;
 use grid::{GRID, PACKING, SUGIYAMA};
 pub use grid::{GRID_CEILING, PACKING_CEILING, SUGIYAMA_CEILING};
 pub use hierarchy::HIERARCHY_LAYOUT_CEILING;
@@ -213,6 +217,11 @@ pub static LAYOUTS: [Capability; 26] = [
         id: circo::ID,
         run: circo::run,
         meta: CIRCO,
+    },
+    Capability {
+        id: patchwork::ID,
+        run: patchwork::run,
+        meta: PATCHWORK,
     },
 ];
 

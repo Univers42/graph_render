@@ -221,11 +221,9 @@ pub fn bundle(
         }
     }
     Ok(Bundled {
-        geometry: Geometry {
-            nodes: geometry.nodes.clone(),
-            edges: EdgeGeometry::Polyline(points.interior_paths()),
-            notes: geometry.notes.clone(),
-        },
+        // The only way a post pass rebuilds a geometry, so the z column cannot be
+        // dropped by forgetting it: it is handed on whatever it was.
+        geometry: geometry.with_edges(EdgeGeometry::Polyline(points.interior_paths())),
         pairs: list.total(),
         unbundled: list.unbundled().len() as u32,
     })

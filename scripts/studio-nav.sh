@@ -9,7 +9,8 @@
 # Rows: a 200 px drag moves the camera offset 200 px ±0.5; a wheel notch and a ctrlKey pinch
 # at (x,y) leave the world point under the cursor within 0.5 px; a double-click on the
 # background zooms ×2 at the cursor; F, 0, +, -, the arrows and Escape each do what they
-# name and the scale stays in [0.02, 40]; space+drag and middle-drag pan.
+# name and the scale stays in [0.02, 40]; space+drag and middle-drag pan; and the edge
+# gradient mode is switched from the dock and read back off one known mixed edge.
 #
 # Exit: 0 every row PASS · 1 a row FAIL or NOT-RUN · 2 could not run.
 # Build first: scripts/studio.sh build. Never takes the host gate lock.

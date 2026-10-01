@@ -218,6 +218,12 @@ fn the_registry_covers_every_oracle_function_once_its_ids_are_unique() {
             // by 6.460e+04 points on 984 of the 1000 seeds, for one named cause outside the
             // motor (`docs/measurements/p13-gv1-circo.md`). `implemented`, never `gated`.
             ("oracle-circo", r.id, Status::Implemented)
+        } else if r.id == "layout.treemap.patchwork" {
+            // The Graphviz arm, same shape as twopi's and for the same reason: its
+            // differential compares coordinates within a measured 6.6e-2 points
+            // (`docs/measurements/p13-gv1-patchwork.md`) rather than to bytes, so the row is
+            // `implemented` and never a `gated` claim resting on a hash.
+            ("oracle-patchwork", r.id, Status::Implemented)
         } else if r.id == "layout.spectral" || r.id == "layout.mds.pivot" {
             ("oracle-spectral", r.id, Status::Gated)
         } else if r.id == "transport.wasm.columnar" {
