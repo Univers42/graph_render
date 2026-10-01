@@ -115,11 +115,8 @@ const COMPUTE_TIER_KNOBS: [Knob; 2] = [Knob::SplitSum, Knob::SplitRescale];
 fn each_knob_names_its_own_variable_and_record() {
     assert_eq!(
         Knob::ALL.len(),
-        PARAMETER_KNOBS.len()
-            + knobs::ANALYSIS_POST_STAGES.len()
-            + IGRAPH_KNOBS.len()
-            + COMPUTE_TIER_KNOBS.len(),
-        "every knob is a parameter control, one of the twenty-one per-stage controls, or \
+        PARAMETER_KNOBS.len() + knobs::all().count() + COMPUTE_TIER_KNOBS.len(),
+        "every knob is a parameter control, one of the twenty-six per-stage controls, or \
          one of the compute-tier controls"
     );
     for (env, record) in PARAMETER_KNOBS {
