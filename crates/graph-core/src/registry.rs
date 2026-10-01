@@ -87,7 +87,7 @@ pub struct Capability {
 }
 
 /// Every registered layout, in the order the hash gate runs them.
-pub static LAYOUTS: [Capability; 26] = [
+pub static LAYOUTS: [Capability; 27] = [
     Capability {
         id: Grid::ID,
         run: run_default::<Grid>,
