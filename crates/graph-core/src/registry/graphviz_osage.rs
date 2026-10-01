@@ -36,46 +36,66 @@ pub(super) const OSAGE: Metadata = Metadata {
     oracle: "Graphviz 16.1.0 osage -Tplain -Gstart=1 in the docker-only ge-graphviz-oracle \
 image (pinned by sha256 in scripts/orch/fetch-refs.sh), over the same 1000 seeded fixtures, \
 compared by harness/oracle-graphviz.py --differential: the largest absolute node-coordinate \
-difference in points after both arms are rescaled to the same bounding box. THE TWO ARMS DO \
-NOT AGREE, and the measurement says so rather than hiding it behind a ceiling: they agree to \
-within the oracle's own printed quantum — 3.6e-3 points — on the 18 of 1000 seeds where every \
-node box ties (n <= 10), and differ by 122 to 1785 points on the other 982, where they are two \
-different drawings. Two named causes, neither an iteration and neither a tolerance: Graphviz \
-sizes a node's box from its rendered label (54 points for n0..n9, 57.942 for n10..n99), and \
-arrayRects sorts the boxes by width+height with a qsort that is not stable. Worst gap 1.785e3 \
-at seed 584, ceiling 1e4 (the next power of ten above it, never widened to pass). -Gstart is \
-INERT for this engine (measured: the same fixture hashes identically at start=1, 7, 99), so \
-none of the disagreement is seed drift. The six analytically determined small cases (one node, \
-two nodes, a 3-path, a 4-cycle, a 5-star and a 6-branch) are additionally compared byte for \
-byte at the plain format's own printed precision — ours in \
-crates/graph-core/src/layout/graphviz/osage/tests.rs, Graphviz's in the harness — and all six \
-match exactly, because six closed cases are all below eleven nodes. Full numbers and commands: \
-docs/measurements/p13-gv1-osage.md",
+difference in points after both arms are rescaled to the same bounding box. THE TWO ARMS \
+AGREE, at the resolution the oracle can print. The fixtures give every node an explicit box \
+and the DOT pins it (fixedsize=true, width, height, label=\"\", margin=0), so Graphviz sizes \
+each box from the attribute instead of from its rendered label, and width+height rises \
+strictly with the node index, so arrayRects's qsort has no tie to break and glibc's unstable \
+order never enters. Worst gap 6.31e-2 points at seed 574 (n = 576), ceiling 1e-1, the next \
+power of ten above it and never widened to pass. That worst gap is the oracle's own printed \
+resolution and not a disagreement: -Tplain writes five significant digits \
+(lib/common/output.c:129-141), so at the largest fixture drawing, 18.9 inches, one printed \
+digit is 0.001 inch = 0.072 points, and the worst gap is 0.88 of one digit; the median is \
+3.99e-2 and no seed's gap reaches one cell stride (58 points), which an algorithmic \
+difference would. Both former causes are removed at the fixture rather than absorbed by a \
+ceiling: label-sized boxes (54 points for n0..n9, 57.942 for n10..n99) and qsort's tie order. \
+Before that the arms differed by 122..1785 points on 982 of the 1000 seeds, at ceiling 1e4. \
+-Gstart is INERT for this engine (measured: the same fixture hashes identically at start=1, \
+7, 99), so none of the residual is seed drift. The six analytically determined small cases \
+(one node, two nodes, a 3-path, a 4-cycle, a 5-star and a 6-branch) are additionally compared \
+byte for byte at the plain format's own printed precision against the DEFAULT nodesize -- ours \
+in crates/graph-core/src/layout/graphviz/osage/tests.rs, Graphviz's in the harness -- and all \
+six match exactly, because six closed cases are all below eleven nodes and every box ties \
+there. Full numbers and commands: docs/measurements/p13-gv1-osage.md",
     complexity: "O(n) and no more: the grid size is one sqrt, the gather is one ordered pass \
-over the node count, and the edges are never read, so m does not appear at all",
+over the node count, and the edges are never read, so m does not appear at all. The sized \
+entry point run_sized adds one sort of the n boxes and two linear passes, so it is O(n log n) \
+in the node count and still never reads an edge",
     scale_ceiling: OSAGE_CEILING,
     degradation: DEGRADATION,
-    ponytail: "Ponytail (node box size — this is the one that costs the agreement): every \
-rectangle is taken to be Graphviz's default 0.75 x 0.5 inch nodesize, which holds only while \
-every node's label fits inside the minimum, and it stops holding at eleven nodes. Failing \
-input: any graph of eleven or more nodes whose ids carry three or more characters, which is \
-every graph past the tenth here. Direction: a different drawing, not a worse one — our grid is \
-a uniform 58 x 40 where the reference's column widths vary, so rows and columns drift apart by \
-up to 1785 points over the sweep. Escape hatch: none inside the motor, and none needed for the \
-claim being made: the width is a font metric of Graphviz's own text layout, graph-core has no \
-font engine and this stage emits Point geometry with no box at all. What IS held exactly is \
-everything below eleven nodes, where all boxes tie — the six closed cases agree byte for byte \
-and the sweep gap there is the oracle's printed quantum. Ponytail (qsort tie order): \
-arrayRects sorts the rectangles by width+height and glibc's qsort is not stable, so which node \
-lands in which cell among tied boxes is the C library's choice; it is declaration order at \
-every size measured here and the port assumes it. Direction: a permuted drawing. Ponytail \
-(attributes): the reference reads pack, packmode and nodesize and this port reads none, so it \
-always packs the array the reference's defaults pack — the default answer, not a different one. \
-Failing input: a Graphviz graph carrying packmode=\"node\" or a nodesize. Escape hatch: a Params \
-on the stage, a contract change. Ponytail (clusters): the reference packs subclusters \
-recursively and this port has no clusters, the motor's Topology being a flat node set. Failing \
-input: a DOT graph with subgraph cluster_*. Direction: the clusters become plain nodes in one \
-flat array instead of nested boxes — a different drawing, still a valid one. Escape hatch: \
-none needed, the motor has no cluster concept. Ponytail (scale_ceiling): a measured lower \
-bound — see OSAGE_CEILING",
+    ponytail: "Ponytail (this row's status): it is still `implemented`, and the reason is a \
+reader outside this file rather than a measurement -- verdict::Evidence::oracle_record \
+(crates/graph-cli/src/capabilities/verdict.rs:63-74) resolves only a fixed list of record names \
+and has no arm for `oracle-osage`, nor for `oracle-twopi`, `oracle-circo` or \
+`oracle-patchwork`. Measured, not assumed: with Status::Gated the run reports \
+\"layout.packing.osage: gated, but no oracle-osage record: run the gate\". So the status is \
+held at implemented until that reader grows one arm per Graphviz differential; the run is \
+real and its numbers are in docs/measurements/p13-gv1-osage.md. Ponytail (node box size -- \
+the one that used to cost the agreement): the REGISTERED path takes every rectangle to be \
+Graphviz's default 0.75 x 0.5 inch nodesize, which holds only while every node's label fits \
+inside the minimum and stops holding at eleven nodes, where n10's box is 57.942 points wide. \
+Failing input: any graph of eleven or more nodes whose ids carry three or more characters. \
+Direction: a different drawing, not a worse one -- the uniform grid is 58 x 40 where the \
+reference's columns vary. Escape hatch: run_sized, which takes the boxes explicitly and is \
+what the differential runs; the width itself is a font metric of Graphviz's own text layout \
+and graph-core has no font engine, so the fixtures pin the size instead of computing it. \
+Ponytail (the sized path is not a gather, D10): unlike the uniform grid, where node i's cell \
+depends only on i and the node count, a node's cell under run_sized depends on which column \
+and row the SORT put it in, and a column's width is a maximum over every box in it -- so one \
+coordinate is a function of all the sizes. It is still deterministic (the fixture table makes \
+width+height strictly increasing, so the sort is a total order, and every pass is in one fixed \
+order) but D10's per-node gather does not describe that path and grid.rs still does. \
+Ponytail (qsort tie order): arrayRects sorts by width+height with a qsort that is not stable, \
+so among tied boxes the cell order would be glibc's. The fixture table removes the tie rather \
+than guessing at it; below eleven nodes in a label-sized graph every box still ties, and there \
+the sort cannot move the geometry, only the names. Ponytail (attributes): the reference reads \
+pack, packmode and nodesize and the registered path reads none, so it always packs the array \
+the reference's defaults pack -- the default answer, not a different one. Failing input: a \
+Graphviz graph carrying packmode=\"node\" or a nodesize. Escape hatch: run_sized, which is \
+where an explicit size enters. Ponytail (clusters): the reference packs subclusters recursively \
+and this port has no clusters, the motor's Topology being a flat node set. Failing input: a DOT \
+graph with subgraph cluster_*. Direction: the clusters become plain nodes in one flat array \
+instead of nested boxes -- a different drawing, still a valid one. Escape hatch: none needed, \
+the motor has no cluster concept. Ponytail (scale_ceiling): a measured lower bound -- see \
+OSAGE_CEILING",
 };

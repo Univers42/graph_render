@@ -1,21 +1,19 @@
 #!/usr/bin/env python3
-"""Graphviz layout oracle: run a Graphviz engine over the spectral fixtures and record
-node positions in points, keyed by node id, with the graph bounding box.
+"""Graphviz layout oracle: run a Graphviz engine over the fixtures and record node
+positions in points, keyed by node id, with the graph bounding box.
 
 Run in the ge-graphviz-oracle image:
 
   graph-cli emit-spectral-fixtures --seeds 1000
   docker run --rm --user 0:0 -v $PWD:/w -w /w ge-graphviz-oracle \
       python3 harness/oracle-graphviz.py target/spectral-fixtures twopi target/gv-twopi
-  docker run --rm --user 0:0 -v $PWD:/w -w /w ge-graphviz-oracle \
-      python3 harness/oracle-graphviz.py target/spectral-fixtures circo target/gv-circo
 
 For each fixture record, writes a DOT graph (undirected, nodes n0..n{n-1}), runs
 `<engine> -Tplain -Gstart=1`, and records the node positions in points (the plain
 format reports inches; 1 inch = 72 points) plus the graph bounding box.
 
 Determinism is proven by running this twice over the same fixtures and `cmp`-ing the
-outputs; both twopi and circo are byte-identical across runs. A full 1000-seed sweep
+outputs; twopi, osage and circo are all byte-identical across runs. A full 1000-seed sweep
 is not affordable for circo (n=501 alone takes ~53s, so the sweep is ~1.5h), so the
 determinism check runs over a strided 20-seed subset spanning n=2..552.
 
@@ -24,127 +22,111 @@ n0..n{n-1}, so the mapping back to the fixture's source/target columns is trivia
 but the engine may drop isolated nodes or merge duplicates, so the harness asserts the
 node count matches and refuses otherwise. `START_SEED` is passed as `-Gstart` because
 the job asked for a fixed seed where the engine takes one, and it is measured to be
-INERT for twopi and circo: the same fixture hashes identically with start=1, 7, 99 and
-with no `-Gstart` at all. Both engines are deterministic unconditionally, so this
-harness proves determinism, not seed stability. The one measured sensitivity: the
-output is byte-stable to the last digit, and a 1e-6-point perturbation of one node
-coordinate changes byte 95, so a `cmp` here is not vacuous.
+INERT for twopi, osage and circo (patchwork: docs/measurements/p13-gv1-patchwork.md): the same fixture hashes identically with start=1, 7, 99
+and with no `-Gstart` at all. Each is deterministic unconditionally, so this harness
+proves determinism, not seed stability. The one measured sensitivity: the output is
+byte-stable to the last digit, and a 1e-6-point perturbation of one node coordinate
+changes byte 95, so a `cmp` here is not vacuous.
 
-Two flags were added later, both optional, so the three-argument call above is unchanged:
-`--start=N` sets the `-Gstart` value (default 1), which exists because seed sensitivity has
-to be *measured* rather than asserted; `--fixtures=NAME` names the fixture file in the
-fixtures directory (`spectral.jsonl` when unset); `--differential` compares our coordinates
-with the engine's, reading `<engine>.jsonl` and `<engine>-manifest.json` and writing
-`<engine>-result.json` for `graph-cli oracle-graphviz --engine <engine>` to read. The
-metric, the rescale and the closed cases are **imported from `harness/oracle-twopi.py`**
-rather than copied: a second copy of the metric would be a second definition of the number
-the ceiling is measured against.
+Four flags, all optional, so the three-argument call above is unchanged. `--start=N` sets
+the `-Gstart` value (default 1), which exists because seed sensitivity has to be *measured*
+rather than asserted; `--fixtures=NAME` names the fixture file in the fixtures directory
+(`spectral.jsonl` when unset); `--differential` compares our coordinates with the engine's,
+reading `<engine>.jsonl` and `<engine>-manifest.json` and writing `<engine>-result.json`
+for `graph-cli oracle-graphviz --engine <engine>` to read; `--shards N --shard I` /
+`--merge` shard that sweep.
+
+**Sharding.** `circo` costs ~40 s on a 440-node fixture and ~0.5 s on a 40-node one, so
+1000 seeds serially is hours. `--shards N --shard I` runs every Nth fixture and writes
+`<engine>-result-shard<I>.json` into the output directory; `--merge` folds the shards into
+the one `<engine>-result.json` the Rust check reads, and refuses a merge whose case count
+does not add up to the manifest's seed count. The partition is `index % N == I` over the
+fixture file's own order, so it does not depend on any timing, and the fold is `max` over
+the worsts — an order-free reduction. An engine with neither flag is run exactly as it is
+on develop: one shard, and the same file names.
+
+**Three child modules**, each holding one kind of thing, so no arm of this file is the
+place the metric lives: `gv_plain.py` (write one DOT graph, run one engine, read
+`-Tplain`), `gv_closed.py` (the analytically determined cases and the one uniform rescale
+both arms go through) and `gv_frames.py` (the closed cases whose answers are already in the
+frame `-Tplain` prints, which is `osage` alone — `circo`'s are in the layout's own frame, so
+`gv_closed.rendered` applies the half-node offset `-Tplain` translates by). The split is why
+this file has room for the sharding above and stays under the house limit.
 """
+
 import hashlib
-import importlib.util
 import json
 import os
-import subprocess
 import sys
 import tempfile
 
-POINTS_PER_INCH = 72.0
-START_SEED = 1
+# `harness/` is inside `FINGERPRINTED` (`crates/graph-cli/src/fingerprint.rs:21`), and importing
+# a module by name makes CPython write `harness/__pycache__/*.pyc` — a transient file inside a
+# fingerprinted tree, which moves the fingerprint for as long as it exists. That would make `emit`
+# (fingerprint without the `.pyc`) and `oracle-graphviz` (fingerprint with it) disagree on a clean
+# checkout, and the check would refuse a run that was in fact the right one. The flag is set before
+# the child modules are imported, so the bytecode is never written; `oracle-twopi.py` sets it the
+# same way around the one path import it makes.
+sys.dont_write_bytecode = True
 
-USAGE = "usage: oracle-graphviz.py <fixtures-dir> <engine> <out-dir> [--start=N] [--fixtures=NAME] [--differential]"
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from gv_closed import CLOSED, answer_of, closed_case, gap
+from gv_frames import FRAMED_CLOSED, framed_cases
+from gv_plain import (
+    START_SEED,
+    edges_of,
+    engine_points,
+    parse_plain,
+    read_json,
+    read_lines,
+    run_engine,
+    write_dot,
+    write_lines,
+)
 
-def write_dot(path, n, source, target):
-    lines = ["graph g {"]
-    for i in range(n):
-        lines.append(f"  n{i};")
-    for s, t in zip(source, target):
-        lines.append(f"  n{s} -- n{t};")
-    lines.append("}")
-    with open(path, "w") as f:
-        f.write("\n".join(lines) + "\n")
-
-
-def run_engine(engine, dot_path, start=START_SEED):
-    cmd = [engine, "-Tplain", f"-Gstart={start}", dot_path]
-    proc = subprocess.run(cmd, capture_output=True, text=True)
-    if proc.returncode != 0:
-        sys.exit(f"{engine} failed on {dot_path}: {proc.stderr}")
-    return proc.stdout
-
-
-def parse_plain(text, n):
-    bbox = None
-    nodes = {}
-    for line in text.splitlines():
-        parts = line.split()
-        if not parts:
-            continue
-        if parts[0] == "graph" and len(parts) >= 4:
-            bbox = (float(parts[2]) * POINTS_PER_INCH, float(parts[3]) * POINTS_PER_INCH)
-        elif parts[0] == "node" and len(parts) >= 4:
-            name = parts[1]
-            x = float(parts[2]) * POINTS_PER_INCH
-            y = float(parts[3]) * POINTS_PER_INCH
-            nodes[name] = [x, y]
-    if bbox is None:
-        sys.exit("plain output has no graph line")
-    if len(nodes) != n:
-        sys.exit(f"plain output has {len(nodes)} nodes, expected {n}")
-    return bbox, nodes
+USAGE = (
+    "usage: oracle-graphviz.py <fixtures-dir> <engine> <out-dir> [--start=N] "
+    "[--fixtures=NAME] [--differential] [--shards N --shard I | --merge]"
+)
 
 
-def load_peer(here):
-    """`harness/oracle-twopi.py`, by path: its filename is not importable by name.
+class Options:
+    """The flags, parsed: `start`, `fixtures`, `differential`, `merge`, `shards`, `shard`."""
 
-    The metric (`gap`), the rescale it rests on and the closed cases are shared, not
-    copied: a second copy of the metric would be a second definition of the number the
-    ceiling is measured against. `sys.dont_write_bytecode` keeps the fingerprinted
-    `harness/` tree free of the `__pycache__` a path import would otherwise write.
-    """
-    path = os.path.join(here, "oracle-twopi.py")
-    previous = sys.dont_write_bytecode
-    sys.dont_write_bytecode = True
-    try:
-        spec = importlib.util.spec_from_file_location("oracle_twopi", path)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-    finally:
-        sys.dont_write_bytecode = previous
-    return module
-
-
-# The `osage` closed answers, in points, **in the frame `-Tplain` prints**.
-#
-# `osageinit.c:198-220` translates the drawing so its lower-left corner is the origin and
-# takes the node coordinates with it, so `n0` of a one-node graph is at half a node box,
-# (27, 18) points = (0.375, 0.25) inch. No offset is applied on either side here: the port
-# keeps that translation, so our arm and the oracle's printed text are directly comparable.
-# The arithmetic is `arrayRects`'s — a near-square grid of `58 x 40` point cells filled row
-# by row — and each case is derived and pinned beside the derivation in graph-core's
-# `layout/graphviz/osage/tests.rs`. An engine with no table here has its closed cases
-# compared by its own harness rather than skipped.
-OSAGE_CLOSED = {
-    "one-node": [(27.0, 18.0)],
-    "two-nodes": [(27.0, 18.0), (85.0, 18.0)],
-    "three-path": [(27.0, 58.0), (85.0, 58.0), (27.0, 18.0)],
-    "four-cycle": [(27.0, 58.0), (85.0, 58.0), (27.0, 18.0), (85.0, 18.0)],
-    "five-star": [(27.0, 58.0), (85.0, 58.0), (143.0, 58.0), (27.0, 18.0), (85.0, 18.0)],
-    "six-branch": [
-        (27.0, 58.0), (85.0, 58.0), (143.0, 58.0),
-        (27.0, 18.0), (85.0, 18.0), (143.0, 18.0),
-    ],
-}
-
-CLOSED = {"osage": OSAGE_CLOSED}
-
-
-def engine_points(tmp, engine, name, count, edges, start):
-    """`<engine> -Tplain` over one DOT graph, as dense-indexed points."""
-    dot = os.path.join(tmp, f"{name}.dot")
-    write_dot(dot, count, [a for a, _ in edges], [b for _, b in edges])
-    _, nodes = parse_plain(run_engine(engine, dot, start), count)
-    return [tuple(nodes[f"n{i}"]) for i in range(count)]
+    def __init__(self, argv):
+        self.start, self.fixtures = START_SEED, "spectral.jsonl"
+        self.differential = self.merge = False
+        self.shards, self.shard = 1, 0
+        positional = []
+        index = 0
+        while index < len(argv):
+            arg = argv[index]
+            index += 1
+            if arg == "--differential":
+                self.differential = True
+            elif arg == "--merge":
+                self.merge = True
+            elif arg in ("--shards", "--shard"):
+                value = int(argv[index])
+                index += 1
+                if arg == "--shards":
+                    self.shards = value
+                else:
+                    self.shard = value
+            elif arg.startswith("--start="):
+                self.start = int(arg.split("=", 1)[1])
+            elif arg.startswith("--fixtures="):
+                self.fixtures = arg.split("=", 1)[1]
+            elif arg.startswith("--"):
+                sys.exit(f"unknown flag {arg}\n{USAGE}")
+            else:
+                positional.append(arg)
+        if len(positional) != 3:
+            sys.exit(USAGE)
+        self.fixtures_dir, self.engine, self.out_dir = positional
+        if self.shards < 1 or not 0 <= self.shard < self.shards:
+            sys.exit(f"--shard {self.shard} is outside --shards {self.shards}")
 
 
 def ours_of(record, engine):
@@ -153,126 +135,116 @@ def ours_of(record, engine):
     return [(column["x"][i], column["y"][i]) for i in range(record["n"])]
 
 
-def printed_nodes(tmp, engine, name, count, edges, start):
-    """The two strings `-Tplain` printed for each node, in dense order.
+def sized_dot(path, record):
+    """One DOT graph whose node boxes are **pinned**, for the engine that sizes from labels.
 
-    The text, not a re-printed parsed float: the closed cases are compared byte for byte,
-    and re-printing would grade our arithmetic against the oracle's rounding.
+    `osage` is the reason this exists and the only engine that needs it today. Graphviz sizes
+    a node from its *rendered label* unless the size is fixed: 54 points for `n0`..`n9` and
+    57.942 for `n10`..`n99` at the default `nodesize`, which is a font metric of Graphviz's
+    own text layout and something graph-core has no engine for. The fixture's `box` column
+    carries one `[width, height]` pair per node **in inches** — graph-core's own table, so the
+    two arms size the same box — and this writes them as attributes rather than letting
+    Graphviz guess:
+
+    - `fixedsize=true` is what makes `shapes.c` take `bb = (width, height)` verbatim instead
+      of `fmax` against the label;
+    - `label=""` leaves the label nothing to demand;
+    - `margin=0` leaves the default 0.11 inch of padding nothing to add.
+
+    `gv_plain.write_dot` is the unsized writer and is shared by twopi, circo and patchwork,
+    so it stays exactly as it is: their fixtures carry no `box` column and their DOT is
+    unchanged. An engine whose fixture has no `box` column is refused here rather than
+    drawn at the default size, because a silent fallback would compare two different boxes
+    and report the difference as a layout gap.
     """
-    dot = os.path.join(tmp, f"{name}.dot")
-    write_dot(dot, count, [a for a, _ in edges], [b for _, b in edges])
-    rows = {}
-    for line in run_engine(engine, dot, start).splitlines():
-        parts = line.split()
-        if len(parts) >= 4 and parts[0] == "node":
-            rows[parts[1]] = (parts[2], parts[3])
-    return [rows[f"n{i}"] for i in range(count)]
-
-
-def closed_case(peer, tmp, engine, name, start):
-    """One closed case: the engine's own printed node lines against the closed answer."""
-    edges = peer.CLOSED_CASES[name]
-    count = 1 + max((max(edge) for edge in edges), default=0)
-    got = printed_nodes(tmp, engine, f"closed-{name}", count, edges, start)
-    digits = peer.DIGITS
-    want = " ".join(
-        f"{x / POINTS_PER_INCH:.{digits}g} {y / POINTS_PER_INCH:.{digits}g}"
-        for x, y in CLOSED[engine][name]
-    )
-    text = " ".join(f"{x} {y}" for x, y in got)
-    return {"nodes": count, "exact": want == text, "want": want, "got": text}
-
-
-def sweep(fixtures, engine, start, peer):
-    """Every fixture through the engine: the worst gap in points, and the raw output.
-
-    The raw output is what the ADR's determinism evidence is a `cmp` over, and what a
-    reviewer reads to see what the oracle actually said per seed.
-    """
-    worst, theirs = 0.0, []
-    with tempfile.TemporaryDirectory() as tmp:
-        for record in fixtures:
-            edges = list(zip(record["source"], record["target"]))
-            points = engine_points(tmp, engine, f"g{record['seed']}", record["n"], edges, start)
-            worst = max(worst, peer.gap(ours_of(record, engine), points))
-            theirs.append({"seed": record["seed"], "n": record["n"], "points": points})
-        closed = (
-            {name: closed_case(peer, tmp, engine, name, start) for name in peer.CLOSED_CASES}
-            if engine in CLOSED
-            else {}
+    boxes = record.get("box")
+    if boxes is None:
+        sys.exit(f"{record['seed']}: no box column, so the node sizes are not pinned")
+    if len(boxes) != record["n"]:
+        sys.exit(f"{record['seed']}: {len(boxes)} boxes for {record['n']} nodes")
+    lines = ["graph g {"]
+    for at, (width, height) in enumerate(boxes):
+        lines.append(
+            f'  n{at} [fixedsize=true,label="",margin=0,width={width!r},height={height!r}];'
         )
-    return worst, theirs, closed
+    for source, target in edges_of(record):
+        lines.append(f"  n{source} -- n{target};")
+    lines.append("}")
+    with open(path, "w") as handle:
+        handle.write("\n".join(lines) + "\n")
 
 
-def differential(fixtures_dir, engine, out_dir, start, peer):
-    """Compare our coordinates with the engine's and write the result the CLI reads.
+def sized_points(engine, tmp, name, record, start=START_SEED):
+    """The engine's own node coordinates over a size-pinned DOT graph, in dense index order."""
+    dot = os.path.join(tmp, f"{name}.dot")
+    sized_dot(dot, record)
+    _, nodes = parse_plain(run_engine(engine, dot, start), record["n"])
+    return [tuple(nodes[f"n{at}"]) for at in range(record["n"])]
 
-    The metric is the peer's, so both Graphviz differentials are measured the same way: the
-    largest absolute node-coordinate difference in points, after both arms are rescaled
-    onto one bounding box. A closed case that disagrees is a failure, not a note, and so is
-    this command's exit code — the closed cases carry the exactness a tolerance rounds off.
+
+def engine_arms(engine, tmp, record, start):
+    """Where one engine's node coordinates come from: the pinned DOT or the bare one.
+
+    The fixture decides, by whether it carries a `box` column, so an engine gains or loses the
+    pinning by changing what the emit writes rather than by a name checked here.
     """
-    manifest = peer.read(os.path.join(fixtures_dir, f"{engine}-manifest.json"))
-    fixtures = peer.read_lines(os.path.join(fixtures_dir, f"{engine}.jsonl"))
-    worst, theirs, closed = sweep(fixtures, engine, start, peer)
-    os.makedirs(out_dir, exist_ok=True)
-    peer.write_lines(os.path.join(out_dir, f"graphviz-{engine}.jsonl"), theirs)
-    exact = all(row["exact"] for row in closed.values()) if closed else None
-    result = {
-        "fingerprint": manifest["fingerprint"],
-        "sha256": manifest["sha256"][f"{engine}.jsonl"],
-        "oracle": f"Graphviz 16.1.0 {engine} -Tplain -Gstart={start}",
-        "layouts": {engine: {"cases": len(theirs), "worst": worst}},
-        "closed": closed,
-    }
-    if exact is not None:
-        result["closed_exact"] = exact
-    with open(os.path.join(fixtures_dir, f"{engine}-result.json"), "w") as out:
-        json.dump(result, out, indent=1)
-    print(f"{engine}: {len(theirs)} seeds, worst {worst:.3e} points; closed {len(closed)} exact: {exact}")
-    return 0 if exact is not False else 1
+    if "box" in record:
+        return sized_points(engine, tmp, f"g{record['seed']}", record, start)
+    return engine_points(
+        engine, tmp, f"g{record['seed']}", record["n"], edges_of(record), start
+    )
+
+
+def closed_cases(engine, tmp, start):
+    """Every closed case one engine is graded on, or none.
+
+    Two renderings, and the reason is the frame each engine's answers are written in:
+    `osage`'s port keeps Graphviz's own translation, so its answers are printed as they
+    stand; `circo`'s are in the layout's own frame, so `gv_closed.rendered` applies the
+    half-node `-Tplain` translates by. An engine in neither table gets an empty mapping,
+    and `graph-cli oracle-graphviz` then says nothing about byte agreement for it.
+    """
+    if engine in CLOSED:
+        return {
+            name: closed_case(engine, tmp, name, edges, answer_of(shape), start)
+            for name, (edges, shape) in CLOSED[engine].items()
+        }
+    if engine in FRAMED_CLOSED:
+        return framed_cases(engine, tmp, FRAMED_CLOSED[engine], START_SEED)
+    return {}
 
 
 def main():
     argv = sys.argv[1:]
     if not argv or argv[0] in ("-h", "--help"):
         sys.exit(USAGE)
-    start, compare, fixtures, positional = START_SEED, False, "spectral.jsonl", []
-    for arg in argv:
-        if arg == "--differential":
-            compare = True
-        elif arg.startswith("--start="):
-            start = int(arg.split("=", 1)[1])
-        elif arg.startswith("--fixtures="):
-            fixtures = arg.split("=", 1)[1]
-        else:
-            positional.append(arg)
-    if len(positional) != 3:
-        sys.exit(USAGE)
-    fixtures_dir, engine, out_dir = positional
-    if compare:
-        peer = load_peer(os.path.dirname(os.path.abspath(__file__)))
-        return differential(fixtures_dir, engine, out_dir, start, peer)
-    return record(fixtures_dir, engine, out_dir, start, fixtures)
+    options = Options(argv)
+    if options.merge:
+        return merge_main(options.fixtures_dir, options.engine, options.out_dir, options.shards)
+    if options.differential:
+        return differential_main(options)
+    return record_main(options)
 
 
-def record(fixtures_dir, engine, out_dir, start, fixtures):
+def record_main(options):
     """The plain positional call: record where the engine put every node."""
-    jsonl_path = os.path.join(fixtures_dir, fixtures)
-    os.makedirs(out_dir, exist_ok=True)
-    out_path = os.path.join(out_dir, f"graphviz-{engine}.jsonl")
-    manifest_path = os.path.join(out_dir, f"graphviz-{engine}-manifest.json")
+    engine = options.engine
+    jsonl_path = os.path.join(options.fixtures_dir, options.fixtures)
+    os.makedirs(options.out_dir, exist_ok=True)
+    out_path = os.path.join(options.out_dir, f"graphviz-{engine}.jsonl")
+    manifest_path = os.path.join(options.out_dir, f"graphviz-{engine}-manifest.json")
 
     count = 0
     with tempfile.TemporaryDirectory() as tmp:
         with open(out_path, "w") as out:
             for line in open(jsonl_path):
                 rec = json.loads(line)
-                n = rec["n"]
                 dot_path = os.path.join(tmp, f"g{rec['seed']}.dot")
-                write_dot(dot_path, n, rec["source"], rec["target"])
-                plain = run_engine(engine, dot_path, start)
-                bbox, nodes = parse_plain(plain, n)
+                if "box" in rec:
+                    sized_dot(dot_path, rec)
+                else:
+                    write_dot(dot_path, rec["n"], rec["source"], rec["target"])
+                bbox, nodes = parse_plain(run_engine(engine, dot_path, options.start), rec["n"])
                 row = {
                     "seed": rec["seed"],
                     "engine": engine,
@@ -285,6 +257,7 @@ def record(fixtures_dir, engine, out_dir, start, fixtures):
     digest = hashlib.sha256(open(out_path, "rb").read()).hexdigest()
     manifest = {
         "engine": engine,
+        "start": START_SEED,
         "seeds": count,
         "sha256": {f"graphviz-{engine}.jsonl": digest},
         "graphviz": "16.1.0",
@@ -295,5 +268,96 @@ def record(fixtures_dir, engine, out_dir, start, fixtures):
     return 0
 
 
+def differential_main(options):
+    """`--differential`: compare the native arm in `<engine>.jsonl` with Graphviz's own.
+
+    One shard writes `<engine>-result-shard<I>.json` into `out_dir` plus the points it
+    measured; with a single shard it writes `<engine>-result.json` into `fixtures_dir`,
+    which is what `graph-cli oracle-graphviz` reads. [`merge_main`] is the fold.
+    """
+    engine, shards, shard = options.engine, options.shards, options.shard
+    os.makedirs(options.out_dir, exist_ok=True)
+    stem = f"{engine}.jsonl"
+    manifest = read_json(os.path.join(options.fixtures_dir, f"{engine}-manifest.json"))
+    fixtures = read_lines(os.path.join(options.fixtures_dir, stem))
+    mine = [r for at, r in enumerate(fixtures) if at % shards == shard]
+    worst, theirs = 0.0, []
+    with tempfile.TemporaryDirectory() as tmp:
+        for record in mine:
+            seed, count = record["seed"], record["n"]
+            points = engine_arms(engine, tmp, record, options.start)
+            worst = max(worst, gap(ours_of(record, engine), points))
+            theirs.append({"seed": seed, "n": count, "points": points})
+        # The closed cases cost one small graph each and are the same in every shard, so
+        # only shard 0 pays for them and the others record no verdict.
+        closed = closed_cases(engine, tmp, options.start) if not shard else {}
+    suffix = "" if shards == 1 else f"-shard{shard}"
+    write_lines(os.path.join(options.out_dir, f"graphviz-{engine}{suffix}.jsonl"), theirs)
+    exact = all(row["exact"] for row in closed.values()) if closed else None
+    result = {
+        "fingerprint": manifest["fingerprint"],
+        "sha256": manifest["sha256"][stem],
+        "oracle": f"Graphviz 16.1.0 {engine} -Tplain -Gstart={options.start}",
+        "layouts": {engine: {"cases": len(theirs), "worst": worst}},
+        "closed": closed,
+    }
+    if exact is not None:
+        result["closed_exact"] = exact
+    where, name = (options.out_dir, f"{engine}-result{suffix}.json") if shards > 1 else (
+        options.fixtures_dir,
+        f"{engine}-result.json",
+    )
+    with open(os.path.join(where, name), "w") as out:
+        json.dump(result, out, indent=1)
+    print(f"{engine} shard {shard}/{shards}: {len(theirs)} seeds, worst {worst:.3e} points")
+    return 0 if exact is not False else 1
+
+
+def merge_main(fixtures_dir, engine, out_dir, shards):
+    """`--merge`: fold the per-shard results into the one `<engine>-result.json`.
+
+    The fold is `max` over the worsts and `sum` over the cases, both order-free. It
+    **refuses** a sweep whose shards do not add up to the manifest's seed count, and a shard
+    whose fixtures or tree are not the ones on disk: a merge that quietly dropped a shard
+    would report a smaller sweep than it ran.
+    """
+    parts = [
+        read_json(os.path.join(out_dir, f"{engine}-result-shard{at}.json"))
+        for at in range(shards)
+    ]
+    manifest = read_json(os.path.join(fixtures_dir, f"{engine}-manifest.json"))
+    check_shards_agree(parts, manifest, engine)
+    cases = sum(part["layouts"][engine]["cases"] for part in parts)
+    if cases != manifest["seeds"]:
+        sys.exit(f"{cases} cases over {shards} shards, want {manifest['seeds']} seeds")
+    worst = max(part["layouts"][engine]["worst"] for part in parts)
+    result = {
+        "fingerprint": manifest["fingerprint"],
+        "sha256": manifest["sha256"][f"{engine}.jsonl"],
+        "oracle": parts[0]["oracle"],
+        "layouts": {engine: {"cases": cases, "worst": worst}},
+        "closed": parts[0]["closed"],
+        "closed_exact": parts[0].get("closed_exact"),
+        "shards": shards,
+    }
+    with open(os.path.join(fixtures_dir, f"{engine}-result.json"), "w") as out:
+        json.dump(result, out, indent=1)
+    print(
+        f"{engine}: {cases} seeds over {shards} shards, worst {worst:.3e} points; "
+        f"closed {len(result['closed'])} exact: {result['closed_exact']}"
+    )
+    return 0 if result["closed_exact"] is not False else 1
+
+
+def check_shards_agree(parts, manifest, engine):
+    """Every shard must have run the same tree over the same fixtures, or the max of their
+    worsts is a max over different questions."""
+    for at, part in enumerate(parts):
+        if part["fingerprint"] != manifest["fingerprint"]:
+            sys.exit(f"shard {at} ran against another tree: re-emit and re-run")
+        if part["sha256"] != manifest["sha256"][f"{engine}.jsonl"]:
+            sys.exit(f"shard {at} ran against other fixtures than these")
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main() or 0)

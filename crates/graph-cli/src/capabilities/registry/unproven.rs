@@ -67,6 +67,14 @@ pub(super) fn force_record(id: &str) -> Option<(&'static str, Status)> {
         // Ponytail: no differential exists for the multilevel layout (not sfdp); the
         // stress record is the closest metric and is barnes_hut's, so `implemented` only.
         "layout.force.yifan_hu" => Some(("stress", Status::Implemented)),
+        // Its own differential, and its own record, because this engine is not
+        // reproducible: the pinned Graphviz 16.1.0 `fdp -Tplain -Gstart=1` gives
+        // byte-different output on two runs over the same graph, so no ceiling measured
+        // against it can be a bound on anything, and `gated` on a hash alone would be a
+        // claim the oracle itself contradicts. `implemented` is the honest status; the
+        // measured oracle self-gap is the floor on agreement and is written up in
+        // docs/measurements/p13-gv2-fdp.md.
+        "layout.force.fdp" => Some(("oracle-fdp", Status::Implemented)),
         id if IGRAPH_LAYOUTS.contains(&id) => Some(("oracle-igraph", Status::Implemented)),
         // Its own differential, and its own record, for the same reason `layout.forceatlas2`
         // gets one: the two FR ports share a metric but share no code, so one record
@@ -91,6 +99,20 @@ pub(super) fn force_record(id: &str) -> Option<(&'static str, Status)> {
         // way. That is a pre-existing gap in the reader, not a claim this row is making: the
         // differential is real and its numbers are in `docs/measurements/p13-gv1.md`.
         "layout.twopi" => Some(("oracle-twopi", Status::Implemented)),
+        // Ponytail: `implemented`, not `gated`, and the reason is the oracle's own printed
+        // resolution rather than a shortfall: `-Tplain` carries five significant digits, so
+        // the neato differential compares coordinates within a measured 6.73e-2 points
+        // (ceiling 1e-1) at a drawing where one printed digit is 0.911 points. The worst
+        // gap is 0.074 of that quantum and no seed exceeds it, so this is the same shape of
+        // claim the twopi row above makes — and the same reason it is not `gated`: a hash
+        // alone never earns that, and an iterative engine's sixth closed case (the 6-branch)
+        // agrees to four significant digits rather than five, so identity is not available
+        // to claim. `docs/measurements/p13-gv2-neato.md` has the distribution.
+        //
+        // The same reader gap as the row above applies: `verdict::Evidence::oracle_record`
+        // has no arm for `oracle-graphviz`, so `oracle_diff` still reports
+        // `not backed` after a real run. Pre-existing, not a claim this row makes.
+        "layout.force.neato" => Some(("oracle-graphviz", Status::Implemented)),
         // Ponytail: `implemented`, not `gated`, for the same two reasons as the row above,
         // and routed to its own record so the row names the comparison that backs it.
         // osage is closed form over rectangles and never reads an edge, so its gap is an
@@ -102,6 +124,29 @@ pub(super) fn force_record(id: &str) -> Option<(&'static str, Status)> {
         // arm for `oracle-osage`, exactly as it has none for `oracle-twopi`: that reader is
         // a pre-existing gap, not a claim this row makes.
         "layout.packing.osage" => Some(("oracle-osage", Status::Implemented)),
+        // Ponytail: the same honest status and the same reason as `layout.twopi` above, for
+        // the same Graphviz oracle, and a stronger reason than `layout.packing.osage` has:
+        // this differential was *run* over the 1000 gate seeds and it disagrees with
+        // Graphviz by 6.460e+04 points on 984 of them, for one named cause outside the
+        // motor — the tie order in `remove_pair_edges`'s degree sort is `qsort`'s, and
+        // glibc 2.41 does not make that stable (`docs/measurements/p13-gv1-circo.md`). The
+        // blocks, the radii and the 14 closed cases all agree, so the drawings differ only
+        // in which node takes which slot, and an agreement that narrow earns `implemented`
+        // and nothing more.
+        //
+        // `verdict::Evidence::oracle_record` matches a fixed list of record names and has no
+        // arm for `oracle-circo`, exactly as it has none for `oracle-twopi`: that reader is
+        // a pre-existing gap, not a claim this row makes.
+        "layout.circular.circo" => Some(("oracle-circo", Status::Implemented)),
+        // `layout.treemap.patchwork` is routed the same way and for the same reason, and
+        // carries the same caveat as the twopi row above: `verdict::Evidence::oracle_record`
+        // has no arm for `oracle-patchwork` either, so `oracle_diff` reads
+        // `not backed: no oracle-patchwork record` even after the real run that wrote
+        // `target/gates/oracle-patchwork.json` (1000 cases, worst 6.613e-2, pass). Same
+        // pre-existing reader gap, not a claim this row is making: the differential is real
+        // and its numbers are in `docs/measurements/p13-gv1-patchwork.md`, and the ceiling
+        // reflects `-Tplain`'s five significant digits rather than a shortfall.
+        "layout.treemap.patchwork" => Some(("oracle-patchwork", Status::Implemented)),
         // ---- p12-t3: the five 3D layouts. Three closed forms over `(num_nodes, scale)`
         // that read no graph at all, so ONE arm file covers all three and each gets its
         // own record only because each is a different function with a different oracle

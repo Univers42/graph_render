@@ -39,6 +39,7 @@ async (args) => {
   return {
     nodes: base.nodes, edges: base.edges, drawnEdges: base.drawnEdges, drawnLabels: base.drawnLabels,
     strokeCalls: base.strokeCalls, edgeStyles: base.edgeStyles, arrowFills: base.arrowFills,
+    mixedEdges: base.mixedEdges, gradientStrokes: base.gradientStrokes,
     glowFills: base.glowFills, redrawFrames: redrawn, zoomFrames: zoomed,
     spritesSecondFrame: second.spritesRasterised,
     layoutRunsRedraw: second.layoutRuns - base.layoutRuns,

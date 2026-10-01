@@ -17,14 +17,18 @@
 //! graph-core's own tests.
 
 mod basic_3d;
+mod circo;
 mod circular_hierarchy;
 mod cli;
 mod closed_form;
 mod fa2;
+mod fdp;
 mod graphviz;
 mod hierarchical_3d;
 mod igraph;
+mod neato;
 mod osage;
+mod patchwork;
 mod spectral;
 pub mod spring;
 mod twopi;
@@ -32,6 +36,7 @@ mod twopi;
 pub use basic_3d::BASIC_3D;
 pub use circular_hierarchy::CIRCULAR_HIERARCHY;
 pub use cli::Cli;
+
 pub use closed_form::CLOSED_FORM;
 pub use fa2::FA2;
 pub use hierarchical_3d::HIERARCHICAL_3D;

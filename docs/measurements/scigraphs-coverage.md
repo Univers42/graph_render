@@ -5,7 +5,7 @@ Counted 2026-09-30 from the tree, read-only. The key is the SciGraphs side: one 
 `dispatcher.py` line is the `elif algorithm ==` that selects the name; the eight Graphviz engines share
 one branch (`dispatcher.py:140`) and are named in `yifan_hu.py:7-16`.
 
-The motor side is `LAYOUTS` in `crates/graph-core/src/registry.rs:78` (24 entries) read through
+The motor side is `LAYOUTS` in `crates/graph-core/src/registry.rs:86` (26 entries) read through
 `scripts/orch/gr cargo run -q -p graph-cli -- capabilities`; a row's registry id appears in that
 command's output under `id`, and the ledger row it comes from is built at
 `crates/graph-cli/src/capabilities/registry/layout_row.rs:28-56`. The studio picker reads the same registry, so a
@@ -43,11 +43,11 @@ git log --oneline origin/develop..origin/p12-igraph
 | `MDS_3D` | `dispatcher.py:136` | `_mds_layout_3d` `networkx_layouts.py:271` | 3D | `layout.mds.pivot` | on develop (2D port) | SciGraphs `_pivot_mds_component_coordinates` on scipy 1.16.2 | `oracle-spectral`, `registry/spectral.rs:52` |
 | `YIFAN_HU` | `dispatcher.py:138` | `_yifan_hu_layout` `yifan_hu.py:344` | 2D / 2Z / 3 by `props.sfdp_dim` | `layout.force.yifan_hu` | on develop (2D only) | SciGraphs' own multilevel scheme — explicitly **not** Graphviz `sfdp` | `stress` only, `unproven.rs:62`, `registry/force.rs:228` |
 | `GRAPHVIZ_TWOPI` | `dispatcher.py:140` | `_graphviz_engine_layout` `yifan_hu.py:340` | 2D default | `layout.twopi` | in flight: p13-gv1 | Graphviz `twopi` 16.1.0 `lib/twopigen/circle.c` | `oracle-twopi`, `capabilities/registry/unproven.rs:86`, `registry/radial.rs:32` |
-| `GRAPHVIZ_CIRCO` | `dispatcher.py:140` | same, `engine='circo'` | 2D default | — | planned: p13-gv1 | Graphviz `circo` | Graphviz's own output, docker-only oracle |
-| `GRAPHVIZ_OSAGE` | `dispatcher.py:140` | same, `engine='osage'` | 2D default | `layout.packing.osage` | in flight: p13-gv1 | Graphviz `osage` 16.1.0 `lib/osage/osageinit.c` + `lib/pack/pack.c` | `oracle-graphviz --engine osage`, `capabilities/registry/unproven.rs:65`, `registry/graphviz_osage.rs`; **agrees exactly only below 11 nodes** — see `docs/measurements/p13-gv1-osage.md` |
-| `GRAPHVIZ_PATCHWORK` | `dispatcher.py:140` | same, `engine='patchwork'` | 2D default | — | planned: p13-gv1 | Graphviz `patchwork` | Graphviz's own output, docker-only oracle |
-| `GRAPHVIZ_NEATO` | `dispatcher.py:140` | same, `engine='neato'` | 2D default; 3D eligible (`GRAPHVIZ_NATIVE_3D_ENGINES` `yifan_hu.py:18`) | — | planned: p13-gv2 | Graphviz `neato` | Graphviz's own output, docker-only oracle |
-| `GRAPHVIZ_FDP` | `dispatcher.py:140` | same, `engine='fdp'` | 2D default | — | planned: p13-gv2 | Graphviz `fdp` | Graphviz's own output, docker-only oracle |
+| `GRAPHVIZ_CIRCO` | `dispatcher.py:140` | same, `engine='circo'` | 2D default | `layout.circular.circo` | in flight: p13-gv1-circo | Graphviz `circo` 16.1.0 `lib/circogen` | `oracle-circo`, `capabilities/registry/unproven.rs`, `registry/graphviz_circo.rs`; **14 closed cases exact, but the circle order differs on 984 of 1000 seeds** — see `docs/measurements/p13-gv1-circo.md` |
+| `GRAPHVIZ_OSAGE` | `dispatcher.py:140` | same, `engine='osage'` | 2D default | `layout.packing.osage` | in flight: p13-gv1 | Graphviz `osage` 16.1.0 `lib/osage/osageinit.c` + `lib/pack/pack.c` | `oracle-graphviz --engine osage`, `capabilities/registry/unproven.rs`, `registry/graphviz_osage.rs`; **both arms agree within `-Tplain`'s own 5-digit print, worst gap 6.31e-2 points over 1000 seeds at ceiling 1e-1**, after the fixtures pinned every node's box (`fixedsize=true` + explicit `width`/`height`) so neither label-sized boxes nor `qsort`'s tie order enters — see `docs/measurements/p13-gv1-osage.md` |
+| `GRAPHVIZ_PATCHWORK` | `dispatcher.py:140` | same, `engine='patchwork'` | 2D default | `layout.treemap.patchwork` | in flight: p13-gv1 | Graphviz `patchwork` 16.1.0 `lib/patchwork/tree_map.c` | `oracle-graphviz --engine patchwork`, `capabilities/registry/unproven.rs:106`, `registry/graphviz_patchwork.rs:40`; **worst gap 6.6e-2 pt = the oracle's own printed quantum** — see `docs/measurements/p13-gv1-patchwork.md` |
+| `GRAPHVIZ_NEATO` | `dispatcher.py:140` | same, `engine='neato'` | 2D default; 3D eligible (`GRAPHVIZ_NATIVE_3D_ENGINES` `yifan_hu.py:18`) | `layout.force.neato` | in flight: p13-gv2 | Graphviz `neato` 16.1.0 `lib/neatogen/stress.c` | `oracle-graphviz`, `capabilities/registry/unproven.rs:63`, `registry/graphviz_neato.rs:25` |
+| `GRAPHVIZ_FDP` | `dispatcher.py:140` | same, `engine='fdp'` | 2D default | `layout.force.fdp` | on p13-gv2 (`Status::Implemented`, never gated: the oracle is not self-reproducible) | Graphviz `fdp` | Graphviz's own output, docker-only oracle; `-Gstart` is **effective**, not inert, and the oracle disagrees with itself over the same sweep — `docs/measurements/p13-gv2-fdp.md` |
 | `GRAPHVIZ_SFDP` | `dispatcher.py:140` | same, `engine='sfdp'` | 2D default; 3D eligible (`yifan_hu.py:18`) | — | planned: p13-gv2 | Graphviz `sfdp` | Graphviz's own output, docker-only oracle |
 | `GRAPHVIZ_DOT` | `dispatcher.py:140` | same, `engine='dot'` | 2D default | — | planned: p13-gv2 | Graphviz `dot` | Graphviz's own output, docker-only oracle |
 | `SUGIYAMA` | `dispatcher.py:142` | `_sugiyama_layout` `hierarchical.py:638` | 2D (z=0) | `layout.dag.sugiyama` | on develop | hand, checked on dagre-d3-es crossing counts | `roundtrip` + `harness/oracle-layouts.mjs --dag`, `registry/grid.rs:90` |
@@ -61,9 +61,15 @@ git log --oneline origin/develop..origin/p12-igraph
   `HELIX`, `CUBE`, `HIERARCHICAL_3D`, `SPRING_3D` — p12-t3, the last five, all of them landed after
   `docs/decisions/contract-3d.md` gave the snapshot a z column)
 - in flight: p12-igraph = 7 names over 6 ids (`DRL` and `DRL_2D` share `layout.force.drl`) ·
-  p13-gv1 = 2 names over 2 ids (`GRAPHVIZ_TWOPI` → `layout.twopi`, `GRAPHVIZ_OSAGE` → `layout.packing.osage`)
-- planned: p13-gv1 = 2 · planned: p13-gv2 = 4
-- missing = 0
+  p13-gv1 = 3 names over 3 ids (`GRAPHVIZ_TWOPI` → `layout.twopi`, `GRAPHVIZ_OSAGE` →
+  `layout.packing.osage`, `GRAPHVIZ_PATCHWORK` → `layout.treemap.patchwork`)
+  p13-gv1-circo = 1 name over 1 id (`GRAPHVIZ_CIRCO` → `layout.circular.circo`)
+  p13-gv2 = 1 name over 1 id (`GRAPHVIZ_NEATO` → `layout.force.neato`, 2D only — the 3D-eligible
+  arm is p12-t4) ·
+  p13-gv2-fdp = 1 name over 1 id (`GRAPHVIZ_FDP` → `layout.force.fdp`, `Status::Implemented`, never gated:
+  its oracle is not self-reproducible, measured)
+- planned: p12-t2 = 2 · planned: p13-gv2 = 2 (`GRAPHVIZ_SFDP`, `GRAPHVIZ_DOT`)
+- missing = 0 (the five 3D names landed with p12-t3)
 - motor ids with no SciGraphs name = 4 (`layout.tree.tidy`, `layout.treemap.squarified`, `layout.circular.ring`, `layout.force.barnes_hut`); out of scope for a table keyed on SciGraphs names
 
 ## Why every `missing` row was 3D — and what ended it

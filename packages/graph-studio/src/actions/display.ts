@@ -1,6 +1,6 @@
 /** The display panel's controls beyond theme, colour and size: each an action, so the console drives them too. */
 import {
-  BACKGROUNDS, EDGE_STYLES, NODE_PX, GLOW_STRENGTH, LINK_THICKNESS, TEXT_FADE,
+  BACKGROUNDS, EDGE_COLOURS, EDGE_STYLES, NODE_PX, GLOW_STRENGTH, LINK_THICKNESS, TEXT_FADE,
 } from "../state/settings.ts";
 import { ActionRefusal } from "./registry.ts";
 import { type StudioAction, chosen, flagArg, numberArg, textArg } from "./context.ts";
@@ -37,6 +37,15 @@ const edgeStyle: StudioAction = {
     choices: () => EDGE_STYLES, value: (state) => state.settings.appearance.edgeStyle,
   }],
   run: (context, args) => look(context, { edgeStyle: chosen(EDGE_STYLES, textArg(args, "style"), "straight") }),
+};
+
+const edgeColour: StudioAction = {
+  id: "appearance.edgecolour", alias: "edgecolour", title: "Edge colour", section: "Appearance",
+  params: [{
+    name: "mode", kind: "choice", title: "Edge colour", control: "segmented",
+    choices: () => EDGE_COLOURS, value: (state) => state.settings.appearance.edgeColour,
+  }],
+  run: (context, args) => look(context, { edgeColour: chosen(EDGE_COLOURS, textArg(args, "mode"), "flat") }),
 };
 
 const glow: StudioAction = {
@@ -109,5 +118,5 @@ const animateStop: StudioAction = {
 };
 
 export const DISPLAY_ACTIONS: readonly StudioAction[] = [
-  arrows, fade, thickness, edgeStyle, glow, glowStrength, background, minPx, maxPx, animate, animateStop,
+  arrows, fade, thickness, edgeStyle, edgeColour, glow, glowStrength, background, minPx, maxPx, animate, animateStop,
 ];

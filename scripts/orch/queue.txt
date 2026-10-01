@@ -29,3 +29,8 @@ p13-gv2-sfdp|build|prompts/jobs/p13-gv2-sfdp.md|scripts/orch/rows/quick.rows|no
 p13-gv2-dot|build|prompts/jobs/p13-gv2-dot.md|scripts/orch/rows/quick.rows|no
 p13-gv1-osage-gate|build|prompts/jobs/p13-gv1-osage-gate.md|scripts/orch/rows/quick.rows|no
 studio-smoke|build|prompts/jobs/studio-smoke.md||no
+p12-t4a|build|prompts/jobs/p12-t4a.md|scripts/orch/rows/quick.rows|no
+p12-t4b|build|prompts/jobs/p12-t4b.md|scripts/orch/rows/quick.rows|no
+p13-gv2-dot-rank|build|prompts/jobs/p13-gv2-dot-rank.md|scripts/orch/rows/quick.rows|no
+wasm-gm-build-trap|build|prompts/jobs/wasm-gm-build-trap.md|scripts/orch/rows/quick.rows|no
+graphviz-verdict|build|prompts/jobs/graphviz-verdict.md|scripts/orch/rows/quick.rows|yes

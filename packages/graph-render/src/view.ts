@@ -29,7 +29,6 @@ import type { Style } from "./style.ts";
 import type { Theme } from "./theme.ts";
 
 export type { EdgeEnds } from "./canvas2d/probe.ts";
-
 export interface ViewOptions {
   readonly theme?: Theme;
   readonly labels?: LabelPolicy;
@@ -56,6 +55,9 @@ export interface ViewStats {
   /** `stroke()` calls on edges in the last frame, and the edge styles that drew (base, lit). */
   readonly strokeCalls: number;
   readonly edgeStyles: number;
+  /** Edges whose ends wore two colours in the last frame, and the strokes each took of its own. */
+  readonly mixedEdges: number;
+  readonly gradientStrokes: number;
   /** Fills for arrow heads and for glow discs in the last frame. */
   readonly arrowFills: number;
   readonly glowFills: number;
