@@ -155,7 +155,9 @@ struct Walk<'a> {
     val: Vec<u32>,
     /// `LOWVAL(n)`: the lowest `VAL` reachable from `n` by tree edges then one back edge.
     low: Vec<u32>,
-    /// `PARENT(n)`: the node that discovered `n`, `u32::MAX` for the root.
+    /// `PARENT(n)`: the **node** that discovered `n`, `u32::MAX` for the root. Node ids,
+    /// not local indices: every array around it is component-sized, and this one is read
+    /// back through [`Walk::local`] like any other node.
     parent: Vec<u32>,
     /// `BLOCK(n)`: the block holding `n`, `u32::MAX` while it has none.
     block_of: Vec<u32>,
@@ -202,8 +204,8 @@ impl Walk<'_> {
                     }
                 }
                 Some(other) if self.val[self.local(other)] == 0 => {
-                    let (here, there) = (self.local(node), self.local(other));
-                    self.parent[there] = here as u32;
+                    let there = self.local(other);
+                    self.parent[there] = node;
                     self.stack.push(other);
                     self.enter(other);
                     frames.push(Frame {
@@ -217,7 +219,7 @@ impl Walk<'_> {
                     // point at the node's own parent — that edge was the tree edge, and its
                     // subtree is already accounted for.
                     let (at, there) = (self.local(node), self.local(other));
-                    if self.parent[at] != there as u32 {
+                    if self.parent[at] != other {
                         let low = self.low[at].min(self.val[there]);
                         self.low[at] = low;
                     }
@@ -305,12 +307,14 @@ impl Walk<'_> {
                 continue;
             };
             // `SET_PARENT(parent)` marks the node **in the parent block** the child hangs off,
-            // which is what `BLK_PARENT` reads back (`block.h:51`).
+            // which is what `BLK_PARENT` reads back (`block.h:51`) and what `circpos.c` later
+            // matches a child against by node id.
             let flag = self.parent[self.local(anchor)];
+            let local = self.local(flag);
             self.blocks[at].child_node = anchor;
             self.blocks[at].hangs_at = flag;
             self.blocks[at].parent = Some(owner);
-            self.parent_flag[flag as usize] = true;
+            self.parent_flag[local] = true;
             self.blocks[owner].children.push(at);
         }
         self.blocks[root].parent = None;
@@ -329,8 +333,15 @@ impl Walk<'_> {
                 lowest = self.val[self.local(node)];
             }
         }
-        let above = self.local(self.parent[self.local(anchor)]);
-        let owner = self.block_of[above];
+        // `PARENT(anchor)` is a node of this component, so it goes back through `slot`;
+        // the walk's own root has none (`u32::MAX`), and a block anchored there has no block
+        // above it to hang on — the reference never reaches that case either, since the root
+        // block is the one `list` puts first.
+        let parent = self.parent[self.local(anchor)];
+        if parent == u32::MAX {
+            return None;
+        }
+        let owner = self.block_of[self.local(parent)];
         if owner == u32::MAX {
             return None;
         }

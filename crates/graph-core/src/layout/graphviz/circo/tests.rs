@@ -301,3 +301,25 @@ fn a_disconnected_graph_lays_each_component_out_around_the_origin() {
     );
     assert!(got.iter().all(|p| p.0.is_finite() && p.1.is_finite()));
 }
+
+/// A component that does not hold node `0`. Every array in [`super::blocks::Walk`] is
+/// component-sized and indexed by the component's own `slot`, but `PARENT(n)` is a **node**,
+/// so it has to come back out of that array as one. Read as a local index instead, the first
+/// node's parent reads as node `0`, which belongs to another component: on
+/// `fixtures/force/disconnected.json` (node 0 in the triangle, the star and the path behind
+/// it) that assertion fired, and under `panic = "abort"` it reached the browser as a wasm
+/// trap — `gm_build` never ran again for the rest of the fixture sweep. A triangle-only
+/// disconnected graph misses it: one block per component means `assemble` has nothing to
+/// hang, so the two triangles above never reach the lookup at all.
+///
+/// The two connected nodes coalesce exactly as the two-node case above; node `0` is alone,
+/// so the reference's own short circuit (`circular.c:70-74`) leaves it at the origin.
+#[test]
+fn a_component_that_does_not_hold_node_zero_still_finds_its_parent_block() {
+    let got = points(&run(&graph(3, &[(1, 2)])).expect("lays out"));
+    assert_close(
+        &got,
+        &[(0.0, 0.0), (-SLOT / 2.0, 0.0), (SLOT / 2.0, 0.0)],
+        1e-3,
+    );
+}
