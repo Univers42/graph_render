@@ -37,3 +37,5 @@ needed, stop and say so.
 
 Done when: no `Geometry {` literal outside the constructor, the checks pass, and the return block lists
 (a)-(e) one line each.
+
+Resume note (2026-10-01): a previous run edited the files listed by `git status` in this worktree, then stalled. Keep them, read them yourself, finish the job: build every `Geometry` construction site, run fmt, clippy, the workspace tests and hashgate 8. Dispatch no subagents. End with the return block.
