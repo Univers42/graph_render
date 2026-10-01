@@ -23,12 +23,35 @@ fn every_capability_composes_with_every_registered_layout() {
                 "{id} over {}",
                 layout.id
             );
+            assert_eq!(
+                bundled.geometry.z, geometry.z,
+                "{id} over {}: a post pass may not drop the z column",
+                layout.id
+            );
             bundled
                 .geometry
                 .edges
                 .check(t.edge_count())
                 .unwrap_or_else(|e| panic!("{id} over {}: {e}", layout.id));
         }
+    }
+}
+
+/// Every capability over a 3D geometry keeps its z column: the wasm adapters are the only
+/// place a pass rebuilds a geometry on this side of the crate boundary, so a literal there
+/// would silently downgrade a 3D drawing to 0.3.
+#[test]
+fn a_3d_geometries_z_column_survives_every_capability() {
+    let (t, _) = pair();
+    let z = vec![0.0, 0.5];
+    let g = points3(&[0.0, 10.0], &[0.0, 0.0], &z);
+    assert_eq!(
+        g.dim(),
+        graph_contract::snapshot::Dim::D3,
+        "the fixture is 3D"
+    );
+    for id in IDS {
+        assert_eq!(run_at(&t, &g, id).geometry.z, Some(z.clone()), "{id}");
     }
 }
 

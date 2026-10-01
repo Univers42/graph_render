@@ -16,6 +16,7 @@
 //! so the comparison never meets a disconnected graph or a larger one; those rest on
 //! graph-core's own tests.
 
+mod circo;
 mod circular_hierarchy;
 mod cli;
 mod closed_form;
@@ -23,13 +24,16 @@ mod fa2;
 mod fdp;
 mod graphviz;
 mod igraph;
+mod neato;
 mod osage;
+mod patchwork;
 mod spectral;
 pub mod spring;
 mod twopi;
 
 pub use circular_hierarchy::CIRCULAR_HIERARCHY;
 pub use cli::Cli;
+
 pub use closed_form::CLOSED_FORM;
 pub use fa2::FA2;
 pub use igraph::IGRAPH;

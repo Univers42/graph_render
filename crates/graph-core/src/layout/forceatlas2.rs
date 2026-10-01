@@ -39,13 +39,13 @@ impl Stage for ForceAtlas2 {
         if x.iter().chain(y).any(|v| !v.is_finite()) {
             return Err(StageError::NonFinite { column: "node.x" });
         }
-        Ok(Geometry {
-            nodes: NodeGeometry::Point {
+        Ok(Geometry::planar(
+            NodeGeometry::Point {
                 x: x.iter().map(|&v| v as f32).collect(),
                 y: y.iter().map(|&v| v as f32).collect(),
             },
-            edges: EdgeGeometry::Line,
-            notes: Vec::new(),
-        })
+            EdgeGeometry::Line,
+            Vec::new(),
+        ))
     }
 }

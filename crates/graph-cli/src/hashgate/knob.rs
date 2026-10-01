@@ -96,6 +96,33 @@ pub enum Knob {
     /// the one thing it does read, the model, for that stage only. Adding a `Params` to
     /// gain a knob would be the tail wagging the dog.
     TwopiNodes,
+    /// `GM_MUTATE_NEATO_EPSILON`: `layout.force.neato`'s stopping tolerance, native arm
+    /// only.
+    ///
+    /// **A real parameter rather than a re-drawn model, unlike [`Self::TwopiNodes`],** and
+    /// the difference is the point. `twopi` is closed form and pins every one of the
+    /// reference's defaults, so the only thing left to perturb is the model. `neato` is
+    /// iterative and its `Epsilon` is a *tolerance on convergence* (`stress.h:25`), so moving
+    /// it changes how far the iteration runs and therefore the drawing, without touching the
+    /// graph — which makes it a strictly sharper probe: the re-drawn-model controls would
+    /// also move any stage whose output happens to depend on the node count, while this one
+    /// reaches `layout.force.neato` and nothing else by construction.
+    ///
+    /// It reaches a *parameter* rather than a stage's model, and that is also why it is
+    /// native-arm-only like every other parameter knob here: the wasm arm runs the stage at
+    /// the registry's own defaults, so the divergence it shows is the one a wired control is
+    /// supposed to surface. A typo (`=maybe`) is refused rather than read as the default, so
+    /// the control cannot pass vacuously.
+    NeatoEpsilon,
+    /// `GM_MUTATE_PATCHWORK_NODES`: nodes added to `layout.treemap.patchwork`'s model
+    /// alone.
+    ///
+    /// The same probe as the four node controls above, for the same reason: `patchwork` is a
+    /// closed form with no parameter of its own — it pins Graphviz's default `area` of 1 and
+    /// no `inset`, and its module doc says so — so its own control perturbs the one thing it
+    /// does read, the model, for that stage only. A new node is a new square in the field,
+    /// so it moves the tiling and this stage's bytes and nothing else's.
+    PatchworkNodes,
     /// `GM_MUTATE_SPRING_ITERATIONS`: the spring layout's iteration budget, native arm only.
     ///
     /// Its own control because `iterations` is read by the FR loop's `for` and by
@@ -247,7 +274,7 @@ pub enum Knob {
 }
 
 impl Knob {
-    /// Every knob: the thirteen that move a parameter or re-draw one layout's model, then
+    /// Every knob: the fifteen that move a parameter or re-draw one layout's model, then
     /// the fifteen ANALYSIS and POST stage controls in [`knobs::ANALYSIS_POST_STAGES`] order,
     /// then the six igraph layout controls in [`knobs::IGRAPH_LAYOUT_STAGES`] order, then the
     /// two compute-tier controls, then the live session's own. The list itself is
@@ -258,7 +285,7 @@ impl Knob {
     /// twenty-one per-stage arms are spelled out there and held against those two tables by
     /// `the_analysis_and_post_controls_are_the_knobs_table`, which fails on any arm whose
     /// variable, record or stage a table disagrees with.
-    pub const ALL: [Self; 37] = arms::ALL;
+    pub const ALL: [Self; 39] = arms::ALL;
 
     /// The variable that sets it.
     pub const fn env(self) -> &'static str {

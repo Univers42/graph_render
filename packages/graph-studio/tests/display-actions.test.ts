@@ -12,10 +12,12 @@ const CASES: readonly [string, Record<string, unknown>, Record<string, unknown>]
   ["scale", { factor: 5 }, { nodeScale: 5 }],
   ["thickness", { factor: 0.1 }, { linkThickness: 0.1 }],
   ["edgestyle", { style: "curve" }, { edgeStyle: "curve" }],
+  ["edgecolour", { mode: "gradient" }, { edgeColour: "gradient" }],
+  ["edgecolour", { mode: "flat" }, { edgeColour: "flat" }],
   ["glow", { on: true }, { glow: true }],
   ["glowstrength", { value: 2 }, { glowStrength: 2 }],
-  ["theme", { name: "obsidian-light" }, { theme: "obsidian-light" }],
-  ["theme", { name: "blueprint" }, { theme: "blueprint" }],
+  ["theme", { name: "obsidian-light" }, { theme: "obsidian-light", edgeColour: "flat" }],
+  ["theme", { name: "blueprint" }, { theme: "blueprint", edgeColour: "gradient" }],
   ["background", { mode: "aurora" }, { background: "aurora" }],
   ["background", { mode: "flat" }, { background: "flat" }],
   ["minpx", { px: 2 }, { minRadius: 2 }],
@@ -34,6 +36,27 @@ test("every theme name reaches the view as its own theme, with no motor call", a
   const { studio, seen } = desk(refusingClient());
   for (const name of THEME_NAMES) await studio.dispatch("theme", { name });
   assert.deepEqual(seen.themes, THEME_NAMES.map(themeNamed));
+});
+
+test("a SciGraphs preset draws its edges as the source's, and a theme of ours draws them flat", async () => {
+  const { studio } = desk(refusingClient());
+  for (const name of ["blueprint", "paper", "gallery"]) {
+    assert.equal((await studio.dispatch("theme", { name })).ok, true, name);
+    assert.equal(studio.store.get().settings.appearance.edgeColour, "gradient", name);
+  }
+  for (const name of ["dark", "light", "obsidian-dark"]) {
+    assert.equal((await studio.dispatch("theme", { name })).ok, true, name);
+    assert.equal(studio.store.get().settings.appearance.edgeColour, "flat", name);
+  }
+});
+
+test("the edge colour is a setting of its own: flat by default, and refused outside the two", async () => {
+  const { studio } = desk(refusingClient());
+  assert.equal(DEFAULT_SETTINGS.appearance.edgeColour, "flat");
+  assert.equal((await studio.dispatch("edgecolour", { mode: "plaid" })).ok, false);
+  assert.equal(studio.store.get().settings.appearance.edgeColour, "flat");
+  assert.equal((await studio.dispatch("edgecolour", { mode: "gradient" })).ok, true);
+  assert.equal(studio.store.get().settings.appearance.edgeColour, "gradient");
 });
 
 test("a value outside the range is refused and the settings stay put", async () => {

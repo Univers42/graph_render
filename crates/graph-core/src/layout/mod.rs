@@ -1,5 +1,8 @@
-//! LAYOUT (`prompt.md` §3): the pluggable seam, topology in, geometry out. Every layout
-//! is a [`crate::stage::Stage`] and is listed in [`crate::registry`]. Phase 2 has one,
+//! LAYOUT (`prompt.md` §3): the pluggable seam, topology in, geometry out. The seam's own
+//! types, the [`snapshot`] call every layout goes through, and [`Geometry`]'s constructors
+//! live here; [`tests`] holds the seam's tests.
+//!
+//! Every layout is a [`crate::stage::Stage`] and is listed in [`crate::registry`]. Phase 2 has one,
 //! the grid; its job is to prove the pipeline, not to be interesting. Phase 3 adds the
 //! tidy tree, treemap, circular and circle-packing layouts; [`hierarchy`] is the one
 //! repaired tree the tree layouts share.
@@ -22,6 +25,8 @@ pub mod spectral;
 pub mod spectral_stage;
 pub mod spiral;
 pub mod sugiyama;
+#[cfg(test)]
+mod tests;
 pub mod tidy_tree;
 pub mod treemap;
 
@@ -34,6 +39,9 @@ use graph_contract::snapshot::{Dim, label_for};
 
 /// What a layout stage produces: one geometry for the whole snapshot, and what it
 /// repaired or approximated on the way.
+///
+/// Built through [`Geometry::planar`] or [`Geometry::in_space`], never a struct literal:
+/// the z column is the reason, so that the next field does not touch every layout.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Geometry {
     /// Every node's geometry, in the topology's node order.
@@ -42,34 +50,90 @@ pub struct Geometry {
     pub edges: EdgeGeometry,
     /// The stage's notes, in any order: [`snapshot`] sorts them.
     pub notes: Vec<Note>,
+    /// The third coordinate, one per node in node order, for a layout that placed its
+    /// nodes in space. `None` is a 2D layout — what every layout in the tree emits today
+    /// — and the column's presence is the only thing that tells a 3D snapshot from a 2D
+    /// one ([`graph_contract::binary::SnapshotParts::dim`]).
+    pub z: Option<Vec<f32>>,
+}
+
+impl Geometry {
+    /// A 2D geometry: no z column, so a snapshot of it is labelled 0.3 and no 2D byte
+    /// moves when 3D exists.
+    pub fn planar(nodes: NodeGeometry, edges: EdgeGeometry, notes: Vec<Note>) -> Self {
+        Self {
+            nodes,
+            edges,
+            notes,
+            z: None,
+        }
+    }
+
+    /// A 3D geometry: `z` is one coordinate per node, in node order. Its length and
+    /// values are not checked here — a z that does not fit is refused by [`snapshot`]
+    /// under `node.z`, like any other column, so there is one place the rule lives.
+    pub fn in_space(
+        nodes: NodeGeometry,
+        edges: EdgeGeometry,
+        notes: Vec<Note>,
+        z: Vec<f32>,
+    ) -> Self {
+        Self {
+            nodes,
+            edges,
+            notes,
+            z: Some(z),
+        }
+    }
+
+    /// The dimension a snapshot of this geometry is labelled for: [`Dim::D3`] when it
+    /// carries a z column, [`Dim::D2`] when it does not. Read once, before any field is
+    /// moved, so the label and the column cannot disagree.
+    pub fn dim(&self) -> Dim {
+        match self.z {
+            Some(_) => Dim::D3,
+            None => Dim::D2,
+        }
+    }
+
+    /// `self` with its edge geometry replaced by `edges`, and its nodes, notes and z
+    /// column carried through untouched. The one way a post pass rebuilds a geometry, so
+    /// a pass cannot drop the z column by forgetting it: there is nowhere else to build
+    /// one.
+    pub fn with_edges(&self, edges: EdgeGeometry) -> Self {
+        Self {
+            nodes: self.nodes.clone(),
+            edges,
+            notes: self.notes.clone(),
+            z: self.z.clone(),
+        }
+    }
 }
 
 /// The snapshot of `geometry` laid over `topology`: the topology's stable ids and edge
 /// endpoints in its own order, then the geometry, then the notes sorted by
 /// `(code, index)` — the whole of a note, so the order is total and a repeat is two equal
 /// notes, which the snapshot refuses. Refused too when the geometry does not fit the
-/// topology or holds a non-finite value (D9).
+/// topology or holds a non-finite value (D9), z column included: it is a column like
+/// any other, checked under `node.z`.
 pub fn snapshot(topology: &Topology, mut geometry: Geometry) -> Result<Snapshot, StageError> {
+    let dim = geometry.dim();
     let node_ids = (0..topology.node_count()).map(|i| topology.node(i).id);
     let edge_ids = (0..topology.edge_count()).map(|e| topology.edge(e).id);
     let parts = SnapshotParts {
-        // The label follows the snapshot, not the crate: a 2D layout's snapshot is
-        // labelled 0.3, so no 2D byte moves when a 3D layout arrives. One call site of
-        // `label_for`, never `CURRENT_VERSION` (`docs/decisions/contract-3d-verdict.md`
-        // condition 1). `Geometry` carries no z column yet, so every layout's snapshot is
-        // 2D today and the `Dim::D3` arm is not reachable from here: the 3D layouts are what
-        // will add one, and this line is where they will be labelled.
-        version: label_for(Dim::D2),
+        // The label follows the geometry, not the crate: a 2D layout's snapshot is
+        // labelled 0.3 and a 3D one 0.4, so no 2D byte moves when a 3D layout arrives.
+        // One call site of `label_for`, never `CURRENT_VERSION`
+        // (`docs/decisions/contract-3d-verdict.md` condition 1).
+        version: label_for(dim),
         node_ids: StringTable::from_strs("node.id", node_ids).map_err(StageError::Snapshot)?,
         edge_ids: StringTable::from_strs("edge.id", edge_ids).map_err(StageError::Snapshot)?,
         source: topology.edges().source.clone(),
         target: topology.edges().target.clone(),
         nodes: geometry.nodes,
-        // No layout emits a z column yet, so every layout's snapshot is 2D and this is
-        // `None` for all of them. The 3D layouts will carry their z on `Geometry`; this
-        // is the line that will pass it through, and `label_for` above is what will then
-        // label the result 0.4.
-        z: None,
+        // The layout's z column, passed through as it is: its presence is what `dim`
+        // above was read from, so the header's `dim` and the bytes cannot disagree.
+        z: geometry.z,
         edges: geometry.edges,
         notes: {
             geometry.notes.sort();
@@ -77,98 +141,4 @@ pub fn snapshot(topology: &Topology, mut geometry: Geometry) -> Result<Snapshot,
         },
     };
     Snapshot::new(parts).map_err(StageError::Snapshot)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::index::index_model;
-    use crate::records::build::{edge, node};
-    use graph_contract::notes::{NoteCode, Notes, SNAPSHOT_WIDE};
-    use graph_contract::snapshot::SnapshotError;
-
-    fn topology() -> Topology {
-        let nodes = [node("a", ""), node("b", ""), node("a", "dup")];
-        let edges = [
-            edge("e1", "b", "a"),
-            edge("e2", "a", "zz"),
-            edge("e3", "a", "a"),
-        ];
-        index_model(&nodes, &edges).expect("fits")
-    }
-
-    fn points(n: usize) -> Geometry {
-        Geometry {
-            nodes: NodeGeometry::Point {
-                x: vec![0.0; n],
-                y: vec![1.0; n],
-            },
-            edges: EdgeGeometry::Line,
-            notes: Vec::new(),
-        }
-    }
-
-    #[test]
-    fn the_snapshot_carries_the_topologys_ids_and_endpoints_in_its_order() {
-        let snapshot = snapshot(&topology(), points(2)).expect("fits");
-        let p = snapshot.parts();
-        // A 2D layout's snapshot is labelled 0.3, not the crate's 0.4: the label is the
-        // lowest version that can express the snapshot, and 2D is expressible in 0.3.
-        assert_eq!(p.version, label_for(Dim::D2));
-        assert_eq!(p.z, None, "and carries no z column");
-        assert_eq!(p.node_ids.iter().collect::<Vec<_>>(), ["a", "b"]);
-        assert_eq!(p.edge_ids.iter().collect::<Vec<_>>(), ["e1", "e3"]);
-        assert_eq!((&p.source[..], &p.target[..]), (&[1, 0][..], &[0, 0][..]));
-        assert_eq!(p.nodes, points(2).nodes);
-    }
-
-    #[test]
-    fn a_stages_notes_reach_the_snapshot_sorted_and_a_repeat_is_refused() {
-        let note = |code, index| Note { code, index };
-        let mut geometry = points(2);
-        geometry.notes = vec![
-            note(NoteCode::PackingApproximate, SNAPSHOT_WIDE),
-            note(NoteCode::CycleEdgeDropped, 1),
-            note(NoteCode::ExtraParentDropped, 0),
-            note(NoteCode::CycleEdgeDropped, 0),
-        ];
-        let s = snapshot(&topology(), geometry.clone()).expect("fits");
-        let want = Notes {
-            code: vec![1, 1, 2, 3],
-            index: vec![0, 1, 0, SNAPSHOT_WIDE],
-        };
-        assert_eq!(s.parts().notes, want, "sorted by (code, index)");
-        geometry.notes.push(note(NoteCode::CycleEdgeDropped, 1));
-        let repeat = SnapshotError::NoteOrder { index: 2 };
-        assert_eq!(
-            snapshot(&topology(), geometry),
-            Err(StageError::Snapshot(repeat)),
-            "(code, index) is the whole note: a tie is a repeat, and refused"
-        );
-    }
-
-    #[test]
-    fn geometry_that_does_not_fit_the_topology_is_refused() {
-        let short = snapshot(&topology(), points(1)).expect_err("one node short");
-        assert!(matches!(
-            short,
-            StageError::Snapshot(SnapshotError::Length {
-                column: "node.x",
-                ..
-            })
-        ));
-        let mut nan = points(2);
-        nan.nodes = NodeGeometry::Point {
-            x: vec![0.0, f32::NAN],
-            y: vec![0.0; 2],
-        };
-        let err = snapshot(&topology(), nan).expect_err("NaN");
-        assert_eq!(
-            err,
-            StageError::Snapshot(SnapshotError::NonFinite {
-                column: "node.x",
-                index: 1
-            })
-        );
-    }
 }

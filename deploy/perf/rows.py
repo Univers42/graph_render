@@ -25,6 +25,10 @@ ARROW_FILL_BUDGET = 1
 # Ponytail: the lit pass's edges are not in drawnEdges, so a focused hub with more than
 # EDGE_CHUNK lit edges reads as over budget (a false FAIL, the safe direction).
 EDGE_CHUNK = 2048
+# Mirrored by MIXED_EDGE_BUDGET in packages/graph-render/src/canvas2d/edgeGradient.ts: past
+# this many mixed edges a frame draws them in their mean colour, batched per colour pair, and
+# never takes a gradient. So the gradient strokes a frame may add are counted against it.
+MIXED_EDGE_BUDGET = 512
 STATS_NODES = (2000, 10000)
 # STUDIO_PERF_BREAK=1 is the negative control: the stroke budget becomes one less than what
 # was measured, so the row must fail.
@@ -119,13 +123,20 @@ def _counter_row(report, name, expectation, check):
 def _edge_batch(report):
     def check(stats):
         broken = os.environ.get(BREAK) == "1"
-        allowed = stats["edgeStyles"] + stats["drawnEdges"] // EDGE_CHUNK
+        # In the gradient mode each mixed edge takes a gradient of its own, and there are
+        # never more of them than the renderer's budget says.
+        gradient = stats["gradientStrokes"]
+        allowed = stats["edgeStyles"] + stats["drawnEdges"] // EDGE_CHUNK + min(gradient, MIXED_EDGE_BUDGET)
         budget = stats["strokeCalls"] - 1 if broken else allowed
-        ok = stats["drawnEdges"] > 0 and stats["strokeCalls"] <= budget and stats["arrowFills"] <= ARROW_FILL_BUDGET
+        ok = (stats["drawnEdges"] > 0 and stats["strokeCalls"] <= budget
+              and stats["arrowFills"] <= ARROW_FILL_BUDGET
+              and (gradient == 0 or stats["mixedEdges"] <= MIXED_EDGE_BUDGET))
         return ok, (f"{stats['strokeCalls']} strokes for {stats['edgeStyles']} style(s), {stats['drawnEdges']} edges, "
+                    f"{gradient} gradient stroke(s) for {stats['mixedEdges']} mixed edge(s), "
                     f"{stats['arrowFills']} arrow fill(s), {stats['glowFills']} glow fill(s) (budget {budget})")
     return _counter_row(report, "perf-edge-batch",
-                        f"stroke() calls per frame <= edge styles + edges / {EDGE_CHUNK}; arrow fills <= {ARROW_FILL_BUDGET}", check)
+                        f"stroke() calls per frame <= edge styles + edges / {EDGE_CHUNK} + gradient strokes "
+                        f"(mixed edges <= {MIXED_EDGE_BUDGET}); arrow fills <= {ARROW_FILL_BUDGET}", check)
 
 
 def _sprite_cache(report):

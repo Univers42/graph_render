@@ -13,11 +13,8 @@ pub fn route_grid(topology: &Topology, geometry: &Geometry) -> Result<Bundled, S
     let routed = routed::route(&geometry.nodes, topology.edges(), &GridParams::default())?;
     let unbundled = routed.fallbacks;
     Ok(Bundled {
-        geometry: Geometry {
-            nodes: geometry.nodes.clone(),
-            edges: EdgeGeometry::Polyline(routed.paths()),
-            notes: geometry.notes.clone(),
-        },
+        // `with_edges` carries the z column, so a 3D layout keeps its dimension here.
+        geometry: geometry.with_edges(EdgeGeometry::Polyline(routed.paths())),
         pairs: 0,
         unbundled,
     })

@@ -1,4 +1,5 @@
 /** How the drawing looks. None of these asks the motor for anything. */
+import { isPreset } from "../../../graph-render/src/look/presets.ts";
 import { COLOUR_BY, LABEL_MODES, NODE_SCALE, SIZE_BY, THEMES } from "../state/settings.ts";
 import { type StudioAction, chosen, numberArg, textArg } from "./context.ts";
 import { DISPLAY_ACTIONS } from "./display.ts";
@@ -10,7 +11,12 @@ const theme: StudioAction = {
     name: "name", kind: "choice", title: "Theme", control: "select",
     choices: () => THEMES, value: (state) => state.settings.appearance.theme,
   }],
-  run: (context, args) => look(context, { theme: chosen(THEMES, textArg(args, "name"), "dark") }),
+  // A SciGraphs preset draws its edges as the tubes of the source, so it turns the gradient
+  // on; a theme of ours has no such tubes and turns it off again.
+  run: (context, args) => {
+    const name = chosen(THEMES, textArg(args, "name"), "dark");
+    return look(context, { theme: name, edgeColour: isPreset(name) ? "gradient" : "flat" });
+  },
 };
 
 const colour: StudioAction = {

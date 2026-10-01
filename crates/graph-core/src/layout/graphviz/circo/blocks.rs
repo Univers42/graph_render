@@ -1,0 +1,348 @@
+//! The block-cutpoint tree: `createBlocktree` (`blocktree.c`), reimplemented.
+//!
+//! The reference's `dfs` is one recursive walk doing three jobs at once, and this is that
+//! walk as an explicit frame stack:
+//!
+//! 1. `VAL`/`LOWVAL` — the classic lowlink pair, with the twist that `VAL(root) == 0`, so
+//!    the root reads as an *artificial* cut point (`blocktree.c:72`). Here the counter
+//!    starts at `0` and is bumped before each assignment, so every real node gets
+//!    `VAL >= 1` and `0` stays "unvisited" — the same encoding, one step later.
+//! 2. Popping **blocks**. Every edge pushed on the way down is popped again when its tail's
+//!    articulation test fires (`LOWVAL(child) >= VAL(parent)`), and the *head* of each popped
+//!    edge joins the block (`blocktree.c:81-92`). The pop runs until the edge it came in on,
+//!    which is **not** always the top: an edge whose child closed a cycle back is never
+//!    popped at its own tail, so a later pop takes several at once. That is how a triangle
+//!    becomes one block.
+//! 3. Tree assembly — after the walk, each block but the first hangs on the block holding
+//!    its earliest-discovered node (`blocktree.c:155-176`), which is also the node its
+//!    `PARENT_F` flag lands on.
+//!
+//! **`EDGEORDER` is read but never acted on, and that is a measured simplification.** The
+//! reference sets `EDGEORDER(e) = +1` when it first meets an edge from its tail and `-1`
+//! from its head (`blocktree.c:62-70`), then pops with `np = EDGEORDER == 1 ? head : tail`.
+//! Either way `np` is the endpoint *other than the node that pushed the edge* — the
+//! discovered child, which is this port's `head`. So the edge stack holds node ids.
+
+use super::Block;
+use super::graph::Derived;
+
+/// Every connected component's blocks, their roots, and the `PARENT_F` flags.
+pub(super) struct Found {
+    pub(super) blocks: Vec<Block>,
+    /// One root block per component that has more than one node. A single-node component is
+    /// the reference's own short circuit (`circular.c:70-74`): its node goes to the origin
+    /// and never becomes a block at all.
+    pub(super) roots: Vec<usize>,
+    /// `PARENT_F` per node: true for the node in a parent block that a child hangs off.
+    pub(super) parent_flag: Vec<bool>,
+}
+
+/// Every connected component's block tree.
+///
+/// The reference builds the component list with `ccomps` and lays each one out in turn with
+/// a **fresh** `circ_state`, so its `orderCount` restarts at 1 per component
+/// (`circular.c:77-83`). [`walk_component`] restarts it the same way, which is what makes
+/// the `VAL` numbers comparable inside a component and meaningless across two.
+pub(super) fn decompose(derived: &Derived, count: u32) -> Found {
+    let mut seen = vec![false; count as usize];
+    let mut found = Found {
+        blocks: Vec::new(),
+        roots: Vec::new(),
+        parent_flag: vec![false; count as usize],
+    };
+    for start in 0..count {
+        if seen[start as usize] {
+            continue;
+        }
+        let component = flood(derived, start, &mut seen);
+        if component.len() > 1 {
+            let root = walk_component(derived, component, &mut found);
+            found.roots.push(root);
+        }
+    }
+    found
+}
+
+/// The component of `start`, so the loop above starts it exactly once.
+fn flood(derived: &Derived, start: u32, seen: &mut [bool]) -> Vec<u32> {
+    let mut queue = vec![start];
+    seen[start as usize] = true;
+    let mut at = 0;
+    while at < queue.len() {
+        let node = queue[at];
+        at += 1;
+        for other in derived.neighbours(node) {
+            if !seen[other as usize] {
+                seen[other as usize] = true;
+                queue.push(other);
+            }
+        }
+    }
+    queue
+}
+
+/// The component `component`, as a block tree, appended to `found`.
+fn walk_component(derived: &Derived, component: Vec<u32>, found: &mut Found) -> usize {
+    let nodes = component.len();
+    let mut slot = vec![u32::MAX; node_count(&component)];
+    for (at, &node) in component.iter().enumerate() {
+        slot[node as usize] = at as u32;
+    }
+    let mut walk = Walk {
+        derived,
+        slot,
+        val: vec![0; nodes],
+        low: vec![0; nodes],
+        parent: vec![u32::MAX; nodes],
+        block_of: vec![u32::MAX; nodes],
+        stack: Vec::new(),
+        order: 0,
+        base: found.blocks.len(),
+        blocks: Vec::new(),
+        list: Vec::new(),
+        parent_flag: vec![false; nodes],
+    };
+    walk.step(component[0]);
+    for block in &mut walk.blocks {
+        // `agfstnode` walks `g->n_seq`, an ordered dictionary keyed on **AGSEQ** — the node's
+        // creation number (`node.c:46`, `agsubnodeseqcmpf`, `node.c:290-299`). Every node of
+        // the derived graph is created once, in `circomps`' first loop and in `agfstnode`
+        // order, so `AGSEQ` is the dense node index and **every** `agfstnode` walk over any
+        // subgraph of the derived graph — a block's included — comes out ascending. That is
+        // not the order `addNode` inserted the nodes in, and the difference decides which
+        // node a block's circle starts from.
+        block.nodes.sort_unstable();
+    }
+    let local = walk.list.first().copied().unwrap_or(0);
+    walk.assemble(local);
+    let root = walk.base + local;
+    for (at, flag) in walk.parent_flag.iter().enumerate() {
+        if *flag {
+            found.parent_flag[component[at] as usize] = true;
+        }
+    }
+    found.blocks.append(&mut walk.blocks);
+    root
+}
+
+/// How wide [`Walk::slot`] must be: one slot per node of the derived graph, which is the
+/// highest index any of this component's nodes can have.
+fn node_count(component: &[u32]) -> usize {
+    component
+        .iter()
+        .map(|node| *node as usize + 1)
+        .max()
+        .unwrap_or(0)
+}
+
+/// One depth-first frame: the node, its neighbour row, and how far into it we are.
+struct Frame {
+    /// The node's **global** index, which is what `Derived` indexes by.
+    node: u32,
+    /// Its neighbours, global too — they are translated once, on the way into the arrays.
+    neighbours: Vec<u32>,
+    at: usize,
+}
+
+/// The walk itself, kept as its own type so [`Walk::step`] can stay inside the line cap.
+struct Walk<'a> {
+    derived: &'a Derived,
+    /// Global node -> this component's local index, `u32::MAX` outside it. Every array below
+    /// is component-sized and indexed locally, so a component that does not start at node 0
+    /// works exactly as one that does.
+    slot: Vec<u32>,
+    /// `VAL(n)`: discovery order, `0` for unvisited.
+    val: Vec<u32>,
+    /// `LOWVAL(n)`: the lowest `VAL` reachable from `n` by tree edges then one back edge.
+    low: Vec<u32>,
+    /// `PARENT(n)`: the node that discovered `n`, `u32::MAX` for the root.
+    parent: Vec<u32>,
+    /// `BLOCK(n)`: the block holding `n`, `u32::MAX` while it has none.
+    block_of: Vec<u32>,
+    /// `estack`: the discovered nodes whose edges have not been popped into a block yet.
+    stack: Vec<u32>,
+    /// `orderCount`, the next `VAL`.
+    order: u32,
+    /// Where this component's blocks start in the forest-wide list, so a component-local
+    /// block index can be turned into a global one on the way out.
+    base: usize,
+    blocks: Vec<Block>,
+    /// `state->bl`: the blocks in creation order, with the root's pushed to the front.
+    list: Vec<usize>,
+    /// `PARENT_F`, set by [`Walk::assemble`].
+    parent_flag: Vec<bool>,
+}
+
+impl Walk<'_> {
+    /// This component's local index of a node that is in it.
+    fn local(&self, node: u32) -> usize {
+        let at = self.slot[node as usize];
+        assert!(at != u32::MAX, "node {node} is not in this component");
+        at as usize
+    }
+
+    /// The depth-first walk from `start`.
+    fn step(&mut self, start: u32) {
+        self.enter(start);
+        let mut frames = vec![Frame {
+            node: start,
+            neighbours: self.derived.neighbours(start),
+            at: 0,
+        }];
+        while !frames.is_empty() {
+            let last = frames.len() - 1;
+            let node = frames[last].node;
+            match frames[last].next() {
+                None => {
+                    frames.pop();
+                    let parent_is_root = frames.len() == 1;
+                    if let Some(parent) = frames.last() {
+                        let parent = parent.node;
+                        self.link(parent, node, parent_is_root);
+                    }
+                }
+                Some(other) if self.val[self.local(other)] == 0 => {
+                    let (here, there) = (self.local(node), self.local(other));
+                    self.parent[there] = here as u32;
+                    self.stack.push(other);
+                    self.enter(other);
+                    frames.push(Frame {
+                        node: other,
+                        neighbours: self.derived.neighbours(other),
+                        at: 0,
+                    });
+                }
+                Some(other) => {
+                    // `blocktree.c:102-104`: a back edge only lowers `LOWVAL` when it does not
+                    // point at the node's own parent — that edge was the tree edge, and its
+                    // subtree is already accounted for.
+                    let (at, there) = (self.local(node), self.local(other));
+                    if self.parent[at] != there as u32 {
+                        let low = self.low[at].min(self.val[there]);
+                        self.low[at] = low;
+                    }
+                }
+            }
+        }
+        // `blocktree.c:106-110`: the walk's root is an artificial cut point, so it joins no
+        // block of its own unless it landed in one — and if it did not, it gets a one-node
+        // block, pushed to the **front** of the list so it becomes the tree's root.
+        let me = self.local(start);
+        if self.block_of[me] == u32::MAX {
+            let at = self.new_block();
+            self.blocks[at].nodes.push(start);
+            self.block_of[me] = at as u32;
+            self.list.insert(0, at);
+        }
+    }
+
+    /// `LOWVAL(u) = min(LOWVAL(u), LOWVAL(v))`, then the articulation test at `u` for `v`.
+    fn link(&mut self, parent: u32, child: u32, parent_is_root: bool) {
+        let (at, there) = (self.local(parent), self.local(child));
+        let child_low = self.low[there];
+        let low = self.low[at].min(child_low);
+        self.low[at] = low;
+        if child_low >= self.val[at] {
+            self.close_block(parent, child, parent_is_root);
+        }
+    }
+
+    /// `LOWVAL(u) = VAL(u) = orderCount++`.
+    fn enter(&mut self, node: u32) {
+        let at = self.local(node);
+        self.order += 1;
+        self.val[at] = self.order;
+        self.low[at] = self.order;
+    }
+
+    /// Pops the edges down to and including the one `child` was discovered on, putting every
+    /// head it passes into one block — the reference's `do { … } while (ep != e)`.
+    fn close_block(&mut self, parent: u32, child: u32, parent_is_root: bool) {
+        let mut block: Option<usize> = None;
+        loop {
+            let head = self
+                .stack
+                .pop()
+                .expect("the stack holds the edge we came in on");
+            let me = self.local(head);
+            if self.block_of[me] == u32::MAX {
+                let at = *block.get_or_insert_with(|| self.new_block());
+                self.blocks[at].nodes.push(head);
+                self.block_of[me] = at as u32;
+            }
+            if head == child {
+                break;
+            }
+        }
+        let Some(at) = block else { return };
+        // `blocktree.c:94-95`: the cut point joins its child's block only when that block is
+        // bigger than one node. A one-node block is the reference's own degenerate case.
+        let me = self.local(parent);
+        if self.block_of[me] == u32::MAX && self.blocks[at].nodes.len() > 1 {
+            self.blocks[at].nodes.push(parent);
+            self.block_of[me] = at as u32;
+        }
+        let holds_parent = self.block_of[me] == at as u32;
+        if parent_is_root && holds_parent {
+            self.list.insert(0, at);
+        } else {
+            self.list.push(at);
+        }
+    }
+
+    /// A block with no nodes yet, appended to the forest.
+    fn new_block(&mut self) -> usize {
+        self.blocks.push(Block::empty());
+        self.blocks.len() - 1
+    }
+
+    /// `createBlocktree` (`blocktree.c:143-179`): hang every block but the first on the block
+    /// holding its earliest-discovered node, and mark that node as the block's anchor.
+    fn assemble(&mut self, root: usize) {
+        let list = self.list.clone();
+        for at in list.into_iter().skip(1) {
+            let Some((anchor, owner)) = self.anchor(at) else {
+                continue;
+            };
+            // `SET_PARENT(parent)` marks the node **in the parent block** the child hangs off,
+            // which is what `BLK_PARENT` reads back (`block.h:51`).
+            let flag = self.parent[self.local(anchor)];
+            self.blocks[at].child_node = anchor;
+            self.blocks[at].hangs_at = flag;
+            self.blocks[at].parent = Some(owner);
+            self.parent_flag[flag as usize] = true;
+            self.blocks[owner].children.push(at);
+        }
+        self.blocks[root].parent = None;
+    }
+
+    /// The block's minimum-`VAL` node, and the block that holds that node's parent: the
+    /// reference scans `agfstnode` of the block and keeps the first strict minimum
+    /// (`blocktree.c:163-171`), so a tie is broken by the block's own node order.
+    fn anchor(&self, at: usize) -> Option<(u32, usize)> {
+        let (&first, rest) = self.blocks[at].nodes.split_first()?;
+        let mut anchor = first;
+        let mut lowest = self.val[self.local(first)];
+        for &node in rest {
+            if self.val[self.local(node)] < lowest {
+                anchor = node;
+                lowest = self.val[self.local(node)];
+            }
+        }
+        let above = self.local(self.parent[self.local(anchor)]);
+        let owner = self.block_of[above];
+        if owner == u32::MAX {
+            return None;
+        }
+        Some((anchor, owner as usize))
+    }
+}
+
+impl Frame {
+    /// The next neighbour of this frame's node, or `None` when its row is spent.
+    fn next(&mut self) -> Option<u32> {
+        let at = self.at;
+        self.at += 1;
+        self.neighbours.get(at).copied()
+    }
+}

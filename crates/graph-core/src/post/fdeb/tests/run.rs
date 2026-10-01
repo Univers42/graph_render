@@ -72,17 +72,17 @@ fn bundling_a_layouts_own_polylines_composes_rather_than_replacing_them() {
     // drawn path, so the bend survives where no force opposes it. A pass that assumed a
     // `Line` input would start from the chord and lose it, which is what this asserts.
     let topology = three_edges();
-    let geometry = Geometry {
-        nodes: NodeGeometry::Point {
+    let geometry = Geometry::planar(
+        NodeGeometry::Point {
             x: vec![0.0, 1.0, 0.0, 1.0],
             y: vec![0.0, 0.0, 5.0, 5.0],
         },
-        edges: EdgeGeometry::Polyline(Paths {
+        EdgeGeometry::Polyline(Paths {
             offsets: vec![0, 1, 2, 3],
             pts: vec![0.5, 3.0, 0.5, 3.0, 0.5, 3.0],
         }),
-        notes: Vec::new(),
-    };
+        Vec::new(),
+    );
     let bundled = bundle(&topology, &geometry, &FdebParams::default()).expect("runs");
     let EdgeGeometry::Polyline(paths) = &bundled.geometry.edges else {
         panic!("bundling emits polylines");

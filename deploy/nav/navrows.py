@@ -3,7 +3,8 @@
 Every row is measured by the camera the served app is drawing with, or by the pixels the
 served app has drawn. Nothing is dispatched through the studio's own API: the input goes in
 as a mouse, a wheel or a key. A row that cannot be driven with CDP is reported NOT-RUN with
-the reason, and `--break` makes the drag row expect a move the app does not make.
+the reason, and `--break` makes the drag row expect a move the app does not make and leaves
+the edge gradient row's mode alone.
 """
 import time
 
@@ -11,12 +12,8 @@ from drive import (
     ANCHOR_TOLERANCE, CENTRE, CLAMP_PRESSES, DRAG_TOLERANCE, OFF_CENTRE, PINCH_NOTCH, SETTLE_S,
     WHEEL_NOTCH, apart, screen_to_world, world_to_screen,
 )
-
-
-def row(name, expectation, measured, passed, why=None):
-    verdict = "PASS" if passed else ("NOT-RUN" if why is not None else "FAIL")
-    return {"row": name, "expectation": expectation, "measured": measured,
-            "verdict": verdict, "why": why}
+from gradientrows import row_edge_gradient
+from verdict import row
 
 
 def _cam(camera):
@@ -227,4 +224,8 @@ def run_rows(studio):
         row_double_click(studio), row_fit(studio),
         *[_key_row(studio, name, key, check, text) for name, key, check, text in KEY_ROWS],
         row_clamp(studio), row_escape(studio), row_space_drag(studio), row_middle_drag(studio),
+        # Last: it fits the camera, pauses the force loop and puts the edge colour mode back,
+        # so it changes the drawing every row above it was written against, and its own row
+        # needs a view at rest, which none of the rows above leaves behind.
+        row_edge_gradient(studio),
     ]

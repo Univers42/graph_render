@@ -39,11 +39,8 @@ fn style_run(
 ) -> Result<Bundled, StageError> {
     let edges = style_edges(topology, &geometry.nodes, &StyleParams::for_style(style))?;
     Ok(Bundled {
-        geometry: Geometry {
-            nodes: geometry.nodes.clone(),
-            edges,
-            notes: geometry.notes.clone(),
-        },
+        // `with_edges` carries the z column, so a 3D layout keeps its dimension here.
+        geometry: geometry.with_edges(edges),
         pairs: 0,
         unbundled: 0,
     })
