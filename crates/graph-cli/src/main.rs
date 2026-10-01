@@ -72,22 +72,7 @@ fn main() -> ExitCode {
         Command::OracleDiff { fixtures } => {
             oracle_fixtures::diff(&fixtures.unwrap_or_else(oracle_fixtures::default_out))
         }
-        Command::EmitSpectralFixtures { seeds, out } => {
-            oracle_python::emit(&oracle_python::SPECTRAL, seeds, None, &out)
-        }
-        Command::OracleSpectral { dir } => oracle_python::ingest(&oracle_python::SPECTRAL, &dir),
-        Command::EmitFa2Fixtures {
-            seeds,
-            max_iter,
-            out,
-        } => oracle_python::emit(&oracle_python::FA2, seeds, max_iter, &out),
-        Command::OracleFa2 { dir } => oracle_python::ingest(&oracle_python::FA2, &dir),
-        Command::EmitClosedFormFixtures { seeds, out } => {
-            oracle_python::emit(&oracle_python::CLOSED_FORM, seeds, None, &out)
-        }
-        Command::OracleClosedForm { dir } => {
-            oracle_python::ingest(&oracle_python::CLOSED_FORM, &dir)
-        }
+        Command::PythonOracle(command) => command.run(),
         Command::OracleLayouts { fixtures } => {
             oracle_fixtures::diff_layouts(&fixtures.unwrap_or_else(oracle_fixtures::default_out))
         }

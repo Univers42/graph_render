@@ -15,6 +15,7 @@ mod controls;
 mod ids;
 mod p3;
 mod table;
+mod twopi;
 use controls::only_stage_moved;
 use p3::P3_SEED;
 

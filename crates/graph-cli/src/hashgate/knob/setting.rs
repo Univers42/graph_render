@@ -7,6 +7,7 @@
 use graph_core::layout::circle_packing::CirclePackingParams;
 use graph_core::layout::force::{ForceParams, LiveParams, Split};
 use graph_core::layout::forceatlas2::Fa2Params;
+use graph_core::layout::radial::twopi;
 use graph_core::layout::{circular, tidy_tree, treemap};
 use graph_core::{GridParams, REFERENCE_DEGREE, SugiyamaParams};
 use std::env::VarError;
@@ -29,8 +30,8 @@ pub(crate) struct Setting {
     /// Circle packing's parameters, native arm only ([`Knob::PackingScale`] perturbs).
     pub(in crate::hashgate) packing: CirclePackingParams,
     /// The one stage whose own model a control re-draws, native arm only
-    /// ([`Knob::TreeTidyNodes`], [`Knob::TreemapNodes`], [`Knob::CircularNodes`] and the
-    /// fifteen ANALYSIS and POST controls).
+    /// ([`Knob::TreeTidyNodes`], [`Knob::TreemapNodes`], [`Knob::CircularNodes`], the
+    /// twenty-one per-stage controls in [`knobs`], and the six igraph layout controls).
     ///
     /// A stage id, never a node count: which stage the extra nodes are *for* is the whole
     /// claim, and a bare `u32` would let the same perturbation reach the shared model
@@ -144,6 +145,9 @@ fn apply(knob: Knob, text: &str, setting: &mut Setting) -> Result<(), String> {
         Knob::CircularNodes => {
             setting.stage_nodes = Some((circular::ID, nodes(text, knob)?));
         }
+        Knob::TwopiNodes => {
+            setting.stage_nodes = Some((twopi::ID, nodes(text, knob)?));
+        }
         Knob::PackingScale => setting.packing.scale = text.parse().map_err(|e| bad(&e))?,
         // Parsed rather than treated as a presence flag, so `GM_MUTATE_SPLIT_SUM=0` is
         // the honest run and a typo (`=maybe`) is an error instead of a silent
@@ -161,6 +165,11 @@ fn apply(knob: Knob, text: &str, setting: &mut Setting) -> Result<(), String> {
         Knob::ForceSessionGravity => {
             setting.live_gravity = Some(text.parse().map_err(|e| bad(&e))?);
         }
+        // The twenty-one per-stage controls, the fifteen ANALYSIS and POST rows and the six
+        // igraph layout rows, are one arm here: `stage_of` resolves the stage from the
+        // variable the knob was dispatched by, and every one of them is the same shape — a
+        // node count for one stage's own model. A layout that took a real parameter would
+        // get its own arm above, as Barnes-Hut and ForceAtlas2 do.
         _ => knobs::apply(stage_of(knob), nodes(text, knob)?, setting),
     }
     Ok(())

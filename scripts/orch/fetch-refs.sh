@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # fetch-refs.sh [dest] — download the pinned read-only references (prompts/REFERENCES.md) into
 # <dest> (default $GM_SCRATCH/refs, scripts/orch/scratch.sh), verify each against its recorded digest, chmod a-w.
-# Digests: npm sha512 = the `integrity` in the branch lockfiles; networkx = PyPI's published sha256;
-# JAMA and lobpcg.py = the sha256 recorded on p6e (dense_sym.rs:5-6, eigensolver.md); matplotlib's
-# _cm_listed.py = the file inside PyPI's 3.10.0 sdist (sdist sha256 b886d02a…511278, checked
-# 2026-09-29), fetched alone because the sdist is 36 MB. A mismatch is a stop (rule 0.6), never a
-# retry against another mirror.
+# Digests: npm sha512 = the `integrity` in the branch lockfiles; networkx, igraph and matplotlib's
+# _cm_listed.py = PyPI's published sha256 (igraph is the PyPI name of python-igraph since 0.10, so
+# 0.11.9 resolves to the sdist whose own sha256 is recorded below; matplotlib's file comes from
+# inside the 3.10.0 sdist, sha256 b886d02a…511278 checked 2026-09-29, fetched alone because the
+# sdist is 36 MB); JAMA and lobpcg.py = the sha256 recorded on p6e (dense_sym.rs:5-6,
+# eigensolver.md). A mismatch is a stop (rule 0.6), never a retry against another mirror.
 set -euo pipefail
 source "$(dirname "$(readlink -f "$0")")/scratch.sh"
 R=${1:-$GM_SCRATCH/refs}
@@ -27,15 +28,22 @@ npm_ref dagre-d3-es 7.0.14 'sha512-P4rFMVq9ESWqmOgK+dlXvOtLwYg0i7u0HBGJER0LZDJT2
 npm_ref d3-force 3.0.0 'sha512-zxV/SsA+U4yte8051P4ECydjD/S+qeYtnaIyAs9tgHCqfguma/aAQDjo85A9Z6EKhBirHRJHXIgJUlffT4wdLg=='
 npm_ref d3-quadtree 3.0.1 'sha512-04xDrxQTDTCFwP5H6hRhsRcb9xxv2RzkcsygFzmkSIOJy3PeRJP7sNk3VRIbKXcog561P9oU0/rVH6vDROAgUw=='
 
-nx=$R/networkx-3.6
-if [[ ! -d $nx/networkx-3.6 ]]; then
-  mkdir -p "$nx"; meta=$(curl -fsSL https://pypi.org/pypi/networkx/3.6/json)
-  url=$(jq -r '.urls[] | select(.packagetype=="sdist") | .url' <<<"$meta")
-  want=$(jq -r '.urls[] | select(.packagetype=="sdist") | .digests.sha256' <<<"$meta")
-  [[ $want == 285276002ad1f7f7da0f7b42f004bcba70d381e936559166363707fdad3d72ad ]] || die "PyPI digest changed for networkx 3.6"
-  get "$url" "$nx/networkx-3.6.tar.gz"; sha256_is "$nx/networkx-3.6.tar.gz" "$want"
-  tar -xzf "$nx/networkx-3.6.tar.gz" -C "$nx"
-fi
+pypi_ref() { # pkg ver sha256: the sdist into $R/<pkg>-<ver>/, extracted beside its tarball
+  local d=$R/$1-$2 t=$R/$1-$2/$1-$2.tar.gz meta url
+  if [[ ! -d $d/$1-$2 ]]; then
+    mkdir -p "$d"; meta=$(curl -fsSL "https://pypi.org/pypi/$1/$2/json")
+    url=$(jq -r '.urls[] | select(.packagetype=="sdist") | .url' <<<"$meta")
+    [[ $(jq -r '.urls[] | select(.packagetype=="sdist") | .digests.sha256' <<<"$meta") == "$3" ]] \
+      || die "PyPI digest changed for $1 $2"
+    get "$url" "$t"; sha256_is "$t" "$3"
+    tar -xzf "$t" -C "$d"
+  fi
+  sha256_is "$t" "$3"
+}
+
+pypi_ref networkx 3.6 285276002ad1f7f7da0f7b42f004bcba70d381e936559166363707fdad3d72ad
+# `igraph`, not `python-igraph`: the latter's 0.11.9 sdist is a 9.7 kB shim depending on this one.
+pypi_ref igraph 0.11.9 c57ce44873abcfcfd1d61d7d261e416d352186958e7b5d299cf244efa6757816
 
 gv=$R/graphviz-16.1.0
 if [[ ! -f $gv/graphviz-16.1.0.tar.gz ]]; then
@@ -66,4 +74,4 @@ fi
 sha256_is "$mpl/_cm_listed.py" ddad3698f5129ceb1792a445371286c08bc9080298e657b3054aea19c9659ef9
 
 chmod -R a-w "$R"
-echo "fetch-refs: 9 references verified under $R"
+echo "fetch-refs: 10 references verified under $R"

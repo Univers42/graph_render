@@ -15,6 +15,7 @@ pub mod grid;
 pub mod hierarchy;
 pub mod pivot_mds;
 pub mod planarity;
+pub mod radial;
 pub mod random;
 pub mod spectral;
 pub mod spectral_stage;

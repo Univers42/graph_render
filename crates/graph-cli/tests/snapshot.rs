@@ -117,12 +117,37 @@ fn snapshot_refuses_what_it_cannot_do() {
     }
 }
 
+/// 20 seeds over every registered layout plus the contract exercise, counted from the
+/// ledger the binary publishes rather than written into the test.
+fn roundtrip_total(seeds: u32) -> String {
+    let json = graph_cli(&["capabilities", "--json"], None);
+    assert_eq!(json.status.code(), Some(0));
+    let rows: serde_json::Value = serde_json::from_str(&stdout(&json)).expect("json");
+    let layouts = rows
+        .as_array()
+        .expect("an array")
+        .iter()
+        .filter(|r| r["stage"] == "layout")
+        .count();
+    (seeds as usize * (layouts + 1)).to_string()
+}
+
 #[test]
 fn roundtrip_passes_and_records_the_grids_hand_oracle() {
+    let expected = roundtrip_total(20);
     let run = graph_cli(&["roundtrip", "--seeds", "20"], None);
     assert_eq!(run.status.code(), Some(0), "{}", stdout(&run));
-    // 20 seeds x (every registered layout + the contract exercise) = 20 x (15 + 1).
-    assert!(stdout(&run).contains("  binary <-> JSON byte-exact on 320/320 snapshots"));
+    // Every registered layout plus the contract exercise, per seed. The count is read
+    // from the ledger rather than written here: it moves with the registry, and a literal
+    // would pin the stage list instead of the round trip's own arithmetic.
+    assert!(
+        stdout(&run).contains(&format!(
+            "  binary <-> JSON byte-exact on {}/{expected} snapshots",
+            expected
+        )),
+        "{}",
+        stdout(&run)
+    );
     assert!(stdout(&run).contains("  layout.grid on its stated conventions on 20/20 seeds"));
     assert!(
         stdout(&run).contains("  layout.circular.radial on its stated conventions on 20/20 seeds")

@@ -113,55 +113,10 @@ pub enum Command {
         #[arg(long)]
         fixtures: Option<PathBuf>,
     },
-    /// Writes the spectral/pivot-MDS differential's fixtures for `harness/oracle-spectral.py`.
-    EmitSpectralFixtures {
-        /// Number of seeds, 0..N.
-        #[arg(long, default_value_t = 1000, value_parser = seed_count())]
-        seeds: u32,
-        /// Output directory.
-        #[arg(long, default_value = "target/spectral-fixtures")]
-        out: PathBuf,
-    },
-    /// Checks the spectral differential's result against its ceilings and records it.
-    OracleSpectral {
-        /// Directory holding the fixtures and `spectral-result.json`.
-        #[arg(long, default_value = "target/spectral-fixtures")]
-        dir: PathBuf,
-    },
-    /// Writes the ForceAtlas2 differential's fixtures for `harness/oracle-fa2.py`.
-    EmitFa2Fixtures {
-        /// Number of seeds, 0..N.
-        #[arg(long, default_value_t = 1000, value_parser = seed_count())]
-        seeds: u32,
-        /// Iteration budget both arms run, over the differential's own gated one. The
-        /// escape hatch `docs/measurements/fa2-chaos.md` measures the chaos with.
-        #[arg(long, value_parser = clap::value_parser!(u32).range(1..=100))]
-        max_iter: Option<u32>,
-        /// Output directory.
-        #[arg(long, default_value = "target/fa2-fixtures")]
-        out: PathBuf,
-    },
-    /// Checks the ForceAtlas2 differential's result against its ceiling and records it.
-    OracleFa2 {
-        /// Directory holding the fixtures and `fa2-result.json`.
-        #[arg(long, default_value = "target/fa2-fixtures")]
-        dir: PathBuf,
-    },
-    /// Writes the closed-form differential's fixtures for `harness/oracle-closed-form.py`.
-    EmitClosedFormFixtures {
-        /// Number of seeds, 0..N.
-        #[arg(long, default_value_t = 1000, value_parser = seed_count())]
-        seeds: u32,
-        /// Output directory.
-        #[arg(long, default_value = "target/closed-form-fixtures")]
-        out: PathBuf,
-    },
-    /// Checks the closed-form differential's result against its ceiling and records it.
-    OracleClosedForm {
-        /// Directory holding the fixtures and `closed-form-result.json`.
-        #[arg(long, default_value = "target/closed-form-fixtures")]
-        dir: PathBuf,
-    },
+    /// The Python-armed differentials' own subcommands: `emit-<name>-fixtures` and
+    /// `oracle-<name>`, one pair per differential (`oracle_python::cli`).
+    #[command(flatten)]
+    PythonOracle(crate::oracle_python::Cli),
     /// Runs `harness/oracle-layouts.mjs` over the emitted fixtures (the d3-hierarchy arm).
     OracleLayouts {
         /// Fixtures directory; `target/oracle-fixtures` by default.
