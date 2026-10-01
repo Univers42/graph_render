@@ -1,6 +1,6 @@
 /** What is selected: one node, or several, with the last one chosen as the primary. */
 import { screenToWorld, type Point } from "../camera.ts";
-import { movedScene } from "../drag.ts";
+import { liveGesture, movedScene } from "../drag.ts";
 import type { Gesture } from "../pointer.ts";
 import { addTo, boxOf, nodesInBox } from "../selection.ts";
 import type { Controller } from "./controller.ts";
@@ -76,7 +76,10 @@ function nodeGesture(controller: Controller, node: number): Gesture {
 export function pressAt(controller: Controller, at: Point, shift: boolean): Gesture | null {
   if (shift) return boxGesture(controller, at);
   const node = pickAt(controller.state, at);
-  return node >= 0 ? nodeGesture(controller, node) : null;
+  if (node < 0) return null;
+  const { camera } = controller.state;
+  const live = controller.live === undefined ? null : liveGesture(controller.live, node, (to) => screenToWorld(camera, to), at);
+  return live ?? nodeGesture(controller, node);
 }
 
 /** A secondary click acts on the node under it: it joins the selection if it is not in it. */

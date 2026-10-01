@@ -2,8 +2,10 @@
 import { useState, type ReactElement, type ReactNode } from "react";
 
 import { DOCK_SECTIONS } from "../actions/all.ts";
+import type { LiveBridge } from "../motor/bridge.ts";
 import type { StudioState } from "../state/model.ts";
 import type { Studio } from "../studio/studio.ts";
+import { ForcesPanel } from "./ForcesPanel.tsx";
 import { ActionForm } from "./ActionForm.tsx";
 import { signatureOf, valuesOf } from "./draft.ts";
 
@@ -16,6 +18,8 @@ export interface DockProps {
   readonly state: StudioState;
   readonly open: boolean;
   readonly onToggle: () => void;
+  /** The live loop's store, so the Forces section redraws when the worker answers. */
+  readonly bar: Pick<LiveBridge, "bar" | "onBar">;
 }
 
 interface SectionProps {
@@ -69,7 +73,7 @@ function Actions(props: { readonly studio: Studio; readonly state: StudioState; 
 }
 
 export function Dock(props: DockProps): ReactElement {
-  const { studio, state, open, onToggle } = props;
+  const { studio, state, open, onToggle, bar } = props;
   const [shown, setShown] = useState<readonly string[]>(OPEN_AT_FIRST);
   const flip = (name: string): void => {
     setShown((current) => current.includes(name) ? current.filter((other) => other !== name) : [...current, name]);
@@ -85,7 +89,9 @@ export function Dock(props: DockProps): ReactElement {
       <div className="gs-dock-body" id={BODY} hidden={!open}>
         {DOCK_SECTIONS.map((name) => (
           <Section key={name} name={name} open={shown.includes(name)} onToggle={() => flip(name)}>
-            <Actions studio={studio} state={state} name={name} />
+            {name === "Forces"
+              ? <ForcesPanel studio={studio} state={state} bar={bar} />
+              : <Actions studio={studio} state={state} name={name} />}
           </Section>
         ))}
       </div>

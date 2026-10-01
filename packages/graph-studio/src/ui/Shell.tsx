@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState, type ReactElement } from "rea
 
 import { isLightTheme } from "../../../graph-render/src/look/themes.ts";
 import type { View } from "../../../graph-render/src/view.ts";
+import type { LiveBridge } from "../motor/bridge.ts";
 import type { Studio } from "../studio/studio.ts";
 import { KeyOverlay } from "./KeyOverlay.tsx";
 import { Console } from "./Console.tsx";
@@ -15,6 +16,7 @@ import { Inspector } from "./Inspector.tsx";
 import { Legend } from "./Legend.tsx";
 import { NavBar } from "./NavBar.tsx";
 import { type MenuAt, NodeMenu, type MenuView } from "./NodeMenu.tsx";
+import { ProgressBar } from "./ProgressBar.tsx";
 import { Search } from "./Search.tsx";
 import { Toast } from "./Toast.tsx";
 import { useShortcuts } from "./useShortcuts.ts";
@@ -25,6 +27,8 @@ export interface ShellProps {
   readonly view: Pick<View, "stats" | "on" | "focus" | "select" | "camera" | "position"> & MenuView;
   /** Where key presses are listened for. */
   readonly keys: Pick<EventTarget, "addEventListener" | "removeEventListener">;
+  /** The live loop's own store: read at its own rate, never with the rest of the chrome. */
+  readonly bar: Pick<LiveBridge, "bar" | "onBar">;
 }
 
 interface NodeMenuOpening {
@@ -58,7 +62,7 @@ function useNodeMenu(opening: NodeMenuOpening): readonly [MenuAt | null, () => v
 }
 
 export function Shell(props: ShellProps): ReactElement {
-  const { studio, view, keys } = props;
+  const { studio, view, keys, bar } = props;
   const state = useStudioState(studio);
   const [consoleOpen, setOpen] = useState(false);
   const [helpOpen, setHelp] = useState(false);
@@ -76,12 +80,13 @@ export function Shell(props: ShellProps): ReactElement {
   useShortcuts({ studio, state, keys, consoleOpen, setConsole, focusSearch, toggleHelp, helpOpen });
   return (
     <div className="gs-chrome" data-theme={isLightTheme(state.settings.appearance.theme) ? "light" : "dark"}>
+      <ProgressBar bar={bar.bar} onBar={bar.onBar} />
       <div className="gs-left">
         <Search studio={studio} meta={state.meta} inputRef={searchInput} />
         <Inspector studio={studio} state={state} view={view} />
       </div>
       <Toast studio={studio} state={state} />
-      <Dock studio={studio} state={state} open={dockOpen} onToggle={() => setDock((open) => !open)} />
+      <Dock studio={studio} state={state} bar={bar} open={dockOpen} onToggle={() => setDock((open) => !open)} />
       <div className="gs-bottom-left">
         <Legend state={state} />
         <Hud state={state} view={view} />

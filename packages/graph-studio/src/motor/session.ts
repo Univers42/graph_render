@@ -12,6 +12,8 @@ import { type GraphMeta, metaOf } from "../source/meta.ts";
 import { syntheticRecords } from "../source/synthetic.ts";
 import { type ShownError, describeError } from "../state/errors.ts";
 import type { Source } from "../state/settings.ts";
+import type { ForcePort, LiveForce } from "./live.ts";
+import { createLiveForce } from "./liveSession.ts";
 import type { AnalysisReport, Catalog, GraphSummary, RunReport } from "./protocol.ts";
 
 export interface AnalysisFace {
@@ -33,6 +35,8 @@ export interface MotorLike<Handle> {
   analysis(handle: Handle, analysisId: string): AnalysisFace;
   toBytes(handle: Handle): Uint8Array;
   release(handle: Handle): void;
+  /** The live session over a graph's topology, or null on a motor without one. */
+  forceSession?(handle: Handle): ForcePort | null;
 }
 
 export interface SessionDeps<Handle> {
@@ -47,6 +51,12 @@ export interface Session {
   load(source: Source, fixturesUrl: string): Promise<GraphSummary>;
   layout(layoutId: string, postId: string | null): Promise<RunReport>;
   analysis(analysisId: string): AnalysisReport;
+  /**
+   * The live force port over the graph as it is now drawn, or null when there is none: the
+   * motor behind this session has no live session, or no layout has run to order the rows.
+   * A new load releases the last one, so a port is never a session of another graph.
+   */
+  forces(): LiveForce | null;
 }
 
 interface Document {
@@ -62,7 +72,16 @@ interface Built<Handle> {
   readonly nodes: readonly IngestNode[];
   /** The id table the description was last built against; `null` before the first run. */
   described: Uint8Array | null;
+  /** The motor's live session over this graph, made when one is first asked for. */
+  forced: ForcePort | null;
+  /** The port over it, cached so the loop sees one object for one session. */
+  port: LiveForce | null;
+  /** Node ids in the force session's dense row order; `null` until a layout has run. */
+  order: readonly string[] | null;
 }
+
+/** The layout that throws the nodes back to random positions, for "Animate". */
+const SCATTER = "layout.random";
 
 /** Nothing can run in the state the session is in. */
 export class SessionRefusal extends Error {
@@ -117,6 +136,7 @@ function describe<Handle>(built: Built<Handle>, bytes: Uint8Array): GraphMeta | 
   if (built.described !== null && sameBytes(built.described, table)) return null;
   const order = Array.from({ length: snapshot.nodeCount }, (_, i) => idAt(snapshot.nodeIds, i));
   built.described = table.slice();
+  built.order = order;
   return metaOf(built.nodes, order, snapshot);
 }
 
@@ -157,6 +177,55 @@ function summaryOf(document: Document, buildMs: number): GraphSummary {
   };
 }
 
+/**
+ * The live force port over the graph as it is now drawn, or null when there is none.
+ *
+ * Null rather than a refusal: a force request that arrives before a graph is loaded is "no
+ * session yet", which is the same answer as a motor that has none.
+ */
+function forcesOf<Handle>(motor: MotorLike<Handle> | null, built: Built<Handle> | null): LiveForce | null {
+  if (motor === null || built === null || built.order === null) return null;
+  if (motor.forceSession === undefined) return null;
+  built.forced ??= motor.forceSession(built.handle);
+  if (built.forced === null) return null;
+  // The port is cached, not rebuilt: the loop compares ports by identity and replaces itself
+  // when one changes, so a fresh object per request would stop the loop on every message.
+  built.port ??= createLiveForce({
+    session: built.forced,
+    handle: built.handle,
+    ids: () => built.order,
+    scatter: (handle) => motor.layout(handle, SCATTER),
+  });
+  return built.port;
+}
+
+/** One layout over the graph, with the edge pass and the digest the studio reports. */
+async function runLayout<Handle>(
+  live: { readonly motor: MotorLike<Handle>; readonly built: Built<Handle> },
+  deps: SessionDeps<Handle>,
+  layoutId: string,
+  postId: string | null,
+): Promise<RunReport> {
+  const started = deps.now();
+  live.motor.layout(live.built.handle, layoutId);
+  const layoutMs = deps.now() - started;
+  const pass = runPass(live.motor, live.built.handle, postId, deps.now);
+  const bytes = live.motor.toBytes(live.built.handle);
+  const meta = describe(live.built, bytes);
+  return { layoutId, ...pass, bytes, digest: await deps.digest(bytes), layoutMs, meta };
+}
+
+/** One analysis over the graph, in the face the studio reports. */
+function runAnalysis<Handle>(
+  live: { readonly motor: MotorLike<Handle>; readonly built: Built<Handle> },
+  deps: SessionDeps<Handle>,
+  analysisId: string,
+): AnalysisReport {
+  const started = deps.now();
+  const face = live.motor.analysis(live.built.handle, analysisId);
+  return reportOf(face, deps.now() - started);
+}
+
 export function createSession<Handle>(deps: SessionDeps<Handle>): Session {
   let motor: MotorLike<Handle> | null = null;
   let built: Built<Handle> | null = null;
@@ -165,35 +234,34 @@ export function createSession<Handle>(deps: SessionDeps<Handle>): Session {
     if (built === null) throw new SessionRefusal("no graph is loaded");
     return { motor, built };
   };
+  const forget = (): void => {
+    // The motor's session outlives its graph handle, so releasing the handle is not enough.
+    built?.forced?.release();
+    if (built === null) return;
+    built.forced = null;
+    built.port = null;
+  };
+  /** Builds the next graph and lets the last one go, force session and all. */
+  const replace = (document: Document, started: number): GraphSummary => {
+    const open = motor;
+    if (open === null) throw new SessionRefusal("the motor is not open");
+    const handle = open.build(document.json);
+    if (built !== null) open.release(built.handle);
+    forget();
+    built = { handle, nodes: document.nodes, described: null, forced: null, port: null, order: null };
+    return summaryOf(document, deps.now() - started);
+  };
   return {
     open: async (wasmUrl) => {
       motor = await deps.motorFrom(wasmUrl);
       return { layouts: motor.layouts(), posts: motor.posts(), analyses: motor.analyses() };
     },
     load: async (source, fixturesUrl) => {
-      if (motor === null) throw new SessionRefusal("the motor is not open");
       const document = await documentFor(source, fixturesUrl, deps.fetchText);
-      const started = deps.now();
-      const handle = motor.build(document.json);
-      if (built !== null) motor.release(built.handle);
-      built = { handle, nodes: document.nodes, described: null };
-      return summaryOf(document, deps.now() - started);
+      return replace(document, deps.now());
     },
-    layout: async (layoutId, postId) => {
-      const live = ready();
-      const started = deps.now();
-      live.motor.layout(live.built.handle, layoutId);
-      const layoutMs = deps.now() - started;
-      const pass = runPass(live.motor, live.built.handle, postId, deps.now);
-      const bytes = live.motor.toBytes(live.built.handle);
-      const meta = describe(live.built, bytes);
-      return { layoutId, ...pass, bytes, digest: await deps.digest(bytes), layoutMs, meta };
-    },
-    analysis: (analysisId) => {
-      const live = ready();
-      const started = deps.now();
-      const face = live.motor.analysis(live.built.handle, analysisId);
-      return reportOf(face, deps.now() - started);
-    },
+    layout: async (layoutId, postId) => runLayout(ready(), deps, layoutId, postId),
+    analysis: (analysisId) => runAnalysis(ready(), deps, analysisId),
+    forces: () => forcesOf(motor, built),
   };
 }

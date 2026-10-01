@@ -4,6 +4,7 @@
  * wrong is in the entry it returns and in the log.
  */
 import { studioActions } from "../actions/all.ts";
+import type { ForceLink } from "../actions/forces.ts";
 import type { Save, StudioContext } from "../actions/context.ts";
 import { type Args, type Outcome, type RawArgs, type Registry, type Resolved, createRegistry } from "../actions/registry.ts";
 import { formatCommand, parseCommand } from "../console/parse.ts";
@@ -21,6 +22,8 @@ export interface StudioDeps {
   readonly view: ViewFace;
   readonly save: Save;
   readonly now: () => number;
+  /** The live simulation behind the forces actions; nothing live when left out. */
+  readonly forces?: ForceLink;
   readonly settings?: Settings;
   /** Where settings are kept per source; absent means nothing is remembered. */
   readonly storage?: SettingsStorage;
@@ -161,7 +164,7 @@ function contextOf(deps: StudioDeps, store: Store<StudioState>, registry: () => 
 
 export function createStudio(deps: StudioDeps): Studio {
   const store = createStore(initialState(deps.settings));
-  const registry = createRegistry<StudioState, StudioContext>(studioActions());
+  const registry = createRegistry<StudioState, StudioContext>(studioActions(deps.forces));
   const context = contextOf(deps, store, () => registry);
   const desk: Desk = { deps, store, registry, context, seq: 0 };
   const unkeep = deps.storage === undefined ? () => undefined : keepSettings(store, deps.storage);
