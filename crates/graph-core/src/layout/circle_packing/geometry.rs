@@ -121,15 +121,15 @@ pub(super) fn to_geometry(packed: Packed) -> Geometry {
     } else {
         Vec::new()
     };
-    Geometry {
-        nodes: NodeGeometry::Circle {
+    Geometry::planar(
+        NodeGeometry::Circle {
             x: cast(packed.x),
             y: cast(packed.y),
             r: cast(packed.r),
         },
-        edges: EdgeGeometry::Line,
+        EdgeGeometry::Line,
         notes,
-    }
+    )
 }
 
 #[cfg(test)]

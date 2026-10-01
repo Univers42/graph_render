@@ -50,14 +50,28 @@ pub fn pair() -> (Topology, Geometry) {
 }
 
 pub fn points(x: &[f32], y: &[f32], notes: &[Note]) -> Geometry {
-    Geometry {
-        nodes: NodeGeometry::Point {
+    Geometry::planar(
+        NodeGeometry::Point {
             x: x.to_vec(),
             y: y.to_vec(),
         },
-        edges: EdgeGeometry::Line,
-        notes: notes.to_vec(),
-    }
+        EdgeGeometry::Line,
+        notes.to_vec(),
+    )
+}
+
+/// The same fixture a third of the way up: a 3D geometry, so a pass that dropped the z
+/// column would be caught here rather than by a caller after the fact.
+pub fn points3(x: &[f32], y: &[f32], z: &[f32]) -> Geometry {
+    Geometry::in_space(
+        NodeGeometry::Point {
+            x: x.to_vec(),
+            y: y.to_vec(),
+        },
+        EdgeGeometry::Line,
+        Vec::new(),
+        z.to_vec(),
+    )
 }
 
 pub fn paths(edges: &EdgeGeometry) -> &Paths {

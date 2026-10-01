@@ -36,6 +36,9 @@
     canvas: () => document.querySelector("graph-studio")?.shadowRoot?.querySelector("canvas") ?? null,
     layouts: () => studioOf().store.get().catalog?.layouts ?? [],
     run: (id) => ran("layout.run", { id }),
+    // The edge colour mode, so a gate run can measure the drawing with the edge gradient on
+    // (appearance.edgecolour is the same action the dock's segmented control dispatches).
+    edgeColour: (mode) => ran("appearance.edgecolour", { mode }),
     // The layout first, on the small graph the studio opened with: the large one is then
     // laid out once, by the layout that was asked for.
     open: async (nodes, layout) => {

@@ -72,11 +72,11 @@ pub fn run(topology: &Topology) -> Result<Geometry, StageError> {
         .map(|v| hierarchy.depth(v))
         .collect();
     let (x, y) = positions(&rings);
-    Ok(Geometry {
-        nodes: NodeGeometry::Point { x, y },
-        edges: EdgeGeometry::Line,
+    Ok(Geometry::planar(
+        NodeGeometry::Point { x, y },
+        EdgeGeometry::Line,
         notes,
-    })
+    ))
 }
 
 /// Every real node's `(x, y)`, `f64` throughout bar the final cast: ring from
