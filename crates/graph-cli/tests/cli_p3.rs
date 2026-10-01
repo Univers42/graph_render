@@ -190,17 +190,57 @@ fn the_p3_controls_are_refused_on_a_typo_a_zero_or_a_doubled_knob() {
 /// The knob list carries every Phase 3 control. `common::KNOBS` is the list every test
 /// binary clears, so a control missing from it leaks in from the environment and turns an
 /// honest run red — or a control run green. The list has since grown past Phase 3 to the
-/// eight ANALYSIS and seven POST stage controls and the compute-tier control, so its length
-/// is pinned to the whole set rather than to these four.
+/// per-stage controls and the compute-tier ones, so its length is pinned to the whole set
+/// rather than to these four, and to the union of what `hashgate::Knob::ALL` reads.
 #[test]
 fn the_knob_list_carries_every_p3_control_and_nothing_else() {
     for (knob, _, _, _) in CONTROLS {
         assert!(KNOBS.contains(&knob), "{knob} is missing from KNOBS");
     }
+    // The whole set, by name rather than by count alone: a control added without its
+    // variable reaching `KNOBS` would leak into every test run, and a variable in `KNOBS`
+    // that no control reads is a name that has silently stopped meaning anything.
+    for knob in [
+        "GM_MUTATE_REFERENCE_DEGREE",
+        "GM_MUTATE_GRID_SPACING",
+        "GM_MUTATE_SUGIYAMA_LAYER_SPACING",
+        "GM_MUTATE_NODE_COUNT",
+        "GM_MUTATE_FORCE_THETA",
+        "GM_MUTATE_FA2_SCALING_RATIO",
+        "GM_MUTATE_TREE_TIDY_NODES",
+        "GM_MUTATE_TREEMAP_NODES",
+        "GM_MUTATE_CIRCULAR_NODES",
+        "GM_MUTATE_PACKING_SCALE",
+        "GM_MUTATE_ANALYSIS_COMPONENTS_WEAK",
+        "GM_MUTATE_ANALYSIS_COMPONENTS_STRONG",
+        "GM_MUTATE_ANALYSIS_COMMUNITIES_LOUVAIN",
+        "GM_MUTATE_ANALYSIS_CENTRALITY_DEGREE",
+        "GM_MUTATE_ANALYSIS_CENTRALITY_CLOSENESS",
+        "GM_MUTATE_ANALYSIS_CENTRALITY_BETWEENNESS",
+        "GM_MUTATE_ANALYSIS_CENTRALITY_EIGENVECTOR",
+        "GM_MUTATE_ANALYSIS_DEPTH_BFS",
+        "GM_MUTATE_POST_BUNDLE_FDEB",
+        "GM_MUTATE_POST_BUNDLE_MINGLE",
+        "GM_MUTATE_POST_ROUTE_GRID",
+        "GM_MUTATE_POST_STYLE_STRAIGHT",
+        "GM_MUTATE_POST_STYLE_ORTHOGONAL",
+        "GM_MUTATE_POST_STYLE_QUADRATIC",
+        "GM_MUTATE_POST_STYLE_BEZIER",
+        "GM_MUTATE_FORCE_FRUCHTERMAN_REINGOLD_NODES",
+        "GM_MUTATE_FORCE_KAMADA_KAWAI_NODES",
+        "GM_MUTATE_FORCE_GRAPHOPT_NODES",
+        "GM_MUTATE_FORCE_DAVIDSON_HAREL_NODES",
+        "GM_MUTATE_FORCE_LGL_NODES",
+        "GM_MUTATE_FORCE_DRL_NODES",
+        "GM_MUTATE_SPLIT_SUM",
+        "GM_MUTATE_SPLIT_RESCALE",
+    ] {
+        assert!(KNOBS.contains(&knob), "{knob} is missing from KNOBS");
+    }
     assert_eq!(
         KNOBS.len(),
-        27,
-        "ten parameter controls, then the fifteen stage controls, then the two compute-tier \
-         controls: {KNOBS:?}"
+        33,
+        "ten parameter controls, then the fifteen ANALYSIS and POST stage controls, then \
+         the six igraph layout controls, then the two compute-tier controls: {KNOBS:?}"
     );
 }

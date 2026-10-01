@@ -18,11 +18,16 @@ use std::process::{Command, Output};
 /// `each_knob_names_its_own_variable_and_record` pins against this list's twin in
 /// `crates/graph-cli/src/hashgate/tests/knob/table.rs`.
 ///
-/// The fifteen ANALYSIS and POST names are spelled out here rather than derived from the
+/// The six igraph layouts sit between the ANALYSIS and POST names and the compute tier,
+/// one per layout: none of the six takes a parameter the gate can move, so each control
+/// re-draws that layout's own model with one more node
+/// (`hashgate::knobs::IGRAPH_LAYOUT_STAGES`).
+///
+/// The twenty-one per-stage names are spelled out here rather than derived from the
 /// binary's own table: this list is what clears a knob out of a test run's environment, so
 /// a name it failed to carry would let a control leak in and turn an honest run red. Being
 /// an independent copy is the property; the unit test is what makes it hold.
-pub const KNOBS: [&str; 27] = [
+pub const KNOBS: [&str; 33] = [
     "GM_MUTATE_REFERENCE_DEGREE",
     "GM_MUTATE_GRID_SPACING",
     "GM_MUTATE_SUGIYAMA_LAYER_SPACING",
@@ -48,6 +53,12 @@ pub const KNOBS: [&str; 27] = [
     "GM_MUTATE_POST_STYLE_ORTHOGONAL",
     "GM_MUTATE_POST_STYLE_QUADRATIC",
     "GM_MUTATE_POST_STYLE_BEZIER",
+    "GM_MUTATE_FORCE_FRUCHTERMAN_REINGOLD_NODES",
+    "GM_MUTATE_FORCE_KAMADA_KAWAI_NODES",
+    "GM_MUTATE_FORCE_GRAPHOPT_NODES",
+    "GM_MUTATE_FORCE_DAVIDSON_HAREL_NODES",
+    "GM_MUTATE_FORCE_LGL_NODES",
+    "GM_MUTATE_FORCE_DRL_NODES",
     "GM_MUTATE_SPLIT_SUM",
     "GM_MUTATE_SPLIT_RESCALE",
 ];

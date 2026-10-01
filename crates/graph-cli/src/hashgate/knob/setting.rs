@@ -29,8 +29,8 @@ pub(in crate::hashgate) struct Setting {
     /// Circle packing's parameters, native arm only ([`Knob::PackingScale`] perturbs).
     pub(in crate::hashgate) packing: CirclePackingParams,
     /// The one stage whose own model a control re-draws, native arm only
-    /// ([`Knob::TreeTidyNodes`], [`Knob::TreemapNodes`], [`Knob::CircularNodes`] and the
-    /// fifteen ANALYSIS and POST controls).
+    /// ([`Knob::TreeTidyNodes`], [`Knob::TreemapNodes`], [`Knob::CircularNodes`], the
+    /// twenty-one per-stage controls in [`knobs`], and the six igraph layout controls).
     ///
     /// A stage id, never a node count: which stage the extra nodes are *for* is the whole
     /// claim, and a bare `u32` would let the same perturbation reach the shared model
@@ -122,6 +122,11 @@ fn apply(knob: Knob, text: &str, setting: &mut Setting) -> Result<(), String> {
         Knob::SplitRescale => {
             setting.split_rescale = yes(text).ok_or_else(|| bad(&text))?;
         }
+        // The twenty-one per-stage controls, the fifteen ANALYSIS and POST rows and the six
+        // igraph layout rows, are one arm here: `stage_of` resolves the stage from the
+        // variable the knob was dispatched by, and every one of them is the same shape — a
+        // node count for one stage's own model. A layout that took a real parameter would
+        // get its own arm above, as Barnes-Hut and ForceAtlas2 do.
         _ => knobs::apply(stage_of(knob), nodes(text, knob)?, setting),
     }
     Ok(())

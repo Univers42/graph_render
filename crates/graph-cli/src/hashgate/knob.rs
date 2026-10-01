@@ -3,6 +3,8 @@
 
 use super::knobs;
 
+pub(super) mod igraph;
+pub(super) mod records;
 pub(super) mod setting;
 pub(super) use setting::{Setting, env_setting};
 
@@ -18,28 +20,28 @@ pub(super) use setting::{Setting, env_setting};
 /// every stage that is a function of the topology at all: it backs the stages nothing
 /// else reaches (spectral, pivot MDS), but a control that moves eleven stages at once
 /// cannot say *which* stage a divergence came from, which is the whole point of hashing
-/// them one at a time. So the four Phase 3 layouts and Barnes-Hut each have a control
-/// filed under their own stage id, and the test
-/// `each_p3_layout_has_its_own_negative_control_that_moves_only_its_stage` is what keeps
-/// them honest.
+/// them one at a time. So every layout has a control filed under its own stage id, and
+/// `each_analysis_and_post_stage_has_its_own_control_that_moves_only_its_stage` is what
+/// keeps the per-stage ones honest.
 ///
-/// **What each of the four perturbs, and why it is not one thing.** Circle packing is
-/// the only one that publishes parameters ([`graph_core::layout::circle_packing::
+/// **What each of the four perturbs, and why it is not one thing.** Circle packing is the
+/// only one that publishes parameters ([`graph_core::layout::circle_packing::
 /// CirclePackingParams`]), so [`Knob::PackingScale`] moves a real parameter of that
-/// layout. The other three take none by design — `layout::tidy_tree`,
-/// `layout::treemap` and `layout::circular` pin their own conventions and say in their
-/// own module docs that adding a `Params` to gain a knob would be the tail wagging the
-/// dog — so their controls re-draw *that one stage's* model with one more node instead
-/// ([`Knob::TreeTidyNodes`], [`Knob::TreemapNodes`], [`Knob::CircularNodes`]). Same
-/// probe as node count, scoped to one stage: it is the honest way to move a layout that
-/// has no parameter to move, and it is what makes the divergence *name* the stage.
+/// layout. The other three take none by design — `layout::tidy_tree`, `layout::treemap`
+/// and `layout::circular` pin their own conventions — so their controls re-draw *that one
+/// stage's* model with one more node instead ([`Knob::TreeTidyNodes`],
+/// [`Knob::TreemapNodes`], [`Knob::CircularNodes`]). Same probe as node count, scoped to
+/// one stage: it is the honest way to move a layout that has no parameter to move, and it
+/// is what makes the divergence *name* the stage.
 ///
-/// **The fifteen ANALYSIS and POST controls are the same probe again**, and for the same
-/// reason: no analysis and no POST capability takes a parameter, being a pure function
-/// of the gate's model at fixed conventions, so each of them re-draws *its own* model
-/// with one more node through [`Setting::stage_nodes`] and moves that stage alone. They
-/// are tabulated in [`knobs::ANALYSIS_POST_STAGES`], and
-/// `the_analysis_and_post_controls_are_the_knobs_table` holds this enum's arms to it.
+/// **The per-stage controls are the same probe again**, and for the same reason: no
+/// analysis, no POST capability and none of the six igraph-family layouts takes a
+/// parameter the gate can move, being a pure function of the gate's model at fixed
+/// conventions, so each re-draws *its own* model with one more node through
+/// [`Setting::stage_nodes`] and moves that stage alone. They are tabulated in
+/// [`knobs`] (the fifteen in [`knobs::ANALYSIS_POST_STAGES`], the six igraph layouts in
+/// [`knobs::IGRAPH_LAYOUT_STAGES`]), and
+/// `the_analysis_and_post_controls_are_the_knobs_table` holds this enum's arms to them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Knob {
     /// `GM_MUTATE_REFERENCE_DEGREE`: the degree the topology's weights are taken against.
@@ -123,6 +125,25 @@ pub enum Knob {
     PostStyleQuadratic,
     /// `GM_MUTATE_POST_STYLE_BEZIER`: cubic bezier edges, native arm only.
     PostStyleBezier,
+    /// The six igraph-family layout node controls, in
+    /// [`knobs::IGRAPH_LAYOUT_STAGES`] order. One arm per layout, for the reason
+    /// [`knobs::IGRAPH_LAYOUT_STAGES`] gives: none of the six takes a parameter the gate
+    /// can move, so its control re-draws **its own** model with one more node. Each arm's
+    /// variable and record are `igraph::ENV` and `igraph::RECORD` at the same index, and
+    /// its stage is resolved from [`knobs`] by variable name, never by arm position.
+    ///
+    /// `layout.force.fruchterman_reingold`'s own model.
+    IgraphFruchtermanReingoldNodes,
+    /// `GM_MUTATE_FORCE_KAMADA_KAWAI_NODES`: `layout.force.kamada_kawai`'s own model.
+    IgraphKamadaKawaiNodes,
+    /// `GM_MUTATE_FORCE_GRAPHOPT_NODES`: `layout.force.graphopt`'s own model.
+    IgraphGraphoptNodes,
+    /// `GM_MUTATE_FORCE_DAVIDSON_HAREL_NODES`: `layout.force.davidson_harel`'s own model.
+    IgraphDavidsonHarelNodes,
+    /// `GM_MUTATE_FORCE_LGL_NODES`: `layout.force.lgl`'s own model.
+    IgraphLglNodes,
+    /// `GM_MUTATE_FORCE_DRL_NODES`: `layout.force.drl`'s own model.
+    IgraphDrlNodes,
     /// `GM_MUTATE_SPLIT_SUM`: **native arms only, and the threaded ones above all.**
     ///
     /// Phase 11's own control, and the one the phase prompt names: it makes a gathered
@@ -175,15 +196,16 @@ pub enum Knob {
 
 impl Knob {
     /// Every knob: the ten that move a parameter, then the fifteen ANALYSIS and POST
-    /// stage controls in [`knobs::ANALYSIS_POST_STAGES`] order, then the two compute-tier
+    /// stage controls in [`knobs::ANALYSIS_POST_STAGES`] order, then the six igraph
+    /// layout controls in [`knobs::IGRAPH_LAYOUT_STAGES`] order, then the two compute-tier
     /// controls last.
     ///
     /// **A `const`, because `capabilities::verdict::Evidence::load` walks it** to collect
     /// one control record each — a ledger read cannot be a function call per row. So the
-    /// fifteen are spelled as arms here and held against that one table by
+    /// twenty-one per-stage arms are spelled out here and held against those two tables by
     /// `the_analysis_and_post_controls_are_the_knobs_table`, which fails on any arm whose
-    /// variable, record or stage the table disagrees with.
-    pub const ALL: [Self; 27] = [
+    /// variable, record or stage a table disagrees with.
+    pub const ALL: [Self; 33] = [
         Self::ReferenceDegree,
         Self::GridSpacing,
         Self::SugiyamaLayerSpacing,
@@ -209,6 +231,12 @@ impl Knob {
         Self::PostStyleOrthogonal,
         Self::PostStyleQuadratic,
         Self::PostStyleBezier,
+        Self::IgraphFruchtermanReingoldNodes,
+        Self::IgraphKamadaKawaiNodes,
+        Self::IgraphGraphoptNodes,
+        Self::IgraphDavidsonHarelNodes,
+        Self::IgraphLglNodes,
+        Self::IgraphDrlNodes,
         Self::SplitSum,
         Self::SplitRescale,
     ];
@@ -241,6 +269,12 @@ impl Knob {
             Self::PostStyleOrthogonal => "GM_MUTATE_POST_STYLE_ORTHOGONAL",
             Self::PostStyleQuadratic => "GM_MUTATE_POST_STYLE_QUADRATIC",
             Self::PostStyleBezier => "GM_MUTATE_POST_STYLE_BEZIER",
+            Self::IgraphFruchtermanReingoldNodes => igraph::ENV[0],
+            Self::IgraphKamadaKawaiNodes => igraph::ENV[1],
+            Self::IgraphGraphoptNodes => igraph::ENV[2],
+            Self::IgraphDavidsonHarelNodes => igraph::ENV[3],
+            Self::IgraphLglNodes => igraph::ENV[4],
+            Self::IgraphDrlNodes => igraph::ENV[5],
             Self::SplitSum => "GM_MUTATE_SPLIT_SUM",
             Self::SplitRescale => "GM_MUTATE_SPLIT_RESCALE",
         }
@@ -248,39 +282,7 @@ impl Knob {
 
     /// The record its run writes.
     pub const fn record(self) -> &'static str {
-        match self {
-            Self::ReferenceDegree => "hashgate-control-reference-degree",
-            Self::GridSpacing => "hashgate-control-grid-spacing",
-            Self::SugiyamaLayerSpacing => "hashgate-control-sugiyama-layer-spacing",
-            Self::NodeCount => "hashgate-control-node-count",
-            Self::ForceTheta => "hashgate-control-force-theta",
-            Self::Fa2ScalingRatio => "hashgate-control-fa2-scaling-ratio",
-            Self::TreeTidyNodes => "hashgate-control-tree-tidy-nodes",
-            Self::TreemapNodes => "hashgate-control-treemap-nodes",
-            Self::CircularNodes => "hashgate-control-circular-nodes",
-            Self::PackingScale => "hashgate-control-packing-scale",
-            Self::AnalysisComponentsWeak => "hashgate-control-analysis-components-weak",
-            Self::AnalysisComponentsStrong => "hashgate-control-analysis-components-strong",
-            Self::AnalysisCommunitiesLouvain => "hashgate-control-analysis-communities-louvain",
-            Self::AnalysisCentralityDegree => "hashgate-control-analysis-centrality-degree",
-            Self::AnalysisCentralityCloseness => "hashgate-control-analysis-centrality-closeness",
-            Self::AnalysisCentralityBetweenness => {
-                "hashgate-control-analysis-centrality-betweenness"
-            }
-            Self::AnalysisCentralityEigenvector => {
-                "hashgate-control-analysis-centrality-eigenvector"
-            }
-            Self::AnalysisDepthBfs => "hashgate-control-analysis-depth-bfs",
-            Self::PostBundleFdeb => "hashgate-control-post-bundle-fdeb",
-            Self::PostBundleMingle => "hashgate-control-post-bundle-mingle",
-            Self::PostRouteGrid => "hashgate-control-post-route-grid",
-            Self::PostStyleStraight => "hashgate-control-post-style-straight",
-            Self::PostStyleOrthogonal => "hashgate-control-post-style-orthogonal",
-            Self::PostStyleQuadratic => "hashgate-control-post-style-quadratic",
-            Self::PostStyleBezier => "hashgate-control-post-style-bezier",
-            Self::SplitSum => "hashgate-control-split-sum",
-            Self::SplitRescale => "hashgate-control-split-rescale",
-        }
+        records::record(self)
     }
 }
 
@@ -292,9 +294,7 @@ impl Knob {
 /// perturbing whichever stage happened to sit at that arm's position.
 pub(super) fn stage_of(knob: Knob) -> knobs::Stage {
     let env = knob.env();
-    knobs::ANALYSIS_POST_STAGES
-        .iter()
-        .copied()
+    knobs::all()
         .find(|row| row.env == env)
-        .unwrap_or_else(|| panic!("{env} is one of the fifteen ANALYSIS and POST controls"))
+        .unwrap_or_else(|| panic!("{env} is one of the per-stage controls"))
 }

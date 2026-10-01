@@ -45,11 +45,13 @@ fn the_ledger_is_the_registry_plus_the_scale_rows_and_still_stands() {
     ] {
         assert!(ids.contains(&id), "{id} is a row");
     }
-    assert_eq!(
-        rows.len(),
-        49,
-        "41 before analysis.depth, and 25 before the seven post.* rows"
-    );
+    // Every registered layout is a row, by id: the ledger is generated from the registry,
+    // so a layout that is registered but not published is a row no consumer can see. The
+    // row count is deliberately not asserted — it moves whenever a registry entry or a
+    // stage row is added, and the by-id checks above are the claim worth making.
+    for id in graph_core::registry::LAYOUTS.iter().map(|layout| layout.id) {
+        assert!(ids.contains(&id), "{id} is a row");
+    }
     assert_eq!(problems(&rows, &evidence), Vec::<String>::new());
 }
 

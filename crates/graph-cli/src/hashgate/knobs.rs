@@ -21,6 +21,7 @@ use graph_core::post::styles::Style;
 use graph_core::post::{fdeb, mingle};
 
 use super::Setting;
+use graph_core::Stage as _;
 
 /// The stage one control perturbs, named by the constant its own module publishes.
 ///
@@ -107,6 +108,65 @@ pub const ANALYSIS_POST_STAGES: [Stage; 15] = [
     },
 ];
 
+/// The six igraph-family layouts' per-stage node controls, the same shape as the fifteen
+/// above and for the same reason.
+///
+/// None of the six takes a parameter the gate can move: the gate hashes each from the
+/// registry's own `run` closure, at the compiled-in defaults its module pins, so there is
+/// no real parameter to perturb. That leaves the honest probe the three Phase 3 layout
+/// controls use — re-draw **this** stage's model with one more node, for this stage alone —
+/// which is exactly what [`Setting::stage_nodes`] and [`stage_bytes_from_own_model`] do for
+/// a layout id.
+///
+/// A shared control would not do: `GM_MUTATE_NODE_COUNT` grows the gate's one model, so it
+/// moves all six at once and names none of them, which is the failure mode the whole
+/// per-stage family exists to prevent. So one control per layout, one record per control.
+///
+/// **Every id here is a graph-core constant** (`<Layout>::ID` through the `Stage` trait),
+/// never a spelling in this file, for the reason the fifteen above give.
+pub const IGRAPH_LAYOUT_STAGES: [Stage; 6] = [
+    Stage {
+        id: graph_core::layout::force::FruchtermanReingold::ID,
+        env: "GM_MUTATE_FORCE_FRUCHTERMAN_REINGOLD_NODES",
+        record: "hashgate-control-force-fruchterman-reingold-nodes",
+    },
+    Stage {
+        id: graph_core::layout::force::KamadaKawai::ID,
+        env: "GM_MUTATE_FORCE_KAMADA_KAWAI_NODES",
+        record: "hashgate-control-force-kamada-kawai-nodes",
+    },
+    Stage {
+        id: graph_core::layout::force::Graphopt::ID,
+        env: "GM_MUTATE_FORCE_GRAPHOPT_NODES",
+        record: "hashgate-control-force-graphopt-nodes",
+    },
+    Stage {
+        id: graph_core::layout::force::DavidsonHarel::ID,
+        env: "GM_MUTATE_FORCE_DAVIDSON_HAREL_NODES",
+        record: "hashgate-control-force-davidson-harel-nodes",
+    },
+    Stage {
+        id: graph_core::layout::force::Lgl::ID,
+        env: "GM_MUTATE_FORCE_LGL_NODES",
+        record: "hashgate-control-force-lgl-nodes",
+    },
+    Stage {
+        id: graph_core::layout::force::Drl::ID,
+        env: "GM_MUTATE_FORCE_DRL_NODES",
+        record: "hashgate-control-force-drl-nodes",
+    },
+];
+
+/// Every per-stage control this module tables, the fifteen ANALYSIS and POST rows then the
+/// six igraph layout rows — one search list, so [`super::knob::stage_of`] resolves both
+/// families through the same table lookup and neither can drift from the other's shape.
+pub fn all() -> impl Iterator<Item = Stage> {
+    ANALYSIS_POST_STAGES
+        .iter()
+        .copied()
+        .chain(IGRAPH_LAYOUT_STAGES.iter().copied())
+}
+
 /// One ANALYSIS or POST stage's negative control: the stage it perturbs, the variable
 /// that sets it, and the record its run writes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -120,7 +180,7 @@ pub struct Stage {
     pub record: &'static str,
 }
 
-/// The row for `env`, or `None` for a variable that is none of the fifteen.
+/// The row for `env`, or `None` for a variable that tables no per-stage control.
 ///
 /// **Exact, by string, never by prefix**: a `GM_MUTATE_POST_STYLE_` that names no one of
 /// the four styles is a typo, and resolving it to the nearest row would file the
@@ -130,10 +190,7 @@ pub struct Stage {
 /// reaches it to hold the table's own coverage.
 #[cfg(test)]
 pub fn by_env(env: &str) -> Option<Stage> {
-    ANALYSIS_POST_STAGES
-        .iter()
-        .copied()
-        .find(|row| row.env == env)
+    all().find(|row| row.env == env)
 }
 
 /// `stage`'s perturbation written into `setting`: `count` nodes added to *its* model.
