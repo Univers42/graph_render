@@ -33,6 +33,7 @@ use graph_core::layout::Geometry;
 use graph_core::layout::circle_packing;
 use graph_core::layout::force::BarnesHut;
 use graph_core::layout::forceatlas2::ForceAtlas2;
+use graph_core::layout::graphviz::neato;
 use graph_core::registry::{self as core, LAYOUTS};
 use graph_core::{
     Grid, Stage, StageError, Sugiyama, Topology, gate_node_count, index_model, run_pipeline,
@@ -103,6 +104,7 @@ pub fn stage_bytes_for(
             circle_packing::ID => {
                 run_force(&topology, |t| circle_packing::run_with(t, &setting.packing))?
             }
+            neato::ID => run_force(&topology, |t| neato::run_with(t, setting.neato_epsilon()))?,
             _ if owns_own_model(layout.id, setting) => {
                 stage_bytes_from_own_model(seed, setting, layout)?
             }

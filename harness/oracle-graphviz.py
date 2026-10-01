@@ -81,9 +81,152 @@ def parse_plain(text, n):
     return bbox, nodes
 
 
+def compare(argv):
+    """The differential arm: our own coordinates against the engine's, per seed.
+
+    Additive. This is the third mode of this file, after the two-argument run below and
+    the `--start` override, and it exists because the *engine* plumbing above and the
+    *comparison* are different jobs with different shapes: the first produces a raw record
+    of what the engine said, and this one grades it. Keeping them apart is what lets the
+    determinism `cmp` in the ADR keep running over a file this mode also writes.
+
+        oracle-graphviz.py --compare <engine> <fixtures-dir> <out-dir>
+
+    where `<fixtures-dir>` holds the `<engine>.jsonl` and `<engine>-manifest.json` that
+    `graph-cli emit-graphviz-fixtures --engine <engine>` wrote, and this writes
+    `<engine>-result.json` beside them for `graph-cli oracle-graphviz --engine <engine>`
+    to judge. The engine's own answers go to `<out-dir>/graphviz-<engine>.jsonl`, the file
+    the determinism check `cmp`s.
+
+    The metric is the largest absolute node-coordinate difference **in points**, after both
+    arms are rescaled onto one bounding box: Graphviz's own node-centre box is the target and
+    both arms are mapped onto it with one uniform scale taken from the larger axis. Rescaling
+    removes the two degrees of freedom that say nothing about the layout — Graphviz translates
+    its drawing so the bounding box's lower-left is the origin, and an iterative engine's
+    absolute scale is whatever its initial placement happened to be — and removes nothing
+    else. One uniform scale rather than one per axis, so an aspect-ratio error arrives as a
+    larger gap instead of hiding inside a per-axis fit, and so a degenerate axis (a 2-node
+    graph is a straight line, one span zero) does not divide by zero.
+
+    For an *iterative* engine this gap is a real algorithmic difference and not a rounding
+    artefact, which is why `docs/measurements/p13-gv2-neato.md` is five orders of magnitude
+    larger than the closed-form arms' and why the ceiling is measured rather than guessed.
+    """
+    if len(argv) != 3:
+        sys.exit("usage: oracle-graphviz.py --compare <engine> <fixtures-dir> <out-dir>")
+    engine, fixtures_dir, out_dir = argv
+    manifest = read_json(os.path.join(fixtures_dir, f"{engine}-manifest.json"))
+    fixtures = read_lines(os.path.join(fixtures_dir, f"{engine}.jsonl"))
+    os.makedirs(out_dir, exist_ok=True)
+    worst, theirs = sweep(engine, out_dir, fixtures)
+    result = {
+        "fingerprint": manifest["fingerprint"],
+        "sha256": manifest["sha256"][f"{engine}.jsonl"],
+        "oracle": f"Graphviz 16.1.0 {engine} -Tplain -Gstart={START_SEED}",
+        "layouts": {engine: {"cases": len(theirs), "worst": worst}},
+    }
+    with open(os.path.join(fixtures_dir, f"{engine}-result.json"), "w") as out:
+        json.dump(result, out, indent=1)
+    print(f"{engine}: {len(theirs)} seeds, worst {worst:.3e} points")
+    return 0
+
+
+def sweep(engine, out_dir, fixtures):
+    """Every fixture through the engine: the worst gap in points, and the raw output.
+
+    The raw output goes to `<out-dir>/graphviz-<engine>.jsonl` in the same record shape the
+    two-argument mode writes, so the ADR's determinism check — run this twice, `cmp` the file
+    — stays available for this mode too, and a reviewer can read what the engine actually
+    said per seed rather than only the summary.
+    """
+    worst = 0.0
+    theirs = []
+    with tempfile.TemporaryDirectory() as tmp:
+        for record in fixtures:
+            points = engine_points(engine, tmp, f"g{record['seed']}", record["n"], record)
+            ours = ours_of(record, engine)
+            worst = max(worst, gap(ours, points))
+            theirs.append(
+                {
+                    "seed": record["seed"],
+                    "engine": engine,
+                    "n": record["n"],
+                    "points": points,
+                }
+            )
+    write_lines(os.path.join(out_dir, f"graphviz-{engine}.jsonl"), theirs)
+    return worst, theirs
+
+
+def engine_points(engine, tmp, name, count, record):
+    """`<engine> -Tplain -Gstart=1` over one fixture's DOT graph, in dense-index order."""
+    dot = os.path.join(tmp, f"{name}.dot")
+    write_dot(dot, count, record["source"], record["target"])
+    _, nodes = parse_plain(run_engine(engine, dot), count)
+    return [tuple(nodes[f"n{i}"]) for i in range(count)]
+
+
+def ours_of(record, engine):
+    """The fixture's own coordinates for `engine`, as points in dense-index order.
+
+    The column is keyed by the engine's own name, so a differential holding two engines
+    reads two columns out of one file and neither can pick up the other's.
+    """
+    column = record[engine]
+    return [(column["x"][i], column["y"][i]) for i in range(record["n"])]
+
+
+def bbox_of(points):
+    """A point cloud's bounding box: `((min_x, min_y), (width, height))`."""
+    xs = [p[0] for p in points]
+    ys = [p[1] for p in points]
+    return (min(xs), min(ys)), (max(xs) - min(xs), max(ys) - min(ys))
+
+
+def rescale(points, box):
+    """`points` onto `box`, one uniform scale from the larger axis's span."""
+    (min_x, min_y), (width, height) = box
+    xs = [p[0] for p in points]
+    ys = [p[1] for p in points]
+    span = max(max(xs) - min(xs), max(ys) - min(ys))
+    if span <= 0.0:
+        return [(p[0] - min_x, p[1] - min_y) for p in points]
+    scale = max(width, height) / span
+    low_x, low_y = min(xs), min(ys)
+    return [((x - low_x) * scale, (y - low_y) * scale) for x, y in zip(xs, ys)]
+
+
+def gap(ours, theirs):
+    """The largest absolute coordinate difference in points, on one shared box."""
+    box = bbox_of(theirs)
+    mine, other = rescale(ours, box), rescale(theirs, box)
+    return max(max(abs(a[0] - b[0]), abs(a[1] - b[1])) for a, b in zip(mine, other))
+
+
+def read_json(path):
+    with open(path) as handle:
+        return json.load(handle)
+
+
+def read_lines(path):
+    with open(path) as handle:
+        return [json.loads(line) for line in handle]
+
+
+def write_lines(path, rows):
+    with open(path, "w") as handle:
+        for row in rows:
+            handle.write(json.dumps(row) + "\n")
+
+
 def main():
+    if len(sys.argv) == 5 and sys.argv[1] == "--compare":
+        return compare(sys.argv[2:])
     if len(sys.argv) != 4:
-        sys.exit("usage: oracle-graphviz.py <fixtures-dir> <engine> <out-dir>")
+        sys.exit(
+            "usage: oracle-graphviz.py <fixtures-dir> <engine> <out-dir>\n"
+            "       oracle-graphviz.py --compare <engine> <fixtures-dir> <out-dir>"
+        )
     fixtures_dir, engine, out_dir = sys.argv[1], sys.argv[2], sys.argv[3]
     jsonl_path = os.path.join(fixtures_dir, "spectral.jsonl")
     os.makedirs(out_dir, exist_ok=True)
@@ -122,4 +265,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main() or 0)

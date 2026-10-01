@@ -198,6 +198,12 @@ fn the_registry_covers_every_oracle_function_once_its_ids_are_unique() {
             // because the differential compares coordinates within a measured 7.1e-2 points
             // (`docs/measurements/p13-gv1.md`) rather than to bytes.
             ("oracle-twopi", r.id, Status::Implemented)
+        } else if r.id == "layout.force.neato" {
+            // Also a Graphviz arm, and also `implemented` for the same reason as the row
+            // above it: the measured worst gap is 6.73e-2 points against a ceiling of 1e-1,
+            // and it is the oracle's printed resolution rather than a disagreement
+            // (`docs/measurements/p13-gv2-neato.md`).
+            ("oracle-graphviz", r.id, Status::Implemented)
         } else if r.id == "layout.spectral" || r.id == "layout.mds.pivot" {
             ("oracle-spectral", r.id, Status::Gated)
         } else if r.id == "transport.wasm.columnar" {

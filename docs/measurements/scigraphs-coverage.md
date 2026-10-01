@@ -46,7 +46,7 @@ git log --oneline origin/develop..origin/p12-igraph
 | `GRAPHVIZ_CIRCO` | `dispatcher.py:140` | same, `engine='circo'` | 2D default | — | planned: p13-gv1 | Graphviz `circo` | Graphviz's own output, docker-only oracle |
 | `GRAPHVIZ_OSAGE` | `dispatcher.py:140` | same, `engine='osage'` | 2D default | — | planned: p13-gv1 | Graphviz `osage` | Graphviz's own output, docker-only oracle |
 | `GRAPHVIZ_PATCHWORK` | `dispatcher.py:140` | same, `engine='patchwork'` | 2D default | — | planned: p13-gv1 | Graphviz `patchwork` | Graphviz's own output, docker-only oracle |
-| `GRAPHVIZ_NEATO` | `dispatcher.py:140` | same, `engine='neato'` | 2D default; 3D eligible (`GRAPHVIZ_NATIVE_3D_ENGINES` `yifan_hu.py:18`) | — | planned: p13-gv2 | Graphviz `neato` | Graphviz's own output, docker-only oracle |
+| `GRAPHVIZ_NEATO` | `dispatcher.py:140` | same, `engine='neato'` | 2D default; 3D eligible (`GRAPHVIZ_NATIVE_3D_ENGINES` `yifan_hu.py:18`) | `layout.force.neato` | in flight: p13-gv2 | Graphviz `neato` 16.1.0 `lib/neatogen/stress.c` | `oracle-graphviz`, `capabilities/registry/unproven.rs:63`, `registry/graphviz_neato.rs:25` |
 | `GRAPHVIZ_FDP` | `dispatcher.py:140` | same, `engine='fdp'` | 2D default | — | planned: p13-gv2 | Graphviz `fdp` | Graphviz's own output, docker-only oracle |
 | `GRAPHVIZ_SFDP` | `dispatcher.py:140` | same, `engine='sfdp'` | 2D default; 3D eligible (`yifan_hu.py:18`) | — | planned: p13-gv2 | Graphviz `sfdp` | Graphviz's own output, docker-only oracle |
 | `GRAPHVIZ_DOT` | `dispatcher.py:140` | same, `engine='dot'` | 2D default | — | planned: p13-gv2 | Graphviz `dot` | Graphviz's own output, docker-only oracle |
@@ -59,8 +59,10 @@ git log --oneline origin/develop..origin/p12-igraph
   `BIPARTITE_3D`, `MDS_3D`), and 1 as a 2D-only cut of a name SciGraphs makes optional by dimension
   (`YIFAN_HU`, which is 2D/2Z/3 upstream)
 - in flight: p12-igraph = 7 names over 6 ids (`DRL` and `DRL_2D` share `layout.force.drl`) ·
-  p13-gv1 = 1 name over 1 id (`GRAPHVIZ_TWOPI` → `layout.twopi`)
-- planned: p12-t2 = 2 · planned: p13-gv1 = 3 · planned: p13-gv2 = 4
+  p13-gv1 = 1 name over 1 id (`GRAPHVIZ_TWOPI` → `layout.twopi`) ·
+  p13-gv2 = 1 name over 1 id (`GRAPHVIZ_NEATO` → `layout.force.neato`, 2D only — the 3D-eligible
+  arm is p12-t4)
+- planned: p12-t2 = 2 · planned: p13-gv1 = 3 · planned: p13-gv2 = 3
 - missing = 5, all of them 3D: `SPRING_3D`, `SPHERE`, `HELIX`, `CUBE`, `HIERARCHICAL_3D`
 - motor ids with no SciGraphs name = 4 (`layout.tree.tidy`, `layout.treemap.squarified`, `layout.circular.ring`, `layout.force.barnes_hut`); out of scope for a table keyed on SciGraphs names
 

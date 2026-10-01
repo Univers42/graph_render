@@ -62,6 +62,20 @@ pub(super) fn force_record(id: &str) -> Option<(&'static str, Status)> {
         // way. That is a pre-existing gap in the reader, not a claim this row is making: the
         // differential is real and its numbers are in `docs/measurements/p13-gv1.md`.
         "layout.twopi" => Some(("oracle-twopi", Status::Implemented)),
+        // Ponytail: `implemented`, not `gated`, and the reason is the oracle's own printed
+        // resolution rather than a shortfall: `-Tplain` carries five significant digits, so
+        // the neato differential compares coordinates within a measured 6.73e-2 points
+        // (ceiling 1e-1) at a drawing where one printed digit is 0.911 points. The worst
+        // gap is 0.074 of that quantum and no seed exceeds it, so this is the same shape of
+        // claim the twopi row above makes — and the same reason it is not `gated`: a hash
+        // alone never earns that, and an iterative engine's sixth closed case (the 6-branch)
+        // agrees to four significant digits rather than five, so identity is not available
+        // to claim. `docs/measurements/p13-gv2-neato.md` has the distribution.
+        //
+        // The same reader gap as the row above applies: `verdict::Evidence::oracle_record`
+        // has no arm for `oracle-graphviz`, so `oracle_diff` still reports
+        // `not backed` after a real run. Pre-existing, not a claim this row makes.
+        "layout.force.neato" => Some(("oracle-graphviz", Status::Implemented)),
         _ => None,
     }
 }

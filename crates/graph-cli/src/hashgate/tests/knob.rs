@@ -7,12 +7,15 @@
 //!
 //! Split by the house's 300-line limit: [`controls`] holds the two force controls, the
 //! vacuous-control refusal and the rescale-merge control, [`ids`] the four Phase 3 stage
-//! ids, [`p3`] the four Phase 3 controls, and [`table`] the knob table itself — the ten
-//! parameter controls, the fifteen ANALYSIS and POST controls, and the two compute-tier
-//! controls, each held against the variable and record it claims.
+//! ids, [`p3`] the four Phase 3 controls, and [`table`] the knob table itself — the
+//! thirteen parameter controls, the fifteen ANALYSIS and POST controls, and the two
+//! compute-tier controls, each held against the variable and record it claims. [`neato`] holds the
+//! Graphviz stress engine's tolerance control, which is the first one here that perturbs a
+//! *parameter* rather than re-drawing a model's size.
 
 mod controls;
 mod ids;
+mod neato;
 mod p3;
 mod table;
 mod twopi;

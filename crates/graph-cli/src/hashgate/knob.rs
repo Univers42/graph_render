@@ -87,6 +87,24 @@ pub enum Knob {
     /// the one thing it does read, the model, for that stage only. Adding a `Params` to
     /// gain a knob would be the tail wagging the dog.
     TwopiNodes,
+    /// `GM_MUTATE_NEATO_EPSILON`: `layout.force.neato`'s stopping tolerance, native arm
+    /// only.
+    ///
+    /// **A real parameter rather than a re-drawn model, unlike [`Self::TwopiNodes`],** and
+    /// the difference is the point. `twopi` is closed form and pins every one of the
+    /// reference's defaults, so the only thing left to perturb is the model. `neato` is
+    /// iterative and its `Epsilon` is a *tolerance on convergence* (`stress.h:25`), so moving
+    /// it changes how far the iteration runs and therefore the drawing, without touching the
+    /// graph — which makes it a strictly sharper probe: the re-drawn-model controls would
+    /// also move any stage whose output happens to depend on the node count, while this one
+    /// reaches `layout.force.neato` and nothing else by construction.
+    ///
+    /// It reaches a *parameter* rather than a stage's model, and that is also why it is
+    /// native-arm-only like every other parameter knob here: the wasm arm runs the stage at
+    /// the registry's own defaults, so the divergence it shows is the one a wired control is
+    /// supposed to surface. A typo (`=maybe`) is refused rather than read as the default, so
+    /// the control cannot pass vacuously.
+    NeatoEpsilon,
     /// `GM_MUTATE_PACKING_SCALE`: the packing's `CirclePackingParams::scale`, native arm
     /// only.
     ///
@@ -233,7 +251,7 @@ impl Knob {
     /// twenty-one per-stage arms are spelled out here and held against those two tables by
     /// `the_analysis_and_post_controls_are_the_knobs_table`, which fails on any arm whose
     /// variable, record or stage a table disagrees with.
-    pub const ALL: [Self; 35] = [
+    pub const ALL: [Self; 36] = [
         Self::ReferenceDegree,
         Self::GridSpacing,
         Self::SugiyamaLayerSpacing,
@@ -244,6 +262,7 @@ impl Knob {
         Self::TreemapNodes,
         Self::CircularNodes,
         Self::TwopiNodes,
+        Self::NeatoEpsilon,
         Self::PackingScale,
         Self::AnalysisComponentsWeak,
         Self::AnalysisComponentsStrong,
@@ -284,6 +303,7 @@ impl Knob {
             Self::TreemapNodes => "GM_MUTATE_TREEMAP_NODES",
             Self::CircularNodes => "GM_MUTATE_CIRCULAR_NODES",
             Self::TwopiNodes => "GM_MUTATE_TWOPI_NODES",
+            Self::NeatoEpsilon => "GM_MUTATE_NEATO_EPSILON",
             Self::PackingScale => "GM_MUTATE_PACKING_SCALE",
             Self::AnalysisComponentsWeak => "GM_MUTATE_ANALYSIS_COMPONENTS_WEAK",
             Self::AnalysisComponentsStrong => "GM_MUTATE_ANALYSIS_COMPONENTS_STRONG",
