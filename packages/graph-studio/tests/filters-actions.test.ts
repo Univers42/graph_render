@@ -51,9 +51,9 @@ function silentView(calls: string[]): ViewFace {
     on: () => noop,
     toPNG: () => Promise.resolve(new Blob(["png"], { type: "image/png" })),
     setCamera: () => void calls.push("setCamera"),
-    frame: () => {
-      throw new Error("the silent view holds no frame");
-    },
+    // The 3D camera's four faces. A silent view holds no frame, so it has no orbit.
+    orbit: () => null, projected: () => null, setOrbit: noop, resetOrbit: noop,
+    frame: () => { throw new Error("the silent view holds no frame"); },
     viewport: () => ({ width: 800, height: 600 }),
   };
 }

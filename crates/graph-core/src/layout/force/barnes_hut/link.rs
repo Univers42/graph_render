@@ -66,22 +66,7 @@ pub(super) fn apply_with(
     split: bool,
 ) {
     runner.run(&LinkPass::of(&*sim), workers, deltas);
-    merge(sim, deltas, split);
-}
-
-/// `vx[i] += deltas[i]` in ascending node index, and the same for `y` — the merge every
-/// gathered pass ends with, in the same shape as `charge::merge`, so a partition mistake
-/// shows up in the same place for all three.
-fn merge(sim: &mut Sim, deltas: &[(f64, f64)], split: bool) {
-    for (i, (dvx, dvy)) in deltas.iter().enumerate() {
-        let stolen = if split {
-            deltas.get(i + 1).copied().unwrap_or((0.0, 0.0))
-        } else {
-            (0.0, 0.0)
-        };
-        sim.vx[i] += dvx + stolen.0;
-        sim.vy[i] += dvy + stolen.1;
-    }
+    super::step::merge((&mut sim.vx, &mut sim.vy), None, deltas, split);
 }
 
 /// Simple edge `e`'s two halves of the force, in `(x, y)`: the share that moves its higher

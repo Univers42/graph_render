@@ -103,7 +103,7 @@ impl Runner for Serial {
         // writes at range-relative indices, so a kernel given a short buffer would index
         // past its end rather than write somewhere wrong.
         out.resize(kernel.len() as usize, O::Out::default());
-        for range in partition(kernel.len(), workers.max(1)) {
+        for range in ranges(kernel.len(), workers.max(1)) {
             let (start, end) = (range.start as usize, range.end as usize);
             kernel.step_range(range, &mut out[start..end]);
         }
@@ -115,20 +115,21 @@ impl Runner for Serial {
 /// Empty when `n` is 0 or `workers` is 0: there is no work to divide, and a worker given
 /// an empty range would be a worker that computes nothing and reports success.
 pub fn partition(n: u32, workers: u32) -> Vec<Range<u32>> {
+    ranges(n, workers).collect()
+}
+
+/// [`partition`] without the list: the same ranges, yielded in order, so a runner that
+/// visits them once (every [`Serial`] pass, every tick) allocates nothing.
+pub fn ranges(n: u32, workers: u32) -> impl Iterator<Item = Range<u32>> {
     let k = n.min(workers);
-    if k == 0 {
-        return Vec::new();
-    }
-    let base = n / k;
-    let longer = n % k;
-    let mut out = Vec::with_capacity(k as usize);
-    let mut at = 0;
-    for i in 0..k {
+    let base = n.checked_div(k).unwrap_or(0);
+    let longer = n.checked_rem(k).unwrap_or(0);
+    (0..k).scan(0, move |at, i| {
         let len = base + u32::from(i < longer);
-        out.push(at..at + len);
-        at += len;
-    }
-    out
+        let range = *at..*at + len;
+        *at += len;
+        Some(range)
+    })
 }
 
 #[cfg(test)]

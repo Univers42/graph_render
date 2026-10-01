@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { IngestRefusal, normaliseIngest } from "../src/source/ingest.ts";
-import { MAX_NODES, syntheticIngest, syntheticRecords, titleOf } from "../src/source/synthetic.ts";
+import { MAX_DEGREE, MAX_NODES, syntheticIngest, syntheticRecords, titleOf } from "../src/source/synthetic.ts";
 
 // The `random` shape, in full: mulberry32 (`next = ((t ^ (t >>> 14)) >>> 0) / 2^32`),
 // then per node two draws
@@ -80,9 +80,10 @@ test("a spec is clamped, never refused: too few nodes, zero degree, huge seed", 
   const clamped = syntheticRecords({ seed: 4294967295, nodeCount: 1, degree: 0 });
   assert.equal(clamped.nodes.length, 2);
   assert.equal(clamped.edges.length, 0);
-  const capped = syntheticRecords({ seed: 0, nodeCount: 10 * MAX_NODES, degree: 99 });
+  const capped = syntheticRecords({ seed: 0, nodeCount: 10 * MAX_NODES, degree: 0 });
   assert.equal(capped.nodes.length, MAX_NODES);
-  assert.equal(capped.edges.length, (MAX_NODES - 12) * 12);
+  const dense = syntheticRecords({ seed: 0, nodeCount: 100, degree: 99 });
+  assert.equal(dense.edges.length, (100 - MAX_DEGREE) * MAX_DEGREE);
 });
 
 test("a full ingest document passes through the normaliser unchanged, with no notes", () => {

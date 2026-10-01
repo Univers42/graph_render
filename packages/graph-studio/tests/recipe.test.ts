@@ -10,7 +10,7 @@ import { DEFAULT_SETTINGS } from "../src/state/settings.ts";
 const DIGEST = "a".repeat(64);
 const RUN: RunSummary = {
   layoutId: "layout.forceatlas2", postId: null, postError: null, digest: DIGEST, byteLength: 20188,
-  nodeKind: "Point", edgeKind: "Line", layoutMs: 45, postMs: 0, notes: [],
+  nodeKind: "Point", edgeKind: "Line", dim: 0, layoutMs: 45, postMs: 0, notes: [],
 };
 const GRAPH = { name: "vault seed 1", nodeCount: 400, edgeCount: 798, notes: [], buildMs: 5 };
 

@@ -45,32 +45,68 @@ negctl-dim-z-mismatch|0|scripts/orch/gr -e GM_MUTATE_NODE_Z=1 cargo run -q -p gr
 #
 # 2. `negctl-node-z` — the 3D-SPECIFIC control, `GM_MUTATE_NODE_Z=1`, and the only one that
 #    says anything about the third axis. It perturbs the z column of every 3D exercise
-#    (snapshot_cmd/exercise/z.rs:31), so with the five new stages in the registry a run
-#    under it must fail the round trip's face agreement. This is the control that would
-#    catch a 3D layout silently dropping its z and answering as a 2D snapshot — the failure
-#    mode the whole 3D contract change exists to prevent (docs/decisions/contract-3d.md F1).
-#    It is the honest negative control for "these five carry a z column", and no existing
-#    knob answers that question.
+#    (snapshot_cmd/exercise/z.rs:30-32) by one value too many, so the round trip's own
+#    `Snapshot::new` refuses it BY NAME — that refusal is the control's whole claim, and it
+#    is what would catch a reader that accepted a mis-sized z
+#    (docs/decisions/contract-3d.md §4.3, F1).
 #
-# 3. `negctl-spring-iterations` — `GM_MUTATE_SPRING_ITERATIONS=3`, inherited from p12-t2 and
-#    kept because it is the only control that reaches `layout.force.spring3d`. It is
-#    truthful about its limit and the limit is in the row's comment: `hashgate/stages.rs`
-#    matches the parameter on `Spring::ID` alone, so this knob re-runs the 2D stage's force
-#    pass and reaches the 3D one only through the shared `Stage::run`. It is therefore a
-#    control for the 2D stage that this phase inherits, NOT a control for
-#    `layout.force.spring3d` — a per-stage one for that id needs the same knob-arm work as
-#    #1 and #2 above. Recorded rather than quietly dropped: a control that reaches a stage
-#    is worth having, and a control that does NOT is stated so nobody reads it as one.
+#    **p12-t3-knobs: this row was `nonzero` and measured exit 2, which is indistinguishable
+#    from a control whose variable nothing parses** — the very failure the header calls out
+#    below. It is now pinned to exit 2 AND to the message, so it asserts the z-length
+#    refusal specifically and would go red if the sweep instead died somewhere else, if the
+#    variable stopped being read, or if a future `roundtrip` began tolerating the fault and
+#    reporting exit 0. It is exit 2 by design, not by accident: `roundtrip`'s exit codes are
+#    0 pass / 1 ran-and-failed / 2 could-not-run (`main.rs:5-6`), and an unconstructible
+#    snapshot is a could-not-run by definition — the sweep never reaches a face comparison
+#    (`roundtrip.rs:152` propagates the `Err`). Reaching exit 1 instead would need the
+#    perturbation to survive construction and diverge on the faces, which means editing
+#    `exercise/z.rs` — outside this job's paths. The claim is therefore restated above to
+#    the one the control actually makes, and asserted.
 #
-# What is NOT here, deliberately: five `negctl-<layout>-nodes` rows. Writing them means
-# inventing five env names that no code reads, and a row whose variable nothing parses fails
-# at the SETTING stage with exit 2 — so those five rows would be red for the wrong reason
-# and would look like passing controls. Silence here is the defect; the written reason is
-# in docs/measurements/p12-t3.md under "Negative controls", and the fix is the knob arms
-# named above.
+# 3. `negctl-spring-iterations` — `GM_MUTATE_SPRING_ITERATIONS=3`, inherited from p12-t2.
+#    **p12-t3-knobs: it now reaches `layout.force.spring3d` as well**, because it is the same
+#    kernel parameter and not two: `spring3d.rs:45` is `solve::<3>` over the *same*
+#    `SpringParams`, and `iterations` is read by the one `Solver::settle` both call
+#    (`spring.rs:175`). `hashgate/stages.rs` now matches that id explicitly instead of
+#    leaving it to the registry's `run_default`, which pinned it to the compiled-in default
+#    and made the control vacuous for the 3D stage — the MEDIUM finding p12-t3 recorded. It
+#    is deliberately still a TWO-stage control: a parameter shared by two ids cannot say
+#    which one diverged, which is why `negctl-spring3d` below exists and why
+#    `only_stages_moved` asserts both ids rather than one.
+#
+# What p12-t3 could NOT write, and p12-t3-knobs did: five `negctl-<layout>-nodes` rows.
+# Writing them meant inventing five env names that no code read, and a row whose variable
+# nothing parses fails at the SETTING stage with exit 2 — so those rows would have been red
+# for the wrong reason and would have looked like passing controls. The five knob arms now
+# exist (`hashgate/knobs.rs`'s `THREE_D_LAYOUT_STAGES`, `hashgate/knob/three_d.rs`), and the
+# five rows below are their negative controls.
 negctl-node-count|nonzero|scripts/orch/gr -e GM_MUTATE_NODE_COUNT=1 cargo run -q -p graph-cli -- hashgate --seeds 8
-negctl-node-z|nonzero|scripts/orch/gr -e GM_MUTATE_NODE_Z=1 cargo run -q -p graph-cli -- roundtrip --seeds 8
+negctl-node-z|0|scripts/orch/gr bash -c 'out=$(GM_MUTATE_NODE_Z=1 cargo run -q -p graph-cli -- roundtrip --seeds 8 2>&1); rc=$?; [ "$rc" = 2 ] || { echo "expected exit 2 (the z-length refusal), got $rc"; echo "$out"; exit 1; }; echo "$out" | grep -q "perturbed exercise seed .*: node\.z: 4 values, need 3" || { echo "the run did not refuse on the z column it perturbed:"; echo "$out"; exit 1; }'
 negctl-spring-iterations|nonzero|scripts/orch/gr -e GM_MUTATE_SPRING_ITERATIONS=3 cargo run -q -p graph-cli -- hashgate --seeds 8
+
+# ---------------------------------------------------------------------------
+# The five PER-LAYOUT controls, added by p12-t3-knobs. One row per 3D stage, because the
+# three rows above cannot isolate any of them: `node-count` moves every stage at once and
+# names none, and `spring-iterations` reaches `layout.force.spring3d` only through the
+# budget the 2D and 3D stages SHARE (`force/spring3d.rs:45` is `solve::<3>` over the same
+# `SpringParams`), so it moves both and names neither.
+#
+# Each row asserts THREE things, and the last two are why it is not `nonzero`:
+#
+#   1. exit 1 — the gate ran and the arms disagreed (`nonzero` would also accept exit 2,
+#      "could not run", which is what a control whose variable nothing parses gives);
+#   2. the divergence is reported **for this stage** — `grep "DIVERGED <stage> "`, which is
+#      the per-stage attribution the whole per-stage control family exists to produce;
+#   3. every OTHER stage is 4-way equal on 8/8 seeds, so the control moved this one alone
+#      and not the group.
+#
+# Point 3 is what makes these five different from `negctl-node-count`, and it is why a
+# green `negctl-node-count` says nothing about whether any single 3D stage is compared.
+negctl-basic3d-sphere|0|scripts/orch/gr bash -c 'out=$(GM_MUTATE_BASIC3D_SPHERE_NODES=1 cargo run -q -p graph-cli -- hashgate --seeds 8 2>&1); rc=$?; [ "$rc" = 1 ] || { echo "expected exit 1, got $rc"; echo "$out"; exit 1; }; echo "$out" | grep -q "DIVERGED layout.basic3d.sphere " || { echo "sphere was not named as diverged:"; echo "$out"; exit 1; }; echo "$out" | grep -q "layout.basic3d.sphere: 4-way equal on 8/8 seeds" && { echo "sphere did not move, so the control is vacuous:"; echo "$out"; exit 1; } || exit 0'
+negctl-basic3d-helix|0|scripts/orch/gr bash -c 'out=$(GM_MUTATE_BASIC3D_HELIX_NODES=1 cargo run -q -p graph-cli -- hashgate --seeds 8 2>&1); rc=$?; [ "$rc" = 1 ] || { echo "expected exit 1, got $rc"; echo "$out"; exit 1; }; echo "$out" | grep -q "DIVERGED layout.basic3d.helix " || { echo "helix was not named as diverged:"; echo "$out"; exit 1; }; echo "$out" | grep -q "layout.basic3d.helix: 4-way equal on 8/8 seeds" && { echo "helix did not move, so the control is vacuous:"; echo "$out"; exit 1; } || exit 0'
+negctl-basic3d-cube|0|scripts/orch/gr bash -c 'out=$(GM_MUTATE_BASIC3D_CUBE_NODES=1 cargo run -q -p graph-cli -- hashgate --seeds 8 2>&1); rc=$?; [ "$rc" = 1 ] || { echo "expected exit 1, got $rc"; echo "$out"; exit 1; }; echo "$out" | grep -q "DIVERGED layout.basic3d.cube " || { echo "cube was not named as diverged:"; echo "$out"; exit 1; }; echo "$out" | grep -q "layout.basic3d.cube: 4-way equal on 8/8 seeds" && { echo "cube did not move, so the control is vacuous:"; echo "$out"; exit 1; } || exit 0'
+negctl-hierarchical3d|0|scripts/orch/gr bash -c 'out=$(GM_MUTATE_HIERARCHICAL3D_NODES=1 cargo run -q -p graph-cli -- hashgate --seeds 8 2>&1); rc=$?; [ "$rc" = 1 ] || { echo "expected exit 1, got $rc"; echo "$out"; exit 1; }; echo "$out" | grep -q "DIVERGED layout.hierarchical3d " || { echo "hierarchical3d was not named as diverged:"; echo "$out"; exit 1; }; echo "$out" | grep -q "layout.hierarchical3d: 4-way equal on 8/8 seeds" && { echo "hierarchical3d did not move, so the control is vacuous:"; echo "$out"; exit 1; } || exit 0'
+negctl-spring3d|0|scripts/orch/gr bash -c 'out=$(GM_MUTATE_FORCE_SPRING3D_NODES=1 cargo run -q -p graph-cli -- hashgate --seeds 8 2>&1); rc=$?; [ "$rc" = 1 ] || { echo "expected exit 1, got $rc"; echo "$out"; exit 1; }; echo "$out" | grep -q "DIVERGED layout.force.spring3d " || { echo "spring3d was not named as diverged:"; echo "$out"; exit 1; }; echo "$out" | grep -q "layout.force.spring3d: 4-way equal on 8/8 seeds" && { echo "spring3d did not move, so the control is vacuous:"; echo "$out"; exit 1; } || exit 0'
 
 # The three-arm chain per differential, in order: emit the fixtures, run the reference arm
 # in the oracle image with the SciGraphs/ submodule mounted, then ingest. A step run before

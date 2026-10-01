@@ -11,6 +11,7 @@
 
 use super::Knob;
 use super::igraph;
+use super::three_d;
 
 /// The record `knob`'s run writes.
 pub const fn record(knob: Knob) -> &'static str {
@@ -48,6 +49,11 @@ pub const fn record(knob: Knob) -> &'static str {
         Knob::IgraphDavidsonHarelNodes => igraph::RECORD[3],
         Knob::IgraphLglNodes => igraph::RECORD[4],
         Knob::IgraphDrlNodes => igraph::RECORD[5],
+        Knob::Basic3dSphereNodes => three_d::RECORD[0],
+        Knob::Basic3dHelixNodes => three_d::RECORD[1],
+        Knob::Basic3dCubeNodes => three_d::RECORD[2],
+        Knob::Hierarchical3dNodes => three_d::RECORD[3],
+        Knob::Spring3dNodes => three_d::RECORD[4],
         Knob::TwopiNodes => "hashgate-control-twopi-nodes",
         Knob::NeatoEpsilon => "hashgate-control-neato-epsilon",
         Knob::PatchworkNodes => "hashgate-control-patchwork-nodes",

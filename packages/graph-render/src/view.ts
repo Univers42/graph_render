@@ -7,28 +7,28 @@
  * It does not: run a layout, fetch, read CSS, or keep a frame loop alive while parked.
  * Not done yet: a WebGL2 backend, pinch with two pointers, keyboard navigation of nodes.
  */
-import {
-  type Camera, type Point, type Viewport, type ZoomLimits, centreOn, panBy, resetCamera, zoomAt,
-} from "./camera.ts";
-import { clickAt, contextAt, pressAt, setSelection } from "./canvas2d/choose.ts";
-import {
-  type Controller, fit, hover, measure, moveTo, newState, pickAt, select, setPositions, showFrame,
-} from "./canvas2d/controller.ts";
-import { hideNodes, togglePin } from "./canvas2d/keep.ts";
+import { type Camera, type Point, type Viewport, type ZoomLimits, panBy, zoomAt } from "./camera.ts";
+import { cameraApi, inSpace, orbitBy, sceneApi, zoomAt3d } from "./camera-api.ts";
+import { clickAt, contextAt, pressAt } from "./canvas2d/choose.ts";
+import { type Controller, fit, hover, measure, moveTo, newState, pickAt } from "./canvas2d/controller.ts";
 import { invalidate } from "./canvas2d/loop.ts";
-import { rebaseLocal, setBaseStyle, showAll, showLocal } from "./canvas2d/local.ts";
-import { type EdgeEnds, edgeEndsOf, edgeOpacity, labelledNodes, nodeOpacity } from "./canvas2d/probe.ts";
+import { type EdgeEnds } from "./canvas2d/probe.ts";
 import type { Frame } from "./frame.ts";
-import { DOUBLE_CLICK_ZOOM, centreOf } from "./gesture.ts";
-import { type LabelPolicy, newLabelPlan } from "./labels.ts";
+import { DOUBLE_CLICK_ZOOM } from "./gesture.ts";
+import type { LabelPolicy } from "./labels.ts";
 import type { LiveDrag } from "./drag.ts";
 import { type LocalOptions, newLocalLayer } from "./local.ts";
 import { bindPointer } from "./pointer.ts";
 import { statsOf } from "./view-stats.ts";
 import type { Style } from "./style.ts";
 import type { Theme } from "./theme.ts";
+import type { Orbit } from "./three/orbit.ts";
+import type { Projected } from "./three/projection.ts";
 
 export type { EdgeEnds } from "./canvas2d/probe.ts";
+export type { Orbit } from "./three/orbit.ts";
+export type { Projected } from "./three/projection.ts";
+export type { CameraApi, SceneApi } from "./camera-api.ts";
 export interface ViewOptions {
   readonly theme?: Theme;
   readonly labels?: LabelPolicy;
@@ -110,6 +110,28 @@ export interface View {
   fit(): void;
   /** 1:1 with the world origin in the middle: what the key `0` and the reset button mean. */
   reset(): void;
+  /**
+   * The 3D camera, or `null` when the frame is 2D. Its presence is the whole answer to
+   * "is this drawing 3D", and the studio's badge reads it rather than a second flag.
+   */
+  orbit(): Orbit | null;
+  /**
+   * Where every node is drawn right now, in CSS pixels: its screen point and its depth from
+   * the eye. `null` on a 2D frame, where a node has no depth and the 2D camera's own
+   * `position` answers where it is. Read-only: asking does not project, invalidate or
+   * repaint, and a host reads it to say what is on screen without asking the painter.
+   */
+  projected(): readonly Projected[] | null;
+  /**
+   * Puts the 3D camera where a host wants it, the way `setCamera` does for the 2D one. A
+   * no-op on a 2D frame, since there is no orbit to set.
+   */
+  setOrbit(orbit: Orbit): void;
+  /**
+   * The drawing head on again: the same nodes, the same distance, the camera's angles at
+   * zero. A no-op on a 2D frame, where `reset()` is the reset.
+   */
+  resetOrbit(): void;
   zoomBy(factor: number): void;
   /** Moves the camera by screen pixels; the world under the cursor goes with it. */
   panBy(delta: Point): void;
@@ -158,8 +180,6 @@ export interface View {
 }
 
 type Handlers = { [Name in keyof ViewEvents]: Set<(payload: ViewEvents[Name]) => void> };
-type SceneApi = Pick<View, "setFrame" | "setStyle" | "setTheme" | "setLabels">;
-type CameraApi = Omit<View, keyof SceneApi | "on" | "toPNG" | "stats" | "radii" | "destroy">;
 
 function toBlob(canvas: HTMLCanvasElement): Promise<Blob> {
   return new Promise((resolve, reject) => {
@@ -170,74 +190,16 @@ function toBlob(canvas: HTMLCanvasElement): Promise<Blob> {
   });
 }
 
-function sceneApi(controller: Controller): SceneApi {
-  const { state } = controller;
-  return {
-    setFrame: (frame, options = {}) => {
-      showFrame(state, frame, options.animate === true);
-      rebaseLocal(controller);
-      if (options.fit === false) invalidate(state);
-      else fit(controller);
-    },
-    setStyle: (style) => {
-      setBaseStyle(controller, style);
-    },
-    setTheme: (theme) => {
-      state.theme = theme;
-      state.sprites.reset(theme, state.dpr);
-      invalidate(state);
-    },
-    setLabels: (policy) => {
-      state.policy = policy;
-      if (policy.budget > state.plan.node.length) state.plan = newLabelPlan(policy.budget);
-      invalidate(state);
-    },
-  };
-}
-
-function cameraApi(controller: Controller): CameraApi {
-  const { state } = controller;
-  return {
-    setCamera: (camera) => moveTo(controller, camera, false),
-    camera: () => state.camera,
-    frame: () => state.scene.frame,
-    style: () => state.scene.style,
-    viewport: () => state.viewport,
-    fit: () => fit(controller),
-    reset: () => moveTo(controller, resetCamera(state.viewport), false),
-    zoomBy: (factor) => moveTo(controller, zoomAt(state.camera, centreOf(state.viewport), factor, state.limits), false),
-    panBy: (delta) => moveTo(controller, panBy(state.camera, delta), false),
-    limits: () => state.limits,
-    focus: (node) => {
-      if (node < 0 || node >= state.scene.frame.nodeCount) return;
-      const world = { x: state.scene.frame.x[node] ?? 0, y: state.scene.frame.y[node] ?? 0 };
-      const near = { ...state.camera, scale: Math.max(state.camera.scale, 1.2) };
-      select(controller, node);
-      moveTo(controller, centreOn(near, world, state.viewport), false);
-    },
-    select: (node) => select(controller, node),
-    local: (node, options) => showLocal(controller, node, options),
-    showAll: () => showAll(controller),
-    selectMany: (nodes) => setSelection(controller, nodes),
-    selection: () => state.selection,
-    hide: (nodes) => hideNodes(controller, nodes),
-    togglePin: (node) => togglePin(controller, node),
-    pinned: () => state.pinned,
-    setPositions: (xs, ys) => setPositions(state, xs, ys),
-    position: (node) => ({ x: state.x[node] ?? 0, y: state.y[node] ?? 0 }),
-    edgeEnds: (edge) => edgeEndsOf(state, edge),
-    opacity: (kind, index) => (kind === "node" ? nodeOpacity : edgeOpacity)(state, index, performance.now()),
-    labelled: () => labelledNodes(state),
-    pick: (at) => pickAt(state, at),
-  };
-}
-
 /** Pointer, wheel and resize; returns what undoes all three. */
 function bindInputs(controller: Controller): () => void {
   const { canvas, state } = controller;
   const unbind = bindPointer(canvas, {
-    zoom: (at, factor) => moveTo(controller, zoomAt(state.camera, at, factor, state.limits), false),
+    zoom: (at, factor) => {
+      if (state.orbit !== null) zoomAt3d(controller, factor);
+      else moveTo(controller, zoomAt(state.camera, at, factor, state.limits), false);
+    },
     pan: (delta) => moveTo(controller, panBy(state.camera, delta), false),
+    orbit: (delta, right) => orbitBy(controller, delta, right),
     hover: (at) => hover(controller, at === null ? -1 : pickAt(state, at)),
     click: (at, shift) => clickAt(controller, at, shift),
     press: (at, shift) => pressAt(controller, at, shift),
@@ -245,9 +207,10 @@ function bindInputs(controller: Controller): () => void {
     doubleClick: (at) => {
       // A double-click on a node is the node's own gesture (S2); on the background it zooms.
       if (pickAt(state, at) >= 0) return;
-      moveTo(controller, zoomAt(state.camera, at, DOUBLE_CLICK_ZOOM, state.limits), false);
+      if (state.orbit !== null) zoomAt3d(controller, DOUBLE_CLICK_ZOOM);
+      else moveTo(controller, zoomAt(state.camera, at, DOUBLE_CLICK_ZOOM, state.limits), false);
     },
-  });
+  }, globalThis.window, () => inSpace(state));
   const observer = new ResizeObserver(() => {
     measure(controller);
     if (controller.fitted) fit(controller);

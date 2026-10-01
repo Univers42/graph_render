@@ -173,7 +173,9 @@ pub fn unpin_all(id: u32) -> Result<(), Code> {
 /// `set_positions`, the only writer that could move a `Vec`'s storage, is reachable solely
 /// from `ForceSession::from_positions`, which this ABI does not export. A host still
 /// treats a view as good only until the next motor call, because a wasm memory growth
-/// detaches its `ArrayBuffer`; that is the JS side's hazard, not this address's.
+/// detaches its `ArrayBuffer`; that is the JS side's hazard, not this address's. An address
+/// or length the wire's `u32` cannot carry is refused with [`Code::IndexOutOfRange`], never
+/// truncated.
 pub fn column(id: u32, axis: u32, want_ptr: bool) -> Result<u32, Code> {
     with(id, |session| {
         let values = match axis {
@@ -186,7 +188,7 @@ pub fn column(id: u32, axis: u32, want_ptr: bool) -> Result<u32, Code> {
         } else {
             values.len()
         };
-        Ok(u32::try_from(address).unwrap_or(0))
+        to_wire(address)
     })
 }
 
@@ -216,6 +218,11 @@ fn with_mut<T>(
         let session = live.get_mut(id).ok_or(Code::InvalidSession)?;
         write(session)
     })
+}
+
+/// The wire's `u32` for a host address or length, refused when it does not fit.
+fn to_wire(address: usize) -> Result<u32, Code> {
+    u32::try_from(address).map_err(|_| Code::IndexOutOfRange)
 }
 
 /// Drops every live session. Test-only, for the same reason `errors::clear` exists: the
