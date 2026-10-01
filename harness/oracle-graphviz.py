@@ -60,8 +60,6 @@ import os
 import sys
 import tempfile
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
 # `harness/` is inside `FINGERPRINTED` (`crates/graph-cli/src/fingerprint.rs:21`), and importing
 # a module by name makes CPython write `harness/__pycache__/*.pyc` — a transient file inside a
 # fingerprinted tree, which moves the fingerprint for as long as it exists. That would make `emit`
@@ -70,6 +68,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # the child modules are imported, so the bytecode is never written; `oracle-twopi.py` sets it the
 # same way around the one path import it makes.
 sys.dont_write_bytecode = True
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from gv_closed import CLOSED, answer_of, closed_case, gap
 from gv_frames import FRAMED_CLOSED, framed_cases
@@ -135,6 +135,66 @@ def ours_of(record, engine):
     return [(column["x"][i], column["y"][i]) for i in range(record["n"])]
 
 
+def sized_dot(path, record):
+    """One DOT graph whose node boxes are **pinned**, for the engine that sizes from labels.
+
+    `osage` is the reason this exists and the only engine that needs it today. Graphviz sizes
+    a node from its *rendered label* unless the size is fixed: 54 points for `n0`..`n9` and
+    57.942 for `n10`..`n99` at the default `nodesize`, which is a font metric of Graphviz's
+    own text layout and something graph-core has no engine for. The fixture's `box` column
+    carries one `[width, height]` pair per node **in inches** — graph-core's own table, so the
+    two arms size the same box — and this writes them as attributes rather than letting
+    Graphviz guess:
+
+    - `fixedsize=true` is what makes `shapes.c` take `bb = (width, height)` verbatim instead
+      of `fmax` against the label;
+    - `label=""` leaves the label nothing to demand;
+    - `margin=0` leaves the default 0.11 inch of padding nothing to add.
+
+    `gv_plain.write_dot` is the unsized writer and is shared by twopi, circo and patchwork,
+    so it stays exactly as it is: their fixtures carry no `box` column and their DOT is
+    unchanged. An engine whose fixture has no `box` column is refused here rather than
+    drawn at the default size, because a silent fallback would compare two different boxes
+    and report the difference as a layout gap.
+    """
+    boxes = record.get("box")
+    if boxes is None:
+        sys.exit(f"{record['seed']}: no box column, so the node sizes are not pinned")
+    if len(boxes) != record["n"]:
+        sys.exit(f"{record['seed']}: {len(boxes)} boxes for {record['n']} nodes")
+    lines = ["graph g {"]
+    for at, (width, height) in enumerate(boxes):
+        lines.append(
+            f'  n{at} [fixedsize=true,label="",margin=0,width={width!r},height={height!r}];'
+        )
+    for source, target in edges_of(record):
+        lines.append(f"  n{source} -- n{target};")
+    lines.append("}")
+    with open(path, "w") as handle:
+        handle.write("\n".join(lines) + "\n")
+
+
+def sized_points(engine, tmp, name, record, start=START_SEED):
+    """The engine's own node coordinates over a size-pinned DOT graph, in dense index order."""
+    dot = os.path.join(tmp, f"{name}.dot")
+    sized_dot(dot, record)
+    _, nodes = parse_plain(run_engine(engine, dot, start), record["n"])
+    return [tuple(nodes[f"n{at}"]) for at in range(record["n"])]
+
+
+def engine_arms(engine, tmp, record, start):
+    """Where one engine's node coordinates come from: the pinned DOT or the bare one.
+
+    The fixture decides, by whether it carries a `box` column, so an engine gains or loses the
+    pinning by changing what the emit writes rather than by a name checked here.
+    """
+    if "box" in record:
+        return sized_points(engine, tmp, f"g{record['seed']}", record, start)
+    return engine_points(
+        engine, tmp, f"g{record['seed']}", record["n"], edges_of(record), start
+    )
+
+
 def closed_cases(engine, tmp, start):
     """Every closed case one engine is graded on, or none.
 
@@ -179,10 +239,12 @@ def record_main(options):
         with open(out_path, "w") as out:
             for line in open(jsonl_path):
                 rec = json.loads(line)
-                n = rec["n"]
                 dot_path = os.path.join(tmp, f"g{rec['seed']}.dot")
-                write_dot(dot_path, n, rec["source"], rec["target"])
-                bbox, nodes = parse_plain(run_engine(engine, dot_path, options.start), n)
+                if "box" in rec:
+                    sized_dot(dot_path, rec)
+                else:
+                    write_dot(dot_path, rec["n"], rec["source"], rec["target"])
+                bbox, nodes = parse_plain(run_engine(engine, dot_path, options.start), rec["n"])
                 row = {
                     "seed": rec["seed"],
                     "engine": engine,
@@ -223,9 +285,7 @@ def differential_main(options):
     with tempfile.TemporaryDirectory() as tmp:
         for record in mine:
             seed, count = record["seed"], record["n"]
-            points = engine_points(
-                engine, tmp, f"g{seed}", count, edges_of(record), options.start
-            )
+            points = engine_arms(engine, tmp, record, options.start)
             worst = max(worst, gap(ours_of(record, engine), points))
             theirs.append({"seed": seed, "n": count, "points": points})
         # The closed cases cost one small graph each and are the same in every shard, so
