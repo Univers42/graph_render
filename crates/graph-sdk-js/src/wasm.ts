@@ -52,6 +52,31 @@ export interface RawExports {
   gm_force_session_release(session: number): number;
 }
 
+/** Every name in [`RawExports`], checked at load: the compiler keeps this object's keys equal to
+ * the interface's, so a module older than this SDK is refused by name when it loads instead of
+ * failing later as `exports.gm_dim is not a function` on the first call that needs it. */
+const EXPORT_NAMES: { readonly [K in keyof RawExports]: true } = {
+  memory: true, gm_alloc: true, gm_free: true, gm_layout_count: true, gm_layout_id: true,
+  gm_build: true, gm_build_contract: true, gm_run: true, gm_node_count: true,
+  gm_geometry_kind: true, gm_edge_geometry_kind: true, gm_dim: true, gm_column_ptr: true,
+  gm_column_len: true, gm_snapshot_json: true, gm_snapshot_bytes: true, gm_post_count: true,
+  gm_post_id: true, gm_post_run: true, gm_analysis_count: true, gm_analysis_id: true,
+  gm_analysis_run: true, gm_release: true, gm_last_error: true,
+  gm_force_session_create: true, gm_force_session_set_params: true,
+  gm_force_session_params: true, gm_force_session_tick: true, gm_force_session_alpha: true,
+  gm_force_session_reheat: true, gm_force_session_pin: true, gm_force_session_unpin: true,
+  gm_force_session_unpin_all: true, gm_force_session_column_ptr: true,
+  gm_force_session_column_len: true, gm_force_session_release: true,
+};
+
+function requireExports(instance: WebAssembly.Instance): RawExports {
+  const missing = Object.keys(EXPORT_NAMES).filter((name) => !(name in instance.exports));
+  if (missing.length > 0) {
+    throw new Error(`module lacks ${missing.join(", ")}: it is older than this SDK; rebuild it`);
+  }
+  return instance.exports as unknown as RawExports;
+}
+
 /** Bytes, or a URL/`Response` `fetch` can resolve (browser only — Node callers always
  * pass bytes, e.g. `readFile`'d themselves; this module never assumes a filesystem). */
 export type WasmSource = BufferSource | string | URL;
@@ -124,7 +149,7 @@ export async function loadMotor(source: WasmSource): Promise<RawExports> {
   }
   if (singleton !== null) return singleton;
   singleton = compile(source)
-    .then((instance) => instance.exports as unknown as RawExports)
+    .then(requireExports)
     .catch((error: unknown) => {
       initFailed = error;
       singleton = null;
