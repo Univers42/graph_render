@@ -16,7 +16,7 @@ Do:
    it, exit 0.
 4. Add the row `negctl-osage-nodes|nonzero|...` to `scripts/orch/rows/develop-full.rows` next to the other
    negctls.
-6. Flip `layout.packing.osage` to `gated` in `capabilities/registry/unproven.rs` only if the tests in
+5. Flip `layout.packing.osage` to `gated` in `capabilities/registry/unproven.rs` only if the tests in
    `capabilities/tests/graphviz.rs` prove the ledger accepts it with the new control and a current record;
    otherwise leave it `implemented` and say what is missing.
 
