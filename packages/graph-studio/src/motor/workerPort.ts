@@ -10,5 +10,13 @@ export function workerPort(worker: Worker): Port {
       };
     },
     close: () => worker.terminate(),
+    onFail: (handler) => {
+      // An uncaught throw in the worker reaches the page as an `error` event and nowhere
+      // else, so this is the only place a worker failure can be named.
+      worker.onerror = (event: ErrorEvent) => handler(event.message);
+      return () => {
+        worker.onerror = null;
+      };
+    },
   };
 }

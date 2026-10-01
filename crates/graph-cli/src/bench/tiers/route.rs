@@ -18,17 +18,19 @@ use crate::bench::Plan;
 use crate::exec_native::Threads;
 use graph_core::exec::Serial;
 use graph_core::layout::Geometry;
-use graph_core::layout::force::{BarnesHut, ForceParams, Split};
+use graph_core::layout::force::{BarnesHut, ForceParams, Split, YifanHu};
 use graph_core::layout::{circular::ring, spiral};
 use graph_core::{Grid, GridParams, Stage, StageError, Topology};
 
 /// Every layout `bench --tiers` can time, in the order a report prints them.
 ///
 /// Barnes-Hut is first because it is the **default** (see [`layouts`]), and it is the row
-/// every `docs/measurements/phase11-threads.md` number was measured on. The other three
-/// are the stages whose hot loop is a per-node gather with no reduction crossing elements,
-/// so a width is a schedule of the same computation.
-pub const ROUTES: [&str; 4] = [BarnesHut::ID, Grid::ID, ring::ID, spiral::ID];
+/// every `docs/measurements/phase11-threads.md` number was measured on. The next two are
+/// the force stages, which reach a runner through the same three gathered passes per tick
+/// — the multilevel solve once per coarsening level. The last three are the stages whose
+/// hot loop is a per-node gather with no reduction crossing elements, so a width is a
+/// schedule of the same computation.
+pub const ROUTES: [&str; 5] = [BarnesHut::ID, YifanHu::ID, Grid::ID, ring::ID, spiral::ID];
 
 /// The layouts the plan asks for, or the error naming the ones it can time.
 ///
@@ -73,6 +75,8 @@ pub fn run_once(
     let geometry = match (id, tier) {
         (BarnesHut::ID, Tier::Scalar) => barnes_hut(topology, &Serial, 1, control),
         (BarnesHut::ID, Tier::Threads(w)) => barnes_hut(topology, &Threads, w, control),
+        (YifanHu::ID, Tier::Scalar) => yifan_hu(topology, &Serial, 1, control),
+        (YifanHu::ID, Tier::Threads(w)) => yifan_hu(topology, &Threads, w, control),
         (Grid::ID, Tier::Scalar) => grid(topology, &Serial, 1),
         (Grid::ID, Tier::Threads(w)) => grid(topology, &Threads, w),
         (ring::ID, Tier::Scalar) => ring(topology, &Serial, 1, control),
@@ -91,6 +95,24 @@ fn barnes_hut(
     control: Control,
 ) -> Result<Geometry, StageError> {
     BarnesHut::run_under(
+        topology,
+        &ForceParams::default(),
+        runner,
+        workers,
+        control.split,
+    )
+}
+
+/// The multilevel solve: the same `ForceParams`, the same `Split` control, and one settle
+/// per coarsening level — so a width is a schedule of the whole hierarchy, not of its
+/// coarsest level alone.
+fn yifan_hu(
+    topology: &Topology,
+    runner: &impl graph_core::exec::Runner,
+    workers: u32,
+    control: Control,
+) -> Result<Geometry, StageError> {
+    YifanHu::run_under(
         topology,
         &ForceParams::default(),
         runner,
@@ -138,7 +160,8 @@ fn spiral(
 /// is the one that would let the arm list and the controls drift apart in a call site.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Control {
-    /// Barnes-Hut's: which of the tick's range-kernel merges the control splits.
+    /// The force stages' shared one: which of the tick's range-kernel merges the control
+    /// splits, for the single-level solve and for every level of the multilevel one.
     pub split: Split,
     /// The closed-form layouts' shared `rescale` merge — one merge, so a flag and not a
     /// [`Split`], and inert for the two stages that do not end in one.

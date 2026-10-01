@@ -12,7 +12,7 @@ import {
 } from "./camera.ts";
 import { clickAt, contextAt, pressAt, setSelection } from "./canvas2d/choose.ts";
 import {
-  type Controller, fit, hover, measure, moveTo, newState, pickAt, select, showFrame,
+  type Controller, fit, hover, measure, moveTo, newState, pickAt, select, setPositions, showFrame,
 } from "./canvas2d/controller.ts";
 import { hideNodes, togglePin } from "./canvas2d/keep.ts";
 import { invalidate } from "./canvas2d/loop.ts";
@@ -21,6 +21,7 @@ import { type EdgeEnds, edgeEndsOf, edgeOpacity, labelledNodes, nodeOpacity } fr
 import type { Frame } from "./frame.ts";
 import { DOUBLE_CLICK_ZOOM, centreOf } from "./gesture.ts";
 import { type LabelPolicy, newLabelPlan } from "./labels.ts";
+import type { LiveDrag } from "./drag.ts";
 import { type LocalOptions, newLocalLayer } from "./local.ts";
 import { bindPointer } from "./pointer.ts";
 import { statsOf } from "./view-stats.ts";
@@ -32,6 +33,8 @@ export type { EdgeEnds } from "./canvas2d/probe.ts";
 export interface ViewOptions {
   readonly theme?: Theme;
   readonly labels?: LabelPolicy;
+  /** A live force session: a drag pins the node in it while it is enabled. */
+  readonly live?: LiveDrag;
 }
 
 export interface ViewStats {
@@ -133,6 +136,13 @@ export interface View {
   edgeEnds(edge: number): EdgeEnds | null;
   /** What the view draws a node or an edge at right now (1 in the focus, faded outside it). */
   opacity(kind: "node" | "edge", index: number): number;
+  /**
+   * New positions for the nodes already in the frame, from a live simulation. `xs`/`ys`
+   * are one entry per node in dense order; a length that does not match the frame's node
+   * count is ignored (the drawing is of another graph). The columns the motor handed over
+   * are read, never kept: the next frame replaces them.
+   */
+  setPositions(xs: Float64Array, ys: Float64Array): void;
   /** The nodes whose labels the last frame placed. */
   labelled(): readonly number[];
   /** The node under a canvas-relative point, or -1. */
@@ -211,6 +221,7 @@ function cameraApi(controller: Controller): CameraApi {
     hide: (nodes) => hideNodes(controller, nodes),
     togglePin: (node) => togglePin(controller, node),
     pinned: () => state.pinned,
+    setPositions: (xs, ys) => setPositions(state, xs, ys),
     position: (node) => ({ x: state.x[node] ?? 0, y: state.y[node] ?? 0 }),
     edgeEnds: (edge) => edgeEndsOf(state, edge),
     opacity: (kind, index) => (kind === "node" ? nodeOpacity : edgeOpacity)(state, index, performance.now()),
@@ -264,7 +275,7 @@ export function createView(canvas: HTMLCanvasElement, options: ViewOptions = {})
     context: (node: number, at: Point): void => emit("context", { node, at }),
     camera: (camera: Camera): void => emit("camera", camera),
   };
-  const controller: Controller = { canvas, state, notify, fitted: true, local: newLocalLayer() };
+  const controller: Controller = { canvas, state, notify, fitted: true, local: newLocalLayer(), ...(options.live === undefined ? {} : { live: options.live }) };
   measure(controller);
   const unbind = bindInputs(controller);
   return {

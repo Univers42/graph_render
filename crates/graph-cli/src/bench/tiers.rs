@@ -22,12 +22,12 @@ pub mod markdown;
 mod route;
 mod sweep;
 
-/// The control entry point, reachable only from this module's own tests: a host has no
-/// business timing a deliberately wrong tier, and a public one could be taken for a flag.
-#[cfg(test)]
-pub use route::Control;
 pub use route::layouts;
 pub use sweep::run;
+/// The control entry point, reachable only from this module's own tests: a host has no
+/// business timing a deliberately wrong tier, and a public one could be taken for a flag.
+/// [`route::Control`] is named from `route` directly by those tests, so it is not
+/// re-exported here as a second spelling of the same item.
 #[cfg(test)]
 pub use sweep::run_under;
 
@@ -268,7 +268,8 @@ pub fn entry(plan: &Plan) -> Result<bool, String> {
         );
     }
     if let Some(path) = markdown::report_path(plan) {
-        super::campaign::report::write_report(path, &markdown::markdown(plan, &cells, &host))?;
+        let report = markdown::markdown(plan, &cells, &host);
+        super::campaign::report::write_report(path, &report)?;
     }
     Ok(cells.iter().all(|cell| cell.equal))
 }

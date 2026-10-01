@@ -93,7 +93,7 @@ impl Split {
     }
 }
 
-pub(crate) use settle::{golden_seed, settle};
+pub(crate) use settle::{Tier, golden_seed, settle};
 
 /// Barnes-Hut approximated force layout (`prompt.md` §3.1).
 ///

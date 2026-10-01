@@ -16,6 +16,7 @@ merge-p12-igraph|build|prompts/jobs/merge-p12-igraph.md|scripts/orch/rows/quick.
 merge-tier-settle|build|prompts/jobs/merge-tier-settle.md|scripts/orch/rows/quick.rows|no
 p13-3d|build|prompts/jobs/p13-3d.md|scripts/orch/rows/quick.rows|no
 p13-gv1-circo|build|prompts/jobs/p13-gv1-circo.md|scripts/orch/rows/quick.rows|no
+studio-watchdog|build|prompts/jobs/studio-watchdog.md|scripts/orch/rows/quick.rows|no
 p13-gv1-osage|build|prompts/jobs/p13-gv1-osage.md|scripts/orch/rows/quick.rows|no
 p13-gv1-patchwork|build|prompts/jobs/p13-gv1-patchwork.md|scripts/orch/rows/quick.rows|no
 p13-gv2-neato|build|prompts/jobs/p13-gv2-neato.md|scripts/orch/rows/quick.rows|no
