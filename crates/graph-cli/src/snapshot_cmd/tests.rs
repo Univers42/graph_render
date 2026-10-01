@@ -64,12 +64,12 @@ fn layout_names_offers_every_registered_layout_once_by_both_of_its_names() {
             "force.spring",
             "layout.circular.hierarchy",
             "circular.hierarchy",
-            "layout.force.neato",
-            "force.neato",
             "layout.circular.circo",
             "circular.circo",
             "layout.treemap.patchwork",
             "treemap.patchwork",
+            "layout.force.neato",
+            "force.neato",
         ]
     );
     let mut once = names.clone();
