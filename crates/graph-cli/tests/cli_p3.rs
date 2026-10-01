@@ -239,8 +239,8 @@ fn the_knob_list_carries_every_p3_control_and_nothing_else() {
     }
     assert_eq!(
         KNOBS.len(),
-        35,
-        "twelve parameter controls, then the fifteen ANALYSIS and POST stage controls, then \
+        37,
+        "fourteen parameter controls, then the fifteen ANALYSIS and POST stage controls, then \
          the six igraph layout controls, then the two compute-tier controls, then the live \
          session's own: {KNOBS:?}"
     );

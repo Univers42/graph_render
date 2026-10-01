@@ -4,7 +4,7 @@
 //!
 //! Split from `knob.rs` by the house's 300-line limit. The ten parameter controls are
 //! spelled out here rather than derived from [`Knob::env`], so this test is the
-//! independent statement of what the first ten are called; the twenty-one per-stage
+//! independent statement of what the first fourteen are called; the twenty-one per-stage
 //! controls are absent because their variables come from `knobs::all()`, which has its own
 //! test below.
 
@@ -16,7 +16,7 @@ use crate::hashgate::knobs;
 /// rather than derived from [`Knob::env`]**, so this test is the independent statement of
 /// what they are called; the twenty-one per-stage controls are absent because their
 /// variables come from `knobs::all()`, which has its own test below.
-const PARAMETER_KNOBS: [(&str, &str); 12] = [
+const PARAMETER_KNOBS: [(&str, &str); 14] = [
     (
         "GM_MUTATE_REFERENCE_DEGREE",
         "hashgate-control-reference-degree",
@@ -42,6 +42,14 @@ const PARAMETER_KNOBS: [(&str, &str); 12] = [
         "hashgate-control-circular-nodes",
     ),
     ("GM_MUTATE_TWOPI_NODES", "hashgate-control-twopi-nodes"),
+    (
+        "GM_MUTATE_SPRING_ITERATIONS",
+        "hashgate-control-spring-iterations",
+    ),
+    (
+        "GM_MUTATE_CIRCULAR_HIERARCHY_NODES",
+        "hashgate-control-circular-hierarchy-nodes",
+    ),
     ("GM_MUTATE_PACKING_SCALE", "hashgate-control-packing-scale"),
     (
         "GM_MUTATE_FORCE_SESSION_GRAVITY",

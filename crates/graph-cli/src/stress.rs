@@ -26,7 +26,7 @@
 //! names; a row may only stand as `gated` with it present and current.
 
 pub(crate) mod cases;
-mod metric;
+pub(crate) mod metric;
 
 use crate::evidence::Stamp;
 use cases::Case;

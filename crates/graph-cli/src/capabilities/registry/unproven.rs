@@ -29,13 +29,30 @@ const IGRAPH_LAYOUTS: [&str; 6] = [
 /// - `layout.forceatlas2` is held to **networkx 3.6 `forceatlas2_layout`** in the
 ///   `ge-python-oracle` image (`oracle-fa2`): a port of the whole function at its
 ///   defaults, compared with the pinned library rather than restated by hand.
+/// - `layout.force.spring` is held to **networkx 3.6 `spring_layout` at `dim=2`** —
+///   SciGraphs' own `SPRING` (`oracle-spring`), and by the same stress metric the other
+///   force rows use, because a force simulation amplifies a 1-ULP difference into a
+///   different picture exactly as it does for them.
+/// - `layout.circular.hierarchy` is held to **SciGraphs' own
+///   `_circular_hierarchy_layout`** in the same image with the submodule mounted
+///   (`oracle-circular-hierarchy`). Unlike the three above this one *is* a closed form
+///   and a coordinate gap is a fair comparison — but the record is still `implemented`,
+///   and for the reason the clause below gives, not because the comparison is weak.
+/// - the six igraph-family layouts in [`IGRAPH_LAYOUTS`] are held to
+///   **harness/oracle-igraph.py** (`oracle-igraph`), one row per layout.
 ///
-/// Both rows are `implemented`, not `gated`: `Status::Gated` is refused by
+/// These rows are `implemented`, not `gated`: `Status::Gated` is refused by
 /// `problems()` unless *both* a 4-way hash verdict and the row's own oracle verdict
-/// are backed by a recorded run on this tree, and neither force differential has been
-/// run to 1000 seeds here. Claiming `gated` for a force layout with only a hash behind
-/// it would be exactly the silent weakening of the project's central guarantee the
-/// phase prompt forbids.
+/// are backed by a recorded run on this tree, and `verdict::oracle_record` resolves only
+/// the records the `Evidence` struct carries (`capabilities/verdict.rs:63-74`) — neither
+/// `oracle-spring` nor `oracle-circular-hierarchy` nor `oracle-igraph` is one of them, so a
+/// `gated` row here could only ever read back "no oracle-spring record: run the gate" and
+/// report a refusal where a verdict belongs. `implemented` states the truth: registered,
+/// hashed, differentially measured, not yet an oracle-backed gate. Claiming `gated` for any
+/// of them with only a hash behind it would be exactly the silent weakening of the
+/// project's central guarantee the phase prompt forbids, and the fix is a
+/// `verdict::Evidence` arm per differential — which belongs with the ledger change that
+/// would earn the status, not smuggled in to make one row look stronger than the others.
 pub(super) fn force_record(id: &str) -> Option<(&'static str, Status)> {
     match id {
         "layout.force.barnes_hut" => Some(("stress", Status::Implemented)),
@@ -44,6 +61,11 @@ pub(super) fn force_record(id: &str) -> Option<(&'static str, Status)> {
         // stress record is the closest metric and is barnes_hut's, so `implemented` only.
         "layout.force.yifan_hu" => Some(("stress", Status::Implemented)),
         id if IGRAPH_LAYOUTS.contains(&id) => Some(("oracle-igraph", Status::Implemented)),
+        // Its own differential, and its own record, for the same reason `layout.forceatlas2`
+        // gets one: the two FR ports share a metric but share no code, so one record
+        // standing for both would let either be measured by the other's run.
+        "layout.force.spring" => Some(("oracle-spring", Status::Implemented)),
+        "layout.circular.hierarchy" => Some(("oracle-circular-hierarchy", Status::Implemented)),
         // Ponytail: `implemented`, not `gated`: the closed-form differential has no
         // recorded run on this tree, and a hash alone never earns `gated`.
         "layout.random" | "layout.circular.ring" | "layout.spiral" | "layout.bipartite" => {

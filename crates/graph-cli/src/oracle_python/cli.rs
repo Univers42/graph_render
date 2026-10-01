@@ -1,7 +1,8 @@
 //! The subcommands of the Python-armed differentials: `emit-<name>-fixtures` and
 //! `oracle-<name>`, flattened into the top-level command.
 
-use super::{CLOSED_FORM, FA2, IGRAPH, SPECTRAL, TWOPI, emit, ingest};
+use super::spring;
+use super::{CIRCULAR_HIERARCHY, CLOSED_FORM, FA2, IGRAPH, SPECTRAL, SPRING, TWOPI, emit, ingest};
 use crate::command::seed_count;
 use clap::Subcommand;
 use std::path::PathBuf;
@@ -73,6 +74,41 @@ pub enum Cli {
         #[arg(long, default_value = "target/fa2-fixtures")]
         dir: PathBuf,
     },
+    /// Writes the spring differential's fixtures for `harness/oracle-spring.py`.
+    EmitSpringFixtures {
+        /// Number of seeds, 0..N.
+        #[arg(long, default_value_t = 1000, value_parser = seed_count())]
+        seeds: u32,
+        /// Iteration budget both arms run, over the differential's own. The escape hatch
+        /// `docs/measurements/p12-t2.md` measures another budget with.
+        #[arg(long, value_parser = clap::value_parser!(u32).range(1..=1000))]
+        max_iter: Option<u32>,
+        /// Output directory.
+        #[arg(long, default_value = "target/spring-fixtures")]
+        out: PathBuf,
+    },
+    /// Checks the spring differential's result against its stress-ratio ceiling.
+    OracleSpring {
+        /// Directory holding the fixtures and `spring-result.json`.
+        #[arg(long, default_value = "target/spring-fixtures")]
+        dir: PathBuf,
+    },
+    /// Writes the circular-hierarchy differential's fixtures for
+    /// `harness/oracle-circular-hierarchy.py`, the SciGraphs arm.
+    EmitCircularHierarchyFixtures {
+        /// Number of seeds, 0..N.
+        #[arg(long, default_value_t = 1000, value_parser = seed_count())]
+        seeds: u32,
+        /// Output directory.
+        #[arg(long, default_value = "target/circular-hierarchy-fixtures")]
+        out: PathBuf,
+    },
+    /// Checks the circular-hierarchy differential's result against its ceiling.
+    OracleCircularHierarchy {
+        /// Directory holding the fixtures and `circular-hierarchy-result.json`.
+        #[arg(long, default_value = "target/circular-hierarchy-fixtures")]
+        dir: PathBuf,
+    },
     /// Writes the twopi differential's fixtures for `harness/oracle-twopi.py`.
     ///
     /// The graph is the gate's own model, the one `emit-spectral-fixtures` writes too, so
@@ -109,6 +145,16 @@ impl Cli {
             Cli::OracleFa2 { dir } => ingest(&FA2, &dir),
             Cli::EmitClosedFormFixtures { seeds, out } => emit(&CLOSED_FORM, seeds, None, &out),
             Cli::OracleClosedForm { dir } => ingest(&CLOSED_FORM, &dir),
+            Cli::EmitSpringFixtures {
+                seeds,
+                max_iter,
+                out,
+            } => emit(&SPRING, seeds, max_iter, &out),
+            Cli::OracleSpring { dir } => spring::ingest::ingest(&dir),
+            Cli::EmitCircularHierarchyFixtures { seeds, out } => {
+                emit(&CIRCULAR_HIERARCHY, seeds, None, &out)
+            }
+            Cli::OracleCircularHierarchy { dir } => ingest(&CIRCULAR_HIERARCHY, &dir),
             Cli::EmitTwopiFixtures { seeds, out } => emit(&TWOPI, seeds, None, &out),
             Cli::OracleTwopi { dir } => ingest(&TWOPI, &dir),
         }

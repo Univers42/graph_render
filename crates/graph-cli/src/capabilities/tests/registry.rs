@@ -184,6 +184,13 @@ fn the_registry_covers_every_oracle_function_once_its_ids_are_unique() {
             ("oracle-fa2", r.id, Status::Implemented)
         } else if IGRAPH_LAYOUT_IDS.contains(&r.id) {
             ("oracle-igraph", r.id, Status::Implemented)
+        } else if r.id == "layout.force.spring" {
+            ("oracle-spring", r.id, Status::Implemented)
+        } else if r.id == "layout.circular.hierarchy" {
+            // A closed form with a SciGraphs-arm differential, `implemented` rather than
+            // `gated` for the reason `unproven.rs` gives: the ledger resolves no such
+            // record, so a gated row could only ever read back a refusal.
+            ("oracle-circular-hierarchy", r.id, Status::Implemented)
         } else if [
             "layout.random",
             "layout.circular.ring",

@@ -23,6 +23,8 @@ fn a_force_row_is_implemented_and_names_its_own_oracle_record() {
         ("layout.force.lgl", "oracle-igraph"),
         ("layout.force.davidson_harel", "oracle-igraph"),
         ("layout.force.graphopt", "oracle-igraph"),
+        ("layout.force.spring", "oracle-spring"),
+        ("layout.circular.hierarchy", "oracle-circular-hierarchy"),
     ] {
         let row = rows.iter().find(|r| r.id == id).expect("registered");
         assert_eq!(row.status, Status::Implemented, "{id}");
@@ -46,6 +48,12 @@ fn a_force_row_is_implemented_and_names_its_own_oracle_record() {
         other(id, "stress");
         other(id, "oracle-fa2");
     }
+    // The two FR ports share a metric and share no code, and the SciGraphs closed form is
+    // compared by a different arm entirely: nobody may be measured by another's run.
+    other("layout.force.spring", "oracle-fa2");
+    other("layout.force.spring", "stress");
+    other("layout.circular.hierarchy", "oracle-closed-form");
+    other("layout.circular.hierarchy", "oracle-spring");
 }
 
 /// The six igraph rows and the filter that builds them are one list. `force_record` names
