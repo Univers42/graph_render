@@ -13,7 +13,8 @@
 //!
 //! **The range kernel.** Node `i`'s share of every overlap it finds depends on nothing
 //! but start-of-step state — this tick's projected positions, the built quadtree, the
-//! frozen radius, the seed and the tick — and it is written only to `out[i]`. So the pass
+//! frozen radius, the seed and the tick — and it is written only to its own output (in
+//! the collide tree's point order, `super::step`'s "Outputs in tree order"). So the pass
 //! is a gather in the D10 sense and partitions by node, the same shape as `charge`: see
 //! [`super::step::CollidePass`] for the contract and `docs/decisions/link-gather.md` for
 //! why `link` needed an argument and this one did not.
@@ -42,7 +43,8 @@ pub(super) fn apply_with(
 ) {
     prepare(sim);
     runner.run(&CollidePass::of(&*sim), workers, deltas);
-    merge(sim, deltas, split);
+    let order = Some(sim.collide_tree.order());
+    super::step::merge((&mut sim.vx, &mut sim.vy), order, deltas, split);
 }
 
 /// The single-threaded prologue: this tick's projected positions, the quadtree over them,
@@ -62,20 +64,6 @@ pub(super) fn prepare(sim: &mut Sim) {
 pub(super) fn reach_squared(sim: &Sim) -> f64 {
     let diameter = 2.0 * sim.params.collide_radius;
     diameter * diameter
-}
-
-/// `vx[i] += deltas[i]`, in ascending node index — and, under the control, the next node's
-/// delta too.
-fn merge(sim: &mut Sim, deltas: &[(f64, f64)], split: bool) {
-    for (i, (dvx, dvy)) in deltas.iter().enumerate() {
-        let stolen = if split {
-            deltas.get(i + 1).copied().unwrap_or((0.0, 0.0))
-        } else {
-            (0.0, 0.0)
-        };
-        sim.vx[i] += dvx + stolen.0;
-        sim.vy[i] += dvy + stolen.1;
-    }
 }
 
 /// Node `i`'s own delta over the prepared [`Sim`]: a stackless preorder walk of the
