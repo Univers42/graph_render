@@ -50,6 +50,7 @@ pub const fn record(knob: Knob) -> &'static str {
         Knob::IgraphDrlNodes => igraph::RECORD[5],
         Knob::TwopiNodes => "hashgate-control-twopi-nodes",
         Knob::NeatoEpsilon => "hashgate-control-neato-epsilon",
+        Knob::PatchworkNodes => "hashgate-control-patchwork-nodes",
         Knob::SplitSum => "hashgate-control-split-sum",
         Knob::SplitRescale => "hashgate-control-split-rescale",
         Knob::ForceSessionGravity => "forcegate-control-force-session-gravity",

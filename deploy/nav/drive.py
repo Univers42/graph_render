@@ -52,10 +52,13 @@ def apart(a, b):
 class Studio:
     """The page, and the real input a user's hand would send."""
 
-    def __init__(self, page, url, expect_drag=None, wait_for_settle=True):
+    def __init__(self, page, url, expect_drag=None, expect_gradient=None, wait_for_settle=True):
         self.page = page
         self.url = url
         self.expect_drag = DRAG_PX if expect_drag is None else expect_drag
+        # The negative control's second fault: False means the edge gradient row never turns
+        # the mode on, so the row must fail against the flat drawing.
+        self.expect_gradient = True if expect_gradient is None else expect_gradient
         # The live gate watches the settle a force layout starts on load, so it asks for the
         # drawing NOT to be waited out; every other gate wants a still drawing.
         self.wait_for_settle = wait_for_settle

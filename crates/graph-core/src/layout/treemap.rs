@@ -228,11 +228,7 @@ fn to_geometry(boxes: &Boxes, n: u32, notes: Vec<Note>) -> Geometry {
         w.push((r.x1 - r.x0) as f32);
         h.push((r.y1 - r.y0) as f32);
     }
-    Geometry {
-        nodes: NodeGeometry::Box { x, y, w, h },
-        edges: EdgeGeometry::Line,
-        notes,
-    }
+    Geometry::planar(NodeGeometry::Box { x, y, w, h }, EdgeGeometry::Line, notes)
 }
 
 /// The layout's capability id, which is also its hash-gate stage.

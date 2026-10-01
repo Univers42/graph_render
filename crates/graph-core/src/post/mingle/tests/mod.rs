@@ -42,14 +42,14 @@ fn long_span() -> (
 
 /// A layout's geometry from explicit positions, so a test states the drawing it means.
 fn geometry(x: &[f32], y: &[f32]) -> Geometry {
-    Geometry {
-        nodes: NodeGeometry::Point {
+    Geometry::planar(
+        NodeGeometry::Point {
             x: x.to_vec(),
             y: y.to_vec(),
         },
-        edges: EdgeGeometry::Line,
-        notes: Vec::new(),
-    }
+        EdgeGeometry::Line,
+        Vec::new(),
+    )
 }
 
 /// The long-span graph laid out as its fixture describes it: two rows 0.1 apart, four long

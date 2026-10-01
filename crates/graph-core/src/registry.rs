@@ -12,8 +12,10 @@ use crate::layout::force::{
     BarnesHut, DavidsonHarel, Drl, FruchtermanReingold, Graphopt, KamadaKawai, Lgl, YifanHu,
 };
 use crate::layout::forceatlas2::ForceAtlas2;
+use crate::layout::graphviz::circo;
 use crate::layout::graphviz::neato;
 use crate::layout::graphviz::osage;
+use crate::layout::graphviz::patchwork;
 use crate::layout::grid::Grid;
 use crate::layout::radial::twopi;
 use crate::layout::sugiyama::Sugiyama;
@@ -25,8 +27,10 @@ use graph_contract::geometry::{EdgeGeometryKind, NodeGeometryKind};
 
 mod closed_form;
 mod force;
+mod graphviz_circo;
 mod graphviz_neato;
 mod graphviz_osage;
+mod graphviz_patchwork;
 mod grid;
 mod hierarchy;
 mod igraph;
@@ -35,10 +39,14 @@ mod spectral;
 use closed_form::{BIPARTITE, RANDOM, RING, SPIRAL};
 use force::{BARNES_HUT, FA2, SPRING, YIFAN_HU};
 pub use force::{FA2_CEILING, FORCE_CEILING, SPRING_CEILING};
+use graphviz_circo::CIRCO;
+pub use graphviz_circo::GRAPHVIZ_CIRCO_CEILING;
 use graphviz_neato::NEATO;
 pub use graphviz_neato::NEATO_CEILING;
 use graphviz_osage::OSAGE;
 pub use graphviz_osage::OSAGE_CEILING;
+use graphviz_patchwork::PATCHWORK;
+pub use graphviz_patchwork::PATCHWORK_CEILING;
 use grid::{GRID, PACKING, SUGIYAMA};
 pub use grid::{GRID_CEILING, PACKING_CEILING, SUGIYAMA_CEILING};
 pub use hierarchy::HIERARCHY_LAYOUT_CEILING;
@@ -83,7 +91,7 @@ pub struct Capability {
 }
 
 /// Every registered layout, in the order the hash gate runs them.
-pub static LAYOUTS: [Capability; 26] = [
+pub static LAYOUTS: [Capability; 28] = [
     Capability {
         id: Grid::ID,
         run: run_default::<Grid>,
@@ -208,6 +216,16 @@ pub static LAYOUTS: [Capability; 26] = [
         id: circular::hierarchy::ID,
         run: circular::hierarchy::run,
         meta: CIRCULAR_HIERARCHY,
+    },
+    Capability {
+        id: circo::ID,
+        run: circo::run,
+        meta: CIRCO,
+    },
+    Capability {
+        id: patchwork::ID,
+        run: patchwork::run,
+        meta: PATCHWORK,
     },
     Capability {
         id: neato::ID,

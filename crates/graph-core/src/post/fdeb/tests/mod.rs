@@ -13,14 +13,14 @@ use graph_contract::geometry::{EdgeGeometry, NodeGeometry, Paths};
 
 /// A layout's geometry from explicit positions, so a test states the drawing it means.
 fn points(n: usize, xy: &[(f32, f32)]) -> Geometry {
-    Geometry {
-        nodes: NodeGeometry::Point {
+    Geometry::planar(
+        NodeGeometry::Point {
             x: xy.iter().map(|p| p.0).collect(),
             y: xy.iter().map(|p| p.1).collect(),
         },
-        edges: EdgeGeometry::Line,
-        notes: Vec::new(),
-    }
+        EdgeGeometry::Line,
+        Vec::new(),
+    )
     .piped(n)
 }
 

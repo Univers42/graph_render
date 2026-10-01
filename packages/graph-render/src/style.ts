@@ -24,7 +24,19 @@ export interface StyleInput {
   readonly edges?: EdgeLook;
   /** Halo strength around every node; 0 or absent draws none. */
   readonly glow?: number;
+  /** Absent is `flat`: every edge in one stroke colour, as the renderer has always drawn. */
+  readonly edgeColour?: EdgeColour;
 }
+
+/**
+ * How an edge takes its colour: `flat` is one stroke in the theme's colour, `gradient` runs
+ * from the source node's colour to the target's. The SciGraphs edge tubes carry the node
+ * colour attribute and the renderer interpolates it along the edge in linear light
+ * (SciGraphs/ui/coloring/properties.py:195-215).
+ */
+export type EdgeColour = "flat" | "gradient";
+
+export const EDGE_COLOURS: readonly EdgeColour[] = ["flat", "gradient"];
 
 /** How edges are drawn on top of the look's own width: the studio's display panel. */
 export interface EdgeLook {
@@ -71,6 +83,7 @@ export interface Style {
   readonly spheres: readonly Rgb[] | null;
   readonly edges: EdgeLook;
   readonly glow: number;
+  readonly edgeColour: EdgeColour;
 }
 
 export const DEFAULT_SIZING: Sizing = { base: 4, gain: 2.5 };
@@ -136,6 +149,7 @@ export function styleFrom(input: StyleInput): Style {
     spheres: input.spheres ?? null,
     edges: input.edges ?? PLAIN_EDGES,
     glow: input.glow ?? 0,
+    edgeColour: input.edgeColour ?? "flat",
   };
 }
 

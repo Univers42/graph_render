@@ -63,14 +63,14 @@ pub fn run(topology: &Topology) -> Result<Geometry, StageError> {
     let hierarchy = Hierarchy::of(topology).map_err(StageError::Capacity)?;
     let notes = hierarchy.notes().to_vec();
     let Some(root) = hierarchy.root() else {
-        return Ok(Geometry {
-            nodes: NodeGeometry::Point {
+        return Ok(Geometry::planar(
+            NodeGeometry::Point {
                 x: Vec::new(),
                 y: Vec::new(),
             },
-            edges: EdgeGeometry::Polyline(Paths::default()),
+            EdgeGeometry::Polyline(Paths::default()),
             notes,
-        });
+        ));
     };
     let mut walk = Walk::new(&hierarchy);
     walk.layout(root);
@@ -78,11 +78,7 @@ pub fn run(topology: &Topology) -> Result<Geometry, StageError> {
     let x = (0..n).map(|v| walk.st.x[v as usize] as f32).collect();
     let y = (0..n).map(|v| walk.st.y[v as usize] as f32).collect();
     let edges = build_edges(topology, &hierarchy, &walk.st).map_err(StageError::Capacity)?;
-    Ok(Geometry {
-        nodes: NodeGeometry::Point { x, y },
-        edges,
-        notes,
-    })
+    Ok(Geometry::planar(NodeGeometry::Point { x, y }, edges, notes))
 }
 
 /// Every topology edge as a [`EdgeGeometry::Polyline`]: the kept tree edges get the

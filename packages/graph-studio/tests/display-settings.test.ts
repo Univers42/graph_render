@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  DEFAULT_SETTINGS, EDGE_STYLES, LINK_THICKNESS, NODE_SCALE, SettingsRefusal, TEXT_FADE, THEMES,
+  DEFAULT_SETTINGS, EDGE_COLOURS, EDGE_STYLES, LINK_THICKNESS, NODE_SCALE, SettingsRefusal, TEXT_FADE, THEMES,
   readSettings, withAppearance,
 } from "../src/state/settings.ts";
 
@@ -30,13 +30,20 @@ test("the defaults draw as before: no arrows, no glow, straight, neutral sliders
 
 test("a display change survives JSON", () => {
   const next = withAppearance(DEFAULT_SETTINGS, {
-    theme: "obsidian-dark", arrows: true, textFade: -2.5, linkThickness: 5, edgeStyle: "curve", glow: true, glowStrength: 2, nodeScale: 0.2,
+    theme: "obsidian-dark", arrows: true, textFade: -2.5, linkThickness: 5, edgeStyle: "curve",
+    edgeColour: "gradient", glow: true, glowStrength: 2, nodeScale: 0.2,
   });
   assert.deepEqual(readSettings(JSON.parse(JSON.stringify(next))), next);
 });
 
+test("the edge colour has two modes and the default is flat", () => {
+  assert.deepEqual(EDGE_COLOURS, ["flat", "gradient"]);
+  assert.equal(DEFAULT_SETTINGS.appearance.edgeColour, "flat");
+  assert.equal(withAppearance(DEFAULT_SETTINGS, { edgeColour: "gradient" }).appearance.edgeColour, "gradient");
+});
+
 test("a value outside its range is refused, naming the member", () => {
-  for (const [name, value] of [["textFade", 3.1], ["linkThickness", 0.05], ["nodeScale", 5.5], ["edgeStyle", "wavy"]] as const) {
+  for (const [name, value] of [["textFade", 3.1], ["linkThickness", 0.05], ["nodeScale", 5.5], ["edgeStyle", "wavy"], ["edgeColour", "rainbow"]] as const) {
     const bad = { ...DEFAULT_SETTINGS, appearance: { ...DEFAULT_SETTINGS.appearance, [name]: value } };
     assert.throws(() => readSettings(JSON.parse(JSON.stringify(bad))), (e: unknown) =>
       e instanceof SettingsRefusal && e.message.includes(`appearance.${name}`), name);

@@ -44,6 +44,10 @@ const PARAMETER_KNOBS: [(&str, &str); 15] = [
     ("GM_MUTATE_TWOPI_NODES", "hashgate-control-twopi-nodes"),
     ("GM_MUTATE_NEATO_EPSILON", "hashgate-control-neato-epsilon"),
     (
+        "GM_MUTATE_PATCHWORK_NODES",
+        "hashgate-control-patchwork-nodes",
+    ),
+    (
         "GM_MUTATE_SPRING_ITERATIONS",
         "hashgate-control-spring-iterations",
     ),

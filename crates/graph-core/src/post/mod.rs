@@ -71,7 +71,10 @@ pub type PostRun = fn(&Topology, &Geometry) -> Result<Bundled, StageError>;
 /// two counts that say how much work it did.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Bundled {
-    /// The layout's node geometry and notes, unchanged, and the bundled edge paths.
+    /// The layout's node geometry, notes and z column, unchanged, and the bundled edge
+    /// paths. Every registered pass rebuilds through [`Geometry::with_edges`], so a 3D
+    /// layout keeps its dimension through the pass or the pass does not run: nothing here
+    /// drops a column, and nothing needs to.
     pub geometry: Geometry,
     /// FDEB: edge pairs whose compatibility cleared the threshold, the pairs that ever
     /// attract. MINGLE: merges accepted, over every pass of every round.

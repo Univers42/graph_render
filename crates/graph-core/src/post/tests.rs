@@ -17,6 +17,7 @@ use crate::layout::Geometry;
 use crate::records::EdgeRecord;
 use crate::registry::LAYOUTS;
 use graph_contract::geometry::{EdgeGeometry, NodeGeometry};
+use graph_contract::snapshot::Dim;
 
 /// The graph every layout can lay out: a nine-node tree plus a non-hierarchy edge, a back
 /// edge and a self-loop, so a POST capability meets all three edge cases whatever it claims
@@ -62,14 +63,14 @@ fn edge(id: &str, source: &str, target: &str) -> EdgeRecord {
 /// A straight-line drawing of `topology`'s edges, so a capability can also be checked over
 /// geometry that is not the layout's own — the case a `Line` layout hands it.
 fn lines(x: &[f32], y: &[f32]) -> Geometry {
-    Geometry {
-        nodes: NodeGeometry::Point {
+    Geometry::planar(
+        NodeGeometry::Point {
             x: x.to_vec(),
             y: y.to_vec(),
         },
-        edges: EdgeGeometry::Line,
-        notes: Vec::new(),
-    }
+        EdgeGeometry::Line,
+        Vec::new(),
+    )
 }
 
 /// **The composability gate.** Every registered POST capability over every registered layout:
@@ -127,6 +128,12 @@ fn check_output(
     assert_eq!(
         bundled.geometry.nodes, input.nodes,
         "{where_}: a post pass may not move a node"
+    );
+    // The same claim about the third dimension: a pass carries the z column on or it is
+    // not a pass, it is a silent downgrade of a 3D drawing to 2D.
+    assert_eq!(
+        bundled.geometry.z, input.z,
+        "{where_}: a post pass may not drop the z column"
     );
     bundled
         .geometry
@@ -196,6 +203,40 @@ fn find_answers_with_the_row_and_the_run_that_row_registers() {
             (found.run)(&topology, &geometry).map(|b| b.geometry),
             (cap.run)(&topology, &geometry).map(|b| b.geometry),
             "{}",
+            cap.id
+        );
+    }
+}
+
+/// Every registered capability over a 3D geometry: the z column comes back. The matrix above
+/// only ever sees 2D inputs, because every layout in the tree is 2D, so without this a pass
+/// that dropped z would stay green until the first 3D layout lands.
+#[test]
+fn a_3d_geometries_z_column_survives_every_registered_capability() {
+    let topology = topology();
+    let grid = (crate::registry::find("layout.grid")
+        .expect("registered")
+        .run)(&topology)
+    .expect("the grid lays out the test graph")
+    .nodes;
+    let NodeGeometry::Point { x, y } = grid else {
+        panic!("the grid emits Point nodes")
+    };
+    let z: Vec<f32> = (0..x.len()).map(|i| i as f32 * 0.5).collect();
+    let geometry = Geometry::in_space(
+        NodeGeometry::Point { x, y },
+        EdgeGeometry::Line,
+        Vec::new(),
+        z.clone(),
+    );
+    assert_eq!(geometry.dim(), Dim::D3, "the fixture is 3D");
+    for cap in &POSTS {
+        let bundled = (cap.run)(&topology, &geometry)
+            .unwrap_or_else(|e| panic!("{} over a 3D geometry: {e}", cap.id));
+        assert_eq!(bundled.geometry.z, Some(z.clone()), "{}: z dropped", cap.id);
+        assert_eq!(
+            bundled.geometry.nodes, geometry.nodes,
+            "{}: node moved",
             cap.id
         );
     }

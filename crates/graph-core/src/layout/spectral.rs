@@ -281,11 +281,7 @@ pub fn run(topology: &Topology) -> Result<(Geometry, Vec<ComponentReport>), Spec
 pub(crate) fn to_geometry(coords: &[f64], n: usize) -> Geometry {
     let x = (0..n).map(|i| coords[i * DIMS] as f32).collect();
     let y = (0..n).map(|i| coords[i * DIMS + 1] as f32).collect();
-    Geometry {
-        nodes: NodeGeometry::Point { x, y },
-        edges: EdgeGeometry::Line,
-        notes: Vec::new(),
-    }
+    Geometry::planar(NodeGeometry::Point { x, y }, EdgeGeometry::Line, Vec::new())
 }
 
 #[cfg(test)]

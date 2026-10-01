@@ -210,6 +210,7 @@ fn the_knob_list_carries_every_p3_control_and_nothing_else() {
         "GM_MUTATE_TREE_TIDY_NODES",
         "GM_MUTATE_TREEMAP_NODES",
         "GM_MUTATE_CIRCULAR_NODES",
+        "GM_MUTATE_PATCHWORK_NODES",
         "GM_MUTATE_PACKING_SCALE",
         "GM_MUTATE_ANALYSIS_COMPONENTS_WEAK",
         "GM_MUTATE_ANALYSIS_COMPONENTS_STRONG",

@@ -86,11 +86,11 @@ pub fn run(topology: &Topology, layer_spacing: f32) -> Result<Geometry, StageErr
     let paths = edge_paths(&routing);
     let mut notes = acyclic.notes;
     notes.extend(layering.notes);
-    Ok(Geometry {
-        nodes: NodeGeometry::Point { x, y },
-        edges: EdgeGeometry::Polyline(paths),
+    Ok(Geometry::planar(
+        NodeGeometry::Point { x, y },
+        EdgeGeometry::Polyline(paths),
         notes,
-    })
+    ))
 }
 
 /// The crossing count [`run`] would draw `topology` with: the oracle differential's

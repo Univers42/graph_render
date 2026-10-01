@@ -114,8 +114,16 @@ pub enum Knob {
     /// supposed to surface. A typo (`=maybe`) is refused rather than read as the default, so
     /// the control cannot pass vacuously.
     NeatoEpsilon,
-    /// `GM_MUTATE_SPRING_ITERATIONS`: the spring layout's iteration budget, native arm
-    /// only.
+    /// `GM_MUTATE_PATCHWORK_NODES`: nodes added to `layout.treemap.patchwork`'s model
+    /// alone.
+    ///
+    /// The same probe as the four node controls above, for the same reason: `patchwork` is a
+    /// closed form with no parameter of its own — it pins Graphviz's default `area` of 1 and
+    /// no `inset`, and its module doc says so — so its own control perturbs the one thing it
+    /// does read, the model, for that stage only. A new node is a new square in the field,
+    /// so it moves the tiling and this stage's bytes and nothing else's.
+    PatchworkNodes,
+    /// `GM_MUTATE_SPRING_ITERATIONS`: the spring layout's iteration budget, native arm only.
     ///
     /// Its own control because `iterations` is read by the FR loop's `for` and by
     /// nothing else: perturbing it re-runs this stage's force pass and leaves every other

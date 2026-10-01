@@ -17,6 +17,8 @@ export function statsOf(state: LoopState): ViewStats {
     draws: state.counts.draws,
     strokeCalls: state.counts.strokes,
     edgeStyles: state.counts.edgeStyles,
+    mixedEdges: state.counts.mixedEdges,
+    gradientStrokes: state.counts.gradientStrokes,
     arrowFills: state.counts.arrowFills,
     glowFills: state.counts.glowFills,
     spritesRasterised: state.sprites.rasterised(),

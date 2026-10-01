@@ -109,6 +109,29 @@ pub(super) fn force_record(id: &str) -> Option<(&'static str, Status)> {
         // arm for `oracle-osage`, exactly as it has none for `oracle-twopi`: that reader is
         // a pre-existing gap, not a claim this row makes.
         "layout.packing.osage" => Some(("oracle-osage", Status::Implemented)),
+        // Ponytail: the same honest status and the same reason as `layout.twopi` above, for
+        // the same Graphviz oracle, and a stronger reason than `layout.packing.osage` has:
+        // this differential was *run* over the 1000 gate seeds and it disagrees with
+        // Graphviz by 6.460e+04 points on 984 of them, for one named cause outside the
+        // motor — the tie order in `remove_pair_edges`'s degree sort is `qsort`'s, and
+        // glibc 2.41 does not make that stable (`docs/measurements/p13-gv1-circo.md`). The
+        // blocks, the radii and the 14 closed cases all agree, so the drawings differ only
+        // in which node takes which slot, and an agreement that narrow earns `implemented`
+        // and nothing more.
+        //
+        // `verdict::Evidence::oracle_record` matches a fixed list of record names and has no
+        // arm for `oracle-circo`, exactly as it has none for `oracle-twopi`: that reader is
+        // a pre-existing gap, not a claim this row makes.
+        "layout.circular.circo" => Some(("oracle-circo", Status::Implemented)),
+        // `layout.treemap.patchwork` is routed the same way and for the same reason, and
+        // carries the same caveat as the twopi row above: `verdict::Evidence::oracle_record`
+        // has no arm for `oracle-patchwork` either, so `oracle_diff` reads
+        // `not backed: no oracle-patchwork record` even after the real run that wrote
+        // `target/gates/oracle-patchwork.json` (1000 cases, worst 6.613e-2, pass). Same
+        // pre-existing reader gap, not a claim this row is making: the differential is real
+        // and its numbers are in `docs/measurements/p13-gv1-patchwork.md`, and the ceiling
+        // reflects `-Tplain`'s five significant digits rather than a shortfall.
+        "layout.treemap.patchwork" => Some(("oracle-patchwork", Status::Implemented)),
         _ => None,
     }
 }
