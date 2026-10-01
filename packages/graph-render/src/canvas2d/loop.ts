@@ -16,6 +16,8 @@ import { paintOverlay } from "./overlay.ts";
 import { paintFrame } from "./paint.ts";
 import { type Rate, stamp } from "./rate.ts";
 import type { SpriteCache } from "./sprites.ts";
+import type { Orbit } from "../three/orbit.ts";
+import { type Drawn, newProjection, projectFrame } from "../three/projection.ts";
 
 /** How long after the last camera change the view still counts as moving. */
 const MOVING_MS = 140;
@@ -49,6 +51,13 @@ export interface LoopState {
   /** The box a shift-drag is drawing, in canvas pixels, or null. */
   marquee: Bounds | null;
   plan: LabelPlan;
+  /**
+   * The 3D camera, when the frame carries a z column; `null` for a 2D frame, which is every
+   * frame the 2D camera owns. The one place the view says which kind of drawing this is.
+   */
+  orbit: Orbit | null;
+  /** The frame's nodes projected through `orbit`, reused across frames. Null for a 2D one. */
+  drawn: Drawn | null;
   /** What the last layout ran for, and whether a writer (a drag) changed it since. */
   layoutKey: LayoutKey | null;
   layoutDirty: boolean;
@@ -131,14 +140,29 @@ function plan(state: LoopState, focus: number, travelling: boolean): void {
   }, state.plan, state.occupancy);
 }
 
+/**
+ * The 3D drawing for this frame, or null for a 2D one. A frame with a z column is projected
+ * through the orbit camera; anything else is drawn by the 2D passes, which never see it.
+ */
+function space(state: LoopState): Drawn | null {
+  const { frame, orbit } = { frame: state.scene.frame, orbit: state.orbit };
+  if (frame.z === null || orbit === null) return null;
+  const drawn = projectFrame(state.drawn ?? newProjection(frame.nodeCount), {
+    frame, x: state.x, y: state.y, extent: state.scene.extent, orbit, viewport: state.viewport,
+  });
+  state.drawn = drawn;
+  return drawn;
+}
+
 function paint(state: LoopState, moving: boolean, settled: boolean): void {
   const travelling = !settled;
   const focus = focusOf(state);
   const theme = { ...state.theme, dimAlpha: dimOpacity(state, performance.now()) };
-  plan(state, focus, travelling);
+  const drawn = space(state);
+  if (drawn === null) plan(state, focus, travelling);
   const { scene } = state;
   state.counts = paintFrame({
-    ctx: state.ctx, viewport: state.viewport, dpr: state.dpr, camera: state.camera, theme,
+    ctx: state.ctx, viewport: state.viewport, dpr: state.dpr, camera: state.camera, theme, space: drawn,
     frame: scene.frame, style: scene.style, adjacency: scene.adjacency, extent: scene.extent,
     x: state.x, y: state.y, settled, moving, focus, lit: state.lit, selected: state.selected,
     labels: state.plan, sprites: state.sprites,

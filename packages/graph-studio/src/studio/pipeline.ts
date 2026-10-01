@@ -27,6 +27,7 @@ export type ViewFace = Pick<
   | "setFrame" | "setStyle" | "setTheme" | "setLabels"
   | "fit" | "reset" | "zoomBy" | "panBy" | "limits"
   | "focus" | "select" | "local" | "showAll" | "on" | "toPNG" | "setCamera" | "frame" | "viewport"
+  | "orbit" | "setOrbit" | "resetOrbit" | "projected"
 >;
 
 export interface Pipeline {
@@ -134,6 +135,9 @@ function summaryOf(run: RunReport, snapshot: Snapshot): RunSummary {
   return {
     layoutId: run.layoutId, postId: run.postId, postError: run.postError, digest: run.digest,
     byteLength: run.bytes.byteLength, nodeKind: snapshot.nodeKind, edgeKind: snapshot.edgeKind,
+    // The dim off the decoded snapshot, not off the layout id: the z column's presence is
+    // what the painter branches on, so that is what the badge has to report.
+    dim: snapshot.dim,
     layoutMs: run.layoutMs, postMs: run.postMs, notes: [...degradations(snapshot), ...refused],
   };
 }

@@ -29,7 +29,7 @@ const HINTS: ReadonlyMap<string, string> = new Map([
   ["WasmUnavailableError", "The wasm motor did not load, so no layout can run. Run scripts/studio.sh so graph_wasm.wasm is in app/public/."],
   ["InvalidOptionsError", "The motor rejected the options the studio passed. This is a studio bug."],
   ["IngestRefusal", "The document is not the ingest shape. Fix the JSON, or load one of the bundled fixtures."],
-  ["SnapshotRefusal", "The motor's snapshot could not be read. This studio draws 2D only, so a 3D snapshot is refused by design; anything else is a motor or decoder bug, and nothing was drawn from it."],
+  ["SnapshotRefusal", "The motor's snapshot could not be read, and nothing was drawn from it. A dim past 1 is a dimension this reader does not implement; anything else is a motor or decoder bug."],
   ["ActionRefusal", "Type `help` in the console for the commands and their values."],
   ["SettingsRefusal", "The recipe does not hold settings this studio reads. Export a fresh recipe."],
   ["CancelledError", "The run was stopped. Nothing changed."],

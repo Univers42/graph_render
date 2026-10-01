@@ -3,6 +3,7 @@ import { type PaintCounts, type PaintInput, newCounts } from "./input.ts";
 import { paintEdges } from "./edges.ts";
 import { paintGlow } from "./glow.ts";
 import { paintNodes } from "./nodes.ts";
+import { paint3d } from "../three/paint3d.ts";
 
 function paintLabels(input: PaintInput, counts: PaintCounts): void {
   const { ctx, labels, sprites, style } = input;
@@ -37,6 +38,10 @@ function paintGround(input: PaintInput): void {
 }
 
 export function paintFrame(input: PaintInput): PaintCounts {
+  // A frame with a z column is a 3D drawing and goes to its own painter whole: it projects,
+  // it sorts and it fills per node, none of which the 2D passes below can express. It
+  // returns here, so a 2D frame is drawn by exactly the code that has always drawn it.
+  if (input.space !== null && input.space !== undefined) return paint3d(input, input.space, newCounts());
   const counts = newCounts();
   const { ctx, dpr } = input;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
