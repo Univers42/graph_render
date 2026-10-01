@@ -65,3 +65,21 @@ osage-oracle-perturb-negctl|nonzero|scripts/orch/gr cargo run -q -p graph-cli --
 # refused rather than read as a pass — the same shape
 # `scripts/orch/rows/p13-gv1.rows:55` uses for the twopi oracle.
 osage-check-negctl|nonzero|scripts/orch/gr cargo run -q -p graph-cli -- oracle-graphviz --engine osage --dir target/osage-fixtures-absent
+
+# **Control 3: the pinned node sizes are load-bearing, and this is the control that says so.**
+# The whole differential rests on the fixture's `box` column: the layout packs those boxes and
+# the DOT pins the same numbers, so if the harness drew Graphviz's graph at the *default*
+# nodesize instead, or at boxes of its own, the two arms would be different drawings and the
+# row would report a large gap that reads like a layout disagreement rather than a broken
+# control. So: emit 20 seeds, move **one** node's width in the fixture's `box` column by a
+# whole number of 1/2048 inch — far below anything the layout computes, and still enough to
+# change `width + height` and therefore the sort order — then re-run the differential over the
+# perturbed fixtures. `oracle-graphviz` must then fail, because the box the motor packed is no
+# longer the box Graphviz was asked to draw.
+#
+# The perturbation is deliberately in the **fixture** and not in the harness: that is exactly
+# the drift this control is for (the two arms reading different tables), and a harness-side
+# knob would test the harness against itself. It does not need the manifest to be regenerated,
+# because the harness copies the manifest's own `sha256` into its result, so the run reaches
+# the ceiling check instead of stopping at a stale-fingerprint refusal.
+negctl-osage-sizes|nonzero|scripts/orch/gr cargo run -q -p graph-cli -- emit-graphviz-fixtures --engine osage --seeds 20 --out target/osage-size-negctl && docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 -c "import json; p='target/osage-size-negctl/osage.jsonl'; rows=[json.loads(l) for l in open(p)]; rows[0]['box'][0][0] += 9.0 / 18432.0; open(p, 'w').write('\n'.join(json.dumps(r) for r in rows) + '\n')" && docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/osage-size-negctl osage target/gv-osage-size-negctl --differential && scripts/orch/gr cargo run -q -p graph-cli -- oracle-graphviz --engine osage --dir target/osage-size-negctl
