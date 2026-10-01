@@ -21,16 +21,14 @@ pub(crate) mod report;
 mod staged;
 mod stages;
 mod tier;
+pub(crate) mod tiered;
 mod transport;
 
 use crate::evidence;
 use crate::runner::{build_wasm, file_sha256, node_harness, run_lines, sha256_hex};
 pub(crate) use compare::{Arm, Tally, diverged, per_stage};
-use graph_core::Grid;
-use graph_core::Stage;
-use graph_core::layout::force::{BarnesHut, Split};
+use graph_core::layout::force::Split;
 use graph_core::layout::forceatlas2::Fa2Params;
-use graph_core::layout::{circular::ring, spiral};
 pub use knob::Knob;
 pub(crate) use knob::{Setting, env_setting};
 pub(crate) use stages::{LAYOUT, TRANSPORT};
@@ -41,6 +39,11 @@ use stages::stage_bytes;
 use stages::stage_bytes_for;
 pub(crate) use stages::stages;
 use std::process::{Command, ExitCode};
+// The threaded arm's own recompute, split into `tiered.rs` for the house's 300-line cap.
+// `stage_bytes_threaded` is the arm's only caller-facing item, re-exported so a control's
+// own test can drive the arm the gate drives. `THREADED_STAGES` is named from `tiered`
+// directly, so the list and the match that reads it cannot drift into two imports.
+pub(crate) use tiered::stage_bytes_threaded;
 
 /// The differential's own negative control: `GM_MUTATE_FA2_SCALING_RATIO` applied to the
 /// compiled-in ForceAtlas2 parameters, so `emit-fa2-fixtures` measures a perturbed port
@@ -51,7 +54,6 @@ pub(crate) fn fa2_perturbation() -> Result<Fa2Params, String> {
     Ok(env_setting()?.fa2)
 }
 
-pub(crate) use crate::exec_native::Threads;
 pub(crate) use tier::Tiers;
 /// The gate's own worker counts, re-exported so the benchmark sweep can hold every width
 /// it times to one the gate has proved hash-equal: a threshold promoting a width nothing
@@ -139,12 +141,12 @@ fn arm_lines(seeds: u32, setting: &Setting) -> Result<String, String> {
 /// `std::thread`s, and every other stage byte-identical to the serial arm's.
 ///
 /// The stages are the gate's own registry list, in its own order, so the comparison is
-/// line-for-line against the scalar arm. The four threaded stages are computed by their own
-/// `run_with(..., &Threads, workers)` — the same call the scalar arm reaches with one
+/// line-for-line against the scalar arm. The threaded stages are computed by their own
+/// `run_under(..., &Threads, workers)` — the same call the scalar arm reaches with one
 /// worker and [`graph_core::exec::Serial`], so an arm checks a *schedule* rather than a
-/// second implementation. Which four is [`threaded_bytes`]'s match, and a stage absent from
-/// it is hashed from the scalar arm's own bytes: its "equal" is then the arm compared with
-/// itself, which is why that match is the list of what `--tiers all` proves.
+/// second implementation. Which ones is [`tiered::THREADED_STAGES`], and a stage absent
+/// from it is hashed from the scalar arm's own bytes: its "equal" is then the arm compared
+/// with itself, which is why that list is the list of what `--tiers all` proves.
 /// **Stage-major, seed-minor**, exactly as [`arm_lines`] prints them: every seed of one
 /// stage, then every seed of the next. That ordering is not cosmetic — `compare::diverged`
 /// reads line `i` as stage `i / seeds`, seed `i % seeds`, so a seed-major arm would be
@@ -161,72 +163,6 @@ fn threads_lines(seeds: u32, setting: &Setting, workers: u32) -> Result<Vec<Stri
         }
     }
     Ok(blocks.concat().lines().map(str::to_owned).collect())
-}
-
-/// [`stage_bytes`](stages::stage_bytes) with every threaded stage **recomputed** over
-/// `workers` workers, and with both compute-tier controls carried into it.
-///
-/// Four stages are recomputed and every other stage reuses the scalar arm's bytes: the
-/// stages whose work a runner can divide. Until an id is in [`threaded_bytes`], a threaded
-/// arm hashes the *scalar* column for it, and "equal" for that stage is vacuous — the arm
-/// would be compared with itself. So this match is the list of what `--tiers all` actually
-/// proves, and a stage added to it later is a stage whose equality is a real claim.
-///
-/// Each control reaches the *stage*, not just the arm, so `GM_MUTATE_SPLIT_SUM=1` diverges
-/// the threaded arms on the force stage and `GM_MUTATE_SPLIT_RESCALE=1` on the three
-/// closed-form point layouts — and on no other stage either way. That is the shape the
-/// phase prompt asks a control to have: a mutation a threaded arm cannot survive, so the
-/// gate's red is proof the arms were compared.
-fn stage_bytes_threaded(
-    seed: u32,
-    setting: &Setting,
-    workers: u32,
-) -> Result<Vec<(&'static str, Vec<u8>)>, String> {
-    let count = graph_core::gate_node_count(seed) + setting.extra_nodes;
-    let (nodes, edges) = graph_core::seeded_model(seed, count, setting.reference_degree);
-    let topology = graph_core::index_model(&nodes, &edges).map_err(|e| e.to_string())?;
-    let mut out = Vec::new();
-    for (id, bytes) in stages::stage_bytes(seed, setting)? {
-        out.push((id, threaded_bytes(id, &topology, setting, workers, bytes)?));
-    }
-    Ok(out)
-}
-
-/// One stage's threaded bytes, or the scalar arm's own when the stage is not threaded.
-///
-/// **One match arm for the three closed-form layouts, not three.** They share the control
-/// and the shape of the claim, and three arms spelling the same routing three times is
-/// three places a stage could be added to one and missed in another.
-fn threaded_bytes(
-    id: &'static str,
-    topology: &graph_core::Topology,
-    setting: &Setting,
-    workers: u32,
-    scalar: Vec<u8>,
-) -> Result<Vec<u8>, String> {
-    let geometry = match id {
-        BarnesHut::ID => BarnesHut::run_under(
-            topology,
-            &setting.force,
-            &Threads,
-            workers,
-            setting.split_sum,
-        ),
-        Grid::ID => Grid::run_with(topology, &setting.grid, &Threads, workers),
-        ring::ID => ring::run_under(topology, &Threads, workers, setting.split_rescale),
-        spiral::ID => spiral::run_under(
-            topology,
-            &spiral::SpiralParams::default(),
-            &Threads,
-            workers,
-            setting.split_rescale,
-        ),
-        _ => return Ok(scalar),
-    }
-    .map_err(|e| format!("{id}: {e}"))?;
-    graph_core::layout::snapshot(topology, geometry)
-        .map(|snapshot| snapshot.to_bytes())
-        .map_err(|e| format!("{id}: {e}"))
 }
 
 fn collect_arms(seeds: u32, tiers: Tiers) -> Result<Vec<Arm>, String> {

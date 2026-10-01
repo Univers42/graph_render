@@ -4,12 +4,24 @@
 //! [`session::ForceSession`]. `prompt.md` §3.1, Phase 6 branch p6f.
 
 pub(crate) mod barnes_hut;
+pub mod davidson_harel;
+pub mod drl;
+pub mod fruchterman_reingold;
+pub mod graphopt;
+pub mod kamada_kawai;
+pub mod lgl;
 pub(crate) mod params;
 pub(crate) mod quadtree;
 pub(crate) mod session;
 pub(crate) mod yifan_hu;
 
 pub use barnes_hut::{BarnesHut, Split};
+pub use davidson_harel::DavidsonHarel;
+pub use drl::Drl;
+pub use fruchterman_reingold::FruchtermanReingold;
+pub use graphopt::Graphopt;
+pub use kamada_kawai::KamadaKawai;
+pub use lgl::Lgl;
 pub use params::ForceParams;
 pub use session::{ForceSession, LiveParams, NodeRow, SessionError, StepReport};
 pub use yifan_hu::YifanHu;

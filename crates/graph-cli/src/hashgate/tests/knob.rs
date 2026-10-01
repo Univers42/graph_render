@@ -15,6 +15,7 @@ mod controls;
 mod ids;
 mod p3;
 mod table;
+mod twopi;
 use controls::only_stage_moved;
 use p3::P3_SEED;
 
@@ -22,6 +23,7 @@ use super::super::*;
 use super::env;
 use super::honest;
 use super::{Knob, Setting, setting, stage_bytes};
+use graph_core::Stage as _;
 use graph_core::layout::circle_packing::CirclePackingParams;
 pub(super) use graph_core::layout::circle_packing::ID as PACKING;
 pub(super) use graph_core::layout::circular::ID as CIRCULAR;
@@ -30,6 +32,7 @@ use graph_core::layout::force::Split;
 use graph_core::layout::forceatlas2::ForceAtlas2;
 pub(super) use graph_core::layout::tidy_tree::ID as TIDY_TREE;
 pub(super) use graph_core::layout::treemap::ID as TREEMAP;
+use graph_core::layout::{circular::ring, spiral};
 use graph_core::{GridParams, REFERENCE_DEGREE, SugiyamaParams};
 use std::env::VarError;
 
