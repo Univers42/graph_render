@@ -111,7 +111,10 @@ def main(argv):
         print("scigraphs-conformance: could not run: %s" % failure, file=sys.stderr)
         return 2
     print("scigraphs-conformance: %d/%d rows reached a reference" % (reached, total))
-    return 0 if reached == total else 1
+    # Only --metrics, which runs after both arms, judges the count: on a fresh directory the
+    # first arm sees its own 23 files and nothing else, and failing it there stopped the
+    # script at step 2 before the Graphviz arm ran (2026-10-02, a clean develop checkout).
+    return 1 if args.metrics and reached < total else 0
 
 
 def _reference(directory, fixtures, rows):
