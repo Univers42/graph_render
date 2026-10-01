@@ -85,6 +85,11 @@ fn honest_controls() -> Vec<(&'static str, Option<Value>)> {
                 "layout.packing.circle",
                 "layout.spectral",
                 "layout.mds.pivot",
+                "layout.random.3d",
+                "layout.spiral.3d",
+                "layout.bipartite.3d",
+                "layout.spectral.3d",
+                "layout.mds.pivot.3d",
             ],
         ),
         control("hashgate-control-force-theta", &["layout.force.barnes_hut"]),
@@ -129,6 +134,15 @@ fn honest() -> Evidence {
                 "layout.circular.radial": hand(6),
                 "layout.packing.circle": hand(5),
                 "layout.dag.sugiyama": hand(9),
+                // The three 3D *closed-form* arms route to `roundtrip`
+                // (`registry/layout_row.rs`'s fall-through, same as their 2D siblings), so
+                // a record that backs every gated row carries a case for each of them too.
+                // The two 3D spectral arms are NOT here: they route to `oracle-spectral`
+                // with `layout.spectral` / `layout.mds.pivot` and are in the `spectral`
+                // fixture below.
+                "layout.random.3d": hand(5),
+                "layout.spiral.3d": hand(5),
+                "layout.bipartite.3d": hand(5),
             }
         })),
         layouts: Some(json!({
@@ -151,6 +165,12 @@ fn honest() -> Evidence {
             "functions": {
                 "layout.spectral": hand(12),
                 "layout.mds.pivot": hand(13),
+                // The two 3D arms of the same differential, at `dims = 3`. Case counts
+                // are the measured per-component comparisons over the 1000 gate seeds:
+                // 982 and 990 against 984 and 996 for the 2D arms
+                // (`docs/measurements/p12-t4a.md`).
+                "layout.spectral.3d": hand(12),
+                "layout.mds.pivot.3d": hand(13),
             }
         })),
     }

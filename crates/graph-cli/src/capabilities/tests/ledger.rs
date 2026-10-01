@@ -87,7 +87,11 @@ fn without_records_every_gated_row_is_refused_twice() {
         spectral: None,
     };
     let rows = ledger(&bare);
-    assert_eq!(problems(&rows, &bare).len(), 34);
+    // Ten more refusals than the 34 of 28 layouts: each of the five 3D arms registered
+    // after them is a `gated` row, and a gated row with no record behind it is refused
+    // once for the hash gate and once for the oracle — the doubling this test is named
+    // for, applied to the five rows added to the registry.
+    assert_eq!(problems(&rows, &bare).len(), 44);
     // By id, not by position: the first row happens to be `topology.index` today, and a
     // registry entry inserted above it would leave this test passing on a row it never
     // meant to read.

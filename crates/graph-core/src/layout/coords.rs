@@ -90,15 +90,24 @@ fn recentre(x: &mut [f64], y: &mut [f64], mean_x: f64, mean_y: f64) {
 
 /// `Point` nodes at `(x, y)` narrowed to `f32`, straight `Line` edges, no notes.
 pub(super) fn point_geometry(x: &[f64], y: &[f64]) -> Geometry {
+    point_geometry_with(x, y, None)
+}
+
+/// `Point` nodes at `(x, y)` with an optional `z`, narrowed to `f32` in one place.
+///
+/// The one constructor both arities go through, so a 3D arm cannot narrow its z column
+/// differently from its x and y (`in_space` is what labels the snapshot 3D; the narrowing
+/// is what puts the bytes in).
+pub(super) fn point_geometry_with(x: &[f64], y: &[f64], z: Option<&[f64]>) -> Geometry {
     let narrow = |column: &[f64]| column.iter().map(|&v| v as f32).collect::<Vec<f32>>();
-    Geometry::planar(
-        NodeGeometry::Point {
-            x: narrow(x),
-            y: narrow(y),
-        },
-        EdgeGeometry::Line,
-        Vec::new(),
-    )
+    let nodes = NodeGeometry::Point {
+        x: narrow(x),
+        y: narrow(y),
+    };
+    match z {
+        Some(column) => Geometry::in_space(nodes, EdgeGeometry::Line, Vec::new(), narrow(column)),
+        None => Geometry::planar(nodes, EdgeGeometry::Line, Vec::new()),
+    }
 }
 
 #[cfg(test)]

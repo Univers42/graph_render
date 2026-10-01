@@ -70,6 +70,17 @@ fn layout_names_offers_every_registered_layout_once_by_both_of_its_names() {
             "treemap.patchwork",
             "layout.force.neato",
             "force.neato",
+            // The five 3D arms of docs/measurements/p12-t4a.md, appended.
+            "layout.random.3d",
+            "random.3d",
+            "layout.spiral.3d",
+            "spiral.3d",
+            "layout.bipartite.3d",
+            "bipartite.3d",
+            "layout.spectral.3d",
+            "spectral.3d",
+            "layout.mds.pivot.3d",
+            "mds.pivot.3d",
         ]
     );
     let mut once = names.clone();

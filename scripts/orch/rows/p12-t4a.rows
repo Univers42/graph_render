@@ -1,0 +1,51 @@
+# p12-t4a — the 3D arms of five closed-form and spectral SciGraphs names.
+# Format: name|expect|cmd, expect in {0, nonzero} (scripts/orch/gate.sh:2-4). The row's own
+# exit code is what `expect` is judged against, so a negctl row here is the bare failing
+# command and the gate records its real code in the log.
+#
+# The five ids are layout.random.3d, layout.spiral.3d, layout.bipartite.3d,
+# layout.spectral.3d, layout.mds.pivot.3d. They join the hash gate by being registered
+# (hashgate/stages.rs), so the per-seed 4-way equality is quick.rows' existing `hashgate-8`,
+# which now reports all five. The rows here are the contract positives and the controls.
+# Evidence for every number: docs/measurements/p12-t4a.md.
+
+# --- positives -------------------------------------------------------------------------------
+
+# Each 3D id is selectable and its canonical JSON face spells dim = 1. This is the row that
+# says "a 2D-only consumer must refuse this by name": dim 1 is what makes the `dimension-3d`
+# refusal fire in the renderer and the studio, so an id that could not be refused would be a
+# 3D layout silently projected to 2D. The face is canonical COMPACT JSON (keys sorted by
+# UTF-8 bytes, no spaces), so the pattern is `"dim":1` and not `"dim": 1`.
+dim3d-json|0|for l in layout.random.3d layout.spiral.3d layout.bipartite.3d layout.spectral.3d layout.mds.pivot.3d; do scripts/orch/gr cargo run -q --release -p graph-cli -- snapshot --seed 3 --layout $l --out-json - 2>/dev/null | grep -q '"dim":1' || exit 1; done
+
+# The mirror image: a 2D id's JSON face must NOT spell dim at all and must still be labelled
+# 0.3, so no 3D arm widened the contract for the layouts that were already there. This is the
+# gate's version of the 224-row golden sweep in docs/measurements/p12-t4a.md.
+dim2d-json-unchanged|0|for l in layout.random layout.spiral layout.bipartite layout.spectral layout.mds.pivot; do out=$(scripts/orch/gr cargo run -q --release -p graph-cli -- snapshot --seed 3 --layout $l --out-json - 2>/dev/null); echo "$out" | grep -q '"dim"' && exit 1; echo "$out" | grep -q '"minor":3' || exit 1; done
+
+# The five 3D stages are in the gate's stage list and 4-way equal, so native and wasm32
+# agree bit for bit on a z-carrying snapshot (the D-rules requirement).
+dim3d-stages-hashed|0|scripts/orch/gr cargo run -q --release -p graph-cli -- hashgate --seeds 8 2>&1 | grep -q 'layout.spectral.3d: 4-way equal on 8/8 seeds'
+
+# The z column is real bytes on the wire, not a placeholder: the 3D face of the same layout
+# over the same model is strictly longer than the 2D face. At seed 3 (5 nodes) the
+# difference is 20 bytes = 5 x f32, which is the whole claim.
+dim3d-z-on-the-wire|0|for pair in random spectral; do three=$(scripts/orch/gr cargo run -q --release -p graph-cli -- snapshot --seed 3 --layout layout.$pair.3d --out-bin - | wc -c); two=$(scripts/orch/gr cargo run -q --release -p graph-cli -- snapshot --seed 3 --layout layout.$pair --out-bin - | wc -c); [ "$three" -gt "$two" ] || exit 1; done
+
+# --- negative controls, each `expect nonzero` ------------------------------------------------
+
+# GM_MUTATE_NODE_COUNT adds nodes to the native arm's model. The five 3D arms are pure
+# functions of that model and pin their reference's defaults, so this is the control the
+# house reaches for when a closed form has no parameter of its own — the same reasoning as
+# Knob::TwopiNodes and Knob::PatchworkNodes. It moves the 3D stages, so the gate goes red:
+# the claim is that a 3D stage whose bytes stopped depending on its input would leave this
+# row green. Measured: it reports `layout.random.3d: 4-way equal on 0/8 seeds`.
+negctl-3d-node-count|nonzero|scripts/orch/gr -e GM_MUTATE_NODE_COUNT=2 cargo run -q --release -p graph-cli -- hashgate --seeds 8
+
+# GM_MUTATE_NODE_Z makes a 3D snapshot's z column one value longer than its node count, and
+# the reader must refuse it BY NAME (`Length { column: "node.z" }`). Without a row that
+# injects the fault, a reader that accepted a long z would sit green — the silent mislabel
+# the 3D seam makes possible. This is the design's own control
+# (docs/decisions/contract-3d.md §4.3). Its exit code is 2, "could not run", which is what
+# a refusal is; the row only requires non-zero.
+negctl-node-z-length|nonzero|scripts/orch/gr -e GM_MUTATE_NODE_Z=1 cargo run -q --release -p graph-cli -- roundtrip --seeds 8

@@ -20,7 +20,26 @@ const D3_ORACLE_LAYOUTS: [&str; 2] = [
 
 /// Layouts held to `harness/oracle-spectral.py`'s scipy/networkx differential, to a
 /// measured ceiling rather than byte equality.
-const SCIPY_ORACLE_LAYOUTS: [&str; 2] = ["layout.spectral", "layout.mds.pivot"];
+///
+/// The two 3D arms are here because they are the *same* differential at
+/// `dims = 3` — `_spectral_component_coordinates(G, 3)` and
+/// `_pivot_mds_component_coordinates(G, 3, _MDS_PIVOTS)` (`networkx_layouts.py:260,286`),
+/// compared by the same harness under their own recorded keys. Appending them keeps each
+/// arm beside the sibling it is a `dims` parameter of, so a reader can see the pair.
+///
+/// The three 3D *closed-form* arms (`layout.random.3d`, `layout.spiral.3d`,
+/// `layout.bipartite.3d`) are deliberately **not** listed: they fall through to `roundtrip`
+/// with `Status::Gated`, exactly as their 2D siblings `layout.random` / `layout.spiral` /
+/// `layout.bipartite` do. Their `harness/oracle-closed-form.py` differential is a separate
+/// record (`oracle-closed-form.json`), the same arrangement the four 2D closed-form rows
+/// have always had; giving the 3D arms a different route from their own siblings would
+/// claim a stronger gate than the 2D family has.
+const SCIPY_ORACLE_LAYOUTS: [&str; 4] = [
+    "layout.spectral",
+    "layout.mds.pivot",
+    "layout.spectral.3d",
+    "layout.mds.pivot.3d",
+];
 
 /// A layout's row. Tidy tree and treemap are gated on `oracle-layouts` (the d3-hierarchy
 /// differential); grid, circular and packing are gated on `roundtrip`'s hand oracle,

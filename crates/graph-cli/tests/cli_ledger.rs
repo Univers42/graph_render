@@ -47,7 +47,7 @@ const REQUIRED_LABEL: [&str; 5] = [
 /// the order rather than the row.
 /// Every layout `graph-core`'s registry holds, by id. The ledger is generated from that
 /// registry, so these are the layout rows that must appear in `capabilities --json`.
-const REGISTERED_LAYOUT_IDS: [&str; 23] = [
+const REGISTERED_LAYOUT_IDS: [&str; 28] = [
     "layout.grid",
     "layout.tree.tidy",
     "layout.treemap.squarified",
@@ -71,6 +71,14 @@ const REGISTERED_LAYOUT_IDS: [&str; 23] = [
     "layout.force.drl",
     "layout.force.spring",
     "layout.circular.hierarchy",
+    // The five 3D arms, appended to the registry in this order after the twenty-three
+    // above: the round trip sweeps the registry, so a 3D arm absent here would be one
+    // this test never checked for publication.
+    "layout.random.3d",
+    "layout.spiral.3d",
+    "layout.bipartite.3d",
+    "layout.spectral.3d",
+    "layout.mds.pivot.3d",
 ];
 
 const POST_IDS: [&str; 7] = [
@@ -91,9 +99,11 @@ fn capabilities_needs_a_flag_and_refuses_gated_rows_no_recorded_run_backs() {
     // The problem count is the stable half of the summary line: every problem is a
     // `gated` row with no record behind it, and an `implemented` row never produces one,
     // so adding rows (Phase 7's analysis rows, Phase 8's `post.*`, Phase 9's `scale.*`,
-    // Phase 10's ingest rows, `analysis.depth`, a new layout) moves the row count and
-    // never this one. The row count itself is deliberately not asserted here; the
-    // by-id check in `every_post_row_is_published_implemented_and_fully_filled` covers it.
+    // Phase 10's ingest rows, `analysis.depth`) moves the row count and never this one.
+    // A new *gated layout* is the exception, and the five 3D arms are that: each is
+    // refused once for the hash gate and once for the round trip, so 34 became 44. The
+    // row count itself is deliberately not asserted here; the by-id check in
+    // `every_post_row_is_published_implemented_and_fully_filled` covers it.
     assert!(
         stdout(&check).contains("problems"),
         "the summary line is printed: {}",
@@ -101,7 +111,7 @@ fn capabilities_needs_a_flag_and_refuses_gated_rows_no_recorded_run_backs() {
     );
     assert_eq!(
         problems_in(&stdout(&check)),
-        34,
+        44,
         "gated rows with no recorded run behind them: {}",
         stdout(&check)
     );
@@ -200,14 +210,17 @@ fn the_ledger_reads_a_recorded_run_and_names_what_it_lacks() {
 ///
 /// The count is asserted on the process's own output line, and the problem count is
 /// pinned beside it: an `implemented` row contributes no problem, so a new row may move
-/// the first number and never the second.
+/// the first number and never the second. 44, not 34, because the five 3D layouts
+/// registered after this row was written are `gated` and each is refused twice — the
+/// same ten the count in `capabilities_needs_a_flag_and_refuses_gated_rows_no_recorded_run_backs`
+/// grew by, so the two cannot drift apart without one of them going red.
 #[test]
 fn the_depth_row_is_published_by_the_binary_and_adds_no_problem() {
     let check = graph_cli(&["capabilities", "--check"]);
     assert_eq!(check.status.code(), Some(1), "{}", stdout(&check));
     assert_eq!(
         problems_in(&stdout(&check)),
-        34,
+        44,
         "the new row is implemented, so it adds a row and not a problem: {}",
         stdout(&check)
     );

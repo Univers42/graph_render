@@ -40,6 +40,58 @@ fn a_registered_layout_emits_the_kinds_it_declares_at_its_default_parameters() {
 }
 
 #[test]
+fn the_five_3d_arms_are_registered_appended_and_labelled_3d() {
+    // Appended, so the wasm index map (`exports/build.rs:32,166`) and the bench's
+    // `LAYOUTS[3]` default arm (`bench/campaign.rs:128`) keep pointing where they did.
+    let ids: Vec<&str> = LAYOUTS.iter().map(|l| l.id).collect();
+    let tail = &ids[28..];
+    assert_eq!(
+        tail,
+        [
+            "layout.random.3d",
+            "layout.spiral.3d",
+            "layout.bipartite.3d",
+            "layout.spectral.3d",
+            "layout.mds.pivot.3d"
+        ],
+        "the five 3D arms are the last five entries, in this order"
+    );
+    let (nodes, edges) = seeded_model(5, gate_node_count(5), REFERENCE_DEGREE);
+    for id in tail {
+        let layout = find(id).expect("registered");
+        assert_eq!(layout.meta.nodes, NodeGeometryKind::Point, "{id}");
+        assert_eq!(layout.meta.edges, EdgeGeometryKind::Line, "{id}");
+        let run = run_with(&nodes, &edges, id, layout.run).expect("runs");
+        assert_eq!(
+            run.snapshot.header().dim,
+            graph_contract::snapshot::Dim::D3,
+            "{id} must be labelled 3D, so a 2D-only consumer refuses it by name"
+        );
+        assert_eq!(
+            run.snapshot.parts().z.as_ref().map(Vec::len),
+            Some(nodes.len()),
+            "{id} must carry one z per node"
+        );
+    }
+}
+
+#[test]
+fn every_2d_layout_is_still_labelled_2d_and_carries_no_z_column() {
+    // The other half of the append: nothing above index 28 may have gained a z column.
+    let (nodes, edges) = seeded_model(5, gate_node_count(5), REFERENCE_DEGREE);
+    for layout in &LAYOUTS[..28] {
+        let run = run_with(&nodes, &edges, layout.id, layout.run).expect("runs");
+        assert_eq!(
+            run.snapshot.header().dim,
+            graph_contract::snapshot::Dim::D2,
+            "{} must stay 2D",
+            layout.id
+        );
+        assert!(run.snapshot.parts().z.is_none(), "{}", layout.id);
+    }
+}
+
+#[test]
 fn sugiyama_declares_polyline_edges_and_the_reference_dummy_budget() {
     let sugiyama = find("layout.dag.sugiyama").expect("registered");
     assert_eq!(sugiyama.meta.nodes, NodeGeometryKind::Point);

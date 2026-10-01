@@ -25,8 +25,19 @@ use crate::index::Topology;
 use crate::stage::StageError;
 use std::ops::Range;
 
+pub mod spiral_3d;
+
 /// The layout's capability id, which is also its hash-gate stage.
 pub const ID: &str = "layout.spiral";
+
+/// The 3D arm's capability id, SciGraphs' own conical curve — a different layout from
+/// [`ID`], not this one at another dimension (`spiral_3d`'s header).
+pub use spiral_3d::ID_3D;
+
+/// [`spiral_3d::run`], the registered entry point for `layout.spiral.3d`.
+pub fn run_3d(topology: &Topology) -> Result<Geometry, StageError> {
+    spiral_3d::run(topology)
+}
 
 /// networkx's default `resolution`.
 const RESOLUTION: f64 = 0.35;

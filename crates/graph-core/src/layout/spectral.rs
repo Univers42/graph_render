@@ -19,21 +19,23 @@ use crate::index::Topology;
 use crate::linalg::dense_sym::eigh;
 use crate::linalg::lobpcg::lobpcg_smallest;
 use crate::linalg::{EigBlock, orthonormal, pin_signs, residual_converged};
-use graph_contract::geometry::{EdgeGeometry, NodeGeometry};
 
 use super::Geometry;
 
 mod graph;
 use graph::ComponentGraph;
+pub(crate) use space::{pack_components, scatter, to_geometry};
+mod space;
 
-/// Output dimensionality. The reference solves 3D (`dims=3`); our `Point` geometry is
-/// 2D, so every place the reference passes `dims=3` this ports as `DIMS=2`.
+/// Output dimensionality of the 2D arm. The reference solves 3D (`dims=3`); the 2D
+/// `Point` geometry is what forced this to 2 while the motor had no z column.
 pub const DIMS: usize = 2;
+
+/// Output dimensionality of the 3D arm, the reference's own `dims=3`
+/// (`_spectral_layout_3d`, `networkx_layouts.py:260`).
+pub const DIMS_3D: usize = 3;
 /// `_DENSE_EIG_LIMIT` (reference constant).
 pub const DENSE_EIG_LIMIT: usize = 256;
-/// `_COMPONENT_SPACING` (reference constant).
-const COMPONENT_SPACING: f64 = 2.5;
-
 /// Which tier solved a component.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tier {
@@ -169,7 +171,7 @@ fn solve_component(
         let ok = converged(graph, &candidate);
         return (ok.then_some(candidate), Tier::Dense, None);
     }
-    let block = (DIMS + 2).min(graph.size() - 1);
+    let block = (dims_eff + 2).min(graph.size() - 1);
     let matvec = |x: &[f64], y: &mut [f64]| graph.matvec(x, y);
     let outcome = lobpcg_smallest(matvec, &graph.degree, graph.size(), block);
     let candidate = sub_block(&outcome.eig, 0, dims_eff);
@@ -181,52 +183,6 @@ fn solve_component(
     )
 }
 
-/// Writes one solved component's (already sign-pinned, peak-normalised) coordinates
-/// into the shared `coords` buffer, filling any dimension past `dims_eff` with the last
-/// solved column (`n_c = 2`'s "copy the last column into y", generalised). `pub(crate)`:
-/// `layout::pivot_mds` scatters its own projected coordinates the same way.
-pub(crate) fn scatter(coords: &mut [f64], members: &[u32], eig: &EigBlock) {
-    let peak = eig.vectors.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
-    for d in 0..DIMS {
-        let source = d.min(eig.k - 1);
-        for (li, &g) in members.iter().enumerate() {
-            let value = eig.column(source)[li];
-            coords[g as usize * DIMS + d] = if peak > 0.0 { value / peak } else { value };
-        }
-    }
-}
-
-/// The 2D-adapted lattice packing (`docs/decisions/eigensolver.md`): side
-/// `ceil(sqrt(components))`, per-component scale `sqrt(n_c / biggest)`, stable sort on
-/// `(-size, min_index)`. `pub(crate)`: shared with `layout::pivot_mds`, which packs the
-/// same shape of per-component blocks.
-pub(crate) fn pack_components(coords: &mut [f64], components: &[Vec<u32>]) {
-    if components.len() < 2 {
-        return;
-    }
-    let mut order: Vec<usize> = (0..components.len()).collect();
-    order.sort_by(|&a, &b| {
-        components[b]
-            .len()
-            .cmp(&components[a].len())
-            .then(components[a][0].cmp(&components[b][0]))
-    });
-    let biggest = components.iter().map(Vec::len).max().unwrap_or(1) as f64;
-    let side = (components.len() as f64).sqrt().ceil().max(1.0) as usize;
-    let offset = (side as f64 - 1.0) * COMPONENT_SPACING * 0.5;
-    let original = coords.to_vec();
-    for (slot, &c) in order.iter().enumerate() {
-        let scale = (components[c].len() as f64 / biggest).sqrt();
-        let cell = ((slot % side) as f64, (slot / side) as f64);
-        for &g in &components[c] {
-            let (gi, base) = (g as usize, g as usize * DIMS);
-            coords[base] = original[base] * scale + cell.0 * COMPONENT_SPACING - offset;
-            coords[base + 1] = original[base + 1] * scale + cell.1 * COMPONENT_SPACING - offset;
-            let _ = gi;
-        }
-    }
-}
-
 /// C12's only failure: at least one component was attempted (size `>= 2`) and none of
 /// the attempts solved. An all-singleton graph attempts nothing, so that is not this
 /// error — every node is already placed (at the origin, then its packing cell) with no
@@ -236,13 +192,32 @@ pub(crate) fn nothing_solved(components: &[Vec<u32>], any_solved: bool) -> bool 
     components.iter().any(|c| c.len() >= 2) && !any_solved
 }
 
-/// Runs the spectral layout. `Ok` even when some components were skipped — see
-/// [`SpectralError::NothingSolved`] for the only failure this returns.
+/// Runs the spectral layout at [`DIMS`]. `Ok` even when some components were skipped —
+/// see [`SpectralError::NothingSolved`] for the only failure this returns.
 pub fn run(topology: &Topology) -> Result<(Geometry, Vec<ComponentReport>), SpectralError> {
+    run_at(topology, DIMS)
+}
+
+/// The same layout at `dims` output dimensions, which is the whole of what separates
+/// `layout.spectral` from `layout.spectral.3d`: the number of eigenpairs kept, the
+/// packing lattice, and whether the geometry carries a z column.
+///
+/// **The reference's `n < 4` random fallback is not ported here, in either arm.** The
+/// reference returns `_random_layout(n, scale)` for `n < 4` (`networkx_layouts.py:257-258`)
+/// and again for a graph no component solved (`:262-263`); this motor refuses instead
+/// ([`SpectralError::NothingSolved`], C12) because a silently random picture is worse than
+/// a stated failure, and `eigensolver.md:238` records the same decision for 2D. A 3-node
+/// graph therefore *solves* here — `dims_eff = min(3, 2) = 2` non-trivial eigenpairs, the
+/// third dimension filled by [`scatter`]'s "copy the last column" rule — where the
+/// reference would have scattered it at random. Recorded in `docs/measurements/p12-t4a.md`.
+pub fn run_at(
+    topology: &Topology,
+    dims: usize,
+) -> Result<(Geometry, Vec<ComponentReport>), SpectralError> {
     let n = topology.node_count() as usize;
     let neighbors = simple_neighbors(topology);
     let components = find_components(&neighbors);
-    let mut coords = vec![0.0_f64; n * DIMS];
+    let mut coords = vec![0.0_f64; n * dims];
     let mut reports = Vec::new();
     let mut any_solved = false;
 
@@ -251,13 +226,13 @@ pub fn run(topology: &Topology) -> Result<(Geometry, Vec<ComponentReport>), Spec
             continue;
         }
         let graph = ComponentGraph::build(members, &neighbors, n);
-        let dims_eff = DIMS.min(graph.size() - 1);
+        let dims_eff = dims.min(graph.size() - 1);
         let (solved, tier, iterations) = solve_component(&graph, dims_eff);
         let ok = solved.is_some();
         if let Some(eig) = solved {
             let mut eig = eig;
             pin_signs(&mut eig);
-            scatter(&mut coords, members, &eig);
+            scatter(&mut coords, members, &eig, dims);
             any_solved = true;
         }
         reports.push(ComponentReport {
@@ -272,16 +247,8 @@ pub fn run(topology: &Topology) -> Result<(Geometry, Vec<ComponentReport>), Spec
     if nothing_solved(&components, any_solved) {
         return Err(SpectralError::NothingSolved);
     }
-    pack_components(&mut coords, &components);
-    Ok((to_geometry(&coords, n), reports))
-}
-
-/// `pub(crate)`: `layout::pivot_mds` packs its own `f64` coordinate buffer into the same
-/// `f32` `Point` geometry.
-pub(crate) fn to_geometry(coords: &[f64], n: usize) -> Geometry {
-    let x = (0..n).map(|i| coords[i * DIMS] as f32).collect();
-    let y = (0..n).map(|i| coords[i * DIMS + 1] as f32).collect();
-    Geometry::planar(NodeGeometry::Point { x, y }, EdgeGeometry::Line, Vec::new())
+    pack_components(&mut coords, &components, dims);
+    Ok((to_geometry(&coords, n, dims), reports))
 }
 
 #[cfg(test)]

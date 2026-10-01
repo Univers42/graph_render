@@ -222,4 +222,5 @@ fn nothing_solved_only_when_something_was_attempted_and_none_solved() {
     );
 }
 
+mod dims_3d;
 mod end_to_end;

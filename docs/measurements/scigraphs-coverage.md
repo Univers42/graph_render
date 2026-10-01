@@ -20,7 +20,7 @@ git log --oneline origin/develop..origin/p12-igraph
 
 | SciGraphs name | dispatcher | SciGraphs function | dim | motor registry id | status | reference the motor ports from | gating oracle |
 |---|---|---|---|---|---|---|---|
-| `RANDOM` | `dispatcher.py:51` | `_random_layout` `basic.py:5` | 3D | `layout.random` | on develop (2D port) | networkx 3.6 `random_layout` | `oracle-closed-form`, `capabilities/registry/unproven.rs:71`, `registry/closed_form.rs:23` |
+| `RANDOM` | `dispatcher.py:51` | `_random_layout` `basic.py:5` | 3D | `layout.random`, `layout.random.3d` | on develop (2D and 3D) | networkx 3.6 `random_layout`; the 3D arm at `dim=3` | `oracle-closed-form`, `capabilities/registry/unproven.rs:71`, `registry/closed_form.rs:23`; 3D arm `registry/closed_form.rs` `RANDOM_3D`, p12-t4a |
 | `GRID` | `dispatcher.py:53` | `_grid_layout` `basic.py:11` | 2D (z=0) | `layout.grid` | on develop | hand convention | `roundtrip` hand oracle, `registry/grid.rs:22` |
 | `SPRING` | `dispatcher.py:55` | `_spring_layout_2d` `networkx_layouts.py:16` | 2D | `layout.force.spring` | on develop (p12-t2) | networkx 3.6 `spring_layout` at `dim=2` | `oracle-spring`, networkx arm, stress deficit, `unproven.rs:67` |
 | `SPRING_3D` | `dispatcher.py:57` | `_spring_layout_3d` `networkx_layouts.py:26` | 3D | — | missing | networkx 3.6 `spring_layout` at `dim=3` | blocked on `contract-3d`; then the same `oracle-spring` at dim 3 |
@@ -32,15 +32,15 @@ git log --oneline origin/develop..origin/p12-igraph
 | `IGRAPH_DRL_2D` | `dispatcher.py:83` | `_igraph_drl_2d` `igraph_layouts.py:359` | 2D (`'dim': 2`) | `layout.force.drl` (shared with the row above) | in flight: p12-igraph | igraph | `oracle-igraph` (on the branch) |
 | `IGRAPH_LGL` | `dispatcher.py:88` | `_igraph_lgl` `igraph_layouts.py:423` | 2D | `layout.force.lgl` | in flight: p12-igraph | igraph | `oracle-igraph` (on the branch) |
 | `SPHERE` | `dispatcher.py:101` | `_sphere_layout` `basic.py:22` | 3D | — | missing | SciGraphs itself (Fibonacci sphere, `basic.py:22-34`) | hand + a SciGraphs-arm `oracle-basic-3d` |
-| `SPECTRAL_3D` | `dispatcher.py:103` | `_spectral_layout_3d` `networkx_layouts.py:249` | 3D (`dims=3`) | `layout.spectral` | on develop (2D port) | SciGraphs `_spectral_component_coordinates` on scipy 1.16.2 | `oracle-spectral`, `registry/spectral.rs:25` |
-| `SPIRAL_3D` | `dispatcher.py:105` | `_spiral_layout_3d` `basic.py:36` | 3D | `layout.spiral` | on develop (2D port) | networkx 3.6 `spiral_layout`, 2D | `oracle-closed-form`, `registry/closed_form.rs:56` |
+| `SPECTRAL_3D` | `dispatcher.py:103` | `_spectral_layout_3d` `networkx_layouts.py:249` | 3D (`dims=3`) | `layout.spectral`, `layout.spectral.3d` | on develop (2D and 3D) | SciGraphs `_spectral_component_coordinates` on scipy 1.16.2, at `dims=3` | `oracle-spectral`, `registry/spectral.rs:25`; 3D arm p12-t4a (cubic packing, `ceil(cbrt n)`) |
+| `SPIRAL_3D` | `dispatcher.py:105` | `_spiral_layout_3d` `basic.py:36` | 3D | `layout.spiral` (2D port), `layout.spiral.3d` | on develop (2D and 3D) | **SciGraphs' own `_spiral_layout_3d`** — networkx 3.6 `spiral_layout` *refuses* `dim=3` | `oracle-closed-form`, `registry/closed_form.rs:56`; 3D arm p12-t4a, its own kernel |
 | `HELIX` | `dispatcher.py:107` | `_helix_layout` `basic.py:65` | 3D | — | missing | SciGraphs itself (double helix, `basic.py:65-80`) | hand + a SciGraphs-arm `oracle-basic-3d` |
 | `CUBE` | `dispatcher.py:109` | `_cube_layout` `basic.py:83` | 3D | — | missing | SciGraphs itself (cube corners + interior, `basic.py:83-`) | hand + a SciGraphs-arm `oracle-basic-3d` |
 | `HIERARCHICAL_3D` | `dispatcher.py:111` | `_hierarchical_layout_3d` `hierarchical.py:113` | 3D | — | missing | SciGraphs itself (`_disk_positions` `hierarchical.py:90`, levels `hierarchical.py:54`) | hand + a SciGraphs-arm `oracle-hierarchical-3d` |
-| `BIPARTITE_3D` | `dispatcher.py:113` | `_bipartite_layout_3d` `hierarchical.py:213` | 3D | `layout.bipartite` | on develop (2D port) | networkx 3.6 `bipartite_layout` given SciGraphs' node sets | `oracle-closed-form`, `registry/closed_form.rs:72` |
+| `BIPARTITE_3D` | `dispatcher.py:113` | `_bipartite_layout_3d` `hierarchical.py:213` | 3D | `layout.bipartite` (2D port), `layout.bipartite.3d` | on develop (2D and 3D) | **SciGraphs' own `_bipartite_layout_3d`** — networkx 3.6 `bipartite_layout` has no `dim` parameter | `oracle-closed-form`, `registry/closed_form.rs:72`; 3D arm p12-t4a, shared partition + ring placement |
 | `IGRAPH_DH` | `dispatcher.py:115` | `_igraph_davidson_harel` `igraph_layouts.py:461` | 2D (planar) | `layout.force.davidson_harel` | in flight: p12-igraph | igraph | `oracle-igraph` (on the branch) |
 | `IGRAPH_GRAPHOPT` | `dispatcher.py:130` | `_igraph_graphopt` `igraph_layouts.py:493` | 2D (planar) | `layout.force.graphopt` | in flight: p12-igraph | igraph | `oracle-igraph` (on the branch) |
-| `MDS_3D` | `dispatcher.py:136` | `_mds_layout_3d` `networkx_layouts.py:271` | 3D | `layout.mds.pivot` | on develop (2D port) | SciGraphs `_pivot_mds_component_coordinates` on scipy 1.16.2 | `oracle-spectral`, `registry/spectral.rs:52` |
+| `MDS_3D` | `dispatcher.py:136` | `_mds_layout_3d` `networkx_layouts.py:271` | 3D | `layout.mds.pivot` (2D port), `layout.mds.pivot.3d` | on develop (2D and 3D) | SciGraphs `_pivot_mds_component_coordinates` on scipy 1.16.2, at `dims=3` | `oracle-spectral`, `registry/spectral.rs:52`; 3D arm p12-t4a |
 | `YIFAN_HU` | `dispatcher.py:138` | `_yifan_hu_layout` `yifan_hu.py:344` | 2D / 2Z / 3 by `props.sfdp_dim` | `layout.force.yifan_hu` | on develop (2D only) | SciGraphs' own multilevel scheme — explicitly **not** Graphviz `sfdp` | `stress` only, `unproven.rs:62`, `registry/force.rs:228` |
 | `GRAPHVIZ_TWOPI` | `dispatcher.py:140` | `_graphviz_engine_layout` `yifan_hu.py:340` | 2D default | `layout.twopi` | in flight: p13-gv1 | Graphviz `twopi` 16.1.0 `lib/twopigen/circle.c` | `oracle-twopi`, `capabilities/registry/unproven.rs:86`, `registry/radial.rs:32` |
 | `GRAPHVIZ_CIRCO` | `dispatcher.py:140` | same, `engine='circo'` | 2D default | `layout.circular.circo` | in flight: p13-gv1-circo | Graphviz `circo` 16.1.0 `lib/circogen` | `oracle-circo`, `capabilities/registry/unproven.rs`, `registry/graphviz_circo.rs`; **14 closed cases exact, but the circle order differs on 984 of 1000 seeds** — see `docs/measurements/p13-gv1-circo.md` |
@@ -54,10 +54,16 @@ git log --oneline origin/develop..origin/p12-igraph
 | `CIRCULAR_HIERARCHY` | `dispatcher.py:144` | `_circular_hierarchy_layout` `hierarchical.py:693` | 2D (z=0.0) | `layout.circular.hierarchy` | on develop (p12-t2) | SciGraphs itself, `hierarchical.py:693-732` | SciGraphs-arm `oracle-circular-hierarchy`, `unproven.rs:68` |
 
 - names = 32 (24 explicit `elif` comparisons plus 8 Graphviz engines)
-- on develop = 12, in four flavours: 5 as SciGraphs names them (`GRID`, `CIRCLE_PACKING`, `SUGIYAMA`,
-  `SPRING`, `CIRCULAR_HIERARCHY`), 6 as two-dimensional ports of a 3D name (`RANDOM`, `FORCEATLAS2`,
-  `SPECTRAL_3D`, `SPIRAL_3D`, `BIPARTITE_3D`, `MDS_3D`), and 1 as a 2D-only cut of a name SciGraphs makes
-  optional by dimension (`YIFAN_HU`, which is 2D/2Z/3 upstream)
+- on develop = 17, in four flavours: 5 as SciGraphs names them (`GRID`, `CIRCLE_PACKING`, `SUGIYAMA`,
+  `SPRING`, `CIRCULAR_HIERARCHY`); **5 now carried by a 2D port AND a real 3D arm** (`RANDOM`,
+  `SPECTRAL_3D`, `SPIRAL_3D`, `BIPARTITE_3D`, `MDS_3D` — the 3D arms landed in p12-t4a, one id
+  each, so `registry::LAYOUTS` grew 28 → 33); 1 as a two-dimensional port of a 3D name with no 3D
+  arm yet (`FORCEATLAS2`); and 1 as a 2D-only cut of a name SciGraphs makes optional by dimension
+  (`YIFAN_HU`, which is 2D/2Z/3 upstream)
+- of the five with a 3D arm, `SPECTRAL_3D` and `MDS_3D` are one kernel at two `dims`; `RANDOM`
+  is one kernel at two `dims`; `SPIRAL_3D` is its own kernel (networkx cannot arbitrate it) and
+  `BIPARTITE_3D` shares only the partition. The evidence, the two bugs the 3D arm found, and the
+  measured gaps are in `docs/measurements/p12-t4a.md`
 - in flight: p12-igraph = 7 names over 6 ids (`DRL` and `DRL_2D` share `layout.force.drl`) ·
   p13-gv1 = 3 names over 3 ids (`GRAPHVIZ_TWOPI` → `layout.twopi`, `GRAPHVIZ_OSAGE` →
   `layout.packing.osage`, `GRAPHVIZ_PATCHWORK` → `layout.treemap.patchwork`)
@@ -70,18 +76,27 @@ git log --oneline origin/develop..origin/p12-igraph
 
 ## Why every `missing` row is 3D
 
-The motor is 2D only. `NodeGeometry::Point` carries `x, y` and nothing else
-(`crates/graph-contract/src/geometry.rs:106-108`), and the snapshot header writes a hard `0` into the
-reserved z channel (`crates/graph-contract/src/snapshot.rs:106-107`, written at `:136`). So a SciGraphs
-name that is 3D cannot be answered today at all, and the only reason seven 3D names read `on develop`
-is that the motor ported the *2D question* each one answers and said so in the module doc —
-`crates/graph-core/src/layout/spectral.rs:29-31` is the pattern (`DIMS: usize = 2`, with the note that
-every `dims=3` in the reference ports as 2).
+**This section was true on 2026-09-30 and is now history.** The motor is no longer 2D only:
+`docs/decisions/contract-3d.md` landed, the snapshot header carries `dim` at byte 14 and a
+`dim = 1` snapshot carries a z column after `y` (`crates/graph-contract/src/snapshot/dim.rs`,
+`crates/graph-core/src/layout/mod.rs`'s `Geometry::in_space`), and p12-t4a added the 3D arms of the
+five names above. What follows is kept because it is the reasoning those five rows needed, and
+because the two exceptions it names are exactly what made them hard.
+
+Until then, `NodeGeometry::Point` carried `x, y` and nothing else
+(`crates/graph-contract/src/geometry.rs:106-108`) and the snapshot header wrote a hard `0` into the
+reserved z channel (`crates/graph-contract/src/snapshot.rs:106-107`, written at `:136`). So a
+SciGraphs name that is 3D could not be answered at all, and the only reason seven 3D names read
+`on develop` is that the motor ported the *2D question* each one answers and said so in the module
+doc — `crates/graph-core/src/layout/spectral.rs:29-31` was the pattern (`DIMS: usize = 2`, with the
+note that every `dims=3` in the reference ports as 2). That constant is now a parameter
+(`DIMS_3D`), and p12-t4a records what the parameterisation additionally needed: the reference's
+*cubic* packing lattice, and a latent zero-column bug in LOBPCG's start block that only a 5-column
+block could reach.
 
 Two rows are the exception that proves the rule. `SPRING_3D`'s 2D half *is* `SPRING`, which is p12-t2's
 `layout.force.spring` — the two rows are one algorithm at two dimensions, and the port says so at
-`crates/graph-core/src/layout/force/spring.rs:6-11`; `SPRING_3D` itself stays `missing` until
-`contract-3d` exists, at which point the same differential runs at `dim=3`. `HIERARCHICAL_3D` cannot be
+`crates/graph-core/src/layout/force/spring.rs:6-11`. `HIERARCHICAL_3D` cannot be
 collapsed: `hierarchical.py:113-147` puts the BFS level on the z axis (`z = level / max_level * 2 *
 scale - scale`) and only the in-plane disk radius varies with population, so dropping z stacks every
 level on the same disk. The motor's `layout.circular.radial` is a *different* function
@@ -89,11 +104,13 @@ level on the same disk. The motor's `layout.circular.radial` is a *different* fu
 `HIERARCHICAL_3D`) and its own oracle declines the SciGraphs comparison outright
 (`crates/graph-core/src/registry/hierarchy.rs:109-135`, the `CIRCULAR` row).
 
-Ponytail: the statuses are one read of the tree on 2026-09-30, not a permanent fact — `in flight` is
+Ponytail: the statuses are one read of the tree, not a permanent fact — `in flight` is
 decided by what `git log --oneline origin/develop..origin/p12-igraph` says today, and that branch
 lands six ids in one commit (`8238039`) against a `LAYOUTS` array whose length is a compile-time
-literal (`registry.rs:78`), so its rows are unreadable from this worktree until it merges. The
+literal (`registry.rs`), so its rows are unreadable from this worktree until it merges. The
 `on develop (2D port)` label is the one most likely to mislead: it means the id answers the 2D
-question, not that the 3D layout exists. The `dim` column is SciGraphs' own, read from each
-function's return shape, and is `2D (z=0)` where the function returns three columns with a constant
-z — dropping that column is a convention, not a port.
+question, not that the 3D layout exists. That is now true of `FORCEATLAS2` alone — the other five
+such rows read `on develop (2D and 3D)` and name their 3D id, and a row still reading
+`on develop (2D port)` is a name whose third axis is genuinely still absent. The `dim` column is
+SciGraphs' own, read from each function's return shape, and is `2D (z=0)` where the function
+returns three columns with a constant z — dropping that column is a convention, not a port.

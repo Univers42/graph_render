@@ -230,7 +230,7 @@ fn the_registry_covers_every_oracle_function_once_its_ids_are_unique() {
             // (`docs/measurements/p13-gv1-patchwork.md`) rather than to bytes, so the row is
             // `implemented` and never a `gated` claim resting on a hash.
             ("oracle-patchwork", r.id, Status::Implemented)
-        } else if r.id == "layout.spectral" || r.id == "layout.mds.pivot" {
+        } else if super::stages::is_spectral(r.id) {
             ("oracle-spectral", r.id, Status::Gated)
         } else if r.id == "transport.wasm.columnar" {
             ("wasm-transport", r.id, Status::Gated)

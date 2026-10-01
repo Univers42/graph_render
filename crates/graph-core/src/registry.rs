@@ -36,7 +36,8 @@ mod hierarchy;
 mod igraph;
 mod radial;
 mod spectral;
-use closed_form::{BIPARTITE, RANDOM, RING, SPIRAL};
+pub use closed_form::CLOSED_FORM_3D_CEILING;
+use closed_form::{BIPARTITE, BIPARTITE_3D, RANDOM, RANDOM_3D, RING, SPIRAL, SPIRAL_3D};
 use force::{BARNES_HUT, FA2, SPRING, YIFAN_HU};
 pub use force::{FA2_CEILING, FORCE_CEILING, SPRING_CEILING};
 use graphviz_circo::CIRCO;
@@ -53,8 +54,10 @@ pub use hierarchy::HIERARCHY_LAYOUT_CEILING;
 use hierarchy::{CIRCULAR, CIRCULAR_HIERARCHY, TIDY_TREE, TREEMAP};
 pub use radial::RADIAL_CEILING;
 use radial::TWOPI;
-use spectral::{PIVOT_MDS, SPECTRAL};
-pub use spectral::{PIVOT_MDS_CEILING, SPECTRAL_CEILING};
+use spectral::{PIVOT_MDS, PIVOT_MDS_3D, SPECTRAL, SPECTRAL_3D};
+pub use spectral::{
+    PIVOT_MDS_3D_CEILING, PIVOT_MDS_CEILING, SPECTRAL_3D_CEILING, SPECTRAL_CEILING,
+};
 
 /// What the ledger says about a layout. Every field is required.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -91,7 +94,7 @@ pub struct Capability {
 }
 
 /// Every registered layout, in the order the hash gate runs them.
-pub static LAYOUTS: [Capability; 28] = [
+pub static LAYOUTS: [Capability; 33] = [
     Capability {
         id: Grid::ID,
         run: run_default::<Grid>,
@@ -231,6 +234,36 @@ pub static LAYOUTS: [Capability; 28] = [
         id: neato::ID,
         run: neato::run,
         meta: NEATO,
+    },
+    // The five 3D arms of `docs/measurements/p12-t4a.md`, APPENDED. `graph-wasm`'s
+    // `gm_layout_id`/`gm_run` address LAYOUTS by index
+    // (`crates/graph-wasm/src/exports/build.rs:32,166`) and
+    // `crates/graph-cli/src/bench/campaign.rs:128` pins `LAYOUTS[3]` as its default arm,
+    // so an insert anywhere above the end would renumber ids with no compile error.
+    Capability {
+        id: random::ID_3D,
+        run: random::run_3d,
+        meta: RANDOM_3D,
+    },
+    Capability {
+        id: spiral::ID_3D,
+        run: spiral::run_3d,
+        meta: SPIRAL_3D,
+    },
+    Capability {
+        id: bipartite::ID_3D,
+        run: bipartite::run_3d,
+        meta: BIPARTITE_3D,
+    },
+    Capability {
+        id: "layout.spectral.3d",
+        run: spectral_stage::spectral_3d,
+        meta: SPECTRAL_3D,
+    },
+    Capability {
+        id: "layout.mds.pivot.3d",
+        run: spectral_stage::pivot_mds_3d,
+        meta: PIVOT_MDS_3D,
     },
 ];
 

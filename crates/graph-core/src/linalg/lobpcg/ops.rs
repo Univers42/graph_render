@@ -20,21 +20,51 @@
 /// same as [`super::COLLAPSE_NORM`] — a pathological graph this still aliases against
 /// is refused, not silently mislaid.
 pub(super) fn start_block(n: usize, block: usize) -> Vec<f64> {
-    // (sqrt(5) - 1) / 2, sqrt(2) - 1, sqrt(3) - 1: three mutually incommensurate
-    // irrationals, so no two columns' equidistribution can share a common near-rational
-    // resonance.
-    const ALPHAS: [f64; 3] = [0.6180339887498949, 0.4142135623730951, 0.7320508075688772];
     let mut out = vec![0.0; n * block];
     for (i, slot) in out[..n].iter_mut().enumerate() {
         *slot = libm::cos(i as f64 * 0.9124345) + libm::sin(i as f64 * 0.3141593);
     }
-    for (col, &alpha) in ALPHAS.iter().take(block.saturating_sub(1)).enumerate() {
+    for col in 1..block {
+        let alpha = alpha_for(col);
         for i in 0..n {
             let phase = (i as f64 + 1.0) * alpha;
-            out[(col + 1) * n + i] = 2.0 * (phase - phase.floor()) - 1.0;
+            out[col * n + i] = 2.0 * (phase - phase.floor()) - 1.0;
         }
     }
     out
+}
+
+/// The Weyl irrational for start column `col`.
+///
+/// **Generated, not tabled.** This was a fixed `[f64; 3]` and the 3D spectral arm found
+/// the bug: at `block = 5` (the reference's own `k = min(dims + 2, n - 1)` at `dims = 3`)
+/// the `.take(block - 1)` over a 3-element table left **column 4 entirely zero** — a start
+/// column of all zeros, which LOBPCG cannot move off, so the solve returned the
+/// Laplacian's trivial eigenvector (eigenvalue 0.0) and `layout.spectral.3d` refused 45
+/// consecutive gate seeds above the dense limit while `layout.spectral` passed every one.
+/// A silently-truncated table is the failure mode; there is no fixed length to forget to
+/// raise.
+///
+/// The three historical values are kept for `col` 1..=3 **verbatim**, so every 2D run's
+/// start block is bit-identical to what it was and the 2D hash gate does not move. Beyond
+/// them the sequence continues by `frac(col * PHI)` — irrational, so it never repeats a
+/// value and never returns 0 (which would be as degenerate as the all-zero column).
+pub(super) fn alpha_for(col: usize) -> f64 {
+    const HISTORIC: [f64; 3] = [0.6180339887498949, 0.4142135623730951, 0.7320508075688772];
+    match col {
+        1 => HISTORIC[0],
+        2 => HISTORIC[1],
+        3 => HISTORIC[2],
+        _ => {
+            // (sqrt(5) - 1) / 2, the golden-ratio conjugate.
+            const PHI: f64 = 0.6180339887498949;
+            let raw = col as f64 * PHI;
+            let frac = raw - raw.floor();
+            // Keep it inside (0, 1): `frac` is irrational, so this only guards the
+            // unreachable case of an exact 1.0 from a rounding-up.
+            if frac <= 0.0 { 0.5 } else { frac }
+        }
+    }
 }
 
 /// `R = AX - X diag(λ)`, column by column (a gather: column `j` reads only `x`, `ax`

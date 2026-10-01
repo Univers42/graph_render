@@ -47,6 +47,62 @@ fn cycle_full_spectrum(n: usize) -> Vec<f64> {
 }
 
 #[test]
+fn every_start_column_is_filled_at_every_block_width() {
+    // The bug the 3D spectral arm found: `start_block` drew its Weyl irrationals from a
+    // fixed `[f64; 3]`, so at `block = 5` (the reference's `k = min(dims + 2, n - 1)` at
+    // `dims = 3`) the last column was left ALL ZERO — a start vector LOBPCG cannot move
+    // off, which returned the Laplacian's trivial eigenvector and made
+    // `layout.spectral.3d` refuse 45 consecutive gate seeds while 2D passed them all.
+    //
+    // A zero column is the signature, so assert on it directly at every width the motor
+    // can ask for, rather than only through a solve that happens to fail.
+    for block in 1..=8usize {
+        let start = ops::start_block(64, block);
+        assert_eq!(start.len(), 64 * block, "block {block}");
+        for col in 0..block {
+            let column = &start[col * 64..(col + 1) * 64];
+            assert!(
+                column.iter().any(|&v| v != 0.0),
+                "block {block} column {col} is all zero"
+            );
+            assert!(
+                column.iter().all(|v| v.is_finite()),
+                "block {block} column {col} has a non-finite entry"
+            );
+        }
+    }
+}
+
+#[test]
+fn the_start_block_of_every_2d_run_is_unchanged() {
+    // The historical Weyl irrationals, kept verbatim so no 2D snapshot moves: the fix
+    // generates alphas past column 3, and the 2D block is 4 wide, so it reaches exactly
+    // one past the old table's end.
+    assert_eq!(ops::alpha_for(1), 0.6180339887498949);
+    assert_eq!(ops::alpha_for(2), 0.4142135623730951);
+    assert_eq!(ops::alpha_for(3), 0.7320508075688772);
+    // Column 0 is the reference's own start vector, unchanged.
+    let n = 32;
+    let start = ops::start_block(n, 4);
+    for (i, &got) in start[..n].iter().enumerate() {
+        let want = libm::cos(i as f64 * 0.9124345) + libm::sin(i as f64 * 0.3141593);
+        assert_eq!(got, want, "column 0, row {i}");
+    }
+    // And the three generated columns are the historical ones, in the historical order.
+    for col in 1..4usize {
+        let alpha = ops::alpha_for(col);
+        for (i, &got) in start[col * n..(col + 1) * n].iter().enumerate() {
+            let phase = (i as f64 + 1.0) * alpha;
+            assert_eq!(
+                got,
+                2.0 * (phase - phase.floor()) - 1.0,
+                "column {col}, row {i}"
+            );
+        }
+    }
+}
+
+#[test]
 fn finds_the_smallest_nontrivial_path_eigenvalues_above_the_dense_limit() {
     let n = 300;
     let out = lobpcg_smallest(path_matvec, &path_diag(n), n, 4);

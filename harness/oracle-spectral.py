@@ -1,5 +1,6 @@
-"""Differential of layout.spectral and layout.mds.pivot against SciGraphs' own
-networkx/scipy implementations, run in the ge-python-oracle image (scipy 1.16.2):
+"""Differential of layout.spectral, layout.mds.pivot and their two 3D arms
+(layout.spectral.3d, layout.mds.pivot.3d) against SciGraphs' own networkx/scipy
+implementations, run in the ge-python-oracle image (scipy 1.16.2):
 
   graph-cli emit-spectral-fixtures --seeds 1000
   docker run --rm -v $PWD:/w -v <SciGraphs>/core:/sg:ro -w /w ge-python-oracle \
@@ -23,6 +24,12 @@ magnitudes tie. The reference seeds LOBPCG's extra start columns randomly, so th
 worst includes the reference's own run-to-run noise, and the comparison cannot see a
 mirror or a rotation inside the 2D span. The gate model is one connected graph per seed,
 so degenerate eigenspaces and disconnected components are not exercised here.
+Ponytail (3D arms): the degeneracy thresholds are indexed by `dims` rather than fixed at
+the 2D boundaries, so a component whose third eigenvalue ties is counted `degenerate`
+rather than compared -- the reference itself returns an arbitrary rotation there. The
+reference's `n < 4` random fallback is NOT emulated: our arms solve those components
+instead, so a 3-node component is compared rather than skipped
+(`docs/measurements/p12-t4a.md`).
 """
 import hashlib, json, os, sys
 import numpy as np
@@ -83,50 +90,81 @@ def laplacian_spectrum(graph, idx):
     return np.linalg.eigvalsh(nx.laplacian_matrix(sub, nodelist=sorted(sub.nodes)).toarray().astype(float))
 
 
-def pivot_spectrum(graph, idx):
+def pivot_spectrum(graph, idx, dims):
     """CtC's eigenvalues, ascending, captured from the reference's own eigh call."""
     seen = []
     real = np.linalg.eigh
     np.linalg.eigh = lambda a, *args, **kw: (seen.append(real(a, *args, **kw)[0]) or real(a, *args, **kw))
     try:
         nodes = sorted(int(i) for i in idx)
-        ref._pivot_mds_coordinates(nx.adjacency_matrix(graph.subgraph(nodes), nodelist=nodes).astype(float).tocsr(), 2, ref._MDS_PIVOTS)
+        ref._pivot_mds_coordinates(nx.adjacency_matrix(graph.subgraph(nodes), nodelist=nodes).astype(float).tocsr(), dims, ref._MDS_PIVOTS)
     finally:
         np.linalg.eigh = real
     return seen[0]
 
 
+# key -> (ours column, the reference's own `dims` for it). The 3D arms are the reference's
+# `_spectral_component_coordinates(G, 3)` and `_pivot_mds_component_coordinates(G, 3, _MDS_PIVOTS)`
+# (networkx_layouts.py:260,286), which is the only thing that makes them a third column.
+ARMS = {
+    "spectral": ("spectral", 2),
+    "pivot_mds": ("pivot_mds", 2),
+    "spectral_3d": ("spectral_3d", 3),
+    "pivot_mds_3d": ("pivot_mds_3d", 3),
+}
+
+
+def block(case, key):
+    """A case's columns as an (n, d) float array: xy, or xyz when the layout is 3D."""
+    ours = case[key]
+    columns = [ours["x"], ours["y"]]
+    if "z" in ours:
+        columns.append(ours["z"])
+    return np.column_stack(columns).astype(float)
+
+
 layouts = {
-    "spectral": {"cases": 0, "degenerate": 0, "worst": 0.0},
-    "pivot_mds": {"cases": 0, "degenerate": 0, "worst": 0.0},
+    key: {"cases": 0, "degenerate": 0, "worst": 0.0} for key in ARMS
 }
 for text in open(path):
     case = json.loads(text)
     graph = nx.Graph()
     graph.add_nodes_from(range(case["n"]))
     graph.add_edges_from((s, t) for s, t in zip(case["source"], case["target"]) if s != t)
-    for key in layouts:
-        ours = np.column_stack([case[key]["x"], case[key]["y"]]).astype(float)
-        if key == "spectral":
-            theirs, comps = ref._spectral_component_coordinates(graph, 2)
+    for key, (_, dims) in ARMS.items():
+        ours = block(case, key)
+        assert ours.shape[1] == dims, f"{key}: expected {dims} columns, got {ours.shape[1]}"
+        if key.startswith("spectral"):
+            theirs, comps = ref._spectral_component_coordinates(graph, dims)
         else:
-            theirs, comps = ref._pivot_mds_component_coordinates(graph, 2, ref._MDS_PIVOTS)
+            theirs, comps = ref._pivot_mds_component_coordinates(graph, dims, ref._MDS_PIVOTS)
         for idx in comps:
             if len(idx) < 3:
                 continue
-            if key == "spectral":
+            # The degeneracy index is the eigenvalue just PAST the last one kept. The
+            # Laplacian spectrum carries the trivial 0 at index 0, so the `dims` kept
+            # non-trivial pairs are values[1..=dims] and the boundary tie is
+            # `tied(values, dims)`. At dims = 2 that is the 2D arm's own original
+            # `len < 4 / tied(values, 2)`, unchanged; at dims = 3 it is `len < 5 /
+            # tied(values, 3)`. Getting this wrong is silent: it admits a degenerate
+            # component into the comparison, where the reference returns an arbitrary
+            # rotation and the metric reads ~1.0 instead of failing.
+            if key.startswith("spectral"):
                 values = laplacian_spectrum(graph, idx)
-                if len(values) < 4 or tied(values, 2):
+                if len(values) < dims + 2 or tied(values, dims):
                     layouts[key]["degenerate"] += 1
                     continue
                 metric = worst_sine(ours[idx], theirs[idx])
             else:
-                values = pivot_spectrum(graph, idx)[::-1]
+                values = pivot_spectrum(graph, idx, dims)[::-1]
                 values = -values  # ascending on the negated spectrum: leading eigenvalues first
-                if len(values) < 3 or tied(values, 1):
+                # `values` here is the Gram spectrum with no trivial zero, so the kept
+                # pairs are values[..dims] and the boundary is one earlier. At dims = 2
+                # this is the 2D arm's own `len < 3 / tied(values, 1)` and `tied(values, 0)`.
+                if len(values) < dims + 1 or tied(values, dims - 1):
                     layouts[key]["degenerate"] += 1
                     continue
-                if tied(values, 0):
+                if tied(values, dims - 2):
                     metric = worst_sine(ours[idx], theirs[idx])
                 else:
                     metric = column_gap(peak_normalised(ours[idx]), peak_normalised(theirs[idx]))

@@ -5,7 +5,7 @@ use serde_json::{Value, json};
 /// Every hashgate stage's key, in `hashgate::STAGES` order, so this fixture's `equal`
 /// maps can be built at the same shape a real record has, without importing the
 /// hashgate module just for the constant.
-const STAGES: [&str; 17] = [
+const STAGES: [&str; 22] = [
     "topology",
     "layout.grid",
     "layout.tree.tidy",
@@ -22,6 +22,11 @@ const STAGES: [&str; 17] = [
     "layout.spiral",
     "layout.bipartite",
     "layout.force.yifan_hu",
+    "layout.random.3d",
+    "layout.spiral.3d",
+    "layout.bipartite.3d",
+    "layout.spectral.3d",
+    "layout.mds.pivot.3d",
     "transport.wasm.columnar",
 ];
 
@@ -35,4 +40,16 @@ pub(super) fn equal_map(seeds: u64, diverged: &[&str]) -> Value {
         })
         .collect();
     Value::Object(map)
+}
+
+/// The spectral family, 2D and 3D — the ids whose ledger row is `oracle-spectral`. The 3D
+/// arms route with their 2D siblings: same harness, same record shape, at `dims = 3`
+/// (`registry/layout_row.rs`'s `SCIPY_ORACLE_LAYOUTS`, which is the routing this restates).
+/// The three 3D *closed-form* arms are deliberately absent: they fall through to
+/// `roundtrip`, exactly as their 2D siblings do.
+pub(super) fn is_spectral(id: &str) -> bool {
+    matches!(
+        id,
+        "layout.spectral" | "layout.mds.pivot" | "layout.spectral.3d" | "layout.mds.pivot.3d"
+    )
 }

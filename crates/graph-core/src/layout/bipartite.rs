@@ -15,7 +15,7 @@ mod partition;
 
 use super::Geometry;
 use super::adjacency::neighbours;
-use super::coords::{point_geometry, rescale};
+use super::coords::{point_geometry, point_geometry_with, rescale};
 use crate::index::Topology;
 use crate::stage::StageError;
 use partition::partition;
@@ -23,8 +23,16 @@ use partition::partition;
 /// The layout's capability id, which is also its hash-gate stage.
 pub const ID: &str = "layout.bipartite";
 
+/// The 3D arm's capability id (`docs/measurements/p12-t4a.md`).
+pub const ID_3D: &str = "layout.bipartite.3d";
+
 /// networkx's default `aspect_ratio` over a unit height.
 const WIDTH: f64 = 4.0 / 3.0;
+
+/// SciGraphs `_bipartite_layout_3d`'s ring radius and plane offset
+/// (`hierarchical.py:234-239`), at its default `scale = 1`.
+const RADIUS_3D: f64 = 0.6;
+const PLANE_3D: f64 = 0.5;
 
 /// Runs the bipartite layout; never refuses.
 pub fn run(topology: &Topology) -> Result<Geometry, StageError> {
@@ -41,6 +49,36 @@ pub fn run(topology: &Topology) -> Result<Geometry, StageError> {
     }
     rescale(&mut x, &mut y);
     Ok(point_geometry(&x, &y))
+}
+
+/// `layout.bipartite.3d`: the two node sets on parallel planes, one ring each.
+///
+/// **The partition is shared, the placement is not** (`docs/measurements/p12-t4a.md`):
+/// [`partition`] is SciGraphs' own `_bipartite_parts` with its greedy maximum cut, and both
+/// arms call it, so the set membership is one implementation. The 2D arm draws two
+/// vertical columns (networkx `bipartite_layout`); SciGraphs' `_bipartite_layout_3d`
+/// (`hierarchical.py:213-242`) draws a ring of radius [`RADIUS_3D`] on each of the planes
+/// `z = ∓PLANE_3D`, which is a different placement of the same two sets rather than the
+/// same placement in three dimensions. That is why this is not a `dims` parameter over
+/// [`run`].
+pub fn run_3d(topology: &Topology) -> Result<Geometry, StageError> {
+    let count = topology.node_count() as usize;
+    let (first, second) = partition(&neighbours(topology));
+    let (mut x, mut y, mut z) = (vec![0.0; count], vec![0.0; count], vec![0.0; count]);
+    for (nodes, plane) in [(&first, -PLANE_3D), (&second, PLANE_3D)] {
+        // `max(1, count)`: an empty set divides by nothing, and the reference guards it
+        // the same way (`hierarchical.py:237`).
+        let divisor = nodes.len().max(1) as f64;
+        for (slot, &node) in nodes.iter().enumerate() {
+            let angle = slot as f64 / divisor * 2.0 * std::f64::consts::PI;
+            x[node as usize] = RADIUS_3D * libm::cos(angle);
+            y[node as usize] = RADIUS_3D * libm::sin(angle);
+            z[node as usize] = plane;
+        }
+    }
+    // No rescale: the reference places at its default `scale = 1` and does not
+    // `_rescale_positions` (see the 3D spectral arm for the same decision).
+    Ok(point_geometry_with(&x, &y, Some(&z)))
 }
 
 #[cfg(test)]

@@ -217,27 +217,41 @@ fn project(dist: &[f64], n: usize, k: usize, top: &EigBlock) -> EigBlock {
 /// One component's solve: always dense (`k <= 100 < DENSE_EIG_LIMIT`). Returns the
 /// projected, sign-pinnable coordinates (or `None` when the gate refuses them) and the
 /// pivot count used.
-fn solve_component(graph: &ComponentGraph) -> (Option<EigBlock>, u32) {
+fn solve_component(graph: &ComponentGraph, dims: usize) -> (Option<EigBlock>, u32) {
     let n = graph.size();
     let k = MAX_PIVOTS.min(n);
     let mut dist = pivot_distances(graph, k);
     double_center(&mut dist, n, k);
     let g = gram(&dist, n, k);
     let full = eigh(&g, k);
-    let dims_eff = DIMS.min(k);
+    let dims_eff = dims.min(k);
     let top = top_eigenpairs(&full, dims_eff);
     let ok = converged(&g, k, &top);
     let projected = project(&dist, n, k, &top);
     (ok.then_some(projected), k as u32)
 }
 
-/// Runs the Pivot MDS layout. `Ok` even when some components were skipped — see
-/// [`MdsError::NothingSolved`] for the only failure this returns.
+/// Runs the Pivot MDS layout at [`DIMS`]. `Ok` even when some components were skipped —
+/// see [`MdsError::NothingSolved`] for the only failure this returns.
 pub fn run(topology: &Topology) -> Result<(Geometry, Vec<ComponentReport>), MdsError> {
+    run_at(topology, DIMS)
+}
+
+/// The same layout at `dims` output dimensions — the whole of what separates
+/// `layout.mds.pivot` from `layout.mds.pivot.3d`, matching the reference's
+/// `_pivot_mds_component_coordinates(G, dims, _MDS_PIVOTS)` at `dims = 3`
+/// (`networkx_layouts.py:286`).
+///
+/// As in [`super::spectral`], the reference's `n < 4` random fallback
+/// (`networkx_layouts.py:283-284`) is not ported: this refuses, per C12.
+pub fn run_at(
+    topology: &Topology,
+    dims: usize,
+) -> Result<(Geometry, Vec<ComponentReport>), MdsError> {
     let n = topology.node_count() as usize;
     let neighbors = simple_neighbors(topology);
     let components = find_components(&neighbors);
-    let mut coords = vec![0.0_f64; n * DIMS];
+    let mut coords = vec![0.0_f64; n * dims];
     let mut reports = Vec::new();
     let mut any_solved = false;
 
@@ -246,11 +260,11 @@ pub fn run(topology: &Topology) -> Result<(Geometry, Vec<ComponentReport>), MdsE
             continue;
         }
         let graph = ComponentGraph::build(members, &neighbors, n);
-        let (solved, pivots) = solve_component(&graph);
+        let (solved, pivots) = solve_component(&graph, dims);
         let ok = solved.is_some();
         if let Some(mut eig) = solved {
             pin_signs(&mut eig);
-            scatter(&mut coords, members, &eig);
+            scatter(&mut coords, members, &eig, dims);
             any_solved = true;
         }
         reports.push(ComponentReport {
@@ -264,8 +278,8 @@ pub fn run(topology: &Topology) -> Result<(Geometry, Vec<ComponentReport>), MdsE
     if nothing_solved(&components, any_solved) {
         return Err(MdsError::NothingSolved);
     }
-    pack_components(&mut coords, &components);
-    Ok((to_geometry(&coords, n), reports))
+    pack_components(&mut coords, &components, dims);
+    Ok((to_geometry(&coords, n, dims), reports))
 }
 
 #[cfg(test)]
