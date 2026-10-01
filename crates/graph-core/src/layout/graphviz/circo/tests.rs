@@ -302,7 +302,7 @@ fn a_disconnected_graph_lays_each_component_out_around_the_origin() {
     assert!(got.iter().all(|p| p.0.is_finite() && p.1.is_finite()));
 }
 
-/// A component that does not hold node `0`. Every array in [`super::blocks::Walk`] is
+/// A component that does not hold node `0`. Every array in the walk is
 /// component-sized and indexed by the component's own `slot`, but `PARENT(n)` is a **node**,
 /// so it has to come back out of that array as one. Read as a local index instead, the first
 /// node's parent reads as node `0`, which belongs to another component: on
