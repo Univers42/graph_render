@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # studio-perf.sh — the studio perf gate: app/dist driven in headless Chromium, in Docker.
 #
-#   scripts/studio-perf.sh [--label NAME] [--driver NAME] [--record-baseline]
+#   scripts/studio-perf.sh [--label NAME] [--driver NAME] [--edge-colour flat|gradient] [--record-baseline]
 #
 #   --label NAME        output directory under target/studio-perf/ (default: current)
 #   --driver NAME       deploy/perf/drivers/NAME.js (default: hook)
+#   --edge-colour MODE  appearance.edgecolour the drawing is measured in (default: flat)
 #   --record-baseline   also write deploy/perf/baseline.json from this run
 #
 # Exit: 0 every gating row PASS · 1 a gating row FAIL or NOT-RUN · 2 could not run.
@@ -18,6 +19,7 @@ root=$(git -C "$(dirname -- "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)
 image=${PERF_IMAGE:-gm-chromium}
 label=current
 driver=hook
+edge_colour=flat
 record=()
 
 while [[ $# -gt 0 ]]; do
@@ -30,12 +32,17 @@ while [[ $# -gt 0 ]]; do
       driver=$2
       shift 2
       ;;
+    --edge-colour)
+      edge_colour=$2
+      label="$label-$2"
+      shift 2
+      ;;
     --record-baseline)
       record=(--record-baseline deploy/perf/baseline.json)
       shift
       ;;
     --help)
-      sed -n '2,15p' "${BASH_SOURCE[0]}"
+      sed -n '2,16p' "${BASH_SOURCE[0]}"
       exit 0
       ;;
     *)
@@ -58,5 +65,5 @@ baseline=()
 
 exec docker run --rm --memory 4g --memory-swap 4g -e STUDIO_PERF_BREAK="${STUDIO_PERF_BREAK:-}" -v "$root:/w" -w /w "$image" \
   python3 deploy/perf/run.py --dist app/dist --out "target/studio-perf/$label" \
-  --driver "$driver" --commit "$(git -C "$root" rev-parse --short HEAD)" \
+  --driver "$driver" --edge-colour "$edge_colour" --commit "$(git -C "$root" rev-parse --short HEAD)" \
   "${baseline[@]}" "${record[@]}"

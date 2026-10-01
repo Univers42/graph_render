@@ -65,7 +65,7 @@ def measure(dist, out, commit, broken):
         try:
             page = cdp.Page(DEBUG_PORT)
             served = f"http://127.0.0.1:{server.server_address[1]}/"
-            studio = Studio(page, served, expect_drag=201 if broken else None)
+            studio = Studio(page, served, expect_drag=201 if broken else None, expect_gradient=not broken)
             studio.open()
             return {
                 "label": out.name, "commit": commit, "break": broken,
@@ -94,7 +94,8 @@ def parse_args():
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--commit", default="unknown")
     parser.add_argument("--break", action="store_true", dest="broken",
-                        help="the negative control: the drag row expects a move that is not made")
+                        help="the negative control: the drag row expects a move that is not made, "
+             "and the edge gradient row never turns the gradient on")
     return parser.parse_args()
 
 

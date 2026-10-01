@@ -1,7 +1,7 @@
 """Studio perf gate: serve a built studio, drive it in headless Chromium, judge the rows.
 
-Usage: run.py --dist DIR --out DIR --driver NAME [--baseline FILE] [--record-baseline FILE]
-              [--commit ID]
+Usage: run.py --dist DIR --out DIR --driver NAME [--edge-colour flat|gradient] [--baseline FILE]
+              [--record-baseline FILE] [--commit ID]
 Exit:  0 every gating row PASS · 1 a gating row FAIL or NOT-RUN · 2 the harness could not run
 
 Ponytail: software raster in a container on a shared host. Numbers compare run to run on
@@ -66,10 +66,11 @@ def launch_browser(profile):
 class Studio:
     """The page, plus the driver that knows how to operate this studio."""
 
-    def __init__(self, page, url, driver):
+    def __init__(self, page, url, driver, edge_colour="flat"):
         self.page = page
         self.url = url
         self.driver = (HERE / "drivers" / f"{driver}.js").read_text()
+        self.edge_colour = edge_colour
 
     def open(self, nodes, dpr, layout=FORCE_LAYOUT):
         self.page.set_viewport(VIEWPORT[0], VIEWPORT[1], dpr)
@@ -80,6 +81,10 @@ class Studio:
         if nodes > limit:
             return f"driver caps at {limit} nodes"
         self.page.evaluate(f"window.__perf.open({nodes}, {json.dumps(layout)})")
+        # The edge colour mode is a display setting, so it is asked for once the graph is
+        # drawn: a driver with no hook for it is measured in whatever mode it opened in.
+        if self.page.evaluate("typeof window.__perf.edgeColour === 'function'"):
+            self.page.evaluate(f"window.__perf.edgeColour({json.dumps(self.edge_colour)})")
         return None
 
     def probe(self, name, args):
@@ -130,10 +135,11 @@ def measure(args, out):
         browser = launch_browser(profile)
         try:
             page = cdp.Page(DEBUG_PORT)
-            studio = Studio(page, f"http://127.0.0.1:{server.server_address[1]}/", args.driver)
+            studio = Studio(page, f"http://127.0.0.1:{server.server_address[1]}/", args.driver, args.edge_colour)
             version = page.call("Browser.getVersion").get("product")
             return {
                 "label": out.name, "driver": args.driver, "commit": args.commit,
+                "edgeColour": args.edge_colour,
                 "browser": version, "viewport": VIEWPORT,
                 "frames": measure_frames(studio, out),
                 "block": measure_block(studio),
@@ -150,6 +156,8 @@ def parse_args():
     parser.add_argument("--dist", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--driver", required=True)
+    parser.add_argument("--edge-colour", default="flat", choices=["flat", "gradient"],
+                        help="the appearance.edgecolour mode the drawing is measured in")
     parser.add_argument("--baseline", type=Path)
     parser.add_argument("--record-baseline", type=Path)
     parser.add_argument("--commit", default="unknown")

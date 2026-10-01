@@ -155,6 +155,12 @@ function armSettle(state: LoopState): void {
   }, MOVING_MS);
 }
 
+/** One full frame once the view has stopped, when a moving frame drew less than the whole set. */
+export function drewAWay(counts: Pick<PaintCounts, "mixedEdges" | "gradientStrokes">): boolean {
+  // The mixed edges gave the gradient up while the view moved: one settled frame puts it back.
+  return counts.mixedEdges > 0 && counts.gradientStrokes === 0;
+}
+
 function renderFrame(state: LoopState, now: number): void {
   state.scheduled = 0;
   if (state.destroyed) return;
@@ -170,5 +176,5 @@ function renderFrame(state: LoopState, now: number): void {
   // A frame that baked a label planned it at width 0: one more frame lays it out at its width.
   const rebake = state.sprites.starved() || state.sprites.rasterised() > 0;
   if (travelling || fading(state, performance.now()) || rebake) invalidate(state);
-  else if (moving && state.scene.frame.edgeCount > MOVING_BUDGET) armSettle(state);
+  else if (moving && (state.scene.frame.edgeCount > MOVING_BUDGET || drewAWay(state.counts))) armSettle(state);
 }

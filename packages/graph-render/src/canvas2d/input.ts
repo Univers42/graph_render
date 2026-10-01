@@ -49,6 +49,9 @@ export interface PaintCounts {
   /** `stroke()` calls on edges, and the edge styles (base, lit) that drew at least one edge. */
   strokes: number;
   edgeStyles: number;
+  /** Edges whose ends wore two colours, and the strokes each of them took of its own. */
+  mixedEdges: number;
+  gradientStrokes: number;
   /** Fills issued for arrow heads and for glow discs: each a named budget of its own. */
   arrowFills: number;
   glowFills: number;
@@ -57,5 +60,5 @@ export interface PaintCounts {
 }
 
 export function newCounts(): PaintCounts {
-  return { nodes: 0, edges: 0, labels: 0, draws: 0, arrows: 0, arrowSize: 0, curves: 0, strokes: 0, edgeStyles: 0, arrowFills: 0, glowFills: 0, stroke: 0 };
+  return { nodes: 0, edges: 0, labels: 0, draws: 0, arrows: 0, arrowSize: 0, curves: 0, strokes: 0, edgeStyles: 0, mixedEdges: 0, gradientStrokes: 0, arrowFills: 0, glowFills: 0, stroke: 0 };
 }

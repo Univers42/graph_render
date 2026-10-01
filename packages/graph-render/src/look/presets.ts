@@ -68,6 +68,16 @@ const SCIGRAPHS_DEFAULT: Look = { ...GALLERY, name: "scigraphs" };
 /** The look the studio starts on: SciGraphs (05-reproducible-pipeline.qmd:591-680). */
 export const DEFAULT_PRESET = "scigraphs";
 
+/**
+ * True for a SciGraphs look preset, and false for the studio's own themes. A preset's edge
+ * tubes carry the node colour attribute and the renderer interpolates it along the edge
+ * (ui/coloring/properties.py:195-215), so a preset is drawn with the edge gradient on and a
+ * theme of ours with it off.
+ */
+export function isPreset(name: string): boolean {
+  return LOOK_NAMES.includes(name);
+}
+
 export const LOOKS: Readonly<Record<string, Look>> = Object.fromEntries(
   [...SCIGRAPHS, GALLERY, SCIGRAPHS_DEFAULT].map((entry) => [entry.name, entry]),
 );
