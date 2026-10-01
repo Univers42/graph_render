@@ -29,6 +29,7 @@ mod igraph;
 mod neato;
 mod osage;
 mod patchwork;
+mod sfdp;
 mod spectral;
 pub mod spring;
 mod twopi;

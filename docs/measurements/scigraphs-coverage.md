@@ -5,7 +5,7 @@ Counted 2026-09-30 from the tree, read-only. The key is the SciGraphs side: one 
 `dispatcher.py` line is the `elif algorithm ==` that selects the name; the eight Graphviz engines share
 one branch (`dispatcher.py:140`) and are named in `yifan_hu.py:7-16`.
 
-The motor side is `LAYOUTS` in `crates/graph-core/src/registry.rs:86` (26 entries) read through
+The motor side is `LAYOUTS` in `crates/graph-core/src/registry.rs:90` (27 entries) read through
 `scripts/orch/gr cargo run -q -p graph-cli -- capabilities`; a row's registry id appears in that
 command's output under `id`, and the ledger row it comes from is built at
 `crates/graph-cli/src/capabilities/registry/layout_row.rs:28-56`. The studio picker reads the same registry, so a
@@ -48,7 +48,7 @@ git log --oneline origin/develop..origin/p12-igraph
 | `GRAPHVIZ_PATCHWORK` | `dispatcher.py:140` | same, `engine='patchwork'` | 2D default | `layout.treemap.patchwork` | in flight: p13-gv1 | Graphviz `patchwork` 16.1.0 `lib/patchwork/tree_map.c` | `oracle-graphviz --engine patchwork`, `capabilities/registry/unproven.rs:106`, `registry/graphviz_patchwork.rs:40`; **worst gap 6.6e-2 pt = the oracle's own printed quantum** — see `docs/measurements/p13-gv1-patchwork.md` |
 | `GRAPHVIZ_NEATO` | `dispatcher.py:140` | same, `engine='neato'` | 2D default; 3D eligible (`GRAPHVIZ_NATIVE_3D_ENGINES` `yifan_hu.py:18`) | `layout.force.neato` | in flight: p13-gv2 | Graphviz `neato` 16.1.0 `lib/neatogen/stress.c` | `oracle-graphviz`, `capabilities/registry/unproven.rs:63`, `registry/graphviz_neato.rs:25` |
 | `GRAPHVIZ_FDP` | `dispatcher.py:140` | same, `engine='fdp'` | 2D default | `layout.force.fdp` | on p13-gv2 (`Status::Implemented`, never gated: the oracle is not self-reproducible) | Graphviz `fdp` | Graphviz's own output, docker-only oracle; `-Gstart` is **effective**, not inert, and the oracle disagrees with itself over the same sweep — `docs/measurements/p13-gv2-fdp.md` |
-| `GRAPHVIZ_SFDP` | `dispatcher.py:140` | same, `engine='sfdp'` | 2D default; 3D eligible (`yifan_hu.py:18`) | — | planned: p13-gv2 | Graphviz `sfdp` | Graphviz's own output, docker-only oracle |
+| `GRAPHVIZ_SFDP` | `dispatcher.py:140` | same, `engine='sfdp'` | 2D default; 3D eligible (`yifan_hu.py:18`) | `layout.force.sfdp` | in flight: p13-gv2 | Graphviz `sfdp` 16.1.0 `lib/sfdpgen/spring_electrical.c` | `oracle-graphviz --engine sfdp`, `capabilities/registry/unproven.rs:121`, `registry/graphviz_sfdp.rs:45`; **seed-sensitive** — the oracle disagrees *with itself* by 4.81e+2 pt between `-Gstart` 1 and 7, our worst gap is 3.88e+2 pt — see `docs/measurements/p13-gv2-sfdp.md` |
 | `GRAPHVIZ_DOT` | `dispatcher.py:140` | same, `engine='dot'` | 2D default | — | planned: p13-gv2 | Graphviz `dot` | Graphviz's own output, docker-only oracle |
 | `SUGIYAMA` | `dispatcher.py:142` | `_sugiyama_layout` `hierarchical.py:638` | 2D (z=0) | `layout.dag.sugiyama` | on develop | hand, checked on dagre-d3-es crossing counts | `roundtrip` + `harness/oracle-layouts.mjs --dag`, `registry/grid.rs:90` |
 | `CIRCULAR_HIERARCHY` | `dispatcher.py:144` | `_circular_hierarchy_layout` `hierarchical.py:693` | 2D (z=0.0) | `layout.circular.hierarchy` | on develop (p12-t2) | SciGraphs itself, `hierarchical.py:693-732` | SciGraphs-arm `oracle-circular-hierarchy`, `unproven.rs:68` |
@@ -67,8 +67,10 @@ git log --oneline origin/develop..origin/p12-igraph
   p13-gv2 = 1 name over 1 id (`GRAPHVIZ_NEATO` → `layout.force.neato`, 2D only — the 3D-eligible
   arm is p12-t4) ·
   p13-gv2-fdp = 1 name over 1 id (`GRAPHVIZ_FDP` → `layout.force.fdp`, `Status::Implemented`, never gated:
-  its oracle is not self-reproducible, measured)
-- planned: p12-t2 = 2 · planned: p13-gv2 = 2 (`GRAPHVIZ_SFDP`, `GRAPHVIZ_DOT`)
+  its oracle is not self-reproducible, measured) ·
+  p13-gv2-sfdp = 1 name over 1 id (`GRAPHVIZ_SFDP` → `layout.force.sfdp`, `Status::Implemented`, never gated:
+  seed-sensitive oracle)
+- planned: p12-t2 = 2 · planned: p13-gv2 = 1 (`GRAPHVIZ_DOT`)
 - missing = 0 (the five 3D names landed with p12-t3)
 - motor ids with no SciGraphs name = 4 (`layout.tree.tidy`, `layout.treemap.squarified`, `layout.circular.ring`, `layout.force.barnes_hut`); out of scope for a table keyed on SciGraphs names
 

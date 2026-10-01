@@ -16,7 +16,7 @@ fn a_record_from_another_tree_or_too_few_seeds_is_refused() {
     assert!(stale[0].contains("from another tree"), "{stale:?}");
     let short = refused(|e| e.hashgate.as_mut().expect("set")["seeds"] = json!(MIN_SEEDS - 1));
     assert!(short[0].contains("ran 999 seeds, need 1000"), "{short:?}");
-    let short = refused(|e| e.oracle.as_mut().expect("set")["seeds"] = json!(999));
+    let short = refused(|e| e.by_name.get_mut("oracle-diff").expect("set")["seeds"] = json!(999));
     assert!(short[0].contains("oracle-diff ran 999 seeds"), "{short:?}");
 }
 
@@ -54,7 +54,7 @@ fn a_failed_run_a_short_stage_or_a_green_control_is_refused() {
     assert!(stale[0].contains("from another tree"), "{stale:?}");
     let none = refused(|e| e.controls.clear());
     assert!(none[0].ends_with("no control is registered"), "{none:?}");
-    let oracle = refused(|e| e.oracle.as_mut().expect("set")["pass"] = json!(false));
+    let oracle = refused(|e| e.by_name.get_mut("oracle-diff").expect("set")["pass"] = json!(false));
     assert!(oracle[0].contains("oracle-diff did not pass"), "{oracle:?}");
 }
 
@@ -63,7 +63,7 @@ fn degree_control(e: &mut Evidence) -> &mut Value {
 }
 
 fn functions(e: &mut Evidence) -> &mut Value {
-    &mut e.oracle.as_mut().expect("set")["functions"]
+    &mut e.by_name.get_mut("oracle-diff").expect("set")["functions"]
 }
 
 #[test]

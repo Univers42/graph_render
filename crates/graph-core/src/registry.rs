@@ -19,6 +19,7 @@ use crate::layout::graphviz::fdp;
 use crate::layout::graphviz::neato;
 use crate::layout::graphviz::osage;
 use crate::layout::graphviz::patchwork;
+use crate::layout::graphviz::sfdp;
 use crate::layout::grid::Grid;
 use crate::layout::hierarchical_3d;
 use crate::layout::radial::twopi;
@@ -36,6 +37,7 @@ mod graphviz_fdp;
 mod graphviz_neato;
 mod graphviz_osage;
 mod graphviz_patchwork;
+mod graphviz_sfdp;
 mod grid;
 mod hierarchy;
 mod igraph;
@@ -55,6 +57,8 @@ use graphviz_osage::OSAGE;
 pub use graphviz_osage::OSAGE_CEILING;
 use graphviz_patchwork::PATCHWORK;
 pub use graphviz_patchwork::PATCHWORK_CEILING;
+use graphviz_sfdp::SFDP;
+pub use graphviz_sfdp::SFDP_CEILING;
 use grid::{GRID, PACKING, SUGIYAMA};
 pub use grid::{GRID_CEILING, PACKING_CEILING, SUGIYAMA_CEILING};
 pub use hierarchy::HIERARCHY_LAYOUT_CEILING;
@@ -101,7 +105,7 @@ pub struct Capability {
 }
 
 /// Every registered layout, in the order the hash gate runs them.
-pub static LAYOUTS: [Capability; 34] = [
+pub static LAYOUTS: [Capability; 35] = [
     Capability {
         id: Grid::ID,
         run: run_default::<Grid>,
@@ -276,6 +280,11 @@ pub static LAYOUTS: [Capability; 34] = [
         id: SPRING_3D_ID,
         run: run_default::<Spring3D>,
         meta: SPRING_3D,
+    },
+    Capability {
+        id: sfdp::ID,
+        run: sfdp::run,
+        meta: SFDP,
     },
 ];
 

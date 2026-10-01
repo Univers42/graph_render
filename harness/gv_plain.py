@@ -46,6 +46,21 @@ def write_dot(path, n, source, target):
         f.write("\n".join(lines) + "\n")
 
 
+# Per-engine allowance for a *build* notice this image cannot avoid, measured not guessed.
+#
+# `sfdp` calls `remove_overlap` unconditionally (`lib/sfdpgen/spring_electrical.c:1181`) and in an
+# image built without the triangulation library that function is an empty stub which prints one
+# line and returns (`lib/neatogen/overlap.c:588-610`). The notice sets Graphviz's error flag, so
+# the process exits 1 while stdout already holds the complete, finished `-Tplain` drawing. The
+# coordinates are therefore sfdp's own: overlap removal changed nothing, because it ran no code.
+# Measured: `-Goverlap` false/true/scale/prism/vor all produce byte-identical stdout and the same
+# exit 1, so no flag value can suppress it — the notice is removed here, not worked around.
+# Every other engine keeps the strict rule: a non-zero exit is a failure.
+ENGINE_BENIGN_STDERR = {
+    "sfdp": ("Error: remove_overlap: Graphviz not built with triangulation library",)
+}
+
+
 def run_engine(engine, dot_path, start=START_SEED):
     """`<engine> -Tplain -Gstart=<seed> <dot>`, or the engine's own complaint and no answer.
 
@@ -56,7 +71,10 @@ def run_engine(engine, dot_path, start=START_SEED):
     cmd = [engine, "-Tplain", f"-Gstart={start}", dot_path]
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
-        sys.exit(f"{engine} failed on {dot_path}: {proc.stderr}")
+        benign = ENGINE_BENIGN_STDERR.get(engine, ())
+        noise = [ln for ln in proc.stderr.splitlines() if ln.strip() not in benign]
+        if noise or not benign:
+            sys.exit(f"{engine} failed on {dot_path}: {proc.stderr}")
     return proc.stdout
 
 

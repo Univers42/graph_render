@@ -48,24 +48,25 @@ const IGRAPH_LAYOUTS: [&str; 6] = [
 ///   coordinate tolerance, exactly like `oracle-closed-form`; `spring3d` shares
 ///   `layout.force.spring`'s record because it is that layout at `dim = 3`.
 ///
-/// These rows are `implemented`, not `gated`: `Status::Gated` is refused by
-/// `problems()` unless *both* a 4-way hash verdict and the row's own oracle verdict
-/// are backed by a recorded run on this tree, and `verdict::oracle_record` resolves only
-/// the records the `Evidence` struct carries (`capabilities/verdict.rs:63-74`) — neither
-/// `oracle-spring` nor `oracle-circular-hierarchy` nor `oracle-igraph` is one of them, so a
-/// `gated` row here could only ever read back "no oracle-spring record: run the gate" and
-/// report a refusal where a verdict belongs. `implemented` states the truth: registered,
-/// hashed, differentially measured, not yet an oracle-backed gate. Claiming `gated` for any
-/// of them with only a hash behind it would be exactly the silent weakening of the
-/// project's central guarantee the phase prompt forbids, and the fix is a
-/// `verdict::Evidence` arm per differential — which belongs with the ledger change that
-/// would earn the status, not smuggled in to make one row look stronger than the others.
+/// These rows are `implemented`, not `gated`, and none of them is `gated` for want of a
+/// record the ledger can read: `verdict::Evidence` now resolves every record in the gates
+/// directory by the name its own file carries, so `oracle-spring`,
+/// `oracle-circular-hierarchy` and `oracle-igraph` read exactly as the Graphviz six do and a
+/// new engine's differential needs no edit in the ledger's reader. `Status::Gated` is
+/// refused by `problems()` unless *both* a 4-way hash verdict and the row's own oracle
+/// verdict are backed by a recorded run on this tree, and for these rows one of those two is
+/// not available: either the oracle is not byte-comparable at all (`oracle-igraph`,
+/// `oracle-spring`), or the stage has no negative control behind it. `implemented` states
+/// the truth: registered, hashed, differentially measured, not yet an oracle-backed gate.
+/// Claiming `gated` for any of them with only a hash behind it would be exactly the silent
+/// weakening of the project's central guarantee the phase prompt forbids.
 pub(super) fn force_record(id: &str) -> Option<(&'static str, Status)> {
     match id {
         "layout.force.barnes_hut" => Some(("stress", Status::Implemented)),
         "layout.forceatlas2" => Some(("oracle-fa2", Status::Implemented)),
-        // Ponytail: no differential exists for the multilevel layout (not sfdp); the
+        // Ponytail: no differential exists for SciGraphs' own multilevel layout; the
         // stress record is the closest metric and is barnes_hut's, so `implemented` only.
+        // (Graphviz's `sfdp` is a different algorithm and has its own differential below.)
         "layout.force.yifan_hu" => Some(("stress", Status::Implemented)),
         // Its own differential, and its own record, because this engine is not
         // reproducible: the pinned Graphviz 16.1.0 `fdp -Tplain -Gstart=1` gives
@@ -92,12 +93,9 @@ pub(super) fn force_record(id: &str) -> Option<(&'static str, Status)> {
         // 1e-1). It is routed to its own record so the row says which comparison backs it,
         // never `gated` on a hash alone.
         //
-        // `oracle_diff` still reads `not backed: no oracle-twopi record` even after a real run,
-        // because `verdict::Evidence::oracle_record` (`capabilities/verdict.rs:63-74`) matches
-        // a fixed list of record names and has no arm for `oracle-twopi` — nor for
-        // `oracle-closed-form`, which is why the four `implemented` rows above read the same
-        // way. That is a pre-existing gap in the reader, not a claim this row is making: the
-        // differential is real and its numbers are in `docs/measurements/p13-gv1.md`.
+        // `oracle_diff` reads that record — the ledger resolves it by name like any other —
+        // and says "within measured ceiling of the oracle/1000 seeds" after a real run. The
+        // numbers are in `docs/measurements/p13-gv1.md`.
         "layout.twopi" => Some(("oracle-twopi", Status::Implemented)),
         // Ponytail: `implemented`, not `gated`, and the reason is the oracle's own printed
         // resolution rather than a shortfall: `-Tplain` carries five significant digits, so
@@ -109,20 +107,21 @@ pub(super) fn force_record(id: &str) -> Option<(&'static str, Status)> {
         // agrees to four significant digits rather than five, so identity is not available
         // to claim. `docs/measurements/p13-gv2-neato.md` has the distribution.
         //
-        // The same reader gap as the row above applies: `verdict::Evidence::oracle_record`
-        // has no arm for `oracle-graphviz`, so `oracle_diff` still reports
-        // `not backed` after a real run. Pre-existing, not a claim this row makes.
-        "layout.force.neato" => Some(("oracle-graphviz", Status::Implemented)),
-        // Ponytail: `implemented`, not `gated`, for the same two reasons as the row above,
-        // and routed to its own record so the row names the comparison that backs it.
-        // osage is closed form over rectangles and never reads an edge, so its gap is an
-        // algorithmic difference or nothing; the residual is the oracle's own five
-        // significant digits, and the ceiling is the next power of ten above the measured
-        // worst gap (docs/measurements/p13-gv1-osage.md).
-        //
-        // `verdict::Evidence::oracle_record` matches a fixed list of record names and has no
-        // arm for `oracle-osage`, exactly as it has none for `oracle-twopi`: that reader is
-        // a pre-existing gap, not a claim this row makes.
+        // The record is `oracle-neato`, the name `oracle_python::graphviz::NEATO.name` gives it.
+        "layout.force.neato" => Some(("oracle-neato", Status::Implemented)),
+        // Ponytail: `implemented`, not `gated`, and the reason is on the **hash** side, not
+        // the oracle side: this row's `oracle-osage` record is read and passes at a measured
+        // worst gap of 6.309e-2 points under a 1e-1 ceiling
+        // (docs/measurements/p13-gv1-osage.md), but `Status::Gated` also needs a negative
+        // control that went red on the `layout.packing.osage` stage, and none does: the
+        // honest run hashes the stage 4-way on every seed, while the controls that do go
+        // red diverge `topology`, `layout.treemap.squarified` and `layout.packing.circle`
+        // and leave this stage equal. The per-stage knob for a Graphviz engine is
+        // deliberately absent from `hashgate::knobs` because that table is shared with the
+        // parallel engine jobs (scripts/orch/rows/p13-gv1-osage.rows:23-31), so promoting
+        // this row to `gated` needs that knob and a `negctl-osage-nodes` row — a change in
+        // `hashgate/`, not in the ledger. `capabilities::tests::graphviz` names the gap and
+        // shows a red control on this stage is the whole of what is missing.
         "layout.packing.osage" => Some(("oracle-osage", Status::Implemented)),
         // Ponytail: the same honest status and the same reason as `layout.twopi` above, for
         // the same Graphviz oracle, and a stronger reason than `layout.packing.osage` has:
@@ -134,18 +133,15 @@ pub(super) fn force_record(id: &str) -> Option<(&'static str, Status)> {
         // in which node takes which slot, and an agreement that narrow earns `implemented`
         // and nothing more.
         //
-        // `verdict::Evidence::oracle_record` matches a fixed list of record names and has no
-        // arm for `oracle-circo`, exactly as it has none for `oracle-twopi`: that reader is
-        // a pre-existing gap, not a claim this row makes.
+        // Its `oracle-circo` record is read like any other, and it records the disagreement
+        // above rather than hiding it: 1000 cases, worst 6.460e+04, which is why the row is
+        // not `gated` on it.
         "layout.circular.circo" => Some(("oracle-circo", Status::Implemented)),
-        // `layout.treemap.patchwork` is routed the same way and for the same reason, and
-        // carries the same caveat as the twopi row above: `verdict::Evidence::oracle_record`
-        // has no arm for `oracle-patchwork` either, so `oracle_diff` reads
-        // `not backed: no oracle-patchwork record` even after the real run that wrote
-        // `target/gates/oracle-patchwork.json` (1000 cases, worst 6.613e-2, pass). Same
-        // pre-existing reader gap, not a claim this row is making: the differential is real
-        // and its numbers are in `docs/measurements/p13-gv1-patchwork.md`, and the ceiling
-        // reflects `-Tplain`'s five significant digits rather than a shortfall.
+        // `layout.treemap.patchwork` is routed the same way and for the same reason as
+        // `layout.twopi`: its own record (`target/gates/oracle-patchwork.json`, 1000 cases,
+        // worst 6.613e-2, pass) is read by name and the ceiling reflects `-Tplain`'s five
+        // significant digits rather than a shortfall. Numbers in
+        // `docs/measurements/p13-gv1-patchwork.md`.
         "layout.treemap.patchwork" => Some(("oracle-patchwork", Status::Implemented)),
         // ---- p12-t3: the five 3D layouts. Three closed forms over `(num_nodes, scale)`
         // that read no graph at all, so ONE arm file covers all three and each gets its
@@ -169,6 +165,21 @@ pub(super) fn force_record(id: &str) -> Option<(&'static str, Status)> {
         // differential is `oracle-spring` re-run at `dim = 3`, and its gate is the stress
         // deficit at that dimension, not at two.
         "layout.force.spring3d" => Some(("oracle-spring", Status::Implemented)),
+        // `layout.force.sfdp` is routed the same way, and its `Ponytail` caveat is stronger
+        // than the three rows above rather than weaker, so it is worth stating why the row is
+        // `Implemented` and not `Gated` on the hash alone. The differential is real and its
+        // numbers are in `docs/measurements/p13-gv2-sfdp.md`. But this engine is SEED-SENSITIVE
+        // (measured: the same fixture hashes differently at `-Gstart` 1, 7 and 99), and the
+        // decisive number is that the oracle compared **against itself** at `-Gstart` 7 rather
+        // than 1 differs by up to 4.81e+2 points on the differential's own metric over the
+        // same 1000 seeds — LARGER than the 3.88e+2 gap our own arm shows. So the
+        // measured gap between the two arms is not a shortfall this port can close by writing
+        // better code: the reference draws a random permutation to order its multilevel
+        // matchings, and a port that does not draw glibc's exact permutation stream cannot
+        // land far below the oracle's own seed-to-seed spread. `Implemented` is the honest
+        // status; `Gated` would claim a byte-agreement this job did not reach, and widening
+        // the ceiling until the row passed would be the same claim with a bigger number.
+        "layout.force.sfdp" => Some(("oracle-sfdp", Status::Implemented)),
         _ => None,
     }
 }

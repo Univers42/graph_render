@@ -28,6 +28,11 @@ test("an id loses its first dotted segment, and one without a dot is kept", () =
   assert.equal(shortName(""), "");
 });
 
+test("a fixture path is shown whole, not cut at its extension", () => {
+  assert.equal(shortName("dag/chain.json"), "dag/chain.json");
+  assert.equal(shortName("hierarchy/tree-balanced.json"), "hierarchy/tree-balanced.json");
+});
+
 test("a digest shows its first eight characters, and nothing at all is a dash", () => {
   assert.equal(digest8("0123456789abcdef"), "01234567");
   assert.equal(digest8("short"), "short");
