@@ -20,7 +20,9 @@ mod circular_hierarchy;
 mod cli;
 mod closed_form;
 mod fa2;
+mod graphviz;
 mod igraph;
+mod osage;
 mod spectral;
 pub mod spring;
 mod twopi;
@@ -32,7 +34,6 @@ pub use fa2::FA2;
 pub use igraph::IGRAPH;
 pub use spectral::SPECTRAL;
 pub use spring::SPRING;
-pub use twopi::TWOPI;
 
 use crate::evidence::{FINGERPRINTED, Stamp};
 use crate::runner::file_sha256;

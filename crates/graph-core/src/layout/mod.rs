@@ -11,6 +11,7 @@ pub mod circular;
 mod coords;
 pub mod force;
 pub mod forceatlas2;
+pub mod graphviz;
 pub mod grid;
 pub mod hierarchy;
 pub mod pivot_mds;

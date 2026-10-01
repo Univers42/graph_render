@@ -44,7 +44,7 @@ git log --oneline origin/develop..origin/p12-igraph
 | `YIFAN_HU` | `dispatcher.py:138` | `_yifan_hu_layout` `yifan_hu.py:344` | 2D / 2Z / 3 by `props.sfdp_dim` | `layout.force.yifan_hu` | on develop (2D only) | SciGraphs' own multilevel scheme — explicitly **not** Graphviz `sfdp` | `stress` only, `unproven.rs:62`, `registry/force.rs:228` |
 | `GRAPHVIZ_TWOPI` | `dispatcher.py:140` | `_graphviz_engine_layout` `yifan_hu.py:340` | 2D default | `layout.twopi` | in flight: p13-gv1 | Graphviz `twopi` 16.1.0 `lib/twopigen/circle.c` | `oracle-twopi`, `capabilities/registry/unproven.rs:86`, `registry/radial.rs:32` |
 | `GRAPHVIZ_CIRCO` | `dispatcher.py:140` | same, `engine='circo'` | 2D default | — | planned: p13-gv1 | Graphviz `circo` | Graphviz's own output, docker-only oracle |
-| `GRAPHVIZ_OSAGE` | `dispatcher.py:140` | same, `engine='osage'` | 2D default | — | planned: p13-gv1 | Graphviz `osage` | Graphviz's own output, docker-only oracle |
+| `GRAPHVIZ_OSAGE` | `dispatcher.py:140` | same, `engine='osage'` | 2D default | `layout.packing.osage` | in flight: p13-gv1 | Graphviz `osage` 16.1.0 `lib/osage/osageinit.c` + `lib/pack/pack.c` | `oracle-graphviz --engine osage`, `capabilities/registry/unproven.rs:65`, `registry/graphviz_osage.rs`; **agrees exactly only below 11 nodes** — see `docs/measurements/p13-gv1-osage.md` |
 | `GRAPHVIZ_PATCHWORK` | `dispatcher.py:140` | same, `engine='patchwork'` | 2D default | — | planned: p13-gv1 | Graphviz `patchwork` | Graphviz's own output, docker-only oracle |
 | `GRAPHVIZ_NEATO` | `dispatcher.py:140` | same, `engine='neato'` | 2D default; 3D eligible (`GRAPHVIZ_NATIVE_3D_ENGINES` `yifan_hu.py:18`) | — | planned: p13-gv2 | Graphviz `neato` | Graphviz's own output, docker-only oracle |
 | `GRAPHVIZ_FDP` | `dispatcher.py:140` | same, `engine='fdp'` | 2D default | — | planned: p13-gv2 | Graphviz `fdp` | Graphviz's own output, docker-only oracle |
@@ -59,8 +59,8 @@ git log --oneline origin/develop..origin/p12-igraph
   `SPECTRAL_3D`, `SPIRAL_3D`, `BIPARTITE_3D`, `MDS_3D`), and 1 as a 2D-only cut of a name SciGraphs makes
   optional by dimension (`YIFAN_HU`, which is 2D/2Z/3 upstream)
 - in flight: p12-igraph = 7 names over 6 ids (`DRL` and `DRL_2D` share `layout.force.drl`) ·
-  p13-gv1 = 1 name over 1 id (`GRAPHVIZ_TWOPI` → `layout.twopi`)
-- planned: p13-gv1 = 3 · planned: p13-gv2 = 4
+  p13-gv1 = 2 names over 2 ids (`GRAPHVIZ_TWOPI` → `layout.twopi`, `GRAPHVIZ_OSAGE` → `layout.packing.osage`)
+- planned: p13-gv1 = 2 · planned: p13-gv2 = 4
 - missing = 5, all of them 3D: `SPRING_3D`, `SPHERE`, `HELIX`, `CUBE`, `HIERARCHICAL_3D`
 - motor ids with no SciGraphs name = 4 (`layout.tree.tidy`, `layout.treemap.squarified`, `layout.circular.ring`, `layout.force.barnes_hut`); out of scope for a table keyed on SciGraphs names
 
