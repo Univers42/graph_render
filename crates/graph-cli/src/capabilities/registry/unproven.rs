@@ -40,6 +40,13 @@ const IGRAPH_LAYOUTS: [&str; 6] = [
 ///   and for the reason the clause below gives, not because the comparison is weak.
 /// - the six igraph-family layouts in [`IGRAPH_LAYOUTS`] are held to
 ///   **harness/oracle-igraph.py** (`oracle-igraph`), one row per layout.
+/// - the five 3D layouts p12-t3 added — `layout.basic3d.sphere`, `.helix` and `.cube`
+///   (three closed forms over `(num_nodes, scale)` sharing one arm,
+///   `harness/oracle-basic-3d.py`), `layout.hierarchical3d` (the SciGraphs function
+///   itself, `harness/oracle-hierarchical-3d.py`) and `layout.force.spring3d` — are held
+///   as named in their own arms below. The first four are closed forms compared within a
+///   coordinate tolerance, exactly like `oracle-closed-form`; `spring3d` shares
+///   `layout.force.spring`'s record because it is that layout at `dim = 3`.
 ///
 /// These rows are `implemented`, not `gated`: `Status::Gated` is refused by
 /// `problems()` unless *both* a 4-way hash verdict and the row's own oracle verdict
@@ -95,6 +102,28 @@ pub(super) fn force_record(id: &str) -> Option<(&'static str, Status)> {
         // arm for `oracle-osage`, exactly as it has none for `oracle-twopi`: that reader is
         // a pre-existing gap, not a claim this row makes.
         "layout.packing.osage" => Some(("oracle-osage", Status::Implemented)),
+        // ---- p12-t3: the five 3D layouts. Three closed forms over `(num_nodes, scale)`
+        // that read no graph at all, so ONE arm file covers all three and each gets its
+        // own record only because each is a different function with a different oracle
+        // (`--function sphere|helix|cube` in one arm file, `harness/oracle-basic-3d.py`).
+        // The reason they are `implemented` and not `gated` is the one the clause above
+        // gives: `verdict::Evidence::oracle_record` has no arm for `oracle-basic-3d`, so a
+        // `gated` row could only read back "run the gate" where a verdict belongs.
+        "layout.basic3d.sphere" | "layout.basic3d.helix" | "layout.basic3d.cube" => {
+            Some(("oracle-basic-3d", Status::Implemented))
+        }
+        // Its own record, not `oracle-closed-form`'s: it is the SciGraphs function itself
+        // being compared, and `oracle-closed-form` is the networkx arm. Same `implemented`
+        // reason as the two above.
+        "layout.hierarchical3d" => Some(("oracle-hierarchical-3d", Status::Implemented)),
+        // **The same record as `layout.force.spring`, deliberately.** They are one
+        // algorithm at two dimensions over one kernel (`spring3d.rs` is `spring.rs` with
+        // `D = 3`), so one stress-ratio measurement run at `dim = 3` is the comparison
+        // this row names — and a second record would let either dimension be "measured"
+        // by the other's run. What differs is not the record but the note: this row's
+        // differential is `oracle-spring` re-run at `dim = 3`, and its gate is the stress
+        // deficit at that dimension, not at two.
+        "layout.force.spring3d" => Some(("oracle-spring", Status::Implemented)),
         _ => None,
     }
 }

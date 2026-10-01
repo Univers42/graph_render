@@ -16,21 +16,25 @@
 //! so the comparison never meets a disconnected graph or a larger one; those rest on
 //! graph-core's own tests.
 
+mod basic_3d;
 mod circular_hierarchy;
 mod cli;
 mod closed_form;
 mod fa2;
 mod graphviz;
+mod hierarchical_3d;
 mod igraph;
 mod osage;
 mod spectral;
 pub mod spring;
 mod twopi;
 
+pub use basic_3d::BASIC_3D;
 pub use circular_hierarchy::CIRCULAR_HIERARCHY;
 pub use cli::Cli;
 pub use closed_form::CLOSED_FORM;
 pub use fa2::FA2;
+pub use hierarchical_3d::HIERARCHICAL_3D;
 pub use igraph::IGRAPH;
 pub use spectral::SPECTRAL;
 pub use spring::SPRING;
@@ -69,6 +73,41 @@ pub(super) fn points(id: &str, nodes: &NodeGeometry) -> Result<Value, String> {
         NodeGeometry::Point { x, y } => Ok(json!({ "x": x, "y": y })),
         other => Err(format!("{id}: expected Point geometry, got {other:?}")),
     }
+}
+
+/// A 3D layout's geometry as `{x, y, z}` columns, from the **snapshot** rather than the
+/// geometry.
+///
+/// The `z` is read off `SnapshotParts::z`, which is where a 3D layout's third column
+/// actually lands (`layout::snapshot` writes it there and nowhere else), so this compares
+/// what the wire carries rather than what the layout returned — a `Geometry::in_space` whose
+/// z never reached the snapshot would answer every `x` and `y` correctly and be caught here
+/// as a missing column rather than as a silent 2D comparison.
+///
+/// A missing or empty-against-nodes `z` is **refused**, not defaulted: `None` on a 3D
+/// layout means the column was dropped somewhere between the layout and the wire, which is
+/// the exact failure the 3D rows exist to make loud.
+pub(super) fn columns_3d(
+    id: &str,
+    nodes: &NodeGeometry,
+    z: Option<&[f32]>,
+) -> Result<Value, String> {
+    let NodeGeometry::Point { x, y } = nodes else {
+        return Err(format!("{id}: expected Point geometry, got {nodes:?}"));
+    };
+    let Some(z) = z else {
+        return Err(format!(
+            "{id}: a 3D layout with no z column in its snapshot"
+        ));
+    };
+    if z.len() != x.len() || z.len() != y.len() {
+        return Err(format!(
+            "{id}: z has {} values against {} nodes — the column was dropped or truncated",
+            z.len(),
+            x.len()
+        ));
+    }
+    Ok(json!({ "x": x, "y": y, "z": z }))
 }
 
 /// `graph-cli emit-<name>-fixtures`.
