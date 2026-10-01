@@ -48,5 +48,6 @@ pub const fn record(knob: Knob) -> &'static str {
         Knob::IgraphDrlNodes => igraph::RECORD[5],
         Knob::SplitSum => "hashgate-control-split-sum",
         Knob::SplitRescale => "hashgate-control-split-rescale",
+        Knob::ForceSessionGravity => "forcegate-control-force-session-gravity",
     }
 }

@@ -50,6 +50,10 @@ export async function runDegradedSection(ctx) {
     await refusedWith(WasmUnavailableError, () => degraded?.analyses()),
   );
   check("degraded_motor_post_fails_predictably_kill_switch", await refusedWith(WasmUnavailableError, () => degraded?.post(1, "post.style.straight")));
+  // The force session included: it needs the module for everything it does, so a degraded motor
+  // must refuse it at `forceSession` rather than hand back an object whose every method then
+  // fails on its own — the same shape as `post`, and for the same reason.
+  check("degraded_motor_force_session_fails_predictably_kill_switch", await refusedWith(WasmUnavailableError, () => degraded?.forceSession(1)));
   check("degraded_motor_analysis_fails_predictably_kill_switch", await refusedWith(WasmUnavailableError, () => degraded?.analysis(1, "analysis.components.weak")));
   globalThis.__GM_DISABLE_WASM__ = priorKillSwitch;
 }

@@ -12,11 +12,11 @@ use super::*;
 use crate::hashgate::knob::setting::setting;
 use crate::hashgate::knobs;
 
-/// The ten controls that move a parameter. **Spelled out rather than derived from
-/// [`Knob::env`]**, so this test is the independent statement of what the first ten are
-/// called; the twenty-one per-stage controls are absent because their variables come from
+/// The eleven controls that move a parameter. **Spelled out rather than derived from
+/// [`Knob::env`]**, so this test is the independent statement of what they are called; the
+/// twenty-one per-stage controls are absent because their variables come from
 /// `knobs::all()`, which has its own test below.
-const PARAMETER_KNOBS: [(&str, &str); 10] = [
+const PARAMETER_KNOBS: [(&str, &str); 11] = [
     (
         "GM_MUTATE_REFERENCE_DEGREE",
         "hashgate-control-reference-degree",
@@ -42,6 +42,10 @@ const PARAMETER_KNOBS: [(&str, &str); 10] = [
         "hashgate-control-circular-nodes",
     ),
     ("GM_MUTATE_PACKING_SCALE", "hashgate-control-packing-scale"),
+    (
+        "GM_MUTATE_FORCE_SESSION_GRAVITY",
+        "forcegate-control-force-session-gravity",
+    ),
 ];
 
 /// The six igraph layout controls, spelled out by variable and record rather than read off

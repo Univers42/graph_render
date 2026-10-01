@@ -106,3 +106,54 @@ export interface MotorOptions {
    * omitting the field means. Any other value is refused by `createMotor` (`InvalidOptionsError`). */
   exec?: "auto";
 }
+
+/** An opaque live force session id, `gm_force_session_create`'s answer
+ * (`docs/decisions/force-wasm-abi.md`). Never construct one by hand, and never confuse it
+ * with a {@link Handle}: they are two id spaces with two error codes, and a session outlives
+ * the graph handle it was created from. */
+export type ForceSessionId = number & { readonly __brand: "GraphMotorForceSession" };
+
+/** The force parameters a session can be told, field for field
+ * (`graph_core::layout::force::LiveParams`). Every field is range-checked by the motor and
+ * **never clamped**, so an out-of-range value is a refusal rather than a quiet clamp — which
+ * is why these are plain `number`s with no normalisation applied here either. */
+export interface ForceParams {
+  /** Many-body repulsion, `-5000..=0`. */
+  charge: number;
+  /** Barnes-Hut opening angle, `0.3..=1.5`. */
+  theta: number;
+  distance_min: number;
+  distance_max: number;
+  /** Base link distance; a link's own is this over `max(0.4, strength)`. */
+  link_distance: number;
+  link_strength_scale: number;
+  collide_radius: number;
+  center_strength: number;
+  /** Pull toward the origin, `0..=1`. `0` skips the force entirely.
+   *
+   *  Ponytail: the one knob with no default worth shipping, because every graph wants a
+   *  different one. Failing input: a graph whose natural extent is far larger than the
+   *  viewport, where nothing else pulls distant structure back. Direction: over-shrinking —
+   *  a strong gravity collapses clusters onto the origin, which is visible rather than
+   *  silent. Escape hatch: it is `0` by default, and `0` is a skip, not a zero strength. */
+  gravity: number;
+  /** Per-tick velocity multiplier, `0.01..=0.99` (d3's `velocityDecay` is `1 - this`). */
+  velocity_decay: number;
+  alpha_decay: number;
+  alpha_min: number;
+  initial_alpha: number;
+}
+
+/** What one `ForceSession#tick` did. `settled` is the motor's own verdict
+ * (`alpha < alpha_min` with no target holding it up), not `alpha`'s value re-tested here, so
+ * the SDK and the motor cannot disagree about when a layout has stopped moving. */
+export interface ForceTick {
+  readonly status: ForceStatus;
+  readonly alpha: number;
+  /** The ticks that ran: the argument, always. A chunked caller adds these up. */
+  readonly ticksRun: number;
+}
+
+/** The wire's status word, as words: `1` ran and is still cooling, `2` ran and has settled.
+ * `0` never reaches here — it is the refusal, and it throws. */
+export type ForceStatus = "running" | "settled";

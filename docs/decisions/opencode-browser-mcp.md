@@ -32,10 +32,10 @@ MCP on this host is held by another session.
   starts with `browser_`, so the permission ids are `pw_browser_navigate`, and so on. The
   last matching rule wins (patterns are anchored, `*` is `.*`), so an agent's rules must come
   after the global deny they override.
-- **Deny by default.** The top-level permission `"pw_*": "deny"` hides the tools from every
-  agent. Only `.opencode/agents/ux.md` and `ux-probe.md` re-allow them.
-- **Unsafe tools stay off.** Both agents deny `pw_browser_run_code_unsafe` and
-  `pw_browser_file_upload`, after their `pw_*` allow. `ux-probe` also denies `bash`,
+- **Allowed to every agent** (amended 2026-09-30, see the end of this file). The first version
+  denied `pw_*` at the top level and re-allowed it only in `ux` and `ux-probe`.
+- **Unsafe tools stay off.** The top level and both browser agents deny
+  `pw_browser_run_code_unsafe` and `pw_browser_file_upload`, after any `pw_*` allow. `ux-probe` also denies `bash`,
   since it edits nothing. The server cannot drop `browser_run_code_unsafe` itself: it is a `core`
   capability, which `--caps` always keeps, so the client-side deny is the only lever short of a
   filtering stdio proxy.
@@ -151,3 +151,30 @@ failure 3, confidence 4. The worst axis was confidence: the original deny ids ma
 Rejected as conditions, and kept as optional hardening: dropping `--network host`, and
 `--cap-drop ALL --read-only` (untested with Chromium; under rootless docker container root adds
 nothing over the agent's own shell).
+
+## Amendment, 2026-09-30: every MCP server in every session
+
+The user's order: every OpenCode session gets every MCP server, agent and skill the Claude sessions
+have. `opencode.json` now enables `pw`, `shadcn` (the `shadcn-mcp` image), `ruflo` (the host's
+`~/.local/bin/ruflo mcp start`), `context7` and `deepwiki`. `magic` is configured but disabled
+until `MAGIC_API_KEY` is exported; its key comes from the environment and is never written to a
+tracked file. The top-level `pw_*` deny is gone; the two unsafe pw tools stay denied, and so do
+`ruflo_terminal_*` (a shell that the `bash` git denies do not cover), `ruflo_github_*`,
+`ruflo_system_reset` and `ruflo_*federation_*` (writes outside the host).
+
+Why the first version called `pw` broken in code mode: it was not broken, it was a race. The
+catalog is built before the local servers finish connecting (a docker start is about 4 s), so a
+first `search()` omits `pw` and a call fails with `Unknown tool`. The catalog refreshes once the
+server connects. A `--standalone` smoke run in a worktree on 2026-09-30 found all five namespaces
+on its first enumeration and passed one call on each: `pw.browser_navigate` to the studio (title
+"graph-motor studio"), `shadcn.list_components` (61), `ruflo.mcp_status` (running) and
+`context7.resolve-library-id("d3-force")` (`/d3/d3-force`). The skill tool offered 59 skills.
+
+A `search()` page stops at its `limit`; with ruflo's 353 tools the catalog holds 407 entries, so
+an agent that wants the full list pages through `next.offset`. Code mode has no `setTimeout`.
+
+Ponytail: every OpenCode instance now starts two containers (`gm-mcp-browser`, `shadcn-mcp`) and
+one ruflo process, Rust jobs included. Each session gets its own browser, so the "one shared page"
+limit in `ux.md` holds per session only.
+
+Removal path for the amendment: set `enabled: false` on the server, or restore the `pw_*` deny.

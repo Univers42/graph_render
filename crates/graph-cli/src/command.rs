@@ -44,6 +44,22 @@ pub enum Command {
         #[arg(long, value_parser = seed_count())]
         seeds: u32,
     },
+    /// The live force session's own hash gate: native ×2 against wasm32 ×2 over the positions
+    /// after a fixed number of ticks, driven through `gm_force_session_*`. See
+    /// `docs/decisions/force-wasm-abi.md`.
+    ForceGate {
+        /// Number of seeds, 0..N.
+        #[arg(long, default_value_t = 4, value_parser = seed_count())]
+        seeds: u32,
+    },
+    /// One native arm of the force gate, printing `stage seed sha256` lines. Spawned by
+    /// `force-gate`.
+    #[command(hide = true)]
+    ForceGateArm {
+        /// Number of seeds, 0..N.
+        #[arg(long, value_parser = seed_count())]
+        seeds: u32,
+    },
     /// The capabilities ledger, generated from the registry.
     Capabilities {
         /// Print every row as JSON.

@@ -1,9 +1,11 @@
 # @graph-motor/sdk-js
 
 Thin JS/TS wrapper over `crates/graph-wasm`'s raw `extern "C"` ABI
-(`docs/contract/wasm-abi.md` is the authoritative contract; this README is a guide to the
-wrapper, not a second copy of it). No wasm-bindgen, no generated glue: every export takes
-and returns plain `u32`s, and this package's only job is to make that pleasant to call from
+(`docs/contract/wasm-abi.md` is the authoritative contract, and
+`docs/decisions/force-wasm-abi.md` for the `gm_force_session_*` family; this README is a guide
+to the wrapper, not a second copy of either). No wasm-bindgen, no generated glue: every export
+takes and returns plain `u32`s — the force session's coordinates and `alpha` excepted, which
+are fixed-width `f64`s — and this package's only job is to make that pleasant to call from
 JS without ever letting a raw pointer leak past its own methods.
 
 Ships no build, same convention as the repo root: import `src/index.ts` directly (bundle it
@@ -152,6 +154,38 @@ A degraded motor (see below) refuses `layouts()` the way it refuses every other 
 needs the module. It never answers `[]`: "this module has no layouts" and "this module never
 loaded" are different facts, and only one of them is true.
 
+## Live force sessions
+
+`Motor#layout` runs a layout to a finished picture. `Motor#forceSession` starts the other
+thing the motor owns: **a live force simulation the caller drives**, tick by tick
+(`docs/decisions/force-wasm-abi.md`).
+
+```js
+const session = motor.forceSession(handle, { gravity: 0.2 });
+session.tick(4);                          // { status: "running", alpha, ticksRun }
+session.drag(0, 500, -500);               // pin node row 0 there, from the next tick on
+session.reheat(1.0);
+session.tick(30);
+const { xs, ys } = session.positions();   // zero-copy Float64Arrays, one entry per node
+session.unpinAll();
+session.release();
+```
+
+Four things worth knowing before you build on it:
+
+- **`positions()` is `Float64Array`, not `Float32Array`.** Every other column here is `f32`
+  because every other column is a *snapshot* column. These two are the simulation's own
+  state, which the next tick reads back. Copy them (`.slice()`) before transferring them to a
+  worker, exactly as with a column view.
+- **A verb moves nothing on its own.** `pin`/`drag`/`reheat` arm the next tick; read the
+  effect after `tick()`, not before.
+- **Parameters are partial and never clamped.** `setParams({ theta })` keeps the motor's own
+  value for the other twelve (read back through `params()`), and a value outside its range is
+  a `ForceSessionRefusedError` with the session untouched.
+- **A session outlives its graph handle**, and has its own id space: `motor.release(handle)`
+  leaves the session running, and `session.release()` is a separate call. A released session
+  says `released` and refuses every method rather than answering emptily.
+
 ## Ownership
 
 | What | Who owns it | Valid until |
@@ -160,6 +194,9 @@ loaded" are different facts, and only one of them is true.
 | A framed return buffer (JSON/bytes/layout id) | The motor | The next motor call, on *any* handle — copied out (`.slice()`) before this package's methods return, so a caller never touches wasm memory directly for these |
 | A column view (`Motor#column`) | The motor | The next motor call, on *any* handle (C7) — this package re-derives it lazily via an epoch counter (`views.ts`), but does not stop a caller from reading a JS reference to an old typed array after that; don't hold one past the next call |
 | A handle | The motor's handle table | `Motor#release`; the id is never reissued (C6) |
+| A force session | the motor's session table | `ForceSession#release`; its own id space, never reissued |
+| A force session's position view | the session's own columns | the session's life — the address does not move, but copy before transferring, as above |
+| A staged parameter buffer | this package | `setParams` frees it itself, on a refusal too; the caller never sees the pointer |
 
 Column views are typed-array aliases over the module's own memory, valid until the next
 motor call on any handle. Read `x`/`y` (and `r` for Circle nodes, `w`/`h` for Box nodes,
@@ -194,10 +231,10 @@ Set `globalThis.__GM_DISABLE_WASM__ = true` before the first `createMotor` call 
 loading the module at all this session. `createMotor` itself never throws for this, or for
 any other load failure (a bad `.wasm`, a network error): it resolves to a *degraded*
 `Motor` whose `available` getter reads `false`, and whose `build`/`layout`/`column`/
-`toJSON`/`toBytes`/`release` throw `WasmUnavailableError` predictably the first time one
-is actually called — never a silent no-op, never fabricated data, and never at load time
-itself (a motor that throws on load takes the host page down with it). A load that fails
-on its own latches the same way for the rest of the session — `resetForTests()`
+`toJSON`/`toBytes`/`release`/`forceSession` throw `WasmUnavailableError` predictably the
+first time one is actually called — never a silent no-op, never fabricated data, and never at
+load time itself (a motor that throws on load takes the host page down with it). A load that
+fails on its own latches the same way for the rest of the session — `resetForTests()`
 (test-only) clears it.
 
 ## `options`

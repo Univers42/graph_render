@@ -7,6 +7,13 @@
 //! a later insert's `BTreeMap` rebalancing cannot move an already-handed-out column's
 //! backing memory (C7: "column pointers... valid until the next motor call" — a call on
 //! a *different* handle must not count as one).
+//!
+//! **One table, two kinds of value.** [`Table`] is generic over what it holds because the
+//! force session needs exactly this and nothing else — the same monotonic never-reused id,
+//! the same `Box` so an insert cannot move an already-handed-out pointer, the same
+//! `0`-is-not-an-id rule — and a second table with those four properties copied into it
+//! would be four properties free to drift. [`Handles`] is this module's own table over
+//! [`Handle`], and [`crate::session`] holds the same table over a `ForceSession`.
 
 use graph_contract::binary::Snapshot;
 use graph_core::Geometry;
@@ -36,45 +43,57 @@ pub struct Handle {
     pub geometry: Option<Geometry>,
 }
 
-/// Live handles, keyed by the id `gm_build` returned.
+/// Live handles, keyed by the id `gm_build` returned: this module's own value.
+pub type Handles = Table<Handle>;
+
+/// Opaque ids over live values of one kind: `gm_build`'s [`Handles`], and
+/// `gm_force_session_create`'s table over a `ForceSession`.
+///
+/// `T` is behind a [`Box`] for the reason the module doc gives, so the two tables cannot
+/// differ on it: a `BTreeMap` insert rebalances, and a rebalance that moved a value whose
+/// columns' address was already handed out would invalidate an address the wire promised.
 #[derive(Default)]
-pub struct Handles {
+pub struct Table<T> {
     next: u32,
-    live: BTreeMap<u32, Box<Handle>>,
+    live: BTreeMap<u32, Box<T>>,
 }
 
-impl Handles {
-    /// An empty table; the first handle it issues is `1` (`0` stays the failure value).
-    pub fn new() -> Self {
+impl<T> Table<T> {
+    /// An empty table; the first id it issues is `1` (`0` stays the failure value).
+    ///
+    /// `const` because a `thread_local!` holding one of these wants `const { .. }` — the
+    /// tables are process-wide, and a lazily-initialised one is a thread-local initialisation
+    /// that can panic.
+    pub const fn new() -> Self {
         Self {
             next: 1,
             live: BTreeMap::new(),
         }
     }
 
-    /// Inserts `handle` under a fresh id, or `None` once every `u32` id has been issued.
-    pub fn insert(&mut self, handle: Handle) -> Option<u32> {
+    /// Inserts `value` under a fresh id, or `None` once every `u32` id has been issued.
+    pub fn insert(&mut self, value: T) -> Option<u32> {
         if self.next == 0 {
             return None;
         }
         let id = self.next;
         self.next = self.next.checked_add(1).unwrap_or(0);
-        self.live.insert(id, Box::new(handle));
+        self.live.insert(id, Box::new(value));
         Some(id)
     }
 
-    /// The handle `id` names, if it is still live.
-    pub fn get(&self, id: u32) -> Option<&Handle> {
+    /// The value `id` names, if it is still live.
+    pub fn get(&self, id: u32) -> Option<&T> {
         self.live.get(&id).map(Box::as_ref)
     }
 
-    /// A mutable borrow of the handle `id` names, if it is still live.
-    pub fn get_mut(&mut self, id: u32) -> Option<&mut Handle> {
+    /// A mutable borrow of the value `id` names, if it is still live.
+    pub fn get_mut(&mut self, id: u32) -> Option<&mut T> {
         self.live.get_mut(&id).map(Box::as_mut)
     }
 
     /// Removes `id`, if it was live. The freed id is never handed out again.
-    pub fn remove(&mut self, id: u32) -> Option<Box<Handle>> {
+    pub fn remove(&mut self, id: u32) -> Option<Box<T>> {
         self.live.remove(&id)
     }
 }
@@ -112,7 +131,7 @@ mod tests {
 
     #[test]
     fn exhaustion_refuses_rather_than_wraps() {
-        let mut handles = Handles {
+        let mut handles = Table::<Handle> {
             next: u32::MAX,
             live: BTreeMap::new(),
         };
