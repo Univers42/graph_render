@@ -30,6 +30,7 @@ import { runLayoutSection } from "./sdk-smoke/layouts.mjs";
 import { runPostSection } from "./sdk-smoke/post.mjs";
 import { runAnalysisSection } from "./sdk-smoke/analysis.mjs";
 import { runTransportSection } from "./sdk-smoke/transport.mjs";
+import { runForceSection } from "./sdk-smoke/force.mjs";
 import { runDegradedSection } from "./sdk-smoke/degraded.mjs";
 
 const args = process.argv.slice(2);
@@ -60,5 +61,6 @@ await runLayoutSection(ctx);
 await runPostSection(ctx);
 await runAnalysisSection(ctx);
 await runTransportSection(ctx);
+await runForceSection(ctx);
 await runDegradedSection(ctx);
 finish();

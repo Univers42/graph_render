@@ -34,7 +34,7 @@ impl Runner for Counting<'_> {
 fn collide_gives_the_same_deltas_at_every_worker_count_as_the_loop_it_replaces() {
     let (nodes, edges) = line(40);
     let t = index_model(&nodes, &edges).expect("fits");
-    let mut sim = Sim::new(&t, ForceParams::default(), 0);
+    let mut sim = Sim::new(&t, ForceParams::default().into(), 0);
     collide::prepare(&mut sim);
     let mut reference = Vec::new();
     Serial.run(&CollidePass::of(&sim), 1, &mut reference);
@@ -61,7 +61,7 @@ fn collide_gives_the_same_deltas_at_every_worker_count_as_the_loop_it_replaces()
 fn link_gives_the_same_deltas_at_every_worker_count_as_the_loop_it_replaces() {
     let (nodes, edges) = line(40);
     let t = index_model(&nodes, &edges).expect("fits");
-    let sim = Sim::new(&t, ForceParams::default(), 0);
+    let sim = Sim::new(&t, ForceParams::default().into(), 0);
     let mut reference = Vec::new();
     Serial.run(&LinkPass::of(&sim), 1, &mut reference);
     assert_eq!(reference.len(), 40);
@@ -94,7 +94,7 @@ fn the_tick_hands_the_runner_one_call_per_listed_pass() {
     let (nodes, edges) = line(12);
     let t = index_model(&nodes, &edges).expect("fits");
     let calls = Counter::new(0);
-    let mut sim = Sim::new(&t, ForceParams::default(), 0);
+    let mut sim = Sim::new(&t, ForceParams::default().into(), 0);
     let mut deltas = Vec::new();
     let mut how = How {
         runner: &Counting(&calls),
@@ -152,7 +152,7 @@ fn the_three_passes_share_one_sim_and_one_scratch_buffer() {
     // pass must leave the buffer and the state the next one reads in the shape it expects.
     let (nodes, edges) = line(24);
     let t = index_model(&nodes, &edges).expect("fits");
-    let mut sim = Sim::new(&t, ForceParams::default(), 0);
+    let mut sim = Sim::new(&t, ForceParams::default().into(), 0);
     let mut deltas = Vec::new();
     charge::prepare(&mut sim);
     Serial.run(&Pass::of(&sim), 1, &mut deltas);

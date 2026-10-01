@@ -5,7 +5,7 @@
 //! a knob's parsed value becomes a behaviour.
 
 use graph_core::layout::circle_packing::CirclePackingParams;
-use graph_core::layout::force::{ForceParams, Split};
+use graph_core::layout::force::{ForceParams, LiveParams, Split};
 use graph_core::layout::forceatlas2::Fa2Params;
 use graph_core::layout::radial::twopi;
 use graph_core::layout::{circular, tidy_tree, treemap};
@@ -17,7 +17,7 @@ use super::{Knob, stage_of};
 
 /// What the native arm runs with: the compiled-in defaults, or one knob's perturbation.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(in crate::hashgate) struct Setting {
+pub(crate) struct Setting {
     pub(in crate::hashgate) reference_degree: u32,
     pub(in crate::hashgate) grid: GridParams,
     pub(in crate::hashgate) sugiyama: SugiyamaParams,
@@ -30,8 +30,8 @@ pub(in crate::hashgate) struct Setting {
     /// Circle packing's parameters, native arm only ([`Knob::PackingScale`] perturbs).
     pub(in crate::hashgate) packing: CirclePackingParams,
     /// The one stage whose own model a control re-draws, native arm only
-    /// ([`Knob::TreeTidyNodes`], [`Knob::TreemapNodes`], [`Knob::CircularNodes`] and the
-    /// fifteen ANALYSIS and POST controls).
+    /// ([`Knob::TreeTidyNodes`], [`Knob::TreemapNodes`], [`Knob::CircularNodes`], the
+    /// twenty-one per-stage controls in [`knobs`], and the six igraph layout controls).
     ///
     /// A stage id, never a node count: which stage the extra nodes are *for* is the whole
     /// claim, and a bare `u32` would let the same perturbation reach the shared model
@@ -49,15 +49,47 @@ pub(in crate::hashgate) struct Setting {
     /// A `bool` because there is one merge to corrupt, against [`Setting::split_sum`]'s
     /// [`Split`] which names *which* of the three force passes it is.
     pub(in crate::hashgate) split_rescale: bool,
+    /// The live force session's `gravity` ([`Knob::ForceSessionGravity`]), the perturbation
+    /// `force-gate`'s native arm runs at. `None` is the honest run.
+    ///
+    /// An `Option` rather than a `f64` defaulting to the compiled-in `0`, because `0` is itself
+    /// a legal gravity and a flag that could not say "set to zero" would make the control's
+    /// honest value inexpressible. Reach it through [`Setting::live_force_params`], which is the
+    /// only reader and lives in this module with the field.
+    pub(in crate::hashgate) live_gravity: Option<f64>,
     pub(in crate::hashgate) control: Option<Knob>,
+}
+
+impl Setting {
+    /// The live force parameters `force-gate`'s native arm runs at: the frozen force set —
+    /// which is `LiveParams::default()`, because the frozen layout *is* a default session
+    /// (`docs/decisions/live-force-session.md`) — with `gravity` replaced when
+    /// [`Knob::ForceSessionGravity`] is set.
+    ///
+    /// One reader, beside the field it reads, so the wasm arm's own implicit parameters (which
+    /// are exactly these defaults, because it sends `params_len == 0`) and the native arm's
+    /// cannot disagree about what the honest run *is*.
+    pub(crate) fn live_force_params(&self) -> LiveParams {
+        LiveParams {
+            gravity: self.live_gravity.unwrap_or(LiveParams::default().gravity),
+            ..LiveParams::default()
+        }
+    }
+
+    /// Which control this run is under, if any — readable from outside this module's tree,
+    /// which is what lets `force-gate` refuse a control that cannot reach a session.
+    ///
+    /// An accessor rather than a widened field: eleven arms' worth of parsing writes that field,
+    /// and a second reader is not something that should learn to reach for it.
+    pub(crate) fn control(&self) -> Option<Knob> {
+        self.control
+    }
 }
 
 /// Reads the knobs through `read`. At most one may be set, and a set one must parse:
 /// a typo falling back to the default would let the control pass as green. A spacing the
 /// grid refuses is left for the grid to refuse, so the rule lives in one place.
-pub(in crate::hashgate) fn setting(
-    read: impl Fn(&str) -> Result<String, VarError>,
-) -> Result<Setting, String> {
+pub(crate) fn setting(read: impl Fn(&str) -> Result<String, VarError>) -> Result<Setting, String> {
     let mut setting = Setting {
         reference_degree: REFERENCE_DEGREE,
         grid: GridParams::default(),
@@ -69,6 +101,7 @@ pub(in crate::hashgate) fn setting(
         stage_nodes: None,
         split_sum: Split::None,
         split_rescale: false,
+        live_gravity: None,
         control: None,
     };
     for knob in Knob::ALL {
@@ -126,6 +159,17 @@ fn apply(knob: Knob, text: &str, setting: &mut Setting) -> Result<(), String> {
         Knob::SplitRescale => {
             setting.split_rescale = yes(text).ok_or_else(|| bad(&text))?;
         }
+        // Parsed like the other parameter knobs, and for the same reason: `=0` is a real
+        // gravity (the force is skipped, which is the honest run) and a typo is an error, so a
+        // control that failed to parse cannot pass vacuously as the default.
+        Knob::ForceSessionGravity => {
+            setting.live_gravity = Some(text.parse().map_err(|e| bad(&e))?);
+        }
+        // The twenty-one per-stage controls, the fifteen ANALYSIS and POST rows and the six
+        // igraph layout rows, are one arm here: `stage_of` resolves the stage from the
+        // variable the knob was dispatched by, and every one of them is the same shape — a
+        // node count for one stage's own model. A layout that took a real parameter would
+        // get its own arm above, as Barnes-Hut and ForceAtlas2 do.
         _ => knobs::apply(stage_of(knob), nodes(text, knob)?, setting),
     }
     Ok(())
@@ -148,7 +192,7 @@ fn nodes(text: &str, knob: Knob) -> Result<u32, String> {
     Ok(count)
 }
 
-pub(in crate::hashgate) fn env_setting() -> Result<Setting, String> {
+pub(crate) fn env_setting() -> Result<Setting, String> {
     setting(|name| std::env::var(name))
 }
 

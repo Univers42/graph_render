@@ -15,9 +15,10 @@
 
 import { loadMotor, toU32, type RawExports, type WasmSource } from "./wasm.ts";
 import { ColumnViews } from "./views.ts";
+import { ForceSession } from "./force.ts";
 import { AnalysisRefusedError, BuildRefusedError, ContractRefusedError, InvalidHandleError } from "./errors.ts";
 import { PostRefusedError, RunRefusedError, WasmUnavailableError, codeName } from "./errors.ts";
-import { ColumnId, type AnalysisResult, type Column, type Handle } from "./types.ts";
+import { ColumnId, type AnalysisResult, type Column, type ForceParams, type Handle } from "./types.ts";
 import type { MotorOptions, PostResult, RunResult } from "./types.ts";
 import { parseAnalysisFace } from "./analysis-face.ts";
 import { INVALID_HANDLE_CODE, NO_GEOMETRY_CODE, decoder, frame, invoke, lastError } from "./calls.ts";
@@ -31,6 +32,7 @@ export type { WasmSource } from "./wasm.ts";
 export { resetForTests } from "./wasm.ts";
 export * from "./errors.ts";
 export * from "./types.ts";
+export { ForceSession, PARAMS_BYTES, encodeParams, decodeParams } from "./force.ts";
 
 export { parseAnalysisFace } from "./analysis-face.ts";
 export * from "./adapters.ts";
@@ -279,6 +281,28 @@ export class Motor {
     views.bump();
     views.forget(handle);
     this.#kinds.delete(handle);
+  }
+
+  /** Starts a **live force session** over `handle`'s topology
+   * (`docs/decisions/force-wasm-abi.md`), the one surface that runs a layout tick by tick
+   * instead of to a finished picture.
+   *
+   *  `params` is optional and partial: an omitted field keeps the motor's own value for it, so
+   *  a host can move one knob without knowing the other twelve and without a copy of the
+   *  defaults in its own source going stale. Every field is range-checked by the motor and
+   *  **never clamped**, so an out-of-range value is a {@link ForceSessionRefusedError} with the
+   *  session left exactly as it was — and a refused creation leaves no session behind.
+   *
+   *  **No layout run is required**, exactly as for {@link Motor.analysis}: the session is built
+   *  from the topology and seeded on the engine's own spiral, so this works straight after
+   *  {@link Motor.build}. The session does not read the graph handle's snapshot, does not
+   *  replace it, and **outlives it** — {@link Motor.release} on `handle` leaves the session
+   *  running, and the session is released with its own {@link ForceSession.release}.
+   *
+   *  The two have separate id spaces and separate error codes (`InvalidHandle` against
+   *  `InvalidSession`), so a caller debugging a dead one is never sent looking at the other. */
+  forceSession(handle: Handle, params?: Partial<ForceParams>): ForceSession {
+    return new ForceSession(this.#requireLoaded(), handle, params);
   }
 }
 

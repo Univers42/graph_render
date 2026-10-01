@@ -14,10 +14,10 @@
 //! An honest run records its result in `target/gates/hashgate.json`, and a negative
 //! control (one [`Knob`] set) in that knob's own record, for the capabilities ledger.
 
-mod compare;
-mod knob;
+pub(crate) mod compare;
+pub(crate) mod knob;
 mod knobs;
-mod report;
+pub(crate) mod report;
 mod staged;
 mod stages;
 mod tier;
@@ -25,14 +25,14 @@ mod transport;
 
 use crate::evidence;
 use crate::runner::{build_wasm, file_sha256, node_harness, run_lines, sha256_hex};
-use compare::{Arm, Tally, diverged, per_stage};
+pub(crate) use compare::{Arm, Tally, diverged, per_stage};
 use graph_core::Grid;
 use graph_core::Stage;
 use graph_core::layout::force::{BarnesHut, Split};
 use graph_core::layout::forceatlas2::Fa2Params;
 use graph_core::layout::{circular::ring, spiral};
 pub use knob::Knob;
-use knob::{Setting, env_setting};
+pub(crate) use knob::{Setting, env_setting};
 pub(crate) use stages::{LAYOUT, TRANSPORT};
 // `stage_bytes_for` is the test seam behind `stage_bytes` (`tests/stages.rs`), not a second
 // call site: the gate itself always runs the real registry.

@@ -21,6 +21,9 @@ export const CODE_NAMES = [
   "IndexOutOfRange",
   "PostFailed",
   "ContractInvalid",
+  "InvalidSession",
+  "SessionParamsInvalid",
+  "SessionRefused",
 ] as const;
 
 /** One `Code`'s name, or `"Unknown(<n>)"` for a wire value this SDK does not know yet —
@@ -103,3 +106,20 @@ export class WasmUnavailableError extends GraphMotorError {
 
 /** A caller passed an `options`/params shape this SDK does not recognise (C16's table). */
 export class InvalidOptionsError extends GraphMotorError {}
+
+/** A live force session id this motor never issued, or one already released
+ * (`InvalidSession`). Distinct from {@link InvalidHandleError} rather than a subclass: the two
+ * are two id spaces, and a caller catching only this one is saying "my session is gone" —
+ * which must not be satisfied by a *graph* handle that happens to be dead. */
+export class InvalidSessionError extends GraphMotorError {}
+
+/** A force session refused the request: a parameter outside its range (**never clamped**), a
+ * row past the last node column, or a coordinate that is not finite (`SessionRefused`), or a
+ * parameter buffer whose length is neither `0` (the defaults) nor the thirteen-`f64` size
+ * (`SessionParamsInvalid`).
+ *
+ *  A refusal always leaves the session exactly as it was, so catching this and carrying on
+ *  costs the caller nothing but the one call. The field and the range are in the motor's own
+ *  message text, which the wire does not carry; {@link ForceParams} documents the bounds each
+ *  field has, so a host can name the offending one from its own input. */
+export class ForceSessionRefusedError extends GraphMotorError {}

@@ -18,6 +18,11 @@
 //! `probe` feature it also exports `gm_probe`, which carries the D1 measurement to wasm32
 //! so it can be compared bit for bit against the same code run natively; the shipped
 //! module is built without it, so a measurement instrument never reaches the browser.
+//!
+//! **`gm_force_session_*` is the other surface**: the live force session, the one a host
+//! drives tick by tick rather than in one `gm_run`. Its table of record is
+//! `docs/decisions/force-wasm-abi.md`; `crate::session` holds the physics-free logic and
+//! `crate::exports::session` the frames over it.
 
 #[cfg(target_arch = "wasm32")]
 mod gate_exports {
@@ -167,6 +172,8 @@ mod memory_measure;
 pub mod post;
 #[cfg(any(test, target_arch = "wasm32"))]
 mod seed_ingest;
+#[cfg(any(test, target_arch = "wasm32"))]
+mod session;
 #[cfg(any(test, target_arch = "wasm32"))]
 mod stage_exports;
 #[cfg(any(test, target_arch = "wasm32"))]

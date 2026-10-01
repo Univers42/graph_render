@@ -22,10 +22,6 @@ on:
 permissions:
   contents: read
 
-env:
-  # scripts/orch/scratch.sh honours a GM_SCRATCH it inherits; a runner has no /goinfre.
-  GM_SCRATCH: ${{ runner.temp }}/gm
-
 jobs:
   floor:
     name: floor (x86_64)

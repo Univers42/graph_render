@@ -1,22 +1,22 @@
-//! The knob table: every control's variable, record and stage, held against the one
-//! source of truth for the fifteen ANALYSIS and POST controls.
+//! The knob table: every control's variable, record and stage, held against the one source
+//! of truth for the twenty-one per-stage controls (the fifteen ANALYSIS and POST rows and
+//! the six igraph layout rows).
 //!
 //! Split from `knob.rs` by the house's 300-line limit. The ten parameter controls are
 //! spelled out here rather than derived from [`Knob::env`], so this test is the
-//! independent statement of what the first ten are called; the fifteen ANALYSIS and POST
-//! controls are absent because their variables come from `knobs::ANALYSIS_POST_STAGES`,
-//! which has its own test below.
+//! independent statement of what the first ten are called; the twenty-one per-stage
+//! controls are absent because their variables come from `knobs::all()`, which has its own
+//! test below.
 
 use super::*;
 use crate::hashgate::knob::setting::setting;
 use crate::hashgate::knobs;
 
-/// The controls that move a parameter or re-draw one stage's model. **Spelled out rather
-/// than derived from
-/// [`Knob::env`]**, so this test is the independent statement of what the first ten are
-/// called; the fifteen ANALYSIS and POST controls are absent because their variables come
-/// from `knobs::ANALYSIS_POST_STAGES`, which has its own test below.
-const PARAMETER_KNOBS: [(&str, &str); 11] = [
+/// The twelve controls that move a parameter or re-draw one layout's model. **Spelled out
+/// rather than derived from [`Knob::env`]**, so this test is the independent statement of
+/// what they are called; the twenty-one per-stage controls are absent because their
+/// variables come from `knobs::all()`, which has its own test below.
+const PARAMETER_KNOBS: [(&str, &str); 12] = [
     (
         "GM_MUTATE_REFERENCE_DEGREE",
         "hashgate-control-reference-degree",
@@ -43,6 +43,51 @@ const PARAMETER_KNOBS: [(&str, &str); 11] = [
     ),
     ("GM_MUTATE_TWOPI_NODES", "hashgate-control-twopi-nodes"),
     ("GM_MUTATE_PACKING_SCALE", "hashgate-control-packing-scale"),
+    (
+        "GM_MUTATE_FORCE_SESSION_GRAVITY",
+        "forcegate-control-force-session-gravity",
+    ),
+];
+
+/// The six igraph layout controls, spelled out by variable and record rather than read off
+/// `knob::igraph::ENV`/`RECORD`: that table is what `Knob::env` and `Knob::record` return,
+/// so deriving the test from it would check the table against itself. Being an independent
+/// copy is the property, exactly as above.
+///
+/// The order is `Knob::ALL`'s igraph group and `knobs::IGRAPH_LAYOUT_STAGES`'s, and the
+/// stage each names is the graph-core constant its layout publishes — both asserted
+/// below, so a permutation of the group cannot pass.
+const IGRAPH_KNOBS: [(&str, &str, &str); 6] = [
+    (
+        "GM_MUTATE_FORCE_FRUCHTERMAN_REINGOLD_NODES",
+        "hashgate-control-force-fruchterman-reingold-nodes",
+        "layout.force.fruchterman_reingold",
+    ),
+    (
+        "GM_MUTATE_FORCE_KAMADA_KAWAI_NODES",
+        "hashgate-control-force-kamada-kawai-nodes",
+        "layout.force.kamada_kawai",
+    ),
+    (
+        "GM_MUTATE_FORCE_GRAPHOPT_NODES",
+        "hashgate-control-force-graphopt-nodes",
+        "layout.force.graphopt",
+    ),
+    (
+        "GM_MUTATE_FORCE_DAVIDSON_HAREL_NODES",
+        "hashgate-control-force-davidson-harel-nodes",
+        "layout.force.davidson_harel",
+    ),
+    (
+        "GM_MUTATE_FORCE_LGL_NODES",
+        "hashgate-control-force-lgl-nodes",
+        "layout.force.lgl",
+    ),
+    (
+        "GM_MUTATE_FORCE_DRL_NODES",
+        "hashgate-control-force-drl-nodes",
+        "layout.force.drl",
+    ),
 ];
 
 /// The compute-tier controls, spelled out rather than counted: each one corrupts a **merge**
@@ -57,13 +102,24 @@ const COMPUTE_TIER_KNOBS: [Knob; 2] = [Knob::SplitSum, Knob::SplitRescale];
 fn each_knob_names_its_own_variable_and_record() {
     assert_eq!(
         Knob::ALL.len(),
-        PARAMETER_KNOBS.len() + knobs::ANALYSIS_POST_STAGES.len() + COMPUTE_TIER_KNOBS.len(),
-        "every knob is a parameter control, one of the fifteen stage controls, or one of \
-         the compute-tier controls"
+        PARAMETER_KNOBS.len()
+            + knobs::ANALYSIS_POST_STAGES.len()
+            + IGRAPH_KNOBS.len()
+            + COMPUTE_TIER_KNOBS.len(),
+        "every knob is a parameter control, one of the twenty-one per-stage controls, or \
+         one of the compute-tier controls"
     );
     for (env, record) in PARAMETER_KNOBS {
         let knob = knob_named(env);
         assert_eq!(knob.record(), record, "{env}");
+    }
+    for (env, record, id) in IGRAPH_KNOBS {
+        let knob = knob_named(env);
+        assert_eq!(
+            (knob.record(), knobs::by_env(env).expect("tabled").id),
+            (record, id),
+            "{env}"
+        );
     }
     // And each name is used once: two knobs sharing a variable would make "one control at a
     // time" refuse a run that set only one of them, and two sharing a record would fold two
@@ -95,14 +151,13 @@ fn knob_named(env: &str) -> Knob {
         .unwrap_or_else(|| panic!("{env} is read"))
 }
 
-/// The fifteen ANALYSIS and POST controls are one table, and the enum's arms are held to
-/// it: an arm whose variable, record or stage the table disagrees with would perturb a
-/// stage nobody asked for, and — the failure mode that matters most — a control that
-/// perturbs nothing would pass as green.
+/// The twenty-one per-stage controls are one table, and the enum's arms are held to it: an
+/// arm whose variable, record or stage a table disagrees with would perturb a stage nobody
+/// asked for, and — the failure mode that matters most — a control that perturbs nothing
+/// would pass as green.
 #[test]
 fn the_analysis_and_post_controls_are_the_knobs_table() {
-    let table = knobs::ANALYSIS_POST_STAGES;
-    for row in table {
+    for row in knobs::all() {
         let knob = knob_named(row.env);
         assert_eq!(knob.record(), row.record, "{}: the record", row.env);
         assert_eq!(knobs::by_env(row.env), Some(row), "{}: the row", row.env);
@@ -121,16 +176,21 @@ fn the_analysis_and_post_controls_are_the_knobs_table() {
         "not one of the four"
     );
     assert_eq!(
+        knobs::by_env("GM_MUTATE_FORCE_FORCEATLAS2_NODES"),
+        None,
+        "not one of the six: ForceAtlas2 has its own parameter control"
+    );
+    assert_eq!(
         knobs::by_env("GM_MUTATE_GRID_SPACING"),
         None,
-        "not one of the fifteen"
+        "not one of the per-stage controls"
     );
-    // The reverse direction: no enum arm claims a variable neither the table nor the
-    // parameter list carries, or the table would grow a row `stage_of` could not resolve and
-    // the arm would panic at run time instead of at compile time. The compute-tier controls
-    // are the arms outside both, by design — they are the `+ 2` in the count above.
+    // The reverse direction: no enum arm claims a variable no table and the parameter list
+    // carry, or a table would grow a row `stage_of` could not resolve and the arm would
+    // panic at run time instead of at compile time. The compute-tier controls are the arms
+    // outside both, by design — they are the `+ 2` in the count above.
     for knob in Knob::ALL {
-        let carried = table.iter().any(|row| row.env == knob.env());
+        let carried = knobs::all().any(|row| row.env == knob.env());
         let parameter = PARAMETER_KNOBS.iter().any(|(env, _)| *env == knob.env());
         assert!(
             carried || parameter || COMPUTE_TIER_KNOBS.contains(&knob),
@@ -140,17 +200,18 @@ fn the_analysis_and_post_controls_are_the_knobs_table() {
     }
 }
 
-/// Every stage id the fifteen controls name is a stage the gate actually hashes, and comes
+/// Every stage id the per-stage controls name is a stage the gate actually hashes, and comes
 /// from the graph-core constant its own module publishes.
 ///
 /// The stage ids are graph-core constants (`knobs::ANALYSIS_POST_STAGES` takes them from
-/// `graph_core::analysis::*` and `graph_core::post::*`), so this test is what holds them
-/// to the registries the gate walks: a control filed under an id no stage is hashed under
-/// moves nothing at all, and the whole point of a negative control is that it moves.
+/// `graph_core::analysis::*` and `graph_core::post::*`; `knobs::IGRAPH_LAYOUT_STAGES` from
+/// each layout's `Stage::ID`), so this test is what holds them to the registries the gate
+/// walks: a control filed under an id no stage is hashed under moves nothing at all, and
+/// the whole point of a negative control is that it moves.
 #[test]
 fn each_stage_id_is_the_constant_its_own_module_publishes() {
     let hashed = stages();
-    for row in knobs::ANALYSIS_POST_STAGES {
+    for row in knobs::all() {
         assert!(
             hashed.contains(&row.id),
             "{} is a control for {}, which the gate does not hash",
@@ -161,7 +222,7 @@ fn each_stage_id_is_the_constant_its_own_module_publishes() {
     // One stage, one control — and one stage, one constant: a second control for a stage
     // that moved it too would make "only this stage moved" ambiguous, and two rows sharing
     // an id would fold two controls into one stage's evidence.
-    let mut ids: Vec<&str> = knobs::ANALYSIS_POST_STAGES.iter().map(|r| r.id).collect();
+    let mut ids: Vec<&str> = knobs::all().map(|r| r.id).collect();
     ids.sort_unstable();
     let before = ids.len();
     ids.dedup();
@@ -174,7 +235,7 @@ fn each_stage_id_is_the_constant_its_own_module_publishes() {
 #[test]
 fn each_analysis_and_post_stage_has_its_own_control_that_moves_only_its_stage() {
     let base = stage_bytes(P3_SEED, &honest()).expect("runs");
-    for row in knobs::ANALYSIS_POST_STAGES {
+    for row in knobs::all() {
         // Ponytail: one more node is a weak probe — a stage could be degenerate at this
         // model size and move nothing. The seed is the gate's smallest non-degenerate one
         // (`P3_SEED`), the same probe the three Phase 3 node controls use, and a stage
@@ -193,17 +254,18 @@ fn each_analysis_and_post_stage_has_its_own_control_that_moves_only_its_stage() 
 /// read it as "no control set" would run the honest model and pass.
 #[test]
 fn the_analysis_and_post_controls_are_refused_rather_than_defaulting() {
-    for row in knobs::ANALYSIS_POST_STAGES {
+    for row in knobs::all() {
         for value in ["one", "1.5", "-1", "0", ""] {
             let err = setting_for(row.env, value).expect_err("refused");
             assert!(err.starts_with(row.env), "{}={value:?}: {err}", row.env);
         }
     }
-    // And the doubled case, the other half of "at most one": two of the fifteen together is
-    // refused rather than one of them silently winning.
+    // And the doubled case, the other half of "at most one": two of the per-stage controls
+    // together is refused rather than one of them silently winning — and one from each
+    // family, since the rule is about the variable and not about which table carried it.
     let [a, b] = [
         knobs::ANALYSIS_POST_STAGES[0],
-        knobs::ANALYSIS_POST_STAGES[1],
+        knobs::IGRAPH_LAYOUT_STAGES[0],
     ];
     let err = setting(|read| match read {
         x if x == a.env => Ok("1".to_owned()),

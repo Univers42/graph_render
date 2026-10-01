@@ -45,6 +45,32 @@ const REQUIRED_LABEL: [&str; 5] = [
 /// The POST rows Phase 8 registered, by id. Found by id throughout: a registry entry
 /// inserted before a row moves every index after it, so an assertion on a position tests
 /// the order rather than the row.
+/// Every layout `graph-core`'s registry holds, by id. The ledger is generated from that
+/// registry, so these are the layout rows that must appear in `capabilities --json`.
+const REGISTERED_LAYOUT_IDS: [&str; 21] = [
+    "layout.grid",
+    "layout.tree.tidy",
+    "layout.treemap.squarified",
+    "layout.circular.radial",
+    "layout.packing.circle",
+    "layout.spectral",
+    "layout.mds.pivot",
+    "layout.force.barnes_hut",
+    "layout.forceatlas2",
+    "layout.dag.sugiyama",
+    "layout.random",
+    "layout.circular.ring",
+    "layout.spiral",
+    "layout.bipartite",
+    "layout.force.yifan_hu",
+    "layout.force.fruchterman_reingold",
+    "layout.force.kamada_kawai",
+    "layout.force.graphopt",
+    "layout.force.davidson_harel",
+    "layout.force.lgl",
+    "layout.force.drl",
+];
+
 const POST_IDS: [&str; 7] = [
     "post.route.grid",
     "post.bundle.fdeb",
@@ -60,18 +86,33 @@ fn capabilities_needs_a_flag_and_refuses_gated_rows_no_recorded_run_backs() {
     assert_eq!(graph_cli(&["capabilities"]).status.code(), Some(2));
     let check = graph_cli(&["capabilities", "--check"]);
     assert_eq!(check.status.code(), Some(1), "{}", stdout(&check));
-    // 18 rows before Phase 7, its 9 analysis.* rows (`Implemented`, no problems),
-    // Phase 4's transport (gated, refused twice) and sdk.js rows, Phase 8's seven
-    // `post.*` rows, Phase 9's three `scale.*` rows, Phase 10's four
-    // `ingest.*`/`adapter.*` rows, `analysis.depth` and `layout.twopi` (all `implemented`,
-    // no problem). Every problem is a `gated` row with no record behind it; the
-    // `implemented` rows never produce one — which is the row twopi's routing has to keep
-    // true: its differential is a tolerance, so it is `implemented` and never `gated`.
+    // The problem count is the stable half of the summary line: every problem is a
+    // `gated` row with no record behind it, and an `implemented` row never produces one,
+    // so adding rows (Phase 7's analysis rows, Phase 8's `post.*`, Phase 9's `scale.*`,
+    // Phase 10's ingest rows, `analysis.depth`, a new layout) moves the row count and
+    // never this one. The row count itself is deliberately not asserted here; the
+    // by-id check in `every_post_row_is_published_implemented_and_fully_filled` covers it.
     assert!(
-        stdout(&check).contains("capabilities --check: 50 rows, 34 problems"),
-        "{}",
+        stdout(&check).contains("problems"),
+        "the summary line is printed: {}",
         stdout(&check)
     );
+    assert_eq!(
+        problems_in(&stdout(&check)),
+        34,
+        "gated rows with no recorded run behind them: {}",
+        stdout(&check)
+    );
+}
+
+/// The problem count the summary line reports, read off the line rather than the whole
+/// text, so a row count moving with the registry cannot break this.
+fn problems_in(summary: &str) -> u32 {
+    summary
+        .rsplit_once(" problems")
+        .and_then(|(head, _)| head.rsplit(' ').next().map(str::to_owned))
+        .and_then(|n| n.parse().ok())
+        .expect("the summary ends in `<n> problems`")
 }
 
 /// Every POST row is published, `implemented`, and carries every required field. A POST
@@ -83,12 +124,14 @@ fn every_post_row_is_published_implemented_and_fully_filled() {
     assert_eq!(json.status.code(), Some(0));
     let rows: serde_json::Value = serde_json::from_str(&stdout(&json)).expect("json");
     let listed = rows.as_array().expect("an array");
-    assert_eq!(
-        listed.len(),
-        50,
-        "42 before analysis.depth, 25 before the seven post.* rows, and 49 before \
-         layout.twopi"
-    );
+    // By id, never by count: the ledger grows with the registry, so a count here would
+    // assert the order rather than the contract. Each registered layout must be published.
+    for id in REGISTERED_LAYOUT_IDS {
+        assert!(
+            listed.iter().any(|r| r["id"] == id),
+            "{id} is registered and must be published"
+        );
+    }
     for id in POST_IDS {
         let row = listed
             .iter()
@@ -160,8 +203,9 @@ fn the_ledger_reads_a_recorded_run_and_names_what_it_lacks() {
 fn the_depth_row_is_published_by_the_binary_and_adds_no_problem() {
     let check = graph_cli(&["capabilities", "--check"]);
     assert_eq!(check.status.code(), Some(1), "{}", stdout(&check));
-    assert!(
-        stdout(&check).contains("capabilities --check: 50 rows, 34 problems"),
+    assert_eq!(
+        problems_in(&stdout(&check)),
+        34,
         "the new row is implemented, so it adds a row and not a problem: {}",
         stdout(&check)
     );

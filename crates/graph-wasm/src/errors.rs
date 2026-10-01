@@ -58,6 +58,21 @@ pub enum Code {
     /// meanings, and a code that did not say which one was refused would let a caller
     /// handle a contract rejection as a node/edge rejection.
     ContractInvalid = 14,
+    /// The session id does not name a live force session (never issued, or already
+    /// released). The force session's own id space: never the graph handle's, which keeps
+    /// its own [`Code::InvalidHandle`].
+    InvalidSession = 15,
+    /// A force session's `(params_ptr, params_len)` is neither `0` (the compiled-in
+    /// defaults) nor exactly the parameter buffer's own length, so there is no reading of
+    /// it to attempt. Never a silent "use the defaults" for a length it did not recognise.
+    SessionParamsInvalid = 16,
+    /// The session itself refused: a parameter out of its range (never clamped), a row
+    /// past the last node column, or a coordinate that is not finite (D9). One code for
+    /// all of them, as graph-core's own `SessionError` is one refusal to the caller — the
+    /// field and the rule are in the refusal's text, which this ABI does not carry, so a
+    /// host that needs to name the field reads it back from `gm_last_error`'s code plus its
+    /// own bounds table.
+    SessionRefused = 17,
 }
 
 thread_local! {
@@ -115,6 +130,9 @@ mod tests {
             Code::IndexOutOfRange,
             Code::PostFailed,
             Code::ContractInvalid,
+            Code::InvalidSession,
+            Code::SessionParamsInvalid,
+            Code::SessionRefused,
         ];
         let mut values: Vec<u32> = codes.iter().map(|&c| c as u32).collect();
         values.sort_unstable();
@@ -154,9 +172,17 @@ mod tests {
                 Code::IndexOutOfRange as u32,
                 Code::PostFailed as u32,
                 Code::ContractInvalid as u32,
+                Code::InvalidSession as u32,
+                Code::SessionParamsInvalid as u32,
+                Code::SessionRefused as u32,
             ],
-            [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
+            [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17],
             "every code keeps the wire value it already had"
+        );
+        assert_ne!(
+            Code::InvalidSession as u32,
+            Code::InvalidHandle as u32,
+            "a dead session must not read as a dead graph handle, and the other way round"
         );
         assert_ne!(
             Code::ContractInvalid as u32,

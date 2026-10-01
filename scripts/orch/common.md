@@ -6,6 +6,11 @@ rules) binds you. The job body below is your contract: its paths, its done-when,
 RULE 0 — fan out first. Before editing, dispatch in ONE message one `subagent` call per independent
 slice (agent `explore` to read, `general` to edit a disjoint set of files), without the `background`
 flag: calls in one message run concurrently. You merge, deduplicate and verify what they return.
+Keep each subagent small: at most 4 files, and a reply of at most 60 lines made of conclusions with
+`file:line`, never a whole file. Read a file you need verbatim yourself.
+Caveat: three jobs (twopi and p12-t2 on 2026-09-30/10-01, merge-sim earlier) hung forever on an explore
+asked to dump many whole files. The cap is a guess at the cause, not a measurement; a hang past 30 min
+is still recovered by hand (kill, `opencode session delete`, requeue).
 
 - Toolchain: only the wrappers in scripts/orch/ (`gr`, `node-slim.sh`, `ge-check.sh`). Never a bare
   cargo, rustc, npm or node.

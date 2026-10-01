@@ -153,7 +153,7 @@ pub(super) fn node_delta_with(sim: &Sim, i: u32, stack: &mut Vec<(u32, Bounds)>)
         theta2: sim.params.theta * sim.params.theta,
         dmin2: sim.params.distance_min * sim.params.distance_min,
         dmax2: sim.params.distance_max * sim.params.distance_max,
-        charge: sim.params.charge_strength,
+        charge: sim.params.charge,
         alpha: sim.alpha,
         seed: sim.seed,
         tick: sim.tick_no,

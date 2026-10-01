@@ -10,6 +10,9 @@ import type { ColumnViews } from "./views.ts";
 export const TAMPERED_GEOMETRY_CODE = 9; // Code::TamperedGeometry, crates/graph-wasm/src/errors.rs
 export const INVALID_HANDLE_CODE = 1; // Code::InvalidHandle
 export const NO_GEOMETRY_CODE = 10; // Code::NoGeometryYet
+export const INVALID_SESSION_CODE = 15; // Code::InvalidSession
+export const SESSION_REFUSED_CODE = 17; // Code::SessionRefused
+export const SESSION_PARAMS_INVALID_CODE = 16; // Code::SessionParamsInvalid
 
 export const encoder = new TextEncoder();
 export const decoder = new TextDecoder("utf-8", { fatal: true });

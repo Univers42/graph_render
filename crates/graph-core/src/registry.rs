@@ -7,7 +7,9 @@
 
 use crate::index::Topology;
 use crate::layout::Geometry;
-use crate::layout::force::{BarnesHut, YifanHu};
+use crate::layout::force::{
+    BarnesHut, DavidsonHarel, Drl, FruchtermanReingold, Graphopt, KamadaKawai, Lgl, YifanHu,
+};
 use crate::layout::forceatlas2::ForceAtlas2;
 use crate::layout::grid::Grid;
 use crate::layout::radial::twopi;
@@ -21,6 +23,7 @@ use graph_contract::geometry::{EdgeGeometryKind, NodeGeometryKind};
 mod closed_form;
 mod force;
 mod hierarchy;
+mod igraph;
 mod radial;
 mod spectral;
 use closed_form::{BIPARTITE, RANDOM, RING, SPIRAL};
@@ -168,7 +171,7 @@ snapshot. Ponytail (FAS): greedy, not minimum; extra reversed edges (note 5) are
 };
 
 /// Every registered layout, in the order the hash gate runs them.
-pub static LAYOUTS: [Capability; 16] = [
+pub static LAYOUTS: [Capability; 22] = [
     Capability {
         id: Grid::ID,
         run: run_default::<Grid>,
@@ -243,6 +246,36 @@ pub static LAYOUTS: [Capability; 16] = [
         id: YifanHu::ID,
         run: run_default::<YifanHu>,
         meta: YIFAN_HU,
+    },
+    Capability {
+        id: FruchtermanReingold::ID,
+        run: run_default::<FruchtermanReingold>,
+        meta: igraph::FRUCHTERMAN_REINGOLD,
+    },
+    Capability {
+        id: KamadaKawai::ID,
+        run: run_default::<KamadaKawai>,
+        meta: igraph::KAMADA_KAWAI,
+    },
+    Capability {
+        id: Graphopt::ID,
+        run: run_default::<Graphopt>,
+        meta: igraph::GRAPHOPT,
+    },
+    Capability {
+        id: DavidsonHarel::ID,
+        run: run_default::<DavidsonHarel>,
+        meta: igraph::DAVIDSON_HAREL,
+    },
+    Capability {
+        id: Lgl::ID,
+        run: run_default::<Lgl>,
+        meta: igraph::LGL,
+    },
+    Capability {
+        id: Drl::ID,
+        run: run_default::<Drl>,
+        meta: igraph::DRL,
     },
     Capability {
         id: twopi::ID,

@@ -3,6 +3,7 @@
 //! parent test module to keep both files under the house line limit.
 
 use super::*;
+mod force;
 use std::collections::BTreeSet;
 
 /// Phase 8's bundling and style rows. `post.route.grid` was the only POST row the ledger
@@ -129,6 +130,20 @@ fn each_style_row_names_the_geometry_kind_its_own_style_emits() {
     }
 }
 
+/// The six igraph-family layouts, by id. The same list
+/// `registry::unproven::force_record` filters on, named here so the two can be compared by
+/// a test rather than trusted: a layout the row builder filters and the test does not
+/// would fall through to the `roundtrip`/`Gated` arm below and the row would claim a gate
+/// no differential of its own can earn.
+const IGRAPH_LAYOUT_IDS: [&str; 6] = [
+    "layout.force.fruchterman_reingold",
+    "layout.force.kamada_kawai",
+    "layout.force.graphopt",
+    "layout.force.davidson_harel",
+    "layout.force.lgl",
+    "layout.force.drl",
+];
+
 /// The record a row names, as `(oracle_record, hash_stage)`. Each row's two names must be
 /// a record `graph-cli` actually writes — a name nothing writes is a row that can never
 /// be backed, however often the gate is re-run.
@@ -167,6 +182,8 @@ fn the_registry_covers_every_oracle_function_once_its_ids_are_unique() {
             ("stress", r.id, Status::Implemented)
         } else if r.id == "layout.forceatlas2" {
             ("oracle-fa2", r.id, Status::Implemented)
+        } else if IGRAPH_LAYOUT_IDS.contains(&r.id) {
+            ("oracle-igraph", r.id, Status::Implemented)
         } else if [
             "layout.random",
             "layout.circular.ring",
@@ -207,39 +224,6 @@ fn the_registry_covers_every_oracle_function_once_its_ids_are_unique() {
     }
     let sdk = rows.iter().find(|r| r.id == "sdk.js").expect("row");
     assert_eq!(records_of(sdk), ("sdk-smoke", "sdk.js"));
-}
-
-/// The two force rows are `implemented`, and the *reason* is structural rather than
-/// provisional: `Status::Gated` means a 4-way hash **and** an oracle differential
-/// passed on this tree, and a force layout's differential is a margin rather than a
-/// byte-equality (a force simulation amplifies a 1-ULP difference into a different
-/// picture). Each names its own record, so neither can be promoted by borrowing the
-/// other's evidence.
-#[test]
-fn a_force_row_is_implemented_and_names_its_own_oracle_record() {
-    let rows = registry();
-    for (id, record) in [
-        ("layout.force.barnes_hut", "stress"),
-        ("layout.forceatlas2", "oracle-fa2"),
-    ] {
-        let row = rows.iter().find(|r| r.id == id).expect("registered");
-        assert_eq!(row.status, Status::Implemented, "{id}");
-        assert_eq!(row.oracle_record, record, "{id}");
-        assert_eq!(row.hash_stage, id, "{id}: its hash stage is its own id");
-        assert_eq!(row.stage, "layout");
-        assert_eq!(row.geometry, Some("Point"), "{id}");
-        assert!(row.scale_ceiling > 0, "{id}");
-    }
-    // Neither may borrow a record that does not speak for it: the d3-force stress arm
-    // knows nothing of networkx's FA2, and the other way round.
-    let other = |id: &str, record: &str| {
-        assert!(
-            !rows.iter().any(|r| r.id == id && r.oracle_record == record),
-            "{id} must not be held to {record}"
-        );
-    };
-    other("layout.forceatlas2", "stress");
-    other("layout.force.barnes_hut", "oracle-fa2");
 }
 
 #[test]

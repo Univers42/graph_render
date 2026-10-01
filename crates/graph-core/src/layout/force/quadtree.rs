@@ -161,6 +161,18 @@ impl Quadtree {
         out.extend(self.stack_b.iter().rev());
     }
 
+    /// The capacity of every buffer a rebuild refills, for the test that a rebuild
+    /// allocates nothing once the layout has reached steady state.
+    ///
+    /// **The walk's own buffer is not here, and cannot be:** [`visit_in`](Self::visit_in)
+    /// runs over a stack the *caller* owns, so a tree has no walk capacity of its own to
+    /// report. The pass that walks therefore measures its own stack separately
+    /// (`barnes_hut/tests/kernels.rs`), and this reports what the tree alone holds.
+    #[cfg(test)]
+    pub(crate) fn capacity(&self) -> usize {
+        self.shape.capacity() + self.chain_next.capacity()
+    }
+
     /// A pruned preorder walk (d3's `visit.js`) over a **caller-owned** stack: `prune`
     /// runs on every node reached, and a `true` return skips its children. Children queue
     /// `3,2,1,0`, so they visit `0,1,2,3`.

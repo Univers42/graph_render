@@ -3,6 +3,7 @@
 
 use super::*;
 use crate::index::index_model;
+use crate::layout::force::ForceParams;
 use crate::layout::force::simple_graph;
 use crate::records::build::{edge, node};
 
@@ -24,7 +25,7 @@ fn bias_favours_the_lower_degree_endpoint_moving_more() {
     ];
     let t = index_model(&nodes, &edges).expect("fits");
     let g = simple_graph(&t);
-    let (_, _, bias) = geometry(&g, &ForceParams::default());
+    let (_, _, bias) = geometry(&g, &ForceParams::default().into());
     // edge0 is (hub=lo=0, mid=hi=1): bias = degree(lo)/(degree(lo)+degree(hi)) = 4/5.
     assert!((bias[0] - 0.8).abs() < 1e-12);
 }
@@ -42,7 +43,7 @@ fn the_shared_difference_read_from_either_end_is_the_exact_negation() {
     let nodes = [node("a", ""), node("b", ""), node("c", "")];
     let edges = [edge("e0", "a", "b"), edge("e1", "b", "c")];
     let t = index_model(&nodes, &edges).expect("fits");
-    let sim = super::super::sim::Sim::new(&t, ForceParams::default(), 0);
+    let sim = super::super::sim::Sim::new(&t, ForceParams::default().into(), 0);
     let mut forward = displaced(&sim, 1, 0);
     let backward = displaced(&sim, 0, 1);
     forward.0 = -forward.0;
@@ -58,7 +59,7 @@ fn coincident_endpoints_read_as_positive_zero_from_either_end() {
     let nodes = [node("a", ""), node("b", "")];
     let edges = [edge("e0", "a", "b")];
     let t = index_model(&nodes, &edges).expect("fits");
-    let mut sim = super::super::sim::Sim::new(&t, ForceParams::default(), 0);
+    let mut sim = super::super::sim::Sim::new(&t, ForceParams::default().into(), 0);
     for i in 0..sim.x.len() {
         sim.x[i] = 1.0;
         sim.y[i] = 1.0;

@@ -20,7 +20,7 @@ mod collide;
 mod link;
 mod seed;
 mod settle;
-mod sim;
+pub(in crate::layout::force) mod sim;
 mod step;
 
 #[cfg(test)]
@@ -30,9 +30,9 @@ use super::params::{ForceParams, TICKS};
 use crate::exec::Serial;
 use crate::index::Topology;
 use crate::layout::Geometry;
+use crate::layout::force::session::ForceSession;
 use crate::stage::{Stage, StageError};
 use graph_contract::geometry::{EdgeGeometry, NodeGeometry};
-use sim::{How, Sim};
 
 /// Which of the tick's range-kernel merges the negative control splits.
 ///
@@ -168,18 +168,14 @@ impl BarnesHut {
         workers: u32,
         split: Split,
     ) -> Result<Geometry, StageError> {
-        let mut sim = Sim::new(topology, *params, 0);
-        let mut deltas: Vec<(f64, f64)> = Vec::new();
-        for _ in 0..TICKS {
-            let mut how = How {
-                runner,
-                workers,
-                deltas: &mut deltas,
-                split,
-            };
-            sim.tick(&mut how);
-        }
-        let (x, y) = sim.positions();
+        // The frozen layout *is* the degenerate live session: `LiveParams::from(*params)`
+        // with gravity 0 and no pins, stepped TICKS times (`session/live_params.rs`). The
+        // stage and a live session therefore run the same tick, `Sim::tick`, and differ
+        // only in the tier `How` above it — which is what the 65 golden digests and the
+        // 4-way hash gate are there to keep true.
+        let mut session = ForceSession::from_frozen(topology, params)?;
+        session.step_under(runner, workers, split, TICKS);
+        let (x, y) = (session.xs(), session.ys());
         if x.iter().chain(y).any(|v| !v.is_finite()) {
             return Err(StageError::NonFinite { column: "node.x" });
         }
