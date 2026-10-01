@@ -102,5 +102,6 @@ fn main() -> ExitCode {
         Command::DeterminismProbe { out } => determinism_probe::run(&out),
         Command::Stress { oracle, seeds } => stress::run(&oracle, seeds),
         Command::Bench(plan) => bench::run(&plan),
+        Command::Tick(plan) => bench::tick::run(&plan),
     }
 }
