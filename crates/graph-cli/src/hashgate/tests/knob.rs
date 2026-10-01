@@ -5,11 +5,11 @@
 //! `hashgate/stages.rs`'s module doc) — one spelling of each id, in the crate that
 //! implements the layout, rather than a copy here.
 //!
-//! Split by the house's 300-line limit: [`controls`] holds the two force controls and the
-//! vacuous-control refusal, [`ids`] the four Phase 3 stage ids, [`p3`] the four Phase 3
-//! controls, and [`table`] the knob table itself — the ten parameter controls, the fifteen
-//! ANALYSIS and POST controls, and the one compute-tier control, each held against the
-//! variable and record it claims.
+//! Split by the house's 300-line limit: [`controls`] holds the two force controls, the two
+//! p12-t2 controls and the vacuous-control refusal, [`ids`] the four Phase 3 stage ids,
+//! [`p3`] the four Phase 3 controls, and [`table`] the knob table itself — the twelve
+//! parameter controls, the fifteen ANALYSIS and POST controls, and the one compute-tier
+//! control, each held against the variable and record it claims.
 
 mod controls;
 mod ids;
@@ -24,9 +24,11 @@ use super::honest;
 use super::{Knob, Setting, setting, stage_bytes};
 use graph_core::layout::circle_packing::CirclePackingParams;
 pub(super) use graph_core::layout::circle_packing::ID as PACKING;
+use graph_core::layout::circular;
 pub(super) use graph_core::layout::circular::ID as CIRCULAR;
 use graph_core::layout::force::BarnesHut;
 use graph_core::layout::force::Split;
+use graph_core::layout::force::spring::Spring;
 use graph_core::layout::forceatlas2::ForceAtlas2;
 pub(super) use graph_core::layout::tidy_tree::ID as TIDY_TREE;
 pub(super) use graph_core::layout::treemap::ID as TREEMAP;

@@ -63,11 +63,14 @@ fn capabilities_needs_a_flag_and_refuses_gated_rows_no_recorded_run_backs() {
     // 18 rows before Phase 7, its 9 analysis.* rows (`Implemented`, no problems),
     // Phase 4's transport (gated, refused twice) and sdk.js rows, Phase 8's seven
     // `post.*` rows, Phase 9's three `scale.*` rows, Phase 10's four
-    // `ingest.*`/`adapter.*` rows and `analysis.depth` (all `implemented`, no problem).
+    // `ingest.*`/`adapter.*` rows and `analysis.depth` (all `implemented`, no problem),
+    // and this phase's two layouts (also `implemented`: `oracle-spring` and
+    // `oracle-circular-hierarchy` are records the ledger cannot resolve, so a `gated`
+    // row could only report a refusal — see `registry/unproven.rs`).
     // Every problem is a `gated` row with no record behind it; the `implemented` rows
     // never produce one.
     assert!(
-        stdout(&check).contains("capabilities --check: 49 rows, 34 problems"),
+        stdout(&check).contains("capabilities --check: 51 rows, 34 problems"),
         "{}",
         stdout(&check)
     );
@@ -84,8 +87,9 @@ fn every_post_row_is_published_implemented_and_fully_filled() {
     let listed = rows.as_array().expect("an array");
     assert_eq!(
         listed.len(),
-        49,
-        "41 before analysis.depth, and 25 before the seven post.* rows"
+        51,
+        "41 before analysis.depth, and 25 before the seven post.* rows, plus this phase's \
+         layout.force.spring and layout.circular.hierarchy"
     );
     for id in POST_IDS {
         let row = listed
@@ -159,7 +163,7 @@ fn the_depth_row_is_published_by_the_binary_and_adds_no_problem() {
     let check = graph_cli(&["capabilities", "--check"]);
     assert_eq!(check.status.code(), Some(1), "{}", stdout(&check));
     assert!(
-        stdout(&check).contains("capabilities --check: 49 rows, 34 problems"),
+        stdout(&check).contains("capabilities --check: 51 rows, 34 problems"),
         "the new row is implemented, so it adds a row and not a problem: {}",
         stdout(&check)
     );

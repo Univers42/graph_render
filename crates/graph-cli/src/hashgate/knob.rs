@@ -18,10 +18,10 @@ pub(super) use setting::{Setting, env_setting};
 /// every stage that is a function of the topology at all: it backs the stages nothing
 /// else reaches (spectral, pivot MDS), but a control that moves eleven stages at once
 /// cannot say *which* stage a divergence came from, which is the whole point of hashing
-/// them one at a time. So the four Phase 3 layouts and Barnes-Hut each have a control
-/// filed under their own stage id, and the test
-/// `each_p3_layout_has_its_own_negative_control_that_moves_only_its_stage` is what keeps
-/// them honest.
+/// them one at a time. So the four Phase 3 layouts, Barnes-Hut, forceatlas2 and the two
+/// p12-t2 layouts each have a control filed under their own stage id, and the three tests
+/// named `*_has_its_own_negative_control_that_moves_only_its_stage` are what keep them
+/// honest.
 ///
 /// **What each of the four perturbs, and why it is not one thing.** Circle packing is
 /// the only one that publishes parameters ([`graph_core::layout::circle_packing::
@@ -33,6 +33,14 @@ pub(super) use setting::{Setting, env_setting};
 /// ([`Knob::TreeTidyNodes`], [`Knob::TreemapNodes`], [`Knob::CircularNodes`]). Same
 /// probe as node count, scoped to one stage: it is the honest way to move a layout that
 /// has no parameter to move, and it is what makes the divergence *name* the stage.
+///
+/// **p12-t2's two layouts split those cases one each.**
+/// [`Knob::SpringIterations`] moves a real parameter, because
+/// `graph_core::layout::force::spring::SpringParams` publishes one, and `iterations` is
+/// read by the Fruchterman–Reingold loop and by nothing else.
+/// [`Knob::CircularHierarchyNodes`] takes the other branch, because SciGraphs' closed form
+/// takes no parameter at all — its `scale` is the dispatcher's own constant — so the only
+/// thing a control can move is the graph it draws.
 ///
 /// **The fifteen ANALYSIS and POST controls are the same probe again**, and for the same
 /// reason: no analysis and no POST capability takes a parameter, being a pure function
@@ -77,6 +85,21 @@ pub enum Knob {
     /// alone. Rings come from BFS depth over the hierarchy, so one more node changes
     /// this stage's ring counts and slots and nothing else's.
     CircularNodes,
+    /// `GM_MUTATE_SPRING_ITERATIONS`: the spring layout's iteration budget, native arm only.
+    ///
+    /// Its own control because `iterations` is read by the FR loop's `for` and by
+    /// nothing else: perturbing it re-runs this stage's force pass and leaves every other
+    /// stage — including `layout.forceatlas2` and `layout.force.barnes_hut`, which share
+    /// no code with it — byte-identical.
+    SpringIterations,
+    /// `GM_MUTATE_CIRCULAR_HIERARCHY_NODES`: nodes added to `layout.circular.hierarchy`'s
+    /// model alone.
+    ///
+    /// The re-drawn-model probe, like [`Knob::CircularNodes`] next to it: the SciGraphs
+    /// closed form takes no parameter (`SCALE` is the dispatcher's own default), so the
+    /// one thing it does read is the graph, and one more node changes its component roots
+    /// and every level count while nothing else in the gate moves.
+    CircularHierarchyNodes,
     /// `GM_MUTATE_PACKING_SCALE`: the packing's `CirclePackingParams::scale`, native arm
     /// only.
     ///
@@ -145,7 +168,7 @@ pub enum Knob {
 }
 
 impl Knob {
-    /// Every knob: the ten that move a parameter, then the fifteen ANALYSIS and POST
+    /// Every knob: the twelve that move a parameter, then the fifteen ANALYSIS and POST
     /// stage controls in [`knobs::ANALYSIS_POST_STAGES`] order, then the compute-tier
     /// control last.
     ///
@@ -154,7 +177,7 @@ impl Knob {
     /// fifteen are spelled as arms here and held against that one table by
     /// `the_analysis_and_post_controls_are_the_knobs_table`, which fails on any arm whose
     /// variable, record or stage the table disagrees with.
-    pub const ALL: [Self; 26] = [
+    pub const ALL: [Self; 28] = [
         Self::ReferenceDegree,
         Self::GridSpacing,
         Self::SugiyamaLayerSpacing,
@@ -164,6 +187,8 @@ impl Knob {
         Self::TreeTidyNodes,
         Self::TreemapNodes,
         Self::CircularNodes,
+        Self::SpringIterations,
+        Self::CircularHierarchyNodes,
         Self::PackingScale,
         Self::AnalysisComponentsWeak,
         Self::AnalysisComponentsStrong,
@@ -195,6 +220,8 @@ impl Knob {
             Self::TreeTidyNodes => "GM_MUTATE_TREE_TIDY_NODES",
             Self::TreemapNodes => "GM_MUTATE_TREEMAP_NODES",
             Self::CircularNodes => "GM_MUTATE_CIRCULAR_NODES",
+            Self::SpringIterations => "GM_MUTATE_SPRING_ITERATIONS",
+            Self::CircularHierarchyNodes => "GM_MUTATE_CIRCULAR_HIERARCHY_NODES",
             Self::PackingScale => "GM_MUTATE_PACKING_SCALE",
             Self::AnalysisComponentsWeak => "GM_MUTATE_ANALYSIS_COMPONENTS_WEAK",
             Self::AnalysisComponentsStrong => "GM_MUTATE_ANALYSIS_COMPONENTS_STRONG",
@@ -227,6 +254,8 @@ impl Knob {
             Self::TreeTidyNodes => "hashgate-control-tree-tidy-nodes",
             Self::TreemapNodes => "hashgate-control-treemap-nodes",
             Self::CircularNodes => "hashgate-control-circular-nodes",
+            Self::SpringIterations => "hashgate-control-spring-iterations",
+            Self::CircularHierarchyNodes => "hashgate-control-circular-hierarchy-nodes",
             Self::PackingScale => "hashgate-control-packing-scale",
             Self::AnalysisComponentsWeak => "hashgate-control-analysis-components-weak",
             Self::AnalysisComponentsStrong => "hashgate-control-analysis-components-strong",

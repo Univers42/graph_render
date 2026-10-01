@@ -85,6 +85,18 @@ fn main() -> ExitCode {
         Command::OracleClosedForm { dir } => {
             oracle_python::ingest(&oracle_python::CLOSED_FORM, &dir)
         }
+        Command::EmitSpringFixtures {
+            seeds,
+            max_iter,
+            out,
+        } => oracle_python::emit(&oracle_python::SPRING, seeds, max_iter, &out),
+        Command::OracleSpring { dir } => oracle_python::spring::ingest::ingest(&dir),
+        Command::EmitCircularHierarchyFixtures { seeds, out } => {
+            oracle_python::emit(&oracle_python::CIRCULAR_HIERARCHY, seeds, None, &out)
+        }
+        Command::OracleCircularHierarchy { dir } => {
+            oracle_python::ingest(&oracle_python::CIRCULAR_HIERARCHY, &dir)
+        }
         Command::OracleLayouts { fixtures } => {
             oracle_fixtures::diff_layouts(&fixtures.unwrap_or_else(oracle_fixtures::default_out))
         }

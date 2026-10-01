@@ -146,6 +146,41 @@ pub enum Command {
         #[arg(long, default_value = "target/closed-form-fixtures")]
         dir: PathBuf,
     },
+    /// Writes the spring differential's fixtures for `harness/oracle-spring.py`.
+    EmitSpringFixtures {
+        /// Number of seeds, 0..N.
+        #[arg(long, default_value_t = 1000, value_parser = seed_count())]
+        seeds: u32,
+        /// Iteration budget both arms run, over the differential's own. The escape hatch
+        /// `docs/measurements/p12-t2.md` measures another budget with.
+        #[arg(long, value_parser = clap::value_parser!(u32).range(1..=1000))]
+        max_iter: Option<u32>,
+        /// Output directory.
+        #[arg(long, default_value = "target/spring-fixtures")]
+        out: PathBuf,
+    },
+    /// Checks the spring differential's result against its stress-ratio ceiling.
+    OracleSpring {
+        /// Directory holding the fixtures and `spring-result.json`.
+        #[arg(long, default_value = "target/spring-fixtures")]
+        dir: PathBuf,
+    },
+    /// Writes the circular-hierarchy differential's fixtures for
+    /// `harness/oracle-circular-hierarchy.py`, the SciGraphs arm.
+    EmitCircularHierarchyFixtures {
+        /// Number of seeds, 0..N.
+        #[arg(long, default_value_t = 1000, value_parser = seed_count())]
+        seeds: u32,
+        /// Output directory.
+        #[arg(long, default_value = "target/circular-hierarchy-fixtures")]
+        out: PathBuf,
+    },
+    /// Checks the circular-hierarchy differential's result against its ceiling.
+    OracleCircularHierarchy {
+        /// Directory holding the fixtures and `circular-hierarchy-result.json`.
+        #[arg(long, default_value = "target/circular-hierarchy-fixtures")]
+        dir: PathBuf,
+    },
     /// Runs `harness/oracle-layouts.mjs` over the emitted fixtures (the d3-hierarchy arm).
     OracleLayouts {
         /// Fixtures directory; `target/oracle-fixtures` by default.

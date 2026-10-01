@@ -1,9 +1,9 @@
 //! The knob table: every control's variable, record and stage, held against the one
 //! source of truth for the fifteen ANALYSIS and POST controls.
 //!
-//! Split from `knob.rs` by the house's 300-line limit. The ten parameter controls are
+//! Split from `knob.rs` by the house's 300-line limit. The twelve parameter controls are
 //! spelled out here rather than derived from [`Knob::env`], so this test is the
-//! independent statement of what the first ten are called; the fifteen ANALYSIS and POST
+//! independent statement of what the first twelve are called; the fifteen ANALYSIS and POST
 //! controls are absent because their variables come from `knobs::ANALYSIS_POST_STAGES`,
 //! which has its own test below.
 
@@ -11,11 +11,12 @@ use super::*;
 use crate::hashgate::knob::setting::setting;
 use crate::hashgate::knobs;
 
-/// The ten controls that move a parameter. **Spelled out rather than derived from
-/// [`Knob::env`]**, so this test is the independent statement of what the first ten are
+/// The twelve controls that move a parameter, or re-draw one stage's own model.
+/// **Spelled out rather than derived from
+/// [`Knob::env`]**, so this test is the independent statement of what the first twelve are
 /// called; the fifteen ANALYSIS and POST controls are absent because their variables come
 /// from `knobs::ANALYSIS_POST_STAGES`, which has its own test below.
-const PARAMETER_KNOBS: [(&str, &str); 10] = [
+const PARAMETER_KNOBS: [(&str, &str); 12] = [
     (
         "GM_MUTATE_REFERENCE_DEGREE",
         "hashgate-control-reference-degree",
@@ -39,6 +40,14 @@ const PARAMETER_KNOBS: [(&str, &str); 10] = [
     (
         "GM_MUTATE_CIRCULAR_NODES",
         "hashgate-control-circular-nodes",
+    ),
+    (
+        "GM_MUTATE_SPRING_ITERATIONS",
+        "hashgate-control-spring-iterations",
+    ),
+    (
+        "GM_MUTATE_CIRCULAR_HIERARCHY_NODES",
+        "hashgate-control-circular-hierarchy-nodes",
     ),
     ("GM_MUTATE_PACKING_SCALE", "hashgate-control-packing-scale"),
 ];

@@ -5,7 +5,7 @@ Counted 2026-09-30 from the tree, read-only. The key is the SciGraphs side: one 
 `dispatcher.py` line is the `elif algorithm ==` that selects the name; the eight Graphviz engines share
 one branch (`dispatcher.py:140`) and are named in `yifan_hu.py:7-16`.
 
-The motor side is `LAYOUTS` in `crates/graph-core/src/registry.rs:167` (15 entries) read through
+The motor side is `LAYOUTS` in `crates/graph-core/src/registry.rs:168` (17 entries) read through
 `scripts/orch/gr cargo run -q -p graph-cli -- capabilities`; a row's registry id appears in that
 command's output under `id`, and the ledger row it comes from is built at
 `crates/graph-cli/src/capabilities/registry.rs:249-282`. The studio picker reads the same registry, so a
@@ -22,7 +22,7 @@ git log --oneline origin/develop..origin/p12-igraph
 |---|---|---|---|---|---|---|---|
 | `RANDOM` | `dispatcher.py:51` | `_random_layout` `basic.py:5` | 3D | `layout.random` | on develop (2D port) | networkx 3.6 `random_layout` | `oracle-closed-form`, `capabilities/registry/unproven.rs:38`, `registry/closed_form.rs:28` |
 | `GRID` | `dispatcher.py:53` | `_grid_layout` `basic.py:11` | 2D (z=0) | `layout.grid` | on develop | hand convention | `roundtrip` hand oracle, `registry.rs:81` |
-| `SPRING` | `dispatcher.py:55` | `_spring_layout_2d` `networkx_layouts.py:16` | 2D | — | planned: p12-t2 | networkx 3.6 `spring_layout` | `oracle-spring` (to write), networkx arm, stress ratio |
+| `SPRING` | `dispatcher.py:55` | `_spring_layout_2d` `networkx_layouts.py:16` | 2D | `layout.force.spring` | on develop (p12-t2) | networkx 3.6 `spring_layout` at `dim=2` | `oracle-spring`, networkx arm, stress deficit, `unproven.rs:54` |
 | `SPRING_3D` | `dispatcher.py:57` | `_spring_layout_3d` `networkx_layouts.py:26` | 3D | — | missing | networkx 3.6 `spring_layout` at `dim=3` | blocked on `contract-3d`; then the same `oracle-spring` at dim 3 |
 | `CIRCLE_PACKING` | `dispatcher.py:59` | `_circle_packing_layout` `circle_packing.py:281` | 2D (Z=0) | `layout.packing.circle` | on develop | hand + planarity certificate | `roundtrip` hand oracle, `registry.rs:120` |
 | `FORCEATLAS2` | `dispatcher.py:62` | `_forceatlas2_layout` `forceatlas.py:150` | 3D by default (`dim=3`) | `layout.forceatlas2` | on develop (2D port) | networkx 3.6 `forceatlas2_layout` | `oracle-fa2`, `unproven.rs:32`, `registry/force.rs:98` |
@@ -51,15 +51,16 @@ git log --oneline origin/develop..origin/p12-igraph
 | `GRAPHVIZ_SFDP` | `dispatcher.py:140` | same, `engine='sfdp'` | 2D default; 3D eligible (`yifan_hu.py:18`) | — | planned: p13-gv2 | Graphviz `sfdp` | Graphviz's own output, docker-only oracle |
 | `GRAPHVIZ_DOT` | `dispatcher.py:140` | same, `engine='dot'` | 2D default | — | planned: p13-gv2 | Graphviz `dot` | Graphviz's own output, docker-only oracle |
 | `SUGIYAMA` | `dispatcher.py:142` | `_sugiyama_layout` `hierarchical.py:638` | 2D (z=0) | `layout.dag.sugiyama` | on develop | hand, checked on dagre-d3-es crossing counts | `roundtrip` + `harness/oracle-layouts.mjs --dag`, `registry.rs:149` |
-| `CIRCULAR_HIERARCHY` | `dispatcher.py:144` | `_circular_hierarchy_layout` `hierarchical.py:693` | 2D (z=0.0) | — | planned: p12-t2 | SciGraphs itself, `hierarchical.py:693-732` | SciGraphs-arm `oracle-circular-hierarchy` |
+| `CIRCULAR_HIERARCHY` | `dispatcher.py:144` | `_circular_hierarchy_layout` `hierarchical.py:693` | 2D (z=0.0) | `layout.circular.hierarchy` | on develop (p12-t2) | SciGraphs itself, `hierarchical.py:693-732` | SciGraphs-arm `oracle-circular-hierarchy`, `unproven.rs:55` |
 
 - names = 32 (24 explicit `elif` comparisons plus 8 Graphviz engines)
-- on develop = 10, in three flavours: 3 as SciGraphs names them (`GRID`, `CIRCLE_PACKING`, `SUGIYAMA`),
+- on develop = 12, in three flavours: 5 as SciGraphs names them (`GRID`, `CIRCLE_PACKING`, `SUGIYAMA`,
+  `SPRING`, `CIRCULAR_HIERARCHY`),
   6 as two-dimensional ports of a 3D name (`RANDOM`, `FORCEATLAS2`, `SPECTRAL_3D`, `SPIRAL_3D`,
   `BIPARTITE_3D`, `MDS_3D`), and 1 as a 2D-only cut of a name SciGraphs makes optional by dimension
   (`YIFAN_HU`, which is 2D/2Z/3 upstream)
 - in flight: p12-igraph = 7 names over 6 ids (`DRL` and `DRL_2D` share `layout.force.drl`)
-- planned: p12-t2 = 2 · planned: p13-gv1 = 4 · planned: p13-gv2 = 4
+- planned: p13-gv1 = 4 · planned: p13-gv2 = 4 (p12-t2's two names are counted under *on develop* above)
 - missing = 5, all of them 3D: `SPRING_3D`, `SPHERE`, `HELIX`, `CUBE`, `HIERARCHICAL_3D`
 - motor ids with no SciGraphs name = 4 (`layout.tree.tidy`, `layout.treemap.squarified`, `layout.circular.ring`, `layout.force.barnes_hut`); out of scope for a table keyed on SciGraphs names
 
@@ -74,7 +75,10 @@ is that the motor ported the *2D question* each one answers and said so in the m
 every `dims=3` in the reference ports as 2).
 
 Two rows are the exception that proves the rule. `SPRING_3D`'s 2D half *is* `SPRING`, which is p12-t2's
-`force.spring` — the two rows are one algorithm at two dimensions. `HIERARCHICAL_3D` cannot be
+`layout.force.spring` — the two rows are one algorithm at two dimensions, and the port says so at
+`crates/graph-core/src/layout/force/spring.rs:6-11`; `SPRING_3D` itself stays `missing` until
+`contract-3d` exists, at which point the same differential runs at `dim=3`.
+`HIERARCHICAL_3D` cannot be
 collapsed: `hierarchical.py:113-147` puts the BFS level on the z axis (`z = level / max_level * 2 *
 scale - scale`) and only the in-plane disk radius varies with population, so dropping z stacks every
 level on the same disk. The motor's `layout.circular.radial` is a *different* function

@@ -7,6 +7,7 @@
 
 use crate::index::Topology;
 use crate::layout::Geometry;
+use crate::layout::force::spring::Spring;
 use crate::layout::force::{BarnesHut, YifanHu};
 use crate::layout::forceatlas2::ForceAtlas2;
 use crate::layout::grid::Grid;
@@ -22,10 +23,10 @@ mod force;
 mod hierarchy;
 mod spectral;
 use closed_form::{BIPARTITE, RANDOM, RING, SPIRAL};
-use force::{BARNES_HUT, FA2, YIFAN_HU};
-pub use force::{FA2_CEILING, FORCE_CEILING};
+use force::{BARNES_HUT, FA2, SPRING, YIFAN_HU};
+pub use force::{FA2_CEILING, FORCE_CEILING, SPRING_CEILING};
 pub use hierarchy::HIERARCHY_LAYOUT_CEILING;
-use hierarchy::{CIRCULAR, TIDY_TREE, TREEMAP};
+use hierarchy::{CIRCULAR, CIRCULAR_HIERARCHY, TIDY_TREE, TREEMAP};
 use spectral::{PIVOT_MDS, SPECTRAL};
 pub use spectral::{PIVOT_MDS_CEILING, SPECTRAL_CEILING};
 
@@ -164,7 +165,7 @@ snapshot. Ponytail (FAS): greedy, not minimum; extra reversed edges (note 5) are
 };
 
 /// Every registered layout, in the order the hash gate runs them.
-pub static LAYOUTS: [Capability; 15] = [
+pub static LAYOUTS: [Capability; 17] = [
     Capability {
         id: Grid::ID,
         run: run_default::<Grid>,
@@ -239,6 +240,16 @@ pub static LAYOUTS: [Capability; 15] = [
         id: YifanHu::ID,
         run: run_default::<YifanHu>,
         meta: YIFAN_HU,
+    },
+    Capability {
+        id: Spring::ID,
+        run: run_default::<Spring>,
+        meta: SPRING,
+    },
+    Capability {
+        id: circular::hierarchy::ID,
+        run: circular::hierarchy::run,
+        meta: CIRCULAR_HIERARCHY,
     },
 ];
 

@@ -112,6 +112,55 @@ fn each_force_layout_has_its_own_negative_control_that_moves_only_its_stage() {
     }
 }
 
+/// The two p12-t2 controls, each moving its own stage and no other.
+///
+/// One is a parameter and one re-draws a model, and the difference is the layouts': spring
+/// publishes [`graph_core::layout::force::spring::SpringParams`], while SciGraphs' closed
+/// form takes none at all (its `scale` is the dispatcher's own constant), so the graph is the
+/// only thing a control can move for it. Both claims are the same claim the four Phase 3
+/// controls make, and the test is the same test.
+#[test]
+fn each_p12_t2_layout_has_its_own_negative_control_that_moves_only_its_stage() {
+    let base = stage_bytes(P3_SEED, &honest()).expect("runs");
+    let iterations = setting(env(vec![("GM_MUTATE_SPRING_ITERATIONS", "3")])).expect("parses");
+    assert_eq!(iterations.control, Some(Knob::SpringIterations));
+    assert_eq!(iterations.spring.iterations, 3);
+    only_stage_moved(
+        &base,
+        &stage_bytes(P3_SEED, &iterations).expect("runs"),
+        Spring::ID,
+    );
+    let nodes = setting(env(vec![("GM_MUTATE_CIRCULAR_HIERARCHY_NODES", "1")])).expect("parses");
+    assert_eq!(nodes.control, Some(Knob::CircularHierarchyNodes));
+    assert_eq!(nodes.stage_nodes, Some((circular::hierarchy::ID, 1)));
+    assert_eq!(nodes.extra_nodes, 0, "the gate's own model is untouched");
+    only_stage_moved(
+        &base,
+        &stage_bytes(P3_SEED, &nodes).expect("runs"),
+        circular::hierarchy::ID,
+    );
+    let both = env(vec![
+        ("GM_MUTATE_SPRING_ITERATIONS", "3"),
+        ("GM_MUTATE_CIRCULAR_HIERARCHY_NODES", "1"),
+    ]);
+    assert!(
+        setting(both)
+            .expect_err("one at a time")
+            .ends_with("one control at a time")
+    );
+    // A typo, a negative budget and a zero count are all refused rather than falling back
+    // to the default, which is what a control that moves nothing looks like.
+    let bad: [&'static [(&str, &str)]; 3] = [
+        &[("GM_MUTATE_SPRING_ITERATIONS", "three")],
+        &[("GM_MUTATE_SPRING_ITERATIONS", "-1")],
+        &[("GM_MUTATE_CIRCULAR_HIERARCHY_NODES", "0")],
+    ];
+    for pairs in bad {
+        let err = setting(env(pairs.to_vec())).expect_err("refused");
+        assert!(err.starts_with(pairs[0].0), "{err}");
+    }
+}
+
 /// The seed whose model is large enough that a theta change reaches the quadtree's
 /// opening test. At the gate's smallest models every cell is already inside theta and
 /// the two values coincide, which would make the control vacuous.

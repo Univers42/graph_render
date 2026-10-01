@@ -4,7 +4,9 @@
 //! `2*pi` endpoint dropped), then `rescale_layout`. A lone node sits at the centre.
 //!
 //! Not `layout.circular.radial` (`super`), which is a tree radial over the repaired
-//! hierarchy; the two share nothing but the word "circular".
+//! hierarchy, and not `layout.circular.hierarchy` (`super::hierarchy`), which is
+//! SciGraphs' own `CIRCULAR_HIERARCHY` closed form: this one shares with both nothing but
+//! the word "circular" — it is the only ring layout that reads no structure at all.
 //!
 //! Angles are `f64` where networkx narrows them to `f32`, so the differential against it
 //! is a tolerance (1e-6), never bytes. Nothing here is a heuristic.

@@ -167,6 +167,13 @@ fn the_registry_covers_every_oracle_function_once_its_ids_are_unique() {
             ("stress", r.id, Status::Implemented)
         } else if r.id == "layout.forceatlas2" {
             ("oracle-fa2", r.id, Status::Implemented)
+        } else if r.id == "layout.force.spring" {
+            ("oracle-spring", r.id, Status::Implemented)
+        } else if r.id == "layout.circular.hierarchy" {
+            // A closed form with a SciGraphs-arm differential, `implemented` rather than
+            // `gated` for the reason `unproven.rs` gives: the ledger resolves no such
+            // record, so a gated row could only ever read back a refusal.
+            ("oracle-circular-hierarchy", r.id, Status::Implemented)
         } else if [
             "layout.random",
             "layout.circular.ring",
@@ -216,6 +223,8 @@ fn a_force_row_is_implemented_and_names_its_own_oracle_record() {
     for (id, record) in [
         ("layout.force.barnes_hut", "stress"),
         ("layout.forceatlas2", "oracle-fa2"),
+        ("layout.force.spring", "oracle-spring"),
+        ("layout.circular.hierarchy", "oracle-circular-hierarchy"),
     ] {
         let row = rows.iter().find(|r| r.id == id).expect("registered");
         assert_eq!(row.status, Status::Implemented, "{id}");
@@ -235,6 +244,12 @@ fn a_force_row_is_implemented_and_names_its_own_oracle_record() {
     };
     other("layout.forceatlas2", "stress");
     other("layout.force.barnes_hut", "oracle-fa2");
+    // The two FR ports share a metric and share no code, and the two closed forms are
+    // compared by different arms entirely: nobody may be measured by another's run.
+    other("layout.force.spring", "oracle-fa2");
+    other("layout.force.spring", "stress");
+    other("layout.circular.hierarchy", "oracle-closed-form");
+    other("layout.circular.hierarchy", "oracle-spring");
 }
 
 #[test]
