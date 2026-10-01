@@ -21,6 +21,7 @@ mod circular_hierarchy;
 mod cli;
 mod closed_form;
 mod fa2;
+mod fdp;
 mod graphviz;
 mod igraph;
 mod neato;

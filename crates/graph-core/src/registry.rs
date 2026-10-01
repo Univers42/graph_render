@@ -13,6 +13,7 @@ use crate::layout::force::{
 };
 use crate::layout::forceatlas2::ForceAtlas2;
 use crate::layout::graphviz::circo;
+use crate::layout::graphviz::fdp;
 use crate::layout::graphviz::neato;
 use crate::layout::graphviz::osage;
 use crate::layout::graphviz::patchwork;
@@ -28,6 +29,7 @@ use graph_contract::geometry::{EdgeGeometryKind, NodeGeometryKind};
 mod closed_form;
 mod force;
 mod graphviz_circo;
+mod graphviz_fdp;
 mod graphviz_neato;
 mod graphviz_osage;
 mod graphviz_patchwork;
@@ -41,6 +43,8 @@ use force::{BARNES_HUT, FA2, SPRING, YIFAN_HU};
 pub use force::{FA2_CEILING, FORCE_CEILING, SPRING_CEILING};
 use graphviz_circo::CIRCO;
 pub use graphviz_circo::GRAPHVIZ_CIRCO_CEILING;
+use graphviz_fdp::FDP;
+pub use graphviz_fdp::FDP_CEILING;
 use graphviz_neato::NEATO;
 pub use graphviz_neato::NEATO_CEILING;
 use graphviz_osage::OSAGE;
@@ -91,7 +95,7 @@ pub struct Capability {
 }
 
 /// Every registered layout, in the order the hash gate runs them.
-pub static LAYOUTS: [Capability; 28] = [
+pub static LAYOUTS: [Capability; 29] = [
     Capability {
         id: Grid::ID,
         run: run_default::<Grid>,
@@ -231,6 +235,11 @@ pub static LAYOUTS: [Capability; 28] = [
         id: neato::ID,
         run: neato::run,
         meta: NEATO,
+    },
+    Capability {
+        id: fdp::ID,
+        run: fdp::run,
+        meta: FDP,
     },
 ];
 

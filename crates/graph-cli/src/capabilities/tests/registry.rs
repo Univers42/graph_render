@@ -230,6 +230,14 @@ fn the_registry_covers_every_oracle_function_once_its_ids_are_unique() {
             // (`docs/measurements/p13-gv1-patchwork.md`) rather than to bytes, so the row is
             // `implemented` and never a `gated` claim resting on a hash.
             ("oracle-patchwork", r.id, Status::Implemented)
+        } else if r.id == "layout.force.fdp" {
+            // The third Graphviz arm, and the one that cannot be compared to bytes at all:
+            // the pinned Graphviz 16.1.0 `fdp -Tplain -Gstart=1` disagrees with *itself*
+            // over the same sweep, so no ceiling measured against it bounds anything and
+            // `gated` would be a claim the oracle itself contradicts
+            // (`docs/measurements/p13-gv2-fdp.md`). Its own record, like twopi's and
+            // osage's — the three arms share an engine family and share no code.
+            ("oracle-fdp", r.id, Status::Implemented)
         } else if r.id == "layout.spectral" || r.id == "layout.mds.pivot" {
             ("oracle-spectral", r.id, Status::Gated)
         } else if r.id == "transport.wasm.columnar" {

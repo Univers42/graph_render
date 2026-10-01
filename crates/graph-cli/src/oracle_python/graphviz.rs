@@ -32,12 +32,13 @@ pub(super) fn by_engine(engine: &str) -> Option<Differential> {
         "neato" => Some(super::neato::NEATO),
         "circo" => Some(super::circo::CIRCO),
         "patchwork" => Some(super::patchwork::PATCHWORK),
+        "fdp" => Some(super::fdp::FDP),
         _ => None,
     }
 }
 
 /// The engine names, for `--engine`'s own value parser.
-pub(super) const ENGINES: [&str; 5] = ["twopi", "osage", "circo", "patchwork", "neato"];
+pub(super) const ENGINES: [&str; 6] = ["twopi", "osage", "circo", "patchwork", "neato", "fdp"];
 
 #[cfg(test)]
 mod tests {
