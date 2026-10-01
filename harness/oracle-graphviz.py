@@ -25,8 +25,11 @@ but the engine may drop isolated nodes or merge duplicates, so the harness asser
 node count matches and refuses otherwise. `START_SEED` is passed as `-Gstart` because
 the job asked for a fixed seed where the engine takes one, and it is measured to be
 INERT for twopi and circo: the same fixture hashes identically with start=1, 7, 99 and
-with no `-Gstart` at all. Both engines are deterministic unconditionally, so this
-harness proves determinism, not seed stability. The one measured sensitivity: the
+with no `-Gstart` at all, and the same three-way measurement for patchwork is recorded
+in docs/measurements/p13-gv1-patchwork.md. Both engines are deterministic
+unconditionally, so this harness proves determinism, not seed stability. Set
+`GM_GV_START` in the environment to measure that per engine; the value used is recorded
+in the manifest's `start` field. The one measured sensitivity for twopi and circo: the
 output is byte-stable to the last digit, and a 1e-6-point perturbation of one node
 coordinate changes byte 95, so a `cmp` here is not vacuous.
 """
@@ -38,7 +41,9 @@ import sys
 import tempfile
 
 POINTS_PER_INCH = 72.0
-START_SEED = 1
+# The seed the job pins. `GM_GV_START` overrides it so an engine's seed sensitivity can be
+# measured without editing this file (p13-gv1-patchwork, step 2); unset means the pinned 1.
+START_SEED = int(os.environ.get("GM_GV_START", "1"))
 
 
 def write_dot(path, n, source, target):
@@ -112,6 +117,7 @@ def main():
     digest = hashlib.sha256(open(out_path, "rb").read()).hexdigest()
     manifest = {
         "engine": engine,
+        "start": START_SEED,
         "seeds": count,
         "sha256": {f"graphviz-{engine}.jsonl": digest},
         "graphviz": "16.1.0",

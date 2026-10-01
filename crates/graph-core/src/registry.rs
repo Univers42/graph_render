@@ -11,6 +11,7 @@ use crate::layout::force::{
     BarnesHut, DavidsonHarel, Drl, FruchtermanReingold, Graphopt, KamadaKawai, Lgl, YifanHu,
 };
 use crate::layout::forceatlas2::ForceAtlas2;
+use crate::layout::graphviz::patchwork;
 use crate::layout::grid::Grid;
 use crate::layout::radial::twopi;
 use crate::layout::sugiyama::Sugiyama;
@@ -22,6 +23,7 @@ use graph_contract::geometry::{EdgeGeometryKind, NodeGeometryKind};
 
 mod closed_form;
 mod force;
+mod graphviz_patchwork;
 mod hierarchy;
 mod igraph;
 mod radial;
@@ -29,6 +31,8 @@ mod spectral;
 use closed_form::{BIPARTITE, RANDOM, RING, SPIRAL};
 use force::{BARNES_HUT, FA2, YIFAN_HU};
 pub use force::{FA2_CEILING, FORCE_CEILING};
+use graphviz_patchwork::PATCHWORK;
+pub use graphviz_patchwork::PATCHWORK_CEILING;
 pub use hierarchy::HIERARCHY_LAYOUT_CEILING;
 use hierarchy::{CIRCULAR, TIDY_TREE, TREEMAP};
 pub use radial::RADIAL_CEILING;
@@ -171,7 +175,7 @@ snapshot. Ponytail (FAS): greedy, not minimum; extra reversed edges (note 5) are
 };
 
 /// Every registered layout, in the order the hash gate runs them.
-pub static LAYOUTS: [Capability; 22] = [
+pub static LAYOUTS: [Capability; 23] = [
     Capability {
         id: Grid::ID,
         run: run_default::<Grid>,
@@ -281,6 +285,11 @@ pub static LAYOUTS: [Capability; 22] = [
         id: twopi::ID,
         run: twopi::run,
         meta: TWOPI,
+    },
+    Capability {
+        id: patchwork::ID,
+        run: patchwork::run,
+        meta: PATCHWORK,
     },
 ];
 

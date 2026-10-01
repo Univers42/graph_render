@@ -1,0 +1,58 @@
+# p13-gv1-patchwork — the merge floor, the two wasm32 builds, the hash gate at 8 seeds, one
+# `negctl-<knob>` row per relevant knob, and the patchwork differential's three steps.
+#
+# Copied from `scripts/orch/rows/quick.rows` (the merge floor plus wasm32 and hashgate 8),
+# with the differential's own chain appended in the three-step shape
+# `scripts/orch/rows/develop-full.rows` uses for the other oracles.
+#
+# The timed gates — `hashgate --seeds 1000`, `scripts/orch/gate.sh`, `scripts/orch/mutants.sh` —
+# are the orchestrator's and are not rows here: one timed gate at a time (CLAUDE.md).
+# `expect` is `0` or `nonzero`; `#` starts a comment (`scripts/orch/gate.sh:2-4`).
+
+fmt|0|scripts/orch/gr cargo fmt --all --check
+clippy|0|scripts/orch/gr cargo clippy --workspace --all-targets -- -D warnings
+test|0|scripts/orch/gr cargo test --workspace --no-fail-fast
+wasm32-core|0|scripts/orch/gr cargo build -p graph-core --target wasm32-unknown-unknown
+wasm32-motor|0|scripts/orch/gr cargo build -p graph-wasm --release --target wasm32-unknown-unknown
+hashgate-8|0|scripts/orch/gr cargo run -q -p graph-cli -- hashgate --seeds 8
+
+# The negative controls. The knobs list exists once, in
+# `crates/graph-cli/src/hashgate/knob.rs:245`; every knob below must turn the gate red, and a
+# knob that perturbs a stage nothing else reaches must move that stage alone. The first is
+# this branch's new one: `layout.treemap.patchwork` is a closed form with no parameter of its
+# own — it pins Graphviz's default `area` of 1 and no `inset` — so its control re-draws that
+# stage's own model with one more node, exactly as the five other node controls do
+# (`hashgate/knob/patchwork.rs`). Measured here: it diverges on `layout.treemap.patchwork` and
+# on no other stage.
+negctl-patchwork-nodes|nonzero|scripts/orch/gr -e GM_MUTATE_PATCHWORK_NODES=1 cargo run -q -p graph-cli -- hashgate --seeds 8
+# The rest are here because the register they share with the twenty-third layout is what keeps
+# them honest: a per-stage control whose stage moved under it would move more than one stage.
+negctl-reference-degree|nonzero|scripts/orch/gr -e GM_MUTATE_REFERENCE_DEGREE=9 cargo run -q -p graph-cli -- hashgate --seeds 8
+negctl-grid-spacing|nonzero|scripts/orch/gr -e GM_MUTATE_GRID_SPACING=2 cargo run -q -p graph-cli -- hashgate --seeds 8
+negctl-sugiyama-layer-spacing|nonzero|scripts/orch/gr -e GM_MUTATE_SUGIYAMA_LAYER_SPACING=2 cargo run -q -p graph-cli -- hashgate --seeds 8
+negctl-node-count|nonzero|scripts/orch/gr -e GM_MUTATE_NODE_COUNT=1 cargo run -q -p graph-cli -- hashgate --seeds 8
+negctl-force-theta|nonzero|scripts/orch/gr -e GM_MUTATE_FORCE_THETA=0.5 cargo run -q -p graph-cli -- hashgate --seeds 8
+negctl-fa2-scaling-ratio|nonzero|scripts/orch/gr -e GM_MUTATE_FA2_SCALING_RATIO=3 cargo run -q -p graph-cli -- hashgate --seeds 8
+negctl-tree-tidy-nodes|nonzero|scripts/orch/gr -e GM_MUTATE_TREE_TIDY_NODES=1 cargo run -q -p graph-cli -- hashgate --seeds 8
+negctl-treemap-nodes|nonzero|scripts/orch/gr -e GM_MUTATE_TREEMAP_NODES=1 cargo run -q -p graph-cli -- hashgate --seeds 8
+negctl-circular-nodes|nonzero|scripts/orch/gr -e GM_MUTATE_CIRCULAR_NODES=1 cargo run -q -p graph-cli -- hashgate --seeds 8
+negctl-twopi-nodes|nonzero|scripts/orch/gr -e GM_MUTATE_TWOPI_NODES=1 cargo run -q -p graph-cli -- hashgate --seeds 8
+negctl-packing-scale|nonzero|scripts/orch/gr -e GM_MUTATE_PACKING_SCALE=2 cargo run -q -p graph-cli -- hashgate --seeds 8
+# The two split controls reach a stage the default tier set does not run, so they carry
+# `--tiers all` exactly as `scripts/orch/rows/p13-gv1.rows` does: without it they perturb
+# nothing and the row would be green with the knob set — a negative control that cannot fail.
+negctl-split-sum|nonzero|scripts/orch/gr -e GM_MUTATE_SPLIT_SUM=collide cargo run -q -p graph-cli -- hashgate --seeds 8 --tiers all
+negctl-split-rescale|nonzero|scripts/orch/gr -e GM_MUTATE_SPLIT_RESCALE=1 cargo run -q -p graph-cli -- hashgate --seeds 8 --tiers all
+
+# The patchwork differential at the seed count it is measured at
+# (docs/measurements/p13-gv1-patchwork.md): emit the fixtures, run Graphviz's own engine over
+# them in the pinned docker-only oracle image, then check both arms against the measured
+# ceiling and record it. The oracle row is the only one here that talks to Docker.
+patchwork-emit-1000|0|scripts/orch/gr cargo run -q -p graph-cli -- emit-graphviz-fixtures --engine patchwork --seeds 1000 --out target/spectral-fixtures
+patchwork-oracle-1000|0|docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/spectral-fixtures patchwork target/gv-patchwork
+patchwork-check-1000|0|scripts/orch/gr cargo run -q -p graph-cli -- oracle-graphviz --engine patchwork --fixtures target/spectral-fixtures --graphviz target/gv-patchwork
+
+# The differential's own negative controls: a name no differential answers, and a directory
+# with no recorded run. Both must be refused rather than read as a pass.
+patchwork-check-engine-negctl|nonzero|scripts/orch/gr cargo run -q -p graph-cli -- oracle-graphviz --engine circo --fixtures target/spectral-fixtures --graphviz target/gv-patchwork
+patchwork-check-dir-negctl|nonzero|scripts/orch/gr cargo run -q -p graph-cli -- oracle-graphviz --engine patchwork --fixtures target/spectral-fixtures-absent --graphviz target/gv-patchwork

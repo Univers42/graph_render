@@ -19,6 +19,8 @@
 mod cli;
 mod closed_form;
 mod fa2;
+mod graphviz;
+mod graphviz_arm;
 mod igraph;
 mod spectral;
 mod twopi;

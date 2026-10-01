@@ -14,6 +14,7 @@
 mod controls;
 mod ids;
 mod p3;
+mod patchwork;
 mod table;
 mod twopi;
 use controls::only_stage_moved;

@@ -198,6 +198,12 @@ fn the_registry_covers_every_oracle_function_once_its_ids_are_unique() {
             // because the differential compares coordinates within a measured 7.1e-2 points
             // (`docs/measurements/p13-gv1.md`) rather than to bytes.
             ("oracle-twopi", r.id, Status::Implemented)
+        } else if r.id == "layout.treemap.patchwork" {
+            // The Graphviz arm, same shape as twopi's and for the same reason: its
+            // differential compares coordinates within a measured 6.6e-2 points
+            // (`docs/measurements/p13-gv1-patchwork.md`) rather than to bytes, so the row is
+            // `implemented` and never a `gated` claim resting on a hash.
+            ("oracle-patchwork", r.id, Status::Implemented)
         } else if r.id == "layout.spectral" || r.id == "layout.mds.pivot" {
             ("oracle-spectral", r.id, Status::Gated)
         } else if r.id == "transport.wasm.columnar" {

@@ -87,6 +87,15 @@ pub enum Knob {
     /// the one thing it does read, the model, for that stage only. Adding a `Params` to
     /// gain a knob would be the tail wagging the dog.
     TwopiNodes,
+    /// `GM_MUTATE_PATCHWORK_NODES`: nodes added to `layout.treemap.patchwork`'s model
+    /// alone.
+    ///
+    /// The same probe as the four node controls above, for the same reason: `patchwork` is a
+    /// closed form with no parameter of its own — it pins Graphviz's default `area` of 1 and
+    /// no `inset`, and its module doc says so — so its own control perturbs the one thing it
+    /// does read, the model, for that stage only. A new node is a new square in the field,
+    /// so it moves the tiling and this stage's bytes and nothing else's.
+    PatchworkNodes,
     /// `GM_MUTATE_PACKING_SCALE`: the packing's `CirclePackingParams::scale`, native arm
     /// only.
     ///
@@ -233,7 +242,7 @@ impl Knob {
     /// twenty-one per-stage arms are spelled out here and held against those two tables by
     /// `the_analysis_and_post_controls_are_the_knobs_table`, which fails on any arm whose
     /// variable, record or stage a table disagrees with.
-    pub const ALL: [Self; 35] = [
+    pub const ALL: [Self; 36] = [
         Self::ReferenceDegree,
         Self::GridSpacing,
         Self::SugiyamaLayerSpacing,
@@ -244,6 +253,7 @@ impl Knob {
         Self::TreemapNodes,
         Self::CircularNodes,
         Self::TwopiNodes,
+        Self::PatchworkNodes,
         Self::PackingScale,
         Self::AnalysisComponentsWeak,
         Self::AnalysisComponentsStrong,
@@ -284,6 +294,7 @@ impl Knob {
             Self::TreemapNodes => "GM_MUTATE_TREEMAP_NODES",
             Self::CircularNodes => "GM_MUTATE_CIRCULAR_NODES",
             Self::TwopiNodes => "GM_MUTATE_TWOPI_NODES",
+            Self::PatchworkNodes => "GM_MUTATE_PATCHWORK_NODES",
             Self::PackingScale => "GM_MUTATE_PACKING_SCALE",
             Self::AnalysisComponentsWeak => "GM_MUTATE_ANALYSIS_COMPONENTS_WEAK",
             Self::AnalysisComponentsStrong => "GM_MUTATE_ANALYSIS_COMPONENTS_STRONG",

@@ -62,6 +62,15 @@ pub(super) fn force_record(id: &str) -> Option<(&'static str, Status)> {
         // way. That is a pre-existing gap in the reader, not a claim this row is making: the
         // differential is real and its numbers are in `docs/measurements/p13-gv1.md`.
         "layout.twopi" => Some(("oracle-twopi", Status::Implemented)),
+        // `layout.treemap.patchwork` is routed the same way and for the same reason, and
+        // carries the same caveat as the twopi row above: `verdict::Evidence::oracle_record`
+        // has no arm for `oracle-patchwork` either, so `oracle_diff` reads
+        // `not backed: no oracle-patchwork record` even after the real run that wrote
+        // `target/gates/oracle-patchwork.json` (1000 cases, worst 6.613e-2, pass). Same
+        // pre-existing reader gap, not a claim this row is making: the differential is real
+        // and its numbers are in `docs/measurements/p13-gv1-patchwork.md`, and the ceiling
+        // reflects `-Tplain`'s five significant digits rather than a shortfall.
+        "layout.treemap.patchwork" => Some(("oracle-patchwork", Status::Implemented)),
         _ => None,
     }
 }

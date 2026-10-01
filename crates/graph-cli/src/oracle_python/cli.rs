@@ -1,6 +1,7 @@
 //! The subcommands of the Python-armed differentials: `emit-<name>-fixtures` and
 //! `oracle-<name>`, flattened into the top-level command.
 
+use super::graphviz;
 use super::{CLOSED_FORM, FA2, IGRAPH, SPECTRAL, TWOPI, emit, ingest};
 use crate::command::seed_count;
 use clap::Subcommand;
@@ -87,10 +88,42 @@ pub enum Cli {
         out: PathBuf,
     },
     /// Checks the twopi differential's result against its ceiling and records it.
+    ///
+    /// An alias for `oracle-graphviz --engine twopi`, kept because the twopi rows file
+    /// and the ledger record `oracle-twopi` are named after it. Both write the same
+    /// evidence under that name.
     OracleTwopi {
         /// Directory holding the fixtures and `twopi-result.json`.
         #[arg(long, default_value = "target/twopi-fixtures")]
         dir: PathBuf,
+    },
+    /// Writes one Graphviz engine differential's fixtures for `harness/oracle-graphviz.py`.
+    ///
+    /// The graph is the gate's own model, the one `emit-spectral-fixtures` writes too, so
+    /// the fixtures the engine is run over are the same fixtures the other differentials
+    /// compare over.
+    EmitGraphvizFixtures {
+        /// The Graphviz engine: `patchwork`.
+        #[arg(long)]
+        engine: String,
+        /// Number of seeds, 0..N.
+        #[arg(long, default_value_t = 1000, value_parser = seed_count())]
+        seeds: u32,
+        /// Output directory.
+        #[arg(long, default_value = "target/graphviz-fixtures")]
+        out: PathBuf,
+    },
+    /// Checks one Graphviz engine differential's two arms against its ceiling and records it.
+    OracleGraphviz {
+        /// The Graphviz engine: `patchwork`.
+        #[arg(long)]
+        engine: String,
+        /// Directory holding `<engine>.jsonl` and its manifest.
+        #[arg(long, default_value = "target/graphviz-fixtures")]
+        fixtures: PathBuf,
+        /// Directory holding `graphviz-<engine>.jsonl` and the oracle's manifest.
+        #[arg(long, default_value = "target/gv-patchwork")]
+        graphviz: PathBuf,
     },
 }
 
@@ -111,6 +144,14 @@ impl Cli {
             Cli::OracleClosedForm { dir } => ingest(&CLOSED_FORM, &dir),
             Cli::EmitTwopiFixtures { seeds, out } => emit(&TWOPI, seeds, None, &out),
             Cli::OracleTwopi { dir } => ingest(&TWOPI, &dir),
+            Cli::EmitGraphvizFixtures { engine, seeds, out } => {
+                graphviz::emit(&engine, seeds, &out)
+            }
+            Cli::OracleGraphviz {
+                engine,
+                fixtures,
+                graphviz,
+            } => graphviz::check(&engine, &fixtures, &graphviz),
         }
     }
 }
