@@ -29,13 +29,30 @@ const IGRAPH_LAYOUTS: [&str; 6] = [
 /// - `layout.forceatlas2` is held to **networkx 3.6 `forceatlas2_layout`** in the
 ///   `ge-python-oracle` image (`oracle-fa2`): a port of the whole function at its
 ///   defaults, compared with the pinned library rather than restated by hand.
+/// - `layout.force.spring` is held to **networkx 3.6 `spring_layout` at `dim=2`** —
+///   SciGraphs' own `SPRING` (`oracle-spring`), and by the same stress metric the other
+///   force rows use, because a force simulation amplifies a 1-ULP difference into a
+///   different picture exactly as it does for them.
+/// - `layout.circular.hierarchy` is held to **SciGraphs' own
+///   `_circular_hierarchy_layout`** in the same image with the submodule mounted
+///   (`oracle-circular-hierarchy`). Unlike the three above this one *is* a closed form
+///   and a coordinate gap is a fair comparison — but the record is still `implemented`,
+///   and for the reason the clause below gives, not because the comparison is weak.
+/// - the six igraph-family layouts in [`IGRAPH_LAYOUTS`] are held to
+///   **harness/oracle-igraph.py** (`oracle-igraph`), one row per layout.
 ///
-/// Both rows are `implemented`, not `gated`: `Status::Gated` is refused by
+/// These rows are `implemented`, not `gated`: `Status::Gated` is refused by
 /// `problems()` unless *both* a 4-way hash verdict and the row's own oracle verdict
-/// are backed by a recorded run on this tree, and neither force differential has been
-/// run to 1000 seeds here. Claiming `gated` for a force layout with only a hash behind
-/// it would be exactly the silent weakening of the project's central guarantee the
-/// phase prompt forbids.
+/// are backed by a recorded run on this tree, and `verdict::oracle_record` resolves only
+/// the records the `Evidence` struct carries (`capabilities/verdict.rs:63-74`) — neither
+/// `oracle-spring` nor `oracle-circular-hierarchy` nor `oracle-igraph` is one of them, so a
+/// `gated` row here could only ever read back "no oracle-spring record: run the gate" and
+/// report a refusal where a verdict belongs. `implemented` states the truth: registered,
+/// hashed, differentially measured, not yet an oracle-backed gate. Claiming `gated` for any
+/// of them with only a hash behind it would be exactly the silent weakening of the
+/// project's central guarantee the phase prompt forbids, and the fix is a
+/// `verdict::Evidence` arm per differential — which belongs with the ledger change that
+/// would earn the status, not smuggled in to make one row look stronger than the others.
 pub(super) fn force_record(id: &str) -> Option<(&'static str, Status)> {
     match id {
         "layout.force.barnes_hut" => Some(("stress", Status::Implemented)),
@@ -44,6 +61,11 @@ pub(super) fn force_record(id: &str) -> Option<(&'static str, Status)> {
         // stress record is the closest metric and is barnes_hut's, so `implemented` only.
         "layout.force.yifan_hu" => Some(("stress", Status::Implemented)),
         id if IGRAPH_LAYOUTS.contains(&id) => Some(("oracle-igraph", Status::Implemented)),
+        // Its own differential, and its own record, for the same reason `layout.forceatlas2`
+        // gets one: the two FR ports share a metric but share no code, so one record
+        // standing for both would let either be measured by the other's run.
+        "layout.force.spring" => Some(("oracle-spring", Status::Implemented)),
+        "layout.circular.hierarchy" => Some(("oracle-circular-hierarchy", Status::Implemented)),
         // Ponytail: `implemented`, not `gated`: the closed-form differential has no
         // recorded run on this tree, and a hash alone never earns `gated`.
         "layout.random" | "layout.circular.ring" | "layout.spiral" | "layout.bipartite" => {
@@ -62,17 +84,31 @@ pub(super) fn force_record(id: &str) -> Option<(&'static str, Status)> {
         // way. That is a pre-existing gap in the reader, not a claim this row is making: the
         // differential is real and its numbers are in `docs/measurements/p13-gv1.md`.
         "layout.twopi" => Some(("oracle-twopi", Status::Implemented)),
-        // Ponytail: the same honest status and the same reason as `layout.twopi` above, for
-        // the same Graphviz oracle: the differential compares coordinates against `-Tplain`'s
-        // five significant digits rather than byte-compared, and the measured gap over 1000
-        // seeds sits above the printed resolution. Routed to its own record so the row says
-        // which comparison backs it, never `gated` on a hash alone.
+        // Ponytail: `implemented`, not `gated`, for the same two reasons as the row above,
+        // and routed to its own record so the row names the comparison that backs it.
+        // osage is closed form over rectangles and never reads an edge, so its gap is an
+        // algorithmic difference or nothing; the residual is the oracle's own five
+        // significant digits, and the ceiling is the next power of ten above the measured
+        // worst gap (docs/measurements/p13-gv1-osage.md).
         //
-        // `oracle_graphviz` still reads `not backed: no oracle-graphviz record` after a real
-        // run, for the reason the `layout.twopi` comment above gives: the reader matches a
-        // fixed list of record names. That is a gap in the reader, not a claim this row makes;
-        // the differential is real and its numbers are in `docs/measurements/p13-gv1-circo.md`.
-        "layout.circular.circo" => Some(("oracle-graphviz", Status::Implemented)),
+        // `verdict::Evidence::oracle_record` matches a fixed list of record names and has no
+        // arm for `oracle-osage`, exactly as it has none for `oracle-twopi`: that reader is
+        // a pre-existing gap, not a claim this row makes.
+        "layout.packing.osage" => Some(("oracle-osage", Status::Implemented)),
+        // Ponytail: the same honest status and the same reason as `layout.twopi` above, for
+        // the same Graphviz oracle, and a stronger reason than `layout.packing.osage` has:
+        // this differential was *run* over the 1000 gate seeds and it disagrees with
+        // Graphviz by 6.460e+04 points on 984 of them, for one named cause outside the
+        // motor — the tie order in `remove_pair_edges`'s degree sort is `qsort`'s, and
+        // glibc 2.41 does not make that stable (`docs/measurements/p13-gv1-circo.md`). The
+        // blocks, the radii and the 14 closed cases all agree, so the drawings differ only
+        // in which node takes which slot, and an agreement that narrow earns `implemented`
+        // and nothing more.
+        //
+        // `verdict::Evidence::oracle_record` matches a fixed list of record names and has no
+        // arm for `oracle-circo`, exactly as it has none for `oracle-twopi`: that reader is
+        // a pre-existing gap, not a claim this row makes.
+        "layout.circular.circo" => Some(("oracle-circo", Status::Implemented)),
         _ => None,
     }
 }

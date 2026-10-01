@@ -11,17 +11,23 @@
 //! |      8 |    4 | format minor, `u32`                               |
 //! |     12 |    1 | node geometry tag (`NodeGeometryKind`)            |
 //! |     13 |    1 | edge geometry tag (`EdgeGeometryKind`)            |
-//! |     14 |    1 | z channel: `0` absent; `1` reserved, refused      |
+//! |     14 |    1 | `dim`: `0` 2D, no z column; `1` 3D (`Dim`)          |
 //! |     15 |    1 | padding, must be `0`                              |
 //! |     16 |    4 | stage count, `u32`; reserved, must be `1` for now |
 //! |     20 |    4 | node count, `u32`                                 |
 //! |     24 |    4 | edge count, `u32`                                 |
 //!
-//! Every integer on the wire is `u32` or a single tag byte — never `usize` (D6).
+//! Every integer on the wire is `u32` or a single tag byte — never `usize` (D6). The
+//! header carries one [`Dim`] for the whole snapshot, so the node section's length is
+//! readable from the header alone; see [`dim`] for the version rule that follows from it.
 
 use crate::geometry::{EdgeGeometryKind, NodeGeometryKind, TagError};
 use crate::version::{FormatVersion, NewerMajor, check_readable};
 use core::fmt;
+
+pub mod dim;
+
+pub use dim::{DIM_SINCE_MINOR, Dim, carries_dim, label_for};
 
 /// The four bytes every snapshot starts with.
 pub const MAGIC: [u8; 4] = *b"GMSN";
@@ -41,6 +47,11 @@ pub struct SnapshotHeader {
     pub node_kind: NodeGeometryKind,
     /// Shape of every edge in the snapshot.
     pub edge_kind: EdgeGeometryKind,
+    /// How many dimensions every node of the snapshot carries: `0` 2D with no z column,
+    /// `1` 3D with one. Once for the whole payload, so the node section's length follows
+    /// from this and the node kind alone. `2..=255` is reserved and refused.
+    #[cfg_attr(feature = "codegen", schemars(schema_with = "dim::dim_schema"))]
+    pub dim: Dim,
     /// Named geometries carried for one topology. Reserved: exactly `1` until implemented.
     #[cfg_attr(feature = "codegen", schemars(with = "u32", range(min = 1, max = 1)))]
     pub stage_count: StageCount,
@@ -103,8 +114,8 @@ pub enum ReadError {
     UnsupportedMajor(NewerMajor),
     /// A geometry tag byte was reserved or unallocated.
     Geometry(TagError),
-    /// The reserved z channel is set; z is allocated but not implemented.
-    ReservedZChannel(u8),
+    /// The dim byte is neither 2D nor 3D; further dimensions are reserved.
+    ReservedDim(u8),
     /// The padding byte is not zero.
     NonZeroPadding(u8),
     /// A stage count other than `1`; multi-stage snapshots are reserved.
@@ -120,7 +131,7 @@ impl fmt::Display for ReadError {
             Self::BadMagic => write!(f, "not a graph-motor snapshot: bad magic"),
             Self::UnsupportedMajor(newer) => newer.fmt(f),
             Self::Geometry(err) => write!(f, "{err}"),
-            Self::ReservedZChannel(v) => write!(f, "z channel {v} is reserved and not implemented"),
+            Self::ReservedDim(v) => write!(f, "dim {v} is reserved and not implemented"),
             Self::NonZeroPadding(v) => write!(f, "header padding byte is {v}, must be 0"),
             Self::ReservedStageCount(n) => write!(f, "stage count {n} is reserved; only 1 is read"),
         }
@@ -133,7 +144,12 @@ impl SnapshotHeader {
         out.extend_from_slice(&MAGIC);
         out.extend_from_slice(&self.version.major.to_le_bytes());
         out.extend_from_slice(&self.version.minor.to_le_bytes());
-        out.extend_from_slice(&[self.node_kind.tag(), self.edge_kind.tag(), 0, 0]);
+        out.extend_from_slice(&[
+            self.node_kind.tag(),
+            self.edge_kind.tag(),
+            self.dim.get(),
+            0,
+        ]);
         out.extend_from_slice(&self.stage_count.get().to_le_bytes());
         out.extend_from_slice(&self.node_count.to_le_bytes());
         out.extend_from_slice(&self.edge_count.to_le_bytes());
@@ -155,11 +171,17 @@ impl SnapshotHeader {
             minor: le_u32(head, 8),
         };
         check_readable(version).map_err(ReadError::UnsupportedMajor)?;
-        check_reserved(head[14], head[15])?;
+        // dim, then padding, then the tags: a reader that cannot express the snapshot's
+        // dimension must say so before it says anything about a geometry tag. Both are
+        // read here, not in the struct literal below, because a literal evaluates its
+        // fields in source order and the tags come first.
+        let dim = Dim::try_from(head[14])?;
+        check_padding(head[15])?;
         Ok(Self {
             version,
             node_kind: NodeGeometryKind::from_tag(head[12]).map_err(ReadError::Geometry)?,
             edge_kind: EdgeGeometryKind::from_tag(head[13]).map_err(ReadError::Geometry)?,
+            dim,
             stage_count: StageCount::try_from(le_u32(head, 16))?,
             node_count: le_u32(head, 20),
             edge_count: le_u32(head, 24),
@@ -167,10 +189,7 @@ impl SnapshotHeader {
     }
 }
 
-fn check_reserved(z_channel: u8, padding: u8) -> Result<(), ReadError> {
-    if z_channel != 0 {
-        return Err(ReadError::ReservedZChannel(z_channel));
-    }
+fn check_padding(padding: u8) -> Result<(), ReadError> {
     if padding != 0 {
         return Err(ReadError::NonZeroPadding(padding));
     }

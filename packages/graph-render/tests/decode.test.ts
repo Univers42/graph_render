@@ -90,7 +90,7 @@ test("a header claiming more nodes than the payload holds is refused", () => {
 const REFUSALS: readonly (readonly [string, Uint8Array, string, string])[] = [
   ["corrupted magic", pinned({ 0: 0x48 }), "bad-magic", "magic"],
   ["newer major", pinned({ 4: 1 }), "unsupported-major", "version.major"],
-  ["z channel", pinned({ 14: 1 }), "reserved-field", "z"],
+  ["3D dim", pinned({ 14: 1 }), "dimension-3d", "dim"],
   ["header padding", pinned({ 15: 1 }), "reserved-field", "padding"],
   ["unknown node tag", pinned({ 12: 3 }), "geometry-tag", "node.kind"],
   ["reserved edge tag", pinned({ 13: 3 }), "geometry-tag", "edge.kind"],
@@ -114,4 +114,44 @@ for (const [name, bytes, code, column] of REFUSALS) {
 test("a negative circle radius is refused", () => {
   const circle = pinned({ 12: 1 }, [0, 0, 0x80, 0x3f, 0, 0, 0x80, 0xbf, ...NO_NOTES]);
   assert.deepEqual([refusal(circle).code, refusal(circle).column], ["negative", "node.r"]);
+});
+
+test("a dim byte of zero is 2D and is read, byte for byte as before", () => {
+  // The negative control for the dim check: byte 14 == 0 must never refuse, and the
+  // decode it yields is the same one the pinned example already pinned.
+  assert.equal(pinned()[14], 0);
+  const snapshot = decodeSnapshot(pinned({ 14: 0 }));
+  assert.deepEqual([...snapshot.x], [1, -2.5]);
+  assert.deepEqual([...snapshot.y], [0, 0.5]);
+  assert.deepEqual([idAt(snapshot.nodeIds, 0), idAt(snapshot.nodeIds, 1)], ["a", "bc"]);
+});
+
+test("a 3D snapshot is refused by name, not projected to 2D", () => {
+  const found = refusal(pinned({ 14: 1 }));
+  assert.equal(found.code, "dimension-3d");
+  assert.equal(found.column, "dim");
+  assert.match(found.message, /dim/);
+  assert.match(found.message, /\b1\b/);
+});
+
+test("a dim past 1 is refused as a reserved dim under the same code", () => {
+  for (const dim of [2, 3, 127, 255]) {
+    const found = refusal(pinned({ 14: dim }));
+    assert.deepEqual([found.code, found.column], ["dimension-3d", "dim"], `dim ${dim}`);
+    assert.ok(found.message.includes(String(dim)), `dim ${dim} names its value: ${found.message}`);
+  }
+});
+
+test("the dim check fires at byte 14, ahead of the geometry tags", () => {
+  // Byte 12 is a garbage node tag: a reader that reached the tags first would
+  // say geometry-tag, so this only passes while dim is read before them.
+  const found = refusal(pinned({ 14: 1, 12: 9, 13: 9 }));
+  assert.deepEqual([found.code, found.column], ["dimension-3d", "dim"]);
+});
+
+test("a 2D snapshot with a garbage tag still fails on the tag, not the dim", () => {
+  assert.deepEqual(
+    [refusal(pinned({ 14: 0, 12: 9 })).code, refusal(pinned({ 14: 0, 12: 9 })).column],
+    ["geometry-tag", "node.kind"],
+  );
 });

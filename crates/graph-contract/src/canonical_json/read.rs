@@ -1,15 +1,19 @@
 //! From a parsed JSON value to a [`Snapshot`]: the shape of
-//! `docs/contract/snapshot-schema.json`, every member required except `version`, and
-//! `notes` below format 0.3 (absent there means no notes); no member the shape does not
-//! name.
+//! `docs/contract/snapshot-schema.json`, every member required except `version`, `dim` below
+//! format 0.4 (absent there means 0, so 2D) and `notes` below format 0.3 (absent there
+//! means no notes); no member the shape does not name.
 
 use super::parse::Value;
-use super::{EDGE_KINDS, JsonError, NODE_KINDS, declared};
+use super::{JsonError, declared};
 use crate::binary::{Snapshot, SnapshotParts, StringTable};
-use crate::geometry::{EdgeGeometry, EdgeGeometryKind, NodeGeometry, NodeGeometryKind, Paths};
 use crate::notes::{Notes, carries_notes};
+use crate::snapshot::{Dim, SnapshotError};
 use crate::version::FormatVersion;
 use std::collections::BTreeMap;
+
+mod geometry;
+
+use geometry::{edge_geometry, node_geometry};
 
 pub(super) fn snapshot(root: Value) -> Result<Snapshot, JsonError> {
     let mut root = Object::of(root, String::new())?;
@@ -26,8 +30,11 @@ pub(super) fn snapshot(root: Value) -> Result<Snapshot, JsonError> {
     let source = endpoints(edges.take("source")?, "edges.source", &index)?;
     let target = endpoints(edges.take("target")?, "edges.target", &index)?;
     edges.finish()?;
+    // `dim` is read before the geometry it qualifies: whether a `z` column is required,
+    // refused or ignored follows from it, so it cannot be read afterwards.
+    let dim = dim(root.maybe("dim"))?;
     let mut geometry = root.object("geometry")?;
-    let node_geometry = node_geometry(geometry.object("nodes")?)?;
+    let (node_geometry, z) = node_geometry(geometry.object("nodes")?, dim)?;
     let edge_geometry = edge_geometry(geometry.object("edges")?)?;
     geometry.finish()?;
     let notes = notes(root.maybe("notes"), version)?;
@@ -39,6 +46,7 @@ pub(super) fn snapshot(root: Value) -> Result<Snapshot, JsonError> {
         source,
         target,
         nodes: node_geometry,
+        z,
         edges: edge_geometry,
         notes,
     })
@@ -200,6 +208,20 @@ fn version(value: Option<Value>) -> Result<FormatVersion, JsonError> {
     Ok(found)
 }
 
+/// The top-level `dim`: `0` or `1`, absent reads as `0` (2D), the same optional-member
+/// rule as `notes`. A `dim` no reader implements is refused with the contract's own
+/// [`ReadError`], so the message names the value it refused.
+fn dim(value: Option<Value>) -> Result<Dim, JsonError> {
+    let Some(value) = value else {
+        return Ok(Dim::D2);
+    };
+    let found = u32_of(value, "dim")?;
+    let Some(byte) = u8::try_from(found).ok() else {
+        return Err(shape("dim", "must be 0 (2D) or 1 (3D)"));
+    };
+    Dim::try_from(byte).map_err(|err| JsonError::Snapshot(SnapshotError::Header(err)))
+}
+
 /// The notes columns: required from 0.3, absent below it read as none. Whether they are
 /// a valid, canonical set is [`Snapshot::new`]'s to say, as for the binary face.
 fn notes(value: Option<Value>, version: FormatVersion) -> Result<Notes, JsonError> {
@@ -224,49 +246,4 @@ fn kind<K: Copy>(object: &mut Object, kinds: &[(K, &str)]) -> Result<K, JsonErro
         .find(|(_, n)| *n == name)
         .map(|(k, _)| *k)
         .ok_or_else(|| shape(&path, "is not a kind this version knows"))
-}
-
-fn node_geometry(mut object: Object) -> Result<NodeGeometry, JsonError> {
-    let mut column = |key| list(object.take(key)?, f32_of);
-    let (x, y) = (column("x")?, column("y")?);
-    let geometry = match kind(&mut object, &NODE_KINDS)? {
-        NodeGeometryKind::Point => NodeGeometry::Point { x, y },
-        NodeGeometryKind::Circle => NodeGeometry::Circle {
-            x,
-            y,
-            r: list(object.take("r")?, f32_of)?,
-        },
-        NodeGeometryKind::Box => NodeGeometry::Box {
-            x,
-            y,
-            w: list(object.take("w")?, f32_of)?,
-            h: list(object.take("h")?, f32_of)?,
-        },
-    };
-    object.finish()?;
-    Ok(geometry)
-}
-
-fn edge_geometry(mut object: Object) -> Result<EdgeGeometry, JsonError> {
-    let geometry = match kind(&mut object, &EDGE_KINDS)? {
-        EdgeGeometryKind::Line => EdgeGeometry::Line,
-        EdgeGeometryKind::Polyline => EdgeGeometry::Polyline(paths(&mut object)?),
-        EdgeGeometryKind::Curve => {
-            let (degree, path) = object.take("degree")?;
-            let degree = u32_of(degree, &path)?;
-            EdgeGeometry::Curve {
-                degree,
-                paths: paths(&mut object)?,
-            }
-        }
-    };
-    object.finish()?;
-    Ok(geometry)
-}
-
-fn paths(object: &mut Object) -> Result<Paths, JsonError> {
-    Ok(Paths {
-        offsets: list(object.take("offsets")?, u32_of)?,
-        pts: list(object.take("pts")?, f32_of)?,
-    })
 }

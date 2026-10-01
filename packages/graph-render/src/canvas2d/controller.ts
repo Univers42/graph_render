@@ -2,6 +2,7 @@
 import {
   type Camera, type Point, fitCamera, limitsFor, screenToWorld,
 } from "../camera.ts";
+import { type LiveDrag, movedScene } from "../drag.ts";
 import type { Frame } from "../frame.ts";
 import { DEFAULT_POLICY, type LabelPolicy, newLabelPlan, occupancyFor } from "../labels.ts";
 import type { LocalLayer } from "../local.ts";
@@ -32,6 +33,8 @@ export interface Controller {
   fitted: boolean;
   /** The local graph, when one is shown: a fit frames it and not the whole graph. */
   readonly local: LocalLayer;
+  /** The motor's live session, when the host gave one; a drag goes to it while it is enabled. */
+  readonly live?: LiveDrag;
 }
 
 export interface Setup {
@@ -145,6 +148,28 @@ export function showFrame(state: LoopState, frame: Frame, animate: boolean): voi
   }
   state.limits = limitsFor(state.scene.bounds, state.viewport);
   relight(state);
+}
+
+/**
+ * New positions for the nodes already in the frame, from a live simulation. A pair that does
+ * not have one entry per node is another graph's drawing and is ignored. The columns the motor
+ * handed over are read, never kept: they go into the ones the view already draws.
+ */
+export function setPositions(state: LoopState, xs: Float64Array, ys: Float64Array): void {
+  const count = state.scene.frame.nodeCount;
+  if (xs.length !== count || ys.length !== count) return;
+  if (state.x.length !== count) {
+    state.x = new Float32Array(count);
+    state.y = new Float32Array(count);
+  }
+  state.x.set(xs);
+  state.y.set(ys);
+  // The scene is the single source of truth: it carries the frame and the grid rebuilt on it.
+  state.scene = movedScene(state.scene, { x: state.x, y: state.y });
+  state.x = state.scene.frame.x;
+  state.y = state.scene.frame.y;
+  state.limits = limitsFor(state.scene.bounds, state.viewport);
+  markMoved(state);
 }
 
 /** -1 while the nodes are moving: the grid holds where they will be, not where they are. */

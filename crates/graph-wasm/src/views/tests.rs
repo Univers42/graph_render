@@ -1,17 +1,34 @@
 use super::*;
 use graph_contract::binary::{SnapshotParts, StringTable};
 use graph_contract::geometry::{NodeGeometry, Paths};
-use graph_contract::version::CURRENT_VERSION;
+use graph_contract::snapshot::{Dim, label_for};
 
 fn snapshot(nodes: NodeGeometry, edges: EdgeGeometry, ids: &[&str], edge_ids: &[&str]) -> Snapshot {
+    with_z(nodes, None, edges, ids, edge_ids)
+}
+
+/// The same snapshot, three-dimensional when `z` is given. No layout emits 3D yet, so
+/// these are built by hand — which is the point: the ABI must carry a 3D snapshot whether
+/// or not the motor can yet produce one.
+fn with_z(
+    nodes: NodeGeometry,
+    z: Option<Vec<f32>>,
+    edges: EdgeGeometry,
+    ids: &[&str],
+    edge_ids: &[&str],
+) -> Snapshot {
     let n = ids.len() as u32;
     let parts = SnapshotParts {
-        version: CURRENT_VERSION,
+        version: label_for(match z {
+            Some(_) => Dim::D3,
+            None => Dim::D2,
+        }),
         node_ids: StringTable::from_strs("node.id", ids.iter().copied()).expect("fits"),
         edge_ids: StringTable::from_strs("edge.id", edge_ids.iter().copied()).expect("fits"),
         source: vec![0; edge_ids.len()],
         target: vec![n.saturating_sub(1); edge_ids.len()],
         nodes,
+        z,
         edges,
         notes: graph_contract::notes::Notes::default(),
     };
@@ -32,13 +49,62 @@ fn point_nodes_expose_x_and_y_and_nothing_else() {
     );
     assert!(matches!(column(&snap, id::NODE_X), Column::F32(v) if v == [1.0, 2.0]));
     assert!(matches!(column(&snap, id::NODE_Y), Column::F32(v) if v == [3.0, 4.0]));
-    for reserved in [id::NODE_R, id::NODE_W, id::NODE_H] {
+    for reserved in [id::NODE_R, id::NODE_W, id::NODE_H, id::NODE_Z] {
         assert!(
             matches!(column(&snap, reserved), Column::Absent),
             "id {reserved}"
         );
     }
     assert_eq!(node_kind_tag(&snap), 0, "Point");
+}
+
+/// The ABI carries 3D: `NodeZ` (12) finds the z column wherever it sits, and `dim` says so
+/// for the whole snapshot. The `NODE_Z` id is the one place a silent mislabel would hide —
+/// the old `_ => "h"` fallthrough would have handed back the height column.
+#[test]
+fn node_z_is_carried_by_its_own_id_and_reported_by_the_dim_export() {
+    for nodes in [
+        point(vec![1.0, 2.0], vec![3.0, 4.0]),
+        NodeGeometry::Circle {
+            x: vec![0.0],
+            y: vec![0.0],
+            r: vec![5.0],
+        },
+        NodeGeometry::Box {
+            x: vec![0.0],
+            y: vec![0.0],
+            w: vec![2.0],
+            h: vec![3.0],
+        },
+    ] {
+        let ids: &[&str] = match &nodes {
+            NodeGeometry::Point { x, .. } => {
+                assert_eq!(x.len(), 2);
+                &["a", "b"]
+            }
+            _ => &["a"],
+        };
+        let z: Vec<f32> = ids
+            .iter()
+            .enumerate()
+            .map(|(i, _)| 100.0 + i as f32)
+            .collect();
+        let snap = with_z(nodes, Some(z.clone()), EdgeGeometry::Line, ids, &[]);
+        assert!(matches!(column(&snap, id::NODE_Z), Column::F32(v) if v == z.as_slice()));
+        assert_eq!(dim(&snap), 1, "3D, whatever the node kind is");
+        // The mislabel this id exists to prevent: z is not any other node column.
+        for other in [id::NODE_X, id::NODE_Y, id::NODE_R, id::NODE_W, id::NODE_H] {
+            let Column::F32(v) = column(&snap, other) else {
+                continue;
+            };
+            assert_ne!(v, z.as_slice(), "id {other} is not the z column");
+        }
+    }
+    // A 2D snapshot has no z at all, and says `0`: absent, not empty, and not a
+    // zero-length column that a caller might read as a plane at depth 0.
+    let flat = snapshot(point(vec![1.0], vec![2.0]), EdgeGeometry::Line, &["a"], &[]);
+    assert!(matches!(column(&flat, id::NODE_Z), Column::Absent));
+    assert_eq!(dim(&flat), 0);
 }
 
 #[test]

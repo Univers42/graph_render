@@ -23,10 +23,11 @@ import sys
 
 POINTS_PER_INCH = 72.0
 
-# The seed handed to the engine as `-Gstart`, overridable so a determinism sweep can compare
-# one run against another at a different seed without a second copy of the harness:
-# `GM_ORACLE_START=7 docker run -e GM_ORACLE_START=7 ... oracle-graphviz.py ... circo ...`.
-# The default is the seed every recorded run used, so nothing else moves.
+# The seed handed to the engine as `-Gstart` when no `--start=N` says otherwise. Two ways to
+# move it, both read here so no arm has to know about the other: the `--start=N` flag, and the
+# `GM_ORACLE_START` environment variable for a run that cannot pass a flag
+# (`docker run -e GM_ORACLE_START=7 ...`). The default is the seed every recorded run used, so
+# nothing else moves.
 START_SEED = int(os.environ.get("GM_ORACLE_START", "1"))
 
 
@@ -42,9 +43,14 @@ def write_dot(path, n, source, target):
         f.write("\n".join(lines) + "\n")
 
 
-def run_engine(engine, dot_path):
-    """`<engine> -Tplain -Gstart=<seed> <dot>`, or the engine's own complaint and no answer."""
-    cmd = [engine, "-Tplain", f"-Gstart={START_SEED}", dot_path]
+def run_engine(engine, dot_path, start=START_SEED):
+    """`<engine> -Tplain -Gstart=<seed> <dot>`, or the engine's own complaint and no answer.
+
+    `start` defaults to [`START_SEED`] but is passed through rather than read here, so one
+    run can move the seed without a second copy of the harness and without the module
+    changing underneath it.
+    """
+    cmd = [engine, "-Tplain", f"-Gstart={start}", dot_path]
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         sys.exit(f"{engine} failed on {dot_path}: {proc.stderr}")
@@ -75,15 +81,15 @@ def parse_plain(text, n):
     return bbox, nodes
 
 
-def engine_points(engine, tmp, name, count, edges):
+def engine_points(engine, tmp, name, count, edges, start=START_SEED):
     """The engine's own node coordinates over one DOT graph, as dense-indexed points."""
     dot = os.path.join(tmp, f"{name}.dot")
     write_dot(dot, count, [a for a, _ in edges], [b for _, b in edges])
-    _, nodes = parse_plain(run_engine(engine, dot), count)
+    _, nodes = parse_plain(run_engine(engine, dot, start), count)
     return [tuple(nodes[f"n{i}"]) for i in range(count)]
 
 
-def printed_nodes(engine, tmp, name, count, edges):
+def printed_nodes(engine, tmp, name, count, edges, start=START_SEED):
     """The engine's coordinates as the two strings `-Tplain` printed for each.
 
     The text, not the parsed float: the comparison is byte for byte, and re-printing a parsed
@@ -92,7 +98,7 @@ def printed_nodes(engine, tmp, name, count, edges):
     dot = os.path.join(tmp, f"{name}.dot")
     write_dot(dot, count, [a for a, _ in edges], [b for _, b in edges])
     rows = {}
-    for line in run_engine(engine, dot).splitlines():
+    for line in run_engine(engine, dot, start).splitlines():
         parts = line.split()
         if len(parts) >= 4 and parts[0] == "node":
             rows[parts[1]] = (parts[2], parts[3])

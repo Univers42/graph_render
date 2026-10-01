@@ -5,11 +5,11 @@ import { createElement } from "react";
 
 import { DOCK_SECTIONS, studioActions } from "../../src/actions/all.ts";
 import { Dock } from "../../src/ui/Dock.tsx";
-import { DRAWN, IDLE, markup, studioWith } from "./desk.ts";
+import { DRAWN, IDLE, fakeBar, markup, studioWith } from "./desk.ts";
 
 function dock(state = DRAWN): string {
   const { studio } = studioWith(state);
-  return markup(createElement(Dock, { studio, state, open: true, onToggle: () => undefined }));
+  return markup(createElement(Dock, { studio, state, open: true, onToggle: () => undefined, bar: fakeBar() }));
 }
 
 test("the section titles stand in the order the sections are declared", () => {
@@ -54,4 +54,13 @@ test("the dock collapses as one, and the button that does it says so", () => {
   assert.match(html, /aria-expanded="true"[^>]*aria-controls="gs-dock-body"/);
   assert.match(html, />Controls</);
   assert.match(html, /id="gs-dock-body"/);
+});
+
+test("the Forces section shows four labelled sliders, all aria-disabled, with the reason once", () => {
+  const html = dock();
+  for (const title of ["Center force", "Repel force", "Link force", "Link distance", "Reset", "Animate", "Pause", "Resume"]) {
+    assert.ok(html.includes(title), title);
+  }
+  assert.equal(html.match(/type="range"[^>]*aria-disabled="true"/g)?.length, 4);
+  assert.equal(html.split("live forces need the motor session (force-wasm)").length - 1, 1);
 });

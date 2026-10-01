@@ -52,10 +52,13 @@ def apart(a, b):
 class Studio:
     """The page, and the real input a user's hand would send."""
 
-    def __init__(self, page, url, expect_drag=None):
+    def __init__(self, page, url, expect_drag=None, wait_for_settle=True):
         self.page = page
         self.url = url
         self.expect_drag = DRAG_PX if expect_drag is None else expect_drag
+        # The live gate watches the settle a force layout starts on load, so it asks for the
+        # drawing NOT to be waited out; every other gate wants a still drawing.
+        self.wait_for_settle = wait_for_settle
 
     def open(self):
         self.page.set_viewport(VIEWPORT[0], VIEWPORT[1], 1)
@@ -78,12 +81,35 @@ class Studio:
             if state["error"] is not None:
                 raise cdp.CdpError(f"the studio failed to open: {state['error']}")
             if state["done"]:
-                # The nodes travel to where the layout put them; a camera read mid-flight
-                # would be a camera read of a drawing that is still arriving.
-                time.sleep(1.5)
+                self.settle_drawing()
                 return
             time.sleep(0.2)
         raise cdp.CdpError("the studio drew no graph in 90s")
+
+    # The nodes travel to where the layout put them, and a force layout then keeps settling
+    # on screen; a camera read mid-flight would be a camera read of a drawing that is still
+    # arriving. So this waits for the drawing itself to stop moving, which is what every
+    # row downstream assumes, and only then takes the fixed pause the reveal needs.
+    def settle_drawing(self, quiet=0.4, cap=12.0):
+        if not self.wait_for_settle:
+            time.sleep(SETTLE_S)
+            return
+        deadline = time.monotonic() + cap
+        was = None
+        while time.monotonic() < deadline:
+            time.sleep(quiet)
+            now = self.page.evaluate("""
+            (() => {
+              const v = document.querySelector('graph-studio').view;
+              const p = v.position(0);
+              return [p.x, p.y];
+            })()
+            """)
+            if was is not None and abs(now[0] - was[0]) + abs(now[1] - was[1]) < 1e-6:
+                time.sleep(SETTLE_S)
+                return
+            was = now
+        time.sleep(SETTLE_S)
 
     def read(self):
         report = self.page.evaluate("""
@@ -152,7 +178,7 @@ class Studio:
                 "=": ("=", "Equal", 187), "-": ("-", "Minus", 189), "_": ("_", "Minus", 189),
                 "Escape": ("Escape", "Escape", 27), "ArrowLeft": ("ArrowLeft", "ArrowLeft", 37),
                 "ArrowRight": ("ArrowRight", "ArrowRight", 39), "ArrowUp": ("ArrowUp", "ArrowUp", 38),
-                "ArrowDown": ("ArrowDown", "ArrowDown", 40), " ": (" ", "Space", 32)}
+                "ArrowDown": ("ArrowDown", "ArrowDown", 40), " ": (" ", "Space", 32), "Tab": ("Tab", "Tab", 9)}
         if name not in keys:
             raise cdp.CdpError(f"no key named {name}")
         key, code_name, key_vk = keys[name]

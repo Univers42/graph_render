@@ -24,6 +24,8 @@ export interface PointerHandlers {
 export interface Gesture {
   move(at: Point): void;
   end(at: Point): void;
+  /** The pointer was lost (cancel, window blur): undo what `move` did. */
+  cancel?(): void;
 }
 
 /** A wheel in line mode reports lines, not pixels; the source's 16 px to a line. */
@@ -81,6 +83,13 @@ function bindSpace(target: Pick<Window, "addEventListener" | "removeEventListene
   target.addEventListener("blur", () => space.forget(), options);
 }
 
+function finishDrag(canvas: HTMLCanvasElement, handlers: PointerHandlers, done: { ended: Drag; event: PointerEvent }): void {
+  const { ended, event } = done;
+  if (ended.kind !== "select") return;
+  if (isClick(ended.travelled)) handlers.click(localPoint(canvas, event), event.shiftKey);
+  else ended.gesture?.end(localPoint(canvas, event));
+}
+
 export function bindPointer(
   canvas: HTMLCanvasElement,
   handlers: PointerHandlers,
@@ -101,12 +110,14 @@ export function bindPointer(
   canvas.addEventListener("pointerup", (event) => {
     const ended = drag;
     drag = null;
-    if (ended === null) return;
-    if (ended.kind !== "select") return;
-    if (isClick(ended.travelled)) handlers.click(localPoint(canvas, event), event.shiftKey);
-    else ended.gesture?.end(localPoint(canvas, event));
+    if (ended !== null) finishDrag(canvas, handlers, { ended, event });
   }, options);
-  canvas.addEventListener("pointercancel", () => { drag = null; }, options);
+  const abandon = (): void => {
+    drag?.gesture?.cancel?.();
+    drag = null;
+  };
+  canvas.addEventListener("pointercancel", abandon, options);
+  owner.addEventListener("blur", abandon, options);
   canvas.addEventListener("pointerleave", () => handlers.hover(null), options);
   canvas.addEventListener("dblclick", (event) => handlers.doubleClick(localPoint(canvas, event)), options);
   canvas.addEventListener("contextmenu", (event) => {

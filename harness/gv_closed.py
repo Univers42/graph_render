@@ -18,7 +18,7 @@ layout produces on a 2-node graph, which a per-axis divide does not.
 
 import math
 
-from gv_plain import POINTS_PER_INCH, printed_nodes
+from gv_plain import POINTS_PER_INCH, START_SEED, printed_nodes
 
 # The plain format prints five significant digits, so the closed-case rendering prints five
 # too: that is the resolution the oracle carries, and finer would grade our `f64` against
@@ -109,8 +109,11 @@ CIRCO_CASES = {
     ),
 }
 
-# Which engines have closed cases. An engine with none still gets a sweep and no
-# `closed_exact`, and `graph-cli oracle-graphviz` then says nothing about byte agreement.
+# Which engines have closed cases whose answers are in the layout's own frame, and so are
+# rendered by `rendered` below. An engine with none still gets a sweep and no `closed_exact`,
+# and `graph-cli oracle-graphviz` then says nothing about byte agreement for it. An engine
+# whose port keeps Graphviz's own translation is not listed here: those answers need no
+# offset and live in `gv_frames.py`.
 CLOSED = {"circo": CIRCO_CASES}
 
 
@@ -162,10 +165,10 @@ def rendered(points):
     )
 
 
-def closed_case(engine, tmp, name, edges, answer):
+def closed_case(engine, tmp, name, edges, answer, start=START_SEED):
     """One closed case: the engine's arm rendered against the closed answer, exactly."""
     count = 1 + max((max(edge) for edge in edges), default=0)
-    theirs = printed_nodes(engine, tmp, f"closed-{name}", count, edges)
+    theirs = printed_nodes(engine, tmp, f"closed-{name}", count, edges, start)
     got = " ".join(f"{x} {y}" for x, y in theirs)
     want = rendered(answer)
     return {"nodes": count, "exact": want == got, "want": want, "got": got}

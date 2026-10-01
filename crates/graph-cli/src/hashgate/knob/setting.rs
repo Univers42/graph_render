@@ -5,6 +5,7 @@
 //! a knob's parsed value becomes a behaviour.
 
 use graph_core::layout::circle_packing::CirclePackingParams;
+use graph_core::layout::force::spring::SpringParams;
 use graph_core::layout::force::{ForceParams, LiveParams, Split};
 use graph_core::layout::forceatlas2::Fa2Params;
 use graph_core::layout::radial::twopi;
@@ -27,6 +28,8 @@ pub(crate) struct Setting {
     pub(in crate::hashgate) force: ForceParams,
     /// ForceAtlas2's parameters, native arm only ([`Knob::Fa2ScalingRatio`] perturbs).
     pub(in crate::hashgate) fa2: Fa2Params,
+    /// Spring's parameters, native arm only ([`Knob::SpringIterations`] perturbs).
+    pub(in crate::hashgate) spring: SpringParams,
     /// Circle packing's parameters, native arm only ([`Knob::PackingScale`] perturbs).
     pub(in crate::hashgate) packing: CirclePackingParams,
     /// The one stage whose own model a control re-draws, native arm only
@@ -97,6 +100,7 @@ pub(crate) fn setting(read: impl Fn(&str) -> Result<String, VarError>) -> Result
         extra_nodes: 0,
         force: ForceParams::default(),
         fa2: Fa2Params::default(),
+        spring: SpringParams::default(),
         packing: CirclePackingParams::default(),
         stage_nodes: None,
         split_sum: Split::None,
@@ -147,6 +151,17 @@ fn apply(knob: Knob, text: &str, setting: &mut Setting) -> Result<(), String> {
         }
         Knob::TwopiNodes => {
             setting.stage_nodes = Some((twopi::ID, nodes(text, knob)?));
+        }
+        // Parsed, not treated as a presence flag, and `0` is refused below like every
+        // other count: an iteration budget of zero would still return the rescaled start
+        // field, which *is* a different drawing, but a control whose value cannot be
+        // typed wrong is the point of this arm. `iterations` is a `u32`, so a negative
+        // value is a parse error rather than a silent wrap.
+        Knob::SpringIterations => {
+            setting.spring.iterations = text.parse().map_err(|e| bad(&e))?;
+        }
+        Knob::CircularHierarchyNodes => {
+            setting.stage_nodes = Some((circular::hierarchy::ID, nodes(text, knob)?));
         }
         Knob::PackingScale => setting.packing.scale = text.parse().map_err(|e| bad(&e))?,
         // Parsed rather than treated as a presence flag, so `GM_MUTATE_SPLIT_SUM=0` is

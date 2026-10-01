@@ -8,7 +8,7 @@
 import type { ShownError } from "../state/errors.ts";
 import type { Source } from "../state/settings.ts";
 import type {
-  AnalysisReport, Assets, Catalog, Envelope, GraphSummary, Port, Request, Result, RunReport, Spawn,
+  AnalysisReport, Assets, Catalog, Envelope, ForceRequest, GraphSummary, Port, Request, Result, RunReport, Spawn,
 } from "./protocol.ts";
 
 export class CancelledError extends Error {
@@ -37,6 +37,18 @@ export interface MotorClient {
   /** Stops what is running. False when nothing was. */
   cancel(): boolean;
   busy(): boolean;
+  /**
+   * Sends a force request without waiting for a reply; dropped when no motor is open. Optional
+   * so a test double need not carry it.
+   */
+  force?(request: ForceRequest): void;
+  /** Every frame the live loop pushes, and its state; returns the cancel. */
+  onForce?(handler: (result: Result) => void): () => void;
+  /**
+   * The worker failing where the page can hear it, and nothing else; returns the cancel.
+   * Optional so a test double need not carry it.
+   */
+  onFail?(handler: (detail: string) => void): () => void;
   close(): void;
 }
 
@@ -57,6 +69,10 @@ interface State {
   loaded: Source | null;
   closed: boolean;
   readonly waiting: Map<number, Waiting>;
+  /** Everything the motor pushes without being asked: live frames and the force state. */
+  readonly pushed: Set<(result: Result) => void>;
+  /** Every way the worker can fail in the page's hearing, and nothing else. */
+  readonly failures: Set<(detail: string) => void>;
 }
 
 function mismatch(wanted: string, result: Result): Error {
@@ -84,9 +100,22 @@ async function openOn(state: State, port: Port, assets: Assets): Promise<Catalog
   return opened.catalog;
 }
 
+/** A live frame, and the loop's own state: neither answers a request, so neither is waited for. */
+function isPushed(result: Result): boolean {
+  return result.type === "force-frame" || result.type === "force-state";
+}
+
 function connect(state: State, spawn: Spawn, assets: Assets): Link {
   const port = spawn();
+  port.onFail?.((detail) => {
+    for (const fail of state.failures) fail(detail);
+  });
   port.listen((message) => {
+    // Asked first: a pushed message carries UNSOLICITED, and there is no waiter under it.
+    if (isPushed(message.body)) {
+      for (const push of state.pushed) push(message.body);
+      return;
+    }
     const waiting = state.waiting.get(message.seq);
     state.waiting.delete(message.seq);
     waiting?.resolve(message.body);
@@ -106,8 +135,38 @@ function drop(state: State): void {
   for (const waiting of stopped) waiting.reject(new CancelledError());
 }
 
+function cancelWaiting(state: State): boolean {
+  if (state.waiting.size === 0) return false;
+  drop(state);
+  return true;
+}
+
+function fireAndForget(state: State, body: Request): void {
+  if (state.link === null || state.closed) return;
+  state.seq += 1;
+  state.link.port.send({ seq: state.seq, body });
+}
+
+/** The one answer of a wanted kind, or a refusal naming what came back instead. */
+function loaded(result: Result): GraphSummary {
+  if (result.type !== "loaded") throw mismatch("load", result);
+  return result.graph;
+}
+
+function laidOut(result: Result): RunReport {
+  if (result.type !== "laid-out") throw mismatch("layout", result);
+  return result.run;
+}
+
+function analysed(result: Result): AnalysisReport {
+  if (result.type !== "analysed") throw mismatch("analysis", result);
+  return result.analysis;
+}
+
 export function createClient(spawn: Spawn, assets: Assets): MotorClient {
-  const state: State = { link: null, seq: 0, loaded: null, closed: false, waiting: new Map() };
+  const state: State = {
+    link: null, seq: 0, loaded: null, closed: false, waiting: new Map(), pushed: new Set(), failures: new Set(),
+  };
   const linked = async (): Promise<Link> => {
     if (state.closed) throw new Error("the motor client is closed");
     const link = state.link ?? connect(state, spawn, assets);
@@ -119,27 +178,23 @@ export function createClient(spawn: Spawn, assets: Assets): MotorClient {
   return {
     catalog: async () => (await linked()).ready,
     load: async (source) => {
-      const result = await call({ type: "load", source, fixturesUrl: assets.fixturesUrl });
-      if (result.type !== "loaded") throw mismatch("load", result);
+      const graph = loaded(await call({ type: "load", source, fixturesUrl: assets.fixturesUrl }));
       state.loaded = source;
-      return result.graph;
+      return graph;
     },
-    layout: async (layoutId, postId) => {
-      const result = await call({ type: "layout", layoutId, postId });
-      if (result.type !== "laid-out") throw mismatch("layout", result);
-      return result.run;
-    },
-    analysis: async (analysisId) => {
-      const result = await call({ type: "analysis", analysisId });
-      if (result.type !== "analysed") throw mismatch("analysis", result);
-      return result.analysis;
-    },
-    cancel: () => {
-      if (state.waiting.size === 0) return false;
-      drop(state);
-      return true;
-    },
+    layout: async (layoutId, postId) => laidOut(await call({ type: "layout", layoutId, postId })),
+    analysis: async (analysisId) => analysed(await call({ type: "analysis", analysisId })),
+    cancel: () => cancelWaiting(state),
     busy: () => state.waiting.size > 0,
+    force: (body) => fireAndForget(state, body),
+    onForce: (handler) => {
+      state.pushed.add(handler);
+      return () => void state.pushed.delete(handler);
+    },
+    onFail: (handler) => {
+      state.failures.add(handler);
+      return () => void state.failures.delete(handler);
+    },
     close: () => {
       state.closed = true;
       drop(state);

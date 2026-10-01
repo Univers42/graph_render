@@ -3,6 +3,7 @@
 
 use super::knobs;
 
+pub(super) mod arms;
 pub(super) mod igraph;
 pub(super) mod records;
 pub(crate) mod setting;
@@ -20,9 +21,9 @@ pub(crate) use setting::{Setting, env_setting};
 /// every stage that is a function of the topology at all: it backs the stages nothing
 /// else reaches (spectral, pivot MDS), but a control that moves eleven stages at once
 /// cannot say *which* stage a divergence came from, which is the whole point of hashing
-/// them one at a time. So every layout has a control filed under its own stage id, and
-/// `each_analysis_and_post_stage_has_its_own_control_that_moves_only_its_stage` is what
-/// keeps the per-stage ones honest.
+/// them one at a time. So every layout has a control filed under its own stage id, and the
+/// three tests named `*_has_its_own_negative_control_that_moves_only_its_stage` are what
+/// keep the per-stage ones honest.
 ///
 /// **What each of the four perturbs, and why it is not one thing.** Circle packing is the
 /// only one that publishes parameters ([`graph_core::layout::circle_packing::
@@ -33,6 +34,14 @@ pub(crate) use setting::{Setting, env_setting};
 /// [`Knob::TreemapNodes`], [`Knob::CircularNodes`]). Same probe as node count, scoped to
 /// one stage: it is the honest way to move a layout that has no parameter to move, and it
 /// is what makes the divergence *name* the stage.
+///
+/// **p12-t2's two layouts split those cases one each.**
+/// [`Knob::SpringIterations`] moves a real parameter, because
+/// `graph_core::layout::force::spring::SpringParams` publishes one, and `iterations` is
+/// read by the Fruchterman–Reingold loop and by nothing else.
+/// [`Knob::CircularHierarchyNodes`] takes the other branch, because SciGraphs' closed form
+/// takes no parameter at all — its `scale` is the dispatcher's own constant — so the only
+/// thing a control can move is the graph it draws.
 ///
 /// **The per-stage controls are the same probe again**, and for the same reason: no
 /// analysis, no POST capability and none of the six igraph-family layouts takes a
@@ -87,6 +96,21 @@ pub enum Knob {
     /// the one thing it does read, the model, for that stage only. Adding a `Params` to
     /// gain a knob would be the tail wagging the dog.
     TwopiNodes,
+    /// `GM_MUTATE_SPRING_ITERATIONS`: the spring layout's iteration budget, native arm only.
+    ///
+    /// Its own control because `iterations` is read by the FR loop's `for` and by
+    /// nothing else: perturbing it re-runs this stage's force pass and leaves every other
+    /// stage — including `layout.forceatlas2` and `layout.force.barnes_hut`, which share
+    /// no code with it — byte-identical.
+    SpringIterations,
+    /// `GM_MUTATE_CIRCULAR_HIERARCHY_NODES`: nodes added to `layout.circular.hierarchy`'s
+    /// model alone.
+    ///
+    /// The re-drawn-model probe, like [`Knob::CircularNodes`] next to it: the SciGraphs
+    /// closed form takes no parameter (`SCALE` is the dispatcher's own default), so the
+    /// one thing it does read is the graph, and one more node changes its component roots
+    /// and every level count while nothing else in the gate moves.
+    CircularHierarchyNodes,
     /// `GM_MUTATE_PACKING_SCALE`: the packing's `CirclePackingParams::scale`, native arm
     /// only.
     ///
@@ -223,93 +247,22 @@ pub enum Knob {
 }
 
 impl Knob {
-    /// Every knob: the eleven that move a parameter or re-draw one layout's model, then the
-    /// fifteen ANALYSIS and POST stage controls in [`knobs::ANALYSIS_POST_STAGES`] order, then
-    /// the six igraph layout controls in [`knobs::IGRAPH_LAYOUT_STAGES`] order, then the two
-    /// compute-tier controls, then the live session's own.
+    /// Every knob: the thirteen that move a parameter or re-draw one layout's model, then
+    /// the fifteen ANALYSIS and POST stage controls in [`knobs::ANALYSIS_POST_STAGES`] order,
+    /// then the six igraph layout controls in [`knobs::IGRAPH_LAYOUT_STAGES`] order, then the
+    /// two compute-tier controls, then the live session's own. The list itself is
+    /// [`arms::ALL`], spelled out there.
     ///
     /// **A `const`, because `capabilities::verdict::Evidence::load` walks it** to collect
     /// one control record each — a ledger read cannot be a function call per row. So the
-    /// twenty-one per-stage arms are spelled out here and held against those two tables by
+    /// twenty-one per-stage arms are spelled out there and held against those two tables by
     /// `the_analysis_and_post_controls_are_the_knobs_table`, which fails on any arm whose
     /// variable, record or stage a table disagrees with.
-    pub const ALL: [Self; 35] = [
-        Self::ReferenceDegree,
-        Self::GridSpacing,
-        Self::SugiyamaLayerSpacing,
-        Self::NodeCount,
-        Self::ForceTheta,
-        Self::Fa2ScalingRatio,
-        Self::TreeTidyNodes,
-        Self::TreemapNodes,
-        Self::CircularNodes,
-        Self::TwopiNodes,
-        Self::PackingScale,
-        Self::AnalysisComponentsWeak,
-        Self::AnalysisComponentsStrong,
-        Self::AnalysisCommunitiesLouvain,
-        Self::AnalysisCentralityDegree,
-        Self::AnalysisCentralityCloseness,
-        Self::AnalysisCentralityBetweenness,
-        Self::AnalysisCentralityEigenvector,
-        Self::AnalysisDepthBfs,
-        Self::PostBundleFdeb,
-        Self::PostBundleMingle,
-        Self::PostRouteGrid,
-        Self::PostStyleStraight,
-        Self::PostStyleOrthogonal,
-        Self::PostStyleQuadratic,
-        Self::PostStyleBezier,
-        Self::IgraphFruchtermanReingoldNodes,
-        Self::IgraphKamadaKawaiNodes,
-        Self::IgraphGraphoptNodes,
-        Self::IgraphDavidsonHarelNodes,
-        Self::IgraphLglNodes,
-        Self::IgraphDrlNodes,
-        Self::SplitSum,
-        Self::SplitRescale,
-        Self::ForceSessionGravity,
-    ];
+    pub const ALL: [Self; 37] = arms::ALL;
 
     /// The variable that sets it.
     pub const fn env(self) -> &'static str {
-        match self {
-            Self::ReferenceDegree => "GM_MUTATE_REFERENCE_DEGREE",
-            Self::GridSpacing => "GM_MUTATE_GRID_SPACING",
-            Self::SugiyamaLayerSpacing => "GM_MUTATE_SUGIYAMA_LAYER_SPACING",
-            Self::NodeCount => "GM_MUTATE_NODE_COUNT",
-            Self::ForceTheta => "GM_MUTATE_FORCE_THETA",
-            Self::Fa2ScalingRatio => "GM_MUTATE_FA2_SCALING_RATIO",
-            Self::TreeTidyNodes => "GM_MUTATE_TREE_TIDY_NODES",
-            Self::TreemapNodes => "GM_MUTATE_TREEMAP_NODES",
-            Self::CircularNodes => "GM_MUTATE_CIRCULAR_NODES",
-            Self::TwopiNodes => "GM_MUTATE_TWOPI_NODES",
-            Self::PackingScale => "GM_MUTATE_PACKING_SCALE",
-            Self::AnalysisComponentsWeak => "GM_MUTATE_ANALYSIS_COMPONENTS_WEAK",
-            Self::AnalysisComponentsStrong => "GM_MUTATE_ANALYSIS_COMPONENTS_STRONG",
-            Self::AnalysisCommunitiesLouvain => "GM_MUTATE_ANALYSIS_COMMUNITIES_LOUVAIN",
-            Self::AnalysisCentralityDegree => "GM_MUTATE_ANALYSIS_CENTRALITY_DEGREE",
-            Self::AnalysisCentralityCloseness => "GM_MUTATE_ANALYSIS_CENTRALITY_CLOSENESS",
-            Self::AnalysisCentralityBetweenness => "GM_MUTATE_ANALYSIS_CENTRALITY_BETWEENNESS",
-            Self::AnalysisCentralityEigenvector => "GM_MUTATE_ANALYSIS_CENTRALITY_EIGENVECTOR",
-            Self::AnalysisDepthBfs => "GM_MUTATE_ANALYSIS_DEPTH_BFS",
-            Self::PostBundleFdeb => "GM_MUTATE_POST_BUNDLE_FDEB",
-            Self::PostBundleMingle => "GM_MUTATE_POST_BUNDLE_MINGLE",
-            Self::PostRouteGrid => "GM_MUTATE_POST_ROUTE_GRID",
-            Self::PostStyleStraight => "GM_MUTATE_POST_STYLE_STRAIGHT",
-            Self::PostStyleOrthogonal => "GM_MUTATE_POST_STYLE_ORTHOGONAL",
-            Self::PostStyleQuadratic => "GM_MUTATE_POST_STYLE_QUADRATIC",
-            Self::PostStyleBezier => "GM_MUTATE_POST_STYLE_BEZIER",
-            Self::IgraphFruchtermanReingoldNodes => igraph::ENV[0],
-            Self::IgraphKamadaKawaiNodes => igraph::ENV[1],
-            Self::IgraphGraphoptNodes => igraph::ENV[2],
-            Self::IgraphDavidsonHarelNodes => igraph::ENV[3],
-            Self::IgraphLglNodes => igraph::ENV[4],
-            Self::IgraphDrlNodes => igraph::ENV[5],
-            Self::SplitSum => "GM_MUTATE_SPLIT_SUM",
-            Self::SplitRescale => "GM_MUTATE_SPLIT_RESCALE",
-            Self::ForceSessionGravity => "GM_MUTATE_FORCE_SESSION_GRAVITY",
-        }
+        arms::env(self)
     }
 
     /// The record its run writes.
@@ -318,15 +271,4 @@ impl Knob {
     }
 }
 
-/// The [`knobs::Stage`] `knob` perturbs — a function of its *variable*, not its arm index.
-///
-/// Resolved by matching the variable name against the one table, so a control cannot be
-/// filed under a stage the table does not agree with: a variable the table does not carry
-/// is a programming error, not a runtime setting, and it panics here rather than quietly
-/// perturbing whichever stage happened to sit at that arm's position.
-pub(super) fn stage_of(knob: Knob) -> knobs::Stage {
-    let env = knob.env();
-    knobs::all()
-        .find(|row| row.env == env)
-        .unwrap_or_else(|| panic!("{env} is one of the per-stage controls"))
-}
+pub(super) use arms::stage_of;

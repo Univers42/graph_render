@@ -5,7 +5,7 @@
 import { type Adjacency, adjacencyOf } from "./adjacency.ts";
 import type { Bounds } from "./camera.ts";
 import type { Frame } from "./frame.ts";
-import { type Grid, gridOf, pickNode } from "./grid.ts";
+import { type Grid, type Positions, gridOf, pickNode } from "./grid.ts";
 import { type Style, plainStyle } from "./style.ts";
 
 export interface Scene {
@@ -39,6 +39,27 @@ function extentOf(frame: Frame, style: Style): Float32Array {
 function grown(bounds: Bounds | null, by: number): Bounds | null {
   if (bounds === null) return null;
   return { minX: bounds.minX - by, minY: bounds.minY - by, maxX: bounds.maxX + by, maxY: bounds.maxY + by };
+}
+
+/**
+ * The bounds a fit should use for these positions: the extent of the nodes themselves, grown
+ * by `reach`. A fit over the bare positions crops the outermost nodes by their own radius,
+ * which is the one thing a fit is supposed not to do.
+ */
+export function boundsOf(positions: Positions, reach: number): Bounds | null {
+  const { x, y } = positions;
+  if (x.length === 0) return null;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (let i = 0; i < x.length; i += 1) {
+    minX = Math.min(minX, x[i] ?? 0);
+    maxX = Math.max(maxX, x[i] ?? 0);
+    minY = Math.min(minY, y[i] ?? 0);
+    maxY = Math.max(maxY, y[i] ?? 0);
+  }
+  return grown({ minX, minY, maxX, maxY }, reach);
 }
 
 /** A style made for another node count is replaced by the plain one, never half-read. */

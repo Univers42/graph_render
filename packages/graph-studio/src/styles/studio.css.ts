@@ -84,7 +84,7 @@ export const STUDIO_CSS = `
 }
 .gs-btn:hover:not([disabled]) { border-color: var(--gs-accent); }
 .gs-btn[aria-pressed="true"] { background: var(--gs-accent); border-color: var(--gs-accent); color: #ffffff; }
-.gs-btn[disabled], .gs-input[disabled], .gs-select[disabled], .gs-range[disabled], .gs-check[disabled] { opacity: .45; cursor: not-allowed; }
+.gs-btn[disabled], .gs-input[disabled], .gs-select[disabled], .gs-range[disabled], .gs-check[disabled], .gs-forces [aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
 .gs-btn:focus-visible, .gs-keymap-close:focus-visible, .gs-input:focus-visible, .gs-select:focus-visible, .gs-range:focus-visible, .gs-check:focus-visible { outline: 2px solid var(--gs-accent); outline-offset: 1px; }
 .gs-input, .gs-select {
   height: 26px;
@@ -105,6 +105,12 @@ export const STUDIO_CSS = `
 .gs-section-body, .gs-results { display: flex; flex-direction: column; }
 .gs-list { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
 .gs-row { display: flex; gap: 4px; }
+/* The Forces row is four buttons in a 280 px dock: a floor wide enough for the longest title
+   so none is truncated to "Anim…", and a wrap so a fifth goes to a second line rather than to
+   a sideways scroll the reader cannot see. */
+.gs-forces .gs-row { flex-wrap: wrap; }
+.gs-forces .gs-btn { flex: 0 0 auto; min-width: 62px; }
+.gs-dock-body { overflow-x: hidden; }
 .gs-row > * { flex: 1 1 0; min-width: 0; }
 .gs-form > .gs-row, .gs-form > .gs-list { padding: 0 8px; }
 .gs-form > .gs-btn { margin: 0 8px; }
@@ -147,6 +153,21 @@ export const STUDIO_CSS = `
 .gs-alert { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; }
 .gs-alert-head { display: flex; align-items: center; gap: 6px; }
 .gs-alert-title { flex: 1 1 auto; color: var(--gs-danger); font-weight: 600; }
+
+/* The progress strip: a thin bar across the top of the canvas, over the graph, under the panels.
+   A work that reports no fraction of its own (a batch layout run) shows the whole strip at
+   low opacity rather than a sweeping fill: a CSS animation here would recomposite the canvas
+   under the panels on every frame, which is what this stylesheet avoids everywhere else. */
+.gs-progress {
+  position: absolute; top: 0; left: 0; right: 0; height: 3px;
+  background: var(--gs-border); overflow: hidden; z-index: 2;
+}
+.gs-progress-fill { display: block; height: 100%; background: var(--gs-accent); transition: width .12s linear; }
+.gs-progress-sweep { opacity: .45; transition: none; }
+.gs-progress-label {
+  position: absolute; top: 5px; right: 12px; color: var(--gs-muted);
+  font: 11px/1 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
 
 /* The scrim takes the click that dismisses the menu; the canvas under it hears nothing. */
 .gs-menu-scrim { position: absolute; inset: 0; pointer-events: auto; z-index: 4; }

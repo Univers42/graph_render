@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { desk, refusingClient } from "./desk.ts";
-import { DRAWN } from "./ui/desk.ts";
+import { DRAWN } from "./drawn.ts";
 import { initialState } from "../src/state/model.ts";
 
 function drawn(): ReturnType<typeof desk> {

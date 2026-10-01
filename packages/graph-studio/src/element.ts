@@ -12,9 +12,13 @@
 import { createElement } from "react";
 import { type Root, createRoot } from "react-dom/client";
 
+import { createLiveDrag } from "./motor/liveDrag.ts";
 import { type View, createView } from "../../graph-render/src/view.ts";
 import type { Save } from "./actions/context.ts";
-import { createClient } from "./motor/client.ts";
+import { type LiveBridge, createLiveBridge, settlesLive } from "./motor/bridge.ts";
+import { NOT_ASKED } from "./motor/bridge.ts";
+import { type MotorClient, createClient } from "./motor/client.ts";
+import { SILENCE_MS } from "./motor/watchdog.ts";
 import type { Assets, Spawn } from "./motor/protocol.ts";
 import { workerPort } from "./motor/workerPort.ts";
 import { type SettingsStorage, openingSettings } from "./state/persist.ts";
@@ -37,12 +41,30 @@ export interface GraphStudioElement extends HTMLElement {
    * the element is not in a document. The studio keeps its own; this is the same one.
    */
   readonly view: View | null;
+  /**
+   * Stops the motor worker where it stands and lets nothing replace it: the live settle
+   * ends at once, and the watchdog puts the strip away and names the cause. This is the
+   * one verb a gate needs to watch a dead worker from the outside; the studio never calls
+   * it itself, and the next layout opens a new worker as usual.
+   */
+  stopMotor(): void;
+  /**
+   * How long the watchdog waits, in milliseconds, before it calls a silent worker dead.
+   * Exposed so a gate can say "within the bound" without carrying its own copy of the
+   * number, which would drift from it silently. Read-only, and not a setting.
+   */
+  readonly watchdogBoundMs: number;
 }
 
 interface Mounted {
   readonly studio: Studio;
   readonly view: View;
+  readonly client: MotorClient;
   readonly root: Root;
+  /** The live bridge: the drag, the forces panel and the progress strip all read it. */
+  readonly bridge: LiveBridge;
+  /** Stops watching the studio's state for a layout that settles live. */
+  readonly unwatch: () => void;
 }
 
 const HOST_CSS = `
@@ -89,6 +111,71 @@ function pageStorage(): SettingsStorage | null {
   }
 }
 
+/**
+ * The live bridge and the view it paints, wired together and handed back: a frame from the
+ * worker goes to `view.setPositions` and the forces link is the bridge's.
+ *
+ * `shown.note` is filled in once the studio exists — the bridge is made first — so a watchdog
+ * that fires later still has a console to write its one line into.
+ */
+/** What the parts made before the studio need from it, read late through this. */
+interface Shown {
+  studio: Studio | null;
+  /** One line in the console log, naming why a live session ended. */
+  note(reason: string): void;
+}
+
+function livePair(canvas: HTMLCanvasElement, client: MotorClient, shown: Shown): {
+  readonly view: View;
+  readonly bridge: LiveBridge;
+} {
+  const wires: { bridge: LiveBridge | null } = { bridge: null };
+  // WHY an explicit `undefined` test and not `??`: the link answers `null` when the simulation
+  // CAN run, and `null ?? x` is `x`, so that fallback reads a working session as a missing one
+  // and every drag quietly falls back to the view-only one.
+  const why = (): string | null => {
+    const reason = wires.bridge?.link.disabled();
+    return reason === undefined ? NOT_ASKED : reason;
+  };
+  const view = createView(canvas, {
+    live: createLiveDrag({
+      ids: () => shown.studio?.store.get().meta?.ids ?? null,
+      disabled: why,
+      send: (request) => client.force?.(request),
+    }),
+  });
+  const bridge = createLiveBridge({
+    send: (request) => client.force?.(request),
+    onPush: (handler) => client.onForce?.(handler) ?? (() => undefined),
+    onFail: (handler) => client.onFail?.(handler) ?? (() => undefined),
+    paint: (frame) => view.setPositions(frame.xs, frame.ys),
+    report: (reason) => shown.note(reason),
+  });
+  wires.bridge = bridge;
+  return { view, bridge };
+}
+
+/**
+ * A force layout is a starting position, not a picture: the loop takes it from there and the
+ * strip shows the settle. Every other layout is finished, so nothing starts. A batch layout
+ * run shows the same strip with no fraction of its own — one call, no progress inside it.
+ */
+function watchRuns(studio: Studio, bridge: LiveBridge): () => void {
+  let settled = "";
+  let wasBusy = 0;
+  return studio.store.subscribe(() => {
+    const at = studio.store.get();
+    if (at.busy.length !== wasBusy) {
+      wasBusy = at.busy.length;
+      bridge.batch(wasBusy);
+    }
+    const layoutId = at.run?.layoutId ?? "";
+    if (layoutId === settled) return;
+    settled = layoutId;
+    if (settlesLive(layoutId)) bridge.start();
+  });
+}
+
 function mount(host: HTMLElement, options: StudioElementOptions): Mounted {
   const shadow = host.shadowRoot ?? host.attachShadow({ mode: "open" });
   const style = document.createElement("style");
@@ -99,24 +186,34 @@ function mount(host: HTMLElement, options: StudioElementOptions): Mounted {
   shadow.replaceChildren(style, canvas, chrome);
   // Focusable, so a click on the graph brings the shortcuts to this studio and no other.
   if (!host.hasAttribute("tabindex")) host.tabIndex = 0;
-  const view = createView(canvas);
+  const client = createClient(options.spawn ?? spawnWorker, assetsOf(host));
+  // The view is made before the studio, and the ids live in the studio's state: read late.
+  const shown: Shown = { studio: null, note: (reason) => shown.studio?.note(reason) };
+  const { view, bridge } = livePair(canvas, client, shown);
   const storage = pageStorage();
   const studio = createStudio({
-    client: createClient(options.spawn ?? spawnWorker, assetsOf(host)),
+    client,
     view,
     save: options.save ?? download,
     now: () => performance.now(),
+    forces: bridge.link,
     ...(storage === null ? {} : { storage, settings: openingSettings(storage) }),
   });
+  shown.studio = studio;
+  const unwatch = watchRuns(studio, bridge);
   const root = createRoot(chrome);
-  root.render(createElement(Shell, { studio, view, keys: host.getAttribute("keys") === "page" ? window : host }));
+  root.render(createElement(Shell, {
+    studio, view, keys: host.getAttribute("keys") === "page" ? window : host, bar: bridge,
+  }));
   void studio.start();
-  return { studio, view, root };
+  return { studio, view, client, root, bridge, unwatch };
 }
 
 function unmount(mounted: Mounted | null): void {
   if (mounted === null) return;
   mounted.root.unmount();
+  mounted.unwatch();
+  mounted.bridge.destroy();
   mounted.studio.destroy();
   mounted.view.destroy();
 }
@@ -133,6 +230,16 @@ export function defineGraphStudio(options: StudioElementOptions = {}, tag = "gra
 
     get view(): View | null {
       return this.#mounted?.view ?? null;
+    }
+
+    stopMotor(): void {
+      // `close`, not `destroy`: the studio and its chrome stay, so the page reads as a studio
+      // that lost its motor rather than one that was taken down.
+      this.#mounted?.client.close();
+    }
+
+    get watchdogBoundMs(): number {
+      return SILENCE_MS;
     }
 
     connectedCallback(): void {

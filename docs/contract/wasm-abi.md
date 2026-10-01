@@ -38,6 +38,7 @@ caller for an application; this document is what it is built against.
 | `gm_node_count` | `(handle: u32) -> u32` | Nodes in `handle`'s topology, available right after `gm_build`, before any run. `0` is ambiguous (empty graph vs. invalid handle) — resolved by `gm_last_error`. |
 | `gm_geometry_kind` | `(handle: u32) -> u32` | Node geometry tag of the last successful run: `0` Point, `1` Circle, `2` Box (`docs/contract/binary-layout.md`). `u32::MAX` — never a real tag — before any run has succeeded. |
 | `gm_edge_geometry_kind` | `(handle: u32) -> u32` | Edge geometry tag: `0` Line, `1` Polyline, `2` Curve. Beyond the phase's stated minimum surface: `gm_geometry_kind` alone only names nodes, and C3 requires edge kind to be readable too. Same `u32::MAX` convention. |
+| `gm_dim` | `(handle: u32) -> u32` | How many dimensions the last run carries: `0` 2D, `1` 3D (`docs/contract/binary-layout.md`, header byte 14). A reading, not a refusal — this layer transports 3D, so a consumer that cannot draw it checks this and declines. `0` with `InvalidHandle` or `NoGeometryYet` set, the same convention as the tags. |
 | `gm_column_ptr` | `(handle: u32, column_id: u32) -> u32` | Offset of column `column_id`'s data for the last run. `0` if the handle is invalid, there is no geometry yet, or the id is reserved/inapplicable to this run's kind — an ambiguous `0`, resolved by `gm_geometry_kind`/`gm_edge_geometry_kind` (present-but-empty vs. absent) and `gm_last_error` (invalid handle vs. no geometry). |
 | `gm_column_len` | `(handle: u32, column_id: u32) -> u32` | Element count of the same column — never assumed from node/edge count, since a reserved notes column (below) will have its own length `k`. |
 | `gm_snapshot_json` | `(handle: u32) -> u32` | The canonical JSON face, framed UTF-8 (`graph_contract::canonical_json::to_json`). Re-validates every coordinate as finite first (D9, C8) and refuses with `Code::TamperedGeometry` if any column view wrote a non-finite value into the handle's buffers since the last run — column views are writable aliases directly into this snapshot's storage, and nothing else re-checks. |
@@ -46,7 +47,7 @@ caller for an application; this document is what it is built against.
 | `gm_last_error` | `() -> u32` | The `Code` (below) the most recent fallible call left behind; `0` (`Code::None`) after success. Read-only — polling it does not change it, so it can be checked after any other export without disturbing what it would report. |
 | `gm_seed_ingest` | `(seed: u32) -> u32` | Gate-only: the hash gate's model at `seed`, framed as the same provisional ingest JSON `gm_build` reads. Not part of the published SDK surface — `harness/sdk-smoke.mjs` never calls it; only `harness/wasm-run.mjs`'s hash mode does, to drive `gm_build`/`gm_run`/`gm_snapshot_bytes` over the gate's own seeded model for C20. |
 
-`gm_layout_count`/`gm_layout_id`/`gm_last_error`/`gm_edge_geometry_kind`/
+`gm_layout_count`/`gm_layout_id`/`gm_last_error`/`gm_edge_geometry_kind`/`gm_dim`/
 `gm_snapshot_bytes`/`gm_seed_ingest`/`gm_build_contract` are all beyond the phase's
 literally stated minimum surface (`gm_alloc`, `gm_free`, `gm_build`, `gm_run`,
 `gm_node_count`, `gm_column_ptr`, `gm_column_len`, `gm_geometry_kind`, `gm_snapshot_json`,
@@ -204,8 +205,9 @@ meaning.
 | 9 | `EDGE_OFFSETS` | `u32 × (m+1)` | — | Polyline and Curve only |
 | 10 | `EDGE_PTS` | `f32 × 2×offsets[m]` | — | Polyline and Curve only |
 | 11 | `EDGE_CURVE_DEGREE` | `u32 × 1` | 1 | Curve only |
+| 12 | `NODE_Z` | `f32 × n` | node count | 3D only (`dim = 1` per `gm_dim`), whatever the node kind |
 
-A column id past 11 is `Absent`, not a panic. "Absent" (reserved, or inapplicable to
+A column id past 12 is `Absent`, not a panic. "Absent" (reserved, or inapplicable to
 this run's geometry kind) and "present but zero-length" both read `(ptr, len) = (0, 0)`
 on the wire — the two are told apart by `gm_geometry_kind`/`gm_edge_geometry_kind`, never
 by treating a `0` pointer as "empty": a present-but-empty column's real pointer can be
@@ -219,6 +221,15 @@ deliberately, so that merge fills these two slots instead of renumbering anythin
 here. Until it does, nothing in this snapshot type has a notes section, so both resolve to
 `Absent` unconditionally, for every graph, whatever the geometry kinds. Any *further*
 notes field beyond those two lands at 12+, again without renumbering.
+
+Id 12 is `NODE_Z`, the 3D z column (contract 0.4). It is the one node column whose
+applicability keys on the run's **dimension** rather than its node kind: every node kind
+carries a `z` when `dim = 1`, and a 2D run has none at all, so `NODE_Z` is `Absent` for it —
+absent, not a zero-length column a caller might read as a plane at depth 0. The wasm layer is
+**transport**: it carries a 3D snapshot rather than refusing one, so `gm_dim` is how a
+consumer learns a run is 3D instead of parsing byte 14 of the raw bytes itself. A consumer
+that draws in 2D checks `gm_dim` and declines; the renderer and studio do, refusing by the
+name `dimension-3d` rather than silently projecting z away.
 
 **The whole table is exercised per layout, not per kind in the abstract.**
 `harness/sdk-smoke.mjs` restates it — a consumer's copy, deliberately not the SDK's own
@@ -599,7 +610,7 @@ an exception to it.
   loop — and `exports/stages.rs` holds the six `#[unsafe(no_mangle)]` functions over the
   shared out-buffer. `post.rs` needed its tests in `post/tests.rs` and `analysis.rs` its
   tests in `analysis/tests.rs` for the same 300-line reason `views.rs` did.
-- `gm_layout_count`, `gm_layout_id`, `gm_last_error`, `gm_edge_geometry_kind`,
+- `gm_layout_count`, `gm_layout_id`, `gm_last_error`, `gm_edge_geometry_kind`, `gm_dim`,
   `gm_snapshot_bytes` and `gm_seed_ingest` are exports beyond the phase's literally
   stated minimum surface — each is justified in the export table above.
 - The reviewer's BLOCKER on the two transport rows was accepted as **"amend the

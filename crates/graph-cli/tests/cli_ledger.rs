@@ -47,7 +47,7 @@ const REQUIRED_LABEL: [&str; 5] = [
 /// the order rather than the row.
 /// Every layout `graph-core`'s registry holds, by id. The ledger is generated from that
 /// registry, so these are the layout rows that must appear in `capabilities --json`.
-const REGISTERED_LAYOUT_IDS: [&str; 21] = [
+const REGISTERED_LAYOUT_IDS: [&str; 23] = [
     "layout.grid",
     "layout.tree.tidy",
     "layout.treemap.squarified",
@@ -69,6 +69,8 @@ const REGISTERED_LAYOUT_IDS: [&str; 21] = [
     "layout.force.davidson_harel",
     "layout.force.lgl",
     "layout.force.drl",
+    "layout.force.spring",
+    "layout.circular.hierarchy",
 ];
 
 const POST_IDS: [&str; 7] = [

@@ -30,7 +30,7 @@ use crate::stage::StageError;
 use graph_contract::binary::{Snapshot, SnapshotParts, StringTable};
 use graph_contract::geometry::{EdgeGeometry, NodeGeometry};
 use graph_contract::notes::{Note, Notes};
-use graph_contract::version::CURRENT_VERSION;
+use graph_contract::snapshot::{Dim, label_for};
 
 /// What a layout stage produces: one geometry for the whole snapshot, and what it
 /// repaired or approximated on the way.
@@ -53,12 +53,23 @@ pub fn snapshot(topology: &Topology, mut geometry: Geometry) -> Result<Snapshot,
     let node_ids = (0..topology.node_count()).map(|i| topology.node(i).id);
     let edge_ids = (0..topology.edge_count()).map(|e| topology.edge(e).id);
     let parts = SnapshotParts {
-        version: CURRENT_VERSION,
+        // The label follows the snapshot, not the crate: a 2D layout's snapshot is
+        // labelled 0.3, so no 2D byte moves when a 3D layout arrives. One call site of
+        // `label_for`, never `CURRENT_VERSION` (`docs/decisions/contract-3d-verdict.md`
+        // condition 1). `Geometry` carries no z column yet, so every layout's snapshot is
+        // 2D today and the `Dim::D3` arm is not reachable from here: the 3D layouts are what
+        // will add one, and this line is where they will be labelled.
+        version: label_for(Dim::D2),
         node_ids: StringTable::from_strs("node.id", node_ids).map_err(StageError::Snapshot)?,
         edge_ids: StringTable::from_strs("edge.id", edge_ids).map_err(StageError::Snapshot)?,
         source: topology.edges().source.clone(),
         target: topology.edges().target.clone(),
         nodes: geometry.nodes,
+        // No layout emits a z column yet, so every layout's snapshot is 2D and this is
+        // `None` for all of them. The 3D layouts will carry their z on `Geometry`; this
+        // is the line that will pass it through, and `label_for` above is what will then
+        // label the result 0.4.
+        z: None,
         edges: geometry.edges,
         notes: {
             geometry.notes.sort();
@@ -101,7 +112,10 @@ mod tests {
     fn the_snapshot_carries_the_topologys_ids_and_endpoints_in_its_order() {
         let snapshot = snapshot(&topology(), points(2)).expect("fits");
         let p = snapshot.parts();
-        assert_eq!(p.version, CURRENT_VERSION);
+        // A 2D layout's snapshot is labelled 0.3, not the crate's 0.4: the label is the
+        // lowest version that can express the snapshot, and 2D is expressible in 0.3.
+        assert_eq!(p.version, label_for(Dim::D2));
+        assert_eq!(p.z, None, "and carries no z column");
         assert_eq!(p.node_ids.iter().collect::<Vec<_>>(), ["a", "b"]);
         assert_eq!(p.edge_ids.iter().collect::<Vec<_>>(), ["e1", "e3"]);
         assert_eq!((&p.source[..], &p.target[..]), (&[1, 0][..], &[0, 0][..]));

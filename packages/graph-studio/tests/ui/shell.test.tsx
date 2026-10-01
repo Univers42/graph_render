@@ -5,11 +5,11 @@ import { createElement } from "react";
 
 import { withAppearance } from "../../src/state/settings.ts";
 import { Shell } from "../../src/ui/Shell.tsx";
-import { DRAWN, fakeView, markup, studioWith } from "./desk.ts";
+import { DRAWN, fakeBar, fakeView, markup, studioWith } from "./desk.ts";
 
 function shell(state = DRAWN): string {
   const { studio } = studioWith(state);
-  return markup(createElement(Shell, { studio, view: fakeView(), keys: new EventTarget() }));
+  return markup(createElement(Shell, { studio, view: fakeView(), keys: new EventTarget(), bar: fakeBar() }));
 }
 
 test("the root carries the theme the settings ask for", () => {

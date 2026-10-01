@@ -1,6 +1,7 @@
 use super::{YifanHu, hierarchy};
+use crate::exec::Serial;
 use crate::index::{Topology, empty_model, index_model};
-use crate::layout::force::{BarnesHut, ForceParams, simple_graph};
+use crate::layout::force::{BarnesHut, ForceParams, Split, simple_graph};
 use crate::records::build::{edge, node};
 use crate::stage::Stage;
 use graph_contract::geometry::NodeGeometry;
@@ -93,4 +94,52 @@ fn the_output_on_a_path_of_40_is_pinned() {
         |v: &[f32]| -> Vec<u32> { [0, 13, 26, 39].iter().map(|&i| v[i].to_bits()).collect() };
     assert_eq!(bits(&x), [1132881269, 1125832160, 1111216345, 3275666193]);
     assert_eq!(bits(&y), [3260434285, 1129122063, 1127494705, 1127018024]);
+}
+
+/// **The multilevel stage's claim, end to end.** Every level's settle is the same bytes at
+/// every worker count, and `run_with(&Serial, 1)` is `Stage::run` exactly — the twin of
+/// `barnes_hut/tests.rs`'s own claim, which only the single-level solve makes.
+///
+/// The fixture is four levels deep on purpose: a one-level graph would prove the coarse
+/// settle is threaded and say nothing about the refinements, which are the levels the
+/// speed claim is mostly made of.
+#[test]
+fn every_level_is_worker_count_invariant_and_serial_one_is_the_stage() {
+    let t = path(100);
+    assert_eq!(
+        hierarchy(simple_graph(&t), 100).0.len(),
+        4,
+        "the fixture must exercise coarse settles and refinements both"
+    );
+    let params = ForceParams::default();
+    let reference = YifanHu::run_with(&t, &params, &Serial, 1).expect("finite");
+    assert_eq!(
+        reference,
+        YifanHu::run(&t, &params).expect("finite"),
+        "one worker over Serial must be the stage itself, not a lookalike"
+    );
+    for workers in [0_u32, 2, 3, 4, 7, 16] {
+        let out = YifanHu::run_with(&t, &params, &Serial, workers).expect("finite");
+        assert_eq!(out, reference, "workers={workers} moved a position");
+    }
+}
+
+/// The negative control for that claim, and the reason it is not vacuous: the split-sum
+/// control must reach **every** level. A control that reached only the coarsest settle
+/// would leave the three refinements unchecked, and an invariance test over a stage that
+/// never handed a pass to a runner would pass for the wrong reason.
+#[test]
+fn the_split_sum_control_reaches_every_level() {
+    let t = path(100);
+    let params = ForceParams::default();
+    let honest = YifanHu::run_with(&t, &params, &Serial, 1).expect("finite");
+    for workers in [1_u32, 2, 3, 4, 7] {
+        let mutated =
+            YifanHu::run_under(&t, &params, &Serial, workers, Split::Charge).expect("finite");
+        assert_ne!(
+            mutated, honest,
+            "workers={workers}: the control reached no level, so the invariance test above \
+             would hold without anything having been partitioned"
+        );
+    }
 }

@@ -37,8 +37,10 @@ All three `cmp` silent (exit 0), so all four runs are byte-identical. **The engi
 not depend on the seed**, and there is no seed stability left to gate: the gap in §3 is an
 algorithmic difference, not drift. `GM_ORACLE_START` is the one line `harness/oracle-graphviz.py`
 gained for this: `START_SEED` (`harness/gv_plain.py`) reads the environment, defaulting to the
-`1` every recorded run used. Without it the three runs above would be one command run three
-times.
+`1` every recorded run used. Develop's own `--start=N` flag is now the second spelling of the same
+knob, and every arm reads it through `gv_plain.run_engine`, so the runs above and an `--start`
+run are the same experiment either way. Without it the three runs above would be one command run
+three times.
 
 **The check is not vacuous.** A 1e-6-point change to one node coordinate of the recorded answer
 makes the `cmp` fail (`differ: byte 9, line 1`, exit 1).
@@ -195,7 +197,7 @@ dependency for a layout that must be bit-identical native and wasm32.
 | `negctl-circo-result-worst` | the recorded result's `layouts.circo.worst` → `1e9` | see rows |
 | `negctl-circo-result-closed` | the recorded result's `closed_exact` → `false` | see rows |
 | `circo-check-negctl` | a fixture directory that does not exist | see rows |
-| `negctl-circo-unknown-engine` | `--engine osage`, an engine there is no differential for | refused, exit 2, names `circo`, `twopi` |
+| `negctl-circo-unknown-engine` | `--engine nosuch`, an engine there is no differential for | refused by clap's parser, exit 2, names `twopi`, `osage`, `circo` |
 | `negctl-circo-merge-short` | one shard result hidden, so the shards cover 875 of 1 000 seeds | merge refuses |
 | `negctl-reference-degree` | the gate's reference degree, which every layout's stage bytes are a function of | see rows |
 
@@ -207,23 +209,36 @@ our own bytes cannot say we match Graphviz and §3 says we do not.
 
 ## 7. What this file does not claim
 
+- **The 1000-seed sweep was not re-run in the merge pass.** §3's 6.460e+04 worst gap is from
+  this job's own sweep on this branch before `origin/develop` was merged in. The wiring was
+  re-checked after the merge at 40 seeds (`circo: 40 seeds, worst 1.894e+03`, the 14 closed cases
+  still exact, `oracle-graphviz --engine circo` PASS), at 2 shards for the merge path
+  (`circo: 40 seeds over 2 shards, worst 1.903e+03, closed 14 exact: True`, and the merge's own
+  control refuses when a shard file is hidden), and at `-Gstart` 1, 7 and 99 (three `cmp`s silent,
+  exit 0, over the 40-seed fixture set). The 1000-seed rows `circo-oracle-1000` and
+  `circo-merge-1000` are the orchestrator's to run, and §3's number is what they should
+  reproduce. **A 40-seed worst gap is not a second measurement of the same quantity** and is not
+  offered as one: the small seeds are the ones with small blocks, so 1.894e+03 says nothing about
+  the 555-node seed that carries the 6.460e+04.
 - **`gated` is not claimed for `layout.circular.circo`.** The row is `Status::Implemented`
-  (`crates/graph-cli/src/capabilities/registry/unproven.rs:65`), and it stays that way whatever
+  (`crates/graph-cli/src/capabilities/registry/unproven.rs`), and it stays that way whatever
   the ceiling says. §5 is the reason.
 - **A 1e+05 ceiling is not agreement.** It is the next power of ten above the worst measured gap,
   which is what the job's rule prescribes, and on this engine it means the metric has stopped
   discriminating. The 14 closed cases are where the exactness actually lives, and they are
   compared byte for byte.
 - **The oracle's own reader has a gap.** `capabilities/verdict.rs:63-74` matches a fixed list of
-  record names and has no arm for `oracle-graphviz`, so `capabilities` prints
-  `not backed: no oracle-graphviz record` even after a real run. That is a gap in the reader, the
+  record names and has no arm for `oracle-circo`, so `capabilities` prints
+  `not backed: no oracle-circo record` even after a real run. That is a gap in the reader, the
   same one `layout.twopi` already carries, and it is **not** a claim this row is making: the
   differential is real and its numbers are above. Fixing it is `capabilities/verdict.rs`, which
   this job's paths do not include.
 - **The determinism check is over 20 seeds, not 1000.** It proves the oracle's own output does not
   move with the seed, which is what §1 claims and all §3 needs. It is not a claim that the sweep
   is seed-stable, because `circo` takes no seed that reaches its answer.
-- **`harness/oracle-graphviz.py` grew three child modules** (`gv_plain.py`, `gv_closed.py`) so the
-  sharded sweep could be added without passing 300 lines. The refactor was verified
-  byte-identical: the 20-seed determinism subset through the refactored harness `cmp`s equal to
-  the pre-refactor output, exit 0.
+- **`harness/oracle-graphviz.py` grew three child modules** (`gv_plain.py`, `gv_closed.py`,
+  `gv_frames.py`) so the sharded sweep could be added without passing 300 lines, and so develop's
+  own closed-case table (`osage`, whose port keeps Graphviz's translation and so needs no
+  half-node offset) is one table in one file rather than a second rendering in the driver. The
+  refactor was verified byte-identical: the 20-seed determinism subset through the refactored
+  harness `cmp`s equal to the pre-refactor output, exit 0.

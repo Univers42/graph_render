@@ -78,9 +78,10 @@ circo-check-1000|0|scripts/orch/gr cargo run -q -p graph-cli -- oracle-graphviz 
 circo-check-negctl|nonzero|scripts/orch/gr cargo run -q -p graph-cli -- oracle-graphviz --engine circo --dir target/circo-fixtures-absent
 negctl-circo-result-worst|nonzero|scripts/orch/node-slim.sh node -e 'const f=require("fs"),d="target/circo-fixtures",o="target/circo-negctl-worst";f.mkdirSync(o,{recursive:true});for(const n of f.readdirSync(d))f.copyFileSync(d+"/"+n,o+"/"+n);const p=o+"/circo-result.json",r=JSON.parse(f.readFileSync(p));r.layouts.circo.worst=1e9;f.writeFileSync(p,JSON.stringify(r,null,1))' ; scripts/orch/gr cargo run -q -p graph-cli -- oracle-graphviz --engine circo --dir target/circo-negctl-worst
 negctl-circo-result-closed|nonzero|scripts/orch/node-slim.sh node -e 'const f=require("fs"),d="target/circo-fixtures",o="target/circo-negctl-closed";f.mkdirSync(o,{recursive:true});for(const n of f.readdirSync(d))f.copyFileSync(d+"/"+n,o+"/"+n);const p=o+"/circo-result.json",r=JSON.parse(f.readFileSync(p));r.closed_exact=false;f.writeFileSync(p,JSON.stringify(r,null,1))' ; scripts/orch/gr cargo run -q -p graph-cli -- oracle-graphviz --engine circo --dir target/circo-negctl-closed
-# The engine-name control: an engine there is no differential for must be refused, not read as a
-# pass, and must name the ones there are.
-negctl-circo-unknown-engine|nonzero|scripts/orch/gr cargo run -q -p graph-cli -- oracle-graphviz --engine osage
+# The engine-name control: an engine there is no differential for must be refused by clap's
+# parser, not read as a pass. `osage` is a real engine on develop, so the name has to be one
+# there is none for — `nosuch` — for this row to still be a control.
+negctl-circo-unknown-engine|nonzero|scripts/orch/gr cargo run -q -p graph-cli -- oracle-graphviz --engine nosuch
 # The merge's own control: a sweep whose shards do not cover the manifest's seeds must be
 # refused rather than merged into a smaller sweep than it ran. One shard file is hidden.
 negctl-circo-merge-short|nonzero|scripts/orch/node-slim.sh node -e 'const f=require("fs"),d="target/gv-circo-shards";f.renameSync(d+"/circo-result-shard7.json",d+"/circo-result-shard7.hidden")' ; docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/circo-fixtures circo target/gv-circo-shards --merge --shards 8; rc=$?; scripts/orch/node-slim.sh node -e 'const f=require("fs"),d="target/gv-circo-shards";f.renameSync(d+"/circo-result-shard7.hidden",d+"/circo-result-shard7.json")'; exit $rc
