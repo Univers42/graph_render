@@ -2,19 +2,18 @@
 //! d3-quadtree (`/home/user/refs/npm/d3-quadtree-3.0.1/src/{add,cover,visit,visitAfter}.js`,
 //! pinned in `node_modules`): the same bounding-square growth (`cover`), the same
 //! per-point insertion (`add`, already iterative — a `while` loop, no recursion), the same
-//! exact-coincidence chaining. Traversal ([`Quadtree::visit`], [`Quadtree::postorder_into`])
-//! uses an **explicit, reused** stack (devil C11): wasm32's default stack is far smaller
-//! than native's, so a naive recursive walk over nearly-coincident points could overflow
-//! on wasm only. Every `Vec` here is `clear()`-ed and refilled, never reallocated once its
-//! capacity reaches steady state (`dsa-and-memory.md`).
-//!
-//! Sibling order need not match d3 bit-for-bit — this phase gates on stress quality, not
-//! on matching d3's rounding — but `visit.js`'s `3,2,1,0` push order is copied anyway: it
-//! costs nothing and keeps the port legible against its reference.
+//! exact-coincidence chaining. A build ends by flattening the pointer tree into a
+//! preorder arena ([`Cell`], `preorder.rs`), which is the only form a pass walks: no
+//! stack, no recursion (devil C11: wasm32's default stack is far smaller than native's),
+//! and the cells in the order every walk reads them. Every `Vec` here is `clear()`-ed and
+//! refilled, never reallocated once its capacity reaches steady state (`dsa-and-memory.md`).
 
 mod bounds;
+mod preorder;
 
 pub(crate) use bounds::Bounds;
+pub(crate) use preorder::Cell;
+use preorder::Visit;
 
 /// One arena slot: an internal node's up to 4 children, or a leaf's chain head.
 #[derive(Debug, Clone, Copy)]
@@ -55,35 +54,51 @@ pub(crate) struct Quadtree {
     shape: Vec<Shape>,
     root: Option<u32>,
     chain_next: Vec<Option<u32>>,
-    stack_a: Vec<u32>,
-    stack_b: Vec<u32>,
+    cells: Vec<Cell>,
+    key: Vec<u32>,
+    order: Vec<u32>,
+    pending: Vec<Visit>,
 }
 
 impl Quadtree {
-    /// Number of arena nodes (internal or leaf) after the last [`build`](Self::build).
+    /// Number of cells (internal or leaf) after the last [`build`](Self::build).
+    #[cfg(test)]
     pub(crate) fn len(&self) -> u32 {
-        self.shape.len() as u32
+        self.cells.len() as u32
     }
 
-    /// `true` when this node is internal; its up to 4 children, empty slots `None`.
-    pub(crate) fn children(&self, node: u32) -> Option<[Option<u32>; 4]> {
+    /// The cells in preorder, children in slot order `0,1,2,3` (d3's `visit.js` order).
+    pub(crate) fn cells(&self) -> &[Cell] {
+        &self.cells
+    }
+
+    /// Cell `k`'s insertion-order node id: the key the opening-angle jiggle has always
+    /// hashed, kept so the preorder arena moves no byte.
+    pub(crate) fn key(&self, k: u32) -> u32 {
+        self.key[k as usize]
+    }
+
+    /// Every point, leaf by leaf in preorder, each leaf's chain most-recent-first; the
+    /// points with a NaN coordinate (in no leaf) follow, ascending. A cell's own points are
+    /// `order[cell.start..cell.end]`.
+    pub(crate) fn order(&self) -> &[u32] {
+        &self.order
+    }
+
+    /// The up to 4 children of an internal node, empty slots `None`; `None` for a leaf.
+    fn children(&self, node: u32) -> Option<[Option<u32>; 4]> {
         match self.shape[node as usize] {
             Shape::Internal(c) => Some(c),
             Shape::Leaf(_) => None,
         }
     }
 
-    /// Points chained at leaf `node` (most-recent-first; coincident, so order is moot).
-    pub(crate) fn leaf_points(&self, node: u32) -> impl Iterator<Item = u32> + '_ {
-        let mut cur = match self.shape[node as usize] {
+    /// A leaf's chain head, the most recently inserted of its coincident points.
+    fn head(&self, node: u32) -> Option<u32> {
+        match self.shape[node as usize] {
             Shape::Leaf(h) => Some(h),
             Shape::Internal(_) => None,
-        };
-        core::iter::from_fn(move || {
-            let c = cur?;
-            cur = self.chain_next[c as usize];
-            Some(c)
-        })
+        }
     }
 
     /// Rebuilds over `xs`/`ys` (same length), point `i` inserted ascending — fixed,
@@ -96,6 +111,7 @@ impl Quadtree {
         self.root_bounds = Bounds::default();
         let pts = Points { xs, ys };
         let Some((x0, y0, x1, y1)) = bounds_of(pts) else {
+            self.flatten(pts);
             return;
         };
         self.cover(x0, y0);
@@ -104,6 +120,7 @@ impl Quadtree {
         for i in 0..xs.len() as u32 {
             builder.add(i);
         }
+        self.flatten(pts);
     }
 
     /// Grows the root square to cover `(x, y)` (d3's `cover.js`). Only [`build`](Self::build)
@@ -145,66 +162,16 @@ impl Quadtree {
         }
     }
 
-    /// A bottom-up node order into `out` (d3's two-stack `visitAfter.js` trick):
-    /// descendants of every node precede it. `out` is cleared and refilled, not realloced.
-    pub(crate) fn postorder_into(&mut self, out: &mut Vec<u32>) {
-        self.stack_a.clear();
-        self.stack_b.clear();
-        self.stack_a.extend(self.root);
-        while let Some(node) = self.stack_a.pop() {
-            if let Shape::Internal(children) = self.shape[node as usize] {
-                self.stack_a.extend(children.into_iter().flatten());
-            }
-            self.stack_b.push(node);
-        }
-        out.clear();
-        out.extend(self.stack_b.iter().rev());
-    }
-
     /// The capacity of every buffer a rebuild refills, for the test that a rebuild
     /// allocates nothing once the layout has reached steady state.
-    ///
-    /// **The walk's own buffer is not here, and cannot be:** [`visit_in`](Self::visit_in)
-    /// runs over a stack the *caller* owns, so a tree has no walk capacity of its own to
-    /// report. The pass that walks therefore measures its own stack separately
-    /// (`barnes_hut/tests/kernels.rs`), and this reports what the tree alone holds.
     #[cfg(test)]
     pub(crate) fn capacity(&self) -> usize {
-        self.shape.capacity() + self.chain_next.capacity()
-    }
-
-    /// A pruned preorder walk (d3's `visit.js`) over a **caller-owned** stack: `prune`
-    /// runs on every node reached, and a `true` return skips its children. Children queue
-    /// `3,2,1,0`, so they visit `0,1,2,3`.
-    ///
-    /// **The walk takes `&self` and the caller owns the buffer, and that is the whole
-    /// reason this shape exists** (D10): the reused-buffer form needed `&mut` only for its
-    /// stack, so without this the walk was a `&mut` borrow of shared start-of-step state
-    /// and no two workers could take it at once. Every gathered pass now holds the tree
-    /// read-only while several workers walk it, so there is no tree-owned walk buffer to
-    /// keep and no `&mut self` walk to offer.
-    pub(crate) fn visit_in(
-        &self,
-        stack: &mut Vec<(u32, Bounds)>,
-        mut prune: impl FnMut(&Self, u32, Bounds) -> bool,
-    ) {
-        stack.clear();
-        if let Some(root) = self.root {
-            stack.push((root, self.root_bounds));
-        }
-        while let Some((node, bounds)) = stack.pop() {
-            if prune(self, node, bounds) {
-                continue;
-            }
-            let Some(children) = self.children(node) else {
-                continue;
-            };
-            for slot in (0..4).rev() {
-                if let Some(child) = children[slot] {
-                    stack.push((child, bounds.quadrant(slot)));
-                }
-            }
-        }
+        self.shape.capacity()
+            + self.chain_next.capacity()
+            + self.cells.capacity()
+            + self.key.capacity()
+            + self.order.capacity()
+            + self.pending.capacity()
     }
 }
 
@@ -257,11 +224,7 @@ impl Builder<'_, '_> {
         mut bounds: Bounds,
     ) {
         let (x, y) = self.pts.at(point);
-        let head = self
-            .tree
-            .leaf_points(node)
-            .next()
-            .expect("leaf holds a point");
+        let head = self.tree.head(node).expect("leaf holds a point");
         let (xp, yp) = self.pts.at(head);
         if x == xp && y == yp {
             self.tree.chain_next[point as usize] = Some(head);

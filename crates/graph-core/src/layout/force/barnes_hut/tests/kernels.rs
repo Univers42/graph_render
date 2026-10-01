@@ -48,11 +48,10 @@ fn collide_gives_the_same_deltas_at_every_worker_count_as_the_loop_it_replaces()
         Serial.run(&CollidePass::of(&sim), workers, &mut out);
         assert_eq!(out, reference, "workers={workers} moved a collide delta");
     }
-    // The kernel is the loop it replaces: one walk per node, in ascending index order.
+    // The kernel is the loop it replaces: one walk per node, in the collide tree's order.
     let reach = collide::reach_squared(&sim);
-    let mut stack = Vec::new();
-    let through_loop: Vec<(f64, f64)> = (0..sim.px.len() as u32)
-        .map(|i| collide::node_delta(&sim, i, reach, &mut stack))
+    let through_loop: Vec<(f64, f64)> = (sim.collide_tree.order().iter())
+        .map(|&i| collide::node_delta(&sim, i, reach))
         .collect();
     assert_eq!(reference, through_loop);
 }

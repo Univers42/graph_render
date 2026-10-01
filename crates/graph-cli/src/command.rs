@@ -183,4 +183,7 @@ pub enum Command {
     /// Wall time and Kruskal stress-1 of the Phase 6 layouts (or `--layout`) at the given
     /// node counts, refusing a size past a layout's own registered `scale_ceiling`.
     Bench(crate::bench::Plan),
+    /// The wall time of single live-session ticks on the scale model, after a warm-up: the
+    /// per-tick number the whole-stage `bench` averages away, and the profilers' workload.
+    Tick(crate::bench::tick::Plan),
 }
