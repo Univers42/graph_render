@@ -46,3 +46,4 @@ sg-dedupe|build|prompts/jobs/sg-dedupe.md|scripts/orch/rows/quick.rows|no
 studio-switch-fit|build|prompts/jobs/studio-switch-fit.md|scripts/orch/rows/quick.rows|no
 status-refresh|build|prompts/jobs/status-refresh.md|scripts/orch/rows/docs.rows|no
 # osage-knob|build|prompts/jobs/osage-knob.md|scripts/orch/rows/quick.rows|no   (after p12-t3-knobs lands: same knob files)
+osage-knob|build|prompts/jobs/osage-knob.md|scripts/orch/rows/quick.rows|no
