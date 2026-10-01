@@ -8,7 +8,7 @@
 #   scripts/studio-live.sh              the gate
 #   STUDIO_LIVE_BREAK=1 scripts/studio-live.sh    the negative control: it must fail
 #
-# Rows: with no input after load, the largest node travel over 0.4 s is over 1 world unit;
+# Rows: with no input after `layout.force.barnes_hut` runs, the largest node travel over 0.4 s is over 1 world unit;
 # after a 150 px drag, at least one neighbour of the dragged node travels over 5 world units;
 # the progress bar is on screen during a settle and gone once the graph has settled; and
 # `live-dead-worker` — the bar is hidden, within the watchdog's own bound, after the motor

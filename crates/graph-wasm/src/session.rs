@@ -145,6 +145,27 @@ pub fn pin(id: u32, row: u32, x: f64, y: f64) -> Result<(), Code> {
     })
 }
 
+/// Moves every row to `(xs, ys)` — the picture a host is drawing — with velocities zeroed;
+/// pins and alpha are kept. Widened from the snapshot's `f32` exactly (every `f32` is an
+/// `f64`). Refused when a column's length is not the node count or a value is not finite.
+pub fn seat(id: u32, xs: &[f32], ys: &[f32]) -> Result<(), Code> {
+    let widen = |column: &[f32]| column.iter().map(|&v| f64::from(v)).collect::<Vec<f64>>();
+    with_mut(id, |session| {
+        session
+            .set_positions(&widen(xs), &widen(ys))
+            .map_err(|_| Code::SessionRefused)
+    })
+}
+
+/// Moves every row back to the spiral a new session starts on, at rest, at the starting
+/// alpha; parameters and pins are kept. Fails only for a session that is not live.
+pub fn restart(id: u32) -> Result<(), Code> {
+    with_mut(id, |session| {
+        session.restart();
+        Ok(())
+    })
+}
+
 /// Releases one row, which then integrates again from rest.
 pub fn unpin(id: u32, row: u32) -> Result<(), Code> {
     with_mut(id, |session| {
@@ -170,8 +191,7 @@ pub fn unpin_all(id: u32) -> Result<(), Code> {
 ///
 /// The address is the session's own column, which **no path in this ABI resizes**, so it
 /// stays valid for the session's whole life rather than only until the next call (C7) —
-/// `set_positions`, the only writer that could move a `Vec`'s storage, is reachable solely
-/// from `ForceSession::from_positions`, which this ABI does not export. A host still
+/// [`seat`] copies into the columns in place and never resizes them. A host still
 /// treats a view as good only until the next motor call, because a wasm memory growth
 /// detaches its `ArrayBuffer`; that is the JS side's hazard, not this address's. An address
 /// or length the wire's `u32` cannot carry is refused with [`Code::IndexOutOfRange`], never

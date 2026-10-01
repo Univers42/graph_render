@@ -7,8 +7,9 @@
  * thirteen parameters: the rest keep the motor's own values, read back through the ABI, so
  * no copy of the defaults can go stale here.
  *
- * Ponytail: `shuffle` is the layout registry's own random layout, run over the same graph
- * handle, because the ABI has no "teleport every node" verb. Failing input: a graph whose
+ * Ponytail: `shuffle` restarts from the motor's own golden-angle spiral, not from random
+ * positions: a random layout is a unit square, and 400 nodes that close together flew out to
+ * 55 000 units in three ticks (2026-10-01). Failing input: a graph whose
  * node count changed since the session was made has rows the session does not have, and a
  * pin to one of them is dropped rather than refused — the drag then does nothing visible,
  * which a re-layout (which makes a new session) is the fix for. Direction: `positions()` is
@@ -25,15 +26,11 @@ const PARAMS: readonly (readonly [keyof ForceKnobs, keyof ForceParams])[] = [
   ["linkDistance", "link_distance"],
 ];
 
-export interface MotorForceDeps<Handle> {
-  /** The motor's own session over `handle`; the layout that gives the graph its positions. */
+export interface MotorForceDeps {
+  /** The motor's own session over the graph. */
   readonly session: ForcePort;
-  /** The graph the session was made over. */
-  readonly handle: Handle;
   /** Node ids in the session's dense row order, or null before a layout has run. */
   readonly ids: () => readonly string[] | null;
-  /** Runs the motor's random layout over `handle`, so "Animate" starts over. */
-  readonly scatter: (handle: Handle) => void;
 }
 
 function rowOf(ids: readonly string[], id: string): number {
@@ -43,7 +40,7 @@ function rowOf(ids: readonly string[], id: string): number {
 /** A `ForceParams` the four knobs can be written into, field by field. */
 type Writable = { -readonly [Field in keyof ForceParams]: number };
 
-export function createLiveForce<Handle>(deps: MotorForceDeps<Handle>): LiveForce {
+export function createLiveForce(deps: MotorForceDeps): LiveForce {
   const { session, ids } = deps;
   const knobParams = (knobs: ForceKnobs): Partial<ForceParams> => {
     const out: Partial<Writable> = {};
@@ -64,8 +61,8 @@ export function createLiveForce<Handle>(deps: MotorForceDeps<Handle>): LiveForce
     positions: () => session.positions(),
     reheat: (alpha) => session.reheat(alpha),
     shuffle: () => {
-      // The motor has no teleport verb: the random layout is the settle's own restart.
-      deps.scatter(deps.handle);
+      // Without a restart the settle resumed from where it stopped and Animate moved nothing.
+      session.restart();
       session.reheat(1);
       return 1;
     },

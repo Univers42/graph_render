@@ -181,6 +181,24 @@ export class ForceSession {
     );
   }
 
+  /** Moves every row to where this session's graph was last drawn (its snapshot, after any
+   *  post pass), with velocities zeroed; pins and alpha are kept. Call it after each layout, so
+   *  the next drag moves the picture on screen rather than the session's own seed. Refused with
+   *  a typed error before the graph's first run. */
+  seat(): void {
+    this.#call("gm_force_session_seat", (exports) =>
+      exports.gm_force_session_seat(toU32(this.#id), toU32(this.#graph)),
+    );
+  }
+
+  /** Moves every row back to the spiral a new session starts on, at rest, at the starting
+   *  alpha: the settle starts over from the motor's own seed. Parameters and pins are kept. */
+  restart(): void {
+    this.#call("gm_force_session_restart", (exports) =>
+      exports.gm_force_session_restart(toU32(this.#id)),
+    );
+  }
+
   /** Sets `alpha` outright — the verb behind "the user moved something, run it again". Taken
    *  exactly and **never clamped**: `0..=1`, and anything else is refused with the session left
    *  as it was, because a clamp would be a lie the caller cannot see. */

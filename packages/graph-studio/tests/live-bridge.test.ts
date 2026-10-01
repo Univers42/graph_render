@@ -83,13 +83,14 @@ test("a knob change reaches the worker, and the panel reads the value back", () 
   assert.deepEqual(bridge.link.knobs(), knobs);
 });
 
-test("animate on restarts from random positions, and off stops the loop", () => {
+test("animate on restarts from the seed, and off stops the loop", () => {
   const { bridge, sent } = rig();
   bridge.link.animate(true);
-  assert.deepEqual(sent, [{ type: "force.start" }]);
+  const start = { type: "force.start", knobs: DEFAULT_KNOBS };
+  assert.deepEqual(sent, [start], "the start carries the knobs the panel shows");
   assert.equal(bridge.link.animating(), true);
   bridge.link.animate(false);
-  assert.deepEqual(sent, [{ type: "force.start" }, { type: "force.start" }, { type: "force.stop" }]);
+  assert.deepEqual(sent, [start, start, { type: "force.stop" }]);
   assert.equal(bridge.link.animating(), false);
 });
 
@@ -132,11 +133,36 @@ test("every frame is handed to the canvas, and destroy stops listening", () => {
   assert.equal(painted.length, 1, "nothing reaches the view after the bridge is gone");
 });
 
-test("a force layout settles live and the finished ones do not", () => {
-  for (const id of ["layout.forceatlas2", "layout.force.barnes_hut", "layout.force.yifan_hu"]) {
-    assert.equal(settlesLive(id), true, id);
-  }
-  for (const id of ["layout.grid", "layout.random", "layout.circular.radial", "layout.dag.sugiyama"]) {
-    assert.equal(settlesLive(id), false, id);
-  }
+test("only the live session's own layout settles live; every other engine keeps its picture", () => {
+  assert.equal(settlesLive("layout.force.barnes_hut"), true);
+  const finished = ["layout.forceatlas2", "layout.force.yifan_hu", "layout.force.kamada_kawai", "layout.force.drl",
+    "layout.grid", "layout.random", "layout.circular.radial", "layout.dag.sugiyama"];
+  for (const id of finished) assert.equal(settlesLive(id), false, id);
+});
+
+test("a finished layout holds still: it stops the last settle and never restarts one", () => {
+  const { bridge, push, sent } = rig();
+  bridge.start();
+  push(RUNNING);
+  bridge.hold();
+  assert.deepEqual(sent.map((request) => request.type), ["force.start", "force.stop"]);
+  assert.deepEqual(bridge.bar(), HIDDEN, "no strip over a picture that is not moving");
+  push({ type: "force-state", running: false, disabled: null, paused: false });
+  assert.equal(bridge.link.disabled(), null, "the answer to the stop enables the forces panel");
+});
+
+test("a drag pins the live session only over its own picture; over a finished layout it moves one node", () => {
+  const { bridge, push } = rig();
+  push({ type: "force-state", running: false, disabled: null, paused: false });
+  bridge.hold();
+  assert.notEqual(bridge.dragDisabled(), null, "a finished picture is not the session's to move");
+  assert.equal(bridge.link.disabled(), null, "and the forces panel stays usable over it");
+  bridge.start();
+  assert.equal(bridge.dragDisabled(), null, "the live layout's settle is the session's picture");
+  bridge.hold();
+  bridge.link.animate(true);
+  assert.equal(bridge.dragDisabled(), null, "so is an Animate");
+  bridge.hold();
+  bridge.link.set(DEFAULT_KNOBS);
+  assert.equal(bridge.dragDisabled(), null, "and a knob change, which wakes the loop");
 });

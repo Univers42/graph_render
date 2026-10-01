@@ -2,9 +2,11 @@
 //!
 //! Reference: `Multilevel.c` (`Multilevel_new`, `Multilevel_get_coarsest`, `coarsen`) and
 //! `prolongate` at `lib/sfdpgen/post_process.c`, read as an algorithm reference. A level is
-//! `pair(coarse_node, fine_node)`; coarsening matches each unmatched fine node to an unmatched
-//! neighbour, or makes it its own singleton; prolongation lays a coarse solution back down by
-//! giving every fine node its matched partner's position, jittered.
+//! `pair(coarse_node, fine_node)`; coarsening repeats matching passes ([`matching`]) until the
+//! level is small enough; prolongation lays a coarse solution back down by giving every fine
+//! node its coarse node's position, jittered.
+
+use super::matching;
 
 /// One level: `pair[j]` is the coarse node that fine node `j` belongs to, and `coarse` the
 /// number of coarse nodes.
@@ -13,52 +15,37 @@ pub(super) struct Level {
     pub(super) coarse: u32,
 }
 
-/// The next coarser level, by maximal matching over `edges`.
+/// The smallest level the reference keeps (`Multilevel.c:23`): a pass that would go below it
+/// is discarded and the level before it is the coarsest.
+const MIN_SIZE: u32 = 4;
+
+/// A level must shrink to this fraction of the level below it (`Multilevel.c:24`).
+const MIN_COARSEN_FACTOR: f64 = 0.75;
+
+/// The next coarser level: matching passes repeat, composed, until the level has shrunk to
+/// [`MIN_COARSEN_FACTOR`] of `count`, or a pass stops making progress
+/// (`Multilevel_coarsen`, `Multilevel.c:206-242`). One pass alone is not a level: `K` shrinks
+/// once per level, and a graph that coarsens slowly would shrink it towards zero.
 ///
-/// Deterministic (D2): nodes are visited in dense index order and each takes the first
-/// unmatched neighbour it meets, so the matching is a function of the edge list alone and never
-/// of iteration order. The reference draws a random permutation to choose the order
-/// (`Multilevel.c`, via `gv_permutation`); using index order instead is recorded in the
-/// module's `Ponytail` note, and is the same set of matchings the reference produces up to
-/// which particular maximal matching is chosen.
+/// A level that could not coarsen at all comes back as the identity, with `coarse == count`.
 pub(super) fn coarsen(count: u32, edges: &[(u32, u32)]) -> Level {
-    let mut matched = vec![false; count as usize];
-    let mut next = vec![0u32; count as usize];
-    let mut coarse = 0u32;
-    // One adjacency list, built once: scanning `edges` per node is O(n·m), which at the
-    // gate's own sizes costs more than every force iteration in the layout put together.
-    // Built in dense index order and read in that order, so the matching below is still a
-    // function of the edge list alone (D2).
-    let mut adjacent: Vec<Vec<u32>> = vec![Vec::new(); count as usize];
-    for &(a, b) in edges {
-        if a != b {
-            adjacent[a as usize].push(b);
-            adjacent[b as usize].push(a);
+    let mut level = Level {
+        pair: (0..count).collect(),
+        coarse: count,
+    };
+    let mut current = edges.to_vec();
+    while f64::from(level.coarse) > MIN_COARSEN_FACTOR * f64::from(count) {
+        let next = matching::pass(level.coarse, &current);
+        if next.coarse == level.coarse || next.coarse < MIN_SIZE {
+            break;
         }
+        current = coarse_edges(&next, &current);
+        for coarse in &mut level.pair {
+            *coarse = next.pair[*coarse as usize];
+        }
+        level.coarse = next.coarse;
     }
-    for i in 0..count {
-        if matched[i as usize] {
-            continue;
-        }
-        let partner = adjacent[i as usize]
-            .iter()
-            .copied()
-            .find(|&j| j != i && !matched[j as usize]);
-        match partner {
-            Some(j) => {
-                matched[i as usize] = true;
-                matched[j as usize] = true;
-                next[i as usize] = coarse;
-                next[j as usize] = coarse;
-                coarse += 1;
-            }
-            None => {
-                next[i as usize] = coarse;
-                coarse += 1;
-            }
-        }
-    }
-    Level { pair: next, coarse }
+    level
 }
 
 /// Lay a coarse solution down onto `count` fine nodes, adding the reference's jitter.
@@ -137,16 +124,21 @@ mod tests {
     /// Every fine node lands in exactly one coarse node, and the coarse numbering is dense.
     #[test]
     fn coarsening_partitions_the_nodes_and_numbers_them_densely() {
-        let edges = [(0u32, 1u32), (2, 3)];
-        let level = coarsen(4, &edges);
-        assert_eq!(level.pair.len(), 4);
+        let edges = [(0u32, 1u32), (2, 3), (4, 5), (6, 7)];
+        let level = coarsen(8, &edges);
+        assert_eq!(level.pair.len(), 8);
         assert_eq!(
-            level.coarse, 2,
-            "four nodes in two edges make two coarse nodes"
+            level.coarse, 4,
+            "eight nodes in four edges make four coarse nodes"
         );
         let mut sorted = level.pair.clone();
         sorted.sort_unstable();
-        assert_eq!(sorted, vec![0, 0, 1, 1], "pairs {:?}", level.pair);
+        assert_eq!(
+            sorted,
+            vec![0, 0, 1, 1, 2, 2, 3, 3],
+            "pairs {:?}",
+            level.pair
+        );
     }
 
     /// Coarsening repeatedly must strictly shrink, or the driver's loop would not terminate.
@@ -158,21 +150,27 @@ mod tests {
         let n = 32u32;
         let mut edges: Vec<(u32, u32)> = (0..n).map(|i| (i, (i + 1) % n)).collect();
         let mut count = n;
-        for _ in 0..4 {
+        for _ in 0..3 {
             let level = coarsen(count, &edges);
             assert!(level.coarse < count, "{} -> {}", count, level.coarse);
             edges = coarse_edges(&level, &edges);
             count = level.coarse;
         }
+        assert_eq!(count, 4);
+        assert_eq!(
+            coarsen(count, &edges).coarse,
+            4,
+            "a pass below MIN_SIZE is discarded"
+        );
     }
 
     /// An isolated node is its own coarse node — it has no partner to match with.
     #[test]
     fn an_isolated_node_becomes_its_own_coarse_node() {
-        let level = coarsen(3, &[(0u32, 1u32)]);
-        assert_eq!(level.coarse, 2);
-        assert_ne!(
-            level.pair[2], level.pair[0],
+        let level = coarsen(9, &[(0u32, 1u32), (2, 3), (4, 5), (6, 7)]);
+        assert_eq!(level.coarse, 5);
+        assert!(
+            level.pair[..8].iter().all(|&c| c != level.pair[8]),
             "the isolated node joined another pair"
         );
     }

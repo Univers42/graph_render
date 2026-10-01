@@ -47,8 +47,20 @@ export interface LiveBridge {
   /** The bar as it is now, and every change to it. */
   readonly bar: () => Bar;
   readonly onBar: (handler: (bar: Bar) => void) => () => void;
-  /** Called after a force layout, so the next drag and the next frame have a session. */
+  /** Called after the live layout, so the next drag and the next frame have a session. */
   start(): void;
+  /**
+   * Called after every other layout: stops a settle the last layout left running, and asks
+   * the worker whether forces are available, so the panel works before the first drag.
+   */
+  hold(): void;
+  /**
+   * Why a drag moves one node in the view instead of pinning it in the session, or null. A
+   * finished layout's picture is not the session's: on 2026-10-01 a press on a forceatlas2
+   * node reheated d3 from that picture, every one of 400 nodes moved, and the released node
+   * flew 700 px, because the two engines settle at different scales.
+   */
+  dragDisabled(): string | null;
   /** How many calls the worker is running; the bar shows them the same way it shows a settle. */
   batch(count: number): void;
   destroy(): void;
@@ -71,15 +83,18 @@ const listeners = () => {
   };
 };
 
+/** The layout the live session is: d3's model, which `ForceSession` steps (`session.rs`). */
+export const LIVE_LAYOUT = "layout.force.barnes_hut";
+
 /**
- * Ponytail: which layouts settle live is read off the id (`layout.force…`) rather than kept
- * in a table, so a force engine registered under a name nobody predicted still settles on
- * screen. Failing input: `layout.random` says nothing about force and is excluded by that
- * read, so the random layout stays a finished picture. Direction: substring, so
- * `layout.forceatlas2` and a future `layout.force.barnes_hut` both qualify.
+ * Only the layout the live session itself computes settles on screen. A start re-runs that
+ * session from the motor's seed (`liveLoop.ts`, `force.start`), so for any other engine it
+ * would throw the engine's result away and draw d3's instead: on 2026-10-01 all fourteen
+ * `layout.force…` ids drew the same hairball, and with the start skipped forceatlas2, drl,
+ * FR and fdp each drew their own category clusters (400 nodes, the default graph).
  */
 export function settlesLive(layoutId: string): boolean {
-  return layoutId.startsWith("layout.force");
+  return layoutId === LIVE_LAYOUT;
 }
 
 /** Everything the bridge remembers, and the one line that puts it on screen. */
@@ -87,6 +102,8 @@ interface Desk {
   knobs: ForceKnobs;
   running: boolean;
   paused: boolean;
+  /** The session drew the picture on screen: from a start, Animate or a knob change to the next other layout. */
+  drawn: boolean;
   /** Why the loop cannot run, or `undefined` before the worker has answered once. */
   available: string | null | undefined;
   /** The bar the last live frame asked for; `HIDDEN` when there is no settle. */
@@ -98,10 +115,11 @@ interface Desk {
 }
 
 export const NOT_ASKED = "the motor has not been asked yet";
+export const NOT_DRAWN = "the picture on screen is the layout's, not the live session's";
 
 function newDesk(): Desk {
   return {
-    knobs: DEFAULT_KNOBS, running: false, paused: false, available: undefined, settling: HIDDEN, busy: 0,
+    knobs: DEFAULT_KNOBS, running: false, paused: false, drawn: false, available: undefined, settling: HIDDEN, busy: 0,
     watchdog: { touch: () => undefined, rest: () => undefined, lost: () => undefined, stop: () => undefined },
   };
 }
@@ -161,11 +179,13 @@ function linkOf(desk: Desk, deps: LiveDeps, publish: () => void): ForceLink {
     knobs: () => desk.knobs,
     set: (next) => {
       desk.knobs = next;
+      desk.drawn = true;
       deps.send({ type: "force.params", knobs: next });
     },
     animate: (on) => {
       desk.running = on;
-      deps.send({ type: "force.start" });
+      desk.drawn ||= on;
+      deps.send({ type: "force.start", knobs: desk.knobs });
       if (on) return;
       deps.send({ type: "force.stop" });
       desk.settling = HIDDEN;
@@ -209,6 +229,18 @@ function absorb(desk: Desk, deps: LiveDeps, publish: () => void): (result: Resul
   };
 }
 
+/**
+ * Starts a settle (`run`) or stops the last one where it is. The strip appears before the
+ * first frame, so a settle is never invisible.
+ */
+function drive(desk: Desk, deps: LiveDeps, publish: () => void, run: boolean): void {
+  desk.running = run;
+  desk.drawn = run;
+  desk.settling = run ? { visible: true, fraction: 1, label: "settling" } : HIDDEN;
+  show(desk, publish);
+  deps.send(run ? { type: "force.start", knobs: desk.knobs } : { type: "force.stop" });
+}
+
 export function createLiveBridge(deps: LiveDeps): LiveBridge {
   const desk = newDesk();
   const progress = listeners();
@@ -220,13 +252,6 @@ export function createLiveBridge(deps: LiveDeps): LiveBridge {
   // A worker that throws reaches the page as an `error` event, and nowhere else: the watchdog
   // and this are the only two ways a live session is ever declared dead.
   const onFail = deps.onFail?.((detail) => desk.watchdog.lost(detail)) ?? (() => undefined);
-  const start = (): void => {
-    desk.running = true;
-    // The strip appears before the first frame, so a settle is never invisible.
-    desk.settling = { visible: true, fraction: 1, label: "settling" };
-    show(desk, publish);
-    deps.send({ type: "force.start" });
-  };
   const destroy = (): void => {
     onPush();
     onFail();
@@ -242,7 +267,9 @@ export function createLiveBridge(deps: LiveDeps): LiveBridge {
     link: linkOf(desk, deps, publish),
     bar: progress.get,
     onBar: progress.on,
-    start,
+    start: () => drive(desk, deps, publish, true),
+    hold: () => drive(desk, deps, publish, false),
+    dragDisabled: () => (desk.drawn ? reasonFor(desk, deps) : NOT_DRAWN),
     batch: (count) => {
       desk.busy = count;
       show(desk, publish);

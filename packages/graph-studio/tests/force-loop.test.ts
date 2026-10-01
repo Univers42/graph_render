@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { type ForceKnobs, type LiveForce, NO_ADAPTER_REASON } from "../src/motor/live.ts";
+import { DEFAULT_KNOBS, type ForceKnobs, type LiveForce, NO_ADAPTER_REASON } from "../src/motor/live.ts";
 import { ALPHA_MIN, TICKS_PER_FRAME, createForceHost } from "../src/motor/liveLoop.ts";
 import type { ForceFrame, Result } from "../src/motor/protocol.ts";
 import type { Session } from "../src/motor/session.ts";
@@ -52,6 +52,8 @@ function lastFrame(emitted: readonly Result[]): ForceFrame {
   return found.frame;
 }
 
+const START = { type: "force.start", knobs: DEFAULT_KNOBS } as const;
+
 function rig(port: Fake, clock: Clock = { now: 0, perStep: 0 }, budgetMs = 8) {
   const emitted: Result[] = [];
   let next: (() => void) | null = null;
@@ -74,7 +76,7 @@ function rig(port: Fake, clock: Clock = { now: 0, perStep: 0 }, budgetMs = 8) {
 test("the loop steps until alpha is under alpha_min, then stops on its own", () => {
   const port = fake(0.5);
   const { host, out } = rig(port);
-  host.handle({ type: "force.start" });
+  host.handle(START);
   for (let i = 0; i < 40; i += 1) out.tick();
   assert.equal(lastFrame(out.emitted).running, false);
   assert.ok(port.alpha < ALPHA_MIN);
@@ -111,7 +113,7 @@ test("a slow motor drops its next tick instead of running late, and never queues
   const clock = { now: 0, perStep: 20 };
   const port = fake(0.99, clock);
   const { host, out } = rig(port, clock, 8);
-  host.handle({ type: "force.start" });
+  host.handle(START);
   out.tick();
   assert.equal(port.calls.filter((c) => c.startsWith("step")).length, 1, "the tick overran the budget");
   out.tick();
@@ -124,7 +126,7 @@ test("a fast motor steps once a frame, so the settle lasts as long as the animat
   const clock = { now: 0, perStep: 1 };
   const port = fake(0.999, clock);
   const { host, out } = rig(port, clock, 8);
-  host.handle({ type: "force.start" });
+  host.handle(START);
   for (let i = 0; i < 5; i += 1) out.tick();
   assert.equal(port.calls.filter((c) => c.startsWith("step")).length, 5, "one tick a frame, not a budgetful");
   assert.equal(port.calls.filter((c) => c === `step ${TICKS_PER_FRAME}`).length, 5);
@@ -148,7 +150,7 @@ test("params reach the port and reheat; stop unpins and halts", () => {
 test("frames carry copies: the port's buffers are never handed over", () => {
   const port = fake(0.5);
   const { host, out } = rig(port);
-  host.handle({ type: "force.start" });
+  host.handle(START);
   out.tick();
   assert.deepEqual(Array.from(lastFrame(out.emitted).xs), [1, 2]);
 });
@@ -156,7 +158,7 @@ test("frames carry copies: the port's buffers are never handed over", () => {
 test("a pause stops the frames and keeps the pins; resume carries on from that alpha", () => {
   const port = fake(0.99);
   const { host, out } = rig(port);
-  host.handle({ type: "force.start" });
+  host.handle(START);
   out.tick();
   const at = lastFrame(out.emitted).alpha;
   host.handle({ type: "force.pause" });
@@ -188,14 +190,14 @@ test("a pause that never ran is a no-op, and the loop says so", () => {
   assert.deepEqual(host.handle({ type: "force.resume" }), { type: "force-state", running: false, disabled: null, paused: false });
 });
 
-test("force.start throws the nodes back to random positions before it settles again", () => {
+test("force.start applies the panel's knobs, then restarts the settle from the seed", () => {
   const port = fake(0.5);
   const { host, out } = rig(port);
-  host.handle({ type: "force.start" });
+  host.handle(START);
   out.tick();
   port.calls.length = 0;
-  host.handle({ type: "force.start" });
-  assert.equal(port.calls[0], "shuffle", "the restart is a shuffle, not a resume");
+  host.handle(START);
+  assert.deepEqual(port.calls.slice(0, 2), ["params", "shuffle"], "the knobs first, then a restart, not a resume");
   assert.ok(port.alpha > 0.9, "and it reheats to the top, so the bar fills again");
 });
 

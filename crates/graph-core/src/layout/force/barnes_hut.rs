@@ -18,7 +18,7 @@
 mod charge;
 mod collide;
 mod link;
-mod seed;
+pub(in crate::layout::force) mod seed;
 mod settle;
 pub(in crate::layout::force) mod sim;
 mod step;

@@ -47,6 +47,8 @@ export interface RawExports {
   gm_force_session_pin(session: number, row: number, x: number, y: number): number;
   gm_force_session_unpin(session: number, row: number): number;
   gm_force_session_unpin_all(session: number): number;
+  gm_force_session_seat(session: number, graph: number): number;
+  gm_force_session_restart(session: number): number;
   gm_force_session_column_ptr(session: number, axis: number): number;
   gm_force_session_column_len(session: number, axis: number): number;
   gm_force_session_release(session: number): number;
@@ -65,7 +67,8 @@ const EXPORT_NAMES: { readonly [K in keyof RawExports]: true } = {
   gm_force_session_create: true, gm_force_session_set_params: true,
   gm_force_session_params: true, gm_force_session_tick: true, gm_force_session_alpha: true,
   gm_force_session_reheat: true, gm_force_session_pin: true, gm_force_session_unpin: true,
-  gm_force_session_unpin_all: true, gm_force_session_column_ptr: true,
+  gm_force_session_unpin_all: true, gm_force_session_seat: true, gm_force_session_restart: true,
+  gm_force_session_column_ptr: true,
   gm_force_session_column_len: true, gm_force_session_release: true,
 };
 

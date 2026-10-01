@@ -211,7 +211,30 @@ def row_dead_worker(studio):
     return row("live-dead-worker", expectation, measured, True)
 
 
+# The one layout that settles on screen (LIVE_LAYOUT, packages/graph-studio/src/motor/bridge.ts);
+# the default layout is a finished picture and holds still after load.
+LIVE_LAYOUT = "layout.force.barnes_hut"
+# A new layout's nodes glide to their places over TRANSITION_MS (600 ms,
+# packages/graph-render/src/transition.ts); a sample inside that glide measures the tween, not the
+# settle, and passed under the negative control on 2026-10-01.
+# Caveat: a fixed wait, so a host that drops frames past 0.8 s still samples the glide; the
+# negative control is what shows it, by passing the settle row.
+GLIDE_S = 0.8
+
+
+def start_live_layout(studio):
+    """Runs the live layout and returns once the store reports it, so the settle is underway."""
+    studio.page.evaluate(f"{HOST}.studio.dispatch('layout.run', {{ id: '{LIVE_LAYOUT}' }})")
+    deadline = time.monotonic() + 30.0
+    while time.monotonic() < deadline:
+        if studio.page.evaluate(f"{HOST}.studio.store.get().run?.layoutId") == LIVE_LAYOUT:
+            time.sleep(GLIDE_S)
+            return
+        time.sleep(0.05)
+
+
 def run_rows(studio, broken):
+    start_live_layout(studio)
     if broken:
         break_the_loop(studio)
         time.sleep(0.4)

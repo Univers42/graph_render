@@ -148,6 +148,38 @@ pub extern "C" fn gm_force_session_pin(session: u32, row: u32, x: f64, y: f64) -
     answered(session::pin(session, row, x, y), 1)
 }
 
+/// Moves every row to where the graph `graph` was last drawn: the `x` and `y` columns of its
+/// snapshot, after any post pass. Velocities are zeroed; pins and alpha are kept. A host calls
+/// it after each layout, so the next drag moves the picture on screen rather than the
+/// session's own seed. `1` on success, `0` on a refusal: `InvalidHandle` for a graph that is
+/// not live, `NoGeometryYet` before its first run, `SessionRefused` for a graph whose node
+/// count is not the session's.
+// SAFETY: as `gm_force_session_create`.
+#[unsafe(no_mangle)]
+pub extern "C" fn gm_force_session_seat(session: u32, graph: u32) -> u32 {
+    HANDLES.with(|handles| {
+        let handles = handles.borrow();
+        let Some(handle) = handles.get(graph) else {
+            return refuse(Code::InvalidHandle, 0);
+        };
+        let Some(snapshot) = handle.snapshot.as_ref() else {
+            return refuse(Code::NoGeometryYet, 0);
+        };
+        // Every node geometry's wire order starts `x`, `y` (`NodeGeometry::columns`).
+        let columns = snapshot.parts().nodes.columns();
+        answered(session::seat(session, columns[0].1, columns[1].1), 1)
+    })
+}
+
+/// Moves every row back to the golden-angle spiral a new session starts on, at rest, at the
+/// starting alpha: the settle starts over from the motor's own seed. Parameters and pins are
+/// kept. `1` on success, `0` only for a session that is not live.
+// SAFETY: as `gm_force_session_create`.
+#[unsafe(no_mangle)]
+pub extern "C" fn gm_force_session_restart(session: u32) -> u32 {
+    answered(session::restart(session), 1)
+}
+
 /// Releases one row, which then integrates again from rest. `1` on success, `0` on a refusal —
 /// and an unpin of a row that was never pinned is a no-op a caller may legitimately mean, so
 /// it succeeds. Only a row past the last node is refused.

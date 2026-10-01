@@ -86,3 +86,27 @@ fn a_warm_start_that_does_not_fit_is_refused() {
         );
     }
 }
+
+/// A restart is a new session over the same graph: back on the spiral, at rest, at tick 0 and
+/// the starting alpha, so the same ticks give the same bytes — whatever ran before it. Pins
+/// are the host's and survive it.
+#[test]
+fn a_restart_replays_a_new_session_bit_for_bit() {
+    let mut fresh = support::session(6);
+    let mut used = support::session(6);
+    used.step(37);
+    used.restart();
+    assert_eq!(
+        support::bits(&used),
+        support::bits(&fresh),
+        "back on the spiral"
+    );
+    assert_eq!(used.alpha(), fresh.alpha());
+    fresh.step(25);
+    used.step(25);
+    assert_eq!(
+        support::bits(&used),
+        support::bits(&fresh),
+        "and it settles the same way"
+    );
+}

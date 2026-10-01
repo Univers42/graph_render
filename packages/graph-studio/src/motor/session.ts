@@ -80,9 +80,6 @@ interface Built<Handle> {
   order: readonly string[] | null;
 }
 
-/** The layout that throws the nodes back to random positions, for "Animate". */
-const SCATTER = "layout.random";
-
 /** Nothing can run in the state the session is in. */
 export class SessionRefusal extends Error {
   constructor(message: string) {
@@ -186,15 +183,16 @@ function summaryOf(document: Document, buildMs: number): GraphSummary {
 function forcesOf<Handle>(motor: MotorLike<Handle> | null, built: Built<Handle> | null): LiveForce | null {
   if (motor === null || built === null || built.order === null) return null;
   if (motor.forceSession === undefined) return null;
-  built.forced ??= motor.forceSession(built.handle);
+  if (built.forced === null) {
+    built.forced = motor.forceSession(built.handle);
+    built.forced?.seat();
+  }
   if (built.forced === null) return null;
   // The port is cached, not rebuilt: the loop compares ports by identity and replaces itself
   // when one changes, so a fresh object per request would stop the loop on every message.
   built.port ??= createLiveForce({
     session: built.forced,
-    handle: built.handle,
     ids: () => built.order,
-    scatter: (handle) => motor.layout(handle, SCATTER),
   });
   return built.port;
 }
@@ -210,6 +208,8 @@ async function runLayout<Handle>(
   live.motor.layout(live.built.handle, layoutId);
   const layoutMs = deps.now() - started;
   const pass = runPass(live.motor, live.built.handle, postId, deps.now);
+  // The live session follows the picture: its next drag starts from what this run drew.
+  live.built.forced?.seat();
   const bytes = live.motor.toBytes(live.built.handle);
   const meta = describe(live.built, bytes);
   return { layoutId, ...pass, bytes, digest: await deps.digest(bytes), layoutMs, meta };

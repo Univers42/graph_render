@@ -6,8 +6,9 @@
 //! Split from `tests.rs` by the house's 300-line limit. All native (C21): no wasm build in the
 //! loop, and the wasm32 half of the same claim is `graph-cli force-gate`.
 
-use super::super::{Status, alpha, create, params_of, pin, reheat, tick, unpin};
+use super::super::{Status, alpha, create, params_of, pin, reheat, restart, seat, tick, unpin};
 use super::fixture::{bits, model, params, session_over, wire_of};
+use crate::errors::Code;
 use graph_core::layout::force::{ForceSession, NodeRow};
 
 /// A new session carries the defaults and starts at `initial_alpha` — before any tick, and with
@@ -146,4 +147,56 @@ fn two_sessions_over_one_graph_are_independent() {
         wire_of(second, 0),
         "the ticked one moved"
     );
+}
+
+/// Seating moves every row to the drawn picture exactly, widened from `f32`, and a pin placed
+/// before it still wins on the next tick. A column of the wrong length is refused and moves
+/// nothing: the studio's first drag replaced the drawing with the seed spiral (2026-10-01).
+#[test]
+fn a_seat_moves_every_row_to_the_picture_and_keeps_the_pins() {
+    let id = session_over(4);
+    let (xs, ys) = ([1.5f32, -2.25, 3.0, 0.1], [4.0f32, 5.5, -6.0, 7.0]);
+    pin(id, 2, 9.0, 9.0).expect("in range");
+    seat(id, &xs, &ys).expect("one value per node");
+    let widened = |column: &[f32]| column.iter().map(|&v| f64::from(v)).collect::<Vec<_>>();
+    assert_eq!(bits(&wire_of(id, 0)), bits(&widened(&xs)), "the x column");
+    assert_eq!(bits(&wire_of(id, 1)), bits(&widened(&ys)), "the y column");
+    assert_eq!(
+        seat(id, &xs[..3], &ys),
+        Err(Code::SessionRefused),
+        "a short column"
+    );
+    assert_eq!(
+        bits(&wire_of(id, 0)),
+        bits(&widened(&xs)),
+        "a refusal moves nothing"
+    );
+    tick(id, 1).expect("runs");
+    assert_eq!(
+        wire_of(id, 0)[2].to_bits(),
+        9.0f64.to_bits(),
+        "the pin held"
+    );
+}
+
+/// A restart puts every row back on the seed spiral a new session starts on, at the starting
+/// alpha, whatever ran before it; a dead session is refused like every other verb.
+#[test]
+fn a_restart_is_back_on_the_seed_at_the_starting_alpha() {
+    let fresh = session_over(4);
+    let used = create(&model(1, 4), params()).expect("in range");
+    tick(used, 9).expect("runs");
+    restart(used).expect("live");
+    assert_eq!(
+        bits(&wire_of(used, 0)),
+        bits(&wire_of(fresh, 0)),
+        "the x column"
+    );
+    assert_eq!(
+        bits(&wire_of(used, 1)),
+        bits(&wire_of(fresh, 1)),
+        "the y column"
+    );
+    assert_eq!(alpha(used), Ok(1.0), "initial_alpha");
+    assert_eq!(restart(u32::MAX), Err(Code::InvalidSession));
 }

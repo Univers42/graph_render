@@ -47,6 +47,7 @@ mod error;
 pub(in crate::layout::force) mod gravity;
 mod live_params;
 mod pin;
+mod seat;
 
 #[cfg(test)]
 mod tests;
@@ -258,34 +259,6 @@ impl ForceSession {
     #[cfg(test)]
     pub(crate) fn scratch_capacities(&self) -> Vec<usize> {
         self.sim.scratch_capacities()
-    }
-
-    /// Replaces both position columns, and the velocities with zeros.
-    fn set_positions(&mut self, xs: &[f64], ys: &[f64]) -> Result<(), SessionError> {
-        self.check_column("xs", xs)?;
-        self.check_column("ys", ys)?;
-        self.sim.x.copy_from_slice(xs);
-        self.sim.y.copy_from_slice(ys);
-        self.sim.vx.iter_mut().for_each(|v| *v = 0.0);
-        self.sim.vy.iter_mut().for_each(|v| *v = 0.0);
-        Ok(())
-    }
-
-    /// One warm-start column: the right length, and finite (D9 — wasm32 does not pin a
-    /// NaN's bits).
-    fn check_column(&self, column: &'static str, values: &[f64]) -> Result<(), SessionError> {
-        let nodes = self.rows();
-        if values.len() as u64 != u64::from(nodes) {
-            return Err(SessionError::ColumnLength {
-                column,
-                got: values.len() as u64,
-                nodes,
-            });
-        }
-        if let Some(_bad) = values.iter().position(|v| !v.is_finite()) {
-            return Err(SessionError::NonFinite { field: column });
-        }
-        Ok(())
     }
 }
 

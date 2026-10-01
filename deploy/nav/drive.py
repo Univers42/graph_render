@@ -59,7 +59,7 @@ class Studio:
         # The negative control's second fault: False means the edge gradient row never turns
         # the mode on, so the row must fail against the flat drawing.
         self.expect_gradient = True if expect_gradient is None else expect_gradient
-        # The live gate watches the settle a force layout starts on load, so it asks for the
+        # The live gate watches the settle the live layout starts, so it asks for the
         # drawing NOT to be waited out; every other gate wants a still drawing.
         self.wait_for_settle = wait_for_settle
 

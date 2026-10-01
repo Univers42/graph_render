@@ -26,6 +26,8 @@ Two inputs, and neither alone would have been right.
 | `positions(): { xs: Float64Array, ys: Float64Array }` | `gm_force_session_column_ptr`/`_len` on `f64` columns |
 | — (no teardown in the port) | `gm_force_session_release` |
 | — | `gm_force_session_create`, `gm_force_session_params`, `gm_force_session_unpin_all` |
+| `ForcePort.seat()` — after each layout | `gm_force_session_seat(session, graph)` |
+| `ForcePort.restart()` — "Animate" | `gm_force_session_restart(session)` |
 
 Three things that port decided and this table keeps:
 
@@ -71,6 +73,8 @@ on both targets, and no narrower than what the caller's own view already holds.
 | `gm_force_session_pin` | `session: u32, row: u32, x: f64, y: f64` | `1`, or `0` | `InvalidSession`, `SessionRefused` |
 | `gm_force_session_unpin` | `session: u32, row: u32` | `1`, or `0` | `InvalidSession`, `SessionRefused` |
 | `gm_force_session_unpin_all` | `session: u32` | `1`, or `0` | `InvalidSession` |
+| `gm_force_session_seat` | `session: u32, graph: u32` | `1`, or `0` | `InvalidSession`, `InvalidHandle`, `NoGeometryYet`, `SessionRefused` |
+| `gm_force_session_restart` | `session: u32` | `1`, or `0` | `InvalidSession` |
 | `gm_force_session_column_ptr` | `session: u32, axis: u32` (`0` = x, `1` = y) | address, or `0` | `InvalidSession`, `IndexOutOfRange` |
 | `gm_force_session_column_len` | `session: u32, axis: u32` | element count (one per node), or `0` | `InvalidSession`, `IndexOutOfRange` |
 | `gm_force_session_release` | `session: u32` | `1`, or `0` | `InvalidSession` |

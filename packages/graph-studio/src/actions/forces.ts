@@ -17,7 +17,7 @@ export interface ForceLink {
   readonly disabled: () => string | null;
   readonly knobs: () => ForceKnobs;
   readonly set: (knobs: ForceKnobs) => void;
-  /** Runs the settle from random positions, or stops it. */
+  /** Runs the settle from the motor's seed, or stops it. */
   readonly animate: (on: boolean) => void;
   readonly animating: () => boolean;
   /** Stops the loop where it is, keeping the pins and the alpha it reached. */

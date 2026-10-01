@@ -86,7 +86,7 @@ class ForceLoop {
   }
 
   private wake(): void {
-    // The reheated alpha is the larger of the two: a port that just restarted from random
+    // The reheated alpha is the larger of the two: a port that just restarted from its seed
     // positions is at the top, and reheating it back down to REHEAT_ALPHA would restart the
     // settle from a quarter-settled drawing.
     const heated = Math.max(REHEAT_ALPHA, this.alpha);
@@ -146,8 +146,11 @@ class ForceLoop {
     // frozen under the pointer is not what a pause was for.
     this.paused = false;
     if (request.type === "force.start") {
-      // "Animate": the settle starts over from random positions, not from where it stopped.
-      // The port answers with the alpha it re-heated to, which is the bar's new full width.
+      // "Animate": the settle starts over from the motor's seed, under the knobs the panel
+      // shows. Until 2026-10-01 a session ran the motor's own defaults until a knob moved, so
+      // the panel read charge -300 while the motor ran -90. The port answers with the alpha it
+      // re-heated to, which is the bar's new full width.
+      this.live.setParams(request.knobs);
       const restarted = this.live.shuffle?.();
       if (restarted !== undefined) this.alpha = restarted;
     } else if (request.type === "force.drag") {

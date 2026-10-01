@@ -150,7 +150,7 @@ test("the real port drives the loop to a stop on its own", { skip: SKIP }, async
       if (result.type === "force-frame") emitted.push({ running: result.frame.running, alpha: result.frame.alpha });
     },
   });
-  host.handle({ type: "force.start" });
+  host.handle({ type: "force.start", knobs: DEFAULT_KNOBS });
   for (let i = 0; i < 200; i += 1) tick();
   assert.ok(emitted.length > 1, "the real session settled over more than one frame");
   assert.equal(emitted.at(-1)?.running, false, "and stopped on its own");

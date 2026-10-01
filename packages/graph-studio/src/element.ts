@@ -134,7 +134,7 @@ function livePair(canvas: HTMLCanvasElement, client: MotorClient, shown: Shown):
   // CAN run, and `null ?? x` is `x`, so that fallback reads a working session as a missing one
   // and every drag quietly falls back to the view-only one.
   const why = (): string | null => {
-    const reason = wires.bridge?.link.disabled();
+    const reason = wires.bridge?.dragDisabled();
     return reason === undefined ? NOT_ASKED : reason;
   };
   const view = createView(canvas, {
@@ -156,8 +156,8 @@ function livePair(canvas: HTMLCanvasElement, client: MotorClient, shown: Shown):
 }
 
 /**
- * A force layout is a starting position, not a picture: the loop takes it from there and the
- * strip shows the settle. Every other layout is finished, so nothing starts. A batch layout
+ * The live session's own layout settles on screen and the strip shows it (`settlesLive`).
+ * Every other layout is a finished picture, so nothing starts until a drag or Animate. A batch layout
  * run shows the same strip with no fraction of its own — one call, no progress inside it.
  */
 function watchRuns(studio: Studio, bridge: LiveBridge): () => void {
@@ -173,6 +173,7 @@ function watchRuns(studio: Studio, bridge: LiveBridge): () => void {
     if (layoutId === settled) return;
     settled = layoutId;
     if (settlesLive(layoutId)) bridge.start();
+    else bridge.hold();
   });
 }
 

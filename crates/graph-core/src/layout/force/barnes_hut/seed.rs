@@ -8,7 +8,7 @@
 const GOLDEN_ANGLE: f64 = 2.399963229728653;
 
 /// Node `i`'s seed position is `12*sqrt(i+1)` out along the golden-angle spiral.
-pub(super) fn golden_spiral(n: u32) -> (Vec<f64>, Vec<f64>) {
+pub(in crate::layout::force) fn golden_spiral(n: u32) -> (Vec<f64>, Vec<f64>) {
     let mut x = Vec::with_capacity(n as usize);
     let mut y = Vec::with_capacity(n as usize);
     for i in 0..n {

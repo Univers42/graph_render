@@ -6,7 +6,7 @@
 // position the drag can move: a graph with no edges would satisfy every "positions are finite"
 // check below and prove nothing about a pin.
 
-import { ForceSessionRefusedError, InvalidSessionError } from "../../crates/graph-sdk-js/src/index.ts";
+import { ColumnId, ForceSessionRefusedError, InvalidSessionError } from "../../crates/graph-sdk-js/src/index.ts";
 import { check, refusedWith } from "./lib.mjs";
 
 const EDGE = (id, source, target) => ({
@@ -82,6 +82,23 @@ export async function runForceSection(ctx) {
     "a parameter the motor would refuse at creation is refused here too",
     await refusedWith(ForceSessionRefusedError, () => motor.forceSession(handle, { charge: 1 })),
   );
+
+  // Seating: the session moves to where the graph was last drawn, so a host's next drag moves
+  // the picture on screen rather than the session's own seed.
+  check(
+    "seating before the graph's first run is refused by name",
+    await refusedWith(ForceSessionRefusedError, () => session.seat()),
+  );
+  motor.layout(handle, "layout.grid");
+  session.seat();
+  const drawn = motor.column(handle, ColumnId.NodeX);
+  const seated = session.positions().xs;
+  check("a seated session starts where the layout drew", seated.every((x, row) => x === drawn[row]));
+  session.restart();
+  const fresh = motor.forceSession(handle);
+  const spiral = fresh.positions().xs.slice();
+  check("a restarted session is back where a new one starts", session.positions().xs.every((x, row) => x === spiral[row]));
+  fresh.release();
 
   const settled = session.tick(2000);
   check("a long run reports the motor's own settled verdict", settled.status === "settled", settled.status);

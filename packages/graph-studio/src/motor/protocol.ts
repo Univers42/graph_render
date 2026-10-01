@@ -61,7 +61,7 @@ export type Request =
   | ForceRequest;
 
 export type ForceRequest =
-  | { readonly type: "force.start" }
+  | { readonly type: "force.start"; readonly knobs: ForceKnobs }
   | { readonly type: "force.drag"; readonly id: string; readonly x: number; readonly y: number }
   | { readonly type: "force.release"; readonly id: string }
   | { readonly type: "force.params"; readonly knobs: ForceKnobs }

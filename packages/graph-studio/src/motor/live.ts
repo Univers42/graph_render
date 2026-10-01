@@ -37,8 +37,8 @@ export interface LiveForce {
   positions(): { readonly xs: Float64Array; readonly ys: Float64Array };
   reheat(alpha: number): void;
   /**
-   * Throws the nodes back to random positions and reheats from the top. Returns the alpha it
-   * left the session at, so the caller never has to guess what a restart looks like.
+   * Starts the settle over from the motor's own seed and reheats from the top. Returns the
+   * alpha it left the session at, so the caller never has to guess what a restart looks like.
    */
   shuffle?(): number;
   /** The parameters the motor itself holds, by the wire's own field names. */
@@ -64,6 +64,10 @@ export interface ForcePort {
   pin(row: number, x: number, y: number): void;
   unpin(row: number): void;
   reheat(alpha: number): void;
+  /** Moves every row to where the graph was last drawn, so a drag starts from the picture. */
+  seat(): void;
+  /** Moves every row back to the spiral a new session starts on, at rest. */
+  restart(): void;
   /** A partial set: every field left out keeps the motor's own value for it. */
   setParams(params: Partial<ForceParams>): void;
   positions(): { readonly xs: Float64Array; readonly ys: Float64Array };

@@ -172,6 +172,9 @@ session.drag(0, 500, -500);               // pin node row 0 there, from the next
 session.reheat(1.0);
 session.tick(30);
 const { xs, ys } = session.positions();   // zero-copy Float64Arrays, one entry per node
+motor.layout(handle, "layout.grid");
+session.seat();                           // every row to where the grid drew it; pins kept
+session.restart();                        // back to the spiral a new session starts on
 session.unpinAll();
 session.release();
 ```
