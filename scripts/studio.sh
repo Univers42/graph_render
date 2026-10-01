@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # studio.sh — the standalone studio (<graph-studio> in app/), in Docker, never on the host.
 #
-#   scripts/studio.sh [serve]   dev server on http://127.0.0.1:5174, with the wasm already built
+#   scripts/studio.sh [serve]   dev server on http://127.0.0.1:5174, over a freshly built wasm
 #   scripts/studio.sh wasm      build graph-wasm (release) and stage it with the fixtures
 #   scripts/studio.sh build     production build into app/dist
 #   scripts/studio.sh test      unit tests of both packages, and the chrome's render tests
@@ -59,12 +59,11 @@ build_wasm() {
 }
 
 # What the browser cannot reach on its own: the wasm module and the fixtures the studio lists.
+# Built every time (a no-op cargo run when fresh): staging whatever target/ held served a module
+# older than the SDK, and the studio died on `exports.gm_dim is not a function` (2026-10-01).
 stage_assets() {
   local wasm=$root/target/wasm32-unknown-unknown/release/graph_wasm.wasm
-  if [[ ! -f $wasm ]]; then
-    log "MISSING $wasm — run scripts/studio.sh wasm"
-    exit 2
-  fi
+  build_wasm || exit 2
   mkdir -p "$root/app/public"
   cp "$wasm" "$root/app/public/graph_wasm.wasm"
   rm -rf "$root/app/public/fixtures"
@@ -136,7 +135,6 @@ case "$command" in
     in_node app node_modules/.bin/vite --port "$port"
     ;;
   wasm)
-    build_wasm
     stage_assets
     ;;
   build)

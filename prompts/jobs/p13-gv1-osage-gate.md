@@ -29,3 +29,5 @@ Paths you may touch: `crates/graph-core/src/layout/graphviz/osage*/**`, `crates/
 `docs/measurements/{scigraphs-coverage,p13-gv1-osage}.md`.
 
 Done when: the return block lists (a)-(f) one line each with the measured numbers.
+
+Note (2026-10-01), read before writing oracle code: develop has **one** generic Graphviz differential. `crates/graph-cli/src/oracle_python/graphviz.rs` holds `by_engine` and `ENGINES`, and `cli.rs` holds `emit-graphviz-fixtures --engine <e>` / `oracle-graphviz --engine <e>`. Add your engine as a `Differential` in `oracle_python/<engine>.rs` (shape: `oracle_python/osage.rs`) plus one `by_engine` arm and one `ENGINES` entry. Key engine specifics inside `harness/oracle-graphviz.py`. Do not add another subcommand, dispatcher or fixture layout. Append your `Capability` after the last entry in `LAYOUTS`. Other Graphviz engines (neato, patchwork, circo) land in parallel, so before you finish, `git fetch origin` and read `origin/develop`'s versions of those files.

@@ -52,3 +52,5 @@ and the coverage table. Nothing else.
 
 Done when: every Done-when item of the twopi brief holds for `layout.dag.dot`, and the return block pastes
 the oracle determinism results, the worst gap over 1000 seeds, and the real exit code of each command.
+
+Note (2026-10-01), read before writing oracle code: develop has **one** generic Graphviz differential. `crates/graph-cli/src/oracle_python/graphviz.rs` holds `by_engine` and `ENGINES`, and `cli.rs` holds `emit-graphviz-fixtures --engine <e>` / `oracle-graphviz --engine <e>`. Add your engine as a `Differential` in `oracle_python/<engine>.rs` (shape: `oracle_python/osage.rs`) plus one `by_engine` arm and one `ENGINES` entry. Key engine specifics inside `harness/oracle-graphviz.py`. Do not add another subcommand, dispatcher or fixture layout. Append your `Capability` after the last entry in `LAYOUTS`. Other Graphviz engines (neato, patchwork, circo) land in parallel, so before you finish, `git fetch origin` and read `origin/develop`'s versions of those files.

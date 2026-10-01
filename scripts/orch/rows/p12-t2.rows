@@ -1,0 +1,91 @@
+# p12-t2.rows — the gate for prompts/jobs/p12-t2.md: `layout.force.spring` (SciGraphs'
+# `SPRING`) and `layout.circular.hierarchy` (SciGraphs' `CIRCULAR_HIERARCHY`).
+#
+# Format: `name|expect|cmd`, one per line; expect is `0` or `nonzero`; cmd runs from the
+# worktree root under bash (scripts/orch/gate.sh:9-12). `#` lines and blanks are skipped
+# (scripts/orch/gate.sh:10). Run:
+#   scripts/orch/timed scripts/orch/gate.sh <logdir> scripts/orch/rows/p12-t2.rows
+# (`timed` takes the host-wide lock).
+#
+# Everything goes through scripts/orch/gr (the ge-rust image) or `docker run … ge-python-oracle`
+# (the Python oracle arms). Never a bare cargo or python3.
+#
+# The first block is scripts/orch/rows/quick.rows verbatim, so this file gates the same
+# invariants the quick gate does, with this phase's two negative controls added below it.
+
+fmt|0|scripts/orch/gr cargo fmt --all --check
+clippy|0|scripts/orch/gr cargo clippy --workspace --all-targets -- -D warnings
+test|0|scripts/orch/gr cargo test --workspace --no-fail-fast
+wasm32-core|0|scripts/orch/gr cargo build -p graph-core --target wasm32-unknown-unknown
+hashgate-8|0|scripts/orch/gr cargo run -q -p graph-cli -- hashgate --seeds 8
+negctl-degree|0|scripts/orch/gr -e GM_MUTATE_REFERENCE_DEGREE=9 cargo run -q -p graph-cli -- hashgate --seeds 8; test $? -eq 1
+
+# The two controls this phase adds, one per new stage, `expect nonzero`: a control that
+# fails to move the output leaves the gate agreeing with itself.
+#
+# `GM_MUTATE_SPRING_ITERATIONS=3`, not 0: 0 is a legal value and still returns a drawing
+# (the rescaled start field), so it is a fair value, but 3 is the shape the differential's
+# own --max-iter escape hatch uses, so a control and an escape hatch exercise one code path
+# instead of two. `GM_MUTATE_CIRCULAR_HIERARCHY_NODES=1` re-draws that stage's own model,
+# the same probe `GM_MUTATE_CIRCULAR_NODES` is for layout.circular.radial — SciGraphs' closed
+# form takes no parameter (its `scale` is the dispatcher's own constant), so the graph is the
+# only thing a control can move.
+negctl-spring-iterations|nonzero|scripts/orch/gr -e GM_MUTATE_SPRING_ITERATIONS=3 cargo run -q -p graph-cli -- hashgate --seeds 8
+negctl-circular-hierarchy-nodes|nonzero|scripts/orch/gr -e GM_MUTATE_CIRCULAR_HIERARCHY_NODES=1 cargo run -q -p graph-cli -- hashgate --seeds 8
+
+# The three-arm chain per differential, in order: emit the fixtures, run the reference arm in
+# the oracle image with the SciGraphs/ submodule mounted, then ingest. A step run before its
+# predecessor reads nothing and reports a vacuous pass.
+#
+# `oracle-spring-negctl` is the spring arm's own negative control, the differential reading
+# fixtures it cannot have: a missing directory must exit 2, not read as agreement. The
+# `GM_MUTATE_SPRING_ITERATIONS` arm is the other half of it — a port run at a third of the
+# reference's iteration budget, measured against the unperturbed reference, must fail the
+# ceiling rather than pass as green. It runs 20 seeds, not 1000: a control's job is to be red,
+# and a control that costs a full differential run to prove it will not be run often enough to
+# be worth having. Measured at 20 seeds: median deficit 4.216e-1 against the 1e-1 ceiling,
+# exit 1 — and that control is what decided the gate is on the median, since the same run
+# moves the worst only to 6.738e-1 (docs/measurements/p12-t2.md).
+#
+# The spring chain's two halves are deliberately not symmetric with the closed-form one. The
+# Python arm writes the reference's POSITIONS and computes no metric; `oracle-spring` applies
+# graph-core's own stress correlation to both arms and owns the deficit and the ceiling. A
+# metric restated in the harness would be a second implementation whose disagreement would be
+# indistinguishable from a disagreement between two layouts (harness/stress-d3.mjs says the
+# same about the d3 arm, and crates/graph-cli/src/stress/metric.rs:17-19 says it outright).
+emit-spring-1000|0|scripts/orch/gr cargo run -q --release -p graph-cli -- emit-spring-fixtures --seeds 1000
+oracle-spring-py|0|docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-python-oracle python3 harness/oracle-spring.py target/spring-fixtures
+oracle-spring|0|scripts/orch/gr cargo run -q --release -p graph-cli -- oracle-spring
+oracle-spring-negctl|nonzero|scripts/orch/gr cargo run -q --release -p graph-cli -- oracle-spring --dir target/spring-fixtures-absent
+oracle-spring-mutated|nonzero|scripts/orch/gr -e GM_MUTATE_SPRING_ITERATIONS=3 cargo run -q --release -p graph-cli -- emit-spring-fixtures --seeds 20 --out target/spring-fixtures-mutated && docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-python-oracle python3 harness/oracle-spring.py target/spring-fixtures-mutated && scripts/orch/gr cargo run -q --release -p graph-cli -- oracle-spring --dir target/spring-fixtures-mutated
+
+emit-circular-hierarchy-1000|0|scripts/orch/gr cargo run -q --release -p graph-cli -- emit-circular-hierarchy-fixtures --seeds 1000
+oracle-circular-hierarchy-py|0|docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-python-oracle python3 harness/oracle-circular-hierarchy.py target/circular-hierarchy-fixtures
+oracle-circular-hierarchy|0|scripts/orch/gr cargo run -q --release -p graph-cli -- oracle-circular-hierarchy
+oracle-circular-hierarchy-negctl|nonzero|scripts/orch/gr cargo run -q --release -p graph-cli -- oracle-circular-hierarchy --dir target/circular-hierarchy-fixtures-absent
+
+# The two ceilings' provenance, and the two ledger rows this phase is responsible for.
+# `bench-spring` and `bench-spring-bracket` are the runs SPRING_CEILING's doc quotes: the
+# second exists so the 30-second boundary is run from BOTH sides (14 000 under, 20 000 over)
+# and the ceiling is bracketed by measurement rather than projected off one point.
+# `--past-ceiling` is what makes either a measurement rather than a refusal.
+bench-spring|0|scripts/orch/gr cargo run -q --release -p graph-cli -- bench --layout layout.force.spring --n 220,1000,2000,5000,10000 --repeat 3 --past-ceiling
+bench-spring-bracket|0|scripts/orch/gr cargo run -q --release -p graph-cli -- bench --layout layout.force.spring --n 14000,20000 --repeat 3 --past-ceiling
+bench-circular-hierarchy|0|scripts/orch/gr cargo run -q --release -p graph-cli -- bench --layout layout.circular.hierarchy --n 220,1000,10000 --repeat 3 --past-ceiling
+# `capabilities --check` exits 1 on any tree whose gate records are stale, which is every
+# worktree that has not just run the full develop gate — the 34 problems it prints on this
+# one are all pre-existing `gated` rows from another tree, none of them this phase's. What is
+# this phase's obligation is narrower and is what the row checks: neither new id may be named
+# in the problem list, i.e. neither may print `gated` on a hash alone. `no-gated-new-rows`
+# would go red the moment one of them did.
+#
+# Both rows call `cargo` directly rather than `scripts/orch/gr cargo`: `gr bash -c` is
+# already inside the image, and re-entering the wrapper from in there re-runs its git
+# preamble inside a container with no git in it. The second row reads the JSON with grep
+# rather than python3, which the ge-rust image does not carry (measured: `python3: command
+# not found`, exit 127) — the JSON is pretty-printed one field per line, `status` is five
+# lines below its `id`, and a missing id fails the grep, so the row still goes red when a row
+# vanishes rather than passing on an absent answer.
+new-rows-add-no-ledger-problem|0|scripts/orch/gr bash -c 'cargo run -q -p graph-cli -- capabilities --check >target/p12-t2-capcheck.log 2>&1; grep -E "layout\.(force\.spring|circular\.hierarchy): gated" target/p12-t2-capcheck.log && exit 1 || exit 0'
+new-rows-are-implemented|0|scripts/orch/gr bash -c 'cargo run -q -p graph-cli -- capabilities --json >target/p12-t2-caps.json || exit 1; for id in layout.force.spring layout.circular.hierarchy; do grep -A6 "\"id\": \"$id\"," target/p12-t2-caps.json | grep -q "\"status\": \"implemented\"," || exit 1; done'
+roundtrip-100|0|scripts/orch/gr cargo run -q --release -p graph-cli -- roundtrip --seeds 100

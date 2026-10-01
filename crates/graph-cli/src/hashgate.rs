@@ -28,6 +28,7 @@ use crate::evidence;
 use crate::runner::{build_wasm, file_sha256, node_harness, run_lines, sha256_hex};
 pub(crate) use compare::{Arm, Tally, diverged, per_stage};
 use graph_core::layout::force::Split;
+use graph_core::layout::force::spring::SpringParams;
 use graph_core::layout::forceatlas2::Fa2Params;
 pub use knob::Knob;
 pub(crate) use knob::{Setting, env_setting};
@@ -52,6 +53,23 @@ pub(crate) use tiered::stage_bytes_threaded;
 /// passing as green.
 pub(crate) fn fa2_perturbation() -> Result<Fa2Params, String> {
     Ok(env_setting()?.fa2)
+}
+
+/// The spring differential's own negative control, the same bargain
+/// [`fa2_perturbation`] strikes: `GM_MUTATE_SPRING_ITERATIONS` applied to the compiled-in
+/// `SpringParams`, so `emit-spring-fixtures` measures a perturbed port against the very
+/// reference the honest run is measured against. Refused on a typo'd or doubled knob rather
+/// than falling back to the default and passing as green.
+///
+/// **`None` when the knob is absent, not `Some(default)`.** A caller cannot tell a control
+/// that was never set from one set to the value the default already holds, and mistaking
+/// the second for the first is how a control becomes a no-op that still reports green. The
+/// presence is `Knob::control`'s, which records the arm rather than inferring it from the
+/// value, and a caller that gets `None` must lay the graph out at the differential's own
+/// parameters.
+pub(crate) fn spring_perturbation() -> Result<Option<SpringParams>, String> {
+    let setting = env_setting()?;
+    Ok(matches!(setting.control, Some(Knob::SpringIterations)).then_some(setting.spring))
 }
 
 pub(crate) use tier::Tiers;
