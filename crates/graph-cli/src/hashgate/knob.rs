@@ -285,7 +285,7 @@ impl Knob {
     /// twenty-one per-stage arms are spelled out there and held against those two tables by
     /// `the_analysis_and_post_controls_are_the_knobs_table`, which fails on any arm whose
     /// variable, record or stage a table disagrees with.
-    pub const ALL: [Self; 38] = arms::ALL;
+    pub const ALL: [Self; 39] = arms::ALL;
 
     /// The variable that sets it.
     pub const fn env(self) -> &'static str {
