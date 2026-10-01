@@ -61,3 +61,16 @@ distinct colour pairs, not by the edge count, and that is what `perf-edge-batch`
 - The curved and routed edges' gradients, which follow the chord between their ends rather than
   their path — see the `Caveat` in `canvas2d/edgeGradient.ts`.
 - A GPU: every number above is software raster in a container.
+
+## Control: develop without this change (2026-10-01)
+
+`perf-fps` is red on this host before the change too. Same host, same hour, run alone, load average 6–8:
+
+| Build | 120 nodes | 2000 nodes | `perf-edge-batch` |
+|---|---|---|---|
+| origin/develop dcf5d94, flat | 28.8 fps | 1.5 fps | — |
+| this branch, flat | 28.3 fps | 1.5 fps | PASS (3 strokes, 1 style) |
+| this branch, gradient | 46.1 fps | 2.4 fps | PASS (15 strokes, 15 pairs, 4764 mixed, 0 gradients) |
+
+The red `perf-fps` is the host's software raster under load, not this change; it is not counted green.
+Re-run alone on a quiet host: `scripts/studio-perf.sh --label flat` and `--edge-colour gradient`.
