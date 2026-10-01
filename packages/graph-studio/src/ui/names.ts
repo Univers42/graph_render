@@ -9,9 +9,11 @@ const SIGFIGS = 3;
 /**
  * Ponytail: the family is dropped, so `a.b` and `c.b` are both shown as `b` and a list of
  * choices holds the same word twice. Escape hatch: the full id is in the console line and in
- * the log, and a list that shows one family at a time has no repeats in it.
+ * the log, and a list that shows one family at a time has no repeats in it. A path is not
+ * an id: `dag/chain.json` would lose all but `json`, so it is shown whole.
  */
 export function shortName(id: string): string {
+  if (id.includes("/")) return id;
   const dot = id.indexOf(".");
   return dot < 0 ? id : id.slice(dot + 1);
 }

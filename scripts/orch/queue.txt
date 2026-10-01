@@ -37,6 +37,12 @@ graphviz-verdict|build|prompts/jobs/graphviz-verdict.md|scripts/orch/rows/quick.
 trap-followups|build|prompts/jobs/trap-followups.md|scripts/orch/rows/quick.rows|no
 p12-t3-knobs|build|prompts/jobs/p12-t3-knobs.md|scripts/orch/rows/quick.rows|no
 scigraphs-conformance|build|prompts/jobs/scigraphs-conformance.md|scripts/orch/rows/quick.rows|no
+review-core-post|build|prompts/jobs/review-core-post.md|scripts/orch/rows/docs.rows|no
+review-core-base|build|prompts/jobs/review-core-base.md|scripts/orch/rows/docs.rows|no
+review-studio|build|prompts/jobs/review-studio.md|scripts/orch/rows/docs.rows|no
 studio-3d|build|prompts/jobs/studio-3d.md|scripts/orch/rows/quick.rows|no
-status-refresh|build|prompts/jobs/status-refresh.md||no
+sg-fix-spring-temp|build|prompts/jobs/sg-fix-spring-temp.md|scripts/orch/rows/quick.rows|no
+sg-dedupe|build|prompts/jobs/sg-dedupe.md|scripts/orch/rows/quick.rows|no
+studio-switch-fit|build|prompts/jobs/studio-switch-fit.md|scripts/orch/rows/quick.rows|no
+status-refresh|build|prompts/jobs/status-refresh.md|scripts/orch/rows/docs.rows|no
 # osage-knob|build|prompts/jobs/osage-knob.md|scripts/orch/rows/quick.rows|no   (after p12-t3-knobs lands: same knob files)
