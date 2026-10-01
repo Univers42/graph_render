@@ -86,7 +86,6 @@ use crate::layout::Geometry;
 use crate::stage::{Stage, StageError};
 use crate::synthetic::Mulberry32;
 use forces::{Field, Solver};
-use graph_contract::geometry::{EdgeGeometry, NodeGeometry};
 
 /// The layout's capability id, which is also its hash-gate stage.
 pub const ID: &str = "layout.force.spring";
@@ -156,15 +155,7 @@ impl Stage for Spring {
 
 /// `Point` nodes at the field's own `f32` columns, straight `Line` edges, no notes.
 fn point_field(field: &Field) -> Geometry {
-    let narrow = |column: &[f64]| column.iter().map(|&v| v as f32).collect::<Vec<f32>>();
-    Geometry {
-        nodes: NodeGeometry::Point {
-            x: narrow(&field.x),
-            y: narrow(&field.y),
-        },
-        edges: EdgeGeometry::Line,
-        notes: Vec::new(),
-    }
+    crate::layout::coords::point_geometry(&field.x, &field.y)
 }
 
 /// The start positions, `layout.py:621` reading as "uniform in the unit square": this

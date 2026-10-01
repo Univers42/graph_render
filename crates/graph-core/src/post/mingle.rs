@@ -215,11 +215,8 @@ pub fn run(topology: &Topology, geometry: &Geometry) -> Result<Bundled, StageErr
     let out = over(topology, geometry, &Params::default())?;
     let (merges, unbundled) = (out.merges, out.unbundled());
     Ok(Bundled {
-        geometry: Geometry {
-            nodes: geometry.nodes.clone(),
-            edges: EdgeGeometry::Polyline(out.paths),
-            notes: geometry.notes.clone(),
-        },
+        // Handed on by the one rebuild path, so a 3D layout's z column survives bundling.
+        geometry: geometry.with_edges(EdgeGeometry::Polyline(out.paths)),
         pairs: merges,
         unbundled,
     })
