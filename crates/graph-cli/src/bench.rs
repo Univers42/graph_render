@@ -61,8 +61,13 @@ pub struct Plan {
     #[arg(long = "n", value_delimiter = ',', default_value = "220,10000,100000",
           value_parser = clap::value_parser!(u32).range(1..=i64::from(scale::MAX_SCALE_NODES)))]
     pub sizes: Vec<u32>,
-    /// Registered layout ids; repeat for several. Default: the Phase 6 layouts.
-    #[arg(long = "layout")]
+    /// Registered layout ids; repeat for several, or comma separate them. Default: the
+    /// Phase 6 layouts.
+    ///
+    /// **Both spellings, because the tier sweep's own rows are read from a comma list**
+    /// (`--tiers`, `--n`, `--workers` all take one) and a flag that accepted the list only
+    /// by repetition would make the same sweep spelled two ways in the same command line.
+    #[arg(long = "layout", value_delimiter = ',')]
     pub layouts: Vec<String>,
     /// Seed of the synthetic model.
     #[arg(long, default_value_t = 0)]
@@ -144,6 +149,8 @@ fn bench(plan: &Plan) -> Result<bool, String> {
         return emit_fixture(plan, path.as_path());
     }
     if plan.tiers.is_some() {
+        // `tiers::entry` resolves the `--layout` itself: the sweep is a table with one
+        // title, so the layout is read inside it rather than validated here and dropped.
         return tiers::entry(plan);
     }
     if plan.crossover || plan.out.is_some() {
