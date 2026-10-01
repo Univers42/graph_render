@@ -27,3 +27,4 @@ p13-gv2-neato|build|prompts/jobs/p13-gv2-neato.md|scripts/orch/rows/quick.rows|n
 p13-gv2-fdp|build|prompts/jobs/p13-gv2-fdp.md|scripts/orch/rows/quick.rows|no
 p13-gv2-sfdp|build|prompts/jobs/p13-gv2-sfdp.md|scripts/orch/rows/quick.rows|no
 p13-gv2-dot|build|prompts/jobs/p13-gv2-dot.md|scripts/orch/rows/quick.rows|no
+p13-gv1-osage-gate|build|prompts/jobs/p13-gv1-osage-gate.md|scripts/orch/rows/quick.rows|no
