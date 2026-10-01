@@ -10,6 +10,8 @@
 use crate::snapshot::SnapshotError;
 use core::fmt;
 
+mod columns;
+
 /// How every node in one snapshot is shaped.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(
@@ -171,7 +173,8 @@ impl NodeGeometry {
         }
     }
 
-    /// Every column with its wire name, in wire order.
+    /// Every column with its wire name, in wire order. A 2D snapshot's columns; a 3D
+    /// one is [`columns_dim`](Self::columns_dim) with its z.
     pub fn columns(&self) -> Vec<(&'static str, &[f32])> {
         match self {
             Self::Point { x, y } => vec![("x", x), ("y", y)],
@@ -180,22 +183,19 @@ impl NodeGeometry {
         }
     }
 
-    /// `Ok` when every column has `n` finite values and no size is negative.
-    pub fn check(&self, n: u32) -> Result<(), SnapshotError> {
-        for (name, column) in self.columns() {
-            let column_name = node_column(name);
-            check_len(column_name, u64::from(n), column.len())?;
-            check_finite(column_name, column)?;
-            if matches!(name, "r" | "w" | "h")
-                && let Some(bad) = column.iter().position(|v| *v < 0.0)
-            {
-                return Err(SnapshotError::Negative {
-                    column: column_name,
-                    index: index_u32(bad),
-                });
-            }
-        }
-        Ok(())
+    /// Every column in wire order, with the z column spliced in right after `y` when the
+    /// snapshot is 3D. Coordinates stay contiguous (`x, y, z`) and the sizes shift one
+    /// word along, which is why a reader takes column positions from `dim` in the header
+    /// rather than from fixed offsets (`docs/contract/binary-layout.md`).
+    pub fn columns_dim<'a>(&'a self, z: Option<&'a [f32]>) -> Vec<(&'static str, &'a [f32])> {
+        columns::columns_dim(self, z)
+    }
+
+    /// `Ok` when every column — the z column included, when `z` is given — has `n` finite
+    /// values and no size is negative. A z is a coordinate, so it may be negative; only
+    /// `r`, `w` and `h` are sizes.
+    pub fn check(&self, n: u32, z: Option<&[f32]>) -> Result<(), SnapshotError> {
+        columns::check(self, n, z)
     }
 }
 
@@ -243,10 +243,14 @@ impl Paths {
     }
 }
 
+/// A wire column name as the refusals name it. Every arm is spelled out: a name that
+/// fell through to the last would be reported under the wrong column, which is the
+/// silent-mislabel bug the 3D `z` arm exists to prevent.
 fn node_column(name: &str) -> &'static str {
     match name {
         "x" => "node.x",
         "y" => "node.y",
+        "z" => "node.z",
         "r" => "node.r",
         "w" => "node.w",
         _ => "node.h",

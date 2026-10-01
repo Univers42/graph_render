@@ -6,11 +6,12 @@ use super::{
     Findings, OTHER_LAYOUTS, body, snapshot_total, sweep, swept_layouts, verdict, write_findings,
 };
 
-/// A clean run of `seeds` seeds: every check empty, every notes case drawn, and
-/// exactly the snapshots the registry promises checked.
+/// A clean run of `seeds` seeds: every check empty, every notes case drawn, at least one
+/// 3D snapshot round-tripped, and exactly the snapshots the registry promises checked.
 fn clean(seeds: u32) -> Findings {
     Findings {
         notes: [seeds.into(); 5],
+        three_d: 1,
         checked: snapshot_total(seeds),
         ..Findings::default()
     }
@@ -47,6 +48,13 @@ fn overall_pass_requires_every_check_clean_and_every_notes_case_drawn() {
             notes: [5, 5, 5, 5, 0],
             ..clean(5)
         },
+        // A run that checked no 3D snapshot at all: the sweep claims the z column is
+        // round-tripped, and a seed rule that stopped drawing 3D would leave that claim
+        // resting on nothing.
+        Findings {
+            three_d: 0,
+            ..clean(5)
+        },
     ] {
         assert!(!bad.pass(5), "{bad:?}");
     }
@@ -79,13 +87,14 @@ fn the_record_holds_the_exact_counts_it_reports() {
         grid: vec!["b".into(), "c".into()],
         dag: vec!["d".into()],
         notes: [1, 2, 3, 4, 5],
+        three_d: 6,
         checked: snapshot_total(5),
         ..Findings::default()
     };
     let text = serde_json::to_string(&body(5, &found)).expect("json");
     assert_eq!(
         text,
-        r#"{"faces_failed":1,"functions":{"layout.circular.radial":{"cases":5,"declared":0,"unexplained":0},"layout.dag.sugiyama":{"cases":5,"declared":0,"unexplained":1},"layout.grid":{"cases":5,"declared":0,"unexplained":2},"layout.packing.circle":{"cases":5,"declared":0,"unexplained":0}},"notes_cases":{"0.2-labelled":1,"0.3 k=0":2,"code 1":3,"code 2":4,"code 3":5},"pass":false,"seeds":5,"snapshots":115}"#
+        r#"{"faces_failed":1,"functions":{"layout.circular.radial":{"cases":5,"declared":0,"unexplained":0},"layout.dag.sugiyama":{"cases":5,"declared":0,"unexplained":1},"layout.grid":{"cases":5,"declared":0,"unexplained":2},"layout.packing.circle":{"cases":5,"declared":0,"unexplained":0}},"notes_cases":{"0.2-labelled":1,"0.3 k=0":2,"code 1":3,"code 2":4,"code 3":5},"pass":false,"seeds":5,"snapshots":115,"three_d_exercise":6}"#
     );
     assert_eq!(body(5, &clean(5))["pass"], serde_json::json!(true));
 }

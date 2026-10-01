@@ -25,6 +25,7 @@ export interface RawExports {
   gm_node_count(handle: number): number;
   gm_geometry_kind(handle: number): number;
   gm_edge_geometry_kind(handle: number): number;
+  gm_dim(handle: number): number;
   gm_column_ptr(handle: number, columnId: number): number;
   gm_column_len(handle: number, columnId: number): number;
   gm_snapshot_json(handle: number): number;

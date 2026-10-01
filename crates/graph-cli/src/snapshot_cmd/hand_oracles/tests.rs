@@ -12,7 +12,7 @@ use super::*;
 use graph_contract::binary::StringTable;
 use graph_contract::geometry::NodeGeometryKind;
 use graph_contract::notes::{Note, Notes, SNAPSHOT_WIDE};
-use graph_contract::version::CURRENT_VERSION;
+use graph_contract::snapshot::{Dim, label_for};
 use graph_core::{EdgeKind, EdgeRecord, NodeKind, NodeRecord, gate_node_count, registry, run_with};
 
 /// `n` nodes named `n0..` and one `relation` edge per `(u32, u32)` pair: the terse record
@@ -87,7 +87,7 @@ fn circles(centres: &[(f32, f32)], radii: &[f32], edges: &[(u32, u32)]) -> Snaps
         StringTable::from_strs(column, items.iter().map(String::as_str)).expect("fits")
     };
     let parts = SnapshotParts {
-        version: CURRENT_VERSION,
+        version: label_for(Dim::D2),
         node_ids: table(
             "node.id",
             (0..radii.len()).map(|i| format!("n{i}")).collect(),
@@ -103,6 +103,7 @@ fn circles(centres: &[(f32, f32)], radii: &[f32], edges: &[(u32, u32)]) -> Snaps
             y: centres.iter().map(|c| c.1).collect(),
             r: radii.to_vec(),
         },
+        z: None,
         edges: EdgeGeometry::Line,
         notes: Notes::default(),
     };

@@ -25,10 +25,15 @@ changes, or writes anything back. There is no fetch, no driver, no ORM. The adap
 below map a structure **you already have** in memory; getting it is your problem, and
 should be, because the shape you can get differs per source and the motor does not care.
 
-**Not 3D.** Two dimensions. The wire format reserves a `z` channel and refuses any
-nonzero one, so a 3D reader fails loudly rather than rendering a flat lie. The 3D
-geometric layouts are out of scope for the project as a whole
-(`prompt.md` §10, "Out of scope — requires a human decision").
+**Not a renderer, and not the thing that decides 3D is drawable.** The transport **carries**
+3D rather than refusing it: a snapshot's header says `dim` (`0` 2D, `1` 3D), `Motor.layout`
+and `Motor.post` report it as `RunResult.dim`/`PostResult.dim`, and a 3D run's depths are
+`motor.column(handle, ColumnId.NodeZ)` — `f32`, like `x` and `y`, and `null` for a 2D run
+(absent, not a zero-length array). Whether a 3D run can be *drawn* is the consumer's call,
+and a 2D-only consumer should decline it explicitly rather than project z away; the
+renderer and studio in this repository do, refusing by the name `dimension-3d`. No 3D
+**layout** exists yet, so every run this package can produce today is 2D
+(`docs/decisions/contract-3d.md` §3).
 
 **Not a mutation or write path.** The motor is pure: topology in, geometry out, no
 network, no clock, no randomness beyond seeded generators, and no way to write back to a

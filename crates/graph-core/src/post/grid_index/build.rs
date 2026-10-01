@@ -69,13 +69,19 @@ pub fn footprints(geometry: &NodeGeometry) -> Vec<(f64, f64, f64, f64)> {
 
 /// `Err(NonFinite)` naming the first column that holds a NaN or an infinity. Columns are
 /// visited in wire order, so the refusal does not depend on any iteration order (D9).
+///
+/// `z` is passed as `None`: the grid index is a 2D measurement over `x`/`y` and the size
+/// columns, and a z coordinate has no place in a cell. The snapshot's own z column is
+/// checked and carried by `Snapshot::new`, and no pass here rewrites it (verdict
+/// condition 6), so a 3D snapshot keeps its z through the grid index untouched.
 pub(super) fn check_finite(geometry: &NodeGeometry) -> Result<(), StageError> {
-    for (name, column) in geometry.columns() {
+    for (name, column) in geometry.columns_dim(None) {
         if column.iter().any(|v| !v.is_finite()) {
             return Err(StageError::NonFinite {
                 column: match name {
                     "x" => "node.x",
                     "y" => "node.y",
+                    "z" => "node.z",
                     "r" => "node.r",
                     "w" => "node.w",
                     _ => "node.h",

@@ -7,15 +7,21 @@
  * trailing bytes, offsets, padding, endpoints, non-finite and negative geometry).
  * Not checked here: id uniqueness, UTF-8 validity, note codes and note order. Those are
  * the producer's construction checks, and a note this reader cannot name is still shown.
+ *
+ * **2D only.** A snapshot whose header `dim` is 1 is refused as `dimension-3d` at byte 14,
+ * before either geometry tag is read — the same check order as the Rust reader. This painter
+ * cannot draw 3D, and the one thing it must not do is read a 3D snapshot as a 2D one: the z
+ * column would be read as `r`, `w` or `h`, and a flat lie is worse than a refusal. A
+ * consumer that can draw 3D wants the contract's reader, not this one.
  */
 
 export type NodeKind = "Point" | "Circle" | "Box";
 export type EdgeKind = "Line" | "Polyline" | "Curve";
 
 export type RefusalCode =
-  | "truncated" | "bad-magic" | "unsupported-major" | "reserved-field" | "geometry-tag"
-  | "offsets" | "padding" | "endpoint" | "non-finite" | "negative" | "curve-degree"
-  | "trailing-bytes" | "big-endian-host";
+  | "truncated" | "bad-magic" | "unsupported-major" | "reserved-field" | "dimension-3d"
+  | "geometry-tag" | "offsets" | "padding" | "endpoint" | "non-finite" | "negative"
+  | "curve-degree" | "trailing-bytes" | "big-endian-host";
 
 export class SnapshotRefusal extends Error {
   readonly code: RefusalCode;
@@ -169,13 +175,26 @@ function reserved(column: string, found: number, allowed: number): void {
   }
 }
 
+/**
+ * This renderer draws in 2D. A `dim = 1` snapshot carries a z column the painter cannot
+ * show, so it is refused by name rather than read and dropped. A `dim` of 2 or more is
+ * a reserved value, but it is still a dimension refusal, so it carries the same code.
+ */
+function refuseNon2D(dim: number): void {
+  if (dim === 0) return;
+  const detail = dim === 1
+    ? "found 1, only 0 is read"
+    : `found ${dim}, 0 is 2D, 1 is 3D, 2 and up is reserved`;
+  throw new SnapshotRefusal("dimension-3d", "dim", detail);
+}
+
 function kindAt<Kind>(kinds: readonly Kind[], tag: number, column: string): Kind {
   const kind = kinds[tag];
   if (kind === undefined) throw new SnapshotRefusal("geometry-tag", column, `tag ${tag} is not read`);
   return kind;
 }
 
-/** Check order is the contract's: magic, major, z, padding, node tag, edge tag, stages. */
+/** Check order is the contract's: magic, major, dim, padding, node tag, edge tag, stages. */
 function takeHeader(cursor: Cursor): Header {
   const start = claim(cursor, HEADER_BYTES, "header");
   const bytes = new Uint8Array(cursor.buffer, start, HEADER_BYTES);
@@ -187,7 +206,7 @@ function takeHeader(cursor: Cursor): Header {
   if (major > KNOWN_MAJOR) {
     throw new SnapshotRefusal("unsupported-major", "version.major", `found ${major}, reads ${KNOWN_MAJOR}`);
   }
-  reserved("z", bytes[14] ?? 0, 0);
+  refuseNon2D(bytes[14] ?? 0);
   reserved("padding", bytes[15] ?? 0, 0);
   const nodeKind = kindAt(NODE_KINDS, bytes[12] ?? 0, "node.kind");
   const edgeKind = kindAt(EDGE_KINDS, bytes[13] ?? 0, "edge.kind");

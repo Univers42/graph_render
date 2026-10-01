@@ -160,7 +160,9 @@ fn faces_agree(snapshot: &Snapshot) -> Result<(), String> {
 /// Every float as the JSON face writes it, read to f64 and narrowed, keeps its bits.
 fn floats_survive_f64(snapshot: &Snapshot) -> Result<(), String> {
     let p = snapshot.parts();
-    let mut columns: Vec<(String, &[f32])> = (p.nodes.columns().into_iter())
+    // `columns_dim`, so a 3D snapshot's z column is narrowed through f64 like every other
+    // float and not skipped: it is a node column like x and y.
+    let mut columns: Vec<(String, &[f32])> = (p.nodes.columns_dim(p.z.as_deref()).into_iter())
         .map(|(name, column)| (format!("node.{name}"), column))
         .collect();
     if let EdgeGeometry::Polyline(paths) | EdgeGeometry::Curve { paths, .. } = &p.edges {

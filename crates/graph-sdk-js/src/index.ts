@@ -193,8 +193,8 @@ export class Motor {
       if (code === INVALID_HANDLE_CODE) throw new InvalidHandleError(`handle ${handle} is not live`, code);
       throw new RunRefusedError(`gm_run refused (${codeName(code)})`, code);
     }
-    const { nodeKind, edgeKind } = this.#recordKinds(exports, handle, layoutId);
-    return { handle, nodeKind, edgeKind, nodeCount: this.nodeCount(handle) };
+    const { nodeKind, edgeKind, dim } = this.#recordKinds(exports, handle, layoutId);
+    return { handle, nodeKind, edgeKind, nodeCount: this.nodeCount(handle), dim };
   }
 
   #recordKinds(exports: RawExports, handle: Handle, what: string): GeometryKinds {
@@ -228,8 +228,8 @@ export class Motor {
       if (code === NO_GEOMETRY_CODE) throw new PostRefusedError(`handle ${handle} has no successful layout run to draw over`, code);
       throw new PostRefusedError(`gm_post_run refused (${codeName(code)})`, code);
     }
-    const { nodeKind, edgeKind } = this.#recordKinds(exports, handle, postId);
-    return { handle, id: postId, nodeKind, edgeKind, nodeCount: this.nodeCount(handle) };
+    const { nodeKind, edgeKind, dim } = this.#recordKinds(exports, handle, postId);
+    return { handle, id: postId, nodeKind, edgeKind, nodeCount: this.nodeCount(handle), dim };
   }
 
   /** Runs the registered analysis `analysisId` (from {@link Motor.analyses}) over
@@ -255,7 +255,7 @@ export class Motor {
     const { views } = this.#requireLoaded();
     const kinds = this.#kinds.get(handle);
     if (kinds === undefined) throw new InvalidHandleError(`handle ${handle} has no successful run yet`);
-    return views.get(toU32(handle) as Handle, columnId, kinds.nodeKind, kinds.edgeKind);
+    return views.get(toU32(handle) as Handle, columnId, kinds.nodeKind, kinds.edgeKind, kinds.dim);
   }
 
   /** The canonical JSON face of `handle`'s last run. Refuses with

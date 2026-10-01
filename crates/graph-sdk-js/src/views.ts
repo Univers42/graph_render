@@ -14,19 +14,25 @@
 //     already catch that even without the epoch.
 
 import type { RawExports } from "./wasm.ts";
-import { ColumnId, type Column, type EdgeGeometryKind, type Handle, type NodeGeometryKind } from "./types.ts";
+import { ColumnId, type Column, type Dim, type EdgeGeometryKind, type Handle, type NodeGeometryKind } from "./types.ts";
 
+// `NodeZ` is in this set and not left to the Uint32Array fallthrough below: without it the
+// motor's f32 depths would be read as u32 words, which is the SDK's silent-mislabel bug
+// (F2 in `docs/decisions/contract-3d.md`).
 const F32_COLUMNS: ReadonlySet<number> = new Set([
   ColumnId.NodeX,
   ColumnId.NodeY,
   ColumnId.NodeR,
   ColumnId.NodeW,
   ColumnId.NodeH,
+  ColumnId.NodeZ,
   ColumnId.EdgePts,
 ]);
 
-/** `crates/graph-wasm/src/views.rs::node_column`'s presence table. */
-function nodeColumnApplies(nodeKind: NodeGeometryKind, columnId: number): boolean {
+/** `crates/graph-wasm/src/views.rs::node_column`'s presence table. `z` keys on `dim`, not
+ *  on the node kind: a 3D snapshot's nodes are whatever kind they were, and every kind
+ *  carries a z column. */
+function nodeColumnApplies(nodeKind: NodeGeometryKind, columnId: number, dim: Dim): boolean {
   switch (columnId) {
     case ColumnId.NodeX:
     case ColumnId.NodeY:
@@ -36,6 +42,8 @@ function nodeColumnApplies(nodeKind: NodeGeometryKind, columnId: number): boolea
     case ColumnId.NodeW:
     case ColumnId.NodeH:
       return nodeKind === "Box";
+    case ColumnId.NodeZ:
+      return dim === 1;
     default:
       return false;
   }
@@ -57,12 +65,18 @@ function edgeColumnApplies(edgeKind: EdgeGeometryKind, columnId: number): boolea
   }
 }
 
-/** Whether `columnId` exists at all for a snapshot of this node/edge kind — the reserved
- * ids (`NoteCode`/`NoteIndex`, Phase 3's `note.code`/`note.index`) never do, whatever the
- * kind. */
-export function columnApplies(nodeKind: NodeGeometryKind, edgeKind: EdgeGeometryKind, columnId: number): boolean {
+/** Whether `columnId` exists at all for a snapshot of this node/edge kind and dimension —
+ * the reserved ids (`NoteCode`/`NoteIndex`, Phase 3's `note.code`/`note.index`) never do,
+ * whatever the kind. `dim` defaults to 0, so a caller that has not read it yet gets the
+ * 2D table: absent, never a wrong column. */
+export function columnApplies(
+  nodeKind: NodeGeometryKind,
+  edgeKind: EdgeGeometryKind,
+  columnId: number,
+  dim: Dim = 0,
+): boolean {
   if (columnId === ColumnId.NoteCode || columnId === ColumnId.NoteIndex) return false;
-  return nodeColumnApplies(nodeKind, columnId) || edgeColumnApplies(edgeKind, columnId);
+  return nodeColumnApplies(nodeKind, columnId, dim) || edgeColumnApplies(edgeKind, columnId);
 }
 
 interface CacheEntry {
@@ -107,8 +121,14 @@ export class ColumnViews {
    * looks like data. Escape hatch: never hold a `Column` past the next call on this
    * `Motor` (any handle) — re-derive it via `Motor#column` after every call, which this
    * cache then serves for free when nothing actually moved. */
-  get(handle: Handle, columnId: ColumnId, nodeKind: NodeGeometryKind, edgeKind: EdgeGeometryKind): Column {
-    if (!columnApplies(nodeKind, edgeKind, columnId)) return null;
+  get(
+    handle: Handle,
+    columnId: ColumnId,
+    nodeKind: NodeGeometryKind,
+    edgeKind: EdgeGeometryKind,
+    dim: Dim = 0,
+  ): Column {
+    if (!columnApplies(nodeKind, edgeKind, columnId, dim)) return null;
     const ptr = this.#exports.gm_column_ptr(handle, columnId);
     const len = this.#exports.gm_column_len(handle, columnId);
     const key = `${handle}:${columnId}`;

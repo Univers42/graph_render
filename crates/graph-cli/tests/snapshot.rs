@@ -158,14 +158,28 @@ fn roundtrip_passes_and_records_the_grids_hand_oracle() {
     assert!(
         stdout(&run).contains("  layout.dag.sugiyama on its structural invariants on 20/20 seeds")
     );
+    // A 3D snapshot cannot be 0.2-labelled (0.2 names no dimension), so the exercise's
+    // 3D seeds draw the 0.3 "no notes" case instead and the 0.2 tally is one lower than
+    // it was with every seed 2D. Every case is still drawn, which is what `pass` requires.
     assert!(stdout(&run).contains(
-        "  notes cases drawn (exercise, each needed): 0.2-labelled 4, 0.3 k=0 5, code 1 "
+        "  notes cases drawn (exercise, each needed): 0.2-labelled 3, 0.3 k=0 6, code 1 6, code 2 7, code 3 4"
     ));
+    // The 3D half of the sweep, counted rather than assumed: `seed % 3 == 2` draws a third
+    // of the 20 exercise snapshots, which is 6 (20 seeds, 2 and 5 fall in the 0.2 slot).
+    assert!(
+        stdout(&run).contains("  3D exercise snapshots (dim 1, z column) round-tripped: 6"),
+        "{}",
+        stdout(&run)
+    );
     assert!(stdout(&run).ends_with("PASS\n"));
     let roundtrip = record("roundtrip");
     assert!(
         roundtrip.contains("\"pass\": true") && roundtrip.contains("\"cases\": 20"),
         "{roundtrip}"
+    );
+    assert!(
+        roundtrip.contains("\"three_d_exercise\": 6"),
+        "the ledger records the 3D count too, not only the text: {roundtrip}"
     );
     assert!(
         roundtrip.contains("\"layout.circular.radial\"")

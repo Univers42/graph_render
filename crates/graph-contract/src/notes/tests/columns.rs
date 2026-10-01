@@ -24,7 +24,7 @@ fn the_columns_are_never_derived_from_each_other() {
             (expected, false),
             "{code:?} / {index:?}"
         );
-        let refused = Snapshot::new(parts(CURRENT_VERSION, notes)).expect_err("unequal");
+        let refused = Snapshot::new(parts(V0_3, notes)).expect_err("unequal");
         assert_eq!(
             refused,
             E::Length {

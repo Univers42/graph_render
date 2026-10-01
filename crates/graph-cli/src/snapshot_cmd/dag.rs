@@ -67,7 +67,9 @@ mod tests {
             graph_contract::binary::StringTable::from_strs(name, ids.iter().copied()).expect("fits")
         };
         SnapshotParts {
-            version: graph_contract::version::CURRENT_VERSION,
+            // 2D, so the 0.3 label: `label_for`, never `CURRENT_VERSION`
+            // (`docs/decisions/contract-3d-verdict.md` condition 1).
+            version: graph_contract::snapshot::label_for(graph_contract::snapshot::Dim::D2),
             node_ids: table("node.id", &["a", "b", "c"]),
             edge_ids: table("edge.id", &["ab", "bc", "ac"]),
             source: vec![0, 1, 0],
@@ -76,6 +78,7 @@ mod tests {
                 x: vec![0.0, 0.0, 0.0],
                 y: vec![0.0, 1.0, 2.0],
             },
+            z: None,
             edges: EdgeGeometry::Polyline(graph_contract::geometry::Paths {
                 offsets: vec![0, 0, 0, 1],
                 pts: vec![1.0, 1.0],
