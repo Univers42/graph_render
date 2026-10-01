@@ -6,10 +6,14 @@
 //! the same constant charge (`chargeStrength`, `params.rs`), so `accumulate`'s signed
 //! `value` collapses to a plain point count times that constant, and a subtree's
 //! `(x, y)` is its plain center of mass.
+//!
+//! The walk reads one [`Body`] per tree cell, in the tree's preorder (`quadtree/preorder.rs`):
+//! a cell's centre, its opening threshold and the index past its subtree, 40 bytes read
+//! front to back, so a query is a forward scan that jumps ahead instead of a stack.
 
 use super::sim::Sim;
 use crate::exec::Runner;
-use crate::layout::force::quadtree::{Bounds, Quadtree};
+use crate::layout::force::quadtree::Quadtree;
 use crate::rng::jiggle;
 
 const PASS_X: u32 = 2;
@@ -21,10 +25,9 @@ const PASS_Y: u32 = 3;
 /// `BarnesHut::run_with(&Serial, 1)` is the stage — one name, not three, so there is no
 /// second spelling of the same pass to drift.
 ///
-/// The merge is a straight loop over `deltas` in ascending node index, which is the one
-/// place the division could go wrong and the reason it is written as a loop rather than
-/// left to the runner: each node adds its *own* delta to its *own* velocity, and
-/// `i += delta[i]` cannot pick up a neighbour's term no matter how the gather was sliced.
+/// The merge ([`super::step::merge`]) puts each node's own delta on its own velocity: the
+/// outputs are in the charge tree's point order, and one addition per node cannot pick up
+/// a neighbour's term no matter how the gather was sliced.
 ///
 /// `split` is this pass's own slice of the negative control (`Split::CHARGE`): it makes the
 /// merge read the **next** node's delta as well, the shape a wrong partition of the
@@ -40,83 +43,88 @@ pub(super) fn apply_with(
 ) {
     prepare(sim);
     runner.run(&super::step::Pass::of(&*sim), workers, deltas);
-    merge(sim, deltas, split);
-}
-
-/// `vx[i] += deltas[i]`, in ascending node index — and, under the control, the next node's
-/// delta too. Ascending index and one node's own delta, which is why the control has to
-/// *steal* a neighbour's term to move anything.
-fn merge(sim: &mut Sim, deltas: &[(f64, f64)], split: bool) {
-    for (i, (dvx, dvy)) in deltas.iter().enumerate() {
-        let stolen = if split {
-            deltas.get(i + 1).copied().unwrap_or((0.0, 0.0))
-        } else {
-            (0.0, 0.0)
-        };
-        sim.vx[i] += dvx + stolen.0;
-        sim.vy[i] += dvy + stolen.1;
-    }
+    let order = Some(sim.charge_tree.order());
+    super::step::merge((&mut sim.vx, &mut sim.vy), order, deltas, split);
 }
 
 /// The single-threaded prologue every many-body pass shares: build the quadtree over this
 /// tick's positions, then aggregate masses and centres bottom-up.
 ///
-/// Split out of [`apply`] because the range kernel ([`super::step::Pass`]) needs the same
-/// two steps in front of it and must not have its own copy — a second tree build or a
+/// Split out of [`apply_with`] because the range kernel ([`super::step::Pass`]) needs the
+/// same two steps in front of it and must not have its own copy — a second tree build or a
 /// second aggregate order would be a silent divergence from the serial pass, and the
 /// equality test would then be comparing two programs rather than two schedules.
 pub(super) fn prepare(sim: &mut Sim) {
     sim.charge_tree.build(&sim.x, &sim.y);
-    aggregate(sim);
+    let theta2 = sim.params.theta * sim.params.theta;
+    aggregate(&sim.charge_tree, (&sim.x, &sim.y), theta2, &mut sim.bodies);
 }
 
-/// Bottom-up mass/center-of-mass per arena node (`manyBody.js`'s `accumulate`).
-fn aggregate(sim: &mut Sim) {
-    sim.charge_tree.postorder_into(&mut sim.order);
-    let len = sim.charge_tree.len() as usize;
-    sim.mass.clear();
-    sim.mass.resize(len, 0.0);
-    sim.comx.clear();
-    sim.comx.resize(len, 0.0);
-    sim.comy.clear();
-    sim.comy.resize(len, 0.0);
-    for i in 0..sim.order.len() {
-        aggregate_one(sim, sim.order[i]);
+/// One tree cell as the walk reads it.
+///
+/// The mass is `count`, a point count: the `f64` sums it replaces were sums of whole
+/// counts below 2^53, so exact, and `f64::from(count)` is the same number. `open` is
+/// `w² / θ²`, the cell's opening threshold, computed once per tick instead of once per
+/// visit; a query at squared distance `l` opens the cell when `open >= l`.
+#[derive(Debug, Clone, Copy, Default)]
+pub(super) struct Body {
+    comx: f64,
+    comy: f64,
+    open: f64,
+    count: u32,
+    skip: u32,
+    start: u32,
+}
+
+/// Bottom-up mass and centre of mass per cell (`manyBody.js`'s `accumulate`), in reverse
+/// preorder so every child is final before its parent reads it.
+fn aggregate(tree: &Quadtree, (x, y): (&[f64], &[f64]), theta2: f64, bodies: &mut Vec<Body>) {
+    let (cells, order) = (tree.cells(), tree.order());
+    bodies.clear();
+    bodies.resize(cells.len(), Body::default());
+    for k in (0..cells.len()).rev() {
+        let cell = cells[k];
+        let (comx, comy) = if cell.skip == k as u32 + 1 {
+            let head = order[cell.start as usize] as usize;
+            (x[head], y[head])
+        } else {
+            centre(bodies, k as u32 + 1, cell.skip)
+        };
+        let w = cell.bounds.x1 - cell.bounds.x0;
+        bodies[k] = Body {
+            comx,
+            comy,
+            open: w * w / theta2,
+            count: cell.end - cell.start,
+            skip: cell.skip,
+            start: cell.start,
+        };
     }
 }
 
-fn aggregate_one(sim: &mut Sim, node: u32) {
-    match sim.charge_tree.children(node) {
-        None => {
-            let mut points = sim.charge_tree.leaf_points(node);
-            let head = points.next().expect("a leaf holds at least one point");
-            let count = 1.0 + points.count() as f64;
-            sim.mass[node as usize] = count;
-            sim.comx[node as usize] = sim.x[head as usize];
-            sim.comy[node as usize] = sim.y[head as usize];
-        }
-        Some(children) => {
-            let (mut m, mut cx, mut cy) = (0.0, 0.0, 0.0);
-            for c in children.into_iter().flatten() {
-                let cm = sim.mass[c as usize];
-                m += cm;
-                cx += cm * sim.comx[c as usize];
-                cy += cm * sim.comy[c as usize];
-            }
-            sim.mass[node as usize] = m;
-            sim.comx[node as usize] = if m > 0.0 { cx / m } else { 0.0 };
-            sim.comy[node as usize] = if m > 0.0 { cy / m } else { 0.0 };
-        }
+/// The mass-weighted centre of the children in `first..skip`, in slot order. An internal
+/// cell holds at least one point, so `m > 0`.
+fn centre(bodies: &[Body], first: u32, skip: u32) -> (f64, f64) {
+    let (mut m, mut cx, mut cy) = (0.0, 0.0, 0.0);
+    let mut c = first;
+    while c < skip {
+        let child = &bodies[c as usize];
+        let cm = f64::from(child.count);
+        m += cm;
+        cx += cm * child.comx;
+        cy += cm * child.comy;
+        c = child.skip;
     }
+    (cx / m, cy / m)
 }
 
+/// Everything a query reads but does not own, gathered once per range rather than once
+/// per node.
 pub(super) struct Ctx<'a> {
-    mass: &'a [f64],
-    comx: &'a [f64],
-    comy: &'a [f64],
+    bodies: &'a [Body],
+    tree: &'a Quadtree,
     x: &'a [f64],
     y: &'a [f64],
-    theta2: f64,
     dmin2: f64,
     dmax2: f64,
     charge: f64,
@@ -125,143 +133,100 @@ pub(super) struct Ctx<'a> {
     tick: u32,
 }
 
+impl<'a> Ctx<'a> {
+    /// The context over an already-prepared [`Sim`].
+    pub(super) fn of(sim: &'a Sim) -> Self {
+        Ctx {
+            bodies: &sim.bodies,
+            tree: &sim.charge_tree,
+            x: &sim.x,
+            y: &sim.y,
+            dmin2: sim.params.distance_min * sim.params.distance_min,
+            dmax2: sim.params.distance_max * sim.params.distance_max,
+            charge: sim.params.charge,
+            alpha: sim.alpha,
+            seed: sim.seed,
+            tick: sim.tick_no,
+        }
+    }
+}
+
 pub(super) struct Query {
     i: u32,
     xi: f64,
     yi: f64,
 }
 
-/// Node `i`'s own many-body delta, over an already-prepared [`Sim`], into a caller's
-/// reused walk stack.
+/// The offset from the query to a cell's centre and its squared length.
+#[derive(Clone, Copy)]
+struct Gap {
+    dx: f64,
+    dy: f64,
+    l: f64,
+}
+
+/// Node `i`'s own many-body delta (`manyBody.js`'s `apply`, visited in `visit.js` order).
 ///
-/// `&self` and a borrowed stack, which is what lets the range kernel
-/// ([`super::step::Pass`]) hold one `&Sim` and have every worker walk the same tree at
-/// once: the walk is iterative precisely so its buffer can be borrowed rather than owned
-/// (`quadtree.rs`'s `visit_in`), and each worker brings its own.
-///
-/// The stack is a parameter rather than a local because the serial pass runs this once
-/// per node over `TICKS × n` walks: a local `Vec` here would be an allocation per node,
-/// which is the one thing `dsa-and-memory.md` forbids in a per-tick loop. One buffer per
-/// pass — the serial loop's, or one per range in a threaded run — is the right count.
-pub(super) fn node_delta_with(sim: &Sim, i: u32, stack: &mut Vec<(u32, Bounds)>) -> (f64, f64) {
-    let ctx = Ctx {
-        mass: &sim.mass,
-        comx: &sim.comx,
-        comy: &sim.comy,
-        x: &sim.x,
-        y: &sim.y,
-        theta2: sim.params.theta * sim.params.theta,
-        dmin2: sim.params.distance_min * sim.params.distance_min,
-        dmax2: sim.params.distance_max * sim.params.distance_max,
-        charge: sim.params.charge,
-        alpha: sim.alpha,
-        seed: sim.seed,
-        tick: sim.tick_no,
-    };
+/// `&Ctx` only, so the range kernel ([`super::step::Pass`]) can have every worker walk the
+/// same tree at once. A cell the opening angle resolves as one blob adds its delta and
+/// jumps past its subtree; a cell too close descends, or, at a leaf, adds its chain's
+/// exact terms. The test is written `open >= l` with the approximation in the `else`,
+/// as `manyBody.js` writes it, so a NaN distance approximates as it always did.
+pub(super) fn node_delta(ctx: &Ctx, i: u32) -> (f64, f64) {
     let q = Query {
         i,
-        xi: sim.x[i as usize],
-        yi: sim.y[i as usize],
+        xi: ctx.x[i as usize],
+        yi: ctx.y[i as usize],
     };
     let mut out = (0.0, 0.0);
-    let mut frame = Frame {
-        ctx: &ctx,
-        q: &q,
-        out: &mut out,
-    };
-    sim.charge_tree.visit_in(stack, |tree, node, bounds| {
-        step(tree, node, bounds, &mut frame)
-    });
+    let mut k = 0;
+    while let Some(body) = ctx.bodies.get(k as usize) {
+        let (dx, dy) = (body.comx - q.xi, body.comy - q.yi);
+        let gap = Gap {
+            dx,
+            dy,
+            l: dx * dx + dy * dy,
+        };
+        let (delta, next) = if body.open >= gap.l {
+            if body.skip != k + 1 {
+                k += 1;
+                continue;
+            }
+            (direct(ctx, &q, body, gap), k + 1)
+        } else {
+            (approx(ctx, &q, k, gap), body.skip)
+        };
+        out.0 += delta.0;
+        out.1 += delta.1;
+        k = next;
+    }
     out
 }
 
-/// `ctx`, `q` and the accumulator bundled so [`step`] stays under the 4-param cap
-/// (`refactor-rust.md`) despite the quadtree visit callback's own fixed 3 arguments.
-pub(super) struct Frame<'a> {
-    pub(super) ctx: &'a Ctx<'a>,
-    pub(super) q: &'a Query,
-    pub(super) out: &'a mut (f64, f64),
-}
-
-/// One quadtree node reached while querying node `q.i`: applies the Barnes-Hut
-/// approximation when the opening angle allows it, else falls through to `direct`
-/// (`manyBody.js`'s own `apply`).
-pub(super) fn step(tree: &Quadtree, node: u32, bounds: Bounds, frame: &mut Frame) -> bool {
-    if let Some((prune, delta)) = approx(frame.ctx, node, bounds, frame.q) {
-        frame.out.0 += delta.0;
-        frame.out.1 += delta.1;
-        return prune;
-    }
-    if tree.children(node).is_some() {
-        return false;
-    }
-    let delta = direct(frame.ctx, tree, node, frame.q);
-    frame.out.0 += delta.0;
-    frame.out.1 += delta.1;
-    false
-}
-
-/// `Some((true, delta))` when the opening-angle test resolves this node as one blob
-/// (always pruned, `delta` zero past `distanceMax`); `None` when it is too close or too
-/// coarse and the caller must recurse or fall through to a leaf's exact points.
-fn approx(ctx: &Ctx, node: u32, bounds: Bounds, q: &Query) -> Option<(bool, (f64, f64))> {
-    let m = ctx.mass[node as usize];
-    if m == 0.0 {
-        return Some((true, (0.0, 0.0)));
-    }
-    let mut dx = ctx.comx[node as usize] - q.xi;
-    let mut dy = ctx.comy[node as usize] - q.yi;
-    let w = bounds.x1 - bounds.x0;
-    let mut l = dx * dx + dy * dy;
-    if w * w / ctx.theta2 >= l {
-        return None;
-    }
-    if l >= ctx.dmax2 {
-        return Some((true, (0.0, 0.0)));
-    }
-    if dx == 0.0 {
-        dx = jiggle(ctx.seed, ctx.tick, PASS_X, (q.i, node));
-        l += dx * dx;
-    }
-    if dy == 0.0 {
-        dy = jiggle(ctx.seed, ctx.tick, PASS_Y, (q.i, node));
-        l += dy * dy;
-    }
-    if l < ctx.dmin2 {
-        l = libm::sqrt(ctx.dmin2 * l);
-    }
+/// Cell `k` resolved as one blob of its whole mass; zero past `distanceMax`. The jiggle is
+/// keyed on the cell's insertion-order node id, the key it has always had.
+fn approx(ctx: &Ctx, q: &Query, k: u32, gap: Gap) -> (f64, f64) {
+    let Some(Gap { dx, dy, l }) = settle(ctx, q, ctx.tree.key(k), gap) else {
+        return (0.0, 0.0);
+    };
+    let m = f64::from(ctx.bodies[k as usize].count);
     let f = m * ctx.charge * ctx.alpha / l;
-    Some((true, (dx * f, dy * f)))
+    (dx * f, dy * f)
 }
 
 /// A leaf too close (or too coarse) to approximate: every distinct chained point
 /// contributes its own charge directly (`manyBody.js`'s coincidence-chain loop), unless
 /// `distanceMax` has already been reached, in which case it contributes nothing — the
 /// same cutoff `approx` applies to the Barnes-Hut-approximable case (`manyBody.js:77`:
-/// `else if (quad.length || l >= distanceMax2) return;`).
-fn direct(ctx: &Ctx, tree: &Quadtree, node: u32, q: &Query) -> (f64, f64) {
-    let Some(head) = tree.leaf_points(node).next() else {
+/// `else if (quad.length || l >= distanceMax2) return;`). A leaf's centre is its chain
+/// head's position, so `gap` is the offset to every chained point.
+fn direct(ctx: &Ctx, q: &Query, body: &Body, gap: Gap) -> (f64, f64) {
+    let chain = &ctx.tree.order()[body.start as usize..][..body.count as usize];
+    let Some(Gap { dx, dy, l }) = settle(ctx, q, chain[0], gap) else {
         return (0.0, 0.0);
     };
-    let mut dx = ctx.x[head as usize] - q.xi;
-    let mut dy = ctx.y[head as usize] - q.yi;
-    let mut l = dx * dx + dy * dy;
-    if l >= ctx.dmax2 {
-        return (0.0, 0.0);
-    }
-    if dx == 0.0 {
-        dx = jiggle(ctx.seed, ctx.tick, PASS_X, (q.i, head));
-        l += dx * dx;
-    }
-    if dy == 0.0 {
-        dy = jiggle(ctx.seed, ctx.tick, PASS_Y, (q.i, head));
-        l += dy * dy;
-    }
-    if l < ctx.dmin2 {
-        l = libm::sqrt(ctx.dmin2 * l);
-    }
     let (mut dvx, mut dvy) = (0.0, 0.0);
-    for p in tree.leaf_points(node) {
+    for &p in chain {
         if p == q.i {
             continue;
         }
@@ -270,6 +235,32 @@ fn direct(ctx: &Ctx, tree: &Quadtree, node: u32, q: &Query) -> (f64, f64) {
         dvy += dy * f;
     }
     (dvx, dvy)
+}
+
+/// The tail both ends of `manyBody.js`'s `apply` share: `None` past `distanceMax`, else the
+/// gap with an exactly-zero axis jiggled (keyed on `(q.i, key)`) and `l` clamped up to
+/// `distanceMin`.
+fn settle(ctx: &Ctx, q: &Query, key: u32, gap: Gap) -> Option<Gap> {
+    let Gap {
+        mut dx,
+        mut dy,
+        mut l,
+    } = gap;
+    if l >= ctx.dmax2 {
+        return None;
+    }
+    if dx == 0.0 {
+        dx = jiggle(ctx.seed, ctx.tick, PASS_X, (q.i, key));
+        l += dx * dx;
+    }
+    if dy == 0.0 {
+        dy = jiggle(ctx.seed, ctx.tick, PASS_Y, (q.i, key));
+        l += dy * dy;
+    }
+    if l < ctx.dmin2 {
+        l = libm::sqrt(ctx.dmin2 * l);
+    }
+    Some(Gap { dx, dy, l })
 }
 
 #[cfg(test)]

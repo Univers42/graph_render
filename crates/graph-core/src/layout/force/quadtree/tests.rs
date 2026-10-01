@@ -12,16 +12,18 @@ fn built(points: &[(f64, f64)]) -> (Quadtree, Vec<f64>, Vec<f64>) {
     (tree, xs, ys)
 }
 
-/// Collects every point reached by an unpruned `visit_in`, in whatever order it arrives.
+fn is_leaf(tree: &Quadtree, k: u32) -> bool {
+    tree.cells()[k as usize].skip == k + 1
+}
+
+/// Every point some leaf holds, leaf by leaf in preorder.
 fn visited_points(tree: &Quadtree) -> Vec<u32> {
     let mut seen = Vec::new();
-    let mut stack = Vec::new();
-    tree.visit_in(&mut stack, |t, node, _| {
-        if t.children(node).is_none() {
-            seen.extend(t.leaf_points(node));
+    for (k, cell) in tree.cells().iter().enumerate() {
+        if is_leaf(tree, k as u32) {
+            seen.extend(&tree.order()[cell.start as usize..cell.end as usize]);
         }
-        false
-    });
+    }
     seen
 }
 
@@ -48,8 +50,10 @@ fn exactly_coincident_points_chain_on_one_leaf_others_split_apart() {
     seen.sort_unstable();
     assert_eq!(seen, [0, 1, 2, 3], "every point reachable exactly once");
     // The three coincident points (0, 1, 3) share one leaf's chain.
-    let chain_leaf =
-        (0..tree.len()).find(|&n| tree.children(n).is_none() && tree.leaf_points(n).count() == 3);
+    let chain_leaf = (0..tree.len()).find(|&k| {
+        let cell = tree.cells()[k as usize];
+        is_leaf(&tree, k) && cell.end - cell.start == 3
+    });
     assert!(chain_leaf.is_some(), "no leaf holds the 3-point chain");
 }
 
@@ -59,35 +63,42 @@ fn a_nan_point_is_ignored_and_never_reached_by_visit() {
     let mut seen = visited_points(&tree);
     seen.sort_unstable();
     assert_eq!(seen, [0, 2]);
+    assert_eq!(
+        tree.order(),
+        [0, 2, 1],
+        "the NaN point trails, so order is a permutation"
+    );
 }
 
 #[test]
-fn postorder_lists_every_child_before_its_parent() {
+fn every_subtree_is_one_run_of_cells_and_one_run_of_points() {
     let pts: Vec<(f64, f64)> = (0..40).map(|i| (i as f64, (i * 7 % 11) as f64)).collect();
-    let (mut tree, ..) = built(&pts);
-    let mut order = Vec::new();
-    tree.postorder_into(&mut order);
-    assert_eq!(
-        order.len(),
-        tree.len() as usize,
-        "every arena node listed once"
-    );
-    let position: Vec<u32> = {
-        let mut p = vec![0u32; order.len()];
-        for (rank, &node) in order.iter().enumerate() {
-            p[node as usize] = rank as u32;
+    let (tree, ..) = built(&pts);
+    let cells = tree.cells();
+    assert_eq!(tree.order().len(), 40, "every point listed once");
+    for (k, cell) in cells.iter().enumerate() {
+        let k = k as u32;
+        assert!(cell.skip > k && cell.skip as usize <= cells.len());
+        assert!(cell.start < cell.end, "every cell holds a point");
+        if is_leaf(&tree, k) {
+            continue;
         }
-        p
-    };
-    for &node in &order {
-        if let Some(children) = tree.children(node) {
-            for child in children.into_iter().flatten() {
-                assert!(
-                    position[child as usize] < position[node as usize],
-                    "child after parent"
-                );
-            }
+        // The children tile the parent's cells and points, in slot order.
+        let (mut c, mut at) = (k + 1, cell.start);
+        while c < cell.skip {
+            let child = cells[c as usize];
+            assert_eq!(
+                child.start, at,
+                "child {c} of {k} starts where its sibling ended"
+            );
+            assert!(child.skip <= cell.skip, "child {c} of {k} nests inside it");
+            (c, at) = (child.skip, child.end);
         }
+        assert_eq!(
+            (c, at),
+            (cell.skip, cell.end),
+            "the children cover cell {k}"
+        );
     }
 }
 
@@ -96,15 +107,20 @@ fn building_the_same_points_twice_gives_the_same_structure_run_to_run() {
     let pts: Vec<(f64, f64)> = (0..25)
         .map(|i| ((i * 3) as f64, (i * i % 13) as f64))
         .collect();
-    let (mut a, xs, ys) = built(&pts);
+    let (a, xs, ys) = built(&pts);
     let mut b = Quadtree::default();
     b.build(&xs, &ys);
-    let mut oa = Vec::new();
-    let mut ob = Vec::new();
-    a.postorder_into(&mut oa);
-    b.postorder_into(&mut ob);
-    assert_eq!(oa, ob, "same input, same arena layout, both runs");
-    assert_eq!(a.len(), b.len());
+    b.build(&xs, &ys);
+    let layout = |t: &Quadtree| {
+        let cells: Vec<_> = t.cells().iter().map(|c| (c.skip, c.start, c.end)).collect();
+        let keys: Vec<_> = (0..t.len()).map(|k| t.key(k)).collect();
+        (cells, keys, t.order().to_vec())
+    };
+    assert_eq!(
+        layout(&a),
+        layout(&b),
+        "same input, same arena, every rebuild"
+    );
 }
 
 #[test]
@@ -119,13 +135,19 @@ fn cover_grows_a_square_that_contains_every_point() {
 }
 
 #[test]
-fn visit_can_prune_a_whole_quadrant() {
+fn a_cell_s_bounds_are_its_parent_s_quadrant() {
     let (tree, ..) = built(&[(0.0, 0.0), (50.0, 50.0)]);
-    let mut visits = 0u32;
-    let mut stack = Vec::new();
-    tree.visit_in(&mut stack, |_, _, _| {
-        visits += 1;
-        true // prune everything past the root
-    });
-    assert_eq!(visits, 1, "only the root was visited");
+    let cells = tree.cells();
+    assert_eq!(cells[0].bounds, tree.root_bounds);
+    assert!(!is_leaf(&tree, 0) && is_leaf(&tree, 1));
+    assert_eq!(
+        cells[1].bounds,
+        tree.root_bounds.quadrant(0),
+        "(0, 0) is slot 0"
+    );
+    assert_eq!(
+        cells[0].skip,
+        tree.len(),
+        "the root's run is the whole arena"
+    );
 }
