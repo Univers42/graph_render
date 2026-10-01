@@ -49,3 +49,14 @@ and the coverage table. Nothing else.
 
 Done when: every Done-when item of the twopi brief holds for `layout.force.neato`, and the return block pastes
 the oracle determinism results, the worst gap over 1000 seeds, and the real exit code of each command.
+
+Resume note (2026-10-01): your neato work is committed on this branch. origin/develop has been merged into the worktree, and the merge is **in progress** (MERGE_HEAD is set). 15 files hold conflict markers (`git diff --name-only --diff-filter=U`). Develop now has twopi, osage, spring and circular.hierarchy, plus one generic Graphviz subcommand pair. Resolve every file by keeping both intents, as follows:
+- `layout/graphviz/mod.rs`: one module doc that covers both engines; `pub mod neato; pub mod osage;`.
+- `oracle_python/graphviz.rs`: keep develop's dispatcher. Move your `NEATO` differential (doc, `CEILING`, `line`) into a new `oracle_python/neato.rs`, declared like `osage` in `oracle_python.rs`. Add `"neato" => Some(super::neato::NEATO)` to `by_engine`, and make `ENGINES` `[&str; 3]` with "neato".
+- `oracle_python/cli.rs`: no neato-specific subcommands. Neato runs as `emit-graphviz-fixtures --engine neato` / `oracle-graphviz --engine neato`. Update `scripts/orch/rows/p13-gv2-neato.rows` and your measurement doc to match.
+- `harness/oracle-graphviz.py`: develop's engine-generic structure, with neato's specifics (e.g. `-Gstart`) keyed by engine. Keep the file within 300 lines; split a module out if needed.
+- `registry.rs`: union. Neato's `Capability` goes **last**, after circular.hierarchy, and `LAYOUTS` becomes `[Capability; 26]`. Keep the file within 300 lines.
+- Knob files (`knob.rs`, `knob/setting.rs`, `knob/records.rs`, `tests/knob.rs`, `tests/knob/table.rs`, `tests/common/mod.rs` KNOBS, `cli_p3.rs` count): union, and every count is develop's plus your knob.
+- Count tests: `snapshot_cmd/roundtrip/tests.rs` `"snapshots"` = 5 × (layouts + 1) = 135. `snapshot_cmd/tests.rs`: add the neato id pair after the circular.hierarchy pair. `hashgate/tests/report.rs` `equal`: union of both maps. `capabilities/tests/registry.rs` and `registry/unproven.rs`: union.
+- `docs/measurements/scigraphs-coverage.md`: union, then recount the totals.
+Then run fmt, clippy `-D warnings`, `cargo test --workspace --no-fail-fast`, hashgate 8, your negctl and `oracle-graphviz --engine neato`. Commit with `git commit` (MERGE_HEAD makes it a two-parent commit) and push. Do not run `git merge` or `git rebase`. Dispatch no subagents. End with the return block.
