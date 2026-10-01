@@ -20,7 +20,6 @@ studio-watchdog|build|prompts/jobs/studio-watchdog.md|scripts/orch/rows/quick.ro
 p13-gv1-osage|build|prompts/jobs/p13-gv1-osage.md|scripts/orch/rows/quick.rows|no
 p13-gv1-patchwork|build|prompts/jobs/p13-gv1-patchwork.md|scripts/orch/rows/quick.rows|no
 p12-t3|build|prompts/jobs/p12-t3.md|scripts/orch/rows/quick.rows|no
-studio-3d|build|prompts/jobs/studio-3d.md|scripts/orch/rows/quick.rows|no
 p12-t4a|build|prompts/jobs/p12-t4a.md|scripts/orch/rows/quick.rows|no
 p12-t4b|build|prompts/jobs/p12-t4b.md|scripts/orch/rows/quick.rows|no
 p13-gv2-neato|build|prompts/jobs/p13-gv2-neato.md|scripts/orch/rows/quick.rows|no
