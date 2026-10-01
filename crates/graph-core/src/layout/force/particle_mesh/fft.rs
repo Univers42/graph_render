@@ -74,7 +74,13 @@ impl Plan {
                 }
             })
             .collect();
-        let inverse = forward.iter().map(|w| C { re: w.re, im: -w.im }).collect();
+        let inverse = forward
+            .iter()
+            .map(|w| C {
+                re: w.re,
+                im: -w.im,
+            })
+            .collect();
         Plan {
             side,
             reversed,
@@ -94,7 +100,11 @@ impl Plan {
                 a.swap(i, j as usize);
             }
         }
-        let twiddle = if inverse { &self.inverse } else { &self.forward };
+        let twiddle = if inverse {
+            &self.inverse
+        } else {
+            &self.forward
+        };
         let mut half = 1;
         while half < self.side {
             let stride = self.side / (2 * half);

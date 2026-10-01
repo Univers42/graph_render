@@ -43,7 +43,12 @@ fn direct(x: &[f64], y: &[f64], i: usize, law: Law) -> (f64, f64) {
 fn the_mesh_field_follows_the_direct_sum_at_range() {
     let params = ForceParams::default();
     let (x, y): (Vec<f64>, Vec<f64>) = (0..64)
-        .map(|i| (f64::from(i % 8) * 70.0 + f64::from(i / 8) * 9.0, f64::from(i / 8) * 70.0))
+        .map(|i| {
+            (
+                f64::from(i % 8) * 70.0 + f64::from(i / 8) * 9.0,
+                f64::from(i / 8) * 70.0,
+            )
+        })
         .unzip();
     let law = Law {
         dmin2: params.distance_min * params.distance_min,
@@ -69,7 +74,10 @@ fn a_node_out_of_everyone_s_range_feels_no_force_from_itself() {
     assert!(mesh.solve(&sim));
     for (px, py) in [(0.0, 0.0), (3000.0, 17.5)] {
         let (ex, ey) = mesh.field_at((px, py));
-        assert!(ex.abs() < 1e-12 && ey.abs() < 1e-12, "self force ({ex}, {ey})");
+        assert!(
+            ex.abs() < 1e-12 && ey.abs() < 1e-12,
+            "self force ({ex}, {ey})"
+        );
     }
 }
 
@@ -104,7 +112,10 @@ fn a_chain_settles_to_barnes_hut_s_scale() {
         .expect("valid");
     bh.step(TICKS);
     let (pm, bh) = (mean_link(run.xs(), run.ys()), mean_link(bh.xs(), bh.ys()));
-    assert!((pm / bh - 1.0).abs() < 0.05, "mean link {pm} against Barnes-Hut's {bh}");
+    assert!(
+        (pm / bh - 1.0).abs() < 0.05,
+        "mean link {pm} against Barnes-Hut's {bh}"
+    );
     let (x, y) = (run.xs(), run.ys());
     let closest = (1..x.len())
         .map(|i| libm::hypot(x[i] - x[i - 1], y[i] - y[i - 1]))
@@ -120,4 +131,3 @@ fn an_empty_and_a_single_node_graph_run() {
     let one = index_model(&nodes, &edges).expect("fits");
     assert!(ParticleMesh::run(&one, &ForceParams::default()).is_ok());
 }
-

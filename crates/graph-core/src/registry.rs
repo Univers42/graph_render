@@ -11,7 +11,8 @@ use crate::layout::basic_3d;
 use crate::layout::force::spring::Spring;
 use crate::layout::force::spring::{ID_3D as SPRING_3D_ID, Spring3D};
 use crate::layout::force::{
-    BarnesHut, DavidsonHarel, Drl, FruchtermanReingold, Graphopt, KamadaKawai, Lgl, YifanHu,
+    BarnesHut, DavidsonHarel, Drl, FruchtermanReingold, Graphopt, KamadaKawai, Lgl, ParticleMesh,
+    YifanHu,
 };
 use crate::layout::forceatlas2::ForceAtlas2;
 use crate::layout::graphviz::circo;
@@ -45,7 +46,7 @@ mod radial;
 mod spectral;
 mod three_d;
 use closed_form::{BIPARTITE, RANDOM, RING, SPIRAL};
-use force::{BARNES_HUT, FA2, SPRING, YIFAN_HU};
+use force::{BARNES_HUT, FA2, PARTICLE_MESH, SPRING, YIFAN_HU};
 pub use force::{FA2_CEILING, FORCE_CEILING, SPRING_CEILING};
 use graphviz_circo::CIRCO;
 pub use graphviz_circo::GRAPHVIZ_CIRCO_CEILING;
@@ -105,7 +106,7 @@ pub struct Capability {
 }
 
 /// Every registered layout, in the order the hash gate runs them.
-pub static LAYOUTS: [Capability; 35] = [
+pub static LAYOUTS: [Capability; 36] = [
     Capability {
         id: Grid::ID,
         run: run_default::<Grid>,
@@ -145,6 +146,11 @@ pub static LAYOUTS: [Capability; 35] = [
         id: BarnesHut::ID,
         run: run_default::<BarnesHut>,
         meta: BARNES_HUT,
+    },
+    Capability {
+        id: ParticleMesh::ID,
+        run: run_default::<ParticleMesh>,
+        meta: PARTICLE_MESH,
     },
     Capability {
         id: ForceAtlas2::ID,

@@ -124,6 +124,39 @@ pub(super) const BARNES_HUT: Metadata = Metadata {
     extrapolation, not a run",
 };
 
+/// Node count past which `layout.force.particle_mesh` stops being usable: the whole
+/// 112-tick stage inside the 60-second budget [`FORCE_CEILING`] uses.
+///
+/// Time-bound, measured (`docs/measurements/perf-p2-pm.md`; `graph-cli tick --layout
+/// particle-mesh --n <n>` and `bench --layout layout.force.particle_mesh --n <n>`).
+pub const PM_CEILING: u64 = 1_000_000;
+
+pub(super) const PARTICLE_MESH: Metadata = Metadata {
+    tier: 1,
+    stage: "layout",
+    nodes: NodeGeometryKind::Point,
+    edges: EdgeGeometryKind::Line,
+    oracle: "graph-cli stress --oracle d3 --layout layout.force.particle_mesh (record \
+    stress-pm): the frozen d3-force@3.0.0 force set at TICKS=112, Barnes-Hut's link, center \
+    and integrate called as they are, many-body summed on a P x P mesh by FFT and collide \
+    resolved over a hashed cell list; held to the same margin -0.05 against d3 as \
+    Barnes-Hut. Unit-checked against the direct sum (field rms < 5% at range), the \
+    pairwise collide scan (equal within 1e-9) and Barnes-Hut's settled link length (5%)",
+    complexity: "O(n + P^2 log P) per tick x TICKS=112, P = clamp(next_pow2(ceil(sqrt n)), \
+    128, 1024): CIC deposit and read O(n), two P x P FFTs, collide a counting sort plus nine \
+    buckets per node, link O(m)",
+    scale_ceiling: PM_CEILING,
+    degradation: "past the ceiling there is no refusal: the stage returns finite geometry \
+    after more than the 60-second budget, and the mesh side stays capped at 1024, so cells \
+    widen and more of the many-body force falls in the smoothed range. A non-finite \
+    position refuses with StageError::NonFinite",
+    ponytail: "Ponytail (mesh): the charge force is the law convolved at cell resolution, \
+    smooth below about two cells; failing input is a dense cluster several nodes per cell \
+    wide, where nodes repel less than under Barnes-Hut; direction UNDER-SPREADING at small \
+    scale, graded by the stress-pm record; escape hatch layout.force.barnes_hut. Force \
+    layouts are chaotic as for Barnes-Hut: a topology change is a different picture",
+};
+
 pub(super) const SPRING: Metadata = Metadata {
     tier: 1,
     stage: "layout",

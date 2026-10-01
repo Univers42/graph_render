@@ -41,7 +41,10 @@ fn a_line_matches_the_naive_dft_both_ways() {
             let want = naive(&a, inverse);
             plan.line(&mut a, inverse);
             let gap = max_gap(&a, &want);
-            assert!(gap < 1e-9 * side as f64, "side {side} inverse {inverse}: {gap}");
+            assert!(
+                gap < 1e-9 * side as f64,
+                "side {side} inverse {inverse}: {gap}"
+            );
         }
     }
 }
@@ -83,7 +86,10 @@ fn the_2d_transform_is_the_naive_one_transposed() {
 fn transpose_is_its_own_inverse_over_a_ragged_tile() {
     let side = 2 * TILE + 5;
     let input = samples(side * side);
-    let (mut once, mut twice) = (vec![C::default(); side * side], vec![C::default(); side * side]);
+    let (mut once, mut twice) = (
+        vec![C::default(); side * side],
+        vec![C::default(); side * side],
+    );
     transpose(&input, &mut once, side);
     assert_eq!(once[side + 2], input[2 * side + 1]);
     transpose(&once, &mut twice, side);

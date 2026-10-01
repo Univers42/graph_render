@@ -63,6 +63,7 @@ const IGRAPH_LAYOUTS: [&str; 6] = [
 pub(super) fn force_record(id: &str) -> Option<(&'static str, Status)> {
     match id {
         "layout.force.barnes_hut" => Some(("stress", Status::Implemented)),
+        "layout.force.particle_mesh" => Some(("stress-pm", Status::Implemented)),
         "layout.forceatlas2" => Some(("oracle-fa2", Status::Implemented)),
         // Ponytail: no differential exists for SciGraphs' own multilevel layout; the
         // stress record is the closest metric and is barnes_hut's, so `implemented` only.

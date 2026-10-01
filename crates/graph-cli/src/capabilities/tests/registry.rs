@@ -168,6 +168,8 @@ fn the_registry_covers_every_oracle_function_once_its_ids_are_unique() {
             ("oracle-layouts", r.id, Status::Gated)
         } else if r.id == "layout.force.barnes_hut" || r.id == "layout.force.yifan_hu" {
             ("stress", r.id, Status::Implemented)
+        } else if r.id == "layout.force.particle_mesh" {
+            ("stress-pm", r.id, Status::Implemented)
         } else if r.id == "layout.forceatlas2" {
             ("oracle-fa2", r.id, Status::Implemented)
         } else if IGRAPH_LAYOUT_IDS.contains(&r.id) {

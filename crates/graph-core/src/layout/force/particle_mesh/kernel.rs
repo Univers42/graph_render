@@ -39,7 +39,12 @@ impl Kernel {
 
     /// Makes the spectrum the one for `frame` and `law`; `scratch` is overwritten.
     pub(super) fn refresh(&mut self, plan: &Plan, frame: &Frame, law: Law, scratch: &mut [C]) {
-        let key = (frame.step, frame.reach, law.dmin2.to_bits(), law.dmax2.to_bits());
+        let key = (
+            frame.step,
+            frame.reach,
+            law.dmin2.to_bits(),
+            law.dmax2.to_bits(),
+        );
         if self.built_for == Some(key) {
             return;
         }

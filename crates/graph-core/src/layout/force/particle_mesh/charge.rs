@@ -48,5 +48,10 @@ pub(super) fn apply<R: Runner>(sim: &mut Sim, mesh: &mut Mesh, how: &mut How<'_,
     };
     how.runner.run(&read, how.workers, how.deltas);
     let split = how.split.splits(Split::Charge);
-    step::merge((&mut sim.vx, &mut sim.vy), Some(&mesh.grid.order), how.deltas, split);
+    step::merge(
+        (&mut sim.vx, &mut sim.vy),
+        Some(&mesh.grid.order),
+        how.deltas,
+        split,
+    );
 }

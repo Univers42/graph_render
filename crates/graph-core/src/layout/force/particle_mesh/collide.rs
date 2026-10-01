@@ -4,17 +4,19 @@
 //! The overlap correction is Barnes-Hut's own (`barnes_hut/collide.rs::resolve`): the same
 //! subtraction read from either end, the same jiggle keys, the same half push. What
 //! changes is how the candidates are found. A counting sort puts the nodes in bucket order
-//! once per tick, `O(n + buckets)`, and a query reads nine contiguous ranges of that order,
-//! against the quadtree's build and walk.
+//! once per tick, `O(n + buckets)`, and a query reads its three cell rows, three buckets
+//! each, against the quadtree's build and walk.
 //!
-//! Cells are hashed into `2n` rounded up to a power of two buckets, so the grid costs the
-//! same however far apart the nodes are. Two cells that share a bucket only add
-//! candidates, which the distance test rejects; a bucket two of the nine neighbour cells
-//! share is read once.
+//! Rows are hashed and the cells along a row are not: cell `(cx, cy)` is bucket
+//! `row(cy) + cx` modulo `2n` rounded up to a power of two. The grid costs the same however
+//! far apart the nodes are, the three cells a query reads in one row are three consecutive
+//! buckets, so three runs of the sorted positions, and the next node along the row reads
+//! the same memory again. Two cells that share a bucket only add candidates, which the
+//! distance test rejects; a bucket two of a query's rows share is read once.
 //!
 //! Caveat: a bucket shared by two crowded cells makes both cells' queries read both
-//! crowds. Collisions are spread by the multiplicative hash, not bounded, so the worst case
-//! is a quadratic scan of one bucket; a dense overlap (every node within one diameter) is
+//! crowds. Rows are spread by the multiplicative hash, not bounded, so the worst case is a
+//! quadratic scan of one bucket; a dense overlap (every node within one diameter) is
 //! quadratic for Barnes-Hut as well.
 
 use super::frame;
@@ -27,19 +29,6 @@ use std::ops::Range;
 const PASS_X: u32 = 4;
 const PASS_Y: u32 = 5;
 
-/// The nine cells a query reads, its own first.
-const NEIGHBOURS: [(i64, i64); 9] = [
-    (0, 0),
-    (-1, -1),
-    (0, -1),
-    (1, -1),
-    (-1, 0),
-    (1, 0),
-    (-1, 1),
-    (0, 1),
-    (1, 1),
-];
-
 /// The cell list over one tick's projected positions.
 pub(in crate::layout::force) struct Grid {
     /// The node at each sorted slot. Every node has one, a non-finite one too, so the
@@ -49,10 +38,12 @@ pub(in crate::layout::force) struct Grid {
     start: Vec<u32>,
     /// Each node's bucket, scratch for the sort.
     bucket: Vec<u32>,
-    sx: Vec<f64>,
-    sy: Vec<f64>,
-    /// `64 - log2(buckets)`: the hash's top bits are the bucket.
+    /// The positions in sorted order.
+    at: Vec<[f64; 2]>,
+    /// `64 - log2(buckets)`: the row hash's top bits are the row's first bucket.
     shift: u32,
+    /// `buckets - 1`.
+    mask: u64,
     origin: (f64, f64),
     size: f64,
 }
@@ -69,14 +60,15 @@ struct Contact {
 
 impl Grid {
     pub(super) fn new(n: u32) -> Grid {
-        let buckets = (2 * n as usize).next_power_of_two().max(2);
+        // At least four, so a row's three buckets are three distinct ones.
+        let buckets = (2 * n as usize).next_power_of_two().max(4);
         Grid {
             order: (0..n).collect(),
             start: vec![0; buckets + 1],
             bucket: vec![0; n as usize],
-            sx: vec![0.0; n as usize],
-            sy: vec![0.0; n as usize],
+            at: vec![[0.0; 2]; n as usize],
             shift: 64 - buckets.trailing_zeros(),
+            mask: buckets as u64 - 1,
             origin: (0.0, 0.0),
             size: 1.0,
         }
@@ -99,7 +91,7 @@ impl Grid {
             let slot = &mut self.start[self.bucket[i] as usize];
             let k = *slot as usize;
             *slot += 1;
-            (self.order[k], self.sx[k], self.sy[k]) = (i as u32, x[i], y[i]);
+            (self.order[k], self.at[k]) = (i as u32, [x[i], y[i]]);
         }
         // Each `start[b]` now holds bucket `b`'s end, which is bucket `b + 1`'s start.
         let buckets = self.start.len() - 1;
@@ -115,46 +107,69 @@ impl Grid {
     }
 
     fn bucket_of(&self, (cx, cy): (i64, i64)) -> u32 {
-        let mixed = (cx as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ cy as u64;
-        (mixed.wrapping_mul(0xC2B2_AE3D_27D4_EB4F) >> self.shift) as u32
+        (self.row(cy).wrapping_add(cx as u64) & self.mask) as u32
     }
 
-    /// Slot `k`'s half of every overlap it has, neighbour buckets in [`NEIGHBOURS`] order
-    /// and slots in sorted order within each.
+    /// Row `cy`'s bucket for cell `0`, the hash's top bits.
+    fn row(&self, cy: i64) -> u64 {
+        (cy as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) >> self.shift
+    }
+
+    /// Slot `k`'s half of every overlap it has: rows `cy - 1..=cy + 1`, buckets left to
+    /// right within a row, slots in sorted order within a bucket.
     fn delta(&self, k: usize, contact: Contact) -> (f64, f64) {
-        let (cx, cy) = self.cell_of((self.sx[k], self.sy[k]));
-        let mut seen = [u32::MAX; 9];
+        let (cx, cy) = self.cell_of((self.at[k][0], self.at[k][1]));
+        let mut firsts = [0; 3];
         let mut out = (0.0, 0.0);
-        for (slot, &(dx, dy)) in NEIGHBOURS.iter().enumerate() {
-            let b = self.bucket_of((cx.wrapping_add(dx), cy.wrapping_add(dy)));
-            if seen[..slot].contains(&b) {
-                continue;
-            }
-            seen[slot] = b;
-            for q in self.start[b as usize] as usize..self.start[b as usize + 1] as usize {
-                if q != k {
-                    let offset = (self.sx[k] - self.sx[q], self.sy[k] - self.sy[q]);
-                    resolve(contact, (self.order[k], self.order[q]), offset, &mut out);
+        for (r, dy) in (-1..=1).enumerate() {
+            let first = self.bucket_of((cx.wrapping_sub(1), cy.wrapping_add(dy))) as u64;
+            for b in (first..first + 3).map(|b| b & self.mask) {
+                // An earlier row's three buckets `e..e + 3` may hold `b`: read it once.
+                if !firsts[..r]
+                    .iter()
+                    .any(|&e| b.wrapping_sub(e) & self.mask < 3)
+                {
+                    self.scan(k, b as usize, contact, &mut out);
                 }
             }
+            firsts[r] = first;
         }
         out
+    }
+
+    /// Slot `k`'s half of its overlaps with bucket `b`'s slots.
+    fn scan(&self, k: usize, b: usize, contact: Contact, out: &mut (f64, f64)) {
+        let lo = self.start[b] as usize;
+        let [px, py] = self.at[k];
+        let slots = &self.at[lo..self.start[b + 1] as usize];
+        for (q, &[qx, qy]) in (lo..).zip(slots) {
+            if q != k {
+                let ids = || (self.order[k], self.order[q]);
+                resolve(contact, ids, (px - qx, py - qy), out);
+            }
+        }
     }
 }
 
 /// Barnes-Hut's overlap correction for one pair, `offset` being the querying node's
-/// position minus the other's. A NaN offset is no overlap.
-fn resolve(c: Contact, ids: (u32, u32), (mut dx, mut dy): (f64, f64), out: &mut (f64, f64)) {
+/// position minus the other's. A NaN offset is no overlap. `ids` is called only for a
+/// jiggle, which most overlaps never need.
+fn resolve(
+    c: Contact,
+    ids: impl Fn() -> (u32, u32),
+    (mut dx, mut dy): (f64, f64),
+    out: &mut (f64, f64),
+) {
     let mut l = dx * dx + dy * dy;
     if l.is_nan() || l >= c.d2 {
         return;
     }
     if dx == 0.0 {
-        dx = jiggle(c.seed, c.tick, PASS_X, ids);
+        dx = jiggle(c.seed, c.tick, PASS_X, ids());
         l += dx * dx;
     }
     if dy == 0.0 {
-        dy = jiggle(c.seed, c.tick, PASS_Y, ids);
+        dy = jiggle(c.seed, c.tick, PASS_Y, ids());
         l += dy * dy;
     }
     let dist = libm::sqrt(l);
@@ -201,9 +216,15 @@ pub(super) fn apply<R: Runner>(sim: &mut Sim, grid: &mut Grid, how: &mut How<'_,
         tick: sim.tick_no,
     };
     grid.build((&sim.px, &sim.py), contact.reach);
-    how.runner.run(&Gather { grid, contact }, how.workers, how.deltas);
+    how.runner
+        .run(&Gather { grid, contact }, how.workers, how.deltas);
     let split = how.split.splits(Split::Collide);
-    step::merge((&mut sim.vx, &mut sim.vy), Some(&grid.order), how.deltas, split);
+    step::merge(
+        (&mut sim.vx, &mut sim.vy),
+        Some(&grid.order),
+        how.deltas,
+        split,
+    );
 }
 
 #[cfg(test)]
