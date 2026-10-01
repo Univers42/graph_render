@@ -1,0 +1,157 @@
+# p12-t3.rows — the gate for prompts/jobs/p12-t3.md: the last five SciGraphs layouts, all
+# natively 3D (`layout.basic3d.sphere`, `.helix`, `.cube`, `layout.hierarchical3d`,
+# `layout.force.spring3d`).
+#
+# Format: `name|expect|cmd`, one per line; expect is `0` or `nonzero`; cmd runs from the
+# worktree root under bash (scripts/orch/gate.sh:9-12). `#` lines and blanks are skipped
+# (scripts/orch/gate.sh:10). Run:
+#   scripts/orch/timed scripts/orch/gate.sh <logdir> scripts/orch/rows/p12-t3.rows
+# (`timed` takes the host-wide lock).
+#
+# Everything goes through scripts/orch/gr (the ge-rust image) or `docker run … ge-python-oracle`
+# (the Python oracle arms). Never a bare cargo or python3.
+#
+# The first block is scripts/orch/rows/quick.rows verbatim, so this file gates the same
+# invariants the quick gate does, with this phase's negative controls added below it.
+
+fmt|0|scripts/orch/gr cargo fmt --all --check
+clippy|0|scripts/orch/gr cargo clippy --workspace --all-targets -- -D warnings
+test|0|scripts/orch/gr cargo test --workspace --no-fail-fast
+wasm32-core|0|scripts/orch/gr cargo build -p graph-core --target wasm32-unknown-unknown
+hashgate-8|0|scripts/orch/gr cargo run -q -p graph-cli -- hashgate --seeds 8
+negctl-degree|0|scripts/orch/gr -e GM_MUTATE_REFERENCE_DEGREE=9 cargo run -q -p graph-cli -- hashgate --seeds 8; test $? -eq 1
+negctl-dim-z-mismatch|0|scripts/orch/gr -e GM_MUTATE_NODE_Z=1 cargo run -q -p graph-cli -- roundtrip --seeds 8; test $? -ne 0
+
+# ---------------------------------------------------------------------------
+# NEGATIVE CONTROLS for the five new stages, and WHY THEY ARE THE ONES THEY ARE.
+#
+# Read this before adding a sixth row. Every stage the hash gate hashes is supposed to have
+# a control of its own (hashgate/knob.rs's module doc), and the five here cannot have one
+# for a reason outside this job: a per-stage knob is a new arm in `Knob`, a new row in
+# `hashgate/knobs.rs`'s table and a new entry in `hashgate/knob/arms.rs` + `records.rs` +
+# `tests/knob/table.rs`, and **none of those files is in this job's path list**. What IS
+# reachable from here is a control that already exists and already perturbs these five.
+#
+# Three rows, three different questions, and the split is not decorative:
+#
+# 1. `negctl-node-count` — the SHARED control, `GM_MUTATE_NODE_COUNT`, and the one that
+#    actually proves the five are hashed at all. All five are functions of the node count
+#    (three read nothing else; the other two read the topology, which the count grows), so
+#    one more node moves every one of them and the gate goes red naming them. What it does
+#    NOT prove is that any ONE of them is compared: a control that moves twenty stages at
+#    once cannot say which stage a divergence came from, which is exactly why the per-stage
+#    controls exist. It is here because it is the only control that reaches all five, and
+#    because "the stage is not hashed at all" is the failure worth ruling out first.
+#
+# 2. `negctl-node-z` — the 3D-SPECIFIC control, `GM_MUTATE_NODE_Z=1`, and the only one that
+#    says anything about the third axis. It perturbs the z column of every 3D exercise
+#    (snapshot_cmd/exercise/z.rs:31), so with the five new stages in the registry a run
+#    under it must fail the round trip's face agreement. This is the control that would
+#    catch a 3D layout silently dropping its z and answering as a 2D snapshot — the failure
+#    mode the whole 3D contract change exists to prevent (docs/decisions/contract-3d.md F1).
+#    It is the honest negative control for "these five carry a z column", and no existing
+#    knob answers that question.
+#
+# 3. `negctl-spring-iterations` — `GM_MUTATE_SPRING_ITERATIONS=3`, inherited from p12-t2 and
+#    kept because it is the only control that reaches `layout.force.spring3d`. It is
+#    truthful about its limit and the limit is in the row's comment: `hashgate/stages.rs`
+#    matches the parameter on `Spring::ID` alone, so this knob re-runs the 2D stage's force
+#    pass and reaches the 3D one only through the shared `Stage::run`. It is therefore a
+#    control for the 2D stage that this phase inherits, NOT a control for
+#    `layout.force.spring3d` — a per-stage one for that id needs the same knob-arm work as
+#    #1 and #2 above. Recorded rather than quietly dropped: a control that reaches a stage
+#    is worth having, and a control that does NOT is stated so nobody reads it as one.
+#
+# What is NOT here, deliberately: five `negctl-<layout>-nodes` rows. Writing them means
+# inventing five env names that no code reads, and a row whose variable nothing parses fails
+# at the SETTING stage with exit 2 — so those five rows would be red for the wrong reason
+# and would look like passing controls. Silence here is the defect; the written reason is
+# in docs/measurements/p12-t3.md under "Negative controls", and the fix is the knob arms
+# named above.
+negctl-node-count|nonzero|scripts/orch/gr -e GM_MUTATE_NODE_COUNT=1 cargo run -q -p graph-cli -- hashgate --seeds 8
+negctl-node-z|nonzero|scripts/orch/gr -e GM_MUTATE_NODE_Z=1 cargo run -q -p graph-cli -- roundtrip --seeds 8
+negctl-spring-iterations|nonzero|scripts/orch/gr -e GM_MUTATE_SPRING_ITERATIONS=3 cargo run -q -p graph-cli -- hashgate --seeds 8
+
+# The three-arm chain per differential, in order: emit the fixtures, run the reference arm
+# in the oracle image with the SciGraphs/ submodule mounted, then ingest. A step run before
+# its predecessor reads nothing and reports a vacuous pass.
+#
+# `oracle-*-negctl` is each arm's own negative control, the differential reading fixtures it
+# cannot have: a missing directory must exit 2, not read as agreement.
+#
+# The two PERTURBED rows are the arms' real negative controls, and they are the ones that make
+# the ceilings mean something: a port perturbed away from the reference must FAIL the
+# ceiling rather than pass as green. They perturb the FIXTURES (`harness/perturb-*.py`, the
+# shape `harness/perturb-closed-form.py` already uses) rather than the emit run, and the
+# reason is not preference: **a `GM_MUTATE_*` knob cannot reach the emit path at all**,
+# because `Setting` is `hashgate`'s and `oracle_python::write` calls `gate_node_count`
+# directly. A mutated row that set a knob and expected the fixtures to move would be a
+# control that perturbs nothing, and it would PASS — which is the one failure mode a
+# negative control must not have. `negctl-node-count` above is honest about the same thing
+# for the hash gate, where the knob does reach.
+#
+# Each perturbation lands on a coordinate that is actually GATED. For `basic-3d` that is the
+# sphere's `z` and not the cube's interior: the interior is not compared (ours is a
+# different stream), so perturbing it would turn nothing red and the control would pass for
+# the wrong reason.
+emit-basic-3d-1000|0|scripts/orch/gr cargo run -q --release -p graph-cli -- emit-basic-3d-fixtures --seeds 1000
+oracle-basic-3d-py|0|docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-python-oracle python3 harness/oracle-basic-3d.py target/basic-3d-fixtures
+oracle-basic-3d|0|scripts/orch/gr cargo run -q --release -p graph-cli -- oracle-basic-3d
+oracle-basic-3d-negctl|nonzero|scripts/orch/gr cargo run -q --release -p graph-cli -- oracle-basic-3d --dir target/basic-3d-fixtures-absent
+oracle-basic-3d-perturb-negctl|nonzero|docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-python-oracle python3 harness/perturb-basic-3d.py target/basic-3d-fixtures target/basic-3d-perturbed && docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-python-oracle python3 harness/oracle-basic-3d.py target/basic-3d-perturbed && scripts/orch/gr cargo run -q --release -p graph-cli -- oracle-basic-3d --dir target/basic-3d-perturbed
+
+emit-hierarchical-3d-1000|0|scripts/orch/gr cargo run -q --release -p graph-cli -- emit-hierarchical-3d-fixtures --seeds 1000
+oracle-hierarchical-3d-py|0|docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-python-oracle python3 harness/oracle-hierarchical-3d.py target/hierarchical-3d-fixtures
+oracle-hierarchical-3d|0|scripts/orch/gr cargo run -q --release -p graph-cli -- oracle-hierarchical-3d
+oracle-hierarchical-3d-negctl|nonzero|scripts/orch/gr cargo run -q --release -p graph-cli -- oracle-hierarchical-3d --dir target/hierarchical-3d-fixtures-absent
+oracle-hierarchical-3d-perturb-negctl|nonzero|docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-python-oracle python3 harness/perturb-hierarchical-3d.py target/hierarchical-3d-fixtures target/hierarchical-3d-perturbed && docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-python-oracle python3 harness/oracle-hierarchical-3d.py target/hierarchical-3d-perturbed && scripts/orch/gr cargo run -q --release -p graph-cli -- oracle-hierarchical-3d --dir target/hierarchical-3d-perturbed
+
+# `roundtrip --seeds 100` is what makes the five reach the CONTRACT side rather than only the
+# hash gate: it runs every registered layout over both faces and requires binary -> JSON ->
+# binary and JSON -> binary -> JSON byte-exactness (snapshot_cmd.rs:140-181). A 3D layout
+# joins automatically, which is the property the contract-3d verdict's gate 2 rests on.
+roundtrip-100|0|scripts/orch/gr cargo run -q --release -p graph-cli -- roundtrip --seeds 100
+
+# The ceilings' provenance. `--past-ceiling` is what makes either a measurement rather than
+# a refusal. 1 000 000 is the largest size `bench` accepts (bench/scale.rs:33-34), which is
+# why BASIC_3D_CEILING is that number and not larger: nothing above it can be measured by the
+# project's own bench at all.
+bench-basic-3d|0|scripts/orch/gr cargo run -q --release -p graph-cli -- bench --layout layout.basic3d.sphere,layout.basic3d.helix,layout.basic3d.cube,layout.hierarchical3d --n 1000000 --repeat 3
+bench-spring-3d|0|scripts/orch/gr cargo run -q --release -p graph-cli -- bench --layout layout.force.spring,layout.force.spring3d --n 10000,16000 --repeat 3 --past-ceiling
+
+# `capabilities --check` exits 1 on any tree whose gate records are stale, which is every
+# worktree that has not just run the full develop gate — the problems it prints on this one
+# are pre-existing `gated` rows from another tree, none of them this phase's. What is this
+# phase's obligation is narrower and is what the row checks: none of the five new ids may be
+# named in the problem list, i.e. none may print `gated` on a hash alone. Each is routed to
+# the record its own differential writes with `Status::Implemented`.
+#
+# Both rows call `cargo` directly rather than `scripts/orch/gr cargo`: `gr bash -c` is
+# already inside the image, and re-entering the wrapper from in there re-runs its git
+# preamble inside a container with no git in it. The second row reads the JSON with grep
+# rather than python3, which the ge-rust image does not carry — the JSON is pretty-printed
+# one field per line, `status` is five lines below its `id`, and a missing id fails the grep,
+# so the row still goes red when a row vanishes rather than passing on an absent answer.
+new-rows-add-no-ledger-problem|0|scripts/orch/gr bash -c 'cargo run -q -p graph-cli -- capabilities --check >target/p12-t3-capcheck.log 2>&1; grep -E "layout\.(basic3d\.(sphere|helix|cube)|hierarchical3d|force\.spring3d): gated" target/p12-t3-capcheck.log && exit 1 || exit 0'
+new-rows-are-implemented|0|scripts/orch/gr bash -c 'cargo run -q -p graph-cli -- capabilities --json >target/p12-t3-caps.json || exit 1; for id in layout.basic3d.sphere layout.basic3d.helix layout.basic3d.cube layout.hierarchical3d layout.force.spring3d; do grep -A6 "\"id\": \"$id\"," target/p12-t3-caps.json | grep -q "\"status\": \"implemented\"," || exit 1; done'
+
+# The studio picker needs NO row and NO edit: it reads `LAYOUTS` (prompts/jobs/
+# scigraphs-gap.md:4-5), so a registered id appears in it by itself. This row asserts that
+# reading rather than a picker file: if the registry ever stops being the source the picker
+# reads, this goes red — and the fix is in the picker, not in a second list to keep in sync.
+studio-picker-reads-the-registry|0|scripts/orch/gr bash -c 'cargo run -q -p graph-cli -- capabilities --json >target/p12-t3-caps.json || exit 1; for id in layout.basic3d.sphere layout.basic3d.helix layout.basic3d.cube layout.hierarchical3d layout.force.spring3d; do grep -q "\"id\": \"$id\"," target/p12-t3-caps.json || exit 1; done'
+
+# `LAYOUTS[3]` is the default crossover arm (crates/graph-cli/src/bench/campaign.rs:128) and
+# inserting rather than appending would repoint it with no compile error. Two assertions, and
+# the second is the one that matters:
+#
+#   1. the five new ids are the LAST FIVE layout rows, in registry order. `capabilities
+#      --json` walks `LAYOUTS` in order, so "last five" is exactly "appended", and this is
+#      what fails if anyone ever inserts one. It is a real index assertion, not a
+#      registration check: a grep for one id would pass just as happily after an insertion.
+#   2. the order of the layout ids is unchanged at the front. The first layout row is
+#      `layout.grid` and the fourth is `layout.circular.radial`, which is what `LAYOUTS[3]`
+#      names today — worth pinning because the name "DEFAULT_ARM" reads like a force layout
+#      and it is not one.
+five-new-layouts-are-appended|0|scripts/orch/gr bash -c 'cargo run -q -p graph-cli -- capabilities --json >target/p12-t3-caps.json || exit 1; tail -5 <(grep "\"id\": \"layout\." target/p12-t3-caps.json | sed "s/.*: \"//;s/\",//") >target/p12-t3-tail.txt; printf "%s\n" layout.basic3d.sphere layout.basic3d.helix layout.basic3d.cube layout.hierarchical3d layout.force.spring3d >target/p12-t3-want.txt; cmp target/p12-t3-want.txt target/p12-t3-tail.txt || { echo "the five new layouts are not the last five, in order"; exit 1; }'
+layout-order-front-is-unchanged|0|scripts/orch/gr bash -c 'cargo run -q -p graph-cli -- capabilities --json >target/p12-t3-caps.json || exit 1; head -4 <(grep "\"id\": \"layout\." target/p12-t3-caps.json | sed "s/.*: \"//;s/\",//") >target/p12-t3-head.txt; printf "%s\n" layout.grid layout.tree.tidy layout.treemap.squarified layout.circular.radial >target/p12-t3-want-front.txt; cmp target/p12-t3-want-front.txt target/p12-t3-head.txt || { echo "the front of LAYOUTS moved, so LAYOUTS[3] is no longer layout.circular.radial"; exit 1; }'

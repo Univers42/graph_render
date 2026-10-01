@@ -4,6 +4,8 @@
 
 use super::*;
 mod force;
+mod ids;
+use ids::{BASIC_3D as BASIC_3D_IDS, IGRAPH as IGRAPH_LAYOUT_IDS};
 use std::collections::BTreeSet;
 
 /// Phase 8's bundling and style rows. `post.route.grid` was the only POST row the ledger
@@ -130,20 +132,6 @@ fn each_style_row_names_the_geometry_kind_its_own_style_emits() {
     }
 }
 
-/// The six igraph-family layouts, by id. The same list
-/// `registry::unproven::force_record` filters on, named here so the two can be compared by
-/// a test rather than trusted: a layout the row builder filters and the test does not
-/// would fall through to the `roundtrip`/`Gated` arm below and the row would claim a gate
-/// no differential of its own can earn.
-const IGRAPH_LAYOUT_IDS: [&str; 6] = [
-    "layout.force.fruchterman_reingold",
-    "layout.force.kamada_kawai",
-    "layout.force.graphopt",
-    "layout.force.davidson_harel",
-    "layout.force.lgl",
-    "layout.force.drl",
-];
-
 /// The record a row names, as `(oracle_record, hash_stage)`. Each row's two names must be
 /// a record `graph-cli` actually writes — a name nothing writes is a row that can never
 /// be backed, however often the gate is re-run.
@@ -184,8 +172,15 @@ fn the_registry_covers_every_oracle_function_once_its_ids_are_unique() {
             ("oracle-fa2", r.id, Status::Implemented)
         } else if IGRAPH_LAYOUT_IDS.contains(&r.id) {
             ("oracle-igraph", r.id, Status::Implemented)
-        } else if r.id == "layout.force.spring" {
+        } else if r.id == "layout.force.spring" || r.id == "layout.force.spring3d" {
+            // **One record for both, deliberately**: one algorithm at two dimensions over one
+            // kernel, so one stress run at `dim = 3` is spring3d's comparison.
             ("oracle-spring", r.id, Status::Implemented)
+        } else if BASIC_3D_IDS.contains(&r.id) {
+            // One arm file, one record — `implemented` per `unproven.rs`.
+            ("oracle-basic-3d", r.id, Status::Implemented)
+        } else if r.id == "layout.hierarchical3d" {
+            ("oracle-hierarchical-3d", r.id, Status::Implemented)
         } else if r.id == "layout.circular.hierarchy" {
             // A closed form with a SciGraphs-arm differential, `implemented` rather than
             // `gated` for the reason `unproven.rs` gives: the record is read by name like

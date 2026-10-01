@@ -8,6 +8,7 @@
 //! repaired tree the tree layouts share.
 
 mod adjacency;
+pub mod basic_3d;
 pub mod bipartite;
 pub mod circle_packing;
 pub mod circular;
@@ -16,6 +17,7 @@ pub mod force;
 pub mod forceatlas2;
 pub mod graphviz;
 pub mod grid;
+pub mod hierarchical_3d;
 pub mod hierarchy;
 pub mod pivot_mds;
 pub mod planarity;

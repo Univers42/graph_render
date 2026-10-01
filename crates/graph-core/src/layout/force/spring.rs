@@ -6,9 +6,13 @@
 //! **`SPRING_3D` is this same function at `dim=3`**
 //! (`networkx_layouts.py:26-34`, one wrapper over `spring_layout` with the dimension
 //! literal changed and nothing else), and SciGraphs offers both names for the one
-//! algorithm. The motor is 2D (`NodeGeometry::Point` carries `x, y` only), so this id
-//! answers the `SPRING` row and `SPRING_3D` stays unimplemented until `contract-3d`
-//! exists — at which point the port is `dim = 3` and the same differential runs again.
+//! algorithm. So it is shipped as [`Spring3D`] — this same kernel at `D = 3`, in
+//! [`spring3d`], **not** a second kernel: the dimension is a const parameter of
+//! [`forces::Field`] and [`forces::Solver`], and at `D = 2` it performs the operations, in
+//! the order, that this file performed before the dimension was a parameter, so no 2D byte
+//! moves (`tests::the_two_dimensional_kernel_is_bit_identical_to_its_pre_dimension_form`
+//! pins the coordinates it pinned). The difference between the two stages is the geometry
+//! they build and nothing else: `Geometry::planar` here, `Geometry::in_space` there.
 //!
 //! This is **not** `layout.forceatlas2` and **not** `layout.force.barnes_hut`:
 //! Fruchterman–Reingold attraction and repulsion, dense, with a linear cooling schedule,
@@ -77,8 +81,12 @@
 //! the claim is falsifiable from the port's side.
 
 mod forces;
+#[path = "spring3d.rs"]
+mod spring3d;
 #[cfg(test)]
 mod tests;
+
+pub use spring3d::{ID_3D, Spring3D};
 
 use super::simple_graph;
 use crate::index::Topology;
@@ -136,70 +144,94 @@ impl Stage for Spring {
     const ID: &'static str = ID;
 
     fn run(topology: &Topology, params: &Self::Params) -> Result<Geometry, StageError> {
-        let n = topology.node_count();
-        // `spring_layout` returns `center` for a single node and `{}` for none
-        // (`layout.py:618-624`), before any force is computed; ported rather than
-        // approximated, because a one-node graph's answer *is* the centre.
-        if n < 2 {
-            return Ok(point_field(&Field::zeros(n)));
-        }
-        let graph = simple_graph(topology);
-        let mut field = Solver::new(&graph, n).settle(start(n), *params);
-        rescale_to(&mut field, params.scale);
-        if field.x.iter().chain(&field.y).any(|v| !v.is_finite()) {
-            return Err(StageError::NonFinite { column: "node.x" });
-        }
-        Ok(point_field(&field))
+        let solved = solve::<2>(topology, params)?;
+        // `Point` nodes at the field's own `f32` columns, straight `Line` edges, no notes:
+        // the planar constructor, so no 2D byte moves by carrying a z column it never had.
+        Ok(crate::layout::coords::point_geometry(
+            &solved.c[0],
+            &solved.c[1],
+        ))
     }
 }
 
-/// `Point` nodes at the field's own `f32` columns, straight `Line` edges, no notes.
-fn point_field(field: &Field) -> Geometry {
-    crate::layout::coords::point_geometry(&field.x, &field.y)
+/// The whole stage at `D` columns, shared by both dimensions: the `n < 2` early return,
+/// the settle, the rescale and D9's check, returning the field's columns in axis order.
+///
+/// `D = 2` runs exactly the operations the two-column kernel ran before the dimension was a
+/// parameter; `D = 3` is the same calls on one more column. Only the *shape* of the
+/// result differs — the columns — so there is nothing else here that could differ with `D`.
+fn solve<const D: usize>(
+    topology: &Topology,
+    params: &SpringParams,
+) -> Result<Field<D>, StageError> {
+    let n = topology.node_count();
+    // `spring_layout` returns `center` for a single node and `{}` for none
+    // (`layout.py:618-624`), before any force is computed; ported rather than
+    // approximated, because a one-node graph's answer *is* the centre.
+    if n < 2 {
+        return Ok(Field::zeros(n));
+    }
+    let graph = simple_graph(topology);
+    let mut field = Solver::new(&graph, n).settle(start(n), *params);
+    rescale_to(&mut field, params.scale);
+    if let Some(column) = forces::first_non_finite(&field) {
+        return Err(StageError::NonFinite { column });
+    }
+    Ok(field)
 }
 
-/// The start positions, `layout.py:621` reading as "uniform in the unit square": this
-/// crate's `Mulberry32` at [`SEED`], `x` then `y` per node, as `layout/random.rs` and
-/// `forceatlas2` do. Departure 1 in the module doc.
-fn start(n: u32) -> Field {
+/// The start positions, `layout.py:621` reading as "uniform in the unit square" — or, at
+/// `dim = 3`, in the unit cube: this crate's `Mulberry32` at [`SEED`], axis by axis per
+/// node (`x`, then `y`, then `z`), as `layout/random.rs` and `forceatlas2` do.
+///
+/// **Departure 1 in the module doc, at both dimensions.** The reference draws
+/// `seed.rand(n, dim)`; this is a different stream — mulberry32, not numpy's
+/// `RandomState` — so no coordinate of ours equals networkx's for any seed, at either `dim`.
+/// It is drawn axis-major per node, which is the order `seed.rand(n, 2)` fills in C order.
+fn start<const D: usize>(n: u32) -> Field<D> {
     let mut stream = Mulberry32::new(SEED);
-    let (mut x, mut y) = (
-        Vec::with_capacity(n as usize),
-        Vec::with_capacity(n as usize),
-    );
+    let mut c: [Vec<f64>; D] = core::array::from_fn(|_| Vec::with_capacity(n as usize));
     for _ in 0..n {
-        x.push(stream.next_f64());
-        y.push(stream.next_f64());
+        for column in &mut c {
+            column.push(stream.next_f64());
+        }
     }
-    Field { x, y }
+    Field { c }
 }
 
 /// networkx 3.6 `rescale_layout(pos, scale)` (`layout.py:1882-1924`), which
 /// `spring_layout` applies at `layout.py:646` when no node is fixed: subtract the mean per
-/// axis, then scale so the largest magnitude over both axes is exactly `scale`.
+/// axis, then scale so the largest magnitude over **every** axis is exactly `scale` — the
+/// reference's `lim` is the max over the whole array, so at `dim = 3` a `z` of 7 would cap
+/// the drawing, not an `x` of 9.
 ///
 /// **Not [`crate::layout::coords::rescale`]**, which is the same function at `scale = 1`
 /// and is what the closed-form layouts call. Reached for a `scale` other than 1, which
 /// only this layout passes; the arithmetic is the same order, ascending index, and
 /// `scale` goes in as one reciprocal multiply so the result is the reference's
 /// `pos *= scale / lim` (D3).
-fn rescale_to(field: &mut Field, scale: f64) {
-    if field.x.is_empty() {
+fn rescale_to<const D: usize>(field: &mut Field<D>, scale: f64) {
+    if field.c[0].is_empty() {
         return;
     }
-    let count = field.x.len() as f64;
-    let mean_x = field.x.iter().sum::<f64>() / count;
-    let mean_y = field.y.iter().sum::<f64>() / count;
+    let count = field.c[0].len() as f64;
+    let mut means = [0.0; D];
+    for (axis, column) in field.c.iter().enumerate() {
+        means[axis] = column.iter().sum::<f64>() / count;
+    }
     let mut limit = 0.0_f64;
-    for i in 0..field.x.len() {
-        field.x[i] -= mean_x;
-        field.y[i] -= mean_y;
-        limit = limit.max(field.x[i].abs()).max(field.y[i].abs());
+    for i in 0..field.c[0].len() {
+        for (axis, column) in field.c.iter_mut().enumerate() {
+            column[i] -= means[axis];
+            limit = limit.max(column[i].abs());
+        }
     }
     if limit > 0.0 {
         let factor = scale / limit;
-        for value in field.x.iter_mut().chain(field.y.iter_mut()) {
-            *value *= factor;
+        for column in &mut field.c {
+            for value in column.iter_mut() {
+                *value *= factor;
+            }
         }
     }
 }

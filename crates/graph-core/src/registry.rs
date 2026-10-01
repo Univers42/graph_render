@@ -7,7 +7,9 @@
 
 use crate::index::Topology;
 use crate::layout::Geometry;
+use crate::layout::basic_3d;
 use crate::layout::force::spring::Spring;
+use crate::layout::force::spring::{ID_3D as SPRING_3D_ID, Spring3D};
 use crate::layout::force::{
     BarnesHut, DavidsonHarel, Drl, FruchtermanReingold, Graphopt, KamadaKawai, Lgl, YifanHu,
 };
@@ -18,6 +20,7 @@ use crate::layout::graphviz::neato;
 use crate::layout::graphviz::osage;
 use crate::layout::graphviz::patchwork;
 use crate::layout::grid::Grid;
+use crate::layout::hierarchical_3d;
 use crate::layout::radial::twopi;
 use crate::layout::sugiyama::Sugiyama;
 use crate::layout::{
@@ -38,6 +41,7 @@ mod hierarchy;
 mod igraph;
 mod radial;
 mod spectral;
+mod three_d;
 use closed_form::{BIPARTITE, RANDOM, RING, SPIRAL};
 use force::{BARNES_HUT, FA2, SPRING, YIFAN_HU};
 pub use force::{FA2_CEILING, FORCE_CEILING, SPRING_CEILING};
@@ -59,6 +63,8 @@ pub use radial::RADIAL_CEILING;
 use radial::TWOPI;
 use spectral::{PIVOT_MDS, SPECTRAL};
 pub use spectral::{PIVOT_MDS_CEILING, SPECTRAL_CEILING};
+pub use three_d::BASIC_3D_CEILING;
+use three_d::{CUBE, HELIX, HIERARCHICAL_3D, SPHERE, SPRING_3D};
 
 /// What the ledger says about a layout. Every field is required.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -95,7 +101,7 @@ pub struct Capability {
 }
 
 /// Every registered layout, in the order the hash gate runs them.
-pub static LAYOUTS: [Capability; 29] = [
+pub static LAYOUTS: [Capability; 34] = [
     Capability {
         id: Grid::ID,
         run: run_default::<Grid>,
@@ -240,6 +246,36 @@ pub static LAYOUTS: [Capability; 29] = [
         id: fdp::ID,
         run: fdp::run,
         meta: FDP,
+    },
+    // ---- p12-t3, the last five SciGraphs layouts, all natively 3D. APPENDED, never
+    // inserted: `graph-wasm/src/exports/build.rs:23,32,166` maps layouts by INDEX, and
+    // `bench/campaign.rs:128`'s `DEFAULT_ARM` is `LAYOUTS[3]`, so inserting before index 3
+    // would repoint the default crossover arm with no compile error. Nothing above this
+    // line moved.
+    Capability {
+        id: basic_3d::sphere::ID,
+        run: basic_3d::sphere,
+        meta: SPHERE,
+    },
+    Capability {
+        id: basic_3d::helix::ID,
+        run: basic_3d::helix,
+        meta: HELIX,
+    },
+    Capability {
+        id: basic_3d::cube::ID,
+        run: basic_3d::cube,
+        meta: CUBE,
+    },
+    Capability {
+        id: hierarchical_3d::ID,
+        run: hierarchical_3d::run,
+        meta: HIERARCHICAL_3D,
+    },
+    Capability {
+        id: SPRING_3D_ID,
+        run: run_default::<Spring3D>,
+        meta: SPRING_3D,
     },
 ];
 
