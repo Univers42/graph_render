@@ -66,6 +66,8 @@ fn layout_names_offers_every_registered_layout_once_by_both_of_its_names() {
             "circular.hierarchy",
             "layout.treemap.patchwork",
             "treemap.patchwork",
+            "layout.force.sfdp",
+            "force.sfdp",
         ]
     );
     let mut once = names.clone();

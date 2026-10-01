@@ -30,9 +30,10 @@ pub(super) fn by_engine(engine: &str) -> Option<Differential> {
         "twopi" => Some(super::twopi::TWOPI),
         "osage" => Some(super::osage::OSAGE),
         "patchwork" => Some(super::patchwork::PATCHWORK),
+        "sfdp" => Some(super::sfdp::SFDP),
         _ => None,
     }
 }
 
 /// The engine names, for `--engine`'s own value parser.
-pub(super) const ENGINES: [&str; 3] = ["twopi", "osage", "patchwork"];
+pub(super) const ENGINES: [&str; 4] = ["twopi", "osage", "patchwork", "sfdp"];

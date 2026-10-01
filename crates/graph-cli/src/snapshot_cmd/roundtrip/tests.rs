@@ -94,7 +94,7 @@ fn the_record_holds_the_exact_counts_it_reports() {
     let text = serde_json::to_string(&body(5, &found)).expect("json");
     assert_eq!(
         text,
-        r#"{"faces_failed":1,"functions":{"layout.circular.radial":{"cases":5,"declared":0,"unexplained":0},"layout.dag.sugiyama":{"cases":5,"declared":0,"unexplained":1},"layout.grid":{"cases":5,"declared":0,"unexplained":2},"layout.packing.circle":{"cases":5,"declared":0,"unexplained":0}},"notes_cases":{"0.2-labelled":1,"0.3 k=0":2,"code 1":3,"code 2":4,"code 3":5},"pass":false,"seeds":5,"snapshots":135,"three_d_exercise":6}"#
+        r#"{"faces_failed":1,"functions":{"layout.circular.radial":{"cases":5,"declared":0,"unexplained":0},"layout.dag.sugiyama":{"cases":5,"declared":0,"unexplained":1},"layout.grid":{"cases":5,"declared":0,"unexplained":2},"layout.packing.circle":{"cases":5,"declared":0,"unexplained":0}},"notes_cases":{"0.2-labelled":1,"0.3 k=0":2,"code 1":3,"code 2":4,"code 3":5},"pass":false,"seeds":5,"snapshots":140,"three_d_exercise":6}"#
     );
     assert_eq!(body(5, &clean(5))["pass"], serde_json::json!(true));
 }

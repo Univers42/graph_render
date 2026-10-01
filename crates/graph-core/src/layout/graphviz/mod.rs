@@ -10,3 +10,4 @@
 
 pub mod osage;
 pub mod patchwork;
+pub mod sfdp;

@@ -70,11 +70,27 @@ def write_dot(path, n, source, target):
         f.write("\n".join(lines) + "\n")
 
 
+# Per-engine allowance for a *build* notice this image cannot avoid, measured not guessed.
+#
+# `sfdp` calls `remove_overlap` unconditionally (`lib/sfdpgen/spring_electrical.c:1181`) and in an
+# image built without the triangulation library that function is an empty stub which prints one
+# line and returns (`lib/neatogen/overlap.c:588-610`). The notice sets Graphviz's error flag, so
+# the process exits 1 while stdout already holds the complete, finished `-Tplain` drawing. The
+# coordinates are therefore sfdp's own: overlap removal changed nothing, because it ran no code.
+# Measured: `-Goverlap` false/true/scale/prism/vor all produce byte-identical stdout and the same
+# exit 1, so no flag value can suppress it — the notice is removed here, not worked around.
+# Every other engine keeps the strict rule: a non-zero exit is a failure.
+ENGINE_BENIGN_STDERR = {"sfdp": ("Error: remove_overlap: Graphviz not built with triangulation library",)}
+
+
 def run_engine(engine, dot_path, start=START_SEED):
     cmd = [engine, "-Tplain", f"-Gstart={start}", dot_path]
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
-        sys.exit(f"{engine} failed on {dot_path}: {proc.stderr}")
+        benign = ENGINE_BENIGN_STDERR.get(engine, ())
+        noise = [ln for ln in proc.stderr.splitlines() if ln.strip() not in benign]
+        if noise or not benign:
+            sys.exit(f"{engine} failed on {dot_path}: {proc.stderr}")
     return proc.stdout
 
 
@@ -143,6 +159,25 @@ OSAGE_CLOSED = {
 
 CLOSED = {"osage": OSAGE_CLOSED}
 
+# The `sfdp` closed answers, in points, **in the frame `-Tplain` prints**.
+#
+# Exactly one case, and it is closed only because there is nothing left to be random about: a
+# graph with a single node has one position, and the reference lays it at the centre of the
+# default 0.75 x 0.5 inch node box. Measured identical at `-Gstart` 1, 7 and 99.
+#
+# The other five cases of `harness/oracle-twopi.py`'s `CLOSED_CASES` are **deliberately absent**
+# here. This engine is seed-sensitive — measured, not assumed: the two-node, 3-path, 4-cycle,
+# 5-star and 6-branch graphs each print three *different* answers at `-Gstart` 1, 7 and 99,
+# because the seeded random start is the layout's only source of symmetry breaking. So there is
+# no closed answer for them to be compared against, and `docs/measurements/p13-gv2-sfdp.md`
+# records the measured gaps instead. Listing a "closed" answer here that the oracle itself
+# contradicts would turn a failing row green for the wrong reason.
+SFDP_CLOSED = {
+    "one-node": [(27.0, 18.0)],
+}
+
+CLOSED["sfdp"] = SFDP_CLOSED
+
 
 def engine_points(tmp, engine, name, count, edges, start):
     """`<engine> -Tplain` over one DOT graph, as dense-indexed points."""
@@ -202,7 +237,10 @@ def sweep(fixtures, engine, start, peer):
             worst = max(worst, peer.gap(ours_of(record, engine), points))
             theirs.append({"seed": record["seed"], "n": record["n"], "points": points})
         closed = (
-            {name: closed_case(peer, tmp, engine, name, start) for name in peer.CLOSED_CASES}
+            {
+                name: closed_case(peer, tmp, engine, name, start)
+                for name in CLOSED[engine]
+            }
             if engine in CLOSED
             else {}
         )

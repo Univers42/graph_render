@@ -218,6 +218,17 @@ fn the_registry_covers_every_oracle_function_once_its_ids_are_unique() {
             // (`docs/measurements/p13-gv1-patchwork.md`) rather than to bytes, so the row is
             // `implemented` and never a `gated` claim resting on a hash.
             ("oracle-patchwork", r.id, Status::Implemented)
+        } else if r.id == "layout.force.sfdp" {
+            // The fourth Graphviz arm, and the one whose `implemented` status has the
+            // strongest reason of the four: this engine is seed-sensitive, and the oracle
+            // compared *against itself* at `-Gstart` 7 rather than 1 already differs by up to
+            // 4.81e+2 points on the differential's own metric — larger than the 3.88e+2 gap
+            // our own arm shows
+            // (`docs/measurements/p13-gv2-sfdp.md`). The measured gap between the two arms is
+            // 3.881e+2, the same phenomenon — the reference randomises its multilevel
+            // matchings and this port does not. `implemented` is the honest status; `gated`
+            // would claim an agreement the job did not reach.
+            ("oracle-sfdp", r.id, Status::Implemented)
         } else if r.id == "layout.spectral" || r.id == "layout.mds.pivot" {
             ("oracle-spectral", r.id, Status::Gated)
         } else if r.id == "transport.wasm.columnar" {

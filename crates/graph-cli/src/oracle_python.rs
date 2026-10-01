@@ -24,6 +24,7 @@ mod graphviz;
 mod igraph;
 mod osage;
 mod patchwork;
+mod sfdp;
 mod spectral;
 pub mod spring;
 mod twopi;

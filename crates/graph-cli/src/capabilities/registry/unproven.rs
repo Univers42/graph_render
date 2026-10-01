@@ -57,8 +57,9 @@ pub(super) fn force_record(id: &str) -> Option<(&'static str, Status)> {
     match id {
         "layout.force.barnes_hut" => Some(("stress", Status::Implemented)),
         "layout.forceatlas2" => Some(("oracle-fa2", Status::Implemented)),
-        // Ponytail: no differential exists for the multilevel layout (not sfdp); the
+        // Ponytail: no differential exists for SciGraphs' own multilevel layout; the
         // stress record is the closest metric and is barnes_hut's, so `implemented` only.
+        // (Graphviz's `sfdp` is a different algorithm and has its own differential below.)
         "layout.force.yifan_hu" => Some(("stress", Status::Implemented)),
         id if IGRAPH_LAYOUTS.contains(&id) => Some(("oracle-igraph", Status::Implemented)),
         // Its own differential, and its own record, for the same reason `layout.forceatlas2`
@@ -104,6 +105,21 @@ pub(super) fn force_record(id: &str) -> Option<(&'static str, Status)> {
         // and its numbers are in `docs/measurements/p13-gv1-patchwork.md`, and the ceiling
         // reflects `-Tplain`'s five significant digits rather than a shortfall.
         "layout.treemap.patchwork" => Some(("oracle-patchwork", Status::Implemented)),
+        // `layout.force.sfdp` is routed the same way, and its `Ponytail` caveat is stronger
+        // than the three rows above rather than weaker, so it is worth stating why the row is
+        // `Implemented` and not `Gated` on the hash alone. The differential is real and its
+        // numbers are in `docs/measurements/p13-gv2-sfdp.md`. But this engine is SEED-SENSITIVE
+        // (measured: the same fixture hashes differently at `-Gstart` 1, 7 and 99), and the
+        // decisive number is that the oracle compared **against itself** at `-Gstart` 7 rather
+        // than 1 differs by up to 4.81e+2 points on the differential's own metric over the
+        // same 1000 seeds — LARGER than the 3.88e+2 gap our own arm shows. So the
+        // measured gap between the two arms is not a shortfall this port can close by writing
+        // better code: the reference draws a random permutation to order its multilevel
+        // matchings, and a port that does not draw glibc's exact permutation stream cannot
+        // land far below the oracle's own seed-to-seed spread. `Implemented` is the honest
+        // status; `Gated` would claim a byte-agreement this job did not reach, and widening
+        // the ceiling until the row passed would be the same claim with a bigger number.
+        "layout.force.sfdp" => Some(("oracle-sfdp", Status::Implemented)),
         _ => None,
     }
 }
