@@ -47,3 +47,12 @@ studio-switch-fit|build|prompts/jobs/studio-switch-fit.md|scripts/orch/rows/quic
 status-refresh|build|prompts/jobs/status-refresh.md|scripts/orch/rows/docs.rows|no
 # osage-knob|build|prompts/jobs/osage-knob.md|scripts/orch/rows/quick.rows|no   (after p12-t3-knobs lands: same knob files)
 osage-knob|build|prompts/jobs/osage-knob.md|scripts/orch/rows/quick.rows|no
+# sg lines from graph-render-f7 (2026-10-01); dependent ones held in $GM_SCRATCH/orch/pending-sg.txt until their dependencies land
+sg-conformance-split|build|prompts/jobs/sg-conformance-split.md|scripts/orch/rows/quick.rows|no
+sg-mt19937|build|prompts/jobs/sg-mt19937.md|scripts/orch/rows/quick.rows|no
+sg-grid-scale|build|prompts/jobs/sg-grid-scale.md|scripts/orch/rows/quick.rows|no
+sg-graphviz-scale|build|prompts/jobs/sg-graphviz-scale.md|scripts/orch/rows/quick.rows|no
+sg-spiral3d|build|prompts/jobs/sg-spiral3d.md|scripts/orch/rows/quick.rows|no
+sg-bipartite3d|build|prompts/jobs/sg-bipartite3d.md|scripts/orch/rows/quick.rows|no
+sg-sugiyama|build|prompts/jobs/sg-sugiyama.md|scripts/orch/rows/quick.rows|no
+sg-igraph-dims|build|prompts/jobs/sg-igraph-dims.md|scripts/orch/rows/quick.rows|no
