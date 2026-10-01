@@ -198,6 +198,12 @@ fn the_registry_covers_every_oracle_function_once_its_ids_are_unique() {
             // because the differential compares coordinates within a measured 7.1e-2 points
             // (`docs/measurements/p13-gv1.md`) rather than to bytes.
             ("oracle-twopi", r.id, Status::Implemented)
+        } else if r.id == "layout.circular.circo" {
+            // The same arm for the second Graphviz engine: its own record, and `implemented`
+            // rather than `gated` for the reason the `layout.twopi` arm above gives — the
+            // differential compares coordinates against `-Tplain`'s printed resolution rather
+            // than byte for byte (`docs/measurements/p13-gv1-circo.md`).
+            ("oracle-graphviz", r.id, Status::Implemented)
         } else if r.id == "layout.spectral" || r.id == "layout.mds.pivot" {
             ("oracle-spectral", r.id, Status::Gated)
         } else if r.id == "transport.wasm.columnar" {
