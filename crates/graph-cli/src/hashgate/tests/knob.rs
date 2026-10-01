@@ -19,6 +19,7 @@ mod neato;
 mod p3;
 mod patchwork;
 mod table;
+mod three_d;
 mod twopi;
 use controls::only_stage_moved;
 use p3::P3_SEED;

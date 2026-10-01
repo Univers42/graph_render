@@ -4,6 +4,8 @@
 
 use super::*;
 mod force;
+mod ids;
+use ids::{BASIC_3D as BASIC_3D_IDS, IGRAPH as IGRAPH_LAYOUT_IDS};
 use std::collections::BTreeSet;
 
 /// Phase 8's bundling and style rows. `post.route.grid` was the only POST row the ledger
@@ -130,20 +132,6 @@ fn each_style_row_names_the_geometry_kind_its_own_style_emits() {
     }
 }
 
-/// The six igraph-family layouts, by id. The same list
-/// `registry::unproven::force_record` filters on, named here so the two can be compared by
-/// a test rather than trusted: a layout the row builder filters and the test does not
-/// would fall through to the `roundtrip`/`Gated` arm below and the row would claim a gate
-/// no differential of its own can earn.
-const IGRAPH_LAYOUT_IDS: [&str; 6] = [
-    "layout.force.fruchterman_reingold",
-    "layout.force.kamada_kawai",
-    "layout.force.graphopt",
-    "layout.force.davidson_harel",
-    "layout.force.lgl",
-    "layout.force.drl",
-];
-
 /// The record a row names, as `(oracle_record, hash_stage)`. Each row's two names must be
 /// a record `graph-cli` actually writes — a name nothing writes is a row that can never
 /// be backed, however often the gate is re-run.
@@ -184,12 +172,19 @@ fn the_registry_covers_every_oracle_function_once_its_ids_are_unique() {
             ("oracle-fa2", r.id, Status::Implemented)
         } else if IGRAPH_LAYOUT_IDS.contains(&r.id) {
             ("oracle-igraph", r.id, Status::Implemented)
-        } else if r.id == "layout.force.spring" {
+        } else if r.id == "layout.force.spring" || r.id == "layout.force.spring3d" {
+            // **One record for both, deliberately**: one algorithm at two dimensions over one
+            // kernel, so one stress run at `dim = 3` is spring3d's comparison.
             ("oracle-spring", r.id, Status::Implemented)
+        } else if BASIC_3D_IDS.contains(&r.id) {
+            // One arm file, one record — `implemented` per `unproven.rs`.
+            ("oracle-basic-3d", r.id, Status::Implemented)
+        } else if r.id == "layout.hierarchical3d" {
+            ("oracle-hierarchical-3d", r.id, Status::Implemented)
         } else if r.id == "layout.circular.hierarchy" {
             // A closed form with a SciGraphs-arm differential, `implemented` rather than
-            // `gated` for the reason `unproven.rs` gives: the ledger resolves no such
-            // record, so a gated row could only ever read back a refusal.
+            // `gated` for the reason `unproven.rs` gives: the record is read by name like
+            // any other, and what is missing is a 4-way negative control on this stage.
             ("oracle-circular-hierarchy", r.id, Status::Implemented)
         } else if [
             "layout.random",
@@ -210,13 +205,14 @@ fn the_registry_covers_every_oracle_function_once_its_ids_are_unique() {
             // above it: the measured worst gap is 6.73e-2 points against a ceiling of 1e-1,
             // and it is the oracle's printed resolution rather than a disagreement
             // (`docs/measurements/p13-gv2-neato.md`).
-            ("oracle-graphviz", r.id, Status::Implemented)
+            ("oracle-neato", r.id, Status::Implemented)
         } else if r.id == "layout.packing.osage" {
-            // The second Graphviz arm: its own record, and `implemented` rather than
-            // `gated` for a stronger reason than twopi's — osage's differential is *run*
-            // and it disagrees with the oracle by 1785 points on 982 of the 1000 seeds, for
-            // two named causes outside the motor (`docs/measurements/p13-gv1-osage.md`).
-            // An agreement that narrow earns `implemented` and nothing more.
+            // The Graphviz arm whose differential is measured and passing — worst gap
+            // 6.309e-2 points under a 1e-1 ceiling over 1000 seeds
+            // (`docs/measurements/p13-gv1-osage.md`) — and still `implemented`, because the
+            // `layout.packing.osage` stage has no negative control behind it. That is the
+            // whole of what stands between this row and `gated`, and
+            // `capabilities::tests::graphviz` tests it both ways.
             ("oracle-osage", r.id, Status::Implemented)
         } else if r.id == "layout.circular.circo" {
             // The third Graphviz arm, on the `layout.twopi` reasoning and with a measured
@@ -238,6 +234,17 @@ fn the_registry_covers_every_oracle_function_once_its_ids_are_unique() {
             // (`docs/measurements/p13-gv2-fdp.md`). Its own record, like twopi's and
             // osage's — the three arms share an engine family and share no code.
             ("oracle-fdp", r.id, Status::Implemented)
+        } else if r.id == "layout.force.sfdp" {
+            // The fourth Graphviz arm, and the one whose `implemented` status has the
+            // strongest reason of the four: this engine is seed-sensitive, and the oracle
+            // compared *against itself* at `-Gstart` 7 rather than 1 already differs by up to
+            // 4.81e+2 points on the differential's own metric — larger than the 3.88e+2 gap
+            // our own arm shows
+            // (`docs/measurements/p13-gv2-sfdp.md`). The measured gap between the two arms is
+            // 3.881e+2, the same phenomenon — the reference randomises its multilevel
+            // matchings and this port does not. `implemented` is the honest status; `gated`
+            // would claim an agreement the job did not reach.
+            ("oracle-sfdp", r.id, Status::Implemented)
         } else if r.id == "layout.spectral" || r.id == "layout.mds.pivot" {
             ("oracle-spectral", r.id, Status::Gated)
         } else if r.id == "transport.wasm.columnar" {

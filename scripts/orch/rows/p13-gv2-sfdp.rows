@@ -1,0 +1,72 @@
+# p13-gv2 sfdp — the merge floor, the two wasm32 builds, the hash gate at 8 seeds, the
+# existing knob controls, and the sfdp differential's three steps plus the negative controls
+# that matter for an engine which disagrees with its oracle by construction.
+#
+# Copied from `scripts/orch/rows/quick.rows` (the merge floor plus wasm32 and hashgate 8),
+# with the differential chain in the three-step shape `scripts/orch/rows/p13-gv1.rows` uses.
+#
+# The timed gates — `hashgate --seeds 1000`, `scripts/orch/gate.sh`, `scripts/orch/mutants.sh` —
+# are the orchestrator's and are not rows here: one timed gate at a time (CLAUDE.md).
+# `expect` is `0` or `nonzero`; `#` starts a comment (`scripts/orch/gate.sh:2-4`).
+
+fmt|0|scripts/orch/gr cargo fmt --all --check
+clippy|0|scripts/orch/gr cargo clippy --workspace --all-targets -- -D warnings
+test|0|scripts/orch/gr cargo test --workspace --no-fail-fast
+wasm32-core|0|scripts/orch/gr cargo build -p graph-core --target wasm32-unknown-unknown
+wasm32-motor|0|scripts/orch/gr cargo build -p graph-wasm --release --target wasm32-unknown-unknown
+hashgate-8|0|scripts/orch/gr cargo run -q -p graph-cli -- hashgate --seeds 8
+
+# The negative controls. The knob list exists once, in
+# `crates/graph-cli/src/hashgate/knob.rs:236`.
+#
+# **There is deliberately no `negctl-sfdp-nodes` row.** The per-stage knob for a Graphviz
+# engine re-draws that stage's own model (`hashgate/knob/twopi.rs` is the precedent), and
+# `hashgate/knob.rs` plus `hashgate/knob/` are shared with the parallel Graphviz engine
+# jobs — p13-gv2-dot, gv2-neato and gv2-fdp — so several agents editing one enum is a merge
+# collision on a gate file, not a feature. The controls below sit where they can be added
+# without touching it, and they are the ones that matter here: this engine disagrees with its
+# oracle by construction (see `docs/measurements/p13-gv2-sfdp.md`), so what has to be proven is
+# that the comparison sees the oracle's own output and cannot pass on nothing.
+negctl-twopi-nodes|nonzero|scripts/orch/gr -e GM_MUTATE_TWOPI_NODES=1 cargo run -q -p graph-cli -- hashgate --seeds 8
+
+# The sfdp differential at the seed count it is measured at
+# (`docs/measurements/p13-gv2-sfdp.md`): emit the fixtures, run Graphviz's own engine over
+# them in the pinned docker-only oracle image, then check the result against the measured
+# ceiling and record it. The oracle rows are the only ones here that talk to Docker.
+sfdp-emit-1000|0|scripts/orch/gr cargo run -q -p graph-cli -- emit-graphviz-fixtures --engine sfdp --seeds 1000
+sfdp-oracle-1000|0|docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/sfdp-fixtures sfdp target/gv-sfdp --differential
+sfdp-check-1000|0|scripts/orch/gr cargo run -q -p graph-cli -- oracle-graphviz --engine sfdp
+
+# The oracle is deterministic: the same 1000 fixtures through `sfdp` twice, byte for byte.
+# This is the evidence the ADR's determinism claim rests on, run as a row so it cannot rot.
+sfdp-oracle-determinism|0|docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/sfdp-fixtures sfdp target/gv-sfdp-cmp-a --differential && docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/sfdp-fixtures sfdp target/gv-sfdp-cmp-b --differential && cmp target/gv-sfdp-cmp-a/graphviz-sfdp.jsonl target/gv-sfdp-cmp-b/graphviz-sfdp.jsonl
+
+# **`-Gstart` is NOT inert for this engine, and that is a measurement rather than an
+# assumption** — the opposite of every other Graphviz engine row, which asserts the three
+# seeds are byte-identical. Here they are not, so the trailing `cmp` of start=1 against
+# start=7 is *expected to fail* and the row is `expect nonzero`: a `cmp` that succeeded would
+# mean the seed had stopped reaching the layout, which is the failure this engine is most
+# exposed to. Measured sha256 over these same 20 fixtures: start=1 `4a4cc3c0…`, start=7
+# `248277e7…`, start=99 `3e190889…` — three distinct files. All three runs use the plain
+# positional call so they write the same record shape and `cmp` is meaningful; `--fixtures` is
+# required because the emitted file is `sfdp.jsonl`, not the default `spectral.jsonl`.
+sfdp-oracle-start-sensitive|nonzero|scripts/orch/gr cargo run -q -p graph-cli -- emit-graphviz-fixtures --engine sfdp --seeds 20 --out target/sfdp-negctl && docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/sfdp-negctl sfdp target/gv-sfdp-start1 --fixtures=sfdp.jsonl --start=1 && docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/sfdp-negctl sfdp target/gv-sfdp-start7 --fixtures=sfdp.jsonl --start=7 && docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/sfdp-negctl sfdp target/gv-sfdp-start99 --fixtures=sfdp.jsonl --start=99 && cmp target/gv-sfdp-start1/graphviz-sfdp.jsonl target/gv-sfdp-start7/graphviz-sfdp.jsonl
+
+# **Control 1: the oracle's output for this engine is read to the last digit.** Two runs of
+# the *same* 20 fixtures (a and b) are byte-identical; then one node coordinate of one seed
+# in b is moved by 1e-6 points — a millionth of a point, four orders of magnitude below
+# anything the layout computes — and the byte comparison must fail. Without it, "the two runs
+# are identical" could mean "the comparison never looks". Both sides come from the same
+# fixture set: comparing a 20-seed output against the 1000-seed one would differ in the seed
+# count alone and would pass with the perturbation deleted, which is a control that cannot
+# fail.
+sfdp-oracle-perturb-negctl|nonzero|scripts/orch/gr cargo run -q -p graph-cli -- emit-graphviz-fixtures --engine sfdp --seeds 20 --out target/sfdp-negctl && docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/sfdp-negctl sfdp target/gv-sfdp-negctl-a --differential && docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/sfdp-negctl sfdp target/gv-sfdp-negctl-b --differential && docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 -c "import json; p='target/gv-sfdp-negctl-b/graphviz-sfdp.jsonl'; rows=[json.loads(l) for l in open(p)]; rows[0]['points'][0][0] += 1e-6; open(p, 'w').write('\n'.join(json.dumps(r) for r in rows) + '\n')" && cmp target/gv-sfdp-negctl-a/graphviz-sfdp.jsonl target/gv-sfdp-negctl-b/graphviz-sfdp.jsonl
+
+# **Control 2: the check cannot pass on nothing.** A directory with no recorded run must be
+# refused rather than read as a pass — the same shape `p13-gv1-osage.rows` uses for osage.
+sfdp-check-negctl|nonzero|scripts/orch/gr cargo run -q -p graph-cli -- oracle-graphviz --engine sfdp --dir target/sfdp-fixtures-absent
+
+# **Control 3: `--engine` cannot name an engine that does not exist.** The one generic
+# subcommand pair is the point of this row: a second Graphviz engine must be a *name*, and a
+# name that is not in `ENGINES` has to be refused rather than silently defaulting to twopi.
+sfdp-engine-negctl|nonzero|scripts/orch/gr cargo run -q -p graph-cli -- emit-graphviz-fixtures --engine sfdp-bogus

@@ -25,3 +25,4 @@ pub mod fdp;
 pub mod neato;
 pub mod osage;
 pub mod patchwork;
+pub mod sfdp;

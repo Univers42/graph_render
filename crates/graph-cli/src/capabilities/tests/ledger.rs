@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::BTreeMap;
 
 #[test]
 fn every_registered_row_stands_on_honest_evidence_and_reads_it_back() {
@@ -58,14 +59,15 @@ fn the_grid_row_stands_only_on_its_own_control_and_its_roundtrip_record() {
         "{blind:?}"
     );
     let mut evidence = honest();
-    evidence.roundtrip = None;
+    evidence.by_name.remove("roundtrip");
     let unchecked = problems(&grid(), &evidence);
     assert!(
         unchecked[0].contains("no roundtrip record"),
         "{unchecked:?}"
     );
     let mut evidence = honest();
-    evidence.roundtrip.as_mut().expect("set")["functions"]["layout.grid"]["unexplained"] = json!(2);
+    evidence.by_name.get_mut("roundtrip").expect("set")["functions"]["layout.grid"]["unexplained"] =
+        json!(2);
     let wrong = problems(&grid(), &evidence);
     assert!(
         wrong[0].contains("roundtrip: layout.grid has unexplained"),
@@ -79,12 +81,7 @@ fn without_records_every_gated_row_is_refused_twice() {
         fingerprint: "tree".into(),
         hashgate: None,
         controls: vec![],
-        oracle: None,
-        roundtrip: None,
-        layouts: None,
-        stress: None,
-        fa2: None,
-        spectral: None,
+        by_name: BTreeMap::new(),
     };
     let rows = ledger(&bare);
     assert_eq!(problems(&rows, &bare).len(), 34);

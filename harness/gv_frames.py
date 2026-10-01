@@ -73,6 +73,12 @@ FRAMED_CLOSED = {
             (134.35920000000002, 164.5488),
         ],
     },
+    # sfdp: one case only, closed because a single node has one position, the centre of the
+    # default 0.75 x 0.5 inch box; measured identical at `-Gstart` 1, 7 and 99. The other five
+    # peer cases are deliberately absent: this engine is seed-sensitive, so each prints three
+    # different answers at those seeds and no closed answer exists for them
+    # (`docs/measurements/p13-gv2-sfdp.md`). `framed_cases` skips names with no answer.
+    "sfdp": {"one-node": [(27.0, 18.0)]},
 }
 
 

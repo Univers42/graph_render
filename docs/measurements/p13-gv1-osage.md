@@ -425,3 +425,9 @@ own bytes at all.
   gains or loses the pinning by changing what its emit writes rather than by a name checked
   in the harness. The other three engines' fixture files are byte-identical before and after
   this change (sha256 `44b1a461…`, `66393b41…`, `f1be79c6…`).
+- **The row stays `implemented`, and the reason is now on the hash side.** The ledger
+  resolves `oracle-osage` by name like any other record, so `oracle_diff` reads this
+  measurement back; what a `gated` status would still need is a negative control that went
+  red on the `layout.packing.osage` stage, and none exists — the honest run hashes the stage
+  4-way on every seed while every control that does go red leaves it equal. Promoting the
+  row therefore needs a per-stage knob in `hashgate/knobs`, not a verdict edit.

@@ -72,6 +72,18 @@ fn layout_names_offers_every_registered_layout_once_by_both_of_its_names() {
             "force.neato",
             "layout.force.fdp",
             "force.fdp",
+            "layout.basic3d.sphere",
+            "basic3d.sphere",
+            "layout.basic3d.helix",
+            "basic3d.helix",
+            "layout.basic3d.cube",
+            "basic3d.cube",
+            "layout.hierarchical3d",
+            "hierarchical3d",
+            "layout.force.spring3d",
+            "force.spring3d",
+            "layout.force.sfdp",
+            "force.sfdp",
         ]
     );
     let mut once = names.clone();

@@ -7,7 +7,7 @@
 //! delegations rather than three lists that could disagree. The igraph group's names come
 //! from [`super::igraph`] rather than being spelled a sixth time.
 
-use super::{Knob, igraph, knobs};
+use super::{Knob, igraph, knobs, three_d};
 
 /// Every knob, in the order the gate reads them: the arms that move a parameter or
 /// re-draw one layout's model, then the fifteen ANALYSIS and POST stage controls in
@@ -18,7 +18,7 @@ use super::{Knob, igraph, knobs};
 /// **A `const`, because `capabilities::verdict::Evidence::load` walks it** to collect one
 /// control record each — a ledger read cannot be a function call per row. `Knob::ALL` is
 /// this array, re-exported so the name every caller already used keeps working.
-pub const ALL: [Knob; 39] = [
+pub const ALL: [Knob; 44] = [
     Knob::ReferenceDegree,
     Knob::GridSpacing,
     Knob::SugiyamaLayerSpacing,
@@ -55,6 +55,11 @@ pub const ALL: [Knob; 39] = [
     Knob::IgraphDavidsonHarelNodes,
     Knob::IgraphLglNodes,
     Knob::IgraphDrlNodes,
+    Knob::Basic3dSphereNodes,
+    Knob::Basic3dHelixNodes,
+    Knob::Basic3dCubeNodes,
+    Knob::Hierarchical3dNodes,
+    Knob::Spring3dNodes,
     Knob::SplitSum,
     Knob::SplitRescale,
     Knob::ForceSessionGravity,
@@ -99,6 +104,11 @@ pub const fn env(knob: Knob) -> &'static str {
         Knob::IgraphDavidsonHarelNodes => igraph::ENV[3],
         Knob::IgraphLglNodes => igraph::ENV[4],
         Knob::IgraphDrlNodes => igraph::ENV[5],
+        Knob::Basic3dSphereNodes => three_d::ENV[0],
+        Knob::Basic3dHelixNodes => three_d::ENV[1],
+        Knob::Basic3dCubeNodes => three_d::ENV[2],
+        Knob::Hierarchical3dNodes => three_d::ENV[3],
+        Knob::Spring3dNodes => three_d::ENV[4],
         Knob::SplitSum => "GM_MUTATE_SPLIT_SUM",
         Knob::SplitRescale => "GM_MUTATE_SPLIT_RESCALE",
         Knob::ForceSessionGravity => "GM_MUTATE_FORCE_SESSION_GRAVITY",

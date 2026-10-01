@@ -20,12 +20,15 @@
 //! The differential over 1000 gate seeds is `harness/oracle-spring.py` and gates a stress
 //! **ratio**; nothing here substitutes for it, and nothing here pretends to.
 
+#[path = "tests/golden.rs"]
+mod golden;
+
 use super::{ID, Spring, SpringParams};
 use crate::layout::coords::probe::{graph, points};
 use crate::stage::Stage;
 use std::collections::HashSet;
 
-fn run(t: &crate::index::Topology) -> Vec<(f32, f32)> {
+pub(super) fn run(t: &crate::index::Topology) -> Vec<(f32, f32)> {
     points(&Spring::run(t, &SpringParams::default()).expect("runs"))
 }
 
@@ -250,6 +253,6 @@ fn a_self_loop_and_a_repeated_pair_are_the_simple_graph() {
 
 /// `path_edges(n)`: the `n`-node path `0-1-...-n-1`, the tree the port's own module doc
 /// names as an analytically-determined case.
-fn path_edges(n: u32) -> Vec<(u32, u32)> {
+pub(super) fn path_edges(n: u32) -> Vec<(u32, u32)> {
     (0..n.saturating_sub(1)).map(|i| (i, i + 1)).collect()
 }
