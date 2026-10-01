@@ -1,7 +1,9 @@
 //! Force-directed layout: Barnes-Hut approximated many-body, plus the Jacobi/gather
 //! ports of d3's link and collide (devil C7), driven either as the frozen one-shot
 //! ([`BarnesHut`], which is a default [`session::ForceSession`]) or as a live
-//! [`session::ForceSession`]. `prompt.md` §3.1, Phase 6 branch p6f.
+//! [`session::ForceSession`], plus [`spring`] — a dense Fruchterman–Reingold port, which
+//! shares neither Barnes-Hut's theta-tree nor FA2's cumulative swing, and is published
+//! because SciGraphs' `SPRING` is that algorithm. `prompt.md` §3.1, Phase 6 branch p6f.
 
 pub(crate) mod barnes_hut;
 pub mod davidson_harel;
@@ -13,6 +15,7 @@ pub mod lgl;
 pub(crate) mod params;
 pub(crate) mod quadtree;
 pub(crate) mod session;
+pub mod spring;
 pub(crate) mod yifan_hu;
 
 pub use barnes_hut::{BarnesHut, Split};
@@ -56,6 +59,17 @@ impl SimpleGraph {
     /// Node `v`'s degree in this simple graph: how many distinct neighbours it has.
     pub(crate) fn degree(&self, v: u32) -> u32 {
         self.rows.row(v).len() as u32
+    }
+
+    /// The endpoint of simple edge `e` that is not `v` — the neighbour, for a kernel
+    /// walking one node's row. `e` must be in `v`'s row (or the same edge read the other
+    /// way round); a self-loop never is, since `simple_graph` drops those.
+    pub(crate) fn other(&self, e: u32, v: u32) -> u32 {
+        if self.lo[e as usize] == v {
+            self.hi[e as usize]
+        } else {
+            self.lo[e as usize]
+        }
     }
 }
 

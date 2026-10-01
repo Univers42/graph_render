@@ -38,6 +38,9 @@ struct Findings {
     dag: Vec<String>,
     /// Exercise snapshots per notes case (`exercise::count_notes_cases`).
     notes: [u64; 5],
+    /// Exercise snapshots that are 3D, z column and all. Counted rather than assumed, so a
+    /// seed rule that stopped drawing 3D fails the sweep instead of quietly narrowing it.
+    three_d: u64,
     /// Snapshots the sweep actually put through both faces, over every seed.
     checked: u64,
 }
@@ -79,6 +82,10 @@ impl Findings {
             .into_iter()
             .all(Vec::is_empty)
             && self.notes.iter().all(|&c| c > 0)
+            // 3D is proved here, so the sweep has to actually contain some: `seed % 3 == 2`
+            // draws a third of the exercise snapshots in 3D, and a seed count below 3
+            // cannot draw one.
+            && self.three_d > 0
     }
 }
 
@@ -122,6 +129,7 @@ fn body(seeds: u32, found: &Findings) -> serde_json::Value {
     json!({
         "seeds": seeds, "pass": found.pass(seeds), "snapshots": snapshot_total(seeds),
         "faces_failed": found.faces.len(), "notes_cases": notes,
+        "three_d_exercise": found.three_d,
         "functions": {
             "layout.grid": hand(found.grid.len()),
             "layout.circular.radial": hand(found.circular.len()),
@@ -138,11 +146,33 @@ fn sweep(seeds: u32) -> Result<Findings, String> {
     let mut found = Findings::default();
     for seed in 0..seeds {
         let nodes = gate_node_count(seed);
-        let exercise = exercise::snapshot(seed)?;
+        // Under `GM_MUTATE_NODE_Z=1` this is the same generator with one value too many in
+        // the z column, so the sweep cannot finish and the row goes red: that is the
+        // control working, not a gate that broke.
+        let exercise = exercise::snapshot_or_perturbed(exercise::snapshot(seed)?, seed)?;
         exercise::count_notes_cases(&exercise, &mut found.notes);
+        found.three_d += u64::from(exercise.parts().dim().is_3d());
         found.checked += 1;
         if let Err(why) = super::faces_agree(&exercise) {
             found.faces.push(format!("seed {seed} exercise: {why}"));
+        }
+        // The negative control: with `GM_MUTATE_NODE_Z` set, this seed's 3D z column is
+        // moved and the sweep requires the round trip to FAIL on it. A control that the
+        // round trip survives is a control the round trip is not comparing — so a green
+        // control run is a failure, exactly as `negctl-degree` is one for the hashgate.
+        // The z column is compared, not merely carried: a snapshot whose z differs in
+        // exactly one value must differ on both faces, and `GM_MUTATE_NODE_Z=1` perturbs
+        // the JSON text of a 3D seed and demands the reader notice. Either a face that
+        // writes the z from somewhere else, or a reader that ignores the z it was given,
+        // fails here — which is the silent-drop bug (F1, F6) this column is most prone to.
+        // The z column's own two refusals, on a snapshot built here because no 3D layout
+        // produces one: a z column of the wrong length, and a z column under a `dim` that
+        // does not name it. A fault list is a failure, so a reader that accepted either
+        // would leave this row green — which is the whole reason the checks are here.
+        if exercise.parts().dim().is_3d() {
+            for fault in exercise::z_refusal_faults(&exercise) {
+                found.faces.push(format!("seed {seed} exercise: {fault}"));
+            }
         }
         for name in swept_layouts() {
             let snapshot = pipeline(seed, nodes, name)?.snapshot;
@@ -216,6 +246,11 @@ fn write_findings(out: &mut String, seeds: u32, found: &Findings) {
     let _ = writeln!(
         out,
         "  layout.dag.sugiyama on its structural invariants on {dag_ok}/{seeds} seeds"
+    );
+    let _ = writeln!(
+        out,
+        "  3D exercise snapshots (dim 1, z column) round-tripped: {}",
+        found.three_d
     );
     let cases = NOTES_CASES.iter().zip(found.notes);
     let drawn: Vec<String> = cases.map(|(case, n)| format!("{case} {n}")).collect();

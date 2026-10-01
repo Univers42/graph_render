@@ -16,21 +16,25 @@
 //! so the comparison never meets a disconnected graph or a larger one; those rest on
 //! graph-core's own tests.
 
+mod circular_hierarchy;
 mod cli;
 mod closed_form;
 mod fa2;
 mod graphviz;
-mod graphviz_arm;
 mod igraph;
+mod osage;
+mod patchwork;
 mod spectral;
+pub mod spring;
 mod twopi;
 
+pub use circular_hierarchy::CIRCULAR_HIERARCHY;
 pub use cli::Cli;
 pub use closed_form::CLOSED_FORM;
 pub use fa2::FA2;
 pub use igraph::IGRAPH;
 pub use spectral::SPECTRAL;
-pub use twopi::TWOPI;
+pub use spring::SPRING;
 
 use crate::evidence::{FINGERPRINTED, Stamp};
 use crate::runner::file_sha256;

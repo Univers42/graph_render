@@ -32,8 +32,19 @@ unconditionally, so this harness proves determinism, not seed stability. Set
 in the manifest's `start` field. The one measured sensitivity for twopi and circo: the
 output is byte-stable to the last digit, and a 1e-6-point perturbation of one node
 coordinate changes byte 95, so a `cmp` here is not vacuous.
+
+Two flags were added later, both optional, so the three-argument call above is unchanged:
+`--start=N` sets the `-Gstart` value (default 1), which exists because seed sensitivity has
+to be *measured* rather than asserted; `--fixtures=NAME` names the fixture file in the
+fixtures directory (`spectral.jsonl` when unset); `--differential` compares our coordinates
+with the engine's, reading `<engine>.jsonl` and `<engine>-manifest.json` and writing
+`<engine>-result.json` for `graph-cli oracle-graphviz --engine <engine>` to read. The
+metric, the rescale and the closed cases are **imported from `harness/oracle-twopi.py`**
+rather than copied: a second copy of the metric would be a second definition of the number
+the ceiling is measured against.
 """
 import hashlib
+import importlib.util
 import json
 import os
 import subprocess
@@ -44,6 +55,8 @@ POINTS_PER_INCH = 72.0
 # The seed the job pins. `GM_GV_START` overrides it so an engine's seed sensitivity can be
 # measured without editing this file (p13-gv1-patchwork, step 2); unset means the pinned 1.
 START_SEED = int(os.environ.get("GM_GV_START", "1"))
+
+USAGE = "usage: oracle-graphviz.py <fixtures-dir> <engine> <out-dir> [--start=N] [--fixtures=NAME] [--differential]"
 
 
 def write_dot(path, n, source, target):
@@ -57,8 +70,8 @@ def write_dot(path, n, source, target):
         f.write("\n".join(lines) + "\n")
 
 
-def run_engine(engine, dot_path):
-    cmd = [engine, "-Tplain", f"-Gstart={START_SEED}", dot_path]
+def run_engine(engine, dot_path, start=START_SEED):
+    cmd = [engine, "-Tplain", f"-Gstart={start}", dot_path]
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         sys.exit(f"{engine} failed on {dot_path}: {proc.stderr}")
@@ -86,11 +99,171 @@ def parse_plain(text, n):
     return bbox, nodes
 
 
+def load_peer(here):
+    """`harness/oracle-twopi.py`, by path: its filename is not importable by name.
+
+    The metric (`gap`), the rescale it rests on and the closed cases are shared, not
+    copied: a second copy of the metric would be a second definition of the number the
+    ceiling is measured against. `sys.dont_write_bytecode` keeps the fingerprinted
+    `harness/` tree free of the `__pycache__` a path import would otherwise write.
+    """
+    path = os.path.join(here, "oracle-twopi.py")
+    previous = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True
+    try:
+        spec = importlib.util.spec_from_file_location("oracle_twopi", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+    finally:
+        sys.dont_write_bytecode = previous
+    return module
+
+
+# The `osage` closed answers, in points, **in the frame `-Tplain` prints**.
+#
+# `osageinit.c:198-220` translates the drawing so its lower-left corner is the origin and
+# takes the node coordinates with it, so `n0` of a one-node graph is at half a node box,
+# (27, 18) points = (0.375, 0.25) inch. No offset is applied on either side here: the port
+# keeps that translation, so our arm and the oracle's printed text are directly comparable.
+# The arithmetic is `arrayRects`'s — a near-square grid of `58 x 40` point cells filled row
+# by row — and each case is derived and pinned beside the derivation in graph-core's
+# `layout/graphviz/osage/tests.rs`. An engine with no table here has its closed cases
+# compared by its own harness rather than skipped.
+OSAGE_CLOSED = {
+    "one-node": [(27.0, 18.0)],
+    "two-nodes": [(27.0, 18.0), (85.0, 18.0)],
+    "three-path": [(27.0, 58.0), (85.0, 58.0), (27.0, 18.0)],
+    "four-cycle": [(27.0, 58.0), (85.0, 58.0), (27.0, 18.0), (85.0, 18.0)],
+    "five-star": [(27.0, 58.0), (85.0, 58.0), (143.0, 58.0), (27.0, 18.0), (85.0, 18.0)],
+    "six-branch": [
+        (27.0, 58.0), (85.0, 58.0), (143.0, 58.0),
+        (27.0, 18.0), (85.0, 18.0), (143.0, 18.0),
+    ],
+}
+
+CLOSED = {"osage": OSAGE_CLOSED}
+
+
+def engine_points(tmp, engine, name, count, edges, start):
+    """`<engine> -Tplain` over one DOT graph, as dense-indexed points."""
+    dot = os.path.join(tmp, f"{name}.dot")
+    write_dot(dot, count, [a for a, _ in edges], [b for _, b in edges])
+    _, nodes = parse_plain(run_engine(engine, dot, start), count)
+    return [tuple(nodes[f"n{i}"]) for i in range(count)]
+
+
+def ours_of(record, engine):
+    """The fixture's own coordinates, as points in dense-index order."""
+    column = record[engine]
+    return [(column["x"][i], column["y"][i]) for i in range(record["n"])]
+
+
+def printed_nodes(tmp, engine, name, count, edges, start):
+    """The two strings `-Tplain` printed for each node, in dense order.
+
+    The text, not a re-printed parsed float: the closed cases are compared byte for byte,
+    and re-printing would grade our arithmetic against the oracle's rounding.
+    """
+    dot = os.path.join(tmp, f"{name}.dot")
+    write_dot(dot, count, [a for a, _ in edges], [b for _, b in edges])
+    rows = {}
+    for line in run_engine(engine, dot, start).splitlines():
+        parts = line.split()
+        if len(parts) >= 4 and parts[0] == "node":
+            rows[parts[1]] = (parts[2], parts[3])
+    return [rows[f"n{i}"] for i in range(count)]
+
+
+def closed_case(peer, tmp, engine, name, start):
+    """One closed case: the engine's own printed node lines against the closed answer."""
+    edges = peer.CLOSED_CASES[name]
+    count = 1 + max((max(edge) for edge in edges), default=0)
+    got = printed_nodes(tmp, engine, f"closed-{name}", count, edges, start)
+    digits = peer.DIGITS
+    want = " ".join(
+        f"{x / POINTS_PER_INCH:.{digits}g} {y / POINTS_PER_INCH:.{digits}g}"
+        for x, y in CLOSED[engine][name]
+    )
+    text = " ".join(f"{x} {y}" for x, y in got)
+    return {"nodes": count, "exact": want == text, "want": want, "got": text}
+
+
+def sweep(fixtures, engine, start, peer):
+    """Every fixture through the engine: the worst gap in points, and the raw output.
+
+    The raw output is what the ADR's determinism evidence is a `cmp` over, and what a
+    reviewer reads to see what the oracle actually said per seed.
+    """
+    worst, theirs = 0.0, []
+    with tempfile.TemporaryDirectory() as tmp:
+        for record in fixtures:
+            edges = list(zip(record["source"], record["target"]))
+            points = engine_points(tmp, engine, f"g{record['seed']}", record["n"], edges, start)
+            worst = max(worst, peer.gap(ours_of(record, engine), points))
+            theirs.append({"seed": record["seed"], "n": record["n"], "points": points})
+        closed = (
+            {name: closed_case(peer, tmp, engine, name, start) for name in peer.CLOSED_CASES}
+            if engine in CLOSED
+            else {}
+        )
+    return worst, theirs, closed
+
+
+def differential(fixtures_dir, engine, out_dir, start, peer):
+    """Compare our coordinates with the engine's and write the result the CLI reads.
+
+    The metric is the peer's, so both Graphviz differentials are measured the same way: the
+    largest absolute node-coordinate difference in points, after both arms are rescaled
+    onto one bounding box. A closed case that disagrees is a failure, not a note, and so is
+    this command's exit code — the closed cases carry the exactness a tolerance rounds off.
+    """
+    manifest = peer.read(os.path.join(fixtures_dir, f"{engine}-manifest.json"))
+    fixtures = peer.read_lines(os.path.join(fixtures_dir, f"{engine}.jsonl"))
+    worst, theirs, closed = sweep(fixtures, engine, start, peer)
+    os.makedirs(out_dir, exist_ok=True)
+    peer.write_lines(os.path.join(out_dir, f"graphviz-{engine}.jsonl"), theirs)
+    exact = all(row["exact"] for row in closed.values()) if closed else None
+    result = {
+        "fingerprint": manifest["fingerprint"],
+        "sha256": manifest["sha256"][f"{engine}.jsonl"],
+        "oracle": f"Graphviz 16.1.0 {engine} -Tplain -Gstart={start}",
+        "layouts": {engine: {"cases": len(theirs), "worst": worst}},
+        "closed": closed,
+    }
+    if exact is not None:
+        result["closed_exact"] = exact
+    with open(os.path.join(fixtures_dir, f"{engine}-result.json"), "w") as out:
+        json.dump(result, out, indent=1)
+    print(f"{engine}: {len(theirs)} seeds, worst {worst:.3e} points; closed {len(closed)} exact: {exact}")
+    return 0 if exact is not False else 1
+
+
 def main():
-    if len(sys.argv) != 4:
-        sys.exit("usage: oracle-graphviz.py <fixtures-dir> <engine> <out-dir>")
-    fixtures_dir, engine, out_dir = sys.argv[1], sys.argv[2], sys.argv[3]
-    jsonl_path = os.path.join(fixtures_dir, "spectral.jsonl")
+    argv = sys.argv[1:]
+    if not argv or argv[0] in ("-h", "--help"):
+        sys.exit(USAGE)
+    start, compare, fixtures, positional = START_SEED, False, "spectral.jsonl", []
+    for arg in argv:
+        if arg == "--differential":
+            compare = True
+        elif arg.startswith("--start="):
+            start = int(arg.split("=", 1)[1])
+        elif arg.startswith("--fixtures="):
+            fixtures = arg.split("=", 1)[1]
+        else:
+            positional.append(arg)
+    if len(positional) != 3:
+        sys.exit(USAGE)
+    fixtures_dir, engine, out_dir = positional
+    if compare:
+        peer = load_peer(os.path.dirname(os.path.abspath(__file__)))
+        return differential(fixtures_dir, engine, out_dir, start, peer)
+    return record(fixtures_dir, engine, out_dir, start, fixtures)
+
+
+def record(fixtures_dir, engine, out_dir, start, fixtures):
+    """The plain positional call: record where the engine put every node."""
+    jsonl_path = os.path.join(fixtures_dir, fixtures)
     os.makedirs(out_dir, exist_ok=True)
     out_path = os.path.join(out_dir, f"graphviz-{engine}.jsonl")
     manifest_path = os.path.join(out_dir, f"graphviz-{engine}-manifest.json")
@@ -103,15 +276,15 @@ def main():
                 n = rec["n"]
                 dot_path = os.path.join(tmp, f"g{rec['seed']}.dot")
                 write_dot(dot_path, n, rec["source"], rec["target"])
-                plain = run_engine(engine, dot_path)
+                plain = run_engine(engine, dot_path, start)
                 bbox, nodes = parse_plain(plain, n)
-                record = {
+                row = {
                     "seed": rec["seed"],
                     "engine": engine,
                     "bbox": {"width": bbox[0], "height": bbox[1]},
                     "nodes": nodes,
                 }
-                out.write(json.dumps(record) + "\n")
+                out.write(json.dumps(row) + "\n")
                 count += 1
 
     digest = hashlib.sha256(open(out_path, "rb").read()).hexdigest()
@@ -125,7 +298,8 @@ def main():
     with open(manifest_path, "w") as f:
         json.dump(manifest, f, indent=1)
     print(f"{engine}: {count} seeds -> {out_path}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

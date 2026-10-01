@@ -9,7 +9,7 @@
 export interface ShownError {
   /** The error's own name (`RunRefusedError`), never a bare "Error" when more is known. */
   readonly title: string;
-  /** The wire code and its name, when the failure came from the ABI. */
+  /** The code the failure names itself with: the ABI's number and name, or a reader's own code. */
   readonly code: string | null;
   readonly detail: string;
   /** What the reader can do about it. */
@@ -29,7 +29,7 @@ const HINTS: ReadonlyMap<string, string> = new Map([
   ["WasmUnavailableError", "The wasm motor did not load, so no layout can run. Run scripts/studio.sh so graph_wasm.wasm is in app/public/."],
   ["InvalidOptionsError", "The motor rejected the options the studio passed. This is a studio bug."],
   ["IngestRefusal", "The document is not the ingest shape. Fix the JSON, or load one of the bundled fixtures."],
-  ["SnapshotRefusal", "The motor's snapshot could not be read. That is a motor or decoder bug — nothing was drawn from it."],
+  ["SnapshotRefusal", "The motor's snapshot could not be read. This studio draws 2D only, so a 3D snapshot is refused by design; anything else is a motor or decoder bug, and nothing was drawn from it."],
   ["ActionRefusal", "Type `help` in the console for the commands and their values."],
   ["SettingsRefusal", "The recipe does not hold settings this studio reads. Export a fresh recipe."],
   ["CancelledError", "The run was stopped. Nothing changed."],
@@ -59,6 +59,9 @@ function reasonOf(error: Error): string {
 
 function codeOf(error: Error): string | null {
   const code = memberOf(error, "code");
+  // A reader or a refusal class names itself with a string; the ABI names a wire code with a
+  // number and its code name. Both are the code the reader is meant to see.
+  if (typeof code === "string") return code;
   const codeName = memberOf(error, "codeName");
   if (typeof code !== "number" || typeof codeName !== "string") return null;
   return `code ${code} (${codeName})`;

@@ -1,13 +1,18 @@
 use super::*;
 use crate::binary::{Snapshot, SnapshotParts, StringTable};
 use crate::geometry::{EdgeGeometry, NodeGeometry};
-use crate::snapshot::SnapshotError as E;
+use crate::snapshot::{Dim, SnapshotError as E, label_for};
 use crate::version::{CURRENT_VERSION, UNVERSIONED};
 
 mod columns;
 mod json;
 
 const V0_2: FormatVersion = FormatVersion { major: 0, minor: 2 };
+
+/// These snapshots are 2D, so the label rule gives them 0.3 — the version whose notes
+/// section they are about. `CURRENT_VERSION` is 0.4 and is not a label a 2D snapshot
+/// takes (`snapshot::label_for`).
+const V0_3: FormatVersion = label_for(Dim::D2);
 
 /// Three nodes, two edges (`ab`, `bc`), Point and Line, at `version` with `notes`.
 fn parts(version: FormatVersion, notes: Notes) -> SnapshotParts {
@@ -24,6 +29,7 @@ fn parts(version: FormatVersion, notes: Notes) -> SnapshotParts {
             x: vec![0.0; 3],
             y: vec![1.0; 3],
         },
+        z: None,
         edges: EdgeGeometry::Line,
         notes,
     }
@@ -37,7 +43,7 @@ fn columns(code: &[u32], index: &[u32]) -> Notes {
 }
 
 fn build(code: &[u32], index: &[u32]) -> Result<Snapshot, SnapshotError> {
-    Snapshot::new(parts(CURRENT_VERSION, columns(code, index)))
+    Snapshot::new(parts(V0_3, columns(code, index)))
 }
 
 /// One note of every code, canonical: `(1,0) (1,1) (2,1) (3,MAX)`.
@@ -82,12 +88,12 @@ fn note_codes_are_a_closed_set_like_the_geometry_tags() {
 
 #[test]
 fn notes_are_carried_from_format_0_3_on() {
-    assert_eq!(CURRENT_VERSION, FormatVersion { major: 0, minor: 3 });
+    assert_eq!(CURRENT_VERSION, FormatVersion { major: 0, minor: 4 });
     for (version, carries) in [
         (UNVERSIONED, false),
         (V0_2, false),
+        (V0_3, true),
         (CURRENT_VERSION, true),
-        (FormatVersion { major: 0, minor: 4 }, true),
         (
             FormatVersion {
                 major: 0,

@@ -25,6 +25,28 @@ pub extern "C" fn gm_column_len(handle: u32, column_id: u32) -> u32 {
     resolve_column(handle, column_id, true)
 }
 
+/// How many dimensions `handle`'s last run carries: `0` 2D, `1` 3D. The wasm layer
+/// transports 3D rather than refusing it, so this is a reading, not a refusal: a consumer
+/// that draws in 2D checks this and declines; one that can draw in 3D reads a `z` column
+/// through `gm_column_ptr`/`gm_column_len` with `ColumnId::NodeZ` (12).
+// SAFETY: as `gm_column_ptr`.
+#[unsafe(no_mangle)]
+pub extern "C" fn gm_dim(handle: u32) -> u32 {
+    HANDLES.with(|handles| {
+        let handles = handles.borrow();
+        let Some(entry) = handles.get(handle) else {
+            errors::set(Code::InvalidHandle);
+            return 0;
+        };
+        let Some(snapshot) = &entry.snapshot else {
+            errors::set(Code::NoGeometryYet);
+            return 0;
+        };
+        errors::clear();
+        u32::from(views::dim(snapshot))
+    })
+}
+
 fn resolve_column(handle: u32, column_id: u32, want_len: bool) -> u32 {
     HANDLES.with(|handles| {
         let handles = handles.borrow();

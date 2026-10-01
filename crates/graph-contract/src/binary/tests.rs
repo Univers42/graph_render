@@ -1,7 +1,8 @@
 use super::*;
-use crate::snapshot::HEADER_LEN;
+use crate::snapshot::{Dim, HEADER_LEN, label_for};
 use crate::version::{CURRENT_VERSION, NewerMajor};
 
+mod dim;
 mod pinned;
 
 fn table(column: &'static str, items: &[&str]) -> StringTable {
@@ -10,12 +11,14 @@ fn table(column: &'static str, items: &[&str]) -> StringTable {
 
 fn parts(nodes: NodeGeometry, edges: EdgeGeometry) -> SnapshotParts {
     SnapshotParts {
-        version: CURRENT_VERSION,
+        // 2D, so the 0.3 label: these are the bytes pinned in `pinned.rs`.
+        version: label_for(Dim::D2),
         node_ids: table("node.id", &["a", "bc"]),
         edge_ids: table("edge.id", &["e"]),
         source: vec![0],
         target: vec![1],
         nodes,
+        z: None,
         edges,
         notes: Notes::default(),
     }
@@ -78,7 +81,8 @@ fn every_kind_round_trips_to_the_same_bytes_and_every_column_is_word_aligned() {
 fn the_header_is_derived_from_what_the_snapshot_holds() {
     let snapshot = &every_kind()[5];
     let header = snapshot.header();
-    assert_eq!(header.version, CURRENT_VERSION);
+    assert_eq!(header.version, label_for(Dim::D2));
+    assert_eq!(header.dim, Dim::D2);
     assert_eq!(header.node_kind, crate::geometry::NodeGeometryKind::Circle);
     assert_eq!(header.edge_kind, crate::geometry::EdgeGeometryKind::Curve);
     assert_eq!((header.node_count, header.edge_count), (2, 1));
@@ -95,6 +99,9 @@ fn version_refusal_of_a_full_snapshot_one_major_ahead() {
         major: newer,
         minor: CURRENT_VERSION.minor,
     };
+    // Patch the minor too: these bytes are labelled 0.3, and a header that names a newer
+    // minor is a different snapshot than one that names a newer major.
+    bytes[8..12].copy_from_slice(&found.minor.to_le_bytes());
     let refusal = SnapshotError::Header(ReadError::UnsupportedMajor(NewerMajor {
         found,
         known: CURRENT_VERSION,
@@ -103,7 +110,7 @@ fn version_refusal_of_a_full_snapshot_one_major_ahead() {
     assert!(
         refusal
             .to_string()
-            .contains("1.3 is newer than this reader's 0.3")
+            .contains("1.4 is newer than this reader's 0.4")
     );
     let mut built = parts(point(), EdgeGeometry::Line);
     built.version = found;
@@ -115,8 +122,8 @@ fn version_refusal_spares_a_newer_minor_of_this_major() {
     let mut bytes = every_kind()[0].to_bytes();
     assert_eq!(
         CURRENT_VERSION.minor + 1,
-        4,
-        "a 0.4 snapshot, notes and all"
+        5,
+        "a 0.5 snapshot, notes and all"
     );
     bytes[8..12].copy_from_slice(&(CURRENT_VERSION.minor + 1).to_le_bytes());
     let back = Snapshot::from_bytes(&bytes).expect("a newer minor reads");

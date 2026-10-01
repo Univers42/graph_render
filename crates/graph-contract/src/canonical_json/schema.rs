@@ -12,6 +12,14 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Snapshot {
+    /// How many dimensions every node carries: `0` 2D, `1` 3D. Written from format 0.4
+    /// and absent below it, where it reads as 0 — the same optional-member rule as
+    /// `notes`. A 3D snapshot's `geometry.nodes` carries a `z` column; a 2D one's does
+    /// not, and one that does is refused. JSON Schema cannot tie a member's presence to
+    /// another member's value, so the rule is stated here and the reader enforces it.
+    #[serde(default)]
+    #[schemars(schema_with = "crate::snapshot::dim::dim_schema")]
+    pub dim: crate::snapshot::Dim,
     /// Every edge's identity and endpoints, in edge order.
     pub edges: Edges,
     /// Where and how every node and edge is drawn.
@@ -102,6 +110,9 @@ pub enum NodeGeometry {
         x: Vec<f32>,
         /// Vertical centre.
         y: Vec<f32>,
+        /// Depth centre. Present iff the snapshot's `dim` is 1.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        z: Option<Vec<f32>>,
     },
     /// Centres and radii.
     Circle {
@@ -111,6 +122,9 @@ pub enum NodeGeometry {
         x: Vec<f32>,
         /// Vertical centre.
         y: Vec<f32>,
+        /// Depth centre. Present iff the snapshot's `dim` is 1.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        z: Option<Vec<f32>>,
     },
     /// Boxes.
     Box {
@@ -122,6 +136,9 @@ pub enum NodeGeometry {
         x: Vec<f32>,
         /// Vertical centre.
         y: Vec<f32>,
+        /// Depth centre. Present iff the snapshot's `dim` is 1.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        z: Option<Vec<f32>>,
     },
 }
 

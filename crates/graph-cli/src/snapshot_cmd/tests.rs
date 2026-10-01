@@ -4,6 +4,8 @@ use graph_contract::geometry::{EdgeGeometryKind, NodeGeometry, NodeGeometryKind}
 use graph_contract::notes::{Note, NoteCode, Notes, SNAPSHOT_WIDE};
 use std::collections::BTreeSet;
 
+mod dim;
+
 /// The whole list, exactly: one pair per registered layout, in registry order, with no
 /// name offered twice — a new layout has to appear here or this goes red.
 #[test]
@@ -56,6 +58,12 @@ fn layout_names_offers_every_registered_layout_once_by_both_of_its_names() {
             "force.drl",
             "layout.twopi",
             "twopi",
+            "layout.packing.osage",
+            "packing.osage",
+            "layout.force.spring",
+            "force.spring",
+            "layout.circular.hierarchy",
+            "circular.hierarchy",
             "layout.treemap.patchwork",
             "treemap.patchwork",
         ]
@@ -170,8 +178,10 @@ fn the_exercise_draws_every_notes_case_and_each_round_trips() {
         exercise::count_notes_cases(&snapshot, &mut sweep);
     });
     // Exact, not a floor: a case drawn only on its own seed's `seed % 5` would still
-    // clear 200 for two of these, and the gate's claim is that every case is drawn.
-    assert_eq!(sweep, [200, 257, 342, 343, 200], "the five notes cases");
+    // clear 200 for two of these, and the gate's claim is that every case is drawn. The
+    // first two are 67 lower and higher than before 3D seeds arrived, since a `dim = 1`
+    // snapshot cannot be 0.2-labelled; the three code columns have not moved.
+    assert_eq!(sweep, [133, 324, 342, 343, 200], "the five notes cases");
 }
 
 #[test]

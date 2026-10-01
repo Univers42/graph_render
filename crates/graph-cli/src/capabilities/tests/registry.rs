@@ -184,6 +184,13 @@ fn the_registry_covers_every_oracle_function_once_its_ids_are_unique() {
             ("oracle-fa2", r.id, Status::Implemented)
         } else if IGRAPH_LAYOUT_IDS.contains(&r.id) {
             ("oracle-igraph", r.id, Status::Implemented)
+        } else if r.id == "layout.force.spring" {
+            ("oracle-spring", r.id, Status::Implemented)
+        } else if r.id == "layout.circular.hierarchy" {
+            // A closed form with a SciGraphs-arm differential, `implemented` rather than
+            // `gated` for the reason `unproven.rs` gives: the ledger resolves no such
+            // record, so a gated row could only ever read back a refusal.
+            ("oracle-circular-hierarchy", r.id, Status::Implemented)
         } else if [
             "layout.random",
             "layout.circular.ring",
@@ -198,6 +205,13 @@ fn the_registry_covers_every_oracle_function_once_its_ids_are_unique() {
             // because the differential compares coordinates within a measured 7.1e-2 points
             // (`docs/measurements/p13-gv1.md`) rather than to bytes.
             ("oracle-twopi", r.id, Status::Implemented)
+        } else if r.id == "layout.packing.osage" {
+            // The second Graphviz arm: its own record, and `implemented` rather than
+            // `gated` for a stronger reason than twopi's — osage's differential is *run*
+            // and it disagrees with the oracle by 1785 points on 982 of the 1000 seeds, for
+            // two named causes outside the motor (`docs/measurements/p13-gv1-osage.md`).
+            // An agreement that narrow earns `implemented` and nothing more.
+            ("oracle-osage", r.id, Status::Implemented)
         } else if r.id == "layout.treemap.patchwork" {
             // The Graphviz arm, same shape as twopi's and for the same reason: its
             // differential compares coordinates within a measured 6.6e-2 points

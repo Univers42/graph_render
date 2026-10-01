@@ -163,11 +163,23 @@ fn each_seed_draws_the_notes_its_case_names_and_no_others() {
 /// The five cases over the whole 1000-seed sweep, exactly: the gate needs every one, and
 /// each is a different count, so none of them can be quietly halved or doubled. Measured
 /// by running this module (2026-09-28, branch p3).
+///
+/// The first two tallies moved when 3D seeds arrived. A `dim = 1` snapshot cannot be
+/// 0.2-labelled — 0.2 names no dimension — so the `seed % 5 == 0` seeds that are also
+/// `seed % 3 == 2` draw the 0.3 "no notes" case instead: 67 of them over 1000 seeds, taken
+/// from the 0.2 column and added to the 0.3 one. The three code columns are untouched, which
+/// is the check that nothing else moved.
 #[test]
 fn the_tally_of_the_thousand_seed_sweep_is_exact() {
     let mut cases = [0; 5];
     (0..1000).for_each(|seed| count_notes_cases(&snapshot(seed).expect("valid"), &mut cases));
-    assert_eq!(cases, [200, 257, 342, 343, 200]);
+    assert_eq!(cases, [133, 324, 342, 343, 200]);
+    assert_eq!(
+        cases[0] + cases[1],
+        457,
+        "0.2-labelled and 0.3 k=0 together are every seed the generator draws a notes \
+         section for, and that total has not moved"
+    );
 }
 
 #[test]

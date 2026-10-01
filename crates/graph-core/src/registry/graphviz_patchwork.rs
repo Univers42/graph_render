@@ -47,7 +47,8 @@ image (pinned by sha256 in scripts/orch/fetch-refs.sh), over the same 1000 seede
 compared by harness/oracle-graphviz.py: the largest absolute node-coordinate difference in \
 points after both arms are rescaled to the same bounding box, measured at 6.61e-2 over the \
 sweep (ceiling 1e-1). -Gstart is INERT for this engine (measured: the same fixture hashes \
-identically at start=1, 7 and 99, all 1000 seeds), so the comparison is against Graphviz's \
+identically at start=1, 7 and 99 over all 1000 seeds, three separate rows of \
+scripts/orch/rows/p13-gv1-patchwork.rows), so the comparison is against Graphviz's \
 own closed form and not against a seed drift. The five analytically determined small cases \
 (one node, two nodes, a 3-path, a 4-cycle and a 5-star) are additionally compared node by \
 node against the closed form — ours in crates/graph-core/src/layout/graphviz/patchwork/tests.rs, \
