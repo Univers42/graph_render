@@ -1,12 +1,14 @@
 use super::verdict::{Evidence, MIN_SEEDS};
 use super::*;
 use serde_json::{Value, json};
+use std::collections::BTreeMap;
 
 mod depth;
 mod ledger;
 use super::ceilings::{ceiling_coverage, ceiling_findings};
 use ledger::find_row;
 mod force;
+mod graphviz;
 mod refusals;
 mod registry;
 mod scale;
@@ -119,41 +121,83 @@ fn honest() -> Evidence {
             }
         })),
         controls: honest_controls(),
-        oracle: Some(json!({
-            "fingerprint": "tree", "seeds": 1000, "pass": true, "functions": functions
-        })),
-        roundtrip: Some(json!({
-            "fingerprint": "tree", "seeds": 1000, "pass": true,
-            "functions": {
-                "layout.grid": hand(7),
-                "layout.circular.radial": hand(6),
-                "layout.packing.circle": hand(5),
-                "layout.dag.sugiyama": hand(9),
-            }
-        })),
-        layouts: Some(json!({
-            "fingerprint": "tree", "seeds": 1000, "pass": true,
-            "functions": {
-                "layout.tree.tidy": hand(9),
-                "layout.treemap.squarified": hand(11),
-            }
-        })),
-        stress: Some(json!({
-            "fingerprint": "tree", "seeds": 1000, "pass": true,
-            "functions": { "layout.force.barnes_hut": hand(4) }
-        })),
-        fa2: Some(json!({
-            "fingerprint": "tree", "seeds": 1000, "pass": true,
-            "functions": { "layout.forceatlas2": hand(4) }
-        })),
-        spectral: Some(json!({
-            "fingerprint": "tree", "seeds": 1000, "pass": true, "tolerance": true,
-            "functions": {
-                "layout.spectral": hand(12),
-                "layout.mds.pivot": hand(13),
-            }
-        })),
+        by_name: BTreeMap::from([
+            (
+                "oracle-diff".to_owned(),
+                json!({
+                    "fingerprint": "tree", "seeds": 1000, "pass": true,
+                    "functions": functions
+                }),
+            ),
+            (
+                "roundtrip".to_owned(),
+                json!({
+                    "fingerprint": "tree", "seeds": 1000, "pass": true,
+                    "functions": {
+                        "layout.grid": hand(7),
+                        "layout.circular.radial": hand(6),
+                        "layout.packing.circle": hand(5),
+                        "layout.dag.sugiyama": hand(9),
+                    }
+                }),
+            ),
+            (
+                "oracle-layouts".to_owned(),
+                json!({
+                    "fingerprint": "tree", "seeds": 1000, "pass": true,
+                    "functions": {
+                        "layout.tree.tidy": hand(9),
+                        "layout.treemap.squarified": hand(11),
+                    }
+                }),
+            ),
+            (
+                "stress".to_owned(),
+                json!({
+                    "fingerprint": "tree", "seeds": 1000, "pass": true,
+                    "functions": { "layout.force.barnes_hut": hand(4) }
+                }),
+            ),
+            (
+                "oracle-fa2".to_owned(),
+                json!({
+                    "fingerprint": "tree", "seeds": 1000, "pass": true,
+                    "functions": { "layout.forceatlas2": hand(4) }
+                }),
+            ),
+            (
+                "oracle-spectral".to_owned(),
+                json!({
+                    "fingerprint": "tree", "seeds": 1000, "pass": true, "tolerance": true,
+                    "functions": {
+                        "layout.spectral": hand(12),
+                        "layout.mds.pivot": hand(13),
+                    }
+                }),
+            ),
+        ]),
     }
+}
+
+/// `name`'s record as a passing 1000-seed run on this tree whose one function is `id` and
+/// whose verdict is a measured ceiling rather than a byte comparison — the shape every
+/// record a `tolerance: true` differential writes has.
+pub(super) fn recorded(evidence: &mut Evidence, name: &str, id: &str) {
+    evidence.by_name.insert(
+        name.to_owned(),
+        json!({
+            "fingerprint": "tree", "seeds": 1000, "pass": true, "tolerance": true,
+            "functions": { id: hand(5) }
+        }),
+    );
+}
+
+/// `name`'s record, or the failure to read it, out of `evidence`.
+pub(in crate::capabilities) fn record_of<'a>(
+    evidence: &'a Evidence,
+    name: &str,
+) -> Option<&'a Value> {
+    evidence.by_name.get(name)
 }
 
 /// One real row, found by id and restated at `status`, for the tests that need a row
