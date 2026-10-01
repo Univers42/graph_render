@@ -76,4 +76,22 @@ export async function runDegradedSection(ctx) {
   check("degraded_motor_build_fails_predictably_compile_failure", buildRefused);
   resetForTests();
 }
+// A module older than the SDK (a stale staged wasm) is refused at load and named, rather than
+// failing later as `exports.gm_dim is not a function`. This one exports `memory` only.
+{
+  resetForTests();
+  const memoryOnly = new Uint8Array([
+    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x05, 0x03, 0x01, 0x00, 0x01,
+    0x07, 0x0a, 0x01, 0x06, 0x6d, 0x65, 0x6d, 0x6f, 0x72, 0x79, 0x02, 0x00,
+  ]);
+  const degraded = await createMotor(memoryOnly);
+  let cause = "";
+  try {
+    degraded.build(ingest);
+  } catch (error) {
+    cause = error instanceof WasmUnavailableError ? String(error.reason?.message) : "";
+  }
+  check("stale_module_refused_at_load_naming_gm_dim", cause.includes("gm_dim"));
+  resetForTests();
+}
 }

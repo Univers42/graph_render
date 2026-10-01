@@ -1,24 +1,38 @@
 use super::*;
 use crate::binary::{SnapshotParts, StringTable};
 use crate::notes::Notes;
+use crate::snapshot::{Dim, label_for};
 use crate::version::CURRENT_VERSION;
 
+mod dim;
 mod shape;
 mod syntax;
 
+/// Every kind here is 2D, so the label is 0.3 and the text carries no `"dim"` — the
+/// pinned text below proves it. [`spaced`] builds the 3D counterpart.
 fn snapshot(nodes: NodeGeometry, edges: EdgeGeometry) -> Snapshot {
     let ids = |column, items: &[&str]| StringTable::from_strs(column, items.iter().copied());
     Snapshot::new(SnapshotParts {
-        version: CURRENT_VERSION,
+        version: label_for(Dim::D2),
         node_ids: ids("node.id", &["a", "q\"\\\n\u{1}\u{7f}é\u{1F680}"]).expect("fits"),
         edge_ids: ids("edge.id", &["e"]).expect("fits"),
         source: vec![1],
         target: vec![0],
         nodes,
+        z: None,
         edges,
         notes: Notes::default(),
     })
     .expect("valid")
+}
+
+/// The same snapshot in three dimensions: a z column and the 0.4 label it needs. Built by
+/// hand, since no 3D layout exists yet.
+fn spaced(nodes: NodeGeometry, edges: EdgeGeometry, z: Vec<f32>) -> Snapshot {
+    let mut p = snapshot(nodes, edges).into_parts();
+    p.z = Some(z);
+    p.version = label_for(Dim::D3);
+    Snapshot::new(p).expect("a 3D snapshot is valid")
 }
 
 fn point() -> NodeGeometry {
@@ -139,7 +153,7 @@ fn version_refusal_of_a_json_snapshot_one_major_ahead() {
     assert!(
         refusal
             .to_string()
-            .contains("1.3 is newer than this reader's 0.3")
+            .contains("1.3 is newer than this reader's 0.4")
     );
     let reshaped = newer.replace(r#""geometry""#, r#""geometries""#);
     assert_eq!(

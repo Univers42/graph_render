@@ -7,6 +7,7 @@ const HEADER: SnapshotHeader = SnapshotHeader {
     version: CURRENT_VERSION,
     node_kind: NodeGeometryKind::Circle,
     edge_kind: EdgeGeometryKind::Polyline,
+    dim: Dim::D2,
     stage_count: StageCount::ONE,
     node_count: 7,
     edge_count: 3,
@@ -59,7 +60,8 @@ fn reader_accepts_a_newer_minor() {
 fn reader_refuses_reserved_fields_and_short_input() {
     let arc = Err(Geometry(TagError::Reserved(crate::geometry::ARC_TAG)));
     assert_eq!(read(HEADER, |b| b[13] = crate::geometry::ARC_TAG), arc);
-    assert_eq!(read(HEADER, |b| b[14] = 1), Err(ReservedZChannel(1)));
+    assert_eq!(read(HEADER, |b| b[14] = 2), Err(ReservedDim(2)));
+    assert_eq!(read(HEADER, |b| b[14] = u8::MAX), Err(ReservedDim(u8::MAX)));
     assert_eq!(read(HEADER, |b| b[15] = 9), Err(NonZeroPadding(9)));
     assert_eq!(read(HEADER, |b| b[16] = 2), Err(ReservedStageCount(2)));
     assert_eq!(
@@ -73,20 +75,47 @@ fn reader_refuses_reserved_fields_and_short_input() {
 }
 
 #[test]
-fn reserved_fields_are_checked_before_the_geometry_tag() {
-    // decode() calls check_reserved (z channel, then padding) before it reads either
+fn dim_and_padding_are_checked_before_the_geometry_tag() {
+    // decode() checks dim (byte 14), then padding (byte 15), before it reads either
     // geometry tag, so a header wrong in both ways names the reserved field, not the
     // tag; a reorder that let the tag jump the queue would flip this.
-    let arc_and_z = |b: &mut Vec<u8>| {
+    let arc_and_dim = |b: &mut Vec<u8>| {
         b[13] = crate::geometry::ARC_TAG;
-        b[14] = 1;
+        b[14] = 7;
     };
-    assert_eq!(read(HEADER, arc_and_z), Err(ReservedZChannel(1)));
+    assert_eq!(read(HEADER, arc_and_dim), Err(ReservedDim(7)));
     let unknown_and_padding = |b: &mut Vec<u8>| {
         b[12] = 200;
         b[15] = 9;
     };
     assert_eq!(read(HEADER, unknown_and_padding), Err(NonZeroPadding(9)));
+}
+
+#[test]
+fn a_3d_header_round_trips_and_the_label_follows_the_dimension() {
+    let mut three = HEADER;
+    three.dim = Dim::D3;
+    three.version = label_for(Dim::D3);
+    assert_eq!(read(three, |_| ()), Ok(three));
+    let mut two = HEADER;
+    two.version = label_for(Dim::D2);
+    assert_eq!(read(two, |_| ()), Ok(two));
+    let encoded = |h: &SnapshotHeader| {
+        let mut out = Vec::new();
+        h.encode(&mut out);
+        out[14]
+    };
+    assert_eq!(
+        encoded(&three),
+        1,
+        "dim is byte 14, as the z channel always was"
+    );
+    assert_eq!(encoded(&two), 0, "2D writes a zero there");
+    assert!(carries_dim(three.version), "0.4 is what names a dimension");
+    assert!(
+        !carries_dim(two.version),
+        "0.3 names no dimension: its byte 14 is always 0"
+    );
 }
 
 #[test]
@@ -107,7 +136,7 @@ fn every_refusal_message_names_the_value_it_refused() {
                 known: CURRENT_VERSION,
             })
             .to_string(),
-            "format 7.1 is newer than this reader's 0.3",
+            "format 7.1 is newer than this reader's 0.4",
         ),
         (
             Geometry(TagError::Reserved(4)).to_string(),
@@ -117,7 +146,7 @@ fn every_refusal_message_names_the_value_it_refused() {
             Geometry(TagError::Unknown(9)).to_string(),
             "tag 9 is not allocated",
         ),
-        (ReservedZChannel(1).to_string(), "z channel 1"),
+        (ReservedDim(2).to_string(), "dim 2"),
         (NonZeroPadding(9).to_string(), "byte is 9"),
         (ReservedStageCount(2).to_string(), "stage count 2"),
     ];

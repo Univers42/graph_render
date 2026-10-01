@@ -110,6 +110,12 @@ pub enum SnapshotError {
         /// The format it declares.
         version: FormatVersion,
     },
+    /// A z column in a snapshot whose format predates `dim` (below 0.4), so the dimension
+    /// the bytes carry has no name in the version they claim.
+    DimUnnameable {
+        /// The format it declares.
+        version: FormatVersion,
+    },
 }
 
 impl fmt::Display for SnapshotError {
@@ -150,6 +156,10 @@ impl fmt::Display for SnapshotError {
             Self::NotesUnsupported { version } => write!(
                 f,
                 "notes: format {version} carries none; notes need 0.3 or later"
+            ),
+            Self::DimUnnameable { version } => write!(
+                f,
+                "node.z: format {version} names no dimension; a z column needs 0.4 or later"
             ),
         }
     }

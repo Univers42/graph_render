@@ -25,10 +25,18 @@ export const ColumnId = {
   EdgeOffsets: 9,
   EdgePts: 10,
   EdgeCurveDegree: 11,
+  /** Node `z`. 3D only — present iff the run's `dim` is 1, whatever the node kind is.
+   *  Appended, so no shipped id is renumbered. */
+  NodeZ: 12,
 } as const;
 
 /** A `ColumnId` value, e.g. `ColumnId.NodeX`. */
 export type ColumnId = (typeof ColumnId)[keyof typeof ColumnId];
+
+/** How many dimensions a run or a pass's result carries: `0` 2D, `1` 3D. The header's
+ *  `dim` byte, named: the contract spells it 0 for 2D rather than 2, so that a 0.3
+ *  snapshot (whose byte is always 0) still reads as 2D. */
+export type Dim = 0 | 1;
 
 /** An opaque handle `gm_build` returned. Never construct one by hand: it is only ever a
  * `number` this SDK itself received back from the motor (C6's monotonic, never-reused id
@@ -51,6 +59,11 @@ export interface RunResult {
   readonly nodeKind: NodeGeometryKind;
   readonly edgeKind: EdgeGeometryKind;
   readonly nodeCount: number;
+  /** How many dimensions the run carries: `0` 2D, `1` 3D. A 3D run has a
+   *  {@link ColumnId.NodeZ} column; a 2D one reads that column as `null` (absent, not
+   *  empty). The motor transports 3D — refusing it is a consumer's decision, and this is
+   *  what a consumer reads to make it. */
+  readonly dim: Dim;
 }
 
 /** What `Motor.post` returns. A POST pass replaces the edge geometry of the handle's
@@ -67,6 +80,10 @@ export interface PostResult {
   /** The edge geometry tag the pass produced: `0` Line, `1` Polyline, `2` Curve. */
   readonly edgeKind: EdgeGeometryKind;
   readonly nodeCount: number;
+  /** The handle's dimension after the pass, restated for the same reason as
+   *  {@link RunResult.dim}: a POST pass replaces edge geometry and leaves the nodes, z
+   *  included, where they were. */
+  readonly dim: Dim;
 }
 
 /** The element type of an {@link AnalysisResult}'s `values`, as the ABI's JSON names it:

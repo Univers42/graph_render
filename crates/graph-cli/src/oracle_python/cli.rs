@@ -1,7 +1,9 @@
 //! The subcommands of the Python-armed differentials: `emit-<name>-fixtures` and
 //! `oracle-<name>`, flattened into the top-level command.
 
-use super::{CLOSED_FORM, FA2, IGRAPH, NEATO, SPECTRAL, TWOPI, emit, ingest};
+use super::graphviz::{by_engine, default_dir, engine_parser};
+use super::spring;
+use super::{CIRCULAR_HIERARCHY, CLOSED_FORM, FA2, IGRAPH, SPECTRAL, SPRING, emit, ingest};
 use crate::command::seed_count;
 use clap::Subcommand;
 use std::path::PathBuf;
@@ -73,110 +75,75 @@ pub enum Cli {
         #[arg(long, default_value = "target/fa2-fixtures")]
         dir: PathBuf,
     },
-    /// Writes the twopi differential's fixtures for `harness/oracle-twopi.py`.
-    ///
-    /// The graph is the gate's own model, the one `emit-spectral-fixtures` writes too, so
-    /// the fixtures Graphviz's engine is run over are the same fixtures the other
-    /// differentials compare over.
-    EmitTwopiFixtures {
+    /// Writes the spring differential's fixtures for `harness/oracle-spring.py`.
+    EmitSpringFixtures {
+        /// Number of seeds, 0..N.
+        #[arg(long, default_value_t = 1000, value_parser = seed_count())]
+        seeds: u32,
+        /// Iteration budget both arms run, over the differential's own. The escape hatch
+        /// `docs/measurements/p12-t2.md` measures another budget with.
+        #[arg(long, value_parser = clap::value_parser!(u32).range(1..=1000))]
+        max_iter: Option<u32>,
+        /// Output directory.
+        #[arg(long, default_value = "target/spring-fixtures")]
+        out: PathBuf,
+    },
+    /// Checks the spring differential's result against its stress-ratio ceiling.
+    OracleSpring {
+        /// Directory holding the fixtures and `spring-result.json`.
+        #[arg(long, default_value = "target/spring-fixtures")]
+        dir: PathBuf,
+    },
+    /// Writes the circular-hierarchy differential's fixtures for
+    /// `harness/oracle-circular-hierarchy.py`, the SciGraphs arm.
+    EmitCircularHierarchyFixtures {
         /// Number of seeds, 0..N.
         #[arg(long, default_value_t = 1000, value_parser = seed_count())]
         seeds: u32,
         /// Output directory.
-        #[arg(long, default_value = "target/twopi-fixtures")]
+        #[arg(long, default_value = "target/circular-hierarchy-fixtures")]
         out: PathBuf,
     },
-    /// Checks the twopi differential's result against its ceiling and records it.
-    ///
-    /// The same differential as `oracle-graphviz --engine twopi`, kept as its own
-    /// subcommand so the p13-gv1 gate row and any run recorded against it still work. Both
-    /// arms of a twopi differential are byte for byte, so `--engine` is not a choice anyone
-    /// needs to make for that one; this engine is a force engine and its differential is.
-    OracleTwopi {
-        /// Directory holding the fixtures and `twopi-result.json`.
-        #[arg(long, default_value = "target/twopi-fixtures")]
+    /// Checks the circular-hierarchy differential's result against its ceiling.
+    OracleCircularHierarchy {
+        /// Directory holding the fixtures and `circular-hierarchy-result.json`.
+        #[arg(long, default_value = "target/circular-hierarchy-fixtures")]
         dir: PathBuf,
     },
-    /// Writes a Graphviz engine differential's fixtures for `harness/oracle-graphviz.py`.
+    /// Writes one Graphviz engine differential's fixtures for `harness/oracle-graphviz.py`.
     ///
-    /// The graph is the gate's own model, the one `emit-spectral-fixtures` writes too, so the
-    /// fixtures the engine is run over are the same fixtures the other differentials compare
-    /// over.
+    /// The graph is the gate's own model, the one `emit-spectral-fixtures` writes too, so
+    /// the fixtures Graphviz's engine is run over are the same fixtures the other
+    /// differentials compare over.
+    ///
+    /// The alias is the command this replaced: `emit-twopi-fixtures` with no `--engine` is
+    /// this command with `--engine twopi`, writing the same `target/twopi-fixtures`.
+    #[command(alias = "emit-twopi-fixtures")]
     EmitGraphvizFixtures {
-        /// Which engine. One differential per engine, and an unknown name is a usage error
-        /// rather than a silently empty comparison.
-        #[arg(long, value_parser = graphviz_engine())]
+        /// Which Graphviz engine to compare against.
+        #[arg(long, default_value = "twopi", value_parser = engine_parser())]
         engine: String,
         /// Number of seeds, 0..N.
         #[arg(long, default_value_t = 1000, value_parser = seed_count())]
         seeds: u32,
-        /// Output directory; defaults to the engine's own, so `--engine neato` and
-        /// `--dir target/neato-fixtures` cannot name two different places.
+        /// Output directory, `target/<engine>-fixtures` when unset.
         #[arg(long)]
         out: Option<PathBuf>,
     },
-    /// Checks a Graphviz engine differential's result against its ceiling and records it.
-    /// `oracle-twopi` is not an alias here: it is the older, still-working subcommand above,
-    /// and clap refuses an alias that collides with a real command's name. The generalisation
-    /// is `oracle-graphviz --engine twopi`, and the old spelling stays as itself.
+    /// Checks one Graphviz engine differential's result against its ceiling and records it.
+    ///
+    /// The alias is the command this replaced: `oracle-twopi` with no `--engine` is this
+    /// command with `--engine twopi`, over the same directory and against the same record.
+    #[command(alias = "oracle-twopi")]
     OracleGraphviz {
-        /// Which engine, as above.
-        #[arg(long, value_parser = graphviz_engine())]
+        /// Which Graphviz engine's differential to check.
+        #[arg(long, default_value = "twopi", value_parser = engine_parser())]
         engine: String,
-        /// Directory holding the engine's fixtures and `<engine>-result.json`; defaults to
-        /// the engine's own, so the two halves of the chain cannot name different places.
+        /// Directory holding the fixtures and `<engine>-result.json`,
+        /// `target/<engine>-fixtures` when unset.
         #[arg(long)]
         dir: Option<PathBuf>,
     },
-}
-
-/// The `--engine` values a Graphviz differential exists for, as `(name, fixture directory)`.
-///
-/// The directory is derived from the engine name rather than taken as a second flag, so the
-/// two cannot disagree: `neato`'s fixtures live in `target/neato-fixtures` and there is no
-/// way to ask for one engine's fixtures in another's directory. An unknown engine is a
-/// usage error at parse time, which is the point — a differential silently run over nothing
-/// is the failure this rules out.
-const GRAPHVIZ_ENGINES: [(&str, &str); 2] = [
-    ("neato", "target/neato-fixtures"),
-    ("twopi", "target/twopi-fixtures"),
-];
-
-/// A `--engine` value that names a differential this build has.
-///
-/// A `PossibleValuesParser` over the static table, so clap rejects an unknown engine itself
-/// and prints the ones that exist. The table is the single source of truth for the accepted
-/// values, the default directories and the differential lookup below: adding an engine is
-/// one row here plus one `Differential`, not three edits that can drift apart.
-fn graphviz_engine() -> impl clap::builder::TypedValueParser<Value = String> {
-    clap::builder::PossibleValuesParser::new(
-        GRAPHVIZ_ENGINES
-            .iter()
-            .map(|(name, _)| *name)
-            .collect::<Vec<_>>(),
-    )
-}
-
-/// The fixture directory an engine's `--dir` defaults to, or the given one.
-fn graphviz_dir(engine: &str, dir: Option<PathBuf>) -> PathBuf {
-    dir.unwrap_or_else(|| {
-        GRAPHVIZ_ENGINES
-            .iter()
-            .find(|(name, _)| *name == engine)
-            .map(|(_, path)| PathBuf::from(path))
-            .expect("clap validated the engine")
-    })
-}
-
-/// The differential an `--engine` names, or a usage error naming the ones that exist.
-fn graphviz_differential(engine: &str) -> Result<&'static super::Differential, String> {
-    match engine {
-        "neato" => Ok(&NEATO),
-        "twopi" => Ok(&TWOPI),
-        other => Err(format!(
-            "{other}: no Graphviz differential; known engines are neato, twopi"
-        )),
-    }
 }
 
 impl Cli {
@@ -194,26 +161,36 @@ impl Cli {
             Cli::OracleFa2 { dir } => ingest(&FA2, &dir),
             Cli::EmitClosedFormFixtures { seeds, out } => emit(&CLOSED_FORM, seeds, None, &out),
             Cli::OracleClosedForm { dir } => ingest(&CLOSED_FORM, &dir),
-            Cli::EmitTwopiFixtures { seeds, out } => emit(&TWOPI, seeds, None, &out),
-            Cli::OracleTwopi { dir } => ingest(&TWOPI, &dir),
-            Cli::EmitGraphvizFixtures { engine, seeds, out } => {
-                match graphviz_differential(&engine) {
-                    Ok(differential) => {
-                        emit(differential, seeds, None, &graphviz_dir(&engine, out))
-                    }
-                    Err(err) => {
-                        eprintln!("emit-graphviz-fixtures: {err}");
-                        ExitCode::from(2)
-                    }
-                }
+            Cli::EmitSpringFixtures {
+                seeds,
+                max_iter,
+                out,
+            } => emit(&SPRING, seeds, max_iter, &out),
+            Cli::OracleSpring { dir } => spring::ingest::ingest(&dir),
+            Cli::EmitCircularHierarchyFixtures { seeds, out } => {
+                emit(&CIRCULAR_HIERARCHY, seeds, None, &out)
             }
-            Cli::OracleGraphviz { engine, dir } => match graphviz_differential(&engine) {
-                Ok(differential) => ingest(differential, &graphviz_dir(&engine, dir)),
-                Err(err) => {
-                    eprintln!("oracle-graphviz: {err}");
-                    ExitCode::from(2)
-                }
+            Cli::OracleCircularHierarchy { dir } => ingest(&CIRCULAR_HIERARCHY, &dir),
+            Cli::EmitGraphvizFixtures { engine, seeds, out } => match by_engine(&engine) {
+                Some(differential) => emit(
+                    &differential,
+                    seeds,
+                    None,
+                    &out.unwrap_or(default_dir(&engine)),
+                ),
+                None => unknown(&engine),
+            },
+            Cli::OracleGraphviz { engine, dir } => match by_engine(&engine) {
+                Some(differential) => ingest(&differential, &dir.unwrap_or(default_dir(&engine))),
+                None => unknown(&engine),
             },
         }
     }
+}
+
+/// An engine name the parser should already have refused. Exit 2, the code the other
+/// "could not run" arms use, so a mistyped engine is never read as a pass.
+fn unknown(engine: &str) -> ExitCode {
+    eprintln!("oracle-graphviz: no differential for engine {engine}");
+    ExitCode::from(2)
 }

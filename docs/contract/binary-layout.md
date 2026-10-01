@@ -21,7 +21,7 @@ refuses, plus truncation and trailing bytes.
 | 8 | 4 | format minor | `u32` LE | any minor of a known major is read |
 | 12 | 1 | node geometry tag | tag byte | `NodeGeometryKind`: `0` Point, `1` Circle, `2` Box |
 | 13 | 1 | edge geometry tag | tag byte | `EdgeGeometryKind`: `0` Line, `1` Polyline, `2` Curve, `3`/`4` reserved |
-| 14 | 1 | z channel | `u8` | `0` = absent; any nonzero is refused (reserved, not implemented) |
+| 14 | 1 | `dim` | `u8` | `0` 2D (no z column), `1` 3D (z column present); `2..=255` refused as `ReservedDim` |
 | 15 | 1 | padding | `u8` | must be `0` |
 | 16 | 4 | stage count | `u32` LE | reserved; only `1` is accepted |
 | 20 | 4 | node count `n` | `u32` LE | length of every node column |
@@ -29,6 +29,15 @@ refuses, plus truncation and trailing bytes.
 
 Source of the table: `snapshot.rs:7-19` (`SnapshotHeader::encode`/`decode`,
 `crates/graph-contract/src/snapshot.rs:132-167`). `HEADER_LEN = 28`.
+
+**`dim` (format 0.4).** Byte 14 was a reserved z channel that had to be `0`; it is now the
+snapshot's dimension, once for the whole payload (`snapshot/dim.rs`). `0` is 2D and carries
+no z column, `1` is 3D and does. A reader **computes every column position from this byte**,
+never from fixed offsets, so the `r`/`w`/`h` shift when `dim` is `1` (see the node columns
+below). A reader that does not implement 3D refuses `dim = 1` at this byte, before either
+geometry tag — the check order is magic, major, `dim`, padding, node tag, edge tag, stages
+(`snapshot.rs:decode`). A `dim` of `2..=255` is refused as `ReservedDim` by every reader:
+further dimensions are allocated to no one.
 
 **Reserved geometry tags.** `geometry.rs:45-48` allocates edge tag `3` to Sankey ribbons
 and `4` to chord arcs: recognised (so a future reader knows they exist) but refused by
@@ -46,6 +55,10 @@ After the header, for a snapshot with `n` nodes and `m` edges:
 4. **edge.target** — `u32 × m`, same.
 5. **node columns**, in this fixed order: `x`, `y`, then `r` (Circle) or `w`, `h` (Box).
    Point has no third column. Each column is `f32 × n`.
+   When `dim = 1` a **`z` column** sits immediately after `y`, so the order is `x, y, z`
+   (Point), `x, y, z, r` (Circle) or `x, y, z, w, h` (Box) — coordinates contiguous, sizes
+   pushed one word along. For `dim = 0` the order is exactly the one above and no `z` column
+   is written (`geometry.rs`, `NodeGeometry::columns_dim`).
 6. **edge geometry**, shaped by the edge tag: nothing (Line), or offsets+points
    (Polyline), or a degree then offsets+points (Curve).
 7. **notes** (format 0.3 and later only) — `k: u32`, then `code: u32 × k`, then
@@ -74,13 +87,17 @@ at the same index `e`.
 
 ### Node geometry columns
 
-| node kind | columns, in order | per-element rule |
-|---|---|---|
-| Point (`0`) | `x`, `y` | finite |
-| Circle (`1`) | `x`, `y`, `r` | finite; `r ≥ 0` |
-| Box (`2`) | `x`, `y`, `w`, `h` | finite; `w ≥ 0`, `h ≥ 0` |
+| node kind | columns, `dim = 0` | columns, `dim = 1` | per-element rule |
+|---|---|---|---|
+| Point (`0`) | `x`, `y` | `x`, `y`, `z` | finite |
+| Circle (`1`) | `x`, `y`, `r` | `x`, `y`, `z`, `r` | finite; `r ≥ 0` |
+| Box (`2`) | `x`, `y`, `w`, `h` | `x`, `y`, `z`, `w`, `h` | finite; `w ≥ 0`, `h ≥ 0` |
 
-Each column is `n` little-endian `f32`s (`geometry.rs:174-181`, `NodeGeometry::columns`).
+Each column is `n` little-endian `f32`s (`geometry.rs`, `NodeGeometry::columns_dim`). A `z`
+is a coordinate, not a size, so it may be negative; only `r`, `w` and `h` are sizes. A `z`
+column whose length is not `n` is refused as `Length { column: "node.z" }`. Edge paths stay
+2D whatever `dim` is: a 3D edge path would be a second breaking change and is not in this
+format.
 
 ### Edge geometry, by edge tag
 
@@ -208,17 +225,18 @@ the fixed header, whose faults report the exact byte offset above.
 | `BadMagic` | — | 0..4 |
 | `UnsupportedMajor(NewerMajor)` | found vs. known version | 4..8 |
 | `Geometry(TagError::Unknown\|Reserved)` | the tag byte | 12 (node) or 13 (edge) |
-| `ReservedZChannel(v)` | the byte | 14 |
+| `ReservedDim(v)` | the byte | 14 |
 | `NonZeroPadding(v)` | the byte | 15 |
 | `ReservedStageCount(n)` | the `u32` | 16..20 |
 
 The table above is ordered by byte offset, not by check order: a header wrong in more
 than one way reports whichever fault `decode` reaches first, which is `Truncated`,
-`BadMagic`, `UnsupportedMajor`, the reserved z-channel (byte 14), the padding byte
+`BadMagic`, `UnsupportedMajor`, the dim byte (14), the padding byte
 (byte 15), the node tag (byte 12), the edge tag (byte 13), then `ReservedStageCount` —
-so a reserved z-channel or nonzero padding is reported ahead of a bad geometry tag even
+so an unimplemented dim or nonzero padding is reported ahead of a bad geometry tag even
 though the tag bytes sit earlier in the layout (`snapshot.rs`'s `decode`, pinned by
-`reserved_fields_are_checked_before_the_geometry_tag`).
+`dim_and_padding_are_checked_before_the_geometry_tag`). A 2D-only reader therefore
+refuses a 3D snapshot at byte 14, ahead of any tag.
 
 ### Body (`SnapshotError`, `snapshot/error.rs:13-113`)
 
@@ -227,13 +245,13 @@ though the tag bytes sit earlier in the layout (`snapshot.rs`'s `decode`, pinned
 | `Header(ReadError)` | — | wraps the table above |
 | `Truncated { column }` | any, `note.count`/`note.code`/`note.index` included | decode only: the payload ends inside this column |
 | `TrailingBytes { count }` | — | bytes left after the last column |
-| `Length { column, expected, found }` | `edge.source`, `edge.target`, `node.x`, `edge.offsets`, `edge.pts`, `note.index` | construction only: wrong element count (`note.index`: not as long as `note.code`) |
+| `Length { column, expected, found }` | `edge.source`, `edge.target`, `node.x/y/z/r/w/h`, `edge.offsets`, `edge.pts`, `note.index` | construction only: wrong element count (`note.index`: not as long as `note.code`) |
 | `Offsets { column, index }` | `node.id`, `edge.id`, `edge.offsets` | first offset that isn't 0, decreases, or overruns the data |
 | `Utf8 { column, index }` | `node.id`, `edge.id` | the string whose bytes are not UTF-8 |
 | `Padding { column }` | `node.id`, `edge.id` | a string table's padding byte is nonzero |
 | `DuplicateId { column, index }` | `node.id`, `edge.id` | the later of the two equal ids |
 | `Endpoint { column, index }` | `edge.source`, `edge.target` | the edge whose endpoint is `≥ n` |
-| `NonFinite { column, index }` | `node.x/y/r/w/h`, `edge.pts` | first NaN/±∞ (D9, `geometry.rs:273-282`) |
+| `NonFinite { column, index }` | `node.x/y/z/r/w/h`, `edge.pts` | first NaN/±∞ (D9, `geometry.rs`) |
 | `Negative { column, index }` | `node.r`, `node.w`, `node.h` | first negative value |
 | `CurveDegree` | — | a Curve's degree is 0 |
 | `Capacity { column }` | `node.id`, `edge.id` | construction only: more ids/bytes/points than a `u32` counts |
@@ -241,6 +259,7 @@ though the tag bytes sit earlier in the layout (`snapshot.rs`'s `decode`, pinned
 | `NoteOrder { index }` | `note.*` | the note not strictly after the one before it by `(code, index)` — a repeat included |
 | `NoteTarget { index }` | `note.index` | the note whose index its code does not allow (`≥ m` for 1-2, not `u32::MAX` for 3) |
 | `NotesUnsupported { version }` | `notes` | construction only: a note on a snapshot labelled below 0.3 (0.0 included) |
+| `DimUnnameable { version }` | `node.z` | construction only: a z column on a snapshot labelled below 0.4, a version that names no dimension |
 
 `binary/tests.rs:184-246` pins one decode-time patch per variant above (e.g. writing a
 NaN at byte `h+48` yields `NonFinite { column: "node.y", index: 1 }`) and confirms every
@@ -256,8 +275,18 @@ snapshot below 0.3 has no section to read — so they are construction and JSON 
 
 `version.rs:1-14,63-72`. A reader **refuses** a major above the one it knows
 (`check_readable`), naming both versions, rather than guess at a newer layout. A newer
-minor of a known major is read. `CURRENT_VERSION` is **0.3**; a JSON document with no
-`version` reads as `UNVERSIONED` (0.0), which a 0.3 reader also accepts.
+minor of a known major is read. `CURRENT_VERSION` is **0.4**; a JSON document with no
+`version` reads as `UNVERSIONED` (0.0), which a 0.4 reader also accepts.
+
+**A snapshot is labelled with the lowest version that can express it**, and
+`label_for` (`snapshot/dim.rs`) is the one function that says which. A `dim = 0` snapshot is
+labelled **0.3** and a `dim = 1` one **0.4**, so raising `CURRENT_VERSION` to 0.4 moves no
+2D byte at all — byte 8 is the version, and no 2D producer writes any other. Every producer
+calls `label_for`, never `CURRENT_VERSION`: `graph-core/src/layout/mod.rs`,
+`graph-cli`'s `snapshot_cmd/dag.rs` and `snapshot_cmd/exercise.rs`. This is the notes
+precedent again — writing follows the snapshot's own version. A z column under a label that
+names no dimension is refused (`DimUnnameable`), so a snapshot can never claim a dimension
+its own version has no word for.
 
 The notes section is dispatched on the **version**, never by sniffing for bytes at the
 end (`carries_notes`, `notes.rs:173-178`): a 0.3 reader reads it from a snapshot labelled
@@ -279,10 +308,12 @@ decision Q2, `docs/reports/HANDOFF.md`.)
 
 `canonical_json.rs:1-17`. Same information, different shape, for any third-party frontend.
 `to_json`/`from_json` round-trip a `Snapshot` byte-exact through the binary face
-(`graph-cli roundtrip`, `crates/graph-cli/src/snapshot_cmd.rs:214-232`; its sweep draws a
-0.2-labelled snapshot, a 0.3 one with `k = 0` and one with each implemented code).
+(`graph-cli roundtrip`, `crates/graph-cli/src/snapshot_cmd.rs`; its sweep draws a 0.2-labelled
+snapshot, a 0.3 one with `k = 0`, one with each implemented code, and a 3D one per three
+seeds — a third of the exercise snapshots carry a `z` column, drawn by hand because no 3D
+layout exists yet).
 
-- **Shape**: `{"edges":{"id","source","target"}, "geometry":{"edges","nodes"},
+- **Shape**: `{"dim","edges":{"id","source","target"}, "geometry":{"edges","nodes"},
   "nodes":{"id"}, "notes":{"code","index"}, "version":{"major","minor"}}`. Edge endpoints
   are node **ids** (strings), never the dense node positions the binary face uses. The one
   position the JSON face carries is a note's `index`: an **edge position** (an index into
@@ -292,6 +323,12 @@ decision Q2, `docs/reports/HANDOFF.md`.)
   default and enumerates the codes `1, 2, 3`. Node/edge geometry objects carry a
   `"kind"` string (`Point`/`Circle`/`Box`, `Line`/`Polyline`/`Curve`) plus that kind's
   columns; the full shape is `docs/contract/snapshot-schema.json`.
+- **`"dim"` (format 0.4)**: written from 0.4 on, which by the label rule above is exactly
+  when the snapshot can be 3D, and **reads as `0` when absent** — the same optional-member
+  rule as `notes`. `geometry.nodes` carries a `"z"` array iff `dim` is `1`; for `dim = 0` the
+  object is unchanged, and a `z` array under `dim = 0` is refused rather than dropped. The
+  schema marks `dim` with a default of `0` and enumerates `0, 1`. JSON Schema cannot tie a
+  member's presence to another member's value, so the reader enforces the rule.
 - **Canonical**: compact (no insignificant whitespace), object keys sorted by UTF-8 bytes
   at every depth — so the binary's fixed column order (`x, y, r` / `x, y, w, h`) is not the
   JSON key order (`kind, r, x, y` / `h, kind, w, x, y`) — arrays in snapshot/column order,
@@ -324,7 +361,12 @@ against `SnapshotHeader::encode`/`decode`, the hex dump against
 `SnapshotError`/`ReadError` and the decode-time patch test, the version policy against
 `check_readable`, and the hash against `snapshot_cmd.rs`/`runner.rs`. No disagreement was
 found between the code and `docs/reports/HANDOFF.md` item 2's checklist for this document;
-where the handoff is silent (the reserved Ribbon/Arc tags, the z-channel/stage-count
+where the handoff is silent (the reserved Ribbon/Arc tags, the dim byte/stage-count
 reservation, `Capacity`), this document adds the detail the code carries. The format 0.3
 update (notes) was checked the same way, against `notes.rs`, `binary.rs`/`decode.rs`, the
-pinned tests in `binary/tests/pinned.rs` and the refusal tests in `notes/tests.rs`.
+pinned tests in `binary/tests/pinned.rs` and the refusal tests in `notes/tests.rs`. The
+format 0.4 update (`dim` and the z column) was checked against `snapshot/dim.rs`,
+`geometry.rs` and `canonical_json.rs`/`read.rs`, and 2D byte-identity was measured rather
+than argued: every 2D layout's binary face, seeds 0-7, digests identically before and after
+the change (`docs/decisions/contract-3d-verdict.md` condition 2), and the pinned 0.3 example
+in `binary/tests/pinned.rs` stays green unedited, `expected[8] == 3` included.

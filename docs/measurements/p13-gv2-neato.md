@@ -9,9 +9,16 @@ docker-only oracle image `ge-graphviz-oracle` (Graphviz 16.1.0, pinned by sha256
 scripts/orch/gr cargo run -q --release -p graph-cli -- \
   emit-graphviz-fixtures --engine neato --seeds 1000
 docker run --rm --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle \
-  python3 harness/oracle-graphviz.py --compare neato target/neato-fixtures target/gv-neato
+  python3 harness/oracle-graphviz.py target/neato-fixtures neato target/gv-neato --differential
 scripts/orch/gr cargo run -q -p graph-cli -- oracle-graphviz --engine neato
 ```
+
+`--differential` rather than a `--compare <engine>` positional: `emit-graphviz-fixtures
+--engine <name>` and `oracle-graphviz --engine <name>` are the one command pair for every
+Graphviz engine, and `harness/oracle-graphviz.py` imports its metric, rescale and closed-case
+grader from `harness/oracle-twopi.py` rather than carrying a second definition of the number
+the ceiling is measured against. The older `emit-twopi-fixtures` / `oracle-twopi` spellings
+remain as clap aliases of the twopi arm, so nothing that ran against them stopped working.
 
 Neither subcommand takes a directory: both default to the engine's own
 (`target/neato-fixtures`), from the same static table the `--engine` parser validates against,
@@ -23,8 +30,17 @@ The chain, run on this tree, in full:
 | step | exit | result |
 |---|---|---|
 | `emit-graphviz-fixtures --engine neato --seeds 1000` | 0 | `target/neato-fixtures/neato.jsonl`, 1000 seeds |
-| `oracle-graphviz.py --compare neato …` | 0 | `neato: 1000 seeds, worst 6.732e-02 points` |
+| `oracle-graphviz.py target/neato-fixtures neato target/gv-neato --differential` | 0 | `neato: 1000 seeds, worst 6.732e-02 points; closed 0 exact: None` |
 | `oracle-graphviz --engine neato` | 0 | `layout.force.neato: 1000 cases, worst 6.732e-2, ceiling 1e-1: ok` · `PASS` |
+
+**`closed 0` is the honest count for this engine, not a gap in the harness.** `CLOSED` in
+`harness/oracle-graphviz.py` holds coordinates as exact literals and compares the engine's
+printed text against them character for character; neato's answers are not derivable that way
+because the engine is iterative and its drawing is a function of `-Gstart`. Pinning six numbers
+measured *from* the oracle into a table the oracle is then graded against would grade it against
+itself. neato's five small cases are token-exact and its sixth agrees to the fourth significant
+digit, and that comparison lives where the two independent runs are — in graph-core's own tests
+and in the table under "The closed cases" below.
 
 ## `-Gstart` is load-bearing here, and that is the whole difference from `twopi`
 
@@ -52,13 +68,14 @@ would be a difference of seeds.
 
 | run | result |
 |---|---|
-| `harness/oracle-graphviz.py target/spectral-fixtures neato target/gv-neato-a` | exit 0, 1000 seeds |
+| `harness/oracle-graphviz.py target/neato-fixtures neato target/gv-neato-a --differential` | exit 0, 1000 seeds |
 | the same again, into `target/gv-neato-b` | exit 0, 1000 seeds |
 | `cmp` of the two `graphviz-neato.jsonl` | **silent**, exit 0 |
-| manifest sha256, both runs | `490d44e24b480021fe6e678d9c1b5d10b0e02fb7942f8c44240d58024e02fcb9` |
+| sha256 of the output file, both runs | `9fa98ba4b15fc43ac8706c66c6b90d61b157129101a86baab21553c1aff5aab1` |
 
 The determinism check is not vacuous, which is the property a `cmp` on its own does not have: a
-1e-6-point perturbation of one coordinate in the first record changes byte 119, and
+1e-6-point perturbation of one coordinate in the first record changes byte 37 (the `0.5` of
+the first node's x, at offset 37), and
 
 ```sh
 cmp target/gv-neato-a/graphviz-neato.jsonl target/gv-negctl/perturbed.jsonl

@@ -1,12 +1,18 @@
 //! The contract exercise: one snapshot per seed that no layout would produce — every
 //! node and edge kind, the floats a text face most easily gets wrong, ids a JSON writer
 //! must escape, and every notes case (a 0.2-labelled snapshot, none, each code) — so
-//! `roundtrip` checks the whole contract, not only the grid's half-integers.
+//! `roundtrip` checks the whole contract, not only the grid's half-integers. Every third
+//! seed is 3D as well, since no 3D layout exists to be swept instead.
 
 use graph_contract::binary::{Snapshot, SnapshotParts, StringTable};
 use graph_contract::geometry::{EdgeGeometry, NodeGeometry, Paths};
 use graph_contract::notes::{Note, NoteCode, Notes, SNAPSHOT_WIDE};
-use graph_contract::version::{CURRENT_VERSION, FormatVersion};
+use graph_contract::snapshot::{Dim, label_for};
+use graph_contract::version::FormatVersion;
+
+mod z;
+
+pub use z::{snapshot_or_perturbed, z_refusal_faults};
 
 /// Floats a shortest-round-trip writer or a double-rounding reader is likeliest to get
 /// wrong: signed zeros, the subnormal ends, the finite ends, and values whose shortest
@@ -104,17 +110,34 @@ pub fn snapshot(seed: u32) -> Result<Snapshot, String> {
     let table = |column, items: &[String]| {
         StringTable::from_strs(column, items.iter().map(String::as_str)).map_err(|e| e.to_string())
     };
+    // A third of the seeds are 3D, from the same `FLOATS` table, so the sweep covers the z
+    // column's wire order, its JSON shape and its f64 narrowing on the same terms as every
+    // other column. No 3D layout exists yet, so this is where the round trip is proved for
+    // 3D.
+    //
+    // From its **own** stream, seeded so no z value depends on how many draws came before
+    // it: `s` is this snapshot's stream and every column in it has a fixed order that other
+    // tests pin (`each_seed_draws_the_notes_its_case_names_and_no_others`,
+    // `the_tally_of_the_thousand_seed_sweep_is_exact`). Drawing a fourth column from `s`
+    // would shift every value after it and restate every one of those seeds, so the z
+    // column gets its own stream rather than a place in that order.
+    let three_d = seed % 3 == 2;
+    let dim = if three_d { Dim::D3 } else { Dim::D2 };
     let mut parts = SnapshotParts {
-        version: CURRENT_VERSION,
+        // The label follows the snapshot (condition 1), not the crate: a 2D seed is
+        // labelled 0.3 and its bytes are what they were before 3D existed.
+        version: label_for(dim),
         node_ids: table("node.id", &node_ids)?,
         edge_ids: table("edge.id", &edge_ids)?,
         source: (0..m).map(|_| s.below(u64::from(n))).collect(),
         target: (0..m).map(|_| s.below(u64::from(n))).collect(),
         nodes: nodes(&mut s, seed % 3, n),
+        z: None,
         edges: edges(&mut s, seed / 3 % 3, m),
         notes: Notes::default(),
     };
-    (parts.version, parts.notes) = notes(&mut s, seed, m);
+    (parts.version, parts.notes) = notes(&mut s, seed, m, dim);
+    parts.z = three_d.then(|| z::draw(seed, n));
     Snapshot::new(parts).map_err(|e| format!("exercise seed {seed}: {e}"))
 }
 
@@ -122,8 +145,11 @@ pub fn snapshot(seed: u32) -> Result<Snapshot, String> {
 /// section on either face), 0.3 with `k = 0`, then notes of code 1, of code 2, and of
 /// every code. Edge notes fall on edge 0 and on each later edge with odd probability,
 /// so any five consecutive seeds with edges draw every case.
-fn notes(s: &mut Stream, seed: u32, m: u32) -> (FormatVersion, Notes) {
+fn notes(s: &mut Stream, seed: u32, m: u32, dim: Dim) -> (FormatVersion, Notes) {
     let codes: &[NoteCode] = match seed % 5 {
+        // A 0.2 label cannot name a z column, so a 3D seed keeps 0.3 here: the "no notes
+        // section" case is already drawn by the 2D seeds.
+        0 if dim.is_3d() => return (label_for(Dim::D3), Notes::default()),
         0 => return (FormatVersion { major: 0, minor: 2 }, Notes::default()),
         1 => &[],
         2 => &[NoteCode::CycleEdgeDropped],
@@ -142,7 +168,7 @@ fn notes(s: &mut Stream, seed: u32, m: u32) -> (FormatVersion, Notes) {
         let picked = (0..m).filter(|&e| e == 0 || s.below(2) == 0);
         notes.extend(picked.map(|index| Note { code, index }));
     }
-    (CURRENT_VERSION, Notes::of(&notes))
+    (label_for(dim), Notes::of(&notes))
 }
 
 /// Tallies which notes cases `snapshot` draws: `[0.2-labelled, 0.3 with k = 0, a code-1

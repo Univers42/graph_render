@@ -10,8 +10,14 @@
 //! stub (header plus bare columns), hashed but never persisted and never decoded. `0.2`
 //! is the Phase-2 layout; `0.3` appends the notes section (`crate::notes`), which a 0.3
 //! reader reads only from a snapshot labelled 0.3 or later — a 0.2 snapshot still reads,
-//! as one with no notes. The byte layout this crate writes is
-//! `docs/contract/binary-layout.md`.
+//! as one with no notes. `0.4` adds the z column (`crate::snapshot::dim`), which a reader
+//! reads only from a snapshot labelled 0.4 or later.
+//!
+//! Which minor a snapshot is *labelled* with is a separate question from which minor
+//! this crate writes, and the label is the lowest that can express the snapshot — see
+//! [`crate::snapshot::label_for`], the one function that decides it. A 2D snapshot is
+//! labelled 0.3 and its bytes are unchanged by 0.4 existing; only 3D is labelled 0.4.
+//! The byte layout this crate writes is `docs/contract/binary-layout.md`.
 
 use core::fmt;
 
@@ -29,8 +35,10 @@ pub struct FormatVersion {
     pub minor: u32,
 }
 
-/// The version this crate writes and the highest major it reads.
-pub const CURRENT_VERSION: FormatVersion = FormatVersion { major: 0, minor: 3 };
+/// The version this crate writes, and the highest major it reads. Not the label every
+/// snapshot carries: a 2D snapshot is labelled 0.3
+/// ([`crate::snapshot::label_for`]), so no 2D byte moves when this moves.
+pub const CURRENT_VERSION: FormatVersion = FormatVersion { major: 0, minor: 4 };
 
 /// What a JSON document that carries no version is read as.
 pub const UNVERSIONED: FormatVersion = FormatVersion { major: 0, minor: 0 };
@@ -91,7 +99,10 @@ mod tests {
         );
         assert_eq!(
             err.to_string(),
-            "snapshot format 1.0 is newer than this reader's 0.3: refusing rather than guessing at a newer layout"
+            format!(
+                "snapshot format 1.0 is newer than this reader's {CURRENT_VERSION}: \
+                 refusing rather than guessing at a newer layout"
+            )
         );
     }
 

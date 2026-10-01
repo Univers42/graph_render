@@ -186,8 +186,11 @@ pub fn style_edges(
     nodes: &NodeGeometry,
     params: &StyleParams,
 ) -> Result<EdgeGeometry, StageError> {
+    // `None` z: a style reads and writes edge geometry only, and it never sees the
+    // snapshot's z column, so it cannot check one. The z column is checked where it enters
+    // and leaves the payload, `Snapshot::new` — never here, and never rewritten here.
     nodes
-        .check(topology.node_count())
+        .check(topology.node_count(), None)
         .map_err(StageError::Snapshot)?;
     refuse(params)?;
     if params.style == Style::Straight {

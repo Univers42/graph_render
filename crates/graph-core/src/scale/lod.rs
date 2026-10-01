@@ -149,6 +149,13 @@ impl LodParams {
 /// Panics-free by construction: a non-finite position is treated as *not visible* rather
 /// than propagated, because a NaN comparison is false and would otherwise silently read
 /// as "inside the viewport" on one side of the test and "outside" on the other.
+///
+/// A 3D snapshot's z column is not an input and cannot be dropped: `x` and `y` are borrowed
+/// slices the caller passes in, and `Hints` is advisory output columns
+/// ([`Hints`], `lod.rs:36-48`) that never mutates a topology. So SCALE cannot rewrite a
+/// node column, z included — it holds no reference to one
+/// (`docs/decisions/contract-3d-verdict.md` condition 6). The viewport test is a 2D
+/// rectangle, as the module header says: a z-aware test is a different decision.
 pub fn hints(t: &Topology, x: &[f64], y: &[f64], params: &LodParams) -> Hints {
     let n = t.node_count() as usize;
     let visible: Vec<u8> = (0..n)

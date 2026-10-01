@@ -4,6 +4,14 @@
 //! SciGraphs' `_circular_hierarchy_layout`,
 //! `SciGraphs/core/scigraphs_core/mesh/layouts/hierarchical.py:693-732`.
 //!
+//! **Three ring layouts live under this one directory, and they are three different
+//! functions.** `layout.circular.radial` is this module: a radial over the *repaired*
+//! tree, radius linear in the ring number. `layout.circular.hierarchy`
+//! ([`hierarchy`]) is SciGraphs' own `CIRCULAR_HIERARCHY` closed form, radius
+//! `max(level, 0.35) * scale / max(2, max_level)` over SciGraphs' own levels.
+//! `layout.circular.ring` ([`ring`]) draws no structure at all: every node on one circle
+//! in dense-index order. The words overlap; the questions do not.
+//!
 //! **Ring.** Node `v`'s ring is [`Hierarchy::depth`] directly: a lone real root sits at
 //! ring 0 (dead centre); with two or more roots the virtual root — never emitted — takes
 //! ring 0 and the real roots land on ring 1, because `depth` is already BFS distance from
@@ -33,6 +41,7 @@
 //! node keeps its own ring and a distinct slot, so no two real nodes ever collide.
 //! Escape hatch: a variant that inflates the radius by ring population, under its own id.
 
+pub mod hierarchy;
 pub mod ring;
 
 use super::Geometry;

@@ -5,13 +5,13 @@
 //! `hashgate/stages.rs`'s module doc) — one spelling of each id, in the crate that
 //! implements the layout, rather than a copy here.
 //!
-//! Split by the house's 300-line limit: [`controls`] holds the two force controls, the
-//! vacuous-control refusal and the rescale-merge control, [`ids`] the four Phase 3 stage
-//! ids, [`p3`] the four Phase 3 controls, and [`table`] the knob table itself — the
-//! thirteen parameter controls, the fifteen ANALYSIS and POST controls, and the two
-//! compute-tier controls, each held against the variable and record it claims. [`neato`] holds the
-//! Graphviz stress engine's tolerance control, which is the first one here that perturbs a
-//! *parameter* rather than re-drawing a model's size.
+//! Split by the house's 300-line limit: [`controls`] holds the two force controls, the two
+//! p12-t2 controls, the vacuous-control refusal and the rescale-merge control, [`ids`] the
+//! four Phase 3 stage ids, [`p3`] the four Phase 3 controls, and [`table`] the knob table
+//! itself — the fifteen parameter controls, the fifteen ANALYSIS and POST controls, and
+//! the two compute-tier controls, each held against the variable and record it claims.
+//! [`neato`] holds the Graphviz stress engine's tolerance control, which is the first one
+//! here that perturbs a *parameter* rather than re-drawing a model's size.
 
 mod controls;
 mod ids;
@@ -32,10 +32,11 @@ pub(super) use graph_core::layout::circle_packing::ID as PACKING;
 pub(super) use graph_core::layout::circular::ID as CIRCULAR;
 use graph_core::layout::force::BarnesHut;
 use graph_core::layout::force::Split;
+use graph_core::layout::force::spring::Spring;
 use graph_core::layout::forceatlas2::ForceAtlas2;
 pub(super) use graph_core::layout::tidy_tree::ID as TIDY_TREE;
 pub(super) use graph_core::layout::treemap::ID as TREEMAP;
-use graph_core::layout::{circular::ring, spiral};
+use graph_core::layout::{circular, circular::ring, spiral};
 use graph_core::{GridParams, REFERENCE_DEGREE, SugiyamaParams};
 use std::env::VarError;
 

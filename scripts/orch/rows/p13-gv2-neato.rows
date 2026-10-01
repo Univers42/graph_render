@@ -50,14 +50,20 @@ negctl-split-rescale|nonzero|scripts/orch/gr -e GM_MUTATE_SPLIT_RESCALE=1 cargo 
 # them in the pinned docker-only oracle image and compare, then check the result against the
 # measured ceiling and record it. The oracle row is the only one here that talks to Docker.
 #
-# `--engine` rather than a command per engine: `oracle-graphviz` is the generalisation and
-# `oracle-twopi` stays as its own subcommand, so the p13-gv1 row above is unaffected.
-# Neither the emit nor the check takes a directory: both default to the engine's own
-# (`target/neato-fixtures`), derived from the same static table the `--engine` parser reads,
-# so the two halves of the chain cannot name two different places. A `--dir`/`--out` override
-# is still accepted, for the negative control below.
+# `--engine` rather than a command per engine: `emit-graphviz-fixtures --engine <name>` and
+# `oracle-graphviz --engine <name>` are the one pair for every Graphviz engine, and the older
+# `emit-twopi-fixtures` / `oracle-twopi` spellings stay as clap aliases of it, so the p13-gv1
+# rows above are unaffected. Neither the emit nor the check takes a directory by default:
+# both derive `target/<engine>-fixtures` from the same `ENGINES` table the `--engine` parser
+# reads, so the two halves of the chain cannot name two different places. A `--dir`/`--out`
+# override is still accepted, for the negative controls below.
+#
+# `--differential` on the oracle arm rather than the older `--compare <engine>` positional:
+# it is the flag develop's engine-generic harness carries, it reads the `<engine>.jsonl`
+# fixtures the emit above wrote, and it imports the metric from `harness/oracle-twopi.py`
+# rather than carrying a second definition of the number the ceiling is measured against.
 neato-emit-1000|0|scripts/orch/gr cargo run -q --release -p graph-cli -- emit-graphviz-fixtures --engine neato --seeds 1000
-neato-oracle-1000|0|docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py --compare neato target/neato-fixtures target/gv-neato
+neato-oracle-1000|0|docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/neato-fixtures neato target/gv-neato --differential
 neato-check-1000|0|scripts/orch/gr cargo run -q -p graph-cli -- oracle-graphviz --engine neato
 # The differential's own negative control, in the shape `p13-gv1.rows` uses for twopi: a
 # directory with no recorded run must be refused rather than read as a pass.

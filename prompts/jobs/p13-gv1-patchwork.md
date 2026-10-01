@@ -48,3 +48,7 @@ and the coverage table. Nothing else.
 
 Done when: every Done-when item of the twopi brief holds for `layout.treemap.patchwork`, and the return block pastes
 the oracle determinism results, the worst gap over 1000 seeds, and the real exit code of each command.
+
+Resume note (2026-10-01): a previous run left partial edits in this worktree (`git status`). Keep them,
+read them yourself, finish the job. Dispatch no subagents. The code is written: run the checks, fix what
+is red, and write the return block before anything else. End with the return block.

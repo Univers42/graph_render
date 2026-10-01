@@ -24,6 +24,8 @@ pub const fn record(knob: Knob) -> &'static str {
         Knob::TreeTidyNodes => "hashgate-control-tree-tidy-nodes",
         Knob::TreemapNodes => "hashgate-control-treemap-nodes",
         Knob::CircularNodes => "hashgate-control-circular-nodes",
+        Knob::SpringIterations => "hashgate-control-spring-iterations",
+        Knob::CircularHierarchyNodes => "hashgate-control-circular-hierarchy-nodes",
         Knob::PackingScale => "hashgate-control-packing-scale",
         Knob::AnalysisComponentsWeak => "hashgate-control-analysis-components-weak",
         Knob::AnalysisComponentsStrong => "hashgate-control-analysis-components-strong",

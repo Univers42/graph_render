@@ -193,6 +193,17 @@
                 "type": "number"
               },
               "type": "array"
+            },
+            "z": {
+              "description": "Depth centre. Present iff the snapshot's `dim` is 1.",
+              "items": {
+                "format": "float",
+                "type": "number"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
             }
           },
           "required": [
@@ -233,6 +244,17 @@
                 "type": "number"
               },
               "type": "array"
+            },
+            "z": {
+              "description": "Depth centre. Present iff the snapshot's `dim` is 1.",
+              "items": {
+                "format": "float",
+                "type": "number"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
             }
           },
           "required": [
@@ -282,6 +304,17 @@
                 "type": "number"
               },
               "type": "array"
+            },
+            "z": {
+              "description": "Depth centre. Present iff the snapshot's `dim` is 1.",
+              "items": {
+                "format": "float",
+                "type": "number"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
             }
           },
           "required": [
@@ -352,6 +385,16 @@
   "additionalProperties": false,
   "description": "A graph-motor snapshot, semantic face: canonical JSON (compact, keys sorted by bytes,\none trailing newline). Byte layout and rules: `docs/contract/binary-layout.md`.",
   "properties": {
+    "dim": {
+      "default": 0,
+      "description": "How many dimensions every node carries: `0` 2D, `1` 3D. Written from format 0.4\nand absent below it, where it reads as 0 — the same optional-member rule as\n`notes`. A 3D snapshot's `geometry.nodes` carries a `z` column; a 2D one's does\nnot, and one that does is refused. JSON Schema cannot tie a member's presence to\nanother member's value, so the rule is stated here and the reader enforces it.",
+      "enum": [
+        0,
+        1
+      ],
+      "format": "uint8",
+      "type": "integer"
+    },
     "edges": {
       "$ref": "#/$defs/Edges",
       "description": "Every edge's identity and endpoints, in edge order."
