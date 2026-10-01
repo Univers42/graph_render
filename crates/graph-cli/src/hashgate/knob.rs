@@ -77,6 +77,14 @@ pub enum Knob {
     /// alone. Rings come from BFS depth over the hierarchy, so one more node changes
     /// this stage's ring counts and slots and nothing else's.
     CircularNodes,
+    /// `GM_MUTATE_TWOPI_NODES`: nodes added to `layout.twopi`'s model alone.
+    ///
+    /// The same probe as the three Phase 3 node controls, for the same reason: `twopi` is a
+    /// closed form with no parameter of its own — it pins Graphviz's defaults (`ranksep`
+    /// 1 inch, `overlap` unset) and its module doc says so — so its own control perturbs
+    /// the one thing it does read, the model, for that stage only. Adding a `Params` to
+    /// gain a knob would be the tail wagging the dog.
+    TwopiNodes,
     /// `GM_MUTATE_PACKING_SCALE`: the packing's `CirclePackingParams::scale`, native arm
     /// only.
     ///
@@ -174,16 +182,16 @@ pub enum Knob {
 }
 
 impl Knob {
-    /// Every knob: the ten that move a parameter, then the fifteen ANALYSIS and POST
-    /// stage controls in [`knobs::ANALYSIS_POST_STAGES`] order, then the two compute-tier
-    /// controls last.
+    /// Every knob: the ten that move a parameter, the four that re-draw one stage's own
+    /// model, the fifteen ANALYSIS and POST stage controls in
+    /// [`knobs::ANALYSIS_POST_STAGES`] order, then the two compute-tier controls last.
     ///
     /// **A `const`, because `capabilities::verdict::Evidence::load` walks it** to collect
     /// one control record each — a ledger read cannot be a function call per row. So the
     /// fifteen are spelled as arms here and held against that one table by
     /// `the_analysis_and_post_controls_are_the_knobs_table`, which fails on any arm whose
     /// variable, record or stage the table disagrees with.
-    pub const ALL: [Self; 27] = [
+    pub const ALL: [Self; 28] = [
         Self::ReferenceDegree,
         Self::GridSpacing,
         Self::SugiyamaLayerSpacing,
@@ -193,6 +201,7 @@ impl Knob {
         Self::TreeTidyNodes,
         Self::TreemapNodes,
         Self::CircularNodes,
+        Self::TwopiNodes,
         Self::PackingScale,
         Self::AnalysisComponentsWeak,
         Self::AnalysisComponentsStrong,
@@ -225,6 +234,7 @@ impl Knob {
             Self::TreeTidyNodes => "GM_MUTATE_TREE_TIDY_NODES",
             Self::TreemapNodes => "GM_MUTATE_TREEMAP_NODES",
             Self::CircularNodes => "GM_MUTATE_CIRCULAR_NODES",
+            Self::TwopiNodes => "GM_MUTATE_TWOPI_NODES",
             Self::PackingScale => "GM_MUTATE_PACKING_SCALE",
             Self::AnalysisComponentsWeak => "GM_MUTATE_ANALYSIS_COMPONENTS_WEAK",
             Self::AnalysisComponentsStrong => "GM_MUTATE_ANALYSIS_COMPONENTS_STRONG",
@@ -258,6 +268,7 @@ impl Knob {
             Self::TreeTidyNodes => "hashgate-control-tree-tidy-nodes",
             Self::TreemapNodes => "hashgate-control-treemap-nodes",
             Self::CircularNodes => "hashgate-control-circular-nodes",
+            Self::TwopiNodes => "hashgate-control-twopi-nodes",
             Self::PackingScale => "hashgate-control-packing-scale",
             Self::AnalysisComponentsWeak => "hashgate-control-analysis-components-weak",
             Self::AnalysisComponentsStrong => "hashgate-control-analysis-components-strong",

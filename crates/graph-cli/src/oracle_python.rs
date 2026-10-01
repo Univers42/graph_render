@@ -19,10 +19,12 @@
 mod closed_form;
 mod fa2;
 mod spectral;
+mod twopi;
 
 pub use closed_form::CLOSED_FORM;
 pub use fa2::FA2;
 pub use spectral::SPECTRAL;
+pub use twopi::TWOPI;
 
 use crate::evidence::{FINGERPRINTED, Stamp};
 use crate::runner::file_sha256;
@@ -137,7 +139,8 @@ fn verdict(differential: &Differential, dir: &Path) -> Result<bool, String> {
     if manifest["sha256"][format!("{name}.jsonl")] != result["sha256"] {
         return Err("the result was computed from other fixtures than these".into());
     }
-    let (pass, functions) = judge(differential.ceilings, &result)?;
+    let (mut pass, functions) = judge(differential.ceilings, &result)?;
+    pass &= closed_cases(&result);
     let body = json!({
         "seeds": manifest["seeds"], "pass": pass, "functions": functions,
         "oracle": result["oracle"], "tolerance": true,
@@ -146,6 +149,26 @@ fn verdict(differential: &Differential, dir: &Path) -> Result<bool, String> {
     crate::evidence::record(&stamp, &format!("oracle-{name}"), body)?;
     println!("{}", if pass { "PASS" } else { "FAIL" });
     Ok(pass)
+}
+
+/// Whether a differential with analytically determined cases agrees with them **byte for
+/// byte**, when its harness reports that section.
+///
+/// A tolerance over the small cases is weaker than the truth they carry, so the harness
+/// renders both arms at the oracle's own printed precision and compares the strings; a
+/// result with a `closed` section and `closed_exact` false is a failure, not a note. The
+/// differentials with no closed cases say nothing about it and this returns true.
+fn closed_cases(result: &Value) -> bool {
+    if !result.get("closed_exact").is_some_and(Value::is_boolean) {
+        return true;
+    }
+    let exact = result["closed_exact"].as_bool().unwrap_or(false);
+    let cases = result["closed"].as_object().map_or(0, serde_json::Map::len);
+    println!(
+        "  closed cases: {cases} compared byte for byte: {}",
+        if exact { "ok" } else { "FAIL" }
+    );
+    exact && cases > 0
 }
 
 /// Each layout's verdict against its ceiling: `(all pass, ledger function entries)`. A

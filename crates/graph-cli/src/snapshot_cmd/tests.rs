@@ -42,6 +42,8 @@ fn layout_names_offers_every_registered_layout_once_by_both_of_its_names() {
             "bipartite",
             "layout.force.yifan_hu",
             "force.yifan_hu",
+            "layout.twopi",
+            "twopi",
         ]
     );
     let mut once = names.clone();
@@ -82,6 +84,7 @@ fn each_layout_name_runs_the_same_pipeline_and_an_unregistered_one_names_all_the
         ("layout.spiral", "spiral"),
         ("layout.bipartite", "bipartite"),
         ("layout.force.yifan_hu", "force.yifan_hu"),
+        ("layout.twopi", "twopi"),
     ] {
         let by_short = pipeline(1, 50, short).expect("runs by short name");
         let by_id = pipeline(1, 50, id).expect("runs by full id");

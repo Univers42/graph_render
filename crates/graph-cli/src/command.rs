@@ -146,6 +146,25 @@ pub enum Command {
         #[arg(long, default_value = "target/closed-form-fixtures")]
         dir: PathBuf,
     },
+    /// Writes the twopi differential's fixtures for `harness/oracle-twopi.py`.
+    ///
+    /// The graph is the gate's own model, the one `emit-spectral-fixtures` writes too, so
+    /// the fixtures Graphviz's engine is run over are the same fixtures the other
+    /// differentials compare over.
+    EmitTwopiFixtures {
+        /// Number of seeds, 0..N.
+        #[arg(long, default_value_t = 1000, value_parser = seed_count())]
+        seeds: u32,
+        /// Output directory.
+        #[arg(long, default_value = "target/twopi-fixtures")]
+        out: PathBuf,
+    },
+    /// Checks the twopi differential's result against its ceiling and records it.
+    OracleTwopi {
+        /// Directory holding the fixtures and `twopi-result.json`.
+        #[arg(long, default_value = "target/twopi-fixtures")]
+        dir: PathBuf,
+    },
     /// Runs `harness/oracle-layouts.mjs` over the emitted fixtures (the d3-hierarchy arm).
     OracleLayouts {
         /// Fixtures directory; `target/oracle-fixtures` by default.

@@ -7,6 +7,7 @@
 use graph_core::layout::circle_packing::CirclePackingParams;
 use graph_core::layout::force::{ForceParams, Split};
 use graph_core::layout::forceatlas2::Fa2Params;
+use graph_core::layout::radial::twopi;
 use graph_core::layout::{circular, tidy_tree, treemap};
 use graph_core::{GridParams, REFERENCE_DEGREE, SugiyamaParams};
 use std::env::VarError;
@@ -110,6 +111,9 @@ fn apply(knob: Knob, text: &str, setting: &mut Setting) -> Result<(), String> {
         }
         Knob::CircularNodes => {
             setting.stage_nodes = Some((circular::ID, nodes(text, knob)?));
+        }
+        Knob::TwopiNodes => {
+            setting.stage_nodes = Some((twopi::ID, nodes(text, knob)?));
         }
         Knob::PackingScale => setting.packing.scale = text.parse().map_err(|e| bad(&e))?,
         // Parsed rather than treated as a presence flag, so `GM_MUTATE_SPLIT_SUM=0` is

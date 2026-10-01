@@ -85,6 +85,10 @@ fn main() -> ExitCode {
         Command::OracleClosedForm { dir } => {
             oracle_python::ingest(&oracle_python::CLOSED_FORM, &dir)
         }
+        Command::EmitTwopiFixtures { seeds, out } => {
+            oracle_python::emit(&oracle_python::TWOPI, seeds, None, &out)
+        }
+        Command::OracleTwopi { dir } => oracle_python::ingest(&oracle_python::TWOPI, &dir),
         Command::OracleLayouts { fixtures } => {
             oracle_fixtures::diff_layouts(&fixtures.unwrap_or_else(oracle_fixtures::default_out))
         }

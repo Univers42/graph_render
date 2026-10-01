@@ -47,8 +47,9 @@ fn the_ledger_is_the_registry_plus_the_scale_rows_and_still_stands() {
     }
     assert_eq!(
         rows.len(),
-        49,
-        "41 before analysis.depth, and 25 before the seven post.* rows"
+        50,
+        "42 before analysis.depth, 25 before the seven post.* rows, and 49 before \
+         layout.twopi"
     );
     assert_eq!(problems(&rows, &evidence), Vec::<String>::new());
 }

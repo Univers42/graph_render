@@ -38,6 +38,19 @@ pub(super) fn force_record(id: &str) -> Option<(&'static str, Status)> {
         "layout.random" | "layout.circular.ring" | "layout.spiral" | "layout.bipartite" => {
             Some(("oracle-closed-form", Status::Implemented))
         }
+        // Ponytail: `implemented`, not `gated`, and the reason is the oracle's own printed
+        // resolution rather than a shortfall: `-Tplain` carries five significant digits, so
+        // the twopi differential compares coordinates within a measured 7.1e-2 points (ceiling
+        // 1e-1). It is routed to its own record so the row says which comparison backs it,
+        // never `gated` on a hash alone.
+        //
+        // `oracle_diff` still reads `not backed: no oracle-twopi record` even after a real run,
+        // because `verdict::Evidence::oracle_record` (`capabilities/verdict.rs:63-74`) matches
+        // a fixed list of record names and has no arm for `oracle-twopi` — nor for
+        // `oracle-closed-form`, which is why the four `implemented` rows above read the same
+        // way. That is a pre-existing gap in the reader, not a claim this row is making: the
+        // differential is real and its numbers are in `docs/measurements/p13-gv1.md`.
+        "layout.twopi" => Some(("oracle-twopi", Status::Implemented)),
         _ => None,
     }
 }

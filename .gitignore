@@ -30,3 +30,4 @@ verify/dist/
 .claude/cache/
 .claude/devil.env
 .scratch/
+__pycache__/

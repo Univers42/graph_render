@@ -121,8 +121,8 @@ fn snapshot_refuses_what_it_cannot_do() {
 fn roundtrip_passes_and_records_the_grids_hand_oracle() {
     let run = graph_cli(&["roundtrip", "--seeds", "20"], None);
     assert_eq!(run.status.code(), Some(0), "{}", stdout(&run));
-    // 20 seeds x (every registered layout + the contract exercise) = 20 x (15 + 1).
-    assert!(stdout(&run).contains("  binary <-> JSON byte-exact on 320/320 snapshots"));
+    // 20 seeds x (every registered layout + the contract exercise) = 20 x (16 + 1).
+    assert!(stdout(&run).contains("  binary <-> JSON byte-exact on 340/340 snapshots"));
     assert!(stdout(&run).contains("  layout.grid on its stated conventions on 20/20 seeds"));
     assert!(
         stdout(&run).contains("  layout.circular.radial on its stated conventions on 20/20 seeds")
