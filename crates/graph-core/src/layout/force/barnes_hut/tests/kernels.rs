@@ -50,9 +50,8 @@ fn collide_gives_the_same_deltas_at_every_worker_count_as_the_loop_it_replaces()
     }
     // The kernel is the loop it replaces: one walk per node, in ascending index order.
     let reach = collide::reach_squared(&sim);
-    let mut stack = Vec::new();
     let through_loop: Vec<(f64, f64)> = (0..sim.px.len() as u32)
-        .map(|i| collide::node_delta(&sim, i, reach, &mut stack))
+        .map(|i| collide::node_delta(&sim, i, reach))
         .collect();
     assert_eq!(reference, through_loop);
 }

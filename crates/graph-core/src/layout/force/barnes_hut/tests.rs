@@ -182,9 +182,9 @@ fn the_kernel_and_the_serial_loop_are_the_same_computation() {
     let mut through_kernel = Vec::new();
     Serial.run(&Pass::of(&sim), 1, &mut through_kernel);
     let mut through_loop = vec![(0.0, 0.0); sim.x.len()];
-    let mut stack = Vec::new();
+    let ctx = charge::Ctx::of(&sim);
     for (i, slot) in through_loop.iter_mut().enumerate() {
-        *slot = sim.node_delta(i as u32, &mut stack);
+        *slot = charge::node_delta(&ctx, i as u32);
     }
     assert_eq!(through_kernel, through_loop);
 }

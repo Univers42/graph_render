@@ -21,7 +21,7 @@
 use super::sim::Sim;
 use super::step::CollidePass;
 use crate::exec::Runner;
-use crate::layout::force::quadtree::{Bounds, Quadtree};
+use crate::layout::force::quadtree::Bounds;
 use crate::rng::jiggle;
 
 const PASS_X: u32 = 4;
@@ -78,69 +78,61 @@ fn merge(sim: &mut Sim, deltas: &[(f64, f64)], split: bool) {
     }
 }
 
-/// Node `i`'s own delta over the prepared [`Sim`], into a caller's reused walk stack.
+/// Node `i`'s own delta over the prepared [`Sim`]: a stackless preorder walk of the
+/// collide tree (`quadtree/preorder.rs`), jumping past every internal cell wholly outside
+/// the reach and resolving every leaf it lands on.
 ///
-/// `&self` and a borrowed stack, so the range kernel can hold one `&Sim` while several
-/// workers walk the same tree at once — the walk is iterative precisely so its buffer can
-/// be borrowed rather than owned (`quadtree.rs`'s `visit_in`).
-pub(super) fn node_delta(sim: &Sim, i: u32, d2: f64, stack: &mut Vec<(u32, Bounds)>) -> (f64, f64) {
+/// `&Sim` only, so the range kernel can have several workers walk the same tree at once.
+pub(super) fn node_delta(sim: &Sim, i: u32, d2: f64) -> (f64, f64) {
     let q = Query {
         i,
         xi: sim.px[i as usize],
         yi: sim.py[i as usize],
         d2,
+        reach: libm::sqrt(d2),
         seed: sim.seed,
         tick: sim.tick_no,
         px: &sim.px,
         py: &sim.py,
     };
+    let (cells, order) = (sim.collide_tree.cells(), sim.collide_tree.order());
     let mut out = (0.0, 0.0);
-    let mut frame = Frame {
-        q: &q,
-        out: &mut out,
-    };
-    sim.collide_tree.visit_in(stack, |tree, node, bounds| {
-        step(tree, node, bounds, &mut frame)
-    });
+    let mut k = 0;
+    while let Some(cell) = cells.get(k as usize) {
+        k = if cell.skip == k + 1 {
+            for &p in &order[cell.start as usize..cell.end as usize] {
+                if p != q.i {
+                    resolve(&q, p, &mut out);
+                }
+            }
+            k + 1
+        } else if outside(cell.bounds, &q) {
+            cell.skip
+        } else {
+            k + 1
+        };
+    }
     out
 }
 
-/// Everything node `q.i`'s query reads but does not own: its projected position, the reach,
-/// the jiggle's seed and tick, and the projected columns themselves.
+/// Everything node `q.i`'s query reads but does not own: its projected position, the reach
+/// (`sqrt(d2)`, taken once per query rather than once per cell and once per overlap), the
+/// jiggle's seed and tick, and the projected columns themselves.
 pub(super) struct Query<'a> {
     i: u32,
     xi: f64,
     yi: f64,
     d2: f64,
+    reach: f64,
     seed: u32,
     tick: u32,
     px: &'a [f64],
     py: &'a [f64],
 }
 
-/// `q` and the accumulator bundled so [`step`] stays under the 4-param cap
-/// (`refactor-rust.md`) despite the quadtree visit callback's own fixed 3 arguments.
-struct Frame<'a> {
-    q: &'a Query<'a>,
-    out: &'a mut (f64, f64),
-}
-
-/// One quadtree node reached while querying node `q.i`'s neighbourhood: prunes a
-/// quadrant entirely outside the collision reach, else resolves a leaf found inside it.
-fn step(tree: &Quadtree, node: u32, bounds: Bounds, frame: &mut Frame) -> bool {
-    if tree.children(node).is_some() {
-        let reach = libm::sqrt(frame.q.d2);
-        return bounds.x0 > frame.q.xi + reach
-            || bounds.x1 < frame.q.xi - reach
-            || bounds.y0 > frame.q.yi + reach
-            || bounds.y1 < frame.q.yi - reach;
-    }
-    for p in tree.leaf_points(node) {
-        if p != frame.q.i {
-            resolve(frame.q, p, frame.out);
-        }
-    }
-    false
+/// An internal cell lies wholly outside the reach of `q`'s position.
+fn outside(b: Bounds, q: &Query) -> bool {
+    b.x0 > q.xi + q.reach || b.x1 < q.xi - q.reach || b.y0 > q.yi + q.reach || b.y1 < q.yi - q.reach
 }
 
 /// `q.i`'s own half of the overlap correction against neighbour `p` (zero if they do not
@@ -161,7 +153,7 @@ fn resolve(q: &Query, p: u32, out: &mut (f64, f64)) {
         l += dy * dy;
     }
     let dist = libm::sqrt(l);
-    let push = (libm::sqrt(q.d2) - dist) / dist * 0.5;
+    let push = (q.reach - dist) / dist * 0.5;
     out.0 += dx * push;
     out.1 += dy * push;
 }

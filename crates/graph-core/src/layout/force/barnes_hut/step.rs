@@ -65,16 +65,12 @@ impl StepRange for Pass<'_> {
     }
 
     fn step_range(&self, range: Range<u32>, out: &mut [(f64, f64)]) {
-        // One stack for the whole range, reused across its nodes: the walk is iterative
-        // precisely so this buffer can be borrowed rather than owned, which is what lets
-        // several workers hold the same `&Sim` at once. Allocated per *range*, not per
-        // node, so the threaded tier's allocation count is `workers` per pass.
-        let mut stack = Vec::new();
+        let ctx = super::charge::Ctx::of(self.sim);
         // `zip`, not indexing: `out` is this range's own sub-column, so the two iterate
         // together by construction and a mismatch is a length error at the pairing rather
         // than a silent write past the end.
         for (slot, i) in out.iter_mut().zip(range) {
-            *slot = self.sim.node_delta(i, &mut stack);
+            *slot = super::charge::node_delta(&ctx, i);
         }
     }
 }
@@ -100,9 +96,8 @@ impl StepRange for CollidePass<'_> {
 
     fn step_range(&self, range: Range<u32>, out: &mut [(f64, f64)]) {
         let reach = super::collide::reach_squared(self.sim);
-        let mut stack = Vec::new();
         for (slot, i) in out.iter_mut().zip(range) {
-            *slot = super::collide::node_delta(self.sim, i, reach, &mut stack);
+            *slot = super::collide::node_delta(self.sim, i, reach);
         }
     }
 }

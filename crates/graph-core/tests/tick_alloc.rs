@@ -49,13 +49,21 @@ const NODES: u32 = 2_000;
 const WARM: u32 = 16;
 const TICKS: u64 = 16;
 
-/// Allocations per warm tick, measured 2026-10-01 on develop 5936309 (perf P1): 176 over 16
-/// ticks, from `partition`'s range list and the walk stack each pass builds. A ratchet, never
-/// a target: perf P2 brings it to 0, and a change that adds an allocation turns this red.
-const CEILING_PER_TICK: u64 = 11;
+/// The negative control (`GM_MUTATE_TICK_ALLOC=1`): skip the warm-up, so the counted ticks
+/// include the motor's own first growth of every scratch buffer. The test must fail under
+/// it, which shows the window sees an allocation the motor makes, not only the probe's.
+fn warm_ticks() -> u32 {
+    match std::env::var_os("GM_MUTATE_TICK_ALLOC") {
+        Some(_) => 0,
+        None => WARM,
+    }
+}
 
+/// Allocations per warm tick. Measured 2026-10-01: 176 over 16 ticks on develop 5936309
+/// (perf P1), from `partition`'s range list and the walk stack each pass built; 0 after perf
+/// P2 (the stackless walks and `exec::ranges`). A change that adds one turns this red.
 #[test]
-fn a_warm_tick_allocates_no_more_than_the_ceiling() {
+fn a_warm_tick_allocates_nothing() {
     let probe = calls();
     drop(std::hint::black_box(Vec::<u8>::with_capacity(1)));
     assert_eq!(calls() - probe, 1, "the counter counts an allocation");
@@ -64,15 +72,15 @@ fn a_warm_tick_allocates_no_more_than_the_ceiling() {
     let topology = graph_core::index_model(&nodes, &edges).expect("fits");
     let mut session =
         ForceSession::from_frozen(&topology, &ForceParams::default()).expect("valid params");
-    session.step(WARM);
+    session.step(warm_ticks());
     let before = calls();
     for _ in 0..TICKS {
         session.step(1);
     }
     let total = calls() - before;
     println!("allocations over {TICKS} warm ticks at n={NODES}: {total}");
-    assert!(
-        total <= CEILING_PER_TICK * TICKS,
-        "{total} allocations over {TICKS} warm ticks; the ceiling is {CEILING_PER_TICK} per tick"
+    assert_eq!(
+        total, 0,
+        "{total} allocations over {TICKS} warm ticks; a warm tick must allocate nothing"
     );
 }

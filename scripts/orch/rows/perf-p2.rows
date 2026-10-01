@@ -1,0 +1,2 @@
+alloc-per-tick|0|scripts/orch/gr cargo test -p graph-core --test tick_alloc
+negctl-tick-alloc|0|scripts/orch/gr -e GM_MUTATE_TICK_ALLOC=1 cargo test -p graph-core --test tick_alloc; test $? -eq 101
