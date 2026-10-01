@@ -53,3 +53,5 @@ the oracle determinism results, the worst gap over 1000 seeds, and the real exit
 Resume note (2026-10-01): a previous run left partial edits in this worktree (`git status`). Keep them,
 read them yourself, finish the job. Dispatch no subagents. A 1000-seed oracle sweep is long: run it in
 the background with output to a file, and run the remaining checks meanwhile. End with the return block.
+
+Note (2026-10-01), read before writing oracle code: develop has **one** generic Graphviz differential. `crates/graph-cli/src/oracle_python/graphviz.rs` holds `by_engine` and `ENGINES`, and `cli.rs` holds `emit-graphviz-fixtures --engine <e>` / `oracle-graphviz --engine <e>`. Add your engine as a `Differential` in `oracle_python/<engine>.rs` (shape: `oracle_python/osage.rs`) plus one `by_engine` arm and one `ENGINES` entry. Key engine specifics inside `harness/oracle-graphviz.py`. Do not add another subcommand, dispatcher or fixture layout. Append your `Capability` after the last entry in `LAYOUTS`. Other Graphviz engines (neato, patchwork, circo) land in parallel, so before you finish, `git fetch origin` and read `origin/develop`'s versions of those files.
