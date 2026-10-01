@@ -1,0 +1,87 @@
+# p13-gv1-circo — the merge floor, the two wasm32 builds, the hash gate at 8 seeds, the
+# negative controls, and the circo differential's three steps.
+#
+# Copied from `scripts/orch/rows/p13-gv1.rows` (the merge floor plus wasm32 and hashgate 8),
+# with the circo differential's own chain appended in the three-step shape
+# `scripts/orch/develop-full.rows` uses for the other oracles.
+#
+# The timed gates — `hashgate --seeds 1000`, `scripts/orch/gate.sh`, `scripts/orch/mutants.sh` —
+# are the orchestrator's and are not rows here: one timed gate at a time (CLAUDE.md).
+# `expect` is `0` or `nonzero`; `#` starts a comment (`scripts/orch/gate.sh:2-4`).
+
+fmt|0|scripts/orch/gr cargo fmt --all --check
+clippy|0|scripts/orch/gr cargo clippy --workspace --all-targets -- -D warnings
+test|0|scripts/orch/gr cargo test --workspace --no-fail-fast
+wasm32-core|0|scripts/orch/gr cargo build -p graph-core --target wasm32-unknown-unknown
+wasm32-motor|0|scripts/orch/gr cargo build -p graph-wasm --release --target wasm32-unknown-unknown
+hashgate-8|0|scripts/orch/gr cargo run -q -p graph-cli -- hashgate --seeds 8
+
+# The negative controls. The knobs list lives once, in `crates/graph-cli/src/hashgate/knob.rs`;
+# every knob below must turn the gate red, and a knob that perturbs a stage nothing else reaches
+# must move that stage alone.
+#
+# **`layout.circular.circo` has no per-stage knob of its own, and that is a path limit, not a
+# choice.** A per-stage control is five arms across `hashgate/knob.rs`, `knob/records.rs`,
+# `knob/setting.rs` and `hashgate/tests/knob/`, and `knob.rs` is outside this job's paths; the
+# alternative would have been to edit four files the job did not list. So `layout.circular.circo`
+# joins the gate by being in `LAYOUTS` (registry-driven, `hashgate/stages.rs:55-57`) and takes its
+# stage bytes from the gate's one model like every layout with no knob of its own
+# (`stages.rs:109`).
+#
+# Which existing knob reaches it, measured here at 8 seeds: **`negctl-node-count` does.**
+# `GM_MUTATE_NODE_COUNT=1` grows the gate's model by a node, and `layout.circular.circo` reads
+# `4-way equal on 0/8 seeds` — the layout's bytes move on every seed. `negctl-reference-degree`
+# does **not**: `GM_MUTATE_REFERENCE_DEGREE=9` changes the model's node *weights*
+# (`stage/topology.rs:32-36`), which no layout reads, and it moves the `topology` stage alone.
+# It is here because it belongs to this register, not because it reaches circo.
+#
+# The control that is scoped to *this engine alone* is the differential's, `negctl-circo-result-*`
+# at the foot of this file: each perturbs the recorded result's own graded quantity.
+negctl-twopi-nodes|nonzero|scripts/orch/gr -e GM_MUTATE_TWOPI_NODES=1 cargo run -q -p graph-cli -- hashgate --seeds 8
+negctl-reference-degree|nonzero|scripts/orch/gr -e GM_MUTATE_REFERENCE_DEGREE=9 cargo run -q -p graph-cli -- hashgate --seeds 8
+negctl-grid-spacing|nonzero|scripts/orch/gr -e GM_MUTATE_GRID_SPACING=2 cargo run -q -p graph-cli -- hashgate --seeds 8
+negctl-sugiyama-layer-spacing|nonzero|scripts/orch/gr -e GM_MUTATE_SUGIYAMA_LAYER_SPACING=2 cargo run -q -p graph-cli -- hashgate --seeds 8
+negctl-node-count|nonzero|scripts/orch/gr -e GM_MUTATE_NODE_COUNT=1 cargo run -q -p graph-cli -- hashgate --seeds 8
+negctl-force-theta|nonzero|scripts/orch/gr -e GM_MUTATE_FORCE_THETA=0.5 cargo run -q -p graph-cli -- hashgate --seeds 8
+negctl-fa2-scaling-ratio|nonzero|scripts/orch/gr -e GM_MUTATE_FA2_SCALING_RATIO=3 cargo run -q -p graph-cli -- hashgate --seeds 8
+negctl-tree-tidy-nodes|nonzero|scripts/orch/gr -e GM_MUTATE_TREE_TIDY_NODES=1 cargo run -q -p graph-cli -- hashgate --seeds 8
+negctl-treemap-nodes|nonzero|scripts/orch/gr -e GM_MUTATE_TREEMAP_NODES=1 cargo run -q -p graph-cli -- hashgate --seeds 8
+negctl-circular-nodes|nonzero|scripts/orch/gr -e GM_MUTATE_CIRCULAR_NODES=1 cargo run -q -p graph-cli -- hashgate --seeds 8
+negctl-packing-scale|nonzero|scripts/orch/gr -e GM_MUTATE_PACKING_SCALE=2 cargo run -q -p graph-cli -- hashgate --seeds 8
+# The two split controls reach a stage the default tier set does not run, so they carry
+# `--tiers all` exactly as `scripts/orch/rows/develop-full.rows:160,164` do.
+negctl-split-sum|nonzero|scripts/orch/gr -e GM_MUTATE_SPLIT_SUM=collide cargo run -q -p graph-cli -- hashgate --seeds 8 --tiers all
+negctl-split-rescale|nonzero|scripts/orch/gr -e GM_MUTATE_SPLIT_RESCALE=1 cargo run -q -p graph-cli -- hashgate --seeds 8 --tiers all
+
+# The circo differential at the seed count it is measured at
+# (docs/measurements/p13-gv1-circo.md): emit the fixtures, run Graphviz's own engine over them in
+# the pinned docker-only oracle image, then check the result against the measured ceiling and
+# record it. The oracle row is the only one here that talks to Docker, and `--differential` is
+# what makes this arm compare our coordinates rather than only record the oracle's.
+circo-emit-1000|0|scripts/orch/gr cargo run -q -p graph-cli -- emit-graphviz-fixtures --engine circo --seeds 1000
+# The oracle arm over the full 1000 seeds, run as 8 shards and merged. `circo` costs ~40 s on a
+# 440-node fixture and ~0.5 s on a 40-node one, so the sweep is ~4.7 h in one container and ~35
+# min in eight: `--shards 8 --shard I` takes every Nth fixture by the fixture file's own index
+# (a partition no timing can move) and `--merge` folds the shards with `max` over the worsts,
+# refusing a merge whose cases do not add up to the manifest's 1000 seeds
+# (`harness/oracle-graphviz.py`, `merge_main`). `wait` is the row's own join, so a shard that
+# failed still fails the row.
+circo-oracle-1000|0|mkdir -p target/gv-circo-shards; for i in 0 1 2 3 4 5 6 7; do docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/circo-fixtures circo target/gv-circo-shards --differential --shards 8 --shard $i & done; wait
+circo-merge-1000|0|docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/circo-fixtures circo target/gv-circo-shards --merge --shards 8
+circo-check-1000|0|scripts/orch/gr cargo run -q -p graph-cli -- oracle-graphviz --engine circo
+# The differential's negative controls, in the shape `scripts/orch/develop-full.rows:184` uses
+# for the closed-form oracle. The first is the missing-directory control; the other two are the
+# engine-scoped ones, and they are the controls that cannot be vacuous: each copies the recorded
+# result and moves **the graded quantity itself** — the worst gap, then the closed-case verdict —
+# so a check that accepted a wrong answer would go red on them. The fourth is the merge's own:
+# a shard file removed, which is the one way a sharded sweep could report fewer seeds than it ran.
+circo-check-negctl|nonzero|scripts/orch/gr cargo run -q -p graph-cli -- oracle-graphviz --engine circo --dir target/circo-fixtures-absent
+negctl-circo-result-worst|nonzero|scripts/orch/node-slim.sh node -e 'const f=require("fs"),d="target/circo-fixtures",o="target/circo-negctl-worst";f.mkdirSync(o,{recursive:true});for(const n of f.readdirSync(d))f.copyFileSync(d+"/"+n,o+"/"+n);const p=o+"/circo-result.json",r=JSON.parse(f.readFileSync(p));r.layouts.circo.worst=1e9;f.writeFileSync(p,JSON.stringify(r,null,1))' ; scripts/orch/gr cargo run -q -p graph-cli -- oracle-graphviz --engine circo --dir target/circo-negctl-worst
+negctl-circo-result-closed|nonzero|scripts/orch/node-slim.sh node -e 'const f=require("fs"),d="target/circo-fixtures",o="target/circo-negctl-closed";f.mkdirSync(o,{recursive:true});for(const n of f.readdirSync(d))f.copyFileSync(d+"/"+n,o+"/"+n);const p=o+"/circo-result.json",r=JSON.parse(f.readFileSync(p));r.closed_exact=false;f.writeFileSync(p,JSON.stringify(r,null,1))' ; scripts/orch/gr cargo run -q -p graph-cli -- oracle-graphviz --engine circo --dir target/circo-negctl-closed
+# The engine-name control: an engine there is no differential for must be refused by clap's
+# parser, not read as a pass. `osage` is a real engine on develop, so the name has to be one
+# there is none for — `nosuch` — for this row to still be a control.
+negctl-circo-unknown-engine|nonzero|scripts/orch/gr cargo run -q -p graph-cli -- oracle-graphviz --engine nosuch
+# The merge's own control: a sweep whose shards do not cover the manifest's seeds must be
+# refused rather than merged into a smaller sweep than it ran. One shard file is hidden.
+negctl-circo-merge-short|nonzero|scripts/orch/node-slim.sh node -e 'const f=require("fs"),d="target/gv-circo-shards";f.renameSync(d+"/circo-result-shard7.json",d+"/circo-result-shard7.hidden")' ; docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/circo-fixtures circo target/gv-circo-shards --merge --shards 8; rc=$?; scripts/orch/node-slim.sh node -e 'const f=require("fs"),d="target/gv-circo-shards";f.renameSync(d+"/circo-result-shard7.hidden",d+"/circo-result-shard7.json")'; exit $rc

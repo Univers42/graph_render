@@ -5,6 +5,9 @@
 use crate::evidence;
 use crate::hashgate::{Knob, LAYOUT, TRANSPORT};
 use serde_json::Value;
+use std::collections::BTreeMap;
+
+mod records;
 
 /// Fewest seeds a gate run may cover and still back a `gated` row (`prompt.md` §7).
 pub const MIN_SEEDS: u64 = 1000;
@@ -22,20 +25,8 @@ pub struct Evidence {
     pub hashgate: Option<Value>,
     /// Every negative control's record, by name, in `Knob::ALL` order.
     pub controls: Vec<(&'static str, Option<Value>)>,
-    /// `oracle-diff.json`: the TypeScript arm's verdict.
-    pub oracle: Option<Value>,
-    /// `roundtrip.json`: the contract round trip and the hand oracles (grid, circular,
-    /// packing).
-    pub roundtrip: Option<Value>,
-    /// `oracle-layouts.json`: `harness/oracle-layouts.mjs`'s d3-hierarchy differential
-    /// for tidy tree and treemap.
-    pub layouts: Option<Value>,
-    /// `stress.json`: the d3-force@3.0.0 stress differential for Barnes-Hut.
-    pub stress: Option<Value>,
-    /// `oracle-fa2.json`: the networkx 3.6 `forceatlas2_layout` differential for FA2.
-    pub fa2: Option<Value>,
-    /// `oracle-spectral.json`: the scipy differential for spectral and pivot MDS.
-    pub spectral: Option<Value>,
+    /// Every other record in the gates directory, by the name its own file carries.
+    pub by_name: BTreeMap<String, Value>,
 }
 
 impl Evidence {
@@ -49,28 +40,21 @@ impl Evidence {
             fingerprint: evidence::tree_fingerprint()?,
             hashgate: evidence::read("hashgate")?,
             controls,
-            oracle: evidence::read("oracle-diff")?,
-            roundtrip: evidence::read("roundtrip")?,
-            layouts: evidence::read("oracle-layouts")?,
-            stress: evidence::read("stress")?,
-            fa2: evidence::read("oracle-fa2")?,
-            spectral: evidence::read("oracle-spectral")?,
+            by_name: records::all(&evidence::gates_dir())?,
         })
     }
 
-    /// The oracle record a row names: `oracle-diff`, `roundtrip`, or the transport row's
-    /// own C20 tally, which lives in `hashgate.json`.
+    /// The oracle record a row names. One rule, not a list: a row's `oracle_record` is a
+    /// record's name and is looked up as one, so the six Graphviz differentials
+    /// (`oracle-<engine>.json`, from `oracle_python::graphviz`'s own `ENGINES` table) and
+    /// every engine, differential and hand oracle added after them are read without an arm
+    /// here. The one record that is not a file of its own is the transport row's, whose
+    /// differential is the hash gate's C20 tally and lives inside `hashgate.json`.
     fn oracle_record(&self, name: &str) -> Option<&Value> {
-        match name {
-            "oracle-diff" => self.oracle.as_ref(),
-            "roundtrip" => self.roundtrip.as_ref(),
-            "oracle-layouts" => self.layouts.as_ref(),
-            "stress" => self.stress.as_ref(),
-            "oracle-fa2" => self.fa2.as_ref(),
-            "oracle-spectral" => self.spectral.as_ref(),
-            TRANSPORT_RECORD => self.hashgate.as_ref(),
-            _ => None,
+        if name == TRANSPORT_RECORD {
+            return self.hashgate.as_ref();
         }
+        self.by_name.get(name)
     }
 }
 

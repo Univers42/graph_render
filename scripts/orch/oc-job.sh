@@ -26,8 +26,8 @@ for p in $(pgrep -f '/opencode run' || true); do
 done
 wf=$wt/target/wf; mkdir -p "$wf"; prompt=$wf/$label.prompt
 # OC_SESSION=<id> resumes that session (oc-run.sh): the rules and body are already in its history,
-# so the prompt is only a continue order.
-resume="Continue this task from where it stopped. Re-dispatch any cancelled or unfinished subagent slice in ONE message of parallel calls, then finish with the return block."
+# or OC_RESUME + continue. 
+resume="${OC_RESUME:-}Continue this task from where it stopped. Re-dispatch any cancelled or unfinished subagent slice in ONE message of parallel calls, then finish with the return block."
 if [[ -n ${OC_SESSION-} ]]; then
   printf '%s\n' "$resume" >"$prompt"
 else

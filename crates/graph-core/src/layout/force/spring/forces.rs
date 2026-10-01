@@ -17,36 +17,49 @@
 //! bit-faithful to the reference at any budget — stated rather than hidden, and it costs
 //! nothing here: the layout is chaotic, so the differential is a stress ratio and not a
 //! coordinate gap (module doc).
+//!
+//! **One kernel at `D` columns, not one kernel per dimension.** `D` is a const parameter and
+//! every column is walked in axis order `x`, then `y`, then `z`, so `D = 2` performs exactly
+//! the operations, in exactly the order, that the two-column version did: every reduction
+//! below accumulates a fixed sum of squares *per node, per column*, in that order, and each
+//! column's total is independent of the others. `layout.force.spring3d` is this file at
+//! `D = 3`, not a second copy of it — SciGraphs' `SPRING_3D`
+//! (`networkx_layouts.py:26-34`) is the same `nx.spring_layout` call as `SPRING`
+//! (`networkx_layouts.py:16-24`) with the `dim` literal changed and nothing else.
 
 use super::{MIN_DISTANCE, MIN_LENGTH, SpringParams};
 use crate::layout::force::SimpleGraph;
 
+/// The column names D9 reports a non-finite value under, in axis order. `D` never exceeds
+/// the table, so the lookup is total.
+const COLUMN_NAMES: [&str; 3] = ["node.x", "node.y", "node.z"];
+
 /// One step's worth of positions, `f64` throughout, narrowed to `f32` once at the end.
-pub(super) struct Field {
-    /// Per-node x.
-    pub(super) x: Vec<f64>,
-    /// Per-node y.
-    pub(super) y: Vec<f64>,
+///
+/// `D` columns per node: `2` for [`super::Spring`], `3` for [`super::spring3d::Spring3D`].
+pub(super) struct Field<const D: usize> {
+    /// Per-node x, then y, then z — axis-major, so a column is a contiguous slice and the
+    /// reductions below walk one at a time in ascending node index.
+    pub(super) c: [Vec<f64>; D],
 }
 
-impl Field {
+impl<const D: usize> Field<D> {
     /// `n` nodes at the origin.
     pub(super) fn zeros(n: u32) -> Self {
         Field {
-            x: vec![0.0; n as usize],
-            y: vec![0.0; n as usize],
+            c: core::array::from_fn(|_| vec![0.0; n as usize]),
         }
     }
 }
 
 /// The dense solve over one graph: the adjacency, and `k`, the optimal distance.
-pub(super) struct Solver<'a> {
+pub(super) struct Solver<'a, const D: usize> {
     graph: &'a SimpleGraph,
     n: u32,
     k: f64,
 }
 
-impl<'a> Solver<'a> {
+impl<'a, const D: usize> Solver<'a, D> {
     /// `k = sqrt(1 / n)` at `layout.py:701-702`. `nnodes` is fixed for the whole solve, so
     /// this is computed once and the temperature schedule below is the only per-step
     /// state — which is what makes the loop a pure function of `(cur, t)`.
@@ -60,7 +73,7 @@ impl<'a> Solver<'a> {
 
     /// The whole iteration: `params.iterations` gathers, stopping as soon as a step's
     /// total movement falls under networkx's own `threshold` (`layout.py:725-726`).
-    pub(super) fn settle(self, start: Field, params: SpringParams) -> Field {
+    pub(super) fn settle(self, start: Field<D>, params: SpringParams) -> Field<D> {
         let mut cur = start;
         let mut out = Field::zeros(self.n);
         let mut t = self.opening(&cur);
@@ -77,19 +90,24 @@ impl<'a> Solver<'a> {
         cur
     }
 
-    /// The opening temperature, `layout.py:705-706`: a tenth of the larger of the two
-    /// coordinate spans, so the first step is bounded by the domain the start occupies.
-    fn opening(&self, cur: &Field) -> f64 {
-        span(&cur.x).max(span(&cur.y)) * 0.1
+    /// The opening temperature, `layout.py:705-706`: a tenth of the largest coordinate span
+    /// over the `D` columns, so the first step is bounded by the domain the start occupies.
+    fn opening(&self, cur: &Field<D>) -> f64 {
+        let mut widest = span(&cur.c[0]);
+        for axis in 1..D {
+            widest = widest.max(span(&cur.c[axis]));
+        }
+        widest * 0.1
     }
 
     /// One gather: every `out[i]` from the start-of-step `cur` alone (D10).
-    fn gather(&self, t: f64, cur: &Field, out: &mut Field) {
+    fn gather(&self, t: f64, cur: &Field<D>, out: &mut Field<D>) {
         for i in 0..self.n as usize {
-            let (dx, dy) = self.displacement(i as u32, cur);
-            let length = libm::sqrt(dx * dx + dy * dy).max(MIN_LENGTH);
-            out.x[i] = cur.x[i] + dx * (t / length);
-            out.y[i] = cur.y[i] + dy * (t / length);
+            let delta = self.displacement(i as u32, cur);
+            let length = libm::sqrt(squared(&delta)).max(MIN_LENGTH);
+            for (axis, column) in out.c.iter_mut().enumerate() {
+                column[i] = cur.c[axis][i] + delta[axis] * (t / length);
+            }
         }
     }
 
@@ -97,53 +115,75 @@ impl<'a> Solver<'a> {
     /// the repulsion summed over every other node and the attraction over `i`'s own
     /// edges. `j == i` is skipped: its `delta` is zero, so it contributes nothing however
     /// the two terms are bounded.
-    fn displacement(&self, i: u32, cur: &Field) -> (f64, f64) {
-        let (mut dx, mut dy) = (0.0, 0.0);
+    fn displacement(&self, i: u32, cur: &Field<D>) -> [f64; D] {
+        let mut delta = [0.0; D];
         for j in 0..self.n {
             if j == i {
                 continue;
             }
-            let (ex, ey) = self.separation(i, j, cur);
-            let d = clipped(ex, ey);
+            let ex = self.separation(i, j, cur);
+            let d = clipped(&ex);
             let repulsion = self.k * self.k / (d * d);
-            dx += ex * repulsion;
-            dy += ey * repulsion;
+            for axis in 0..D {
+                delta[axis] += ex[axis] * repulsion;
+            }
         }
         for edge in self.graph.rows.row(i) {
             let j = self.graph.other(*edge, i);
-            let (ex, ey) = self.separation(i, j, cur);
-            let attraction = clipped(ex, ey) / self.k;
-            dx -= ex * attraction;
-            dy -= ey * attraction;
+            let ex = self.separation(i, j, cur);
+            let attraction = clipped(&ex) / self.k;
+            for axis in 0..D {
+                delta[axis] -= ex[axis] * attraction;
+            }
         }
-        (dx, dy)
+        delta
     }
 
-    /// `pos[i] - pos[j]`, one cell of the `delta` matrix at `layout.py:711`.
-    fn separation(&self, i: u32, j: u32, cur: &Field) -> (f64, f64) {
-        (
-            cur.x[i as usize] - cur.x[j as usize],
-            cur.y[i as usize] - cur.y[j as usize],
-        )
+    /// `pos[i] - pos[j]`, one cell of the `delta` matrix at `layout.py:711`, axis by axis.
+    fn separation(&self, i: u32, j: u32, cur: &Field<D>) -> [f64; D] {
+        let (i, j) = (i as usize, j as usize);
+        let mut delta = [0.0; D];
+        for (axis, column) in cur.c.iter().enumerate() {
+            delta[axis] = column[i] - column[j];
+        }
+        delta
     }
 
     /// `np.linalg.norm(delta_pos) / nnodes` — the early-exit numerator of
-    /// `layout.py:725`, summed in ascending index order (D3).
-    fn travelled(&self, cur: &Field, out: &Field) -> f64 {
+    /// `layout.py:725`, summed in ascending index order (D3). The squared length of one
+    /// node's movement is finished before it joins the running total, which is the order
+    /// the two-column version accumulated in.
+    fn travelled(&self, cur: &Field<D>, out: &Field<D>) -> f64 {
         let mut sum = 0.0;
         for i in 0..self.n as usize {
-            let (dx, dy) = (out.x[i] - cur.x[i], out.y[i] - cur.y[i]);
-            sum += dx * dx + dy * dy;
+            let mut moved = [0.0; D];
+            for (axis, column) in out.c.iter().enumerate() {
+                moved[axis] = column[i] - cur.c[axis][i];
+            }
+            sum += squared(&moved);
         }
         libm::sqrt(sum)
     }
 }
 
+/// `np.linalg.norm(delta)` over the `D` columns: the squared length finished inside the
+/// axis loop, so a caller adds one total per node and the rounding is axis-order only.
+///
+/// For `D = 2` this is `dx * dx + dy * dy` — `0.0 + dx * dx` is `dx * dx`, and no product of
+/// two `f64`s is a negative zero, so the leading zero cannot move a bit.
+fn squared<const D: usize>(delta: &[f64; D]) -> f64 {
+    let mut sum = 0.0;
+    for &v in delta {
+        sum += v * v;
+    }
+    sum
+}
+
 /// `np.clip(distance, 0.01, None)` (`layout.py:713`): the reference's minimum separation,
 /// which is what keeps an exact coincidence from dividing by zero. Every `sqrt` in the
 /// port is libm's, so it is bit-identical on every target (D1, D2).
-fn clipped(ex: f64, ey: f64) -> f64 {
-    libm::sqrt(ex * ex + ey * ey).max(MIN_DISTANCE)
+fn clipped<const D: usize>(delta: &[f64; D]) -> f64 {
+    libm::sqrt(squared(delta)).max(MIN_DISTANCE)
 }
 
 /// The largest coordinate minus the smallest, for the opening temperature. Ascending
@@ -156,4 +196,18 @@ fn span(column: &[f64]) -> f64 {
         hi = hi.max(v);
     }
     hi - lo
+}
+
+/// D9: the first column holding a value `f64` cannot pin, named as the snapshot names its
+/// columns — `node.z` for the third, which is the column only `D = 3` has. The axes are
+/// walked in order, so the answer does not depend on where the bad value sits among
+/// several, and `D` is bounded by [`COLUMN_NAMES`].
+pub(super) fn first_non_finite<const D: usize>(field: &Field<D>) -> Option<&'static str> {
+    debug_assert!(D <= COLUMN_NAMES.len(), "no name for column {D}");
+    for (axis, column) in field.c.iter().enumerate() {
+        if column.iter().any(|v| !v.is_finite()) {
+            return Some(COLUMN_NAMES[axis]);
+        }
+    }
+    None
 }

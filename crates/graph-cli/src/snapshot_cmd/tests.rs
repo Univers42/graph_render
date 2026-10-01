@@ -64,8 +64,24 @@ fn layout_names_offers_every_registered_layout_once_by_both_of_its_names() {
             "force.spring",
             "layout.circular.hierarchy",
             "circular.hierarchy",
+            "layout.circular.circo",
+            "circular.circo",
             "layout.treemap.patchwork",
             "treemap.patchwork",
+            "layout.force.neato",
+            "force.neato",
+            "layout.force.fdp",
+            "force.fdp",
+            "layout.basic3d.sphere",
+            "basic3d.sphere",
+            "layout.basic3d.helix",
+            "basic3d.helix",
+            "layout.basic3d.cube",
+            "basic3d.cube",
+            "layout.hierarchical3d",
+            "hierarchical3d",
+            "layout.force.spring3d",
+            "force.spring3d",
             "layout.force.sfdp",
             "force.sfdp",
         ]
@@ -109,6 +125,7 @@ fn each_layout_name_runs_the_same_pipeline_and_an_unregistered_one_names_all_the
         ("layout.bipartite", "bipartite"),
         ("layout.force.yifan_hu", "force.yifan_hu"),
         ("layout.twopi", "twopi"),
+        ("layout.circular.circo", "circular.circo"),
     ] {
         let by_short = pipeline(1, 50, short).expect("runs by short name");
         let by_id = pipeline(1, 50, id).expect("runs by full id");
