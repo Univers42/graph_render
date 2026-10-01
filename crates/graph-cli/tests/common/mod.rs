@@ -28,7 +28,7 @@ use std::process::{Command, Output};
 /// binary's own table: this list is what clears a knob out of a test run's environment, so
 /// a name it failed to carry would let a control leak in and turn an honest run red. Being
 /// an independent copy is the property; the unit test is what makes it hold.
-pub const KNOBS: [&str; 38] = [
+pub const KNOBS: [&str; 39] = [
     "GM_MUTATE_REFERENCE_DEGREE",
     "GM_MUTATE_GRID_SPACING",
     "GM_MUTATE_SUGIYAMA_LAYER_SPACING",
@@ -39,6 +39,7 @@ pub const KNOBS: [&str; 38] = [
     "GM_MUTATE_TREEMAP_NODES",
     "GM_MUTATE_CIRCULAR_NODES",
     "GM_MUTATE_TWOPI_NODES",
+    "GM_MUTATE_NEATO_EPSILON",
     "GM_MUTATE_PATCHWORK_NODES",
     "GM_MUTATE_SPRING_ITERATIONS",
     "GM_MUTATE_CIRCULAR_HIERARCHY_NODES",

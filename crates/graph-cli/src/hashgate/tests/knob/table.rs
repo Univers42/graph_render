@@ -12,11 +12,11 @@ use super::*;
 use crate::hashgate::knob::setting::setting;
 use crate::hashgate::knobs;
 
-/// The twelve controls that move a parameter or re-draw one layout's model. **Spelled out
+/// The sixteen controls that move a parameter or re-draw one layout's model. **Spelled out
 /// rather than derived from [`Knob::env`]**, so this test is the independent statement of
 /// what they are called; the twenty-one per-stage controls are absent because their
 /// variables come from `knobs::all()`, which has its own test below.
-const PARAMETER_KNOBS: [(&str, &str); 15] = [
+const PARAMETER_KNOBS: [(&str, &str); 16] = [
     (
         "GM_MUTATE_REFERENCE_DEGREE",
         "hashgate-control-reference-degree",
@@ -42,6 +42,7 @@ const PARAMETER_KNOBS: [(&str, &str); 15] = [
         "hashgate-control-circular-nodes",
     ),
     ("GM_MUTATE_TWOPI_NODES", "hashgate-control-twopi-nodes"),
+    ("GM_MUTATE_NEATO_EPSILON", "hashgate-control-neato-epsilon"),
     (
         "GM_MUTATE_PATCHWORK_NODES",
         "hashgate-control-patchwork-nodes",

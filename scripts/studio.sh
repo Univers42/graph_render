@@ -44,6 +44,13 @@ in_node() {
     -v "$refs:/refs:ro" "$node_image" "$@"
 }
 
+# target/ is the gate output tree: scripts/orch/queue.sh land writes target/land-<label>/, and
+# every browser gate writes target/studio-*/. Both container images run as root, so a cargo or
+# vite build that creates it first leaves a root-owned directory the user cannot write into, and
+# `queue.sh land` then fails on a worktree that never had one. Create it here, as the user, before
+# anything runs in a container.
+mkdir -p "$root/target"
+
 # A row that could not run is a row that did not run: refuse rather than skip silently.
 require_refs() {
   if [[ ! -f $refs/matplotlib-3.10.0/_cm_listed.py ]]; then

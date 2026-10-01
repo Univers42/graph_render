@@ -11,7 +11,17 @@
 //! Every engine in this tree is compared against the docker-only Graphviz oracle rather
 //! than against a second run of ours, and every one of them is a port read from the
 //! pinned Graphviz release as an algorithm reference — never a translation, never a link.
+//!
+//! **The reference's arithmetic is reproduced, not improved on.** Graphviz carries
+//! coordinates in `float` and scalars in `double`, accumulates the Laplacian diagonal in
+//! `long double`, and reaches its answer through a conjugate gradient whose stopping rule
+//! is a tolerance. Every one of those choices is load-bearing for agreement and none is
+//! one a reader would write on purpose, so each is named where it is reproduced and the
+//! reason recorded next to it. An `f64`-only port is a *different algorithm* that agrees
+//! in the limit, and the differential measures the limit, not the port.
 
 pub mod circo;
+pub mod fdp;
+pub mod neato;
 pub mod osage;
 pub mod patchwork;

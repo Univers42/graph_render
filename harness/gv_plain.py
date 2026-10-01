@@ -27,7 +27,10 @@ POINTS_PER_INCH = 72.0
 # move it, both read here so no arm has to know about the other: the `--start=N` flag, and the
 # `GM_GV_START` environment variable for a run that cannot pass a flag
 # (`docker run -e GM_GV_START=7 ...`). The default is the seed every recorded run used, so
-# nothing else moves.
+# nothing else moves. The seed is inert for twopi, osage and circo, and it is not for neato,
+# which seeds a `drand48` initial placement from it and so draws every fixture differently at
+# 1, 7 and 99: a neato differential is comparable only at the start value its `oracle` string
+# records (`docs/measurements/p13-gv2-neato.md`).
 START_SEED = int(os.environ.get("GM_GV_START", "1"))
 
 

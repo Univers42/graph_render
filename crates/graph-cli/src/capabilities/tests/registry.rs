@@ -205,6 +205,12 @@ fn the_registry_covers_every_oracle_function_once_its_ids_are_unique() {
             // because the differential compares coordinates within a measured 7.1e-2 points
             // (`docs/measurements/p13-gv1.md`) rather than to bytes.
             ("oracle-twopi", r.id, Status::Implemented)
+        } else if r.id == "layout.force.neato" {
+            // Also a Graphviz arm, and also `implemented` for the same reason as the row
+            // above it: the measured worst gap is 6.73e-2 points against a ceiling of 1e-1,
+            // and it is the oracle's printed resolution rather than a disagreement
+            // (`docs/measurements/p13-gv2-neato.md`).
+            ("oracle-graphviz", r.id, Status::Implemented)
         } else if r.id == "layout.packing.osage" {
             // The second Graphviz arm: its own record, and `implemented` rather than
             // `gated` for a stronger reason than twopi's — osage's differential is *run*
@@ -224,6 +230,14 @@ fn the_registry_covers_every_oracle_function_once_its_ids_are_unique() {
             // (`docs/measurements/p13-gv1-patchwork.md`) rather than to bytes, so the row is
             // `implemented` and never a `gated` claim resting on a hash.
             ("oracle-patchwork", r.id, Status::Implemented)
+        } else if r.id == "layout.force.fdp" {
+            // The third Graphviz arm, and the one that cannot be compared to bytes at all:
+            // the pinned Graphviz 16.1.0 `fdp -Tplain -Gstart=1` disagrees with *itself*
+            // over the same sweep, so no ceiling measured against it bounds anything and
+            // `gated` would be a claim the oracle itself contradicts
+            // (`docs/measurements/p13-gv2-fdp.md`). Its own record, like twopi's and
+            // osage's — the three arms share an engine family and share no code.
+            ("oracle-fdp", r.id, Status::Implemented)
         } else if r.id == "layout.spectral" || r.id == "layout.mds.pivot" {
             ("oracle-spectral", r.id, Status::Gated)
         } else if r.id == "transport.wasm.columnar" {

@@ -46,8 +46,8 @@ git log --oneline origin/develop..origin/p12-igraph
 | `GRAPHVIZ_CIRCO` | `dispatcher.py:140` | same, `engine='circo'` | 2D default | `layout.circular.circo` | in flight: p13-gv1-circo | Graphviz `circo` 16.1.0 `lib/circogen` | `oracle-circo`, `capabilities/registry/unproven.rs`, `registry/graphviz_circo.rs`; **14 closed cases exact, but the circle order differs on 984 of 1000 seeds** — see `docs/measurements/p13-gv1-circo.md` |
 | `GRAPHVIZ_OSAGE` | `dispatcher.py:140` | same, `engine='osage'` | 2D default | `layout.packing.osage` | in flight: p13-gv1 | Graphviz `osage` 16.1.0 `lib/osage/osageinit.c` + `lib/pack/pack.c` | `oracle-graphviz --engine osage`, `capabilities/registry/unproven.rs`, `registry/graphviz_osage.rs`; **both arms agree within `-Tplain`'s own 5-digit print, worst gap 6.31e-2 points over 1000 seeds at ceiling 1e-1**, after the fixtures pinned every node's box (`fixedsize=true` + explicit `width`/`height`) so neither label-sized boxes nor `qsort`'s tie order enters — see `docs/measurements/p13-gv1-osage.md` |
 | `GRAPHVIZ_PATCHWORK` | `dispatcher.py:140` | same, `engine='patchwork'` | 2D default | `layout.treemap.patchwork` | in flight: p13-gv1 | Graphviz `patchwork` 16.1.0 `lib/patchwork/tree_map.c` | `oracle-graphviz --engine patchwork`, `capabilities/registry/unproven.rs:106`, `registry/graphviz_patchwork.rs:40`; **worst gap 6.6e-2 pt = the oracle's own printed quantum** — see `docs/measurements/p13-gv1-patchwork.md` |
-| `GRAPHVIZ_NEATO` | `dispatcher.py:140` | same, `engine='neato'` | 2D default; 3D eligible (`GRAPHVIZ_NATIVE_3D_ENGINES` `yifan_hu.py:18`) | — | planned: p13-gv2 | Graphviz `neato` | Graphviz's own output, docker-only oracle |
-| `GRAPHVIZ_FDP` | `dispatcher.py:140` | same, `engine='fdp'` | 2D default | — | planned: p13-gv2 | Graphviz `fdp` | Graphviz's own output, docker-only oracle |
+| `GRAPHVIZ_NEATO` | `dispatcher.py:140` | same, `engine='neato'` | 2D default; 3D eligible (`GRAPHVIZ_NATIVE_3D_ENGINES` `yifan_hu.py:18`) | `layout.force.neato` | in flight: p13-gv2 | Graphviz `neato` 16.1.0 `lib/neatogen/stress.c` | `oracle-graphviz`, `capabilities/registry/unproven.rs:63`, `registry/graphviz_neato.rs:25` |
+| `GRAPHVIZ_FDP` | `dispatcher.py:140` | same, `engine='fdp'` | 2D default | `layout.force.fdp` | on p13-gv2 (`Status::Implemented`, never gated: the oracle is not self-reproducible) | Graphviz `fdp` | Graphviz's own output, docker-only oracle; `-Gstart` is **effective**, not inert, and the oracle disagrees with itself over the same sweep — `docs/measurements/p13-gv2-fdp.md` |
 | `GRAPHVIZ_SFDP` | `dispatcher.py:140` | same, `engine='sfdp'` | 2D default; 3D eligible (`yifan_hu.py:18`) | — | planned: p13-gv2 | Graphviz `sfdp` | Graphviz's own output, docker-only oracle |
 | `GRAPHVIZ_DOT` | `dispatcher.py:140` | same, `engine='dot'` | 2D default | — | planned: p13-gv2 | Graphviz `dot` | Graphviz's own output, docker-only oracle |
 | `SUGIYAMA` | `dispatcher.py:142` | `_sugiyama_layout` `hierarchical.py:638` | 2D (z=0) | `layout.dag.sugiyama` | on develop | hand, checked on dagre-d3-es crossing counts | `roundtrip` + `harness/oracle-layouts.mjs --dag`, `registry/grid.rs:90` |
@@ -62,7 +62,11 @@ git log --oneline origin/develop..origin/p12-igraph
   p13-gv1 = 3 names over 3 ids (`GRAPHVIZ_TWOPI` → `layout.twopi`, `GRAPHVIZ_OSAGE` →
   `layout.packing.osage`, `GRAPHVIZ_PATCHWORK` → `layout.treemap.patchwork`)
   p13-gv1-circo = 1 name over 1 id (`GRAPHVIZ_CIRCO` → `layout.circular.circo`)
-- planned: p12-t2 = 2 · planned: p13-gv2 = 4
+  p13-gv2 = 1 name over 1 id (`GRAPHVIZ_NEATO` → `layout.force.neato`, 2D only — the 3D-eligible
+  arm is p12-t4) ·
+  p13-gv2-fdp = 1 name over 1 id (`GRAPHVIZ_FDP` → `layout.force.fdp`, `Status::Implemented`, never gated:
+  its oracle is not self-reproducible, measured)
+- planned: p12-t2 = 2 · planned: p13-gv2 = 2 (`GRAPHVIZ_SFDP`, `GRAPHVIZ_DOT`)
 - missing = 5, all of them 3D: `SPRING_3D`, `SPHERE`, `HELIX`, `CUBE`, `HIERARCHICAL_3D`
 - motor ids with no SciGraphs name = 4 (`layout.tree.tidy`, `layout.treemap.squarified`, `layout.circular.ring`, `layout.force.barnes_hut`); out of scope for a table keyed on SciGraphs names
 

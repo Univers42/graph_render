@@ -120,6 +120,8 @@ scripts/studio.sh check       # the studio's merge floor: tsc, unit + render tes
 scripts/studio.sh test        # tests only; needs the pinned refs at $REFS (default $GM_SCRATCH/refs)
 scripts/studio-nav.sh         # one browser gate over app/dist; siblings: perf, parity, interact, filters, ...
 STUDIO_NAV_BREAK=1 scripts/studio-nav.sh   # its negative control: expect non-zero
+scripts/studio-smoke.sh       # the load smoke over app/dist: no page error, no banner, a node drawn
+STUDIO_SMOKE_BREAK=1 scripts/studio-smoke.sh   # its negative control: expect non-zero
 ```
 
 - A fresh worktree needs `npm ci` before `cargo test`: the `cli_oracles` tests run the Node harness and
