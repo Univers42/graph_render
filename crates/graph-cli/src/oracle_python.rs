@@ -19,7 +19,9 @@
 mod cli;
 mod closed_form;
 mod fa2;
+mod graphviz;
 mod igraph;
+mod osage;
 mod spectral;
 mod twopi;
 
@@ -28,7 +30,6 @@ pub use closed_form::CLOSED_FORM;
 pub use fa2::FA2;
 pub use igraph::IGRAPH;
 pub use spectral::SPECTRAL;
-pub use twopi::TWOPI;
 
 use crate::evidence::{FINGERPRINTED, Stamp};
 use crate::runner::file_sha256;

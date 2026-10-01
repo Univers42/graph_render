@@ -62,6 +62,17 @@ pub(super) fn force_record(id: &str) -> Option<(&'static str, Status)> {
         // way. That is a pre-existing gap in the reader, not a claim this row is making: the
         // differential is real and its numbers are in `docs/measurements/p13-gv1.md`.
         "layout.twopi" => Some(("oracle-twopi", Status::Implemented)),
+        // Ponytail: `implemented`, not `gated`, for the same two reasons as the row above,
+        // and routed to its own record so the row names the comparison that backs it.
+        // osage is closed form over rectangles and never reads an edge, so its gap is an
+        // algorithmic difference or nothing; the residual is the oracle's own five
+        // significant digits, and the ceiling is the next power of ten above the measured
+        // worst gap (docs/measurements/p13-gv1-osage.md).
+        //
+        // `verdict::Evidence::oracle_record` matches a fixed list of record names and has no
+        // arm for `oracle-osage`, exactly as it has none for `oracle-twopi`: that reader is
+        // a pre-existing gap, not a claim this row makes.
+        "layout.packing.osage" => Some(("oracle-osage", Status::Implemented)),
         _ => None,
     }
 }

@@ -1,0 +1,67 @@
+# p13-gv1 osage — the merge floor, the two wasm32 builds, the hash gate at 8 seeds, the
+# existing knob controls, and the osage differential's three steps plus two negative
+# controls of its own.
+#
+# Copied from `scripts/orch/rows/quick.rows` (the merge floor plus wasm32 and hashgate 8),
+# with the differential chain in the three-step shape `scripts/orch/rows/p13-gv1.rows` uses
+# for twopi and the other oracles.
+#
+# The timed gates — `hashgate --seeds 1000`, `scripts/orch/gate.sh`, `scripts/orch/mutants.sh` —
+# are the orchestrator's and are not rows here: one timed gate at a time (CLAUDE.md).
+# `expect` is `0` or `nonzero`; `#` starts a comment (`scripts/orch/gate.sh:2-4`).
+
+fmt|0|scripts/orch/gr cargo fmt --all --check
+clippy|0|scripts/orch/gr cargo clippy --workspace --all-targets -- -D warnings
+test|0|scripts/orch/gr cargo test --workspace --no-fail-fast
+wasm32-core|0|scripts/orch/gr cargo build -p graph-core --target wasm32-unknown-unknown
+wasm32-motor|0|scripts/orch/gr cargo build -p graph-wasm --release --target wasm32-unknown-unknown
+hashgate-8|0|scripts/orch/gr cargo run -q -p graph-cli -- hashgate --seeds 8
+
+# The negative controls. The knobs list exists once, in
+# `crates/graph-cli/src/hashgate/knob.rs:236`.
+#
+# **There is deliberately no `negctl-osage-nodes` row.** The per-stage knob for a Graphviz
+# engine re-draws that stage's own model (`hashgate/knob/twopi.rs` is the precedent), and
+# `hashgate/knob.rs` plus `hashgate/knob/` are shared with the parallel Graphviz engine
+# jobs — p13-gv1-patchwork, gv2-neato, gv2-fdp, gv2-sfdp and gv2-dot — so five agents
+# editing one enum is a merge collision on a gate file, not a feature. The two osage
+# controls below sit where they can be added without touching it, and they are the ones
+# that matter for this engine: it disagrees with its oracle by construction (see
+# `docs/measurements/p13-gv1-osage.md`), so what has to be proven is that the comparison
+# sees the oracle's own output and cannot pass on nothing.
+negctl-degree|0|scripts/orch/gr -e GM_MUTATE_REFERENCE_DEGREE=9 cargo run -q -p graph-cli -- hashgate --seeds 8; test $? -eq 1
+negctl-twopi-nodes|nonzero|scripts/orch/gr -e GM_MUTATE_TWOPI_NODES=1 cargo run -q -p graph-cli -- hashgate --seeds 8
+
+# The osage differential at the seed count it is measured at
+# (`docs/measurements/p13-gv1-osage.md`): emit the fixtures, run Graphviz's own engine over
+# them in the pinned docker-only oracle image, then check the result against the measured
+# ceiling and record it. The oracle rows are the only ones here that talk to Docker.
+osage-emit-1000|0|scripts/orch/gr cargo run -q -p graph-cli -- emit-graphviz-fixtures --engine osage --seeds 1000
+osage-oracle-1000|0|docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/osage-fixtures osage target/gv-osage --differential
+osage-check-1000|0|scripts/orch/gr cargo run -q -p graph-cli -- oracle-graphviz --engine osage
+
+# The oracle is deterministic: the same 1000 fixtures through `osage` twice, byte for byte.
+# This is the evidence the ADR's determinism claim rests on, run as a row so it cannot rot.
+osage-oracle-determinism|0|docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/osage-fixtures osage target/gv-osage-cmp-a --differential && docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/osage-fixtures osage target/gv-osage-cmp-b --differential && cmp target/gv-osage-cmp-a/graphviz-osage.jsonl target/gv-osage-cmp-b/graphviz-osage.jsonl
+
+# `-Gstart` is inert for this engine, and that is a measurement rather than an assumption:
+# the same 1000 fixtures at start=1, 7 and 99 are byte-identical. All three runs use the
+# plain positional call, so all three write the same record shape and `cmp` is meaningful —
+# comparing a `--differential` output against a positional one differs in the JSON keys
+# alone and would prove nothing.
+osage-oracle-start-inert|0|docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/osage-fixtures osage target/gv-osage-start1 --fixtures=osage.jsonl --start=1 && docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/osage-fixtures osage target/gv-osage-start7 --fixtures=osage.jsonl --start=7 && docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/osage-fixtures osage target/gv-osage-start99 --fixtures=osage.jsonl --start=99 && cmp target/gv-osage-start1/graphviz-osage.jsonl target/gv-osage-start7/graphviz-osage.jsonl && cmp target/gv-osage-start1/graphviz-osage.jsonl target/gv-osage-start99/graphviz-osage.jsonl
+
+# **Control 1: the oracle's output for this engine is read to the last digit.** Two runs of
+# the *same* 20 fixtures (a and b) are byte-identical; then one node coordinate of one seed
+# in b is moved by 1e-6 points — a millionth of a point, four orders of magnitude below
+# anything the layout computes — and the byte comparison must fail. Without it, "the two
+# runs are identical" could mean "the comparison never looks". Both sides must come from the
+# same fixture set: comparing a 20-seed output against the 1000-seed one would differ in the
+# seed count alone and pass with the perturbation deleted, which is a control that cannot
+# fail.
+osage-oracle-perturb-negctl|nonzero|scripts/orch/gr cargo run -q -p graph-cli -- emit-graphviz-fixtures --engine osage --seeds 20 --out target/osage-negctl && docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/osage-negctl osage target/gv-osage-negctl-a --differential && docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/osage-negctl osage target/gv-osage-negctl-b --differential && docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 -c "import json; p='target/gv-osage-negctl-b/graphviz-osage.jsonl'; rows=[json.loads(l) for l in open(p)]; rows[0]['points'][0][0] += 1e-6; open(p, 'w').write('\n'.join(json.dumps(r) for r in rows) + '\n')" && cmp target/gv-osage-negctl-a/graphviz-osage.jsonl target/gv-osage-negctl-b/graphviz-osage.jsonl
+
+# **Control 2: the check cannot pass on nothing.** A directory with no recorded run must be
+# refused rather than read as a pass — the same shape
+# `scripts/orch/rows/p13-gv1.rows:55` uses for the twopi oracle.
+osage-check-negctl|nonzero|scripts/orch/gr cargo run -q -p graph-cli -- oracle-graphviz --engine osage --dir target/osage-fixtures-absent
