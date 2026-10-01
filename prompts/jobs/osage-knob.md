@@ -4,8 +4,7 @@ Why: graphviz-verdict (2026-10-01) taught the ledger to read every Graphviz diff
 flip `layout.packing.osage` to `gated`: `Status::Gated` needs a negative control that turns the hash gate red
 **on the row's own stage**, and none exists. Its diagnostic run: `hashgate --seeds 8` with
 `GM_MUTATE_REFERENCE_DEGREE=9` or `GM_MUTATE_PACKING_SCALE=2` exits 1, but neither diverges
-`layout.packing.osage` (finding HIGH, `crates/graph-cli/src/hashgate/knobs.rs:33,127`). A second, older finding:
-`crates/graph-cli/tests/common/mod.rs:17` (`KNOBS`, the one knob list) lacks `GM_MUTATE_SPLIT_SUM`.
+`layout.packing.osage` (finding HIGH, `crates/graph-cli/src/hashgate/knobs.rs:33,127`). 
 
 Do:
 1. Read `hashgate/{knob.rs,knobs.rs,stages.rs}`, `hashgate/knob/{arms,records,setting,igraph}.rs`,
@@ -17,7 +16,6 @@ Do:
    it, exit 0.
 4. Add the row `negctl-osage-nodes|nonzero|...` to `scripts/orch/rows/develop-full.rows` next to the other
    negctls.
-5. `KNOBS`: add `GM_MUTATE_SPLIT_SUM` if it belongs there, or state with `file:line` why the list excludes it.
 6. Flip `layout.packing.osage` to `gated` in `capabilities/registry/unproven.rs` only if the tests in
    `capabilities/tests/graphviz.rs` prove the ledger accepts it with the new control and a current record;
    otherwise leave it `implemented` and say what is missing.
