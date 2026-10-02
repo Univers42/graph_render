@@ -44,7 +44,10 @@ pub mod sphere;
 pub mod spiral;
 
 /// SciGraphs' `apply_graph_layout` default scale (`layouts/dispatcher.py:14`), the value
-/// the dispatcher hands each of the three functions it calls.
+/// the dispatcher hands each of the **five** functions that read it from this module:
+/// `_sphere_layout` (`basic.py:22`), `_spiral_layout_3d` (`:36`, reached at
+/// `dispatcher.py:105-106`), `_helix_layout` (`:65`), `_cube_layout` (`:83`) and
+/// `_bipartite_layout_3d` (`layouts/bipartite.py`).
 ///
 /// Published as a constant rather than a `Params` field because the reference takes one
 /// `scale` with no default of its own and no caller in SciGraphs ever passes anything
@@ -70,7 +73,9 @@ pub(super) fn in_space(x: &[f64], y: &[f64], z: &[f64]) -> Geometry {
     )
 }
 
-/// The node count these three read, which is the whole of their input.
+/// The node count the graph-free placements read. **The whole of their input for four of
+/// them** — `sphere`, `helix`, `cube` and `spiral` ignore every edge — and not for
+/// `bipartite_3d`, which reads the graph's own 2-colouring.
 pub(super) fn count(topology: &Topology) -> u32 {
     topology.node_count()
 }

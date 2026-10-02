@@ -37,12 +37,12 @@ pub(super) const G_SPRING_SEED: Gap = Gap {
 pub(super) const G_BASIC3D_SCALE: Gap = Gap {
     parameter: "scale",
     note: "`basic_3d`'s `SCALE` is a const, not a parameter of `sphere`/`helix`/`cube`/`spiral`/`bipartite_3d`",
-    at: "crates/graph-core/src/layout/basic_3d.rs:43",
+    at: "crates/graph-core/src/layout/basic_3d.rs:53",
 };
 pub(super) const G_SNAPSHOT_SCALE: Gap = Gap {
     parameter: "scale",
-    note: "`scale` is a **const in each layout**, not a parameter of `run`: `basic_3d.rs:43`, `hierarchical_3d.rs:78` and `circular/hierarchy.rs:45` each publish `SCALE: f64 = 5.0`. Nothing in `layout::snapshot` rescales anything; the centre-and-rescale the coverage doc describes is these three constants plus each layout's own extent, and the reference writes its own units",
-    at: "crates/graph-core/src/layout/basic_3d.rs:43",
+    note: "`scale` is a **const in each layout**, not a parameter of `run`: `basic_3d.rs:53`, `hierarchical_3d.rs:78` and `circular/hierarchy.rs:45` each publish `SCALE: f64 = 5.0`. Nothing in `layout::snapshot` rescales anything; the centre-and-rescale the coverage doc describes is these three constants plus each layout's own extent, and the reference writes its own units",
+    at: "crates/graph-core/src/layout/basic_3d.rs:53",
 };
 pub(super) const G_NO_ITERATIONS: Gap = Gap {
     parameter: "iterations",
