@@ -5,7 +5,8 @@
 //! `errors` modules (C21) — every one of those is unit-tested natively; only the
 //! functions below need the real target to exist at all.
 //!
-//! Split across five files by the house's 300-line limit, not by any ABI grouping:
+//! Split across five files by the house's 300-line limit, not by any ABI grouping (and
+//! `gm_abi_version`, below, the one export that belongs to none of them):
 //! [`state`] holds the shared handle table and out-buffer every export below reaches
 //! into; [`build`] is graph lifecycle (`gm_build`/`gm_build_contract`/`gm_run`/
 //! `gm_node_count`/geometry tags/`gm_last_error`/`gm_seed_ingest`); [`columns`] is
@@ -24,3 +25,13 @@ mod columns;
 mod session;
 mod stages;
 mod state;
+
+/// [`crate::ABI_VERSION`]: the first call a loader makes, so a module built from another
+/// revision than the SDK is refused by number before any call whose meaning moved.
+// SAFETY: `no_mangle` exports this symbol under its Rust name; no other symbol in this
+// crate is named `gm_abi_version`.
+#[unsafe(no_mangle)]
+pub extern "C" fn gm_abi_version() -> u32 {
+    crate::errors::clear();
+    crate::ABI_VERSION
+}

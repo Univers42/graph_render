@@ -1,11 +1,13 @@
 //! Running one motor layout the way SciGraphs would run its reference: the registered
-//! default for almost every id, and a deliberate override for the three where the registered
+//! default for almost every id, and a deliberate override for the four where the registered
 //! default is not SciGraphs' parameter.
 //!
-//! **Three overrides, and each is a whole row.** `CIRCLE_PACKING`'s registered budget is 500
+//! **Four overrides, and each is a whole row.** `CIRCLE_PACKING`'s registered budget is 500
 //! radius-solver sweeps where `apply_graph_layout` passes 50; `FORCEATLAS2`'s is 100 where
 //! the dispatcher passes 50 into `ForceSim`; `GRAPHVIZ_SFDP` registers `run`, whose
-//! `DEFAULT_SEED` is 1, where the engine is handed `start = get_layout_seed()`. Every other
+//! `DEFAULT_SEED` is 1, where the engine is handed `start = get_layout_seed()`; and `GRID`
+//! registers a lattice centred on the origin at unit pitch, where `_grid_layout` starts at
+//! the origin and pitches it at `scale / grid_size`. Every other
 //! id either takes no parameter or its registered default already **is** the reference's —
 //! the igraph family being the surprising half: `_igraph_davidson_harel` ignores the
 //! dispatcher's `iterations` and uses igraph's `maxiter=10`, which is our `DhParams` default
@@ -19,11 +21,13 @@ use super::fixtures::Fixture;
 use super::{ITERATIONS, LAYOUT_SEED, SCALE};
 use graph_contract::binary::SnapshotParts;
 use graph_contract::geometry::NodeGeometry;
+use graph_core::exec::Serial;
 use graph_core::layout::Geometry;
 use graph_core::layout::circle_packing::{self, CirclePackingParams};
 use graph_core::layout::force::spring::{Spring, Spring3D, SpringParams};
 use graph_core::layout::forceatlas2::{Fa2Params, ForceAtlas2};
 use graph_core::layout::graphviz::sfdp;
+use graph_core::layout::grid::Grid;
 use graph_core::{Stage, StageError, registry, run_with};
 use serde_json::Value;
 
@@ -60,6 +64,7 @@ pub fn run(id: &str, fixture: &Fixture) -> Ran {
         "layout.force.sfdp" => sfdp_seeded(fixture),
         "layout.force.spring" => spring::<Spring>(fixture),
         "layout.force.spring3d" => spring::<Spring3D>(fixture),
+        "layout.grid" => grid(fixture),
         _ => registered(id, fixture),
     }?;
     columns(&parts, fixture.nodes.len())
@@ -106,6 +111,18 @@ fn spring<S: Stage<Params = SpringParams>>(fixture: &Fixture) -> Result<Snapshot
         ..SpringParams::default()
     };
     finish(fixture, S::ID, |t| S::run(t, &params))
+}
+
+/// The grid at SciGraphs' `scale`, which its registered default is not: `_grid_layout`
+/// (`basic.py:11-20`) starts the first cell **at the origin** and sets the pitch to
+/// `scale / grid_size`, where the registered stage centres the lattice at
+/// `GridParams::spacing = 1.0` and lets nothing rescale it. `Grid::run_scaled` is that
+/// placement, and it is `f64` inside because a `f32` pitch is a whole ULP off
+/// (`layout/grid/scaled.rs`).
+fn grid(fixture: &Fixture) -> Result<SnapshotParts, String> {
+    finish(fixture, Grid::ID, |t| {
+        Grid::run_scaled(t, SCALE, &Serial, 1)
+    })
 }
 
 /// Every other id at its registered default.

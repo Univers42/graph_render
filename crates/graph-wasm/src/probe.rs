@@ -54,10 +54,11 @@ pub fn inputs(function: usize) -> Vec<(f64, f64)> {
             .clone()
             .flat_map(|y| [(y, 1.0), (y, -1.0), (y, 0.0), (y, -0.0)])
             .collect(),
-        _ => signed
+        0..=4 => signed
             .map(|x| (x, 0.0))
             .filter(|&(x, _)| in_domain(function, x))
             .collect(),
+        _ => past_functions(function),
     };
     let mut state = SEED ^ (function as u64);
     all.extend((0..RANDOM_PER_FUNCTION).map(|_| random_input(function, &mut state)));
@@ -81,10 +82,11 @@ fn random_input(function: usize, state: &mut u64) -> (f64, f64) {
         2 => (-745.0 + 1454.0 * unit(a), 0.0),
         3 | 4 => (signed(a, from_bits(a, 1023 - 30, 1023 + 30)), 0.0),
         5 => (from_bits(a, 1023 - 30, 1023 + 30), -40.0 + 80.0 * unit(b)),
-        _ => (
+        6 => (
             signed(a, from_bits(a, 993, 1053)),
             signed(b, from_bits(b, 993, 1053)),
         ),
+        _ => past_functions(function),
     }
 }
 
@@ -122,8 +124,15 @@ pub fn evaluate(function: usize, x: f64, y: f64) -> (f64, f64) {
         3 => (x.sin(), libm::sin(x)),
         4 => (x.cos(), libm::cos(x)),
         5 => (x.powf(y), libm::pow(x, y)),
-        _ => (x.atan2(y), libm::atan2(x, y)),
+        6 => (x.atan2(y), libm::atan2(x, y)),
+        _ => past_functions(function),
     }
+}
+
+/// An index past [`FUNCTIONS`] is a caller bug, as `FUNCTIONS[function]` would be: refused
+/// loudly rather than read as some other function under a name that does not exist.
+fn past_functions(function: usize) -> ! {
+    panic!("probe function index {function} is past FUNCTIONS")
 }
 
 /// `[fn count: u32]` then per function `[count: u32]` and `count` records of four
