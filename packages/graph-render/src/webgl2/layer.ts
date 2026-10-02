@@ -14,7 +14,7 @@
  */
 import { type Normalise, type Rgba, normaliserOf } from "./colour.ts";
 import { type Uniforms, attribute, programOf, uniformsOf } from "./gl.ts";
-import { BLIT_FRAGMENT, BLIT_VERTEX, EDGE_FRAGMENT, EDGE_VERTEX, NODE_FRAGMENT, NODE_VERTEX, POINT_FRAGMENT, POINT_VERTEX } from "./shaders.ts";
+import { EDGE_FRAGMENT, EDGE_VERTEX, NODE_FRAGMENT, NODE_VERTEX, POINT_FRAGMENT, POINT_VERTEX } from "./shaders.ts";
 
 /**
  * The largest node, in device pixels across, drawn as a point; also twice the viewport
@@ -29,12 +29,6 @@ export interface Pass {
   readonly program: WebGLProgram;
   readonly uniforms: Uniforms;
   readonly vao: WebGLVertexArrayObject;
-}
-
-/** One texture of the settled picture and the framebuffer that draws into it (picture.ts). */
-export interface Target {
-  readonly texture: WebGLTexture;
-  readonly framebuffer: WebGLFramebuffer;
 }
 
 /** What the layer last uploaded, keyed by the identity of the arrays it came from. */
@@ -65,14 +59,10 @@ export interface BulkLayer {
   readonly quads: Pass;
   readonly points: Pass;
   readonly edges: Pass;
-  /** The one quad over the canvas that shows the settled picture (picture.ts). */
-  readonly blit: Pass;
   /** Device pixels across of the largest point this layer draws, at most POINT_CEILING. */
   readonly pointLimit: number;
   /** The smaller of the driver's two viewport limits, which the overhang must fit inside. */
   readonly maxViewport: number;
-  /** The driver's `MAX_TEXTURE_SIZE`, the largest settled picture texture that can be held. */
-  readonly maxTexture: number;
   readonly palette: WebGLTexture;
   readonly normalise: Normalise;
   readonly colours: Map<string, Rgba>;
@@ -87,7 +77,7 @@ function passOf(gl: WebGL2RenderingContext, program: WebGLProgram, wire: (progra
   return { program, uniforms: uniformsOf(gl, program), vao };
 }
 
-function passesOf(gl: WebGL2RenderingContext, buffers: BulkLayer["buffers"]): Pick<BulkLayer, "quads" | "points" | "edges" | "blit"> {
+function passesOf(gl: WebGL2RenderingContext, buffers: BulkLayer["buffers"]): Pick<BulkLayer, "quads" | "points" | "edges"> {
   const x = { name: "a_x", buffer: buffers.x, size: 1 };
   const y = { name: "a_y", buffer: buffers.y, size: 1 };
   const slot = { name: "a_colour", buffer: buffers.slot, size: 1, slots: true };
@@ -104,9 +94,7 @@ function passesOf(gl: WebGL2RenderingContext, buffers: BulkLayer["buffers"]): Pi
     for (const spec of [x, y, slot]) attribute(gl, program, spec, 0);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, buffers.index);
   });
-  // The blit quad takes its corners from gl_VertexID, so it needs a VAO and no buffer.
-  const blit = passOf(gl, programOf(gl, BLIT_VERTEX, BLIT_FRAGMENT), () => undefined);
-  return { quads, points, edges, blit };
+  return { quads, points, edges };
 }
 
 function paletteTexture(gl: WebGL2RenderingContext): WebGLTexture {
@@ -124,15 +112,13 @@ function freshUploads(): Uploaded {
   };
 }
 
-/** The point-size, viewport and texture limits of this driver, read once. */
-function limitsOf(gl: WebGL2RenderingContext): Pick<BulkLayer, "pointLimit" | "maxViewport" | "maxTexture"> {
+/** The point-size and viewport limits of this driver, read once. */
+function limitsOf(gl: WebGL2RenderingContext): Pick<BulkLayer, "pointLimit" | "maxViewport"> {
   const sizes: unknown = gl.getParameter(gl.ALIASED_POINT_SIZE_RANGE);
   const dims: unknown = gl.getParameter(gl.MAX_VIEWPORT_DIMS);
-  const texture: unknown = gl.getParameter(gl.MAX_TEXTURE_SIZE);
   const largest = sizes instanceof Float32Array ? (sizes[1] ?? 1) : 1;
   const maxViewport = dims instanceof Int32Array ? Math.min(dims[0] ?? 0, dims[1] ?? 0) : 0;
-  const maxTexture = typeof texture === "number" ? texture : 0;
-  return { pointLimit: Math.floor(Math.min(POINT_CEILING, largest)), maxViewport, maxTexture };
+  return { pointLimit: Math.floor(Math.min(POINT_CEILING, largest)), maxViewport };
 }
 
 /**

@@ -3,9 +3,11 @@
     docker run --rm --memory 10g --memory-swap 10g -v "$PWD:/w" -w /w gm-chromium \
       python3 deploy/perf/settle.py 1000000 webgl2 [label]
 
-Build first (scripts/studio.sh build). Prints one line: the milliseconds from the open to the
-frame whose counters say the picture holds every edge, then the page's errors and the frame's
-counters. Writes target/studio-settle/<label>.png, the settled picture itself.
+Build first (scripts/studio.sh build). Prints one line: the milliseconds from the probe's first
+poll to the frame whose counters say the picture holds every edge, then the page's errors and the
+frame's counters. The open's own seconds are printed before it and are not in the number: the
+clock starts once the open command has returned. Writes target/studio-settle/<label>.png, the
+settled picture itself.
 
 Why the counters and not a flag: the loop keeps `refining` (hook.ts) and the view's stats
 (view-stats.ts) never say it, so the probe reads `drawnEdges` against `edges`, the pairs the

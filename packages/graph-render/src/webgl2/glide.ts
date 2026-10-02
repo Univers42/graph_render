@@ -10,9 +10,7 @@
  * Caveat: a zoom-in shows the old picture magnified, up to GLIDE_ZOOM softer, and its nodes and
  * strokes grow with it; a pan or a zoom-out leaves bare background where the old picture does
  * not reach, up to GLIDE_EXPOSED of the view. Both last until the next fresh frame or the
- * settle. A frame with a focus never glides: its dimming is drawn into the picture. The settled
- * picture is one bitmap the still read back to show itself (still.ts), not the two 2D canvases it
- * was composited from, so a glide off it costs the same one blit a glide off a moving frame.
+ * settle. A frame with a focus never glides: its dimming is drawn into the picture.
  */
 import type { Camera, Viewport } from "../camera.ts";
 import type { PaintCounts, PaintInput } from "../canvas2d/input.ts";
@@ -26,8 +24,7 @@ const GLIDE_EXPOSED = 0.2;
 export interface Glide {
   /** `viewOf` the kept picture: the camera, then everything else it depends on. Empty when there is none. */
   view: readonly unknown[];
-  /** The kept picture itself: a moving frame's own, or the settled one the still read back. */
-  kept: CanvasImageSource | null;
+  pictures: readonly CanvasImageSource[];
   /** The fresh frame this glide owns and closes, or null when it shows the still picture. */
   owned: ImageBitmap | null;
   edges: number;
@@ -35,14 +32,14 @@ export interface Glide {
 }
 
 export function newGlide(): Glide {
-  return { view: [], kept: null, owned: null, edges: 0, nodes: 0 };
+  return { view: [], pictures: [], owned: null, edges: 0, nodes: 0 };
 }
 
 /** Forgets the kept picture: a settled frame does, so the next move starts from the still one. */
 export function dropGlide(glide: Glide): void {
   glide.owned?.close();
   glide.owned = null;
-  glide.kept = null;
+  glide.pictures = [];
   glide.view = [];
 }
 
@@ -50,15 +47,15 @@ export function dropGlide(glide: Glide): void {
 export function keepFrame(glide: Glide, picture: ImageBitmap, view: readonly unknown[], counts: PaintCounts): void {
   dropGlide(glide);
   glide.owned = picture;
-  glide.kept = picture;
+  glide.pictures = [picture];
   glide.view = view;
   glide.edges = counts.edges;
   glide.nodes = counts.nodes;
 }
 
 function adoptStill(glide: Glide, still: Still): void {
-  if (still.shown === null) return;
-  glide.kept = still.shown;
+  if (still.nodes === null) return;
+  glide.pictures = [still.canvas, still.nodes];
   glide.view = still.view;
   glide.edges = still.drawn;
   glide.nodes = still.nodeCount;
@@ -92,9 +89,9 @@ export function glideFrame({ glide, still }: Kept, view: readonly unknown[], inp
   if (glide.view.length === 0 && still) adoptStill(glide, still);
   if (glide.view.length === 0 || !sameRefs(glide.view.slice(3), view.slice(3))) return false;
   const at = landing(glide.view, input.camera, input.viewport);
-  if (at === null || glide.kept === null) return false;
+  if (at === null) return false;
   const { width, height } = input.viewport;
-  input.ctx.drawImage(glide.kept, at.x, at.y, width * at.scale, height * at.scale);
+  for (const picture of glide.pictures) input.ctx.drawImage(picture, at.x, at.y, width * at.scale, height * at.scale);
   counted(counts, glide.edges, glide.nodes, input.dpr);
   return true;
 }

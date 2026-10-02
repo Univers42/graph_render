@@ -68,7 +68,7 @@ function paintWhole(slot: BulkSlot, layer: BulkLayer, input: PaintInput, counts:
 
 function paintSettled(slot: BulkSlot, layer: BulkLayer, input: PaintInput, counts: PaintCounts): boolean {
   dropGlide(slot.glide);
-  slot.still ??= newStill(layer, slot.budget);
+  slot.still ??= newStill(slot.budget);
   if (slot.still === null) return paintWhole(slot, layer, input, counts);
   const lacking = paintStill(slot.still, { layer, placed: slot.placed }, input, counts);
   slot.refining = lacking > 0;
