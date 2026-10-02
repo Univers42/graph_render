@@ -13,9 +13,12 @@
 //! (`dispatcher.py:105`), printed as `float.hex`-equivalent IEEE-754 big-endian words.
 //! Numbers transcribed, nothing retyped.
 //!
-//! The suite is in two children: [`reference`] holds the oracle's words and everything
-//! compared against them, [`structure`] everything else.
+//! The suite is in three children: [`reference`] holds the oracle's words and everything
+//! compared against them, [`structure`] the properties of the construction, and
+//! [`degenerate`] the `n = 0` divergence and the drawing's extent.
 
+#[cfg(test)]
+mod degenerate;
 #[cfg(test)]
 mod reference;
 #[cfg(test)]

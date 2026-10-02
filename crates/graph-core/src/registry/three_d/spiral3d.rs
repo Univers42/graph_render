@@ -14,6 +14,14 @@ use graph_contract::geometry::{EdgeGeometryKind, NodeGeometryKind};
 /// `dispatcher.py:105` and nothing else. The conformance doc's earlier repair ("raise
 /// `resolution` to 1.0") was wrong on both counts and is corrected in
 /// `docs/measurements/sg-spiral3d.md`.
+///
+/// **No coverage differential arms this layout yet.** `ARMS` in
+/// `harness/oracle-basic-3d.py` and `oracle_python/basic_3d.rs:35-40` cover sphere, helix
+/// and cube only, so this row must not be routed to that record. Job
+/// `sg-basic3d-spiral-oracle` adds `--function spiral` and moves it, after this branch lands.
+/// The comparisons that exist today are the conformance gate (`scripts/scigraphs-conformance.sh`,
+/// byte-for-byte against SciGraphs over 1020 coordinates, `f32` 1020/1020) and the
+/// graph-core tests, which pin the reference's own IEEE-754 words at n = 1, 2 and 7.
 pub const SPIRAL_3D: Metadata = Metadata {
     tier: 1,
     stage: "layout",
@@ -23,15 +31,18 @@ pub const SPIRAL_3D: Metadata = Metadata {
 (SciGraphs/core/scigraphs_core/mesh/layouts/basic.py:36-63) at scale=5.0, reached through \
 apply_graph_layout (layouts/dispatcher.py:105-106). The oracle is the ARC-LENGTH INVERSION, \
 and it is the part of this file that cannot be checked as a formula: turns = max(2, \
-round(sqrt(n/(0.75*pi)))) (basic.py:41, round half-to-even), omega = 2*pi*turns (:43), a \
+round(sqrt(n/(0.75*pi)))) (basic.py:41, round half-to-even; the max(2,..) floor lifts the \
+value at exactly n = 1..5, since the raw round is already 2 from n = 6 to 14), omega = \
+2*pi*turns (:43), a \
 65536-point grid = linspace(0, 1, 1<<16) (:45), speed = sqrt((0.5s)^2 + \
 (0.5s*(1+grid)*omega)^2 + (2s)^2) (:46-48), length = [0, cumsum(0.5*(speed[1:] + \
 speed[:-1])*step)] (:50), wanted = linspace(0, length[-1], n) (:52-55), t = interp(wanted, \
 length, grid) (:56), then x = r*cos(t*omega), y = r*sin(t*omega), z = s*(2t-1), r = s*0.5*(1+t) \
 (:58-63). FOUR NUMPY PRIMITIVES ARE PORTED FORMULA FOR FORMULA and each is load-bearing, \
 because each has an arithmetic a naive translation gets wrong: (1) LINSPACE is start + i*step \
-with the LAST ELEMENT OVERWRITTEN BY stop, so grid[65535] is exactly 1.0 and t at the last \
-node is exactly 1.0 rather than 0.9999999999999986; (2) CUMSUM IS SEQUENTIAL -- length[i] \
+(the reference also overwrites the last element with stop, but 65535*step is ALREADY exactly \
+1.0 -- measured, 0x3ff0000000000000 -- so there is no last-element special case to port and \
+grid_at carries none); (2) CUMSUM IS SEQUENTIAL -- length[i] \
 = length[i-1] + step over 65535 additions in index order, never the pairwise or blocked \
 reduction np.sum uses, so the summation order IS the value and every interpolated t inherits \
 it; (3) INTERP has its own slope formula, slope = (fp[j+1]-fp[j])/(xp[j+1]-xp[j]) then \
@@ -39,22 +50,43 @@ slope*(x-xp[j]) + fp[j], both terms in that order, with j the last index whose x
 (4) ROUND IS HALF-TO-EVEN, so turns at an exact x.5 goes to the even neighbour rather than \
 away from zero. (1)-(3) were each reproduced BIT FOR BIT against the pinned numpy 2.3.3 in \
 ge-python-oracle -- (1) over all 65536 grid points, (3) on 200000 unrelated monotone points \
-and (3)+(2) on the t column for every node count 1..64 plus 100, 101, 77, 600 and 601 -- and \
-the t and z columns are pinned as IEEE-754 words in layout/basic_3d/spiral/tests.rs at n = \
+and (3)+(2) on the t column for 69 node counts, 1..64 plus 77, 100, 101, 600 and 601 -- and \
+the t and z columns are pinned as IEEE-754 words in layout/basic_3d/spiral/tests/ at n = \
 1, 2 and 7, the three sizes that cover the num_nodes == 1 branch, the smallest linspace and an \
-odd count. WHAT IS NOT REACHABLE, and is the reason this row's tier is `tolerance`: x and y \
+odd count. DIVERGENCE AT n = 0, and it is the REFERENCE that refuses: basic.py:52's guard is \
+`if num_nodes > 1`, so num_nodes = 0 falls into the num_nodes == 1 branch, np.column_stack \
+returns shape (1, 3) for a graph with no nodes, and _check_positions \
+(layouts/common.py:175-185) raises ValueError so apply_graph_layout returns False (measured in \
+ge-python-oracle). This port returns an EMPTY 3D geometry instead, deliberately: run is \
+Result<Geometry, StageError> and every function in basic_3d is total, so an empty graph gets an \
+empty drawing on all four ids rather than an error on one of them. Unreachable from the \
+conformance matrix, whose smallest fixture has 2 nodes. WHAT IS NOT REACHABLE, and is the \
+reason this row's tier is `tolerance`: x and y \
 are libm's sin/cos (D1) against numpy's array loops, two different implementations, which \
 differ by up to 1 ulp of f64 and vanish in the f32 narrowing the motor ships. No seed is owed \
 and none is published: the function draws no random number at all",
-    complexity: "O(n + 2^16): a constant 65536-entry arc-length table (512 KiB) built once, \
-then one binary search and three columns per node",
+    complexity: "O(n + 2^16): a constant 65536-entry arc-length table (512 KiB) built once \
+per call -- 65535 sqrt and 65535 sequential additions, independent of n -- then one binary \
+search and three columns per node",
     scale_ceiling: BASIC_3D_CEILING,
     degradation: DEGRADATION,
-    ponytail: "Ponytail (the floor): the failing input is EVERY node count up to 14, because \
-sqrt(n/(0.75*pi)) is below 2 there and max(2, ...) takes over (basic.py:41) -- so the first \
-fourteen node counts all draw a TWO-turn spiral and the \"gap between successive turns close to \
-the spacing along the curve\" the function's own docstring claims is not what happens at the \
-sizes a reader is most likely to try. Direction: wrong-but-plausible, and silently so -- the \
+    ponytail: "Ponytail (UNMEASURED ceiling): the scale_ceiling above is INHERITED, not \
+benchmarked for this layout. BASIC_3D_CEILING was measured at 1 000 000 nodes against \
+sphere, helix, cube and hierarchical3d (three_d.rs:28-42); layout.basic3d.spiral was never \
+run at that size or any other by `graph-cli bench`, so the figure is an extrapolation from its \
+siblings. The extrapolation is defensible on the OUTPUT side -- it is O(n) in three columns \
+with no graph and no iteration, exactly like sphere and helix -- and NOT on the input side, \
+which is where the real difference is: every call builds a fixed 65 536-entry arc-length \
+table, so the constant cost is 65 535 sqrt and 65 535 sequential additions regardless of n, \
+and that is what an unmeasured 1 M-node figure has never paid. Failing input: any size, at \
+the constant. Direction: slow and memory-hungry, never wrong. Escape hatch: none, and \
+deliberately so -- a closed-form conic arc-length integral would stop agreeing with \
+SciGraphs' own grid and is therefore a different layout id, not a faster build of this one. \
+Nothing at or past 1 M nodes has been run for this layout, so the number understates the \
+wall by an unmeasured amount. Ponytail (the floor): the failing input is n = 1..5, where \
+max(2, ...) is what lifts the turn count (basic.py:41) -- the raw round is 1 there and \
+already 2 from n = 6 to 14, so at n = 7, the size a reader reaches for first, the floor \
+changes nothing. Direction: wrong-but-plausible, and silently so -- the \
 spiral is still a spiral, every node is still exactly on the reference's cone, and nothing in \
 the picture shows that the turn count was floored. Escape hatch: layout/basic_3d/spiral.rs's \
 turns(), which is one expression. Ponytail (the single node): n == 1 takes basic.py:52-55's \

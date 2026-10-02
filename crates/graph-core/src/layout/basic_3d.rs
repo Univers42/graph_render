@@ -4,7 +4,7 @@
 //! in one module, for the reason the job names them together: the reference puts all four
 //! in `basic.py` behind no dispatch beyond the name, they share the same two arguments,
 //! and one differential (`harness/oracle-basic-3d.py`) arms three of them against
-//! SciGraphs.
+//! SciGraphs -- **not** [`spiral`], which that arm's `ARMS` does not cover yet.
 //!
 //! **They read the node count and nothing else.** Every edge is ignored, so a graph and
 //! its edgeless version draw identically — that is the reference's own behaviour, and it
