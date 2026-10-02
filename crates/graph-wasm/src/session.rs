@@ -85,13 +85,25 @@ thread_local! {
     static SESSIONS: RefCell<Table<ForceSession>> = const { RefCell::new(Table::new()) };
 }
 
+/// The tick a session runs: Barnes-Hut's tree, or the particle mesh's grids
+/// (`ForceSession::with_particle_mesh`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Engine {
+    BarnesHut,
+    ParticleMesh,
+}
+
 /// A session over `topology` at `params`, and the id it answers to.
 ///
 /// Refused with [`Code::SessionRefused`] when a parameter is out of range — never clamped,
 /// never dropped (`docs/decisions/live-force-session.md`), and never created half-set: a
 /// session that exists is a session whose parameters it will accept.
-pub fn create(topology: &Topology, params: LiveParams) -> Result<u32, Code> {
+pub fn create(topology: &Topology, params: LiveParams, engine: Engine) -> Result<u32, Code> {
     let session = ForceSession::new(topology, params).map_err(|_| Code::SessionRefused)?;
+    let session = match engine {
+        Engine::BarnesHut => session,
+        Engine::ParticleMesh => session.with_particle_mesh(),
+    };
     SESSIONS
         .with(|live| live.borrow_mut().insert(session))
         .ok_or(Code::HandlesExhausted)

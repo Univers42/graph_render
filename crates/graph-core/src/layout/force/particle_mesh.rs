@@ -17,8 +17,10 @@
 //! Caveat: below about two mesh cells the charge force is smoothed (`particle_mesh/mesh.rs`),
 //! so two close nodes repel less than under Barnes-Hut; link and collide own that range.
 //! Above it the field is the law's direct sum, not a `theta` approximation of it.
-//! Gravity and pins are not wired: the stage runs the frozen parameters, which have
-//! neither, and [`ParticleMeshRun`] is that stage's run, not a live session.
+//!
+//! The stage is a [`ForceSession`] ticked here
+//! ([`with_particle_mesh`](ForceSession::with_particle_mesh)), stepped [`TICKS`] times: the
+//! live session and the frozen layout run one tick, as for Barnes-Hut.
 
 mod charge;
 mod collide;
@@ -35,16 +37,14 @@ mod tests;
 use super::barnes_hut::sim::{How, Sim};
 use super::barnes_hut::{Split, link};
 use super::params::{ForceParams, TICKS};
-use super::{LiveParams, SessionError, planar_points};
+use super::session::gravity;
+use super::{ForceSession, planar_points};
 use crate::exec::{Runner, Serial};
 use crate::index::Topology;
 use crate::layout::Geometry;
 use crate::stage::{Stage, StageError};
-use mesh::Mesh;
+pub(in crate::layout::force) use mesh::Mesh;
 use motion::Gathered;
-
-/// The seed the jiggle reads, the frozen stage's as for Barnes-Hut.
-const SEED: u32 = 0;
 
 /// Particle-mesh force layout.
 ///
@@ -92,80 +92,31 @@ impl ParticleMesh {
         workers: u32,
         split: Split,
     ) -> Result<Geometry, StageError> {
-        let mut run = ParticleMeshRun::from_frozen(topology, params)?;
+        let mut run = ForceSession::from_frozen(topology, params)?.with_particle_mesh();
         run.step_under(runner, workers, split, TICKS);
         planar_points(run.xs(), run.ys())
     }
 }
 
-/// One particle-mesh run, stepped by the caller: the stage steps it [`TICKS`] times, and
-/// the bench times single ticks of it.
-pub struct ParticleMeshRun {
-    sim: Sim,
-    mesh: Mesh,
-    deltas: Vec<(f64, f64)>,
-}
-
-impl ParticleMeshRun {
-    /// The run the stage makes, seeded on Barnes-Hut's golden spiral.
-    pub fn from_frozen(topology: &Topology, params: &ForceParams) -> Result<Self, SessionError> {
-        let params = LiveParams::from(*params);
-        params.validate_finite()?;
-        let sim = Sim::new(topology, params, SEED);
-        let mesh = Mesh::new(sim.rows());
-        Ok(Self {
-            sim,
-            mesh,
-            deltas: Vec::new(),
-        })
-    }
-
-    /// `ticks` ticks with the gathers divided by `runner` over `workers` workers, and no
-    /// control: the honest run the bench's tick timer and the stage both call.
-    pub fn step_with(&mut self, runner: &impl Runner, workers: u32, ticks: u32) {
-        self.step_under(runner, workers, Split::None, ticks);
-    }
-
-    /// [`step_with`](Self::step_with) with the negative control reachable, for the host's
-    /// deliberately wrong tier. Only the `How` differs, so the tick is the one
-    /// [`run_under`](ParticleMesh::run_under) runs at every width.
-    pub fn step_under(&mut self, runner: &impl Runner, workers: u32, split: Split, ticks: u32) {
-        for _ in 0..ticks {
-            let mut how = How {
-                runner,
-                workers,
-                deltas: &mut self.deltas,
-                split,
-            };
-            tick(&mut self.sim, &mut self.mesh, &mut how);
-        }
-    }
-
-    /// The cooling schedule's current `alpha`.
-    pub fn alpha(&self) -> f64 {
-        self.sim.alpha
-    }
-
-    /// Every node's `x`, in dense node order.
-    pub fn xs(&self) -> &[f64] {
-        &self.sim.x
-    }
-
-    /// Every node's `y`, in dense node order.
-    pub fn ys(&self) -> &[f64] {
-        &self.sim.y
-    }
-}
-
 /// Barnes-Hut's tick order with the mesh passes in place of the tree passes: decay, link,
-/// many-body, center, collide, integrate.
-fn tick<R: Runner>(sim: &mut Sim, mesh: &mut Mesh, how: &mut How<'_, R>) {
+/// many-body, center, collide, gravity, integrate.
+pub(in crate::layout::force) fn tick<R: Runner>(
+    sim: &mut Sim,
+    mesh: &mut Mesh,
+    how: &mut How<'_, R>,
+) {
     sim.alpha += (sim.alpha_target - sim.alpha) * sim.params.alpha_decay;
     let split = how.split.splits(Split::Link);
     link::apply_with(sim, how.runner, how.workers, how.deltas, split);
     charge::apply(sim, mesh, how);
     sim.center();
     let collided = collide::apply(sim, &mut mesh.grid, how);
+    // Skipped at zero as in `barnes_hut/sim.rs`: `(0 - x) * 0.0` is a signed zero that
+    // changes the bytes (`session/gravity.rs`). Collide's push is merged after this one here
+    // and before it there, so the sums round differently: these are the mesh's bytes.
+    if sim.params.gravity > 0.0 {
+        gravity::apply(sim);
+    }
     let gathered = Gathered {
         deltas: how.deltas,
         slot: &mesh.grid.slot,

@@ -18,8 +18,8 @@ import { type BackendChoice, type View, createView } from "../../graph-render/sr
 /** The host reads `?backend=` with this, so it never imports the renderer itself. */
 export { backendOf } from "../../graph-render/src/view.ts";
 import type { Save } from "./actions/context.ts";
-import { type LiveBridge, createLiveBridge, settlesLive } from "./motor/bridge.ts";
-import { NOT_ASKED } from "./motor/bridge.ts";
+import { type LiveBridge, NOT_ASKED, createLiveBridge } from "./motor/bridge.ts";
+import { settlesLive } from "./motor/live.ts";
 import { type MotorClient, createClient } from "./motor/client.ts";
 import { SILENCE_MS } from "./motor/watchdog.ts";
 import type { Assets, Spawn } from "./motor/protocol.ts";
