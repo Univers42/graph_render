@@ -73,7 +73,7 @@ review-gates|build|prompts/jobs/review-gates.md|scripts/orch/rows/docs.rows|no
 rv-sg-sugiyama|build|prompts/jobs/rv-sg-sugiyama.md|scripts/orch/rows/docs.rows|no
 sg-igraph-clean|build|prompts/jobs/sg-igraph-clean.md|scripts/orch/rows/quick.rows|no
 sg-graphviz-scale-r1|build|prompts/jobs/sg-graphviz-scale-r1.md|scripts/orch/rows/quick.rows|no
-# (after its worktree exists) rv-sg-spiral3d|build|prompts/jobs/rv-sg-spiral3d.md|scripts/orch/rows/docs.rows|no
+rv-sg-spiral3d|build|prompts/jobs/rv-sg-spiral3d.md|scripts/orch/rows/docs.rows|no
 review-harness-sdk|build|prompts/jobs/review-harness-sdk.md|scripts/orch/rows/docs.rows|no
 fix-studio|build|prompts/jobs/fix-studio.md|scripts/orch/rows/quick.rows|no
 fix-wasm-ingest|build|prompts/jobs/fix-wasm-ingest.md|scripts/orch/rows/quick.rows|no
