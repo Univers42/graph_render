@@ -177,3 +177,28 @@ void main() {
   o_colour = vec4(colour.rgb * alpha, alpha);
 }
 `;
+
+/**
+ * The settled picture shown: a quad over the whole canvas, four corners and no buffer, sampling
+ * one of the picture's textures. `o_colour` is premultiplied already, so the dim is every channel
+ * multiplied by `u_alpha` and the blend stays ONE, ONE_MINUS_SRC_ALPHA (picture.ts).
+ */
+export const BLIT_VERTEX = `#version 300 es
+out vec2 v_uv;
+void main() {
+  vec2 corner = vec2(float(gl_VertexID & 1), float(gl_VertexID >> 1));
+  v_uv = corner;
+  gl_Position = vec4(corner * 2.0 - 1.0, 0.0, 1.0);
+}
+`;
+
+export const BLIT_FRAGMENT = `#version 300 es
+precision highp float;
+uniform sampler2D u_texture;
+uniform float u_alpha;
+in vec2 v_uv;
+out vec4 o_colour;
+void main() {
+  o_colour = texture(u_texture, v_uv) * u_alpha;
+}
+`;

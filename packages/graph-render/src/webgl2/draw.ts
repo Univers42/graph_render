@@ -14,7 +14,7 @@
 import type { PaintCounts, PaintInput } from "../canvas2d/input.ts";
 import { MIN_SCREEN_RADIUS } from "../canvas2d/nodes.ts";
 import { type Rgba, bytesOf } from "./colour.ts";
-import { type BulkLayer, PALETTE_WIDTH, type Pass } from "./layer.ts";
+import { type BulkLayer, PALETTE_WIDTH, type Pass, type Target } from "./layer.ts";
 import { onScreen } from "./plan.ts";
 import { syncEdges, syncNodes, syncPalette, syncQuads } from "./sync.ts";
 
@@ -125,17 +125,24 @@ export function deviceSize(input: Pick<PaintInput, "viewport" | "dpr">): readonl
   return [Math.max(1, Math.round(input.viewport.width * input.dpr)), Math.max(1, Math.round(input.viewport.height * input.dpr))];
 }
 
-/** Sizes and clears the canvas; the overhang is as wide as the largest point and the driver's viewport allow. */
-function begin(layer: BulkLayer, input: PaintInput, alpha: number): Frame {
+/**
+ * Sizes the canvas and the GL viewport and draws the frame's edges and nodes into `framebuffer`:
+ * the canvas itself for a moving or whole frame, where it is cleared first, or one of the settled
+ * picture's textures for a chunk, where it is not, so the texture keeps the chunks before it.
+ */
+function begin(layer: BulkLayer, input: PaintInput, alpha: number, framebuffer: WebGLFramebuffer | null): Frame {
   const { gl, canvas } = layer;
   const [width, height] = deviceSize(input);
   if (canvas.width !== width) canvas.width = width;
   if (canvas.height !== height) canvas.height = height;
   const room = Math.floor((layer.maxViewport - Math.max(width, height)) / 2);
   const overhang = Math.max(0, Math.min(Math.floor(layer.pointLimit / 2), room));
+  gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
   gl.viewport(-overhang, -overhang, width + 2 * overhang, height + 2 * overhang);
-  gl.clearColor(0, 0, 0, 0);
-  gl.clear(gl.COLOR_BUFFER_BIT);
+  if (framebuffer === null) {
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+  }
   gl.enable(gl.BLEND);
   gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
   gl.activeTexture(gl.TEXTURE0);
@@ -166,7 +173,7 @@ export function counted(counts: PaintCounts, edges: number, nodes: number, dpr: 
 export function drawBulk(layer: BulkLayer, input: PaintInput, pace: Pace, counts: PaintCounts): ImageBitmap | null {
   if (layer.gl.isContextLost()) return null;
   sync(layer, input, pace.placed);
-  const frame = begin(layer, input, input.focus >= 0 ? input.theme.dimAlpha : 1);
+  const frame = begin(layer, input, input.focus >= 0 ? input.theme.dimAlpha : 1, null);
   const edges = drawEdges(layer, frame, 0, input.moving ? pace.budget : Infinity);
   const nodes = frame.count > 0 ? drawNodes(layer, frame, input.moving ? pace.budget : Infinity) : 0;
   layer.gl.bindVertexArray(null);
@@ -174,32 +181,29 @@ export function drawBulk(layer: BulkLayer, input: PaintInput, pace: Pace, counts
   return layer.canvas.transferToImageBitmap();
 }
 
-/** One undimmed picture for still.ts and how many elements `draw` put on it, or null when the context is lost. */
-export interface Part {
-  readonly bitmap: ImageBitmap;
-  readonly drawn: number;
-}
-
-function part(layer: BulkLayer, input: PaintInput, placed: number, draw: (frame: Frame) => number): Part | null {
-  if (layer.gl.isContextLost()) return null;
-  sync(layer, input, placed);
-  const drawn = draw(begin(layer, input, 1));
-  layer.gl.bindVertexArray(null);
-  return { bitmap: layer.canvas.transferToImageBitmap(), drawn };
-}
-
-/** Edge pairs in spread order: from `first`, `count` at most. */
-export interface Range {
+/** One chunk of the settled picture: the edge pairs from `first`, `count` of them, or every node. */
+export interface Chunk {
+  readonly input: PaintInput;
+  readonly placed: number;
+  /** The spread index the chunk's edge pairs start at; ignored where `nodes` is set. */
   readonly first: number;
   readonly count: number;
+  /** Every node rather than a range of edge pairs. */
+  readonly nodes: boolean;
 }
 
-/** The edge pairs in `range`, undimmed. */
-export function edgePart(layer: BulkLayer, input: PaintInput, placed: number, range: Range): Part | null {
-  return part(layer, input, placed, (frame) => drawEdges(layer, frame, range.first, range.count));
-}
-
-/** Every node, undimmed. */
-export function nodePart(layer: BulkLayer, input: PaintInput, placed: number): Part | null {
-  return part(layer, input, placed, (frame) => (frame.count > 0 ? drawNodes(layer, frame, Infinity) : 0));
+/**
+ * What one chunk drew into `target`, undimmed, or -1 when the context is lost. Nothing is read back
+ * and nothing is cleared: the caller adds the chunk to a texture of the settled picture and reads
+ * the picture back once, to show it (still.ts).
+ */
+export function drawChunk(layer: BulkLayer, target: Target, chunk: Chunk): number {
+  if (layer.gl.isContextLost()) return -1;
+  sync(layer, chunk.input, chunk.placed);
+  const frame = begin(layer, chunk.input, 1, target.framebuffer);
+  const drawn = chunk.nodes
+    ? (frame.count > 0 ? drawNodes(layer, frame, Infinity) : 0)
+    : drawEdges(layer, frame, chunk.first, chunk.count);
+  layer.gl.bindVertexArray(null);
+  return drawn;
 }
