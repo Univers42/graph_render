@@ -26,9 +26,9 @@ use graph_core::{GridParams, REFERENCE_DEGREE, SugiyamaParams};
 use std::env::VarError;
 use std::ffi::OsString;
 
+use super::env;
 use super::knobs;
 use super::value;
-use super::env;
 use super::{Knob, stage_of};
 
 /// What the native arm runs with: the compiled-in defaults, or one knob's perturbation.
@@ -179,8 +179,9 @@ impl Setting {
 /// carrying the honest run's own value would all let the control pass as green (RG-26,
 /// RG-42). A spacing the grid refuses is left for the grid to refuse, so the rule lives in
 /// one place.
+#[cfg(test)]
 pub(crate) fn setting(read: impl Fn(&str) -> Result<String, VarError>) -> Result<Setting, String> {
-    setting_named(read, || Vec::new())
+    setting_named(read, Vec::new)
 }
 
 /// [`setting`], with the variable **names** this run was handed alongside its values.
@@ -318,10 +319,7 @@ fn apply(knob: Knob, text: &str, setting: &mut Setting) -> Result<(), String> {
 /// The production reader: this process's environment, values *and* names, so the run is
 /// swept for a `GM_MUTATE_*` variable that names no control.
 pub(crate) fn env_setting() -> Result<Setting, String> {
-    setting_named(
-        |name| std::env::var(name),
-        || std::env::vars_os().map(|(name, _)| name).collect(),
-    )
+    setting_named(|name| std::env::var(name), env::control_names)
 }
 
 #[cfg(test)]

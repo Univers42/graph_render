@@ -1,3 +1,4 @@
+use super::p3::stage_of;
 use super::*;
 use crate::hashgate::stage_bytes_threaded;
 
@@ -46,47 +47,46 @@ fn a_control_that_cannot_bite_at_this_seed_count_refuses_rather_than_passing() {
 /// `refuse_a_vacuous_control(1, split).is_ok()` says nothing on its own: a control that had
 /// stopped moving anything would satisfy it just as well as one that bites, which is the
 /// condition the whole vacuity guard exists to catch. So the guard's silence is read next to
-/// a measurement of the bytes: at one seed, each pass whose control has no floor really does
-/// move that pass's stage (RG-48). If a control stopped biting, this goes red and the
+/// a measurement of the bytes, through the **threaded** arm — `split_sum` reaches a gathered
+/// pass's merge only under `run_under(.., &Threads, ..)`, so the scalar arm is the arm that
+/// cannot see this control at all (RG-48). If a control stopped biting, this goes red and the
 /// `is_ok()` above is no longer being read as permission.
 #[test]
 fn the_floorless_controls_bite_at_one_seed_which_is_what_their_floorlessness_means() {
-    let base = stage_bytes(FORCE_SEED, &honest()).expect("runs");
-    for (name, word) in [("charge", "charge"), ("link", "link")] {
-        let split = setting(env(vec![("GM_MUTATE_SPLIT_SUM", word)])).expect("parses");
-        let moved = stage_bytes(FORCE_SEED, &split).expect("runs");
-        assert_ne!(
-            stage_of(&base, BarnesHut::ID),
-            stage_of(&moved, BarnesHut::ID),
-            "GM_MUTATE_SPLIT_SUM={name} must move Barnes-Hut's stage, or its floor of one \
-             seed is a claim nothing checks"
-        );
-    }
-    // The collide controls are the other half: their floor is a *measured* seed count, and
-    // the same measurement is what makes `min_seeds` a fact rather than a constant.
-    let collide = setting(env(vec![("GM_MUTATE_SPLIT_SUM", "collide")])).expect("parses");
-    let bites_at = |seed: u32| {
+    let bites = |seed: u32, setting: &Setting| {
         stage_of(
-            &stage_bytes(seed, &honest()).expect("runs"),
+            &stage_bytes_threaded(seed, &honest(), 1).expect("runs"),
             BarnesHut::ID,
         ) != stage_of(
-            &stage_bytes(seed, &collide).expect("runs"),
+            &stage_bytes_threaded(seed, setting, 1).expect("runs"),
             BarnesHut::ID,
         )
     };
-    assert!(
-        !bites_at(0),
-        "seed 0's model cannot bite, which is what the floor is about"
+    for word in ["charge", "link"] {
+        let split = setting(env(vec![("GM_MUTATE_SPLIT_SUM", word)])).expect("parses");
+        assert!(
+            bites(FORCE_SEED, &split),
+            "GM_MUTATE_SPLIT_SUM={word} must move Barnes-Hut's stage, or its floor of one seed \
+             is a claim nothing checks"
+        );
+    }
+    // The collide controls are the other half: their floor is a *measured* seed count, and
+    // this is the measurement that makes `min_seeds` a fact rather than a constant beside
+    // the gate — collide first bites at seed 4, so five seeds is the floor and not one less.
+    let collide = setting(env(vec![("GM_MUTATE_SPLIT_SUM", "collide")])).expect("parses");
+    let mut first = None;
+    for seed in 0..8 {
+        if bites(seed, &collide) {
+            first = Some(seed);
+            break;
+        }
+    }
+    assert_eq!(first, Some(4), "collide first bites at seed 4");
+    assert_eq!(
+        Split::Collide.min_seeds(),
+        first.expect("bites") + 1,
+        "the floor is one past the first seed that moves, which is what it is for"
     );
-    assert!(
-        (0..5).any(bites_at),
-        "some seed below the floor must bite, or the floor is not a floor"
-    );
-    assert!(
-        (4..5).any(bites_at),
-        "collide first bites at seed 4, so running seeds 0..5 is the floor and not one less"
-    );
-    assert_eq!(Split::Collide.min_seeds(), 5, "and the floor names that seed");
 }
 
 /// The floor is the model's, not a constant invented beside the gate: graph-core measures
@@ -133,7 +133,7 @@ pub(super) fn only_stages_moved(
         base.len(),
         moved.len(),
         "the perturbed run produced {} stages against {base:?} names",
-        moved.iter().map(|(id, _)| *id).collect::<Vec<_>>()
+        moved.len()
     );
     for id in base.iter().map(|(id, _)| *id).collect::<Vec<_>>() {
         assert_eq!(

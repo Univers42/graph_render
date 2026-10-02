@@ -17,7 +17,10 @@ const TYPOS: [&str; 4] = [
 fn a_misspelled_control_variable_is_refused_by_name() {
     for name in TYPOS {
         let err = refuse_an_unknown_knob(&[OsString::from(name)]).expect_err("refused");
-        assert!(err.contains(name), "the refusal must name the variable: {err}");
+        assert!(
+            err.contains(name),
+            "the refusal must name the variable: {err}"
+        );
         assert!(err.contains(&Knob::ALL.len().to_string()), "{err}");
         assert!(err.contains("no negative control"), "{err}");
     }
@@ -27,7 +30,10 @@ fn a_misspelled_control_variable_is_refused_by_name() {
 /// the unperturbed gate and exited 0.
 #[test]
 fn the_whole_control_list_is_accepted_and_nothing_else_is() {
-    let known: Vec<OsString> = Knob::ALL.iter().map(|knob| OsString::from(knob.env())).collect();
+    let known: Vec<OsString> = Knob::ALL
+        .iter()
+        .map(|knob| OsString::from(knob.env()))
+        .collect();
     assert_eq!(refuse_an_unknown_knob(&known), Ok(()));
     // One real knob beside one typo: the typo is still the refusal, not the neighbour's
     // validity that hides it.
@@ -41,8 +47,19 @@ fn the_whole_control_list_is_accepted_and_nothing_else_is() {
 /// gate on a developer's machine.
 #[test]
 fn a_variable_that_is_not_a_control_is_left_alone() {
-    for name in ["PATH", "HOME", "GM_GATES_DIR", "CARGO", "GM_MUTATE", "MUTATE_X"] {
-        assert_eq!(refuse_an_unknown_knob(&[OsString::from(name)]), Ok(()), "{name}");
+    for name in [
+        "PATH",
+        "HOME",
+        "GM_GATES_DIR",
+        "CARGO",
+        "GM_MUTATE",
+        "MUTATE_X",
+    ] {
+        assert_eq!(
+            refuse_an_unknown_knob(&[OsString::from(name)]),
+            Ok(()),
+            "{name}"
+        );
     }
     assert_eq!(refuse_an_unknown_knob(&[]), Ok(()));
 }

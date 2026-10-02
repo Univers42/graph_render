@@ -48,7 +48,8 @@ fn the_neato_control_at_the_default_tolerance_is_refused_as_a_no_op() {
     let err = setting(env(pairs.to_vec())).expect_err("the layout's own EPSILON");
     assert!(err.contains("perturbs nothing"), "{err}");
     assert_eq!(
-        graph_core::layout::graphviz::neato::EPSILON, 1e-4,
+        graph_core::layout::graphviz::neato::EPSILON,
+        1e-4,
         "the refusal is this constant's: change it and this test's input is no longer it"
     );
     // Zero is a *legal* tolerance and is not the compiled-in one, so it is accepted and does

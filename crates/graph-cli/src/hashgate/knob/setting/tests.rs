@@ -34,7 +34,10 @@ fn no_op_controls_are_refused() {
     ];
     for (name, value) in no_ops {
         let err = swept(vec![(name, value)]).expect_err("perturbs nothing");
-        assert!(err.starts_with(name), "the refusal must name the argument: {err}");
+        assert!(
+            err.starts_with(name),
+            "the refusal must name the argument: {err}"
+        );
         assert!(err.contains("perturbs nothing"), "{err}");
         assert!(err.contains("accepted range"), "and the range: {err}");
     }
@@ -47,8 +50,8 @@ fn no_op_controls_are_refused() {
 /// hole rather than a policy.
 #[test]
 fn a_zero_node_count_is_refused_like_every_per_stage_count() {
-    let err = swept(vec![("GM_MUTATE_NODE_COUNT", "0")])
-        .expect_err("zero extra nodes perturb nothing");
+    let err =
+        swept(vec![("GM_MUTATE_NODE_COUNT", "0")]).expect_err("zero extra nodes perturb nothing");
     assert!(err.starts_with("GM_MUTATE_NODE_COUNT"), "{err}");
     assert!(err.contains("perturbs nothing"), "{err}");
     // The same refusal from the same parser as a per-stage count — one rule, one message.
@@ -136,7 +139,10 @@ fn the_compiled_in_setting_is_the_honest_run() {
     let honest = Setting::compiled_in();
     assert!(!honest.bites());
     assert_eq!(honest.control, None);
-    assert_eq!(honest, setting(|_| Err(VarError::NotPresent)).expect("no knob set"));
+    assert_eq!(
+        honest,
+        setting(|_| Err(VarError::NotPresent)).expect("no knob set")
+    );
 }
 
 /// **RG-41: a per-stage control naming a stage the gate does not hash is refused, not

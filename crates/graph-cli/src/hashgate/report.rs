@@ -12,9 +12,9 @@
 //! arm shorter than the one the detail block indexes is a refusal, not a truncation.
 
 use super::compare::{C20_ARM, arm};
-use super::transport;
-use super::{Arm, Knob, LAYOUT, Tally, TRANSPORT, diverged, per_stage, stages};
 use super::tiered::THREADED_STAGES;
+use super::transport;
+use super::{Arm, Knob, LAYOUT, TRANSPORT, Tally, diverged, per_stage, stages};
 use crate::evidence;
 use crate::runner::sha256_hex;
 use serde_json::json;
@@ -85,9 +85,10 @@ pub fn checked_arm_report(out: &mut String, arms: &[Arm], lines: &[usize]) -> Re
 
 /// The number of lines every arm printed, refused unless they all printed that many.
 fn one_length(arms: &[Arm]) -> Result<usize, String> {
-    let (reference, first) = arms.first().map(|(name, lines)| (*name, lines.len())).ok_or(
-        "no arms to report: a detail block with no arm in it reports no comparison",
-    )?;
+    let (reference, first) = arms
+        .first()
+        .map(|(name, lines)| (*name, lines.len()))
+        .ok_or("no arms to report: a detail block with no arm in it reports no comparison")?;
     for (name, lines) in arms {
         if lines.len() != first {
             return Err(format!(
@@ -208,8 +209,7 @@ fn conclude(
     // not indexed: `arms[2]` was a positional read of a list `compare` accepts at any
     // length, and the tally was the one place a shorter list became a panic rather than a
     // refusal (RG-36).
-    let c20 = match arm(arms, C20_ARM).and_then(|lines| transport::agree_with_shim(seeds, lines))
-    {
+    let c20 = match arm(arms, C20_ARM).and_then(|lines| transport::agree_with_shim(seeds, lines)) {
         Ok(agreed) => agreed,
         Err(err) => {
             eprintln!("hashgate: the C20 tally could not be read: {err}");
@@ -218,7 +218,11 @@ fn conclude(
     };
     println!("  {TRANSPORT}: the real ABI matched {LAYOUT} on {c20}/{seeds} seeds");
     let bad = tally.diverged_seeds;
-    println!("  {}-way equal on {}/{seeds} seeds", arms.len(), seeds - bad);
+    println!(
+        "  {}-way equal on {}/{seeds} seeds",
+        arms.len(),
+        seeds - bad
+    );
     if let Err(err) = record(stamp, control, seeds, tally, c20, arms) {
         eprintln!("hashgate: not recorded: {err}");
         return ExitCode::from(2);
