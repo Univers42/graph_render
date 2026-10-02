@@ -126,7 +126,46 @@ The threaded part, largest first:
 
 ## Wall clock
 
-WALL_PENDING
+`graph-cli tick --layout particle-mesh --n 1000000 --warm 2 --ticks 6 --seed 1 --workers W`, the
+release build of `de4459a` (base) and of `969b89a` (new), three rounds, the arm order alternating
+per round, run under `scripts/orch/gr`:
+
+```sh
+for round in 1 2 3; do for w in 1 2 4 8; do
+  order="new base"; [ $((round % 2)) -eq 0 ] && order="base new"
+  for arm in $order; do
+    bin=target/release/graph-cli; [ "$arm" = base ] && bin=target/base/release/graph-cli
+    $bin tick --layout particle-mesh --n 1000000 --warm 2 --ticks 6 --seed 1 --workers $w | tail -1
+  done
+done; done
+```
+
+The host's load average was 14.7 to
+17.9 on 20 cores for the whole run, so at most about five cores were free: the 8-worker row
+measures contention as much as the code. Tick median, ms, per round, then the median of the three:
+
+| workers | base, per round | base | new, per round | new | change |
+|---:|---|---:|---|---:|---:|
+| 1 | 424.8, 455.5, 418.2 | 424.8 | 436.5, 578.4, 446.1 | 446.1 | +5.0 % |
+| 2 | 325.8, 393.7, 310.5 | 325.8 | 363.5, 391.9, 375.9 | 375.9 | +15.4 % |
+| 4 | 359.1, 246.3, 206.5 | 246.3 | 229.9, 356.8, 209.2 | 229.9 | −6.7 % |
+| 8 | 275.0, 195.5, 155.4 | 195.5 | 170.1, 152.3, 131.5 | 152.3 | −22.1 % |
+
+The fastest tick of the 18 per cell says the same with less spread: 351 → 356 ms at one worker
+(+1.4 %), 221 → 267 at two (+20.9 %), 185 → 178 at four, 130 → 120 at eight (−7.8 %).
+
+What these say, and no more:
+
+- **Two workers are slower.** The likely cause is the slice's added work (every `Deposit` range
+  reads every slot, the per-span fill), paid in full while the threaded passes are divided only in
+  two; callgrind ran at eight workers only, so this is not profiled. The slice wins from four
+  workers up.
+- **One worker is within the noise of the base** (+1.4 % on the fastest tick, +5.0 % on the median),
+  against 11.5 % more instructions. The extra instructions are the deposit's skipped slots, which
+  are cheap.
+- **Eight workers scale 2.9× over one** (152 against 446 ms), not the 6.68× callgrind bounds. With
+  about five free cores this run cannot say how much of the gap is the host. A 1M tick is 120 to
+  150 ms at eight workers here; the plan's 25 ms is about six times away.
 
 ## Gates
 
