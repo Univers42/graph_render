@@ -75,7 +75,8 @@ function barrier() {
 /// is fixed at five by the wasm signature. A host function is called with its arguments
 /// positionally, never as a single array, so they are spread here and unpacked below.
 function allgather(...args) {
-  const [ptr, elemBytes, len, lo, hi] = args;
+  // A wasm i32 reaches JS signed: an address past 2 GiB would be negative without `>>> 0` (C9).
+  const [ptr, elemBytes, len, lo, hi] = args.map((arg) => arg >>> 0);
   const { exports } = host;
   const total = len * elemBytes;
   // Refuse before touching anything: a column only some ranks filled is worse than a refusal,
@@ -100,7 +101,8 @@ function allgather(...args) {
 /// `[len: u32 LE][len bytes]` out of the module's wasm memory, copied out whole: the buffer is
 /// re-read here so a growth since the caller's last motor call cannot hand back a detached
 /// view. A 0 pointer is the motor refusing, and it publishes why in `gm_last_error`.
-function framed(exports, ptr) {
+function framed(exports, result) {
+  const ptr = result >>> 0;
   if (ptr === 0) throw new Error(`export returned 0: refused (gm_last_error ${exports.gm_last_error()})`);
   const len = new DataView(exports.memory.buffer).getUint32(ptr, true);
   return new Uint8Array(exports.memory.buffer, ptr + 4, len).slice();
@@ -128,7 +130,7 @@ function layoutIndex(exports, name) {
 /// `gm_free` is the one way a model enters a module, and every rank runs it over the same
 /// bytes, which is what makes the ranks' copies comparable at all.
 function buildHandle(exports, doc) {
-  const ptr = exports.gm_alloc(doc.length);
+  const ptr = exports.gm_alloc(doc.length) >>> 0;
   if (ptr === 0) throw new Error(`gm_alloc refused ${doc.length} bytes`);
   new Uint8Array(exports.memory.buffer, ptr, doc.length).set(doc);
   const handle = exports.gm_build(ptr, doc.length);
