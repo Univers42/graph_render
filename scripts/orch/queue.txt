@@ -74,6 +74,10 @@ rv-sg-sugiyama|build|prompts/jobs/rv-sg-sugiyama.md|scripts/orch/rows/docs.rows|
 sg-igraph-clean|build|prompts/jobs/sg-igraph-clean.md|scripts/orch/rows/quick.rows|no
 sg-graphviz-scale-r1|build|prompts/jobs/sg-graphviz-scale-r1.md|scripts/orch/rows/quick.rows|no
 rv-sg-spiral3d|build|prompts/jobs/rv-sg-spiral3d.md|scripts/orch/rows/docs.rows|no
+fix-gates-hashgate|build|prompts/jobs/fix-gates-hashgate.md|scripts/orch/rows/quick.rows|no
+fix-gates-evidence|build|prompts/jobs/fix-gates-evidence.md|scripts/orch/rows/quick.rows|no
+fix-gates-oracles|build|prompts/jobs/fix-gates-oracles.md|scripts/orch/rows/quick.rows|no
+fix-layout-rest-a|build|prompts/jobs/fix-layout-rest-a.md|scripts/orch/rows/quick.rows|no
 review-harness-sdk|build|prompts/jobs/review-harness-sdk.md|scripts/orch/rows/docs.rows|no
 fix-studio|build|prompts/jobs/fix-studio.md|scripts/orch/rows/quick.rows|no
 fix-wasm-ingest|build|prompts/jobs/fix-wasm-ingest.md|scripts/orch/rows/quick.rows|no
