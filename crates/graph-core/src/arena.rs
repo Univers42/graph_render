@@ -73,6 +73,26 @@ pub struct StringArena {
 }
 
 impl StringArena {
+    /// An arena with room for `strings` distinct values totalling `bytes`, so a
+    /// caller that already knows the shape of its input pays no rehash.
+    ///
+    /// Both counts are hints, not a promise: interning past them grows the
+    /// buffer exactly as an arena built by [`Default`] would. Reserving changes a
+    /// table's internal layout and no hash and no iteration order (D4), so the
+    /// two arenas stay byte-identical in what they hand out.
+    ///
+    /// **Caveat:** `strings` over-reserves by every value the input repeats — one
+    /// source name on a million nodes still reserves a million slots — and
+    /// `bytes` over-reserves the same way, so a caller passing raw field lengths
+    /// for a low-cardinality column holds memory it will not use.
+    pub fn with_capacity(strings: usize, bytes: usize) -> Self {
+        Self {
+            text: String::with_capacity(bytes),
+            spans: Vec::with_capacity(strings),
+            lookup: IndexMap::with_capacity_and_hasher(strings, FixedState::default()),
+        }
+    }
+
     /// Returns the handle for `value`, storing it on first sight.
     pub fn intern(&mut self, value: &str) -> Result<Interned, CapacityError> {
         let hash = FixedState::default().hash_one(value);
@@ -159,6 +179,31 @@ mod tests {
         assert_eq!(arena.find("NOTE:1"), None);
         assert_eq!(arena.find("note:"), None);
         assert_eq!(arena.len(), 1);
+    }
+
+    #[test]
+    fn with_capacity_holds_exactly_what_a_default_arena_holds() {
+        let values = ["group-a", "", "group-b", "group-a", "label:1"];
+        let bytes: usize = values.iter().map(|v| v.len()).sum();
+        let mut sized = StringArena::with_capacity(values.len(), bytes);
+        let mut grown = StringArena::default();
+        assert!(sized.is_empty() && sized.find("group-a").is_none());
+        let handles: Vec<_> = values
+            .iter()
+            .map(|v| {
+                let (a, b) = (sized.intern(v), grown.intern(v));
+                assert_eq!(a, b, "same handle for {v:?}");
+                a
+            })
+            .collect();
+        for (handle, value) in handles.iter().zip(&values) {
+            assert_eq!(sized.get(handle.expect("fits")), *value);
+        }
+        assert_eq!(sized.len(), 4);
+        assert_eq!(sized.len(), grown.len());
+        assert_eq!(sized.byte_len(), grown.byte_len());
+        assert_eq!(sized.find("group-a"), Some(handles[0].expect("fits")));
+        assert_eq!(sized.find("nope"), None);
     }
 
     #[test]
