@@ -25,6 +25,13 @@ use std::path::Path;
 /// to it leaves a record reading as current — the dangerous direction, since the whole
 /// point of the fingerprint is that it does not. Escape hatch: this is a named list, not
 /// a directory, so the next wrapper is added here on purpose, by whoever adds it.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the boundary is spelled out here and read by the tests that pin it; FINGERPRINTED is the list the run actually uses"
+    )
+)]
 pub const GATE_SCRIPTS: [&str; 5] = [
     "scripts/orch/gr",
     "scripts/orch/image.sh",
@@ -149,7 +156,8 @@ mod tests {
 
     /// A tree holding one file per entry of `entries`, each with its own distinct bytes.
     fn tree(name: &str, entries: &[&str]) -> PathBuf {
-        let root = std::env::temp_dir().join(format!("gm-fingerprint-{name}-{}", std::process::id()));
+        let root =
+            std::env::temp_dir().join(format!("gm-fingerprint-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         for (n, entry) in entries.iter().enumerate() {
             let path = root.join(entry);

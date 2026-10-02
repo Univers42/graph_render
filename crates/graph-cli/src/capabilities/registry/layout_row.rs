@@ -22,24 +22,53 @@ const D3_ORACLE_LAYOUTS: [&str; 2] = [
 /// measured ceiling rather than byte equality.
 const SCIPY_ORACLE_LAYOUTS: [&str; 2] = ["layout.spectral", "layout.mds.pivot"];
 
+/// Layouts held to the hand oracle `roundtrip`, which records each under its own id
+/// (`snapshot_cmd::hand_oracles`).
+///
+/// **Named, not defaulted.** These four used to reach `roundtrip` by falling out of the
+/// `if/else` chain below, which meant a layout id nobody had thought about inherited the
+/// same `gated` claim on the same record. An id in no arm at all is now
+/// [`Status::Implemented`] naming a record no gate writes, so registering a layout is a
+/// decision somebody makes here rather than a claim it picks up.
+const ROUNDTRIP_LAYOUTS: [&str; 4] = [
+    "layout.grid",
+    "layout.circular.radial",
+    "layout.packing.circle",
+    "layout.dag.sugiyama",
+];
+
+/// The record a row of no consequence names when it names no oracle at all. No gate
+/// writes a record under this name, so `oracle_diff` reads it as "not backed: no
+/// unproven record: run the gate" — which is the truth about an id no arm declares.
+pub(super) const UNPROVEN_RECORD: &str = "unproven";
+
+/// Whether an id is named by one of this file's arms, whatever the arm says. The test
+/// that fails when a layout is registered in graph-core and no arm here names it — so it
+/// exists for tests only, and is compiled only there.
+#[cfg(test)]
+pub(in crate::capabilities) fn is_declared(id: &str) -> bool {
+    force_record(id).is_some()
+        || D3_ORACLE_LAYOUTS.contains(&id)
+        || SCIPY_ORACLE_LAYOUTS.contains(&id)
+        || ROUNDTRIP_LAYOUTS.contains(&id)
+}
+
 /// A layout's row. Tidy tree and treemap are gated on `oracle-layouts` (the d3-hierarchy
 /// differential); grid, circular and packing are gated on `roundtrip`'s hand oracle,
 /// which records each under its own id. Its hash stage is its id either way.
-pub(super) fn layout(layout: &'static core::Capability) -> Capability {
+///
+/// **Fail-closed**, and this is the shape of the fix: the arms are enumerated above and
+/// an id in none of them is `implemented`. It used to be the `else` of the chain, which
+/// stamped a newly registered layout `gated` on `roundtrip` with no record of its own.
+pub(in crate::capabilities) fn layout(layout: &'static core::Capability) -> Capability {
     let m = layout.meta;
     let geometry = NODE_KINDS.iter().find(|(kind, _)| *kind == m.nodes);
     let (oracle_record, status) = match force_record(layout.id) {
         Some(found) => found,
-        None => (
-            if D3_ORACLE_LAYOUTS.contains(&layout.id) {
-                "oracle-layouts"
-            } else if SCIPY_ORACLE_LAYOUTS.contains(&layout.id) {
-                "oracle-spectral"
-            } else {
-                "roundtrip"
-            },
-            Status::Gated,
-        ),
+        None if D3_ORACLE_LAYOUTS.contains(&layout.id) => ("oracle-layouts", Status::Gated),
+        None if SCIPY_ORACLE_LAYOUTS.contains(&layout.id) => ("oracle-spectral", Status::Gated),
+        None if ROUNDTRIP_LAYOUTS.contains(&layout.id) => ("roundtrip", Status::Gated),
+        None => (UNPROVEN_RECORD, Status::Implemented),
     };
     Capability {
         id: layout.id,

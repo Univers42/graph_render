@@ -115,11 +115,17 @@ pub fn rows() -> impl Iterator<Item = Capability> {
 /// declare ([`graph_core::post::fdeb::META`], [`graph_core::post::mingle::META`]). Read
 /// across rather than restated: a second, looser copy of a ceiling or a Ponytail is a
 /// second answer, and the two would drift. Neither is `gated` — see the module doc.
+///
+/// **The id and the `META` of one module are declared together**, each taken from that
+/// module's own `ID`. They used to be `zip`ped — `[fdeb::META, mingle::META]` against
+/// `["post.bundle.fdeb", "post.bundle.mingle"]` — so reordering the pair in graph-core
+/// would silently attach one bundle's ceiling, oracle and Ponytail to the other's stable
+/// row id, with no compile error anywhere.
 fn bundles() -> impl Iterator<Item = Capability> {
-    [graph_core::post::fdeb::META, graph_core::post::mingle::META]
+    use graph_core::post::{fdeb, mingle};
+    [(fdeb::ID, fdeb::META), (mingle::ID, mingle::META)]
         .into_iter()
-        .zip(["post.bundle.fdeb", "post.bundle.mingle"])
-        .map(|(meta, id)| row(id, edge_kind_name(meta.edges), RowMeta::of_post(&meta)))
+        .map(|(id, meta)| row(id, edge_kind_name(meta.edges), RowMeta::of_post(&meta)))
 }
 
 /// The four style rows, projected from [`graph_core::post::styles::STYLES`]. They differ
@@ -136,15 +142,25 @@ fn styles() -> impl Iterator<Item = Capability> {
     })
 }
 
-/// The ledger's name for an edge geometry kind, as `registry::layout` writes it. The
-/// catch-all is unreachable for every registered POST capability today and is named
-/// rather than panicking, so adding a fourth kind later is a value to fill in rather than
-/// a crash in the middle of building the ledger.
+/// The ledger's name for an edge geometry kind, as `registry::layout` writes it.
+///
+/// Every kind `graph_contract` declares is named, and the catch-all is
+/// [`UNKNOWN_GEOMETRY`](super::UNKNOWN_GEOMETRY) rather than a neighbour's name: it used
+/// to answer `"Curve"` for anything it did not recognise, so a fourth kind added to the
+/// enum would have landed in the ledger as a confidently wrong geometry, and `problems()`
+/// had no name to refuse. With `unknown` the row is a finding instead, and
+/// `a_row_whose_geometry_kind_this_ledger_cannot_name_is_refused` holds it to that.
+#[allow(
+    unreachable_patterns,
+    reason = "the catch-all is what a future kind lands on"
+)]
 fn edge_kind_name(kind: graph_contract::geometry::EdgeGeometryKind) -> &'static str {
+    use graph_contract::geometry::EdgeGeometryKind as K;
     match kind {
-        graph_contract::geometry::EdgeGeometryKind::Line => "Line",
-        graph_contract::geometry::EdgeGeometryKind::Polyline => "Polyline",
-        _ => "Curve",
+        K::Line => "Line",
+        K::Polyline => "Polyline",
+        K::Curve => "Curve",
+        _ => super::UNKNOWN_GEOMETRY,
     }
 }
 

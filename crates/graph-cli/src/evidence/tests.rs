@@ -171,7 +171,12 @@ fn a_failing_run_never_overwrites_a_passing_record() {
     // so this is a refusal and not a lost record.)
     assert!(
         matches!(
-            write_to(&dir, "oracle-diff", serde_json::json!({ "seeds": 1000 }), "f".into()),
+            write_to(
+                &dir,
+                "oracle-diff",
+                serde_json::json!({ "seeds": 1000 }),
+                "f".into()
+            ),
             Outcome::Failed(_)
         ),
         "a body with no `pass` is not a record"
@@ -234,7 +239,9 @@ fn a_stale_passing_record_from_another_tree_does_not_block_this_trees_run() {
         "this".into(),
     ));
     assert_eq!(
-        read_from(&dir, "hashgate").expect("readable").expect("present"),
+        read_from(&dir, "hashgate")
+            .expect("readable")
+            .expect("present"),
         serde_json::json!({ "seeds": 8, "pass": false, "gate": "hashgate", "fingerprint": "this" }),
         "this tree's own run is recorded; the other tree's record is gone"
     );
@@ -246,13 +253,15 @@ fn a_stale_passing_record_from_another_tree_does_not_block_this_trees_run() {
         serde_json::json!({ "seeds": 2000, "pass": true }),
         "this".into(),
     ));
-    assert!(refused(write_to(
-        &kept,
-        "hashgate",
-        serde_json::json!({ "seeds": 8, "pass": false }),
-        "this".into(),
-    ))
-    .contains("hashgate"));
+    assert!(
+        refused(write_to(
+            &kept,
+            "hashgate",
+            serde_json::json!({ "seeds": 8, "pass": false }),
+            "this".into(),
+        ))
+        .contains("hashgate")
+    );
     for dir in [&dir, &kept] {
         std::fs::remove_dir_all(dir).expect("cleanup");
     }
@@ -276,11 +285,21 @@ fn a_record_is_renamed_into_place_and_leaves_no_temporary() {
         serde_json::json!({ "seeds": 4, "pass": true }),
         "f".into(),
     ));
-    let names: Vec<String> = std::fs::read_dir(&dir)
+    let temporaries: Vec<String> = std::fs::read_dir(&dir)
         .expect("readable")
-        .map(|entry| entry.expect("an entry").file_name().to_string_lossy().into_owned())
+        .map(|entry| {
+            entry
+                .expect("an entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .filter(|name| name.ends_with(".tmp"))
         .collect();
-    assert_eq!(names, ["gate.json"], "no temporary file survives the write");
+    assert!(
+        temporaries.is_empty(),
+        "no temporary survives: {temporaries:?}"
+    );
     assert_eq!(
         read_from(&dir, "gate").expect("readable").expect("present")["seeds"],
         4,

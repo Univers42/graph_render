@@ -66,6 +66,86 @@ fn functions(e: &mut Evidence) -> &mut Value {
     &mut e.by_name.get_mut("oracle-diff").expect("set")["functions"]
 }
 
+/// `u64::MAX` is an accepted ceiling and every downstream `n <= ceiling` test is then
+/// vacuously true — a ceiling that refuses nothing says nothing. The bound is the largest
+/// ceiling this tree declares.
+#[test]
+fn a_scale_ceiling_above_the_largest_this_tree_declares_is_refused() {
+    let mut greedy = row(Status::Implemented);
+    greedy.scale_ceiling = u64::MAX;
+    let found = problems(&[greedy], &honest());
+    assert!(
+        found
+            .iter()
+            .any(|p| p.contains(&format!("scale_ceiling {} is above", u64::MAX))),
+        "{found:?}"
+    );
+    assert!(
+        problems(&registry(), &honest())
+            .iter()
+            .all(|p| !p.contains("is above the largest one")),
+        "and no declared ceiling is above it"
+    );
+}
+
+/// The required-field sweep covers `stage`, `degradation`, `ponytail` and `complexity` —
+/// **not `oracle`**. A row that names no reference and checks no function (see
+/// `verdict::oracle_diff`) passed `--check`.
+#[test]
+fn a_row_that_names_no_oracle_is_refused() {
+    let mut mute = row(Status::Implemented);
+    mute.oracle = "";
+    assert!(
+        problems(&[mute], &honest())
+            .iter()
+            .any(|p| p.contains("required field `oracle` is empty")),
+        "a row with no reference claims a differential it does not have"
+    );
+}
+
+/// A geometry kind this ledger has no name for reads `unknown`, and `--check` says so. The
+/// catch-all used to answer `"Curve"` for anything unrecognised, so a fourth kind added to
+/// `EdgeGeometryKind` would have landed in the ledger as a confidently wrong value.
+#[test]
+fn a_row_whose_geometry_kind_this_ledger_cannot_name_is_refused() {
+    let mut unnamed = row(Status::Implemented);
+    unnamed.geometry = Some(UNKNOWN_GEOMETRY);
+    assert!(
+        problems(&[unnamed], &honest())
+            .iter()
+            .any(|p| p.contains("geometry kind `unknown`")),
+        "an unnamed kind is a finding, not a borrowed name"
+    );
+    assert!(
+        problems(&registry(), &honest())
+            .iter()
+            .all(|p| !p.contains("geometry kind `unknown`")),
+        "and no published row carries one"
+    );
+}
+
+/// The three refusals are asserted **by content**, not by count: a count still holds when
+/// one check is silently replaced by another while the total stays three.
+#[test]
+fn the_required_field_refusals_are_named_and_not_merely_counted() {
+    let mut bare = row(Status::Implemented);
+    bare.ponytail = " ";
+    bare.degradation = "";
+    bare.scale_ceiling = 0;
+    let found = problems(&[bare], &honest());
+    for why in [
+        "required field `ponytail` is empty",
+        "required field `degradation` is empty",
+        "scale_ceiling is 0",
+    ] {
+        assert!(
+            found.iter().any(|p| p.contains(why)),
+            "{why} is refused by name: {found:?}"
+        );
+    }
+    assert_eq!(found.len(), 3, "and nothing else is: {found:?}");
+}
+
 #[test]
 fn a_function_without_cases_or_with_an_unexplained_mismatch_is_refused() {
     let none = refused(|e| functions(e)["emptyModel"]["cases"] = json!(0));
@@ -75,7 +155,7 @@ fn a_function_without_cases_or_with_an_unexplained_mismatch_is_refused() {
     let mut evidence = honest();
     functions(&mut evidence)["layoutGroups"]["declared"] = json!(3);
     assert_eq!(
-        ledger(&evidence)[0].oracle_diff,
+        find_row(&evidence, "topology.index").oracle_diff,
         "byte-equal/1000 seeds (25 cases, 3 declared divergences)"
     );
 }
@@ -86,10 +166,37 @@ fn empty_required_fields_zero_ceiling_and_duplicate_ids_are_refused() {
     bare.ponytail = " ";
     bare.degradation = "";
     bare.scale_ceiling = 0;
-    assert_eq!(problems(&[bare], &honest()).len(), 3);
     let twice = [row(Status::Stub), row(Status::Stub)];
     assert_eq!(
         problems(&twice, &honest()),
         ["topology.index: duplicate id"]
+    );
+    assert_eq!(
+        problems(&[bare], &honest()).len(),
+        3,
+        "the count, as well: the named form above pins which three"
+    );
+}
+
+/// An empty `functions` is an **absent** differential, never a gated one. Emptied of
+/// every oracle function the row is indistinguishable from an honest one to the loop in
+/// `oracle_diff`: it runs zero times, `cases` stays 0, and the verdict used to be built
+/// from no comparison at all.
+#[test]
+fn a_gated_row_that_names_no_oracle_function_is_refused() {
+    let mut hollow = row(Status::Gated);
+    hollow.functions = &[];
+    let found = problems(&[hollow], &honest());
+    assert!(
+        found.iter().any(|p| p.contains("names no oracle function")),
+        "an empty differential backs nothing: {found:?}"
+    );
+    // The ledger cell says the same thing rather than quoting a verdict with 0 cases.
+    let honest = honest();
+    let mut hollow = row(Status::Implemented);
+    hollow.functions = &[];
+    assert_eq!(
+        verdict::oracle_diff(&honest, "oracle-diff", hollow.functions),
+        Err("names no oracle function: an empty differential backs nothing".into())
     );
 }
