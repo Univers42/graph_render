@@ -73,3 +73,4 @@ perf-p5b|build|prompts/jobs/perf-p5b.md|scripts/orch/rows/perf-p5.rows|no
 fix-studio|build|prompts/jobs/fix-studio.md|scripts/orch/rows/quick.rows|no
 fix-wasm-ingest|build|prompts/jobs/fix-wasm-ingest.md|scripts/orch/rows/quick.rows|no
 z-comments|build|prompts/jobs/z-comments.md|scripts/orch/rows/quick.rows|no
+sg-graphviz-scale-r1|build|prompts/jobs/sg-graphviz-scale-r1.md|scripts/orch/rows/quick.rows|no
