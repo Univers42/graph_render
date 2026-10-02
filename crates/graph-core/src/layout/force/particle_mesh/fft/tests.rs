@@ -1,4 +1,5 @@
 use super::*;
+use crate::exec::Serial;
 
 fn naive(a: &[C], inverse: bool) -> Vec<C> {
     let n = a.len();
@@ -49,14 +50,103 @@ fn a_line_matches_the_naive_dft_both_ways() {
     }
 }
 
+/// The 2D transform as it was before the passes: rows in place, transpose, rows. The
+/// passes must give its bytes.
+fn reference(src: &mut [C], dst: &mut [C], plan: &Plan, inverse: bool) {
+    let side = plan.side();
+    for row in src.chunks_exact_mut(side) {
+        plan.line(row, inverse);
+    }
+    transpose(src, dst, side);
+    for row in dst.chunks_exact_mut(side) {
+        plan.line(row, inverse);
+    }
+}
+
+fn transpose(src: &[C], dst: &mut [C], side: usize) {
+    for y in 0..side {
+        for x in 0..side {
+            dst[x * side + y] = src[y * side + x];
+        }
+    }
+}
+
+fn bits(a: &[C]) -> Vec<(u64, u64)> {
+    a.iter().map(|c| (c.re.to_bits(), c.im.to_bits())).collect()
+}
+
+/// `samples`, with rows from `live` on +0, as the deposit leaves them.
+fn deposited(side: usize, live: usize) -> Vec<C> {
+    let mut a = samples(side * side);
+    a[live * side..].fill(C::default());
+    a
+}
+
+fn forward(plan: &Plan, a: &mut Vec<C>, live: usize, workers: u32) {
+    let fft = Fft {
+        plan,
+        runner: &Serial,
+        workers,
+    };
+    fft.forward((a, &mut Vec::new()), live);
+}
+
+#[test]
+fn a_line_of_positive_zeros_stays_positive_zero() {
+    let plan = Plan::new(MAX_SIDE);
+    for inverse in [false, true] {
+        let mut a = vec![C::default(); MAX_SIDE];
+        plan.line(&mut a, inverse);
+        assert!(bits(&a).iter().all(|&b| b == (0, 0)), "inverse {inverse}");
+    }
+}
+
+// Workers 3 and 7 split rows across ranges, so the partial-row path is in the comparison.
+#[test]
+fn the_passes_are_the_reference_bit_for_bit() {
+    for (side, live) in [(8, 8), (8, 3), (64, 64), (64, 37)] {
+        let plan = Plan::new(side);
+        let input = deposited(side, live);
+        let gain = samples(side * side);
+        let (mut want, mut spectrum) = (input.clone(), vec![C::default(); side * side]);
+        reference(&mut want, &mut spectrum, &plan, false);
+        let mut product: Vec<C> = spectrum.iter().zip(&gain).map(|(&s, &g)| s * g).collect();
+        reference(&mut product, &mut want, &plan, true);
+        for workers in [1, 2, 3, 7] {
+            let fft = Fft {
+                plan: &plan,
+                runner: &Serial,
+                workers,
+            };
+            let (mut a, mut b) = (input.clone(), Vec::new());
+            fft.forward((&mut a, &mut b), live);
+            assert_eq!(bits(&a), bits(&spectrum), "forward {side} {live} {workers}");
+            fft.inverse((&mut a, &mut b), &gain, live);
+            let kept = live * side;
+            assert_eq!(
+                bits(&a[..kept]),
+                bits(&want[..kept]),
+                "inverse {side} {live} {workers}"
+            );
+            assert!(bits(&a[kept..]).iter().all(|&b| b == (0, 0)));
+        }
+    }
+}
+
 #[test]
 fn forward_then_inverse_is_side_squared_times_the_input() {
     let side = 32;
     let plan = Plan::new(side);
     let input = samples(side * side);
-    let (mut a, mut b) = (input.clone(), vec![C::default(); side * side]);
-    plan.fft2(&mut a, &mut b, false);
-    plan.fft2(&mut b, &mut a, true);
+    let ones = vec![C { re: 1.0, im: 0.0 }; side * side];
+    let fft = Fft {
+        plan: &plan,
+        runner: &Serial,
+        workers: 3,
+    };
+    let (mut a, mut b) = (input.clone(), Vec::new());
+    fft.forward((&mut a, &mut b), side);
+    fft.inverse((&mut a, &mut b), &ones, side);
     let scale = (side * side) as f64;
     let back: Vec<C> = a
         .iter()
@@ -73,25 +163,11 @@ fn the_2d_transform_is_the_naive_one_transposed() {
     let side = 8;
     let plan = Plan::new(side);
     let input = samples(side * side);
-    let (mut a, mut b) = (input.clone(), vec![C::default(); side * side]);
-    plan.fft2(&mut a, &mut b, false);
+    let mut a = input.clone();
+    forward(&plan, &mut a, side, 2);
     let rows: Vec<C> = input.chunks(side).flat_map(|r| naive(r, false)).collect();
     let mut columns = vec![C::default(); side * side];
     transpose(&rows, &mut columns, side);
     let want: Vec<C> = columns.chunks(side).flat_map(|r| naive(r, false)).collect();
-    assert!(max_gap(&b, &want) < 1e-9);
-}
-
-#[test]
-fn transpose_is_its_own_inverse_over_a_ragged_tile() {
-    let side = 2 * TILE + 5;
-    let input = samples(side * side);
-    let (mut once, mut twice) = (
-        vec![C::default(); side * side],
-        vec![C::default(); side * side],
-    );
-    transpose(&input, &mut once, side);
-    assert_eq!(once[side + 2], input[2 * side + 1]);
-    transpose(&once, &mut twice, side);
-    assert_eq!(twice, input);
+    assert!(max_gap(&a, &want) < 1e-9);
 }

@@ -1,6 +1,6 @@
 //! A radix-2 complex FFT over `f64`, the one transform the particle-mesh charge pass needs:
-//! a plan per mesh side, lines transformed in place, and a 2D transform written as rows, a
-//! blocked transpose, then rows again.
+//! a plan per mesh side, lines transformed in place, and a 2D transform written as two
+//! range passes a `Runner` splits across workers ([`pass`]).
 //!
 //! Written here rather than imported because graph-core's dependency list is closed (libm,
 //! indexmap, petgraph). It is deterministic in the D1–D10 sense: the twiddles come from
@@ -11,6 +11,14 @@
 //! which is exact because `P` is a power of two.
 
 use std::ops::{Add, Mul, Sub};
+
+mod pass;
+
+pub(super) use pass::Fft;
+
+/// The largest side a [`Plan`] takes: a line is transformed on the stack when a range
+/// splits it.
+pub(super) const MAX_SIDE: usize = 1024;
 
 /// One complex sample.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -61,9 +69,12 @@ pub(super) struct Plan {
 }
 
 impl Plan {
-    /// `side` must be a power of two, at least 2.
+    /// `side` must be a power of two in `2..=MAX_SIDE`.
     pub(super) fn new(side: usize) -> Plan {
-        assert!(side >= 2 && side.is_power_of_two(), "fft side {side}");
+        assert!(
+            (2..=MAX_SIDE).contains(&side) && side.is_power_of_two(),
+            "fft side {side}"
+        );
         let bits = side.trailing_zeros();
         let swaps = (0..side as u32)
             .map(|i| (i, i.reverse_bits() >> (32 - bits)))
@@ -128,44 +139,6 @@ impl Plan {
                 }
             }
             half *= 2;
-        }
-    }
-
-    /// Every row of a `side × side` buffer, in place.
-    pub(super) fn rows(&self, buf: &mut [C], inverse: bool) {
-        for row in buf.chunks_exact_mut(self.side) {
-            self.line(row, inverse);
-        }
-    }
-
-    /// The 2D transform of `src` into `dst`, **transposed**: `dst[kx * side + ky]` is the
-    /// coefficient `src` row-major would put at `[ky * side + kx]`. Transforming twice
-    /// lands back in the original layout, which is how the charge pass uses it: forward
-    /// into the spectrum, multiply, inverse back. `src` is overwritten with scratch.
-    pub(super) fn fft2(&self, src: &mut [C], dst: &mut [C], inverse: bool) {
-        self.rows(src, inverse);
-        transpose(src, dst, self.side);
-        self.rows(dst, inverse);
-    }
-}
-
-/// Square tile edge for [`transpose`]: 32 × 16 bytes is two 512-byte rows a tile, so a
-/// tile's source and destination rows both stay in L1.
-const TILE: usize = 32;
-
-/// `dst[x * side + y] = src[y * side + x]`, tile by tile.
-pub(super) fn transpose(src: &[C], dst: &mut [C], side: usize) {
-    for ty in (0..side).step_by(TILE) {
-        for tx in (0..side).step_by(TILE) {
-            tile(src, dst, side, (tx, ty));
-        }
-    }
-}
-
-fn tile(src: &[C], dst: &mut [C], side: usize, (tx, ty): (usize, usize)) {
-    for y in ty..(ty + TILE).min(side) {
-        for x in tx..(tx + TILE).min(side) {
-            dst[x * side + y] = src[y * side + x];
         }
     }
 }

@@ -56,7 +56,7 @@ fn the_mesh_field_follows_the_direct_sum_at_range() {
     };
     let sim = placed(x.clone(), y.clone(), params);
     let mut mesh = Mesh::new(sim.rows());
-    assert!(mesh.solve(&sim));
+    assert!(mesh.solve(&sim, &Serial, 1));
     let (mut err, mut norm) = (0.0, 0.0);
     for i in 0..x.len() {
         let (got, want) = (mesh.field_at((x[i], y[i])), direct(&x, &y, i, law));
@@ -71,7 +71,7 @@ fn the_mesh_field_follows_the_direct_sum_at_range() {
 fn a_node_out_of_everyone_s_range_feels_no_force_from_itself() {
     let sim = placed(vec![0.0, 3000.0], vec![0.0, 17.5], ForceParams::default());
     let mut mesh = Mesh::new(sim.rows());
-    assert!(mesh.solve(&sim));
+    assert!(mesh.solve(&sim, &Serial, 1));
     for (px, py) in [(0.0, 0.0), (3000.0, 17.5)] {
         let (ex, ey) = mesh.field_at((px, py));
         assert!(

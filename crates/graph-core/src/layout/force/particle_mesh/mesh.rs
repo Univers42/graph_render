@@ -1,9 +1,10 @@
 //! The mesh a run owns: the FFT plan, the two `P × P` buffers the convolution runs in, the
 //! kernel spectrum, and the collide grid whose node order the deposit reuses.
 //!
-//! One tick's field is: place the frame, refresh the kernel if the rung moved, deposit
-//! every node's unit charge with CIC weights, transform, multiply by the kernel, transform
-//! back. The field then sits in `density`, `Ex` real and `Ey` imaginary, and a node reads
+//! One tick's field is: place the frame, deposit every node's unit charge with CIC weights,
+//! refresh the kernel if the rung moved, transform, multiply by the kernel, transform back,
+//! every transform pass split across the run's workers. The field then sits in rows
+//! `0..cells` of `density`, `Ex` real and `Ey` imaginary, and a node reads
 //! it with the same four CIC weights it deposited with.
 //!
 //! Caveat: the field is the law convolved at cell resolution, so it is exact at range and
@@ -14,20 +15,21 @@
 //! through collide's.
 
 use super::collide::Grid;
-use super::fft::{C, Plan};
+use super::fft::{C, Fft, MAX_SIDE, Plan};
 use super::frame::{self, Frame};
 use super::kernel::{Kernel, Law};
+use crate::exec::Runner;
 use crate::layout::force::barnes_hut::sim::Sim;
 
 /// The mesh side for `n` nodes: `ceil(sqrt n)` rounded up to a power of two, held to
-/// `128..=1024`.
+/// `128..=MAX_SIDE`.
 ///
 /// Caveat: a fixed side trades resolution for time. At 1M nodes the side caps at 1024
 /// cells for the whole layout, so `h` grows with the span; the floor of 128 keeps a small
 /// graph's cells well under its link distance.
 pub(super) fn side_for(n: u32) -> usize {
     let root = libm::ceil(libm::sqrt(f64::from(n))) as usize;
-    root.next_power_of_two().clamp(128, 1024)
+    root.next_power_of_two().clamp(128, MAX_SIDE)
 }
 
 pub(in crate::layout::force) struct Mesh {
@@ -52,9 +54,10 @@ impl Mesh {
         }
     }
 
-    /// This tick's field over `sim`'s positions. `false` when there is none to read: fewer
-    /// than two nodes, a zero `distanceMax`, or no finite position.
-    pub(super) fn solve(&mut self, sim: &Sim) -> bool {
+    /// This tick's field over `sim`'s positions, its transforms run by `runner` on
+    /// `workers`. `false` when there is none to read: fewer than two nodes, a zero
+    /// `distanceMax`, or no finite position.
+    pub(super) fn solve<R: Runner>(&mut self, sim: &Sim, runner: &R, workers: u32) -> bool {
         let p = &sim.params;
         let law = Law {
             dmin2: p.distance_min * p.distance_min,
@@ -65,14 +68,17 @@ impl Mesh {
         let Some(frame) = self.frame.filter(|_| sim.x.len() > 1 && law.dmax2 > 0.0) else {
             return false;
         };
-        self.kernel
-            .refresh(&self.plan, &frame, law, &mut self.spectrum);
         self.deposit(&frame, (&sim.x, &sim.y));
-        self.plan.fft2(&mut self.density, &mut self.spectrum, false);
-        for (s, &g) in self.spectrum.iter_mut().zip(&self.kernel.spectrum) {
-            *s = *s * g;
-        }
-        self.plan.fft2(&mut self.spectrum, &mut self.density, true);
+        let fft = Fft {
+            plan: &self.plan,
+            runner,
+            workers,
+        };
+        self.kernel.refresh(&fft, (&frame, law), &mut self.spectrum);
+        let buffers = (&mut self.density, &mut self.spectrum);
+        fft.forward(buffers, frame.cells);
+        let buffers = (&mut self.density, &mut self.spectrum);
+        fft.inverse(buffers, &self.kernel.spectrum, frame.cells);
         true
     }
 

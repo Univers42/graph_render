@@ -9,8 +9,9 @@
 //! and `Ey` in the imaginary. `G(0)` is zero, and with `G` odd the CIC deposit and the
 //! CIC read cancel a node's force on itself.
 
-use super::fft::{C, Plan};
+use super::fft::{C, Fft};
 use super::frame::Frame;
+use crate::exec::Runner;
 
 /// The squared cutoffs of the law, the only parameters the kernel depends on.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -19,7 +20,7 @@ pub(super) struct Law {
     pub(super) dmax2: f64,
 }
 
-/// The kernel's spectrum, in [`Plan::fft2`]'s transposed layout and pre-scaled by `1/P²`,
+/// The kernel's spectrum, in [`Fft::forward`]'s transposed layout and pre-scaled by `1/P²`,
 /// and the inputs it was built for.
 ///
 /// Rebuilt only when the rung, the reach or the law changes, so a run pays one extra
@@ -38,7 +39,12 @@ impl Kernel {
     }
 
     /// Makes the spectrum the one for `frame` and `law`; `scratch` is overwritten.
-    pub(super) fn refresh(&mut self, plan: &Plan, frame: &Frame, law: Law, scratch: &mut [C]) {
+    pub(super) fn refresh<R: Runner>(
+        &mut self,
+        fft: &Fft<'_, R>,
+        (frame, law): (&Frame, Law),
+        scratch: &mut Vec<C>,
+    ) {
         let key = (
             frame.step,
             frame.reach,
@@ -48,8 +54,9 @@ impl Kernel {
         if self.built_for == Some(key) {
             return;
         }
-        sample(scratch, plan.side(), frame, law);
-        plan.fft2(scratch, &mut self.spectrum, false);
+        let side = fft.plan.side();
+        sample(&mut self.spectrum, side, frame, law);
+        fft.forward((&mut self.spectrum, scratch), side);
         self.built_for = Some(key);
     }
 }

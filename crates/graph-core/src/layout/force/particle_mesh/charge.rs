@@ -37,7 +37,7 @@ impl StepRange for Interpolate<'_> {
 
 /// The many-body pass. Nothing moves when [`Mesh::solve`] finds no field.
 pub(super) fn apply<R: Runner>(sim: &mut Sim, mesh: &mut Mesh, how: &mut How<'_, R>) {
-    if !mesh.solve(sim) {
+    if !mesh.solve(sim, how.runner, how.workers) {
         return;
     }
     let read = Interpolate {
