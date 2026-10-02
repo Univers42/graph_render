@@ -72,10 +72,10 @@ use radial::TWOPI;
 use spectral::{PIVOT_MDS, SPECTRAL};
 pub use spectral::{PIVOT_MDS_CEILING, SPECTRAL_CEILING};
 pub use three_d::BASIC_3D_CEILING;
-use three_d::{BIPARTITE_3D, CUBE, HELIX, HIERARCHICAL_3D, SPHERE, SPRING_3D};
+use three_d::{BIPARTITE_3D, CUBE, HELIX, HIERARCHICAL_3D, SPHERE, SPIRAL_3D, SPRING_3D};
 
 /// Every registered layout, in the order the hash gate runs them.
-pub static LAYOUTS: [Capability; 37] = [
+pub static LAYOUTS: [Capability; 38] = [
     Capability {
         id: Grid::ID,
         run: run_default::<Grid>,
@@ -270,6 +270,14 @@ pub static LAYOUTS: [Capability; 37] = [
         id: basic_3d::bipartite_3d::ID,
         run: basic_3d::bipartite_3d,
         meta: BIPARTITE_3D,
+    },
+    // ---- sg-spiral3d: SciGraphs' SPIRAL_3D, the conical 3D spiral of `basic.py:36-63`.
+    // APPENDED for the same reason as the block above it: inserting would repoint every
+    // index-keyed consumer with no compile error.
+    Capability {
+        id: basic_3d::spiral::ID,
+        run: basic_3d::spiral,
+        meta: SPIRAL_3D,
     },
 ];
 

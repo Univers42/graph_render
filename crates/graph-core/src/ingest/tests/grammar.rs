@@ -121,13 +121,15 @@ fn a_link_to_a_collection_that_is_not_declared_is_refused_before_any_record_is_d
 }
 
 #[test]
-fn a_record_declared_twice_is_refused_rather_than_first_wins() {
+fn a_record_declared_twice_in_one_collection_is_refused_rather_than_first_wins() {
     let mut doc = one_of_each();
     doc.records.push(doc.records[0].clone());
+    // The refusal names the collection too, because the id alone does not identify a
+    // record: the same id in two collections is two records, not a duplicate.
     assert_eq!(
         build(&doc)
             .expect_err("a duplicate record is a refusal")
             .to_string(),
-        "record `r1`: declared twice"
+        "record `r1` of collection `task`: declared twice"
     );
 }

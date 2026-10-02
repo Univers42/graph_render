@@ -121,6 +121,24 @@ const deselect: StudioAction = {
   },
 };
 
+/**
+ * The inspector's ×, which is not `deselect`. That one is the way out of a local graph and
+ * calls `showAll`, and a panel button that did the same would drop the reader out of the
+ * graph they opened — so this clears the selection and leaves the drawing as it is.
+ *
+ * WHY `unselect` and not a second reading of `deselect`: `deselect` already owns that word
+ * and it means "and leave", so a reader who types `unselect` gets the smaller promise the
+ * button makes. Two words for one behaviour is the confusion; one word for two behaviours is
+ * worse.
+ */
+const unselect: StudioAction = {
+  id: "view.unselect", alias: "unselect", title: "Clear the selection and leave the local graph as it is", section: null, params: [],
+  run: (context) => {
+    context.view.select(-1);
+    return { message: "selection cleared, the graph stays" };
+  },
+};
+
 const focus: StudioAction = {
   id: "view.focus", alias: "focus", title: "Centre a node by id or name", section: null,
   params: [{ name: "node", kind: "text", title: "Node", value: () => "" }],
@@ -131,6 +149,42 @@ const focus: StudioAction = {
     const node = nodeNamed(meta, textArg(args, "node"));
     context.view.focus(node);
     return { message: `${meta.labels[node] ?? ""} (${meta.ids[node] ?? ""})` };
+  },
+};
+
+/**
+ * The node menu's Pin and Hide, routed for the reason `focus` is: an action names a value,
+ * refuses it in one place and writes the line a reader can type, and a menu that called the
+ * view itself did none of those.
+ *
+ * WHY `pin` and `hide` and not a new reading of an existing word: `deselect` already means
+ * "and leave the local graph" and `unselect` means the same without the leaving, so a third
+ * word for a third gesture is the one that is not already spoken for.
+ */
+const pin: StudioAction = {
+  id: "view.pin", alias: "pin", title: "Pin or unpin a node by id or name", section: null,
+  params: [{ name: "node", kind: "text", title: "Node", value: () => "" }],
+  available: described,
+  run: (context, args) => {
+    const { meta } = context.state();
+    if (meta === null) throw new ActionRefusal("unavailable", "nothing is drawn");
+    const node = nodeNamed(meta, textArg(args, "node"));
+    context.view.togglePin(node);
+    const now = context.view.pinned().includes(node);
+    return { message: `${meta.labels[node] ?? ""} (${meta.ids[node] ?? ""}) ${now ? "pinned" : "unpinned"}` };
+  },
+};
+
+const hide: StudioAction = {
+  id: "view.hide", alias: "hide", title: "Hide a node by id or name", section: null,
+  params: [{ name: "node", kind: "text", title: "Node", value: () => "" }],
+  available: described,
+  run: (context, args) => {
+    const { meta } = context.state();
+    if (meta === null) throw new ActionRefusal("unavailable", "nothing is drawn");
+    const node = nodeNamed(meta, textArg(args, "node"));
+    context.view.hide([node]);
+    return { message: `${meta.labels[node] ?? ""} (${meta.ids[node] ?? ""}) hidden` };
   },
 };
 
@@ -186,4 +240,4 @@ const help: StudioAction = {
 };
 
 export const VIEW_ACTIONS: readonly StudioAction[] =
-  [fit, reset, headOn, zoom, pan, focus, local, cancel, deselect, emptyConsole, help];
+  [fit, reset, headOn, zoom, pan, focus, pin, hide, local, cancel, deselect, unselect, emptyConsole, help];

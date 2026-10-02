@@ -102,6 +102,11 @@ pub enum Cli {
     /// `layout.basic3d.helix` and `layout.basic3d.cube` in ONE arm, because the three take
     /// the same two arguments and read no graph.
     ///
+    /// **Three, and that is the arm's `ARMS` list, not a count of the layouts that are like
+    /// this.** `layout.basic3d.spiral` is a fourth graph-free 3D placement and is NOT armed
+    /// here; job `sg-basic3d-spiral-oracle` adds `--function spiral`, and until then the
+    /// spiral is held to the scigraphs-conformance gate instead.
+    ///
     /// The three take no iteration budget, so `--max-iter` is ignored.
     // Named explicitly: clap would spell the variant `emit-basic3d-fixtures`, and the
     // hyphen is the difference between "basic 3d" and a single word.
@@ -118,7 +123,8 @@ pub enum Cli {
     ///
     /// Three ceilings in one check, because they are three functions behind one arm: a
     /// differential that reported one number for three different reference functions would be
-    /// reporting nothing any of them can act on.
+    /// reporting nothing any of them can act on. Same three as above — `spiral` is not one
+    /// of them.
     #[command(name = "oracle-basic-3d")]
     OracleBasic3d {
         /// Directory holding the fixtures and `basic-3d-result.json`.
