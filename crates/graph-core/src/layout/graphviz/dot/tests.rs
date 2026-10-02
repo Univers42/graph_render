@@ -17,13 +17,30 @@ fn graph(count: u32, edges: &[(u32, u32)]) -> Fast {
     g
 }
 
-/// The direction of every edge, in dense-edge order: `(tail, head)`.
+/// The direction of every edge still in the fast graph, in dense-edge order: `(tail, head)`.
+///
+/// "Still in the fast graph" is what `Edge::live` means: `class1` copies each input edge in,
+/// and the input records themselves are not in it. Reading the input records instead would
+/// report edges the ranking pass never sees.
 fn directions(g: &Fast) -> Vec<(u32, u32)> {
     g.edges
         .iter()
         .filter(|e| e.live)
         .map(|e| (e.tail, e.head))
         .collect()
+}
+
+/// The one live edge from `tail` to `head`.
+fn live_edge(g: &Fast, tail: u32, head: u32) -> u32 {
+    let found: Vec<u32> = g
+        .edges
+        .iter()
+        .enumerate()
+        .filter(|(_, e)| e.live && e.tail == tail && e.head == head)
+        .map(|(i, _)| i as u32)
+        .collect();
+    assert_eq!(found.len(), 1, "exactly one live {tail} -> {head} in {found:?}");
+    found[0]
 }
 
 /// A graph with no cycles is left exactly as it was: the pass reads every edge and finds
@@ -45,8 +62,9 @@ fn a_two_cycle_collapses_to_one_merged_edge() {
     let mut g = graph(2, &[(0, 1), (1, 0)]);
     break_cycles(&mut g);
     assert_eq!(directions(&g), vec![(0, 1)]);
-    assert_eq!(g.edges[0].weight, 2, "the two declared weights add");
-    assert_eq!(g.edges[0].count, 2, "and so do the counts");
+    let survivor = live_edge(&g, 0, 1);
+    assert_eq!(g.edges[survivor as usize].weight, 2, "the two declared weights add");
+    assert_eq!(g.edges[survivor as usize].count, 2, "and so do the counts");
 }
 
 /// A three-cycle `n0 -> n1 -> n2 -> n0`: the search from `n0` walks to `n2` and finds
@@ -153,9 +171,14 @@ fn components_come_out_in_dense_index_order() {
 #[test]
 fn reversing_onto_an_existing_reverse_merges_the_two() {
     let mut g = graph(2, &[(0, 1), (1, 0)]);
-    let first = g.edges[0].clone();
-    g.reverse_edge(0);
-    assert!(!g.edges[0].live, "the reversed edge is unhooked");
+    break_cycles(&mut g);
+    let reversed = live_edge(&g, 1, 0);
+    let first = g.edges[reversed as usize].weight;
+    g.reverse_edge(reversed);
+    assert!(
+        !g.edges[reversed as usize].live,
+        "the reversed edge is unhooked"
+    );
     let live: Vec<_> = g
         .edges
         .iter()
@@ -163,8 +186,48 @@ fn reversing_onto_an_existing_reverse_merges_the_two() {
         .filter(|(_, e)| e.live)
         .map(|(i, _)| i)
         .collect();
-    assert_eq!(live, vec![1], "one edge survives, not two");
-    assert_eq!(g.edges[1].weight, first.weight * 2, "the weights add");
+    assert_eq!(live.len(), 1, "one edge survives, not two");
+    let survivor = live[0];
+    assert_eq!(
+        g.edges[survivor].weight,
+        first * 2,
+        "the weights add"
+    );
+}
+
+/// `class1` gives each input edge a copy in the fast graph and leaves the input record out
+/// of it. That is not bookkeeping: `find_fast_edge` asks whether a pair already has an edge,
+/// and the answer has to be "no" for the edge being examined — an input edge moved in rather
+/// than copied would answer "yes" and make `merge_oneway` merge an edge into itself.
+#[test]
+fn class1_copies_input_edges_into_the_fast_graph() {
+    let mut g = graph(3, &[(0, 1), (1, 2)]);
+    assert!(
+        g.edges.iter().all(|e| !e.live),
+        "an input edge is not in the fast graph until class1 runs"
+    );
+    super::class1::run(&mut g);
+    assert_eq!(directions(&g), vec![(0, 1), (1, 2)]);
+    let live: Vec<usize> = g
+        .edges
+        .iter()
+        .enumerate()
+        .filter(|(_, e)| e.live)
+        .map(|(i, _)| i)
+        .collect();
+    assert_eq!(live, vec![2, 3], "the copies follow the two input records");
+}
+
+/// Two input edges between the same pair are one constraint with double the weight, before
+/// ranking rather than after: `class1`'s `find_fast_edge` finds the copy the first one made.
+#[test]
+fn class1_folds_parallel_input_edges_together() {
+    let mut g = graph(2, &[(0, 1), (0, 1)]);
+    super::class1::run(&mut g);
+    assert_eq!(directions(&g), vec![(0, 1)], "one constraint, not two");
+    let survivor = live_edge(&g, 0, 1);
+    assert_eq!(g.edges[survivor as usize].weight, 2);
+    assert_eq!(g.edges[survivor as usize].count, 2);
 }
 
 /// A virtual edge is the reference's own: a one-point box widened by `nodesep / 2` on each

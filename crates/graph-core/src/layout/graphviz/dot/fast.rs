@@ -33,7 +33,8 @@
 //!
 //! `orig_out` is that cgraph: every node's **input** out-edges, in declaration order, built
 //! once by `add_edge` and never touched again. `class2` walks it rather than `out`, because
-//! by then `out` holds only the chains `class2` itself has built.
+//! by then `out` holds only the chains `class2` itself has built, and `class1` walks it
+//! because it is the pass that fills `out` in the first place.
 
 mod edge;
 mod node;
@@ -85,15 +86,23 @@ impl Fast {
         id
     }
 
-    /// `fast_edge` (`fastgr.c:59`): add an edge and wire both adjacency directions.
+    /// `agedge`: record an **input** edge. The record joins `edges` and the node's
+    /// `orig_out`, and stops there: an input edge is not in the fast graph. `class1` is what
+    /// puts edges into `out` and `inn`, and it makes a *copy* of each one, so the reference's
+    /// "is this edge already in the fast graph" test in `find_fast_edge` has an answer other
+    /// than "yes, this one" — which is why this is not a shortcut through [`Fast::link`].
     pub fn add_edge(&mut self, edge: Edge) -> u32 {
-        let id = self.link(edge.clone());
+        let mut edge = edge;
+        edge.live = false;
+        let id = u32::try_from(self.edges.len()).expect("edge index fits u32");
+        self.edges.push(edge.clone());
         self.orig_out[edge.tail as usize].push(id);
         id
     }
 
-    /// `fast_edge` without the input list: the half `new_virtual_edge` +
-    /// `virtual_edge` (`fastgr.c:131-173`) uses, for an edge the input never declared.
+    /// `fast_edge` (`fastgr.c:71-93`): file an edge in both adjacency directions. This is
+    /// what makes an edge part of the fast graph, and only the passes call it — `class1`,
+    /// `acyclic`'s reversal, `class2`'s chains.
     fn link(&mut self, edge: Edge) -> u32 {
         let id = u32::try_from(self.edges.len()).expect("edge index fits u32");
         self.out[edge.tail as usize].push(id);

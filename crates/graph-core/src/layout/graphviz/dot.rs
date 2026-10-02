@@ -28,6 +28,7 @@
 //! from Graphviz is an algorithmic difference, never drift.
 
 pub mod acyclic;
+pub mod class1;
 pub mod class2;
 pub mod decomp;
 pub mod fast;
@@ -69,21 +70,24 @@ pub fn empty_graph(count: u32) -> Fast {
     g
 }
 
-/// Add `count` real edges `(from, to)`, in the order given.
+/// Add the **input** edges `(from, to)`, in the order given.
 ///
 /// The reference reads a DOT graph, where an edge's direction is the order its endpoints
 /// are written in; the motor's edge list is in dense-index order and that order is the
-/// direction.
+/// direction. This records the input graph only — [`class1::run`] is what puts edges into the
+/// fast graph the ranking pass walks.
 pub fn add_edges(g: &mut Fast, edges: &[(u32, u32)]) {
     for &(from, to) in edges {
         g.add_edge(Edge::real(from, to));
     }
 }
 
-/// `dot1_rank` (`rank.c:496-517`) as far as it is ported: decompose, then break every
-/// cycle of every component. Returns the components in `decompose`'s order, which is the
-/// order the network simplex will be run in.
+/// The first two stages of `dot1_rank` (`rank.c:509-518`): `class1`, then `decompose`, then
+/// `acyclic` on every component. Returns the components in `decompose`'s order, which is the
+/// order the network simplex will be run in. This is the entry the cycle-breaking tests use,
+/// because cycle breaking is the first thing that can be checked without a rank.
 pub fn break_cycles(g: &mut Fast) -> Vec<Vec<u32>> {
+    class1::run(g);
     let components = decompose(g);
     for component in &components {
         acyclic::run(g, component);
