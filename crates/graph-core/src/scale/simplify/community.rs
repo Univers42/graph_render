@@ -1,87 +1,101 @@
-//! Community collapse: every Louvain community folds into its lowest dense index.
+//! Community collapse: every Louvain community folds into its lowest drawn dense index.
 
 use super::*;
 use crate::analysis::communities;
 use std::collections::BTreeMap;
 
-/// Every community collapses into its lowest dense index; internal edges go, external
-/// edges are re-anchored on the representatives as [`Step::links`].
+/// Every community collapses into its lowest drawn dense index; internal edges go, and
+/// each step's links are the external edges that touch it, re-anchored on the
+/// representatives as [`Step::links`].
 ///
-/// Two phases, and the order matters: every node's representative is assigned *before*
-/// any edge is classified, so an edge from a member to its own representative reads as
-/// internal rather than as a link to a node that is about to disappear. Communities are
-/// then journalled in ascending community id, so the journal's order is a function of
-/// the partition and not of a hash map's iteration order (D2).
+/// Three phases, each one pass, and the order matters (review R24: before, every
+/// community rescanned every edge). Every representative is assigned *before* any edge
+/// is classified, so an edge from a member to its own representative reads as internal
+/// rather than as a link to a node that is about to disappear. Communities are journalled
+/// in ascending community id, so the journal's order is a function of the partition and
+/// not of a hash map's iteration order (D2).
 pub(super) fn collapse_communities(t: &Topology, out: &mut Simplified) {
-    let membership = communities::louvain(t);
+    let mut step_of: Vec<Option<usize>> = vec![None; t.node_count() as usize];
+    let first = out.steps.len();
+    for members in group_by_community(&communities::louvain(t)).values() {
+        open_step(members, out, &mut step_of);
+    }
+    // A node an earlier pass removed points at a node that was drawn when this pass
+    // began, and that node now points at a drawn one: one hop lands every node on a
+    // drawn representative.
+    for node in 0..out.representative.len() {
+        let earlier = out.representative[node];
+        out.representative[node] = out.representative[earlier as usize];
+    }
+    classify_edges(t, &step_of, out);
+    for step in &mut out.steps[first..] {
+        step.links.sort_unstable();
+        step.links.dedup();
+    }
+}
+
+/// Each community's members, ascending, keyed by ascending community id.
+fn group_by_community(membership: &[u32]) -> BTreeMap<u32, Vec<u32>> {
     let mut groups: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
     for (node, &community) in membership.iter().enumerate() {
         groups.entry(community).or_default().push(node as u32);
     }
-    for members in groups.values() {
-        let representative = members[0];
-        for &node in members {
-            out.representative[node as usize] = representative;
-            // A later pass never resurrects what an earlier one removed: the leaf pass
-            // ran first, and a node it folded stays folded even if it is its community's
-            // lowest index.
-            if node != representative && out.visible[node as usize] == 1 {
-                out.visible[node as usize] = 0;
-            }
-        }
-    }
-    for members in groups.values() {
-        collapse_one(t, members, out);
-    }
+    groups
 }
 
-/// One community's collapse, or nothing when it is a singleton: there is nothing to
-/// collapse, and a step with no members would be a step that removes nothing.
-fn collapse_one(t: &Topology, members: &[u32], out: &mut Simplified) {
-    let representative = members[0];
-    let removed: Vec<u32> = members
+/// One community's step: its drawn members but the lowest go into the lowest. Nothing
+/// when fewer than two members are drawn: there is nothing to collapse, and a later
+/// pass never resurrects what an earlier one removed, nor represents a community by a
+/// node it no longer draws (review U25).
+fn open_step(members: &[u32], out: &mut Simplified, step_of: &mut [Option<usize>]) {
+    let mut drawn = members
         .iter()
         .copied()
-        .filter(|&node| node != representative)
-        .collect();
+        .filter(|&node| out.visible[node as usize] == 1);
+    let Some(representative) = drawn.next() else {
+        return;
+    };
+    let removed: Vec<u32> = drawn.collect();
     if removed.is_empty() {
         return;
     }
-    let mut edges = Vec::new();
-    let mut links: Vec<(u32, u32)> = Vec::new();
-    for e in 0..t.edge_count() {
-        let (a, b) = (t.edges().source[e as usize], t.edges().target[e as usize]);
-        let (ra, rb) = (
-            out.representative[a as usize],
-            out.representative[b as usize],
-        );
-        if ra == rb {
-            // Internal to this community: this step removes it. Internal to another
-            // community: that community's own step removes it, and recording it here
-            // would both double-count it and invent a self-link.
-            if same_community(members, ra) {
-                edges.push(e);
-            }
-        } else {
-            links.push((ra.min(rb), ra.max(rb)));
-        }
+    for &node in &removed {
+        out.visible[node as usize] = 0;
+        out.representative[node as usize] = representative;
     }
-    for &edge in &edges {
-        out.edges[edge as usize] = 0;
-    }
-    links.sort_unstable();
-    links.dedup();
+    step_of[representative as usize] = Some(out.steps.len());
     out.steps.push(Step {
         kind: Kind::Community,
         representative,
         nodes: removed,
-        edges,
-        links,
+        edges: Vec::new(),
+        links: Vec::new(),
     });
 }
 
-/// Whether `representative` is the surviving node of `members` — an edge whose endpoints
-/// share a representative is internal to *this* community, not merely already collapsed.
-fn same_community(members: &[u32], representative: u32) -> bool {
-    members.contains(&representative)
+/// Every edge once, by its endpoints' representatives. A drawn edge inside one step's
+/// representative is that step's to remove; an edge between two representatives is a
+/// link of each end's step. An edge an earlier pass removed still names its link (a
+/// contracted chain joins the communities of its two ends) but is not removed twice.
+fn classify_edges(t: &Topology, step_of: &[Option<usize>], out: &mut Simplified) {
+    let edges = t.edges();
+    for e in 0..t.edge_count() {
+        let (a, b) = (edges.source[e as usize], edges.target[e as usize]);
+        let (ra, rb) = (
+            out.representative[a as usize],
+            out.representative[b as usize],
+        );
+        if ra != rb {
+            let link = (ra.min(rb), ra.max(rb));
+            for step in [step_of[ra as usize], step_of[rb as usize]]
+                .into_iter()
+                .flatten()
+            {
+                out.steps[step].links.push(link);
+            }
+        } else if let (1, Some(step)) = (out.edges[e as usize], step_of[ra as usize]) {
+            out.edges[e as usize] = 0;
+            out.steps[step].edges.push(e);
+        }
+    }
 }

@@ -7,7 +7,7 @@ set -euo pipefail
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 pkg=${1:?the package: graph-render or graph-studio}
 shift
-source "$root/scripts/orch/scratch.sh"
+source "$root/scripts/orch/image.sh"
 exec docker run --rm -v "$root:/w" -w "/w/packages/$pkg" \
   -v "${REFS:-$GM_SCRATCH/refs}:/refs:ro" \
-  "${NODE_IMAGE:-node:22-slim}" node --test --test-reporter=tap "$@"
+  "$GM_NODE_IMAGE" node --test --test-reporter=tap "$@"

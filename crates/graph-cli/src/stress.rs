@@ -27,6 +27,8 @@
 //! only stand as `gated` with it present and current.
 
 pub(crate) mod cases;
+#[cfg(test)]
+mod fa2;
 pub(crate) mod metric;
 
 use crate::evidence::Stamp;

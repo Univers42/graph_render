@@ -33,7 +33,7 @@ use graph_core::layout::Geometry;
 use graph_core::layout::circle_packing;
 use graph_core::layout::force::BarnesHut;
 use graph_core::layout::force::spring::{self, Spring, Spring3D};
-use graph_core::layout::forceatlas2::ForceAtlas2;
+use graph_core::layout::forceatlas2::{ForceAtlas2, ForceAtlas2BarnesHut};
 use graph_core::layout::graphviz::neato;
 use graph_core::registry::{self as core, LAYOUTS};
 use graph_core::{
@@ -110,6 +110,9 @@ pub fn stage_bytes_for(
                 LAYOUT => grid.snapshot.to_bytes(),
                 BarnesHut::ID => run_force(&topology, |t| BarnesHut::run(t, &setting.force))?,
                 ForceAtlas2::ID => run_force(&topology, |t| ForceAtlas2::run(t, &setting.fa2))?,
+                ForceAtlas2BarnesHut::ID => {
+                    run_force(&topology, |t| ForceAtlas2BarnesHut::run(t, &setting.fa2))?
+                }
                 Spring::ID => run_force(&topology, |t| Spring::run(t, &setting.spring))?,
                 // The 3D sibling is the *same* kernel at `D = 3` over the same
                 // `SpringParams` (`force/spring3d.rs:45`), so the iterations budget is one

@@ -4,8 +4,7 @@
 //
 //  1. Presence is decided from the run's node/edge geometry *kind*, the same table
 //     `crates/graph-wasm/src/views.rs::column` matches on — never from `ptr === 0`, which
-//     is not a reliable "absent" signal (an empty-but-present column's pointer is a real,
-//     merely dangling, address, not necessarily 0 either) — C3.
+//     is not an "absent" signal: an empty-but-present column also reads (0, 0) — C3.
 //  2. Every returned view is re-derived, never reused, once the motor's `epoch` has moved
 //     past the one it was cached at (`bump()`, called on every mutating export) — a stale
 //     view is refused a reuse even if its pointer, length and backing buffer still happen

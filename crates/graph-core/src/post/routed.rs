@@ -45,6 +45,21 @@
 //! straight segment and [`Route::straight_fallback`] is `true`. It is a field of the
 //! output struct, not a log line: a downstream program cannot read stderr
 //! (`prompt.md` §11).
+//!
+//! No step cap cuts a route short: the trace descends the field strictly, so it never
+//! revisits a cell and ends within the grid's cell count. The fixed cap that stood here
+//! called a 33 000-cell serpentine route "no route" and drew it straight through its walls
+//! (review finding R9); the reference's `min(4 · max(counts), 4096)` cap would do the same
+//! sooner, so it is not ported.
+//!
+//! # Obstacles: a divergence from the reference
+//!
+//! Another node's cells are **impassable** here, as the phase asks ("treating every other
+//! node's cells as obstacles"). The reference never forbids a cell: `density_cost` prices
+//! it at a finite `1 + avoid · gain · density` (`routed.py:103-133`), and its default
+//! `avoid` is 0, so at default settings it routes straight through a node in the way where
+//! this module detours (review finding R8). Routes are therefore not comparable with the
+//! oracle wherever a node lies on a shortest path.
 
 pub mod csr;
 #[cfg(test)]
@@ -56,7 +71,7 @@ pub mod trace;
 mod tests;
 
 use crate::columns::EdgeColumns;
-use crate::post::grid_index::{GridIndex, GridParams};
+use crate::post::grid_index::{GridIndex, GridParams, check_geometry};
 use crate::stage::StageError;
 use graph_contract::geometry::{NodeGeometry, Paths};
 use petgraph::algo::dijkstra;
@@ -64,11 +79,6 @@ use petgraph::algo::dijkstra;
 pub use csr::{GridCsr, build_csr};
 pub use petgraph_impls::GridGraph;
 pub use trace::Trace;
-
-/// How many cells a route may cross before the walk is called a failure. A shortest path
-/// on a grid never revisits a cell, so a walk longer than the cell count has looped; the
-/// cap is a backstop against a non-converged field, not a routing policy.
-const MAX_STEPS: usize = 4 * 4096;
 
 /// The distance field: one cost per cell, in dense cell order, `f64::INFINITY` where the
 /// field never reached. Probed at a cell index, never iterated.
@@ -163,20 +173,52 @@ pub fn route(
 
 /// [`route`], over a grid the caller already built — the form that reuses the buffer
 /// across several layouts (`dsa-and-memory.md`: pool what churns).
+///
+/// Refuses what [`GridIndex::build`] refuses of `nodes`, a grid built over a different
+/// number of nodes, and an edge naming a node past them. A grid built over other nodes of
+/// the same count is not detected: it routes around that grid's obstacles.
 pub fn route_over(
     grid: &mut GridIndex,
     nodes: &NodeGeometry,
     edges: &EdgeColumns,
 ) -> Result<Routed, StageError> {
+    check_geometry(nodes)?;
+    check_endpoints(grid, nodes, edges)?;
     let graph = build_csr(grid);
     let mut routes = Vec::with_capacity(edges.source.len());
     let mut fallbacks = 0;
-    for e in 0..edges.source.len() {
-        let route = one_route(grid, &graph, nodes, edges.source[e], edges.target[e]);
+    for (a, b) in edges.source.iter().zip(&edges.target) {
+        let route = one_route(grid, &graph, nodes, *a, *b);
         fallbacks += u32::from(route.straight_fallback);
         routes.push(route);
     }
     Ok(Routed { routes, fallbacks })
+}
+
+/// `Err(Param)` unless `grid` holds one cell per node of `nodes` and every endpoint names
+/// one of them. Runs after [`check_geometry`], so every node column has `x`'s length.
+fn check_endpoints(
+    grid: &GridIndex,
+    nodes: &NodeGeometry,
+    edges: &EdgeColumns,
+) -> Result<(), StageError> {
+    let n = grid.node_count();
+    let count = nodes.columns().first().map_or(0, |(_, x)| x.len());
+    if count != n as usize {
+        return Err(StageError::Param {
+            name: "grid",
+            rule: "built over the nodes being routed",
+        });
+    }
+    let paired = edges.source.len() == edges.target.len();
+    let inside = edges.source.iter().chain(&edges.target).all(|v| *v < n);
+    if !(paired && inside) {
+        return Err(StageError::Param {
+            name: "edges",
+            rule: "source and target paired, every endpoint below the node count",
+        });
+    }
+    Ok(())
 }
 
 /// One edge's route: the traced cells as a polyline, or the straight segment when the walk
@@ -197,9 +239,6 @@ fn one_route(grid: &GridIndex, graph: &GridCsr, nodes: &NodeGeometry, a: u32, b:
     let Some(walk) = trace::trace(graph, grid, &field, to, from) else {
         return straight();
     };
-    if walk.cells.len() > MAX_STEPS {
-        return straight();
-    }
     let cells = walk.forwards();
     let mut points = Vec::with_capacity(cells.len());
     points.push(centre(nodes, a));
@@ -233,9 +272,8 @@ fn centre(nodes: &NodeGeometry, n: u32) -> (f64, f64) {
 /// relaxed down, and the trace's `dist[n] + w(n, x)` minimum ignores it. Dijkstra runs to
 /// exhaustion rather than stopping at `to` (`None`), because a route may have to pass
 /// *through* a cell whose field is only final later.
-/// The distance field Dijkstra solves, as one cost per cell in dense cell order.
 ///
-/// petgraph's `dijkstra` answers in a `HashMap`; this probes it at every cell index
+/// The field comes back as one cost per cell in dense cell order. petgraph's `dijkstra` answers in a `HashMap`; this probes it at every cell index
 /// `0..cells` in order and drops it, so no hash order survives into the crate and nothing
 /// downstream depends on which map petgraph chose. This is Phase 7's own discipline in
 /// `analysis::paths.rs::dijkstra_distances`, on the same library.

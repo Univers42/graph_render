@@ -32,10 +32,12 @@ HERE = Path(__file__).resolve().parent
 # A full-HD window: at DPR 2 the graph canvas is about 3000x2000, the size a desktop user has.
 VIEWPORT = (1920, 1080)
 DEBUG_PORT = 9222
-FORCE_LAYOUT = "layout.forceatlas2"
-# Measured in the motor alone (2026-09-29): forceatlas2 takes 66 s at 20 000 nodes, pivot MDS
-# 1.3 s. The frame rows time the drawing, not the layout, so the large case is laid out by
-# the one that finishes; each case records which.
+# The studio's own default, Barnes-Hut (`docs/reports/perf-studio-fa2bh.md`): O(n log n), so
+# the cases under LARGE_FROM are laid out by it rather than by the exact dense sum.
+FORCE_LAYOUT = "layout.forceatlas2.barnes_hut"
+# Measured in the motor alone (2026-09-29): the exact forceatlas2 takes 66 s at 20 000 nodes,
+# pivot MDS 1.3 s. The frame rows time the drawing, not the layout, so the large case is laid
+# out by the one that finishes; each case records which.
 LARGE_LAYOUT = "layout.mds.pivot"
 LARGE_FROM = 5000
 FRAME_CASES = [(120, 1), (120, 2), (2000, 1), (2000, 2), (10000, 1), (10000, 2)]
