@@ -62,11 +62,10 @@ fn the_ninth_node_is_the_reference_interior_bit_for_bit() {
 #[test]
 fn the_interior_is_uniform_in_minus_one_one_times_the_ratio() {
     let mut stream = Mt19937::new(SEED);
-    let reach = SCALE * INTERIOR_RATIO;
     let mut want = Vec::new();
     for _ in 0..3 {
         let u = stream.next_f64();
-        want.push((-1.0 + (1.0 - -1.0) * u) * reach);
+        want.push((-1.0 + (1.0 - -1.0) * u) * REACH);
     }
     for (axis, value) in want.iter().enumerate() {
         assert_eq!(value.to_bits(), INTERIOR_NODE_8[axis], "axis {axis}");
@@ -109,14 +108,13 @@ fn a_neighbouring_seed_moves_the_interior_and_no_corner() {
 fn the_interior_draws_three_values_per_node_axis_by_axis() {
     let n = 40u32;
     let (x, y, z) = space(&cube(&bare(n)).expect("runs"));
-    let reach = SCALE * INTERIOR_RATIO;
     let mut stream = Mt19937::new(SEED);
     for i in 8..n as usize {
         for (axis, column) in [&x, &y, &z].into_iter().enumerate() {
             let u = stream.next_f64();
             assert_eq!(
                 column[i],
-                ((-1.0 + (1.0 - -1.0) * u) * reach) as f32,
+                ((-1.0 + (1.0 - -1.0) * u) * REACH) as f32,
                 "node {i} axis {axis}: the draw order moved"
             );
         }
