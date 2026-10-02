@@ -27,6 +27,7 @@ mod fdp;
 mod graphviz;
 mod hierarchical_3d;
 mod igraph;
+mod judge;
 mod neato;
 mod osage;
 mod patchwork;
@@ -52,6 +53,7 @@ use crate::evidence::{FINGERPRINTED, Stamp};
 use crate::runner::file_sha256;
 use graph_contract::geometry::NodeGeometry;
 use graph_core::{EdgeRecord, NodeRecord, registry, run_with};
+use judge::{closed_cases, judge, unbroken};
 use serde_json::{Value, json};
 use std::io::Write;
 use std::path::Path;
@@ -211,98 +213,6 @@ fn verdict(differential: &Differential, dir: &Path) -> Result<bool, String> {
     crate::evidence::record(&stamp, &format!("oracle-{name}"), body)?;
     println!("{}", if pass { "PASS" } else { "FAIL" });
     Ok(pass)
-}
-
-/// Whether a differential with analytically determined cases agrees with them **byte for
-/// byte**, when its harness reports that section.
-///
-/// A tolerance over the small cases is weaker than the truth they carry, so the harness
-/// renders both arms at the oracle's own printed precision and compares the strings; a
-/// result with a `closed` section and `closed_exact` false is a failure, not a note. The
-/// differentials with no closed cases say nothing about it and this returns true.
-fn closed_cases(result: &Value) -> bool {
-    if !result.get("closed_exact").is_some_and(Value::is_boolean) {
-        return true;
-    }
-    let exact = result["closed_exact"].as_bool().unwrap_or(false);
-    let cases = result["closed"].as_object().map_or(0, serde_json::Map::len);
-    println!(
-        "  closed cases: {cases} compared byte for byte: {}",
-        if exact { "ok" } else { "FAIL" }
-    );
-    exact && cases > 0
-}
-
-/// Each layout's verdict against its ceiling: `(all pass, ledger function entries)`. A
-/// layout with no compared case fails: a differential over nothing proves nothing, and so
-/// does one that read a case and judged none of it — see [`covered`].
-fn judge(
-    ceilings: &[(&str, &str, f64)],
-    result: &Value,
-) -> Result<(bool, serde_json::Map<String, Value>), String> {
-    let mut pass = true;
-    let mut functions = serde_json::Map::new();
-    for &(id, key, allowed) in ceilings {
-        let row = &result["layouts"][key];
-        let cases = row["cases"].as_u64().unwrap_or(0);
-        let worst = row["worst"]
-            .as_f64()
-            .ok_or(format!("{key}: no measured worst"))?;
-        let within = cases > 0 && worst <= allowed && covered(key, row);
-        let verdict = if within { "ok" } else { "FAIL" };
-        println!("  {id}: {cases} cases, worst {worst:.3e}, ceiling {allowed:.0e}: {verdict}");
-        pass &= within;
-        functions.insert(
-            id.into(),
-            json!({
-                "cases": cases, "declared": 0, "unexplained": u64::from(!within),
-                "worst": worst, "ceiling": allowed,
-            }),
-        );
-    }
-    Ok((pass, functions))
-}
-
-/// Whether every case a harness read for `key` was compared, for a differential that states
-/// how many it emitted.
-///
-/// `cases` are the ones the harness judged, split into `exact` (the two arms returned the
-/// same bytes) and `ties` (the reference's order inside a class of equal keys is its own, so
-/// the case is judged against the rule instead). A run that read a case and judged none of
-/// it would otherwise report a shorter, passing table, and one that counted a case in both
-/// halves a pass it did not earn. Differentials over a seeded sweep carry no `emitted` key
-/// and keep the flat "cases > 0" rule.
-fn covered(key: &str, row: &Value) -> bool {
-    let Some(emitted) = row.get("emitted").and_then(Value::as_u64) else {
-        return true;
-    };
-    let (cases, exact, ties) = (
-        row["cases"].as_u64().unwrap_or(0),
-        row["exact"].as_u64().unwrap_or(0),
-        row["ties"].as_u64().unwrap_or(0),
-    );
-    let ok = cases == emitted && exact + ties == cases;
-    if !ok {
-        println!(
-            "  {key}: {cases} compared of {emitted} emitted ({exact} byte-equal, {ties} on \
-             the rule), so the run skipped a case or counted one twice"
-        );
-    }
-    ok
-}
-
-/// Whether the result is one an honest run wrote. A harness's `--break` names the case it
-/// broke in `broken`, and such a run's mismatches are the control's own, so it can never
-/// be the pass the ledger records. A result with no `broken` key is every other
-/// differential's and says nothing.
-fn unbroken(result: &Value) -> bool {
-    match result.get("broken") {
-        None | Some(Value::Null) => true,
-        Some(broken) => {
-            println!("  {} was deliberately broken: not a verdict", broken);
-            false
-        }
-    }
 }
 
 #[cfg(test)]
