@@ -80,6 +80,9 @@ function spaceFace(seen: Seen): Pick<ViewFace, "orbit" | "setOrbit" | "resetOrbi
 }
 
 function recordingView(seen: Seen, handlers: Handlers): ViewFace {
+  // The pins this desk holds, in the order they were set; `pinned()` hands the same array back,
+  // so a test reads what the view would be showing rather than what it was told to show.
+  const pinned: number[] = [];
   return {
     setFrame: (frame, options = {}) => void seen.frames.push({ frame, animate: options.animate === true }),
     setStyle: (style) => void seen.styles.push(style),
@@ -96,6 +99,14 @@ function recordingView(seen: Seen, handlers: Handlers): ViewFace {
     limits: () => ({ min: 0.02, max: 40 }),
     focus: (node) => void seen.calls.push(`focus ${node}`),
     select: (node) => void seen.calls.push(`select ${node}`),
+    pinned: () => pinned,
+    togglePin: (node) => {
+      const at = pinned.indexOf(node);
+      if (at >= 0) pinned.splice(at, 1);
+      else pinned.push(node);
+      seen.calls.push(`togglePin ${node}`);
+    },
+    hide: (nodes) => void seen.calls.push(`hide ${nodes.join(" ")}`),
     local: (node, options) => {
       seen.calls.push(`local ${node} ${JSON.stringify(options)}`);
       if (node === 0 && options.depth === 2 && options.incoming && !options.outgoing && options.neighbours) {

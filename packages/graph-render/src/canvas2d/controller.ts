@@ -1,6 +1,6 @@
 /** The view's state changes: everything `createView` does to a canvas between frames. */
 import {
-  type Camera, type FitArea, type Point, areaOf, fitCamera, limitsFor, screenToWorld,
+  type Camera, type FitArea, type Point, type Viewport, fitCamera, limitsFor, screenToWorld,
 } from "../camera.ts";
 import { type LiveDrag, movedScene } from "../drag.ts";
 import type { Frame } from "../frame.ts";

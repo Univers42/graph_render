@@ -11,7 +11,8 @@ export interface MenuAt {
   readonly at: Point;
 }
 
-export type MenuView = Pick<View, "focus" | "hide" | "togglePin" | "pinned">;
+/** The menu asks the view one thing: which nodes are pinned, so the entry can read Pin or Unpin. */
+export type MenuView = Pick<View, "pinned">;
 
 export interface NodeMenuProps {
   readonly studio: Studio;
@@ -22,12 +23,23 @@ export interface NodeMenuProps {
   readonly onClose: () => void;
 }
 
+/**
+ * WHY the id and not the index: an action takes a name and resolves it (`nodeNamed`,
+ * `actions/view.ts`), which is what makes every gesture but Copy logged, typeable and checked
+ * once. Copy is the exception and reads out of the state instead: what it wants is the text on
+ * the clipboard, not a change to the drawing.
+ */
 function perform(item: MenuItem, props: NodeMenuProps, node: number): void {
-  const { studio, ids, view } = props;
-  if (item === "focus") view.focus(node);
-  else if (item === "pin") view.togglePin(node);
-  else if (item === "hide") view.hide([node]);
-  else studio.copy(ids?.[node] ?? "");
+  const { studio, ids } = props;
+  if (item === "copy") {
+    studio.copy(ids?.[node] ?? "");
+    return;
+  }
+  const id = ids?.[node];
+  if (id === undefined) return;
+  if (item === "focus") void studio.dispatch("view.focus", { node: id });
+  else if (item === "pin") void studio.dispatch("view.pin", { node: id });
+  else if (item === "hide") void studio.dispatch("view.hide", { node: id });
 }
 
 function moveFocus(list: HTMLElement | null, event: KeyboardEvent): void {

@@ -84,6 +84,12 @@ export const FLAT_SEGMENTS = 16;
 /** de Casteljau's work triangle: two slots per control point, grown and never shrunk. */
 let work = new Float32Array(0);
 
+/** A point the evaluator writes into: `Point` is readonly, and this one is not. */
+export interface Sample {
+  x: number;
+  y: number;
+}
+
 /**
  * The Bezier of `count` control points at `t`, read from `control` as consecutive (x, y)
  * pairs: the general degree, so a snapshot's degree 4, 5 or 6 is drawn as a curve and not
@@ -93,7 +99,7 @@ let work = new Float32Array(0);
  * `control` is left alone and `out` carries the answer, so one caller can walk a whole
  * curve without allocating per point.
  */
-export function bezierAt(control: Float32Array, count: number, t: number, out: Point): Point {
+export function bezierAt(control: Float32Array, count: number, t: number, out: Sample): Sample {
   const span = 2 * count;
   if (work.length < span) work = new Float32Array(span);
   for (let at = 0; at < span; at += 1) work[at] = control[at] ?? 0;

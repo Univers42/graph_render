@@ -48,6 +48,7 @@ function silentView(calls: string[]): ViewFace {
     limits: () => ({ min: 0.02, max: 40 }),
     focus: () => void calls.push("focus"), select: () => void calls.push("select"),
     local: (node) => [node], showAll: () => void calls.push("showAll"),
+    pinned: () => [], togglePin: () => void calls.push("togglePin"), hide: () => void calls.push("hide"),
     on: () => noop,
     toPNG: () => Promise.resolve(new Blob(["png"], { type: "image/png" })),
     setCamera: () => void calls.push("setCamera"),

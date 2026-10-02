@@ -30,7 +30,7 @@ export interface Frame {
   readonly curveDegree: number;
   readonly offsets: Uint32Array | null;
   readonly pts: Float32Array | null;
-  /** Over node centres; `null` for no nodes. */
+  /** Over the node centres and every interior edge vertex; `null` for no nodes. */
   readonly bounds: Bounds | null;
   /** Motor units to world units. */
   readonly factor: number;

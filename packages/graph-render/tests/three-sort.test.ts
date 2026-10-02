@@ -84,15 +84,24 @@ test("a frame past the bucket cap still paints by depth, not by dense index", ()
   // Past the cap the bucket width is the cap's worth of the range, so nodes closer together
   // than that share a bucket and paint in dense order inside it — the documented cost. What
   // must still hold is that the drawing as a whole is painted back to front.
-  const depth = 4000;
+  const total = 4000;
   const cluster = 200;
-  const depths = Float64Array.from({ length: depth }, (_, at) =>
+  const depths = Float64Array.from({ length: total }, (_, at) =>
     at < cluster ? 2 + at * 0.00004 : 10 + (at - cluster),
   );
   const painted = order([...depths]);
   assert.notDeepEqual(painted, [...depths.keys()], "not the dense index order");
-  assert.equal(painted[0], 3999, "the furthest node is painted first");
-  assert.equal(painted[painted.length - 1], 0, "and the nearest of all last");
+  // `?? 0`: noUncheckedIndexedAccess, not a real case — the index is in range by construction.
+  assert.ok((depths[painted[0] ?? 0] ?? 0) > 1000, "a far node leads, not the dense index order");
+  // The coarse bucket is wider than the far nodes' spacing, so ties inside one bucket are
+  // allowed to step back by up to that width; a step further than it is a real defect.
+  const coarse = (3809 - 2) / 1024;
+  for (let at = 1; at < painted.length; at += 1) {
+    const was = depths[painted[at - 1] ?? 0] ?? 0;
+    const now = depths[painted[at] ?? 0] ?? 0;
+    assert.ok(was - now >= -coarse, `depth ${was} is painted before ${now}, one coarse bucket on`);
+  }
   const run = painted.filter((node) => node < cluster);
-  assert.deepEqual(run, [...run].sort((a, b) => a - b), "inside one coarse bucket, dense order");
+  assert.deepEqual(run, [...run.keys()], "the one coarse bucket paints its own nodes densely");
+  assert.equal(painted[painted.length - 1], cluster - 1, "and the nearest of all last");
 });

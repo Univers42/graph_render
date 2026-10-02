@@ -10,16 +10,14 @@
  * are both off one side of the screen is dropped even when its bend would have reached
  * into view. And while the view moves, a frame with more edges than its budget (MOVING_BUDGET,
  * lowered by `pace.ts` when frames run late) draws every k-th one; the whole set is drawn as
- * soon as it stops. And while the layout is still settling (edges.ts:125) a Polyline or a
- * Curve is drawn as one straight source→target line and its `pts` are ignored; the bends and
- * the routed corners appear on the first settled frame.
+ * soon as it stops. And while the layout is still settling (`!input.settled`) a routed
+ * edge is drawn as one straight source→target line; its bends appear once it settles.
  *
  * The style's edge colour picks the pass: `flat` is paintAll, one stroke in the theme's own
  * colour as above; `gradient` is paintGradient, which batches the edges whose ends share a
  * colour and gives every edge whose ends do not share one its own colour (edgeGradient.ts).
  */
-import { type Point } from "../camera.ts";
-import { bezierAt, controlPoint, FLAT_SEGMENTS } from "../edges2d/curve.ts";
+import { bezierAt, controlPoint, FLAT_SEGMENTS, type Sample } from "../edges2d/curve.ts";
 import { edgeStops } from "../colour/blend.ts";
 import { type EdgePlan, FALLBACK_COLOUR, meanCss, planOf } from "./edgeGradient.ts";
 import { paintArrows } from "./arrows.ts";
@@ -74,10 +72,9 @@ function screenY(input: PaintInput, point: number): number {
   return (pts[2 * point + 1] ?? 0) * input.camera.scale + input.camera.y;
 }
 
-/** The control polygon in screen coordinates: grown and never shrunk, one edge at a time. */
+/** The control polygon in screen coordinates, grown and never shrunk, and the point de Casteljau last left it at. */
 let polygon: Float32Array = new Float32Array(0);
-/** Where de Casteljau left the curve last, between two chords of the same edge. */
-const sampled: Point = { x: 0, y: 0 };
+const sampled: Sample = { x: 0, y: 0 };
 
 /** Loads the edge's own control polygon, its two endpoints included, in dense order. */
 function loadPolygon(input: PaintInput, from: number, to: number, ends: Ends): void {
@@ -123,11 +120,7 @@ function traceInterior(input: PaintInput, edge: number, ends: Ends): void {
   const degree = frame.curveDegree;
   if (frame.edgeKind === "Curve" && degree >= 2 && to - from === degree - 1) {
     if (degree === 2) ctx.quadraticCurveTo(screenX(input, from), screenY(input, from), ends.bx, ends.by);
-    else if (degree === 3) ctx.bezierCurveTo(
-      screenX(input, from), screenY(input, from),
-      screenX(input, from + 1), screenY(input, from + 1),
-      ends.bx, ends.by,
-    );
+    else if (degree === 3) ctx.bezierCurveTo(screenX(input, from), screenY(input, from), screenX(input, from + 1), screenY(input, from + 1), ends.bx, ends.by);
     else traceHigher(input, from, to, ends);
     return;
   }

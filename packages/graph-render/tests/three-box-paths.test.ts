@@ -54,7 +54,10 @@ function tracer(): { readonly ctx: Surface2D; readonly calls: Call[] } {
     lineTo: (...args: number[]) => snap("lineTo", args),
     quadraticCurveTo: (...args: number[]) => snap("quadraticCurveTo", args),
     bezierCurveTo: (...args: number[]) => snap("bezierCurveTo", args),
-    arc: (...args: number[]) => snap("arc", args),
+    arc: (...args: Parameters<Surface2D["arc"]>) => {
+      // The angle pair is what a test reads; the direction flag is not recorded.
+      snap("arc", args.filter((at): at is number => typeof at === "number"));
+    },
     rect: (...args: number[]) => snap("rect", args),
     stroke: () => snap("stroke", []),
     fill: () => snap("fill", []),
@@ -74,13 +77,11 @@ function tracer(): { readonly ctx: Surface2D; readonly calls: Call[] } {
 
 const at = (calls: readonly Call[], name: string): Call[] => calls.filter((call) => call.name === name);
 
-/** Four boxes whose depths do not run in dense index order, so an order-blind mean shows. */
-const X = [-180, -60, 60, 180];
-const Z = [0, 120, 40, 80];
-
+/** Boxes spread along x, with depths that do not run in dense index order. */
 function boxFrame(w: readonly number[], h: readonly number[], z: readonly number[]): Frame {
+  const x = z.map((_, at) => -180 + at * (360 / (z.length - 1)));
   return {
-    ...lineFrame({ x: X, y: [0, 0, 0, 0], z }),
+    ...lineFrame({ x, y: z.map(() => 0), z }),
     nodeKind: "Box", r: null, w: Float32Array.from(w), h: Float32Array.from(h),
   };
 }
@@ -128,10 +129,16 @@ function drawnOf(frame: Frame, orbit: Orbit): Drawn {
   });
 }
 
-/** The same drawing with no z column: the 2D painter's, and every row's negative control. */
+/**
+ * The same drawing with no z column: the 2D painter's, and every row's negative control.
+ * Its camera is fitted by hand, because the 3D fit's own orbit is not a 2D camera and the
+ * 2D painter would cull every node off the left edge.
+ */
+const FITTED_2D = { x: 600, y: 600, scale: 0.5 };
+
 function control(frame: Frame): Call[] {
   const { ctx, calls } = tracer();
-  paintFrame(inputFor({ ...frame, z: null }, ctx));
+  paintFrame(inputFor({ ...frame, z: null }, ctx, { camera: FITTED_2D }));
   return calls;
 }
 
@@ -144,7 +151,7 @@ function rectOf(calls: readonly Call[], drawn: Drawn, node: number): Call {
 }
 
 test("a 3D Box draws its own w x h rect and the 2D painter's rim", () => {
-  const frame = boxFrame([60, 24, 40, 90], [20, 40, 70, 12], Z);
+  const frame = boxFrame([60, 24, 40, 90], [20, 40, 70, 12], [0, 120, 40, 80]);
   const orbit = orbitOf(frame);
   const drawn = drawnOf(frame, orbit);
   const { ctx, calls } = tracer();
@@ -168,8 +175,10 @@ test("a 3D Box draws its own w x h rect and the 2D painter's rim", () => {
   }
   const rim = at(calls, "stroke");
   assert.equal(rim.length, 4, "the rim is one stroke per Box node, as `nodes.ts:73-77`");
-  assert.equal(rim[0]?.lineWidth, 1, "at the rim's own one device pixel");
-  assert.equal(rim[0]?.stroke, DARK_THEME.rim, "in the theme's rim colour");
+  const first = rim[0];
+  assert.ok(first !== undefined, "and there is one to look at");
+  assert.equal(first.lineWidth, 1, "at the rim's own one device pixel");
+  assert.equal(first.stroke, DARK_THEME.rim, "in the theme's rim colour");
   assert.equal(counts.draws, 8, "four fills and four rim strokes");
   // The negative control: the same drawing as a 2D frame is still the batched 2D path.
   const flat = control(frame);
@@ -179,15 +188,18 @@ test("a 3D Box draws its own w x h rect and the 2D painter's rim", () => {
 
 test("a 2D Box frame still fills one path per palette entry", () => {
   // The control row on its own: two palette entries over four nodes, batched into two fills
-  // and one rim stroke, where the 3D painter issues a fill and a stroke for each node.
-  const frame = boxFrame([60, 24, 40, 90], [20, 40, 70, 12], Z);
+  // and two rim strokes, where the 3D painter issues a fill and a stroke for each node.
+  const frame = boxFrame([60, 24, 40, 90], [20, 40, 70, 12], [0, 120, 40, 80]);
   const { ctx, calls } = tracer();
-  const counts = paintFrame(inputFor({ ...frame, z: null }, ctx));
+  const counts = paintFrame(inputFor({ ...frame, z: null }, ctx, { camera: FITTED_2D }));
   assert.equal(counts.nodes, 4);
-  assert.equal(counts.draws, 1, "one fill for the batch, where the 3D painter counts eight");
+  assert.equal(counts.draws, 2, "one draw per palette entry, where the 3D painter counts eight");
   assert.equal(at(calls, "fill").length, 2);
   assert.equal(at(calls, "rect").length, 4);
-  assert.equal(at(calls, "stroke").length, 1, "one rim stroke for the whole batch");
+  assert.equal(at(calls, "stroke").length, 2, "one rim stroke per palette entry, as `nodes.ts:73-77`");
+  const space = tracer();
+  assert.equal(paintFrame(inputFor(frame, space.ctx, { space: drawnOf(frame, orbitOf(frame)) })).draws, 8,
+    "and the same frame with its z column back is four fills and four rims");
 });
 
 test("a 3D Polyline draws its interior points, not the chord", () => {
@@ -257,7 +269,10 @@ test("a 3D edge's stroke width follows style.edgeWidth and edges.scale", () => {
 });
 
 test("pixels-per-world-unit is the dense-index mean, so it cannot follow the camera", () => {
-  const frame = boxFrame([60, 24, 40, 90], [20, 40, 70, 12], Z);
+  // Eleven boxes at depths that sort into a wholly different order, because a mean over a few
+  // terms comes out the same number whichever way round they are added.
+  const z = [2100.3, 1818.8, 1180, 1807.6, 318.6, 3084.7, 809.4, 482.6, 3400.7, 2415.5, 2470.3];
+  const frame = boxFrame(z.map((_, at) => 20 + at * 7), z.map((_, at) => 40 - at * 3), z);
   const orbit = orbitOf(frame);
   const drawn = drawnOf(frame, orbit);
   const focal = focalOf(orbit, VIEWPORT);
@@ -266,7 +281,7 @@ test("pixels-per-world-unit is the dense-index mean, so it cannot follow the cam
   for (let node = 0; node < frame.nodeCount; node += 1) dense += perUnit(node);
   let byDepth = 0;
   for (let at = 0; at < drawn.drawn; at += 1) byDepth += perUnit(drawn.order[at] ?? 0);
-  assert.deepEqual([...drawn.order], [1, 3, 2, 0], "the depth order is not the dense order");
-  assert.equal(drawn.ppu, dense / 4, "the mean, summed in dense index order");
-  assert.notEqual(drawn.ppu, byDepth / 4, "and not the same terms added furthest-first");
+  assert.deepEqual([...drawn.order], [4, 7, 6, 2, 3, 1, 0, 9, 10, 5, 8], "not the dense order");
+  assert.equal(drawn.ppu, dense / frame.nodeCount, "the mean, summed in dense index order");
+  assert.notEqual(drawn.ppu, byDepth / frame.nodeCount, "and not the same terms added furthest-first");
 });

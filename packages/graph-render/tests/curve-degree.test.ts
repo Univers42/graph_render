@@ -10,7 +10,6 @@ import { test } from "node:test";
 import { adjacencyOf } from "../src/adjacency.ts";
 import { paintEdges } from "../src/canvas2d/edges.ts";
 import { newCounts, type PaintInput } from "../src/canvas2d/input.ts";
-import type { Surface2D } from "../src/canvas2d/surface.ts";
 import type { Frame } from "../src/frame.ts";
 import { newLabelPlan } from "../src/labels.ts";
 import { styleFrom } from "../src/style.ts";
@@ -65,11 +64,19 @@ function traced(): Path {
   const record = recorder();
   const moves: number[][] = [];
   const lines: number[][] = [];
-  const ctx = record.ctx as Surface2D;
+  const ctx = record.ctx;
   const lineTo = ctx.lineTo.bind(ctx);
   const moveTo = ctx.moveTo.bind(ctx);
-  ctx.lineTo = (x: number, y: number): void => void (lines.push([x, y]), lineTo(x, y));
-  ctx.moveTo = (x: number, y: number): void => void (moves.push([x, y]), moveTo(x, y));
+  // Each wrapper notes the point it was handed and forwards. A void method is called as its
+  // own statement rather than wrapped in `void`, so the forwarding reads as what it is.
+  ctx.lineTo = (x: number, y: number): void => {
+    lines.push([x, y]);
+    lineTo(x, y);
+  };
+  ctx.moveTo = (x: number, y: number): void => {
+    moves.push([x, y]);
+    moveTo(x, y);
+  };
   return { record, moves, lines };
 }
 
