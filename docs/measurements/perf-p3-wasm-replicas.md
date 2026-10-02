@@ -45,7 +45,7 @@ around `gm_run_replica` alone.
 | 1 | `scripts/orch/gr cargo fmt --all --check` | 0 | 0 |
 | 2 | `scripts/orch/gr cargo clippy --workspace --all-targets -- -D warnings` | 0 | 0 |
 | 3 | `scripts/orch/gr cargo clippy -p graph-wasm --target wasm32-unknown-unknown --features replicas -- -D warnings` | 0 | 0 |
-| 4 | `scripts/orch/gr cargo test --workspace --no-fail-fast` | see below | 0 |
+| 4 | `scripts/orch/gr cargo test --workspace --no-fail-fast` | 0 | 0 |
 | 5 | `scripts/orch/gr cargo run -q -p graph-cli -- hashgate --seeds 8` | 0 | 0 |
 | 6 | `scripts/orch/gr node harness/wasm-replicas.mjs hash --seeds 8 --ranks 1,2,3,4,7` | 0 | 0 |
 | 7 | the same with `--break` | 1 | 1 |
@@ -54,6 +54,9 @@ Gate 5 is the "the default artifact did not move" row: it is green because the `
 is off by default and its build goes to a different target dir. Supporting check, same command
 family: the default artifact's import list is `[]`, asserted by instantiating
 `target/wasm32-unknown-unknown/release/graph_wasm.wasm` and reading `WebAssembly.Module.imports`.
+Gate 4 is 20 `test result: ok` lines, 0 failed; the `self-check FAILED` lines inside it are the
+oracle harness's own negative controls printing what they are there to print
+(`a_broken_copy_of_the_oracle_harness_fails_its_own_self_check` and the tick self-check rows).
 
 Gate 6: **80 cells, 0 failed** (2 layouts × 8 seeds × 5 rank counts), and 0 cross-rank
 disagreements. Gate 7: **80 cells, 64 failed** — every cell with `ranks > 1`, because the last rank
