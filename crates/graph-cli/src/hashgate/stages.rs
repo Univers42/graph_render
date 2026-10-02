@@ -31,8 +31,8 @@
 mod checks;
 
 use super::{Setting, staged};
-use checks::{check, stage_list};
 pub(crate) use checks::node_count;
+use checks::{check, stage_list};
 use graph_core::layout::Geometry;
 use graph_core::layout::circle_packing;
 use graph_core::layout::force::BarnesHut;

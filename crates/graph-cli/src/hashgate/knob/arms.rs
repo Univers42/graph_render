@@ -120,12 +120,19 @@ pub const fn env(knob: Knob) -> &'static str {
 /// The [`knobs::Stage`] `knob` perturbs — a function of its *variable*, not its arm index.
 ///
 /// Resolved by matching the variable name against the one table, so a control cannot be
-/// filed under a stage the table does not agree with: a variable the table does not carry
-/// is a programming error, not a runtime setting, and it panics here rather than quietly
-/// perturbing whichever stage happened to sit at that arm's position.
-pub(in crate::hashgate) fn stage_of(knob: Knob) -> knobs::Stage {
+/// filed under a stage the table does not agree with: a variable the table does not carry is
+/// a programming error, not a runtime setting.
+///
+/// **`Err`, not `panic!`** (RG-41): the old fallback aborted the process with exit 101, which
+/// is outside the 0 passed / 1 ran and failed / 2 could not run contract every gate answers
+/// in. A row whose knob has been dropped from `knobs::all()` while `Knob::ALL` still holds
+/// the arm now refuses with the exit 2 `setting` maps its `Err` to, and names the variable.
+pub(in crate::hashgate) fn stage_of(knob: Knob) -> Result<knobs::Stage, String> {
     let name = env(knob);
-    knobs::all()
-        .find(|row| row.env == name)
-        .unwrap_or_else(|| panic!("{name} is one of the per-stage controls"))
+    knobs::all().find(|row| row.env == name).ok_or_else(|| {
+        format!(
+            "{name} is one of the per-stage controls, but no row of the per-stage control \
+             table carries it: the arm and the table have drifted apart"
+        )
+    })
 }

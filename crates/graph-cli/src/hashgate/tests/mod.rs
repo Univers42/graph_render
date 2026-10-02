@@ -28,20 +28,15 @@ use super::knob::setting::{Setting, setting};
 use super::stage_bytes;
 use super::tier;
 
-use std::env::VarError;
+use super::knob::Env;
 
-/// A reader of the variables in `pairs`, every other one unset.
+/// The variables in `pairs` and no others, as the environment `setting` reads.
 ///
-/// Takes an owned `Vec` rather than a `&'static` slice so a test can build its pairs from
-/// a loop variable; a `'static` bound here would have forced every such test to spell out
-/// a `const` table, which is noise around the claim being made.
-pub(super) fn env(pairs: Vec<(&str, &str)>) -> impl Fn(&str) -> Result<String, VarError> {
-    move |name| {
-        let found = pairs.iter().find(|(key, _)| *key == name);
-        found
-            .map(|(_, value)| (*value).to_owned())
-            .ok_or(VarError::NotPresent)
-    }
+/// Both questions the reader asks — the value of a name, and which names are there — come
+/// from the one value, so a test that sets a knob cannot leave the `GM_MUTATE_*` typo sweep
+/// (RG-26) looking at the real process environment.
+pub(super) fn env(pairs: Vec<(&str, &str)>) -> Env {
+    Env::list(pairs)
 }
 
 /// The compiled-in defaults: no knob set, so a test that does not name one is measuring

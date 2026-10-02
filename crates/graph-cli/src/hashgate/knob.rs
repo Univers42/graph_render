@@ -5,10 +5,12 @@ use super::knobs;
 
 pub(super) mod arms;
 pub(super) mod compute;
+pub(crate) mod env;
 pub(super) mod igraph;
 pub(super) mod records;
 pub(crate) mod setting;
 pub(super) mod three_d;
+pub(super) mod value;
 pub(crate) use setting::{Setting, env_setting};
 
 /// A negative control (`prompt.md` §7.2): a variable that perturbs the native arm only,

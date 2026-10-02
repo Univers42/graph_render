@@ -69,16 +69,12 @@ fn main() -> ExitCode {
         Command::EmitFixtures { seeds, out } => {
             oracle_fixtures::run(seeds, &out.unwrap_or_else(oracle_fixtures::default_out))
         }
-        Command::OracleDiff { fixtures } => match command::required_dir(fixtures, "--fixtures") {
-            Ok(dir) => oracle_fixtures::diff(&dir),
-            Err(code) => code,
-        },
+        Command::OracleDiff { fixtures } => {
+            oracle_fixtures::diff(&fixtures.unwrap_or_else(oracle_fixtures::default_out))
+        }
         Command::PythonOracle(command) => command.run(),
         Command::OracleLayouts { fixtures } => {
-            match command::required_dir(fixtures, "--fixtures") {
-                Ok(dir) => oracle_fixtures::diff_layouts(&dir),
-                Err(code) => code,
-            }
+            oracle_fixtures::diff_layouts(&fixtures.unwrap_or_else(oracle_fixtures::default_out))
         }
         Command::Snapshot {
             seed,

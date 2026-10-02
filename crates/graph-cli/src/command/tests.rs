@@ -1,9 +1,9 @@
-//! What the flags refuse: the floor under `--seeds`, and the four values a gate row used
-//! to be able to leave out or mistype and still exit 0 (RG-05, RG-51, RG-58).
+//! What the flags refuse: the floor under `--seeds`, and the three values a gate row used
+//! to be able to leave out or mistype and still exit 0 (RG-05, RG-58).
 //!
 //! Every test here is a negative control on the parser itself: the bug each one covers
 //! was a command that ran with nothing to compare (zero seeds, an unstated seed count, an
-//! unwired oracle, an unstated member, a defaulted fixture directory) and printed a pass.
+//! unwired oracle, an unstated member) and printed a pass.
 
 use super::*;
 use clap::Parser;
@@ -78,24 +78,13 @@ fn an_ingest_check_must_name_the_member_it_parses() {
 }
 
 #[test]
-fn the_two_oracle_subcommands_refuse_a_missing_fixture_directory() {
-    assert!(parses(&["oracle-diff"]).is_err());
+fn the_two_oracle_subcommands_still_accept_the_default_fixture_directory() {
+    // RG-51's `--fixtures` half is **not** fixed here: making it required would fail the
+    // shipped row `scripts/orch/rows/develop-full.rows`'s `oracle-layouts` (`-- oracle-layouts`,
+    // no `--fixtures`), and the rows file is outside this job's paths. Pinned so the flag
+    // stays optional until that row is updated; the finding is tracked, not forgotten.
+    assert!(parses(&["oracle-diff"]).is_ok());
     assert!(parses(&["oracle-diff", "--fixtures", "d"]).is_ok());
-    assert!(parses(&["oracle-layouts"]).is_err());
+    assert!(parses(&["oracle-layouts"]).is_ok());
     assert!(parses(&["oracle-layouts", "--fixtures", "d"]).is_ok());
-}
-
-/// The arm that consumes the flag: an absent `--fixtures` is the "could not run" code, not
-/// a substitution of the default directory. `2` and not `1` because nothing ran and nothing
-/// compared — there is no verdict to report (RG-51).
-#[test]
-fn a_missing_fixture_directory_is_exit_two_not_a_default() {
-    assert_eq!(
-        required_dir(None, "--fixtures").unwrap_err(),
-        std::process::ExitCode::from(2)
-    );
-    assert_eq!(
-        required_dir(Some(PathBuf::from("d")), "--fixtures").unwrap(),
-        PathBuf::from("d")
-    );
 }

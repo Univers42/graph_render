@@ -11,7 +11,7 @@
 mod tests;
 
 use super::{LAYOUT, TRANSPORT, staged};
-use crate::hashgate::Setting;
+use crate::hashgate::{Knob, Setting};
 use graph_core::registry as core;
 use std::collections::BTreeSet;
 
@@ -34,28 +34,52 @@ use std::collections::BTreeSet;
 /// is the statement of the rule rather than a proof of today's arithmetic, and it is what a
 /// reader checks first.
 pub(crate) fn node_count(seed: u32, setting: &Setting, own: u32) -> Result<u32, String> {
-    Ok(graph_core::gate_node_count(seed) + setting.extra_nodes + own)
+    u64::from(graph_core::gate_node_count(seed))
+        .checked_add(u64::from(setting.extra_nodes))
+        .and_then(|sum| sum.checked_add(u64::from(own)))
+        .and_then(|sum| u32::try_from(sum).ok())
+        .ok_or_else(|| too_many_nodes(seed, setting, own))
 }
 
-/// The refusal, naming the control that fed the count and the sum that would not fit.
+/// The refusal: the sum that did not fit, every term that fed it, and the variable each
+/// term came from.
 ///
-/// The variable rather than the field: a run is told which `GM_MUTATE_*` it is under, and
-/// "that variable" is what a reader can go and edit, where `extra_nodes` is a name only
-/// this crate uses. The arithmetic is spelled out too, because a refusal that says only
-/// "too many nodes" leaves the reader to work out which of the two knobs was to blame.
+/// **The terms are listed rather than the total alone.** Two knobs add nodes and only one
+/// may be set at a time, so a refusal that said only "4294967301 nodes" would leave the
+/// reader to work out which of the two variables to go and edit — and the answer is the one
+/// whose value is non-zero, which is why a zero term is left out of the list instead of
+/// printed as `plus 0`. The knob's own `env()` is used rather than the field name: a run
+/// is told which variable it is under, and a variable is what a reader can edit.
 fn too_many_nodes(seed: u32, setting: &Setting, own: u32) -> String {
     let gate = graph_core::gate_node_count(seed);
-    let knobs = setting.control.map_or_else(
-        || "the seed's own node count".to_owned(),
-        |knob| knob.env().to_owned(),
-    );
-    let total = u64::from(gate) + u64::from(setting.extra_nodes) + u64::from(own);
+    let extra = setting.extra_nodes;
+    let mut terms = vec![format!("{gate} for seed {seed}")];
+    if extra != 0 {
+        terms.push(format!(
+            "{extra} from {}",
+            knob_name(setting, Knob::NodeCount)
+        ));
+    }
+    if own != 0 {
+        terms.push(format!(
+            "{own} from {}",
+            setting.control.map_or_else(
+                || "the per-stage control".to_owned(),
+                |knob| knob.env().to_owned()
+            )
+        ));
+    }
+    let total = u64::from(gate) + u64::from(extra) + u64::from(own);
     format!(
-        "{total} nodes is past the {} a node record can be indexed by ({gate} for seed {seed} \
-         plus {} plus {own}, from {knobs})",
+        "{total} nodes is past the {} a node record can be indexed by: {}",
         u32::MAX,
-        setting.extra_nodes
+        terms.join(" plus ")
     )
+}
+
+/// `knob`'s variable, naming the per-stage control's own instead when that is the one set.
+fn knob_name(setting: &Setting, fallback: Knob) -> String {
+    setting.control.unwrap_or(fallback).env().to_owned()
 }
 
 /// The gate's whole stage list over `layouts`: the topology, then every layout of the
@@ -91,9 +115,11 @@ pub(super) fn check(layouts: &[core::Capability]) -> Result<(), String> {
         ));
     }
     let mut seen = BTreeSet::new();
-    for layout in layouts {
-        if !seen.insert(layout.id) {
-            return Err(format!("{} appears twice in the registry", layout.id));
+    for id in stage_list(layouts) {
+        if !seen.insert(id) {
+            return Err(format!(
+                "{id} appears twice in the gate's stage list: one stage id is one record key"
+            ));
         }
     }
     Ok(())

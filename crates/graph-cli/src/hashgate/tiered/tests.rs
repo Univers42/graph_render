@@ -102,6 +102,9 @@ fn the_threaded_list_has_one_arm_each_and_no_more() {
         spiral::ID,
     ];
     for arm in arms {
-        assert!(THREADED_STAGES.contains(&arm), "{arm} has an arm but no listing");
+        assert!(
+            THREADED_STAGES.contains(&arm),
+            "{arm} has an arm but no listing"
+        );
     }
 }

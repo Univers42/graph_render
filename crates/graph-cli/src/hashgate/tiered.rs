@@ -118,7 +118,7 @@ fn geometry(
         ),
         Grid::ID => Grid::run_with(topology, &setting.grid, &Threads, workers),
         ring::ID => ring::run_under(topology, &Threads, workers, setting.split_rescale),
-        _ => spiral::run_under(
+        spiral::ID => spiral::run_under(
             topology,
             &spiral::SpiralParams::default(),
             &Threads,

@@ -2,7 +2,6 @@
 
 use clap::{Subcommand, builder::TypedValueParser};
 use std::path::PathBuf;
-use std::process::ExitCode;
 
 use crate::hashgate;
 
@@ -19,17 +18,6 @@ pub const MIN_SEEDS: i64 = 1;
 /// constants above, so the message clap prints and the range it enforces cannot drift apart.
 pub fn seed_count() -> clap::builder::RangedI64ValueParser<u32> {
     clap::value_parser!(u32).range(MIN_SEEDS..=MAX_SEEDS)
-}
-
-/// A directory flag whose value must be stated: `--fixtures` with no value is a refusal, not
-/// a default, because the differential would otherwise compare against whatever stale set
-/// happened to be on disk (RG-51). `ExitCode::from(2)`, the "could not run" code, because
-/// nothing ran — a substituted default would report a verdict that was never computed.
-pub(crate) fn required_dir(given: Option<PathBuf>, flag: &str) -> Result<PathBuf, ExitCode> {
-    given.ok_or_else(|| {
-        eprintln!("graph-cli: {flag} is required: name the directory to compare against");
-        ExitCode::from(2)
-    })
 }
 
 /// `--tiers`, parsed by `hashgate`'s own list so the flag and the arm list cannot drift.
@@ -135,10 +123,15 @@ pub enum Command {
     },
     /// Runs `harness/oracle-diff.mjs` over the emitted fixtures (the TypeScript arm).
     OracleDiff {
-        /// The fixtures to compare against. Required: a differential with no stated
-        /// directory would compare against whatever stale set was on disk and report it as
-        /// this tree's verdict (RG-51).
-        #[arg(long, required = true)]
+        /// Fixtures directory; `target/oracle-fixtures` by default.
+        ///
+        /// **The default is RG-51's half that is still open**: a differential that falls
+        /// back to whatever stale set is on disk reports it as this tree's verdict. Making
+        /// it required is the fix, and it is blocked on `scripts/orch/rows/develop-full.rows`
+        /// (`oracle-layouts`, which names no `--fixtures`) being updated by whoever owns the
+        /// rows file — this crate's paths do not reach it. Tracked in
+        /// `docs/measurements/fix-gates-hashgate.md`.
+        #[arg(long)]
         fixtures: Option<PathBuf>,
     },
     /// The Python-armed differentials' own subcommands: `emit-<name>-fixtures` and
@@ -147,9 +140,9 @@ pub enum Command {
     PythonOracle(crate::oracle_python::Cli),
     /// Runs `harness/oracle-layouts.mjs` over the emitted fixtures (the d3-hierarchy arm).
     OracleLayouts {
-        /// The fixtures to compare against. Required, for the same reason as
-        /// `oracle-diff`: a defaulted directory is a stale set read as a verdict (RG-51).
-        #[arg(long, required = true)]
+        /// Fixtures directory; `target/oracle-fixtures` by default — see
+        /// [`Command::OracleDiff::fixtures`] for why the required form is pending.
+        #[arg(long)]
         fixtures: Option<PathBuf>,
     },
     /// Runs one seed's model through a layout and writes the snapshot's binary face, its

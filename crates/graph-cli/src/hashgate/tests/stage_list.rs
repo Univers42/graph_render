@@ -34,7 +34,10 @@ fn every_stage_id_appears_once_in_the_gate_list() {
     want.extend(staged::analyses());
     want.extend(staged::posts());
     want.push(TRANSPORT);
-    assert_eq!(ids, want, "the list is the registries, in the order the arms print it");
+    assert_eq!(
+        ids, want,
+        "the list is the registries, in the order the arms print it"
+    );
     assert_eq!(
         stage_bytes(4, &honest()).expect("runs").len(),
         ids.len(),
@@ -52,7 +55,16 @@ fn every_stage_id_appears_once_in_the_gate_list() {
 fn a_layout_id_that_collides_with_a_graph_wasm_stage_is_refused() {
     let grid = *graph_core::registry::find(LAYOUT).expect("the grid is registered");
     let collide = staged::analyses()[0];
-    let err = stage_bytes_for_ids(&[grid, Capability { id: collide, ..grid }], collide);
+    let err = stage_bytes_for_ids(
+        &[
+            grid,
+            Capability {
+                id: collide,
+                ..grid
+            },
+        ],
+        collide,
+    );
     assert!(
         err.contains("twice") && err.contains(collide),
         "the refusal must name the id and say it repeats: {err}"
@@ -72,10 +84,13 @@ fn a_layout_registry_with_a_repeated_id_is_still_refused() {
     assert!(err.contains("twice"), "{err}");
 }
 
-/// The refusal, or a panic naming the id that should have been refused.
+/// The refusal, or a panic naming the ids that should have been refused.
 fn stage_bytes_for_ids(layouts: &[Capability], id: &str) -> String {
     match super::super::stage_bytes_for(4, &honest(), layouts) {
         Err(err) => err,
-        Ok(stages) => panic!("{id} was hashed {stages:?} rather than refused"),
+        Ok(stages) => {
+            let ids: Vec<&str> = stages.iter().map(|(stage, _)| *stage).collect();
+            panic!("{id} was hashed under the ids {ids:?} rather than refused")
+        }
     }
 }

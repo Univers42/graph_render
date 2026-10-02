@@ -268,9 +268,24 @@ pub fn by_env(env: &str) -> Option<Stage> {
 
 /// `stage`'s perturbation written into `setting`: `count` nodes added to *its* model.
 ///
-/// Zero is refused by the caller (`knob::nodes`), not here: the rule is one rule for all
-/// twenty-seven tabled controls, and a second copy of it here would be a second place for
+/// Zero is refused by the caller (`knob::value::nodes`), not here: the rule is one rule for
+/// all twenty-seven tabled controls, and a second copy of it here would be a second place for
 /// it to drift.
-pub fn apply(stage: Stage, count: u32, setting: &mut Setting) {
+///
+/// **The stage id is checked against the gate's own stage list** (RG-41): `knobs::apply`
+/// used to store whatever id it was handed, so a row added to this table with a stage the
+/// gate does not hash put a `stage_nodes` entry that no stage ever reads — a control that
+/// perturbs nothing and still recorded itself as exercised. The one reader that can tell is
+/// [`super::stages`], so the check is here rather than left to every future caller.
+pub fn apply(stage: Stage, count: u32, setting: &mut Setting) -> Result<(), String> {
+    if !super::stages().contains(&stage.id) {
+        return Err(format!(
+            "{} perturbs {}, which is not one of the {} stages the gate hashes",
+            stage.env,
+            stage.id,
+            super::stages().len()
+        ));
+    }
     setting.stage_nodes = Some((stage.id, count));
+    Ok(())
 }

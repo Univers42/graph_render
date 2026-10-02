@@ -91,7 +91,7 @@ pub fn run(seeds: u32, tiers: Tiers) -> ExitCode {
         Ok((setting.control, stamp, collect_arms(seeds, tiers)?))
     });
     match started {
-        Ok((control, stamp, arms)) => report(&stamp, control, seeds, &arms),
+        Ok((control, stamp, arms)) => report::verdict(&stamp, control, seeds, &arms),
         Err(err) => {
             eprintln!("hashgate: could not run: {err}");
             ExitCode::from(2)
@@ -144,7 +144,16 @@ pub fn arm(seeds: u32) -> ExitCode {
 
 /// `stage seed sha256` lines, stage by stage, seed by seed: the pipeline runs once per
 /// seed and each of its stages lands in its own block.
+///
+/// **Zero seeds is refused here, not only by the flag's range** (RG-05). `command::seed_count`
+/// refuses it at the parser, but `arm_lines` is also reached in-process by `tier::scalar_arm`
+/// and by this module's own tests, and the shape it has to refuse is the same one
+/// `compare::diverged` already refuses: a loop over no seed concatenates zero blocks, prints
+/// nothing, and an arm that printed nothing is a comparison of nothing that reads as a pass.
 fn arm_lines(seeds: u32, setting: &Setting) -> Result<String, String> {
+    if seeds == 0 {
+        return Err("0 seeds: an arm over nothing prints nothing and proves nothing".into());
+    }
     let mut blocks = vec![String::new(); stages().len()];
     for seed in 0..seeds {
         let stages = stage_bytes(seed, setting).map_err(|err| format!("seed {seed}: {err}"))?;
@@ -203,90 +212,6 @@ fn collect_arms(seeds: u32, tiers: Tiers) -> Result<Vec<Arm>, String> {
         file_sha256(&wasm)?
     );
     Ok(arms)
-}
-
-fn report(stamp: &evidence::Stamp, control: Option<Knob>, seeds: u32, arms: &[Arm]) -> ExitCode {
-    let mutation = control.map_or("none", Knob::env);
-    println!(
-        "hashgate: stages={} seeds={seeds} control={mutation}",
-        stages().join(",")
-    );
-    let lines = match diverged(seeds, &stages(), arms) {
-        Ok(lines) => lines,
-        Err(err) => {
-            eprintln!("hashgate: arms not comparable: {err}");
-            return ExitCode::from(2);
-        }
-    };
-    let mut detail = String::new();
-    report::arm_report(&mut detail, arms, &lines);
-    print!("{detail}");
-    let tally = per_stage(seeds, stages().len(), &lines);
-    let ways = arms.len();
-    for (stage, equal) in stages().iter().zip(&tally.equal) {
-        println!("  {stage}: {ways}-way equal on {equal}/{seeds} seeds");
-    }
-    conclude(stamp, control, seeds, &tally, arms)
-}
-
-/// The C20 tally, the record, and the exit code: the last of the gate's work, split out
-/// of [`report`] by the house's 40-line-per-function limit.
-fn conclude(
-    stamp: &evidence::Stamp,
-    control: Option<Knob>,
-    seeds: u32,
-    tally: &Tally,
-    arms: &[Arm],
-) -> ExitCode {
-    // C20, counted from the wasm arm's own lines (run 1; run 2 is 4-way equal to it):
-    // the real ABI's snapshot against the retained shim's, per seed.
-    let c20 = match transport::agree_with_shim(seeds, &arms[2].1) {
-        Ok(agreed) => agreed,
-        Err(err) => {
-            eprintln!("hashgate: the C20 tally could not be read: {err}");
-            return ExitCode::from(2);
-        }
-    };
-    println!("  {TRANSPORT}: the real ABI matched {LAYOUT} on {c20}/{seeds} seeds");
-    let bad = tally.diverged_seeds;
-    let ways = arms.len();
-    println!("  {ways}-way equal on {}/{seeds} seeds", seeds - bad);
-    if let Err(err) = record(stamp, control, seeds, tally, c20, arms) {
-        eprintln!("hashgate: not recorded: {err}");
-        return ExitCode::from(2);
-    }
-    if c20 != seeds {
-        println!(
-            "FAIL: {TRANSPORT} diverges from {LAYOUT} on {} seeds",
-            seeds - c20
-        );
-        return ExitCode::from(1);
-    }
-    if bad == 0 {
-        println!("PASS");
-    } else {
-        println!("FAIL: {bad} of {seeds} seeds diverge");
-    }
-    report::exit(bad)
-}
-
-/// Writes this run's result for the ledger: `hashgate.json` for an honest run, the
-/// knob's own record for a negative control. A run that cannot record exits 2: its
-/// verdict would otherwise stand with no evidence behind it. A run that is refused
-/// because a passing record stands is only a warning — the gate ran, and its exit code
-/// is the verdict (`evidence::record` draws that line for every gate). The `transport`
-/// tally goes in the same record, because it *is* the hash gate's verdict — the C20
-/// count `capabilities/verdict.rs` reads for the `transport.wasm.columnar` row.
-fn record(
-    stamp: &evidence::Stamp,
-    control: Option<Knob>,
-    seeds: u32,
-    tally: &Tally,
-    c20: u32,
-    arms: &[Arm],
-) -> Result<(), String> {
-    let name = control.map_or("hashgate", Knob::record);
-    evidence::record(stamp, name, report::body(control, seeds, tally, c20, arms))
 }
 
 #[cfg(test)]
