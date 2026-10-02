@@ -7,3 +7,5 @@ negctl-degree|0|scripts/orch/gr -e GM_MUTATE_REFERENCE_DEGREE=9 cargo run -q -p 
 negctl-dim-z-mismatch|0|scripts/orch/gr -e GM_MUTATE_NODE_Z=1 cargo run -q -p graph-cli -- roundtrip --seeds 8; test $? -ne 0
 force-gate-4|0|scripts/orch/gr cargo run -q -p graph-cli -- force-gate --seeds 4
 negctl-force-gravity|0|scripts/orch/gr -e GM_MUTATE_FORCE_SESSION_GRAVITY=0.5 cargo run -q -p graph-cli -- force-gate --seeds 4; test $? -eq 1
+scigraphs-conformance|0|scripts/scigraphs-conformance.sh
+negctl-scigraphs-conformance|0|scripts/scigraphs-conformance.sh --break; test $? -eq 1

@@ -16,6 +16,11 @@ export interface RunSummary {
   readonly byteLength: number;
   readonly nodeKind: string;
   readonly edgeKind: string;
+  /**
+   * 0 for a 2D layout, 1 when the snapshot carried a z column. Read off the decoded
+   * snapshot, so the chrome asks the drawing what it is instead of guessing from the id.
+   */
+  readonly dim: number;
   readonly layoutMs: number;
   readonly postMs: number;
   /** What the motor degraded, by name and count. */

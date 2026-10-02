@@ -1,8 +1,11 @@
 """Studio perf gate: serve a built studio, drive it in headless Chromium, judge the rows.
 
 Usage: run.py --dist DIR --out DIR --driver NAME [--edge-colour flat|gradient] [--baseline FILE]
-              [--record-baseline FILE] [--commit ID]
+              [--record-baseline FILE] [--commit ID] [--cases N,N,...]
 Exit:  0 every gating row PASS · 1 a gating row FAIL or NOT-RUN · 2 the harness could not run
+
+--cases replaces the frame cases with these node counts at DPR 1 and skips the block and idle
+runs: a scale measurement, not a gate, so its gating rows read NOT-RUN and it exits 1.
 
 Ponytail: software raster in a container on a shared host. Numbers compare run to run on
 one machine; they are not the frame rate a user's browser reaches (read the studio HUD).
@@ -15,6 +18,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -71,6 +75,10 @@ class Studio:
         self.url = url
         self.driver = (HERE / "drivers" / f"{driver}.js").read_text()
         self.edge_colour = edge_colour
+        self.open_ms = None
+        # Without Page.enable the script is registered (an identifier comes back) and never run.
+        page.call("Page.enable")
+        page.call("Page.addScriptToEvaluateOnNewDocument", {"source": (HERE / "react-hook.js").read_text()})
 
     def open(self, nodes, dpr, layout=FORCE_LAYOUT):
         self.page.set_viewport(VIEWPORT[0], VIEWPORT[1], dpr)
@@ -80,7 +88,9 @@ class Studio:
         limit = self.page.evaluate("window.__perf.maxNodes")
         if nodes > limit:
             return f"driver caps at {limit} nodes"
+        started = time.monotonic()
         self.page.evaluate(f"window.__perf.open({nodes}, {json.dumps(layout)})")
+        self.open_ms = round(1000 * (time.monotonic() - started))
         # The edge colour mode is a display setting, so it is asked for once the graph is
         # drawn: a driver with no hook for it is measured in whatever mode it opened in.
         if self.page.evaluate("typeof window.__perf.edgeColour === 'function'"):
@@ -92,15 +102,24 @@ class Studio:
         return self.page.evaluate(f"({source})({json.dumps(args)})")
 
 
-def measure_frames(studio, out):
+def measure_frames(studio, out, frame_cases):
     cases = []
-    for nodes, dpr in FRAME_CASES:
+    for at, (nodes, dpr) in enumerate(frame_cases):
         layout = LARGE_LAYOUT if nodes >= LARGE_FROM else FORCE_LAYOUT
-        skipped = studio.open(nodes, dpr, layout)
+        try:
+            skipped = studio.open(nodes, dpr, layout)
+        except TimeoutError:
+            # The page is still busy with this graph and its CDP reply is pending, so no later
+            # case can be measured on it: the cases already measured are kept.
+            cases.append({"nodes": nodes, "dpr": dpr, "notRun": "did not open within 180 s (cdp.evaluate)"})
+            cases.extend({"nodes": n, "dpr": d, "notRun": "an earlier case timed out"} for n, d in frame_cases[at + 1:])
+            break
         if skipped is not None:
             cases.append({"nodes": nodes, "dpr": dpr, "notRun": skipped})
             continue
-        case = {"nodes": nodes, "dpr": dpr, "layout": layout}
+        # From navigation to the graph drawn and its edge colour set: what loading it cost React.
+        case = {"nodes": nodes, "dpr": dpr, "layout": layout, "openMs": studio.open_ms,
+                "reactAtOpen": studio.page.evaluate("window.__reactCommits ?? null")}
         if (nodes, dpr) in STATS_CASES:
             case["stats"] = studio.probe("stats", {"settleMs": 1500})
         case.update(studio.probe("frame", {"settleMs": 1500, "profile": False}))
@@ -137,11 +156,16 @@ def measure(args, out):
             page = cdp.Page(DEBUG_PORT)
             studio = Studio(page, f"http://127.0.0.1:{server.server_address[1]}/", args.driver, args.edge_colour)
             version = page.call("Browser.getVersion").get("product")
-            return {
+            report = {
                 "label": out.name, "driver": args.driver, "commit": args.commit,
                 "edgeColour": args.edge_colour,
                 "browser": version, "viewport": VIEWPORT,
-                "frames": measure_frames(studio, out),
+            }
+            if args.cases:
+                report["frames"] = measure_frames(studio, out, [(nodes, 1) for nodes in args.cases])
+                return report | {"block": [{"nodes": 0, "notRun": "--cases"}], "idle": {"notRun": "--cases"}}
+            return report | {
+                "frames": measure_frames(studio, out, FRAME_CASES),
                 "block": measure_block(studio),
                 "idle": measure_idle(studio),
             }
@@ -161,6 +185,8 @@ def parse_args():
     parser.add_argument("--baseline", type=Path)
     parser.add_argument("--record-baseline", type=Path)
     parser.add_argument("--commit", default="unknown")
+    parser.add_argument("--cases", type=lambda text: [int(n) for n in text.split(",")],
+                        help="node counts measured at DPR 1 instead of the gate's frame cases")
     return parser.parse_args()
 
 

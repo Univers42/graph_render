@@ -209,3 +209,14 @@ bench-fa2-1e5|0|scripts/orch/gr cargo run -q --release -p graph-cli -- bench --l
 bench-vs-d3|0|scripts/orch/gr cargo run -q --release -p graph-cli -- bench --layout layout.force.barnes_hut --n 220,10000 --vs-d3
 bench-p9-campaign|0|scripts/orch/gr cargo run -q --release -p graph-cli -- bench --n 220,10000,100000,1000000 --repeat 5 --out docs/measurements/phase09-bench.md
 bench-tier1-1e6|0|scripts/orch/gr cargo run -q --release -p graph-cli -- bench --layout layout.random --layout layout.circular.ring --layout layout.spiral --layout layout.bipartite --n 220,10000,100000,1000000 --past-ceiling --repeat 3
+# The SciGraphs byte-by-byte conformance matrix: all 32 `apply_graph_layout` names against the
+# motor layout each is supposed to be, over one fixture set both arms read, measured in Python
+# and judged in graph-cli against the pinned baseline (docs/measurements/scigraphs-conformance.md).
+# Six steps across three images, so it is a script and not a single command.
+scigraphs-conformance|0|scripts/scigraphs-conformance.sh
+# The negative control. `--break` re-emits with GM_MUTATE_SCIGRAPHS_CONFORMANCE=SPRING_3D, which
+# flips one bit (bit 29, the last an f32 keeps) of one f64 coordinate in that one row's file,
+# and re-runs every arm. Exactly one row must then fail and it must be SPRING_3D: a control
+# that moved nothing, or moved more than one row, would exit 0 here and the gate would be
+# measuring nothing.
+negctl-scigraphs-conformance|nonzero|scripts/scigraphs-conformance.sh --break

@@ -21,6 +21,7 @@ mod circo;
 mod circular_hierarchy;
 mod cli;
 mod closed_form;
+pub mod conformance;
 mod fa2;
 mod fdp;
 mod graphviz;

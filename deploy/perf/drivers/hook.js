@@ -31,7 +31,8 @@
     if (!entry.ok) throw new Error(`${entry.command}: ${entry.message}`);
   };
   window.__perf = {
-    maxNodes: 20000,
+    // The studio's own cap (MAX_NODES in packages/graph-studio/src/source/synthetic.ts).
+    maxNodes: 1000000,
     view: () => document.querySelector("graph-studio")?.view ?? null,
     canvas: () => document.querySelector("graph-studio")?.shadowRoot?.querySelector("canvas") ?? null,
     layouts: () => studioOf().store.get().catalog?.layouts ?? [],

@@ -40,7 +40,8 @@ pub enum Code {
     /// `gm_build`'s `(ptr, len)` is not exactly a live `gm_alloc` allocation.
     BuildSourceInvalid = 11,
     /// An index argument (e.g. `gm_layout_id`, `gm_post_id`, `gm_analysis_id`) is past
-    /// the end of its list.
+    /// the end of its list, or a host address or length does not fit the wire's `u32`
+    /// (a column's pointer or element count, refused rather than truncated).
     IndexOutOfRange = 12,
     /// The registered POST capability returned a `StageError` for this geometry, or the
     /// edges it produced did not fit the snapshot.

@@ -22,6 +22,7 @@
 
 pub mod campaign;
 pub mod scale;
+pub mod tick;
 pub mod tiers;
 
 #[cfg(test)]

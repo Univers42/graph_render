@@ -25,7 +25,7 @@ export interface SyntheticSpec {
   readonly shape?: SyntheticShape;
 }
 
-export const MAX_NODES = 50000;
+export const MAX_NODES = 1_000_000;
 export const MAX_DEGREE = 12;
 export const SHAPES: readonly SyntheticShape[] = ["vault", "random"];
 

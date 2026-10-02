@@ -23,7 +23,7 @@ const NODES = ["a", "b"].map((id) => ({
 }));
 const RUN: RunSummary = {
   layoutId: "layout.grid", postId: null, postError: null, digest: "00".repeat(32), byteLength: 1,
-  nodeKind: "Point", edgeKind: "Line", layoutMs: 1, postMs: 0, notes: [],
+  nodeKind: "Point", edgeKind: "Line", dim: 1, layoutMs: 1, postMs: 0, notes: [],
 };
 const DRAWN: StudioState = {
   ...STATE,

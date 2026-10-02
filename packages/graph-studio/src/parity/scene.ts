@@ -127,7 +127,9 @@ export function parityScene(given: Fixture, look: Look): ParityScene {
   const frame: Frame = {
     ...nodes, ...edgesOf(given),
     edgeCount: given.edges.length,
-    w: null, h: null, bounds: null, factor: 1,
+    // No z column: the parity figures are the 2D reference drawings, and a frame without one
+    // is drawn by the 2D passes, which is what the reference pixels were measured against.
+    z: null, w: null, h: null, bounds: null, factor: 1,
   };
   const labelled = given.nodes.flatMap((node) => (style.labels[node.id] === "" ? [] : [node.id]));
   const zero = given.nodes.flatMap((node) => (node.betweenness === 0 ? [node.id] : []));
