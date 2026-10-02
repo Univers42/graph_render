@@ -13,6 +13,12 @@
 //!   spacing`. SciGraphs starts at the origin. `y` grows with the row; which way is down
 //!   is the renderer's to decide.
 //!
+//! SciGraphs' pair of them is [`Grid::run_scaled`] — the first cell at the origin at a
+//! pitch of `scale / cols` — in [`scaled`], where the multiply-then-divide is `f64`
+//! because a `f32` `spacing` cannot reach those bits. The registered [`Grid::run`] below
+//! is neither that nor anything else changed: these two conventions are what its snapshot
+//! hash is.
+//!
 //! Exact: `cols` and `rows` are integer (`isqrt`, no float square root), and every
 //! coordinate is one `f32` product of a half-integer below 2^16 and the spacing —
 //! exact at the default spacing, correctly rounded at any other, alike on every target.
@@ -41,6 +47,8 @@ use crate::index::Topology;
 use crate::stage::{Stage, StageError};
 use graph_contract::geometry::{EdgeGeometry, NodeGeometry};
 use std::ops::Range;
+
+mod scaled;
 
 /// The grid stage.
 #[derive(Debug, Clone, Copy)]
