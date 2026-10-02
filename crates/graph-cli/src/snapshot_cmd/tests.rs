@@ -88,6 +88,8 @@ fn layout_names_offers_every_registered_layout_once_by_both_of_its_names() {
             "forceatlas2.barnes_hut",
             "layout.bipartite_3d",
             "bipartite_3d",
+            "layout.basic3d.spiral",
+            "basic3d.spiral",
             "layout.force.particle_mesh",
             "force.particle_mesh",
         ]

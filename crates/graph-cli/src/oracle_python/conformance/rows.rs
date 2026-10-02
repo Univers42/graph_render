@@ -106,9 +106,9 @@ pub const ROWS: [Row; 32] = [
     },
     Row {
         name: "SPIRAL_3D",
-        motor: Some("layout.spiral"),
+        motor: Some("layout.basic3d.spiral"),
         reference: Reference::Scigraphs,
-        gaps: &[G_NO_ITERATIONS, G_SNAPSHOT_SCALE],
+        gaps: &[G_BASIC3D_SCALE],
     },
     Row {
         name: "HELIX",
