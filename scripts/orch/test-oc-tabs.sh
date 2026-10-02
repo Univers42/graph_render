@@ -28,6 +28,11 @@ active() { jq -cn '{data: (reduce $ARGS.positional[] as $i ({}; .[$i] = {type: "
 
 cat >"$OC" <<'STUB'
 #!/usr/bin/env bash
+if [[ ${1-} == session ]]; then
+  [[ -f $STUB_DIR/down ]] && exit 1
+  cat "$STUB_DIR/list.json"
+  exit
+fi
 if [[ ${1-} == api ]]; then
   case $3 in
     /api/session/active) [[ -f $STUB_DIR/down ]] && exit 1; cat "$STUB_DIR/active.json" ;;
@@ -88,6 +93,32 @@ unchanged "an unreadable tabs.json is never overwritten" "not json"
 rm -f "$OC_TABS_FILE"
 run -n
 check "a missing tabs.json is created" ".cwd[\"$dir\"].tabs[0].sessionID == \"ses_a\""
+
+printf -- '--- -a ---\n'
+jq -n --arg d "$dir" '{global: {tabs: [], unread: {}}, cwd: {($d): {tabs: [{sessionID: "ses_b", title: "job-b"}], unread: {}}}}' >"$OC_TABS_FILE"
+echo '[{"id":"ses_new","title":"newest"},{"id":"ses_b","title":"job-b"},{"id":"ses_old2","title":"oldest"}]' >"$tmp/list.json"
+active
+rm -f "$tmp/launch"
+run -a
+rc_is "-a with no running session -> 0" $? 0
+check "-a appends every listed session, newest first, once" \
+  ".cwd[\"$dir\"].tabs | map(.sessionID) == [\"ses_b\",\"ses_new\",\"ses_old2\"]"
+if [[ $(cat "$tmp/launch" 2>/dev/null) == "-s ses_new" ]]; then ok "-a opens OpenCode on the newest session"
+else no "-a opens OpenCode on the newest session" "launch=$(cat "$tmp/launch" 2>/dev/null)"; fi
+run -a -n ses_a
+check "-a -n with an id adds that id too" ".cwd[\"$dir\"].tabs | map(.sessionID) | .[3] == \"ses_a\""
+echo '[]' >"$tmp/list.json"
+run -na
+rc_is "-a over an empty project -> 1" $? 1
+echo 'not json' >"$tmp/list.json"
+run -na
+rc_is "-a over an unreadable list -> 2" $? 2
+touch "$tmp/down"
+run -na
+rc_is "-a with the service down -> 2" $? 2
+rm -f "$tmp/down"
+run -x
+rc_is "an unknown option -> 2" $? 2
 
 printf 'pass=%s fail=%s\n' "$pass" "$fail"
 [[ $fail -eq 0 ]]

@@ -143,8 +143,8 @@ STUDIO_SMOKE_BREAK=1 scripts/studio-smoke.sh   # its negative control: expect no
   `docs/decisions/render-ports-not-imports.md`; the script headers are current.
 - Agent jobs run headless in OpenCode (`opencode.json`, `.opencode/agents/`): `scripts/orch/oc-job.sh`
   launches one in a worktree and gates it, and `scripts/orch/oc-status.sh` lists every job's state.
-  `scripts/orch/oc-tabs.sh` opens one OpenCode window with a tab per live session (`-n`: add the tabs
-  to a window already open in this directory).
+  `scripts/orch/oc-tabs.sh` opens one OpenCode window with a tab per live session (`-a`: every session of
+  the project; `-n`: add the tabs to a window already open in this directory).
   OpenCode 2.x ignores `opencode.json` `instructions` and reads only `AGENTS.md` (a link to
   `prompts/AGENT_BRIEF.md`); the kit's bridge `.opencode/plugins/devil.js` adds its always-on rules.
   The kit's agents, commands and bridge are untracked links that `devil setup --only opencode` makes per
