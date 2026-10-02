@@ -6,7 +6,9 @@
 //! `gm_build_contract`. This one is unchanged and stays: it is what the host studio and
 //! the hash gate's C20 stage already speak, so replacing it would move a published ABI's
 //! meaning. It is deliberately narrow: every member is named and
-//! required (a present `null` where a field may be absent, never an omitted key), an
+//! required (a present `null` where a field may be absent, never an omitted key) except an
+//! edge's `child_first`, which version 1 reads as `false` when omitted (F-01: the SDK smoke
+//! harness and the documented example omit it, so requiring it is a version 2), an
 //! unknown member refuses the whole document (so a stray `hasNote` — the oracle's own
 //! camelCase — is refused loudly, not silently ignored), and `kind` strings are matched
 //! by exact name (`NodeKind`/`EdgeKind::from_name`), never the lossy `edge_kind_from_type`
@@ -45,7 +47,8 @@ pub enum IngestError {
         end: &'static str,
         id: String,
     },
-    /// Too many nodes or edges to index (`u32` capacity).
+    /// Too many nodes or edges to index (`u32` capacity). Reachable only on a 64-bit host: on
+    /// wasm32 `usize` is `u32` (F-79). A ceiling below that is F-16's, not decided here.
     Capacity,
 }
 

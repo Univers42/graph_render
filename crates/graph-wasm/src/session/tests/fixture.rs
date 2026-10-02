@@ -32,8 +32,8 @@ pub fn params() -> LiveParams {
 
 /// One column as the wire reads it — one `f64` per node.
 ///
-/// **The session's own slice, not a dereference of the address.** The address export truncates
-/// to `u32`, so on a 64-bit host it reports `0` and a native test cannot follow it; reading the
+/// **The session's own slice, not a dereference of the address.** The address export refuses
+/// a host address past `u32` with `IndexOutOfRange`, so a native test cannot follow it; reading the
 /// address half on wasm32 is the force gate's wasm arm's job
 /// (`crates/graph-cli/src/forcecheck/arm.mjs`), which hashes exactly these two columns through
 /// the wire's `(ptr, len)` on every seed.

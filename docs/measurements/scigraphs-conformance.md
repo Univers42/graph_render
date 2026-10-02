@@ -120,7 +120,7 @@ Procrustes-aligned over it**, so a green point sitting on a grey point is a node
 | # | SciGraphs name | motor id | reference reached | tier | f64 k/N | f32 k/N | max ULP | max gap | Procrustes med | Procrustes max | cause | shape verdict |
 |--:|---|---|---|--:|--:|--:|--:|--:|--:|--:|---|---|
 | 1 | `RANDOM` | `layout.random` | `apply_graph_layout` | `bitwise` | 0/1020 | 0/1020 | 4.62e+18 | 4.83 | 0.9 | 0.996 | `rng` | same size, different shape: two independent uniform draws |
-| 2 | `GRID` | `layout.grid` | `apply_graph_layout` | `bitwise` | 342/1020 | 342/1020 | 9.22e+18 | 4 | 5.5e-32 | 9.68e-31 | `convention` | **same shape** — the aligned motor lands on every grey lattice point; only scale and origin differ |
+| 2 | `GRID` | `layout.grid` | `apply_graph_layout` | `tolerance` | 842/1020 | 1020/1020 | 2.39e+08 | 2.12e-07 | 3.39e-32 | 3.96e-15 | `arithmetic` | **same shape** — the aligned motor lands on every grey lattice point; only the last `f32` rounding is left |
 | 3 | `SPRING` | `layout.force.spring` | `apply_graph_layout` | `bitwise` | 341/1020 | 341/1020 | 9.23e+18 | 10 | 0.377 | 0.779 | `rng` | different shape: green does not follow the grey drawing anywhere |
 | 4 | `SPRING_3D` | `layout.force.spring3d` | `apply_graph_layout` | `bitwise` | 3/1020 | 4/1020 | 9.23e+18 | 10 | 0.198 | 0.756 | `rng` | different shape: as `SPRING`, in space |
 | 5 | `CIRCLE_PACKING` | `layout.packing.circle` | `apply_graph_layout` | `shape` | 344/1020 | 808/1020 | 9.22e+18 | 3.17 | 5.3e-16 | 0.827 | `algorithm` | different on lesmis (0.517) and **bit-for-bit the same packing on the 20 gate models** (5e-16): SciGraphs' non-planar fallback is where the two part company |
@@ -224,13 +224,23 @@ deterministic, so its `rng` cause does not apply; the disparity of 0.812 is a di
 Each is a concrete change with the metric it should move. **They are in separate jobs**: this one
 measures and changes nothing under `crates/graph-core`.
 
-### 1. `GRID` — `convention`, one line, a whole row
-**File:** `crates/graph-core/src/layout/grid.rs:51`. **Change:** `GridParams::spacing` defaults to
-1.0 and the snapshot then centres it; SciGraphs' `_grid_layout(num_nodes, scale)` (`basic.py:16-17`)
-sets the pitch to `scale / grid_size` and starts at the origin. Make the pitch a function of
-`scale` rather than a fixed 1.0.
-**Expected:** disparity stays ~5e-32 and **max gap falls from 4.0 to ~2e-7**, moving `bitwise f64`
-from 342/1020 towards 1020/1020.
+### 1. `GRID` — `convention`, one line, a whole row — **landed**
+**File:** `crates/graph-core/src/layout/grid/scaled.rs` (new); the registered
+`crates/graph-core/src/layout/grid.rs` is unchanged. **Change:** `_grid_layout(num_nodes, scale)`
+(`basic.py:16-17`) starts the first cell **at the origin** and pitches it at `scale / grid_size`,
+where the registered stage centres the full lattice at `GridParams::spacing = 1.0` and nothing
+rescales it. So `Grid::run_scaled(topology, scale, runner, workers)` is the second placement — the
+shape of `sfdp::run_seeded` — and the conformance arm calls it. It is **`f64` inside**: `basic.py:16`
+is `(i % cols) * scale / cols` in Python floats, and a `f32` pitch is a whole ULP off
+(`scale = 5.0, cols = 9, k = 3`: `3 · fl32(5/9) = 1.6666667…`, `fl32(15/9) = 1.6666666…`), so
+folding it into the registered `f32` kernel would have cost the row. `GridParams` gained **no
+field**: eight struct-literal call sites in five files build it without `..Default::default()`, and
+the registered default's bytes are a snapshot hash.
+**Measured:** `max gap` 4.0 → 2.12e-07, `max ULP` 9.22e+18 → 2.39e+08, `f32` 342/1020 → **1020/1020**,
+`f64` 342/1020 → 842/1020, Procrustes median 5.5e-32 → 3.39e-32. Tier `bitwise` → `tolerance` and
+cause `convention` → `arithmetic`: the `f64` column cannot reach 1020/1020 because the reference's
+value is not `f32`-representable, which is the position `SPHERE`, `HELIX` and `HIERARCHICAL_3D` are
+already in. Commands, before/after lines and the `--break` run: `docs/measurements/sg-grid-scale.md`.
 
 ### 2. `GRAPHVIZ_TWOPI`, `GRAPHVIZ_PATCHWORK` — `convention`, the same class, two files
 **Files:** `crates/graph-core/src/layout/radial/twopi.rs:104`,

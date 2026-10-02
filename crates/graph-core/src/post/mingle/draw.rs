@@ -43,6 +43,10 @@ pub fn paths(polys: &[Vec<P>]) -> Paths {
 /// its own path, so summing per-edge lengths counts it once per member and reports that
 /// bundling made the drawing longer. Exact equality, not a tolerance: a shared trunk is the
 /// same `f64` in every member's path.
+///
+/// Measured on the `f64` polygons, before [`paths`] rounds them to the wire's `f32`. Two
+/// segments a few `f64` ulps apart are two here and may be one drawn segment, so the figure
+/// can exceed what the `f32` rows draw by such a segment's length; relative error ~2⁻²⁴.
 pub fn drawn_ink(polys: &[Vec<P>]) -> f64 {
     let mut segs: Vec<[f64; 4]> = polys
         .iter()
