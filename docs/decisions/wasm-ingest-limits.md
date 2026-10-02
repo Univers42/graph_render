@@ -1,8 +1,8 @@
 # Wasm ingest limits
 
-**Status:** decided. **Date:** 2026-10-02. **Amended:** 2026-10-02, F-16 step 3 (the power-of-two
-rule is deferred to `fix-ingest-scale`; the ceiling is the largest document that built, rounded
-down to a whole MiB). **Code:** `crates/graph-wasm/src/ingest.rs`,
+**Status:** decided. **Date:** 2026-10-02. **Amended:** 2026-10-02, F-16 step 3 (the ceiling is
+the largest document that built, byte for byte; the power-of-two step down is deferred to
+`fix-ingest-scale`). **Code:** `crates/graph-wasm/src/ingest.rs`,
 `crates/graph-wasm/src/analysis/centrality.rs`. **Source:** the "Decisions needed" items 1–4 of
 `docs/measurements/fix-wasm-abi.md` (F-16, F-01, F-80).
 
@@ -20,20 +20,20 @@ not chosen:
    hash gate's synthetic models) and at doubling sizes above it.
 2. Run `gm_build` on each under Node on the real wasm32 artifact; record the document's bytes and
    whether it built or trapped.
-3. **`MAX_INGEST_BYTES` is the largest document that built, rounded down to a whole MiB** —
-   measured: 774,568,785 bytes built, 799,922,860 bytes trapped, so
-   `MAX_INGEST_BYTES = 773_849_088`. The rounding is the ceiling's one concession to the
-   measurement, and it is honest about the cost: the sweep's own largest document is 719,697
-   bytes over the ceiling and is refused. Every document the studio builds at its 1M-node scale
-   target is under it (degrees 1, 2 and 3 — up to 678,016,813 bytes).
+3. **`MAX_INGEST_BYTES` is the largest document that built, byte for byte** — measured:
+   774,568,785 bytes built, 799,922,860 bytes trapped, so `MAX_INGEST_BYTES = 774_568_785`.
+   No rounding and no step down: a rounded number would refuse a document that builds, and the
+   ceiling exists only to replace the trap, so refusing anything that works is the one failure
+   it must not have. The 25,354,075 bytes between it and the first document that trapped were
+   never run either way — that gap is untested air, and the `Ponytail:` line says so.
 4. **The power-of-two step down is deferred to the scale job.** The 1M-node degree-4 document
    traps, so step 5 below fired and the arena is `fix-ingest-scale`'s. A ceiling must never
    refuse a document that builds today, because the trap is the only failure it replaces: at
    `2^29` this ceiling refused the studio's own 1M-node degree-3 document (678,016,813 bytes),
-   which builds. So the number is the measurement itself, minus the rounding, with no margin —
-   and `fix-ingest-scale` restores "the largest power of two at or below the largest document
-   that built" once the arena no longer traps, at which point the ceiling has both a rule and
-   room under it. Until then a refusal is strictly better than a trap.
+   which builds. So the number is the measurement itself, with no margin — and `fix-ingest-scale`
+   restores "the largest power of two at or below the largest document that built" once the arena
+   no longer traps, at which point the ceiling has both a rule and room under it. Until then a
+   refusal is strictly better than a trap.
 5. If the 1M-node document itself traps, that is a scale defect, not a ceiling: stop and report.
    **This fired.** Reported in `docs/measurements/fix-wasm-ingest.md`; the ceiling still landed
    because steps 3 and 4 give a number that refuses nothing the studio builds today.

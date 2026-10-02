@@ -41,25 +41,23 @@ pub const VERSION: u32 = 1;
 ///
 /// Measured, not chosen (`docs/decisions/wasm-ingest-limits.md`, `docs/measurements/fix-wasm-ingest.md`):
 /// the studio's own generator at its 1M-node scale target, doubling up, on the
-/// `wasm32-unknown-unknown` release artifact under Node. The largest document that built was
-/// 774,568,785 bytes; the next one up, 799,922,860 bytes, trapped inside
-/// `graph_core::index_model`'s string arena, and so did 842,132,644 bytes at the studio's own
-/// `MAX_NODES`. This is that 774,568,785 rounded **down** to a whole MiB, 773,849,088, which is
-/// the ceiling's one concession to the measurement: the sweep's own largest document is
-/// 719,697 bytes over it and is refused, while every document the studio builds at its scale
-/// target does build under it (1M nodes at degrees 1, 2 and 3 — up to 678,016,813 bytes).
+/// `wasm32-unknown-unknown` release artifact under Node. This is the largest document that
+/// built — 774,568,785 bytes — byte for byte, with no rounding: it refuses nothing that built
+/// and accepts nothing unmeasured, which is the only property a ceiling here has to keep. The
+/// next document up, 799,922,860 bytes, trapped inside `graph_core::index_model`'s string
+/// arena, and so did 842,132,644 bytes at the studio's own `MAX_NODES`, so nothing between this
+/// and the first measured trap has been shown to build.
 ///
-/// Ponytail: no margin, deliberately — it is the measurement minus 719,697 bytes of rounding,
-/// so it refuses nothing that works at the studio's scale target but has no room of its own,
-/// and a document under it can still trap on work exactly as documents under it do today: the
-/// studio's 1M-node degree-4 model is 68,283,556 bytes *over* this and traps in `index_model`,
-/// while its degree-3 model is 95,832,275 bytes under it and builds. Failing input: a document
-/// below the ceiling whose edge count is high enough for the arena to run out — bytes are not
-/// work. Direction: refuses early on size, never on shape, and bounds nothing else. Escape
-/// hatch: `fix-ingest-scale` fixes the arena and restores the decision record's power-of-two
-/// rule with it; this number moves then, and until then nothing above 774,568,785 has been
-/// shown to build.
-pub const MAX_INGEST_BYTES: usize = 773_849_088;
+/// Ponytail: no margin, deliberately — it *is* the measurement, so the 25,354,075 bytes between
+/// it and the first document that trapped are untested air, not headroom, and a document under
+/// it can still trap on work exactly as documents under it do today: the studio's 1M-node
+/// degree-3 model is 96,551,972 bytes under this and builds, while its degree-4 model is
+/// 67,563,859 bytes over this and traps in `index_model`. Failing input: a document below the
+/// ceiling whose edge count is high enough for the arena to run out — bytes are not work.
+/// Direction: refuses early on size, never on shape, and bounds nothing else. Escape hatch:
+/// `fix-ingest-scale` fixes the arena, raises this with a new measurement, and restores the
+/// decision record's power-of-two step down with it.
+pub const MAX_INGEST_BYTES: usize = 774_568_785;
 
 /// Why an ingest buffer was refused.
 #[derive(Debug, Clone, PartialEq, Eq)]
