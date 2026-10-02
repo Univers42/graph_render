@@ -56,7 +56,8 @@ Both builds took 976–977 frames to fill, so the chunk trajectory was identical
 the cost of a frame, not of a chunk. A first series, three runs of each build in blocks rather
 than interleaved, read 35 834 / 26 105 / 34 480 ms for the kept picture against 37 597 / 39 914 /
 44 129 ms for the textures, 1.1x. Both series agree on the sign and neither resolves the magnitude
-on this host.
+on this host. A fourth run on the reverted tree as committed, `settle.py 1000000 webgl2 final`,
+read 38 076 ms over 977 frames.
 
 ## The row that owns the fill
 

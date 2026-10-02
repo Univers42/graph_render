@@ -15,8 +15,7 @@ picture holds and the pairs the frame has (webgl2/still.ts).
 
 Caveat: SwiftShader is a CPU rasteriser, so the milliseconds rank builds on this host and are
 not what a GPU would show, and this host's load average moves them: run it interleaved with the
-build it compares against, three times each, and read the medians. The clock starts before the
-open, so the layout's own milliseconds are in the number.
+build it compares against, three times each, and read the medians.
 """
 import base64
 import json
