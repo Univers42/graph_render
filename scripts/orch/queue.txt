@@ -66,10 +66,10 @@ sg-fix-spring-temp|build|prompts/jobs/sg-fix-spring-temp.md|scripts/orch/rows/qu
 merge-p12-t4b|build|prompts/jobs/merge-p12-t4b.md|scripts/orch/rows/quick.rows|no
 review-layout-force|build|prompts/jobs/review-layout-force.md|scripts/orch/rows/docs.rows|no
 review-layout-tree|build|prompts/jobs/review-layout-tree.md|scripts/orch/rows/docs.rows|no
+perf-p5b|build|prompts/jobs/perf-p5b.md|scripts/orch/rows/perf-p5.rows|no
 review-layout-rest|build|prompts/jobs/review-layout-rest.md|scripts/orch/rows/docs.rows|no
 review-gates|build|prompts/jobs/review-gates.md|scripts/orch/rows/docs.rows|no
 review-harness-sdk|build|prompts/jobs/review-harness-sdk.md|scripts/orch/rows/docs.rows|no
-perf-p5b|build|prompts/jobs/perf-p5b.md|scripts/orch/rows/perf-p5.rows|no
 fix-studio|build|prompts/jobs/fix-studio.md|scripts/orch/rows/quick.rows|no
 fix-wasm-ingest|build|prompts/jobs/fix-wasm-ingest.md|scripts/orch/rows/quick.rows|no
 z-comments|build|prompts/jobs/z-comments.md|scripts/orch/rows/quick.rows|no
