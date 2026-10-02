@@ -14,12 +14,10 @@
 //! nothing else. It is the median of three runs on a wall clock, on whatever host is
 //! measured — the load average is printed on the row rather than assumed idle.
 
-use super::campaign::median;
-use super::tiers::markdown::loadavg;
+use crate::bench::campaign::median;
+use crate::bench::tiers::markdown::loadavg;
 use graph_core::layout::force::{ForceParams, ForceSession};
-use graph_core::{
-    EdgeRecord, NodeRecord, REFERENCE_DEGREE, Topology, index_model, seeded_model,
-};
+use graph_core::{EdgeRecord, NodeRecord, REFERENCE_DEGREE, Topology, index_model, seeded_model};
 use std::collections::HashSet;
 use std::process::ExitCode;
 use std::time::Instant;
@@ -47,7 +45,9 @@ pub fn report(n: u32, seed: u32, batch: u32) -> ExitCode {
 /// One row: the untimed setup, then `REPEATS` of (index the whole model, carry onto it).
 fn measure(n: u32, seed: u32, batch: u32) -> Result<String, String> {
     if batch >= n {
-        return Err(format!("n={n}, batch={batch}: the carry needs a node left behind"));
+        return Err(format!(
+            "n={n}, batch={batch}: the carry needs a node left behind"
+        ));
     }
     let load_start = loadavg();
     let (nodes, edges) = seeded_model(seed, n, REFERENCE_DEGREE);
@@ -57,8 +57,12 @@ fn measure(n: u32, seed: u32, batch: u32) -> Result<String, String> {
         .map_err(|e| format!("old n={n}: {e}"))?;
     session.step(3);
     let carried = old.node_count();
-    let Samples { index_ms, carry_ms, new_nodes, new_edges } =
-        timed(&nodes, &edges, &old, &mut session)?;
+    let Samples {
+        index_ms,
+        carry_ms,
+        new_nodes,
+        new_edges,
+    } = timed(&nodes, &edges, &old, &mut session)?;
     let (carry_min, carry_max) = span(&carry_ms);
     Ok(format!(
         "| {n} | {batch} | {new_edges} | {:.2} | {:.2} | {carry_min:.2} | {carry_max:.2} | \

@@ -6,10 +6,16 @@
 //! with `bench --tiers`. `--warm` ticks run untimed first, so the quadtree and the scratch
 //! buffers are at capacity before the first timed tick.
 //!
+//! `--grow <BATCH>` switches to the other thing a live session is asked to do: carry itself
+//! onto a bigger topology, timed beside the indexing that topology costs
+//! ([`grow`](self::grow)).
+//!
 //! Caveat: a tick's cost follows alpha, because the layout's spread sets the tree's depth,
 //! so a short warm measures the early, most expensive ticks; raise `--warm` to measure a
 //! settling layout. Wall clock on a loaded host is inflated, which is why the load average
 //! is printed beside the numbers rather than assumed idle.
+
+pub mod grow;
 
 use super::campaign::median;
 use super::scale::{MAX_SCALE_NODES, scale_model};
@@ -47,7 +53,7 @@ pub const HEADER: &str = "| n | m | index ms | warm ms | ticks | tick min ms | t
 /// Exit 0 with the table on standard output, or 2 when the model could not be built.
 pub fn run(plan: &Plan) -> ExitCode {
     if let Some(batch) = plan.grow {
-        return super::grow::report(plan.n, plan.seed, batch);
+        return grow::report(plan.n, plan.seed, batch);
     }
     match measure(plan) {
         Ok(row) => {
