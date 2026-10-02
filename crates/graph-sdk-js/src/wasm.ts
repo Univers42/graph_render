@@ -74,7 +74,25 @@ function requireExports(instance: WebAssembly.Instance): RawExports {
   if (missing.length > 0) {
     throw new Error(`module lacks ${missing.join(", ")}: it is older than this SDK; rebuild it`);
   }
-  return instance.exports as unknown as RawExports;
+  return unsignedResults(instance.exports);
+}
+
+/** The exports whose result is not a `u32`: the memory, and the force session's `f64` alpha. */
+const NOT_U32: ReadonlySet<string> = new Set(["memory", "gm_force_session_alpha"]);
+
+/** Every `u32` result read back through `>>> 0`, once, here. A wasm `i32` result reaches JS
+ * signed, so an address at or past 2 GiB arrived negative: a 1M-node studio load failed with
+ * "Offset is outside the bounds of the DataView" in `frame` (2026-10-01). */
+function unsignedResults(exports: WebAssembly.Exports): RawExports {
+  const out: Record<string, unknown> = {};
+  for (const [name, value] of Object.entries(exports)) {
+    const wrap = typeof value === "function" && !NOT_U32.has(name);
+    out[name] = wrap ? (...args: number[]): unknown => {
+      const result: unknown = value(...args);
+      return typeof result === "number" ? result >>> 0 : result;
+    } : value;
+  }
+  return out as unknown as RawExports;
 }
 
 /** Bytes, or a URL/`Response` `fetch` can resolve (browser only — Node callers always

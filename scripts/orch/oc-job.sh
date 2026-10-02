@@ -12,7 +12,7 @@
 # OC_COMMON picks the job preamble (default scripts/orch/common.md). The house rules reach the job
 # through AGENTS.md and the kit's OpenCode bridge (devil setup), not through this preamble.
 set -uo pipefail
-label=$1 wt=$2 agent=$3 body=$4 rows=${5-}
+label=$1 wt=$(realpath -m -- "$2") agent=$3 body=$4 rows=${5-}
 bin=${OC_JOB_BIN:-$(dirname "$(readlink -f "$0")")}
 live=$("${OC_LIVE_BIN:-$bin/oc-live.sh}" "$wt" 2>&1); lr=$?
 case $lr in
