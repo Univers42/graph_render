@@ -85,7 +85,7 @@ incident edge, so a batch cost an `O(m)` hash of an id string on top of the `O(n
 whole map once (`Placement::map`, ascending, before anything is placed) turned those `2m + n` hashes
 into `n`. At n = 1M, batch 10 000, that took the carry from ~965 ms to ~400 ms on the same host.
 Reading the id out of the node column rather than through `Topology::node` — which builds a
-ten-field `NodeView` to hand back one field — took out a further per-row cost.
+ten-field `NodeView` to hand back one field — took it from ~650 ms to ~320 ms.
 
 ## Gates
 
@@ -120,14 +120,20 @@ Release, batch 10 000, `/proc/loadavg` as printed:
 | 1000000 | 10000 | 1549929 | 2685.47 | 669.88 | 569.11 | 798.43 | 990000 | 1000000 | 13.79 14.69 13.92 | 14.99 14.90 14.01 |
 | 1000000 | 10000 | 1549929 | 2610.34 | 645.79 | 397.72 | 721.26 | 990000 | 1000000 | 20.56 16.19 14.45 | 22.71 17.11 14.81 |
 | 1000000 | 10000 | 1549929 | 2303.38 | 665.16 | 476.48 | 683.14 | 990000 | 1000000 | 22.63 17.46 14.97 | 20.33 17.26 14.96 |
+| 100000 | 10000 | 154978 | 64.94 | 17.07 | 17.05 | 17.86 | 90000 | 100000 | 17.61 17.59 20.23 | 17.61 17.59 20.23 |
+| 1000000 | 10000 | 1549929 | 1310.14 | 320.07 | 315.18 | 354.54 | 990000 | 1000000 | 17.61 17.59 20.23 | 16.59 17.37 20.11 |
 
-Three rows per size, so the spread is visible rather than summarised away.
+Rows per size, so the spread is visible rather than summarised away. The last row of each size is a
+later run of the final binary; the three above it predate one last micro-optimisation (reading the
+id from the node column rather than through `Topology::node`), which is why the 1M figures fall from
+~650 ms to ~320 ms between the two groups. **320 ms is the number to read**; the ~650 ms rows are
+recorded because they were real runs of real code, not because they describe what is in the tree.
 
-**Caveat: the host was loaded throughout.** Load average sat at 14–23 on 20 cores for every run,
-and never fell below ~13.9 in the ten minutes before these numbers. Wall clock on a loaded host is
-inflated, and the 1M rows show it: `carry min` moved between 397 ms and 569 ms across repetitions
-of the *same* work, which is the machine, not the algorithm. Treat the 1M figures as an upper bound
-on a busy host, not as this code's cost on an idle one. Nothing here speaks for wasm32.
+**Caveat: the host was loaded throughout.** Load average sat at 14–23 on 20 cores for every run and
+never fell below ~13.9 in the ten minutes before these numbers. Wall clock on a loaded host is
+inflated, and the 1M rows show it: `carry min` moved between 315 ms and 569 ms across repetitions of
+the *same* work, which is the machine, not the algorithm. Treat the 1M figures as an upper bound on
+a busy host, not as this code's cost on an idle one. Nothing here speaks for wasm32.
 
 ## The plan's budget: missed
 
@@ -135,26 +141,27 @@ on a busy host, not as this code's cost on an idle one. Nothing here speaks for 
 ≤ 30 ms per batch at 1M** (measured)".
 
 **Missed, by more than an order of magnitude.** The carry at 1M with a 10 000-node batch measures
-~400–670 ms median, against a 30 ms budget. The rebuild of the topology itself — the part the
-budget's "rebuild" names — is ~2.3–2.7 s, which is ~20× the budget on its own, before any carry.
+**~320 ms** median on the final binary (~650 ms before the last id-read optimisation), against a
+30 ms budget. The rebuild of the topology itself — the part the budget's "rebuild" names — is
+~1.3–2.7 s, which is ~45–90× the budget on its own, before any carry is timed.
 
 Two things are true at once, and the second is the more useful one:
 
-1. **The budget is not met**, and the `index_model` half is what misses it worst. Re-indexing a
-   1.5M-edge model from records is seconds of work, not tens of milliseconds, so a design that
-   re-indexes the whole topology per batch cannot reach 30 ms at 1M no matter how fast the carry
-   is. The carry's own `O(n + m)` is the cheap half by comparison.
+1. **The budget is not met**, and the `index_model` half misses it worst. Re-indexing a 1.5M-edge
+   model from records is seconds of work, not tens of milliseconds, so a design that re-indexes the
+   whole topology per batch cannot reach 30 ms at 1M no matter how fast the carry is. The carry's
+   own `O(n + m)` is the cheap half by comparison.
 2. **The plan already anticipated this.** `perf-plan.md:118` says: *"If it misses, an append-only
    CSR with periodic compaction becomes a sub-slice"*, and `perf-plan.md:38` says the same about an
    append-only topology. That is the recommended next step, and this measurement is the evidence
    for it: the fix is in the topology's representation, not in the carry.
 
-Note also that this measurement is the *floor* the carry could ever reach, not a claim about a
-future one. `ForceSession::from_frozen` over the new topology — a bare session build with no
-mapping at all — measures ~180–195 ms at 1M on this host, because `simple_graph` deduplicates
-1.5M edges and `link::geometry` recomputes per-link geometry for all of them. So even with an
-append-only topology and no rebuild, a carry that constructs a fresh `Sim` cannot get near 30 ms at
-1M; reusing the existing graph where the edges are unchanged would be the next lever after the CSR.
+Note also that this is the *floor* the carry could reach here, not a claim about a future one.
+`ForceSession::from_frozen` over the new topology — a bare session build with no mapping at all —
+measured ~180–195 ms at 1M on this host, because `simple_graph` deduplicates 1.5M edges and
+`link::geometry` recomputes per-link geometry for all of them. So even with an append-only topology
+and no rebuild at all, a carry that constructs a fresh `Sim` cannot get near 30 ms at 1M; reusing
+the existing graph where the edges are unchanged would be the next lever after the CSR.
 
 ## What this does not do
 
