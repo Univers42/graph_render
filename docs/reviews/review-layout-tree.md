@@ -53,6 +53,17 @@ reviewer does not re-derive them.
   `refs/npm/d3-hierarchy-3.1.2/package/src/tree.js`: `firstWalk`, `executeShifts` (including the
   `shift += w.s + (change += w.c)` evaluation order), `apportion` (with `vop.a = v` and the
   `vim`-then-`vip` comma order), `moveSubtree` and `secondWalk` all match.
+> **Scope note (2026-10-02, `sg-sugiyama` review round 1).** The three `sugiyama` claims
+> below are about `acyclic::ArcOrder::Feedback` — the greedy feedback-arc-set branch, now in
+> `acyclic/feedback.rs`. That is **not** the order `Acyclic::of` takes: the reference builds an
+> **undirected** `nx.Graph` (`scigraphs_core/mesh/layouts/common.py:238`), so `_acyclic_arcs`
+> reads `list(G.nodes())` and the product pipeline runs `ArcOrder::NodeIndex`. The claims still
+> hold, re-derived against `hierarchical.py` by `docs/reviews/rv-sg-sugiyama.md` check 2, and
+> the branch is kept and pinned rather than deleted. One thing is not verbatim under it:
+> `Arcs::grouped()` sorts the arc list by node **index** where `_acyclic_arcs` sorts by
+> **rank** (`hierarchical.py:311`); the two agree exactly when `rank == index`, which is the
+> case `Acyclic::of` takes. Line numbers in these claims predate that split.
+
 - **`sugiyama/acyclic.rs`'s FAS heap key is not inverted.** `heap_key` returns
   `(in_degree - out_degree, v)` into a `BinaryHeap<Reverse<..>>`, which is a min-heap and so pops
   the **largest** `out - in` — exactly the Eades-Lin-Smyth heuristic and its own doc at
@@ -64,7 +75,11 @@ reviewer does not re-derive them.
   reverses a self-loop, `layering.rs:189` gives one `Route::Loop` with no dummies,
   `twopi/tree.rs:73` dedups parallel edges on first discovery, and `twopi/adjacency.rs:109` shows
   a self-loop-only graph terminates. `sugiyama/mod.rs:124`'s `left + right` divisor is guarded by
-  the `== 0.0` branch and cannot produce NaN.
+  the `== 0.0` branch and cannot produce NaN. **Superseded in part (2026-10-02):** sugiyama now
+  dedups parallel arcs the way the reference's `set` does, at the arc level rather than per edge —
+  `Arcs::grouped()` in `acyclic.rs`, threaded through `layering.rs` — and
+  `fixtures/dag/parallel-arcs.json` is the fixture that covers it. The `Route::Loop` and
+  no-NaN claims are unaffected.
 - **`treemap` is a faithful bit-level port** of `d3-hierarchy@3.1.2`: `rows.rs:66-90` is d3's
   inlined `layoutrow` with the O(1) running min/max row growth (no O(n^2) worst-ratio rescan), the
   rejected candidate is subtracted back exactly as `squarify.js` does (an f64 round trip that is

@@ -47,6 +47,25 @@ test("a pair of another graph's length is ignored", () => {
   assert.equal(pickAt(state, { x: 100, y: 0 }), 1, "the drawing is the one that is on screen");
 });
 
+/**
+ * A batch carrying one non-finite coordinate is refused whole, the way the snapshot reader
+ * refuses one (`snapshot/decode.ts:116`): a NaN would become a drawn sprite, a pick-grid entry
+ * and a NaN camera, and half a batch of them is not a drawing either. The control is the row
+ * above it — a finite batch of the same shape IS installed — so this row can only fail for the
+ * finiteness, not for the length or the plumbing.
+ */
+test("a batch with one non-finite coordinate is refused whole", () => {
+  for (const bad of [Number.NaN, Infinity, -Infinity]) {
+    const state = threeNodes();
+    setPositions(state, Float64Array.from([0, 150, 200]), Float64Array.from([0, 300, bad]));
+    assert.deepEqual(position(state, 1), { x: 100, y: 0 }, `a ${bad} y on node 2 changes nothing`);
+    assert.deepEqual(position(state, 2), { x: 200, y: 0 }, "not even the nodes before it move");
+    assert.equal(pickAt(state, { x: 100, y: 0 }), 1, "the drawing is still the one on screen");
+    assert.ok(Number.isFinite(state.camera.scale), "and the camera is still a camera");
+    assert.ok(Number.isFinite(state.limits.min) && Number.isFinite(state.limits.max), "as are the limits");
+  }
+});
+
 test("the pick grid followed the live positions, and picking did not stop", () => {
   const state = threeNodes();
   setPositions(state, Float64Array.from([0, 150, 200]), Float64Array.from([0, 300, 0]));

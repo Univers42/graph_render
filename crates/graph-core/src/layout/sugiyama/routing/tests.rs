@@ -10,9 +10,9 @@ use crate::records::{EdgeRecord, NodeRecord};
 fn paths(nodes: &[NodeRecord], edges: &[EdgeRecord]) -> Paths {
     let t = index_model(nodes, edges).expect("fits");
     let acyclic = Acyclic::of(&t);
-    let arcs = Arcs::new(&t, &acyclic);
-    let layer = assign_layers(&arcs);
-    let layering = Layering::build(&arcs, &layer, DUMMY_BUDGET);
+    let list = Arcs::new(&t, &acyclic).grouped();
+    let layer = assign_layers(&list);
+    let layering = Layering::build(&list, &layer, DUMMY_BUDGET);
     let num_layers = layering.layer_of.iter().copied().max().map_or(0, |m| m + 1);
     let ordering = Ordering::build(&layering, num_layers);
     let coords = Coords::build(&ordering, &layering, t.node_count());
@@ -94,13 +94,14 @@ use graph_contract::canonical_json::{Value, parse};
 use graph_contract::geometry::{EdgeGeometry, NodeGeometry};
 use graph_contract::notes::NoteCode;
 
-const DAG_FIXTURES: [&str; 6] = [
+const DAG_FIXTURES: [&str; 7] = [
     include_str!("../../../../../../fixtures/dag/chain.json"),
     include_str!("../../../../../../fixtures/dag/diamond.json"),
     include_str!("../../../../../../fixtures/dag/cyclic.json"),
     include_str!("../../../../../../fixtures/dag/multi-span.json"),
     include_str!("../../../../../../fixtures/dag/wide-layer.json"),
     include_str!("../../../../../../fixtures/dag/disconnected.json"),
+    include_str!("../../../../../../fixtures/dag/parallel-arcs.json"),
 ];
 type DagGraph = (Vec<String>, Vec<(String, String, String)>);
 

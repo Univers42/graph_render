@@ -1,5 +1,5 @@
 /** Frames the camera on the nodes the search highlighted, with the look's slack around them. */
-import { type Bounds, type Camera, type Viewport, type ZoomLimits, clamp } from "../../../graph-render/src/camera.ts";
+import { type Bounds, type FitArea, fitCamera } from "../../../graph-render/src/camera.ts";
 import { boundsOfVisible } from "../../../graph-render/src/local.ts";
 import { FIT_MARGIN } from "../../../graph-render/src/look/presets.ts";
 import type { View } from "../../../graph-render/src/view.ts";
@@ -7,7 +7,13 @@ import type { Outcome } from "../actions/registry.ts";
 import { highlightOf } from "../look/visibleOf.ts";
 import type { StudioState } from "../state/model.ts";
 
-export type FitFace = Pick<View, "frame" | "setCamera" | "viewport" | "limits">;
+/**
+ * The four faces a fit needs. `safeArea` is optional because the studio's pipeline hands over
+ * a view that has one, while a face a test or a host builds need not: a view that says
+ * nothing has no chrome over it, which is the fit this file had before ST-4.
+ */
+export type FitFace = Pick<View, "frame" | "setCamera" | "viewport" | "limits">
+  & { readonly safeArea?: () => FitArea | null };
 
 function countOf(mask: Uint8Array | null, nodeCount: number): number {
   if (mask === null) return nodeCount;
@@ -16,13 +22,13 @@ function countOf(mask: Uint8Array | null, nodeCount: number): number {
   return kept;
 }
 
-/** The camera that puts a box inside the viewport with the look's slack, within the limits. */
-function cameraFor(bounds: Bounds, viewport: Viewport, limits: ZoomLimits): Camera {
-  const width = Math.max(1, bounds.maxX - bounds.minX), height = Math.max(1, bounds.maxY - bounds.minY);
-  const room = Math.min(viewport.width, viewport.height) / FIT_MARGIN;
-  const scale = clamp(Math.min(room / width, room / height), limits.min, limits.max);
-  const midX = (bounds.minX + bounds.maxX) / 2, midY = (bounds.minY + bounds.maxY) / 2;
-  return { scale, x: viewport.width / 2 - midX * scale, y: viewport.height / 2 - midY * scale };
+/**
+ * A box of numbers. `camera.ts`'s `clamp` propagates a NaN rather than refusing one, so a
+ * single non-finite coordinate would reach the canvas as a NaN camera, which nothing undoes.
+ */
+function isFiniteBounds(bounds: Bounds): boolean {
+  return Number.isFinite(bounds.minX) && Number.isFinite(bounds.minY)
+    && Number.isFinite(bounds.maxX) && Number.isFinite(bounds.maxY);
 }
 
 export function fitResults(view: FitFace, state: StudioState): Outcome {
@@ -35,6 +41,12 @@ export function fitResults(view: FitFace, state: StudioState): Outcome {
   // button that did nothing, so the first node stands in. Escape hatch: `fit` fits all.
   const bounds = span ?? (frame.nodeCount > 0 ? { minX: 0, minY: 0, maxX: 1, maxY: 1 } : null);
   if (bounds === null) return { message: "the drawing holds no nodes" };
-  view.setCamera(cameraFor(bounds, view.viewport(), view.limits()));
+  if (!isFiniteBounds(bounds)) return { message: "the drawing holds a coordinate that is not a number" };
+  // The renderer's own fit, not a second one: it centres in the safe area ST-4 measured,
+  // takes the look's slack as a margin, keeps its "never past 2" ceiling and its degenerate
+  // frame floor. Naming `maxScale` here lifted that ceiling to the view's own 40 and two
+  // close results came out at 29×, which reads as a broken view; the ceiling is the renderer's.
+  const area = view.safeArea?.() ?? null;
+  view.setCamera(fitCamera(bounds, view.viewport(), { margin: FIT_MARGIN, area: area ?? undefined }));
   return { message: `fitted to ${countOf(mask, frame.nodeCount)} of ${frame.nodeCount} nodes` };
 }
