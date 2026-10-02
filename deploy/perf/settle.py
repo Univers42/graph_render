@@ -4,14 +4,15 @@
       python3 deploy/perf/settle.py 1000000 webgl2 [label]
 
 Build first (scripts/studio.sh build). Prints one line: the milliseconds from the probe's first
-poll to the frame whose counters say the picture holds every edge, then the page's errors and the
-frame's counters. The open's own seconds are printed before it and are not in the number: the
-clock starts once the open command has returned. Writes target/studio-settle/<label>.png, the
-settled picture itself.
+poll to the frame whose `view.stats()` says the settled picture holds every edge, the frame times
+that poll saw on the way, then the page's errors and the frame's counters. The open's own seconds
+are printed before it and are not in the number: the clock starts once the open command has
+returned. Writes target/studio-settle/<label>.png, the settled picture itself.
 
-Why the counters and not a flag: the loop keeps `refining` (hook.ts) and the view's stats
-(view-stats.ts) never say it, so the probe reads `drawnEdges` against `edges`, the pairs the
-picture holds and the pairs the frame has (webgl2/still.ts).
+Why the flag and not the counters: `refining` is the loop's own "the still picture still lacks a
+chunk" (webgl2/hook.ts), reported in `view.stats()`, so the probe waits on the same signal the
+loop asks another frame for. The counters it used to compare (`drawnEdges` against `edges`) say
+the same thing a frame later, and read false on a frame that drew no chunk at all.
 
 Caveat: SwiftShader is a CPU rasteriser, so the milliseconds rank builds on this host and are
 not what a GPU would show, and this host's load average moves them: run it interleaved with the

@@ -53,6 +53,12 @@ export interface ViewStats {
   readonly backend: "canvas2d" | "webgl2";
   /** Why the WebGL2 layer could not be used, or "". */
   readonly backendFailure: string;
+  /**
+   * True while the GPU layer's settled picture is still filling: the last frame's still lacked
+   * edges, so the next one adds another chunk. False once the picture holds every edge, and on
+   * the frame after a camera move, which draws from the moving budget instead.
+   */
+  readonly refining: boolean;
   readonly nodes: number;
   readonly edges: number;
   readonly drawnNodes: number;

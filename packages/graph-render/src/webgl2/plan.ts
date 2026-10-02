@@ -117,16 +117,39 @@ export const FAST_MS = 12;
 export const MOVING_FLOOR = 2048;
 
 /**
+ * How many frames a settled picture's fill takes, whatever the graph's size: the fill adds a
+ * `stillFloor` share of the edge pairs a frame, so at 1M nodes it reads about 128 frames where the
+ * moving floor gave 977. Each of those frames pays the whole-canvas readback that shows the picture
+ * (84.6% of its time at 1920x1080 on software raster), so the frame count is what the fill costs.
+ *
+ * Caveat: this bounds the frame *count*, not the frame *time*, and not the input latency. A frame is
+ * a STILL_FRAMES-th of the work, so at 1M nodes it reads about 200 ms where the moving floor's read
+ * 27-39: a pan asked for in the middle of one waits for it (deploy/perf/settle-pan.py). It is also a
+ * share of the edge count and not of the milliseconds, so a graph with few edges and expensive ones
+ * (all of them on screen, zoomed in) gets the same frame count and a longer frame.
+ */
+export const STILL_FRAMES = 128;
+
+/**
+ * The fewest edge pairs a settled frame adds to the kept picture, for `total` pairs: a STILL_FRAMES
+ * share of them, and never below MOVING_FLOOR, so a graph small enough for the moving floor to reach
+ * fills the way it always did.
+ */
+export function stillFloor(total: number): number {
+  return Math.max(MOVING_FLOOR, Math.ceil(total / STILL_FRAMES));
+}
+
+/**
  * The edges, and the nodes, the next moving frame draws, from what the last one cost: halved
- * above SLOW_MS, doubled below FAST_MS, kept between, never below MOVING_FLOOR nor above the
- * whole set.
+ * above SLOW_MS, doubled below FAST_MS, kept between, never below `floor` (MOVING_FLOOR for a
+ * moving frame, `stillFloor` for a settled one) nor above the whole set.
  * Caveat: `ms` is the time the CPU waited on the layer. A driver that returns before the GPU
  * is done (most hardware GPUs) reports less than the frame costs, so the budget climbs to the
  * whole set and a GPU-bound frame is not paced; software raster waits, and is.
  */
-export function nextBudget(budget: number, ms: number, total: number): number {
+export function nextBudget(budget: number, ms: number, total: number, floor = MOVING_FLOOR): number {
   const next = ms > SLOW_MS ? budget / 2 : ms < FAST_MS ? budget * 2 : budget;
-  return Math.max(Math.min(MOVING_FLOOR, total), Math.min(total, Math.floor(next)));
+  return Math.max(Math.min(floor, total), Math.min(total, Math.floor(next)));
 }
 
 /** What `onScreen` culls against: the 2D view's camera, in CSS pixels. */

@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { FAST_MS, MOVING_FLOOR, SLOW_MS, gathered, largestHalf, nextBudget, onScreen, spreadOrder, spreadPairs, spreadShown } from "../src/webgl2/plan.ts";
+import { FAST_MS, MOVING_FLOOR, SLOW_MS, STILL_FRAMES, gathered, largestHalf, nextBudget, onScreen, spreadOrder, spreadPairs, spreadShown, stillFloor } from "../src/webgl2/plan.ts";
 
 test("the spread order is a permutation whose every prefix covers the range evenly", () => {
   assert.deepEqual([...spreadOrder(8)], [0, 4, 2, 6, 1, 5, 3, 7]);
@@ -36,6 +36,22 @@ test("the moving budget halves when slow, doubles when fast, and stays inside it
   assert.equal(nextBudget(MOVING_FLOOR + 1, SLOW_MS + 1, 1e6), MOVING_FLOOR);
   assert.equal(nextBudget(800000, FAST_MS - 1, 1e6), 1e6);
   assert.equal(nextBudget(MOVING_FLOOR, SLOW_MS + 1, 100), 100);
+});
+
+test("a settled fill's floor is a share of the whole set, so its frame count is bounded not its chunk", () => {
+  // 1M nodes: 1 999 996 edge pairs over STILL_FRAMES frames.
+  assert.equal(stillFloor(1999996), Math.ceil(1999996 / STILL_FRAMES));
+  // 200k nodes: eight times fewer pairs, an eighth of the chunk.
+  assert.equal(stillFloor(399996), Math.ceil(399996 / STILL_FRAMES));
+  // 20k nodes and 2k: the share is under the moving floor, which is then what holds.
+  assert.equal(stillFloor(39996), MOVING_FLOOR);
+  assert.equal(stillFloor(1996), MOVING_FLOOR);
+  // The chunk cannot fall below its own floor, and still grows when a frame came in cheap.
+  const floor = stillFloor(1999996);
+  assert.equal(nextBudget(floor, SLOW_MS + 1, 1999996, floor), floor);
+  assert.equal(nextBudget(floor * 2, FAST_MS - 1, 1999996, floor), floor * 4);
+  // A set smaller than the floor is still drawn whole in one frame, as it always was.
+  assert.equal(nextBudget(floor, SLOW_MS + 1, 1996, stillFloor(1996)), 1996);
 });
 
 test("the largest half is the widest side of any shown node, and 0 when none is shown", () => {
