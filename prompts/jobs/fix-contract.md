@@ -19,6 +19,9 @@ Judgement notes:
 - F-08 … F-11, F-71 … F-76 (ingest validation). Tightening the reader must not refuse any committed
   document: run the reader over `fixtures/ingest/*.json` and every adapter fixture, and paste that
   they all still pass. A committed document the fix would refuse is "decisions needed".
+- Handed off by fix-core-ingest's review: `ingest/collection.rs:37-38` `first_with_role` uses
+  `iter().find` against its own "lowest-id" doc and has no caller left. Delete it if still unused,
+  else make it lowest-id with `min_by` (no allocation).
 
 Paths: `crates/graph-contract/**`, `docs/contract/binary-layout.md`, the generated
 `docs/contract/*.json` and TypeScript declarations (through `codegen` only).

@@ -41,3 +41,12 @@ Done when: fmt, clippy `-D warnings`, `cargo test -p graph-core --lib` and the w
 exit 0; the rank agreement over 1000 seeds is recorded with the command that produced it; the return block
 pastes each command's real exit code and ends with the draft brief for `p13-gv2-dot-mincross`.
 Leave everything uncommitted; the orchestrator commits.
+
+## Decisions (orchestrator, 2026-10-02, on the first run's return block)
+
+- Node width: keep `max(0.75 in, text + 2*0.11 in)` in this job. The measured
+  `node = 1.37952 * label_box + 0.30669` in goes into `p13-gv2-dot-position`, where x is computed;
+  record the four oracle widths there, not here.
+- The first run returned without the rank pass. This run does it: the rank pass, the six closed cases,
+  the 20 fixture seeds, and the 1000-seed rank agreement count with its command, all per "Do" and
+  "Done when" above. The work already in the worktree stays; build on it.
