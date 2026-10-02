@@ -9,14 +9,25 @@ both oracle images, so this arm applies those five lines itself and the motor ar
 same five in Rust (`motor/gv_post.rs`). Both arms then emit what SciGraphs would, and what the
 matrix compares is the layout rather than the convention.
 
-**What is still not SciGraphs' answer is the engine's own text.** `gv_plain.parse_plain` reads
-`-Tplain`, which writes inches at five decimals, and multiplies by 72 (`gv_plain.py:24`,
-`:95-96`): so every reference coordinate is a multiple of `7.2e-4` points. That grid is this
-arm's own doing and not SciGraphs' — `graphviz_layout(num_nodes, edges, engine=..., ...)`
-(`yifan_hu.py:298-307`) is handed a node count and an edge list and returns an array, so it is
-a layout call rather than a rendering, and a rendering is what rounds. Hence
-`GRAPHVIZ_TWOPI`'s `max_gap` floors at 7.5e-5 rather than at zero, and that row's gap is about
-the arm rather than about the scale.
+**The engine's own text is not what this arm reads.** `-Tplain` prints coordinates in inches
+through `printdouble`, which is `agxbprint(&buf, "%.5g", v)` (`lib/common/output.c:66-71`,
+`printpoint` at `:76-79`): five *significant* digits, so a coordinate in [1, 10) in sits on a
+step of `1e-4` in = `7.2e-3` points and one above 10 in on `1e-3` in. Reading that text puts
+the reference on the graph's own rounding grid. So the points come from `gv_exact`
+(`gv_exact.c`/`gv_exact.py`), which links libgvc in this image, runs `gvLayout` and prints
+`ND_coord(n)` with `%a` — the same translated points `-Tplain` rounds, unrounded.
+`GRAPHVIZ_TWOPI`'s `max_gap` was floored at 7.5e-5 by that grid; this arm's own doctest
+(`gv_exact.py`) measures the residue it removes at up to 3.6e-2 pt for a 77-node ring, and
+`2e-4` pt for twopi, which is the same layout with the digits it started with.
+
+**What is still not SciGraphs' answer is `scigraphs_utils` itself.**
+`graphviz_layout(num_nodes, edges, engine=..., ...)` (`yifan_hu.py:298-307`) is handed a node
+count and an edge list and returns an array, so on this reading it is a layout call rather than
+a rendering, and a rendering is what rounds. **That is an inference, not a measurement:** the
+extension's source is not on disk, only the `scigraphs-utils==0.2.0` pin
+(`SciGraphs/constraints/linux-x64.txt:21`), so what it does to the coordinates between
+`gvLayout` and the array is unverified — as is the seed, which this arm supplies as the graph
+attribute `start` the way `-Gstart` does (`lib/common/input.c:281-286`, `:178-192`).
 
 The DOT is written undirected for all nine, which is right for eight of them and wrong for
 `dot`: SciGraphs builds `dot` directed (`yifan_hu.py:302`). That is recorded as
@@ -37,7 +48,7 @@ sys.dont_write_bytecode = True
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from gv_plain import engine_points  # noqa: E402
+from gv_exact import exact_points  # noqa: E402
 
 from sc_fixture import FixtureError, write_f64  # noqa: E402
 from sc_names import GRAPHVIZ_ROWS, LAYOUT_SEED, SCALE, graphviz_version  # noqa: E402
@@ -72,7 +83,7 @@ def run_name(out, name, engine, fixtures):
     with tempfile.TemporaryDirectory() as scratch:
         for fixture in fixtures:
             try:
-                points = engine_points(
+                points = exact_points(
                     engine, scratch, "%s-%s" % (name, fixture.name),
                     fixture.n, fixture.edges(), start=LAYOUT_SEED,
                 )
@@ -87,7 +98,7 @@ def run_name(out, name, engine, fixtures):
                 "fixture": fixture.name,
                 "status": "ok",
                 "layout_substituted": None,
-                "detail": "the engine's -Tplain points, then yifan_hu.py:318-325",
+                "detail": "ND_coord(n) via gv_exact.c, then yifan_hu.py:318-325",
             })
             for point in zip(*_scigraphs_columns(points)):
                 values.extend([float(point[0]), float(point[1]), 0.0])

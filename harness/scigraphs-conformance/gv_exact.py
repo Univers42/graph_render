@@ -1,10 +1,11 @@
-"""`gv_exact.engine_points`, a drop-in for `gv_plain.engine_points` that reads no rounding.
+"""`exact_points`, a drop-in for `gv_plain.engine_points` that reads no rounding.
 
 `gv_plain` asks the engine for `-Tplain` and takes the coordinates off that text. The text
-is inches at five significant digits -- `printdouble` is `agxbprint(&buf, "%.5g", v)`
-(`lib/common/output.c:66-71`) -- so every reference coordinate lands on a 7.2e-4-point grid
-and `GRAPHVIZ_TWOPI`'s `max_gap` in the conformance matrix floors at 7.5e-5 rather than at
-zero (`sc_graphviz.py:12-19`). That grid is the harness's doing, not SciGraphs':
+is inches at five *significant* digits -- `printdouble` is `agxbprint(&buf, "%.5g", v)`
+(`lib/common/output.c:66-71`) -- so the step is `10^(floor(log10|v|) - 4)` inches: 1e-4 in =
+7.2e-3 pt for a coordinate in [1, 10) in, and coarser above that, which is what floors
+`GRAPHVIZ_TWOPI`'s `max_gap` in the conformance matrix rather than letting it reach zero
+(`sc_graphviz.py:12-19`). That grid is the harness's doing, not SciGraphs':
 `graphviz_layout(num_nodes, edges, engine=...)` (`yifan_hu.py:298-307`) is handed a node
 count and an edge list and returns an array, so what the matrix should compare is the
 layout rather than the rendering of it.
@@ -141,8 +142,8 @@ def _max_gap(exact, plain):
     `(x, y)`. Both axes are compared outright, with no shift or reflection applied to
     either side, because `-Tplain` applies none (`Y_invert` off by default; see the module
     docstring). What is left on either axis is the `%.5g` each `-Tplain` value went
-    through, which is the whole claim: this module reads the same layout the arm read
-    before, with nothing of it thrown away."""
+    through, and that residue is the whole claim: these are the same layout, this module
+    simply was not handed it rounded."""
     dx = dy = 0.0
     for (ax, ay), (bx, by) in zip(exact, plain):
         dx = max(dx, abs(ax - bx))
@@ -168,7 +169,7 @@ FIXTURES = (("triangle", 3, [(0, 1), (1, 2), (2, 0)]), ("ring", 77, _ring(77)))
 
 #: The eight engines SciGraphs reaches through `scigraphs_utils` (`sc_graphviz.py:1`), all
 #: of which are layout plugin names as well as executables, so `gv_plain`'s
-#`engine -Tplain` and `gv_exact`'s `gvLayout(gvc, g, engine)` ask for the same layout.
+#: `engine -Tplain` and `gv_exact`'s `gvLayout(gvc, g, engine)` ask for the same layout.
 ENGINES = ("twopi", "patchwork", "dot", "neato", "fdp", "sfdp", "circo", "osage")
 
 

@@ -1,12 +1,13 @@
 /* gv_exact -- the node coordinates `gvLayout` leaves behind, printed without rounding.
  *
  * Every Graphviz *text* output rounds. `-Tplain` writes inches through `printdouble`
- * (`lib/common/output.c:66-71`), which is `agxbprint(&buf, "%.5g", v)`; five significant
- * digits at 72 points per inch put every reference coordinate on a 7.2e-4-point grid. A
- * matrix that compares against that grid measures the rendering, not the layout. This
- * program links libgvc directly, reads the DOT, lays it out, and prints `ND_coord(n).x`
- * and `ND_coord(n).y` with `%a`: hex float, an exact round trip, so not one bit is lost
- * between the layout and whatever reads it.
+ * (`lib/common/output.c:66-71`), which is `agxbprint(&buf, "%.5g", v)`: five SIGNIFICANT
+ * digits, so the step is 10^(floor(log10|v|) - 4) inches -- 1e-4 in = 7.2e-3 pt for a
+ * coordinate in [1, 10) in, and coarser above that. A matrix that compares against that
+ * grid measures the rendering, not the layout. This program links libgvc directly, reads
+ * the DOT, lays it out, and prints `ND_coord(n).x` and `ND_coord(n).y` with `%a`: hex
+ * float, an exact round trip, so not one bit is lost between the layout and whatever reads
+ * it.
  *
  * `gv_exact.py` in this directory compiles this file once per process and parses stdout.
  *
