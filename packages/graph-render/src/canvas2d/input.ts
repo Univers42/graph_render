@@ -41,6 +41,11 @@ export interface PaintInput {
   readonly selected: number;
   readonly labels: LabelPlan;
   readonly sprites: SpriteCache;
+  /**
+   * Draws the frame's edges and nodes on a GPU layer and returns true, or returns false and
+   * leaves them to the 2D passes. Absent means the 2D passes draw everything.
+   */
+  readonly bulk?: (input: PaintInput, counts: PaintCounts) => boolean;
 }
 
 export interface PaintCounts {
@@ -65,8 +70,10 @@ export interface PaintCounts {
   glowFills: number;
   /** The stroke width of an edge in CSS pixels in the last frame. */
   stroke: number;
+  /** Draw calls on the GPU layer: 0 when the 2D passes drew the frame. */
+  bulk: number;
 }
 
 export function newCounts(): PaintCounts {
-  return { nodes: 0, edges: 0, labels: 0, draws: 0, arrows: 0, arrowSize: 0, curves: 0, strokes: 0, edgeStyles: 0, mixedEdges: 0, gradientStrokes: 0, arrowFills: 0, glowFills: 0, stroke: 0 };
+  return { nodes: 0, edges: 0, labels: 0, draws: 0, arrows: 0, arrowSize: 0, curves: 0, strokes: 0, edgeStyles: 0, mixedEdges: 0, gradientStrokes: 0, arrowFills: 0, glowFills: 0, stroke: 0, bulk: 0 };
 }

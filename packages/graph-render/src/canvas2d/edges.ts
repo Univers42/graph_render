@@ -224,6 +224,13 @@ export function strokeWidth(input: PaintInput): number {
   return carried * input.camera.scale * input.style.edges.scale;
 }
 
+/** The focus's own edges alone, over a GPU layer that drew every edge dimmed. */
+export function paintLitEdges(input: PaintInput, counts: PaintCounts): void {
+  input.ctx.lineWidth = strokeWidth(input);
+  paintLit({ input, counts, pending: 0 });
+  input.ctx.globalAlpha = 1;
+}
+
 export function paintEdges(input: PaintInput, counts: PaintCounts): void {
   const tracer: Tracer = { input, counts, pending: 0 };
   input.ctx.lineWidth = strokeWidth(input);

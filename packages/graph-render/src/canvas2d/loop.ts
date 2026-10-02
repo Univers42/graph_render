@@ -18,6 +18,7 @@ import { type Rate, stamp } from "./rate.ts";
 import type { SpriteCache } from "./sprites.ts";
 import type { Orbit } from "../three/orbit.ts";
 import { type Drawn, newProjection, projectFrame } from "../three/projection.ts";
+import { type BulkSlot, paintBulk } from "../webgl2/hook.ts";
 
 /** How long after the last camera change the view still counts as moving. */
 const MOVING_MS = 140;
@@ -72,6 +73,8 @@ export interface LoopState {
   frameMs: number;
   frames: number;
   readonly rate: Rate;
+  /** The GPU layer a large 2D scene is drawn on, and the backend the host asked for. */
+  readonly bulk: BulkSlot;
 }
 
 export function focusOf(state: Pick<LoopState, "hovered" | "selected">): number {
@@ -119,6 +122,7 @@ function advance(state: LoopState, now: number): boolean {
   const eased = easeInOutCubic(t);
   blend(state.fromX, state.scene.frame.x, eased, state.x);
   blend(state.fromY, state.scene.frame.y, eased, state.y);
+  state.bulk.placed += 1;
   return true;
 }
 
@@ -165,7 +169,7 @@ function paint(state: LoopState, moving: boolean, settled: boolean): void {
     ctx: state.ctx, viewport: state.viewport, dpr: state.dpr, camera: state.camera, theme, space: drawn,
     frame: scene.frame, style: scene.style, adjacency: scene.adjacency, extent: scene.extent,
     x: state.x, y: state.y, settled, moving, focus, lit: state.lit, selected: state.selected,
-    labels: state.plan, sprites: state.sprites,
+    labels: state.plan, sprites: state.sprites, bulk: (input, counts) => paintBulk(state.bulk, input, counts),
   });
   paintOverlay(state);
 }

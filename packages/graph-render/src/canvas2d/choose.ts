@@ -63,6 +63,7 @@ function nodeGesture(controller: Controller, node: number): Gesture {
       const world = screenToWorld(state.camera, to);
       state.x[node] = world.x;
       state.y[node] = world.y;
+      state.bulk.placed += 1;
       markMoved(state);
     },
     end: () => {

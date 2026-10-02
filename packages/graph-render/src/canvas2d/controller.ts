@@ -10,6 +10,8 @@ import { EMPTY_FRAME, pickIn, sceneOf } from "../scene.ts";
 import { plainStyle } from "../style.ts";
 import { DARK_THEME, type Theme } from "../theme.ts";
 import { type Orbit, boxOf, fitOrbit } from "../three/orbit.ts";
+import type { BackendChoice } from "../webgl2/plan.ts";
+import { newBulkSlot } from "../webgl2/hook.ts";
 import { setSelection } from "./choose.ts";
 import { newCounts } from "./input.ts";
 import { type LoopState, invalidate, markMoved, relight } from "./loop.ts";
@@ -42,6 +44,8 @@ export interface Setup {
   readonly theme: Theme | undefined;
   readonly policy: LabelPolicy | undefined;
   readonly onFrame: () => void;
+  /** Default "auto". */
+  readonly backend?: BackendChoice | undefined;
 }
 
 const MAX_DPR = 2;
@@ -78,7 +82,7 @@ export function newState(canvas: HTMLCanvasElement, setup: Setup): LoopState {
     plan: newLabelPlan(policy.budget), orbit: null, drawn: null,
     layoutKey: null, layoutDirty: false, layoutRuns: 0, occupancy: occupancyFor(viewport),
     scheduled: 0, settleTimer: null, movedAt: 0, destroyed: false,
-    counts: newCounts(), frameMs: 0, frames: 0, rate: newRate(),
+    counts: newCounts(), frameMs: 0, frames: 0, rate: newRate(), bulk: newBulkSlot(setup.backend ?? "auto"),
   };
 }
 
@@ -192,6 +196,7 @@ export function setPositions(state: LoopState, xs: Float64Array, ys: Float64Arra
   }
   state.x.set(xs);
   state.y.set(ys);
+  state.bulk.placed += 1;
   // The scene is the single source of truth: it carries the frame and the grid rebuilt on it.
   state.scene = movedScene(state.scene, { x: state.x, y: state.y });
   state.x = state.scene.frame.x;
