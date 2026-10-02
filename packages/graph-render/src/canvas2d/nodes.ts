@@ -155,7 +155,21 @@ export function paintNodes(input: PaintInput, counts: PaintCounts): void {
   } else {
     paintPass(input, counts, "all");
   }
+  paintRings(input);
+}
+
+function paintRings(input: PaintInput): void {
   input.ctx.globalAlpha = 1;
   paintRing(input, input.selected, 2);
   if (input.focus !== input.selected) paintRing(input, input.focus, 1.5);
+}
+
+/**
+ * The lit neighbourhood at full strength and the rings, over a GPU layer that drew every
+ * node. Caveat: it walks every node to find the lit ones, as the 2D lit pass does; a
+ * million-node scene pays that walk on every frame a focus is shown.
+ */
+export function paintLitNodes(input: PaintInput, counts: PaintCounts): void {
+  if (input.focus >= 0) paintPass(input, counts, "lit");
+  paintRings(input);
 }

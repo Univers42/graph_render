@@ -1,18 +1,25 @@
 /** Finding a node by name: a line of text, the labels that hold it, and a camera on them. */
-import type { KeyboardEvent, ReactElement, RefObject } from "react";
+import { memo, type KeyboardEvent, type ReactElement, type RefObject } from "react";
 
 import type { GraphMeta } from "../source/meta.ts";
 import type { Studio } from "../studio/studio.ts";
 import { allMatchesOf } from "./matches.ts";
-import { useStudioState } from "./useStudio.ts";
 
 /** How many labels the box lists. The mask and the Enter key see the whole of them. */
 const RESULTS_SHOWN = 8;
+
+/**
+ * One array for every render that has no graph yet: a fresh `[]` per render would be a fresh
+ * label list to index, and with nothing in it there is nothing to offer either way.
+ */
+const NO_LABELS: readonly string[] = [];
 
 export interface SearchProps {
   readonly studio: Studio;
   /** `null` before anything is drawn: the line is still there, with nothing to offer. */
   readonly meta: GraphMeta | null;
+  /** What is typed: the one slice of the state the box draws. */
+  readonly text: string;
   readonly inputRef: RefObject<HTMLInputElement | null>;
 }
 
@@ -60,14 +67,14 @@ function actionsOf(studio: Studio, meta: GraphMeta | null, found: readonly numbe
   return { search, go, key };
 }
 
-export function Search(props: SearchProps): ReactElement {
-  const { studio, meta, inputRef } = props;
-  const state = useStudioState(studio);
-  const labels = meta?.labels ?? [];
+/** Memoised: the box re-renders when the text or the graph changes, and on nothing else. */
+export const Search = memo(function Search(props: SearchProps): ReactElement {
+  const { studio, meta, text, inputRef } = props;
+  const labels = meta?.labels ?? NO_LABELS;
   // The whole ranked list, not the eight on screen: the mask the search action asks for is
   // made of every one of them, and a box that offered a set the mask disagreed with would
   // be a second answer to the same question.
-  const found = allMatchesOf(labels, state.settings.filter.text);
+  const found = allMatchesOf(labels, text);
   const { search, go, key } = actionsOf(studio, meta, found);
   return (
     <div className="gs-panel gs-search">
@@ -76,7 +83,7 @@ export function Search(props: SearchProps): ReactElement {
         type="search"
         aria-label="Search nodes"
         placeholder="Search ( / )"
-        value={state.settings.filter.text}
+        value={text}
         ref={inputRef}
         onChange={(event) => search(event.target.value)}
         onKeyDown={key}
@@ -94,4 +101,4 @@ export function Search(props: SearchProps): ReactElement {
       </button>
     </div>
   );
-}
+});
