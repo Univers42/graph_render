@@ -12,7 +12,7 @@
 use super::super::*;
 use super::ledger::find_row;
 use super::stages::equal_map;
-use super::{find_row_by_id, hand, honest, recorded};
+use super::{find_row_by_id, hand, honest, recorded, without_osage_control};
 use serde_json::json;
 
 /// The six Graphviz-armed rows, read off the registry rather than restated, so a row that
@@ -174,20 +174,29 @@ fn a_record_name_without_the_rows_own_function_backs_nothing() {
     );
 }
 
-/// `layout.packing.osage` is the one Graphviz row whose differential now has a record the
-/// ledger resolves, and it is still `implemented`. The remaining reason is on the **hash**
-/// side, not the oracle side, and this is the test that says so: `Status::Gated` needs a
-/// 4-way verdict on the row's own stage *and* a negative control that went red on that
-/// same stage, and no control covers `layout.packing.osage` — the per-stage knob for a
-/// Graphviz engine is deliberately not in the table
-/// (`scripts/orch/rows/p13-gv1-osage.rows:23-31`), because `hashgate/knob.rs` is shared
-/// with the parallel engine jobs.
+/// `Status::Gated` needs two halves, and this is the test that holds the one this row can
+/// lose. The oracle half is satisfied by `oracle-osage`; the other is a negative control that
+/// went red on `layout.packing.osage` itself. Take that control away — an evidence set with a
+/// current oracle record and no such control, which is what `honest()` builds — and the row is
+/// refused with exactly one problem naming the missing half, even though the registry now
+/// ships it as `gated`.
+///
+/// The row *is* `gated` now (`GM_MUTATE_PACKING_OSAGE_NODES` is the control, and
+/// `a_red_control_on_the_rows_own_stage_is_the_whole_of_what_is_missing` below is its proof),
+/// so this is no longer a statement about where the row stands. It is the refusal itself that
+/// matters: a ledger that would accept a gated row with no control behind its own stage would
+/// make the status mean nothing.
 #[test]
 fn osage_is_refused_gated_for_want_of_a_negative_control_on_its_stage() {
     let mut evidence = honest();
-    recorded(&mut evidence, "oracle-osage", "layout.packing.osage");
-    let mut gated = find_row_by_id("layout.packing.osage");
-    gated.status = Status::Gated;
+    without_osage_control(&mut evidence);
+    let gated = find_row_by_id("layout.packing.osage");
+    assert_eq!(
+        gated.status,
+        Status::Gated,
+        "the registry ships this row gated, so the refusal below is the ledger refusing a row \
+         it would otherwise accept"
+    );
     let found = problems(std::slice::from_ref(&gated), &evidence);
     assert_eq!(found.len(), 1, "{found:?}");
     assert!(
@@ -196,31 +205,29 @@ fn osage_is_refused_gated_for_want_of_a_negative_control_on_its_stage() {
     );
 }
 
-/// The control half is the *whole* of what is missing: give the row a control that went red
-/// on its own stage and it stands on its own oracle record with no other edit. This is what
-/// the row needs from the hash gate, and naming it is the point of the test.
+/// The control half is the *whole* of what was missing: with a control that went red on its
+/// own stage the shipped row stands on its own oracle record with no other edit. This is
+/// what the row needed from the hash gate, and naming it is the point of the test.
+///
+/// The control comes from the honest evidence set by its real record name —
+/// `hashgate-control-packing-osage-nodes`, the one `Knob::PackingOsageNodes::record()`
+/// returns — and nothing here forces the status, so what is under test is the row the
+/// registry actually ships rather than a local copy with the answer written in.
 #[test]
 fn a_red_control_on_the_rows_own_stage_is_the_whole_of_what_is_missing() {
-    let mut evidence = honest();
-    recorded(&mut evidence, "oracle-osage", "layout.packing.osage");
-    evidence.controls.push((
-        "hashgate-control-packing-osage-nodes",
-        Some(json!({
-            "fingerprint": "tree", "seeds": 1000, "pass": false,
-            "equal": equal_map(1000, &["layout.packing.osage"]),
-        })),
-    ));
-    let mut gated = find_row_by_id("layout.packing.osage");
-    gated.status = Status::Gated;
+    let evidence = honest();
+    let gated = find_row_by_id("layout.packing.osage");
     assert_eq!(
         problems(std::slice::from_ref(&gated), &evidence),
         Vec::<String>::new(),
         "a red control on the row's own stage is the whole of what is missing"
     );
     // The negative control on that control: one that went red on *another* stage says
-    // nothing about this one, so the row is refused rather than borrowing a verdict.
+    // nothing about this one, so the row is refused rather than borrowing a verdict. This
+    // half is what `without_osage_control` is for — the honest set already holds the osage
+    // control, and it is taken back out so that what stands in for it is the circle one.
     let mut elsewhere = honest();
-    recorded(&mut elsewhere, "oracle-osage", "layout.packing.osage");
+    without_osage_control(&mut elsewhere);
     elsewhere.controls.push((
         "hashgate-control-packing-circle-nodes",
         Some(json!({
@@ -236,12 +243,14 @@ fn a_red_control_on_the_rows_own_stage_is_the_whole_of_what_is_missing() {
     );
 }
 
-/// The status stands where the evidence puts it, and the other five Graphviz rows are
-/// untouched by any of this: each is `implemented` for a measured reason of its own
-/// (twopi, neato and patchwork on `-Tplain`'s five significant digits, circo on a qsort
-/// tie order in the oracle, fdp on the oracle disagreeing with itself).
+/// The status stands where the evidence puts it: `layout.packing.osage` is the one Graphviz
+/// row that earned `gated` (its differential passes and `GM_MUTATE_PACKING_OSAGE_NODES` is a
+/// red control on its own stage), and the other five are untouched by any of this — each is
+/// `implemented` for a measured reason of its own (twopi, neato and patchwork on `-Tplain`'s
+/// five significant digits, circo on a qsort tie order in the oracle, fdp on the oracle
+/// disagreeing with itself).
 #[test]
-fn the_graphviz_rows_stay_implemented() {
+fn the_graphviz_rows_keep_the_status_their_evidence_puts_them_at() {
     assert_eq!(
         graphviz_rows()
             .iter()
@@ -249,7 +258,7 @@ fn the_graphviz_rows_stay_implemented() {
             .collect::<Vec<(&str, Status)>>(),
         vec![
             ("layout.twopi", Status::Implemented),
-            ("layout.packing.osage", Status::Implemented),
+            ("layout.packing.osage", Status::Gated),
             ("layout.circular.circo", Status::Implemented),
             ("layout.treemap.patchwork", Status::Implemented),
             ("layout.force.neato", Status::Implemented),
