@@ -16,6 +16,7 @@ import { setSelection } from "./choose.ts";
 import { newCounts } from "./input.ts";
 import { type LoopState, invalidate, markMoved, relight } from "./loop.ts";
 import { MIN_SCREEN_RADIUS } from "./nodes.ts";
+import { newPace } from "./pace.ts";
 import { newRate } from "./rate.ts";
 import { createSpriteCache } from "./sprites.ts";
 import type { SpriteSurface } from "./surface.ts";
@@ -82,7 +83,8 @@ export function newState(canvas: HTMLCanvasElement, setup: Setup): LoopState {
     plan: newLabelPlan(policy.budget), orbit: null, drawn: null,
     layoutKey: null, layoutDirty: false, layoutRuns: 0, occupancy: occupancyFor(viewport),
     scheduled: 0, settleTimer: null, movedAt: 0, destroyed: false,
-    counts: newCounts(), frameMs: 0, frames: 0, rate: newRate(), bulk: newBulkSlot(setup.backend ?? "auto"),
+    counts: newCounts(), frameMs: 0, frames: 0, rate: newRate(), pace: newPace(),
+    bulk: newBulkSlot(setup.backend ?? "auto"),
   };
 }
 

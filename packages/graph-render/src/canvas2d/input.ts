@@ -34,6 +34,8 @@ export interface PaintInput {
   readonly settled: boolean;
   /** True while the camera or the nodes move: the painter may draw less. */
   readonly moving: boolean;
+  /** Edges a moving frame draws at most (`pace.ts`); MOVING_BUDGET when absent. */
+  readonly edgeBudget?: number;
   /** The node whose neighbourhood is lit, or -1. */
   readonly focus: number;
   /** 1 for the focus and its neighbours. Read only when `focus >= 0`. */

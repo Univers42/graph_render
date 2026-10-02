@@ -8,8 +8,9 @@
  *
  * Ponytail: an edge is culled by its two endpoints, so a routed or curved edge whose ends
  * are both off one side of the screen is dropped even when its bend would have reached
- * into view. And while the view moves, a frame with more than MOVING_BUDGET edges draws
- * every k-th one; the whole set is drawn as soon as it stops.
+ * into view. And while the view moves, a frame with more edges than its budget (MOVING_BUDGET,
+ * lowered by `pace.ts` when frames run late) draws every k-th one; the whole set is drawn as
+ * soon as it stops.
  *
  * The style's edge colour picks the pass: `flat` is paintAll, one stroke in the theme's own
  * colour as above; `gradient` is paintGradient, which batches the edges whose ends share a
@@ -131,7 +132,8 @@ function traceEdge(tracer: Tracer, edge: number): void {
 function paintAll(tracer: Tracer): void {
   const { input } = tracer;
   const count = input.frame.edgeCount;
-  const stride = input.moving && count > MOVING_BUDGET ? Math.ceil(count / MOVING_BUDGET) : 1;
+  const budget = input.edgeBudget ?? MOVING_BUDGET;
+  const stride = input.moving && count > budget ? Math.ceil(count / budget) : 1;
   input.ctx.strokeStyle = input.theme.edge;
   input.ctx.globalAlpha = input.focus >= 0 ? input.theme.dimAlpha : 1;
   input.ctx.beginPath();

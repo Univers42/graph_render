@@ -10,9 +10,9 @@ import type { Scene } from "../scene.ts";
 import type { Theme } from "../theme.ts";
 import { TRANSITION_MS, blend, easeInOutCubic } from "../transition.ts";
 import { type LayoutKey, layoutChanged } from "./layout-key.ts";
-import { MOVING_BUDGET } from "./edges.ts";
 import type { PaintCounts } from "./input.ts";
 import { paintOverlay } from "./overlay.ts";
+import { type Pace, paced, worthPacing } from "./pace.ts";
 import { paintFrame } from "./paint.ts";
 import { type Rate, stamp } from "./rate.ts";
 import type { SpriteCache } from "./sprites.ts";
@@ -73,6 +73,8 @@ export interface LoopState {
   frameMs: number;
   frames: number;
   readonly rate: Rate;
+  /** The moving edge budget of the 2D passes. */
+  readonly pace: Pace;
   /** The GPU layer a large 2D scene is drawn on, and the backend the host asked for. */
   readonly bulk: BulkSlot;
 }
@@ -168,7 +170,7 @@ function paint(state: LoopState, moving: boolean, settled: boolean): void {
   state.counts = paintFrame({
     ctx: state.ctx, viewport: state.viewport, dpr: state.dpr, camera: state.camera, theme, space: drawn,
     frame: scene.frame, style: scene.style, adjacency: scene.adjacency, extent: scene.extent,
-    x: state.x, y: state.y, settled, moving, focus, lit: state.lit, selected: state.selected,
+    x: state.x, y: state.y, settled, moving, edgeBudget: state.pace.budget, focus, lit: state.lit, selected: state.selected,
     labels: state.plan, sprites: state.sprites, bulk: (input, counts) => paintBulk(state.bulk, input, counts),
   });
   paintOverlay(state);
@@ -189,6 +191,18 @@ export function drewAWay(counts: Pick<PaintCounts, "mixedEdges" | "gradientStrok
   return counts.mixedEdges > 0 && counts.gradientStrokes === 0;
 }
 
+/** Times a moving frame up to the next animation frame, raster included, and paces the budget by it. */
+function probeCost(state: LoopState, now: number): void {
+  const { pace, scene } = state;
+  const flat = scene.frame.z === null || state.orbit === null;
+  if (pace.probing || !worthPacing(scene.frame.edgeCount, state.counts.bulk > 0, flat)) return;
+  pace.probing = true;
+  requestAnimationFrame((next) => {
+    pace.probing = false;
+    paced(pace, next - now);
+  });
+}
+
 function renderFrame(state: LoopState, now: number): void {
   state.scheduled = 0;
   if (state.destroyed) return;
@@ -199,10 +213,11 @@ function renderFrame(state: LoopState, now: number): void {
   paint(state, moving, !travelling);
   state.frameMs = performance.now() - started;
   stamp(state.rate, now, moving);
+  if (moving) probeCost(state, now);
   state.frames += 1;
   state.onFrame();
   // A frame that baked a label planned it at width 0: one more frame lays it out at its width.
   const rebake = state.sprites.starved() || state.sprites.rasterised() > 0;
   if (travelling || fading(state, performance.now()) || rebake) invalidate(state);
-  else if (moving && (state.scene.frame.edgeCount > MOVING_BUDGET || drewAWay(state.counts))) armSettle(state);
+  else if (moving && (state.scene.frame.edgeCount > state.pace.budget || drewAWay(state.counts))) armSettle(state);
 }
