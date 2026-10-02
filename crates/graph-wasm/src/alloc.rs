@@ -136,6 +136,18 @@ mod tests {
         );
     }
 
+    /// Review unverified #6: `is_live` (`gm_build`, `read_params`) reads `contains`, which
+    /// admits only the exact recorded `(ptr, len)`: never a prefix, an offset or a longer range.
+    #[test]
+    fn only_the_exact_recorded_range_is_live() {
+        let mut live = Allocations::default();
+        live.record(64, 16);
+        assert!(live.contains(64, 16));
+        for (ptr, len) in [(64, 8), (64, 17), (72, 8), (63, 16), (64, 0)] {
+            assert!(!live.contains(ptr, len), "({ptr}, {len}) read as live");
+        }
+    }
+
     #[test]
     fn len_counts_live_allocations_only() {
         let mut live = Allocations::default();
