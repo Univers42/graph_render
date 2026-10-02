@@ -52,12 +52,30 @@ fn gathered(grid: &Grid, workers: u32) -> Vec<(f64, f64)> {
     by_node
 }
 
+/// A crowd of 150 nodes inside one cell, more candidates than a window holds, around a
+/// sparse ring.
+fn crowd() -> (Vec<f64>, Vec<f64>) {
+    let (mut x, mut y) = positions();
+    x.truncate(40);
+    y.truncate(40);
+    for i in 0..150 {
+        x.push(1000.0 + (i % 13) as f64 * 0.7);
+        y.push(1000.0 + (i / 13) as f64 * 0.9);
+    }
+    (x, y)
+}
+
 #[test]
 fn the_grid_finds_every_overlap_the_pairwise_scan_finds() {
-    let (x, y) = positions();
+    for (x, y) in [positions(), crowd()] {
+        matches_every_pair(&x, &y);
+    }
+}
+
+fn matches_every_pair(x: &[f64], y: &[f64]) {
     let mut grid = Grid::new(x.len() as u32);
-    grid.build((&x, &y), CONTACT.reach);
-    let want = every_pair(&x, &y);
+    grid.build((x, y), CONTACT.reach);
+    let want = every_pair(x, y);
     assert!(
         want.iter().filter(|d| d.0 != 0.0).count() > 20,
         "too few overlaps to test"
