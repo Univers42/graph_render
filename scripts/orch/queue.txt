@@ -51,3 +51,7 @@ sg-conformance-split|build|prompts/jobs/sg-conformance-split.md|scripts/orch/row
 perf-p5-gate|build|prompts/jobs/perf-p5-gate.md|scripts/orch/rows/perf-p5.rows|no
 sg-mt19937|build|prompts/jobs/sg-mt19937.md|scripts/orch/rows/quick.rows|no
 sg-graphviz-scale|build|prompts/jobs/sg-graphviz-scale.md|scripts/orch/rows/quick.rows|no
+sg-grid-scale|build|prompts/jobs/sg-grid-scale.md|scripts/orch/rows/quick.rows|no
+sg-spiral3d|build|prompts/jobs/sg-spiral3d.md|scripts/orch/rows/quick.rows|no
+sg-bipartite3d|build|prompts/jobs/sg-bipartite3d.md|scripts/orch/rows/quick.rows|no
+sg-sugiyama|build|prompts/jobs/sg-sugiyama.md|scripts/orch/rows/quick.rows|no
