@@ -52,14 +52,14 @@ fn gathered(grid: &Grid, workers: u32) -> Vec<(f64, f64)> {
     by_node
 }
 
-/// A crowded cell: 150 nodes inside one cell, around a sparse ring.
+/// A crowd: 300 nodes within 17 units, more than one gather window, around a sparse ring.
 fn crowd() -> (Vec<f64>, Vec<f64>) {
     let (mut x, mut y) = positions();
     x.truncate(40);
     y.truncate(40);
-    for i in 0..150 {
-        x.push(1000.0 + (i % 13) as f64 * 0.7);
-        y.push(1000.0 + (i / 13) as f64 * 0.9);
+    for i in 0..300 {
+        x.push(1000.0 + (i % 17) as f64 * 0.7);
+        y.push(1000.0 + (i / 17) as f64 * 0.9);
     }
     (x, y)
 }
@@ -175,7 +175,7 @@ fn branched(grid: &Grid, k: usize) -> (f64, f64) {
 
 #[test]
 fn the_filtered_gather_is_the_branched_one_bit_for_bit() {
-    let mut longest = 0;
+    let mut widest = 0;
     for (x, y) in [positions(), crowd()] {
         let mut grid = Grid::new(x.len() as u32);
         grid.build((&x, &y), CONTACT.reach, (&crate::exec::Serial, 1));
@@ -185,9 +185,10 @@ fn the_filtered_gather_is_the_branched_one_bit_for_bit() {
             contact: CONTACT,
         };
         crate::exec::Serial.run(&gather, 1, &mut sorted);
-        let runs = (1..grid.start.len()).map(|b| grid.start[b] - grid.start[b - 1]);
-        longest = longest.max(runs.max().unwrap_or(0));
         for (k, got) in sorted.iter().enumerate() {
+            let reads = grid.reads(grid.hash.cell_of((grid.at[k][0], grid.at[k][1])));
+            let runs = reads.runs[..reads.len].iter();
+            widest = widest.max(runs.map(|&(lo, hi)| (hi - lo) as usize).sum());
             let want = branched(&grid, k);
             assert_eq!(
                 (got.0.to_bits(), got.1.to_bits()),
@@ -196,5 +197,8 @@ fn the_filtered_gather_is_the_branched_one_bit_for_bit() {
             );
         }
     }
-    assert!(longest > HITS as u32, "no bucket spans two batches");
+    assert!(
+        widest > gather::WINDOW,
+        "no cell's candidates span two windows"
+    );
 }

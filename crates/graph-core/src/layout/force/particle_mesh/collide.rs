@@ -21,20 +21,17 @@
 
 use super::frame::{self, Bounds};
 use super::motion;
-use crate::exec::{Runner, StepRange};
+use crate::exec::Runner;
 use crate::layout::force::barnes_hut::sim::{How, Sim};
 use crate::rng::jiggle;
+use gather::Gather;
 use hash::{Buckets, Hash};
-use std::ops::Range;
 
+mod gather;
 mod hash;
 
 const PASS_X: u32 = 4;
 const PASS_Y: u32 = 5;
-
-/// The overlap filter's batch, in slots: 256 B of stack, and longer than a typical query's
-/// whole read, so most runs are one batch.
-const HITS: usize = 64;
 
 /// The cell list over one tick's projected positions.
 pub(in crate::layout::force) struct Grid {
@@ -146,54 +143,6 @@ impl Grid {
         }
         reads
     }
-
-    /// Slot `k`'s half of every overlap it has, slots in `reads` order. A run is filtered
-    /// `HITS` slots at a time, then the overlaps found are resolved in that same order.
-    fn delta(
-        &self,
-        (k, contact): (u32, Contact),
-        reads: &Reads,
-        hits: &mut [u32; HITS],
-    ) -> (f64, f64) {
-        let [px, py] = self.at[k as usize];
-        let mut out = (0.0, 0.0);
-        for (lo, hi) in reads.around(k) {
-            for from in (lo..hi).step_by(HITS) {
-                let span = from..hi.min(from + HITS as u32);
-                let found = self.overlaps([px, py], span, contact.d2, hits);
-                for &q in &hits[..found] {
-                    let [qx, qy] = self.at[q as usize];
-                    let ids = || (self.order[k as usize], self.order[q as usize]);
-                    resolve(contact, ids, (px - qx, py - qy), &mut out);
-                }
-            }
-        }
-        out
-    }
-
-    /// The slots of `span` that `resolve` would not skip, ascending. No branch per slot:
-    /// about half the candidates overlap (`docs/measurements/perf-p3-collide.md`), so a
-    /// branch on the distance test mispredicts. `l < d2` is false for a NaN `l`, which is
-    /// `resolve`'s own test negated.
-    fn overlaps(
-        &self,
-        [px, py]: [f64; 2],
-        span: Range<u32>,
-        d2: f64,
-        hits: &mut [u32; HITS],
-    ) -> usize {
-        let mut found = 0;
-        for (j, &[qx, qy]) in self.at[span.start as usize..span.end as usize]
-            .iter()
-            .enumerate()
-        {
-            let (dx, dy) = (px - qx, py - qy);
-            // `found <= j < HITS`: the mask changes no index, it only drops the bounds check.
-            hits[found % HITS] = span.start + j as u32;
-            found += usize::from(dx * dx + dy * dy < d2);
-        }
-        found
-    }
 }
 
 /// The slot runs one cell's query reads, at most one per bucket.
@@ -217,18 +166,6 @@ impl Reads {
                 self.len += 1;
             }
         }
-    }
-
-    /// The runs with slot `k` cut out, so the filter needs no self test: the run holding `k`
-    /// becomes the two around it, and any other run is followed by an empty one.
-    fn around(&self, k: u32) -> impl Iterator<Item = (u32, u32)> + '_ {
-        self.runs[..self.len].iter().flat_map(move |&(lo, hi)| {
-            if (lo..hi).contains(&k) {
-                [(lo, k), (k + 1, hi)]
-            } else {
-                [(lo, hi), (hi, hi)]
-            }
-        })
     }
 }
 
@@ -257,37 +194,6 @@ fn resolve(
     let push = (c.reach - dist) / dist * 0.5;
     out.0 += dx * push;
     out.1 += dy * push;
-}
-
-/// The per-slot gather: reads the built grid only, writes slot `k`'s own delta.
-struct Gather<'a> {
-    grid: &'a Grid,
-    contact: Contact,
-}
-
-impl StepRange for Gather<'_> {
-    type Out = (f64, f64);
-
-    fn len(&self) -> u32 {
-        self.grid.order.len() as u32
-    }
-
-    /// Consecutive slots mostly share a cell, so a cell's runs are built once per stretch.
-    fn step_range(&self, range: Range<u32>, out: &mut [(f64, f64)]) {
-        let grid = self.grid;
-        let mut reads: Option<Reads> = None;
-        let mut hits = [0; HITS];
-        for (slot, k) in out.iter_mut().zip(range) {
-            let cell = grid
-                .hash
-                .cell_of((grid.at[k as usize][0], grid.at[k as usize][1]));
-            let reads = match reads {
-                Some(ref r) if r.cell == cell => r,
-                _ => reads.insert(grid.reads(cell)),
-            };
-            *slot = grid.delta((k, self.contact), reads, &mut hits);
-        }
-    }
 }
 
 /// The collide pass: project, sort, gather into `how.deltas` in slot order. False when
