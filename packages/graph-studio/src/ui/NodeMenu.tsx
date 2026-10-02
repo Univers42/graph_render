@@ -24,6 +24,15 @@ export interface NodeMenuProps {
 }
 
 /**
+ * The entries that are actions, as the id each dispatches. Copy is the one entry that is not
+ * here — it reads the id out of the state for the clipboard instead of changing the drawing —
+ * so `perform` has one branch for it and a lookup for the rest, and every entry stays named.
+ */
+const ACTION_OF: { readonly [Name in Exclude<MenuItem, "copy">]: string } = {
+  focus: "view.focus", pin: "view.pin", hide: "view.hide",
+};
+
+/**
  * WHY the id and not the index: an action takes a name and resolves it (`nodeNamed`,
  * `actions/view.ts`), which is what makes every gesture but Copy logged, typeable and checked
  * once. Copy is the exception and reads out of the state instead: what it wants is the text on
@@ -37,9 +46,7 @@ function perform(item: MenuItem, props: NodeMenuProps, node: number): void {
   }
   const id = ids?.[node];
   if (id === undefined) return;
-  if (item === "focus") void studio.dispatch("view.focus", { node: id });
-  else if (item === "pin") void studio.dispatch("view.pin", { node: id });
-  else if (item === "hide") void studio.dispatch("view.hide", { node: id });
+  void studio.dispatch(ACTION_OF[item], { node: id });
 }
 
 function moveFocus(list: HTMLElement | null, event: KeyboardEvent): void {

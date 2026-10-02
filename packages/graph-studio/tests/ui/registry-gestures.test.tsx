@@ -131,8 +131,17 @@ function inspectorProps(desk: Desk, seen: string[], selection: readonly number[]
   return { studio: desk.studio, meta, selected, analysis: null, selection, view: direct(seen) };
 }
 
-/** `pinned` names what the menu reads to write "Pin" or "Unpin"; [2] is the open node pinned. */
-function menuProps(desk: Desk, seen: string[], closed: string[], node: number, pinned: readonly number[] = [2]): NodeMenuProps {
+/** What one open menu needs: the desk, the two lists it reads back, and the node it is on. */
+interface MenuOptions {
+  readonly desk: Desk;
+  readonly seen: string[];
+  readonly closed: string[];
+  readonly node: number;
+  /** What the menu reads to write "Pin" or "Unpin"; left out, [2] is the open node pinned. */
+  readonly pinned?: readonly number[];
+}
+
+function menuProps({ desk, seen, closed, node, pinned = [2] }: MenuOptions): NodeMenuProps {
   const ids = desk.studio.store.get().meta?.ids ?? null;
   return {
     studio: desk.studio, ids, view: direct(seen, pinned),
@@ -194,7 +203,7 @@ test("the menu's Focus is the same action the inspector uses", async () => {
   const seen: string[] = [];
   const closed: string[] = [];
   const desk = studioWith(DRAWN);
-  const nodes = render(NodeMenu, menuProps(desk, seen, closed, 2));
+  const nodes = render(NodeMenu, menuProps({ desk, seen, closed, node: 2 }));
   click(control(nodes, "Focus"));
   await tick();
   assert.deepEqual(seen, [], "the menu did not reach past the registry for the camera");
@@ -207,7 +216,7 @@ test("a panel drawn and not touched moves nothing and logs nothing", async () =>
   const seen: string[] = [];
   const desk = studioWith(DRAWN);
   render(Inspector, inspectorProps(desk, seen, [0, 2], 2));
-  render(NodeMenu, menuProps(desk, seen, [], 2));
+  render(NodeMenu, menuProps({ desk, seen, closed: [], node: 2 }));
   await tick();
   assert.deepEqual(seen, [], "nothing was pressed");
   assert.deepEqual(desk.seen.calls, [], "the drawing was not moved");
@@ -231,7 +240,7 @@ test("the menu's Pin is the pin action, not a call on the view", async () => {
   const seen: string[] = [];
   const closed: string[] = [];
   const desk = studioWith(DRAWN);
-  const nodes = render(NodeMenu, menuProps(desk, seen, closed, 2, []));
+  const nodes = render(NodeMenu, menuProps({ desk, seen, closed, node: 2, pinned: [] }));
   click(control(nodes, "Pin"));
   await tick();
   assert.deepEqual(seen, [], "the menu did not reach past the registry for the pin");
@@ -244,7 +253,7 @@ test("the menu's Hide is the hide action, and it hides the one node it names", a
   const seen: string[] = [];
   const closed: string[] = [];
   const desk = studioWith(DRAWN);
-  const nodes = render(NodeMenu, menuProps(desk, seen, closed, 2));
+  const nodes = render(NodeMenu, menuProps({ desk, seen, closed, node: 2 }));
   click(control(nodes, "Hide"));
   await tick();
   assert.deepEqual(seen, [], "the menu did not reach past the registry for the hiding");

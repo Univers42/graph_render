@@ -79,10 +79,26 @@ function spaceFace(seen: Seen): Pick<ViewFace, "orbit" | "setOrbit" | "resetOrbi
   };
 }
 
+/**
+ * The pins this desk holds, in the order they were set; `pinned()` hands the same array back,
+ * so a test reads what the view would be showing rather than what it was told to show. Hide is
+ * the third of the three node gestures the studio drives, so it is recorded beside them.
+ */
+function pinFace(seen: Seen, pins: number[]): Pick<ViewFace, "pinned" | "togglePin" | "hide"> {
+  return {
+    pinned: () => pins,
+    togglePin: (node) => {
+      const at = pins.indexOf(node);
+      if (at >= 0) pins.splice(at, 1);
+      else pins.push(node);
+      seen.calls.push(`togglePin ${node}`);
+    },
+    hide: (nodes) => void seen.calls.push(`hide ${nodes.join(" ")}`),
+  };
+}
+
 function recordingView(seen: Seen, handlers: Handlers): ViewFace {
-  // The pins this desk holds, in the order they were set; `pinned()` hands the same array back,
-  // so a test reads what the view would be showing rather than what it was told to show.
-  const pinned: number[] = [];
+  const pins: number[] = [];
   return {
     setFrame: (frame, options = {}) => void seen.frames.push({ frame, animate: options.animate === true }),
     setStyle: (style) => void seen.styles.push(style),
@@ -99,14 +115,7 @@ function recordingView(seen: Seen, handlers: Handlers): ViewFace {
     limits: () => ({ min: 0.02, max: 40 }),
     focus: (node) => void seen.calls.push(`focus ${node}`),
     select: (node) => void seen.calls.push(`select ${node}`),
-    pinned: () => pinned,
-    togglePin: (node) => {
-      const at = pinned.indexOf(node);
-      if (at >= 0) pinned.splice(at, 1);
-      else pinned.push(node);
-      seen.calls.push(`togglePin ${node}`);
-    },
-    hide: (nodes) => void seen.calls.push(`hide ${nodes.join(" ")}`),
+    ...pinFace(seen, pins),
     local: (node, options) => {
       seen.calls.push(`local ${node} ${JSON.stringify(options)}`);
       if (node === 0 && options.depth === 2 && options.incoming && !options.outgoing && options.neighbours) {

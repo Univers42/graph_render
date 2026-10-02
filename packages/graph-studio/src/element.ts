@@ -215,7 +215,10 @@ function mount(host: HTMLElement, options: StudioElementOptions): Mounted {
     studio, view, keys: host.getAttribute("keys") === "page" ? window : host, bar: bridge,
   }));
   void studio.start();
-  return { studio, view, client, root, bridge, unwatch, unwatchArea: watchSafeArea(canvas, chrome, view.setSafeArea) };
+  // The arrow, not the method: `watchSafeArea` holds this until unmount, and a bare method
+  // reference would leave `this` to chance — `view.setSafeArea(area)` names the receiver.
+  const unwatchArea = watchSafeArea(canvas, chrome, (area) => view.setSafeArea(area));
+  return { studio, view, client, root, bridge, unwatch, unwatchArea };
 }
 
 function unmount(mounted: Mounted | null): void {
