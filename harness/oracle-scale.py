@@ -52,6 +52,7 @@ express all three axes.
 import hashlib
 import json
 import os
+import shutil
 import sys
 
 import numpy as np
@@ -84,11 +85,12 @@ if digest != manifest["sha256"]["scale.jsonl"]:
 
 
 def option(flag):
-    """The value of `--flag`, or of `--flag=value`, or None when neither is there."""
-    if flag in sys.argv[2:]:
-        return ""
+    """The value of `--flag VALUE` or `--flag=VALUE`, or None when the flag is absent."""
+    rest = sys.argv[2:]
+    if flag in rest:
+        return rest[rest.index(flag) + 1] if len(rest) > rest.index(flag) + 1 else ""
     prefix = flag + "="
-    for arg in sys.argv[2:]:
+    for arg in rest:
         if arg.startswith(prefix):
             return arg[len(prefix):]
     return None
@@ -283,4 +285,9 @@ result = {
     "broken": broken,
 }
 json.dump(result, open(os.path.join(out, "scale-result.json"), "w"), indent=1)
+if out != directory:
+    # `--out` has to be a whole differential output, not just a result: `oracle-scale`
+    # reads the manifest beside the result to check the two came from the same fixtures.
+    shutil.copyfile(os.path.join(directory, "scale-manifest.json"),
+                    os.path.join(out, "scale-manifest.json"))
 print(json.dumps(layouts))

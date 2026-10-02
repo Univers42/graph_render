@@ -184,10 +184,9 @@ fn the_coarse_fixture_carries_the_motor_own_partition_and_its_map_agrees_with_it
     }
 }
 
-/// The tie fixture is the one case the reference cannot answer, so it has to keep the shape
-/// that makes it one: the budget's cut strictly inside a class of equal degrees. Degrees
-/// `[1, 2, 3, 1, 2, 3]` at a budget of 3 selects one of the two degree-2 nodes, and which
-/// one is `np.argsort`'s business, not the rule's.
+/// The tie fixture keeps the shape that makes it one: the budget's cut strictly inside a
+/// class of equal degrees. Degrees `[1, 2, 3, 1, 2, 3]` at a budget of 3 selects one of
+/// the two degree-2 nodes, and which one is `np.argsort`'s business, not the rule's.
 #[test]
 fn the_tie_case_cuts_inside_a_class_of_equal_degrees() {
     let line = line(11, None).expect("the tie case");
@@ -204,11 +203,56 @@ fn the_tie_case_cuts_inside_a_class_of_equal_degrees() {
         3,
         "the budget is 3"
     );
-    let (kept, dropped): (Vec<u32>, Vec<u32>) = split_on(&key, &mask);
-    assert!(
-        kept.iter().min() <= dropped.iter().max(),
-        "one degree is both kept and dropped, which is what makes the case undecidable"
-    );
+    assert_eq!(tie_class(&key, 3).as_deref(), Some([1, 4].as_slice()));
+}
+
+/// **Which** cases are ties is read from the degrees and the budget, never from which nodes
+/// the reference kept, so the number of compared cases cannot move with the host's sort.
+/// This is `harness/oracle-scale.py`'s `tie_class` restated in Rust, and the table pins
+/// that every budget case lands where it says: three ties, three byte-compared.
+///
+/// Note the two cases round 1 counted as comparisons in disguise — `lod.budget.two` cuts
+/// inside the star's five-way tie at degree 1 and `lod.budget.path` inside the path's
+/// four-way tie at degree 2. They agreed only because `np.argsort` happened to order those
+/// classes as the motor's D2 rule does.
+#[test]
+fn a_case_is_a_tie_when_its_cut_is_inside_a_class_of_equal_degrees_and_nothing_else() {
+    let expected = [
+        (0, "lod.budget.zero", false),
+        (1, "lod.budget.one", false),
+        (2, "lod.budget.two", true),
+        (3, "lod.budget.all", false),
+        (4, "lod.budget.path", true),
+        (11, "lod.budget.tie", true),
+    ];
+    for (case, name, tied) in expected {
+        let line = line(case, None).unwrap_or_else(|e| panic!("case {case}: {e}"));
+        assert_eq!(line["case"], name);
+        let key = numbers(&line["input"]["order_key"]);
+        let budget = line["input"]["budget"].as_u64().expect("a budget") as u32;
+        assert_eq!(tie_class(&key, budget).is_some(), tied, "{name}");
+    }
+}
+
+/// The class of equal degrees the budget's cut falls inside, or `None` when it falls
+/// between two classes. One node per block, so the cut is after `budget` nodes.
+fn tie_class(key: &[u32], budget: u32) -> Option<Vec<u32>> {
+    let mut order: Vec<usize> = (0..key.len()).collect();
+    order.sort_by_key(|&node| std::cmp::Reverse(key[node]));
+    let kept = (budget as usize).min(key.len());
+    if kept == 0 {
+        return None;
+    }
+    let cut = key[order[kept - 1]];
+    let cls: Vec<u32> = (0..key.len() as u32)
+        .filter(|&node| key[node as usize] == cut)
+        .collect();
+    let places: Vec<usize> = cls
+        .iter()
+        .map(|node| order.iter().position(|&n| n == *node as usize).unwrap())
+        .collect();
+    let (low, high) = (*places.iter().min()?, *places.iter().max()?);
+    (low < kept && kept <= high).then_some(cls)
 }
 
 // --- helpers
@@ -237,18 +281,6 @@ fn pairs_of(value: &Value) -> Vec<(u32, u32)> {
             )
         })
         .collect()
-}
-
-/// The keys the mask keeps and the keys it drops.
-fn split_on(key: &[u32], mask: &[u32]) -> (Vec<u32>, Vec<u32>) {
-    let split = |want: u32| -> Vec<u32> {
-        key.iter()
-            .zip(mask)
-            .filter(|&(_, &m)| m == want)
-            .map(|(&k, _)| k)
-            .collect()
-    };
-    (split(1), split(0))
 }
 
 // --- the reference arithmetic, re-run natively so a matrix change is caught here and not

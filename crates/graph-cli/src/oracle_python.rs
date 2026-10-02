@@ -198,6 +198,7 @@ fn verdict(differential: &Differential, dir: &Path) -> Result<bool, String> {
     }
     let (mut pass, functions) = judge(differential.ceilings, &result)?;
     pass &= closed_cases(&result);
+    pass &= unbroken(&result);
     let body = json!({
         "seeds": manifest["seeds"], "pass": pass, "functions": functions,
         "oracle": result["oracle"],
@@ -233,7 +234,8 @@ fn closed_cases(result: &Value) -> bool {
 }
 
 /// Each layout's verdict against its ceiling: `(all pass, ledger function entries)`. A
-/// layout with no compared case fails: a differential over nothing proves nothing.
+/// layout with no compared case fails: a differential over nothing proves nothing, and so
+/// does one that read a case and judged none of it — see [`covered`].
 fn judge(
     ceilings: &[(&str, &str, f64)],
     result: &Value,
@@ -246,7 +248,7 @@ fn judge(
         let worst = row["worst"]
             .as_f64()
             .ok_or(format!("{key}: no measured worst"))?;
-        let within = cases > 0 && worst <= allowed;
+        let within = cases > 0 && worst <= allowed && covered(key, row);
         let verdict = if within { "ok" } else { "FAIL" };
         println!("  {id}: {cases} cases, worst {worst:.3e}, ceiling {allowed:.0e}: {verdict}");
         pass &= within;
@@ -259,6 +261,48 @@ fn judge(
         );
     }
     Ok((pass, functions))
+}
+
+/// Whether every case a harness read for `key` was compared, for a differential that states
+/// how many it emitted.
+///
+/// `cases` are the ones the harness judged, split into `exact` (the two arms returned the
+/// same bytes) and `ties` (the reference's order inside a class of equal keys is its own, so
+/// the case is judged against the rule instead). A run that read a case and judged none of
+/// it would otherwise report a shorter, passing table, and one that counted a case in both
+/// halves a pass it did not earn. Differentials over a seeded sweep carry no `emitted` key
+/// and keep the flat "cases > 0" rule.
+fn covered(key: &str, row: &Value) -> bool {
+    let Some(emitted) = row.get("emitted").and_then(Value::as_u64) else {
+        return true;
+    };
+    let (cases, exact, ties) = (
+        row["cases"].as_u64().unwrap_or(0),
+        row["exact"].as_u64().unwrap_or(0),
+        row["ties"].as_u64().unwrap_or(0),
+    );
+    let ok = cases == emitted && exact + ties == cases;
+    if !ok {
+        println!(
+            "  {key}: {cases} compared of {emitted} emitted ({exact} byte-equal, {ties} on \
+             the rule), so the run skipped a case or counted one twice"
+        );
+    }
+    ok
+}
+
+/// Whether the result is one an honest run wrote. A harness's `--break` names the case it
+/// broke in `broken`, and such a run's mismatches are the control's own, so it can never
+/// be the pass the ledger records. A result with no `broken` key is every other
+/// differential's and says nothing.
+fn unbroken(result: &Value) -> bool {
+    match result.get("broken") {
+        None | Some(Value::Null) => true,
+        Some(broken) => {
+            println!("  {} was deliberately broken: not a verdict", broken);
+            false
+        }
+    }
 }
 
 #[cfg(test)]

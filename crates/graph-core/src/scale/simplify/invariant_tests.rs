@@ -88,10 +88,14 @@ fn a_community_never_collapses_onto_a_folded_leaf() {
 /// Every edge that is still drawn joins two drawn nodes: nothing survives the passes as
 /// an edge with nothing behind it.
 ///
-/// The reference decides the self-loop case the same way (`simplify.py:216-217`: a
-/// self-loop's `ca == cb`, so it is never one of the `inter` super-edges). The Rust side
-/// reached the opposite answer by omission: `edges_between` is only ever asked about
-/// `a != b` and `simple::build` drops self-loops from the adjacency, so a self-loop on a
+/// **The reference does not decide this case, and it is worth saying so plainly.** Its one
+/// self-loop rule is `build_coarse_level`'s (`simplify.py:216-217`: a self-loop's
+/// `ca == cb`, so it is never one of the `inter` super-edges), and that covers the coarse
+/// level — the community collapse — alone. There is no reference function for leaf folding
+/// or for chain contraction at all, so for the two passes below the argument is the
+/// journal's own: a drawn edge with no drawn end is nothing a front can draw. The Rust side
+/// reached the opposite answer by omission, `edges_between` being only ever asked about
+/// `a != b` and `simple::build` dropping self-loops from the adjacency, so a self-loop on a
 /// node a pass hides was never journalled and never cleared.
 #[test]
 fn a_self_loop_on_a_node_a_pass_removes_goes_with_it() {

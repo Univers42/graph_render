@@ -3,7 +3,7 @@
 //! These are hand-built shapes rather than a seeded sweep, because each one is chosen for
 //! a question the reference can answer: a hub whose five leaves tie at degree 1, a path
 //! whose middle four tie at degree 2, two triangles joined by a single edge, a self-loop
-//! on a member of one of them, and two rectangles whose cull boundary the nodes either
+//! on the first community's leaf, and two rectangles whose cull boundary the nodes either
 //! straddle or clear. There is no seed to vary, so [`CASES`] counts lines rather than
 //! samples and `emit-scale-fixtures --cases` writes the whole table by default.
 //!
@@ -71,19 +71,11 @@ fn two_communities() -> Result<Fixture, String> {
     graph(6, &pairs, &row(6))
 }
 
-/// [`two_communities`] plus a self-loop on node 1, a member of the first community: the
-/// reference reads it as intra-community and never draws it, and so must the journal.
+/// Two communities joined by one edge, with the first community's **leaf** — node `1`, whose
+/// only neighbour is `0` — carrying a self-loop: the reference reads a self-loop as
+/// intra-community and never draws it (`simplify.py:216-217`), and so must the journal.
 fn self_loop_on_a_leaf() -> Result<Fixture, String> {
-    let pairs = [
-        (0, 1),
-        (1, 2),
-        (2, 0),
-        (3, 4),
-        (4, 5),
-        (5, 3),
-        (2, 5),
-        (1, 1),
-    ];
+    let pairs = [(0, 1), (1, 1), (0, 2), (2, 5), (3, 4), (4, 5), (5, 3)];
     graph(6, &pairs, &row(6))
 }
 
@@ -125,10 +117,9 @@ pub(super) fn square(x0: f64, side: f64, radius: f64) -> Viewport {
     Viewport::from_size(x0, x0, side, side, radius)
 }
 
-/// One fixture graph: `n` nodes named `n0..`, the undirected `pairs`, and one position
-/// per node in the order written. Built by [`cases`], read by the three case writers.
-/// `n` nodes named `n0..`, the undirected `pairs` (a `(k, k)` pair is a self-loop), and
-/// `pos` — one position per node, in index order.
+/// One fixture graph: `n` nodes named `n0..`, the undirected `pairs` (a `(k, k)` pair is a
+/// self-loop), and one position per node in the order written. Built by the case builders,
+/// read by the three case writers in [`super`].
 fn graph(n: usize, pairs: &[(usize, usize)], pos: &[(f64, f64)]) -> Result<Fixture, String> {
     let nodes: Vec<NodeRecord> = (0..n).map(node).collect();
     let edges: Vec<EdgeRecord> = pairs
