@@ -11,3 +11,4 @@
 pub mod dot;
 pub mod osage;
 pub mod patchwork;
+pub mod text_width;
