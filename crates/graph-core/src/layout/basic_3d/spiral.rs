@@ -25,10 +25,11 @@
 //! translation gets wrong.** `t` is the only value in this layout that is not closed form,
 //! and reproducing it means reproducing four of them:
 //!
-//! - **`linspace` is `start + i*step` with the last element forced to `stop`.** Not
-//!   `stop*i/(num-1)`, and not `stop*(i/(num-1))`. Reproduced bit for bit over all 65 536
-//!   grid points; `grid[65535]` is exactly `1.0` because the reference overwrites it, which
-//!   is why `t` at the last node is exactly `1.0` and not `0.9999999999999999`.
+//! - **`linspace` is `start + i*step`, and the reference additionally overwrites the last
+//!   element with `stop`.** Not `stop*i/(num-1)`, and not `stop*(i/(num-1))`. Reproduced bit
+//!   for bit over all 65 536 grid points. **The overwrite and the plain product agree here**:
+//!   `65535 * step` is exactly `1.0`, measured and pinned, so there is no last-element
+//!   special case to port — see [`grid_at`].
 //! - **`cumsum` is sequential.** `length[i] = length[i-1] + step`, 65 535 additions in a
 //!   fixed order, never a pairwise or blocked reduction (which is what `np.sum` does). The
 //!   order *is* the value here: a blocked sum of 65 535 terms lands a few ulp away and the
@@ -57,6 +58,22 @@ const GRID: usize = 1 << 16;
 pub const ID: &str = "layout.basic3d.spiral";
 
 /// `_spiral_layout_3d(n, scale)` (`basic.py:36-63`) over the node count.
+///
+/// **DIVERGENCE AT `n = 0`, and it is the reference that refuses.** The reference's guard is
+/// `if num_nodes > 1` (`basic.py:52`), so `num_nodes = 0` falls into the *same* branch as
+/// `num_nodes = 1`: `wanted = [0.5 * length[-1]]`, and `np.column_stack` of three scalars
+/// returns shape `(1, 3)` — the single point, for a graph with no nodes. `apply_graph_layout`
+/// then rejects it: `_check_positions` (`layouts/common.py:175-185`) raises `ValueError`
+/// because the shape is not `(0, 3)`, and the dispatcher returns `False`. Measured in
+/// `ge-python-oracle` against the submodule.
+///
+/// This port returns an **empty 3D geometry** — three empty columns — and never fails. That is
+/// a real disagreement with the reference, taken deliberately: `run`'s whole contract is
+/// `Result<Geometry, StageError>` and every function in `basic_3d` is total, so a caller
+/// asking for an empty graph gets an empty drawing on all four ids rather than an error on
+/// one of them. Unreachable from the conformance matrix, whose smallest fixture has 2 nodes.
+/// The alternative — returning `Err` at `n = 0` — would be the only non-total layout in the
+/// module, for an input no caller has.
 pub(super) fn run(n: u32) -> Result<Geometry, StageError> {
     let (x, y, z) = columns(n);
     Ok(in_space(&x, &y, &z))
@@ -64,11 +81,13 @@ pub(super) fn run(n: u32) -> Result<Geometry, StageError> {
 
 /// `turns = max(2, int(round(np.sqrt(num_nodes / (0.75 * np.pi)))))` (`basic.py:41`).
 ///
-/// **The floor is not cosmetic.** `sqrt(n/(0.75*pi))` is below 2 for every `n < 10`, so
-/// `n = 1, 2, 4, 7, 9` all take it and the "gap between successive turns close to the
-/// spacing along the curve" the docstring asks for is not what happens at the sizes a
-/// reader is most likely to try first. `round` is half-to-even, which `floor(x + 0.5)`
-/// would not be at an exact `x.5`.
+/// **The floor lifts the value at exactly five node counts, `n = 1..5`.** Measured with
+/// numpy 2.3.3: the raw rounded value is 1 for `n = 1, 2, 3, 4, 5` and already 2 for
+/// `n = 6..14`, so from 6 to 14 `max(2, ...)` is a no-op and the count is 2 because the
+/// rounding already said so. The first count that rounds to 3 is `n = 15`. So the failing
+/// input is small graphs, and only just — at `n = 7` (a size a reader reaches for) the floor
+/// changes nothing and `turns` would be 2 without it. `round` is half-to-even, which
+/// `floor(x + 0.5)` would not be at an exact `x.5`.
 fn turns(n: u32) -> u32 {
     let estimate = libm::sqrt(f64::from(n) / (0.75 * core::f64::consts::PI));
     estimate.round_ties_even().max(2.0) as u32
@@ -85,11 +104,18 @@ fn grid_step() -> f64 {
     1.0 / (GRID - 1) as f64
 }
 
-/// `grid[j]`: `linspace` computes `j*step + 0.0` and then **overwrites the last point with
-/// `stop`** (`basic.py:45`), which is why `grid[GRID-1]` is exactly `1.0` and not
-/// `65535 * step`. Nothing else in the grid needs storing.
+/// `grid[j]`: `linspace` computes `j*step + 0.0` (`basic.py:45`).
+///
+/// **There is no endpoint fix-up here, and there does not need to be one.** An earlier
+/// version of this function carried an `if j == GRID - 1 { 1.0 }` branch on the belief that
+/// `65535 * step` was short of `1.0`. It is not: `step` is `1.0/65535` rounded once, and
+/// `65535.0 * step` is exactly `1.0` — `0x3ff0000000000000`, measured in `ge-python-oracle`,
+/// and pinned by `the_grid_last_point_is_the_product_not_a_fix_up`. So the branch was dead
+/// code defending against a number that was never wrong. The reference's overwrite of the
+/// last element with `stop` and this function's plain product agree bit for bit, and the
+/// product is kept because it is the shorter of the two.
 fn grid_at(j: usize, step: f64) -> f64 {
-    if j == GRID - 1 { 1.0 } else { j as f64 * step }
+    j as f64 * step
 }
 
 /// `speed[i]` (`basic.py:46-48`), the curve's speed along `t`. The reference's own operand

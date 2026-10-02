@@ -34,6 +34,37 @@ scripts/scigraphs-conformance.sh --break               # negative control: exit 
 | before | `layout.spiral` | `shape` | 0/1020 | 0/1020 | 9.22e+18 | 6 | 0.585 | 0.815 | `algorithm` |
 | after | `layout.basic3d.spiral` | `tolerance` | 120/1020 | **1020/1020** | 2.68e+08 | 2.35e-07 | 3.34e-16 | 5.59e-16 | `arithmetic` |
 
+### The run those numbers come from
+
+The judge's own line for the row, verbatim from `target/scigraphs-conformance-judge.log`:
+
+```text
+  SPIRAL_3D: ok — 120 f64, 1020 f32 of 1020 coordinates, median 3.342e-16 <= 1.000e-15
+```
+
+and the row's cells in `target/scigraphs-conformance/metrics.json`:
+
+```json
+   "bitwise_f32": 1020,
+   "bitwise_f64": 120,
+   "coordinates": 1020,
+   "fixtures": 24,
+   "max_gap": 2.3501067669684517e-07,
+   "max_ulp": 268166292,
+   "measured_fixtures": 23,
+   "name": "SPIRAL_3D",
+   "overlays": 22,
+   "procrustes_max": 5.58814278699053e-16,
+   "procrustes_median": 3.3421546967776616e-16,
+```
+
+Every rounded cell in the table is one of those, rounded: `120/1020` is `bitwise_f64` over
+`coordinates`, `1020/1020` is `bitwise_f32` over `coordinates`, `2.68e+08` is `max_ulp`
+(268 166 292), `2.35e-07` is `max_gap`, `3.34e-16` is `procrustes_median` and `5.59e-16` is
+`procrustes_max`. `fixtures: 24` with `measured_fixtures: 23` is where 24 fixtures and 23
+compared come from, `overlays: 22` is the overlay count, and the `1.000e-15` in the judge line
+is the row's tolerance the median is compared against.
+
 22 of 24 fixtures overlay; the two that do not (`gate-00` at 2 nodes, `gate-01` at 3) are
 below the Procrustes fit's own noise floor. `layout.spiral`'s own conformance state is
 untouched — it is still networkx's curve, still `resolution = 0.35`, still its own row's
@@ -59,13 +90,13 @@ matters, and it is the only route available offline.
 |---|---|---|---|
 | `linspace` | `start + i*step`, last element **overwritten** with `stop` | all 65 536 grid points, bit for bit | `step = 0x3ef0001000100010` (= `1/65535`); `grid[65535] = 1.0` exactly |
 | `cumsum` | **sequential**: `length[i] = length[i-1] + step` | folded into the `t` sweep below | 65 535 additions in index order |
-| `interp` | `slope = (fp[j+1]-fp[j])/(xp[j+1]-xp[j])`, then `slope*(x-xp[j]) + fp[j]` | 200 000 unrelated monotone points, and every node count 1..64 plus 77, 100, 101, 600, 601 | **0 ulp** of `np.interp` on all of them |
-| `round` | half-to-**even** (`float.__round__`, `np.float64.__round__`) | `turns` pinned at n = 1..16, 77, 200, 256, 512 | floor at 2 for every `n <= 14` |
+| `interp` | `slope = (fp[j+1]-fp[j])/(xp[j+1]-xp[j])`, then `slope*(x-xp[j]) + fp[j]` | 200 000 unrelated monotone points, and every node count 1..64 plus 77, 100, 101, 600 and 601 | **0 ulp** of `np.interp` on all of them |
+| `round` | half-to-**even** (`float.__round__`, `np.float64.__round__`) | `turns` pinned at n = 1..16, 77, 200, 256, 512 | half-to-even; the `max(2, ...)` floor only lifts the value at n = 1..5 |
 
 The `t` sweep is the load-bearing one: it recomputes the whole inversion with the recovered
-formulas and compares the resulting `t` column against `np.interp`'s, bit for bit, for 68
-node counts. **Zero mismatches.** The pinned `t` and `z` words in
-`crates/graph-core/src/layout/basic_3d/spiral/tests/reference.rs` are therefore the
+formulas and compares the resulting `t` column against `np.interp`'s, bit for bit, for 69
+node counts (1..64, then 77, 100, 101, 600, 601). **Zero mismatches.** The pinned `t` and
+`z` words in `crates/graph-core/src/layout/basic_3d/spiral/tests/reference.rs` are therefore the
 reference's, not a transcription of this port's own output.
 
 `np.interp`'s `j == lenxp - 1` case returns `fp[j]` **without a slope**, which is why
@@ -100,6 +131,47 @@ true that `scale` is a const rather than a parameter — the reference takes one
 no default of its own and no SciGraphs caller passes anything else, so a struct would be a
 knob with one setting.
 
+## The oracle arm, and what it does not yet cover
+
+The cross-language oracle does **not** cover this layout. `harness/oracle-basic-3d.py`'s
+`ARMS` and the matching table in `crates/graph-cli/src/oracle_python/basic_3d.rs:35-40`
+enumerate **sphere, helix and cube only**; neither mentions `layout.basic3d.spiral`. The job
+`sg-basic3d-spiral-oracle` adds the spiral arm, and it lands **after** this branch. This is a
+gap in the oracle's table, not a coverage differential attached to the layout: no claim is
+made or implied that the spiral is treated differently from its three siblings on purpose.
+
+Until that job lands, the spiral row's evidence is the two things this branch did run:
+
+- the conformance gate (`scripts/scigraphs-conformance.sh`), which compares it to SciGraphs
+  byte-for-byte over 1020 coordinates (23 of 24 fixtures measured, 1020 coordinates each), and
+- the graph-core unit tests, which pin the reference's own IEEE-754 words at `n = 1, 2` and 7.
+
+## The hash-gate knob, which does not exist yet
+
+The new stage `layout.basic3d.spiral` has **no entry in `THREE_D_LAYOUT_STAGES`**
+(`crates/graph-cli/src/hashgate/knobs.rs:127`) and **no negative control in `KNOBS`**. This
+job deliberately did not add one: the knob and its control belong with the stages that are
+about to exist on both branches. The orchestrator's follow-up job adds the `spiral` and
+`bipartite_3d` stages **and** their negative controls, once both branches are on develop.
+
+What *was* run here is a different thing and should not be read as a knob:
+`graph-cli hashgate --seeds 8`, which swept the stage as part of the default arm set and
+reported
+
+```text
+layout.basic3d.spiral: 4-way equal on 8/8 seeds
+```
+
+plus the `GM_MUTATE_REFERENCE_DEGREE=9` negative control, which exited 1 with
+
+```text
+FAIL: 8 of 8 seeds diverge
+```
+
+That negative control mutates the **reference**, so it proves the seeds bite; it is not a
+per-stage knob for `layout.basic3d.spiral`. Today the stage has neither a knob of its own nor
+its own negative control.
+
 ## Commands and exit codes
 
 ```text
@@ -109,6 +181,7 @@ scripts/scigraphs-conformance.sh    (after the port)                      -> 1  
                                                                           bytes are not the pinned
                                                                           ones; no other row moved
 scripts/scigraphs-conformance.sh    (after re-pinning)                    -> 0   PASS
+      SPIRAL_3D: ok — 120 f64, 1020 f32 of 1020 coordinates, median 3.342e-16 <= 1.000e-15
 scripts/scigraphs-conformance.sh --break                                 -> 1   --break caught: SPRING_3D
 scripts/orch/gr cargo fmt --check                                         -> 0
 scripts/orch/gr cargo clippy --workspace --all-targets -- -D warnings     -> 0
@@ -149,21 +222,52 @@ hash-gate stage and this one is not trivially target-independent: it carries a 6
 the target. `layout.basic3d.spiral: 4-way equal on 8/8 seeds` — native run 1, native run 2,
 wasm32 run 1 and wasm32 run 2 all digest the same.
 
+## n = 0: the port and the reference disagree, deliberately
+
+At `n = 0` the reference does **not** return an empty array. `_spiral_layout_3d(0, 5.0)`
+returns shape **`(1, 3)`** — the same single point as `n = 1`. The reason is `basic.py:52`'s
+guard: it is `if num_nodes > 1`, so `num_nodes = 0` falls into the **same** branch as
+`num_nodes = 1` and takes `wanted = [0.5 * length[-1]]`.
+
+`apply_graph_layout` then rejects that: `_check_positions`
+(`SciGraphs/core/scigraphs_core/mesh/layouts/common.py:175-185`) raises `ValueError` because
+the shape is not `(0, 3)`, and `apply_graph_layout` returns **`False`**. Verified by running
+it in the pinned `ge-python-oracle` image.
+
+This port returns an **empty 3D geometry** (three empty columns) and never fails.
+
+That is a divergence, and it is deliberate. It is **unreachable from the conformance
+matrix** — the smallest fixture there has 2 nodes, so no row in the gate can observe it. The
+port chose "empty geometry" over "refuse" because `run` is
+`pub(super) fn(n: u32) -> Result<Geometry, StageError>` and every other layout in `basic_3d`
+is total, so a caller asking for an empty graph gets an empty drawing rather than an error,
+consistently, on all four ids.
+
 ## Ponytail (what this layout is bad at)
 
 Two, both recorded in the ledger's `ponytail` field with the failing input and the direction:
 
-- **The turn count is floored at 2 for every `n <= 14`.** `sqrt(n/(0.75*pi))` is below 2
-  there and `max(2, ...)` takes over, so the first fourteen node counts all draw a two-turn
-  spiral and the "gap between successive turns close to the spacing along the curve" the
-  reference's own docstring claims is not what happens at the sizes a reader tries first.
-  Wrong-but-plausible and silent: still a spiral, still exactly on the reference's cone.
+- **The turn count is floored at 2 for every `n <= 14`, but the floor only bites for
+  `n <= 5`.** Measured with numpy 2.3.3, the raw rounded `sqrt(n/(0.75*pi))` is 1 for
+  `n = 1..5` and is already 2 for `n = 6..14`; `max(2, ...)` therefore lifts the value at
+  `n = 1, 2, 3, 4, 5` and is a no-op from 6 to 14. The first node count whose raw round is 3
+  is `n = 15`. So at the five sizes a reader tries first the count is 2 because the floor
+  says so, not because the rounding did, and the "gap between successive turns close to the
+  spacing along the curve" the reference's own docstring claims is still not what happens
+  there. Wrong-but-plausible and silent: still a spiral, still exactly on the reference's cone.
 - **512 KiB and 65 535 sequential additions per call, for an `O(n)` output.** Reference-faithful
   and not necessary — a closed-form conic arc-length integral would be faster, would stop
   agreeing with SciGraphs' own grid, and is therefore a different layout id rather than a
   faster build of this one. Failing input: any caller running this at `n = 2` in a loop.
 
 No seed is owed and none is published: the function draws no random number at all.
+
+## Left behind
+
+Still stale, deliberately untouched here: `crates/graph-cli/src/oracle_python/cli.rs:100-105`
+and `117-122`, and the module doc in `crates/graph-cli/src/oracle_python/basic_3d.rs`, all
+still describe the `basic_3d` family as **three** placements. They are not fixed by this
+branch; the follow-up job that adds the spiral oracle arm is the one that should sweep them.
 
 ## Files
 

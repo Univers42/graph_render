@@ -67,11 +67,11 @@ fn t_is_monotone_and_inside_the_unit_interval() {
 
 /// The two ends are the reference's own endpoints: `t = 0` at the foot, `t = 1` at the head.
 ///
-/// Both are `basic.py`'s `linspace` fix-up rather than anything the arc-length inversion
-/// computed, and both are exactly representable — `grid[0] = 0.0` and `grid[65535] = 1.0`
-/// because `linspace` overwrites the last element with `stop`. A port that evaluated
-/// `grid[65535] = 65535 * step` instead would put the head at `0.9999999999999986` and
-/// shift every node by an ulp of the parameter.
+/// Both are exactly representable, and neither is an approximation this port had to rescue:
+/// `grid[0] = 0 * step = 0.0`, and `grid[65535] = 65535 * step = 1.0` **exactly** — see
+/// `the_grid_last_point_is_the_product_not_a_fix_up`, which is where that product is pinned.
+/// An earlier version of this test claimed the head would land at `0.9999999999999986`
+/// without the reference's endpoint overwrite; it would not, and the number was never real.
 #[test]
 fn the_two_ends_are_the_reference_endpoints_and_not_its_approximation() {
     for n in [2u32, 3, 7, 77] {
@@ -108,17 +108,21 @@ fn the_cone_spans_the_radii_and_the_heights_its_docstring_names() {
 
 /// `turns = max(2, round(sqrt(n / (0.75*pi))))` (`basic.py:41`), with `round` half-to-even.
 ///
-/// The floor is the assertion that matters and it is not cosmetic: `sqrt(n/(0.75*pi))` is
-/// below 2 for every `n <= 14`, so **the first fourteen node counts all draw a two-turn
-/// spiral** and the "spacing close to the gap between successive turns" the docstring asks
-/// for is not what happens at the sizes a reader is most likely to try. A port without the
-/// `max(2, ...)` draws a single-turn spiral at `n = 7` and every pinned `t` above moves.
-/// `n = 15` is the first count that leaves the floor, and `n = 77` is the largest fixture.
+/// **The floor lifts the value at exactly `n = 1..5`.** The raw rounded value is 1 there and
+/// already 2 for `n = 6..14`, so from 6 upward the floor changes nothing and `n = 7` — a size
+/// a reader reaches for first — would be 2 with or without it. A port without the `max(2, ...)`
+/// draws a single-turn spiral at `n = 1..5` and every pinned `t` there moves. `n = 15` is the
+/// first count that rounds above 2, and `n = 77` is the largest fixture.
 #[test]
 fn the_turn_count_is_the_references_count_with_its_floor() {
+    // The floor lifts the value at exactly n = 1..5; from 6 to 14 the rounding already says 2.
     for (n, want) in [
         (1u32, 2u32),
         (2, 2),
+        (3, 2),
+        (4, 2),
+        (5, 2),
+        (6, 2),
         (7, 2),
         (14, 2),
         (15, 3),
@@ -127,6 +131,32 @@ fn the_turn_count_is_the_references_count_with_its_floor() {
         (256, 10),
     ] {
         assert_eq!(super::super::turns(n), want, "n={n}: turns");
+    }
+}
+
+/// **The floor changes nothing at `n >= 6`, and this is the row that says so.** An earlier
+/// version of this module claimed the floor applied across `n <= 14`; it does not. The raw
+/// rounded value `round(sqrt(n/(0.75*pi)))` is 1 for `n = 1..5` and already 2 for `n = 6..14`,
+/// so from 6 upward `max(2, ...)` is a no-op and a port that dropped it would still be right
+/// everywhere except the five smallest graphs.
+///
+/// The point of asserting it separately is that it is the claim most likely to be repeated
+/// from the doc comment, and it was wrong there.
+#[test]
+fn the_floor_lifts_only_the_five_smallest_counts() {
+    for n in 6u32..=14 {
+        let raw = libm::sqrt(f64::from(n) / (0.75 * core::f64::consts::PI)).round_ties_even();
+        assert_eq!(raw, 2.0, "n={n}: the raw rounded value is already 2");
+        assert_eq!(
+            super::super::turns(n),
+            raw as u32,
+            "n={n}: the floor is a no-op here"
+        );
+    }
+    for n in 1u32..=5 {
+        let raw = libm::sqrt(f64::from(n) / (0.75 * core::f64::consts::PI)).round_ties_even();
+        assert_eq!(raw, 1.0, "n={n}: the floor is what lifts this one");
+        assert_eq!(super::super::turns(n), 2, "n={n}: floored to 2");
     }
 }
 
@@ -178,23 +208,85 @@ fn the_arc_length_table_is_monotone_and_starts_at_zero() {
     );
 }
 
-/// The grid's own step is `1/(65535)` as a single `f64` division, and the last grid point is
-/// exactly `1.0` — the `linspace` fix-up `grid[65535] = stop`, not `65535 * step`.
+/// The grid's own step is `1/(65535)` as a single `f64` division.
 #[test]
-fn the_grid_is_a_linspace_with_its_endpoint_pinned_not_approximated() {
+fn the_grid_is_a_linspace_with_its_step_one_division() {
     let step = super::super::grid_step();
     assert_eq!(bits(step), bits(1.0 / 65535.0), "delta/div, one division");
-    assert_eq!(
-        super::super::grid_at(65535, step),
-        1.0,
-        "linspace overwrites the last point"
-    );
     assert_eq!(super::super::grid_at(0, step), 0.0);
     assert_eq!(
         super::super::grid_at(1, step),
         step,
         "and the step IS grid[1] - grid[0]"
     );
+}
+
+/// `65535 * step` is **exactly `1.0`**, so the reference's `linspace` endpoint overwrite and a
+/// plain `j * step` agree bit for bit and [`grid_at`](super::super::grid_at) carries no
+/// last-element special case.
+///
+/// This is the test that replaces the dead branch an earlier version of the module had. That
+/// branch returned a hardcoded `1.0` for `j == GRID - 1` on the belief that the product fell
+/// short; it does not, so the branch was defending against a number that was never wrong.
+/// `0x3ff0000000000000` is `1.0`'s encoding, and the value was measured in `ge-python-oracle`:
+///
+/// ```text
+/// >>> 65535.0 * (1.0 / 65535) == 1.0
+/// True
+/// ```
+#[test]
+fn the_grid_last_point_is_the_product_not_a_fix_up() {
+    let step = super::super::grid_step();
+    let product = 65535.0 * step;
+    assert_eq!(bits(product), 0x3ff0_0000_0000_0000, "1.0, exactly");
+    assert_eq!(product, 1.0);
+    assert_eq!(
+        super::super::grid_at(65535, step),
+        product,
+        "grid_at is the plain product, with no last-element branch"
+    );
+}
+
+/// `n = 0` is the one input where this port and the reference **disagree on purpose**, and
+/// this is the test that holds the port's side of that bargain.
+///
+/// The reference returns shape `(1, 3)` for a zero-node graph — `basic.py:52`'s guard is
+/// `if num_nodes > 1`, so `n = 0` takes the `n = 1` branch and gets the same single point —
+/// and `apply_graph_layout` then rejects it in `_check_positions`
+/// (`layouts/common.py:175-185`), returning `False`. Measured in `ge-python-oracle`:
+///
+/// ```text
+/// >>> _spiral_layout_3d(0, 5.0).shape
+/// (1, 3)
+/// >>> apply_graph_layout(None, 'SPIRAL_3D', iterations=50, scale=5.0)
+/// False
+/// ```
+///
+/// This port returns three empty columns and a 3D geometry. Asserted rather than left
+/// undocumented: it is the only place the layout knowingly differs from the reference, and
+/// `basic_3d`'s contract is that all four of its layouts are total.
+#[test]
+fn the_empty_graph_is_an_empty_three_d_geometry_where_the_reference_refuses() {
+    let (x, y, z) = space(&spiral(&bare(0)).expect("runs"));
+    assert!(
+        x.is_empty() && y.is_empty() && z.is_empty(),
+        "n=0: three empty columns"
+    );
+    assert_eq!(super::super::columns(0).0.len(), 0, "no f64 column either");
+}
+
+/// `n = 1` and `n = 0` must NOT coincide, which is the whole of the divergence: the reference
+/// hands both the same point, and this port does not.
+///
+/// If a future change ever made `n = 0` return the `n = 1` point, this fails — which is the
+/// intended direction, since the port's contract is totality rather than fidelity at an input
+/// the reference itself rejects.
+#[test]
+fn one_node_and_no_nodes_are_not_the_same_drawing() {
+    let (one, _, _) = space(&spiral(&bare(1)).expect("runs"));
+    let (none, _, _) = space(&spiral(&bare(0)).expect("runs"));
+    assert_eq!(one.len(), 1, "n=1 is the single reference point");
+    assert!(none.is_empty(), "n=0 is empty here and refused in the reference");
 }
 
 /// Every coordinate is inside the reference's own extent: `r <= scale` and

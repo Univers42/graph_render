@@ -305,9 +305,19 @@ the new id is a 3D layout of its own, through `basic_3d`'s `in_space`, with `lay
 left untouched. The port is an arc-length inversion, not a formula: `t = interp(wanted,
 length, grid)` over a 65 536-point grid whose `cumsum` is sequential, and numpy's `linspace`
 and `interp` each have an arithmetic of their own.
+**One correction to the shape of the work, not to the row:** the `max(2, ...)` turn-count floor is
+narrower than "for every `n <= 14`" suggests. Measured with numpy 2.3.3, the raw rounded
+`sqrt(n/(0.75*pi))` is 1 for `n = 1..5` and is already 2 for `n = 6..14`, so the floor lifts the
+value only at `n = 1, 2, 3, 4, 5` and is a no-op from 6 to 14; the first node count whose raw
+round is 3 is `n = 15`.
 **Measured:** disparity 0.585 -> 3.34e-16 median (5.59e-16 max), `f32` **1020/1020**,
-`f64` 120/1020, tier `shape` -> `tolerance`, cause `algorithm` -> `arithmetic`. Numbers and
-commands in `docs/measurements/sg-spiral3d.md`.
+`f64` 120/1020, tier `shape` -> `tolerance`, cause `algorithm` -> `arithmetic`. The judge's own
+line for row 14 and the row's `metrics.json` cells are pasted verbatim in
+`docs/measurements/sg-spiral3d.md` ("The run those numbers come from"), which is also where the
+caveats this paragraph omits live: the cross-language oracle covers sphere, helix and cube only
+(the spiral arm arrives in a later job), and `layout.basic3d.spiral` has no
+`THREE_D_LAYOUT_STAGES` entry and no negative control yet. `n = 0` is a deliberate divergence
+from the reference, unreachable from this matrix.
 
 ### 11. `BIPARTITE_3D`, `SUGIYAMA`, `IGRAPH_KK`, `YIFAN_HU`, `GRAPHVIZ_NEATO`, `GRAPHVIZ_FDP`,
 `GRAPHVIZ_CIRCO` — `algorithm`

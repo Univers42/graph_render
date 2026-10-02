@@ -51,7 +51,8 @@ const N2_Y: [u64; 2] = [0x0000_0000_0000_0000, 0xbce6_0faf_bfd9_7309];
 const N2_Z: [u64; 2] = [0xc014_0000_0000_0000, 0x4014_0000_0000_0000];
 
 /// `_spiral_layout_3d(7, 5.0)` — odd, so `turns` is `max(2, round(sqrt(7/(0.75*pi))))`
-/// with `sqrt(2.9708...) = 1.7235...` rounding down to `1` and then floored up to `2`.
+/// with `sqrt(2.9708...) = 1.7235...` rounding to `2`. **The floor is not what makes it 2
+/// here**: 1.72 already rounds to 2, and the floor only lifts counts `n = 1..5`.
 ///
 /// Seven nodes over two turns is 0.5 of a turn between nodes 0 and 1 at the foot and
 /// nearly 0.1 of a turn at the top, which is the whole point of the construction: the
