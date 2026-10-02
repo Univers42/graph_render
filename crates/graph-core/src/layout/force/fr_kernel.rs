@@ -210,3 +210,36 @@ fn squared<const D: usize>(delta: &[f64; D]) -> f64 {
     }
     sum
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The axis mapping of the pair term, at **both** scales: `None` on a connected graph and
+    /// `Some(C)` on a disconnected one. This pins the decision
+    /// `layout.force.fruchterman_reingold.md` records under "Resolved for this tree" — each
+    /// component of `delta` goes to the accumulator of its own axis, and igraph's mistyped 3-D
+    /// block (its `z` component added to `D_y`) is not reproduced.
+    ///
+    /// The two vertices share their `y`, so `delta[1]` is `0.0`: a `y` accumulator that had
+    /// the `z` term folded into it would not be zero, and the `z` accumulator would be. The
+    /// stage-level test `fruchterman_reingold_3d::a_disconnected_graph_stays_finite_and_uses_its_z`
+    /// does **not** catch that fold — measured: it passes with `repel` mutated — because the
+    /// per-move noise moves `z` either way. This one is at the kernel, where the fold is the
+    /// whole difference.
+    #[test]
+    fn every_component_of_the_pair_term_lands_on_its_own_axis() {
+        let pos = [[1.0, 2.0, 3.0], [-4.0, 2.0, -5.0]];
+        for far in [None, Some(2.0 * libm::sqrt(2.0))] {
+            let mut disp = [[0.0; 3]; 2];
+            repel(&pos, far, (0, 0), &mut disp);
+            assert_eq!(disp[0][1], 0.0, "far = {far:?}: delta.y is zero");
+            assert_ne!(disp[0][2], 0.0, "far = {far:?}: the z term reaches z");
+            assert_eq!(
+                disp[1],
+                [-disp[0][0], -disp[0][1], -disp[0][2]],
+                "far = {far:?}: the two endpoints are equal and opposite"
+            );
+        }
+    }
+}
