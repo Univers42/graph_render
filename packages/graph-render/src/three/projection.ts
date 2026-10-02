@@ -8,8 +8,8 @@
  *
  * Ponytail: there is no z-buffer and no per-node shading, so a node's depth buys it order
  * and a wider drawn radius and nothing else — `three/orbit.ts` carries the rest of the
- * caveats. Edge paths stay 2D in the contract, so a 3D edge is the straight line between
- * its two ends' projected points.
+ * caveats. A box's w/h and a routed edge's interior points are projected here too, and
+ * `three/paths.ts` says what it had to invent a z for.
  */
 import type { Viewport } from "../camera.ts";
 import type { Frame } from "../frame.ts";
@@ -17,6 +17,7 @@ import {
   type Basis, type Orbit, type Projected as At, type Vec3, basisOf, focalOf, project, radiusOnScreen,
 } from "./orbit.ts";
 import { depthOrder } from "./sort.ts";
+import { boxHalfExtents, interiorPoints, pixelsPerUnit } from "./paths.ts";
 
 /**
  * One node as drawn, in the order it is painted: where on the screen, and how far from the
@@ -44,6 +45,24 @@ export interface Drawn {
   readonly depth: Float64Array;
   /** The drawn radius in CSS pixels: the node's world radius over its depth. */
   readonly radius: Float32Array;
+  /**
+   * Two entries per node: the node's own projected half width and half height, in CSS
+   * pixels, for a `Box` frame (`three/paths.ts`). Both zero when the frame carries no w/h
+   * column or the node is behind the eye, so a caller can ask without asking the frame.
+   */
+  boxHalf: Float32Array;
+  /**
+   * Every edge's interior points, projected: two entries per point, indexed by the point's
+   * own index in `frame.pts`, so the painter reads the point it is tracing and never
+   * projects. Replaced when a new frame carries a different number of points.
+   */
+  points: Float32Array;
+  /**
+   * Pixels one world unit covers at the drawing's mean depth — the 3D painter's answer to
+   * the 2D camera's `scale`, and the one number an edge stroke width can be taken over
+   * (`three/paths.ts`). 0 when nothing is in front of the eye.
+   */
+  ppu: number;
   /** Node indices, furthest first. The painter walks this and nothing else. */
   order: Uint32Array;
   /** How many entries of `order` are real; a node behind the eye is not one of them. */
@@ -67,6 +86,9 @@ export function newProjection(count: number): Drawn {
     y: new Float32Array(count),
     depth: new Float64Array(count),
     radius: new Float32Array(count),
+    boxHalf: new Float32Array(count * 2),
+    points: new Float32Array(0),
+    ppu: 0,
     order: new Uint32Array(count),
     drawn: 0,
   };
@@ -77,7 +99,7 @@ function centreOf(viewport: Viewport): Vec3 {
 }
 
 /** The basis and the two numbers a projection needs, so a pass takes one argument. */
-interface Setup {
+export interface Setup {
   readonly basis: Basis;
   readonly focal: number;
   readonly centre: Vec3;
@@ -125,13 +147,26 @@ function projectAll(out: Drawn, wanted: Projection, setup: Setup): void {
 }
 
 /**
+ * The shapes the disc and the chord do not cover: a node's own w/h, and every edge's
+ * interior points. `three/paths.ts` holds the projection and the caveats; this only hands it
+ * the setup and reads back what it left, because both need the nodes already placed.
+ */
+function projectShapes(out: Drawn, wanted: Projection, setup: Setup): void {
+  out.boxHalf = boxHalfExtents(out.boxHalf, wanted.frame, out.depth, setup.focal);
+  out.points = interiorPoints(out.points, wanted, out, setup);
+  out.ppu = pixelsPerUnit(out, setup.focal);
+}
+
+/**
  * Projects every node of `wanted` into `into` and leaves the paint order there. The order is
  * by depth, so a node behind the eye (a depth of 0) is not in it and the painter draws no
  * trace of it.
  */
 export function projectFrame(into: Drawn, wanted: Projection): Drawn {
   const out = into.x.length === wanted.frame.nodeCount ? into : newProjection(wanted.frame.nodeCount);
-  projectAll(out, wanted, setupOf(wanted));
+  const setup = setupOf(wanted);
+  projectAll(out, wanted, setup);
+  projectShapes(out, wanted, setup);
   out.order = depthOrder(out.depth, out.order);
   out.drawn = out.order.length;
   return out;

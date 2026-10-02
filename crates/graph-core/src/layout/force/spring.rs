@@ -25,8 +25,9 @@
 //! branch that owns that comparison.
 //!
 //! **Reference, and where the port stops.** `spring_layout` (`layout.py:452-651`) computes
-//! `k = sqrt(1/n)`, an opening temperature of a tenth of the start's larger coordinate
-//! span, and up to `iterations` steps of [`forces::Solver::gather`], each node's
+//! `k = sqrt(1/n)`, an opening temperature of a tenth of the start's larger **x or y**
+//! span (`layout.py:687`) at either dimension, and up to `iterations` steps of
+//! [`forces::Solver::gather`], each node's
 //! displacement being `sum_j delta_ij * (k*k/d_ij^2 - A_ij * d_ij / k)` with `d` clipped
 //! to 0.01; it then rescales to `scale` (`layout.py:646`). Four departures, all stated
 //! rather than hidden:
