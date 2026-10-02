@@ -110,10 +110,10 @@ whole MiB, so the boundary had to be re-run on the artifact):
 |---|---|---|
 | `scripts/orch/gr cargo fmt --all --check` | 0 | (no output) |
 | `scripts/orch/gr cargo clippy --workspace --all-targets -- -D warnings` | 0 | `Finished dev profile` |
-| `CARGO_BUILD_JOBS=6 RUST_TEST_THREADS=4 timeout 3000 scripts/orch/gr cargo test --workspace --no-fail-fast` | **101** | 1749 passed, 14 failed, 12 ignored; every failure is in a `graph-cli` integration binary and every one of them is green re-run alone (see below) |
-| the same 7 binaries, one at a time: `cli`, `cli_fa2`, `cli_force`, `cli_igraph`, `cli_ledger`, `cli_oracles`, `cli_p3`, `snapshot` | 0 | `test result: ok. 8 passed` … `test result: ok. 3 passed` (8 binaries, 34 tests, 0 failed) |
+| `CARGO_BUILD_JOBS=6 RUST_TEST_THREADS=4 timeout 3000 scripts/orch/gr cargo test --workspace --no-fail-fast` | **0** (round 2) | 1763 passed, 0 failed, 12 ignored — the whole floor green in one run |
+| `CARGO_BUILD_JOBS=6 RUST_TEST_THREADS=4 timeout 3000 scripts/orch/gr cargo test --workspace --no-fail-fast` | 101 (round 1) | 1749 passed, 14 failed, 12 ignored; every failure was in a `graph-cli` integration binary and every one of them was green re-run alone (see below) |
 | `scripts/orch/gr cargo build -p graph-core --target wasm32-unknown-unknown` | 0 | `Finished dev profile` |
-| `scripts/orch/gr cargo build -p graph-wasm --release --target wasm32-unknown-unknown` | 0 | `Finished release profile` |
+| `scripts/orch/gr cargo build -p graph-wasm --release --target wasm32-unknown-unknown` | 0 | `Finished release profile`, no warning from any code (round 2; round 1 printed `warning: unused imports: EdgeKind and NodeKind`) |
 | `scripts/orch/gr cargo run -q -p graph-cli -- codegen --check` | 0 | `up to date docs/contract/ingest-schema.json` |
 | `scripts/orch/gr cargo run -q -p graph-cli -- capabilities --check` | **1** | `71 rows, 36 problems`, all of them missing gate records (see below) |
 | `scripts/orch/gr cargo run -q -p graph-cli -- hashgate --seeds 8` | 0 | `4-way equal on 8/8 seeds` / `PASS` |
@@ -121,21 +121,22 @@ whole MiB, so the boundary had to be re-run on the artifact):
 | `scripts/scigraphs-conformance.sh` | 0 | `scigraphs-conformance: 32/32 rows reached a reference` / `PASS` |
 | `scripts/orch/node-slim.sh npm run sdk:test` | 0 | `# pass 2` / `# fail 0` |
 | `scripts/orch/node-slim.sh npm run sdk:smoke` | 0 | `# pass` |
+| the two new rows through the real harness: `scripts/orch/gate.sh <logdir> <rows-with-just-them>` | 0 | `PASS sdk-test exit=0 expect=0` / `PASS sdk-test-control exit=1 expect=nonzero` |
 | `scripts/orch/node-slim.sh bash -c '… sdk-test-control row verbatim …'` | 1 (control, as required) | `not ok 2 - a module reporting this SDK's ABI version loads` / `# fail 1` |
 
-### `cargo test --workspace` is red under `--no-fail-fast`, and why
+### `cargo test --workspace` was red in round 1, and why
 
-The 14 failures are in `graph-cli`'s integration binaries (`cli_force`, `cli_force_gate`,
-`cli_igraph`, `cli_ledger`, `cli_oracles`, `cli_p3`, `snapshot`), every one of them an
-assertion that a spawned `graph-cli hashgate` / `oracle-diff` sub-run exited `0` (or `1` for a
-control) and got `2` — graph-cli's "could not run". Those tests spawn nested
-`cargo build`s of `target/wasm32-unknown-unknown/release/graph_wasm.wasm` and then read that
-artifact, so with four test threads running the whole workspace at once they race each other
-on the file they share. Re-run alone, all eight `graph-cli` binaries are green (`ok. 8`,
-`ok. 3`, `ok. 4`, `ok. 5`, `ok. 4`, `ok. 4`, `ok. 3`, `ok. 3`, 34 tests, 0 failed) — the
-evidence is the table above, not this paragraph. `graph-wasm`'s own 140 lib tests, and every
-other crate's, passed in the same run. Nothing here touches ingest: the models these tests
-drive are 2..41 nodes.
+Round 1's run exited 101 with 14 failures, all in `graph-cli`'s integration binaries
+(`cli_force`, `cli_force_gate`, `cli_igraph`, `cli_ledger`, `cli_oracles`, `cli_p3`,
+`snapshot`), every one of them an assertion that a spawned `graph-cli hashgate` / `oracle-diff`
+sub-run exited `0` (or `1` for a control) and got `2` — graph-cli's "could not run". Those
+tests spawn nested `cargo build`s of `target/wasm32-unknown-unknown/release/graph_wasm.wasm` and
+then read that artifact, so with four test threads running the whole workspace at once they race
+each other on the file they share. Re-run alone, all eight `graph-cli` binaries were green
+(`ok. 8`, `ok. 3`, `ok. 4`, `ok. 5`, `ok. 4`, `ok. 4`, `ok. 3`, `ok. 3`, 34 tests, 0 failed).
+Round 2, with the same command and the same parallelism, exited **0** with 1763 passed and 0
+failed — the race, not the code. Nothing here touches ingest: the models these tests drive are
+2..41 nodes.
 
 ### `capabilities --check` is not green here, and why
 
@@ -145,7 +146,7 @@ the gate`. `crates/graph-cli/src/evidence.rs` reads them from `target/gates`, wh
 full timed gate run writes; the brief forbids this job from running `hashgate --seeds 1000`,
 `ge-check.sh` or `gate.sh`. UNKNOWN is not a pass, so this row is reported unmet rather than
 claimed. Before this job ran anything the same command said `no hashgate record: run the gate`
-for all 36 — the count did not move.
+for all 36 — the count did not move, and it did not move in round 2 either.
 
 ## Deviations
 
