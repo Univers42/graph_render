@@ -10,8 +10,11 @@
 //! ascending in its partner as well, which is the order every attraction sum is taken in
 //! (D3).
 //!
-//! The threshold prune is the reference's (`fdeb.py:170-175`): a pair scoring below it never
-//! attracts. The radius prune around it is not ported — see [`super`].
+//! The threshold prune is the reference's (`fdeb.py:286`, `cm >= thresh`): a pair scoring
+//! below it never attracts, and at a threshold of 0 a pair scoring exactly 0 is kept, as
+//! there. One divergence: two zero-length edges score 0 here (the 0/0 guards in
+//! [`Frames`]) where the reference's NaN fails its test, so at threshold 0 they count in
+//! [`PairList::total`] though, weighing 0, they pull nothing. The radius prune around it is not ported — see [`super`].
 
 use super::FdebParams;
 use super::compat::Frames;
@@ -25,7 +28,7 @@ pub struct Entry {
     /// `k - 1 - p`: the corresponding point of an edge running the other way. `u_i · u_j` is
     /// exactly 0 for a perpendicular pair, and that tie takes the unflipped row.
     pub flipped: bool,
-    /// The compatibility the pair scored, in `threshold..=1`.
+    /// The compatibility the pair scored, at least `threshold` (the reference's `>=`).
     pub compat: f32,
 }
 

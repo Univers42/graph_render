@@ -98,7 +98,9 @@ fn a_post_run_replaces_the_edges_and_keeps_the_layouts_nodes() {
         (EdgeGeometryKind::Curve, "post.style.quadratic"),
         (EdgeGeometryKind::Curve, "post.style.bezier"),
     ] {
-        let after = post_run(&mut handles, id, index_of(post_id)).expect(post_id);
+        let after = post_run(&mut handles, id, index_of(post_id))
+            .expect(post_id)
+            .clone();
         let parts = after.parts();
         assert_eq!(parts.edges.kind(), want_kind, "{post_id}: edge kind");
         assert_eq!(
@@ -123,7 +125,7 @@ fn a_second_post_run_reads_the_layout_not_the_first_pass() {
     let style = index_of("post.style.orthogonal");
     let bundle = index_of("post.bundle.fdeb");
     post_run(&mut handles, id, style).expect("style");
-    let after_style = post_run(&mut handles, id, bundle).expect("bundle");
+    let after_style = post_run(&mut handles, id, bundle).expect("bundle").clone();
     let fresh = laid_out(&mut handles);
     let straight_bundle = post_run(&mut handles, fresh, bundle).expect("bundle");
     assert_eq!(

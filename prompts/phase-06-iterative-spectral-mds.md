@@ -1,4 +1,4 @@
-> **Status (2026-09-30):** MERGED into develop — p6e merge 6ae96a1 (head 7788d85), p6f merge 45a653f (head 67543b4). Still owed: docs/reports/phase-06.md and the FA2 chaos-metric ceiling. See prompts/RESUME.md.
+> **Status (2026-10-02):** MERGED into develop — p6e merge 6ae96a1 (head 7788d85), p6f merge 45a653f (head 67543b4). Closed: docs/reports/phase-06.md (commit 622e5ac) and the FA2 chaos-metric ceiling (docs/measurements/fa2-chaos.md, commit d970ac6 — the coordinate differential cannot gate, FA2 is gated on stress at max_iter 2). Still owed: nothing recorded. See docs/reports/STATUS.md.
 
 # Phase 6 — Iterative and spectral layouts. The hard one.
 
