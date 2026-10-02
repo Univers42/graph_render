@@ -61,6 +61,25 @@ function useFrameLine(view: HudProps["view"]): FrameLine {
   return { first, line };
 }
 
+/**
+ * WHY the badge reads the run's dim and not the layout id: `dim` comes off the decoded
+ * snapshot, so it is the z column's own presence — the same thing the painter branched on.
+ * A layout id could promise 3D and deliver a flat graph; this cannot.
+ *
+ * WHY the leading space is in the text and not only in the CSS: the frame line beside it is
+ * written into its own element, so the badge's own margin is the only gap between two pieces
+ * of text — and a margin is not a space to anything that reads the line, a screen reader
+ * included. It reads "canvas2d 3D" here and "canvas2d3D" without it.
+ */
+function SpaceBadge({ dim }: { readonly dim: number }): ReactElement | null {
+  if (dim !== 1) return null;
+  return (
+    <span className="gs-badge" title="This layout placed its nodes in 3D. Drag to turn it, wheel to zoom, right-drag to pan.">
+      {" 3D"}
+    </span>
+  );
+}
+
 export function Hud(props: HudProps): ReactElement {
   const { state, view } = props;
   const { first, line } = useFrameLine(view);
@@ -68,6 +87,7 @@ export function Hud(props: HudProps): ReactElement {
   return (
     <div className="gs-panel gs-hud">
       <span className="gs-hud-frame" ref={line}>{first}</span>
+      {run !== null && <SpaceBadge dim={run.dim} />}
       {run !== null && <span className="gs-muted">{` · layout ${ms(run.layoutMs)} · ${digest8(run.digest)}`}</span>}
     </div>
   );

@@ -41,9 +41,15 @@ studio-3d|build|prompts/jobs/studio-3d.md|scripts/orch/rows/quick.rows|no
 review-core-post|build|prompts/jobs/review-core-post.md|scripts/orch/rows/docs.rows|no
 review-core-base|build|prompts/jobs/review-core-base.md|scripts/orch/rows/docs.rows|no
 review-studio|build|prompts/jobs/review-studio.md|scripts/orch/rows/docs.rows|no
-sg-fix-spring-temp|build|prompts/jobs/sg-fix-spring-temp.md|scripts/orch/rows/quick.rows|no
 sg-dedupe|build|prompts/jobs/sg-dedupe.md|scripts/orch/rows/quick.rows|no
 studio-switch-fit|build|prompts/jobs/studio-switch-fit.md|scripts/orch/rows/quick.rows|no
 status-refresh|build|prompts/jobs/status-refresh.md|scripts/orch/rows/docs.rows|no
 # osage-knob|build|prompts/jobs/osage-knob.md|scripts/orch/rows/quick.rows|no   (after p12-t3-knobs lands: same knob files)
 osage-knob|build|prompts/jobs/osage-knob.md|scripts/orch/rows/quick.rows|no
+# sg lines from graph-render-f7 (2026-10-01): split runs alone; the rest wait in $GM_SCRATCH/orch/pending-sg.txt until it is on develop
+sg-conformance-split|build|prompts/jobs/sg-conformance-split.md|scripts/orch/rows/quick.rows|no
+perf-p5-gate|build|prompts/jobs/perf-p5-gate.md|scripts/orch/rows/perf-p5.rows|no
+sg-mt19937|build|prompts/jobs/sg-mt19937.md|scripts/orch/rows/quick.rows|no
+sg-graphviz-scale|build|prompts/jobs/sg-graphviz-scale.md|scripts/orch/rows/quick.rows|no
+fix-wasm-abi|build|prompts/jobs/fix-wasm-abi.md|scripts/orch/rows/quick.rows|no
+fix-analysis|build|prompts/jobs/fix-analysis.md|scripts/orch/rows/quick.rows|no

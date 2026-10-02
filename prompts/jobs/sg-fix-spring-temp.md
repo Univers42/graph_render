@@ -1,5 +1,7 @@
 # Job sg-fix-spring-temp (agent build, SciGraphs conformance repair)
 
+Read `prompts/jobs/sg-common.md` first (needs `sg-conformance-split` on develop).
+
 Why: a 2026-10-01 review of every layout against SciGraphs and its oracles found two defects that change
 coordinates on inputs the oracle accepts:
 1. `crates/graph-core/src/layout/force/spring/forces.rs:95` (`opening`) takes the opening temperature from
@@ -21,9 +23,14 @@ Do:
    start, through the existing oracle harness if spring3d has one (find it via the registry `oracle`
    field); record the result in `docs/measurements/sg-fix-spring-temp.md`.
 3. Fix the line citations in the doc comment.
+4. Both fixes change coordinates, so they can move SciGraphs conformance rows (SPRING_3D,
+   CIRCLE_PACKING). Run `scripts/scigraphs-conformance.sh` before the fix (exit 0) and after it.
+   Re-pin only the rows this fix moved, per sg-common step 4, and paste each row's before/after
+   disparity; a row that got worse is a finding to report, not to re-pin silently. A moved row
+   that is neither spring nor circle packing is a regression: stop.
 
 Paths: `crates/graph-core/src/layout/force/spring/**`, `crates/graph-core/src/layout/circle_packing/**`,
-the spring3d oracle harness if one exists, `docs/measurements/sg-fix-spring-temp.md`. Nothing else.
+the spring3d oracle harness if one exists, `docs/measurements/sg-fix-spring-temp.md`, and the conformance `baseline/` rows step 4 re-pins. Nothing else.
 
-Done when: the new tests fail before the fix and pass after (paste both runs); the merge floor is green;
+Done when: `scripts/scigraphs-conformance.sh` exits 0 and `--break` exits 1; the new tests fail before the fix and pass after (paste both runs); the merge floor is green;
 `hashgate --seeds 8` exits 0 and its `GM_MUTATE_REFERENCE_DEGREE=9` negative control exits non-zero.
