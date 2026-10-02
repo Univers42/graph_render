@@ -131,8 +131,8 @@ fn hessian<const D: usize>(pos: &[Axis], springs: &Springs, m: usize) -> [[f64; 
         }
         let r = libm::sqrt(squared::<D>(&delta));
         if r == 0.0 {
-            for axis in 0..D {
-                h[axis][axis] += k;
+            for (axis, row) in h.iter_mut().enumerate().take(D) {
+                row[axis] += k;
             }
             continue;
         }
@@ -157,14 +157,14 @@ fn accumulate_diagonal<const D: usize>(
     l: f64,
     r3: f64,
 ) {
-    for axis in 0..D {
+    for (axis, row) in h.iter_mut().enumerate().take(D) {
         let mut other = 0.0;
-        for b in 0..D {
+        for (b, value) in delta.iter().enumerate().take(D) {
             if b != axis {
-                other += l * delta[b] * delta[b];
+                other += l * value * value;
             }
         }
-        h[axis][axis] += k * (1.0 - other / r3);
+        row[axis] += k * (1.0 - other / r3);
     }
 }
 
@@ -226,8 +226,8 @@ fn determinant(h: &[[f64; 3]; 3]) -> f64 {
 /// `dx * dx + dy * dy`.
 fn squared<const D: usize>(delta: &Axis) -> f64 {
     let mut sum = 0.0;
-    for axis in 0..D {
-        sum += delta[axis] * delta[axis];
+    for cell in delta.iter().take(D) {
+        sum += cell * cell;
     }
     sum
 }

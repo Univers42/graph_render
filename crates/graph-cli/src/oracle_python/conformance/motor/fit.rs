@@ -70,8 +70,8 @@ pub(super) fn fit(points: &mut [[f64; 3]], scale: f64) {
     if extent > 0.0 {
         let factor = scale / extent;
         for point in points.iter_mut() {
-            for axis in 0..3 {
-                point[axis] *= factor;
+            for cell in point.iter_mut() {
+                *cell *= factor;
             }
         }
     }

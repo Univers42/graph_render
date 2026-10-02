@@ -76,8 +76,8 @@ pub(crate) fn start_positions<const D: usize>(n: usize, seed: u32) -> Vec<Axis> 
     (0..n)
         .map(|_| {
             let mut point = [0.0; AXES];
-            for axis in 0..D {
-                point[axis] = (rng.next_f64() - 0.5) * side;
+            for cell in point.iter_mut().take(D) {
+                *cell = (rng.next_f64() - 0.5) * side;
             }
             point
         })
@@ -148,8 +148,8 @@ fn repel<const D: usize>(pos: &[Axis], far: Option<f64>, key: (u32, u32), disp: 
 fn coincident_nudge(key: (u32, u32), pair: (u32, u32)) -> Axis {
     let amp = NOISE * 2e6;
     let mut d = [0.0; AXES];
-    for axis in 0..AXES {
-        d[axis] = jiggle(key.0, key.1, axis as u32 + 2, pair) * amp;
+    for (axis, cell) in d.iter_mut().enumerate() {
+        *cell = jiggle(key.0, key.1, axis as u32 + 2, pair) * amp;
     }
     if d == [0.0; AXES] {
         [NOISE, 0.0, 0.0]
@@ -185,8 +185,8 @@ fn step<const D: usize>(pos: &mut [Axis], disp: &[Axis], temp: f64, key: (u32, u
         }
         let len = sqrt(squared::<D>(&move_by));
         if len > temp {
-            for axis in 0..D {
-                move_by[axis] = move_by[axis] / len * temp;
+            for cell in move_by.iter_mut().take(D) {
+                *cell = *cell / len * temp;
             }
         }
         if len > 0.0 {
@@ -202,8 +202,8 @@ fn step<const D: usize>(pos: &mut [Axis], disp: &[Axis], temp: f64, key: (u32, u
 /// zero, so the leading zero cannot move a bit.
 fn squared<const D: usize>(delta: &Axis) -> f64 {
     let mut sum = 0.0;
-    for axis in 0..D {
-        sum += delta[axis] * delta[axis];
+    for cell in delta.iter().take(D) {
+        sum += cell * cell;
     }
     sum
 }
