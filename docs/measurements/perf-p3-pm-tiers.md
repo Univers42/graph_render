@@ -87,25 +87,32 @@ start, `20.86 18.77 16.43` at the end.
 | 1 000 000 | threads | 4 | 36 994.69 | 1.92× | true |
 | 1 000 000 | threads | 7 | 31 095.65 | 2.29× | true |
 
+Run D, on a quieter host (load 13.17 → 18.31), puts the same layout at 73 619.97 /
+59 960.40 / 34 095.42 / 30 865.66 ms for scalar / 2 / 4 / 7 at 1M and 2 283.02 ms for 100k
+`threads 7` — all four `equal to scalar: true`. The two tables below compare the runs.
+
 **Every arm is byte-equal to its own layout's scalar arm at the same size**, which is the
 claim the `equal` column makes: a tier that is faster and different is a faster wrong
 answer.
 
-**The host is too busy to read a trend past four workers, and the three runs disagree.**
-Run twice more at `--n 100000,1000000`, same command:
+**The host is too busy to read a trend past four workers, and the four runs disagree.**
+Run three more times at `--n 100000,1000000`, same command:
 
 | run | load start → end | 1M scalar | 1M t2 | 1M t4 | 1M t7 | 100k t7 |
 |---|---|---:|---:|---:|---:|---:|
 | A | 11.46 → 22.27 | 67 210.84 | 49 512.27 | 35 760.85 | 33 638.80 | 2 242.47 |
 | **B (above)** | 19.70 → 20.86 | 71 141.11 | 53 927.76 | 36 994.69 | 31 095.65 | 2 554.29 |
 | C | 19.47 → 33.06 | 81 699.49 | 71 280.92 | 57 410.41 | 73 337.54 | 2 611.54 |
+| D | 13.17 → 18.31 | 73 619.97 | 59 960.40 | 34 095.42 | 30 865.66 | 2 283.02 |
 
 Run C's load climbed by 14 across the run and its 1M `threads 7` cell came out **slower**
-than its `threads 4` cell, on five timings spread 56.7 s–101.9 s. Run A's 1M `threads 2` is
-1.36× and run B's is 1.32×, which agree; run C's 1.15× does not. The 1M rows are one cell
-each on a host running other jobs at load 19–33 on 20 cores, so **the 1M speed-up is
-1.3–1.4× at two workers and 1.4–1.9× at four, with no trustworthy seven-worker number**.
-Nothing here justifies a threshold row.
+than its `threads 4` cell, on five timings spread 56.7 s–101.9 s. Runs A, B and D agree on
+the shape — `threads 4` at 34.1–37.0 s and `threads 7` at 30.9–33.6 s, so seven workers is
+only a little past four — and run C is the outlier, its load rising the whole way. Read
+that way the 1M speed-up is **1.2–1.4× at two workers, 1.9–2.2× at four, and 2.1–2.4× at
+seven**, and the 100k figure 1.3–1.6× at seven. Every one of those cells is one median on a
+host running other jobs at load 11–33 on 20 cores, so treat the four-worker row as the
+trustworthy one and nothing as a threshold.
 
 ## What it does not do
 
