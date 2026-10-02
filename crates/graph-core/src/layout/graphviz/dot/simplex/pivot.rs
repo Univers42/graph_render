@@ -184,15 +184,10 @@ pub fn update(g: &mut Fast, ctx: &mut Ctx, e: u32, f: u32) -> Result<(), Error> 
             (tail, false)
         } else if degree(g, head) == 1 {
             (head, true)
+        } else if g.nodes[tail as usize].lim < g.nodes[head as usize].lim {
+            (tail, false)
         } else {
-            (
-                if g.nodes[tail as usize].lim < g.nodes[head as usize].lim {
-                    tail
-                } else {
-                    head
-                },
-                false,
-            )
+            (head, true)
         };
         rerank(g, up, if down { -delta } else { delta });
     }

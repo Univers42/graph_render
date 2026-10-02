@@ -372,3 +372,13 @@ fn rank_agreement_over_1000_seeds() {
 /// is checking against and not a bare literal.
 const RECORDED_AGREEMENT: usize = 0;
 
+
+#[test]
+#[ignore]
+fn debug_seed16() {
+    let rows = oracle_digest();
+    let row = rows.iter().find(|r| r.seed == 16).expect("seed 16");
+    let count = u32::try_from(row.ranks.len()).expect("n");
+    eprintln!("want {:?}", row.ranks);
+    eprintln!("got  {:?}", ranked(count, &row.edges));
+}

@@ -114,6 +114,17 @@ pub fn feasible_tree(g: &mut Fast, ctx: &mut Ctx, nodes: &[u32]) -> Result<(), E
 /// value equals the one recomputed from scratch.
 pub(crate) fn validate(g: &Fast, nodes: &[u32], ctx: &Ctx, when: &str) {
     for &n in nodes {
+        if n != nodes[0] {
+            let parent = g.nodes[n as usize].par.expect("a parent edge");
+            let r = &g.edges[parent as usize];
+            let other = if r.head == n { r.tail } else { r.head };
+            assert!(
+                g.nodes[n as usize].lim < g.nodes[other as usize].lim,
+                "lim does not decrease from {other} to {n} ({when})"
+            );
+        }
+    }
+    for &n in nodes {
         for &f in &g.out[n as usize] {
             let r = &g.edges[f as usize];
             let s = g.nodes[r.head as usize].rank - g.nodes[r.tail as usize].rank - r.minlen;
@@ -151,15 +162,17 @@ fn tail_side(g: &Fast, edge: u32) -> Vec<bool> {
     side[g.edges[edge as usize].tail as usize] = true;
     while let Some(n) = stack.pop() {
         for &x in &g.nodes[n as usize].tree_in {
-            if x != edge {
-                side[g.edges[x as usize].tail as usize] = true;
-                stack.push(g.edges[x as usize].tail);
+            let w = g.edges[x as usize].tail;
+            if x != edge && !side[w as usize] {
+                side[w as usize] = true;
+                stack.push(w);
             }
         }
         for &x in &g.nodes[n as usize].tree_out {
-            if x != edge {
-                side[g.edges[x as usize].head as usize] = true;
-                stack.push(g.edges[x as usize].head);
+            let w = g.edges[x as usize].head;
+            if x != edge && !side[w as usize] {
+                side[w as usize] = true;
+                stack.push(w);
             }
         }
     }
