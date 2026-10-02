@@ -169,7 +169,18 @@ What these say, and no more:
 
 ## Gates
 
-GATES_PENDING
+The merge floor on `27c3828`, run 2026-10-02 under `scripts/orch/gr` (`CARGO_BUILD_JOBS=3`,
+`RUST_TEST_THREADS=3`):
+
+| row | exit |
+|---|---:|
+| `cargo fmt --all --check` | 0 |
+| `cargo clippy --workspace --all-targets -- -D warnings` | 0 |
+| `cargo test --workspace --no-fail-fast` (1 780 passed, 0 failed, 12 ignored) | 0 |
+| `graph-cli hashgate --seeds 8` | 0 (PASS, 4-way equal on 8/8 seeds) |
+
+**Not run** on this branch: hashgate `--seeds 1000`, the Python oracles and mutants. They run once on
+develop after the merge (`prompts/RESUME.md`).
 
 ## What it does not do
 
