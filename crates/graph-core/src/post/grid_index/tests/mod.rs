@@ -25,6 +25,7 @@ fn small() -> GridParams {
 }
 
 mod cells;
+mod limits;
 mod point;
 mod reuse;
 mod shapes;

@@ -26,10 +26,20 @@ pub const ID: &str = "layout.bipartite";
 /// networkx's default `aspect_ratio` over a unit height.
 const WIDTH: f64 = 4.0 / 3.0;
 
+/// The two node sets, in SciGraphs' order, shared with [`basic_3d::bipartite_3d`].
+///
+/// **Published rather than re-ported, because the two layouts need the same answer.** They
+/// differ in placement and in nothing else — two columns against two rings — so a second
+/// copy of `_bipartite_parts` could only ever drift from this one. See
+/// `layout/basic_3d/bipartite_3d.rs` for the visiting order this preserves.
+pub(in crate::layout) fn node_sets(topology: &Topology) -> (Vec<u32>, Vec<u32>) {
+    partition(&neighbours(topology))
+}
+
 /// Runs the bipartite layout; never refuses.
 pub fn run(topology: &Topology) -> Result<Geometry, StageError> {
     let count = topology.node_count() as usize;
-    let (first, second) = partition(&neighbours(topology));
+    let (first, second) = node_sets(topology);
     let mut x = vec![0.0; count];
     let mut y = vec![0.0; count];
     for (nodes, column) in [(&first, 0.0), (&second, WIDTH)] {

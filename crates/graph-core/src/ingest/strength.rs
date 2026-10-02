@@ -3,27 +3,13 @@
 //!
 //! Graph derivation existed in three copies that had already diverged, so **two live
 //! code paths produced different layouts for the same data**. This module is the one
-//! implementation: a constant table, total over [`EdgeKind::ALL`], read by every
-//! derivation in the motor. A kind that is not in the table has no strength, which is a
-//! compile error rather than a silent default.
+//! implementation: an exhaustive `match`, total over [`EdgeKind`], read by every
+//! derivation in the motor. A kind the match does not name is a compile error rather
+//! than a silent default, and the table below is **not** a second copy of the numbers:
+//! every row reads its value out of [`edge_strength`], so there is one place a strength
+//! is written down.
 
 use crate::edgekind::EdgeKind;
-
-/// The strength every kind gets, strongest first: a hierarchy edge is the structure
-/// the drawing is built on, an ordinary relation is the reference weight, and the
-/// annotation kinds pull progressively less.
-///
-/// Every value is a **dyadic rational** (a multiple of 2⁻⁶), so it is exact in `f64`
-/// natively and in `f32` on the transport face, and exact through the JSON face's
-/// `f32 → shortest decimal → f64 → f32` round-trip. No strength in this table can
-/// differ by one ULP between targets, which is what D9 asks for.
-pub const STRENGTH_TABLE: [(EdgeKind, f64); 5] = [
-    (EdgeKind::Hierarchy, 2.0),
-    (EdgeKind::Relation, 1.0),
-    (EdgeKind::Tag, 0.75),
-    (EdgeKind::NoteLink, 0.625),
-    (EdgeKind::NoteOf, 0.5),
-];
 
 /// The strength for one edge kind: its one row in [`STRENGTH_TABLE`].
 ///
@@ -39,22 +25,40 @@ pub const STRENGTH_TABLE: [(EdgeKind, f64); 5] = [
 /// caller that needs a different convention overrides the edge's own `strength` after
 /// [`crate::index::index_model`] rather than editing this table.
 pub const fn edge_strength(kind: EdgeKind) -> f64 {
-    let mut i = 0;
-    while i < STRENGTH_TABLE.len() {
-        if matches_kind(STRENGTH_TABLE[i].0, kind) {
-            return STRENGTH_TABLE[i].1;
-        }
-        i += 1;
+    // An exhaustive `match`, so a new `EdgeKind` variant is a **compile error** rather than
+    // a runtime panic in a release build — which is what this module's doc claims, and what
+    // the table scan it replaced could not deliver. This match is the only place a strength
+    // is written down; `STRENGTH_TABLE` reads it rather than repeating it, and the order of
+    // the table's rows is a reading order, not a second source of the values.
+    match kind {
+        EdgeKind::Hierarchy => 2.0,
+        EdgeKind::Relation => 1.0,
+        EdgeKind::Tag => 0.75,
+        EdgeKind::NoteLink => 0.625,
+        EdgeKind::NoteOf => 0.5,
     }
-    // Unreachable: STRENGTH_TABLE is total over EdgeKind::ALL, and `ALL` is the only
-    // way to obtain an EdgeKind. A new variant fails the totality test below instead.
-    panic!("edge kind has no strength row")
 }
 
-/// `a == b` without `PartialEq`'s bounds gymnastics, in a `const fn`.
-const fn matches_kind(a: EdgeKind, b: EdgeKind) -> bool {
-    a as u8 == b as u8
-}
+/// Every kind with its strength, strongest first: a hierarchy edge is the structure the
+/// drawing is built on, an ordinary relation is the reference weight, and the annotation
+/// kinds pull progressively less.
+///
+/// The rows name the kinds in that order and **borrow every value from
+/// [`edge_strength`]**, so this is a reading order over one source rather than a second
+/// copy of the five numbers. `edge_strength` is a `const fn`, which is what lets a
+/// `const` array be a view of the match at all.
+///
+/// Every value is a **dyadic rational** (a multiple of 2⁻⁶), so it is exact in `f64`
+/// natively and in `f32` on the transport face, and exact through the JSON face's
+/// `f32 → shortest decimal → f64 → f32` round-trip. No strength in this table can
+/// differ by one ULP between targets, which is what D9 asks for.
+pub const STRENGTH_TABLE: [(EdgeKind, f64); 5] = [
+    (EdgeKind::Hierarchy, edge_strength(EdgeKind::Hierarchy)),
+    (EdgeKind::Relation, edge_strength(EdgeKind::Relation)),
+    (EdgeKind::Tag, edge_strength(EdgeKind::Tag)),
+    (EdgeKind::NoteLink, edge_strength(EdgeKind::NoteLink)),
+    (EdgeKind::NoteOf, edge_strength(EdgeKind::NoteOf)),
+];
 
 #[cfg(test)]
 mod tests {
@@ -62,11 +66,22 @@ mod tests {
 
     #[test]
     fn table_pins_every_kind_to_its_exact_value() {
+        // The absolute numbers, spelled out: `docs/decisions/edge-strength-table.md` is
+        // the record of the choice, and this is the test that says the code still is it.
         assert_eq!(edge_strength(EdgeKind::Hierarchy), 2.0);
         assert_eq!(edge_strength(EdgeKind::Relation), 1.0);
         assert_eq!(edge_strength(EdgeKind::Tag), 0.75);
         assert_eq!(edge_strength(EdgeKind::NoteLink), 0.625);
         assert_eq!(edge_strength(EdgeKind::NoteOf), 0.5);
+    }
+
+    #[test]
+    fn the_table_states_no_strength_the_match_does_not() {
+        // Every row's value is `edge_strength`'s own, read rather than written: if the
+        // match changes, this changes with it, and the two cannot drift.
+        for (kind, value) in STRENGTH_TABLE {
+            assert_eq!(value, edge_strength(kind), "{kind:?}");
+        }
     }
 
     #[test]
@@ -82,7 +97,7 @@ mod tests {
     }
 
     #[test]
-    fn no_two_kinds_share_a_value_so_a_swapped_row_fails() {
+    fn no_two_kinds_share_a_value_so_a_swapped_case_fails() {
         let mut values: Vec<u64> = STRENGTH_TABLE.iter().map(|(_, v)| v.to_bits()).collect();
         values.sort_unstable();
         let before = values.len();
