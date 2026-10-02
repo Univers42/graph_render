@@ -151,13 +151,12 @@ fn scanned(grid: &Grid, k: usize, reads: &Reads) -> (f64, f64) {
 
 #[test]
 fn the_masked_delta_is_the_one_by_one_scan_bit_for_bit() {
+    let mut longest = 0;
     for (x, y) in [positions(), crowd()] {
         let mut grid = Grid::new(x.len() as u32);
         grid.build((&x, &y), CONTACT.reach, (&crate::exec::Serial, 1));
-        let longest = (0..grid.start.len() - 1)
-            .map(|b| grid.start[b + 1] - grid.start[b])
-            .max();
-        assert!(longest > Some(3 * LANES as u32), "no run spans many chunks");
+        let buckets = grid.start.windows(2).map(|w| w[1] - w[0]);
+        longest = buckets.fold(longest, u32::max);
         for (k, &[x, y]) in grid.at.iter().enumerate() {
             let reads = grid.reads(grid.hash.cell_of((x, y)));
             let (got, want) = (grid.delta(k, &reads, CONTACT), scanned(&grid, k, &reads));
@@ -165,4 +164,5 @@ fn the_masked_delta_is_the_one_by_one_scan_bit_for_bit() {
             assert_eq!(bits(got), bits(want), "slot {k}");
         }
     }
+    assert!(longest > 3 * LANES as u32, "no bucket spans several chunks");
 }
