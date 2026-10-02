@@ -9,9 +9,14 @@
 use super::super::{Baseline, row};
 
 pub(super) const NETWORKX: [Baseline; 12] = [
+    // The five igraph rows carry `sg-igraph-dims`'s `_igraph_fit_positions` on the motor arm,
+    // so their motor shas are the fitted ones; the reference shas are unchanged, which is the
+    // measurement that the reference reproduces run to run (two `--reference` runs, 64/64 files
+    // byte-identical). A fit is a uniform scale and a translation, so the Procrustes medians are
+    // unmoved to the digit: `docs/measurements/sg-igraph-dims.md`.
     row(
         "IGRAPH_FR",
-        "1f84882c79fc1887a1bf1150aded1ee17b6fbff9fffb3db100a0669c8494ddc2",
+        "11c18f9c8e8a3bc5bd80407560c6fedcda309a423bc3cec10caf0163e30fc02a",
         "0cf3c05e67d79c08c152d0902dfe70dd5e3ef1cf4f9785448b394d24c8cfb170",
         "",
         1e0,
@@ -20,7 +25,7 @@ pub(super) const NETWORKX: [Baseline; 12] = [
     ),
     row(
         "IGRAPH_KK",
-        "516c88116704a2f7dbd7f498f8bf6be46cd67ddb41c81f944e0fe92fb4e48bb6",
+        "c6fe20813019afd468327944c1613e15245a8c1b7c35969fd28af31bad46f38a",
         "a89c503e5fb39b8756fcbef3a6985ae6335770f874fd2e6cd06773bea5d0264a",
         "",
         1e0,
@@ -29,7 +34,7 @@ pub(super) const NETWORKX: [Baseline; 12] = [
     ),
     row(
         "IGRAPH_DRL",
-        "ea94de23d7c52d2504326bfc56b2e42edf8b04ecf8a04d9ab3ed14e1df12bca5",
+        "0d43b8f201bfb7c14d21d4a52b1ac9efd6aaf83613ec01d5d8a9a683b5fcfc77",
         "19706b910225f374945f8e72c8594361dbb20d93e0716acaacec835c6ecf2b88",
         "",
         1e0,
@@ -38,7 +43,7 @@ pub(super) const NETWORKX: [Baseline; 12] = [
     ),
     row(
         "IGRAPH_DRL_2D",
-        "ea94de23d7c52d2504326bfc56b2e42edf8b04ecf8a04d9ab3ed14e1df12bca5",
+        "0d43b8f201bfb7c14d21d4a52b1ac9efd6aaf83613ec01d5d8a9a683b5fcfc77",
         "79434cc8e4a271f57891b8170d454ca02a685d22f83a5ab1ed9606215a7b3fa0",
         "",
         1e0,
@@ -47,7 +52,7 @@ pub(super) const NETWORKX: [Baseline; 12] = [
     ),
     row(
         "IGRAPH_LGL",
-        "09cf01e5c51eb5d716499e0610c285c138158a9419443e5d7effc7a954e996b2",
+        "41100b0d1dd4d83fa79eccd8db6f80f5768cdfb3c7a553f05ace0f661dacc49b",
         "a619ed3bc32e31f78056fbed6186352c5bf382457b40ffea5d0742645f71c3fd",
         "",
         1e0,

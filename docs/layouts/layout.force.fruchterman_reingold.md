@@ -102,6 +102,18 @@ evenly spread vertices, degrading as cells fill. Connectivity test `O(n + m)` on
   is added to `D_y` of vertex `v` instead of `D_z`. The other five lines of that block are correct.
   For a disconnected graph in 3D the result therefore differs from the "mathematically intended"
   layout. A faithful port must reproduce it; the decision belongs in `docs/decisions/`.
+  **Resolved for this tree (2026-10-02, `sg-igraph-dims`): the port adds the z component to `D_z`,
+  the intended axis, and does not reproduce the defect.** Three reasons, in the order they
+  mattered. (i) The spec itself calls it a defect and calls the other five lines of the block
+  correct, so the block is not a different algorithm — it is one mistyped subscript. (ii) The
+  defect only reaches output on a **disconnected** 3D graph, and the disconnected pair term is
+  already a documented approximation (an implicit edge of weight `n^(-3/2)`), so reproducing a typo
+  inside an approximation buys no accuracy. (iii) It buys no conformance either: the conformance arm
+  compares these rows after a Procrustes alignment, which is invariant to the perturbation's
+  linear part, and the rows the differential scores are connected gate models where the branch
+  never runs. Recording it here rather than in `docs/decisions/` is a scope limit of the job that
+  wrote it, not a claim that the decision is unimportant — a reviewer who wants the literal
+  behaviour should read `fruchterman_reingold_3d.rs`'s `FAR_PULL` and change one axis index.
 - **Equilibrium length.** The doc-comment in the C file quotes an equilibrium length of `1/w^3`.
   Balancing the two forces above gives `r^3 = 1/w`. The comment and the code disagree; the code is
   authoritative.
