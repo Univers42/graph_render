@@ -16,6 +16,7 @@
 //! exactly at the origin, symmetric between the two endpoints.
 
 use super::*;
+use super::matrix::SUM_ZERO;
 use crate::index::{Topology, index_model};
 use crate::records::build::{edge, node};
 use graph_contract::geometry::NodeGeometry;
@@ -151,4 +152,60 @@ fn disconnected_graph_reports_only_attempted_components() {
     let (x, y) = points(&geometry);
     assert_eq!(x.len(), 10);
     assert!(x.iter().chain(y).all(|v| v.is_finite()));
+}
+
+/// `n x k` values from a fixed LCG with exact zeros of both signs mixed in. Column 0 is
+/// positive and the last column all `-0.0`, so their dot product is a sum of `-0.0`s: the
+/// one case where a sum's start shows in its bytes.
+fn signed_zero_matrix(n: usize, k: usize) -> Vec<f64> {
+    let mut state = 0x2545_f491_4f6c_dd1d_u64;
+    let mut cells = Vec::with_capacity(n * k);
+    for i in 0..n * k {
+        state = state.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+        let v = (state >> 11) as f64 / (1u64 << 53) as f64 - 0.5;
+        cells.push(match (i % k, state % 7) {
+            (0, _) => 1.0 + v,
+            (j, _) if j == k - 1 => -0.0,
+            (_, 0) => -0.0,
+            (_, 1) => 0.0,
+            _ => v * 1e3,
+        });
+    }
+    cells
+}
+
+#[test]
+fn gram_is_the_column_dot_product_bit_for_bit() {
+    assert_eq!(
+        SUM_ZERO.to_bits(),
+        std::iter::empty::<f64>().sum::<f64>().to_bits()
+    );
+    let (n, k) = (257, 13);
+    let dist = signed_zero_matrix(n, k);
+    let row_wise: Vec<u64> = gram(&dist, k).iter().map(|v| v.to_bits()).collect();
+    let mut dot_products = Vec::with_capacity(k * k);
+    for p in 0..k {
+        for q in 0..k {
+            let dot: f64 = (0..n).map(|i| dist[i * k + p] * dist[i * k + q]).sum();
+            dot_products.push(dot.to_bits());
+        }
+    }
+    assert_eq!(row_wise, dot_products);
+}
+
+#[test]
+fn double_centering_keeps_the_column_means_bytes() {
+    let (n, k) = (101, 7);
+    let mut dist = signed_zero_matrix(n, k);
+    let squared: Vec<f64> = dist.iter().map(|v| v * v).collect();
+    double_center(&mut dist, n, k);
+    let col = |j: usize| (0..n).map(|i| squared[i * k + j]).sum::<f64>() / n as f64;
+    let row = |i: usize| (0..k).map(|j| squared[i * k + j]).sum::<f64>() / k as f64;
+    let grand = (0..k).map(col).sum::<f64>() / k as f64;
+    for i in 0..n {
+        for j in 0..k {
+            let expect = (squared[i * k + j] - col(j) - row(i) + grand) * -0.5;
+            assert_eq!(dist[i * k + j].to_bits(), expect.to_bits(), "({i}, {j})");
+        }
+    }
 }

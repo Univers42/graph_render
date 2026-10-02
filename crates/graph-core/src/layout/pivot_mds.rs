@@ -14,17 +14,18 @@
 //! cell); [`MdsError::NothingSolved`] only when something was attempted and nothing
 //! solved (`nothing_solved`, shared with `spectral`).
 
-use std::collections::VecDeque;
-
 use crate::index::Topology;
 use crate::linalg::dense_sym::eigh;
 use crate::linalg::{EigBlock, orthonormal, pin_signs, residual_converged};
 
 use super::Geometry;
 use super::spectral::{
-    DIMS, find_components, local_index_map, nothing_solved, pack_components, scatter,
+    DIMS, Neighbors, find_components, nothing_solved, pack_components, scatter,
     simple_neighbors, to_geometry,
 };
+
+mod matrix;
+use matrix::{double_center, gram, project};
 
 /// `_MDS_PIVOTS` (reference constant).
 pub const MAX_PIVOTS: usize = 100;
@@ -51,49 +52,45 @@ pub enum MdsError {
     NothingSolved,
 }
 
-/// A component's members and collapsed adjacency, addressed by local index. Pivot MDS
-/// needs BFS hop counts rather than a Laplacian matvec, so this is its own small type,
-/// not `spectral::ComponentGraph`.
-struct ComponentGraph<'a> {
-    members: &'a [u32],
-    neighbors: &'a [Vec<u32>],
-    local_of: Vec<u32>,
+/// Hop counts from one node at a time, over the whole graph's adjacency in dense indices,
+/// so a walk needs no local index map. Both buffers are allocated once per run: the queue
+/// ends holding exactly the nodes the last walk reached, which is what the next one resets.
+struct Bfs<'a> {
+    neighbors: &'a Neighbors,
+    hops: Vec<u32>,
+    queue: Vec<u32>,
 }
 
-impl<'a> ComponentGraph<'a> {
-    fn build(members: &'a [u32], neighbors: &'a [Vec<u32>], n: usize) -> Self {
-        let local_of = local_index_map(members, n);
+impl<'a> Bfs<'a> {
+    fn new(neighbors: &'a Neighbors) -> Self {
         Self {
-            members,
             neighbors,
-            local_of,
+            hops: vec![u32::MAX; neighbors.len()],
+            queue: Vec::new(),
         }
     }
 
-    fn size(&self) -> usize {
-        self.members.len()
-    }
-
-    /// Hop count from local index `start` to every member, BFS over the collapsed
-    /// undirected adjacency (C6). Every entry is reached: the component is connected by
-    /// construction, so the reference's `d[~np.isfinite(d)] = 0.0` branch never
-    /// triggers on this caller and is not ported.
-    fn bfs_hops(&self, start: usize) -> Vec<f64> {
-        let n = self.size();
-        let mut hops = vec![u32::MAX; n];
-        hops[start] = 0;
-        let mut queue = VecDeque::new();
-        queue.push_back(start);
-        while let Some(v) = queue.pop_front() {
-            for &w in &self.neighbors[self.members[v] as usize] {
-                let lw = self.local_of[w as usize] as usize;
-                if hops[lw] == u32::MAX {
-                    hops[lw] = hops[v] + 1;
-                    queue.push_back(lw);
+    /// Hop count from `start` to every node of its component, into `hops`; every other
+    /// entry is `u32::MAX`. A component is connected by construction, so the reference's
+    /// `d[~np.isfinite(d)] = 0.0` branch never triggers on this caller and is not ported.
+    fn walk(&mut self, start: u32) {
+        for &v in &self.queue {
+            self.hops[v as usize] = u32::MAX;
+        }
+        self.queue.clear();
+        self.queue.push(start);
+        self.hops[start as usize] = 0;
+        let mut head = 0;
+        while let Some(&v) = self.queue.get(head) {
+            head += 1;
+            let next = self.hops[v as usize] + 1;
+            for &w in self.neighbors.row(v) {
+                if self.hops[w as usize] == u32::MAX {
+                    self.hops[w as usize] = next;
+                    self.queue.push(w);
                 }
             }
         }
-        hops.iter().map(|&h| h as f64).collect()
     }
 }
 
@@ -112,55 +109,22 @@ fn argmax(v: &[f64]) -> usize {
 /// heuristic (`_pivot_mds_coordinates:176-185`): pivot 0 is local index 0; each next
 /// pivot is the node currently farthest (by minimum hop count) from every pivot chosen
 /// so far, ties won by the lowest index.
-fn pivot_distances(graph: &ComponentGraph, k: usize) -> Vec<f64> {
-    let n = graph.size();
+fn pivot_distances(bfs: &mut Bfs, members: &[u32], k: usize) -> Vec<f64> {
+    let n = members.len();
     let mut dist = vec![0.0; n * k];
     let mut covered = vec![f64::INFINITY; n];
     let mut chosen = 0usize;
     for j in 0..k {
-        let d = graph.bfs_hops(chosen);
-        for i in 0..n {
-            dist[i * k + j] = d[i];
-        }
-        for i in 0..n {
-            covered[i] = covered[i].min(d[i]);
+        bfs.walk(members[chosen]);
+        for (i, &node) in members.iter().enumerate() {
+            let d = f64::from(bfs.hops[node as usize]);
+            dist[i * k + j] = d;
+            covered[i] = covered[i].min(d);
         }
         covered[chosen] = -1.0;
         chosen = argmax(&covered);
     }
     dist
-}
-
-/// Squares `dist` in place, then double-centers it (`_pivot_mds_coordinates:187-194`),
-/// sequential sums throughout (D3).
-fn double_center(dist: &mut [f64], n: usize, k: usize) {
-    for v in dist.iter_mut() {
-        *v *= *v;
-    }
-    let col_mean: Vec<f64> = (0..k)
-        .map(|j| (0..n).map(|i| dist[i * k + j]).sum::<f64>() / n as f64)
-        .collect();
-    let row_mean: Vec<f64> = (0..n)
-        .map(|i| (0..k).map(|j| dist[i * k + j]).sum::<f64>() / k as f64)
-        .collect();
-    let grand_mean = col_mean.iter().sum::<f64>() / k as f64;
-    for i in 0..n {
-        for j in 0..k {
-            let centered = dist[i * k + j] - col_mean[j] - row_mean[i] + grand_mean;
-            dist[i * k + j] = centered * -0.5;
-        }
-    }
-}
-
-/// `distᵀ dist`, the `k x k` Gram matrix Pivot MDS's eigensolve runs on.
-fn gram(dist: &[f64], n: usize, k: usize) -> Vec<f64> {
-    let mut g = vec![0.0; k * k];
-    for p in 0..k {
-        for q in 0..k {
-            g[p * k + q] = (0..n).map(|i| dist[i * k + p] * dist[i * k + q]).sum();
-        }
-    }
-    g
 }
 
 /// The `dims_eff` largest eigenpairs of `full` (ascending input, reversed selection —
@@ -195,34 +159,15 @@ fn converged(gram: &[f64], k: usize, eig: &EigBlock) -> bool {
     residual_converged(matvec, eig, 1e-2) && orthonormal(eig, 1e-6)
 }
 
-/// `dist @ vectors`: the `k`-dimensional eigenvectors projected back to `n_c` points
-/// (`_pivot_mds_coordinates:198`) — sign-pinned on *this* result, not on `top` itself.
-fn project(dist: &[f64], n: usize, k: usize, top: &EigBlock) -> EigBlock {
-    let dims_eff = top.k;
-    let mut vectors = vec![0.0; n * dims_eff];
-    for d in 0..dims_eff {
-        let v = top.column(d);
-        for i in 0..n {
-            vectors[d * n + i] = (0..k).map(|p| dist[i * k + p] * v[p]).sum();
-        }
-    }
-    EigBlock {
-        values: top.values.clone(),
-        vectors,
-        n,
-        k: dims_eff,
-    }
-}
-
 /// One component's solve: always dense (`k <= 100 < DENSE_EIG_LIMIT`). Returns the
 /// projected, sign-pinnable coordinates (or `None` when the gate refuses them) and the
 /// pivot count used.
-fn solve_component(graph: &ComponentGraph) -> (Option<EigBlock>, u32) {
-    let n = graph.size();
+fn solve_component(bfs: &mut Bfs, members: &[u32]) -> (Option<EigBlock>, u32) {
+    let n = members.len();
     let k = MAX_PIVOTS.min(n);
-    let mut dist = pivot_distances(graph, k);
+    let mut dist = pivot_distances(bfs, members, k);
     double_center(&mut dist, n, k);
-    let g = gram(&dist, n, k);
+    let g = gram(&dist, k);
     let full = eigh(&g, k);
     let dims_eff = DIMS.min(k);
     let top = top_eigenpairs(&full, dims_eff);
@@ -237,6 +182,7 @@ pub fn run(topology: &Topology) -> Result<(Geometry, Vec<ComponentReport>), MdsE
     let n = topology.node_count() as usize;
     let neighbors = simple_neighbors(topology);
     let components = find_components(&neighbors);
+    let mut bfs = Bfs::new(&neighbors);
     let mut coords = vec![0.0_f64; n * DIMS];
     let mut reports = Vec::new();
     let mut any_solved = false;
@@ -245,8 +191,7 @@ pub fn run(topology: &Topology) -> Result<(Geometry, Vec<ComponentReport>), MdsE
         if members.len() < 2 {
             continue;
         }
-        let graph = ComponentGraph::build(members, &neighbors, n);
-        let (solved, pivots) = solve_component(&graph);
+        let (solved, pivots) = solve_component(&mut bfs, members);
         let ok = solved.is_some();
         if let Some(mut eig) = solved {
             pin_signs(&mut eig);
