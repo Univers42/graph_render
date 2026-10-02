@@ -24,7 +24,7 @@ pub(super) const NETWORKX: [Baseline; 12] = [
     // determinant, and the two round differently in the last bits; the descent therefore walks a slightly
     // different path and settles elsewhere. Its median improved, 0.757 -> 0.709, so the move is a closer fit to
     // the reference, not a drift. The reference sha is untouched. Measured in
-    // `docs/measurements/sg-igraph-clean.md`.
+    // `docs/measurements/sg-igraph-dims.md`.
     row(
         "IGRAPH_FR",
         "86bce46cf87a8d476244d254929c9e2ca75964ff835061e4e494c92c29cd6678",

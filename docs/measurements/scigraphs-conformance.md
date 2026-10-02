@@ -126,7 +126,7 @@ Procrustes-aligned over it**, so a green point sitting on a grey point is a node
 | 5 | `CIRCLE_PACKING` | `layout.packing.circle` | `apply_graph_layout` | `shape` | 344/1020 | 808/1020 | 9.22e+18 | 3.17 | 5.3e-16 | 0.827 | `algorithm` | different on lesmis (0.517) and **bit-for-bit the same packing on the 20 gate models** (5e-16): SciGraphs' non-planar fallback is where the two part company |
 | 6 | `FORCEATLAS2` | `layout.forceatlas2` | `apply_graph_layout` | `bitwise` | 0/1020 | 0/1020 | 9.25e+18 | 183 | 0.241 | 0.927 | `rng` | different shape |
 | 7 | `IGRAPH_FR` | `layout.force.fruchterman_reingold_3d` | `apply_graph_layout` | `bitwise` | 2/1020 | 4/1020 | 9.24e+18 | 10 | 0.166 | 0.921 | `rng` | different shape, and much closer: **the motor id is the `_3d` layout, because SciGraphs calls FR at `dim=3`** (`igraph_layouts.py:74`) — median 0.267 → 0.166 |
-| 8 | `IGRAPH_KK` | `layout.force.kamada_kawai_3d` | `apply_graph_layout` | `shape` | 8/957 | 8/957 | 9.23e+18 | 10 | 0.757 | 0.910 | `algorithm` | different shape, closer: **`dim=3`** (`igraph_layouts.py:99`), from the deterministic sphere start — median 0.812 → 0.757; the 957 are a **reference defect** on `gate-01`, below |
+| 8 | `IGRAPH_KK` | `layout.force.kamada_kawai_3d` | `apply_graph_layout` | `shape` | 9/957 | 213/957 | 9.23e+18 | 9.76 | 0.709 | 0.916 | `algorithm` | different shape, closer: **`dim=3`** (`igraph_layouts.py:99`), from the deterministic sphere start — median 0.812 → 0.709; the 957 are a **reference defect** on `gate-01`, below |
 | 9 | `IGRAPH_DRL` | `layout.force.drl` | `apply_graph_layout` | `bitwise` | 1/1020 | 1/1020 | 9.25e+18 | 52.8 | 0.536 | 0.881 | `rng` | both are near-collinear; green runs along the grey line with different spacing. SciGraphs calls DrL at `dim=3` (`igraph_layouts.py:342`) and the motor layout is planar — **a `drl_3d` is the obvious next repair** |
 | 10 | `IGRAPH_DRL_2D` | `layout.force.drl` | `apply_graph_layout` | `bitwise` | 341/1020 | 341/1020 | 9.25e+18 | 50.4 | 0.514 | 0.971 | `rng` | different shape (the same motor layout as `IGRAPH_DRL`, against the reference's `dim=2` call at `igraph_layouts.py:406`) |
 | 11 | `IGRAPH_LGL` | `layout.force.lgl` | `apply_graph_layout` | `bitwise` | 344/1020 | 345/1020 | 9.24e+18 | 33.1 | 0.611 | 0.81 | `rng` | different shape; LGL is 2-D in igraph too (`igraph_layouts.py:453`), so the third column is the whole of the difference |
@@ -330,10 +330,16 @@ the equal-box case behave at lesmis's box sizes.
 **`IGRAPH_KK` has been partly repaired and is no longer in this list.** Its 0.812 was not a solver
 disagreement in the first place: the motor was drawing in two dimensions and the reference in three
 (`igraph_layouts.py:99` passes `dim=3`). With `layout.force.kamada_kawai_3d` on the row the median
-falls to 0.757, and that id's igraph stress differential is **0.598** — our 3-D drawing carries
+falls to 0.709, and that id's igraph stress differential is **0.905** — our 3-D drawing carries
 *lower* normalised stress than igraph's on all 100 seeds, because the metric is the very energy KK
-minimises. What is left is the third column and which local minimum the descent reached. Measured
-in `docs/measurements/sg-igraph-dims.md`.
+minimises. What is left is the third column and which local minimum the descent reached.
+**Re-measured 2026-10-02** when the row was re-pinned onto its clean-room motor: median
+0.757 → 0.709, bitwise 8/957 → 9/957 at `f64` and 8/957 → 213/957 at `f32`, differential
+0.598 → 0.905, all in the direction of a closer fit. The `f32` count moved by two orders of
+magnitude while the median moved by a digit: the reimplementation solves the 3x3 Newton block
+by a signed-permutation Cramer expansion rather than a hand-written determinant, so the last
+bits round differently and thousands of coordinates land within one `f32` step of the
+reference without landing on it at `f64`. Measured in `docs/measurements/sg-igraph-dims.md`.
 
 ## Cells that say `not run`, and why
 

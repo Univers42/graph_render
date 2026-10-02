@@ -84,9 +84,10 @@ fn an_igraph_layout_with_no_ours_column_is_not_run_and_fails() {
 /// says so, and the measurements doc has to be rewritten with it.
 ///
 /// The six 2D worsts are the 2026-09-29 run (`docs/measurements/p12-igraph-ceilings.md`), and they
-/// **reproduced to the digit** on this tree when the two `_3d` rows were added — which is the check
-/// that the dim=3 pass did not perturb the dim=2 one. The two 3D worsts are measured on this tree
-/// over the same 100 seeds (`docs/measurements/sg-igraph-dims.md`).
+/// **reproduced to the digit** when the two `_3d` rows were added and again on the 2026-10-02
+/// re-run — which is the check that the dim=3 pass did not perturb the dim=2 one, and the same
+/// check the per-stage hash gate makes at the byte level. The two 3D worsts are measured over the
+/// same 100 seeds (`docs/measurements/sg-igraph-dims.md`).
 #[test]
 fn every_measured_igraph_worst_stays_under_its_own_ceiling() {
     let result = result_from_measured_worsts();
@@ -112,14 +113,17 @@ fn every_measured_igraph_worst_stays_under_its_own_ceiling() {
 }
 
 /// The `ours / igraph` worst per layout, as measured over 100 seeds. The 2D figures are the
-/// 2026-09-29 run (`docs/measurements/p12-igraph-ceilings.md` restates it and its floor); the 3D
-/// figures are the run on this tree (`docs/measurements/sg-igraph-dims.md`).
+/// 2026-09-29 run (`docs/measurements/p12-igraph-ceilings.md` restates it and its floor), and a
+/// re-run of `harness/oracle-igraph.py` on 2026-10-02 reproduced all six to the digit — the check
+/// that the clean-room 3-D kernels left the 2-D ones alone. The 3D figures are that same
+/// 2026-10-02 run (`docs/measurements/sg-igraph-dims.md`), which re-pinned `kamada_kawai_3d`
+/// from 0.598 to 0.905: the discarded code's figure did not survive its own reimplementation.
 fn result_from_measured_worsts() -> Value {
     json!({ "layouts": {
         "fruchterman_reingold": { "cases": 100, "worst": 1.30 },
         "kamada_kawai": { "cases": 100, "worst": 1.35 },
         "fruchterman_reingold_3d": { "cases": 100, "worst": 1.195 },
-        "kamada_kawai_3d": { "cases": 100, "worst": 0.598 },
+        "kamada_kawai_3d": { "cases": 100, "worst": 0.905 },
         "drl": { "cases": 100, "worst": 3.98 },
         "lgl": { "cases": 100, "worst": 2.13 },
         "davidson_harel": { "cases": 100, "worst": 51.91 },
