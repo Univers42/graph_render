@@ -9,6 +9,7 @@ fn a_tick_row_has_one_cell_per_header_column() {
         ticks: 3,
         warm: 1,
         seed: 0,
+        grow: None,
     };
     let row = measure(&plan).expect("a 300-node model builds");
     let columns = |line: &str| line.matches('|').count();

@@ -35,6 +35,10 @@ pub struct Plan {
     /// Seed of the scale model.
     #[arg(long, default_value_t = 0)]
     pub seed: u32,
+    /// Grow mode: carry the session from the topology without the last `BATCH` nodes onto
+    /// the whole model and time that carry, instead of timing ticks.
+    #[arg(long, value_name = "BATCH")]
+    pub grow: Option<u32>,
 }
 
 /// The table's header, printed once above the row.
@@ -42,6 +46,9 @@ pub const HEADER: &str = "| n | m | index ms | warm ms | ticks | tick min ms | t
 
 /// Exit 0 with the table on standard output, or 2 when the model could not be built.
 pub fn run(plan: &Plan) -> ExitCode {
+    if let Some(batch) = plan.grow {
+        return super::grow::report(plan.n, plan.seed, batch);
+    }
     match measure(plan) {
         Ok(row) => {
             println!("{HEADER}\n{row}");
