@@ -13,7 +13,8 @@ use petgraph::visit::EdgeRef as _;
 
 /// Dijkstra's shortest distances from `source`, `f64::INFINITY` where unreached.
 /// **Precondition: every reachable edge weight is non-negative** — a graph that may
-/// carry a negative edge belongs to [`bellman_ford`] instead.
+/// carry a negative edge belongs to [`bellman_ford`] instead. A `source` past the last
+/// node panics by name.
 ///
 /// petgraph's `dijkstra` returns a `HashMap`; this probes it at every dense index
 /// `0..n` in order rather than iterating it, so no hash order reaches the output
@@ -21,6 +22,7 @@ use petgraph::visit::EdgeRef as _;
 /// do not depend on how its binary heap breaks ties among equal-cost frontier entries —
 /// only a predecessor/path would, and this function returns distances only.
 pub fn dijkstra_distances(topology: &Topology, source: u32) -> Vec<f64> {
+    check_source(topology, source);
     let graph = CsrDigraph::new(topology);
     let scores = petgraph::algo::dijkstra(graph, NodeIx(source), None, |e| *e.weight());
     (0..topology.node_count())
@@ -41,8 +43,9 @@ pub enum ShortestPaths {
 
 /// Bellman-Ford from `source`. Negative edges are permitted; a negative cycle reachable
 /// from `source` is reported by name, never folded into a distance that would be
-/// nonsense.
+/// nonsense. A `source` past the last node panics by name.
 pub fn bellman_ford(topology: &Topology, source: u32) -> ShortestPaths {
+    check_source(topology, source);
     let graph = CsrDigraph::new(topology);
     match petgraph::algo::bellman_ford(graph, NodeIx(source)) {
         Ok(paths) => ShortestPaths::Distances(paths.distances),
@@ -52,6 +55,12 @@ pub fn bellman_ford(topology: &Topology, source: u32) -> ShortestPaths {
             ShortestPaths::NegativeCycle(cycle.into_iter().map(|NodeIx(v)| v).collect())
         }
     }
+}
+
+/// A source `>= node_count` is a caller bug, refused by name before petgraph indexes it.
+fn check_source(topology: &Topology, source: u32) {
+    let n = topology.node_count();
+    assert!(source < n, "source {source} of {n}");
 }
 
 #[cfg(test)]
@@ -130,5 +139,20 @@ mod tests {
         let t = index_model(&nodes, &edges).expect("fits");
         assert_eq!(dijkstra_distances(&t, 0), dijkstra_distances(&t, 0));
         assert_eq!(bellman_ford(&t, 0), bellman_ford(&t, 0));
+    }
+
+    /// M27 (`docs/reviews/review-core-post.md`): a source past the last node is a caller
+    /// bug refused by name, as `depth::depth_from` refuses a root, not a slice index.
+    #[test]
+    #[should_panic(expected = "source 0 of 0")]
+    fn dijkstra_refuses_a_source_past_the_last_node_by_name() {
+        dijkstra_distances(&index_model(&[], &[]).expect("fits"), 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "source 2 of 2")]
+    fn bellman_ford_refuses_a_source_past_the_last_node_by_name() {
+        let t = index_model(&[node("a", ""), node("b", "")], &[]).expect("fits");
+        bellman_ford(&t, 2);
     }
 }

@@ -24,17 +24,22 @@ function groupedWith(groups: readonly Group[], state: StudioState = DRAWN): Stud
   return { ...state, settings: { ...state.settings, groups } };
 }
 
+/** The legend is handed the three slices it draws, never the state around them. */
+function legend(state: StudioState): string {
+  return markup(createElement(Legend, { meta: state.meta, settings: state.settings, analysis: state.analysis }));
+}
+
 /** Where a label sits in the markup, so the rows can be compared in the order they render. */
 function rowOf(html: string, label: string): number {
   return html.indexOf(`>${label}</span>`);
 }
 
 test("with nothing drawn there is no legend", () => {
-  assert.equal(markup(createElement(Legend, { state: IDLE })), "");
+  assert.equal(legend(IDLE), "");
 });
 
 test("one row per colour in use, with how many nodes wear it", () => {
-  const html = markup(createElement(Legend, { state: DRAWN }));
+  const html = legend(DRAWN);
   assert.equal(html.match(/class="gs-legend-row"/g)?.length, 2, "one row per group");
   assert.match(html, /red<\/span>\s*<span class="gs-count">2</);
   assert.match(html, /blue<\/span>\s*<span class="gs-count">1</);
@@ -42,7 +47,7 @@ test("one row per colour in use, with how many nodes wear it", () => {
 });
 
 test("the named groups come first and in order, each wearing its own colour", () => {
-  const html = markup(createElement(Legend, { state: grouped(DRAWN) }));
+  const html = legend(grouped(DRAWN));
   const swatches = html.match(/class="gs-swatch" style="background:#[0-9a-f]{6}"/g) ?? [];
   assert.deepEqual(
     swatches.slice(0, GROUPS.length),
@@ -56,18 +61,18 @@ test("the named groups come first and in order, each wearing its own colour", ()
 });
 
 test("each group says how many nodes its own query matches", () => {
-  const html = markup(createElement(Legend, { state: grouped(DRAWN) }));
+  const html = legend(grouped(DRAWN));
   // The three test nodes are Alpha, Beta (group red) and Gamma (group blue), each with a link.
   assert.match(html, /servers<\/span>\s*<span class="gs-count">0</, "a query no node matches counts zero");
   assert.match(html, /alpha<\/span>\s*<span class="gs-count">1</, "one node is named Alpha");
   assert.match(html, /strays<\/span>\s*<span class="gs-count">0</, "and no node is unlinked");
-  const counted = markup(createElement(Legend, { state: groupedWith([{ name: "first", query: "alpha", colour: "#111111" }]) }));
+  const counted = legend(groupedWith([{ name: "first", query: "alpha", colour: "#111111" }]));
   assert.match(counted, /first<\/span>\s*<span class="gs-count">1</);
 });
 
 test("the search is one labelled input, and offers nothing until it is typed in", () => {
   const { studio } = studioWith(DRAWN);
-  const html = markup(createElement(Search, { studio, meta: META, inputRef: { current: null } }));
+  const html = markup(createElement(Search, { studio, meta: META, text: "", inputRef: { current: null } }));
   assert.match(html, /aria-label="Search nodes"/);
   assert.match(html, /placeholder="Search \( \/ \)"/, "an empty box says what it is, and the key that reaches it");
   assert.equal(html.match(/class="gs-result"/g), null, "no results for an empty query");
@@ -84,7 +89,7 @@ test("the full list of matches is the ranking with no limit on it", () => {
 
 test("a fit-to-results button dispatches the action it names, through the studio", () => {
   const { studio, seen } = studioWith(DRAWN);
-  const html = markup(createElement(Search, { studio, meta: META, inputRef: { current: null } }));
+  const html = markup(createElement(Search, { studio, meta: META, text: "", inputRef: { current: null } }));
   assert.match(html, /aria-label="Fit to results"/, "the control is named for a reader");
   assert.ok(html.includes(">fit to results</button>"), "and carries a visible label");
   // The registry must carry the ids the box dispatches; `search.fit` lives in the groups
