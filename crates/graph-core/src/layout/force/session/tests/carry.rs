@@ -1,9 +1,8 @@
-//! Carrying a running session onto a new topology: the growth path's positive and
-//! negative controls.
+//! Carrying a running session onto a new topology: the growth path's controls.
 //!
-//! The whole design rests on one claim — **only ids cross a carry** — so half this file is
-//! that claim both ways: survivors keep their bytes when the rows they land on move
-//! ([`only_ids_cross_a_carry`]), and their positions are never the identity.
+//! The design rests on one claim — **only ids cross a carry** — so half this file is that
+//! claim both ways: survivors keep their bytes when the rows they land on move
+//! ([`only_ids_cross_a_carry`]), and positions are never the identity.
 
 use super::support;
 use crate::index::{Topology, index_model};
@@ -13,12 +12,9 @@ use crate::stage::seeded_model;
 use crate::weights::REFERENCE_DEGREE;
 use std::collections::HashSet;
 
-/// The layout unit a new node with carried neighbours is offset by, recomputed here rather
-/// than imported: a test that reads the implementation's own constant checks nothing about
-/// the number it asserts.
+/// The offset radius and `barnes_hut/seed.rs`'s angle, recomputed rather than imported: a
+/// test reading the implementation's own constants checks nothing about what it asserts.
 const OFFSET_RADIUS: f64 = 1.0;
-
-/// `barnes_hut/seed.rs`'s angle, for the same reason.
 const GOLDEN_ANGLE: f64 = 2.399963229728653;
 
 /// Carrying a session onto the topology it is already over changes nothing: every row is a
@@ -215,9 +211,9 @@ fn a_carry_from_the_wrong_number_of_rows_is_refused() {
     );
 }
 
-/// The three topologies every case here carries between: the gate's own 400-node model,
-/// the same model without its last 40 nodes and the edges among those kept, and the whole
-/// model with its nodes in the opposite order.
+/// The three topologies every case here carries between: the gate's own model, the same
+/// model without its last `count - keep` nodes and the edges among those kept, and the
+/// whole model with its nodes in the opposite order.
 ///
 /// The kept prefix keeps its rows — `index_model` assigns them in first-seen order — so the
 /// byte comparisons above are between like rows, and `shuffled` is the one place the rows
@@ -232,7 +228,7 @@ fn models(count: u32, keep: u32) -> Models {
     let (nodes, edges) = seeded_model(7, count, REFERENCE_DEGREE);
     let kept: HashSet<&str> = nodes[..keep as usize]
         .iter()
-        .map(|node| node.id.as_str())
+        .map(|n| n.id.as_str())
         .collect();
     let prefix_nodes: Vec<NodeRecord> = nodes[..keep as usize].to_vec();
     let prefix_edges: Vec<EdgeRecord> = edges
@@ -269,11 +265,8 @@ fn index(nodes: &[NodeRecord], edges: &[EdgeRecord]) -> Topology {
 /// test is about the columns, not about what a later tick makes of them.
 fn columns(session: &ForceSession) -> (Vec<u64>, Vec<u64>, Vec<u64>, Vec<u64>) {
     let sim = &session.sim;
+    let bits = |c: &[f64]| c.iter().map(|v| v.to_bits()).collect();
     (bits(&sim.x), bits(&sim.y), bits(&sim.vx), bits(&sim.vy))
-}
-
-fn bits(column: &[f64]) -> Vec<u64> {
-    column.iter().map(|v| v.to_bits()).collect()
 }
 
 /// The mean of `row`'s neighbours in the full model that are rows of the prefix, or `None`
@@ -283,16 +276,17 @@ fn carried_mean(models: &Models, row: u32, old: &ForceSession) -> Option<(f64, f
     let edges = models.full.edges();
     let (mut sum_x, mut sum_y, mut count) = (0.0_f64, 0.0_f64, 0_u32);
     for e in models.full.incident(row) {
-        let other = if edges.source[e as usize] == row {
-            edges.target[e as usize]
+        let e = e as usize;
+        let other = if edges.source[e] == row {
+            edges.target[e]
         } else {
-            edges.source[e as usize]
+            edges.source[e]
         };
-        let Some(row) = models.prefix.node_index(models.full.node(other).id) else {
+        let Some(old_row) = models.prefix.node_index(models.full.node(other).id) else {
             continue;
         };
-        sum_x += old.xs()[row as usize];
-        sum_y += old.ys()[row as usize];
+        sum_x += old.xs()[old_row as usize];
+        sum_y += old.ys()[old_row as usize];
         count += 1;
     }
     (count > 0).then(|| (sum_x / f64::from(count), sum_y / f64::from(count)))
