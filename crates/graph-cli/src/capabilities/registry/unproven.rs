@@ -3,10 +3,22 @@
 
 use super::super::Status;
 
-/// The six igraph 2D layouts, held to `harness/oracle-igraph.py`'s stress ratio.
-const IGRAPH_LAYOUTS: [&str; 6] = [
+/// The igraph layouts held to `harness/oracle-igraph.py`'s stress ratio: the six 2D ones and
+/// the two `_3d` siblings of FR and KK.
+///
+/// **`Status::Implemented`, not `Gated`, for all eight, and for the reason the clause on
+/// [`force_record`] gives:** these layouts are not byte-comparable against ours — FR's start is a
+/// random box and igraph's generator is out of licence — so a hash alone would be the whole of a
+/// `gated` claim. The `_3d` pair are held to the **same** `oracle-igraph` record as their 2D
+/// siblings because they are the same two algorithms at the dimension SciGraphs actually calls
+/// (`igraph_layouts.py:74`, `:99`), over the same kernel at `D = 3`. One record for both
+/// dimensions is what stops either dimension being "measured" by the other's run, and their
+/// `dim=3` cases are in that record under their own keys.
+const IGRAPH_LAYOUTS: [&str; 8] = [
     "layout.force.fruchterman_reingold",
     "layout.force.kamada_kawai",
+    "layout.force.fruchterman_reingold_3d",
+    "layout.force.kamada_kawai_3d",
     "layout.force.drl",
     "layout.force.lgl",
     "layout.force.davidson_harel",
@@ -38,8 +50,8 @@ const IGRAPH_LAYOUTS: [&str; 6] = [
 ///   (`oracle-circular-hierarchy`). Unlike the three above this one *is* a closed form
 ///   and a coordinate gap is a fair comparison — but the record is still `implemented`,
 ///   and for the reason the clause below gives, not because the comparison is weak.
-/// - the six igraph-family layouts in [`IGRAPH_LAYOUTS`] are held to
-///   **harness/oracle-igraph.py** (`oracle-igraph`), one row per layout.
+/// - the eight igraph-family layouts in [`IGRAPH_LAYOUTS`] — six 2D and FR's and KK's two `_3d`
+///   siblings — are held to **harness/oracle-igraph.py** (`oracle-igraph`), one row per layout.
 /// - the five 3D layouts p12-t3 added — `layout.basic3d.sphere`, `.helix` and `.cube`
 ///   (three closed forms over `(num_nodes, scale)` sharing one arm,
 ///   `harness/oracle-basic-3d.py`), `layout.hierarchical3d` (the SciGraphs function
