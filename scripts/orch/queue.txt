@@ -53,3 +53,5 @@ sg-mt19937|build|prompts/jobs/sg-mt19937.md|scripts/orch/rows/quick.rows|no
 sg-graphviz-scale|build|prompts/jobs/sg-graphviz-scale.md|scripts/orch/rows/quick.rows|no
 fix-wasm-abi|build|prompts/jobs/fix-wasm-abi.md|scripts/orch/rows/quick.rows|no
 fix-analysis|build|prompts/jobs/fix-analysis.md|scripts/orch/rows/quick.rows|no
+fix-scale|build|prompts/jobs/fix-scale.md|scripts/orch/rows/quick.rows|no
+fix-post-routed|build|prompts/jobs/fix-post-routed.md|scripts/orch/rows/quick.rows|no
