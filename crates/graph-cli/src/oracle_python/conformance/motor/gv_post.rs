@@ -40,14 +40,25 @@ pub fn scigraphs_graphviz_post(points: &[[f64; 3]], dims: usize, scale: f64) -> 
         .collect()
 }
 
-/// `raw.mean(axis=0)` over the first `axes` columns: numpy's summation, then the division
-/// `_methods._mean` does once over the total.
+/// `raw.mean(axis=0)` over the first `axes` columns: a left-to-right sum down each column, then
+/// the division `_methods._mean` does once over the total.
+///
+/// Ponytail: the order is **left to right, not a pairwise sum**, and the reason is that numpy's
+/// pairwise reduction only runs along the *contiguous* axis. `raw` is `(n, 3)` C-contiguous, so
+/// axis 0 is the strided one and `mean(axis=0)` walks each column as a flat sequence; the eight
+/// accumulators and the split above `PW_BLOCKSIZE` belong to the contiguous axis and never run
+/// here. Measured in the oracle image on `(n, 2)` C-contiguous arrays at
+/// n = 1, 2, 3, 5, 8, 9, 16, 17, 33, 64, 127, 128, 129, 300: left-to-right equals numpy at every
+/// length and on both columns, and a pairwise sum of the same values differs at every n >= 8 —
+/// pinned by [`tests::the_mean_of_an_n_by_2_array_is_the_left_to_right_sum`], which pastes numpy's
+/// own hex. The caveat that is left: a Fortran-ordered `raw` would restore the pairwise sum, and
+/// `scigraphs_utils` is a C++ extension with no source on disk to read its allocation from.
 fn mean_over(points: &[[f64; 3]], axes: usize) -> Vec<f64> {
     let count = points.len() as f64;
     (0..axes)
         .map(|c| {
             let column: Vec<f64> = points.iter().map(|p| p[c]).collect();
-            numpy_pairwise_sum(&column) / count
+            left_to_right(&column) / count
         })
         .collect()
 }
@@ -85,42 +96,8 @@ fn written(centred: [f64; 3], axes: usize, extent: f64, scale: f64) -> [f64; 3] 
     })
 }
 
-/// numpy's own summation for `float64`, which is what `raw.mean(axis=0)` reduces with: a
-/// plain left-to-right sum below eight elements, eight accumulators up to `PW_BLOCKSIZE =
-/// 128`, and above that a split in two at an eight-aligned midpoint.
-///
-/// **The order is the point, and how much it is worth is measured.** A left-to-right sum of
-/// the same `n` values lands several ULPs away on the probes in [`tests`]: at `n = 300` the
-/// mean is `0x1.999999999999ap-7` against a naive `0x1.df04444444444p-7`. Both arms of a
-/// Graphviz row reduce the *same* mean from *different* points, so any order one arm does not
-/// share is an offset the centring never removes. Which order this is, is measured against
-/// numpy 2.3.3 by [`tests::the_sum_here_is_numpys_own_order`] rather than asserted here.
-fn numpy_pairwise_sum(values: &[f64]) -> f64 {
-    const PW_BLOCKSIZE: usize = 128;
-    let n = values.len();
-    if n < 8 {
-        return left_to_right(values);
-    }
-    if n > PW_BLOCKSIZE {
-        let split = (n / 2) & !7;
-        return numpy_pairwise_sum(&values[..split]) + numpy_pairwise_sum(&values[split..]);
-    }
-    let mut acc = [0.0f64; 8];
-    acc.copy_from_slice(&values[..8]);
-    let mut i = 8;
-    while i < n - n % 8 {
-        for (k, a) in acc.iter_mut().enumerate() {
-            *a += values[i + k];
-        }
-        i += 8;
-    }
-    let folded = ((acc[0] + acc[1]) + (acc[2] + acc[3])) + ((acc[4] + acc[5]) + (acc[6] + acc[7]));
-    values[i..].iter().fold(folded, |total, v| total + v)
-}
-
-/// The reduction this function exists **not** to be: numpy's `n < 8` branch, kept as its own
-/// named function so the negative control in [`tests`] is the same code the reference runs
-/// rather than a second transcription of it.
+/// The reduction `mean_over` runs: numpy's `mean` over a strided axis, which is a plain
+/// left-to-right sum of one column and then a single division.
 fn left_to_right(values: &[f64]) -> f64 {
     let mut total = 0.0;
     for v in values {

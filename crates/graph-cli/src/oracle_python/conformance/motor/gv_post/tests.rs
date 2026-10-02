@@ -6,7 +6,7 @@
 
 use super::super::super::{ROWS, SCALE};
 use super::super::{run, run_row};
-use super::{GRAPHVIZ_DIMS, left_to_right, numpy_pairwise_sum, scigraphs_graphviz_post};
+use super::{GRAPHVIZ_DIMS, left_to_right, scigraphs_graphviz_post};
 
 /// numpy's answer for three hand-written points at `dims = 2, scale = 5.0`.
 ///
@@ -59,46 +59,124 @@ fn a_layout_with_no_extent_is_all_zeros_and_not_nan() {
     assert_eq!(scigraphs_graphviz_post(&[], GRAPHVIZ_DIMS, SCALE).len(), 0);
 }
 
-/// The summation order, against numpy's own, over the six lengths that bracket every branch
-/// of its reduction: below eight, the eight-accumulator block, its non-multiple-of-eight
-/// tail, and the split above `PW_BLOCKSIZE = 128`.
+/// The reduction order, pinned to numpy on the array shape SciGraphs actually reduces: an
+/// `(n, 2)` **C-contiguous** array, `raw.mean(axis=0)` (`yifan_hu.py:318`).
 ///
-/// **The left-to-right column is the negative control, and it has to differ at every length.**
-/// It is [`super::left_to_right`] — the same function the `n < 8` branch runs — so if it ever
-/// agreed with numpy here, this test would be pinning a sum order that does not exist and the
-/// reduction would be untested.
+/// **The pairwise control is the negative control, and it is what a wrong answer looks like.**
+/// A 1-D probe cannot see this: numpy's `pairwise_sum_DOUBLE` only runs along the contiguous
+/// axis, and on `raw.mean(axis=0)` of a C-contiguous array axis 0 is the strided one, so numpy
+/// walks each column flat. [`pairwise_sum`] is that 1-D reduction, transcribed. Measured on this
+/// probe, it differs from numpy on column 0 at **every** `n >= 8` and on column 1 at n = 16, 17,
+/// 33, 127, 128, 129 and 300 — so the control is asserted on column 0, where it is
+/// order-sensitive without exception, and on the agreement below eight, where its own branch
+/// already *is* a left-to-right sum.
+///
+/// Both columns are pinned against numpy, so a reduction that read the wrong one is caught too.
 #[test]
-fn the_sum_here_is_numpys_own_order() {
-    const NUMPY: [(usize, &str); 6] = [
-        (9, "9c6e3bce30b20442"),
-        (16, "20ff718d13ab94c2"),
-        (17, "2dd1c30181285f42"),
-        (33, "b04d163c7b14b942"),
-        (129, "75453d63421ac741"),
-        (300, "9a9999999999893f"),
+fn the_mean_of_an_n_by_2_array_is_the_left_to_right_sum() {
+    const NUMPY: [(usize, &str, &str); 14] = [
+        (1, "08003426f56b0c43", "fca9f1d24d62503f"),
+        (2, "0c0062a25c94f942", "96438b6ce7fba93f"),
+        (3, "5f554fb9143ef142", "3921d657a6c1b93f"),
+        (5, "0f006b90a8abe442", "dd9bcc6590a8c93f"),
+        (8, "80a7ffc485313ac2", "0cc00257f76bd63f"),
+        (9, "2b723bce30b20442", "2fc3a8febf9ed93f"),
+        (16, "18ff718d13ab94c2", "d6ec701ebb01e83f"),
+        (17, "a6d1c30181285f42", "3c5fe0e8419be93f"),
+        (33, "b24d163c7b14b942", "4f508d851b9af93f"),
+        (64, "2380ce70d8d5a942", "643cdc0f5a330940"),
+        (127, "061f8b4de2ae3042", "dff308663e331940"),
+        (128, "4073ffc48531fac1", "050fef8671661940"),
+        (129, "28ec3d63421ac741", "82bc15a8a4991940"),
+        (300, "4444444444f08d3f", "a7a31a2569e62d40"),
     ];
-    for (n, mean) in NUMPY {
-        let values = probe(n);
-        let ours = numpy_pairwise_sum(&values) / n as f64;
-        assert_eq!(bits_of(ours.to_bits()), *mean, "n = {n}: not numpy's mean");
-        let control = left_to_right(&values) / n as f64;
-        assert_ne!(
-            control.to_bits(),
-            ours.to_bits(),
-            "n = {n}: the control agreed, so the order is not load-bearing"
-        );
+    for (n, mean_x, mean_y) in NUMPY {
+        let rows = probe(n);
+        for (c, pinned) in [mean_x, mean_y].iter().enumerate() {
+            let column: Vec<f64> = rows.iter().map(|r| r[c]).collect();
+            let ours = left_to_right(&column) / n as f64;
+            assert_eq!(bits_of(ours.to_bits()), *pinned, "n = {n}, column {c}: not numpy's mean");
+            let control = pairwise_sum(&column) / n as f64;
+            if c == 0 && n >= 8 {
+                assert_ne!(control.to_bits(), ours.to_bits(), "n = {n}: the pairwise control agreed");
+            } else if n < 8 {
+                assert_eq!(control.to_bits(), ours.to_bits(), "n = {n}: below eight, one order only");
+            }
+        }
     }
+}
+
+/// The same seventeen-node `(17, 2)` array through all of `yifan_hu.py:318-325`: the mean, the
+/// centring, the extent of the *centred* column and the `× scale`. The mean's own order is
+/// [`the_mean_of_an_n_by_2_array_is_the_left_to_right_sum`]; this is the rest of the five lines,
+/// on an array long enough for the order to matter in the written coordinates.
+#[test]
+fn seventeen_nodes_land_where_numpy_puts_them() {
+    const NUMPY: [&str; 51] = [
+        "596b196142fd0340", "51a96b7616ffe1bc", "0000000000000000", // row 0
+        "3ba534f7ec15d0bf", "d10e6fc20483dfbc", "0000000000000000", // row 1
+        "59454f26ca3a983f", "89147bc40404dbbc", "0000000000000000", // row 2
+        "49b800e25c716fbf", "a22ca4d10e84d6bc", "0000000000000000", // row 3
+        "62dfe8bf63d451bf", "b0e5d87cb603d2bc", "0000000000000000", // row 4
+        "a794e69ebd0204c0", "6fde26ee5906cbbc", "0000000000000000", // row 5
+        "62b5961126d4cf3f", "9a96a2aa0e05c2bc", "0000000000000000", // row 6
+        "69eee30c69f89abf", "eeeb44884007b2bc", "0000000000000000", // row 7
+        "0fdbb65acb08533f", "45d47bd387d310bc", "0000000000000000", // row 8
+        "e0b861a98a055abf", "0fa3ac8ff7feb13c", "0000000000000000", // row 9
+        "546b196142fd0340", "ffdf7eed1d01c23c", "0000000000000000", // row 10
+        "4da534f7ec15d0bf", "9348c904c902cb3c", "0000000000000000", // row 11
+        "9e444f26ca3a983f", "ea8eaa7e3d02d23c", "0000000000000000", // row 12
+        "4ebc00e25c716fbf", "8276dc2e1983d63c", "0000000000000000", // row 13
+        "63e5e8bf63d451bf", "52f59708f703db3c", "0000000000000000", // row 14
+        "a894e69ebd0204c0", "f33e13a4d684df3c", "0000000000000000", // row 15
+        "5bb5961126d4cf3f", "581ff8d8db02e23c", "0000000000000000", // row 16
+    ];
+    let rows = probe(17);
+    let points: Vec<[f64; 3]> = rows.iter().map(|r| [r[0], r[1], 0.0]).collect();
+    assert_eq!(bits(&scigraphs_graphviz_post(&points, GRAPHVIZ_DIMS, SCALE)), NUMPY);
 }
 
 /// Alternating signs against ten-to-the-fifteen magnitudes: cancellation heavy enough that
 /// the order of the additions shows in the mean, and every term exactly representable so the
-/// probe is the same array on both sides.
-fn probe(n: usize) -> Vec<f64> {
+/// probe is the same array on both sides. The second column is a different probe, so that a
+/// reduction which read the wrong one could not pass both halves of the table.
+fn probe(n: usize) -> Vec<[f64; 2]> {
     const MAGNITUDE: [f64; 5] = [1e15, 1e14, 1e13, 1e12, 1e11];
     const SIGN: [f64; 2] = [1.0, -1.0];
     (0..n)
-        .map(|i| SIGN[i % 2] * MAGNITUDE[i % 5] + 1.0 / (i + 1) as f64)
+        .map(|i| {
+            [
+                SIGN[i % 2] * MAGNITUDE[i % 5] + 1.0 / (i + 1) as f64,
+                i as f64 * 0.1 + 1e-3 / (i + 1) as f64,
+            ]
+        })
         .collect()
+}
+
+/// numpy's `pairwise_sum_DOUBLE`, transcribed: the reduction it runs along the **contiguous**
+/// axis, and the negative control for [`the_mean_of_an_n_by_2_array_is_the_left_to_right_sum`].
+/// It is here and not in `gv_post.rs` because no reference path runs it.
+fn pairwise_sum(values: &[f64]) -> f64 {
+    const PW_BLOCKSIZE: usize = 128;
+    let n = values.len();
+    if n < 8 {
+        return left_to_right(values);
+    }
+    if n > PW_BLOCKSIZE {
+        let split = (n / 2) & !7;
+        return pairwise_sum(&values[..split]) + pairwise_sum(&values[split..]);
+    }
+    let mut acc = [0.0f64; 8];
+    acc.copy_from_slice(&values[..8]);
+    let mut i = 8;
+    while i < n - n % 8 {
+        for (k, a) in acc.iter_mut().enumerate() {
+            *a += values[i + k];
+        }
+        i += 8;
+    }
+    let folded = ((acc[0] + acc[1]) + (acc[2] + acc[3])) + ((acc[4] + acc[5]) + (acc[6] + acc[7]));
+    values[i..].iter().fold(folded, |total, v| total + v)
 }
 
 /// The end-to-end property the eight Graphviz rows are gated on: their motor arm comes out
