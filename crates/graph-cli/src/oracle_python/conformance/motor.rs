@@ -27,6 +27,8 @@ use graph_core::layout::graphviz::sfdp;
 use graph_core::{Stage, StageError, registry, run_with};
 use serde_json::Value;
 
+mod fit;
+
 /// The environment variable that breaks one row's coordinates by one `f32` ULP, for the
 /// `negctl-scigraphs-conformance` row.
 ///
@@ -53,6 +55,12 @@ pub type Ran = Result<Vec<[f64; 3]>, String>;
 
 /// Run `id` over `fixture` with SciGraphs' parameters, through the same `run_with` the
 /// pipeline uses — so the coordinates compared are the snapshot's, not the geometry's.
+///
+/// **A fitted id gets `_igraph_fit_positions` and nothing else does.** The igraph helpers in
+/// `igraph_layouts.py` all end with it (`:24-42`), so an un-fitted igraph row compares the
+/// motor's own coordinate units against the reference's fitted ones and reads as a different
+/// *scale* when it is really the same drawing; [`fit::FITTED`] names the four ids, and the fit
+/// runs on the columns the comparison reads rather than inside a motor layout.
 pub fn run(id: &str, fixture: &Fixture) -> Ran {
     let parts = match id {
         "layout.packing.circle" => packing(fixture),
@@ -62,7 +70,11 @@ pub fn run(id: &str, fixture: &Fixture) -> Ran {
         "layout.force.spring3d" => spring::<Spring3D>(fixture),
         _ => registered(id, fixture),
     }?;
-    columns(&parts, fixture.nodes.len())
+    let mut points = columns(&parts, fixture.nodes.len())?;
+    if fit::FITTED.contains(&id) {
+        fit::fit(&mut points, SCALE);
+    }
+    Ok(points)
 }
 
 /// `CirclePackingParams` at SciGraphs' two numbers, which its registered default is not:

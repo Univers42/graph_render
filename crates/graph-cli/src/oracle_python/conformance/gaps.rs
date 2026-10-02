@@ -56,8 +56,20 @@ pub(super) const G_NO_ITERATIONS: Gap = Gap {
 };
 pub(super) const G_IGRAPH_SEED: Gap = Gap {
     parameter: "layout seed",
-    note: "unseedable on the reference side: `_reset_layout_rng` seeds numpy and the stdlib `random` (`common.py:53-62`), and igraph reads the C library's generator, which neither call reaches",
-    at: "SciGraphs/core/scigraphs_core/mesh/layouts/common.py:60",
+    // **The reference is seedable; reproducing its stream is what is forbidden.** An earlier
+    // version of this note claimed the opposite — that `_reset_layout_rng` seeds numpy and the
+    // stdlib `random` while igraph reads "the C library's generator", which neither call reaches.
+    // That is false for python-igraph: it installs the stdlib `random` module *as* igraph's RNG
+    // at import (`src/_igraph/random.c:295-325`, `igraphmodule_init_rng` →
+    // `igraph_rng_Python_set_generator(random_module)`; the rngtype is declared at `:54-58` with
+    // `is_seeded = 1`, and `igraph_rng_Python_get` at `:167-` draws from
+    // `random.getrandbits`/`random.random`), so `common.py:60`'s `random.seed(...)` does reseed
+    // igraph. Two full `--reference` runs over the same fixtures gave byte-identical files on all
+    // 64 rows, the five here included, so the reference is reproducible. What remains is the
+    // licence: `docs/decisions/layouts-igraph.md` rule 4 says igraph's own RNG is never
+    // reproduced, so the motor keeps Mulberry32 and the two streams differ from the first draw on.
+    note: "the seed **is** passed on both sides (`common.py:60` seeds the stdlib `random`, which python-igraph installs as igraph's RNG at `src/_igraph/random.c:295-325`), and the reference is reproducible; the two streams are still different generators: graph-core draws from Mulberry32 and igraph from Mersenne Twister, and `docs/decisions/layouts-igraph.md` rule 4 forbids reproducing the latter",
+    at: "docs/decisions/layouts-igraph.md:26",
 };
 pub(super) const G_SCALE_FIXED_LAYER: Gap = Gap {
     parameter: "scale",

@@ -13,8 +13,10 @@
 //! scale)` and igraph's own `maxiter=10` wins (`igraph_layouts.py:461`), likewise graphopt's
 //! `niter=500` (`:493`) and LGL's `maxiter=150` (`:423`). The motor's registered defaults are
 //! those same numbers, so the arms agree on the budget without either being told. What they
-//! cannot agree on is the seed, which is [`G_IGRAPH_SEED`] — and igraph's is not reachable from
-//! Python at all.
+//! cannot agree on is the seed, which is [`G_IGRAPH_SEED`] — and the reason is a licence, not an
+//! unreachable reference: python-igraph installs the stdlib `random` as igraph's RNG
+//! (`src/_igraph/random.c:295-325`), so `common.py:60` does reseed the reference and the
+//! reference reproduces exactly, but reproducing its Mersenne Twister stream is forbidden.
 
 use super::{Reference, Row};
 

@@ -180,11 +180,23 @@ algorithm.
 Same seed, same engine, different answer — so the cause is `algorithm` and no amount of seed
 plumbing will reach it.
 
-**4. igraph's RNG cannot be seeded from Python at all.** `_reset_layout_rng`
+**4. igraph's reference is seedable and reproducible; its RNG stream is simply out of licence.**
+An earlier version of this finding said `_reset_layout_rng`
 (`SciGraphs/core/scigraphs_core/mesh/layouts/common.py:60`) seeds `np.random.RandomState` and the
-stdlib `random`; igraph reads the C library's generator, which neither call reaches. So
-`IGRAPH_FR`, `IGRAPH_DRL`, `IGRAPH_DRL_2D`, `IGRAPH_LGL`, `IGRAPH_DH` and `IGRAPH_GRAPHOPT` have
-**no seedable reference start at all**, and their `rng` cause is not a missing port.
+stdlib `random` while igraph reads "the C library's generator, which neither call reaches", and
+concluded the six seeded rows had "no seedable reference start at all". That is wrong for
+python-igraph: it installs the stdlib `random` module *as* igraph's RNG at import
+(`src/_igraph/random.c:295-325`, `igraphmodule_init_rng` → `igraph_rng_Python_set_generator`; the
+rngtype is declared at `:54-58` with `is_seeded = 1`, and `igraph_rng_Python_get` at `:167-` draws
+from `random.getrandbits`/`random.random`), so line 60's `random.seed(...)` does reseed igraph.
+Two consecutive `--reference` runs over the same fixtures were compared file by file: **all 64
+reference files were byte-identical**, the five seeded igraph rows included, and their digests are
+the ones already pinned in `baseline/table/networkx.rs`. So `IGRAPH_FR`, `IGRAPH_DRL`,
+`IGRAPH_DRL_2D`, `IGRAPH_LGL`, `IGRAPH_DH` and `IGRAPH_GRAPHOPT` are gated on a reference that
+reproduces exactly; their `rng` cause is a **licence** gap, not an unreachable seed —
+`docs/decisions/layouts-igraph.md` rule 4 forbids reproducing igraph's generator, so graph-core
+keeps Mulberry32 and the two streams part company at the first draw. What the target is therefore
+shape (the Procrustes column), not bytes.
 
 **5. One row's reference is not reproducible.** Two consecutive `--graphviz` runs over the same
 fixtures and the same `-Gstart` were compared file by file: 31 of 32 reference files were
