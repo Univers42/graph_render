@@ -109,6 +109,16 @@ Each item below waits on a path this job does not own, or on a behaviour choice.
 - **R9.** This deviates from the review's proposal, which was to scale the cap with `min(4 · max(nx, ny), 4096)`. That cap fails the 33 000-cell serpentine, which the reference's own cap would fail sooner. The trace descends strictly, so no cap is needed.
 - **R2.** The new refusal is a parameter refusal on `resolution` × `margin`, independent of the node count. `ROUTE_DEGRADES` ("never refuses", `capabilities/post.rs:46-50`) could say so.
 
+### Resolved after the job (branch `post-rowtext`, 2026-10-02)
+
+| id | decision | where |
+|---|---|---|
+| R8 | Keep the obstacles; the row's oracle text names the divergence | `capabilities/post.rs`, row `post.route.grid` |
+| M22 | The row's oracle text says the grid is sized on footprints | same |
+| U18 | Keep `resolution` < 8 as given; the row's oracle text says so | same |
+| U8 | Ceiling stays 5 000; the stated budget becomes 20 s (15 566.2 ms in phase 8, 16 971.653 ms here), matching `phase08-routing.md:67` | `capabilities/post.rs:34-46` |
+| R2 | `ROUTE_DEGRADES` names the one refusal: a parameter refusal on `resolution` × `margin`, independent of the node count | `capabilities/post.rs` |
+
 ## Commands
 
 All commands ran in `/home/dlesieur/goinfre/wt/fix-post-routed`.
