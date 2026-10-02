@@ -11,13 +11,15 @@
 #[cfg(test)]
 mod tests;
 
-mod kernel;
+pub(crate) mod kernel;
 
 use crate::index::Topology;
 use crate::layout::Geometry;
 use crate::stage::{Stage, StageError};
 use graph_contract::geometry::{EdgeGeometry, NodeGeometry};
-use kernel::Axis;
+
+pub(crate) use kernel::Axis;
+pub(super) use kernel::sqrt;
 
 /// Parameters SciGraphs leaves at igraph's defaults (`niter` 500, `start_temp` sqrt(n)/10).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -78,4 +80,16 @@ impl Stage for FruchtermanReingold {
 /// One live axis of the solved positions, narrowed once.
 fn narrow(pos: &[Axis], axis: usize) -> Vec<f32> {
     pos.iter().map(|p| p[axis] as f32).collect()
+}
+
+/// [`kernel::start_positions`] at `D = 2`, narrowed to the two columns its other callers read.
+///
+/// Four layouts start from the same uniform box (`graphopt`, and this module's own history), so
+/// the draw is one function rather than four; it is `pub(super)` because only `graphopt` reaches
+/// outside this module for it, and it keeps the `D = 2` reading explicit at the call site.
+pub(super) fn start_positions(n: usize, seed: u32) -> Vec<[f64; 2]> {
+    kernel::start_positions::<2>(n, seed)
+        .into_iter()
+        .map(|point| [point[0], point[1]])
+        .collect()
 }

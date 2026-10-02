@@ -25,10 +25,10 @@ use crate::rng::{Mulberry32, jiggle};
 use crate::stage::StageError;
 
 /// The widest position vector either dimension has; see the module doc.
-pub(super) const AXES: usize = 3;
+pub(crate) const AXES: usize = 3;
 
 /// One node's position, `AXES` wide, of which the first `D` are live.
-pub(super) type Axis = [f64; AXES];
+pub(crate) type Axis = [f64; AXES];
 
 /// The column names D9 reports a non-finite value under, in axis order. `D` never exceeds the
 /// table, so the lookup is total.
@@ -40,7 +40,7 @@ const NOISE: f64 = 1e-9;
 /// The whole stage at `D` columns: the start, `niter` iterations of the three forces, and D9's
 /// check. The geometry is the caller's, so the two dimensions differ only in what they build
 /// from these columns.
-pub(super) fn solve<const D: usize>(
+pub(crate) fn solve<const D: usize>(
     topology: &Topology,
     params: &FrParams,
 ) -> Result<Vec<Axis>, StageError> {
@@ -64,13 +64,13 @@ pub(super) fn solve<const D: usize>(
     Ok(pos)
 }
 
-pub(super) fn sqrt(v: f64) -> f64 {
+pub(crate) fn sqrt(v: f64) -> f64 {
     libm::sqrt(v)
 }
 
 /// Uniform in the box of side `sqrt(n)` centred on the origin, `D` axes wide, axis by axis per
 /// node in the order the draw loop visits them (`layout_random.c:184`).
-pub(super) fn start_positions<const D: usize>(n: usize, seed: u32) -> Vec<Axis> {
+pub(crate) fn start_positions<const D: usize>(n: usize, seed: u32) -> Vec<Axis> {
     let side = sqrt(n as f64);
     let mut rng = Mulberry32::new(seed);
     (0..n)
