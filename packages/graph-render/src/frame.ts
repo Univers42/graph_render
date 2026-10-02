@@ -54,6 +54,33 @@ function boundsOf(x: Float32Array, y: Float32Array): Bounds | null {
 }
 
 /**
+ * The bounds a fit uses: the node hull grown by every interior edge vertex, in world units.
+ * A `Polyline` or `Curve` vertex outside the node hull is otherwise invisible by
+ * construction — the bounds a fit reads do not name it, so the fit cannot see it and a
+ * routed link runs off the frame.
+ *
+ * The world factor is deliberately NOT taken from this hull (see `frameFrom`): the factor is
+ * the uniform scale of the whole drawing, so widening this box must not rescale a layout.
+ */
+function hullWith(bounds: Bounds | null, pts: Float32Array | null): Bounds | null {
+  if (bounds === null || pts === null) return bounds;
+  let minX = bounds.minX;
+  let minY = bounds.minY;
+  let maxX = bounds.maxX;
+  let maxY = bounds.maxY;
+  // The column is x,y interleaved, one pair per interior vertex, in edge order (decode.ts).
+  for (let i = 0; i + 1 < pts.length; i += 2) {
+    const px = pts[i] ?? 0;
+    const py = pts[i + 1] ?? 0;
+    if (px < minX) minX = px;
+    if (px > maxX) maxX = px;
+    if (py < minY) minY = py;
+    if (py > maxY) maxY = py;
+  }
+  return { minX, minY, maxX, maxY };
+}
+
+/**
  * Ponytail: "typical spacing" is sqrt(bounding-box area / n), the spacing of a uniform
  * spread. One dense clump with a few far outliers reads as sparse and is under-scaled
  * (the clump overlaps); a collinear layout falls back to extent / (n - 1). Zooming in is
@@ -85,9 +112,12 @@ function scaledOrNull(column: Float32Array | null, factor: number): Float32Array
  * is the 2D frame of the same drawing plus one column and nothing else.
  */
 export function frameFrom(snapshot: Snapshot): Frame {
+  // The node hull alone, and only the node hull: the factor is the uniform scale of the whole
+  // drawing, so an edge that swings far outside must not rescale the layout around it.
   const factor = worldFactor(boundsOf(snapshot.x, snapshot.y), snapshot.nodeCount);
   const x = scaled(snapshot.x, factor);
   const y = scaled(snapshot.y, factor);
+  const pts = scaledOrNull(snapshot.pts, factor);
   return {
     nodeKind: snapshot.nodeKind,
     edgeKind: snapshot.edgeKind,
@@ -103,8 +133,8 @@ export function frameFrom(snapshot: Snapshot): Frame {
     target: snapshot.target.slice(),
     curveDegree: snapshot.curveDegree,
     offsets: snapshot.offsets === null ? null : snapshot.offsets.slice(),
-    pts: scaledOrNull(snapshot.pts, factor),
-    bounds: boundsOf(x, y),
+    pts,
+    bounds: hullWith(boundsOf(x, y), pts),
     factor,
   };
 }

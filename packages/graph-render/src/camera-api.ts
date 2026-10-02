@@ -9,11 +9,11 @@
  * camera is drawing.
  */
 import {
-  type Camera, type Point, type ZoomLimits, centreOn, panBy, resetCamera, zoomAt,
+  type Camera, type FitArea, type Point, type ZoomLimits, centreOn, panBy, resetCamera, zoomAt,
 } from "./camera.ts";
 import { setSelection } from "./canvas2d/choose.ts";
 import {
-  type Controller, fit, moveOrbit, moveTo, pickAt, select, setPositions, showFrame,
+  type Controller, fit, moveOrbit, moveTo, pickAt, select, setPositions, setSafeArea, showFrame,
 } from "./canvas2d/controller.ts";
 import { hideNodes, togglePin } from "./canvas2d/keep.ts";
 import { invalidate } from "./canvas2d/loop.ts";
@@ -137,6 +137,8 @@ export function cameraApi(controller: Controller): CameraApi {
     frame: () => state.scene.frame,
     style: () => state.scene.style,
     viewport: () => state.viewport,
+    safeArea: () => state.safe,
+    setSafeArea: (area: FitArea | null) => setSafeArea(controller, area),
     fit: () => fit(controller),
     reset: () => moveTo(controller, resetCamera(state.viewport), false),
     ...orbitApi(controller, state),

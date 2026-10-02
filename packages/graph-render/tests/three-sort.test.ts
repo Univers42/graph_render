@@ -67,3 +67,32 @@ test("the order is stable across repeated runs of the same depths", () => {
     assert.deepEqual([...depthOrder(depths, new Uint32Array(64))], first, `run ${run}`);
   }
 });
+
+test("the same relative spread paints the same order at every scale", () => {
+  // The failing input from the finding: a 3D frame whose nodes all sit within one world unit
+  // of depth. A bucket a world unit wide drops such a frame into ONE bucket, and the painter
+  // falls back to dense index order — so the first row is the defect and the second is the
+  // control that a thousand-fold zoom must not change the answer.
+  const expected = [2, 1, 0];
+  assert.deepEqual(order([10, 10.3, 10.6]), expected, "within one world unit, still by depth");
+  assert.deepEqual(order([10_000, 10_300, 10_600]), expected, "and the same order 1000x out");
+  assert.deepEqual(order([0.03, 0.06, 0.09]), expected, "down at hundredths of a unit");
+  assert.notDeepEqual(expected, [0, 1, 2], "and the control: this is not dense index order");
+});
+
+test("a frame past the bucket cap still paints by depth, not by dense index", () => {
+  // Past the cap the bucket width is the cap's worth of the range, so nodes closer together
+  // than that share a bucket and paint in dense order inside it — the documented cost. What
+  // must still hold is that the drawing as a whole is painted back to front.
+  const depth = 4000;
+  const cluster = 200;
+  const depths = Float64Array.from({ length: depth }, (_, at) =>
+    at < cluster ? 2 + at * 0.00004 : 10 + (at - cluster),
+  );
+  const painted = order([...depths]);
+  assert.notDeepEqual(painted, [...depths.keys()], "not the dense index order");
+  assert.equal(painted[0], 3999, "the furthest node is painted first");
+  assert.equal(painted[painted.length - 1], 0, "and the nearest of all last");
+  const run = painted.filter((node) => node < cluster);
+  assert.deepEqual(run, [...run].sort((a, b) => a - b), "inside one coarse bucket, dense order");
+});
