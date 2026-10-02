@@ -7,6 +7,69 @@ re-derivation of them.
 
 # What was measured
 
+## The rank pass: how much of it agrees with the oracle
+
+The rank pass — `class1`, `acyclic`, one network simplex per component, `TB_balance` — is
+ported, and its output is compared with the oracle over the full 1000-seed fixture set.
+
+**The rank is derived from the printed y, not assumed.** `set_ycoords` (`position.c:773-786`)
+puts `GD_maxrank` at the *bottom* and stacks every rank below it higher up, so **rank 0 is the
+top row** and `y = y_of_rank_0 - rank * (height + ranksep)`. That direction is the whole
+measurement: reading y the other way round gives every one of the six closed cases upside
+down, which is what the mirror test in `dot/rank_tests.rs` is there to catch.
+`target/probe/rank_oracle.py` reports the largest distance any printed y sits from that
+grid, over every node of every seed, and it is **0.0000 of a step** — so every node of every
+fixture lands exactly on a rank, and the table is the oracle's own layering rather than a
+rounded guess at it.
+
+| measurement | over 1000 seeds |
+|---|---|
+| every node on the same rank as the oracle | **692** |
+| identical total weighted edge length | **993** |
+| a strictly greater total weighted edge length | **6** |
+| a strictly smaller one | **0** |
+
+```sh
+scripts/orch/gr cargo run -q -p graph-cli --release -- \
+    emit-graphviz-fixtures --engine twopi --seeds 1000 --out target/dot-probe1000
+cp target/dot-probe1000/twopi.jsonl target/dotfix/dot.jsonl
+cp target/dot-probe1000/twopi-manifest.json target/dotfix/dot-manifest.json
+docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle \
+    python3 harness/oracle-graphviz.py target/dotfix dot target/gv-dot-det-a --fixtures=dot.jsonl
+docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle \
+    python3 target/probe/rank_oracle.py --digest target/probe/rank1000.txt
+scripts/orch/gr cargo test -p graph-core --lib -- --ignored \
+    rank_agreement_over_1000_seeds --nocapture
+# 692 of 1000 seeds agree node for node; 993 have equal cost; 6 are worse
+```
+
+### What the 308 node-for-node disagreements are
+
+**The 302 that have the same cost are ties.** Blocker 2 below already says it: the simplex's
+optimum is a *face* of the polytope, not a point, so two correct implementations reach
+different optimal rankings, and `TB_balance` then spreads nodes across equally good ranks in
+an order that depends on the visit order. On seed 138 one node of 140 differs; on seed 143
+two of 145; the number of ranks is the same and the cost is the same. That is the face, not a
+defect.
+
+**The 6 that cost more are a different DAG.** Seeds 330, 351, 469, 497, 930 and 951. On
+seed 330 the port's ranking is feasible, its spanning tree is tight, and every cut value
+agrees with the value recomputed from scratch — checked after *every* pivot by
+`simplex::tree::check_invariants`, which is `cfg(test)` and costs nothing in the library.
+Against that same edge list the **oracle's** ranking has slack **−4**: it is not feasible for
+the graph the port ranked. So the two ranked different DAGs, and the difference is in
+`acyclic`'s choice of back edge on a graph with more than one cycle. `acyclic` is a faithful
+port of `acyclic.c:33-69`, and the port's choice is a function of the dense node index and
+`decompose`'s pop order — which is what the reference's is a function of too — so what is
+left is a walk-order detail in a pass whose input is a stack pop order, not an algorithmic
+difference. It is recorded rather than closed: 6 of 1000 seeds, bounded, and measured.
+
+### The closed cases and the twenty fixture seeds
+
+Both are pinned node for node in `dot/rank_tests.rs`: the six closed cases from the table
+below, and seeds 0 to 19 (`n` = 2 to 21) from the oracle. Those 26 cases are **inside** the
+692 — the first disagreement in the whole set is seed 138.
+
 ## The oracle is deterministic over the full 1000 seeds
 
 ```sh
@@ -48,16 +111,30 @@ or nothing. So there is nothing for a `Ponytail` marker to say about the seed.
 
 # What is ported
 `crates/graph-core/src/layout/graphviz/dot.rs` and its children, with their own tests:
-- `fast.rs` — the fast graph: `node_t`/`edge_t` as dense indices, the three
-per-node edge lists, `zapinlist`, `reverse_edge`, `merge_oneway`/`basic_merge`,
-`find_fast_edge`, `virtual_node`.
+- `fast.rs`, `fast/edge.rs`, `fast/node.rs` — the fast graph: `node_t`/`edge_t` as dense
+  indices, the three per-node edge lists, `orig_out`, `zapinlist`, `reverse_edge`,
+  `merge_oneway`/`basic_merge`, `find_fast_edge`, `virtual_node`.
+- `class1.rs` — **the pass that puts edges into the fast graph**: one constraint per input
+  edge, parallel pairs folded together. Not a no-op, whatever the pass list suggests —
+  without it the simplex has an empty graph to rank.
 - `decomp.rs` — `decompose`, the components and the order each is walked in.
 - `acyclic.rs` — `acyclic`, cycle breaking by edge reversal.
-Ten tests, all passing, and one of them earns its place: **a two-node cycle collapses
-to a single edge, not two.** `reverse_edge` (`acyclic.c:22-33`) unhooks the edge and
-then *merges* it into the edge already running the other way, so the survivor carries
-both weights. A port that swapped the endpoints would keep two edges and draw a
-different graph.
+- `simplex.rs` and `simplex/{subtree,tree,cutval,pivot,balance}.rs` — `rank2`:
+  `init_graph`, `init_rank`, `feasible_tree` with its tight-subtree heap and minimum-slack
+  inter-tree walk, `init_cutvalues`, the `leave_edge`/`enter_edge`/`update` pivot loop with
+  its `Search_size = 30` cut-off and rotating index, and the three balance passes.
+- `rank.rs` — `dot1_rank`: `class1`, `decompose`, `acyclic`, one simplex per component, the
+  four no-op stages named as no-ops, `cleanup1`.
+- `class2.rs` — chains for edges spanning more than one rank, merged parallel edges,
+  `virtual_weight`, and the flat and other lists.
+- `rank_tests.rs` — the six closed cases, twenty fixture seeds, each of `class2`'s three
+  outcomes, and the 1000-seed sweep. `check_invariants` runs under `cfg(test)` after every
+  pivot.
+Thirty tests in `dot/`, all passing, and one earns its place twice over: **a two-node cycle
+collapses to a single edge, not two.** `reverse_edge` (`acyclic.c:22-33`) unhooks the edge
+and then *merges* it into the edge already running the other way, so the survivor carries
+both weights. A port that swapped the endpoints would keep two edges and draw a different
+graph.
 
 # Blocker 1 — the node box is a font metric, and x is where it lands
 Graphviz sizes a node from its **rendered label**, not from `width`/`height` alone.
@@ -104,30 +181,33 @@ this job.
 `dot` is four passes, and three of them are large:
 | pass | reference | size | ported |
 |---|---|---|---|
-| 1 rank | `acyclic.c` 70, `decomp.c` 117, `ns.c` 1414, `rank.c` 1113, `class2.c` 294 | ~3000 lines | decomposition and cycle breaking |
+| 1 rank | `acyclic.c` 70, `decomp.c` 117, `ns.c` 1414, `rank.c` 1113, `class2.c` 294 | ~3000 lines | **yes** — see the rank section above |
 | 2 mincross | `mincross.c` 1794 | ~1800 | no |
 | 3 position | `position.c` 1133, plus a second `ns.c` run | ~1100 | no |
 | 4 splines | `dotsplines.c` 2316 | ~2300 | not needed (polylines) |
 Pass 1 alone is three times the size of `layout.packing.osage` and most of
 `layout.treemap.patchwork`. Note the *second* `ns.c` run: `dot_position` re-runs the
 whole simplex over the auxiliary graph, so the engine is two simplex implementations
-deep, and the tight-tree basis decides which optimum is reached (the optimum is a face
-of the polytope, not a point) — so a simplification there is a different drawing, not a
-faster one.
+deep — which is why `simplex::Params` carries the balance pass as a parameter rather than
+hard-coding `TB_balance`, and why the second run is a call and not a copy. And the
+tight-tree basis decides which optimum is reached (the optimum is a face of the
+polytope, not a point) — so a simplification there is a different drawing, not a faster
+one. **Measured, now:** the face is reachable two ways and both are correct, and
+692 of 1000 seeds land on the same face as the oracle.
 
 # The remaining passes, as a draft
-1. **`simplex.rs` — `rank2`.** `init_graph` / `init_rank` / `feasible_tree` (maximal
+1. **`simplex.rs` — `rank2`. Done** — `init_graph` / `init_rank` / `feasible_tree` (maximal
 tight subtrees by DFS from each unvisited node of `nlist`, merged smallest-first
 through the minimum-slack inter-tree edge) / `init_cutvalues` (`dfs_range_init` then
 `dfs_cutval`) / the `leave_edge`–`enter_edge`–`update` pivot loop with its
 `Search_size = 30` cut-off and its rotating `S_i` / then `TB_balance` (rank) or
 `LR_balance` (x). Integer throughout, so the pivots are exact.
-! 2. **`rank.rs` — `dot1_rank`.** `edgelabel_ranks` (a no-op: no edge labels),
-`collapse_sets` and `class1` (no-ops: no clusters, no min/max/same sets),
-`minmax_edges` (a no-op), `decompose` ✓, `acyclic` ✓, `rank1` per component,
-`expand_ranksets`, `cleanup1`.
-! 3. **`class2.rs` — chains and multi-edges.** `make_chain` for every edge spanning more
-than one rank, `merge_oneway` for parallel edges, `virtual_weight`'s
+2. **`rank.rs` — `dot1_rank`. Done** — `edgelabel_ranks` (a no-op: no edge labels),
+`collapse_sets` and `minmax_edges` (no-ops: no clusters, no min/max/same sets),
+`class1` (**not** a no-op — it builds the fast graph), `decompose` ✓, `acyclic` ✓,
+`rank1` per component, `expand_ranksets` (a no-op), `cleanup1`.
+3. **`class2.rs` — chains and multi-edges. Done** — `make_chain` for every edge spanning
+more than one rank, `merge_chain` for parallel edges, `virtual_weight`'s
 `table[endpoint_class][endpoint_class]`, and the backward-edge shadowing. The
 fixtures have no self-loops (`synthetic_edges` skips `a == b`) and no clusters, so
 `interclrep` and `realFillRanks` drop out.
@@ -165,9 +245,12 @@ ranks are 72 points apart and same-rank neighbours 72 points apart.
 | 5-star | 5 | `n0` (135, 90), `n1` (27, 18), `n2` (99, 18), `n3` (171, 18), `n4` (243, 18) |
 | 6-branch | 6 | `n0` (99, 234), `n1` (27, 162), `n2` (99, 162), `n3` (171, 162), `n4` (99, 90), `n5` (99, 18) |
 The 4-cycle is the case that discriminates: `acyclic` must reverse `n3 -> n0`, which
-puts `n3` on rank 0 and `n0` on rank 3, and the x-coordinates are off-centre by 27
-points on ranks 0 and 3 — a port that got the cycle-breaking direction wrong, or that
-placed the ranks symmetrically, fails it.
+puts `n3` on rank 3 and `n0` on rank 0, and the x-coordinates are off-centre by 27
+points on the top and bottom ranks — a port that got the cycle-breaking direction wrong, or
+that placed the ranks symmetrically, fails it.
+**Read the ranks top-down: the largest y is rank 0.** The port's own ranks for the six
+cases are `0`, `0,1`, `0,1,2`, `0,1,2,3`, `0,1,1,1,1` and `0,1,1,1,2,3`, pinned in
+`dot/rank_tests.rs`.
 Reproduce the table:
 ```sh
 printf 'graph g {\n  n0; n1; n2; n3;\n  n0 -- n1;\n  n1 -- n2;\n  n2 -- n3;\n  n3 -- n0;\n}\n' > /tmp/cyc4.dot
