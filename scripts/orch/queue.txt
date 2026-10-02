@@ -55,3 +55,6 @@ sg-grid-scale|build|prompts/jobs/sg-grid-scale.md|scripts/orch/rows/quick.rows|n
 sg-spiral3d|build|prompts/jobs/sg-spiral3d.md|scripts/orch/rows/quick.rows|no
 sg-bipartite3d|build|prompts/jobs/sg-bipartite3d.md|scripts/orch/rows/quick.rows|no
 sg-sugiyama|build|prompts/jobs/sg-sugiyama.md|scripts/orch/rows/quick.rows|no
+open-ingest|build|prompts/jobs/open-ingest.md|scripts/orch/rows/quick.rows|no
+open-core|build|prompts/jobs/open-core.md|scripts/orch/rows/quick.rows|no
+open-synth|build|prompts/jobs/open-synth.md|scripts/orch/rows/quick.rows|no

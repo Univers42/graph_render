@@ -1,4 +1,4 @@
-import { useState, type ReactElement } from "react";
+import { memo, useState, type ReactElement } from "react";
 
 import type { StudioAction, StudioParam } from "../actions/context.ts";
 import type { ArgValue, Args } from "../actions/registry.ts";
@@ -14,6 +14,8 @@ export interface ActionFormProps {
   readonly studio: Studio;
   readonly action: StudioAction;
   readonly state: StudioState;
+  /** What the form draws out of the state, as one string; see `draftedOf`. */
+  readonly drawn: string;
 }
 
 interface ParamFieldProps {
@@ -41,7 +43,7 @@ function ParamField(props: ParamFieldProps): ReactElement {
   );
 }
 
-export function ActionForm(props: ActionFormProps): ReactElement {
+export function ActionFormBody(props: ActionFormProps): ReactElement {
   const { studio, action, state } = props;
   // The dock remounts this on the values' signature, so a change made from the console
   // shows here: the draft is a copy of what the state said when the form was made.
@@ -77,3 +79,15 @@ export function ActionForm(props: ActionFormProps): ReactElement {
     </div>
   );
 }
+
+/**
+ * WHY the form is compared on what it draws and not on the state it is handed: the dock
+ * re-renders on every store change, and every form in it is a dozen elements — so a change
+ * to the log, the selection or the search box would redraw about two hundred of them for
+ * nothing. `drawn` is that comparison, already made by the dock for the remount key.
+ */
+export const ActionForm = memo(ActionFormBody, (before, after) => (
+  before.studio === after.studio
+  && before.action === after.action
+  && before.drawn === after.drawn
+));

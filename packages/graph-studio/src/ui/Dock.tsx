@@ -7,7 +7,8 @@ import type { StudioState } from "../state/model.ts";
 import type { Studio } from "../studio/studio.ts";
 import { ForcesPanel } from "./ForcesPanel.tsx";
 import { ActionForm } from "./ActionForm.tsx";
-import { signatureOf, valuesOf } from "./draft.ts";
+import { drawnOf } from "./draft.ts";
+import { useStudioState } from "./useStudio.ts";
 
 /** One section open: with three, the dock was as tall as the page and covered the graph. */
 const OPEN_AT_FIRST: readonly string[] = ["Layout"];
@@ -15,7 +16,6 @@ const BODY = "gs-dock-body";
 
 export interface DockProps {
   readonly studio: Studio;
-  readonly state: StudioState;
   readonly open: boolean;
   readonly onToggle: () => void;
   /** The live loop's store, so the Forces section redraws when the worker answers. */
@@ -58,22 +58,21 @@ function Actions(props: { readonly studio: Studio; readonly state: StudioState; 
   const { studio, state, name } = props;
   return (
     <div className="gs-actions">
-      {studio.registry.actions.filter((action) => action.section === name).map((action) => (
+      {studio.registry.actions.filter((action) => action.section === name).map((action) => {
+        const drawn = drawnOf(action, state);
         // WHY the id is in the key: three actions of one section take no parameters and so
         // share a signature, and React needs the key to be unique among the siblings.
-        <ActionForm
-          key={`${action.id} ${signatureOf(valuesOf(action, state))}`}
-          studio={studio}
-          action={action}
-          state={state}
-        />
-      ))}
+        return <ActionForm key={`${action.id} ${drawn}`} studio={studio} action={action} state={state} drawn={drawn} />;
+      })}
     </div>
   );
 }
 
 export function Dock(props: DockProps): ReactElement {
-  const { studio, state, open, onToggle, bar } = props;
+  const { studio, open, onToggle, bar } = props;
+  // WHY it subscribes itself: every action's value and every reason is read off the whole
+  // state, so the dock is redrawn by any change to it — but nothing else in the chrome is.
+  const state = useStudioState(studio);
   const [shown, setShown] = useState<readonly string[]>(OPEN_AT_FIRST);
   const flip = (name: string): void => {
     setShown((current) => current.includes(name) ? current.filter((other) => other !== name) : [...current, name]);

@@ -29,6 +29,11 @@ export const DEFAULT_KNOBS: ForceKnobs = { gravity: 0.1, charge: -300, linkStren
 export const NO_ADAPTER_REASON = "live forces need the motor session (force-wasm)";
 
 export interface LiveForce {
+  /**
+   * Set once the motor's session behind this port is released: every call on it throws, so
+   * the stepping loop must read this before it steps. Left out by a port that never dies.
+   */
+  dead?: boolean;
   pin(id: string, x: number, y: number): void;
   unpin(id: string): void;
   setParams(knobs: ForceKnobs): void;
