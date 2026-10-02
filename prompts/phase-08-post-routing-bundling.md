@@ -1,4 +1,4 @@
-> **Status (2026-09-30):** MERGED into develop — develop commit b980ae8 is branch p8's head; slices p8-p8-bundle, p8-route and p8-styles came with it. Still owed: bundling and styles ledger rows, docs/reports/phase-08.md. See prompts/RESUME.md.
+> **Status (2026-10-02):** MERGED into develop — develop commit b980ae8 is branch p8's head; slices p8-p8-bundle, p8-route and p8-styles came with it. Closed: the bundling and styles ledger rows are on develop (crates/graph-cli/src/capabilities/post.rs:2,111 — post.bundle.fdeb, post.bundle.mingle, post.style.straight/orthogonal/bezier/quadratic beside post.route.grid). Still owed: docs/reports/phase-08.md. See docs/reports/STATUS.md.
 
 # Phase 8 — The POST stage: edge styles, routing, bundling
 

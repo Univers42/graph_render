@@ -1,5 +1,6 @@
 //! The report types for the ANALYSIS stage over the ABI.
 
+use crate::json_string::push_quoted;
 use graph_core::Topology;
 use std::fmt::Write as _;
 
@@ -46,12 +47,24 @@ impl Column {
 
     /// How many nodes this column holds: one per node in the analysed graph, which is
     /// what `nodeCount` on the face states.
+    /// Ponytail: a column past `u32::MAX` elements reads `0` here (unreachable on wasm32,
+    /// where `usize` is 32 bits); [`Report::to_json`] refuses such a column instead.
     pub fn len(&self) -> u32 {
-        u32::try_from(match self {
+        u32::try_from(self.elements()).unwrap_or(0)
+    }
+
+    fn elements(&self) -> usize {
+        match self {
             Self::F64(values) => values.len(),
             Self::U32(values) => values.len(),
-        })
-        .unwrap_or(0)
+        }
+    }
+
+    fn is_finite(&self) -> bool {
+        match self {
+            Self::F64(values) => values.iter().all(|value| value.is_finite()),
+            Self::U32(_) => true,
+        }
     }
 
     /// Whether the analysed graph had no nodes at all — the empty column every analysis
@@ -72,24 +85,31 @@ pub struct Entry {
 impl Report {
     /// The canonical JSON text of this report. Keys ascending, so two runs of one
     /// analysis are byte-identical and a diff between two of them names the analysis.
-    pub fn to_json(&self) -> String {
+    /// `None` when the report has no JSON text: a non-finite score or modularity (`NaN`
+    /// is not a JSON number, D9), or a column whose length `nodeCount` cannot state.
+    pub fn to_json(&self) -> Option<String> {
+        let node_count = u32::try_from(self.values.elements()).ok()?;
+        if !self.values.is_finite() || !self.modularity.is_none_or(f64::is_finite) {
+            return None;
+        }
         let mut out = String::from("{");
         if let Some(converged) = self.converged {
             let _ = write!(out, "\"converged\":{converged},");
         }
-        let _ = write!(out, "\"id\":\"{}\",", self.id);
-        let _ = write!(out, "\"kind\":\"{}\",", self.values.kind());
+        out.push_str("\"id\":");
+        push_quoted(&mut out, self.id);
+        let _ = write!(out, ",\"kind\":\"{}\",", self.values.kind());
         if let Some(max) = self.max {
             let _ = write!(out, "\"max\":{max},");
         }
         if let Some(modularity) = self.modularity {
             let _ = write!(out, "\"modularity\":{modularity},");
         }
-        let _ = write!(out, "\"nodeCount\":{}", self.values.len());
+        let _ = write!(out, "\"nodeCount\":{node_count}");
         let _ = write!(out, ",\"values\":");
         list(&mut out, &self.values);
         out.push('}');
-        out
+        Some(out)
     }
 }
 

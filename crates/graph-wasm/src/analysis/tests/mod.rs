@@ -11,6 +11,7 @@
 
 mod column;
 mod columns;
+mod finite;
 mod fixtures;
 mod json;
 mod registry;

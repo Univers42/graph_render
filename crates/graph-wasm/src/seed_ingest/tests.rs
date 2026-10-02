@@ -7,7 +7,7 @@ fn a_seeds_document_reads_back_to_the_same_node_and_edge_ids_in_order() {
     for seed in [0u32, 1, 5, 37] {
         let (nodes, edges) =
             seeded_model(seed, gate_node_count(seed), graph_core::REFERENCE_DEGREE);
-        let text = document(&nodes, &edges);
+        let text = document(&nodes, &edges).expect("finite");
         let (read_nodes, read_edges) = ingest::read(text.as_bytes())
             .unwrap_or_else(|err| panic!("seed {seed} did not round-trip: {err:?}"));
         assert_eq!(
@@ -27,7 +27,8 @@ fn for_seed_indexes_to_the_same_counts_as_seeded_model_directly() {
         let (nodes, edges) =
             seeded_model(seed, gate_node_count(seed), graph_core::REFERENCE_DEGREE);
         let direct = index_model(&nodes, &edges).expect("fits");
-        let (via_json, _) = ingest::read(for_seed(seed).as_bytes()).expect("round-trips");
+        let (via_json, _) =
+            ingest::read(for_seed(seed).expect("finite").as_bytes()).expect("round-trips");
         let via_json = index_model(&via_json, &edges).expect("fits");
         assert_eq!(direct.node_count(), via_json.node_count(), "seed {seed}");
         assert_eq!(direct.edge_count(), via_json.edge_count(), "seed {seed}");
@@ -48,13 +49,48 @@ fn special_characters_in_a_label_survive_the_round_trip() {
         has_note: true,
         icon: Some("star".into()),
     }];
-    let text = document(&nodes, &[]);
+    let text = document(&nodes, &[]).expect("finite");
     let (read_back, _) = ingest::read(text.as_bytes()).expect("valid JSON");
     assert_eq!(read_back, nodes);
     nodes.clear();
-    let empty = document(&nodes, &[]);
+    let empty = document(&nodes, &[]).expect("finite");
     assert_eq!(
         ingest::read(empty.as_bytes()).expect("empty is valid"),
         (vec![], vec![])
+    );
+}
+
+/// The document as the writer hands it over, or `None` where it refuses.
+fn written(nodes: &[graph_core::NodeRecord], edges: &[graph_core::EdgeRecord]) -> Option<String> {
+    document(nodes, edges)
+}
+
+/// F-88: `inf`/`NaN` are not JSON numbers, so a non-finite field is refused by the writer
+/// rather than written as a document `ingest::read` must then refuse.
+#[test]
+fn a_non_finite_number_is_refused_never_written_as_json() {
+    let (mut nodes, mut edges) = seeded_model(1, 4, graph_core::REFERENCE_DEGREE);
+    assert!(
+        written(&nodes, &edges).is_some(),
+        "the finite model is written"
+    );
+    nodes[0].weight = f64::INFINITY;
+    assert_eq!(written(&nodes, &edges), None, "weight inf");
+    nodes[0].weight = 1.0;
+    nodes[1].version = f64::NEG_INFINITY;
+    assert_eq!(written(&nodes, &edges), None, "version -inf");
+    nodes[1].version = 1.0;
+    edges[0].strength = f64::NAN;
+    assert_eq!(written(&nodes, &edges), None, "strength NaN");
+}
+
+#[test]
+fn the_seed_document_states_the_version_the_reader_accepts() {
+    let text = document(&[], &[]).expect("empty is finite");
+    let stated = format!(r#"{{"version":{},"#, ingest::VERSION);
+    assert!(
+        text.starts_with(&stated),
+        "{text} does not state version {}",
+        ingest::VERSION
     );
 }
