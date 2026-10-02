@@ -117,3 +117,17 @@ fn probe_bytes_frames_every_function_and_record() {
     }
     assert_eq!(at, bytes.len());
 }
+
+/// F-89: an index past `FUNCTIONS` is a caller bug, refused loudly — never read as
+/// `atan2`, whose plausible numbers would then be labelled with a name that does not exist.
+#[test]
+#[should_panic(expected = "past FUNCTIONS")]
+fn an_evaluate_index_past_functions_is_refused_not_read_as_atan2() {
+    let _ = evaluate(FUNCTIONS.len(), 1.0, 1.0);
+}
+
+#[test]
+#[should_panic(expected = "past FUNCTIONS")]
+fn an_inputs_index_past_functions_is_refused_not_swept_as_atan2() {
+    let _ = inputs(FUNCTIONS.len());
+}

@@ -17,7 +17,7 @@ pub fn degree_centrality(topology: &Topology) -> Report {
 pub fn closeness_centrality(topology: &Topology) -> Report {
     plain(
         centrality::CLOSENESS,
-        widened(centrality::closeness(topology)),
+        shortest_path_scores(topology, centrality::closeness),
     )
 }
 
@@ -25,8 +25,25 @@ pub fn closeness_centrality(topology: &Topology) -> Report {
 pub fn betweenness_centrality(topology: &Topology) -> Report {
     plain(
         centrality::BETWEENNESS,
-        widened(centrality::betweenness(topology)),
+        shortest_path_scores(topology, centrality::betweenness),
     )
+}
+
+/// A Dijkstra-based centrality, or a column of `NaN` when any edge `strength` is negative.
+/// Ingest admits any finite strength (F-80), and over a negative one graph-core's Dijkstra
+/// asserts in a debug build and answers silently wrong in a release one. `NaN` is the
+/// honest score (no shortest path is defined), and it is also what makes
+/// [`Report::to_json`] answer `None`, so `gm_analysis_run` refuses with `AnalysisFailed`.
+fn shortest_path_scores(topology: &Topology, scores: fn(&Topology) -> Vec<f32>) -> Vec<f64> {
+    if topology
+        .edges()
+        .strength
+        .iter()
+        .any(|&strength| strength < 0.0)
+    {
+        return vec![f64::NAN; topology.node_count() as usize];
+    }
+    widened(scores(topology))
 }
 
 /// Eigenvector centrality analysis entry point.

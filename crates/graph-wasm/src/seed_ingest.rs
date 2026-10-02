@@ -9,13 +9,15 @@
 //! [`crate::ingest::read`] in this module's own tests, so the two are proven consistent
 //! natively, with no wasm build in the loop.
 
+use crate::json_string::push_quoted as string;
 use graph_core::{EdgeRecord, NodeRecord};
 use std::fmt::Write as _;
 
 /// The provisional ingest JSON for the hash gate's model at `seed`, at the gate's
 /// standard node count and reference degree (`graph_core::gate_node_count`,
 /// `graph_core::REFERENCE_DEGREE` — the same inputs `gm_topology`/`gm_layout_grid` use).
-pub fn for_seed(seed: u32) -> String {
+/// `None` as [`document`] refuses.
+pub fn for_seed(seed: u32) -> Option<String> {
     let (nodes, edges) = graph_core::seeded_model(
         seed,
         graph_core::gate_node_count(seed),
@@ -24,8 +26,17 @@ pub fn for_seed(seed: u32) -> String {
     document(&nodes, &edges)
 }
 
-/// The provisional ingest document for `nodes` and `edges`, in ingest order.
-pub fn document(nodes: &[NodeRecord], edges: &[EdgeRecord]) -> String {
+/// The provisional ingest document for `nodes` and `edges`, in ingest order. `None` when
+/// a `weight`, `version` or `strength` is not finite: JSON has no `inf` or `NaN`, and
+/// `ingest::read` refuses a document that spells one.
+pub fn document(nodes: &[NodeRecord], edges: &[EdgeRecord]) -> Option<String> {
+    let finite = nodes
+        .iter()
+        .all(|n| n.weight.is_finite() && n.version.is_finite())
+        && edges.iter().all(|e| e.strength.is_finite());
+    if !finite {
+        return None;
+    }
     let mut out = String::from(r#"{"version":1,"nodes":["#);
     for (i, n) in nodes.iter().enumerate() {
         if i > 0 {
@@ -41,7 +52,7 @@ pub fn document(nodes: &[NodeRecord], edges: &[EdgeRecord]) -> String {
         push_edge(&mut out, e);
     }
     out.push_str("]}");
-    out
+    Some(out)
 }
 
 fn push_node(out: &mut String, n: &NodeRecord) {
@@ -99,21 +110,6 @@ fn field(out: &mut String, name: &str, first: bool) {
     out.push('"');
     out.push_str(name);
     out.push_str("\":");
-}
-
-fn string(out: &mut String, text: &str) {
-    out.push('"');
-    for c in text.chars() {
-        match c {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            c if (c as u32) < 0x20 => {
-                let _ = write!(out, "\\u{:04x}", c as u32);
-            }
-            c => out.push(c),
-        }
-    }
-    out.push('"');
 }
 
 fn opt_string(out: &mut String, text: Option<&str>) {

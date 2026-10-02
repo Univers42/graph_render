@@ -24,6 +24,7 @@ export const CODE_NAMES = [
   "InvalidSession",
   "SessionParamsInvalid",
   "SessionRefused",
+  "AnalysisFailed",
 ] as const;
 
 /** One `Code`'s name, or `"Unknown(<n>)"` for a wire value this SDK does not know yet —
