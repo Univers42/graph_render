@@ -9,17 +9,17 @@ Ids F-12, F-13, F-14, F-15, F-19, F-100 … F-109.
 | F-12 | MAJOR | fixed | `build::links::a_directed_link_keeps_its_orientation_in_its_id`, `build::derive::every_derived_edge_id_is_the_grammars_own`, `convergence::the_committed_graph_is_exactly_what_the_derivation_produces` | `crates/graph-core/src/ingest/build/builder.rs:195` (was `:184`) |
 | F-13 | MAJOR | fixed | `edges::the_same_record_id_in_two_collections_is_two_records_not_a_duplicate` | `crates/graph-core/src/ingest/build/builder.rs:135` (was `:118-124`) |
 | F-14 | MAJOR | false | `build::links::a_parent_naming_a_deleted_record_is_stated_and_then_dropped_by_indexing` (green before and after) | `crates/graph-core/src/ingest/build/builder.rs:182` (was `:159-170`) |
-| F-15 | MAJOR | fixed | `roles::a_group_role_field_is_read_when_the_collection_declares_no_label_role` | `crates/graph-core/src/ingest/roles.rs:54` (was `:150`) |
+| F-15 | MAJOR | fixed (round 2) | `roles::an_absent_value_is_none_and_an_empty_one_is_some_empty` (restored, RED then green), `roles::a_value_of_the_wrong_json_type_is_absent_not_a_lossy_conversion` (the negative control) | `crates/graph-core/src/ingest/roles.rs:74` — the fallback is the collection's declaration, not the record's cell |
 | F-19 | MAJOR | fixed | `roles::the_first_field_with_a_role_is_the_lowest_id_whatever_order_they_were_declared_in`, `roles::link_fields_come_out_in_canonical_id_order_not_declaration_order` | `crates/graph-core/src/ingest/roles.rs:170` (was `:143`) |
 | F-100 | MINOR | fixed | none (parameter count; clippy/build is the gate) | `crates/graph-core/src/ingest/build/builder/spec.rs:24` — `Spec::new` is 4, `Ends` carries the endpoints |
 | F-101 | MINOR | doc-only | — | `crates/graph-core/src/ingest/build.rs:22` — the derivation table now says `has_note`/`icon` are not derived from any role |
 | F-102 | MINOR | doc-only | `build::derive::the_whole_derivation_is_pinned_line_for_line` pins `version=0` on tag hubs | `crates/graph-core/src/ingest/build.rs:27` — stated in the table, not changed: a tag is not a record and carries no `updatedAt` |
-| F-103 | MINOR | fixed | `build::links::a_reference_carried_twice_in_one_many_link_is_one_edge` | `crates/graph-core/src/ingest/build/builder.rs:195` (was `:176-191`) |
+| F-103 | MINOR | fixed (round 2) | `build::links::a_link_carried_by_both_records_is_one_edge` (new, RED then green), `build::links::a_reference_carried_twice_in_one_many_link_is_one_edge` | `crates/graph-core/src/ingest/build/builder.rs:134-152` — dedup keyed on the edge id over the whole walk (`edges_stated` at `:24`), not per record |
 | F-104 | MINOR | doc-only | `roles::the_first_field_with_a_role_is_the_lowest_id_whatever_order_they_were_declared_in` | `crates/graph-core/src/ingest/roles.rs:53-56` — "first" is now stated as *lowest id*, so it is not field order |
 | F-105 | MINOR | doc-only | `roles::the_title_comes_from_the_collections_title_field_not_from_searching_for_a_role` | `crates/graph-core/src/ingest/build.rs:14` — the row now says `titleField`, which is what the contract's `Role::Title` declares |
 | F-106 | MINOR | doc-only | `build::links::an_edge_to_a_deleted_record_is_never_dropped_by_the_derivation_itself` | `crates/graph-core/src/ingest/build.rs:33-41` — the deleted-record claim is now split into "no node, no edge of its own" and "an edge towards one is stated, and `index_model` drops it" |
-| F-107 | MINOR | deferred | none | `crates/graph-core/src/ingest/build.rs:180` — `index_model(...).expect(...)` in `build_topology`. Fixing it means `build_topology` returns `Result<(Derived, Topology), BuildError>` with a new `BuildError::Capacity` variant: a **public** signature change on `graph_core::ingest`, and `crates/graph-wasm/src/contract.rs:34,53` holds `BuildError` in its own public `ContractError::Derivation` and maps it to one ABI code. Neither path is in this job's paths. Recommendation: add `BuildError::Capacity { what: &'static str }` and have `build_topology` return it; `ContractError` keeps its single code (its doc already says one code for both reader and derivation refusals), so wasm needs no change. |
-| F-108 | MINOR | fixed | `strength::tests::the_table_is_total_over_all_kinds` (already green) | `crates/graph-core/src/ingest/strength.rs:41-52` — see the note below |
+| F-107 | MINOR | fixed (round 2) | `build::role_cases::an_index_capacity_refusal_is_a_build_error_and_says_what_overflowed` (no RED possible on this tree — a `u32` index exhaustion is not reachable from a document a test can hold; the test pins the variant and its message) | `crates/graph-core/src/ingest/build.rs:195` — `index_model(..).map_err(..)` replaced the `.expect`; the variant is at `:128`, its `Display` arm at `:158` |
+| F-108 | MINOR | fixed (round 2) | `strength::tests::the_table_states_no_strength_the_match_does_not` (new), `strength::tests::the_table_is_total_over_all_kinds` | `crates/graph-core/src/ingest/strength.rs:55` — `STRENGTH_TABLE` rows read `edge_strength(kind)` instead of repeating the five literals, so the numbers are written once (at `:27`) |
 | F-109 | MINOR | doc-only | `roles::a_weight_is_derived_as_declared_and_is_never_clamped_to_the_zero_one_convention` | `crates/graph-core/src/ingest/roles.rs:93` — `NodeRecord.weight` documents 0..1 *by convention* (`records.rs:22`), and both committed source fixtures declare 3, 5 and 8. A clamp would silently rewrite every weight in the convergence dataset to `1.0` and a refusal would make the phase's own fixture unbuildable. Recorded as pass-through with a Ponytail line naming what it gets wrong. |
 
 ## Notes on the three judgement calls
@@ -43,11 +43,69 @@ declares `Role::Label` as "A second string, the node's `group`" and `:90` declar
 `Role::Group` as "A facet string; a grouping key with no hub nodes of its own", and
 `docs/contract/ingest-schema.json:149-178` lists `group` with no per-role description at
 all. Two roles, one node column, both plausible. Resolved the way that keeps every
-committed byte and every existing test intact: **`label` wins where both are declared,
-`group` is the fallback for a collection that declares no `label` role.** That wires the
-declared role (the reviewer's actual defect — a `group` field was silently dropped
-entirely) without re-scoping what the contract says `Label` is. A `Ponytail:` line at
-`roles.rs:53` names what the fallback gets wrong.
+committed byte intact: **`label` wins where both are declared, `group` is the fallback
+for a collection that declares no `label` role.** A `Ponytail:` line at `roles.rs:63`
+names what the fallback gets wrong.
+
+**F-15, round 2 — which side decides there is a fallback.** Round 1 read the fallback off
+the *record's cell* (`role_value(..Label).or_else(|| role_value(..Group))`), which does not
+implement the sentence above: in a collection declaring both roles, a record with no label
+cell took its `group` cell, so one collection derived two different node columns depending
+on a cell's presence, with nothing in the output saying which rule ran. `roles::group` now
+asks `role_field(collection, Role::Label).is_some()` — the **declaration** — and reads only
+that role. RED on the restored test:
+
+```
+test ingest::tests::roles::an_absent_value_is_none_and_an_empty_one_is_some_empty ... FAILED
+  left: Some("doing")
+ right: None
+```
+
+`an_absent_value_is_none_and_an_empty_one_is_some_empty` had been rewritten onto
+`group_role_only()` in round 1, where the `label` field is not even declared — so the first
+block, whose comment says "the `label` role's cell (`note`)", tested nothing. It is back on
+`one_of_each()` with only the `note` cell removed, and it passes unchanged. The negative
+control is `a_value_of_the_wrong_json_type_is_absent_not_a_lossy_conversion`: an unreadable
+label cell yields `None` while the `group` cell holds "doing", so any cell-driven fallback
+fails it. Round 1's line "Resolved the way that keeps every committed byte **and every
+existing test intact**" was wrong about "every existing test": that test was edited in the
+same round to make the change look clean. No committed fixture moved — `expected-graph.json`
+declares both `slug` (label) and `state` (group) and every record carries both cells.
+
+**F-107, round 2 — not deferred after all.** `build_topology` already returned
+`Result<(Derived, Topology), BuildError>` (`build.rs:186`), so `BuildError::Capacity
+{ what: &'static str }` is purely additive: no signature moved, no variant was removed, and
+`graph-wasm` needed no change — `crates/graph-wasm/src/contract.rs:53` holds the error as
+`ContractError::Derivation(BuildError)` and matches on `ContractError`'s own variants, and
+`exports/build.rs:123` only asks whether it is `Ok`. `index_model`'s `CapacityError` is now
+mapped at `build.rs:195` instead of `.expect`ed at the old `:176`; the stale comment that
+claimed the case unreachable is gone. No RED is possible on this tree — `next_index` is the
+only producer and a `u32` exhaustion cannot be held in memory — so the test pins the two
+observable halves: the variant exists and its message names what overflowed.
+
+**F-103, round 2 — the dedup was one record wide.** `emitted` was declared inside
+`relations`, so a reference repeated in one list was deduped and a symmetric link carried by
+**both** records was not: the two `Derived` edges had one id (`make_edge_id` orders an
+undirected edge's endpoints) and `index_model` kept the first. RED on the new
+`build::links::a_link_carried_by_both_records_is_one_edge`:
+
+```
+  left: ["rows:task:r1--rows:task:r2:relation:blocks", "rows:task:r1--rows:task:r2:relation:blocks"]
+ right: ["rows:task:r1--rows:task:r2:relation:blocks"]
+```
+
+`edges_stated: IndexSet<String>` now lives on the `Builder` (`builder.rs:24`) and keys the
+dedup over the whole walk, first-appearance order preserved and nothing re-sorted (D3). The
+spec-building half moved to `relation_specs` (`builder.rs:154`) because the filter needs
+`&mut self` and the build needs `&self`. Within one record the behaviour is unchanged — the
+same set covers both ways of saying it once.
+
+**F-108, round 2 — one source of the numbers.** `STRENGTH_TABLE` spelled out the same five
+literals the `match` spelled out, and only `the_table_is_total_over_all_kinds` kept them
+equal. The rows now read `edge_strength(kind)`, which is possible because it is a `const fn`
+— one place a strength is written down, and the public `graph_core::ingest::STRENGTH_TABLE`
+export is unchanged. The module doc (old `:8`) and the `edge_strength` doc (old `:28`) no
+longer claim the table is the source or that a totality test holds it in step.
 
 **F-14 and F-106 — the doc was wrong, not the code.** The module doc claimed "a deleted
 record derives nothing at all — no node, and no edge naming it", which is false: an edge
@@ -64,7 +122,8 @@ invents an endpoint nor drops the claim.
 fn` scanning a table with a `panic!` for a missing row, so a new `EdgeKind` variant was a
 runtime panic in release builds. It is now a `const fn` exhaustive `match`, which makes a
 missing row a compile error as the module doc already claimed. The totality test stays and
-still guards the table.
+still guards the table. (Round 2 adds the other half — see the F-108 note above: the table
+is now a view of the match, not a second copy of its numbers.)
 
 ## Fixture regeneration
 
