@@ -3,10 +3,10 @@
  * into one element by the frame handler, at most four times a second, so that a graph that
  * is being panned does not re-render the chrome on every frame it draws.
  */
-import { useEffect, useRef, useState, type ReactElement, type RefObject } from "react";
+import { memo, useEffect, useRef, useState, type ReactElement, type RefObject } from "react";
 
 import type { View, ViewStats } from "../../../graph-render/src/view.ts";
-import type { StudioState } from "../state/model.ts";
+import type { RunSummary } from "../state/model.ts";
 import { digest8, frameLine, ms } from "./names.ts";
 import { due } from "./throttle.ts";
 
@@ -14,7 +14,8 @@ const EVERY = 250;
 const LOOK_AGAIN = 500;
 
 export interface HudProps {
-  readonly state: StudioState;
+  /** The one slice the HUD draws; the rest of the state is not its news. */
+  readonly run: RunSummary | null;
   readonly view: Pick<View, "stats" | "on">;
 }
 
@@ -80,10 +81,10 @@ function SpaceBadge({ dim }: { readonly dim: number }): ReactElement | null {
   );
 }
 
-export function Hud(props: HudProps): ReactElement {
-  const { state, view } = props;
+/** Memoised: the HUD draws the last run and what the view measured, and nothing else. */
+export const Hud = memo(function Hud(props: HudProps): ReactElement {
+  const { run, view } = props;
   const { first, line } = useFrameLine(view);
-  const { run } = state;
   return (
     <div className="gs-panel gs-hud">
       <span className="gs-hud-frame" ref={line}>{first}</span>
@@ -91,4 +92,4 @@ export function Hud(props: HudProps): ReactElement {
       {run !== null && <span className="gs-muted">{` · layout ${ms(run.layoutMs)} · ${digest8(run.digest)}`}</span>}
     </div>
   );
-}
+});

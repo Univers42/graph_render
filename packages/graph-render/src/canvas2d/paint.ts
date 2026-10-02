@@ -1,8 +1,8 @@
 /** One frame on a 2D context: background, edges, nodes, labels — in that order. */
 import { type PaintCounts, type PaintInput, newCounts } from "./input.ts";
-import { paintEdges } from "./edges.ts";
+import { paintEdges, paintLitEdges } from "./edges.ts";
 import { paintGlow } from "./glow.ts";
-import { paintNodes } from "./nodes.ts";
+import { paintLitNodes, paintNodes } from "./nodes.ts";
 import { paint3d } from "../three/paint3d.ts";
 
 function paintLabels(input: PaintInput, counts: PaintCounts): void {
@@ -47,9 +47,18 @@ export function paintFrame(input: PaintInput): PaintCounts {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.globalAlpha = 1;
   paintGround(input);
-  paintEdges(input, counts);
-  paintGlow(input, counts);
-  paintNodes(input, counts);
+  if (input.bulk?.(input, counts) === true) {
+    // The GPU layer drew every edge and node, dimmed under a focus: the lit neighbourhood
+    // and the rings go over it at full strength, and are not counted a second time.
+    const drawn = counts.nodes;
+    if (input.focus >= 0) paintLitEdges(input, counts);
+    paintLitNodes(input, counts);
+    counts.nodes = drawn;
+  } else {
+    paintEdges(input, counts);
+    paintGlow(input, counts);
+    paintNodes(input, counts);
+  }
   paintLabels(input, counts);
   return counts;
 }

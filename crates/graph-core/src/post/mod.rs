@@ -11,8 +11,11 @@
 //! geometry with node cells marked as obstacles, and [`routed`] routes edges around them. [`styles`]
 //! draws parallel edges and self-loops apart.
 //!
-//! **Scaffolding, additive.** The styles and routing slices add their own `pub mod` line
-//! and their own row in [`POSTS`]; the matrix in [`tests`] is written to grow with them.
+//! **Two registries.** [`POSTS`] holds the two bundlers, whose entry points take nothing but
+//! the geometry. Routing ([`routed`]) and the four styles ([`styles`]) take their parameters
+//! explicitly and have no row here: their ledger rows are graph-cli's `capabilities/post.rs`,
+//! their ABI rows graph-wasm's `post.rs`. [`grid_index`] is routing's obstacle grid, not a
+//! capability. The matrix in [`tests`] reads [`POSTS`], so it covers the bundlers only.
 
 pub mod fdeb;
 pub mod grid_index;
@@ -79,8 +82,9 @@ pub struct Bundled {
     /// FDEB: edge pairs whose compatibility cleared the threshold, the pairs that ever
     /// attract. MINGLE: merges accepted, over every pass of every round.
     pub pairs: u32,
-    /// Edges that merged with nothing and are therefore drawn unbundled. The failure the
-    /// `post.bundle.fdeb` Ponytail marker names.
+    /// Edges that merged with nothing and are therefore drawn unbundled. FDEB: edges no
+    /// pair cleared the threshold with, the failure its Ponytail marker names. MINGLE: edges
+    /// that never joined a bundle ([`mingle::Bundles::unbundled`]).
     pub unbundled: u32,
 }
 

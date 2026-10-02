@@ -8,7 +8,7 @@ import { DRAWN, fakeView, markup, studioWith } from "./desk.ts";
 
 function inspector(state = DRAWN): string {
   const { studio } = studioWith(state);
-  return markup(createElement(Inspector, { studio, state, view: fakeView() }));
+  return markup(createElement(Inspector, { studio, meta: state.meta, selected: state.selected, analysis: state.analysis, selection: state.selection, view: fakeView() }));
 }
 
 test("with nothing selected there is no inspector", () => {

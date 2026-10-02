@@ -75,7 +75,9 @@ get() {
 }
 
 [[ $# -ge 1 && -n ${1-} ]] || { echo "usage: oc-live.sh <worktree> [session-id]" >&2; exit 2; }
-want=$(dir "$1")
+# Both sides canonical: a worktree may be a symlink (wt-new.sh GM_WT_STORE), and a session keeps the path
+# its client started in.
+want=$(dir "$(realpath -m -- "$1")")
 pin=${2-}
 tmo=${OC_LIVE_TIMEOUT:-5}
 curl=${OC_LIVE_CURL:-curl}
@@ -97,7 +99,7 @@ while IFS= read -r id; do
   title=$(jq -r '.data.title // ""' <<<"$body" 2>/dev/null)
   [[ -n $d ]] || continue
   seen=$((seen + 1))
-  if [[ $(dir "$d") == "$want" ]]; then
+  if [[ $(dir "$(realpath -m -- "$d")") == "$want" ]]; then
     printf '%s %s\n' "$id" "${title//[$'\n\t']/ }"
     exit 0
   fi
