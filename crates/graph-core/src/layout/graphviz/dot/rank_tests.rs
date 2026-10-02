@@ -358,14 +358,18 @@ fn rank_agreement_over_1000_seeds() {
         if got == row.ranks {
             agree += 1;
         }
-        let ours = cost(&row.edges, &got);
-        let theirs = cost(&row.edges, &row.ranks);
+        let ours = cost(&acyclic_edges(count, &row.edges), &got);
+        let theirs = cost(&acyclic_edges(count, &row.edges), &row.ranks);
         if ours == theirs {
             equal_cost += 1;
         }
         if ours > theirs {
             worse += 1;
-            eprintln!("worse: seed {} n {} ours {ours} theirs {theirs}", row.seed, row.ranks.len());
+            eprintln!(
+                "worse: seed {} n {} ours {ours} theirs {theirs}",
+                row.seed,
+                row.ranks.len()
+            );
         }
     }
     eprintln!(
@@ -388,22 +392,32 @@ const RECORDED_AGREEMENT: usize = 692;
 /// rankings with the same cost are two answers to the same question and the port is not
 /// *worse* for answering differently.
 ///
-/// Parallel input edges are folded first because that is what `class1` does to them, so this
-/// is the cost of the graph the simplex actually ranked.
-fn cost(edges: &[(u32, u32)], ranks: &[i32]) -> i64 {
-    let mut merged: Vec<(u32, u32, i64)> = Vec::new();
-    for &(t, h) in edges {
-        match merged.iter_mut().find(|e| e.0 == t && e.1 == h) {
-            Some(e) => e.2 += 1,
-            None => merged.push((t, h, 1)),
-        }
-    }
-    let mut total = 0;
-    for (t, h, w) in merged {
-        let span = i64::from(ranks[h as usize] - ranks[t as usize]);
-        total += w * (span - 1).max(0);
-    }
-    total
+/// Measured on the graph the simplex actually ranked, which is [`acyclic_edges`] and not the
+/// input: `acyclic` reverses the back edge of every cycle, and a reversed edge's span is
+/// measured the other way round. Comparing costs against the input edge list instead makes
+/// a correct ranking look worse than the oracle's on every graph with a cycle in it, which
+/// is what the first version of this test did.
+fn cost(edges: &[(u32, u32, i64)], ranks: &[i32]) -> i64 {
+    edges
+        .iter()
+        .map(|&(t, h, w)| w * (i64::from(ranks[h as usize] - ranks[t as usize]) - 1).max(0))
+        .sum()
 }
+
+/// The edge list the rank pass sees: `class1` then `acyclic`, as `(tail, head, weight)`.
+/// The weight matters because parallel input edges are folded together before ranking.
+fn acyclic_edges(count: u32, edges: &[(u32, u32)]) -> Vec<(u32, u32, i64)> {
+    let mut g = graph(count, edges);
+    super::class1::run(&mut g);
+    for component in super::decomp::decompose(&g) {
+        super::acyclic::run(&mut g, &component);
+    }
+    g.edges
+        .iter()
+        .filter(|e| e.live)
+        .map(|e| (e.tail, e.head, i64::from(e.weight)))
+        .collect()
+}
+
 
 

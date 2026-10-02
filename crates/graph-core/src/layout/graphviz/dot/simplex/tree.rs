@@ -117,6 +117,28 @@ pub fn feasible_tree(g: &mut Fast, ctx: &mut Ctx, nodes: &[u32]) -> Result<(), E
 /// that, and neither showed up in any coordinate.
 #[cfg(test)]
 pub(crate) fn check_invariants(g: &Fast, nodes: &[u32], ctx: &Ctx, when: &str) {
+    // The tree must be a tree: `n - 1` edges, no cycle, every node reached. Without this the
+    // cut-value check below is vacuous — a cyclic edge set makes the tail side of every
+    // edge "everything", so every cut value reads zero and agrees with itself.
+    let mut parent: Vec<usize> = (0..g.nodes.len()).collect();
+    fn root(p: &mut Vec<usize>, mut at: usize) -> usize {
+        while p[at] != at {
+            at = p[at];
+        }
+        at
+    }
+    assert_eq!(ctx.tree_edge.len(), nodes.len() - 1, "tree edge count {when}");
+    for &edge in &ctx.tree_edge {
+        let t = g.edges[edge as usize].tail as usize;
+        let h = g.edges[edge as usize].head as usize;
+        let (a, b) = (root(&mut parent, t), root(&mut parent, h));
+        assert_ne!(a, b, "tree edge {edge} makes a cycle {when}");
+        parent[a] = b;
+    }
+    let first = root(&mut parent, nodes[0] as usize);
+    for &n in nodes {
+        assert_eq!(root(&mut parent, n as usize), first, "node {n} unspanned {when}");
+    }
     for &n in nodes {
         if n != nodes[0] {
             let parent = g.nodes[n as usize].par.expect("a parent edge");
