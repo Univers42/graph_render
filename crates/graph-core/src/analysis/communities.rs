@@ -63,7 +63,13 @@ pub fn modularity(topology: &Topology, membership: &[u32]) -> f64 {
             }
         }
     }
-    let null_model: f64 = community_degree.iter().map(|k| (k / m2).powi(2)).sum();
+    let null_model: f64 = community_degree
+        .iter()
+        .map(|k| {
+            let share = k / m2;
+            share * share
+        })
+        .sum();
     internal / m2 - null_model
 }
 
@@ -165,7 +171,9 @@ fn weighted_degree(adjacency: &[Vec<(u32, f64)>]) -> Vec<f64> {
 }
 
 /// The undirected weighted projection: `strength` symmetrised, direction ignored, plus
-/// the graph's total edge weight (each edge counted once).
+/// the graph's total edge weight (each edge counted once, networkx's `G.size`). A
+/// self-loop lands twice in its node's row, so [`weighted_degree`] counts it twice, as
+/// networkx's `G.degree` does (`louvain.py:265`).
 fn undirected_adjacency(topology: &Topology) -> (Vec<Vec<(u32, f64)>>, f64) {
     let n = topology.node_count() as usize;
     let mut adjacency = vec![Vec::new(); n];
@@ -174,111 +182,11 @@ fn undirected_adjacency(topology: &Topology) -> (Vec<Vec<(u32, f64)>>, f64) {
     for i in 0..topology.edge_count() as usize {
         let (a, b, w) = (edges.source[i], edges.target[i], edges.strength[i]);
         adjacency[a as usize].push((b, w));
-        if a != b {
-            adjacency[b as usize].push((a, w));
-        }
+        adjacency[b as usize].push((a, w));
         total += w;
     }
     (adjacency, total)
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::index::index_model;
-    use crate::records::build::{edge, node};
-
-    /// Two triangles joined by one bridge edge — the textbook case: Louvain should keep
-    /// each triangle together and the bridge should not merge them.
-    fn two_cliques() -> Topology {
-        let ids = ["a0", "a1", "a2", "b0", "b1", "b2"];
-        let nodes: Vec<_> = ids.iter().map(|id| node(id, "")).collect();
-        let mut edges = vec![
-            edge("a01", "a0", "a1"),
-            edge("a12", "a1", "a2"),
-            edge("a20", "a2", "a0"),
-            edge("b01", "b0", "b1"),
-            edge("b12", "b1", "b2"),
-            edge("b20", "b2", "b0"),
-        ];
-        edges.push(edge("bridge", "a0", "b0"));
-        index_model(&nodes, &edges).expect("fits")
-    }
-
-    #[test]
-    fn two_cliques_stay_separate_communities_across_the_bridge() {
-        let t = two_cliques();
-        let labels = louvain(&t);
-        assert_eq!(
-            labels[0..3]
-                .iter()
-                .collect::<std::collections::BTreeSet<_>>()
-                .len(),
-            1
-        );
-        assert_eq!(
-            labels[3..6]
-                .iter()
-                .collect::<std::collections::BTreeSet<_>>()
-                .len(),
-            1
-        );
-        assert_ne!(labels[0], labels[3], "the two cliques must not merge");
-    }
-
-    #[test]
-    fn modularity_of_the_clean_partition_is_positive_and_higher_than_one_lump() {
-        let t = two_cliques();
-        let good = louvain(&t);
-        let one_lump = vec![0u32; 6];
-        assert_eq!(
-            modularity(&t, &one_lump),
-            0.0,
-            "one community must always score exactly zero"
-        );
-        assert!(modularity(&t, &good) > modularity(&t, &one_lump));
-        assert!(modularity(&t, &good) > 0.0);
-        // fixtures/analysis/two-cliques.json pins this exact value.
-        assert_eq!(modularity(&t, &good), 0.3571428571428571);
-    }
-
-    #[test]
-    fn an_edgeless_graph_gives_every_node_its_own_community_and_zero_modularity() {
-        let nodes = [node("a", ""), node("b", "")];
-        let t = index_model(&nodes, &[]).expect("fits");
-        assert_eq!(louvain(&t), [0, 1]);
-        assert_eq!(modularity(&t, &[0, 1]), 0.0);
-    }
-
-    #[test]
-    fn repeated_runs_agree_bit_for_bit() {
-        let t = two_cliques();
-        assert_eq!(louvain(&t), louvain(&t));
-    }
-
-    /// Regression for the BLOCKER finding (phase-07 review): `move_node` took 6 loose
-    /// parameters, over the house's <=4-parameter limit. This drives it through the
-    /// bundled `LouvainState` instead, on the smallest case that actually moves a node —
-    /// two singleton communities across one edge must merge into one.
-    #[test]
-    fn move_node_via_bundled_state_merges_two_connected_singletons() {
-        let adjacency = vec![vec![(1u32, 1.0)], vec![(0u32, 1.0)]];
-        let degree = vec![1.0, 1.0];
-        let mut community = vec![0u32, 1u32];
-        let mut total = degree.clone();
-        let mut state = LouvainState {
-            adjacency: &adjacency,
-            degree: &degree,
-            community: &mut community,
-            total: &mut total,
-            m: 1.0,
-        };
-        let moved = move_node(1, &mut state);
-        assert!(
-            moved,
-            "joining the only neighbour's community is a strict gain"
-        );
-        assert_eq!(community, [0, 0]);
-        assert_eq!(total, [2.0, 0.0]);
-    }
-}
+mod tests;

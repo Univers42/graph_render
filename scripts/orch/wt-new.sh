@@ -9,19 +9,25 @@ here=$(dirname "$(readlink -f "$0")")
 source "$here/scratch.sh"
 branch=${1:?usage: wt-new.sh <branch> [base]} base=${2:-origin/develop}
 wt=$GM_SCRATCH/wt/$branch
-[[ ! -e $wt ]] || {
-  echo "wt-new: $wt exists" >&2
+# GM_WT_STORE (scratch.sh) puts the checkout on another disk and leaves $wt a symlink to it, so every
+# script that names $GM_SCRATCH/wt/<branch> still finds it. Each target/ grows to 2-3 GB, which filled
+# /home on 2026-10-02 while /mnt/storage had 476 GB free.
+real=${GM_WT_STORE:+$GM_WT_STORE/$branch}
+real=${real:-$wt}
+[[ ! -e $wt && ! -L $wt && ! -e $real ]] || {
+  echo "wt-new: $wt or $real exists" >&2
   exit 2
 }
 git fetch -q origin
 if git show-ref -q --verify "refs/heads/$branch"; then
-  git worktree add -q "$wt" "$branch"
+  git worktree add -q "$real" "$branch"
 elif git show-ref -q --verify "refs/remotes/origin/$branch"; then
-  git worktree add -q --track -b "$branch" "$wt" "origin/$branch"
+  git worktree add -q --track -b "$branch" "$real" "origin/$branch"
 else
-  git worktree add -q -b "$branch" "$wt" "$base"
+  git worktree add -q -b "$branch" "$real" "$base"
 fi
-cd "$wt"
+[[ $real == "$wt" ]] || ln -s "$real" "$wt"
+cd "$real"
 # The host owns target/: under the rootful daemon a container creates it as root, and then the
 # host-side logs of gate.sh and scigraphs-conformance.sh cannot be written (2026-10-02, fix-analysis).
 mkdir -p target

@@ -21,6 +21,9 @@ use crate::index::Topology;
 use crate::layout::Geometry;
 use graph_contract::geometry::NodeGeometry;
 
+#[cfg(test)]
+mod tests;
+
 /// Cells per axis of the ink raster: the nodes' bounding frame, square-divided this many
 /// times. The number behind every ink figure in `docs/measurements/phase08-ink.md`.
 pub const INK_RESOLUTION: u32 = 128;
@@ -41,7 +44,7 @@ pub struct Ink {
 /// straight and bundled geometry are measured the same way — the measurement does not
 /// assume a layout, which is the same claim composability makes.
 pub fn ink(topology: &Topology, geometry: &Geometry) -> Ink {
-    let (x, y) = crate::post::centres(&geometry.nodes);
+    let (x, y) = centres(&geometry.nodes);
     let mut raster = Raster::over(x, y);
     let mut length = 0.0;
     for e in 0..topology.edge_count() {
@@ -77,12 +80,18 @@ struct Raster {
 impl Raster {
     /// The grid over the nodes' bounding box. A degenerate axis (every node on one
     /// coordinate) is scaled by `1`, so the division stays finite and the axis is one cell.
+    ///
+    /// Ponytail (tiny box): an extent under `INK_RESOLUTION / f32::MAX` (~3.8e-37) overflows
+    /// the scale to `+inf`, which made the half-cell step 0 and the walk `u32::MAX` steps
+    /// long. Such an axis is degenerate too. Failing input: a drawing under ~3.8e-37 across.
+    /// Direction: under-reports, one cell where the drawing may cross up to 128. Escape
+    /// hatch: measure the drawing at a usable scale.
     fn over(x: &[f32], y: &[f32]) -> Raster {
         let axis = |a: &[f32]| {
             let (low, high) = span(a);
-            let extent = high - low;
-            if extent > 0.0 {
-                (low, INK_RESOLUTION as f32 / extent)
+            let scale = INK_RESOLUTION as f32 / (high - low);
+            if high > low && scale.is_finite() {
+                (low, scale)
             } else {
                 (low, 1.0)
             }
@@ -100,16 +109,19 @@ impl Raster {
     /// stepped over, and returns the segment's length.
     fn mark(&mut self, ax: f32, ay: f32, bx: f32, by: f32) -> f64 {
         let length = f64::from(libm::hypotf(bx - ax, by - ay));
-        let step = 0.5 / self.scale.0.max(self.scale.1);
-        let steps = ((bx - ax).abs().max((by - ay).abs()) / step)
-            .ceil()
-            .max(1.0) as u32;
+        let steps = self.steps(bx - ax, by - ay);
         for s in 0..=steps {
             let t = s as f32 / steps as f32;
             let (x, y) = (ax + (bx - ax) * t, ay + (by - ay) * t);
             self.mark_point(x, y);
         }
         length
+    }
+
+    /// Half-cell steps a segment of extent `(dx, dy)` is walked in, at least one.
+    fn steps(&self, dx: f32, dy: f32) -> u32 {
+        let step = 0.5 / self.scale.0.max(self.scale.1);
+        (dx.abs().max(dy.abs()) / step).ceil().max(1.0) as u32
     }
 
     /// Marks the one cell a point falls in.
@@ -147,8 +159,8 @@ fn cell(value: f32) -> u32 {
     if value > 0.0 { value as u32 } else { 0 }.min(INK_RESOLUTION - 1)
 }
 
-/// The node centres of any geometry, restated so this module's own tests read as one
-/// line. Shared with [`crate::post::centres`], which is what callers use.
+/// [`crate::post::centres`], under this module's name: [`ink`] reads its node centres
+/// through it. Kept public because `post::ink::centres` is published surface.
 pub fn centres(nodes: &NodeGeometry) -> (&[f32], &[f32]) {
     crate::post::centres(nodes)
 }

@@ -181,7 +181,7 @@ mod stage_exports;
 #[cfg(any(test, target_arch = "wasm32"))]
 pub(crate) mod views;
 
-/// The heap grows by a quarter at a time rather than by 64 KiB: see [`heap`].
+/// The heap grows by an eighth at a time rather than by 64 KiB: see [`heap`].
 #[cfg(all(target_arch = "wasm32", not(test)))]
 #[global_allocator]
 static HEAP: heap::Geometric = heap::Geometric;

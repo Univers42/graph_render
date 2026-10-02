@@ -70,5 +70,6 @@ fn laid_out() -> (crate::index::Topology, Geometry) {
     (topology, geometry(&x, &y))
 }
 
+mod cost;
 mod ink;
 mod order;

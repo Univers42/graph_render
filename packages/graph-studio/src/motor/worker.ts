@@ -1,6 +1,6 @@
 /** The worker's entry: the session behind a message pump. Imported only as a worker. */
 import { createMotor } from "../../../../crates/graph-sdk-js/src/index.ts";
-import { createForceHost } from "./liveLoop.ts";
+import { createForceHost, type ForceHost } from "./liveLoop.ts";
 import { UNSOLICITED, isRequest } from "./protocol.ts";
 import { createPump } from "./pump.ts";
 import { createSession, sha256Hex } from "./session.ts";
@@ -37,11 +37,15 @@ function pacedFrame(run: () => void): () => void {
 
 const scope: unknown = globalThis;
 if (isWorkerScope(scope)) {
+  // The session is made before the host that could stop its loop, so the notice runs over
+  // one cell: a graph replaced mid-settle must not leave the loop stepping a dead session.
+  const notice: { host: ForceHost | null } = { host: null };
   const session = createSession({
     motorFrom: (wasmUrl) => createMotor(wasmUrl),
     fetchText,
     digest: sha256Hex,
     now: () => performance.now(),
+    onForget: () => notice.host?.forget(),
   });
   const forces = createForceHost(() => session.forces(), {
     schedule: pacedFrame,
@@ -49,6 +53,7 @@ if (isWorkerScope(scope)) {
     // A frame is unsolicited: it has no request of its own to be the answer to.
     emit: (result, transfer) => scope.postMessage({ seq: UNSOLICITED, body: result }, transfer),
   });
+  notice.host = forces;
   const pump = createPump(session, (message, transfer) => scope.postMessage(message, transfer), forces);
   scope.onmessage = (event) => {
     if (isRequest(event.data)) pump(event.data);
