@@ -14,7 +14,7 @@ fn line(n: u32) -> (Vec<NodeRecord>, Vec<EdgeRecord>) {
 }
 
 /// A simulation over `n` unlinked nodes at the given positions.
-fn placed(x: Vec<f64>, y: Vec<f64>, params: ForceParams) -> Sim {
+pub(super) fn placed(x: Vec<f64>, y: Vec<f64>, params: ForceParams) -> Sim {
     let nodes: Vec<_> = (0..x.len()).map(|i| node(&format!("n{i}"), "")).collect();
     let t = index_model(&nodes, &[]).expect("fits");
     let mut sim = Sim::new(&t, LiveParams::from(params), SEED);

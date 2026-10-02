@@ -6,9 +6,10 @@
 //! consecutive reads hit neighbouring cells.
 
 use super::mesh::Mesh;
+use super::motion::{self, Gathered};
 use crate::exec::{Runner, StepRange};
+use crate::layout::force::barnes_hut::Split;
 use crate::layout::force::barnes_hut::sim::{How, Sim};
-use crate::layout::force::barnes_hut::{Split, step};
 use std::ops::Range;
 
 /// The per-node field read: `charge * alpha * E(x_i)`, node `order[k]` into slot `k`.
@@ -47,11 +48,10 @@ pub(super) fn apply<R: Runner>(sim: &mut Sim, mesh: &mut Mesh, how: &mut How<'_,
         strength: sim.params.charge * sim.alpha,
     };
     how.runner.run(&read, how.workers, how.deltas);
-    let split = how.split.splits(Split::Charge);
-    step::merge(
-        (&mut sim.vx, &mut sim.vy),
-        Some(&mesh.grid.order),
-        how.deltas,
-        split,
-    );
+    let gathered = Gathered {
+        deltas: how.deltas,
+        slot: &mesh.grid.slot,
+        split: how.split.splits(Split::Charge),
+    };
+    motion::merge(sim, gathered, (how.runner, how.workers));
 }

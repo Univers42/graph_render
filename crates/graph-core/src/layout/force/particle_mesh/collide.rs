@@ -20,9 +20,9 @@
 //! quadratic for Barnes-Hut as well.
 
 use super::frame::{self, Bounds};
+use super::motion;
 use crate::exec::{Runner, StepRange};
 use crate::layout::force::barnes_hut::sim::{How, Sim};
-use crate::layout::force::barnes_hut::{Split, step};
 use crate::rng::jiggle;
 use hash::{Buckets, Hash};
 use std::ops::Range;
@@ -241,33 +241,26 @@ impl StepRange for Gather<'_> {
     }
 }
 
-/// The collide pass: project, sort, gather, merge back onto each node.
-pub(super) fn apply<R: Runner>(sim: &mut Sim, grid: &mut Grid, how: &mut How<'_, R>) {
+/// The collide pass: project, sort, gather into `how.deltas` in slot order. False when
+/// collide is off and no delta was gathered.
+pub(super) fn apply<R: Runner>(sim: &mut Sim, grid: &mut Grid, how: &mut How<'_, R>) -> bool {
     let diameter = 2.0 * sim.params.collide_radius;
     let d2 = diameter * diameter;
     if d2 == 0.0 {
-        return;
+        return false;
     }
-    for i in 0..sim.x.len() {
-        sim.px[i] = sim.x[i] + sim.vx[i];
-        sim.py[i] = sim.y[i] + sim.vy[i];
-    }
+    let on = (how.runner, how.workers);
+    motion::project(sim, on);
     let contact = Contact {
         d2,
         reach: libm::sqrt(d2),
         seed: sim.seed,
         tick: sim.tick_no,
     };
-    grid.build((&sim.px, &sim.py), contact.reach, (how.runner, how.workers));
+    grid.build((&sim.px, &sim.py), contact.reach, on);
     how.runner
         .run(&Gather { grid, contact }, how.workers, how.deltas);
-    let split = how.split.splits(Split::Collide);
-    step::merge(
-        (&mut sim.vx, &mut sim.vy),
-        Some(&grid.order),
-        how.deltas,
-        split,
-    );
+    true
 }
 
 #[cfg(test)]

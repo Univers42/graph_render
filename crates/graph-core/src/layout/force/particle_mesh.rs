@@ -7,7 +7,8 @@
 //!   the same weights (`particle_mesh/{frame,kernel,mesh,fft,charge}.rs`).
 //! - **Collide** sorts the projected positions into a hashed cell list one diameter wide
 //!   and resolves the nine neighbour cells (`particle_mesh/collide.rs`).
-//! - **Link, center and integrate** are Barnes-Hut's own code, called, not copied.
+//! - **Link and center** are Barnes-Hut's own code, called, not copied. The velocity merges
+//!   and the integrate are its expressions as range passes (`particle_mesh/motion.rs`).
 //!
 //! A different layout id from Barnes-Hut, not a tier of it: the mesh changes the bytes.
 //! It is deterministic in the same sense, one tier's bytes per run, native and wasm32
@@ -26,6 +27,7 @@ mod fft;
 mod frame;
 mod kernel;
 mod mesh;
+mod motion;
 
 #[cfg(test)]
 mod tests;
@@ -39,6 +41,7 @@ use crate::index::Topology;
 use crate::layout::Geometry;
 use crate::stage::{Stage, StageError};
 use mesh::Mesh;
+use motion::Gathered;
 
 /// The seed the jiggle reads, the frozen stage's as for Barnes-Hut.
 const SEED: u32 = 0;
@@ -135,7 +138,12 @@ fn tick<R: Runner>(sim: &mut Sim, mesh: &mut Mesh, how: &mut How<'_, R>) {
     link::apply_with(sim, how.runner, how.workers, how.deltas, split);
     charge::apply(sim, mesh, how);
     sim.center();
-    collide::apply(sim, &mut mesh.grid, how);
-    sim.integrate();
+    let collided = collide::apply(sim, &mut mesh.grid, how);
+    let gathered = Gathered {
+        deltas: how.deltas,
+        slot: &mesh.grid.slot,
+        split: how.split.splits(Split::Collide),
+    };
+    motion::integrate(sim, collided.then_some(gathered), (how.runner, how.workers));
     sim.tick_no += 1;
 }
