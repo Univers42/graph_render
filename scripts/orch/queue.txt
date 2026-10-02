@@ -51,7 +51,3 @@ sg-conformance-split|build|prompts/jobs/sg-conformance-split.md|scripts/orch/row
 perf-p5-gate|build|prompts/jobs/perf-p5-gate.md|scripts/orch/rows/perf-p5.rows|no
 sg-mt19937|build|prompts/jobs/sg-mt19937.md|scripts/orch/rows/quick.rows|no
 sg-graphviz-scale|build|prompts/jobs/sg-graphviz-scale.md|scripts/orch/rows/quick.rows|no
-fix-wasm-abi|build|prompts/jobs/fix-wasm-abi.md|scripts/orch/rows/quick.rows|no
-fix-analysis|build|prompts/jobs/fix-analysis.md|scripts/orch/rows/quick.rows|no
-fix-scale|build|prompts/jobs/fix-scale.md|scripts/orch/rows/quick.rows|no
-fix-post-routed|build|prompts/jobs/fix-post-routed.md|scripts/orch/rows/quick.rows|no

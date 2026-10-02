@@ -11,6 +11,7 @@
 
 use super::Knob;
 use super::igraph;
+use super::knobs;
 use super::three_d;
 
 /// The record `knob`'s run writes.
@@ -54,6 +55,7 @@ pub const fn record(knob: Knob) -> &'static str {
         Knob::Basic3dCubeNodes => three_d::RECORD[2],
         Knob::Hierarchical3dNodes => three_d::RECORD[3],
         Knob::Spring3dNodes => three_d::RECORD[4],
+        Knob::PackingOsageNodes => knobs::OSAGE_LAYOUT_STAGES[0].record,
         Knob::TwopiNodes => "hashgate-control-twopi-nodes",
         Knob::NeatoEpsilon => "hashgate-control-neato-epsilon",
         Knob::PatchworkNodes => "hashgate-control-patchwork-nodes",
