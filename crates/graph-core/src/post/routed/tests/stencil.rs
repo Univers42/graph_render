@@ -9,7 +9,7 @@ use petgraph::visit::{EdgeRef, IntoEdges};
 /// The Euclidean length of the step from `a` to `b`, two neighbouring cells.
 fn step_length(graph: &GridCsr, a: u32, b: u32) -> f64 {
     let ((ax, ay), (bx, by)) = (graph.xy(a), graph.xy(b));
-    libm::sqrt(f64::from((bx - ax).pow(2) + (by - ay).pow(2)))
+    f64::sqrt(f64::from((bx - ax).pow(2) + (by - ay).pow(2)))
 }
 
 #[test]

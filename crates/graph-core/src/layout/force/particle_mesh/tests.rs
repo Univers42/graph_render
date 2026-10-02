@@ -32,7 +32,7 @@ fn direct(x: &[f64], y: &[f64], i: usize, law: Law) -> (f64, f64) {
             continue;
         }
         if l < law.dmin2 {
-            l = libm::sqrt(law.dmin2 * l);
+            l = f64::sqrt(law.dmin2 * l);
         }
         e = (e.0 - rx / l, e.1 - ry / l);
     }
@@ -63,7 +63,7 @@ fn the_mesh_field_follows_the_direct_sum_at_range() {
         err += (got.0 - want.0).powi(2) + (got.1 - want.1).powi(2);
         norm += want.0.powi(2) + want.1.powi(2);
     }
-    let relative = libm::sqrt(err / norm);
+    let relative = f64::sqrt(err / norm);
     assert!(relative < 0.05, "rms relative field error {relative}");
 }
 

@@ -110,7 +110,7 @@ fn the_radius_is_one_hundred_thirty_percent_of_nothing_in_particular() {
     for n in [1u32, 2, 4, 9, 20, 101] {
         let (x, y, _) = space(&helix(&bare(n)).expect("runs"));
         for i in 0..n as usize {
-            let r = libm::sqrt(f64::from(x[i]).powi(2) + f64::from(y[i]).powi(2));
+            let r = f64::sqrt(f64::from(x[i]).powi(2) + f64::from(y[i]).powi(2));
             assert!((r - R).abs() < 1e-5, "n={n} node {i} at {r}, not {R}");
         }
     }

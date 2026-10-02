@@ -37,7 +37,7 @@ fn a_path_of_three_has_pinned_coordinates() {
 fn an_isolated_edge_settles_at_unit_length() {
     let (x, y) = points(&graph(2, &[(0, 1)]), FrParams::default());
     let (dx, dy) = (f64::from(x[0] - x[1]), f64::from(y[0] - y[1]));
-    let d = libm::sqrt(dx * dx + dy * dy);
+    let d = f64::sqrt(dx * dx + dy * dy);
     assert!((d - 1.0).abs() < 1e-2, "distance {d}");
 }
 

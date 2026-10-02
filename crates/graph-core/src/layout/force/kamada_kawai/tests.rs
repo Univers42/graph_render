@@ -30,7 +30,7 @@ fn points(t: &Topology) -> Vec<(f64, f64)> {
 
 fn dist(p: &[(f64, f64)], i: usize, j: usize) -> f64 {
     let (dx, dy) = (p[i].0 - p[j].0, p[i].1 - p[j].1);
-    libm::sqrt(dx * dx + dy * dy)
+    f64::sqrt(dx * dx + dy * dy)
 }
 
 #[test]
@@ -51,7 +51,7 @@ fn a_path_of_three_has_pinned_coordinates() {
 fn a_path_is_stretched_to_its_hop_length() {
     // d_max = 2, so one hop is sqrt(3) / 2 long and the ends are sqrt(3) apart.
     let p = points(&graph(3, &[(0, 1), (1, 2)]));
-    let hop = libm::sqrt(3.0) / 2.0;
+    let hop = f64::sqrt(3.0) / 2.0;
     assert!((dist(&p, 0, 1) - hop).abs() < 1e-4, "{}", dist(&p, 0, 1));
     assert!((dist(&p, 0, 2) - 2.0 * hop).abs() < 1e-4);
 }

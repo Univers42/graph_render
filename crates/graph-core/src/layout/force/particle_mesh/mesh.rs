@@ -29,7 +29,7 @@ use crate::layout::force::barnes_hut::sim::Sim;
 /// cells for the whole layout, so `h` grows with the span; the floor of 128 keeps a small
 /// graph's cells well under its link distance.
 pub(super) fn side_for(n: u32) -> usize {
-    let root = libm::ceil(libm::sqrt(f64::from(n))) as usize;
+    let root = libm::ceil(f64::sqrt(f64::from(n))) as usize;
     root.next_power_of_two().clamp(128, MAX_SIDE)
 }
 
@@ -73,7 +73,7 @@ impl Mesh {
         let side = self.plan.side();
         let xy = (&sim.x[..], &sim.y[..]);
         let found = frame::bounds(xy, runner, workers, &mut self.blocks);
-        self.frame = found.and_then(|b| frame::place(b, side, libm::sqrt(law.dmax2)));
+        self.frame = found.and_then(|b| frame::place(b, side, f64::sqrt(law.dmax2)));
         let Some(frame) = self.frame.filter(|_| sim.x.len() > 1 && law.dmax2 > 0.0) else {
             return false;
         };

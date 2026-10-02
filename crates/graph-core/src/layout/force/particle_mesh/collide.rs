@@ -205,7 +205,7 @@ fn resolve(
         dy = jiggle(c.seed, c.tick, PASS_Y, ids());
         l += dy * dy;
     }
-    let dist = libm::sqrt(l);
+    let dist = f64::sqrt(l);
     let push = (c.reach - dist) / dist * 0.5;
     out.0 += dx * push;
     out.1 += dy * push;
@@ -253,7 +253,7 @@ pub(super) fn apply<R: Runner>(sim: &mut Sim, grid: &mut Grid, how: &mut How<'_,
     motion::project(sim, on);
     let contact = Contact {
         d2,
-        reach: libm::sqrt(d2),
+        reach: f64::sqrt(d2),
         seed: sim.seed,
         tick: sim.tick_no,
     };

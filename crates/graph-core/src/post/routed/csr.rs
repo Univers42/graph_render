@@ -15,8 +15,8 @@
 //! with the origin removed (`SciGraphs/engine/scigraphs_engine/bundling/routed.py`,
 //! `_offsets`). A step costs its Euclidean length — 1 along an axis, `√2` on a diagonal —
 //! so the metric is 8% off Euclidean on a diagonal at worst, as the reference records;
-//! 4- or 6-connectivity would make it Manhattan. Only [`libm::sqrt`] is called (D1), so
-//! the diagonal costs bit-alike on every target.
+//! 4- or 6-connectivity would make it Manhattan. Only [`f64::sqrt`] is called, which
+//! IEEE-754 rounds correctly, so the diagonal costs bit-alike on every target.
 //!
 //! The stencil order is also the CSR row order, so a row is walked in the reference's
 //! order and the CSR stays arrival-ordered and deterministic. A border row is shorter than
@@ -43,7 +43,7 @@ pub const STENCIL: [(i32, i32); 8] = [
 pub type Cell = u32;
 
 /// Euclidean length of each stencil step, in [`STENCIL`] order: 1 along an axis, `√2` on
-/// a diagonal. `libm::sqrt` only (D1), computed once per grid.
+/// a diagonal. `f64::sqrt` only, computed once per grid.
 ///
 /// f64, not the reference's float32-rounded literals (`routed.py:69-71`). The reference
 /// rounds so that its numpy and GPU backends break a tie alike; here every target computes
@@ -51,7 +51,7 @@ pub type Cell = u32;
 /// Rounding to f32 would shift √2 by 2.4e-8 and could flip a near-tie between two paths,
 /// so the choice is kept and named here (review finding M20).
 pub fn stencil_costs() -> [f64; 8] {
-    let diagonal = libm::sqrt(2.0);
+    let diagonal = f64::sqrt(2.0);
     [diagonal, 1.0, diagonal, 1.0, 1.0, diagonal, 1.0, diagonal]
 }
 

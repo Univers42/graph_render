@@ -62,7 +62,7 @@ fn initial_radii_are_degree_proportional_and_bounded_by_the_frame() {
     let degrees = [3.0, 2.0, 2.0, 1.0];
     let raw: Vec<f64> = degrees.iter().map(|&d| 0.3 + 0.7 * (d / 3.0)).collect();
     let sum_sq: f64 = raw.iter().map(|r| r * r).sum();
-    let factor = libm::sqrt(0.35 * 2.25 * 2.25 / sum_sq);
+    let factor = f64::sqrt(0.35 * 2.25 * 2.25 / sum_sq);
     for (got, want) in radii.iter().zip(&raw) {
         assert_eq!(got.to_bits(), (want * factor).to_bits());
     }

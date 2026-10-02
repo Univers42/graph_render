@@ -75,7 +75,7 @@ fn initial_radii(n: u32, edges: &[(u32, u32)], scale: f64) -> Vec<f64> {
     let frame = scale * 0.45;
     let sum_sq: f64 = radii.iter().map(|r| r * r).sum();
     if sum_sq > 0.0 {
-        let factor = libm::sqrt(0.35 * frame * frame / sum_sq);
+        let factor = f64::sqrt(0.35 * frame * frame / sum_sq);
         for r in &mut radii {
             *r *= factor;
         }

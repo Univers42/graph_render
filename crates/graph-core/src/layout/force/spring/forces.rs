@@ -67,7 +67,7 @@ impl<'a, const D: usize> Solver<'a, D> {
         Solver {
             graph,
             n,
-            k: libm::sqrt(1.0 / f64::from(n)),
+            k: f64::sqrt(1.0 / f64::from(n)),
         }
     }
 
@@ -104,7 +104,7 @@ impl<'a, const D: usize> Solver<'a, D> {
     fn gather(&self, t: f64, cur: &Field<D>, out: &mut Field<D>) {
         for i in 0..self.n as usize {
             let delta = self.displacement(i as u32, cur);
-            let length = libm::sqrt(squared(&delta)).max(MIN_LENGTH);
+            let length = f64::sqrt(squared(&delta)).max(MIN_LENGTH);
             for (axis, column) in out.c.iter_mut().enumerate() {
                 column[i] = cur.c[axis][i] + delta[axis] * (t / length);
             }
@@ -162,7 +162,7 @@ impl<'a, const D: usize> Solver<'a, D> {
             }
             sum += squared(&moved);
         }
-        libm::sqrt(sum)
+        f64::sqrt(sum)
     }
 }
 
@@ -183,7 +183,7 @@ fn squared<const D: usize>(delta: &[f64; D]) -> f64 {
 /// which is what keeps an exact coincidence from dividing by zero. Every `sqrt` in the
 /// port is libm's, so it is bit-identical on every target (D1, D2).
 fn clipped<const D: usize>(delta: &[f64; D]) -> f64 {
-    libm::sqrt(squared(delta)).max(MIN_DISTANCE)
+    f64::sqrt(squared(delta)).max(MIN_DISTANCE)
 }
 
 /// The largest coordinate minus the smallest, for the opening temperature. Ascending

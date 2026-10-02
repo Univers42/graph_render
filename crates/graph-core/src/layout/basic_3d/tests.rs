@@ -39,7 +39,7 @@ pub(super) fn space(g: &Geometry) -> (Vec<f32>, Vec<f32>, Vec<f32>) {
 /// The golden angle `pi*(3 - sqrt(5))`, recomputed here independently of
 /// [`sphere`](super::sphere)'s own constant so a drift in one is caught by the other.
 pub(super) fn golden() -> f64 {
-    core::f64::consts::PI * (3.0 - libm::sqrt(5.0))
+    core::f64::consts::PI * (3.0 - f64::sqrt(5.0))
 }
 
 /// One of the three placements: its id and the `run` the registry registers for it.

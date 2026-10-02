@@ -83,7 +83,7 @@ pub(super) fn force(sim: &Sim, e: usize) -> (f64, f64) {
     if dy == 0.0 {
         dy = jiggle(sim.seed, sim.tick_no, PASS_Y, (lo as u32, hi as u32));
     }
-    let l = libm::sqrt(dx * dx + dy * dy);
+    let l = f64::sqrt(dx * dx + dy * dy);
     let factor = (l - sim.link_distance[e]) / l * sim.alpha * sim.link_strength[e];
     (dx * factor, dy * factor)
 }

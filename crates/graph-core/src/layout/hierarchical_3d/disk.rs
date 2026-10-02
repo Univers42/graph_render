@@ -25,7 +25,7 @@ pub(crate) fn disk(count: usize, radius: f64) -> Vec<(f64, f64)> {
 /// this line, but routing it through the same function keeps the one rounding rule in the
 /// module.
 pub(crate) fn ring_count(count: usize) -> usize {
-    let raw = libm::sqrt(count as f64 / core::f64::consts::PI);
+    let raw = f64::sqrt(count as f64 / core::f64::consts::PI);
     half_to_even(raw).max(1.0) as usize
 }
 

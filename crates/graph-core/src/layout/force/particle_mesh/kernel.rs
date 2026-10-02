@@ -83,7 +83,7 @@ fn green((rx, ry): (f64, f64), law: Law, scale: f64) -> C {
         return C::default();
     }
     if l < law.dmin2 {
-        l = libm::sqrt(law.dmin2 * l);
+        l = f64::sqrt(law.dmin2 * l);
     }
     C {
         re: -rx / l * scale,
