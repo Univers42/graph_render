@@ -21,11 +21,14 @@ fn assert_representatives_survive(s: &Simplified) {
     }
 }
 
-/// Every link of every step of `kind` names two drawn nodes that are their own
-/// representatives.
+/// Every link of every step of `kind` names two **distinct** drawn nodes that are their
+/// own representatives. A link with equal ends is the same node twice, which no front can
+/// draw: the reference's coarse level never emits one either, since an intra-community
+/// edge — a self-loop is the smallest — is not a super-edge (`simplify.py:216-217`).
 fn assert_links_survive(s: &Simplified, kind: Kind) {
     for step in s.steps.iter().filter(|step| step.kind == kind) {
         for &(a, b) in &step.links {
+            assert_ne!(a, b, "link {a}-{b} of {step:?} names one node twice");
             for end in [a, b] {
                 assert_eq!(s.visible[end as usize], 1, "link {a}-{b} of {step:?}");
                 assert_eq!(s.representative[end as usize], end, "link {a}-{b}");
@@ -189,6 +192,43 @@ fn a_chain_link_is_re_anchored_when_the_community_pass_hides_an_end() {
     assert_representatives_survive(&s);
     assert_links_survive(&s, Kind::Chain);
     assert_links_survive(&s, Kind::Community);
+}
+
+/// A link whose two ends land in the **same** representative. `reanchor_links` maps both
+/// ends through `representative`, so a chain step's link `(0, 1)` over one community
+/// became `(0, 0)` — one node named twice, which `classify_edges` would never have
+/// written (it only pushes a link when `ra != rb`) and which a front cannot draw.
+///
+/// K4 on `{0,1,2,3}` plus the run `0-4-5-1`: `4` and `5` are the chain's interior, its
+/// ends `0` and `1` are both in the clique's community, and the collapse re-anchors the
+/// step's link `(0, 1)` onto the representative `0`. Every pass combination is tried, since
+/// which step holds the link depends on which ones ran.
+#[test]
+fn a_link_whose_ends_land_in_one_representative_is_dropped() {
+    let clique = [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)];
+    let t = graph(6, clique.into_iter().chain([(0, 4), (4, 5), (5, 1)]));
+    let mut seen = 0;
+    for leaves in [false, true] {
+        for chains in [false, true] {
+            for communities in [false, true] {
+                let plan = Plan {
+                    fold_leaves: leaves,
+                    contract_chains: chains,
+                    collapse_communities: communities,
+                };
+                let s = simplify(&t, &plan);
+                for kind in [Kind::Leaf, Kind::Chain, Kind::Community] {
+                    assert_links_survive(&s, kind);
+                }
+                seen += s.steps.iter().map(|step| step.links.len()).sum::<usize>();
+            }
+        }
+    }
+    assert!(
+        seen > 0,
+        "no link at all, so the case proves nothing: {:?}",
+        simplify(&t, &Plan::all())
+    );
 }
 
 /// Found while fixing R24: a community step's links are the external edges that touch
