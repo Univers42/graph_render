@@ -1,6 +1,7 @@
-//! The motor arm's own tests: the byte formats, the one-bit break, and the three parameter
-//! overrides. Each is a thing that could be wrong with no coordinate visibly wrong.
+//! The motor arm's own tests: the byte formats, the one-bit break, and the four overrides.
+//! Each is a thing that could be wrong with no coordinate visibly wrong.
 
+use super::super::SCALE;
 use super::super::fixtures::all;
 use super::super::rows::ROWS;
 use super::{BREAK_ENV, columns, flip_one_bit, raw_f32, raw_f64, row_line, run};
@@ -271,4 +272,27 @@ fn the_seeded_sfdp_entry_point_is_the_one_the_override_names() {
     let _ = graphviz::sfdp::ID;
     let layout = registry::find(sfdp::ID).expect("sfdp is registered");
     assert_eq!(layout.id, sfdp::ID);
+}
+
+/// The sugiyama override calls the **scaled** entry point, not the registered `run`, and the
+/// two differ in units: the registered layout draws X in the priority method's own units and
+/// Y as `layer * LAYER_SPACING`, the scaled one on SciGraphs' `[-scale, scale]` axes. The
+/// reference's `lo`/`hi` are over the dummy vertices too (`hierarchical.py:679-681`), which is
+/// why this is a second entry point in graph-core and not a post pass here — so this test
+/// holds the two apart, and that the registered default is still what the registry hands out.
+#[test]
+fn the_sugiyama_override_is_the_scaled_entry_point_and_leaves_the_registered_one_alone() {
+    let fixture = bipartite();
+    let scaled = run("layout.dag.sugiyama", &fixture).expect("sugiyama");
+    assert!(
+        scaled
+            .iter()
+            .all(|p| p[0].abs() <= SCALE && p[1].abs() <= SCALE),
+        "the scaled arm left [-scale, scale]: {scaled:?}"
+    );
+
+    let registered = registry::find("layout.dag.sugiyama").expect("registered");
+    let t = parts_over(&fixture, registered.id, |t| (registered.run)(t));
+    let own = shape(&t, &fixture);
+    assert_ne!(own, scaled, "the two entry points must not agree");
 }

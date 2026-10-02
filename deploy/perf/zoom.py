@@ -1,11 +1,12 @@
 """The frame rate of a continuous wheel zoom on N open nodes, in and then out (a probe, not a gate).
 
-    docker run --rm --memory 10g --memory-swap 10g -v "$PWD:/w" -w /w gm-chromium \
-      python3 deploy/perf/zoom.py 1000000 webgl2 [label]
+    scripts/studio-probe.sh zoom 1000000 webgl2 [label]
+    GM_GPU=1 scripts/studio-probe.sh zoom 1000000 webgl2 gpu-1m
 
-Build first (scripts/studio.sh build). Prints one JSON line per direction, the page's errors, and
-writes target/studio-zoom/<label>/{moving,settled}.png: a frame taken mid-zoom and the same view
-once it has settled.
+Build first (scripts/studio.sh build). Prints the renderer it drew on, one JSON line per direction
+with the renderer named on it, the page's errors, and writes
+target/studio-zoom/<label>/{moving,settled}.png: a frame taken mid-zoom and the same view once it
+has settled.
 
 Why in-page wheel events: driving the zoom through CDP Input.dispatchMouseEvent measured the
 input round-trip, not the renderer. A build that drew moving frames in half the time read lower
@@ -13,8 +14,9 @@ there (28.9 fps against 39.8 from in-page events, both at 1M nodes on webgl2).
 
 Caveat: one event every 16 ms on a timer, so a renderer that keeps up reads about 60 fps and a
 faster one cannot read higher; the gaps between frames count whatever else the page did, so one
-garbage collection shows in max and p95. SwiftShader is a CPU rasteriser: the numbers rank
-builds on one host, they are not what a GPU would show.
+garbage collection shows in max and p95. On the software arm the rasteriser is a CPU rasteriser: the
+numbers rank builds on one host, they are not what a GPU would show — GM_GPU=1 measures that, as a
+different arm.
 """
 import base64
 import os
@@ -26,6 +28,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "nav"))
 
 import nav  # first: it puts the perf gate's CDP client on the path
+import gpu
 import smokecdp
 import smokerows
 
@@ -42,9 +45,9 @@ def shoot(page, out, name):
         file.write(base64.b64decode(data))
 
 
-def zoom(page, out):
+def zoom(page, out, renderer):
     for direction, delta in (("in", -60), ("out", 60)):
-        print(direction, page.evaluate(f"({ZOOM})({delta})", timeout=300))
+        print(direction, f"renderer={renderer}", page.evaluate(f"({ZOOM})({delta})", timeout=300))
         if direction == "in":
             page.evaluate(NUDGE)
             shoot(page, out, "moving")
@@ -64,12 +67,13 @@ def run(page, base, nodes, out):
     page.start_watching()
     page.set_viewport(1920, 1080, 1)
     page.navigate(base)
+    name = gpu.check(page)
     page.evaluate(open("deploy/perf/drivers/hook.js").read())
     started = time.monotonic()
     page.evaluate(f"window.__perf.open({nodes}, 'layout.random')", timeout=300)
     print("open s", round(time.monotonic() - started, 2))
     time.sleep(1.0)
-    zoom(page, out)
+    zoom(page, out, name)
     errors(page)
 
 
@@ -79,15 +83,19 @@ def main():
     os.makedirs(out, exist_ok=True)
     server = nav.serve("app/dist")
     with tempfile.TemporaryDirectory() as profile:
-        browser = nav.launch_browser(profile, extra=["--enable-unsafe-swiftshader"])
+        browser = nav.launch_browser(profile, extra=gpu.chrome_flags())
         try:
             served = f"http://127.0.0.1:{server.server_address[1]}/?backend={backend}"
             run(smokecdp.Watcher(nav.DEBUG_PORT), served, nodes, out)
+        except gpu.SoftwareRasteriser as failure:
+            print(f"zoom: {failure}", file=sys.stderr)
+            return 2
         finally:
             browser.terminate()
             browser.wait(timeout=10)
             server.shutdown()
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
