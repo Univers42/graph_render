@@ -12,6 +12,11 @@ use crate::layout::basic_3d::tests::{bare, space};
 use crate::layout::basic_3d::{SCALE, cube};
 use crate::rng::Mt19937;
 
+/// The interior's radius, `SCALE * INTERIOR_RATIO` = `4.0` (`basic.py:101`). Named here
+/// because a test that recomputes it as `5.0` compares against the wrong number and still
+/// passes — which is exactly what the reviewer's control caught.
+const REACH: f64 = SCALE * INTERIOR_RATIO;
+
 /// `np.random.RandomState(981_798_123).uniform(-1.0, 1.0, (1, 3)) * 4.0`, as bits. numpy
 /// 2.3.3: node 8 of a nine-node cube, the first and only interior node, on a stream the
 /// dispatcher has just reset (`dispatcher.py:22`) — so this is the reference's draw exactly,
@@ -44,9 +49,16 @@ fn the_ninth_node_is_the_reference_interior_bit_for_bit() {
     assert_eq!(narrowed[8], x[8] as f32);
 }
 
-/// The interior's arithmetic is the reference's **operand order**, not an equivalent one:
-/// `low + (high - low) * u` scaled afterwards, where `(2*u - 1) * reach` and
-/// `-reach + 2*reach*u` differ from it in the last bits and would fail the test above.
+/// The interior's arithmetic is the reference's **operand order**, transcribed rather than
+/// re-derived: `low + (high - low) * u`, scaled afterwards (`basic.py:99-101`).
+///
+/// **This test cannot tell the operand orders apart, and the comment used to claim it could.**
+/// At `reach = 4.0` — a power of two, so the scale is exact — `(-1 + 2u) * reach`,
+/// `(2*u - 1) * reach` and `-reach + 2*reach*u` are bit-identical over 2e6 draws (measured,
+/// numpy 2.3.3). What this test really holds is that the reference's three *numbers* come out of
+/// this seed in this order, which is the same claim
+/// [`the_ninth_node_is_the_reference_interior_bit_for_bit`] makes for one node. The expression
+/// here is the reference's, so the two agree by construction.
 #[test]
 fn the_interior_is_uniform_in_minus_one_one_times_the_ratio() {
     let mut stream = Mt19937::new(SEED);
@@ -61,24 +73,28 @@ fn the_interior_is_uniform_in_minus_one_one_times_the_ratio() {
     }
 }
 
-/// The control: one more in the seed moves the interior and leaves the corners alone. A port
-/// that pinned the seed but read the wrong words off the stream would still pass the two
-/// tests above.
+/// The control: one more in the seed moves the interior and leaves the corners alone.
+///
+/// **The negative control of this test is `SEED` itself.** The expected value is drawn from a
+/// stream seeded `SEED + 1` and compared in `f32`, at the same `reach = SCALE * INTERIOR_RATIO`
+/// the layout uses — so replacing `SEED + 1` with `SEED` makes it fail, which is the only
+/// thing that distinguishes a test of the seed from an arithmetic coincidence. (Compare an
+/// `f32` widened to `f64` against an `f64` and the comparison passes for the wrong reason: the
+/// narrowing hides the difference a differing seed produces at this magnitude.)
 #[test]
 fn a_neighbouring_seed_moves_the_interior_and_no_corner() {
     let (x, y, z) = space(&cube(&bare(9)).expect("runs"));
     let mut moved = Mt19937::new(SEED + 1);
-    let first = (-1.0 + (1.0 - -1.0) * moved.next_f64()) * 5.0;
+    let first = ((-1.0 + (1.0 - -1.0) * moved.next_f64()) * REACH) as f32;
     assert_ne!(
-        f64::from(x[8]),
-        first,
-        "the seed is not the one the test assumes"
+        x[8], first,
+        "node 8 x: the neighbouring seed did not move it, so this asserts nothing"
     );
     for (axis, (column, want)) in [(&x, corner(0).0), (&y, corner(0).1), (&z, corner(0).2)]
         .into_iter()
         .enumerate()
     {
-        assert_eq!(f64::from(column[0]), want, "corner 0 axis {axis} moved");
+        assert_eq!(column[0], want as f32, "corner 0 axis {axis} moved");
     }
 }
 

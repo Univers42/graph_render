@@ -134,7 +134,7 @@ Procrustes-aligned over it**, so a green point sitting on a grey point is a node
 | 13 | `SPECTRAL_3D` | `layout.spectral` | `apply_graph_layout` | `shape` | 1/1020 | 1/1020 | 9.22e+18 | 5.95 | 0.333 | 0.807 | `algorithm` | different shape: grey is a vertical line, green a small cluster at one end — and **both arms start from the origin with no RNG**, so this is the algorithm |
 | 14 | `SPIRAL_3D` | `layout.spiral` | `apply_graph_layout` | `shape` | 0/1020 | 0/1020 | 9.22e+18 | 6 | 0.585 | 0.815 | `algorithm` | different shape: grey is a 3D spiral, green one point at the centre |
 | 15 | `HELIX` | `layout.basic3d.helix` | `apply_graph_layout` | `tolerance` | 327/1020 | 1020/1020 | 2.67e+08 | 1.51e-07 | 1.37e-16 | 4.16e-16 | `arithmetic` | **same shape**, mirrored on 4 of the 22 fitted fixtures |
-| 16 | `CUBE` | `layout.basic3d.cube` | `apply_graph_layout` | `tolerance` | 501/1020 | 1020/1020 | 2.68e+08 | 1.19e-07 | 5.72e-17 | 3.29e-16 | `arithmetic` | **same shape** — corners and interior alike; the 501/1020 `f64` are the fixtures whose nodes are all corners, i.e. every coordinate the reference itself writes as `f32` |
+| 16 | `CUBE` | `layout.basic3d.cube` | `apply_graph_layout` | `tolerance` | 501/1020 | 1020/1020 | 2.68e+08 | 1.19e-07 | 5.72e-17 | 3.29e-16 | `arithmetic` | **same shape** — corners and interior alike; the 501/1020 `f64` are the `3*min(n, 8)` corner coordinates of every one of the 24 fixtures, all of them `±5.0` or `0.0` and so `f32`-representable |
 | 17 | `HIERARCHICAL_3D` | `layout.hierarchical3d` | `apply_graph_layout` | `tolerance` | 374/1020 | 1020/1020 | 2.67e+08 | 7.95e-08 | 9.03e-17 | 2.93e-16 | `arithmetic` | **same shape** — green covers grey node for node |
 | 18 | `BIPARTITE_3D` | `layout.bipartite` | `apply_graph_layout` | `shape` | 2/1020 | 2/1020 | 9.22e+18 | 4 | 0.405 | 0.437 | `algorithm` | different shape: grey is one ring, green two columns inside it |
 | 19 | `IGRAPH_DH` | `layout.force.davidson_harel` | `apply_graph_layout` | `bitwise` | 340/1020 | 340/1020 | 9.24e+18 | 34.7 | 0.767 | 0.99 | `rng` | different shape |
@@ -168,11 +168,13 @@ Pictures, all 64 rendered by the script and all looked at:
 **1. Six rows are `f32`-identical on every one of 1020 coordinates and the rest of their gap is
 the narrowing.** `SPHERE`, `HELIX`, `HIERARCHICAL_3D`, `CIRCULAR_HIERARCHY`, and — after
 `sg-mt19937` — `RANDOM` and `CUBE`: 6 of 32. Their max gaps are 2.4e-7, 1.5e-7, 7.9e-8, 2.2e-7,
-2.3e-7 and 1.2e-7, one `f32` ULP at that magnitude, and their Procrustes medians are ~1e-16: the
-same shape to machine precision. `CIRCULAR_HIERARCHY` is the strongest row in the matrix. The two
-that arrived by porting the reference's own generator rather than by fixing a convention are the
-proof that `f64 k/N` is not the target: their `f64` counts are 0/1020 and 501/1020, and every one
-of those coordinates is `f32`-exact.
+2.3e-7 and 1.2e-7, one `f32` ULP at that magnitude, and their Procrustes medians run from 5.7e-17
+(`CUBE`) to 2.3e-15 (`RANDOM`) — all of them the same shape to machine precision. `CIRCULAR_HIERARCHY`
+is the strongest row in the matrix. The two that arrived by porting the reference's own generator
+rather than by fixing a convention are the proof that `f64 k/N` is not the target: their `f64`
+counts are 0/1020 and 501/1020, and every one of those coordinates is `f32`-exact — `RANDOM`'s
+because no draw is a `f32` value, `CUBE`'s because its 501 are the corner coordinates
+`CORNERS[i] * 5.0`, which are `±5.0` and `0.0`.
 
 **2. Three rows are the same shape to `1e-10` or better and differ only in units.** `GRID` (5e-32),
 `GRAPHVIZ_TWOPI` (2e-10), `GRAPHVIZ_PATCHWORK` (4e-10). Each is a convention fix, not an
@@ -275,13 +277,16 @@ the reference writes in `f64`. The row therefore ends at `tolerance`/`arithmetic
 **File:** `crates/graph-core/src/layout/basic_3d/cube.rs`. **Landed:** the interior draws from
 `Mt19937::new(981_798_123)` — `derive_seed(42, "layout")` is the reference's own seed — three
 words per node in `x, y, z` order, each `(-1.0 + 2.0 * u) * (SCALE * 0.8)`, the reference's operand
-order and not an algebraically equal one. This changed the **registered** layout's bytes on
-purpose: the reference is SciGraphs, so the motor's drawing is now SciGraphs' drawing. The module
-doc also carried a wrong sentence — that only the first call after a reset is reproducible —
-which `dispatcher.py:22`'s `_reset_layout_rng()` on entry of `apply_graph_layout` refutes.
+order. This changed the **registered** layout's bytes on purpose: the reference is SciGraphs, so
+the motor's drawing is now SciGraphs' drawing. The module doc also carried a wrong sentence — that
+only the first call after a reset is reproducible — which `dispatcher.py:22`'s `_reset_layout_rng()`
+on entry of `apply_graph_layout` refutes. What makes the row pass is the generator and the seed,
+not the operand order: at `reach = 4.0` the three algebraically equal forms are bit-identical
+(2e6 draws, 0 mismatches).
 **Measured:** `f32` 501/1020 -> **1020/1020**, disparity 0.202 -> 5.7e-17. The remaining 501/1020
-`f64` are the corners of the fixtures small enough to have no interior at all: `±5.0` and `0.0`
-are `f32`-representable, so those rows are exact in both widths. See
+`f64` are the `3 * min(n, 8)` corner coordinates of **all 24** fixtures — 24 each wherever `n >= 8`,
+and `±5.0` / `0.0` are `f32`-representable, so those are exact in both widths. Not "the small
+fixtures": only 8 fixtures have `n <= 8` and they hold 117 of the 501. See
 `docs/measurements/sg-mt19937.md`.
 
 ### 7. `GRAPHVIZ_OSAGE` — `algorithm`, and it is a row assignment

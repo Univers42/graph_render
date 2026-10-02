@@ -65,12 +65,19 @@ pub(crate) fn jiggle(seed: u32, tick: u32, pass: u32, ij: (u32, u32)) -> f64 {
 /// The generator the *reference* draws from, ported so a coordinate can be SciGraphs'
 /// rather than merely like it.
 ///
-/// **numpy legacy `RandomState`, not "an MT19937".** `RandomState` is the pre-`Generator`
-/// global: its `init_genrand` seeding constant is `1812433253` (`_mt19937.pyx`), and its
-/// `random_sample` is the 53-bit construction below — 27 bits from one tempered word and
-/// 26 from the next, not the 32-bit `genrand_res53` the modern `Generator` uses. A
-/// different member of the same family gives different numbers, so the version is part of
-/// the port and the pinned vectors say which one.
+/// **numpy's legacy `RandomState`, seeded the legacy way.** Two separate facts, and confusing
+/// them is the easy way to get a stream that is nearly right:
+///
+/// - **The double.** `random_sample` is the 53-bit `genrand_res53` construction below — 27
+///   bits from one tempered word and 26 from the next. The modern `Generator.random()` uses
+///   that same two-word double, so the double is not what distinguishes the two APIs.
+/// - **The seed.** `RandomState(seed)` runs `init_genrand(seed)` (`_mt19937.pyx`): `mt[0] =
+///   seed`, then `mt[i] = 1812433253 * (mt[i-1] ^ (mt[i-1] >> 30)) + i`. The modern
+///   `Generator(MT19937(seed))` does **not** — its state word 0 is `0x8000_0000`, not the
+///   seed, so `Generator(MT19937(s)).random()` and `RandomState(s).rand()` disagree from the
+///   first value even at the same integer `s` (measured, numpy 2.3.3, `s = 981798123`:
+///   `0x1.d8b00910d3e10p-3` against `0x1.d2b611eed9d7bp-1`). Seeding is therefore part of the
+///   port, and the pinned vectors below are what say which stream this is.
 ///
 /// The state is **integer-only** and every step is xor/shift/`wrapping_*`, so the stream is
 /// bit-identical on every target (D1, D2, D10). The one float is the final division in

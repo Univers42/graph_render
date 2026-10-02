@@ -119,10 +119,13 @@ fn the_ninth_node_is_the_first_interior_point() {
 /// The interior is **strictly inside** the shell: every axis strictly within
 /// `[-0.8*scale, 0.8*scale]` = `[-4, 4]` (`basic.py:101`).
 ///
-/// This is the property the layout exists to draw, and it is the one part of the scatter
-/// that survives the port's own stream — the interior's *numbers* are not the reference's
-/// (see the module doc), but "strictly inside, at 80% of the corner radius" is a claim
-/// both streams satisfy and this asserts it over sizes past one draw.
+/// This is the property the layout exists to draw, and it is a **weaker** claim than the one
+/// [`interior`] now makes: the interior's numbers are the reference's exactly (see
+/// [`interior::the_ninth_node_is_the_reference_interior_bit_for_bit`]), so "strictly inside, at
+/// 80% of the corner radius" is a consequence rather than the fallback. It is kept because it
+/// is the one property that holds at every size rather than at one pinned node count, and a
+/// generator that produced the right nine numbers and the wrong thousand would still pass the
+/// pinned test and fail this one.
 #[test]
 fn the_interior_is_strictly_inside_the_eighty_percent_shell() {
     for n in [9u32, 32, 257, 1000] {
@@ -139,9 +142,12 @@ fn the_interior_is_strictly_inside_the_eighty_percent_shell() {
 }
 
 /// The scatter is symmetric about the origin in distribution: `uniform(-r, r)` has mean 0,
-/// and this checks the sample mean is near it over enough draws to mean something. It is
-/// the statistical half of what the differential compares (the corners are exact) — a
-/// centred stream passes it, an off-by-one in `-reach + 2*reach*u` does not.
+/// and this checks the sample mean is near it over enough draws to mean something.
+///
+/// This is no longer half of what the differential compares — [`interior`] compares every
+/// coordinate exactly — so what it is for now is the claim that **survives a wrong generator**:
+/// a stream that is right for the first few draws and wrong afterwards, or an off-by-one in the
+/// arithmetic, is centred and therefore passes the pinned tests and fails this one.
 #[test]
 fn the_interior_is_centred_on_the_origin() {
     let n = 4096u32;

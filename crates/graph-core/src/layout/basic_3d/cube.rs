@@ -143,9 +143,18 @@ fn interior(columns: &mut (Vec<f64>, Vec<f64>, Vec<f64>), remaining: usize) {
 /// `low + (high - low) * next_double()` — `(-1.0 + 2.0 * u)` here.
 ///
 /// Written in that operand order, and **in the unit interval**, because the reference then
-/// scales the whole array by `(scale * 0.8)`: `(2*u - 1) * reach` and `-reach + 2*reach*u`
-/// are algebraically the same and differ from the reference in the last bits, which is
-/// exactly where a byte comparison would notice.
+/// scales the whole array by `(scale * 0.8)`.
+///
+/// **At `reach = 4.0` the operand order makes no difference, and this is measured.** `4.0` is
+/// `2^2`, so the scale by it is exact and `(-1 + 2u) * reach`, `(2*u - 1) * reach` and
+/// `-reach + 2*reach*u` agree **bit for bit** over 2e6 draws (0 mismatches, numpy 2.3.3). The
+/// test that pins the operand order is therefore checking transcription, not arithmetic — what
+/// makes the row pass is the generator and the seed. Two of those three forms are the *same*
+/// expression parenthesised differently and can never disagree; only the third can, and it does
+/// at a `reach` that is not a power of two (at `reach = 2.96`, `-reach + 2*reach*u` differs from
+/// the reference's form on 1.007e6 of 2e6 draws). The reference's form is kept because it is
+/// `basic.py:99-101`'s own, and because that is the line a reader checking this port against the
+/// reference needs to find.
 fn uniform(stream: &mut Mt19937) -> f64 {
     -1.0 + (1.0 - -1.0) * stream.next_f64()
 }
