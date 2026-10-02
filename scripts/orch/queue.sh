@@ -43,13 +43,18 @@ land() { # <label>
 
 # develop moved while the gate ran. Ponytail: a move that touches only docs, prompts and scripts/orch
 # text is merged without re-gating (none of it is fingerprinted, CLAUDE.md "Evidence is pinned");
-# any other path fails the landing, and the job is landed again from scratch.
+# any other path fails the landing, and the job is landed again from scratch. The move is measured
+# from the develop the gated tree holds, the merge base: origin/develop before this fetch is not it,
+# because every worktree shares the ref and another fetch may already have moved it (2026-10-02,
+# perf-p2-pm: a code move was merged un-gated and stopped on conflicts).
 catch_up() {
-  local base
-  base=$(git rev-parse origin/develop)
   git fetch -q origin develop || return 1
-  git diff --quiet "$base" origin/develop -- . ':!docs' ':!prompts' ':!scripts/orch' ':!*.md' || return 1
-  "${git_as[@]}" merge -q --no-edit -m updated origin/develop
+  git diff --quiet "$(git merge-base HEAD origin/develop)" origin/develop -- . ':!docs' ':!prompts' \
+    ':!scripts/orch' ':!*.md' || return 1
+  "${git_as[@]}" merge -q --no-edit -m updated origin/develop || {
+    git merge --abort
+    return 1
+  }
 }
 
 start() { # <label> <agent> <brief> <rows> <land>
