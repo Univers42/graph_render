@@ -64,12 +64,34 @@ impl fmt::Display for CapacityError {
     }
 }
 
-/// Interned strings: one buffer, `u32` spans, and a lookup keyed by content.
+/// Where one interned string sits in the arena's buffer: the pair `spans` holds.
+///
+/// The lookup map keys on this, not on the handle, so a probe reads the string
+/// straight out of the bucket it lands in — one array fewer to chase than a key
+/// that would have to be resolved through `spans` first.
+///
+/// The derived `Hash` is never called: every lookup goes through the raw entry
+/// API with the hash of the *string* it is looking for, so the table's layout
+/// depends on the strings alone and not on the key type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct Span {
+    start: u32,
+    len: u32,
+}
+
+impl Span {
+    fn text<'a>(&self, text: &'a str) -> &'a str {
+        &text[self.start as usize..(self.start + self.len) as usize]
+    }
+}
+
+/// Interned strings: one buffer, `u32` spans, and a lookup that is hashed by
+/// content and keyed by the span that content sits at.
 #[derive(Debug, Default, Clone)]
 pub struct StringArena {
     text: String,
-    spans: Vec<(u32, u32)>,
-    lookup: IndexMap<Interned, (), FixedState>,
+    spans: Vec<Span>,
+    lookup: IndexMap<Span, (), FixedState>,
 }
 
 impl StringArena {
@@ -96,13 +118,13 @@ impl StringArena {
     /// Returns the handle for `value`, storing it on first sight.
     pub fn intern(&mut self, value: &str) -> Result<Interned, CapacityError> {
         let hash = FixedState::default().hash_one(value);
-        let (text, spans) = (&self.text, &self.spans);
+        let text = &self.text;
         let entry = self
             .lookup
             .raw_entry_mut_v1()
-            .from_hash(hash, |&k| resolve(text, spans, k) == value);
+            .from_hash(hash, |span| span.text(text) == value);
         let slot = match entry {
-            RawEntryMut::Occupied(found) => return Ok(*found.key()),
+            RawEntryMut::Occupied(found) => return handle_at(found.index()),
             RawEntryMut::Vacant(slot) => slot,
         };
         let overflow = CapacityError {
@@ -111,21 +133,26 @@ impl StringArena {
         let start = u32::try_from(self.text.len()).map_err(|_| overflow)?;
         let len = u32::try_from(value.len()).map_err(|_| overflow)?;
         start.checked_add(len).ok_or(overflow)?;
-        let next = u32::try_from(self.spans.len() + 1).map_err(|_| overflow)?;
-        let handle = Interned(NonZeroU32::new(next).ok_or(overflow)?);
+        // The map appends exactly where `spans` does, so the entry's index is the
+        // slot its handle names — `find` reads the handle back out of the index.
+        debug_assert_eq!(slot.index(), self.spans.len());
+        let handle = handle_at(slot.index())?;
+        let span = Span { start, len };
         self.text.push_str(value);
-        self.spans.push((start, len));
-        slot.insert_hashed_nocheck(hash, handle, ());
+        self.spans.push(span);
+        slot.insert_hashed_nocheck(hash, span, ());
         Ok(handle)
     }
 
     /// The handle for `value` if it was interned; never stores anything.
     pub fn find(&self, value: &str) -> Option<Interned> {
         let hash = FixedState::default().hash_one(value);
-        self.lookup
+        let text = &self.text;
+        let index = self
+            .lookup
             .raw_entry_v1()
-            .from_hash(hash, |&k| self.get(k) == value)
-            .map(|(&k, ())| k)
+            .index_from_hash(hash, |span| span.text(text) == value)?;
+        handle_at(index).ok()
     }
 
     /// The string behind `handle`. `handle` must come from this arena.
@@ -149,9 +176,22 @@ impl StringArena {
     }
 }
 
-fn resolve<'a>(text: &'a str, spans: &[(u32, u32)], handle: Interned) -> &'a str {
-    let (start, len) = spans[handle.slot()];
-    &text[start as usize..(start + len) as usize]
+/// The handle for the string interned at map position `index`. Interning only ever
+/// appends, so the map's insertion order and `spans` are the same order and a
+/// position names its handle (D4).
+fn handle_at(index: usize) -> Result<Interned, CapacityError> {
+    let overflow = CapacityError {
+        what: "string arena",
+    };
+    u32::try_from(index + 1)
+        .ok()
+        .and_then(NonZeroU32::new)
+        .map(Interned)
+        .ok_or(overflow)
+}
+
+fn resolve<'a>(text: &'a str, spans: &[Span], handle: Interned) -> &'a str {
+    spans[handle.slot()].text(text)
 }
 
 #[cfg(test)]
@@ -188,6 +228,9 @@ mod tests {
         let mut sized = StringArena::with_capacity(values.len(), bytes);
         let mut grown = StringArena::default();
         assert!(sized.is_empty() && sized.find("group-a").is_none());
+        assert!(sized.text.capacity() >= bytes);
+        assert!(sized.spans.capacity() >= values.len());
+        assert!(sized.lookup.capacity() >= values.len());
         let handles: Vec<_> = values
             .iter()
             .map(|v| {
