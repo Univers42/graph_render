@@ -34,7 +34,7 @@ fn a_symmetric_link_is_undirected_and_a_directed_one_is_not() {
     assert!(!relation.directed);
     // An undirected edge's id orders its endpoints, so a symmetric A→B and a B→A are
     // one id — which is what makes "symmetric" mean anything at the id level.
-    assert_eq!(relation.id, "rows:task:r1--rows:task:r2:relation:Blocks");
+    assert_eq!(relation.id, "rows:task:r1--rows:task:r2:relation:blocks");
 }
 
 #[test]
@@ -46,15 +46,17 @@ fn a_directed_link_keeps_its_orientation_in_its_id() {
         .find(|e| e.kind == EdgeKind::Relation)
         .expect("the link role derives one");
     assert!(relation.directed, "symmetric: false means directed");
-    assert_eq!(relation.id, "rows:task:r1->rows:task:r2:relation:Blocks");
+    assert_eq!(relation.id, "rows:task:r1->rows:task:r2:relation:blocks");
     assert_eq!(
         (relation.source.as_str(), relation.target.as_str()),
         ("rows:task:r1", "rows:task:r2")
     );
-    // And the label is the field's human name, not its id: the contract says `name` is
-    // for diagnostics and nothing derives from it *except* the edge a link field draws,
-    // which is the one place a human name is what a consumer wants to read.
-    assert_eq!(relation.label, "Blocks");
+    // And the label is the field's **id**, not its human name. The contract says `name`
+    // is "for diagnostics only. Nothing derives from it", so two adapters declaring the
+    // same link under different display names (`blocks` / "Blocks", `refs` / "Refs")
+    // derive one edge id and one label, which is what makes the convergence pair a proof
+    // rather than a coincidence.
+    assert_eq!(relation.label, "blocks");
 }
 
 #[test]
@@ -119,4 +121,90 @@ fn a_parent_that_is_not_exactly_one_reference_derives_no_hierarchy_edge() {
     let mut doc = one_of_each();
     *cell(&mut doc.records[0], "up") = JsonValue::Number(7.0);
     assert_eq!(roles::parent(&doc, &doc.records[0]), None);
+}
+
+#[test]
+fn an_edge_to_a_deleted_record_is_never_dropped_by_the_derivation_itself() {
+    // The `hierarchy` edge above and this one are the same rule read from both ends: the
+    // derivation states the claim, indexing drops the edge whose endpoint no node
+    // defines. Stated here so the *derivation's* half — that it neither invents nor
+    // silently drops — is pinned on its own, and not only as the edge count that
+    // `index_model` happens to produce.
+    let mut doc = one_of_each();
+    doc.records.push(Record {
+        id: "r2".into(),
+        collection: "task".into(),
+        deleted: true,
+        updated_at: 4,
+        values: vec![("name".into(), JsonValue::Text("Gone".into()))],
+    });
+    let graph = build(&doc).expect("derives");
+    let relation = graph
+        .edges
+        .iter()
+        .find(|e| e.kind == EdgeKind::Relation)
+        .expect("the link role derives one, deleted target or not");
+    assert_eq!(relation.target, "rows:task:r2");
+    assert!(
+        !graph.nodes.iter().any(|n| n.id == "rows:task:r2"),
+        "a deleted record derives no node, so that edge is the dangling kind"
+    );
+    let (_, topology) = build_topology(&doc).expect("indexes");
+    assert_eq!(topology.edge_count(), 2, "only the two tag edges survive");
+}
+
+#[test]
+fn a_parent_naming_a_deleted_record_is_stated_and_then_dropped_by_indexing() {
+    // The derivation states what the document claims — a parent, live or not — and
+    // `index_model` is where an edge whose endpoint no node defines goes. A hierarchy
+    // edge naming a deleted record therefore derives exactly the graph the same document
+    // derives with no `up` cell at all, and nothing is silently reparented.
+    let mut doc = one_of_each();
+    doc.records.push(Record {
+        id: "r0".into(),
+        collection: "task".into(),
+        deleted: true,
+        updated_at: 2,
+        values: vec![("name".into(), JsonValue::Text("Gone".into()))],
+    });
+    let graph = build(&doc).expect("derives");
+    let hierarchy: Vec<&str> = graph
+        .edges
+        .iter()
+        .filter(|e| e.kind == EdgeKind::Hierarchy)
+        .map(|e| e.id.as_str())
+        .collect();
+    assert_eq!(hierarchy, ["rows:task:r0--rows:task:r1:hierarchy:"]);
+    // One record node (the deleted one derives nothing) and two tag hubs; the hierarchy
+    // and relation edges both dangle, so only the tag edges are indexed.
+    let (_, topology) = build_topology(&doc).expect("indexes");
+    assert_eq!(topology.node_count(), 3);
+    assert_eq!(topology.edge_count(), 2);
+}
+
+#[test]
+fn a_reference_carried_twice_in_one_many_link_is_one_edge() {
+    // Same reason a tag value carried twice is one edge: the edge id would be identical
+    // either way, and `index_model` keeps only the first, so the derivation states one
+    // fact rather than asking a consumer to discover the duplicate.
+    let mut doc = one_of_each();
+    doc.records.push(Record {
+        id: "r2".into(),
+        collection: "task".into(),
+        deleted: false,
+        updated_at: 3,
+        values: vec![("name".into(), JsonValue::Text("Next".into()))],
+    });
+    *cell(&mut doc.records[0], "blocks") = JsonValue::List(vec![
+        JsonValue::Text("r2".into()),
+        JsonValue::Text("r2".into()),
+    ]);
+    let graph = build(&doc).expect("derives");
+    let relations: Vec<&str> = graph
+        .edges
+        .iter()
+        .filter(|e| e.kind == EdgeKind::Relation)
+        .map(|e| e.id.as_str())
+        .collect();
+    assert_eq!(relations, ["rows:task:r1->rows:task:r2:relation:blocks"]);
 }

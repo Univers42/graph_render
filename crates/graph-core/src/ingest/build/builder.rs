@@ -5,63 +5,13 @@
 //! argument are in the parent module doc, which is the one to read.
 
 use super::BuildError;
-use crate::ingest::edge_strength as strength;
 use crate::ingest::roles::{self, DEFAULT_WEIGHT};
-use crate::{
-    EdgeIdParts, EdgeKind, EdgeRecord, NodeKind, NodeRecord, make_edge_id, make_record_node_id,
-    make_tag_node_id,
-};
+use crate::{EdgeKind, EdgeRecord, NodeKind, NodeRecord, make_record_node_id, make_tag_node_id};
 use graph_contract::ingest::{Ingest, Record};
 use indexmap::IndexSet;
 
-/// One derived edge's five facts, owned (house limit: four parameters, so the five
-/// travel as a value; and owning the strings sidesteps a borrow of `self.edges` that
-/// would otherwise have to outlive the push).
-struct Spec {
-    source: String,
-    target: String,
-    kind: EdgeKind,
-    label: String,
-    directed: bool,
-}
-
-impl Spec {
-    fn new(
-        source: String,
-        target: String,
-        kind: EdgeKind,
-        label: impl Into<String>,
-        directed: bool,
-    ) -> Self {
-        Self {
-            source,
-            target,
-            kind,
-            label: label.into(),
-            directed,
-        }
-    }
-
-    fn edge(&self) -> EdgeRecord {
-        EdgeRecord {
-            id: make_edge_id(&EdgeIdParts {
-                source: &self.source,
-                target: &self.target,
-                kind: self.kind,
-                label: &self.label,
-                directed: self.directed,
-            }),
-            source: self.source.clone(),
-            target: self.target.clone(),
-            kind: self.kind,
-            label: self.label.clone(),
-            strength: strength(self.kind),
-            directed: self.directed,
-            record_id: None,
-            child_first: false,
-        }
-    }
-}
+mod spec;
+use spec::{Ends, Spec};
 
 pub(super) struct Builder<'a> {
     doc: &'a Ingest,
@@ -114,11 +64,18 @@ impl Builder<'_> {
     /// Every record in document order, refusing a repeated id first-wins style. The
     /// edges of one record come out hierarchy, then relations, then tags — a fixed
     /// order, so two derivations of one document agree without a sort.
+    ///
+    /// The key is the **(collection, id)** pair, not the bare id: `Record.id` is unique
+    /// within its collection, and the derived node id carries the collection
+    /// (`source:collection:record`), so the same id in two collections is two records
+    /// with two distinct nodes. Keyed on the id alone, a document the contract permits
+    /// was refused with an error naming a record that was not the one at fault.
     pub(super) fn run(&mut self) -> Result<(), BuildError> {
-        let mut seen: IndexSet<&str> = IndexSet::new();
+        let mut seen: IndexSet<(&str, &str)> = IndexSet::new();
         for record in &self.doc.records {
-            if !seen.insert(record.id.as_str()) {
+            if !seen.insert((record.collection.as_str(), record.id.as_str())) {
                 return Err(BuildError::DuplicateRecord {
+                    collection: record.collection.clone(),
                     record: record.id.clone(),
                 });
             }
@@ -165,7 +122,7 @@ impl Builder<'_> {
         // Parent first, so `Topology::hierarchy` files the edge under its parent and a
         // `child_first` flag is never needed for a derived edge.
         self.edges
-            .push(Spec::new(parent, child, EdgeKind::Hierarchy, "", false).edge());
+            .push(Spec::new(Ends::new(parent, child), EdgeKind::Hierarchy, "", false).edge());
         Ok(())
     }
 
@@ -173,19 +130,31 @@ impl Builder<'_> {
         let collection = self.collection_of(record)?;
         let source = self.node_id(record);
         let mut specs = Vec::new();
+        let mut emitted: IndexSet<String> = IndexSet::new();
         for field in roles::link_fields(collection) {
             let Some(link) = &field.link else { continue };
             for target in roles::references(self.doc, record, &field.id) {
                 let target = self.node_id_in(&link.collection, &target);
-                specs.push(Spec::new(
-                    source.clone(),
-                    target,
+                // The **field id**, never the field's human name. The contract says `name`
+                // is "for diagnostics only. Nothing derives from it", and an edge id is
+                // derived identity: two adapters declaring the same link under different
+                // display names (`blocks` / "Blocks") derive one edge, not two.
+                let spec = Spec::new(
+                    Ends::new(source.clone(), target),
                     EdgeKind::Relation,
-                    &field.name,
+                    &field.id,
                     // A symmetric link is drawn and identified without direction, so an
                     // A→B and a B→A are one edge rather than two.
                     !link.symmetric,
-                ));
+                );
+                // A reference carried twice in one field is one fact, so it is one edge —
+                // the same rule `tags_of` states for a repeated tag value. The ids would
+                // be identical either way and `index_model` keeps the first, so the
+                // derivation states one edge rather than leaving a consumer to discover
+                // the duplicate.
+                if emitted.insert(spec.id()) {
+                    specs.push(spec);
+                }
             }
         }
         self.edges.extend(specs.iter().map(Spec::edge));
@@ -208,8 +177,7 @@ impl Builder<'_> {
             }
             self.tags.insert(value.clone());
             specs.push(Spec::new(
-                source.clone(),
-                make_tag_node_id(value),
+                Ends::new(source.clone(), make_tag_node_id(value)),
                 EdgeKind::Tag,
                 value,
                 false,

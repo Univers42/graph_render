@@ -39,21 +39,17 @@ pub const STRENGTH_TABLE: [(EdgeKind, f64); 5] = [
 /// caller that needs a different convention overrides the edge's own `strength` after
 /// [`crate::index::index_model`] rather than editing this table.
 pub const fn edge_strength(kind: EdgeKind) -> f64 {
-    let mut i = 0;
-    while i < STRENGTH_TABLE.len() {
-        if matches_kind(STRENGTH_TABLE[i].0, kind) {
-            return STRENGTH_TABLE[i].1;
-        }
-        i += 1;
+    // An exhaustive `match`, so a new `EdgeKind` variant is a **compile error** rather than
+    // a runtime panic in a release build — which is what this module's doc claims, and what
+    // the table scan it replaced could not deliver. `STRENGTH_TABLE` stays the one
+    // documented table and the totality test below is what keeps the two from drifting.
+    match kind {
+        EdgeKind::Hierarchy => 2.0,
+        EdgeKind::Relation => 1.0,
+        EdgeKind::Tag => 0.75,
+        EdgeKind::NoteLink => 0.625,
+        EdgeKind::NoteOf => 0.5,
     }
-    // Unreachable: STRENGTH_TABLE is total over EdgeKind::ALL, and `ALL` is the only
-    // way to obtain an EdgeKind. A new variant fails the totality test below instead.
-    panic!("edge kind has no strength row")
-}
-
-/// `a == b` without `PartialEq`'s bounds gymnastics, in a `const fn`.
-const fn matches_kind(a: EdgeKind, b: EdgeKind) -> bool {
-    a as u8 == b as u8
 }
 
 #[cfg(test)]
