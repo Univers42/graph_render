@@ -14,13 +14,13 @@
 //!   is the renderer's to decide.
 //!
 //! SciGraphs' pair of them is [`Grid::run_scaled`] — the first cell at the origin at a
-//! pitch of `scale / cols` — in [`scaled`], where the multiply-then-divide is `f64`
+//! pitch of `scale / cols` — in `scaled.rs`, where the multiply-then-divide is `f64`
 //! because a `f32` `spacing` cannot reach those bits. The registered [`Grid::run`] below
 //! is neither that nor anything else changed: these two conventions are what its snapshot
 //! hash is.
 //!
 //! Exact: `cols` and `rows` are integer (`isqrt`, no float square root), and every
-//! coordinate is one `f32` product of a half-integer below 2^16 and the spacing —
+//! registered coordinate is one `f32` product of a half-integer below 2^16 and the spacing —
 //! exact at the default spacing, correctly rounded at any other, alike on every target.
 //!
 //! Phase 11: [`Grid::run_with`] hands the per-node gather to a runner, and **there is no
