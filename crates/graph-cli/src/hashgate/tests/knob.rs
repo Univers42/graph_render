@@ -128,8 +128,10 @@ fn assert_refuses_unreadable_variable() {
 }
 
 /// `GM_MUTATE_SPLIT_SUM` names **which** gathered pass's merge to split, and is parsed
-/// rather than treated as a presence flag: `0` is the honest run and a typo is an error
-/// instead of a silent mutation.
+/// rather than treated as a presence flag. A typo is an error instead of a silent mutation,
+/// and the words that spell the *honest* value (`0`, `false`, `none`) are refused rather
+/// than parsed: they parse, they set `control`, and they split nothing, so accepting them
+/// wrote the control's evidence record for a run that perturbed no byte (RG-42).
 #[test]
 fn the_split_sum_knob_names_the_pass_it_corrupts() {
     for (word, want) in [
@@ -137,9 +139,6 @@ fn the_split_sum_knob_names_the_pass_it_corrupts() {
         ("true", Split::All),
         ("TRUE", Split::All),
         (" 1 ", Split::All),
-        ("0", Split::None),
-        ("false", Split::None),
-        ("FALSE", Split::None),
         ("charge", Split::Charge),
         ("collide", Split::Collide),
         ("link", Split::Link),
@@ -153,6 +152,11 @@ fn the_split_sum_knob_names_the_pass_it_corrupts() {
         let read = env(vec![("GM_MUTATE_SPLIT_SUM", typo)]);
         let err = setting(read).expect_err(typo);
         assert!(err.contains("GM_MUTATE_SPLIT_SUM"), "{err}");
+    }
+    for honest_value in ["0", "false", "FALSE", "none"] {
+        let err = setting(env(vec![("GM_MUTATE_SPLIT_SUM", honest_value)]))
+            .expect_err("splits no pass, so it perturbs nothing");
+        assert!(err.contains("perturbs nothing"), "{err}");
     }
     // And it is off by default: an unset variable must not mutate anything.
     assert_eq!(honest().split_sum, Split::None);
@@ -177,9 +181,10 @@ fn every_word_the_split_knob_accepts_is_a_threaded_pass() {
     );
 }
 
-/// `GM_MUTATE_SPLIT_RESCALE` is a flag, parsed rather than tested for presence: `0` is the
-/// honest run and a typo an error rather than a silent mutation — the same discipline as
-/// its sibling, and the reason the two cannot drift on what counts as "on".
+/// `GM_MUTATE_SPLIT_RESCALE` is a flag, parsed rather than tested for presence: a typo is
+/// an error rather than a silent mutation, and `0` — the honest value, spelled out — is
+/// refused for perturbing nothing (RG-42), the same discipline as its sibling and the reason
+/// the two cannot drift on what counts as "on".
 #[test]
 fn the_split_rescale_knob_is_a_flag_parsed_strictly() {
     for (word, want) in [
@@ -187,9 +192,8 @@ fn the_split_rescale_knob_is_a_flag_parsed_strictly() {
         ("true", true),
         ("TRUE", true),
         (" 1 ", true),
-        ("0", false),
-        ("false", false),
-        ("FALSE", false),
+        ("yes", true),
+        ("on", true),
     ] {
         let read = env(vec![("GM_MUTATE_SPLIT_RESCALE", word)]);
         let got = setting(read).expect(word);
@@ -200,6 +204,11 @@ fn the_split_rescale_knob_is_a_flag_parsed_strictly() {
         let read = env(vec![("GM_MUTATE_SPLIT_RESCALE", typo)]);
         let err = setting(read).expect_err(typo);
         assert!(err.contains("GM_MUTATE_SPLIT_RESCALE"), "{err}");
+    }
+    for honest_value in ["0", "false", "FALSE", "no", "off"] {
+        let err = setting(env(vec![("GM_MUTATE_SPLIT_RESCALE", honest_value)]))
+            .expect_err("splits no merge, so it perturbs nothing");
+        assert!(err.contains("perturbs nothing"), "{err}");
     }
     // Off by default, and inert for the other control: an unset variable must not mutate
     // anything, and the two compute-tier knobs must not share a setting.

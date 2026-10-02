@@ -23,15 +23,15 @@ fn a_misspelled_control_variable_is_refused_by_name() {
     }
 }
 
-/// The control the sweep exists to protect: the row and its perturbation sharing a typo
-/// ran the unperturbed gate and exited 0.
+/// The control the sweep exists to protect: the row and its perturbation sharing a typo ran
+/// the unperturbed gate and exited 0.
 #[test]
 fn the_whole_control_list_is_accepted_and_nothing_else_is() {
     let known: Vec<OsString> = Knob::ALL.iter().map(|knob| OsString::from(knob.env())).collect();
     assert_eq!(refuse_an_unknown_knob(&known), Ok(()));
     // One real knob beside one typo: the typo is still the refusal, not the neighbour's
     // validity that hides it.
-    let mut mixed = known.clone();
+    let mut mixed = known;
     mixed.push(OsString::from("GM_MUTATE_NOPE"));
     assert!(refuse_an_unknown_knob(&mixed).is_err());
 }
@@ -47,19 +47,26 @@ fn a_variable_that_is_not_a_control_is_left_alone() {
     assert_eq!(refuse_an_unknown_knob(&[]), Ok(()));
 }
 
-/// The sweep runs against the *whole* environment, so it has to read past the names it
-/// knows: `setting`'s loop over `Knob::ALL` can only ever see the ones it lists.
+/// **A lower-cased spelling is the same typo.** The knob loop reads `GM_MUTATE_*` by exact
+/// name, so `gm_mutate_post_style_bezier` perturbs nothing — which is why the review named it
+/// as an input. A case-sensitive prefix check would have left precisely that one uncaught.
 #[test]
-fn the_process_environment_is_where_the_names_come_from() {
-    let env = Env::process();
-    let names = KnobEnv::names(&env);
-    assert!(
-        names.iter().any(|name| name == "PATH"),
-        "the process environment lists PATH, or the sweep reads nothing: {names:?}"
-    );
-    assert!(KnobEnv::read(&env, "PATH").is_ok());
-    assert!(matches!(
-        KnobEnv::read(&env, "GM_DEFINITELY_NOT_SET"),
-        Err(VarError::NotPresent)
-    ));
+fn a_lower_cased_control_variable_is_refused_too() {
+    let err = refuse_an_unknown_knob(&[OsString::from("gm_mutate_post_style_bezier")])
+        .expect_err("same typo, different case");
+    assert!(err.contains("gm_mutate_post_style_bezier"), "{err}");
+    assert!(err.contains("no negative control"), "{err}");
+}
+
+/// The sweep reads the **whole** environment, so it has to see past the names it knows: the
+/// `setting` loop over `Knob::ALL` can only ever look at the ones it lists.
+#[test]
+fn the_control_names_are_the_process_environments_own() {
+    // Whatever this process has set, the filter keeps exactly the `GM_MUTATE_*` prefix.
+    let names = control_names();
+    for name in &names {
+        assert!(name.to_string_lossy().starts_with(PREFIX), "{name:?}");
+    }
+    // A name the control list does hold is never swept, whatever else is in the list.
+    assert!(!refuse_an_unknown_knob(&names).is_err_and(|err| !err.contains("PATH")));
 }

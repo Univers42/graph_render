@@ -8,7 +8,18 @@ use std::ffi::OsString;
 
 /// The prefix every negative control's variable carries. Not a knob — it is the shape they
 /// share, which is what makes a misspelling of one recognisable without reading the list.
+///
+/// **Matched without regard to case**, because a lower-cased spelling is the same typo: the
+/// knob loop reads `GM_MUTATE_*` by exact name, so `gm_mutate_post_style_bezier` perturbs
+/// nothing exactly as `GM_MUTATE_POST_STYLE_BEZIER` does if that name were renamed. Matching
+/// case-sensitively would leave the review's own example — a mistyped `gm_mutate_…` — as the
+/// one unperturbed spelling nothing catches.
 pub(crate) const PREFIX: &str = "GM_MUTATE_";
+
+/// Whether `name` is trying to be a control variable at all.
+fn is_control_name(name: &str) -> bool {
+    name.len() >= PREFIX.len() && name[..PREFIX.len()].eq_ignore_ascii_case(PREFIX)
+}
 
 /// Every `GM_MUTATE_*` name in `names`, in the order the environment listed them.
 ///
@@ -17,7 +28,7 @@ pub(crate) const PREFIX: &str = "GM_MUTATE_";
 pub(crate) fn control_names() -> Vec<OsString> {
     std::env::vars_os()
         .map(|(name, _)| name)
-        .filter(|name| name.to_string_lossy().starts_with(PREFIX))
+        .filter(|name| is_control_name(&name.to_string_lossy()))
         .collect()
 }
 
@@ -33,11 +44,11 @@ pub(crate) fn control_names() -> Vec<OsString> {
 ///
 /// A name that is not valid UTF-8 is compared lossily: it cannot be one of the accepted
 /// names (all of which are ASCII), so on the prefix alone it is still a refusal rather than a
-/// pass.
+/// pass. The refusal then echoes the name as it was spelled, so a reader can find it.
 pub(crate) fn refuse_an_unknown_knob(names: &[OsString]) -> Result<(), String> {
     for name in names {
         let name = name.to_string_lossy();
-        if !name.starts_with(PREFIX) || super::Knob::ALL.iter().any(|knob| knob.env() == name) {
+        if !is_control_name(&name) || super::Knob::ALL.iter().any(|knob| knob.env() == name) {
             continue;
         }
         return Err(format!(

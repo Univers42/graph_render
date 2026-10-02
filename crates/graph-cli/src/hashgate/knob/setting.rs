@@ -24,10 +24,11 @@ use graph_core::layout::radial::twopi;
 use graph_core::layout::{circular, tidy_tree, treemap};
 use graph_core::{GridParams, REFERENCE_DEGREE, SugiyamaParams};
 use std::env::VarError;
+use std::ffi::OsString;
 
 use super::knobs;
 use super::value;
-use super::env::{self, Env, KnobEnv};
+use super::env;
 use super::{Knob, stage_of};
 
 /// What the native arm runs with: the compiled-in defaults, or one knob's perturbation.
@@ -178,11 +179,26 @@ impl Setting {
 /// carrying the honest run's own value would all let the control pass as green (RG-26,
 /// RG-42). A spacing the grid refuses is left for the grid to refuse, so the rule lives in
 /// one place.
-pub(crate) fn setting(env: impl KnobEnv) -> Result<Setting, String> {
-    env::refuse_an_unknown_knob(&env.names())?;
+pub(crate) fn setting(read: impl Fn(&str) -> Result<String, VarError>) -> Result<Setting, String> {
+    setting_named(read, || Vec::new())
+}
+
+/// [`setting`], with the variable **names** this run was handed alongside its values.
+///
+/// The names are what the `GM_MUTATE_*` sweep reads (RG-26), and they are a second argument
+/// rather than part of the reader because the reader is a `Fn(&str)` every existing test
+/// seam already builds — `forcecheck`'s own included — and widening that is a rewrite of
+/// files this repair does not own. A caller that passes no name list runs **unswept**:
+/// [`setting`] is that caller, and it exists for the unit tests. The one production reader is
+/// [`env_setting`], which passes the process environment.
+pub(crate) fn setting_named(
+    read: impl Fn(&str) -> Result<String, VarError>,
+    names: impl Fn() -> Vec<OsString>,
+) -> Result<Setting, String> {
+    env::refuse_an_unknown_knob(&names())?;
     let mut setting = Setting::compiled_in();
     for knob in Knob::ALL {
-        let text = match env.read(knob.env()) {
+        let text = match read(knob.env()) {
             Err(VarError::NotPresent) => continue,
             Err(err) => return Err(format!("{}: {err}", knob.env())),
             Ok(text) => text,
@@ -299,8 +315,13 @@ fn apply(knob: Knob, text: &str, setting: &mut Setting) -> Result<(), String> {
     Ok(())
 }
 
+/// The production reader: this process's environment, values *and* names, so the run is
+/// swept for a `GM_MUTATE_*` variable that names no control.
 pub(crate) fn env_setting() -> Result<Setting, String> {
-    setting(Env::process())
+    setting_named(
+        |name| std::env::var(name),
+        || std::env::vars_os().map(|(name, _)| name).collect(),
+    )
 }
 
 #[cfg(test)]
