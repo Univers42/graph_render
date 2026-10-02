@@ -21,15 +21,15 @@ A `None` argument is replaced by these defaults. Coulomb constant is fixed at 89
 
 ## Algorithm
 
-1. Start positions: uniform random from igraph's random layout (no seed given by SciGraphs). If a seed matrix of the wrong shape were supplied it is ignored with a warning.
+1. Start positions: igraph's random layout (no seed given by SciGraphs): per node in vertex order, x then y, each `unif(-1, 1)`, which the RNG evaluates as `u * (h - l) + l` = `u * 2.0 + (-1.0)` with `u` uniform on [0, 1) (`layout/layout_random.c:52-59`, `random/random.c:671-683`). Under python-igraph `u` is `random.random()`. The domain is [-1, 1], not FR's +-sqrt(n)/2. If a seed matrix of the wrong shape were supplied it is ignored with a warning.
 2. Repeat niter times, each step synchronous (all forces computed from the positions at the start of the step, then all nodes move together):
    1. Zero the force accumulators.
-   2. Repulsion, only if q is not zero: for every unordered node pair at distance d with 0 < d < 500, add force magnitude F = C q^2 / d^2 pushing them apart along the line joining them, equal and opposite on the two nodes. Pairs at distance zero or at least 500 are skipped.
+   2. Repulsion, only if q is not zero: for every unordered node pair at distance d with 0 < d < 500, add force magnitude F = C * ((q * q) / (d * d)), evaluated in that order (the association decides the last bit), pushing them apart along the line joining them, equal and opposite on the two nodes. Pairs at distance zero or at least 500 are skipped.
    3. Springs: for every edge (multi-edges and self loops are visited like any edge; a self loop has distance zero and is skipped), with distance d: skip if d = 0. Let s = k * |d - L|. If d equals L exactly the force is zero. If d > L each endpoint is pulled toward the other with magnitude s / 2; if d < L each is pushed away with magnitude s / 2. So the effective per-node spring force is k |d - L| / 2 (half of Hooke, since both ends move).
    4. Move: displacement of node i along each axis is force_i / node_mass, clamped independently per axis to [-max_sa_movement, +max_sa_movement]. Time step is implicitly 1 and there is no velocity or momentum.
 3. Return the positions after the last step.
 
-Force components are obtained by projecting the magnitude with |dx|/d and |dy|/d and fixing signs by comparing coordinates; this is equivalent to F * (dx, dy) / d.
+Force components are obtained as (F * |dx|) / d and (F * |dy|) / d, then given their sign by comparing coordinates; this is equal, bit for bit, to (F * dx) / d. Per pair the first node (lower index) receives `+=` and the second `-=`; per edge the FROM endpoint receives `+=` and TO `-=`.
 
 ## Cooling and stopping
 
