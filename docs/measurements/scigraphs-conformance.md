@@ -136,7 +136,7 @@ Procrustes-aligned over it**, so a green point sitting on a grey point is a node
 | 15 | `HELIX` | `layout.basic3d.helix` | `apply_graph_layout` | `tolerance` | 327/1020 | 1020/1020 | 2.67e+08 | 1.51e-07 | 1.37e-16 | 4.16e-16 | `arithmetic` | **same shape**, mirrored on 4 of the 22 fitted fixtures |
 | 16 | `CUBE` | `layout.basic3d.cube` | `apply_graph_layout` | `bitwise` | 501/1020 | 501/1020 | 9.23e+18 | 7.58 | 0.202 | 0.847 | `rng` | the eight corners land on the grey corners; the interior is redrawn from another generator |
 | 17 | `HIERARCHICAL_3D` | `layout.hierarchical3d` | `apply_graph_layout` | `tolerance` | 374/1020 | 1020/1020 | 2.67e+08 | 7.95e-08 | 9.03e-17 | 2.93e-16 | `arithmetic` | **same shape** — green covers grey node for node |
-| 18 | `BIPARTITE_3D` | `layout.bipartite` | `apply_graph_layout` | `shape` | 2/1020 | 2/1020 | 9.22e+18 | 4 | 0.405 | 0.437 | `algorithm` | different shape: grey is one ring, green two columns inside it |
+| 18 | `BIPARTITE_3D` | `layout.bipartite_3d` | `apply_graph_layout` | `tolerance` | 480/1020 | 1020/1020 | 2.65e+08 | 1.18e-07 | 3.57e-16 | 5.26e-16 | `arithmetic` | **same shape** — the two rings land on the reference's two rings, node for node; the f64 residue is numpy's `cos`/`sin` against `libm`'s |
 | 19 | `IGRAPH_DH` | `layout.force.davidson_harel` | `apply_graph_layout` | `bitwise` | 340/1020 | 340/1020 | 9.24e+18 | 34.7 | 0.767 | 0.99 | `rng` | different shape |
 | 20 | `IGRAPH_GRAPHOPT` | `layout.force.graphopt` | `apply_graph_layout` | `bitwise` | 340/1020 | 340/1020 | 9.26e+18 | 189 | 0.557 | 0.919 | `rng` | different shape |
 | 21 | `MDS_3D` | `layout.mds.pivot` | `apply_graph_layout` | `shape` | 0/1020 | 0/1020 | 9.22e+18 | 5.84 | 0.0783 | 0.541 | `algorithm` | different shape, and the closest of them (median 0.078) |
@@ -165,11 +165,11 @@ Pictures, all 64 rendered by the script and all looked at:
 
 ## What the matrix says that a tolerance could not
 
-**1. Four rows are `f32`-identical on every one of 1020 coordinates and the rest of their gap is
-the narrowing.** `SPHERE`, `HELIX`, `HIERARCHICAL_3D`, `CIRCULAR_HIERARCHY` — 4 of 32. Their max
-gaps are 2.4e-7, 1.5e-7, 7.9e-8 and 2.2e-7, one `f32` ULP at that magnitude, and their Procrustes
-medians are ~1e-16: the same shape to machine precision. `CIRCULAR_HIERARCHY` is the strongest row
-in the matrix.
+**1. Five rows are `f32`-identical on every one of 1020 coordinates and the rest of their gap is
+the narrowing.** `SPHERE`, `HELIX`, `HIERARCHICAL_3D`, `CIRCULAR_HIERARCHY`, `BIPARTITE_3D` — 5 of
+32. Their max gaps are 2.4e-7, 1.5e-7, 7.9e-8, 2.2e-7 and 1.2e-7, one `f32` ULP at that magnitude,
+and their Procrustes medians are ~1e-16: the same shape to machine precision.
+`CIRCULAR_HIERARCHY` is the strongest row in the matrix.
 
 **2. Three rows are the same shape to `1e-10` or better and differ only in units.** `GRID` (5e-32),
 `GRAPHVIZ_TWOPI` (2e-10), `GRAPHVIZ_PATCHWORK` (4e-10). Each is a convention fix, not an
@@ -307,13 +307,24 @@ own; SciGraphs calls `nx.spiral_layout(num_nodes, scale)` with networkx's defaul
 layout has no `z` at all.
 **Expected:** the disparity 0.585 falls sharply; the `z` needs a `Geometry::in_space`.
 
-### 11. `BIPARTITE_3D`, `SUGIYAMA`, `IGRAPH_KK`, `YIFAN_HU`, `GRAPHVIZ_NEATO`, `GRAPHVIZ_FDP`,
+### 11. `SUGIYAMA`, `IGRAPH_KK`, `YIFAN_HU`, `GRAPHVIZ_NEATO`, `GRAPHVIZ_FDP`,
 `GRAPHVIZ_CIRCO` — `algorithm`
 Each is a different method rather than a convention or an RNG, so each needs its own porting job
-and none is a one-line change. `BIPARTITE_3D` in particular: networkx draws two **columns** and
-graph-core's `partition` (`bipartite.rs:30`) places differently. `GRAPHVIZ_CIRCO` is the one row
-here that matches on the tree (6.5e-05) and not on lesmis (0.308), so its repair is whatever makes
-the equal-box case behave at lesmis's box sizes.
+and none is a one-line change. `GRAPHVIZ_CIRCO` is the one row here that matches on the tree
+(6.5e-05) and not on lesmis (0.308), so its repair is whatever makes the equal-box case behave at
+lesmis's box sizes.
+
+**`BIPARTITE_3D` was on this list and is not any more, because this list had the picture
+backwards.** It read "networkx draws two **columns** and graph-core's `partition` places
+differently", and both halves are the wrong way round: networkx's `bipartite_layout` is the
+**motor** here (row 18 ran `layout.bipartite`), and the two columns were never the disagreement.
+The **reference** is SciGraphs' `_bipartite_layout_3d` (`hierarchical.py:213-242`), which puts
+the two node sets on parallel **planes at `z = -+scale*0.5`, one ring each at radius
+`scale*0.6`** — so the fix was a layout that draws rings, not a partition that moves. The two
+layouts share SciGraphs' node sets (`_bipartite_parts`, or `_greedy_max_cut` where the graph does
+not two-colour) and differ in every coordinate after it, which is why the new id is
+`layout.bipartite_3d` beside the networkx one rather than a change to it. The repair is
+`docs/measurements/sg-bipartite3d.md`.
 
 ## Cells that say `not run`, and why
 

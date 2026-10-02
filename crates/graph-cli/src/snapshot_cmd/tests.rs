@@ -86,6 +86,8 @@ fn layout_names_offers_every_registered_layout_once_by_both_of_its_names() {
             "force.sfdp",
             "layout.forceatlas2.barnes_hut",
             "forceatlas2.barnes_hut",
+            "layout.bipartite_3d",
+            "bipartite_3d",
         ]
     );
     let mut once = names.clone();

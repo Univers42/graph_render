@@ -20,6 +20,12 @@
 //! edge bundling and belongs to `post::fdeb` / `post::mingle`; this grid marks cells as
 //! obstacles and nothing else.
 //!
+//! Two measured divergences remain (review findings M22, U18). The grid is sized on the
+//! node *footprints* — radius or half-size included — where the reference sizes it on the
+//! coordinates alone, so a circle or box layout is not comparable cell for cell with the
+//! oracle (a point layout is). And a `resolution` below 8 is used as given, where the
+//! reference raises it to 8 (`routed.py:269`, `max(8, res)`).
+//!
 //! # The boundary tie-break
 //!
 //! Cells on an axis are the half-open intervals `[origin + k·cell, origin + (k+1)·cell)`.
@@ -46,7 +52,8 @@
 mod build;
 
 use crate::stage::StageError;
-use build::{axes, bounds, check_finite, footprints};
+pub(crate) use build::check_geometry;
+use build::{axes, bounds, check_params, footprints};
 use graph_contract::geometry::NodeGeometry;
 
 #[cfg(test)]
@@ -195,7 +202,8 @@ impl GridIndex {
     /// over the same index allocates nothing.
     ///
     /// Refused rather than producing a NaN cell or a zero cell size: a non-finite
-    /// coordinate (D9 — its bits are not pinned across targets) and a zero `resolution`.
+    /// coordinate (D9 — its bits are not pinned across targets), a negative size, a zero
+    /// `resolution`, a negative or non-finite `clearance`, and a grid past the cell ceiling.
     /// An empty layout gives an empty grid and is **not** an error: a graph with no nodes
     /// has no cells to route over.
     pub fn build(
@@ -203,13 +211,8 @@ impl GridIndex {
         geometry: &NodeGeometry,
         params: &GridParams,
     ) -> Result<(), StageError> {
-        check_finite(geometry)?;
-        if params.resolution == 0 {
-            return Err(StageError::Param {
-                name: "resolution",
-                rule: "at least 1",
-            });
-        }
+        check_geometry(geometry)?;
+        check_params(params)?;
         let boxes = footprints(geometry);
         self.origin_x = 0.0;
         self.origin_y = 0.0;
@@ -221,7 +224,7 @@ impl GridIndex {
         if boxes.is_empty() {
             return Ok(());
         }
-        let (cell, nx, ny) = axes(&boxes, params);
+        let (cell, nx, ny) = axes(&boxes, params)?;
         self.cell = cell;
         self.nx = nx;
         self.ny = ny;
