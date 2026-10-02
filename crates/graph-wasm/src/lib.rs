@@ -169,6 +169,8 @@ mod handle;
 #[cfg(any(test, target_arch = "wasm32"))]
 mod ingest;
 mod memory_measure;
+#[cfg(any(test, all(feature = "threads", target_arch = "wasm32")))]
+mod pool;
 pub mod post;
 #[cfg(any(test, target_arch = "wasm32"))]
 mod seed_ingest;
