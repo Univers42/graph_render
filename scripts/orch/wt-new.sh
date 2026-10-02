@@ -22,6 +22,9 @@ else
   git worktree add -q -b "$branch" "$wt" "$base"
 fi
 cd "$wt"
+# The host owns target/: under the rootful daemon a container creates it as root, and then the
+# host-side logs of gate.sh and scigraphs-conformance.sh cannot be written (2026-10-02, fix-analysis).
+mkdir -p target
 git submodule update -q --init SciGraphs
 "$here/node-slim.sh" npm ci --ignore-scripts >/dev/null
 kit=${DEVIL_ROOT:-$HOME/.claude/plugins/marketplaces/univers42}
