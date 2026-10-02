@@ -29,7 +29,7 @@ fn the_whole_derivation_is_pinned_line_for_line() {
             "node tag:wip Tag label=\"wip\" group=None weight=0.5 version=0\n",
             "node tag:graph Tag label=\"graph\" group=None weight=0.5 version=0\n",
             "edge rows:task:r0--rows:task:r1:hierarchy: rows:task:r0 -> rows:task:r1 Hierarchy label=\"\" strength=2 directed=false\n",
-            "edge rows:task:r1->rows:task:r2:relation:Blocks rows:task:r1 -> rows:task:r2 Relation label=\"Blocks\" strength=1 directed=true\n",
+            "edge rows:task:r1->rows:task:r2:relation:blocks rows:task:r1 -> rows:task:r2 Relation label=\"blocks\" strength=1 directed=true\n",
             "edge rows:task:r1--tag:wip:tag:wip rows:task:r1 -> tag:wip Tag label=\"wip\" strength=0.75 directed=false\n",
             "edge rows:task:r1--tag:graph:tag:graph rows:task:r1 -> tag:graph Tag label=\"graph\" strength=0.75 directed=false\n",
         )
@@ -40,14 +40,16 @@ fn the_whole_derivation_is_pinned_line_for_line() {
 fn every_derived_edge_id_is_the_grammars_own() {
     let graph = derived();
     let ids: Vec<&str> = graph.edges.iter().map(|e| e.id.as_str()).collect();
-    // The relation edge's label is the field's *name*, and a directed edge keeps its
-    // orientation in its id (`->`), so the two facts the contract declares — the
-    // field's human name and the link's `symmetric` — are both visible in the id.
+    // The relation edge's label is the link field's *id*, never its human name: the
+    // contract declares `name` "for diagnostics only. Nothing derives from it", and an id
+    // is what the graph's own identity is made of. A directed edge keeps its orientation
+    // in its id (`->`), so the two facts a link field declares — which field, and the
+    // link's `symmetric` — are both visible in the id.
     assert_eq!(
         ids,
         [
             "rows:task:r0--rows:task:r1:hierarchy:",
-            "rows:task:r1->rows:task:r2:relation:Blocks",
+            "rows:task:r1->rows:task:r2:relation:blocks",
             "rows:task:r1--tag:wip:tag:wip",
             "rows:task:r1--tag:graph:tag:graph",
         ]

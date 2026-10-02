@@ -212,9 +212,9 @@
       {
         "child_first": false,
         "directed": true,
-        "id": "lib:task:t2->lib:task:t3:relation:Blocks",
+        "id": "lib:task:t2->lib:task:t3:relation:blocks",
         "kind": "relation",
-        "label": "Blocks",
+        "label": "blocks",
         "record_id": null,
         "source": "lib:task:t2",
         "strength": 1,

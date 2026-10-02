@@ -11,17 +11,33 @@
 //! | From | Nodes | Edges |
 //! |---|---|---|
 //! | one live record | one `record` node, id `source:collection:record` | — |
-//! | the `title` role | the node's `label` | — |
-//! | the `label` role | the node's `group` | — |
-//! | the `weight` role | the node's `weight` | — |
+//! | the collection's `titleField` | the node's `label`, the record id when absent | — |
+//! | the `label` role, else the `group` role | the node's `group` | — |
+//! | the `weight` role | the node's `weight`, as declared | — |
+//! | the record's `updatedAt` | the node's `version` | — |
 //! | the `parent` role | — | one `hierarchy` edge, parent first |
-//! | a `link` role | — | one `relation` edge per referenced record |
+//! | a `link` role | — | one `relation` edge per referenced record, labelled by **field id** |
 //! | the `tags` role | one `tag` hub node per distinct value | one `tag` edge per value |
 //! | the `scalar` role | nothing: declared and read by nobody | nothing |
 //!
-//! A **deleted** record derives nothing at all — no node, and no edge naming it. The
-//! alternative (a node the user cannot see, still pulling a layout) is the direction
-//! that matters, so deletion is honoured here rather than filtered downstream.
+//! Two node columns are **not** derived from any role: `has_note` is always `false` and
+//! `icon` always `null`. None of the eight roles carries a note body or an icon, so there
+//! is no declaration to read them from and no value to invent.
+//!
+//! A tag hub's `version` is `0.0`, because a tag is not a record and carries no
+//! `updatedAt`. It is told apart from a record whose `updatedAt` is `0` by `kind`, not by
+//! the version column.
+//!
+//! A **deleted** record derives no node and no edge of its own — the alternative (a node
+//! the user cannot see, still pulling a layout) is the direction that matters, so deletion
+//! is honoured here rather than filtered downstream.
+//!
+//! An edge a *live* record draws **towards** a deleted or absent record is a different
+//! question, and it is **stated** rather than dropped: `Derived.edges` is what the document
+//! claimed, and `index_model` is where an edge naming no derived node goes — its pinned
+//! rule is `edges_skip_taken_ids_and_dangling_endpoints_without_claiming_the_id`. So a
+//! link to a deleted record yields exactly the graph the same document yields with that
+//! cell removed, and nothing is silently reparented.
 //!
 //! ## Determinism
 //!
@@ -87,6 +103,12 @@ pub enum BuildError {
     },
     /// The same record id twice in one collection: refused, not first-wins.
     DuplicateRecord {
+        /// The collection both records are in.
+        ///
+        /// Present because the id alone does not name a record: the same id in two
+        /// collections is two records, and an error that cannot say which one was at
+        /// fault is not actionable.
+        collection: String,
         /// The record's id.
         record: String,
     },
@@ -96,6 +118,16 @@ pub enum BuildError {
         coordinate: &'static str,
         /// The offending text.
         value: String,
+    },
+    /// The derived graph would need a `u32` index past the end of the index space —
+    /// `index_model`'s own capacity refusal, carried here rather than panicked on.
+    ///
+    /// Additive: `build` never returns it (a derived graph's size is the document's
+    /// own), only [`build_topology`] does, and only because indexing is a second step
+    /// with its own refusal. The `&'static str` is the capacity error's own `what`.
+    Capacity {
+        /// What would have overflowed, e.g. `node index`.
+        what: &'static str,
     },
 }
 
@@ -114,11 +146,19 @@ impl std::fmt::Display for BuildError {
                 "field `{field}` of collection `{collection}`: links to collection \
                  `{target}`, which is not declared"
             ),
-            Self::DuplicateRecord { record } => write!(f, "record `{record}`: declared twice"),
+            Self::DuplicateRecord { collection, record } => write!(
+                f,
+                "record `{record}` of collection `{collection}`: declared twice"
+            ),
             Self::IdGrammar { coordinate, value } => write!(
                 f,
                 "{coordinate} {value:?} contains `:` and cannot round-trip through the \
                  node-id grammar (H5): the id would parse back shifted"
+            ),
+            Self::Capacity { what } => write!(
+                f,
+                "the derived graph needs `{what}` past the end of the `u32` index space: \
+                 refused, not wrapped"
             ),
         }
     }
@@ -143,12 +183,16 @@ pub fn build(doc: &Ingest) -> Result<Derived, BuildError> {
 /// The derived graph, indexed. The two steps are separate on purpose: [`build`] is the
 /// derivation and indexing is the motor's own topology step with its own capacity
 /// refusal, so a caller can see which of the two said no.
+///
+/// The refusal is [`BuildError::Capacity`], the index step's own `CapacityError` carried
+/// across rather than `.expect`ed away: a panic here would be a motor invariant stated as
+/// a crash, and the wasm ABI's single contract-invalid code is a refusal a caller can
+/// handle. No document a person can hold reaches it — the derived graph is the document's
+/// own size — so the comment that used to claim that is gone, not repeated.
 pub fn build_topology(doc: &Ingest) -> Result<(Derived, Topology), BuildError> {
     let derived = build(doc)?;
-    // A derived graph's size is the document's own, and CapacityError here would be a
-    // u32 exhaustion no document a person can hold reaches; the indexing call sites
-    // that can refuse are the ones that read raw records.
-    let topology = index_model(&derived.nodes, &derived.edges).expect("a derived graph indexes");
+    let topology = index_model(&derived.nodes, &derived.edges)
+        .map_err(|err| BuildError::Capacity { what: err.what })?;
     Ok((derived, topology))
 }
 
