@@ -11,9 +11,10 @@
 //! mistake for a bug. The three ids are therefore one kernel over three closed forms, and
 //! each publishes its own id because each produces a different snapshot.
 //!
-//! **`CUBE` is the only one of the three that draws from a stream**, and this port does
-//! not: see [`cube`] for the written seeding decision. `SPHERE` and `HELIX` are closed
-//! form with no random number anywhere, so neither owes a seed and neither publishes one.
+//! **`CUBE` is the only one of the three that draws from a stream**, and it draws from the
+//! reference's own: see [`cube`] for the generator and the seeding decision. `SPHERE` and
+//! `HELIX` are closed form with no random number anywhere, so neither owes a seed and
+//! neither publishes one.
 //!
 //! No rescale, and that is deliberate: networkx's `rescale_layout` is not in the
 //! reference for any of these three — `_sphere_layout`, `_helix_layout` and

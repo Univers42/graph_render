@@ -92,12 +92,12 @@ pub(super) const NETWORKX: [Baseline; 12] = [
     ),
     row(
         "CUBE",
-        "551445ae12399d0464ba8853c13c3c4404db0fe3afcf875a8f9c7ff713cf8826",
+        "3b62357250ab90175272c1a4d43c270ab210f485b86f72301b59040e757bc02b",
         "2876776f43705602f42bf11b64fa165868e6f5a5078c682d5fee3a98454236ad",
         "",
-        1e0,
-        "bitwise",
-        "rng",
+        1e-16,
+        "tolerance",
+        "arithmetic",
     ),
     row(
         "HIERARCHICAL_3D",

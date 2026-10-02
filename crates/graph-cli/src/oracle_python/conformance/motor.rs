@@ -1,15 +1,18 @@
 //! Running one motor layout the way SciGraphs would run its reference: the registered
-//! default for almost every id, and a deliberate override for the three where the registered
+//! default for almost every id, and a deliberate override for the four where the registered
 //! default is not SciGraphs' parameter.
 //!
-//! **Three overrides, and each is a whole row.** `CIRCLE_PACKING`'s registered budget is 500
+//! **Four overrides, and each is a whole row.** `CIRCLE_PACKING`'s registered budget is 500
 //! radius-solver sweeps where `apply_graph_layout` passes 50; `FORCEATLAS2`'s is 100 where
 //! the dispatcher passes 50 into `ForceSim`; `GRAPHVIZ_SFDP` registers `run`, whose
-//! `DEFAULT_SEED` is 1, where the engine is handed `start = get_layout_seed()`. Every other
-//! id either takes no parameter or its registered default already **is** the reference's —
-//! the igraph family being the surprising half: `_igraph_davidson_harel` ignores the
-//! dispatcher's `iterations` and uses igraph's `maxiter=10`, which is our `DhParams` default
-//! too (`igraph_layouts.py:117-118`, `davidson_harel.rs:44`).
+//! `DEFAULT_SEED` is 1, where the engine is handed `start = get_layout_seed()`;
+//! `layout.random` registers networkx's planar unit-square scatter off the crate's
+//! `Mulberry32`, where SciGraphs draws `rand(n, 3) * scale` off MT19937 at the layout seed
+//! (`basic.py:5-9`). Every other id either takes no parameter or its registered default
+//! already **is** the reference's — the igraph family being the surprising half:
+//! `_igraph_davidson_harel` ignores the dispatcher's `iterations` and uses igraph's
+//! `maxiter=10`, which is our `DhParams` default too (`igraph_layouts.py:117-118`,
+//! `davidson_harel.rs:44`).
 //!
 //! Nothing here normalises a coordinate. What the layout returns is what goes into the
 //! `.f64` file, and every parameter the motor could not be given is a `Gap` in
@@ -24,6 +27,7 @@ use graph_core::layout::circle_packing::{self, CirclePackingParams};
 use graph_core::layout::force::spring::{Spring, Spring3D, SpringParams};
 use graph_core::layout::forceatlas2::{Fa2Params, ForceAtlas2};
 use graph_core::layout::graphviz::sfdp;
+use graph_core::layout::random;
 use graph_core::{Stage, StageError, registry, run_with};
 use serde_json::Value;
 
@@ -60,6 +64,7 @@ pub fn run(id: &str, fixture: &Fixture) -> Ran {
         "layout.force.sfdp" => sfdp_seeded(fixture),
         "layout.force.spring" => spring::<Spring>(fixture),
         "layout.force.spring3d" => spring::<Spring3D>(fixture),
+        "layout.random" => random_seeded(fixture),
         _ => registered(id, fixture),
     }?;
     columns(&parts, fixture.nodes.len())
@@ -106,6 +111,16 @@ fn spring<S: Stage<Params = SpringParams>>(fixture: &Fixture) -> Result<Snapshot
         ..SpringParams::default()
     };
     finish(fixture, S::ID, |t| S::run(t, &params))
+}
+
+/// `layout.random` at the layout seed, which its registered default is not: `random::run`
+/// is networkx's planar unit-square scatter off the crate's own `Mulberry32` at a house
+/// seed, and SciGraphs' `_random_layout` (`basic.py:5-9`) is
+/// `np.random.RandomState(get_layout_seed()).rand(n, 3) * scale` — three axes, scaled, off
+/// MT19937. `run_seeded` is the same shape as [`sfdp_seeded`], and the registered default is
+/// left alone so its hash-gate record stands.
+fn random_seeded(fixture: &Fixture) -> Result<SnapshotParts, String> {
+    finish(fixture, random::ID, |t| random::run_seeded(t, LAYOUT_SEED))
 }
 
 /// Every other id at its registered default.

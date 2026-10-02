@@ -140,22 +140,25 @@ pub(super) const CUBE: Metadata = Metadata {
     nodes: NodeGeometryKind::Point,
     edges: EdgeGeometryKind::Line,
     oracle: "SciGraphs' own _cube_layout (SciGraphs/core/scigraphs_core/mesh/layouts/basic.py:83-103) \
-at scale=5.0. SEEDING DECISION, written out because this is the one of the three that draws \
-from a stream. GENERATOR: graph-core's own Mulberry32 at a fixed compiled-in seed, the same \
-stream layout.random and the force layouts use (D5: the motor has no global RNG and the same \
-graph must hash the same on every target). SEED SOURCE: compiled in, never an environment read, \
-never a cfg. WHAT THE ORACLE COMPARES: the corners exactly (all eight, in all eight slots, \
-because their ORDER is the layout — basic.py:91-94 is a literal array and a reordering is a \
-visible regression, not a refactor), the min(n, 8) split, the n == 1 origin (basic.py:88-89), and \
-the interior's DISTRIBUTION but never its coordinates: uniform on [-0.8*scale, 0.8*scale] per \
-axis, mean 0, variance (1.6*scale)^2/12, which is what harness/oracle-basic-3d.py --function cube \
-measures. WHY THE STREAM IS NOT THE REFERENCE'S, in two parts, both making a \
-coordinate-for-coordinate port impossible rather than merely hard: (1) the reference draws from \
-numpy's RandomState, not mulberry32, so NO interior coordinate equals SciGraphs' for any seed; \
-(2) _get_layout_rng() (common.py:43-52) returns a MODULE-LEVEL GLOBAL RandomState, so the \
-reference's interior depends on every earlier layout in the process that drew from it — there \
-is no 'the' interior to compare against, only the first call after a reset. This is the same \
-answer registry/closed_form.rs:28-30 gives for layout.random, and for the same reason",
+at scale=5.0. GENERATOR: the reference's own, ported exactly — numpy legacy RandomState, i.e. \
+MT19937 seeded by init_genrand, at derive_seed(42, 'layout') = 981798123, reproduced by \
+crate::rng::Mt19937. WHY IT IS THE REFERENCE'S GENERATOR: the rows are compared coordinate for \
+coordinate, and a different generator at the same seed draws a scatter that is uniformly \
+distributed in the same shell and shares not one coordinate with the reference. SEED SOURCE: \
+compiled in, never an environment read, never a cfg. THE STREAM IS RESET PER CALL, not carried \
+across calls: apply_graph_layout calls _reset_layout_rng() on entry (dispatcher.py:22), which \
+rebuilds the module-global as a fresh np.random.RandomState(get_layout_seed()) (common.py:53-60), \
+so every layout draws from the start of a fresh stream and the interior is reproducible for \
+every call — an earlier version of this metadata claimed only the first call after a reset was \
+reproducible, and the reference does not behave that way. The corners draw nothing, so the \
+interior is the stream's first 3*(n - min(n,8)) values, C order, x then y then z per node. WHAT \
+THE ORACLE COMPARES, all of it exactly: the eight corners in all eight slots, because their \
+ORDER is the layout — basic.py:91-94 is a literal array and a reordering is a visible \
+regression, not a refactor — the min(n, 8) split, the n == 1 origin (basic.py:88-89), and every \
+interior coordinate, as (-1.0 + 2.0*u) * (scale*0.8) with u the reference's own draw. The \
+interior's DISTRIBUTION (uniform on [-0.8*scale, 0.8*scale] per axis) remains what \
+harness/oracle-basic-3d.py --function cube measures, and it is now a consequence rather than a \
+substitute",
     complexity: "O(n): eight corners by table lookup, then three stream draws and three \
 multiplies per remaining node",
     scale_ceiling: BASIC_3D_CEILING,
@@ -170,11 +173,11 @@ crate::graph_core::layout::basic_3d::CORNERS is public, so a caller can read the
 than infer it. Ponytail (single node): n == 1 returns the ORIGIN (basic.py:88-89), not a \
 corner, so a one-node cube is a point at the centre and the cube's shell is entirely absent — \
 checked before the corners are built, because min(1, 8) would have put it at (+scale, +scale, \
-+scale). Ponytail (interior stream): the interior's coordinates are ours and not the \
-reference's (see oracle), so failing input is any comparison of a node past 8 against \
-SciGraphs' own, which will disagree and is meant to; direction is a different picture inside \
-the same shell, which is invisible; escape hatch is the distribution the differential does \
-gate, and the corners below 9 nodes, which it gates exactly",
++scale). Ponytail (interior stream): the interior's coordinates ARE the reference's, so the \
+failing input is a generator other than numpy's legacy RandomState — a correct-looking \
+uniform scatter that shares no coordinate with SciGraphs, which is invisible in the picture and \
+total in the bytes; direction is a different picture inside the same shell. Escape hatch is \
+layout.random's Mulberry32 default and the corners, which are a closed form and need no stream",
 };
 
 pub(super) const HIERARCHICAL_3D: Metadata = Metadata {

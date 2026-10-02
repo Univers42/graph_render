@@ -119,7 +119,7 @@ Procrustes-aligned over it**, so a green point sitting on a grey point is a node
 
 | # | SciGraphs name | motor id | reference reached | tier | f64 k/N | f32 k/N | max ULP | max gap | Procrustes med | Procrustes max | cause | shape verdict |
 |--:|---|---|---|--:|--:|--:|--:|--:|--:|--:|---|---|
-| 1 | `RANDOM` | `layout.random` | `apply_graph_layout` | `bitwise` | 0/1020 | 0/1020 | 4.62e+18 | 4.83 | 0.9 | 0.996 | `rng` | same size, different shape: two independent uniform draws |
+| 1 | `RANDOM` | `layout.random` | `apply_graph_layout` | `tolerance` | 0/1020 | 1020/1020 | 2.68e+08 | 2.35e-07 | 2.28e-15 | 2.95e-15 | `arithmetic` | **same shape** — the green cloud sits on the grey one, node for node; the `f64` column cannot be exact because the motor is `f32` |
 | 2 | `GRID` | `layout.grid` | `apply_graph_layout` | `bitwise` | 342/1020 | 342/1020 | 9.22e+18 | 4 | 5.5e-32 | 9.68e-31 | `convention` | **same shape** — the aligned motor lands on every grey lattice point; only scale and origin differ |
 | 3 | `SPRING` | `layout.force.spring` | `apply_graph_layout` | `bitwise` | 341/1020 | 341/1020 | 9.23e+18 | 10 | 0.377 | 0.779 | `rng` | different shape: green does not follow the grey drawing anywhere |
 | 4 | `SPRING_3D` | `layout.force.spring3d` | `apply_graph_layout` | `bitwise` | 3/1020 | 4/1020 | 9.23e+18 | 10 | 0.198 | 0.756 | `rng` | different shape: as `SPRING`, in space |
@@ -134,7 +134,7 @@ Procrustes-aligned over it**, so a green point sitting on a grey point is a node
 | 13 | `SPECTRAL_3D` | `layout.spectral` | `apply_graph_layout` | `shape` | 1/1020 | 1/1020 | 9.22e+18 | 5.95 | 0.333 | 0.807 | `algorithm` | different shape: grey is a vertical line, green a small cluster at one end — and **both arms start from the origin with no RNG**, so this is the algorithm |
 | 14 | `SPIRAL_3D` | `layout.spiral` | `apply_graph_layout` | `shape` | 0/1020 | 0/1020 | 9.22e+18 | 6 | 0.585 | 0.815 | `algorithm` | different shape: grey is a 3D spiral, green one point at the centre |
 | 15 | `HELIX` | `layout.basic3d.helix` | `apply_graph_layout` | `tolerance` | 327/1020 | 1020/1020 | 2.67e+08 | 1.51e-07 | 1.37e-16 | 4.16e-16 | `arithmetic` | **same shape**, mirrored on 4 of the 22 fitted fixtures |
-| 16 | `CUBE` | `layout.basic3d.cube` | `apply_graph_layout` | `bitwise` | 501/1020 | 501/1020 | 9.23e+18 | 7.58 | 0.202 | 0.847 | `rng` | the eight corners land on the grey corners; the interior is redrawn from another generator |
+| 16 | `CUBE` | `layout.basic3d.cube` | `apply_graph_layout` | `tolerance` | 501/1020 | 1020/1020 | 2.68e+08 | 1.19e-07 | 5.72e-17 | 3.29e-16 | `arithmetic` | **same shape** — corners and interior alike; the 501/1020 `f64` are the fixtures whose nodes are all corners, i.e. every coordinate the reference itself writes as `f32` |
 | 17 | `HIERARCHICAL_3D` | `layout.hierarchical3d` | `apply_graph_layout` | `tolerance` | 374/1020 | 1020/1020 | 2.67e+08 | 7.95e-08 | 9.03e-17 | 2.93e-16 | `arithmetic` | **same shape** — green covers grey node for node |
 | 18 | `BIPARTITE_3D` | `layout.bipartite` | `apply_graph_layout` | `shape` | 2/1020 | 2/1020 | 9.22e+18 | 4 | 0.405 | 0.437 | `algorithm` | different shape: grey is one ring, green two columns inside it |
 | 19 | `IGRAPH_DH` | `layout.force.davidson_harel` | `apply_graph_layout` | `bitwise` | 340/1020 | 340/1020 | 9.24e+18 | 34.7 | 0.767 | 0.99 | `rng` | different shape |
@@ -165,11 +165,14 @@ Pictures, all 64 rendered by the script and all looked at:
 
 ## What the matrix says that a tolerance could not
 
-**1. Four rows are `f32`-identical on every one of 1020 coordinates and the rest of their gap is
-the narrowing.** `SPHERE`, `HELIX`, `HIERARCHICAL_3D`, `CIRCULAR_HIERARCHY` — 4 of 32. Their max
-gaps are 2.4e-7, 1.5e-7, 7.9e-8 and 2.2e-7, one `f32` ULP at that magnitude, and their Procrustes
-medians are ~1e-16: the same shape to machine precision. `CIRCULAR_HIERARCHY` is the strongest row
-in the matrix.
+**1. Six rows are `f32`-identical on every one of 1020 coordinates and the rest of their gap is
+the narrowing.** `SPHERE`, `HELIX`, `HIERARCHICAL_3D`, `CIRCULAR_HIERARCHY`, and — after
+`sg-mt19937` — `RANDOM` and `CUBE`: 6 of 32. Their max gaps are 2.4e-7, 1.5e-7, 7.9e-8, 2.2e-7,
+2.3e-7 and 1.2e-7, one `f32` ULP at that magnitude, and their Procrustes medians are ~1e-16: the
+same shape to machine precision. `CIRCULAR_HIERARCHY` is the strongest row in the matrix. The two
+that arrived by porting the reference's own generator rather than by fixing a convention are the
+proof that `f64 k/N` is not the target: their `f64` counts are 0/1020 and 501/1020, and every one
+of those coordinates is `f32`-exact.
 
 **2. Three rows are the same shape to `1e-10` or better and differ only in units.** `GRID` (5e-32),
 `GRAPHVIZ_TWOPI` (2e-10), `GRAPHVIZ_PATCHWORK` (4e-10). Each is a convention fix, not an
@@ -256,18 +259,30 @@ generator is the cause, not the seed. networkx's `spring_layout` takes `seed=` a
 passes `get_layout_seed()` (`networkx_layouts.py:18`).
 **Expected:** `bitwise f64` 341/1020 -> ~1020/1020; the cause becomes `arithmetic`.
 
-### 5. `RANDOM` — `rng`, the smallest possible port
-**File:** `crates/graph-core/src/layout/random.rs:30`. **Change:** `SEED` is the const `0x5EED`; the
-reference draws from `np.random.RandomState(get_layout_seed())` (`basic.py:7`). Replace the
-generator with MT19937 and take the seed as a parameter.
-**Expected:** `bitwise f64` 0/1020 -> 1020/1020. The shortest path from `shape` to `bitwise` in the
-matrix and the cheapest one to check.
+### 5. `RANDOM` — `rng`, the smallest possible port — **done, `sg-mt19937`**
+**File:** `crates/graph-core/src/layout/random.rs`. **Landed:** `random::run_seeded(topology, seed)`
+draws `np.random.RandomState(seed).rand(n, 3) * SCALE` row-major through `basic_3d::in_space`,
+and the conformance arm calls it with `LAYOUT_SEED` the way it calls `sfdp::run_seeded`. The
+registered `run` keeps its own `Mulberry32` stream at `0x5EED`, 2D and unscaled, so its hash-gate
+record does not move; the generator is [`Mt19937`](../../crates/graph-core/src/rng.rs), numpy's
+legacy `RandomState` (`init_genrand` plus the 53-bit `random_sample`).
+**Measured:** `f32` 0/1020 -> **1020/1020**, disparity 0.9 -> 2.3e-15. `f64` stays 0/1020 and is
+**not** a miss: the motor's columns are `f32`, so `f64` byte equality is unreachable for a value
+the reference writes in `f64`. The row therefore ends at `tolerance`/`arithmetic`, which is the
+`tier` column's own meaning, not a partial repair. See `docs/measurements/sg-mt19937.md`.
 
-### 6. `CUBE` — `rng`, corners already correct
-**File:** `crates/graph-core/src/layout/basic_3d/cube.rs:78`. **Change:** `SEED = 0x00_C0BE` is
-compiled into the cube's interior draw (`cube.rs:129`); the eight corners are a closed form and
-stay exact. Move the interior onto MT19937.
-**Expected:** `bitwise f32` 501/1020 -> ~1020/1020 with the corners unchanged.
+### 6. `CUBE` — `rng`, corners already correct — **done, `sg-mt19937`**
+**File:** `crates/graph-core/src/layout/basic_3d/cube.rs`. **Landed:** the interior draws from
+`Mt19937::new(981_798_123)` — `derive_seed(42, "layout")` is the reference's own seed — three
+words per node in `x, y, z` order, each `(-1.0 + 2.0 * u) * (SCALE * 0.8)`, the reference's operand
+order and not an algebraically equal one. This changed the **registered** layout's bytes on
+purpose: the reference is SciGraphs, so the motor's drawing is now SciGraphs' drawing. The module
+doc also carried a wrong sentence — that only the first call after a reset is reproducible —
+which `dispatcher.py:22`'s `_reset_layout_rng()` on entry of `apply_graph_layout` refutes.
+**Measured:** `f32` 501/1020 -> **1020/1020**, disparity 0.202 -> 5.7e-17. The remaining 501/1020
+`f64` are the corners of the fixtures small enough to have no interior at all: `±5.0` and `0.0`
+are `f32`-representable, so those rows are exact in both widths. See
+`docs/measurements/sg-mt19937.md`.
 
 ### 7. `GRAPHVIZ_OSAGE` — `algorithm`, and it is a row assignment
 **File:** `crates/graph-core/src/layout/graphviz/osage.rs:163`. **Change:** the y coordinates already
