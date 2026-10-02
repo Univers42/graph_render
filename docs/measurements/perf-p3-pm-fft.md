@@ -114,7 +114,20 @@ They are not used for any conclusion here; a quiet host re-runs this table.
 
 ## Gates
 
-GATES_PENDING
+All on this branch's tree at `75f1c70`, through `scripts/orch/gr`:
+
+| row | command | expect | exit |
+|---|---|---|---|
+| format | `cargo fmt --all --check` | 0 | 0 |
+| lint | `cargo clippy --workspace --all-targets -- -D warnings` | 0 | 0 |
+| tests | `cargo test --workspace --no-fail-fast` | 0 | 0 |
+| hash gate | `graph-cli hashgate --seeds 8` (`target/gates/hashgate.json`: `pass: true`, `seeds: 8`) | 0 | 0 |
+| FFT units | `cargo test -p graph-core fft` (5 tests) | 0 | 0 |
+| FFT negative control | the same run, partial-row path broken | non-zero | 101 |
+| tick | `cargo test -p graph-cli tick` (8 passed) | 0 | 0 |
+
+hashgate-1000, the oracles and mutants are the develop-wide gate (`CLAUDE.md`, merge floor): not
+run on this branch.
 
 ## What it does not do
 
