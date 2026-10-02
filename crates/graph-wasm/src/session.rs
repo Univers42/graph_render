@@ -39,6 +39,8 @@ mod tests;
 pub use params::LEN as PARAMS_LEN;
 
 use graph_core::Topology;
+#[cfg(any(test, feature = "threads"))]
+use graph_core::exec::Runner;
 use graph_core::layout::force::{ForceSession, LiveParams, NodeRow};
 use std::cell::RefCell;
 
@@ -116,6 +118,18 @@ pub fn create(topology: &Topology, params: LiveParams, engine: Engine) -> Result
 /// the reason this module has no schedule of its own to get wrong.
 pub fn tick(id: u32, ticks: u32) -> Result<Status, Code> {
     with_mut(id, |session| Ok(Status::of(session.step(ticks).settled)))
+}
+
+/// [`tick`] with the session's gathers divided by `runner` over `workers` workers: the same
+/// bytes for every runner and worker count, which is `ForceSession::step_with`'s guarantee.
+/// The `threads` build's `gm_force_session_tick_threaded` is its one caller.
+#[cfg(any(test, feature = "threads"))]
+pub fn tick_with(id: u32, ticks: u32, runner: &impl Runner, workers: u32) -> Result<Status, Code> {
+    with_mut(id, |session| {
+        Ok(Status::of(
+            session.step_with(runner, workers, ticks).settled,
+        ))
+    })
 }
 
 /// The cooling schedule's current value — `f64` on the wire, the one non-`u32` return in
