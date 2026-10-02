@@ -1,16 +1,17 @@
 """Where the milliseconds of the settled picture go: a CPU profile over the fill (a probe, not a gate).
 
-    docker run --rm --memory 10g --memory-swap 10g -v "$PWD:/w" -w /w gm-chromium \
-      python3 deploy/perf/settle-profile.py 1000000 webgl2 [label]
+    scripts/studio-probe.sh settle-profile 1000000 webgl2 [label]
+    GM_GPU=1 scripts/studio-probe.sh settle-profile 1000000 webgl2 gpu-1m
 
 Build first (scripts/studio.sh build). Opens N nodes on layout.random, samples the renderer's main
-thread once a millisecond while the settled picture fills, and prints the frames whose own samples
-cost the most, as a share of the sampled time. The wait is settle.py's: the picture is full when
-drawnEdges reaches edges.
+thread once a millisecond while the settled picture fills, and prints the renderer it drew on, then
+the frames whose own samples cost the most, as a share of the sampled time. The wait is settle.py's:
+the picture is full when drawnEdges reaches edges.
 
-Caveat: a sampling profile of a CPU rasteriser names the JavaScript around the GL calls, not the
-raster inside the GPU process, so a row reading low here is work the renderer spent waiting on the
-driver. What it does name is which of the renderer's own rows owns the fill.
+Caveat: a sampling profile names the JavaScript around the GL calls, not the raster inside the GPU
+process, so a row reading low here is work the renderer spent waiting on the driver. On the software
+arm that wait is a CPU raster and on the GPU arm it is a queue, so the two arms' profiles are not
+the same shape: what a row names is which of the renderer's own rows owns the fill.
 """
 import json
 import os
@@ -21,6 +22,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "nav"))
 
 import nav  # first: it puts the perf gate's CDP client on the path
+import gpu
 import smokecdp
 import smokerows
 
@@ -49,6 +51,7 @@ def run(page, base, nodes, label, limit):
     page.start_watching()
     page.set_viewport(1920, 1080, 1)
     page.navigate(base)
+    name = gpu.check(page)
     page.evaluate(open("deploy/perf/drivers/hook.js").read())
     page.call("Profiler.enable")
     page.call("Profiler.setSamplingInterval", {"interval": 1000})
@@ -57,7 +60,7 @@ def run(page, base, nodes, label, limit):
     measured = page.evaluate(f"({SETTLE})({{ polls: 2000, everyMs: 50 }})", timeout=240)
     profile = page.call("Profiler.stop", timeout=120).get("profile", {})
     page.call("Profiler.disable")
-    print(f"settle {json.dumps(measured, sort_keys=True)}")
+    print(f"settle renderer={name} {json.dumps(measured, sort_keys=True)}")
     total, top = rows(profile, limit)
     print(f"label {label} · samples {total} · about {total / 1000:.1f} s of the renderer's own time")
     for key, hits, share in top:
@@ -73,15 +76,19 @@ def main():
     limit = int(sys.argv[4]) if len(sys.argv) > 4 else 25
     server = nav.serve("app/dist")
     with tempfile.TemporaryDirectory() as profile:
-        browser = nav.launch_browser(profile, extra=["--enable-unsafe-swiftshader"])
+        browser = nav.launch_browser(profile, extra=gpu.chrome_flags())
         try:
             served = f"http://127.0.0.1:{server.server_address[1]}/?backend={backend}"
             run(smokecdp.Watcher(nav.DEBUG_PORT), served, nodes, label, limit)
+        except gpu.SoftwareRasteriser as failure:
+            print(f"settle-profile: {failure}", file=sys.stderr)
+            return 2
         finally:
             browser.terminate()
             browser.wait(timeout=10)
             server.shutdown()
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

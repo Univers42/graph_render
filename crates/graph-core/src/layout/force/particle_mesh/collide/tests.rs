@@ -52,14 +52,14 @@ fn gathered(grid: &Grid, workers: u32) -> Vec<(f64, f64)> {
     by_node
 }
 
-/// A crowded cell: 150 nodes inside one cell, around a sparse ring.
+/// A crowd: 300 nodes within 17 units, more than one gather window, around a sparse ring.
 fn crowd() -> (Vec<f64>, Vec<f64>) {
     let (mut x, mut y) = positions();
     x.truncate(40);
     y.truncate(40);
-    for i in 0..150 {
-        x.push(1000.0 + (i % 13) as f64 * 0.7);
-        y.push(1000.0 + (i / 13) as f64 * 0.9);
+    for i in 0..300 {
+        x.push(1000.0 + (i % 17) as f64 * 0.7);
+        y.push(1000.0 + (i / 17) as f64 * 0.9);
     }
     (x, y)
 }
@@ -109,27 +109,50 @@ fn the_sort_is_a_stable_permutation_and_the_ranges_change_no_byte() {
     }
 }
 
+/// Every column of two builds, the positions bit for bit.
+fn assert_same_build(grid: &Grid, one: &Grid, what: &str) {
+    assert_eq!(grid.order, one.order, "{what}");
+    assert_eq!(grid.start, one.start, "{what}");
+    assert_eq!(grid.slot, one.slot, "{what}");
+    let bits = |g: &Grid| {
+        g.at.iter()
+            .flatten()
+            .map(|v| v.to_bits())
+            .collect::<Vec<_>>()
+    };
+    assert!(bits(grid) == bits(one), "{what}");
+    assert_eq!(grid.hash.origin, one.hash.origin, "{what}");
+}
+
+/// A second build after a move starts from the first build's columns, so it must not depend on
+/// them; 100 workers is more than the model has blocks.
 #[test]
 fn every_division_of_the_build_is_the_one_thread_build() {
     let n = 2 * frame::BLOCK + 300;
     let x: Vec<f64> = (0..n).map(|i| libm::sin(i as f64 * 0.37) * 900.0).collect();
     let mut y: Vec<f64> = (0..n).map(|i| libm::cos(i as f64 * 0.11) * 400.0).collect();
     (y[5], y[frame::BLOCK as usize + 1]) = (f64::NAN, f64::NEG_INFINITY);
-    let built = |workers| {
+    let moved: Vec<f64> = (0..n as usize)
+        .map(|i| x[i] + libm::sin(i as f64) * 70.0)
+        .collect();
+    let built = |xy: (&[f64], &[f64]), workers| {
         let mut grid = Grid::new(n);
-        grid.build((&x, &y), CONTACT.reach, (&crate::exec::Serial, workers));
+        grid.build(xy, CONTACT.reach, (&crate::exec::Serial, workers));
         grid
     };
-    let one = built(1);
+    let (one, one_moved) = (built((&x, &y), 1), built((&moved, &y), 1));
     for (k, &i) in one.order.iter().enumerate() {
         assert_eq!(one.slot[i as usize], k as u32, "slot is order's inverse");
     }
-    for workers in [2, 3, 7, 64] {
-        let grid = built(workers);
-        assert_eq!(grid.order, one.order, "workers={workers}");
-        assert_eq!(grid.start, one.start, "workers={workers}");
-        assert_eq!(grid.slot, one.slot, "workers={workers}");
-        assert_eq!(grid.hash.origin, one.hash.origin, "workers={workers}");
+    assert_ne!(
+        one.order, one_moved.order,
+        "the move must reorder, or the rebuild is vacuous"
+    );
+    for workers in [2, 3, 7, 8, 64, 100] {
+        let mut grid = built((&x, &y), workers);
+        assert_same_build(&grid, &one, &format!("workers={workers}"));
+        grid.build((&moved, &y), CONTACT.reach, (&crate::exec::Serial, workers));
+        assert_same_build(&grid, &one_moved, &format!("rebuilt, workers={workers}"));
     }
 }
 
@@ -152,7 +175,7 @@ fn branched(grid: &Grid, k: usize) -> (f64, f64) {
 
 #[test]
 fn the_filtered_gather_is_the_branched_one_bit_for_bit() {
-    let mut longest = 0;
+    let mut widest = 0;
     for (x, y) in [positions(), crowd()] {
         let mut grid = Grid::new(x.len() as u32);
         grid.build((&x, &y), CONTACT.reach, (&crate::exec::Serial, 1));
@@ -162,9 +185,10 @@ fn the_filtered_gather_is_the_branched_one_bit_for_bit() {
             contact: CONTACT,
         };
         crate::exec::Serial.run(&gather, 1, &mut sorted);
-        let runs = (1..grid.start.len()).map(|b| grid.start[b] - grid.start[b - 1]);
-        longest = longest.max(runs.max().unwrap_or(0));
         for (k, got) in sorted.iter().enumerate() {
+            let reads = grid.reads(grid.hash.cell_of((grid.at[k][0], grid.at[k][1])));
+            let runs = reads.runs[..reads.len].iter();
+            widest = widest.max(runs.map(|&(lo, hi)| (hi - lo) as usize).sum());
             let want = branched(&grid, k);
             assert_eq!(
                 (got.0.to_bits(), got.1.to_bits()),
@@ -173,5 +197,8 @@ fn the_filtered_gather_is_the_branched_one_bit_for_bit() {
             );
         }
     }
-    assert!(longest > HITS as u32, "no bucket spans two batches");
+    assert!(
+        widest > gather::WINDOW,
+        "no cell's candidates span two windows"
+    );
 }
