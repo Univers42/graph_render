@@ -71,8 +71,9 @@ const listeners = () => {
   const watching = new Set<(bar: Bar) => void>();
   return {
     get: () => bar,
-    set: (next: Bar): void => {
-      if (next.visible === bar.visible && next.fraction === bar.fraction && next.label === bar.label) return;
+    set: (next: Bar, always = false): void => {
+      const same = next.visible === bar.visible && next.fraction === bar.fraction && next.label === bar.label;
+      if (same && !always) return;
       bar = next;
       for (const handler of watching) handler(bar);
     },
@@ -210,7 +211,7 @@ function linkOf(desk: Desk, deps: LiveDeps, publish: () => void): ForceLink {
  * Every message re-arms the watchdog through `show`, which is why a live settle that keeps
  * talking is never declared dead however long it runs.
  */
-function absorb(desk: Desk, deps: LiveDeps, publish: () => void): (result: Result) => void {
+function absorb(desk: Desk, deps: LiveDeps, publish: (always?: boolean) => void): (result: Result) => void {
   return (result) => {
     if (result.type === "force-frame") {
       desk.running = result.frame.running;
@@ -220,11 +221,16 @@ function absorb(desk: Desk, deps: LiveDeps, publish: () => void): (result: Resul
       return;
     }
     if (result.type === "force-state") {
+      // The panel re-reads its reason only when told, and an answer to a stop leaves the strip
+      // hidden: without this the first `force.stop` after a finished layout kept every Forces
+      // control greyed on "not asked yet" (studio-nav edge-gradient, 2026-10-02).
+      const changed =
+        desk.available !== result.disabled || desk.running !== result.running || desk.paused !== result.paused;
       desk.available = result.disabled;
       desk.running = result.running;
       desk.paused = result.paused;
       if (!result.running) desk.settling = HIDDEN;
-      show(desk, publish);
+      show(desk, () => publish(changed));
     }
   };
 }
@@ -244,7 +250,7 @@ function drive(desk: Desk, deps: LiveDeps, publish: () => void, run: boolean): v
 export function createLiveBridge(deps: LiveDeps): LiveBridge {
   const desk = newDesk();
   const progress = listeners();
-  const publish = (): void => progress.set(barOf(desk));
+  const publish = (always = false): void => progress.set(barOf(desk), always);
   desk.watchdog = createWatchdog((reason) => dead(desk, deps, publish, reason), {
     schedule: deps.schedule ?? later,
   });

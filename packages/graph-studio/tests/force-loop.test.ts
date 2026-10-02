@@ -229,7 +229,7 @@ test("a frame already scheduled does not step a session that was released under 
   const port = mortal(0.9);
   let live: LiveForce | null = port;
   const { host, out } = rig(port, { now: 0, perStep: 0 }, 8, () => live);
-  host.handle({ type: "force.start" });
+  host.handle(START);
   port.dead = true;
   live = null;
   assert.doesNotThrow(() => out.tick(), "a released session is never stepped");
@@ -254,7 +254,7 @@ test("the release notice stops the loop at once, and the next request starts a f
   const before = out.frames();
   assert.doesNotThrow(() => out.tick());
   assert.equal(out.frames(), before, "the frame the old loop had scheduled is gone");
-  host.handle({ type: "force.start" });
+  host.handle(START);
   assert.ok(next.calls.includes("shuffle"), "the host still works over the new session");
 });
 

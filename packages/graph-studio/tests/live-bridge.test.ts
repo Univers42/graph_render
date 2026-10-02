@@ -51,7 +51,11 @@ test("a settle shows the strip and drains it, and a stopped loop hides it", () =
   assert.equal(bridge.bar().fraction, 0, "the strip empties exactly when the loop's floor is reached");
   push({ type: "force-frame", frame: frame(ALPHA_MIN, false) });
   assert.deepEqual(bridge.bar(), HIDDEN);
-  assert.deepEqual(seen.map((bar) => bar.visible), [true, true, false], "every change is announced once");
+  assert.deepEqual(
+    seen.map((bar) => bar.visible),
+    [false, true, true, false],
+    "every change is announced once, the session's first answer included",
+  );
 });
 
 test("a batch layout run shows the same strip, with no fraction of its own", () => {
@@ -149,6 +153,16 @@ test("a finished layout holds still: it stops the last settle and never restarts
   assert.deepEqual(bridge.bar(), HIDDEN, "no strip over a picture that is not moving");
   push({ type: "force-state", running: false, disabled: null, paused: false });
   assert.equal(bridge.link.disabled(), null, "the answer to the stop enables the forces panel");
+});
+
+test("an answer that changes only the session's state still tells the panel, once", () => {
+  const { bridge, push, seen } = rig();
+  bridge.hold();
+  const before = seen.length;
+  push({ type: "force-state", running: false, disabled: null, paused: false });
+  assert.equal(seen.length, before + 1, "the strip stayed hidden, but the panel's reason changed");
+  push({ type: "force-state", running: false, disabled: null, paused: false });
+  assert.equal(seen.length, before + 1, "the same answer twice is not a change");
 });
 
 test("a drag pins the live session only over its own picture; over a finished layout it moves one node", () => {

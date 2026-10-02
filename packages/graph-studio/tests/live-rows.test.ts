@@ -19,6 +19,8 @@ function port(): { readonly force: ForcePort; readonly calls: string[] } {
       pin: (row, x, y) => { calls.push(`pin ${row} ${x} ${y}`); },
       unpin: (row) => { calls.push(`unpin ${row}`); },
       reheat: (alpha) => { calls.push(`reheat ${alpha}`); },
+      seat: () => { calls.push("seat"); },
+      restart: () => { calls.push("restart"); },
       setParams: (params) => { calls.push(`params ${JSON.stringify(params)}`); },
       positions: () => ({ xs: Float64Array.of(0), ys: Float64Array.of(0) }),
       params: () => PARAMS,
@@ -38,7 +40,7 @@ function box(initial: readonly string[]): Rowed {
 }
 
 function live(force: ForcePort, table: Rowed) {
-  return createLiveForce({ session: force, handle: 0, ids: () => table.order, scatter: () => undefined });
+  return createLiveForce({ session: force, ids: () => table.order });
 }
 
 test("a pin reaches the row its id sits in, and an id the order does not hold is dropped", () => {
@@ -71,7 +73,7 @@ test("a new order is picked up: a layout rebuilds the table", () => {
 test("before a layout has run there are no rows, so a pin is dropped rather than refused", () => {
   const made = port();
   const rowed: Rowed = { order: [], set: () => undefined };
-  createLiveForce({ session: made.force, handle: 0, ids: () => null, scatter: () => undefined }).pin("alpha", 1, 1);
+  createLiveForce({ session: made.force, ids: () => null }).pin("alpha", 1, 1);
   live(made.force, rowed).pin("alpha", 1, 1);
   assert.deepEqual(made.calls, []);
 });
