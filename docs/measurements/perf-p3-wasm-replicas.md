@@ -87,8 +87,8 @@ same `(layout, n)`.
 
 `/proc/loadavg` start `23.45 25.65 25.54` · end `22.96 22.05 23.69`.
 
-**Barnes-Hut at 1M nodes was not run** (see the wall below), and neither was anything else at 1M.
-Every Barnes-Hut number in this report is at 100 000 or 400 000 nodes, and both are stated.
+Every multi-rank number in this report is at 100 000 or 400 000 nodes. At 1 000 000 only one rank
+ran (below).
 
 ### n = 400 000 · repeat 1
 
@@ -115,40 +115,43 @@ three-point scaling statement this report has at that size.
 
 `/proc/loadavg` start `18.50 18.66 21.08` · end `17.61 17.59 20.23`.
 
-### The 1 000 000-node wall — **the required bench size did not run**
+### n = 1 000 000 · ranks 1 · repeat 1
 
-`bench --n 1000000` **fails**, at ranks 1 as well, and it fails before the layout is reached:
+The first sweep refused 600 000 and up with `Start offset -1719947488 is outside the bounds of the
+buffer`. That was this harness's defect, not the ABI's: the ABI returns framed buffers as `u32`
+pointers (`docs/contract/wasm-abi.md`), a WebAssembly i32 reaches JavaScript signed, and the
+worker used the pointer without `>>> 0`. The single-instance memory ladder crossed 2 GiB between
+500 000 and 600 000 nodes, which is where the sign flipped. `harness/wasm-replicas/worker.mjs` now
+reads every pointer and length unsigned (`allgather`, `framed`, `buildHandle`; constraint C9), and
+the same command runs:
 
+```sh
+scripts/orch/gr node harness/wasm-replicas.mjs bench --n 1000000 --ranks 1 --repeat 1
 ```
-wasm-replicas: could not run: Start offset -1719947488 is outside the bounds of the buffer
-```
 
-Both 600 000 and 1 000 000 fail this way; 500 000 succeeds. The cause is measured, not guessed:
-the ABI returns framed buffers as `u32` **pointers** (`docs/contract/wasm-abi.md`), and a
-WebAssembly i32 arrives in JavaScript as a **signed** 32-bit number, so an instance whose linear
-memory passes 2 GiB hands back a negative offset. The single-instance memory ladder
-(`layout.force.particle_mesh`, ranks 1, repeat 1) is linear in `n` and crosses 2 GiB between
-500 k and 600 k:
+| layout | n | ranks | median ms | speedup vs 1 | equal | mem MiB | gather % |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `layout.force.barnes_hut` | 1000000 | 1 | 700009.08 | 1.00 | yes | 3274.5 | 0.1 |
+| `layout.force.particle_mesh` | 1000000 | 1 | 302219.72 | 1.00 | yes | 3274.5 | 0.3 |
 
-| n | median ms | mem MiB | outcome |
-|---:|---:|---:|---|
-| 100000 | 11226.42 | 339.1 | ran |
-| 200000 | 30363.52 | 678.4 | ran |
-| 400000 | 90704.23 | 1356.6 | ran |
-| 500000 | 107981.06 | 1636.9 | ran |
-| 600000 | — | — | refused: negative framed offset |
-| 1000000 | — | — | refused: negative framed offset |
+`/proc/loadavg` start `20.78 21.33 21.03` · end `35.48 37.46 32.90`.
 
-So **1M nodes is not reachable through this ABI**, and the binding cost is the *ingest document*,
-not the layout: `seeded_model(seed, 10^6, 8)` is ~10^6 node records plus ~8·10^6 edge records
-written as JSON, and that text exists in wasm memory at least twice (the published frame and the
-`gm_alloc` copy the host writes) before a single `f64` of the simulation is allocated. Model (b)
-then holds one such instance **per rank**, so the ceiling arrives at `n / ranks` × nothing: every
-rank pays it in full. Model (a) is bounded by the same 2 GiB, since it shares one memory.
+The single-instance ladder (`layout.force.particle_mesh`, ranks 1, repeat 1) is linear in `n`:
 
-The honest statement of this job's done-when: **the bench ran at 100 000 for `particle_mesh` (both
-layouts) and at 400 000 and 500 000 for `particle_mesh`; it did not run at 1 000 000, and the
-reason above is a measured ABI limit rather than a skipped step.**
+| n | median ms | mem MiB |
+|---:|---:|---:|
+| 100000 | 11226.42 | 339.1 |
+| 200000 | 30363.52 | 678.4 |
+| 400000 | 90704.23 | 1356.6 |
+| 500000 | 107981.06 | 1636.9 |
+| 1000000 | 302219.72 | 3274.5 |
+
+So 1M nodes run in one instance, at 3.2 GiB of its 4 GiB address space. More ranks at 1M were not
+run: by the line below they need 3.2 GiB **each**, 26 GiB at 8 ranks. The binding cost is the
+*ingest document*, not the layout: `seeded_model(seed, 10^6, 8)` is ~10^6 node records plus
+~8·10^6 edge records written as JSON, held in wasm memory at least twice (the published frame and
+the `gm_alloc` copy the host writes) before the simulation allocates anything. Model (b) holds one
+such instance per rank; model (a) shares one memory, so it pays the document once.
 
 ## Memory × ranks
 
@@ -161,7 +164,7 @@ Exactly linear, because every rank is a full copy of everything the serial build
 
 Per-node cost is ~3.4 KiB and does not depend on the layout or the rank count — `678.3 / 2` and
 `1356.5 / 4` land on `339.1`, and `2713.0 / 8` lands on `339.125`. A 1M-node graph would need
-~3.3 GiB **per rank** by the same line, which is why the wall above is where it is. The tree or
+~3.3 GiB **per rank** by the same line, and one rank measured 3274.5 MiB. The tree or
 mesh build is repeated in every replica, so the *compute* is `ranks`× the serial cost too; the
 numbers above already include that, which is most of why 8 ranks is slower than 4.
 
@@ -207,7 +210,7 @@ against (b).
 - **`ranks > 0` is refused, `rank >= ranks` is refused, `ranks > n` is not.** `partition` yields
   `min(n, ranks)` ranges and the surplus instances gather an empty span, which is the serial
   answer for those nodes.
-- **Nothing was measured at 1 000 000 nodes** — see the wall above.
+- **At 1 000 000 nodes only one rank ran**: 3.2 GiB per rank puts 2 ranks at 6.4 GiB and 8 at 26 GiB.
 - **The host was shared.** 20 cores, load average 16–33 throughout the sweep (readings in each
   table). On a busy host a ratio is a *different* measurement, not a smaller one; the speedup
   column here is the load-corrected claim and the absolute milliseconds are not.
