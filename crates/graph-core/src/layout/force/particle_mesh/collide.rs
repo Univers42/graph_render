@@ -3,9 +3,9 @@
 //!
 //! The overlap correction is Barnes-Hut's own (`barnes_hut/collide.rs::resolve`): the same
 //! subtraction read from either end, the same jiggle keys, the same half push. What
-//! changes is how the candidates are found. A sort puts the nodes in bucket order once per
-//! tick (`sort.rs`: `O(n + buckets)` on one thread, merged runs on several), and a query
-//! reads its three cell rows, three buckets each, against the quadtree's build and walk.
+//! changes is how the candidates are found. A counting sort puts the nodes in bucket order
+//! once per tick, `O(n + buckets)`, and a query reads its three cell rows, three buckets
+//! each, against the quadtree's build and walk.
 //!
 //! Rows are hashed and the cells along a row are not: cell `(cx, cy)` is bucket
 //! `row(cy) + cx` modulo `2n` rounded up to a power of two. The grid costs the same however
@@ -24,11 +24,10 @@ use super::motion;
 use crate::exec::{Runner, StepRange};
 use crate::layout::force::barnes_hut::sim::{How, Sim};
 use crate::rng::jiggle;
-use hash::Hash;
+use hash::{Buckets, Hash};
 use std::ops::Range;
 
 mod hash;
-mod sort;
 
 const PASS_X: u32 = 4;
 const PASS_Y: u32 = 5;
@@ -49,8 +48,6 @@ pub(in crate::layout::force) struct Grid {
     /// The positions in sorted order.
     at: Vec<[f64; 2]>,
     hash: Hash,
-    /// The threaded sort's runs, `bucket << 32 | node`; empty until a build has two workers.
-    runs: Vec<u64>,
     /// The origin's bounds fold, one box per block of nodes.
     blocks: Vec<Bounds>,
 }
@@ -80,13 +77,12 @@ impl Grid {
                 origin: (0.0, 0.0),
                 size: 1.0,
             },
-            runs: Vec::new(),
             blocks: Vec::with_capacity(n.div_ceil(frame::BLOCK) as usize),
         }
     }
 
     /// Sorts every node into its bucket, stably: inside a bucket, by node index. The
-    /// bounds and the sort run through `runner` (`sort.rs`).
+    /// bounds and the hashing run through `runner`; the counting sort is one thread's.
     pub(super) fn build<R: Runner>(
         &mut self,
         xy: (&[f64], &[f64]),
@@ -100,7 +96,27 @@ impl Grid {
             size,
             ..self.hash
         };
-        self.sort(xy, (runner, workers));
+        let hash = self.hash;
+        runner.run(&Buckets { hash, xy }, workers, &mut self.slot);
+        self.start.fill(0);
+        for &b in &self.slot {
+            self.start[b as usize + 1] += 1;
+        }
+        for b in 1..self.start.len() {
+            self.start[b] += self.start[b - 1];
+        }
+        let (x, y) = xy;
+        for (i, slot) in self.slot.iter_mut().enumerate() {
+            let next = &mut self.start[*slot as usize];
+            let k = *next;
+            *next += 1;
+            (self.order[k as usize], self.at[k as usize]) = (i as u32, [x[i], y[i]]);
+            *slot = k;
+        }
+        // Each `start[b]` now holds bucket `b`'s end, which is bucket `b + 1`'s start.
+        let buckets = self.start.len() - 1;
+        self.start.copy_within(0..buckets, 1);
+        self.start[0] = 0;
     }
 
     /// The slot runs a query from `cell` reads: rows `cy - 1..=cy + 1`, buckets left to

@@ -22,10 +22,6 @@ impl Hash {
         (along(x, self.origin.0), along(y, self.origin.1))
     }
 
-    pub(super) fn bucket_at(&self, xy: (f64, f64)) -> u32 {
-        self.bucket_of(self.cell_of(xy))
-    }
-
     pub(super) fn bucket_of(&self, (cx, cy): (i64, i64)) -> u32 {
         (self.row(cy).wrapping_add(cx as u64) & self.mask) as u32
     }
@@ -53,7 +49,7 @@ impl StepRange for Buckets<'_> {
         let nodes = range.start as usize..range.end as usize;
         let xy = self.xy.0[nodes.clone()].iter().zip(&self.xy.1[nodes]);
         for (bucket, (&x, &y)) in out.iter_mut().zip(xy) {
-            *bucket = self.hash.bucket_at((x, y));
+            *bucket = self.hash.bucket_of(self.hash.cell_of((x, y)));
         }
     }
 }

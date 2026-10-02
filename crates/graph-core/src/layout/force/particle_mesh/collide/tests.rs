@@ -124,8 +124,8 @@ fn assert_same_build(grid: &Grid, one: &Grid, what: &str) {
     assert_eq!(grid.hash.origin, one.hash.origin, "{what}");
 }
 
-/// The threaded sort reads the previous build's order, so the second build after a move
-/// starts from a different permutation than the first; 100 workers is above the run cap.
+/// A second build after a move starts from the first build's columns, so it must not depend on
+/// them; 100 workers is more than the model has blocks.
 #[test]
 fn every_division_of_the_build_is_the_one_thread_build() {
     let n = 2 * frame::BLOCK + 300;
