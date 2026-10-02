@@ -29,8 +29,8 @@ use graph_core::layout::circle_packing::{self, CirclePackingParams};
 use graph_core::layout::force::spring::{Spring, Spring3D, SpringParams};
 use graph_core::layout::forceatlas2::{Fa2Params, ForceAtlas2};
 use graph_core::layout::graphviz::sfdp;
-use graph_core::layout::random;
 use graph_core::layout::grid::Grid;
+use graph_core::layout::random;
 use graph_core::{Stage, StageError, registry, run_with};
 use serde_json::Value;
 
