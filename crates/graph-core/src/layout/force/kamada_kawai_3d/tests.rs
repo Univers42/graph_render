@@ -53,18 +53,24 @@ fn the_sphere_start_matches_the_spec_table() {
     assert_eq!(phi, 0.0, "phi does not advance on the first row");
     assert_eq!(sphere_row(6, 7, &mut phi), [0.0, 0.0, 1.0]);
 
-    // Interior: z = -1 + 2i / (n - 1), r = sqrt(1 - z z), phi += 3.6 / (sqrt(n) r).
+    // Interior: z = -1 + 2i / (n - 1), r = sqrt(1 - z z), phi += 3.6 / (sqrt(n) r). The step
+    // uses *this* row's own r, so phi is a running sum of per-row increments, not a count
+    // times one shared increment — pinning that is the point of the assertion.
     let n = 7;
     let mut phi = 0.0;
+    let mut want = 0.0;
     for i in 1..n - 1 {
         let row = sphere_row(i, n, &mut phi);
         let z = -1.0 + 2.0 * i as f64 / (n - 1) as f64;
         let r = libm::sqrt(1.0 - z * z);
         let on_ring = libm::sqrt(row[0] * row[0] + row[1] * row[1]);
+        want += 3.6 / (libm::sqrt(n as f64) * r);
         assert!((row[2] - z).abs() < 1e-15, "row {i}: z");
         assert!((on_ring - r).abs() < 1e-15, "row {i}: r");
-        let want = i as f64 * 3.6 / (libm::sqrt(n as f64) * r);
         assert!((phi - want).abs() < 1e-12, "row {i}: phi {}", phi);
+        // The row is the point at angle phi on the ring of radius r.
+        assert!((row[0] - r * libm::cos(phi)).abs() < 1e-15, "row {i}: x");
+        assert!((row[1] - r * libm::sin(phi)).abs() < 1e-15, "row {i}: y");
     }
 }
 
@@ -74,8 +80,11 @@ fn the_sphere_start_is_scaled_by_the_spec_radius() {
     let pos = sphere_start(n);
     let radius = 0.36 * libm::sqrt(n as f64);
     assert_eq!(pos.len(), n);
+    // phi accumulates across interior rows, so the replay carries one `phi` through the loop
+    // rather than restarting it — a reset here would compare row i against the wrong angle.
+    let mut phi = 0.0;
     for (i, p) in pos.iter().enumerate() {
-        let unit = sphere_row(i, n, &mut 0.0);
+        let unit = sphere_row(i, n, &mut phi);
         let want = [unit[0] * radius, unit[1] * radius, unit[2] * radius];
         assert!(norm3([p[0] - want[0], p[1] - want[1], p[2] - want[2]]) < 1e-15, "row {i}");
     }

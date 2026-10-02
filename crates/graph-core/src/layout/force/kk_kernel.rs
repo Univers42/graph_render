@@ -270,9 +270,9 @@ fn determinant<const D: usize>(h: &[[f64; D]; D], col: Option<usize>, rhs: &[f64
 }
 
 /// Visits every permutation of `0..D` in lexicographic order with its sign. `D` is 2 or 3, so
-/// the odometer is a handful of steps; the order is what fixes the summation order.
+/// this is a handful of swaps; the order is what fixes the summation order (D3).
 fn each_permutation<const D: usize>(mut visit: impl FnMut([usize; D], f64)) {
-    let mut p = [0usize; D];
+    let mut p: [usize; D] = core::array::from_fn(|i| i);
     loop {
         visit(p, sign_of(&p));
         if !advance(&mut p) {
@@ -281,21 +281,25 @@ fn each_permutation<const D: usize>(mut visit: impl FnMut([usize; D], f64)) {
     }
 }
 
-/// One odometer step over the permutations of `0..D`; `false` once all are visited.
+/// One lexicographic step over the permutations of `0..D`: the pivot is the largest index
+/// whose successor is larger, its partner the smallest index above it holding something
+/// larger, and the tail above the pivot reverses. `false` once every permutation has been
+/// visited — which is when no such pivot exists, the array being in descending order.
+///
+/// The descending-tail test is what a wrong pivot rule gets wrong quietly: an inverted rule
+/// finds no pivot in the identity either, and a one-permutation walk drops half of every
+/// 2x2 determinant without failing a shape check. `tests::the_permutation_walk_visits_each_one_once_and_stops`
+/// is the control.
 fn advance<const D: usize>(p: &mut [usize; D]) -> bool {
-    let mut k = D;
-    while k > 0 {
-        k -= 1;
-        if p[k] + 1 < D {
-            p[k] += 1;
-            for (j, slot) in p.iter_mut().enumerate().take(k) {
-                *slot = j;
-            }
-            return true;
-        }
-        p[k] = 0;
-    }
-    false
+    let Some(pivot) = (0..D.saturating_sub(1)).rev().find(|&i| p[i] < p[i + 1]) else {
+        return false;
+    };
+    let Some(swap) = (pivot + 1..D).rev().find(|&j| p[j] > p[pivot]) else {
+        return false;
+    };
+    p.swap(pivot, swap);
+    p[(pivot + 1)..].reverse();
+    true
 }
 
 /// `+1` for an even permutation, `-1` for an odd one, by inversion count.
@@ -320,4 +324,64 @@ fn squared<const D: usize>(delta: &[f64; D]) -> f64 {
         sum += v * v;
     }
     sum
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn visited<const D: usize>() -> Vec<[usize; D]> {
+        let mut seen = Vec::new();
+        each_permutation::<D>(|p, _| seen.push(p));
+        seen
+    }
+
+    #[test]
+    fn the_permutation_walk_visits_each_one_once_and_stops() {
+        let two = visited::<2>();
+        assert_eq!(two, vec![[0, 1], [1, 0]], "2! permutations, both of them");
+        let three = visited::<3>();
+        assert_eq!(three.len(), 6, "3! permutations");
+        for (i, a) in three.iter().enumerate() {
+            assert!(three[i + 1..].iter().all(|b| b != a), "a repeat: {a:?}");
+        }
+    }
+
+    /// The control for the failure the pivot rule above invites: a walk that visits only the
+    /// identity yields `a * c`, which is a plausible-looking number and not the determinant.
+    #[test]
+    fn a_walk_that_dropped_the_second_permutation_would_fail() {
+        let h = [[2.0, 1.0], [1.0, 3.0]];
+        let full = determinant(&h, None, &[0.0; 2]);
+        let identity_only = h[0][0] * h[1][1];
+        assert_ne!(full, identity_only);
+        assert_eq!(full, 2.0 * 3.0 - 1.0 * 1.0);
+    }
+
+    #[test]
+    fn the_walk_is_lexicographic() {
+        let three = visited::<3>();
+        let mut sorted = three.clone();
+        sorted.sort();
+        assert_eq!(three, sorted, "the order the summation runs in");
+    }
+
+    #[test]
+    fn the_2x2_determinant_is_the_closed_form() {
+        // [[a, b], [b, c]] expands to a * c - b * b, and the Cramer numerator for the first
+        // unknown to c * g0 - b * g1 — the two expressions the 2-D stage was pinned to.
+        let h = [[2.0, 1.0], [1.0, 3.0]];
+        assert_eq!(determinant(&h, None, &[0.0; 2]), 2.0 * 3.0 - 1.0 * 1.0);
+        let g = [5.0, 7.0];
+        assert_eq!(determinant(&h, Some(0), &g), 3.0 * 5.0 - 1.0 * 7.0);
+        assert_eq!(determinant(&h, Some(1), &g), 2.0 * 7.0 - 5.0 * 1.0);
+    }
+
+    #[test]
+    fn the_3x3_determinant_is_the_closed_form() {
+        let h = [[6.0, 1.0, 2.0], [1.0, 5.0, 3.0], [2.0, 3.0, 4.0]];
+        let want = 6.0 * (5.0 * 4.0 - 3.0 * 3.0) - 1.0 * (1.0 * 4.0 - 3.0 * 2.0)
+            + 2.0 * (1.0 * 3.0 - 5.0 * 2.0);
+        assert!((determinant(&h, None, &[0.0; 3]) - want).abs() < 1e-12, "{want}");
+    }
 }
