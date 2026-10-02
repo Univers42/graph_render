@@ -14,6 +14,10 @@ pub struct Run {
     owner: Vec<u32>,
     forward: Vec<bool>,
     merges: u32,
+    /// Passes that reached the candidate scan: the work the early stop saves, which the
+    /// result alone cannot show.
+    #[cfg(test)]
+    pub scored_passes: u32,
 }
 
 impl Run {
@@ -26,17 +30,21 @@ impl Run {
             owner: (0..m as u32).collect(),
             forward: vec![true; m],
             merges: 0,
+            #[cfg(test)]
+            scored_passes: 0,
         }
     }
 
-    /// One round: passes until none merges, then the level's trunks. False when the round
-    /// merged nothing, which ends the hierarchy — the next round would be handed exactly the
-    /// level it just refused.
+    /// One round: passes until one merges nothing (`mingle.py:370-371`), then the level's
+    /// trunks. A pass that took nothing left the level as it was, so the next would score
+    /// the same pairs the same way. False when the round merged nothing, which ends the
+    /// hierarchy — the next round would be handed exactly the level it just refused.
     pub fn round(&mut self, p: &Params, eps: f64) -> bool {
         let mut taken = 0;
         for _ in 0..super::PASSES_PER_ROUND {
-            taken += self.one_pass(p, eps);
-            if self.level.len() < 2 {
+            let merged = self.one_pass(p, eps);
+            taken += merged;
+            if merged == 0 || self.level.len() < 2 {
                 break;
             }
         }
@@ -53,6 +61,10 @@ impl Run {
     fn one_pass(&mut self, p: &Params, eps: f64) -> u32 {
         if self.level.len() < 2 {
             return 0;
+        }
+        #[cfg(test)]
+        {
+            self.scored_passes += 1;
         }
         let cand = pass::candidates(&self.level, p.neighbors as usize);
         if cand.is_empty() {
