@@ -5,6 +5,7 @@ import type { Frame } from "../frame.ts";
 import type { LabelPlan } from "../labels.ts";
 import type { Style } from "../style.ts";
 import type { Theme } from "../theme.ts";
+import type { Drawn } from "../three/projection.ts";
 import type { SpriteCache } from "./sprites.ts";
 import type { Surface2D } from "./surface.ts";
 
@@ -13,6 +14,13 @@ export interface PaintInput {
   readonly viewport: Viewport;
   readonly dpr: number;
   readonly camera: Camera;
+  /**
+   * The 3D drawing already projected for this frame, or `null`/`undefined` for a 2D one. The
+   * view fills it in `loop.ts` when the frame carries a z column, and it is optional so a
+   * 2D caller that never heard of 3D still type-checks and still draws what it always drew.
+   * Every 2D pass below ignores it.
+   */
+  readonly space?: Drawn | null;
   readonly theme: Theme;
   readonly frame: Frame;
   readonly style: Style;

@@ -5,7 +5,7 @@ use super::graphviz::{by_engine, default_dir, engine_parser};
 use super::spring;
 use super::{
     BASIC_3D, CIRCULAR_HIERARCHY, CLOSED_FORM, FA2, HIERARCHICAL_3D, IGRAPH, SPECTRAL, SPRING,
-    emit, ingest,
+    conformance, emit, ingest,
 };
 use crate::command::seed_count;
 use clap::Subcommand;
@@ -197,6 +197,32 @@ pub enum Cli {
         #[arg(long)]
         dir: Option<PathBuf>,
     },
+    /// Writes the SciGraphs conformance fixtures: the graphs both arms read, the node-order
+    /// mapping, and every motor layout's own coordinates over them, raw little-endian `f64`
+    /// and the `f32` the snapshot narrows to.
+    ///
+    /// Its own command pair rather than one of the `emit-graphviz-fixtures` engines, because
+    /// it is not one differential against one reference: it is **all 32** SciGraphs names at
+    /// once, against whichever arm can reach each one, so that a reader gets the whole
+    /// matrix out of one emit instead of 32.
+    ///
+    /// Named explicitly: clap would spell the variant `emit-conformancefixtures`.
+    #[command(name = "emit-conformance-fixtures")]
+    EmitConformanceFixtures {
+        /// Output directory.
+        #[arg(long, default_value = "target/scigraphs-conformance")]
+        out: PathBuf,
+    },
+    /// Checks the SciGraphs conformance matrix against its pinned baseline and records it.
+    ///
+    /// Not `oracle-<name>`: this one is a matrix of 32 rows, and a single record named for
+    /// one of them would name the other 31 nothing.
+    #[command(name = "scigraphs-conformance")]
+    ScigraphsConformance {
+        /// Directory holding the fixtures, `motor.jsonl` and `metrics.json`.
+        #[arg(long, default_value = "target/scigraphs-conformance")]
+        dir: PathBuf,
+    },
 }
 
 impl Cli {
@@ -243,6 +269,8 @@ impl Cli {
                 Some(differential) => ingest(&differential, &dir.unwrap_or(default_dir(&engine))),
                 None => unknown(&engine),
             },
+            Cli::EmitConformanceFixtures { out } => conformance::emit(&out),
+            Cli::ScigraphsConformance { dir } => conformance::judge(&dir),
         }
     }
 }

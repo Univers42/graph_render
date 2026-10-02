@@ -8,18 +8,19 @@
  * Not checked here: id uniqueness, UTF-8 validity, note codes and note order. Those are
  * the producer's construction checks, and a note this reader cannot name is still shown.
  *
- * **2D only.** A snapshot whose header `dim` is 1 is refused as `dimension-3d` at byte 14,
- * before either geometry tag is read — the same check order as the Rust reader. This painter
- * cannot draw 3D, and the one thing it must not do is read a 3D snapshot as a 2D one: the z
- * column would be read as `r`, `w` or `h`, and a flat lie is worse than a refusal. A
- * consumer that can draw 3D wants the contract's reader, not this one.
+ * **2D and 3D.** A `dim = 0` snapshot is read exactly as before, byte for byte: no column
+ * moves and no offset shifts, so a 2D render is unchanged. A `dim = 1` snapshot carries a
+ * z column, read here as `node.z` between `y` and the size column, and the painter projects
+ * it (`three/orbit.ts`). A `dim` of 2 or more is still refused at byte 14, before either
+ * geometry tag, under the same check order as the Rust reader: a dim this reader cannot
+ * express is a dim it must not read past.
  */
 
 export type NodeKind = "Point" | "Circle" | "Box";
 export type EdgeKind = "Line" | "Polyline" | "Curve";
 
 export type RefusalCode =
-  | "truncated" | "bad-magic" | "unsupported-major" | "reserved-field" | "dimension-3d"
+  | "truncated" | "bad-magic" | "unsupported-major" | "reserved-field" | "reserved-dim"
   | "geometry-tag" | "offsets" | "padding" | "endpoint" | "non-finite" | "negative"
   | "curve-degree" | "trailing-bytes" | "big-endian-host";
 
@@ -52,6 +53,8 @@ export interface Note {
 export interface Snapshot {
   readonly major: number;
   readonly minor: number;
+  /** 0 for a 2D snapshot with no z column, 1 for one that carries it. Never 2 or more. */
+  readonly dim: number;
   readonly nodeKind: NodeKind;
   readonly edgeKind: EdgeKind;
   readonly nodeCount: number;
@@ -62,6 +65,8 @@ export interface Snapshot {
   readonly target: Uint32Array;
   readonly x: Float32Array;
   readonly y: Float32Array;
+  /** The third coordinate, one per node; `null` for a 2D snapshot, which has no such column. */
+  readonly z: Float32Array | null;
   readonly r: Float32Array | null;
   readonly w: Float32Array | null;
   readonly h: Float32Array | null;
@@ -163,6 +168,8 @@ function takeEndpoints(cursor: Cursor, header: Header, column: string): Uint32Ar
 interface Header {
   readonly major: number;
   readonly minor: number;
+  /** 0 or 1. A value of 2 or more never reaches here: `takeDim` has already refused it. */
+  readonly dim: number;
   readonly nodeKind: NodeKind;
   readonly edgeKind: EdgeKind;
   readonly nodeCount: number;
@@ -176,16 +183,13 @@ function reserved(column: string, found: number, allowed: number): void {
 }
 
 /**
- * This renderer draws in 2D. A `dim = 1` snapshot carries a z column the painter cannot
- * show, so it is refused by name rather than read and dropped. A `dim` of 2 or more is
- * a reserved value, but it is still a dimension refusal, so it carries the same code.
+ * The dim byte, read before either geometry tag: a reader that cannot express a snapshot's
+ * dimension must say so before it says anything about a column. 0 is 2D and 1 is 3D, both
+ * read; anything higher is reserved and refused by name rather than read as one of the two.
  */
-function refuseNon2D(dim: number): void {
-  if (dim === 0) return;
-  const detail = dim === 1
-    ? "found 1, only 0 is read"
-    : `found ${dim}, 0 is 2D, 1 is 3D, 2 and up is reserved`;
-  throw new SnapshotRefusal("dimension-3d", "dim", detail);
+function takeDim(found: number): number {
+  if (found === 0 || found === 1) return found;
+  throw new SnapshotRefusal("reserved-dim", "dim", `found ${found}, 0 is 2D, 1 is 3D, 2 and up is reserved`);
 }
 
 function kindAt<Kind>(kinds: readonly Kind[], tag: number, column: string): Kind {
@@ -206,23 +210,27 @@ function takeHeader(cursor: Cursor): Header {
   if (major > KNOWN_MAJOR) {
     throw new SnapshotRefusal("unsupported-major", "version.major", `found ${major}, reads ${KNOWN_MAJOR}`);
   }
-  refuseNon2D(bytes[14] ?? 0);
+  const dim = takeDim(bytes[14] ?? 0);
   reserved("padding", bytes[15] ?? 0, 0);
   const nodeKind = kindAt(NODE_KINDS, bytes[12] ?? 0, "node.kind");
   const edgeKind = kindAt(EDGE_KINDS, bytes[13] ?? 0, "edge.kind");
   reserved("stage.count", words[4] ?? 0, 1);
-  return { major, minor: words[2] ?? 0, nodeKind, edgeKind, nodeCount: words[5] ?? 0, edgeCount: words[6] ?? 0 };
+  return { major, minor: words[2] ?? 0, dim, nodeKind, edgeKind, nodeCount: words[5] ?? 0, edgeCount: words[6] ?? 0 };
 }
 
-type NodeColumns = Pick<Snapshot, "x" | "y" | "r" | "w" | "h">;
+type NodeColumns = Pick<Snapshot, "x" | "y" | "z" | "r" | "w" | "h">;
 
 function takeNodes(cursor: Cursor, header: Header): NodeColumns {
   const n = header.nodeCount;
   const x = takeF32(cursor, n, "node.x");
   const y = takeF32(cursor, n, "node.y");
-  if (header.nodeKind === "Circle") return { x, y, r: takeSize(cursor, n, "node.r"), w: null, h: null };
-  if (header.nodeKind === "Point") return { x, y, r: null, w: null, h: null };
-  return { x, y, r: null, w: takeSize(cursor, n, "node.w"), h: takeSize(cursor, n, "node.h") };
+  // Coordinates first, so `x, y, z` stay contiguous; a z is a coordinate, so it is signed and
+  // only has to be finite. The size column below shifts by one when this is present, which
+  // is why the reader computes every offset from `dim` rather than from a fixed one.
+  const z = header.dim === 1 ? takeF32(cursor, n, "node.z") : null;
+  if (header.nodeKind === "Circle") return { x, y, z, r: takeSize(cursor, n, "node.r"), w: null, h: null };
+  if (header.nodeKind === "Point") return { x, y, z, r: null, w: null, h: null };
+  return { x, y, z, r: null, w: takeSize(cursor, n, "node.w"), h: takeSize(cursor, n, "node.h") };
 }
 
 type EdgeColumns = Pick<Snapshot, "curveDegree" | "offsets" | "pts">;

@@ -48,6 +48,22 @@ test("the numbers from the view are written into one element, not into the tree"
   assert.match(html, /class="gs-hud-frame"/, "the part the frame handler writes into is there");
 });
 
+test("a 3D run carries a badge, and a 2D one does not", () => {
+  // The badge's own condition is the run's dim, which came off the decoded snapshot. This is
+  // the row that would fail if it read the layout id instead: a 2D layout with a 3D-looking
+  // name would then wear a badge for a drawing with no z column at all.
+  const inSpace = hud({ ...DRAWN, run: DRAWN.run === null ? null : { ...DRAWN.run, dim: 1 } });
+  assert.match(inSpace, /class="gs-badge"/, "a 3D run is badged");
+  assert.match(inSpace, /3D/, "and the badge says what it is");
+  const flat = hud();
+  assert.ok(!flat.includes("gs-badge"), "a 2D run is not");
+});
+
+test("with nothing drawn there is no badge, dim or not", () => {
+  const html = hud(IDLE);
+  assert.ok(!html.includes("gs-badge"), "no run, no badge");
+});
+
 test("the navigation bar has the five camera buttons, each one named for the reader", () => {
   const { studio } = studioWith();
   const html = markup(createElement(NavBar, { studio }));

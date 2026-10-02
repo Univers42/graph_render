@@ -10,11 +10,18 @@
 //!
 //! **What makes it legal.** A pass reads only start-of-step state — the built quadtrees,
 //! the aggregate masses and centres, the positions, `alpha`, the frozen per-edge link
-//! geometry — and writes only element `i`'s own velocity delta into `out`. Nothing
+//! geometry — and writes only output `k`'s own velocity delta into `out`. Nothing
 //! accumulates into another element, no term is reordered, and a node's walk visits its
-//! subtree in the quadtree's own `visit` order regardless of which slice of the node
+//! subtree in the quadtree's own `visit` order regardless of which slice of the output
 //! range the node fell into. So `partition(n, workers)` is a scheduling decision and
 //! nothing else, and a tier is byte-identical rather than close (D3, D10).
+//!
+//! **Outputs in tree order.** The two tree walks number their outputs by the tree's own
+//! point order (`Quadtree::order`): output `k` is node `order[k]`, so consecutive queries
+//! sit in the same leaf or the next one and open the same cells. At 1M nodes the walk is
+//! memory-bound, and a query order with no spatial locality pays a cache miss on most
+//! cells it reads (`docs/measurements/perf-p1-baseline.md`). [`merge`] puts each delta
+//! back on its own node, one addition per node, so the order moves no byte.
 //!
 //! | kernel | partitions by | the scatter it replaces |
 //! |---|---|---|
@@ -65,16 +72,13 @@ impl StepRange for Pass<'_> {
     }
 
     fn step_range(&self, range: Range<u32>, out: &mut [(f64, f64)]) {
-        // One stack for the whole range, reused across its nodes: the walk is iterative
-        // precisely so this buffer can be borrowed rather than owned, which is what lets
-        // several workers hold the same `&Sim` at once. Allocated per *range*, not per
-        // node, so the threaded tier's allocation count is `workers` per pass.
-        let mut stack = Vec::new();
+        let ctx = super::charge::Ctx::of(self.sim);
+        let order = &self.sim.charge_tree.order()[range.start as usize..range.end as usize];
         // `zip`, not indexing: `out` is this range's own sub-column, so the two iterate
         // together by construction and a mismatch is a length error at the pairing rather
         // than a silent write past the end.
-        for (slot, i) in out.iter_mut().zip(range) {
-            *slot = self.sim.node_delta(i, &mut stack);
+        for (slot, &i) in out.iter_mut().zip(order) {
+            *slot = super::charge::node_delta(&ctx, i);
         }
     }
 }
@@ -100,9 +104,9 @@ impl StepRange for CollidePass<'_> {
 
     fn step_range(&self, range: Range<u32>, out: &mut [(f64, f64)]) {
         let reach = super::collide::reach_squared(self.sim);
-        let mut stack = Vec::new();
-        for (slot, i) in out.iter_mut().zip(range) {
-            *slot = super::collide::node_delta(self.sim, i, reach, &mut stack);
+        let order = &self.sim.collide_tree.order()[range.start as usize..range.end as usize];
+        for (slot, &i) in out.iter_mut().zip(order) {
+            *slot = super::collide::node_delta(self.sim, i, reach);
         }
     }
 }
@@ -153,5 +157,31 @@ impl LinkPass<'_> {
             dvy += share.1;
         }
         (dvx, dvy)
+    }
+}
+
+/// `v[i] += deltas[k]` for every output `k`, where node `i` is `order[k]` (or `k` itself
+/// when `order` is `None`, the link pass's node order) — and, under the control, output
+/// `k + 1`'s delta as well, the shape a wrong partition of the outputs would take.
+///
+/// Every gathered pass ends here, so a partition mistake shows up in one place for all
+/// three. Each node receives exactly one addition, its own delta, which is why the order
+/// the outputs are laid out in moves no byte and why the control has to *steal* a
+/// neighbour's term to move anything.
+pub(super) fn merge(
+    v: (&mut [f64], &mut [f64]),
+    order: Option<&[u32]>,
+    deltas: &[(f64, f64)],
+    split: bool,
+) {
+    for (k, (dvx, dvy)) in deltas.iter().enumerate() {
+        let stolen = if split {
+            deltas.get(k + 1).copied().unwrap_or((0.0, 0.0))
+        } else {
+            (0.0, 0.0)
+        };
+        let i = order.map_or(k, |order| order[k] as usize);
+        v.0[i] += dvx + stolen.0;
+        v.1[i] += dvy + stolen.1;
     }
 }

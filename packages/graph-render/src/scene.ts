@@ -22,7 +22,7 @@ export interface Scene {
 
 export const EMPTY_FRAME: Frame = {
   nodeKind: "Point", edgeKind: "Line", nodeCount: 0, edgeCount: 0,
-  x: new Float32Array(0), y: new Float32Array(0), r: null, w: null, h: null,
+  x: new Float32Array(0), y: new Float32Array(0), z: null, r: null, w: null, h: null,
   source: new Uint32Array(0), target: new Uint32Array(0),
   curveDegree: 0, offsets: null, pts: null, bounds: null, factor: 1,
 };

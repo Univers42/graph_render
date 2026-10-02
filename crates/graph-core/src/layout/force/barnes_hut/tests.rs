@@ -133,13 +133,8 @@ fn prepared(n: u32, ticks: u32) -> (Vec<NodeRecord>, Vec<EdgeRecord>, Sim) {
     let mut sim = Sim::new(&t, ForceParams::default().into(), 0);
     for _ in 0..ticks {
         sim.alpha += -sim.alpha * sim.params.alpha_decay;
-        charge::prepare(&mut sim);
         let mut deltas = Vec::new();
-        Serial.run(&Pass::of(&sim), 1, &mut deltas);
-        for (i, (dvx, dvy)) in deltas.into_iter().enumerate() {
-            sim.vx[i] += dvx;
-            sim.vy[i] += dvy;
-        }
+        charge::apply_with(&mut sim, &Serial, 1, &mut deltas, false);
         sim.integrate();
         sim.tick_no += 1;
     }
@@ -171,7 +166,8 @@ fn the_pass_gives_the_same_deltas_at_every_worker_count() {
 /// The kernel and the serial loop it replaces are the same computation. Without this the
 /// equality test above would pass on a kernel that computes something else entirely, one
 /// worker or seven: it is the test that says `Pass` is `charge::apply`'s inner `for` loop
-/// with a range, not a parallel reimplementation of the pass.
+/// with a range, not a parallel reimplementation of the pass. Output `k` is node
+/// `order[k]`, the charge tree's point order (`step.rs`, "Outputs in tree order").
 #[test]
 fn the_kernel_and_the_serial_loop_are_the_same_computation() {
     let (nodes, edges) = line(40);
@@ -181,11 +177,10 @@ fn the_kernel_and_the_serial_loop_are_the_same_computation() {
     charge::prepare(&mut sim);
     let mut through_kernel = Vec::new();
     Serial.run(&Pass::of(&sim), 1, &mut through_kernel);
-    let mut through_loop = vec![(0.0, 0.0); sim.x.len()];
-    let mut stack = Vec::new();
-    for (i, slot) in through_loop.iter_mut().enumerate() {
-        *slot = sim.node_delta(i as u32, &mut stack);
-    }
+    let ctx = charge::Ctx::of(&sim);
+    let through_loop: Vec<(f64, f64)> = (sim.charge_tree.order().iter())
+        .map(|&i| charge::node_delta(&ctx, i))
+        .collect();
     assert_eq!(through_kernel, through_loop);
 }
 
