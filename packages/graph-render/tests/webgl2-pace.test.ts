@@ -39,15 +39,17 @@ test("the moving budget halves when slow, doubles when fast, and stays inside it
 });
 
 test("a settled fill's floor is a share of the whole set, so its frame count is bounded not its chunk", () => {
-  // 1M nodes: 1 999 996 edge pairs over STILL_FRAMES frames.
-  assert.equal(stillFloor(1999996), Math.ceil(1999996 / STILL_FRAMES));
-  // 200k nodes: eight times fewer pairs, an eighth of the chunk.
-  assert.equal(stillFloor(399996), Math.ceil(399996 / STILL_FRAMES));
-  // 20k nodes and 2k: the share is under the moving floor, which is then what holds.
+  // 1M nodes: the share binds, and the fill takes about STILL_FRAMES frames.
+  const floor = stillFloor(1999996);
+  assert.equal(floor, Math.ceil(1999996 / STILL_FRAMES));
+  assert.ok(floor > MOVING_FLOOR, `the 1M floor ${floor} must clear the moving one`);
+  assert.equal(1999996 / floor, 512);
+  // 200k nodes: 399 996 pairs over STILL_FRAMES is under the moving floor, which is then what holds,
+  // so a 200k fill is paced exactly as it was.
+  assert.equal(stillFloor(399996), MOVING_FLOOR);
   assert.equal(stillFloor(39996), MOVING_FLOOR);
   assert.equal(stillFloor(1996), MOVING_FLOOR);
   // The chunk cannot fall below its own floor, and still grows when a frame came in cheap.
-  const floor = stillFloor(1999996);
   assert.equal(nextBudget(floor, SLOW_MS + 1, 1999996, floor), floor);
   assert.equal(nextBudget(floor * 2, FAST_MS - 1, 1999996, floor), floor * 4);
   // A set smaller than the floor is still drawn whole in one frame, as it always was.

@@ -33,9 +33,9 @@ async (args) => {
   // Inside the loop's own MOVING_MS window a frame is a moving one, and a moving frame owes no
   // still chunk: `refining` must read false here even though the picture was mid-fill a moment ago.
   await sleep(30);
-  const moving = view.stats();
+  const inMotion = view.stats();
   const stamps = [];
-  let minDrawnAfter = moving.drawnEdges;
+  let minDrawnAfter = inMotion.drawnEdges;
   const until = pannedAt + args.measureMs;
   // At least 20 gaps, or the measure window over, whichever is later: 21 stamps are 20 gaps.
   // The extra window is slack, so a frame that arrives late is not the run's last.
@@ -45,12 +45,11 @@ async (args) => {
     minDrawnAfter = Math.min(minDrawnAfter, view.stats().drawnEdges);
   }
   const gaps = stamps.slice(1).map((time, at) => time - stamps[at]);
-  const after = view.stats();
   // Two windows, because they are two different things: the gaps ending inside the loop's own
   // MOVING_MS are the pan's own frames (the camera is still moving, so the layer draws its moving
   // budget), and the gaps after it are the re-fill of the picture the pan restarted. The floor a
   // settled fill takes moves the second window and not the first, so the two are read apart.
-  const moving = gaps.filter((_, at) => stamps[at + 1] <= pannedAt + args.movingMs);
+  const panGaps = gaps.filter((_, at) => stamps[at + 1] <= pannedAt + args.movingMs);
   const refill = gaps.filter((_, at) => stamps[at + 1] > pannedAt + args.movingMs);
   const ordered = gaps.slice().sort((a, b) => a - b);
   const quantile = (from, q) => (from.length === 0 ? -1 : round(from.slice().sort((a, b) => a - b)[Math.floor((from.length - 1) * q)]));
@@ -59,8 +58,8 @@ async (args) => {
     filledAtMs: filledAtMs < 0 ? -1 : round(filledAtMs),
     refiningBefore: before.refining,
     // False while the camera is still moving: the still owes no chunk, so the pan took the fill.
-    refiningMoving: moving.refining,
-    drawnMoving: moving.drawnEdges,
+    refiningMoving: inMotion.refining,
+    drawnMoving: inMotion.drawnEdges,
     refiningAfter: after.refining,
     drawnBefore: before.drawnEdges,
     // The picture starts again from nothing once the pan settles, so the least it ever read after the
@@ -74,9 +73,9 @@ async (args) => {
     p95GapMs: quantile(gaps, 0.95),
     maxGapMs: ordered.length === 0 ? -1 : round(ordered[ordered.length - 1]),
     // The pan's own frames: the camera is moving through these, and the still floor touches none.
-    movingGaps: moving.length,
-    movingP50GapMs: quantile(moving, 0.5),
-    movingMaxGapMs: quantile(moving, 1),
+    panGaps: panGaps.length,
+    panP50GapMs: quantile(panGaps, 0.5),
+    panMaxGapMs: quantile(panGaps, 1),
     // The re-fill the pan restarted: the windows a settled floor does move.
     refillGaps: refill.length,
     refillP50GapMs: quantile(refill, 0.5),
