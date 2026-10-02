@@ -6,10 +6,10 @@ Job brief: `prompts/jobs/fix-wasm-ingest.md` over `prompts/jobs/fix-common.md`. 
 
 | id | severity | verdict | test name | file:line |
 |---|---|---|---|---|
-| F-16 | MAJOR | fixed: `read` refuses a buffer over `MAX_INGEST_BYTES` on its length before `from_utf8`, and `gm_build` publishes that as the appended code `IngestTooLarge` (19) instead of trapping | `a_document_one_byte_past_the_ceiling_is_refused_and_one_at_it_is_not`; `the_ceiling_is_the_measured_power_of_two`; `only_the_ceiling_gets_the_new_code`; `every_code_has_one_name_in_the_doc_and_in_the_sdk_in_wire_order` | `crates/graph-wasm/src/ingest.rs:53`, `:106`, `tests/ceiling.rs:26`, `errors.rs:86` |
+| F-16 | MAJOR | fixed: `read` refuses a buffer over `MAX_INGEST_BYTES` on its length before `from_utf8`, and `gm_build` publishes that as the appended code `IngestTooLarge` (19) instead of trapping | `a_document_one_byte_past_the_ceiling_is_refused_and_one_at_it_is_not`; `the_ceiling_is_the_largest_that_built_rounded_down_to_a_whole_mib`; `only_the_ceiling_gets_the_new_code`; `every_code_has_one_name_in_the_doc_and_in_the_sdk_in_wire_order` | `crates/graph-wasm/src/ingest.rs:62`, `:115`, `tests/ceiling.rs:27`, `errors.rs:86` |
 | F-01 | BLOCKER | doc-only: `child_first` stays optional in version 1 — `docs/decisions/wasm-ingest-limits.md` "F-01", and the doc sentence it protects is pinned by `the_abi_doc_states_what_an_omitted_child_first_means` | `the_abi_doc_states_what_an_omitted_child_first_means`; `an_omitted_child_first_reads_parent_first_and_a_present_one_is_read` | `docs/contract/wasm-abi.md:445`; `ingest/tests/child_first.rs:35` |
 | F-80 | MINOR | doc-only: a negative `strength` stays refused by the shortest-path centralities, not at ingest — `docs/decisions/wasm-ingest-limits.md` "F-80" ("Refusing it at ingest would change what `gm_build` accepts for every caller") | `a_negative_strength_refuses_the_shortest_path_centralities_instead_of_answering` (landed by `fix-wasm-abi`) | `docs/decisions/wasm-ingest-limits.md:35` |
-| SDK-TEST | — | fixed (already in `HEAD` `0e85a20`; the worktree copy of `package.json` was stale and this job restored it — no diff remains) | `crates/graph-sdk-js/test/abi-version.test.mjs`, both tests | `package.json:54` |
+| SDK-TEST | — | fixed (script already in `HEAD` `0e85a20`; this job restored the stale worktree copy and wired the script into the gate: `sdk-test` beside `sdk-typecheck` in `develop-full.rows`, its `sdk-test-control` row beside it, and the command in `CLAUDE.md`'s block) | `crates/graph-sdk-js/test/abi-version.test.mjs`, both tests | `package.json:54`; `scripts/orch/rows/develop-full.rows:58`; `CLAUDE.md:114` |
 
 ## The measurement (decision record steps 1-2)
 
@@ -60,26 +60,31 @@ The same documents, after the ceiling, are nameable refusals — no trap:
 
 | nodes | degree | bytes | outcome (after the ceiling) |
 |---:|---:|---:|---|
+| 1,000,000 | 3 | 678,016,813 | **built** — the studio's scale target, 95,832,275 bytes under the ceiling |
+| 920,000 | 4 | 774,568,785 | `refused code=19` — 719,697 bytes over the ceiling, by the whole-MiB rounding alone |
 | 950,000 | 4 | 799,922,860 | `refused code=19` |
 | 1,000,000 | 4 | 842,132,644 | `refused code=19` |
 
-### The number (step 3) and what it costs
+### The number (steps 3-4) and what it costs
 
-`MAX_INGEST_BYTES = 536_870_912` (`2^29`): the largest power of two at or below the largest
-document that built, 774,568,785 bytes. Step 4 fired and is reported below.
+`MAX_INGEST_BYTES = 773_849_088`: the largest document that built, 774,568,785 bytes, rounded
+**down** to a whole MiB (738 MiB). The power-of-two step down the decision record asks for is
+deferred to `fix-ingest-scale`, because at `2^29` this ceiling refused the studio's own 1M-node
+degree-3 document (678,016,813 bytes), which builds — and a ceiling that refuses what works
+replaces nothing, since the trap is the only failure it prevents.
 
-The step down to a power of two is the rule's margin and it refuses documents that **do** build
-today: every document in `(536,870,912, 774,568,785]` bytes is refused although it built an
-instant before. That set includes the studio's own 1M-node degree-3 document (678,016,813 B) and
-its 500k-node degree-4 document (551,224,029 B). A ceiling placed at 774,568,785 would refuse
-nothing that works, and the rule does not allow it.
+What the new number costs, stated exactly: the rounding is 719,697 bytes, so the sweep's own
+largest document (920,000 nodes at degree 4) is refused where it built. Every document the studio
+builds at its declared scale target is under the ceiling — 1M nodes at degrees 1, 2 and 3, up to
+678,016,813 bytes, all `built code=0` on the artifact above — and nothing between 774,568,785 and
+the first trapping document (799,922,860 bytes) has been shown to build at all.
 
 ## RED and GREEN, at the boundary and on the real artifact
 
 | run | result |
 |---|---|
 | RED (unit) | `error[E0599]: no method named 'code' found for enum 'ingest::IngestError'` — `TooLarge`, `MAX_INGEST_BYTES` and `code()` do not exist yet, at `ingest/tests/ceiling.rs:59` |
-| RED (artifact, the defect) | `536870913` bytes — one past the ceiling — **`built code=0`**, exit 0. `536870912` bytes also `built code=0`. Both are the 400k-node degree-4 document (335,260,546 B) padded with leading JSON whitespace to an exact byte count |
+| RED (artifact, the defect) | `536870913` bytes — one past the then-ceiling — **`built code=0`**, exit 0. `536870912` bytes also `built code=0`. Both are the 400k-node degree-4 document (335,260,546 B) padded with leading JSON whitespace to an exact byte count |
 | GREEN (unit) | `cargo test -p graph-wasm --lib ceiling`: 3 passed; 0 failed |
 | GREEN (artifact, the boundary) | `536870912` bytes → `built code=0`; `536870913` bytes → `refused code=19`, exit 1 |
 | GREEN (`cargo test -p graph-wasm --lib`) | 140 passed; 0 failed; 1 ignored (`every_code_has_one_name_in_the_doc_and_in_the_sdk_in_wire_order` among them) |
@@ -87,6 +92,17 @@ nothing that works, and the rule does not allow it.
 The negative control for the boundary is built into the test: the same buffer one byte shorter
 is asserted **not** to be a `TooLarge` refusal, and `only_the_ceiling_gets_the_new_code` pins
 every other ingest refusal to `IngestInvalid`.
+
+Round 2, at the new number (the ceiling moved from `2^29` to the measurement rounded down to a
+whole MiB, so the boundary had to be re-run on the artifact):
+
+| run | result |
+|---|---|
+| boundary, `773849088` bytes (exactly the ceiling) | `400000 1599984 4 773849088 built code=0`, exit 0 |
+| boundary, `773849089` bytes (one past) | `400000 1599984 4 773849089 refused code=19`, exit 1 |
+| the studio's scale target, 1M nodes at degree 3 | `1000000 2999991 3 678016813 built code=0`, exit 0 |
+| the first document measured to trap, 950k at degree 4 | `950000 3799984 4 799922860 refused code=19`, exit 1 |
+| `cargo test -p graph-wasm --lib ceiling` | 3 passed; 0 failed (`the_ceiling_is_the_largest_that_built_rounded_down_to_a_whole_mib`, `a_document_one_byte_past_the_ceiling_is_refused_and_one_at_it_is_not`, `only_the_ceiling_gets_the_new_code`) |
 
 ## Commands
 
@@ -105,6 +121,7 @@ every other ingest refusal to `IngestInvalid`.
 | `scripts/scigraphs-conformance.sh` | 0 | `scigraphs-conformance: 32/32 rows reached a reference` / `PASS` |
 | `scripts/orch/node-slim.sh npm run sdk:test` | 0 | `# pass 2` / `# fail 0` |
 | `scripts/orch/node-slim.sh npm run sdk:smoke` | 0 | `# pass` |
+| `scripts/orch/node-slim.sh bash -c '… sdk-test-control row verbatim …'` | 1 (control, as required) | `not ok 2 - a module reporting this SDK's ABI version loads` / `# fail 1` |
 
 ### `cargo test --workspace` is red under `--no-fail-fast`, and why
 
@@ -139,16 +156,24 @@ change is 6 lines and moves no other behaviour: `let Ok(..) else { errors::set(C
 became a `match` on the refusal with `errors::set(refusal.code())`. `IngestError::code()`
 itself lives in `ingest.rs`, in this job's paths, and is unit-tested there.
 
+## Fixed in round 2
+
+- `crates/graph-wasm/src/ingest.rs:21` — the `EdgeKind`/`NodeKind` imports had no user in the
+  wasm32 release build (`ingest/tests.rs` reaches them through `use super::*`, `record.rs`
+  imports its own), so that build printed `warning: unused imports`. They are now a
+  `#[cfg(test)]` import and `cargo build -p graph-wasm --release --target wasm32-unknown-unknown`
+  prints no warning from any code — only the four workspace-wide
+  `cargo-features = ["edition2024"]` manifest warnings, which come from the four
+  `crates/*/Cargo.toml` files and are outside this job's paths.
+
 ## Findings not fixed here
 
-- `crates/graph-wasm/src/ingest.rs:21` — the `EdgeKind`/`NodeKind` imports are used only by
-  `ingest/tests.rs`, so the **wasm32 release** build prints `warning: unused imports`. Pre-existing
-  on this tree (present before this job's first edit), invisible to the native floor because
-  `mod ingest` is `#[cfg(any(test, target_arch = "wasm32"))]`, and not this job's finding. It is
-  in this job's paths and is a two-line move into `#[cfg(test)]`.
-- `ingest/tests/ceiling.rs` allocates `MAX_INGEST_BYTES + 1` = 512 MiB of whitespace to pin the
+- `ingest/tests/ceiling.rs` allocates `MAX_INGEST_BYTES + 1` = 738 MiB of whitespace to pin the
   boundary with the real constant. It is the cheapest honest way to test the boundary at the
   measured number, and it is the reason that test takes ~4 s.
+- Every `crates/*/Cargo.toml` carries `cargo-features = ["edition2024"]`, stabilized in Rust
+  1.85, so all four workspace manifests warn on every cargo invocation. Recommended fix: delete
+  the line from the four manifests (four files, none in this job's paths).
 
 ## Decisions taken
 
@@ -162,24 +187,29 @@ itself lives in `ingest.rs`, in this job's paths, and is unit-tested there.
   pinned Node 22.23.3 — the directory argument is taken as a module (`Cannot find module
   '/w/crates/graph-sdk-js/test'`), and the `.ts` import needs the flag. The script passes the
   quoted glob `"crates/graph-sdk-js/test/**/*.test.mjs"` so a nested test file is still found.
+- `sdk-test-control` copies the whole SDK package into `target/` rather than editing the test in
+  place, so the row leaves no file behind and the copy's `../src/wasm.ts` import still resolves.
+  It breaks the test's input — the hand-assembled module is made to report one version above the
+  SDK's, which the loader refuses (C4's handshake) — and never the expected exit.
 
 ## Decisions needed
 
-1. **The ceiling refuses studio documents that build today.** Decision-record step 4 fired: the
-   studio's own 1M-node document traps (`842,132,644` bytes at degree 4), which the record calls
-   "a scale defect, not a ceiling". The rule's number is nevertheless measured and applied, and
-   because it is *the largest power of two at or below* the largest that built, every document in
-   `(536,870,912, 774,568,785]` bytes is now refused although it built an instant before —
-   including the studio's 1M-node degree-3 document (678,016,813 B) and its 500k-node degree-4
-   document (551,224,029 B). **Recommended answer: keep the ceiling at `2^29` and file the scale
-   defect separately** — the trap is in `graph_core::index_model`'s `StringArena::intern`, well
-   past ingest, so the fix belongs in the arena or a per-node memory plan, and until then a
-   refusal is strictly better than a trap. If the studio must keep building 1M-node documents,
-   the number has to move above 774,568,785 **and** step 3 stops applying; that is a product
-   decision, not a re-measurement.
-2. **`sdk:test` is in the floor nowhere but `package.json`.** Recommended answer: add
-   `sdk-test|0|scripts/orch/node-slim.sh npm run sdk:test` to `scripts/orch/rows/develop-full.rows`
-   beside `sdk-typecheck` (`scripts/orch/rows/` is not in this job's paths), and add the same
-   command to the merge floor in `CLAUDE.md:113`. Both files need a negative control: a test file
-   under `crates/graph-sdk-js/test/` that fails on purpose must make the row go non-zero, which
-   is why the row should be `sdk:test` over the whole directory rather than one named file.
+1. **"Rounded down to a whole MiB" and "no document that built is refused" cannot both hold.**
+   The largest document that built is 774,568,785 bytes; the largest whole MiB at or below it is
+   773,849,088, so the instruction's own arithmetic refuses that one document by 719,697 bytes.
+   Implemented as instructed (`773_849_088`), and the consequence is stated in the constant's
+   `Ponytail:`, in `docs/contract/wasm-abi.md` and in the decision record rather than papered
+   over. Every document the studio builds at its 1M-node scale target (degrees 1, 2, 3 — up to
+   678,016,813 bytes) is under it and `built code=0` on the artifact.
+   **Recommended answer if the invariant is meant to include the sweep's own top row: round up to
+   `774_897_664`** (739 MiB), which is still 25,153,196 bytes below the first document measured to
+   trap (799,922,860) and accepts nothing unmeasured *and* untrapped in that gap. That is a
+   one-token change to the constant plus the three documents that name it.
+2. **The arena defect is `fix-ingest-scale`'s, and the decision record now says so.** The trap is
+   in `graph_core::index_model`'s `StringArena::intern`, past ingest, and this job does not touch
+   graph-core. Until that job lands, a document under this ceiling can still trap — which the
+   `Ponytail:` line names rather than hides.
+3. **`sdk:test` rows are in place; the floor command is in place.** `scripts/orch/rows/develop-full.rows`
+   gained `sdk-test` beside `sdk-typecheck` and `sdk-test-control` (`nonzero`), and `CLAUDE.md`'s
+   command block gained `scripts/orch/node-slim.sh npm run sdk:test` beside `sdk:typecheck`. Both
+   rows were run verbatim: exit 0 and exit 1 with `not ok 2`. Nothing is outstanding here.

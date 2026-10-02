@@ -22,9 +22,12 @@ not chosen:
    whether it built or trapped.
 3. **`MAX_INGEST_BYTES` is the largest document that built, rounded down to a whole MiB** —
    measured: 774,568,785 bytes built, 799,922,860 bytes trapped, so
-   `MAX_INGEST_BYTES = 773_849_088`.
+   `MAX_INGEST_BYTES = 773_849_088`. The rounding is the ceiling's one concession to the
+   measurement, and it is honest about the cost: the sweep's own largest document is 719,697
+   bytes over the ceiling and is refused. Every document the studio builds at its 1M-node scale
+   target is under it (degrees 1, 2 and 3 — up to 678,016,813 bytes).
 4. **The power-of-two step down is deferred to the scale job.** The 1M-node degree-4 document
-   traps, so step 4 below fired and the arena is `fix-ingest-scale`'s. A ceiling must never
+   traps, so step 5 below fired and the arena is `fix-ingest-scale`'s. A ceiling must never
    refuse a document that builds today, because the trap is the only failure it replaces: at
    `2^29` this ceiling refused the studio's own 1M-node degree-3 document (678,016,813 bytes),
    which builds. So the number is the measurement itself, minus the rounding, with no margin —
@@ -33,7 +36,7 @@ not chosen:
    room under it. Until then a refusal is strictly better than a trap.
 5. If the 1M-node document itself traps, that is a scale defect, not a ceiling: stop and report.
    **This fired.** Reported in `docs/measurements/fix-wasm-ingest.md`; the ceiling still landed
-   because steps 3 and 4 give a number that refuses nothing that works.
+   because steps 3 and 4 give a number that refuses nothing the studio builds today.
 
 The constant carries a `Ponytail:` line saying the same thing from the code's side: it has no
 margin by construction, it bounds bytes and not the work they imply, and a document under it

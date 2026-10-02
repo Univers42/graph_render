@@ -44,20 +44,21 @@ pub const VERSION: u32 = 1;
 /// `wasm32-unknown-unknown` release artifact under Node. The largest document that built was
 /// 774,568,785 bytes; the next one up, 799,922,860 bytes, trapped inside
 /// `graph_core::index_model`'s string arena, and so did 842,132,644 bytes at the studio's own
-/// `MAX_NODES`. This is that 774,568,785 rounded down to a whole MiB — 773,849,088 — so **no
-/// document that built is refused**, which is the property the number exists for: the trap is
-/// the only failure a ceiling replaces, and refusing something that works replaces nothing.
-/// It therefore has no margin, and the power-of-two step down the decision record asks for is
-/// deferred to the scale job that fixes the arena.
+/// `MAX_NODES`. This is that 774,568,785 rounded **down** to a whole MiB, 773,849,088, which is
+/// the ceiling's one concession to the measurement: the sweep's own largest document is
+/// 719,697 bytes over it and is refused, while every document the studio builds at its scale
+/// target does build under it (1M nodes at degrees 1, 2 and 3 — up to 678,016,813 bytes).
 ///
-/// Ponytail: no margin, deliberately — it is the largest that built, minus 719,697 bytes of
-/// rounding, so a document under it can still trap on work, as documents under it do today:
-/// the studio's 1M-node degree-4 model is 68,283,556 bytes over this and traps in
-/// `index_model`, while its degree-3 model is 95,832,275 bytes under it and builds. Failing
-/// input: a document below the ceiling whose edge count is high enough for the arena to run
-/// out — bytes are not work. Direction: refuses early on size, never on shape, and bounds
-/// nothing else. Escape hatch: `fix-ingest-scale` restores the power-of-two rule once the
-/// arena no longer traps, and this number moves with it.
+/// Ponytail: no margin, deliberately — it is the measurement minus 719,697 bytes of rounding,
+/// so it refuses nothing that works at the studio's scale target but has no room of its own,
+/// and a document under it can still trap on work exactly as documents under it do today: the
+/// studio's 1M-node degree-4 model is 68,283,556 bytes *over* this and traps in `index_model`,
+/// while its degree-3 model is 95,832,275 bytes under it and builds. Failing input: a document
+/// below the ceiling whose edge count is high enough for the arena to run out — bytes are not
+/// work. Direction: refuses early on size, never on shape, and bounds nothing else. Escape
+/// hatch: `fix-ingest-scale` fixes the arena and restores the decision record's power-of-two
+/// rule with it; this number moves then, and until then nothing above 774,568,785 has been
+/// shown to build.
 pub const MAX_INGEST_BYTES: usize = 773_849_088;
 
 /// Why an ingest buffer was refused.

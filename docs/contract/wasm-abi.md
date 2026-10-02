@@ -455,13 +455,13 @@ Rules, all refused loudly (never silently coerced or dropped):
 - A document longer than `MAX_INGEST_BYTES` (773,849,088 bytes) is refused with
   `IngestTooLarge` on its length alone, before it is read at all. The number is measured,
   not chosen: the largest document that built on the wasm32 artifact was 774,568,785 bytes
-  and the next one up trapped inside `index_model`'s string arena
-  (`docs/measurements/fix-wasm-ingest.md`), and this is that measurement rounded down to a
-  whole MiB — **no document that builds is refused**, which is the property the number exists
-  for, since the trap is the only failure this replaces. So it has no margin: it bounds bytes,
-  not the work they imply, and a document under it with an unusually high edge-to-node ratio
-  can still exhaust memory exactly as it does today. `fix-ingest-scale` owns that defect and
-  restores the power-of-two step down with it.
+  and the next one up, 799,922,860 bytes, trapped inside `index_model`'s string arena
+  (`docs/measurements/fix-wasm-ingest.md`); this is that measurement rounded **down** to a
+  whole MiB. It has no margin, and it is a ceiling rather than a promise: it refuses nothing
+  the studio builds at its 1M-node scale target (degrees 1–3, up to 678,016,813 bytes), but
+  the sweep's own largest document is 719,697 bytes over it, and a document under the ceiling
+  with an unusually high edge-to-node ratio can still exhaust memory exactly as it does today.
+  `fix-ingest-scale` owns that defect and restores the power-of-two step down with it.
 - A number is refused wherever JSON does not admit non-finite values in the first place —
   D9's "no NaN/Inf reaches the wire" is enforced again on the way out (`gm_snapshot_json`/
   `gm_snapshot_bytes`), since a column view can still write one in after `gm_build`.
