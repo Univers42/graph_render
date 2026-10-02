@@ -125,8 +125,25 @@ fn pack(topology: &Topology, params: &CirclePackingParams) -> Packed {
     let edges = simple_pairs(topology);
     match try_exact(n, &edges, params) {
         Some(packed) => packed,
-        None => fallback::pack(n, &edges, params),
+        None => fallback::pack(n, &edges, &loop_counts(topology, n), params),
     }
+}
+
+/// Self-loops per node, kept out of [`simple_pairs`]'s reduction on purpose.
+///
+/// SciGraphs' fallback reads `G.degree` on the graph `_build_networkx_graph` built, which
+/// keeps its self-loops (`common.py:297`, no `u != v` filter), and networkx counts each of
+/// them twice (`reportviews.py:526`). The exact path never sees them — a triangulation has
+/// no self-edge — so only the fallback's starting degree needs them back.
+fn loop_counts(topology: &Topology, n: u32) -> Vec<u32> {
+    let e = topology.edges();
+    let mut counts = vec![0; n as usize];
+    for i in 0..topology.edge_count() as usize {
+        if e.source[i] == e.target[i] {
+            counts[e.source[i] as usize] += 1;
+        }
+    }
+    counts
 }
 
 /// Every topology edge as a dense-index pair, reduced to a simple graph: self-loops

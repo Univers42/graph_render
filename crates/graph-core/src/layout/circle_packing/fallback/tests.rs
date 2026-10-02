@@ -58,7 +58,7 @@ fn initial_radii_are_degree_proportional_and_bounded_by_the_frame() {
     // SciGraphs' own rule (`circle_packing.py:420-425`): `0.3 + 0.7 * degree/max`, then
     // scaled so the squares sum to 0.35 of the frame's area.
     let edges = [(0, 1), (0, 2), (0, 3), (1, 2)];
-    let radii = initial_radii(4, &edges, 5.0);
+    let radii = initial_radii(4, &edges, &[0; 4], 5.0);
     let degrees = [3.0, 2.0, 2.0, 1.0];
     let raw: Vec<f64> = degrees.iter().map(|&d| 0.3 + 0.7 * (d / 3.0)).collect();
     let sum_sq: f64 = raw.iter().map(|r| r * r).sum();
@@ -67,7 +67,7 @@ fn initial_radii_are_degree_proportional_and_bounded_by_the_frame() {
         assert_eq!(got.to_bits(), (want * factor).to_bits());
     }
     // A node with no edges still gets a positive radius, so no circle is ever zero-sized.
-    let isolated = initial_radii(2, &[(0, 1)], 5.0);
+    let isolated = initial_radii(2, &[(0, 1)], &[0; 2], 5.0);
     assert!(isolated.iter().all(|&r| r > 0.0), "{isolated:?}");
 }
 
@@ -77,7 +77,7 @@ fn a_nodes_radius_follows_its_own_degree_not_its_index() {
     // over — so a hub is the biggest circle and an isolated node the smallest. A degree
     // taken from the dense index, or a hub counted once, would break this.
     let edges = [(0, 1), (0, 2), (0, 3), (0, 4), (1, 2), (1, 3)];
-    let radii = initial_radii(5, &edges, 5.0);
+    let radii = initial_radii(5, &edges, &[0; 5], 5.0);
     assert!(
         radii[0] > radii[1] && radii[1] > radii[4],
         "degrees 4, 3, 0: {radii:?}"
@@ -88,9 +88,9 @@ fn a_nodes_radius_follows_its_own_degree_not_its_index() {
     // And the frame normalisation is global, not per node: every packing's squares sum to
     // the same 0.35 of the frame, so a graph with one hub packs very differently from a
     // graph where every node has that degree.
-    let hub = initial_radii(5, &edges, 5.0);
+    let hub = initial_radii(5, &edges, &[0; 5], 5.0);
     let flat: Vec<(u32, u32)> = (0..4).map(|i| (i, i + 1)).collect();
-    let even = initial_radii(5, &flat, 5.0);
+    let even = initial_radii(5, &flat, &[0; 5], 5.0);
     assert!(
         hub[0] > even[0],
         "a hub beats an even spread: {hub:?} vs {even:?}"
@@ -108,29 +108,52 @@ fn a_nodes_radius_follows_its_own_degree_not_its_index() {
 /// is `len(nbrs) + (n in nbrs)` (`classes/reportviews.py:526`) — so a node whose only edge
 /// is a self-loop has degree 2, not 0.
 ///
-/// One node, one self-loop, and the radius networkx's `0.3 + 0.7 * degree/max` gives it:
-/// degree 2 against a maximum of 2, so the raw radius is the full `1.0`, not the `0.3` floor
-/// an uncounted loop would leave.
+/// Four nodes, one edge and one self-loop, in the exact shape the fallback receives them:
+/// `edges` is what `simple_pairs` leaves (loop gone), `loops` what `loop_counts` counts
+/// alongside it. Node 3's only edge is its own loop, so networkx gives it degree 2 — the
+/// largest here — where dropping the loop left it on the `0.3` isolated floor.
 #[test]
 fn a_self_loop_counts_twice_in_the_starting_radii_as_it_does_in_networkx() {
-    let edges = [(1, 2), (1, 2), (3, 3)];
-    let loops = loop_degrees(&edges);
+    let edges = [(1, 2)];
+    let loops = [0u32, 0, 0, 1];
     let radii = initial_radii(4, &edges, &loops, 5.0);
-    let degrees = [2.0, 2.0, 2.0, 2.0]; // networkx `G.degree`: the loop at 3 counts twice
+    let degrees = [0.0, 1.0, 1.0, 2.0]; // networkx `G.degree`: the loop at 3 counts twice
     let raw: Vec<f64> = degrees.iter().map(|&d| 0.3 + 0.7 * (d / 2.0)).collect();
     let sum_sq: f64 = raw.iter().map(|r| r * r).sum();
     let factor = libm::sqrt(0.35 * 2.25 * 2.25 / sum_sq);
     for (got, want) in radii.iter().zip(&raw) {
-        assert_eq!(got.to_bits(), (want * factor).to_bits(), "degrees {degrees:?}");
+        assert_eq!(
+            got.to_bits(),
+            (want * factor).to_bits(),
+            "degrees {degrees:?}"
+        );
     }
     // And the self-loop's own node is *not* left on the isolated floor: this is the whole
     // defect, since `simple_pairs` reduces the loop away before the fallback ever sees it.
-    let without = initial_radii(4, &[(1, 2)], &[0; 4], 5.0);
+    let without = initial_radii(4, &edges, &[0; 4], 5.0);
     assert_ne!(
         radii[3].to_bits(),
         without[3].to_bits(),
         "dropping the loop changes the radius networkx gives it"
     );
+    // The loops are the *only* thing `loops` contributes: the same graph without the loop
+    // is untouched by the argument, so nothing else in the reduction moved.
+    let isolated = initial_radii(4, &edges, &loops, 5.0);
+    assert_eq!(radii[0].to_bits(), isolated[0].to_bits());
+}
+
+/// The count `loop_degrees` builds is per node and skips every non-loop pair, so a reduced
+/// edge list and a loop count can be threaded through the fallback independently.
+#[test]
+fn loop_degrees_counts_a_node_s_own_loops_and_nothing_else() {
+    assert_eq!(
+        loop_degrees(&[(0, 0), (0, 0), (1, 2), (3, 3)]),
+        vec![2, 0, 0, 1]
+    );
+    assert_eq!(loop_degrees(&[]), Vec::<u32>::new());
+    // A loop on the highest node seen still lands in the right slot, and one below an
+    // existing higher loop keeps its index.
+    assert_eq!(loop_degrees(&[(4, 4), (1, 1)]), vec![0, 1, 0, 0, 1]);
 }
 
 #[test]
@@ -145,6 +168,7 @@ fn the_fallbacks_own_packing_is_pinned_bit_for_bit() {
     let packed = pack(
         5,
         &edges,
+        &[0; 5],
         &super::CirclePackingParams {
             iterations: 500,
             scale: 5.0,

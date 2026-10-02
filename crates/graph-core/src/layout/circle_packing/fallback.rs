@@ -24,7 +24,10 @@ use seed::{fruchterman_reingold, rescale_to};
 ///
 /// `edges` arrives already reduced to a simple graph by [`super::simple_pairs`] — the
 /// same reduction the exact path gets — so every edge here is a distinct pair of distinct
-/// nodes: one spring each, and a degree that counts each incident edge once.
+/// nodes: one spring each, and a degree that counts each incident edge once. The self-loops
+/// that reduction dropped are carried separately in `loops`, because networkx's degree
+/// counts each of them twice and the start radii follow that degree ([`initial_radii`]);
+/// the springs and the relaxation never see one, which is what the reduction is for.
 pub(super) fn pack(
     n: u32,
     edges: &[(u32, u32)],
@@ -62,10 +65,15 @@ fn seed_iterations(n: u32) -> u32 {
 }
 
 /// Degree-proportional starting radii, normalised so their squares sum to `0.35` of the
-/// frame's area (`circle_packing.py:420-425`). Each incident edge counts once, the same
-/// convention `G.degree` uses on a simple graph — and on the simple graph
-/// [`super::simple_pairs`] hands over, a self-loop is already gone, so there is nothing
-/// here for the `u == v` case to double count.
+/// frame's area (`circle_packing.py:420-425`).
+///
+/// Each incident edge counts once, and **each self-loop counts twice** — networkx's own
+/// `G.degree`, which is `len(nbrs) + (n in nbrs)` (`classes/reportviews.py:526`). SciGraphs
+/// reads that degree on the graph `_build_networkx_graph` built, which keeps its self-loops
+/// (`common.py:297` adds every edge pair with no `u != v` filter, unlike the `simple` copy
+/// `_planar_triangulation` makes for itself at `circle_packing.py:61`), so a loop the exact
+/// path has no use for is still degree here. [`loop_degrees`] carries them across
+/// [`super::simple_pairs`]'s reduction, which drops them.
 fn initial_radii(n: u32, edges: &[(u32, u32)], loops: &[u32], scale: f64) -> Vec<f64> {
     let mut degree = vec![0.0_f64; n as usize];
     for &(u, v) in edges {
