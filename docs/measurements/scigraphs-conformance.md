@@ -32,10 +32,14 @@ at SciGraphs' own `iterations = 50`, `scale = 5.0` and `get_layout_seed() = 9817
 (`derive_seed(42, "layout")`, `SciGraphs/core/scigraphs_core/repro/determinism.py:56-62`), and
 writes **raw little-endian `f64`** per row plus the `f32` the snapshot narrows to. A decimal
 round trip in the middle would be a rounding step between the two values whose equality is the
-question. Exactly **three** ids get a parameter override, because exactly three have a
-registered default that is not SciGraphs' parameter: `CIRCLE_PACKING` (500 sweeps, not 50),
-`FORCEATLAS2` (`max_iter` 100, not 50) and `GRAPHVIZ_SFDP` (`run` hard-codes `DEFAULT_SEED = 1`;
-the arm calls `run_seeded`).
+question. Exactly **four** ids get an override. Three because their registered default is not
+SciGraphs' parameter: `CIRCLE_PACKING` (500 sweeps, not 50), `FORCEATLAS2` (`max_iter` 100, not
+50) and `GRAPHVIZ_SFDP` (`run` hard-codes `DEFAULT_SEED = 1`; the arm calls `run_seeded`). The
+fourth is `layout.dag.sugiyama`, whose registered default draws in the pipeline's own units:
+the arm calls `sugiyama::run_scaled`, which applies SciGraphs' per-axis normalisation
+(`hierarchical.py:679-685`) at the same `scale = 5.0`. That normalisation reads the dummy
+vertices' X, which `Geometry` does not carry, so it lives beside the stages that produce it
+rather than in this arm.
 
 **The reference arm** calls `apply_graph_layout` itself for 23 names in `ge-python-oracle` with
 the `SciGraphs/` submodule on the path. The other nine go through `scigraphs_utils`, which is in
@@ -149,7 +153,7 @@ Procrustes-aligned over it**, so a green point sitting on a grey point is a node
 | 28 | `GRAPHVIZ_CIRCO` | `layout.circular.circo` | `circo -Tplain` | `shape` | 340/1020 | 340/1020 | 9.31e+18 | 6.43e+03 | 0.284 | 0.875 | `algorithm` | **same shape on the tree** (disparity 6.5e-05) and **different on lesmis** (0.308): the ring agrees where the tree is small and the boxes are equal |
 | 29 | `GRAPHVIZ_OSAGE` | `layout.packing.osage` | `osage -Tplain` | `shape` | 387/1020 | 387/1020 | 1.95e+16 | 498 | 0.711 | 0.964 | `algorithm` | same grid of rows, different row assignment: the y coordinates agree to 1e-5 of the span, the x to 7% |
 | 30 | `GRAPHVIZ_PATCHWORK` | `layout.treemap.patchwork` | `patchwork -Tplain` | `bitwise` | 340/1020 | 340/1020 | 9.27e+18 | 139 | 4.32e-10 | 1.6e-09 | `convention` | **same shape** — green on grey |
-| 31 | `SUGIYAMA` | `layout.dag.sugiyama` | `apply_graph_layout` | `shape` | 348/1020 | 349/1020 | 9.24e+18 | 49.4 | 0.384 | 0.934 | `algorithm` | different shape: the layering differs, so the columns do not line up |
+| 31 | `SUGIYAMA` | `layout.dag.sugiyama` | `apply_graph_layout` | `tolerance` | 597/1020 | **1020/1020** | 2.57e+08 | 1.91e-07 | 1.26e-16 | 4.63e-16 | `arithmetic` | **same shape**, and `f32`-identical on all 1020 coordinates |
 | 32 | `CIRCULAR_HIERARCHY` | `layout.circular.hierarchy` | `apply_graph_layout` | `tolerance` | 509/1020 | 1020/1020 | 2.67e+08 | 2.2e-07 | 4.32e-16 | 1e-15 | `arithmetic` | **same shape**, and `f32`-identical on all 1020 coordinates |
 
 Every row's **convention gaps** — the parameters of `apply_graph_layout` the motor has no slot
@@ -165,11 +169,13 @@ Pictures, all 64 rendered by the script and all looked at:
 
 ## What the matrix says that a tolerance could not
 
-**1. Five rows are `f32`-identical on every one of 1020 coordinates and the rest of their gap is
-the narrowing.** `SPHERE`, `HELIX`, `HIERARCHICAL_3D`, `CIRCULAR_HIERARCHY`, `BIPARTITE_3D` — 5 of
-32. Their max gaps are 2.4e-7, 1.5e-7, 7.9e-8, 2.2e-7 and 1.2e-7, one `f32` ULP at that magnitude,
-and their Procrustes medians are ~1e-16: the same shape to machine precision.
-`CIRCULAR_HIERARCHY` is the strongest row in the matrix.
+**1. Six rows are `f32`-identical on every one of 1020 coordinates and the rest of their gap is
+the narrowing.** `SPHERE`, `HELIX`, `HIERARCHICAL_3D`, `CIRCULAR_HIERARCHY`, `SUGIYAMA`,
+`BIPARTITE_3D` — 6 of 32. Their max gaps are 2.4e-7, 1.5e-7, 7.9e-8, 2.2e-7, 1.9e-7 and 1.2e-7, one
+`f32` ULP at that magnitude, and their Procrustes medians are ~1e-16: the same shape to machine
+precision. `CIRCULAR_HIERARCHY` and `SUGIYAMA` are the strongest rows in the matrix. `SUGIYAMA`
+came from `shape`/`algorithm` in the previous run; `docs/measurements/sg-sugiyama.md` has the
+per-stage diff and the two causes it found.
 
 **2. Three rows are the same shape to `1e-10` or better and differ only in units.** `GRID` (5e-32),
 `GRAPHVIZ_TWOPI` (2e-10), `GRAPHVIZ_PATCHWORK` (4e-10). Each is a convention fix, not an
@@ -348,7 +354,7 @@ caveats this paragraph omits live: the cross-language oracle covers sphere, heli
 `THREE_D_LAYOUT_STAGES` entry and no negative control yet. `n = 0` is a deliberate divergence
 from the reference, unreachable from this matrix.
 
-### 11. `SUGIYAMA`, `IGRAPH_KK`, `YIFAN_HU`, `GRAPHVIZ_NEATO`, `GRAPHVIZ_FDP`,
+### 11. `IGRAPH_KK`, `YIFAN_HU`, `GRAPHVIZ_NEATO`, `GRAPHVIZ_FDP`,
 `GRAPHVIZ_CIRCO` — `algorithm`
 Each is a different method rather than a convention or an RNG, so each needs its own porting job
 and none is a one-line change. `GRAPHVIZ_CIRCO` is the one row here that matches on the tree
@@ -366,6 +372,12 @@ layouts share SciGraphs' node sets (`_bipartite_parts`, or `_greedy_max_cut` whe
 not two-colour) and differ in every coordinate after it, which is why the new id is
 `layout.bipartite_3d` beside the networkx one rather than a change to it. The repair is
 `docs/measurements/sg-bipartite3d.md`.
+
+**`SUGIYAMA` was on this list and is no longer.** It is now `tolerance`/`arithmetic` at
+`f32 1020/1020`; the repair was the per-axis normalisation plus two stage-one causes the
+reference's own functions named (`ArcOrder::NodeIndex`, because `common.py:238` builds an
+`nx.Graph`, and the reference's `arcs` being a `set`). `docs/measurements/sg-sugiyama.md` has
+the numbers and the per-stage diff.
 
 ## Cells that say `not run`, and why
 
