@@ -30,6 +30,9 @@
 use super::{MIN_DISTANCE, MIN_LENGTH, SpringParams};
 use crate::layout::force::SimpleGraph;
 
+#[cfg(test)]
+mod tests;
+
 /// The column names D9 reports a non-finite value under, in axis order. `D` never exceeds
 /// the table, so the lookup is total.
 const COLUMN_NAMES: [&str; 3] = ["node.x", "node.y", "node.z"];
@@ -76,7 +79,7 @@ impl<'a, const D: usize> Solver<'a, D> {
     pub(super) fn settle(self, start: Field<D>, params: SpringParams) -> Field<D> {
         let mut cur = start;
         let mut out = Field::zeros(self.n);
-        let mut t = self.opening(&cur);
+        let mut t = opening(&cur);
         let dt = t / f64::from(params.iterations + 1);
         for _ in 0..params.iterations {
             self.gather(t, &cur, &mut out);
@@ -88,16 +91,6 @@ impl<'a, const D: usize> Solver<'a, D> {
             }
         }
         cur
-    }
-
-    /// The opening temperature, `layout.py:705-706`: a tenth of the largest coordinate span
-    /// over the `D` columns, so the first step is bounded by the domain the start occupies.
-    fn opening(&self, cur: &Field<D>) -> f64 {
-        let mut widest = span(&cur.c[0]);
-        for axis in 1..D {
-            widest = widest.max(span(&cur.c[axis]));
-        }
-        widest * 0.1
     }
 
     /// One gather: every `out[i]` from the start-of-step `cur` alone (D10).
@@ -164,6 +157,15 @@ impl<'a, const D: usize> Solver<'a, D> {
         }
         libm::sqrt(sum)
     }
+}
+
+/// The opening temperature: the first step's bound, a tenth of the start's largest span.
+fn opening<const D: usize>(cur: &Field<D>) -> f64 {
+    let mut widest = span(&cur.c[0]);
+    for axis in 1..D {
+        widest = widest.max(span(&cur.c[axis]));
+    }
+    widest * 0.1
 }
 
 /// `np.linalg.norm(delta)` over the `D` columns: the squared length finished inside the

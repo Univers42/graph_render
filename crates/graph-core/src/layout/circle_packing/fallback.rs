@@ -25,9 +25,14 @@ use seed::{fruchterman_reingold, rescale_to};
 /// `edges` arrives already reduced to a simple graph by [`super::simple_pairs`] — the
 /// same reduction the exact path gets — so every edge here is a distinct pair of distinct
 /// nodes: one spring each, and a degree that counts each incident edge once.
-pub(super) fn pack(n: u32, edges: &[(u32, u32)], params: &CirclePackingParams) -> Packed {
+pub(super) fn pack(
+    n: u32,
+    edges: &[(u32, u32)],
+    loops: &[u32],
+    params: &CirclePackingParams,
+) -> Packed {
     let scale = f64::from(params.scale);
-    let radii = initial_radii(n, edges, scale);
+    let radii = initial_radii(n, edges, loops, scale);
     let mut seeded = fruchterman_reingold(n, edges, seed_iterations(n));
     rescale_to(&mut seeded, scale * 0.45);
     let relax_params = RelaxParams {
@@ -61,11 +66,14 @@ fn seed_iterations(n: u32) -> u32 {
 /// convention `G.degree` uses on a simple graph — and on the simple graph
 /// [`super::simple_pairs`] hands over, a self-loop is already gone, so there is nothing
 /// here for the `u == v` case to double count.
-fn initial_radii(n: u32, edges: &[(u32, u32)], scale: f64) -> Vec<f64> {
+fn initial_radii(n: u32, edges: &[(u32, u32)], loops: &[u32], scale: f64) -> Vec<f64> {
     let mut degree = vec![0.0_f64; n as usize];
     for &(u, v) in edges {
         degree[u as usize] += 1.0;
         degree[v as usize] += 1.0;
+    }
+    for (node, &count) in loops.iter().enumerate() {
+        degree[node] += 2.0 * f64::from(count);
     }
     let max_degree = degree.iter().cloned().fold(1.0, f64::max);
     let mut radii: Vec<f64> = degree
@@ -81,6 +89,24 @@ fn initial_radii(n: u32, edges: &[(u32, u32)], scale: f64) -> Vec<f64> {
         }
     }
     radii
+}
+
+/// How many self-loops each node carries, counted separately from `edges` because
+/// [`super::simple_pairs`] reduces them away before [`pack`] is reached, and networkx's
+/// `G.degree` counts each of them twice (`reportviews.py:526`) on the graph
+/// `_build_networkx_graph` built with them still in (`common.py:297`).
+fn loop_degrees(edges: &[(u32, u32)]) -> Vec<u32> {
+    let mut loops = Vec::new();
+    for &(u, v) in edges {
+        if u != v {
+            continue;
+        }
+        if loops.len() <= u as usize {
+            loops.resize(u as usize + 1, 0);
+        }
+        loops[u as usize] += 1;
+    }
+    loops
 }
 
 /// `diff`/`dist` for the pair `(u, v)`, with a deterministic direction substituted for a

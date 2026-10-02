@@ -3,7 +3,7 @@
 //! relaxation's own tests have something to be pinned against.
 
 use super::seed::GOLDEN_ANGLE;
-use super::{initial_radii, nudge, pack, seed_iterations, separated};
+use super::{initial_radii, loop_degrees, nudge, pack, seed_iterations, separated};
 
 #[test]
 fn a_separated_coincident_pair_gets_a_repeatable_direction() {
@@ -99,6 +99,38 @@ fn a_nodes_radius_follows_its_own_degree_not_its_index() {
         let sum_sq: f64 = radii.iter().map(|r| r * r).sum();
         assert!((sum_sq - 0.35 * 2.25 * 2.25).abs() < 1e-12, "sum {sum_sq}");
     }
+}
+
+/// SciGraphs reads `G.degree(n)` on the graph `_build_networkx_graph` handed it, and that
+/// graph **keeps its self-loops**: `G.add_edges_from(edge_indices)` at `common.py:297` has
+/// no `u != v` filter, unlike `_planar_triangulation`'s own `simple` copy
+/// (`circle_packing.py:61`). networkx counts a self-loop twice — `DegreeView.__getitem__`
+/// is `len(nbrs) + (n in nbrs)` (`classes/reportviews.py:526`) — so a node whose only edge
+/// is a self-loop has degree 2, not 0.
+///
+/// One node, one self-loop, and the radius networkx's `0.3 + 0.7 * degree/max` gives it:
+/// degree 2 against a maximum of 2, so the raw radius is the full `1.0`, not the `0.3` floor
+/// an uncounted loop would leave.
+#[test]
+fn a_self_loop_counts_twice_in_the_starting_radii_as_it_does_in_networkx() {
+    let edges = [(1, 2), (1, 2), (3, 3)];
+    let loops = loop_degrees(&edges);
+    let radii = initial_radii(4, &edges, &loops, 5.0);
+    let degrees = [2.0, 2.0, 2.0, 2.0]; // networkx `G.degree`: the loop at 3 counts twice
+    let raw: Vec<f64> = degrees.iter().map(|&d| 0.3 + 0.7 * (d / 2.0)).collect();
+    let sum_sq: f64 = raw.iter().map(|r| r * r).sum();
+    let factor = libm::sqrt(0.35 * 2.25 * 2.25 / sum_sq);
+    for (got, want) in radii.iter().zip(&raw) {
+        assert_eq!(got.to_bits(), (want * factor).to_bits(), "degrees {degrees:?}");
+    }
+    // And the self-loop's own node is *not* left on the isolated floor: this is the whole
+    // defect, since `simple_pairs` reduces the loop away before the fallback ever sees it.
+    let without = initial_radii(4, &[(1, 2)], &[0; 4], 5.0);
+    assert_ne!(
+        radii[3].to_bits(),
+        without[3].to_bits(),
+        "dropping the loop changes the radius networkx gives it"
+    );
 }
 
 #[test]
