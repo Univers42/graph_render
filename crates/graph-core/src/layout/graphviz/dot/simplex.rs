@@ -216,25 +216,50 @@ fn check_tree(g: &Fast, nodes: &[u32], ctx: &Ctx, when: &str) {
         );
     }
     for &n in nodes {
-        for &x in &g.nodes[n as usize].tree_in {
-            assert_eq!(
-                g.nodes[g.edges[x as usize].tail as usize].par,
-                Some(x),
-                "par of the tail of tree edge {x} {when}"
+        for &f in &g.out[n as usize] {
+            let r = &g.edges[f as usize];
+            let slack = g.nodes[r.head as usize].rank - g.nodes[r.tail as usize].rank - r.minlen;
+            assert!(
+                slack >= 0,
+                "edge {f} {}->{} slack {slack} is negative {when}",
+                r.tail,
+                r.head
             );
         }
-        for &x in &g.nodes[n as usize].tree_out {
-            assert_eq!(
-                g.nodes[g.edges[x as usize].head as usize].par,
-                Some(x),
-                "par of the head of tree edge {x} {when}"
+        if n != nodes[0] {
+            let parent = g.nodes[n as usize]
+                .par
+                .unwrap_or_else(|| panic!("node {n} has no parent {when}"));
+            let record = &g.edges[parent as usize];
+            let incident = record.head == n || record.tail == n;
+            assert!(
+                incident && record.head != record.tail,
+                "par {parent} of {n} is not an incident non-loop edge {when}"
             );
         }
     }
     for &edge in &ctx.tree_edge {
+        let r = &g.edges[edge as usize];
+        let slack = g.nodes[r.head as usize].rank - g.nodes[r.tail as usize].rank - r.minlen;
+        assert_eq!(slack, 0, "tree edge {edge} is not tight {when}");
+    }
+    for &edge in &ctx.tree_edge {
         let want = tree::brute_cut(g, nodes, edge);
         let got = g.edges[edge as usize].cutvalue;
-        assert_eq!(got, want, "cutvalue of {edge} {when}");
+        if got != want {
+            let record = &g.edges[edge as usize];
+            eprintln!(
+                "edge {edge} {}->{} w={} cut {got} brute {want} {when}",
+                record.tail, record.head, record.weight
+            );
+            eprintln!("  side {:?}", tree::brute_side(g, edge));
+            for &n in nodes {
+                for &f in &g.out[n as usize] {
+                    eprintln!("  out {n}: {}->{} w={}", g.edges[f as usize].tail, g.edges[f as usize].head, g.edges[f as usize].weight);
+                }
+            }
+            panic!("cutvalue of {edge} {when}");
+        }
     }
 }
 

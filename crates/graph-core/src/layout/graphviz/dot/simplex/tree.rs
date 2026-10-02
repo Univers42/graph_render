@@ -145,26 +145,7 @@ pub fn feasible_tree(g: &mut Fast, ctx: &mut Ctx, nodes: &[u32]) -> Result<(), E
 /// The cut value of tree edge `edge`, computed from scratch: the weight leaving the tail
 /// side minus the weight entering it. Only for the debug trace.
 pub(crate) fn brute_cut(g: &Fast, nodes: &[u32], edge: u32) -> i32 {
-    let tail = g.edges[edge as usize].tail;
-    let mut side = vec![false; g.nodes.len()];
-    let mut stack = vec![tail];
-    side[tail as usize] = true;
-    while let Some(n) = stack.pop() {
-        for &x in &g.nodes[n as usize].tree_in {
-            let w = g.edges[x as usize].tail;
-            if !side[w as usize] {
-                side[w as usize] = true;
-                stack.push(w);
-            }
-        }
-        for &x in &g.nodes[n as usize].tree_out {
-            let w = g.edges[x as usize].head;
-            if !side[w as usize] {
-                side[w as usize] = true;
-                stack.push(w);
-            }
-        }
-    }
+    let side = brute_side(g, edge);
     let mut total = 0;
     for &n in nodes {
         for &f in &g.out[n as usize] {
@@ -181,6 +162,38 @@ pub(crate) fn brute_cut(g: &Fast, nodes: &[u32], edge: u32) -> i32 {
         }
     }
     total
+}
+
+/// The tail side of tree edge `edge`: the nodes still reachable from its tail once it is
+/// removed. Only for the debug trace.
+pub(crate) fn brute_side(g: &Fast, edge: u32) -> Vec<bool> {
+    let tail = g.edges[edge as usize].tail;
+    let mut side = vec![false; g.nodes.len()];
+    let mut stack = vec![tail];
+    side[tail as usize] = true;
+    while let Some(n) = stack.pop() {
+        for &x in &g.nodes[n as usize].tree_in {
+            if x == edge {
+                continue;
+            }
+            let w = g.edges[x as usize].tail;
+            if !side[w as usize] {
+                side[w as usize] = true;
+                stack.push(w);
+            }
+        }
+        for &x in &g.nodes[n as usize].tree_out {
+            if x == edge {
+                continue;
+            }
+            let w = g.edges[x as usize].head;
+            if !side[w as usize] {
+                side[w as usize] = true;
+                stack.push(w);
+            }
+        }
+    }
+    side
 }
 
 /// `grow_tight` = `tight_subtree_search` (`ns.c:331-404`) with `find_tight_subtree`'s
@@ -376,6 +389,46 @@ fn merge_trees(
     };
     if delta != 0 {
         tree_adjust(g, trees[moving].rep, None, delta);
+    }
+    if std::env::var_os("GM_MERGE").is_some() {
+        for (i, r) in g.edges.iter().enumerate() {
+            if !r.live {
+                continue;
+            }
+            let s = g.nodes[r.head as usize].rank - g.nodes[r.tail as usize].rank - r.minlen;
+            if s < 0 {
+                eprintln!("after merge {edge}: edge {i} {}->{} slack {s}", r.tail, r.head);
+                eprintln!("  moving={moving} delta={delta} rep={}", trees[moving].rep);
+                let er = &g.edges[edge as usize];
+                eprintln!(
+                    "  merging edge {edge} {}->{} slack is now {}",
+                    er.tail,
+                    er.head,
+                    slack(g, edge)
+                );
+                eprintln!(
+                    "  node {} subtree={:?} / node {} subtree={:?} / moving {} rep {}",
+                    er.tail,
+                    g.nodes[er.tail as usize].subtree,
+                    er.head,
+                    g.nodes[er.head as usize].subtree,
+                    moving,
+                    trees[moving].rep
+                );
+                eprintln!(
+                    "  out[{}]={:?} in[{}]={:?}",
+                    er.tail,
+                    g.out[er.tail as usize],
+                    er.head,
+                    g.inn[er.head as usize]
+                );
+                eprintln!(
+                    "  edge 587 in out[5]={:?} in[1]={:?}",
+                    g.out[5], g.inn[1]
+                );
+                panic!("negative slack");
+            }
+        }
     }
     add_tree_edge(g, ctx, edge)?;
     Ok(subtree::union(trees, tail_set, head_set))
