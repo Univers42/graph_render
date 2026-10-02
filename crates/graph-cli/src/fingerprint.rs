@@ -145,6 +145,7 @@ fn hex_sha256(bytes: &[u8]) -> String {
 mod tests {
     use super::*;
     use crate::runner::workspace_root;
+    use std::path::PathBuf;
 
     /// A tree holding one file per entry of `entries`, each with its own distinct bytes.
     fn tree(name: &str, entries: &[&str]) -> PathBuf {
