@@ -425,9 +425,98 @@ own bytes at all.
   gains or loses the pinning by changing what its emit writes rather than by a name checked
   in the harness. The other three engines' fixture files are byte-identical before and after
   this change (sha256 `44b1a461…`, `66393b41…`, `f1be79c6…`).
-- **The row stays `implemented`, and the reason is now on the hash side.** The ledger
-  resolves `oracle-osage` by name like any other record, so `oracle_diff` reads this
-  measurement back; what a `gated` status would still need is a negative control that went
-  red on the `layout.packing.osage` stage, and none exists — the honest run hashes the stage
-  4-way on every seed while every control that does go red leaves it equal. Promoting the
-  row therefore needs a per-stage knob in `hashgate/knobs`, not a verdict edit.
+- ~~**The row stays `implemented`, and the reason is now on the hash side.**~~ **Superseded:
+  the row is `gated`.** The ledger resolves `oracle-osage` by name like any other record, so
+  `oracle_diff` reads this measurement back; what a `gated` status would still need is a
+  negative control that went red on the `layout.packing.osage` stage, and none exists — the
+  honest run hashes the stage 4-way on every seed while every control that does go red leaves
+  it equal. Promoting the row therefore needs a per-stage knob in `hashgate/knobs`, not a
+  verdict edit. (Kept struck through because it is the record of what the gap was; see the
+  next section for what closed it.)
+
+## The osage negative control, and the row's promotion to `gated`
+
+The gap the note above names was real and it was closed by adding the control, not by
+weakening the verdict. `Status::Gated` asks `verdict::hash_4way` for two things: a 4-way
+verdict on the row's **own** stage, and a negative control that went red on that **same**
+stage. The first was already satisfied — the honest run hashes `layout.packing.osage` 4-way on
+every seed. The second was not, and could not be satisfied by any control that already existed:
+
+| control | diverges | leaves `layout.packing.osage` |
+| --- | --- | --- |
+| `GM_MUTATE_NODE_COUNT=1` | `topology` and every topology-shaped layout | **equal** |
+| `GM_MUTATE_PACKING_SCALE=2` | `layout.packing.circle` | **equal** |
+| `GM_MUTATE_REFERENCE_DEGREE=9` | `topology`, `layout.treemap.squarified` | **equal** |
+
+`GM_MUTATE_PACKING_SCALE` is the near miss worth naming: its name says "packing", and it is a
+real parameter — but it is `CirclePackingParams::scale`, read by `layout.packing.circle`'s final
+centring. osage packs its own uniform grid and reads no scale at all, so the control moves the
+neighbouring row and leaves this one untouched. A knob whose *name* matches a row is not
+evidence for that row, which is the whole reason `red_control` requires the divergence to be on
+the named stage rather than merely present.
+
+### `GM_MUTATE_PACKING_OSAGE_NODES`
+
+The control is the re-drawn-model probe the other parameterless layouts use, and for osage it is
+not merely the available one but the **only** one: the layout publishes no `Params` and has no
+`impl Stage`, and its module says so (`osage.rs:72`, naming a `Params` as a contract change
+that is not that job's). What it does read is the node count and **no edge at all**, so its
+model is its entire input and one more node is exactly what moves it. `Setting::stage_nodes`
+scopes the re-draw to the one stage, so `topology`, every other layout and the transport stage
+stay byte-identical and the divergence names `layout.packing.osage`.
+
+- Table row: `hashgate::knobs::OSAGE_LAYOUT_STAGES`, whose id is `osage::ID` — the constant
+  osage's own module publishes, not a spelling in the table.
+- Record: `hashgate-control-packing-osage-nodes`.
+- Gate row: `negctl-osage-nodes` in `scripts/orch/rows/develop-full.rows`, beside the other
+  `negctl-*` rows.
+- Tests: `hashgate::tests::knob::osage`, one module per Graphviz closed-form layout the way
+  `twopi` and `patchwork` each have one. It spells the variable, the record and the stage out
+  **independently** of `Knob::env`/`Knob::record` and of `OSAGE_LAYOUT_STAGES` — deriving them
+  from the table would check the table against itself — and asserts the control re-draws one
+  stage, leaves the gate's own model at zero extra nodes, and moves `layout.packing.osage`
+  and nothing else. `table.rs`'s `knobs::all()` sweep covers it a second time, independently.
+
+### What the control's run shows
+
+`hashgate --seeds 8` with `GM_MUTATE_PACKING_OSAGE_NODES=1` exits **1** and names
+`layout.packing.osage` as the only divergence — `4-way equal on 0/8 seeds`, `FAIL: 8 of 8 seeds
+diverge`. Without it the same command exits **0** (`PASS`). The per-seed hashes show the probe
+working as designed rather than merely firing: the native arm's drawing for seed *N* is the
+wasm32 arm's drawing for seed *N+1*, because the native arm drew seed *N* over *N+1* nodes and
+the wasm arm cannot see the knob.
+
+Two claims that are **not** established by the `--seeds 8` runs above, and are left for the
+gate to establish at the full seed count:
+
+- `hash_4way` requires ≥ 1000 seeds (`verdict::MIN_SEEDS`), and no 1000-seed
+  `hashgate-control-packing-osage-nodes.json` was produced in the work this file was written
+  in.
+- `oracle-osage` at ≥ 1000 seeds is the docker-only Graphviz oracle's record and was likewise
+  not re-run here. Its numbers in this file are from the original differential.
+
+The promotion is therefore a claim about the **code** — the ledger now has, and now names, a
+control that turns the gate red on this row's own stage — and the two 1000-seed records are the
+evidence `capabilities --check` will read. Until they exist the row reports
+`gated, but no oracle-osage record: run the gate`, which is the refusal working rather than a
+failure.
+
+### Why this is not a verdict edit
+
+Nothing in `capabilities/verdict.rs` changed, and the refusals around it got *stronger* rather
+than looser:
+
+- `osage_is_refused_gated_for_want_of_a_negative_control_on_its_stage` still asserts that a
+  gated row with **no** control on its own stage is refused with exactly one problem naming
+  that half. It now takes the control back out of the honest evidence set
+  (`without_osage_control`) to get there, which is a second, independent statement that the
+  control is load-bearing.
+- `a_red_control_on_the_rows_own_stage_is_the_whole_of_what_is_missing` no longer forces
+  `status = Gated` and no longer pushes a synthetic control: it asserts the shipped row stands
+  on the honest evidence with the control that `Knob::PackingOsageNodes::record()` names, and
+  that a control red only on `layout.packing.circle` still does not stand in.
+- Two whole-ledger problem counts that had been literals (`34`, in
+  `capabilities::tests::ledger` and twice in `tests/cli_ledger.rs`) are now derived from the
+  registry's own gated-row count. Promoting a row to `gated` moves that number by exactly two,
+  which the literals could not express — they had to be hand-edited, and that is exactly how a
+  `gated` status would have crept in unchecked.

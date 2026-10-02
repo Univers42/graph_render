@@ -238,6 +238,7 @@ fn the_knob_list_carries_every_p3_control_and_nothing_else() {
         "GM_MUTATE_BASIC3D_CUBE_NODES",
         "GM_MUTATE_HIERARCHICAL3D_NODES",
         "GM_MUTATE_FORCE_SPRING3D_NODES",
+        "GM_MUTATE_PACKING_OSAGE_NODES",
         "GM_MUTATE_SPLIT_SUM",
         "GM_MUTATE_SPLIT_RESCALE",
     ] {
@@ -245,9 +246,10 @@ fn the_knob_list_carries_every_p3_control_and_nothing_else() {
     }
     assert_eq!(
         KNOBS.len(),
-        44,
+        45,
         "sixteen parameter controls, then the fifteen ANALYSIS and POST stage controls, then \
-         the six igraph layout controls, then the five 3D layout controls, then the two \
-         compute-tier controls, then the live session's own: {KNOBS:?}"
+         the six igraph layout controls, then the five 3D layout controls, then the one \
+         Graphviz packing control, then the two compute-tier controls, then the live \
+         session's own: {KNOBS:?}"
     );
 }

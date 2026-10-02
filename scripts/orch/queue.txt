@@ -48,3 +48,13 @@ status-refresh|build|prompts/jobs/status-refresh.md|scripts/orch/rows/docs.rows|
 osage-knob|build|prompts/jobs/osage-knob.md|scripts/orch/rows/quick.rows|no
 # sg lines from graph-render-f7 (2026-10-01): split runs alone; the rest wait in $GM_SCRATCH/orch/pending-sg.txt until it is on develop
 sg-conformance-split|build|prompts/jobs/sg-conformance-split.md|scripts/orch/rows/quick.rows|no
+perf-p5-gate|build|prompts/jobs/perf-p5-gate.md|scripts/orch/rows/perf-p5.rows|no
+sg-mt19937|build|prompts/jobs/sg-mt19937.md|scripts/orch/rows/quick.rows|no
+sg-graphviz-scale|build|prompts/jobs/sg-graphviz-scale.md|scripts/orch/rows/quick.rows|no
+sg-grid-scale|build|prompts/jobs/sg-grid-scale.md|scripts/orch/rows/quick.rows|no
+sg-spiral3d|build|prompts/jobs/sg-spiral3d.md|scripts/orch/rows/quick.rows|no
+sg-bipartite3d|build|prompts/jobs/sg-bipartite3d.md|scripts/orch/rows/quick.rows|no
+sg-sugiyama|build|prompts/jobs/sg-sugiyama.md|scripts/orch/rows/quick.rows|no
+open-ingest|build|prompts/jobs/open-ingest.md|scripts/orch/rows/quick.rows|no
+open-core|build|prompts/jobs/open-core.md|scripts/orch/rows/quick.rows|no
+open-synth|build|prompts/jobs/open-synth.md|scripts/orch/rows/quick.rows|no

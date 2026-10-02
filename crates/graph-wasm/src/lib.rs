@@ -167,6 +167,8 @@ mod exports;
 #[cfg(any(test, target_arch = "wasm32"))]
 mod handle;
 #[cfg(any(test, target_arch = "wasm32"))]
+mod heap;
+#[cfg(any(test, target_arch = "wasm32"))]
 mod ingest;
 mod memory_measure;
 pub mod post;
@@ -178,3 +180,8 @@ mod session;
 mod stage_exports;
 #[cfg(any(test, target_arch = "wasm32"))]
 pub(crate) mod views;
+
+/// The heap grows by a quarter at a time rather than by 64 KiB: see [`heap`].
+#[cfg(all(target_arch = "wasm32", not(test)))]
+#[global_allocator]
+static HEAP: heap::Geometric = heap::Geometric;
