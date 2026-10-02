@@ -6,14 +6,11 @@
 //! `2 · (e · k + p)`. That is what lets a threaded tier partition by edge and a SIMD tier
 //! vectorise across points without changing the order of any sum.
 
-use super::compat::Frames;
+use super::compat::{Frames, LEN_EPS};
 use super::pairs::PairList;
 use crate::index::Topology;
 use crate::layout::Geometry;
 use graph_contract::geometry::Paths;
-
-/// The reference's guard on a division by a segment of no length (`fdeb.py:118`).
-const LEN_EPS: f32 = 1e-12;
 
 /// Every edge's points, as one row-major column.
 #[derive(Debug, Clone, PartialEq)]
@@ -36,9 +33,14 @@ impl Points {
     /// Every edge's starting polyline, resampled to `per_edge` points: the layout's own
     /// interior points between the two nodes, or the straight segment when the layout drew
     /// a `Line`. This is the composition seam — a `Polyline` layout's bends are bundled
-    /// like any other path, and a `Line` layout's edges are bundled from straight.
-    pub fn of(topology: &Topology, geometry: &Geometry, per_edge: u32) -> Points {
-        let (x, y) = crate::post::centres(&geometry.nodes);
+    /// like any other path, and a `Line` layout's edges are bundled from straight. `(x, y)`
+    /// are the node centres the caller already took from `geometry`.
+    pub fn of(
+        topology: &Topology,
+        geometry: &Geometry,
+        (x, y): (&[f32], &[f32]),
+        per_edge: u32,
+    ) -> Points {
         let mut points = Points::empty(topology.edge_count(), per_edge);
         for e in 0..topology.edge_count() {
             let endpoints = &topology.edges();
@@ -110,11 +112,18 @@ impl Points {
     /// point, and writes only itself. The partner sum is taken in ascending edge index — the
     /// row's own order — so it is one fixed sequence of additions per point (D3, D10).
     ///
-    /// The force is the reference's (`fdeb.py:186-195`, and `edge_styles.py:381-401`): the
+    /// The force is the reference's (`fdeb.py:289-305`, and `edge_styles.py:381-401`): the
     /// spring is `SPRING_GAIN · (½(p₋ + p₊) − p)`, the attraction is the
     /// compatibility-and-distance weighted mean of the partner displacements, and the step
     /// scales the sum of the two. The first and last point of every row are pinned to the two
     /// nodes: an edge has to touch them, and no force is the reason.
+    ///
+    /// Ponytail (infinite weight): a partner on the point itself with the softening
+    /// underflowed to 0 (a drawing under ~1e-19 across) weighs `compat / 0 = +inf`, and the
+    /// reference's mean is then `NaN` (`fdeb.py:290-298`). A non-finite `wsum` takes no
+    /// attraction instead: the exact limit when the infinite weight is a coincident partner,
+    /// and within the ~1e-19 the overflow needs otherwise. Direction: a sub-1e-19 drawing
+    /// is not pulled, cosmetic. Escape hatch: lay the drawing out at a usable scale.
     #[allow(clippy::too_many_arguments)] // The reference's update has one term per argument.
     pub fn step_into(
         &self,
@@ -143,7 +152,7 @@ impl Points {
                     ay += weight * dy;
                     wsum += weight;
                 }
-                let attract = if wsum > 0.0 {
+                let attract = if wsum > 0.0 && wsum.is_finite() {
                     (ax / wsum, ay / wsum)
                 } else {
                     (0.0, 0.0)
@@ -173,7 +182,7 @@ impl Points {
 }
 
 /// `p + step · (SPRING_GAIN · spring + strength · attract)`, the reference's update
-/// (`fdeb.py:196-199`).
+/// (`fdeb.py:303-305`).
 fn move_point(
     x: f32,
     y: f32,
@@ -239,7 +248,9 @@ fn cumulative(row: &[(f32, f32)]) -> Vec<f32> {
 /// The point of `row` at arc length `target`: the segment it falls in, found by counting
 /// the segments short of it as the reference does, then the fraction along that segment. A
 /// degenerate segment (two coincident points) takes its own start, which is the reference's
-/// `f = 0` guard.
+/// `f = 0` guard. The lerp is `a + (b − a)·f` where `fdeb.py:171` writes `a·(1 − f) + b·f`,
+/// and the fraction is `j / (k − 1)` in f32 where `fdeb.py:158` takes `np.linspace`: equal in
+/// ℝ, not bit for bit, which [`super::META`]'s oracle row already disclaims.
 fn at_arc(row: &[(f32, f32)], cumulative: &[f32], target: f32) -> (f32, f32) {
     let last = cumulative.len() - 2;
     let mut segment = 0_usize;

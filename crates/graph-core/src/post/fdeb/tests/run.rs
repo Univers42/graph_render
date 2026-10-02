@@ -21,7 +21,7 @@ fn one_iteration_moves_an_interior_point_and_pins_both_endpoints() {
     let list = pairs::PairList::of(&frames, &params);
     let soften = (0.01 * 0.05 * libm::hypotf(1.0, 5.0)) * (0.01 * 0.05 * libm::hypotf(1.0, 5.0));
 
-    let before = Points::of(&topology, &geometry, 3);
+    let before = Points::of(&topology, &geometry, (x, y), 3);
     let mut after = Points::empty(3, 3);
     before.step_into(&mut after, &list, &frames, params.strength, 0.6, soften);
 
@@ -121,6 +121,116 @@ fn a_parameter_outside_the_accepted_range_is_refused_rather_than_clipped() {
     // The same graph at the defaults runs, which is what makes the refusals above about the
     // parameter and not about the geometry.
     assert!(bundle(&topology, &geometry, &FdebParams::default()).is_ok());
+}
+
+#[test]
+fn a_schedule_past_the_references_own_ceilings_is_refused_rather_than_overflowed() {
+    // R3. The oracle the registry names is SciGraphs' FDEB, whose own panel bounds both
+    // knobs: `edge_segments` max=32 (`SciGraphs/properties/edge_style_properties.py:78-85`)
+    // and `edge_fdeb_cycles` max=10 (`:286-297`). Past them, 33 doubling cycles took the
+    // point count to u32::MAX and `subdivisions + 2` overflowed, on an empty graph.
+    let empty = index_model(&[], &[]).expect("fits");
+    let nothing = points(0, &[]);
+    for (params, names) in [
+        (
+            FdebParams {
+                cycles: 33,
+                segments: u32::MAX,
+                ..FdebParams::default()
+            },
+            ["segments", "cycles"],
+        ),
+        (
+            FdebParams {
+                segments: 33,
+                ..FdebParams::default()
+            },
+            ["segments", "segments"],
+        ),
+        (
+            FdebParams {
+                cycles: 11,
+                ..FdebParams::default()
+            },
+            ["cycles", "cycles"],
+        ),
+    ] {
+        let err = bundle(&empty, &nothing, &params).expect_err("refused");
+        assert!(
+            matches!(err, crate::stage::StageError::Param { name, .. } if names.contains(&name)),
+            "{err}"
+        );
+    }
+    // The ceilings themselves are accepted.
+    let geometry = points(4, &[(0.0, 0.0), (1.0, 0.0), (0.0, 5.0), (1.0, 5.0)]);
+    let at_ceiling = FdebParams {
+        cycles: 10,
+        segments: 32,
+        ..FdebParams::default()
+    };
+    assert!(bundle(&three_edges(), &geometry, &at_ceiling).is_ok());
+}
+
+#[test]
+fn an_iteration_count_past_the_references_own_ceiling_is_refused_rather_than_run() {
+    // PB-7. The same panel bounds the third knob: `edge_bundle_iterations` `max=20`
+    // (`SciGraphs/properties/edge_style_properties.py:126-133`). `iterations` was the one
+    // bound `check` did not take, so a single u32 bought as many passes over every edge's
+    // surviving row as the caller could name, `O(k x R)` each.
+    let empty = index_model(&[], &[]).expect("fits");
+    let nothing = points(0, &[]);
+    let err = bundle(
+        &empty,
+        &nothing,
+        &FdebParams {
+            iterations: 21,
+            ..FdebParams::default()
+        },
+    )
+    .expect_err("refused");
+    assert!(
+        matches!(err, crate::stage::StageError::Param { name, .. } if name == "iterations"),
+        "{err}"
+    );
+    // The ceiling itself is accepted, so the refusal is about the value and not the knob.
+    let geometry = points(4, &[(0.0, 0.0), (1.0, 0.0), (0.0, 5.0), (1.0, 5.0)]);
+    let at_ceiling = FdebParams {
+        iterations: MAX_ITERATIONS,
+        ..FdebParams::default()
+    };
+    assert!(bundle(&three_edges(), &geometry, &at_ceiling).is_ok());
+    // The registered default is the `BUNDLED_DENSE` preset's 8 (`edge_styles.py:43`), under
+    // the ceiling: no hashed snapshot moves.
+    assert!(FdebParams::default().iterations <= MAX_ITERATIONS);
+}
+
+#[test]
+fn a_drawing_too_small_to_soften_still_bundles_to_finite_points() {
+    // M1. Two parallel edges 1e-22 long: the softening (0.01 · 0.05 · 1e-22)² underflows to
+    // 0 in f32, every interior point collapses onto the row's start, and the coincident
+    // partner's weight compat / 0 is +inf. The reference (`fdeb.py:290-298`) carries the
+    // same blind spot and writes NaN; a geometry column must not.
+    let nodes = ["a", "b"].map(|id| node(id, ""));
+    let edges = [edge("e0", "a", "b"), edge("e1", "a", "b")];
+    let topology = index_model(&nodes, &edges).expect("fits");
+    let geometry = points(2, &[(0.0, 0.0), (1e-22, 0.0)]);
+    let params = FdebParams {
+        threshold: 0.0,
+        ..FdebParams::default()
+    };
+    let bundled = bundle(&topology, &geometry, &params).expect("runs");
+    assert_eq!(
+        bundled.pairs, 1,
+        "the pair is admitted, so the weight is used"
+    );
+    let EdgeGeometry::Polyline(paths) = &bundled.geometry.edges else {
+        panic!("bundling emits polylines");
+    };
+    assert!(
+        paths.pts.iter().all(|v| v.is_finite()),
+        "{:?}",
+        &paths.pts[..4]
+    );
 }
 
 #[test]

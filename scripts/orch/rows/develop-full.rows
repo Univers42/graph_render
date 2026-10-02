@@ -30,6 +30,9 @@ wasm32-core|0|scripts/orch/gr cargo build -p graph-core --target wasm32-unknown-
 hashgate-8|0|scripts/orch/gr cargo run -q -p graph-cli -- hashgate --seeds 8
 negctl-degree|0|scripts/orch/gr -e GM_MUTATE_REFERENCE_DEGREE=9 cargo run -q -p graph-cli -- hashgate --seeds 8; test $? -eq 1
 npm-ci|0|scripts/orch/node-slim.sh npm ci --ignore-scripts
+negctl-dim-z-mismatch|0|scripts/orch/gr -e GM_MUTATE_NODE_Z=1 cargo run -q -p graph-cli -- roundtrip --seeds 8; test $? -ne 0
+force-gate-4|0|scripts/orch/gr cargo run -q -p graph-cli -- force-gate --seeds 4
+negctl-force-gravity|0|scripts/orch/gr -e GM_MUTATE_FORCE_SESSION_GRAVITY=0.5 cargo run -q -p graph-cli -- force-gate --seeds 4; test $? -eq 1
 
 # ---------------------------------------------------------------------------------------------
 # from docs/reports/phase-03.md:93 — p3 deterministic layouts: the 1000-seed gate, the fixture
@@ -196,6 +199,16 @@ oracle-closed-form-negctl|nonzero|scripts/orch/gr cargo run -q -p graph-cli -- o
 # ---------------------------------------------------------------------------------------------
 bench-tier1-closed-form|0|scripts/orch/gr cargo run -q --release -p graph-cli -- bench --layout layout.random --layout layout.circular.ring --layout layout.spiral --layout layout.bipartite --n 220,10000,100000 --past-ceiling --repeat 3
 bench-yifan-hu|0|scripts/orch/gr cargo run -q --release -p graph-cli -- bench --layout layout.force.yifan_hu --n 220,10000,100000 --past-ceiling --repeat 1
+
+# ---------------------------------------------------------------------------------------------
+# the studio's own floor and its load smoke over app/dist (CLAUDE.md "Commands"). `wasm` stages
+# the release graph-wasm the build bundles; `build` writes app/dist, which the smoke reads.
+# ---------------------------------------------------------------------------------------------
+studio-wasm|0|scripts/studio.sh wasm
+studio-check|0|scripts/studio.sh check
+studio-build|0|scripts/studio.sh build
+studio-smoke|0|scripts/studio-smoke.sh
+negctl-studio-smoke|nonzero|STUDIO_SMOKE_BREAK=1 scripts/studio-smoke.sh
 
 # ---------------------------------------------------------------------------------------------
 # from docs/reports/phase-g0.md:41 — the one G0 studio row that survives on this host: the

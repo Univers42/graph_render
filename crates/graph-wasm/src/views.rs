@@ -16,6 +16,7 @@
 //! same reason. This layer is transport: it carries a 3D snapshot rather than refusing it,
 //! and [`dim`] is how a consumer learns a snapshot is one instead of parsing byte 14 itself.
 
+use crate::errors::Code;
 use graph_contract::binary::Snapshot;
 use graph_contract::geometry::EdgeGeometry;
 
@@ -126,6 +127,22 @@ pub fn node_kind_tag(snapshot: &Snapshot) -> u8 {
 /// readable through the ABI"), needed because `gm_geometry_kind` alone only names nodes.
 pub fn edge_kind_tag(snapshot: &Snapshot) -> u8 {
     snapshot.header().edge_kind.tag()
+}
+
+/// Column `column_id` of `snapshot` as the wire reads it: its address, or with
+/// `want_len` its element count. `gm_column_ptr`/`gm_column_len`'s body.
+pub fn column_wire(snapshot: &Snapshot, column_id: u32, want_len: bool) -> Result<u32, Code> {
+    let (ptr, len) = match column(snapshot, column_id) {
+        Column::Absent => return Ok(0),
+        Column::F32(v) => (v.as_ptr() as usize, v.len()),
+        Column::U32(v) => (v.as_ptr() as usize, v.len()),
+    };
+    // C3: absent and present-but-empty both read (0, 0); an empty `Vec`'s pointer is a
+    // dangling, nonzero address that names no memory.
+    if len == 0 {
+        return Ok(0);
+    }
+    crate::wire::to_wire(if want_len { len } else { ptr })
 }
 
 /// How many dimensions `snapshot` carries: `0` 2D, `1` 3D. `gm_dim`'s body. The wasm
