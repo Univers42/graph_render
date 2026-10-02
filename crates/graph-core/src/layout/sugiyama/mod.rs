@@ -12,6 +12,11 @@ mod coords;
 mod layering;
 mod ordering;
 mod routing;
+mod scaled;
+#[cfg(test)]
+mod stages;
+
+pub use scaled::run_scaled;
 
 use super::Geometry;
 use crate::index::Topology;

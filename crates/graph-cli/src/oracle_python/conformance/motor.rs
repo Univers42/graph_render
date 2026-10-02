@@ -60,6 +60,7 @@ pub fn run(id: &str, fixture: &Fixture) -> Ran {
         "layout.force.sfdp" => sfdp_seeded(fixture),
         "layout.force.spring" => spring::<Spring>(fixture),
         "layout.force.spring3d" => spring::<Spring3D>(fixture),
+        "layout.dag.sugiyama" => sugiyama_scaled(fixture),
         _ => registered(id, fixture),
     }?;
     columns(&parts, fixture.nodes.len())
@@ -74,6 +75,24 @@ fn packing(fixture: &Fixture) -> Result<SnapshotParts, String> {
     };
     finish(fixture, circle_packing::ID, |t| {
         circle_packing::run_with(t, &params)
+    })
+}
+
+/// The layered DAG drawing on SciGraphs' axes: the registered `layout.dag.sugiyama` plus
+/// its per-axis normalisation (`hierarchical.py:679-685`), at the dispatcher's `scale`.
+///
+/// **A fourth override, and the only one that changes units rather than numbers.** The
+/// registered layout draws X in the priority method's own units and Y as
+/// `layer * LAYER_SPACING`, neither centred; the reference maps both onto `[-scale, scale]`.
+/// The normalisation cannot be a post pass here, because its `lo`/`hi` are the extremes
+/// over the whole ordering graph, dummy vertices included, and `Geometry` carries no dummy
+/// coordinates — so it is a second entry point in graph-core (`sugiyama::run_scaled`) beside
+/// the stages that produce its inputs, not a transform in this file. `layout.dag.sugiyama`
+/// itself is untouched: the registry default still draws in its own units, because that is
+/// what the dagre differential measures.
+fn sugiyama_scaled(fixture: &Fixture) -> Result<SnapshotParts, String> {
+    finish(fixture, "layout.dag.sugiyama", |t| {
+        graph_core::layout::sugiyama::run_scaled(t, SCALE as f32)
     })
 }
 
