@@ -57,6 +57,10 @@ pub enum Error {
     /// An edge was asked to join a tree it is already in, or the two `treeupdate` walks
     /// met at different lowest common ancestors. Both are the reference's `return 2`.
     Tree,
+    /// A cut value did not fit `int`, which `x_cutval` reports as an overflow and the
+    /// reference answers by exiting (`ns.c:1060-1067`). Reachable only by a graph whose
+    /// merged edge weights sum past two billion.
+    Overflow,
 }
 
 /// Which balance pass runs after the pivot loop — `rank2`'s `balance` argument.
@@ -145,7 +149,7 @@ pub fn rank2(g: &mut Fast, nodes: &[u32], params: &Params) -> Result<(), Error> 
     }
     feasible_tree(g, &mut ctx, nodes)?;
     if params.maxiter <= 0 {
-        balance::free_tree(g);
+        balance::free_tree(g, nodes);
         return Ok(());
     }
     let mut iter = 0;

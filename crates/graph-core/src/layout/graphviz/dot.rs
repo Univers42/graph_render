@@ -3,25 +3,24 @@
 //!
 //! Reference: `lib/dotgen/dotinit.c:301-340` (`dotLayout`), which is the whole contract:
 //!
-//! 1. `dot_rank` — `acyclic`, then one network simplex per connected component.
+//! 1. `dot_rank` — `acyclic`, then one network simplex per connected component. **Ported**;
+//!    see [`rank`].
 //! 2. `dot_mincross` — `build_ranks` for the initial order, then median/transpose passes.
+//!    Not ported; [`class2`], the edge classification this pass needs, is.
 //! 3. `dot_position` — y from the rank heights, then a second network simplex over an
-//!    auxiliary graph for x.
-//! 4. `dot_splines` — edges as splines through the virtual nodes.
+//!    auxiliary graph for x. Not ported; the engine it needs, [`simplex`], is.
+//! 4. `dot_splines` — edges as splines through the virtual nodes. Not needed: the motor
+//!    emits polylines through the virtual nodes.
 //!
-//! **Only pass 0 of step 1 and the component decomposition are ported here.** See
-//! `docs/measurements/p13-gv2-dot.md` for what is measured, what is not, and why: the
-//! node box Graphviz gives a node is sized from its *rendered label*, and that width is a
-//! font metric of Graphviz's own text layout (measured: 54 points for a two-character id
-//! and 57.942 for a three-character one). It is the input to the x-coordinate network
-//! simplex, so no amount of care in the three remaining passes reproduces Graphviz's x
-//! coordinates without a font engine, and a `layout.dag.dot` row claiming otherwise would
-//! be a claim this repository cannot support.
+//! The node box Graphviz gives a node is sized from its *rendered label*, and that width is
+//! an input to the x-coordinate network simplex — which is why the port reaches the rank
+//! pass and stops, and why the width itself is pinned in `layout::graphviz::text_width`.
+//! `docs/measurements/p13-gv2-dot.md` has the measurement and `docs/decisions/graphviz-oracle.md`
+//! the decision.
 //!
 //! The module doc of `layout::graphviz` says why these engines are reimplemented rather
 //! than translated, and `docs/decisions/graphviz-oracle.md` records that decision; the
-//! two ports next to this one, `osage` and `patchwork`, are the same shape and both carry
-//! the label-width finding in their first Ponytail marker.
+//! two ports next to this one, `osage` and `patchwork`, are the same shape.
 //!
 //! Determinism: the port's own order is the dense node index throughout; the oracle is
 //! **not** seed-sensitive — `docs/measurements/p13-gv2-dot.md` records the same fixture
@@ -29,14 +28,22 @@
 //! from Graphviz is an algorithmic difference, never drift.
 
 pub mod acyclic;
+pub mod class2;
 pub mod decomp;
 pub mod fast;
+pub mod rank;
+pub mod simplex;
 
+#[cfg(test)]
+mod rank_tests;
 #[cfg(test)]
 mod tests;
 
 use decomp::decompose;
 use fast::{Edge, Fast, Node};
+
+pub use rank::rank;
+pub use simplex::Error;
 
 /// Graphviz's default node box, `0.75 x 0.5` inch (`const.h`'s `DEFAULT_NODEWIDTH` and
 /// `DEFAULT_NODEHEIGHT`) in points, which is the whole conversion the layout needs.
@@ -49,6 +56,11 @@ pub const NODESEP: f64 = 0.25 * 72.0;
 pub const RANKSEP: f64 = 0.5 * 72.0;
 
 /// A fast graph with every node given Graphviz's default box and no edges yet.
+///
+/// The box is the default rather than the width the node's own label needs, because the
+/// label is not known here and the default is what every fixture node below ten nodes gets
+/// anyway. `layout::graphviz::text_width` has the measured relation, and
+/// `p13-gv2-dot-position` is where the box is settled.
 pub fn empty_graph(count: u32) -> Fast {
     let mut g = Fast::new();
     for _ in 0..count {

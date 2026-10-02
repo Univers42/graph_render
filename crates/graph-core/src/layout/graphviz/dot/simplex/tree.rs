@@ -42,6 +42,7 @@ struct Step {
 /// One frame of the inter-tree walk: a node, the subtree it belongs to, and the node it was
 /// reached from. `from` is what stops the walk stepping back over the edge it arrived by;
 /// it is `None` at the seed, the reference's `NULL`.
+#[derive(Clone, Copy)]
 struct Reach {
     node: u32,
     subtree: usize,
@@ -90,7 +91,8 @@ pub fn feasible_tree(g: &mut Fast, ctx: &mut Ctx, nodes: &[u32]) -> Result<(), E
     while size > 1 {
         let extracted = subtree::extract_min(&mut trees, size);
         size -= 1;
-        let Some(edge) = inter_tree_edge(g, &mut trees, trees[extracted].rep) else {
+        let rep = trees[extracted].rep;
+        let Some(edge) = inter_tree_edge(g, &mut trees, rep) else {
             return Err(Error::Disconnected);
         };
         let rep = merge_trees(g, ctx, &mut trees, edge)?;
@@ -100,7 +102,7 @@ pub fn feasible_tree(g: &mut Fast, ctx: &mut Ctx, nodes: &[u32]) -> Result<(), E
             subtree::sift_down(&mut trees, size, at);
         }
     }
-    init_cutvalues(g, nodes);
+    init_cutvalues(g, nodes)?;
     Ok(())
 }
 

@@ -115,7 +115,7 @@ fn run_range(g: &mut Fast, stack: &mut Vec<RangeFrame>, reuse: bool) -> i32 {
 /// The tree-out half of the current frame: descend into the next unvisited tree edge, by
 /// pushing its head or — under `reuse` — by taking a subtree whose interval is already
 /// correct whole and skipping over it. Returns whether the frame moved.
-fn step_out(g: &mut Fast, stack: &mut [RangeFrame], reuse: bool) -> bool {
+fn step_out(g: &mut Fast, stack: &mut Vec<RangeFrame>, reuse: bool) -> bool {
     let top = stack.len() - 1;
     while stack[top].out_at < g.nodes[stack[top].node as usize].tree_out.len() {
         let edge = g.nodes[stack[top].node as usize].tree_out[stack[top].out_at];
@@ -130,7 +130,7 @@ fn step_out(g: &mut Fast, stack: &mut [RangeFrame], reuse: bool) -> bool {
 
 /// The tree-in half of the current frame, mirroring [`step_out`] with the ends the other
 /// way round. The reference runs both halves at `ns.c:1190` and `ns.c:1207`.
-fn step_in(g: &mut Fast, stack: &mut [RangeFrame], reuse: bool) -> bool {
+fn step_in(g: &mut Fast, stack: &mut Vec<RangeFrame>, reuse: bool) -> bool {
     let top = stack.len() - 1;
     while stack[top].in_at < g.nodes[stack[top].node as usize].tree_in.len() {
         let edge = g.nodes[stack[top].node as usize].tree_in[stack[top].in_at];
@@ -204,7 +204,7 @@ pub fn cutval(g: &mut Fast, root: u32) -> Result<(), Error> {
 
 /// One half of the post-order walk: descend along the next unvisited tree edge from the
 /// node's tree-out list or its tree-in list.
-fn cut_step(g: &mut Fast, stack: &mut [CutFrame], from_out: bool) -> bool {
+fn cut_step(g: &mut Fast, stack: &mut Vec<CutFrame>, from_out: bool) -> bool {
     let top = stack.len() - 1;
     let node = stack[top].node as usize;
     let list = if from_out {
