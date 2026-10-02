@@ -121,7 +121,7 @@ fn scale_rows() -> Vec<Capability> {
         geometry: None,
         status: Status::Implemented,
         oracle,
-        oracle_record: "oracle-diff",
+        oracle_record: "oracle-scale",
         functions: &[],
         hash_stage: "topology",
         oracle_diff: String::new(),
@@ -134,7 +134,7 @@ fn scale_rows() -> Vec<Capability> {
     vec![
         Capability {
             id: "scale.lod",
-            oracle: "SciGraphs engine/scigraphs_engine/lod.py: the budget rule and the never-empty mask, ported; the pixel thresholds are not (no camera here) and the tier ladder is the phase's own",
+            oracle: "SciGraphs engine/scigraphs_engine/lod.py, checked by the oracle-scale differential: lod.apply_budget against lod.rs's label_mask (the greedy budget, its never-empty mask, budgets 0/1/n and a tie at the cut) and lod.frustum_cull_spheres against lod.rs's Viewport test, over a square orthographic camera. Not ported: the pixel thresholds (a headless motor has no pixels), the tier ladder (the phase's own), and the radius convention, which lod.py's two culling functions do not share between them — docs/measurements/fix-scale-oracle.md records that as a gap",
             complexity: "O(n + m), one pass each, no spatial structure",
             degradation: "advisory by construction: the hints are columns a front may ignore entirely, and the topology is never mutated, so past the ceiling the only cost is a front that chose to draw everything",
             ponytail: "Ponytail: the thresholds are a heuristic and it fails in the dangerous direction. Failing input: a graph whose important nodes are low-degree (a dependency graph's entry points, a star's hub the budget ranks low), where a degree-ranked label budget hides exactly what a reader came for. Direction: hiding meaningful nodes. Escape hatch: ignore the hints; they are advisory. Second heuristic, same shape: edge decimation is a stride over edge index, so a graph whose long-range edges share one stride class loses all of them",
@@ -142,7 +142,7 @@ fn scale_rows() -> Vec<Capability> {
         },
         Capability {
             id: "scale.simplify",
-            oracle: "hand: degree-1 folding, maximal degree-2 chain walks, and Phase 7's analysis.communities (louvain) for the collapse. The reference's simplify.py extracts a backbone (MST/disparity/top-k) and coarsens for bundling; neither is a reversible reduction of the graph, so neither is ported",
+            oracle: "hand: degree-1 folding, maximal degree-2 chain walks, and Phase 7's analysis.communities (louvain) for the collapse; reversibility is graph-core's own gate row. What the oracle-scale differential checks against SciGraphs simplify.build_coarse_level is the collapse's link set — the external edges re-anchored on the representatives — and that a self-loop, and an edge between two members of one community, are in neither. Not ported: the backbone (MST/disparity/top-k), which like the coarse level is not a reversible reduction of the graph. Fold and chain contraction have no reference function and are gap rows",
             complexity: "O(n + m log m) to build the simple adjacency, then O(n + m) per pass",
             degradation: "past the ceiling, the same shape as topology: wasm32 cannot allocate and the module traps; natively, memory permitting, this refuses alongside index_model's own CapacityError. Every removal is journalled, so a front that ignored the ceiling would still be able to restore",
             ponytail: "Ponytail: the community collapse trusts louvain, a heuristic. Failing input: near-tied modularity gains, or a graph whose communities are single-edge chains, where a collapse removes the node a reader came to see. Direction: cosmetic, because the journal still holds it — the dangerous version, an irreversible collapse, is not implemented. Escape hatch: Plan::collapse_communities off",
@@ -150,7 +150,7 @@ fn scale_rows() -> Vec<Capability> {
         },
         Capability {
             id: "scale.adaptive",
-            oracle: "SciGraphs engine/scigraphs_engine/adaptive.py: the same intent (bounded work per settle), deliberately NOT its mechanism — it adapts from measured crowding and a camera at render time, which here would mean reading a clock, which D8 forbids inside the motor",
+            oracle: "SciGraphs engine/scigraphs_engine/adaptive.py: the same intent (bounded work per settle), deliberately NOT its mechanism — it adapts from measured crowding and a camera at render time, which here would mean reading a clock, which D8 forbids inside the motor. A gap row in the oracle-scale differential: adaptive.py cuts a hierarchy of coarse levels that build_hierarchy builds with an infomap detector, and the motor has neither, so the two arms have nothing they could be given in common",
             complexity: "O(1): a pure function of (n, m)",
             degradation: "none: the budget never fails and never allocates. What degrades is the layout's settle at large n, which is the trade the row exists to make and the caller's iteration override takes back",
             ponytail: "Ponytail: a large graph gets fewer ticks and a less settled layout. Failing input: any graph past ~3 000 nodes, whose tails are still moving when the budget runs out. Direction: cosmetic. Escape hatch: tick_budget_with's explicit override, honoured verbatim including 0",

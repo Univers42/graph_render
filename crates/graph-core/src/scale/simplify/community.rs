@@ -27,8 +27,28 @@ pub(super) fn collapse_communities(t: &Topology, out: &mut Simplified) {
         let earlier = out.representative[node];
         out.representative[node] = out.representative[earlier as usize];
     }
+    reanchor_links(&mut out.steps[..first], &out.representative);
     classify_edges(t, &step_of, out);
     for step in &mut out.steps[first..] {
+        step.links.sort_unstable();
+        step.links.dedup();
+    }
+}
+
+/// Every step an earlier pass already journalled has its links re-anchored on the
+/// representatives that exist now that the fixup above has landed: a chain link `(2, 5)`
+/// whose `2` turned out to be in representative `0` becomes `(0, 5)`. Without this the
+/// drill-back a front reads names a node it no longer draws. Ascending and deduplicated,
+/// because two links can land on the same pair once collapsed.
+fn reanchor_links(steps: &mut [Step], representative: &[u32]) {
+    for step in steps {
+        for link in &mut step.links {
+            let (a, b) = (
+                representative[link.0 as usize],
+                representative[link.1 as usize],
+            );
+            *link = (a.min(b), a.max(b));
+        }
         step.links.sort_unstable();
         step.links.dedup();
     }

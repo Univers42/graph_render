@@ -256,9 +256,10 @@ fn the_registry_covers_every_oracle_function_once_its_ids_are_unique() {
             // stage list yet, so a shared `post` name would claim a stage nothing hashes.
             ("roundtrip", r.id, Status::Implemented)
         } else if r.stage == "scale" {
-            // Phase 9: not in the hash gate's stage list and no oracle differential, so
-            // `implemented` until the merge step wires them.
-            ("oracle-diff", "topology", Status::Implemented)
+            // Phase 9: the rows name the `oracle-scale` differential, and stay `implemented`
+            // because graph-core's scale stage is not in the hash gate's stage list, so
+            // `gated` would still be a claim `problems()` refuses.
+            ("oracle-scale", "topology", Status::Implemented)
         } else {
             ("roundtrip", r.id, Status::Gated)
         };

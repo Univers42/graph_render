@@ -30,6 +30,7 @@ mod igraph;
 mod neato;
 mod osage;
 mod patchwork;
+mod scale;
 mod sfdp;
 mod spectral;
 pub mod spring;
@@ -43,6 +44,7 @@ pub use closed_form::CLOSED_FORM;
 pub use fa2::FA2;
 pub use hierarchical_3d::HIERARCHICAL_3D;
 pub use igraph::IGRAPH;
+pub use scale::SCALE;
 pub use spectral::SPECTRAL;
 pub use spring::SPRING;
 
@@ -198,7 +200,11 @@ fn verdict(differential: &Differential, dir: &Path) -> Result<bool, String> {
     pass &= closed_cases(&result);
     let body = json!({
         "seeds": manifest["seeds"], "pass": pass, "functions": functions,
-        "oracle": result["oracle"], "tolerance": true,
+        "oracle": result["oracle"],
+        // A differential whose arms return the same bytes rather than agreeing within a
+        // measured ceiling says so in its own result; one that says nothing keeps the
+        // reading every record before it was written with.
+        "tolerance": result.get("tolerance").and_then(Value::as_bool).unwrap_or(true),
     });
     stamp.still_current()?;
     crate::evidence::record(&stamp, &format!("oracle-{name}"), body)?;

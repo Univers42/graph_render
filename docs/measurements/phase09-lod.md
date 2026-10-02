@@ -23,9 +23,13 @@ The policy is the caller's (`LodParams`), and the tier ladder is the phase's own
 
 What is ported from the reference (`SciGraphs/engine/scigraphs_engine/lod.py`) is the
 *shape*: a budget filled greedily in descending order of an importance key
-(`apply_budget`, `lod.py:82-92`) and its never-empty guarantee — a budget of zero still
-lets the most important visible node keep its label (`lod.py:88-90`), which
-`the_label_budget_is_never_empty_and_ranks_by_degree_then_index` pins. What is **not**
+(`apply_budget`, `lod.py:82-83`) and its never-empty guarantee for a budget of at least
+one (`lod.py:86-88`) — both sides read a budget of zero or less as *no limit*, not as
+zero labels (`lod.py:79-80`, `lod.rs:225-228`). The two tests that pin them are
+`the_label_budget_is_never_empty_and_ranks_by_degree_then_index`
+(`crates/graph-core/src/scale/lod/tests.rs:115`) and
+`a_label_budget_of_zero_means_no_limit`
+(`crates/graph-core/src/scale/lod/mask_tests.rs:10`). What is **not**
 ported is the numbering: the reference's thresholds are on-screen pixels of a 1080-tall
 image and a headless motor has no pixels, so the tier comes from the node count and the
 cull test is a rectangle test on world coordinates (`Viewport`). The importance key is

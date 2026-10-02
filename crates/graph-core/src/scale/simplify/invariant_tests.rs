@@ -82,6 +82,115 @@ fn a_community_never_collapses_onto_a_folded_leaf() {
     assert_links_survive(&s, Kind::Community);
 }
 
+/// Every edge that is still drawn joins two drawn nodes: nothing survives the passes as
+/// an edge with nothing behind it.
+///
+/// The reference decides the self-loop case the same way (`simplify.py:216-217`: a
+/// self-loop's `ca == cb`, so it is never one of the `inter` super-edges). The Rust side
+/// reached the opposite answer by omission: `edges_between` is only ever asked about
+/// `a != b` and `simple::build` drops self-loops from the adjacency, so a self-loop on a
+/// node a pass hides was never journalled and never cleared.
+#[test]
+fn a_self_loop_on_a_node_a_pass_removes_goes_with_it() {
+    let star = graph(4, [(0, 1), (0, 2), (0, 3), (1, 1)].into_iter());
+    let path = graph(
+        6,
+        [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (2, 2)].into_iter(),
+    );
+    // `Plan::all()` and the single-pass plans both, because under `Plan::all()` the
+    // community pass happens to catch a self-loop whose node a chain removed — the
+    // self-loop reads as internal to one representative. That is the chain pass's
+    // accident to rely on, so the chain is pinned on its own.
+    let leaves = Plan {
+        fold_leaves: true,
+        ..Plan::nothing()
+    };
+    let chains = Plan {
+        contract_chains: true,
+        ..Plan::nothing()
+    };
+    let cases = [
+        (&star, Plan::all()),
+        (&star, leaves),
+        (&path, Plan::all()),
+        (&path, chains),
+    ];
+    let dangling: Vec<String> = cases
+        .iter()
+        .flat_map(|(t, plan)| {
+            let s = simplify(t, plan);
+            (0..t.edge_count() as usize)
+                .filter(|&e| s.edges[e] == 1)
+                .filter(|&e| {
+                    [t.edges().source[e], t.edges().target[e]]
+                        .iter()
+                        .any(|&end| s.visible[end as usize] == 0)
+                })
+                .map(|e| format!("{e}->{:?}", [t.edges().source[e], t.edges().target[e]]))
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    assert!(
+        dangling.is_empty(),
+        "drawn edges with a hidden end: {dangling:?}"
+    );
+}
+
+/// Found while fixing F1's neighbour: a chain step's `links` are written from the branch
+/// nodes as they were drawn at chain time (`chain.rs:45`). The community pass may then
+/// hide one of them, and before this was fixed nothing rewrote the journal — so the
+/// drill-back a front reads named a node it does not draw. `assert_links_survive` existed
+/// for this and was only ever called with the community pass off.
+///
+/// The precondition is asserted, not assumed: if Louvain's partition stops hiding an end
+/// of some chain, this test fails loudly instead of quietly passing on nothing. It is
+/// stated on the *pre-community* journal and the full-plan masks, which is a fact about
+/// the graph and the partition — not about the journal this fix rewrites.
+#[test]
+fn a_chain_link_is_re_anchored_when_the_community_pass_hides_an_end() {
+    // Two triangles `0-1-2` and `5-6-7`, joined by the degree-2 run `2-3-4-5`, so the
+    // chain `3-4` contracts to the link `(2, 5)` and Louvain — which finds the three
+    // communities `[0,0,0,1,1,2,2,2]` — is free to hide `2` into the community led by 0.
+    let pairs = [
+        (0, 1),
+        (1, 2),
+        (2, 0),
+        (2, 3),
+        (3, 4),
+        (4, 5),
+        (5, 6),
+        (6, 7),
+        (7, 5),
+    ];
+    let t = graph(8, pairs.into_iter());
+    let structural = Plan {
+        collapse_communities: false,
+        ..Plan::all()
+    };
+    let before = simplify(&t, &structural);
+    let ends: Vec<u32> = before
+        .steps
+        .iter()
+        .filter(|step| step.kind == Kind::Chain)
+        .flat_map(|step| step.links.iter().copied())
+        .flat_map(|(a, b)| [a, b])
+        .collect();
+    let s = simplify(&t, &Plan::all());
+    let hidden: Vec<u32> = ends
+        .iter()
+        .copied()
+        .filter(|&end| s.visible[end as usize] == 0)
+        .collect();
+    assert!(
+        !ends.is_empty() && !hidden.is_empty(),
+        "precondition: no chain end is hidden by the community pass, so this proves \
+         nothing: ends {ends:?}, hidden {hidden:?}, {s:?}"
+    );
+    assert_representatives_survive(&s);
+    assert_links_survive(&s, Kind::Chain);
+    assert_links_survive(&s, Kind::Community);
+}
+
 /// Found while fixing R24: a community step's links are the external edges that touch
 /// it, not every external edge of the graph. Three triangles in a row, `0-1-2`, `3-4-5`
 /// and `6-7-8`, joined by `2-3` and `5-6`.
