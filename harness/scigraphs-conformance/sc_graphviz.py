@@ -143,8 +143,8 @@ def _numpy_mean(values):
     and the eight accumulators and the split above `PW_BLOCKSIZE` never run. Measured in
     `ge-python-oracle` on `(n, 2)` C-contiguous arrays at n = 1, 2, 3, 5, 8, 9, 16, 17, 33, 64,
     127, 128, 129, 300: left to right equals `mean(axis=0)` at every length and on both columns,
-    while the pairwise sum of the same values differs at every n >= 8. The Rust arm is the same
-    function in another language and
+    while the pairwise sum of the same values differs at every n >= 8 on column 0. The Rust arm
+    is the same function in another language and
     `the_mean_of_an_n_by_2_array_is_the_left_to_right_sum` pins it to those hex values. What it
     gets wrong: a Fortran-ordered `raw` would restore the pairwise sum, and
     `scigraphs_utils.graphviz_layout` is a C++ extension with no source on disk to read its

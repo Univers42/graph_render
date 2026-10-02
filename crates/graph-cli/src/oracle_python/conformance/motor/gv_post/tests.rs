@@ -1,8 +1,8 @@
-//! The reference values, pasted from numpy. **Every constant below came out of
-//! `ge-python-oracle` running numpy 2.3.3 on the four lines at `yifan_hu.py:318-325`, not out
-//! of the code under test.** A constant copied from the function it is meant to check cannot
-//! fail, and these are the constants that decide whether a Graphviz row is `bitwise` or
-//! `shape`.
+//! The reference values, pasted from the oracle image's own `mean(axis=0)`. **Every constant
+//! below came out of `ge-python-oracle` running the four lines at `yifan_hu.py:318-325` on
+//! C-contiguous `(n, 2)` arrays, not out of the code under test.** A constant copied from the
+//! function it is meant to check cannot fail, and these are the constants that decide whether a
+//! Graphviz row is `tolerance` or `shape`.
 
 use super::super::super::{ROWS, SCALE};
 use super::super::{run, run_row};
