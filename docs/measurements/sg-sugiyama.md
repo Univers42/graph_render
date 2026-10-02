@@ -68,15 +68,16 @@ Two halves over the same graphs by the same node-order rule, neither copying the
   other three from `include_str!` on the repo fixtures.
 
 ```
-scripts/orch/gr cargo test -p graph-core --lib sugiyama::stages -- --ignored     -> 0
+scripts/orch/gr cargo test -p graph-core --lib sugiyama::stages -- --ignored             -> 0
 docker run --rm -v "$PWD:/w" -w /w ge-python-oracle \
-    python3 target/sugiyama-stages-py.py target/scigraphs-conformance > py.json   -> 0
-python3 diff.py py.json target/sugiyama-stages.json
+    python3 target/sugiyama-stages-py.py target/scigraphs-conformance > py-stages.json   -> 0
+python3 diff.py py-stages.json target/sugiyama-stages.json
 ```
 
-`target/sugiyama-stages-py.py` is a throwaway under `target/` (git-ignored), so it is
-reproduced here rather than committed; `diff.py` is six lines of `json.load` and a
-`!=` per stage.
+Both halves of the diff are throwaways under `target/` (git-ignored), so they are reproduced
+here rather than committed: `sugiyama-stages-py.py` is the appendix below, and `diff.py` is
+this. Nothing here restates the reference — the python imports `hierarchical.py` and calls
+its own functions — and the comparator only says which stage and which index moved.
 
 ### First divergent stage, before the fix
 
@@ -168,23 +169,68 @@ comparing inside graph-core.
 `harness/oracle-layouts.mjs --dag`, over `target/dag-crossings.json` from the ignored
 `dump_crossing_measurements`:
 
+Six fixtures before this round, seven after (`fixtures/dag/parallel-arcs.json` added). This
+round's run, verbatim:
+
 ```
-                        before                after
+$ scripts/orch/node-slim.sh node harness/oracle-layouts.mjs --dag
+
+fixture               ours   dagre   margin(2,10%)   verdict
+chain                    0       0              2   ok
+diamond                  0       0              2   ok
+cyclic                   0       0              2   ok
+multi-span               0       0              2   ok
+wide-layer               36      36              4   ok
+disconnected             0       0              2   ok
+parallel-arcs            0       0              2   ok
+
+graphs=237 (fixtures=7) sum(ours)=5242 sum(dagre)=7657 1.10x(dagre)=8422.7 verdict=ok
+
+status: pass
+```
+
+Side by side with the first pass's six-fixture run:
+
+```
+                        before (6 fixtures)         after (7 fixtures)
 chain                     0   0   2   ok       0   0   2   ok
 diamond                   0   0   2   ok       0   0   2   ok
 cyclic                    0   0   2   ok       0   0   2   ok
 multi-span                0   0   2   ok       0   0   2   ok
 wide-layer               36  36   4   ok      36  36   4   ok
 disconnected              0   0   2   ok       0   0   2   ok
-graphs=236 sum(ours)=5242 sum(dagre)=7657 1.10x=8422.7 verdict=ok   (identical)
-status: pass
+parallel-arcs             —   —   —   —        0   0   2   ok   (new)
+graphs=236 sum(ours)=5242 sum(dagre)=7657 1.10x=8422.7 verdict=ok
+graphs=237 sum(ours)=5242 sum(dagre)=7657 1.10x=8422.7 verdict=ok
+status: pass                                                          status: pass
 ```
 
-`sum(ours) = 5242` before and after: **the crossing counts are byte-identical**, because the
-gate's synthetic DAGs are spelled with every edge `i < j` and the six fixtures hold no
-parallel edges, so node-index orientation and the greedy FAS order agree there and the dedup
-removes nothing. What the dagre gate does *not* cover — a graph with backwards edges or
-parallel arcs — is exactly what changed.
+**`sum(ours)` is unchanged at 5242, and that is not evidence — it is a hole in the corpus.**
+Two independent reasons, both structural, so the gate could not have moved however wrong the
+dedup was:
+
+1. **No fixture had a parallel arc.** The six old `fixtures/dag/*.json` hold none (measured:
+   `chain 0, diamond 0, cyclic 0, multi-span 0, wide-layer 0, disconnected 0`), and
+   `synthetic_dag` emits only `i < j` with no duplicates. The dedup removes nothing from any
+   graph the gate draws.
+2. **The synthetic DAGs are already forward, so the cycle breaker agrees with itself.**
+   `i < j` for every edge means the greedy FAS order and the node order pick the same
+   orientation. The one fixture that did exercise the breaker, `cyclic`, is `ok` on both
+   sides with 0 crossings either way.
+
+What the repair actually changed — arc iteration order, dummy numbering, `up`/`down` append
+order — is invisible to every input above. So `fixtures/dag/parallel-arcs.json` now exists:
+`a->b` spelled twice over a four-layer spine with `a->d` and a second `a->c`, registered in
+`harness/oracle-dag.mjs`'s `FIXTURES` and in graph-core's crossing dump. It draws 0
+crossings against dagre's 0, so it asserts coverage rather than a margin — but it is the
+first graph in the corpus on which the dedup has anything to do, and the invariants test
+(`routing/tests.rs`) now checks the drawing on it too.
+
+**`hashgate` cannot answer this either.** It prints one whole-pipeline digest and then
+per-stage *arm-equality* lines (`crates/graph-cli/src/hashgate/compare.rs`), and stores no
+per-stage digest baseline, so "did this stage's bytes move" is not something it measures in
+either direction. The conformance row is the gate that compares against pinned bytes, which
+is why its `sha256` pin is the evidence for this change and the crossing count is not.
 
 ## Re-pinned row
 
@@ -225,20 +271,27 @@ one `f32` ULP at that magnitude.
 - **`ArcOrder::Feedback` is now unreachable from the reference** and from `Acyclic::of`; it
   stays because it is the port of `_greedy_fas_order` and its tie-break is what D4 requires,
   and it is pinned by `the_greedy_feedback_order_is_the_other_branch_and_reverses_more`
-  rather than left as an unused function.
+  rather than left as an unused function. It is now its own module
+  (`acyclic/feedback.rs`). One thing is **not** verbatim under it, and is stated on the
+  variant: `Arcs::grouped()` sorts the arc list by node **index** where `_acyclic_arcs` sorts
+  by **rank** (`hierarchical.py:311`), and the two differ whenever `rank != index`. Under
+  `NodeIndex` — the branch the pipeline takes — they are the same sort.
 - **The graph-core `Topology` has per-edge `directed` and no whole-graph flag**, so
   `ArcOrder` is a choice the pipeline makes rather than one it reads off the input. If the
   pipeline is ever fed a genuine `nx.DiGraph` order, `ArcOrder::Feedback` is there and
   `Acyclic::oriented` is the seam. Same shape of gap as `registry/three_d.rs:218`.
-- **`crates/graph-core/src/registry/grid.rs`'s `SUGIYAMA` metadata now overstates the
-  cycle breaker.** Its `ponytail` field still reads "Ponytail (FAS): greedy, not minimum;
-  extra reversed edges (note 5) are cosmetic" and its `oracle` field says "acyclic after
-  FAS". The pipeline no longer runs the FAS; it orients by node index and still emits note 5
-  for each backwards edge. That file is outside this job's envelope (`layout/sugiyama/**`
-  and the conformance arm only), so it is reported here rather than edited. The two fields
-  that would change are the `ponytail` sentence quoted above and the word "FAS" in
-  `oracle`; nothing else in the entry is affected, and `capabilities --check` /
-  `codegen --check` are unaffected because no `Metadata` field's value moved.
+- **`crates/graph-core/src/registry/grid.rs` was outside this job's envelope** when it was
+  first written, so the first pass deferred it and recorded the deferral here. The review
+  round widened the paths and it is now edited: `oracle` says "acyclic after orienting every
+  non-loop edge forward along the dense node order", `ponytail`'s FAS sentence is replaced by
+  the node-order breaker's (keeping the note-5-is-cosmetic part), and `complexity` now reads
+  "one `O(m log m)` sort of the arc list up front, then `O(n+m)` per phase" — the previous
+  `O(n+m) per phase` became false when the arc list started sorting, and the review found the
+  sort triplicated before it was hoisted into `layered()`.
+- **`crates/graph-cli/src/oracle_python/conformance/motor.rs:242`'s `row_line` is 53 lines**,
+  over the 40-line house limit. Pre-existing, absent from this branch's diff, and **not
+  touched here**: it belongs to the conformance job that owns `motor.rs`, not to this row's
+  repair. Recorded here so it is a name rather than a gap.
 
 ## Commands, with their real exit codes
 
@@ -254,16 +307,55 @@ scripts/orch/gr cargo test --workspace --no-fail-fast                           
 scripts/orch/gr cargo run -q -p graph-cli -- hashgate --seeds 8                   -> 0
 scripts/orch/gr -e GM_MUTATE_REFERENCE_DEGREE=9 ... hashgate --seeds 8            -> 1  (negctl)
 scripts/orch/gr cargo run -q -p graph-cli -- codegen --check                       -> 0
+scripts/orch/gr cargo run -q -p graph-cli -- capabilities --check                   -> 1  (see note)
 scripts/scigraphs-conformance.sh                       (before the re-pin)       -> 1  (SUGIYAMA only)
 scripts/scigraphs-conformance.sh                       (after the re-pin)        -> 0
 scripts/scigraphs-conformance.sh --break                                          -> 1  (SPRING_3D)
 ```
 
-`capabilities --check` exits 1 on this tree for a reason that predates the change and is not
-about it: it wants `hashgate --seeds 1000` and the full oracle-diff records, which is the
-once-on-develop gate `CLAUDE.md:65` describes. `codegen --check`, the other half, is 0.
+`capabilities --check` exits 1 with **36 problems, none of them sugiyama-specific**: it wants
+`hashgate --seeds 1000` and the full oracle-diff / roundtrip records, which is the
+once-on-develop gate `CLAUDE.md:65` describes, and a fresh worktree has none of them. The
+only two lines naming this row are `layout.dag.sugiyama: gated, but hashgate record is from
+another tree: re-run the gate` and `gated, but no roundtrip record: run the gate` — the same
+missing-gate state as every other gated row, and both resolved by the orchestrator's gate run.
+`codegen --check`, the other half, is 0.
 
-## Appendix — the reference-side stage dump
+## Appendix — the reference-side stage dump and the comparator
+
+`diff.py`, which prints the per-stage table above:
+
+```python
+"""Per-stage diff: SciGraphs' own stages against graph-core's, stage by stage."""
+import json, sys
+
+py = json.load(open(sys.argv[1]))                     # keyed by fixture name
+rs = {r["name"]: r for r in json.load(open(sys.argv[2]))}
+for name in [r["name"] for r in json.load(open(sys.argv[2]))]:
+    p, r = py[name], rs[name]
+    print("=== %s (%d nodes, %d arcs)" % (name, p["nodes"], len(p["arcs"])))
+    for label, a, b in [("arcs", p["arcs"], [list(t) for t in r["arcs"]]),
+                        ("reversed", 0, r["reversed"]),
+                        ("layer_of", p["layer_of"], r["layer_of"]),
+                        ("num_dummies", p["num_dummies"], r["num_dummies"]),
+                        ("order", p["order"], r["order"]),
+                        ("crossings", p["crossings"], r["crossings"]),
+                        ("x", p["x"], r["x"])]:
+        if a == b:
+            print("  %-12s same" % label)
+            continue
+        first = "length %d vs %d" % (len(a), len(b))
+        if isinstance(a, list):
+            for i, (u, v) in enumerate(zip(a, b)):
+                if u != v:
+                    first = "index %d: ref %r vs ours %r" % (i, u, v)
+                    break
+        else:
+            first = "ref %r vs ours %r" % (a, b)
+        print("  %-12s DIFFERS at %s" % (label, first))
+```
+
+`sugiyama-stages-py.py`:
 
 ```python
 """SciGraphs' sugiyama pipeline, stage by stage, by calling its own private functions."""

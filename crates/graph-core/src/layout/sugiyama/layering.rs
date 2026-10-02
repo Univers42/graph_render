@@ -10,7 +10,7 @@
 //! correctness rule; over budget the longest arcs draw straight and note
 //! `dag.dummy_budget_exceeded`, never silently — see `docs/decisions/sugiyama-heuristics.md`
 //! for the full write-up.
-use super::acyclic::Arcs;
+use super::acyclic::ArcList;
 use graph_contract::notes::{Note, NoteCode};
 /// The reference's budget (`hierarchical.py:7`); tests pass a smaller one directly, so an overflow does not need a 200k-edge fixture.
 pub(crate) const DUMMY_BUDGET: u32 = 200_000;
@@ -35,21 +35,25 @@ pub(crate) struct Layering {
     pub(crate) notes: Vec<Note>,
 }
 impl Layering {
-    /// Builds the ordering graph over `arcs` at layers `layer`, admitting spans up to `budget` dummies in total, smallest span first.
-    pub(crate) fn build(arcs: &Arcs, layer: &[u32], budget: u32) -> Self {
-        let (max_span, dummy_count) = budget_plan(arcs, layer, budget);
-        materialize(arcs, layer, max_span, dummy_count)
+    /// Builds the ordering graph over `list` at layers `layer`, admitting spans up to
+    /// `budget` dummies in total, smallest span first.
+    pub(crate) fn build(list: &ArcList, layer: &[u32], budget: u32) -> Self {
+        let plan = budget_plan(list, layer, budget);
+        materialize(list, layer, plan)
     }
 }
+
+/// What [`budget_plan`] decided: the admitted span ceiling and the dummies it admits.
+type Plan = (Option<u32>, u32);
 /// Longest-path layers (`hierarchical.py:313-334`) then slack-reduced (`hierarchical.py:336-369`): one layer index per real node. Over the **distinct** arc list, as the reference is: its `arcs` is a `set` of `(u, v)` pairs (`hierarchical.py:306`), so `k` parallel edges between two nodes are one neighbour on each side here too, and a parallel edge does not shift the median [`reduce_slack`] slides toward.
-pub(crate) fn assign_layers(arcs: &Arcs) -> Vec<u32> {
-    let n = arcs.node_count() as usize;
+pub(crate) fn assign_layers(list: &ArcList) -> Vec<u32> {
+    let n = list.nodes as usize;
     let (mut preds, mut succs) = (vec![Vec::new(); n], vec![Vec::new(); n]);
-    for (tail, head, _) in arcs.distinct() {
+    for &(tail, head, _) in &list.arcs {
         succs[tail as usize].push(head);
         preds[head as usize].push(tail);
     }
-    let mut layer = longest_path_layers(arcs.node_count(), &succs, &preds);
+    let mut layer = longest_path_layers(list.nodes, &succs, &preds);
     reduce_slack(&preds, &succs, &mut layer);
     layer
 }
@@ -124,11 +128,11 @@ fn slide(node: u32, preds: &[Vec<u32>], succs: &[Vec<u32>], layer: &mut [u32]) -
     true
 }
 /// The admitted span ceiling and dummies needed (`hierarchical.py:381-389`): `(None, needed)` when every arc fits `budget`; otherwise the largest span still admitted (smallest spans first) paired with the dummy count it actually admits.
-fn budget_plan(arcs: &Arcs, layer: &[u32], budget: u32) -> (Option<u32>, u32) {
-    let spans: Vec<u32> = arcs
-        .distinct()
-        .into_iter()
-        .map(|(tail, head, _)| layer[head as usize] - layer[tail as usize])
+fn budget_plan(list: &ArcList, layer: &[u32], budget: u32) -> Plan {
+    let spans: Vec<u32> = list
+        .arcs
+        .iter()
+        .map(|&(tail, head, _)| layer[head as usize] - layer[tail as usize])
         .collect();
     let needed: u64 = spans.iter().map(|&s| u64::from(s - 1)).sum();
     if needed <= u64::from(budget) {
@@ -211,15 +215,15 @@ impl ChainBuilder {
 /// The ordering graph over the distinct arcs, and a [`Route`] per **edge**: every edge in an
 /// arc's range takes that arc's route, so `k` parallel edges share the one dummy chain the
 /// reference's arc set gives them, and a self-loop is `Route::Loop`.
-fn materialize(arcs: &Arcs, layer: &[u32], max_span: Option<u32>, dummy_count: u32) -> Layering {
-    let mut builder = ChainBuilder::new(arcs.node_count(), layer, max_span, dummy_count);
-    let mut next_dummy = arcs.node_count();
-    let mut routes: Vec<Option<Route>> = vec![None; arcs.edge_count() as usize];
+fn materialize(list: &ArcList, layer: &[u32], (max_span, dummy_count): Plan) -> Layering {
+    let mut builder = ChainBuilder::new(list.nodes, layer, max_span, dummy_count);
+    let mut next_dummy = list.nodes;
+    let mut routes: Vec<Option<Route>> = vec![None; list.edges as usize];
     let mut notes = Vec::new();
-    for (tail, head, edges) in arcs.grouped() {
+    for &(tail, head, ref edges) in &list.arcs {
         let route = builder.place((tail, head, edges.start), &mut next_dummy);
         notes.extend(route.1);
-        for e in edges {
+        for e in edges.clone() {
             routes[e as usize] = Some(route.0);
         }
     }

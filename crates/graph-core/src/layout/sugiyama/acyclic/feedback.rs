@@ -149,6 +149,13 @@ fn greedy_fas_order(succ: &[Vec<u32>], pred: &[Vec<u32>]) -> Vec<u32> {
                 break;
             }
         }
+        // Every live vertex holds a current-key entry: `Peeling::new` seeds one per vertex
+        // and `peel` re-pushes every neighbour whose degrees move, so a drained heap with
+        // `remaining > 0` would mean that invariant is broken, not that there is more work.
+        // Spinning on it would hang the layout instead of naming the fault.
+        if remaining > 0 {
+            unreachable!("every live vertex has a current-key entry, so the heap cannot drain");
+        }
     }
     right.reverse();
     left.extend(right);

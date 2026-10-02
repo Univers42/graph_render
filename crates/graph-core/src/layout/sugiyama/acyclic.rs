@@ -84,6 +84,34 @@ impl Acyclic {
     }
 }
 
+/// One arc: `(tail, head)` and the half-open range of edge indices that spell it.
+pub(crate) type Arc = (u32, u32, Range<u32>);
+
+/// The arcs of one graph's ordering graph, plus the counts the layering stage needs beside
+/// them. Built once by [`Arcs::grouped`] and threaded through the whole layering phase, so
+/// the sort it costs is paid once.
+pub(crate) struct ArcList {
+    /// One entry per distinct non-loop pair, ascending by `(tail, head)`.
+    pub(crate) arcs: Vec<Arc>,
+    /// Nodes in the graph the arcs came from.
+    pub(crate) nodes: u32,
+    /// Edges in that graph, including the self-loops and the parallel repeats the arcs
+    /// coalesce: [`Route`](super::layering::Route) is indexed by edge, not by arc.
+    pub(crate) edges: u32,
+}
+
+impl ArcList {
+    /// The `(tail, head)` of every arc, without the edge ranges: the shape the stage dump
+    /// records, since the reference's `_acyclic_arcs` returns pairs.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn pairs(&self) -> Vec<(u32, u32)> {
+        self.arcs
+            .iter()
+            .map(|&(tail, head, _)| (tail, head))
+            .collect()
+    }
+}
+
 /// `topology` and the [`Acyclic`] orientation it was built from, bundled so downstream
 /// stages take one context parameter instead of the pair everywhere.
 pub(crate) struct Arcs<'a> {
@@ -97,8 +125,9 @@ impl<'a> Arcs<'a> {
         Self { topology, acyclic }
     }
 
-    /// The reference's own arcs, grouped: one entry per distinct non-loop `(tail, head)` pair,
-    /// ascending, each with the half-open range of edge indices that spell it
+    /// The reference's own arcs, grouped, with the node and edge counts the layering stage
+    /// needs beside them: one entry per distinct non-loop `(tail, head)` pair, ascending,
+    /// each with the half-open range of edge indices that spell it
     /// (`hierarchical.py:306-311`). One entry per pair because `arcs` there is a `set`, so
     /// `k` parallel edges between two nodes are one arc and route through one dummy chain,
     /// not `k`.
@@ -109,10 +138,17 @@ impl<'a> Arcs<'a> {
     /// this grouping gives them. What the ordering graph is built over is these arcs, which
     /// is what the reference builds it over.
     ///
-    /// **One sort, one pass.** The list is every non-loop edge as `(tail, head, edge)`,
-    /// sorted; equal pairs are then adjacent, so a run of them is one arc. That keeps the
-    /// whole thing at one `O(m log m)` sort plus a linear walk rather than a lookup per arc.
-    pub(crate) fn grouped(&self) -> Vec<(u32, u32, Range<u32>)> {
+    /// **One sort, and it is the pipeline's only one.** Every non-loop edge becomes a
+    /// `(tail, head, edge)` triple, sorted once; equal pairs are then adjacent, so a run of
+    /// them is one arc. `layered()` builds the list once and threads it down, so the whole
+    /// layering phase costs one `O(m log m)` sort rather than one per callee.
+    ///
+    /// **The arcs are ordered by node index, not by rank** — `_acyclic_arcs` sorts by
+    /// `(rank[a[0]], rank[a[1]])` (`:311`). The two agree exactly when `rank == index`, which
+    /// is what `ArcOrder::NodeIndex` gives and what the fixture contract makes the reference's
+    /// own case; under `ArcOrder::Feedback` this is the one place the port is not verbatim,
+    /// and it is confined to that branch, which `Acyclic::of` does not take.
+    pub(crate) fn grouped(&self) -> ArcList {
         let mut pairs: Vec<(u32, u32, u32)> = (0..self.edge_count())
             .filter(|&e| !self.is_loop(e))
             .map(|e| {
@@ -124,23 +160,18 @@ impl<'a> Arcs<'a> {
         // first of them leads it — and the list comes out ascending by `(tail, head)`, as
         // `sorted(arcs, key=...)` does on the reference side.
         pairs.sort_unstable();
-        let mut arcs: Vec<(u32, u32, Range<u32>)> = Vec::new();
+        let mut arcs: Vec<Arc> = Vec::new();
         for &(tail, head, edge) in &pairs {
             match arcs.last_mut() {
                 Some((t, h, range)) if *t == tail && *h == head => range.end = edge + 1,
                 _ => arcs.push((tail, head, edge..edge + 1)),
             }
         }
-        arcs
-    }
-
-    /// [`Self::grouped`] without the edge ranges: one `(tail, head, first edge)` per distinct
-    /// pair. What the layering stage iterates.
-    pub(crate) fn distinct(&self) -> Vec<(u32, u32, u32)> {
-        self.grouped()
-            .into_iter()
-            .map(|(tail, head, edges)| (tail, head, edges.start))
-            .collect()
+        ArcList {
+            arcs,
+            nodes: self.node_count(),
+            edges: self.edge_count(),
+        }
     }
 
     /// Nodes in `topology`.
@@ -183,6 +214,12 @@ pub(crate) enum ArcOrder {
     /// [`feedback`] implements. Constructed only by
     /// `the_greedy_feedback_order_is_the_other_branch_and_reverses_more`, which is what keeps
     /// the port and its tie-break honest rather than deleted.
+    ///
+    /// **One thing is not verbatim under this order:** [`Arcs::grouped`] sorts the arc list
+    /// by node index, where `_acyclic_arcs` sorts it by rank, and the two differ whenever
+    /// rank != index. That changes which arc each pair's dummy chain belongs to, not how many
+    /// there are, and it is confined to this branch — `Acyclic::of` takes `NodeIndex`, where
+    /// the sort is exactly the reference's.
     #[cfg_attr(not(test), allow(dead_code))]
     Feedback,
     /// `list(G.nodes())`: dense index. Acyclic by construction, so nothing is ever

@@ -70,12 +70,18 @@ impl Frame {
 
 /// The same pipeline as [`run`](super::run), with the reference's axes: X centred on
 /// `[-scale, scale]` over the whole ordering graph, Y over the layer range, `z = 0`.
-/// Fails only on a `scale` that is not finite and above 0.
+///
+/// **`scale` is finite and at or above 0, so `0.0` is a drawing.** `_sugiyama_layout(G, 0)`
+/// (`hierarchical.py:684-685`) multiplies both columns by `scale` and so returns all zeros,
+/// which this reproduces rather than refusing. `negative` and non-finite are refused: the
+/// reference has no guard and would happily emit a drawing mirrored about the origin, but
+/// `run` refuses a non-positive `layer_spacing` for the same reason and two entry points over
+/// one pipeline should agree on what a length parameter may be.
 pub fn run_scaled(topology: &Topology, scale: f32) -> Result<Geometry, StageError> {
-    if !(scale.is_finite() && scale > 0.0) {
+    if !(scale.is_finite() && scale >= 0.0) {
         return Err(StageError::Param {
             name: "scale",
-            rule: "finite and above 0",
+            rule: "finite and not negative",
         });
     }
     let (acyclic, layering, ordering) = layered(topology);

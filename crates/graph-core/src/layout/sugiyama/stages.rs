@@ -43,18 +43,14 @@ pub(crate) struct Stages {
 /// about.
 pub(crate) fn stages(topology: &Topology) -> Stages {
     let acyclic = Acyclic::of(topology);
-    let arcs = Arcs::new(topology, &acyclic);
-    let layer = assign_layers(&arcs);
-    let layering = Layering::build(&arcs, &layer, DUMMY_BUDGET);
+    let list = Arcs::new(topology, &acyclic).grouped();
+    let layer = assign_layers(&list);
+    let layering = Layering::build(&list, &layer, DUMMY_BUDGET);
     let num_layers = layering.layer_of.iter().copied().max().map_or(0, |m| m + 1);
     let ordering = Ordering::build(&layering, num_layers);
     let coords = Coords::build(&ordering, &layering, topology.node_count());
     Stages {
-        arcs: arcs
-            .distinct()
-            .into_iter()
-            .map(|(tail, head, _)| (tail, head))
-            .collect(),
+        arcs: list.pairs(),
         reversed: acyclic.reversed.iter().filter(|r| **r).count() as u32,
         num_dummies: (layering.layer_of.len() - topology.node_count() as usize) as u32,
         layer_of: layering.layer_of,

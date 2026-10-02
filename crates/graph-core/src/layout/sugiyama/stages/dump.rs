@@ -64,13 +64,25 @@ fn load(text: &str) -> Topology {
     if !numbered {
         ids.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
     }
+    // A `name -> dense index` table built once, so the endpoint lookup below is a binary
+    // search rather than a scan of `ids` per endpoint (D4: no `HashMap`, ascending key).
+    let mut seat: Vec<(&str, usize)> = ids
+        .iter()
+        .enumerate()
+        .map(|(index, id)| (id.as_str(), index))
+        .collect();
+    seat.sort_unstable_by_key(|(name, _)| name.as_bytes());
+    let at = |name: &str| {
+        seat.binary_search_by_key(&name.as_bytes(), |(key, _)| key.as_bytes())
+            .map(|hit| seat[hit].1)
+            .expect("an edge names a node the file lists")
+    };
     let nodes: Vec<_> = ids.iter().map(|id| node(id, "")).collect();
     let edges: Vec<_> = array(&root, "edges")
         .iter()
         .enumerate()
         .map(|(index, entry)| {
             let (source, target) = ends(entry, &named);
-            let at = |name: &String| ids.iter().position(|id| id == name).expect("a named end");
             edge(&format!("e{index}"), &ids[at(&source)], &ids[at(&target)])
         })
         .collect();

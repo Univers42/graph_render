@@ -6,7 +6,7 @@ use super::run_scaled;
 use crate::index::Topology;
 use crate::index::index_model;
 use crate::records::build::{edge, node};
-use graph_contract::geometry::NodeGeometry;
+use graph_contract::geometry::{EdgeGeometry, NodeGeometry};
 
 /// `layout.dag.sugiyama` at the dispatcher's `scale` (`apply_graph_layout`, `scale=5.0`).
 const SCALE: f32 = 5.0;
@@ -70,9 +70,53 @@ fn an_edge_written_backwards_is_oriented_by_node_order_as_the_reference_orients_
 }
 
 #[test]
-fn a_scale_that_is_not_finite_and_above_zero_is_refused() {
+fn a_zero_scale_is_the_reference_s_all_zero_drawing_not_a_refusal() {
+    // `_sugiyama_layout(G, 0)` multiplies both columns by `scale`, so the whole drawing
+    // collapses to zero (read off the reference in `ge-python-oracle` on `0->1, 1->2, 0->2`:
+    // `[[0.0, -0.0, 0.0], [-0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]`, i.e. every x and y is `0.0`
+    // up to the sign of the zero). The same graph at `scale = 5.0` is `[[5.0, -5.0],
+    // [-5.0, 0.0], [5.0, 5.0]]` — three distinct coordinates, so this pins the multiply and
+    // not a divide-by-zero.
+    let t = topology(
+        &["a", "b", "c"],
+        &[("ab", "a", "b"), ("bc", "b", "c"), ("ac", "a", "c")],
+    );
+    let zeroed = run_scaled(&t, 0.0).expect("the reference accepts 0.0");
+    let NodeGeometry::Point { x, y } = zeroed.nodes else {
+        panic!("run_scaled draws points")
+    };
+    assert!(x.iter().chain(&y).all(|v| *v == 0.0), "{x:?} {y:?}");
+    // And the same graph at the dispatcher's scale is not zero, so the test above is not
+    // passing because the pipeline drew nothing.
+    let NodeGeometry::Point { x: wide, .. } = run_scaled(&t, SCALE).expect("5.0").nodes else {
+        panic!("run_scaled draws points")
+    };
+    assert_eq!(wide, [5.0, -5.0, 5.0]);
+}
+
+#[test]
+fn a_negative_or_non_finite_scale_is_refused() {
     let t = topology(&["a", "b"], &[("ab", "a", "b")]);
-    for scale in [0.0, -1.0, f32::NAN, f32::INFINITY] {
+    for scale in [-1.0, -5.0, f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
         assert!(run_scaled(&t, scale).is_err(), "scale {scale}");
     }
+}
+
+#[test]
+fn an_empty_topology_draws_nothing_rather_than_dividing_by_an_empty_range() {
+    // `_sugiyama_layout` returns `np.zeros((0, 3))` for a graph with no nodes
+    // (`hierarchical.py:654-655`), which is zero rows — not a row per nothing, and not a
+    // fault from `min()`/`max()` over an empty `x`. The `Frame` has to survive the empty
+    // vector: `lo`/`hi` fall back to `0.0` and `width` to `1.0`.
+    let t = index_model(&[], &[]).expect("the empty graph fits");
+    let geometry = run_scaled(&t, SCALE).expect("the empty graph draws");
+    let NodeGeometry::Point { x, y } = geometry.nodes else {
+        panic!("run_scaled draws points")
+    };
+    assert!(x.is_empty() && y.is_empty(), "{x:?} {y:?}");
+    let EdgeGeometry::Polyline(paths) = geometry.edges else {
+        panic!("run_scaled draws polylines")
+    };
+    assert_eq!(paths.offsets, [0], "no edge, so no interior point");
+    assert!(paths.pts.is_empty());
 }

@@ -73,11 +73,28 @@ its own entry. That was not cosmetic. A parallel edge doubled a neighbour's degr
 the median `_reduce_slack` slides toward, added a second entry to `up`/`down` — so it moved
 the layer index, the per-layer order and X — and built a second dummy chain.
 
-`Arcs::distinct()` (`acyclic.rs`) is the reference's own list now: every distinct non-loop
-`(tail, head)` pair, once, ascending. `layering::assign_layers`, `layering::budget_plan` and
-`layering::materialize` are built over it. `Route` stays **per edge**, so every parallel
-edge is still drawn — through the one chain they now share, which is what drawing `k`
-parallel edges through one arc means.
+`Arcs::grouped()` (`acyclic.rs`) is the reference's own list now: every distinct non-loop
+`(tail, head)` pair, once, ascending, built **once** in `layered()` and threaded down through
+`layering::assign_layers`, `layering::budget_plan` and `layering::materialize`.
+`Route` stays **per edge**, so every parallel edge is still drawn — through the one chain they
+now share, which is what drawing `k` parallel edges through one arc means.
+
+**This moved `layout.dag.sugiyama`'s own output, and not only on multigraphs.**
+`materialize` now walks the arcs in ascending `(tail, head)` rather than in edge-index order,
+and that iteration order is what allocates dummy ids and appends to `up`/`down`. `init_order`
+walks `down[v]` then `up[v]` in list order (`ordering.rs`), so a different append order is a
+different seed order, and with it a different drawing — on any graph with a multi-span edge
+whose edge list is not already `(tail, head)`-sorted. Two things followed:
+
+- the dagre crossing corpus **could not see this**: no `fixtures/dag/*.json` fixture and no
+  synthetic DAG the dump emits has a parallel arc (`synthetic_dag` emits only `i < j`, with
+  no duplicates), so its `sum(ours)` was unchanged across the repair. That is structural
+  blindness, not evidence, and it is why `fixtures/dag/parallel-arcs.json` now exists and is
+  registered in the `--dag` fixture list;
+- `hashgate` reports **arm equality** only
+  (`crates/graph-cli/src/hashgate/compare.rs`), with no per-stage digest baseline, so it
+  cannot answer "did the stage hashes move" in either direction. The conformance row is what
+  does compare against pinned bytes.
 
 The measurement is in `docs/measurements/sg-sugiyama.md`: the per-stage diff against
 `hierarchical.py`'s own functions found this as the second of two causes in stage one, on
@@ -239,12 +256,19 @@ variant keeps a short doc.
 
 ## Fixtures
 
-`fixtures/dag/{chain,diamond,cyclic,multi-span,wide-layer,disconnected}.json` — a linear
-chain (no dummies), a diamond, a 3-cycle exercising FAS reversal, two multi-span edges
-exercising dummy chains, a complete bipartite K4,4 exercising real crossing reduction
-(the forced-36-crossings case above), and two disconnected components (a chain and a
-diamond) exercising the no-virtual-root reasoning above. Each file's own `"about"` field
-states what it is for.
+`fixtures/dag/{chain,diamond,cyclic,multi-span,wide-layer,disconnected,parallel-arcs}.json`
+— a linear chain (no dummies), a diamond, a 3-cycle exercising the node-order breaker's
+reversal, two multi-span edges exercising dummy chains, a complete bipartite K4,4 exercising
+real crossing reduction (the forced-36-crossings case above), two disconnected components (a
+chain and a diamond) exercising the no-virtual-root reasoning above, and a graph with
+**parallel arcs** (`a->b` twice, over a four-layer spine with `a->d` and a second `a->c`) —
+the only fixture that can see the arc dedup at all. Each file's own `"about"` field states
+what it is for.
+
+`parallel-arcs` was added by `sg-sugiyama` (2026-10-02) for the reason the decision above
+gives: the other six held no parallel arc, so the `--dag` corpus could not have detected that
+change however wrong it was. Its own crossing count is 0 against dagre's 0 — it is there for
+the coverage, not for the margin.
 
 ## Result
 

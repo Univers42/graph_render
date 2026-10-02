@@ -1,6 +1,6 @@
 use super::*;
 use crate::index::index_model;
-use crate::layout::sugiyama::acyclic::Acyclic;
+use crate::layout::sugiyama::acyclic::{Acyclic, Arcs};
 use crate::records::build::{edge, node};
 /// `(layering, layer_of)` for `nodes`/`edges` at `budget`.
 fn built(nodes: &[&str], edges: &[(&str, &str, &str)], budget: u32) -> (Layering, Vec<u32>) {
@@ -8,9 +8,9 @@ fn built(nodes: &[&str], edges: &[(&str, &str, &str)], budget: u32) -> (Layering
     let e: Vec<_> = edges.iter().map(|&(id, s, t)| edge(id, s, t)).collect();
     let t = index_model(&n, &e).expect("fits");
     let acyclic = Acyclic::of(&t);
-    let arcs = Arcs::new(&t, &acyclic);
-    let layer = assign_layers(&arcs);
-    (Layering::build(&arcs, &layer, budget), layer)
+    let list = Arcs::new(&t, &acyclic).grouped();
+    let layer = assign_layers(&list);
+    (Layering::build(&list, &layer, budget), layer)
 }
 #[test]
 fn a_chain_has_no_dummies_and_a_reversed_cycle_still_spans_forward() {
