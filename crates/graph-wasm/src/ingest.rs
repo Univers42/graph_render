@@ -42,18 +42,18 @@ pub const VERSION: u32 = 1;
 /// Measured, not chosen (`docs/decisions/wasm-ingest-limits.md`, `docs/measurements/fix-wasm-ingest.md`):
 /// the studio's own generator at its 1M-node scale target, doubling up, on the
 /// `wasm32-unknown-unknown` release artifact under Node. This is the largest document that
-/// built — 774,568,785 bytes — byte for byte, with no rounding: it refuses nothing that built
-/// and accepts nothing unmeasured, which is the only property a ceiling here has to keep. The
-/// next document up, 799,922,860 bytes, trapped inside `graph_core::index_model`'s string
-/// arena, and so did 842,132,644 bytes at the studio's own `MAX_NODES`, so nothing between this
-/// and the first measured trap has been shown to build.
+/// built — 774,568,785 bytes, 3,679,984 edges — byte for byte, with no rounding: it refuses
+/// nothing that built and accepts nothing unmeasured, which is the only property a ceiling
+/// here has to keep. The next document up, 799,922,860 bytes and 3,799,984 edges, trapped
+/// inside `graph_core::index_model`'s string arena, as did 842,132,644 bytes at the studio's
+/// own `MAX_NODES`.
 ///
 /// Ponytail: no margin, deliberately — it *is* the measurement, so the 25,354,075 bytes between
-/// it and the first document that trapped are untested air, not headroom, and a document under
-/// it can still trap on work exactly as documents under it do today: the studio's 1M-node
-/// degree-3 model is 96,551,972 bytes under this and builds, while its degree-4 model is
-/// 67,563,859 bytes over this and traps in `index_model`. Failing input: a document below the
-/// ceiling whose edge count is high enough for the arena to run out — bytes are not work.
+/// it and the first document that trapped are untested air, not headroom, and no part of it
+/// bounds the work a document implies. The only trap the sweep found sits 30,000 nodes and
+/// 120,000 edges above this document at the same degree, so build-versus-trap is a work
+/// boundary and a length check cannot see work at all. Failing input: a document under this
+/// ceiling whose arena use outruns its bytes, so it traps where this promised nothing.
 /// Direction: refuses early on size, never on shape, and bounds nothing else. Escape hatch:
 /// `fix-ingest-scale` fixes the arena, raises this with a new measurement, and restores the
 /// decision record's power-of-two step down with it.

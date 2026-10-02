@@ -36,12 +36,12 @@ not chosen:
    refusal is strictly better than a trap.
 5. If the 1M-node document itself traps, that is a scale defect, not a ceiling: stop and report.
    **This fired.** Reported in `docs/measurements/fix-wasm-ingest.md`; the ceiling still landed
-   because steps 3 and 4 give a number that refuses nothing the studio builds today.
+   because steps 3 and 4 give a number that refuses nothing the sweep saw build.
 
 The constant carries a `Ponytail:` line saying the same thing from the code's side: it has no
-margin by construction, it bounds bytes and not the work they imply, and a document under it
-with an unusually high edge-to-node ratio can still exhaust memory — as documents under it do
-today.
+margin by construction, it bounds bytes and not the work they imply, and the gap between it and
+the first document that trapped is untested air — nothing under the ceiling has been shown to
+trap, and nothing above it has been shown to build.
 
 ## F-01: `child_first` stays optional in version 1
 
