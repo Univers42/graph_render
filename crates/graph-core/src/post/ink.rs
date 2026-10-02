@@ -9,6 +9,17 @@
 //! so the same cells are marked once. [`Ink::cells`] is that count and [`Ink::length`] is
 //! reported beside it, never instead of it.
 //!
+//! **The walk is clipped to the box, and used to be marked outside it.** A segment was
+//! walked in half-cell steps along its whole length, and every step outside the box landed
+//! in a border cell through the clamp in [`cell`], so a stroke leaving the drawing marked
+//! cells it never crossed and cost half a cell of walk per unit it travelled — an edge point
+//! at `1e7` on a box of 1 is 2.56e9 steps. [`Raster::mark`] now walks the part inside the
+//! box ([`clip`]) and marks nothing outside it, which is the honest count: an ink saving is
+//! a claim about the drawing, and a point at 1e7 is not in it. A cell *inside* the box is
+//! marked exactly as before, so no figure in `docs/measurements/phase08-ink.md` moves, and
+//! `Ink::length` is unaffected — it is still every segment's whole length, so the two
+//! numbers keep describing the same stroke.
+//!
 //! **Ponytail (raster).** [`INK_RESOLUTION`] is a stated resolution, not a truth. A coarse
 //! raster calls two strokes a hair apart one cell and reports no saving where a fine one
 //! sees a real one; a fine one splits one stroke across cells and reports a saving on a
@@ -20,6 +31,8 @@
 use crate::index::Topology;
 use crate::layout::Geometry;
 use graph_contract::geometry::NodeGeometry;
+
+mod clip;
 
 #[cfg(test)]
 mod tests;
@@ -107,15 +120,41 @@ impl Raster {
 
     /// Marks every cell the segment `a`–`b` crosses, walked in half-cell steps so none is
     /// stepped over, and returns the segment's length.
+    ///
+    /// The walk covers the part of the segment inside the box only. `steps` is
+    /// `max(|dx|, |dy|)` at half a cell, so an endpoint at 1e7 against a box of 1 was
+    /// 2.56e9 iterations of a loop whose every mark fell in the same clamped border cell.
+    /// The length is the whole segment's, clipped or not: the cell count is the number that
+    /// falls inside the box, the length is the stroke.
     fn mark(&mut self, ax: f32, ay: f32, bx: f32, by: f32) -> f64 {
         let length = f64::from(libm::hypotf(bx - ax, by - ay));
-        let steps = self.steps(bx - ax, by - ay);
+        let Some(ts) = clip::clip((ax, ay), (bx, by), self.lo, self.hi()) else {
+            return length;
+        };
+        let ((x0, y0), (x1, y1)) = clip::ends((ax, ay), (bx, by), ts);
+        let steps = self.steps(x1 - x0, y1 - y0);
         for s in 0..=steps {
             let t = s as f32 / steps as f32;
-            let (x, y) = (ax + (bx - ax) * t, ay + (by - ay) * t);
-            self.mark_point(x, y);
+            self.mark_point(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t);
         }
         length
+    }
+
+    /// The box's far corner: `lo` plus the whole drawing on each axis. A degenerate axis
+    /// (scale `1`) reaches `INK_RESOLUTION` past its `lo`, which is as far as its cells
+    /// index, so no walk spends itself past the last one.
+    ///
+    /// Ponytail (far corner): `INK_RESOLUTION / scale` is a division of the scale, not the
+    /// subtraction `high - low` it stands for, so on an axis whose scale was rounded the
+    /// corner sits a few ulps off the drawing's edge. Failing input: an axis where the node
+    /// spread is not exactly representable. Direction: one segment-endpoint's cell at most,
+    /// and the endpoint is the drawing's own extreme, so it lands in the last cell either
+    /// way. Escape hatch: build the corner from the span.
+    fn hi(&self) -> (f32, f32) {
+        (
+            self.lo.0 + INK_RESOLUTION as f32 / self.scale.0,
+            self.lo.1 + INK_RESOLUTION as f32 / self.scale.1,
+        )
     }
 
     /// Half-cell steps a segment of extent `(dx, dy)` is walked in, at least one.
