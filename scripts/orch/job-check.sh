@@ -8,7 +8,7 @@
 #   job-check.sh commit               commit + push, only on a PASS gate over the same tree, no ERROR
 # Exit: 0 PASS/clean/committed · 1 FAIL/STALE/DIED/ERROR · 2 usage or state error · 3 still running.
 # <base> defaults to the merge-base with origin/develop. State lives in target/job-check/.
-# Freshness is exact: a hash of HEAD, the diff against it and every untracked file.
+# Freshness is exact: the tree object of every tracked and untracked file, whatever HEAD is.
 # Ponytail: the lint is regex over added lines. It misses what hides behind a macro, an alias or a
 # re-export, and flags matches in comments, strings and test oracles; a finding is evidence for the
 # reviewer, not a verdict. House limits it cannot see (40-line functions, missing Ponytail markers)
@@ -26,9 +26,18 @@ is_running() { [[ -f $st/pid && ! -f $st/exit ]] && kill -0 "$(cat "$st/pid")" 2
 
 untracked() { git ls-files -o --exclude-standard "$@" -- . ":(exclude)$st"; }
 
+# tree_sum — the tree object of the working files (tracked and untracked, minus ignored and $st), built
+# in a scratch index. It ignores HEAD, so the half-hourly WIP commit (push-once.sh) cannot void a gate
+# that is still running over the same files.
 tree_sum() {
-  { git rev-parse HEAD; git diff HEAD --binary; untracked -z | xargs -0r sha256sum; } |
-    sha256sum | cut -c1-16
+  local idx rc
+  idx="$(git rev-parse --git-path index).sum$$"
+  GIT_INDEX_FILE=$idx git read-tree HEAD && GIT_INDEX_FILE=$idx git add -A -- . &&
+    GIT_INDEX_FILE=$idx git rm -rq --cached --ignore-unmatch -- "$st" &&
+    GIT_INDEX_FILE=$idx git write-tree | cut -c1-16
+  rc=${PIPESTATUS[0]}
+  rm -f "$idx"
+  return "$rc"
 }
 
 cmd_start() {

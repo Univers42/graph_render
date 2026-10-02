@@ -13,7 +13,10 @@ import { createElement } from "react";
 import { type Root, createRoot } from "react-dom/client";
 
 import { createLiveDrag } from "./motor/liveDrag.ts";
-import { type View, createView } from "../../graph-render/src/view.ts";
+import { type BackendChoice, type View, createView } from "../../graph-render/src/view.ts";
+
+/** The host reads `?backend=` with this, so it never imports the renderer itself. */
+export { backendOf } from "../../graph-render/src/view.ts";
 import type { Save } from "./actions/context.ts";
 import { type LiveBridge, createLiveBridge, settlesLive } from "./motor/bridge.ts";
 import { NOT_ASKED } from "./motor/bridge.ts";
@@ -31,6 +34,8 @@ export interface StudioElementOptions {
   readonly spawn?: Spawn;
   /** What an export does with its file; a download when left out. */
   readonly save?: Save;
+  /** Who draws the graph's edges and nodes (graph-render `ViewOptions.backend`); `auto` when left out. */
+  readonly backend?: BackendChoice;
 }
 
 export interface GraphStudioElement extends HTMLElement {
@@ -125,7 +130,7 @@ interface Shown {
   note(reason: string): void;
 }
 
-function livePair(canvas: HTMLCanvasElement, client: MotorClient, shown: Shown): {
+function livePair(canvas: HTMLCanvasElement, client: MotorClient, shown: Shown, backend: BackendChoice): {
   readonly view: View;
   readonly bridge: LiveBridge;
 } {
@@ -138,6 +143,7 @@ function livePair(canvas: HTMLCanvasElement, client: MotorClient, shown: Shown):
     return reason === undefined ? NOT_ASKED : reason;
   };
   const view = createView(canvas, {
+    backend,
     live: createLiveDrag({
       ids: () => shown.studio?.store.get().meta?.ids ?? null,
       disabled: why,
@@ -189,7 +195,7 @@ function mount(host: HTMLElement, options: StudioElementOptions): Mounted {
   const client = createClient(options.spawn ?? spawnWorker, assetsOf(host));
   // The view is made before the studio, and the ids live in the studio's state: read late.
   const shown: Shown = { studio: null, note: (reason) => shown.studio?.note(reason) };
-  const { view, bridge } = livePair(canvas, client, shown);
+  const { view, bridge } = livePair(canvas, client, shown, options.backend ?? "auto");
   const storage = pageStorage();
   const studio = createStudio({
     client,

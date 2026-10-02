@@ -1,9 +1,8 @@
 /** The menu a secondary click on a node opens: focus, pin, hide, copy the id. */
-import { useEffect, useRef, type KeyboardEvent, type ReactElement } from "react";
+import { memo, useEffect, useRef, type KeyboardEvent, type ReactElement } from "react";
 
 import type { Point } from "../../../graph-render/src/camera.ts";
 import type { View } from "../../../graph-render/src/view.ts";
-import type { StudioState } from "../state/model.ts";
 import type { Studio } from "../studio/studio.ts";
 import { type MenuItem, entriesFor, nextEntry } from "./nodeMenu.ts";
 
@@ -16,18 +15,19 @@ export type MenuView = Pick<View, "focus" | "hide" | "togglePin" | "pinned">;
 
 export interface NodeMenuProps {
   readonly studio: Studio;
-  readonly state: StudioState;
+  /** The ids of the graph as drawn, which is the one thing the menu copies out of the state. */
+  readonly ids: readonly string[] | null;
   readonly view: MenuView;
   readonly menu: MenuAt | null;
   readonly onClose: () => void;
 }
 
 function perform(item: MenuItem, props: NodeMenuProps, node: number): void {
-  const { studio, state, view } = props;
+  const { studio, ids, view } = props;
   if (item === "focus") view.focus(node);
   else if (item === "pin") view.togglePin(node);
   else if (item === "hide") view.hide([node]);
-  else studio.copy(state.meta?.ids[node] ?? "");
+  else studio.copy(ids?.[node] ?? "");
 }
 
 function moveFocus(list: HTMLElement | null, event: KeyboardEvent): void {
@@ -39,7 +39,8 @@ function moveFocus(list: HTMLElement | null, event: KeyboardEvent): void {
   buttons[to]?.focus();
 }
 
-export function NodeMenu(props: NodeMenuProps): ReactElement | null {
+/** Memoised: a menu that is closed draws nothing, and an open one reads four things. */
+export const NodeMenu = memo(function NodeMenu(props: NodeMenuProps): ReactElement | null {
   const { menu, onClose, view } = props;
   const list = useRef<HTMLDivElement | null>(null);
   const opened = menu !== null;
@@ -74,4 +75,4 @@ export function NodeMenu(props: NodeMenuProps): ReactElement | null {
       </div>
     </div>
   );
-}
+});

@@ -4,8 +4,11 @@
  *   const view = createView(canvas);
  *   view.setFrame(frameFrom(decodeSnapshot(bytes)));
  *
+ * A scene above BULK_THRESHOLD nodes draws through a WebGL2 layer (`webgl2/`) when the browser
+ * has one, and through Canvas2D otherwise or once the GL context is lost.
+ *
  * It does not: run a layout, fetch, read CSS, or keep a frame loop alive while parked.
- * Not done yet: a WebGL2 backend, pinch with two pointers, keyboard navigation of nodes.
+ * Not done yet: WebGPU, pinch with two pointers, keyboard navigation of nodes.
  */
 import { type Camera, type Point, type Viewport, type ZoomLimits, panBy, zoomAt } from "./camera.ts";
 import { cameraApi, inSpace, orbitBy, sceneApi, zoomAt3d } from "./camera-api.ts";
@@ -25,19 +28,31 @@ import type { Theme } from "./theme.ts";
 import type { Orbit } from "./three/orbit.ts";
 import type { Projected } from "./three/projection.ts";
 
+import type { BackendChoice } from "./webgl2/plan.ts";
 export type { EdgeEnds } from "./canvas2d/probe.ts";
 export type { Orbit } from "./three/orbit.ts";
 export type { Projected } from "./three/projection.ts";
 export type { CameraApi, SceneApi } from "./camera-api.ts";
+export type { BackendChoice } from "./webgl2/plan.ts";
+export { BACKEND_CHOICES, backendOf } from "./webgl2/plan.ts";
 export interface ViewOptions {
   readonly theme?: Theme;
   readonly labels?: LabelPolicy;
   /** A live force session: a drag pins the node in it while it is enabled. */
   readonly live?: LiveDrag;
+  /**
+   * Who draws a 2D scene's edges and nodes: `auto` (the default) hands a large one to a
+   * WebGL2 layer when the browser has it, `canvas2d` never does, `webgl2` always does.
+   * Labels, rings and the lit neighbourhood stay on the 2D context either way.
+   */
+  readonly backend?: BackendChoice;
 }
 
 export interface ViewStats {
-  readonly backend: "canvas2d";
+  /** Who drew the last frame's edges and nodes. */
+  readonly backend: "canvas2d" | "webgl2";
+  /** Why the WebGL2 layer could not be used, or "". */
+  readonly backendFailure: string;
   readonly nodes: number;
   readonly edges: number;
   readonly drawnNodes: number;
@@ -231,7 +246,7 @@ export function createView(canvas: HTMLCanvasElement, options: ViewOptions = {})
     for (const handler of handlers[name]) handler(payload);
   };
   const state = newState(canvas, {
-    theme: options.theme, policy: options.labels, onFrame: () => emit("frame", statsOf(state)),
+    theme: options.theme, policy: options.labels, backend: options.backend, onFrame: () => emit("frame", statsOf(state)),
   });
   const notify = {
     hover: (node: number): void => emit("hover", node),

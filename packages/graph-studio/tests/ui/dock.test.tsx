@@ -9,7 +9,7 @@ import { DRAWN, IDLE, fakeBar, markup, studioWith } from "./desk.ts";
 
 function dock(state = DRAWN): string {
   const { studio } = studioWith(state);
-  return markup(createElement(Dock, { studio, state, open: true, onToggle: () => undefined, bar: fakeBar() }));
+  return markup(createElement(Dock, { studio, open: true, onToggle: () => undefined, bar: fakeBar() }));
 }
 
 test("the section titles stand in the order the sections are declared", () => {
