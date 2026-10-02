@@ -34,6 +34,11 @@ Do:
    DRL 3-D: only if the DrL paper defines the 3-D step without igraph's code; otherwise record
    a `Gap` and leave the row.
 4. Map FR and KK rows to the 3-D ids in `motor.rs`. Re-pin the rows whose disparity moved.
+   `IGRAPH_KK` compares 957 of 1020 coordinates: the reference raises 9 non-finite
+   coordinates on `gate-19` (`docs/measurements/scigraphs-conformance.md:317-320`). The motor
+   does not copy that failure. Name the input that breaks igraph (component count, isolated
+   nodes, degree), add a unit test that `kamada_kawai_3d` gives finite output on that fixture,
+   and keep the row's 957 as a recorded reference defect.
 
 Paths: `layout/force/**` (new 3-D modules), `registry.rs` (additive), `harness/oracle-igraph.py`
 (dim=3 pass), `docs/layouts/*.md` (spec gaps only), the conformance `motor.rs`, `rows.rs`, `gaps.rs`, `baseline/table.rs`,
