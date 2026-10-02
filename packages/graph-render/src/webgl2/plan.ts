@@ -118,17 +118,21 @@ export const MOVING_FLOOR = 2048;
 
 /**
  * How many frames a settled picture's fill takes, whatever the graph's size: the fill adds a
- * `stillFloor` share of the edge pairs a frame, so at 1M nodes it reads about 128 frames where the
- * moving floor gave 977. Each of those frames pays the whole-canvas readback that shows the picture
- * (84.6% of its time at 1920x1080 on software raster), so the frame count is what the fill costs.
+ * `stillFloor` share of the edge pairs a frame, so at 1M nodes it reads about 512 frames where the
+ * moving floor gave 977. Every frame pays the whole-canvas readback and the two composites that
+ * show the picture, about 10 ms of it at 1920x1080 on software raster, so the frame count is what
+ * the fill pays on top of drawing the edges.
  *
- * Caveat: this bounds the frame *count*, not the frame *time*, and not the input latency. A frame is
- * a STILL_FRAMES-th of the work, so at 1M nodes it reads about 200 ms where the moving floor's read
- * 27-39: a pan asked for in the middle of one waits for it (deploy/perf/settle-pan.py). It is also a
- * share of the edge count and not of the milliseconds, so a graph with few edges and expensive ones
- * (all of them on screen, zoomed in) gets the same frame count and a longer frame.
+ * Caveat: 512 is the smallest share that took more than 3% off the 1M fill (15%, against 26% at
+ * 128) and it is a number of frames and not a number of milliseconds, so what it buys is a shorter
+ * fill and what it costs is longer settled frames: 33 ms at the moving floor against about 56 ms
+ * here, measured on the same host (docs/measurements/perf-p5b.md). A pan asked for in the middle of
+ * a settled frame waits for what is left of it; the frames a drag paints are moving frames and do
+ * not touch this (deploy/perf/settle-pan.py). It is a share of the edge count and not of the
+ * milliseconds, so a graph with few edges and expensive ones (all of them on screen, zoomed in)
+ * gets the same frame count and a longer frame.
  */
-export const STILL_FRAMES = 128;
+export const STILL_FRAMES = 512;
 
 /**
  * The fewest edge pairs a settled frame adds to the kept picture, for `total` pairs: a STILL_FRAMES

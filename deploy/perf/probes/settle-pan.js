@@ -45,8 +45,15 @@ async (args) => {
     minDrawnAfter = Math.min(minDrawnAfter, view.stats().drawnEdges);
   }
   const gaps = stamps.slice(1).map((time, at) => time - stamps[at]);
+  const after = view.stats();
+  // Two windows, because they are two different things: the gaps ending inside the loop's own
+  // MOVING_MS are the pan's own frames (the camera is still moving, so the layer draws its moving
+  // budget), and the gaps after it are the re-fill of the picture the pan restarted. The floor a
+  // settled fill takes moves the second window and not the first, so the two are read apart.
+  const moving = gaps.filter((_, at) => stamps[at + 1] <= pannedAt + args.movingMs);
+  const refill = gaps.filter((_, at) => stamps[at + 1] > pannedAt + args.movingMs);
   const ordered = gaps.slice().sort((a, b) => a - b);
-  const quantile = (q) => (ordered.length === 0 ? -1 : round(ordered[Math.floor((ordered.length - 1) * q)]));
+  const quantile = (from, q) => (from.length === 0 ? -1 : round(from.slice().sort((a, b) => a - b)[Math.floor((from.length - 1) * q)]));
   const after = view.stats();
   return {
     filledAtMs: filledAtMs < 0 ? -1 : round(filledAtMs),
@@ -63,9 +70,17 @@ async (args) => {
     edges: after.edges,
     framesAfter: after.frames - before.frames,
     gaps: gaps.length,
-    p50GapMs: quantile(0.5),
-    p95GapMs: quantile(0.95),
+    p50GapMs: quantile(gaps, 0.5),
+    p95GapMs: quantile(gaps, 0.95),
     maxGapMs: ordered.length === 0 ? -1 : round(ordered[ordered.length - 1]),
+    // The pan's own frames: the camera is moving through these, and the still floor touches none.
+    movingGaps: moving.length,
+    movingP50GapMs: quantile(moving, 0.5),
+    movingMaxGapMs: quantile(moving, 1),
+    // The re-fill the pan restarted: the windows a settled floor does move.
+    refillGaps: refill.length,
+    refillP50GapMs: quantile(refill, 0.5),
+    refillMaxGapMs: quantile(refill, 1),
     // From `panBy` to the first frame that answers it: the latency a drag feels, and the only gap
     // this probe cannot read as a frame interval because nothing has been painted yet.
     firstFrameMs: stamps.length === 0 ? -1 : round(stamps[0] - pannedAt),

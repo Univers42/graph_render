@@ -5,7 +5,8 @@
 
 Build first (scripts/studio.sh build). Prints the open's own seconds, then one line: the
 milliseconds from the probe's first poll to the first frame of the filled picture, the frames the
-pan painted and the p50/p95/max gap between them, then the page's errors. Writes
+pan painted and the p50/p95/max gap between them, split into the pan's own frames (the gaps ending
+inside the loop's MOVING_MS) and the re-fill that follows them, then the page's errors. Writes
 target/studio-settle-pan/<label>.png, the panned picture itself.
 
 Why in-page rather than CDP input: the pan is the view's own camera move (`view.panBy`, view.ts),
@@ -59,7 +60,8 @@ def run(page, base, nodes, plan):
     polls, every_ms, measure_ms = plan["polls"], plan["everyMs"], plan["measureMs"]
     timeout = polls * every_ms / 1000 + measure_ms / 1000 + 180
     measured = page.evaluate(
-        f"({PROBE})({{ fillPolls: {polls}, everyMs: {every_ms}, measureMs: {measure_ms} }})", timeout=timeout)
+        f"({PROBE})({{ fillPolls: {polls}, everyMs: {every_ms}, measureMs: {measure_ms}, movingMs: {plan['movingMs']} }})",
+        timeout=timeout)
     print("pan", json.dumps(measured, sort_keys=True))
     errors(page)
     shoot(page, plan["out"])
@@ -72,6 +74,9 @@ def main():
         "polls": int(sys.argv[4]) if len(sys.argv) > 4 else 4000,
         "everyMs": int(sys.argv[5]) if len(sys.argv) > 5 else 10,
         "measureMs": int(sys.argv[6]) if len(sys.argv) > 6 else 2000,
+        # The loop's own MOVING_MS: the gaps ending inside it are the pan's own frames, the ones
+        # after it are the re-fill the pan restarted (canvas2d/loop.ts).
+        "movingMs": int(sys.argv[7]) if len(sys.argv) > 7 else 140,
         "out": f"target/studio-settle-pan/{label}.png",
     }
     os.makedirs(os.path.dirname(plan["out"]), exist_ok=True)
