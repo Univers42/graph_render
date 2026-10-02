@@ -39,7 +39,7 @@ pub struct Plan {
     pub fold_leaves: bool,
     /// Contract maximal degree-2 chains into a single representative-level edge.
     pub contract_chains: bool,
-    /// Collapse every community into its lowest dense index.
+    /// Collapse every community into its lowest drawn dense index.
     pub collapse_communities: bool,
 }
 
@@ -66,7 +66,7 @@ pub enum Kind {
     Leaf,
     /// A maximal run of degree-2 nodes contracted between two branch nodes.
     Chain,
-    /// A community collapsed into its lowest dense index.
+    /// A community collapsed into its lowest drawn dense index.
     Community,
 }
 
@@ -171,6 +171,11 @@ fn fold_leaves(t: &Topology, graph: &Simple, out: &mut Simplified) {
             continue;
         }
         let neighbour = graph.row(v)[0];
+        // Two leaves joined to each other: the higher index folds, so the lower survives
+        // and is never folded itself.
+        if graph.degree(neighbour) == 1 && neighbour > v {
+            continue;
+        }
         let representative = out.representative[neighbour as usize];
         let edges = edges_between(t, v, neighbour);
         for &edge in &edges {
@@ -194,16 +199,27 @@ use community::collapse_communities;
 mod chain;
 mod community;
 #[cfg(test)]
+mod invariant_tests;
+#[cfg(test)]
+mod scaling_tests;
+#[cfg(test)]
 mod tests;
 
-/// The ascending edge indices of the edges between `a` and `b`.
+/// The ascending edge indices of the edges between `a` and `b`, `a != b`, read from
+/// `a`'s own CSR rows: `O(degree of a)`, so pass `a` as the end with the smaller degree.
 fn edges_between(t: &Topology, a: u32, b: u32) -> Vec<u32> {
-    let mut edges: Vec<u32> = (0..t.edge_count())
-        .filter(|&e| {
-            let (s, g) = (t.edges().source[e as usize], t.edges().target[e as usize]);
-            (s == a && g == b) || (s == b && g == a)
-        })
-        .collect();
-    edges.sort_unstable();
-    edges
+    let edges = t.edges();
+    let out = t
+        .out()
+        .row(a)
+        .iter()
+        .filter(|&&e| edges.target[e as usize] == b);
+    let inbound = t
+        .inbound()
+        .row(a)
+        .iter()
+        .filter(|&&e| edges.source[e as usize] == b);
+    let mut between: Vec<u32> = out.chain(inbound).copied().collect();
+    between.sort_unstable();
+    between
 }
