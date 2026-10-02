@@ -26,6 +26,10 @@
 //! and is unchanged by the fourth — the bound is what binds at 1 M nodes, which is the
 //! snapshot's memory, not the layout's.
 
+mod bipartite_3d;
+
+pub(super) use bipartite_3d::BIPARTITE_3D;
+
 /// The node count the three graph-free 3D placements were run at, and why it is this one.
 ///
 /// `graph-cli bench` refuses a size past a layout's registered `scale_ceiling`, and its own

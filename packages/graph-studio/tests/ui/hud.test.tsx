@@ -9,7 +9,7 @@ import { NavBar } from "../../src/ui/NavBar.tsx";
 import { DRAWN, IDLE, STATS, fakeView, markup, studioWith } from "./desk.ts";
 
 function hud(state = DRAWN, view: Pick<View, "stats" | "on"> = fakeView()): string {
-  return markup(createElement(Hud, { state, view }));
+  return markup(createElement(Hud, { run: state.run, view }));
 }
 
 function viewAt(fps: number): Pick<View, "stats" | "on"> {

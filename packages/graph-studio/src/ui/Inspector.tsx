@@ -1,9 +1,9 @@
 /** The selected node: what the drawing knows about it, and what it is joined to. */
-import type { ReactElement } from "react";
+import { memo, type ReactElement } from "react";
 
 import type { View } from "../../../graph-render/src/view.ts";
+import type { AnalysisReport } from "../motor/protocol.ts";
 import type { GraphMeta } from "../source/meta.ts";
-import type { StudioState } from "../state/model.ts";
 import type { Studio } from "../studio/studio.ts";
 import { shortName, sig3 } from "./names.ts";
 
@@ -12,7 +12,11 @@ const SHOWN = 12;
 
 export interface InspectorProps {
   readonly studio: Studio;
-  readonly state: StudioState;
+  /** The four slices the panel draws; the rest of the state is not its news. */
+  readonly meta: GraphMeta | null;
+  readonly selected: number;
+  readonly analysis: AnalysisReport | null;
+  readonly selection: readonly number[];
   readonly view: Pick<View, "focus" | "select">;
 }
 
@@ -71,9 +75,9 @@ function Selection(props: { readonly view: Pick<View, "focus">; readonly meta: G
   );
 }
 
-export function Inspector(props: InspectorProps): ReactElement | null {
-  const { studio, state, view } = props;
-  const { meta, selected, analysis } = state;
+/** Memoised: the panel draws one node, and re-renders when the node or the graph changes. */
+export const Inspector = memo(function Inspector(props: InspectorProps): ReactElement | null {
+  const { studio, meta, selected, analysis, selection, view } = props;
   if (selected < 0 || meta === null) return null;
   const label = meta.labels[selected] ?? "";
   const measured = analysis !== null && analysis.values.length === meta.nodeCount
@@ -84,7 +88,7 @@ export function Inspector(props: InspectorProps): ReactElement | null {
         <h2 className="gs-head-name gs-title">{label}</h2>
         <button type="button" className="gs-btn" aria-label="Close the inspector" onClick={() => view.select(-1)}>×</button>
       </div>
-      <Selection view={view} meta={meta} nodes={state.selection} />
+      <Selection view={view} meta={meta} nodes={selection} />
       <Row name="Id" value={meta.ids[selected] ?? ""} />
       <Row name="Kind" value={meta.kinds[selected] ?? ""} />
       <Row name="Group" value={meta.groups[meta.group[selected] ?? 0] ?? ""} />
@@ -94,4 +98,4 @@ export function Inspector(props: InspectorProps): ReactElement | null {
       <Neighbours studio={studio} view={view} meta={meta} at={selected} />
     </div>
   );
-}
+});

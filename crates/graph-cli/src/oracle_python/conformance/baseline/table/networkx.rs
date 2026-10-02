@@ -110,11 +110,11 @@ pub(super) const NETWORKX: [Baseline; 12] = [
     ),
     row(
         "BIPARTITE_3D",
-        "40e7daced9ccc174a6597e3c693c2207b76930c3250ce9d45cf4917f857c16a7",
+        "8451f75cc5300177dfe7d495e8dbf8ef67f80f96aad0488b8dd0514a64b7088b",
         "a1e5daacdaa148264e26ad2e20e2578e4f3159d49bd5afeeaa7c36db76da6dc5",
         "",
-        1e0,
-        "shape",
-        "algorithm",
+        1e-15,
+        "tolerance",
+        "arithmetic",
     ),
 ];

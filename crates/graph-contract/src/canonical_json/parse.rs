@@ -4,11 +4,23 @@
 //! (it names no character), and nesting past [`MAX_DEPTH`] (a snapshot is four deep).
 //! Numbers are kept as their text, so the reader of each field decides how to round.
 
+#[cfg(test)]
+mod differential;
+#[cfg(test)]
+mod mutate;
+#[cfg(test)]
+mod reference;
+mod strings;
+
 use super::JsonError;
 use std::collections::BTreeSet;
 
 /// Deepest nesting read.
 pub const MAX_DEPTH: u32 = 32;
+
+/// Member count above which an object's duplicate-key check builds a set of the keys it
+/// has read instead of scanning them.
+const WIDE_OBJECT: usize = 32;
 
 /// A parsed JSON value.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -29,7 +41,12 @@ pub enum Value {
 
 /// Parses one JSON text: a value with only whitespace around it.
 pub fn parse(text: &str) -> Result<Value, JsonError> {
-    let mut p = Parser { text, at: 0 };
+    let mut p = Parser {
+        text,
+        at: 0,
+        slots: Vec::new(),
+        members: Vec::new(),
+    };
     let value = p.value(0)?;
     p.skip_space();
     if p.at != text.len() {
@@ -38,18 +55,25 @@ pub fn parse(text: &str) -> Result<Value, JsonError> {
     Ok(value)
 }
 
-struct Parser<'a> {
-    text: &'a str,
-    at: usize,
+pub(super) struct Parser<'a> {
+    pub(super) text: &'a str,
+    pub(super) at: usize,
+    /// Array elements, and (key, value) pairs for objects, in the order they were read.
+    /// Both are scratch for the whole parse: every container writes here and drains its
+    /// own tail, so the `Vec` it hands back is allocated once at its exact length instead
+    /// of growing by doubling. Two stacks rather than one because the element types
+    /// differ; both peak at the document's widest single container.
+    slots: Vec<Value>,
+    members: Vec<(String, Value)>,
 }
 
 impl Parser<'_> {
-    fn fault(&self, what: &'static str) -> JsonError {
+    pub(super) fn fault(&self, what: &'static str) -> JsonError {
         let at = u32::try_from(self.at).unwrap_or(u32::MAX);
         JsonError::Syntax { at, what }
     }
 
-    fn peek(&self) -> Option<u8> {
+    pub(super) fn peek(&self) -> Option<u8> {
         self.text.as_bytes().get(self.at).copied()
     }
 
@@ -73,7 +97,7 @@ impl Parser<'_> {
         match self.peek() {
             Some(b'{') => self.object(depth),
             Some(b'[') => self.array(depth),
-            Some(b'"') => self.string().map(Value::String),
+            Some(b'"') => strings::read_string(self).map(Value::String),
             Some(b'-' | b'0'..=b'9') => self.number().map(Value::Number),
             Some(b't') => self.literal("true", Value::Bool(true)),
             Some(b'f') => self.literal("false", Value::Bool(false)),
@@ -93,16 +117,17 @@ impl Parser<'_> {
 
     fn array(&mut self, depth: u32) -> Result<Value, JsonError> {
         self.at += 1;
-        let mut items = Vec::new();
+        let base = self.slots.len();
         self.skip_space();
         if self.eat(b']') {
-            return Ok(Value::Array(items));
+            return Ok(Value::Array(self.take_slots(base)));
         }
         loop {
-            items.push(self.value(depth + 1)?);
+            let item = self.value(depth + 1)?;
+            self.slots.push(item);
             self.skip_space();
             if self.eat(b']') {
-                return Ok(Value::Array(items));
+                return Ok(Value::Array(self.take_slots(base)));
             }
             if !self.eat(b',') {
                 return Err(self.fault("expected , or ] in an array"));
@@ -112,11 +137,11 @@ impl Parser<'_> {
 
     fn object(&mut self, depth: u32) -> Result<Value, JsonError> {
         self.at += 1;
-        let mut members: Vec<(String, Value)> = Vec::new();
-        let mut keys = BTreeSet::new();
+        let base = self.members.len();
+        let mut wide: Option<BTreeSet<String>> = None;
         self.skip_space();
         if self.eat(b'}') {
-            return Ok(Value::Object(members));
+            return Ok(Value::Object(self.take_members(base)));
         }
         loop {
             self.skip_space();
@@ -124,25 +149,60 @@ impl Parser<'_> {
                 return Err(self.fault("expected a key"));
             }
             let key_at = self.at;
-            let key = self.string()?;
+            let key = strings::read_string(self)?;
             self.skip_space();
             if !self.eat(b':') {
                 return Err(self.fault("expected : after a key"));
             }
             let value = self.value(depth + 1)?;
-            if !keys.insert(key.clone()) {
+            if self.key_seen(base, &mut wide, &key) {
                 self.at = key_at;
                 return Err(self.fault("a key repeated in one object"));
             }
-            members.push((key, value));
+            self.members.push((key, value));
             self.skip_space();
             if self.eat(b'}') {
-                return Ok(Value::Object(members));
+                return Ok(Value::Object(self.take_members(base)));
             }
             if !self.eat(b',') {
                 return Err(self.fault("expected , or } in an object"));
             }
         }
+    }
+
+    /// The members this object has read so far, as a `Vec` allocated once at its length.
+    fn take_members(&mut self, base: usize) -> Vec<(String, Value)> {
+        let mut out = Vec::with_capacity(self.members.len() - base);
+        out.extend(self.members.drain(base..));
+        out
+    }
+
+    /// The elements this array has read so far, likewise.
+    fn take_slots(&mut self, base: usize) -> Vec<Value> {
+        let mut out = Vec::with_capacity(self.slots.len() - base);
+        out.extend(self.slots.drain(base..));
+        out
+    }
+
+    /// Whether `key` is already one of this object's members. Narrow objects compare
+    /// against the members on the scratch stack — no allocation, and the ten members of a
+    /// node cost forty-five `memcmp`s. A wide one builds the set it always had: a
+    /// quadratic over a hostile object is a worse trade than a clone per member.
+    ///
+    /// Ponytail: the switch is at [`WIDE_OBJECT`]; a document with more members than that
+    /// in one object pays the old clone-per-key cost, and would go quadratic if the
+    /// threshold were raised.
+    fn key_seen(&self, base: usize, wide: &mut Option<BTreeSet<String>>, key: &str) -> bool {
+        let seen = &self.members[base..];
+        if seen.len() < WIDE_OBJECT {
+            return seen.iter().any(|(k, _)| k == key);
+        }
+        let keys = wide.get_or_insert_with(|| {
+            seen.iter()
+                .map(|(k, _)| k.clone())
+                .collect::<BTreeSet<String>>()
+        });
+        !keys.insert(key.to_owned())
     }
 
     fn number(&mut self) -> Result<String, JsonError> {
@@ -169,76 +229,5 @@ impl Parser<'_> {
             self.at += 1;
         }
         self.at - start
-    }
-
-    fn string(&mut self) -> Result<String, JsonError> {
-        self.at += 1;
-        let mut out = String::new();
-        loop {
-            let run = self.at;
-            while matches!(self.peek(), Some(b) if b != b'"' && b != b'\\' && b >= 0x20) {
-                self.at += 1;
-            }
-            out.push_str(&self.text[run..self.at]);
-            match self.peek() {
-                Some(b'"') => {
-                    self.at += 1;
-                    return Ok(out);
-                }
-                Some(b'\\') => out.push(self.escape()?),
-                Some(_) => return Err(self.fault("a raw control character in a string")),
-                None => return Err(self.fault("the text ends inside a string")),
-            }
-        }
-    }
-
-    fn escape(&mut self) -> Result<char, JsonError> {
-        self.at += 1;
-        let letter = self
-            .peek()
-            .ok_or_else(|| self.fault("the text ends inside a string"))?;
-        self.at += 1;
-        Ok(match letter {
-            b'"' => '"',
-            b'\\' => '\\',
-            b'/' => '/',
-            b'b' => '\u{8}',
-            b'f' => '\u{c}',
-            b'n' => '\n',
-            b'r' => '\r',
-            b't' => '\t',
-            b'u' => return self.unicode(),
-            _ => return Err(self.fault("an unknown escape")),
-        })
-    }
-
-    /// `\uXXXX`, pairing a high surrogate with the low one that must follow it.
-    fn unicode(&mut self) -> Result<char, JsonError> {
-        let unit = self.hex4()?;
-        let code = match unit {
-            0xD800..=0xDBFF => {
-                if !self.text[self.at..].starts_with("\\u") {
-                    return Err(self.fault("an unpaired surrogate"));
-                }
-                self.at += 2;
-                match self.hex4()? {
-                    low @ 0xDC00..=0xDFFF => 0x10000 + ((unit - 0xD800) << 10) + (low - 0xDC00),
-                    _ => return Err(self.fault("an unpaired surrogate")),
-                }
-            }
-            0xDC00..=0xDFFF => return Err(self.fault("an unpaired surrogate")),
-            _ => unit,
-        };
-        char::from_u32(code).ok_or_else(|| self.fault("an unpaired surrogate"))
-    }
-
-    fn hex4(&mut self) -> Result<u32, JsonError> {
-        let digits = self.text.get(self.at..self.at + 4);
-        let value = digits
-            .filter(|d| d.bytes().all(|b| b.is_ascii_hexdigit()))
-            .and_then(|d| u32::from_str_radix(d, 16).ok())
-            .ok_or_else(|| self.fault("\\u needs four hex digits"))?;
-        self.at += 4;
-        Ok(value)
     }
 }

@@ -1,12 +1,17 @@
 /**
- * The chrome: floating panels over a canvas the studio does not own. It holds the whole
- * state in one subscription and knows only what is open — the console, the dock.
+ * The chrome: floating panels over a canvas the studio does not own. It reads the slices
+ * the panels draw and knows only what is open — the console, the dock.
  */
 import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
 
 import { isLightTheme } from "../../../graph-render/src/look/themes.ts";
 import type { View } from "../../../graph-render/src/view.ts";
 import type { LiveBridge } from "../motor/bridge.ts";
+import type { AnalysisReport } from "../motor/protocol.ts";
+import type { GraphMeta } from "../source/meta.ts";
+import type { ShownError } from "../state/errors.ts";
+import type { RunSummary, Running } from "../state/model.ts";
+import type { Settings } from "../state/settings.ts";
 import type { Studio } from "../studio/studio.ts";
 import { KeyOverlay } from "./KeyOverlay.tsx";
 import { Console } from "./Console.tsx";
@@ -20,7 +25,7 @@ import { ProgressBar } from "./ProgressBar.tsx";
 import { Search } from "./Search.tsx";
 import { Toast } from "./Toast.tsx";
 import { useShortcuts } from "./useShortcuts.ts";
-import { useStudioState } from "./useStudio.ts";
+import { useStudioSelector } from "./useStudio.ts";
 
 export interface ShellProps {
   readonly studio: Studio;
@@ -61,13 +66,44 @@ function useNodeMenu(opening: NodeMenuOpening): readonly [MenuAt | null, () => v
   return [menu, close];
 }
 
+/** The slices the panels below draw. This list is the whole of what re-renders the chrome. */
+interface Slices {
+  readonly settings: Settings;
+  readonly meta: GraphMeta | null;
+  readonly analysis: AnalysisReport | null;
+  readonly selection: readonly number[];
+  readonly run: RunSummary | null;
+  readonly busy: readonly Running[];
+  readonly failure: ShownError | null;
+  readonly selected: number;
+}
+
+/**
+ * WHY slices and not the whole state: the shell re-renders on a change to any of these and
+ * on nothing else, and every panel it hands them to is memoised, so a field nobody draws
+ * costs the studio nothing at all.
+ */
+function useSlices(studio: Studio): Slices {
+  return {
+    settings: useStudioSelector(studio, (state) => state.settings),
+    meta: useStudioSelector(studio, (state) => state.meta),
+    analysis: useStudioSelector(studio, (state) => state.analysis),
+    selection: useStudioSelector(studio, (state) => state.selection),
+    run: useStudioSelector(studio, (state) => state.run),
+    busy: useStudioSelector(studio, (state) => state.busy),
+    failure: useStudioSelector(studio, (state) => state.error),
+    selected: useStudioSelector(studio, (state) => state.selected),
+  };
+}
+
 export function Shell(props: ShellProps): ReactElement {
   const { studio, view, keys, bar } = props;
-  const state = useStudioState(studio);
+  const { settings, meta, analysis, selection, run, busy, failure, selected } = useSlices(studio);
   const [consoleOpen, setOpen] = useState(false);
   const [helpOpen, setHelp] = useState(false);
   const toggleHelp = useCallback(() => setHelp((open) => !open), []);
   const [dockOpen, setDock] = useState(true);
+  const toggleDock = useCallback(() => setDock((open) => !open), []);
   const searchInput = useRef<HTMLInputElement | null>(null);
   const focusSearch = useCallback(() => searchInput.current?.focus(), []);
   // WHY the focus is handed back: the line that held it leaves the document with the
@@ -76,27 +112,26 @@ export function Shell(props: ShellProps): ReactElement {
     setOpen(open);
     if (!open && keys instanceof HTMLElement) keys.focus();
   }, [keys]);
-  const [menu, closeMenu] = useNodeMenu({ view, keys, selected: state.selected });
-  useShortcuts({ studio, state, keys, consoleOpen, setConsole, focusSearch, toggleHelp, helpOpen });
+  const [menu, closeMenu] = useNodeMenu({ view, keys, selected });
+  useShortcuts({ studio, busy: busy.length > 0, keys, consoleOpen, setConsole, focusSearch, toggleHelp, helpOpen });
+  const closeConsole = useCallback(() => setConsole(false), [setConsole]);
   return (
-    <div className="gs-chrome" data-theme={isLightTheme(state.settings.appearance.theme) ? "light" : "dark"}>
+    <div className="gs-chrome" data-theme={isLightTheme(settings.appearance.theme) ? "light" : "dark"}>
       <ProgressBar bar={bar.bar} onBar={bar.onBar} />
       <div className="gs-left">
-        <Search studio={studio} meta={state.meta} inputRef={searchInput} />
-        <Inspector studio={studio} state={state} view={view} />
+        <Search studio={studio} meta={meta} text={settings.filter.text} inputRef={searchInput} />
+        <Inspector studio={studio} meta={meta} selected={selected} analysis={analysis} selection={selection} view={view} />
       </div>
-      <Toast studio={studio} state={state} />
-      <Dock studio={studio} state={state} bar={bar} open={dockOpen} onToggle={() => setDock((open) => !open)} />
+      <Toast studio={studio} busy={busy} error={failure} />
+      <Dock studio={studio} bar={bar} open={dockOpen} onToggle={toggleDock} />
       <div className="gs-bottom-left">
-        <Legend state={state} />
-        <Hud state={state} view={view} />
+        <Legend meta={meta} settings={settings} analysis={analysis} />
+        <Hud run={run} view={view} />
         <NavBar studio={studio} />
       </div>
-      <KeyOverlay open={helpOpen} onClose={() => setHelp(false)} />
-      <NodeMenu studio={studio} state={state} view={view} menu={menu} onClose={closeMenu} />
-      {consoleOpen && (
-        <Console studio={studio} state={state} onClose={() => setConsole(false)} />
-      )}
+      <KeyOverlay open={helpOpen} onClose={toggleHelp} />
+      <NodeMenu studio={studio} ids={meta?.ids ?? null} view={view} menu={menu} onClose={closeMenu} />
+      {consoleOpen && <Console studio={studio} onClose={closeConsole} />}
     </div>
   );
 }

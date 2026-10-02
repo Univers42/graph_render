@@ -37,6 +37,7 @@ use graph_contract::geometry::{EdgeGeometry, NodeGeometry};
 /// capability id the registry registers it under; their `run` functions stay `pub(super)`,
 /// because the id and the [`Topology`]-taking wrapper above are the module's whole public
 /// surface.
+pub mod bipartite_3d;
 pub mod cube;
 pub mod helix;
 pub mod sphere;
@@ -99,6 +100,18 @@ pub fn spiral(topology: &Topology) -> Result<Geometry, StageError> {
     let geometry = spiral::run(count(topology))?;
     debug_assert_eq!(geometry.dim(), graph_contract::snapshot::Dim::D3);
     Ok(geometry)
+}
+
+/// [`bipartite_3d::run`], the `BIPARTITE_3D` placement. Never refuses.
+///
+/// **The one member of this module that reads the graph**, and the only reason it lives here
+/// rather than beside `layout.bipartite` is that it shares [`SCALE`] and [`in_space`] with
+/// the others and nothing else — the module doc's "reads the node count and nothing
+/// else" is true of `SPHERE`, `HELIX`, `CUBE` and `SPIRAL_3D`, and is stated here so it is not read as a
+/// claim about this one. Its id is `layout.bipartite_3d`, deliberately outside the
+/// `layout.basic3d.*` namespace, because that namespace means "reads no graph".
+pub fn bipartite_3d(topology: &Topology) -> Result<Geometry, StageError> {
+    bipartite_3d::run(topology)
 }
 
 #[cfg(test)]

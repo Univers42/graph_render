@@ -2,7 +2,7 @@
 # studio-perf.sh — the studio perf gate: app/dist driven in headless Chromium, in Docker.
 #
 #   scripts/studio-perf.sh [--label NAME] [--driver NAME] [--edge-colour flat|gradient] [--record-baseline]
-#                          [--cases N,N,...]
+#                          [--cases N,N,...] [--layout ID] [--backend auto|canvas2d|webgl2]
 #
 #   --label NAME        output directory under target/studio-perf/ (default: current)
 #   --driver NAME       deploy/perf/drivers/NAME.js (default: hook)
@@ -10,6 +10,9 @@
 #   --record-baseline   also write deploy/perf/baseline.json from this run
 #   --cases N,N,...     a scale measurement at these node counts, DPR 1, instead of the gate
 #                       (its gating rows read NOT-RUN, so it exits 1; read table.md)
+#   --layout ID         with --cases: lay every case out with ID (layout.random keeps 1M nodes fast)
+#   --backend NAME      open the page at ?backend=NAME; webgl2/auto draw on SwiftShader
+#   PERF_MEMORY         the container's memory cap (default 4g; a 1M-node case needs about 8g)
 #
 # Exit: 0 every gating row PASS · 1 a gating row FAIL or NOT-RUN · 2 could not run.
 # Build first: scripts/studio.sh build. Never takes the host gate lock.
@@ -42,7 +45,16 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --cases)
-      cases=(--cases "$2")
+      cases+=(--cases "$2")
+      shift 2
+      ;;
+    --layout)
+      cases+=(--layout "$2")
+      shift 2
+      ;;
+    --backend)
+      cases+=(--backend "$2")
+      label="$label-$2"
       shift 2
       ;;
     --record-baseline)
@@ -50,7 +62,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --help)
-      sed -n '2,19p' "${BASH_SOURCE[0]}"
+      sed -n '2,21p' "${BASH_SOURCE[0]}"
       exit 0
       ;;
     *)
@@ -64,14 +76,14 @@ if [[ ! -f "$root/app/dist/index.html" ]]; then
   echo "studio-perf: app/dist is missing — run scripts/studio.sh build" >&2
   exit 2
 fi
-if ! docker image inspect "$image" >/dev/null 2>&1; then
-  docker build -f "$root/deploy/chromium.Dockerfile" -t "$image" "$root/deploy" || exit 2
-fi
+source "$root/scripts/orch/image.sh"
+ensure_image "$image" || exit 2
 
 baseline=()
 [[ -f "$root/deploy/perf/baseline.json" ]] && baseline=(--baseline deploy/perf/baseline.json)
 
-exec docker run --rm --memory 4g --memory-swap 4g -e STUDIO_PERF_BREAK="${STUDIO_PERF_BREAK:-}" -v "$root:/w" -w /w "$image" \
+mem=${PERF_MEMORY:-4g}
+exec docker run --rm --memory "$mem" --memory-swap "$mem" -e STUDIO_PERF_BREAK="${STUDIO_PERF_BREAK:-}" -v "$root:/w" -w /w "$image" \
   python3 deploy/perf/run.py --dist app/dist --out "target/studio-perf/$label" \
   --driver "$driver" --edge-colour "$edge_colour" --commit "$(git -C "$root" rev-parse --short HEAD)" \
   "${baseline[@]}" "${record[@]}" "${cases[@]}"

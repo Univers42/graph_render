@@ -76,7 +76,8 @@ pub enum Knob {
     /// `GM_MUTATE_FA2_SCALING_RATIO`: ForceAtlas2's repulsion scale, native arm only.
     ///
     /// Its own control for the same reason, on the other side: `scaling_ratio` is
-    /// read by `Fa2State::repulsion` alone.
+    /// read by ForceAtlas2's repulsion alone, the dense pair loop and the Barnes-Hut
+    /// tree walk alike, so it moves both ForceAtlas2 stages and no other.
     Fa2ScalingRatio,
     /// `GM_MUTATE_TREE_TIDY_NODES`: nodes added to `layout.tree.tidy`'s model alone.
     ///

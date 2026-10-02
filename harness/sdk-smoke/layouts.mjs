@@ -22,13 +22,13 @@ for (const layoutId of registered) {
   const bounds = boundsOf(motor, handle);
   process.stdout.write(
     `# ${layoutId}: ${result.nodeCount} nodes, ${result.nodeKind} nodes / ${result.edgeKind} edges, ` +
-      `bounds x[${bounds.minX}, ${bounds.maxX}] y[${bounds.minY}, ${bounds.maxY}]\n`,
+      `bounds x[${bounds.minX}, ${bounds.maxX}] y[${bounds.minY}, ${bounds.maxY}] z[${bounds.minZ}, ${bounds.maxZ}]\n`,
   );
   check(`${layoutId}: every node is placed`, result.nodeCount === 2);
   check(
     `${layoutId}: its bounds are finite and not a single point`,
-    [bounds.minX, bounds.maxX, bounds.minY, bounds.maxY].every(Number.isFinite) &&
-      (bounds.maxX > bounds.minX || bounds.maxY > bounds.minY),
+    Object.values(bounds).every(Number.isFinite) &&
+      (bounds.maxX > bounds.minX || bounds.maxY > bounds.minY || bounds.maxZ > bounds.minZ),
   );
   const problems = columnProblems(motor, handle, layoutId, result);
   check(`${layoutId}: its columns match the contract's presence table`, problems.length === 0);
