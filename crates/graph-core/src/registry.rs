@@ -148,11 +148,6 @@ pub static LAYOUTS: [Capability; 36] = [
         meta: BARNES_HUT,
     },
     Capability {
-        id: ParticleMesh::ID,
-        run: run_default::<ParticleMesh>,
-        meta: PARTICLE_MESH,
-    },
-    Capability {
         id: ForceAtlas2::ID,
         run: run_default::<ForceAtlas2>,
         meta: FA2,
@@ -291,6 +286,12 @@ pub static LAYOUTS: [Capability; 36] = [
         id: sfdp::ID,
         run: sfdp::run,
         meta: SFDP,
+    },
+    // perf-p2: appended for the same reason as the block above.
+    Capability {
+        id: ParticleMesh::ID,
+        run: run_default::<ParticleMesh>,
+        meta: PARTICLE_MESH,
     },
 ];
 
