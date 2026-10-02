@@ -16,7 +16,7 @@ const FAILURE: ShownError = {
 
 function toast(state = IDLE): string {
   const { studio } = studioWith(state);
-  return markup(createElement(Toast, { studio, state }));
+  return markup(createElement(Toast, { studio, busy: state.busy, error: state.error }));
 }
 
 test("nothing is running and nothing failed, so there is no toast", () => {

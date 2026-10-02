@@ -90,7 +90,9 @@ defect SciGraphs's operator silently avoids by always dispatching Dijkstra inste
     ),
     (
         "analysis.centrality.closeness",
-        "hand: Wasserman & Faust's disconnected-safe closeness formula",
+        "hand: Wasserman & Faust's disconnected-safe closeness formula, as networkx 3.6 \
+computes it (algorithms/centrality/closeness.py:127-133, wf_improved): every reached node \
+counts, a peer at distance 0 included. Precondition: non-negative edge weights",
         "O(n * (n + m) log n)",
         TOPOLOGY_CEILING,
         MEMORY_DEGRADES,
@@ -98,10 +100,12 @@ defect SciGraphs's operator silently avoids by always dispatching Dijkstra inste
     ),
     (
         "analysis.centrality.betweenness",
-        "hand: Brandes (2001), weighted (Dijkstra-based) — petgraph has no betweenness",
-        "O(n * m log n) (this weighted, Dijkstra-based Brandes; costlier than the O(n*m) \
-unweighted/BFS form the phase names, a recorded deviation for internal consistency with \
-paths.rs's weighted Dijkstra/Bellman-Ford)",
+        "hand: Brandes (2001), weighted (Dijkstra-based) — petgraph has no betweenness. \
+Precondition: strictly positive edge weights (a zero weight has no finite path count; igraph \
+0.11.9 refuses it too, src/centrality/betweenness.c:436-437)",
+        "O(n * (n + m log n)): per source, Θ(n) fresh buffers plus a Dijkstra (this weighted, \
+Dijkstra-based Brandes; costlier than the O(n*m) unweighted/BFS form the phase names, a \
+recorded deviation for internal consistency with paths.rs's weighted Dijkstra/Bellman-Ford)",
         20_000,
         "past the ceiling exact betweenness is still correct, just not interactive: measured \
 (docs/measurements/phase07-analysis.md) 475 ms at 16,000 nodes/24,793 edges and 3.1 s at \
@@ -142,9 +146,11 @@ answer",
     (
         "analysis.depth",
         "Phase 3's repaired layout/hierarchy.rs — one Hierarchy, one root set, one depth. \
-analysis/depth.rs owns no root/forest logic of its own: it declares a four-method `Roots` \
-trait and p3's `Hierarchy` implements it by delegation (`impl depth::Roots for Hierarchy`), \
-so the two are one convention with two names, and this row differs against Phase 3's own \
+analysis/depth.rs derives no roots, cycles or parents of its own: it declares a four-method \
+`Roots` trait and p3's `Hierarchy` implements it by delegation (`impl depth::Roots for \
+Hierarchy`), so the two are one convention with two names. It does check that convention \
+(an out-of-range root, or two roots with no virtual root, panics in every build) and reads \
+the root offset with p3's own `roots.len() >= 2` test. This row differs against Phase 3's own \
 `Hierarchy::depth` column node by node over its four fixtures rather than against a \
 TypeScript oracle — none exists for breadth-first depth over a repaired tree",
         "O(n + m): one breadth-first pass, each node's children row read once",
@@ -156,8 +162,10 @@ Phase 3's own column leaves an unreachable node at 0, but that column is only ev
 repaired tree where nothing is unreachable, while this one is an analysis result a frontend \
 may colour by and 0 would render an orphan as a root. Failing input: a forest whose roots \
 were declared by hand rather than repaired, i.e. `depth_from` over a partial tree. Direction: \
-cosmetic, and the dangerous reading is refused rather than rendered: `u32::MAX` is not a \
-depth a layout can place a ring at. Escape hatch: `bfs_depth` over a repaired `Hierarchy`, \
+not refused: `Depth::levels` and the wasm JSON face hand the raw `u32::MAX` out, so a consumer \
+that uses a level as a ring index without testing `Depth::is_unreached` (or comparing with \
+`UNREACHED`) places the node at ring 4294967295. Escape hatch: `Depth::is_unreached`, or \
+`bfs_depth` over a repaired `Hierarchy`, \
 where every node is reached — pinned by graph-core \
 analysis/depth/hierarchy.rs::a_repaired_hierarchy_reaches_every_node_so_unreached_never_appears. \
 Ponytail (scale_ceiling): inherited from topology's measured per-node cost, not independently \

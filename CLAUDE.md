@@ -122,6 +122,7 @@ scripts/studio-nav.sh         # one browser gate over app/dist; siblings: perf, 
 STUDIO_NAV_BREAK=1 scripts/studio-nav.sh   # its negative control: expect non-zero
 scripts/studio-smoke.sh       # the load smoke over app/dist: no page error, no banner, a node drawn
 STUDIO_SMOKE_BREAK=1 scripts/studio-smoke.sh   # its negative control: expect non-zero
+scripts/studio-backend.sh      # the WebGL2 layer against Canvas2D: pixel parity, `auto`, the fallback, a lost context; STUDIO_BACKEND_BREAK=1 for its negative control
 ```
 
 - A fresh worktree needs `npm ci` before `cargo test`: the `cli_oracles` tests run the Node harness and
@@ -144,8 +145,9 @@ STUDIO_SMOKE_BREAK=1 scripts/studio-smoke.sh   # its negative control: expect no
 - Agent jobs run headless in OpenCode (`opencode.json`, `.opencode/agents/`): `scripts/orch/oc-job.sh`
   launches one in a worktree and gates it, and `scripts/orch/oc-status.sh` lists every job's state.
   `scripts/orch/oc-tabs.sh` opens one OpenCode window with a tab per live session (`-a`: every session of
-  the project, minus probes and finished sessions whose worktree is gone, and an unfinished session's
-  removed worktree rebuilt first; `-n`: add the tabs to a window already open in this directory).
+  the project, minus probes and finished or landed sessions whose worktree is gone, and an unfinished
+  session's removed worktree rebuilt first; `-p` / `-d`: only the sessions in progress / done; `-n`: add
+  the tabs to a window already open in this directory).
   OpenCode 2.x ignores `opencode.json` `instructions` and reads only `AGENTS.md` (a link to
   `prompts/AGENT_BRIEF.md`); the kit's bridge `.opencode/plugins/devil.js` adds its always-on rules.
   The kit's agents, commands and bridge are untracked links that `devil setup --only opencode` makes per
