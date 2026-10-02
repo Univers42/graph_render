@@ -22,6 +22,10 @@ use graph_contract::geometry::{EdgeGeometryKind, NodeGeometryKind};
 /// The style's own `u32` limit binds far later: a self-loop row is the longest at
 /// `self_loop_segments` points, and 2^32 - 1 points across a graph is hundreds of
 /// millions of edges.
+///
+/// Ponytail (loop rows): the synthetic model has no self-loops, and a loop row holds up to
+/// 32 points (256 B), so on a loop-heavy graph this over-states the ceiling by up to 8x.
+/// Re-measure with `crates/graph-core/tests/memory.rs` on such a graph.
 pub const POST_STYLE_CEILING: u64 = 9_100_000;
 
 const ORACLE: &str = "hand: the conventions stated in the parent module's doc, restated in f64 and \
@@ -31,8 +35,9 @@ reference, not an oracle — it bakes style points into a 3-D mesh vertex list, 
 2-D CSR to byte-compare against (the same division docs/decisions/circular-conventions.md \
 draws for the radial layout)";
 
-const COMPLEXITY: &str = "O(n + m): two stable counting sorts over 0..n for the fan, then one pass \
-over the edges, each writing its own row from the two node columns";
+const COMPLEXITY: &str = "O(n + m x s), s <= 32: two stable counting sorts over 0..n for the fan, \
+then one pass over the edges, each writing its own row of s points from the two node columns — at \
+most 2, or self_loop_segments (3..=32, params::MAX_LOOP_SEGMENTS) for a loop";
 
 const DEGRADES: &str = "past the ceiling wasm32 cannot allocate and the module traps (no partial \
 result); natively, memory permitting, style_edges refuses with StageError::Capacity once the \
@@ -46,7 +51,9 @@ arithmetic supports: no threshold, no sampling, no fallback, no estimate, and ev
 computed once in f64 and cast once. Two choices are conventions rather than computations and \
 are stated in the parent module's doc rather than hidden — the self-loop's half-radius lift \
 and the L/Z corner rule — the same treatment layout/circular.rs gives its ring spacing. \
-Ponytail (scale_ceiling): an estimate — 473 B per node is derived from the topology layer's \
+Ponytail (loop ceiling): self_loop_segments is refused past 32, the reference's edge_segments \
+ceiling (SciGraphs/properties/edge_style_properties.py:78-85), so a smoother loop is refused and \
+never drawn coarser. Ponytail (scale_ceiling): an estimate — 473 B per node is derived from the topology layer's \
 measured 442 and a 31 B per edge style, then projected onto wasm32's 4 GiB; re-measure with \
 crates/graph-core/tests/memory.rs";
 

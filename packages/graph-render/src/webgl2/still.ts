@@ -1,24 +1,24 @@
 /**
- * The settled picture of the GPU layer, filled over several frames and then kept. Drawing
- * every edge in one settled frame cost 3.9 to 4.5 s at 1M nodes on SwiftShader, 99% of it
- * inside transferToImageBitmap (target/p5-hover.py), and a hover, a leave, every fade frame
- * and the settle after a pan each paid it again on the page's only thread. A settled frame
- * now adds one chunk of edges to a kept 2D picture, paced like the moving budget, and asks
- * for another frame until the picture holds them all; the nodes go once into a picture of
- * their own; a focus or a fade only blits the two at the dim alpha, under the lit edges the
- * 2D painter draws.
+ * The settled picture of the GPU layer, filled over several frames and then kept. A settled frame
+ * adds one chunk of edges to a kept 2D picture and asks for another frame until the picture holds
+ * them all; the nodes go once into a picture of their own; a focus or a fade only blits the two at
+ * the dim alpha, under the lit edges the 2D painter draws. The chunk is paced like the moving budget
+ * on what the last one cost, but its floor is `stillFloor` (plan.ts) and not the moving one: every
+ * chunk is one readback of the whole canvas, so the fill costs frames times that, and the fill takes
+ * about STILL_FRAMES of them however big the graph is.
  *
- * Caveat: the dim is one alpha over the whole picture where the moving frames and the 2D
- * painter dim each edge, so where dimmed edges cross the picture reads fainter than they
- * would (two half-alpha edges at dim 0.3: 0.225 against 0.278). While it fills, the view
- * shows the spread order's prefix, a sample of the edges, for as many frames as the chunks
- * take. It is a copy at canvas resolution: any change of camera, size, positions, style or
- * theme colour starts it again from nothing.
+ * Caveat: the dim is one alpha over the whole picture where the moving frames and the 2D painter
+ * dim each edge, so where dimmed edges cross the picture reads fainter than they would (two
+ * half-alpha edges at dim 0.3: 0.225 against 0.278). While it fills, the view shows the spread
+ * order's prefix, a sample of the edges, for as many frames as the chunks take, and each of those
+ * frames is a STILL_FRAMES share of the work, so a fill is a long uninterruptible frame rather than
+ * many short ones. It is a copy at canvas resolution: any change of camera, size, positions, style
+ * or theme colour starts it again from nothing.
  */
 import type { PaintCounts, PaintInput } from "../canvas2d/input.ts";
 import { counted, deviceSize, edgePart, nodePart } from "./draw.ts";
 import type { BulkLayer } from "./layer.ts";
-import { nextBudget } from "./plan.ts";
+import { nextBudget, stillFloor } from "./plan.ts";
 import { sameRefs } from "./sync.ts";
 
 export interface Still {
@@ -48,6 +48,16 @@ export function viewOf(input: PaintInput, placed: number): readonly unknown[] {
   const { camera, viewport, theme } = input;
   return [camera.x, camera.y, camera.scale, viewport.width, viewport.height, input.dpr, placed,
     input.frame, input.x, input.y, input.extent, input.style, theme.edge, theme.rim];
+}
+
+/**
+ * Whether the picture is still filling, from the edge pairs `paintStill` says it lacks: over zero
+ * while a chunk remains, false on the frame that completes it and on the -1 of a lost context.
+ * The loop reads it to ask for another frame and `view.stats()` reports it (view-stats.ts), so a
+ * host can wait for a settled picture without reading the counters.
+ */
+export function refiningOf(lacking: number): boolean {
+  return lacking > 0;
 }
 
 function restart(still: Still, view: readonly unknown[], input: PaintInput): void {
@@ -83,7 +93,7 @@ function grow(still: Still, { layer, placed }: Source, input: PaintInput): boole
   const started = performance.now();
   const edges = edgePart(layer, input, placed, { first: still.drawn, count: still.chunk });
   if (edges === null) return false;
-  still.chunk = nextBudget(still.chunk, performance.now() - started, pairs);
+  still.chunk = nextBudget(still.chunk, performance.now() - started, pairs, stillFloor(pairs));
   still.ctx.drawImage(edges.bitmap, 0, 0);
   edges.bitmap.close();
   still.drawn += edges.drawn;

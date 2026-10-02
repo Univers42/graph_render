@@ -35,9 +35,8 @@ if [[ ! -f "$root/app/dist/index.html" ]]; then
   echo "studio-3d: app/dist is missing — run scripts/studio.sh build" >&2
   exit 2
 fi
-if ! docker image inspect "$image" >/dev/null 2>&1; then
-  docker build -f "$root/deploy/chromium.Dockerfile" -t "$image" "$root/deploy" || exit 2
-fi
+source "$root/scripts/orch/image.sh"
+ensure_image "$image" || exit 2
 
 exec docker run --rm --memory 4g --memory-swap 4g -v "$root:/w" -w /w/deploy/three "$image" \
   python3 three.py --dist /w/app/dist --out "/w/target/studio-3d/$label" \

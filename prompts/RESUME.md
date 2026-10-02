@@ -1,10 +1,114 @@
-# Resume prompt — graph-motor, written 2026-09-29 before a host shutdown
+# Resume prompt — graph-motor, first written 2026-09-29 before a host shutdown
 
-Paste this to the next session as its first instruction. It replaces the "where are we"
-parts of `docs/reports/STATUS.md` and `HANDOFF.md` until those are rewritten. The standing
-rules are still in `CLAUDE.md`, `prompt.md`, `prompts/ONBOARDING.md`, `prompts/AGENT_BRIEF.md`.
+This is an append-only handoff log. **The newest block is the HANDOFF 2026-10-01 at the top**;
+older blocks are kept as history and several of their claims are now false — the tree is the
+authority. `docs/reports/STATUS.md` and `prompts/CONTINUE.md`, both rewritten 2026-10-02, are the
+current rollups. The standing rules are still in `CLAUDE.md`, `prompt.md`,
+`prompts/ONBOARDING.md`, `prompts/AGENT_BRIEF.md`.
 
-## HANDOFF 2026-09-30 00:40 — read this first, it overrides the sections below
+## HANDOFF 2026-10-01 (written 2026-10-02) — read this first, it overrides the 2026-09-30 block
+
+`docs/reports/STATUS.md` and `prompts/CONTINUE.md` were rewritten on 2026-10-02 and are the
+current rollups. This block is the dated handoff; everything below it is history and is kept.
+
+### develop now
+
+- `origin/develop` = **701b46a** (2026-10-02), **436 commits**. The 2026-09-30 handoff's `f261baf`
+  was 251, so **185 commits landed in three days**. The tree is the authority; check any row with
+  `git log --oneline origin/develop..origin/<branch>`.
+- **35 layout ids** in `LAYOUTS` (`crates/graph-core/src/registry.rs:108`; the previous handoff's
+  "34" in `prompts/jobs/status-refresh.md:5` was already wrong). `docs/measurements/scigraphs-coverage.md:74`:
+  `missing` = **0**.
+- **The ledger has 69 rows** (`capabilities --json`), 17 of them `gated`. Status is one of four
+  strings (`crates/graph-cli/src/capabilities.rs:33-42`): `absent`, `stub`, `implemented`, `gated`.
+  No live row is `absent` or `stub`.
+- Landed 2026-10-01 and cited in `docs/reports/STATUS.md` §1: p12-t2, p12-t3 (the five 3D
+  SciGraphs layouts, `a39f968`), p13-3d and its seam (`6185be8`, the z column), the Graphviz
+  ports twopi/osage/patchwork/circo (p13-gv1) and neato/fdp/sfdp (p13-gv2), the osage
+  differential gate, `graphviz-verdict` (the ledger now reads any oracle record by name,
+  `capabilities/verdict.rs:52-58`), the wasm session trap repair (`d3fb0b6`,
+  `graph-wasm/src/session.rs:225` returns a `Code` instead of trapping), studio-live,
+  studio-watchdog, studio-edge-gradient, studio-smoke and studio-3d.
+- **Not run on this tree**: the full gate (`scripts/orch/rows/develop-full.rows`, 88 rows).
+  Nothing is known about develop's red rows until it runs — UNKNOWN = FAIL.
+
+### Still open
+
+`p12-t4a` (3D arms of the five closed-form/spectral names, branch `971318d` holds all 40 files),
+`p12-t4b` (3D arms of the force names, **no branch yet**), `p13-gv2-dot` (the `dot` port,
+`f098188`; the brief orders rank → mincross → position), `osage-knob` (unblocks osage's promotion
+to `gated`), `sg-conformance-split`, `studio-switch-fit` (live), `trap-followups` (**landed** — the brief's item
+list is satisfied), `studio-3d` (**landed**). `p12-t3-knobs` is **partial**: the five knobs are in
+`hashgate/knobs.rs:125-151`, and the brief's "exit 1" goal was replaced by pinning
+`negctl-node-z` to exit **2** with the cause written (`scripts/orch/rows/p12-t3.rows:84`).
+Full table with evidence: `docs/reports/STATUS.md` §4.1.
+
+### Branches pushed but not on develop (12)
+
+Superseded and deletable: `p12-t2` (b1aa19d), `tier-settle` (6ab44f9), `studio-force` (15ce426) —
+develop carries the same work and has since grown past each. `studio-ux` (855a876) stays
+**dropped** by the user, 2026-09-30: do not plan work on it. Work in them: `p12-t4a` (971318d),
+`p13-gv2-dot` (f098188), `perf-p2-pm` (e64e8df, `layout.force.particle_mesh`), `sg-dedupe`
+(4357222), and three docs-only review branches (62529fa, ebeeb9d, 7dfb5cf).
+
+**`p13-gv2-dot-rank` is the same commit as `p13-gv2-dot`** — `f098188`, empty diff between the two
+refs — because two `queue.txt` rows pointed at one branch. Merge it once and delete the duplicate
+row.
+
+### The queue, and a lesson from it
+
+`scripts/orch/queue.sh status`: 47 rows — 43 done, 2 live, 2 pending. The state is three files
+per label in `$GM_SCRATCH/orch/queue/` (`<label>.pid`, `.rc`, `.land`); there is no append-only
+journal.
+**The `land` column in `queue.txt` is not the authority.** `p13-gv2-sfdp`, `trap-followups`,
+`p12-t3-knobs`, `studio-3d`, `graphviz-verdict` and `wasm-gm-build-trap` all carry `land=0` in
+`$GM_SCRATCH/orch/queue/` and their work **is** on develop, yet every one of their committed rows
+reads `land=no` (`scripts/orch/queue.sh:61` only runs the land step when the column says `yes`).
+The same is true of `rc`: eleven jobs read `rc=2` — "the agent did not return `done`" — and eleven
+of those landed their work anyway. Read the tree and `git log`, never the column: `run()` skips
+any label that still has a `.pid` (`queue.sh:94`), so nothing gets re-run, only misread.
+
+### First tasks for the next session, in order
+
+1. `scripts/orch/gate.sh <logdir> scripts/orch/rows/develop-full.rows` on develop, one timed gate
+   at a time. Red rows become repair tasks.
+2. Land `p12-t4a`, then `p13-gv2-dot`, then `perf-p2-pm` — each: merge develop into the branch,
+   run `scripts/orch/rows/quick.rows` on the merged tree, then `scripts/orch/queue.sh land <label>`
+   or set `land=yes`.
+3. `wt-new.sh p12-t4b` and launch it; it has no branch yet.
+4. Land the three `review-*` docs branches and `sg-dedupe`.
+
+### The Obsidian drag + forces panel — CLOSED
+
+The chain in the 2026-09-30 block (4 steps: `sim` → `force-wasm` → `studio-force` → merge) is
+**done**: the force session is on develop and the studio drives it
+(`packages/graph-studio/src/motor/live.ts:32,57`, `motor/liveDrag.ts:2`, `ui/ForcesPanel.tsx:109`),
+gated by `scripts/studio-live.sh` (commit `db936cf`) with a watchdog at `motor/watchdog.ts` armed
+from `motor/bridge.ts:96,139`.
+
+### What the 3D verdict decided, and what superseded it
+
+`docs/decisions/contract-3d-verdict.md:48` is **PROCEED-WITH-CONDITIONS**; conditions 1–4 held
+(the 2D bytes never moved: `binary/tests/pinned.rs` green unedited,
+`docs/measurements/p13-3d-seam.md:38`). **Condition 5 — refuse `dim = 1` by name — was superseded
+on 2026-10-01** by `docs/decisions/studio-3d.md:4`: the studio now draws the 3D layouts, and
+`packages/graph-render/src/snapshot/decode.ts:192` refuses only `reserved-dim`. The 1.0
+declaration is still open (`contract-3d-verdict.md:90`).
+
+### Environment facts that bit the last session
+
+- **The gate queue is the bottleneck, not the agents.** Never let a worker run a timed gate;
+  `scripts/orch/timed` holds the host-wide `flock`.
+- `p13-gv1-circo` is a recorded **negative result**: our circo reproduces Graphviz's on 16 of 1000
+  seeds (`docs/measurements/p13-gv1-circo.md:11`). Do not spend a job "fixing" it without reading
+  that file first.
+- fdp and sfdp cannot be gated tighter than the Graphviz oracle meets itself
+  (`p13-gv2-fdp.md:22`, `p13-gv2-sfdp.md:17`).
+- `layout.force.yifan_hu` is the one layout row with **no oracle at all**.
+- Studio `perf-fps` has never passed and every studio perf run exits 1 on it, so its negative
+  control proves nothing (`docs/measurements/studio-s7.md:18,31`).
+
+## HANDOFF 2026-09-30 00:40 — superseded by the block above; kept for history
 
 The previous session ran out of time at a user deadline. The user's order: everything goes on
 `develop` with this prompt. What landed, what did not, and how to finish each item follows.

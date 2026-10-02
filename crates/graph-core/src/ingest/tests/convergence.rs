@@ -1,5 +1,6 @@
 //! The phase's proof: two source shapes, one contract document, one graph.
 
+use super::fixture_write;
 use super::support::*;
 
 // ------------------------------------------------------- the convergence pair
@@ -60,6 +61,22 @@ fn the_committed_graph_is_exactly_what_the_derivation_produces() {
         .expect("the committed ingest document reads");
     let derived = build(&document).expect("the committed document derives");
     let produced = to_canonical_json(&derived);
+    // The same test is the gate row and the generator, so a regeneration cannot be a
+    // hand-edit: `GM_WRITE_INGEST_GRAPH=1` rewrites the fixture's `graph` member from the
+    // derivation and prints it, and this assertion is what a stale fixture fails.
+    if fixture_write::requested() {
+        let written = fixture_write::write_graph(&produced).expect("the fixture is writable");
+        assert_eq!(
+            member(&written, "graph"),
+            produced,
+            "the generator wrote something the reader cannot read back as the derivation"
+        );
+        println!(
+            "GM_WRITE_INGEST_GRAPH: rewrote fixtures/ingest/expected-graph.json's graph \
+             member; commit it"
+        );
+        return;
+    }
     let committed = member(EXPECTED, "graph");
     assert_eq!(
         committed, produced,

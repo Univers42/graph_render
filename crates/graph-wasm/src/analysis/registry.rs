@@ -66,8 +66,9 @@ pub fn run(i: u32, topology: &Topology) -> Option<Report> {
 }
 
 /// The JSON face of the analysis at index `i` over `topology`: canonical, ascending-key
-/// order, one line, no trailing newline. `None` past the end of the registry.
+/// order, one line, no trailing newline. `None` past the end of the registry, or when the
+/// report has no JSON text ([`Report::to_json`]); `gm_analysis_run` tells the two apart
+/// by calling [`run`] and [`Report::to_json`] itself.
 pub fn to_json(i: u32, topology: &Topology) -> Option<String> {
-    let report = run(i, topology)?;
-    Some(report.to_json())
+    run(i, topology)?.to_json()
 }
