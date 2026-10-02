@@ -100,7 +100,7 @@ pub fn feasible_tree(g: &mut Fast, ctx: &mut Ctx, nodes: &[u32]) -> Result<(), E
         // The representative of a merge is always a subtree still on the heap, because
         // exactly one of the two merged was the one just extracted, so this index is live.
         if let Some(at) = trees[rep].heap_index {
-            subtree::sift_down(&mut heap, &trees, size, at);
+            subtree::sift_down(&mut heap, &mut trees, size, at);
         }
     }
     init_cutvalues(g, nodes)?;

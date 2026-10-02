@@ -143,10 +143,12 @@ fn is_acyclic(g: &Fast) -> bool {
 }
 
 /// The components of a connected graph are one component holding every node, in the
-/// reference's pop order.
+/// reference's pop order. `class1` runs first because `decompose` searches the fast graph,
+/// which is empty until `class1` fills it.
 #[test]
 fn a_connected_graph_is_one_component() {
-    let g = graph(5, &[(0, 1), (1, 2), (2, 3), (3, 4)]);
+    let mut g = graph(5, &[(0, 1), (1, 2), (2, 3), (3, 4)]);
+    super::class1::run(&mut g);
     let comps = super::decomp::decompose(&g);
     assert_eq!(comps.len(), 1);
     assert_eq!(comps[0].len(), 5);
@@ -157,7 +159,8 @@ fn a_connected_graph_is_one_component() {
 /// search from every real node, connected or not (`decomp.c:91-113`).
 #[test]
 fn components_come_out_in_dense_index_order() {
-    let g = graph(6, &[(0, 1), (3, 4), (1, 2)]);
+    let mut g = graph(6, &[(0, 1), (3, 4), (1, 2)]);
+    super::class1::run(&mut g);
     let comps = super::decomp::decompose(&g);
     assert_eq!(comps.len(), 3, "{comps:?}");
     assert_eq!(comps[0], vec![0, 1, 2]);
@@ -167,11 +170,14 @@ fn components_come_out_in_dense_index_order() {
 
 /// Reversing an edge that already has a reverse **merges** the two, which is the
 /// reference's `reverse_edge` (`acyclic.c:22-33`) and not a swap: the surviving edge
-/// carries both weights.
+/// carries both weights. Both directions are live here because `class1` folds *parallel*
+/// edges together and a pair running the other way round is not parallel — it is exactly the
+/// case `acyclic` exists to resolve.
 #[test]
 fn reversing_onto_an_existing_reverse_merges_the_two() {
     let mut g = graph(2, &[(0, 1), (1, 0)]);
-    break_cycles(&mut g);
+    super::class1::run(&mut g);
+    assert_eq!(directions(&g), vec![(0, 1), (1, 0)]);
     let reversed = live_edge(&g, 1, 0);
     let first = g.edges[reversed as usize].weight;
     g.reverse_edge(reversed);
@@ -179,20 +185,8 @@ fn reversing_onto_an_existing_reverse_merges_the_two() {
         !g.edges[reversed as usize].live,
         "the reversed edge is unhooked"
     );
-    let live: Vec<_> = g
-        .edges
-        .iter()
-        .enumerate()
-        .filter(|(_, e)| e.live)
-        .map(|(i, _)| i)
-        .collect();
-    assert_eq!(live.len(), 1, "one edge survives, not two");
-    let survivor = live[0];
-    assert_eq!(
-        g.edges[survivor].weight,
-        first * 2,
-        "the weights add"
-    );
+    let survivor = live_edge(&g, 0, 1);
+    assert_eq!(g.edges[survivor as usize].weight, first * 2, "the weights add");
 }
 
 /// `class1` gives each input edge a copy in the fast graph and leaves the input record out

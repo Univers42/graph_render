@@ -176,34 +176,62 @@ fn two_runs_rank_identically() {
 
 /// The rank pass leaves the fast graph empty, which is the boundary `class2` starts from:
 /// everything the position pass walks is a chain `class2` builds afterwards, and the input
-/// edges survive in `orig_out` rather than in the adjacency lists.
+/// edges survive — in `orig_out` and in `edges`, not in the adjacency lists.
 #[test]
 fn cleanup_leaves_the_input_edges_and_empties_the_adjacency() {
     let mut g = graph(4, &[(0, 1), (1, 2), (2, 3), (3, 0)]);
     rank(&mut g).expect("connected after cycle breaking");
     assert!(g.out.iter().all(|list| list.is_empty()), "out");
     assert!(g.inn.iter().all(|list| list.is_empty()), "inn");
-    assert_eq!(g.orig_out[0], vec![0]);
+    assert_eq!(g.orig_out[0], vec![0], "the input edges are still there");
     assert_eq!(g.orig_out[3], vec![3]);
-    assert!(g.edges.iter().all(|e| e.live), "the input edges are kept");
+    assert!(
+        g.edges.iter().all(|e| !e.live),
+        "and none of them is in the fast graph any more"
+    );
 }
 
-/// `class2` gives an edge spanning two ranks exactly one dummy, on the rank between, joined
-/// by two links — and no dummy at all for an edge within one rank, which becomes *flat*.
+/// `class2` gives an edge spanning `k` ranks exactly `k - 1` dummies, one per intervening
+/// rank, joined by `k` links. A four-node path with a shortcut from end to end is the shape:
+/// ranks 0 to 3, so `n0 -> n3` gets two dummies and each of the three short edges none.
 #[test]
-fn class2_chains_a_long_edge_and_flattens_a_short_one() {
+fn class2_chains_a_long_edge() {
     let mut g = graph(4, &[(0, 1), (1, 2), (2, 3), (0, 3)]);
     rank(&mut g).expect("connected after cycle breaking");
+    assert_eq!(ranks_of(&g), vec![0, 1, 2, 3]);
     let before = g.nodes.len() as u32;
     class2::run(&mut g);
-    assert_eq!(g.nodes.len() as u32 - before, 1, "one dummy, for the 0 -> 3 edge");
-    let dummy = before;
-    assert_eq!(g.nodes[dummy as usize].kind, Kind::Virtual);
-    assert_eq!(g.nodes[dummy as usize].rank, 1, "between ranks 0 and 2");
-    assert_eq!(g.inn[dummy as usize].len(), 1);
-    assert_eq!(g.out[dummy as usize].len(), 1);
+    assert_eq!(g.nodes.len() as u32 - before, 2, "one dummy per intervening rank");
+    let dummies: Vec<u32> = (before..g.nodes.len() as u32).collect();
+    let ranks: Vec<i32> = dummies.iter().map(|&n| g.nodes[n as usize].rank).collect();
+    assert_eq!(ranks, vec![1, 2], "on the ranks between the ends");
+    for &dummy in &dummies {
+        assert_eq!(g.nodes[dummy as usize].kind, Kind::Virtual);
+        assert_eq!(g.inn[dummy as usize].len(), 1, "one link in");
+        assert_eq!(g.out[dummy as usize].len(), 1, "one link out");
+    }
     let flat: usize = g.nodes.iter().map(|n| n.flat_out.len()).sum();
-    assert_eq!(flat, 1, "the 0 -> 3 edge is the only same-rank one");
+    assert_eq!(flat, 0, "no edge of this graph has its ends on one rank");
+}
+
+/// An edge whose ends share a rank is **flat**: it stays in the graph at zero separation and
+/// goes into `flat_out`/`flat_in` rather than `out`/`inn`, and gets no dummies.
+///
+/// `dot`'s own `ED_minlen` is 1, so a plain acyclic graph never produces one — every edge
+/// spans at least a rank, and the reverse edge `acyclic` leaves behind gets a chain either
+/// way. The branch is reached in practice through a cluster or an explicit `minlen = 0`, so
+/// the rank is put side by side here rather than asked for from a fixture.
+#[test]
+fn an_edge_with_its_ends_on_one_rank_is_flat() {
+    let mut g = graph(2, &[(0, 1)]);
+    rank(&mut g).expect("connected after cycle breaking");
+    assert_eq!(ranks_of(&g), vec![0, 1]);
+    g.nodes[1].rank = g.nodes[0].rank;
+    class2::run(&mut g);
+    assert_eq!(g.nodes.len(), 2, "a flat edge gets no dummies");
+    assert_eq!(g.nodes[0].flat_out, vec![0]);
+    assert_eq!(g.nodes[1].flat_in, vec![0]);
+    assert!(g.out.iter().all(|list| list.is_empty()), "and no chain link");
 }
 
 /// A dummy is a `nodesep`-wide placeholder: one point plus `nodesep / 2` on each side
@@ -220,56 +248,47 @@ fn a_chain_dummy_is_a_nodesep_wide_placeholder() {
     assert_eq!(dummy.ht, 1.0);
 }
 
-/// Two parallel edges draw as one: the second is folded into the first's chain, so the
-/// chain's weights and counts carry both and no second dummy appears.
+/// `virtual_weight` (`mincross.c:1706-1731`): a chain link's weight times the table entry for
+/// its two endpoint classes. A link between two dummies is weighted **four** — they exist for
+/// that edge alone — while a link with a real node at one end keeps its weight. So the middle
+/// link of a three-hop chain is four times what the original edge weighed, and that is what
+/// makes the simplex care more about a long edge than a short one.
+#[test]
+fn virtual_weight_scales_a_link_by_its_endpoint_classes() {
+    let mut g = graph(4, &[(0, 1), (1, 2), (2, 3), (0, 3)]);
+    rank(&mut g).expect("connected after cycle breaking");
+    class2::run(&mut g);
+    let low = g.inn[4 as usize][0];
+    let high = g.out[4 as usize][0];
+    assert_eq!(g.edges[low as usize].weight, 1, "real node to dummy");
+    assert_eq!(g.edges[high as usize].weight, 4, "dummy to dummy");
+}
+
+/// Two input edges between the same pair draw as one: the second is folded into the first's
+/// chain, so the chain carries both weights and both counts and no second pair of dummies
+/// appears.
+///
+/// `class1` has already given the pair one constraint, so this is `class2`'s own merge: it
+/// walks the *input* edges and finds the twin, whose chain is already built. The chain's
+/// middle link therefore carries `1 + 1 = 2` on top of the four `virtual_weight` gave it.
 #[test]
 fn class2_merges_parallel_edges_into_one_chain() {
-    let mut g = graph(4, &[(0, 1), (0, 1), (1, 2), (2, 3)]);
+    let mut g = graph(4, &[(0, 1), (1, 2), (2, 3), (0, 3), (0, 3)]);
     rank(&mut g).expect("connected after cycle breaking");
     let before = g.nodes.len() as u32;
     class2::run(&mut g);
-    assert_eq!(g.nodes.len() as u32 - before, 2, "one dummy per rank, not per edge");
-    let parallel: Vec<_> = g.edges.iter().filter(|e| (e.tail, e.head) == (0, 1)).collect();
-    let chain: Vec<_> = parallel
-        .iter()
-        .filter(|e| e.live)
-        .map(|e| e.weight)
-        .collect();
-    assert_eq!(chain, vec![2], "the twin's weight is folded in");
-    let counts: Vec<_> = parallel
-        .iter()
-        .filter(|e| e.live)
-        .map(|e| e.count)
-        .collect();
-    assert_eq!(counts, vec![2], "and so is its count");
-}
-
-/// `virtual_weight`: a link whose ends are two virtual nodes — two dummies of one chain —
-/// is weighted four, one touching a singleton twice, because the dummies are only there for
-/// that edge. This is the fixture-independent half of the rule and the reason a chain is
-/// never a plain copy of its original edge.
-#[test]
-fn virtual_weight_scales_a_link_by_its_endpoint_classes() {
-    let mut g = graph(5, &[(0, 1), (1, 2), (2, 3), (0, 4)]);
-    rank(&mut g).expect("connected after cycle breaking");
-    class2::run(&mut g);
-    let dummies: Vec<u32> = (4..g.nodes.len() as u32)
-        .filter(|&n| g.nodes[n as usize].kind == Kind::Virtual)
-        .collect();
-    assert!(!dummies.is_empty(), "the long edge made some");
-    for &dummy in &dummies {
-        for &edge in &g.out[dummy as usize] {
-            let head = g.edges[edge as usize].head;
-            let both_virtual =
-                g.nodes[head as usize].kind == Kind::Virtual;
-            let want = if both_virtual { 4 } else { 1 };
-            assert_eq!(
-                g.edges[edge as usize].weight,
-                want,
-                "link {edge} -> {head}"
-            );
-        }
-    }
+    assert_eq!(
+        g.nodes.len() as u32 - before,
+        2,
+        "one pair of dummies for the pair of parallel edges"
+    );
+    let middle = g.out[4][0];
+    assert_eq!(g.edges[middle as usize].count, 2, "both input edges counted");
+    assert_eq!(
+        g.edges[middle as usize].weight,
+        5,
+        "the link's own four, plus the twin's one"
+    );
 }
 
 /// One row of `target/probe/rank1000.txt`: the oracle's answer for one seed.
@@ -333,6 +352,7 @@ fn rank_agreement_over_1000_seeds() {
     let agree: Vec<u32> = rows
         .iter()
         .filter(|row| {
+            eprintln!("seed {}", row.seed);
             let count = u32::try_from(row.ranks.len()).expect("a node count fits u32");
             ranked(count, &row.edges) == row.ranks
         })
@@ -352,22 +372,3 @@ fn rank_agreement_over_1000_seeds() {
 /// `docs/measurements/p13-gv2-dot.md`. Kept here so the assertion above names the number it
 /// is checking against and not a bare literal.
 const RECORDED_AGREEMENT: usize = 0;
-#[test]
-#[ignore]
-fn debug_seed3() {
-    let mut g = graph(5, &[(1, 0), (1, 0), (2, 0), (3, 0), (3, 0), (4, 0), (4, 1)]);
-    super::class1::run(&mut g);
-    eprintln!("after class1: {:?}", super::fast::Edge::clone(&g.edges[0]));
-    for e in &g.edges {
-        eprintln!("edge {} {}->{} live={} w={} minlen={} tv={:?}", e.tail, e.head, e.tail, e.live, e.weight, e.minlen, e.to_virt);
-    }
-    let comps = super::decomp::decompose(&g);
-    eprintln!("comps {comps:?}");
-    for c in &comps { super::acyclic::run(&mut g, c); }
-    for (i, n) in g.nodes.iter().enumerate() {
-        eprintln!("node {i} in={:?} out={:?}", g.inn[i], g.out[i]);
-    }
-    let params = super::simplex::Params { balance: super::simplex::Balance::TopBottom, maxiter: 12, search_size: -1 };
-    super::simplex::rank2(&mut g, &comps[0], &params).expect("rank");
-    eprintln!("ranks {:?}", ranks_of(&g));
-}

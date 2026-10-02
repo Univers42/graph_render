@@ -109,67 +109,78 @@ fn lr_balance(g: &mut Fast, ctx: &Ctx, nodes: &[u32]) {
 /// it is usually stay there.
 pub fn tb_balance(g: &mut Fast, nodes: &[u32]) {
     let max_rank = scan_and_normalize(g, nodes);
-    let mut counts = vec![0usize; usize::try_from(max_rank + 1).expect("a rank count fits usize")];
+    let mut counts = vec![0usize; rank_count(max_rank)];
     let mut order: Vec<u32> = nodes.to_vec();
     order.sort_by_key(|&n| g.nodes[n as usize].rank);
     for &n in &order {
         if g.nodes[n as usize].kind == Kind::Normal {
-            counts[rank_slot(g, n, max_rank)] += 1;
+            counts[slot(g.nodes[n as usize].rank, max_rank)] += 1;
         }
     }
     for n in order {
         if g.nodes[n as usize].kind != Kind::Normal {
             continue;
         }
-        if let Some(choice) = emptiest(g, n, max_rank, &counts) {
-            let from = rank_slot(g, n, max_rank);
-            counts[from] -= 1;
-            counts[choice] += 1;
-            g.nodes[n as usize].rank = i32::try_from(choice).expect("a rank fits i32");
-        }
+        let Some(choice) = emptiest(g, n, max_rank, &counts) else {
+            continue;
+        };
+        counts[slot(g.nodes[n as usize].rank, max_rank)] -= 1;
+        counts[slot(choice, max_rank)] += 1;
+        g.nodes[n as usize].rank = choice;
     }
 }
 
-/// `TB_balance`'s inner move, `None` when the node's in- and out-weights differ and nothing
-/// may be done to it.
-fn emptiest(g: &Fast, n: u32, max_rank: i32, counts: &[usize]) -> Option<usize> {
+/// `TB_balance`'s inner move: `None` when the node's in- and out-weights differ, and
+/// otherwise the emptiest rank in the node's legal range.
+///
+/// The legal range is `[low, high]` from the node's own edges — no in-neighbour may end up
+/// above it and no out-neighbour below it — and the choice inside it is the emptiest rank,
+/// with `low` as the tie-break because the scan starts there and only moves on a strict `<`.
+/// A node that could have stayed where it is usually does.
+///
+/// Two bounds are not what they look like. `low` is clamped at 0 because a *virtual* node can
+/// sit below rank 0. `high` is not clamped, and can be less than `low`: the pass moves nodes
+/// one at a time, so an earlier move can leave a later node's range empty, and then the scan
+/// never runs and the node stays put. That is the reference's behaviour with an empty `for`,
+/// not a case to correct.
+fn emptiest(g: &Fast, n: u32, max_rank: i32, counts: &[usize]) -> Option<i32> {
     let mut low = 0;
     let mut high = max_rank;
     let mut in_weight = 0;
     let mut out_weight = 0;
     for &edge in &g.inn[n as usize] {
         in_weight += g.edges[edge as usize].weight;
-        low = low.max(g.nodes[g.edges[edge as usize].tail as usize].rank
-            + g.edges[edge as usize].minlen);
+        let record = &g.edges[edge as usize];
+        low = low.max(g.nodes[record.tail as usize].rank + record.minlen);
     }
     for &edge in &g.out[n as usize] {
         out_weight += g.edges[edge as usize].weight;
-        high = high.min(g.nodes[g.edges[edge as usize].head as usize].rank
-            - g.edges[edge as usize].minlen);
+        let record = &g.edges[edge as usize];
+        high = high.min(g.nodes[record.head as usize].rank - record.minlen);
     }
-    let low = usize::try_from(low).expect("a rank is never negative here");
-    let high = usize::try_from(high).expect("a rank is never negative here");
     if in_weight != out_weight {
         return None;
     }
+    let low = low.max(0);
     let mut choice = low;
     for at in low + 1..=high {
-        if counts[at] < counts[choice] {
+        if counts[slot(at, max_rank)] < counts[slot(choice, max_rank)] {
             choice = at;
         }
     }
     Some(choice)
 }
 
-/// The node's current rank as a slot in the count vector. A virtual node can sit below rank
-/// 0, which is why the reference clamps `low` and why this clamps the slot: the count vector
-/// is indexed by real ranks only.
-fn rank_slot(g: &Fast, n: u32, max_rank: i32) -> usize {
-    g.nodes[n as usize]
-        .rank
-        .clamp(0, max_rank)
-        .try_into()
-        .expect("a rank fits usize")
+/// How many rank slots the count vector has: `Maxrank + 1` (`ns.c:824`).
+fn rank_count(max_rank: i32) -> usize {
+    usize::try_from(max_rank + 1).expect("a rank count fits usize")
+}
+
+/// A rank as an index into the count vector. Only real nodes are counted and they are all
+/// within `[0, Maxrank]` after normalising, so the clamp is a guard on the slot arithmetic
+/// rather than a rule about the answer.
+fn slot(rank: i32, max_rank: i32) -> usize {
+    usize::try_from(rank.clamp(0, max_rank)).expect("a clamped rank fits usize")
 }
 
 /// `SLACK(e)` (`ns.c:43`).

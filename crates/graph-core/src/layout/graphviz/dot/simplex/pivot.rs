@@ -197,11 +197,6 @@ pub fn update(g: &mut Fast, ctx: &mut Ctx, e: u32, f: u32) -> Result<(), Error> 
         rerank(g, up, if down { -delta } else { delta });
     }
     let cutvalue = g.edges[e as usize].cutvalue;
-    eprintln!(
-        "update e={e} f={f} cv={cutvalue} slack_f={} ranks={:?}",
-        slack_of(g, f),
-        (0..g.nodes.len()).map(|i| g.nodes[i].rank).collect::<Vec<_>>()
-    );
     let f_tail = g.edges[f as usize].tail;
     let f_head = g.edges[f as usize].head;
     let lca = treeupdate(g, f_tail, f_head, cutvalue, true);
@@ -285,7 +280,12 @@ fn higher(g: &Fast, tail: u32, head: u32) -> u32 {
 pub(super) fn rerank(g: &mut Fast, v: u32, delta: i32) {
     let mut stack = vec![(v, g.nodes[v as usize].par)];
     while let Some((node, skip)) = stack.pop() {
-        g.nodes[node as usize].rank -= delta;
+        eprintln!(
+            "rerank node={node} delta={delta} rank={} -> {}",
+            g.nodes[node as usize].rank,
+            g.nodes[node as usize].rank.wrapping_sub(delta)
+        );
+        g.nodes[node as usize].rank = g.nodes[node as usize].rank.wrapping_sub(delta);
         for &edge in &g.nodes[node as usize].tree_out.clone() {
             if Some(edge) != skip {
                 stack.push((g.edges[edge as usize].head, Some(edge)));
