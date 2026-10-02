@@ -12,7 +12,7 @@ fn path(n: u32) -> Topology {
 
 /// A ring of 8: dense indices 0..8, positions on a circle of radius 100, and a
 /// viewport that keeps the left half of it.
-fn ring() -> (Topology, Vec<f64>, Vec<f64>) {
+pub(super) fn ring() -> (Topology, Vec<f64>, Vec<f64>) {
     let mut nodes = Vec::new();
     let mut edges = Vec::new();
     for i in 0..8_u32 {
@@ -33,7 +33,7 @@ fn ring() -> (Topology, Vec<f64>, Vec<f64>) {
     (t, x, y)
 }
 
-fn viewport() -> Viewport {
+pub(super) fn viewport() -> Viewport {
     Viewport {
         x0: -200.0,
         y0: -200.0,
@@ -108,8 +108,9 @@ fn the_masks_have_one_entry_per_node_and_per_edge_and_cull_the_far_side() {
     );
 }
 
-/// The reference's never-empty guarantee (`lod.py:88-90`): a budget of zero still
-/// lets the single most important visible node keep its label.
+/// The reference's never-empty guarantee (`lod.py:88-90`): the smallest budget, 1,
+/// still lets the single most important visible node keep its label (0 is no limit:
+/// `mask_tests.rs`).
 #[test]
 fn the_label_budget_is_never_empty_and_ranks_by_degree_then_index() {
     let (t, x, y) = ring();
@@ -119,7 +120,7 @@ fn the_label_budget_is_never_empty_and_ranks_by_degree_then_index() {
         &y,
         &LodParams {
             viewport: viewport(),
-            label_budget: 0,
+            label_budget: 1,
             ..LodParams::default()
         },
     );

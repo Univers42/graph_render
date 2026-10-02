@@ -6,13 +6,14 @@ import { createElement } from "react";
 import { studioActions } from "../../src/actions/all.ts";
 import type { StudioAction } from "../../src/actions/context.ts";
 import { ActionForm } from "../../src/ui/ActionForm.tsx";
+import { drawnOf } from "../../src/ui/draft.ts";
 import { DRAWN, markup, studioWith } from "./desk.ts";
 
 function form(id: string): string {
   const action: StudioAction | undefined = studioActions().find((candidate) => candidate.id === id);
   if (action === undefined) throw new Error(`no action ${id}`);
   const { studio } = studioWith(DRAWN);
-  return markup(createElement(ActionForm, { studio, action, state: DRAWN }));
+  return markup(createElement(ActionForm, { studio, action, state: DRAWN, drawn: drawnOf(action, DRAWN) }));
 }
 
 test("a parameter is a labelled control of the kind it asks for", () => {

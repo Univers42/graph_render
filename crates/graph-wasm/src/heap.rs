@@ -27,10 +27,10 @@ pub(crate) fn headroom(heap: usize) -> usize {
     (heap / 8).clamp(MIN_HEADROOM, MAX_HEADROOM)
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", not(test)))]
 pub(crate) use wasm::Geometric;
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(target_arch = "wasm32", not(test)))]
 mod wasm {
     use super::{PAGE, headroom};
     use std::alloc::{GlobalAlloc, Layout, System};

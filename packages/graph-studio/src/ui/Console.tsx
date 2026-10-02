@@ -7,13 +7,13 @@ import type { Studio } from "../studio/studio.ts";
 import { EMPTY_HISTORY, type History, type Step, pushLine, stepBack, stepForward } from "./history.ts";
 import { LogView } from "./LogView.tsx";
 import { shortName } from "./names.ts";
+import { useStudioState } from "./useStudio.ts";
 
 /** Candidates past this are counted, not listed: the line above the input has one row. */
 const OFFERED = 12;
 
 export interface ConsoleProps {
   readonly studio: Studio;
-  readonly state: StudioState;
   readonly onClose: () => void;
 }
 
@@ -71,7 +71,10 @@ function Offered(props: { readonly candidates: readonly string[] }): ReactElemen
 }
 
 export function Console(props: ConsoleProps): ReactElement {
-  const { studio, state, onClose } = props;
+  const { studio, onClose } = props;
+  // WHY it subscribes itself: completion reads the whole state, and the console is only
+  // mounted while it is open, so nothing pays for it while it is shut.
+  const state = useStudioState(studio);
   const line = useCommandLine({ studio, state });
   const boxRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);

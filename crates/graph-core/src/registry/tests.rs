@@ -2,6 +2,7 @@ use super::*;
 use crate::layout::grid::GridParams;
 use crate::stage::{gate_node_count, run_with, seeded_model};
 use crate::weights::REFERENCE_DEGREE;
+use graph_contract::geometry::{EdgeGeometryKind, NodeGeometryKind};
 
 #[test]
 fn every_layout_is_a_layout_stage_with_its_metadata_filled() {
