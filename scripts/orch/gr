@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # gr [-e K=V]... <cmd...> — run <cmd> in the ge-rust image (or $GR_IMAGE) with the current git
 # top-level mounted at /w and the cargo registry in a named volume. Docker-only toolchain (rule 0.2).
+# The image is built from its recipe on first use (image.sh); `--pull never`: a missing image is an
+# error here, never a pull of whatever Docker Hub holds under that name.
 set -euo pipefail
-source "$(dirname "$(readlink -f "$0")")/docker-env.sh"
+source "$(dirname "$(readlink -f "$0")")/image.sh"
 top=$(git rev-parse --show-toplevel)
 envs=()
 while [[ ${1-} == -e ]]; do envs+=(-e "$2"); shift 2; done
@@ -14,5 +16,7 @@ for v in CARGO_BUILD_JOBS RUST_TEST_THREADS; do [[ -n ${!v-} ]] && envs+=(-e "$v
 # a capped container dies alone. Ponytail: 8g is a guess above any gate row seen so far — raise GR_MEM
 # if a legitimate row is OOM-killed (exit 137).
 mem=${GR_MEM:-8g}
-exec docker run --rm --memory "$mem" --memory-swap "$mem" ${envs[@]+"${envs[@]}"} -v "$top:/w" -w /w \
-  -v ge-cargo-registry:/opt/cargo/registry "${GR_IMAGE:-ge-rust}" "$@"
+image=${GR_IMAGE:-ge-rust}
+ensure_image "$image"
+exec docker run --rm --pull never --memory "$mem" --memory-swap "$mem" ${envs[@]+"${envs[@]}"} -v "$top:/w" -w /w \
+  -v ge-cargo-registry:/opt/cargo/registry "$image" "$@"
