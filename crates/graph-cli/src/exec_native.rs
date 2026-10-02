@@ -10,10 +10,15 @@
 //! [`Serial`] ones over odd worker counts, and `partition.rs`'s own negative control shows
 //! the comparison catches a split sum.
 //!
-//! **Not yet measured.** The executor exists and is proven equal; whether it is *faster*
-//! at a given N is a measurement this branch has not taken
-//! (`docs/decisions/tier-thresholds.md` and `docs/measurements/phase11-threads.md` are
-//! where that lands), which is why `Thresholds::MEASURED` promotes nothing yet.
+//! **Measured once, on a loaded host, and not a promotion.** One interleaved pair of Barnes-Hut
+//! bench runs at 100 000 nodes put this executor, with the workers writing straight into the
+//! caller's column, at 5 650 ms against 6 547 ms for the per-worker buffers it replaced
+//! (7 workers, 112 ticks, −13.7 %) — and the unchanged scalar arm of the same pair drifted
+//! 3.4 % on the same host, which is the number a reader should hold the rest of the table to.
+//! That is evidence the two copies of the column were worth removing, not a sweep carrying the
+//! losing sizes a threshold needs (`docs/decisions/tier-thresholds.md:46-58`), so
+//! `Thresholds::MEASURED` still promotes nothing. Commands, host load and the 1M rows:
+//! `docs/measurements/perf-p3-split.md`.
 
 use graph_core::exec::{Runner, StepRange, partition};
 #[cfg(test)]
@@ -35,37 +40,32 @@ pub struct Threads;
 
 impl Runner for Threads {
     fn run<O: StepRange>(&self, kernel: &O, workers: u32, out: &mut Vec<O::Out>) {
+        let workers = workers.max(1);
         out.clear();
-        if workers.max(1) < 2 {
-            // No resize before the call: the kernel writes `out[range]` at range-relative
-            // indices, so the buffer has to be the kernel's own length when it starts.
-            out.resize(kernel.len() as usize, O::Out::default());
+        // Sized once, before the call, for the same reason as the one-worker path below:
+        // the kernel writes `out[range]` at range-relative indices, so the buffer has to
+        // be the kernel's own length when it starts.
+        out.resize(kernel.len() as usize, O::Out::default());
+        if workers < 2 {
             kernel.step_range(0..kernel.len(), out);
             return;
         }
-        // Each worker fills its own buffer rather than a disjoint borrow of the caller's
-        // column: the ranges are ascending and contiguous (`partition`'s contract), so
-        // laying the buffers end to end after the join reconstructs the column exactly,
-        // with no `unsafe` and no overlapping borrow. The barrier is the scope's own join,
-        // before the assembly — one per step, which is the whole synchronisation the
-        // double-buffered state asks for.
-        let parts: Vec<Vec<O::Out>> = std::thread::scope(|scope| {
-            let handles: Vec<_> = partition(kernel.len(), workers)
-                .into_iter()
-                .map(|range| {
-                    scope.spawn(move || {
-                        let mut span = vec![O::Out::default(); range.len()];
-                        kernel.step_range(range, &mut span);
-                        span
-                    })
-                })
-                .collect();
-            handles
-                .into_iter()
-                .map(|handle| handle.join().expect("a worker did not panic"))
-                .collect()
+        // The disjoint borrow is `partition`'s contract, not a hope: its ranges are
+        // ascending, contiguous and cover `0..n` exactly, so peeling `range.len()` off
+        // the tail each time hands worker `i` a span starting exactly where its range
+        // does, and the last peel is empty. One column, one allocation, no assembly.
+        std::thread::scope(|scope| {
+            let mut rest = &mut out[..];
+            for range in partition(kernel.len(), workers) {
+                let (span, tail) = std::mem::take(&mut rest).split_at_mut(range.len());
+                rest = tail;
+                scope.spawn(move || kernel.step_range(range, span));
+            }
+            // The plan's lengths add up to the column's length, so nothing is left over.
+            // A `partition` that ever stopped covering `0..n` would fail this, not the
+            // equality tests: the leftovers would be defaults, and `resize` wrote them.
+            debug_assert!(rest.is_empty());
         });
-        out.extend_from_slice(&parts.concat());
     }
 }
 
