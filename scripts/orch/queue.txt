@@ -83,7 +83,6 @@ review-harness-sdk|build|prompts/jobs/review-harness-sdk.md|scripts/orch/rows/do
 fix-studio|build|prompts/jobs/fix-studio.md|scripts/orch/rows/quick.rows|no
 fix-wasm-ingest|build|prompts/jobs/fix-wasm-ingest.md|scripts/orch/rows/quick.rows|no
 z-comments|build|prompts/jobs/z-comments.md|scripts/orch/rows/quick.rows|no
-fix-core-base|build|prompts/jobs/fix-core-base.md|scripts/orch/rows/quick.rows|no
 fix-force-quadtree|build|prompts/jobs/fix-force-quadtree.md|scripts/orch/rows/quick.rows|no
 open-core-slot|build|prompts/jobs/open-core-slot.md|scripts/orch/rows/quick.rows|no
 fix-tree-twopi|build|prompts/jobs/fix-tree-twopi.md|scripts/orch/rows/quick.rows|no
