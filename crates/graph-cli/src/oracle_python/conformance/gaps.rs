@@ -74,7 +74,7 @@ pub(super) const G_IGRAPH_FIT: Gap = Gap {
 pub(super) const G_KK_NON_FINITE: Gap = Gap {
     parameter: "iterations",
     note: "**the reference raises, this port does not.** python-igraph 0.11.9 returns three infinite coordinates out of nine from `layout_kamada_kawai(dim=3)` on the 3-vertex path `gate-01` — in all six vertex orderings, and at `dim=2` the same graph is finite — so the row compares 957 of 1020 coordinates. Not component count, not an isolated node and not degree: the graph is connected with degrees 2, 1, 1. It is the 3x3 Newton block being near-singular at three vertices, so one step overflows `f64`; `_igraph_fit_positions` then turns those three infinities into all nine, because `extent` is `inf`, the factor is `0` and `inf * 0` is NaN. `kamada_kawai_3d` guards the block and is finite there",
-    at: "crates/graph-core/src/layout/force/kamada_kawai_3d/tests.rs:33",
+    at: "crates/graph-core/src/layout/force/kamada_kawai_3d/tests.rs:109",
 };
 pub(super) const G_DRL_NO_3D: Gap = Gap {
     parameter: "dimension",
