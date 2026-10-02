@@ -29,8 +29,8 @@
 //! are different `f64` values, and `layout.force.fruchterman_reingold` is pinned byte for byte,
 //! so the two are not merged.
 
-use super::fruchterman_reingold::FrParams;
 use super::SimpleGraph;
+use super::fruchterman_reingold::FrParams;
 use crate::rng::{Mulberry32, jiggle};
 
 /// Amplitude of the coincident-pair fix and the per-move noise, per axis.
@@ -179,12 +179,7 @@ fn attract<const D: usize>(graph: &SimpleGraph, pos: &[[f64; D]], disp: &mut [[f
 /// Moves every vertex by its displacement capped at `temp`, after a tiny hash noise so a
 /// perfectly balanced vertex still leaves a saddle. The length test is on the *perturbed*
 /// vector, as the spec states, so a balanced vertex is moved by the noise alone.
-fn step<const D: usize>(
-    pos: &mut [[f64; D]],
-    disp: &[[f64; D]],
-    temp: f64,
-    key: (u32, u32),
-) {
+fn step<const D: usize>(pos: &mut [[f64; D]], disp: &[[f64; D]], temp: f64, key: (u32, u32)) {
     for (v, raw) in disp.iter().enumerate() {
         let pair = (v as u32, v as u32);
         let mut d = *raw;

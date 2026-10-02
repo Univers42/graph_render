@@ -2,7 +2,7 @@
 //! table, the output has to be a drawing in three axes rather than a flat one, the run has to
 //! repeat, and the three-node path that makes igraph return infinities has to be finite here.
 
-use super::{sphere_row, sphere_start, KamadaKawai3D};
+use super::{KamadaKawai3D, sphere_row, sphere_start};
 use crate::index::{Topology, empty_model, index_model};
 use crate::layout::Geometry;
 use crate::layout::force::kamada_kawai::KkParams;
@@ -86,9 +86,15 @@ fn the_sphere_start_is_scaled_by_the_spec_radius() {
     for (i, p) in pos.iter().enumerate() {
         let unit = sphere_row(i, n, &mut phi);
         let want = [unit[0] * radius, unit[1] * radius, unit[2] * radius];
-        assert!(norm3([p[0] - want[0], p[1] - want[1], p[2] - want[2]]) < 1e-15, "row {i}");
+        assert!(
+            norm3([p[0] - want[0], p[1] - want[1], p[2] - want[2]]) < 1e-15,
+            "row {i}"
+        );
     }
-    assert!((pos[0][2] + radius).abs() < 1e-15, "row 0 is the south pole");
+    assert!(
+        (pos[0][2] + radius).abs() < 1e-15,
+        "row 0 is the south pole"
+    );
     assert!(
         (pos[n - 1][2] - radius).abs() < 1e-15,
         "row n-1 is the north pole"

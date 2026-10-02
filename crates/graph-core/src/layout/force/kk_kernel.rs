@@ -25,8 +25,8 @@
 //! guard is what keeps the 3-D descent finite on the three-node path where igraph's 3x3 Newton
 //! block overflows — see `docs/measurements/scigraphs-conformance.md`, the `IGRAPH_KK` row.
 
-use super::kamada_kawai::KkParams;
 use super::SimpleGraph;
+use super::kamada_kawai::KkParams;
 
 /// Gradients below this norm are treated as equilibrium: the step is zero. The spec's
 /// `KK_EPS`.
@@ -152,11 +152,7 @@ fn walk<const D: usize>(pos: &mut [[f64; D]], springs: &Springs, params: &KkPara
 fn pick<const D: usize>(grad: &[[f64; D]]) -> (usize, f64) {
     grad.iter().enumerate().fold((0, -1.0), |best, (i, g)| {
         let norm = squared(g);
-        if norm > best.1 {
-            (i, norm)
-        } else {
-            best
-        }
+        if norm > best.1 { (i, norm) } else { best }
     })
 }
 
@@ -213,8 +209,8 @@ fn newton_step<const D: usize>(
         return [0.0; D];
     }
     let mut step = [0.0; D];
-    for axis in 0..D {
-        step[axis] = determinant(&h, Some(axis), &g) / det;
+    for (axis, slot) in step.iter_mut().enumerate() {
+        *slot = determinant(&h, Some(axis), &g) / det;
     }
     step
 }
@@ -228,24 +224,24 @@ fn block<const D: usize>(pos: &[[f64; D]], springs: &Springs, m: usize) -> [[f64
         let delta = separation(&pos[m], &pos[i]);
         let r = libm::sqrt(squared(&delta));
         if r == 0.0 {
-            for axis in 0..D {
-                h[axis][axis] += k;
+            for (axis, diagonal) in h.iter_mut().enumerate() {
+                diagonal[axis] += k;
             }
             continue;
         }
         let r3 = r * r * r;
-        for a in 0..D {
+        for (a, diagonal) in h.iter_mut().enumerate() {
             let mut rest = 0.0;
-            for b in 0..D {
+            for (b, d) in delta.iter().enumerate() {
                 if b != a {
-                    rest += l * delta[b] * delta[b] / r3;
+                    rest += l * d * d / r3;
                 }
             }
-            h[a][a] += k * (1.0 - rest);
+            diagonal[a] += k * (1.0 - rest);
         }
         for a in 0..D {
-            for b in (a + 1)..D {
-                let off = k * l * delta[a] * delta[b] / r3;
+            for (b, d) in delta.iter().enumerate().skip(a + 1) {
+                let off = k * l * delta[a] * d / r3;
                 h[a][b] += off;
                 h[b][a] += off;
             }
@@ -382,6 +378,9 @@ mod tests {
         let h = [[6.0, 1.0, 2.0], [1.0, 5.0, 3.0], [2.0, 3.0, 4.0]];
         let want = 6.0 * (5.0 * 4.0 - 3.0 * 3.0) - 1.0 * (1.0 * 4.0 - 3.0 * 2.0)
             + 2.0 * (1.0 * 3.0 - 5.0 * 2.0);
-        assert!((determinant(&h, None, &[0.0; 3]) - want).abs() < 1e-12, "{want}");
+        assert!(
+            (determinant(&h, None, &[0.0; 3]) - want).abs() < 1e-12,
+            "{want}"
+        );
     }
 }

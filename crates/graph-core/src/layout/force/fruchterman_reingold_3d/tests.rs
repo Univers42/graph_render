@@ -53,7 +53,10 @@ fn the_output_spreads_on_all_three_axes() {
     let g = FruchtermanReingold3D::run(&path(14), &FrParams::default()).expect("finite geometry");
     let (x, y, z) = columns(&g);
     for (name, c) in [("x", &x), ("y", &y), ("z", &z)] {
-        assert!(spread(c) > 0.0, "column {name} is flat: a 3-D layout must use z");
+        assert!(
+            spread(c) > 0.0,
+            "column {name} is flat: a 3-D layout must use z"
+        );
     }
 }
 
@@ -68,8 +71,20 @@ fn the_same_seed_gives_the_same_bytes() {
 #[test]
 fn the_seed_matters() {
     let t = path(9);
-    let a = FruchtermanReingold3D::run(&t, &FrParams { seed: 0, ..FrParams::default() });
-    let b = FruchtermanReingold3D::run(&t, &FrParams { seed: 9, ..FrParams::default() });
+    let a = FruchtermanReingold3D::run(
+        &t,
+        &FrParams {
+            seed: 0,
+            ..FrParams::default()
+        },
+    );
+    let b = FruchtermanReingold3D::run(
+        &t,
+        &FrParams {
+            seed: 9,
+            ..FrParams::default()
+        },
+    );
     assert_ne!(columns(&a.expect("a")), columns(&b.expect("b")));
 }
 
@@ -82,7 +97,10 @@ fn zero_iterations_return_the_seeded_start_inside_the_box() {
     };
     let (x, _, _) = columns(&FruchtermanReingold3D::run(&t, &p).expect("start"));
     let side = libm::sqrt(7.0);
-    assert!(x.iter().all(|v| v.abs() <= side / 2.0 + f64::from(f32::EPSILON)));
+    assert!(
+        x.iter()
+            .all(|v| v.abs() <= side / 2.0 + f64::from(f32::EPSILON))
+    );
 }
 
 #[test]
@@ -90,7 +108,10 @@ fn an_isolated_edge_settles_at_its_own_length() {
     let t = graph(2, &[(0, 1)]);
     let (x, y, z) = columns(&FruchtermanReingold3D::run(&t, &FrParams::default()).expect("edge"));
     let d = libm::sqrt((x[0] - x[1]).powi(2) + (y[0] - y[1]).powi(2) + (z[0] - z[1]).powi(2));
-    assert!((d - 1.0).abs() < 1e-2, "the 2-D equilibrium length, in 3-D too: {d}");
+    assert!(
+        (d - 1.0).abs() < 1e-2,
+        "the 2-D equilibrium length, in 3-D too: {d}"
+    );
 }
 
 #[test]
@@ -111,7 +132,10 @@ fn a_disconnected_graph_stays_finite_and_uses_its_z() {
     let g = FruchtermanReingold3D::run(&t, &FrParams::default()).expect("finite geometry");
     let (x, y, z) = columns(&g);
     assert!(x.iter().chain(&y).chain(&z).all(|v| v.is_finite()));
-    assert!(spread(&z) > 0.0, "the disconnected correction must not flatten z");
+    assert!(
+        spread(&z) > 0.0,
+        "the disconnected correction must not flatten z"
+    );
 }
 
 #[test]

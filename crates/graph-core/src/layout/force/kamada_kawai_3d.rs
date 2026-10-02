@@ -24,8 +24,8 @@
 
 use crate::index::Topology;
 use crate::layout::Geometry;
-use crate::layout::force::kk_kernel;
 use crate::layout::force::kamada_kawai::KkParams;
+use crate::layout::force::kk_kernel;
 use crate::layout::force::simple_graph;
 use crate::stage::{Stage, StageError};
 use graph_contract::geometry::{EdgeGeometry, NodeGeometry};

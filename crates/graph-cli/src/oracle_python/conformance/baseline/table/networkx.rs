@@ -17,6 +17,14 @@ pub(super) const NETWORKX: [Baseline; 12] = [
     // scale and a translation, so it moved the motor bytes and left the Procrustes medians at the
     // digit; the remap moved the medians (FR 0.267 -> 0.166, KK 0.812 -> 0.757).
     // `docs/measurements/sg-igraph-dims.md`.
+    //
+    // **Re-pinned 2026-10-02, `sg-igraph-clean`.** `IGRAPH_FR` keeps the sha above to the digit: the clean-room
+    // 3-D FR reproduces the carried pin exactly. `IGRAPH_KK`'s motor sha moved, because the clean-room kernel
+    // solves the 3x3 block by a general signed-permutation Cramer expansion rather than a hand-written
+    // determinant, and the two round differently in the last bits; the descent therefore walks a slightly
+    // different path and settles elsewhere. Its median improved, 0.757 -> 0.709, so the move is a closer fit to
+    // the reference, not a drift. The reference sha is untouched. Measured in
+    // `docs/measurements/sg-igraph-clean.md`.
     row(
         "IGRAPH_FR",
         "86bce46cf87a8d476244d254929c9e2ca75964ff835061e4e494c92c29cd6678",
@@ -28,7 +36,7 @@ pub(super) const NETWORKX: [Baseline; 12] = [
     ),
     row(
         "IGRAPH_KK",
-        "122420ffd67d0e1c0b4d96176e349c7c32ac011f9296c559ae474d2ae21dbcd4",
+        "66b5b3cfae7d9e6c9d6c27b5abd3edd91647aa7189c76494329bf07af75075dc",
         "a89c503e5fb39b8756fcbef3a6985ae6335770f874fd2e6cd06773bea5d0264a",
         "",
         1e0,
