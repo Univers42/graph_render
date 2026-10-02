@@ -16,8 +16,8 @@
 //! hash order (`prompt.md` §6 D1-D10).
 
 use super::super::fast::Fast;
-use super::xval::cutval;
 use super::Error;
+use super::xval::cutval;
 
 /// One frame of a `dfs_range*` walk: a node, the tree edge it came from, the depth-first
 /// index its subtree starts at, and its two tree-adjacency cursors. The reference's
@@ -116,7 +116,15 @@ fn step_out(g: &mut Fast, stack: &mut Vec<RangeFrame>, reuse: bool) -> bool {
         let edge = g.nodes[stack[top].node as usize].tree_out[stack[top].out_at];
         stack[top].out_at += 1;
         if stack[top].par != Some(edge) {
-            push_range(g, stack, Descend { edge, from_out: true, reuse });
+            push_range(
+                g,
+                stack,
+                Descend {
+                    edge,
+                    from_out: true,
+                    reuse,
+                },
+            );
             return true;
         }
     }
@@ -131,7 +139,15 @@ fn step_in(g: &mut Fast, stack: &mut Vec<RangeFrame>, reuse: bool) -> bool {
         let edge = g.nodes[stack[top].node as usize].tree_in[stack[top].in_at];
         stack[top].in_at += 1;
         if stack[top].par != Some(edge) {
-            push_range(g, stack, Descend { edge, from_out: false, reuse });
+            push_range(
+                g,
+                stack,
+                Descend {
+                    edge,
+                    from_out: false,
+                    reuse,
+                },
+            );
             return true;
         }
     }

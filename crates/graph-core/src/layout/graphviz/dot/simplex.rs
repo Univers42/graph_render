@@ -49,8 +49,8 @@ use std::collections::VecDeque;
 
 use super::fast::Fast;
 use cutval::init_cutvalues;
-use subtree::NO_TREE;
 use pivot::leave_edge;
+use subtree::NO_TREE;
 use tree::feasible_tree;
 
 /// `enum { SEARCHSIZE = 30 }` (`ns.c:55`), the default `leave_edge` search cut-off: how

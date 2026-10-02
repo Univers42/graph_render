@@ -41,12 +41,7 @@ pub struct Step {
 /// The frame stack resumes rather than recurses, so the cursor a node had when it was
 /// interrupted is the cursor it comes back to — which is what makes the walk visit edges in
 /// the reference's order and not merely visit the same edges.
-pub fn grow_tight(
-    g: &mut Fast,
-    ctx: &mut Ctx,
-    root: u32,
-    slot: usize,
-) -> Result<usize, Error> {
+pub fn grow_tight(g: &mut Fast, ctx: &mut Ctx, root: u32, slot: usize) -> Result<usize, Error> {
     let mut size = 0;
     let mut stack = vec![Frame {
         node: root,

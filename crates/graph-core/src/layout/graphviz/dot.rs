@@ -36,6 +36,10 @@ pub mod rank;
 pub mod simplex;
 
 #[cfg(test)]
+mod class2_tests;
+#[cfg(test)]
+mod oracle_probe;
+#[cfg(test)]
 mod rank_tests;
 #[cfg(test)]
 mod tests;

@@ -17,7 +17,7 @@
 //! value reads zero and agrees with itself.
 
 use super::super::fast::Fast;
-use super::{slack, Ctx};
+use super::{Ctx, slack};
 
 /// Every property the pass maintains, checked against a recomputation from scratch.
 ///
@@ -41,7 +41,11 @@ pub fn check(g: &Fast, nodes: &[u32], ctx: &Ctx, when: &str) {
     if nodes.len() > 1 {
         let first = root(&mut parent, nodes[0] as usize);
         for &n in nodes {
-            assert_eq!(root(&mut parent, n as usize), first, "node {n} unspanned {when}");
+            assert_eq!(
+                root(&mut parent, n as usize),
+                first,
+                "node {n} unspanned {when}"
+            );
         }
     }
     check_parent_edges(g, nodes, when);
@@ -126,24 +130,19 @@ fn tail_side(g: &Fast, edge: u32) -> Vec<bool> {
     let mut stack = vec![tail];
     while let Some(n) = stack.pop() {
         for &x in &g.nodes[n as usize].tree_in {
-            reach(g, x, edge, &mut side, &mut stack);
+            claim(x, edge, g.edges[x as usize].tail, &mut side, &mut stack);
         }
         for &x in &g.nodes[n as usize].tree_out {
-            reach(g, x, edge, &mut side, &mut stack);
+            claim(x, edge, g.edges[x as usize].head, &mut side, &mut stack);
         }
     }
     side
 }
 
-/// Claim the far end of tree edge `x`, unless `x` is the edge being cut.
-fn reach(g: &Fast, x: u32, cut: u32, side: &mut [bool], stack: &mut Vec<u32>) {
-    let w = if g.nodes[g.edges[x as usize].head as usize].tree_out.contains(&x) {
-        g.edges[x as usize].head
-    } else {
-        g.edges[x as usize].tail
-    };
-    if x != cut && !side[w as usize] {
-        side[w as usize] = true;
-        stack.push(w);
+/// Claim the far end `other` of tree edge `x`, unless `x` is the edge being cut.
+fn claim(x: u32, cut: u32, other: u32, side: &mut [bool], stack: &mut Vec<u32>) {
+    if x != cut && !side[other as usize] {
+        side[other as usize] = true;
+        stack.push(other);
     }
 }

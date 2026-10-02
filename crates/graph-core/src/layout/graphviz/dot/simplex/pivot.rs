@@ -28,8 +28,8 @@
 //! order edges joined the tree, and the two depth-first searches use explicit stacks in the
 //! reference's push order (`prompt.md` §6 D1-D10).
 
+use super::super::fast::{Fast, zap};
 use super::cutval::range_update;
-use super::super::fast::{zap, Fast};
 use super::{Ctx, Error};
 
 /// `leave_edge` (`ns.c:179-213`): the tree edge with the most negative cut value among the

@@ -26,7 +26,7 @@
 use super::super::fast::Fast;
 use super::subtree::{self, Subtree};
 use super::tight;
-use super::{init_cutvalues, Ctx, Error};
+use super::{Ctx, Error, init_cutvalues};
 
 /// One frame of the inter-tree walk: a node, the subtree it belongs to, and the node it was
 /// reached from. `from` is what stops the walk stepping back over the edge it arrived by;

@@ -13,9 +13,10 @@
 //! Determinism: `class2` reads the *input* edges in declaration order and never revisits an
 //! edge, so the chains it builds are a function of the input order alone.
 
+use super::class2;
 use super::fast::Kind;
+use super::oracle_probe::{graph, ranks_of};
 use super::rank::rank;
-use super::{class2, graph, ranks_of};
 
 /// An edge spanning `k` ranks gets `k - 1` dummies, one per intervening rank, joined by `k`
 /// links. A four-node path with a shortcut from end to end is the shape: ranks 0 to 3, so
@@ -27,7 +28,11 @@ fn class2_chains_a_long_edge() {
     assert_eq!(ranks_of(&g), vec![0, 1, 2, 3]);
     let before = g.nodes.len() as u32;
     class2::run(&mut g);
-    assert_eq!(g.nodes.len() as u32 - before, 2, "one dummy per intervening rank");
+    assert_eq!(
+        g.nodes.len() as u32 - before,
+        2,
+        "one dummy per intervening rank"
+    );
     let dummies: Vec<u32> = (before..g.nodes.len() as u32).collect();
     let ranks: Vec<i32> = dummies.iter().map(|&n| g.nodes[n as usize].rank).collect();
     assert_eq!(ranks, vec![1, 2], "on the ranks between the ends");
@@ -57,7 +62,10 @@ fn an_edge_with_its_ends_on_one_rank_is_flat() {
     assert_eq!(g.nodes.len(), 2, "a flat edge gets no dummies");
     assert_eq!(g.nodes[0].flat_out, vec![0]);
     assert_eq!(g.nodes[1].flat_in, vec![0]);
-    assert!(g.out.iter().all(|list| list.is_empty()), "and no chain link");
+    assert!(
+        g.out.iter().all(|list| list.is_empty()),
+        "and no chain link"
+    );
 }
 
 /// A dummy is a `nodesep`-wide placeholder: one point plus `nodesep / 2` on each side
@@ -109,10 +117,12 @@ fn class2_merges_parallel_edges_into_one_chain() {
         "one pair of dummies for the pair of parallel edges"
     );
     let middle = g.out[4][0];
-    assert_eq!(g.edges[middle as usize].count, 2, "both input edges counted");
     assert_eq!(
-        g.edges[middle as usize].weight,
-        5,
+        g.edges[middle as usize].count, 2,
+        "both input edges counted"
+    );
+    assert_eq!(
+        g.edges[middle as usize].weight, 5,
         "the link's own four, plus the twin's one"
     );
 }
