@@ -85,12 +85,12 @@ PASS
 | F2 | major | fixed (round 1) | `a_chain_link_is_re_anchored_when_the_community_pass_hides_an_end` | `crates/graph-core/src/scale/simplify/community.rs:30` (call), `:43` (`reanchor_links`) |
 | F3 | none | **false** | `a_community_collapses_onto_its_lowest_index_with_its_external_links` | `crates/graph-core/src/scale/simplify/tests.rs:202` |
 | R1 | major | fixed | `a_case_is_a_tie_when_its_cut_is_inside_a_class_of_equal_degrees_and_nothing_else`, `the_tie_case_cuts_inside_a_class_of_equal_degrees` | `harness/oracle-scale.py` (`tie_class`, `tie_verdict`), `crates/graph-cli/src/oracle_python/scale/tests.rs:191,213` |
-| R2 | major | fixed | `a_case_the_harness_never_compared_fails_its_layout`, `a_deliberately_broken_result_is_never_a_pass` | `crates/graph-cli/src/oracle_python.rs:240` (`judge`), `:262` (`covered`), `:277` (`unbroken`) |
+| R2 | major | fixed | `a_case_the_harness_never_compared_fails_its_layout`, `a_deliberately_broken_result_is_never_a_pass` | `crates/graph-cli/src/oracle_python/judge.rs:14` (`judge`), `:37` (`covered`), `:59` (`unbroken`) |
 | R3 | major | fixed | `a_link_whose_ends_land_in_one_representative_is_dropped` | `crates/graph-core/src/scale/simplify/community.rs:53`, `simplify/invariant_tests.rs:26,207` |
 | R4 | major | evidence only | — | below |
 | R5 | — | accepted, no `scale.*` problem | — | below |
 | R6 | minor | doc-only | `the_registry_covers_every_oracle_function_once_its_ids_are_unique` (amended) | `crates/graph-cli/src/capabilities.rs:100-160`, `capabilities/tests/registry.rs:258` |
-| R7 | minor | doc-only | — | `docs/measurements/phase09-lod.md:24`, `crates/graph-cli/src/oracle_python/scale/cases.rs:5,74,128`, `harness/oracle-scale.py:6` |
+| R7 | minor | doc-only | — | `docs/measurements/phase09-lod.md:24`, `crates/graph-cli/src/oracle_python/scale/cases.rs:6,77,123`, `harness/oracle-scale.py:6` |
 
 ### R1 — a tied case was counted under `ties` and never checked (fixed)
 
@@ -135,7 +135,9 @@ them has to have been compared, and the two halves of the count (`exact` + `ties
 sum to it — so a case read and skipped, or counted twice, fails. And `unbroken()` fails the
 run outright when the harness recorded a `broken` case, because a `--break` run's mismatches
 are the control's own, not a verdict. Both keys are absent from every other differential's
-result, so no other record changes.
+result, so no other record changes. Both functions, and `closed_cases` with them, moved into
+the new child module `crates/graph-cli/src/oracle_python/judge.rs`: `oracle_python.rs` went
+to 309 lines over round 1's additions, past the house limit.
 
 RED:
 
@@ -242,7 +244,7 @@ compared with, and a record it is not compared by would be a claim. The doc comm
 
 ### R7 — docs and citations (doc-only)
 
-- `cases.rs`: the doubled doc on `graph` and its dead `[cases]` link are gone.
+- `cases.rs`: the doubled doc on `graph` (`:123`) and its dead `[cases]` link are gone.
 - `cases.rs`: `simplify.coarse.self_loop`'s loop moved onto a **real leaf**. Node `1` was in
   the triangle `0-1-2`, so "a self-loop on a leaf" named a node that was not one; the case is
   now `(0,1), (1,1), (0,2), (2,5)` plus the triangle `3-4-5`, where `1`'s only neighbour is
@@ -397,7 +399,7 @@ exit 0
 $ scripts/orch/gr cargo test --workspace --no-fail-fast
 test result: ok. 1076 passed; 0 failed; 6 ignored; 0 measured; 0 filtered out; finished in 11.11s
 test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
-  … 1685 passed, 0 failed summed over the 27 binaries
+  … 1685 passed, 0 failed summed over the 20 test binaries
 exit 0
 
 $ scripts/orch/gr cargo build -p graph-core --target wasm32-unknown-unknown
@@ -456,13 +458,15 @@ now names no record at all, so its `oracle_diff` cell is the empty-record reason
   says "the scale rows' oracle text … names the new differential", so these are the files it
   means. No other row in either file was touched.
 - `crates/graph-cli/src/oracle_python/scale/cases.rs` and `scale/tests.rs` are new child
-  modules of `scale.rs` (round 1). `scale.rs` is 322 lines, over the 300-line house limit.
-  The round-2 growth is `covered`/`unbroken` in `oracle_python.rs` (a shared file, not a
-  scale module) and the tie helpers in the two child modules, not `scale.rs`; the fix is to
-  move `ortho`/`clip_radii`/`decidable`/`degrees` into a `scale/camera.rs` child, which is
-  a split of existing code and no new behaviour, so it is left to the job that owns the
-  split rather than smuggled in here.
-- `crates/graph-cli/src/oracle_python.rs` gained two lines beyond round 1: `pass &=
-  unbroken(&result)`, one line in `judge` for `covered`, and the two functions. Both keys
-  (`broken`, `emitted`/`exact`) are absent from every other differential's result, so all
-  twelve other records stay byte-identical.
+  modules of `scale.rs` (round 1). `scale.rs` itself is unchanged at 273 lines.
+- Two files crossed the 300-line house limit with round 2's additions and were split, both
+  as plain moves of existing code with no behaviour change:
+  `crates/graph-cli/src/oracle_python/judge.rs` (new, 101 lines) took `judge`, `closed_cases`,
+  `covered` and `unbroken` out of `oracle_python.rs`, which is 219 again; and
+  `crates/graph-cli/src/oracle_python/scale/tests/reference.rs` (new, 49 lines) took the
+  natively-re-run reference arithmetic and the camera test out of `scale/tests.rs`, which is
+  266 again. `cases.rs` is 166.
+- `crates/graph-cli/src/oracle_python.rs` gained one line beyond round 1 (`pass &=
+  unbroken(&result)`) and `judge` one (`&& covered(key, row)`). Both keys (`broken`,
+  `emitted`/`exact`) are absent from every other differential's result, so all twelve other
+  records stay byte-identical.
