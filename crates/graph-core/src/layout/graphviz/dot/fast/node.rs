@@ -1,5 +1,10 @@
 //! Node records moved out of `fast.rs`: `Kind` (`ND_node_type`), `Coord` (`ND_coord`'s
 //! `pointf`) and the `Node` struct with its `normal` / `virtual_node` constructors.
+//!
+//! The last eight fields are the network simplex's scratch (`ns.c`'s `ND_tree_in`,
+//! `ND_tree_out`, `ND_par`, `ND_low`, `ND_lim`, `ND_priority` and `ND_subtree`). They
+//! live on the node because the reference hangs them there too and every one of them is
+//! written and read under a name that says which pass owns it.
 
 /// `ND_node_type`: a real node, or a virtual (dummy) one standing in for an edge that
 /// spans more than one rank.
@@ -53,6 +58,24 @@ pub struct Node {
     pub flat_in: Vec<u32>,
     /// `ND_other`: self-loops, which take part in no pass but the self-edge width.
     pub other: Vec<u32>,
+    /// `ND_tree_out`: the tree edges leaving this node, in the order they joined the tree.
+    pub tree_out: Vec<u32>,
+    /// `ND_tree_in`: the tree edges entering this node, in the same order.
+    pub tree_in: Vec<u32>,
+    /// `ND_par`: the tree edge this node was reached from, `None` at the tree's root.
+    pub par: Option<u32>,
+    /// `ND_low`: the lowest depth-first index in this node's subtree.
+    pub low: i32,
+    /// `ND_lim`: the highest depth-first index in this node's subtree. `low <= lim` is
+    /// `SEQ` (`ns.c:44`) and every test of a subtree's span is that inequality.
+    pub lim: i32,
+    /// `ND_priority`: unranked in-edges left, `init_rank`'s work queue counter.
+    pub priority: i32,
+    /// `ND_subtree` (`ns.c:307`): which tight subtree this node belongs to while
+    /// `feasible_tree` runs, -1 for none. The reference borrows `ND_par` for this and
+    /// reuses the field once the cut values are computed; here it has its own, so the
+    /// two lifetimes do not have to be sequenced by hand.
+    pub subtree: i32,
 }
 
 impl Node {
@@ -76,6 +99,13 @@ impl Node {
             flat_out: Vec::new(),
             flat_in: Vec::new(),
             other: Vec::new(),
+            tree_out: Vec::new(),
+            tree_in: Vec::new(),
+            par: None,
+            low: 0,
+            lim: 0,
+            priority: 0,
+            subtree: -1,
         }
     }
 

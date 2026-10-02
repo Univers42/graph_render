@@ -25,8 +25,15 @@
 //!
 //! **Edges are never removed from `edges`, only unhooked.** The reference frees the
 //! record; here the index stays because `to_virt`/`to_orig` are still read through it and
-//! because a dense index must stay dense. `Edge::live` says which records are still in an
-//! adjacency list, and every walk goes through a list, so a dead edge is never visited.
+//! because a dense index must stay dense. `Edge::live` says which records are still in
+//! one of the two adjacency lists, so a dead edge is never visited. Two passes unhook in
+//! bulk rather than one at a time and say so: `cleanup1` empties both lists at once (it is
+//! the boundary between the rank pass and `class2`), and `class2` never puts the input
+//! edges back into them — the reference keeps those in the cgraph, which `orig_out` is.
+//!
+//! `orig_out` is that cgraph: every node's **input** out-edges, in declaration order, built
+//! once by `add_edge` and never touched again. `class2` walks it rather than `out`, because
+//! by then `out` holds only the chains `class2` itself has built.
 
 mod edge;
 mod node;
@@ -56,6 +63,9 @@ pub struct Fast {
     pub out: Vec<Vec<u32>>,
     /// `ND_in`: a node's in-edges, in insertion order.
     pub inn: Vec<Vec<u32>>,
+    /// `agfstout`: every node's **input** out-edges, in declaration order. See the module
+    /// doc for why `class2` reads this and not `out`.
+    pub orig_out: Vec<Vec<u32>>,
 }
 
 impl Fast {
@@ -71,11 +81,20 @@ impl Fast {
         self.nodes.push(node);
         self.out.push(Vec::new());
         self.inn.push(Vec::new());
+        self.orig_out.push(Vec::new());
         id
     }
 
     /// `fast_edge` (`fastgr.c:59`): add an edge and wire both adjacency directions.
     pub fn add_edge(&mut self, edge: Edge) -> u32 {
+        let id = self.link(edge.clone());
+        self.orig_out[edge.tail as usize].push(id);
+        id
+    }
+
+    /// `fast_edge` without the input list: the half `new_virtual_edge` +
+    /// `virtual_edge` (`fastgr.c:131-173`) uses, for an edge the input never declared.
+    fn link(&mut self, edge: Edge) -> u32 {
         let id = u32::try_from(self.edges.len()).expect("edge index fits u32");
         self.out[edge.tail as usize].push(id);
         self.inn[edge.head as usize].push(id);
@@ -118,11 +137,12 @@ impl Fast {
         if self.edges[orig as usize].to_virt.is_none() {
             self.edges[orig as usize].to_virt = Some(self.edges.len() as u32);
         }
-        self.add_edge(edge)
+        self.link(edge)
     }
 
-    /// `basic_merge` (`fastgr.c:230-242`): fold `e`'s weight, penalty and count into
-    /// `rep` and into every link of `rep`'s chain, and take `e`'s `minlen`.
+    /// `basic_merge` (`fastgr.c:231-242`): fold `e`'s weight, penalty and count into
+    /// `rep` and into every link of `rep`'s chain, and keep the **larger** of the two
+    /// minimum lengths.
     pub fn basic_merge(&mut self, e: u32, rep: u32) {
         let (count, xpenalty, weight, minlen) = {
             let src = &self.edges[e as usize];
@@ -134,7 +154,7 @@ impl Fast {
             edge.count += count;
             edge.xpenalty += xpenalty;
             edge.weight += weight;
-            if at == rep {
+            if at == rep && edge.minlen < minlen {
                 edge.minlen = minlen;
             }
             cursor = edge.to_virt;
@@ -197,5 +217,21 @@ impl Fast {
         );
         zap(&mut self.nodes[tail as usize].flat_out, edge);
         zap(&mut self.nodes[head as usize].flat_in, edge);
+    }
+
+    /// `cleanup1`'s `renewlist` (`rank.c:45-53`) over every node at once: empty both
+    /// adjacency directions and mark every edge as out of them. This is the boundary
+    /// between the rank pass and `class2` — the input edges survive in `orig_out` and in
+    /// `edges`, and the fast graph is rebuilt from the two by `class2`.
+    pub fn clear_adjacency(&mut self) {
+        for list in self.out.iter_mut().chain(self.inn.iter_mut()) {
+            list.clear();
+        }
+        for edge in &mut self.edges {
+            edge.live = false;
+        }
+        for node in &mut self.nodes {
+            node.mark = false;
+        }
     }
 }
