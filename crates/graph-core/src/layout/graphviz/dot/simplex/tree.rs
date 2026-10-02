@@ -103,8 +103,84 @@ pub fn feasible_tree(g: &mut Fast, ctx: &mut Ctx, nodes: &[u32]) -> Result<(), E
             subtree::sift_down(&mut heap, &mut trees, size, at);
         }
     }
+    if std::env::var_os("GM_CHK").is_some() {
+        assert_eq!(ctx.tree_edge.len(), nodes.len() - 1, "tree edge count");
+        for &edge in &ctx.tree_edge {
+            assert_eq!(slack(g, edge), 0, "tree edge {edge} is not tight");
+        }
+        let mut seen = vec![false; nodes.len()];
+        for &n in nodes {
+            seen[n as usize] = true;
+        }
+        let mut parent: Vec<usize> = (0..g.nodes.len()).collect();
+        fn root(p: &mut Vec<usize>, mut at: usize) -> usize {
+            while p[at] != at {
+                at = p[at];
+            }
+            at
+        }
+        for &edge in &ctx.tree_edge {
+            let (t, h) = (g.edges[edge as usize].tail as usize, g.edges[edge as usize].head as usize);
+            let (a, b) = (root(&mut parent, t), root(&mut parent, h));
+            assert_ne!(a, b, "tree edge {edge} makes a cycle");
+            parent[a] = b;
+        }
+        let first = root(&mut parent, nodes[0] as usize);
+        for &n in nodes {
+            assert!(seen[n as usize]);
+            assert_eq!(root(&mut parent, n as usize), first, "node {n} is not spanned");
+        }
+    }
     init_cutvalues(g, nodes)?;
+    if std::env::var_os("GM_BRUTE").is_some() {
+        for &edge in &ctx.tree_edge {
+            let want = brute_cut(g, nodes, edge);
+            let got = g.edges[edge as usize].cutvalue;
+            assert_eq!(got, want, "cutvalue of {edge} after feasible_tree");
+        }
+    }
     Ok(())
+}
+
+/// The cut value of tree edge `edge`, computed from scratch: the weight leaving the tail
+/// side minus the weight entering it. Only for the debug trace.
+pub(crate) fn brute_cut(g: &Fast, nodes: &[u32], edge: u32) -> i32 {
+    let tail = g.edges[edge as usize].tail;
+    let mut side = vec![false; g.nodes.len()];
+    let mut stack = vec![tail];
+    side[tail as usize] = true;
+    while let Some(n) = stack.pop() {
+        for &x in &g.nodes[n as usize].tree_in {
+            let w = g.edges[x as usize].tail;
+            if !side[w as usize] {
+                side[w as usize] = true;
+                stack.push(w);
+            }
+        }
+        for &x in &g.nodes[n as usize].tree_out {
+            let w = g.edges[x as usize].head;
+            if !side[w as usize] {
+                side[w as usize] = true;
+                stack.push(w);
+            }
+        }
+    }
+    let mut total = 0;
+    for &n in nodes {
+        for &f in &g.out[n as usize] {
+            let (t, h) = (g.edges[f as usize].tail, g.edges[f as usize].head);
+            if side[t as usize] != side[h as usize] && side[t as usize] {
+                total += g.edges[f as usize].weight;
+            }
+        }
+        for &f in &g.inn[n as usize] {
+            let (t, h) = (g.edges[f as usize].tail, g.edges[f as usize].head);
+            if side[t as usize] != side[h as usize] && side[h as usize] {
+                total -= g.edges[f as usize].weight;
+            }
+        }
+    }
+    total
 }
 
 /// `grow_tight` = `tight_subtree_search` (`ns.c:331-404`) with `find_tight_subtree`'s

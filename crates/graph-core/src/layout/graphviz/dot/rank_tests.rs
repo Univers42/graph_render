@@ -352,7 +352,7 @@ fn rank_agreement_over_1000_seeds() {
     let agree: Vec<u32> = rows
         .iter()
         .filter(|row| {
-            eprintln!("seed {}", row.seed);
+            eprintln!("seed {} n {}", row.seed, row.ranks.len());
             let count = u32::try_from(row.ranks.len()).expect("a node count fits u32");
             ranked(count, &row.edges) == row.ranks
         })
@@ -372,3 +372,25 @@ fn rank_agreement_over_1000_seeds() {
 /// `docs/measurements/p13-gv2-dot.md`. Kept here so the assertion above names the number it
 /// is checking against and not a bare literal.
 const RECORDED_AGREEMENT: usize = 0;
+
+#[test]
+#[ignore]
+fn debug_seed() {
+    let rows = oracle_digest();
+    let row = rows.iter().find(|r| r.seed == 376).expect("seed 376");
+    let count = u32::try_from(row.ranks.len()).expect("n");
+    let mut g = graph(count, &row.edges);
+    super::class1::run(&mut g);
+    let comps = super::decomp::decompose(&g);
+    eprintln!("{} components: {:?}", comps.len(), comps.iter().map(|c| c.len()).collect::<Vec<_>>());
+    for c in &comps {
+        super::acyclic::run(&mut g, c);
+    }
+    let params = super::simplex::Params {
+        balance: super::simplex::Balance::TopBottom,
+        maxiter: 90,
+        search_size: -77,
+    };
+    super::simplex::rank2(&mut g, &comps[0], &params).expect("rank");
+    eprintln!("want {:?}", row.ranks);
+}

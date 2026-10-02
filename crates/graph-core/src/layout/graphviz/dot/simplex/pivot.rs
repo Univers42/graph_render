@@ -280,11 +280,6 @@ fn higher(g: &Fast, tail: u32, head: u32) -> u32 {
 pub(super) fn rerank(g: &mut Fast, v: u32, delta: i32) {
     let mut stack = vec![(v, g.nodes[v as usize].par)];
     while let Some((node, skip)) = stack.pop() {
-        eprintln!(
-            "rerank node={node} delta={delta} rank={} -> {}",
-            g.nodes[node as usize].rank,
-            g.nodes[node as usize].rank.wrapping_sub(delta)
-        );
         g.nodes[node as usize].rank = g.nodes[node as usize].rank.wrapping_sub(delta);
         for &edge in &g.nodes[node as usize].tree_out.clone() {
             if Some(edge) != skip {
