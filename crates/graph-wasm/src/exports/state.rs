@@ -7,7 +7,7 @@ use crate::handle::Handles;
 use std::cell::RefCell;
 
 thread_local! {
-    pub(super) static HANDLES: RefCell<Handles> = RefCell::new(Handles::new());
+    pub(super) static HANDLES: RefCell<Handles> = const { RefCell::new(Handles::new()) };
     static OUT: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
 }
 
