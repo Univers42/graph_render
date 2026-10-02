@@ -20,6 +20,8 @@
 use graph_contract::canonical_json::{JsonError, Value, parse};
 use graph_core::{EdgeKind, EdgeRecord, NodeKind, NodeRecord};
 
+use crate::errors::Code;
+
 mod at;
 mod ids;
 mod record;
@@ -29,6 +31,25 @@ use record::{edge, node};
 
 /// The only ingest version this reader accepts.
 pub const VERSION: u32 = 1;
+
+/// The longest ingest document [`read`] accepts, in bytes: one past this is
+/// [`IngestError::TooLarge`], checked before [`read`] parses or `from_utf8` touches a byte.
+///
+/// Measured, not chosen (`docs/decisions/wasm-ingest-limits.md` steps 1-3,
+/// `docs/measurements/fix-wasm-ingest.md`): the studio's own generator at its 1M-node scale
+/// target, doubling up, on the `wasm32-unknown-unknown` release artifact under Node. The
+/// largest document that built was 774,568,785 bytes; the next one up, 799,922,860 bytes,
+/// trapped inside `graph_core::index_model`'s string arena, and so did 842,132,644 bytes at
+/// the studio's own `MAX_NODES`. This is the largest power of two at or below the largest
+/// that built, so the step down to 536,870,912 is the rule's margin, not a guess.
+///
+/// Ponytail: it bounds bytes, not the work they imply. The sweep found the boundary at a work
+/// level too — 3,679,984 edges built, 3,799,984 edges trapped — and nothing here measures an
+/// edge count, so a document shorter than this ceiling carrying that many edges is not
+/// excluded by the measurement. Failing input: exactly that document. Direction: refuses early
+/// on size, never on shape, and can still trap on work. Escape hatch: raise it with a new
+/// measurement, add an edge ceiling beside it, or fix the arena.
+pub const MAX_INGEST_BYTES: usize = 536_870_912;
 
 /// Why an ingest buffer was refused.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -48,11 +69,31 @@ pub enum IngestError {
         id: String,
     },
     /// Too many nodes or edges to index (`u32` capacity). Reachable only on a 64-bit host: on
-    /// wasm32 `usize` is `u32` (F-79). A ceiling below that is F-16's, not decided here.
+    /// wasm32 `usize` is `u32` (F-79). A ceiling on the document's bytes is
+    /// [`IngestError::TooLarge`], which is the one that bites on wasm32.
     Capacity,
+    /// The buffer is longer than [`MAX_INGEST_BYTES`]: its bytes, and the limit it was held to.
+    TooLarge { bytes: usize, limit: usize },
 }
 
-/// Parses and validates `bytes` into ingest order records, or the refusal.
+impl IngestError {
+    /// The wire code this refusal is published under (C4): every ingest refusal is
+    /// [`Code::IngestInvalid`] but the one the host can do something about — an oversized
+    /// document is not malformed, and telling a caller the two are the same would send it
+    /// looking for a bad member in a document it must instead split.
+    pub fn code(&self) -> Code {
+        match self {
+            Self::TooLarge { .. } => Code::IngestTooLarge,
+            _ => Code::IngestInvalid,
+        }
+    }
+}
+
+/// Parse and validate `bytes` into ingest order records, or the refusal.
+///
+/// The length is checked first, before [`std::str::from_utf8`] and before the parser is
+/// given anything: a buffer past [`MAX_INGEST_BYTES`] is refused by its size alone, so no
+/// work is done on a document this module has already promised not to read (F-16).
 ///
 /// The tree is consumed by value: each node's and edge's element is moved in, each string
 /// is moved out of its `Value` instead of copied with `.to_owned()`, and the element is
@@ -61,6 +102,12 @@ pub enum IngestError {
 /// text parsed before any shape check, root checked before any node, every node before any
 /// edge, then `check_ids`.
 pub fn read(bytes: &[u8]) -> Result<(Vec<NodeRecord>, Vec<EdgeRecord>), IngestError> {
+    if bytes.len() > MAX_INGEST_BYTES {
+        return Err(IngestError::TooLarge {
+            bytes: bytes.len(),
+            limit: MAX_INGEST_BYTES,
+        });
+    }
     let text = std::str::from_utf8(bytes).map_err(|_| IngestError::Utf8)?;
     let Value::Object(mut root) = parse(text).map_err(IngestError::Json)? else {
         return Err(shape(At::ROOT, "expected an object"));
