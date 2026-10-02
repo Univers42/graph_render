@@ -105,6 +105,12 @@ pub fn enter_edge(g: &Fast, e: u32) -> Option<u32> {
 
 /// The body of both of the reference's searches, which differ only in which end of an edge
 /// they look at: `from_out` picks `dfs_enter_outedge` over `dfs_enter_inedge`.
+///
+/// `low` and `lim` are the root's interval, which decide whether a candidate *leaves* the
+/// searched subtree. The descent tests the **current** node's `ND_lim(v)` instead — the
+/// reference compares against the node being read, not the one the walk started at — and
+/// that is what keeps the walk inside the subtree: intervals grow towards the root, so
+/// `lim(other) < lim(node)` is "further from the root".
 fn search(g: &Fast, root: u32, from_out: bool) -> Option<u32> {
     let n = root as usize;
     let low = g.nodes[n].low;
@@ -113,6 +119,7 @@ fn search(g: &Fast, root: u32, from_out: bool) -> Option<u32> {
     let mut worst = i32::MAX;
     let mut stack = vec![Search { node: root }];
     while let Some(Search { node }) = stack.pop() {
+        let here = g.nodes[node as usize].lim;
         for edge in edges_at(g, node, from_out, false) {
             let other = far(g, edge, from_out);
             if g.edges[edge as usize].tree_index < 0 {
@@ -121,7 +128,7 @@ fn search(g: &Fast, root: u32, from_out: bool) -> Option<u32> {
                     best = Some(edge);
                     worst = slack_of(g, edge);
                 }
-            } else if g.nodes[other as usize].lim < lim {
+            } else if g.nodes[other as usize].lim < here {
                 stack.push(Search { node: other });
             }
         }
@@ -130,7 +137,7 @@ fn search(g: &Fast, root: u32, from_out: bool) -> Option<u32> {
                 break;
             }
             let other = far(g, edge, !from_out);
-            if g.nodes[other as usize].lim < lim {
+            if g.nodes[other as usize].lim < here {
                 stack.push(Search { node: other });
             }
         }
@@ -190,6 +197,11 @@ pub fn update(g: &mut Fast, ctx: &mut Ctx, e: u32, f: u32) -> Result<(), Error> 
         rerank(g, up, if down { -delta } else { delta });
     }
     let cutvalue = g.edges[e as usize].cutvalue;
+    eprintln!(
+        "update e={e} f={f} cv={cutvalue} slack_f={} ranks={:?}",
+        slack_of(g, f),
+        (0..g.nodes.len()).map(|i| g.nodes[i].rank).collect::<Vec<_>>()
+    );
     let f_tail = g.edges[f as usize].tail;
     let f_head = g.edges[f as usize].head;
     let lca = treeupdate(g, f_tail, f_head, cutvalue, true);

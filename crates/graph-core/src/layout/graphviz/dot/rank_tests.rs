@@ -367,7 +367,7 @@ fn debug_seed3() {
     for (i, n) in g.nodes.iter().enumerate() {
         eprintln!("node {i} in={:?} out={:?}", g.inn[i], g.out[i]);
     }
-    let params = super::simplex::Params { balance: super::simplex::Balance::TopBottom, maxiter: 50, search_size: -1 };
+    let params = super::simplex::Params { balance: super::simplex::Balance::TopBottom, maxiter: 12, search_size: -1 };
     super::simplex::rank2(&mut g, &comps[0], &params).expect("rank");
     eprintln!("ranks {:?}", ranks_of(&g));
 }
