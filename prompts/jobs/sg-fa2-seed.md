@@ -22,10 +22,29 @@ If it ran networkx, three facts set the start:
 - Read `forceatlas2_layout` (`:1604` onward) for the dtype of `pos_arr` after an in-place
   update. A float32 array keeps float32 under `+=` while the forces are float64. Trace it and
   state it; the motor must narrow where numpy narrows.
-SciGraphs then rescales the result (`forceatlas.py` after `:191`). Port that into the
+SciGraphs then rescales the result (`_fa2_rescale`, `forceatlas.py:47-56`). Port that into the
 conformance motor arm only if the arm does not already do it.
 
-Do: RED test for the derived seed and the first two f32 start positions. GREEN:
+Three call arguments the motor's FA2 does not take today (`state.rs:1-7`: dim 2,
+`distributed_action=False`, no weight). The networkx branch passes them explicitly
+(`forceatlas.py:178-191`), overriding networkx's own defaults (`layout.py:1612` `dim=2`,
+`:1619` `distributed_action=False`):
+- `dim=int(dim)`, and `dim` defaults to 3 (`forceatlas.py:150-153`). The start is
+  `rand(n, 3)` row-major (x, y, z per node) and every force has a z term. Build the 3-D
+  solve the way the spring kernel did (`layout/force/spring/forces.rs`: `Field<const D>`,
+  `Solver<'a, const D>`, axis loop x then y then z), so `D = 2` performs the same operations in
+  the same order and the registered FA2 stays byte-identical (hashgate record unchanged). The
+  output Geometry carries the z column.
+- `distributed_action=True`: `attraction /= mass[:, None]` (`layout.py:1818-1819`), mass =
+  degree + 1 (`:1725`). Add it as a `Fa2Params` field, default off.
+- `weight="weight" if edge_weight_influence else None`. Read `_build_networkx_graph` in the
+  SciGraphs submodule and say whether conformance edges carry a `weight` attribute; if none
+  does, every weight is 1 and nothing changes, write that down with the line.
+Every new `Fa2Params` field updates every literal constructor (`git grep -n "Fa2Params {"`:
+`state.rs`, `oracle_python/fa2.rs`, the conformance `motor.rs` and its tests). `state.rs` is
+249 lines: split it before it crosses 300.
+
+Do: RED test for the derived seed and the first two f32 start rows (3-vectors). GREEN:
 `Fa2Params` gains the start path (`layout/forceatlas2/state.rs:30`, `initial_positions` `:240`):
 a numpy start that leaves the registered default byte-identical, as sg-spring-seed does. Then the
 conformance `motor.rs` passes it. Keep `jiggle` (`state.rs:150`) for coincident nodes unless
