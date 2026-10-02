@@ -44,3 +44,34 @@ fn a_link_across_collections_names_the_referenced_records_own_collection() {
     assert_eq!(topology.node_count(), 4);
     assert_eq!(topology.edge_count(), 3);
 }
+
+#[test]
+fn the_same_record_id_in_two_collections_is_two_records_not_a_duplicate() {
+    // `Record.id` is unique *within its collection*, and the derived node id carries the
+    // collection (`source:collection:record`), so the same id in two collections is two
+    // distinct nodes. Keying the duplicate check on the bare id refused a document the
+    // contract permits, with an error naming a record that is not the one at fault.
+    let mut doc = one_of_each();
+    doc.collections.push(Collection {
+        id: "person".into(),
+        name: "People".into(),
+        title_field: "name".into(),
+        fields: vec![field("name", "Name", Role::Title)],
+    });
+    doc.records.push(Record {
+        id: "r1".into(),
+        collection: "person".into(),
+        deleted: false,
+        updated_at: 3,
+        values: vec![("name".into(), JsonValue::Text("Ada".into()))],
+    });
+    let graph = build(&doc).expect("two collections, two records");
+    let ids: Vec<&str> = graph.nodes.iter().map(|n| n.id.as_str()).collect();
+    assert_eq!(
+        ids,
+        ["rows:task:r1", "rows:person:r1", "tag:wip", "tag:graph"],
+        "records in document order, then the tag hubs"
+    );
+    let (_, topology) = build_topology(&doc).expect("indexes");
+    assert_eq!(topology.node_count(), 4);
+}
