@@ -127,9 +127,12 @@ pub(super) const BARNES_HUT: Metadata = Metadata {
 /// Node count past which `layout.force.particle_mesh` stops being usable: the whole
 /// 112-tick stage inside the 60-second budget [`FORCE_CEILING`] uses.
 ///
-/// Time-bound, measured (`docs/measurements/perf-p2-pm.md`; `graph-cli tick --layout
-/// particle-mesh --n <n>` and `bench --layout layout.force.particle_mesh --n <n>`).
-pub const PM_CEILING: u64 = 1_000_000;
+/// Time-bound. `bench --repeat 3`, one thread, load 7.3: 500 000 nodes in 32.7 s and
+/// 1 000 000 in 68.5 s, past the budget (`docs/measurements/perf-p2-pm.md`).
+///
+/// Ponytail (scale_ceiling): 800 000 is the power law through those two points (exponent
+/// 1.07) solved for 60 s, 883 000, rounded down: an interpolation, not a run at 800 000.
+pub const PM_CEILING: u64 = 800_000;
 
 pub(super) const PARTICLE_MESH: Metadata = Metadata {
     tier: 1,
