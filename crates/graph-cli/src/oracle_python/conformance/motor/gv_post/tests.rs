@@ -101,88 +101,9 @@ fn the_mean_of_an_n_by_2_array_is_the_left_to_right_sum() {
                 "n = {n}, column {c}: not numpy's mean"
             );
             let control = pairwise_sum(&column) / n as f64;
-            if c == 0 && n >= 8 {
-                assert_ne!(
-                    control.to_bits(),
-                    ours.to_bits(),
-                    "n = {n}: the pairwise control agreed"
-                );
-            } else if n < 8 {
-                assert_eq!(
-                    control.to_bits(),
-                    ours.to_bits(),
-                    "n = {n}: below eight, one order only"
-                );
-            }
+            assert_control(control, ours, n, c);
         }
     }
-}
-
-/// The same seventeen-node `(17, 2)` array through all of `yifan_hu.py:318-325`: the mean, the
-/// centring, the extent of the *centred* column and the `× scale`. The mean's own order is
-/// [`the_mean_of_an_n_by_2_array_is_the_left_to_right_sum`]; this is the rest of the five lines,
-/// on an array long enough for the order to matter in the written coordinates.
-#[test]
-fn seventeen_nodes_land_where_numpy_puts_them() {
-    const NUMPY: [&str; 51] = [
-        "596b196142fd0340",
-        "51a96b7616ffe1bc",
-        "0000000000000000", // row 0
-        "3ba534f7ec15d0bf",
-        "d10e6fc20483dfbc",
-        "0000000000000000", // row 1
-        "59454f26ca3a983f",
-        "89147bc40404dbbc",
-        "0000000000000000", // row 2
-        "49b800e25c716fbf",
-        "a22ca4d10e84d6bc",
-        "0000000000000000", // row 3
-        "62dfe8bf63d451bf",
-        "b0e5d87cb603d2bc",
-        "0000000000000000", // row 4
-        "a794e69ebd0204c0",
-        "6fde26ee5906cbbc",
-        "0000000000000000", // row 5
-        "62b5961126d4cf3f",
-        "9a96a2aa0e05c2bc",
-        "0000000000000000", // row 6
-        "69eee30c69f89abf",
-        "eeeb44884007b2bc",
-        "0000000000000000", // row 7
-        "0fdbb65acb08533f",
-        "45d47bd387d310bc",
-        "0000000000000000", // row 8
-        "e0b861a98a055abf",
-        "0fa3ac8ff7feb13c",
-        "0000000000000000", // row 9
-        "546b196142fd0340",
-        "ffdf7eed1d01c23c",
-        "0000000000000000", // row 10
-        "4da534f7ec15d0bf",
-        "9348c904c902cb3c",
-        "0000000000000000", // row 11
-        "9e444f26ca3a983f",
-        "ea8eaa7e3d02d23c",
-        "0000000000000000", // row 12
-        "4ebc00e25c716fbf",
-        "8276dc2e1983d63c",
-        "0000000000000000", // row 13
-        "63e5e8bf63d451bf",
-        "52f59708f703db3c",
-        "0000000000000000", // row 14
-        "a894e69ebd0204c0",
-        "f33e13a4d684df3c",
-        "0000000000000000", // row 15
-        "5bb5961126d4cf3f",
-        "581ff8d8db02e23c",
-        "0000000000000000", // row 16
-    ];
-    let rows = probe(17);
-    let points: Vec<[f64; 3]> = rows.iter().map(|r| [r[0], r[1], 0.0]).collect();
-    assert_eq!(
-        bits(&scigraphs_graphviz_post(&points, GRAPHVIZ_DIMS, SCALE)),
-        NUMPY
-    );
 }
 
 /// Alternating signs against ten-to-the-fifteen magnitudes: cancellation heavy enough that
@@ -226,6 +147,25 @@ fn pairwise_sum(values: &[f64]) -> f64 {
     }
     let folded = ((acc[0] + acc[1]) + (acc[2] + acc[3])) + ((acc[4] + acc[5]) + (acc[6] + acc[7]));
     values[i..].iter().fold(folded, |total, v| total + v)
+}
+
+/// The negative control for [`the_mean_of_an_n_by_2_array_is_the_left_to_right_sum`]: the
+/// transcribed pairwise sum must *disagree* with numpy's own answer on column 0 at every
+/// `n >= 8`, and must agree below eight, where [`pairwise_sum`] returns [`left_to_right`].
+fn assert_control(control: f64, ours: f64, n: usize, column: usize) {
+    if column == 0 && n >= 8 {
+        assert_ne!(
+            control.to_bits(),
+            ours.to_bits(),
+            "n = {n}: the pairwise control agreed"
+        );
+    } else if n < 8 {
+        assert_eq!(
+            control.to_bits(),
+            ours.to_bits(),
+            "n = {n}: below eight, one order only"
+        );
+    }
 }
 
 /// The end-to-end property the eight Graphviz rows are gated on: their motor arm comes out
@@ -305,3 +245,7 @@ fn bits_of(raw: u64) -> String {
         .map(|b| format!("{b:02x}"))
         .collect()
 }
+
+/// The seventeen-node round trip lives in a child module: this file was past the 300-line
+/// limit once that constant landed, and the split is what the limit asks for, not compression.
+mod seventeen;

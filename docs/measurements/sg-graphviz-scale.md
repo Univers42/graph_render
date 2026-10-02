@@ -81,8 +81,10 @@ this report claimed.
 `harness/scigraphs-conformance/sc_graphviz.py` (`_scigraphs_columns`), applied to every
 `Reference::Graphviz` row by `motor::run_row`.
 
-Six tests, all in `motor/gv_post/tests.rs`, with every constant pasted from numpy in
-`ge-python-oracle` as `struct.pack("<d", v).hex()` — the IEEE-754 double, little-endian.
+Six tests: five in `motor/gv_post/tests.rs`, and `seventeen_nodes_land_where_numpy_puts_them` in
+`motor/gv_post/tests/seventeen.rs` because the parent was past its 300-line file limit. Every
+constant is pasted from numpy in `ge-python-oracle` as `struct.pack("<d", v).hex()` — the
+IEEE-754 double, little-endian.
 `float.hex()` was the first choice and is wrong to paste: it is `PyOS_double_to_string`'s mode 3,
 which keeps trailing zeros and can write a fourteenth fraction digit, so one double has several
 spellings and a typo in the padding cannot be seen.
@@ -93,8 +95,9 @@ spellings and a typo in the padding cannot be seen.
 - `a_third_column_is_dropped_rather_than_moved` — the same three with a `z` each; numpy's
   answer is identical, because `positions = np.zeros((num_nodes, 3))` (`:323`) drops it.
 - `a_layout_with_no_extent_is_all_zeros_and_not_nan` — `extent if extent > 0 else 1.0` (`:321`).
-- `seventeen_nodes_land_where_numpy_puts_them` — all 51 coordinates of a 17-node `(17, 2)`
-  array through all of `:318-325`, long enough for the mean's order to show in the output.
+- `seventeen_nodes_land_where_numpy_puts_them` (`tests/seventeen.rs`) — all 51 coordinates of a
+  17-node `(17, 2)` array through all of `:318-325`, long enough for the mean's order to show in
+  the output.
 - `the_mean_of_an_n_by_2_array_is_the_left_to_right_sum` — section 3.
 - `a_graphviz_row_is_written_centred_and_at_the_scale` — end to end on `GRAPHVIZ_TWOPI` over
   `bipartite`, with the raw port output as its own control.
@@ -130,14 +133,15 @@ control**: it must differ at every `n >= 8` on column 0, and must agree below ei
 by mutation — putting the pairwise order back into `left_to_right` fails the run with
 
 ```
-the_mean_of_an_n_by_2_array_is_the_left_to_right_sum ... FAILED
-  panicked at tests.rs:98: assertion `left == right` failed: n = 8, column 0: not numpy's mean
-seventeen_nodes_land_where_numpy_puts_them ... FAILED
-test result: FAILED. 4 passed; 2 failed
+...gv_post::tests::the_mean_of_an_n_by_2_array_is_the_left_to_right_sum ... FAILED
+  panicked at ...gv_post/tests.rs:98:13: assertion `left == right` failed: n = 8, column 0: not numpy's mean
+...gv_post::tests::seventeen::seventeen_nodes_land_where_numpy_puts_them ... FAILED
+test result: FAILED. 4 passed; 2 failed; ...
 ```
 
-(exit 101). `gv_post.rs` no longer contains the pairwise transcription at all; it is a
-negative control and lives in `tests.rs`.
+(exit 101, re-observed after the file split; `...` is elided text — libtest's module path and
+the run's trailing counters). `gv_post.rs` no longer contains the pairwise transcription at all;
+it is a negative control and lives in `tests.rs`.
 
 `harness/scigraphs-conformance/sc_graphviz.py`'s `_numpy_mean` is the same reduction in plain
 Python, and its module docstring carries the same `Ponytail:` note naming the order and the
@@ -162,7 +166,8 @@ cure — it said closing it needs `scigraphs_utils` in an image. It does not.
 (`output.c:294,302`), `xdot` is `%.02f`, the json `draw` operations are `%.03f`, and pygraphviz
 goes through `-Tdot`. So the fix is not to read a different format; it is to read no format.
 
-**`harness/scigraphs-conformance/gv_exact.c`** is a 40-line C reader that links libgvc, reads
+**`harness/scigraphs-conformance/gv_exact.c`** is a C reader in four functions (`read_graph`,
+`set_start`, `emit_coords`, `main`) that links libgvc, reads
 the DOT with `agread`, sets the seed as the graph attribute `start` the way `-Gstart=N` does
 (`lib/common/input.c:281-286` → `global_def`, `:178-192`; `setSeed` reads it back at
 `lib/neatogen/neatoinit.c:921`), calls `gvLayout(gvc, g, engine)` (`lib/gvc/gvc.c:52-64`, which

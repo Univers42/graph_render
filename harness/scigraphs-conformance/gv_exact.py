@@ -43,10 +43,10 @@ sys.dont_write_bytecode = True
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from gv_plain import ENGINE_BENIGN_STDERR, START_SEED, write_dot  # noqa: E402
-from gv_plain import engine_points as gv_engine_points  # noqa: E402
+from gv_plain import ENGINE_BENIGN_STDERR, START_SEED, write_dot
+from gv_plain import engine_points as gv_engine_points
 
-from sc_names import graphviz_version  # noqa: E402
+from sc_names import graphviz_version
 
 #: The prefix `gv_exact.c`'s header comment documents; the image's own gcc, its headers and
 #: its shared libraries, with rpath so the built binary finds them without `LD_LIBRARY_PATH`.

@@ -48,10 +48,10 @@ sys.dont_write_bytecode = True
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from gv_exact import exact_points  # noqa: E402
+from gv_exact import exact_points
 
-from sc_fixture import FixtureError, write_f64  # noqa: E402
-from sc_names import GRAPHVIZ_ROWS, LAYOUT_SEED, SCALE, graphviz_version  # noqa: E402
+from sc_fixture import FixtureError, write_f64
+from sc_names import GRAPHVIZ_ROWS, LAYOUT_SEED, SCALE, graphviz_version
 
 #: `dims = min(3, raw.shape[1])` (`yifan_hu.py:315`) over an engine that writes two columns,
 #: with `graphviz_dim` at its default `"2"` (`yifan_hu.py:314`). `YIFAN_HU` asks for `"2Z"`

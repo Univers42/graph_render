@@ -30,61 +30,83 @@
 #include <graphviz/gvc.h>
 #include <graphviz/types.h>
 
+static graph_t *read_graph(const char *prog, const char *path)
+{
+	graph_t *g;
+	FILE *fp;
+
+	if (!(fp = fopen(path, "r"))) {
+		fprintf(stderr, "%s: cannot read %s\n", prog, path);
+		return NULL;
+	}
+	/* `gvNextInputGraph` reads `gvc->input_filenames`, and GVC_t is opaque to a client
+	 * (`lib/gvc/gvc.h:73`), so the DOT comes in through cgraph's own reader, which is
+	 * the `agconcat` that call ends up in (`lib/common/input.c:530`). */
+	g = agread(fp, NULL);
+	fclose(fp);
+	if (!g)
+		fprintf(stderr, "%s: %s is not a readable DOT graph\n", prog, path);
+	return g;
+}
+
+static int set_start(const char *prog, graph_t *g, const char *seed)
+{
+	/* `-Gstart=N` is `global_def("start=N", AGRAPH)` (`lib/common/input.c:281-286`), which
+	 * declares `start` with default `N` on the proto graph (`lib/common/input.c:178-192`)
+	 * and `setSeed` reads it back as `agget(G, "start")` (`lib/neatogen/neatoinit.c:921`).
+	 * Declaring it here and then setting it is that same statement for one parsed graph. */
+	agattr(g, AGRAPH, "start", seed);
+	if (agset(g, "start", seed) != 0) {
+		fprintf(stderr, "%s: cannot set start=%s\n", prog, seed);
+		return 1;
+	}
+	return 0;
+}
+
+static int emit_coords(const char *prog, graph_t *g)
+{
+	node_t *n;
+	int rc;
+
+	for (n = agfstnode(g); n; n = agnxtnode(g, n))
+		printf("%s %a %a\n", agnameof(n), ND_coord(n).x, ND_coord(n).y);
+	rc = fflush(stdout) == 0 ? 0 : 1;
+	if (rc)
+		fprintf(stderr, "%s: could not write stdout\n", prog);
+	return rc;
+}
+
 int main(int argc, char **argv)
 {
-    GVC_t *gvc;
-    graph_t *g;
-    node_t *n;
-    FILE *fp;
-    int rc;
+	GVC_t *gvc;
+	graph_t *g;
+	int rc;
 
-    if (argc != 4) {
-	fprintf(stderr, "usage: %s <engine> <start-seed> <file.dot>\n", argv[0]);
-	return 2;
-    }
-    if (!(fp = fopen(argv[3], "r"))) {
-	fprintf(stderr, "%s: cannot read %s\n", argv[0], argv[3]);
-	return 1;
-    }
-    /* `gvNextInputGraph` reads `gvc->input_filenames`, and GVC_t is opaque to a client
-     * (`lib/gvc/gvc.h:73`), so the DOT comes in through cgraph's own reader, which is
-     * the `agconcat` that call ends up in (`lib/common/input.c:530`). */
-    if (!(g = agread(fp, NULL))) {
-	fprintf(stderr, "%s: %s is not a readable DOT graph\n", argv[0], argv[3]);
-	fclose(fp);
-	return 1;
-    }
-    fclose(fp);
+	if (argc != 4) {
+		fprintf(stderr, "usage: %s <engine> <start-seed> <file.dot>\n", argv[0]);
+		return 2;
+	}
+	if (!(g = read_graph(argv[0], argv[3])))
+		return 1;
 
-    gvc = gvContext();
-    /* `-Gstart=N` is `global_def("start=N", AGRAPH)` (`lib/common/input.c:281-286`), which
-     * declares `start` with default `N` on the proto graph (`lib/common/input.c:178-192`)
-     * and `setSeed` reads it back as `agget(G, "start")` (`lib/neatogen/neatoinit.c:921`).
-     * Declaring it here and then setting it is that same statement for one parsed graph. */
-    agattr(g, AGRAPH, "start", argv[2]);
-    if (agset(g, "start", argv[2]) != 0) {
-	fprintf(stderr, "%s: cannot set start=%s\n", argv[0], argv[2]);
-	agclose(g);
-	gvFreeContext(gvc);
-	return 1;
-    }
-    /* `gvLayout` is `gvlayout_select` followed by `gvLayoutJobs` (`lib/gvc/gvc.c:52-64`). */
-    if (gvLayout(gvc, g, argv[1]) != 0) {
-	fprintf(stderr, "%s: %s could not lay out %s\n", argv[0], argv[1], argv[3]);
+	gvc = gvContext();
+	if (set_start(argv[0], g, argv[2]) != 0) {
+		agclose(g);
+		gvFreeContext(gvc);
+		return 1;
+	}
+	/* `gvLayout` is `gvlayout_select` followed by `gvLayoutJobs` (`lib/gvc/gvc.c:52-64`). */
+	if (gvLayout(gvc, g, argv[1]) != 0) {
+		fprintf(stderr, "%s: %s could not lay out %s\n", argv[0], argv[1], argv[3]);
+		gvFreeLayout(gvc, g);
+		agclose(g);
+		gvFreeContext(gvc);
+		return 1;
+	}
+
+	rc = emit_coords(argv[0], g);
 	gvFreeLayout(gvc, g);
 	agclose(g);
 	gvFreeContext(gvc);
-	return 1;
-    }
-
-    for (n = agfstnode(g); n; n = agnxtnode(g, n))
-	printf("%s %a %a\n", agnameof(n), ND_coord(n).x, ND_coord(n).y);
-
-    rc = fflush(stdout) == 0 ? 0 : 1;
-    if (rc)
-	fprintf(stderr, "%s: could not write stdout\n", argv[0]);
-    gvFreeLayout(gvc, g);
-    agclose(g);
-    gvFreeContext(gvc);
-    return rc;
+	return rc;
 }

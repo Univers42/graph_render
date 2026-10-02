@@ -72,7 +72,7 @@ extension's source is not on disk, only the `scigraphs-utils==0.2.0` pin
 
 **That floor is now gone, and the way it went is `gv_exact`.** The reference arm stopped
 reading `-Tplain` and reads the engine's own coordinates instead: `harness/scigraphs-conformance/gv_exact.c`
-is a ~40-line C reader compiled at run time by the image's own gcc against
+is a C reader compiled at run time by the image's own gcc against
 `/opt/graphviz/include/graphviz`, which calls `gvLayout` and prints `ND_coord(n).x` and
 `ND_coord(n).y` with `%a` — the same translated points `-Tplain` rounds, unrounded. Measured
 residue of the two readings on a 77-node ring, which is the rounding this removes: `twopi`
@@ -306,7 +306,7 @@ and it named the wrong cure: it said removing the floor needed `scigraphs_utils`
 did not.
 
 **Then the reference arm stopped reading text at all.** `harness/scigraphs-conformance/gv_exact.c`
-is a ~40-line C reader, compiled at run time by the image's own gcc against
+is a C reader, compiled at run time by the image's own gcc against
 `/opt/graphviz/include/graphviz`, which runs `gvLayout` and prints `ND_coord(n)` with `%a` — the
 same translated points `-Tplain` rounds, unrounded. **Measured after it:** `max gap`
 **7.5e-5 -> 1.70e-7** (twopi) and **2.4e-4 -> 1.81e-7** (patchwork); `f32` 362/1020 -> **841/1020**
