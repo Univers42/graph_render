@@ -24,6 +24,20 @@ impl Neighbors {
         &self.targets[self.offsets[i as usize]..self.offsets[i as usize + 1]]
     }
 
+    /// The component `members` (ascending) spans, renumbered to positions in `members`
+    /// (`local_of`, [`local_positions`]). The renumbering keeps order, so rows stay ascending.
+    pub(crate) fn component(&self, members: &[u32], local_of: &[u32]) -> Self {
+        let links = members.iter().map(|&g| self.row(g).len()).sum();
+        let mut offsets = Vec::with_capacity(members.len() + 1);
+        let mut targets = Vec::with_capacity(links);
+        offsets.push(0);
+        for &g in members {
+            targets.extend(self.row(g).iter().map(|&w| local_of[w as usize]));
+            offsets.push(targets.len());
+        }
+        Self { offsets, targets }
+    }
+
     /// The adjacency of already simple, ascending `rows`.
     #[cfg(test)]
     pub(crate) fn from_rows(rows: &[Vec<u32>]) -> Self {
@@ -81,8 +95,8 @@ pub(crate) fn simple_neighbors(topology: &Topology) -> Neighbors {
 /// repeats left behind.
 fn simplify_rows(offsets: &mut [usize], targets: &mut Vec<u32>) {
     let (mut start, mut write) = (0, 0);
-    for i in 1..offsets.len() {
-        let end = offsets[i];
+    for row_end in offsets.iter_mut().skip(1) {
+        let end = *row_end;
         targets[start..end].sort_unstable();
         let row_start = write;
         for read in start..end {
@@ -91,7 +105,7 @@ fn simplify_rows(offsets: &mut [usize], targets: &mut Vec<u32>) {
                 write += 1;
             }
         }
-        (offsets[i], start) = (write, end);
+        (*row_end, start) = (write, end);
     }
     targets.truncate(write);
 }
@@ -162,6 +176,9 @@ mod tests {
         assert_eq!(neighbors.rows(), want);
         let components = find_components(&neighbors);
         assert_eq!(components, [vec![0, 1, 3], vec![2], vec![4, 5]]);
-        assert_eq!(local_positions(&components, 6), [0, 1, 0, 2, 0, 1]);
+        let local_of = local_positions(&components, 6);
+        assert_eq!(local_of, [0, 1, 0, 2, 0, 1]);
+        let first = neighbors.component(&components[0], &local_of);
+        assert_eq!(first.rows(), [vec![1, 2], vec![0, 2], vec![0, 1]]);
     }
 }

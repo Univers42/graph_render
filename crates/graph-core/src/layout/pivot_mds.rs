@@ -20,8 +20,8 @@ use crate::linalg::{EigBlock, orthonormal, pin_signs, residual_converged};
 
 use super::Geometry;
 use super::spectral::{
-    DIMS, Neighbors, find_components, nothing_solved, pack_components, scatter, simple_neighbors,
-    to_geometry,
+    DIMS, Neighbors, find_components, local_positions, nothing_solved, pack_components, scatter,
+    simple_neighbors, to_geometry,
 };
 
 mod matrix;
@@ -52,50 +52,30 @@ pub enum MdsError {
     NothingSolved,
 }
 
-/// Hop counts from one node at a time, over the whole graph's adjacency in dense indices,
-/// so a walk needs no local index map. Both buffers are allocated once per run: the queue
-/// ends holding exactly the nodes the last walk reached, which is what the next one resets.
-struct Bfs<'a> {
-    neighbors: &'a Neighbors,
-    hops: Vec<u32>,
-    queue: Vec<u32>,
-}
-
-impl<'a> Bfs<'a> {
-    fn new(neighbors: &'a Neighbors) -> Self {
-        Self {
-            neighbors,
-            hops: vec![u32::MAX; neighbors.len()],
-            queue: Vec::new(),
-        }
-    }
-
-    /// Hop count from `start` to every node of its component, into `hops`; every other
-    /// entry is `u32::MAX`. A component is connected by construction, so the reference's
-    /// `d[~np.isfinite(d)] = 0.0` branch never triggers on this caller and is not ported.
-    fn walk(&mut self, start: u32) {
-        for &v in &self.queue {
-            self.hops[v as usize] = u32::MAX;
-        }
-        self.queue.clear();
-        self.queue.push(start);
-        self.hops[start as usize] = 0;
-        let mut head = 0;
-        while let Some(&v) = self.queue.get(head) {
-            head += 1;
-            let next = self.hops[v as usize] + 1;
-            for &w in self.neighbors.row(v) {
-                if self.hops[w as usize] == u32::MAX {
-                    self.hops[w as usize] = next;
-                    self.queue.push(w);
-                }
+/// Hop counts from `start` to every node of its component, into `hops`, which holds
+/// `u32::MAX` on entry and doubles as the visited mark; `queue` has a slot per node. A
+/// component is connected by construction, so the reference's `d[~np.isfinite(d)] = 0.0`
+/// branch never triggers on this caller and is not ported.
+fn walk(graph: &Neighbors, start: u32, hops: &mut [u32], queue: &mut [u32]) {
+    hops[start as usize] = 0;
+    queue[0] = start;
+    let (mut head, mut tail) = (0, 1);
+    while head < tail {
+        let v = queue[head];
+        head += 1;
+        let next = hops[v as usize] + 1;
+        for &w in graph.row(v) {
+            if hops[w as usize] == u32::MAX {
+                hops[w as usize] = next;
+                queue[tail] = w;
+                tail += 1;
             }
         }
     }
 }
 
 /// `np.argmax`'s own tie rule: the first (lowest-index) occurrence of the maximum.
-fn argmax(v: &[f64]) -> usize {
+fn argmax(v: &[u32]) -> usize {
     let mut best = 0;
     for i in 1..v.len() {
         if v[i] > v[best] {
@@ -105,23 +85,24 @@ fn argmax(v: &[f64]) -> usize {
     best
 }
 
-/// The hop counts to each pivot, pivot `j`'s column being `[j * n..(j + 1) * n]`, the
-/// pivots chosen by the farthest-point heuristic (`_pivot_mds_coordinates:176-185`): pivot 0
-/// is local index 0; each next pivot is the node currently farthest (by minimum hop count)
-/// from every pivot chosen so far, ties won by the lowest index.
-fn pivot_hops(bfs: &mut Bfs, members: &[u32], k: usize) -> Vec<u32> {
-    let n = members.len();
-    let mut hops = Vec::with_capacity(n * k);
-    let mut covered = vec![f64::INFINITY; n];
-    let mut chosen = 0usize;
-    for _ in 0..k {
-        bfs.walk(members[chosen]);
-        for (i, &node) in members.iter().enumerate() {
-            let h = bfs.hops[node as usize];
-            hops.push(h);
-            covered[i] = covered[i].min(f64::from(h));
+/// The hop counts to each pivot over one component's own adjacency (`graph`, local
+/// indices), pivot `j`'s column being `[j * n..(j + 1) * n]`, each walk writing its column
+/// in place. The pivots are chosen by the farthest-point heuristic
+/// (`_pivot_mds_coordinates:176-185`): pivot 0 is local index 0; each next pivot is the
+/// node currently farthest (by minimum hop count) from every pivot chosen so far, ties won
+/// by the lowest index. A chosen pivot's own minimum is 0 and every other node's is at
+/// least 1, so the reference's `-1` mark on chosen pivots is never needed here.
+fn pivot_hops(graph: &Neighbors, k: usize) -> Vec<u32> {
+    let n = graph.len();
+    let mut hops = vec![u32::MAX; n * k];
+    let mut queue = vec![0; n];
+    let mut covered = vec![u32::MAX; n];
+    let mut chosen = 0;
+    for column in hops.chunks_exact_mut(n) {
+        walk(graph, chosen as u32, column, &mut queue);
+        for (c, &h) in covered.iter_mut().zip(column.iter()) {
+            *c = (*c).min(h);
         }
-        covered[chosen] = -1.0;
         chosen = argmax(&covered);
     }
     hops
@@ -162,10 +143,10 @@ fn converged(gram: &[f64], k: usize, eig: &EigBlock) -> bool {
 /// One component's solve: always dense (`k <= 100 < DENSE_EIG_LIMIT`). Returns the
 /// projected, sign-pinnable coordinates (or `None` when the gate refuses them) and the
 /// pivot count used.
-fn solve_component(bfs: &mut Bfs, members: &[u32]) -> (Option<EigBlock>, u32) {
-    let n = members.len();
+fn solve_component(graph: &Neighbors) -> (Option<EigBlock>, u32) {
+    let n = graph.len();
     let k = MAX_PIVOTS.min(n);
-    let centered = Centered::new(pivot_hops(bfs, members, k), n, k);
+    let centered = Centered::new(pivot_hops(graph, k), n, k);
     let g = gram(&centered);
     let full = eigh(&g, k);
     let dims_eff = DIMS.min(k);
@@ -181,7 +162,7 @@ pub fn run(topology: &Topology) -> Result<(Geometry, Vec<ComponentReport>), MdsE
     let n = topology.node_count() as usize;
     let neighbors = simple_neighbors(topology);
     let components = find_components(&neighbors);
-    let mut bfs = Bfs::new(&neighbors);
+    let local_of = local_positions(&components, n);
     let mut coords = vec![0.0_f64; n * DIMS];
     let mut reports = Vec::new();
     let mut any_solved = false;
@@ -190,7 +171,7 @@ pub fn run(topology: &Topology) -> Result<(Geometry, Vec<ComponentReport>), MdsE
         if members.len() < 2 {
             continue;
         }
-        let (solved, pivots) = solve_component(&mut bfs, members);
+        let (solved, pivots) = solve_component(&neighbors.component(members, &local_of));
         let ok = solved.is_some();
         if let Some(mut eig) = solved {
             pin_signs(&mut eig);
