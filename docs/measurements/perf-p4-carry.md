@@ -122,18 +122,21 @@ Release, batch 10 000, `/proc/loadavg` as printed:
 | 1000000 | 10000 | 1549929 | 2303.38 | 665.16 | 476.48 | 683.14 | 990000 | 1000000 | 22.63 17.46 14.97 | 20.33 17.26 14.96 |
 | 100000 | 10000 | 154978 | 64.94 | 17.07 | 17.05 | 17.86 | 90000 | 100000 | 17.61 17.59 20.23 | 17.61 17.59 20.23 |
 | 1000000 | 10000 | 1549929 | 1310.14 | 320.07 | 315.18 | 354.54 | 990000 | 1000000 | 17.61 17.59 20.23 | 16.59 17.37 20.11 |
+| 100000 | 10000 | 154978 | 78.57 | 18.10 | 17.91 | 35.35 | 90000 | 100000 | 19.93 19.79 19.37 | 19.93 19.79 19.37 |
+| 1000000 | 10000 | 1549929 | 1764.75 | 341.28 | 328.02 | 568.81 | 990000 | 1000000 | 19.93 19.79 19.37 | 18.32 19.44 19.27 |
 
-Rows per size, so the spread is visible rather than summarised away. The last row of each size is a
-later run of the final binary; the three above it predate one last micro-optimisation (reading the
-id from the node column rather than through `Topology::node`), which is why the 1M figures fall from
-~650 ms to ~320 ms between the two groups. **320 ms is the number to read**; the ~650 ms rows are
-recorded because they were real runs of real code, not because they describe what is in the tree.
+Rows per size, so the spread is visible rather than summarised away. The last two rows are later runs
+of the final binary; the 1M rows above them predate one last micro-optimisation (reading the id from
+the node column rather than through `Topology::node`), which is why those figures fall from ~650 ms to
+~320 ms. **~320–341 ms is the number to read**; the ~650 ms rows are recorded because they were real
+runs of real code, not because they describe what is in the tree.
 
-**Caveat: the host was loaded throughout.** Load average sat at 14–23 on 20 cores for every run and
-never fell below ~13.9 in the ten minutes before these numbers. Wall clock on a loaded host is
-inflated, and the 1M rows show it: `carry min` moved between 315 ms and 569 ms across repetitions of
-the *same* work, which is the machine, not the algorithm. Treat the 1M figures as an upper bound on
-a busy host, not as this code's cost on an idle one. Nothing here speaks for wasm32.
+**Caveat: the host was loaded throughout.** Load average sat at 14–23 on 20 cores for every run,
+reaching 19.93 by the last one, and never fell below ~13.9. Wall clock on a loaded host is inflated,
+and the 1M rows show it: `carry min` moved between 315 ms and 569 ms across repetitions of the *same*
+work, and the `carry max` on the 100k row swings to 35 ms on one repetition out of three. That is the
+machine, not the algorithm. Treat these as an upper bound on a busy host, not as this code's cost on
+an idle one. Nothing here speaks for wasm32.
 
 ## The plan's budget: missed
 
@@ -141,7 +144,7 @@ a busy host, not as this code's cost on an idle one. Nothing here speaks for was
 ≤ 30 ms per batch at 1M** (measured)".
 
 **Missed, by more than an order of magnitude.** The carry at 1M with a 10 000-node batch measures
-**~320 ms** median on the final binary (~650 ms before the last id-read optimisation), against a
+**~320–341 ms** median on the final binary (~650 ms before the last id-read optimisation), against a
 30 ms budget. The rebuild of the topology itself — the part the budget's "rebuild" names — is
 ~1.3–2.7 s, which is ~45–90× the budget on its own, before any carry is timed.
 
