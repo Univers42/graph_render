@@ -44,6 +44,16 @@ docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-python-oracle \
   python3 target/spring3d-opening-differential.py
 ```
 
+**The script is scratch and is not committed** — `target/` is not versioned, and this job's
+paths do not include a new harness. Its whole mechanism is small enough to restate: draw
+`n = 40` columns from `np.random.RandomState(0)`, scale them by `(2, 1, 40)` so `z` dominates,
+hand `spring_layout` a `{node: (x, y, z)}` dict (it reads `pos.values()`, `layout.py:607`),
+and attach a `sys.settrace` line hook that stores `f_locals["t"]` the first time the frame
+named `*fruchterman_reingold` holds a `t`. Two details that cost real time and are worth
+keeping: `pos.T[0]`/`pos.T[1]` are the reference's **x and y at every `dim`**, and the tracer
+must return itself on `call` events too — returning `None` there silently stops the frame
+being traced at all, which looks exactly like the hook not firing.
+
 | | |
 |---|--:|
 | `x_span` | 1.9196570835928177 |
@@ -150,7 +160,8 @@ the unit test. That is stated rather than dressed up as a measured win.
 
 The motor's `dim = 3` start is drawn axis-by-axis from one Mulberry32 stream
 (`spring.rs:start`), so its three spans are near-isotropic and the two rules usually agree.
-Replaying that draw at the fixtures' own node counts:
+Replaying that draw (`target/start-span-ratio.js`, also scratch and not committed) at the
+fixtures' own node counts:
 
 | n | x | y | z | widest-of-3 / max(x,y) |
 |--:|--:|--:|--:|--:|
