@@ -136,3 +136,65 @@ fn every_style_id_names_one_kind_one_degree_and_one_registration() {
         (0, 0)
     );
 }
+
+/// The field a refusal names, or a panic saying what came back instead.
+fn refused_field(p: &StyleParams) -> &'static str {
+    let t = topology(&["a", "b"], &[("e0", "a", "b")]);
+    match style_edges(&t, &points(&[(0.0, 0.0), (4.0, 0.0)]), p) {
+        Err(StageError::Param { name, .. }) => name,
+        other => panic!("not refused as a parameter: {other:?}"),
+    }
+}
+
+#[test]
+fn a_self_loop_vertex_count_past_the_references_ceiling_is_refused() {
+    // R12. The loop's vertex count is the reference's `edge_segments`
+    // (`edge_styles.py:458-459` hands it to `generate_self_loop`), whose panel bounds it at
+    // max=32 (`SciGraphs/properties/edge_style_properties.py:78-85`). Unbounded, one
+    // self-loop at 100_000_000 wrote 800 MB of f32 before the offset check could refuse.
+    let mut p = params(Style::Bezier);
+    p.self_loop_segments = 100_000_000;
+    assert_eq!(refused_field(&p), "self_loop_segments");
+    p.self_loop_segments = 33;
+    assert_eq!(refused_field(&p), "self_loop_segments");
+    // The ceiling itself draws, on a loop: 32 vertices, one row.
+    p.self_loop_segments = 32;
+    let t = topology(&["a"], &[("e0", "a", "a")]);
+    assert_eq!(paths(&t, &[(0.0, 0.0)], &p).offsets, vec![0, 32]);
+}
+
+#[test]
+fn a_negative_parallel_offset_is_refused_rather_than_mirroring_the_fan() {
+    // M26. The reference's panel bounds `edge_parallel_offset` at min=0.0
+    // (`SciGraphs/properties/edge_style_properties.py:100-107`); the fan itself is
+    // sign-agnostic, so -0.05 drew a parallel pair in reversed order with no refusal.
+    let mut p = params(Style::Bezier);
+    p.parallel_offset = -0.05;
+    assert_eq!(refused_field(&p), "parallel_offset");
+    // Zero is legal: it is the gap a lone edge already has.
+    p.parallel_offset = 0.0;
+    let t = topology(&["a", "b"], &[("e0", "a", "b")]);
+    assert_eq!(paths(&t, &[(0.0, 0.0), (4.0, 0.0)], &p).offsets, vec![0, 2]);
+}
+
+#[test]
+fn a_point_past_the_f32_range_is_refused_rather_than_written_as_infinity() {
+    // R13. Two legal centres at f32::MAX height, f32::MAX apart either side: the cubic's
+    // quarter point is at y = MAX and its push adds 2·MAX · curvature/4, so the f64 point
+    // is 1.15·MAX and `as f32` rounds it to +inf — a non-finite column D9 forbids. The
+    // review's own witness, (MAX, MAX) -> (0, -MAX), lands inside the range (y = 0.575·MAX)
+    // and is pinned below as drawn.
+    let max = f32::MAX;
+    let t = topology(&["a", "b"], &[("e0", "a", "b")]);
+    let wide = points(&[(max, max), (-max, max)]);
+    assert_eq!(
+        style_edges(&t, &wide, &StyleParams::for_style(Style::Bezier)),
+        Err(StageError::NonFinite { column: "edge.pts" })
+    );
+    let inside = paths(
+        &t,
+        &[(max, max), (0.0, -max)],
+        &StyleParams::for_style(Style::Bezier),
+    );
+    assert!(inside.pts.iter().all(|v| v.is_finite()), "{:?}", inside.pts);
+}

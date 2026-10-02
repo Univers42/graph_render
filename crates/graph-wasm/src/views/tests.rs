@@ -288,3 +288,4 @@ fn non_finite_is_caught_in_node_columns_and_in_edge_points() {
         "infinite value written through an edge-path view"
     );
 }
+mod wire;

@@ -44,6 +44,11 @@ export interface SessionDeps<Handle> {
   readonly fetchText: (url: string) => Promise<string>;
   readonly digest: (bytes: Uint8Array) => Promise<string | null>;
   readonly now: () => number;
+  /**
+   * Told when a force session is released, so whatever is stepping it stops at once. Never
+   * called to ask whether there is a session: that would make one as a side effect.
+   */
+  readonly onForget?: () => void;
 }
 
 export interface Session {
@@ -226,6 +231,24 @@ function runAnalysis<Handle>(
   return reportOf(face, deps.now() - started);
 }
 
+/**
+ * Lets a built graph go: the motor's session, the port over it, and the loop stepping it.
+ *
+ * WHY the port is marked before the release: the stepping loop holds it, its next frame is
+ * already scheduled, and every call on a released session throws. WHY the notice goes last:
+ * the loop is told once the port says dead, so a frame in between reads the mark and stops
+ * on its own.
+ */
+function forget<Handle>(built: Built<Handle> | null, onForget?: () => void): void {
+  const forced = built?.forced ?? null;
+  if (built !== null && built.port !== null) built.port.dead = true;
+  forced?.release();
+  if (built === null) return;
+  built.forced = null;
+  built.port = null;
+  if (forced !== null) onForget?.();
+}
+
 export function createSession<Handle>(deps: SessionDeps<Handle>): Session {
   let motor: MotorLike<Handle> | null = null;
   let built: Built<Handle> | null = null;
@@ -234,20 +257,13 @@ export function createSession<Handle>(deps: SessionDeps<Handle>): Session {
     if (built === null) throw new SessionRefusal("no graph is loaded");
     return { motor, built };
   };
-  const forget = (): void => {
-    // The motor's session outlives its graph handle, so releasing the handle is not enough.
-    built?.forced?.release();
-    if (built === null) return;
-    built.forced = null;
-    built.port = null;
-  };
   /** Builds the next graph and lets the last one go, force session and all. */
   const replace = (document: Document, started: number): GraphSummary => {
     const open = motor;
     if (open === null) throw new SessionRefusal("the motor is not open");
     const handle = open.build(document.json);
     if (built !== null) open.release(built.handle);
-    forget();
+    forget(built, deps.onForget);
     built = { handle, nodes: document.nodes, described: null, forced: null, port: null, order: null };
     return summaryOf(document, deps.now() - started);
   };

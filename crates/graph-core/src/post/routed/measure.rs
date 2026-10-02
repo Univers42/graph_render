@@ -30,7 +30,7 @@ fn spanned_layout(count: u32, pitch_cells: f64) -> NodeGeometry {
     let span = 8.0_f64;
     let pitch = pitch_cells * span / 128.0;
     // Square lattice, as wide as the count allows, so the drawing fills 0..8 on both axes.
-    let cols = (f64::from(count).sqrt().ceil() as u32).max(2);
+    let cols = (libm::sqrt(f64::from(count)).ceil() as u32).max(2);
     let (mut x, mut y) = (
         Vec::with_capacity(count as usize),
         Vec::with_capacity(count as usize),
@@ -38,9 +38,10 @@ fn spanned_layout(count: u32, pitch_cells: f64) -> NodeGeometry {
     for i in 0..count {
         let (col, row) = (i % cols, i / cols);
         // A deterministic offset per node, from its index — no RNG to pin, and enough to
-        // break the exact alignment that would put every node on a lattice boundary.
-        let jx = ((i * 2_654_435_761) % 1000) as f64 / 1000.0 - 0.5;
-        let jy = ((i * 40_503) % 1000) as f64 / 1000.0 - 0.5;
+        // break the exact alignment that would put every node on a lattice boundary. The
+        // multiply wraps in u32, the value every build computes (review finding M11).
+        let jx = f64::from(i.wrapping_mul(2_654_435_761) % 1000) / 1000.0 - 0.5;
+        let jy = f64::from(i.wrapping_mul(40_503) % 1000) / 1000.0 - 0.5;
         x.push((f64::from(col) * pitch + jx * pitch * 0.4 + pitch / 2.0) as f32);
         y.push((f64::from(row) * pitch + jy * pitch * 0.4 + pitch / 2.0) as f32);
     }
@@ -109,8 +110,9 @@ fn routing_measurement() {
 fn resolution_measurement() {
     // One fixed graph, routed at every resolution. This is the Ponytail's cost curve: the
     // cell count is quadratic in the resolution, and the wall-clock follows it.
-    let (nodes, edges) = gate_edges(count_for(4.0, 0.25), 4.0);
-    println!("post.route.grid — 1000 nodes, {} edges", edges.source.len());
+    let n = count_for(4.0, 0.25);
+    let (nodes, edges) = gate_edges(n, 4.0);
+    println!("post.route.grid — {n} nodes, {} edges", edges.source.len());
     println!(
         "{:>11} {:>9} {:>9} {:>10} {:>12} {:>12}",
         "resolution", "cells", "occupied", "bytes", "wall-clock", "fallbacks"
@@ -179,64 +181,80 @@ fn density_measurement() {
     }
 }
 
+/// Two nodes at (0, 4) and (8, 4), and a wall of point nodes at x = 6, one per cell from
+/// y = 0 to y = 8, with `gap_cells` of them left out around y = 4. At resolution 32 over a
+/// span of 8 a cell is 0.25 and the point at `k · 0.25` lands in its own cell, so the hole
+/// is exactly `gap_cells` cells (review finding M13: the old bounds left one cell open at
+/// a gap of 0 and 1, and three at 2).
+fn wall_with_gap(gap_cells: u32) -> (NodeGeometry, EdgeColumns) {
+    let hole = (16 - gap_cells / 2)..(16 - gap_cells / 2 + gap_cells);
+    let mut points = vec![(0.0_f32, 4.0_f32), (8.0, 4.0)];
+    points.extend(
+        (0..=32_u16)
+            .filter(|k| !hole.contains(&u32::from(*k)))
+            .map(|k| (6.0, f32::from(k) * 0.25)),
+    );
+    let records: Vec<_> = (0..points.len())
+        .map(|i| crate::records::build::node(&format!("n{i}"), ""))
+        .collect();
+    let links = vec![crate::records::build::edge("e0", "n0", "n1")];
+    let edges = crate::index::index_model(&records, &links)
+        .expect("fits")
+        .edges()
+        .clone();
+    let nodes = NodeGeometry::Point {
+        x: points.iter().map(|p| p.0).collect(),
+        y: points.iter().map(|p| p.1).collect(),
+    };
+    (nodes, edges)
+}
+
 #[test]
 #[ignore = "a measurement, not a gate: the cost of a narrow gap, the Ponytail's failing input"]
 fn gap_measurement() {
     // The Ponytail's failing input, swept: two nodes either side of a wall, with the gap
-    // between the wall's ends narrowing from two cells to none. Below one cell the grid
-    // cannot represent the gap, and the route either detours or falls back — this is where
-    // that shows up, as a number.
+    // in the wall narrowing from eight cells to none. The margin leaves a way round the
+    // wall's ends, so a closed gap is a detour, not a fallback.
     println!("post.route.grid — gap sweep, resolution 32 over a span of 8 (cell = 0.25)");
     println!(
         "{:>10} {:>12} {:>12} {:>12}",
-        "gap", "cells wide", "fallbacks", "wall-clock"
+        "gap", "hole", "fallbacks", "wall-clock"
     );
+    let params = GridParams {
+        resolution: 32,
+        margin: 2,
+        clearance: 0.0,
+    };
     for gap_cells in [8u32, 4, 2, 1, 0] {
-        let cell = 8.0_f32 / 32.0_f32;
-        let gap = gap_cells as f32 * cell;
-        let mut points = vec![(0.0_f32, 4.0_f32), (8.0, 4.0)];
-        // A wall from the bottom up to `4 - gap / 2` and from the top down to
-        // `4 + gap / 2`, leaving a gap of `gap` in the middle.
-        let mut y = 0.0_f32;
-        while y < 4.0 - gap / 2.0 {
-            points.push((6.0, y));
-            y += cell;
-        }
-        let mut y = 8.0_f32;
-        while y > 4.0 + gap / 2.0 {
-            points.push((6.0, y));
-            y -= cell;
-        }
-        let nodes = NodeGeometry::Point {
-            x: points.iter().map(|p| p.0).collect(),
-            y: points.iter().map(|p| p.1).collect(),
-        };
-        let records: Vec<_> = (0..points.len())
-            .map(|i| crate::records::build::node(&format!("n{i}"), ""))
-            .collect();
-        let links = vec![crate::records::build::edge("e0", "n0", "n1")];
-        let edges = crate::index::index_model(&records, &links)
-            .expect("fits")
-            .edges()
-            .clone();
+        let (nodes, edges) = wall_with_gap(gap_cells);
         let mut grid = GridIndex::new();
-        grid.build(
-            &nodes,
-            &GridParams {
-                resolution: 32,
-                margin: 2,
-                clearance: 0.0,
-            },
-        )
-        .expect("builds");
+        grid.build(&nodes, &params).expect("builds");
+        // Column 26 is x = 6; rows 2..=34 are y = 0..=8, the margin excluded.
+        let hole = (2..=34)
+            .filter(|row| !grid.is_occupied(row * grid.shape().0 + 26))
+            .count();
         let started = Instant::now();
         let routed = route_over(&mut grid, &nodes, &edges).expect("routes");
         println!(
             "{:>10} {:>12} {:>12} {:>11.3}ms",
             format!("{gap_cells} cells"),
-            format!("{:.2}", gap),
+            format!("{hole} cells"),
             routed.fallbacks,
             started.elapsed().as_secs_f64() * 1e3
         );
+        assert_eq!(
+            hole, gap_cells as usize,
+            "the hole is the gap the row names"
+        );
     }
+}
+
+#[test]
+fn the_lattice_jitter_wraps_rather_than_overflowing_in_a_debug_build() {
+    // Node 2 is the first whose `i · 2 654 435 761` passes u32::MAX. A release build wraps
+    // it, and the published numbers were taken with that wrap, so a debug build must too.
+    let NodeGeometry::Point { x, .. } = spanned_layout(3, 4.0) else {
+        unreachable!("a lattice is points")
+    };
+    assert_eq!(x.len(), 3);
 }

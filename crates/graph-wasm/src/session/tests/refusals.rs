@@ -207,3 +207,14 @@ fn an_axis_outside_the_two_named_ones_is_refused() {
     assert_eq!(column(id, 0, false), Ok(4));
     assert_eq!(column(id, 1, false), Ok(4));
 }
+
+/// An empty session's columns read `(0, 0)`, as a run's empty columns do: an empty `Vec`'s
+/// address is dangling, and a host view built over it is an out-of-bounds view.
+#[test]
+fn an_empty_sessions_columns_read_zero_zero() {
+    let id = session_over(0);
+    for axis in [0, 1] {
+        assert_eq!(column(id, axis, false), Ok(0), "len, axis {axis}");
+        assert_eq!(column(id, axis, true), Ok(0), "ptr, axis {axis}");
+    }
+}

@@ -173,3 +173,79 @@ fn a_threshold_above_one_leaves_every_edge_unbundled() {
     assert_eq!(list.total(), 0);
     assert_eq!(list.unbundled(), &[0, 1], "both edges drawn unbundled");
 }
+
+#[test]
+fn at_a_zero_threshold_a_pair_scoring_exactly_zero_is_kept_as_the_reference_keeps_it() {
+    // M2. The reference prunes with `live = cm >= thresh` (`fdeb.py:286`), so a finite
+    // compatibility of exactly 0 survives a threshold of 0. A perpendicular pair scores
+    // Ca = 0; so does a pair of zero-length edges here, where the reference's 0/0 is NaN and
+    // fails the test — the drawing agrees (a zero weight pulls nothing), the count does not.
+    let xy = [(0.0, 0.0), (1.0, 0.0), (0.5, -0.5), (0.5, 0.5)];
+    let nodes = ["a", "b", "c", "d"].map(|id| node(id, ""));
+    let edges = [
+        edge("e0", "a", "b"),
+        edge("e1", "c", "d"),
+        edge("e2", "a", "a"),
+        edge("e3", "a", "a"),
+    ];
+    let topology = index_model(&nodes, &edges).expect("fits");
+    let geometry = points(4, &xy);
+    let (x, y) = centres(&geometry.nodes);
+    let endpoints = topology.edges();
+    let frames = compat::Frames::of(x, y, &endpoints.source, &endpoints.target).expect("frames");
+    assert_eq!(frames.compatibility(0, 1, true), 0.0, "perpendicular");
+    assert_eq!(
+        frames.compatibility(2, 3, true),
+        0.0,
+        "two zero-length edges"
+    );
+    let at = |threshold| {
+        pairs::PairList::of(
+            &frames,
+            &FdebParams {
+                threshold,
+                ..FdebParams::default()
+            },
+        )
+    };
+    let kept = at(0.0);
+    assert!(
+        kept.row(0)
+            .iter()
+            .any(|entry| entry.partner == 1 && entry.compat == 0.0)
+    );
+    assert!(kept.row(2).iter().any(|entry| entry.partner == 3));
+    assert!(
+        kept.unbundled().is_empty(),
+        "every edge has a 0-scoring partner"
+    );
+    let pruned = at(f32::MIN_POSITIVE);
+    assert_eq!(pruned.total(), 0, "nothing here scores above zero");
+    // The bundled drawing is the same either way: a zero weight pulls nothing.
+    let drawn = |threshold| {
+        let params = FdebParams {
+            threshold,
+            ..FdebParams::default()
+        };
+        bundle(&topology, &geometry, &params)
+            .expect("runs")
+            .geometry
+    };
+    assert_eq!(drawn(0.0), drawn(f32::MIN_POSITIVE));
+}
+
+#[test]
+fn the_resample_lerp_is_the_references_algebra_and_not_its_bits() {
+    // M6 / U20. `at_arc` writes a + (b − a)·f; `fdeb.py:171` writes a·(1 − f) + b·f. One
+    // input where the two f32 results differ, by one ulp: the reason META's oracle row is a
+    // hand oracle and not a byte-for-byte one.
+    let (a, b, f) = (0.1_f32, 0.7_f32, 1.0_f32 / 3.0);
+    let port = a + (b - a) * f;
+    let reference = a * (1.0 - f) + b * f;
+    assert_ne!(port.to_bits(), reference.to_bits());
+    assert_eq!(
+        port.to_bits().abs_diff(reference.to_bits()),
+        1,
+        "{port} {reference}"
+    );
+}

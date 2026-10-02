@@ -19,7 +19,9 @@
 //! the diagonal costs bit-alike on every target.
 //!
 //! The stencil order is also the CSR row order, so a row is walked in the reference's
-//! order and the CSR stays arrival-ordered and deterministic.
+//! order and the CSR stays arrival-ordered and deterministic. A border row is shorter than
+//! eight, so a position in the row is **not** a stencil index: [`GridCsr::row`] decodes the
+//! index from the step itself, and every price is read through it (review finding R1).
 
 use crate::csr::Csr;
 use crate::post::grid_index::GridIndex;
@@ -42,6 +44,12 @@ pub type Cell = u32;
 
 /// Euclidean length of each stencil step, in [`STENCIL`] order: 1 along an axis, `√2` on
 /// a diagonal. `libm::sqrt` only (D1), computed once per grid.
+///
+/// f64, not the reference's float32-rounded literals (`routed.py:69-71`). The reference
+/// rounds so that its numpy and GPU backends break a tie alike; here every target computes
+/// these bits through libm, and a tie is broken explicitly by cell index ([`super::trace`]).
+/// Rounding to f32 would shift √2 by 2.4e-8 and could flip a near-tie between two paths,
+/// so the choice is kept and named here (review finding M20).
 pub fn stencil_costs() -> [f64; 8] {
     let diagonal = libm::sqrt(2.0);
     [diagonal, 1.0, diagonal, 1.0, 1.0, diagonal, 1.0, diagonal]
@@ -85,13 +93,21 @@ impl GridCsr {
         self.cells
     }
 
-    /// `cell`'s neighbours as `(stencil index, cell)`, in [`STENCIL`] order.
+    /// `cell`'s neighbours as `(stencil index, cell)`, in [`STENCIL`] order. The index is
+    /// decoded from the step, never taken from the position in the row; empty for a cell
+    /// out of range.
     pub fn row(&self, cell: u32) -> impl Iterator<Item = (usize, Cell)> + '_ {
-        self.adj
-            .row(cell)
+        let at = self.xy(cell);
+        self.targets(cell)
             .iter()
-            .enumerate()
-            .map(|(slot, v)| (slot, *v))
+            .map(move |&next| (self.slot_from(at, next), next))
+    }
+
+    /// The [`STENCIL`] index of the step from the cell at `from` (its [`Self::xy`]) to its
+    /// neighbour `to`.
+    pub fn slot_from(&self, from: (i32, i32), to: Cell) -> usize {
+        let (x, y) = self.xy(to);
+        stencil_slot(x - from.0, y - from.1)
     }
 
     /// Euclidean step length of stencil entry `slot`.
@@ -104,22 +120,32 @@ impl GridCsr {
         cell < self.cells
     }
 
-    /// `(x, y)` of `cell` in cell coordinates, x fastest.
+    /// `(x, y)` of `cell` in cell coordinates, x fastest. `(0, 0)` on an empty grid, as
+    /// [`GridIndex::xy`] answers.
     pub fn xy(&self, cell: u32) -> (i32, i32) {
+        if self.nx == 0 {
+            return (0, 0);
+        }
         ((cell % self.nx) as i32, (cell / self.nx) as i32)
     }
 
-    /// The stencil step lengths, in [`STENCIL`] order. The adapter needs them to price an
-    /// edge; nothing else reads them, so this is a borrow rather than a field access.
-    pub fn costs(&self) -> &[f64; 8] {
-        &self.costs
+    /// `cell`'s neighbours, the CSR row itself, borrowed, in [`STENCIL`] order: at most 8
+    /// entries, and empty for a cell out of range.
+    pub fn targets(&self, cell: u32) -> &[Cell] {
+        if self.contains(cell) {
+            self.adj.row(cell)
+        } else {
+            &[]
+        }
     }
+}
 
-    /// `cell`'s neighbours as a dense slice, in [`STENCIL`] order — the CSR row, copied
-    /// into the adapter's iterator. At most 8 entries.
-    pub fn targets(&self, cell: u32) -> Vec<Cell> {
-        self.adj.row(cell).to_vec()
-    }
+/// The [`STENCIL`] index of the step `(dx, dy)`: the product order puts it at
+/// `3·(dx + 1) + (dy + 1)`, one less past the removed origin at 4.
+fn stencil_slot(dx: i32, dy: i32) -> usize {
+    debug_assert!(dx.abs() <= 1 && dy.abs() <= 1 && (dx, dy) != (0, 0));
+    let at = (3 * (dx + 1) + (dy + 1)) as usize;
+    at - usize::from(at > 4)
 }
 
 /// `cell`'s in-range neighbours as `(stencil index, cell)`, in stencil order.
