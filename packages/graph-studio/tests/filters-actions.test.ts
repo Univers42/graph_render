@@ -12,7 +12,7 @@ import { NODE_KINDS } from "../src/source/ingest.ts";
 import { metaOf } from "../src/source/meta.ts";
 import { initialState } from "../src/state/model.ts";
 import { type Group, type Settings, DEFAULT_SETTINGS, withFilter, withGroups } from "../src/state/settings.ts";
-import type { ViewFace } from "../src/studio/pipeline.ts";
+import { silentView } from "./silent-view.ts";
 import { node } from "./support.ts";
 
 const ACTIONS: readonly StudioAction[] = [...FILTER_ACTIONS, ...GROUP_ACTIONS];
@@ -36,26 +36,6 @@ function at(groups: readonly Group[], i: number): Group {
   const found = groups[i];
   if (found === undefined) throw new Error(`no group at ${i}`);
   return found;
-}
-
-function silentView(calls: string[]): ViewFace {
-  const noop = (): void => undefined;
-  return {
-    setFrame: noop, setStyle: noop, setTheme: noop, setLabels: noop,
-    fit: () => void calls.push("fit"),
-    reset: () => void calls.push("reset"),
-    zoomBy: () => void calls.push("zoomBy"), panBy: () => void calls.push("panBy"),
-    limits: () => ({ min: 0.02, max: 40 }),
-    focus: () => void calls.push("focus"), select: () => void calls.push("select"),
-    local: (node) => [node], showAll: () => void calls.push("showAll"),
-    on: () => noop,
-    toPNG: () => Promise.resolve(new Blob(["png"], { type: "image/png" })),
-    setCamera: () => void calls.push("setCamera"),
-    frame: () => {
-      throw new Error("the silent view holds no frame");
-    },
-    viewport: () => ({ width: 800, height: 600 }),
-  };
 }
 
 interface Studio {

@@ -71,7 +71,9 @@
 //! this port packs the array the reference's defaults pack, which is the default answer.
 //! Escape hatch: a `Params` on the stage, which is a contract change and not this job's.
 
+mod array;
 mod grid;
+mod sizes;
 
 use crate::index::Topology;
 use crate::layout::Geometry;
@@ -82,13 +84,15 @@ use crate::stage::StageError;
 mod tests;
 
 use grid::Grid;
+pub use sizes::{Boxes, NodeBox};
 
 /// The capability id, and the hash gate's stage name.
 pub const ID: &str = "layout.packing.osage";
 
-/// `POINTS_PER_INCH` (`lib/common/const.h`): the reference computes in inches and reports
-/// points, so this is the only conversion the whole layout needs.
-const POINTS_PER_INCH: f64 = 72.0;
+/// `POINTS_PER_INCH` (`lib/common/geom.h:58`): the reference computes in inches and reports
+/// points, so this is the only conversion the whole layout needs — and the differential's
+/// fixture crosses it in the other direction, so it is public rather than module-private.
+pub const POINTS_PER_INCH: f64 = 72.0;
 
 /// Graphviz's default `nodesize` (0.75 x 0.5 inch) in points: the box every node is given
 /// by `gv_nodesize` **while its label fits inside it**, which is the Ponytail case above —
@@ -116,7 +120,7 @@ pub(super) struct Columns {
 
 impl Columns {
     /// Two zeroed columns, one slot per node.
-    fn new(count: u32) -> Self {
+    fn new_columns(count: u32) -> Self {
         Self {
             x: vec![0.0; count as usize],
             y: vec![0.0; count as usize],
@@ -124,14 +128,24 @@ impl Columns {
     }
 
     /// The point layout's columns, narrowed once at the end.
-    fn geometry(self) -> Geometry {
+    pub(super) fn geometry(self) -> Geometry {
         point_geometry(&self.x, &self.y)
+    }
+
+    /// Two zeroed columns, so the sized path fills them the same way.
+    pub(super) fn new(count: u32) -> Self {
+        Self::new_columns(count)
     }
 
     /// One node's centre, in points.
     fn set(&mut self, node: u32, x: f64, y: f64) {
         self.x[node as usize] = x;
         self.y[node as usize] = y;
+    }
+
+    /// The two columns together, so the two `run` paths apply the origin fold the same way.
+    pub(super) fn columns_mut(&mut self) -> (&mut [f64], &mut [f64]) {
+        (&mut self.x, &mut self.y)
     }
 
     /// The node count, which is this column pair's length.
@@ -149,11 +163,32 @@ impl Columns {
 pub fn run(topology: &Topology) -> Result<Geometry, StageError> {
     let count = topology.node_count();
     let grid = Grid::of(count);
-    let mut out = Columns::new(count);
+    let mut out = Columns::new_columns(count);
     let low = grid.fill(&mut out);
-    for (x, y) in out.x.iter_mut().zip(out.y.iter_mut()) {
+    let (xs, ys) = out.columns_mut();
+    for (x, y) in xs.iter_mut().zip(ys) {
         *x -= low.0;
         *y -= low.1;
     }
     Ok(out.geometry())
+}
+
+/// `layout.packing.osage` with **explicit per-node boxes**: the reference's `arrayRects`
+/// over boxes that differ, which is what [`run`] collapses when every box is the same size.
+///
+/// This is the narrow per-node size input the layout needed and did not have. `run` is a
+/// pure function of the node count, because every rectangle was Graphviz's default
+/// `nodesize`; the reference sizes each rectangle from **its own node** (`osageinit.c:124`,
+/// `ND_xsize(n)`), and that is a font metric of Graphviz's text layout, which graph-core has
+/// no engine for. The two callers are deliberately different:
+///
+/// - **the ledger row** runs [`run`] — the default answer, a pure function of the node
+///   count, unchanged by this entry point and by the fixtures;
+/// - **the differential** runs this one, over [`Boxes::of`], and the DOT the harness feeds
+///   Graphviz pins the same sizes with `fixedsize=true` (`docs/measurements/p13-gv1-osage.md`).
+///
+/// Refuses a table that is not one box per node, rather than reading a truncated or over-long
+/// table as this graph's answer.
+pub fn run_sized(topology: &Topology, boxes: &Boxes) -> Result<Geometry, StageError> {
+    array::pack(topology, boxes)
 }

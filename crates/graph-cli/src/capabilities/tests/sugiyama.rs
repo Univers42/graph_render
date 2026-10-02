@@ -20,7 +20,7 @@ fn the_sugiyama_row_stands_only_on_its_own_control() {
         "{blind:?}"
     );
     let mut evidence = honest();
-    evidence.roundtrip.as_mut().expect("set")["functions"]["layout.dag.sugiyama"]["cases"] =
+    evidence.by_name.get_mut("roundtrip").expect("set")["functions"]["layout.dag.sugiyama"]["cases"] =
         json!(0);
     let empty = problems(&dag(), &evidence);
     assert!(

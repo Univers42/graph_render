@@ -16,6 +16,11 @@ export interface Frame {
   readonly edgeCount: number;
   readonly x: Float32Array;
   readonly y: Float32Array;
+  /**
+   * The third coordinate, in world units; `null` for a 2D layout. Its presence is the only
+   * thing that tells a 3D frame from a 2D one, and the painter asks for nothing else.
+   */
+  readonly z: Float32Array | null;
   /** Circle radius. `null` for Point and Box: a Point's radius is a style. */
   readonly r: Float32Array | null;
   readonly w: Float32Array | null;
@@ -25,7 +30,7 @@ export interface Frame {
   readonly curveDegree: number;
   readonly offsets: Uint32Array | null;
   readonly pts: Float32Array | null;
-  /** Over node centres; `null` for no nodes. */
+  /** Over the node centres and every interior edge vertex; `null` for no nodes. */
   readonly bounds: Bounds | null;
   /** Motor units to world units. */
   readonly factor: number;
@@ -40,6 +45,33 @@ function boundsOf(x: Float32Array, y: Float32Array): Bounds | null {
   for (let i = 0; i < x.length; i += 1) {
     const px = x[i] ?? 0;
     const py = y[i] ?? 0;
+    if (px < minX) minX = px;
+    if (px > maxX) maxX = px;
+    if (py < minY) minY = py;
+    if (py > maxY) maxY = py;
+  }
+  return { minX, minY, maxX, maxY };
+}
+
+/**
+ * The bounds a fit uses: the node hull grown by every interior edge vertex, in world units.
+ * A `Polyline` or `Curve` vertex outside the node hull is otherwise invisible by
+ * construction — the bounds a fit reads do not name it, so the fit cannot see it and a
+ * routed link runs off the frame.
+ *
+ * The world factor is deliberately NOT taken from this hull (see `frameFrom`): the factor is
+ * the uniform scale of the whole drawing, so widening this box must not rescale a layout.
+ */
+function hullWith(bounds: Bounds | null, pts: Float32Array | null): Bounds | null {
+  if (bounds === null || pts === null) return bounds;
+  let minX = bounds.minX;
+  let minY = bounds.minY;
+  let maxX = bounds.maxX;
+  let maxY = bounds.maxY;
+  // The column is x,y interleaved, one pair per interior vertex, in edge order (decode.ts).
+  for (let i = 0; i + 1 < pts.length; i += 2) {
+    const px = pts[i] ?? 0;
+    const py = pts[i + 1] ?? 0;
     if (px < minX) minX = px;
     if (px > maxX) maxX = px;
     if (py < minY) minY = py;
@@ -74,11 +106,18 @@ function scaledOrNull(column: Float32Array | null, factor: number): Float32Array
   return column === null ? null : scaled(column, factor);
 }
 
-/** Copies every column out of the snapshot's buffer, so the bytes can be dropped. */
+/**
+ * Copies every column out of the snapshot's buffer, so the bytes can be dropped. The z
+ * column is scaled by the same factor as x and y and kept or dropped with it, so a 3D frame
+ * is the 2D frame of the same drawing plus one column and nothing else.
+ */
 export function frameFrom(snapshot: Snapshot): Frame {
+  // The node hull alone, and only the node hull: the factor is the uniform scale of the whole
+  // drawing, so an edge that swings far outside must not rescale the layout around it.
   const factor = worldFactor(boundsOf(snapshot.x, snapshot.y), snapshot.nodeCount);
   const x = scaled(snapshot.x, factor);
   const y = scaled(snapshot.y, factor);
+  const pts = scaledOrNull(snapshot.pts, factor);
   return {
     nodeKind: snapshot.nodeKind,
     edgeKind: snapshot.edgeKind,
@@ -86,6 +125,7 @@ export function frameFrom(snapshot: Snapshot): Frame {
     edgeCount: snapshot.edgeCount,
     x,
     y,
+    z: scaledOrNull(snapshot.z, factor),
     r: scaledOrNull(snapshot.r, factor),
     w: scaledOrNull(snapshot.w, factor),
     h: scaledOrNull(snapshot.h, factor),
@@ -93,8 +133,8 @@ export function frameFrom(snapshot: Snapshot): Frame {
     target: snapshot.target.slice(),
     curveDegree: snapshot.curveDegree,
     offsets: snapshot.offsets === null ? null : snapshot.offsets.slice(),
-    pts: scaledOrNull(snapshot.pts, factor),
-    bounds: boundsOf(x, y),
+    pts,
+    bounds: hullWith(boundsOf(x, y), pts),
     factor,
   };
 }

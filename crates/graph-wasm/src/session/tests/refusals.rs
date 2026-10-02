@@ -5,7 +5,7 @@
 
 use super::super::{
     PARAMS_LEN, Status, alpha, column, create, params_of, pin, reheat, release, reset, set_params,
-    tick, unpin, unpin_all, with,
+    tick, to_wire, unpin, unpin_all, with,
 };
 use super::fixture::{bits, model, params, session_over, wire_of};
 use crate::errors::Code;
@@ -141,7 +141,7 @@ fn a_session_is_never_created_with_parameters_it_would_refuse() {
 
 /// The column addresses are the session's own storage, and an address the wire cannot carry is
 /// refused rather than truncated: a `u32` cut out of the middle of a 64-bit heap address is a
-/// wild pointer in JavaScript, and `0` is a refusal every host already handles (C4).
+/// wild pointer in JavaScript, and the refusal is a named code the host reads back (C4).
 ///
 /// The address's *stability* is not testable here — on a 64-bit host it is never reportable —
 /// so it is stated where it is true: `Sim`'s columns are never resized (the only writer that
@@ -154,7 +154,7 @@ fn an_address_the_wire_cannot_carry_is_refused_rather_than_truncated() {
     let id = session_over(10);
     for axis in [0, 1] {
         assert_eq!(column(id, axis, false), Ok(10), "axis {axis} length");
-        let reported = column(id, axis, true).expect("a live session reports something");
+        let reported = column(id, axis, true);
         let real = with(id, |session| {
             Ok(if axis == 0 {
                 session.xs().as_ptr() as usize
@@ -164,8 +164,16 @@ fn an_address_the_wire_cannot_carry_is_refused_rather_than_truncated() {
         })
         .expect("a live session");
         match u32::try_from(real) {
-            Ok(fits) => assert_eq!(reported, fits, "axis {axis}: a fitting address, exactly"),
-            Err(_) => assert_eq!(reported, 0, "axis {axis}: truncated is not an address"),
+            Ok(fits) => assert_eq!(
+                reported,
+                Ok(fits),
+                "axis {axis}: a fitting address, exactly"
+            ),
+            Err(_) => assert_eq!(
+                reported,
+                Err(Code::IndexOutOfRange),
+                "axis {axis}: refused, never a truncated address"
+            ),
         }
     }
     assert_ne!(
@@ -173,6 +181,21 @@ fn an_address_the_wire_cannot_carry_is_refused_rather_than_truncated() {
         with(id, |session| Ok(session.ys().as_ptr() as usize)).expect("live"),
         "the two columns are separate allocations"
     );
+}
+
+/// The conversion behind that refusal, on its own: exactly what fits crosses unchanged, and one
+/// past the wire's widest word is refused with [`Code::IndexOutOfRange`] — never truncated,
+/// which on a 64-bit host would turn a heap address into a wild pointer.
+#[test]
+fn to_wire_carries_exactly_what_fits_and_refuses_the_rest() {
+    assert_eq!(to_wire(0), Ok(0));
+    assert_eq!(to_wire(u32::MAX as usize), Ok(u32::MAX));
+    assert_eq!(
+        to_wire(u32::MAX as usize + 1),
+        Err(Code::IndexOutOfRange),
+        "one past the wire's widest word"
+    );
+    assert_eq!(to_wire(usize::MAX), Err(Code::IndexOutOfRange));
 }
 
 /// An axis the ABI does not name is refused by name, not read as `x`.
@@ -183,4 +206,15 @@ fn an_axis_outside_the_two_named_ones_is_refused() {
     assert_eq!(column(id, u32::MAX, false), Err(Code::IndexOutOfRange));
     assert_eq!(column(id, 0, false), Ok(4));
     assert_eq!(column(id, 1, false), Ok(4));
+}
+
+/// An empty session's columns read `(0, 0)`, as a run's empty columns do: an empty `Vec`'s
+/// address is dangling, and a host view built over it is an out-of-bounds view.
+#[test]
+fn an_empty_sessions_columns_read_zero_zero() {
+    let id = session_over(0);
+    for axis in [0, 1] {
+        assert_eq!(column(id, axis, false), Ok(0), "len, axis {axis}");
+        assert_eq!(column(id, axis, true), Ok(0), "ptr, axis {axis}");
+    }
 }

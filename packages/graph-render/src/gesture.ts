@@ -13,16 +13,25 @@ const WHEEL_ZOOM = 0.0016;
 /** A pinch arrives as a wheel with ctrlKey set and much smaller deltas. */
 export const PINCH_ZOOM = 0.012;
 export const MIDDLE_BUTTON = 1;
+export const RIGHT_BUTTON = 2;
 
-/** What a press will do if it moves: pan the camera, or drag a node. */
-export type DragKind = "pan" | "select" | "none";
+/** What a press will do if it moves: pan the camera, drag a node, or turn a 3D drawing. */
+export type DragKind = "pan" | "select" | "orbit" | "none";
 
 /**
  * WHY the space bar: a drag on a node is the node's, and the space bar is the only key a
  * hand holds while the pointer is busy. Middle-drag pans without it, for a mouse with three
  * buttons and no room for a modifier under the left one.
+ *
+ * WHY a 3D frame's drag turns it: a perspective drawing has no axis to pan along, so a drag
+ * on its background is the camera turning, and the right-drag is the one that slides the
+ * target instead. Both buttons are the host's menu on a 2D frame, and stay it.
+ *
+ * `inSpace` is the frame's own answer to "is this 3D", which is the z column's presence and
+ * nothing else. A 2D frame cannot be turned into a 3D one by a gesture, or by a stale flag.
  */
-export function dragKindOf(button: number, space: boolean): DragKind {
+export function dragKindOf(button: number, space: boolean, inSpace = false): DragKind {
+  if (inSpace && (button === 0 || button === RIGHT_BUTTON)) return "orbit";
   if (button === MIDDLE_BUTTON) return "pan";
   if (button !== 0) return "none";
   return space ? "pan" : "select";

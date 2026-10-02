@@ -68,6 +68,16 @@ export const STUDIO_CSS = `
 .gs-nav-btn { min-width: 30px; padding: 3px 6px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .gs-muted { color: var(--gs-muted); }
 
+/* The 3D badge: an outlined chip, not a fill, so it reads beside the mono numbers without
+   pulling the eye off them. The accent is the ring colour the painter draws a selection in,
+   so the badge and the thing it names share a colour. The leading gap is the space in the
+   badge's own text (Hud.tsx), so the line reads the same to a screen as it does to an eye. */
+.gs-badge {
+  margin-right: 4px; padding: 0 4px; border: 1px solid var(--gs-accent, #a78bfa); border-radius: 3px;
+  color: var(--gs-accent, #a78bfa); font-size: 10px; line-height: 14px; letter-spacing: 0.04em;
+  cursor: help;
+}
+
 .gs-btn {
   height: 26px;
   padding: 0 8px;

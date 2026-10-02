@@ -39,6 +39,29 @@ function fake(decay: number, clock: Clock = { now: 0, perStep: 0 }): Fake {
   return port;
 }
 
+interface Mortal extends Fake {
+  /** Set when the graph behind the port was replaced: the session it holds is released. */
+  dead: boolean;
+}
+
+/** The motor throws `InvalidSessionError` from every call on a released session, so this does. */
+function mortal(decay: number): Mortal {
+  const base = fake(decay);
+  const guard = (call: string): void => {
+    if (mortal.dead) throw new Error(`InvalidSessionError: ${call} on a released session`);
+  };
+  const mortal: Mortal = {
+    dead: false,
+    ...base,
+    pin: (id, x, y) => { guard("pin"); base.pin(id, x, y); },
+    unpin: (id) => { guard("unpin"); base.unpin(id); },
+    step: (ticks) => { guard("step"); return base.step(ticks); },
+    reheat: (alpha) => { guard("reheat"); base.reheat(alpha); },
+    positions: () => { guard("positions"); return base.positions(); },
+  };
+  return mortal;
+}
+
 interface Rig {
   readonly emitted: Result[];
   readonly frames: () => number;
@@ -52,11 +75,11 @@ function lastFrame(emitted: readonly Result[]): ForceFrame {
   return found.frame;
 }
 
-function rig(port: Fake, clock: Clock = { now: 0, perStep: 0 }, budgetMs = 8) {
+function rig(port: Fake, clock: Clock = { now: 0, perStep: 0 }, budgetMs = 8, live: () => LiveForce | null = () => port) {
   const emitted: Result[] = [];
   let next: (() => void) | null = null;
   let scheduled = 0;
-  const host = createForceHost(() => port, {
+  const host = createForceHost(live, {
     schedule: (run) => { next = run; scheduled += 1; return () => { next = null; }; },
     now: () => clock.now,
     emit: (result) => { emitted.push(result); },
@@ -197,6 +220,40 @@ test("force.start throws the nodes back to random positions before it settles ag
   host.handle({ type: "force.start" });
   assert.equal(port.calls[0], "shuffle", "the restart is a shuffle, not a resume");
   assert.ok(port.alpha > 0.9, "and it reheats to the top, so the bar fills again");
+});
+
+test("a frame already scheduled does not step a session that was released under it", () => {
+  // A graph replaced mid-settle: the old session is released and the studio answers no port.
+  const port = mortal(0.9);
+  let live: LiveForce | null = port;
+  const { host, out } = rig(port, { now: 0, perStep: 0 }, 8, () => live);
+  host.handle({ type: "force.start" });
+  port.dead = true;
+  live = null;
+  assert.doesNotThrow(() => out.tick(), "a released session is never stepped");
+  assert.equal(port.calls.filter((call) => call.startsWith("step")).length, 0);
+  assert.equal(out.frames(), 0, "nothing is drawn from a session that is gone");
+  assert.equal(out.scheduled(), 1, "and no frame is scheduled in its place");
+});
+
+test("the release notice stops the loop at once, and the next request starts a fresh one", () => {
+  const port = mortal(0.9);
+  let live: LiveForce | null = port;
+  const { host, out } = rig(port, { now: 0, perStep: 0 }, 8, () => live);
+  host.handle({ type: "force.drag", id: "a", x: 1, y: 2 });
+  out.tick();
+  port.calls.length = 0;
+  const next = mortal(0.9);
+  // What createSession does on replace(): the port is marked dead, then the host is told.
+  port.dead = true;
+  live = next;
+  assert.doesNotThrow(() => host.forget(), "a held pin is not unpinned on a dead session");
+  assert.deepEqual(port.calls, [], "the old port is not touched again");
+  const before = out.frames();
+  assert.doesNotThrow(() => out.tick());
+  assert.equal(out.frames(), before, "the frame the old loop had scheduled is gone");
+  host.handle({ type: "force.start" });
+  assert.ok(next.calls.includes("shuffle"), "the host still works over the new session");
 });
 
 test("with no adapter every force request answers disabled, with the reason", async () => {

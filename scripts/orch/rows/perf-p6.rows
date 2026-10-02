@@ -1,0 +1,3 @@
+studio-check|0|scripts/studio.sh check
+smoke|0|scripts/studio-smoke.sh
+negctl-smoke|nonzero|STUDIO_SMOKE_BREAK=1 scripts/studio-smoke.sh

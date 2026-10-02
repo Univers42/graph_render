@@ -29,6 +29,13 @@ export interface Saved {
   readonly data: Blob;
 }
 
+/** The bytes of what the studio saved, as `Uint8Array`; throws when it saved nothing. */
+export async function savedBytes(saved: readonly Saved[], at = 0): Promise<Uint8Array> {
+  const blob = saved[at]?.data;
+  if (blob === undefined) throw new Error(`the studio saved nothing at ${at}`);
+  return new Uint8Array(await blob.arrayBuffer());
+}
+
 export interface Desk {
   readonly studio: Studio;
   /** The same pipeline the actions drive, for a test that must hand it a settings document. */
@@ -44,22 +51,71 @@ type Handlers = { [Name in keyof ViewEvents]: Set<(payload: ViewEvents[Name]) =>
 /** The canvas the recording view reports; big enough that a fit leaves a readable scale. */
 export const DESK_VIEWPORT = { width: 800, height: 600 };
 
+/** The 3D camera of the frame on the desk, or null when that frame is 2D. */
+const ORBIT = { yaw: 0.4, pitch: 0, distance: 1, target: { x: 0, y: 0, z: 0 }, fov: 1, limits: { min: 0.1, max: 10 } };
+
+function held(seen: Seen): Frame {
+  return seen.frames.at(-1)?.frame ?? EMPTY_FRAME;
+}
+
+/**
+ * The 3D camera's four faces, off the frame the desk last drew. A 2D frame has no z column,
+ * so it has no orbit and no projection — which is the condition the studio's own badge and
+ * reset action read, so a test that hangs these off the frame is testing the real thing.
+ */
+function spaceFace(seen: Seen): Pick<ViewFace, "orbit" | "setOrbit" | "resetOrbit" | "projected"> {
+  return {
+    orbit: () => (held(seen).z === null ? null : ORBIT),
+    setOrbit: (orbit) => void seen.calls.push(`setOrbit ${orbit.yaw}`),
+    resetOrbit: () => void seen.calls.push("resetOrbit"),
+    projected: () => {
+      const frame = held(seen);
+      const z = frame.z;
+      if (z === null) return null;
+      return Array.from({ length: frame.nodeCount }, (_, node) => ({
+        node, x: frame.x[node] ?? 0, y: frame.y[node] ?? 0, depth: z[node] ?? 0,
+      }));
+    },
+  };
+}
+
+/**
+ * The pins this desk holds, in the order they were set; `pinned()` hands the same array back,
+ * so a test reads what the view would be showing rather than what it was told to show. Hide is
+ * the third of the three node gestures the studio drives, so it is recorded beside them.
+ */
+function pinFace(seen: Seen, pins: number[]): Pick<ViewFace, "pinned" | "togglePin" | "hide"> {
+  return {
+    pinned: () => pins,
+    togglePin: (node) => {
+      const at = pins.indexOf(node);
+      if (at >= 0) pins.splice(at, 1);
+      else pins.push(node);
+      seen.calls.push(`togglePin ${node}`);
+    },
+    hide: (nodes) => void seen.calls.push(`hide ${nodes.join(" ")}`),
+  };
+}
+
 function recordingView(seen: Seen, handlers: Handlers): ViewFace {
+  const pins: number[] = [];
   return {
     setFrame: (frame, options = {}) => void seen.frames.push({ frame, animate: options.animate === true }),
     setStyle: (style) => void seen.styles.push(style),
     setTheme: (theme) => void seen.themes.push(theme),
     setLabels: (policy) => void seen.policies.push(policy),
     setCamera: (camera) => void seen.cameras.push(camera),
-    frame: () => seen.frames.at(-1)?.frame ?? EMPTY_FRAME,
+    frame: () => held(seen),
     viewport: () => DESK_VIEWPORT,
     fit: () => void seen.calls.push("fit"),
     reset: () => void seen.calls.push("reset"),
+    ...spaceFace(seen),
     zoomBy: (factor) => void seen.calls.push(`zoomBy ${factor}`),
     panBy: (delta) => void seen.calls.push(`panBy ${delta.x} ${delta.y}`),
     limits: () => ({ min: 0.02, max: 40 }),
     focus: (node) => void seen.calls.push(`focus ${node}`),
     select: (node) => void seen.calls.push(`select ${node}`),
+    ...pinFace(seen, pins),
     local: (node, options) => {
       seen.calls.push(`local ${node} ${JSON.stringify(options)}`);
       if (node === 0 && options.depth === 2 && options.incoming && !options.outgoing && options.neighbours) {
@@ -138,6 +194,32 @@ export function scriptBytes(): Uint8Array {
   let at = 0;
   for (const part of parts) { out.set(part, at); at += part.byteLength; }
   return out;
+}
+
+/**
+ * The same three discs, placed in space: a z column spliced in after y and header byte 14
+ * set to 1, which is what the motor writes for a 3D layout. Built as bytes rather than by
+ * patching a 2D run, because the radius column moves when the z column arrives and a patch
+ * would not notice.
+ */
+export function spaceBytes(): Uint8Array {
+  const z = new Uint8Array(Float32Array.of(0, 30, -30).buffer);
+  const parts = spaceParts(z);
+  const out = new Uint8Array(parts.reduce((sum, part) => sum + part.byteLength, 0));
+  let at = 0;
+  for (const part of parts) { out.set(part, at); at += part.byteLength; }
+  return out;
+}
+
+function spaceParts(z: Uint8Array): Uint8Array[] {
+  const header = new Uint8Array(Uint32Array.of(0x4e534d47, 0, 0, 1, 1, 3, 2).buffer);
+  header[14] = 1;
+  const x = new Uint8Array(Float32Array.of(0, 40, 80).buffer);
+  const y = new Uint8Array(Float32Array.of(0, 0, 0).buffer);
+  const r = new Uint8Array(Float32Array.of(4, 4, 4).buffer);
+  const source = new Uint8Array(ENDS.source.buffer);
+  const target = new Uint8Array(ENDS.target.buffer);
+  return [header, table(IDS), table(["e0", "e1"]), source, target, x, y, z, r];
 }
 
 /** A motor that answers with the scripted graph: what the wasm is not there to lay out. */

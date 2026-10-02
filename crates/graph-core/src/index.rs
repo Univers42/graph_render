@@ -42,8 +42,17 @@ pub struct Topology {
 
 /// `indexModel` (`model.ts:36-71`): nodes de-duplicated first-wins, then edges kept in
 /// order unless their id was already taken or an endpoint is missing.
+///
+/// **Caveat:** the reservation counts id fields only, the near-unique set. The arena
+/// under-reserves by every distinct non-id string — a graph whose labels are all
+/// different still grows it once — and `node_ids`/`edge_ids` over-reserve by exactly the
+/// ids this pass drops: duplicate node ids, and edges whose endpoints are missing.
 pub fn index_model(nodes: &[NodeRecord], edges: &[EdgeRecord]) -> Result<Topology, CapacityError> {
+    let (strings, bytes) = size_hint(nodes, edges);
     let mut topology = Topology {
+        strings: StringArena::with_capacity(strings, bytes),
+        node_ids: IndexSet::with_capacity_and_hasher(nodes.len(), FixedState::default()),
+        edge_ids: IndexSet::with_capacity_and_hasher(edges.len(), FixedState::default()),
         nodes: NodeColumns::with_capacity(nodes.len()),
         edges: EdgeColumns::with_capacity(edges.len()),
         ..Topology::default()
@@ -57,6 +66,22 @@ pub fn index_model(nodes: &[NodeRecord], edges: &[EdgeRecord]) -> Result<Topolog
     topology.build_adjacency()?;
     topology.group_nodes();
     Ok(topology)
+}
+
+/// The arena reservation for `nodes` and `edges`: how many distinct strings, and
+/// how many bytes, the ids alone would hold — one pass, no hashing.
+fn size_hint(nodes: &[NodeRecord], edges: &[EdgeRecord]) -> (usize, usize) {
+    let mut strings = 0usize;
+    let mut bytes = 0usize;
+    for node in nodes {
+        strings += 1;
+        bytes += node.id.len();
+    }
+    for edge in edges {
+        strings += 1;
+        bytes += edge.id.len();
+    }
+    (strings, bytes)
 }
 
 /// `emptyModel` (`model.ts:74-76`).

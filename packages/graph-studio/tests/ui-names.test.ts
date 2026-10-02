@@ -7,7 +7,7 @@ import type { ViewStats } from "../../graph-render/src/view.ts";
 import { digest8, frameLine, ms, shortName, sig3 } from "../src/ui/names.ts";
 
 const STATS: ViewStats = {
-  backend: "canvas2d", nodes: 3, edges: 2, drawnNodes: 3, drawnEdges: 2, drawnLabels: 2, drawnArrows: 0, arrowSize: 0, curvedEdges: 0, strokeWidth: 0,
+  backend: "canvas2d", backendFailure: "", refining: false, nodes: 3, edges: 2, drawnNodes: 3, drawnEdges: 2, drawnLabels: 2, drawnArrows: 0, arrowSize: 0, curvedEdges: 0, strokeWidth: 0,
   draws: 12, strokeCalls: 1, edgeStyles: 1, mixedEdges: 0, gradientStrokes: 0, arrowFills: 0, glowFills: 0, spritesRasterised: 0, layoutRuns: 1, frameMs: 4.2, fps: 60, frames: 42,
 };
 
@@ -26,6 +26,11 @@ test("an id loses its first dotted segment, and one without a dot is kept", () =
   assert.equal(shortName("off"), "off");
   assert.equal(shortName("layout.grid"), "grid");
   assert.equal(shortName(""), "");
+});
+
+test("a fixture path is shown whole, not cut at its extension", () => {
+  assert.equal(shortName("dag/chain.json"), "dag/chain.json");
+  assert.equal(shortName("hierarchy/tree-balanced.json"), "hierarchy/tree-balanced.json");
 });
 
 test("a digest shows its first eight characters, and nothing at all is a dash", () => {

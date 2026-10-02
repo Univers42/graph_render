@@ -55,9 +55,8 @@ if [[ ! -f "$refs/matplotlib-3.10.0/_cm_listed.py" ]]; then
   echo "studio-parity: $refs is not the pinned reference tree (scripts/orch/fetch-refs.sh)" >&2
   exit 2
 fi
-if ! docker image inspect "$image" >/dev/null 2>&1; then
-  docker build -f "$root/deploy/chromium.Dockerfile" -t "$image" "$root/deploy" || exit 2
-fi
+source "$root/scripts/orch/image.sh"
+ensure_image "$image" || exit 2
 
 exec docker run --rm --memory 4g --memory-swap 4g -v "$root:/w" -v "$refs:/refs:ro" -w /w "$image" \
   python3 deploy/parity/run.py --dist app/dist --out "target/studio-parity/$label" \

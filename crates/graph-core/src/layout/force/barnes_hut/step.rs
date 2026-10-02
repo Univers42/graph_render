@@ -10,16 +10,24 @@
 //!
 //! **What makes it legal.** A pass reads only start-of-step state — the built quadtrees,
 //! the aggregate masses and centres, the positions, `alpha`, the frozen per-edge link
-//! geometry — and writes only element `i`'s own velocity delta into `out`. Nothing
+//! geometry — and writes only output `k`'s own velocity delta into `out`. Nothing
 //! accumulates into another element, no term is reordered, and a node's walk visits its
-//! subtree in the quadtree's own `visit` order regardless of which slice of the node
+//! subtree in the quadtree's own `visit` order regardless of which slice of the output
 //! range the node fell into. So `partition(n, workers)` is a scheduling decision and
 //! nothing else, and a tier is byte-identical rather than close (D3, D10).
+//!
+//! **Outputs in tree order.** The two tree walks number their outputs by the tree's own
+//! point order (`Quadtree::order`): output `k` is node `order[k]`, so consecutive queries
+//! sit in the same leaf or the next one and open the same cells. At 1M nodes the walk is
+//! memory-bound, and a query order with no spatial locality pays a cache miss on most
+//! cells it reads (`docs/measurements/perf-p1-baseline.md`). [`merge`] puts each delta
+//! back on its own node, one addition per node, so the order moves no byte.
 //!
 //! | kernel | partitions by | the scatter it replaces |
 //! |---|---|---|
 //! | [`Pass`] (charge) | node | none — it was already a gather |
 //! | [`CollidePass`] | node | none — the same gather shape |
+//! | [`LinkForces`] | edge | none — each output is its own edge's force |
 //! | [`LinkPass`] | node | one edge writing both endpoints — see `link-gather.md` |
 //!
 //! All three share one output type — a per-node `(dvx, dvy)` — so they share the tick's
@@ -65,16 +73,13 @@ impl StepRange for Pass<'_> {
     }
 
     fn step_range(&self, range: Range<u32>, out: &mut [(f64, f64)]) {
-        // One stack for the whole range, reused across its nodes: the walk is iterative
-        // precisely so this buffer can be borrowed rather than owned, which is what lets
-        // several workers hold the same `&Sim` at once. Allocated per *range*, not per
-        // node, so the threaded tier's allocation count is `workers` per pass.
-        let mut stack = Vec::new();
+        let ctx = super::charge::Ctx::of(self.sim);
+        let order = &self.sim.charge_tree.order()[range.start as usize..range.end as usize];
         // `zip`, not indexing: `out` is this range's own sub-column, so the two iterate
         // together by construction and a mismatch is a length error at the pairing rather
         // than a silent write past the end.
-        for (slot, i) in out.iter_mut().zip(range) {
-            *slot = self.sim.node_delta(i, &mut stack);
+        for (slot, &i) in out.iter_mut().zip(order) {
+            *slot = super::charge::node_delta(&ctx, i);
         }
     }
 }
@@ -100,27 +105,56 @@ impl StepRange for CollidePass<'_> {
 
     fn step_range(&self, range: Range<u32>, out: &mut [(f64, f64)]) {
         let reach = super::collide::reach_squared(self.sim);
-        let mut stack = Vec::new();
-        for (slot, i) in out.iter_mut().zip(range) {
-            *slot = super::collide::node_delta(self.sim, i, reach, &mut stack);
+        let order = &self.sim.collide_tree.order()[range.start as usize..range.end as usize];
+        for (slot, &i) in out.iter_mut().zip(order) {
+            *slot = super::collide::node_delta(self.sim, i, reach);
+        }
+    }
+}
+
+/// Each simple edge's force, `(fx, fy)`, one output per edge: the square root and the
+/// division run once per edge here, where reading them from both endpoints would run them
+/// twice. Every output is its own edge's, so the pass partitions by edge.
+pub struct LinkForces<'a> {
+    sim: &'a Sim,
+}
+
+impl<'a> LinkForces<'a> {
+    /// The pass over `sim`'s simple edges, which carry their frozen geometry already.
+    pub fn of(sim: &'a Sim) -> LinkForces<'a> {
+        LinkForces { sim }
+    }
+}
+
+impl StepRange for LinkForces<'_> {
+    type Out = (f64, f64);
+
+    fn len(&self) -> u32 {
+        self.sim.graph.lo.len() as u32
+    }
+
+    fn step_range(&self, range: Range<u32>, out: &mut [(f64, f64)]) {
+        for (slot, e) in out.iter_mut().zip(range) {
+            *slot = super::link::force(self.sim, e as usize);
         }
     }
 }
 
 /// The per-node link gather: node `i`'s own share of every edge incident to it, summed in
-/// its CSR row's order.
+/// its CSR row's order, each edge's force read from [`LinkForces`]'s output.
 ///
 /// The gather half of `docs/decisions/link-gather.md`: the row order is the simple-edge
 /// index order the old single loop visited, so the per-node sum sees its terms in the
 /// order it saw them when the whole column was accumulated by one thread.
 pub struct LinkPass<'a> {
     sim: &'a Sim,
+    forces: &'a [(f64, f64)],
 }
 
 impl<'a> LinkPass<'a> {
-    /// The pass over `sim`, whose edges carry their frozen geometry already.
-    pub fn of(sim: &'a Sim) -> LinkPass<'a> {
-        LinkPass { sim }
+    /// The pass over `sim`, with `forces` the [`LinkForces`] output of the same state.
+    pub fn of(sim: &'a Sim, forces: &'a [(f64, f64)]) -> LinkPass<'a> {
+        LinkPass { sim, forces }
     }
 }
 
@@ -143,15 +177,38 @@ impl LinkPass<'_> {
     fn node_share(&self, node: u32) -> (f64, f64) {
         let (mut dvx, mut dvy) = (0.0, 0.0);
         for &e in self.sim.graph.rows.row(node) {
-            let ((lox, loy), (hix, hiy)) = super::link::halves(self.sim, e as usize);
-            let share = if self.sim.graph.hi[e as usize] == node {
-                (hix, hiy)
-            } else {
-                (lox, loy)
-            };
+            let e = e as usize;
+            let hi = self.sim.graph.hi[e] == node;
+            let share = super::link::share(self.forces[e], self.sim.link_bias[e], hi);
             dvx += share.0;
             dvy += share.1;
         }
         (dvx, dvy)
+    }
+}
+
+/// `v[i] += deltas[k]` for every output `k`, where node `i` is `order[k]` (or `k` itself
+/// when `order` is `None`, the link pass's node order) — and, under the control, output
+/// `k + 1`'s delta as well, the shape a wrong partition of the outputs would take.
+///
+/// Every gathered pass ends here, so a partition mistake shows up in one place for all
+/// three. Each node receives exactly one addition, its own delta, which is why the order
+/// the outputs are laid out in moves no byte and why the control has to *steal* a
+/// neighbour's term to move anything.
+pub(in crate::layout::force) fn merge(
+    v: (&mut [f64], &mut [f64]),
+    order: Option<&[u32]>,
+    deltas: &[(f64, f64)],
+    split: bool,
+) {
+    for (k, (dvx, dvy)) in deltas.iter().enumerate() {
+        let stolen = if split {
+            deltas.get(k + 1).copied().unwrap_or((0.0, 0.0))
+        } else {
+            (0.0, 0.0)
+        };
+        let i = order.map_or(k, |order| order[k] as usize);
+        v.0[i] += dvx + stolen.0;
+        v.1[i] += dvy + stolen.1;
     }
 }

@@ -253,6 +253,8 @@ pub extern "C" fn gm_last_error() -> u32 {
 // SAFETY: as `gm_layout_count`.
 #[unsafe(no_mangle)]
 pub extern "C" fn gm_seed_ingest(seed: u32) -> u32 {
-    errors::clear();
-    publish(seed_ingest::for_seed(seed).into_bytes())
+    match seed_ingest::for_seed(seed) {
+        Some(text) => publish(text.into_bytes()),
+        None => errors::reply(Err(Code::IngestInvalid)),
+    }
 }

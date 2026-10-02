@@ -7,38 +7,63 @@
 
 use crate::index::Topology;
 use crate::layout::Geometry;
+use crate::layout::basic_3d;
 use crate::layout::force::spring::Spring;
+use crate::layout::force::spring::{ID_3D as SPRING_3D_ID, Spring3D};
 use crate::layout::force::{
-    BarnesHut, DavidsonHarel, Drl, FruchtermanReingold, Graphopt, KamadaKawai, Lgl, YifanHu,
+    BarnesHut, DavidsonHarel, Drl, FruchtermanReingold, Graphopt, KamadaKawai, Lgl, ParticleMesh,
+    YifanHu,
 };
-use crate::layout::forceatlas2::ForceAtlas2;
+use crate::layout::forceatlas2::{ForceAtlas2, ForceAtlas2BarnesHut};
+use crate::layout::graphviz::circo;
+use crate::layout::graphviz::fdp;
+use crate::layout::graphviz::neato;
 use crate::layout::graphviz::osage;
 use crate::layout::graphviz::patchwork;
+use crate::layout::graphviz::sfdp;
 use crate::layout::grid::Grid;
+use crate::layout::hierarchical_3d;
 use crate::layout::radial::twopi;
 use crate::layout::sugiyama::Sugiyama;
 use crate::layout::{
     bipartite, circle_packing, circular, random, spectral_stage, spiral, tidy_tree, treemap,
 };
 use crate::stage::{Stage, StageError};
-use graph_contract::geometry::{EdgeGeometryKind, NodeGeometryKind};
 
+mod capability;
 mod closed_form;
 mod force;
+mod forceatlas2_bh;
+mod graphviz_circo;
+mod graphviz_fdp;
+mod graphviz_neato;
 mod graphviz_osage;
 mod graphviz_patchwork;
+mod graphviz_sfdp;
 mod grid;
 mod hierarchy;
 mod igraph;
 mod radial;
 mod spectral;
+mod three_d;
+pub use capability::{Capability, Metadata};
 use closed_form::{BIPARTITE, RANDOM, RING, SPIRAL};
-use force::{BARNES_HUT, FA2, SPRING, YIFAN_HU};
+use force::{BARNES_HUT, FA2, PARTICLE_MESH, SPRING, YIFAN_HU};
 pub use force::{FA2_CEILING, FORCE_CEILING, SPRING_CEILING};
+use forceatlas2_bh::FA2_BH;
+pub use forceatlas2_bh::FA2_BH_CEILING;
+use graphviz_circo::CIRCO;
+pub use graphviz_circo::GRAPHVIZ_CIRCO_CEILING;
+use graphviz_fdp::FDP;
+pub use graphviz_fdp::FDP_CEILING;
+use graphviz_neato::NEATO;
+pub use graphviz_neato::NEATO_CEILING;
 use graphviz_osage::OSAGE;
 pub use graphviz_osage::OSAGE_CEILING;
 use graphviz_patchwork::PATCHWORK;
 pub use graphviz_patchwork::PATCHWORK_CEILING;
+use graphviz_sfdp::SFDP;
+pub use graphviz_sfdp::SFDP_CEILING;
 use grid::{GRID, PACKING, SUGIYAMA};
 pub use grid::{GRID_CEILING, PACKING_CEILING, SUGIYAMA_CEILING};
 pub use hierarchy::HIERARCHY_LAYOUT_CEILING;
@@ -47,43 +72,11 @@ pub use radial::RADIAL_CEILING;
 use radial::TWOPI;
 use spectral::{PIVOT_MDS, SPECTRAL};
 pub use spectral::{PIVOT_MDS_CEILING, SPECTRAL_CEILING};
-
-/// What the ledger says about a layout. Every field is required.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Metadata {
-    /// Delivery tier.
-    pub tier: u8,
-    /// Pipeline stage.
-    pub stage: &'static str,
-    /// The node geometry kind it emits.
-    pub nodes: NodeGeometryKind,
-    /// The edge geometry kind it emits.
-    pub edges: EdgeGeometryKind,
-    /// The reference it is checked against.
-    pub oracle: &'static str,
-    /// Time complexity, stated and held.
-    pub complexity: &'static str,
-    /// Node count past which it stops being usable.
-    pub scale_ceiling: u64,
-    /// What happens past the ceiling.
-    pub degradation: &'static str,
-    /// Its Ponytail marker, or the reason none is owed.
-    pub ponytail: &'static str,
-}
-
-/// One registered layout.
-#[derive(Debug, Clone, Copy)]
-pub struct Capability {
-    /// Its capability id, which is also its hash-gate stage.
-    pub id: &'static str,
-    /// The layout at its default parameters: the run a hashed snapshot is pinned to.
-    pub run: fn(&Topology) -> Result<Geometry, StageError>,
-    /// Its ledger metadata.
-    pub meta: Metadata,
-}
+pub use three_d::BASIC_3D_CEILING;
+use three_d::{BIPARTITE_3D, CUBE, HELIX, HIERARCHICAL_3D, SPHERE, SPIRAL_3D, SPRING_3D};
 
 /// Every registered layout, in the order the hash gate runs them.
-pub static LAYOUTS: [Capability; 26] = [
+pub static LAYOUTS: [Capability; 39] = [
     Capability {
         id: Grid::ID,
         run: run_default::<Grid>,
@@ -210,9 +203,88 @@ pub static LAYOUTS: [Capability; 26] = [
         meta: CIRCULAR_HIERARCHY,
     },
     Capability {
+        id: circo::ID,
+        run: circo::run,
+        meta: CIRCO,
+    },
+    Capability {
         id: patchwork::ID,
         run: patchwork::run,
         meta: PATCHWORK,
+    },
+    Capability {
+        id: neato::ID,
+        run: neato::run,
+        meta: NEATO,
+    },
+    Capability {
+        id: fdp::ID,
+        run: fdp::run,
+        meta: FDP,
+    },
+    // ---- p12-t3, the last five SciGraphs layouts, all natively 3D. APPENDED, never
+    // inserted: `graph-wasm/src/exports/build.rs:23,32,166` maps layouts by INDEX, and
+    // `bench/campaign.rs:128`'s `DEFAULT_ARM` is `LAYOUTS[3]`, so inserting before index 3
+    // would repoint the default crossover arm with no compile error. Nothing above this
+    // line moved.
+    Capability {
+        id: basic_3d::sphere::ID,
+        run: basic_3d::sphere,
+        meta: SPHERE,
+    },
+    Capability {
+        id: basic_3d::helix::ID,
+        run: basic_3d::helix,
+        meta: HELIX,
+    },
+    Capability {
+        id: basic_3d::cube::ID,
+        run: basic_3d::cube,
+        meta: CUBE,
+    },
+    Capability {
+        id: hierarchical_3d::ID,
+        run: hierarchical_3d::run,
+        meta: HIERARCHICAL_3D,
+    },
+    Capability {
+        id: SPRING_3D_ID,
+        run: run_default::<Spring3D>,
+        meta: SPRING_3D,
+    },
+    Capability {
+        id: sfdp::ID,
+        run: sfdp::run,
+        meta: SFDP,
+    },
+    Capability {
+        id: ForceAtlas2BarnesHut::ID,
+        run: run_default::<ForceAtlas2BarnesHut>,
+        meta: FA2_BH,
+    },
+    // APPENDED, never inserted, for the reason the block above gives: layouts are mapped by
+    // INDEX in `graph-wasm/src/exports/build.rs:23,32,166` and `bench/campaign.rs:128` pins
+    // `LAYOUTS[3]`. `layout.bipartite_3d` reads the graph where the three above it read a
+    // node count, which is why its id is outside the `layout.basic3d.*` namespace those
+    // three publish.
+    Capability {
+        id: basic_3d::bipartite_3d::ID,
+        run: basic_3d::bipartite_3d,
+        meta: BIPARTITE_3D,
+    },
+    // ---- sg-spiral3d: SciGraphs' SPIRAL_3D, the conical 3D spiral of `basic.py:36-63`.
+    // APPENDED for the same reason as the block above it: inserting would repoint every
+    // index-keyed consumer with no compile error.
+    Capability {
+        id: basic_3d::spiral::ID,
+        run: basic_3d::spiral,
+        meta: SPIRAL_3D,
+    },
+    // perf-p2: appended after the entries above, for the same reason.
+    Capability {
+        id: ParticleMesh::ID,
+        run: run_default::<ParticleMesh>,
+        meta: PARTICLE_MESH,
     },
 ];
 

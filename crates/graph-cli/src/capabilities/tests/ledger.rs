@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::BTreeMap;
 
 #[test]
 fn every_registered_row_stands_on_honest_evidence_and_reads_it_back() {
@@ -58,14 +59,15 @@ fn the_grid_row_stands_only_on_its_own_control_and_its_roundtrip_record() {
         "{blind:?}"
     );
     let mut evidence = honest();
-    evidence.roundtrip = None;
+    evidence.by_name.remove("roundtrip");
     let unchecked = problems(&grid(), &evidence);
     assert!(
         unchecked[0].contains("no roundtrip record"),
         "{unchecked:?}"
     );
     let mut evidence = honest();
-    evidence.roundtrip.as_mut().expect("set")["functions"]["layout.grid"]["unexplained"] = json!(2);
+    evidence.by_name.get_mut("roundtrip").expect("set")["functions"]["layout.grid"]["unexplained"] =
+        json!(2);
     let wrong = problems(&grid(), &evidence);
     assert!(
         wrong[0].contains("roundtrip: layout.grid has unexplained"),
@@ -79,15 +81,18 @@ fn without_records_every_gated_row_is_refused_twice() {
         fingerprint: "tree".into(),
         hashgate: None,
         controls: vec![],
-        oracle: None,
-        roundtrip: None,
-        layouts: None,
-        stress: None,
-        fa2: None,
-        spectral: None,
+        by_name: BTreeMap::new(),
     };
     let rows = ledger(&bare);
-    assert_eq!(problems(&rows, &bare).len(), 34);
+    // **Derived from the registry, not spelled out.** Every problem here comes from a gated
+    // row — `problems` evaluates the two verdicts for a gated row and for no other status —
+    // and each such row yields exactly two, so the count *is* twice the gated rows. The
+    // literal this replaces was one that had to be edited by hand whenever a row was
+    // promoted, and a hand-edited literal is a place a row can be promoted and the number
+    // quietly left behind. Deriving it ties the count to the thing it counts.
+    let gated = rows.iter().filter(|r| r.status == Status::Gated).count();
+    assert!(gated > 0, "the registry gates something");
+    assert_eq!(problems(&rows, &bare).len(), 2 * gated);
     // By id, not by position: the first row happens to be `topology.index` today, and a
     // registry entry inserted above it would leave this test passing on a row it never
     // meant to read.

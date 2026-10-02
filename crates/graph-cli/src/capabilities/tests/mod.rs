@@ -1,12 +1,14 @@
 use super::verdict::{Evidence, MIN_SEEDS};
 use super::*;
 use serde_json::{Value, json};
+use std::collections::BTreeMap;
 
 mod depth;
 mod ledger;
 use super::ceilings::{ceiling_coverage, ceiling_findings};
 use ledger::find_row;
 mod force;
+mod graphviz;
 mod refusals;
 mod registry;
 mod scale;
@@ -60,8 +62,15 @@ fn control(name: &'static str, diverged: &[&str]) -> (&'static str, Option<Value
 /// restricted here to the layouts no other control reaches, since reference degree and
 /// grid spacing already back topology/grid/treemap on their own (a real run may show it
 /// diverging those too; the ledger only needs one control per stage to hold) — and one
-/// control per stage that reaches nothing else at all: the two force layouts, and the
-/// four Phase 3 layouts, each of which now has a control filed under its own stage id.
+/// control per stage that reaches nothing else at all: the two force layouts, the
+/// four Phase 3 layouts and the one Graphviz packing layout, each of which now has a
+/// control filed under its own stage id.
+///
+/// **Every gated row has a control here**, which is what makes this the honest set rather
+/// than a convenient one: a `gated` row whose stage no control in this list diverges is
+/// refused by `hash_4way`, so leaving osage out while shipping it `gated` would put two
+/// permanent problems into every whole-ledger test below. `without_osage_control` is how a
+/// test asks for the set *without* that one row's backing.
 fn honest_controls() -> Vec<(&'static str, Option<Value>)> {
     vec![
         control(
@@ -102,7 +111,23 @@ fn honest_controls() -> Vec<(&'static str, Option<Value>)> {
             &["layout.circular.radial"],
         ),
         control("hashgate-control-packing-scale", &["layout.packing.circle"]),
+        control(
+            "hashgate-control-packing-osage-nodes",
+            &["layout.packing.osage"],
+        ),
     ]
+}
+
+/// The honest evidence with the one control that backs `layout.packing.osage` taken back out
+/// — the set `hash_4way` refuses a `gated` osage row on.
+///
+/// A helper rather than a hand-built list so the removal is by **record name**, the one
+/// `Knob::PackingOsageNodes::record()` returns: rebuilding the list instead would let a
+/// rename drift and the test would keep passing on a control the real run no longer writes.
+pub(super) fn without_osage_control(evidence: &mut Evidence) {
+    evidence
+        .controls
+        .retain(|(name, _)| *name != "hashgate-control-packing-osage-nodes");
 }
 
 fn honest() -> Evidence {
@@ -119,41 +144,90 @@ fn honest() -> Evidence {
             }
         })),
         controls: honest_controls(),
-        oracle: Some(json!({
-            "fingerprint": "tree", "seeds": 1000, "pass": true, "functions": functions
-        })),
-        roundtrip: Some(json!({
-            "fingerprint": "tree", "seeds": 1000, "pass": true,
-            "functions": {
-                "layout.grid": hand(7),
-                "layout.circular.radial": hand(6),
-                "layout.packing.circle": hand(5),
-                "layout.dag.sugiyama": hand(9),
-            }
-        })),
-        layouts: Some(json!({
-            "fingerprint": "tree", "seeds": 1000, "pass": true,
-            "functions": {
-                "layout.tree.tidy": hand(9),
-                "layout.treemap.squarified": hand(11),
-            }
-        })),
-        stress: Some(json!({
-            "fingerprint": "tree", "seeds": 1000, "pass": true,
-            "functions": { "layout.force.barnes_hut": hand(4) }
-        })),
-        fa2: Some(json!({
-            "fingerprint": "tree", "seeds": 1000, "pass": true,
-            "functions": { "layout.forceatlas2": hand(4) }
-        })),
-        spectral: Some(json!({
-            "fingerprint": "tree", "seeds": 1000, "pass": true, "tolerance": true,
-            "functions": {
-                "layout.spectral": hand(12),
-                "layout.mds.pivot": hand(13),
-            }
-        })),
+        by_name: BTreeMap::from([
+            (
+                "oracle-diff".to_owned(),
+                json!({
+                    "fingerprint": "tree", "seeds": 1000, "pass": true,
+                    "functions": functions
+                }),
+            ),
+            (
+                "roundtrip".to_owned(),
+                json!({
+                    "fingerprint": "tree", "seeds": 1000, "pass": true,
+                    "functions": {
+                        "layout.grid": hand(7),
+                        "layout.circular.radial": hand(6),
+                        "layout.packing.circle": hand(5),
+                        "layout.dag.sugiyama": hand(9),
+                    }
+                }),
+            ),
+            (
+                "oracle-layouts".to_owned(),
+                json!({
+                    "fingerprint": "tree", "seeds": 1000, "pass": true,
+                    "functions": {
+                        "layout.tree.tidy": hand(9),
+                        "layout.treemap.squarified": hand(11),
+                    }
+                }),
+            ),
+            (
+                "stress".to_owned(),
+                json!({
+                    "fingerprint": "tree", "seeds": 1000, "pass": true,
+                    "functions": { "layout.force.barnes_hut": hand(4) }
+                }),
+            ),
+            (
+                "oracle-fa2".to_owned(),
+                json!({
+                    "fingerprint": "tree", "seeds": 1000, "pass": true,
+                    "functions": { "layout.forceatlas2": hand(4) }
+                }),
+            ),
+            (
+                "oracle-spectral".to_owned(),
+                json!({
+                    "fingerprint": "tree", "seeds": 1000, "pass": true, "tolerance": true,
+                    "functions": {
+                        "layout.spectral": hand(12),
+                        "layout.mds.pivot": hand(13),
+                    }
+                }),
+            ),
+            (
+                "oracle-osage".to_owned(),
+                json!({
+                    "fingerprint": "tree", "seeds": 1000, "pass": true, "tolerance": true,
+                    "functions": { "layout.packing.osage": hand(5) }
+                }),
+            ),
+        ]),
     }
+}
+
+/// `name`'s record as a passing 1000-seed run on this tree whose one function is `id` and
+/// whose verdict is a measured ceiling rather than a byte comparison — the shape every
+/// record a `tolerance: true` differential writes has.
+pub(super) fn recorded(evidence: &mut Evidence, name: &str, id: &str) {
+    evidence.by_name.insert(
+        name.to_owned(),
+        json!({
+            "fingerprint": "tree", "seeds": 1000, "pass": true, "tolerance": true,
+            "functions": { id: hand(5) }
+        }),
+    );
+}
+
+/// `name`'s record, or the failure to read it, out of `evidence`.
+pub(in crate::capabilities) fn record_of<'a>(
+    evidence: &'a Evidence,
+    name: &str,
+) -> Option<&'a Value> {
+    evidence.by_name.get(name)
 }
 
 /// One real row, found by id and restated at `status`, for the tests that need a row

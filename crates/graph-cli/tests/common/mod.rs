@@ -22,13 +22,16 @@ use std::process::{Command, Output};
 /// The six igraph layouts sit between the ANALYSIS and POST names and the compute tier,
 /// one per layout: none of the six takes a parameter the gate can move, so each control
 /// re-draws that layout's own model with one more node
-/// (`hashgate::knobs::IGRAPH_LAYOUT_STAGES`).
+/// (`hashgate::knobs::IGRAPH_LAYOUT_STAGES`). The five natively 3D layouts follow them
+/// (`hashgate::knobs::THREE_D_LAYOUT_STAGES`), same shape and same reason; for
+/// `layout.basic3d.{sphere,helix,cube}` the node count is the whole of their input, so a
+/// re-drawn model is the only control they can have.
 ///
-/// The twenty-one per-stage names are spelled out here rather than derived from the
-/// binary's own table: this list is what clears a knob out of a test run's environment, so
-/// a name it failed to carry would let a control leak in and turn an honest run red. Being
-/// an independent copy is the property; the unit test is what makes it hold.
-pub const KNOBS: [&str; 38] = [
+/// The per-stage names are spelled out here rather than derived from the binary's own table:
+/// this list is what clears a knob out of a test run's environment, so a name it failed to
+/// carry would let a control leak in and turn an honest run red. Being an independent copy is
+/// the property; the unit test is what makes it hold.
+pub const KNOBS: [&str; 45] = [
     "GM_MUTATE_REFERENCE_DEGREE",
     "GM_MUTATE_GRID_SPACING",
     "GM_MUTATE_SUGIYAMA_LAYER_SPACING",
@@ -39,6 +42,7 @@ pub const KNOBS: [&str; 38] = [
     "GM_MUTATE_TREEMAP_NODES",
     "GM_MUTATE_CIRCULAR_NODES",
     "GM_MUTATE_TWOPI_NODES",
+    "GM_MUTATE_NEATO_EPSILON",
     "GM_MUTATE_PATCHWORK_NODES",
     "GM_MUTATE_SPRING_ITERATIONS",
     "GM_MUTATE_CIRCULAR_HIERARCHY_NODES",
@@ -64,6 +68,12 @@ pub const KNOBS: [&str; 38] = [
     "GM_MUTATE_FORCE_DAVIDSON_HAREL_NODES",
     "GM_MUTATE_FORCE_LGL_NODES",
     "GM_MUTATE_FORCE_DRL_NODES",
+    "GM_MUTATE_BASIC3D_SPHERE_NODES",
+    "GM_MUTATE_BASIC3D_HELIX_NODES",
+    "GM_MUTATE_BASIC3D_CUBE_NODES",
+    "GM_MUTATE_HIERARCHICAL3D_NODES",
+    "GM_MUTATE_FORCE_SPRING3D_NODES",
+    "GM_MUTATE_PACKING_OSAGE_NODES",
     "GM_MUTATE_SPLIT_SUM",
     "GM_MUTATE_SPLIT_RESCALE",
     "GM_MUTATE_FORCE_SESSION_GRAVITY",

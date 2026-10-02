@@ -1,10 +1,28 @@
-import { type LoopState } from "./canvas2d/loop.ts";
-import { fpsOf } from "./canvas2d/rate.ts";
+import type { PaintCounts } from "./canvas2d/input.ts";
+import { type Rate, fpsOf } from "./canvas2d/rate.ts";
+import type { BulkSlot } from "./webgl2/hook.ts";
 import type { ViewStats } from "./view.ts";
 
-export function statsOf(state: LoopState): ViewStats {
+/**
+ * What a frame's stats are read from: the loop's own fields and nothing else, so a test can hand
+ * `statsOf` the counters it reads rather than build a whole loop (canvas2d/loop.ts).
+ */
+export interface StatsInput {
+  readonly counts: PaintCounts;
+  readonly scene: { readonly frame: { readonly nodeCount: number; readonly edgeCount: number } };
+  readonly sprites: { readonly rasterised: () => number };
+  readonly bulk: Pick<BulkSlot, "failure" | "refining">;
+  readonly rate: Rate;
+  layoutRuns: number;
+  frameMs: number;
+  frames: number;
+}
+
+export function statsOf(state: StatsInput): ViewStats {
   return {
-    backend: "canvas2d",
+    backend: state.counts.bulk > 0 ? "webgl2" : "canvas2d",
+    backendFailure: state.bulk.failure,
+    refining: state.bulk.refining,
     nodes: state.scene.frame.nodeCount,
     edges: state.scene.frame.edgeCount,
     drawnNodes: state.counts.nodes,

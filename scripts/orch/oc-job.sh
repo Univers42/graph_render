@@ -12,7 +12,7 @@
 # OC_COMMON picks the job preamble (default scripts/orch/common.md). The house rules reach the job
 # through AGENTS.md and the kit's OpenCode bridge (devil setup), not through this preamble.
 set -uo pipefail
-label=$1 wt=$2 agent=$3 body=$4 rows=${5-}
+label=$1 wt=$(realpath -m -- "$2") agent=$3 body=$4 rows=${5-}
 bin=${OC_JOB_BIN:-$(dirname "$(readlink -f "$0")")}
 live=$("${OC_LIVE_BIN:-$bin/oc-live.sh}" "$wt" 2>&1); lr=$?
 case $lr in
@@ -26,8 +26,8 @@ for p in $(pgrep -f '/opencode run' || true); do
 done
 wf=$wt/target/wf; mkdir -p "$wf"; prompt=$wf/$label.prompt
 # OC_SESSION=<id> resumes that session (oc-run.sh): the rules and body are already in its history,
-# so the prompt is only a continue order.
-resume="Continue this task from where it stopped. Re-dispatch any cancelled or unfinished subagent slice in ONE message of parallel calls, then finish with the return block."
+# or OC_RESUME + continue. 
+resume="${OC_RESUME:-}Continue this task from where it stopped. Re-dispatch any cancelled or unfinished subagent slice in ONE message of parallel calls, then finish with the return block."
 if [[ -n ${OC_SESSION-} ]]; then
   printf '%s\n' "$resume" >"$prompt"
 else
@@ -54,7 +54,18 @@ for ((t = 0; rc != 0 && t < ${OC_QUOTA_TRIES:-3} * ${#fb[@]}; t++)); do
 done
 # The verdict reads the whole last text part: a return block longer than the printed 30 lines once
 # cut `status: done` off and turned a done job into exit 2 (s1-nav, 2026-09-29).
-last_text() { jq -rs '[.[] | select(.part.type=="text") | .part.text] | last // ""' "$wf/$label.jsonl" 2>/dev/null; }
+# It parses line by line and skips a line that is not JSON: two writers on one journal once spliced a
+# tool_use line into the next event, `jq -s` failed on the whole file, its error went to /dev/null, and
+# a done job read as "no return block" three resumes running (sg-bipartite3d, 2026-10-02).
+# It takes the last text part holding a return block, else the last text part: a resumed session that
+# had already returned answered each resume with "nothing to do" and no block.
+# Caveat: an event spliced into a broken line is lost, and an older block wins over later text without
+# one, so a session that worked on after its block is judged by that block; the rows gate below still
+# runs on the final tree.
+last_text() {
+  jq -nrR '[inputs | fromjson? | select(.part.type? == "text") | .part.text] as $t
+    | ([$t[] | select(test("(^|\n)status:"))] | last) // ($t | last) // ""' "$wf/$label.jsonl"
+}
 # A space-bunny run can end rc 0 in the middle of its work, with no return block (the kit's jobs,
 # 2026-09-30): resume the same session, at most OC_RESUMES (3) times, before calling it not done.
 for ((r = 0; rc == 0 && r < ${OC_RESUMES:-3}; r++)); do

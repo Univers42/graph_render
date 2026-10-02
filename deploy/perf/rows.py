@@ -103,7 +103,9 @@ def _fps(report, baseline):
         now = worst_fps(case)
         passed = passed and now >= floor
         parts.append(f"{case['nodes']} nodes: {now} fps (was {before}, floor {floor})")
-    return _row("perf-fps", expectation, "; ".join(parts), _verdict(passed and bool(parts)))
+    if not parts:
+        return _row("perf-fps", expectation, f"no case at DPR {FPS_DPR}", "NOT-RUN")
+    return _row("perf-fps", expectation, "; ".join(parts), _verdict(passed))
 
 
 def _stats_cases(report):
@@ -183,16 +185,28 @@ def baseline_of(report):
 
 
 def _frame_lines(report):
-    lines = ["| nodes | DPR | layout | canvas | worst fps | JS mean ms | JS p95 ms |", "|---:|---:|---|---|---:|---:|---:|"]
+    lines = ["| nodes | DPR | layout | open ms | canvas | worst fps | JS mean ms | JS p95 ms | long tasks | longest ms "
+             "| React commits | React renders | at open |", "|---:|---:|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---|"]
     for case in report["frames"]:
         if "notRun" in case:
-            lines.append(f"| {case['nodes']} | {case['dpr']} | | not run: {case['notRun']} | | | |")
+            lines.append(f"| {case['nodes']} | {case['dpr']} | | | not run: {case['notRun']} | | | | | | | | |")
             continue
-        mean = max(phase["jsMeanMs"] for phase in case["phases"])
+        phases = case["phases"]
+        mean = max(phase["jsMeanMs"] for phase in phases)
         size = "x".join(str(side) for side in case["canvas"])
-        lines.append(f"| {case['nodes']} | {case['dpr']} | `{case.get('layout', '?')}` | {size} | {worst_fps(case)} "
-                     f"| {mean} | {worst_js_p95(case)} |")
+        at_open = case.get("reactAtOpen") or {}
+        lines.append(f"| {case['nodes']} | {case['dpr']} | `{case.get('layout', '?')}` | {case.get('openMs', '?')} "
+                     f"| {size} | {worst_fps(case)} "
+                     f"| {mean} | {worst_js_p95(case)} | {_total(phases, 'longTasks')} "
+                     f"| {max(phase['longestTaskMs'] for phase in phases)} | {_total(phases, 'reactCommits')} "
+                     f"| {_total(phases, 'reactRendered')} "
+                     f"| {at_open.get('commits', '?')} commits, {at_open.get('rendered', '?')} renders |")
     return lines
+
+
+def _total(phases, key):
+    values = [phase[key] for phase in phases]
+    return "?" if None in values else sum(values)
 
 
 def _block_lines(report):
@@ -207,7 +221,8 @@ def _block_lines(report):
 def table(report):
     head = [f"# studio-perf — {report['label']}", "",
             f"commit `{report['commit']}` · driver `{report['driver']}` · {report['browser']} · "
-            f"viewport {report['viewport'][0]}x{report['viewport'][1]} · software raster", "",
+            f"viewport {report['viewport'][0]}x{report['viewport'][1]} · renderer "
+            f"{report.get('renderer', 'not recorded')}", "",
             "| row | expectation | measured | verdict |", "|---|---|---|---|"]
     rows = [f"| `{row['row']}` | {row['expectation']} | {row['measured']} | {row['verdict']} |"
             for row in report["rows"]]

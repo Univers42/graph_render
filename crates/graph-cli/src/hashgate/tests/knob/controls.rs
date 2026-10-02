@@ -64,11 +64,23 @@ pub(super) fn only_stage_moved(
     moved: &[(&'static str, Vec<u8>)],
     stage: &str,
 ) {
+    only_stages_moved(base, moved, &[stage]);
+}
+
+/// Every stage in `allowed` must move and every other must be byte-identical. The
+/// many-stage sibling of [`only_stage_moved`], for a control that legitimately reaches more
+/// than one — `GM_MUTATE_SPRING_ITERATIONS` moves the spring kernel at both `D = 2` and
+/// `D = 3`, and that is a claim to be asserted rather than a gap to be tolerated.
+pub(super) fn only_stages_moved(
+    base: &[(&'static str, Vec<u8>)],
+    moved: &[(&'static str, Vec<u8>)],
+    allowed: &[&str],
+) {
     for ((id, a), (_, b)) in base.iter().zip(moved) {
         assert_eq!(
             a == b,
-            *id != stage,
-            "only {stage} may move, but {id} did not"
+            !allowed.contains(id),
+            "only {allowed:?} may move, but {id} did not"
         );
     }
 }
@@ -146,10 +158,12 @@ fn each_force_layout_has_its_own_negative_control_that_moves_only_its_stage() {
     let scaling = setting(env(vec![("GM_MUTATE_FA2_SCALING_RATIO", "3")])).expect("parses");
     assert_eq!(scaling.control, Some(Knob::Fa2ScalingRatio));
     assert_eq!(scaling.fa2.scaling_ratio, 3.0);
-    only_stage_moved(
+    // Both ForceAtlas2 stages and no other: the tree layout's far cells and leaf pairs
+    // read the same `scaling_ratio` the dense pair loop does.
+    only_stages_moved(
         &base,
         &stage_bytes(FORCE_SEED, &scaling).expect("runs"),
-        ForceAtlas2::ID,
+        &[ForceAtlas2::ID, ForceAtlas2BarnesHut::ID],
     );
     let both = env(vec![
         ("GM_MUTATE_FORCE_THETA", "0.5"),
@@ -185,10 +199,16 @@ fn each_p12_t2_layout_has_its_own_negative_control_that_moves_only_its_stage() {
     let iterations = setting(env(vec![("GM_MUTATE_SPRING_ITERATIONS", "3")])).expect("parses");
     assert_eq!(iterations.control, Some(Knob::SpringIterations));
     assert_eq!(iterations.spring.iterations, 3);
-    only_stage_moved(
+    // Both spring stages and no other. `layout.force.spring3d` is the same kernel at
+    // `D = 3` over the same `SpringParams`, so the budget is one parameter and this control
+    // reaches both — which is exactly why it is a *parameter* control and not spring3d's
+    // own: it proves the shared kernel is compared at both dimensions, and
+    // `GM_MUTATE_FORCE_SPRING3D_NODES` is what names the 3D stage alone
+    // (`three_d::the_spring_iteration_control_reaches_both_dimensions_and_the_node_control_only_the_3d`).
+    only_stages_moved(
         &base,
         &stage_bytes(P3_SEED, &iterations).expect("runs"),
-        Spring::ID,
+        &[Spring::ID, graph_core::layout::force::spring::ID_3D],
     );
     let nodes = setting(env(vec![("GM_MUTATE_CIRCULAR_HIERARCHY_NODES", "1")])).expect("parses");
     assert_eq!(nodes.control, Some(Knob::CircularHierarchyNodes));

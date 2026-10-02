@@ -8,14 +8,21 @@
 //! Split by the house's 300-line limit: [`controls`] holds the two force controls, the two
 //! p12-t2 controls, the vacuous-control refusal and the rescale-merge control, [`ids`] the
 //! four Phase 3 stage ids, [`p3`] the four Phase 3 controls, and [`table`] the knob table
-//! itself — the fourteen parameter controls, the fifteen ANALYSIS and POST controls, and
+//! itself — the fifteen parameter controls, the fifteen ANALYSIS and POST controls, and
 //! the two compute-tier controls, each held against the variable and record it claims.
+//! [`neato`] holds the Graphviz stress engine's tolerance control, which is the first one
+//! here that perturbs a *parameter* rather than re-drawing a model's size, and [`osage`]
+//! the Graphviz packing engine's, which is the control `layout.packing.osage` needed before
+//! the ledger could call that row `gated`.
 
 mod controls;
 mod ids;
+mod neato;
+mod osage;
 mod p3;
 mod patchwork;
 mod table;
+mod three_d;
 mod twopi;
 use controls::only_stage_moved;
 use p3::P3_SEED;
@@ -31,7 +38,7 @@ pub(super) use graph_core::layout::circular::ID as CIRCULAR;
 use graph_core::layout::force::BarnesHut;
 use graph_core::layout::force::Split;
 use graph_core::layout::force::spring::Spring;
-use graph_core::layout::forceatlas2::ForceAtlas2;
+use graph_core::layout::forceatlas2::{ForceAtlas2, ForceAtlas2BarnesHut};
 pub(super) use graph_core::layout::tidy_tree::ID as TIDY_TREE;
 pub(super) use graph_core::layout::treemap::ID as TREEMAP;
 use graph_core::layout::{circular, circular::ring, spiral};
@@ -157,11 +164,15 @@ fn the_split_sum_knob_names_the_pass_it_corrupts() {
 ///
 /// Compared as a **set**, because the two lists are the same three names and the order is
 /// not the claim: the knob takes one word at a time and the stage's list is printed in the
-/// tick's own order. What must hold is that neither list has a name the other lacks.
+/// tick's own order. What must hold is that neither list has a name the other lacks. The
+/// link forces are left out: that pass ends in no merge, so it has no split to control.
 #[test]
 fn every_word_the_split_knob_accepts_is_a_threaded_pass() {
     let mut accepted: Vec<&str> = ["charge", "collide", "link"].to_vec();
-    let mut listed: Vec<&str> = BarnesHut::THREADED_PASSES.to_vec();
+    let mut listed: Vec<&str> = BarnesHut::THREADED_PASSES
+        .into_iter()
+        .filter(|&pass| pass != "link forces")
+        .collect();
     accepted.sort_unstable();
     listed.sort_unstable();
     assert_eq!(

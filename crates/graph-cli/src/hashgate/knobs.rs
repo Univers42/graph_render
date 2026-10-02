@@ -1,19 +1,21 @@
-//! The fifteen per-stage negative controls for the ANALYSIS and POST stages, and the
-//! `GM_MUTATE_*` variable each one is set by.
+//! The per-stage negative controls that back a control with a re-drawn model rather than a
+//! real parameter, and the `GM_MUTATE_*` variable each one is set by: the fifteen ANALYSIS
+//! and POST stages, the six igraph layouts, the five natively 3D layouts and the one
+//! Graphviz packing layout.
 //!
-//! Split out of `knob.rs` by the house's 300-line limit, and because these fifteen are
-//! one thing the ten in `knob.rs` are not: they share a single shape. A stage that takes
-//! a parameter backs its control with a real parameter; a stage that takes none — and
-//! every analysis and every POST capability takes none, being a pure function of the
-//! gate's model at fixed conventions — backs its control by re-drawing **its own** model
-//! with [`Setting::stage_nodes`], one more node than the gate's own, for that stage
-//! alone.
+//! Split out of `knob.rs` by the house's 300-line limit, and because these are one thing
+//! the controls in `knob.rs` are not: they share a single shape. A stage that takes a
+//! parameter backs its control with a real parameter; a stage that takes none — and
+//! every analysis, every POST capability, every igraph layout, every natively 3D layout
+//! and `layout.packing.osage` takes none, being a pure function of the gate's model at
+//! fixed conventions — backs its control by re-drawing **its own** model with
+//! [`Setting::stage_nodes`], one more node than the gate's own, for that stage alone.
 //!
 //! Re-drawing is the honest probe for a stage with no parameter to move, and it is what
 //! makes a divergence *name* the stage: `GM_MUTATE_NODE_COUNT` would perturb the gate's
 //! one shared model and move every stage at once, which proves nothing about any of them.
 //! The test `each_analysis_and_post_stage_has_its_own_control_that_moves_only_its_stage`
-//! is what keeps that claim true for all fifteen.
+//! is what keeps that claim true for every row tabled here.
 
 use graph_core::analysis::{centrality, communities, components, depth};
 use graph_core::post::routed;
@@ -108,6 +110,48 @@ pub const ANALYSIS_POST_STAGES: [Stage; 15] = [
     },
 ];
 
+/// The five natively 3D layouts' per-stage node controls, the same shape as the six below
+/// and for the same reason — and for the three graph-free ones it is the *only* shape.
+///
+/// `layout.basic3d.{sphere,helix,cube}` read the node count and no edge at all
+/// (`layout/basic_3d.rs:22-27`), so their model is their entire input and one more node is
+/// exactly what moves them; `layout.hierarchical3d` reads the graph's components and
+/// levels, and `layout.force.spring3d` is `spring` at `D = 3`. None publishes a `Params`,
+/// so none has a real parameter to perturb — including `spring3d`, whose iterations budget
+/// is read by the one `Solver::settle` it shares with the 2D stage, so
+/// `GM_MUTATE_SPRING_ITERATIONS` moves both dimensions and names neither. The per-stage
+/// node control is what makes the 3D one attributable.
+///
+/// **Every id here is a graph-core constant** (`<Layout>::ID` through the `Stage` trait, or
+/// the `pub const` a module with no `impl Stage` publishes), never a spelling in this file.
+pub const THREE_D_LAYOUT_STAGES: [Stage; 5] = [
+    Stage {
+        id: graph_core::layout::basic_3d::sphere::ID,
+        env: "GM_MUTATE_BASIC3D_SPHERE_NODES",
+        record: "hashgate-control-basic3d-sphere-nodes",
+    },
+    Stage {
+        id: graph_core::layout::basic_3d::helix::ID,
+        env: "GM_MUTATE_BASIC3D_HELIX_NODES",
+        record: "hashgate-control-basic3d-helix-nodes",
+    },
+    Stage {
+        id: graph_core::layout::basic_3d::cube::ID,
+        env: "GM_MUTATE_BASIC3D_CUBE_NODES",
+        record: "hashgate-control-basic3d-cube-nodes",
+    },
+    Stage {
+        id: graph_core::layout::hierarchical_3d::ID,
+        env: "GM_MUTATE_HIERARCHICAL3D_NODES",
+        record: "hashgate-control-hierarchical3d-nodes",
+    },
+    Stage {
+        id: graph_core::layout::force::spring::ID_3D,
+        env: "GM_MUTATE_FORCE_SPRING3D_NODES",
+        record: "hashgate-control-force-spring3d-nodes",
+    },
+];
+
 /// The six igraph-family layouts' per-stage node controls, the same shape as the fifteen
 /// above and for the same reason.
 ///
@@ -157,14 +201,43 @@ pub const IGRAPH_LAYOUT_STAGES: [Stage; 6] = [
     },
 ];
 
-/// Every per-stage control this module tables, the fifteen ANALYSIS and POST rows then the
-/// six igraph layout rows — one search list, so [`super::knob::stage_of`] resolves both
-/// families through the same table lookup and neither can drift from the other's shape.
+/// The one Graphviz packing layout's per-stage node control, the same shape as the six above
+/// and for the same reason.
+///
+/// **The re-drawn model is the *only* probe available here**, so it is worth saying why.
+/// `osage` publishes no `Params` and has no `impl Stage` — its module says so, and names the
+/// escape hatch that would change it (`osage.rs:72`: "a `Params` on the stage, which is a
+/// contract change and not this job's"). What it *does* read is the node count and no edge at
+/// all, so its model is its entire input and one more node is exactly what moves it. The
+/// re-draw is scoped to `stage_nodes`, so `topology`, the other layouts and the transport
+/// stage stay byte-identical and the divergence names this stage.
+///
+/// **This row is what `layout.packing.osage` needs for `Status::Gated`.** `verdict::hash_4way`
+/// refuses a gated row whose own stage no control went red on, and the controls that did go red
+/// do not reach it: `GM_MUTATE_NODE_COUNT` moves `topology` and every topology-shaped stage,
+/// and `GM_MUTATE_PACKING_SCALE` is `layout.packing.circle`'s real parameter — osage packs its
+/// own uniform grid and reads no scale, so it stays equal under both. Without a control of its
+/// own the row is `implemented` however good its oracle record is.
+///
+/// **The id is graph-core's own `osage::ID`**, never a spelling here, for the reason the three
+/// tables above give.
+pub const OSAGE_LAYOUT_STAGES: [Stage; 1] = [Stage {
+    id: graph_core::layout::graphviz::osage::ID,
+    env: "GM_MUTATE_PACKING_OSAGE_NODES",
+    record: "hashgate-control-packing-osage-nodes",
+}];
+
+/// Every per-stage control this module tables: the fifteen ANALYSIS and POST rows, then the
+/// six igraph layout rows, then the five 3D layout rows, then the one Graphviz packing row —
+/// one search list, so [`super::knob::stage_of`] resolves all four families through the same
+/// table lookup and none can drift from another's shape.
 pub fn all() -> impl Iterator<Item = Stage> {
     ANALYSIS_POST_STAGES
         .iter()
         .copied()
         .chain(IGRAPH_LAYOUT_STAGES.iter().copied())
+        .chain(THREE_D_LAYOUT_STAGES.iter().copied())
+        .chain(OSAGE_LAYOUT_STAGES.iter().copied())
 }
 
 /// One ANALYSIS or POST stage's negative control: the stage it perturbs, the variable
@@ -196,8 +269,8 @@ pub fn by_env(env: &str) -> Option<Stage> {
 /// `stage`'s perturbation written into `setting`: `count` nodes added to *its* model.
 ///
 /// Zero is refused by the caller (`knob::nodes`), not here: the rule is one rule for all
-/// twenty-five controls, and a second copy of it beside these fifteen would be a second
-/// place for it to drift.
+/// twenty-seven tabled controls, and a second copy of it here would be a second place for
+/// it to drift.
 pub fn apply(stage: Stage, count: u32, setting: &mut Setting) {
     setting.stage_nodes = Some((stage.id, count));
 }

@@ -62,13 +62,12 @@ pub(in crate::layout::force) struct Sim {
     pub(in crate::layout::force) py: Vec<f64>,
     pub(in crate::layout::force) charge_tree: Quadtree,
     pub(in crate::layout::force) collide_tree: Quadtree,
-    pub(in crate::layout::force) mass: Vec<f64>,
-    pub(in crate::layout::force) comx: Vec<f64>,
-    pub(in crate::layout::force) comy: Vec<f64>,
-    pub(in crate::layout::force) order: Vec<u32>,
+    pub(super) bodies: Vec<super::charge::Body>,
     pub(in crate::layout::force) link_distance: Vec<f64>,
     pub(in crate::layout::force) link_strength: Vec<f64>,
     pub(in crate::layout::force) link_bias: Vec<f64>,
+    /// Each simple edge's force this tick, the link pass's scratch.
+    pub(super) link_forces: Vec<(f64, f64)>,
 }
 
 #[cfg(test)]
@@ -109,15 +108,13 @@ impl Sim {
             py: vec![0.0; n],
             charge_tree: Quadtree::default(),
             collide_tree: Quadtree::default(),
-            mass: Vec::new(),
-            comx: Vec::new(),
-            comy: Vec::new(),
-            order: Vec::new(),
+            bodies: Vec::new(),
             x,
             y,
             link_distance,
             link_strength,
             link_bias,
+            link_forces: Vec::new(),
         }
     }
 
@@ -134,33 +131,15 @@ impl Sim {
         self.params = params;
     }
 
-    /// Node `i`'s own many-body delta, over the tree and aggregate already built, into a
-    /// caller's reused walk stack.
-    ///
-    /// The serial loop `charge::apply` runs, exposed so the range kernel
-    /// ([`super::step::Pass`]) and its tests call the same function rather than a copy of
-    /// the walk. A second copy would be a second program, and the kernel's equality test
-    /// would then compare two programs instead of two schedules.
-    pub(in crate::layout::force) fn node_delta(
-        &self,
-        i: u32,
-        stack: &mut Vec<(u32, crate::layout::force::quadtree::Bounds)>,
-    ) -> (f64, f64) {
-        super::charge::node_delta_with(self, i, stack)
-    }
-
     /// The capacity of every buffer a tick refills, for the test that a steady-state run
-    /// allocates nothing. The tree's walk buffer is the *caller's* (D10,
-    /// [`Quadtree::visit_in`]), so the pass that walks measures its own separately.
+    /// allocates nothing. The walks are stackless, so this is every buffer a tick owns.
     #[cfg(test)]
     pub(in crate::layout::force) fn scratch_capacities(&self) -> Vec<usize> {
         vec![
-            self.mass.capacity(),
-            self.comx.capacity(),
-            self.comy.capacity(),
-            self.order.capacity(),
+            self.bodies.capacity(),
             self.charge_tree.capacity(),
             self.collide_tree.capacity(),
+            self.link_forces.capacity(),
         ]
     }
 
@@ -230,7 +209,7 @@ impl Sim {
 
     /// `center.js`: shifts every position by the mean, toward the origin — position, not
     /// velocity, and with no `alpha` scaling (`center.js`'s `force()` takes no `alpha`).
-    fn center(&mut self) {
+    pub(in crate::layout::force) fn center(&mut self) {
         let n = self.x.len();
         if n == 0 {
             return;

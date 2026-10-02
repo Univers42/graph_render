@@ -16,6 +16,22 @@ function described(state: StudioState): string | null {
   return state.meta === null ? "nothing is drawn" : null;
 }
 
+/**
+ * WHY the run's dim and not the layout's id: `dim` comes off the decoded snapshot, so it is
+ * the z column's own presence — the same thing the painter branched on. A layout id could
+ * promise 3D and deliver a flat graph, and then this would put a badge on a drawing with no
+ * third column and offer a camera reset for angles that do not exist.
+ */
+function inSpace(state: StudioState): boolean {
+  return state.run !== null && state.run.dim === 1;
+}
+
+/** `null` when the drawing is 3D and the action can run; why it cannot, when it cannot. */
+function flatDrawing(state: StudioState): string | null {
+  if (state.meta === null) return "nothing is drawn";
+  return inSpace(state) ? null : "the current layout is 2D";
+}
+
 /** By id first, then by name the way a choice is matched: exact, or the one that holds it. */
 function nodeNamed(meta: GraphMeta, wanted: string): number {
   const byId = meta.ids.indexOf(wanted);
@@ -78,12 +94,48 @@ const pan: StudioAction = {
   },
 };
 
+/**
+ * The camera reset for a 3D drawing, which the 2D `reset` cannot do: it puts the angles back
+ * to zero and leaves the distance and the target alone. A 2D frame is refused here by name,
+ * so a user who types this on a 2D graph is told why rather than watching nothing happen.
+ *
+ * WHY `headon` and not a word with a 3 in it: every console word in the studio is one
+ * lowercase word (the `actions-parity` row, `tests/parity.test.ts:40`), so the word names
+ * what it does rather than which version of the drawing it does it to.
+ */
+const headOn: StudioAction = {
+  id: "view.headon", alias: "headon", title: "Look at a 3D drawing head on again", section: null, params: [],
+  available: flatDrawing,
+  run: (context) => {
+    context.view.resetOrbit();
+    return { message: "the drawing is head on again" };
+  },
+};
+
 const deselect: StudioAction = {
   id: "view.clear", alias: "deselect", title: "Clear the selection and leave the local graph", section: null, params: [],
   run: (context) => {
     context.view.select(-1);
     context.view.showAll();
     return { message: "selection cleared" };
+  },
+};
+
+/**
+ * The inspector's ×, which is not `deselect`. That one is the way out of a local graph and
+ * calls `showAll`, and a panel button that did the same would drop the reader out of the
+ * graph they opened — so this clears the selection and leaves the drawing as it is.
+ *
+ * WHY `unselect` and not a second reading of `deselect`: `deselect` already owns that word
+ * and it means "and leave", so a reader who types `unselect` gets the smaller promise the
+ * button makes. Two words for one behaviour is the confusion; one word for two behaviours is
+ * worse.
+ */
+const unselect: StudioAction = {
+  id: "view.unselect", alias: "unselect", title: "Clear the selection and leave the local graph as it is", section: null, params: [],
+  run: (context) => {
+    context.view.select(-1);
+    return { message: "selection cleared, the graph stays" };
   },
 };
 
@@ -97,6 +149,42 @@ const focus: StudioAction = {
     const node = nodeNamed(meta, textArg(args, "node"));
     context.view.focus(node);
     return { message: `${meta.labels[node] ?? ""} (${meta.ids[node] ?? ""})` };
+  },
+};
+
+/**
+ * The node menu's Pin and Hide, routed for the reason `focus` is: an action names a value,
+ * refuses it in one place and writes the line a reader can type, and a menu that called the
+ * view itself did none of those.
+ *
+ * WHY `pin` and `hide` and not a new reading of an existing word: `deselect` already means
+ * "and leave the local graph" and `unselect` means the same without the leaving, so a third
+ * word for a third gesture is the one that is not already spoken for.
+ */
+const pin: StudioAction = {
+  id: "view.pin", alias: "pin", title: "Pin or unpin a node by id or name", section: null,
+  params: [{ name: "node", kind: "text", title: "Node", value: () => "" }],
+  available: described,
+  run: (context, args) => {
+    const { meta } = context.state();
+    if (meta === null) throw new ActionRefusal("unavailable", "nothing is drawn");
+    const node = nodeNamed(meta, textArg(args, "node"));
+    context.view.togglePin(node);
+    const now = context.view.pinned().includes(node);
+    return { message: `${meta.labels[node] ?? ""} (${meta.ids[node] ?? ""}) ${now ? "pinned" : "unpinned"}` };
+  },
+};
+
+const hide: StudioAction = {
+  id: "view.hide", alias: "hide", title: "Hide a node by id or name", section: null,
+  params: [{ name: "node", kind: "text", title: "Node", value: () => "" }],
+  available: described,
+  run: (context, args) => {
+    const { meta } = context.state();
+    if (meta === null) throw new ActionRefusal("unavailable", "nothing is drawn");
+    const node = nodeNamed(meta, textArg(args, "node"));
+    context.view.hide([node]);
+    return { message: `${meta.labels[node] ?? ""} (${meta.ids[node] ?? ""}) hidden` };
   },
 };
 
@@ -152,4 +240,4 @@ const help: StudioAction = {
 };
 
 export const VIEW_ACTIONS: readonly StudioAction[] =
-  [fit, reset, zoom, pan, focus, local, cancel, deselect, emptyConsole, help];
+  [fit, reset, headOn, zoom, pan, focus, pin, hide, local, cancel, deselect, unselect, emptyConsole, help];

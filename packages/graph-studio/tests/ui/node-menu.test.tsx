@@ -10,7 +10,7 @@ import { DRAWN, fakeView, markup, studioWith } from "./desk.ts";
 function menu(pinned: readonly number[], at: { node: number } | null = { node: 0 }): string {
   const { studio } = studioWith(DRAWN);
   const menuAt = at === null ? null : { node: at.node, at: { x: 10, y: 20 } };
-  return markup(createElement(NodeMenu, { studio, state: DRAWN, view: fakeView(pinned), menu: menuAt, onClose: () => undefined }));
+  return markup(createElement(NodeMenu, { studio, ids: DRAWN.meta?.ids ?? null, view: fakeView(pinned), menu: menuAt, onClose: () => undefined }));
 }
 
 test("the menu offers focus, pin, hide and copy id, in that order", () => {

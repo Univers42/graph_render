@@ -6,7 +6,7 @@ use super::super::charge;
 use super::super::collide;
 use super::super::link;
 use super::super::sim::{How, Sim};
-use super::super::step::{CollidePass, LinkPass, Pass};
+use super::super::step::{CollidePass, LinkForces, LinkPass, Pass};
 use super::super::{BarnesHut, Split};
 use super::line;
 use crate::exec::{Runner, Serial, StepRange};
@@ -48,11 +48,10 @@ fn collide_gives_the_same_deltas_at_every_worker_count_as_the_loop_it_replaces()
         Serial.run(&CollidePass::of(&sim), workers, &mut out);
         assert_eq!(out, reference, "workers={workers} moved a collide delta");
     }
-    // The kernel is the loop it replaces: one walk per node, in ascending index order.
+    // The kernel is the loop it replaces: one walk per node, in the collide tree's order.
     let reach = collide::reach_squared(&sim);
-    let mut stack = Vec::new();
-    let through_loop: Vec<(f64, f64)> = (0..sim.px.len() as u32)
-        .map(|i| collide::node_delta(&sim, i, reach, &mut stack))
+    let through_loop: Vec<(f64, f64)> = (sim.collide_tree.order().iter())
+        .map(|&i| collide::node_delta(&sim, i, reach))
         .collect();
     assert_eq!(reference, through_loop);
 }
@@ -62,16 +61,21 @@ fn link_gives_the_same_deltas_at_every_worker_count_as_the_loop_it_replaces() {
     let (nodes, edges) = line(40);
     let t = index_model(&nodes, &edges).expect("fits");
     let sim = Sim::new(&t, ForceParams::default().into(), 0);
+    let mut forces = Vec::new();
+    Serial.run(&LinkForces::of(&sim), 1, &mut forces);
     let mut reference = Vec::new();
-    Serial.run(&LinkPass::of(&sim), 1, &mut reference);
+    Serial.run(&LinkPass::of(&sim, &forces), 1, &mut reference);
     assert_eq!(reference.len(), 40);
     assert!(
         reference.iter().any(|&(x, y)| x != 0.0 || y != 0.0),
         "the pass must do real work, or the equality below is vacuous"
     );
     for workers in [0_u32, 1, 2, 3, 4, 7, 8, 64] {
+        let mut split_forces = Vec::new();
+        Serial.run(&LinkForces::of(&sim), workers, &mut split_forces);
+        assert_eq!(split_forces, forces, "workers={workers} moved a link force");
         let mut out = Vec::new();
-        Serial.run(&LinkPass::of(&sim), workers, &mut out);
+        Serial.run(&LinkPass::of(&sim, &forces), workers, &mut out);
         assert_eq!(out, reference, "workers={workers} moved a link delta");
     }
     // The kernel is the loop it replaces: every simple edge once, in ascending edge order,
@@ -110,7 +114,7 @@ fn the_tick_hands_the_runner_one_call_per_listed_pass() {
     );
     assert_eq!(
         BarnesHut::THREADED_PASSES,
-        ["link", "charge", "collide"],
+        ["link forces", "link", "charge", "collide"],
         "the list is in Sim::tick's own order, with center never threaded"
     );
 }
@@ -160,11 +164,18 @@ fn the_three_passes_share_one_sim_and_one_scratch_buffer() {
     collide::prepare(&mut sim);
     Serial.run(&CollidePass::of(&sim), 1, &mut deltas);
     let after_collide = deltas.len();
-    Serial.run(&LinkPass::of(&sim), 1, &mut deltas);
+    let mut forces = Vec::new();
+    Serial.run(&LinkForces::of(&sim), 1, &mut forces);
+    Serial.run(&LinkPass::of(&sim, &forces), 1, &mut deltas);
     assert_eq!((after_charge, after_collide, deltas.len()), (24, 24, 24));
     assert_eq!(Pass::of(&sim).len(), 24);
     assert_eq!(CollidePass::of(&sim).len(), 24);
-    assert_eq!(LinkPass::of(&sim).len(), 24);
+    assert_eq!(LinkPass::of(&sim, &forces).len(), 24);
+    assert_eq!(
+        LinkForces::of(&sim).len(),
+        23,
+        "one output per simple edge of the line"
+    );
 }
 
 /// **A control that passes vacuously is worse than no control**, and each pass's own

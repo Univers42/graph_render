@@ -64,6 +64,11 @@ gather and it is not hidden: it is inside the timed stage in
 `docs/measurements/phase11-threads.md`, so the threads tier's reported speedup is the speedup
 *with* that doubling.
 
+Since `perf-p3-link-once` (2026-10-02) the doubled part is only the bias multiply: `LinkForces`
+computes each edge's force once into an `m`-sized scratch, and the gather reads it. Same terms,
+same order, same bytes; the link passes of a 1M tick fell from 411 M to 234 M instructions
+(`docs/measurements/perf-p3-link-once.md`).
+
 ## What would make this wrong, and what catches it
 
 - **A changed edge order** (a CSR sorted by value, or a row built in a different pass order)
@@ -83,10 +88,10 @@ gather and it is not hidden: it is inside the timed stage in
 
 ## Ponytail (the choice of gather)
 
-Recomputing each edge at both endpoints is a trade, not a proof. **Failing input:** a graph
-so edge-dominated that link's doubled arithmetic is visible in the tier's wall time — a
-hub-and-spoke model at large `m`, where the pass is `O(m)` and the doubling is not amortised
-against the many-body pass's `O(n log n)`. **Direction:** the threads tier loses time there,
+Reading each edge at both endpoints is a trade, not a proof. **Failing input:** a graph
+so edge-dominated that link's two passes and its `m × 16 B` scratch are visible in the tier's
+wall time or memory — a hub-and-spoke model at large `m`, where the passes are `O(m)` and are
+not amortised against the many-body pass's `O(n log n)`. **Direction:** the threads tier loses time there,
 never bytes: every tier is hash-equal to scalar per stage. **Escape hatch:** the explicit
 `exec` option per call, or the node threshold in `tier-thresholds.md`.
 

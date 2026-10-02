@@ -2,10 +2,15 @@
 // refused. Gate row `decode-fixtures`: every bundled fixture, every layout that accepts it.
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { readFile } from "node:fs/promises";
 
+import { createMotor, type Handle, MotorTrapError } from "../../../crates/graph-sdk-js/src/index.ts";
 import { decodeSnapshot, idAt } from "../../graph-render/src/snapshot/decode.ts";
 import { serve } from "../src/motor/serve.ts";
-import { FIXTURES, FIXTURES_URL, SKIP, realSession } from "./motor.ts";
+import { type MotorLike, type Session, createSession, sha256Hex } from "../src/motor/session.ts";
+import { FIXTURES, FIXTURES_URL, SKIP, WASM, realSession } from "./motor.ts";
+
+const FIXTURE_ROOT = new URL("../../../fixtures/", import.meta.url);
 
 const VAULT = { kind: "synthetic", seed: 1, nodes: 60, degree: 2, shape: "vault" } as const;
 
@@ -137,25 +142,62 @@ test("the bytes of a run travel with the answer instead of being copied", { skip
   assert.deepEqual(answer.transfer, [answer.result.run.bytes.buffer]);
 });
 
-test("every bundled fixture decodes under every layout that accepts it", { skip: SKIP }, async () => {
-  const session = realSession();
-  const { layouts } = await session.open("unused");
+/**
+ * Every fixture under every layout, counting what decoded and what the motor refused. A trap
+ * is neither: it throws, so a broken stage fails the sweep instead of shrinking the count.
+ */
+async function sweep(session: Session, layouts: readonly string[]): Promise<{ decoded: number; refused: number }> {
   let decoded = 0;
   let refused = 0;
   for (const path of FIXTURES) {
     const graph = await session.load({ kind: "fixture", path }, FIXTURES_URL);
     for (const layoutId of layouts) {
       const answer = await serve(session, { type: "layout", layoutId, postId: null });
-      if (answer.result.type !== "laid-out") {
-        refused += 1;
+      if (answer.result.type === "laid-out") {
+        const snapshot = decodeSnapshot(answer.result.run.bytes);
+        assert.equal(snapshot.nodeCount, graph.nodeCount, `${path} under ${layoutId}`);
+        assert.equal(snapshot.edgeCount, graph.edgeCount, `${path} under ${layoutId}`);
+        decoded += 1;
         continue;
       }
-      const snapshot = decodeSnapshot(answer.result.run.bytes);
-      assert.equal(snapshot.nodeCount, graph.nodeCount, `${path} under ${layoutId}`);
-      assert.equal(snapshot.edgeCount, graph.edgeCount, `${path} under ${layoutId}`);
-      decoded += 1;
+      if (answer.result.type === "failed" && answer.result.error.title === "MotorTrapError") {
+        throw new Error(`${path} under ${layoutId} trapped: ${answer.result.error.detail}`);
+      }
+      refused += 1;
     }
   }
+  return { decoded, refused };
+}
+
+test("every bundled fixture decodes under every layout that accepts it", { skip: SKIP }, async () => {
+  const session = realSession();
+  const { layouts } = await session.open("unused");
+  const { decoded, refused } = await sweep(session, layouts);
   assert.equal(decoded + refused, FIXTURES.length * layouts.length);
   assert.ok(decoded > refused, `${decoded} decoded, ${refused} refused`);
+});
+
+test("a trap in the sweep fails it, not counts as a refusal", { skip: SKIP }, async () => {
+  const real = await createMotor(WASM ?? new Uint8Array(0));
+  const trapping: MotorLike<Handle> = {
+    layouts: () => real.layouts(),
+    posts: () => real.posts(),
+    analyses: () => real.analyses(),
+    build: (json) => real.build(json),
+    layout: () => {
+      throw new MotorTrapError("gm_run", new Error("unreachable"));
+    },
+    post: (handle, postId) => real.post(handle, postId),
+    analysis: (handle, analysisId) => real.analysis(handle, analysisId),
+    toBytes: (handle) => real.toBytes(handle),
+    release: (handle) => real.release(handle),
+  };
+  const session = createSession({
+    motorFrom: () => Promise.resolve(trapping),
+    fetchText: (url) => readFile(new URL(url.replace("fixtures:/", ""), FIXTURE_ROOT), "utf8"),
+    digest: sha256Hex,
+    now: () => performance.now(),
+  });
+  const { layouts } = await session.open("unused");
+  await assert.rejects(sweep(session, layouts), /trapped/);
 });

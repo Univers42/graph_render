@@ -3,7 +3,7 @@
 //
 //   node harness/oracle-layouts.mjs --dag [dump]      dump defaults to target/dag-crossings.json
 //
-// --dag: dagre-d3-es@7.0.14 against our own crossing counts on the 6 fixtures/dag/*.json
+// --dag: dagre-d3-es@7.0.14 against our own crossing counts on the 7 fixtures/dag/*.json
 // plus the synthetic sweep, both dumped by graph-core's ignored test
 // (cargo test -p graph-core dump_crossing_measurements -- --ignored). It measures and
 // reports; it never tunes anything. The margin is frozen in
@@ -22,7 +22,8 @@ import { resolve } from "node:path";
 
 const repoRoot = resolve(import.meta.dirname, "..");
 const ROOT = "\u0000nesting-root";
-const FIXTURES = new Set(["chain", "diamond", "cyclic", "multi-span", "wide-layer", "disconnected"]);
+const FIXTURES = new Set(["chain", "diamond", "cyclic", "multi-span", "wide-layer",
+  "disconnected", "parallel-arcs"]);
 const K44 = { nodes: ["a", "b", "c", "d", "w", "x", "y", "z"], edges: [] };
 for (const s of ["a", "b", "c", "d"]) for (const t of ["w", "x", "y", "z"]) K44.edges.push([s, t]);
 

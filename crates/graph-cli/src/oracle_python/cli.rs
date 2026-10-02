@@ -3,7 +3,10 @@
 
 use super::graphviz::{by_engine, default_dir, engine_parser};
 use super::spring;
-use super::{CIRCULAR_HIERARCHY, CLOSED_FORM, FA2, IGRAPH, SPECTRAL, SPRING, emit, ingest};
+use super::{
+    BASIC_3D, CIRCULAR_HIERARCHY, CLOSED_FORM, FA2, HIERARCHICAL_3D, IGRAPH, SPECTRAL, SPRING,
+    conformance, emit, ingest,
+};
 use crate::command::seed_count;
 use clap::Subcommand;
 use std::path::PathBuf;
@@ -94,6 +97,62 @@ pub enum Cli {
         #[arg(long, default_value = "target/spring-fixtures")]
         dir: PathBuf,
     },
+    /// Writes the three graph-free 3D placements' fixtures for
+    /// `harness/oracle-basic-3d.py`, the SciGraphs arm: `layout.basic3d.sphere`,
+    /// `layout.basic3d.helix` and `layout.basic3d.cube` in ONE arm, because the three take
+    /// the same two arguments and read no graph.
+    ///
+    /// **Three, and that is the arm's `ARMS` list, not a count of the layouts that are like
+    /// this.** `layout.basic3d.spiral` is a fourth graph-free 3D placement and is NOT armed
+    /// here; job `sg-basic3d-spiral-oracle` adds `--function spiral`, and until then the
+    /// spiral is held to the scigraphs-conformance gate instead.
+    ///
+    /// The three take no iteration budget, so `--max-iter` is ignored.
+    // Named explicitly: clap would spell the variant `emit-basic3d-fixtures`, and the
+    // hyphen is the difference between "basic 3d" and a single word.
+    #[command(name = "emit-basic-3d-fixtures")]
+    EmitBasic3dFixtures {
+        /// Number of seeds, 0..N.
+        #[arg(long, default_value_t = 1000, value_parser = seed_count())]
+        seeds: u32,
+        /// Output directory.
+        #[arg(long, default_value = "target/basic-3d-fixtures")]
+        out: PathBuf,
+    },
+    /// Checks the three graph-free 3D placements' result against their ceilings.
+    ///
+    /// Three ceilings in one check, because they are three functions behind one arm: a
+    /// differential that reported one number for three different reference functions would be
+    /// reporting nothing any of them can act on. Same three as above — `spiral` is not one
+    /// of them.
+    #[command(name = "oracle-basic-3d")]
+    OracleBasic3d {
+        /// Directory holding the fixtures and `basic-3d-result.json`.
+        #[arg(long, default_value = "target/basic-3d-fixtures")]
+        dir: PathBuf,
+    },
+    /// Writes `layout.hierarchical3d`'s fixtures for `harness/oracle-hierarchical-3d.py`,
+    /// the SciGraphs arm.
+    ///
+    /// Its own command, not one of `emit-basic-3d-fixtures`'s, because it is the only one
+    /// of the five 3D layouts that reads a graph: its fixture carries the gate's edges and
+    /// is compared over shapes rather than over node counts.
+    #[command(name = "emit-hierarchical-3d-fixtures")]
+    EmitHierarchical3dFixtures {
+        /// Number of seeds, 0..N.
+        #[arg(long, default_value_t = 1000, value_parser = seed_count())]
+        seeds: u32,
+        /// Output directory.
+        #[arg(long, default_value = "target/hierarchical-3d-fixtures")]
+        out: PathBuf,
+    },
+    /// Checks `layout.hierarchical3d`'s result against its ceiling.
+    #[command(name = "oracle-hierarchical-3d")]
+    OracleHierarchical3d {
+        /// Directory holding the fixtures and `hierarchical-3d-result.json`.
+        #[arg(long, default_value = "target/hierarchical-3d-fixtures")]
+        dir: PathBuf,
+    },
     /// Writes the circular-hierarchy differential's fixtures for
     /// `harness/oracle-circular-hierarchy.py`, the SciGraphs arm.
     EmitCircularHierarchyFixtures {
@@ -144,6 +203,32 @@ pub enum Cli {
         #[arg(long)]
         dir: Option<PathBuf>,
     },
+    /// Writes the SciGraphs conformance fixtures: the graphs both arms read, the node-order
+    /// mapping, and every motor layout's own coordinates over them, raw little-endian `f64`
+    /// and the `f32` the snapshot narrows to.
+    ///
+    /// Its own command pair rather than one of the `emit-graphviz-fixtures` engines, because
+    /// it is not one differential against one reference: it is **all 32** SciGraphs names at
+    /// once, against whichever arm can reach each one, so that a reader gets the whole
+    /// matrix out of one emit instead of 32.
+    ///
+    /// Named explicitly: clap would spell the variant `emit-conformancefixtures`.
+    #[command(name = "emit-conformance-fixtures")]
+    EmitConformanceFixtures {
+        /// Output directory.
+        #[arg(long, default_value = "target/scigraphs-conformance")]
+        out: PathBuf,
+    },
+    /// Checks the SciGraphs conformance matrix against its pinned baseline and records it.
+    ///
+    /// Not `oracle-<name>`: this one is a matrix of 32 rows, and a single record named for
+    /// one of them would name the other 31 nothing.
+    #[command(name = "scigraphs-conformance")]
+    ScigraphsConformance {
+        /// Directory holding the fixtures, `motor.jsonl` and `metrics.json`.
+        #[arg(long, default_value = "target/scigraphs-conformance")]
+        dir: PathBuf,
+    },
 }
 
 impl Cli {
@@ -161,6 +246,12 @@ impl Cli {
             Cli::OracleFa2 { dir } => ingest(&FA2, &dir),
             Cli::EmitClosedFormFixtures { seeds, out } => emit(&CLOSED_FORM, seeds, None, &out),
             Cli::OracleClosedForm { dir } => ingest(&CLOSED_FORM, &dir),
+            Cli::EmitBasic3dFixtures { seeds, out } => emit(&BASIC_3D, seeds, None, &out),
+            Cli::OracleBasic3d { dir } => ingest(&BASIC_3D, &dir),
+            Cli::EmitHierarchical3dFixtures { seeds, out } => {
+                emit(&HIERARCHICAL_3D, seeds, None, &out)
+            }
+            Cli::OracleHierarchical3d { dir } => ingest(&HIERARCHICAL_3D, &dir),
             Cli::EmitSpringFixtures {
                 seeds,
                 max_iter,
@@ -184,6 +275,8 @@ impl Cli {
                 Some(differential) => ingest(&differential, &dir.unwrap_or(default_dir(&engine))),
                 None => unknown(&engine),
             },
+            Cli::EmitConformanceFixtures { out } => conformance::emit(&out),
+            Cli::ScigraphsConformance { dir } => conformance::judge(&dir),
         }
     }
 }

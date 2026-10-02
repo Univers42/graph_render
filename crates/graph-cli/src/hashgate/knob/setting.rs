@@ -33,6 +33,14 @@ pub(crate) struct Setting {
     pub(in crate::hashgate) spring: SpringParams,
     /// Circle packing's parameters, native arm only ([`Knob::PackingScale`] perturbs).
     pub(in crate::hashgate) packing: CirclePackingParams,
+    /// `layout.force.neato`'s stopping tolerance ([`Knob::NeatoEpsilon`]), native arm only.
+    ///
+    /// An `Option` and not an `f64` defaulting to the compiled-in `EPSILON`, because `0` is
+    /// itself a legal tolerance — the reference's own `|| new_stress < Epsilon` clause makes
+    /// a zero epsilon stop the first pass — and a flag that could not say "zero" would make
+    /// the control's honest value inexpressible. `None` is the honest run. Reached through
+    /// [`Setting::neato_epsilon`], beside the field.
+    pub(in crate::hashgate) neato_epsilon: Option<f64>,
     /// The one stage whose own model a control re-draws, native arm only
     /// ([`Knob::TreeTidyNodes`], [`Knob::TreemapNodes`], [`Knob::CircularNodes`], the
     /// twenty-one per-stage controls in [`knobs`], and the six igraph layout controls).
@@ -80,6 +88,17 @@ impl Setting {
         }
     }
 
+    /// The `epsilon` `layout.force.neato` runs at: the registry's own `EPSILON`, or
+    /// [`Knob::NeatoEpsilon`]'s perturbation.
+    ///
+    /// One reader, beside the field it reads, so the native arm's parameters and the wasm
+    /// arm's implicit ones (which are exactly the registry defaults, because it sends
+    /// `params_len == 0`) cannot disagree about what the honest run *is*.
+    pub(crate) fn neato_epsilon(&self) -> f64 {
+        self.neato_epsilon
+            .unwrap_or(graph_core::layout::graphviz::neato::EPSILON)
+    }
+
     /// Which control this run is under, if any — readable from outside this module's tree,
     /// which is what lets `force-gate` refuse a control that cannot reach a session.
     ///
@@ -103,6 +122,7 @@ pub(crate) fn setting(read: impl Fn(&str) -> Result<String, VarError>) -> Result
         fa2: Fa2Params::default(),
         spring: SpringParams::default(),
         packing: CirclePackingParams::default(),
+        neato_epsilon: None,
         stage_nodes: None,
         split_sum: Split::None,
         split_rescale: false,
@@ -153,6 +173,11 @@ fn apply(knob: Knob, text: &str, setting: &mut Setting) -> Result<(), String> {
         Knob::TwopiNodes => {
             setting.stage_nodes = Some((twopi::ID, nodes(text, knob)?));
         }
+        // Parsed as a float, not as a presence flag, for the reason every parameter knob
+        // here is: a value that failed to parse must be an error rather than a silent
+        // fall-back to the default, or the control would pass vacuously. A *legal* epsilon
+        // (`0`) is the honest run and is accepted.
+        Knob::NeatoEpsilon => setting.neato_epsilon = Some(tolerance(text, knob)?),
         Knob::PatchworkNodes => {
             setting.stage_nodes = Some((patchwork::ID, nodes(text, knob)?));
         }
@@ -209,6 +234,27 @@ fn nodes(text: &str, knob: Knob) -> Result<u32, String> {
         ));
     }
     Ok(count)
+}
+
+/// A stopping tolerance, which must be a finite non-negative number.
+///
+/// **Zero is accepted and is not the same as unset.** The reference's own convergence test is
+/// `change / old < Epsilon || stress < Epsilon` (`stress.c:1059-1066`), so a zero epsilon
+/// stops the iteration on the *second* clause as soon as the stress is non-negative — a
+/// legal, different drawing, and a control that could not express it would be a control whose
+/// honest value is unreachable. A negative tolerance is refused instead: no pass can satisfy
+/// it, so the run would take the whole budget and claim a result it never converged to.
+fn tolerance(text: &str, knob: Knob) -> Result<f64, String> {
+    let value: f64 = text
+        .parse()
+        .map_err(|e| format!("{}={text:?}: {e}", knob.env()))?;
+    if !value.is_finite() || value < 0.0 {
+        return Err(format!(
+            "{}={text:?}: a stopping tolerance is a finite non-negative number",
+            knob.env()
+        ));
+    }
+    Ok(value)
 }
 
 pub(crate) fn env_setting() -> Result<Setting, String> {

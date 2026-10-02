@@ -80,8 +80,9 @@ No bare `cargo`, `rustc`, `npm` or `node`: the host has none that match the pins
 `scripts/orch/` mount the current git top-level at `/w`, so they act on whichever worktree you are in.
 
 ```sh
-# once per host: the pinned references, then each image by the build line in its Dockerfile header
-# (docker/{rust,mutants,python-oracle}.Dockerfile, deploy/chromium.Dockerfile; mutants is FROM ge-rust)
+# once per host: the pinned references. ge-rust, ge-mutants, ge-profile and gm-chromium build
+# themselves on first use and again when their Dockerfile changes (scripts/orch/image.sh); the
+# Python and graphviz oracle images still build by the line in their Dockerfile header.
 scripts/orch/fetch-refs.sh                                        # -> $GM_SCRATCH/refs
 
 # the merge floor
@@ -120,12 +121,17 @@ scripts/studio.sh check       # the studio's merge floor: tsc, unit + render tes
 scripts/studio.sh test        # tests only; needs the pinned refs at $REFS (default $GM_SCRATCH/refs)
 scripts/studio-nav.sh         # one browser gate over app/dist; siblings: perf, parity, interact, filters, ...
 STUDIO_NAV_BREAK=1 scripts/studio-nav.sh   # its negative control: expect non-zero
+scripts/studio-smoke.sh       # the load smoke over app/dist: no page error, no banner, a node drawn
+STUDIO_SMOKE_BREAK=1 scripts/studio-smoke.sh   # its negative control: expect non-zero
+scripts/studio-backend.sh      # the WebGL2 layer against Canvas2D: pixel parity, `auto`, the fallback, a lost context; STUDIO_BACKEND_BREAK=1 for its negative control
 ```
 
 - A fresh worktree needs `npm ci` before `cargo test`: the `cli_oracles` tests run the Node harness and
   fail on a missing `node_modules`.
 - Without `--no-fail-fast` cargo stops at the first failing test binary and hides the other crates.
 - `gr` caps memory at 8g (`GR_MEM`); exit 137 on a legitimate row means raise it. `GR_IMAGE` picks the image.
+- Node containers run `GM_NODE_IMAGE` (`scripts/orch/image.sh`): node 22.23.3 pinned by digest. Never
+  run `npm` on the host: the toolchain is the image, not the host.
 - Host-local state lives under `$GM_SCRATCH` (`scripts/orch/scratch.sh`: `/goinfre/$USER` where
   `/goinfre` exists, else `~/goinfre`): worktrees, references, logs, locks. A host change loses it; rebuild
   it with `fetch-refs.sh`, the image builds and `wt-new.sh`. Everything else is versioned: rows files in
@@ -141,6 +147,10 @@ STUDIO_NAV_BREAK=1 scripts/studio-nav.sh   # its negative control: expect non-ze
   `docs/decisions/render-ports-not-imports.md`; the script headers are current.
 - Agent jobs run headless in OpenCode (`opencode.json`, `.opencode/agents/`): `scripts/orch/oc-job.sh`
   launches one in a worktree and gates it, and `scripts/orch/oc-status.sh` lists every job's state.
+  `scripts/orch/oc-tabs.sh` opens one OpenCode window with a tab per live session (`-a`: every session of
+  the project, minus probes and finished or landed sessions whose worktree is gone, and an unfinished
+  session's removed worktree rebuilt first; `-p` / `-d`: only the sessions in progress / done; `-n`: add
+  the tabs to a window already open in this directory).
   OpenCode 2.x ignores `opencode.json` `instructions` and reads only `AGENTS.md` (a link to
   `prompts/AGENT_BRIEF.md`); the kit's bridge `.opencode/plugins/devil.js` adds its always-on rules.
   The kit's agents, commands and bridge are untracked links that `devil setup --only opencode` makes per

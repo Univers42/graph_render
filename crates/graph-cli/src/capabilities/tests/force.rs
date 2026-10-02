@@ -30,9 +30,8 @@ fn a_force_row_is_refused_gated_without_its_own_hash_and_its_own_oracle() {
             problems(std::slice::from_ref(&promoted), &honest()).is_empty(),
             "{id}: honest evidence backs it"
         );
-        let gone = |e: &mut Evidence| match id {
-            "layout.force.barnes_hut" => e.stress = None,
-            _ => e.fa2 = None,
+        let gone = |e: &mut Evidence| {
+            e.by_name.remove(record);
         };
         let no_oracle = refused_like(&promoted, gone);
         assert_eq!(no_oracle.len(), 1, "{id}: {no_oracle:?}");
@@ -54,22 +53,14 @@ fn a_force_row_is_refused_gated_without_its_own_hash_and_its_own_oracle() {
         // from a record that names a different library and a different metric.
         let only_other = ledger(&{
             let mut e = honest();
-            match id {
-                "layout.force.barnes_hut" => {
-                    e.stress = None;
-                    e.fa2 = Some(json!({
-                        "fingerprint": "tree", "seeds": 1000, "pass": true,
-                        "functions": { "layout.forceatlas2": hand(4) }
-                    }));
-                }
-                _ => {
-                    e.fa2 = None;
-                    e.stress = Some(json!({
-                        "fingerprint": "tree", "seeds": 1000, "pass": true,
-                        "functions": { "layout.force.barnes_hut": hand(4) }
-                    }));
-                }
-            }
+            e.by_name.remove(record);
+            e.by_name.insert(
+                other_record.to_owned(),
+                json!({
+                    "fingerprint": "tree", "seeds": 1000, "pass": true,
+                    "functions": { other_record: hand(4) }
+                }),
+            );
             e
         });
         let mine = only_other.iter().find(|r| r.id == id).expect("row");

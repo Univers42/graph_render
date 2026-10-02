@@ -113,7 +113,9 @@ fn grid_spectrum(rows: usize, cols: usize) -> Vec<f64> {
 /// the right slice to compare against either tier's returned block.
 fn check_spectrum(neighbors: Vec<Vec<u32>>, n: usize, want: &[f64], expected_tier: Tier) {
     let members: Vec<u32> = (0..n as u32).collect();
-    let graph = ComponentGraph::build(&members, &neighbors, n);
+    let neighbors = Neighbors::from_rows(&neighbors);
+    let local_of = local_positions(std::slice::from_ref(&members), n);
+    let graph = ComponentGraph::build(&members, &neighbors, &local_of);
     let dims_eff = DIMS.min(n - 1);
     let (solved, tier, iterations) = solve_component(&graph, dims_eff);
     assert_eq!(tier, expected_tier, "n={n}");

@@ -1,0 +1,120 @@
+//! Rows 7 to 18: the five `IGRAPH_` force layouts SciGraphs dispatches through its own
+//! networkx and igraph helpers, then the seven closed-form rows that follow them
+//! (`SPHERE` .. `BIPARTITE_3D`).
+//!
+//! **A move, not a change.** Every value below is the byte-for-byte content of the one
+//! table `table.rs` held before it was split along its row families; a re-pinned row is
+//! still edited here and nowhere else.
+
+use super::super::{Baseline, row};
+
+pub(super) const NETWORKX: [Baseline; 12] = [
+    row(
+        "IGRAPH_FR",
+        "1f84882c79fc1887a1bf1150aded1ee17b6fbff9fffb3db100a0669c8494ddc2",
+        "0cf3c05e67d79c08c152d0902dfe70dd5e3ef1cf4f9785448b394d24c8cfb170",
+        "",
+        1e0,
+        "bitwise",
+        "rng",
+    ),
+    row(
+        "IGRAPH_KK",
+        "516c88116704a2f7dbd7f498f8bf6be46cd67ddb41c81f944e0fe92fb4e48bb6",
+        "a89c503e5fb39b8756fcbef3a6985ae6335770f874fd2e6cd06773bea5d0264a",
+        "",
+        1e0,
+        "shape",
+        "algorithm",
+    ),
+    row(
+        "IGRAPH_DRL",
+        "ea94de23d7c52d2504326bfc56b2e42edf8b04ecf8a04d9ab3ed14e1df12bca5",
+        "19706b910225f374945f8e72c8594361dbb20d93e0716acaacec835c6ecf2b88",
+        "",
+        1e0,
+        "bitwise",
+        "rng",
+    ),
+    row(
+        "IGRAPH_DRL_2D",
+        "ea94de23d7c52d2504326bfc56b2e42edf8b04ecf8a04d9ab3ed14e1df12bca5",
+        "79434cc8e4a271f57891b8170d454ca02a685d22f83a5ab1ed9606215a7b3fa0",
+        "",
+        1e0,
+        "bitwise",
+        "rng",
+    ),
+    row(
+        "IGRAPH_LGL",
+        "09cf01e5c51eb5d716499e0610c285c138158a9419443e5d7effc7a954e996b2",
+        "a619ed3bc32e31f78056fbed6186352c5bf382457b40ffea5d0742645f71c3fd",
+        "",
+        1e0,
+        "bitwise",
+        "rng",
+    ),
+    row(
+        "SPHERE",
+        "cef885fe29151fe8026438a0ebfb48515907c4635bb493b190398c84c2bbcd40",
+        "14705b43ae52566f57a53dfa6c9e58dad9b4a265af49475dd0dc34f31fb5b929",
+        "",
+        1e-15,
+        "tolerance",
+        "arithmetic",
+    ),
+    row(
+        "SPECTRAL_3D",
+        "70ac87fc4a9b0c6c717b6380bf4e51d1740b585a72464a7579051aaba81fe50c",
+        "42af0e266a9b4a80596762308f6bdd38e5efaf07ad34d493ff8addf7a8f280a6",
+        "",
+        1e0,
+        "shape",
+        "algorithm",
+    ),
+    row(
+        "SPIRAL_3D",
+        "57bf83dea6a23c75322523aae4fa02852c8e43b31726673d6685fd1ac7cfe41b",
+        "94502f4418b5f7c71b0137e36b5cf1e29170c4c0c74e494219cfabba7818533f",
+        "",
+        1e-15,
+        "tolerance",
+        "arithmetic",
+    ),
+    row(
+        "HELIX",
+        "d21691d1f552e74a2725c897618859249ccd66530ffa6980dfeaf6b2f2d594f4",
+        "ea7fed73b64357f5e505488a99c1af7e5e8d2ecf1e1ce0c7dc206ada12649fb8",
+        "",
+        1e-15,
+        "tolerance",
+        "arithmetic",
+    ),
+    row(
+        "CUBE",
+        "551445ae12399d0464ba8853c13c3c4404db0fe3afcf875a8f9c7ff713cf8826",
+        "2876776f43705602f42bf11b64fa165868e6f5a5078c682d5fee3a98454236ad",
+        "",
+        1e0,
+        "bitwise",
+        "rng",
+    ),
+    row(
+        "HIERARCHICAL_3D",
+        "235ca0cd6bd6c8e36c89797008c5033b2510f25e47422bc868298af3bc1b5955",
+        "4df238a01dbf9a806d8871f406eb551dc551e04bc669066021bf086f2c3f97fd",
+        "",
+        1e-16,
+        "tolerance",
+        "arithmetic",
+    ),
+    row(
+        "BIPARTITE_3D",
+        "8451f75cc5300177dfe7d495e8dbf8ef67f80f96aad0488b8dd0514a64b7088b",
+        "a1e5daacdaa148264e26ad2e20e2578e4f3159d49bd5afeeaa7c36db76da6dc5",
+        "",
+        1e-15,
+        "tolerance",
+        "arithmetic",
+    ),
+];

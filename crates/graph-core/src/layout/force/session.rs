@@ -43,6 +43,7 @@
 //! start's columns and a [`NodeRow`]. `reheat` and `set_alpha_target` are the two setters
 //! that are not, and each says why on its own doc comment.
 
+mod carry;
 mod error;
 pub(in crate::layout::force) mod gravity;
 mod live_params;

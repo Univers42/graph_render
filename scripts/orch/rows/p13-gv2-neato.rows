@@ -1,0 +1,75 @@
+# p13-gv2 neato — the merge floor, the two wasm32 builds, the hash gate at 8 seeds, one
+# `negctl-<knob>` row per relevant knob, and the neato differential's three steps.
+#
+# Built from `scripts/orch/rows/p13-gv1.rows` (the same floor, the same knob rows, the same
+# three-step oracle chain), with this branch's own control row and the neato differential
+# appended. Every knob row p13-gv1 carries is carried here unchanged, for the reason that
+# file gives: they share a register with this branch's new layout, and a control whose stage
+# moved under it would move more than one stage.
+#
+# The timed gates — `hashgate --seeds 1000`, `scripts/orch/gate.sh`, `scripts/orch/mutants.sh` —
+# are the orchestrator's and are not rows here: one timed gate at a time (CLAUDE.md).
+# `expect` is `0` or `nonzero`; `#` starts a comment (`scripts/orch/gate.sh:2-4`).
+
+fmt|0|scripts/orch/gr cargo fmt --all --check
+clippy|0|scripts/orch/gr cargo clippy --workspace --all-targets -- -D warnings
+test|0|scripts/orch/gr cargo test --workspace --no-fail-fast
+wasm32-core|0|scripts/orch/gr cargo build -p graph-core --target wasm32-unknown-unknown
+wasm32-motor|0|scripts/orch/gr cargo build -p graph-wasm --release --target wasm32-unknown-unknown
+hashgate-8|0|scripts/orch/gr cargo run -q -p graph-cli -- hashgate --seeds 8
+
+# This branch's own control, and the first in the gate that perturbs a *parameter* rather
+# than re-drawing a model's size: `layout.force.neato`'s `Epsilon` is a tolerance on
+# convergence (`stress.h:25`), so `1e-2` stops the iteration sooner and moves that stage's
+# bytes with the graph untouched. Measured here: it diverges `layout.force.neato` on 8 of 8
+# seeds and moves no other stage, so the row is a control that cannot pass vacuously.
+negctl-neato-epsilon|nonzero|scripts/orch/gr -e GM_MUTATE_NEATO_EPSILON=1e-2 cargo run -q -p graph-cli -- hashgate --seeds 8
+# p13-gv1's own control, kept: it re-draws `layout.twopi`'s model alone, and the register it
+# shares with the row above is what proves the two are scoped to different stages.
+negctl-twopi-nodes|nonzero|scripts/orch/gr -e GM_MUTATE_TWOPI_NODES=1 cargo run -q -p graph-cli -- hashgate --seeds 8
+# The rest are here for the reason `p13-gv1.rows` gives: a per-stage control whose stage
+# moved under it would move more than one stage.
+negctl-reference-degree|nonzero|scripts/orch/gr -e GM_MUTATE_REFERENCE_DEGREE=9 cargo run -q -p graph-cli -- hashgate --seeds 8
+negctl-grid-spacing|nonzero|scripts/orch/gr -e GM_MUTATE_GRID_SPACING=2 cargo run -q -p graph-cli -- hashgate --seeds 8
+negctl-sugiyama-layer-spacing|nonzero|scripts/orch/gr -e GM_MUTATE_SUGIYAMA_LAYER_SPACING=2 cargo run -q -p graph-cli -- hashgate --seeds 8
+negctl-node-count|nonzero|scripts/orch/gr -e GM_MUTATE_NODE_COUNT=1 cargo run -q -p graph-cli -- hashgate --seeds 8
+negctl-force-theta|nonzero|scripts/orch/gr -e GM_MUTATE_FORCE_THETA=0.5 cargo run -q -p graph-cli -- hashgate --seeds 8
+negctl-fa2-scaling-ratio|nonzero|scripts/orch/gr -e GM_MUTATE_FA2_SCALING_RATIO=3 cargo run -q -p graph-cli -- hashgate --seeds 8
+negctl-tree-tidy-nodes|nonzero|scripts/orch/gr -e GM_MUTATE_TREE_TIDY_NODES=1 cargo run -q -p graph-cli -- hashgate --seeds 8
+negctl-treemap-nodes|nonzero|scripts/orch/gr -e GM_MUTATE_TREEMAP_NODES=1 cargo run -q -p graph-cli -- hashgate --seeds 8
+negctl-circular-nodes|nonzero|scripts/orch/gr -e GM_MUTATE_CIRCULAR_NODES=1 cargo run -q -p graph-cli -- hashgate --seeds 8
+negctl-packing-scale|nonzero|scripts/orch/gr -e GM_MUTATE_PACKING_SCALE=2 cargo run -q -p graph-cli -- hashgate --seeds 8
+# The two split controls reach a stage the default tier set does not run, so they carry
+# `--tiers all` exactly as `scripts/orch/rows/p13-gv1.rows` does: without it they perturb
+# nothing and the row would be green with the knob set — a negative control that cannot fail.
+negctl-split-sum|nonzero|scripts/orch/gr -e GM_MUTATE_SPLIT_SUM=collide cargo run -q -p graph-cli -- hashgate --seeds 8 --tiers all
+negctl-split-rescale|nonzero|scripts/orch/gr -e GM_MUTATE_SPLIT_RESCALE=1 cargo run -q -p graph-cli -- hashgate --seeds 8 --tiers all
+
+# The neato differential at the seed count it is measured at
+# (`docs/measurements/p13-gv2-neato.md`): emit the fixtures, run Graphviz's own `neato` over
+# them in the pinned docker-only oracle image and compare, then check the result against the
+# measured ceiling and record it. The oracle row is the only one here that talks to Docker.
+#
+# `--engine` rather than a command per engine: `emit-graphviz-fixtures --engine <name>` and
+# `oracle-graphviz --engine <name>` are the one pair for every Graphviz engine, and the older
+# `emit-twopi-fixtures` / `oracle-twopi` spellings stay as clap aliases of it, so the p13-gv1
+# rows above are unaffected. Neither the emit nor the check takes a directory by default:
+# both derive `target/<engine>-fixtures` from the same `ENGINES` table the `--engine` parser
+# reads, so the two halves of the chain cannot name two different places. A `--dir`/`--out`
+# override is still accepted, for the negative controls below.
+#
+# `--differential` on the oracle arm rather than the older `--compare <engine>` positional:
+# it is the flag develop's engine-generic harness carries, it reads the `<engine>.jsonl`
+# fixtures the emit above wrote, and it imports the metric from `harness/oracle-twopi.py`
+# rather than carrying a second definition of the number the ceiling is measured against.
+neato-emit-1000|0|scripts/orch/gr cargo run -q --release -p graph-cli -- emit-graphviz-fixtures --engine neato --seeds 1000
+neato-oracle-1000|0|docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/neato-fixtures neato target/gv-neato --differential
+neato-check-1000|0|scripts/orch/gr cargo run -q -p graph-cli -- oracle-graphviz --engine neato
+# The differential's own negative control, in the shape `p13-gv1.rows` uses for twopi: a
+# directory with no recorded run must be refused rather than read as a pass.
+neato-check-negctl|nonzero|scripts/orch/gr cargo run -q -p graph-cli -- oracle-graphviz --engine neato --dir target/neato-fixtures-absent
+# And the engine-name control: an engine no differential exists for is a usage error, not an
+# empty comparison that would report zero cases and pass. This is the row that keeps
+# `--engine` honest — a typo'd engine name that fell through to "compare nothing" would
+# record a passing verdict for a layout nobody ran.
+neato-engine-negctl|nonzero|scripts/orch/gr cargo run -q -p graph-cli -- oracle-graphviz --engine nosuchengine

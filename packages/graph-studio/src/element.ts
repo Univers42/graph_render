@@ -13,7 +13,10 @@ import { createElement } from "react";
 import { type Root, createRoot } from "react-dom/client";
 
 import { createLiveDrag } from "./motor/liveDrag.ts";
-import { type View, createView } from "../../graph-render/src/view.ts";
+import { type BackendChoice, type View, createView } from "../../graph-render/src/view.ts";
+
+/** The host reads `?backend=` with this, so it never imports the renderer itself. */
+export { backendOf } from "../../graph-render/src/view.ts";
 import type { Save } from "./actions/context.ts";
 import { type LiveBridge, createLiveBridge, settlesLive } from "./motor/bridge.ts";
 import { NOT_ASKED } from "./motor/bridge.ts";
@@ -25,12 +28,15 @@ import { type SettingsStorage, openingSettings } from "./state/persist.ts";
 import { type Studio, createStudio } from "./studio/studio.ts";
 import { STUDIO_CSS } from "./styles/studio.css.ts";
 import { Shell } from "./ui/Shell.tsx";
+import { watchSafeArea } from "./ui/safeArea.ts";
 
 export interface StudioElementOptions {
   /** Where the motor runs; a worker when left out. */
   readonly spawn?: Spawn;
   /** What an export does with its file; a download when left out. */
   readonly save?: Save;
+  /** Who draws the graph's edges and nodes (graph-render `ViewOptions.backend`); `auto` when left out. */
+  readonly backend?: BackendChoice;
 }
 
 export interface GraphStudioElement extends HTMLElement {
@@ -65,6 +71,8 @@ interface Mounted {
   readonly bridge: LiveBridge;
   /** Stops watching the studio's state for a layout that settles live. */
   readonly unwatch: () => void;
+  /** Stops measuring the panels over the canvas (ST-4). */
+  readonly unwatchArea: () => void;
 }
 
 const HOST_CSS = `
@@ -125,7 +133,7 @@ interface Shown {
   note(reason: string): void;
 }
 
-function livePair(canvas: HTMLCanvasElement, client: MotorClient, shown: Shown): {
+function livePair(canvas: HTMLCanvasElement, client: MotorClient, shown: Shown, backend: BackendChoice): {
   readonly view: View;
   readonly bridge: LiveBridge;
 } {
@@ -138,6 +146,7 @@ function livePair(canvas: HTMLCanvasElement, client: MotorClient, shown: Shown):
     return reason === undefined ? NOT_ASKED : reason;
   };
   const view = createView(canvas, {
+    backend,
     live: createLiveDrag({
       ids: () => shown.studio?.store.get().meta?.ids ?? null,
       disabled: why,
@@ -189,7 +198,7 @@ function mount(host: HTMLElement, options: StudioElementOptions): Mounted {
   const client = createClient(options.spawn ?? spawnWorker, assetsOf(host));
   // The view is made before the studio, and the ids live in the studio's state: read late.
   const shown: Shown = { studio: null, note: (reason) => shown.studio?.note(reason) };
-  const { view, bridge } = livePair(canvas, client, shown);
+  const { view, bridge } = livePair(canvas, client, shown, options.backend ?? "auto");
   const storage = pageStorage();
   const studio = createStudio({
     client,
@@ -206,12 +215,16 @@ function mount(host: HTMLElement, options: StudioElementOptions): Mounted {
     studio, view, keys: host.getAttribute("keys") === "page" ? window : host, bar: bridge,
   }));
   void studio.start();
-  return { studio, view, client, root, bridge, unwatch };
+  // The arrow, not the method: `watchSafeArea` holds this until unmount, and a bare method
+  // reference would leave `this` to chance — `view.setSafeArea(area)` names the receiver.
+  const unwatchArea = watchSafeArea(canvas, chrome, (area) => view.setSafeArea(area));
+  return { studio, view, client, root, bridge, unwatch, unwatchArea };
 }
 
 function unmount(mounted: Mounted | null): void {
   if (mounted === null) return;
   mounted.root.unmount();
+  mounted.unwatchArea();
   mounted.unwatch();
   mounted.bridge.destroy();
   mounted.studio.destroy();

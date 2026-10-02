@@ -9,10 +9,14 @@ import { createRegistry } from "../src/actions/registry.ts";
 import { formatCommand, parseCommand } from "../src/console/parse.ts";
 import { metaOf } from "../src/source/meta.ts";
 import { type RunSummary, type StudioState, initialState } from "../src/state/model.ts";
+import { DEFAULT_SETTINGS } from "../src/state/settings.ts";
 import { controlOf } from "../src/ui/controlOf.ts";
 
 const CATALOG = {
-  layouts: ["layout.forceatlas2", "layout.grid"],
+  // The studio asks for its own default, so the fixture catalog has to offer it: the row
+  // below is that a parameter's default is a value the action accepts, not which layouts
+  // the motor registers.
+  layouts: [DEFAULT_SETTINGS.layout, "layout.grid"],
   posts: ["post.style.bezier"],
   analyses: ["analysis.depth.bfs"],
 };
@@ -23,7 +27,7 @@ const NODES = ["a", "b"].map((id) => ({
 }));
 const RUN: RunSummary = {
   layoutId: "layout.grid", postId: null, postError: null, digest: "00".repeat(32), byteLength: 1,
-  nodeKind: "Point", edgeKind: "Line", layoutMs: 1, postMs: 0, notes: [],
+  nodeKind: "Point", edgeKind: "Line", dim: 1, layoutMs: 1, postMs: 0, notes: [],
 };
 const DRAWN: StudioState = {
   ...STATE,

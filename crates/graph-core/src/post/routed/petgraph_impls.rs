@@ -17,7 +17,6 @@ use petgraph::visit::{
     Data, EdgeRef, GraphBase, GraphRef, IntoEdgeReferences, IntoEdges, IntoNeighbors, VisitMap,
     Visitable,
 };
-use std::iter::Empty;
 
 /// One step of the grid graph: cell `source` to cell `target`, costing the stencil step's
 /// Euclidean length.
@@ -102,37 +101,72 @@ impl VisitMap<Cell> for Visited {
     }
 }
 
-/// `cell`'s outgoing edges, in [`super::csr::STENCIL`] order — a row read through the CSR,
-/// no per-edge allocation.
+/// `cell`'s outgoing edges, in [`super::csr::STENCIL`] order: the CSR row, borrowed, so a
+/// query allocates nothing per node. Each edge is priced by its own stencil slot, decoded
+/// from the step, never by its position in a (possibly shorter, border) row.
 #[derive(Debug, Clone)]
 pub struct GridEdges<'a> {
-    costs: &'a [f64; 8],
-    /// The row, copied: at most 8 entries, and it lets the iterator outlive the borrow of
-    /// the graph that produced it, which is what petgraph's `IntoEdges` signature needs.
-    values: Vec<Cell>,
+    graph: &'a GridCsr,
+    targets: std::slice::Iter<'a, Cell>,
     source: Cell,
-    slot: usize,
+    at: (i32, i32),
+}
+
+impl<'a> GridEdges<'a> {
+    fn new(graph: &'a GridCsr, source: Cell) -> Self {
+        Self {
+            graph,
+            targets: graph.targets(source).iter(),
+            source,
+            at: graph.xy(source),
+        }
+    }
 }
 
 impl Iterator for GridEdges<'_> {
     type Item = GridEdge;
 
+    /// The id is `source · 8 + slot`: unique, and it names the edge's source and stencil
+    /// slot. It fits u32 because `GridIndex::build` refuses more than `u32::MAX / 8` cells.
     fn next(&mut self) -> Option<GridEdge> {
-        let target = *self.values.get(self.slot)?;
-        let cost = self.costs[self.slot];
-        let index = self.source * 8 + u32::try_from(self.slot).expect("8 slots fit u32");
-        self.slot += 1;
+        let target = *self.targets.next()?;
+        let slot = self.graph.slot_from(self.at, target);
         Some(GridEdge {
-            index,
+            index: self.source * 8 + slot as u32,
             source: self.source,
             target,
-            cost,
+            cost: self.graph.cost(slot),
         })
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let left = self.values.len() - self.slot;
-        (left, Some(left))
+        self.targets.size_hint()
+    }
+}
+
+/// Every edge of the grid: each cell's [`GridEdges`] in cell order, so the same edges, ids
+/// and weights `edges(a)` yields, concatenated.
+#[derive(Debug, Clone)]
+pub struct AllEdges<'a> {
+    graph: &'a GridCsr,
+    cell: Cell,
+    row: GridEdges<'a>,
+}
+
+impl Iterator for AllEdges<'_> {
+    type Item = GridEdge;
+
+    fn next(&mut self) -> Option<GridEdge> {
+        loop {
+            if let Some(edge) = self.row.next() {
+                return Some(edge);
+            }
+            if !self.graph.contains(self.cell + 1) {
+                return None;
+            }
+            self.cell += 1;
+            self.row = GridEdges::new(self.graph, self.cell);
+        }
     }
 }
 
@@ -170,24 +204,24 @@ impl Data for GridGraph<'_> {
 
 impl<'a> IntoEdgeReferences for GridGraph<'a> {
     type EdgeRef = GridEdge;
-    type EdgeReferences = Empty<GridEdge>;
+    type EdgeReferences = AllEdges<'a>;
 
-    /// Empty: `dijkstra` walks `edges(a)` per node and never asks for the whole edge set.
-    /// Present only because `IntoEdges` requires it.
+    /// Every edge, cell by cell. `dijkstra` never asks for it, but an algorithm that does
+    /// (a spanning tree, an edge count) must see the real edge set, not an empty one.
     fn edge_references(self) -> Self::EdgeReferences {
-        std::iter::empty()
+        AllEdges {
+            graph: self.graph,
+            cell: 0,
+            row: GridEdges::new(self.graph, 0),
+        }
     }
 }
 
 impl<'a> IntoNeighbors for GridGraph<'a> {
-    type Neighbors = std::vec::IntoIter<Cell>;
+    type Neighbors = std::iter::Copied<std::slice::Iter<'a, Cell>>;
 
     fn neighbors(self, a: Cell) -> Self::Neighbors {
-        self.graph
-            .row(a)
-            .map(|(_, v)| v)
-            .collect::<Vec<_>>()
-            .into_iter()
+        self.graph.targets(a).iter().copied()
     }
 }
 
@@ -195,13 +229,7 @@ impl<'a> IntoEdges for GridGraph<'a> {
     type Edges = GridEdges<'a>;
 
     fn edges(self, a: Cell) -> Self::Edges {
-        let targets = self.graph.targets(a);
-        GridEdges {
-            costs: self.graph.costs(),
-            values: targets,
-            source: a,
-            slot: 0,
-        }
+        GridEdges::new(self.graph, a)
     }
 }
 

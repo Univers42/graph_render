@@ -137,7 +137,7 @@ node tag:docs Tag label="docs" group=None weight=0.5 version=0
 node tag:p0 Tag label="p0" group=None weight=0.5 version=0
 node tag:graph Tag label="graph" group=None weight=0.5 version=0
 edge lib:task:t1--lib:task:t2:hierarchy: lib:task:t1 -> lib:task:t2 Hierarchy label="" strength=2 directed=false
-edge lib:task:t2->lib:task:t3:relation:Blocks lib:task:t2 -> lib:task:t3 Relation label="Blocks" strength=1 directed=true
+edge lib:task:t2->lib:task:t3:relation:blocks lib:task:t2 -> lib:task:t3 Relation label="blocks" strength=1 directed=true
 edge lib:task:t1--tag:docs:tag:docs lib:task:t1 -> tag:docs Tag label="docs" strength=0.75 directed=false
 …
 ```

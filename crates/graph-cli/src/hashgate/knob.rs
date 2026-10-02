@@ -4,9 +4,11 @@
 use super::knobs;
 
 pub(super) mod arms;
+pub(super) mod compute;
 pub(super) mod igraph;
 pub(super) mod records;
 pub(crate) mod setting;
+pub(super) mod three_d;
 pub(crate) use setting::{Setting, env_setting};
 
 /// A negative control (`prompt.md` §7.2): a variable that perturbs the native arm only,
@@ -44,12 +46,13 @@ pub(crate) use setting::{Setting, env_setting};
 /// thing a control can move is the graph it draws.
 ///
 /// **The per-stage controls are the same probe again**, and for the same reason: no
-/// analysis, no POST capability and none of the six igraph-family layouts takes a
-/// parameter the gate can move, being a pure function of the gate's model at fixed
-/// conventions, so each re-draws *its own* model with one more node through
-/// [`Setting::stage_nodes`] and moves that stage alone. They are tabulated in
+/// analysis, no POST capability, none of the six igraph-family layouts and none of the five
+/// natively 3D ones takes a parameter the gate can move, being a pure function of the
+/// gate's model at fixed conventions, so each re-draws *its own* model with one more node
+/// through [`Setting::stage_nodes`] and moves that stage alone. They are tabulated in
 /// [`knobs`] (the fifteen in [`knobs::ANALYSIS_POST_STAGES`], the six igraph layouts in
-/// [`knobs::IGRAPH_LAYOUT_STAGES`]), and
+/// [`knobs::IGRAPH_LAYOUT_STAGES`], the five 3D layouts in
+/// [`knobs::THREE_D_LAYOUT_STAGES`]), and
 /// `the_analysis_and_post_controls_are_the_knobs_table` holds this enum's arms to them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Knob {
@@ -73,7 +76,8 @@ pub enum Knob {
     /// `GM_MUTATE_FA2_SCALING_RATIO`: ForceAtlas2's repulsion scale, native arm only.
     ///
     /// Its own control for the same reason, on the other side: `scaling_ratio` is
-    /// read by `Fa2State::repulsion` alone.
+    /// read by ForceAtlas2's repulsion alone, the dense pair loop and the Barnes-Hut
+    /// tree walk alike, so it moves both ForceAtlas2 stages and no other.
     Fa2ScalingRatio,
     /// `GM_MUTATE_TREE_TIDY_NODES`: nodes added to `layout.tree.tidy`'s model alone.
     ///
@@ -96,6 +100,24 @@ pub enum Knob {
     /// the one thing it does read, the model, for that stage only. Adding a `Params` to
     /// gain a knob would be the tail wagging the dog.
     TwopiNodes,
+    /// `GM_MUTATE_NEATO_EPSILON`: `layout.force.neato`'s stopping tolerance, native arm
+    /// only.
+    ///
+    /// **A real parameter rather than a re-drawn model, unlike [`Self::TwopiNodes`],** and
+    /// the difference is the point. `twopi` is closed form and pins every one of the
+    /// reference's defaults, so the only thing left to perturb is the model. `neato` is
+    /// iterative and its `Epsilon` is a *tolerance on convergence* (`stress.h:25`), so moving
+    /// it changes how far the iteration runs and therefore the drawing, without touching the
+    /// graph — which makes it a strictly sharper probe: the re-drawn-model controls would
+    /// also move any stage whose output happens to depend on the node count, while this one
+    /// reaches `layout.force.neato` and nothing else by construction.
+    ///
+    /// It reaches a *parameter* rather than a stage's model, and that is also why it is
+    /// native-arm-only like every other parameter knob here: the wasm arm runs the stage at
+    /// the registry's own defaults, so the divergence it shows is the one a wired control is
+    /// supposed to surface. A typo (`=maybe`) is refused rather than read as the default, so
+    /// the control cannot pass vacuously.
+    NeatoEpsilon,
     /// `GM_MUTATE_PATCHWORK_NODES`: nodes added to `layout.treemap.patchwork`'s model
     /// alone.
     ///
@@ -167,11 +189,8 @@ pub enum Knob {
     /// `GM_MUTATE_POST_STYLE_BEZIER`: cubic bezier edges, native arm only.
     PostStyleBezier,
     /// The six igraph-family layout node controls, in
-    /// [`knobs::IGRAPH_LAYOUT_STAGES`] order. One arm per layout, for the reason
-    /// [`knobs::IGRAPH_LAYOUT_STAGES`] gives: none of the six takes a parameter the gate
-    /// can move, so its control re-draws **its own** model with one more node. Each arm's
-    /// variable and record are `igraph::ENV` and `igraph::RECORD` at the same index, and
-    /// its stage is resolved from [`knobs`] by variable name, never by arm position.
+    /// [`knobs::IGRAPH_LAYOUT_STAGES`] order — see `igraph` for the group and `knobs` for
+    /// why each control re-draws **its own** model rather than a shared one.
     ///
     /// `layout.force.fruchterman_reingold`'s own model.
     IgraphFruchtermanReingoldNodes,
@@ -185,89 +204,67 @@ pub enum Knob {
     IgraphLglNodes,
     /// `GM_MUTATE_FORCE_DRL_NODES`: `layout.force.drl`'s own model.
     IgraphDrlNodes,
+    /// The five natively 3D layout node controls, in
+    /// [`knobs::THREE_D_LAYOUT_STAGES`] order — the same shape and the same reason as the
+    /// six above, and for `sphere`, `helix` and `cube` the *only* shape available: those
+    /// three read the node count and no edge, so their model is their whole input.
+    ///
+    /// `layout.basic3d.sphere`'s own model.
+    Basic3dSphereNodes,
+    /// `GM_MUTATE_BASIC3D_HELIX_NODES`: `layout.basic3d.helix`'s own model.
+    Basic3dHelixNodes,
+    /// `GM_MUTATE_BASIC3D_CUBE_NODES`: `layout.basic3d.cube`'s own model.
+    Basic3dCubeNodes,
+    /// `GM_MUTATE_HIERARCHICAL3D_NODES`: `layout.hierarchical3d`'s own model.
+    Hierarchical3dNodes,
+    /// `GM_MUTATE_FORCE_SPRING3D_NODES`: `layout.force.spring3d`'s own model.
+    ///
+    /// A node control and not a second [`Self::SpringIterations`], because the iterations
+    /// budget is read by the one `Solver::settle` both dimensions share
+    /// (`force/spring.rs:175`, `force/spring3d.rs:45`) — so it moves *both* spring stages
+    /// and names neither. This one moves `layout.force.spring3d` alone, which is what makes
+    /// the divergence attributable.
+    Spring3dNodes,
+    /// `GM_MUTATE_PACKING_OSAGE_NODES`: `layout.packing.osage`'s own model.
+    ///
+    /// The re-drawn-model probe again, and for `osage` it is not merely the available one but
+    /// the only one: the layout publishes no `Params` and has no `impl Stage`, and what it
+    /// reads is the node count and no edge, so its model is its entire input. See
+    /// [`knobs::OSAGE_LAYOUT_STAGES`] for why this row is what `layout.packing.osage` needs
+    /// before the ledger can call the capability `gated` rather than `implemented`.
+    PackingOsageNodes,
     /// `GM_MUTATE_SPLIT_SUM`: **native arms only, and the threaded ones above all.**
     ///
-    /// Phase 11's own control, and the one the phase prompt names: it makes a gathered
-    /// pass's merge read a *neighbouring* node's delta — the shape a wrong partition of
-    /// the outputs would take — so the threaded arms must diverge from the scalar one. It
-    /// is the control that proves the threaded arms are actually reading their own
-    /// results: a threaded arm that ignored the merge entirely would agree with a mutated
-    /// one.
-    ///
-    /// The variable takes the **pass** whose merge is split (`charge`, `collide`, `link`),
-    /// because each kernel needs its own control to be shown to be compared: a knob that
-    /// only ever split the charge merge would leave the other two kernels' equality
-    /// resting on nothing. `1`/`true` means all three, `0`/`false` none.
-    ///
-    /// The perturbation lives in that pass's merge (`barnes_hut::charge`,
-    /// `barnes_hut::collide`, `barnes_hut::link`), and the setting it reads is carried on
-    /// the [`Setting`] so a knob cannot change behaviour without being declared here — the
-    /// same discipline every other knob obeys.
+    /// Names which gathered pass's merge reads a neighbouring node's delta. The full argument
+    /// is in [`compute`], under its own heading.
     SplitSum,
     /// `GM_MUTATE_SPLIT_RESCALE`: **native arms only, and the threaded ones above all.**
     ///
-    /// The closed-form point layouts' sibling of [`Knob::SplitSum`], and the control that
-    /// makes the *other* half of Phase 11 provable: `coords`' shared merge. It makes the
-    /// `rescale_layout` centroid merge read the **next** node's term into this node's — the
-    /// shape a wrong partition of the outputs would take — so the threaded arms of
-    /// `layout.grid`, `layout.circular.ring` and `layout.spiral` must diverge from the
-    /// scalar one, and the arms of every other stage must not.
-    ///
-    /// **It reaches the merge, not the gather.** A knob that perturbed a layout's own
-    /// arithmetic would move the *scalar* arm too and so would prove only that the stage is
-    /// hashed; this one exists to prove the threaded arm **recomputed** the merge. A
-    /// threaded arm that reused the scalar column would agree with a mutated one, and
-    /// "10-way equal" would be a statement about nothing.
-    ///
-    /// A `bool` and not a `Split`, because there is exactly one merge to name — the three
-    /// Barnes-Hut passes each needed their own variant so a row could prove a *particular*
-    /// kernel was compared, and one merge cannot be told apart from itself. It is a
-    /// compiled-in parameter, never a `cfg` and never an environment read, for
-    /// [`Knob::SplitSum`]'s reason: graph-core reads no clock, no environment and no
-    /// hardware, and the host supplies even the mutation.
-    ///
-    /// **The grid's own control answers a different question.**
-    /// [`Knob::GridSpacing`] is a *pass* control: it moves a real parameter, so it moves
-    /// the scalar arm and every threaded arm alike, and what it proves is that
-    /// `layout.grid` is hashed and compared at all. This one is the *fail* control for the
-    /// merge the three layouts share, and it moves only the threaded arms. Both are kept:
-    /// one question each, neither standing in for the other.
+    /// Corrupts the closed-form point layouts' shared `coords` merge. The full argument is in
+    /// [`compute`], under its own heading.
     SplitRescale,
     /// `GM_MUTATE_FORCE_SESSION_GRAVITY`: the **live** force session's `gravity`, native arm
     /// of `force-gate` only.
     ///
-    /// Its own control, and the only one that reaches the live session: no other variable in
-    /// this list touches `LiveParams`, because `LiveParams` has no other user on this side —
-    /// the frozen stage runs `from_frozen`, which is a parameter set `ForceParams` holds and
-    /// [`Knob::ForceTheta`] already reaches through. `gravity` is on top of that the one
-    /// parameter the **frozen** set does not have at all (`live_params.rs`), so a control that
-    /// moves it cannot possibly move `layout.force.barnes_hut` and take another stage with it.
-    ///
-    /// It reaches the force gate rather than this gate: the wasm arm builds the seed's model
-    /// from `gm_seed_ingest`, whose document is fixed, so the only perturbation a cross-target
-    /// comparison here can see is one in the *parameters* — and this is that one. A non-zero
-    /// value pulls every node toward the origin, which moves every position in the pair of
-    /// columns the gate hashes, on every seed, from the first tick.
-    ///
-    /// Parsed, not treated as a flag: `=0` must be the honest run and a typo (`=maybe`) an
-    /// error rather than a silent no-op — the same rule every other parameter knob obeys, for
-    /// the same reason.
+    /// The one control that reaches `force-gate` rather than this gate. The full argument is
+    /// in [`compute`], under its own heading.
     ForceSessionGravity,
 }
 
 impl Knob {
-    /// Every knob: the thirteen that move a parameter or re-draw one layout's model, then
-    /// the fifteen ANALYSIS and POST stage controls in [`knobs::ANALYSIS_POST_STAGES`] order,
-    /// then the six igraph layout controls in [`knobs::IGRAPH_LAYOUT_STAGES`] order, then the
-    /// two compute-tier controls, then the live session's own. The list itself is
-    /// [`arms::ALL`], spelled out there.
+    /// Every knob: the fifteen that move a parameter or re-draw one layout's model, then
+    /// the twenty-seven per-stage controls — the fifteen of
+    /// [`knobs::ANALYSIS_POST_STAGES`], the six of [`knobs::IGRAPH_LAYOUT_STAGES`], the
+    /// five of [`knobs::THREE_D_LAYOUT_STAGES`] and the one of
+    /// [`knobs::OSAGE_LAYOUT_STAGES`] — then the two compute-tier controls, then the live
+    /// session's own. The list itself is [`arms::ALL`], spelled out there.
     ///
     /// **A `const`, because `capabilities::verdict::Evidence::load` walks it** to collect
     /// one control record each — a ledger read cannot be a function call per row. So the
-    /// twenty-one per-stage arms are spelled out there and held against those two tables by
-    /// `the_analysis_and_post_controls_are_the_knobs_table`, which fails on any arm whose
+    /// twenty-seven per-stage arms are spelled out there and held against those four tables
+    /// by `the_analysis_and_post_controls_are_the_knobs_table`, which fails on any arm whose
     /// variable, record or stage a table disagrees with.
-    pub const ALL: [Self; 38] = arms::ALL;
+    pub const ALL: [Self; 45] = arms::ALL;
 
     /// The variable that sets it.
     pub const fn env(self) -> &'static str {

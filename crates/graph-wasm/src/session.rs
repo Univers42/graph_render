@@ -44,6 +44,7 @@ use std::cell::RefCell;
 
 use crate::errors::Code;
 use crate::handle::Table;
+use crate::wire::to_wire;
 
 /// What one tick did, as the wire's status word (`gm_force_session_tick`'s return).
 ///
@@ -173,7 +174,9 @@ pub fn unpin_all(id: u32) -> Result<(), Code> {
 /// `set_positions`, the only writer that could move a `Vec`'s storage, is reachable solely
 /// from `ForceSession::from_positions`, which this ABI does not export. A host still
 /// treats a view as good only until the next motor call, because a wasm memory growth
-/// detaches its `ArrayBuffer`; that is the JS side's hazard, not this address's.
+/// detaches its `ArrayBuffer`; that is the JS side's hazard, not this address's. An address
+/// or length the wire's `u32` cannot carry is refused with [`Code::IndexOutOfRange`], never
+/// truncated.
 pub fn column(id: u32, axis: u32, want_ptr: bool) -> Result<u32, Code> {
     with(id, |session| {
         let values = match axis {
@@ -181,12 +184,16 @@ pub fn column(id: u32, axis: u32, want_ptr: bool) -> Result<u32, Code> {
             1 => session.ys(),
             _ => return Err(Code::IndexOutOfRange),
         };
+        // C3: an empty column reads (0, 0), never an empty `Vec`'s dangling address.
+        if values.is_empty() {
+            return Ok(0);
+        }
         let address = if want_ptr {
             values.as_ptr() as usize
         } else {
             values.len()
         };
-        Ok(u32::try_from(address).unwrap_or(0))
+        to_wire(address)
     })
 }
 

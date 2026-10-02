@@ -1,10 +1,22 @@
-//! The registry's own shape: coverage, unique ids, the record each row's two verdicts are
-//! read from, and the ledger row's serialised form (`prompt.md` §8). Split out of the
-//! parent test module to keep both files under the house line limit.
+//! The registry's own shape: the ledger row's serialised form (`prompt.md` §8) and the
+//! metadata each row must carry. Split out of the parent test module to keep every file
+//! under the house line limit; the id-to-record routing lives in [`routing`].
 
 use super::*;
 mod force;
-use std::collections::BTreeSet;
+mod ids;
+mod routing;
+// The children reach these three through `super::`, so they are re-exported here: a glob
+// through a private module does not carry the parent's own private items, and these are
+// three of them. `force.rs` and `routing.rs` are the two consumers.
+pub(super) use ids::IGRAPH as IGRAPH_LAYOUT_IDS;
+
+/// The record a row names, as `(oracle_record, hash_stage)`. Each row's two names must be
+/// a record `graph-cli` actually writes — a name nothing writes is a row that can never
+/// be backed, however often the gate is re-run.
+pub(super) fn records_of(row: &Capability) -> (&'static str, &'static str) {
+    (row.oracle_record, row.hash_stage)
+}
 
 /// Phase 8's bundling and style rows. `post.route.grid` was the only POST row the ledger
 /// carried, so `post.bundle.fdeb`, `post.bundle.mingle` and the four `post.style.*` rows
@@ -128,122 +140,6 @@ fn each_style_row_names_the_geometry_kind_its_own_style_emits() {
             .unwrap_or_else(|| panic!("{} is a row", style.id));
         assert_eq!(row.geometry, Some(name(style.meta.edges)), "{}", style.id);
     }
-}
-
-/// The six igraph-family layouts, by id. The same list
-/// `registry::unproven::force_record` filters on, named here so the two can be compared by
-/// a test rather than trusted: a layout the row builder filters and the test does not
-/// would fall through to the `roundtrip`/`Gated` arm below and the row would claim a gate
-/// no differential of its own can earn.
-const IGRAPH_LAYOUT_IDS: [&str; 6] = [
-    "layout.force.fruchterman_reingold",
-    "layout.force.kamada_kawai",
-    "layout.force.graphopt",
-    "layout.force.davidson_harel",
-    "layout.force.lgl",
-    "layout.force.drl",
-];
-
-/// The record a row names, as `(oracle_record, hash_stage)`. Each row's two names must be
-/// a record `graph-cli` actually writes — a name nothing writes is a row that can never
-/// be backed, however often the gate is re-run.
-fn records_of(row: &Capability) -> (&'static str, &'static str) {
-    (row.oracle_record, row.hash_stage)
-}
-
-#[test]
-fn the_registry_covers_every_oracle_function_once_its_ids_are_unique() {
-    let rows = registry();
-    let mut covered: Vec<&str> = rows
-        .iter()
-        .filter(|r| r.oracle_record == "oracle-diff")
-        .flat_map(|r| r.functions.iter().copied())
-        .collect();
-    covered.sort_unstable();
-    covered.dedup();
-    let mut want = COVERED.to_vec();
-    want.sort_unstable();
-    assert_eq!(covered, want);
-    let ids: BTreeSet<&str> = rows.iter().map(|r| r.id).collect();
-    assert_eq!(ids.len(), rows.len());
-    for r in &rows {
-        let expected = if r.id.starts_with("topology.") {
-            ("oracle-diff", "topology", Status::Gated)
-        } else if r.id.starts_with("analysis.") {
-            ("oracle-diff", "analysis", Status::Implemented)
-        } else if r.id.starts_with("ingest.") || r.id.starts_with("adapter.") {
-            // Phase 10: honest, not yet evidence-backed. The oracles these rows have are
-            // the convergence fixture and the contract round trip, neither of which is a
-            // recorded gate run yet, so `Implemented` is what the evidence supports.
-            ("roundtrip", "ingest.build", Status::Implemented)
-        } else if r.id == "layout.tree.tidy" || r.id == "layout.treemap.squarified" {
-            ("oracle-layouts", r.id, Status::Gated)
-        } else if r.id == "layout.force.barnes_hut" || r.id == "layout.force.yifan_hu" {
-            ("stress", r.id, Status::Implemented)
-        } else if r.id == "layout.forceatlas2" {
-            ("oracle-fa2", r.id, Status::Implemented)
-        } else if IGRAPH_LAYOUT_IDS.contains(&r.id) {
-            ("oracle-igraph", r.id, Status::Implemented)
-        } else if r.id == "layout.force.spring" {
-            ("oracle-spring", r.id, Status::Implemented)
-        } else if r.id == "layout.circular.hierarchy" {
-            // A closed form with a SciGraphs-arm differential, `implemented` rather than
-            // `gated` for the reason `unproven.rs` gives: the ledger resolves no such
-            // record, so a gated row could only ever read back a refusal.
-            ("oracle-circular-hierarchy", r.id, Status::Implemented)
-        } else if [
-            "layout.random",
-            "layout.circular.ring",
-            "layout.spiral",
-            "layout.bipartite",
-        ]
-        .contains(&r.id)
-        {
-            ("oracle-closed-form", r.id, Status::Implemented)
-        } else if r.id == "layout.twopi" {
-            // The Graphviz arm: its own record, and `implemented` rather than `gated`
-            // because the differential compares coordinates within a measured 7.1e-2 points
-            // (`docs/measurements/p13-gv1.md`) rather than to bytes.
-            ("oracle-twopi", r.id, Status::Implemented)
-        } else if r.id == "layout.packing.osage" {
-            // The second Graphviz arm: its own record, and `implemented` rather than
-            // `gated` for a stronger reason than twopi's — osage's differential is *run*
-            // and it disagrees with the oracle by 1785 points on 982 of the 1000 seeds, for
-            // two named causes outside the motor (`docs/measurements/p13-gv1-osage.md`).
-            // An agreement that narrow earns `implemented` and nothing more.
-            ("oracle-osage", r.id, Status::Implemented)
-        } else if r.id == "layout.treemap.patchwork" {
-            // The Graphviz arm, same shape as twopi's and for the same reason: its
-            // differential compares coordinates within a measured 6.6e-2 points
-            // (`docs/measurements/p13-gv1-patchwork.md`) rather than to bytes, so the row is
-            // `implemented` and never a `gated` claim resting on a hash.
-            ("oracle-patchwork", r.id, Status::Implemented)
-        } else if r.id == "layout.spectral" || r.id == "layout.mds.pivot" {
-            ("oracle-spectral", r.id, Status::Gated)
-        } else if r.id == "transport.wasm.columnar" {
-            ("wasm-transport", r.id, Status::Gated)
-        } else if r.id == "sdk.js" {
-            ("sdk-smoke", r.id, Status::Implemented)
-        } else if r.id.starts_with("post.") {
-            // Every POST row's hash stage is its own id: no POST stage is in the gate's
-            // stage list yet, so a shared `post` name would claim a stage nothing hashes.
-            ("roundtrip", r.id, Status::Implemented)
-        } else if r.stage == "scale" {
-            // Phase 9: not in the hash gate's stage list and no oracle differential, so
-            // `implemented` until the merge step wires them.
-            ("oracle-diff", "topology", Status::Implemented)
-        } else {
-            ("roundtrip", r.id, Status::Gated)
-        };
-        assert_eq!(
-            (r.oracle_record, r.hash_stage, r.status),
-            expected,
-            "{}",
-            r.id
-        );
-    }
-    let sdk = rows.iter().find(|r| r.id == "sdk.js").expect("row");
-    assert_eq!(records_of(sdk), ("sdk-smoke", "sdk.js"));
 }
 
 #[test]

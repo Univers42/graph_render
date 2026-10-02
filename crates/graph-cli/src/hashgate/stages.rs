@@ -32,8 +32,9 @@ use super::{Setting, staged};
 use graph_core::layout::Geometry;
 use graph_core::layout::circle_packing;
 use graph_core::layout::force::BarnesHut;
-use graph_core::layout::force::spring::Spring;
-use graph_core::layout::forceatlas2::ForceAtlas2;
+use graph_core::layout::force::spring::{self, Spring, Spring3D};
+use graph_core::layout::forceatlas2::{ForceAtlas2, ForceAtlas2BarnesHut};
+use graph_core::layout::graphviz::neato;
 use graph_core::registry::{self as core, LAYOUTS};
 use graph_core::{
     Grid, Stage, StageError, Sugiyama, Topology, gate_node_count, index_model, run_pipeline,
@@ -90,25 +91,47 @@ pub fn stage_bytes_for(
     let topology = index_model(&nodes, &edges).map_err(|e| e.to_string())?;
     let mut out = vec![("topology", grid.topology)];
     for layout in layouts {
-        // The knob-aware stages run at `setting`'s parameters rather than the registry's
-        // compiled-in default; the wasm arm cannot see the knobs, which is exactly the
-        // divergence a wired control must surface.
-        let bytes = match layout.id {
-            LAYOUT => grid.snapshot.to_bytes(),
-            BarnesHut::ID => run_force(&topology, |t| BarnesHut::run(t, &setting.force))?,
-            ForceAtlas2::ID => run_force(&topology, |t| ForceAtlas2::run(t, &setting.fa2))?,
-            Spring::ID => run_force(&topology, |t| Spring::run(t, &setting.spring))?,
-            Sugiyama::ID => run_pipeline::<Sugiyama>(&nodes, &edges, &setting.sugiyama)
-                .map_err(|e| e.to_string())?
-                .snapshot
-                .to_bytes(),
-            circle_packing::ID => {
-                run_force(&topology, |t| circle_packing::run_with(t, &setting.packing))?
+        // A per-stage control's own re-drawn model comes **first**, ahead of every
+        // parameter arm below, and the ordering is load-bearing rather than cosmetic: only
+        // one control may be set at a time, so when `stage_nodes` names this stage the
+        // parameter this arm would have read is the compiled-in default anyway. Matching
+        // it first is what lets a stage that has *both* a parameter arm and a per-stage
+        // control — `layout.force.spring3d` is the one today — answer to the control that
+        // is actually set. With this arm below, `GM_MUTATE_FORCE_SPRING3D_NODES` would be
+        // swallowed by the parameter arm and perturb nothing.
+        //
+        // The knob-aware stages that reach here run at `setting`'s parameters rather than
+        // the registry's compiled-in default; the wasm arm cannot see the knobs, which is
+        // exactly the divergence a wired control must surface.
+        let bytes = if owns_own_model(layout.id, setting) {
+            stage_bytes_from_own_model(seed, setting, layout)?
+        } else {
+            match layout.id {
+                LAYOUT => grid.snapshot.to_bytes(),
+                BarnesHut::ID => run_force(&topology, |t| BarnesHut::run(t, &setting.force))?,
+                ForceAtlas2::ID => run_force(&topology, |t| ForceAtlas2::run(t, &setting.fa2))?,
+                ForceAtlas2BarnesHut::ID => {
+                    run_force(&topology, |t| ForceAtlas2BarnesHut::run(t, &setting.fa2))?
+                }
+                Spring::ID => run_force(&topology, |t| Spring::run(t, &setting.spring))?,
+                // The 3D sibling is the *same* kernel at `D = 3` over the same
+                // `SpringParams` (`force/spring3d.rs:45`), so the iterations budget is one
+                // parameter and `GM_MUTATE_SPRING_ITERATIONS` reaches both dimensions.
+                // Matched explicitly rather than left to the registry's `run_default`, which
+                // would pin it to the compiled-in default and make the control vacuous here
+                // — the MEDIUM finding p12-t3 recorded. It is still a two-stage control, so
+                // `GM_MUTATE_FORCE_SPRING3D_NODES` is what names this one alone.
+                spring::ID_3D => run_force(&topology, |t| Spring3D::run(t, &setting.spring))?,
+                Sugiyama::ID => run_pipeline::<Sugiyama>(&nodes, &edges, &setting.sugiyama)
+                    .map_err(|e| e.to_string())?
+                    .snapshot
+                    .to_bytes(),
+                circle_packing::ID => {
+                    run_force(&topology, |t| circle_packing::run_with(t, &setting.packing))?
+                }
+                neato::ID => run_force(&topology, |t| neato::run_with(t, setting.neato_epsilon()))?,
+                _ => layout_bytes(&topology, layout)?,
             }
-            _ if owns_own_model(layout.id, setting) => {
-                stage_bytes_from_own_model(seed, setting, layout)?
-            }
-            _ => layout_bytes(&topology, layout)?,
         };
         out.push((layout.id, bytes));
     }
