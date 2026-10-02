@@ -1,5 +1,11 @@
 # Perf P5b — the settled picture on the GPU, and what the fill really costs
 
+Two rounds. Round 1 moved the settled picture onto the GPU and reverted it: it was 2x slower here.
+Round 2 pulled the lever round 1's profile named — the number of readbacks, not the copies — and
+kept it: **−26% on the median time to a full settled picture at 1M nodes**, with the pan's own
+frames the same length either side. The pixels of the settled picture are *not* bit-identical
+across the change, and the section on that says why.
+
 Measured 2026-10-02 in worktree `perf-p5b`, host dlesieur42 (20 cores, load average 13–38 from
 other jobs), image `gm-chromium` (Chrome 154.0.8037.57, viewport 1920x1080, DPR 1). WebGL2 runs
 on SwiftShader, Chrome's CPU rasteriser: there is no GPU in the container. Base commit `9725eb5`.
@@ -10,6 +16,8 @@ docker run --rm --memory 10g --memory-swap 10g -v "$PWD:/w" -w /w gm-chromium \
   python3 deploy/perf/settle.py 1000000 webgl2 <label>
 docker run --rm --memory 10g --memory-swap 10g -v "$PWD:/w" -w /w gm-chromium \
   python3 deploy/perf/settle-profile.py 1000000 webgl2 <label>
+docker run --rm --memory 10g --memory-swap 10g -v "$PWD:/w" -w /w gm-chromium \
+  python3 deploy/perf/settle-pan.py 1000000 webgl2 <label>
 PERF_MEMORY=10g scripts/studio-perf.sh --label p5b-reverted --cases 200000,1000000 \
   --layout layout.random --backend webgl2
 scripts/studio.sh check
@@ -88,24 +96,99 @@ This also corrects what `still.ts`'s header claims: the 99% of a settled frame i
 It is the readback itself, it is 42.5 ms a frame here whatever drew the canvas, and 977 of them
 is the fill.
 
-## What the fill costs, and the next lever
+## What the fill costs
 
-`frames` was 976–977 in every run of both builds, over 1 999 996 edge pairs: 2048 pairs a frame,
-which is `MOVING_FLOOR` (`webgl2/plan.ts:117`). `nextBudget` halves the chunk every frame because
-the whole frame costs more than `SLOW_MS` (24 ms) and floors it at 2048, so the chunk never
-grows. The fill is then `frames x per-frame fixed cost` — 977 x 42.5 ms is the 41.5 s of readback
-the profile above measures — and the draw calls are not in it: `drawElements` took 28 of the
-49 073 samples, and everything that is not `transferToImageBitmap` or `drawImage` is `(program)`,
-the rest of the frame.
+With the moving floor, `frames` was 976–977 in every run of both round-1 builds, over 1 999 996
+edge pairs: 2048 pairs a frame, which is `MOVING_FLOOR` (`webgl2/plan.ts:117`).
+`nextBudget` halves the chunk every frame because the whole frame costs more than `SLOW_MS`
+(24 ms) and floors it at 2048, so the chunk never grows. The fill is then `frames x per-frame
+fixed cost` — 977 x 42.5 ms is the 41.5 s of readback the profile above measures — and the draw
+calls are not in it: `drawElements` took 28 of the 49 073 samples, and everything that is not
+`transferToImageBitmap` or `drawImage` is `(program)`, the rest of the frame.
 
-So the lever on a 1M settle is **the number of readbacks, not the copies**. The profile says the
-draw is not where a frame goes — `drawElements` took 28 samples of 49 073 and everything that is
-not the readback or a copy is `(program)` at 4 929 — so a settled frame that adds a chunk and
-does not show the picture should cost a fraction of a showing frame, and alternating the two would
-halve the readbacks and roughly halve the fill, at the price of the picture advancing every other
-frame. That last step is a proposal, not a measurement: this job did not time a frame that skips
-the readback, and the pacing it would sit inside is a decision in `plan.ts` about how long a
-settled frame may be, which is a separate job.
+So the lever on a 1M settle is **the number of readbacks, not the copies**, and round 2 below
+pulled it. What the profile could not say was how much of the 42.5 ms is the readback itself and
+how much is the rasterising it waits for; the round-2 A/B answers it by changing nothing but the
+chunk size. Halving the frames took 26% off the fill, so the fixed per-frame cost — the readback,
+the GL clear and the two composites that show the picture — is about a quarter of a 1M fill, and
+the other three quarters is drawing two million edges. That is this lever's ceiling: a fill in one
+frame would be about 19 s here, not 0.
+
+## Round 2: the still's own floor, and what it bought
+
+Two changes, both in `packages/graph-render`.
+
+`view.stats()` now carries the loop's own `refining` flag (`webgl2/hook.ts:29`, set at
+`hook.ts:74` and reported at `view-stats.ts:25`), so a host can wait for a settled picture without
+reading counters; `deploy/perf/probes/settle.js` waits on that instead of comparing `drawnEdges`
+against `edges`. `refiningOf` (`webgl2/still.ts:59`) is the rule the loop and the stats share, and
+`tests/view-stats.test.ts` pins it: over zero while a pair remains, false on the frame that
+completes the picture, false on the -1 of a lost context.
+
+The fill's floor moved from the moving one to its own: `stillFloor` (`webgl2/plan.ts:142`, over
+`STILL_FRAMES` at `plan.ts:135`) is a 512th of the edge pairs, so the fill takes about 512 frames at
+1M however big the graph is, where the moving floor's 2048 pairs (`plan.ts:117`) gave 977.
+Interleaved A/B, 1M, three rounds alternating one-line builds — `STILL_FRAMES` 512 against 1e9,
+which returns `MOVING_FLOOR` and so is the code exactly as it stood.
+
+| Round | before (977 frames) | after (512 frames) |
+|---:|---:|---:|
+| 1 | 26 743 | 17 567 |
+| 2 | 25 721 | 19 003 |
+| 3 | 23 952 | 24 688 |
+| median | **25 721** | **19 003** (**−26%**) |
+
+Frame times in the same runs, sampled by the probe every 50 ms: p50 19.6–21.8 ms before against
+28.2–43.1 ms after, so a settled frame costs about 1.5x and there are half as many. Round 3 is the
+noisy one on both sides (23 952 before against 24 688 after, its p50 the 43.1 ms) and is the run
+that says 26% is the median and not the mean. At 200 000 nodes the floor does not bind — 399 996
+pairs over 512 is 782, under `MOVING_FLOOR` — and both builds read 196 frames and the same picture,
+as the fingerprint below confirms.
+
+**Input still wins.** `deploy/perf/settle-pan.py` waits for a fill a quarter of the way in, pans
+with the view's own `panBy`, and reads the gaps in two windows: the pan's own frames (the gaps
+ending inside the loop's `MOVING_MS`) and the re-fill that follows. At 1M, one run each:
+
+| | before | after |
+|---|---:|---:|
+| `panP50GapMs` (6 gaps) | 16.7 | 16.6 |
+| `panMaxGapMs` | 16.8 | 16.8 |
+| `firstFrameMs` | 31.4 | 23.5 |
+| `refillP50GapMs` | 33.3 | 33.4 |
+| `refillMaxGapMs` | 316.6 | 349.9 |
+| `refiningMoving` | false | false |
+| `minDrawnAfter` | 2 048 | 3 907 |
+
+The pan's frames are the same length either side, the first frame answering the pan is not slower,
+and `refiningMoving` reads false in both: a camera move owes no chunk, so the still is dropped while
+the camera moves and the picture starts again from one chunk (`minDrawnAfter` is the floor in
+force — 2048 before, and 3907 after, which is `1 999 996 / 512 = 3907.25` rounded up, so the floor
+binding as designed). The refill's p50 is unchanged too, because the page paints at most one frame
+per 16.7 ms and a settled frame of 28–43 ms still fits inside one gap; its max rose from 317 to
+350 ms, which is the cost of the longer settled frame and the whole of it.
+
+One run each, so read the two 16.7 ms pan figures as "the same length" and not as a difference:
+six gaps is a small sample. `p95GapMs` over the whole window did move, 33.4 against 50.1, which is
+the refill's longer frames reaching into the tail.
+
+**The pixels.** `settle.js` also fingerprints the canvas (`pixelHash`, an FNV-1a 32 over the
+1920x1080 RGBA), because a full-page screenshot differs in the status line between two runs of one
+build and cannot say whether the drawing changed. At 200 000, where the floor does not bind, the
+two builds are bit-identical: `d3e9cfe9` both. At 1M they are not: `9cb0ed9a` before (twice, in two
+runs) against `24a06c31` after (twice, in two runs) — both builds reproduce exactly, so the
+difference is systematic, not noise.
+
+So the constraint "`scripts/studio-backend.sh` parity stays at its current threshold" holds — 1.0490%
+against a 2% ceiling, unchanged — but the stricter reading, that the pixels are bit-identical, does
+not. The mechanism is the chunk boundary, not the drawing: the edges are the same 1 999 996 in the
+same spread order with the same colours, but two overlapping edges inside one chunk blend in the GL
+pass while the same two edges in two chunks blend in the 2D composite, and those two round
+differently. That makes the fingerprint a witness to the chunk boundary and not to a defect in the
+drawing, and it means the picture was never specified to be bit-identical across chunk sizes: a
+smaller chunk does not make it more correct, it only moves where the rounding happens. **What is
+unmeasured here is how far the two pictures differ** — the fingerprint says "not the same bytes" and
+not "differ by at most one level in a channel". A build that wanted bit-identical pictures across
+chunk sizes would have to accumulate on the GPU, which round 1 measured at 2x slower.
 
 ## Texture size limits
 
@@ -118,37 +201,63 @@ at DPR 2 the same canvas wants 3840x2160 and clamps to the same 1024x576. A driv
 not complete a framebuffer got `null` and painted each frame whole, and a lost context still fell
 back to Canvas2D (`webgl2/hook.ts:91`).
 
-## The gates on the reverted tree
+## The gates on the round-2 tree
 
-`scripts/studio.sh check` passes: types, both unit suites with 0 failed and 0 skipped, 90 render
-tests, eslint at `--max-warnings 0`, and the production build. The backend gate passes all six
-rows — parity at 2k 1.0490% of pixels off by more than 32/255 against a 2% ceiling, both canvases
-drawn (44.4785% and 40.9780% off the background), `auto` picks WebGL2 at 20k, no-WebGL2 falls
-back to Canvas2D and says why, that page is clean, and a lost context falls back to Canvas2D and
-keeps drawing at 44.4798% off the background. Its negative control exits 1 with parity 40.4701%
-and the WebGL2 canvas 0.1556% off the background. The smoke gate passes its five rows and its
-negative control exits 1 with the injected wasm module, a store error, the banner and 0 nodes
-drawn.
+`scripts/orch/gate.sh` on `scripts/orch/rows/perf-p5.rows`, all five rows:
+
+| Row | Expect | Exit | Verdict |
+|---|---|---:|---|
+| `studio-check` | 0 | 0 | PASS |
+| `backend` | 0 | 0 | PASS |
+| `negctl-backend` | nonzero | 1 | PASS |
+| `smoke` | 0 | 0 | PASS |
+| `negctl-smoke` | nonzero | 1 | PASS |
+
+`studio.sh check` (exit 0) covers types over all four tsconfigs, 405 render tests and 533 studio
+tests with 0 failed and 0 skipped, 90 render tests, eslint at `--max-warnings 0`, and the
+production build. The backend gate (exit 0) passes all six rows — parity at 2k 1.0490% of pixels
+off by more than 32/255 against a 2% ceiling, both canvases drawn (44.4785% and 40.9780% off the
+background), `auto` picks WebGL2 at 20k, no-WebGL2 falls back to Canvas2D and says why, that page
+is clean, and a lost context falls back to Canvas2D and keeps drawing at 44.4798% off the
+background. Its negative control (exit 1) reads parity 40.4701% and the WebGL2 canvas 0.1556% off
+the background, both FAIL. The smoke gate (exit 0) passes its five rows and its negative control
+(exit 1) with the injected wasm module, a store error, the banner and 0 nodes drawn.
+
+Two screenshots of this tree, each with the run's own error read
+(`exceptions []`, `console errors []`, `store error None`, no banner in the shadow root):
+
+| What | Path | Status line |
+|---|---|---|
+| The settled picture at 1M after the fill | `target/studio-settle/r2-after-1.png` | `1000000 n · 1999996 e · idle, last 39 fps · 30 ms · webgl2` |
+| The re-fill after the mid-fill pan | `target/studio-settle-pan/r2-pan-after.png` | `1000000 n · 1999996 e · idle, last 47 fps · 62 ms · webgl2` |
+
+Both report all 1 999 996 edges of the frame, so both pictures are full.
 
 ## Not reached: the 200k pan gap
 
-The job's third item, 58.5 to 60 fps at 200 000 nodes, was not measured with a profile. The
-reverted tree's `studio-perf` reads 38.4 worst fps at 200k and at 1M, against 51.1 and 53.5 for
-the same code hours earlier: 13 fps of spread on one build is larger than the 1.5 fps the item
-asks for, so it needs interleaved A/B on a quieter host, or a container with a GPU, before any
-row can be named.
+The job's round-1 third item, 58.5 to 60 fps at 200 000 nodes, was not measured with a profile, in
+either round. The tree's `studio-perf` reads 38.4 worst fps at 200k and at 1M, against 51.1 and
+53.5 for the same code hours earlier: 13 fps of spread on one build is larger than the 1.5 fps the
+item asks for, so it needs interleaved A/B on a quieter host, or a container with a GPU, before any
+row can be named. Round 2's pan probe measures a single pan's frame times rather than a sustained
+drag, which ranks builds but is not the fps the item names.
 
-## The two probes
+## The three probes
 
 `deploy/perf/settle.py` opens N nodes on `layout.random`, prints the open's own seconds, then
 polls from inside the page every 50 ms until the picture is full and prints the milliseconds, the
-counters, the exceptions, the console errors, the store error and the alert, and writes
-`target/studio-settle/<label>.png`. `deploy/perf/settle-profile.py` is the same open and the same
-wait with `Profiler.start` around it, and prints the sampled frames by self time as a share of the
-samples, keeping the raw profile in `target/studio-settle-profile/<label>.json`.
+frame times it sampled, the canvas fingerprint, the counters, the exceptions, the console errors,
+the store error and the alert, and writes `target/studio-settle/<label>.png`.
+`deploy/perf/settle-profile.py` is the same open and the same wait with `Profiler.start` around it,
+and prints the sampled frames by self time as a share of the samples, keeping the raw profile in
+`target/studio-settle-profile/<label>.json`. `deploy/perf/settle-pan.py` is the same open, then
+waits for a fill a quarter of the way in, pans with the view's own `panBy`, and prints the frame
+gaps in the two windows above plus what the picture did afterwards, writing
+`target/studio-settle-pan/<label>.png`.
 
-The page has no "the still is full" flag: the loop keeps `refining` (`webgl2/hook.ts:29`) and
-`view.stats()` never says it, so the probe reads `drawnEdges` against `edges` — the pairs the
-picture holds and the pairs the frame has (`webgl2/still.ts:107`). That is one frame late at
-worst, under the poll interval. Exposing `refining` in `ViewStats` would need a new field on
-every `ViewStats` literal in `packages/graph-studio`, which is another package's to change.
+The wait is the loop's own flag, which round 1 had to work around: `refining` was internal to
+`webgl2/hook.ts` and `view.stats()` never said it, so the probe compared `drawnEdges` against
+`edges`. Round 2 put it in the stats. `ViewStats` has two complete literals outside
+`packages/graph-render` (`packages/graph-studio/tests/ui/desk.ts:19` and `tests/ui-names.test.ts:9`),
+which the new required field touched; `frameLine` in `packages/graph-studio/src/ui/names.ts` reads
+the stats field by field and was left alone, so the studio's status line is unchanged.
