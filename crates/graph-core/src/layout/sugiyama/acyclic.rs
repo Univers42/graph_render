@@ -1,13 +1,29 @@
-//! Cycle breaking: the greedy feedback-arc-set heuristic of Eades, Lin & Smyth, "A fast and effective heuristic for the feedback arc set problem" (1993). Reference: `SciGraphs/core/scigraphs_core/mesh/layouts/hierarchical.py:244-296`.
+//! Cycle breaking: every non-loop edge oriented forward along a vertex sequence, so the
+//! graph the rest of the pipeline sees is a DAG that still holds all of them. Reference:
+//! `SciGraphs/core/scigraphs_core/mesh/layouts/hierarchical.py:298-311` for the arcs and
+//! `:244-296` for the greedy order.
 //!
-//! Peels sinks to the right, sources to the left, otherwise the vertex of largest out-degree minus in-degree (a max-heap on that key, ties broken by dense index — node listing order is already `0..n`, so no separate rank array is needed the way the reference's `enumerate(nodes)` builds one). Every edge whose source sorts after its target is reversed, not dropped, so no edge is lost (`prompt.md` §11: FAS is greedy, not minimum).
+//! **The sequence is `list(G.nodes())`, not the greedy feedback-arc-set order.** `_acyclic_arcs`
+//! reads `_greedy_fas_order(G) if G.is_directed() else list(G.nodes())`, and
+//! `scigraphs_core/mesh/layouts/common.py:238` builds `nx.Graph()` — undirected — for every
+//! layout, so the greedy branch is unreachable from the reference as it is built. See
+//! [`ArcOrder`]. The greedy order is ported anyway, because it is the reference's other
+//! branch and its tie-break is what D4 requires; `ArcOrder::Feedback` is the seam.
 //!
-//! Ponytail: a heuristic, not a minimum feedback-arc-set solver. Failing input: a graph whose minimum feedback arc set this local peeling order cannot reach (worst case, an adversarial tournament). Direction: more edges reversed than strictly necessary — cosmetic (`dag.edge_reversed` notes each one), never a wrong graph, since a reversed edge is drawn head to tail, not dropped.
+//! [`ArcOrder::NodeIndex`] still breaks every cycle: it is a total order, so an edge whose
+//! source sorts after its target is reversed rather than dropped, and `dag.edge_reversed`
+//! notes each one (`prompt.md` §11). It simply breaks *more* of them than a greedy peel
+//! would, which is cosmetic — a reversed edge is drawn head to tail, not lost.
+//!
+//! Ponytail: cycle breaking here is a heuristic, not a minimum feedback-arc-set solver.
+//! Failing input: a graph whose minimum feedback arc set the chosen order cannot reach (worst
+//! case, an adversarial tournament). Direction: more edges reversed than strictly necessary
+//! — cosmetic (`dag.edge_reversed` notes each one), never a wrong graph, since a reversed
+//! edge is drawn head to tail, not dropped.
 
 use crate::index::Topology;
-use core::cmp::Reverse;
 use graph_contract::notes::{Note, NoteCode};
-use std::collections::BinaryHeap;
+use std::ops::Range;
 
 /// Every edge's orientation after cycle breaking: `reversed[e]` for non-loop edge `e`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -24,14 +40,17 @@ pub(crate) struct Acyclic {
 }
 
 impl Acyclic {
-    /// Breaks every cycle in `topology`, recording which edges were reversed.
+    /// Orients every non-loop edge of `topology` forward, recording which edges were
+    /// reversed to get there.
     pub(crate) fn of(topology: &Topology) -> Self {
-        let (succ, pred) = unique_neighbours(topology);
-        let order = greedy_fas_order(&succ, &pred);
-        let mut rank = vec![0u32; topology.node_count() as usize];
-        for (position, &node) in (0u32..).zip(&order) {
-            rank[node as usize] = position;
-        }
+        Self::oriented(topology, ArcOrder::NodeIndex)
+    }
+
+    /// Orients every non-loop edge forward along `order`'s vertex sequence: `rank[v] <
+    /// rank[w]` is what makes the edge `v -> w` a forward arc. Every edge whose source
+    /// sorts after its target is reversed, not dropped, so no edge is lost.
+    pub(crate) fn oriented(topology: &Topology, order: ArcOrder) -> Self {
+        let rank = order.rank(topology);
         let cols = topology.edges();
         let mut reversed = vec![false; cols.source.len()];
         let mut notes = Vec::new();
@@ -78,6 +97,52 @@ impl<'a> Arcs<'a> {
         Self { topology, acyclic }
     }
 
+    /// The reference's own arcs, grouped: one entry per distinct non-loop `(tail, head)` pair,
+    /// ascending, each with the half-open range of edge indices that spell it
+    /// (`hierarchical.py:306-311`). One entry per pair because `arcs` there is a `set`, so
+    /// `k` parallel edges between two nodes are one arc and route through one dummy chain,
+    /// not `k`.
+    ///
+    /// **This is a second view, not a replacement.** [`Self::edge_count`] and
+    /// [`Self::tail_head`] stay per-edge, because `Route` and the `dag.edge_reversed` notes
+    /// are indexed by edge and every parallel edge is still drawn — through the one chain
+    /// this grouping gives them. What the ordering graph is built over is these arcs, which
+    /// is what the reference builds it over.
+    ///
+    /// **One sort, one pass.** The list is every non-loop edge as `(tail, head, edge)`,
+    /// sorted; equal pairs are then adjacent, so a run of them is one arc. That keeps the
+    /// whole thing at one `O(m log m)` sort plus a linear walk rather than a lookup per arc.
+    pub(crate) fn grouped(&self) -> Vec<(u32, u32, Range<u32>)> {
+        let mut pairs: Vec<(u32, u32, u32)> = (0..self.edge_count())
+            .filter(|&e| !self.is_loop(e))
+            .map(|e| {
+                let (tail, head) = self.tail_head(e);
+                (tail, head, e)
+            })
+            .collect();
+        // Ascending by `(tail, head, edge)`, so a pair's edges are one ascending run and the
+        // first of them leads it — and the list comes out ascending by `(tail, head)`, as
+        // `sorted(arcs, key=...)` does on the reference side.
+        pairs.sort_unstable();
+        let mut arcs: Vec<(u32, u32, Range<u32>)> = Vec::new();
+        for &(tail, head, edge) in &pairs {
+            match arcs.last_mut() {
+                Some((t, h, range)) if *t == tail && *h == head => range.end = edge + 1,
+                _ => arcs.push((tail, head, edge..edge + 1)),
+            }
+        }
+        arcs
+    }
+
+    /// [`Self::grouped`] without the edge ranges: one `(tail, head, first edge)` per distinct
+    /// pair. What the layering stage iterates.
+    pub(crate) fn distinct(&self) -> Vec<(u32, u32, u32)> {
+        self.grouped()
+            .into_iter()
+            .map(|(tail, head, edges)| (tail, head, edges.start))
+            .collect()
+    }
+
     /// Nodes in `topology`.
     pub(crate) fn node_count(&self) -> u32 {
         self.topology.node_count()
@@ -100,195 +165,44 @@ impl<'a> Arcs<'a> {
     }
 }
 
-/// Distinct out/in neighbours per node, self-loops excluded, ascending: the heuristic's
-/// degree counts are over neighbours, not incident edges (`G.successors(n)` on a
-/// multigraph yields each neighbour once).
-fn unique_neighbours(topology: &Topology) -> (Vec<Vec<u32>>, Vec<Vec<u32>>) {
-    let n = topology.node_count() as usize;
-    let cols = topology.edges();
-    let (mut succ, mut pred) = (vec![Vec::new(); n], vec![Vec::new(); n]);
-    for (&s, &t) in cols.source.iter().zip(&cols.target) {
-        if s != t {
-            succ[s as usize].push(t);
-            pred[t as usize].push(s);
-        }
-    }
-    for row in succ.iter_mut().chain(pred.iter_mut()) {
-        row.sort_unstable();
-        row.dedup();
-    }
-    (succ, pred)
+/// The vertex sequence the arcs are oriented along, as `hierarchical.py:304` writes it:
+/// `_acyclic_arcs` picks one of two orders and takes the arcs forward along whichever it
+/// picked.
+///
+/// **The reference takes [`ArcOrder::NodeIndex`] for every graph this pipeline is compared
+/// against.** `_acyclic_arcs` reads
+/// `_greedy_fas_order(G) if G.is_directed() else list(G.nodes())`, and
+/// `scigraphs_core/mesh/layouts/common.py:238` builds `nx.Graph()` — undirected — for every
+/// layout, so the graph `apply_graph_layout` hands the sugiyama pipeline never reaches the
+/// greedy branch. `list(G.nodes())` is the node listing order, which under the conformance
+/// fixture contract (`conformance/fixtures.rs`) is ascending dense index.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ArcOrder {
+    /// The greedy feedback-arc-set order of Eades, Lin & Smyth (1993): the reference's
+    /// `G.is_directed()` branch, unreachable from the reference as it is built, and the one
+    /// [`feedback`] implements. Constructed only by
+    /// `the_greedy_feedback_order_is_the_other_branch_and_reverses_more`, which is what keeps
+    /// the port and its tie-break honest rather than deleted.
+    #[cfg_attr(not(test), allow(dead_code))]
+    Feedback,
+    /// `list(G.nodes())`: dense index. Acyclic by construction, so nothing is ever
+    /// reversed on a graph whose edges already point forward.
+    NodeIndex,
 }
 
-/// `in_degree - out_degree` and the node itself: the heap's total order, node index the
-/// tie-break.
-fn heap_key(in_degree: &[u32], out_degree: &[u32], v: u32) -> (i64, u32) {
-    let (i, o) = (in_degree[v as usize], out_degree[v as usize]);
-    (i64::from(i) - i64::from(o), v)
-}
-
-/// Mutable peeling state shared by [`greedy_fas_order`]'s two admission paths (a ready
-/// sink/source, or the heap's best remaining vertex).
-struct Peeling<'a> {
-    succ: &'a [Vec<u32>],
-    pred: &'a [Vec<u32>],
-    alive: Vec<bool>,
-    out_degree: Vec<u32>,
-    in_degree: Vec<u32>,
-    ready: Vec<u32>,
-    heap: BinaryHeap<Reverse<(i64, u32)>>,
-}
-
-impl<'a> Peeling<'a> {
-    fn new(succ: &'a [Vec<u32>], pred: &'a [Vec<u32>]) -> Self {
-        let out_degree: Vec<u32> = succ.iter().map(|s| s.len() as u32).collect();
-        let in_degree: Vec<u32> = pred.iter().map(|p| p.len() as u32).collect();
-        let ready = (0..succ.len() as u32)
-            .filter(|&v| out_degree[v as usize] == 0 || in_degree[v as usize] == 0)
-            .collect();
-        let heap = (0..succ.len() as u32)
-            .map(|v| Reverse(heap_key(&in_degree, &out_degree, v)))
-            .collect();
-        Self {
-            succ,
-            pred,
-            alive: vec![true; succ.len()],
-            out_degree,
-            in_degree,
-            ready,
-            heap,
-        }
-    }
-
-    /// Removes `node`, decrementing its still-alive neighbours' degrees, queuing any
-    /// that newly became a sink or source and re-keying every touched one in the heap.
-    fn peel(&mut self, node: u32) {
-        self.alive[node as usize] = false;
-        for &v in &self.succ[node as usize] {
-            if self.alive[v as usize] {
-                self.in_degree[v as usize] -= 1;
-                if self.in_degree[v as usize] == 0 {
-                    self.ready.push(v);
-                }
-                self.heap
-                    .push(Reverse(heap_key(&self.in_degree, &self.out_degree, v)));
-            }
-        }
-        for &u in &self.pred[node as usize] {
-            if self.alive[u as usize] {
-                self.out_degree[u as usize] -= 1;
-                if self.out_degree[u as usize] == 0 {
-                    self.ready.push(u);
-                }
-                self.heap
-                    .push(Reverse(heap_key(&self.in_degree, &self.out_degree, u)));
-            }
+impl ArcOrder {
+    /// Each node's rank in this order, dense-indexed.
+    pub(crate) fn rank(self, topology: &Topology) -> Vec<u32> {
+        match self {
+            Self::NodeIndex => (0..topology.node_count()).collect(),
+            Self::Feedback => feedback::rank(topology),
         }
     }
 }
 
-/// The greedy feedback-arc-set vertex order: sources first, then the peeled-by-key
-/// middle, then sinks (reference `_greedy_fas_order`, `hierarchical.py:244-296`).
-fn greedy_fas_order(succ: &[Vec<u32>], pred: &[Vec<u32>]) -> Vec<u32> {
-    let mut state = Peeling::new(succ, pred);
-    let (mut left, mut right) = (Vec::new(), Vec::new());
-    let mut remaining = succ.len() as u32;
-    while remaining > 0 {
-        while let Some(node) = state.ready.pop() {
-            if !state.alive[node as usize] {
-                continue;
-            }
-            if state.out_degree[node as usize] == 0 {
-                right.push(node);
-            } else {
-                left.push(node);
-            }
-            state.peel(node);
-            remaining -= 1;
-        }
-        if remaining == 0 {
-            break;
-        }
-        while let Some(Reverse((key, node))) = state.heap.pop() {
-            let current = heap_key(&state.in_degree, &state.out_degree, node).0;
-            if state.alive[node as usize] && key == current {
-                left.push(node);
-                state.peel(node);
-                remaining -= 1;
-                break;
-            }
-        }
-    }
-    right.reverse();
-    left.extend(right);
-    left
-}
+/// The greedy feedback-arc-set order itself — the one branch of `_acyclic_arcs` the
+/// reference does not reach.
+mod feedback;
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::index::index_model;
-    use crate::records::build::{edge, node};
-
-    fn topology(nodes: &[&str], edges: &[(&str, &str, &str)]) -> Topology {
-        let n: Vec<_> = nodes.iter().map(|id| node(id, "")).collect();
-        let e: Vec<_> = edges.iter().map(|&(id, s, t)| edge(id, s, t)).collect();
-        index_model(&n, &e).expect("fits")
-    }
-
-    #[test]
-    fn a_chain_reverses_nothing() {
-        let t = topology(&["a", "b", "c"], &[("ab", "a", "b"), ("bc", "b", "c")]);
-        let acyclic = Acyclic::of(&t);
-        assert_eq!(acyclic.reversed, [false, false]);
-        assert!(acyclic.notes.is_empty());
-        assert_eq!(acyclic.arc(&t, 0), (0, 1));
-        assert_eq!(acyclic.arc(&t, 1), (1, 2));
-    }
-
-    #[test]
-    fn a_cycle_is_broken_by_reversing_one_edge_and_noted() {
-        // a -> b -> c -> a: a 3-cycle, every node in/out degree 1, tied. The peel loop
-        // has no ready (sink/source) node, so the heap picks the lowest dense index
-        // among the (in-out=0) ties: node 0 becomes a source, breaking the cycle at its
-        // incoming edge c->a.
-        let t = topology(
-            &["a", "b", "c"],
-            &[("ab", "a", "b"), ("bc", "b", "c"), ("ca", "c", "a")],
-        );
-        let acyclic = Acyclic::of(&t);
-        assert_eq!(acyclic.reversed, [false, false, true], "c->a reversed");
-        assert_eq!(
-            acyclic.notes,
-            [Note {
-                code: NoteCode::EdgeReversed,
-                index: 2
-            }]
-        );
-        // Every arc now points from a lower rank to a higher one, and repeating the
-        // build gives the same result: determinism.
-        for e in 0..3 {
-            let (tail, head) = acyclic.arc(&t, e);
-            assert!(
-                acyclic.rank[tail as usize] < acyclic.rank[head as usize],
-                "e{e}"
-            );
-        }
-        assert_eq!(Acyclic::of(&t), acyclic);
-    }
-
-    #[test]
-    fn a_self_loop_is_excluded_and_never_reversed() {
-        let t = topology(&["a"], &[("aa", "a", "a")]);
-        let acyclic = Acyclic::of(&t);
-        assert_eq!(acyclic.reversed, [false]);
-        assert!(acyclic.notes.is_empty());
-    }
-
-    #[test]
-    fn an_empty_topology_produces_empty_acyclic_state() {
-        let t = index_model(&[], &[]).expect("fits");
-        let acyclic = Acyclic::of(&t);
-        assert!(acyclic.rank.is_empty() && acyclic.reversed.is_empty());
-    }
-}
+mod tests;

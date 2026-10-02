@@ -4,8 +4,16 @@
 //! `docs/decisions/sugiyama-heuristics.md` for the full citation list and every
 //! deviation.
 //!
-//! Pipeline: [`acyclic`] breaks cycles, [`layering`] assigns layers and dummy chains,
-//! [`ordering`] reduces crossings, [`coords`] assigns X, [`routing`] builds the geometry.
+//! Pipeline: [`acyclic`] orients every edge forward, [`layering`] assigns layers and dummy
+//! chains, [`ordering`] reduces crossings, [`coords`] assigns X, [`routing`] builds the
+//! geometry.
+//!
+//! **Two entry points, two sets of axes, one pipeline.** [`run`] is the registered
+//! `layout.dag.sugiyama`: X in the priority method's own units (`coords.rs`'s `GAP = 1.0`,
+//! uncentred) and Y as `layer * LAYER_SPACING`, which is what the dagre differential
+//! measures. [`run_scaled`] is the same six stages with SciGraphs' own per-axis
+//! normalisation (`hierarchical.py:679-685`), which is what a byte comparison against
+//! `apply_graph_layout` needs. They differ only in that last step.
 
 mod acyclic;
 mod coords;

@@ -15,8 +15,8 @@
 use super::Geometry;
 use super::acyclic::Acyclic;
 use super::coords::Coords;
-use super::layering::{Layering, Route};
 use super::layered;
+use super::layering::{Layering, Route};
 use crate::index::Topology;
 use crate::stage::StageError;
 use graph_contract::geometry::{EdgeGeometry, NodeGeometry, Paths};
@@ -80,7 +80,11 @@ pub fn run_scaled(topology: &Topology, scale: f32) -> Result<Geometry, StageErro
     }
     let (acyclic, layering, ordering) = layered(topology);
     let coords = Coords::build(&ordering, &layering, topology.node_count());
-    let frame = Frame::of(&coords.0, layering.layer_of.iter().copied().max().unwrap_or(0), scale);
+    let frame = Frame::of(
+        &coords.0,
+        layering.layer_of.iter().copied().max().unwrap_or(0),
+        scale,
+    );
     let count = topology.node_count() as usize;
     let mut x = Vec::with_capacity(count);
     let mut y = Vec::with_capacity(count);
@@ -101,12 +105,7 @@ pub fn run_scaled(topology: &Topology, scale: f32) -> Result<Geometry, StageErro
 /// Every edge's dummy-chain interior points on the same axes as the real nodes. A reversed
 /// edge's chain was built tail-to-head in acyclic order and is walked back to front, as in
 /// [`edge_paths`](super::routing::edge_paths).
-fn scaled_paths(
-    acyclic: &Acyclic,
-    layering: &Layering,
-    coords: &Coords,
-    frame: &Frame,
-) -> Paths {
+fn scaled_paths(acyclic: &Acyclic, layering: &Layering, coords: &Coords, frame: &Frame) -> Paths {
     let mut offsets = Vec::with_capacity(layering.route.len() + 1);
     let mut pts = Vec::new();
     offsets.push(0);

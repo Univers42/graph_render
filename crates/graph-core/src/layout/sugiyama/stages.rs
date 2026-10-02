@@ -17,10 +17,13 @@ use crate::index::Topology;
 
 /// One run of the pipeline, stage by stage, dense-indexed like [`Topology`].
 pub(crate) struct Stages {
-    /// Every non-loop edge's acyclic endpoints, `(tail, head)`, in edge order.
+    /// The ordering graph's arcs: every distinct non-loop `(tail, head)` pair, ascending,
+    /// which is what the reference's `_acyclic_arcs` returns and what the pipeline is built
+    /// over.
     pub(crate) arcs: Vec<(u32, u32)>,
-    /// How many edges the cycle breaker reversed. The reference reverses none: it orients
-    /// an undirected graph by node index, which is acyclic by construction.
+    /// How many **edges** the cycle breaker reversed. Not a stage output the reference has —
+    /// it draws no edges — but the count is what tells a reader whether an arc was oriented
+    /// against its edge's own spelling, which is where a stage difference usually starts.
     pub(crate) reversed: u32,
     /// Real nodes then dummies, as the reference's `layer_of`.
     pub(crate) layer_of: Vec<u32>,
@@ -33,8 +36,6 @@ pub(crate) struct Stages {
     /// Every vertex's X, dummies included, in the priority method's own units.
     pub(crate) x: Vec<f64>,
 }
-
-
 
 /// The pipeline over `topology`, captured after every stage. The same six calls
 /// [`layered`](super::layered) and [`Coords::build`] make, kept here rather than reached
@@ -49,9 +50,10 @@ pub(crate) fn stages(topology: &Topology) -> Stages {
     let ordering = Ordering::build(&layering, num_layers);
     let coords = Coords::build(&ordering, &layering, topology.node_count());
     Stages {
-        arcs: (0..arcs.edge_count())
-            .filter(|&e| !arcs.is_loop(e))
-            .map(|e| arcs.tail_head(e))
+        arcs: arcs
+            .distinct()
+            .into_iter()
+            .map(|(tail, head, _)| (tail, head))
             .collect(),
         reversed: acyclic.reversed.iter().filter(|r| **r).count() as u32,
         num_dummies: (layering.layer_of.len() - topology.node_count() as usize) as u32,

@@ -3,8 +3,8 @@
 //! width and no height.
 
 use super::run_scaled;
-use crate::index::index_model;
 use crate::index::Topology;
+use crate::index::index_model;
 use crate::records::build::{edge, node};
 use graph_contract::geometry::NodeGeometry;
 
@@ -33,10 +33,7 @@ fn a_three_node_chain_is_the_formula_on_a_zero_width_drawing() {
     // in slot 0 of its own layer, so X is 0 everywhere and `hi - lo` is 0 — the
     // `(hi - lo) or 1.0` branch, which must give ((0 - 0) / 1 * 2 - 1) * scale = -scale
     // rather than a division by zero.
-    let t = topology(
-        &["a", "b", "c"],
-        &[("ab", "a", "b"), ("bc", "b", "c")],
-    );
+    let t = topology(&["a", "b", "c"], &[("ab", "a", "b"), ("bc", "b", "c")]);
     assert_eq!(points(&t), [[-5.0, -5.0], [-5.0, 0.0], [-5.0, 5.0]]);
 }
 
@@ -57,6 +54,19 @@ fn a_drawing_with_no_layers_is_flat_and_spans_the_full_width() {
     // so the two nodes still take the two ends of the range.
     let t = topology(&["a", "b"], &[]);
     assert_eq!(points(&t), [[-5.0, 0.0], [5.0, 0.0]]);
+}
+
+#[test]
+fn an_edge_written_backwards_is_oriented_by_node_order_as_the_reference_orients_it() {
+    // SciGraphs builds an **undirected** `nx.Graph` (`common.py:238`), so `_acyclic_arcs`
+    // takes its `list(G.nodes())` branch (`hierarchical.py:304`) and every arc is oriented
+    // from the lower node index to the higher one — the greedy feedback-arc-set order is
+    // only reached for a `nx.DiGraph`, which this pipeline never sees. `single-backwards`
+    // is the smallest graph where the two orders disagree: on `1 -> 0` the reference's arcs
+    // are `[(0, 1)]`, its layers `[0, 1]`, its order `[[0], [1]]` and its positions
+    // `[-5, -5]` and `[-5, 5]`. Read off the reference itself, not derived.
+    let t = topology(&["a", "b"], &[("ba", "b", "a")]);
+    assert_eq!(points(&t), [[-5.0, -5.0], [-5.0, 5.0]]);
 }
 
 #[test]

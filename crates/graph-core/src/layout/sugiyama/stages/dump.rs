@@ -5,27 +5,53 @@
 //! is a measurement, not an artefact the test suite checks.
 
 use super::{Stages, stages};
-use crate::index::index_model;
 use crate::index::Topology;
+use crate::index::index_model;
 use crate::records::build::{edge, node};
 use graph_contract::canonical_json::{Value, parse};
 use std::fmt::Write as _;
 
 const DIAMOND: &str = include_str!("../../../../../../fixtures/dag/diamond.json");
 const LESMIS: &str = include_str!("../../../../../../fixtures/scigraphs/lesmis.json");
+const TREE: &str = include_str!("../../../../../../fixtures/hierarchy/tree-balanced.json");
 
-/// The two graphs the conformance row's numbers are read off: the diamond, the smallest
-/// graph with a real layering choice, and the gallery graph, where every stage has room.
-const FIXTURES: [(&str, &str); 2] = [("dag-diamond", DIAMOND), ("lesmis", LESMIS)];
+/// The three file-backed graphs the conformance row's numbers are read off: the diamond, the
+/// smallest graph with a real layering choice; the gallery graph, where every stage has room
+/// to go wrong; and the repo's balanced tree, the one fixture whose edges are not spelled in
+/// topological order.
+const FIXTURES: [(&str, &str); 3] = [
+    ("dag-diamond", DIAMOND),
+    ("lesmis", LESMIS),
+    ("tree-balanced", TREE),
+];
 
-/// One fixture as the reference arm builds it: dense index `i` is the node listed at
-/// position `i`. The diamond names its nodes, the gallery file numbers them, and a number
-/// that is not its own position would make "index `i`" mean two things — the conformance
-/// fixture reader refuses that too (`conformance/fixtures/named.rs:28-46`), so this does.
+/// The gate models, at the seeds the conformance fixture set emits (`gate_model.rs`, seeds
+/// 0..19). They are the half of the set where the rows disagree most, and the first two are
+/// the smallest graphs that disagree at all.
+///
+/// **Built from `graph_core::seeded_model` rather than read from `conformance.jsonl`.** The
+/// fixture reader renames the gate model's nodes `n0..n{n}` in their own list order, so the
+/// dense index of both is the model's list position and the two topologies are the same graph
+/// — the node-order contract `conformance/fixtures.rs` states. Regenerating them here keeps
+/// this module out of `graph-cli`'s fixture tree, which is where the conformance arm keeps
+/// its own copies.
+const GATE_SEEDS: [u32; 20] = [
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+];
+
+/// One fixture as the reference arm builds it: **dense index `i` is the node whose id sorts
+/// `i`-th in byte order**, which is the rule `conformance/fixtures.rs` states and the
+/// conformance reader checks (`sc_fixture.Fixture._check_order`). It is not the same as
+/// list order: `tree-balanced.json` lists `r` first, and the conformance fixture re-lists it
+/// last for exactly that reason, so a loader that used list order would compare two
+/// different graphs under one name.
+///
+/// The gallery file's ids are integers and are kept: its reader refuses any id that is not
+/// its own position (`conformance/fixtures/named.rs:28-46`), so byte order and position
+/// agree there and nothing needs remapping.
 fn load(text: &str) -> Topology {
     let root = parse(text).expect("fixture json");
-    let listed = array(&root, "nodes");
-    let ids: Vec<String> = listed
+    let named: Vec<String> = array(&root, "nodes")
         .iter()
         .map(|n| match field(n, "id") {
             Value::String(name) => name.clone(),
@@ -33,40 +59,40 @@ fn load(text: &str) -> Topology {
             other => panic!("node id: {other:?}"),
         })
         .collect();
-    for (position, id) in ids.iter().enumerate() {
-        if let Ok(at) = id.parse::<usize>() {
-            assert_eq!(at, position, "node id {id} is not its own position");
-        }
+    let numbered = named[0].parse::<usize>().is_ok();
+    let mut ids = named.clone();
+    if !numbered {
+        ids.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
     }
     let nodes: Vec<_> = ids.iter().map(|id| node(id, "")).collect();
     let edges: Vec<_> = array(&root, "edges")
         .iter()
         .enumerate()
         .map(|(index, entry)| {
-            let (source, target) = ends(entry, &ids);
-            edge(&format!("e{index}"), &ids[source], &ids[target])
+            let (source, target) = ends(entry, &named);
+            let at = |name: &String| ids.iter().position(|id| id == name).expect("a named end");
+            edge(&format!("e{index}"), &ids[at(&source)], &ids[at(&target)])
         })
         .collect();
     index_model(&nodes, &edges).expect("fixture graphs fit")
 }
 
-/// One edge's dense ends, from either spelling: an index pair (the gallery file) or named
-/// endpoints (the repo fixtures).
-fn ends(entry: &Value, ids: &[String]) -> (usize, usize) {
-    let named = |key: &str| {
-        let name = text_of(entry, key);
-        ids.iter().position(|id| *id == name).expect("named endpoint")
-    };
+/// One edge's two endpoint **ids**, from either spelling: an index pair into the file's own
+/// node list (the gallery file) or named endpoints (the repo fixtures). Ids, not positions,
+/// because the caller renames positions into the dense order.
+fn ends(entry: &Value, listed: &[String]) -> (String, String) {
+    let at = |position: usize| listed[position].clone();
+    let named = |key: &str| text_of(entry, key);
     match entry {
         Value::Array(pair) => {
-            let at = pair
+            let ends: Vec<usize> = pair
                 .iter()
                 .map(|v| match v {
                     Value::Number(text) => text.parse::<usize>().expect("index"),
                     other => panic!("edge end: {other:?}"),
                 })
-                .collect::<Vec<_>>();
-            (at[0], at[1])
+                .collect();
+            (at(ends[0]), at(ends[1]))
         }
         _ => (named("source"), named("target")),
     }
@@ -76,7 +102,7 @@ fn field<'a>(value: &'a Value, key: &str) -> &'a Value {
     let Value::Object(members) = value else {
         panic!("not an object")
     };
-    &members
+    members
         .iter()
         .find(|(name, _)| name == key)
         .map(|(_, v)| v)
@@ -117,26 +143,40 @@ fn dump_one(out: &mut String, name: &str, snapshot: &Stages) {
 }
 
 fn pairs(arcs: &[(u32, u32)]) -> String {
-    join(
-        arcs.iter()
-            .map(|(tail, head)| format!("[{tail},{head}]")),
-    )
+    join(arcs.iter().map(|(tail, head)| format!("[{tail},{head}]")))
 }
 
 fn join(items: impl Iterator<Item = String>) -> String {
     items.collect::<Vec<_>>().join(",")
 }
 
+/// One gate model's topology, at the same seed and node count the conformance fixture set
+/// emits (`conformance/fixtures/gate_model.rs`).
+fn gate(seed: u32) -> Topology {
+    let count = crate::gate_node_count(seed);
+    let (nodes, edges) = crate::seeded_model(seed, count, crate::REFERENCE_DEGREE);
+    index_model(&nodes, &edges).expect("the gate model fits")
+}
+
 #[test]
 #[ignore = "writes target/sugiyama-stages.json for the SciGraphs stage diff"]
 fn dump_stage_measurements() {
     // An array of snapshots, one per fixture, so each `dump_one` is a whole JSON value.
+    let graphs: Vec<(String, Topology)> = FIXTURES
+        .into_iter()
+        .map(|(name, text)| (name.to_string(), load(text)))
+        .chain(
+            GATE_SEEDS
+                .into_iter()
+                .map(|s| (format!("gate-{s:02}"), gate(s))),
+        )
+        .collect();
     let mut out = String::from("[");
-    for (position, (name, text)) in FIXTURES.into_iter().enumerate() {
+    for (position, (name, topology)) in graphs.iter().enumerate() {
         if position > 0 {
             out.push(',');
         }
-        dump_one(&mut out, name, &stages(&load(text)));
+        dump_one(&mut out, name, &stages(topology));
     }
     out.push(']');
     let target = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");

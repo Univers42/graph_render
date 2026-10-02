@@ -9,10 +9,15 @@ Status: **decided** (Phase 5). Scope: `crates/graph-core/src/layout/sugiyama/*`,
 Ported from `SciGraphs/core/scigraphs_core/mesh/layouts/hierarchical.py:1-693`. Four
 stages, one module each:
 
-1. **`acyclic`** — cycle breaking: greedy feedback-arc-set (Eades, Lin & Smyth,
-   "A Fast and Effective Heuristic for the Feedback Arc Set Problem", 1993).
+1. **`acyclic`** — cycle breaking: every non-loop edge oriented forward along
+   `ArcOrder::NodeIndex`, i.e. `list(G.nodes())`, which is what the reference takes for the
+   **undirected** graph `common.py:238` builds. `ArcOrder::Feedback` is the greedy
+   feedback-arc-set order (Eades, Lin & Smyth, "A Fast and Effective Heuristic for the
+   Feedback Arc Set Problem", 1993) and is the reference's `G.is_directed()` branch, which
+   that graph never reaches. See "Cycle breaking is by node order" below.
 2. **`layering`** — layer assignment: longest-path layering with slack reduction, then
-   dummy-vertex chains for edges spanning more than one layer, budget-limited.
+   dummy-vertex chains for edges spanning more than one layer, budget-limited, over the
+   **distinct** arc list the reference's `set` gives.
 3. **`ordering`** — crossing reduction: median heuristic + transpose, with an iteration
    and transpose-round throttle (Gansner, Koutsofios, North & Vo, "A Technique for
    Drawing Directed Graphs", 1993 — the `dot` algorithm), counted exactly via bilayer
@@ -21,6 +26,11 @@ stages, one module each:
 4. **`coords`** — X assignment: the priority method (Sugiyama, Tagawa & Toda, "Methods
    for Visual Understanding of Hierarchical System Structures", 1981).
 5. **`routing`** — geometry: node points, edge polylines through their dummy chains.
+6. **`scaled`** — the same six stages again, with SciGraphs' per-axis normalisation
+   (`hierarchical.py:679-685`) instead of `routing`'s own units. Not a seventh stage: the
+   entry point `sugiyama::run_scaled(topology, scale)` runs stage for stage what
+   `sugiyama::run` runs and differs only in the last step. `layout.dag.sugiyama` keeps
+   `run`, because the dagre differential measures its units.
 
 Dense-index tie-breaks are used everywhere ties can occur (FAS candidate order, layer
 compression, ordering initialization, median ties, priority-move ties), per the
@@ -32,16 +42,14 @@ The four approximate stages each carry a `Ponytail:` doc comment in their module
 on the exact bilayer-crossing counter or the exact longest-path/slack-reduction code,
 which are not heuristics):
 
-- **`acyclic.rs`** — greedy FAS is a heuristic, not a minimum feedback-arc-set solver.
-  Failing input: an adversarial tournament graph where this local peeling order cannot
-  reach the true minimum. Direction: more edges reversed than strictly necessary —
-  cosmetic (each one notes `dag.edge_reversed`), never a wrong graph, since a reversed
-  edge is drawn head to tail, not dropped.
+- **`acyclic.rs`** — cycle breaking is a heuristic, not a minimum feedback-arc-set solver.
+  Failing input: an adversarial tournament graph where the chosen order cannot reach the
+  true minimum. Direction: more edges reversed than strictly necessary — cosmetic (each
+  one notes `dag.edge_reversed`), never a wrong graph, since a reversed edge is drawn head
+  to tail, not dropped.
 - **`layering.rs`** (on `Layering::build`'s budget) — `DUMMY_BUDGET` (200,000,
   `hierarchical.py:7`) is a resource cap, not a correctness rule; over budget the
   longest-span arcs draw straight and note `dag.dummy_budget_exceeded`, never silently.
-- **`layering.rs`** (on `assign_layers`) — parallel edges are kept separate rather than
-  deduped like the reference's `(u, v)` set; see "Parallel-edge deviation" below.
 - **`ordering.rs`** — median+transpose is a local search, not a minimum-crossing solver
   (the crossing count itself is exact, computed by an accumulator-tree/Fenwick
   bilayer counter). Failing input: a layer whose optimum needs a non-adjacent swap this
@@ -56,19 +64,52 @@ which are not heuristics):
 
 ## Deviations
 
-### Parallel edges are not deduped
+### Parallel edges are deduped, as the reference's arc set is (repaired 2026-10-02)
 
-The reference collapses layering to a `(u, v)` edge set before computing dummy chains;
-this port keeps every parallel arc as its own entry through `layering::assign_layers`
-and `budget_plan`, so a multigraph with `k` parallel edges between the same two
-far-apart layers gets `k` independent dummy chains instead of one shared chain. This
-costs more dummy budget on a multigraph and nothing else: geometry is still correct
-(every edge still routes tail to head through its own chain), determinism is unaffected
-(dense-index order over edges, not deduped pairs), and no fixture here is dense enough
-in parallel edges for the budget difference to matter. Marked Ponytail-adjacent in
-`layering.rs`'s `assign_layers` doc rather than fixed, since fixing it would mean
-building and threading a `(u, v) -> Vec<edge>` map through the whole layering stage for
-a cosmetic budget saving no test here needs.
+**Superseded by the SciGraphs conformance job `sg-sugiyama`.** The deviation recorded here
+was that the reference collapses layering to a `(u, v)` edge set before computing dummy
+chains (`hierarchical.py:306`: `arcs = set()`) while this port kept every parallel arc as
+its own entry. That was not cosmetic. A parallel edge doubled a neighbour's degree, shifted
+the median `_reduce_slack` slides toward, added a second entry to `up`/`down` — so it moved
+the layer index, the per-layer order and X — and built a second dummy chain.
+
+`Arcs::distinct()` (`acyclic.rs`) is the reference's own list now: every distinct non-loop
+`(tail, head)` pair, once, ascending. `layering::assign_layers`, `layering::budget_plan` and
+`layering::materialize` are built over it. `Route` stays **per edge**, so every parallel
+edge is still drawn — through the one chain they now share, which is what drawing `k`
+parallel edges through one arc means.
+
+The measurement is in `docs/measurements/sg-sugiyama.md`: the per-stage diff against
+`hierarchical.py`'s own functions found this as the second of two causes in stage one, on
+every gate fixture, and the row went from `shape`/`algorithm` 349/1020 `f32` to
+`tolerance`/`arithmetic` **1020/1020**.
+
+### Cycle breaking is by node order, not by the greedy feedback-arc-set (repaired 2026-10-02)
+
+**Also superseded by `sg-sugiyama`, and the first of the two causes.** `_acyclic_arcs`
+reads `_greedy_fas_order(G) if G.is_directed() else list(G.nodes())`
+(`hierarchical.py:304`), and `scigraphs_core/mesh/layouts/common.py:238` builds
+`nx.Graph()` — **undirected** — for every layout. The graph `apply_graph_layout` hands the
+sugiyama pipeline therefore never reaches the greedy branch: the vertex sequence is
+`list(G.nodes())`, the node listing, which under the conformance fixture contract
+(`conformance/fixtures.rs`) is ascending dense index.
+
+`acyclic::ArcOrder` names both orders and `Acyclic::of` takes `NodeIndex`. `ArcOrder::Feedback`
+is kept, not deleted: it is the port of `_greedy_fas_order`, its dense-index tie-break is
+what D4 requires, and it is pinned by
+`the_greedy_feedback_order_is_the_other_branch_and_reverses_more` in
+`acyclic/tests.rs`. `Acyclic::oriented` is the seam if the pipeline is ever handed a real
+digraph.
+
+Cycle breaking is unchanged in kind: `NodeIndex` is still a total order, so every edge whose
+source sorts after its target is reversed rather than dropped, and `dag.edge_reversed`
+(note 5) is emitted for each. It reverses *more* edges than a greedy peel would, which is
+cosmetic.
+
+**`registry/grid.rs`'s `SUGIYAMA` metadata now overstates this.** Its `ponytail` field still
+says "Ponytail (FAS): greedy, not minimum" and its `oracle` field says "acyclic after FAS".
+That file was outside the repair job's envelope and is left for the job that owns it; the
+same paragraph is in `docs/measurements/sg-sugiyama.md`.
 
 ### Disconnected components need no virtual root
 

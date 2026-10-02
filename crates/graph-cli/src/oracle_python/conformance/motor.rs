@@ -1,19 +1,21 @@
 //! Running one motor layout the way SciGraphs would run its reference: the registered
-//! default for almost every id, and a deliberate override for the three where the registered
-//! default is not SciGraphs' parameter.
+//! default for almost every id, and a deliberate override for the four where the registered
+//! default is not SciGraphs' parameter or not SciGraphs' units.
 //!
-//! **Three overrides, and each is a whole row.** `CIRCLE_PACKING`'s registered budget is 500
+//! **Four overrides, and each is a whole row.** `CIRCLE_PACKING`'s registered budget is 500
 //! radius-solver sweeps where `apply_graph_layout` passes 50; `FORCEATLAS2`'s is 100 where
 //! the dispatcher passes 50 into `ForceSim`; `GRAPHVIZ_SFDP` registers `run`, whose
-//! `DEFAULT_SEED` is 1, where the engine is handed `start = get_layout_seed()`. Every other
-//! id either takes no parameter or its registered default already **is** the reference's —
+//! `DEFAULT_SEED` is 1, where the engine is handed `start = get_layout_seed()`;
+//! `layout.dag.sugiyama` draws in the priority method's own units and `layer *
+//! LAYER_SPACING`, where the reference maps each axis onto `[-scale, scale]`. Every other id
+//! either takes no parameter or its registered default already **is** the reference's —
 //! the igraph family being the surprising half: `_igraph_davidson_harel` ignores the
 //! dispatcher's `iterations` and uses igraph's `maxiter=10`, which is our `DhParams` default
 //! too (`igraph_layouts.py:117-118`, `davidson_harel.rs:44`).
 //!
-//! Nothing here normalises a coordinate. What the layout returns is what goes into the
-//! `.f64` file, and every parameter the motor could not be given is a `Gap` in
-//! [`super::rows`], not a number fudged to match.
+//! Apart from that one layout's axes, nothing here normalises a coordinate. What the layout
+//! returns is what goes into the `.f64` file, and every parameter the motor could not be
+//! given is a `Gap` in [`super::rows`], not a number fudged to match.
 
 use super::fixtures::Fixture;
 use super::{ITERATIONS, LAYOUT_SEED, SCALE};
