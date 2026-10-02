@@ -15,35 +15,36 @@
 // gm_seed_ingest_n; only bench mode uses --n. The two row shapes are
 //   layout.force.barnes_hut seed 0 ranks 2 <sha256-hex> equal
 //   layout.force.barnes_hut seed 0 ranks 2 <sha256-hex> MISMATCH(serial=<sha256-hex>)
-// --break withholds one rank's contribution to the gather: a run that still agreed under it
-// would prove the gather is never read, so the rows must read MISMATCH and the mode exits 1.
+// --break withholds one rank's contribution to the gather. Nothing here knows that flag
+// changed the expected answer: the same comparison runs, every cell then reads MISMATCH, and
+// MISMATCH is a failed claim, so the mode exits 1 — the control asserting the gather is read.
 // Exit codes follow graph-cli: 0 every checked claim held · 1 a claim failed · 2 could not run.
 
 import { readFile } from "node:fs/promises";
-import { createHash } from "node:crypto";
 import { Worker } from "node:worker_threads";
 import { resolve } from "node:path";
+import { openSerial, serialHash } from "./wasm-replicas/worker.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const DEFAULT_WASM = resolve(ROOT, "target", "wasm-replicas", "wasm32-unknown-unknown", "release", "graph_wasm.wasm");
 const DEFAULT_SERIAL = resolve(ROOT, "target", "wasm32-unknown-unknown", "release", "graph_wasm.wasm");
 const WORKER_URL = new URL("./wasm-replicas/worker.mjs", import.meta.url);
 
-/// Bytes per node the shared column SAB must hold, which is how the plan's model (b) sizes
-/// it. Sized to spec rather than warned about: an undersized SAB refuses the gather instead
-/// of withholding one rank's slice, which would make the negative control test the wrong thing.
+/// Bytes per node the shared column SAB must hold, which is how the plan's model (b) sizes it.
+/// Sized to spec rather than warned about: an undersized SAB refuses the gather instead of
+/// withholding one rank's slice, which would make the negative control test the wrong thing.
 const SAB_BYTES_PER_NODE = 64;
 
-/// The ranks a run may name: 1 (the arm under test), 2 and 4 (even splits), 3 and 7 (ragged remainder).
+/// The ranks a run may name: 1 (the arm under test), 2 and 4 (even splits), 3 and 7 (ragged).
 const ALLOWED_RANKS = [1, 2, 3, 4, 7];
 
 /// Node count of the model gm_seed_ingest(seed) builds, so a hash-mode cell sizes its SAB for the model ingested.
 const seedNodeCount = (seed) => 2 + (seed % 600);
 
-/// Workers still running: one rank's failure has to stop the rest, not leave the survivors parked forever.
+/// Workers still running: one rank's failure has to stop the rest, not leave survivors parked.
 const liveWorkers = new Set();
 
-/// Checked claims that failed; any is exit 1. Counted, not exited on: the rest of the grid says how wrong.
+/// Checked claims that failed; any is exit 1. Counted, not exited on: the grid says how wrong.
 let failures = 0;
 
 /// Three kinds of failure because the exit code IS the report. An unhandled throw would say
@@ -52,7 +53,7 @@ class CouldNotRun extends Error {}
 class UsageError extends CouldNotRun {}
 class CheckFailed extends Error {}
 
-/// Throw rather than exit, so the one catch at the bottom is the only place that decides an exit code.
+/// Throw rather than exit, so the one catch at the bottom is the only place that decides a code.
 function fail(message) {
   throw new CouldNotRun(message);
 }
@@ -82,7 +83,7 @@ const forceLayoutName = (short) => (short.startsWith("layout.") ? short : `layou
 function parseArgs(argv) {
   const plan = {
     mode: null, wasm: DEFAULT_WASM, serial: DEFAULT_SERIAL, seeds: 8, ranks: [...ALLOWED_RANKS],
-    layouts: ["barnes_hut", "particle_mesh"], sizes: [100000], repeat: 3, breakLastRank: false,
+    layouts: ["barnes_hut", "particle_mesh"].map(forceLayoutName), sizes: [100000], repeat: 3, breakLastRank: false,
   };
   for (let i = 0; i < argv.length; i += 1) {
     const flag = argv[i];
@@ -124,60 +125,6 @@ async function readArtifact(path, flag) {
   }
 }
 
-// ------------------------------------------------------------------ serial reference arm
-let serialExports = null;
-let serialLayouts = null;
-const serialHashes = new Map();
-
-/// The serial artifact is the ordinary build and must import nothing: one that imported the
-/// host all-gather hook would be waiting on a host that never answers.
-async function openSerial(path) {
-  const module = await WebAssembly.compile(await readArtifact(path, "--serial"));
-  const imports = WebAssembly.Module.imports(module);
-  if (imports.length !== 0) fail(`serial artifact imports ${imports.map((i) => i.name).join(", ")}`);
-  ({ exports: serialExports } = await WebAssembly.instantiate(module, {}));
-}
-
-function serialFramed(ptr) {
-  if (ptr === 0) fail(`serial export returned 0 (gm_last_error ${serialExports.gm_last_error()})`);
-  const len = new DataView(serialExports.memory.buffer).getUint32(ptr, true);
-  return new Uint8Array(serialExports.memory.buffer, ptr + 4, len).slice();
-}
-
-/// name -> registry index from the serial module's own registry (C1), never an index frozen here.
-function serialLayoutIndex(name) {
-  if (serialLayouts === null) {
-    const decode = new TextDecoder("utf-8", { fatal: true });
-    serialLayouts = new Map();
-    const total = serialExports.gm_layout_count();
-    for (let i = 0; i < total; i += 1) serialLayouts.set(decode.decode(serialFramed(serialExports.gm_layout_id(i))), i);
-  }
-  const index = serialLayouts.get(name);
-  if (index === undefined) fail(`serial artifact has no registered layout named ${name}`);
-  return index;
-}
-
-/// The reference digest for one (seed, layout): the serial build's own hash of the same model,
-/// cached because the grid runs each cell once per rank count.
-function serialHash(seed, layout) {
-  const key = `${seed}|${layout}`;
-  if (serialHashes.has(key)) return serialHashes.get(key);
-  const index = serialLayoutIndex(layout);
-  const ingest = serialFramed(serialExports.gm_seed_ingest(seed));
-  const ptr = serialExports.gm_alloc(ingest.length);
-  if (ptr === 0) fail(`serial gm_alloc refused ${ingest.length} bytes (seed ${seed})`);
-  new Uint8Array(serialExports.memory.buffer, ptr, ingest.length).set(ingest);
-  const handle = serialExports.gm_build(ptr, ingest.length);
-  serialExports.gm_free(ptr, ingest.length);
-  if (handle === 0) fail(`serial gm_build refused (seed ${seed}, gm_last_error ${serialExports.gm_last_error()})`);
-  const ok = serialExports.gm_run(handle, index, 0, 0);
-  if (ok !== 1) fail(`serial gm_run refused (seed ${seed}, ${layout}, gm_last_error ${serialExports.gm_last_error()})`);
-  const digest = createHash("sha256").update(serialFramed(serialExports.gm_snapshot_bytes(handle))).digest("hex");
-  serialExports.gm_release(handle);
-  serialHashes.set(key, digest);
-  return digest;
-}
-
 // --------------------------------------------------------------------- the replicated arm
 /// Stop every rank still running, called when one fails: the survivors are parked in the
 /// barrier the failed rank will never reach, so leaving them alive hangs the mode.
@@ -205,12 +152,23 @@ function collectReport(worker) {
       liveWorkers.delete(worker);
       finish(value);
     };
+    /// A rank that stops reporting takes the others down with it — they are parked in a
+    /// barrier it will never reach. Guarded on `settled`: once this rank has reported, its
+    /// exit is the normal end of a rank, and tearing the still-reporting ranks down then
+    /// would invent a failure out of the fastest rank finishing first.
+    const died = (error) => {
+      if (settled) return;
+      stopAllWorkers();
+      settle(rejectReport, error);
+    };
     worker.on("message", (msg) => {
       if (msg.error === undefined) settle(resolveReport, msg);
-      else { stopAllWorkers(); settle(rejectReport, new CheckFailed(msg.error)); }
+      // `setup` is the rank saying "you asked for something that does not exist", which is
+      // could-not-run; anything else it refused is a claim this run failed to establish.
+      else died(msg.setup === true ? new CouldNotRun(msg.error) : new CheckFailed(msg.error));
     });
-    worker.on("error", (e) => { stopAllWorkers(); settle(rejectReport, new CouldNotRun(`rank worker: ${e.message}`)); });
-    worker.on("exit", (code) => { stopAllWorkers(); settle(rejectReport, new CouldNotRun(`rank worker exited (code ${code}) silently`)); });
+    worker.on("error", (e) => died(new CouldNotRun(`rank worker: ${e.message}`)));
+    worker.on("exit", (code) => died(new CouldNotRun(`rank worker exited (code ${code}) silently`)));
   });
 }
 
@@ -249,13 +207,15 @@ async function hashMode(plan) {
         cells += 1;
         if (slowest.ms > peak.ms) peak = { ms: slowest.ms, gatherMs: slowest.gatherMs, ranks };
         lines.push(`${layout} seed ${seed} ranks ${ranks} ${rankZero.hash} ${equal ? "equal" : `MISMATCH(serial=${reference})`}\n`);
-        // --break asserts the opposite, so an agreement there is the failure, not a pass.
-        if (equal === plan.breakLastRank) {
-          checkFailed(`${layout} seed ${seed} ranks ${ranks}: rank 0 ${equal ? "equals" : "differs from"} the serial hash ${reference}`);
-        }
-        // Stronger than the serial comparison: the ranks must agree with EACH OTHER, which the
-        // serial hash alone would not catch if the serial model moved with them.
-        if (!plan.breakLastRank && new Set(reports.map((report) => report.hash)).size !== 1) {
+        // One rule, both modes: rank 0 must equal the serial build. Under --break it does
+        // not, every cell fails, and the mode exits 1 — the control asserting that the
+        // gather is read at all by making the ordinary check go red.
+        if (!equal) checkFailed(`${layout} seed ${seed} ranks ${ranks}: rank 0 differs from the serial hash ${reference}`);
+        // Stronger than the serial comparison, and it holds under --break too: every rank
+        // reads back the same shared column, so a withheld rank makes them all wrong in the
+        // same way rather than making them disagree. What --break must break is the serial
+        // comparison, not this one.
+        if (new Set(reports.map((report) => report.hash)).size !== 1) {
           checkFailed(`${layout} seed ${seed} ranks ${ranks}: the ranks disagree with each other`);
         }
       }
@@ -264,6 +224,7 @@ async function hashMode(plan) {
   process.stdout.write(lines.join(""));
   process.stderr.write(`wasm-replicas: hash: ${cells} cells, ${failures} failed, slowest cell ${peak.ms.toFixed(2)} ms`
     + ` (${peak.gatherMs.toFixed(2)} ms gathering, ranks ${peak.ranks})\n`);
+  process.stderr.write(`wasm-replicas: hash: --break ${plan.breakLastRank ? "ON" : "off"}, so ${failures === 0 ? "the run agrees" : "the run disagrees"}\n`);
 }
 
 // --------------------------------------------------------------------------- bench mode
@@ -318,6 +279,7 @@ async function benchMode(plan) {
   }
   lines.push(`\nloadavg start: ${loadStart}\nloadavg end: ${await loadavg()}\n`, `cells ran: ${ran.join("; ")}\n`);
   if (!plan.ranks.includes(1)) lines.push("no ranks-1 cell requested, so the speedup column is unmeasured\n");
+  if (plan.breakLastRank) lines.push("--break is a hash-mode control; these cells ran without it\n");
   process.stdout.write(lines.join(""));
 }
 

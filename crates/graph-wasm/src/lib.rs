@@ -170,6 +170,8 @@ mod handle;
 mod ingest;
 mod memory_measure;
 pub mod post;
+#[cfg(feature = "replicas")]
+mod replica;
 #[cfg(any(test, target_arch = "wasm32"))]
 mod seed_ingest;
 #[cfg(any(test, target_arch = "wasm32"))]

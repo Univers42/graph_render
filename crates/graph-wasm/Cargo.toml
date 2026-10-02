@@ -16,6 +16,12 @@ crate-type = ["cdylib", "rlib"]
 [features]
 # Exports `gm_probe` from the wasm module, for `graph-cli determinism-probe` only.
 probe = []
+# Model (b) of the browser-thread plan (`prompts/perf-plan.md` P3): `gm_run_replica` and
+# `gm_seed_ingest_n`, plus one host import (`env.gm_host_allgather`). Off by default because
+# it is the only build of this crate that imports anything, and the shipped `graph_wasm.wasm`
+# must import nothing (`harness/wasm-run.mjs`, the SDK's `refuseImports`). Build it with
+# `--target-dir target/wasm-replicas` so the default artifact cannot be overwritten by it.
+replicas = []
 
 [dependencies]
 graph-core = { path = "../graph-core" }

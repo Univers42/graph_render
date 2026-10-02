@@ -23,4 +23,7 @@ mod build;
 mod columns;
 mod session;
 mod stages;
-mod state;
+// `pub(crate)` rather than private for the one extra reader `crate::replica` is: the
+// `replicas` feature's `gm_run_replica` runs *a handle out of this same table*, so the
+// table and the framed out-buffer have to be the same two values, not a second copy.
+pub(crate) mod state;
