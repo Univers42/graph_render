@@ -39,7 +39,11 @@ fn live_edge(g: &Fast, tail: u32, head: u32) -> u32 {
         .filter(|(_, e)| e.live && e.tail == tail && e.head == head)
         .map(|(i, _)| i as u32)
         .collect();
-    assert_eq!(found.len(), 1, "exactly one live {tail} -> {head} in {found:?}");
+    assert_eq!(
+        found.len(),
+        1,
+        "exactly one live {tail} -> {head} in {found:?}"
+    );
     found[0]
 }
 
@@ -63,7 +67,10 @@ fn a_two_cycle_collapses_to_one_merged_edge() {
     break_cycles(&mut g);
     assert_eq!(directions(&g), vec![(0, 1)]);
     let survivor = live_edge(&g, 0, 1);
-    assert_eq!(g.edges[survivor as usize].weight, 2, "the two declared weights add");
+    assert_eq!(
+        g.edges[survivor as usize].weight, 2,
+        "the two declared weights add"
+    );
     assert_eq!(g.edges[survivor as usize].count, 2, "and so do the counts");
 }
 
@@ -186,7 +193,11 @@ fn reversing_onto_an_existing_reverse_merges_the_two() {
         "the reversed edge is unhooked"
     );
     let survivor = live_edge(&g, 0, 1);
-    assert_eq!(g.edges[survivor as usize].weight, first * 2, "the weights add");
+    assert_eq!(
+        g.edges[survivor as usize].weight,
+        first * 2,
+        "the weights add"
+    );
 }
 
 /// `class1` gives each input edge a copy in the fast graph and leaves the input record out

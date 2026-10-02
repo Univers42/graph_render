@@ -57,18 +57,26 @@ fn ranked(count: u32, edges: &[(u32, u32)]) -> Vec<i32> {
     ranks_of(&g)
 }
 
+/// One closed case: a name, the input edges, and the rank the oracle gave every node.
+type Closed = (&'static str, &'static [(u32, u32)], &'static [i32]);
+
 /// The six closed cases, in the order `docs/measurements/p13-gv2-dot.md` lists them, each
 /// with the node's rank derived from the y coordinate `dot -Tplain` printed for it.
 ///
-/// The 4-cycle is the one that discriminates: `acyclic` must reverse `n3 -> n0`, which puts
-/// `n3` on rank 0 and `n0` on rank 3, so a port that broke the cycle the other way round —
-/// or that numbered the ranks from the top — disagrees on both ends of it.
-const CLOSED: &[(&str, &[(u32, u32)], &[i32])] = &[
+/// **Read the ranks top-down: the largest y is rank 0.** The 4-cycle is the case that
+/// discriminates — `acyclic` must reverse `n3 -> n0`, which puts `n3` on rank 3 and `n0` on
+/// rank 0, so a port that broke the cycle the other way round, or that kept the y coordinate
+/// instead of inverting it, disagrees on both ends of it.
+const CLOSED: &[Closed] = &[
     ("one node", &[], &[0]),
     ("two nodes", &[(0, 1)], &[0, 1]),
     ("3-path", &[(0, 1), (1, 2)], &[0, 1, 2]),
     ("4-cycle", &[(0, 1), (1, 2), (2, 3), (3, 0)], &[0, 1, 2, 3]),
-    ("5-star", &[(0, 1), (0, 2), (0, 3), (0, 4)], &[0, 1, 1, 1, 1]),
+    (
+        "5-star",
+        &[(0, 1), (0, 2), (0, 3), (0, 4)],
+        &[0, 1, 1, 1, 1],
+    ),
     (
         "6-branch",
         &[(0, 1), (0, 2), (0, 3), (1, 4), (4, 5)],
@@ -124,10 +132,7 @@ const FIXTURES: &[(u32, &[i32])] = &[
     (13, &[3, 2, 2, 1, 2, 2, 2, 1, 1, 1, 2, 1, 0, 2, 1]),
     (14, &[4, 3, 3, 3, 2, 3, 3, 3, 2, 2, 2, 1, 1, 0, 1, 2]),
     (15, &[3, 2, 2, 2, 2, 2, 1, 1, 1, 2, 1, 0, 2, 1, 1, 0, 1]),
-    (
-        16,
-        &[4, 3, 3, 2, 3, 3, 3, 2, 2, 2, 1, 1, 0, 2, 1, 1, 2, 1],
-    ),
+    (16, &[4, 3, 3, 2, 3, 3, 3, 2, 2, 2, 1, 1, 0, 2, 1, 1, 2, 1]),
     (
         17,
         &[3, 2, 2, 2, 1, 1, 1, 1, 2, 1, 0, 2, 0, 1, 0, 1, 0, 1, 0],
@@ -201,7 +206,11 @@ fn class2_chains_a_long_edge() {
     assert_eq!(ranks_of(&g), vec![0, 1, 2, 3]);
     let before = g.nodes.len() as u32;
     class2::run(&mut g);
-    assert_eq!(g.nodes.len() as u32 - before, 2, "one dummy per intervening rank");
+    assert_eq!(
+        g.nodes.len() as u32 - before,
+        2,
+        "one dummy per intervening rank"
+    );
     let dummies: Vec<u32> = (before..g.nodes.len() as u32).collect();
     let ranks: Vec<i32> = dummies.iter().map(|&n| g.nodes[n as usize].rank).collect();
     assert_eq!(ranks, vec![1, 2], "on the ranks between the ends");
@@ -231,7 +240,10 @@ fn an_edge_with_its_ends_on_one_rank_is_flat() {
     assert_eq!(g.nodes.len(), 2, "a flat edge gets no dummies");
     assert_eq!(g.nodes[0].flat_out, vec![0]);
     assert_eq!(g.nodes[1].flat_in, vec![0]);
-    assert!(g.out.iter().all(|list| list.is_empty()), "and no chain link");
+    assert!(
+        g.out.iter().all(|list| list.is_empty()),
+        "and no chain link"
+    );
 }
 
 /// A dummy is a `nodesep`-wide placeholder: one point plus `nodesep / 2` on each side
@@ -258,8 +270,8 @@ fn virtual_weight_scales_a_link_by_its_endpoint_classes() {
     let mut g = graph(4, &[(0, 1), (1, 2), (2, 3), (0, 3)]);
     rank(&mut g).expect("connected after cycle breaking");
     class2::run(&mut g);
-    let low = g.inn[4 as usize][0];
-    let high = g.out[4 as usize][0];
+    let low = g.inn[4][0];
+    let high = g.out[4][0];
     assert_eq!(g.edges[low as usize].weight, 1, "real node to dummy");
     assert_eq!(g.edges[high as usize].weight, 4, "dummy to dummy");
 }
@@ -283,10 +295,12 @@ fn class2_merges_parallel_edges_into_one_chain() {
         "one pair of dummies for the pair of parallel edges"
     );
     let middle = g.out[4][0];
-    assert_eq!(g.edges[middle as usize].count, 2, "both input edges counted");
     assert_eq!(
-        g.edges[middle as usize].weight,
-        5,
+        g.edges[middle as usize].count, 2,
+        "both input edges counted"
+    );
+    assert_eq!(
+        g.edges[middle as usize].weight, 5,
         "the link's own four, plus the twin's one"
     );
 }
@@ -307,25 +321,29 @@ struct OracleRow {
 /// `python3 target/probe/rank_oracle.py --digest target/probe/rank1000.txt` inside
 /// `ge-graphviz-oracle`, from the same fixture set as the twenty seeds above.
 fn oracle_digest() -> Vec<OracleRow> {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../target/probe/rank1000.txt");
+    let path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/probe/rank1000.txt");
     let Ok(text) = std::fs::read_to_string(&path) else {
-        panic!("{} is missing; see this module's doc for the command that writes it", path.display());
+        panic!(
+            "{} is missing; see this module's doc for the command that writes it",
+            path.display()
+        );
     };
     let mut rows = Vec::new();
     for line in text.lines().filter(|l| !l.starts_with('#')) {
         let mut fields = line.split_whitespace();
         let seed: u32 = fields.next().expect("a seed").parse().expect("a seed");
-        let count: usize = fields.next().expect("a node count").parse().expect("a count");
+        let count: usize = fields
+            .next()
+            .expect("a node count")
+            .parse()
+            .expect("a count");
         let rest: Vec<&str> = fields.collect();
         let edges: Vec<(u32, u32)> = rest[..rest.len() - count]
             .iter()
             .map(|pair| {
                 let (tail, head) = pair.split_once(',').expect("a tail,head pair");
-                (
-                    tail.parse().expect("a tail"),
-                    head.parse().expect("a head"),
-                )
+                (tail.parse().expect("a tail"), head.parse().expect("a head"))
             })
             .collect();
         let ranks: Vec<i32> = rest[rest.len() - count..]
@@ -416,7 +434,3 @@ fn acyclic_edges(count: u32, edges: &[(u32, u32)]) -> Vec<(u32, u32, i64)> {
         .map(|e| (e.tail, e.head, i64::from(e.weight)))
         .collect()
 }
-
-
-
-

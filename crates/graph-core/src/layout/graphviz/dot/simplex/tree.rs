@@ -1,43 +1,32 @@
-//! `feasible_tree` (`ns.c:622-672`) and the two searches it is built from: the maximal
-//! tight subtree under a seed (`ns.c:331-417`) and the minimum-slack edge leaving one
-//! (`ns.c:454-530`).
+//! `feasible_tree` (`ns.c:622-672`): the phase-0 simplex warm start, and the walk that
+//! finds the edge to join two tight subtrees with.
 //!
 //! The pass is a phase-0 simplex warm start, so it produces a *feasible* ranking without
 //! pivoting: a spanning tree whose every edge is tight (`LENGTH(e) == ED_minlen(e)`). It
 //! is built in two moves. First every maximal tight subtree is collected in one sweep —
-//! the graph may arrive as many small ones, because `init_rank`'s longest-path ranking
-//! leaves slack on most edges. Then the smallest is merged into its neighbour through the
-//! minimum-slack edge between them, sliding that whole subtree by the slack, until one
-//! tree is left.
+//! `tight::grow_tight` from each unclaimed node of `nlist` — and the graph may arrive as
+//! many small ones, because `init_rank`'s longest-path ranking leaves slack on most edges.
+//! Then the smallest is merged into its neighbour through the minimum-slack edge between
+//! them, sliding that whole subtree by the slack, until one tree is left.
 //!
 //! Smallest first is what makes it deterministic: the order the subtrees are merged in is
-//! the order the reference's heap hands them out, and the tight tree it reaches is the tree
+//! the order `subtree`'s heap hands them out, and the tight tree it reaches is the tree
 //! `init_cutvalues` and the pivot loop then walk.
 //!
-//! Determinism: the subtree sweep walks in-edges before out-edges on each node and each
-//! list in insertion order, the inter-tree walk follows the reference's own stack order,
-//! and the heap is a plain binary min-heap over an array compared on the subtree size.
+//! **`extract_min` returns a slot, not a heap position.** The reference's `STextractmin`
+//! returns a pointer; here the subtree is identified by its slot in `trees`, and the slot
+//! is not the position it was extracted from once the heap has permuted. Returning the
+//! position instead picks the wrong subtree, which slides the wrong ranks and quietly leaves
+//! the ranking infeasible.
+//!
+//! Determinism: the subtree sweep walks in-edges before out-edges on each node and each list
+//! in insertion order, the inter-tree walk follows the reference's own stack order, and the
+//! heap is a plain binary min-heap over an array compared on the subtree size.
 
 use super::super::fast::Fast;
-use super::subtree::{self, Subtree, NO_TREE};
+use super::subtree::{self, Subtree};
+use super::tight;
 use super::{init_cutvalues, Ctx, Error};
-
-/// One frame of the tight-subtree sweep: a node and the two adjacency slots it has yet to
-/// read. The reference keeps the same three numbers in its `tst_t`.
-#[derive(Clone, Copy)]
-struct Frame {
-    node: u32,
-    in_at: usize,
-    out_at: usize,
-}
-
-/// The one tight edge a frame takes next, and the side it came from. The two sides keep
-/// separate cursors, which is why this carries the side rather than just the edge.
-struct Step {
-    edge: u32,
-    other: u32,
-    from_in: bool,
-}
 
 /// One frame of the inter-tree walk: a node, the subtree it belongs to, and the node it was
 /// reached from. `from` is what stops the walk stepping back over the edge it arrived by;
@@ -74,7 +63,7 @@ pub fn add_tree_edge(g: &mut Fast, ctx: &mut Ctx, edge: u32) -> Result<(), Error
 pub fn feasible_tree(g: &mut Fast, ctx: &mut Ctx, nodes: &[u32]) -> Result<(), Error> {
     let mut trees: Vec<Subtree> = Vec::with_capacity(nodes.len());
     for &n in nodes {
-        if g.nodes[n as usize].subtree != NO_TREE {
+        if g.nodes[n as usize].subtree != subtree::NO_TREE {
             continue;
         }
         let slot = trees.len();
@@ -84,7 +73,7 @@ pub fn feasible_tree(g: &mut Fast, ctx: &mut Ctx, nodes: &[u32]) -> Result<(), E
             par: slot,
             heap_index: None,
         });
-        trees[slot].size = grow_tight(g, ctx, n, slot)?;
+        trees[slot].size = tight::grow_tight(g, ctx, n, slot)?;
     }
     let mut size = trees.len();
     let mut heap: Vec<usize> = (0..size).collect();
@@ -107,191 +96,14 @@ pub fn feasible_tree(g: &mut Fast, ctx: &mut Ctx, nodes: &[u32]) -> Result<(), E
     Ok(())
 }
 
-/// The simplex's own invariants, checked under `cfg(test)` after every `feasible_tree`: the
-/// ranking is feasible, the spanning tree's edges are tight, every cut value equals the one
-/// recomputed from scratch, and every node's parent edge is one hop nearer the root.
-///
-/// A pivot that breaks any of those leaves a ranking that is still *feasible* and still
-/// self-consistent, and therefore wrong without being obviously wrong: the objective stops
-/// improving and the ranks drift. Two of the bugs this pass was written with were exactly
-/// that, and neither showed up in any coordinate.
-#[cfg(test)]
-pub(crate) fn check_invariants(g: &Fast, nodes: &[u32], ctx: &Ctx, when: &str) {
-    // The tree must be a tree: `n - 1` edges, no cycle, every node reached. Without this the
-    // cut-value check below is vacuous — a cyclic edge set makes the tail side of every
-    // edge "everything", so every cut value reads zero and agrees with itself.
-    let mut parent: Vec<usize> = (0..g.nodes.len()).collect();
-    fn root(p: &mut Vec<usize>, mut at: usize) -> usize {
-        while p[at] != at {
-            at = p[at];
-        }
-        at
-    }
-    assert_eq!(ctx.tree_edge.len(), nodes.len() - 1, "tree edge count {when}");
-    for &edge in &ctx.tree_edge {
-        let t = g.edges[edge as usize].tail as usize;
-        let h = g.edges[edge as usize].head as usize;
-        let (a, b) = (root(&mut parent, t), root(&mut parent, h));
-        assert_ne!(a, b, "tree edge {edge} makes a cycle {when}");
-        parent[a] = b;
-    }
-    let first = root(&mut parent, nodes[0] as usize);
-    for &n in nodes {
-        assert_eq!(root(&mut parent, n as usize), first, "node {n} unspanned {when}");
-    }
-    for &n in nodes {
-        if n != nodes[0] {
-            let parent = g.nodes[n as usize].par.expect("a parent edge");
-            let r = &g.edges[parent as usize];
-            let other = if r.head == n { r.tail } else { r.head };
-            assert!(
-                g.nodes[n as usize].lim < g.nodes[other as usize].lim,
-                "lim does not decrease from {other} to {n} ({when})"
-            );
-        }
-    }
-    for &n in nodes {
-        for &f in &g.out[n as usize] {
-            let r = &g.edges[f as usize];
-            let s = g.nodes[r.head as usize].rank - g.nodes[r.tail as usize].rank - r.minlen;
-            assert!(s >= 0, "edge {f} {}->{} slack {s} {when}", r.tail, r.head);
-        }
-    }
-    for &edge in &ctx.tree_edge {
-        let r = &g.edges[edge as usize];
-        let s = g.nodes[r.head as usize].rank - g.nodes[r.tail as usize].rank - r.minlen;
-        assert_eq!(s, 0, "tree edge {edge} is not tight {when}");
-        let side = tail_side(g, edge);
-        let mut want = 0;
-        for &n in nodes {
-            for &f in &g.out[n as usize] {
-                let r = &g.edges[f as usize];
-                if side[r.tail as usize] && !side[r.head as usize] {
-                    want += r.weight;
-                }
-            }
-            for &f in &g.inn[n as usize] {
-                let r = &g.edges[f as usize];
-                if side[r.head as usize] && !side[r.tail as usize] {
-                    want -= r.weight;
-                }
-            }
-        }
-        assert_eq!(r.cutvalue, want, "cutvalue of {edge} {when}");
-    }
-}
-
-/// The nodes still reachable from `edge`'s tail once it is removed from the tree.
-#[cfg(test)]
-fn tail_side(g: &Fast, edge: u32) -> Vec<bool> {
-    let mut side = vec![false; g.nodes.len()];
-    let mut stack = vec![g.edges[edge as usize].tail];
-    side[g.edges[edge as usize].tail as usize] = true;
-    while let Some(n) = stack.pop() {
-        for &x in &g.nodes[n as usize].tree_in {
-            let w = g.edges[x as usize].tail;
-            if x != edge && !side[w as usize] {
-                side[w as usize] = true;
-                stack.push(w);
-            }
-        }
-        for &x in &g.nodes[n as usize].tree_out {
-            let w = g.edges[x as usize].head;
-            if x != edge && !side[w as usize] {
-                side[w as usize] = true;
-                stack.push(w);
-            }
-        }
-    }
-    side
-}
-
-/// `grow_tight` = `tight_subtree_search` (`ns.c:331-404`) with `find_tight_subtree`'s
-/// bookkeeping: the maximal tight subtree under `root`, every node it reaches claimed for
-/// `slot`, and its node count, which is the heap's key.
-fn grow_tight(g: &mut Fast, ctx: &mut Ctx, root: u32, slot: usize) -> Result<usize, Error> {
-    let mut size = 0;
-    let mut stack = vec![Frame {
-        node: root,
-        in_at: 0,
-        out_at: 0,
-    }];
-    claim(g, root, slot);
-    loop {
-        let Some(frame) = stack.last().copied() else {
-            return Ok(size);
-        };
-        match next_tight(g, frame) {
-            Some(step) => {
-                add_tree_edge(g, ctx, step.edge)?;
-                claim(g, step.other, slot);
-                let at = stack.len() - 1;
-                if step.from_in {
-                    stack[at].in_at += 1;
-                } else {
-                    stack[at].out_at += 1;
-                }
-                stack.push(Frame {
-                    node: step.other,
-                    in_at: 0,
-                    out_at: 0,
-                });
-            }
-            None => {
-                stack.pop();
-                size += 1;
-            }
-        }
-    }
-}
-
-/// `ND_subtree_set(agtail(e), st)` (`ns.c:357,381`).
-fn claim(g: &mut Fast, node: u32, slot: usize) {
-    g.nodes[node as usize].subtree = i32::try_from(slot).expect("slot fits i32");
-}
-
-/// The first tight edge at or after a frame's two cursors whose far node is unclaimed:
-/// in-list first, then out-list, each in its own order. This is the body of the
-/// `tight_subtree_search` inner loop with its two `for` headers as cursors.
-fn next_tight(g: &Fast, frame: Frame) -> Option<Step> {
-    let n = frame.node as usize;
-    let mut at = frame.in_at;
-    while at < g.inn[n].len() {
-        let edge = g.inn[n][at];
-        if g.edges[edge as usize].tree_index < 0 {
-            let other = g.edges[edge as usize].tail;
-            if g.nodes[other as usize].subtree == NO_TREE && tight(g, edge) {
-                return Some(Step {
-                    edge,
-                    other,
-                    from_in: true,
-                });
-            }
-        }
-        at += 1;
-    }
-    let mut at = frame.out_at;
-    while at < g.out[n].len() {
-        let edge = g.out[n][at];
-        if g.edges[edge as usize].tree_index < 0 {
-            let other = g.edges[edge as usize].head;
-            if g.nodes[other as usize].subtree == NO_TREE && tight(g, edge) {
-                return Some(Step {
-                    edge,
-                    other,
-                    from_in: false,
-                });
-            }
-        }
-        at += 1;
-    }
-    None
-}
-
 /// `inter_tree_edge` (`ns.c:527-530`) over `inter_tree_edge_search` (`ns.c:454-525`): the
 /// minimum-slack edge leaving the tight subtree under `rep`. A tight candidate ends the
 /// search immediately, which is the reference's early exit and the reason the walk is
 /// bounded.
+///
+/// The minimum matters and is not bookkeeping: the merge slides the smaller subtree by this
+/// edge's slack, so every *other* edge crossing the same cut must have slack at least this
+/// much or the ranking stops being feasible.
 fn inter_tree_edge(g: &Fast, trees: &mut [Subtree], rep: u32) -> Option<u32> {
     let mut best: Option<u32> = None;
     let mut stack = vec![Reach {
@@ -427,12 +239,7 @@ fn tree_adjust(g: &mut Fast, v: u32, from: Option<u32>, delta: i32) {
 }
 
 /// `SLACK(e)` (`ns.c:43`): the room the edge has over its minimum.
-fn slack(g: &Fast, edge: u32) -> i32 {
+pub(super) fn slack(g: &Fast, edge: u32) -> i32 {
     let record = &g.edges[edge as usize];
     g.nodes[record.head as usize].rank - g.nodes[record.tail as usize].rank - record.minlen
-}
-
-/// `SLACK(e) == 0`, the only edges `tight_subtree_search` follows.
-fn tight(g: &Fast, edge: u32) -> bool {
-    slack(g, edge) == 0
 }

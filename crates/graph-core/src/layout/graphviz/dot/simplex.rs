@@ -16,9 +16,14 @@
 //! 2. [`init_rank`] if they do not: longest path from the sources.
 //! 3. [`tree::feasible_tree`] — a maximal tight spanning tree, built from the maximal
 //!    tight subtrees merged smallest first, then the initial cut values.
-//! 4. The pivot loop — [`pivot::leave_edge`], [`pivot::enter_edge`], [`pivot::update`] —
+//! 4. The pivot loop — [`pivot::leave_edge`], [`enter::enter_edge`], [`pivot::update`] —
 //!    until no tree edge has a negative cut value.
 //! 5. One of the three balance passes in [`balance`].
+//!
+//! The children are the reference's own split, one module per part of `ns.c`: [`tree`] and
+//! [`tight`] build the warm start, [`cutval`] and [`xval`] number the tree and turn weights
+//! into cut values, [`pivot`] and [`enter`] are the loop, [`balance`] finishes, and
+//! [`subtree`] is the union find and the heap the warm start merges through.
 //!
 //! **`balance` is a parameter, not a constant**, because `dot` runs this twice: `rank1`
 //! ranks with `TB_balance` and `dot_position` runs the same engine over its auxiliary
@@ -30,16 +35,22 @@
 
 mod balance;
 mod cutval;
+mod enter;
 mod pivot;
 mod subtree;
+mod tight;
 mod tree;
+mod xval;
+
+#[cfg(test)]
+mod checks;
 
 use std::collections::VecDeque;
 
 use super::fast::Fast;
 use cutval::init_cutvalues;
-use pivot::{enter_edge, leave_edge, update};
 use subtree::NO_TREE;
+use pivot::leave_edge;
 use tree::feasible_tree;
 
 /// `enum { SEARCHSIZE = 30 }` (`ns.c:55`), the default `leave_edge` search cut-off: how
@@ -105,6 +116,7 @@ impl Params {
 
 /// The simplex's own state: the reference's `network_simplex_ctx_t` minus the graph
 /// pointer, which every field reaches through the `Fast` the pass is handed.
+#[derive(Default)]
 pub struct Ctx {
     /// `Tree_edge`: the spanning tree's edges, in the order they joined. `leave_edge`
     /// scans this in place and rotates, and `exchange` rewrites one slot of it, so the
@@ -127,9 +139,8 @@ impl Ctx {
         Self {
             tree_edge: Vec::new(),
             s_i: 0,
-            n_nodes: 0,
-            n_edges: 0,
             search_size: SEARCH_SIZE as usize,
+            ..Self::default()
         }
     }
 }
@@ -149,7 +160,7 @@ pub fn rank2(g: &mut Fast, nodes: &[u32], params: &Params) -> Result<(), Error> 
     }
     feasible_tree(g, &mut ctx, nodes)?;
     #[cfg(test)]
-    tree::check_invariants(g, nodes, &ctx, "after feasible_tree");
+    checks::check(g, nodes, &ctx, "after feasible_tree");
     if params.maxiter <= 0 {
         balance::free_tree(g, nodes);
         return Ok(());
@@ -160,19 +171,47 @@ pub fn rank2(g: &mut Fast, nodes: &[u32], params: &Params) -> Result<(), Error> 
         // dereference it. A negative cut value always has an entering edge — that is what
         // the cut value measures — so this is the reference's implicit crash guard made
         // explicit rather than a case that can happen.
-        let Some(f) = enter_edge(g, e) else {
+        let Some(f) = enter::enter_edge(g, e) else {
             break;
         };
-        update(g, &mut ctx, e, f)?;
+        pivot::update(g, &mut ctx, e, f)?;
         iter += 1;
         #[cfg(test)]
-        tree::check_invariants(g, nodes, &ctx, "in the pivot loop");
+        checks::check(g, nodes, &ctx, "in the pivot loop");
         if iter >= params.maxiter {
             break;
         }
     }
     balance::run(g, &ctx, nodes, params.balance);
     Ok(())
+}
+
+/// The slack of an edge: the room it has over its minimum (`ns.c:43`).
+pub(super) fn slack(g: &Fast, edge: u32) -> i32 {
+    tree::slack(g, edge)
+}
+
+/// `rerank` (`ns.c:691-702`): move `v`'s whole tree subtree by `-delta`, skipping the edge
+/// each node hangs from. Shared with `LR_balance`, which is the only other caller.
+///
+/// Explicit stack, not recursion: a subtree can be the whole component, and this port does
+/// not put the reference's call depth on the machine stack. The skip is per node, so a stale
+/// `par` on any one of them would walk back up and re-visit the subtree forever.
+pub(super) fn rerank(g: &mut Fast, v: u32, delta: i32) {
+    let mut stack = vec![(v, g.nodes[v as usize].par)];
+    while let Some((node, skip)) = stack.pop() {
+        g.nodes[node as usize].rank -= delta;
+        for &edge in &g.nodes[node as usize].tree_out.clone() {
+            if Some(edge) != skip {
+                stack.push((g.edges[edge as usize].head, Some(edge)));
+            }
+        }
+        for &edge in &g.nodes[node as usize].tree_in.clone() {
+            if Some(edge) != skip {
+                stack.push((g.edges[edge as usize].tail, Some(edge)));
+            }
+        }
+    }
 }
 
 /// `init_graph` (`ns.c:890-921`): reset the per-node simplex state and report whether the

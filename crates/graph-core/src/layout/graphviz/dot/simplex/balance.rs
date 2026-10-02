@@ -80,7 +80,7 @@ fn lr_balance(g: &mut Fast, ctx: &Ctx, nodes: &[u32]) {
         if g.edges[edge as usize].cutvalue != 0 {
             continue;
         }
-        let Some(entering) = super::pivot::enter_edge(g, edge) else {
+        let Some(entering) = super::enter::enter_edge(g, edge) else {
             continue;
         };
         let delta = slack(g, entering);
@@ -90,9 +90,9 @@ fn lr_balance(g: &mut Fast, ctx: &Ctx, nodes: &[u32]) {
         let tail = g.edges[edge as usize].tail;
         let head = g.edges[edge as usize].head;
         if g.nodes[tail as usize].lim < g.nodes[head as usize].lim {
-            super::pivot::rerank(g, tail, delta / 2);
+            super::rerank(g, tail, delta / 2);
         } else {
-            super::pivot::rerank(g, head, -(delta / 2));
+            super::rerank(g, head, -(delta / 2));
         }
     }
     free_tree(g, nodes);
@@ -185,6 +185,5 @@ fn slot(rank: i32, max_rank: i32) -> usize {
 
 /// `SLACK(e)` (`ns.c:43`).
 fn slack(g: &Fast, edge: u32) -> i32 {
-    let record = &g.edges[edge as usize];
-    g.nodes[record.head as usize].rank - g.nodes[record.tail as usize].rank - record.minlen
+    super::slack(g, edge)
 }

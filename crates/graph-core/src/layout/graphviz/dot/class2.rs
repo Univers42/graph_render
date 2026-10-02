@@ -27,8 +27,8 @@
 //! reference's `prev`, which is why a multi-edge merges into its twin and not into whichever
 //! edge happens to share endpoints.
 
-use super::fast::{Fast, Kind, Node};
 use super::NODESEP;
+use super::fast::{Fast, Kind, Node};
 
 /// `table[3][3]` (`mincross.c:1706-1709`), the `virtual_weight` multiplier by endpoint class:
 /// ordinary, singleton, virtual. A virtual node is always its own class, a real node is a
@@ -77,26 +77,27 @@ fn classify(g: &mut Fast, edge: u32, prev: Option<u32>) -> Option<u32> {
         return Some(edge);
     }
     let (tail, head) = (g.edges[edge as usize].tail, g.edges[edge as usize].head);
-    if let Some(before) = prev {
-        if tail == g.edges[before as usize].tail && head == g.edges[before as usize].head {
-            if g.nodes[tail as usize].rank == g.nodes[head as usize].rank {
-                g.merge_oneway(edge, before);
-                g.other_edge(edge);
-                return None;
-            }
-            let chain = g.edges[before as usize]
-                .to_virt
-                .expect("a processed multi-edge's twin has a chain");
-            merge_chain(g, edge, chain);
+    let twin =
+        prev.filter(|&b| tail == g.edges[b as usize].tail && head == g.edges[b as usize].head);
+    if let Some(before) = twin {
+        if g.nodes[tail as usize].rank == g.nodes[head as usize].rank {
+            g.merge_oneway(edge, before);
             g.other_edge(edge);
             return None;
         }
+        let chain = g.edges[before as usize]
+            .to_virt
+            .expect("a processed multi-edge's twin has a chain");
+        merge_chain(g, edge, chain);
+        g.other_edge(edge);
+        return None;
     }
     if tail == head {
         g.other_edge(edge);
         return Some(edge);
     }
-    let (tr, hr) = (g.nodes[tail as usize].rank, g.nodes[head as usize].rank);
+    let tr = g.nodes[tail as usize].rank;
+    let hr = g.nodes[head as usize].rank;
     if tr == hr {
         g.flat_edge(edge);
         return Some(edge);

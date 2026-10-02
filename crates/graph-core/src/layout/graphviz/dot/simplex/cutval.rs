@@ -1,32 +1,27 @@
 //! `init_cutvalues` (`ns.c:299-303`) and the two depth-first walks it is built from:
 //! `dfs_range_init` / `dfs_range` (the subtree intervals every other walk tests) and
-//! `dfs_cutval` / `x_cutval` (the cut value of each tree edge).
+//! `dfs_cutval` (the cut value of each tree edge, in post-order).
 //!
 //! Each tree node carries three numbers: `par`, the tree edge it was reached from, and
 //! `low` / `lim`, the first and last depth-first index in its subtree. `SEQ(a,b,c)` —
 //! `low(v) <= lim(w) && lim(w) <= lim(v)`, `ns.c:44` — then says in one comparison whether
-//! `w` is inside `v`'s subtree, and every test in the pass (`x_val`,
-//! `dfs_enter_outedge`, `enter_edge`, `treeupdate`) is that one question. The intervals
-//! are assigned so that they *are* the answer, which is why `invalidate_path` exists: a
-//! pivot can leave a stale interval behind, and a stale interval makes the next walk
-//! wrong.
+//! `w` is inside `v`'s subtree, and every test in the pass (`x_val`, the entering-edge
+//! search, `treeupdate`) is that one question. The intervals are assigned so that they *are*
+//! the answer, which is why `invalidate_path` exists: a pivot can leave a stale interval
+//! behind, and a stale interval makes the next walk wrong.
 //!
-//! `x_val` is where weights become an objective: an edge leaving the searched side
-//! contributes `+weight`, one inside it `-weight`, and a tree edge the cut value already
-//! computed for it — which is what lets the recursion bottom out at the root with a sum
-//! over the whole subtree.
-//!
-//! Determinism: both walks are depth-first in the reference's edge order — the tree-out
-//! list then the tree-in list at each node — and every sum runs over a list in that same
-//! order, so the integer additions are fixed. Nothing here reads a clock or a hash order
-//! (`prompt.md` §6 D1-D10).
+//! Determinism: both walks are depth-first in the reference's edge order — the tree-out list
+//! then the tree-in list at each node — and the `dfs_range` reuse test is the reference's,
+//! which takes a subtree whole rather than re-descending it. Nothing here reads a clock or a
+//! hash order (`prompt.md` §6 D1-D10).
 
 use super::super::fast::Fast;
+use super::xval::cutval;
 use super::Error;
 
 /// One frame of a `dfs_range*` walk: a node, the tree edge it came from, the depth-first
 /// index its subtree starts at, and its two tree-adjacency cursors. The reference's
-/// `dfs_state_t`.
+/// `dfs_state_t` (`ns.c:1164-1169`).
 #[derive(Clone, Copy)]
 struct RangeFrame {
     node: u32,
@@ -52,7 +47,7 @@ pub fn init_cutvalues(g: &mut Fast, nodes: &[u32]) -> Result<(), Error> {
         return Ok(());
     }
     range_init(g, nodes[0]);
-    cutval(g, nodes[0])
+    cut(g, nodes[0])
 }
 
 /// `dfs_range_init` (`ns.c:1176-1237`): assign `par`, `low` and `lim` from the tree root
@@ -183,7 +178,7 @@ fn push_range(g: &mut Fast, stack: &mut Vec<RangeFrame>, at: Descend) {
 
 /// `dfs_cutval` (`ns.c:1110-1159`): walk the tree in post-order, and at each node's exit
 /// compute the cut value of the edge it was reached by.
-pub fn cutval(g: &mut Fast, root: u32) -> Result<(), Error> {
+fn cut(g: &mut Fast, root: u32) -> Result<(), Error> {
     let mut stack = vec![CutFrame {
         node: root,
         par: None,
@@ -196,7 +191,7 @@ pub fn cutval(g: &mut Fast, root: u32) -> Result<(), Error> {
         }
         let frame = stack.pop().expect("the frame just read");
         if let Some(edge) = frame.par {
-            x_cutval(g, edge)?;
+            cutval(g, edge)?;
         }
     }
     Ok(())
@@ -241,54 +236,4 @@ fn cut_step(g: &mut Fast, stack: &mut Vec<CutFrame>, from_out: bool) -> bool {
         return true;
     }
     false
-}
-
-/// `x_cutval` (`ns.c:1043-1070`): the cut value of tree edge `f`, as the signed weight sum
-/// over the edges at the node on the side already searched — its tail when `par` points
-/// from there, its head otherwise, and the other sign in the second case.
-fn x_cutval(g: &mut Fast, f: u32) -> Result<(), Error> {
-    let tail = g.edges[f as usize].tail;
-    let head = g.edges[f as usize].head;
-    let down = g.nodes[tail as usize].par == Some(f);
-    let (v, dir) = if down { (tail, 1) } else { (head, -1) };
-    let outgoing = g.out[v as usize].clone();
-    let incoming = g.inn[v as usize].clone();
-    let mut sum: i64 = 0;
-    for edge in outgoing.into_iter().chain(incoming) {
-        sum = sum
-            .checked_add(i64::from(x_val(g, edge, v, dir)))
-            .ok_or(Error::Overflow)?;
-    }
-    g.edges[f as usize].cutvalue = i32::try_from(sum).map_err(|_| Error::Overflow)?;
-    Ok(())
-}
-
-/// `x_val` (`ns.c:1072-1108`): one edge's contribution to a cut value. An edge that leaves
-/// the searched subtree contributes its weight; one inside it contributes its weight
-/// subtracted, and a tree edge its own cut value subtracted, so the recursion telescopes.
-fn x_val(g: &Fast, edge: u32, v: u32, dir: i32) -> i32 {
-    let tail = g.edges[edge as usize].tail;
-    let head = g.edges[edge as usize].head;
-    let other = if tail == v { head } else { tail };
-    let (crossing, value) = if seq(g, v, other) {
-        let inner = if g.edges[edge as usize].tree_index >= 0 {
-            g.edges[edge as usize].cutvalue
-        } else {
-            0
-        };
-        (1, inner - g.edges[edge as usize].weight)
-    } else {
-        (-1, g.edges[edge as usize].weight)
-    };
-    let down = if dir > 0 { head == v } else { tail == v };
-    let side = if down { 1 } else { -1 };
-    side * crossing * value
-}
-
-/// `SEQ(ND_low(a), ND_lim(b), ND_lim(a))` (`ns.c:44`): is `b` inside `a`'s subtree?
-fn seq(g: &Fast, a: u32, b: u32) -> bool {
-    let low = g.nodes[a as usize].low;
-    let lim_a = g.nodes[a as usize].lim;
-    let lim_b = g.nodes[b as usize].lim;
-    low <= lim_b && lim_b <= lim_a
 }
