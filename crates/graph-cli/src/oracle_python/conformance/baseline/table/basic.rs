@@ -19,12 +19,12 @@ pub(super) const BASIC: [Baseline; 6] = [
     ),
     row(
         "GRID",
-        "1b401440c56f822ba2ca4f44a11ae87e9769908361eb3398a2b713c2090a9e86",
+        "d0f4b0a4db20601c26fa313b58f048b33519901ffd9a952047b8d5079a53bcd2",
         "bdf2552edff2098c56eda31608335447ffb6be13663bcf241de8b556b2f5522e",
         "",
         1e-31,
-        "bitwise",
-        "convention",
+        "tolerance",
+        "arithmetic",
     ),
     row(
         "SPRING",
@@ -37,7 +37,7 @@ pub(super) const BASIC: [Baseline; 6] = [
     ),
     row(
         "SPRING_3D",
-        "8b936b0c3664ac7bd1be9bfff1fb9e48f9a880e4275f1690ceb10be55630b202",
+        "7cfcdd38ce96eb9113a08ffda8a43a55f79f5dbf5f0addf40049b735139f097f",
         "0a6e3c9035a5342d6d960d99b96b4b651f35942bb2db95eede6e7c88abea9515",
         "",
         1e0,

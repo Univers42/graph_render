@@ -68,7 +68,7 @@ fn star(count: usize) -> Topology {
 /// ring radius, independent of the layout's `disk`.
 fn radius(x: f32, y: f32) -> f64 {
     let (x, y) = (f64::from(x), f64::from(y));
-    libm::sqrt(x * x + y * y)
+    f64::sqrt(x * x + y * y)
 }
 
 #[test]

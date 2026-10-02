@@ -7,6 +7,7 @@
 mod build;
 mod convergence;
 mod edges;
+mod fixture_write;
 mod grammar;
 mod roles;
 mod support;

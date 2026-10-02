@@ -156,7 +156,10 @@ export const OPENING_SOURCE: Extract<Source, { kind: "synthetic" }> = Object.fre
 
 export const DEFAULT_SETTINGS: Settings = settingsOf({
   source: OPENING_SOURCE,
-  layout: "layout.forceatlas2",
+  // Barnes-Hut, not the exact sum: same layout, repulsion over a quadtree, O(n log n) and a
+  // 250 000-node ceiling against 14 000 (`docs/measurements/perf-fa2bh.md`). The exact
+  // layout stays in the catalog and stays the escape hatch.
+  layout: "layout.forceatlas2.barnes_hut",
   edges: null,
   analysis: null,
   appearance: {

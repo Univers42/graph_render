@@ -30,16 +30,16 @@ pub struct Case {
     pub positions: Vec<(f64, f64)>,
 }
 
-/// Our side: the gate model for seeds `0..seeds`, Barnes-Hut's own positions over it,
-/// and the simple graph both arms lay out.
-pub fn ours(seeds: u32) -> Result<Vec<Case>, String> {
-    use graph_core::layout::force::{BarnesHut, ForceParams};
-    use graph_core::{REFERENCE_DEGREE, Stage, gate_node_count, index_model, seeded_model};
+/// Our side: the gate model for seeds `0..seeds`, `layout`'s positions over it, and the
+/// simple graph both arms lay out.
+pub fn ours(seeds: u32, layout: super::Layout) -> Result<Vec<Case>, String> {
+    use graph_core::layout::force::ForceParams;
+    use graph_core::{REFERENCE_DEGREE, gate_node_count, index_model, seeded_model};
     (0..seeds)
         .map(|seed| {
             let (nodes, edges) = seeded_model(seed, gate_node_count(seed), REFERENCE_DEGREE);
             let topology = index_model(&nodes, &edges).map_err(|e| format!("seed {seed}: {e}"))?;
-            let geometry = BarnesHut::run(&topology, &ForceParams::default())
+            let geometry = layout(&topology, &ForceParams::default())
                 .map_err(|e| format!("seed {seed}: {e}"))?;
             Ok(case(seed, &topology, &geometry))
         })

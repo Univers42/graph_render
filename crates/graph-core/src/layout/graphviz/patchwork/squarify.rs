@@ -35,7 +35,7 @@
 //!
 //! Determinism: the fill walks areas in index order and writes tile `i` at index `i`, so the
 //! output order is the dense node order and nothing iterates a hash or compares
-//! floating-point keys (`prompt.md` §6 D1-D10). One `sqrt`, from `libm`.
+//! floating-point keys (`prompt.md` §6 D1-D10). One `sqrt`, IEEE-754's own.
 
 /// Every node's default area, scaled up so that 1 is a reasonable drawing size.
 pub const AREA: f64 = 1000.0;

@@ -11,7 +11,8 @@ use crate::layout::basic_3d;
 use crate::layout::force::spring::Spring;
 use crate::layout::force::spring::{ID_3D as SPRING_3D_ID, Spring3D};
 use crate::layout::force::{
-    BarnesHut, DavidsonHarel, Drl, FruchtermanReingold, Graphopt, KamadaKawai, Lgl, YifanHu,
+    BarnesHut, DavidsonHarel, Drl, FruchtermanReingold, Graphopt, KamadaKawai, Lgl, ParticleMesh,
+    YifanHu,
 };
 use crate::layout::forceatlas2::{ForceAtlas2, ForceAtlas2BarnesHut};
 use crate::layout::graphviz::circo;
@@ -47,7 +48,7 @@ mod spectral;
 mod three_d;
 pub use capability::{Capability, Metadata};
 use closed_form::{BIPARTITE, RANDOM, RING, SPIRAL};
-use force::{BARNES_HUT, FA2, SPRING, YIFAN_HU};
+use force::{BARNES_HUT, FA2, PARTICLE_MESH, SPRING, YIFAN_HU};
 pub use force::{FA2_CEILING, FORCE_CEILING, SPRING_CEILING};
 use forceatlas2_bh::FA2_BH;
 pub use forceatlas2_bh::FA2_BH_CEILING;
@@ -72,10 +73,10 @@ use radial::TWOPI;
 use spectral::{PIVOT_MDS, SPECTRAL};
 pub use spectral::{PIVOT_MDS_CEILING, SPECTRAL_CEILING};
 pub use three_d::BASIC_3D_CEILING;
-use three_d::{CUBE, HELIX, HIERARCHICAL_3D, SPHERE, SPRING_3D};
+use three_d::{BIPARTITE_3D, CUBE, HELIX, HIERARCHICAL_3D, SPHERE, SPIRAL_3D, SPRING_3D};
 
 /// Every registered layout, in the order the hash gate runs them.
-pub static LAYOUTS: [Capability; 36] = [
+pub static LAYOUTS: [Capability; 39] = [
     Capability {
         id: Grid::ID,
         run: run_default::<Grid>,
@@ -260,6 +261,30 @@ pub static LAYOUTS: [Capability; 36] = [
         id: ForceAtlas2BarnesHut::ID,
         run: run_default::<ForceAtlas2BarnesHut>,
         meta: FA2_BH,
+    },
+    // APPENDED, never inserted, for the reason the block above gives: layouts are mapped by
+    // INDEX in `graph-wasm/src/exports/build.rs:23,32,166` and `bench/campaign.rs:128` pins
+    // `LAYOUTS[3]`. `layout.bipartite_3d` reads the graph where the three above it read a
+    // node count, which is why its id is outside the `layout.basic3d.*` namespace those
+    // three publish.
+    Capability {
+        id: basic_3d::bipartite_3d::ID,
+        run: basic_3d::bipartite_3d,
+        meta: BIPARTITE_3D,
+    },
+    // ---- sg-spiral3d: SciGraphs' SPIRAL_3D, the conical 3D spiral of `basic.py:36-63`.
+    // APPENDED for the same reason as the block above it: inserting would repoint every
+    // index-keyed consumer with no compile error.
+    Capability {
+        id: basic_3d::spiral::ID,
+        run: basic_3d::spiral,
+        meta: SPIRAL_3D,
+    },
+    // perf-p2: appended after the entries above, for the same reason.
+    Capability {
+        id: ParticleMesh::ID,
+        run: run_default::<ParticleMesh>,
+        meta: PARTICLE_MESH,
     },
 ];
 

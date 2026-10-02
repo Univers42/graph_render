@@ -77,7 +77,7 @@ pub(super) fn node_delta(sim: &Sim, i: u32, d2: f64) -> (f64, f64) {
         xi: sim.px[i as usize],
         yi: sim.py[i as usize],
         d2,
-        reach: libm::sqrt(d2),
+        reach: f64::sqrt(d2),
         seed: sim.seed,
         tick: sim.tick_no,
         px: &sim.px,
@@ -140,7 +140,7 @@ fn resolve(q: &Query, p: u32, out: &mut (f64, f64)) {
         dy = jiggle(q.seed, q.tick, PASS_Y, (q.i, p));
         l += dy * dy;
     }
-    let dist = libm::sqrt(l);
+    let dist = f64::sqrt(l);
     let push = (q.reach - dist) / dist * 0.5;
     out.0 += dx * push;
     out.1 += dy * push;

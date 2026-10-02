@@ -74,12 +74,12 @@ pub(super) const NETWORKX: [Baseline; 12] = [
     ),
     row(
         "SPIRAL_3D",
-        "1882ccdfd1d480b4ea3d30f3aa4fb95b9b42e20cde4113541f892cfff8f1090f",
+        "57bf83dea6a23c75322523aae4fa02852c8e43b31726673d6685fd1ac7cfe41b",
         "94502f4418b5f7c71b0137e36b5cf1e29170c4c0c74e494219cfabba7818533f",
         "",
-        1e0,
-        "shape",
-        "algorithm",
+        1e-15,
+        "tolerance",
+        "arithmetic",
     ),
     row(
         "HELIX",
@@ -110,11 +110,11 @@ pub(super) const NETWORKX: [Baseline; 12] = [
     ),
     row(
         "BIPARTITE_3D",
-        "40e7daced9ccc174a6597e3c693c2207b76930c3250ce9d45cf4917f857c16a7",
+        "8451f75cc5300177dfe7d495e8dbf8ef67f80f96aad0488b8dd0514a64b7088b",
         "a1e5daacdaa148264e26ad2e20e2578e4f3159d49bd5afeeaa7c36db76da6dc5",
         "",
-        1e0,
-        "shape",
-        "algorithm",
+        1e-15,
+        "tolerance",
+        "arithmetic",
     ),
 ];

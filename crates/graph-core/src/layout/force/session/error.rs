@@ -24,9 +24,11 @@ pub enum SessionError {
         /// The rule it broke, with the numbers in it.
         rule: &'static str,
     },
-    /// A position column's length is not the topology's node count.
+    /// A column's length is not the row count it is read against: a position column
+    /// against the session's topology, or the `from` of a
+    /// [`carry`](super::ForceSession::carry) against the session's own rows.
     ColumnLength {
-        /// Which column, `xs` or `ys`.
+        /// Which column: `xs`, `ys`, or `from` — the topology a carry is leaving.
         column: &'static str,
         /// How many values it held.
         got: u64,

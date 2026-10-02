@@ -66,6 +66,8 @@ pub(in crate::layout::force) struct Sim {
     pub(in crate::layout::force) link_distance: Vec<f64>,
     pub(in crate::layout::force) link_strength: Vec<f64>,
     pub(in crate::layout::force) link_bias: Vec<f64>,
+    /// Each simple edge's force this tick, the link pass's scratch.
+    pub(super) link_forces: Vec<(f64, f64)>,
 }
 
 #[cfg(test)]
@@ -112,6 +114,7 @@ impl Sim {
             link_distance,
             link_strength,
             link_bias,
+            link_forces: Vec::new(),
         }
     }
 
@@ -136,6 +139,7 @@ impl Sim {
             self.bodies.capacity(),
             self.charge_tree.capacity(),
             self.collide_tree.capacity(),
+            self.link_forces.capacity(),
         ]
     }
 
@@ -205,7 +209,7 @@ impl Sim {
 
     /// `center.js`: shifts every position by the mean, toward the origin — position, not
     /// velocity, and with no `alpha` scaling (`center.js`'s `force()` takes no `alpha`).
-    fn center(&mut self) {
+    pub(in crate::layout::force) fn center(&mut self) {
         let n = self.x.len();
         if n == 0 {
             return;

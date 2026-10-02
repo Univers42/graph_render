@@ -235,7 +235,7 @@ const LEARNING_RATE: f64 = 0.1;
 /// One damped step along `gradients`; `false` (stop) once the whole step's norm is
 /// negligible.
 fn apply_gradients(positions: &mut [(f64, f64)], gradients: &[(f64, f64)]) -> bool {
-    let grad_norm = libm::sqrt(gradients.iter().map(|g| g.0 * g.0 + g.1 * g.1).sum::<f64>());
+    let grad_norm = f64::sqrt(gradients.iter().map(|g| g.0 * g.0 + g.1 * g.1).sum::<f64>());
     if grad_norm < 1e-12 {
         return false;
     }

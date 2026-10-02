@@ -37,23 +37,33 @@ type Row = (
 /// (`docs/measurements/phase08-routing.md`): routing is **O(m · cells · log cells)**, one
 /// Dijkstra per edge over the whole grid, so the cost is driven by the *edge* count and
 /// the grid area rather than by the node count alone. At the default resolution of 128 a
-/// graph of 5 000 nodes occupies a 128 × 128 grid (16 384 cells) and 7 721 edges; that is
-/// the largest input measured inside a 10-second budget. This is a **time** ceiling, not a
-/// memory one: the grid index and the CSR are a few hundred kilobytes at that size, and
-/// nothing here refuses to run past the ceiling — it just stops being interactive.
+/// graph of 5 000 nodes and 7 721 edges routes on 132 × 132 cells (17 424, the margin
+/// included) in 15 566.2 ms (phase 8) and 16 971.653 ms (`fix-post-routed.md`, U8): the
+/// largest input measured inside a 20-second budget. 2 000 nodes take 5.9 s. This is a
+/// **time** ceiling, not a memory one: the grid index and the CSR are a few hundred
+/// kilobytes at that size, and no node count makes the pass refuse — it just stops being
+/// interactive.
 const ROUTE_CEILING: u64 = 5_000;
 
 const ROUTE_DEGRADES: &str = "past the ceiling routing still computes the same routes, \
-exactly and in the same order — it is slower, never different, and never refuses. There is no \
-built-in cutoff and no silent degradation: a caller who needs a bound applies its own \
-timeout. The resolution parameter is the lever that trades cost for quality, and lowering it \
-lowers the cost quadratically (see the Ponytail)";
+exactly and in the same order — it is slower, never different, and the node count never makes \
+it refuse. Its one refusal is a parameter refusal, independent of the node count: a \
+`resolution` and `margin` whose grid would pass u32::MAX / 8 cells is an Err(Param) \
+(post/grid_index/build.rs). There is no built-in cutoff and no silent degradation: a caller \
+who needs a bound applies its own timeout. The resolution parameter is the lever that trades \
+cost for quality, and lowering it lowers the cost quadratically (see the Ponytail)";
 
 const ROUTE: [Row; 1] = [(
     "post.route.grid",
     "hand: SciGraphs/engine/scigraphs_engine/bundling/routed.py's grid and trace are the \
-reference for the *structure* (a cubic uniform grid with node cells as obstacles, and a \
-walk back that minimises dist[n] + w(n, x)), but its solver is Jacobi Bellman-Ford chosen \
+reference for the *structure* (a cubic uniform grid and a walk back that minimises \
+dist[n] + w(n, x)), with three stated divergences (post/routed.rs, post/grid_index.rs). \
+Another node's cells are impassable here; the reference prices them at a finite \
+1 + avoid · gain · density with avoid 0 by default, so at default settings it routes \
+straight through a node this pass detours around (R8). The grid is sized on the node \
+footprints, radius or half-size included, where the reference sizes it on the coordinates \
+alone, so only a point layout is comparable cell for cell (M22). A resolution below 8 is \
+used as given, where the reference raises it to 8 (U18). The reference's solver is Jacobi Bellman-Ford chosen \
 for GPU gather-form reasons that do not apply at tier 1a, so the solver here is \
 petgraph::algo::dijkstra over the grid's own CSR — Phase 7's, not a third implementation. \
 No third-party grid router exists to be a byte-for-byte oracle, so this differs against \

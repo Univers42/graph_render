@@ -267,9 +267,9 @@ mod tests {
         let e: Vec<_> = edges.iter().map(|&(id, s, t)| edge(id, s, t)).collect();
         let t = index_model(&n, &e).expect("fits");
         let acyclic = Acyclic::of(&t);
-        let arcs = Arcs::new(&t, &acyclic);
-        let layer = assign_layers(&arcs);
-        let layering = Layering::build(&arcs, &layer, DUMMY_BUDGET);
+        let list = Arcs::new(&t, &acyclic).grouped();
+        let layer = assign_layers(&list);
+        let layering = Layering::build(&list, &layer, DUMMY_BUDGET);
         let num_layers = layering.layer_of.iter().copied().max().map_or(0, |m| m + 1);
         (Ordering::build(&layering, num_layers), num_layers)
     }
