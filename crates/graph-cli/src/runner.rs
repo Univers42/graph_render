@@ -85,11 +85,22 @@ pub fn harness_mutant(name: &str) -> PathBuf {
 /// The target directory is passed to cargo, not guessed after the fact, and it is made
 /// absolute against the workspace root first: cargo resolves a relative `--target-dir`
 /// against its own `current_dir` (the root), so a relative value *returned* as-is would be
-/// read from the CLI's directory instead and name another crate's stale artifact. That
-/// artifact is deleted before the build and its absence is refused after, because cargo
-/// exiting 0 is not evidence that it built anything — `$CARGO` is a trusted wrapper, and a
-/// wrapper that exits 0 without building would otherwise leave a stale `graph_wasm.wasm`
-/// standing under the build's name for the gate to hash.
+/// read from the CLI's directory instead and name another crate's stale artifact.
+///
+/// **What makes "cargo exited 0" evidence is cargo's own artifact message, not a file this
+/// function deletes first.** RG-51 asked for the built artifact to be verified rather than
+/// an exit status trusted; deleting the artifact before building is what made that refusal
+/// bite, and it also held the shared path absent for the whole of every rebuild — so a
+/// second process already holding the path read "no such file" and refused with exit 2.
+/// That is what failed `--workspace` on a different single test each run (`tests/cli.rs`
+/// then `tests/cli_force_gate.rs`), and what a handful of concurrent `hashgate --seeds 4`
+/// runs reproduce outside any harness: one of them exits 2 with "cargo built but wrote no".
+/// Cargo is asked for JSON messages instead, and the run is refused unless one names this
+/// exact artifact path — a wrapper that built nothing cannot print that, and nobody has to
+/// make the artifact disappear for the refusal to bite. Caveat: cargo's own fingerprint
+/// still decides whether the file is rewritten, so an artifact swapped by hand *after* an
+/// honest build reads as fresh here; forcing a rebuild every run is the race this replaces.
+/// `tests/cli_wasm_build.rs` holds both halves: the wrapper is refused, the file never gone.
 pub fn build_wasm(features: &[&str]) -> Result<PathBuf, String> {
     let root = workspace_root();
     let target = resolve::target_dir(std::env::var_os("CARGO_TARGET_DIR").as_deref(), &root);
@@ -97,25 +108,27 @@ pub fn build_wasm(features: &[&str]) -> Result<PathBuf, String> {
         .join("wasm32-unknown-unknown")
         .join("release")
         .join("graph_wasm.wasm");
-    // Exact, not a heuristic: cargo either writes this file or the build did not happen, so
-    // a missing artifact after a successful exit is a refusal ("could not run"), not a pass.
-    // Removing the old one first is what makes that check bite: a `$CARGO` wrapper that
-    // exits 0 without building then leaves nothing behind rather than a stale artifact.
-    if let Err(e) = remove_stale_artifact(&wasm) {
-        return Err(format!("clearing {}: {e}", wasm.display()));
-    }
     let mut command = Command::new(resolve::cargo()?);
-    command
-        .current_dir(&root)
-        .args(["build", "--quiet", "--release"]);
+    command.current_dir(&root).args([
+        "build",
+        "--quiet",
+        "--release",
+        "--message-format=json-render-diagnostics",
+    ]);
     command.args(["-p", "graph-wasm", "--target", "wasm32-unknown-unknown"]);
     command.arg("--target-dir").arg(&target);
     if !features.is_empty() {
         command.args(["--features", &features.join(",")]);
     }
-    let status = run_status(&mut command, CHILD_TIMEOUT)?;
+    let (status, stdout) = run_captured(&mut command, CHILD_TIMEOUT)?;
     if !status.success() {
         return Err(format!("building graph-wasm for wasm32 failed: {status}"));
+    }
+    if !cargo_named(&stdout, &wasm) {
+        return Err(format!(
+            "cargo exited 0 without naming {} as its artifact",
+            wasm.display()
+        ));
     }
     if !wasm.is_file() {
         return Err(format!("cargo built but wrote no {}", wasm.display()));
@@ -123,14 +136,15 @@ pub fn build_wasm(features: &[&str]) -> Result<PathBuf, String> {
     Ok(wasm)
 }
 
-/// Deletes a `graph_wasm.wasm` left by an earlier build. An absent file is the state we want,
-/// so `NotFound` is success; any other failure is the caller refusing, because a stale
-/// artifact the caller cannot clear cannot be told apart from this build's own output.
-fn remove_stale_artifact(wasm: &Path) -> std::io::Result<()> {
-    match std::fs::remove_file(wasm) {
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        other => other,
-    }
+/// Whether cargo's JSON messages name `wasm` as an output of *this* build. Cargo prints one
+/// `compiler-artifact` line per target with its output paths, fresh or not, so this holds
+/// for a build with nothing to do and fails for a `$CARGO` that is not cargo (RG-51): the
+/// path it must name is the one the same `target` variable built the command with.
+fn cargo_named(stdout: &[u8], wasm: &Path) -> bool {
+    let wasm = wasm.display().to_string();
+    String::from_utf8_lossy(stdout)
+        .lines()
+        .any(|line| line.contains("\"reason\":\"compiler-artifact\"") && line.contains(&wasm))
 }
 
 /// `node harness/wasm-run.mjs <wasm>`, ready for the mode arguments, or `Err` naming the
