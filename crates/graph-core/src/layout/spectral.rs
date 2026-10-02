@@ -24,7 +24,9 @@ use graph_contract::geometry::{EdgeGeometry, NodeGeometry};
 use super::Geometry;
 
 mod graph;
+mod neighbors;
 use graph::ComponentGraph;
+pub(crate) use neighbors::{Neighbors, find_components, local_positions, simple_neighbors};
 
 /// Output dimensionality. The reference solves 3D (`dims=3`); our `Point` geometry is
 /// 2D, so every place the reference passes `dims=3` this ports as `DIMS=2`.
@@ -65,75 +67,6 @@ pub enum SpectralError {
     /// No component's solve passed the residual/orthonormality gate (C12: never a
     /// silent random fallback here — an explicit refusal instead).
     NothingSolved,
-}
-
-/// Simple, undirected, collapsed adjacency (C6): every node's distinct neighbours,
-/// self-loops dropped, parallel edges collapsed, ascending. Built once per call by a
-/// sort + dedup over `(row, col)` pairs — no hashing, D4.
-pub(crate) fn simple_neighbors(topology: &Topology) -> Vec<Vec<u32>> {
-    let n = topology.node_count() as usize;
-    let edges = topology.edges();
-    let mut pairs: Vec<(u32, u32)> = Vec::with_capacity(edges.source.len() * 2);
-    for (&s, &t) in edges.source.iter().zip(&edges.target) {
-        if s != t {
-            pairs.push((s, t));
-            pairs.push((t, s));
-        }
-    }
-    pairs.sort_unstable();
-    pairs.dedup();
-    let mut neighbors = vec![Vec::new(); n];
-    for (row, col) in pairs {
-        neighbors[row as usize].push(col);
-    }
-    neighbors
-}
-
-/// Maps each component member's dense index to its local index (position in
-/// `members`). Shared by `layout::spectral`'s Laplacian [`graph::ComponentGraph`] and
-/// `layout::pivot_mds`'s BFS graph — both address neighbours by local index, neither
-/// needs the other's per-node payload (degree here, none there), so the types stay
-/// separate but this ~5-line construction does not.
-pub(crate) fn local_index_map(members: &[u32], n: usize) -> Vec<u32> {
-    let mut local_of = vec![u32::MAX; n];
-    for (li, &g) in members.iter().enumerate() {
-        local_of[g as usize] = li as u32;
-    }
-    local_of
-}
-
-/// Connected components by BFS from the lowest unvisited index, members sorted
-/// ascending (`_connected_component_indices`), components in discovery order — which is
-/// already ascending by minimum index.
-pub(crate) fn find_components(neighbors: &[Vec<u32>]) -> Vec<Vec<u32>> {
-    let n = neighbors.len();
-    let mut visited = vec![false; n];
-    let mut components = Vec::new();
-    for start in 0..n as u32 {
-        if visited[start as usize] {
-            continue;
-        }
-        components.push(bfs_component(neighbors, &mut visited, start));
-    }
-    components
-}
-
-fn bfs_component(neighbors: &[Vec<u32>], visited: &mut [bool], start: u32) -> Vec<u32> {
-    let mut members = Vec::new();
-    let mut queue = std::collections::VecDeque::new();
-    queue.push_back(start);
-    visited[start as usize] = true;
-    while let Some(v) = queue.pop_front() {
-        members.push(v);
-        for &w in &neighbors[v as usize] {
-            if !visited[w as usize] {
-                visited[w as usize] = true;
-                queue.push_back(w);
-            }
-        }
-    }
-    members.sort_unstable();
-    members
 }
 
 /// `_eig_converged` plus the orthonormality check, both applied on the caller's side
@@ -242,6 +175,7 @@ pub fn run(topology: &Topology) -> Result<(Geometry, Vec<ComponentReport>), Spec
     let n = topology.node_count() as usize;
     let neighbors = simple_neighbors(topology);
     let components = find_components(&neighbors);
+    let local_of = local_positions(&components, n);
     let mut coords = vec![0.0_f64; n * DIMS];
     let mut reports = Vec::new();
     let mut any_solved = false;
@@ -250,7 +184,7 @@ pub fn run(topology: &Topology) -> Result<(Geometry, Vec<ComponentReport>), Spec
         if members.len() < 2 {
             continue;
         }
-        let graph = ComponentGraph::build(members, &neighbors, n);
+        let graph = ComponentGraph::build(members, &neighbors, &local_of);
         let dims_eff = DIMS.min(graph.size() - 1);
         let (solved, tier, iterations) = solve_component(&graph, dims_eff);
         let ok = solved.is_some();

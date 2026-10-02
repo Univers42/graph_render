@@ -88,6 +88,24 @@ impl Viewport {
             radius: radius.abs(),
         }
     }
+
+    /// This viewport with each NaN field read as no bound: a NaN edge is the infinite
+    /// one on its side and a NaN radius is infinite.
+    ///
+    /// Ponytail: a corrupt viewport is guessed open, not rejected. Failing input: a caller
+    /// whose NaN edge meant "nothing on this side". Direction: over-drawing, the cheap
+    /// one, since the hints are advisory; a front that wants the error checks its own
+    /// viewport.
+    fn or_unbounded(self) -> Self {
+        let open = |v: f64, bound: f64| if v.is_nan() { bound } else { v };
+        Self {
+            x0: open(self.x0, f64::NEG_INFINITY),
+            y0: open(self.y0, f64::NEG_INFINITY),
+            x1: open(self.x1, f64::INFINITY),
+            y1: open(self.y1, f64::INFINITY),
+            radius: open(self.radius, f64::INFINITY),
+        }
+    }
 }
 
 /// The policy: which thresholds, which budget. Every field is the caller's, so the
@@ -102,9 +120,11 @@ pub struct LodParams {
     pub no_label_nodes: u32,
     /// Node count at or below which edges are decimated; past it, none are drawn.
     pub decimated_nodes: u32,
-    /// How many visible nodes may carry a label.
+    /// How many visible nodes may carry a label; `0` means no limit, as in the reference
+    /// (`lod.py:76-79`).
     pub label_budget: u32,
     /// One edge in `edge_stride` survives decimation, counted by ascending edge index.
+    /// `0` is read as `1`: every edge survives, decimation off.
     pub edge_stride: u32,
 }
 
@@ -158,8 +178,9 @@ impl LodParams {
 /// rectangle, as the module header says: a z-aware test is a different decision.
 pub fn hints(t: &Topology, x: &[f64], y: &[f64], params: &LodParams) -> Hints {
     let n = t.node_count() as usize;
+    let viewport = params.viewport.or_unbounded();
     let visible: Vec<u8> = (0..n)
-        .map(|i| u8::from(meets(params.viewport, x.get(i).copied(), y.get(i).copied())))
+        .map(|i| u8::from(meets(viewport, x.get(i).copied(), y.get(i).copied())))
         .collect();
     let tier = params.tier(t.node_count());
     Hints {
@@ -197,25 +218,44 @@ fn label_mask(t: &Topology, visible: &[u8], params: &LodParams, tier: Tier) -> V
     if tier == Tier::NoLabels {
         return mask;
     }
-    let mut order: Vec<u32> = (0..n as u32)
-        .filter(|&i| visible[i as usize] == 1)
-        .collect();
-    // Descending degree, then ascending index: a total order, so the mask does not depend
-    // on the sort's stability or on the input order (D2).
-    order.sort_by_key(|&i| (std::cmp::Reverse(degree_of(t, i)), i));
-    let budget = usize::try_from(params.label_budget).unwrap_or(usize::MAX);
+    let order = rank_by_degree(visible, |i| degree_of(t, i));
+    // `lod.py:76-79`: "A ``budget`` of 0 or less means no limit." Any other budget is at
+    // least 1, which is the reference's never-empty guarantee (`lod.py:88-90`) for unit
+    // counts: a non-empty `order` always keeps its first node.
+    let budget = match params.label_budget {
+        0 => usize::MAX,
+        b => usize::try_from(b).unwrap_or(usize::MAX),
+    };
     for &i in order.iter().take(budget) {
         mask[i as usize] = 1;
     }
-    // The reference's never-empty guarantee (`lod.py:88-90`): a budget of zero still lets
-    // the most important visible node keep its label, so a front never has to draw a
-    // viewport with nothing named in it.
-    if mask.iter().all(|&m| m == 0)
-        && let Some(&first) = order.first()
-    {
-        mask[first as usize] = 1;
-    }
     mask
+}
+
+/// The visible nodes in descending degree, then ascending index: a total order, so the
+/// mask does not depend on the input order (D2). A counting sort over the degree, read
+/// once per visible node, so the cost is `O(n + max degree)`, inside the row's `O(n + m)`.
+fn rank_by_degree(visible: &[u8], mut degree: impl FnMut(u32) -> u32) -> Vec<u32> {
+    let keyed: Vec<(usize, u32)> = (0..visible.len() as u32)
+        .filter(|&i| visible[i as usize] == 1)
+        .map(|i| (degree(i) as usize, i))
+        .collect();
+    let top = keyed.iter().map(|&(d, _)| d).max().unwrap_or(0);
+    // `slot[top - d]` is where the next node of degree `d` goes; ascending `i` within a
+    // degree because `keyed` is in ascending `i` and the fill below is in that order.
+    let mut slot = vec![0_usize; top + 2];
+    for &(d, _) in &keyed {
+        slot[top - d + 1] += 1;
+    }
+    for k in 1..slot.len() {
+        slot[k] += slot[k - 1];
+    }
+    let mut order = vec![0_u32; keyed.len()];
+    for &(d, i) in &keyed {
+        order[slot[top - d]] = i;
+        slot[top - d] += 1;
+    }
+    order
 }
 
 /// The edge mask: both endpoints visible, and — past the full tier — one edge in
@@ -238,13 +278,16 @@ fn edge_mask(t: &Topology, visible: &[u8], params: &LodParams, tier: Tier) -> Ve
 }
 
 /// A node's undirected degree: both CSR rows' lengths, so a parallel edge and a
-/// hierarchy edge each count once per direction they appear in. `u32::MAX` overflow is
-/// not reachable: two CSR row lengths are bounded by the edge count.
+/// hierarchy edge each count once per direction they appear in, and a self-loop twice,
+/// as in [`Topology::incident`]. `u32::MAX` overflow is not reachable: two CSR row
+/// lengths are bounded by the edge count.
 fn degree_of(t: &Topology, node: u32) -> u32 {
     let out = t.out().row(node).len() as u32;
     let inbound = t.inbound().row(node).len() as u32;
     out.saturating_add(inbound)
 }
 
+#[cfg(test)]
+mod mask_tests;
 #[cfg(test)]
 mod tests;
