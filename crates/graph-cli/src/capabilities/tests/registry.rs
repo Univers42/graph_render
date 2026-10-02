@@ -209,11 +209,11 @@ fn the_registry_covers_every_oracle_function_once_its_ids_are_unique() {
         } else if r.id == "layout.packing.osage" {
             // The Graphviz arm whose differential is measured and passing — worst gap
             // 6.309e-2 points under a 1e-1 ceiling over 1000 seeds
-            // (`docs/measurements/p13-gv1-osage.md`) — and still `implemented`, because the
-            // `layout.packing.osage` stage has no negative control behind it. That is the
-            // whole of what stands between this row and `gated`, and
-            // `capabilities::tests::graphviz` tests it both ways.
-            ("oracle-osage", r.id, Status::Implemented)
+            // (`docs/measurements/p13-gv1-osage.md`) — and `gated`, because
+            // `GM_MUTATE_PACKING_OSAGE_NODES` is the negative control behind the
+            // `layout.packing.osage` stage. That control was the whole of what stood between
+            // this row and `gated`, and `capabilities::tests::graphviz` tests it both ways.
+            ("oracle-osage", r.id, Status::Gated)
         } else if r.id == "layout.circular.circo" {
             // The third Graphviz arm, on the `layout.twopi` reasoning and with a measured
             // disagreement to show for it: the sweep runs and it disagrees with the oracle
