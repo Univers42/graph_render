@@ -4,7 +4,8 @@ import type { ViewStats } from "./view.ts";
 
 export function statsOf(state: LoopState): ViewStats {
   return {
-    backend: "canvas2d",
+    backend: state.counts.bulk > 0 ? "webgl2" : "canvas2d",
+    backendFailure: state.bulk.failure,
     nodes: state.scene.frame.nodeCount,
     edges: state.scene.frame.edgeCount,
     drawnNodes: state.counts.nodes,

@@ -46,11 +46,17 @@ def serve(dist):
     return server
 
 
-def launch_browser(profile):
+def launch_browser(profile, extra=()):
+    """Chromium on `profile`, with `extra` appended to the flags every nav gate shares.
+
+    The backend gate passes `--enable-unsafe-swiftshader` (the only WebGL2 a GPU-less container
+    has, deploy/perf/run.py): the flag belongs to the browser, so it is a parameter here rather
+    than a second copy of this function.
+    """
     # --no-sandbox: the container has no user namespace to build the sandbox from, and the
     # only page ever loaded is this repository's own build, served from 127.0.0.1.
     return subprocess.Popen([
-        "chromium", "--headless=new", "--no-sandbox", "--disable-gpu",
+        "chromium", "--headless=new", "--no-sandbox", "--disable-gpu", *extra,
         "--disable-dev-shm-usage", f"--remote-debugging-port={DEBUG_PORT}",
         f"--user-data-dir={profile}", f"--window-size={VIEWPORT[0]},{VIEWPORT[1]}",
         "about:blank",

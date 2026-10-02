@@ -1,11 +1,14 @@
 """Studio perf gate: serve a built studio, drive it in headless Chromium, judge the rows.
 
 Usage: run.py --dist DIR --out DIR --driver NAME [--edge-colour flat|gradient] [--baseline FILE]
-              [--record-baseline FILE] [--commit ID] [--cases N,N,...]
+              [--record-baseline FILE] [--commit ID] [--cases N,N,...] [--layout ID] [--backend NAME]
 Exit:  0 every gating row PASS · 1 a gating row FAIL or NOT-RUN · 2 the harness could not run
 
 --cases replaces the frame cases with these node counts at DPR 1 and skips the block and idle
 runs: a scale measurement, not a gate, so its gating rows read NOT-RUN and it exits 1.
+--layout lays every --cases graph out with ID instead (a cheap one keeps a 1M-node case inside
+the 180 s open timeout). --backend opens the page at ?backend=NAME and, for any choice but
+canvas2d, lets Chromium draw WebGL2 on SwiftShader; each case records the backend that drew.
 
 Ponytail: software raster in a container on a shared host. Numbers compare run to run on
 one machine; they are not the frame rate a user's browser reaches (read the studio HUD).
@@ -40,6 +43,8 @@ FRAME_CASES = [(120, 1), (120, 2), (2000, 1), (2000, 2), (10000, 1), (10000, 2)]
 STATS_CASES = [(2000, 1), (10000, 1)]
 BLOCK_NODES = [120, 500]
 PROFILED_CASE = (2000, 2)
+# The backend the view drew the case with, and why WebGL2 was refused if it was.
+DREW_WITH = "(({backend, backendFailure}) => ({backend, backendFailure}))(window.__perf.view().stats())"
 
 
 class QuietHandler(SimpleHTTPRequestHandler):
@@ -56,11 +61,14 @@ def serve(dist):
     return server
 
 
-def launch_browser(profile):
+def launch_browser(profile, backend):
     # --no-sandbox: the container has no user namespace to build the sandbox from, and the
-    # only page ever loaded is this repository's own build, served from 127.0.0.1.
+    # only page ever loaded is this repository's own build, served from 127.0.0.1. The same
+    # reason holds for --enable-unsafe-swiftshader, the only WebGL2 a GPU-less container has.
+    # The gate itself runs without it, so its rows keep measuring the Canvas2D painter.
+    webgl = ["--enable-unsafe-swiftshader"] if backend not in (None, "canvas2d") else []
     return subprocess.Popen([
-        "chromium", "--headless=new", "--no-sandbox", "--disable-gpu",
+        "chromium", "--headless=new", "--no-sandbox", "--disable-gpu", *webgl,
         "--disable-dev-shm-usage", f"--remote-debugging-port={DEBUG_PORT}",
         f"--user-data-dir={profile}", f"--window-size={VIEWPORT[0]},{VIEWPORT[1]}",
         "about:blank",
@@ -102,10 +110,10 @@ class Studio:
         return self.page.evaluate(f"({source})({json.dumps(args)})")
 
 
-def measure_frames(studio, out, frame_cases):
+def measure_frames(studio, out, frame_cases, layout_override=None):
     cases = []
     for at, (nodes, dpr) in enumerate(frame_cases):
-        layout = LARGE_LAYOUT if nodes >= LARGE_FROM else FORCE_LAYOUT
+        layout = layout_override or (LARGE_LAYOUT if nodes >= LARGE_FROM else FORCE_LAYOUT)
         try:
             skipped = studio.open(nodes, dpr, layout)
         except TimeoutError:
@@ -119,7 +127,8 @@ def measure_frames(studio, out, frame_cases):
             continue
         # From navigation to the graph drawn and its edge colour set: what loading it cost React.
         case = {"nodes": nodes, "dpr": dpr, "layout": layout, "openMs": studio.open_ms,
-                "reactAtOpen": studio.page.evaluate("window.__reactCommits ?? null")}
+                "reactAtOpen": studio.page.evaluate("window.__reactCommits ?? null"),
+                "drewWith": studio.page.evaluate(DREW_WITH)}
         if (nodes, dpr) in STATS_CASES:
             case["stats"] = studio.probe("stats", {"settleMs": 1500})
         case.update(studio.probe("frame", {"settleMs": 1500, "profile": False}))
@@ -151,18 +160,19 @@ def measure_idle(studio):
 def measure(args, out):
     server = serve(args.dist)
     with tempfile.TemporaryDirectory() as profile:
-        browser = launch_browser(profile)
+        browser = launch_browser(profile, args.backend)
         try:
             page = cdp.Page(DEBUG_PORT)
-            studio = Studio(page, f"http://127.0.0.1:{server.server_address[1]}/", args.driver, args.edge_colour)
+            query = f"?backend={args.backend}" if args.backend else ""
+            studio = Studio(page, f"http://127.0.0.1:{server.server_address[1]}/{query}", args.driver, args.edge_colour)
             version = page.call("Browser.getVersion").get("product")
             report = {
                 "label": out.name, "driver": args.driver, "commit": args.commit,
-                "edgeColour": args.edge_colour,
+                "edgeColour": args.edge_colour, "backend": args.backend,
                 "browser": version, "viewport": VIEWPORT,
             }
             if args.cases:
-                report["frames"] = measure_frames(studio, out, [(nodes, 1) for nodes in args.cases])
+                report["frames"] = measure_frames(studio, out, [(nodes, 1) for nodes in args.cases], args.layout)
                 return report | {"block": [{"nodes": 0, "notRun": "--cases"}], "idle": {"notRun": "--cases"}}
             return report | {
                 "frames": measure_frames(studio, out, FRAME_CASES),
@@ -187,6 +197,9 @@ def parse_args():
     parser.add_argument("--commit", default="unknown")
     parser.add_argument("--cases", type=lambda text: [int(n) for n in text.split(",")],
                         help="node counts measured at DPR 1 instead of the gate's frame cases")
+    parser.add_argument("--layout", help="with --cases: the layout every case is laid out with")
+    parser.add_argument("--backend", choices=["auto", "canvas2d", "webgl2"],
+                        help="the ?backend= the page opens with (default: none, the studio's own choice)")
     return parser.parse_args()
 
 
