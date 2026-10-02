@@ -2,9 +2,9 @@
 //! the scale model. `bench` times the whole 112-tick stage, which averages the per-tick
 //! cost away; this is the steady workload a profiler (`scripts/orch/profile.sh`) points at.
 //!
-//! Ticks run serially, through `ForceSession::step(1)` for `--layout barnes-hut` and
-//! `ParticleMeshRun::step_with` for `--layout particle-mesh`; the threaded tiers stay with
-//! `bench --tiers`. `--warm` ticks run untimed first, so the quadtree and the scratch
+//! Barnes-Hut ticks run serially, through `ForceSession::step(1)`. Particle-mesh ticks run
+//! through `ParticleMeshRun::step_with` on `--workers` threads ([`Threads`]; 1 is the serial
+//! path), so a tick's thread scaling is read here without the whole stage `bench --tiers` times. `--warm` ticks run untimed first, so the quadtree and the scratch
 //! buffers are at capacity before the first timed tick.
 //!
 //! Caveat: a tick's cost follows alpha, because the layout's spread sets the tree's depth,
@@ -15,7 +15,7 @@
 use super::campaign::median;
 use super::scale::{MAX_SCALE_NODES, scale_model};
 use super::tiers::markdown::loadavg;
-use graph_core::exec::Serial;
+use crate::exec_native::Threads;
 use graph_core::layout::force::{ForceParams, ForceSession, ParticleMeshRun};
 use graph_core::{REFERENCE_DEGREE, Topology, index_model};
 use std::process::ExitCode;
@@ -49,10 +49,13 @@ pub struct Plan {
     /// Seed of the scale model.
     #[arg(long, default_value_t = 0)]
     pub seed: u32,
+    /// Threads a particle-mesh tick's passes split across; Barnes-Hut ignores it.
+    #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u32).range(1..=256))]
+    pub workers: u32,
 }
 
 /// The table's header, printed once above the row.
-pub const HEADER: &str = "| layout | n | m | index ms | warm ms | ticks | tick min ms | tick median ms | tick max ms | alpha | load start | load end |\n|---|---|---|---|---|---|---|---|---|---|---|---|";
+pub const HEADER: &str = "| layout | n | m | index ms | warm ms | ticks | workers | tick min ms | tick median ms | tick max ms | alpha | load start | load end |\n|---|---|---|---|---|---|---|---|---|---|---|---|---|";
 
 /// Exit 0 with the table on standard output, or 2 when the model could not be built.
 pub fn run(plan: &Plan) -> ExitCode {
@@ -77,8 +80,7 @@ pub fn measure(plan: &Plan) -> Result<String, String> {
     let index_ms = ms_since(started);
     drop((nodes, edges));
     let started = Instant::now();
-    let mut session =
-        Stepper::start(plan.layout, &topology).map_err(|e| format!("n={}: {e}", plan.n))?;
+    let mut session = Stepper::start(plan, &topology).map_err(|e| format!("n={}: {e}", plan.n))?;
     session.step(plan.warm);
     let warm_ms = ms_since(started);
     let samples: Vec<f64> = (0..plan.ticks)
@@ -94,11 +96,12 @@ pub fn measure(plan: &Plan) -> Result<String, String> {
             (lo.min(s), hi.max(s))
         });
     Ok(format!(
-        "| {} | {} | {} | {index_ms:.1} | {warm_ms:.1} | {} | {min:.2} | {:.2} | {max:.2} | {:.4} | {load_start} | {} |",
+        "| {} | {} | {} | {index_ms:.1} | {warm_ms:.1} | {} | {} | {min:.2} | {:.2} | {max:.2} | {:.4} | {load_start} | {} |",
         session.id(),
         plan.n,
         topology.edge_count(),
         plan.ticks,
+        session.workers(),
         median(samples),
         session.alpha(),
         loadavg(),
@@ -108,17 +111,17 @@ pub fn measure(plan: &Plan) -> Result<String, String> {
 /// A run of either layout, stepped one tick at a time.
 enum Stepper {
     BarnesHut(Box<ForceSession>),
-    ParticleMesh(Box<ParticleMeshRun>),
+    ParticleMesh(Box<ParticleMeshRun>, u32),
 }
 
 impl Stepper {
-    fn start(layout: Layout, topology: &Topology) -> Result<Stepper, String> {
+    fn start(plan: &Plan, topology: &Topology) -> Result<Stepper, String> {
         let params = ForceParams::default();
-        let started = match layout {
+        let started = match plan.layout {
             Layout::BarnesHut => ForceSession::from_frozen(topology, &params)
                 .map(|session| Self::BarnesHut(Box::new(session))),
             Layout::ParticleMesh => ParticleMeshRun::from_frozen(topology, &params)
-                .map(|run| Self::ParticleMesh(Box::new(run))),
+                .map(|run| Self::ParticleMesh(Box::new(run), plan.workers)),
         };
         started.map_err(|e| e.to_string())
     }
@@ -128,21 +131,28 @@ impl Stepper {
             Self::BarnesHut(session) => {
                 session.step(ticks);
             }
-            Self::ParticleMesh(run) => run.step_with(&Serial, 1, ticks),
+            Self::ParticleMesh(run, workers) => run.step_with(&Threads, *workers, ticks),
         }
     }
 
     fn alpha(&self) -> f64 {
         match self {
             Self::BarnesHut(session) => session.alpha(),
-            Self::ParticleMesh(run) => run.alpha(),
+            Self::ParticleMesh(run, _) => run.alpha(),
+        }
+    }
+
+    fn workers(&self) -> u32 {
+        match self {
+            Self::BarnesHut(_) => 1,
+            Self::ParticleMesh(_, workers) => *workers,
         }
     }
 
     fn id(&self) -> &'static str {
         match self {
             Self::BarnesHut(_) => "layout.force.barnes_hut",
-            Self::ParticleMesh(_) => "layout.force.particle_mesh",
+            Self::ParticleMesh(..) => "layout.force.particle_mesh",
         }
     }
 }
