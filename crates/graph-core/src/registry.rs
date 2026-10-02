@@ -68,7 +68,7 @@ use radial::TWOPI;
 use spectral::{PIVOT_MDS, SPECTRAL};
 pub use spectral::{PIVOT_MDS_CEILING, SPECTRAL_CEILING};
 pub use three_d::BASIC_3D_CEILING;
-use three_d::{CUBE, HELIX, HIERARCHICAL_3D, SPHERE, SPRING_3D};
+use three_d::{BIPARTITE_3D, CUBE, HELIX, HIERARCHICAL_3D, SPHERE, SPRING_3D};
 
 /// What the ledger says about a layout. Every field is required.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -105,7 +105,7 @@ pub struct Capability {
 }
 
 /// Every registered layout, in the order the hash gate runs them.
-pub static LAYOUTS: [Capability; 35] = [
+pub static LAYOUTS: [Capability; 36] = [
     Capability {
         id: Grid::ID,
         run: run_default::<Grid>,
@@ -285,6 +285,16 @@ pub static LAYOUTS: [Capability; 35] = [
         id: sfdp::ID,
         run: sfdp::run,
         meta: SFDP,
+    },
+    // APPENDED, never inserted, for the reason the block above gives: layouts are mapped by
+    // INDEX in `graph-wasm/src/exports/build.rs:23,32,166` and `bench/campaign.rs:128` pins
+    // `LAYOUTS[3]`. `layout.bipartite_3d` reads the graph where the three above it read a
+    // node count, which is why its id is outside the `layout.basic3d.*` namespace those
+    // three publish.
+    Capability {
+        id: basic_3d::bipartite_3d::ID,
+        run: basic_3d::bipartite_3d,
+        meta: BIPARTITE_3D,
     },
 ];
 

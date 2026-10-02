@@ -41,7 +41,7 @@ pub(super) const G_SPRING_SEED: Gap = Gap {
 };
 pub(super) const G_BASIC3D_SCALE: Gap = Gap {
     parameter: "scale",
-    note: "`basic_3d`'s `SCALE` is a const, not a parameter of `sphere`/`helix`/`cube`",
+    note: "`basic_3d`'s `SCALE` is a const, not a parameter of `sphere`/`helix`/`cube`/`bipartite_3d`",
     at: "crates/graph-core/src/layout/basic_3d.rs:43",
 };
 pub(super) const G_SNAPSHOT_SCALE: Gap = Gap {
