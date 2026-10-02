@@ -8,9 +8,11 @@
 pub(crate) mod barnes_hut;
 pub mod davidson_harel;
 pub mod drl;
+pub(crate) mod fr_kernel;
 pub mod fruchterman_reingold;
 pub mod fruchterman_reingold_3d;
 pub mod graphopt;
+pub(crate) mod kk_kernel;
 pub mod kamada_kawai;
 pub mod kamada_kawai_3d;
 pub mod lgl;
