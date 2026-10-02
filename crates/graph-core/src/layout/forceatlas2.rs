@@ -33,19 +33,41 @@ impl Stage for ForceAtlas2 {
     const ID: &'static str = "layout.forceatlas2";
 
     fn run(topology: &Topology, params: &Self::Params) -> Result<Geometry, StageError> {
-        let mut state = Fa2State::new(topology, *params);
-        state.run();
-        let (x, y) = state.positions();
-        if x.iter().chain(y).any(|v| !v.is_finite()) {
-            return Err(StageError::NonFinite { column: "node.x" });
-        }
-        Ok(Geometry::planar(
-            NodeGeometry::Point {
-                x: x.iter().map(|&v| v as f32).collect(),
-                y: y.iter().map(|&v| v as f32).collect(),
-            },
-            EdgeGeometry::Line,
-            Vec::new(),
-        ))
+        settle(Fa2State::new(topology, *params))
     }
+}
+
+/// ForceAtlas2 with its repulsion summed over a quadtree (`forceatlas2/state/barnes_hut.rs`):
+/// O(n log n) per iteration where [`ForceAtlas2`] is O(n²), every other force and the
+/// adaptive speed unchanged. [`ForceAtlas2`] is its oracle.
+///
+/// Ponytail: chaotic as [`ForceAtlas2`] is, and the far-field approximation's own limit is
+/// the `Caveat:` in `barnes_hut.rs`.
+pub struct ForceAtlas2BarnesHut;
+
+impl Stage for ForceAtlas2BarnesHut {
+    type Params = Fa2Params;
+    const ID: &'static str = "layout.forceatlas2.barnes_hut";
+
+    fn run(topology: &Topology, params: &Self::Params) -> Result<Geometry, StageError> {
+        settle(Fa2State::new(topology, *params).with_tree())
+    }
+}
+
+/// Runs `state` to the end and narrows its positions to the wire, or refuses a
+/// non-finite one.
+fn settle(mut state: Fa2State) -> Result<Geometry, StageError> {
+    state.run();
+    let (x, y) = state.positions();
+    if x.iter().chain(y).any(|v| !v.is_finite()) {
+        return Err(StageError::NonFinite { column: "node.x" });
+    }
+    Ok(Geometry::planar(
+        NodeGeometry::Point {
+            x: x.iter().map(|&v| v as f32).collect(),
+            y: y.iter().map(|&v| v as f32).collect(),
+        },
+        EdgeGeometry::Line,
+        Vec::new(),
+    ))
 }

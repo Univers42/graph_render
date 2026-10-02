@@ -76,7 +76,8 @@ pub enum Knob {
     /// `GM_MUTATE_FA2_SCALING_RATIO`: ForceAtlas2's repulsion scale, native arm only.
     ///
     /// Its own control for the same reason, on the other side: `scaling_ratio` is
-    /// read by `Fa2State::repulsion` alone.
+    /// read by ForceAtlas2's repulsion alone, the dense pair loop and the Barnes-Hut
+    /// tree walk alike, so it moves both ForceAtlas2 stages and no other.
     Fa2ScalingRatio,
     /// `GM_MUTATE_TREE_TIDY_NODES`: nodes added to `layout.tree.tidy`'s model alone.
     ///
@@ -224,6 +225,14 @@ pub enum Knob {
     /// and names neither. This one moves `layout.force.spring3d` alone, which is what makes
     /// the divergence attributable.
     Spring3dNodes,
+    /// `GM_MUTATE_PACKING_OSAGE_NODES`: `layout.packing.osage`'s own model.
+    ///
+    /// The re-drawn-model probe again, and for `osage` it is not merely the available one but
+    /// the only one: the layout publishes no `Params` and has no `impl Stage`, and what it
+    /// reads is the node count and no edge, so its model is its entire input. See
+    /// [`knobs::OSAGE_LAYOUT_STAGES`] for why this row is what `layout.packing.osage` needs
+    /// before the ledger can call the capability `gated` rather than `implemented`.
+    PackingOsageNodes,
     /// `GM_MUTATE_SPLIT_SUM`: **native arms only, and the threaded ones above all.**
     ///
     /// Names which gathered pass's merge reads a neighbouring node's delta. The full argument
@@ -244,18 +253,18 @@ pub enum Knob {
 
 impl Knob {
     /// Every knob: the fifteen that move a parameter or re-draw one layout's model, then
-    /// the fifteen ANALYSIS and POST stage controls in [`knobs::ANALYSIS_POST_STAGES`] order,
-    /// then the six igraph layout controls in [`knobs::IGRAPH_LAYOUT_STAGES`] order, then the
-    /// five 3D layout controls in [`knobs::THREE_D_LAYOUT_STAGES`] order, then the
-    /// two compute-tier controls, then the live session's own. The list itself is
-    /// [`arms::ALL`], spelled out there.
+    /// the twenty-seven per-stage controls — the fifteen of
+    /// [`knobs::ANALYSIS_POST_STAGES`], the six of [`knobs::IGRAPH_LAYOUT_STAGES`], the
+    /// five of [`knobs::THREE_D_LAYOUT_STAGES`] and the one of
+    /// [`knobs::OSAGE_LAYOUT_STAGES`] — then the two compute-tier controls, then the live
+    /// session's own. The list itself is [`arms::ALL`], spelled out there.
     ///
     /// **A `const`, because `capabilities::verdict::Evidence::load` walks it** to collect
     /// one control record each — a ledger read cannot be a function call per row. So the
-    /// twenty-six per-stage arms are spelled out there and held against those three tables by
-    /// `the_analysis_and_post_controls_are_the_knobs_table`, which fails on any arm whose
+    /// twenty-seven per-stage arms are spelled out there and held against those four tables
+    /// by `the_analysis_and_post_controls_are_the_knobs_table`, which fails on any arm whose
     /// variable, record or stage a table disagrees with.
-    pub const ALL: [Self; 44] = arms::ALL;
+    pub const ALL: [Self; 45] = arms::ALL;
 
     /// The variable that sets it.
     pub const fn env(self) -> &'static str {

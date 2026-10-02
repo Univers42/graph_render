@@ -84,7 +84,15 @@ fn without_records_every_gated_row_is_refused_twice() {
         by_name: BTreeMap::new(),
     };
     let rows = ledger(&bare);
-    assert_eq!(problems(&rows, &bare).len(), 34);
+    // **Derived from the registry, not spelled out.** Every problem here comes from a gated
+    // row — `problems` evaluates the two verdicts for a gated row and for no other status —
+    // and each such row yields exactly two, so the count *is* twice the gated rows. The
+    // literal this replaces was one that had to be edited by hand whenever a row was
+    // promoted, and a hand-edited literal is a place a row can be promoted and the number
+    // quietly left behind. Deriving it ties the count to the thing it counts.
+    let gated = rows.iter().filter(|r| r.status == Status::Gated).count();
+    assert!(gated > 0, "the registry gates something");
+    assert_eq!(problems(&rows, &bare).len(), 2 * gated);
     // By id, not by position: the first row happens to be `topology.index` today, and a
     // registry entry inserted above it would leave this test passing on a row it never
     // meant to read.

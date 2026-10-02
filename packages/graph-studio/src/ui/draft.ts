@@ -28,6 +28,22 @@ export function signatureOf(args: Args): string {
   return Object.keys(args).sort().map((name) => `${name}=${signed(args[name] ?? "")}`).join("\n");
 }
 
+/**
+ * Everything an action's form draws that comes out of the state: the reason it is refused,
+ * the values it is offered, and the choices each parameter lists. One string, so a form can
+ * be compared without being drawn and a change to the log, the selection or the search box
+ * leaves it exactly as it was.
+ *
+ * Caveat: a value that is equal but not identical is signed by value, so this is the same
+ * comparison the form's own remount key makes; a parameter whose value is a rebuilt object
+ * of the same content changes the signature by its printed form, not its identity.
+ */
+export function drawnOf(action: StudioAction, state: StudioState): string {
+  const reason = action.available?.(state) ?? "";
+  const choices = action.params.map((spec) => (spec.choices?.(state) ?? []).join("|")).join("\n");
+  return `${reason}\n${signatureOf(valuesOf(action, state))}\n${choices}`;
+}
+
 /** True when picking a value is the whole run: there is nothing to confirm. */
 export function commitsOnChange(control: Control): boolean {
   return ON_CHANGE.includes(control);

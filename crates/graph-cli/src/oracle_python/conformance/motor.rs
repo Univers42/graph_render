@@ -1,18 +1,19 @@
 //! Running one motor layout the way SciGraphs would run its reference: the registered
-//! default for almost every id, and a deliberate override for the four where the registered
+//! default for almost every id, and a deliberate override for the five where the registered
 //! default is not SciGraphs' parameter.
 //!
-//! **Four overrides, and each is a whole row.** `CIRCLE_PACKING`'s registered budget is 500
+//! **Five overrides, and each is a whole row.** `CIRCLE_PACKING`'s registered budget is 500
 //! radius-solver sweeps where `apply_graph_layout` passes 50; `FORCEATLAS2`'s is 100 where
 //! the dispatcher passes 50 into `ForceSim`; `GRAPHVIZ_SFDP` registers `run`, whose
-//! `DEFAULT_SEED` is 1, where the engine is handed `start = get_layout_seed()`;
-//! `layout.random` registers networkx's planar unit-square scatter off the crate's
-//! `Mulberry32`, where SciGraphs draws `rand(n, 3) * scale` off MT19937 at the layout seed
-//! (`basic.py:5-9`). Every other id either takes no parameter or its registered default
-//! already **is** the reference's — the igraph family being the surprising half:
-//! `_igraph_davidson_harel` ignores the dispatcher's `iterations` and uses igraph's
-//! `maxiter=10`, which is our `DhParams` default too (`igraph_layouts.py:117-118`,
-//! `davidson_harel.rs:44`).
+//! `DEFAULT_SEED` is 1, where the engine is handed `start = get_layout_seed()`; `GRID`
+//! registers a lattice centred on the origin at unit pitch, where `_grid_layout` starts at
+//! the origin and pitches it at `scale / grid_size`; and `layout.random` registers
+//! networkx's planar unit-square scatter off the crate's `Mulberry32`, where SciGraphs draws
+//! `rand(n, 3) * scale` off MT19937 at the layout seed (`basic.py:5-9`). Every other id
+//! either takes no parameter or its registered default already **is** the reference's — the
+//! igraph family being the surprising half: `_igraph_davidson_harel` ignores the
+//! dispatcher's `iterations` and uses igraph's `maxiter=10`, which is our `DhParams` default
+//! too (`igraph_layouts.py:117-118`, `davidson_harel.rs:44`).
 //!
 //! Nothing here normalises a coordinate. What the layout returns is what goes into the
 //! `.f64` file, and every parameter the motor could not be given is a `Gap` in
@@ -22,12 +23,14 @@ use super::fixtures::Fixture;
 use super::{ITERATIONS, LAYOUT_SEED, SCALE};
 use graph_contract::binary::SnapshotParts;
 use graph_contract::geometry::NodeGeometry;
+use graph_core::exec::Serial;
 use graph_core::layout::Geometry;
 use graph_core::layout::circle_packing::{self, CirclePackingParams};
 use graph_core::layout::force::spring::{Spring, Spring3D, SpringParams};
 use graph_core::layout::forceatlas2::{Fa2Params, ForceAtlas2};
 use graph_core::layout::graphviz::sfdp;
 use graph_core::layout::random;
+use graph_core::layout::grid::Grid;
 use graph_core::{Stage, StageError, registry, run_with};
 use serde_json::Value;
 
@@ -65,6 +68,7 @@ pub fn run(id: &str, fixture: &Fixture) -> Ran {
         "layout.force.spring" => spring::<Spring>(fixture),
         "layout.force.spring3d" => spring::<Spring3D>(fixture),
         "layout.random" => random_seeded(fixture),
+        "layout.grid" => grid(fixture),
         _ => registered(id, fixture),
     }?;
     columns(&parts, fixture.nodes.len())
@@ -121,6 +125,18 @@ fn spring<S: Stage<Params = SpringParams>>(fixture: &Fixture) -> Result<Snapshot
 /// left alone so its hash-gate record stands.
 fn random_seeded(fixture: &Fixture) -> Result<SnapshotParts, String> {
     finish(fixture, random::ID, |t| random::run_seeded(t, LAYOUT_SEED))
+}
+
+/// The grid at SciGraphs' `scale`, which its registered default is not: `_grid_layout`
+/// (`basic.py:11-20`) starts the first cell **at the origin** and sets the pitch to
+/// `scale / grid_size`, where the registered stage centres the lattice at
+/// `GridParams::spacing = 1.0` and lets nothing rescale it. `Grid::run_scaled` is that
+/// placement, and it is `f64` inside because a `f32` pitch is a whole ULP off
+/// (`layout/grid/scaled.rs`).
+fn grid(fixture: &Fixture) -> Result<SnapshotParts, String> {
+    finish(fixture, Grid::ID, |t| {
+        Grid::run_scaled(t, SCALE, &Serial, 1)
+    })
 }
 
 /// Every other id at its registered default.

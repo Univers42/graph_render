@@ -54,10 +54,12 @@ pub extern "C" fn gm_analysis_id(i: u32) -> u32 {
 // SAFETY: as `gm_post_count`.
 #[unsafe(no_mangle)]
 pub extern "C" fn gm_post_run(handle: u32, post_index: u32) -> u32 {
-    let ran = HANDLES
-        .with(|handles| stage_exports::post_run(&mut handles.borrow_mut(), handle, post_index));
+    // `.map(drop)`: the snapshot borrows the table, which must not outlive the closure.
+    let ran = HANDLES.with(|handles| {
+        stage_exports::post_run(&mut handles.borrow_mut(), handle, post_index).map(drop)
+    });
     match ran {
-        Ok(_) => {
+        Ok(()) => {
             errors::clear();
             1
         }
