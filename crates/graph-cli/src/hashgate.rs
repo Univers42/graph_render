@@ -188,7 +188,7 @@ fn collect_arms(seeds: u32, tiers: Tiers) -> Result<Vec<Arm>, String> {
     let wasm = build_wasm(&[])?;
     let count = seeds.to_string();
     let native = || run_lines(Command::new(&exe).args(["hashgate-arm", "--seeds", &count]));
-    let wasm32 = || run_lines(node_harness(&wasm).args(["hash", &count]).args(stages()));
+    let wasm32 = || run_lines(node_harness(&wasm)?.args(["hash", &count]).args(stages()));
     let mut arms = vec![
         ("native run 1", native()?),
         ("native run 2", native()?),

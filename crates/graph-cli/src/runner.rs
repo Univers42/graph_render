@@ -1,11 +1,16 @@
 //! Running the other programs a gate needs — cargo, node, the harness — and hashing
 //! what they produce. Shared by the hash gate and the determinism probe.
 
+#[path = "runner/resolve.rs"]
+mod resolve;
+
 use sha2::{Digest, Sha256};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
+
+pub use resolve::{on_path, target_dir};
 
 /// How long any one child (cargo, node, a gate arm) may run before it is killed. A hung
 /// child is a gate that could not run (exit 2), never one that waits forever.
@@ -79,14 +84,29 @@ pub fn harness_mutant(name: &str) -> PathBuf {
 
 /// Builds `graph_wasm.wasm` in release mode with `features` and returns its path.
 ///
-/// The target directory is passed to cargo, not guessed after the fact: the path this
-/// returns is the one cargo just wrote, so a stale artifact elsewhere cannot be hashed.
+/// The target directory is passed to cargo, not guessed after the fact, and it is made
+/// absolute against the workspace root first: cargo resolves a relative `--target-dir`
+/// against its own `current_dir` (the root), so a relative value *returned* as-is would be
+/// read from the CLI's directory instead and name another crate's stale artifact. That
+/// artifact is deleted before the build and its absence is refused after, because cargo
+/// exiting 0 is not evidence that it built anything — `$CARGO` is a trusted wrapper, and a
+/// wrapper that exits 0 without building would otherwise leave a stale `graph_wasm.wasm`
+/// standing under the build's name for the gate to hash.
 pub fn build_wasm(features: &[&str]) -> Result<PathBuf, String> {
     let root = workspace_root();
-    let target =
-        std::env::var_os("CARGO_TARGET_DIR").map_or_else(|| root.join("target"), PathBuf::from);
-    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
-    let mut command = Command::new(cargo);
+    let target = resolve::target_dir(std::env::var_os("CARGO_TARGET_DIR").as_deref(), &root);
+    let wasm = target
+        .join("wasm32-unknown-unknown")
+        .join("release")
+        .join("graph_wasm.wasm");
+    // Exact, not a heuristic: cargo either writes this file or the build did not happen, so
+    // a missing artifact after a successful exit is a refusal ("could not run"), not a pass.
+    // Removing the old one first is what makes that check bite: a `$CARGO` wrapper that
+    // exits 0 without building then leaves nothing behind rather than a stale artifact.
+    if let Err(e) = remove_stale_artifact(&wasm) {
+        return Err(format!("clearing {}: {e}", wasm.display()));
+    }
+    let mut command = Command::new(resolve::cargo()?);
     command
         .current_dir(&root)
         .args(["build", "--quiet", "--release"]);
@@ -99,19 +119,36 @@ pub fn build_wasm(features: &[&str]) -> Result<PathBuf, String> {
     if !status.success() {
         return Err(format!("building graph-wasm for wasm32 failed: {status}"));
     }
-    Ok(target
-        .join("wasm32-unknown-unknown")
-        .join("release")
-        .join("graph_wasm.wasm"))
+    if !wasm.is_file() {
+        return Err(format!("cargo built but wrote no {}", wasm.display()));
+    }
+    Ok(wasm)
 }
 
-/// `node harness/wasm-run.mjs <wasm>`, ready for the mode arguments.
-pub fn node_harness(wasm: &Path) -> Command {
-    let mut command = Command::new("node");
+/// Deletes a `graph_wasm.wasm` left by an earlier build. An absent file is the state we want,
+/// so `NotFound` is success; any other failure is the caller refusing, because a stale
+/// artifact the caller cannot clear cannot be told apart from this build's own output.
+fn remove_stale_artifact(wasm: &Path) -> std::io::Result<()> {
+    match std::fs::remove_file(wasm) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        other => other,
+    }
+}
+
+/// `node harness/wasm-run.mjs <wasm>`, ready for the mode arguments, or `Err` naming the
+/// interpreter that could not be found.
+///
+/// `node` is resolved from `PATH` once per process through [`resolve::on_path`], and is
+/// therefore **not fingerprinted**: which interpreter ran the hashed bytes is recorded
+/// nowhere in the gate's evidence, so a host whose `PATH` puts a different node first
+/// produces the same gate rows. Refusing a missing node is the part that is fixed here;
+/// pinning the interpreter is a change to the gate's evidence, not to this function.
+pub fn node_harness(wasm: &Path) -> Result<Command, String> {
+    let mut command = Command::new(resolve::node()?);
     command
         .arg(workspace_root().join("harness").join("wasm-run.mjs"))
         .arg(wasm);
-    command
+    Ok(command)
 }
 
 /// Runs `command` to completion and returns its stdout lines, or why it failed.
@@ -189,6 +226,7 @@ fn joined(drain: Drain) -> Result<Vec<u8>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::runner::on_path;
 
     #[test]
     fn sha256_matches_the_fips_180_2_vector() {
@@ -238,6 +276,14 @@ mod tests {
         // that silently lost that budget would stop being the check it claims to be.
         assert_eq!(CHILD_TIMEOUT, Duration::from_secs(2700));
         assert!(CHILD_TIMEOUT > Duration::from_secs(900));
+    }
+
+    #[test]
+    fn a_missing_program_is_refused_by_name() {
+        let err = on_path("gm-no-such-program", Some(std::ffi::OsStr::new("")))
+            .expect_err("nothing to find on an empty PATH");
+        assert!(err.contains("gm-no-such-program"), "{err}");
+        assert!(err.contains("PATH"), "{err}");
     }
 
     #[test]

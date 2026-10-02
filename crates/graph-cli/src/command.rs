@@ -187,3 +187,7 @@ pub enum Command {
     /// per-tick number the whole-stage `bench` averages away, and the profilers' workload.
     Tick(crate::bench::tick::Plan),
 }
+
+#[cfg(test)]
+#[path = "command/tests.rs"]
+mod tests;

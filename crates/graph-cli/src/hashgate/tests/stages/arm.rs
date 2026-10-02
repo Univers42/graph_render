@@ -27,7 +27,7 @@ fn artifact() -> std::path::PathBuf {
 /// `wasm-run.mjs <wasm> hash 1 <stage>`, once: its stdout lines on success, or the failure
 /// text `run_lines` builds from the child's status and stderr.
 fn hashed(wasm: &Path, stage: &str) -> Result<Vec<String>, String> {
-    let mut command = node_harness(wasm);
+    let mut command = node_harness(wasm).expect("node on PATH");
     command.args(["hash", "1", stage]);
     run_lines(&mut command)
 }
@@ -39,7 +39,7 @@ fn the_wasm_arm_can_hash_every_stage_the_gate_asks_for() {
     // one thing that keeps them honest is that they agree. Reads the shipped
     // `harness/wasm-run.mjs` `stages` mode, so it needs the real wasm artifact; it is the
     // same build `hashgate` makes before it drives the arm.
-    let mut command = node_harness(&artifact());
+    let mut command = node_harness(&artifact()).expect("node on PATH");
     command.arg("stages");
     let offered: Vec<String> = run_lines(&mut command).expect("the arm's stage list");
     let offered: Vec<&str> = offered
