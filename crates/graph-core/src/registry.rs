@@ -25,6 +25,7 @@ use crate::layout::{
 use crate::stage::{Stage, StageError};
 use graph_contract::geometry::{EdgeGeometryKind, NodeGeometryKind};
 
+mod arms_3d;
 mod closed_form;
 mod force;
 mod graphviz_circo;
@@ -36,6 +37,7 @@ mod hierarchy;
 mod igraph;
 mod radial;
 mod spectral;
+use arms_3d::{DRL_3D, FA2_3D, FRUCHTERMAN_REINGOLD_3D, KAMADA_KAWAI_3D, YIFAN_HU_2Z};
 use closed_form::{BIPARTITE, RANDOM, RING, SPIRAL};
 use force::{BARNES_HUT, FA2, SPRING, YIFAN_HU};
 pub use force::{FA2_CEILING, FORCE_CEILING, SPRING_CEILING};
@@ -91,7 +93,7 @@ pub struct Capability {
 }
 
 /// Every registered layout, in the order the hash gate runs them.
-pub static LAYOUTS: [Capability; 28] = [
+pub static LAYOUTS: [Capability; 33] = [
     Capability {
         id: Grid::ID,
         run: run_default::<Grid>,
@@ -168,14 +170,29 @@ pub static LAYOUTS: [Capability; 28] = [
         meta: YIFAN_HU,
     },
     Capability {
+        id: crate::layout::force::yifan_hu::ID_2Z,
+        run: arms_3d::run_yifan_2z,
+        meta: YIFAN_HU_2Z,
+    },
+    Capability {
         id: FruchtermanReingold::ID,
         run: run_default::<FruchtermanReingold>,
         meta: igraph::FRUCHTERMAN_REINGOLD,
     },
     Capability {
+        id: crate::layout::force::fruchterman_reingold::ID_3D,
+        run: arms_3d::run_fr_3d,
+        meta: FRUCHTERMAN_REINGOLD_3D,
+    },
+    Capability {
         id: KamadaKawai::ID,
         run: run_default::<KamadaKawai>,
         meta: igraph::KAMADA_KAWAI,
+    },
+    Capability {
+        id: crate::layout::force::kamada_kawai::ID_3D,
+        run: arms_3d::run_kk_3d,
+        meta: KAMADA_KAWAI_3D,
     },
     Capability {
         id: Graphopt::ID,
@@ -196,6 +213,16 @@ pub static LAYOUTS: [Capability; 28] = [
         id: Drl::ID,
         run: run_default::<Drl>,
         meta: igraph::DRL,
+    },
+    Capability {
+        id: crate::layout::force::drl::ID_3D,
+        run: arms_3d::run_drl_3d,
+        meta: DRL_3D,
+    },
+    Capability {
+        id: crate::layout::forceatlas2::ID_3D,
+        run: arms_3d::run_fa2_3d,
+        meta: FA2_3D,
     },
     Capability {
         id: twopi::ID,

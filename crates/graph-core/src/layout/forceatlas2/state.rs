@@ -28,6 +28,13 @@ pub struct Fa2Params {
     /// global RNG); graph-core has no global mutable state (D5), so this is fixed and
     /// explicit instead.
     pub seed: u32,
+    /// How many coordinates every node carries: `2`, or `3` for
+    /// `layout.forceatlas2.3d`.
+    ///
+    /// networkx's own default is `dim = 2` (`layout.py:1619`) and SciGraphs asks for
+    /// `dim = 3` (`forceatlas.py:153`), so this is the parameter the two dispatcher arms
+    /// differ on.
+    pub dim: usize,
 }
 
 impl Default for Fa2Params {
@@ -38,49 +45,57 @@ impl Default for Fa2Params {
             scaling_ratio: 2.0,
             gravity: 1.0,
             seed: 0,
+            dim: 2,
         }
     }
 }
 
+/// The widest point this port keeps; see
+/// [`crate::layout::force::fruchterman_reingold::MAX_DIM`].
+pub const MAX_DIM: usize = 3;
+
 pub(super) struct Fa2State {
     graph: SimpleGraph,
     params: Fa2Params,
+    dim: usize,
     iter_no: u32,
     swing: f64,
     traction: f64,
     speed: f64,
     speed_efficiency: f64,
-    x: Vec<f64>,
-    y: Vec<f64>,
+    /// The positions, one row of `dim` per node. SoA at `dim` 2 became one array here:
+    /// networkx's own arrays are `(n, dim)` throughout (`layout.py:1729-1731`), so the
+    /// row-major shape is the reference's, and at `dim` 2 the sums below run over the same
+    /// two columns in the same order.
+    p: Vec<[f64; MAX_DIM]>,
     mass: Vec<f64>,
-    ux: Vec<f64>,
-    uy: Vec<f64>,
+    /// The per-iteration force accumulator, the `(n, dim)` array networkx calls `update`.
+    u: Vec<[f64; MAX_DIM]>,
 }
 
 impl Fa2State {
-    pub(super) fn new(topology: &Topology, params: Fa2Params) -> Self {
+    pub(super) fn new(topology: &Topology, params: Fa2Params, dim: usize) -> Self {
         let graph = simple_graph(topology);
         let n = topology.node_count();
         let mass = (0..n).map(|v| f64::from(graph.degree(v)) + 1.0).collect();
-        let (x, y) = initial_positions(n, params.seed);
+        let p = initial_positions(n, params.seed, dim);
         Self {
             graph,
             params,
+            dim,
             iter_no: 0,
             swing: 1.0,
             traction: 1.0,
             speed: 1.0,
             speed_efficiency: 1.0,
-            ux: vec![0.0; n as usize],
-            uy: vec![0.0; n as usize],
-            x,
-            y,
+            u: vec![[0.0; MAX_DIM]; n as usize],
+            p,
             mass,
         }
     }
 
-    pub(super) fn positions(&self) -> (&[f64], &[f64]) {
-        (&self.x, &self.y)
+    pub(super) fn positions(&self) -> &[[f64; MAX_DIM]] {
+        &self.p
     }
 
     /// Runs to `max_iter`, or fewer if the update shrinks below networkx's own
@@ -94,8 +109,7 @@ impl Fa2State {
     }
 
     fn iterate(&mut self) -> f64 {
-        self.ux.iter_mut().for_each(|v| *v = 0.0);
-        self.uy.iter_mut().for_each(|v| *v = 0.0);
+        self.u.fill([0.0; MAX_DIM]);
         self.attraction();
         self.repulsion();
         self.gravity();
@@ -111,14 +125,14 @@ impl Fa2State {
     /// `attraction = -einsum('ijk,ij->ik', diff, A)`, `A` 0/1 and symmetric: for each
     /// simple edge, both endpoints pull toward each other by the same amount.
     fn attraction(&mut self) {
+        let dim = self.dim;
         for e in 0..self.graph.lo.len() {
             let (lo, hi) = (self.graph.lo[e] as usize, self.graph.hi[e] as usize);
-            let dx = self.x[hi] - self.x[lo];
-            let dy = self.y[hi] - self.y[lo];
-            self.ux[lo] += dx;
-            self.uy[lo] += dy;
-            self.ux[hi] -= dx;
-            self.uy[hi] -= dy;
+            for a in 0..dim {
+                let d = self.p[hi][a] - self.p[lo][a];
+                self.u[lo][a] += d;
+                self.u[hi][a] -= d;
+            }
         }
     }
 
@@ -128,70 +142,86 @@ impl Fa2State {
     /// `Infinity`/`NaN` factor can reach a node (D9) — networkx's own dense form has no
     /// such guard.
     fn repulsion(&mut self) {
-        let n = self.x.len();
+        let n = self.p.len();
         let k = self.params.scaling_ratio;
         for i in 0..n {
             for j in (i + 1)..n {
-                let (dx, dy) = self.repel_delta(i as u32, j as u32);
-                let d2 = dx * dx + dy * dy;
+                let d = self.repel_delta(i as u32, j as u32);
+                let d2 = norm2(&d, self.dim);
                 let f = self.mass[i] * self.mass[j] / d2 * k;
-                self.ux[i] += dx * f;
-                self.uy[i] += dy * f;
-                self.ux[j] -= dx * f;
-                self.uy[j] -= dy * f;
+                for (a, delta) in d.iter().enumerate().take(self.dim) {
+                    self.u[i][a] += delta * f;
+                    self.u[j][a] -= delta * f;
+                }
             }
         }
     }
 
-    fn repel_delta(&self, i: u32, j: u32) -> (f64, f64) {
-        let mut dx = self.x[i as usize] - self.x[j as usize];
-        let mut dy = self.y[i as usize] - self.y[j as usize];
-        if dx == 0.0 && dy == 0.0 {
-            dx = jiggle(self.params.seed, self.iter_no, 0, (i, j));
-            dy = jiggle(self.params.seed, self.iter_no, 1, (i, j));
+    fn repel_delta(&self, i: u32, j: u32) -> [f64; MAX_DIM] {
+        let mut d = [0.0; MAX_DIM];
+        for (a, slot) in d.iter_mut().enumerate().take(self.dim) {
+            *slot = self.p[i as usize][a] - self.p[j as usize][a];
         }
-        (dx, dy)
+        if norm2(&d, self.dim) == 0.0 {
+            for (a, slot) in d.iter_mut().enumerate().take(self.dim) {
+                *slot = jiggle(self.params.seed, self.iter_no, a as u32, (i, j));
+            }
+        }
+        d
     }
 
     /// `gravities = -gravity * mass * unit_vec(pos - mean(pos))`, `strong_gravity=False`.
     fn gravity(&mut self) {
-        let n = self.x.len();
+        let n = self.p.len();
         if n == 0 {
             return;
         }
-        let (mut mx, mut my) = (0.0, 0.0);
-        for i in 0..n {
-            mx += self.x[i];
-            my += self.y[i];
+        let dim = self.dim;
+        let mut mean = [0.0; MAX_DIM];
+        for row in &self.p {
+            for a in 0..dim {
+                mean[a] += row[a];
+            }
         }
-        (mx, my) = (mx / n as f64, my / n as f64);
+        for slot in mean.iter_mut().take(dim) {
+            *slot /= n as f64;
+        }
         for i in 0..n {
-            let (px, py) = (self.x[i] - mx, self.y[i] - my);
-            let norm = libm::sqrt(px * px + py * py);
-            let (ux, uy) = if norm > 0.0 {
-                (px / norm, py / norm)
-            } else {
-                (0.0, 0.0)
-            };
-            self.ux[i] -= self.params.gravity * self.mass[i] * ux;
-            self.uy[i] -= self.params.gravity * self.mass[i] * uy;
+            let mut centred = [0.0; MAX_DIM];
+            for (a, slot) in centred.iter_mut().enumerate().take(dim) {
+                *slot = self.p[i][a] - mean[a];
+            }
+            let norm = libm::sqrt(norm2(&centred, dim));
+            let g = self.params.gravity * self.mass[i];
+            for (a, slot) in self.u[i].iter_mut().enumerate().take(dim) {
+                *slot -= if norm > 0.0 {
+                    g * centred[a] / norm
+                } else {
+                    0.0
+                };
+            }
         }
     }
 
     fn swing_and_traction(&self) -> (f64, f64) {
         let (mut swing, mut traction) = (0.0, 0.0);
-        for i in 0..self.x.len() {
-            let (sx, sy) = (self.x[i] - self.ux[i], self.y[i] - self.uy[i]);
-            swing += self.mass[i] * libm::sqrt(sx * sx + sy * sy);
-            let (tx, ty) = (self.x[i] + self.ux[i], self.y[i] + self.uy[i]);
-            traction += 0.5 * self.mass[i] * libm::sqrt(tx * tx + ty * ty);
+        let dim = self.dim;
+        for i in 0..self.p.len() {
+            let mut back = [0.0; MAX_DIM];
+            let mut fwd = [0.0; MAX_DIM];
+            for a in 0..dim {
+                back[a] = self.p[i][a] - self.u[i][a];
+                fwd[a] = self.p[i][a] + self.u[i][a];
+            }
+            swing += self.mass[i] * libm::sqrt(norm2(&back, dim));
+            traction += 0.5 * self.mass[i] * libm::sqrt(norm2(&fwd, dim));
         }
         (swing, traction)
     }
 
     /// networkx's own `estimate_factor` helper, verbatim.
     fn estimate_factor(&mut self, swing: f64, traction: f64) {
-        let n = self.x.len() as f64;
+        let n = self.p.len() as f64;
         let jt = self.params.jitter_tolerance;
         let opt_jitter = 0.05 * libm::sqrt(n);
         let min_jitter = libm::sqrt(opt_jitter);
@@ -221,29 +251,49 @@ impl Fa2State {
 
     fn apply_update(&mut self) -> f64 {
         let mut moved = 0.0;
-        for i in 0..self.x.len() {
-            let norm = libm::sqrt(self.ux[i] * self.ux[i] + self.uy[i] * self.uy[i]);
+        let dim = self.dim;
+        for i in 0..self.p.len() {
+            let norm = libm::sqrt(norm2(&self.u[i], dim));
             let factor = self.speed / (1.0 + libm::sqrt(self.speed * self.mass[i] * norm));
-            let (dx, dy) = (self.ux[i] * factor, self.uy[i] * factor);
-            self.x[i] += dx;
-            self.y[i] += dy;
-            moved += f64::abs(dx) + f64::abs(dy);
+            let mut step = 0.0;
+            for a in 0..dim {
+                let d = self.u[i][a] * factor;
+                self.p[i][a] += d;
+                step += f64::abs(d);
+            }
+            moved += step;
         }
         moved
     }
 }
 
-/// networkx's own initial positions are `nx.random_layout` (uniform in the unit square,
-/// `numpy`'s RNG); this port uses the crate's one sequential generator, [`Mulberry32`],
-/// seeded explicitly (devil C8's "two kinds, and only two" — `rng.rs`). Public so the
-/// networkx differential can start the reference from the very same positions.
-pub fn initial_positions(n: u32, seed: u32) -> (Vec<f64>, Vec<f64>) {
-    let mut rng = Mulberry32::new(seed);
-    let mut x = Vec::with_capacity(n as usize);
-    let mut y = Vec::with_capacity(n as usize);
-    for _ in 0..n {
-        x.push(rng.next_f64());
-        y.push(rng.next_f64());
+/// `sum of squares` over the live axes, ascending — at `dim` 2 this is the `px*px + py*py`
+/// the 2D arm always computed, in the same order, so its bits do not move.
+fn norm2(v: &[f64; MAX_DIM], dim: usize) -> f64 {
+    let mut sum = 0.0;
+    for x in v.iter().take(dim) {
+        sum += x * x;
     }
-    (x, y)
+    sum
+}
+
+/// networkx's own initial positions are `nx.random_layout` (uniform in the unit
+/// `dim`-cube, `numpy`'s RNG); this port uses the crate's one sequential generator,
+/// [`Mulberry32`], seeded explicitly (devil C8's "two kinds, and only two" — `rng.rs`).
+/// Public so the networkx differential can start the reference from the very same
+/// positions.
+///
+/// Row-major, `dim` draws per node in ascending axis order, which at `dim` 2 is the two
+/// draws per node the 2D arm always made in that order.
+pub fn initial_positions(n: u32, seed: u32, dim: usize) -> Vec<[f64; MAX_DIM]> {
+    let mut rng = Mulberry32::new(seed);
+    let mut out = Vec::with_capacity(n as usize);
+    for _ in 0..n {
+        let mut row = [0.0; MAX_DIM];
+        for slot in row.iter_mut().take(dim) {
+            *slot = rng.next_f64();
+        }
+        out.push(row);
+    }
+    out
 }

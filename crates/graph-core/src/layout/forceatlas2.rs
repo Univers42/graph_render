@@ -14,9 +14,12 @@ mod tests;
 use crate::index::Topology;
 use crate::layout::Geometry;
 use crate::stage::{Stage, StageError};
-use graph_contract::geometry::{EdgeGeometry, NodeGeometry};
-use state::Fa2State;
 pub use state::{Fa2Params, initial_positions};
+use state::{Fa2State, MAX_DIM};
+
+/// SciGraphs' `FORCEATLAS2` runs at `dim = 3` by default (`forceatlas.py:153`); this is
+/// the same kernel at 3. `layout.forceatlas2` is this arm at `dim` 2.
+pub const ID_3D: &str = "layout.forceatlas2.3d";
 
 /// ForceAtlas2 layout (`prompt.md` §3.1): a dense, O(n²)-per-iteration alternative to
 /// [`super::force::BarnesHut`] for the graph sizes it stays practical at — see
@@ -33,19 +36,30 @@ impl Stage for ForceAtlas2 {
     const ID: &'static str = "layout.forceatlas2";
 
     fn run(topology: &Topology, params: &Self::Params) -> Result<Geometry, StageError> {
-        let mut state = Fa2State::new(topology, *params);
-        state.run();
-        let (x, y) = state.positions();
-        if x.iter().chain(y).any(|v| !v.is_finite()) {
-            return Err(StageError::NonFinite { column: "node.x" });
-        }
-        Ok(Geometry::planar(
-            NodeGeometry::Point {
-                x: x.iter().map(|&v| v as f32).collect(),
-                y: y.iter().map(|&v| v as f32).collect(),
-            },
-            EdgeGeometry::Line,
-            Vec::new(),
-        ))
+        run_at_dim(topology, params, params.dim)
     }
+}
+
+/// The 3D arm: [`Stage::run`] with `dim` forced to 3. See
+/// [`super::force::fruchterman_reingold::run_3d`] for why it is a function and not a
+/// second `Stage` impl.
+pub fn run_3d(topology: &Topology, params: &Fa2Params) -> Result<Geometry, StageError> {
+    run_at_dim(topology, params, MAX_DIM)
+}
+
+fn run_at_dim(topology: &Topology, params: &Fa2Params, dim: usize) -> Result<Geometry, StageError> {
+    if !(2..=MAX_DIM).contains(&dim) {
+        return Err(StageError::Param {
+            name: "dim",
+            rule: "2 or 3 coordinates per node",
+        });
+    }
+    let mut state = Fa2State::new(topology, *params, dim);
+    state.run();
+    let pos = state.positions();
+    if pos.iter().flatten().take(dim).any(|v| !v.is_finite()) {
+        return Err(StageError::NonFinite { column: "node.x" });
+    }
+    let column = |a: usize| pos.iter().map(|p| p[a] as f32).collect();
+    Ok(Geometry::points(dim, column(0), column(1), column(2)))
 }

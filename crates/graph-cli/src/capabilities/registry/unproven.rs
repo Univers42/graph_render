@@ -57,6 +57,25 @@ pub(super) fn force_record(id: &str) -> Option<(&'static str, Status)> {
     match id {
         "layout.force.barnes_hut" => Some(("stress", Status::Implemented)),
         "layout.forceatlas2" => Some(("oracle-fa2", Status::Implemented)),
+        // The 3D arms, each on the record its own comparison writes. `oracle-fa2` is shared
+        // with the 2D FA2 arm because the harness is one file and one comparison; the key
+        // inside it (`fa2_3d`) and the ceiling are its own, measured at 2.985e-08. The
+        // igraph 3D arms have their own differential (`oracle-igraph3d`) because their
+        // fixtures carry 3D starts and their reference calls pass `dim = 3`.
+        //
+        // Ponytail: `implemented`, not `gated`, for the same reason as every force row
+        // above — `verdict::Evidence::oracle_record` matches a fixed list of record names
+        // and has no arm for `oracle-igraph3d`, so a `gated` row here could only read back
+        // "no record: run the gate" and report a refusal where a verdict belongs. That is
+        // a pre-existing gap in the reader, not a claim this row is making.
+        "layout.forceatlas2.3d" => Some(("oracle-fa2", Status::Implemented)),
+        "layout.force.fruchterman_reingold.3d"
+        | "layout.force.kamada_kawai.3d"
+        | "layout.force.drl.3d" => Some(("oracle-igraph3d", Status::Implemented)),
+        // The `2Z` mode is a 2D run plus a derived column, so it has no coordinate oracle
+        // to point at and none is claimed — the 2D yifan_hu row above says the same about
+        // itself. The stress record is barnes_hut's, so `implemented` only.
+        "layout.force.yifan_hu.2z" => Some(("stress", Status::Implemented)),
         // Ponytail: no differential exists for the multilevel layout (not sfdp); the
         // stress record is the closest metric and is barnes_hut's, so `implemented` only.
         "layout.force.yifan_hu" => Some(("stress", Status::Implemented)),

@@ -25,11 +25,11 @@ git log --oneline origin/develop..origin/p12-igraph
 | `SPRING` | `dispatcher.py:55` | `_spring_layout_2d` `networkx_layouts.py:16` | 2D | `layout.force.spring` | on develop (p12-t2) | networkx 3.6 `spring_layout` at `dim=2` | `oracle-spring`, networkx arm, stress deficit, `unproven.rs:67` |
 | `SPRING_3D` | `dispatcher.py:57` | `_spring_layout_3d` `networkx_layouts.py:26` | 3D | — | missing | networkx 3.6 `spring_layout` at `dim=3` | blocked on `contract-3d`; then the same `oracle-spring` at dim 3 |
 | `CIRCLE_PACKING` | `dispatcher.py:59` | `_circle_packing_layout` `circle_packing.py:281` | 2D (Z=0) | `layout.packing.circle` | on develop | hand + planarity certificate | `roundtrip` hand oracle, `registry/grid.rs:61` |
-| `FORCEATLAS2` | `dispatcher.py:62` | `_forceatlas2_layout` `forceatlas.py:150` | 3D by default (`dim=3`) | `layout.forceatlas2` | on develop (2D port) | networkx 3.6 `forceatlas2_layout` | `oracle-fa2`, `unproven.rs:59`, `registry/force.rs:190` |
-| `IGRAPH_FR` | `dispatcher.py:65` | `_igraph_fruchterman_reingold` `igraph_layouts.py:53` | 3D (`'dim': 3`) | `layout.force.fruchterman_reingold` | in flight: p12-igraph | igraph | `oracle-igraph` (on the branch) |
-| `IGRAPH_KK` | `dispatcher.py:68` | `_igraph_kamada_kawai` `igraph_layouts.py:85` | 3D (`'dim': 3`) | `layout.force.kamada_kawai` | in flight: p12-igraph | igraph | `oracle-igraph` (on the branch) |
-| `IGRAPH_DRL` | `dispatcher.py:78` | `_igraph_drl` `igraph_layouts.py:281` | 3D (`'dim': 3`) | `layout.force.drl` | in flight: p12-igraph | igraph | `oracle-igraph` (on the branch) |
-| `IGRAPH_DRL_2D` | `dispatcher.py:83` | `_igraph_drl_2d` `igraph_layouts.py:359` | 2D (`'dim': 2`) | `layout.force.drl` (shared with the row above) | in flight: p12-igraph | igraph | `oracle-igraph` (on the branch) |
+| `FORCEATLAS2` | `dispatcher.py:62` | `_forceatlas2_layout` `forceatlas.py:150` | 3D by default (`dim=3`) | `layout.forceatlas2` (2D) · `layout.forceatlas2.3d` (3D) | on develop (2D and 3D) | networkx 3.6 `forceatlas2_layout` at `dim=2` and `dim=3` | `oracle-fa2` (keys `fa2`, `fa2_3d`), `unproven.rs`, `registry/arms_3d.rs` |
+| `IGRAPH_FR` | `dispatcher.py:65` | `_igraph_fruchterman_reingold` `igraph_layouts.py:53` | 3D (`'dim': 3`) | `layout.force.fruchterman_reingold` (2D) · `layout.force.fruchterman_reingold.3d` (3D) | on develop (2D and 3D) | igraph | `oracle-igraph` (2D), `oracle-igraph3d` (3D) |
+| `IGRAPH_KK` | `dispatcher.py:68` | `_igraph_kamada_kawai` `igraph_layouts.py:85` | 3D (`'dim': 3`) | `layout.force.kamada_kawai` (2D) · `layout.force.kamada_kawai.3d` (3D) | on develop (2D and 3D) | igraph | `oracle-igraph` (2D), `oracle-igraph3d` (3D) |
+| `IGRAPH_DRL` | `dispatcher.py:78` | `_igraph_drl` `igraph_layouts.py:281` | 3D (`'dim': 3`) | `layout.force.drl.3d` | on develop (3D) | igraph | `oracle-igraph3d` |
+| `IGRAPH_DRL_2D` | `dispatcher.py:83` | `_igraph_drl_2d` `igraph_layouts.py:359` | 2D (`'dim': 2`) | `layout.force.drl` | on develop (2D) | igraph | `oracle-igraph` |
 | `IGRAPH_LGL` | `dispatcher.py:88` | `_igraph_lgl` `igraph_layouts.py:423` | 2D | `layout.force.lgl` | in flight: p12-igraph | igraph | `oracle-igraph` (on the branch) |
 | `SPHERE` | `dispatcher.py:101` | `_sphere_layout` `basic.py:22` | 3D | — | missing | SciGraphs itself (Fibonacci sphere, `basic.py:22-34`) | hand + a SciGraphs-arm `oracle-basic-3d` |
 | `SPECTRAL_3D` | `dispatcher.py:103` | `_spectral_layout_3d` `networkx_layouts.py:249` | 3D (`dims=3`) | `layout.spectral` | on develop (2D port) | SciGraphs `_spectral_component_coordinates` on scipy 1.16.2 | `oracle-spectral`, `registry/spectral.rs:25` |
@@ -41,7 +41,7 @@ git log --oneline origin/develop..origin/p12-igraph
 | `IGRAPH_DH` | `dispatcher.py:115` | `_igraph_davidson_harel` `igraph_layouts.py:461` | 2D (planar) | `layout.force.davidson_harel` | in flight: p12-igraph | igraph | `oracle-igraph` (on the branch) |
 | `IGRAPH_GRAPHOPT` | `dispatcher.py:130` | `_igraph_graphopt` `igraph_layouts.py:493` | 2D (planar) | `layout.force.graphopt` | in flight: p12-igraph | igraph | `oracle-igraph` (on the branch) |
 | `MDS_3D` | `dispatcher.py:136` | `_mds_layout_3d` `networkx_layouts.py:271` | 3D | `layout.mds.pivot` | on develop (2D port) | SciGraphs `_pivot_mds_component_coordinates` on scipy 1.16.2 | `oracle-spectral`, `registry/spectral.rs:52` |
-| `YIFAN_HU` | `dispatcher.py:138` | `_yifan_hu_layout` `yifan_hu.py:344` | 2D / 2Z / 3 by `props.sfdp_dim` | `layout.force.yifan_hu` | on develop (2D only) | SciGraphs' own multilevel scheme — explicitly **not** Graphviz `sfdp` | `stress` only, `unproven.rs:62`, `registry/force.rs:228` |
+| `YIFAN_HU` | `dispatcher.py:138` | `_yifan_hu_layout` `yifan_hu.py:344` | 2D / 2Z / 3 by `props.sfdp_dim` | `layout.force.yifan_hu` (2D) · `layout.force.yifan_hu.2z` (2Z) | on develop (2D and 2Z) | SciGraphs' own multilevel scheme — explicitly **not** Graphviz `sfdp` | `stress` only, `unproven.rs`, `registry/arms_3d.rs` |
 | `GRAPHVIZ_TWOPI` | `dispatcher.py:140` | `_graphviz_engine_layout` `yifan_hu.py:340` | 2D default | `layout.twopi` | in flight: p13-gv1 | Graphviz `twopi` 16.1.0 `lib/twopigen/circle.c` | `oracle-twopi`, `capabilities/registry/unproven.rs:86`, `registry/radial.rs:32` |
 | `GRAPHVIZ_CIRCO` | `dispatcher.py:140` | same, `engine='circo'` | 2D default | `layout.circular.circo` | in flight: p13-gv1-circo | Graphviz `circo` 16.1.0 `lib/circogen` | `oracle-circo`, `capabilities/registry/unproven.rs`, `registry/graphviz_circo.rs`; **14 closed cases exact, but the circle order differs on 984 of 1000 seeds** — see `docs/measurements/p13-gv1-circo.md` |
 | `GRAPHVIZ_OSAGE` | `dispatcher.py:140` | same, `engine='osage'` | 2D default | `layout.packing.osage` | in flight: p13-gv1 | Graphviz `osage` 16.1.0 `lib/osage/osageinit.c` + `lib/pack/pack.c` | `oracle-graphviz --engine osage`, `capabilities/registry/unproven.rs`, `registry/graphviz_osage.rs`; **agrees exactly only below 11 nodes** — see `docs/measurements/p13-gv1-osage.md` |
@@ -57,13 +57,17 @@ git log --oneline origin/develop..origin/p12-igraph
 - on develop = 12, in four flavours: 5 as SciGraphs names them (`GRID`, `CIRCLE_PACKING`, `SUGIYAMA`,
   `SPRING`, `CIRCULAR_HIERARCHY`), 6 as two-dimensional ports of a 3D name (`RANDOM`, `FORCEATLAS2`,
   `SPECTRAL_3D`, `SPIRAL_3D`, `BIPARTITE_3D`, `MDS_3D`), and 1 as a 2D-only cut of a name SciGraphs makes
-  optional by dimension (`YIFAN_HU`, which is 2D/2Z/3 upstream)
-- in flight: p12-igraph = 7 names over 6 ids (`DRL` and `DRL_2D` share `layout.force.drl`) ·
-  p13-gv1 = 3 names over 3 ids (`GRAPHVIZ_TWOPI` → `layout.twopi`, `GRAPHVIZ_OSAGE` →
-  `layout.packing.osage`, `GRAPHVIZ_PATCHWORK` → `layout.treemap.patchwork`)
-  p13-gv1-circo = 1 name over 1 id (`GRAPHVIZ_CIRCO` → `layout.circular.circo`)
-  p13-gv2 = 1 name over 1 id (`GRAPHVIZ_NEATO` → `layout.force.neato`, 2D only — the 3D-eligible
-  arm is p12-t4)
+  optional by dimension (`YIFAN_HU`, which is 2D/2Z/3 upstream). **p12-t4b moves 6 of these
+  names off 2D:** `FORCEATLAS2`, `IGRAPH_FR`, `IGRAPH_KK`, `IGRAPH_DRL` now have a 3D arm,
+  `IGRAPH_DRL_2D` its own 2D id, and `YIFAN_HU` a `2Z` arm — 5 new ids, all with the dimension
+  a parameter of the 2D kernel rather than a second kernel. The `SPECTRAL_3D`, `SPIRAL_3D`,
+  `BIPARTITE_3D` and `MDS_3D` arms of that same job (p12-t4a) are not on this tree, so those
+  four names are still 2D-only here.
+- on develop, 3D arms: `layout.forceatlas2.3d`, `layout.force.fruchterman_reingold.3d`,
+  `layout.force.kamada_kawai.3d`, `layout.force.drl.3d` (the SciGraphs default dimension for
+  each) and `layout.force.yifan_hu.2z` (2D plus a derived z). `LAYOUTS` is 33 entries.
+- in flight: p12-gv2 = 3 names over 3 ids (`GRAPHVIZ_FDP`, `GRAPHVIZ_SFDP`, `GRAPHVIZ_DOT`)
+  and `GRAPHVIZ_NEATO`'s 3D arm
 - planned: p12-t2 = 2 · planned: p13-gv2 = 3 (`GRAPHVIZ_FDP`, `GRAPHVIZ_SFDP`, `GRAPHVIZ_DOT`)
 - missing = 5, all of them 3D: `SPRING_3D`, `SPHERE`, `HELIX`, `CUBE`, `HIERARCHICAL_3D`
 - motor ids with no SciGraphs name = 4 (`layout.tree.tidy`, `layout.treemap.squarified`, `layout.circular.ring`, `layout.force.barnes_hut`); out of scope for a table keyed on SciGraphs names

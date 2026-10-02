@@ -3,7 +3,9 @@
 
 use super::graphviz::{by_engine, default_dir, engine_parser};
 use super::spring;
-use super::{CIRCULAR_HIERARCHY, CLOSED_FORM, FA2, IGRAPH, SPECTRAL, SPRING, emit, ingest};
+use super::{
+    CIRCULAR_HIERARCHY, CLOSED_FORM, FA2, IGRAPH, IGRAPH_3D, SPECTRAL, SPRING, emit, ingest,
+};
 use crate::command::seed_count;
 use clap::Subcommand;
 use std::path::PathBuf;
@@ -39,6 +41,27 @@ pub enum Cli {
     OracleIgraph {
         /// Directory holding the fixtures and `igraph-result.json`.
         #[arg(long, default_value = "target/igraph-fixtures")]
+        dir: PathBuf,
+    },
+    /// Writes the 3D arms' fixtures, for `harness/oracle-igraph.py` at `dim = 3`.
+    ///
+    /// Its own subcommand and its own directory rather than a `--dim` on the 2D one: the
+    /// two sets need different starts and different reference kwargs, and one flag
+    /// switching between them would make the emitted set depend on a flag rather than on
+    /// the arms it holds.
+    EmitIgraph3dFixtures {
+        /// Number of seeds, 0..N.
+        #[arg(long, default_value_t = 1000, value_parser = seed_count())]
+        seeds: u32,
+        /// Output directory. Its name must end in `-fixtures`; the harness reads the
+        /// dimension off it.
+        #[arg(long, default_value = "target/igraph3d-fixtures")]
+        out: PathBuf,
+    },
+    /// Checks the 3D arms' result against its ceilings and records it.
+    OracleIgraph3d {
+        /// Directory holding the fixtures and `igraph3d-result.json`.
+        #[arg(long, default_value = "target/igraph3d-fixtures")]
         dir: PathBuf,
     },
     /// Writes the closed-form differential's fixtures for `harness/oracle-closed-form.py`.
@@ -153,6 +176,8 @@ impl Cli {
             Cli::OracleSpectral { dir } => ingest(&SPECTRAL, &dir),
             Cli::EmitIgraphFixtures { seeds, out } => emit(&IGRAPH, seeds, None, &out),
             Cli::OracleIgraph { dir } => ingest(&IGRAPH, &dir),
+            Cli::EmitIgraph3dFixtures { seeds, out } => emit(&IGRAPH_3D, seeds, None, &out),
+            Cli::OracleIgraph3d { dir } => ingest(&IGRAPH_3D, &dir),
             Cli::EmitFa2Fixtures {
                 seeds,
                 max_iter,

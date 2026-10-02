@@ -144,6 +144,14 @@ const IGRAPH_LAYOUT_IDS: [&str; 6] = [
     "layout.force.drl",
 ];
 
+/// The 3D arms of the igraph family, which are held to `oracle-igraph3d` rather than to
+/// `oracle-igraph`: a different differential, with 3D starts and `dim = 3` reference calls.
+const IGRAPH_3D_LAYOUT_IDS: [&str; 3] = [
+    "layout.force.fruchterman_reingold.3d",
+    "layout.force.kamada_kawai.3d",
+    "layout.force.drl.3d",
+];
+
 /// The record a row names, as `(oracle_record, hash_stage)`. Each row's two names must be
 /// a record `graph-cli` actually writes — a name nothing writes is a row that can never
 /// be backed, however often the gate is re-run.
@@ -178,12 +186,23 @@ fn the_registry_covers_every_oracle_function_once_its_ids_are_unique() {
             ("roundtrip", "ingest.build", Status::Implemented)
         } else if r.id == "layout.tree.tidy" || r.id == "layout.treemap.squarified" {
             ("oracle-layouts", r.id, Status::Gated)
-        } else if r.id == "layout.force.barnes_hut" || r.id == "layout.force.yifan_hu" {
+        } else if r.id == "layout.force.barnes_hut"
+            || r.id == "layout.force.yifan_hu"
+            // `2Z` is a 2D run plus a derived column and has no coordinate oracle of its
+            // own, so it sits on the same `stress` record as the 2D arm above; `implemented`
+            // for the reason `unproven.rs` gives.
+            || r.id == "layout.force.yifan_hu.2z"
+        {
             ("stress", r.id, Status::Implemented)
-        } else if r.id == "layout.forceatlas2" {
+        } else if r.id == "layout.forceatlas2" || r.id == "layout.forceatlas2.3d" {
             ("oracle-fa2", r.id, Status::Implemented)
         } else if IGRAPH_LAYOUT_IDS.contains(&r.id) {
             ("oracle-igraph", r.id, Status::Implemented)
+        } else if IGRAPH_3D_LAYOUT_IDS.contains(&r.id) {
+            // Its own record, not `oracle-igraph`: the 3D arms' fixtures carry 3D starts
+            // and their reference calls pass `dim = 3`, so the comparison is a different
+            // measurement rather than the 2D one rerun.
+            ("oracle-igraph3d", r.id, Status::Implemented)
         } else if r.id == "layout.force.spring" {
             ("oracle-spring", r.id, Status::Implemented)
         } else if r.id == "layout.circular.hierarchy" {
