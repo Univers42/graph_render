@@ -21,8 +21,10 @@ fn loops(n: u32, edges: &[(u32, u32)]) -> Vec<u32> {
 fn loop_counts_are_per_node_and_skip_every_other_pair() {
     // The two lists the fallback is handed are independent: the reduction drops the loops,
     // and this is what puts them back for the degree networkx reads them by.
+    // `(0, 0)` twice is one loop: `nx.Graph` (`common.py:238`) stores a repeated edge once,
+    // so networkx's degree for node 0 is `len({1, 0}) + 1 = 3`, never 5.
     let edges = [(0, 1), (0, 0), (0, 0), (1, 2), (3, 3)];
-    assert_eq!(loops(4, &edges), vec![2, 0, 0, 1]);
+    assert_eq!(loops(4, &edges), vec![1, 0, 0, 1]);
     assert_eq!(
         reduced(4, &edges),
         vec![(0, 1), (1, 2)],

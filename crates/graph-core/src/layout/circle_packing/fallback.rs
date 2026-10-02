@@ -25,7 +25,7 @@ use seed::{fruchterman_reingold, rescale_to};
 /// `edges` arrives already reduced to a simple graph by [`super::simple_pairs`] — the
 /// same reduction the exact path gets — so every edge here is a distinct pair of distinct
 /// nodes: one spring each, and a degree that counts each incident edge once. The self-loops
-/// that reduction dropped are carried separately in `loops`, because networkx's degree
+/// that reduction dropped are carried separately in `loops` (one 0-or-1 flag per node, see [`super::loop_counts`]), because networkx's degree
 /// counts each of them twice and the start radii follow that degree ([`initial_radii`]);
 /// the springs and the relaxation never see one, which is what the reduction is for.
 pub(super) fn pack(
