@@ -73,6 +73,9 @@ perf-p3-coi|build|prompts/jobs/perf-p3-coi.md|scripts/orch/rows/perf-p5.rows|no
 perf-open-path|build|prompts/jobs/perf-open-path.md|scripts/orch/rows/perf-p5.rows|no
 perf-p6-live-copy|build|prompts/jobs/perf-p6-live-copy.md|scripts/orch/rows/perf-p5.rows|no
 fix-worker-lost|build|prompts/jobs/fix-worker-lost.md|scripts/orch/rows/perf-p5.rows|no
+ux-params-abi|build|prompts/jobs/ux-params-abi.md|scripts/orch/rows/ux-abi.rows|no
+perf-3d-gl|build|prompts/jobs/perf-3d-gl.md|scripts/orch/rows/perf-p5.rows|no
+ux-overlap|build|prompts/jobs/ux-overlap.md|scripts/orch/rows/ux-abi.rows|no
 review-layout-rest|build|prompts/jobs/review-layout-rest.md|scripts/orch/rows/docs.rows|no
 review-gates|build|prompts/jobs/review-gates.md|scripts/orch/rows/docs.rows|no
 # priority (2026-10-02, graph-render-3e): reviews and sg repairs before the rest
