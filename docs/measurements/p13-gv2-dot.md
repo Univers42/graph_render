@@ -55,7 +55,7 @@ defect.
 **The 6 that cost more are a different DAG.** Seeds 330, 351, 469, 497, 930 and 951. On
 seed 330 the port's ranking is feasible, its spanning tree is tight, and every cut value
 agrees with the value recomputed from scratch — checked after *every* pivot by
-`simplex::tree::check_invariants`, which is `cfg(test)` and costs nothing in the library.
+`simplex::checks::check`, which is `cfg(test)` and costs nothing in the library.
 Against that same edge list the **oracle's** ranking has slack **−4**: it is not feasible for
 the graph the port ranked. So the two ranked different DAGs, and the difference is in
 `acyclic`'s choice of back edge on a graph with more than one cycle. `acyclic` is a faithful
@@ -127,14 +127,16 @@ or nothing. So there is nothing for a `Ponytail` marker to say about the seed.
   four no-op stages named as no-ops, `cleanup1`.
 - `class2.rs` — chains for edges spanning more than one rank, merged parallel edges,
   `virtual_weight`, and the flat and other lists.
-- `rank_tests.rs` — the six closed cases, twenty fixture seeds, each of `class2`'s three
-  outcomes, and the 1000-seed sweep. `check_invariants` runs under `cfg(test)` after every
-  pivot.
-Thirty tests in `dot/`, all passing, and one earns its place twice over: **a two-node cycle
-collapses to a single edge, not two.** `reverse_edge` (`acyclic.c:22-33`) unhooks the edge
-and then *merges* it into the edge already running the other way, so the survivor carries
-both weights. A port that swapped the endpoints would keep two edges and draw a different
-graph.
+- `rank_tests.rs` (the six closed cases and twenty fixture seeds), `class2_tests.rs` (each
+  of `class2`'s three outcomes) and `oracle_probe.rs` (the 1000-seed sweep, `#[ignore]`d,
+  which also holds the shared scaffolding). `simplex/checks.rs` re-derives the pass's
+  invariants from scratch under `cfg(test)` after **every** pivot.
+
+Twenty-three tests in `dot/`, all passing, and one earns its place twice over: **a two-node
+cycle collapses to a single edge, not two.** `reverse_edge` (`acyclic.c:22-33`) unhooks the
+edge and then *merges* it into the edge already running the other way, so the survivor
+carries both weights. A port that swapped the endpoints would keep two edges and draw a
+different graph.
 
 # Blocker 1 — the node box is a font metric, and x is where it lands
 Graphviz sizes a node from its **rendered label**, not from `width`/`height` alone.
