@@ -36,7 +36,7 @@ pub const ROWS: [Row; 32] = [
         name: "GRID",
         motor: Some("layout.grid"),
         reference: Reference::Scigraphs,
-        gaps: &[G_GRID_ITER, G_GRID_SCALE],
+        gaps: &[G_GRID_ITER],
     },
     Row {
         name: "SPRING",
