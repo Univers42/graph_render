@@ -172,6 +172,39 @@ fn a_schedule_past_the_references_own_ceilings_is_refused_rather_than_overflowed
 }
 
 #[test]
+fn an_iteration_count_past_the_references_own_ceiling_is_refused_rather_than_run() {
+    // PB-7. The same panel bounds the third knob: `edge_bundle_iterations` `max=20`
+    // (`SciGraphs/properties/edge_style_properties.py:126-133`). `iterations` was the one
+    // bound `check` did not take, so a single u32 bought as many passes over every edge's
+    // surviving row as the caller could name, `O(k x R)` each.
+    let empty = index_model(&[], &[]).expect("fits");
+    let nothing = points(0, &[]);
+    let err = bundle(
+        &empty,
+        &nothing,
+        &FdebParams {
+            iterations: 21,
+            ..FdebParams::default()
+        },
+    )
+    .expect_err("refused");
+    assert!(
+        matches!(err, crate::stage::StageError::Param { name, .. } if name == "iterations"),
+        "{err}"
+    );
+    // The ceiling itself is accepted, so the refusal is about the value and not the knob.
+    let geometry = points(4, &[(0.0, 0.0), (1.0, 0.0), (0.0, 5.0), (1.0, 5.0)]);
+    let at_ceiling = FdebParams {
+        iterations: MAX_ITERATIONS,
+        ..FdebParams::default()
+    };
+    assert!(bundle(&three_edges(), &geometry, &at_ceiling).is_ok());
+    // The registered default is the `BUNDLED_DENSE` preset's 8 (`edge_styles.py:43`), under
+    // the ceiling: no hashed snapshot moves.
+    assert!(FdebParams::default().iterations <= MAX_ITERATIONS);
+}
+
+#[test]
 fn a_drawing_too_small_to_soften_still_bundles_to_finite_points() {
     // M1. Two parallel edges 1e-22 long: the softening (0.01 · 0.05 · 1e-22)² underflows to
     // 0 in f32, every interior point collapses onto the row's start, and the coincident

@@ -59,6 +59,7 @@
 
 mod compat;
 mod fixture;
+mod limits;
 mod pairs;
 mod points;
 #[cfg(test)]
@@ -74,6 +75,7 @@ use pairs::PairList;
 use points::Points;
 
 pub use fixture::{FIXTURES, hairball, load};
+pub use limits::{MAX_CYCLES, MAX_ITERATIONS, MAX_SEGMENTS};
 
 /// The first cycle's step, halved every cycle after (`fdeb.py:30`).
 pub const STEP0: f32 = 0.6;
@@ -138,7 +140,8 @@ pub struct FdebParams {
     /// refused.
     pub cycles: u32,
     /// Iterations in the first cycle (`bundle_iterations`, `edge_styles.py:43`). Each later
-    /// cycle takes two thirds of the one before, rounded up, and never fewer than 1.
+    /// cycle takes two thirds of the one before, rounded up, and never fewer than 1; above
+    /// [`MAX_ITERATIONS`] refused.
     pub iterations: u32,
     /// Cap on subdivision points per edge (`segments`, `edge_styles.py:41`): the schedule
     /// doubles them per cycle and stops here. Floored at 1; above [`MAX_SEGMENTS`] refused.
@@ -233,22 +236,6 @@ pub fn bundle(
     })
 }
 
-/// The most subdivision points per edge the pass accepts: the reference panel's own
-/// `edge_segments` max (`SciGraphs/properties/edge_style_properties.py:78-85`).
-///
-/// Ponytail: the reference UI's ceiling, not a measurement. A caller asking for a finer row
-/// is refused although the arithmetic would hold well past it; what it buys is that
-/// `segments + 2` and the row buffers can never overflow. Escape hatch: raise the const.
-pub const MAX_SEGMENTS: u32 = 32;
-
-/// The most schedule cycles the pass accepts: the reference panel's own `edge_fdeb_cycles`
-/// max (`edge_style_properties.py:286-297`).
-///
-/// Ponytail: the reference UI's ceiling, not a measurement. Past ~5 cycles the point count
-/// is already capped by [`MAX_SEGMENTS`] and each further cycle halves an already tiny
-/// step, so a refused 11th cycle loses only refinement. Escape hatch: raise the const.
-pub const MAX_CYCLES: u32 = 10;
-
 /// Refuses a parameter outside what the pass accepts, rather than clipping it.
 fn check(params: &FdebParams) -> Result<(), StageError> {
     for (name, value, max, rule) in [
@@ -263,6 +250,12 @@ fn check(params: &FdebParams) -> Result<(), StageError> {
             params.cycles,
             MAX_CYCLES,
             "at most MAX_CYCLES (10)",
+        ),
+        (
+            "iterations",
+            params.iterations,
+            MAX_ITERATIONS,
+            "at most MAX_ITERATIONS (20)",
         ),
     ] {
         if value > max {
