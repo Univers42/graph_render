@@ -1,6 +1,6 @@
 /** The view's state changes: everything `createView` does to a canvas between frames. */
 import {
-  type Camera, type Point, fitCamera, limitsFor, screenToWorld,
+  type Camera, type FitArea, type Point, type Viewport, fitCamera, limitsFor, screenToWorld,
 } from "../camera.ts";
 import { type LiveDrag, movedScene } from "../drag.ts";
 import type { Frame } from "../frame.ts";
@@ -77,7 +77,7 @@ export function newState(canvas: HTMLCanvasElement, setup: Setup): LoopState {
   const viewport = { width: 1, height: 1 };
   return {
     ctx, sprites: createSpriteCache(spriteSurface, theme), onFrame: setup.onFrame, theme, policy, scene,
-    camera: fitCamera(null, viewport), limits: limitsFor(null, viewport), viewport, dpr: 1,
+    camera: fitCamera(null, viewport), limits: limitsFor(null, viewport), viewport, safe: null, dpr: 1,
     x: scene.frame.x, y: scene.frame.y, fromX: scene.frame.x, fromY: scene.frame.y, transitionStart: -1,
     lit: new Uint8Array(0), hovered: -1, dimStart: -1, selected: -1, selection: [], pinned: [], marquee: null,
     plan: newLabelPlan(policy.budget), orbit: null, drawn: null,
@@ -86,6 +86,19 @@ export function newState(canvas: HTMLCanvasElement, setup: Setup): LoopState {
     counts: newCounts(), frameMs: 0, frames: 0, rate: newRate(), pace: newPace(),
     bulk: newBulkSlot(setup.backend ?? "auto"),
   };
+}
+
+/**
+ * The part of the canvas a fit draws into: what the host declared as free of chrome, clamped to
+ * the canvas itself and to at least a third of it. A host whose safe area has not been measured
+ * yet says nothing, and `null` is the whole canvas.
+ */
+function safeOf(state: LoopState, viewport: Viewport): FitArea | null {
+  const wanted = state.safe;
+  if (wanted === null) return null;
+  const width = Math.max(1, Math.min(wanted.width, viewport.width));
+  const height = Math.max(1, Math.min(wanted.height, viewport.height));
+  return { x: wanted.x, y: wanted.y, width, height };
 }
 
 /** Reads the canvas's CSS box and sizes its backing store to it. */
@@ -97,8 +110,25 @@ export function measure(controller: Controller): void {
   canvas.width = Math.round(state.viewport.width * state.dpr);
   canvas.height = Math.round(state.viewport.height * state.dpr);
   state.occupancy = occupancyFor(state.viewport);
-  state.limits = limitsFor(state.scene.bounds, state.viewport);
+  state.limits = limitsFor(state.scene.bounds, state.viewport, { area: safeOf(state, state.viewport) ?? undefined });
   state.sprites.reset(state.theme, state.dpr);
+}
+
+/**
+ * The area a host declared free of chrome, in canvas pixels; `null` (the default) is the whole
+ * canvas. It is a hint about where the studio's panels are, so it is clamped to the canvas and
+ * re-fitted rather than trusted: a host that hands over a stale or inverted box gets the canvas.
+ */
+export function setSafeArea(controller: Controller, area: FitArea | null): void {
+  const { state } = controller;
+  const next = area !== null && Number.isFinite(area.x) && Number.isFinite(area.y)
+    && area.width > 0 && area.height > 0 ? area : null;
+  const same = (next?.x === state.safe?.x && next?.y === state.safe?.y
+    && next?.width === state.safe?.width && next?.height === state.safe?.height) || (next === null && state.safe === null);
+  if (same) return;
+  state.safe = next;
+  state.limits = limitsFor(state.scene.bounds, state.viewport, { area: safeOf(state, state.viewport) ?? undefined });
+  if (controller.fitted) fit(controller);
 }
 
 export function moveTo(controller: Controller, camera: Camera, byFit: boolean): void {
@@ -129,7 +159,11 @@ export function fit(controller: Controller): void {
     moveOrbit(controller, orbit);
     return;
   }
-  moveTo(controller, fitCamera(controller.local.bounds ?? state.scene.bounds, state.viewport), true);
+  // The safe area, not the canvas: the panels a host lays over the canvas are not drawing space,
+  // and a fit that ignores them puts part of the drawing where the user cannot see it.
+  const area = safeOf(state, state.viewport);
+  const bounds = controller.local.bounds ?? state.scene.bounds;
+  moveTo(controller, fitCamera(bounds, state.viewport, { area: area ?? undefined }), true);
 }
 
 export function hover(controller: Controller, node: number): void {
@@ -180,7 +214,7 @@ export function showFrame(state: LoopState, frame: Frame, animate: boolean): voi
     state.selection = [];
     state.pinned = [];
   }
-  state.limits = limitsFor(state.scene.bounds, state.viewport);
+  state.limits = limitsFor(state.scene.bounds, state.viewport, { area: safeOf(state, state.viewport) ?? undefined });
   relight(state);
 }
 
@@ -188,10 +222,19 @@ export function showFrame(state: LoopState, frame: Frame, animate: boolean): voi
  * New positions for the nodes already in the frame, from a live simulation. A pair that does
  * not have one entry per node is another graph's drawing and is ignored. The columns the motor
  * handed over are read, never kept: they go into the ones the view already draws.
+ *
+ * A batch carrying a non-finite coordinate is refused whole, the way `snapshot/decode.ts:116`
+ * refuses one: a NaN is a motor bug, and half a batch of them would draw a sprite, a pick-grid
+ * entry and a NaN camera, none of which the user can undo. One bad coordinate is a bug report,
+ * not a drawing.
  */
 export function setPositions(state: LoopState, xs: Float64Array, ys: Float64Array): void {
   const count = state.scene.frame.nodeCount;
   if (xs.length !== count || ys.length !== count) return;
+  for (let node = 0; node < count; node += 1) {
+    if (Number.isFinite(xs[node]) && Number.isFinite(ys[node])) continue;
+    return;
+  }
   if (state.x.length !== count) {
     state.x = new Float32Array(count);
     state.y = new Float32Array(count);
@@ -203,7 +246,7 @@ export function setPositions(state: LoopState, xs: Float64Array, ys: Float64Arra
   state.scene = movedScene(state.scene, { x: state.x, y: state.y });
   state.x = state.scene.frame.x;
   state.y = state.scene.frame.y;
-  state.limits = limitsFor(state.scene.bounds, state.viewport);
+  state.limits = limitsFor(state.scene.bounds, state.viewport, { area: safeOf(state, state.viewport) ?? undefined });
   markMoved(state);
 }
 
