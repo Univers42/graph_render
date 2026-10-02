@@ -132,3 +132,46 @@ fn every_division_of_the_build_is_the_one_thread_build() {
         assert_eq!(grid.hash.origin, one.hash.origin, "workers={workers}");
     }
 }
+
+/// The gather before the overlap filter: one branch per candidate.
+fn branched(grid: &Grid, k: usize) -> (f64, f64) {
+    let reads = grid.reads(grid.hash.cell_of((grid.at[k][0], grid.at[k][1])));
+    let [px, py] = grid.at[k];
+    let mut out = (0.0, 0.0);
+    for &(lo, hi) in &reads.runs[..reads.len] {
+        let lo = lo as usize;
+        for (q, &[qx, qy]) in (lo..).zip(&grid.at[lo..hi as usize]) {
+            if q != k {
+                let ids = || (grid.order[k], grid.order[q]);
+                resolve(CONTACT, ids, (px - qx, py - qy), &mut out);
+            }
+        }
+    }
+    out
+}
+
+#[test]
+fn the_filtered_gather_is_the_branched_one_bit_for_bit() {
+    let mut longest = 0;
+    for (x, y) in [positions(), crowd()] {
+        let mut grid = Grid::new(x.len() as u32);
+        grid.build((&x, &y), CONTACT.reach, (&crate::exec::Serial, 1));
+        let mut sorted = Vec::new();
+        let gather = Gather {
+            grid: &grid,
+            contact: CONTACT,
+        };
+        crate::exec::Serial.run(&gather, 1, &mut sorted);
+        let runs = (1..grid.start.len()).map(|b| grid.start[b] - grid.start[b - 1]);
+        longest = longest.max(runs.max().unwrap_or(0));
+        for (k, got) in sorted.iter().enumerate() {
+            let want = branched(&grid, k);
+            assert_eq!(
+                (got.0.to_bits(), got.1.to_bits()),
+                (want.0.to_bits(), want.1.to_bits()),
+                "slot {k}"
+            );
+        }
+    }
+    assert!(longest > HITS as u32, "no bucket spans two batches");
+}
