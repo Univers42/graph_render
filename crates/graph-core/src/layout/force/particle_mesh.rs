@@ -21,6 +21,7 @@
 
 mod charge;
 mod collide;
+mod deposit;
 mod fft;
 mod frame;
 mod kernel;

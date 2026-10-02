@@ -3,7 +3,7 @@
 //!
 //! One tick's field is: place the frame, deposit every node's unit charge with CIC weights,
 //! refresh the kernel if the rung moved, transform, multiply by the kernel, transform back,
-//! every transform pass split across the run's workers. The field then sits in rows
+//! the deposit and every transform pass split across the run's workers. The field then sits in rows
 //! `0..cells` of `density`, `Ex` real and `Ey` imaginary, and a node reads
 //! it with the same four CIC weights it deposited with.
 //!
@@ -15,6 +15,7 @@
 //! through collide's.
 
 use super::collide::Grid;
+use super::deposit::{Deposit, Stencils, weights};
 use super::fft::{C, Fft, MAX_SIDE, Plan};
 use super::frame::{self, Frame};
 use super::kernel::{Kernel, Law};
@@ -38,6 +39,8 @@ pub(in crate::layout::force) struct Mesh {
     spectrum: Vec<C>,
     kernel: Kernel,
     frame: Option<Frame>,
+    /// Each sorted slot's lower-left cell this tick, the deposit's scratch.
+    at: Vec<u32>,
     pub(super) grid: Grid,
 }
 
@@ -50,6 +53,7 @@ impl Mesh {
             spectrum: vec![C::default(); side * side],
             kernel: Kernel::new(side),
             frame: None,
+            at: vec![0; n as usize],
             grid: Grid::new(n),
         }
     }
@@ -68,7 +72,7 @@ impl Mesh {
         let Some(frame) = self.frame.filter(|_| sim.x.len() > 1 && law.dmax2 > 0.0) else {
             return false;
         };
-        self.deposit(&frame, (&sim.x, &sim.y));
+        self.deposit(&frame, (&sim.x, &sim.y), runner, workers);
         let fft = Fft {
             plan: &self.plan,
             runner,
@@ -82,24 +86,22 @@ impl Mesh {
         true
     }
 
-    /// Unit charge per finite node, in the collide grid's order so consecutive nodes write
-    /// neighbouring cells.
-    fn deposit(&mut self, frame: &Frame, (x, y): (&[f64], &[f64])) {
-        self.density.fill(C::default());
-        let side = self.plan.side();
-        for &i in &self.grid.order {
-            let i = i as usize;
-            let Some(((cx, cy), (fx, fy))) = frame::stencil(frame, (x[i], y[i])) else {
-                continue;
-            };
-            let at = cy * side + cx;
-            for (cell, w) in [at, at + 1, at + side, at + side + 1]
-                .into_iter()
-                .zip(weights(fx, fy))
-            {
-                self.density[cell].re += w;
-            }
-        }
+    /// Unit charge per finite node into rows `0..cells` of `density`, the only rows the
+    /// forward transform reads. The slots go in the collide grid's order, so consecutive
+    /// nodes write neighbouring cells.
+    fn deposit<R: Runner>(&mut self, frame: &Frame, xy: (&[f64], &[f64]), runner: &R, workers: u32) {
+        let stencils = Stencils {
+            frame,
+            side: self.plan.side(),
+            order: &self.grid.order,
+            xy,
+        };
+        runner.run(&stencils, workers, &mut self.at);
+        let deposit = Deposit {
+            stencils: &stencils,
+            at: &self.at,
+        };
+        runner.run(&deposit, workers, &mut self.density);
     }
 
     /// The field at `p`, read with the CIC weights the deposit used; zero for a non-finite
@@ -120,14 +122,4 @@ impl Mesh {
         }
         e
     }
-}
-
-/// The four CIC weights, in the cell order `(x, y), (x+1, y), (x, y+1), (x+1, y+1)`.
-fn weights(fx: f64, fy: f64) -> [f64; 4] {
-    [
-        (1.0 - fx) * (1.0 - fy),
-        fx * (1.0 - fy),
-        (1.0 - fx) * fy,
-        fx * fy,
-    ]
 }

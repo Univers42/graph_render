@@ -5,10 +5,10 @@
 //! sequence gave it, in the same order, so the bytes are that sequence's; `tests.rs` keeps
 //! it as the reference and compares bit for bit.
 //!
-//! Two prunings, both exact. A forward transform skips the input rows from `live` on: the
-//! deposit leaves them +0, and a line of +0 is +0 (every butterfly is `+0 ± t` with `t` a
-//! zero, which rounds to +0). An inverse skips the output rows from `live` on, which no
-//! node reads.
+//! Two prunings, both exact. A forward transform skips the input rows from `live` on, which
+//! the deposit does not even store: they are +0, and a line of +0 is +0 (every butterfly is
+//! `+0 ± t` with `t` a zero, which rounds to +0). An inverse skips the output rows from
+//! `live` on, which no node reads.
 //!
 //! Caveat: the [`Runner`] clears and refills `out` with `Default` before a pass, a serial
 //! write of `side²` samples (16 MiB at side 1024) that the threads do not share.
@@ -102,8 +102,8 @@ pub(in crate::layout::force::particle_mesh) struct Fft<'a, R> {
 }
 
 impl<R: Runner> Fft<'_, R> {
-    /// The forward 2D transform of `a`, whose rows from `live` on are +0, into `a`,
-    /// transposed: `a[kx * side + ky]`. `b` is scratch.
+    /// The forward 2D transform of `a`, whose rows from `live` on are +0 and need not be
+    /// stored, into `a`, transposed: `a[kx * side + ky]`. `b` is scratch.
     pub(in crate::layout::force::particle_mesh) fn forward(
         &self,
         (a, b): (&mut Vec<C>, &mut Vec<C>),
