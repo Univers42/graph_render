@@ -71,19 +71,53 @@ clock 3:26.07 → 3:13.78.
 the changed code — it takes the `workers < 2` branch — yet it moved 3.4 % between the two runs on
 a host running four other jobs. Read the threaded rows against that: threads 2 (−3.2 %) is inside
 the noise, threads 4 (−5.4 %) is barely outside it, **threads 7 (−13.7 %) is the only row that
-clears the noise by a factor of four**. That is also the row where the removed work is largest,
-since `concat` and `extend_from_slice` both cost the whole column per pass regardless of worker
-count but the seven per-worker allocations grow with it — and the more cores the more the copies
-were competing with the walks for bandwidth.
+clears the noise by a factor of four**.
+
+The direction matches what was removed. Per pass the old code touched the column three times over
+(`vec![O::Out::default(); len]` zeroes it, `concat` copies it, `extend_from_slice` copies it
+again), and the first of those was spread over `workers` separate cold allocations while the
+kernels then wrote them — so the waste scales with the worker count and the walks it competes
+with get shorter. It is the 7-worker row where three passes over 16 MiB are the largest share of
+the work, and it is the row that moved.
 
 ### n = 1 000 000, 112 ticks, `--past-ceiling`
 
-<!--P3-1M-TABLE-->
+```sh
+scripts/orch/gr cargo run -q --release -p graph-cli -- bench --layout layout.force.barnes_hut \
+  --n 1000000 --past-ceiling --tiers scalar,threads --workers 2,4,7
+```
 
-Both rows above and below come from one run each, at the ceiling and one step past it, so they
-are the numbers this tree printed on this host on this day. They are **not** a threshold-grade
-sweep: `docs/decisions/tier-thresholds.md:46-58` wants the losing sizes in the same table, and
-neither run has them.
+| arm | before (ms) | after (ms) | change | vs scalar, before → after | equal to scalar |
+|---|---:|---:|---:|---|:---:|
+| scalar | 276 953.06 | 239 054.60 | −13.7 % | 1.00× → 1.00× | true |
+| threads 2 | 179 034.91 | 155 692.24 | −13.0 % | 1.55× → 1.54× | true |
+| threads 4 | 148 364.97 | 116 525.32 | −21.5 % | 1.87× → 2.05× | true |
+| threads 7 | 109 350.99 | 99 760.52 | −8.8 % | 2.53× → 2.40× | true |
+
+Whole-run wall clock 59:27.26 → 51:32.23. Load average 1 min, before run: `12.53 10.74 10.34`
+(start) and `9.70 10.84 11.54` (end); after run: `8.02 9.09 10.55` (start) and `8.04 7.36 7.11`
+(end).
+
+**This table does not support a claim, and the scalar row says why.** The before run's host load
+was about 4 higher than the after run's for most of its length, and the scalar arm — which
+executes none of the changed code — came out **13.7 % faster** in the after run. So the noise
+floor at 1M is 13.7 %, and only the threads-4 row (−21.5 %) clears it; threads 7 moved *less*
+than the control, and its speedup against scalar went from 2.53× to 2.40×. The honest reading is
+**"the 1M effect is not separable from host drift on this host"**, not "the change made 1M
+slower".
+
+The arithmetic explains why the row is small enough to hide. One pass moves 16 MiB twice (the old
+`concat` and the old `extend_from_slice`), three passes per tick: 96 MiB of `memcpy` removed per
+tick. One scalar tick in the after run is 239 054.60 / 112 = **2 134 ms**, so the removed traffic
+has 2.1 s of walk to hide in — and **the host's copy bandwidth at 16 MiB was not measured**, so
+the size of the win at 1M is not derivable from anything here. Getting it needs an interleaved
+A/B of two binaries under the same load (the method `docs/measurements/perf-p2.md:21-22` uses),
+which is a 2-hour run and the next measurement, not this one.
+
+Each of the two 1M runs is **one** run, taken at the ceiling and one step past it, so the table
+is the numbers this tree printed on this host on this day. It is **not** a threshold-grade sweep:
+`docs/decisions/tier-thresholds.md:46-58` wants the losing sizes in the same table, and neither
+run has them.
 
 ## Spawn overhead
 
@@ -99,8 +133,8 @@ spawn: 112 empty steps on 7 workers = 16.053 ms (143.3 us/step)
 ```
 
 Load average at the run: `8.01 9.95 11.14`. The kernel's `Out` is the pass's own `(f64, f64)`
-over 100 000 nodes, so the 16 MiB `resize` memset and the seven spawns are both in that number,
-which is what the real tier pays too.
+over 100 000 nodes, so the column here is 1.6 MB and both the `resize` memset and the seven
+spawns are inside that number — which is exactly what the real tier at that size pays too.
 
 **Share of one 100 000-node tick.** The Barnes-Hut tick calls the runner three times — charge,
 collide, link (`crates/graph-core/src/layout/force/barnes_hut/{charge,collide,link}.rs:45,45,68`)
@@ -158,9 +192,17 @@ different build on a different day.
 
 ## Caveat
 
-Every wall-clock row here is one run on a shared host whose load average never dropped below 7.8
-on 20 cores. The two large effects — the 13.7 % at 7 workers/100k and the 1M table — are outside
-that noise; the 3.2 % and 5.4 % rows are not, and the scalar row is quoted precisely so the
-reader can see how much of the change is visible above it. A clean-host interleaved A/B of two
-binaries would separate the 4-worker row properly; that is the next measurement, not a claim of
-this one.
+Every wall-clock row here is **one** run on a shared host carrying four sibling jobs, and the two
+1M runs did not see the same load (1-min average 12.53 before, 8.02 after, dipping to 4.61
+mid-run). The only internal control is the scalar arm, which executes none of the changed code:
+it drifted **3.4 %** at 100 000 nodes and **13.7 %** at 1 000 000 between the two runs. So:
+
+- **Supported:** the −13.7 % at 7 workers / 100k, and the −21.5 % at 4 workers / 1M. Both clear
+  their control by several times.
+- **Not supported:** threads 2 at 100k (−3.2 %, inside the control), threads 7 at 1M (−8.8 %,
+  inside the control), and every speedup ratio in the 1M table.
+- **Not measured at all:** this host's copy bandwidth, so how much of the removed 96 MiB/tick
+  *could* be recovered at 1M is not derivable from anything in this document.
+
+A clean-host interleaved A/B of two binaries would separate all of them. That is the next
+measurement, not a claim of this one.

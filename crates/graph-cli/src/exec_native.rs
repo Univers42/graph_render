@@ -17,8 +17,8 @@
 //! 3.4 % on the same host, which is the number a reader should hold the rest of the table to.
 //! That is evidence the two copies of the column were worth removing, not a sweep carrying the
 //! losing sizes a threshold needs (`docs/decisions/tier-thresholds.md:46-58`), so
-//! `Thresholds::MEASURED` still promotes nothing. Commands, host load and the 1M rows:
-//! `docs/measurements/perf-p3-split.md`.
+//! `Thresholds::MEASURED` still promotes nothing. Commands, host load, and the 1M pair the
+//! scalar control leaves inconclusive: `docs/measurements/perf-p3-split.md`.
 
 use graph_core::exec::{Runner, StepRange, partition};
 #[cfg(test)]
