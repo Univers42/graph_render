@@ -441,6 +441,9 @@ Rules, all refused loudly (never silently coerced or dropped):
 - Every member above is required; a field that may be absent is a present `null`, never
   an omitted key. An unknown member anywhere (a stray camelCase `hasNote`, say) refuses
   the whole document.
+- One exception: an edge's `child_first` is optional in version 1: omitted, it reads `false`
+  (parent-first, `graph_core::records`); present, it must be a boolean. Making it required
+  needs a version 2, since senders written to the example above omit it.
 - `kind` strings are matched by exact `NodeKind`/`EdgeKind` name, never the lossy
   `edge_kind_from_type` heuristic the TS oracle uses for legacy data.
 - A duplicate node or edge `id`, or an edge naming a `source`/`target` not present in

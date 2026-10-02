@@ -37,7 +37,7 @@ pub fn document(nodes: &[NodeRecord], edges: &[EdgeRecord]) -> Option<String> {
     if !finite {
         return None;
     }
-    let mut out = String::from(r#"{"version":1,"nodes":["#);
+    let mut out = format!(r#"{{"version":{},"nodes":["#, crate::ingest::VERSION);
     for (i, n) in nodes.iter().enumerate() {
         if i > 0 {
             out.push(',');

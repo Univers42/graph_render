@@ -6,7 +6,9 @@
 //! `gm_build_contract`. This one is unchanged and stays: it is what the host studio and
 //! the hash gate's C20 stage already speak, so replacing it would move a published ABI's
 //! meaning. It is deliberately narrow: every member is named and
-//! required (a present `null` where a field may be absent, never an omitted key), an
+//! required (a present `null` where a field may be absent, never an omitted key) except an
+//! edge's `child_first`, which version 1 reads as `false` when omitted (F-01: the SDK smoke
+//! harness and the documented example omit it, so requiring it is a version 2), an
 //! unknown member refuses the whole document (so a stray `hasNote` — the oracle's own
 //! camelCase — is refused loudly, not silently ignored), and `kind` strings are matched
 //! by exact name (`NodeKind`/`EdgeKind::from_name`), never the lossy `edge_kind_from_type`
@@ -17,7 +19,11 @@
 
 use graph_contract::canonical_json::{JsonError, Value, parse};
 use graph_core::{EdgeKind, EdgeRecord, NodeKind, NodeRecord};
-use std::collections::BTreeSet;
+
+mod at;
+mod ids;
+use at::At;
+use ids::check_ids;
 
 /// The only ingest version this reader accepts.
 pub const VERSION: u32 = 1;
@@ -39,7 +45,8 @@ pub enum IngestError {
         end: &'static str,
         id: String,
     },
-    /// Too many nodes or edges to index (`u32` capacity).
+    /// Too many nodes or edges to index (`u32` capacity). Reachable only on a 64-bit host: on
+    /// wasm32 `usize` is `u32` (F-79). A ceiling below that is F-16's, not decided here.
     Capacity,
 }
 
@@ -47,60 +54,29 @@ pub enum IngestError {
 pub fn read(bytes: &[u8]) -> Result<(Vec<NodeRecord>, Vec<EdgeRecord>), IngestError> {
     let text = std::str::from_utf8(bytes).map_err(|_| IngestError::Utf8)?;
     let document = parse(text).map_err(IngestError::Json)?;
-    let root = object(&document, "")?;
-    let version = version_number(member(root, "version", "")?)?;
+    let root = object(&document, At::ROOT)?;
+    let version = version_number(member(root, "version", At::ROOT)?)?;
     if version != VERSION {
-        return Err(shape("version", &format!("unsupported version {version}")));
+        return Err(shape(
+            At::list("version"),
+            &format!("unsupported version {version}"),
+        ));
     }
-    let nodes = array(member(root, "nodes", "")?, "nodes")?;
-    let edges = array(member(root, "edges", "")?, "edges")?;
-    require_only(root, &["version", "nodes", "edges"], "")?;
+    let nodes = array(member(root, "nodes", At::ROOT)?, At::list("nodes"))?;
+    let edges = array(member(root, "edges", At::ROOT)?, At::list("edges"))?;
+    require_only(root, &["version", "nodes", "edges"], At::ROOT)?;
     let nodes: Vec<NodeRecord> = nodes
         .iter()
         .enumerate()
-        .map(|(i, v)| node(v, &format!("nodes[{i}]")))
+        .map(|(i, v)| node(v, At::list("nodes").item(i)))
         .collect::<Result<_, _>>()?;
     let edges: Vec<EdgeRecord> = edges
         .iter()
         .enumerate()
-        .map(|(i, v)| edge(v, &format!("edges[{i}]")))
+        .map(|(i, v)| edge(v, At::list("edges").item(i)))
         .collect::<Result<_, _>>()?;
     check_ids(&nodes, &edges)?;
     Ok((nodes, edges))
-}
-
-fn check_ids(nodes: &[NodeRecord], edges: &[EdgeRecord]) -> Result<(), IngestError> {
-    let mut ids = BTreeSet::new();
-    for n in nodes {
-        if !ids.insert(n.id.as_str()) {
-            return Err(IngestError::DuplicateId {
-                what: "node",
-                id: n.id.clone(),
-            });
-        }
-    }
-    let mut edge_ids = BTreeSet::new();
-    for e in edges {
-        if !edge_ids.insert(e.id.as_str()) {
-            return Err(IngestError::DuplicateId {
-                what: "edge",
-                id: e.id.clone(),
-            });
-        }
-        for (end, id) in [("source", &e.source), ("target", &e.target)] {
-            if !ids.contains(id.as_str()) {
-                return Err(IngestError::DanglingEndpoint {
-                    edge: e.id.clone(),
-                    end,
-                    id: id.clone(),
-                });
-            }
-        }
-    }
-    if u32::try_from(nodes.len()).is_err() || u32::try_from(edges.len()).is_err() {
-        return Err(IngestError::Capacity);
-    }
-    Ok(())
 }
 
 /// Field names `node`/`edge` require, exactly (`require_only`). Module-level rather than
@@ -131,141 +107,115 @@ const EDGE_FIELDS: [&str; 9] = [
     "child_first",
 ];
 
-fn node(value: &Value, path: &str) -> Result<NodeRecord, IngestError> {
-    let members = object(value, path)?;
-    require_only(members, &NODE_FIELDS, path)?;
-    let kind_name = string(member(members, "kind", path)?, &format!("{path}.kind"))?;
+fn node(value: &Value, at: At) -> Result<NodeRecord, IngestError> {
+    let members = object(value, at)?;
+    require_only(members, &NODE_FIELDS, at)?;
+    let kind_name = string(member(members, "kind", at)?, at.field("kind"))?;
     let kind = NodeKind::from_name(kind_name).ok_or_else(|| {
         shape(
-            &format!("{path}.kind"),
+            at.field("kind"),
             &format!("unknown node kind {kind_name:?}"),
         )
     })?;
     Ok(NodeRecord {
-        id: string(member(members, "id", path)?, &format!("{path}.id"))?.to_owned(),
+        id: string(member(members, "id", at)?, at.field("id"))?.to_owned(),
         kind,
-        database_id: opt_string(
-            member(members, "database_id", path)?,
-            &format!("{path}.database_id"),
-        )?,
-        source: string(member(members, "source", path)?, &format!("{path}.source"))?.to_owned(),
-        label: string(member(members, "label", path)?, &format!("{path}.label"))?.to_owned(),
-        group: opt_string(member(members, "group", path)?, &format!("{path}.group"))?,
-        weight: number(member(members, "weight", path)?, &format!("{path}.weight"))?,
-        version: number(
-            member(members, "version", path)?,
-            &format!("{path}.version"),
-        )?,
-        has_note: boolean(
-            member(members, "has_note", path)?,
-            &format!("{path}.has_note"),
-        )?,
-        icon: opt_string(member(members, "icon", path)?, &format!("{path}.icon"))?,
+        database_id: opt_string(member(members, "database_id", at)?, at.field("database_id"))?,
+        source: string(member(members, "source", at)?, at.field("source"))?.to_owned(),
+        label: string(member(members, "label", at)?, at.field("label"))?.to_owned(),
+        group: opt_string(member(members, "group", at)?, at.field("group"))?,
+        weight: number(member(members, "weight", at)?, at.field("weight"))?,
+        version: number(member(members, "version", at)?, at.field("version"))?,
+        has_note: boolean(member(members, "has_note", at)?, at.field("has_note"))?,
+        icon: opt_string(member(members, "icon", at)?, at.field("icon"))?,
     })
 }
 
-fn edge(value: &Value, path: &str) -> Result<EdgeRecord, IngestError> {
-    let members = object(value, path)?;
-    require_only(members, &EDGE_FIELDS, path)?;
-    let kind_name = string(member(members, "kind", path)?, &format!("{path}.kind"))?;
+fn edge(value: &Value, at: At) -> Result<EdgeRecord, IngestError> {
+    let members = object(value, at)?;
+    require_only(members, &EDGE_FIELDS, at)?;
+    let kind_name = string(member(members, "kind", at)?, at.field("kind"))?;
     let kind = EdgeKind::from_name(kind_name).ok_or_else(|| {
         shape(
-            &format!("{path}.kind"),
+            at.field("kind"),
             &format!("unknown edge kind {kind_name:?}"),
         )
     })?;
     // A struct literal, no `..` (C13): p3's `child_first` field must break this build.
     Ok(EdgeRecord {
-        id: string(member(members, "id", path)?, &format!("{path}.id"))?.to_owned(),
-        source: string(member(members, "source", path)?, &format!("{path}.source"))?.to_owned(),
-        target: string(member(members, "target", path)?, &format!("{path}.target"))?.to_owned(),
+        id: string(member(members, "id", at)?, at.field("id"))?.to_owned(),
+        source: string(member(members, "source", at)?, at.field("source"))?.to_owned(),
+        target: string(member(members, "target", at)?, at.field("target"))?.to_owned(),
         kind,
-        label: string(member(members, "label", path)?, &format!("{path}.label"))?.to_owned(),
-        strength: number(
-            member(members, "strength", path)?,
-            &format!("{path}.strength"),
-        )?,
-        directed: boolean(
-            member(members, "directed", path)?,
-            &format!("{path}.directed"),
-        )?,
-        record_id: opt_string(
-            member(members, "record_id", path)?,
-            &format!("{path}.record_id"),
-        )?,
+        label: string(member(members, "label", at)?, at.field("label"))?.to_owned(),
+        strength: number(member(members, "strength", at)?, at.field("strength"))?,
+        directed: boolean(member(members, "directed", at)?, at.field("directed"))?,
+        record_id: opt_string(member(members, "record_id", at)?, at.field("record_id"))?,
         // Optional: an edge document written before p3's hierarchy direction reads as
         // parent-first, the same default as `graph-cli`'s `oracle_fixtures/wire.rs`.
         child_first: match members.iter().find(|(k, _)| k == "child_first") {
-            Some((_, value)) => boolean(value, &format!("{path}.child_first"))?,
+            Some((_, value)) => boolean(value, at.field("child_first"))?,
             None => false,
         },
     })
 }
 
-fn shape(path: &str, what: &str) -> IngestError {
-    IngestError::Shape(format!("{path}: {what}"))
+fn shape(at: At, what: &str) -> IngestError {
+    IngestError::Shape(format!("{at}: {what}"))
 }
 
-fn object<'a>(value: &'a Value, path: &str) -> Result<&'a [(String, Value)], IngestError> {
+fn object(value: &Value, at: At) -> Result<&[(String, Value)], IngestError> {
     match value {
         Value::Object(members) => Ok(members),
-        _ => Err(shape(path, "expected an object")),
+        _ => Err(shape(at, "expected an object")),
     }
 }
 
-fn array<'a>(value: &'a Value, path: &str) -> Result<&'a [Value], IngestError> {
+fn array(value: &Value, at: At) -> Result<&[Value], IngestError> {
     match value {
         Value::Array(items) => Ok(items),
-        _ => Err(shape(path, "expected an array")),
+        _ => Err(shape(at, "expected an array")),
     }
 }
 
-fn member<'a>(
-    members: &'a [(String, Value)],
-    key: &str,
-    path: &str,
-) -> Result<&'a Value, IngestError> {
+fn member<'a>(members: &'a [(String, Value)], key: &str, at: At) -> Result<&'a Value, IngestError> {
     members
         .iter()
         .find(|(k, _)| k == key)
         .map(|(_, v)| v)
-        .ok_or_else(|| shape(path, &format!("missing member `{key}`")))
+        .ok_or_else(|| shape(at, &format!("missing member `{key}`")))
 }
 
 /// Refuses a member the shape does not name — the strictness that turns a stray
 /// camelCase `hasNote` into a loud refusal instead of a silently-dropped extra.
-fn require_only(
-    members: &[(String, Value)],
-    allowed: &[&str],
-    path: &str,
-) -> Result<(), IngestError> {
+fn require_only(members: &[(String, Value)], allowed: &[&str], at: At) -> Result<(), IngestError> {
     for (key, _) in members {
         if !allowed.contains(&key.as_str()) {
-            return Err(shape(path, &format!("unknown member `{key}`")));
+            return Err(shape(at, &format!("unknown member `{key}`")));
         }
     }
     Ok(())
 }
 
-fn string<'a>(value: &'a Value, path: &str) -> Result<&'a str, IngestError> {
+fn string(value: &Value, at: At) -> Result<&str, IngestError> {
     match value {
         Value::String(s) => Ok(s),
-        _ => Err(shape(path, "expected a string")),
+        _ => Err(shape(at, "expected a string")),
     }
 }
 
-fn opt_string(value: &Value, path: &str) -> Result<Option<String>, IngestError> {
+fn opt_string(value: &Value, at: At) -> Result<Option<String>, IngestError> {
     match value {
         Value::Null => Ok(None),
         Value::String(s) => Ok(Some(s.clone())),
-        _ => Err(shape(path, "expected a string or null")),
+        _ => Err(shape(at, "expected a string or null")),
     }
 }
 
-fn boolean(value: &Value, path: &str) -> Result<bool, IngestError> {
+fn boolean(value: &Value, at: At) -> Result<bool, IngestError> {
     match value {
         Value::Bool(b) => Ok(*b),
-        _ => Err(shape(path, "expected a boolean")),
+        _ => Err(shape(at, "expected a boolean")),
     }
 }
 
@@ -273,24 +223,22 @@ fn boolean(value: &Value, path: &str) -> Result<bool, IngestError> {
 /// `1.0` or `1e0` read loosely as `1` — a version is compared for equality, not rounded.
 fn version_number(value: &Value) -> Result<u32, IngestError> {
     let Value::Number(text) = value else {
-        return Err(shape("version", "expected a number"));
+        return Err(shape(At::list("version"), "expected a number"));
     };
     text.parse()
-        .map_err(|_| shape("version", "expected a plain non-negative integer"))
+        .map_err(|_| shape(At::list("version"), "expected a plain non-negative integer"))
 }
 
 /// A JSON number, refusing one whose text does not parse to a finite `f64` (D9): the
 /// grammar itself keeps out `NaN`/`Infinity` literals, but an exponent large enough to
 /// overflow `f64` still parses its text and must be refused here, not on the wire later.
-fn number(value: &Value, path: &str) -> Result<f64, IngestError> {
+fn number(value: &Value, at: At) -> Result<f64, IngestError> {
     let Value::Number(text) = value else {
-        return Err(shape(path, "expected a number"));
+        return Err(shape(at, "expected a number"));
     };
-    let n: f64 = text
-        .parse()
-        .map_err(|_| shape(path, "not a valid number"))?;
+    let n: f64 = text.parse().map_err(|_| shape(at, "not a valid number"))?;
     if !n.is_finite() {
-        return Err(shape(path, "not finite"));
+        return Err(shape(at, "not finite"));
     }
     Ok(n)
 }

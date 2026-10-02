@@ -83,3 +83,14 @@ fn a_non_finite_number_is_refused_never_written_as_json() {
     edges[0].strength = f64::NAN;
     assert_eq!(written(&nodes, &edges), None, "strength NaN");
 }
+
+#[test]
+fn the_seed_document_states_the_version_the_reader_accepts() {
+    let text = document(&[], &[]).expect("empty is finite");
+    let stated = format!(r#"{{"version":{},"#, ingest::VERSION);
+    assert!(
+        text.starts_with(&stated),
+        "{text} does not state version {}",
+        ingest::VERSION
+    );
+}
