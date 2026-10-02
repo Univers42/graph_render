@@ -101,9 +101,10 @@ def _scigraphs_columns(points):
     oracle image this arm runs in is `debian:trixie-slim` plus a Graphviz build and no numpy
     at all (`docker/graphviz-oracle.Dockerfile`), so this is `numpy` written out by hand. The
     Rust arm (`crates/graph-cli/src/oracle_python/conformance/motor/gv_post.rs`) is the same
-    function in another language and its test `the_sum_here_is_numpys_own_order` holds it to
-    numpy 2.3.3's own mean at six lengths covering every branch of the reduction, so the two
-    arms of this row are held to the same summation order by a number, not by agreement.
+    function in another language and its test `the_mean_of_an_n_by_2_array_is_the_left_to_right_sum`
+    holds it to numpy's own `mean(axis=0)` on `(n, 2)` C-contiguous arrays at fourteen lengths,
+    so the two arms of this row are held to the same summation order by a number, not by
+    agreement.
 
     The extent is taken **after** the centring, which is `raw_range[:dims].max()` at `:320`
     and not the range of the raw column: the two are equal in exact arithmetic and differ in
@@ -114,48 +115,35 @@ def _scigraphs_columns(points):
     columns = [list(axis) for axis in zip(*points)][:GRAPHVIZ_DIMS]
     centred = []
     for column in columns:
-        mean = _numpy_pairwise_sum(column) / len(column)
+        mean = _numpy_mean(column)
         centred.append([value - mean for value in column])
     extent = max(max(column) - min(column) for column in centred)
     divisor = extent if extent > 0 else 1.0
     return [[value / divisor * SCALE for value in column] for column in centred]
 
 
-def _numpy_pairwise_sum(values):
-    """numpy's own summation order for `float64`, in plain Python.
+def _numpy_mean(values):
+    """`values.mean()` for one column of an `(n, 2)` C-contiguous array: a plain left-to-right
+    sum and then one division by the length.
 
-    **A left-to-right `sum()` is a different reduction, and here it is worth about `4e-14`.** The
-    mean moves by several ULPs, the centring moves with it, and after the rescale that lands
-    around `4e-14` on a 77-node layout — twelve orders of magnitude under the `7.2e-4` grid the
-    `-Tplain` text puts this arm's own coordinates on. It is written this way because a
-    convention that depends on a summation order is not a convention, and because the Rust arm
-    is held to numpy at six lengths: the two transcriptions have to be the same reduction for
-    that test to mean anything about this one.
-
-    numpy's order: a plain sum below eight elements, eight accumulators up to
-    `PW_BLOCKSIZE = 128`, and above that a split in two at an eight-aligned midpoint, with the
-    eight combined as `((r0+r1)+(r2+r3)) + ((r4+r5)+(r6+r7))`.
+    Ponytail: **left to right, not numpy's pairwise sum**, and the reason is that numpy's
+    pairwise reduction only runs along the contiguous axis. `raw` is `(n, 3)` C-contiguous, so
+    `raw.mean(axis=0)` (`yifan_hu.py:318`) walks axis 0 — the strided one — as a flat sequence,
+    and the eight accumulators and the split above `PW_BLOCKSIZE` never run. Measured in
+    `ge-python-oracle` on `(n, 2)` C-contiguous arrays at n = 1, 2, 3, 5, 8, 9, 16, 17, 33, 64,
+    127, 128, 129, 300: left to right equals `mean(axis=0)` at every length and on both columns,
+    while the pairwise sum of the same values differs at every n >= 8. The Rust arm is the same
+    function in another language and
+    `the_mean_of_an_n_by_2_array_is_the_left_to_right_sum` pins it to those hex values. What it
+    gets wrong: a Fortran-ordered `raw` would restore the pairwise sum, and
+    `scigraphs_utils.graphviz_layout` is a C++ extension with no source on disk to read its
+    allocation from — the escape hatch is to take this from the array's flags rather than its
+    shape, which nothing here can do.
     """
-    block = 128
-    count = len(values)
-    if count < 8:
-        total = 0.0
-        for value in values:
-            total += value
-        return total
-    if count > block:
-        split = count // 2 // 8 * 8
-        return _numpy_pairwise_sum(values[:split]) + _numpy_pairwise_sum(values[split:])
-    acc = list(values[:8])
-    index = 8
-    while index < count - count % 8:
-        for offset in range(8):
-            acc[offset] += values[index + offset]
-        index += 8
-    folded = ((acc[0] + acc[1]) + (acc[2] + acc[3])) + ((acc[4] + acc[5]) + (acc[6] + acc[7]))
-    for value in values[index:]:
-        folded += value
-    return folded
+    total = 0.0
+    for value in values:
+        total += value
+    return total / len(values)
 
 
 def _summary(report):

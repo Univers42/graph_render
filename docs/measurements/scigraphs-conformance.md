@@ -59,12 +59,17 @@ translation and not a unit, and the mean is what removes it. Repair 2 below was 
 unit and right about there being a convention.
 
 **What the `-Tplain` substitution still costs is precision, not scale.** The plain renderer
-writes **inches at five decimals** (`twopi -Tplain` on a triangle: `0.375 1.25`, `1.5023`), so
-every reference coordinate is a multiple of `7.2e-4` points. That grid is the substitution's and
-not SciGraphs': `graphviz_layout(num_nodes, edges, engine=..., ...)` (`yifan_hu.py:298-307`) is
-handed a node count and an edge list and returns an array, so it is a layout call rather than a
-rendering, and a rendering is what rounds. After the centring and the rescale, one step of that
-grid is `6.9e-6` on `lesmis` and `1.7e-5` on a five-node fixture, and the motor's own `f32`
+formats every coordinate with `agxbprint(&buf, "%.5g", v)` (`lib/common/output.c:66-71`,
+`printpoint` at `:76-79` passes it inches): that is **five significant digits**, not five
+decimals (`twopi -Tplain` on a triangle prints `0.375`, `1.5023` and `0.50234`), so the step is
+`10^(floor(log10|v|) - 4)` inches and depends on magnitude — `7.2e-3` points for a coordinate in
+[1, 10) in, `7.2e-2` for one in [10, 100), `7.2e-4` only for one in [0.1, 1). That step is the
+substitution's and not SciGraphs': `graphviz_layout(num_nodes, edges, engine=..., ...)`
+(`yifan_hu.py:298-307`) is handed a node count and an edge list and returns an array, so it is a
+layout call rather than a rendering, and a rendering is what rounds — an inference, since the
+extension's source is not on disk, only the `scigraphs-utils==0.2.0` pin
+(`SciGraphs/constraints/linux-x64.txt:21`). After the centring and the rescale, one step of that
+grid is `6.9e-5` on `lesmis` and `1.7e-4` on a five-node fixture, and the motor's own `f32`
 narrowing adds `1.5e-7`. That is where `GRAPHVIZ_TWOPI`'s `max gap` of `7.5e-5` and
 `GRAPHVIZ_PATCHWORK`'s `2.4e-4` come from — a few steps of the reference's grid, not a
 disagreement about the layout — which is why their `tier` is still `bitwise`/`convention` rather
@@ -171,7 +176,7 @@ Procrustes-aligned over it**, so a green point sitting on a grey point is a node
 | 24 | `GRAPHVIZ_NEATO` | `layout.force.neato` | `neato -Tplain` | `bitwise` | 340/1020 | 340/1020 | 9.26e+18 | 5.59 | 0.424 | 0.95 | `rng` | different shape |
 | 25 | `GRAPHVIZ_FDP` | `layout.force.fdp` | `fdp -Tplain` | `bitwise` | 340/1020 | 340/1020 | 3.10e+16 | 5.72 | 0.661 | 0.944 | `rng` | different shape _(reference not pinned: the engine's own start is not seeded by -Gstart: two runs differ)_ |
 | 26 | `GRAPHVIZ_SFDP` | `layout.force.sfdp` | `sfdp -Tplain` | `shape` | 340/1020 | 340/1020 | 1.71e+16 | 6.87 | 0.848 | 0.978 | `algorithm` | different shape at the **same seed on both sides**: grey is a line with a fan, green a small cluster |
-| 27 | `GRAPHVIZ_TWOPI` | `layout.twopi` | `twopi -Tplain` | `bitwise` | 359/1020 | 362/1020 | 9.28e+18 | 7.46e-05 | 2.04e-10 | 7.36e-10 | `convention` | **same shape** — the green ring sits on the grey ring; what is left is the `-Tplain` text's five decimals and the motor's `f32` narrowing |
+| 27 | `GRAPHVIZ_TWOPI` | `layout.twopi` | `twopi -Tplain` | `bitwise` | 359/1020 | 362/1020 | 9.28e+18 | 7.46e-05 | 2.04e-10 | 7.36e-10 | `convention` | **same shape** — the green ring sits on the grey ring; what is left is the `-Tplain` text's `%.5g` and the motor's `f32` narrowing |
 | 28 | `GRAPHVIZ_CIRCO` | `layout.circular.circo` | `circo -Tplain` | `shape` | 351/1020 | 351/1020 | 9.31e+18 | 5.08 | 0.284 | 0.875 | `algorithm` | **same shape on the tree** (disparity 6.5e-05) and **different on lesmis** (0.308): the ring agrees where the tree is small and the boxes are equal |
 | 29 | `GRAPHVIZ_OSAGE` | `layout.packing.osage` | `osage -Tplain` | `shape` | 344/1020 | 355/1020 | 1.95e+16 | 5.02 | 0.711 | 0.964 | `algorithm` | same grid of rows, different row assignment: the y coordinates agree to 1e-5 of the span, the x to 7% |
 | 30 | `GRAPHVIZ_PATCHWORK` | `layout.treemap.patchwork` | `patchwork -Tplain` | `bitwise` | 380/1020 | 388/1020 | 9.27e+18 | 2.37e-04 | 4.32e-10 | 1.6e-09 | `convention` | **same shape** — green on grey |
@@ -200,7 +205,7 @@ in the matrix.
 **2. Three rows are the same shape to `1e-10` or better and differ only in convention.** `GRID`
 (5e-32), `GRAPHVIZ_TWOPI` (2e-10), `GRAPHVIZ_PATCHWORK` (4e-10). Each is a convention fix, not an
 algorithm. **The units were never the difference on either Graphviz row** — both arms are in
-points, and what was left was the origin and the `-Tplain` text's five decimals; see repair 2
+points, and what was left was the origin and the `-Tplain` text's `%.5g`; see repair 2
 and `docs/measurements/sg-graphviz-scale.md`.
 
 **3. `GRAPHVIZ_SFDP` differs at the same seed on both sides.** The motor arm calls
@@ -277,8 +282,9 @@ SciGraphs' centring is a layer *below* that output which the port must not absor
 
 **Measured.** `max gap` 303 -> **7.5e-5** (twopi) and 139 -> **2.4e-4** (patchwork); `f32` 340/1020
 -> 362/1020 and 388/1020. The tier stays `bitwise`/`convention`, not `tolerance`, and **not
-because anything is left undone**: `-Tplain` writes inches at five decimals, so every reference
-coordinate is a multiple of `7.2e-4` points, one step of that grid is `1.7e-5` after the rescale
+because anything is left undone**: `-Tplain` formats coordinates with `%.5g`
+(`lib/common/output.c:66-71`), five significant digits rather than five decimals, so a coordinate
+in [1, 10) in lands on a step of `7.2e-3` points, one step of which is `1.7e-4` after the rescale
 on a five-node fixture, and `sc_propose.ARITHMETIC_GAP` is `1e-6`. That floor is the reference
 arm's and needs `scigraphs_utils` in an image to remove.
 `docs/measurements/sg-graphviz-scale.md` has the commands and the numbers.
