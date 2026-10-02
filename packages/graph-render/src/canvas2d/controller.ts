@@ -30,7 +30,12 @@ export interface Controller {
   readonly canvas: HTMLCanvasElement;
   readonly state: LoopState;
   readonly notify: Notify;
-  /** True until the user moves the camera: a resize then re-fits instead of cropping. */
+  /**
+   * True while the view still owns the camera, which is what `fitted` has always meant for the
+   * 2D camera and now means for the 3D one too: a resize, a new frame and a live frame fit
+   * instead of cropping, and only the user's own pan, zoom, orbit, reset or node drag takes
+   * the camera away. Everything the view does on its own asks this first.
+   */
   fitted: boolean;
   /** The local graph, when one is shown: a fit frames it and not the whole graph. */
   readonly local: LocalLayer;
@@ -121,6 +126,11 @@ export function fit(controller: Controller): void {
   const orbit = fittedOrbit(state);
   if (orbit !== null) {
     moveOrbit(controller, orbit);
+    // WHY the flag is set here and not in `moveOrbit`: an orbit the view fitted is the view's
+    // own camera, the same claim the 2D fit makes, and the resize and live-frame paths read
+    // this one flag for both cameras. Every orbit gesture goes through `moveOrbit` and leaves
+    // it false.
+    controller.fitted = true;
     return;
   }
   moveTo(controller, fitCamera(controller.local.bounds ?? state.scene.bounds, state.viewport), true);
@@ -180,12 +190,13 @@ export function showFrame(state: LoopState, frame: Frame, animate: boolean): voi
 
 /**
  * New positions for the nodes already in the frame, from a live simulation. A pair that does
- * not have one entry per node is another graph's drawing and is ignored. The columns the motor
- * handed over are read, never kept: they go into the ones the view already draws.
+ * not have one entry per node is another graph's drawing and is ignored, and `false` says so.
+ * The columns the motor handed over are read, never kept: they go into the ones the view
+ * already draws. Whether the camera follows is `camera-api.ts`'s question, not this one's.
  */
-export function setPositions(state: LoopState, xs: Float64Array, ys: Float64Array): void {
+export function setPositions(state: LoopState, xs: Float64Array, ys: Float64Array): boolean {
   const count = state.scene.frame.nodeCount;
-  if (xs.length !== count || ys.length !== count) return;
+  if (xs.length !== count || ys.length !== count) return false;
   if (state.x.length !== count) {
     state.x = new Float32Array(count);
     state.y = new Float32Array(count);
@@ -198,6 +209,7 @@ export function setPositions(state: LoopState, xs: Float64Array, ys: Float64Arra
   state.y = state.scene.frame.y;
   state.limits = limitsFor(state.scene.bounds, state.viewport);
   markMoved(state);
+  return true;
 }
 
 /** -1 while the nodes are moving: the grid holds where they will be, not where they are. */

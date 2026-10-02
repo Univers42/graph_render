@@ -164,7 +164,10 @@ export interface View {
    * New positions for the nodes already in the frame, from a live simulation. `xs`/`ys`
    * are one entry per node in dense order; a length that does not match the frame's node
    * count is ignored (the drawing is of another graph). The columns the motor handed over
-   * are read, never kept: the next frame replaces them.
+   * are read, never kept: the next frame replaces them. A pair that is taken also fits the
+   * drawing, so a settle that leaves the box the camera was framed to does not walk off the
+   * screen; after a pan, a zoom or a node drag the camera is the reader's and only the
+   * drawing moves.
    */
   setPositions(xs: Float64Array, ys: Float64Array): void;
   /** The nodes whose labels the last frame placed. */

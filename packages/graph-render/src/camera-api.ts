@@ -152,7 +152,16 @@ export function cameraApi(controller: Controller): CameraApi {
     hide: (nodes) => hideNodes(controller, nodes),
     togglePin: (node) => togglePin(controller, node),
     pinned: () => state.pinned,
-    setPositions: (xs, ys) => setPositions(state, xs, ys),
+    setPositions: (xs, ys) => {
+      // A live frame is a frame. A force layout is re-run from fresh positions on screen
+      // (`liveLoop.ts` shuffles it), so the box the camera was fitted to is a box about a
+      // drawing that is no longer the one being drawn: without this the whole graph walks off
+      // the screen on every layout switch to a `layout.force…` and never comes back, because
+      // nothing else in the live path moves the camera. The fit stops the moment the user's
+      // own pan, zoom or node drag takes the camera (the `fitted` flag), so a hand's view is
+      // never yanked back by a frame still arriving from the worker.
+      if (setPositions(state, xs, ys) && controller.fitted) fit(controller);
+    },
     position: (node) => ({ x: state.x[node] ?? 0, y: state.y[node] ?? 0 }),
     edgeEnds: (edge) => edgeEndsOf(state, edge),
     opacity: (kind, index) => (kind === "node" ? nodeOpacity : edgeOpacity)(state, index, performance.now()),

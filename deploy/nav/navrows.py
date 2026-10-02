@@ -3,8 +3,8 @@
 Every row is measured by the camera the served app is drawing with, or by the pixels the
 served app has drawn. Nothing is dispatched through the studio's own API: the input goes in
 as a mouse, a wheel or a key. A row that cannot be driven with CDP is reported NOT-RUN with
-the reason, and `--break` makes the drag row expect a move the app does not make and leaves
-the edge gradient row's mode alone.
+the reason, and `--break` makes the drag row expect a move the app does not make, leaves the
+edge gradient row's mode alone, and inverts the camera half of the layout switch row.
 """
 import time
 
@@ -13,6 +13,7 @@ from drive import (
     WHEEL_NOTCH, apart, screen_to_world, world_to_screen,
 )
 from gradientrows import row_edge_gradient
+from switchrows import row_layout_switch
 from verdict import row
 
 
@@ -224,8 +225,12 @@ def run_rows(studio):
         row_double_click(studio), row_fit(studio),
         *[_key_row(studio, name, key, check, text) for name, key, check, text in KEY_ROWS],
         row_clamp(studio), row_escape(studio), row_space_drag(studio), row_middle_drag(studio),
-        # Last: it fits the camera, pauses the force loop and puts the edge colour mode back,
-        # so it changes the drawing every row above it was written against, and its own row
-        # needs a view at rest, which none of the rows above leaves behind.
+        # Then the edge gradient: it fits the camera, pauses the force loop and puts the edge
+        # colour mode back, so it changes the drawing every row above it was written against,
+        # and its own row needs a view at rest, which none of the rows above leaves behind.
         row_edge_gradient(studio),
+        # Last of all: it switches the layout, which starts a live settle that moves every
+        # node, so it changes the drawing again — and its own row is the one that has to wait
+        # that settle out before it reads a camera.
+        row_layout_switch(studio),
     ]
