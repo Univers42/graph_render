@@ -14,7 +14,7 @@ function upload(gl: WebGL2RenderingContext, target: GLenum, buffer: WebGLBuffer,
   gl.bufferData(target, data, gl.DYNAMIC_DRAW);
 }
 
-const sameRefs = (a: readonly unknown[], b: readonly unknown[]): boolean => a.length === b.length && a.every((value, at) => value === b[at]);
+export const sameRefs = (a: readonly unknown[], b: readonly unknown[]): boolean => a.length === b.length && a.every((value, at) => value === b[at]);
 
 function syncHalves(layer: BulkLayer, input: PaintInput): void {
   const { gl, buffers, uploaded } = layer;

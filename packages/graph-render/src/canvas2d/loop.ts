@@ -218,6 +218,6 @@ function renderFrame(state: LoopState, now: number): void {
   state.onFrame();
   // A frame that baked a label planned it at width 0: one more frame lays it out at its width.
   const rebake = state.sprites.starved() || state.sprites.rasterised() > 0;
-  if (travelling || fading(state, performance.now()) || rebake) invalidate(state);
+  if (travelling || fading(state, performance.now()) || rebake || state.bulk.refining) invalidate(state);
   else if (moving && (state.scene.frame.edgeCount > state.pace.budget || drewAWay(state.counts))) armSettle(state);
 }

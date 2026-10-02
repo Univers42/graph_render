@@ -3,9 +3,9 @@
  * instanced quads over the nodes on screen once the largest node outgrows a point.
  *
  * Caveat: a moving frame draws a prefix of the spread edge and node orders, `pace.budget` of
- * each, and the loop's settle frame then draws them all; the sampled nodes stack in spread
- * order rather than index order, so where two overlap the other may be on top while the
- * camera moves. Quads are never sampled: they are drawn only zoomed in, over the nodes on
+ * each, and the settled frames then fill a kept picture with all of them (still.ts); the
+ * sampled nodes stack in spread order rather than index order, so where two overlap the
+ * other may be on top while the camera moves. Quads are never sampled: they are drawn only zoomed in, over the nodes on
  * screen. A point is clipped by its centre, so the GL viewport overhangs the canvas and a node
  * larger than the overhang is drawn as a quad instead, which costs a pass over every node on
  * the CPU to find those on screen.
@@ -29,6 +29,8 @@ interface Frame {
   readonly overhang: number;
   /** Nodes every column has a value for. */
   readonly count: number;
+  /** What every element's alpha is multiplied by: the dim alpha under a focus, else 1. */
+  readonly alpha: number;
 }
 
 function rgbaOfCss(layer: BulkLayer, css: string): Rgba {
@@ -51,22 +53,21 @@ function shared(layer: BulkLayer, pass: Pass, frame: Frame): void {
   gl.uniform1i(at("u_palette"), 0);
   gl.uniform1i(at("u_paletteSize"), layer.uploaded.paletteSize);
   gl.uniform1i(at("u_paletteWidth"), Math.min(PALETTE_WIDTH, layer.uploaded.paletteSize));
-  gl.uniform1f(at("u_alpha"), input.focus >= 0 ? input.theme.dimAlpha : 1);
+  gl.uniform1f(at("u_alpha"), frame.alpha);
   gl.bindVertexArray(pass.vao);
 }
 
-/** The edges drawn: all of them, or the budget's prefix while the camera moves. */
-function drawEdges(layer: BulkLayer, frame: Frame, budget: number): number {
+/** The edge pairs from `first` in spread order, `count` of them at most; how many were drawn. */
+function drawEdges(layer: BulkLayer, frame: Frame, first: number, count: number): number {
   const { gl, edges } = layer;
   const { input } = frame;
-  const pairs = layer.uploaded.indexCount / 2;
-  if (pairs === 0) return 0;
-  const drawn = input.moving ? Math.min(pairs, budget) : pairs;
+  const drawn = Math.max(0, Math.min(layer.uploaded.indexCount / 2 - first, count));
+  if (drawn === 0) return 0;
   shared(layer, edges, frame);
   const edge = rgbaOfCss(layer, input.theme.edge);
   gl.uniform1i(edges.uniforms("u_gradient"), input.style.edgeColour === "gradient" ? 1 : 0);
   gl.uniform4f(edges.uniforms("u_edge"), edge[0] / 255, edge[1] / 255, edge[2] / 255, edge[3] / 255);
-  gl.drawElements(gl.LINES, drawn * 2, gl.UNSIGNED_INT, 0);
+  gl.drawElements(gl.LINES, drawn * 2, gl.UNSIGNED_INT, first * 2 * Uint32Array.BYTES_PER_ELEMENT);
   return drawn;
 }
 
@@ -104,11 +105,15 @@ function drawNodes(layer: BulkLayer, frame: Frame, budget: number): number {
   return nodes.length;
 }
 
+/** The canvas size in device pixels. */
+export function deviceSize(input: Pick<PaintInput, "viewport" | "dpr">): readonly [number, number] {
+  return [Math.max(1, Math.round(input.viewport.width * input.dpr)), Math.max(1, Math.round(input.viewport.height * input.dpr))];
+}
+
 /** Sizes and clears the canvas; the overhang is as wide as the largest point and the driver's viewport allow. */
-function begin(layer: BulkLayer, input: PaintInput): Frame {
+function begin(layer: BulkLayer, input: PaintInput, alpha: number): Frame {
   const { gl, canvas } = layer;
-  const width = Math.max(1, Math.round(input.viewport.width * input.dpr));
-  const height = Math.max(1, Math.round(input.viewport.height * input.dpr));
+  const [width, height] = deviceSize(input);
   if (canvas.width !== width) canvas.width = width;
   if (canvas.height !== height) canvas.height = height;
   const room = Math.floor((layer.maxViewport - Math.max(width, height)) / 2);
@@ -121,24 +126,65 @@ function begin(layer: BulkLayer, input: PaintInput): Frame {
   gl.activeTexture(gl.TEXTURE0);
   gl.bindTexture(gl.TEXTURE_2D, layer.palette);
   const count = Math.min(input.x.length, input.y.length, input.extent.length, input.style.colours.length);
-  return { input, overhang, count };
+  return { input, overhang, count, alpha };
+}
+
+function sync(layer: BulkLayer, input: PaintInput, placed: number): void {
+  syncNodes(layer, input, placed);
+  syncPalette(layer, input.style.palette);
+  syncEdges(layer, input);
+}
+
+/** What a GPU frame drew, in the counts the 2D painter keeps. */
+export function counted(counts: PaintCounts, edges: number, nodes: number, dpr: number): void {
+  counts.edges = edges;
+  counts.nodes = nodes;
+  counts.draws += 2;
+  counts.bulk = 2;
+  counts.stroke = 1 / dpr;
 }
 
 /**
- * Draws one frame's edges and nodes and hands the picture back, or null when the context
- * is lost (the caller falls back to the 2D painter for good).
+ * Draws one frame's edges and nodes, dimmed under a focus, and hands the picture back, or
+ * null when the context is lost (the caller falls back to the 2D painter for good).
  */
 export function drawBulk(layer: BulkLayer, input: PaintInput, pace: Pace, counts: PaintCounts): ImageBitmap | null {
   if (layer.gl.isContextLost()) return null;
-  syncNodes(layer, input, pace.placed);
-  syncPalette(layer, input.style.palette);
-  syncEdges(layer, input);
-  const frame = begin(layer, input);
-  counts.edges = drawEdges(layer, frame, pace.budget);
-  counts.nodes = frame.count > 0 ? drawNodes(layer, frame, input.moving ? pace.budget : Infinity) : 0;
+  sync(layer, input, pace.placed);
+  const frame = begin(layer, input, input.focus >= 0 ? input.theme.dimAlpha : 1);
+  const edges = drawEdges(layer, frame, 0, input.moving ? pace.budget : Infinity);
+  const nodes = frame.count > 0 ? drawNodes(layer, frame, input.moving ? pace.budget : Infinity) : 0;
   layer.gl.bindVertexArray(null);
-  counts.draws += 2;
-  counts.bulk = 2;
-  counts.stroke = 1 / input.dpr;
+  counted(counts, edges, nodes, input.dpr);
   return layer.canvas.transferToImageBitmap();
+}
+
+/** One undimmed picture for still.ts and how many elements `draw` put on it, or null when the context is lost. */
+export interface Part {
+  readonly bitmap: ImageBitmap;
+  readonly drawn: number;
+}
+
+function part(layer: BulkLayer, input: PaintInput, placed: number, draw: (frame: Frame) => number): Part | null {
+  if (layer.gl.isContextLost()) return null;
+  sync(layer, input, placed);
+  const drawn = draw(begin(layer, input, 1));
+  layer.gl.bindVertexArray(null);
+  return { bitmap: layer.canvas.transferToImageBitmap(), drawn };
+}
+
+/** Edge pairs in spread order: from `first`, `count` at most. */
+export interface Range {
+  readonly first: number;
+  readonly count: number;
+}
+
+/** The edge pairs in `range`, undimmed. */
+export function edgePart(layer: BulkLayer, input: PaintInput, placed: number, range: Range): Part | null {
+  return part(layer, input, placed, (frame) => drawEdges(layer, frame, range.first, range.count));
+}
+
+/** Every node, undimmed. */
+export function nodePart(layer: BulkLayer, input: PaintInput, placed: number): Part | null {
+  return part(layer, input, placed, (frame) => (frame.count > 0 ? drawNodes(layer, frame, Infinity) : 0));
 }
