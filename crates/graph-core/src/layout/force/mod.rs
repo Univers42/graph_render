@@ -14,6 +14,8 @@ pub mod kamada_kawai;
 pub mod lgl;
 pub(crate) mod params;
 pub(crate) mod quadtree;
+#[cfg(test)]
+mod scratch_review;
 pub(crate) mod session;
 pub mod spring;
 pub(crate) mod yifan_hu;
