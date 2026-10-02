@@ -73,7 +73,7 @@ fn the_grid_finds_every_overlap_the_pairwise_scan_finds() {
 
 fn matches_every_pair(x: &[f64], y: &[f64]) {
     let mut grid = Grid::new(x.len() as u32);
-    grid.build((x, y), CONTACT.reach);
+    grid.build((x, y), CONTACT.reach, (&crate::exec::Serial, 1));
     let want = every_pair(x, y);
     assert!(
         want.iter().filter(|d| d.0 != 0.0).count() > 20,
@@ -92,7 +92,7 @@ fn matches_every_pair(x: &[f64], y: &[f64]) {
 fn the_sort_is_a_stable_permutation_and_the_ranges_change_no_byte() {
     let (x, y) = positions();
     let mut grid = Grid::new(x.len() as u32);
-    grid.build((&x, &y), CONTACT.reach);
+    grid.build((&x, &y), CONTACT.reach, (&crate::exec::Serial, 1));
     let mut seen = grid.order.clone();
     seen.sort_unstable();
     assert!(seen.iter().copied().eq(0..x.len() as u32));
@@ -106,5 +106,29 @@ fn the_sort_is_a_stable_permutation_and_the_ranges_change_no_byte() {
     let serial = gathered(&grid, 1);
     for workers in [2, 3, 7, 64] {
         assert!(gathered(&grid, workers) == serial, "workers={workers}");
+    }
+}
+
+#[test]
+fn every_division_of_the_build_is_the_one_thread_build() {
+    let n = 2 * frame::BLOCK + 300;
+    let x: Vec<f64> = (0..n).map(|i| libm::sin(i as f64 * 0.37) * 900.0).collect();
+    let mut y: Vec<f64> = (0..n).map(|i| libm::cos(i as f64 * 0.11) * 400.0).collect();
+    (y[5], y[frame::BLOCK as usize + 1]) = (f64::NAN, f64::NEG_INFINITY);
+    let built = |workers| {
+        let mut grid = Grid::new(n);
+        grid.build((&x, &y), CONTACT.reach, (&crate::exec::Serial, workers));
+        grid
+    };
+    let one = built(1);
+    for (k, &i) in one.order.iter().enumerate() {
+        assert_eq!(one.slot[i as usize], k as u32, "slot is order's inverse");
+    }
+    for workers in [2, 3, 7, 64] {
+        let grid = built(workers);
+        assert_eq!(grid.order, one.order, "workers={workers}");
+        assert_eq!(grid.start, one.start, "workers={workers}");
+        assert_eq!(grid.slot, one.slot, "workers={workers}");
+        assert_eq!(grid.hash.origin, one.hash.origin, "workers={workers}");
     }
 }

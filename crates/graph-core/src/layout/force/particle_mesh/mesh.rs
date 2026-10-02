@@ -1,7 +1,7 @@
 //! The mesh a run owns: the FFT plan, the two `P × P` buffers the convolution runs in, the
 //! kernel spectrum, and the collide grid whose node order the deposit reuses.
 //!
-//! One tick's field is: place the frame, deposit every node's unit charge with CIC weights,
+//! One tick's field is: bound the nodes and place the frame, deposit every node's unit charge with CIC weights,
 //! refresh the kernel if the rung moved, transform, multiply by the kernel, transform back,
 //! the deposit and every transform pass split across the run's workers. The field then sits in rows
 //! `0..cells` of `density`, `Ex` real and `Ey` imaginary, and a node reads
@@ -17,7 +17,7 @@
 use super::collide::Grid;
 use super::deposit::{Deposit, Stencils, weights};
 use super::fft::{C, Fft, MAX_SIDE, Plan};
-use super::frame::{self, Frame};
+use super::frame::{self, Bounds, Frame};
 use super::kernel::{Kernel, Law};
 use crate::exec::Runner;
 use crate::layout::force::barnes_hut::sim::Sim;
@@ -41,6 +41,8 @@ pub(in crate::layout::force) struct Mesh {
     frame: Option<Frame>,
     /// Each sorted slot's lower-left cell this tick, the deposit's scratch.
     at: Vec<u32>,
+    /// The bounds fold's per-block boxes.
+    blocks: Vec<Bounds>,
     pub(super) grid: Grid,
 }
 
@@ -54,6 +56,7 @@ impl Mesh {
             kernel: Kernel::new(side),
             frame: None,
             at: vec![0; n as usize],
+            blocks: Vec::with_capacity(n.div_ceil(frame::BLOCK) as usize),
             grid: Grid::new(n),
         }
     }
@@ -68,11 +71,13 @@ impl Mesh {
             dmax2: p.distance_max * p.distance_max,
         };
         let side = self.plan.side();
-        self.frame = frame::place(&sim.x, &sim.y, side, libm::sqrt(law.dmax2));
+        let xy = (&sim.x[..], &sim.y[..]);
+        let found = frame::bounds(xy, runner, workers, &mut self.blocks);
+        self.frame = found.and_then(|b| frame::place(b, side, libm::sqrt(law.dmax2)));
         let Some(frame) = self.frame.filter(|_| sim.x.len() > 1 && law.dmax2 > 0.0) else {
             return false;
         };
-        self.deposit(&frame, (&sim.x, &sim.y), runner, workers);
+        self.deposit(&frame, xy, runner, workers);
         let fft = Fft {
             plan: &self.plan,
             runner,

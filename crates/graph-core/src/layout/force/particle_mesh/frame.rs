@@ -10,8 +10,24 @@
 //! The origin is snapped to a multiple of `h`, so a node's cell and weights depend on its
 //! own position and the rung, never on the subtraction order of a running minimum.
 
+use crate::exec::{Runner, StepRange};
+use std::ops::Range;
+
 /// The smallest step tried: `h = 2^-8`. A tighter cluster than that is cut no finer.
 const STEP_MIN: i32 = -32;
+
+/// Nodes per block of the bounds fold: a block is one output of [`Blocks`], so the scratch
+/// is `n / 4096` boxes.
+pub(super) const BLOCK: u32 = 4096;
+
+/// A bounding box, `(lo, hi)`.
+pub(super) type Bounds = ((f64, f64), (f64, f64));
+
+/// The box no position has widened yet.
+const EMPTY: Bounds = (
+    (f64::INFINITY, f64::INFINITY),
+    (f64::NEG_INFINITY, f64::NEG_INFINITY),
+);
 
 /// The mesh's placement for one tick.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -28,11 +44,10 @@ pub(super) struct Frame {
     pub(super) reach: usize,
 }
 
-/// The frame over the finite positions in `x`/`y`, for a mesh of `side` cells per axis and
-/// a force that vanishes at distance `dmax`. `None` when no position is finite, or when the
-/// finite ones span more than an `f64` holds.
-pub(super) fn place(x: &[f64], y: &[f64], side: usize, dmax: f64) -> Option<Frame> {
-    let (lo, hi) = bounds(x, y)?;
+/// The frame over the finite positions' bounds `(lo, hi)`, for a mesh of `side` cells per
+/// axis and a force that vanishes at distance `dmax`. `None` when the finite positions span
+/// more than an `f64` holds.
+pub(super) fn place((lo, hi): Bounds, side: usize, dmax: f64) -> Option<Frame> {
     let span = f64::max(hi.0 - lo.0, hi.1 - lo.1);
     if !span.is_finite() {
         return None;
@@ -73,17 +88,64 @@ fn fit(step: i32, span: f64, side: usize, dmax: f64) -> Option<Frame> {
     })
 }
 
-/// The finite positions' bounding box, `None` if there is none.
-pub(super) fn bounds(x: &[f64], y: &[f64]) -> Option<((f64, f64), (f64, f64))> {
-    let mut lo = (f64::INFINITY, f64::INFINITY);
-    let mut hi = (f64::NEG_INFINITY, f64::NEG_INFINITY);
-    for (&px, &py) in x.iter().zip(y) {
-        if px.is_finite() && py.is_finite() {
-            lo = (lo.0.min(px), lo.1.min(py));
-            hi = (hi.0.max(px), hi.1.max(py));
+/// The finite positions' bounding box, `None` if there is none, folded per block of
+/// [`BLOCK`] nodes on `runner`'s workers, the blocks then folded in order. `blocks` is the
+/// caller's scratch.
+pub(super) fn bounds<R: Runner>(
+    xy: (&[f64], &[f64]),
+    runner: &R,
+    workers: u32,
+    blocks: &mut Vec<Bounds>,
+) -> Option<Bounds> {
+    runner.run(&Blocks { xy }, workers, blocks);
+    let (lo, hi) = blocks.iter().fold(EMPTY, |acc, &b| widen(acc, b));
+    (lo.0 <= hi.0).then_some((lo, hi))
+}
+
+/// Each block's bounds over its finite positions, [`EMPTY`] for a block with none.
+struct Blocks<'a> {
+    xy: (&'a [f64], &'a [f64]),
+}
+
+impl StepRange for Blocks<'_> {
+    type Out = Bounds;
+
+    fn len(&self) -> u32 {
+        (self.xy.0.len() as u32).div_ceil(BLOCK)
+    }
+
+    fn step_range(&self, range: Range<u32>, out: &mut [Bounds]) {
+        let n = self.xy.0.len();
+        for (b, slot) in range.zip(out) {
+            let start = b as usize * BLOCK as usize;
+            let nodes = start..(start + BLOCK as usize).min(n);
+            let (x, y) = (&self.xy.0[nodes.clone()], &self.xy.1[nodes]);
+            *slot = x.iter().zip(y).fold(EMPTY, |acc, (&px, &py)| {
+                let finite = px.is_finite() && py.is_finite();
+                if finite {
+                    widen(acc, ((px, py), (px, py)))
+                } else {
+                    acc
+                }
+            });
         }
     }
-    (lo.0 <= hi.0).then_some((lo, hi))
+}
+
+/// `acc` grown to cover `b`. The comparisons are strict, so of two equal ends the earlier
+/// one stays: one fold over every node and the fold of its blocks' folds keep the same
+/// one, `-0.0` against `+0.0` included, so the bounds do not depend on the worker count.
+fn widen(acc: Bounds, b: Bounds) -> Bounds {
+    let pick = |keep: f64, other: f64, wins: bool| if wins { other } else { keep };
+    let lo = (
+        pick(acc.0.0, b.0.0, b.0.0 < acc.0.0),
+        pick(acc.0.1, b.0.1, b.0.1 < acc.0.1),
+    );
+    let hi = (
+        pick(acc.1.0, b.1.0, b.1.0 > acc.1.0),
+        pick(acc.1.1, b.1.1, b.1.1 > acc.1.1),
+    );
+    (lo, hi)
 }
 
 /// The CIC stencil of one position: the lower cell per axis and the weight of the upper.
@@ -102,6 +164,14 @@ pub(super) fn stencil(frame: &Frame, (px, py): (f64, f64)) -> Option<((usize, us
     let (cx, fx) = axis(px, frame.origin.0);
     let (cy, fy) = axis(py, frame.origin.1);
     Some(((cx, cy), (fx, fy)))
+}
+
+/// [`place`] over the finite positions of `x`/`y`, one thread: what the tests build a frame
+/// with.
+#[cfg(test)]
+pub(super) fn place_over(xy: (&[f64], &[f64]), side: usize, dmax: f64) -> Option<Frame> {
+    let found = bounds(xy, &crate::exec::Serial, 1, &mut Vec::new());
+    found.and_then(|b| place(b, side, dmax))
 }
 
 #[cfg(test)]

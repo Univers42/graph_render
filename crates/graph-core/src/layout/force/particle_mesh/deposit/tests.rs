@@ -38,7 +38,7 @@ fn every_division_of_the_cells_is_the_one_thread_loop_bit_for_bit() {
     // A stride permutation, so grid order is not node order.
     let order: Vec<u32> = (0..n as u32).map(|k| (k * 7919) % n as u32).collect();
     for side in [128, 256] {
-        let frame = frame::place(&x, &y, side, 520.0).expect("finite");
+        let frame = frame::place_over((&x, &y), side, 520.0).expect("finite");
         let want = reference(&frame, side, &order, (&x, &y));
         assert!(
             want[frame.cells * side..]

@@ -19,12 +19,15 @@
 //! quadratic scan of one bucket; a dense overlap (every node within one diameter) is
 //! quadratic for Barnes-Hut as well.
 
-use super::frame;
+use super::frame::{self, Bounds};
 use crate::exec::{Runner, StepRange};
 use crate::layout::force::barnes_hut::sim::{How, Sim};
 use crate::layout::force::barnes_hut::{Split, step};
 use crate::rng::jiggle;
+use hash::{Buckets, Hash};
 use std::ops::Range;
+
+mod hash;
 
 const PASS_X: u32 = 4;
 const PASS_Y: u32 = 5;
@@ -36,16 +39,13 @@ pub(in crate::layout::force) struct Grid {
     pub(super) order: Vec<u32>,
     /// Bucket `b`'s slots are `start[b]..start[b + 1]`.
     start: Vec<u32>,
-    /// Each node's bucket, scratch for the sort.
-    bucket: Vec<u32>,
+    /// Each node's bucket while the sort runs, then its slot: `order[slot[i]] == i`.
+    pub(super) slot: Vec<u32>,
     /// The positions in sorted order.
     at: Vec<[f64; 2]>,
-    /// `64 - log2(buckets)`: the row hash's top bits are the row's first bucket.
-    shift: u32,
-    /// `buckets - 1`.
-    mask: u64,
-    origin: (f64, f64),
-    size: f64,
+    hash: Hash,
+    /// The origin's bounds fold, one box per block of nodes.
+    blocks: Vec<Bounds>,
 }
 
 /// What every overlap test reads: the squared diameter, the diameter, the jiggle's seed and
@@ -65,54 +65,54 @@ impl Grid {
         Grid {
             order: (0..n).collect(),
             start: vec![0; buckets + 1],
-            bucket: vec![0; n as usize],
+            slot: (0..n).collect(),
             at: vec![[0.0; 2]; n as usize],
-            shift: 64 - buckets.trailing_zeros(),
-            mask: buckets as u64 - 1,
-            origin: (0.0, 0.0),
-            size: 1.0,
+            hash: Hash {
+                shift: 64 - buckets.trailing_zeros(),
+                mask: buckets as u64 - 1,
+                origin: (0.0, 0.0),
+                size: 1.0,
+            },
+            blocks: Vec::with_capacity(n.div_ceil(frame::BLOCK) as usize),
         }
     }
 
-    /// Sorts every node into its bucket, stably: inside a bucket, by node index.
-    pub(super) fn build(&mut self, (x, y): (&[f64], &[f64]), size: f64) {
-        self.size = size;
-        self.origin = frame::bounds(x, y).map_or((0.0, 0.0), |(lo, _)| lo);
+    /// Sorts every node into its bucket, stably: inside a bucket, by node index. The
+    /// bounds and the hashing run through `runner`; the counting sort is one thread's.
+    pub(super) fn build<R: Runner>(
+        &mut self,
+        xy: (&[f64], &[f64]),
+        size: f64,
+        (runner, workers): (&R, u32),
+    ) {
+        let found = frame::bounds(xy, runner, workers, &mut self.blocks);
+        let origin = found.map_or((0.0, 0.0), |(lo, _)| lo);
+        self.hash = Hash {
+            origin,
+            size,
+            ..self.hash
+        };
+        let hash = self.hash;
+        runner.run(&Buckets { hash, xy }, workers, &mut self.slot);
         self.start.fill(0);
-        for i in 0..x.len() {
-            let b = self.bucket_of(self.cell_of((x[i], y[i])));
-            self.bucket[i] = b;
+        for &b in &self.slot {
             self.start[b as usize + 1] += 1;
         }
         for b in 1..self.start.len() {
             self.start[b] += self.start[b - 1];
         }
-        for i in 0..x.len() {
-            let slot = &mut self.start[self.bucket[i] as usize];
-            let k = *slot as usize;
-            *slot += 1;
-            (self.order[k], self.at[k]) = (i as u32, [x[i], y[i]]);
+        let (x, y) = xy;
+        for (i, slot) in self.slot.iter_mut().enumerate() {
+            let next = &mut self.start[*slot as usize];
+            let k = *next;
+            *next += 1;
+            (self.order[k as usize], self.at[k as usize]) = (i as u32, [x[i], y[i]]);
+            *slot = k;
         }
         // Each `start[b]` now holds bucket `b`'s end, which is bucket `b + 1`'s start.
         let buckets = self.start.len() - 1;
         self.start.copy_within(0..buckets, 1);
         self.start[0] = 0;
-    }
-
-    /// The cell of a position. Saturating: a NaN lands in cell 0 and an infinity at the
-    /// end of the range, and neither passes the distance test.
-    fn cell_of(&self, (x, y): (f64, f64)) -> (i64, i64) {
-        let along = |v: f64, o: f64| ((v - o) / self.size) as i64;
-        (along(x, self.origin.0), along(y, self.origin.1))
-    }
-
-    fn bucket_of(&self, (cx, cy): (i64, i64)) -> u32 {
-        (self.row(cy).wrapping_add(cx as u64) & self.mask) as u32
-    }
-
-    /// Row `cy`'s bucket for cell `0`, the hash's top bits.
-    fn row(&self, cy: i64) -> u64 {
-        (cy as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) >> self.shift
     }
 
     /// The slot runs a query from `cell` reads: rows `cy - 1..=cy + 1`, buckets left to
@@ -126,12 +126,14 @@ impl Grid {
         };
         let mut firsts = [0; 3];
         for (r, dy) in (-1..=1).enumerate() {
-            let first = self.bucket_of((cx.wrapping_sub(1), cy.wrapping_add(dy))) as u64;
-            for b in (first..first + 3).map(|b| b & self.mask) {
+            let first =
+                self.hash
+                    .bucket_of((cx.wrapping_sub(1), cy.wrapping_add(dy))) as u64;
+            for b in (first..first + 3).map(|b| b & self.hash.mask) {
                 // An earlier row's three buckets `e..e + 3` may hold `b`: read it once.
                 if !firsts[..r]
                     .iter()
-                    .any(|&e| b.wrapping_sub(e) & self.mask < 3)
+                    .any(|&e| b.wrapping_sub(e) & self.hash.mask < 3)
                 {
                     reads.push(self.start[b as usize], self.start[b as usize + 1]);
                 }
@@ -227,7 +229,9 @@ impl StepRange for Gather<'_> {
         let grid = self.grid;
         let mut reads: Option<Reads> = None;
         for (slot, k) in out.iter_mut().zip(range) {
-            let cell = grid.cell_of((grid.at[k as usize][0], grid.at[k as usize][1]));
+            let cell = grid
+                .hash
+                .cell_of((grid.at[k as usize][0], grid.at[k as usize][1]));
             let reads = match reads {
                 Some(ref r) if r.cell == cell => r,
                 _ => reads.insert(grid.reads(cell)),
@@ -254,7 +258,7 @@ pub(super) fn apply<R: Runner>(sim: &mut Sim, grid: &mut Grid, how: &mut How<'_,
         seed: sim.seed,
         tick: sim.tick_no,
     };
-    grid.build((&sim.px, &sim.py), contact.reach);
+    grid.build((&sim.px, &sim.py), contact.reach, (how.runner, how.workers));
     how.runner
         .run(&Gather { grid, contact }, how.workers, how.deltas);
     let split = how.split.splits(Split::Collide);
