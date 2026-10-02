@@ -1,7 +1,6 @@
-//! Carrying a running session onto a new topology: the growth path's controls.
-//!
-//! The design rests on one claim — **only ids cross a carry** — so half this file is that
-//! claim both ways: survivors keep their bytes when the rows they land on move
+//! Carrying a running session onto a new topology: the growth path's controls. The design
+//! rests on one claim — **only ids cross a carry** — so half this file is that claim both
+//! ways: survivors keep their bytes when the rows they land on move
 //! ([`only_ids_cross_a_carry`]), and positions are never the identity.
 
 use super::support;
@@ -13,7 +12,7 @@ use crate::weights::REFERENCE_DEGREE;
 use std::collections::HashSet;
 
 /// The offset radius and `barnes_hut/seed.rs`'s angle, recomputed rather than imported: a
-/// test reading the implementation's own constants checks nothing about what it asserts.
+/// test reading the implementation's own constants asserts nothing about the numbers.
 const OFFSET_RADIUS: f64 = 1.0;
 const GOLDEN_ANGLE: f64 = 2.399963229728653;
 
@@ -39,9 +38,8 @@ fn carrying_onto_the_same_topology_is_the_same_run() {
 }
 
 /// The growth case: the model minus its last tenth, carried onto the whole model. Every
-/// surviving node keeps its exact bytes, and the run's heat, tick count and parameters come
-/// across too — a carry that restarted the schedule would look like a different picture from
-/// the next tick on.
+/// surviving node keeps its exact bytes, and so do the run's heat, tick count and parameters
+/// — a carry that restarted the schedule would differ from the next tick on.
 #[test]
 fn a_grown_topology_keeps_every_old_node_byte_for_byte() {
     let models = models(400, 360);
@@ -64,8 +62,8 @@ fn a_grown_topology_keeps_every_old_node_byte_for_byte() {
     );
 }
 
-/// A new node is placed, not scattered: beside the mean of the neighbours it was actually
-/// connected to, within the offset radius, at rest, and never on top of anything else.
+/// A new node is placed, not scattered: beside the mean of the neighbours it was connected
+/// to, within the offset radius, at rest, and never on top of anything else.
 #[test]
 fn a_new_node_starts_beside_its_carried_neighbours_and_nowhere_else() {
     let models = models(400, 360);
@@ -117,7 +115,7 @@ fn a_new_node_starts_beside_its_carried_neighbours_and_nowhere_else() {
 }
 
 /// The shrink case: the model without its last tenth, carried onto what is left. Dropping a
-/// node removes a row and nothing else — every survivor is still where it was.
+/// node removes a row and nothing else — every survivor is where it was.
 #[test]
 fn a_shrunk_topology_keeps_its_survivors_byte_for_byte() {
     let models = models(400, 360);
@@ -136,10 +134,10 @@ fn a_shrunk_topology_keeps_its_survivors_byte_for_byte() {
     );
 }
 
-/// **The negative control for the design.** The same carry, onto the same ids, but with the
-/// rows in the opposite order: every survivor must land on the row its *id* is at, at its own
+/// **The negative control for the design.** The same carry, onto the same ids, with the rows
+/// in the opposite order: every survivor must land on the row its *id* is at, at its own
 /// bytes. A carry that indexed by position would keep row 0 where row 0 was and scramble the
-/// picture, and this is the assertion that catches it.
+/// picture; this is the assertion that catches it.
 #[test]
 fn only_ids_cross_a_carry() {
     let models = models(400, 360);
@@ -167,8 +165,8 @@ fn only_ids_cross_a_carry() {
     assert_ne!(before, carried.xs(), "and the carried session is live");
 }
 
-/// A pin is a node's state as much as its position is: it carries to the same node in the
-/// new topology, and that node is still *placed* by the next tick rather than integrated.
+/// A pin is a node's state as much as its position: it carries to the same node in the new
+/// topology, and that node is still *placed* by the next tick rather than integrated.
 #[test]
 fn a_pin_carries_with_its_node() {
     let models = models(400, 360);
@@ -195,8 +193,8 @@ fn a_pin_carries_with_its_node() {
     );
 }
 
-/// A `from` that is not the topology the session is over cannot be mapped id for id at all,
-/// and nothing is built when it is refused.
+/// A `from` that is not the topology the session is over cannot be mapped id for id, and
+/// nothing is built when it is refused.
 #[test]
 fn a_carry_from_the_wrong_number_of_rows_is_refused() {
     let models = models(400, 360);
@@ -211,13 +209,12 @@ fn a_carry_from_the_wrong_number_of_rows_is_refused() {
     );
 }
 
-/// The three topologies every case here carries between: the gate's own model, the same
-/// model without its last `count - keep` nodes and the edges among those kept, and the
-/// whole model with its nodes in the opposite order.
+/// The three topologies every case carries between: the gate's own model, the same model
+/// without its last `count - keep` nodes and the edges among those kept, and the whole model
+/// with its nodes in the opposite order.
 ///
-/// The kept prefix keeps its rows — `index_model` assigns them in first-seen order — so the
-/// byte comparisons above are between like rows, and `shuffled` is the one place the rows
-/// are deliberately moved.
+/// The kept prefix keeps its rows (`index_model` assigns them first-seen), so the byte
+/// comparisons are between like rows, and `shuffled` is the one place rows move.
 struct Models {
     prefix: Topology,
     full: Topology,
@@ -245,15 +242,14 @@ fn models(count: u32, keep: u32) -> Models {
     }
 }
 
-/// A session hot enough that its velocities and positions are worth comparing: three ticks
-/// to get off the seed, a reheat, then ten more so nothing has settled back to a fixed point.
+/// A session hot enough to be worth comparing: three ticks off the seed, a reheat, then ten
+/// more, so nothing has settled back to a fixed point.
 fn live(topology: &Topology) -> ForceSession {
-    let mut session =
-        ForceSession::new(topology, LiveParams::default()).expect("the defaults are in range");
-    session.step(3);
-    session.reheat(1.0).expect("1.0 is in range");
-    session.step(10);
-    session
+    let mut s = ForceSession::new(topology, LiveParams::default()).expect("in range");
+    s.step(3);
+    s.reheat(1.0).expect("1.0 is in range");
+    s.step(10);
+    s
 }
 
 fn index(nodes: &[NodeRecord], edges: &[EdgeRecord]) -> Topology {
@@ -261,8 +257,8 @@ fn index(nodes: &[NodeRecord], edges: &[EdgeRecord]) -> Topology {
 }
 
 /// `session`'s four columns as bit patterns: `x`, `y`, `vx`, `vy`. Read from its own `Sim`
-/// because there is no public velocity column (`xs`/`ys` are positions), and the claim under
-/// test is about the columns, not about what a later tick makes of them.
+/// because there is no public velocity column (`xs`/`ys` are positions), and the claim is
+/// about the columns themselves.
 fn columns(session: &ForceSession) -> (Vec<u64>, Vec<u64>, Vec<u64>, Vec<u64>) {
     let sim = &session.sim;
     let bits = |c: &[f64]| c.iter().map(|v| v.to_bits()).collect();
@@ -271,7 +267,7 @@ fn columns(session: &ForceSession) -> (Vec<u64>, Vec<u64>, Vec<u64>, Vec<u64>) {
 
 /// The mean of `row`'s neighbours in the full model that are rows of the prefix, or `None`
 /// when it has none. Walked from the topology's own edges rather than reused from `carry`, so
-/// the assertion is about the rule and not about its implementation.
+/// the assertion is about the rule, not its implementation.
 fn carried_mean(models: &Models, row: u32, old: &ForceSession) -> Option<(f64, f64)> {
     let edges = models.full.edges();
     let (mut sum_x, mut sum_y, mut count) = (0.0_f64, 0.0_f64, 0_u32);
@@ -293,12 +289,12 @@ fn carried_mean(models: &Models, row: u32, old: &ForceSession) -> Option<(f64, f
 }
 
 /// Every `(x, y)` distinct, by bit pattern: a coincidence the layout separates on its next
-/// tick, and one a carry must not create.
+/// tick, and one a carry must not make.
 fn distinct(xs: &[f64], ys: &[f64]) -> bool {
-    let pairs: HashSet<(u64, u64)> = xs
+    let p: HashSet<(u64, u64)> = xs
         .iter()
         .zip(ys)
-        .map(|(&x, &y)| (x.to_bits(), y.to_bits()))
+        .map(|q| (q.0.to_bits(), q.1.to_bits()))
         .collect();
-    pairs.len() == xs.len()
+    p.len() == xs.len()
 }
