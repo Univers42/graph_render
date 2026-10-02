@@ -355,7 +355,7 @@ const RECORDED_AGREEMENT: usize = 0;
 #[test]
 #[ignore]
 fn debug_seed3() {
-    let mut g = graph(5, &[(1, 0), (1, 0), (2, 0), (3, 2), (3, 0)]);
+    let mut g = graph(5, &[(1, 0), (1, 0), (2, 0), (3, 0), (3, 0), (4, 0), (4, 1)]);
     super::class1::run(&mut g);
     eprintln!("after class1: {:?}", super::fast::Edge::clone(&g.edges[0]));
     for e in &g.edges {

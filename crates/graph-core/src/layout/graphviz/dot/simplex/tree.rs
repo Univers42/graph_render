@@ -87,9 +87,10 @@ pub fn feasible_tree(g: &mut Fast, ctx: &mut Ctx, nodes: &[u32]) -> Result<(), E
         trees[slot].size = grow_tight(g, ctx, n, slot)?;
     }
     let mut size = trees.len();
-    subtree::build_heap(&mut trees);
+    let mut heap: Vec<usize> = (0..size).collect();
+    subtree::build_heap(&mut heap, &mut trees);
     while size > 1 {
-        let extracted = subtree::extract_min(&mut trees, size);
+        let extracted = subtree::extract_min(&mut heap, &mut trees, size);
         size -= 1;
         let rep = trees[extracted].rep;
         let Some(edge) = inter_tree_edge(g, &mut trees, rep) else {
@@ -97,9 +98,9 @@ pub fn feasible_tree(g: &mut Fast, ctx: &mut Ctx, nodes: &[u32]) -> Result<(), E
         };
         let rep = merge_trees(g, ctx, &mut trees, edge)?;
         // The representative of a merge is always a subtree still on the heap, because
-        // exactly one of the two merged is the one just extracted, so this index is live.
+        // exactly one of the two merged was the one just extracted, so this index is live.
         if let Some(at) = trees[rep].heap_index {
-            subtree::sift_down(&mut trees, size, at);
+            subtree::sift_down(&mut heap, &trees, size, at);
         }
     }
     init_cutvalues(g, nodes)?;
