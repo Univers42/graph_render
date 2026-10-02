@@ -82,3 +82,4 @@ fix-tree-hierarchy|build|prompts/jobs/fix-tree-hierarchy.md|scripts/orch/rows/qu
 rv-sg-sugiyama|build|prompts/jobs/rv-sg-sugiyama.md|scripts/orch/rows/docs.rows|no
 test-speed-geometry|build|prompts/jobs/test-speed-geometry.md|scripts/orch/rows/quick.rows|no
 sg-grid-minors|build|prompts/jobs/sg-grid-minors.md|scripts/orch/rows/quick.rows|no
+fix-contract|build|prompts/jobs/fix-contract.md|scripts/orch/rows/quick.rows|no
