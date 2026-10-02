@@ -149,17 +149,21 @@ impl Grid {
 
     /// Slot `k`'s half of every overlap it has, slots in `reads` order. A run is filtered
     /// `HITS` slots at a time, then the overlaps found are resolved in that same order.
-    fn delta(&self, k: usize, reads: &Reads, contact: Contact) -> (f64, f64) {
-        let [px, py] = self.at[k];
+    fn delta(
+        &self,
+        (k, contact): (u32, Contact),
+        reads: &Reads,
+        hits: &mut [u32; HITS],
+    ) -> (f64, f64) {
+        let [px, py] = self.at[k as usize];
         let mut out = (0.0, 0.0);
-        let mut hits = [0; HITS];
-        for &(lo, hi) in &reads.runs[..reads.len] {
+        for (lo, hi) in reads.around(k) {
             for from in (lo..hi).step_by(HITS) {
                 let span = from..hi.min(from + HITS as u32);
-                let found = self.overlaps((k, [px, py]), span, contact.d2, &mut hits);
+                let found = self.overlaps([px, py], span, contact.d2, hits);
                 for &q in &hits[..found] {
                     let [qx, qy] = self.at[q as usize];
-                    let ids = || (self.order[k], self.order[q as usize]);
+                    let ids = || (self.order[k as usize], self.order[q as usize]);
                     resolve(contact, ids, (px - qx, py - qy), &mut out);
                 }
             }
@@ -167,23 +171,26 @@ impl Grid {
         out
     }
 
-    /// The slots of `span` that `resolve` would not skip, `k` excepted, ascending. No branch
-    /// per slot: about half the candidates overlap (`docs/measurements/perf-p3-collide.md`),
-    /// so a branch on the distance test mispredicts. `l < d2` is false for a NaN `l`, which
-    /// is `resolve`'s own test negated.
+    /// The slots of `span` that `resolve` would not skip, ascending. No branch per slot:
+    /// about half the candidates overlap (`docs/measurements/perf-p3-collide.md`), so a
+    /// branch on the distance test mispredicts. `l < d2` is false for a NaN `l`, which is
+    /// `resolve`'s own test negated.
     fn overlaps(
         &self,
-        (k, [px, py]): (usize, [f64; 2]),
+        [px, py]: [f64; 2],
         span: Range<u32>,
         d2: f64,
         hits: &mut [u32; HITS],
     ) -> usize {
         let mut found = 0;
-        let at = &self.at[span.start as usize..span.end as usize];
-        for (q, &[qx, qy]) in span.zip(at) {
+        for (j, &[qx, qy]) in self.at[span.start as usize..span.end as usize]
+            .iter()
+            .enumerate()
+        {
             let (dx, dy) = (px - qx, py - qy);
-            hits[found] = q;
-            found += usize::from((dx * dx + dy * dy < d2) & (q as usize != k));
+            // `found <= j < HITS`: the mask changes no index, it only drops the bounds check.
+            hits[found % HITS] = span.start + j as u32;
+            found += usize::from(dx * dx + dy * dy < d2);
         }
         found
     }
@@ -210,6 +217,18 @@ impl Reads {
                 self.len += 1;
             }
         }
+    }
+
+    /// The runs with slot `k` cut out, so the filter needs no self test: the run holding `k`
+    /// becomes the two around it, and any other run is followed by an empty one.
+    fn around(&self, k: u32) -> impl Iterator<Item = (u32, u32)> + '_ {
+        self.runs[..self.len].iter().flat_map(move |&(lo, hi)| {
+            if (lo..hi).contains(&k) {
+                [(lo, k), (k + 1, hi)]
+            } else {
+                [(lo, hi), (hi, hi)]
+            }
+        })
     }
 }
 
@@ -257,6 +276,7 @@ impl StepRange for Gather<'_> {
     fn step_range(&self, range: Range<u32>, out: &mut [(f64, f64)]) {
         let grid = self.grid;
         let mut reads: Option<Reads> = None;
+        let mut hits = [0; HITS];
         for (slot, k) in out.iter_mut().zip(range) {
             let cell = grid
                 .hash
@@ -265,7 +285,7 @@ impl StepRange for Gather<'_> {
                 Some(ref r) if r.cell == cell => r,
                 _ => reads.insert(grid.reads(cell)),
             };
-            *slot = grid.delta(k as usize, reads, self.contact);
+            *slot = grid.delta((k, self.contact), reads, &mut hits);
         }
     }
 }
