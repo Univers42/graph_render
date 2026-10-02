@@ -75,3 +75,4 @@ fix-wasm-ingest|build|prompts/jobs/fix-wasm-ingest.md|scripts/orch/rows/quick.ro
 z-comments|build|prompts/jobs/z-comments.md|scripts/orch/rows/quick.rows|no
 sg-graphviz-scale-r1|build|prompts/jobs/sg-graphviz-scale-r1.md|scripts/orch/rows/quick.rows|no
 fix-core-base|build|prompts/jobs/fix-core-base.md|scripts/orch/rows/quick.rows|no
+fix-force-quadtree|build|prompts/jobs/fix-force-quadtree.md|scripts/orch/rows/quick.rows|no
