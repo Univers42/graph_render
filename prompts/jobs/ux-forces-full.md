@@ -50,6 +50,10 @@ Out of bounds:
 - `packages/graph-render/`
 - `motor/liveLoop.ts` (perf-p6-live-copy)
 - `studio/pipeline.ts`
+- `element.ts`, `motor/{bridge,session,settle}.ts`: the open branch perf-pm-live edits them.
+  perf-pm-live only appends to the end of `live.ts`, so edit `live.ts` inside its knob block
+  (lines 1-30) only, and the merge stays clean. The knob-to-wire table is
+  `motor/liveSession.ts:24`.
 
 No new dependency. House limits: 40 lines per function, 300 lines per file, 4 parameters.
 
