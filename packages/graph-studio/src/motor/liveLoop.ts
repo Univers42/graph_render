@@ -31,6 +31,12 @@ export interface LoopDeps {
 
 export interface ForceHost {
   readonly handle: (request: ForceRequest) => Result;
+  /**
+   * The session the loop is ticking is gone: stop at once, without waiting for the next
+   * request. A graph replaced mid-settle releases its force session, and the frame already
+   * scheduled would step a session the motor has already thrown away.
+   */
+  forget(): void;
 }
 
 interface Pin { readonly x: number; readonly y: number }
@@ -74,6 +80,14 @@ class ForceLoop {
 
   private frame(): void {
     this.cancel = null;
+    // WHY this is first: the port can die between the request that scheduled this frame and
+    // the frame itself, and every call on a released session throws. There is nothing to
+    // step, nothing to draw and nothing left to schedule, so the frame just ends.
+    if (this.live.dead === true) {
+      this.held.clear();
+      this.pending.clear();
+      return;
+    }
     for (const [id, pin] of this.pending) this.live.pin(id, pin.x, pin.y);
     this.pending.clear();
     if (this.dropped) this.dropped = false;
@@ -117,7 +131,8 @@ class ForceLoop {
     this.paused = false;
     this.cancel?.();
     this.cancel = null;
-    for (const id of this.held) this.live.unpin(id);
+    // A released session throws from an unpin too, and there is no pin left on it to lift.
+    if (this.live.dead !== true) for (const id of this.held) this.live.unpin(id);
     this.held.clear();
     this.pending.clear();
   }
@@ -171,17 +186,17 @@ export function createForceHost(port: () => LiveForce | null, deps: LoopDeps): F
   // The loop is made on the first request that finds a port, and released with it: a
   // re-layout makes a new session, so the loop must not keep ticking on the old one.
   let loop: { readonly loop: ForceLoop; readonly port: LiveForce } | null = null;
+  const forget = (): void => {
+    loop?.loop.halt();
+    loop = null;
+  };
   const live = (): ForceLoop | null => {
     const found = port();
     if (found === null) {
-      loop?.loop.halt();
-      loop = null;
+      forget();
       return null;
     }
-    if (loop !== null && loop.port !== found) {
-      loop.loop.halt();
-      loop = null;
-    }
+    if (loop !== null && loop.port !== found) forget();
     loop ??= { loop: new ForceLoop(found, deps), port: found };
     return loop.loop;
   };
@@ -192,5 +207,6 @@ export function createForceHost(port: () => LiveForce | null, deps: LoopDeps): F
       running.apply(request);
       return { type: "force-state", running: running.running, disabled: null, paused: running.isPaused };
     },
+    forget,
   };
 }

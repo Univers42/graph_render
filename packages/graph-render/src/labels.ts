@@ -100,46 +100,77 @@ function claimCells(occupancy: Occupancy, left: number, top: number, width: numb
   return true;
 }
 
-interface Placement {
-  readonly top: number;
-  /** 0 to leave the label to the coarse grid, 1 to keep it whatever the grid says. */
-  readonly keep: boolean;
-}
-
 /**
- * Where a label's sprite box sits. `below` is the studio's own: under the node's lower
+ * Where a label's sprite box tops out. `below` is the studio's own: under the node's lower
  * edge and a gap down. `centred` is the SciGraphs overlay, whose text is centred on the
  * node (text_overlay.py:231-233, 545-556), and it keeps every label: the declutter that
  * drops the ones that collide (labels2d/declutter.ts) has already run, on the source's
  * own boxes, before the style reaches the painter.
  */
-function placementOf(input: LabelInput, node: number, sy: number): Placement {
-  if (input.style.placement === "centred") {
-    return { top: sy - input.height / 2, keep: true };
-  }
-  const under = sy + (input.extent[node] ?? 0) * input.camera.scale + LABEL_GAP;
-  return { top: under, keep: false };
+function topOf(input: LabelInput, node: number, sy: number): number {
+  if (input.style.placement === "centred") return sy - input.height / 2;
+  return sy + (input.extent[node] ?? 0) * input.camera.scale + LABEL_GAP;
+}
+
+function offscreen(input: LabelInput, sx: number, top: number): boolean {
+  return sx < 0 || sx > input.viewport.width || top < -input.height || top > input.viewport.height;
+}
+
+function push(plan: LabelPlan, node: number, alpha: number, at: { readonly x: number; readonly y: number }): void {
+  const index = plan.count;
+  plan.node[index] = node;
+  plan.alpha[index] = alpha;
+  plan.x[index] = at.x;
+  plan.y[index] = at.y;
+  plan.count = index + 1;
 }
 
 function place(input: LabelInput, node: number, alpha: number, out: { plan: LabelPlan; occupancy: Occupancy }): void {
   const text = input.style.labels[node];
   if (text === undefined || text === "" || input.style.hidden?.[node] === 1) return;
-  const { camera, viewport } = input;
+  const { camera } = input;
+  // The x test runs first: a zoomed-in rank scan rejects most nodes here, before any other read.
   const sx = (input.x[node] ?? 0) * camera.scale + camera.x;
-  const sy = (input.y[node] ?? 0) * camera.scale + camera.y;
-  const { top, keep } = placementOf(input, node, sy);
-  if (sx < 0 || sx > viewport.width || top < -input.height || top > viewport.height) return;
+  if (sx < 0 || sx > input.viewport.width) return;
+  const top = topOf(input, node, (input.y[node] ?? 0) * camera.scale + camera.y);
+  if (offscreen(input, sx, top)) return;
+  const keep = input.style.placement === "centred";
   // A focus's labels are forced: the neighbourhood is named even where two texts touch.
   if (!keep && input.lit === null) {
     const width = input.widthOf(node) || text.length * ESTIMATED_GLYPH + 8;
     if (!claimCells(out.occupancy, sx - width / 2, top, width)) return;
   }
-  const at = out.plan.count;
-  out.plan.node[at] = node;
-  out.plan.alpha[at] = keep ? 1 : alpha;
-  out.plan.x[at] = sx;
-  out.plan.y[at] = top;
-  out.plan.count = at + 1;
+  push(out.plan, node, keep ? 1 : alpha, { x: sx, y: top });
+}
+
+/** A planned label's opacity at the current zoom: forced and centred labels are opaque. */
+function alphaOf(input: LabelInput, node: number): number {
+  if (input.lit !== null || input.style.placement === "centred") return 1;
+  const threshold = input.policy.threshold * fadeFactor(input.policy.fade ?? 0);
+  return zoomAlpha(input.camera.scale, input.style.weights[node] ?? 0, threshold);
+}
+
+/**
+ * Moves the last plan's labels with the camera instead of laying them out again: O(plan)
+ * where planLabels scans the rank order, which a zoomed-in million-node view walks to the end
+ * (about 7 ms a frame, target/p5-zoom.log). A label that leaves the screen or fades out is
+ * dropped; none is added.
+ *
+ * Caveat: nothing claims the grid, so a zoom-out can draw two labels over each other, and a
+ * label a zoom-in or a pan would bring into view is missing. Both last until the next full
+ * plan, which the loop runs once the view settles.
+ */
+export function followLabels(input: LabelInput, plan: LabelPlan): void {
+  const followed = plan.count;
+  plan.count = 0;
+  const { camera } = input;
+  for (let at = 0; at < followed; at += 1) {
+    const node = plan.node[at] ?? 0;
+    const alpha = alphaOf(input, node);
+    const sx = (input.x[node] ?? 0) * camera.scale + camera.x;
+    const top = topOf(input, node, (input.y[node] ?? 0) * camera.scale + camera.y);
+    if (alpha > 0.02 && !offscreen(input, sx, top)) push(plan, node, alpha, { x: sx, y: top });
+  }
 }
 
 export function planLabels(input: LabelInput, plan: LabelPlan, occupancy: Occupancy): void {

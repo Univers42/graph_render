@@ -11,16 +11,16 @@
 //!
 //! | constant | value | where |
 //! |---|---|---|
-//! | `STEP0` | 0.6 | `fdeb.py:37`, the first cycle's step, halved per cycle |
-//! | `SPRING_GAIN` | 0.5 | `fdeb.py:41`, `edge_styles.py:387` |
-//! | `SOFTEN_FRAC` | 0.01 | `fdeb.py:44`, softening the attraction's singularity |
-//! | `RADIUS_FRAC` | 0.05 | `fdeb.py:32` `DEFAULT_RADIUS`, a fraction of the diagonal |
-//! | `cycles` | 6 | `fdeb.py:47` `DEFAULT_CYCLES` |
+//! | `STEP0` | 0.6 | `fdeb.py:30`, the first cycle's step, halved per cycle |
+//! | `SPRING_GAIN` | 0.5 | `fdeb.py:33`, `edge_styles.py:388` |
+//! | `SOFTEN_FRAC` | 0.01 | `fdeb.py:36`, softening the attraction's singularity |
+//! | `RADIUS_FRAC` | 0.05 | `fdeb.py:39` `DEFAULT_RADIUS`, a fraction of the diagonal |
+//! | `cycles` | 6 | `fdeb.py:38` `DEFAULT_CYCLES` |
 //! | `segments` | 12 | the `BUNDLED_DENSE` preset, `edge_styles.py:41` |
-//! | `iterations` | 8 | the `BUNDLED_DENSE` preset, `edge_styles.py:42` |
-//! | `strength` | 0.8 | the `BUNDLED_DENSE` preset, `edge_styles.py:40` |
-//! | `threshold` | 0.6 | `fdeb.py`'s own `bundle_threshold`, and `edge_styles.py:348` |
-//! | visibility | on | `fdeb.py:48` `DEFAULT_VISIBILITY` |
+//! | `iterations` | 8 | the `BUNDLED_DENSE` preset, `edge_styles.py:43` |
+//! | `strength` | 0.8 | the `BUNDLED_DENSE` preset, `edge_styles.py:42` |
+//! | `threshold` | 0.6 | `bundle_threshold`, read at `fdeb.py:259`; default `edge_styles.py:348` |
+//! | visibility | on | `fdeb.py:40` `DEFAULT_VISIBILITY` |
 //!
 //! **Gather form (D10).** One iteration is a double buffer: subdivision point `(e, p)`
 //! reads the start-of-step state of its own two neighbours and of its partners'
@@ -41,8 +41,9 @@
 //! (`fdeb.py:_pairs_grid`) and then drops every pair below the compatibility threshold.
 //! Only the threshold is ported: the grid belongs to the routing slice's spatial index, and
 //! Phase 8 adds it where a measurement demands it, not here. The cost is therefore `O(m²)`
-//! to build the pair list, which is what [`META`]'s `scale_ceiling` is measured against
-//! and what its `complexity` row states.
+//! to build the pair list, then, per iteration, every subdivision point walking its edge's
+//! surviving row — `O(k · R)` for `R` surviving pairs, up to `m²/2` when nothing is pruned.
+//! [`META`]'s `scale_ceiling` is measured over both, and its `complexity` row states both.
 //!
 //! **Ponytail (threshold).** The compatibility threshold is a knob, not a computation: a
 //! pair scoring below it never attracts. The failing input is a pair of edges just under
@@ -74,15 +75,15 @@ use points::Points;
 
 pub use fixture::{FIXTURES, hairball, load};
 
-/// The first cycle's step, halved every cycle after (`fdeb.py:37`).
+/// The first cycle's step, halved every cycle after (`fdeb.py:30`).
 pub const STEP0: f32 = 0.6;
-/// The spring term's gain, matching the vectorized FDEB in `edge_styles.py` (`fdeb.py:41`).
+/// The spring term's gain, matching the vectorized FDEB in `edge_styles.py` (`fdeb.py:33`).
 pub const SPRING_GAIN: f32 = 0.5;
 /// The attraction is evaluated where bundled points converge, so its weight divides by
-/// `d² + (SOFTEN_FRAC · radius)²` (`fdeb.py:44`).
+/// `d² + (SOFTEN_FRAC · radius)²` (`fdeb.py:36`).
 pub const SOFTEN_FRAC: f32 = 0.01;
 /// The reference's interaction radius as a fraction of the drawing's diagonal
-/// (`fdeb.py:32`). It no longer truncates interactions — the spatial index is not ported
+/// (`fdeb.py:39`). It no longer truncates interactions — the spatial index is not ported
 /// here — and survives only as the scale the softening is taken against, so the attraction
 /// is dimensionless.
 pub const RADIUS_FRAC: f32 = 0.05;
@@ -110,8 +111,10 @@ prune, the arc-length resample) with the CPU attraction of \
 core/scigraphs_core/mesh/edge_styles.py:344-416. Every constant is named in this module's doc and \
 pinned by a unit test; no third-party bundler is a byte-for-byte oracle, because the reference is \
 Python over 3D numpy and this is 2D f32",
-    complexity: "O(m^2) to build the pair list, then O(P) per point per iteration over its surviving \
-row, P the subdivision points and the iterations those of the schedule",
+    complexity: "O(m^2) to build the pair list once, then O(k x R) per iteration: each of an edge's k \
+subdivision points (k <= MAX_SEGMENTS + 2) walks its edge's surviving row, R <= m(m-1)/2 pairs in all. \
+Worst case O(m^2 x k x I), I the schedule's total iterations; the threshold prune is what keeps R \
+below m^2 in practice, and Bundled::pairs reports it",
     scale_ceiling: FDEB_CEILING,
     degradation: "past the ceiling the pass still returns finite geometry and never refuses — it stops \
 fitting a one-second budget, at O(m^2) on the pair list. There is no built-in cutoff, so a caller \
@@ -131,22 +134,23 @@ stated resolution rather than a truth — see post/ink.rs",
 /// is pinned to it and no caller has to restate it.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FdebParams {
-    /// Subdivision cycles (`fdeb_cycles`, `fdeb.py:47`). At least 1.
+    /// Subdivision cycles (`fdeb_cycles`, `fdeb.py:46`). Floored at 1; above [`MAX_CYCLES`]
+    /// refused.
     pub cycles: u32,
-    /// Iterations in the first cycle (`bundle_iterations`, `edge_styles.py:42`). Each later
+    /// Iterations in the first cycle (`bundle_iterations`, `edge_styles.py:43`). Each later
     /// cycle takes two thirds of the one before, rounded up, and never fewer than 1.
     pub iterations: u32,
     /// Cap on subdivision points per edge (`segments`, `edge_styles.py:41`): the schedule
-    /// doubles them per cycle and stops here. At least 1.
+    /// doubles them per cycle and stops here. Floored at 1; above [`MAX_SEGMENTS`] refused.
     pub segments: u32,
-    /// The attraction's gain (`bundle_strength`, `edge_styles.py:40`), in `0..=1`. The
+    /// The attraction's gain (`bundle_strength`, `edge_styles.py:42`), in `0..=1`. The
     /// reference clips it into range silently; this refuses it, because a caller who passed
     /// 4 meant something other than 4.
     pub strength: f32,
-    /// The compatibility threshold (`bundle_threshold`, `edge_styles.py:348`): a pair
+    /// The compatibility threshold (`bundle_threshold`, `fdeb.py:259`): a pair
     /// scoring below it never attracts. In `0..=1`.
     pub threshold: f32,
-    /// Whether the visibility term `Cv` is applied (`fdeb_visibility`, `fdeb.py:48`).
+    /// Whether the visibility term `Cv` is applied (`fdeb_visibility`, `fdeb.py:260`).
     pub visibility: bool,
 }
 
@@ -210,7 +214,7 @@ pub fn bundle(
     let list = PairList::of(&frames, params);
     let soften = soften(x, y);
     let schedule = schedule(params);
-    let mut points = Points::of(topology, geometry, schedule[0].0 + 2);
+    let mut points = Points::of(topology, geometry, (x, y), schedule[0].0 + 2);
     for (subdivisions, step, iterations) in schedule {
         points.resample(subdivisions + 2);
         let (rows, per_edge) = points.shape();
@@ -229,8 +233,42 @@ pub fn bundle(
     })
 }
 
+/// The most subdivision points per edge the pass accepts: the reference panel's own
+/// `edge_segments` max (`SciGraphs/properties/edge_style_properties.py:78-85`).
+///
+/// Ponytail: the reference UI's ceiling, not a measurement. A caller asking for a finer row
+/// is refused although the arithmetic would hold well past it; what it buys is that
+/// `segments + 2` and the row buffers can never overflow. Escape hatch: raise the const.
+pub const MAX_SEGMENTS: u32 = 32;
+
+/// The most schedule cycles the pass accepts: the reference panel's own `edge_fdeb_cycles`
+/// max (`edge_style_properties.py:286-297`).
+///
+/// Ponytail: the reference UI's ceiling, not a measurement. Past ~5 cycles the point count
+/// is already capped by [`MAX_SEGMENTS`] and each further cycle halves an already tiny
+/// step, so a refused 11th cycle loses only refinement. Escape hatch: raise the const.
+pub const MAX_CYCLES: u32 = 10;
+
 /// Refuses a parameter outside what the pass accepts, rather than clipping it.
 fn check(params: &FdebParams) -> Result<(), StageError> {
+    for (name, value, max, rule) in [
+        (
+            "segments",
+            params.segments,
+            MAX_SEGMENTS,
+            "at most MAX_SEGMENTS (32)",
+        ),
+        (
+            "cycles",
+            params.cycles,
+            MAX_CYCLES,
+            "at most MAX_CYCLES (10)",
+        ),
+    ] {
+        if value > max {
+            return Err(StageError::Param { name, rule });
+        }
+    }
     for (name, value, rule) in [
         ("strength", params.strength, "finite and in 0..=1"),
         ("threshold", params.threshold, "finite and in 0..=1"),

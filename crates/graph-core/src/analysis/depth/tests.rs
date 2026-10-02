@@ -248,9 +248,10 @@ fn a_depth_lookup_past_the_last_node_panics() {
 
 #[test]
 #[should_panic(expected = "virtual root")]
-fn two_roots_with_no_virtual_root_are_refused_in_debug() {
-    // The `debug_assert` in `bfs_depth` is the only thing standing between a source
-    // that drops p3's virtual root and a column that reads as if it were never there.
+fn two_roots_with_no_virtual_root_are_refused() {
+    // The `assert` in `bfs_depth`, release builds included (R21), is the only thing
+    // standing between a source that drops p3's virtual root and a column that reads as
+    // if it were never there.
     let f = SaysVirtualRoot(rows(4, &[&[1], &[], &[3], &[]], &[0, 2]), None);
     bfs_depth(&f);
 }

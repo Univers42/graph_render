@@ -3,7 +3,7 @@ use crate::index::index_model;
 use crate::records::build::{edge, node};
 
 /// A path of 6: nodes 0..6 with 0 and 5 the only branch nodes, 1..4 degree 2.
-fn path6() -> Topology {
+pub(super) fn path6() -> Topology {
     let nodes: Vec<_> = (0..6).map(|i| node(&format!("n{i}"), "db")).collect();
     let edges: Vec<_> = (1..6)
         .map(|i| edge(&format!("e{i}"), &format!("n{}", i - 1), &format!("n{i}")))

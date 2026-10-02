@@ -64,6 +64,9 @@ pub(super) fn force_record(id: &str) -> Option<(&'static str, Status)> {
     match id {
         "layout.force.barnes_hut" => Some(("stress", Status::Implemented)),
         "layout.forceatlas2" => Some(("oracle-fa2", Status::Implemented)),
+        // Different but not worse than the exact dense sum, by the stress record
+        // (`graph-cli` `stress/fa2.rs`); a picture of its own, so never `gated` on a hash alone.
+        "layout.forceatlas2.barnes_hut" => Some(("stress", Status::Implemented)),
         // Ponytail: no differential exists for SciGraphs' own multilevel layout; the
         // stress record is the closest metric and is barnes_hut's, so `implemented` only.
         // (Graphviz's `sfdp` is a different algorithm and has its own differential below.)

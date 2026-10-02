@@ -15,6 +15,7 @@ import { WasmUnavailableError } from "./errors.ts";
  *  session, whose `f64` values are fixed-width IEEE-754 rather than pointer-width. */
 export interface RawExports {
   readonly memory: WebAssembly.Memory;
+  gm_abi_version(): number;
   gm_alloc(len: number): number;
   gm_free(ptr: number, len: number): void;
   gm_layout_count(): number;
@@ -56,7 +57,7 @@ export interface RawExports {
  * the interface's, so a module older than this SDK is refused by name when it loads instead of
  * failing later as `exports.gm_dim is not a function` on the first call that needs it. */
 const EXPORT_NAMES: { readonly [K in keyof RawExports]: true } = {
-  memory: true, gm_alloc: true, gm_free: true, gm_layout_count: true, gm_layout_id: true,
+  memory: true, gm_abi_version: true, gm_alloc: true, gm_free: true, gm_layout_count: true, gm_layout_id: true,
   gm_build: true, gm_build_contract: true, gm_run: true, gm_node_count: true,
   gm_geometry_kind: true, gm_edge_geometry_kind: true, gm_dim: true, gm_column_ptr: true,
   gm_column_len: true, gm_snapshot_json: true, gm_snapshot_bytes: true, gm_post_count: true,
@@ -69,12 +70,39 @@ const EXPORT_NAMES: { readonly [K in keyof RawExports]: true } = {
   gm_force_session_column_len: true, gm_force_session_release: true,
 };
 
+/** The ABI revision this SDK speaks: `gm_abi_version()` must return exactly this
+ * (`docs/contract/wasm-abi.md` "Exports"). */
+export const ABI_VERSION = 1;
+
 function requireExports(instance: WebAssembly.Instance): RawExports {
   const missing = Object.keys(EXPORT_NAMES).filter((name) => !(name in instance.exports));
   if (missing.length > 0) {
     throw new Error(`module lacks ${missing.join(", ")}: it is older than this SDK; rebuild it`);
   }
-  return instance.exports as unknown as RawExports;
+  const exports = unsignedResults(instance.exports);
+  const reported = exports.gm_abi_version();
+  if (reported !== ABI_VERSION) {
+    throw new Error(`module speaks ABI version ${reported}, this SDK speaks ${ABI_VERSION}: build both from one tree`);
+  }
+  return exports;
+}
+
+/** The exports whose result is not a `u32`: the memory, and the force session's `f64` alpha. */
+const NOT_U32: ReadonlySet<string> = new Set(["memory", "gm_force_session_alpha"]);
+
+/** Every `u32` result read back through `>>> 0`, once, here. A wasm `i32` result reaches JS
+ * signed, so an address at or past 2 GiB arrived negative: a 1M-node studio load failed with
+ * "Offset is outside the bounds of the DataView" in `frame` (2026-10-01). */
+function unsignedResults(exports: WebAssembly.Exports): RawExports {
+  const out: Record<string, unknown> = {};
+  for (const [name, value] of Object.entries(exports)) {
+    const wrap = typeof value === "function" && !NOT_U32.has(name);
+    out[name] = wrap ? (...args: number[]): unknown => {
+      const result: unknown = value(...args);
+      return typeof result === "number" ? result >>> 0 : result;
+    } : value;
+  }
+  return out as unknown as RawExports;
 }
 
 /** Bytes, or a URL/`Response` `fetch` can resolve (browser only — Node callers always
