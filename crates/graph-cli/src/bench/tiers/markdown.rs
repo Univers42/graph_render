@@ -97,7 +97,7 @@ fn stage_sentence(layout: &str) -> String {
         ),
         YifanHu::ID => format!(
             "the Yifan-Hu multilevel force stage (`YifanHu::run_with`): the hierarchy and every \
-             level's settle over the same three gathered passes, `TICKS` = {TICKS} ticks on the \
+             level's settle over the same passes, `TICKS` = {TICKS} ticks on the \
              coarsest level plus 48 per refinement, so the tick budget is `{TICKS} + 48 × levels` \
              and the level count is whatever the greedy coarsening reached — coarsening and \
              prolongation are serial by nature and are in every arm (passes handed to the \
