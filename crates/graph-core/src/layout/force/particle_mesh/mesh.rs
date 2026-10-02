@@ -89,7 +89,13 @@ impl Mesh {
     /// Unit charge per finite node into rows `0..cells` of `density`, the only rows the
     /// forward transform reads. The slots go in the collide grid's order, so consecutive
     /// nodes write neighbouring cells.
-    fn deposit<R: Runner>(&mut self, frame: &Frame, xy: (&[f64], &[f64]), runner: &R, workers: u32) {
+    fn deposit<R: Runner>(
+        &mut self,
+        frame: &Frame,
+        xy: (&[f64], &[f64]),
+        runner: &R,
+        workers: u32,
+    ) {
         let stencils = Stencils {
             frame,
             side: self.plan.side(),
