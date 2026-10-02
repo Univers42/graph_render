@@ -40,11 +40,12 @@ const IGRAPH_LAYOUTS: [&str; 6] = [
 ///   and for the reason the clause below gives, not because the comparison is weak.
 /// - the six igraph-family layouts in [`IGRAPH_LAYOUTS`] are held to
 ///   **harness/oracle-igraph.py** (`oracle-igraph`), one row per layout.
-/// - the five 3D layouts p12-t3 added — `layout.basic3d.sphere`, `.helix` and `.cube`
-///   (three closed forms over `(num_nodes, scale)` sharing one arm,
-///   `harness/oracle-basic-3d.py`), `layout.hierarchical3d` (the SciGraphs function
-///   itself, `harness/oracle-hierarchical-3d.py`) and `layout.force.spring3d` — are held
-///   as named in their own arms below. The first four are closed forms compared within a
+/// - the 3D layouts p12-t3 added, plus `layout.basic3d.spiral` —
+///   `layout.basic3d.sphere`, `.helix`, `.cube` and `.spiral` (four closed forms over
+///   `(num_nodes, scale)` sharing one arm, `harness/oracle-basic-3d.py`),
+///   `layout.hierarchical3d` (the SciGraphs function itself,
+///   `harness/oracle-hierarchical-3d.py`) and `layout.force.spring3d` — are held
+///   as named in their own arms below. The first five are closed forms compared within a
 ///   coordinate tolerance, exactly like `oracle-closed-form`; `spring3d` shares
 ///   `layout.force.spring`'s record because it is that layout at `dim = 3`.
 ///
@@ -148,16 +149,23 @@ pub(super) fn force_record(id: &str) -> Option<(&'static str, Status)> {
         // significant digits rather than a shortfall. Numbers in
         // `docs/measurements/p13-gv1-patchwork.md`.
         "layout.treemap.patchwork" => Some(("oracle-patchwork", Status::Implemented)),
-        // ---- p12-t3: the five 3D layouts. Three closed forms over `(num_nodes, scale)`
-        // that read no graph at all, so ONE arm file covers all three and each gets its
-        // own record only because each is a different function with a different oracle
-        // (`--function sphere|helix|cube` in one arm file, `harness/oracle-basic-3d.py`).
+        // ---- p12-t3 plus sg-spiral3d: the 3D layouts. Four closed forms over
+        // `(num_nodes, scale)` that read no graph at all, so ONE arm file covers all four
+        // and each gets its own record only because each is a different function with a
+        // different oracle (`--function sphere|helix|cube` in one arm file,
+        // `harness/oracle-basic-3d.py`).
         // The reason they are `implemented` and not `gated` is the one the clause above
         // gives: `verdict::Evidence::oracle_record` has no arm for `oracle-basic-3d`, so a
         // `gated` row could only read back "run the gate" where a verdict belongs.
-        "layout.basic3d.sphere" | "layout.basic3d.helix" | "layout.basic3d.cube" => {
-            Some(("oracle-basic-3d", Status::Implemented))
-        }
+        //
+        // `layout.basic3d.spiral` joins them on the same record, and the name is
+        // load-bearing rather than a bucket: it is **not** `layout.spiral`'s oracle. That
+        // id is networkx's planar `spiral_layout` at `resolution = 0.35`; SciGraphs has no
+        // 2D spiral and `SPIRAL_3D` reaches `_spiral_layout_3d` (`basic.py:36-63`) alone.
+        "layout.basic3d.sphere"
+        | "layout.basic3d.helix"
+        | "layout.basic3d.cube"
+        | "layout.basic3d.spiral" => Some(("oracle-basic-3d", Status::Implemented)),
         // Its own record, not `oracle-closed-form`'s: it is the SciGraphs function itself
         // being compared, and `oracle-closed-form` is the networkx arm. Same `implemented`
         // reason as the two above.

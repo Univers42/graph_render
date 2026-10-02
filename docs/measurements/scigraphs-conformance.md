@@ -132,7 +132,7 @@ Procrustes-aligned over it**, so a green point sitting on a grey point is a node
 | 11 | `IGRAPH_LGL` | `layout.force.lgl` | `apply_graph_layout` | `bitwise` | 340/1020 | 340/1020 | 9.24e+18 | 33.1 | 0.611 | 0.81 | `rng` | different shape |
 | 12 | `SPHERE` | `layout.basic3d.sphere` | `apply_graph_layout` | `tolerance` | 111/1020 | 1020/1020 | 2.68e+08 | 2.38e-07 | 4.63e-16 | 9.66e-16 | `arithmetic` | **same shape** — the green ring sits on the grey ring, node for node |
 | 13 | `SPECTRAL_3D` | `layout.spectral` | `apply_graph_layout` | `shape` | 1/1020 | 1/1020 | 9.22e+18 | 5.95 | 0.333 | 0.807 | `algorithm` | different shape: grey is a vertical line, green a small cluster at one end — and **both arms start from the origin with no RNG**, so this is the algorithm |
-| 14 | `SPIRAL_3D` | `layout.spiral` | `apply_graph_layout` | `shape` | 0/1020 | 0/1020 | 9.22e+18 | 6 | 0.585 | 0.815 | `algorithm` | different shape: grey is a 3D spiral, green one point at the centre |
+| 14 | `SPIRAL_3D` | `layout.basic3d.spiral` | `apply_graph_layout` | `tolerance` | 120/1020 | 1020/1020 | 2.68e+08 | 2.35e-07 | 3.34e-16 | 5.59e-16 | `arithmetic` | **same shape** — green covers grey node for node on 22 of 24 fixtures |
 | 15 | `HELIX` | `layout.basic3d.helix` | `apply_graph_layout` | `tolerance` | 327/1020 | 1020/1020 | 2.67e+08 | 1.51e-07 | 1.37e-16 | 4.16e-16 | `arithmetic` | **same shape**, mirrored on 4 of the 22 fitted fixtures |
 | 16 | `CUBE` | `layout.basic3d.cube` | `apply_graph_layout` | `bitwise` | 501/1020 | 501/1020 | 9.23e+18 | 7.58 | 0.202 | 0.847 | `rng` | the eight corners land on the grey corners; the interior is redrawn from another generator |
 | 17 | `HIERARCHICAL_3D` | `layout.hierarchical3d` | `apply_graph_layout` | `tolerance` | 374/1020 | 1020/1020 | 2.67e+08 | 7.95e-08 | 9.03e-17 | 2.93e-16 | `arithmetic` | **same shape** — green covers grey node for node |
@@ -290,12 +290,24 @@ each side lands on. Compare one eigenvector's sign convention against networkx's
 **Expected:** `SPECTRAL_3D` 0.333 and `MDS_3D` 0.078 fall; `MDS_3D` is the closest non-matching row
 in the matrix and the most likely to close.
 
-### 10. `SPIRAL_3D` — `algorithm`, a hard-coded default
-**File:** `crates/graph-core/src/layout/spiral.rs:32`. **Change:** `RESOLUTION = 0.35` is graph-core's
-own; SciGraphs calls `nx.spiral_layout(num_nodes, scale)` with networkx's default `resolution =
-1.0`, and its `_spiral_layout_3d` (`basic.py:36`) returns three columns where the motor's planar
-layout has no `z` at all.
-**Expected:** the disparity 0.585 falls sharply; the `z` needs a `Geometry::in_space`.
+### 10. `SPIRAL_3D` — `algorithm`, and **not** `layout.spiral` (landed)
+**Files:** new `crates/graph-core/src/layout/basic_3d/spiral.rs`, `registry/three_d/spiral3d.rs`,
+`conformance/rows.rs`. **Change:** an earlier version of this paragraph said to raise
+`RESOLUTION = 0.35` to 1.0 in `layout/spiral.rs:32`. **Both halves of that were wrong, and
+correcting it is most of the repair.** (1) SciGraphs does not call `nx.spiral_layout` at all:
+`SPIRAL_3D` dispatches to its own `_spiral_layout_3d` (`basic.py:36-63`,
+`layouts/dispatcher.py:105-106`), which is a *conical 3D spiral* — radius `scale*0.5` to
+`scale`, `z` from `-scale` to `scale`, spaced evenly along its own arc length. `layout.spiral`
+is graph-core's planar Archimedean spiral and SciGraphs has no 2D spiral to compare it to, so
+no value of `resolution` could have moved this row. (2) Even the right diagnosis — three
+columns where the motor's planar layout has no `z` — does not make this a `resolution` edit:
+the new id is a 3D layout of its own, through `basic_3d`'s `in_space`, with `layout.spiral`
+left untouched. The port is an arc-length inversion, not a formula: `t = interp(wanted,
+length, grid)` over a 65 536-point grid whose `cumsum` is sequential, and numpy's `linspace`
+and `interp` each have an arithmetic of their own.
+**Measured:** disparity 0.585 -> 3.34e-16 median (5.59e-16 max), `f32` **1020/1020**,
+`f64` 120/1020, tier `shape` -> `tolerance`, cause `algorithm` -> `arithmetic`. Numbers and
+commands in `docs/measurements/sg-spiral3d.md`.
 
 ### 11. `BIPARTITE_3D`, `SUGIYAMA`, `IGRAPH_KK`, `YIFAN_HU`, `GRAPHVIZ_NEATO`, `GRAPHVIZ_FDP`,
 `GRAPHVIZ_CIRCO` — `algorithm`

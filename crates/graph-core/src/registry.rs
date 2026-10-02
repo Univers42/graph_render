@@ -68,7 +68,7 @@ use radial::TWOPI;
 use spectral::{PIVOT_MDS, SPECTRAL};
 pub use spectral::{PIVOT_MDS_CEILING, SPECTRAL_CEILING};
 pub use three_d::BASIC_3D_CEILING;
-use three_d::{CUBE, HELIX, HIERARCHICAL_3D, SPHERE, SPRING_3D};
+use three_d::{CUBE, HELIX, HIERARCHICAL_3D, SPHERE, SPIRAL_3D, SPRING_3D};
 
 /// What the ledger says about a layout. Every field is required.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -105,7 +105,7 @@ pub struct Capability {
 }
 
 /// Every registered layout, in the order the hash gate runs them.
-pub static LAYOUTS: [Capability; 35] = [
+pub static LAYOUTS: [Capability; 36] = [
     Capability {
         id: Grid::ID,
         run: run_default::<Grid>,
@@ -285,6 +285,14 @@ pub static LAYOUTS: [Capability; 35] = [
         id: sfdp::ID,
         run: sfdp::run,
         meta: SFDP,
+    },
+    // ---- sg-spiral3d: SciGraphs' SPIRAL_3D, the conical 3D spiral of `basic.py:36-63`.
+    // APPENDED for the same reason as the block above it: inserting would repoint every
+    // index-keyed consumer with no compile error.
+    Capability {
+        id: basic_3d::spiral::ID,
+        run: basic_3d::spiral,
+        meta: SPIRAL_3D,
     },
 ];
 
