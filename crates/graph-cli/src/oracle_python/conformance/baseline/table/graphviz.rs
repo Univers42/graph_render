@@ -5,14 +5,20 @@
 //! **A move, not a change.** Every value below is the byte-for-byte content of the one
 //! table `table.rs` held before it was split along its row families; a re-pinned row is
 //! still edited here and nowhere else.
+//!
+//! **These nine were re-pinned once, together, by `sg-graphviz-scale`,** when SciGraphs'
+//! own five lines over the engine's points (`yifan_hu.py:318-325`) moved to both arms
+//! (`motor/gv_post.rs`, `sc_graphviz.py`). Only the bytes moved: every tier and every cause
+//! below is the one `sc_propose.classify` had already decided, and the two `convention` rows'
+//! Procrustes disparity is unchanged to the last bit a `f64` carries.
 
 use super::super::{Baseline, row};
 
 pub(super) const GRAPHVIZ: [Baseline; 9] = [
     row(
         "YIFAN_HU",
-        "3323aa8cb20ceb50e5b3ae7afbb9d69d0afd4acd20c05f561d0e6bb72dd2f99f",
-        "4c90e6c3493b207255f3be114f517f41ceb234b7ff75e241a85991b400b9144f",
+        "de201a3bf0493b578133c2d1c1dbaf65a19fe3c62147b3db7e846701e72a9a9c",
+        "acfb41636d08eae9d9c0779d7b2191411df36442ef14fee2b0ce40ea7da14b92",
         "",
         1e0,
         "shape",
@@ -21,7 +27,7 @@ pub(super) const GRAPHVIZ: [Baseline; 9] = [
     row(
         "GRAPHVIZ_DOT",
         "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "4b608db68705ee41ad12270feff2d1e17c0af7777aae95c11f583c69f37e6f93",
+        "0d71b1766e1cbad6bbd1766876acf5b3f0a9c77d1a2040e87ea5fa9daac1fa70",
         "",
         f64::INFINITY,
         "shape",
@@ -29,8 +35,8 @@ pub(super) const GRAPHVIZ: [Baseline; 9] = [
     ), // not run: not run: no motor layout for this name
     row(
         "GRAPHVIZ_NEATO",
-        "9f3fdfef4f5bcba3af60711100fb885550ce7a9b5c15c957cc68871ab7f1e8cf",
-        "d866a341ba931c2a5b0be5f0c755960ed6d26c08f7e672b867e1396533909535",
+        "7d10d2294436aa58fc47c8adaaf0c135624abe30f802309e94acf1d79c986f20",
+        "bb56c471f0bb738ac053db47cc6fbf4083c09732c405a088d07c032c4c8ad61a",
         "",
         1e0,
         "bitwise",
@@ -38,7 +44,7 @@ pub(super) const GRAPHVIZ: [Baseline; 9] = [
     ),
     row(
         "GRAPHVIZ_FDP",
-        "76dde17b308546a000e08754ee3345bac6fd6bc336e38761a98a52b598dab3b7",
+        "f02167cf01b4f64145db4779004eb397b36ff482fb37008be898cca971b20f6f",
         "",
         "the engine's own start is not seeded by -Gstart: two runs differ",
         1e0,
@@ -47,8 +53,8 @@ pub(super) const GRAPHVIZ: [Baseline; 9] = [
     ),
     row(
         "GRAPHVIZ_SFDP",
-        "61d65b0768faf4a9118540c690cbb8bcd4ffc57da782b2cdf27f7b4940805f7b",
-        "4c90e6c3493b207255f3be114f517f41ceb234b7ff75e241a85991b400b9144f",
+        "7b7aeabb59599b55eee5ed41b82ee8ce5431c396e3ad7079be1c4d8e7fb2bd6f",
+        "acfb41636d08eae9d9c0779d7b2191411df36442ef14fee2b0ce40ea7da14b92",
         "",
         1e0,
         "shape",
@@ -56,8 +62,8 @@ pub(super) const GRAPHVIZ: [Baseline; 9] = [
     ),
     row(
         "GRAPHVIZ_TWOPI",
-        "4dc1e046a8d63af0eb7ad1196b5fbbafd1d82883f47c7a3a6d5f2893902cd9b4",
-        "b757bd447593d9bd6af8dbb09d7e7065f9683c98d47ca6a28e5a82fe0e03cbbe",
+        "2d2e4b04fa8850aa89574d6d635ec0de43409a26039cb28131d71584e6247bb9",
+        "2e1368a0c2bbf13231ea26434ce6b8db691272d725604c24f53bd766e55d8eb5",
         "",
         1e-9,
         "bitwise",
@@ -65,8 +71,8 @@ pub(super) const GRAPHVIZ: [Baseline; 9] = [
     ),
     row(
         "GRAPHVIZ_CIRCO",
-        "7272c7df98b0da15b39b3b638ea85ca9cf83c16f394ffa6bde924e04c554c400",
-        "43bd5ccddf7176066c95e8dc000fdb8ca20396fce5427d762bbf4c3d4f4b7907",
+        "1ca5ecf45c65d2488dae1670de6275e9334998271b654c29530192caa627c4ea",
+        "f771a0a4e2498c868790052fb0f43c5aa48d7f140aa918adf504f504d914b205",
         "",
         1e0,
         "shape",
@@ -74,8 +80,8 @@ pub(super) const GRAPHVIZ: [Baseline; 9] = [
     ),
     row(
         "GRAPHVIZ_OSAGE",
-        "dcf04e18cf2d24e42c141bda41a8498cc00bebafdc76688ae0bf5fb2686d5da5",
-        "5dcfc6baa37356af16bc4dcb1390d9bca43b32cc0824b7fe9664e787391fb2b9",
+        "f27bfe606672fb81b7ffb0f342693f5c2fb6154a2a1571f3a8e9ed9683fa4e15",
+        "c8507df100b08db5472201e5f34ec11a546966e8f5ef525257cb47d392e8916e",
         "",
         1e0,
         "shape",
@@ -83,8 +89,8 @@ pub(super) const GRAPHVIZ: [Baseline; 9] = [
     ),
     row(
         "GRAPHVIZ_PATCHWORK",
-        "db3d36c1b1cbdb589593120d908b508d7b86ebc1b36e0b11a6f522aca321ec08",
-        "cdda1c9c29be3f24cde803e1e51232cfab42d8304c444357c36a79a9f7ee4e3e",
+        "969e5e8fe3524597245ab459ec6afecdc0847a40225730b8c6a2b0c6733bfba5",
+        "3af27cc569902b957988b1d64284351117614d53c1e9558774d7fc7fd3300a79",
         "",
         1e-9,
         "bitwise",

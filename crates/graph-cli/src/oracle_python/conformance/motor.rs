@@ -2,6 +2,14 @@
 //! default for almost every id, and a deliberate override for the three where the registered
 //! default is not SciGraphs' parameter.
 //!
+//! **One convention, and it is applied to both arms rather than to the motor.** A Graphviz
+//! row's reference is the engine's own `-Tplain` points, and SciGraphs never returns those:
+//! it centres them on their mean, divides by their largest extent and multiplies by `scale`
+//! (`yifan_hu.py:318-325`), a layer `scigraphs_utils.graphviz_layout` does inside the C++
+//! extension. [`scigraphs_graphviz_post`] is that layer, and `harness/scigraphs-conformance/
+//! sc_graphviz.py` applies the same five lines in Python to the reference arm. What is left
+//! after it is the layout, not the unit.
+//!
 //! **Three overrides, and each is a whole row.** `CIRCLE_PACKING`'s registered budget is 500
 //! radius-solver sweeps where `apply_graph_layout` passes 50; `FORCEATLAS2`'s is 100 where
 //! the dispatcher passes 50 into `ForceSim`; `GRAPHVIZ_SFDP` registers `run`, whose
@@ -11,9 +19,9 @@
 //! dispatcher's `iterations` and uses igraph's `maxiter=10`, which is our `DhParams` default
 //! too (`igraph_layouts.py:117-118`, `davidson_harel.rs:44`).
 //!
-//! Nothing here normalises a coordinate. What the layout returns is what goes into the
-//! `.f64` file, and every parameter the motor could not be given is a `Gap` in
-//! [`super::rows`], not a number fudged to match.
+//! Nothing here fudges a coordinate. What the layout returns, plus the convention both arms
+//! share, is what goes into the `.f64` file, and every parameter the motor could not be given
+//! is a `Gap` in [`super::rows`], not a number fudged to match.
 
 use super::fixtures::Fixture;
 use super::{ITERATIONS, LAYOUT_SEED, SCALE};
@@ -26,6 +34,9 @@ use graph_core::layout::forceatlas2::{Fa2Params, ForceAtlas2};
 use graph_core::layout::graphviz::sfdp;
 use graph_core::{Stage, StageError, registry, run_with};
 use serde_json::Value;
+
+mod gv_post;
+pub use gv_post::{GRAPHVIZ_DIMS, scigraphs_graphviz_post};
 
 /// The environment variable that breaks one row's coordinates by one `f32` ULP, for the
 /// `negctl-scigraphs-conformance` row.
@@ -63,6 +74,21 @@ pub fn run(id: &str, fixture: &Fixture) -> Ran {
         _ => registered(id, fixture),
     }?;
     columns(&parts, fixture.nodes.len())
+}
+
+/// [`run`], then the one convention a Graphviz row carries: SciGraphs' centre-and-rescale
+/// over the engine's points (`yifan_hu.py:318-325`). A `Reference::Scigraphs` row already had
+/// it applied inside `apply_graph_layout`, so applying it twice would be the bug, and a
+/// `Reference::Graphviz` row is the only one whose reference arm takes the engine's raw
+/// points.
+pub fn run_row(row: &super::Row, fixture: &Fixture) -> Ran {
+    let id = row.motor.ok_or("no motor layout")?;
+    let points = run(id, fixture)?;
+    if row.engine().is_some() {
+        Ok(scigraphs_graphviz_post(&points, GRAPHVIZ_DIMS, SCALE))
+    } else {
+        Ok(points)
+    }
 }
 
 /// `CirclePackingParams` at SciGraphs' two numbers, which its registered default is not:

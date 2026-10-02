@@ -96,9 +96,14 @@ pub(super) const G_OSAGE_BOX: Gap = Gap {
     at: "crates/graph-core/src/layout/graphviz/osage/sizes.rs:53",
 };
 pub(super) const G_GV_UTILS: Gap = Gap {
-    parameter: "scale",
-    note: "SciGraphs' Graphviz path is `scigraphs_utils.graphviz_layout`, absent from the oracle image: the reference here is the engine's raw `-Tplain` points in points, with SciGraphs' `scale = 5.0` multiply and its z column missing",
-    at: "SciGraphs/core/scigraphs_core/mesh/layouts/yifan_hu.py:278",
+    parameter: "reference arm",
+    note: "SciGraphs' Graphviz path is `scigraphs_utils.graphviz_layout`, a C++ extension absent from both oracle images, so this arm runs the **engine binary** and transcribes the five lines the extension would have applied (`yifan_hu.py:318-325`, in `motor/gv_post.rs` and `sc_graphviz.py`). What is still missing is that extension's own source of truth: `gv_plain` reads the engine's `-Tplain` **text**, which writes inches at five decimals, so every reference coordinate is a multiple of `7.2e-4` points, where the extension is handed a node count and an edge list and returns an array. That grid floors `GRAPHVIZ_TWOPI`'s `max_gap` at 7.5e-5 rather than at zero, and its f32 count below 1020/1020",
+    at: "SciGraphs/core/scigraphs_core/mesh/layouts/yifan_hu.py:279",
+};
+pub(super) const G_GV_Z: Gap = Gap {
+    parameter: "graphviz_dim",
+    note: "`sfdp_dim` defaults to `\"2Z\"`, so SciGraphs hands the engine `dimension=\"2Z\"` and then replaces the z with a spectral component (`sfdp_z_method`, `sfdp_z_scale` 0.3, `yifan_hu.py:327-334`). Both arms write `z = 0`: the motor's yifan_hu is planar and the reference is `-Tplain`, which has no third column",
+    at: "SciGraphs/core/scigraphs_core/mesh/layouts/yifan_hu.py:357",
 };
 pub(super) const G_GV_DIRECTED: Gap = Gap {
     parameter: "graph kind",
