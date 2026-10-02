@@ -75,7 +75,10 @@ test("every action is logged with its command, its time and the digest of what i
   assert.equal(entry?.command, "synthetic 400 2 1 vault");
   assert.equal(entry.digest, studio.store.get().run?.digest);
   assert.match(entry.digest ?? "", /^[0-9a-f]{64}$/);
-  assert.match(entry.message, /400 nodes, 798 links · layout\.forceatlas2 \d+ ms/);
+  // The id the line names is the one the opening asked for, read off the default: name the
+  // string, not today's value of it, and the row keeps meaning what it meant before.
+  const asked = DEFAULT_SETTINGS.layout.replaceAll(".", String.raw`\.`);
+  assert.match(entry.message, new RegExp(String.raw`400 nodes, 798 links · ${asked} \d+ ms`));
   assert.ok(entry.ms > 0);
 });
 
