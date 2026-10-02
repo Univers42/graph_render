@@ -11,7 +11,7 @@ import { drawBulk } from "./draw.ts";
 import { type BulkLayer, createBulk } from "./layer.ts";
 import { type BackendChoice, bulkWanted, nextBudget } from "./plan.ts";
 import { type Glide, dropGlide, glideFrame, keepFrame, newGlide } from "./glide.ts";
-import { type Still, newStill, paintStill, viewOf } from "./still.ts";
+import { type Still, newStill, paintStill, refiningOf, viewOf } from "./still.ts";
 
 export interface BulkSlot {
   backend: BackendChoice;
@@ -25,7 +25,7 @@ export interface BulkSlot {
   budget: number;
   /** Undefined until a settled frame first wants it, null where it cannot be kept. */
   still: Still | null | undefined;
-  /** True while the last frame's still picture lacked edges: the loop asks for another frame. */
+  /** True while the last frame's still picture lacked edges: the loop asks for another frame, and `view.stats()` reports it. */
   refining: boolean;
   /** The picture moving frames redraw under the camera's change (glide.ts). */
   readonly glide: Glide;
@@ -71,7 +71,7 @@ function paintSettled(slot: BulkSlot, layer: BulkLayer, input: PaintInput, count
   slot.still ??= newStill(slot.budget);
   if (slot.still === null) return paintWhole(slot, layer, input, counts);
   const lacking = paintStill(slot.still, { layer, placed: slot.placed }, input, counts);
-  slot.refining = lacking > 0;
+  slot.refining = refiningOf(lacking);
   return lacking >= 0;
 }
 
