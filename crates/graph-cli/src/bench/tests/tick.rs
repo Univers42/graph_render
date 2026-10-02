@@ -16,6 +16,7 @@ fn a_tick_row_has_one_cell_per_header_column_for_either_layout() {
             warm: 1,
             seed: 0,
             workers,
+            grow: None,
         };
         let row = measure(&plan).expect("a 300-node model builds");
         let columns = |line: &str| line.matches('|').count();

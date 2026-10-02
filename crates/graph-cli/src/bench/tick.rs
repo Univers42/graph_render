@@ -7,10 +7,16 @@
 //! path), so a tick's thread scaling is read here without the whole stage `bench --tiers` times. `--warm` ticks run untimed first, so the quadtree and the scratch
 //! buffers are at capacity before the first timed tick.
 //!
+//! `--grow <BATCH>` switches to the other thing a live session is asked to do: carry itself
+//! onto a bigger topology, timed beside the indexing that topology costs
+//! ([`grow`](self::grow)).
+//!
 //! Caveat: a tick's cost follows alpha, because the layout's spread sets the tree's depth,
 //! so a short warm measures the early, most expensive ticks; raise `--warm` to measure a
 //! settling layout. Wall clock on a loaded host is inflated, which is why the load average
 //! is printed beside the numbers rather than assumed idle.
+
+pub mod grow;
 
 use super::campaign::median;
 use super::scale::{MAX_SCALE_NODES, scale_model};
@@ -52,6 +58,10 @@ pub struct Plan {
     /// Threads a particle-mesh tick's passes split across; Barnes-Hut ignores it.
     #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u32).range(1..=256))]
     pub workers: u32,
+    /// Grow mode: carry the session from the topology without the last `BATCH` nodes onto
+    /// the whole model and time that carry, instead of timing ticks.
+    #[arg(long, value_name = "BATCH")]
+    pub grow: Option<u32>,
 }
 
 /// The table's header, printed once above the row.
@@ -59,6 +69,9 @@ pub const HEADER: &str = "| layout | n | m | index ms | warm ms | ticks | worker
 
 /// Exit 0 with the table on standard output, or 2 when the model could not be built.
 pub fn run(plan: &Plan) -> ExitCode {
+    if let Some(batch) = plan.grow {
+        return grow::report(plan.n, plan.seed, batch);
+    }
     match measure(plan) {
         Ok(row) => {
             println!("{HEADER}\n{row}");
