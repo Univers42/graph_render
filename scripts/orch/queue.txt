@@ -68,6 +68,8 @@ review-layout-force|build|prompts/jobs/review-layout-force.md|scripts/orch/rows/
 review-layout-tree|build|prompts/jobs/review-layout-tree.md|scripts/orch/rows/docs.rows|no
 perf-p5b|build|prompts/jobs/perf-p5b.md|scripts/orch/rows/perf-p5.rows|no
 perf-p5c|build|prompts/jobs/perf-p5c.md|scripts/orch/rows/perf-p5.rows|no
+perf-p5d|build|prompts/jobs/perf-p5d.md|scripts/orch/rows/perf-p5.rows|no
+fix-worker-lost|build|prompts/jobs/fix-worker-lost.md|scripts/orch/rows/perf-p5.rows|no
 review-layout-rest|build|prompts/jobs/review-layout-rest.md|scripts/orch/rows/docs.rows|no
 review-gates|build|prompts/jobs/review-gates.md|scripts/orch/rows/docs.rows|no
 # priority (2026-10-02, graph-render-3e): reviews and sg repairs before the rest
@@ -92,3 +94,4 @@ sg-grid-minors|build|prompts/jobs/sg-grid-minors.md|scripts/orch/rows/quick.rows
 fix-contract|build|prompts/jobs/fix-contract.md|scripts/orch/rows/quick.rows|no
 fix-harness-py|build|prompts/jobs/fix-harness-py.md|scripts/orch/rows/quick.rows|no
 fix-harness-mjs|build|prompts/jobs/fix-harness-mjs.md|scripts/orch/rows/quick.rows|no
+fix-tree-sugiyama|build|prompts/jobs/fix-tree-sugiyama.md|scripts/orch/rows/quick.rows|no
