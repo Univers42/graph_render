@@ -51,8 +51,35 @@ pub(super) const G_NO_ITERATIONS: Gap = Gap {
 };
 pub(super) const G_IGRAPH_SEED: Gap = Gap {
     parameter: "layout seed",
-    note: "unseedable on the reference side: `_reset_layout_rng` seeds numpy and the stdlib `random` (`common.py:53-62`), and igraph reads the C library's generator, which neither call reaches",
-    at: "SciGraphs/core/scigraphs_core/mesh/layouts/common.py:60",
+    // **The reference is seedable; reproducing its stream is what is forbidden.** An earlier
+    // version of this note claimed the opposite — that `_reset_layout_rng` seeds numpy and the
+    // stdlib `random` while igraph reads "the C library's generator", which neither call reaches.
+    // That is false for python-igraph: it installs the stdlib `random` module *as* igraph's RNG
+    // at import (`src/_igraph/random.c:295-325`, `igraphmodule_init_rng` →
+    // `igraph_rng_Python_set_generator(random_module)`; the rngtype is declared at `:54-58` with
+    // `is_seeded = 1`, and `igraph_rng_Python_get` at `:167-` draws from
+    // `random.getrandbits`/`random.random`), so `common.py:60`'s `random.seed(...)` does reseed
+    // igraph. Two full `--reference` runs over the same fixtures gave byte-identical files on all
+    // 64 rows, the five here included, so the reference is reproducible. What remains is the
+    // licence: `docs/decisions/layouts-igraph.md` rule 4 says igraph's own RNG is never
+    // reproduced, so the motor keeps Mulberry32 and the two streams differ from the first draw on.
+    note: "the seed **is** passed on both sides (`common.py:60` seeds the stdlib `random`, which python-igraph installs as igraph's RNG at `src/_igraph/random.c:295-325`), and the reference is reproducible; the two streams are still different generators: graph-core draws from Mulberry32 and igraph from Mersenne Twister, and `docs/decisions/layouts-igraph.md` rule 4 forbids reproducing the latter",
+    at: "crates/graph-core/src/rng.rs:14",
+};
+pub(super) const G_IGRAPH_FIT: Gap = Gap {
+    parameter: "scale",
+    note: "the reference writes its own units until `_igraph_fit_positions` (`igraph_layouts.py:24-42`) centres every axis on its mean and scales the whole drawing so the largest magnitude over **all three** axes is `scale`; that step is SciGraphs' convention, not igraph's, so it lives in the motor arm (`conformance/motor/fit.rs`) and never inside a motor layout — four ids reach it, named in `FITTED`",
+    at: "crates/graph-cli/src/oracle_python/conformance/motor/fit.rs:47",
+};
+pub(super) const G_KK_NON_FINITE: Gap = Gap {
+    parameter: "iterations",
+    note: "**the reference raises, this port does not.** python-igraph 0.11.9 returns three infinite coordinates out of nine from `layout_kamada_kawai(dim=3)` on the 3-vertex path `gate-01` — in all six vertex orderings, and at `dim=2` the same graph is finite — so the row compares 957 of 1020 coordinates. Not component count, not an isolated node and not degree: the graph is connected with degrees 2, 1, 1. It is the 3x3 Newton block being near-singular at three vertices, so one step overflows `f64`; `_igraph_fit_positions` then turns those three infinities into all nine, because `extent` is `inf`, the factor is `0` and `inf * 0` is NaN. `kamada_kawai_3d` guards the block and is finite there",
+    at: "crates/graph-core/src/layout/force/kamada_kawai_3d/tests.rs:33",
+};
+pub(super) const G_DRL_NO_3D: Gap = Gap {
+    parameter: "dimension",
+    note: "**SciGraphs calls DrL at `dim=3`** (`igraph_layouts.py:342`) and this row's motor layout is planar, so the row compares a 2D drawing against a 3D reference and its third column is pure difference. Unlike FR and KK there is **no 3D spec to implement**: `docs/layouts/layout.force.drl.md:3` says the 3D variant \"is out of scope here except where noted\" and defines no 3-D step, no 3-D density grid and no 3-D tent kernel — the whole spec is 2-D (`1000 x 1000` grid, `21 x 21` block, a 2-axis tent). Rule 1 of `docs/decisions/layouts-igraph.md` makes the spec the implementer's only source, so a `drl_3d` needs a spec author to write that section first; the implementer must not fill the hole from `drl/*.cpp`. Left as a recorded gap rather than an improvised third axis",
+    at: "crates/graph-core/src/layout/force/drl.rs:93",
 };
 pub(super) const G_SCALE_FIXED_LAYER: Gap = Gap {
     parameter: "scale",

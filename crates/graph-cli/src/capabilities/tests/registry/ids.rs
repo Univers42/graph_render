@@ -6,10 +6,17 @@
 //! its own can earn.** Spelling the ids here rather than inline at the arm means the two
 //! readings cannot drift, and a new id in one of these groups has to be added to the other.
 
-/// The six igraph-family layouts.
-pub(super) const IGRAPH: [&str; 6] = [
+/// The eight igraph-family layouts: the six 2D ones plus FR's and KK's two `_3d` siblings.
+///
+/// The `_3d` pair are routed to the **same** `oracle-igraph` record as their 2D siblings
+/// (`unproven::IGRAPH_LAYOUTS`), because they are the same two algorithms at the dimension
+/// SciGraphs actually calls, over one kernel at `D = 3`. Both lists spell them out, so the row
+/// builder and this routing test cannot drift apart.
+pub(super) const IGRAPH: [&str; 8] = [
     "layout.force.fruchterman_reingold",
     "layout.force.kamada_kawai",
+    "layout.force.fruchterman_reingold_3d",
+    "layout.force.kamada_kawai_3d",
     "layout.force.graphopt",
     "layout.force.davidson_harel",
     "layout.force.lgl",

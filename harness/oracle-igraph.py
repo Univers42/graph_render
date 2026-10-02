@@ -1,4 +1,4 @@
-"""Differential of the six igraph-family force layouts against python-igraph 0.11.9, run in
+"""Differential of the igraph-family force layouts against python-igraph 0.11.9, run in
 the ge-python-oracle image:
 
   graph-cli emit-igraph-fixtures --seeds 100
@@ -10,6 +10,13 @@ layout takes one; LGL and the reference RNG are otherwise seeded through `random
 arms are scored by normalised stress against graph distance after the optimal uniform
 scale, and the recorded worst per layout is max(ours / igraph) over the seeds where `ours`
 was emitted. A layout with no `ours` column has zero cases: graph-cli fails it.
+
+The two `_3d` keys are the same layouts at `dim=3`, the dimension SciGraphs actually asks
+for (`igraph_layouts.py:74` for FR, `:99` for KK). They are a **separate pass, not a
+replacement**: the 2D keys stay and stay gated, so both dimensions are held to the same
+stress metric at the same ceilings. `dim` is a field of the reference below rather than
+something derived from the key, so the key that names a dimension and the call that sets
+it cannot drift apart.
 
 Ponytail: stress is not what FR, DrL, LGL or Graphopt optimise, so the ratio is a quality
 floor, not a coordinate agreement; only pairs inside one component are scored, so a
@@ -29,14 +36,28 @@ if digest != manifest["sha256"]["igraph.jsonl"]:
 
 FLOOR = 1e-3
 
-# key -> (method name, takes a start layout as `seed`)
+# key -> (method name, takes a start layout as `seed`, dimension or None)
+#
+# **`dim` is the third field, not a suffix on the key.** The `_3d` entries are the same two
+# layouts as their 2D siblings at the dimension SciGraphs calls; everything else about the
+# pass — the start handed over, the stress metric, the ceilings in `graph-cli
+# oracle_python/igraph.rs` — is identical, which is what makes the two rows comparable.
+#
+# `None` means **the binding has no `dim` argument at all**, and passing one raises
+# `TypeError: unexpected keyword argument 'dim'`: LGL, Davidson-Harel and Graphopt are all
+# planar in python-igraph 0.11.9. That is also why SciGraphs passes `dim=3` for FR, KK and DrL
+# and not for the other three (`igraph_layouts.py:74`, `:99`, `:342`; LGL's own comment at
+# `:453` reads "LGL is 2D only"). Written down because the alternative — guessing that a
+# layout takes `dim` because every other one does — is a `TypeError` at run time.
 REFERENCES = {
-    "fruchterman_reingold": ("layout_fruchterman_reingold", True),
-    "kamada_kawai": ("layout_kamada_kawai", True),
-    "drl": ("layout_drl", True),
-    "lgl": ("layout_lgl", False),
-    "davidson_harel": ("layout_davidson_harel", True),
-    "graphopt": ("layout_graphopt", True),
+    "fruchterman_reingold": ("layout_fruchterman_reingold", True, 2),
+    "kamada_kawai": ("layout_kamada_kawai", True, 2),
+    "drl": ("layout_drl", True, 2),
+    "lgl": ("layout_lgl", False, None),
+    "davidson_harel": ("layout_davidson_harel", True, None),
+    "graphopt": ("layout_graphopt", True, None),
+    "fruchterman_reingold_3d": ("layout_fruchterman_reingold", True, 3),
+    "kamada_kawai_3d": ("layout_kamada_kawai", True, 3),
 }
 
 
@@ -51,11 +72,49 @@ EXPLICIT = {
 
 
 def reference_layout(graph, key, start, seed):
-    method, takes_start = REFERENCES[key]
+    method, takes_start, dim = REFERENCES[key]
     random.seed(seed)
     kwargs = {"seed": start} if takes_start else {}
     kwargs.update(EXPLICIT.get(key, {}))
+    if dim is not None:
+        kwargs["dim"] = dim
     return np.array(getattr(graph, method)(**kwargs).coords, dtype=float)
+
+
+def start_layout(initial, dim):
+    """Our start positions at *dim*: the emitted x/y pairs, lifted with a zero third column.
+
+    **The lift is ours and it is stated.** The fixtures carry one start, two columns wide,
+    because every planar row reads it. igraph's `seed=` wants an `n x dim` matrix and rejects
+    a mismatched one (`fruchterman_reingold.c:503` "Invalid start position"), so at `dim=3`
+    the third column is filled with zeros — the plane our start was already drawn in. FR's own
+    start box is `[-sqrt(n)/2, +sqrt(n)/2]` per axis, so a zero z is inside it and not an
+    extreme point; the comparison is then "same start, one more axis", which is the only
+    reading that keeps the 3D ratio about the solver rather than about the start.
+
+    `dim=None` means the binding takes no `dim` and therefore wants a planar start.
+    """
+    pairs = [list(pair) for pair in zip(initial["x"], initial["y"])]
+    if dim in (None, 2):
+        return pairs
+    return [pair + [0.0] for pair in pairs]
+
+
+def our_coords(ours):
+    """Our own layout as an `n x d` array, in axis order x, y, and z when the id has one.
+
+    **A `_3d` id with no `z` column is a failure, not a planar layout.** The stress of a
+    three-axis drawing against the stress of a two-axis one is not a ratio of anything, and it
+    would be reported as an ordinary number; so a `_3d` row whose `z` is missing stops here
+    instead. The 2D rows carry `z: null` rather than no key at all, so the two are told apart by
+    the value and not by the key's absence.
+    """
+    axes = [ours["x"], ours["y"]]
+    if ours.get("z") is not None:
+        axes.append(ours["z"])
+    if str(ours.get("id", "")).endswith("_3d") and len(axes) < 3:
+        return None
+    return np.column_stack(axes).astype(float)
 
 
 def normalised_stress(coords, dist):
@@ -79,11 +138,14 @@ for text in open(path):
     graph = igraph.Graph(n=case["n"], edges=list(zip(case["source"], case["target"])))
     graph.simplify()
     dist = np.array(graph.distances(), dtype=float)
-    start = list(zip(case["initial"]["x"], case["initial"]["y"]))
     for key, ours in case["ours"].items():
-        theirs = reference_layout(graph, key, start, case["seed"])
+        dim = REFERENCES[key][2]
+        theirs = reference_layout(graph, key, start_layout(case["initial"], dim), case["seed"])
         s_ref = normalised_stress(theirs, dist)
-        s_our = normalised_stress(np.column_stack([ours["x"], ours["y"]]).astype(float), dist)
+        mine = our_coords(ours)
+        if mine is None or theirs.shape[1] != mine.shape[1]:
+            continue
+        s_our = normalised_stress(mine, dist)
         if s_ref is None or s_our is None:
             continue
         row = layouts[key]

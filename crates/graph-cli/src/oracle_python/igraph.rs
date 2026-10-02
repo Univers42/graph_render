@@ -16,7 +16,7 @@
 //! here, and a stress-optimal but ugly layout reads better. Ceilings are measured
 //! worst cases rounded up (`docs/decisions/layouts-igraph.md`).
 
-use super::{Differential, coords};
+use super::{Differential, columns_3d, coords};
 use graph_core::layout::forceatlas2::initial_positions;
 use graph_core::{REFERENCE_DEGREE, gate_node_count, index_model, registry, seeded_model};
 use serde_json::{Value, json};
@@ -36,6 +36,24 @@ pub const IGRAPH: Differential = Differential {
             CEILING_TIGHT,
         ),
         ("layout.force.kamada_kawai", "kamada_kawai", CEILING_TIGHT),
+        // The two `_3d` rows are the dimension SciGraphs actually calls
+        // (`igraph_layouts.py:74`, `:99`), and they carry the **same** ceilings as their 2D
+        // siblings rather than a newly measured pair. Stated, because "the same ceiling" is a
+        // choice and not a measurement: the stress ratio is scale-invariant, the metric is
+        // unchanged, and the 3D solve differs from the 2D one only in its linear algebra, so
+        // the 2D worst case is the honest prior. They are held to it as a floor that catches
+        // breakage; a measured 3D worst would be another job's number to re-pin. The 2D rows
+        // stay in the list and stay gated — this is an addition, never a replacement.
+        (
+            "layout.force.fruchterman_reingold_3d",
+            "fruchterman_reingold_3d",
+            CEILING_TIGHT,
+        ),
+        (
+            "layout.force.kamada_kawai_3d",
+            "kamada_kawai_3d",
+            CEILING_TIGHT,
+        ),
         ("layout.force.drl", "drl", CEILING_TIGHT),
         ("layout.force.lgl", "lgl", CEILING_TIGHT),
         (
@@ -62,7 +80,23 @@ fn line(seed: u32, _max_iter: Option<u32>) -> Result<Value, String> {
     });
     for &(id, key, _) in IGRAPH.ceilings {
         if registry::find(id).is_some() {
-            out["ours"][key] = coords(id, &nodes, &edges)?;
+            let layout = registry::find(id).ok_or_else(|| format!("{id}: gone"))?;
+            let run =
+                graph_core::run_with(&nodes, &edges, id, layout.run).map_err(|e| e.to_string())?;
+            let parts = run.snapshot.parts();
+            let value = if id.ends_with("_3d") {
+                // A 3D layout's third column is read off the **snapshot**, not the geometry: a
+                // z that never reached the wire would otherwise be scored as a planar drawing
+                // against a 3D reference, and the ratio would be a number about nothing.
+                columns_3d(id, &parts.nodes, parts.z.as_deref())?
+            } else {
+                coords(id, &nodes, &edges)?
+            };
+            // The id rides with the columns so the harness can tell a `_3d` row that lost its
+            // z on the way here from one that never had one.
+            out["ours"][key] = json!({
+                "id": id, "x": value["x"], "y": value["y"], "z": value["z"],
+            });
         }
     }
     Ok(out)

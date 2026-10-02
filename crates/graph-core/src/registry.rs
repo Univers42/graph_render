@@ -11,7 +11,8 @@ use crate::layout::basic_3d;
 use crate::layout::force::spring::Spring;
 use crate::layout::force::spring::{ID_3D as SPRING_3D_ID, Spring3D};
 use crate::layout::force::{
-    BarnesHut, DavidsonHarel, Drl, FruchtermanReingold, Graphopt, KamadaKawai, Lgl, YifanHu,
+    BarnesHut, DavidsonHarel, Drl, FruchtermanReingold, FruchtermanReingold3D, Graphopt,
+    KamadaKawai, KamadaKawai3D, Lgl, YifanHu,
 };
 use crate::layout::forceatlas2::{ForceAtlas2, ForceAtlas2BarnesHut};
 use crate::layout::graphviz::circo;
@@ -75,7 +76,7 @@ pub use three_d::BASIC_3D_CEILING;
 use three_d::{CUBE, HELIX, HIERARCHICAL_3D, SPHERE, SPRING_3D};
 
 /// Every registered layout, in the order the hash gate runs them.
-pub static LAYOUTS: [Capability; 36] = [
+pub static LAYOUTS: [Capability; 38] = [
     Capability {
         id: Grid::ID,
         run: run_default::<Grid>,
@@ -157,9 +158,19 @@ pub static LAYOUTS: [Capability; 36] = [
         meta: igraph::FRUCHTERMAN_REINGOLD,
     },
     Capability {
+        id: FruchtermanReingold3D::ID,
+        run: run_default::<FruchtermanReingold3D>,
+        meta: igraph::FRUCHTERMAN_REINGOLD_3D,
+    },
+    Capability {
         id: KamadaKawai::ID,
         run: run_default::<KamadaKawai>,
         meta: igraph::KAMADA_KAWAI,
+    },
+    Capability {
+        id: KamadaKawai3D::ID,
+        run: run_default::<KamadaKawai3D>,
+        meta: igraph::KAMADA_KAWAI_3D,
     },
     Capability {
         id: Graphopt::ID,

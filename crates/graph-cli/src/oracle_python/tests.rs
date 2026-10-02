@@ -58,6 +58,8 @@ fn an_igraph_layout_with_no_ours_column_is_not_run_and_fails() {
     let result = json!({ "layouts": {
         "fruchterman_reingold": { "cases": 0, "worst": 0.0 },
         "kamada_kawai": { "cases": 5, "worst": 1.2 },
+        "fruchterman_reingold_3d": { "cases": 5, "worst": 1.1 },
+        "kamada_kawai_3d": { "cases": 5, "worst": 0.6 },
         "drl": { "cases": 5, "worst": 12.0 },
         "lgl": { "cases": 5, "worst": 2.0 },
         "davidson_harel": { "cases": 5, "worst": 0.9 },
@@ -77,10 +79,14 @@ fn an_igraph_layout_with_no_ours_column_is_not_run_and_fails() {
     );
 }
 
-/// The measured `ours / igraph` worsts of the six layouts, over 100 seeds on 2026-09-29,
-/// judged against the ceilings this tree declares. If a ceiling is ever widened to make
-/// this pass, the measurement is what says so, and
-/// `docs/measurements/p12-igraph-ceilings.md` has to be rewritten with it.
+/// The measured `ours / igraph` worsts of the layouts this tree gates, judged against the
+/// ceilings it declares. If a ceiling is ever widened to make this pass, the measurement is what
+/// says so, and the measurements doc has to be rewritten with it.
+///
+/// The six 2D worsts are the 2026-09-29 run (`docs/measurements/p12-igraph-ceilings.md`), and they
+/// **reproduced to the digit** on this tree when the two `_3d` rows were added — which is the check
+/// that the dim=3 pass did not perturb the dim=2 one. The two 3D worsts are measured on this tree
+/// over the same 100 seeds (`docs/measurements/sg-igraph-dims.md`).
 #[test]
 fn every_measured_igraph_worst_stays_under_its_own_ceiling() {
     let result = result_from_measured_worsts();
@@ -105,12 +111,15 @@ fn every_measured_igraph_worst_stays_under_its_own_ceiling() {
     assert_eq!(functions.len(), IGRAPH.ceilings.len());
 }
 
-/// The `ours / igraph` worst per layout, as measured over 100 seeds on 2026-09-29
-/// (`docs/measurements/p12-igraph-ceilings.md` restates the run and its floor).
+/// The `ours / igraph` worst per layout, as measured over 100 seeds. The 2D figures are the
+/// 2026-09-29 run (`docs/measurements/p12-igraph-ceilings.md` restates it and its floor); the 3D
+/// figures are the run on this tree (`docs/measurements/sg-igraph-dims.md`).
 fn result_from_measured_worsts() -> Value {
     json!({ "layouts": {
         "fruchterman_reingold": { "cases": 100, "worst": 1.30 },
         "kamada_kawai": { "cases": 100, "worst": 1.35 },
+        "fruchterman_reingold_3d": { "cases": 100, "worst": 1.195 },
+        "kamada_kawai_3d": { "cases": 100, "worst": 0.598 },
         "drl": { "cases": 100, "worst": 3.98 },
         "lgl": { "cases": 100, "worst": 2.13 },
         "davidson_harel": { "cases": 100, "worst": 51.91 },

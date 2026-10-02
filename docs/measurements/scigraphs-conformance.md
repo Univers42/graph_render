@@ -125,11 +125,11 @@ Procrustes-aligned over it**, so a green point sitting on a grey point is a node
 | 4 | `SPRING_3D` | `layout.force.spring3d` | `apply_graph_layout` | `bitwise` | 3/1020 | 4/1020 | 9.23e+18 | 10 | 0.198 | 0.756 | `rng` | different shape: as `SPRING`, in space |
 | 5 | `CIRCLE_PACKING` | `layout.packing.circle` | `apply_graph_layout` | `shape` | 344/1020 | 808/1020 | 9.22e+18 | 3.17 | 5.3e-16 | 0.827 | `algorithm` | different on lesmis (0.517) and **bit-for-bit the same packing on the 20 gate models** (5e-16): SciGraphs' non-planar fallback is where the two part company |
 | 6 | `FORCEATLAS2` | `layout.forceatlas2` | `apply_graph_layout` | `bitwise` | 0/1020 | 0/1020 | 9.25e+18 | 183 | 0.241 | 0.927 | `rng` | different shape |
-| 7 | `IGRAPH_FR` | `layout.force.fruchterman_reingold` | `apply_graph_layout` | `bitwise` | 0/1020 | 0/1020 | 9.24e+18 | 11.6 | 0.267 | 0.901 | `rng` | different shape |
-| 8 | `IGRAPH_KK` | `layout.force.kamada_kawai` | `apply_graph_layout` | `shape` | 0/957 | 0/957 | 9.23e+18 | 7.95 | 0.812 | 0.935 | `algorithm` | different shape: grey is a blob, green is a near-straight line |
-| 9 | `IGRAPH_DRL` | `layout.force.drl` | `apply_graph_layout` | `bitwise` | 0/1020 | 0/1020 | 9.25e+18 | 52.8 | 0.536 | 0.881 | `rng` | both are near-collinear; green runs along the grey line with different spacing |
-| 10 | `IGRAPH_DRL_2D` | `layout.force.drl` | `apply_graph_layout` | `bitwise` | 340/1020 | 340/1020 | 9.25e+18 | 50.4 | 0.514 | 0.971 | `rng` | different shape (the same motor layout as `IGRAPH_DRL`, run without its z) |
-| 11 | `IGRAPH_LGL` | `layout.force.lgl` | `apply_graph_layout` | `bitwise` | 340/1020 | 340/1020 | 9.24e+18 | 33.1 | 0.611 | 0.81 | `rng` | different shape |
+| 7 | `IGRAPH_FR` | `layout.force.fruchterman_reingold_3d` | `apply_graph_layout` | `bitwise` | 2/1020 | 4/1020 | 9.24e+18 | 10 | 0.166 | 0.921 | `rng` | different shape, and much closer: **the motor id is the `_3d` layout, because SciGraphs calls FR at `dim=3`** (`igraph_layouts.py:74`) — median 0.267 → 0.166 |
+| 8 | `IGRAPH_KK` | `layout.force.kamada_kawai_3d` | `apply_graph_layout` | `shape` | 8/957 | 8/957 | 9.23e+18 | 10 | 0.757 | 0.910 | `algorithm` | different shape, closer: **`dim=3`** (`igraph_layouts.py:99`), from the deterministic sphere start — median 0.812 → 0.757; the 957 are a **reference defect** on `gate-01`, below |
+| 9 | `IGRAPH_DRL` | `layout.force.drl` | `apply_graph_layout` | `bitwise` | 1/1020 | 1/1020 | 9.25e+18 | 52.8 | 0.536 | 0.881 | `rng` | both are near-collinear; green runs along the grey line with different spacing. SciGraphs calls DrL at `dim=3` (`igraph_layouts.py:342`) and the motor layout is planar — **a `drl_3d` is the obvious next repair** |
+| 10 | `IGRAPH_DRL_2D` | `layout.force.drl` | `apply_graph_layout` | `bitwise` | 341/1020 | 341/1020 | 9.25e+18 | 50.4 | 0.514 | 0.971 | `rng` | different shape (the same motor layout as `IGRAPH_DRL`, against the reference's `dim=2` call at `igraph_layouts.py:406`) |
+| 11 | `IGRAPH_LGL` | `layout.force.lgl` | `apply_graph_layout` | `bitwise` | 344/1020 | 345/1020 | 9.24e+18 | 33.1 | 0.611 | 0.81 | `rng` | different shape; LGL is 2-D in igraph too (`igraph_layouts.py:453`), so the third column is the whole of the difference |
 | 12 | `SPHERE` | `layout.basic3d.sphere` | `apply_graph_layout` | `tolerance` | 111/1020 | 1020/1020 | 2.68e+08 | 2.38e-07 | 4.63e-16 | 9.66e-16 | `arithmetic` | **same shape** — the green ring sits on the grey ring, node for node |
 | 13 | `SPECTRAL_3D` | `layout.spectral` | `apply_graph_layout` | `shape` | 1/1020 | 1/1020 | 9.22e+18 | 5.95 | 0.333 | 0.807 | `algorithm` | different shape: grey is a vertical line, green a small cluster at one end — and **both arms start from the origin with no RNG**, so this is the algorithm |
 | 14 | `SPIRAL_3D` | `layout.spiral` | `apply_graph_layout` | `shape` | 0/1020 | 0/1020 | 9.22e+18 | 6 | 0.585 | 0.815 | `algorithm` | different shape: grey is a 3D spiral, green one point at the centre |
@@ -180,11 +180,23 @@ algorithm.
 Same seed, same engine, different answer — so the cause is `algorithm` and no amount of seed
 plumbing will reach it.
 
-**4. igraph's RNG cannot be seeded from Python at all.** `_reset_layout_rng`
+**4. igraph's reference is seedable and reproducible; its RNG stream is simply out of licence.**
+An earlier version of this finding said `_reset_layout_rng`
 (`SciGraphs/core/scigraphs_core/mesh/layouts/common.py:60`) seeds `np.random.RandomState` and the
-stdlib `random`; igraph reads the C library's generator, which neither call reaches. So
-`IGRAPH_FR`, `IGRAPH_DRL`, `IGRAPH_DRL_2D`, `IGRAPH_LGL`, `IGRAPH_DH` and `IGRAPH_GRAPHOPT` have
-**no seedable reference start at all**, and their `rng` cause is not a missing port.
+stdlib `random` while igraph reads "the C library's generator, which neither call reaches", and
+concluded the six seeded rows had "no seedable reference start at all". That is wrong for
+python-igraph: it installs the stdlib `random` module *as* igraph's RNG at import
+(`src/_igraph/random.c:295-325`, `igraphmodule_init_rng` → `igraph_rng_Python_set_generator`; the
+rngtype is declared at `:54-58` with `is_seeded = 1`, and `igraph_rng_Python_get` at `:167-` draws
+from `random.getrandbits`/`random.random`), so line 60's `random.seed(...)` does reseed igraph.
+Two consecutive `--reference` runs over the same fixtures were compared file by file: **all 64
+reference files were byte-identical**, the five seeded igraph rows included, and their digests are
+the ones already pinned in `baseline/table/networkx.rs`. So `IGRAPH_FR`, `IGRAPH_DRL`,
+`IGRAPH_DRL_2D`, `IGRAPH_LGL`, `IGRAPH_DH` and `IGRAPH_GRAPHOPT` are gated on a reference that
+reproduces exactly; their `rng` cause is a **licence** gap, not an unreachable seed —
+`docs/decisions/layouts-igraph.md` rule 4 forbids reproducing igraph's generator, so graph-core
+keeps Mulberry32 and the two streams part company at the first draw. What the target is therefore
+shape (the Procrustes column), not bytes.
 
 **5. One row's reference is not reproducible.** Two consecutive `--graphviz` runs over the same
 fixtures and the same `-Gstart` were compared file by file: 31 of 32 reference files were
@@ -307,7 +319,7 @@ own; SciGraphs calls `nx.spiral_layout(num_nodes, scale)` with networkx's defaul
 layout has no `z` at all.
 **Expected:** the disparity 0.585 falls sharply; the `z` needs a `Geometry::in_space`.
 
-### 11. `BIPARTITE_3D`, `SUGIYAMA`, `IGRAPH_KK`, `YIFAN_HU`, `GRAPHVIZ_NEATO`, `GRAPHVIZ_FDP`,
+### 11. `BIPARTITE_3D`, `SUGIYAMA`, `YIFAN_HU`, `GRAPHVIZ_NEATO`, `GRAPHVIZ_FDP`,
 `GRAPHVIZ_CIRCO` — `algorithm`
 Each is a different method rather than a convention or an RNG, so each needs its own porting job
 and none is a one-line change. `BIPARTITE_3D` in particular: networkx draws two **columns** and
@@ -315,19 +327,38 @@ graph-core's `partition` (`bipartite.rs:30`) places differently. `GRAPHVIZ_CIRCO
 here that matches on the tree (6.5e-05) and not on lesmis (0.308), so its repair is whatever makes
 the equal-box case behave at lesmis's box sizes.
 
+**`IGRAPH_KK` has been partly repaired and is no longer in this list.** Its 0.812 was not a solver
+disagreement in the first place: the motor was drawing in two dimensions and the reference in three
+(`igraph_layouts.py:99` passes `dim=3`). With `layout.force.kamada_kawai_3d` on the row the median
+falls to 0.757, and that id's igraph stress differential is **0.598** — our 3-D drawing carries
+*lower* normalised stress than igraph's on all 100 seeds, because the metric is the very energy KK
+minimises. What is left is the third column and which local minimum the descent reached. Measured
+in `docs/measurements/sg-igraph-dims.md`.
+
 ## Cells that say `not run`, and why
 
 No cell in the matrix is blank. Three kinds say `not run` and each carries its reason:
 
-- **`GRAPHVIZ_DOT`** — there is no `dot` layout among `crates/graph-core/src/registry.rs:108`'s 35,
+- **`GRAPHVIZ_DOT`** — there is no `dot` layout among `crates/graph-core/src/registry.rs:79`'s 38,
   so the motor half produced nothing. Its cells are `not run`, its cause is `reference-absent`, and
   the judge passes it only while it still says exactly that **and** both pairs of bytes still
   match. Its shape panels are not drawn: there is nothing to draw beside the reference, and the
   contact sheet says so in a card rather than showing a broken image.
-- **`IGRAPH_KK` on `gate-19`** — `apply_graph_layout` returned `False`, having raised
+- **`IGRAPH_KK` on `gate-01`** — `apply_graph_layout` returned `False`, having raised
   `IGRAPH_KK produced 9 non-finite coordinate(s)` (`common.py:183`, caught and reported `False` by
   `dispatcher.py:169-174`), so the row compares 957 coordinates rather than 1020 and names the
-  fixture it is missing.
+  fixture it is missing. **An earlier version of this cell said `gate-19`; the fixture is
+  `gate-01`,** read out of `ref/IGRAPH_KK.json` rather than inferred from the coordinate count.
+  `gate-01` is the three-node path `1-0-2`; `gate-19` (21 nodes) lays out fine and is not the
+  failing one. What breaks is not component count, not an isolated node and not degree —
+  `gate-01` is connected, has no isolated node and has degrees 2, 1, 1 — but the **3x3 Newton
+  block being near-singular at three vertices**: `layout_kamada_kawai(dim=3)` returns three
+  infinite coordinates out of nine, in all six vertex orderings, while the same graph at `dim=2`
+  is finite. `_igraph_fit_positions` then turns those three infinities into all nine, because its
+  `extent` is `inf`, its factor is `0`, and `inf * 0` is NaN. This is a **recorded reference
+  defect**: `layout.force.kamada_kawai_3d` guards the block, and
+  `kamada_kawai_3d::tests::the_three_node_path_that_breaks_igraph_is_finite_here` holds it to
+  finite geometry on that exact fixture. Measured in `docs/measurements/sg-igraph-dims.md`.
 - **`GRAPHVIZ_FDP`'s reference sha** — not reproducible run to run, above.
 
 ## What this does not measure

@@ -9,9 +9,17 @@
 use super::super::{Baseline, row};
 
 pub(super) const NETWORKX: [Baseline; 12] = [
+    // The five igraph rows carry `sg-igraph-dims`'s `_igraph_fit_positions` on the motor arm, and
+    // `IGRAPH_FR` / `IGRAPH_KK` carry the `_3d` motor ids, because SciGraphs calls both at
+    // `dim=3` (`igraph_layouts.py:74`, `:99`). The reference shas are unchanged in every row and
+    // in every run — that is the reproducibility result: two `--reference` runs gave 64/64 files
+    // byte-identical, and these digests are the ones pinned before the remap. A fit is a uniform
+    // scale and a translation, so it moved the motor bytes and left the Procrustes medians at the
+    // digit; the remap moved the medians (FR 0.267 -> 0.166, KK 0.812 -> 0.757).
+    // `docs/measurements/sg-igraph-dims.md`.
     row(
         "IGRAPH_FR",
-        "1f84882c79fc1887a1bf1150aded1ee17b6fbff9fffb3db100a0669c8494ddc2",
+        "86bce46cf87a8d476244d254929c9e2ca75964ff835061e4e494c92c29cd6678",
         "0cf3c05e67d79c08c152d0902dfe70dd5e3ef1cf4f9785448b394d24c8cfb170",
         "",
         1e0,
@@ -20,7 +28,7 @@ pub(super) const NETWORKX: [Baseline; 12] = [
     ),
     row(
         "IGRAPH_KK",
-        "516c88116704a2f7dbd7f498f8bf6be46cd67ddb41c81f944e0fe92fb4e48bb6",
+        "122420ffd67d0e1c0b4d96176e349c7c32ac011f9296c559ae474d2ae21dbcd4",
         "a89c503e5fb39b8756fcbef3a6985ae6335770f874fd2e6cd06773bea5d0264a",
         "",
         1e0,
@@ -29,7 +37,7 @@ pub(super) const NETWORKX: [Baseline; 12] = [
     ),
     row(
         "IGRAPH_DRL",
-        "ea94de23d7c52d2504326bfc56b2e42edf8b04ecf8a04d9ab3ed14e1df12bca5",
+        "0d43b8f201bfb7c14d21d4a52b1ac9efd6aaf83613ec01d5d8a9a683b5fcfc77",
         "19706b910225f374945f8e72c8594361dbb20d93e0716acaacec835c6ecf2b88",
         "",
         1e0,
@@ -38,7 +46,7 @@ pub(super) const NETWORKX: [Baseline; 12] = [
     ),
     row(
         "IGRAPH_DRL_2D",
-        "ea94de23d7c52d2504326bfc56b2e42edf8b04ecf8a04d9ab3ed14e1df12bca5",
+        "0d43b8f201bfb7c14d21d4a52b1ac9efd6aaf83613ec01d5d8a9a683b5fcfc77",
         "79434cc8e4a271f57891b8170d454ca02a685d22f83a5ab1ed9606215a7b3fa0",
         "",
         1e0,
@@ -47,7 +55,7 @@ pub(super) const NETWORKX: [Baseline; 12] = [
     ),
     row(
         "IGRAPH_LGL",
-        "09cf01e5c51eb5d716499e0610c285c138158a9419443e5d7effc7a954e996b2",
+        "41100b0d1dd4d83fa79eccd8db6f80f5768cdfb3c7a553f05ace0f661dacc49b",
         "a619ed3bc32e31f78056fbed6186352c5bf382457b40ffea5d0742645f71c3fd",
         "",
         1e0,
