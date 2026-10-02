@@ -69,8 +69,27 @@ impl ParticleMesh {
         runner: &impl Runner,
         workers: u32,
     ) -> Result<Geometry, StageError> {
+        Self::run_under(topology, params, runner, workers, Split::None)
+    }
+
+    /// [`run_with`](Self::run_with) with the negative control reachable, so the host can
+    /// run a *deliberately wrong* tier and the gate must go red.
+    ///
+    /// Separate from [`run_with`](Self::run_with) for Barnes-Hut's reason, quoted: the
+    /// default would be one value away from a stage that silently mutated itself, and a
+    /// control a caller can forget to pass is not a control. The mesh needs this as much as
+    /// Barnes-Hut does — its `link`, `charge` and `collide` passes each read a
+    /// [`Split`] out of the tick's `How`, and the stage used to build that `How` with
+    /// [`Split::None`] hard-coded, so nothing could reach them at all.
+    pub fn run_under(
+        topology: &Topology,
+        params: &ForceParams,
+        runner: &impl Runner,
+        workers: u32,
+        split: Split,
+    ) -> Result<Geometry, StageError> {
         let mut run = ParticleMeshRun::from_frozen(topology, params)?;
-        run.step_with(runner, workers, TICKS);
+        run.step_under(runner, workers, split, TICKS);
         planar_points(run.xs(), run.ys())
     }
 }
@@ -97,14 +116,22 @@ impl ParticleMeshRun {
         })
     }
 
-    /// `ticks` ticks with the gathers divided by `runner` over `workers` workers.
+    /// `ticks` ticks with the gathers divided by `runner` over `workers` workers, and no
+    /// control: the honest run the bench's tick timer and the stage both call.
     pub fn step_with(&mut self, runner: &impl Runner, workers: u32, ticks: u32) {
+        self.step_under(runner, workers, Split::None, ticks);
+    }
+
+    /// [`step_with`](Self::step_with) with the negative control reachable, for the host's
+    /// deliberately wrong tier. Only the `How` differs, so the tick is the one
+    /// [`run_under`](ParticleMesh::run_under) runs at every width.
+    pub fn step_under(&mut self, runner: &impl Runner, workers: u32, split: Split, ticks: u32) {
         for _ in 0..ticks {
             let mut how = How {
                 runner,
                 workers,
                 deltas: &mut self.deltas,
-                split: Split::None,
+                split,
             };
             tick(&mut self.sim, &mut self.mesh, &mut how);
         }
