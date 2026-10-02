@@ -148,9 +148,6 @@ pub fn rank2(g: &mut Fast, nodes: &[u32], params: &Params) -> Result<(), Error> 
         ctx.search_size = params.search_size as usize;
     }
     feasible_tree(g, &mut ctx, nodes)?;
-    if params.search_size == -77 {
-        check_tree(g, nodes, &ctx, "after feasible_tree");
-    }
     if params.maxiter <= 0 {
         balance::free_tree(g, nodes);
         return Ok(());
@@ -166,16 +163,8 @@ pub fn rank2(g: &mut Fast, nodes: &[u32], params: &Params) -> Result<(), Error> 
         };
         update(g, &mut ctx, e, f)?;
         iter += 1;
-        if params.search_size == -77 {
-            eprintln!(
-                "iter {iter} e={e} f={f} s_i={} mincv={:?}",
-                ctx.s_i,
-                ctx.tree_edge
-                    .iter()
-                    .map(|&x| g.edges[x as usize].cutvalue)
-                    .min(),
-            );
-            check_tree(g, nodes, &ctx, "in the pivot loop");
+        if std::env::var_os("GM_CHK").is_some() {
+            tree::validate(g, nodes, &ctx, &format!("at iter {iter}"));
         }
         if iter >= params.maxiter {
             break;
@@ -183,84 +172,6 @@ pub fn rank2(g: &mut Fast, nodes: &[u32], params: &Params) -> Result<(), Error> 
     }
     balance::run(g, &ctx, nodes, params.balance);
     Ok(())
-}
-
-/// Debug-only: every tree edge must be listed at both endpoints and be that endpoint's
-/// parent edge, and every cut value must equal the one recomputed from scratch.
-fn check_tree(g: &Fast, nodes: &[u32], ctx: &Ctx, when: &str) {
-    let mut parent: Vec<usize> = (0..g.nodes.len()).collect();
-    fn root(p: &mut Vec<usize>, mut at: usize) -> usize {
-        while p[at] != at {
-            at = p[at];
-        }
-        at
-    }
-    for &edge in &ctx.tree_edge {
-        let t = g.edges[edge as usize].tail as usize;
-        let h = g.edges[edge as usize].head as usize;
-        let (a, b) = (root(&mut parent, t), root(&mut parent, h));
-        assert_ne!(a, b, "tree edge {edge} makes a cycle {when}");
-        parent[a] = b;
-    }
-    assert_eq!(
-        ctx.tree_edge.len(),
-        nodes.len() - 1,
-        "tree edge count {when}"
-    );
-    let first = root(&mut parent, nodes[0] as usize);
-    for &n in nodes {
-        assert_eq!(
-            root(&mut parent, n as usize),
-            first,
-            "node {n} is not spanned {when}"
-        );
-    }
-    for &n in nodes {
-        for &f in &g.out[n as usize] {
-            let r = &g.edges[f as usize];
-            let slack = g.nodes[r.head as usize].rank - g.nodes[r.tail as usize].rank - r.minlen;
-            assert!(
-                slack >= 0,
-                "edge {f} {}->{} slack {slack} is negative {when}",
-                r.tail,
-                r.head
-            );
-        }
-        if n != nodes[0] {
-            let parent = g.nodes[n as usize]
-                .par
-                .unwrap_or_else(|| panic!("node {n} has no parent {when}"));
-            let record = &g.edges[parent as usize];
-            let incident = record.head == n || record.tail == n;
-            assert!(
-                incident && record.head != record.tail,
-                "par {parent} of {n} is not an incident non-loop edge {when}"
-            );
-        }
-    }
-    for &edge in &ctx.tree_edge {
-        let r = &g.edges[edge as usize];
-        let slack = g.nodes[r.head as usize].rank - g.nodes[r.tail as usize].rank - r.minlen;
-        assert_eq!(slack, 0, "tree edge {edge} is not tight {when}");
-    }
-    for &edge in &ctx.tree_edge {
-        let want = tree::brute_cut(g, nodes, edge);
-        let got = g.edges[edge as usize].cutvalue;
-        if got != want {
-            let record = &g.edges[edge as usize];
-            eprintln!(
-                "edge {edge} {}->{} w={} cut {got} brute {want} {when}",
-                record.tail, record.head, record.weight
-            );
-            eprintln!("  side {:?}", tree::brute_side(g, edge));
-            for &n in nodes {
-                for &f in &g.out[n as usize] {
-                    eprintln!("  out {n}: {}->{} w={}", g.edges[f as usize].tail, g.edges[f as usize].head, g.edges[f as usize].weight);
-                }
-            }
-            panic!("cutvalue of {edge} {when}");
-        }
-    }
 }
 
 /// `init_graph` (`ns.c:890-921`): reset the per-node simplex state and report whether the

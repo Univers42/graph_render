@@ -97,9 +97,11 @@ pub fn sift_down(heap: &mut [usize], subtrees: &mut [Subtree], size: usize, mut 
     }
 }
 
-/// `STextractmin` (`ns.c:562-574`): the smallest subtree off the heap, left at the vacated
-/// slot so the array can still be walked to free it. Returns that slot; the new heap length
-/// is the `size` the caller had, less one.
+/// `STextractmin` (`ns.c:562-574`): the smallest subtree off the heap. The reference leaves
+/// it at the vacated slot so the array can still be walked to free it, and returns the
+/// pointer; here the subtree's **slot** is returned, which is what identifies it — the
+/// vacated heap position does not. The new heap length is the `size` the caller had, less
+/// one.
 pub fn extract_min(heap: &mut [usize], subtrees: &mut [Subtree], size: usize) -> usize {
     let last = size - 1;
     let taken = heap[0];
@@ -108,7 +110,7 @@ pub fn extract_min(heap: &mut [usize], subtrees: &mut [Subtree], size: usize) ->
     subtrees[heap[0]].heap_index = Some(0);
     heap[last] = taken;
     sift_down(heap, subtrees, last, 0);
-    last
+    taken
 }
 
 /// `STbuildheap` (`ns.c:552-560`): every slot on the heap, then sift down from the last

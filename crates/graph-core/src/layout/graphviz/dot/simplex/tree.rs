@@ -103,93 +103,63 @@ pub fn feasible_tree(g: &mut Fast, ctx: &mut Ctx, nodes: &[u32]) -> Result<(), E
             subtree::sift_down(&mut heap, &mut trees, size, at);
         }
     }
-    if std::env::var_os("GM_CHK").is_some() {
-        assert_eq!(ctx.tree_edge.len(), nodes.len() - 1, "tree edge count");
-        for &edge in &ctx.tree_edge {
-            assert_eq!(slack(g, edge), 0, "tree edge {edge} is not tight");
-        }
-        let mut seen = vec![false; nodes.len()];
-        for &n in nodes {
-            seen[n as usize] = true;
-        }
-        let mut parent: Vec<usize> = (0..g.nodes.len()).collect();
-        fn root(p: &mut Vec<usize>, mut at: usize) -> usize {
-            while p[at] != at {
-                at = p[at];
-            }
-            at
-        }
-        for &edge in &ctx.tree_edge {
-            let (t, h) = (g.edges[edge as usize].tail as usize, g.edges[edge as usize].head as usize);
-            let (a, b) = (root(&mut parent, t), root(&mut parent, h));
-            assert_ne!(a, b, "tree edge {edge} makes a cycle");
-            parent[a] = b;
-        }
-        let first = root(&mut parent, nodes[0] as usize);
-        for &n in nodes {
-            assert!(seen[n as usize]);
-            assert_eq!(root(&mut parent, n as usize), first, "node {n} is not spanned");
-        }
-    }
     init_cutvalues(g, nodes)?;
-    if std::env::var_os("GM_BRUTE").is_some() {
-        for &edge in &ctx.tree_edge {
-            let want = brute_cut(g, nodes, edge);
-            let got = g.edges[edge as usize].cutvalue;
-            assert_eq!(got, want, "cutvalue of {edge} after feasible_tree");
-        }
+    if std::env::var_os("GM_CHK").is_some() {
+        validate(g, nodes, ctx, "after feasible_tree");
     }
     Ok(())
 }
 
-/// The cut value of tree edge `edge`, computed from scratch: the weight leaving the tail
-/// side minus the weight entering it. Only for the debug trace.
-pub(crate) fn brute_cut(g: &Fast, nodes: &[u32], edge: u32) -> i32 {
-    let side = brute_side(g, edge);
-    let mut total = 0;
+/// Debug-only invariants: the ranking is feasible, the tree edges are tight, and every cut
+/// value equals the one recomputed from scratch.
+pub(crate) fn validate(g: &Fast, nodes: &[u32], ctx: &Ctx, when: &str) {
     for &n in nodes {
         for &f in &g.out[n as usize] {
-            let (t, h) = (g.edges[f as usize].tail, g.edges[f as usize].head);
-            if side[t as usize] != side[h as usize] && side[t as usize] {
-                total += g.edges[f as usize].weight;
-            }
-        }
-        for &f in &g.inn[n as usize] {
-            let (t, h) = (g.edges[f as usize].tail, g.edges[f as usize].head);
-            if side[t as usize] != side[h as usize] && side[h as usize] {
-                total -= g.edges[f as usize].weight;
-            }
+            let r = &g.edges[f as usize];
+            let s = g.nodes[r.head as usize].rank - g.nodes[r.tail as usize].rank - r.minlen;
+            assert!(s >= 0, "edge {f} {}->{} slack {s} {when}", r.tail, r.head);
         }
     }
-    total
+    for &edge in &ctx.tree_edge {
+        let r = &g.edges[edge as usize];
+        let s = g.nodes[r.head as usize].rank - g.nodes[r.tail as usize].rank - r.minlen;
+        assert_eq!(s, 0, "tree edge {edge} is not tight {when}");
+        let side = tail_side(g, edge);
+        let mut want = 0;
+        for &n in nodes {
+            for &f in &g.out[n as usize] {
+                let r = &g.edges[f as usize];
+                if side[r.tail as usize] && !side[r.head as usize] {
+                    want += r.weight;
+                }
+            }
+            for &f in &g.inn[n as usize] {
+                let r = &g.edges[f as usize];
+                if side[r.head as usize] && !side[r.tail as usize] {
+                    want -= r.weight;
+                }
+            }
+        }
+        assert_eq!(r.cutvalue, want, "cutvalue of {edge} {when}");
+    }
 }
 
-/// The tail side of tree edge `edge`: the nodes still reachable from its tail once it is
-/// removed. Only for the debug trace.
-pub(crate) fn brute_side(g: &Fast, edge: u32) -> Vec<bool> {
-    let tail = g.edges[edge as usize].tail;
+/// The nodes still reachable from `edge`'s tail once it is removed from the tree.
+fn tail_side(g: &Fast, edge: u32) -> Vec<bool> {
     let mut side = vec![false; g.nodes.len()];
-    let mut stack = vec![tail];
-    side[tail as usize] = true;
+    let mut stack = vec![g.edges[edge as usize].tail];
+    side[g.edges[edge as usize].tail as usize] = true;
     while let Some(n) = stack.pop() {
         for &x in &g.nodes[n as usize].tree_in {
-            if x == edge {
-                continue;
-            }
-            let w = g.edges[x as usize].tail;
-            if !side[w as usize] {
-                side[w as usize] = true;
-                stack.push(w);
+            if x != edge {
+                side[g.edges[x as usize].tail as usize] = true;
+                stack.push(g.edges[x as usize].tail);
             }
         }
         for &x in &g.nodes[n as usize].tree_out {
-            if x == edge {
-                continue;
-            }
-            let w = g.edges[x as usize].head;
-            if !side[w as usize] {
-                side[w as usize] = true;
-                stack.push(w);
+            if x != edge {
+                side[g.edges[x as usize].head as usize] = true;
+                stack.push(g.edges[x as usize].head);
             }
         }
     }
@@ -389,46 +359,6 @@ fn merge_trees(
     };
     if delta != 0 {
         tree_adjust(g, trees[moving].rep, None, delta);
-    }
-    if std::env::var_os("GM_MERGE").is_some() {
-        for (i, r) in g.edges.iter().enumerate() {
-            if !r.live {
-                continue;
-            }
-            let s = g.nodes[r.head as usize].rank - g.nodes[r.tail as usize].rank - r.minlen;
-            if s < 0 {
-                eprintln!("after merge {edge}: edge {i} {}->{} slack {s}", r.tail, r.head);
-                eprintln!("  moving={moving} delta={delta} rep={}", trees[moving].rep);
-                let er = &g.edges[edge as usize];
-                eprintln!(
-                    "  merging edge {edge} {}->{} slack is now {}",
-                    er.tail,
-                    er.head,
-                    slack(g, edge)
-                );
-                eprintln!(
-                    "  node {} subtree={:?} / node {} subtree={:?} / moving {} rep {}",
-                    er.tail,
-                    g.nodes[er.tail as usize].subtree,
-                    er.head,
-                    g.nodes[er.head as usize].subtree,
-                    moving,
-                    trees[moving].rep
-                );
-                eprintln!(
-                    "  out[{}]={:?} in[{}]={:?}",
-                    er.tail,
-                    g.out[er.tail as usize],
-                    er.head,
-                    g.inn[er.head as usize]
-                );
-                eprintln!(
-                    "  edge 587 in out[5]={:?} in[1]={:?}",
-                    g.out[5], g.inn[1]
-                );
-                panic!("negative slack");
-            }
-        }
     }
     add_tree_edge(g, ctx, edge)?;
     Ok(subtree::union(trees, tail_set, head_set))
