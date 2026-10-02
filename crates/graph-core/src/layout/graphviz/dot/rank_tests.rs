@@ -358,6 +358,12 @@ fn rank_agreement_over_1000_seeds() {
         .map(|row| row.seed)
         .collect();
     eprintln!("{} of {} seeds agree on every node's rank", agree.len(), rows.len());
+    let bad: Vec<(u32, usize)> = rows
+        .iter()
+        .filter(|row| !agree.contains(&row.seed))
+        .map(|row| (row.seed, row.ranks.len()))
+        .collect();
+    eprintln!("disagreeing: {bad:?}");
     assert_eq!(
         agree.len(),
         RECORDED_AGREEMENT,
