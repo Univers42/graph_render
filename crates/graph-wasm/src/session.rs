@@ -44,6 +44,7 @@ use std::cell::RefCell;
 
 use crate::errors::Code;
 use crate::handle::Table;
+use crate::wire::to_wire;
 
 /// What one tick did, as the wire's status word (`gm_force_session_tick`'s return).
 ///
@@ -203,6 +204,10 @@ pub fn column(id: u32, axis: u32, want_ptr: bool) -> Result<u32, Code> {
             1 => session.ys(),
             _ => return Err(Code::IndexOutOfRange),
         };
+        // C3: an empty column reads (0, 0), never an empty `Vec`'s dangling address.
+        if values.is_empty() {
+            return Ok(0);
+        }
         let address = if want_ptr {
             values.as_ptr() as usize
         } else {
@@ -238,11 +243,6 @@ fn with_mut<T>(
         let session = live.get_mut(id).ok_or(Code::InvalidSession)?;
         write(session)
     })
-}
-
-/// The wire's `u32` for a host address or length, refused when it does not fit.
-fn to_wire(address: usize) -> Result<u32, Code> {
-    u32::try_from(address).map_err(|_| Code::IndexOutOfRange)
 }
 
 /// Drops every live session. Test-only, for the same reason `errors::clear` exists: the

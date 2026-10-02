@@ -15,6 +15,7 @@
 //! would be four properties free to drift. [`Handles`] is this module's own table over
 //! [`Handle`], and [`crate::session`] holds the same table over a `ForceSession`.
 
+use crate::errors::Code;
 use graph_contract::binary::Snapshot;
 use graph_core::Geometry;
 use graph_core::Topology;
@@ -98,6 +99,15 @@ impl<T> Table<T> {
     }
 }
 
+impl Handles {
+    /// The last run's snapshot for `id`: `InvalidHandle` if `id` is not live (never issued,
+    /// or released), `NoGeometryYet` if no run has succeeded on it since the last failure.
+    pub fn snapshot(&self, id: u32) -> Result<&Snapshot, Code> {
+        let entry = self.get(id).ok_or(Code::InvalidHandle)?;
+        entry.snapshot.as_ref().ok_or(Code::NoGeometryYet)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -162,5 +172,23 @@ mod tests {
         let handle = handle();
         assert!(handle.snapshot.is_none());
         assert!(handle.geometry.is_none());
+    }
+
+    /// The read path every column and face export takes. A released handle is refused by
+    /// name, and so is a live one whose last run failed: neither is served the snapshot it
+    /// used to have, so a column read after `gm_release` or a failed `gm_run` is a refusal.
+    #[test]
+    fn a_released_or_unrun_handle_is_refused_by_name_never_served_stale() {
+        let mut handles = Handles::new();
+        let mut ran = handle();
+        let geometry = (graph_core::registry::LAYOUTS[0].run)(&ran.topology).expect("grid");
+        let snapshot = graph_core::layout::snapshot(&ran.topology, geometry).expect("fits");
+        ran.snapshot = Some(snapshot);
+        let id = handles.insert(ran).expect("id");
+        assert!(handles.snapshot(id).is_ok());
+        handles.get_mut(id).expect("live").snapshot = None;
+        assert_eq!(handles.snapshot(id).err(), Some(Code::NoGeometryYet));
+        handles.remove(id);
+        assert_eq!(handles.snapshot(id).err(), Some(Code::InvalidHandle));
     }
 }

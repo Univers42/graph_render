@@ -15,8 +15,9 @@ use std::collections::BTreeSet;
 /// A node's distinct neighbours, ascending, plus the node count.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Simple {
-    /// The row offsets, `n + 1` of them.
-    pub(super) offsets: Vec<u32>,
+    /// The row offsets, `n + 1` of them. `usize`, not `u32`: `2^31` distinct pairs are
+    /// `2^32` neighbour entries (review M34). Never on the wire, so D6 does not apply.
+    pub(super) offsets: Vec<usize>,
     /// Every node's neighbours, ascending within a row.
     pub(super) neighbours: Vec<u32>,
 }
@@ -24,11 +25,7 @@ pub struct Simple {
 impl Simple {
     /// Node `v`'s neighbours, ascending.
     pub(super) fn row(&self, v: u32) -> &[u32] {
-        let (from, to) = (
-            self.offsets[v as usize] as usize,
-            self.offsets[v as usize + 1] as usize,
-        );
-        &self.neighbours[from..to]
+        &self.neighbours[self.offsets[v as usize]..self.offsets[v as usize + 1]]
     }
 
     /// Node `v`'s degree: how many distinct neighbours it has.
@@ -64,7 +61,7 @@ pub(super) fn build(t: &Topology) -> Simple {
     offsets.push(0);
     for row in &rows {
         neighbours.extend(row.iter().copied());
-        offsets.push(neighbours.len() as u32);
+        offsets.push(neighbours.len());
     }
     Simple {
         offsets,
@@ -119,6 +116,19 @@ mod tests {
         let simple = build(&t);
         assert_eq!(simple.offsets, vec![0, 0]);
         assert_eq!(simple.degree(0), 0);
+    }
+
+    /// M34. A row offset holds any length the neighbour column reaches. The edge index
+    /// allows up to `u32::MAX - 1` edges (`index/tests.rs:166-175`), so `2^31` distinct
+    /// pairs fill `2^32` neighbour entries and a `u32` offset wraps. That input is tens of
+    /// GiB, so the test pins the offset's width instead of building it.
+    #[test]
+    fn a_row_offset_is_as_wide_as_the_neighbour_column_length() {
+        let simple = build(&crate::index::empty_model());
+        assert_eq!(
+            std::mem::size_of_val(&simple.offsets[0]),
+            std::mem::size_of::<usize>()
+        );
     }
 
     /// The rows are in dense index order and each row ascending, whatever order the

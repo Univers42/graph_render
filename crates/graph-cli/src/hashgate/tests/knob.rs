@@ -38,7 +38,7 @@ pub(super) use graph_core::layout::circular::ID as CIRCULAR;
 use graph_core::layout::force::BarnesHut;
 use graph_core::layout::force::Split;
 use graph_core::layout::force::spring::Spring;
-use graph_core::layout::forceatlas2::ForceAtlas2;
+use graph_core::layout::forceatlas2::{ForceAtlas2, ForceAtlas2BarnesHut};
 pub(super) use graph_core::layout::tidy_tree::ID as TIDY_TREE;
 pub(super) use graph_core::layout::treemap::ID as TREEMAP;
 use graph_core::layout::{circular, circular::ring, spiral};
