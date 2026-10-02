@@ -31,8 +31,6 @@ mod hash;
 
 const PASS_X: u32 = 4;
 const PASS_Y: u32 = 5;
-/// The candidates one distance mask covers.
-const LANES: usize = 8;
 
 /// The cell list over one tick's projected positions.
 pub(in crate::layout::force) struct Grid {
@@ -146,26 +144,14 @@ impl Grid {
     }
 
     /// Slot `k`'s half of every overlap it has, slots in `reads` order.
-    ///
-    /// The candidates are tested [`LANES`] at a time into a bit mask, with no branch per
-    /// candidate, and only the hits reach [`resolve`], lowest bit first. `resolve` returns
-    /// at once for every other slot, so the hits and their order are the scan's: the bytes
-    /// are the one-by-one loop's.
     fn delta(&self, k: usize, reads: &Reads, contact: Contact) -> (f64, f64) {
         let [px, py] = self.at[k];
         let mut out = (0.0, 0.0);
         for &(lo, hi) in &reads.runs[..reads.len] {
-            let run = &self.at[lo as usize..hi as usize];
-            for (q, chunk) in (lo as usize..).step_by(LANES).zip(run.chunks(LANES)) {
-                let mut hits = hits(chunk, (px, py), contact.d2);
-                if (q..q + chunk.len()).contains(&k) {
-                    hits &= !(1 << (k - q));
-                }
-                while hits != 0 {
-                    let j = hits.trailing_zeros() as usize;
-                    hits &= hits - 1;
-                    let [qx, qy] = chunk[j];
-                    let ids = || (self.order[k], self.order[q + j]);
+            let lo = lo as usize;
+            for (q, &[qx, qy]) in (lo..).zip(&self.at[lo..hi as usize]) {
+                if q != k {
+                    let ids = || (self.order[k], self.order[q]);
                     resolve(contact, ids, (px - qx, py - qy), &mut out);
                 }
             }
@@ -198,20 +184,6 @@ impl Reads {
     }
 }
 
-/// Bit `j` is set when `chunk[j]` overlaps `at`: [`resolve`]'s own test.
-fn hits(chunk: &[[f64; 2]], (px, py): (f64, f64), d2: f64) -> u32 {
-    let lanes = chunk.iter().enumerate();
-    lanes.fold(0, |hits, (j, &[qx, qy])| {
-        let (dx, dy) = (px - qx, py - qy);
-        hits | u32::from(overlaps(dx * dx + dy * dy, d2)) << j
-    })
-}
-
-/// A squared distance `l` inside the squared diameter. A NaN is no overlap.
-fn overlaps(l: f64, d2: f64) -> bool {
-    !(l.is_nan() | (l >= d2))
-}
-
 /// Barnes-Hut's overlap correction for one pair, `offset` being the querying node's
 /// position minus the other's. A NaN offset is no overlap. `ids` is called only for a
 /// jiggle, which most overlaps never need.
@@ -222,7 +194,7 @@ fn resolve(
     out: &mut (f64, f64),
 ) {
     let mut l = dx * dx + dy * dy;
-    if !overlaps(l, c.d2) {
+    if l.is_nan() || l >= c.d2 {
         return;
     }
     if dx == 0.0 {

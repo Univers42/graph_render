@@ -132,37 +132,3 @@ fn every_division_of_the_build_is_the_one_thread_build() {
         assert_eq!(grid.hash.origin, one.hash.origin, "workers={workers}");
     }
 }
-
-/// The one-by-one scan the masked `delta` replaced.
-fn scanned(grid: &Grid, k: usize, reads: &Reads) -> (f64, f64) {
-    let [px, py] = grid.at[k];
-    let mut out = (0.0, 0.0);
-    for &(lo, hi) in &reads.runs[..reads.len] {
-        let lo = lo as usize;
-        for (q, &[qx, qy]) in (lo..).zip(&grid.at[lo..hi as usize]) {
-            if q != k {
-                let ids = || (grid.order[k], grid.order[q]);
-                resolve(CONTACT, ids, (px - qx, py - qy), &mut out);
-            }
-        }
-    }
-    out
-}
-
-#[test]
-fn the_masked_delta_is_the_one_by_one_scan_bit_for_bit() {
-    let mut longest = 0;
-    for (x, y) in [positions(), crowd()] {
-        let mut grid = Grid::new(x.len() as u32);
-        grid.build((&x, &y), CONTACT.reach, (&crate::exec::Serial, 1));
-        let buckets = grid.start.windows(2).map(|w| w[1] - w[0]);
-        longest = buckets.fold(longest, u32::max);
-        for (k, &[x, y]) in grid.at.iter().enumerate() {
-            let reads = grid.reads(grid.hash.cell_of((x, y)));
-            let (got, want) = (grid.delta(k, &reads, CONTACT), scanned(&grid, k, &reads));
-            let bits = |d: (f64, f64)| (d.0.to_bits(), d.1.to_bits());
-            assert_eq!(bits(got), bits(want), "slot {k}");
-        }
-    }
-    assert!(longest > 3 * LANES as u32, "no bucket spans several chunks");
-}
