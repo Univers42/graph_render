@@ -83,3 +83,4 @@ rv-sg-sugiyama|build|prompts/jobs/rv-sg-sugiyama.md|scripts/orch/rows/docs.rows|
 test-speed-geometry|build|prompts/jobs/test-speed-geometry.md|scripts/orch/rows/quick.rows|no
 sg-grid-minors|build|prompts/jobs/sg-grid-minors.md|scripts/orch/rows/quick.rows|no
 fix-contract|build|prompts/jobs/fix-contract.md|scripts/orch/rows/quick.rows|no
+sg-igraph-clean|build|prompts/jobs/sg-igraph-clean.md|scripts/orch/rows/quick.rows|no
