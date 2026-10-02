@@ -2,6 +2,7 @@
 
 use clap::{Subcommand, builder::TypedValueParser};
 use std::path::PathBuf;
+use std::process::ExitCode;
 
 use crate::hashgate;
 
@@ -9,8 +10,26 @@ use crate::hashgate;
 /// a typo (`--seeds 1000000000`) would look like a hang rather than an error.
 pub const MAX_SEEDS: i64 = 100_000;
 
+/// The fewest seeds a gate row may ask for. Zero is refused, not accepted: a gate over
+/// no seed runs its loop zero times, prints nothing and exits 0 — a comparison of
+/// nothing that reads as a pass.
+pub const MIN_SEEDS: i64 = 1;
+
+/// `--seeds`, for every subcommand that counts seeds: the floor and the ceiling are the two
+/// constants above, so the message clap prints and the range it enforces cannot drift apart.
 pub fn seed_count() -> clap::builder::RangedI64ValueParser<u32> {
-    clap::value_parser!(u32).range(0..=MAX_SEEDS)
+    clap::value_parser!(u32).range(MIN_SEEDS..=MAX_SEEDS)
+}
+
+/// A directory flag whose value must be stated: `--fixtures` with no value is a refusal, not
+/// a default, because the differential would otherwise compare against whatever stale set
+/// happened to be on disk (RG-51). `ExitCode::from(2)`, the "could not run" code, because
+/// nothing ran — a substituted default would report a verdict that was never computed.
+pub(crate) fn required_dir(given: Option<PathBuf>, flag: &str) -> Result<PathBuf, ExitCode> {
+    given.ok_or_else(|| {
+        eprintln!("graph-cli: {flag} is required: name the directory to compare against");
+        ExitCode::from(2)
+    })
 }
 
 /// `--tiers`, parsed by `hashgate`'s own list so the flag and the arm list cannot drift.
@@ -28,7 +47,7 @@ pub fn parse_tiers() -> impl TypedValueParser {
 pub enum Command {
     /// The snapshot hash gate: every arm must agree on every seed, per stage.
     Hashgate {
-        /// Number of seeds, 0..N.
+        /// Number of seeds, 1..N.
         #[arg(long, default_value_t = 100, value_parser = seed_count())]
         seeds: u32,
         /// Which arms to run: `base` is native x2 and wasm32 x2, `all` adds one native arm
@@ -40,7 +59,7 @@ pub enum Command {
     /// One native arm of the gate, printing `stage seed sha256` lines. Spawned by `hashgate`.
     #[command(hide = true)]
     HashgateArm {
-        /// Number of seeds, 0..N.
+        /// Number of seeds, 1..N.
         #[arg(long, value_parser = seed_count())]
         seeds: u32,
     },
@@ -48,7 +67,7 @@ pub enum Command {
     /// after a fixed number of ticks, driven through `gm_force_session_*`. See
     /// `docs/decisions/force-wasm-abi.md`.
     ForceGate {
-        /// Number of seeds, 0..N.
+        /// Number of seeds, 1..N.
         #[arg(long, default_value_t = 4, value_parser = seed_count())]
         seeds: u32,
     },
@@ -56,7 +75,7 @@ pub enum Command {
     /// `force-gate`.
     #[command(hide = true)]
     ForceGateArm {
-        /// Number of seeds, 0..N.
+        /// Number of seeds, 1..N.
         #[arg(long, value_parser = seed_count())]
         seeds: u32,
     },
@@ -86,9 +105,14 @@ pub enum Command {
         /// A JSON document holding the contract, or an object with it as a member.
         #[arg(long)]
         from: PathBuf,
-        /// Which member of that document is the contract. `ingest` for the committed
-        /// convergence fixture, which keeps the derived graph beside it.
-        #[arg(long, default_value = "ingest")]
+        /// Which member of that document is the contract; `ingest` for the committed
+        /// convergence fixture, which keeps the derived graph beside it. Stated, never
+        /// defaulted, on both paths: a defaulted key made `ingest --check` parse `ingest`
+        /// out of a fixture whose contract sits under another member and report that
+        /// (empty) parse as a comparison. clap 4 has no "required if `--check` is present"
+        /// (no `required_if_present`), so the floor is the whole subcommand; both paths
+        /// need the key to find the contract anyway.
+        #[arg(long)]
         member: String,
         /// Where the derived graph goes; standard output when absent.
         #[arg(long, conflicts_with = "check")]
@@ -100,8 +124,10 @@ pub enum Command {
     },
     /// Writes the oracle differential's cases and graph-core's expected outputs.
     EmitFixtures {
-        /// Number of seeds, 0..N.
-        #[arg(long, default_value_t = 1000, value_parser = seed_count())]
+        /// Seeds the fixture set covers, 1..N. Stated, never defaulted: the differential
+        /// downstream runs over exactly this many seeds, so a silent default would let a
+        /// gate row emit a subset and still exit 0.
+        #[arg(long, value_parser = seed_count())]
         seeds: u32,
         /// Output directory; `target/oracle-fixtures` by default.
         #[arg(long)]
@@ -109,8 +135,10 @@ pub enum Command {
     },
     /// Runs `harness/oracle-diff.mjs` over the emitted fixtures (the TypeScript arm).
     OracleDiff {
-        /// Fixtures directory; `target/oracle-fixtures` by default.
-        #[arg(long)]
+        /// The fixtures to compare against. Required: a differential with no stated
+        /// directory would compare against whatever stale set was on disk and report it as
+        /// this tree's verdict (RG-51).
+        #[arg(long, required = true)]
         fixtures: Option<PathBuf>,
     },
     /// The Python-armed differentials' own subcommands: `emit-<name>-fixtures` and
@@ -119,8 +147,9 @@ pub enum Command {
     PythonOracle(crate::oracle_python::Cli),
     /// Runs `harness/oracle-layouts.mjs` over the emitted fixtures (the d3-hierarchy arm).
     OracleLayouts {
-        /// Fixtures directory; `target/oracle-fixtures` by default.
-        #[arg(long)]
+        /// The fixtures to compare against. Required, for the same reason as
+        /// `oracle-diff`: a defaulted directory is a stale set read as a verdict (RG-51).
+        #[arg(long, required = true)]
         fixtures: Option<PathBuf>,
     },
     /// Runs one seed's model through a layout and writes the snapshot's binary face, its
@@ -144,7 +173,7 @@ pub enum Command {
     },
     /// Binary <-> JSON round trip over seeds 0..N, byte-exact, plus the grid's hand oracle.
     Roundtrip {
-        /// Number of seeds, 0..N.
+        /// Number of seeds, 1..N.
         #[arg(long, default_value_t = 100, value_parser = seed_count())]
         seeds: u32,
     },
@@ -172,11 +201,13 @@ pub enum Command {
     /// of the same graph, under the frozen margin.
     Stress {
         /// The oracle to compare against; `d3` is the only one wired. Required, not
-        /// defaulted: a quality gate that silently picked its own baseline would be a
-        /// gate comparing the implementation against itself.
-        #[arg(long)]
+        /// defaulted, and vetted against that one word: a quality gate that silently
+        /// picked its own baseline would be a gate comparing the implementation against
+        /// itself, and a mistyped name would reach `stress` as an unknown oracle rather
+        /// than as clap's error naming the possibility.
+        #[arg(long, value_parser = clap::builder::PossibleValuesParser::new(["d3"]))]
         oracle: String,
-        /// Number of seeds, 0..N.
+        /// Number of seeds, 1..N.
         #[arg(long, default_value_t = 8, value_parser = seed_count())]
         seeds: u32,
     },

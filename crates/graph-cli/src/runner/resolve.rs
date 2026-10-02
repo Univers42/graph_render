@@ -161,7 +161,8 @@ static CARGO: OnceLock<Result<PathBuf, String>> = OnceLock::new();
 
 /// [`CARGO`], or the refusal explaining why there is none.
 pub fn cargo() -> Result<&'static Path, String> {
-    CARGO.get_or_init(resolve_cargo)
+    CARGO
+        .get_or_init(resolve_cargo)
         .as_deref()
         .map_err(|err| err.clone())
 }

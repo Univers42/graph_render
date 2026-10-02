@@ -62,11 +62,19 @@ fn stress_names_an_oracle_that_is_wired() {
     assert!(parses(&["stress", "--oracle", "d3", "--seeds", "8"]).is_ok());
 }
 
+/// The write path names its member too: clap 4.6 has no "required if `--check` is
+/// present", so the flag carries no default on either path and both must state the key.
 #[test]
 fn an_ingest_check_must_name_the_member_it_parses() {
     assert!(parses(&["ingest", "--from", "x.json", "--check", "x.json"]).is_err());
-    let named = ["ingest", "--from", "x.json", "--member", "ingest", "--check", "x.json"];
+    let named = [
+        "ingest", "--from", "x.json", "--member", "ingest", "--check", "x.json",
+    ];
     assert!(parses(&named).is_ok());
+    let write = [
+        "ingest", "--from", "x.json", "--member", "ingest", "--out", "g.json",
+    ];
+    assert!(parses(&write).is_ok());
 }
 
 #[test]
@@ -75,4 +83,19 @@ fn the_two_oracle_subcommands_refuse_a_missing_fixture_directory() {
     assert!(parses(&["oracle-diff", "--fixtures", "d"]).is_ok());
     assert!(parses(&["oracle-layouts"]).is_err());
     assert!(parses(&["oracle-layouts", "--fixtures", "d"]).is_ok());
+}
+
+/// The arm that consumes the flag: an absent `--fixtures` is the "could not run" code, not
+/// a substitution of the default directory. `2` and not `1` because nothing ran and nothing
+/// compared — there is no verdict to report (RG-51).
+#[test]
+fn a_missing_fixture_directory_is_exit_two_not_a_default() {
+    assert_eq!(
+        required_dir(None, "--fixtures").unwrap_err(),
+        std::process::ExitCode::from(2)
+    );
+    assert_eq!(
+        required_dir(Some(PathBuf::from("d")), "--fixtures").unwrap(),
+        PathBuf::from("d")
+    );
 }

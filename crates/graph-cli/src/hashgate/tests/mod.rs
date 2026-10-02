@@ -6,6 +6,7 @@
 //!   and which knob moves which stage.
 //! - [`arm_lines`] — what an arm *prints*: the line order, and the threaded arm's claim to
 //!   be the scalar arm's lines verbatim.
+//! - [`stage_list`] — the stage list as a list: no id twice across all three registries.
 //! - [`knob`], [`report`], [`stages`] — the settings, the written report and the stage
 //!   bytes, each with its own claims.
 
@@ -14,6 +15,7 @@ mod compare;
 mod knob;
 mod pipeline;
 mod report;
+mod stage_list;
 mod stages;
 
 // The vocabulary the *direct* children name from here. A grandchild (`tests::stages::arm`)

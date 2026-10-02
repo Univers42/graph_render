@@ -10,8 +10,6 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 
-pub use resolve::{on_path, target_dir};
-
 /// How long any one child (cargo, node, a gate arm) may run before it is killed. A hung
 /// child is a gate that could not run (exit 2), never one that waits forever.
 ///
@@ -225,8 +223,8 @@ fn joined(drain: Drain) -> Result<Vec<u8>, String> {
 
 #[cfg(test)]
 mod tests {
+    use super::resolve::on_path;
     use super::*;
-    use crate::runner::on_path;
 
     #[test]
     fn sha256_matches_the_fips_180_2_vector() {
