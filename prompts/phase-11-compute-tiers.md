@@ -1,4 +1,4 @@
-> **Status (2026-09-30):** MERGED into develop, merge c84c869 (branch p11 head 8543d98) — partly closed out: the thread-tier bench numbers still owe docs/measurements/. See prompts/RESUME.md.
+> **Status (2026-10-02):** MERGED into develop, merge c84c869 (branch p11 head 8543d98). Closed: the thread-tier bench numbers are in docs/measurements/ — phase11-threads.md (commit 8543d98), tier-settle.md (90f2218), tier-closed-form.md, tier-random.md and tiers-audit.md (85662c6, ff0dbe6). Still owed: simd_nodes is still never measured and inert (docs/decisions/tier-thresholds.md:3,11). See docs/reports/STATUS.md.
 
 # Phase 11 — Compute tiers: SIMD, threads, and (only if measured necessary) GPU
 
