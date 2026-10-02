@@ -72,11 +72,12 @@ fn extreme_weights_and_strengths_never_panic_an_analysis() {
 }
 
 #[test]
-fn a_negative_strength_refuses_the_shortest_path_centralities_instead_of_answering() {
+fn a_negative_strength_refuses_the_weighted_centralities_instead_of_answering() {
     let topology = extreme_topology();
     for id in [
         graph_core::analysis::centrality::CLOSENESS,
         graph_core::analysis::centrality::BETWEENNESS,
+        graph_core::analysis::centrality::EIGENVECTOR,
     ] {
         let index = crate::analysis::ANALYSES
             .iter()

@@ -96,6 +96,16 @@ layout puts one node per level at its disk's centre, so the two nodes differ onl
 --all-targets -- -D warnings` fails on develop's `heap.rs:31,40,42` (unused `Geometric` and
 `reserve_after` under `cfg(test)` on wasm32). This branch does not touch `heap.rs`.
 
+## After merging develop (2026-10-02)
+
+fix-analysis (R19) made graph-core's `centrality::eigenvector` `debug_assert` non-negative
+strengths, so `extreme_weights_and_strengths_never_panic_an_analysis` panicked in the land gate
+(`test` exit 101, `centrality.rs:103`). The wasm adapter now refuses eigenvector over a negative
+strength exactly as it refuses closeness and betweenness (a `NaN` column, `to_json` = `None`,
+`AnalysisFailed`), and the refusal test covers all three
+(`a_negative_strength_refuses_the_weighted_centralities_instead_of_answering`).
+`cargo test -p graph-wasm --lib`: `134 passed; 0 failed; 1 ignored`.
+
 ## Decisions needed
 
 1. **F-16, the ingest ceiling.** The reader has no byte, node or edge ceiling. Picking one is a

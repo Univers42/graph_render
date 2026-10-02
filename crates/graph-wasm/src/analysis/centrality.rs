@@ -35,27 +35,42 @@ pub fn betweenness_centrality(topology: &Topology) -> Report {
 /// honest score (no shortest path is defined), and it is also what makes
 /// [`Report::to_json`] answer `None`, so `gm_analysis_run` refuses with `AnalysisFailed`.
 fn shortest_path_scores(topology: &Topology, scores: fn(&Topology) -> Vec<f32>) -> Vec<f64> {
-    if topology
-        .edges()
-        .strength
-        .iter()
-        .any(|&strength| strength < 0.0)
-    {
-        return vec![f64::NAN; topology.node_count() as usize];
+    if has_negative_strength(topology) {
+        return refused(topology);
     }
     widened(scores(topology))
 }
 
 /// Eigenvector centrality analysis entry point.
+/// A negative `strength` has no Perron vector, and graph-core's eigenvector asserts on
+/// one in a debug build (R19); it is refused the way the Dijkstra centralities are.
 pub fn eigenvector_centrality(topology: &Topology) -> Report {
-    let (values, converged) = centrality::eigenvector(topology);
+    let (values, converged) = if has_negative_strength(topology) {
+        (refused(topology), false)
+    } else {
+        let (values, converged) = centrality::eigenvector(topology);
+        (widened(values), converged)
+    };
     Report {
         id: centrality::EIGENVECTOR,
-        values: Column::F64(widened(values)),
+        values: Column::F64(values),
         converged: Some(converged),
         modularity: None,
         max: None,
     }
+}
+
+fn has_negative_strength(topology: &Topology) -> bool {
+    topology
+        .edges()
+        .strength
+        .iter()
+        .any(|&strength| strength < 0.0)
+}
+
+/// The column that makes [`Report::to_json`] answer `None`: one `NaN` per node.
+fn refused(topology: &Topology) -> Vec<f64> {
+    vec![f64::NAN; topology.node_count() as usize]
 }
 
 /// `f32` as graph-core states a centrality, widened to the `f64` the wire carries. Exact:
