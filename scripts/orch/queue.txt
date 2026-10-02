@@ -58,3 +58,5 @@ sg-sugiyama|build|prompts/jobs/sg-sugiyama.md|scripts/orch/rows/quick.rows|no
 open-ingest|build|prompts/jobs/open-ingest.md|scripts/orch/rows/quick.rows|no
 open-core|build|prompts/jobs/open-core.md|scripts/orch/rows/quick.rows|no
 open-synth|build|prompts/jobs/open-synth.md|scripts/orch/rows/quick.rows|no
+fix-post-bounds|build|prompts/jobs/fix-post-bounds.md|scripts/orch/rows/quick.rows|no
+fix-scale-oracle|build|prompts/jobs/fix-scale-oracle.md|scripts/orch/rows/quick.rows|no
