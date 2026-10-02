@@ -10,7 +10,7 @@
 #[cfg(test)]
 mod tests;
 
-mod descent;
+pub(crate) mod descent;
 
 use crate::index::Topology;
 use crate::layout::Geometry;

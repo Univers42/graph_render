@@ -113,7 +113,8 @@ evenly spread vertices, degrading as cells fill. Connectivity test `O(n + m)` on
   linear part, and the rows the differential scores are connected gate models where the branch
   never runs. Recording it here rather than in `docs/decisions/` is a scope limit of the job that
   wrote it, not a claim that the decision is unimportant — a reviewer who wants the literal
-  behaviour should read `fruchterman_reingold_3d.rs`'s `FAR_PULL` and change one axis index.
+  behaviour will find it in `layout/force/fruchterman_reingold/kernel.rs`'s `repel`, in the
+  `far.is_some()` scale, and can restore it by folding the `z` term into the `y` accumulator.
 - **Equilibrium length.** The doc-comment in the C file quotes an equilibrium length of `1/w^3`.
   Balancing the two forces above gives `r^3 = 1/w`. The comment and the code disagree; the code is
   authoritative.

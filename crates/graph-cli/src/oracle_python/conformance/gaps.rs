@@ -69,7 +69,17 @@ pub(super) const G_IGRAPH_SEED: Gap = Gap {
     // licence: `docs/decisions/layouts-igraph.md` rule 4 says igraph's own RNG is never
     // reproduced, so the motor keeps Mulberry32 and the two streams differ from the first draw on.
     note: "the seed **is** passed on both sides (`common.py:60` seeds the stdlib `random`, which python-igraph installs as igraph's RNG at `src/_igraph/random.c:295-325`), and the reference is reproducible; the two streams are still different generators: graph-core draws from Mulberry32 and igraph from Mersenne Twister, and `docs/decisions/layouts-igraph.md` rule 4 forbids reproducing the latter",
-    at: "docs/decisions/layouts-igraph.md:26",
+    at: "crates/graph-core/src/rng.rs:14",
+};
+pub(super) const G_IGRAPH_FIT: Gap = Gap {
+    parameter: "scale",
+    note: "the reference writes its own units until `_igraph_fit_positions` (`igraph_layouts.py:24-42`) centres every axis on its mean and scales the whole drawing so the largest magnitude over **all three** axes is `scale`; that step is SciGraphs' convention, not igraph's, so it lives in the motor arm (`conformance/motor/fit.rs`) and never inside a motor layout — four ids reach it, named in `FITTED`",
+    at: "crates/graph-cli/src/oracle_python/conformance/motor/fit.rs:47",
+};
+pub(super) const G_KK_NON_FINITE: Gap = Gap {
+    parameter: "iterations",
+    note: "**the reference raises, this port does not.** python-igraph 0.11.9 returns three infinite coordinates out of nine from `layout_kamada_kawai(dim=3)` on the 3-vertex path `gate-01` — in all six vertex orderings, and at `dim=2` the same graph is finite — so the row compares 957 of 1020 coordinates. Not component count, not an isolated node and not degree: the graph is connected with degrees 2, 1, 1. It is the 3x3 Newton block being near-singular at three vertices, so one step overflows `f64`; `_igraph_fit_positions` then turns those three infinities into all nine, because `extent` is `inf`, the factor is `0` and `inf * 0` is NaN. `kamada_kawai_3d` guards the block and is finite there",
+    at: "crates/graph-core/src/layout/force/kamada_kawai_3d/tests.rs:33",
 };
 pub(super) const G_SCALE_FIXED_LAYER: Gap = Gap {
     parameter: "scale",

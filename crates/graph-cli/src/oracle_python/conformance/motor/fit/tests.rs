@@ -32,8 +32,16 @@ fn a_flat_drawing_is_left_alone_rather_than_divided_by_zero() {
 fn the_fit_centres_every_axis_and_lands_exactly_on_the_scale() {
     let mut points = [[1.0_f64, -3.0, 0.0], [3.0, 1.0, 0.0]];
     fit(&mut points, SCALE);
-    assert_eq!(points[0], [-2.5, -5.0, 0.0], "x or y was not centred then scaled");
-    assert_eq!(points[1], [2.5, 5.0, 0.0], "x or y was not centred then scaled");
+    assert_eq!(
+        points[0],
+        [-2.5, -5.0, 0.0],
+        "x or y was not centred then scaled"
+    );
+    assert_eq!(
+        points[1],
+        [2.5, 5.0, 0.0],
+        "x or y was not centred then scaled"
+    );
 }
 
 /// **One factor over all three axes, not one per axis.** A per-axis squash would centre this
@@ -64,7 +72,13 @@ fn the_fit_reaches_the_igraph_rows_and_nothing_else() {
         assert!(!FITTED.contains(&id), "{id} was added to this job's list");
     }
     // The rows this job owns all name a fitted id, or the fit is dead code.
-    for name in ["IGRAPH_FR", "IGRAPH_KK", "IGRAPH_DRL", "IGRAPH_DRL_2D", "IGRAPH_LGL"] {
+    for name in [
+        "IGRAPH_FR",
+        "IGRAPH_KK",
+        "IGRAPH_DRL",
+        "IGRAPH_DRL_2D",
+        "IGRAPH_LGL",
+    ] {
         let row = ROWS.iter().find(|r| r.name == name).expect(name);
         let id = row.motor.expect("a motor layout");
         assert!(FITTED.contains(&id), "{name} -> {id} is not fitted");
@@ -80,18 +94,21 @@ fn an_igraph_row_comes_back_centred_and_at_the_scale() {
         .into_iter()
         .find(|f| f.name == "bipartite")
         .expect("the bipartite fixture");
-    let points = run("layout.force.fruchterman_reingold", &fixture).expect("FR ran");
+    let points = run("layout.force.fruchterman_reingold_3d", &fixture).expect("FR ran");
     let largest = points
         .iter()
         .flat_map(|p| p.iter().map(|v| v.abs()))
         .fold(0.0_f64, f64::max);
-    assert!((largest - SCALE).abs() < 1e-9, "largest magnitude {largest} != {SCALE}");
+    assert!(
+        (largest - SCALE).abs() < 1e-9,
+        "largest magnitude {largest} != {SCALE}"
+    );
     for axis in 0..3 {
         let mean = points.iter().map(|p| p[axis]).sum::<f64>() / points.len() as f64;
         assert!(mean.abs() < 1e-9, "axis {axis} mean is {mean}");
     }
     // …and the un-fitted arm over the same fixture does not.
-    let layout = registry::find("layout.force.fruchterman_reingold").expect("registered");
+    let layout = registry::find("layout.force.fruchterman_reingold_3d").expect("registered");
     let raw = run_with(&fixture.nodes, &fixture.edges, layout.id, layout.run)
         .expect("FR ran")
         .snapshot

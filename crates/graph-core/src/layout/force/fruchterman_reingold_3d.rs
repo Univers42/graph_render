@@ -63,3 +63,7 @@ impl Stage for FruchtermanReingold3D {
 fn narrow(pos: &[Axis], axis: usize) -> Vec<f32> {
     pos.iter().map(|p| p[axis] as f32).collect()
 }
+
+#[cfg(test)]
+#[path = "fruchterman_reingold_3d/tests.rs"]
+mod tests;

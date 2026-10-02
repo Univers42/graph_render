@@ -9,14 +9,17 @@
 use super::super::{Baseline, row};
 
 pub(super) const NETWORKX: [Baseline; 12] = [
-    // The five igraph rows carry `sg-igraph-dims`'s `_igraph_fit_positions` on the motor arm,
-    // so their motor shas are the fitted ones; the reference shas are unchanged, which is the
-    // measurement that the reference reproduces run to run (two `--reference` runs, 64/64 files
-    // byte-identical). A fit is a uniform scale and a translation, so the Procrustes medians are
-    // unmoved to the digit: `docs/measurements/sg-igraph-dims.md`.
+    // The five igraph rows carry `sg-igraph-dims`'s `_igraph_fit_positions` on the motor arm, and
+    // `IGRAPH_FR` / `IGRAPH_KK` carry the `_3d` motor ids, because SciGraphs calls both at
+    // `dim=3` (`igraph_layouts.py:74`, `:99`). The reference shas are unchanged in every row and
+    // in every run — that is the reproducibility result: two `--reference` runs gave 64/64 files
+    // byte-identical, and these digests are the ones pinned before the remap. A fit is a uniform
+    // scale and a translation, so it moved the motor bytes and left the Procrustes medians at the
+    // digit; the remap moved the medians (FR 0.267 -> 0.166, KK 0.812 -> 0.757).
+    // `docs/measurements/sg-igraph-dims.md`.
     row(
         "IGRAPH_FR",
-        "11c18f9c8e8a3bc5bd80407560c6fedcda309a423bc3cec10caf0163e30fc02a",
+        "86bce46cf87a8d476244d254929c9e2ca75964ff835061e4e494c92c29cd6678",
         "0cf3c05e67d79c08c152d0902dfe70dd5e3ef1cf4f9785448b394d24c8cfb170",
         "",
         1e0,
@@ -25,7 +28,7 @@ pub(super) const NETWORKX: [Baseline; 12] = [
     ),
     row(
         "IGRAPH_KK",
-        "c6fe20813019afd468327944c1613e15245a8c1b7c35969fd28af31bad46f38a",
+        "122420ffd67d0e1c0b4d96176e349c7c32ac011f9296c559ae474d2ae21dbcd4",
         "a89c503e5fb39b8756fcbef3a6985ae6335770f874fd2e6cd06773bea5d0264a",
         "",
         1e0,

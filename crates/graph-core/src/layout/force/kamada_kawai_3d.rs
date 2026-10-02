@@ -64,3 +64,7 @@ impl Stage for KamadaKawai3D {
 fn narrow(pos: &[Axis], axis: usize) -> Vec<f32> {
     pos.iter().map(|p| p[axis] as f32).collect()
 }
+
+#[cfg(test)]
+#[path = "kamada_kawai_3d/tests.rs"]
+mod tests;

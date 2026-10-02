@@ -10,7 +10,7 @@
 //! and Kawai, Information Processing Letters 31(1), 1989) only, per
 //! `docs/decisions/layouts-igraph.md` rule 1.
 
-use super::{Axis, KkParams, KK_EPS, Springs};
+use super::{Axis, KK_EPS, KkParams, Springs};
 
 /// The start the spec's step 1, third case describes: a circle at `D = 2`, igraph's sphere
 /// placement at `D = 3`, both scaled by `0.36 * sqrt(n)`.
@@ -27,7 +27,7 @@ use super::{Axis, KkParams, KK_EPS, Springs};
 /// **The 2D circle is this file's own, and it is unchanged.** The 2D id is pinned byte for byte
 /// and the angles it uses are not the ones `igraph_layout_circle` uses — see the note under that
 /// spec section — and the 3D path never calls that function, so nothing here needs it.
-pub(super) fn start<const D: usize>(n: usize) -> Vec<Axis> {
+pub(crate) fn start<const D: usize>(n: usize) -> Vec<Axis> {
     let radius = 0.36 * libm::sqrt(n as f64);
     let mut phi = 0.0;
     let turn = 3.6 / libm::sqrt(n as f64);
@@ -35,7 +35,11 @@ pub(super) fn start<const D: usize>(n: usize) -> Vec<Axis> {
     for i in 0..n {
         if D == 3 {
             let (r, z) = sphere_row(i, n, turn, &mut phi);
-            out.push([radius * r * libm::cos(phi), radius * r * libm::sin(phi), radius * z]);
+            out.push([
+                radius * r * libm::cos(phi),
+                radius * r * libm::sin(phi),
+                radius * z,
+            ]);
         } else {
             let angle = 2.0 * core::f64::consts::PI * i as f64 / n as f64;
             out.push([radius * libm::cos(angle), radius * libm::sin(angle), 0.0]);
@@ -140,6 +144,12 @@ fn hessian<const D: usize>(pos: &[Axis], springs: &Springs, m: usize) -> [[f64; 
 }
 
 /// The `D` diagonal terms of one other vertex's contribution, axis by axis.
+///
+/// **The other axes are summed as `l * d_b * d_b`, one product at a time**, not as a sum of
+/// squares scaled by `l` afterwards. That is the same number mathematically and a different
+/// `f64` in general, and at `D = 2` the one-term case `l * d_1 * d_1` is what the two-column
+/// layout computed — which is why this reads as a running sum rather than the shorter
+/// `l * (d_1 * d_1)`.
 fn accumulate_diagonal<const D: usize>(
     h: &mut [[f64; 3]; 3],
     delta: &Axis,
@@ -151,10 +161,10 @@ fn accumulate_diagonal<const D: usize>(
         let mut other = 0.0;
         for b in 0..D {
             if b != axis {
-                other += delta[b] * delta[b];
+                other += l * delta[b] * delta[b];
             }
         }
-        h[axis][axis] += k * (1.0 - l * other / r3);
+        h[axis][axis] += k * (1.0 - other / r3);
     }
 }
 
@@ -181,7 +191,11 @@ fn two_by_two(h: &[[f64; 3]; 3], g: &Axis) -> Axis {
     if det == 0.0 || !det.is_finite() {
         return [0.0; 3];
     }
-    [(c * g[0] - b * g[1]) / det, (a * g[1] - b * g[0]) / det, 0.0]
+    [
+        (c * g[0] - b * g[1]) / det,
+        (a * g[1] - b * g[0]) / det,
+        0.0,
+    ]
 }
 
 /// `H^-1 g` for a 3x3 block, by Cramer's rule (`kamada_kawai.md` step 5.3).

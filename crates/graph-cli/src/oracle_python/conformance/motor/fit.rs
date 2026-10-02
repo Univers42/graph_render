@@ -23,11 +23,14 @@
 /// for. Named by motor id, not by row name, because `run` is handed an id — and because no id
 /// outside this list is used by another row, so the list cannot over-reach.
 ///
-/// `layout.force.fruchterman_reingold` and `layout.force.kamada_kawai` are the 2-D ids;
-/// `sg-igraph-dims` re-points those two rows at their `_3d` siblings, and this list follows.
+/// `layout.force.fruchterman_reingold_3d` and `layout.force.kamada_kawai_3d` are the ids
+/// `IGRAPH_FR` and `IGRAPH_KK` name, because SciGraphs calls both at `dim=3`
+/// (`igraph_layouts.py:74`, `:99`) and those are the only motor layouts that answer in three
+/// dimensions. The 2D siblings stay registered and stay pinned byte for byte; they are simply
+/// not what this reference runs.
 pub(super) const FITTED: [&str; 4] = [
-    "layout.force.fruchterman_reingold",
-    "layout.force.kamada_kawai",
+    "layout.force.fruchterman_reingold_3d",
+    "layout.force.kamada_kawai_3d",
     "layout.force.drl",
     "layout.force.lgl",
 ];

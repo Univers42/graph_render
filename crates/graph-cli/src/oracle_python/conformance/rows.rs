@@ -66,33 +66,39 @@ pub const ROWS: [Row; 32] = [
     },
     Row {
         name: "IGRAPH_FR",
-        motor: Some("layout.force.fruchterman_reingold"),
+        // `dim=3` (`igraph_layouts.py:74`), so the 3D id is the one the reference runs. The 2D
+        // layout is still registered and still pinned; it is simply not this row's motor.
+        motor: Some("layout.force.fruchterman_reingold_3d"),
         reference: Reference::Scigraphs,
-        gaps: &[G_IGRAPH_SEED, G_SNAPSHOT_SCALE],
+        gaps: &[G_IGRAPH_SEED, G_IGRAPH_FIT],
     },
     Row {
         name: "IGRAPH_KK",
-        motor: Some("layout.force.kamada_kawai"),
+        // `dim=3` (`igraph_layouts.py:99`), from the deterministic sphere start.
+        motor: Some("layout.force.kamada_kawai_3d"),
         reference: Reference::Scigraphs,
-        gaps: &[G_SNAPSHOT_SCALE],
+        gaps: &[G_IGRAPH_FIT, G_KK_NON_FINITE],
     },
     Row {
         name: "IGRAPH_DRL",
         motor: Some("layout.force.drl"),
         reference: Reference::Scigraphs,
-        gaps: &[G_IGRAPH_SEED, G_SNAPSHOT_SCALE],
+        gaps: &[G_IGRAPH_SEED, G_IGRAPH_FIT],
     },
     Row {
         name: "IGRAPH_DRL_2D",
+        // Same motor layout as `IGRAPH_DRL`, compared against the reference's `dim=2` call
+        // (`igraph_layouts.py:406`). The motor layout has no 2D entry point, so the row's whole
+        // third column is the difference and is reported rather than dropped.
         motor: Some("layout.force.drl"),
         reference: Reference::Scigraphs,
-        gaps: &[G_IGRAPH_SEED, G_SNAPSHOT_SCALE],
+        gaps: &[G_IGRAPH_SEED, G_IGRAPH_FIT],
     },
     Row {
         name: "IGRAPH_LGL",
         motor: Some("layout.force.lgl"),
         reference: Reference::Scigraphs,
-        gaps: &[G_IGRAPH_SEED, G_SNAPSHOT_SCALE],
+        gaps: &[G_IGRAPH_SEED, G_IGRAPH_FIT],
     },
     Row {
         name: "SPHERE",

@@ -119,12 +119,7 @@ fn is_connected(n: usize, graph: &SimpleGraph) -> bool {
 ///
 /// **One reduction order for both dimensions (D3):** `v` ascending, then `u > v` ascending, and
 /// inside a pair every axis in turn, adding to `v` and subtracting from `u` before the next axis.
-fn repel<const D: usize>(
-    pos: &[Axis],
-    far: Option<f64>,
-    key: (u32, u32),
-    disp: &mut [Axis],
-) {
+fn repel<const D: usize>(pos: &[Axis], far: Option<f64>, key: (u32, u32), disp: &mut [Axis]) {
     for v in 0..pos.len() {
         for u in v + 1..pos.len() {
             let mut delta = [0.0; AXES];
@@ -156,7 +151,11 @@ fn coincident_nudge(key: (u32, u32), pair: (u32, u32)) -> Axis {
     for axis in 0..AXES {
         d[axis] = jiggle(key.0, key.1, axis as u32 + 2, pair) * amp;
     }
-    if d == [0.0; AXES] { [NOISE, 0.0, 0.0] } else { d }
+    if d == [0.0; AXES] {
+        [NOISE, 0.0, 0.0]
+    } else {
+        d
+    }
 }
 
 /// Edge pull of magnitude `r^2` (unit weight): `delta * |delta|`.
