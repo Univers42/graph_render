@@ -72,7 +72,7 @@ fn seed_iterations(n: u32) -> u32 {
 /// reads that degree on the graph `_build_networkx_graph` built, which keeps its self-loops
 /// (`common.py:297` adds every edge pair with no `u != v` filter, unlike the `simple` copy
 /// `_planar_triangulation` makes for itself at `circle_packing.py:61`), so a loop the exact
-/// path has no use for is still degree here. [`loop_degrees`] carries them across
+/// path has no use for is still degree here. `loop_counts` carries them across
 /// [`super::simple_pairs`]'s reduction, which drops them.
 fn initial_radii(n: u32, edges: &[(u32, u32)], loops: &[u32], scale: f64) -> Vec<f64> {
     let mut degree = vec![0.0_f64; n as usize];
@@ -97,24 +97,6 @@ fn initial_radii(n: u32, edges: &[(u32, u32)], loops: &[u32], scale: f64) -> Vec
         }
     }
     radii
-}
-
-/// How many self-loops each node carries, counted separately from `edges` because
-/// [`super::simple_pairs`] reduces them away before [`pack`] is reached, and networkx's
-/// `G.degree` counts each of them twice (`reportviews.py:526`) on the graph
-/// `_build_networkx_graph` built with them still in (`common.py:297`).
-fn loop_degrees(edges: &[(u32, u32)]) -> Vec<u32> {
-    let mut loops = Vec::new();
-    for &(u, v) in edges {
-        if u != v {
-            continue;
-        }
-        if loops.len() <= u as usize {
-            loops.resize(u as usize + 1, 0);
-        }
-        loops[u as usize] += 1;
-    }
-    loops
 }
 
 /// `diff`/`dist` for the pair `(u, v)`, with a deterministic direction substituted for a

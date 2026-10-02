@@ -3,7 +3,7 @@
 //! relaxation's own tests have something to be pinned against.
 
 use super::seed::GOLDEN_ANGLE;
-use super::{initial_radii, loop_degrees, nudge, pack, seed_iterations, separated};
+use super::{initial_radii, nudge, pack, seed_iterations, separated};
 
 #[test]
 fn a_separated_coincident_pair_gets_a_repeatable_direction() {
@@ -140,20 +140,6 @@ fn a_self_loop_counts_twice_in_the_starting_radii_as_it_does_in_networkx() {
     // is untouched by the argument, so nothing else in the reduction moved.
     let isolated = initial_radii(4, &edges, &loops, 5.0);
     assert_eq!(radii[0].to_bits(), isolated[0].to_bits());
-}
-
-/// The count `loop_degrees` builds is per node and skips every non-loop pair, so a reduced
-/// edge list and a loop count can be threaded through the fallback independently.
-#[test]
-fn loop_degrees_counts_a_node_s_own_loops_and_nothing_else() {
-    assert_eq!(
-        loop_degrees(&[(0, 0), (0, 0), (1, 2), (3, 3)]),
-        vec![2, 0, 0, 1]
-    );
-    assert_eq!(loop_degrees(&[]), Vec::<u32>::new());
-    // A loop on the highest node seen still lands in the right slot, and one below an
-    // existing higher loop keeps its index.
-    assert_eq!(loop_degrees(&[(4, 4), (1, 1)]), vec![0, 1, 0, 0, 1]);
 }
 
 #[test]

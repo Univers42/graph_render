@@ -2,7 +2,7 @@
 //! between them. Everything here is about *which* graph the two paths get and *which* one
 //! runs — the arithmetic itself is pinned in each submodule.
 
-use super::super::simple_pairs;
+use super::super::{loop_counts, simple_pairs};
 use crate::index::{Topology, index_model};
 use crate::layout::circle_packing::CirclePackingParams;
 use crate::layout::circle_packing::tests::support::{complete_graph, grid, topology, wheel};
@@ -10,6 +10,33 @@ use crate::layout::circle_packing::tests::support::{complete_graph, grid, topolo
 /// The reduced edge list, as dense-index pairs, in the order the topology holds them.
 fn reduced(n: u32, edges: &[(u32, u32)]) -> Vec<(u32, u32)> {
     simple_pairs(&topology(n, edges))
+}
+
+/// The per-node self-loop count the fallback's starting degree needs.
+fn loops(n: u32, edges: &[(u32, u32)]) -> Vec<u32> {
+    loop_counts(&topology(n, edges), n)
+}
+
+#[test]
+fn loop_counts_are_per_node_and_skip_every_other_pair() {
+    // The two lists the fallback is handed are independent: the reduction drops the loops,
+    // and this is what puts them back for the degree networkx reads them by.
+    let edges = [(0, 1), (0, 0), (0, 0), (1, 2), (3, 3)];
+    assert_eq!(loops(4, &edges), vec![2, 0, 0, 1]);
+    assert_eq!(
+        reduced(4, &edges),
+        vec![(0, 1), (1, 2)],
+        "the loops are gone"
+    );
+    assert_eq!(
+        loops(3, &[(0, 1), (1, 2)]),
+        vec![0, 0, 0],
+        "no loops at all"
+    );
+    assert_eq!(loops(2, &[]), vec![0, 0], "not even an empty one");
+    // A loop is a self-edge whichever end order the record spells it, and it lands in the
+    // slot of the node it names — one below a higher-numbered loop keeps its own index.
+    assert_eq!(loops(5, &[(4, 4), (1, 1)]), vec![0, 1, 0, 0, 1]);
 }
 
 #[test]

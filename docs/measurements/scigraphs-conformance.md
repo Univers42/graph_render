@@ -248,6 +248,15 @@ port is already exact to 5e-16; on `lesmis` it is 0.517. SciGraphs' `_circle_pac
 `lesmis` is non-planar. Port that fallback's branch and its solver.
 **Expected:** `lesmis` disparity 0.517 -> ~1e-16 and `bitwise f32` 808/1020 -> ~1020/1020.
 
+**Partly repaired 2026-10-02** (`docs/measurements/sg-fix-spring-temp.md`): the fallback's
+**starting degree** now counts a self-loop twice, as SciGraphs' `G.degree` does
+(`circle_packing.py:420` reads the graph `common.py:297` built with its loops still in;
+networkx counts one twice, `reportviews.py:526`). The row did **not** move — no conformance
+fixture has a self-loop — so this is correctness on the oracle's terms with no measured
+effect here, and the non-planar fallback itself is still unrepaired. The fallback's springs
+and seed still differ on a loop-carrying graph: SciGraphs feeds the loop-carrying `G` to
+`nx.spring_layout` (`:428`) and its edge array (`:432`), where this port reduces loops away.
+
 ### 4. `SPRING`, `SPRING_3D` — `rng`, and the parameter is the whole repair
 **File:** `crates/graph-core/src/layout/force/spring.rs:120` (`SpringParams` has no `seed` field).
 **Change:** add `seed: u32` to `SpringParams`, default it to `get_layout_seed()`, and draw the
@@ -255,6 +264,16 @@ start from a **numpy MT19937 `RandomState`** rather than the kernel's own Mulber
 generator is the cause, not the seed. networkx's `spring_layout` takes `seed=` and SciGraphs
 passes `get_layout_seed()` (`networkx_layouts.py:18`).
 **Expected:** `bitwise f64` 341/1020 -> ~1020/1020; the cause becomes `arithmetic`.
+
+**One defect repaired 2026-10-02, and it was not this one**
+(`docs/measurements/sg-fix-spring-temp.md`): the opening temperature read the widest of all
+`D` columns, where networkx reads `pos.T[0]` and `pos.T[1]` and nothing else at every `dim`
+(`layout.py:687` dense, `:776` sparse) — so a z-dominant `dim = 3` start opened up to 19.95x
+too hot, measured against networkx's own `t`. `SPRING_3D`'s motor bytes moved and its first
+sha was re-pinned; its disparity is **unchanged** (3/1020, max gap 10, Procrustes median
+0.1721478627737976 before and after), because the motor's near-isotropic start makes the two
+rules differ by at most 2.01% on any real fixture. `SPRING` (`D = 2`) could not move and did
+not. **The seed gap above is untouched and still open.**
 
 ### 5. `RANDOM` — `rng`, the smallest possible port
 **File:** `crates/graph-core/src/layout/random.rs:30`. **Change:** `SEED` is the const `0x5EED`; the

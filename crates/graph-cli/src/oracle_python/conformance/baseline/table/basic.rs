@@ -37,7 +37,7 @@ pub(super) const BASIC: [Baseline; 6] = [
     ),
     row(
         "SPRING_3D",
-        "8b936b0c3664ac7bd1be9bfff1fb9e48f9a880e4275f1690ceb10be55630b202",
+        "7cfcdd38ce96eb9113a08ffda8a43a55f79f5dbf5f0addf40049b735139f097f",
         "0a6e3c9035a5342d6d960d99b96b4b651f35942bb2db95eede6e7c88abea9515",
         "",
         1e0,
