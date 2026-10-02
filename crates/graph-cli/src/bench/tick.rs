@@ -83,11 +83,6 @@ pub fn measure(plan: &Plan) -> Result<String, String> {
     let mut session = Stepper::start(plan, &topology).map_err(|e| format!("n={}: {e}", plan.n))?;
     session.step(plan.warm);
     let warm_ms = ms_since(started);
-    if std::env::var_os("GM_TICK_DIAG").is_some() {
-        if let Stepper::ParticleMesh(run, _) = &session {
-            diag(run.xs(), run.ys());
-        }
-    }
     let samples: Vec<f64> = (0..plan.ticks)
         .map(|_| {
             let tick = Instant::now();
@@ -164,41 +159,4 @@ impl Stepper {
 
 fn ms_since(start: Instant) -> f64 {
     start.elapsed().as_secs_f64() * 1e3
-}
-
-fn diag(xs: &[f64], ys: &[f64]) {
-    use std::collections::HashMap;
-    let d = 32.0_f64;
-    let mut grid: HashMap<(i64, i64), Vec<u32>> = HashMap::new();
-    let (mut lox, mut hix, mut loy, mut hiy) = (f64::MAX, f64::MIN, f64::MAX, f64::MIN);
-    for i in 0..xs.len() {
-        let (x, y) = (xs[i], ys[i]);
-        lox = lox.min(x); hix = hix.max(x); loy = loy.min(y); hiy = hiy.max(y);
-        grid.entry(((x / d).floor() as i64, (y / d).floor() as i64)).or_default().push(i as u32);
-    }
-    let mut hits: Vec<u32> = vec![0; xs.len()];
-    let mut cands: u64 = 0;
-    for (&(cx, cy), members) in &grid {
-        for &i in members {
-            for dy in -1..=1 { for dx in -1..=1 {
-                if let Some(other) = grid.get(&(cx + dx, cy + dy)) {
-                    cands += other.len() as u64;
-                    for &j in other {
-                        if j != i {
-                            let (ex, ey) = (xs[i as usize] - xs[j as usize], ys[i as usize] - ys[j as usize]);
-                            if ex * ex + ey * ey < d * d { hits[i as usize] += 1; }
-                        }
-                    }
-                }
-            }}
-        }
-    }
-    let mut cell_sizes: Vec<usize> = grid.values().map(Vec::len).collect();
-    cell_sizes.sort_unstable();
-    let mut h = hits.clone(); h.sort_unstable();
-    let n = xs.len();
-    let total: u64 = hits.iter().map(|&v| u64::from(v)).sum();
-    eprintln!("diag n={n} bounds x[{lox:.0},{hix:.0}] y[{loy:.0},{hiy:.0}] cells={} cell max={} p99={} | cand/node={:.1} hits/node={:.1} p50={} p99={} max={}",
-        cell_sizes.len(), cell_sizes[cell_sizes.len()-1], cell_sizes[cell_sizes.len()*99/100],
-        cands as f64 / n as f64, total as f64 / n as f64, h[n/2], h[n*99/100], h[n-1]);
 }
