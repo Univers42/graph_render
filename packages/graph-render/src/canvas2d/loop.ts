@@ -5,7 +5,7 @@
 import { markNeighbourhood } from "../adjacency.ts";
 import type { Bounds, Camera, Viewport, ZoomLimits } from "../camera.ts";
 import { dimAt, fadeLevel } from "../fade.ts";
-import { type LabelPlan, type LabelPolicy, type Occupancy, planLabels } from "../labels.ts";
+import { type LabelInput, type LabelPlan, type LabelPolicy, type Occupancy, followLabels, planLabels } from "../labels.ts";
 import type { Scene } from "../scene.ts";
 import type { Theme } from "../theme.ts";
 import { TRANSITION_MS, blend, easeInOutCubic } from "../transition.ts";
@@ -128,22 +128,41 @@ function advance(state: LoopState, now: number): boolean {
   return true;
 }
 
-function plan(state: LoopState, focus: number, travelling: boolean): void {
-  if (!layoutChanged(state, focus, travelling)) return;
-  state.layoutRuns += 1;
+/**
+ * The node count from which a moving frame follows the last label plan instead of laying one
+ * out. Estimated, not measured per size: the full plan cost about 7 ms a frame at 1 000 000
+ * nodes zoomed in (target/p5-zoom.log), a linear rank scan, so about 1 ms here.
+ */
+const FOLLOW_FROM = 131_072;
+
+function labelInput(state: LoopState, focus: number): LabelInput {
   const { scene, sprites } = state;
-  planLabels({
-    style: scene.style,
-    x: state.x,
-    y: state.y,
-    extent: scene.extent,
-    camera: state.camera,
-    viewport: state.viewport,
-    lit: focus >= 0 ? state.lit : null,
-    policy: state.policy,
-    widthOf: (node) => sprites.widthOf(scene.style.labels[node] ?? ""),
-    height: state.theme.labelHeight,
-  }, state.plan, state.occupancy);
+  return {
+    style: scene.style, x: state.x, y: state.y, extent: scene.extent, camera: state.camera,
+    viewport: state.viewport, lit: focus >= 0 ? state.lit : null, policy: state.policy,
+    widthOf: (node) => sprites.widthOf(scene.style.labels[node] ?? ""), height: state.theme.labelHeight,
+  };
+}
+
+/** True when the last plan was laid out for this scene, focus, policy and viewport, which only a camera or a move changed since. */
+function followable(previous: LayoutKey | null, state: LoopState, focus: number): boolean {
+  return previous !== null && previous.scene === state.scene && previous.focus === focus
+    && previous.policy === state.policy && previous.theme === state.theme && previous.viewport === state.viewport
+    && state.scene.frame.nodeCount >= FOLLOW_FROM;
+}
+
+function plan(state: LoopState, focus: number, travelling: boolean, moving: boolean): void {
+  const previous = state.layoutKey;
+  if (!layoutChanged(state, focus, travelling)) return;
+  const input = labelInput(state, focus);
+  if (moving && followable(previous, state, focus)) {
+    followLabels(input, state.plan);
+    // The settled frame lays the labels out in full again, whatever its key says.
+    state.layoutDirty = true;
+    return;
+  }
+  state.layoutRuns += 1;
+  planLabels(input, state.plan, state.occupancy);
 }
 
 /**
@@ -165,7 +184,7 @@ function paint(state: LoopState, moving: boolean, settled: boolean): void {
   const focus = focusOf(state);
   const theme = { ...state.theme, dimAlpha: dimOpacity(state, performance.now()) };
   const drawn = space(state);
-  if (drawn === null) plan(state, focus, travelling);
+  if (drawn === null) plan(state, focus, travelling, moving);
   const { scene } = state;
   state.counts = paintFrame({
     ctx: state.ctx, viewport: state.viewport, dpr: state.dpr, camera: state.camera, theme, space: drawn,
@@ -219,5 +238,5 @@ function renderFrame(state: LoopState, now: number): void {
   // A frame that baked a label planned it at width 0: one more frame lays it out at its width.
   const rebake = state.sprites.starved() || state.sprites.rasterised() > 0;
   if (travelling || fading(state, performance.now()) || rebake || state.bulk.refining) invalidate(state);
-  else if (moving && (state.scene.frame.edgeCount > state.pace.budget || drewAWay(state.counts))) armSettle(state);
+  else if (moving && (state.scene.frame.edgeCount > state.pace.budget || drewAWay(state.counts) || state.layoutDirty)) armSettle(state);
 }

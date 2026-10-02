@@ -144,14 +144,16 @@ export interface ScreenView {
 /**
  * The shown nodes whose padded box meets the viewport, in index order (the order they paint
  * in). The quad pass draws only these: software rasterisers walk every instance of a draw.
+ * The scan stops at `limit + 1` nodes, so a caller that only wants them when they are few
+ * learns there are more without a pass over all of them.
  * ponytail: a fresh array per quad frame; pool it if a profile shows the collector.
  */
-export function onScreen(view: ScreenView): Uint32Array {
+export function onScreen(view: ScreenView, limit = Infinity): Uint32Array {
   const { x, y, halves, camera, viewport, pad } = view;
   const count = Math.min(x.length, y.length, Math.floor(halves.length / 2));
-  const out = new Uint32Array(count);
+  const out = new Uint32Array(Math.min(count, limit + 1));
   let kept = 0;
-  for (let node = 0; node < count; node += 1) {
+  for (let node = 0; node < count && kept <= limit; node += 1) {
     const halfX = halves[2 * node] ?? -1;
     if (halfX < 0) continue;
     const reachX = halfX * camera.scale + pad;

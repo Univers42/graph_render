@@ -10,7 +10,8 @@ import { MOVING_BUDGET } from "../canvas2d/edges.ts";
 import { drawBulk } from "./draw.ts";
 import { type BulkLayer, createBulk } from "./layer.ts";
 import { type BackendChoice, bulkWanted, nextBudget } from "./plan.ts";
-import { type Still, newStill, paintStill } from "./still.ts";
+import { type Glide, dropGlide, glideFrame, keepFrame, newGlide } from "./glide.ts";
+import { type Still, newStill, paintStill, viewOf } from "./still.ts";
 
 export interface BulkSlot {
   backend: BackendChoice;
@@ -26,10 +27,12 @@ export interface BulkSlot {
   still: Still | null | undefined;
   /** True while the last frame's still picture lacked edges: the loop asks for another frame. */
   refining: boolean;
+  /** The picture moving frames redraw under the camera's change (glide.ts). */
+  readonly glide: Glide;
 }
 
 export function newBulkSlot(backend: BackendChoice): BulkSlot {
-  return { backend, layer: undefined, failure: "", placed: 0, budget: MOVING_BUDGET, still: undefined, refining: false };
+  return { backend, layer: undefined, failure: "", placed: 0, budget: MOVING_BUDGET, still: undefined, refining: false, glide: newGlide() };
 }
 
 function layerOf(slot: BulkSlot): BulkLayer | null {
@@ -46,17 +49,25 @@ function layerOf(slot: BulkSlot): BulkLayer | null {
 
 /** The whole frame drawn at once, or the budget's sample while moving; false when the context is lost. */
 function paintWhole(slot: BulkSlot, layer: BulkLayer, input: PaintInput, counts: PaintCounts): boolean {
+  const view = viewOf(input, slot.placed);
+  if (input.moving && glideFrame(slot, view, input, counts)) return true;
   const started = performance.now();
   const picture = drawBulk(layer, input, slot, counts);
   if (picture === null) return false;
   input.ctx.drawImage(picture, 0, 0, input.viewport.width, input.viewport.height);
-  picture.close();
+  if (!input.moving) {
+    picture.close();
+    return true;
+  }
   const total = Math.max(layer.uploaded.indexCount / 2, layer.uploaded.shown);
-  if (input.moving) slot.budget = nextBudget(slot.budget, performance.now() - started, total);
+  slot.budget = nextBudget(slot.budget, performance.now() - started, total);
+  if (input.focus < 0) keepFrame(slot.glide, picture, view, counts);
+  else picture.close();
   return true;
 }
 
 function paintSettled(slot: BulkSlot, layer: BulkLayer, input: PaintInput, counts: PaintCounts): boolean {
+  dropGlide(slot.glide);
   slot.still ??= newStill(slot.budget);
   if (slot.still === null) return paintWhole(slot, layer, input, counts);
   const lacking = paintStill(slot.still, { layer, placed: slot.placed }, input, counts);

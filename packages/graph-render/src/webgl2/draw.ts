@@ -5,10 +5,11 @@
  * Caveat: a moving frame draws a prefix of the spread edge and node orders, `pace.budget` of
  * each, and the settled frames then fill a kept picture with all of them (still.ts); the
  * sampled nodes stack in spread order rather than index order, so where two overlap the
- * other may be on top while the camera moves. Quads are never sampled: they are drawn only zoomed in, over the nodes on
- * screen. A point is clipped by its centre, so the GL viewport overhangs the canvas and a node
- * larger than the overhang is drawn as a quad instead, which costs a pass over every node on
- * the CPU to find those on screen.
+ * other may be on top while the camera moves. Quads are never sampled: they are drawn zoomed in,
+ * over the nodes on screen, and in a moving frame whose on-screen nodes fit its budget. Finding
+ * them is a pass over the nodes on the CPU, which a moving frame cuts short once more than its
+ * budget are on screen. A point is clipped by its centre, so the GL viewport overhangs the
+ * canvas and a node larger than the overhang is drawn as a quad instead.
  */
 import type { PaintCounts, PaintInput } from "../canvas2d/input.ts";
 import { MIN_SCREEN_RADIUS } from "../canvas2d/nodes.ts";
@@ -84,25 +85,39 @@ function nodeUniforms(layer: BulkLayer, pass: Pass, frame: Frame, pad: number): 
   gl.uniform4f(pass.uniforms("u_rim"), rim[0] / 255, rim[1] / 255, rim[2] / 255, rim[3] / 255);
 }
 
-/** The nodes drawn: the shown nodes as points (a `budget` prefix while moving), or quads over those on screen. */
+function drawQuads(layer: BulkLayer, frame: Frame, nodes: Uint32Array, pad: number): number {
+  if (nodes.length === 0) return 0;
+  syncQuads(layer, frame.input, nodes);
+  nodeUniforms(layer, layer.quads, frame, pad);
+  layer.gl.drawArraysInstanced(layer.gl.TRIANGLE_STRIP, 0, 4, nodes.length);
+  return nodes.length;
+}
+
+function visible(layer: BulkLayer, input: PaintInput, pad: number, limit = Infinity): Uint32Array {
+  const { x, y, camera, viewport } = input;
+  return onScreen({ x, y, halves: layer.uploaded.halves, camera, viewport, pad: pad + MIN_SCREEN_RADIUS }, limit);
+}
+
+/**
+ * The nodes drawn: the shown nodes as points, or quads over those on screen. A moving frame
+ * with more shown nodes than its budget draws every node on screen when they fit the budget,
+ * else a `budget` prefix of the spread order: zoomed in on 1M nodes, the prefix alone kept one
+ * of the twenty nodes on screen (target/p5-zoom-moving.png).
+ */
 function drawNodes(layer: BulkLayer, frame: Frame, budget: number): number {
   const { gl, uploaded } = layer;
   const { input } = frame;
   const pad = 0.5 + 1 / input.dpr;
   const reach = Math.max(MIN_SCREEN_RADIUS, 0.5, uploaded.largest * input.camera.scale) + pad;
-  if (reach * input.dpr <= frame.overhang) {
-    nodeUniforms(layer, layer.points, frame, pad);
-    if (!input.moving || budget >= uploaded.shown) gl.drawArrays(gl.POINTS, 0, frame.count);
-    else gl.drawElements(gl.POINTS, budget, gl.UNSIGNED_INT, 0);
-    return Math.min(budget, uploaded.shown);
+  if (reach * input.dpr > frame.overhang) return drawQuads(layer, frame, visible(layer, input, pad), pad);
+  if (input.moving && budget < uploaded.shown) {
+    const nodes = visible(layer, input, pad, budget);
+    if (nodes.length <= budget) return drawQuads(layer, frame, nodes, pad);
   }
-  const { x, y, camera, viewport } = input;
-  const nodes = onScreen({ x, y, halves: uploaded.halves, camera, viewport, pad: pad + MIN_SCREEN_RADIUS });
-  if (nodes.length === 0) return 0;
-  syncQuads(layer, input, nodes);
-  nodeUniforms(layer, layer.quads, frame, pad);
-  gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, nodes.length);
-  return nodes.length;
+  nodeUniforms(layer, layer.points, frame, pad);
+  if (!input.moving || budget >= uploaded.shown) gl.drawArrays(gl.POINTS, 0, frame.count);
+  else gl.drawElements(gl.POINTS, budget, gl.UNSIGNED_INT, 0);
+  return Math.min(budget, uploaded.shown);
 }
 
 /** The canvas size in device pixels. */

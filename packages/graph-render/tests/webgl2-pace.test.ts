@@ -51,6 +51,9 @@ test("on screen keeps the shown nodes whose padded box meets the viewport, in in
   // node 0 straddles the corner, 1 is inside, 2 is at x=200 (on the edge), 3 is at x=400 with reach 9, 4 is hidden
   assert.deepEqual([...onScreen(view)], [0, 1, 2]);
   assert.deepEqual([...onScreen({ ...view, camera: { x: -200, y: 0, scale: 2 } })], [2, 3]);
+  // a limit of 1 stops at the second node on screen: the caller learns there are more than 1
+  assert.deepEqual([...onScreen(view, 1)], [0, 1]);
+  assert.deepEqual([...onScreen(view, 3)], [0, 1, 2]);
 });
 
 test("gathered copies each listed node's lanes into a column of the same type", () => {
