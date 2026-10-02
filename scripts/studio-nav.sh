@@ -29,9 +29,8 @@ if [[ ! -f "$root/app/dist/index.html" ]]; then
   echo "studio-nav: app/dist is missing — run scripts/studio.sh build" >&2
   exit 2
 fi
-if ! docker image inspect "$image" >/dev/null 2>&1; then
-  docker build -f "$root/deploy/chromium.Dockerfile" -t "$image" "$root/deploy" || exit 2
-fi
+source "$root/scripts/orch/image.sh"
+ensure_image "$image" || exit 2
 
 exec docker run --rm --memory 4g --memory-swap 4g -v "$root:/w" -w /w/deploy/nav "$image" \
   python3 nav.py --dist /w/app/dist --out "/w/target/studio-nav/$label" \

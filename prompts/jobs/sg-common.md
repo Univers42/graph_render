@@ -51,6 +51,10 @@ Constraints that bind every sg job:
   numpy's own `sin`/`cos` may differ from `libm` in the last ulp: such a row reaches the tolerance
   tier, not bitwise, and the doc says why.
 - Edit only your row's lines in its `baseline/table/<family>.rs` and the matrix; other sg jobs edit the neighbouring rows.
+- igraph rows (`docs/decisions/layouts-igraph.md` rule 1): a job that implements never opens
+  `/goinfre/dlesieur/refs/igraph-0.11.9` or any igraph or python-igraph source. A silent spec is a
+  stop (`blocked: spec gap <file> <step>`); a separate spec-author job closes it. On 2026-10-02
+  `sg-igraph-dims` held both roles and its code was discarded (`sg-igraph-clean`).
 - House limits: 40 lines per function, 300 per file, 4 parameters; every heuristic carries `Ponytail:`.
 - A new registry entry fills every `Metadata` field and passes `capabilities --check` and
   `codegen --check`.

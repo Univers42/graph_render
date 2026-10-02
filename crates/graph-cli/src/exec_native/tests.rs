@@ -45,8 +45,30 @@ impl StepRange for Terms {
     }
 }
 
+/// A kernel whose value is a function of the **absolute** index `i`, so a span handed
+/// over shifted by a slot is a visible difference rather than a rounding coincidence.
+/// Exactly representable in `f32` over the whole test range (`4 * 1_000_003 + 4 < 2²⁴`),
+/// so the comparison below is about placement, not arithmetic.
+struct Ramp {
+    n: u32,
+}
+
+impl StepRange for Ramp {
+    type Out = f32;
+
+    fn len(&self) -> u32 {
+        self.n
+    }
+
+    fn step_range(&self, range: Range<u32>, out: &mut [f32]) {
+        for (slot, i) in out.iter_mut().zip(range) {
+            *slot = (f64::from(i) * 4.0 + f64::from(i % 5)) as f32;
+        }
+    }
+}
+
 /// Runs `kernel` on `workers` threads.
-fn run_threads_under(kernel: &Terms, workers: u32) -> Vec<f32> {
+fn run_threads_under<O: StepRange>(kernel: &O, workers: u32) -> Vec<O::Out> {
     let mut out = Vec::new();
     Threads.run(kernel, workers, &mut out);
     out
@@ -128,6 +150,64 @@ fn the_callers_buffer_is_overwritten_rather_than_appended_to() {
     assert_eq!(out, run_threads_under(&kernel, 1));
     Threads.run(&Terms::of(0, 0), 4, &mut out);
     assert!(out.is_empty());
+}
+
+/// The span chain at a size the small cases never reach. 1 000 003 is **not** a
+/// multiple of 7, so `partition` hands the first four workers one element more than the
+/// last three and the peel chain has to carry that remainder to the end; a
+/// `split_at_mut` that is off by one slot shows up here as a shifted column rather than
+/// as a panic on a case small enough to divide evenly.
+#[test]
+fn a_million_outputs_at_seven_workers_equal_the_serial_column() {
+    let kernel = Ramp { n: 1_000_003 };
+    let mut scalar = Vec::new();
+    Serial.run(&kernel, 1, &mut scalar);
+    assert_eq!(scalar.len(), 1_000_003);
+    assert_eq!(
+        run_threads_under(&kernel, 7),
+        scalar,
+        "7 workers over 1000003 outputs wrote the spans at the wrong offsets"
+    );
+}
+
+/// A kernel that computes nothing, so the clock below is `run`'s own per-step cost: the
+/// spawns, the join, one `resize` and one `partition` list, and none of the force. Its
+/// `Out` is the Barnes-Hut pass's own `(f64, f64)` at the pass's own 100 000 nodes, so
+/// the column is the same 16 bytes wide the real tier writes.
+struct Empty {
+    n: u32,
+}
+
+impl StepRange for Empty {
+    type Out = (f64, f64);
+
+    fn len(&self) -> u32 {
+        self.n
+    }
+
+    fn step_range(&self, _range: Range<u32>, _out: &mut [(f64, f64)]) {}
+}
+
+/// The number `docs/measurements/perf-p3-split.md` quotes as the spawn share, measured
+/// here and printed: 112 empty steps, the tick count the Barnes-Hut bench runs, at 7
+/// workers. Deliberately **no assertion on the clock** — a timing bound is a flake on a
+/// shared host and the doc records what the host said on the day.
+#[test]
+fn the_spawn_cost_of_seven_workers_over_a_tick_is_printed_not_asserted() {
+    let kernel = Empty { n: 100_000 };
+    let mut out = Vec::new();
+    Threads.run(&kernel, 7, &mut out); // warm the allocator and the column's pages
+    let steps = 112_u32;
+    let started = std::time::Instant::now();
+    for _ in 0..steps {
+        Threads.run(&kernel, 7, &mut out);
+    }
+    let ms = started.elapsed().as_secs_f64() * 1e3;
+    assert_eq!(out.len(), 100_000);
+    println!(
+        "spawn: 112 empty steps on 7 workers = {ms:.3} ms ({:.1} us/step)",
+        ms * 1e3 / f64::from(steps)
+    );
 }
 
 /// The negative control for this module's claim: a kernel whose ranges cut one

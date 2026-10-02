@@ -11,8 +11,12 @@
 //! all; [`HIERARCHICAL_3D`] reads the graph and [`SPRING_3D`] iterates. The three closed
 //! forms owe no seed and say so; the two that draw or read structure say what they compare.
 
+mod bipartite_3d;
+
 use super::Metadata;
 use graph_contract::geometry::{EdgeGeometryKind, NodeGeometryKind};
+
+pub(super) use bipartite_3d::BIPARTITE_3D;
 
 /// The node count the three graph-free 3D placements were run at, and why it is this one.
 ///
