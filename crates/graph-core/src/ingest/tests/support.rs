@@ -10,7 +10,7 @@
 //! import never warns about an unused member.
 
 pub(super) use crate::ingest::{
-    DEFAULT_WEIGHT, Derived, build, build_topology, describe, edge_strength, roles,
+    BuildError, DEFAULT_WEIGHT, Derived, build, build_topology, describe, edge_strength, roles,
     to_canonical_json,
 };
 pub(super) use crate::{EdgeKind, NodeKind, index_model, parse_node_id};

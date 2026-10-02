@@ -18,6 +18,10 @@ pub(super) struct Builder<'a> {
     nodes: Vec<NodeRecord>,
     edges: Vec<EdgeRecord>,
     tags: IndexSet<String>,
+    /// The relation edge ids already stated, over the whole walk. An `IndexSet`, so the
+    /// order is first-appearance and the order the records were derived in — nothing is
+    /// re-sorted and nothing is read back (D3).
+    edges_stated: IndexSet<String>,
 }
 
 impl<'a> Builder<'a> {
@@ -29,6 +33,7 @@ impl<'a> Builder<'a> {
             nodes: Vec::new(),
             edges: Vec::new(),
             tags: IndexSet::new(),
+            edges_stated: IndexSet::new(),
         }
     }
 
@@ -127,10 +132,29 @@ impl Builder<'_> {
     }
 
     fn relations(&mut self, record: &Record) -> Result<(), BuildError> {
+        for spec in self.relation_specs(record)? {
+            // A claim stated twice is one fact, so it is one edge: a reference carried
+            // twice in one list, and a link both records of a symmetric pair carry, each
+            // derive the same id twice. The ids would be identical either way and
+            // `index_model` keeps the first, so the derivation states one edge rather
+            // than leaving a consumer to discover the duplicate. The key is the **edge
+            // id**, over the whole walk rather than one record, because the two ways of
+            // saying it live in two records.
+            if self.edges_stated.insert(spec.id()) {
+                self.edges.push(spec.edge());
+            }
+        }
+        Ok(())
+    }
+
+    /// Every relation edge `record` states, in canonical link-field order and in the
+    /// order each field's references were written. No dedup here: a repeated claim is
+    /// filtered against the whole walk's ids by the caller, which is the only place that
+    /// can see claims from an earlier record.
+    fn relation_specs(&self, record: &Record) -> Result<Vec<Spec>, BuildError> {
         let collection = self.collection_of(record)?;
         let source = self.node_id(record);
         let mut specs = Vec::new();
-        let mut emitted: IndexSet<String> = IndexSet::new();
         for field in roles::link_fields(collection) {
             let Some(link) = &field.link else { continue };
             for target in roles::references(self.doc, record, &field.id) {
@@ -139,26 +163,17 @@ impl Builder<'_> {
                 // is "for diagnostics only. Nothing derives from it", and an edge id is
                 // derived identity: two adapters declaring the same link under different
                 // display names (`blocks` / "Blocks") derive one edge, not two.
-                let spec = Spec::new(
+                specs.push(Spec::new(
                     Ends::new(source.clone(), target),
                     EdgeKind::Relation,
                     &field.id,
                     // A symmetric link is drawn and identified without direction, so an
                     // A→B and a B→A are one edge rather than two.
                     !link.symmetric,
-                );
-                // A reference carried twice in one field is one fact, so it is one edge —
-                // the same rule `tags_of` states for a repeated tag value. The ids would
-                // be identical either way and `index_model` keeps the first, so the
-                // derivation states one edge rather than leaving a consumer to discover
-                // the duplicate.
-                if emitted.insert(spec.id()) {
-                    specs.push(spec);
-                }
+                ));
             }
         }
-        self.edges.extend(specs.iter().map(Spec::edge));
-        Ok(())
+        Ok(specs)
     }
 
     fn tags_of(&mut self, record: &Record) -> Result<(), BuildError> {

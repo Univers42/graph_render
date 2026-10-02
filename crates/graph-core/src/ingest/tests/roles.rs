@@ -163,11 +163,11 @@ fn the_title_comes_from_the_collections_title_field_not_from_searching_for_a_rol
 
 #[test]
 fn an_absent_value_is_none_and_an_empty_one_is_some_empty() {
-    // The `label` role's cell (`note`), which is the node's group.
-    let mut doc = group_role_only();
-    doc.records[0]
-        .values
-        .retain(|(k, _)| k != "note" && k != "group");
+    // The `label` role's cell (`note`), which is the node's group. The collection declares
+    // a `label` role, so the absent cell is **no group** — it does not reach for the
+    // declared `group` role's cell, which is right there holding "doing".
+    let mut doc = one_of_each();
+    doc.records[0].values.retain(|(k, _)| k != "note");
     assert_eq!(roles::group(&doc, &doc.records[0]), None);
     let mut doc = one_of_each();
     *cell(&mut doc.records[0], "note") = JsonValue::Text(String::new());

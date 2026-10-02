@@ -119,6 +119,16 @@ pub enum BuildError {
         /// The offending text.
         value: String,
     },
+    /// The derived graph would need a `u32` index past the end of the index space —
+    /// `index_model`'s own capacity refusal, carried here rather than panicked on.
+    ///
+    /// Additive: `build` never returns it (a derived graph's size is the document's
+    /// own), only [`build_topology`] does, and only because indexing is a second step
+    /// with its own refusal. The `&'static str` is the capacity error's own `what`.
+    Capacity {
+        /// What would have overflowed, e.g. `node index`.
+        what: &'static str,
+    },
 }
 
 impl std::fmt::Display for BuildError {
@@ -145,6 +155,11 @@ impl std::fmt::Display for BuildError {
                 "{coordinate} {value:?} contains `:` and cannot round-trip through the \
                  node-id grammar (H5): the id would parse back shifted"
             ),
+            Self::Capacity { what } => write!(
+                f,
+                "the derived graph needs `{what}` past the end of the `u32` index space: \
+                 refused, not wrapped"
+            ),
         }
     }
 }
@@ -168,12 +183,16 @@ pub fn build(doc: &Ingest) -> Result<Derived, BuildError> {
 /// The derived graph, indexed. The two steps are separate on purpose: [`build`] is the
 /// derivation and indexing is the motor's own topology step with its own capacity
 /// refusal, so a caller can see which of the two said no.
+///
+/// The refusal is [`BuildError::Capacity`], the index step's own `CapacityError` carried
+/// across rather than `.expect`ed away: a panic here would be a motor invariant stated as
+/// a crash, and the wasm ABI's single contract-invalid code is a refusal a caller can
+/// handle. No document a person can hold reaches it — the derived graph is the document's
+/// own size — so the comment that used to claim that is gone, not repeated.
 pub fn build_topology(doc: &Ingest) -> Result<(Derived, Topology), BuildError> {
     let derived = build(doc)?;
-    // A derived graph's size is the document's own, and CapacityError here would be a
-    // u32 exhaustion no document a person can hold reaches; the indexing call sites
-    // that can refuse are the ones that read raw records.
-    let topology = index_model(&derived.nodes, &derived.edges).expect("a derived graph indexes");
+    let topology = index_model(&derived.nodes, &derived.edges)
+        .map_err(|err| BuildError::Capacity { what: err.what })?;
     Ok((derived, topology))
 }
 

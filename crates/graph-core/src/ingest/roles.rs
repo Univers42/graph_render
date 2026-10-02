@@ -55,10 +55,16 @@ pub fn label<'a>(doc: &'a Ingest, record: &'a Record) -> Option<&'a str> {
 /// The value of the collection's first `label`-role field as the node's `group`, or —
 /// for a collection that declares no `label` role at all — the first `group`-role field.
 ///
-/// `Role::Label` wins where both are declared, because that is what the contract's
-/// `Role::Label` says it is ("a second string, the node's `group`"). `Role::Group` is the
-/// fallback so that a document declaring it is not silently dropped: a declared role with
-/// no reader is indistinguishable from a role nobody implemented.
+/// **The choice is the collection's, not the record's.** Whether the fallback exists is
+/// decided by the *declaration* — does this collection declare a `label` role? — and
+/// never by whether one record happens to carry a cell for it. Deciding per record would
+/// make the same collection derive two different node columns: a record whose label cell
+/// is absent would silently take its `group` cell, and one whose label cell is present
+/// would not, with nothing in the output saying which rule ran. `Role::Label` wins where
+/// both are declared, because that is what the contract's `Role::Label` says it is ("a
+/// second string, the node's `group`"); `Role::Group` is the fallback so that a document
+/// declaring it is not silently dropped — a declared role with no reader is
+/// indistinguishable from a role nobody implemented.
 ///
 /// **Ponytail (two roles, one column).** Failing input: a collection declaring both a
 /// `label` and a `group` field, where the `group` field's value is the one the user
@@ -66,9 +72,12 @@ pub fn label<'a>(doc: &'a Ingest, record: &'a Record) -> Option<&'a str> {
 /// node's group; the `group` value is dropped and nothing in the output says so. Escape
 /// hatch: declare `label` on the field whose value should be the group.
 pub fn group<'a>(doc: &'a Ingest, record: &'a Record) -> Option<&'a str> {
-    role_value(doc, record, Role::Label)
-        .or_else(|| role_value(doc, record, Role::Group))
-        .and_then(JsonValue::as_text)
+    let collection = doc.collection(&record.collection)?;
+    let role = match role_field(collection, Role::Label) {
+        Some(_) => Role::Label,
+        None => Role::Group,
+    };
+    role_value(doc, record, role).and_then(JsonValue::as_text)
 }
 
 /// The values of the collection's first `tags`-role field, as strings, in the order

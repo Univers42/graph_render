@@ -208,3 +208,48 @@ fn a_reference_carried_twice_in_one_many_link_is_one_edge() {
         .collect();
     assert_eq!(relations, ["rows:task:r1->rows:task:r2:relation:blocks"]);
 }
+
+#[test]
+fn a_link_carried_by_both_records_is_one_edge() {
+    // The same rule as the reference carried twice, one step wider: the two claims live in
+    // two records rather than in one list. A symmetric `A→B` and a `B→A` are one id
+    // (`make_edge_id` orders the endpoints of an undirected edge), so the derivation
+    // states one edge rather than a pair that `index_model` would silently halve.
+    let mut doc = one_of_each();
+    doc.collections[0].fields[7]
+        .link
+        .as_mut()
+        .expect("declared")
+        .symmetric = true;
+    doc.records.push(Record {
+        id: "r2".into(),
+        collection: "task".into(),
+        deleted: false,
+        updated_at: 3,
+        values: vec![
+            ("name".into(), JsonValue::Text("Next".into())),
+            (
+                "blocks".into(),
+                JsonValue::List(vec![JsonValue::Text("r1".into())]),
+            ),
+        ],
+    });
+    let graph = build(&doc).expect("derives");
+    let relations: Vec<&str> = graph
+        .edges
+        .iter()
+        .filter(|e| e.kind == EdgeKind::Relation)
+        .map(|e| e.id.as_str())
+        .collect();
+    assert_eq!(relations, ["rows:task:r1--rows:task:r2:relation:blocks"]);
+    // The indexed graph holds that same one relation edge, so the derivation and the
+    // topology cannot disagree about how many facts there were: the four edges derived
+    // are the hierarchy edge naming the absent `r0` (dangling, so indexing drops it),
+    // the one relation edge, and the two tag edges.
+    let (_, topology) = build_topology(&doc).expect("indexes");
+    assert_eq!(
+        topology.edge_count(),
+        3,
+        "one relation edge and two tag edges"
+    );
+}

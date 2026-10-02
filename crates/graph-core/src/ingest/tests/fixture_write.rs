@@ -42,9 +42,6 @@ pub(super) fn write_graph(produced: &str) -> std::io::Result<String> {
     Ok(updated)
 }
 
-/// `text` with its top-level `"name"` member's value replaced by `value`, byte for byte
-/// elsewhere. Scans for the member's braces rather than parsing and re-emitting the whole
-/// document, so the sibling member's bytes cannot change.
 /// `text` with the top-level `"name"` member's **value** replaced by `value`, which is
 /// the braces and what is between them — no separator, no trailing newline.
 ///
@@ -53,6 +50,14 @@ pub(super) fn write_graph(produced: &str) -> std::io::Result<String> {
 /// here rather than read from `text`, so a file this function has already written is
 /// rewritten byte-identically instead of accumulating a separator's worth of drift per
 /// run.
+///
+/// Ponytail: `find("\"graph\":")` takes the FIRST `"graph":` anywhere in the file, not the
+/// top-level member the line above names, so the assertion is position-insensitive: it
+/// passes on the committed fixture only because that file's first `"graph":` is the member
+/// it means. It fails on any fixture whose first `"graph":` is something else — a
+/// `graph.json` carrying `"graph":` inside another object, or an earlier nested structure —
+/// which would then be rewritten as if it were the member. Escape hatch: none; the caller
+/// passes the whole document text it read.
 fn replace_member(text: &str, name: &str, value: &str) -> Result<String, String> {
     let key = format!("\"{name}\":");
     let at = text
