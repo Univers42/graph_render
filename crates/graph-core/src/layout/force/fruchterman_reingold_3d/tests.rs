@@ -11,11 +11,12 @@ use crate::stage::Stage;
 use graph_contract::geometry::NodeGeometry;
 
 fn graph(n: u32, pairs: &[(u32, u32)]) -> Topology {
-    let nodes = (0..n).map(|i| node(&format!("n{i}"), ""));
-    let edges = pairs
+    let nodes: Vec<_> = (0..n).map(|i| node(&format!("n{i}"), "")).collect();
+    let edges: Vec<_> = pairs
         .iter()
         .enumerate()
-        .map(|(i, (a, b))| edge(&format!("e{i}"), &format!("n{a}"), &format!("n{b}")));
+        .map(|(i, (a, b))| edge(&format!("e{i}"), &format!("n{a}"), &format!("n{b}")))
+        .collect();
     index_model(&nodes, &edges).expect("fits")
 }
 
@@ -50,8 +51,9 @@ fn the_defaults_are_the_specs() {
 #[test]
 fn the_output_spreads_on_all_three_axes() {
     let g = FruchtermanReingold3D::run(&path(14), &FrParams::default()).expect("finite geometry");
-    for (name, c) in ["x", "y", "z"].zip(columns(&g)) {
-        assert!(spread(&c) > 0.0, "column {name} is flat: a 3-D layout must use z");
+    let (x, y, z) = columns(&g);
+    for (name, c) in [("x", &x), ("y", &y), ("z", &z)] {
+        assert!(spread(c) > 0.0, "column {name} is flat: a 3-D layout must use z");
     }
 }
 
@@ -86,8 +88,8 @@ fn zero_iterations_return_the_seeded_start_inside_the_box() {
 #[test]
 fn an_isolated_edge_settles_at_its_own_length() {
     let t = graph(2, &[(0, 1)]);
-    let (x, _, _) = columns(&FruchtermanReingold3D::run(&t, &FrParams::default()).expect("edge"));
-    let d = (x[0] - x[1]).abs();
+    let (x, y, z) = columns(&FruchtermanReingold3D::run(&t, &FrParams::default()).expect("edge"));
+    let d = libm::sqrt((x[0] - x[1]).powi(2) + (y[0] - y[1]).powi(2) + (z[0] - z[1]).powi(2));
     assert!((d - 1.0).abs() < 1e-2, "the 2-D equilibrium length, in 3-D too: {d}");
 }
 

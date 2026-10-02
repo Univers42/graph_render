@@ -12,11 +12,12 @@ use graph_contract::geometry::NodeGeometry;
 
 /// `n` nodes numbered `n0..` and the given edges, as every force layout test builds one.
 fn graph(n: u32, pairs: &[(u32, u32)]) -> Topology {
-    let nodes = (0..n).map(|i| node(&format!("n{i}"), ""));
-    let edges = pairs
+    let nodes: Vec<_> = (0..n).map(|i| node(&format!("n{i}"), "")).collect();
+    let edges: Vec<_> = pairs
         .iter()
         .enumerate()
-        .map(|(i, (a, b))| edge(&format!("e{i}"), &format!("n{a}"), &format!("n{b}")));
+        .map(|(i, (a, b))| edge(&format!("e{i}"), &format!("n{a}"), &format!("n{b}")))
+        .collect();
     index_model(&nodes, &edges).expect("fits")
 }
 
@@ -103,8 +104,9 @@ fn the_three_node_path_that_breaks_igraph_is_finite_here() {
 fn the_output_spreads_on_all_three_axes() {
     let t = graph(14, &(1..14).map(|i| (i - 1, i)).collect::<Vec<_>>());
     let g = KamadaKawai3D::run(&t, &KkParams::default()).expect("finite geometry");
-    for (name, c) in ["x", "y", "z"].zip(columns(&g)) {
-        assert!(spread(&c) > 0.0, "column {name} is flat");
+    let (x, y, z) = columns(&g);
+    for (name, c) in [("x", &x), ("y", &y), ("z", &z)] {
+        assert!(spread(c) > 0.0, "column {name} is flat");
     }
 }
 
@@ -124,5 +126,5 @@ fn empty_and_single_node_graphs_are_finite() {
     let (x, y, z) = columns(&one);
     assert_eq!((x.len(), y.len(), z.len()), (1, 1, 1));
     assert!(x[0].is_finite() && y[0].is_finite() && z[0].is_finite());
-    assert!((z[0] - (0.36 * libm::sqrt(1.0) as f32)).abs() < f32::EPSILON, "the south pole");
+    assert!((z[0] + 0.36).abs() < 1e-6, "one vertex is the south pole");
 }
