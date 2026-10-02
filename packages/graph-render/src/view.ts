@@ -4,8 +4,11 @@
  *   const view = createView(canvas);
  *   view.setFrame(frameFrom(decodeSnapshot(bytes)));
  *
+ * A scene above BULK_THRESHOLD nodes draws through a WebGL2 layer (`webgl2/`) when the browser
+ * has one, and through Canvas2D otherwise or once the GL context is lost.
+ *
  * It does not: run a layout, fetch, read CSS, or keep a frame loop alive while parked.
- * Not done yet: a WebGL2 backend, pinch with two pointers, keyboard navigation of nodes.
+ * Not done yet: WebGPU, pinch with two pointers, keyboard navigation of nodes.
  */
 import { type Camera, type Point, type Viewport, type ZoomLimits, panBy, zoomAt } from "./camera.ts";
 import { cameraApi, inSpace, orbitBy, sceneApi, zoomAt3d } from "./camera-api.ts";

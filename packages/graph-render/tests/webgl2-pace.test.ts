@@ -2,8 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { MOVING_BUDGET } from "../src/canvas2d/edges.ts";
-import { FAST_MS, SLOW_MS, gathered, largestHalf, nextBudget, onScreen, spreadOrder, spreadPairs, spreadShown } from "../src/webgl2/plan.ts";
+import { FAST_MS, MOVING_FLOOR, SLOW_MS, gathered, largestHalf, nextBudget, onScreen, spreadOrder, spreadPairs, spreadShown } from "../src/webgl2/plan.ts";
 
 test("the spread order is a permutation whose every prefix covers the range evenly", () => {
   assert.deepEqual([...spreadOrder(8)], [0, 4, 2, 6, 1, 5, 3, 7]);
@@ -33,9 +32,10 @@ test("the moving budget halves when slow, doubles when fast, and stays inside it
   assert.equal(nextBudget(64000, SLOW_MS + 1, 1e6), 32000);
   assert.equal(nextBudget(64000, FAST_MS - 1, 1e6), 128000);
   assert.equal(nextBudget(64000, (SLOW_MS + FAST_MS) / 2, 1e6), 64000);
-  assert.equal(nextBudget(MOVING_BUDGET, SLOW_MS + 1, 1e6), MOVING_BUDGET);
+  assert.equal(nextBudget(MOVING_FLOOR, SLOW_MS + 1, 1e6), MOVING_FLOOR);
+  assert.equal(nextBudget(MOVING_FLOOR + 1, SLOW_MS + 1, 1e6), MOVING_FLOOR);
   assert.equal(nextBudget(800000, FAST_MS - 1, 1e6), 1e6);
-  assert.equal(nextBudget(MOVING_BUDGET, SLOW_MS + 1, 100), 100);
+  assert.equal(nextBudget(MOVING_FLOOR, SLOW_MS + 1, 100), 100);
 });
 
 test("the largest half is the widest side of any shown node, and 0 when none is shown", () => {

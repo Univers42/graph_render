@@ -2,7 +2,6 @@
  * The pure half of the GPU layer: which backend draws a frame, and the arrays it uploads.
  * Nothing here touches a GL context, so all of it runs under `node --test`.
  */
-import { MOVING_BUDGET } from "../canvas2d/edges.ts";
 
 /** `auto` takes the GPU layer for a large scene when the browser has one. */
 export type BackendChoice = "auto" | "canvas2d" | "webgl2";
@@ -110,10 +109,16 @@ export function spreadShown(halves: Float32Array): Uint32Array {
 /** A moving GPU frame above this many milliseconds halves its budget, below FAST_MS doubles it. */
 export const SLOW_MS = 24;
 export const FAST_MS = 12;
+/**
+ * The fewest edges, and nodes, a moving GPU frame draws. It starts at MOVING_BUDGET and may fall
+ * this far: on software raster a random 1M-node layout spends its frame rasterising MOVING_BUDGET
+ * screen-long lines (`transferToImageBitmap` was 84% of a zoom's CPU profile), at 17-19 fps.
+ */
+export const MOVING_FLOOR = 2048;
 
 /**
  * The edges, and the nodes, the next moving frame draws, from what the last one cost: halved
- * above SLOW_MS, doubled below FAST_MS, kept between, never below MOVING_BUDGET nor above the
+ * above SLOW_MS, doubled below FAST_MS, kept between, never below MOVING_FLOOR nor above the
  * whole set.
  * Caveat: `ms` is the time the CPU waited on the layer. A driver that returns before the GPU
  * is done (most hardware GPUs) reports less than the frame costs, so the budget climbs to the
@@ -121,7 +126,7 @@ export const FAST_MS = 12;
  */
 export function nextBudget(budget: number, ms: number, total: number): number {
   const next = ms > SLOW_MS ? budget / 2 : ms < FAST_MS ? budget * 2 : budget;
-  return Math.max(Math.min(MOVING_BUDGET, total), Math.min(total, Math.floor(next)));
+  return Math.max(Math.min(MOVING_FLOOR, total), Math.min(total, Math.floor(next)));
 }
 
 /** What `onScreen` culls against: the 2D view's camera, in CSS pixels. */
