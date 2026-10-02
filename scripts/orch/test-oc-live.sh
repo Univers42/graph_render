@@ -104,6 +104,11 @@ is "pinned session id live in the worktree -> 0" 0 "ses_a wt-job" run "$WT" ses_
 is "pinned session id live elsewhere -> 1" 1 "" run "$WT" ses_b
 is "pinned id stale, another session is in the worktree -> 0" 0 "ses_a wt-job" run "$WT" ses_gone
 is "unknown worktree -> 1" 1 "" run "$tmp/nowhere"
+ln -s "$WT" "$tmp/wt-link"
+is "worktree named through a symlink (wt-new.sh GM_WT_STORE) -> 0" 0 "ses_a wt-job" run "$tmp/wt-link"
+sess ses_l "$tmp/wt-link" via-link
+active ses_l
+is "session started through the symlink, asked by the real path -> 0" 0 "ses_l via-link" run "$WT"
 
 sess ses_c "$WT/" wt-trailing
 active ses_c
