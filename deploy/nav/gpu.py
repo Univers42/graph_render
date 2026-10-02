@@ -13,9 +13,12 @@ Two environment knobs, read here and by the wrapper that builds the probe's cont
                   the probe exits 2 instead of reporting a software number as a GPU one.
 
 Every probe prints `renderer <name>` from WEBGL_debug_renderer_info's UNMASKED_RENDERER_WEBGL, and
-under GM_GPU=1 a name that is a software rasteriser is a refusal to measure (SoftwareRasteriser),
-not a warning. Only the perf wrappers put GM_GPU in the container environment, so the parity gates
-(deploy/nav/backend.py) keep the software rasteriser that is the same on every host.
+under GM_GPU=1 a name that is a software rasteriser, or no name at all, is a refusal to measure
+(SoftwareRasteriser), not a warning. Only the perf wrappers put GM_GPU in the container environment,
+so the parity gates (deploy/nav/backend.py) keep the software rasteriser that is the same on every
+host. The image has to carry the Mesa userspace for this arm (deploy/chromium.Dockerfile): the tag
+`gm-chromium` is shared with every studio gate, so a rebuild from a tree without those packages
+leaves the hardware arm with no context, and the refusal below is what says so.
 
 Caveat: the renderer string names the backend Chromium chose, not what rasterised every pixel of
 the frame. The GPU blocklist can still hand part of a frame to the software rasteriser, and a
@@ -51,7 +54,7 @@ RENDERER_JS = """(() => {
 
 
 class SoftwareRasteriser(RuntimeError):
-    """GM_GPU=1 asked for the host's GPU and the browser drew on the CPU instead."""
+    """GM_GPU=1 asked for the host's GPU and the browser drew on the CPU, or on nothing nameable."""
 
 
 def wanted():
@@ -81,14 +84,16 @@ def is_software(name):
 
 
 def check(page):
-    """Print the renderer the probe drew on, and refuse a software one under GM_GPU=1.
+    """Print the renderer the probe drew on, and refuse a software or unnamed one under GM_GPU=1.
 
     Raises SoftwareRasteriser, which every probe's main turns into exit 2: the number would be a
-    CPU rasteriser's, and reporting it as the GPU arm's is the one failure this knob exists for.
+    CPU rasteriser's, or of no known rasteriser at all, and reporting it as the GPU arm's is the one
+    failure this knob exists for. A page that hands out no context, or a context without the debug
+    extension, cannot name its backend, so it proves nothing either way and counts as a refusal —
+    read it on a loaded document, not on about:blank, which names no renderer at all.
     """
     name = renderer(page)
     print(f"renderer {name}")
-    if wanted() and is_software(name):
-        raise SoftwareRasteriser(
-            f"GM_GPU=1 drew on a software rasteriser: {name}")
+    if wanted() and (is_software(name) or name.startswith("no ")):
+        raise SoftwareRasteriser(f"GM_GPU=1 drew on no hardware renderer: {name}")
     return name

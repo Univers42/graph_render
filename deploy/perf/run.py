@@ -173,11 +173,14 @@ def measure(args, out):
         browser = launch_browser(profile, args.backend)
         try:
             page = cdp.Page(DEBUG_PORT)
-            # What the browser's WebGL2 backend is, before a case is opened: under GM_GPU=1 a
-            # software rasteriser here is a refusal to measure, not a slower number.
-            name = gpu.check(page)
             query = f"?backend={args.backend}" if args.backend else ""
-            studio = Studio(page, f"http://127.0.0.1:{server.server_address[1]}/{query}", args.driver, args.edge_colour)
+            url = f"http://127.0.0.1:{server.server_address[1]}/{query}"
+            # What the browser's WebGL2 backend is, before a case is opened: under GM_GPU=1 a
+            # software rasteriser here is a refusal to measure, not a slower number. Read on a
+            # loaded document — about:blank hands out no context and names no backend.
+            page.navigate(url)
+            name = gpu.check(page)
+            studio = Studio(page, url, args.driver, args.edge_colour)
             version = page.call("Browser.getVersion").get("product")
             report = {
                 "label": out.name, "driver": args.driver, "commit": args.commit,
