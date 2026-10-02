@@ -148,6 +148,8 @@ pub fn rank2(g: &mut Fast, nodes: &[u32], params: &Params) -> Result<(), Error> 
         ctx.search_size = params.search_size as usize;
     }
     feasible_tree(g, &mut ctx, nodes)?;
+    #[cfg(test)]
+    tree::check_invariants(g, nodes, &ctx, "after feasible_tree");
     if params.maxiter <= 0 {
         balance::free_tree(g, nodes);
         return Ok(());
@@ -163,9 +165,8 @@ pub fn rank2(g: &mut Fast, nodes: &[u32], params: &Params) -> Result<(), Error> 
         };
         update(g, &mut ctx, e, f)?;
         iter += 1;
-        if std::env::var_os("GM_CHK").is_some() {
-            tree::validate(g, nodes, &ctx, &format!("at iter {iter}"));
-        }
+        #[cfg(test)]
+        tree::check_invariants(g, nodes, &ctx, "in the pivot loop");
         if iter >= params.maxiter {
             break;
         }

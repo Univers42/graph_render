@@ -349,42 +349,61 @@ fn oracle_digest() -> Vec<OracleRow> {
 #[ignore = "needs target/probe/rank1000.txt, written by the oracle probe"]
 fn rank_agreement_over_1000_seeds() {
     let rows = oracle_digest();
-    let agree: Vec<u32> = rows
-        .iter()
-        .filter(|row| {
-            let count = u32::try_from(row.ranks.len()).expect("a node count fits u32");
-            ranked(count, &row.edges) == row.ranks
-        })
-        .map(|row| row.seed)
-        .collect();
-    eprintln!("{} of {} seeds agree on every node's rank", agree.len(), rows.len());
-    let bad: Vec<(u32, usize)> = rows
-        .iter()
-        .filter(|row| !agree.contains(&row.seed))
-        .map(|row| (row.seed, row.ranks.len()))
-        .collect();
-    eprintln!("disagreeing: {bad:?}");
-    assert_eq!(
-        agree.len(),
-        RECORDED_AGREEMENT,
-        "{} of {} seeds agree; the measurements file says {RECORDED_AGREEMENT}",
-        agree.len(),
-        rows.len()
+    let mut agree = 0usize;
+    let mut equal_cost = 0usize;
+    let mut worse = 0usize;
+    for row in &rows {
+        let count = u32::try_from(row.ranks.len()).expect("a node count fits u32");
+        let got = ranked(count, &row.edges);
+        if got == row.ranks {
+            agree += 1;
+        }
+        let ours = cost(&row.edges, &got);
+        let theirs = cost(&row.edges, &row.ranks);
+        if ours == theirs {
+            equal_cost += 1;
+        }
+        if ours > theirs {
+            worse += 1;
+            eprintln!("worse: seed {} n {} ours {ours} theirs {theirs}", row.seed, row.ranks.len());
+        }
+    }
+    eprintln!(
+        "{} of {} seeds agree node for node; {} have equal cost; {} are worse",
+        agree,
+        rows.len(),
+        equal_cost,
+        worse
     );
+    assert_eq!(worse, 0, "a seed where the port ranks worse than the oracle");
+    assert_eq!(agree, RECORDED_AGREEMENT, "node-for-node agreement");
 }
 
 /// How many of the 1000 seeds agree on every node's rank, as measured and recorded in
 /// `docs/measurements/p13-gv2-dot.md`. Kept here so the assertion above names the number it
 /// is checking against and not a bare literal.
-const RECORDED_AGREEMENT: usize = 0;
+const RECORDED_AGREEMENT: usize = 692;
 
-
-#[test]
-#[ignore]
-fn debug_seed16() {
-    let rows = oracle_digest();
-    let row = rows.iter().find(|r| r.seed == 16).expect("seed 16");
-    let count = u32::try_from(row.ranks.len()).expect("n");
-    eprintln!("want {:?}", row.ranks);
-    eprintln!("got  {:?}", ranked(count, &row.edges));
+/// Total weighted edge length of a ranking: what the network simplex minimises, so two
+/// rankings with the same cost are two answers to the same question and the port is not
+/// *worse* for answering differently.
+///
+/// Parallel input edges are folded first because that is what `class1` does to them, so this
+/// is the cost of the graph the simplex actually ranked.
+fn cost(edges: &[(u32, u32)], ranks: &[i32]) -> i64 {
+    let mut merged: Vec<(u32, u32, i64)> = Vec::new();
+    for &(t, h) in edges {
+        match merged.iter_mut().find(|e| e.0 == t && e.1 == h) {
+            Some(e) => e.2 += 1,
+            None => merged.push((t, h, 1)),
+        }
+    }
+    let mut total = 0;
+    for (t, h, w) in merged {
+        let span = i64::from(ranks[h as usize] - ranks[t as usize]);
+        total += w * (span - 1).max(0);
+    }
+    total
 }
+
+

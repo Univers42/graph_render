@@ -104,15 +104,19 @@ pub fn feasible_tree(g: &mut Fast, ctx: &mut Ctx, nodes: &[u32]) -> Result<(), E
         }
     }
     init_cutvalues(g, nodes)?;
-    if std::env::var_os("GM_CHK").is_some() {
-        validate(g, nodes, ctx, "after feasible_tree");
-    }
     Ok(())
 }
 
-/// Debug-only invariants: the ranking is feasible, the tree edges are tight, and every cut
-/// value equals the one recomputed from scratch.
-pub(crate) fn validate(g: &Fast, nodes: &[u32], ctx: &Ctx, when: &str) {
+/// The simplex's own invariants, checked under `cfg(test)` after every `feasible_tree`: the
+/// ranking is feasible, the spanning tree's edges are tight, every cut value equals the one
+/// recomputed from scratch, and every node's parent edge is one hop nearer the root.
+///
+/// A pivot that breaks any of those leaves a ranking that is still *feasible* and still
+/// self-consistent, and therefore wrong without being obviously wrong: the objective stops
+/// improving and the ranks drift. Two of the bugs this pass was written with were exactly
+/// that, and neither showed up in any coordinate.
+#[cfg(test)]
+pub(crate) fn check_invariants(g: &Fast, nodes: &[u32], ctx: &Ctx, when: &str) {
     for &n in nodes {
         if n != nodes[0] {
             let parent = g.nodes[n as usize].par.expect("a parent edge");
@@ -156,6 +160,7 @@ pub(crate) fn validate(g: &Fast, nodes: &[u32], ctx: &Ctx, when: &str) {
 }
 
 /// The nodes still reachable from `edge`'s tail once it is removed from the tree.
+#[cfg(test)]
 fn tail_side(g: &Fast, edge: u32) -> Vec<bool> {
     let mut side = vec![false; g.nodes.len()];
     let mut stack = vec![g.edges[edge as usize].tail];
