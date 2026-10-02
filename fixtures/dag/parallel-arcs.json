@@ -1,0 +1,17 @@
+{
+  "about": "Parallel arcs: a->b spelled twice, and a four-layer spine a->b->c->d with a->d alongside a second a->c. The repeated a->b is the case the SciGraphs conformance job found -- the reference's `_acyclic_arcs` collects into a `set`, so two parallel edges are one arc, one dummy chain and one entry in up/down, while an edge-indexed port gives two of each and moves the layer index, the per-layer order and X. Without this fixture the dagre crossing gate is structurally blind to that: none of the other six fixtures, and no synthetic DAG the dump emits, has a parallel arc.",
+  "nodes": [
+    { "id": "a" },
+    { "id": "b" },
+    { "id": "c" },
+    { "id": "d" }
+  ],
+  "edges": [
+    { "id": "ab", "source": "a", "target": "b" },
+    { "id": "ab2", "source": "a", "target": "b" },
+    { "id": "bc", "source": "b", "target": "c" },
+    { "id": "cd", "source": "c", "target": "d" },
+    { "id": "ad", "source": "a", "target": "d" },
+    { "id": "ac2", "source": "a", "target": "c" }
+  ]
+}

@@ -28,6 +28,7 @@ export type ViewFace = Pick<
   | "setFrame" | "setStyle" | "setTheme" | "setLabels"
   | "fit" | "reset" | "zoomBy" | "panBy" | "limits"
   | "focus" | "select" | "local" | "showAll" | "on" | "toPNG" | "setCamera" | "frame" | "viewport"
+  | "hide" | "togglePin" | "pinned"
   | "orbit" | "setOrbit" | "resetOrbit" | "projected"
 >;
 

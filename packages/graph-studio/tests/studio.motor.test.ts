@@ -4,11 +4,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { FIT_MAX_SCALE, worldToScreen } from "../../graph-render/src/camera.ts";
 import { LIGHT_THEME } from "../../graph-render/src/theme.ts";
 import { GROUP_PALETTE } from "../src/look/palette.ts";
 import { sha256Hex } from "../src/motor/session.ts";
 import { DEFAULT_SETTINGS } from "../src/state/settings.ts";
-import { type Desk, desk, scriptedClient } from "./desk.ts";
+import { DESK_VIEWPORT, type Desk, desk, scriptedClient } from "./desk.ts";
 import { SKIP, realClient } from "./motor.ts";
 
 async function started(): Promise<Desk> {
@@ -44,14 +45,24 @@ test("fitting the results frames what the search highlighted, and needs no wasm"
   const made = await scripted();
   const empty = made.pipeline.fitResults();
   assert.match(empty.message, /fitted to 3 of 3 nodes/, "no search text: the whole drawing");
-  const bounds = made.seen.cameras[0];
-  assert.ok((bounds?.scale ?? 0) > 0);
+  const whole = made.seen.cameras[0];
+  assert.ok((whole?.scale ?? 0) > 0);
   // One result: the camera goes in, and the studio says what it framed.
   const settings = made.studio.store.get().settings;
   made.studio.store.update((state) => ({ ...state, settings: { ...settings, filter: { ...settings.filter, text: "alpha" } } }));
   const one = made.pipeline.fitResults();
   assert.match(one.message, /fitted to 1 of 3 nodes/);
-  assert.ok((made.seen.cameras.at(-1)?.scale ?? 0) > (bounds?.scale ?? 0), "a smaller set is shown larger");
+  const shown = made.seen.cameras.at(-1);
+  assert.ok(shown !== undefined, "a camera was set for the one result");
+  // "Frames what the search highlighted" means the matched node is under the middle of the
+  // canvas: Alpha sits at the origin, so that is the offset the camera has to hold.
+  const frame = made.seen.frames.at(-1)?.frame;
+  const alpha = { x: frame?.x[0] ?? NaN, y: frame?.y[0] ?? NaN };
+  assert.deepEqual(worldToScreen(shown, alpha), { x: DESK_VIEWPORT.width / 2, y: DESK_VIEWPORT.height / 2 });
+  assert.notEqual(shown.x, whole?.x, "not the whole drawing's centre, which is a node to the right");
+  // Three nodes at the renderer's own ceiling, never the view's 40: at 40× this desk reads as
+  // a broken view, which is what ST-10 was.
+  assert.ok(shown.scale <= FIT_MAX_SCALE, `never past ${FIT_MAX_SCALE}x, got ${shown.scale}x`);
 });
 
 test("starting draws the opening graph with its own names and sizes", { skip: SKIP }, async () => {

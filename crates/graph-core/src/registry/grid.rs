@@ -94,10 +94,10 @@ pub(super) const SUGIYAMA: Metadata = Metadata {
     edges: EdgeGeometryKind::Polyline,
     oracle: "dagre-d3-es 7.0.14 crossing counts (harness/oracle-layouts.mjs --dag, margin frozen \
 in docs/measurements/phase05-crossings.md) and SciGraphs hierarchical.py; per-seed structural \
-invariants (acyclic after FAS, monotone layers, contiguous dummy chains) checked by graph-cli \
-roundtrip",
-    complexity: "O(n+m) per phase; crossing reduction is a heuristic (median + transpose local \
-search), not a minimiser",
+invariants (acyclic after orienting every non-loop edge forward along the dense node order, \
+monotone layers, contiguous dummy chains) checked by graph-cli roundtrip",
+    complexity: "one O(m log m) sort of the arc list up front, then O(n+m) per phase; crossing \
+reduction is a heuristic (median + transpose local search), not a minimiser",
     scale_ceiling: SUGIYAMA_CEILING,
     degradation: "past the dummy budget (200000) long arcs are left straight and unrouted and \
 each is reported as note 4 dag.dummy_budget_exceeded; above 150000 layered vertices the transpose \
@@ -106,5 +106,8 @@ rounds drop to 0, so crossings rise while the drawing stays valid",
 whose optimal order it cannot reach draws more crossings than optimal — cosmetic, never \
 incorrect. Ponytail (dummy budget): an unrouted long arc is a straight line that may pass \
 through nodes — visually wrong, the dangerous direction; escape hatch: read note 4 in the \
-snapshot. Ponytail (FAS): greedy, not minimum; extra reversed edges (note 5) are cosmetic",
+snapshot. Ponytail (cycle breaking): arcs are oriented along the dense node order, not a greedy \
+feedback-arc-set peel, so a cycle is broken at every backwards edge rather than the fewest \
+possible — extra reversed edges (note 5) are cosmetic, each one drawn head to tail rather \
+than dropped",
 };
