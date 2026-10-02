@@ -5,6 +5,7 @@ import type { Frame } from "../frame.ts";
 import type { LabelPlan } from "../labels.ts";
 import type { Style } from "../style.ts";
 import type { Theme } from "../theme.ts";
+import type { Drawn } from "../three/projection.ts";
 import type { SpriteCache } from "./sprites.ts";
 import type { Surface2D } from "./surface.ts";
 
@@ -13,6 +14,13 @@ export interface PaintInput {
   readonly viewport: Viewport;
   readonly dpr: number;
   readonly camera: Camera;
+  /**
+   * The 3D drawing already projected for this frame, or `null`/`undefined` for a 2D one. The
+   * view fills it in `loop.ts` when the frame carries a z column, and it is optional so a
+   * 2D caller that never heard of 3D still type-checks and still draws what it always drew.
+   * Every 2D pass below ignores it.
+   */
+  readonly space?: Drawn | null;
   readonly theme: Theme;
   readonly frame: Frame;
   readonly style: Style;
@@ -26,6 +34,8 @@ export interface PaintInput {
   readonly settled: boolean;
   /** True while the camera or the nodes move: the painter may draw less. */
   readonly moving: boolean;
+  /** Edges a moving frame draws at most (`pace.ts`); MOVING_BUDGET when absent. */
+  readonly edgeBudget?: number;
   /** The node whose neighbourhood is lit, or -1. */
   readonly focus: number;
   /** 1 for the focus and its neighbours. Read only when `focus >= 0`. */
@@ -33,6 +43,11 @@ export interface PaintInput {
   readonly selected: number;
   readonly labels: LabelPlan;
   readonly sprites: SpriteCache;
+  /**
+   * Draws the frame's edges and nodes on a GPU layer and returns true, or returns false and
+   * leaves them to the 2D passes. Absent means the 2D passes draw everything.
+   */
+  readonly bulk?: (input: PaintInput, counts: PaintCounts) => boolean;
 }
 
 export interface PaintCounts {
@@ -57,8 +72,10 @@ export interface PaintCounts {
   glowFills: number;
   /** The stroke width of an edge in CSS pixels in the last frame. */
   stroke: number;
+  /** Draw calls on the GPU layer: 0 when the 2D passes drew the frame. */
+  bulk: number;
 }
 
 export function newCounts(): PaintCounts {
-  return { nodes: 0, edges: 0, labels: 0, draws: 0, arrows: 0, arrowSize: 0, curves: 0, strokes: 0, edgeStyles: 0, mixedEdges: 0, gradientStrokes: 0, arrowFills: 0, glowFills: 0, stroke: 0 };
+  return { nodes: 0, edges: 0, labels: 0, draws: 0, arrows: 0, arrowSize: 0, curves: 0, strokes: 0, edgeStyles: 0, mixedEdges: 0, gradientStrokes: 0, arrowFills: 0, glowFills: 0, stroke: 0, bulk: 0 };
 }

@@ -14,7 +14,7 @@ export const DIGEST = "0123456789abcdef0123456789abcdef";
 
 const RUN: RunSummary = {
   layoutId: "layout.forceatlas2", postId: null, postError: null, digest: DIGEST, byteLength: 64,
-  nodeKind: "Point", edgeKind: "Line", layoutMs: 12.5, postMs: 0, notes: [],
+  nodeKind: "Point", edgeKind: "Line", dim: 0, layoutMs: 12.5, postMs: 0, notes: [],
 };
 
 export const CATALOG = {

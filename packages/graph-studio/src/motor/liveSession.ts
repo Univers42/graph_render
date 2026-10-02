@@ -33,8 +33,21 @@ export interface MotorForceDeps {
   readonly ids: () => readonly string[] | null;
 }
 
-function rowOf(ids: readonly string[], id: string): number {
-  return ids.indexOf(id);
+/**
+ * The row table, built once per order. A duplicated id keeps its first row, which is what
+ * `indexOf` answered before: the studio's id table has one row per node, so a duplicate is
+ * a table that disagrees with itself and the first row is the one it drew.
+ *
+ * Caveat: keyed on the identity of the id array, so an order that is equal but a new array
+ * misses and is rebuilt — the array is replaced wholesale by every layout, never edited.
+ */
+function rowsOf(ids: readonly string[]): Map<string, number> {
+  const rows = new Map<string, number>();
+  for (let row = 0; row < ids.length; row += 1) {
+    const id = ids[row];
+    if (id !== undefined && !rows.has(id)) rows.set(id, row);
+  }
+  return rows;
 }
 
 /** A `ForceParams` the four knobs can be written into, field by field. */
@@ -42,6 +55,17 @@ type Writable = { -readonly [Field in keyof ForceParams]: number };
 
 export function createLiveForce(deps: MotorForceDeps): LiveForce {
   const { session, ids } = deps;
+  let indexed: readonly string[] | null = null;
+  let rows: Map<string, number> = new Map();
+  /** One table per order, not one scan per pin: a drag move asks for a row on every frame. */
+  const rowOf = (id: string): number => {
+    const order = ids() ?? [];
+    if (order !== indexed) {
+      indexed = order;
+      rows = rowsOf(order);
+    }
+    return rows.get(id) ?? -1;
+  };
   const knobParams = (knobs: ForceKnobs): Partial<ForceParams> => {
     const out: Partial<Writable> = {};
     for (const [knob, field] of PARAMS) out[field] = knobs[knob];
@@ -49,11 +73,11 @@ export function createLiveForce(deps: MotorForceDeps): LiveForce {
   };
   return {
     pin: (id, x, y) => {
-      const row = rowOf(ids() ?? [], id);
+      const row = rowOf(id);
       if (row >= 0) session.pin(row, x, y);
     },
     unpin: (id) => {
-      const row = rowOf(ids() ?? [], id);
+      const row = rowOf(id);
       if (row >= 0) session.unpin(row);
     },
     setParams: (knobs) => session.setParams(knobParams(knobs)),

@@ -94,15 +94,18 @@ fn capabilities_needs_a_flag_and_refuses_gated_rows_no_recorded_run_backs() {
     // Phase 10's ingest rows, `analysis.depth`, a new layout) moves the row count and
     // never this one. The row count itself is deliberately not asserted here; the
     // by-id check in `every_post_row_is_published_implemented_and_fully_filled` covers it.
+    //
+    // Promoting a row to `gated` **does** move it, so the count is measured against the
+    // registry's own gated rows (`gated_rows`) rather than spelled out.
     assert!(
         stdout(&check).contains("problems"),
         "the summary line is printed: {}",
         stdout(&check)
     );
     assert_eq!(
-        problems_in(&stdout(&check)),
-        34,
-        "gated rows with no recorded run behind them: {}",
+        problems_in(&stdout(&check)) as usize,
+        2 * gated_rows(),
+        "each gated row is refused once per verdict, and no other row is refused: {}",
         stdout(&check)
     );
 }
@@ -115,6 +118,25 @@ fn problems_in(summary: &str) -> u32 {
         .and_then(|(head, _)| head.rsplit(' ').next().map(str::to_owned))
         .and_then(|n| n.parse().ok())
         .expect("the summary ends in `<n> problems`")
+}
+
+/// How many rows the registry publishes as `gated`, counted off the binary's own JSON.
+///
+/// The problem count with nothing recorded is **`2 ×` this number** and not a literal, and
+/// deriving it is what keeps the two assertions below honest. The literal they replaced had
+/// to be hand-edited whenever a row was promoted to `gated`, and `layout.packing.osage` was
+/// exactly that promotion — so the claim those comments made, that adding rows "never this
+/// one", was true only of rows that are merely *added* and false of rows *promoted*. This
+/// measures the invariant they meant instead: every problem is a gated row with no record
+/// behind it, each counted once per verdict.
+fn gated_rows() -> usize {
+    let json = graph_cli(&["capabilities", "--json"]);
+    let rows: serde_json::Value = serde_json::from_str(&stdout(&json)).expect("json");
+    rows.as_array()
+        .expect("an array")
+        .iter()
+        .filter(|r| r["status"] == "gated")
+        .count()
 }
 
 /// Every POST row is published, `implemented`, and carries every required field. A POST
@@ -200,14 +222,15 @@ fn the_ledger_reads_a_recorded_run_and_names_what_it_lacks() {
 ///
 /// The count is asserted on the process's own output line, and the problem count is
 /// pinned beside it: an `implemented` row contributes no problem, so a new row may move
-/// the first number and never the second.
+/// the first number and never the second. The second is measured against the registry's
+/// own gated rows, so promoting one does move it — by exactly two, once per verdict.
 #[test]
 fn the_depth_row_is_published_by_the_binary_and_adds_no_problem() {
     let check = graph_cli(&["capabilities", "--check"]);
     assert_eq!(check.status.code(), Some(1), "{}", stdout(&check));
     assert_eq!(
-        problems_in(&stdout(&check)),
-        34,
+        problems_in(&stdout(&check)) as usize,
+        2 * gated_rows(),
         "the new row is implemented, so it adds a row and not a problem: {}",
         stdout(&check)
     );

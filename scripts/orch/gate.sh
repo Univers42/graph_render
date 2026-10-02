@@ -5,7 +5,7 @@
 set -uo pipefail
 source "$(dirname "$(readlink -f "$0")")/docker-env.sh"
 logdir=$1 rows=$2
-mkdir -p "$logdir"; summary=$logdir/summary.txt; : >"$summary"; fail=0
+mkdir -p "$logdir" || exit 2; summary=$logdir/summary.txt; : >"$summary"; fail=0
 while IFS='|' read -r name expect cmd; do
   [[ -z $name || $name == \#* ]] && continue
   start=$SECONDS

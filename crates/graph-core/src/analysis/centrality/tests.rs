@@ -152,3 +152,110 @@ fn closeness_of_diverges_between_dijkstras_wrong_distance_and_bellman_fords_corr
          Bellman-Ford-correct value on this input"
     );
 }
+
+/// An undirected edge carrying `weight` as its `strength`.
+fn weighted(id: &str, a: &str, b: &str, weight: f64) -> crate::records::EdgeRecord {
+    let mut e = edge(id, a, b);
+    e.strength = weight;
+    e
+}
+
+/// R5 (`docs/reviews/review-core-post.md`): a peer reached at distance 0 is reached.
+/// networkx 3.6 `closeness.py:127-133` keeps it in both `len(sp) - 1` and `totsp`; the
+/// values are networkx's own output (`closeness_centrality(G, distance="weight")` in
+/// `ge-python-oracle`: a 2.0, b 2.0, c 1.0).
+#[test]
+fn closeness_counts_a_zero_distance_peer_as_reached_like_networkx() {
+    let nodes = [node("a", ""), node("b", ""), node("c", "")];
+    let edges = [weighted("ab", "a", "b", 0.0), weighted("ac", "a", "c", 1.0)];
+    let t = index_model(&nodes, &edges).expect("fits");
+    assert_eq!(closeness(&t), vec![2.0, 2.0, 1.0]);
+}
+
+/// R6 (i): two nodes 1e-40 apart have closeness 1e40, past `f32::MAX`. D9: the value
+/// written is defined (finite), never `inf`.
+#[test]
+fn closeness_past_f32_range_is_finite() {
+    let nodes = [node("a", ""), node("b", "")];
+    let t = index_model(&nodes, &[weighted("ab", "a", "b", 1e-40)]).expect("fits");
+    let scores = closeness(&t);
+    assert!(scores.iter().all(|v| v.is_finite()), "{scores:?}");
+}
+
+/// R6 (ii): two parallel edges of strength 1.7e308 overflow one power-iteration step
+/// to `inf`, and `inf / inf` is NaN. The answer is finite and does not claim convergence.
+#[test]
+fn eigenvector_whose_step_overflows_f64_is_finite_and_unconverged() {
+    let nodes = [node("a", ""), node("b", "")];
+    let edges = [
+        weighted("ab1", "a", "b", 1.7e308),
+        weighted("ab2", "a", "b", 1.7e308),
+    ];
+    let (scores, converged) = eigenvector(&index_model(&nodes, &edges).expect("fits"));
+    assert!(scores.iter().all(|v| v.is_finite()), "{scores:?}");
+    assert!(!converged, "an overflowed iterate is not a converged one");
+}
+
+/// `layers` layers of two nodes, every node joined to both nodes of the next layer:
+/// layer `i` is reached by `2^i` shortest paths from layer 0, past `f64::MAX` at 1024.
+fn doubling_ladder(layers: u32) -> Topology {
+    let ids: Vec<String> = (0..layers)
+        .flat_map(|i| [format!("x{i}"), format!("y{i}")])
+        .collect();
+    let nodes: Vec<_> = ids.iter().map(|id| node(id, "")).collect();
+    let mut edges = Vec::new();
+    for i in 0..layers as usize - 1 {
+        for (a, b) in [(0, 0), (0, 1), (1, 0), (1, 1)] {
+            let (from, to) = (&ids[2 * i + a], &ids[2 * i + 2 + b]);
+            edges.push(directed(&format!("{from}-{to}"), from, to, 1.0));
+        }
+    }
+    index_model(&nodes, &edges).expect("fits")
+}
+
+/// R6 (iii), found while repairing R6: Brandes' path counts overflow `f64` on 3k
+/// nodes, inside the declared 20,000-node ceiling, and `inf / inf` writes NaN. A node
+/// of layer `i` of `L` carries half of the `2i * 2(L-1-i)` pairs across it.
+#[test]
+fn betweenness_past_f64_path_counts_is_finite_and_exact() {
+    const LAYERS: u32 = 1_030;
+    let scores = betweenness(&doubling_ladder(LAYERS));
+    for (v, &score) in scores.iter().enumerate() {
+        let i = v as u32 / 2;
+        let want = 2.0 * f64::from(i) * f64::from(LAYERS - 1 - i);
+        assert_eq!(score, want as f32, "node {v} (layer {i})");
+    }
+}
+
+/// R18: Brandes needs strictly positive weights. A zero-weight edge relaxed after its
+/// head was settled drops a predecessor (`a`'s share here: the definition gives
+/// `[0, 2, 1, 0]`, the code `[0, 2, 0, 0]`, as does networkx 3.6), and an undirected
+/// zero-weight edge is a zero-length cycle with no path count at all. igraph 0.11.9
+/// refuses the input (`src/centrality/betweenness.c:436-437`, "Weight vector must be
+/// positive"); this refuses it in debug, the module's discipline for negative weights.
+#[test]
+#[should_panic(expected = "strictly positive")]
+fn betweenness_panics_in_debug_on_a_zero_weight_edge() {
+    let nodes = [node("s", ""), node("b", ""), node("a", ""), node("t", "")];
+    let edges = [
+        directed("sb", "s", "b", 1.0),
+        directed("sa", "s", "a", 1.0),
+        directed("ab", "a", "b", 0.0),
+        directed("bt", "b", "t", 1.0),
+    ];
+    let _ = betweenness(&index_model(&nodes, &edges).expect("fits"));
+}
+
+/// R19: eigenvector centrality is a Perron vector, defined for non-negative weights
+/// only. On `a <-> b` at strength -1 the iteration settles on the `lambda = -1`
+/// vector and reports it converged.
+#[test]
+#[should_panic(expected = "non-negative")]
+fn eigenvector_panics_in_debug_on_a_negative_weight_graph() {
+    let nodes = [node("a", ""), node("b", "")];
+    let edges = [
+        directed("ab", "a", "b", -1.0),
+        directed("ba", "b", "a", -1.0),
+    ];
+    let _ = eigenvector(&index_model(&nodes, &edges).expect("fits"));
+}

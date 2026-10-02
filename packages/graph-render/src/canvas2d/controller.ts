@@ -9,10 +9,14 @@ import type { LocalLayer } from "../local.ts";
 import { EMPTY_FRAME, pickIn, sceneOf } from "../scene.ts";
 import { plainStyle } from "../style.ts";
 import { DARK_THEME, type Theme } from "../theme.ts";
+import { type Orbit, boxOf, fitOrbit } from "../three/orbit.ts";
+import type { BackendChoice } from "../webgl2/plan.ts";
+import { newBulkSlot } from "../webgl2/hook.ts";
 import { setSelection } from "./choose.ts";
 import { newCounts } from "./input.ts";
 import { type LoopState, invalidate, markMoved, relight } from "./loop.ts";
 import { MIN_SCREEN_RADIUS } from "./nodes.ts";
+import { newPace } from "./pace.ts";
 import { newRate } from "./rate.ts";
 import { createSpriteCache } from "./sprites.ts";
 import type { SpriteSurface } from "./surface.ts";
@@ -41,6 +45,8 @@ export interface Setup {
   readonly theme: Theme | undefined;
   readonly policy: LabelPolicy | undefined;
   readonly onFrame: () => void;
+  /** Default "auto". */
+  readonly backend?: BackendChoice | undefined;
 }
 
 const MAX_DPR = 2;
@@ -74,9 +80,11 @@ export function newState(canvas: HTMLCanvasElement, setup: Setup): LoopState {
     camera: fitCamera(null, viewport), limits: limitsFor(null, viewport), viewport, dpr: 1,
     x: scene.frame.x, y: scene.frame.y, fromX: scene.frame.x, fromY: scene.frame.y, transitionStart: -1,
     lit: new Uint8Array(0), hovered: -1, dimStart: -1, selected: -1, selection: [], pinned: [], marquee: null,
-    plan: newLabelPlan(policy.budget), layoutKey: null, layoutDirty: false, layoutRuns: 0, occupancy: occupancyFor(viewport),
+    plan: newLabelPlan(policy.budget), orbit: null, drawn: null,
+    layoutKey: null, layoutDirty: false, layoutRuns: 0, occupancy: occupancyFor(viewport),
     scheduled: 0, settleTimer: null, movedAt: 0, destroyed: false,
-    counts: newCounts(), frameMs: 0, frames: 0, rate: newRate(),
+    counts: newCounts(), frameMs: 0, frames: 0, rate: newRate(), pace: newPace(),
+    bulk: newBulkSlot(setup.backend ?? "auto"),
   };
 }
 
@@ -100,8 +108,27 @@ export function moveTo(controller: Controller, camera: Camera, byFit: boolean): 
   controller.notify.camera(camera);
 }
 
+/** The single commit point for the 3D camera, as `moveTo` is for the 2D one. */
+export function moveOrbit(controller: Controller, orbit: Orbit): void {
+  controller.fitted = false;
+  controller.state.orbit = orbit;
+  markMoved(controller.state);
+}
+
+/** The orbit that frames the drawing a 3D frame holds; null when the frame has no z column. */
+function fittedOrbit(state: LoopState): Orbit | null {
+  const { frame } = state.scene;
+  if (frame.z === null) return null;
+  return fitOrbit(boxOf(frame.x, frame.y, frame.z));
+}
+
 export function fit(controller: Controller): void {
   const { state } = controller;
+  const orbit = fittedOrbit(state);
+  if (orbit !== null) {
+    moveOrbit(controller, orbit);
+    return;
+  }
   moveTo(controller, fitCamera(controller.local.bounds ?? state.scene.bounds, state.viewport), true);
 }
 
@@ -139,6 +166,13 @@ export function showFrame(state: LoopState, frame: Frame, animate: boolean): voi
     state.x = frame.x;
     state.y = frame.y;
   }
+  // A 3D frame gets a fresh orbit, because the z column changed what "in view" means: the
+  // old angles are about a drawing that is no longer the one on screen. A 2D frame leaves
+  // the orbit null, and the 2D camera is untouched by any of this.
+  state.orbit = fittedOrbit(state);
+  // The projection belongs to the orbit that made it: a new frame invalidates it, and a
+  // camera change does not, because the loop re-projects into it every frame either way.
+  state.drawn = null;
   if (resized) {
     state.lit = new Uint8Array(frame.nodeCount);
     state.hovered = -1;
@@ -164,6 +198,7 @@ export function setPositions(state: LoopState, xs: Float64Array, ys: Float64Arra
   }
   state.x.set(xs);
   state.y.set(ys);
+  state.bulk.placed += 1;
   // The scene is the single source of truth: it carries the frame and the grid rebuilt on it.
   state.scene = movedScene(state.scene, { x: state.x, y: state.y });
   state.x = state.scene.frame.x;
@@ -175,9 +210,38 @@ export function setPositions(state: LoopState, xs: Float64Array, ys: Float64Arra
 /** -1 while the nodes are moving: the grid holds where they will be, not where they are. */
 export function pickAt(state: LoopState, at: Point): number {
   if (state.transitionStart >= 0) return -1;
+  if (state.orbit !== null) return pickInSpace(state, at);
   const world = screenToWorld(state.camera, at);
   const { scale } = state.camera;
   return pickIn(state.scene, {
     x: world.x, y: world.y, tolerance: PICK_TOLERANCE / scale, floor: MIN_SCREEN_RADIUS / scale,
   });
+}
+
+/**
+ * The 3D hit test: the nearest node whose drawn disc is under the point. There is no
+ * un-projection here, and there does not need to be — the screen points are already what the
+ * painter drew, so the same radii and the same tolerance pick the same node a hand would.
+ * The nearest wins, so a node in front is picked over one behind it at the same point.
+ */
+function pickInSpace(state: LoopState, at: Point): number {
+  const drawn = state.drawn;
+  if (drawn === null) return -1;
+  let best = -1;
+  let bestDepth = Infinity;
+  for (let step = 0; step < drawn.drawn; step += 1) {
+    const node = drawn.order[step] ?? 0;
+    if (state.scene.style.hidden?.[node] === 1) continue;
+    const depth = drawn.depth[node] ?? 0;
+    if (depth <= 0) continue;
+    const reach = Math.max(MIN_SCREEN_RADIUS, drawn.radius[node] ?? 0) + PICK_TOLERANCE;
+    const dx = (drawn.x[node] ?? 0) - at.x;
+    const dy = (drawn.y[node] ?? 0) - at.y;
+    if (dx * dx + dy * dy > reach * reach) continue;
+    if (depth < bestDepth) {
+      best = node;
+      bestDepth = depth;
+    }
+  }
+  return best;
 }

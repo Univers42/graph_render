@@ -23,7 +23,7 @@ const FAILED: LogEntry = {
 function console(): string {
   const state = { ...DRAWN, log: [RAN, FAILED] };
   const { studio } = studioWith(state);
-  return markup(createElement(Console, { studio, state, onClose: () => undefined }));
+  return markup(createElement(Console, { studio, onClose: () => undefined }));
 }
 
 test("the log is polite, and an entry is the command, how long it took and what it said", () => {

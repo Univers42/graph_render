@@ -4,7 +4,6 @@
  */
 import { useEffect } from "react";
 
-import type { StudioState } from "../state/model.ts";
 import type { Studio } from "../studio/studio.ts";
 import { type Held, type NavKey, navKeyOf } from "./navKeys.ts";
 
@@ -49,7 +48,8 @@ function typingAt(path: readonly EventTarget[]): boolean {
 
 export interface ShortcutProps {
   readonly studio: Studio;
-  readonly state: StudioState;
+  /** Whether the motor is working: the one field of the state the keys ask about. */
+  readonly busy: boolean;
   readonly keys: Pick<EventTarget, "addEventListener" | "removeEventListener">;
   readonly consoleOpen: boolean;
   readonly setConsole: (open: boolean) => void;
@@ -59,8 +59,7 @@ export interface ShortcutProps {
 }
 
 export function useShortcuts(props: ShortcutProps): void {
-  const { studio, state, keys, consoleOpen, setConsole, focusSearch, toggleHelp, helpOpen } = props;
-  const busy = state.busy.length > 0;
+  const { studio, busy, keys, consoleOpen, setConsole, focusSearch, toggleHelp, helpOpen } = props;
   useEffect(() => {
     const onKey = (event: Event): void => {
       if (!(event instanceof KeyboardEvent)) return;

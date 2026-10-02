@@ -16,6 +16,11 @@ export interface Frame {
   readonly edgeCount: number;
   readonly x: Float32Array;
   readonly y: Float32Array;
+  /**
+   * The third coordinate, in world units; `null` for a 2D layout. Its presence is the only
+   * thing that tells a 3D frame from a 2D one, and the painter asks for nothing else.
+   */
+  readonly z: Float32Array | null;
   /** Circle radius. `null` for Point and Box: a Point's radius is a style. */
   readonly r: Float32Array | null;
   readonly w: Float32Array | null;
@@ -74,7 +79,11 @@ function scaledOrNull(column: Float32Array | null, factor: number): Float32Array
   return column === null ? null : scaled(column, factor);
 }
 
-/** Copies every column out of the snapshot's buffer, so the bytes can be dropped. */
+/**
+ * Copies every column out of the snapshot's buffer, so the bytes can be dropped. The z
+ * column is scaled by the same factor as x and y and kept or dropped with it, so a 3D frame
+ * is the 2D frame of the same drawing plus one column and nothing else.
+ */
 export function frameFrom(snapshot: Snapshot): Frame {
   const factor = worldFactor(boundsOf(snapshot.x, snapshot.y), snapshot.nodeCount);
   const x = scaled(snapshot.x, factor);
@@ -86,6 +95,7 @@ export function frameFrom(snapshot: Snapshot): Frame {
     edgeCount: snapshot.edgeCount,
     x,
     y,
+    z: scaledOrNull(snapshot.z, factor),
     r: scaledOrNull(snapshot.r, factor),
     w: scaledOrNull(snapshot.w, factor),
     h: scaledOrNull(snapshot.h, factor),

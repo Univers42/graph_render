@@ -63,14 +63,7 @@ entry point run_sized adds one sort of the n boxes and two linear passes, so it 
 in the node count and still never reads an edge",
     scale_ceiling: OSAGE_CEILING,
     degradation: DEGRADATION,
-    ponytail: "Ponytail (this row's status): it is still `implemented`, and the reason is a \
-reader outside this file rather than a measurement -- verdict::Evidence::oracle_record \
-(crates/graph-cli/src/capabilities/verdict.rs:63-74) resolves only a fixed list of record names \
-and has no arm for `oracle-osage`, nor for `oracle-twopi`, `oracle-circo` or \
-`oracle-patchwork`. Measured, not assumed: with Status::Gated the run reports \
-\"layout.packing.osage: gated, but no oracle-osage record: run the gate\". So the status is \
-held at implemented until that reader grows one arm per Graphviz differential; the run is \
-real and its numbers are in docs/measurements/p13-gv1-osage.md. Ponytail (node box size -- \
+    ponytail: "Ponytail (node box size -- \
 the one that used to cost the agreement): the REGISTERED path takes every rectangle to be \
 Graphviz's default 0.75 x 0.5 inch nodesize, which holds only while every node's label fits \
 inside the minimum and stops holding at eleven nodes, where n10's box is 57.942 points wide. \

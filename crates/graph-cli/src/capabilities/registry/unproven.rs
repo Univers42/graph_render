@@ -109,26 +109,31 @@ pub(super) fn force_record(id: &str) -> Option<(&'static str, Status)> {
         //
         // The record is `oracle-neato`, the name `oracle_python::graphviz::NEATO.name` gives it.
         "layout.force.neato" => Some(("oracle-neato", Status::Implemented)),
-        // Ponytail: `implemented`, not `gated`, and the reason is on the **hash** side, not
-        // the oracle side: this row's `oracle-osage` record is read and passes at a measured
-        // worst gap of 6.309e-2 points under a 1e-1 ceiling
-        // (docs/measurements/p13-gv1-osage.md), but `Status::Gated` also needs a negative
-        // control that went red on the `layout.packing.osage` stage, and none does: the
-        // honest run hashes the stage 4-way on every seed, while the controls that do go
-        // red diverge `topology`, `layout.treemap.squarified` and `layout.packing.circle`
-        // and leave this stage equal. The per-stage knob for a Graphviz engine is
-        // deliberately absent from `hashgate::knobs` because that table is shared with the
-        // parallel engine jobs (scripts/orch/rows/p13-gv1-osage.rows:23-31), so promoting
-        // this row to `gated` needs that knob and a `negctl-osage-nodes` row — a change in
-        // `hashgate/`, not in the ledger. `capabilities::tests::graphviz` names the gap and
-        // shows a red control on this stage is the whole of what is missing.
-        "layout.packing.osage" => Some(("oracle-osage", Status::Implemented)),
+        // `gated`, promoted from `implemented`: the one reason it was held back is now
+        // discharged. It was never the oracle side: this row's `oracle-osage` record is read
+        // by name like any other and passes at a measured worst gap of 6.309e-2 points under
+        // a 1e-1 ceiling (docs/measurements/p13-gv1-osage.md), which `oracle_diff` reports
+        // as "within measured ceiling". It was the **hash** side — `Status::Gated` also needs
+        // a negative control that went red on this row's own stage, and none did: the honest
+        // run hashes the stage 4-way on every seed while the controls that did go red
+        // diverge `topology`, `layout.treemap.squarified` and `layout.packing.circle` and
+        // leave it equal. `GM_MUTATE_PACKING_SCALE` cannot stand in, because it is
+        // `layout.packing.circle`'s real parameter and osage reads no scale.
+        //
+        // `GM_MUTATE_PACKING_OSAGE_NODES` (record `hashgate-control-packing-osage-nodes`,
+        // tabulated in `hashgate::knobs::OSAGE_LAYOUT_STAGES`) is that control: osage
+        // publishes no `Params`, so its own re-drawn model is the only probe, and the run it
+        // makes turns the gate red on `layout.packing.osage` and on no other stage.
+        // `a_red_control_on_the_rows_own_stage_is_the_whole_of_what_is_missing` is the test
+        // that holds this line: it stands the row up as `gated` with a current oracle record
+        // and that control, and requires `problems` to be empty.
+        "layout.packing.osage" => Some(("oracle-osage", Status::Gated)),
         // Ponytail: the same honest status and the same reason as `layout.twopi` above, for
-        // the same Graphviz oracle, and a stronger reason than `layout.packing.osage` has:
-        // this differential was *run* over the 1000 gate seeds and it disagrees with
-        // Graphviz by 6.460e+04 points on 984 of them, for one named cause outside the
-        // motor — the tie order in `remove_pair_edges`'s degree sort is `qsort`'s, and
-        // glibc 2.41 does not make that stable (`docs/measurements/p13-gv1-circo.md`). The
+        // the same Graphviz oracle, and a stronger one than `layout.packing.osage` had before
+        // its control landed: this differential was *run* over the 1000 gate seeds and it
+        // disagrees with Graphviz by 6.460e+04 points on 984 of them, for one named cause
+        // outside the motor — the tie order in `remove_pair_edges`'s degree sort is `qsort`'s,
+        // and glibc 2.41 does not make that stable (`docs/measurements/p13-gv1-circo.md`). The
         // blocks, the radii and the 14 closed cases all agree, so the drawings differ only
         // in which node takes which slot, and an agreement that narrow earns `implemented`
         // and nothing more.
