@@ -37,7 +37,9 @@ between the two in `docs/decisions/browser-threads.md`.
 | artifact | `scripts/orch/wasm-threads.sh` (imports `env.memory` shared, exports the TLS/stack globals) | 0 | 0 |
 | parity | `gr node harness/wasm-threads.mjs hash` — 8 gate seeds and n ∈ {1000, 20000}, workers {1,2,3,4,7}, both layouts: 100 cells | 0 | 0 |
 | parity, negative control | the same with `--break`: the 80 cells with two parts or more must differ | 1 | 1 |
-GATES_PENDING
+| clippy, workspace | `gr cargo clippy --workspace --all-targets -- -D warnings` | 0 | 0 |
+| tests, workspace | `gr cargo test --workspace --no-fail-fast` | 0 | 0 |
+| hash gate | `gr cargo run -q -p graph-cli -- hashgate --seeds 8` (the default artifact is unchanged) | 0 | 0 |
 
 ## Bench, the whole stage
 
