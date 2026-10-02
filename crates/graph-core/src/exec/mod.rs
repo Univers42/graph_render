@@ -21,5 +21,6 @@
 mod partition;
 mod select;
 
+pub(crate) use partition::ranges;
 pub use partition::{Runner, Serial, StepRange, partition};
 pub use select::{Caps, Exec, SelectError, Thresholds, Tier, resolve, select};
