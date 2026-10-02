@@ -103,25 +103,51 @@ knob with one setting.
 ## Commands and exit codes
 
 ```text
-scripts/orch/gr cargo build --release -p graph-cli                 -> 0
-scripts/scigraphs-conformance.sh    (untouched tree)               -> 0   PASS, 32/32 rows
-scripts/scigraphs-conformance.sh    (after the port)               -> 1   SPIRAL_3D: FAIL — motor
-                                                                      bytes are not the pinned
-                                                                      ones; no other row moved
-scripts/scigraphs-conformance.sh    (after re-pinning)             -> 0   PASS
-scripts/scigraphs-conformance.sh --break                          -> 1   --break caught: SPRING_3D
-scripts/orch/gr cargo run -q --release -p graph-cli -- capabilities --check   -> 0
-scripts/orch/gr cargo run -q --release -p graph-cli -- codegen --check         -> 0
-scripts/orch/gr cargo test -p graph-core --lib                              -> 0   1059 passed
+scripts/orch/gr cargo build --release -p graph-cli                        -> 0
+scripts/scigraphs-conformance.sh    (untouched tree)                      -> 0   PASS, 32/32 rows
+scripts/scigraphs-conformance.sh    (after the port)                      -> 1   SPIRAL_3D: FAIL — motor
+                                                                          bytes are not the pinned
+                                                                          ones; no other row moved
+scripts/scigraphs-conformance.sh    (after re-pinning)                    -> 0   PASS
+scripts/scigraphs-conformance.sh --break                                 -> 1   --break caught: SPRING_3D
+scripts/orch/gr cargo fmt --check                                         -> 0
+scripts/orch/gr cargo clippy --workspace --all-targets -- -D warnings     -> 0
+scripts/orch/gr cargo test --workspace --no-fail-fast                     -> 0   all targets
+scripts/orch/gr cargo run -q --release -p graph-cli -- hashgate --seeds 8 -> 0
+      layout.basic3d.spiral: 4-way equal on 8/8 seeds
+scripts/orch/gr -e GM_MUTATE_REFERENCE_DEGREE=9 ... hashgate --seeds 8   -> 1
+      FAIL: 8 of 8 seeds diverge
+scripts/orch/gr cargo run -q --release -p graph-cli -- capabilities --check -> 1  see below
+scripts/orch/gr cargo run -q --release -p graph-cli -- codegen --check    -> 0
+scripts/orch/gr cargo test -p graph-core --lib                            -> 0   1059 passed
 ```
 
-`capabilities --check` reports 70 rows (36 layouts plus the rest of the ledger) and **no
-problem names `layout.basic3d.spiral`**; the 36 problems it does print are the pre-existing
-"gated, but no `<record>`: run the gate" lines, which need the orchestrator's gate run.
+`capabilities --check` reports **70 rows, 36 problems, exit 1**. None of the 36 names
+`layout.basic3d.*`; they are the whole-ledger "run the gate" class, on layouts this job never
+touches, and the count is 36 both before and after this change. Two message classes, both
+needing the orchestrator's own gate run:
+
+- `gated, but no <record>: run the gate` — 17 lines.
+- `gated, but hashgate ran 8 seeds, need 1000` — 19 lines. **Those 19 are this job's own
+  doing**: the `hashgate --seeds 8` run above wrote `target/gates/hashgate.json` with 8 seeds,
+  which reads worse than the `no hashgate record` it replaced but is the same problem. The
+  orchestrator's `hashgate --seeds 1000` run overwrites it; nothing tracked by git changed.
+
+So this row is **not** reported as passing: the command exits 1, on problems that predate this
+job and that no source edit here introduced. The narrower claim being made — and the one the
+done-when actually turns on — is that the new ledger row adds no problem of its own, which is
+what grepping the output for `basic3d` and finding nothing establishes.
+
 `codegen --check` reports all four generated files up to date: the four outputs are the
 snapshot-header schema and its `.d.ts`, and the two `docs/contract/` schemas, and **none of
 them is layout-specific**, so a new `layout.basic3d.*` id produces no codegen diff. That was
 predicted before the change and confirmed by it.
+
+**The hashgate row is the one that had to be run**, because a new registered layout is a new
+hash-gate stage and this one is not trivially target-independent: it carries a 65 536-entry
+`f64` table and a `partition_point` binary search, and either could in principle depend on
+the target. `layout.basic3d.spiral: 4-way equal on 8/8 seeds` — native run 1, native run 2,
+wasm32 run 1 and wasm32 run 2 all digest the same.
 
 ## Ponytail (what this layout is bad at)
 
