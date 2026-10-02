@@ -20,12 +20,12 @@ use crate::linalg::{EigBlock, orthonormal, pin_signs, residual_converged};
 
 use super::Geometry;
 use super::spectral::{
-    DIMS, Neighbors, find_components, nothing_solved, pack_components, scatter,
-    simple_neighbors, to_geometry,
+    DIMS, Neighbors, find_components, nothing_solved, pack_components, scatter, simple_neighbors,
+    to_geometry,
 };
 
 mod matrix;
-use matrix::{double_center, gram, project};
+use matrix::{Centered, gram, project};
 
 /// `_MDS_PIVOTS` (reference constant).
 pub const MAX_PIVOTS: usize = 100;
@@ -105,26 +105,26 @@ fn argmax(v: &[f64]) -> usize {
     best
 }
 
-/// The `n x k` hop-distance matrix, one column per pivot, chosen by the farthest-point
-/// heuristic (`_pivot_mds_coordinates:176-185`): pivot 0 is local index 0; each next
-/// pivot is the node currently farthest (by minimum hop count) from every pivot chosen
-/// so far, ties won by the lowest index.
-fn pivot_distances(bfs: &mut Bfs, members: &[u32], k: usize) -> Vec<f64> {
+/// The hop counts to each pivot, pivot `j`'s column being `[j * n..(j + 1) * n]`, the
+/// pivots chosen by the farthest-point heuristic (`_pivot_mds_coordinates:176-185`): pivot 0
+/// is local index 0; each next pivot is the node currently farthest (by minimum hop count)
+/// from every pivot chosen so far, ties won by the lowest index.
+fn pivot_hops(bfs: &mut Bfs, members: &[u32], k: usize) -> Vec<u32> {
     let n = members.len();
-    let mut dist = vec![0.0; n * k];
+    let mut hops = Vec::with_capacity(n * k);
     let mut covered = vec![f64::INFINITY; n];
     let mut chosen = 0usize;
-    for j in 0..k {
+    for _ in 0..k {
         bfs.walk(members[chosen]);
         for (i, &node) in members.iter().enumerate() {
-            let d = f64::from(bfs.hops[node as usize]);
-            dist[i * k + j] = d;
-            covered[i] = covered[i].min(d);
+            let h = bfs.hops[node as usize];
+            hops.push(h);
+            covered[i] = covered[i].min(f64::from(h));
         }
         covered[chosen] = -1.0;
         chosen = argmax(&covered);
     }
-    dist
+    hops
 }
 
 /// The `dims_eff` largest eigenpairs of `full` (ascending input, reversed selection —
@@ -165,14 +165,13 @@ fn converged(gram: &[f64], k: usize, eig: &EigBlock) -> bool {
 fn solve_component(bfs: &mut Bfs, members: &[u32]) -> (Option<EigBlock>, u32) {
     let n = members.len();
     let k = MAX_PIVOTS.min(n);
-    let mut dist = pivot_distances(bfs, members, k);
-    double_center(&mut dist, n, k);
-    let g = gram(&dist, k);
+    let centered = Centered::new(pivot_hops(bfs, members, k), n, k);
+    let g = gram(&centered);
     let full = eigh(&g, k);
     let dims_eff = DIMS.min(k);
     let top = top_eigenpairs(&full, dims_eff);
     let ok = converged(&g, k, &top);
-    let projected = project(&dist, n, k, &top);
+    let projected = project(&centered, &top);
     (ok.then_some(projected), k as u32)
 }
 

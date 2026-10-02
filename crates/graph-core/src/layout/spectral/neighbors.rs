@@ -39,7 +39,9 @@ impl Neighbors {
     /// Every row, as owned lists.
     #[cfg(test)]
     pub(crate) fn rows(&self) -> Vec<Vec<u32>> {
-        (0..self.len() as u32).map(|i| self.row(i).to_vec()).collect()
+        (0..self.len() as u32)
+            .map(|i| self.row(i).to_vec())
+            .collect()
     }
 }
 
