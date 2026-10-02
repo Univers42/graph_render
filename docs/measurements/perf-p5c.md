@@ -81,10 +81,11 @@ and `refining` false in all twelve runs (1 999 996 at 1M, 399 996 at 200k).
 
 1M: **184x** (27 645 → 150 ms). 200k: **28x**.
 
-\* `maxFrameMs` is not a maximum: `settle.js:42` takes `times[times.length - 1]`, the last frame
-delta collected. On the hardware arm's 150 ms window that delta reaches back to a tick that began
-before the window opened, which is why it reads 342 > 150. Read it as "the frame in flight when
-the fill was declared", not as a worst frame. `p50FrameMs` is a true median (`settle.js:23`).
+\* `maxFrameMs` is the largest polled sample (`settle.js:27` sorts `times`, `:42` takes the last),
+but each sample is the studio's `frameMs`, the duration of the last finished frame, polled every
+`everyMs`. A frame that began before the window opened is still sampled inside it, which is why it
+reads 342 > 150 on the hardware arm. Read it as the worst frame seen while polling, not as a worst
+frame inside the fill window. `p50FrameMs` is a true median (`settle.js:23`).
 
 ## 3. `deploy/perf/settle-pan.py` — the pan's own frames, and the re-fill it restarts
 
