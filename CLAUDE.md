@@ -122,6 +122,7 @@ scripts/studio-nav.sh         # one browser gate over app/dist; siblings: perf, 
 STUDIO_NAV_BREAK=1 scripts/studio-nav.sh   # its negative control: expect non-zero
 scripts/studio-smoke.sh       # the load smoke over app/dist: no page error, no banner, a node drawn
 STUDIO_SMOKE_BREAK=1 scripts/studio-smoke.sh   # its negative control: expect non-zero
+scripts/studio-backend.sh      # the WebGL2 layer against Canvas2D: pixel parity, `auto`, the fallback, a lost context; STUDIO_BACKEND_BREAK=1 for its negative control
 ```
 
 - A fresh worktree needs `npm ci` before `cargo test`: the `cli_oracles` tests run the Node harness and
