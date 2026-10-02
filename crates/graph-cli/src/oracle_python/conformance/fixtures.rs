@@ -1,6 +1,12 @@
 //! The fixture set both arms read: SciGraphs' own Les Miserables graph, the gate's model at
 //! seeds 0..19, and one rooted tree, one DAG and one bipartite graph.
 //!
+//! **The set is built in child modules, this file is the spine they share.** `named.rs` holds
+//! the four fixtures read off `fixtures/*.json` (`lesmis`, `tree`, `dag`, `bipartite`) and
+//! `gate_model.rs` the twenty generated gate seeds. What stays here is what all of them need:
+//! the [`Fixture`] struct, the dense node naming both arms read, the repo-fixture reader and
+//! the one line both arms are handed.
+//!
 //! **Node order is the whole contract of this file.** SciGraphs' graph is a plain dict, so its
 //! node order is whatever the dict listed; the motor's is the topology's insertion order. The
 //! rule the fixture encodes: *SciGraphs node `i` is the motor node whose id sorts `i`-th in
@@ -14,12 +20,17 @@
 //! 2..21 nodes (`gate_node_count`, `stage/topology.rs:19-21`), so the 200-node cap is
 //! reached by none of them; a seed that would reach it is refused, not clipped.
 
+mod gate_model;
+mod named;
+
 use crate::runner::workspace_root;
-use graph_core::{
-    EdgeKind, EdgeRecord, NodeKind, NodeRecord, REFERENCE_DEGREE, gate_node_count, seeded_model,
-};
+use graph_core::{EdgeKind, EdgeRecord, NodeKind, NodeRecord};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
+
+// Re-exported so the tests, and nothing else, name a fixture through this module.
+use gate_model::gate;
+use named::{bipartite, dag, lesmis, tree};
 
 /// The gate model seeds 0..19, as the job asks.
 pub const GATE_SEEDS: u32 = 20;
@@ -87,142 +98,6 @@ fn edge(index: usize, source: &str, target: &str) -> EdgeRecord {
 fn names(count: usize) -> Vec<String> {
     let width = count.to_string().len().max(1);
     (0..count).map(|i| format!("n{i:0width$}")).collect()
-}
-
-/// SciGraphs' gallery graph: `fixtures/scigraphs/lesmis.json`, 77 nodes and 254 edges. The
-/// one fixture whose node order is not ours to choose: `nodes[i].id` is the integer
-/// SciGraphs' own run listed at position `i`, so position is preserved and only the *name*
-/// changes to `n%04d`. A `nodes` array whose ids are not `0..n` is a hard error.
-fn lesmis() -> Result<Fixture, String> {
-    let path = workspace_root().join("fixtures/scigraphs/lesmis.json");
-    let doc = read(&path)?;
-    let listed = array(&doc, "nodes", &path)?;
-    let ids = names(listed.len());
-    let mut seat: Vec<Option<usize>> = vec![None; listed.len()];
-    for (position, entry) in listed.iter().enumerate() {
-        let id = entry["id"]
-            .as_u64()
-            .ok_or_else(|| format!("{}: node {position} has no integer id", path.display()))?;
-        let at = usize::try_from(id).map_err(|_| format!("node id {id} out of range"))?;
-        if at >= seat.len() || seat[at].replace(position).is_some() {
-            return Err(format!(
-                "{}: node id {id} out of range or twice",
-                path.display()
-            ));
-        }
-    }
-    if seat.iter().enumerate().any(|(id, at)| *at != Some(id)) {
-        return Err(format!("{}: node ids are not 0..n", path.display()));
-    }
-    let mut edges = Vec::new();
-    for (index, pair) in array(&doc, "edges", &path)?.iter().enumerate() {
-        let ends: Vec<u64> = pair
-            .as_array()
-            .map(|a| a.iter().filter_map(Value::as_u64).collect())
-            .unwrap_or_default();
-        if ends.len() != 2 {
-            return Err(format!("{}: edge {index} is not a pair", path.display()));
-        }
-        edges.push(edge(index, &ids[ends[0] as usize], &ids[ends[1] as usize]));
-    }
-    let nodes = ids.iter().map(|id| node(id)).collect();
-    Ok(Fixture {
-        name: "lesmis",
-        about: "SciGraphs' gallery graph: networkx.les_miserables_graph, 77 nodes, 254 edges",
-        nodes,
-        edges,
-    })
-}
-
-/// One rooted tree: `fixtures/hierarchy/tree-balanced.json`, depth 3, 15 nodes. Its
-/// `relates_to` edge is kept — a layout reads edges, not edge kinds, and dropping it would
-/// make this a different graph from the one the repo already states it is.
-fn tree() -> Result<Fixture, String> {
-    from_repo(
-        "fixtures/hierarchy/tree-balanced.json",
-        "tree-balanced",
-        "the repo's balanced binary tree, depth 3, 15 nodes, every parent-first spelling",
-    )
-}
-
-/// One DAG: `fixtures/dag/diamond.json`, the smallest graph with a real layering choice.
-fn dag() -> Result<Fixture, String> {
-    from_repo(
-        "fixtures/dag/diamond.json",
-        "dag-diamond",
-        "the repo's diamond: a->b,a->c,b->d,c->d, no dummy vertex and no crossing",
-    )
-}
-
-/// One bipartite graph, `K(6, 8)`: 14 nodes, 48 edges.
-///
-/// The repo has no bipartite *generator* — `oracle_python/closed_form.rs:35-46` borrows its
-/// partitions from our own output — so this is written out rather than generated. A complete
-/// bipartite graph is the case where the partition rule and the placement rule are
-/// separable, and the only fixture where that is true by construction.
-fn bipartite() -> Fixture {
-    const LEFT: usize = 6;
-    const RIGHT: usize = 8;
-    let ids = names(LEFT + RIGHT);
-    let nodes: Vec<NodeRecord> = ids.iter().map(|id| node(id)).collect();
-    let mut edges = Vec::new();
-    for a in 0..LEFT {
-        for b in 0..RIGHT {
-            edges.push(edge(edges.len(), &ids[a], &ids[LEFT + b]));
-        }
-    }
-    Fixture {
-        name: "bipartite",
-        about: "K(6,8): 14 nodes, 48 edges, the partition rule and the placement rule separable",
-        nodes,
-        edges,
-    }
-}
-
-/// The gate's own model at one seed, re-named dense so byte order is list order.
-fn gate(seed: u32) -> Result<Fixture, String> {
-    let count = gate_node_count(seed);
-    if count > GATE_CAP {
-        return Err(format!(
-            "gate seed {seed} is {count} nodes, past the {GATE_CAP} cap"
-        ));
-    }
-    let (mut nodes, mut edges) = seeded_model(seed, count, REFERENCE_DEGREE);
-    let ids = names(nodes.len());
-    // `seeded_model` names its nodes `n0..n{n}`, whose byte order is *not* its numeric order
-    // past nine — so the ends are remapped through the original list rather than by string
-    // surgery, and an end that is not a node is an error rather than a dangling edge.
-    let original: Vec<String> = nodes.iter().map(|n| n.id.clone()).collect();
-    for (record, id) in nodes.iter_mut().zip(&ids) {
-        record.id = id.clone();
-    }
-    for (index, record) in edges.iter_mut().enumerate() {
-        record.id = format!("e{index:05}");
-        record.source = seat(&original, &ids, &record.source)?;
-        record.target = seat(&original, &ids, &record.target)?;
-    }
-    Ok(Fixture {
-        // Bounded by `GATE_SEEDS` and never by a caller's loop: 20 leaked names per emit.
-        name: leak(format!("gate-{seed:02}")),
-        about: leak(format!("the gate model at seed {seed}, {count} nodes")),
-        nodes,
-        edges,
-    })
-}
-
-/// A `&'static str` out of a formatted value, because [`Fixture::name`] is `&'static str`
-/// and a `Box::leak` is the honest way to say it: bounded by the seed list above.
-fn leak(text: String) -> &'static str {
-    Box::leak(text.into_boxed_str())
-}
-
-/// An edge end's new name, from the id the gate model gave it.
-fn seat(original: &[String], ids: &[String], end: &str) -> Result<String, String> {
-    original
-        .iter()
-        .position(|candidate| candidate == end)
-        .map(|at| ids[at].clone())
-        .ok_or_else(|| format!("edge end {end} is not a node of its fixture"))
 }
 
 /// A repo fixture in the repo's own `nodes`/`edges` shape, with its ids re-listed dense.

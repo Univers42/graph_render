@@ -17,6 +17,10 @@
 //! where they are enforced, and the two are the same run.
 
 /// One pinned row.
+///
+/// `Copy` because the table is assembled row by row at compile time, out of five family
+/// arrays (`baseline/table.rs`); every field is a `&'static str` or an `f64`.
+#[derive(Clone, Copy)]
 pub struct Baseline {
     /// The `apply_graph_layout` name.
     pub name: &'static str,
