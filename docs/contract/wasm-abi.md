@@ -364,7 +364,7 @@ graph-core-only capability.
 | 16 | `SessionParamsInvalid` | A force session's `(params_ptr, params_len)` is neither `0` (the defaults) nor exactly the parameter buffer's length |
 | 17 | `SessionRefused` | The force session refused: a parameter out of its range (never clamped), a row past the last node, or a non-finite coordinate (D9) |
 | 18 | `AnalysisFailed` | `gm_analysis_run` ran the analysis but its report has no JSON text: a non-finite score or modularity (`NaN` is not a JSON number, D9), or a column longer than `u32` can count |
-| 19 | `IngestTooLarge` | `gm_build`'s buffer is longer than `MAX_INGEST_BYTES` (536,870,912 bytes), refused on its length before any of it is read. **Not** `IngestInvalid`: that code means the document was read and found malformed, while this one means the document must be split or shrunk |
+| 19 | `IngestTooLarge` | `gm_build`'s buffer is longer than `MAX_INGEST_BYTES` (773,849,088 bytes), refused on its length before any of it is read. **Not** `IngestInvalid`: that code means the document was read and found malformed, while this one means the document must be split or shrunk |
 
 Codes are **append-only**: `ContractInvalid` was added as `14` and moved no existing
 code, which `crates/graph-wasm/src/errors.rs`'s
@@ -452,14 +452,16 @@ Rules, all refused loudly (never silently coerced or dropped):
   first-wins/drop-silently for exactly these cases, which would make ingest order diverge
   from snapshot order, the one identity this ABI promises a caller.
 - Not UTF-8, or not JSON at all, is refused before shape-checking even starts.
-- A document longer than `MAX_INGEST_BYTES` (536,870,912 bytes) is refused with
+- A document longer than `MAX_INGEST_BYTES` (773,849,088 bytes) is refused with
   `IngestTooLarge` on its length alone, before it is read at all. The number is measured,
   not chosen: the largest document that built on the wasm32 artifact was 774,568,785 bytes
   and the next one up trapped inside `index_model`'s string arena
-  (`docs/measurements/fix-wasm-ingest.md`), and this is the largest power of two at or
-  below the largest that built. It bounds bytes, not the work they imply: a document under
-  the ceiling with an unusually high edge-to-node ratio can still exhaust memory, which is
-  why this is a refusal and not a promise that everything below it builds.
+  (`docs/measurements/fix-wasm-ingest.md`), and this is that measurement rounded down to a
+  whole MiB — **no document that builds is refused**, which is the property the number exists
+  for, since the trap is the only failure this replaces. So it has no margin: it bounds bytes,
+  not the work they imply, and a document under it with an unusually high edge-to-node ratio
+  can still exhaust memory exactly as it does today. `fix-ingest-scale` owns that defect and
+  restores the power-of-two step down with it.
 - A number is refused wherever JSON does not admit non-finite values in the first place —
   D9's "no NaN/Inf reaches the wire" is enforced again on the way out (`gm_snapshot_json`/
   `gm_snapshot_bytes`), since a column view can still write one in after `gm_build`.

@@ -18,7 +18,11 @@
 //! this ABI promises callers (`docs/contract/wasm-abi.md` "Column order").
 
 use graph_contract::canonical_json::{JsonError, Value, parse};
-use graph_core::{EdgeKind, EdgeRecord, NodeKind, NodeRecord};
+use graph_core::{EdgeRecord, NodeRecord};
+// The two kind names are named only by this module's tests: `record.rs` imports its own, so
+// the wasm32 release build has no user for them and an unconditional import warns there.
+#[cfg(test)]
+use graph_core::{EdgeKind, NodeKind};
 
 use crate::errors::Code;
 
@@ -35,21 +39,26 @@ pub const VERSION: u32 = 1;
 /// The longest ingest document [`read`] accepts, in bytes: one past this is
 /// [`IngestError::TooLarge`], checked before [`read`] parses or `from_utf8` touches a byte.
 ///
-/// Measured, not chosen (`docs/decisions/wasm-ingest-limits.md` steps 1-3,
-/// `docs/measurements/fix-wasm-ingest.md`): the studio's own generator at its 1M-node scale
-/// target, doubling up, on the `wasm32-unknown-unknown` release artifact under Node. The
-/// largest document that built was 774,568,785 bytes; the next one up, 799,922,860 bytes,
-/// trapped inside `graph_core::index_model`'s string arena, and so did 842,132,644 bytes at
-/// the studio's own `MAX_NODES`. This is the largest power of two at or below the largest
-/// that built, so the step down to 536,870,912 is the rule's margin, not a guess.
+/// Measured, not chosen (`docs/decisions/wasm-ingest-limits.md`, `docs/measurements/fix-wasm-ingest.md`):
+/// the studio's own generator at its 1M-node scale target, doubling up, on the
+/// `wasm32-unknown-unknown` release artifact under Node. The largest document that built was
+/// 774,568,785 bytes; the next one up, 799,922,860 bytes, trapped inside
+/// `graph_core::index_model`'s string arena, and so did 842,132,644 bytes at the studio's own
+/// `MAX_NODES`. This is that 774,568,785 rounded down to a whole MiB — 773,849,088 — so **no
+/// document that built is refused**, which is the property the number exists for: the trap is
+/// the only failure a ceiling replaces, and refusing something that works replaces nothing.
+/// It therefore has no margin, and the power-of-two step down the decision record asks for is
+/// deferred to the scale job that fixes the arena.
 ///
-/// Ponytail: it bounds bytes, not the work they imply. The sweep found the boundary at a work
-/// level too — 3,679,984 edges built, 3,799,984 edges trapped — and nothing here measures an
-/// edge count, so a document shorter than this ceiling carrying that many edges is not
-/// excluded by the measurement. Failing input: exactly that document. Direction: refuses early
-/// on size, never on shape, and can still trap on work. Escape hatch: raise it with a new
-/// measurement, add an edge ceiling beside it, or fix the arena.
-pub const MAX_INGEST_BYTES: usize = 536_870_912;
+/// Ponytail: no margin, deliberately — it is the largest that built, minus 719,697 bytes of
+/// rounding, so a document under it can still trap on work, as documents under it do today:
+/// the studio's 1M-node degree-4 model is 68,283,556 bytes over this and traps in
+/// `index_model`, while its degree-3 model is 95,832,275 bytes under it and builds. Failing
+/// input: a document below the ceiling whose edge count is high enough for the arena to run
+/// out — bytes are not work. Direction: refuses early on size, never on shape, and bounds
+/// nothing else. Escape hatch: `fix-ingest-scale` restores the power-of-two rule once the
+/// arena no longer traps, and this number moves with it.
+pub const MAX_INGEST_BYTES: usize = 773_849_088;
 
 /// Why an ingest buffer was refused.
 #[derive(Debug, Clone, PartialEq, Eq)]

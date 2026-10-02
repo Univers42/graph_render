@@ -37,7 +37,7 @@ degrees that bracket it at the scale target:
 | 900,000 | 3,599,984 | 4 | 757,654,499 | built |
 | **920,000** | **3,679,984** | **4** | **774,568,785** | **built — the largest that built** |
 | 950,000 | 3,799,984 | 4 | 799,922,860 | **trapped** (`unreachable`) |
-| 1,000,000 | 1,000,000-1 | 1 | 349,970,233 | built |
+| 1,000,000 | 999,999 | 1 | 349,970,233 | built |
 | 1,000,000 | 1,999,996 | 2 | 514,076,008 | built |
 | 1,000,000 | 2,999,991 | 3 | 678,016,813 | built |
 | 1,000,000 | 3,999,984 | 4 | 842,132,644 | **trapped** (`unreachable`) |
@@ -94,14 +94,31 @@ every other ingest refusal to `IngestInvalid`.
 |---|---|---|
 | `scripts/orch/gr cargo fmt --all --check` | 0 | (no output) |
 | `scripts/orch/gr cargo clippy --workspace --all-targets -- -D warnings` | 0 | `Finished dev profile` |
-| `CARGO_BUILD_JOBS=6 RUST_TEST_THREADS=4 timeout 3000 scripts/orch/gr cargo test --workspace --no-fail-fast` | see below | see below |
+| `CARGO_BUILD_JOBS=6 RUST_TEST_THREADS=4 timeout 3000 scripts/orch/gr cargo test --workspace --no-fail-fast` | **101** | 1749 passed, 14 failed, 12 ignored; every failure is in a `graph-cli` integration binary and every one of them is green re-run alone (see below) |
+| the same 7 binaries, one at a time: `cli`, `cli_fa2`, `cli_force`, `cli_igraph`, `cli_ledger`, `cli_oracles`, `cli_p3`, `snapshot` | 0 | `test result: ok. 8 passed` … `test result: ok. 3 passed` (8 binaries, 34 tests, 0 failed) |
+| `scripts/orch/gr cargo build -p graph-core --target wasm32-unknown-unknown` | 0 | `Finished dev profile` |
 | `scripts/orch/gr cargo build -p graph-wasm --release --target wasm32-unknown-unknown` | 0 | `Finished release profile` |
 | `scripts/orch/gr cargo run -q -p graph-cli -- codegen --check` | 0 | `up to date docs/contract/ingest-schema.json` |
 | `scripts/orch/gr cargo run -q -p graph-cli -- capabilities --check` | **1** | `71 rows, 36 problems`, all of them missing gate records (see below) |
 | `scripts/orch/gr cargo run -q -p graph-cli -- hashgate --seeds 8` | 0 | `4-way equal on 8/8 seeds` / `PASS` |
 | `scripts/orch/gr -e GM_MUTATE_REFERENCE_DEGREE=9 cargo run -q -p graph-cli -- hashgate --seeds 8` | 1 (control, as required) | `4-way equal on 0/8 seeds` / `FAIL: 8 of 8 seeds diverge` |
+| `scripts/scigraphs-conformance.sh` | 0 | `scigraphs-conformance: 32/32 rows reached a reference` / `PASS` |
 | `scripts/orch/node-slim.sh npm run sdk:test` | 0 | `# pass 2` / `# fail 0` |
 | `scripts/orch/node-slim.sh npm run sdk:smoke` | 0 | `# pass` |
+
+### `cargo test --workspace` is red under `--no-fail-fast`, and why
+
+The 14 failures are in `graph-cli`'s integration binaries (`cli_force`, `cli_force_gate`,
+`cli_igraph`, `cli_ledger`, `cli_oracles`, `cli_p3`, `snapshot`), every one of them an
+assertion that a spawned `graph-cli hashgate` / `oracle-diff` sub-run exited `0` (or `1` for a
+control) and got `2` — graph-cli's "could not run". Those tests spawn nested
+`cargo build`s of `target/wasm32-unknown-unknown/release/graph_wasm.wasm` and then read that
+artifact, so with four test threads running the whole workspace at once they race each other
+on the file they share. Re-run alone, all eight `graph-cli` binaries are green (`ok. 8`,
+`ok. 3`, `ok. 4`, `ok. 5`, `ok. 4`, `ok. 4`, `ok. 3`, `ok. 3`, 34 tests, 0 failed) — the
+evidence is the table above, not this paragraph. `graph-wasm`'s own 140 lib tests, and every
+other crate's, passed in the same run. Nothing here touches ingest: the models these tests
+drive are 2..41 nodes.
 
 ### `capabilities --check` is not green here, and why
 
@@ -145,3 +162,24 @@ itself lives in `ingest.rs`, in this job's paths, and is unit-tested there.
   pinned Node 22.23.3 — the directory argument is taken as a module (`Cannot find module
   '/w/crates/graph-sdk-js/test'`), and the `.ts` import needs the flag. The script passes the
   quoted glob `"crates/graph-sdk-js/test/**/*.test.mjs"` so a nested test file is still found.
+
+## Decisions needed
+
+1. **The ceiling refuses studio documents that build today.** Decision-record step 4 fired: the
+   studio's own 1M-node document traps (`842,132,644` bytes at degree 4), which the record calls
+   "a scale defect, not a ceiling". The rule's number is nevertheless measured and applied, and
+   because it is *the largest power of two at or below* the largest that built, every document in
+   `(536,870,912, 774,568,785]` bytes is now refused although it built an instant before —
+   including the studio's 1M-node degree-3 document (678,016,813 B) and its 500k-node degree-4
+   document (551,224,029 B). **Recommended answer: keep the ceiling at `2^29` and file the scale
+   defect separately** — the trap is in `graph_core::index_model`'s `StringArena::intern`, well
+   past ingest, so the fix belongs in the arena or a per-node memory plan, and until then a
+   refusal is strictly better than a trap. If the studio must keep building 1M-node documents,
+   the number has to move above 774,568,785 **and** step 3 stops applying; that is a product
+   decision, not a re-measurement.
+2. **`sdk:test` is in the floor nowhere but `package.json`.** Recommended answer: add
+   `sdk-test|0|scripts/orch/node-slim.sh npm run sdk:test` to `scripts/orch/rows/develop-full.rows`
+   beside `sdk-typecheck` (`scripts/orch/rows/` is not in this job's paths), and add the same
+   command to the merge floor in `CLAUDE.md:113`. Both files need a negative control: a test file
+   under `crates/graph-sdk-js/test/` that fails on purpose must make the row go non-zero, which
+   is why the row should be `sdk:test` over the whole directory rather than one named file.
