@@ -92,9 +92,11 @@ pub(super) fn stencil(frame: &Frame, (px, py): (f64, f64)) -> Option<((usize, us
     if !(px.is_finite() && py.is_finite()) {
         return None;
     }
+    // `as usize` truncates toward zero and saturates, which on `u >= 0` is `floor`, and
+    // sends a negative `u` to 0 as `floor(u).max(0.0)` did, without libm's software floor.
     let axis = |v: f64, o: f64| {
         let u = (v - o) / frame.h;
-        let cell = (libm::floor(u).max(0.0) as usize).min(frame.cells - 2);
+        let cell = (u as usize).min(frame.cells - 2);
         (cell, (u - cell as f64).clamp(0.0, 1.0))
     };
     let (cx, fx) = axis(px, frame.origin.0);

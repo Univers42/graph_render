@@ -52,7 +52,10 @@ impl Mul for C {
 /// The bit-reversal permutation and both twiddle tables for lines of `side` samples.
 pub(super) struct Plan {
     side: usize,
-    reversed: Vec<u32>,
+    /// The bit-reversal permutation as the swaps it takes, `i < j` only.
+    swaps: Vec<(u32, u32)>,
+    /// Stage `half`'s twiddles `w^(j * side / (2 * half))`, `j < half`, at
+    /// `half..2 * half`, so a stage reads its twiddles as one contiguous run.
     forward: Vec<C>,
     inverse: Vec<C>,
 }
@@ -62,16 +65,23 @@ impl Plan {
     pub(super) fn new(side: usize) -> Plan {
         assert!(side >= 2 && side.is_power_of_two(), "fft side {side}");
         let bits = side.trailing_zeros();
-        let reversed = (0..side as u32)
-            .map(|i| i.reverse_bits() >> (32 - bits))
+        let swaps = (0..side as u32)
+            .map(|i| (i, i.reverse_bits() >> (32 - bits)))
+            .filter(|&(i, j)| i < j)
             .collect();
-        let forward: Vec<C> = (0..side / 2)
+        let root: Vec<C> = (0..side / 2)
             .map(|k| {
                 let angle = -core::f64::consts::TAU * k as f64 / side as f64;
                 C {
                     re: libm::cos(angle),
                     im: libm::sin(angle),
                 }
+            })
+            .collect();
+        let forward: Vec<C> = (0..side)
+            .map(|k| {
+                let half = 1 << k.max(1).ilog2();
+                root[(k % half) * (side / (2 * half))]
             })
             .collect();
         let inverse = forward
@@ -83,7 +93,7 @@ impl Plan {
             .collect();
         Plan {
             side,
-            reversed,
+            swaps,
             forward,
             inverse,
         }
@@ -93,25 +103,26 @@ impl Plan {
         self.side
     }
 
-    /// One line of `side` samples, in place.
+    /// One line of `side` samples, in place. The first stage's twiddle is 1, so it is a
+    /// plain sum and difference.
     pub(super) fn line(&self, a: &mut [C], inverse: bool) {
-        for (i, &j) in self.reversed.iter().enumerate() {
-            if i < j as usize {
-                a.swap(i, j as usize);
-            }
+        for &(i, j) in &self.swaps {
+            a.swap(i as usize, j as usize);
+        }
+        for [u, v] in a.as_chunks_mut::<2>().0 {
+            (*u, *v) = (*u + *v, *u - *v);
         }
         let twiddle = if inverse {
             &self.inverse
         } else {
             &self.forward
         };
-        let mut half = 1;
+        let mut half = 2;
         while half < self.side {
-            let stride = self.side / (2 * half);
+            let stage = &twiddle[half..2 * half];
             for block in a.chunks_exact_mut(2 * half) {
                 let (lo, hi) = block.split_at_mut(half);
-                let pairs = lo.iter_mut().zip(hi.iter_mut());
-                for ((u, v), &w) in pairs.zip(twiddle.iter().step_by(stride)) {
+                for ((u, v), &w) in lo.iter_mut().zip(hi.iter_mut()).zip(stage) {
                     let t = *v * w;
                     (*u, *v) = (*u + t, *u - t);
                 }

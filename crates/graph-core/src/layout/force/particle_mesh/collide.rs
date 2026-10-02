@@ -115,12 +115,16 @@ impl Grid {
         (cy as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) >> self.shift
     }
 
-    /// Slot `k`'s half of every overlap it has: rows `cy - 1..=cy + 1`, buckets left to
-    /// right within a row, slots in sorted order within a bucket.
-    fn delta(&self, k: usize, contact: Contact) -> (f64, f64) {
-        let (cx, cy) = self.cell_of((self.at[k][0], self.at[k][1]));
+    /// The slot runs a query from `cell` reads: rows `cy - 1..=cy + 1`, buckets left to
+    /// right within a row. Consecutive buckets are consecutive slots, so a row's three
+    /// buckets are usually one run.
+    fn reads(&self, (cx, cy): (i64, i64)) -> Reads {
+        let mut reads = Reads {
+            cell: (cx, cy),
+            runs: [(0, 0); 9],
+            len: 0,
+        };
         let mut firsts = [0; 3];
-        let mut out = (0.0, 0.0);
         for (r, dy) in (-1..=1).enumerate() {
             let first = self.bucket_of((cx.wrapping_sub(1), cy.wrapping_add(dy))) as u64;
             for b in (first..first + 3).map(|b| b & self.mask) {
@@ -129,23 +133,50 @@ impl Grid {
                     .iter()
                     .any(|&e| b.wrapping_sub(e) & self.mask < 3)
                 {
-                    self.scan(k, b as usize, contact, &mut out);
+                    reads.push(self.start[b as usize], self.start[b as usize + 1]);
                 }
             }
             firsts[r] = first;
         }
-        out
+        reads
     }
 
-    /// Slot `k`'s half of its overlaps with bucket `b`'s slots.
-    fn scan(&self, k: usize, b: usize, contact: Contact, out: &mut (f64, f64)) {
-        let lo = self.start[b] as usize;
+    /// Slot `k`'s half of every overlap it has, slots in `reads` order.
+    fn delta(&self, k: usize, reads: &Reads, contact: Contact) -> (f64, f64) {
         let [px, py] = self.at[k];
-        let slots = &self.at[lo..self.start[b + 1] as usize];
-        for (q, &[qx, qy]) in (lo..).zip(slots) {
-            if q != k {
-                let ids = || (self.order[k], self.order[q]);
-                resolve(contact, ids, (px - qx, py - qy), out);
+        let mut out = (0.0, 0.0);
+        for &(lo, hi) in &reads.runs[..reads.len] {
+            let lo = lo as usize;
+            for (q, &[qx, qy]) in (lo..).zip(&self.at[lo..hi as usize]) {
+                if q != k {
+                    let ids = || (self.order[k], self.order[q]);
+                    resolve(contact, ids, (px - qx, py - qy), &mut out);
+                }
+            }
+        }
+        out
+    }
+}
+
+/// The slot runs one cell's query reads, at most one per bucket.
+struct Reads {
+    cell: (i64, i64),
+    runs: [(u32, u32); 9],
+    len: usize,
+}
+
+impl Reads {
+    /// Appends slots `lo..hi`, extending the last run when it ends at `lo`: the buckets
+    /// between are then empty, so the run gains no other slot.
+    fn push(&mut self, lo: u32, hi: u32) {
+        if lo == hi {
+            return;
+        }
+        match self.runs[..self.len].last_mut() {
+            Some(last) if last.1 == lo => last.1 = hi,
+            _ => {
+                self.runs[self.len] = (lo, hi);
+                self.len += 1;
             }
         }
     }
@@ -191,9 +222,17 @@ impl StepRange for Gather<'_> {
         self.grid.order.len() as u32
     }
 
+    /// Consecutive slots mostly share a cell, so a cell's runs are built once per stretch.
     fn step_range(&self, range: Range<u32>, out: &mut [(f64, f64)]) {
+        let grid = self.grid;
+        let mut reads: Option<Reads> = None;
         for (slot, k) in out.iter_mut().zip(range) {
-            *slot = self.grid.delta(k as usize, self.contact);
+            let cell = grid.cell_of((grid.at[k as usize][0], grid.at[k as usize][1]));
+            let reads = match reads {
+                Some(ref r) if r.cell == cell => r,
+                _ => reads.insert(grid.reads(cell)),
+            };
+            *slot = grid.delta(k as usize, reads, self.contact);
         }
     }
 }
