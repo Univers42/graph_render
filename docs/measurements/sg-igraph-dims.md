@@ -236,25 +236,47 @@ ones (`gate-10` 0.459, `gate-07` 0.657, `bipartite` 0.921). Finding 7 of
 models") applies to this row harder than it did before. The max column and the picture are the
 honest read.
 
+## 7. DrL 3-D: a recorded `Gap`, and why it is not one more kernel
+
+The body allows a `drl_3d` "only if the DrL paper defines the 3-D step without igraph's code".
+**The paper does not, and this tree's spec does not either.** `docs/layouts/layout.force.drl.md:3`
+says the 3-D variant "is out of scope here except where noted", and the rest of the spec is 2-D
+throughout: a `1000 x 1000` density grid, a `21 x 21` block, a two-axis tent kernel, a `3 x 3`
+fine-mode neighbourhood. There is no 3-D formula to port.
+
+So the row was **left alone** and the gap recorded as `G_DRL_NO_3D` on `IGRAPH_DRL`, naming what
+blocks it: rule 1 of `docs/decisions/layouts-igraph.md` makes the spec the implementer's only
+source, so a `drl_3d` needs a **spec author** to write that section first. An implementer filling it
+from `vendor/source/igraph/src/layout/drl/*.cpp` would be doing exactly the thing rule 1 forbids.
+That is why `layout.force.drl` stayed planar while FR and KK did not.
+
 ## Commands
 
 Every command below was run on this tree; the number after the arrow is the exit code it returned.
 
 ```
-scripts/orch/gr cargo build --release -p graph-cli                       -> 0
-scripts/scigraphs-conformance.sh                                         -> 0  (baseline, untouched)
-scripts/orch/gr cargo test -p graph-cli conformance::motor::fit          -> 1  (RED, see below)
-scripts/orch/gr cargo test -p graph-cli conformance::motor               -> 0
-scripts/scigraphs-conformance.sh                                         -> 1  (the five rows, as designed)
-scripts/scigraphs-conformance.sh                                         -> 0  (after the re-pin)
-scripts/scigraphs-conformance.sh --break                                 -> 1
-scripts/orch/gr cargo run -q -p graph-cli -- emit-igraph-fixtures --seeds 100 -> 0
-docker run … ge-python-oracle python3 harness/oracle-igraph.py target/igraph-fixtures -> 0
-scripts/orch/gr cargo run -q -p graph-cli -- oracle-igraph              -> 0
-scripts/orch/gr cargo run -q -p graph-cli -- hashgate --seeds 8          -> 0
-scripts/orch/gr -e GM_MUTATE_REFERENCE_DEGREE=9 … hashgate --seeds 8    -> non-zero (negative control)
-scripts/orch/gr cargo run -q -p graph-cli -- capabilities --check        -> 0
-scripts/orch/gr cargo run -q -p graph-cli -- codegen --check             -> 0
+scripts/orch/gr cargo build --release -p graph-cli                             -> 0
+scripts/scigraphs-conformance.sh                     (baseline, untouched tree) -> 0
+scripts/orch/gr cargo test -p graph-cli conformance::motor::fit                -> 1   RED
+scripts/orch/gr cargo test -p graph-cli conformance::motor                     -> 0
+scripts/scigraphs-conformance.sh                     (the fit)                  -> 1   the five rows, by design
+scripts/scigraphs-conformance.sh                     (the 3D remap)             -> 1   FR and KK only
+scripts/scigraphs-conformance.sh                     (after the re-pin)         -> 0
+scripts/scigraphs-conformance.sh --break                                         -> 1   "caught: SPRING_3D"
+scripts/orch/gr cargo test -p graph-core force::kamada_kawai                   -> 0   13 passed, 2D bits unmoved
+scripts/orch/gr cargo test -p graph-core fruchterman_reingold_3d               -> 0   7 passed
+scripts/orch/gr cargo fmt --all --check                                         -> 0
+scripts/orch/gr cargo clippy --workspace --all-targets -- -D warnings          -> 0
+scripts/orch/gr cargo test --workspace --no-fail-fast                           -> 0
+scripts/orch/gr cargo build -p graph-core --target wasm32-unknown-unknown      -> 0
+scripts/orch/gr cargo run -q -p graph-cli -- hashgate --seeds 8                 -> 0   PASS
+scripts/orch/gr -e GM_MUTATE_REFERENCE_DEGREE=9 … hashgate --seeds 8           -> 1   "FAIL: 8 of 8 seeds diverge"
+scripts/orch/gr cargo run -q -p graph-cli -- roundtrip --seeds 100             -> 0   PASS
+scripts/orch/gr cargo run -q -p graph-cli -- emit-igraph-fixtures --seeds 100  -> 0
+docker run … ge-python-oracle python3 harness/oracle-igraph.py …               -> 0
+scripts/orch/gr cargo run -q -p graph-cli -- oracle-igraph                     -> 0   PASS, 8 layouts
+scripts/orch/gr cargo run -q -p graph-cli -- capabilities --check              -> 0
+scripts/orch/gr cargo run -q -p graph-cli -- codegen --check                   -> 0
 ```
 
 The RED run, before `run` called the fit:
@@ -264,3 +286,28 @@ test …::fit::tests::an_igraph_row_comes_back_centred_and_at_the_scale ... FAIL
   largest magnitude 1.325621247291565 != 5
 test result: FAILED. 4 passed; 1 failed
 ```
+
+`capabilities --check` exits 0 but prints 36 lines of "hashgate ran 8 seeds, need 1000": this tree
+now holds the `--seeds 8` record, and the 1000-seed one is the orchestrator's timed gate, which this
+job was told not to run. Nothing was lost — adding two registry entries changes the tree
+fingerprint, so the previous 1000-seed record was void from the moment the first `registry.rs` edit
+landed, and the orchestrator's gate run writes the new one.
+
+## Deviations from the job's path list
+
+Five files outside the paths the body listed, each additive, each forced by adding two registry
+entries or by the rows this job re-pins:
+
+| file | why |
+|---|---|
+| `crates/graph-cli/src/oracle_python/igraph.rs` | the `dim=3` differentials need their `ours` columns emitted and their ceilings declared; that list drives both. Without it the new rows have zero cases and the judge fails them: NOT-RUN, never green. |
+| `crates/graph-cli/src/oracle_python/tests.rs` | that differential's two fixtures enumerate every key; the new ids must be in them or the ceiling test judges four rows fewer than the list holds. |
+| `crates/graph-cli/src/capabilities/registry/unproven.rs` | a new layout with no `force_record` entry falls through to `Gated` and then demands a 1000-seed hashgate. Both new ids are routed to `oracle-igraph` / `Implemented`, exactly like their 2-D siblings. |
+| `crates/graph-cli/src/capabilities/tests/registry/ids.rs` | the routing test's own id list, which exists precisely so it cannot drift from the row builder's. |
+| `crates/graph-cli/src/hashgate/tests/report.rs`, `crates/graph-cli/src/snapshot_cmd/tests.rs`, `crates/graph-cli/src/snapshot_cmd/roundtrip/tests.rs` | three hand-pinned records enumerating every stage id and snapshot count: 38 stages not 36, and 195 round-trip snapshots per 5 seeds not 185. |
+
+## A note on the tree
+
+Commits landed from outside this session at 16:44, 16:51 and 16:53 while the job ran (author
+`LESdylan`, message `updated`). Every edit this job made is present in the working tree and was
+verified after them; no git state-changing command was run from here.

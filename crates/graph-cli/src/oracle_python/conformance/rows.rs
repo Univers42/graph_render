@@ -83,7 +83,10 @@ pub const ROWS: [Row; 32] = [
         name: "IGRAPH_DRL",
         motor: Some("layout.force.drl"),
         reference: Reference::Scigraphs,
-        gaps: &[G_IGRAPH_SEED, G_IGRAPH_FIT],
+        // `G_DRL_NO_3D` is the recorded `Gap` the job asked for: SciGraphs calls DrL at `dim=3`
+        // and `docs/layouts/layout.force.drl.md` defines no 3-D step to implement, so the row
+        // stays on the planar layout and says why.
+        gaps: &[G_IGRAPH_SEED, G_IGRAPH_FIT, G_DRL_NO_3D],
     },
     Row {
         name: "IGRAPH_DRL_2D",

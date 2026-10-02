@@ -81,6 +81,11 @@ pub(super) const G_KK_NON_FINITE: Gap = Gap {
     note: "**the reference raises, this port does not.** python-igraph 0.11.9 returns three infinite coordinates out of nine from `layout_kamada_kawai(dim=3)` on the 3-vertex path `gate-01` — in all six vertex orderings, and at `dim=2` the same graph is finite — so the row compares 957 of 1020 coordinates. Not component count, not an isolated node and not degree: the graph is connected with degrees 2, 1, 1. It is the 3x3 Newton block being near-singular at three vertices, so one step overflows `f64`; `_igraph_fit_positions` then turns those three infinities into all nine, because `extent` is `inf`, the factor is `0` and `inf * 0` is NaN. `kamada_kawai_3d` guards the block and is finite there",
     at: "crates/graph-core/src/layout/force/kamada_kawai_3d/tests.rs:33",
 };
+pub(super) const G_DRL_NO_3D: Gap = Gap {
+    parameter: "dimension",
+    note: "**SciGraphs calls DrL at `dim=3`** (`igraph_layouts.py:342`) and this row's motor layout is planar, so the row compares a 2D drawing against a 3D reference and its third column is pure difference. Unlike FR and KK there is **no 3D spec to implement**: `docs/layouts/layout.force.drl.md:3` says the 3D variant \"is out of scope here except where noted\" and defines no 3-D step, no 3-D density grid and no 3-D tent kernel — the whole spec is 2-D (`1000 x 1000` grid, `21 x 21` block, a 2-axis tent). Rule 1 of `docs/decisions/layouts-igraph.md` makes the spec the implementer's only source, so a `drl_3d` needs a spec author to write that section first; the implementer must not fill the hole from `drl/*.cpp`. Left as a recorded gap rather than an improvised third axis",
+    at: "crates/graph-core/src/layout/force/drl.rs:93",
+};
 pub(super) const G_SCALE_FIXED_LAYER: Gap = Gap {
     parameter: "scale",
     note: "`layer_spacing` is the only length and `LAYER_SPACING` is its default; `run` takes no scale",
