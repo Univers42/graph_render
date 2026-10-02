@@ -52,8 +52,7 @@ fn gathered(grid: &Grid, workers: u32) -> Vec<(f64, f64)> {
     by_node
 }
 
-/// A crowd of 150 nodes inside one cell, more candidates than a window holds, around a
-/// sparse ring.
+/// A crowded cell: 150 nodes inside one cell, around a sparse ring.
 fn crowd() -> (Vec<f64>, Vec<f64>) {
     let (mut x, mut y) = positions();
     x.truncate(40);
