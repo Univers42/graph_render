@@ -4,6 +4,18 @@
 use super::level::*;
 use super::{MAX_GROUP, P};
 
+/// Floor on a pair's solo ink when `min_gain` is read as a fraction of it, the reference's
+/// `np.maximum(solo, 1e-20)` (`mingle.py:218`). Ponytail: a pair under 1e-20 of ink is
+/// judged as if it had that much; its gain is at most its ink, so it is never taken either
+/// way. Escape hatch: none needed.
+const SOLO_INK_FLOOR: f64 = 1e-20;
+
+/// Floor on a group's total weight before its centre is divided out, the reference's `tiny`
+/// (`mingle.py:135`). Ponytail: a weightless group centres on the origin, not on its points;
+/// only a group of zero-weight members reaches it, and the solve then moves it. Escape hatch:
+/// none needed.
+const WEIGHT_FLOOR: f64 = 1e-20;
+
 /// One scored candidate merge: the ink it saves, which pairing won, and the meeting points
 /// and ink of the bundle it would become.
 pub struct Score {
@@ -18,6 +30,9 @@ pub struct Score {
     pub q: P,
     /// The merged bundle's own ink, measured on the fused groups.
     pub ink: f64,
+    /// `ink(u) + ink(v)`: the pair's ink unmerged, which `gain` and `min_gain` are both
+    /// measured against.
+    pub solo: f64,
 }
 
 /// One pair's score: both pairings are tried, because pairing antiparallel edges head to
@@ -31,6 +46,7 @@ pub fn score(a: &Bundle, b: &Bundle, eps: f64) -> Score {
         p: a.p,
         q: a.q,
         ink: solo,
+        solo,
     };
     for flip in [false, true] {
         let (head, tail) = if flip {
@@ -47,6 +63,7 @@ pub fn score(a: &Bundle, b: &Bundle, eps: f64) -> Score {
                 p,
                 q,
                 ink,
+                solo,
             };
         }
     }
@@ -81,7 +98,7 @@ pub fn matching(
     min_gain: f64,
 ) -> Vec<usize> {
     let mut order: Vec<usize> = (0..cand.len())
-        .filter(|&i| worth(level, cand, scores, min_gain, i))
+        .filter(|&i| worth(&scores[i], min_gain))
         .collect();
     order.sort_by(|a, b| scores[*b].gain.total_cmp(&scores[*a].gain).then(a.cmp(b)));
     let mut used = vec![false; level.len()];
@@ -99,13 +116,11 @@ pub fn matching(
     out
 }
 
-/// Whether candidate `i` is worth scoring into the running at all: a positive gain that is
+/// Whether a scored candidate is in the running at all: a positive gain that is
 /// also at least `min_gain` of the pair's unbundled ink, so `min_gain` holds at any size
 /// rather than only on a small drawing.
-fn worth(level: &[Bundle], cand: &[(u32, u32)], scores: &[Score], min_gain: f64, i: usize) -> bool {
-    let (u, v) = cand[i];
-    let solo = level[u as usize].ink + level[v as usize].ink;
-    scores[i].gain > 0.0 && scores[i].gain / solo.max(1e-20) > min_gain
+fn worth(score: &Score, min_gain: f64) -> bool {
+    score.gain > 0.0 && score.gain / score.solo.max(SOLO_INK_FLOOR) > min_gain
 }
 
 /// Applies a pass's matching: the next level, where each old bundle's id went, and whether
@@ -218,7 +233,10 @@ fn centroid(g: &Group) -> P {
         acc[0] += *w * pt[0];
         acc[1] += *w * pt[1];
     }
-    [acc[0] / total.max(1e-20), acc[1] / total.max(1e-20)]
+    [
+        acc[0] / total.max(WEIGHT_FLOOR),
+        acc[1] / total.max(WEIGHT_FLOOR),
+    ]
 }
 
 /// The `k` nearest bundles to bundle `u` by proximity distance, ties by the lower index —

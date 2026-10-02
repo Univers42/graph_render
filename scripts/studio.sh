@@ -21,11 +21,10 @@ set -euo pipefail
 here=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 root=$(git -C "$here" rev-parse --show-toplevel)
 gr=${GR:-$root/scripts/orch/gr}
-node_image=${NODE_IMAGE:-node:22-slim}
 # The pinned references the tests read: the look tests compare the generated colour tables
 # against $GM_SCRATCH/refs/matplotlib-3.10.0/_cm_listed.py, and skip without it. A
 # skipped test is not a pass, so the check would never go green on an unmounted host.
-source "$(dirname "$(readlink -f "$0")")/orch/scratch.sh"
+source "$(dirname "$(readlink -f "$0")")/orch/image.sh"
 refs=${STUDIO_REFS:-${REFS:-$GM_SCRATCH/refs}}
 port=${STUDIO_PORT:-5174}
 command=${1:-serve}
@@ -38,10 +37,11 @@ log() { printf '\033[1m[studio]\033[0m %s\n' "$*"; }
 in_node() {
   local dir=$1 tty=()
   shift
-  # `docker run -it` refuses without a terminal, which a gate never has.
+  # `docker run -it` refuses without a terminal, which a gate never has. The update notifier is
+  # off: its "npm install -g" advice is about the image's npm, and run on the host it changes nothing.
   [[ -t 0 && -t 1 ]] && tty=(-it)
-  docker run --rm "${tty[@]}" "${publish[@]}" -v "$root:/w" -w "/w/$dir" \
-    -v "$refs:/refs:ro" "$node_image" "$@"
+  docker run --rm "${tty[@]}" "${publish[@]}" -e NPM_CONFIG_UPDATE_NOTIFIER=false \
+    -v "$root:/w" -w "/w/$dir" -v "$refs:/refs:ro" "$GM_NODE_IMAGE" "$@"
 }
 
 # target/ is the gate output tree: scripts/orch/queue.sh land writes target/land-<label>/, and

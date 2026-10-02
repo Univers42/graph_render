@@ -4,7 +4,7 @@
 
 use super::state::{HANDLES, publish};
 use crate::errors::{self, Code};
-use crate::views::{self, Column};
+use crate::views;
 use graph_contract::binary::Snapshot;
 
 /// Offset of column `column_id`'s data for `handle`'s last run; `0` if the handle is
@@ -33,38 +33,16 @@ pub extern "C" fn gm_column_len(handle: u32, column_id: u32) -> u32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn gm_dim(handle: u32) -> u32 {
     HANDLES.with(|handles| {
-        let handles = handles.borrow();
-        let Some(entry) = handles.get(handle) else {
-            errors::set(Code::InvalidHandle);
-            return 0;
-        };
-        let Some(snapshot) = &entry.snapshot else {
-            errors::set(Code::NoGeometryYet);
-            return 0;
-        };
-        errors::clear();
-        u32::from(views::dim(snapshot))
+        let dim = handles.borrow().snapshot(handle).map(views::dim);
+        errors::reply(dim.map(u32::from))
     })
 }
 
 fn resolve_column(handle: u32, column_id: u32, want_len: bool) -> u32 {
     HANDLES.with(|handles| {
         let handles = handles.borrow();
-        let Some(entry) = handles.get(handle) else {
-            errors::set(Code::InvalidHandle);
-            return 0;
-        };
-        let Some(snapshot) = &entry.snapshot else {
-            errors::set(Code::NoGeometryYet);
-            return 0;
-        };
-        errors::clear();
-        let (ptr, len) = match views::column(snapshot, column_id) {
-            Column::Absent => return 0,
-            Column::F32(v) => (v.as_ptr() as usize, v.len()),
-            Column::U32(v) => (v.as_ptr() as usize, v.len()),
-        };
-        u32::try_from(if want_len { len } else { ptr }).unwrap_or(0)
+        let snapshot = handles.snapshot(handle);
+        errors::reply(snapshot.and_then(|s| views::column_wire(s, column_id, want_len)))
     })
 }
 
@@ -91,22 +69,13 @@ pub extern "C" fn gm_snapshot_bytes(handle: u32) -> u32 {
 }
 
 fn with_valid_snapshot(handle: u32, encode: impl FnOnce(&Snapshot) -> Vec<u8>) -> u32 {
-    HANDLES.with(|handles| {
-        let handles = handles.borrow();
-        let Some(entry) = handles.get(handle) else {
-            errors::set(Code::InvalidHandle);
-            return 0;
-        };
-        let Some(snapshot) = &entry.snapshot else {
-            errors::set(Code::NoGeometryYet);
-            return 0;
-        };
-        if views::has_non_finite(snapshot) {
-            errors::set(Code::TamperedGeometry);
-            return 0;
+    HANDLES.with(|handles| match handles.borrow().snapshot(handle) {
+        Ok(snapshot) if !views::has_non_finite(snapshot) => {
+            errors::clear();
+            publish(encode(snapshot))
         }
-        errors::clear();
-        publish(encode(snapshot))
+        Ok(_) => errors::reply(Err(Code::TamperedGeometry)),
+        Err(code) => errors::reply(Err(code)),
     })
 }
 

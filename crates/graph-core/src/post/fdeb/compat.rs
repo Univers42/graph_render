@@ -13,8 +13,9 @@
 use crate::stage::StageError;
 
 /// The reference's guard on a length in a denominator: `1e-12` against a zero edge
-/// (`fdeb.py:88-93`). An edge of no length is a node joined to itself.
-const LEN_EPS: f32 = 1e-12;
+/// (`fdeb.py:68`, `:103-104`) or a zero segment (`fdeb.py:166`). An edge of no length is a
+/// node joined to itself.
+pub(super) const LEN_EPS: f32 = 1e-12;
 
 /// A 2D point, as the motor carries coordinates: `f32`, never `f64` (D1 is about the
 /// transcendentals; the geometry columns themselves are `f32`).
@@ -78,7 +79,7 @@ impl Frames {
 
     /// `Ce` for the pair `(i, j)`: the product of the angle, scale and position terms, and
     /// the visibility term when `visibility` is set — the smaller of the two directions, so
-    /// one edge lying off to the side of the other scores zero (`fdeb.py:126-128`).
+    /// one edge lying off to the side of the other scores zero (`fdeb.py:108-109`).
     pub fn compatibility(&self, i: usize, j: usize, visibility: bool) -> f32 {
         let product = self.angle(i, j) * self.scale(i, j) * self.position(i, j);
         if visibility {
@@ -89,13 +90,13 @@ impl Frames {
     }
 
     /// `Ca`: `|cos θ|` between the two unit directions, so an antiparallel pair scores as
-    /// well as a parallel one (`fdeb.py:111`).
+    /// well as a parallel one (`fdeb.py:100`).
     pub fn angle(&self, i: usize, j: usize) -> f32 {
         dot(self.u[i], self.u[j]).abs()
     }
 
     /// `Cs`: how alike the two lengths are, `2 / (l_avg/min + max/l_avg)` — 1 for equal
-    /// lengths, smaller the more they differ (`fdeb.py:113-117`).
+    /// lengths, smaller the more they differ (`fdeb.py:101-104`).
     pub fn scale(&self, i: usize, j: usize) -> f32 {
         let (li, lj) = (self.len[i], self.len[j]);
         let avg = 0.5 * (li + lj);
@@ -107,7 +108,7 @@ impl Frames {
     }
 
     /// `Cp`: how close the two midpoints are, `l_avg / (l_avg + gap)` — 1 for coincident
-    /// midpoints, halving at one edge length of separation (`fdeb.py:118-120`).
+    /// midpoints, halving at one edge length of separation (`fdeb.py:105-106`).
     pub fn position(&self, i: usize, j: usize) -> f32 {
         let avg = 0.5 * (self.len[i] + self.len[j]);
         let (mi, mj) = (self.mid[i], self.mid[j]);
@@ -119,7 +120,7 @@ impl Frames {
         avg / denominator
     }
 
-    /// `Cv`: how much of edge `i` lies in the shadow of edge `j` (`fdeb.py:52-65`). `j`'s
+    /// `Cv`: how much of edge `i` lies in the shadow of edge `j` (`fdeb.py:73-86`). `j`'s
     /// two endpoints are projected onto the line through `i`, giving an interval; `i`'s
     /// midpoint is compared with that interval's centre, and `1` is discounted by twice the
     /// relative distance. A `j` perpendicular to `i` has a zero-width interval, which the
@@ -137,7 +138,7 @@ impl Frames {
     }
 
     /// `u_i · u_j`: the sign picks which of `j`'s points is "corresponding" to `i`'s
-    /// (`fdeb.py:180-186` — pairing by raw index opens an antiparallel bundle into an X).
+    /// (`fdeb.py:186`, `:240` — pairing by raw index opens an antiparallel bundle into an X).
     pub fn dot(&self, i: usize, j: usize) -> f32 {
         dot(self.u[i], self.u[j])
     }

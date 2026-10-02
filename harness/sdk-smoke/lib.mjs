@@ -88,7 +88,11 @@ export function boundsOf(motor, handle) {
   };
   const xs = span(motor.column(handle, ColumnId.NodeX));
   const ys = span(motor.column(handle, ColumnId.NodeY));
-  return { minX: xs.min, maxX: xs.max, minY: ys.min, maxY: ys.max };
+  // A 2D run reads NodeZ as null; a 3D one (layout.hierarchical3d stacks its levels on z) is
+  // a single point only if z is flat too.
+  const z = motor.column(handle, ColumnId.NodeZ);
+  const zs = z === null ? { min: 0, max: 0 } : span(z);
+  return { minX: xs.min, maxX: xs.max, minY: ys.min, maxY: ys.max, minZ: zs.min, maxZ: zs.max };
 }
 
 // Everything the contract's table says about one layout's run over this handle, as a list

@@ -59,7 +59,7 @@
 //! `fan` groups edges by **unordered** node pair and gives ascending edge index `i` of
 //! a group of `k` the offset `parallel_offset * (i - (k-1)/2)`, centred on the chord. Two
 //! chained stable counting sorts, never a map (D4) and never an unstable sort (D5), so
-//! the order is fixed by arithmetic and the whole pass is `O(n + m)`. The displacement is
+//! the order is fixed by arithmetic and the fan is `O(n + m)`. The displacement is
 //! taken along the group's **canonical** direction — lower dense index to higher — which
 //! is the one place the grouping and the geometry have to agree; see
 //! `shapes`'s note on it.
@@ -74,10 +74,12 @@
 //! unchanged. No clock, no randomness (D8), no `usize` on the wire (D6).
 //!
 //! No Ponytail marker is owed on the generators, which is what Phase 8 asks for and what
-//! the arithmetic supports: no threshold, no sampling, no fallback, no estimate. Two
-//! choices are conventions rather than computations and are stated here rather than
-//! hidden — the self-loop's half-radius lift and the `L`/`Z` corner rule — the same
-//! treatment `layout/circular.rs` gives its ring spacing.
+//! the arithmetic supports: no threshold, no sampling, no fallback, no estimate. The one
+//! ceiling, `params::MAX_LOOP_SEGMENTS`, is a parameter rule and carries its marker there.
+//! Three choices are conventions rather than computations and are stated rather than
+//! hidden — the self-loop's half-radius lift, the `L`/`Z` corner rule, and an exact zero as
+//! the loop test (`shapes`) — the same treatment `layout/circular.rs` gives its ring
+//! spacing.
 
 use crate::arena::CapacityError;
 use crate::index::Topology;
@@ -121,7 +123,8 @@ pub enum Style {
     /// module doc for what that costs a parallel pair and how it is refused rather than
     /// drawn on top of itself.
     Straight,
-    /// Right angles only, as a polyline.
+    /// Right angles, as a polyline; a fanned `L` is the exception, its one bend moved
+    /// off both legs' levels (`shapes.rs`, `orthogonal_row`).
     Orthogonal,
     /// A quadratic bezier: one control point per edge.
     Quadratic,
@@ -178,8 +181,8 @@ impl Style {
 ///
 /// Refused, before any point is written, when the node geometry does not fit the
 /// topology (which is where D9 catches a non-finite centre, before it can reach the
-/// wire), when a parameter breaks the rule its field documents, or when the point CSR
-/// would pass `2^32 - 1` points (D6). Gather form (D10): edge `e` reads only the two node
+/// wire) or when a parameter breaks the rule its field documents; and after, when the
+/// point CSR would pass `2^32 - 1` points (D6) or a point left the `f32` range (D9). Gather form (D10): edge `e` reads only the two node
 /// columns and its own fan entry, and writes only its own row.
 pub fn style_edges(
     topology: &Topology,
@@ -192,7 +195,7 @@ pub fn style_edges(
     nodes
         .check(topology.node_count(), None)
         .map_err(StageError::Snapshot)?;
-    refuse(params)?;
+    params::refuse(params)?;
     if params.style == Style::Straight {
         return Ok(EdgeGeometry::Line);
     }
@@ -220,52 +223,14 @@ fn centres(nodes: &NodeGeometry) -> (&[f32], &[f32]) {
     }
 }
 
-/// The parameters this style refuses, named by the field and the rule it breaks. A
-/// style handed a value it cannot honour says so rather than quietly producing
-/// something else — a silent clamp here would be the one genuinely dangerous kind of
-/// defect this module could have.
-fn refuse(params: &StyleParams) -> Result<(), StageError> {
-    let bad = |name, rule| StageError::Param { name, rule };
-    for (name, value) in [
-        ("curvature", params.curvature),
-        ("parallel_offset", params.parallel_offset),
-        ("self_loop_radius", params.self_loop_radius),
-    ] {
-        if !value.is_finite() {
-            return Err(bad(name, "must be finite"));
-        }
-    }
-    if params.curvature < 0.0 {
-        return Err(bad(
-            "curvature",
-            "must be >= 0: the bend side is chosen from the chord, not signed",
-        ));
-    }
-    if params.self_loop_radius <= 0.0 {
-        return Err(bad(
-            "self_loop_radius",
-            "must be > 0: at 0 a loop's vertices sit on the node",
-        ));
-    }
-    if params.self_loop_segments < 3 {
-        return Err(bad(
-            "self_loop_segments",
-            "must be >= 3: a one- or two-gon is not a loop",
-        ));
-    }
-    if params.style == Style::Straight && params.parallel_offset != 0.0 {
-        return Err(bad(
-            "parallel_offset",
-            "must be 0.0 for post.style.straight: Line stores no interior points, so an offset has nowhere to go — use post.style.orthogonal, .quadratic or .bezier",
-        ));
-    }
-    Ok(())
-}
-
 /// Every edge's row, in edge order, as a `Polyline`- or `Curve`-shaped CSR: `m + 1`
 /// offsets from 0, and `2 x` the last offset coordinates. The tail offset is pushed
 /// after the last row, which is the step that only the zero-edge and single-edge
 /// boundaries of `tests/edge_geometry_invariants.rs` can see missing.
+///
+/// Finite centres can still bend past the `f32` range — a chord near `f32::MAX` pushes its
+/// control point beyond it, and the one cast to `f32` makes that `±inf` — so the written
+/// column is refused whole rather than handed to the wire non-finite (D9).
 fn build(t: &Topology, sheet: &Sheet<'_>, params: &StyleParams) -> Result<Paths, StageError> {
     let m = t.edge_count();
     let mut offsets = Vec::with_capacity(m as usize + 1);
@@ -274,6 +239,9 @@ fn build(t: &Topology, sheet: &Sheet<'_>, params: &StyleParams) -> Result<Paths,
     for e in 0..m {
         bend(t, sheet, params, e).push(&mut pts);
         offsets.push(offset(&pts)?);
+    }
+    if !pts.iter().all(|v| v.is_finite()) {
+        return Err(StageError::NonFinite { column: "edge.pts" });
     }
     Ok(Paths { offsets, pts })
 }

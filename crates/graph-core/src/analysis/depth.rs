@@ -6,9 +6,11 @@
 //! codebase, not two". The re-point has happened: p3's
 //! [`layout::hierarchy::Hierarchy`](crate::layout::hierarchy::Hierarchy) implements
 //! [`Roots`] below by delegation and nothing else, so the two are one convention with
-//! two names. This module owns *no* root/forest logic of its own: it reads the
+//! two names. This module derives no roots, cycles or parents of its own: it reads the
 //! convention through [`Roots`], whose four methods are p3's `Hierarchy` accessors
-//! verbatim — `node_count`, `roots`, `virtual_root`, `children`.
+//! verbatim — `node_count`, `roots`, `virtual_root`, `children`. What it does own is a
+//! check of that convention ([`bfs_depth`] refuses an out-of-range root and two roots
+//! with no virtual root) and the root offset, read with p3's own `roots.len() >= 2`.
 //!
 //! **The re-point has happened.** p3's [`Hierarchy`](crate::layout::hierarchy::Hierarchy)
 //! implements [`Roots`] below, by delegation and nothing else, so the two are one
@@ -131,6 +133,12 @@ impl Depth {
         self.levels[v as usize]
     }
 
+    /// Whether no root reaches node `v`: test this before using a level as a ring or
+    /// row index, since [`UNREACHED`] is not a depth. Panics as [`Depth::of`] does.
+    pub fn is_unreached(&self, v: u32) -> bool {
+        self.of(v) == UNREACHED
+    }
+
     /// The deepest level reached; 0 when nothing is reached.
     pub fn max(&self) -> u32 {
         self.max
@@ -141,14 +149,19 @@ impl Depth {
 /// root at depth 0, two or more under the virtual root at depth 1.
 pub fn bfs_depth<R: Roots + ?Sized>(forest: &R) -> Depth {
     let roots = forest.roots();
-    debug_assert!(
+    check_roots(forest, roots);
+    // A release `assert!`, like the index checks: a source that drops p3's virtual root
+    // would otherwise get a column one level short on every node.
+    assert!(
         roots.len() < 2 || forest.virtual_root().is_some(),
         "two or more roots must hang off a virtual root (D-H step 6)"
     );
     // The virtual root is index `n` and has no column of its own, so the walk starts
     // from the real roots at the depth the virtual root would have given them — depth 1
     // under one, depth 0 when the single root is the tree root. Same column p3's own
-    // `breadth_first` produces, without indexing a column that does not exist.
+    // `breadth_first` produces, without indexing a column that does not exist. The
+    // `roots.len() >= 2` clause is p3's own test (`layout/hierarchy.rs`, `root` and
+    // `virtual_root`), so a lone root named with a stray virtual root still sits at 0.
     let under_virtual_root = forest.virtual_root().is_some() && roots.len() >= 2;
     walk(forest, roots, u32::from(under_virtual_root))
 }
@@ -158,11 +171,16 @@ pub fn bfs_depth<R: Roots + ?Sized>(forest: &R) -> Depth {
 /// that descends from another declared root is still 0 — declaring is absolute, not
 /// relative. An index `>= node_count` is a caller bug and panics.
 pub fn depth_from<R: Roots + ?Sized>(forest: &R, roots: &[u32]) -> Depth {
+    check_roots(forest, roots);
+    walk(forest, roots, 0)
+}
+
+/// Refuses a root `>= node_count` by name, detected or declared alike.
+fn check_roots<R: Roots + ?Sized>(forest: &R, roots: &[u32]) {
     let n = forest.node_count();
     for &root in roots {
         assert!(root < n, "root {root} of {n}");
     }
-    walk(forest, roots, 0)
 }
 
 /// The breadth-first walk itself, from `sources`, all seeded at `seed`.
@@ -261,3 +279,8 @@ mod tests;
 /// convention p3 and this stage must share rather than derive twice.
 #[cfg(test)]
 mod hierarchy;
+
+/// The refusals and the sentinel predicate, split out because `tests.rs` is at the
+/// house's 300-line limit.
+#[cfg(test)]
+mod guards;

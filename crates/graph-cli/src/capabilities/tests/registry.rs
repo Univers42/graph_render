@@ -166,7 +166,10 @@ fn the_registry_covers_every_oracle_function_once_its_ids_are_unique() {
             ("roundtrip", "ingest.build", Status::Implemented)
         } else if r.id == "layout.tree.tidy" || r.id == "layout.treemap.squarified" {
             ("oracle-layouts", r.id, Status::Gated)
-        } else if r.id == "layout.force.barnes_hut" || r.id == "layout.force.yifan_hu" {
+        } else if r.id == "layout.force.barnes_hut"
+            || r.id == "layout.force.yifan_hu"
+            || r.id == "layout.forceatlas2.barnes_hut"
+        {
             ("stress", r.id, Status::Implemented)
         } else if r.id == "layout.forceatlas2" {
             ("oracle-fa2", r.id, Status::Implemented)
@@ -181,6 +184,10 @@ fn the_registry_covers_every_oracle_function_once_its_ids_are_unique() {
             ("oracle-basic-3d", r.id, Status::Implemented)
         } else if r.id == "layout.hierarchical3d" {
             ("oracle-hierarchical-3d", r.id, Status::Implemented)
+        } else if r.id == "layout.bipartite_3d" {
+            // The conformance gate's own record, and not `oracle-closed-form`: that is
+            // `layout.bipartite`'s, over networkx's two columns.
+            ("scigraphs-conformance", r.id, Status::Implemented)
         } else if r.id == "layout.circular.hierarchy" {
             // A closed form with a SciGraphs-arm differential, `implemented` rather than
             // `gated` for the reason `unproven.rs` gives: the record is read by name like

@@ -56,7 +56,8 @@ Writing the algorithm from memory of a paper is the one failure this project can
 
 ## 1. Toolchain — every command, verbatim
 
-One image, built by us:
+One image, built by us — `scripts/orch/gr` builds it on first use and whenever the Dockerfile
+changes (`scripts/orch/image.sh`); by hand:
 
 ```sh
 docker build -f docker/rust.Dockerfile -t ge-rust .
