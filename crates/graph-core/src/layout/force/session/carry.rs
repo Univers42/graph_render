@@ -99,8 +99,8 @@ fn carried(
     Placement {
         out: sim,
         old: &session.sim,
-        from,
         to,
+        carried: Placement::map(from, to),
     }
     .all();
     Ok(out)
@@ -111,34 +111,47 @@ fn carried(
 struct Placement<'a> {
     out: &'a mut Sim,
     old: &'a Sim,
-    from: &'a Topology,
     to: &'a Topology,
+    /// `to`'s row → the row of `from` naming the same node, or [`NEW`] for a node `from`
+    /// did not have.
+    ///
+    /// Built once, ascending, before anything is placed. It is the whole id mapping of the
+    /// carry, and it is an array rather than a lookup per question because the questions are
+    /// not one per row: [`carried_mean`](Self::carried_mean) asks once per incident edge,
+    /// which is an `O(m)` hash of an id string per batch instead of an `O(n)` array read.
+    /// Sized once at the row count and never grown — no per-node allocation (D6).
+    carried: Vec<u32>,
 }
 
+/// The `carried` entry for a node `from` did not have. A row number, so it can never be one.
+const NEW: u32 = u32::MAX;
+
 impl Placement<'_> {
+    /// Builds the row map: one id lookup per row of `to`, ascending, against `from`.
+    ///
+    /// The id is read out of the column rather than through [`Topology::node`], which
+    /// builds a [`NodeView`](crate::records::NodeView) of all ten fields to hand back one
+    /// of them: at 1M rows that is ten reads a row this pass does not want.
+    fn map(from: &Topology, to: &Topology) -> Vec<u32> {
+        let strings = to.strings();
+        let ids = &to.nodes().id;
+        (0..ids.len())
+            .map(|row| from.node_index(strings.get(ids[row])).unwrap_or(NEW))
+            .collect()
+    }
+
     /// Every row of `to`, ascending. `fresh` counts the new rows, and is the index the
     /// offset spirals on — a count over rows in order, so it does not depend on which rows
     /// happen to be new in which order.
     fn all(&mut self) {
         let mut fresh = 0_u32;
         for row in 0..self.to.node_count() {
-            if self.place_row(row, fresh) {
-                fresh += 1;
-            }
-        }
-    }
-
-    /// One row of `to`, at its carried state or at its new one. `true` when the row is
-    /// new, which is the one thing `all` counts.
-    fn place_row(&mut self, row: u32, fresh: u32) -> bool {
-        match self.carried_row(row) {
-            Some(old) => {
-                self.copy(old, row);
-                false
-            }
-            None => {
+            let old = self.carried[row as usize];
+            if old == NEW {
                 self.place_new(row, fresh);
-                true
+                fresh += 1;
+            } else {
+                self.copy(old, row);
             }
         }
     }
@@ -146,7 +159,8 @@ impl Placement<'_> {
     /// The row of `from` holding the node `to`'s row `row` names, or `None` when `from` has
     /// no such node. The only mapping between the two topologies.
     fn carried_row(&self, row: u32) -> Option<u32> {
-        self.from.node_index(self.to.node(row).id)
+        let old = self.carried[row as usize];
+        (old != NEW).then_some(old)
     }
 
     /// The six columns a surviving node keeps, field for field: position, velocity and both
