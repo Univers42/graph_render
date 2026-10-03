@@ -133,7 +133,10 @@ mod gate_exports {
 /// signature, a refusal code's meaning or an accepted document version changes, never for
 /// a registry entry (those are counted at run time, C1). The SDK refuses a module that
 /// reports any other number (`docs/contract/wasm-abi.md` "Exports").
-pub const ABI_VERSION: u32 = 1;
+/// Bumped to `2` when `gm_run`'s `params_ptr`/`params_len` stopped being refused and
+/// started carrying a layout's published parameters, and `Code::ParamsMustBeEmpty`
+/// stopped being produced (`docs/contract/wasm-abi.md` "Exports").
+pub const ABI_VERSION: u32 = 2;
 
 pub mod probe;
 
