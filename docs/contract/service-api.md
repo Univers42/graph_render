@@ -98,9 +98,12 @@ start, never a value of the key file.
 
 ## The image
 
-- Multi-stage. The builder installs the toolchain as `docker/rust.Dockerfile` does (pinned rustup and
-  Rust, from Debian). The runtime is `debian:trixie-slim`, a non-root user, the binary and
-  `/srv/embed`, and `HEALTHCHECK` on `/healthz`.
+- `scripts/service.sh build` stages the artifacts with the house toolchain images (`ge-rust` through
+  `scripts/orch/gr`, the threads build through `scripts/orch/wasm-threads.sh`, and the studio through
+  `scripts/studio.sh build`), so no second copy of the rustup or node recipe exists. The image only
+  copies them in: `debian:trixie-slim`, a non-root user, the binary and `/srv/embed`, and a
+  `HEALTHCHECK` on `/healthz`. The binary is built against trixie's glibc, inside `ge-rust`, which is
+  itself trixie.
 - `deploy/` and `server/` are not fingerprinted. Building the image voids no motor gate evidence.
 
 ## SDK
