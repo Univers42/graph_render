@@ -40,6 +40,57 @@ fn a_registered_layout_emits_the_kinds_it_declares_at_its_default_parameters() {
     assert!(find("layout.none").is_none());
 }
 
+/// L-28: the ids at the indices an out-of-crate caller pins, asserted.
+///
+/// `graph-wasm/src/handle.rs:184` and `crates/graph-core/src/post/tests.rs:201` both
+/// call `LAYOUTS[0].run` and expect `layout.grid`; `bench/campaign.rs:128` is
+/// `LAYOUTS[3]`, the default crossover arm. `graph-wasm`'s ABI is positional
+/// (`exports/build.rs:32,143`), so an id at an index is also that layout's wire
+/// `layout_id`. Nothing about `[Capability; N]` notices two rows swapped, which is
+/// the whole defect: this assertion is what notices.
+///
+/// Only the front block is pinned, and that is the whole set of dependencies: nothing
+/// outside this crate names an index above 4 (the SDK maps a string id by scanning
+/// `0..gm_layout_count()` at init, `exports/build.rs:26-32`), and a row appended past
+/// the block moves nothing here. Pinning every index would make each later append
+/// depend on a file its own job is not allowed to touch.
+#[test]
+fn the_index_keyed_front_of_layouts_still_holds_the_ids_their_callers_name() {
+    assert_eq!(
+        LAYOUTS
+            .iter()
+            .take(5)
+            .map(|layout| layout.id)
+            .collect::<Vec<_>>(),
+        [
+            Grid::ID,
+            tidy_tree::ID,
+            treemap::ID,
+            circular::ID,
+            circle_packing::ID,
+        ],
+        "the index-keyed front of LAYOUTS moved: grid at 0 and circular at 3 are named \
+         by index from graph-wasm and from bench/campaign.rs"
+    );
+}
+
+/// L-27: the two ceilings that answer "the largest size `bench` accepts" read one
+/// constant, so a drift in the cap is a compile error in the registry rather than a
+/// number copied twice that happens to agree.
+#[test]
+fn the_radial_and_basic_3d_ceilings_are_the_one_bench_node_cap() {
+    assert_eq!(RADIAL_CEILING, u64::from(MAX_BENCH_NODES));
+    assert_eq!(BASIC_3D_CEILING, u64::from(MAX_BENCH_NODES));
+    assert_eq!(
+        find("layout.twopi").map(|l| l.meta.scale_ceiling),
+        Some(RADIAL_CEILING)
+    );
+    assert_eq!(
+        find("layout.hierarchical3d").map(|l| l.meta.scale_ceiling),
+        Some(BASIC_3D_CEILING)
+    );
+}
+
 #[test]
 fn sugiyama_declares_polyline_edges_and_the_reference_dummy_budget() {
     let sugiyama = find("layout.dag.sugiyama").expect("registered");
