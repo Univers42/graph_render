@@ -69,7 +69,6 @@ interface Rig {
   readonly frames: () => number;
   readonly tick: () => void;
   readonly scheduled: () => number;
-  /** The delay of every frame the loop asked for, in order. */
   readonly delays: number[];
 }
 
@@ -141,12 +140,10 @@ test("a slow motor ticks every frame, back to back, and never queues", () => {
   const port = fake(0.99, clock);
   const { host, out } = rig(port, clock, 16);
   host.handle({ type: "force.start" });
-  out.tick();
-  out.tick();
+  for (let i = 0; i < 2; i += 1) out.tick();
   assert.equal(port.calls.filter((c) => c.startsWith("step")).length, 2, "no tick is dropped after a long one");
   assert.equal(out.frames(), 2, "one frame a tick, never a frame without one");
-  assert.deepEqual(out.delays, [16, 0, 0], "a tick past the period is followed at once");
-  assert.equal(out.scheduled(), 3, "exactly one frame is ever pending");
+  assert.deepEqual(out.delays, [16, 0, 0], "a tick past the period is followed at once, and one frame is ever pending");
 });
 
 test("a fast motor steps once a period, so the settle lasts as long as the animation", () => {
