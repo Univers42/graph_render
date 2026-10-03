@@ -68,7 +68,10 @@ impl fmt::Display for NewerMajor {
     }
 }
 
-/// `Ok` when this reader can read a snapshot declaring `found`.
+/// `Ok` when this reader can read a snapshot declaring `found`. The major alone decides:
+/// within major 0 a minor is **not** a compatibility promise — `0.x` is pre-release, so a
+/// newer minor may have moved the payload, and the only safe reading of an unknown `0.x`
+/// minor is through this crate's own reader, never by assuming the bytes it writes.
 pub const fn check_readable(found: FormatVersion) -> Result<(), NewerMajor> {
     if found.major > CURRENT_VERSION.major {
         return Err(NewerMajor {

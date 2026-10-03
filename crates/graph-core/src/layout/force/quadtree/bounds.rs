@@ -22,6 +22,13 @@ impl Default for Bounds {
 }
 
 impl Bounds {
+    /// The square's width. It is `NaN` on a square whose bounds went non-finite, which
+    /// every `>` / `<` against it reads as "no longer making progress" — the bail both
+    /// `cover`'s growth and `insert_leaf`'s split step share.
+    pub(super) fn span(self) -> f64 {
+        self.x1 - self.x0
+    }
+
     /// Narrows to the quadrant containing `(x, y)`; returns its slot, `bottom<<1|right`
     /// (`add.js:31-32`).
     pub(super) fn narrow(&mut self, x: f64, y: f64) -> usize {

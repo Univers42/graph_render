@@ -3,7 +3,7 @@
 //! Split out of `ingest.rs` for the house's 300-line limit and for no other reason.
 //! The interesting part is the ordering rule, and it is on `Collection::fields`.
 
-use super::{Field, Role};
+use super::Field;
 
 /// A collection of records and the roles of its fields.
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -25,16 +25,11 @@ pub struct Collection {
 
 impl Collection {
     /// The field with id `id`, or `None`. The only lookup the derivation uses — a
-    /// declared id, never "the first field of some role".
+    /// declared id, never "the first field of some role". Where several fields share a
+    /// role, the canonically lowest id is the one that role reads (`ingest.rs`,
+    /// "What the reader refuses"); this is what makes that statement a lookup by
+    /// declared id rather than a positional one.
     pub fn field(&self, id: &str) -> Option<&Field> {
         self.fields.iter().find(|field| field.id == id)
-    }
-
-    /// The lowest-id field with `role`, or `None`. Ties are broken by the id, never by
-    /// the order the fields arrived in (H6, D5): two fields with the same role are a
-    /// schema mistake, and picking between them by document order would make the
-    /// derivation depend on a reserialization.
-    pub fn first_with_role(&self, role: Role) -> Option<&Field> {
-        self.fields.iter().find(|field| field.role == role)
     }
 }

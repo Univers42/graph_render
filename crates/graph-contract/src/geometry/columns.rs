@@ -32,7 +32,11 @@ pub(super) fn columns_dim<'a>(
 /// and `h` are sizes.
 pub(super) fn check(nodes: &NodeGeometry, n: u32, z: Option<&[f32]>) -> Result<(), SnapshotError> {
     for (name, column) in columns_dim(nodes, z) {
-        let column_name = node_column(name);
+        // `columns_dim` spells out every arm, so an unknown name cannot arrive from
+        // outside; falling back to the name the column was given keeps this total without
+        // ever reporting a column the caller did not name, and without a refusal variant
+        // that means "no such column".
+        let column_name = node_column(name).unwrap_or(name);
         check_len(column_name, u64::from(n), column.len())?;
         check_finite(column_name, column)?;
         if matches!(name, "r" | "w" | "h")

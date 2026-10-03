@@ -1,5 +1,7 @@
 # Job fix-force-jiggle (agent build: follow-up of fix-force-quadtree item 6)
 
+Your worktree is cut from `fix-force-quadtree`, which is not on develop yet; do not merge develop.
+
 Read `prompts/jobs/fix-common.md` first. Source: `docs/measurements/fix-force-quadtree.md`, row for
 item 6, and `docs/reviews/review-layout-force.md` (the "unverified" item on `charge.rs:261` /
 `link.rs:84`).
