@@ -47,6 +47,12 @@ pub(super) fn seed_positions(n: u32) -> Vec<(f64, f64)> {
 /// SciGraphs passes `seed=get_layout_seed()` (`circle_packing.py:428`), so this is the
 /// reference's own doubles: two `u32` words each, and no scaling — `dom_size` is 1 and
 /// `center` is 0 at `circle_packing.py:429`.
+///
+/// Caveat: the **dense** arm only. At `n >= 500` `spring_layout` builds `A` with
+/// `dtype="f"` (`layout.py:629`) and casts `pos` to it (`layout.py:672`), so the
+/// reference's start is float32 there and half its bits are gone before the first force. No
+/// conformance fixture reaches 500 nodes and this fallback is a non-planar-graph path, so
+/// nothing here is measured against that fork.
 fn seeded(n: u32, seed: u32) -> Vec<(f64, f64)> {
     let mut stream = crate::rng::Mt19937::new(seed);
     (0..n)

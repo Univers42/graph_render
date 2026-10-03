@@ -95,6 +95,7 @@ pub use spring3d::{ID_3D, Spring3D};
 use super::simple_graph;
 use crate::index::Topology;
 use crate::layout::Geometry;
+use crate::rng::Mt19937;
 use crate::stage::{Stage, StageError};
 use crate::synthetic::Mulberry32;
 use forces::{Field, Solver};
@@ -219,8 +220,15 @@ fn start<const D: usize>(n: u32, seed: Option<u32>) -> Field<D> {
 /// an `int` seed (`utils/misc.py:290-291`) and SciGraphs passes as `seed=get_layout_seed()`
 /// (`networkx_layouts.py:16-34`). Two `u32` words per double, so this is the reference's
 /// stream rather than a generator that merely looks like it.
+///
+/// Caveat: this is the **dense** start, `n < 500` (`layout.py:640`, `method="auto"` picks
+/// `"force"` there and `"energy"` above it). At `n >= 500` the sparse branch builds `A` with
+/// `dtype="f"` (`layout.py:629`) and casts `pos` to it (`layout.py:672`), so the reference's
+/// own start is **float32** and half its bits are gone before the first force — a different
+/// answer this port does not reproduce at all, and no seed value fixes it. No conformance
+/// fixture reaches 500 nodes, so nothing here is measured against that path.
 fn from_random_state<const D: usize>(c: &mut [Vec<f64>; D], n: u32, seed: u32) {
-    let mut stream = crate::rng::Mt19937::new(seed);
+    let mut stream = Mt19937::new(seed);
     for _ in 0..n {
         for column in c.iter_mut() {
             column.push(stream.next_f64());
