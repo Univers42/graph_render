@@ -124,6 +124,8 @@ snapshot-raw|0|scripts/orch/gr cargo run -q -p graph-cli -- snapshot --seed 0 --
 sdk-smoke|0|scripts/orch/node-slim.sh bash -c 'npm ci --ignore-scripts >/dev/null && node --experimental-strip-types harness/sdk-smoke.mjs target/wasm32-unknown-unknown/release/graph_wasm.wasm'
 sdk-adapter-convergence|0|scripts/orch/node-slim.sh bash -c 'npm ci --ignore-scripts >/dev/null && node --experimental-strip-types harness/sdk-smoke.mjs --adapter-convergence target/wasm32-unknown-unknown/release/graph_wasm.wasm'
 zero-copy|0|scripts/orch/node-slim.sh bash -c 'npm ci --ignore-scripts >/dev/null && node --experimental-strip-types harness/wasm-run.mjs target/wasm32-unknown-unknown/release/graph_wasm.wasm --assert-zero-copy'
+# The harness's own node:test files (fix-harness-mjs): no npm script runs them, so this row is their only runner.
+harness-test|0|scripts/orch/node-slim.sh bash -c 'npm ci --ignore-scripts >/dev/null && node --test --experimental-strip-types "harness/**/*.test.mjs"'
 
 # ---------------------------------------------------------------------------------------------
 # from docs/reports/phase-09-progress.md:66 — p9 scale and the bench campaign: reversibility,
