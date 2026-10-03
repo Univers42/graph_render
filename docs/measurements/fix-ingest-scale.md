@@ -6,9 +6,9 @@ degree-5 documents and classified the trap as a scale defect rather than a ceili
 
 | id | severity | verdict | test name | file:line |
 |---|---|---|---|---|
-| F-16-s | BLOCKER | fixed: `read_records` validates the document with a walk that builds no `Value` tree and reads each record out of the element's own text, so the 1M-node documents at degrees 3, 4 and 5 build on the artifact and the ceiling could be raised to `2^30` | `the_reader_agrees_with_the_frozen_one_on_every_accepted_fixture`; `the_reader_agrees_with_the_frozen_one_on_seeded_mutations`; the eight in `ingest/tests/scan.rs`; `the_ceiling_is_the_largest_power_of_two_at_or_below_the_largest_that_built` | `crates/graph-wasm/src/ingest/scan.rs:163`, `ingest/element.rs:73`, `ingest.rs:67` |
+| F-16-s | BLOCKER | fixed: `read_records` validates the document with a walk that builds no `Value` tree and reads each record out of the element's own text, so the 1M-node documents at degrees 3, 4 and 5 build on the artifact and the ceiling could be raised to `2^30` | `the_reader_agrees_with_the_frozen_one_on_every_accepted_fixture`; `the_reader_agrees_with_the_frozen_one_on_seeded_mutations`; the eight in `ingest/tests/scan.rs`; `the_ceiling_is_the_largest_power_of_two_at_or_below_the_largest_that_built` | `crates/graph-wasm/src/ingest.rs:76`, `ingest.rs:164`, `ingest/scan.rs:57`, `ingest/element.rs:81` |
 | F-16-s | MAJOR | fixed: the trap was not in the arena at all — it was the `canonical_json::Value` tree, which measured 3.2x the document's text at 1M nodes. `index_model` was the phase the trap was *attributed* to because it is where the tree's memory was still resident | `the_counted_length_is_the_length_the_records_come_out_at` | `crates/graph-wasm/src/ingest/scan.rs:24` |
-| F-16-s | MINOR | fixed: two refusal divergences the frozen-reader corpus could not reach, both found by the new `ingest/tests/scan.rs` and both fixed — a non-object root said `missing member \`version\`` instead of `expected an object`, and a member that may be `null` said `expected a string` instead of `expected a string or null` | `a_root_that_is_not_an_object_is_refused_after_the_syntax_has_been_read`; `an_array_where_a_scalar_member_belongs_is_refused_as_that_members_type` | `crates/graph-wasm/src/ingest.rs:170`, `ingest/element.rs:186` |
+| F-16-s | MINOR | fixed: two refusal divergences the frozen-reader corpus could not reach, both found by the new `ingest/tests/scan.rs` and both fixed — a non-object root said `missing member \`version\`` instead of `expected an object`, and a member that may be `null` said `expected a string` instead of `expected a string or null` | `a_root_that_is_not_an_object_is_refused_after_the_syntax_has_been_read`; `an_array_where_a_scalar_member_belongs_is_refused_as_that_members_type` | `crates/graph-wasm/src/ingest.rs:180`, `ingest/element.rs:214` |
 
 ## Step 1 — the per-phase table, before
 
@@ -142,7 +142,7 @@ is 589,834,978 *above* the ceiling and traps, while the largest that built is 42
 | `scripts/orch/gr cargo test -p graph-wasm --lib` | **0** | `160 passed; 0 failed; 1 ignored` |
 | `scripts/orch/gr cargo fmt --all --check` | 0 | (no output) |
 | `scripts/orch/gr cargo clippy --workspace --all-targets -- -D warnings` | **0** | `Finished dev profile` |
-| `scripts/orch/gr cargo test --workspace --no-fail-fast` | **0** | 1795 passed, 0 failed, 12 ignored across 21 suites |
+| `CARGO_BUILD_JOBS=6 RUST_TEST_THREADS=4 scripts/orch/gr cargo test --workspace --no-fail-fast` | **0** | 1931 passed, 0 failed, 15 ignored across 20 suites |
 | `scripts/orch/gr cargo build -p graph-core --target wasm32-unknown-unknown` | 0 | `Finished dev profile` |
 | `scripts/orch/gr cargo build -p graph-wasm --release --target wasm32-unknown-unknown` | 0 | `Finished release profile`, no warning from any code |
 | `scripts/orch/gr cargo run -q -p graph-cli -- hashgate --seeds 8` | **0** | `4-way equal on 8/8 seeds` / `PASS` |
@@ -179,11 +179,30 @@ is 589,834,978 *above* the ceiling and traps, while the largest that built is 42
    field.** The only arrays the walk re-walks are root members', whose values are at depth 1
    by construction (the root object is depth 0).
 
+### Two runs that did not count
+
+Reported because a skipped check is not a pass and neither of these is one:
+
+- `cargo test --workspace` run concurrently with `scripts/scigraphs-conformance.sh` and with
+  a sibling job's own workspace test (a different worktree, `fix-force-jiggle`, sharing this
+  Docker image and the cargo registry volume) exited **137** — OOM-killed inside the 8g
+  container cap. Both the conformance row and the workspace row read and write
+  `target/wasm32-unknown-unknown/release/graph_wasm.wasm` and `target/scigraphs-conformance/`,
+  which is exactly the race `docs/measurements/fix-wasm-ingest.md` records for graph-cli's
+  integration binaries. Re-run **alone**, serially, both are green; the numbers pasted above
+  are from those runs.
+
 ## Deviations
 
 - `crates/graph-wasm/src/ingest/record.rs` is **deleted**, and
   `crates/graph-wasm/src/ingest/{scan.rs,scan/walk.rs,scan/text.rs,element.rs,phases.rs,tests/scan.rs}`
   are **new**. All are inside this job's `ingest/**` path.
+- Something outside this job committed the worktree three times while it ran (`43a0599`,
+  `69408e5`, `e8fe1e9`, all "updated", at 11:27, 11:42 and 11:52). Each contains only files
+  this job wrote and each is a snapshot of the tree as it stood at that moment, so no foreign
+  change is in the history — but the orchestrator's own commit will land on top of a moving
+  base rather than on `fa525a4`. Recorded because it is not something this job did and not
+  something it can undo.
 - `docs/measurements/fix-wasm-ingest.md` is **not** edited: it is the record of the sweep
   that set the previous number, and that number is what this job's ceiling had to clear.
   Overwriting it would erase the measurement the new one is measured against.

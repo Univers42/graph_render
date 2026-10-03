@@ -1,6 +1,8 @@
 //! Provisional ingest (`docs/contract/wasm-abi.md` "Ingest — PROVISIONAL", C13): a
 //! versioned JSON array of node/edge records in the shape `graph_core::records` already
-//! uses, parsed with `graph_contract::canonical_json`'s strict RFC 8259 reader.
+//! uses, read as strict RFC 8259 by [`scan`] — a walk that refuses exactly what
+//! `graph_contract::canonical_json::parse` refuses, at the same byte offsets, and builds no
+//! `Value` tree to do it.
 //!
 //! **The real ingest contract lives in [`crate::contract`]**, read by
 //! `gm_build_contract`. This one is unchanged and stays: it is what the host studio and
@@ -143,13 +145,13 @@ impl IngestError {
 /// given anything: a buffer past [`MAX_INGEST_BYTES`] is refused by its size alone, so no
 /// work is done on a document this module has already promised not to read (F-16).
 ///
-/// The tree is consumed by value: each node's and edge's element is moved in, each string
-/// is moved out of its `Value` instead of copied with `.to_owned()`, and the element is
-/// dropped as soon as its record is built. The order is unchanged from the borrowing
-/// reader this replaced, and the differential test in [`differential`] is the judge: whole
-/// text parsed before any shape check, root checked before any node, every node before any
-/// edge, then `check_ids`. Only tests call it: `gm_build` reads through [`read_records`] and
-/// [`index`], which refuse the same documents.
+/// Each node's and edge's element is read out of the document's own text by [`element`],
+/// and nothing else is built: the tree this reader used to consume by value was 3.2x the
+/// document at 1M nodes, which is why the walk in [`scan`] exists. The order is unchanged
+/// from the tree reader, and the differential test in [`differential`] is the judge: whole
+/// text validated before any shape check, root checked before any node, every node before
+/// any edge, then `check_ids`. Only tests call it: `gm_build` reads through
+/// [`read_records`] and [`index`], which refuse the same documents.
 #[cfg(test)]
 pub fn read(bytes: &[u8]) -> Result<(Vec<NodeRecord>, Vec<EdgeRecord>), IngestError> {
     let (nodes, edges) = read_records(bytes)?;
