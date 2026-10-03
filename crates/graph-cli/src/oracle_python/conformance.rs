@@ -102,6 +102,18 @@ pub const ITERATIONS: u32 = 50;
 /// but at what seed?" — both sides are at this one.
 pub const LAYOUT_SEED: u32 = 981_798_123;
 
+/// The seed `FORCEATLAS2`'s reference arm actually starts from, which is **not**
+/// [`LAYOUT_SEED`].
+///
+/// `_forceatlas2_forcesim` draws one: `seed = _get_layout_rng().randint(0, 2**31 - 1)`
+/// (`forceatlas.py:122`), and hands *that* to `random_positions`, i.e. to
+/// `np.random.default_rng` (`simulation.py:1090-1091`). `apply_graph_layout` reseeds at
+/// `dispatcher.py:22`, so every fixture draws the same one. Measured in `ge-python-oracle`
+/// (numpy 2.3.3): `RandomState(981798123).randint(0, 2**31 - 1) = 1767573729`, and the
+/// start row that follows is `[1.4719001, 0.8315206, 0.57074285]` as `f32`. Pinned in
+/// `docs/measurements/sg-fa2-seed.md` and `sg-fa2-forcesim.md`.
+pub const FORCESIM_SEED: u64 = 1_767_573_729;
+
 /// `graph-cli emit-conformance-fixtures --out DIR`.
 pub fn emit(out: &Path) -> ExitCode {
     match emit::write(out) {

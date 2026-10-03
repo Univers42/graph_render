@@ -29,8 +29,7 @@ mod geometry_invariants {
     };
     use std::ops::Range;
 
-    /// Seeds swept: enough to draw shallow and deep trees, single- and multi-root forests,
-    /// and every note code, without the sweep itself taking more than a moment.
+    /// Seeds swept: shallow and deep trees, single- and multi-root forests, every note code.
     const SEEDS: u32 = 200;
 
     /// The chunk marker for a registry row swept whole, in one test, rather than split.
@@ -282,6 +281,7 @@ mod geometry_invariants {
             [36, "layout.bipartite_3d", WHOLE, layout_bipartite_3d],
             [37, "layout.basic3d.spiral", WHOLE, layout_basic3d_spiral],
             [38, "layout.force.particle_mesh", WHOLE, layout_force_particle_mesh],
+            [39, "layout.forceatlas2.forcesim", WHOLE, layout_forceatlas2_forcesim],
         ]
     }
 
