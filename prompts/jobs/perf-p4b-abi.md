@@ -43,6 +43,9 @@ perf-p4a-extend after P4a's commits):
 - **Peer branch.** `origin/svc-native-seam` (peer 41) edits `graph-wasm/src/{lib.rs,errors.rs,
   exports/build.rs,stage_exports.rs}` and adds `service.rs`. Edit `lib.rs` and `errors.rs` additively
   only; whichever lands second merges develop and keeps both intents.
+  - If `crates/graph-wasm/src/service.rs` exists on your tree (the native façade: exports and the
+    HTTP server share one path, `docs/contract/service-api.md` condition 1), `gm_graph_extend` calls a
+    new `service::extend(&mut Topology, &[u8]) -> Result<(), Code>` there, and the export stays thin.
 
 Do, in order:
 
