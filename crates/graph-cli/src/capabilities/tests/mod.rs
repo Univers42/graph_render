@@ -163,12 +163,6 @@ fn honest() -> Evidence {
                         "layout.circular.radial": hand(6),
                         "layout.packing.circle": hand(5),
                         "layout.dag.sugiyama": hand(9),
-                        // The two 3D arms of the spectral family. `roundtrip`'s sweep is the
-                        // registry's, so both are swept for real; the case counts here are
-                        // fixture values like every other number in this record, and only the
-                        // "ran at least one case" rule is under test.
-                        "layout.spectral3d": hand(3),
-                        "layout.mds.pivot3d": hand(3),
                     }
                 }),
             ),

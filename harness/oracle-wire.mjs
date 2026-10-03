@@ -20,7 +20,22 @@ export function unhex(text) {
   return bits.getFloat64(0);
 }
 
+/**
+ * The canonical form: every object's keys sorted, as `serde_json` writes a `Value`.
+ *
+ * A number that is not finite and a member whose value is `undefined` are refused, not
+ * written. `JSON.stringify` swallows both — `NaN` and `Infinity` become `null`, so
+ * `canonical({x: NaN})` would equal `canonical({x: null})`, and an `undefined` member
+ * disappears, leaving a member in the object that is absent from the wire text. Two
+ * different measurements must not be able to produce the same bytes.
+ */
 function sorted(value) {
+  if (typeof value === "number" && !Number.isFinite(value)) {
+    throw new Error(`canonical: ${String(value)} is not finite; JSON.stringify would write it as null`);
+  }
+  if (value === undefined) {
+    throw new Error("canonical: an undefined member is not a JSON value; JSON.stringify would drop it");
+  }
   if (Array.isArray(value)) return value.map(sorted);
   if (value === null || typeof value !== "object") return value;
   return Object.fromEntries(
@@ -30,7 +45,13 @@ function sorted(value) {
   );
 }
 
-export const canonical = (value) => JSON.stringify(sorted(value));
+/** Throws unless every member of `value` is a defined, finite JSON value. */
+export function canonical(value) {
+  if (value === undefined) throw new Error("canonical: undefined is not a JSON value");
+  const text = JSON.stringify(sorted(value));
+  if (text === undefined) throw new Error(`canonical: ${JSON.stringify(String(value))} has no JSON form`);
+  return text;
+}
 
 /** Wire node → GraphNode. */
 export function node(w) {

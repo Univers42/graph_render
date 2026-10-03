@@ -1,8 +1,10 @@
 //! Ledger metadata for the Phase 6 spectral family (`layout.spectral`, `layout.mds.pivot`,
 //! and their 3D siblings `layout.spectral3d`, `layout.mds.pivot3d`), kept apart from
-//! `registry.rs` for the house line cap.
+//! `registry.rs` for the house line cap. The two 3D siblings' whole entries are here too,
+//! because `registry/layouts.rs` is at the 300-line cap.
 
-use super::Metadata;
+use super::{Capability, LayoutParams, Metadata};
+use crate::layout::spectral_stage;
 use graph_contract::geometry::{EdgeGeometryKind, NodeGeometryKind};
 
 /// Node count past which `layout.spectral` stops being reliable, and why it is this one.
@@ -133,4 +135,23 @@ picture, not its validity. Ponytail (sign): inside a degenerate eigenspace of th
 matrix the chosen basis is a solver artifact, so such a fixture may differ from the reference \
 in all three coordinates. Ponytail (scale): scale is the dispatcher default 5.0 as a \
 constant. Ponytail (scale_ceiling): the ceiling is the largest size measured, not a limit found.",
+};
+
+/// The `layout.spectral3d` entry, appended to `LAYOUTS`. Separate ids rather than a `dims`
+/// parameter, because the reference's own entries are separate (`_spectral_layout_3d`,
+/// `_mds_layout_3d`) and a `layout.spectral` that drew a volume would break the bytes its own
+/// conformance row and the differential in `harness/oracle-spectral.py` are pinned on.
+pub(super) const SPECTRAL_3D_LAYOUT: Capability = Capability {
+    id: "layout.spectral3d",
+    run: spectral_stage::spectral_3d,
+    params: &LayoutParams::NONE,
+    meta: SPECTRAL_3D,
+};
+
+/// The `layout.mds.pivot3d` entry, appended to `LAYOUTS` after [`SPECTRAL_3D_LAYOUT`].
+pub(super) const PIVOT_MDS_3D_LAYOUT: Capability = Capability {
+    id: "layout.mds.pivot3d",
+    run: spectral_stage::pivot_mds_3d,
+    params: &LayoutParams::NONE,
+    meta: PIVOT_MDS_3D,
 };

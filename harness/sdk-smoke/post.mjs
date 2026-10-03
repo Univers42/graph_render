@@ -37,10 +37,11 @@ check("the POST/ANALYSIS fixture builds", motor.nodeCount(stagedHandle) === 5);
 
 const posts = typeof motor.posts === "function" ? motor.posts() : [];
 check("the SDK publishes the module's POST registry (C1)", posts.length > 0);
-check("the POST registry names the two bundlers, the route and the four styles", (() => {
+check("the POST registry names the two bundlers, the route, the four styles and the node mover", (() => {
   const want = [
     "post.bundle.fdeb", "post.bundle.mingle", "post.route.grid",
     "post.style.straight", "post.style.orthogonal", "post.style.quadratic", "post.style.bezier",
+    "post.separate.grid",
   ];
   return want.every((id) => posts.includes(id)) && new Set(posts).size === posts.length;
 })());
@@ -56,6 +57,10 @@ const POST_EDGE_KIND = new Map([
   ["post.style.orthogonal", "Polyline"],
   ["post.style.quadratic", "Curve"],
   ["post.style.bezier", "Curve"],
+  // The node mover rewrites node geometry and **passes edges through**, so the kind it
+  // reports is the input's `Line` and nothing else. That is the ledger's own claim
+  // (`crates/graph-core/src/post/separate.rs`), restated here as a consumer reads it.
+  ["post.separate.grid", "Line"],
 ]);
 
 motor.layout(stagedHandle, "layout.grid");
@@ -75,8 +80,17 @@ for (const postId of posts) {
   }
   postRan += 1;
   process.stdout.write(`# ${postId}: ${result.nodeKind} nodes / ${result.edgeKind} edges\n`);
-  check(`${postId}: it reports the edge kind the contract names`, result.edgeKind === POST_EDGE_KIND.get(postId));
+  // The pass's own id, the way `analysis.mjs:31` asserts an analysis names itself. It was
+  // never checked: change `index.ts:232` to answer `id: "post.style.straight"` for every
+  // pass and every check in this file stayed green (m93).
+  check(`${postId}: it names itself`, result.id === postId, String(result.id));
+  check(`${postId}: it reports the edge kind the contract names`, result.edgeKind === POST_EDGE_KIND.get(postId), String(result.edgeKind));
   check(`${postId}: it leaves the node kind alone`, result.nodeKind === "Point");
+  // **True for every id here, including the node mover, and only because this fixture is
+  // `layout.grid`'s `Point` output**: a point has no radius, `point_radius` defaults to 0,
+  // and the overlap pass is a documented no-op on one. It is the case that keeps this
+  // assertion honest — the pass is registered as node-moving, and this says the *default*
+  // does not move a point.
   check(`${postId}: the node positions are the layout's, unmoved`, (() => {
     const now = Array.from(motor.column(stagedHandle, ColumnId.NodeX));
     return now.length === gridNodeX.length && now.every((v, i) => Object.is(v, gridNodeX[i]));

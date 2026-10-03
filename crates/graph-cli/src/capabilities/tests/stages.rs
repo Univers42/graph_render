@@ -15,8 +15,6 @@ const STAGES: [&str; 20] = [
     "layout.packing.osage",
     "layout.spectral",
     "layout.mds.pivot",
-    "layout.spectral3d",
-    "layout.mds.pivot3d",
     "layout.force.barnes_hut",
     "layout.forceatlas2",
     "layout.dag.sugiyama",
@@ -25,6 +23,8 @@ const STAGES: [&str; 20] = [
     "layout.spiral",
     "layout.bipartite",
     "layout.force.yifan_hu",
+    "layout.spectral3d",
+    "layout.mds.pivot3d",
     "transport.wasm.columnar",
 ];
 

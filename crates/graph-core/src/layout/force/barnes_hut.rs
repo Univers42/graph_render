@@ -92,6 +92,22 @@ impl Split {
     }
 }
 
+/// The many-body pass and nothing else, under the control-free merge, for
+/// [`ForceSession::charge_deltas`](crate::layout::force::ForceSession::charge_deltas).
+///
+/// A wrapper rather than a widened `apply_with`: the pass keeps `pub(super)`, and the one
+/// thing outside this module needs is named here once, without the `split` argument a
+/// negative control owns — so a caller outside cannot reach the pass at all, let alone
+/// reach it with a control on.
+pub(in crate::layout::force) fn charge_pass(
+    sim: &mut sim::Sim,
+    runner: &impl crate::exec::Runner,
+    workers: u32,
+    deltas: &mut Vec<(f64, f64)>,
+) {
+    charge::apply_with(sim, runner, workers, deltas, false);
+}
+
 pub(crate) use settle::{Tier, golden_seed, settle};
 
 /// Barnes-Hut approximated force layout (`prompt.md` §3.1).
@@ -119,8 +135,8 @@ impl Stage for BarnesHut {
 impl BarnesHut {
     /// The passes of a tick that are handed to the [`crate::exec::Runner`] as range
     /// kernels, listed in the tick's own order: the link forces (one output per edge), the
-    /// link gather, then `charge`, then `collide`, with `center` between the third and
-    /// fourth and never threaded.
+    /// link gather, the charge arena's aggregate (one output per cell), then `charge`, then
+    /// `collide`, with `center` between the fourth and fifth and never threaded.
     ///
     /// The list exists because a measurement report states it: every speedup a threaded
     /// tier shows is this list's share of the stage, so a pass threaded without being
@@ -130,7 +146,13 @@ impl BarnesHut {
     /// fails if the two ever disagree in count. The **order** is a claim about
     /// [`Sim::tick`]'s body, written here for the reader; a test that could hold it would
     /// need the kernels to name themselves, which `StepRange` deliberately does not ask.
-    pub const THREADED_PASSES: [&'static str; 4] = ["link forces", "link", "charge", "collide"];
+    pub const THREADED_PASSES: [&'static str; 5] = [
+        "link forces",
+        "link",
+        "charge aggregate",
+        "charge",
+        "collide",
+    ];
 
     /// The same layout, with the many-body pass handed to `runner` over `workers` workers.
     ///
@@ -173,7 +195,12 @@ impl BarnesHut {
         // only in the tier `How` above it — which is what the 65 golden digests and the
         // 4-way hash gate are there to keep true.
         let mut session = ForceSession::from_frozen(topology, params)?;
-        session.step_under(runner, workers, split, TICKS);
+        let tier = Tier {
+            runner,
+            workers,
+            split,
+        };
+        session.step_under(tier, TICKS);
         super::planar_points(session.xs(), session.ys())
     }
 }

@@ -11,9 +11,12 @@
 //! a cell's centre, its opening threshold and the index past its subtree, 40 bytes read
 //! front to back, so a query is a forward scan that jumps ahead instead of a stack.
 
+mod aggregate;
+mod threshold;
+
 use super::sim::Sim;
 use crate::exec::Runner;
-use crate::layout::force::quadtree::Quadtree;
+use crate::layout::force::quadtree::{Cell, Quadtree};
 use crate::rng::jiggle;
 
 const PASS_X: u32 = 2;
@@ -41,23 +44,37 @@ pub(super) fn apply_with(
     deltas: &mut Vec<(f64, f64)>,
     split: bool,
 ) {
-    prepare(sim);
+    prepare_with(sim, runner, workers);
     runner.run(&super::step::Pass::of(&*sim), workers, deltas);
     let order = Some(sim.charge_tree.order());
     super::step::merge((&mut sim.vx, &mut sim.vy), order, deltas, split);
 }
 
-/// The single-threaded prologue every many-body pass shares: build the quadtree over this
-/// tick's positions, then aggregate masses and centres bottom-up.
+/// The prologue every many-body pass shares: build the quadtree over this tick's positions,
+/// then aggregate masses and centres bottom-up over `workers` ranges.
 ///
 /// Split out of [`apply_with`] because the range kernel ([`super::step::Pass`]) needs the
 /// same two steps in front of it and must not have its own copy — a second tree build or a
 /// second aggregate order would be a silent divergence from the serial pass, and the
 /// equality test would then be comparing two programs rather than two schedules.
-pub(super) fn prepare(sim: &mut Sim) {
+///
+/// The **build** stays single-threaded whatever the worker count: the charge walk's jiggle
+/// is keyed on each cell's shape-slot id (`node_id`), which is the order `d3`'s `add`
+/// insertion pushed its nodes in, so a build that cut the insertion differently would
+/// change the bytes (`docs/measurements/perf-bh-1m.md`). The aggregate over the built
+/// arena is divided, because a cell reads only its own subtree.
+pub(super) fn prepare_with(sim: &mut Sim, runner: &impl Runner, workers: u32) {
     sim.charge_tree.build(&sim.x, &sim.y);
-    let theta2 = sim.params.theta * sim.params.theta;
-    aggregate(&sim.charge_tree, (&sim.x, &sim.y), theta2, &mut sim.bodies);
+    let pass = aggregate::Pass::of(&sim.charge_tree, (&sim.x, &sim.y), sim.params.theta);
+    runner.run(&pass, workers, &mut sim.bodies);
+    aggregate::finish(&pass, &mut sim.bodies);
+}
+
+/// [`prepare_with`] over [`Serial`](crate::exec::Serial) and one worker: the serial
+/// prologue, and the reference every worker count is compared against.
+#[cfg(test)]
+pub(super) fn prepare(sim: &mut Sim) {
+    prepare_with(sim, &crate::exec::Serial, 1);
 }
 
 /// One tree cell as the walk reads it.
@@ -76,46 +93,50 @@ pub(super) struct Body {
     start: u32,
 }
 
+impl Body {
+    /// The body one cell gets, from the centre its own subtree resolved to, its opening
+    /// threshold and the cell's own extent.
+    ///
+    /// The serial loop below and the range kernel in [`aggregate`] both build the body
+    /// here, so the arithmetic, the field order and the `count = end - start` cannot drift
+    /// between one worker and seven.
+    pub(super) fn of(com: (f64, f64), open: f64, cell: &Cell) -> Self {
+        Body {
+            comx: com.0,
+            comy: com.1,
+            open,
+            count: cell.end - cell.start,
+            skip: cell.skip,
+            start: cell.start,
+        }
+    }
+}
+
 /// Bottom-up mass and centre of mass per cell (`manyBody.js`'s `accumulate`), in reverse
 /// preorder so every child is final before its parent reads it.
-fn aggregate(tree: &Quadtree, (x, y): (&[f64], &[f64]), theta2: f64, bodies: &mut Vec<Body>) {
+///
+/// The tests' serial arm, and the reference the divided path is compared against: it hands
+/// [`centre`] the whole column, where the range kernel has to walk a span rebased at its own
+/// range's start. Two spellings of one loop, held equal by
+/// `charge::tests::aggregate::the_arena_and_the_bodies_are_worker_count_invariant_over_the_gate_seeds`.
+#[cfg(test)]
+fn aggregate(tree: &Quadtree, (x, y): (&[f64], &[f64]), theta: f64, bodies: &mut Vec<Body>) {
+    use threshold::{centre, opening_threshold};
+    let theta2 = theta * theta;
     let (cells, order) = (tree.cells(), tree.order());
     bodies.clear();
     bodies.resize(cells.len(), Body::default());
     for k in (0..cells.len()).rev() {
         let cell = cells[k];
-        let (comx, comy) = if cell.skip == k as u32 + 1 {
+        let com = if cell.skip == k as u32 + 1 {
             let head = order[cell.start as usize] as usize;
             (x[head], y[head])
         } else {
             centre(bodies, k as u32 + 1, cell.skip)
         };
         let w = cell.bounds.x1 - cell.bounds.x0;
-        bodies[k] = Body {
-            comx,
-            comy,
-            open: w * w / theta2,
-            count: cell.end - cell.start,
-            skip: cell.skip,
-            start: cell.start,
-        };
+        bodies[k] = Body::of(com, opening_threshold(w, theta, theta2), &cell);
     }
-}
-
-/// The mass-weighted centre of the children in `first..skip`, in slot order. An internal
-/// cell holds at least one point, so `m > 0`.
-fn centre(bodies: &[Body], first: u32, skip: u32) -> (f64, f64) {
-    let (mut m, mut cx, mut cy) = (0.0, 0.0, 0.0);
-    let mut c = first;
-    while c < skip {
-        let child = &bodies[c as usize];
-        let cm = f64::from(child.count);
-        m += cm;
-        cx += cm * child.comx;
-        cy += cm * child.comy;
-        c = child.skip;
-    }
-    (cx / m, cy / m)
 }
 
 /// Everything a query reads but does not own, gathered once per range rather than once
@@ -204,9 +225,9 @@ pub(super) fn node_delta(ctx: &Ctx, i: u32) -> (f64, f64) {
 }
 
 /// Cell `k` resolved as one blob of its whole mass; zero past `distanceMax`. The jiggle is
-/// keyed on the cell's insertion-order node id, the key it has always had.
+/// keyed on the cell's arena node id, the key it has always had.
 fn approx(ctx: &Ctx, q: &Query, k: u32, gap: Gap) -> (f64, f64) {
-    let Some(Gap { dx, dy, l }) = settle(ctx, q, ctx.tree.key(k), gap) else {
+    let Some(Gap { dx, dy, l }) = settle(ctx, q, ctx.tree.node_id(k), gap) else {
         return (0.0, 0.0);
     };
     let m = f64::from(ctx.bodies[k as usize].count);
@@ -259,6 +280,15 @@ fn settle(ctx: &Ctx, q: &Query, key: u32, gap: Gap) -> Option<Gap> {
     }
     if l < ctx.dmin2 {
         l = f64::sqrt(ctx.dmin2 * l);
+    }
+    if l == 0.0 {
+        // Ponytail: `jiggle` maps exactly one 53-bit word to `0.0` (`rng.rs`: the word
+        // with `u == 0.5`), so both axes of a fully coincident pair can come back zero and
+        // the two divisions below go infinite, then `NaN`. It costs one word in 2^53 of
+        // the keys, and it gets the whole pair wrong rather than one: `distanceMin²` is
+        // the smallest gap the layout already accepts, so the pair contributes nothing
+        // instead of a `NaN`. Escape hatch: give the two points distinct coordinates.
+        l = ctx.dmin2.max(f64::MIN_POSITIVE);
     }
     Some(Gap { dx, dy, l })
 }

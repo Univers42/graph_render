@@ -159,6 +159,13 @@ fn set_params_refuses_every_value_outside_its_range_and_changes_nothing() {
 /// maximum are **accepted**, and one step past either is not. A range that quietly narrows
 /// refuses a caller's legitimate value; one that widens accepts a value the layout cannot
 /// use.
+///
+/// **The two coupled fields carry their partner to the far end of its own range.** Their own
+/// bounds overlap — `distance_min` ends at 1000 and `distance_max` starts at 1, and the
+/// frozen default sits between them — so a field's end is only reachable alongside a
+/// partner that admits it, which is what [`live_params`' relations](super::super::live_params)
+/// are for. Asking for the end with the *default* partner is the defect itself, and
+/// `live_params`'s own table is where it is refused.
 #[test]
 fn the_ends_of_every_range_are_in_range() {
     for (field, min, max) in [
@@ -178,10 +185,37 @@ fn the_ends_of_every_range_are_in_range() {
     ] {
         for value in [min, max] {
             assert!(
-                with(field, value).validate().is_ok(),
+                ends(field, value).validate().is_ok(),
                 "{field} = {value} is the end of its range and must be accepted"
             );
         }
+    }
+}
+
+/// `with(field, value)` with the field it is compared against moved far enough that the
+/// *pair* is legal too. `None` for a field with no partner, where `with` is already the
+/// whole value.
+fn ends(field: &str, value: f64) -> LiveParams {
+    match field {
+        // distance_min's maximum is above distance_max's default.
+        "distance_min" => LiveParams {
+            distance_min: value,
+            distance_max: 1_000_000.0,
+            ..LiveParams::default()
+        },
+        // distance_max's minimum is at distance_min's default.
+        "distance_max" => LiveParams {
+            distance_min: 0.0,
+            distance_max: value,
+            ..LiveParams::default()
+        },
+        // initial_alpha's minimum is below alpha_min's default.
+        "initial_alpha" => LiveParams {
+            initial_alpha: value,
+            alpha_min: 0.0,
+            ..LiveParams::default()
+        },
+        _ => with(field, value),
     }
 }
 

@@ -17,12 +17,7 @@ pub(super) const G_RANDOM_ITER: Gap = Gap {
 pub(super) const G_GRID_ITER: Gap = Gap {
     parameter: "iterations",
     note: "a closed placement: no iteration to bound",
-    at: "crates/graph-core/src/layout/grid.rs:101",
-};
-pub(super) const G_SPRING_SEED: Gap = Gap {
-    parameter: "layout seed",
-    note: "`SpringParams` has no seed field; the reference passes `seed=get_layout_seed()` to networkx, so the start position is drawn from two different generators",
-    at: "crates/graph-core/src/layout/force/spring.rs:120",
+    at: "crates/graph-core/src/layout/grid.rs:100",
 };
 pub(super) const G_BASIC3D_SCALE: Gap = Gap {
     parameter: "scale",
@@ -46,7 +41,7 @@ pub(super) const G_IGRAPH_SEED: Gap = Gap {
 };
 pub(super) const G_FORCEATLAS2_SEED: Gap = Gap {
     parameter: "layout seed",
-    note: "the seed **is** passed (`Fa2Params::seed = get_layout_seed()`), but the two streams differ: the reference draws its start from `np.random.RandomState(get_layout_seed())` and graph-core from its own Mulberry32 at the same integer, so equal seeds are not equal draws",
+    note: "the seed **is** passed (`Fa2Params::seed = get_layout_seed()` = 981798123) and Mulberry32 would consume it, but the reference never reads that integer as a start seed: it draws `randint(0, 2**31 - 1)` = 1767573729 first (`forceatlas.py:122`) and starts from `np.random.default_rng(1767573729)`, PCG64, not MT19937 (`simulation.py:1090`). Equal seeds are not equal draws, and neither is the generator",
     at: "crates/graph-core/src/layout/forceatlas2/state.rs:30",
 };
 pub(super) const G_NEATO_START: Gap = Gap {
@@ -70,9 +65,14 @@ pub(super) const G_OSAGE_BOX: Gap = Gap {
     at: "crates/graph-core/src/layout/graphviz/osage/sizes.rs:53",
 };
 pub(super) const G_GV_UTILS: Gap = Gap {
-    parameter: "scale",
-    note: "SciGraphs' Graphviz path is `scigraphs_utils.graphviz_layout`, absent from the oracle image: the reference here is the engine's raw `-Tplain` points in points, with SciGraphs' `scale = 5.0` multiply and its z column missing",
-    at: "SciGraphs/core/scigraphs_core/mesh/layouts/yifan_hu.py:278",
+    parameter: "reference arm",
+    note: "SciGraphs' Graphviz path is `scigraphs_utils.graphviz_layout`, a C++ extension absent from both oracle images, so this arm runs the **engine itself** through `gv_exact.c` (which links libgvc, runs `gvLayout` and prints `ND_coord(n)` with `%a`) and transcribes the five lines the extension would have applied (`yifan_hu.py:318-325`, in `motor/gv_post.rs` and `sc_graphviz.py`). The engine's own **text** is deliberately not the reference: `-Tplain`'s `printdouble` is `agxbprint(&buf, \"%.5g\", v)` (`lib/common/output.c:66-71`), five significant digits and not five decimals, so a coordinate in [1, 10) in lands on a step of `1e-4` in = `7.2e-3` points, and reading that text put this arm's own floor under `GRAPHVIZ_TWOPI`'s `max_gap` at 7.5e-5. What is still missing is the extension's own source of truth: it is handed a node count and an edge list and returns an array, and both what it does to the coordinates between `gvLayout` and that array and what seed it passes down are INFERENCE, not verified — its source is not on disk, only the `scigraphs-utils==0.2.0` pin (`SciGraphs/constraints/linux-x64.txt:21`)",
+    at: "SciGraphs/core/scigraphs_core/mesh/layouts/yifan_hu.py:279",
+};
+pub(super) const G_GV_Z: Gap = Gap {
+    parameter: "graphviz_dim",
+    note: "`sfdp_dim` defaults to `\"2Z\"`, so SciGraphs hands the engine `dimension=\"2Z\"` and then replaces the z with a spectral component (`sfdp_z_method`, `sfdp_z_scale` 0.3, `yifan_hu.py:327-334`). Both arms write `z = 0`: the motor's yifan_hu is planar and the reference is `-Tplain`, which has no third column",
+    at: "SciGraphs/core/scigraphs_core/mesh/layouts/yifan_hu.py:357",
 };
 pub(super) const G_GV_DIRECTED: Gap = Gap {
     parameter: "graph kind",

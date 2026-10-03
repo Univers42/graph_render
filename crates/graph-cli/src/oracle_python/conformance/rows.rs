@@ -42,13 +42,13 @@ pub const ROWS: [Row; 32] = [
         name: "SPRING",
         motor: Some("layout.force.spring"),
         reference: Reference::Scigraphs,
-        gaps: &[G_SPRING_SEED],
+        gaps: &[],
     },
     Row {
         name: "SPRING_3D",
         motor: Some("layout.force.spring3d"),
         reference: Reference::Scigraphs,
-        gaps: &[G_SPRING_SEED],
+        gaps: &[],
     },
     Row {
         name: "CIRCLE_PACKING",
@@ -172,12 +172,16 @@ pub const ROWS: [Row; 32] = [
         name: "YIFAN_HU",
         motor: Some("layout.force.yifan_hu"),
         reference: Reference::Graphviz("sfdp"),
-        gaps: &[G_GV_UTILS],
+        // The only row of the nine whose `dimension` is not `"2"`: `sfdp_dim` defaults to
+        // `"2Z"`, so SciGraphs derives a spectral z this arm has no way to reach.
+        gaps: &[G_GV_UTILS, G_GV_Z],
     },
     Row {
         name: "GRAPHVIZ_DOT",
         motor: None,
         reference: Reference::Graphviz("dot"),
+        // `_scigraphs_utils_graphviz_layout` is handed `dimension=None` here too, so `dot`'s
+        // `graphviz_dim` is the `"2"` default and the z gap belongs to `YIFAN_HU` alone.
         gaps: &[G_GV_UTILS, G_GV_DIRECTED],
     },
     Row {

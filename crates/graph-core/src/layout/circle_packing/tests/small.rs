@@ -11,7 +11,8 @@ fn default_params_match_scigraphs() {
         CirclePackingParams::default(),
         CirclePackingParams {
             iterations: 500,
-            scale: 5.0
+            scale: 5.0,
+            ..CirclePackingParams::default()
         }
     );
 }
@@ -59,6 +60,7 @@ fn a_scale_that_is_not_finite_and_positive_is_refused() {
     let params_at = |scale| CirclePackingParams {
         iterations: 10,
         scale,
+        ..CirclePackingParams::default()
     };
     for scale in [0.0, -0.0, -1.0, f32::NAN, f32::INFINITY] {
         let err = run_with(&topology(3, &[(0, 1)]), &params_at(scale)).expect_err("refused");

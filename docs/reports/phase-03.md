@@ -181,7 +181,7 @@ papered over.
 | the fallback is **visible in the output** (the phase's explicit requirement) | `circle_packing::tests::fallback::{a_planar_graph_takes_the_exact_path_and_a_non_planar_one_the_fallback, a_k5_minor_hidden_inside_a_bigger_graph_still_falls_back, a_degenerate_all_boundary_flower_still_comes_back_flagged}` — each asserts note code 3, not a log line |
 | the planarity test is certified, not trusted | `planarity::tests::faces::a_traced_embedding_of_a_real_disk_faces_itself_consistently`, `planarity::tests::negative::*`, `planarity::tests::positive::*`, `planarity::tests::properties::*` |
 | the round-trip / hand oracles the phase's own gate needs | `crates/graph-cli/src/snapshot_cmd/hand_oracles/tests.rs` (+ `circular.rs`, `packing.rs`), `crates/graph-cli/src/snapshot_cmd/roundtrip/tests.rs`, `crates/graph-cli/src/oracle_fixtures/layouts/tests.rs`, `crates/graph-cli/tests/cli_oracles.rs` |
-| no NaN/Inf and positive radii for **every** registered layout | `crates/graph-core/tests/geometry_invariants.rs::every_registered_layout_emits_no_nan_or_inf_and_circle_radii_are_positive` |
+| no NaN/Inf and positive radii for **every** registered layout | `crates/graph-core/tests/geometry_invariants.rs`: one sweep test per registry row (`per_layout_sweep!`), guarded by `every_registered_layout_has_its_own_sweep` |
 
 ## 6. Ponytail markers added
 

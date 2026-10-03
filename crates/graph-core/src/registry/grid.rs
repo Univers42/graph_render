@@ -71,9 +71,10 @@ convention",
     complexity: "O(n) exact path; O(n^2) per relaxation round on the non-planar fallback",
     scale_ceiling: PACKING_CEILING,
     degradation: "past the ceiling the fallback still runs and still returns finite geometry, \
-never a refusal or a trap — it simply gets slower at O(n^2), with no built-in cutoff, so a \
-caller must apply its own timeout; the exact planar path is unaffected and stays fast at any n \
-this crate's u32 index space allows",
+only slower at O(n^2), with no built-in cutoff, so a caller must apply its own timeout; past \
+11 585 nodes its n x n adjacency would pass graph_core::budget's 1 GiB and it refuses with \
+StageError::Param { name: \"nodes\" } before allocating; the exact planar path is unaffected \
+and stays fast at any n this crate's u32 index space allows",
     ponytail: "the packing is exact only for planar input. The failing input is any graph with a \
 K5 or K3,3 minor (or one whose planar embedding cannot be triangulated into a genuine disk, \
 treated the same defensively). Direction: overlap, the dangerous one — the fallback does not \
@@ -95,13 +96,22 @@ pub(super) const SUGIYAMA: Metadata = Metadata {
     oracle: "dagre-d3-es 7.0.14 crossing counts (harness/oracle-layouts.mjs --dag, margin frozen \
 in docs/measurements/phase05-crossings.md) and SciGraphs hierarchical.py; per-seed structural \
 invariants (acyclic after orienting every non-loop edge forward along the dense node order, \
-monotone layers, contiguous dummy chains) checked by graph-cli roundtrip",
-    complexity: "one O(m log m) sort of the arc list up front, then O(n+m) per phase; crossing \
-reduction is a heuristic (median + transpose local search), not a minimiser",
+monotone layers, contiguous dummy chains) checked by graph-cli roundtrip; a self-loop is \
+emitted with no interior points, as the reference's own layout stage emits none (it returns \
+node positions only, hierarchical.py:651-652) — the loop arc is the router's, drawn from the \
+coincident endpoints (edge_styles.py:458)",
+    complexity: "one O(m log m) sort of the arc list up front, then O(n+m) per phase except \
+crossing reduction, which sorts each layer's median keys and the transpose's neighbour \
+positions once per vertex per sweep, O((n+m) log n) a sweep; crossing reduction is a heuristic \
+(median + transpose local search), not a minimiser",
     scale_ceiling: SUGIYAMA_CEILING,
     degradation: "past the dummy budget (200000) long arcs are left straight and unrouted and \
 each is reported as note 4 dag.dummy_budget_exceeded; above 150000 layered vertices the transpose \
-rounds drop to 0, so crossings rise while the drawing stays valid",
+rounds drop to 0, so crossings rise while the drawing stays valid; above 200000 layered \
+vertices the whole X phase is skipped as well and x stays the raw ordering slot index — legal, \
+maximally spread, and reported here rather than as a note, because the notes section is a \
+closed set (codes 1-5) with no code for a skipped phase and one that would have to be \
+snapshot-wide",
     ponytail: "Ponytail (crossing reduction): median + transpose is a local search; a graph \
 whose optimal order it cannot reach draws more crossings than optimal — cosmetic, never \
 incorrect. Ponytail (dummy budget): an unrouted long arc is a straight line that may pass \

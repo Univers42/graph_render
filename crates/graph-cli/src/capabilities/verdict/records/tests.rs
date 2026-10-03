@@ -49,18 +49,38 @@ fn a_record_the_reader_has_never_been_told_about_resolves_like_any_other() {
     fs::remove_dir_all(&dir).expect("removed");
 }
 
-/// A directory with nothing in it is no records, and a file that is not a record is
-/// refused: a `.json` the ledger cannot parse is not a record it may report as absent,
-/// and a passing verdict must never be read out of a file that is not one.
+/// A directory with nothing in it is no records, and a record that cannot be parsed is
+/// **absent rather than fatal**: it is named on stderr, skipped, and the row that needed it
+/// reads "no `<name>` record: run the gate" — which is true, and is an answer about that row
+/// instead of a whole-ledger failure. It used to be an error, so one half-copied file took
+/// every row's verdict with it.
+///
+/// The control in the same test is the case that stays an error: a path that is a
+/// **directory** is unreadable rather than unparseable, and a directory is not something a
+/// reader may decide to skip.
 #[test]
-fn an_absent_directory_is_empty_and_a_file_that_is_not_a_record_is_refused() {
+fn an_absent_directory_is_empty_and_an_unparseable_record_is_absent_not_fatal() {
     let missing = std::env::temp_dir().join("graph-cli-records-absent-dir");
     let _ = fs::remove_dir_all(&missing);
     assert_eq!(all(&missing).expect("no records"), Default::default());
-    let (dir, _) = gates(&[("oracle-osage.json", "not json at all")]);
+    let (dir, _) = gates(&[
+        ("oracle-osage.json", "not json at all"),
+        ("oracle-twopi.json", r#"{"pass":true,"seeds":1000}"#),
+    ]);
+    let found = all(&dir).expect("read: one mangled file is not a whole-ledger failure");
+    assert_eq!(
+        found.keys().map(String::as_str).collect::<Vec<&str>>(),
+        ["oracle-twopi"],
+        "the mangled name resolves to nothing, and its neighbour still resolves"
+    );
+    assert!(
+        !found.contains_key("oracle-osage"),
+        "an unparseable record backs nothing, so no row can read a verdict out of it"
+    );
+    fs::create_dir(dir.join("a-directory.json")).expect("a directory named like a record");
     assert!(
         all(&dir).is_err(),
-        "an unparseable record must be an error, never a missing record"
+        "the control: unreadable is not unparseable, and is still an error"
     );
     fs::remove_dir_all(&dir).expect("removed");
     // A file that is not a `<name>.json` is not a record and is skipped rather than
@@ -69,7 +89,9 @@ fn an_absent_directory_is_empty_and_a_file_that_is_not_a_record_is_refused() {
     let found = all(&dir).expect("read");
     assert_eq!(
         found.keys().map(String::as_str).collect::<Vec<&str>>(),
-        ["oracle-twopi"]
+        ["oracle-twopi"],
+        "and a file that parses but is the wrong shape is still a record — refused by \
+         `current`, not skipped here"
     );
     fs::remove_dir_all(&dir).expect("removed");
 }

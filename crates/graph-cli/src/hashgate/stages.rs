@@ -28,7 +28,12 @@
 //! constants their own modules publish, and `each_stage_id_is_the_constant_its_own_module
 //! _publishes` holds every one against the graph-wasm registry the gate walks.
 
+mod checks;
+
+use super::knob::setting::PARAM_DEFAULT_STAGE;
 use super::{Setting, staged};
+pub(crate) use checks::node_count;
+use checks::{check, stage_list};
 use graph_core::layout::Geometry;
 use graph_core::layout::circle_packing;
 use graph_core::layout::force::BarnesHut;
@@ -37,11 +42,9 @@ use graph_core::layout::forceatlas2::{ForceAtlas2, ForceAtlas2BarnesHut};
 use graph_core::layout::graphviz::neato;
 use graph_core::registry::{self as core, LAYOUTS};
 use graph_core::{
-    Grid, Stage, StageError, Sugiyama, Topology, gate_node_count, index_model, run_pipeline,
-    seeded_model,
+    Grid, Stage, StageError, Sugiyama, Topology, index_model, run_pipeline, seeded_model,
 };
 use std::borrow::Cow;
-use std::collections::BTreeSet;
 
 /// The layout the transport stage runs: `harness/wasm-run.mjs`'s `abiSnapshotBytes`
 /// drives `gm_run` with exactly this one, so the transport stage is the real ABI over
@@ -50,17 +53,34 @@ pub const LAYOUT: &str = "layout.grid";
 
 /// The transport stage: `gm_seed_ingest → gm_alloc → gm_build → gm_run →
 /// gm_snapshot_bytes` over the gate's own model — the real ABI, not the retained shim.
+///
+/// **The native arm deliberately gives this stage the grid's bytes, digest for digest**, so
+/// the two rows of every native arm carry one repeated digest and a reader who expects two
+/// distinct ones is not looking at a bug. The reason is that the native arm has no ABI of
+/// its own to run: it is the same process, and the row that proves the *real* ABI is the
+/// wasm arm's. That evidence is the C20 tally in `hashgate/transport.rs`, which counts the
+/// seeds on which the **wasm** arm's `transport.wasm.columnar` line matches the **wasm**
+/// arm's `layout.grid` line — two lines the wasm arm printed from two different calls, one
+/// through `gm_snapshot_bytes` and one through the retained shim. So the native arm's
+/// transport row restates the layout row as a *witness that the row is present and in
+/// order*, and the tally beside it is what says the ABI agrees with the shim.
 pub const TRANSPORT: &str = "transport.wasm.columnar";
 
 /// Every stage, in the order both arms print them: the topology, every registered layout,
 /// every registered analysis, every registered POST capability, then the transport.
+///
+/// **The last row is [`TRANSPORT`], and in a native arm its digest equals the
+/// [`LAYOUT`] row's.** That is deliberate — the native arm runs no ABI of its own, so it
+/// restates the grid's bytes to keep the row present and in order. The evidence that the
+/// real ABI matches the retained shim is the C20 tally in `hashgate/transport.rs`, which
+/// compares the *wasm* arm's two rows against each other. See [`TRANSPORT`].
+///
+/// **The list [`check`] audits is this list**, over whatever registry slice that check was
+/// handed: one derivation, not two, so a stage the gate cannot print is a stage the gate
+/// already refused to build rather than a discrepancy between two walkers. See
+/// [`stage_list`] for what went wrong when they were two.
 pub fn stages() -> Vec<&'static str> {
-    let mut stages = vec!["topology"];
-    stages.extend(LAYOUTS.iter().map(|layout| layout.id));
-    stages.extend(staged::analyses());
-    stages.extend(staged::posts());
-    stages.push(TRANSPORT);
-    stages
+    stage_list(&LAYOUTS)
 }
 
 /// Every stage's id and the bytes the native arm hashes for `seed`, in [`stages`] order.
@@ -82,7 +102,7 @@ pub fn stage_bytes_for(
     layouts: &[core::Capability],
 ) -> Result<Vec<(&'static str, Vec<u8>)>, String> {
     check(layouts)?;
-    let count = gate_node_count(seed) + setting.extra_nodes;
+    let count = node_count(seed, setting, 0)?;
     let (nodes, edges) = seeded_model(seed, count, setting.reference_degree);
     let grid = run_pipeline::<Grid>(&nodes, &edges, &setting.grid).map_err(|e| e.to_string())?;
     if grid.layout != LAYOUT {
@@ -130,7 +150,7 @@ pub fn stage_bytes_for(
                     run_force(&topology, |t| circle_packing::run_with(t, &setting.packing))?
                 }
                 neato::ID => run_force(&topology, |t| neato::run_with(t, setting.neato_epsilon()))?,
-                _ => layout_bytes(&topology, layout)?,
+                _ => layout_bytes(&topology, layout, setting)?,
             }
         };
         out.push((layout.id, bytes));
@@ -192,28 +212,9 @@ fn own_topology<'a>(
 /// derivation for the gate's model and for a stage's re-drawn one, so a control cannot
 /// perturb a stage by a node the gate's own model would not also have grown by.
 fn redraw(seed: u32, setting: &Setting, own: u32) -> Result<Topology, String> {
-    let count = gate_node_count(seed) + setting.extra_nodes + own;
+    let count = node_count(seed, setting, own)?;
     let (nodes, edges) = seeded_model(seed, count, setting.reference_degree);
     index_model(&nodes, &edges).map_err(|e| e.to_string())
-}
-
-/// A stage list the gate cannot print: no stage id twice (a repeated id would fold into
-/// one key in the record and make the per-stage counts lie), and no missing [`LAYOUT`]
-/// (the transport stage restates that layout's bytes, so without it there is nothing to
-/// restate).
-fn check(layouts: &[core::Capability]) -> Result<(), String> {
-    let mut seen = BTreeSet::new();
-    for layout in layouts {
-        if !seen.insert(layout.id) {
-            return Err(format!("{} appears twice in the registry", layout.id));
-        }
-    }
-    if !layouts.iter().any(|layout| layout.id == LAYOUT) {
-        return Err(format!(
-            "the {TRANSPORT} stage restates {LAYOUT}, which is not registered"
-        ));
-    }
-    Ok(())
 }
 
 /// Whether `id` is the one Phase 3 stage whose own model `setting` re-draws with extra
@@ -237,14 +238,38 @@ fn stage_bytes_from_own_model(
     layout: &core::Capability,
 ) -> Result<Vec<u8>, String> {
     let extra = setting.stage_nodes.map_or(0, |(_, count)| count);
-    let count = gate_node_count(seed) + setting.extra_nodes + extra;
+    let count = node_count(seed, setting, extra)?;
     let (nodes, edges) = seeded_model(seed, count, setting.reference_degree);
     let topology = index_model(&nodes, &edges).map_err(|e| e.to_string())?;
-    layout_bytes(&topology, layout)
+    layout_bytes(&topology, layout, setting)
 }
 
-fn layout_bytes(topology: &Topology, layout: &core::Capability) -> Result<Vec<u8>, String> {
-    run_force(topology, layout.run)
+/// One stage's bytes at the registry's own defaults, or — for the one stage
+/// `GM_MUTATE_LAYOUT_PARAM_DEFAULT` is filed under — at a buffer whose value at one index
+/// is one more than the published default (`docs/decisions/layout-params.md`).
+///
+/// The honest path is the same `layout.run` the gate has always called, byte for byte:
+/// that is what keeps `hashgate --seeds 8` pinned to the registry's defaults rather than to
+/// a buffer this file assembles.
+fn layout_bytes(
+    topology: &Topology,
+    layout: &core::Capability,
+    setting: &Setting,
+) -> Result<Vec<u8>, String> {
+    let Some(index) = setting
+        .layout_param_default
+        .filter(|_| layout.id == PARAM_DEFAULT_STAGE)
+    else {
+        return run_force(topology, layout.run);
+    };
+    let view = layout.params();
+    let mut values = view.defaults();
+    let Some(value) = values.get_mut(index) else {
+        return Err(format!("{} publishes no parameter {index}", layout.id));
+    };
+    *value += 1.0;
+    let bytes: Vec<u8> = values.iter().flat_map(|v| v.to_le_bytes()).collect();
+    run_force(topology, |t| layout.run_params(t, &bytes))
 }
 
 fn run_force(

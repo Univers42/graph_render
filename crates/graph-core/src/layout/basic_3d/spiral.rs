@@ -79,6 +79,19 @@ pub(super) fn run(n: u32) -> Result<Geometry, StageError> {
     Ok(in_space(&x, &y, &z))
 }
 
+/// [`run`] at the `scale` the caller asks for. Every use of it is the reference's own
+/// (`radial = 0.5*scale`, `axial = 2.0*scale`, `radius = scale*0.5*(1+t)`, `z =
+/// scale*(2t-1)`, `basic.py:41-63`), so `run_scaled(n, SCALE) == run(n)` bit for bit.
+///
+/// Note what the scale does and does not reach: it scales the *speed*, and therefore the
+/// arc length and the `t` column, but `t` itself is a `linspace` over that arc, so it is
+/// unchanged by a common factor. That is the reference's own behaviour, not an accident of
+/// this port, and the differential holds `t` at one scale only.
+pub(super) fn run_scaled(n: u32, scale: f64) -> Result<Geometry, StageError> {
+    let (x, y, z) = columns_scaled(n, scale);
+    Ok(in_space(&x, &y, &z))
+}
+
 /// `turns = max(2, int(round(np.sqrt(num_nodes / (0.75 * np.pi)))))` (`basic.py:41`).
 ///
 /// **The floor lifts the value at exactly five node counts, `n = 1..5`.** Measured with
@@ -120,10 +133,10 @@ fn grid_at(j: usize, step: f64) -> f64 {
 
 /// `speed[i]` (`basic.py:46-48`), the curve's speed along `t`. The reference's own operand
 /// order, and the three summands added left to right.
-fn speed_at(grid: f64, omega: f64) -> f64 {
-    let radial = 0.5 * SCALE;
+fn speed_at(grid: f64, omega: f64, scale: f64) -> f64 {
+    let radial = 0.5 * scale;
     let climb = radial * (1.0 + grid) * omega;
-    let axial = 2.0 * SCALE;
+    let axial = 2.0 * scale;
     libm::sqrt(radial * radial + climb * climb + axial * axial)
 }
 
@@ -132,13 +145,13 @@ fn speed_at(grid: f64, omega: f64) -> f64 {
 /// **Sequential, not blocked** — see the module header. 65 535 additions in the order the
 /// index runs, so `running` is the only cross-iteration state and each term cannot inherit
 /// a different rounding than the one before it (D10).
-fn arc_length(step: f64, omega: f64) -> Vec<f64> {
+fn arc_length(step: f64, omega: f64, scale: f64) -> Vec<f64> {
     let mut length = Vec::with_capacity(GRID);
-    let mut previous = speed_at(grid_at(0, step), omega);
+    let mut previous = speed_at(grid_at(0, step), omega, scale);
     let mut running = 0.0;
     length.push(running);
     for j in 1..GRID {
-        let current = speed_at(grid_at(j, step), omega);
+        let current = speed_at(grid_at(j, step), omega, scale);
         running += 0.5 * (current + previous) * step;
         length.push(running);
         previous = current;
@@ -189,9 +202,9 @@ fn interp(x: f64, length: &[f64], step: f64) -> f64 {
 /// Split out of [`columns`] because `t` is the whole of this layout's arc-length inversion
 /// and every other value here is closed form applied to it. It is a legal gather (D10):
 /// each entry depends on the shared table and on its own index, and on nothing else.
-fn parameters(n: u32) -> Vec<f64> {
+fn parameters(n: u32, scale: f64) -> Vec<f64> {
     let step = grid_step();
-    let length = arc_length(step, omega(n));
+    let length = arc_length(step, omega(n), scale);
     let total = length[GRID - 1];
     (0..n)
         .map(|i| interp(wanted_at(i, n, total), &length, step))
@@ -201,18 +214,23 @@ fn parameters(n: u32) -> Vec<f64> {
 /// The three `f64` columns at `n`, before any narrowing, in the reference's own order
 /// (`np.column_stack`, `basic.py:61-63`).
 fn columns(n: u32) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
+    columns_scaled(n, SCALE)
+}
+
+/// [`columns`] at an explicit `scale` (`basic.py:41-63`).
+fn columns_scaled(n: u32, scale: f64) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
     let omega = omega(n);
     let mut columns = (
         Vec::with_capacity(n as usize),
         Vec::with_capacity(n as usize),
         Vec::with_capacity(n as usize),
     );
-    for t in parameters(n) {
+    for t in parameters(n, scale) {
         let angle = t * omega;
-        let radius = SCALE * 0.5 * (1.0 + t);
+        let radius = scale * 0.5 * (1.0 + t);
         columns.0.push(radius * libm::cos(angle));
         columns.1.push(radius * libm::sin(angle));
-        columns.2.push(SCALE * (2.0 * t - 1.0));
+        columns.2.push(scale * (2.0 * t - 1.0));
     }
     columns
 }

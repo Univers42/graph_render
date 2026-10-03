@@ -69,6 +69,19 @@ fn note_codes(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
     })
 }
 
+/// A z column: an array of `f32` and nothing else, never `null`. `Option` would make
+/// schemars admit `null` as well, which the reader refuses (`read/geometry.rs` takes a
+/// z column or refuses, and a `null` is neither); absence is the whole of what `Option`
+/// means here, because whether `z` must be there follows the top-level `dim`, which JSON
+/// Schema cannot tie a member's presence to — so `z` stays out of `required` and the
+/// reader decides. The doc comment still lands as the `description`.
+fn z_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    schemars::json_schema!({
+        "type": "array",
+        "items": { "type": "number", "format": "float" }
+    })
+}
+
 /// Node identity.
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -112,6 +125,7 @@ pub enum NodeGeometry {
         y: Vec<f32>,
         /// Depth centre. Present iff the snapshot's `dim` is 1.
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(schema_with = "z_schema")]
         z: Option<Vec<f32>>,
     },
     /// Centres and radii.
@@ -124,6 +138,7 @@ pub enum NodeGeometry {
         y: Vec<f32>,
         /// Depth centre. Present iff the snapshot's `dim` is 1.
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(schema_with = "z_schema")]
         z: Option<Vec<f32>>,
     },
     /// Boxes.
@@ -138,6 +153,7 @@ pub enum NodeGeometry {
         y: Vec<f32>,
         /// Depth centre. Present iff the snapshot's `dim` is 1.
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(schema_with = "z_schema")]
         z: Option<Vec<f32>>,
     },
 }
@@ -166,6 +182,55 @@ pub enum EdgeGeometry {
         /// `2 × offsets[m]` coordinates, x then y for each point.
         pts: Vec<f32>,
     },
+}
+
+/// One layout's published parameters, as the JSON face a third-party frontend reads
+/// (`docs/decisions/layout-params.md`). It describes the *shape*; the values live in
+/// graph-core's registry and reach a caller through `gm_layout_params`, the same split
+/// `SnapshotHeader` makes between its schema and any particular snapshot.
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LayoutParamsSchema {
+    /// The capability id these parameters belong to, e.g. `layout.force.graphopt`.
+    pub layout: String,
+    /// Every parameter the layout publishes, in the order a run's parameter buffer
+    /// carries them. Empty means the layout takes no parameters — an answer, not a
+    /// refusal.
+    pub params: Vec<LayoutParamSpec>,
+}
+
+/// One parameter: name, kind, inclusive bounds, the default a run with no buffer takes,
+/// the step a control should offer, and one line of documentation.
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LayoutParamSpec {
+    /// The key a caller sends: the parameter struct's own field name.
+    pub name: String,
+    /// What the value means.
+    pub kind: LayoutParamKind,
+    /// Inclusive lower bound. A value below it is refused, never clamped.
+    pub min: f64,
+    /// Inclusive upper bound, refused the same way.
+    pub max: f64,
+    /// The value a run with no buffer takes, equal bit for bit to the field's `Default`.
+    pub default: f64,
+    /// The increment a control should offer. Never applied to a value.
+    pub step: f64,
+    /// One line, for a label and a tooltip.
+    pub doc: String,
+}
+
+/// What a parameter's value means. `Int` must be integral and `Bool` must be `0` or `1`;
+/// both travel in the same `f64` as `Float` (wire tags 0, 1, 2 — [`crate::params::ParamKind`]).
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum LayoutParamKind {
+    /// A whole number.
+    Int,
+    /// Any finite number in range.
+    Float,
+    /// A flag.
+    Bool,
 }
 
 #[cfg(test)]

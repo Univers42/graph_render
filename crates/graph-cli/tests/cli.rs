@@ -55,6 +55,17 @@ fn hashgate_passes_on_an_honest_run() {
 /// The degree control moves the topology stage only: the grid ignores weights, and the
 /// transport stage restates the grid's bytes, so neither follows it.
 #[test]
+fn overlap_refuses_a_zero_iteration_cap_by_name() {
+    // The escape hatch is a parameter the pass validates, so the refusal has to name the
+    // parameter. A bare exit 2 would not do: an unknown flag is also exit 2, and this test
+    // would pass on a command that never had `--max-iterations` at all.
+    let refused = graph_cli(&["overlap", "--nodes", "8", "--max-iterations", "0"], None);
+    let stderr = String::from_utf8_lossy(&refused.stderr);
+    assert_eq!(refused.status.code(), Some(2), "{stderr}");
+    assert!(stderr.contains("max_iterations"), "{stderr}");
+}
+
+#[test]
 fn the_degree_control_goes_red_on_the_topology_stage_only() {
     let degree = graph_cli(&["hashgate", "--seeds", "4"], Some((KNOBS[0], "9")));
     assert_eq!(degree.status.code(), Some(1), "{}", stdout(&degree));
@@ -190,10 +201,10 @@ fn a_failed_wasm_build_is_could_not_run_and_seed_counts_are_capped() {
 fn codegen_check_finds_the_committed_files_current() {
     let check = graph_cli(&["codegen", "--check"], None);
     assert_eq!(check.status.code(), Some(0), "{}", stdout(&check));
-    // One line per committed generated file, which is the four the contract emits: the
-    // snapshot header's schema and TypeScript, the snapshot JSON face's schema, and the
-    // ingest contract's.
-    assert_eq!(stdout(&check).matches("up to date").count(), 4);
+    // One line per committed generated file, which is the six the contract emits: the
+    // snapshot header's schema and TypeScript, the snapshot JSON face's schema, the ingest
+    // contract's, and the layout parameters' schema and TypeScript.
+    assert_eq!(stdout(&check).matches("up to date").count(), 6);
 }
 
 #[test]

@@ -8,7 +8,9 @@ import type { PaintCounts, PaintInput } from "../canvas2d/input.ts";
 import { impostorOf } from "../canvas2d/nodes.ts";
 import { MOVING_BUDGET } from "../canvas2d/edges.ts";
 import { drawBulk } from "./draw.ts";
-import { type BulkLayer, createBulk } from "./layer.ts";
+import { loseContext } from "./gl.ts";
+import { paintSpace, releaseSpace } from "./hook3d.ts";
+import { type BulkLayer, type Tween, createBulk } from "./layer.ts";
 import { type BackendChoice, bulkWanted, nextBudget } from "./plan.ts";
 import { type Glide, dropGlide, glideFrame, keepFrame, newGlide } from "./glide.ts";
 import { type Still, newStill, paintStill, refiningOf, viewOf } from "./still.ts";
@@ -23,16 +25,34 @@ export interface BulkSlot {
   placed: number;
   /** Edges, and nodes, a moving frame draws, paced by what the last moving frame cost (`nextBudget`). */
   budget: number;
+  /** The layout switch in flight, or null: the loop fills it and the layer mixes it on the GPU. */
+  tween: Tween | null;
   /** Undefined until a settled frame first wants it, null where it cannot be kept. */
   still: Still | null | undefined;
   /** True while the last frame's still picture lacked edges: the loop asks for another frame, and `view.stats()` reports it. */
   refining: boolean;
   /** The picture moving frames redraw under the camera's change (glide.ts). */
   readonly glide: Glide;
+  /** Edge-draw GPU milliseconds the layer has counted (gputimer.ts); reads 0 until a layer exists. */
+  gpuEdgeMs: () => number;
 }
 
 export function newBulkSlot(backend: BackendChoice): BulkSlot {
-  return { backend, layer: undefined, failure: "", placed: 0, budget: MOVING_BUDGET, still: undefined, refining: false, glide: newGlide() };
+  return { backend, layer: undefined, failure: "", placed: 0, budget: MOVING_BUDGET, tween: null, still: undefined, refining: false, glide: newGlide(), gpuEdgeMs: () => 0 };
+}
+
+/**
+ * Frees what the slot holds on the GPU and in pictures, and makes nothing again: a page keeps
+ * only a few live WebGL contexts, and a destroyed view must not hold one until a collection.
+ */
+export function releaseBulk(slot: BulkSlot): void {
+  dropGlide(slot.glide);
+  slot.still?.nodes?.close();
+  slot.still = null;
+  if (slot.layer) loseContext(slot.layer.gl);
+  slot.layer = null;
+  slot.failure = "the view was destroyed";
+  releaseSpace(slot);
 }
 
 function layerOf(slot: BulkSlot): BulkLayer | null {
@@ -40,6 +60,10 @@ function layerOf(slot: BulkSlot): BulkLayer | null {
   try {
     slot.layer = createBulk();
     if (slot.layer === null) slot.failure = "this browser gives no WebGL2 context on an OffscreenCanvas";
+    else {
+      const made = slot.layer;
+      slot.gpuEdgeMs = () => made.timer.ms();
+    }
   } catch (error) {
     slot.layer = null;
     slot.failure = error instanceof Error ? error.message : String(error);
@@ -70,7 +94,7 @@ function paintSettled(slot: BulkSlot, layer: BulkLayer, input: PaintInput, count
   dropGlide(slot.glide);
   slot.still ??= newStill(slot.budget);
   if (slot.still === null) return paintWhole(slot, layer, input, counts);
-  const lacking = paintStill(slot.still, { layer, placed: slot.placed }, input, counts);
+  const lacking = paintStill(slot.still, { layer, pace: slot }, input, counts);
   slot.refining = refiningOf(lacking);
   return lacking >= 0;
 }
@@ -81,6 +105,7 @@ function paintSettled(slot: BulkSlot, layer: BulkLayer, input: PaintInput, count
  */
 export function paintBulk(slot: BulkSlot, input: PaintInput, counts: PaintCounts): boolean {
   slot.refining = false;
+  if (input.space !== null && input.space !== undefined) return paintSpace(slot, input, counts);
   if (slot.backend === "auto" && impostorOf(input)) return false;
   const elements = input.frame.nodeCount + input.frame.edgeCount;
   if (!bulkWanted(slot.backend, elements, slot.layer !== null)) return false;

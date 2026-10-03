@@ -44,12 +44,35 @@ pub fn load(name: &str) -> (Vec<NodeRecord>, Vec<EdgeRecord>) {
     (nodes, edges)
 }
 
-fn node(value: &Value) -> NodeRecord {
-    let weight = match member(value, "weight") {
-        Value::Number(text) => text.parse().expect("a weight"),
-        other => panic!("weight {other:?}"),
+/// One fixture node's `"weight"`, parsed and **refused when non-finite**.
+///
+/// The reachable non-finite weight is an overflowing exponent, not a `NaN` literal: the
+/// canonical JSON number grammar admits no `NaN`/`Infinity` token, so `"weight": 1e999`
+/// parses to `Number("1e999")` and `f64::from_str` turns that into `+inf`. That value would
+/// flow into every layout's aggregate and partition (`treemap::rows::node_values` sums it,
+/// `hierarchy::depth` never sees it), where `+inf` collapses a comparison or a ratio. The
+/// layouts' own weight clamps are not the boundary: `WEIGHT_EPSILON` and friends would
+/// hide a bad fixture behind a plausible picture, so the fixture boundary refuses it and
+/// the message names the node, which is the only place a reader can act.
+///
+/// Refused by panic like every other malformed field here — this module is `#[cfg(test)]`
+/// and test data has no error channel. `load`'s signature stays as it is; a fallible
+/// fixture loader is a separate decision, not this finding.
+fn weight(value: &Value, id: &str) -> f64 {
+    let text = match member(value, "weight") {
+        Value::Number(text) => text,
+        other => panic!("{id}: weight {other:?}"),
     };
+    let parsed: f64 = text
+        .parse()
+        .unwrap_or_else(|_| panic!("{id}: weight {text:?}"));
+    assert!(parsed.is_finite(), "{id}: weight {text:?} is not finite");
+    parsed
+}
+
+fn node(value: &Value) -> NodeRecord {
     let id = text(value, "id");
+    let weight = weight(value, &id);
     NodeRecord {
         kind: NodeKind::Record,
         database_id: None,
@@ -103,3 +126,6 @@ fn text(value: &Value, key: &str) -> String {
         other => panic!("{key}: {other:?}"),
     }
 }
+
+#[cfg(test)]
+mod tests;
