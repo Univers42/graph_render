@@ -34,8 +34,9 @@
 //! Determinism: `rank` is a pure function of the graph, and the two runs in
 //! [`two_runs_rank_identically`] are the check that the pass inherits.
 
-use super::oracle_probe::{graph, oracle_digest, ranked, ranks_of};
+use super::oracle_probe::{graph, ranked, ranks_of};
 use super::rank::rank;
+use super::rank_fixture_edges::FIXTURE_EDGES;
 
 /// One closed case: a name, the input edges, and the rank the oracle gave every node.
 type Closed = (&'static str, &'static [(u32, u32)], &'static [i32]);
@@ -131,15 +132,14 @@ const FIXTURES: &[(u32, &[i32])] = &[
 
 #[test]
 fn the_first_twenty_fixture_seeds_rank_as_the_oracle_ranks_them() {
-    let fixtures = oracle_digest();
-    for (seed, want) in FIXTURES {
-        eprintln!("seed {seed}");
-        let row = fixtures
-            .iter()
-            .find(|row| row.seed == *seed)
-            .unwrap_or_else(|| panic!("no oracle row for seed {seed}"));
+    assert_eq!(FIXTURE_EDGES.len(), FIXTURES.len());
+    for ((seed, edges), (want_seed, want)) in FIXTURE_EDGES.iter().zip(FIXTURES) {
+        assert_eq!(
+            seed, want_seed,
+            "the two tables list the same seeds in order"
+        );
         let count = u32::try_from(want.len()).expect("a node count fits u32");
-        assert_eq!(&ranked(count, &row.edges), *want, "seed {seed}");
+        assert_eq!(&ranked(count, edges), *want, "seed {seed}");
     }
 }
 

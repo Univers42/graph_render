@@ -111,6 +111,7 @@ scripts/orch/gate.sh <logdir> <rowsfile>      # rows are `name|expect|cmd`; writ
 scripts/orch/node-slim.sh npm ci --ignore-scripts
 scripts/orch/ge-check.sh                       # `npm run check` inside the repo Dockerfile
 scripts/orch/node-slim.sh npm run sdk:typecheck
+scripts/orch/node-slim.sh npm run sdk:test
 scripts/orch/gr cargo build -p graph-wasm --release --target wasm32-unknown-unknown
 scripts/orch/node-slim.sh npm run sdk:smoke
 

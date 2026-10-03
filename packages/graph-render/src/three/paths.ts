@@ -2,7 +2,7 @@
  * The shapes a disc and a chord cannot draw, projected once per frame: a node's own w/h as
  * screen half-extents, and the interior points of a routed or curved edge as screen points.
  *
- * `projection.ts` calls these while the frame is being drawn and the painter reads what they
+ * `projection.ts` calls these when the frame is first read and the painter reads what they
  * leave in `Drawn`, so a 3D frame costs one projection of every shape it draws and the
  * painter never projects — the same bargain the node points already keep.
  *
@@ -26,6 +26,9 @@ import type { Frame } from "../frame.ts";
 import type { Drawn, Projection, Setup } from "./projection.ts";
 import { project, radiusOnScreen } from "./orbit.ts";
 
+/** The node columns an edge's points are placed between, already projected. */
+type Placed = Pick<Drawn, "x" | "y" | "depth">;
+
 /** The two ends of one edge, and the z's a point between them is interpolated from. */
 interface Ends {
   readonly s: number;
@@ -38,7 +41,7 @@ interface Ends {
 interface Edge {
   readonly out: Float32Array;
   readonly wanted: Projection;
-  readonly drawn: Drawn;
+  readonly drawn: Placed;
   readonly setup: Setup;
 }
 
@@ -116,7 +119,7 @@ function projectEdge(edge: Edge, index: number, ends: Ends): void {
  * frame's own point order, so the painter asks for the same index `frame.pts` holds. A fresh
  * array only when the one it was handed does not fit.
  */
-export function interiorPoints(into: Float32Array | null, wanted: Projection, drawn: Drawn, setup: Setup): Float32Array {
+export function interiorPoints(into: Float32Array | null, wanted: Projection, drawn: Placed, setup: Setup): Float32Array {
   const { frame } = wanted;
   const count = (frame.pts?.length ?? 0) >> 1;
   const out = into !== null && into.length >= count * 2 ? into : new Float32Array(count * 2);
@@ -157,7 +160,7 @@ export function boxHalfExtents(into: Float32Array | null, frame: Frame, depth: F
  * because the order changes as the camera turns and a sum whose sequence changes is a
  * stroke width that jitters while the user drags. 0 for a drawing with nothing in front.
  */
-export function pixelsPerUnit(drawn: Drawn, focal: number): number {
+export function pixelsPerUnit(drawn: Pick<Drawn, "depth">, focal: number): number {
   let sum = 0;
   let count = 0;
   for (let node = 0; node < drawn.depth.length; node += 1) {
