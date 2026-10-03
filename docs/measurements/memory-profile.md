@@ -32,3 +32,30 @@ Reproduce: `scripts/orch/memprofile.sh 10000 100000 1000000`, then read
 Caveat: one generator (`crates/graph-cli/src/bench/scale.rs`) and the force engines only; a denser
 graph has another bytes-per-node figure, and massif samples snapshots, so its peak can miss a short
 spike (dhat's t-gmax is exact and agrees here to 0.02 %).
+
+## Studio
+
+Measured 2026-10-03 on the same host by `target/memprobe/synth.ts` under node 22 (node-slim,
+`DRUN_MEM` 10g, `--max-old-space-size=4096`): the studio's own `syntheticRecords` and
+`normaliseIngest`, the steps a worker takes before the motor sees a graph.
+
+| nodes | links per node | step | JSON | peak RSS | time |
+|---|---|---|---|---|---|
+| 100 000 | 0 | synthetic | 16 MiB | 168 MiB | 67 ms |
+| 100 000 | 2 | synthetic | 48.4 MiB | 276 MiB | 214 ms |
+| 100 000 | 12 | synthetic | 202.2 MiB | 762 MiB | 830 ms |
+| 200 000 | 12 | synthetic | 407.5 MiB | 1510 MiB | 1651 ms |
+| 1 000 000 | 2 | synthetic | 492.7 MiB | 1912 MiB | 2.2 s |
+| 200 000 | 2 | normalise | 97.4 MiB | 791 MiB | 1.5 s |
+| 1 000 000 | 2 | normalise | 492.7 MiB | 3537 MiB | 9.3 s |
+
+These threw `RangeError: Invalid string length` after allocating about 2 GiB: 1M × 3, 4, 5, 6 and
+12; 300k, 400k and 500k × 12; 600k × 8. V8's longest string is 2^29 − 24 characters, and a 1M × 2
+document is 517 M characters, 96 % of it.
+
+What it shows: the old sliders reached graphs the page cannot build, and failed only after the
+allocation. The caps in `packages/graph-studio/src/source/limits.ts` refuse before it: 2 000 000
+links (nodes × links per node) for a generated graph, 2^28 characters for a document.
+
+Caveat: one generator and one browser engine's string limit; a document with long ids reaches the
+character cap at fewer nodes, and peak RSS under node is a proxy for a browser worker's heap.

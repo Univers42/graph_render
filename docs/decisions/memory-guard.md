@@ -38,6 +38,14 @@ wraps past 65 536 nodes into a wrong, small table.
    `StageError::Param { name: "nodes" }` before allocating: Kamada-Kawai and the circle-packing
    fallback above 11 585 nodes, neato above 13 376. Each limit is above its registry
    `scale_ceiling` and pinned by a test.
+4. **Studio limits and releases.** The studio refuses a generated graph past 2 000 000 links and a
+   document past 2^28 characters before building anything (`source/limits.ts`; measured in
+   `docs/measurements/memory-profile.md`, section "Studio"). A wasm heap only grows, so a new
+   source loads in a new worker and a worker that trapped or threw `RangeError` is retired
+   (`motor/client.ts`). A destroyed view gives its WebGL contexts back with `WEBGL_lose_context`
+   instead of waiting for a collection (`webgl2/hook.ts` `releaseBulk`). A page that ended
+   uncleanly does not reopen its last source by itself (`state/persist.ts`), and a document past
+   1 Mi characters is not stored.
 
 ## Consequences
 
@@ -46,6 +54,7 @@ wraps past 65 536 nodes into a wrong, small table.
   (exit 137, not the cgroup OOM killer) within 30 s; `MEMWATCH_BREAK=1` turns it red.
 - A graph past a quadratic layout's budget gets a refusal naming the budget, not a frozen tab.
   The force engines, which are linear, are unaffected.
+- A graph that took the page down is not replayed at the next start; picked again, it opens.
 - One budget on every host: a 64 GB host refuses at the same n as an 8 GB one. That is the price of
   bit-identical results; the refusal is part of the output.
 - Containers started outside the repo (llama-server, MCP servers) are outside `gm.slice`. The
