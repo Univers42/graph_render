@@ -122,11 +122,11 @@ equality is not the obstacle. Speed is:
 
 | writer | 1M median of 9 | 200k median of 9 | vs `JSON.stringify` at 1M |
 |---|---:|---:|---:|
-| `JSON.stringify({version: 1, nodes, edges})` — today's | **1213 ms** | **240 ms** | — |
-| parts array of per-record templates, `join("")` | **4456 ms** | **540 ms** | **+267%** |
-| `+=` rope of the same per-record templates | **7390 ms** | — | **+509%** |
+| `JSON.stringify({version: 1, nodes, edges})` — today's | **1209 ms** | **240 ms** | — |
+| parts array of per-record templates, `join("")` | **4311 ms** | **540 ms** | **+256%** |
+| `+=` rope of the same per-record templates | **7533 ms** | — | **+523%** |
 
-**Not kept.** The parts join is 3.7× the cost of `JSON.stringify` at 1M and 2.3× at 200k, which is
+**Not kept.** The parts join is 3.6× the cost of `JSON.stringify` at 1M and 2.3× at 200k, which is
 not a marginal miss against a 3% bar but the wrong side of the argument by two orders of magnitude.
 `JSON.stringify` is native code walking the same records; the JS writer builds one short-lived string
 per field group and then either an array of 2M+ entries or a rope, and the allocation traffic costs
@@ -146,11 +146,13 @@ rather than JSON — which is `open-core-slot`'s side of the motor, not this job
 | `scripts/orch/node-slim.sh npm run sdk:typecheck` | 0 | — |
 | `node --test --experimental-strip-types crates/graph-sdk-js/test/*.test.mjs` | 0 | 2 pass (the bare-directory caveat in this job's done-when) |
 | `packages/graph-studio/tests/staging.motor.test.ts` | 0 | 2 pass, 0 skipped |
+| `scripts/orch/node-slim.sh npm run sdk:smoke` | 0 | both build paths and the degraded paths over the real module |
 | `scripts/studio-backend.sh` | 0 | — |
 | `STUDIO_BACKEND_BREAK=1 scripts/studio-backend.sh` | 1 | non-zero |
 | `scripts/studio-smoke.sh` | 0 | 5 rows PASS |
 | `STUDIO_SMOKE_BREAK=1 scripts/studio-smoke.sh` | 1 | non-zero, 5 rows FAIL |
 
+Every row above was run on the tree as it stands, after the last edit to `staging.ts`.
 `scripts/orch/rows/perf-p5.rows` is green: those are the same commands.
 
 **Hazard:** the fast path is chosen by the *characters*, not by a scan for non-ASCII, so the cost of

@@ -52,8 +52,9 @@ function stage(exports: RawExports, views: ColumnViews, spec: StagedBuild, text:
   // `exports.memory.buffer` is read per call: `gm_alloc` may have grown the memory.
   const read = encoder.encodeInto(text, new Uint8Array(exports.memory.buffer, ptr, chars)).read;
   if (read !== chars) {
+    // No `bump()` for this free: the buffer never held a view, and `free()` below bumps for
+    // the reservation that did, so the fallback epoch sequence is the same one as before.
     invoke("gm_free", () => exports.gm_free(ptr, chars));
-    views.bump();
     const bytes = encoder.encode(text);
     len = toU32(bytes.length);
     ptr = reserve(exports, spec, len);
