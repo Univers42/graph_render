@@ -125,3 +125,17 @@ fn record(out: &mut String, i: usize) {
     }
     out.push_str("}}");
 }
+
+#[test]
+#[ignore = "scratch"]
+fn scratch_contract_scaling() {
+    for mib in [2_usize, 4] {
+        let text = contract_document(mib << 20);
+        let start = std::time::Instant::now();
+        let _ = graph_contract::canonical_json::parse(&text).expect("parses");
+        println!("parse-only mib={mib} ms={}", start.elapsed().as_millis());
+        let start = std::time::Instant::now();
+        let _ = graph_contract::ingest::read(&text).expect("reads");
+        println!("read mib={mib} ms={}", start.elapsed().as_millis());
+    }
+}
