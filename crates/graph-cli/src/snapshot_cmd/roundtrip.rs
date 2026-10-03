@@ -165,10 +165,12 @@ fn sweep(seeds: u32) -> Result<Findings, String> {
         // the JSON text of a 3D seed and demands the reader notice. Either a face that
         // writes the z from somewhere else, or a reader that ignores the z it was given,
         // fails here — which is the silent-drop bug (F1, F6) this column is most prone to.
-        // The z column's own two refusals, on a snapshot built here because no 3D layout
-        // produces one: a z column of the wrong length, and a z column under a `dim` that
-        // does not name it. A fault list is a failure, so a reader that accepted either
-        // would leave this row green — which is the whole reason the checks are here.
+        // The z column's own two refusals, on a snapshot built here: a z column of the wrong
+        // length, and a z column under a `dim` that does not name it. Every registered 3D
+        // layout emits a valid z column or it is a bug, so the malformed one is had by hand
+        // and these stay a property of the reader rather than of a layout stage. A fault list
+        // is a failure, so a reader that accepted either would leave this row green — which
+        // is the whole reason the checks are here.
         if exercise.parts().dim().is_3d() {
             for fault in exercise::z_refusal_faults(&exercise) {
                 found.faces.push(format!("seed {seed} exercise: {fault}"));

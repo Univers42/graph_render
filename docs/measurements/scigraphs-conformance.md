@@ -32,11 +32,14 @@ at SciGraphs' own `iterations = 50`, `scale = 5.0` and `get_layout_seed() = 9817
 (`derive_seed(42, "layout")`, `SciGraphs/core/scigraphs_core/repro/determinism.py:56-62`), and
 writes **raw little-endian `f64`** per row plus the `f32` the snapshot narrows to. A decimal
 round trip in the middle would be a rounding step between the two values whose equality is the
-question. Exactly **four** ids get an override. Three because their registered default is not
+question. Exactly **five** ids get an override. Three because their registered default is not
 SciGraphs' parameter: `CIRCLE_PACKING` (500 sweeps, not 50), `FORCEATLAS2` (`max_iter` 100, not
 50) and `GRAPHVIZ_SFDP` (`run` hard-codes `DEFAULT_SEED = 1`; the arm calls `run_seeded`). The
-fourth is `layout.dag.sugiyama`, whose registered default draws in the pipeline's own units:
-the arm calls `sugiyama::run_scaled`, which applies SciGraphs' per-axis normalisation
+other two are layouts whose *placement* is SciGraphs' rather than the registered stage's, both
+through a scaled entry point beside the registered one and both at `scale = 5.0`:
+`layout.grid`, whose arm calls `Grid::run_scaled` because `_grid_layout` starts the first cell
+at the origin and pitches it at `scale / grid_size`, and `layout.dag.sugiyama`, whose arm calls
+`sugiyama::run_scaled`, which applies SciGraphs' per-axis normalisation
 (`hierarchical.py:679-685`) at the same `scale = 5.0`. That normalisation reads the dummy
 vertices' X, which `Geometry` does not carry, so it lives beside the stages that produce it
 rather than in this arm.
@@ -91,16 +94,19 @@ one that unlocks the rest.
 | `algorithm` | anything else | a different method or a different step |
 
 **Both halves of the `arithmetic` test are needed, and the gap is the half that matters.**
-`GRID` has a disparity of 5e-32 and an absolute gap of 4.0: the same lattice, in a different
-unit at a different origin. Calling that `arithmetic` because the shape is exact would send a
-repair job to chase a summation order that is already right.
+`SUGIYAMA` has a disparity of 1.26e-16 and an absolute gap of 1.91e-07: the same drawing, one
+`f32` ULP out. Before `GRID` was repaired it sat at a disparity of 5e-32 and an absolute gap of
+4.0 — the same lattice, in a different unit at a different origin — and calling that `arithmetic`
+because the shape was exact would have sent a repair job to chase a summation order that was
+already right. `GRID` is now `f32` 1020/1020 with a gap of 2.12e-07, so the row that makes the
+argument is one this series has already fixed (`docs/measurements/sg-grid-scale.md`).
 
 **The `convention` threshold is 1e-6 and it is measured, not chosen.** Every row this
-classifier calls a convention measures between 5e-32 (`GRID`) and 4e-10 (`GRAPHVIZ_PATCHWORK`);
-every row that measures 0.08 to 0.7 does not, and its overlay says the same thing. An earlier
-0.35 threshold here called `SPECTRAL_3D`, `MDS_3D`, `GRAPHVIZ_CIRCO` and `CIRCLE_PACKING`
-conventions, and all four are a different shape in the picture — the threshold was wrong, not the
-data.
+classifier calls a convention measures between 2e-10 (`GRAPHVIZ_TWOPI`) and 4e-10
+(`GRAPHVIZ_PATCHWORK`); every row that measures 0.08 to 0.7 does not, and its overlay says the
+same thing. An earlier 0.35 threshold here called `SPECTRAL_3D`, `MDS_3D`, `GRAPHVIZ_CIRCO` and
+`CIRCLE_PACKING` conventions, and all four are a different shape in the picture — the threshold
+was wrong, not the data.
 
 **The discriminator is the worst of the median and the two named fixtures**, not the median.
 Twenty of the 24 fixtures hold 2 to 21 nodes, so the median is dominated by them:
@@ -176,7 +182,8 @@ the narrowing.** `SPHERE`, `HELIX`, `HIERARCHICAL_3D`, `CIRCULAR_HIERARCHY`, `GR
 their Procrustes medians from 3.4e-32 (`GRID`) to 2.3e-15 (`RANDOM`) — all of them the same shape
 to machine precision. `CIRCULAR_HIERARCHY` and `SUGIYAMA` are the strongest rows in the matrix.
 `SUGIYAMA` came from `shape`/`algorithm` in the previous run; `docs/measurements/sg-sugiyama.md`
-has the per-stage diff and the two causes it found. The two that arrived by porting the
+has the per-stage diff and the two causes it found, and
+`docs/measurements/sg-grid-scale.md` has `GRID`'s. The two that arrived by porting the
 reference's own generator rather than by fixing a convention are the proof that `f64 k/N` is not
 the target: their `f64` counts are 0/1020 and 501/1020, and every one of those coordinates is
 `f32`-exact — `RANDOM`'s because no draw is a `f32` value, `CUBE`'s because its 501 are the corner

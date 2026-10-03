@@ -84,7 +84,7 @@ pub fn run_scaled(topology: &Topology, scale: f32) -> Result<Geometry, StageErro
             rule: "finite and not negative",
         });
     }
-    let (acyclic, layering, ordering) = layered(topology);
+    let (acyclic, layering, ordering) = layered(topology)?;
     let coords = Coords::build(&ordering, &layering, topology.node_count());
     let frame = Frame::of(
         &coords.0,
