@@ -61,9 +61,14 @@ pub extern "C" fn gm_build(ingest_ptr: u32, ingest_len: u32) -> u32 {
     // caller's own later `gm_free`), so borrowing it for the duration of `ingest::read`
     // is sound, and nothing here retains the slice past this function.
     let bytes = unsafe { std::slice::from_raw_parts(ingest_ptr as *const u8, ingest_len as usize) };
-    let Ok((nodes, edges)) = ingest::read(bytes) else {
-        errors::set(Code::IngestInvalid);
-        return 0;
+    let (nodes, edges) = match ingest::read(bytes) {
+        Ok(records) => records,
+        // F-16: the refusal names its own code, so an oversized document is not published
+        // as a malformed one.
+        Err(refusal) => {
+            errors::set(refusal.code());
+            return 0;
+        }
     };
     let Ok(topology) = index_model(&nodes, &edges) else {
         errors::set(Code::IngestInvalid);

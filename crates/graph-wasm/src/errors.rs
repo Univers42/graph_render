@@ -91,21 +91,28 @@ pub enum Code {
     /// The analysis ran but its report has no JSON text: a non-finite score or modularity
     /// (D9; `NaN` is not a JSON number), or a column longer than `u32` can count.
     AnalysisFailed = 18,
+    /// `gm_build`'s buffer is longer than `ingest::MAX_INGEST_BYTES`, refused before any
+    /// parsing. **Not** `IngestInvalid`: that code means the document was read and found
+    /// malformed, and a host that got one has a bug in its document while a host that got
+    /// this one has a document it must split or shrink. Without it the oversized document
+    /// reached wasm32's address-space limit inside an infallible allocation and the host saw
+    /// an `unreachable` trap it could not name (F-16).
+    IngestTooLarge = 19,
     /// `gm_run`'s parameter buffer holds a value its layout does not publish in range: it
     /// is not finite, not integral (an `int`), not `0`/`1` (a `bool`), or outside the
     /// spec's `[min, max]`. **Refused, never clamped and never rounded into range** — a
     /// drawing that is not the one asked for is worse than no drawing
     /// (`docs/decisions/layout-params.md`).
-    ParamOutOfRange = 19,
+    ParamOutOfRange = 20,
     /// `gm_run`'s `(params_ptr, params_len)` is not exactly `specs.len() * 8` bytes, or
     /// is not a live `gm_alloc` allocation. One code for both, as the force session's own
     /// [`Self::SessionParamsInvalid`] is: neither has a reading to attempt, and a caller
     /// cannot tell from a wrong length whether the count or the pointer was wrong.
-    ParamsMalformed = 20,
+    ParamsMalformed = 21,
     /// The layout publishes no parameters and the buffer was not empty: an answer the
     /// schema already gives, refused because the caller sent values that would be
     /// dropped. Never a silent "use the defaults".
-    ParamsNotAccepted = 21,
+    ParamsNotAccepted = 22,
 }
 
 /// A refused parameter buffer as the wire's code. One arm per [`ParamsError`], so the
@@ -198,6 +205,7 @@ mod tests {
             Code::SessionParamsInvalid,
             Code::SessionRefused,
             Code::AnalysisFailed,
+            Code::IngestTooLarge,
             Code::ParamOutOfRange,
             Code::ParamsMalformed,
             Code::ParamsNotAccepted,
@@ -244,12 +252,14 @@ mod tests {
                 Code::SessionParamsInvalid as u32,
                 Code::SessionRefused as u32,
                 Code::AnalysisFailed as u32,
+                Code::IngestTooLarge as u32,
                 Code::ParamOutOfRange as u32,
                 Code::ParamsMalformed as u32,
                 Code::ParamsNotAccepted as u32,
             ],
             [
                 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
+                22,
             ],
             "every code keeps the wire value it already had"
         );

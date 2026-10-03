@@ -195,9 +195,9 @@ is worse than no drawing.
 
 | condition | `Code` | value |
 | --- | --- | --- |
-| the layout publishes nothing and the buffer is not empty | `ParamsNotAccepted` | 21 |
-| the buffer is not `specs.len() * 8` bytes, or `(ptr, len)` is not a live `gm_alloc` | `ParamsMalformed` | 20 |
-| a value is not finite, not integral (an `Int`), not `0`/`1` (a `Bool`), or outside `[min, max]` | `ParamOutOfRange` | 19 |
+| the layout publishes nothing and the buffer is not empty | `ParamsNotAccepted` | 22 |
+| the buffer is not `specs.len() * 8` bytes, or `(ptr, len)` is not a live `gm_alloc` | `ParamsMalformed` | 21 |
+| a value is not finite, not integral (an `Int`), not `0`/`1` (a `Bool`), or outside `[min, max]` | `ParamOutOfRange` | 20 |
 | otherwise the run itself fails | `LayoutFailed` | 8 |
 
 The three buffer codes are checked in that order, and **the layout is resolved before the
@@ -209,8 +209,8 @@ specific code is the one a caller can act on.
 `ParamsMustBeEmpty` (6) is **not produced any more**. Its number stays reserved so an older
 SDK reading a newer motor's code fails loud on an unknown value rather than reinterpreting
 it; the SDK's `CODE_NAMES` keeps the name at index 6 and appends the three new ones, so
-every code number that meant something before still means it. `19`, `20`, `21` are the next
-free values because `errors::mirrors::every_code_has_one_name_in_the_doc_and_in_the_sdk_in_wire_order`
+every code number that meant something before still means it. `20`, `21`, `22` are the next
+free values (`19` is `IngestTooLarge`, which reached develop first) because `errors::mirrors::every_code_has_one_name_in_the_doc_and_in_the_sdk_in_wire_order`
 holds `Code` to be contiguous from `0` — a code inserted in the middle would renumber every
 one above it.
 
@@ -350,7 +350,7 @@ The twelve conditions, and where each landed:
 | 5 | `is_live` before any read, `len == 0` never read | `exports/build.rs::read_params`, its SAFETY note, and a native test that a dead pointer is refused rather than trapped on |
 | 6 | read the buffer bytewise, never `&[f64]` | `ParamsView::value` copies eight bytes and `from_le_bytes`es them; the `ALIGN = 4` reason is in its doc |
 | 7 | SDK writes `f64`s through `DataView` | `layout-params.ts::encodeLayoutParams`, with the `RangeError` reason quoted |
-| 8 | codes `19`, `20`, `21` | `errors.rs`, `CODE_NAMES`, the Errors table |
+| 8 | codes `20`, `21`, `22` | `errors.rs`, `CODE_NAMES`, the Errors table |
 | 9 | all five mirrors updated | `mirrors.rs`, the Errors table, the `gm_run` row, `CODE_NAMES`, the coverage table, the now-false `params_ptr` SAFETY comment, the `Code::ParamsMustBeEmpty` doc |
 | 10 | the refusal precedence stated and tested | the table above; `a_dead_handle_is_refused_before_anything_else_is_read` and `an_index_past_the_registry_is_refused_by_both_layout_exports` |
 | 11 | `f32` bounds exact, `Int` bounds whole | `every_f32_backed_bound_survives_the_f32_round_trip`, `every_published_integer_is_exactly_representable`; every `f32` bound is a power of two or a whole number |

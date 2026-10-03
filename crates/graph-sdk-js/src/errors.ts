@@ -25,6 +25,7 @@ export const CODE_NAMES = [
   "SessionParamsInvalid",
   "SessionRefused",
   "AnalysisFailed",
+  "IngestTooLarge",
   "ParamOutOfRange",
   "ParamsMalformed",
   "ParamsNotAccepted",

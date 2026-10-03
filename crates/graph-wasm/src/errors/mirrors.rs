@@ -14,7 +14,7 @@ const ABI_DOC: &str = include_str!("../../../../docs/contract/wasm-abi.md");
 const SDK_ERRORS: &str = include_str!("../../../graph-sdk-js/src/errors.ts");
 const SDK_WASM: &str = include_str!("../../../graph-sdk-js/src/wasm.ts");
 
-const ALL: [Code; 22] = [
+const ALL: [Code; 23] = [
     Code::None,
     Code::InvalidHandle,
     Code::AllocFailed,
@@ -34,6 +34,7 @@ const ALL: [Code; 22] = [
     Code::SessionParamsInvalid,
     Code::SessionRefused,
     Code::AnalysisFailed,
+    Code::IngestTooLarge,
     Code::ParamOutOfRange,
     Code::ParamsMalformed,
     Code::ParamsNotAccepted,
