@@ -1,4 +1,5 @@
 /** Settings out and in, and a reset for each panel that keeps its own. */
+import { PARAMS_SECTION } from "./params.ts";
 import { SECTIONS, type Section, exportSettings, importSettings, resetSection } from "../state/portable.ts";
 import type { StudioAction } from "./context.ts";
 import { textArg } from "./context.ts";
@@ -19,7 +20,8 @@ const imported: StudioAction = {
 };
 
 const PANELS: Readonly<Record<Section, string>> = {
-  appearance: "Appearance", filter: "Filters", layout: "Layout", edges: "Edges", analysis: "Analysis",
+  appearance: "Appearance", filter: "Filters", layout: "Layout", edges: "Edges",
+  analysis: "Analysis", params: PARAMS_SECTION,
 };
 
 function resetOf(section: Section): StudioAction {

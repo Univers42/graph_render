@@ -5,7 +5,16 @@
 import type { ForceKnobs } from "./live.ts";
 import type { GraphMeta } from "../source/meta.ts";
 import type { ShownError } from "../state/errors.ts";
-import type { Source } from "../state/settings.ts";
+import type { ParamValues, Source } from "../state/settings.ts";
+
+/**
+ * The parameter specs `gm_layout_params` publishes, in the order a run's buffer carries them.
+ * The SDK's own shape, re-exported rather than restated: the worker is the only place that
+ * calls the motor, and what it hands the page back is what the SDK decoded.
+ */
+import type { LayoutParamSpec } from "../../../../crates/graph-sdk-js/src/layout-params.ts";
+
+export type { LayoutParamSpec };
 
 export interface Assets {
   readonly wasmUrl: string;
@@ -35,6 +44,12 @@ export interface RunReport {
   /** The edge pass that ran: `null` when none was asked for, or the one asked for refused. */
   readonly postId: string | null;
   readonly postError: ShownError | null;
+  /**
+   * The values the motor was run at, and `{}` when they were not the ones asked for: a force
+   * layout past the live threshold is run as a scatter (`settle.ts`), and that layout
+   * publishes nothing.
+   */
+  readonly params: ParamValues;
   /** The snapshot's binary face. */
   readonly bytes: Uint8Array;
   /** sha256 of `bytes`, or `null` where the platform offers no digest. */
@@ -58,7 +73,14 @@ export interface AnalysisReport {
 export type Request =
   | { readonly type: "open"; readonly wasmUrl: string; readonly threads?: number }
   | { readonly type: "load"; readonly source: Source; readonly fixturesUrl: string }
-  | { readonly type: "layout"; readonly layoutId: string; readonly postId: string | null }
+  | { readonly type: "params"; readonly layoutId: string }
+  | {
+      readonly type: "layout";
+      readonly layoutId: string;
+      readonly postId: string | null;
+      /** What to run this layout at; absent or empty means the motor's own defaults. */
+      readonly params?: ParamValues;
+    }
   | { readonly type: "analysis"; readonly analysisId: string }
   | ForceRequest;
 
@@ -83,6 +105,7 @@ export interface ForceFrame {
 export type Result =
   | { readonly type: "opened"; readonly catalog: Catalog }
   | { readonly type: "loaded"; readonly graph: GraphSummary }
+  | { readonly type: "params"; readonly layoutId: string; readonly specs: readonly LayoutParamSpec[] }
   | { readonly type: "laid-out"; readonly run: RunReport }
   | { readonly type: "analysed"; readonly analysis: AnalysisReport }
   | { readonly type: "failed"; readonly error: ShownError }
@@ -119,8 +142,10 @@ export type Spawn = () => Port;
 const FORCE_REQUESTS: readonly string[] = [
   "force.start", "force.drag", "force.release", "force.params", "force.pause", "force.resume", "force.stop",
 ];
-const REQUESTS: readonly string[] = ["open", "load", "layout", "analysis", ...FORCE_REQUESTS];
-const RESULTS: readonly string[] = ["opened", "loaded", "laid-out", "analysed", "failed", "force-state", "force-frame"];
+const REQUESTS: readonly string[] = ["open", "load", "params", "layout", "analysis", ...FORCE_REQUESTS];
+const RESULTS: readonly string[] = [
+  "opened", "loaded", "params", "laid-out", "analysed", "failed", "force-state", "force-frame",
+];
 
 export function isForceRequest(request: Request): request is ForceRequest {
   return FORCE_REQUESTS.includes(request.type);

@@ -17,8 +17,9 @@ import { styleInputOf } from "../look/styleOf.ts";
 import type { MotorClient } from "../motor/client.ts";
 import type { AnalysisReport, GraphSummary, RunReport } from "../motor/protocol.ts";
 import { type Ends, MetaMismatch } from "../source/meta.ts";
+import { describeError } from "../state/errors.ts";
 import type { RunSummary, StudioState } from "../state/model.ts";
-import { type Appearance, type Settings, type Source, withSettings } from "../state/settings.ts";
+import { type Appearance, type ParamValues, type Settings, type Source, withSettings } from "../state/settings.ts";
 import type { Store } from "../state/store.ts";
 import { neighboursOf } from "./adjacency.ts";
 import { fitResults } from "./fitResults.ts";
@@ -161,19 +162,39 @@ function draw(rig: Rig, run: RunReport, shown: { readonly look: Settings; readon
     // The filter the drawing was made under, and the only place it is written: the count
     // below is what a `relayout` filter is compared against to know it has already run.
     runFilter: JSON.stringify(shown.look.filter),
+    // The values, the same way: what the motor was actually run at, which is not what was asked
+    // for when a force layout on a large graph ran as a scatter instead.
+    runParams: JSON.stringify(run.params),
   }));
   restyle(rig, shown.look);
   const pass = run.postId === null ? "" : ` + ${run.postId} ${ms(run.postMs)}`;
   return { message: `${run.layoutId} ${ms(run.layoutMs)}${pass}`, notes: summary.notes };
 }
 
+/**
+ * The schema of the layout that ran, asked once per layout. A refusal is a note and not a
+ * failed run: the drawing is the one that was asked for, and the panel says it has no schema.
+ */
+async function schemaOf(rig: Rig, layoutId: string): Promise<string[]> {
+  if (rig.store.get().schemas[layoutId] !== undefined) return [];
+  try {
+    const specs = await rig.client.params(layoutId);
+    patch(rig, (state) => ({ schemas: { ...state.schemas, [layoutId]: specs } }));
+    return specs.length === 0 ? [`${layoutId} publishes no parameters`] : [];
+  } catch (error) {
+    return [`the parameters of ${layoutId} are unknown: ${describeError(error).detail}`];
+  }
+}
+
 async function arrange(rig: Rig, next: Settings, fresh: boolean): Promise<Part> {
   // Counted before the await: a run that is cancelled while it waits was still asked for,
   // and a count that only moved on success would hide that from the studio's own tests.
   patch(rig, (state) => ({ layoutCalls: state.layoutCalls + 1 }));
+  const asked: ParamValues = next.params[next.layout] ?? {};
   try {
-    const run = await rig.client.layout(next.layout, next.edges);
-    return draw(rig, run, { look: next, fresh });
+    const run = await rig.client.layout(next.layout, next.edges, asked);
+    const part = draw(rig, run, { look: next, fresh });
+    return { message: part.message, notes: [...part.notes, ...await schemaOf(rig, run.layoutId)] };
   } catch (error) {
     // After a load the old drawing is of another graph; after a refused layout it still holds.
     if (fresh) clear(rig);
@@ -223,7 +244,11 @@ function planOf(state: StudioState, next: Settings): Plan {
   // A filter that asks to be laid out again is one the last run was not made under, or the
   // layout would repeat the drawing already on screen for a filter nobody changed.
   const relayout = next.filter.relayout && JSON.stringify(next.filter) !== state.runFilter;
-  const layout = load || run === null || run.layoutId !== next.layout || run.postId !== next.edges || relayout;
+  // A value the last run was not made at is the same thing: the picture on screen is not the
+  // one these settings ask for.
+  const params = JSON.stringify(next.params[next.layout] ?? {});
+  const layout = load || run === null || run.layoutId !== next.layout || run.postId !== next.edges
+    || relayout || params !== state.runParams;
   const asked = next.analysis !== null && (load || state.analysis?.id !== next.analysis);
   return { load, layout, analysis: asked || (next.analysis === null && state.analysis !== null) };
 }

@@ -6,9 +6,9 @@
  * module start and one build; the studio's state never sees the gap.
  */
 import type { ShownError } from "../state/errors.ts";
-import type { Source } from "../state/settings.ts";
+import type { ParamValues, Source } from "../state/settings.ts";
 import type {
-  AnalysisReport, Assets, Catalog, Envelope, ForceRequest, GraphSummary, Port, Request, Result, RunReport, Spawn,
+  AnalysisReport, Assets, Catalog, Envelope, ForceRequest, GraphSummary, LayoutParamSpec, Port, Request, Result, RunReport, Spawn,
 } from "./protocol.ts";
 
 export class CancelledError extends Error {
@@ -32,7 +32,10 @@ export class MotorFailure extends Error {
 export interface MotorClient {
   catalog(): Promise<Catalog>;
   load(source: Source): Promise<GraphSummary>;
-  layout(layoutId: string, postId: string | null): Promise<RunReport>;
+  /** `params` is what to run the layout at; absent means the motor's own defaults. */
+  layout(layoutId: string, postId: string | null, params?: ParamValues): Promise<RunReport>;
+  /** The schema the motor publishes for `layoutId`; `[]` when it publishes none. */
+  params(layoutId: string): Promise<readonly LayoutParamSpec[]>;
   analysis(analysisId: string): Promise<AnalysisReport>;
   /** Stops what is running. False when nothing was. */
   cancel(): boolean;
@@ -154,6 +157,13 @@ function loaded(result: Result): GraphSummary {
   return result.graph;
 }
 
+/** The schema of the layout asked about; a motor that names another layout is not the answer. */
+function published(result: Result, layoutId: string): readonly LayoutParamSpec[] {
+  if (result.type !== "params") throw mismatch("params", result);
+  if (result.layoutId !== layoutId) throw new Error(`the motor answered the schema of ${result.layoutId} to a request for ${layoutId}`);
+  return result.specs;
+}
+
 function laidOut(result: Result): RunReport {
   if (result.type !== "laid-out") throw mismatch("layout", result);
   return result.run;
@@ -183,7 +193,11 @@ export function createClient(spawn: Spawn, assets: Assets): MotorClient {
       state.loaded = source;
       return graph;
     },
-    layout: async (layoutId, postId) => laidOut(await call({ type: "layout", layoutId, postId })),
+    layout: async (layoutId, postId, params) => {
+      const asked = params === undefined || Object.keys(params).length === 0 ? {} : { params };
+      return laidOut(await call({ type: "layout", layoutId, postId, ...asked }));
+    },
+    params: async (layoutId) => published(await call({ type: "params", layoutId }), layoutId),
     analysis: async (analysisId) => analysed(await call({ type: "analysis", analysisId })),
     cancel: () => cancelWaiting(state),
     busy: () => state.waiting.size > 0,

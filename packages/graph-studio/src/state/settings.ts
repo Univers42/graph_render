@@ -88,12 +88,24 @@ export interface Group {
   readonly colour: string;
 }
 
+/** One value: a `number` for every kind but a bool, which is `true` or `false`. */
+export type ParamValue = number | boolean;
+/** What one layout is run at, by the motor's own parameter names and its own kinds. */
+export type ParamValues = Readonly<Record<string, ParamValue>>;
+/**
+ * What each layout is run at, by layout id: the values a caller has set for it. A layout with
+ * no entry is run at the motor's own defaults, which is what leaving it out means.
+ */
+export type ParamsByLayout = Readonly<Record<string, ParamValues>>;
+
 export interface Settings {
   readonly source: Source;
   readonly layout: string;
   /** A POST pass over the layout's edges, or `null` for the edges as the layout drew them. */
   readonly edges: string | null;
   readonly analysis: string | null;
+  /** What each layout is run at. Not the schema: that is the motor's, read from the motor. */
+  readonly params: ParamsByLayout;
   readonly appearance: Appearance;
   /** Ordered; the first group a node matches is the group it is drawn in. */
   readonly groups: readonly Group[];
@@ -137,6 +149,17 @@ export function groupsOf(groups: readonly Group[]): readonly Group[] {
   })));
 }
 
+function valuesOf(values: ParamValues): ParamValues {
+  return Object.freeze(Object.fromEntries(Object.entries(values).map(([name, value]) => [name, value])));
+}
+
+/** Frozen at both levels, in the order the motor published the names. */
+export function paramsOf(params: ParamsByLayout): ParamsByLayout {
+  return Object.freeze(Object.fromEntries(
+    Object.entries(params).map(([layoutId, values]) => [layoutId, valuesOf(values)]),
+  ));
+}
+
 /** Members in one fixed order, so two equal documents are equal as text. */
 function settingsOf(settings: Settings): Settings {
   return Object.freeze({
@@ -144,6 +167,7 @@ function settingsOf(settings: Settings): Settings {
     layout: settings.layout,
     edges: settings.edges,
     analysis: settings.analysis,
+    params: Object.isFrozen(settings.params) ? settings.params : paramsOf(settings.params),
     appearance: Object.isFrozen(settings.appearance) ? settings.appearance : appearanceOf(settings.appearance),
     groups: Object.isFrozen(settings.groups) ? settings.groups : groupsOf(settings.groups),
     filter: Object.isFrozen(settings.filter) ? settings.filter : filterOf(settings.filter),
@@ -162,6 +186,10 @@ export const DEFAULT_SETTINGS: Settings = settingsOf({
   layout: "layout.forceatlas2.barnes_hut",
   edges: null,
   analysis: null,
+  // Every layout at the motor's own defaults: the published defaults reproduce the registered
+  // run byte for byte, so an empty map and a map of defaults draw the same picture
+  // (docs/decisions/layout-params.md).
+  params: {},
   appearance: {
     theme: "dark", colourBy: "group", sizeBy: "weight", nodeScale: 1, labels: "auto",
     arrows: false, textFade: 0, linkThickness: 1, edgeStyle: "straight", edgeColour: "flat",
@@ -189,6 +217,26 @@ export function withFilter(settings: Settings, patch: Partial<Filter>): Settings
 
 export function withGroups(settings: Settings, groups: readonly Group[]): Settings {
   return settingsOf({ ...settings, groups: groupsOf(groups) });
+}
+
+/**
+ * What one layout is run at, with `values` merged into what it is already run at. A layout
+ * left with no values at all loses its entry, so a document says nothing about a layout that
+ * is run at the defaults and two equal drawings have equal bytes.
+ */
+export function withParams(settings: Settings, layoutId: string, values: ParamValues): Settings {
+  const held = { ...settings.params[layoutId], ...values };
+  const params: Record<string, ParamValues> = { ...settings.params };
+  if (Object.keys(held).length === 0) delete params[layoutId];
+  else params[layoutId] = valuesOf(held);
+  return settingsOf({ ...settings, params: paramsOf(params) });
+}
+
+/** What one layout is run at, with nothing of its own: the motor's defaults again. */
+export function withoutParams(settings: Settings, layoutId: string): Settings {
+  const params: Record<string, ParamValues> = { ...settings.params };
+  delete params[layoutId];
+  return settingsOf({ ...settings, params: paramsOf(params) });
 }
 
 export function sameSettings(a: Settings, b: Settings): boolean {
@@ -269,14 +317,40 @@ export function readGroups(value: unknown, at = "settings.groups"): readonly Gro
   return groupsOf(value.map((group, i) => readGroup(group, `${at}[${i}]`)));
 }
 
+/**
+ * One value as the document holds it: a finite number or a bool. No range is checked here,
+ * because the range is the motor's and is not in the document (`docs/decisions/layout-params.md`):
+ * a value a hand-edited file puts out of range is refused by the motor, by name, on the run.
+ */
+function readParamValues(value: unknown, at: string): ParamValues {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) throw new SettingsRefusal(at, "not an object");
+  const values: Record<string, ParamValue> = {};
+  for (const [name, held] of Object.entries(value)) {
+    if (typeof held === "boolean") values[name] = held;
+    else if (typeof held === "number" && Number.isFinite(held)) values[name] = held;
+    else throw new SettingsRefusal(`${at}.${name}`, "not a finite number or true/false");
+  }
+  return valuesOf(values);
+}
+
+function readParams(value: unknown, at: string): ParamsByLayout {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) throw new SettingsRefusal(at, "not an object");
+  const params: Record<string, ParamValues> = {};
+  for (const [layoutId, held] of Object.entries(value)) {
+    params[layoutId] = readParamValues(held, `${at}["${layoutId}"]`);
+  }
+  return paramsOf(params);
+}
+
 /** Settings from outside the studio, or a refusal naming the member that was wrong. */
 export function readSettings(value: unknown, at = "settings"): Settings {
-  const fields: Fields = fieldsOf(value, at, ["source", "layout", "edges", "analysis", "appearance", "groups", "filter"]);
+  const fields: Fields = fieldsOf(value, at, ["source", "layout", "edges", "analysis", "params", "appearance", "groups", "filter"]);
   return settingsOf({
     source: readSource(fields["source"], `${at}.source`),
     layout: textOf(fields, at, "layout"),
     edges: textOrNull(fields, at, "edges"),
     analysis: textOrNull(fields, at, "analysis"),
+    params: readParams(fields["params"], `${at}.params`),
     appearance: readAppearance(fields["appearance"], `${at}.appearance`),
     groups: readGroups(fields["groups"], `${at}.groups`),
     filter: readFilter(fields["filter"], `${at}.filter`),

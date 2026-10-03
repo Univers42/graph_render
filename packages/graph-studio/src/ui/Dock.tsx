@@ -2,12 +2,15 @@
 import { useState, type ReactElement, type ReactNode } from "react";
 
 import { DOCK_SECTIONS } from "../actions/all.ts";
+import { PARAMS_SECTION, specsOf } from "../actions/params.ts";
 import type { LiveBridge } from "../motor/bridge.ts";
 import type { StudioState } from "../state/model.ts";
 import type { Studio } from "../studio/studio.ts";
 import { ForcesPanel } from "./ForcesPanel.tsx";
 import { ActionForm } from "./ActionForm.tsx";
+import { LayoutParamsPanel } from "./LayoutParamsPanel.tsx";
 import { drawnOf } from "./draft.ts";
+import { paramsKey } from "./paramSpecs.ts";
 import { useStudioState } from "./useStudio.ts";
 
 /** One section open: with three, the dock was as tall as the page and covered the graph. */
@@ -68,6 +71,31 @@ function Actions(props: { readonly studio: Studio; readonly state: StudioState; 
   );
 }
 
+/**
+ * The sections that draw something of their own before their actions: the live loop's bar and
+ * the layout's own parameters. Everything else is the actions of the section and nothing else.
+ */
+function Body(props: {
+  readonly studio: Studio;
+  readonly state: StudioState;
+  readonly name: string;
+  readonly bar: DockProps["bar"];
+}): ReactElement {
+  const { studio, state, name, bar } = props;
+  const specs = specsOf(state);
+  return (
+    <>
+      {name === "Forces" && <ForcesPanel studio={studio} state={state} bar={bar} />}
+      {name === PARAMS_SECTION && (
+        // WHY the key is the layout and its values: the panel's draft is what the controls
+        // show, so a run that changed a value has to rebuild it from the state that landed.
+        <LayoutParamsPanel key={paramsKey(state, specs)} studio={studio} state={state} />
+      )}
+      <Actions studio={studio} state={state} name={name} />
+    </>
+  );
+}
+
 export function Dock(props: DockProps): ReactElement {
   const { studio, open, onToggle, bar } = props;
   // WHY it subscribes itself: every action's value and every reason is read off the whole
@@ -88,9 +116,7 @@ export function Dock(props: DockProps): ReactElement {
       <div className="gs-dock-body" id={BODY} hidden={!open}>
         {DOCK_SECTIONS.map((name) => (
           <Section key={name} name={name} open={shown.includes(name)} onToggle={() => flip(name)}>
-            {name === "Forces"
-              ? <ForcesPanel studio={studio} state={state} bar={bar} />
-              : <Actions studio={studio} state={state} name={name} />}
+            <Body studio={studio} state={state} name={name} bar={bar} />
           </Section>
         ))}
       </div>

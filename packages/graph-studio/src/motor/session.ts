@@ -11,10 +11,10 @@ import { type IngestNode, IngestRefusal, normaliseIngest } from "../source/inges
 import { type GraphMeta, metaOf } from "../source/meta.ts";
 import { syntheticRecords } from "../source/synthetic.ts";
 import { type ShownError, describeError } from "../state/errors.ts";
-import type { Source } from "../state/settings.ts";
+import type { ParamValues, Source } from "../state/settings.ts";
 import type { ForceEngine, ForceParams, ForcePort, LiveForce } from "./live.ts";
 import { createLiveForce } from "./liveSession.ts";
-import type { AnalysisReport, Catalog, GraphSummary, RunReport } from "./protocol.ts";
+import type { AnalysisReport, Catalog, GraphSummary, LayoutParamSpec, RunReport } from "./protocol.ts";
 import { SCATTER, planRun } from "./settle.ts";
 
 export interface AnalysisFace {
@@ -31,7 +31,13 @@ export interface MotorLike<Handle> {
   posts(): readonly string[];
   analyses(): readonly string[];
   build(ingestJson: string): Handle;
-  layout(handle: Handle, layoutId: string): unknown;
+  /** One run at `params`, or at the layout's own defaults where that is left out. */
+  run(handle: Handle, layoutId: string, params?: ParamValues): unknown;
+  /**
+   * Every parameter `layoutId` publishes, in the order a run's buffer carries them
+   * (`docs/decisions/layout-params.md`). An empty list is an answer: this layout takes none.
+   */
+  layoutParams(layoutId: string): readonly LayoutParamSpec[];
   post(handle: Handle, postId: string): unknown;
   analysis(handle: Handle, analysisId: string): AnalysisFace;
   toBytes(handle: Handle): Uint8Array;
@@ -55,7 +61,10 @@ export interface SessionDeps<Handle> {
 export interface Session {
   open(wasmUrl: string, threads?: number): Promise<Catalog>;
   load(source: Source, fixturesUrl: string): Promise<GraphSummary>;
-  layout(layoutId: string, postId: string | null): Promise<RunReport>;
+  /** What the current layout is run at, keyed by the motor's own parameter names. */
+  layout(layoutId: string, postId: string | null, params?: ParamValues): Promise<RunReport>;
+  /** The schema a caller resolves a name against, read from the motor and nowhere else. */
+  params(layoutId: string): readonly LayoutParamSpec[];
   analysis(analysisId: string): AnalysisReport;
   /**
    * The live force port over the graph as it is now drawn, or null when there is none: the
@@ -199,34 +208,52 @@ function forcesOf<Handle>(motor: MotorLike<Handle> | null, built: Built<Handle> 
     session: built.forced,
     handle: built.handle,
     ids: () => built.order,
-    scatter: (handle) => motor.layout(handle, SCATTER),
+    scatter: (handle) => motor.run(handle, SCATTER),
   });
   return built.port;
+}
+
+/** What one run was asked for: the layout, the edge pass, and the values to run it at. */
+interface RunAsk {
+  readonly layoutId: string;
+  readonly postId: string | null;
+  readonly params: ParamValues;
 }
 
 /**
  * One layout over the graph, with the edge pass and the digest the studio reports. A force
  * layout on a large graph runs as a scatter and reports the layout that settles it (`settle.ts`).
+ *
+ * WHY the values are dropped when the plan runs another layout: that layout publishes its own
+ * schema, and this one's names mean nothing to it. The report says so with an empty `params`,
+ * which is what the studio compares the next plan against, so the substitution costs no second
+ * run.
  */
 async function runLayout<Handle>(
   live: { readonly motor: MotorLike<Handle>; readonly built: Built<Handle> },
   deps: SessionDeps<Handle>,
-  layoutId: string,
-  postId: string | null,
+  ask: RunAsk,
 ): Promise<RunReport> {
   const { motor, built } = live;
-  const plan = planRun(layoutId, built.nodes.length, motor.forceSession !== undefined);
+  const plan = planRun(ask.layoutId, built.nodes.length, motor.forceSession !== undefined);
   if (plan.engine !== built.engine) {
     forget(built, deps.onForget);
     built.engine = plan.engine;
   }
+  const params = plan.run === ask.layoutId ? ask.params : {};
   const started = deps.now();
-  motor.layout(built.handle, plan.run);
+  motor.run(built.handle, plan.run, params);
   const layoutMs = deps.now() - started;
-  const pass = runPass(motor, built.handle, postId, deps.now);
+  const pass = runPass(motor, built.handle, ask.postId, deps.now);
   const bytes = motor.toBytes(built.handle);
   const meta = describe(built, bytes);
-  return { layoutId: plan.report, ...pass, bytes, digest: await deps.digest(bytes), layoutMs, meta };
+  return { layoutId: plan.report, ...pass, params, bytes, digest: await deps.digest(bytes), layoutMs, meta };
+}
+
+/** The schema of one layout, from the motor; an empty list is a layout that publishes none. */
+function layoutParams<Handle>(motor: MotorLike<Handle> | null, layoutId: string): readonly LayoutParamSpec[] {
+  if (motor === null) throw new SessionRefusal("the motor is not open");
+  return motor.layoutParams(layoutId);
 }
 
 /** One analysis over the graph, in the face the studio reports. */
@@ -286,7 +313,8 @@ export function createSession<Handle>(deps: SessionDeps<Handle>): Session {
       const document = await documentFor(source, fixturesUrl, deps.fetchText);
       return replace(document, deps.now());
     },
-    layout: async (layoutId, postId) => runLayout(ready(), deps, layoutId, postId),
+    layout: async (layoutId, postId, params = {}) => runLayout(ready(), deps, { layoutId, postId, params }),
+    params: (layoutId) => layoutParams(motor, layoutId),
     analysis: (analysisId) => runAnalysis(ready(), deps, analysisId),
     forces: () => forcesOf(motor, built),
   };
