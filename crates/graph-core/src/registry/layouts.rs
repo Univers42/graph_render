@@ -7,16 +7,16 @@ use super::capability::Capability;
 use super::params;
 use super::run_default;
 use super::{
-    closed_form, force, forceatlas2_bh, graphviz_circo, graphviz_fdp, graphviz_neato,
-    graphviz_osage, graphviz_patchwork, graphviz_sfdp, grid, hierarchy, igraph, radial, spectral,
-    three_d,
+    closed_form, force, forceatlas2_bh, forceatlas2_forcesim, graphviz_circo, graphviz_fdp,
+    graphviz_neato, graphviz_osage, graphviz_patchwork, graphviz_sfdp, grid, hierarchy, igraph,
+    radial, spectral, three_d,
 };
 use crate::layout::basic_3d;
 use crate::layout::force::spring::Spring;
 use crate::layout::force::spring::{ID_3D as SPRING_3D_ID, Spring3D};
 use crate::layout::force::{
-    BarnesHut, DavidsonHarel, Drl, FruchtermanReingold, Graphopt, KamadaKawai, Lgl, ParticleMesh,
-    YifanHu,
+    BarnesHut, DavidsonHarel, Drl, ForceAtlas2ForceSim, FruchtermanReingold, Graphopt, KamadaKawai,
+    Lgl, ParticleMesh, YifanHu,
 };
 use crate::layout::forceatlas2::{ForceAtlas2, ForceAtlas2BarnesHut};
 use crate::layout::graphviz::{circo, fdp, neato, osage, patchwork, sfdp};
@@ -32,6 +32,7 @@ use crate::stage::Stage;
 use closed_form::{BIPARTITE, RANDOM, RING, SPIRAL};
 use force::{BARNES_HUT, FA2, PARTICLE_MESH, SPRING, YIFAN_HU};
 use forceatlas2_bh::FA2_BH;
+use forceatlas2_forcesim::FA2_FORCESIM;
 use graphviz_circo::CIRCO;
 use graphviz_fdp::FDP;
 use graphviz_neato::NEATO;
@@ -45,7 +46,7 @@ use spectral::{PIVOT_MDS, SPECTRAL};
 use three_d::{BIPARTITE_3D, CUBE, HELIX, HIERARCHICAL_3D, SPHERE, SPIRAL_3D, SPRING_3D};
 
 /// Every registered layout, in the order the hash gate runs them.
-pub static LAYOUTS: [Capability; 41] = [
+pub static LAYOUTS: [Capability; 42] = [
     Capability {
         id: Grid::ID,
         run: run_default::<Grid>,
@@ -220,13 +221,9 @@ pub static LAYOUTS: [Capability; 41] = [
         params: &params::LayoutParams::NONE,
         meta: FDP,
     },
-    // ---- p12-t3, the last five SciGraphs layouts, all natively 3D. APPENDED, never
-    // inserted: `graph-wasm/src/exports/build.rs:26,35,159` maps layouts by INDEX, and
-    // `bench/campaign.rs:128`'s `DEFAULT_ARM` is `LAYOUTS[3]`, so inserting before index 3
-    // would repoint the default crossover arm with no compile error. Nothing above this
-    // line moved, and
+    // ---- p12-t3, the last five SciGraphs layouts, all natively 3D. Appended (see the header);
     // `registry::tests::the_index_keyed_front_of_layouts_still_holds_the_ids_their_callers_name`
-    // fails if it ever does.
+    // fails if anything above this line moves.
     Capability {
         id: basic_3d::sphere::ID,
         run: basic_3d::sphere,
@@ -269,11 +266,8 @@ pub static LAYOUTS: [Capability; 41] = [
         params: &params::FORCEATLAS2_BARNES_HUT,
         meta: FA2_BH,
     },
-    // APPENDED, never inserted, for the reason the block above gives: layouts are mapped by
-    // INDEX in `graph-wasm/src/exports/build.rs:26,35,159` and `bench/campaign.rs:128` pins
-    // `LAYOUTS[3]`. `layout.bipartite_3d` reads the graph where the three above it read a
-    // node count, which is why its id is outside the `layout.basic3d.*` namespace those
-    // three publish.
+    // `layout.bipartite_3d` reads the graph where the three above it read a node count, which
+    // is why its id is outside the `layout.basic3d.*` namespace those three publish.
     Capability {
         id: basic_3d::bipartite_3d::ID,
         run: basic_3d::bipartite_3d,
@@ -287,14 +281,20 @@ pub static LAYOUTS: [Capability; 41] = [
         params: &params::LayoutParams::NONE,
         meta: SPIRAL_3D,
     },
-    // perf-p2: appended after the entries above, for the same reason.
+    // perf-p2.
     Capability {
         id: ParticleMesh::ID,
         run: run_default::<ParticleMesh>,
         params: &params::LayoutParams::NONE,
         meta: PARTICLE_MESH,
     },
-    // ---- sg-spectral-mds: the 3D arms of the spectral family, spelled in `registry/spectral.rs`.
+    // sg-fa2-forcesim: SciGraphs' own ForceSim, which the FORCEATLAS2 conformance row runs.
+    Capability {
+        id: ForceAtlas2ForceSim::ID,
+        run: run_default::<ForceAtlas2ForceSim>,
+        params: &params::LayoutParams::NONE,
+        meta: FA2_FORCESIM,
+    },
     spectral::SPECTRAL_3D_LAYOUT,
     spectral::PIVOT_MDS_3D_LAYOUT,
 ];

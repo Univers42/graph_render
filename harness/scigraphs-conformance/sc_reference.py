@@ -34,21 +34,30 @@ def _load_dispatcher():
 
 
 def run_name(directory, name, fixtures):
-    """One name over every fixture: the coordinates, and what the dispatcher said about them.
+    """One name over every fixture: the coordinates, what the dispatcher said, and what it
+    printed.
 
     SciGraphs is a chatty library — it prints a progress line and a timing per call — so its
     output is captured rather than mixed into the arm's own stdout, which would otherwise
     interleave the timing of this run into the file a reader diffs.
+
+    **The captured text is kept, in ``ref/<NAME>.json``'s ``transcript`` field.** It used to
+    be dropped on the floor, which is how the FORCEATLAS2 row spent a branch comparing the
+    motor's networkx port against a reference that was really running ForceSim: the one line
+    that says which tier ran — ``Computing ForceAtlas2 (3D, ForceSim)`` against
+    ``(3D, networkx)`` — was in the capture and in no file a reader could open. The lines are
+    a list rather than one blob so a diff of two runs reads line by line.
     """
     apply_graph_layout = _load_dispatcher()
     values = []
     report = []
+    transcript = []
     for fixture in fixtures:
         obj = fixture.scigraphs_object()
-        transcript = io.StringIO()
+        captured = io.StringIO()
         error = None
         try:
-            with redirect_stdout(transcript):
+            with redirect_stdout(captured):
                 ok = apply_graph_layout(
                     obj, name, iterations=ITERATIONS, scale=SCALE,
                     edge_pairs=fixture.edge_pairs(),
@@ -57,6 +66,7 @@ def run_name(directory, name, fixtures):
             ok = False
             error = "%s: %s" % (type(failure).__name__, failure)
             traceback.print_exc(file=sys.stderr)
+        transcript.extend(line for line in captured.getvalue().splitlines() if line.strip())
         report.append(_entry(fixture, obj, ok, error))
         if ok and "node_positions" in obj:
             positions = obj["node_positions"]
@@ -70,7 +80,7 @@ def run_name(directory, name, fixtures):
         elif ok:
             report[-1]["status"] = "error"
             report[-1]["detail"] = "apply_graph_layout wrote no node_positions"
-    return values, report
+    return values, report, transcript
 
 
 def _entry(fixture, obj, ok, error):
@@ -94,9 +104,9 @@ def run(directory, fixtures):
     versions = libraries()
     reached = 0
     for name in SCIGRAPHS_NAMES:
-        values, report = run_name(directory, name, fixtures)
+        values, report, transcript = run_name(directory, name, fixtures)
         write_f64(os.path.join(out, "%s.f64" % name), values)
-        _record(out, name, "ge-python-oracle:scigraphs", versions, report)
+        _record(out, name, "ge-python-oracle:scigraphs", versions, report, transcript)
         reached += 1
         print("  %-20s %s" % (name, _summary(report)), flush=True)
     return reached
@@ -112,8 +122,16 @@ def _summary(report):
     return "%d/%d fixtures%s" % (ok, len(report), tail)
 
 
-def _record(out, name, arm, versions, report):
-    """`ref/<NAME>.json`: which arm, which libraries, and every fixture's outcome."""
+def _record(out, name, arm, versions, report, transcript):
+    """`ref/<NAME>.json`: which arm, which libraries, every fixture's outcome, and what the
+    reference printed while it did it.
+
+    **`transcript` is the reference's own stdout, line by line, in fixture order.** It is
+    the only place the tier the reference actually ran is written down: for FORCEATLAS2 it
+    is `Computing ForceAtlas2 (3D, ForceSim) for 77 nodes...`, and a reader who wants to know
+    why the row runs `layout.forceatlas2.forcesim` can read that instead of re-running the
+    arm. Empty for a name that printed nothing.
+    """
     substituted = sorted({
         entry["layout_substituted"] for entry in report
         if entry.get("layout_substituted")
@@ -127,6 +145,7 @@ def _record(out, name, arm, versions, report):
         ),
         "layout_substitutions": substituted,
         "status": "ok" if all(e["status"] == "ok" for e in report) else "partial",
+        "transcript": transcript,
         "fixtures": report,
     }
     with open(os.path.join(out, "%s.json" % name), "w") as handle:

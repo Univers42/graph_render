@@ -34,7 +34,7 @@ writes **raw little-endian `f64`** per row plus the `f32` the snapshot narrows t
 round trip in the middle would be a rounding step between the two values whose equality is the
 question. Exactly **five** ids get an override. Three because their registered default is not
 SciGraphs' parameter: `CIRCLE_PACKING` (500 sweeps, not 50), `FORCEATLAS2` (`max_iter` 100, not
-50) and `GRAPHVIZ_SFDP` (`run` hard-codes `DEFAULT_SEED = 1`; the arm calls `run_seeded`). The
+50, run on `layout.forceatlas2.forcesim`, SciGraphs' own `ForceSim`) and `GRAPHVIZ_SFDP` (`run` hard-codes `DEFAULT_SEED = 1`; the arm calls `run_seeded`). The
 other two are layouts whose *placement* is SciGraphs' rather than the registered stage's, both
 through a scaled entry point beside the registered one and both at `scale = 5.0`:
 `layout.grid`, whose arm calls `Grid::run_scaled` because `_grid_layout` starts the first cell
@@ -43,6 +43,17 @@ at the origin and pitches it at `scale / grid_size`, and `layout.dag.sugiyama`, 
 (`hierarchical.py:679-685`) at the same `scale = 5.0`. That normalisation reads the dummy
 vertices' X, which `Geometry` does not carry, so it lives beside the stages that produce it
 rather than in this arm.
+
+**The fifth is `FORCEATLAS2`, and it is a different layout id, not a different parameter.**
+`forceatlas.py:167` takes `_forceatlas2_forcesim` — SciGraphs' own `ForceSim`, `model='FA2'` —
+before it ever looks at `networkx.forceatlas2_layout`, and in `ge-python-oracle` the networkx
+branch below it is dead code (`docs/measurements/sg-fa2-seed.md`). So the row runs
+`layout.forceatlas2.forcesim` and is handed the seed the reference *draws*
+(`FORCESIM_SEED` = 1767573729, `forceatlas.py:122`) rather than the layout seed, which
+`default_rng` — not `RandomState` — consumes. `layout.forceatlas2` stays the networkx port and
+stays gated against networkx 3.6 by `oracle-fa2`; the two layouts differ in the generator, the
+state width, the gravity constant, the move cap and `dim`, so neither can stand in for the
+other.
 
 **The reference arm** calls `apply_graph_layout` itself for 23 names in `ge-python-oracle` with
 the `SciGraphs/` submodule on the path. The other nine go through `scigraphs_utils`, which is in
@@ -193,7 +204,7 @@ Procrustes-aligned over it**, so a green point sitting on a grey point is a node
 | 3 | `SPRING` | `layout.force.spring` | `apply_graph_layout` | `tolerance` | 362/1020 | 866/1020 | 5.17e+13 | 2.37e-03 | 3.77e-16 | 1.66e-08 | `arithmetic` | **same shape on every fixture** (Procrustes median 3.77e-16, worst 1.66e-08), and `f32`-identical on 21 of the 23 measured ones. 153 of the 154 coordinates that are not identical are on `lesmis` (78/462) — the 77-node fixture whose 50 chaotic iterations amplify a 1.6-ulp reduction difference to 2.4e-3; `gate-16` carries the last one (53/54). The `convention` label this row carried until 2026-10-03 was the classifier's, and it was wrong: the residual is on **one** fixture of 24, which is what `arithmetic` now counts — see Repair 4 |
 | 4 | `SPRING_3D` | `layout.force.spring3d` | `apply_graph_layout` | `tolerance` | 24/1020 | 1020/1020 | 2.68e+08 | 2.36e-07 | 5.03e-16 | 6.67e-16 | `arithmetic` | **same shape** — the same seed, the same kernel and the same split reduction as `SPRING`, and the third column absorbs the whole difference: 1020/1020 `f32` |
 | 5 | `CIRCLE_PACKING` | `layout.packing.circle` | `apply_graph_layout` | `shape` | 344/1020 | 808/1020 | 9.22e+18 | 2.70 | 5.3e-16 | 0.863 | `algorithm` | **bit-for-bit the same packing on the 20 gate models** (5e-16) and on the two planar fixtures. `lesmis` — the non-planar one, so the only fixture whose seed moved — goes **0.517 -> 0.0895**; `bipartite` is non-planar too and still differs (0.863); `tree-balanced` (0.418) is a **tree**, so it takes the exact path and did not move |
-| 6 | `FORCEATLAS2` | `layout.forceatlas2` | `apply_graph_layout` | `bitwise` | 0/1020 | 0/1020 | 9.25e+18 | 183 | 0.241 | 0.927 | `rng` | different shape |
+| 6 | `FORCEATLAS2` | `layout.forceatlas2.forcesim` | `apply_graph_layout` | `bitwise` | 23/1020 | 72/1020 | 1.55e+17 | 6.23e-4 | 1.40e-13 | 1.31e-9 | `convention` | **same shape** — the motor id changed to SciGraphs' own `ForceSim` in `sg-fa2-forcesim`, because `forceatlas.py:167` reaches that tier first and the networkx port cannot answer this row; the residual is three BLAS kernels this port replaces with fixed orders |
 | 7 | `IGRAPH_FR` | `layout.force.fruchterman_reingold` | `apply_graph_layout` | `bitwise` | 0/1020 | 0/1020 | 9.24e+18 | 11.6 | 0.267 | 0.901 | `rng` | different shape |
 | 8 | `IGRAPH_KK` | `layout.force.kamada_kawai` | `apply_graph_layout` | `shape` | 0/957 | 0/957 | 9.23e+18 | 7.95 | 0.812 | 0.935 | `algorithm` | different shape: grey is a blob, green is a near-straight line |
 | 9 | `IGRAPH_DRL` | `layout.force.drl` | `apply_graph_layout` | `bitwise` | 0/1020 | 0/1020 | 9.25e+18 | 52.8 | 0.536 | 0.881 | `rng` | both are near-collinear; green runs along the grey line with different spacing |
