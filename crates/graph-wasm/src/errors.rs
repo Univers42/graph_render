@@ -7,6 +7,7 @@
 //!
 //! Target-independent: nothing here touches wasm memory, so it is unit-tested natively.
 
+#[cfg(any(test, target_arch = "wasm32"))]
 use std::cell::Cell;
 
 /// Why an export returned its failure sentinel (`0`, or [`Code::None`] for absent id
@@ -86,28 +87,64 @@ pub enum Code {
     IngestTooLarge = 19,
 }
 
+impl Code {
+    /// The code's name, as the SDK's `CODE_NAMES` and `docs/contract/wasm-abi.md`'s Errors
+    /// table spell it. Written out rather than taken from `Debug`, whose text is not a
+    /// promise; `mirrors` pins the three to one another.
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::None => "None",
+            Self::InvalidHandle => "InvalidHandle",
+            Self::AllocFailed => "AllocFailed",
+            Self::FreeRefused => "FreeRefused",
+            Self::IngestInvalid => "IngestInvalid",
+            Self::UnknownLayoutId => "UnknownLayoutId",
+            Self::ParamsMustBeEmpty => "ParamsMustBeEmpty",
+            Self::HandlesExhausted => "HandlesExhausted",
+            Self::LayoutFailed => "LayoutFailed",
+            Self::TamperedGeometry => "TamperedGeometry",
+            Self::NoGeometryYet => "NoGeometryYet",
+            Self::BuildSourceInvalid => "BuildSourceInvalid",
+            Self::IndexOutOfRange => "IndexOutOfRange",
+            Self::PostFailed => "PostFailed",
+            Self::ContractInvalid => "ContractInvalid",
+            Self::InvalidSession => "InvalidSession",
+            Self::SessionParamsInvalid => "SessionParamsInvalid",
+            Self::SessionRefused => "SessionRefused",
+            Self::AnalysisFailed => "AnalysisFailed",
+            Self::IngestTooLarge => "IngestTooLarge",
+        }
+    }
+}
+
+// The thread-local channel is the exports' alone: a native caller reads the `Result`.
+#[cfg(any(test, target_arch = "wasm32"))]
 thread_local! {
     static LAST: Cell<Code> = const { Cell::new(Code::None) };
 }
 
 /// Records `code` as the outcome of the export now returning.
+#[cfg(any(test, target_arch = "wasm32"))]
 pub fn set(code: Code) {
     LAST.with(|cell| cell.set(code));
 }
 
 /// Records success — every export's non-error return path calls this, so a stale code
 /// from an earlier call never survives a later success (C4).
+#[cfg(any(test, target_arch = "wasm32"))]
 pub fn clear() {
     set(Code::None);
 }
 
 /// The last recorded code, as the wire's `u32`. `gm_last_error`'s body.
+#[cfg(any(test, target_arch = "wasm32"))]
 pub fn get() -> u32 {
     LAST.with(Cell::get) as u32
 }
 
 /// An export's answer: the value on success with the code cleared, `0` with the reason
 /// recorded on a refusal — so no `0` that is a refusal leaves a stale code behind.
+#[cfg(any(test, target_arch = "wasm32"))]
 pub fn reply(result: Result<u32, Code>) -> u32 {
     match result {
         Ok(value) => {

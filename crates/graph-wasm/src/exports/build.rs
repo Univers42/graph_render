@@ -4,11 +4,10 @@
 
 use super::state::{HANDLES, publish};
 use crate::alloc::is_live;
-use crate::contract;
 use crate::errors::{self, Code};
 use crate::handle::Handle;
-use crate::ingest;
 use crate::seed_ingest;
+use crate::service::{self, Source};
 use crate::views;
 use graph_contract::binary::Snapshot;
 use graph_core::registry::LAYOUTS;
@@ -55,26 +54,17 @@ pub extern "C" fn gm_build(ingest_ptr: u32, ingest_len: u32) -> u32 {
     }
     // SAFETY: `is_live` confirmed this exact `(ptr, len)` is a `gm_alloc` allocation the
     // caller still owns; the buffer outlives this whole call (freed only by the
-    // caller's own later `gm_free`), so borrowing it for the duration of `ingest::read`
+    // caller's own later `gm_free`), so borrowing it for the duration of `service::build`
     // is sound, and nothing here retains the slice past this function.
     let bytes = unsafe { std::slice::from_raw_parts(ingest_ptr as *const u8, ingest_len as usize) };
     #[cfg(any(test, feature = "probe"))]
     crate::ingest::phases::mark(crate::ingest::phases::COPY, None);
-    // The records are dropped as soon as the topology holds them, not at the end of the call.
-    let indexed =
-        ingest::read_records(bytes).and_then(|(nodes, edges)| ingest::index(&nodes, &edges));
+    // F-16: the refusal names its own code, so an oversized document is not published as a
+    // malformed one.
+    let built = service::build(bytes, Source::Ingest);
     #[cfg(any(test, feature = "probe"))]
     crate::ingest::phases::mark(crate::ingest::phases::RETURNED, None);
-    let topology = match indexed {
-        Ok(topology) => topology,
-        // F-16: the refusal names its own code, so an oversized document is not published
-        // as a malformed one.
-        Err(refusal) => {
-            errors::set(refusal.code());
-            return 0;
-        }
-    };
-    insert(topology)
+    insert_built(built)
 }
 
 /// Builds a graph from the **ingest contract** buffer at `(contract_ptr, contract_len)`,
@@ -101,7 +91,7 @@ pub extern "C" fn gm_build(ingest_ptr: u32, ingest_len: u32) -> u32 {
 /// handle id has been issued. Not `IngestInvalid`: see [`Code::ContractInvalid`].
 // SAFETY: as `gm_layout_count`. The byte range read is confirmed live by `is_live`
 // immediately before the one slice formed from it, and that slice does not outlive this
-// call — `contract::derive` borrows it and returns only owned records and a topology.
+// call — `service::build` borrows it and returns only an owned topology.
 #[unsafe(no_mangle)]
 pub extern "C" fn gm_build_contract(contract_ptr: u32, contract_len: u32) -> u32 {
     if !is_live(contract_ptr, contract_len) {
@@ -110,15 +100,11 @@ pub extern "C" fn gm_build_contract(contract_ptr: u32, contract_len: u32) -> u32
     }
     // SAFETY: `is_live` confirmed this exact `(ptr, len)` is a `gm_alloc` allocation the
     // caller still owns; the buffer outlives this whole call (freed only by the caller's
-    // own later `gm_free`), so borrowing it for the duration of `contract::derive` is
+    // own later `gm_free`), so borrowing it for the duration of `service::build` is
     // sound, and nothing here retains the slice past this function.
     let bytes =
         unsafe { std::slice::from_raw_parts(contract_ptr as *const u8, contract_len as usize) };
-    let Ok((_, topology)) = contract::derive(bytes) else {
-        errors::set(Code::ContractInvalid);
-        return 0;
-    };
-    insert(topology)
+    insert_built(service::build(bytes, Source::Contract))
 }
 
 /// Runs registry layout `layout_id` (an index, C1) over `handle`'s topology at its
@@ -152,6 +138,17 @@ pub extern "C" fn gm_run(handle: u32, layout_id: u32, params_ptr: u32, params_le
     })
 }
 
+/// A new handle over the built topology, or `0` with the build's refusal.
+fn insert_built(built: Result<Topology, Code>) -> u32 {
+    match built {
+        Ok(topology) => insert(topology),
+        Err(code) => {
+            errors::set(code);
+            0
+        }
+    }
+}
+
 /// A new handle over `topology`, or `0` with [`Code::HandlesExhausted`].
 pub(super) fn insert(topology: Topology) -> u32 {
     let handle = Handle {
@@ -174,12 +171,7 @@ pub(super) fn insert(topology: Topology) -> u32 {
 /// Keeps a layout's result on `entry` with its snapshot: `1`, or `0` with
 /// [`Code::LayoutFailed`] and nothing kept.
 pub(super) fn store(entry: &mut Handle, ran: Result<Geometry, StageError>) -> u32 {
-    let ran = ran.map_err(|_| Code::LayoutFailed).and_then(|geometry| {
-        graph_core::layout::snapshot(&entry.topology, geometry.clone())
-            .map(|snapshot| (geometry, snapshot))
-            .map_err(|_| Code::LayoutFailed)
-    });
-    match ran {
+    match service::snapshot_of(&entry.topology, ran) {
         Ok((geometry, snapshot)) => {
             entry.geometry = Some(geometry);
             entry.snapshot = Some(snapshot);
