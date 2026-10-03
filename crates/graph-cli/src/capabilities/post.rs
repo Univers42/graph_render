@@ -119,25 +119,22 @@ pub fn rows() -> impl Iterator<Item = Capability> {
 /// Read across rather than restated: a second, looser copy of a ceiling or a Ponytail is a
 /// second answer, and the two would drift. None is `gated` — see the module doc.
 ///
-/// **The three ids come from the constants themselves, not from a list beside them.** A
-/// hand-written id string beside a `META` is a string free to drift from the registry row the
-/// hash gate hashes under, and a drifted id makes the ledger name a capability that does not
-/// exist. `separate`'s `edges` is `Line` because the pass is **pass-through** — it emits the
-/// edges it was handed — and there is no `EdgeGeometryKind` for "the same edges"; its
-/// `Metadata::moves_nodes` flag is what tells a reader to read that column that way.
+/// **The id and the `META` of one module are declared together**, each taken from that
+/// module's own `ID`. They used to be `zip`ped against a list beside them, so reordering
+/// either list would silently attach one module's ceiling, oracle and Ponytail to another's
+/// stable row id, with no compile error anywhere. `separate`'s `edges` is `Line` because the
+/// pass is **pass-through** — it emits the edges it was handed — and there is no
+/// `EdgeGeometryKind` for "the same edges"; its `Metadata::moves_nodes` flag is what tells a
+/// reader to read that column that way.
 fn bundles() -> impl Iterator<Item = Capability> {
+    use graph_core::post::{fdeb, mingle, separate};
     [
-        graph_core::post::fdeb::META,
-        graph_core::post::mingle::META,
-        graph_core::post::separate::META,
+        (fdeb::ID, fdeb::META),
+        (mingle::ID, mingle::META),
+        (separate::ID, separate::META),
     ]
     .into_iter()
-    .zip([
-        graph_core::post::fdeb::ID,
-        graph_core::post::mingle::ID,
-        graph_core::post::separate::ID,
-    ])
-    .map(|(meta, id)| row(id, edge_kind_name(meta.edges), RowMeta::of_post(&meta)))
+    .map(|(id, meta)| row(id, edge_kind_name(meta.edges), RowMeta::of_post(&meta)))
 }
 
 /// The four style rows, projected from [`graph_core::post::styles::STYLES`]. They differ
@@ -154,15 +151,17 @@ fn styles() -> impl Iterator<Item = Capability> {
     })
 }
 
-/// The ledger's name for an edge geometry kind, as `registry::layout` writes it. The
-/// catch-all is unreachable for every registered POST capability today and is named
-/// rather than panicking, so adding a fourth kind later is a value to fill in rather than
-/// a crash in the middle of building the ledger.
+/// The ledger's name for an edge geometry kind, as `registry::layout` writes it.
+///
+/// Exhaustive on purpose, with no catch-all: it used to answer `"Curve"` for anything it
+/// did not recognise, so a fourth kind added to the enum would have landed in the ledger
+/// as a confidently wrong geometry. A new kind is now a compile error here instead.
 fn edge_kind_name(kind: graph_contract::geometry::EdgeGeometryKind) -> &'static str {
+    use graph_contract::geometry::EdgeGeometryKind as K;
     match kind {
-        graph_contract::geometry::EdgeGeometryKind::Line => "Line",
-        graph_contract::geometry::EdgeGeometryKind::Polyline => "Polyline",
-        _ => "Curve",
+        K::Line => "Line",
+        K::Polyline => "Polyline",
+        K::Curve => "Curve",
     }
 }
 

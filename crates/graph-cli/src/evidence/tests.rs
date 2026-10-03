@@ -1,6 +1,8 @@
 use super::*;
 use crate::runner::sha256_hex;
 
+mod clobber;
+
 fn scratch(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("gm-evidence-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
@@ -102,6 +104,57 @@ fn the_listing_is_path_nul_digest_lines_in_byte_order() {
     std::fs::remove_dir_all(&dir).expect("cleanup");
 }
 
+/// A record that exists but cannot be parsed **backs nothing**: it reads as *absent*, not
+/// as a fatal error, and it is named on stderr rather than deleted. The review's complaint
+/// was that one truncated file stopped `capabilities --check` for the whole tree — 72 rows
+/// read as unbacked because a `serde_json` error came out of the loader. With the atomic
+/// write no record this crate writes can be torn any more, but a half-copied or
+/// hand-mangled one still can, and it must cost its own row its evidence rather than every
+/// row's.
+///
+/// The control in the same test is the case that must **stay** an error: a path that is a
+/// directory is *unreadable*, not unparseable, and that is a real I/O failure to report.
+#[test]
+fn an_unparseable_record_reads_as_absent_and_a_re_run_repairs_it() {
+    let dir = scratch("corrupt");
+    let path = dir.join("hashgate.json");
+    std::fs::write(&path, "{ \"pass\": true, \"seeds\":").expect("a half-copied record");
+    assert_eq!(
+        read_from(&dir, "hashgate"),
+        Ok(None),
+        "a record nobody can parse is not evidence, and is not a fatal error either"
+    );
+    assert!(
+        path.exists(),
+        "and it stays where it is, for the person who has to look at it"
+    );
+    assert!(
+        matches!(
+            write_to(
+                &dir,
+                "hashgate",
+                serde_json::json!({ "seeds": 8, "pass": true }),
+                "f".into()
+            ),
+            Outcome::Recorded(_)
+        ),
+        "a re-run is not blocked by it"
+    );
+    assert_eq!(
+        read_from(&dir, "hashgate")
+            .expect("readable")
+            .expect("present")["seeds"],
+        8,
+        "so re-running the gate repairs it"
+    );
+    std::fs::create_dir(dir.join("dir.json")).expect("dir");
+    assert!(
+        read_from(&dir, "dir").is_err(),
+        "the control: unreadable is still an error, not an absence"
+    );
+    std::fs::remove_dir_all(&dir).expect("cleanup");
+}
+
 #[test]
 fn a_record_reads_back_as_written_and_only_absence_is_none() {
     let dir = scratch("records");
@@ -115,7 +168,11 @@ fn a_record_reads_back_as_written_and_only_absence_is_none() {
     );
     assert_eq!(read_from(&dir, "absent"), Ok(None));
     std::fs::write(dir.join("torn.json"), "{").expect("write");
-    assert!(read_from(&dir, "torn").is_err());
+    assert_eq!(
+        read_from(&dir, "torn"),
+        Ok(None),
+        "a torn record is no record (its own line names it on stderr)"
+    );
     std::fs::create_dir(dir.join("dir.json")).expect("dir");
     assert!(read_from(&dir, "dir").is_err(), "unreadable is not absent");
     assert!(matches!(
@@ -125,63 +182,43 @@ fn a_record_reads_back_as_written_and_only_absence_is_none() {
     std::fs::remove_dir_all(&dir).expect("cleanup");
 }
 
+/// The write is a temporary file renamed into place, so a reader sees the old record or
+/// the new one and never half of either — and no temporary is left behind.
 #[test]
-fn a_failing_run_never_overwrites_a_passing_record() {
-    let dir = scratch("no-clobber");
-    let passed = serde_json::json!({ "seeds": 1000, "pass": true });
-    let path = recorded(write_to(&dir, "hashgate", passed, "f".into()));
-    let kept = std::fs::read_to_string(&path).expect("readable");
-    // A control run, a short sweep, or a run on a tree that has since regressed:
-    // each writes the same record name, and each must leave the passing one standing.
-    let why = refused(write_to(
+fn a_record_is_renamed_into_place_and_leaves_no_temporary() {
+    let dir = scratch("atomic");
+    let path = recorded(write_to(
         &dir,
-        "hashgate",
-        serde_json::json!({ "seeds": 8, "pass": false }),
+        "gate",
+        serde_json::json!({ "seeds": 3, "pass": true }),
         "f".into(),
     ));
-    assert!(why.contains("hashgate"), "{why}");
-    assert_eq!(
-        std::fs::read_to_string(&path).expect("readable"),
-        kept,
-        "the passing record is byte-for-byte what it was"
+    std::fs::write(&path, "torn by a killed writer").expect("writable");
+    recorded(write_to(
+        &dir,
+        "gate",
+        serde_json::json!({ "seeds": 4, "pass": true }),
+        "f".into(),
+    ));
+    let temporaries: Vec<String> = std::fs::read_dir(&dir)
+        .expect("readable")
+        .map(|entry| {
+            entry
+                .expect("an entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .filter(|name| name.ends_with(".tmp"))
+        .collect();
+    assert!(
+        temporaries.is_empty(),
+        "no temporary survives: {temporaries:?}"
     );
-    // The reverse is allowed and is the point of a gate: a passing run replaces a
-    // failing one of the same name, which is what re-running for a fix must do.
-    recorded(write_to(
-        &dir,
-        "roundtrip",
-        serde_json::json!({ "seeds": 8, "pass": false }),
-        "f".into(),
-    ));
-    recorded(write_to(
-        &dir,
-        "roundtrip",
-        serde_json::json!({ "seeds": 2000, "pass": true }),
-        "f".into(),
-    ));
     assert_eq!(
-        read_from(&dir, "roundtrip").expect("readable"),
-        Some(serde_json::json!({
-            "seeds": 2000, "pass": true, "gate": "roundtrip", "fingerprint": "f"
-        }))
-    );
-    // A record with no `pass` member at all is not a failing run and is not
-    // covered by the rule: the oracle harnesses write exactly that shape.
-    recorded(write_to(
-        &dir,
-        "oracle-diff",
-        serde_json::json!({ "seeds": 1000 }),
-        "f".into(),
-    ));
-    recorded(write_to(
-        &dir,
-        "oracle-diff",
-        serde_json::json!({ "seeds": 8 }),
-        "f".into(),
-    ));
-    assert_eq!(
-        read_from(&dir, "oracle-diff").expect("readable"),
-        Some(serde_json::json!({ "seeds": 8, "gate": "oracle-diff", "fingerprint": "f" }))
+        read_from(&dir, "gate").expect("readable").expect("present")["seeds"],
+        4,
+        "the new record replaced the torn one whole"
     );
     std::fs::remove_dir_all(&dir).expect("cleanup");
 }

@@ -134,9 +134,19 @@ fn diverged(control: &Value, stage: &str) -> bool {
 
 /// The oracle verdict over `functions` from the record `name`: a passing run in which
 /// every one of them had cases and no unexplained mismatch.
+///
+/// **An empty `functions` is `absent`, never `gated`.** The check is here, once, rather
+/// than in each caller, because it is the verdict that turns a differential into a
+/// claim: an empty slice makes the loop below run zero times, so `cases` stays 0 and a
+/// row would be stamped with a verdict built from no comparison at all. A row that names
+/// no oracle function is the same shape as a row that names an unregistered one, and
+/// both read as "not backed" — which is the truth — instead of as a pass.
 pub fn oracle_diff(e: &Evidence, name: &str, functions: &[&str]) -> Result<String, String> {
     if name == TRANSPORT_RECORD {
         return transport(e);
+    }
+    if functions.is_empty() {
+        return Err("names no oracle function: an empty differential backs nothing".into());
     }
     let run = current(e, e.oracle_record(name), name)?;
     let seeds = seeds_of(run, name)?;
