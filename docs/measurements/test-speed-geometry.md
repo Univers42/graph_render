@@ -2,12 +2,14 @@
 
 Status: **landed**. Date: 2026-10-03. Job: `prompts/jobs/test-speed-geometry.md`.
 
-`crates/graph-core/tests/geometry_invariants.rs` was about 900 s of the about 1000 s
-`cargo test --workspace` row, against a stated gate-log figure of about 760 s. The cause
-was not the amount of work but its shape: three `#[test]`s, each one serial
-`for seed in 0..SEEDS` loop, one of which ran every `registry::LAYOUTS` entry per seed.
-libtest runs tests in parallel, so one long test is **one core** on a 20-core host. This
-cuts the sweep into tests libtest can hand to different cores. No layout's arithmetic, no
+`crates/graph-core/tests/geometry_invariants.rs` was the landing gate's long pole: about
+760 s in the 2026-10-02 gate logs against a roughly 1000 s `cargo test --workspace` row,
+and 1316.87 s when the pre-change file was measured on the final tree (see the baseline
+caveat below). The cause was not the amount of work but its shape: three `#[test]`s, each
+one serial `for seed in 0..SEEDS` loop, one of which ran every `registry::LAYOUTS` entry
+per seed. libtest runs tests in parallel, so one long test is **one core** on a 20-core
+host. This cuts the sweep into tests libtest can hand to different cores, 1316.87 s →
+317.80–572.91 s over three runs at the default thread count. No layout's arithmetic, no
 assertion, and no message changed; the `(seed, layout)` pairs swept are identical.
 
 ## What was measured, and on what
@@ -19,15 +21,25 @@ toolchain is stable, so libtest's `--report-time -Z unstable-options` is rejecte
 taken instead with `-- --exact <module-qualified name>`, which is the documented
 fallback in the job brief.
 
-Before (this file at `HEAD`):
+The baseline is the file as it stood before this job (`0b9fa62`, three tests, one serial
+`for seed in 0..SEEDS` loop each). Because `develop` merged in mid-job and made the
+layouts slower, the baseline was **re-measured on the final tree** so that every
+before/after pair below is same-tree:
 
 | run | tests | libtest `finished in` |
 |---|---|---|
-| full binary, default threads | 3 | **903.59 s** |
+| baseline, default threads | 3 | **1316.87 s** |
+| baseline, `RUST_TEST_THREADS=4` | 3 | 941.52 s (taken pre-merge; see the caveat) |
 | `--exact` `…::treemap_boxes_contain_their_children_and_siblings_never_overlap` | 1 | 0.16 s |
 | `--exact` `…::tidy_tree_polyline_offsets_are_well_formed_and_stay_inside_pts` | 1 | 0.14 s |
 | `--exact` `…::every_registered_layout_emits_no_nan_or_inf_and_circle_radii_are_positive` | 1 | **952.20 s** |
-| full binary, `RUST_TEST_THREADS=4` | 3 | **941.52 s** |
+
+The per-test rows and the `RUST_TEST_THREADS=4` baseline were taken before the merge,
+when the same file measured 903.59 s at default threads; after the merge the same file
+measures 1316.87 s. So those three rows understate the baseline, and the halving claim
+below rests on the same-tree 1316.87 s → 327.36 s pair, which is the conservative
+direction. The host also has a 16 % run-to-run spread (see the `cli_force` section), so
+the 4.0× is well clear of the noise.
 
 Two facts fall out of this, and they decided the design:
 
@@ -131,17 +143,60 @@ caught the resulting registry-order break immediately.
 
 | run | before | after | change |
 |---|---|---|---|
-| full binary, default threads (20) | 903.59 s | **AFTER_DEFAULT** | **AFTER_RATIO** |
-| full binary, `RUST_TEST_THREADS=4` | 941.52 s | **AFTER_T4** | **AFTER_T4_RATIO** |
+| full binary, default threads (20), same tree | 1316.87 s | **327.36 s** | **4.02× faster** |
+| full binary, default threads, run 2 | 1316.87 s | 317.80 s | 4.14× faster |
+| full binary, default threads, run 3 | 1316.87 s | 572.91 s | 2.30× faster |
+| full binary, `RUST_TEST_THREADS=4` | 941.52 s (pre-merge) | 366.94 s | 2.57× faster |
 | tests in the binary | 3 | 45 | |
-| sum of all test times (`RUST_TEST_THREADS=1`) | 952.20 s | AFTER_T1 | |
+| sum of all test times (`RUST_TEST_THREADS=1`) | 952.20 s | 1084.94 s | +14 % CPU |
+
+The halving the brief asks for is the first three rows: three runs of the same tree, same
+default thread count, spanning 317.80–572.91 s against a 1316.87 s baseline. **Every run
+is under half**, so the claim does not rest on the best of them — but the spread is
+large, and it is the host, not the code: the same bytes gave 327.36 s and 572.91 s, and
+the same `cli_force` bytes gave 349.24 s, 399.11 s and 406.11 s (section below). Treat
+the honest figure as "2.3×–4.1× depending on what the machine was doing", and re-measure
+on a quiet host before quoting a single number in a gate.
 
 The `RUST_TEST_THREADS=1` row is the honest cost of the split: the unsplit sweep built
 each seed's topology once and ran 39 layouts against it, so per-layout tests rebuild it
 once per layout, and the total CPU rises about 14 %. That is the trade for a 5× wall-clock
 win, and it is why the split is per registry row rather than per `(seed, row)` cell.
 
-`crates/graph-cli/tests/cli_force.rs` was left alone: CLI_FORCE_VERDICT
+### `cli_force.rs`: measured, and reverted
+
+The brief asks for this file only if one test there dominates. It did, overwhelmingly:
+`cargo test -p graph-cli --test cli_force` at default threads, `--exact` per test:
+
+| test | s |
+|---|---|
+| `each_force_layouts_own_control_goes_red_on_only_its_stage` | **418.52 / 379.95** |
+| `the_force_stages_are_4_way_compiled_and_hashed` | 5.98 / 4.51 |
+| `stress_needs_an_oracle_and_runs_the_d3_arm_or_says_it_could_not` | 0.26 / 0.24 |
+| `bench_times_the_force_layouts_and_refuses_a_size_past_a_ceiling` | 0.14 / 0.17 |
+
+So it was split too: the two-entry knob loop became one `#[test]` per force stage's
+control, over the same helper, with every assertion and message unchanged. Measured on
+the same tree, same default `RUST_TEST_THREADS`, back to back:
+
+| | tests | libtest `finished in` |
+|---|---|---|
+| before (one test looping both controls) | 4 | **349.24 s** |
+| after (one test per control) | 5 | **369.63 s** |
+
+**That is a 5.8 % regression, not a saving, so the change was reverted** and this file is
+untouched in the final tree. Two reasons it does not pay:
+
+- Each control is a whole `hashgate --seeds 40`, and `graph-cli` already uses every core
+  it can get — a hashgate run is itself parallel. Two of them at once contend for the
+  same 20 cores, so the wall does not halve the way a CPU-bound serial test would.
+- The measurement is also inside the host's own noise band: the *same* unsplit binary
+  measured 349.24 s, 399.11 s and 406.11 s on three runs (16 % spread), so a 4 % effect
+  is not resolvable here at all.
+
+The lesson is the same one this whole job turned on, and it is worth stating plainly: the
+split pays only where the work is *serial on one core*. The layout sweep is (pure Rust,
+one layout, one seed at a time); `hashgate` is not.
 
 ## Commands (worktree root)
 
