@@ -19,16 +19,15 @@
 //! make ingest order diverge silently from snapshot order, which is exactly the identity
 //! this ABI promises callers (`docs/contract/wasm-abi.md` "Column order").
 
-use graph_contract::canonical_json::JsonError;
 use graph_core::{EdgeRecord, NodeRecord};
 // The two kind names are named only by this module's tests: `element.rs` imports its own,
 // so the wasm32 release build has no user for them and an unconditional import warns there.
 #[cfg(test)]
 use graph_core::{EdgeKind, NodeKind};
 
-use crate::errors::Code;
-
 mod at;
+// Only `gm_build_columns` reads it, and the exports are wasm32-only (C21 in `lib.rs`).
+#[cfg(any(test, target_arch = "wasm32"))]
 pub mod columns;
 mod element;
 mod ids;
@@ -36,12 +35,14 @@ mod ids;
 /// the default artifact, so every `mark` call site stays unconditional.
 #[cfg(any(test, feature = "probe"))]
 pub mod phases;
+mod refusal;
 mod scan;
 use at::At;
 use element::{edge, node};
 pub use ids::index;
 #[cfg(any(test, feature = "probe"))]
 use phases::mark;
+pub use refusal::IngestError;
 
 /// The only ingest version this reader accepts.
 pub const VERSION: u32 = 1;
@@ -100,44 +101,6 @@ fn ceiling() -> usize {
     // `max`, not a bare `usize::MAX`: the documented ceiling stays named in both builds,
     // so they differ in this one expression and nowhere else.
     usize::MAX.max(MAX_INGEST_BYTES)
-}
-
-/// Why an ingest buffer was refused.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum IngestError {
-    /// Not UTF-8.
-    Utf8,
-    /// Not JSON at all.
-    Json(JsonError),
-    /// JSON, but not this shape: dotted path and what was wrong.
-    Shape(String),
-    /// A duplicate node or edge id (C12: refused, not silently first-wins).
-    DuplicateId { what: &'static str, id: String },
-    /// An edge naming a node id that is not in `nodes` (C12: refused, not dropped).
-    DanglingEndpoint {
-        edge: String,
-        end: &'static str,
-        id: String,
-    },
-    /// Too many nodes or edges to index (`u32` capacity). Reachable only on a 64-bit host: on
-    /// wasm32 `usize` is `u32` (F-79). A ceiling on the document's bytes is
-    /// [`IngestError::TooLarge`], which is the one that bites on wasm32.
-    Capacity,
-    /// The buffer is longer than [`MAX_INGEST_BYTES`]: its bytes, and the limit it was held to.
-    TooLarge { bytes: usize, limit: usize },
-}
-
-impl IngestError {
-    /// The wire code this refusal is published under (C4): every ingest refusal is
-    /// [`Code::IngestInvalid`] but the one the host can do something about — an oversized
-    /// document is not malformed, and telling a caller the two are the same would send it
-    /// looking for a bad member in a document it must instead split.
-    pub fn code(&self) -> Code {
-        match self {
-            Self::TooLarge { .. } => Code::IngestTooLarge,
-            _ => Code::IngestInvalid,
-        }
-    }
 }
 
 /// Parse and validate `bytes` into ingest order records, or the refusal.

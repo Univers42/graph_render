@@ -1,13 +1,15 @@
 //! The three ways a graph arrives: provisional node/edge JSON ([`gm_build`]), the
 //! phase-10 ingest contract ([`gm_build_contract`]) and the columnar document
 //! ([`gm_build_columns`]). Split from [`super::build`] for the house line limit; all three
-//! share one handle lifecycle, which is the [`store`] at the bottom rather than a copy of it.
+//! share one handle lifecycle, `super::build::insert_built`, rather than a copy of it. The
+//! JSON and contract paths read through [`crate::service::build`], the path the native
+//! service shares (`docs/contract/service-api.md`, condition 1).
 
-use super::build::insert;
+use super::build::insert_built;
 use crate::alloc::is_live;
-use crate::contract;
 use crate::errors::{self, Code};
-use crate::ingest::{self, columns};
+use crate::ingest::columns;
+use crate::service::{self, Source};
 
 /// Builds a graph from the provisional-ingest buffer at `(ingest_ptr, ingest_len)`,
 /// which must be a live `gm_alloc` allocation (C5) — this copies out of it and never
@@ -24,26 +26,17 @@ pub extern "C" fn gm_build(ingest_ptr: u32, ingest_len: u32) -> u32 {
     }
     // SAFETY: `is_live` confirmed this exact `(ptr, len)` is a `gm_alloc` allocation the
     // caller still owns; the buffer outlives this whole call (freed only by the
-    // caller's own later `gm_free`), so borrowing it for the duration of `ingest::read`
+    // caller's own later `gm_free`), so borrowing it for the duration of `service::build`
     // is sound, and nothing here retains the slice past this function.
     let bytes = unsafe { std::slice::from_raw_parts(ingest_ptr as *const u8, ingest_len as usize) };
     #[cfg(any(test, feature = "probe"))]
     crate::ingest::phases::mark(crate::ingest::phases::COPY, None);
-    // The records are dropped as soon as the topology holds them, not at the end of the call.
-    let indexed =
-        ingest::read_records(bytes).and_then(|(nodes, edges)| ingest::index(&nodes, &edges));
+    // F-16: the refusal names its own code, so an oversized document is not published as a
+    // malformed one.
+    let built = service::build(bytes, Source::Ingest);
     #[cfg(any(test, feature = "probe"))]
     crate::ingest::phases::mark(crate::ingest::phases::RETURNED, None);
-    let topology = match indexed {
-        Ok(topology) => topology,
-        // F-16: the refusal names its own code, so an oversized document is not published
-        // as a malformed one.
-        Err(refusal) => {
-            errors::set(refusal.code());
-            return 0;
-        }
-    };
-    insert(topology)
+    insert_built(built)
 }
 
 /// Builds a graph from the **ingest contract** buffer at `(contract_ptr, contract_len)`,
@@ -70,7 +63,7 @@ pub extern "C" fn gm_build(ingest_ptr: u32, ingest_len: u32) -> u32 {
 /// handle id has been issued. Not `IngestInvalid`: see [`Code::ContractInvalid`].
 // SAFETY: as `gm_build`. The byte range read is confirmed live by `is_live`
 // immediately before the one slice formed from it, and that slice does not outlive this
-// call — `contract::derive` borrows it and returns only owned records and a topology.
+// call — `service::build` borrows it and returns only an owned topology.
 #[unsafe(no_mangle)]
 pub extern "C" fn gm_build_contract(contract_ptr: u32, contract_len: u32) -> u32 {
     if !is_live(contract_ptr, contract_len) {
@@ -79,15 +72,11 @@ pub extern "C" fn gm_build_contract(contract_ptr: u32, contract_len: u32) -> u32
     }
     // SAFETY: `is_live` confirmed this exact `(ptr, len)` is a `gm_alloc` allocation the
     // caller still owns; the buffer outlives this whole call (freed only by the caller's
-    // own later `gm_free`), so borrowing it for the duration of `contract::derive` is
+    // own later `gm_free`), so borrowing it for the duration of `service::build` is
     // sound, and nothing here retains the slice past this function.
     let bytes =
         unsafe { std::slice::from_raw_parts(contract_ptr as *const u8, contract_len as usize) };
-    let Ok((_, topology)) = contract::derive(bytes) else {
-        errors::set(Code::ContractInvalid);
-        return 0;
-    };
-    insert(topology)
+    insert_built(service::build(bytes, Source::Contract))
 }
 
 /// Builds a graph from the **columnar ingest** buffer at `(columns_ptr, columns_len)`,
@@ -125,12 +114,5 @@ pub extern "C" fn gm_build_columns(columns_ptr: u32, columns_len: u32) -> u32 {
     // and nothing here retains the slice past this function.
     let bytes =
         unsafe { std::slice::from_raw_parts(columns_ptr as *const u8, columns_len as usize) };
-    let topology = match columns::index(bytes) {
-        Ok(topology) => topology,
-        Err(refusal) => {
-            errors::set(refusal.code());
-            return 0;
-        }
-    };
-    insert(topology)
+    insert_built(columns::index(bytes).map_err(|refusal| refusal.code()))
 }

@@ -10,6 +10,7 @@ use super::state::{HANDLES, publish};
 use crate::errors::{self, Code};
 use crate::handle::Handle;
 use crate::seed_ingest;
+use crate::service;
 use crate::views;
 use graph_contract::binary::Snapshot;
 use graph_core::registry::LAYOUTS;
@@ -99,6 +100,17 @@ pub extern "C" fn gm_run(handle: u32, layout_id: u32, params_ptr: u32, params_le
     })
 }
 
+/// A new handle over the built topology, or `0` with the build's refusal.
+pub(super) fn insert_built(built: Result<Topology, Code>) -> u32 {
+    match built {
+        Ok(topology) => insert(topology),
+        Err(code) => {
+            errors::set(code);
+            0
+        }
+    }
+}
+
 /// A new handle over `topology`, or `0` with [`Code::HandlesExhausted`]. Ids are monotonic and
 /// never reused (C6), so a caller that sees `0` knows no handle was consumed.
 pub(super) fn insert(topology: Topology) -> u32 {
@@ -122,12 +134,7 @@ pub(super) fn insert(topology: Topology) -> u32 {
 /// Keeps a layout's result on `entry` with its snapshot: `1`, or `0` with
 /// [`Code::LayoutFailed`] and nothing kept.
 pub(super) fn store(entry: &mut Handle, ran: Result<Geometry, StageError>) -> u32 {
-    let ran = ran.map_err(|_| Code::LayoutFailed).and_then(|geometry| {
-        graph_core::layout::snapshot(&entry.topology, geometry.clone())
-            .map(|snapshot| (geometry, snapshot))
-            .map_err(|_| Code::LayoutFailed)
-    });
-    match ran {
+    match service::snapshot_of(&entry.topology, ran) {
         Ok((geometry, snapshot)) => {
             entry.geometry = Some(geometry);
             entry.snapshot = Some(snapshot);
