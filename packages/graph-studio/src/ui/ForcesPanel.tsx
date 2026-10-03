@@ -1,4 +1,4 @@
-/** The Forces section: four live sliders, Animate, Reset, Pause and Resume, and one line saying why they are off. */
+/** The Forces section: nine live sliders, Spread and Compact, Animate, Pause, Resume and Reset, and one line saying why they are off. */
 import { memo, useEffect, useState, useSyncExternalStore, type ReactElement } from "react";
 
 import type { StudioAction } from "../actions/context.ts";
@@ -34,7 +34,7 @@ function line(bar: Bar): string {
  * on screen. Holding the published value would show the frame behind it instead.
  *
  * WHY a throttled subscription and not `useSyncExternalStore`: a settle publishes about once
- * every 16 ms, and that hook redraws per publish, which is how four sliders and four buttons
+ * every 16 ms, and that hook redraws per publish, which is how a panel of sliders and buttons
  * came to be redrawn sixty times a second to keep one number current.
  */
 function BarLine(props: { readonly store: BarStore }): ReactElement | null {
@@ -43,7 +43,7 @@ function BarLine(props: { readonly store: BarStore }): ReactElement | null {
   useEffect(() => throttledBar(store, frameScheduler(), () => redraw((n) => n + 1)), [store]);
   const shown = store.bar();
   // WHY nothing at all when the bar is hidden: the reason below already says the loop cannot
-  // run, and an empty padded strip under four sliders reads as a control that failed.
+  // run, and an empty padded strip under the sliders reads as a control that failed.
   if (!shown.visible) return null;
   return (
     <div className="gs-busy">
@@ -59,13 +59,24 @@ interface SliderProps {
   readonly disabled: boolean;
 }
 
-/** Applies on every change, not on release: a force slider that waits for the pointer is not live. */
+/**
+ * Applies on every change, not on release: a force slider that waits for the pointer is not live.
+ *
+ * WHY the draft is dropped when the knob moves on its own: a preset or Reset sets the knob
+ * the user last dragged, and a draft held from that drag would keep the thumb where it was.
+ */
 function Slider(props: SliderProps): ReactElement | null {
   const { studio, action, state, disabled } = props;
   const spec = action.params[0];
+  const value = spec === undefined ? Number.NaN : Number(spec.value(state));
   const [draft, setDraft] = useState<number | null>(null);
+  const [seen, setSeen] = useState(value);
+  if (!Object.is(value, seen)) {
+    setSeen(value);
+    setDraft(null);
+  }
   if (spec === undefined) return null;
-  const shown = draft ?? Number(spec.value(state));
+  const shown = draft ?? value;
   const change = (next: number): void => {
     if (disabled) return;
     setDraft(next);
@@ -130,12 +141,18 @@ function Buttons(props: ButtonsProps): ReactElement {
   const { studio, actions, disabled } = props;
   const at = (id: string): StudioAction | undefined => actions.find((action) => action.id === id);
   return (
-    <div className="gs-row">
-      <Button studio={studio} action={at("forces.animate")} disabled={disabled} />
-      <Button studio={studio} action={at("forces.pause")} disabled={disabled} />
-      <Button studio={studio} action={at("forces.resume")} disabled={disabled} />
-      <Button studio={studio} action={at("forces.reset")} disabled={disabled} />
-    </div>
+    <>
+      <div className="gs-row">
+        <Button studio={studio} action={at("forces.spread")} disabled={disabled} />
+        <Button studio={studio} action={at("forces.compact")} disabled={disabled} />
+      </div>
+      <div className="gs-row">
+        <Button studio={studio} action={at("forces.animate")} disabled={disabled} />
+        <Button studio={studio} action={at("forces.pause")} disabled={disabled} />
+        <Button studio={studio} action={at("forces.resume")} disabled={disabled} />
+        <Button studio={studio} action={at("forces.reset")} disabled={disabled} />
+      </div>
+    </>
   );
 }
 
@@ -180,7 +197,7 @@ function forcesOf(studio: Studio): readonly StudioAction[] {
 
 /**
  * WHY the panel is compared on what it draws: the dock re-renders on every store change and
- * the panel is four sliders, four buttons and a reason — none of which read the log, the
+ * the panel is sliders, buttons and a reason — none of which read the log, the
  * selection or the search box. The bar is the other half: it changes about sixty times a
  * second during a settle, and the snapshot above is what tells the two apart.
  */

@@ -9,8 +9,15 @@ use crate::hashgate;
 /// a typo (`--seeds 1000000000`) would look like a hang rather than an error.
 pub const MAX_SEEDS: i64 = 100_000;
 
+/// The fewest seeds a gate row may ask for. Zero is refused, not accepted: a gate over
+/// no seed runs its loop zero times, prints nothing and exits 0 — a comparison of
+/// nothing that reads as a pass.
+pub const MIN_SEEDS: i64 = 1;
+
+/// `--seeds`, for every subcommand that counts seeds: the floor and the ceiling are the two
+/// constants above, so the message clap prints and the range it enforces cannot drift apart.
 pub fn seed_count() -> clap::builder::RangedI64ValueParser<u32> {
-    clap::value_parser!(u32).range(0..=MAX_SEEDS)
+    clap::value_parser!(u32).range(MIN_SEEDS..=MAX_SEEDS)
 }
 
 /// `--tiers`, parsed by `hashgate`'s own list so the flag and the arm list cannot drift.
@@ -28,7 +35,7 @@ pub fn parse_tiers() -> impl TypedValueParser {
 pub enum Command {
     /// The snapshot hash gate: every arm must agree on every seed, per stage.
     Hashgate {
-        /// Number of seeds, 0..N.
+        /// Number of seeds, 1..N.
         #[arg(long, default_value_t = 100, value_parser = seed_count())]
         seeds: u32,
         /// Which arms to run: `base` is native x2 and wasm32 x2, `all` adds one native arm
@@ -40,7 +47,7 @@ pub enum Command {
     /// One native arm of the gate, printing `stage seed sha256` lines. Spawned by `hashgate`.
     #[command(hide = true)]
     HashgateArm {
-        /// Number of seeds, 0..N.
+        /// Number of seeds, 1..N.
         #[arg(long, value_parser = seed_count())]
         seeds: u32,
     },
@@ -48,7 +55,7 @@ pub enum Command {
     /// after a fixed number of ticks, driven through `gm_force_session_*`. See
     /// `docs/decisions/force-wasm-abi.md`.
     ForceGate {
-        /// Number of seeds, 0..N.
+        /// Number of seeds, 1..N.
         #[arg(long, default_value_t = 4, value_parser = seed_count())]
         seeds: u32,
     },
@@ -56,7 +63,7 @@ pub enum Command {
     /// `force-gate`.
     #[command(hide = true)]
     ForceGateArm {
-        /// Number of seeds, 0..N.
+        /// Number of seeds, 1..N.
         #[arg(long, value_parser = seed_count())]
         seeds: u32,
     },
@@ -86,9 +93,14 @@ pub enum Command {
         /// A JSON document holding the contract, or an object with it as a member.
         #[arg(long)]
         from: PathBuf,
-        /// Which member of that document is the contract. `ingest` for the committed
-        /// convergence fixture, which keeps the derived graph beside it.
-        #[arg(long, default_value = "ingest")]
+        /// Which member of that document is the contract; `ingest` for the committed
+        /// convergence fixture, which keeps the derived graph beside it. Stated, never
+        /// defaulted, on both paths: a defaulted key made `ingest --check` parse `ingest`
+        /// out of a fixture whose contract sits under another member and report that
+        /// (empty) parse as a comparison. clap 4 has no "required if `--check` is present"
+        /// (no `required_if_present`), so the floor is the whole subcommand; both paths
+        /// need the key to find the contract anyway.
+        #[arg(long)]
         member: String,
         /// Where the derived graph goes; standard output when absent.
         #[arg(long, conflicts_with = "check")]
@@ -100,8 +112,10 @@ pub enum Command {
     },
     /// Writes the oracle differential's cases and graph-core's expected outputs.
     EmitFixtures {
-        /// Number of seeds, 0..N.
-        #[arg(long, default_value_t = 1000, value_parser = seed_count())]
+        /// Seeds the fixture set covers, 1..N. Stated, never defaulted: the differential
+        /// downstream runs over exactly this many seeds, so a silent default would let a
+        /// gate row emit a subset and still exit 0.
+        #[arg(long, value_parser = seed_count())]
         seeds: u32,
         /// Output directory; `target/oracle-fixtures` by default.
         #[arg(long)]
@@ -110,6 +124,13 @@ pub enum Command {
     /// Runs `harness/oracle-diff.mjs` over the emitted fixtures (the TypeScript arm).
     OracleDiff {
         /// Fixtures directory; `target/oracle-fixtures` by default.
+        ///
+        /// **The default is RG-51's half that is still open**: a differential that falls
+        /// back to whatever stale set is on disk reports it as this tree's verdict. Making
+        /// it required is the fix, and it is blocked on `scripts/orch/rows/develop-full.rows`
+        /// (`oracle-layouts`, which names no `--fixtures`) being updated by whoever owns the
+        /// rows file — this crate's paths do not reach it. Tracked in
+        /// `docs/measurements/fix-gates-hashgate.md`.
         #[arg(long)]
         fixtures: Option<PathBuf>,
     },
@@ -119,7 +140,8 @@ pub enum Command {
     PythonOracle(crate::oracle_python::Cli),
     /// Runs `harness/oracle-layouts.mjs` over the emitted fixtures (the d3-hierarchy arm).
     OracleLayouts {
-        /// Fixtures directory; `target/oracle-fixtures` by default.
+        /// Fixtures directory; `target/oracle-fixtures` by default — see
+        /// [`Command::OracleDiff::fixtures`] for why the required form is pending.
         #[arg(long)]
         fixtures: Option<PathBuf>,
     },
@@ -144,7 +166,7 @@ pub enum Command {
     },
     /// Binary <-> JSON round trip over seeds 0..N, byte-exact, plus the grid's hand oracle.
     Roundtrip {
-        /// Number of seeds, 0..N.
+        /// Number of seeds, 1..N.
         #[arg(long, default_value_t = 100, value_parser = seed_count())]
         seeds: u32,
     },
@@ -207,14 +229,16 @@ pub enum Command {
     /// of the same graph, under the frozen margin.
     Stress {
         /// The oracle to compare against; `d3` is the only one wired. Required, not
-        /// defaulted: a quality gate that silently picked its own baseline would be a
-        /// gate comparing the implementation against itself.
-        #[arg(long)]
+        /// defaulted, and vetted against that one word: a quality gate that silently
+        /// picked its own baseline would be a gate comparing the implementation against
+        /// itself, and a mistyped name would reach `stress` as an unknown oracle rather
+        /// than as clap's error naming the possibility.
+        #[arg(long, value_parser = clap::builder::PossibleValuesParser::new(["d3"]))]
         oracle: String,
         /// The force layout measured, by registry id.
         #[arg(long, default_value = "layout.force.barnes_hut")]
         layout: String,
-        /// Number of seeds, 0..N.
+        /// Number of seeds, 1..N.
         #[arg(long, default_value_t = 8, value_parser = seed_count())]
         seeds: u32,
     },
@@ -231,3 +255,7 @@ pub enum Command {
     /// `docs/measurements/perf-mb-fidelity.md`.
     MbFidelity(crate::mb_fidelity::Plan),
 }
+
+#[cfg(test)]
+#[path = "command/tests.rs"]
+mod tests;

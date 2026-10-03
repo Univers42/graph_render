@@ -25,17 +25,36 @@ pub fn agree_with_shim(seeds: u32, arm: &[String]) -> Result<u32, String> {
         .count() as u32)
 }
 
-/// `stage`'s digest per seed, in seed order, or the first seed it did not print.
+/// `stage`'s digest per seed, in seed order, or why the arm cannot be read that way.
+///
+/// **A seed the arm printed twice is refused, not resolved.** Taking the first of two
+/// digests for one `(stage, seed)` pair would let a later, differing digest pass as
+/// agreement — the very divergence this tally counts. Two lines for one pair mean the arm
+/// is not saying which is the count, so the count is not read at all; the first seed with
+/// no line is refused on the same terms, checked after so a duplicate is named as one.
 fn digests<'a>(arm: &'a [String], stage: &str, seeds: usize) -> Result<Vec<&'a str>, String> {
-    let found: Vec<Option<&str>> = (0..seeds)
-        .map(|seed| arm.iter().find_map(|line| digest_of(line, stage, seed)))
-        .collect();
-    match found.iter().position(Option::is_none) {
-        Some(missing) => Err(format!(
-            "the wasm arm printed no {stage} line for seed {missing}"
-        )),
-        None => Ok(found.into_iter().flatten().collect()),
+    let mut found = Vec::with_capacity(seeds);
+    for seed in 0..seeds {
+        let mut printed: Vec<&'a str> = arm
+            .iter()
+            .filter_map(|line| digest_of(line, stage, seed))
+            .collect();
+        if printed.len() > 1 {
+            return Err(format!(
+                "the wasm arm printed {stage} for seed {seed} twice: \
+                 one (stage, seed) pair carries one digest"
+            ));
+        }
+        match printed.pop() {
+            Some(digest) => found.push(digest),
+            None => {
+                return Err(format!(
+                    "the wasm arm printed no {stage} line for seed {seed}"
+                ));
+            }
+        }
     }
+    Ok(found)
 }
 
 /// The digest of `line`, if it is `stage`'s line for `seed`.
@@ -47,3 +66,7 @@ fn digest_of<'a>(line: &'a str, stage: &str, seed: usize) -> Option<&'a str> {
     let (number, digest) = rest.split_once(' ')?;
     (number.parse::<usize>().ok()? == seed).then_some(digest)
 }
+
+#[cfg(test)]
+#[path = "transport/tests.rs"]
+mod tests;
