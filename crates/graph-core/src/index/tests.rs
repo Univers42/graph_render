@@ -42,6 +42,44 @@ fn edges_skip_taken_ids_and_dangling_endpoints_without_claiming_the_id() {
     assert_eq!(t.strings().get(kept), "e2");
 }
 
+/// The build resolves an endpoint through the arena slot a string sits at, and the
+/// slot table names a node only once a node claims that id: a string interned for
+/// another field — a label here — is still no node, so the node that claims it later
+/// gets its own dense index (not the slot it happens to sit at) and an edge pointing at
+/// a string no node ever claimed is dropped.
+#[test]
+fn an_endpoint_interned_only_as_another_field_is_not_a_node_yet() {
+    let mut labelled = node("a", "");
+    labelled.label = "b".into();
+    let mut dangling = node("z", "");
+    dangling.label = "ghost".into();
+    let edges = [
+        edge("e", "a", "b"),
+        edge("d", "a", "ghost"),
+        edge("s", "a", "b"),
+    ];
+    let t = index_model(&[labelled, node("b", ""), dangling], &edges).expect("fits");
+    assert_eq!(
+        t.node_index("b"),
+        Some(1),
+        "the slot is not the dense index"
+    );
+    assert_eq!(
+        (t.node_index("ghost"), t.node_index("nope")),
+        (None, None),
+        "an interned label names no node"
+    );
+    assert_eq!(t.edge_count(), 2, "e and s; d is dangling");
+    assert_eq!((t.edge(0).source, t.edge(0).target), ("a", "b"));
+    assert_eq!(t.edge(1).source, "a");
+    assert_eq!((t.node_index("a"), t.node_index("z")), (Some(0), Some(2)));
+    assert_eq!(
+        t.strings().find("d"),
+        None,
+        "a dropped edge interns nothing"
+    );
+}
+
 #[test]
 fn incident_lists_edges_in_edge_order_and_a_self_loop_twice() {
     let edges = [
