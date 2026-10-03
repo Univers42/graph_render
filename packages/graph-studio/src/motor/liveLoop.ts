@@ -43,9 +43,11 @@ interface Pin { readonly x: number; readonly y: number }
 
 class ForceLoop {
   private readonly held = new Set<string>();
-  // Latest pointer position per node: a move that arrives before the frame replaces the
-  // last one, which is how a slow motor drops drag events instead of queueing them.
-  private readonly pending = new Map<string, Pin>();
+  // Where the loop's pins are: the latest pointer position per node, a move that arrives
+  // before the frame replacing the last one, which is how a slow motor drops drag events
+  // instead of queueing them. An id stays in here after its release — a dropped node is a node
+  // the user put somewhere on purpose — so the pin outlives the pointer that made it.
+  private readonly pinned = new Map<string, Pin>();
   private cancel: (() => void) | null = null;
   private alpha = 0;
   private paused = false;
@@ -85,11 +87,10 @@ class ForceLoop {
     // step, nothing to draw and nothing left to schedule, so the frame just ends.
     if (this.live.dead === true) {
       this.held.clear();
-      this.pending.clear();
+      this.pinned.clear();
       return;
     }
-    for (const [id, pin] of this.pending) this.live.pin(id, pin.x, pin.y);
-    this.pending.clear();
+    for (const [id, at] of this.pinned) this.live.pin(id, at.x, at.y);
     if (this.dropped) this.dropped = false;
     else this.batch();
     const running = this.alpha >= ALPHA_MIN || this.held.size > 0;
@@ -132,9 +133,10 @@ class ForceLoop {
     this.cancel?.();
     this.cancel = null;
     // A released session throws from an unpin too, and there is no pin left on it to lift.
-    if (this.live.dead !== true) for (const id of this.held) this.live.unpin(id);
+    // Every pin the loop owns, dropped or not: halt is the one verb that lets go of them all.
+    if (this.live.dead !== true) for (const id of this.pinned.keys()) this.live.unpin(id);
     this.held.clear();
-    this.pending.clear();
+    this.pinned.clear();
   }
 
   /** One last frame saying the loop has stopped, so the bar empties instead of hanging. */
@@ -167,11 +169,14 @@ class ForceLoop {
       if (restarted !== undefined) this.alpha = restarted;
     } else if (request.type === "force.drag") {
       this.held.add(request.id);
-      this.pending.set(request.id, { x: request.x, y: request.y });
+      this.pinned.set(request.id, { x: request.x, y: request.y });
     } else if (request.type === "force.release") {
-      this.pending.delete(request.id);
+      // WHY the pin stays: the motor integrates a released node from rest and the drawing
+      // settles it straight back to the equilibrium the drag just broke, so lifting the pin
+      // here makes a drop undo itself. The node keeps the position the user put it at; the
+      // graph settles around it. `held` is what the pointer is holding, and only that keeps
+      // the loop awake — so a drop lets the settle finish.
       this.held.delete(request.id);
-      this.live.unpin(request.id);
     } else this.live.setParams(request.knobs);
     this.wake();
   }

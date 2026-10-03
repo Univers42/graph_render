@@ -119,6 +119,24 @@ test("a held pin keeps the loop running past alpha_min; release lets it settle",
   assert.equal(lastFrame(out.emitted).running, false);
 });
 
+test("a flick — every move and the release in one batch — lands the node where it was dropped", () => {
+  // What a hand does when it is quicker than a frame: twenty moves and the release arrive
+  // together, so the frame the loop runs sees a release and nothing to place.
+  const port = fake(0.9);
+  const { host, out } = rig(port);
+  host.handle({ type: "force.drag", id: "a", x: 0, y: 0 });
+  host.handle({ type: "force.drag", id: "a", x: 30, y: 40 });
+  host.handle({ type: "force.drag", id: "a", x: 60, y: 80 });
+  host.handle({ type: "force.release", id: "a" });
+  out.tick();
+  assert.ok(port.calls.includes("pin a 60 80"), "the drop reached the motor, not only the moves before it");
+  assert.ok(!port.calls.includes("unpin a"), "and the node is not let go of where it was put");
+  port.calls.length = 0;
+  for (let i = 0; i < 20; i += 1) out.tick();
+  assert.deepEqual(port.calls.filter((c) => c.startsWith("pin")), Array.from({ length: 20 }, () => "pin a 60 80"),
+    "so it cannot drift back to the equilibrium the drag broke");
+});
+
 test("drag events before a frame collapse to the last one", () => {
   const port = fake(0.9);
   const { host, out } = rig(port);
