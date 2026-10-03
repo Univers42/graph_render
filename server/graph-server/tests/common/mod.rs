@@ -17,7 +17,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tower::ServiceExt;
 
+mod child;
 mod documents;
+pub use child::*;
 pub use documents::*;
 
 /// A server under test.
