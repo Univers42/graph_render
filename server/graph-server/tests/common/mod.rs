@@ -12,7 +12,7 @@ use graph_server::keys;
 use http_body_util::BodyExt;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tower::ServiceExt;
@@ -104,19 +104,12 @@ pub fn server_with(env: &[(&str, &str)], hooks: Hooks) -> Server {
 impl Server {
     /// Sends `request` and reads the whole answer.
     pub async fn send(&self, request: Request<Body>) -> Reply {
-        let response = self
-            .router
-            .clone()
-            .oneshot(request)
-            .await
-            .expect("infallible");
-        let (parts, body) = response.into_parts();
-        let body = body.collect().await.expect("the response body").to_bytes();
-        Reply {
-            status: parts.status,
-            headers: parts.headers,
-            body,
-        }
+        send_to(self.router.clone(), request).await
+    }
+
+    /// [`Server::send`] on its own task.
+    pub fn spawn(&self, request: Request<Body>) -> tokio::task::JoinHandle<Reply> {
+        tokio::spawn(send_to(self.router.clone(), request))
     }
 
     /// `GET path` with the key.
@@ -148,6 +141,70 @@ impl Server {
             .iter()
             .map(|l| serde_json::from_str(l).expect("a JSON line"))
             .collect()
+    }
+}
+
+async fn send_to(router: Router, request: Request<Body>) -> Reply {
+    let response = router.oneshot(request).await.expect("infallible");
+    let (parts, body) = response.into_parts();
+    let body = body.collect().await.expect("the response body").to_bytes();
+    Reply {
+        status: parts.status,
+        headers: parts.headers,
+        body,
+    }
+}
+
+/// A hook that blocks every run while held, counting the runs that reached it.
+#[derive(Clone, Default)]
+pub struct Hold {
+    pub held: Arc<AtomicBool>,
+    pub reached: Arc<AtomicU64>,
+}
+
+impl Hold {
+    /// A hold that starts held.
+    pub fn new() -> Self {
+        let hold = Self::default();
+        hold.held.store(true, Ordering::SeqCst);
+        hold
+    }
+
+    /// The hook for [`Hooks::before_run`]. It runs on the blocking thread, so it may sleep.
+    pub fn hooks(&self) -> Hooks {
+        let hold = self.clone();
+        let hook = move || {
+            hold.reached.fetch_add(1, Ordering::SeqCst);
+            while hold.held.load(Ordering::SeqCst) {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        };
+        Hooks {
+            before_run: Some(Arc::new(hook)),
+        }
+    }
+
+    /// Lets every held run go on.
+    pub fn release(&self) {
+        self.held.store(false, Ordering::SeqCst);
+    }
+
+    /// Waits until `count` runs reached the hook.
+    pub async fn reached(&self, count: u64) {
+        until(|| self.reached.load(Ordering::SeqCst) >= count).await;
+    }
+}
+
+/// Polls `done` every 5 ms. Caveat: a 10 s bound, so a hung condition fails the test instead
+/// of hanging it; a host slower than that reads as a failure.
+pub async fn until(done: impl Fn() -> bool) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while !done() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the condition never held"
+        );
+        tokio::time::sleep(Duration::from_millis(5)).await;
     }
 }
 

@@ -1,6 +1,8 @@
 //! The caps table (Verdict condition 2): exactly one row per id the service runs, none for an
 //! id it does not, and no cap past the ceiling the ledger records for that id.
 
+mod common;
+
 use graph_server::caps::Caps;
 use graph_server::motor;
 use std::collections::BTreeSet;
@@ -92,5 +94,40 @@ fn a_malformed_row_is_refused_by_line() {
     ] {
         let refused = Caps::parse(table).expect_err("a malformed table is refused");
         assert!(refused.contains(line), "{table:?}: {refused}");
+    }
+}
+
+/// Row `svc-caps`: one past the cap of every id is a 413 before anything runs, in under 1 s. A
+/// POST pass rides on `layout.grid`, whose cap is at least every pass's.
+#[tokio::test]
+async fn one_past_every_cap_is_413_within_a_second() {
+    let server = common::server(&[]);
+    let caps = Caps::committed().expect("the committed table parses");
+    let host = caps.get("layout.grid").expect("a row for layout.grid");
+    for id in caps.ids() {
+        let cap = caps.get(id).expect("a listed id has a row");
+        let is_post = motor::post_ids().any(|post| post == id);
+        let query = if is_post {
+            format!("layout=layout.grid&post={id}")
+        } else {
+            format!("layout={id}")
+        };
+        let nodes = usize::try_from(cap.nodes.min(host.nodes)).expect("a small cap");
+        let edges = usize::try_from(cap.edges).expect("a small cap");
+        for (n, m) in [(nodes + 1, 0), (nodes.max(16), edges + 1)] {
+            let started = std::time::Instant::now();
+            let reply = server.layout(&query, common::doc(n, m)).await;
+            let took = started.elapsed();
+            let named = (reply.status.as_u16(), reply.code());
+            assert_eq!(
+                named,
+                (413, "IngestTooLarge".to_owned()),
+                "{id} at n={n} m={m}"
+            );
+            assert!(
+                took < std::time::Duration::from_secs(1),
+                "{id} took {took:?}"
+            );
+        }
     }
 }
