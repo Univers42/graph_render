@@ -1,6 +1,6 @@
 /**
  * The Layout settings panel: one control per parameter the motor publishes for the layout on
- * screen, and a way back to the defaults it published.
+ * screen. The way back to the defaults it published is the section's own action, beside these.
  *
  * The panel holds no schema of its own. Every name, bound and step is what the motor sent
  * (`state.schemas`), so the studio's source never names a parameter and cannot fall out of step
@@ -10,11 +10,11 @@
  * A change re-runs the layout: the values pile up and one run happens on the next frame, so a
  * slider dragged across the screen costs one run and not one per pixel. That run cancels
  * whatever is in flight on the way (`pipeline.apply`), which is the same path `view.cancel`
- * uses.
+ * uses. Putting the values back is the section's own action, next to these controls.
  */
 import { useRef, useState, type ReactElement } from "react";
 
-import { RESET_ID, SET_MANY_ID, specsOf } from "../actions/params.ts";
+import { SET_MANY_ID, specsOf } from "../actions/params.ts";
 import type { Args } from "../actions/registry.ts";
 import type { StudioState } from "../state/model.ts";
 import type { ParamValues } from "../state/settings.ts";
@@ -39,7 +39,6 @@ export function LayoutParamsPanel(props: LayoutParamsPanelProps): ReactElement {
   const specs = specsOf(state);
   const rows = rowsOf(specs);
   const reason = reasonOf(studio, SET_MANY_ID, state);
-  const reset = reasonOf(studio, RESET_ID, state);
   // The draft is what the controls show while a value is being moved; the store only catches up
   // when the run lands, and the dock remounts this panel on that change (`paramsKey`).
   const [draft, setDraft] = useState<ParamValues>(() => valuesOf(state, specs));
@@ -72,12 +71,8 @@ export function LayoutParamsPanel(props: LayoutParamsPanelProps): ReactElement {
             onCommit={commit}
           />
         ))}
-        <button type="button" className="gs-btn" disabled={reset !== null} onClick={() => void studio.dispatch(RESET_ID)}>
-          Back to the motor's defaults
-        </button>
       </div>
       {reason !== null && <p className="gs-reason">{reason}</p>}
-      {reset !== null && reason === null && <p className="gs-reason">{reset}</p>}
     </div>
   );
 }

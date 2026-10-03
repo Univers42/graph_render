@@ -32,8 +32,10 @@ interface SectionProps {
   readonly children: ReactNode;
 }
 
+/** One id per section: lowercased, and with the gaps a two-word name has closed up, because
+ *  an `id` is one token and a space would make it two. */
 function sectionId(name: string): string {
-  return `gs-dock-${name.toLowerCase()}`;
+  return `gs-dock-${name.toLowerCase().replaceAll(" ", "-")}`;
 }
 
 function Section(props: SectionProps): ReactElement {
@@ -57,6 +59,13 @@ function Section(props: SectionProps): ReactElement {
   );
 }
 
+interface PanelProps {
+  readonly studio: Studio;
+  readonly state: StudioState;
+  readonly name: string;
+  readonly bar: DockProps["bar"];
+}
+
 function Actions(props: { readonly studio: Studio; readonly state: StudioState; readonly name: string }): ReactElement {
   const { studio, state, name } = props;
   return (
@@ -72,26 +81,32 @@ function Actions(props: { readonly studio: Studio; readonly state: StudioState; 
 }
 
 /**
- * The sections that draw something of their own before their actions: the live loop's bar and
- * the layout's own parameters. Everything else is the actions of the section and nothing else.
+ * What a section shows of its own, and whether its actions are listed under it. The forces
+ * panel brings its own controls for the force actions, so it is the whole of that section;
+ * the layout's panel is a set of controls beside the one action that puts the defaults back.
  */
-function Body(props: {
-  readonly studio: Studio;
-  readonly state: StudioState;
-  readonly name: string;
-  readonly bar: DockProps["bar"];
-}): ReactElement {
+const PANELS: Readonly<Record<string, "alone" | "beside">> = {
+  Forces: "alone",
+  [PARAMS_SECTION]: "beside",
+};
+
+function panelOf(props: PanelProps): ReactNode {
   const { studio, state, name, bar } = props;
-  const specs = specsOf(state);
+  if (name === "Forces") return <ForcesPanel studio={studio} state={state} bar={bar} />;
+  if (name === PARAMS_SECTION) {
+    // WHY the key is the layout and its values: the panel's draft is what the controls show,
+    // so a run that changed a value has to rebuild it from the state that landed.
+    return <LayoutParamsPanel key={paramsKey(state, specsOf(state))} studio={studio} state={state} />;
+  }
+  return null;
+}
+
+function Body(props: PanelProps): ReactElement {
+  const { studio, state, name } = props;
   return (
     <>
-      {name === "Forces" && <ForcesPanel studio={studio} state={state} bar={bar} />}
-      {name === PARAMS_SECTION && (
-        // WHY the key is the layout and its values: the panel's draft is what the controls
-        // show, so a run that changed a value has to rebuild it from the state that landed.
-        <LayoutParamsPanel key={paramsKey(state, specs)} studio={studio} state={state} />
-      )}
-      <Actions studio={studio} state={state} name={name} />
+      {panelOf(props)}
+      {PANELS[name] !== "alone" && <Actions studio={studio} state={state} name={name} />}
     </>
   );
 }

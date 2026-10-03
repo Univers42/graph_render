@@ -127,7 +127,7 @@ const many: StudioAction = {
 };
 
 const reset: StudioAction = {
-  id: RESET_ID, alias: "layoutreset", title: "Reset this layout's parameters", section: null,
+  id: RESET_ID, alias: "layoutreset", title: "Back to the published defaults", section: PARAMS_SECTION,
   params: [],
   available: (state) => unavailable(state) ?? nothingHeld(state),
   run: (context) => resetOne(context),

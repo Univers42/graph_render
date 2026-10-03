@@ -25,9 +25,8 @@ export const DOCK_SECTIONS = [
 
 export function studioActions(link: ForceLink = NO_FORCE_LINK): readonly StudioAction[] {
   return [
-    ...SOURCE_ACTIONS, ...RUN_ACTIONS, ...APPEARANCE_ACTIONS, ...FILTER_ACTIONS, ...GROUP_ACTIONS,
-    ...EXPORT_ACTIONS, ...PORTABLE_ACTIONS, ...VIEW_ACTIONS,
-    ...PARAMS_ACTIONS,
+    ...SOURCE_ACTIONS, ...RUN_ACTIONS, ...PARAMS_ACTIONS, ...APPEARANCE_ACTIONS, ...FILTER_ACTIONS,
+    ...GROUP_ACTIONS, ...EXPORT_ACTIONS, ...PORTABLE_ACTIONS, ...VIEW_ACTIONS,
     ...forceActions(link),
   ];
 }

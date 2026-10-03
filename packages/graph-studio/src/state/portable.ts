@@ -2,7 +2,7 @@
 import { DEFAULT_SETTINGS, type Settings, readSettings, withSettings } from "./settings.ts";
 
 /** The dock panels that keep their own settings member, one each. */
-export const SECTIONS = ["appearance", "filter", "layout", "edges", "analysis", "params"] as const;
+export const SECTIONS = ["appearance", "filter", "layout", "edges", "analysis"] as const;
 
 export type Section = (typeof SECTIONS)[number];
 

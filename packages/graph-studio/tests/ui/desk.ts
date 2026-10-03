@@ -8,9 +8,9 @@ import type { LiveBridge } from "../../src/motor/bridge.ts";
 import { HIDDEN } from "../../src/ui/progress.ts";
 import { type StudioState, initialState } from "../../src/state/model.ts";
 import { desk, refusingClient, type Desk } from "../desk.ts";
-import { CATALOG, DIGEST, DRAWN, META } from "../drawn.ts";
+import { CATALOG, DIGEST, DRAWN, DRAWN_LAYOUT, DRAWN_SCHEMA, META } from "../drawn.ts";
 
-export { CATALOG, DIGEST, DRAWN, META };
+export { CATALOG, DIGEST, DRAWN, DRAWN_LAYOUT, DRAWN_SCHEMA, META };
 
 export { refusingClient };
 

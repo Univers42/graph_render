@@ -3,15 +3,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import type { Session } from "../src/motor/session.ts";
 import { OPENING_SOURCE } from "../src/state/settings.ts";
-import { SKIP, realSession } from "./motor.ts";
-import { FIXTURES_URL } from "./motor.ts";
+import { FIXTURES_URL, SKIP, realSession } from "./motor.ts";
 
 const GRAPHOPT = "layout.force.graphopt";
 const SUGIYAMA = "layout.dag.sugiyama";
 const BARNES_HUT = "layout.force.barnes_hut";
 
-async function opened(): Promise<Awaited<ReturnType<ReturnType<typeof realSession>["open"]>>> {
+async function opened(): Promise<{ readonly session: Session }> {
   const session = realSession();
   await session.open("unused");
   await session.load(OPENING_SOURCE, FIXTURES_URL);
