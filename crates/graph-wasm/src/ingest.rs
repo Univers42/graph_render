@@ -17,27 +17,28 @@
 //! make ingest order diverge silently from snapshot order, which is exactly the identity
 //! this ABI promises callers (`docs/contract/wasm-abi.md` "Column order").
 
-use graph_contract::canonical_json::{JsonError, Value, parse};
+use graph_contract::canonical_json::JsonError;
 use graph_core::{EdgeRecord, NodeRecord};
-// The two kind names are named only by this module's tests: `record.rs` imports its own, so
-// the wasm32 release build has no user for them and an unconditional import warns there.
+// The two kind names are named only by this module's tests: `element.rs` imports its own,
+// so the wasm32 release build has no user for them and an unconditional import warns there.
 #[cfg(test)]
 use graph_core::{EdgeKind, NodeKind};
 
 use crate::errors::Code;
 
 mod at;
+mod element;
 mod ids;
 /// Per-phase linear-memory marks, for the ingest scale measurement only. Compiled out of
-/// the default artifact, so [`record`]'s call sites stay unconditional.
+/// the default artifact, so every `mark` call site stays unconditional.
 #[cfg(any(test, feature = "probe"))]
 pub mod phases;
-mod record;
+mod scan;
 use at::At;
+use element::{edge, node};
 pub use ids::index;
 #[cfg(any(test, feature = "probe"))]
 use phases::mark;
-use record::{edge, node};
 
 /// The only ingest version this reader accepts.
 pub const VERSION: u32 = 1;
@@ -159,45 +160,65 @@ pub fn read_records(bytes: &[u8]) -> Result<(Vec<NodeRecord>, Vec<EdgeRecord>), 
         });
     }
     let text = std::str::from_utf8(bytes).map_err(|_| IngestError::Utf8)?;
-    // `mark(PARSE)` is between these two lines on purpose: it is the whole document as a
-    // `Value` tree, which is the phase `fix-ingest-scale` measured holding the bytes.
-    let Value::Object(mut root) = parse(text).map_err(IngestError::Json)? else {
-        return Err(shape(At::ROOT, "expected an object"));
-    };
+    // One validating walk of the whole text, and one locating walk for the root's members.
+    // No `Value` tree: that tree measured 3.2x the text at 1M nodes and is what stopped a
+    // document under 1 GiB from building inside wasm32's 4 GiB
+    // (`docs/measurements/fix-ingest-scale.md`).
+    let document = scan::Document::new(text).map_err(IngestError::Json)?;
     #[cfg(any(test, feature = "probe"))]
     mark(phases::PARSE, None);
-    let version = version_number(&take_member(&mut root, "version", At::ROOT)?)?;
+    let version = version_number(&document)?;
     if version != VERSION {
         return Err(shape(
             At::list("version"),
             &format!("unsupported version {version}"),
         ));
     }
-    let nodes = take_array(&mut root, "nodes", At::ROOT, At::list("nodes"))?;
-    let edges = take_array(&mut root, "edges", At::ROOT, At::list("edges"))?;
-    require_only(
-        root.iter().map(|(k, _)| k.as_str()),
-        &["version", "nodes", "edges"],
-        At::ROOT,
-    )?;
-    // Both lists are owned now, so the root is spent and only these two remain; each
-    // element is dropped as its record is built.
-    let nodes = read_all(nodes, node, At::list("nodes"))?;
-    let edges = read_all(edges, edge, At::list("edges"))?;
+    let nodes = take_array(&document, "nodes", At::list("nodes"))?;
+    let edges = take_array(&document, "edges", At::list("edges"))?;
+    require_only(document.members(), &["version", "nodes", "edges"])?;
+    // Every node before any edge, exactly as the reader this replaced read them, and both
+    // lists at the length the first walk counted — so neither `Vec` grows by doubling.
+    let nodes = read_all(&document, "nodes", node, At::list("nodes"))?;
+    let edges = read_all(&document, "edges", edge, At::list("edges"))?;
     #[cfg(any(test, feature = "probe"))]
     mark(phases::RECORDS, None);
     Ok((nodes, edges))
 }
 
-/// Each element, in order, through `one`. A `Vec` of exactly the right length, never grown.
-fn read_all<T, F>(items: Vec<Value>, one: F, at: At) -> Result<Vec<T>, IngestError>
-where
-    F: Fn(Value, At) -> Result<T, IngestError>,
-{
-    let mut out = Vec::with_capacity(items.len());
-    for (i, item) in items.into_iter().enumerate() {
-        out.push(one(item, at.item(i))?);
+/// The root's member named `key`, or the refusal its absence is; refused at `where_at` when
+/// it is there but is not an array, which is the order the reader this replaced refused in.
+fn take_array<'a>(
+    document: &'a scan::Document<'a>,
+    key: &str,
+    where_at: At,
+) -> Result<&'a scan::Member, IngestError> {
+    let member = document
+        .member(key)
+        .ok_or_else(|| shape(At::ROOT, &format!("missing member `{key}`")))?;
+    if member.elements.is_none() {
+        return Err(shape(where_at, "expected an array"));
     }
+    Ok(member)
+}
+
+/// Every element of the root member `key`, in order, through `one`, at the length the
+/// validating walk counted — so the `Vec` is allocated once and never grown.
+fn read_all<T>(
+    document: &scan::Document<'_>,
+    key: &str,
+    one: fn(&str, At) -> Result<T, IngestError>,
+    at: At,
+) -> Result<Vec<T>, IngestError> {
+    let member = take_array(document, key, at)?;
+    let mut out = Vec::with_capacity(member.elements.unwrap_or(0));
+    let mut index = 0usize;
+    let mut scan = scan::Scan::new(document.text());
+    scan.elements(member.value, &mut |item| {
+        out.push(one(item, at.item(index))?);
+        index += 1;
+        Ok(())
+    })?;
     Ok(out)
 }
 
@@ -205,127 +226,48 @@ pub(in crate::ingest) fn shape(at: At, what: &str) -> IngestError {
     IngestError::Shape(format!("{at}: {what}"))
 }
 
-/// An object's members, each value in a slot that can be handed out exactly once: a value
-/// is moved out rather than borrowed and copied, and a name taken twice comes back missing
-/// rather than yielding the first one again. The keys stay put for `require_only`.
-pub(in crate::ingest) struct Slots(Vec<(String, Option<Value>)>);
-
-impl Slots {
-    pub(in crate::ingest) fn new(value: Value, at: At) -> Result<Self, IngestError> {
-        match value {
-            Value::Object(members) => Ok(Slots(
-                members.into_iter().map(|(k, v)| (k, Some(v))).collect(),
-            )),
-            _ => Err(shape(at, "expected an object")),
-        }
-    }
-
-    /// A named member's value, moved out. The key's `String` is dropped with the slots.
-    pub(in crate::ingest) fn take(&mut self, key: &str, at: At) -> Result<Value, IngestError> {
-        self.slot(key)
-            .ok_or_else(|| shape(at, &format!("missing member `{key}`")))
-    }
-
-    pub(in crate::ingest) fn take_optional(&mut self, key: &str) -> Option<Value> {
-        self.slot(key)
-    }
-
-    fn slot(&mut self, key: &str) -> Option<Value> {
-        let (_, value) = self.0.iter_mut().find(|(k, v)| k == key && v.is_some())?;
-        value.take()
-    }
-
-    /// The member names, for `require_only`. A taken slot's value is `None` but its key is
-    /// still named: the strictness is about what the document wrote, not what was read.
-    pub(in crate::ingest) fn keys(&self) -> impl Iterator<Item = &str> {
-        self.0.iter().map(|(k, _)| k.as_str())
-    }
-}
-
-/// A named member of the root, moved out of it; `Null` fills the hole so a name taken
-/// twice comes back missing rather than yielding the first value again.
-fn take_member(root: &mut [(String, Value)], key: &str, at: At) -> Result<Value, IngestError> {
-    let slot = root
-        .iter_mut()
-        .find(|(k, v)| k == key && !matches!(v, Value::Null))
-        .map(|(_, v)| v)
-        .ok_or_else(|| shape(at, &format!("missing member `{key}`")))?;
-    Ok(std::mem::replace(slot, Value::Null))
-}
-
-/// A named member of the root that has to be an array, moved out whole so its elements can
-/// be consumed one at a time. `at` names the member, `where_at` names the array.
-fn take_array(
-    root: &mut [(String, Value)],
-    key: &str,
-    at: At,
-    where_at: At,
-) -> Result<Vec<Value>, IngestError> {
-    match take_member(root, key, at)? {
-        Value::Array(items) => Ok(items),
-        _ => Err(shape(where_at, "expected an array")),
-    }
-}
-
-/// Refuses a member the shape does not name — the strictness that turns a stray
-/// camelCase `hasNote` into a loud refusal instead of a silently-dropped extra.
-fn require_only<'a>(
-    members: impl Iterator<Item = &'a str>,
-    allowed: &[&str],
-    at: At,
-) -> Result<(), IngestError> {
-    for key in members {
-        if !allowed.contains(&key) {
-            return Err(shape(at, &format!("unknown member `{key}`")));
+/// Refuses a member the root does not name — the strictness that turns a stray member into
+/// a loud refusal instead of a silently-dropped extra. Every key the document wrote is
+/// named, in document order, whether or not this reader read it.
+fn require_only(members: &[scan::Member], allowed: &[&str]) -> Result<(), IngestError> {
+    for member in members {
+        if !allowed.contains(&member.key.as_str()) {
+            return Err(shape(At::ROOT, &format!("unknown member `{}`", member.key)));
         }
     }
     Ok(())
 }
 
-pub(in crate::ingest) fn string(value: Value, at: At) -> Result<String, IngestError> {
-    match value {
-        Value::String(s) => Ok(s),
-        _ => Err(shape(at, "expected a string")),
-    }
-}
-
-pub(in crate::ingest) fn opt_string(value: Value, at: At) -> Result<Option<String>, IngestError> {
-    match value {
-        Value::Null => Ok(None),
-        Value::String(s) => Ok(Some(s)),
-        _ => Err(shape(at, "expected a string or null")),
-    }
-}
-
-pub(in crate::ingest) fn boolean(value: Value, at: At) -> Result<bool, IngestError> {
-    match value {
-        Value::Bool(b) => Ok(b),
-        _ => Err(shape(at, "expected a boolean")),
-    }
-}
-
-/// The document's `version` member: exactly a plain non-negative integer literal, never
-/// `1.0` or `1e0` read loosely as `1` — a version is compared for equality, not rounded.
-fn version_number(value: &Value) -> Result<u32, IngestError> {
-    let Value::Number(text) = value else {
-        return Err(shape(At::list("version"), "expected a number"));
-    };
+/// The document's `version`: exactly a plain non-negative integer literal, never `1.0` or
+/// `1e0` read loosely as `1` — a version is compared for equality, not rounded.
+///
+/// The member's own text, because a version is a number and not a string:
+/// `{"version":"1"}` is refused for being a string, and a `version` that is not there at
+/// all for being missing — both before it is compared with [`VERSION`].
+fn version_number(document: &scan::Document<'_>) -> Result<u32, IngestError> {
+    let at = At::list("version");
+    let member = document
+        .member("version")
+        .ok_or_else(|| shape(At::ROOT, "missing member `version`"))?;
+    let text = number_text(document.text(), member.value).ok_or_else(|| shape(at, "expected a number"))?;
     text.parse()
-        .map_err(|_| shape(At::list("version"), "expected a plain non-negative integer"))
+        .map_err(|_| shape(at, "expected a plain non-negative integer"))
 }
 
-/// A JSON number, refusing one whose text does not parse to a finite `f64` (D9): the
-/// grammar itself keeps out `NaN`/`Infinity` literals, but an exponent large enough to
-/// overflow `f64` still parses its text and must be refused here, not on the wire later.
-pub(in crate::ingest) fn number(value: Value, at: At) -> Result<f64, IngestError> {
-    let Value::Number(text) = value else {
-        return Err(shape(at, "expected a number"));
-    };
-    let n: f64 = text.parse().map_err(|_| shape(at, "not a valid number"))?;
-    if !n.is_finite() {
-        return Err(shape(at, "not finite"));
+/// The bytes at `span` read as a number's own text, or `None` when they are not a number.
+///
+/// # Precondition
+///
+/// `span` came from a walk that validated the document, so the bytes are one whole value
+/// and this only has to recognise which kind it is: the first byte of the JSON number
+/// grammar, which no string, `null`, boolean, array or object can begin with.
+fn number_text(text: &str, span: scan::Span) -> Option<&str> {
+    let (from, to) = span.bounds()?;
+    let value = text.get(from..to)?;
+    match value.as_bytes().first() {
+        Some(b'-' | b'0'..=b'9') => Some(value),
+        _ => None,
     }
-    Ok(n)
 }
 
 #[cfg(test)]
