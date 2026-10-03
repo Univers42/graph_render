@@ -323,12 +323,11 @@ export class Motor {
    *  **never clamped**, so an out-of-range value is a {@link ForceSessionRefusedError} with the
    *  session left exactly as it was — and a refused creation leaves no session behind.
    *
-   *  **No layout run is required** at the default `seed` (`"spiral"`), as for
-   *  {@link Motor.analysis}: the session starts on the engine's own spiral, straight after
-   *  {@link Motor.build}. `seed` `"layout"` ({@link ForceSeed}) starts it on the centres of
-   *  `handle`'s last run instead, refused with `NoGeometryYet` before one. Either way the
-   *  session never replaces the handle's snapshot, and **outlives it** — {@link Motor.release} on `handle` leaves the session
-   *  running, and the session is released with its own {@link ForceSession.release}.
+   *  **No layout run is required** at the default `seed` (`"spiral"`), as for {@link Motor.analysis}:
+   *  the session starts on the engine's spiral, straight after {@link Motor.build}. `seed` `"layout"`
+   *  ({@link ForceSeed}) starts it on the centres of `handle`'s last run, refused with `NoGeometryYet`
+   *  before one. Either way the session never replaces the handle's snapshot and **outlives it**:
+   *  {@link Motor.release} on `handle` leaves it running; {@link ForceSession.release} releases it.
    *
    *  The two have separate id spaces and separate error codes (`InvalidHandle` against
    *  `InvalidSession`), so a caller debugging a dead one is never sent looking at the other.
