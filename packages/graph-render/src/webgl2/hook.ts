@@ -30,10 +30,12 @@ export interface BulkSlot {
   refining: boolean;
   /** The picture moving frames redraw under the camera's change (glide.ts). */
   readonly glide: Glide;
+  /** Edge-draw GPU milliseconds the layer has counted (gputimer.ts); reads 0 until a layer exists. */
+  gpuEdgeMs: () => number;
 }
 
 export function newBulkSlot(backend: BackendChoice): BulkSlot {
-  return { backend, layer: undefined, failure: "", placed: 0, budget: MOVING_BUDGET, still: undefined, refining: false, glide: newGlide() };
+  return { backend, layer: undefined, failure: "", placed: 0, budget: MOVING_BUDGET, still: undefined, refining: false, glide: newGlide(), gpuEdgeMs: () => 0 };
 }
 
 function layerOf(slot: BulkSlot): BulkLayer | null {
@@ -41,6 +43,10 @@ function layerOf(slot: BulkSlot): BulkLayer | null {
   try {
     slot.layer = createBulk();
     if (slot.layer === null) slot.failure = "this browser gives no WebGL2 context on an OffscreenCanvas";
+    else {
+      const made = slot.layer;
+      slot.gpuEdgeMs = () => made.timer.ms();
+    }
   } catch (error) {
     slot.layer = null;
     slot.failure = error instanceof Error ? error.message : String(error);

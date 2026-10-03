@@ -81,7 +81,8 @@ def run(page, base, nodes, backend, out, polls, every_ms):
     page.evaluate(f"window.__perf.open({nodes}, 'layout.random')", timeout=600)
     opened = time.monotonic()
     print(f"open {nodes} on layout.random {backend}: {(opened - started):.2f} s")
-    measured = page.evaluate(f"({SETTLE})({{ polls: {polls}, everyMs: {every_ms} }})", timeout=polls * every_ms // 1000 + 120)
+    measured = page.evaluate(f"({SETTLE})({{ polls: {polls}, everyMs: {every_ms}, gpu: {json.dumps(gpu.wanted())} }})",
+                             timeout=polls * every_ms // 1000 + 120)
     print(f"settle renderer={name} {json.dumps(measured, sort_keys=True)}")
     shoot(page, out)
     return errors(page)
