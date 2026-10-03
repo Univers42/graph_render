@@ -8,7 +8,7 @@ import { dimAt, fadeLevel } from "../fade.ts";
 import { type LabelInput, type LabelPlan, type LabelPolicy, type Occupancy, followLabels, planLabels } from "../labels.ts";
 import type { Scene } from "../scene.ts";
 import type { Theme } from "../theme.ts";
-import { TRANSITION_MS, blend, easeInOutCubic } from "../transition.ts";
+import { TRANSITION_MS, blend, easeInOutCubic, markTween } from "../transition.ts";
 import { type LayoutKey, layoutChanged } from "./layout-key.ts";
 import type { PaintCounts } from "./input.ts";
 import { paintOverlay } from "./overlay.ts";
@@ -118,20 +118,64 @@ export function markMoved(state: LoopState): void {
   invalidate(state);
 }
 
-/** Moves the nodes towards the frame; true while they are still on their way. */
-function advance(state: LoopState, now: number): boolean {
+/**
+ * The node count from which the 2D painter stops easing a layout switch and snaps to it.
+ *
+ * Measured, not guessed (docs/measurements/perf-transition.md, `canvas2d`, a tween of the same
+ * graph under `layout.random` -> `layout.grid`, 600 ms, 1920x1080 at DPR 1): 20 000 nodes held
+ * 16.7 ms frames and drew 31 of the 36 the tween wanted; 32 768 drew 20 and its frame gaps were
+ * already 33 ms; 65 536 drew 13; 131 072 drew 6 and 200 000 drew 4, at 183 ms a frame. Past this
+ * count the tween is a slideshow, and the snap shows the new layout on the first frame instead.
+ *
+ * Ponytail: the GPU layer mixes the same two columns in its vertex shader for one float a frame,
+ * so this budget is the 2D painter's alone — a tween over it on WebGL2 still runs, and `counts`
+ * is what says which painter has the frame. Failing input: a host that put a node budget like
+ * this one above 32 768 on purpose gets the snap, which is cheaper and less smooth, not wrong.
+ * Direction: snap above the budget. Escape hatch: set `TWEEN_BUDGET` above the scene's node count.
+ */
+export const TWEEN_BUDGET = 32_768;
+
+/** The frame is where the nodes are now, and the layer has nothing left to mix. */
+function arrive(state: LoopState): void {
+  state.transitionStart = -1;
+  state.x = state.scene.frame.x;
+  state.y = state.scene.frame.y;
+  state.bulk.tween = null;
+}
+
+/**
+ * True when the 2D painter, not the GPU layer, is the one that would have to ease this tween:
+ * `bulk` is the draw count of the last painted frame, so it is 0 exactly when the layer drew
+ * nothing (hook.ts). Exported, and narrow on purpose, so the budget is a number a test reads.
+ */
+export function overBudget(counts: Pick<PaintCounts, "bulk">, nodeCount: number): boolean {
+  return counts.bulk === 0 && nodeCount > TWEEN_BUDGET;
+}
+
+/**
+ * Moves the nodes towards the frame; true while they are still on their way.
+ *
+ * Exported, and narrow on purpose, so a test can step a tween to a given fraction without a
+ * browser's animation frames — node has no `requestAnimationFrame`, so the loop cannot run
+ * there at all. Nothing outside this file calls it.
+ */
+export function advance(state: LoopState, now: number): boolean {
   if (state.transitionStart < 0) return false;
   const t = (now - state.transitionStart) / TRANSITION_MS;
-  if (t >= 1) {
-    state.transitionStart = -1;
-    state.x = state.scene.frame.x;
-    state.y = state.scene.frame.y;
+  const snapped = overBudget(state.counts, state.scene.frame.nodeCount);
+  markTween(state, state.transitionStart, t >= 1 || snapped);
+  if (t >= 1 || snapped) {
+    arrive(state);
     return false;
   }
   const eased = easeInOutCubic(t);
-  blend(state.fromX, state.scene.frame.x, eased, state.x);
-  blend(state.fromY, state.scene.frame.y, eased, state.y);
+  const { frame } = state.scene;
+  blend(state.fromX, frame.x, eased, state.x);
+  blend(state.fromY, frame.y, eased, state.y);
   state.bulk.placed += 1;
+  // The layer mixes these four columns on the GPU; `state.x`/`state.y` stay the eased pose for
+  // the labels, the edges and the hit test, which are all on this side of the fence.
+  state.bulk.tween = { fromX: state.fromX, fromY: state.fromY, toX: frame.x, toY: frame.y, eased };
   return true;
 }
 

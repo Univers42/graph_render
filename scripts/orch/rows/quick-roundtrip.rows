@@ -10,3 +10,4 @@ negctl-force-gravity|0|scripts/orch/gr -e GM_MUTATE_FORCE_SESSION_GRAVITY=0.5 ca
 scigraphs-conformance|0|scripts/scigraphs-conformance.sh
 negctl-scigraphs-conformance|0|scripts/scigraphs-conformance.sh --break; test $? -eq 1
 roundtrip-100|0|scripts/orch/gr cargo run -q --release -p graph-cli -- roundtrip --seeds 100
+negctl-dim-z-100|0|scripts/orch/gr -e GM_MUTATE_NODE_Z=1 cargo run -q --release -p graph-cli -- roundtrip --seeds 100; test $? -ne 0

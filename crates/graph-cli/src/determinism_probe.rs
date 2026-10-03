@@ -27,7 +27,7 @@ pub fn run(out: &Path) -> ExitCode {
 fn measure() -> Result<String, String> {
     let native = parse(&graph_wasm::probe::probe_bytes())?;
     let wasm_path = build_wasm(&["probe"])?;
-    let hex = run_lines(node_harness(&wasm_path).arg("probe"))?.concat();
+    let hex = run_lines(node_harness(&wasm_path)?.arg("probe"))?.concat();
     let wasm = parse(&decode_hex(&hex)?)?;
     let counts = native
         .iter()
