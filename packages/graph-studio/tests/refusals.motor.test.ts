@@ -32,7 +32,7 @@ function scripted(): Script {
       script.asked.push(`layout ${layoutId}`);
       return new Promise<RunReport>((resolve, reject) => void script.waiting.push({ resolve, reject }));
     },
-    params: (layoutId) => Promise.resolve([]),
+    params: () => Promise.resolve([]),
     analysis: () => Promise.reject(new MotorFailure({ ...REFUSED, title: "AnalysisRefusedError" })),
     cancel: () => {
       const stopped = script.waiting.splice(0);

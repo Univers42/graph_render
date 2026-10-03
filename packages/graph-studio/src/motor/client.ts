@@ -174,6 +174,20 @@ function analysed(result: Result): AnalysisReport {
   return result.analysis;
 }
 
+/**
+ * A run's values, as the request carries them: nothing at all where there are none, so a run
+ * with no values of its own sends no `params` member and the motor takes its own defaults.
+ */
+function asked(params: ParamValues | undefined): { readonly params?: ParamValues } {
+  return params === undefined || Object.keys(params).length === 0 ? {} : { params };
+}
+
+/** A handler on a set of them, and the call that takes it off again. */
+function watch<Payload>(set: Set<(payload: Payload) => void>, handler: (payload: Payload) => void): () => void {
+  set.add(handler);
+  return () => void set.delete(handler);
+}
+
 export function createClient(spawn: Spawn, assets: Assets): MotorClient {
   const state: State = {
     link: null, seq: 0, loaded: null, closed: false, waiting: new Map(), pushed: new Set(), failures: new Set(),
@@ -193,23 +207,14 @@ export function createClient(spawn: Spawn, assets: Assets): MotorClient {
       state.loaded = source;
       return graph;
     },
-    layout: async (layoutId, postId, params) => {
-      const asked = params === undefined || Object.keys(params).length === 0 ? {} : { params };
-      return laidOut(await call({ type: "layout", layoutId, postId, ...asked }));
-    },
+    layout: async (layoutId, postId, params) => laidOut(await call({ type: "layout", layoutId, postId, ...asked(params) })),
     params: async (layoutId) => published(await call({ type: "params", layoutId }), layoutId),
     analysis: async (analysisId) => analysed(await call({ type: "analysis", analysisId })),
     cancel: () => cancelWaiting(state),
     busy: () => state.waiting.size > 0,
     force: (body) => fireAndForget(state, body),
-    onForce: (handler) => {
-      state.pushed.add(handler);
-      return () => void state.pushed.delete(handler);
-    },
-    onFail: (handler) => {
-      state.failures.add(handler);
-      return () => void state.failures.delete(handler);
-    },
+    onForce: (handler) => watch(state.pushed, handler),
+    onFail: (handler) => watch(state.failures, handler),
     close: () => {
       state.closed = true;
       drop(state);

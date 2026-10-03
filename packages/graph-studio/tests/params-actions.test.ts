@@ -5,7 +5,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { studioActions } from "../src/actions/all.ts";
-import { RESET_ID, SET_ID, SET_MANY_ID, checkedValue } from "../src/actions/params.ts";
+import { type Checked, RESET_ID, SET_ID, SET_MANY_ID, checkedValue } from "../src/actions/params.ts";
+import { complete } from "../src/console/complete.ts";
 import type { GraphSummary, LayoutParamSpec } from "../src/motor/protocol.ts";
 import { type RunSummary, type StudioState } from "../src/state/model.ts";
 import { DEFAULT_SETTINGS, type Settings, withParams, withSettings, withoutParams } from "../src/state/settings.ts";
@@ -13,6 +14,12 @@ import { type Desk, desk, scriptedClient } from "./desk.ts";
 
 const LAYOUT = "layout.force.graphopt";
 const OTHER = "layout.grid";
+
+/** Why a value was refused. A test that expects a refusal must see one. */
+function refused(checked: Checked): string {
+  if (checked.ok) throw new Error(`the studio accepted ${String(checked.value)} where the schema refuses it`);
+  return checked.reason;
+}
 
 function spec(over: Partial<LayoutParamSpec> = {}): LayoutParamSpec {
   return {
@@ -55,25 +62,27 @@ test("a float, an int and a bool are each what the schema says they are", () => 
 });
 
 test("a value outside the schema's bounds is refused by name, never clamped", () => {
-  const outside = checkedValue(spec(), "11");
-  assert.equal(outside.ok, false);
-  assert.match(outside.ok ? "" : outside.reason, /`gravity` must be in 0\.\.10, not 11/);
+  const outside = refused(checkedValue(spec(), "11"));
+  assert.match(outside, /`gravity` must be in 0\.\.10, not 11/);
 });
 
 test("an int is refused a value that is not whole, and a bool anything but on or off", () => {
-  const half = checkedValue(NITER, "2.5");
-  assert.equal(half.ok, false);
-  assert.match(half.ok ? "" : half.reason, /`niter` must be a whole number/);
-  const maybe = checkedValue(spec({ kind: "bool", min: 0, max: 1, default: 0, step: 1 }), "maybe");
-  assert.equal(maybe.ok, false);
-  assert.match(maybe.ok ? "" : maybe.reason, /`gravity` must be on or off/);
+  assert.match(refused(checkedValue(NITER, "2.5")), /`niter` must be a whole number/);
+  const maybe = refused(checkedValue(spec({ kind: "bool", min: 0, max: 1, default: 0, step: 1 }), "maybe"));
+  assert.match(maybe, /`gravity` must be on or off/);
 });
 
 test("the panel's names and bounds are the schema's, and nothing else", () => {
   const made = drawn();
   const one = made.studio.registry.find(SET_ID);
-  assert.deepEqual(one?.params[0]?.choices?.(made.studio.store.get()), ["gravity", "niter"]);
-  assert.deepEqual(one?.params[0]?.choices?.(drawn(withSettings(DEFAULT_SETTINGS, { layout: "layout.force.barnes_hut" })).studio.store.get()), []);
+  assert.ok(one !== undefined, "the one-value action is in the registry");
+  const names = one.params[0];
+  assert.ok(names !== undefined, "and it names a parameter");
+  const choose = names.choices;
+  assert.ok(choose !== undefined, "and the names are the schema's to choose from");
+  assert.deepEqual(choose(stateOf(made)), ["gravity", "niter"]);
+  const quiet = drawn(withSettings(DEFAULT_SETTINGS, { layout: "layout.force.barnes_hut" }));
+  assert.deepEqual(choose(stateOf(quiet)), [], "and nothing where the motor publishes nothing");
 });
 
 test("a name the schema does not publish is refused, never silently dropped", () => {
@@ -97,6 +106,12 @@ test("`layoutset` refuses a value out of range before anything runs", async () =
   assert.match(logged.error?.detail ?? "", /must be in 0\.\.10/);
   assert.equal(stateOf(made).layoutCalls, before, "a refused value costs no run");
   assert.deepEqual(stateOf(made).settings.params, {});
+});
+
+test("the console offers the names the schema published, and nothing else", () => {
+  const made = drawn();
+  assert.deepEqual(complete("layoutset ", made.studio.registry, stateOf(made)).candidates, ["gravity", "niter"]);
+  assert.deepEqual(complete("layoutset n", made.studio.registry, stateOf(made)).candidates, ["niter"]);
 });
 
 test("`layoutset <param> <value>` writes the value and costs exactly one run", async () => {

@@ -6,13 +6,12 @@
  * page with the worker switched off, and under node with the real module.
  */
 import { decodeSnapshot, idAt } from "../../../graph-render/src/snapshot/decode.ts";
-import { FIXTURES } from "../source/fixtures.ts";
-import { type IngestNode, IngestRefusal, normaliseIngest } from "../source/ingest.ts";
+import type { IngestNode } from "../source/ingest.ts";
 import { type GraphMeta, metaOf } from "../source/meta.ts";
-import { syntheticRecords } from "../source/synthetic.ts";
 import { type ShownError, describeError } from "../state/errors.ts";
 import type { ParamValues, Source } from "../state/settings.ts";
 import type { ForceEngine, ForceParams, ForcePort, LiveForce } from "./live.ts";
+import { type Document, documentFor } from "./document.ts";
 import { createLiveForce } from "./liveSession.ts";
 import type { AnalysisReport, Catalog, GraphSummary, LayoutParamSpec, RunReport } from "./protocol.ts";
 import { SCATTER, planRun } from "./settle.ts";
@@ -79,14 +78,6 @@ export interface Session {
   forces(): LiveForce | null;
 }
 
-interface Document {
-  readonly name: string;
-  readonly json: string;
-  readonly nodes: readonly IngestNode[];
-  readonly edgeCount: number;
-  readonly notes: readonly string[];
-}
-
 interface Built<Handle> {
   readonly handle: Handle;
   readonly nodes: readonly IngestNode[];
@@ -116,30 +107,6 @@ export async function sha256Hex(bytes: Uint8Array): Promise<string | null> {
   if (typeof crypto === "undefined" || !("subtle" in crypto)) return null;
   const digest = await crypto.subtle.digest("SHA-256", bytes.slice());
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-function generated(source: Extract<Source, { kind: "synthetic" }>): Document {
-  const { nodes, edges } = syntheticRecords({
-    seed: source.seed, nodeCount: source.nodes, degree: source.degree, shape: source.shape,
-  });
-  return {
-    name: `${source.shape} seed ${source.seed}`,
-    json: JSON.stringify({ version: 1, nodes, edges }),
-    nodes, edgeCount: edges.length, notes: [],
-  };
-}
-
-function normalised(text: string, name: string): Document {
-  const { json, doc, notes } = normaliseIngest(text, name);
-  return { name, json, nodes: doc.nodes, edgeCount: doc.edges.length, notes };
-}
-
-async function documentFor(source: Source, fixturesUrl: string, fetchText: (url: string) => Promise<string>): Promise<Document> {
-  if (source.kind === "synthetic") return generated(source);
-  if (source.kind === "document") return normalised(source.text, source.name);
-  // The path comes from settings, and settings come from recipes: only the listed files.
-  if (!FIXTURES.includes(source.path)) throw new IngestRefusal(source.path, "not a bundled fixture");
-  return normalised(await fetchText(`${fixturesUrl}${source.path}`), source.path);
 }
 
 function sameBytes(a: Uint8Array, b: Uint8Array): boolean {

@@ -9,10 +9,11 @@ import type { ParamValues, Source } from "../state/settings.ts";
 
 /**
  * The parameter specs `gm_layout_params` publishes, in the order a run's buffer carries them.
- * The SDK's own shape, re-exported rather than restated: the worker is the only place that
- * calls the motor, and what it hands the page back is what the SDK decoded.
+ * The generated wire declaration, not the SDK's own: this module is shared with the page, and
+ * the SDK is the motor's boundary (`app/eslint.config.js`). It is the same interface, from the
+ * one file codegen checks, so a schema that changes shape changes here too.
  */
-import type { LayoutParamSpec } from "../../../../crates/graph-sdk-js/src/layout-params.ts";
+import type { LayoutParamSpec } from "../../../../crates/graph-contract/generated/layout-params.d.ts";
 
 export type { LayoutParamSpec };
 

@@ -7,10 +7,13 @@
  * drawing's, and a recipe that carried them would replay someone else's scrolling.
  */
 import { THEME_NAMES } from "../../../graph-render/src/look/themes.ts";
-import { MAX_DEGREE, MAX_NODES, SHAPES, type SyntheticShape } from "../source/synthetic.ts";
-import { type Fields, SettingsRefusal, fieldsOf, flagOf, numberOf, oneOf, textOf, textOrNull, textsOf } from "./read.ts";
+import type { SyntheticShape } from "../source/synthetic.ts";
+import { type ParamValue, type ParamsByLayout, type ParamValues, paramsOf, valuesOf } from "./paramValues.ts";
+import { SettingsRefusal } from "./read.ts";
 
 export { SettingsRefusal };
+export { readGroups, readSettings } from "./settingsRead.ts";
+export { type ParamValue, type ParamsByLayout, type ParamValues };
 
 export type Source =
   | { readonly kind: "synthetic"; readonly seed: number; readonly nodes: number; readonly degree: number; readonly shape: SyntheticShape }
@@ -88,16 +91,6 @@ export interface Group {
   readonly colour: string;
 }
 
-/** One value: a `number` for every kind but a bool, which is `true` or `false`. */
-export type ParamValue = number | boolean;
-/** What one layout is run at, by the motor's own parameter names and its own kinds. */
-export type ParamValues = Readonly<Record<string, ParamValue>>;
-/**
- * What each layout is run at, by layout id: the values a caller has set for it. A layout with
- * no entry is run at the motor's own defaults, which is what leaving it out means.
- */
-export type ParamsByLayout = Readonly<Record<string, ParamValues>>;
-
 export interface Settings {
   readonly source: Source;
   readonly layout: string;
@@ -149,19 +142,8 @@ export function groupsOf(groups: readonly Group[]): readonly Group[] {
   })));
 }
 
-function valuesOf(values: ParamValues): ParamValues {
-  return Object.freeze(Object.fromEntries(Object.entries(values).map(([name, value]) => [name, value])));
-}
-
-/** Frozen at both levels, in the order the motor published the names. */
-export function paramsOf(params: ParamsByLayout): ParamsByLayout {
-  return Object.freeze(Object.fromEntries(
-    Object.entries(params).map(([layoutId, values]) => [layoutId, valuesOf(values)]),
-  ));
-}
-
 /** Members in one fixed order, so two equal documents are equal as text. */
-function settingsOf(settings: Settings): Settings {
+export function settingsOf(settings: Settings): Settings {
   return Object.freeze({
     source: Object.isFrozen(settings.source) ? settings.source : sourceOf(settings.source),
     layout: settings.layout,
@@ -225,134 +207,26 @@ export function withGroups(settings: Settings, groups: readonly Group[]): Settin
  * is run at the defaults and two equal drawings have equal bytes.
  */
 export function withParams(settings: Settings, layoutId: string, values: ParamValues): Settings {
-  const held = { ...settings.params[layoutId], ...values };
-  const params: Record<string, ParamValues> = { ...settings.params };
-  if (Object.keys(held).length === 0) delete params[layoutId];
-  else params[layoutId] = valuesOf(held);
-  return settingsOf({ ...settings, params: paramsOf(params) });
+  const held = valuesOf({ ...settings.params[layoutId], ...values });
+  const params = Object.keys(held).length === 0
+    ? withoutLayout(settings.params, layoutId)
+    : paramsOf({ ...settings.params, [layoutId]: held });
+  return settingsOf({ ...settings, params });
 }
 
-/** What one layout is run at, with nothing of its own: the motor's defaults again. */
 export function withoutParams(settings: Settings, layoutId: string): Settings {
-  const params: Record<string, ParamValues> = { ...settings.params };
-  delete params[layoutId];
-  return settingsOf({ ...settings, params: paramsOf(params) });
+  return settingsOf({ ...settings, params: withoutLayout(settings.params, layoutId) });
+}
+
+/**
+ * What one layout is run at, with nothing of its own: the motor's defaults again. A fresh copy
+ * without it, because a document that names a layout at the defaults says nothing the reader
+ * needs, and this repository does not `delete` a computed key.
+ */
+function withoutLayout(params: ParamsByLayout, layoutId: string): ParamsByLayout {
+  return paramsOf(Object.fromEntries(Object.entries(params).filter(([held]) => held !== layoutId)));
 }
 
 export function sameSettings(a: Settings, b: Settings): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
-}
-
-function readSource(value: unknown, at: string): Source {
-  const kind = oneOf(fieldsOf(value, at, ["kind", "seed", "nodes", "degree", "shape", "path", "name", "text"]), at, "kind", ["synthetic", "fixture", "document"]);
-  if (kind === "fixture") return { kind, path: textOf(fieldsOf(value, at, ["kind", "path"]), at, "path") };
-  if (kind === "document") {
-    const fields = fieldsOf(value, at, ["kind", "name", "text"]);
-    return { kind, name: textOf(fields, at, "name"), text: textOf(fields, at, "text") };
-  }
-  const fields = fieldsOf(value, at, ["kind", "seed", "nodes", "degree", "shape"]);
-  return {
-    kind,
-    seed: numberOf(fields, at, "seed", { min: 0, max: 4294967295, whole: true }),
-    nodes: numberOf(fields, at, "nodes", { min: 2, max: MAX_NODES, whole: true }),
-    degree: numberOf(fields, at, "degree", { min: 0, max: MAX_DEGREE, whole: true }),
-    shape: oneOf(fields, at, "shape", SHAPES),
-  };
-}
-
-function readAppearance(value: unknown, at: string): Appearance {
-  const fields = fieldsOf(value, at, [
-    "theme", "colourBy", "sizeBy", "nodeScale", "labels", "arrows", "textFade", "linkThickness", "edgeStyle", "edgeColour",
-    "glow", "glowStrength", "background", "minRadius", "maxRadius",
-  ]);
-  return {
-    theme: oneOf(fields, at, "theme", THEMES),
-    colourBy: oneOf(fields, at, "colourBy", COLOUR_BY),
-    sizeBy: oneOf(fields, at, "sizeBy", SIZE_BY),
-    nodeScale: numberOf(fields, at, "nodeScale", NODE_SCALE),
-    labels: oneOf(fields, at, "labels", LABEL_MODES),
-    arrows: flagOf(fields, at, "arrows"),
-    textFade: numberOf(fields, at, "textFade", TEXT_FADE),
-    linkThickness: numberOf(fields, at, "linkThickness", LINK_THICKNESS),
-    edgeStyle: oneOf(fields, at, "edgeStyle", EDGE_STYLES),
-    edgeColour: oneOf(fields, at, "edgeColour", EDGE_COLOURS),
-    glow: flagOf(fields, at, "glow"),
-    glowStrength: numberOf(fields, at, "glowStrength", GLOW_STRENGTH),
-    background: oneOf(fields, at, "background", BACKGROUNDS),
-    ...readRadii(fields, at),
-  };
-}
-
-function readRadii(fields: Fields, at: string): Pick<Appearance, "minRadius" | "maxRadius"> {
-  const minRadius = numberOf(fields, at, "minRadius", NODE_PX);
-  const maxRadius = numberOf(fields, at, "maxRadius", NODE_PX);
-  if (minRadius > maxRadius) throw new SettingsRefusal(`${at}.minRadius`, `above maxRadius (${maxRadius})`);
-  return { minRadius, maxRadius };
-}
-
-function readFilter(value: unknown, at: string): Filter {
-  const fields = fieldsOf(value, at, [
-    "query", "text", "hiddenKinds", "hiddenGroups", "orphans", "existingOnly", "minDegree", "relayout",
-  ]);
-  return {
-    query: textOf(fields, at, "query"),
-    text: textOf(fields, at, "text"),
-    hiddenKinds: textsOf(fields, at, "hiddenKinds"),
-    hiddenGroups: textsOf(fields, at, "hiddenGroups"),
-    orphans: flagOf(fields, at, "orphans"),
-    existingOnly: flagOf(fields, at, "existingOnly"),
-    minDegree: numberOf(fields, at, "minDegree", { min: 0, max: 4294967295, whole: true }),
-    relayout: flagOf(fields, at, "relayout"),
-  };
-}
-
-function readGroup(value: unknown, at: string): Group {
-  const fields = fieldsOf(value, at, ["name", "query", "colour"]);
-  return { name: textOf(fields, at, "name"), query: textOf(fields, at, "query"), colour: textOf(fields, at, "colour") };
-}
-
-/** The document's own list of groups, in the order the document gave them. */
-export function readGroups(value: unknown, at = "settings.groups"): readonly Group[] {
-  if (!Array.isArray(value)) throw new SettingsRefusal(at, "not a list");
-  return groupsOf(value.map((group, i) => readGroup(group, `${at}[${i}]`)));
-}
-
-/**
- * One value as the document holds it: a finite number or a bool. No range is checked here,
- * because the range is the motor's and is not in the document (`docs/decisions/layout-params.md`):
- * a value a hand-edited file puts out of range is refused by the motor, by name, on the run.
- */
-function readParamValues(value: unknown, at: string): ParamValues {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) throw new SettingsRefusal(at, "not an object");
-  const values: Record<string, ParamValue> = {};
-  for (const [name, held] of Object.entries(value)) {
-    if (typeof held === "boolean") values[name] = held;
-    else if (typeof held === "number" && Number.isFinite(held)) values[name] = held;
-    else throw new SettingsRefusal(`${at}.${name}`, "not a finite number or true/false");
-  }
-  return valuesOf(values);
-}
-
-function readParams(value: unknown, at: string): ParamsByLayout {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) throw new SettingsRefusal(at, "not an object");
-  const params: Record<string, ParamValues> = {};
-  for (const [layoutId, held] of Object.entries(value)) {
-    params[layoutId] = readParamValues(held, `${at}["${layoutId}"]`);
-  }
-  return paramsOf(params);
-}
-
-/** Settings from outside the studio, or a refusal naming the member that was wrong. */
-export function readSettings(value: unknown, at = "settings"): Settings {
-  const fields: Fields = fieldsOf(value, at, ["source", "layout", "edges", "analysis", "params", "appearance", "groups", "filter"]);
-  return settingsOf({
-    source: readSource(fields["source"], `${at}.source`),
-    layout: textOf(fields, at, "layout"),
-    edges: textOrNull(fields, at, "edges"),
-    analysis: textOrNull(fields, at, "analysis"),
-    params: readParams(fields["params"], `${at}.params`),
-    appearance: readAppearance(fields["appearance"], `${at}.appearance`),
-    groups: readGroups(fields["groups"], `${at}.groups`),
-    filter: readFilter(fields["filter"], `${at}.filter`),
-  });
 }

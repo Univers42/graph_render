@@ -12,7 +12,7 @@
  * whatever is in flight on the way (`pipeline.apply`), which is the same path `view.cancel`
  * uses. Putting the values back is the section's own action, next to these controls.
  */
-import { useRef, useState, type ReactElement } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 
 import { SET_MANY_ID, specsOf } from "../actions/params.ts";
 import type { Args } from "../actions/registry.ts";
@@ -34,6 +34,27 @@ function reasonOf(studio: Studio, id: string, state: StudioState): string | null
   return studio.registry.find(id)?.available?.(state) ?? null;
 }
 
+/**
+ * The commit path: the values pile up and one run happens on the next frame with all of them.
+ * A frame still waiting when the panel goes is a run nobody is waiting for, and the layout on
+ * screen may be another one by then, so leaving gives the frame up rather than asking for a
+ * layout with values this panel no longer holds.
+ */
+function useFrameRun(studio: Studio): (moved: ParamValues) => void {
+  const pending = useRef<ParamValues>({});
+  const once = useRef<OneRun | null>(null);
+  useEffect(() => () => once.current?.drop(), []);
+  return (moved) => {
+    pending.current = { ...pending.current, ...moved };
+    once.current ??= oneRunPerFrame(frameScheduler(), () => {
+      const values = pending.current;
+      pending.current = {};
+      void studio.dispatch(SET_MANY_ID, { values: JSON.stringify(values) });
+    });
+    once.current.ask();
+  };
+}
+
 export function LayoutParamsPanel(props: LayoutParamsPanelProps): ReactElement {
   const { studio, state } = props;
   const specs = specsOf(state);
@@ -42,18 +63,11 @@ export function LayoutParamsPanel(props: LayoutParamsPanelProps): ReactElement {
   // The draft is what the controls show while a value is being moved; the store only catches up
   // when the run lands, and the dock remounts this panel on that change (`paramsKey`).
   const [draft, setDraft] = useState<ParamValues>(() => valuesOf(state, specs));
-  const pending = useRef<ParamValues>({});
-  const once = useRef<OneRun | null>(null);
+  const commitFrame = useFrameRun(studio);
   const commit = (patch: Args): void => {
     const moved = valuesPatch(patch);
     setDraft((current) => ({ ...current, ...moved }));
-    pending.current = { ...pending.current, ...moved };
-    once.current ??= oneRunPerFrame(frameScheduler(), () => {
-      const values = pending.current;
-      pending.current = {};
-      void studio.dispatch(SET_MANY_ID, { values: JSON.stringify(values) });
-    });
-    once.current.ask();
+    commitFrame(moved);
   };
   return (
     <div className="gs-action">
