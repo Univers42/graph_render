@@ -340,11 +340,20 @@ layout exists yet).
 - **Canonical**: compact (no insignificant whitespace), object keys sorted by UTF-8 bytes
   at every depth — so the binary's fixed column order (`x, y, r` / `x, y, w, h`) is not the
   JSON key order (`kind, r, x, y` / `h, kind, w, x, y`) — arrays in snapshot/column order,
-  one trailing newline.
+  one trailing newline. That key order is UTF-8 **byte** order and deliberately not
+  JavaScript's UTF-16 code-unit order, which disagrees for a key mixing an astral character
+  with one in U+E000..U+FFFF; the one trailing newline is likewise part of the text, so a
+  comparison is over all of it, trailing byte included.
 - **Numbers**: `f32` values are written with Rust's `f32` `Display`, the shortest decimal
   that reads back as the same `f32`, never an exponent; `u32` values as a plain decimal, no
   sign or fraction. A decimal that overflows `f32` range parses to ±∞, which construction
-  then refuses (D9) rather than silently accepting it.
+  then refuses (D9) rather than silently accepting it. `-0.0` is written `-0` and reads
+  back as `-0.0`, so a negative zero crosses the JSON face with its sign bit, and the
+  binary face's byte comparison is what decides that the two are different snapshots. The
+  writer is canonical and the reader is deliberately lenient: any spelling of a number the
+  grammar allows (`1E0`, `1.0`, `1e0`) reads as the same value and is rewritten in the
+  canonical form, so a hand-written or third-party document need not spell a float the way
+  the writer would.
 - **Strictness**: the reader (`canonical_json/parse.rs`) is a dependency-free RFC 8259
   parser that refuses a key repeated in one object, an unpaired UTF-16 surrogate, and
   nesting past 32; `canonical_json/read.rs` refuses any member the shape does not name.

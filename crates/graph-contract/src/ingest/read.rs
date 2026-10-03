@@ -4,6 +4,10 @@
 use super::{Cardinality, Collection, Field, Ingest, IngestError, JsonValue, Link, Record, Role};
 use crate::canonical_json::{self, JsonError, Value};
 
+mod cell;
+
+pub(in crate::ingest) use cell::cell;
+
 impl IngestError {
     /// A refusal, or the JSON fault underneath.
     pub(super) fn from_json(err: JsonError) -> Self {
@@ -171,59 +175,6 @@ fn record(value: &Value, path: &str) -> Result<Record, IngestError> {
         )?,
         values,
     })
-}
-
-// ------------------------------------------------------------------ cells
-
-/// One cell, as [`JsonValue`]. The number branch is where D9 is enforced: the JSON grammar
-/// keeps out `NaN`/`Infinity`, but an exponent that overflows `f64` parses as text, and an
-/// integer past 2^53 is refused too ([`past_exact_int`]).
-pub(super) fn cell(value: &Value, path: &str) -> Result<JsonValue, IngestError> {
-    Ok(match value {
-        Value::Null => JsonValue::Null,
-        Value::Bool(b) => JsonValue::Bool(*b),
-        Value::Number(text) => {
-            if past_exact_int(text) {
-                return Err(shape(path, EXACT_INT_FAULT.to_owned()));
-            }
-            let n: f64 = text
-                .parse()
-                .map_err(|_| shape(path, "not a valid number"))?;
-            if !n.is_finite() {
-                return Err(shape(path, "not finite"));
-            }
-            JsonValue::Number(n)
-        }
-        Value::String(text) => JsonValue::Text(text.clone()),
-        Value::Array(items) => JsonValue::List(
-            items
-                .iter()
-                .enumerate()
-                .map(|(i, v)| cell(v, &format!("{path}[{i}]")))
-                .collect::<Result<_, _>>()?,
-        ),
-        Value::Object(members) => JsonValue::Map(
-            members
-                .iter()
-                .map(|(k, v)| cell(v, &format!("{path}.{k}")).map(|value| (k.clone(), value)))
-                .collect::<Result<_, _>>()?,
-        ),
-    })
-}
-
-const EXACT_INT_FAULT: &str = "an integer past 9007199254740992 cannot be read exactly";
-
-/// Whether `text` is a **bare integer** — no `.`, no `e`/`E` — whose magnitude exceeds 2^53,
-/// the largest integer an `f64` holds exactly: past it every integer lands on a neighbour,
-/// so `9007199254740993` would read back as `9007199254740992`, the document's own bytes
-/// rewritten with nothing said. A float literal (`1e30`) is not this fault, and neither is
-/// text too long for `i128` — out of `f64` range, which `cell`'s `is_finite` refusal names.
-fn past_exact_int(text: &str) -> bool {
-    if text.contains('.') || text.contains('e') || text.contains('E') {
-        return false;
-    }
-    text.parse::<i128>()
-        .is_ok_and(|n| n.unsigned_abs() > 9_007_199_254_740_992)
 }
 
 // ------------------------------------------------------------------ scalars

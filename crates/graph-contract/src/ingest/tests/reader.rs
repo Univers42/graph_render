@@ -89,13 +89,16 @@ fn a_field_without_the_link_member_is_refused_naming_it() {
 
 #[test]
 fn an_integer_past_the_exact_range_is_refused_rather_than_rounded() {
-    // D9 at the reader: an `f64` holds every integer up to 9007199254740992 exactly and
-    // rounds every other one to a neighbour, so reading `9007199254740993` as a number
-    // would rewrite the document's own bytes — `9007199254740992` — with nothing said.
+    // `JsonValue::Number` is an `f64`, so an integer the `f64` cannot hold lands on a
+    // neighbour: reading `9007199254740993` would make the cell `9007199254740992`, and
+    // the document's own bytes would be rewritten with nothing said.
     let with_effort = |n: &str| MINIMAL.replace(r#""effort": 2"#, &format!(r#""effort": {n}"#));
     let path = "records[0].values.effort: an integer past 9007199254740992 cannot be read exactly";
     assert_eq!(err(&with_effort("9007199254740993")), path);
     assert_eq!(err(&with_effort("-9007199254740993")), path);
+    // One past the writer's own spelling of `1e21`, which is a bare integer no `f64` holds
+    // exactly: refused too, because it is not the text the writer writes for that number.
+    assert_eq!(err(&with_effort("1000000000000000000001")), path);
     // 2^53 itself is exact, so it reads as itself.
     assert_eq!(
         read(&with_effort("9007199254740992"))
@@ -104,8 +107,18 @@ fn an_integer_past_the_exact_range_is_refused_rather_than_rounded() {
             .value("effort"),
         Some(&JsonValue::Number(9007199254740992.0))
     );
-    // A large *float* is a different fault from a large integer — it says so in its own
-    // text (`1e30` has an exponent) — and it is read, not refused.
+    // The writer's own text for a whole `f64` past 2^53 stays readable — it is the only
+    // spelling of the number the writer meant, and refusing it would break
+    // write-then-read for `1e21` (`ingest::tests::writer`).
+    assert_eq!(
+        read(&with_effort("1000000000000000000000"))
+            .expect("the writer's own spelling reads")
+            .records[0]
+            .value("effort"),
+        Some(&JsonValue::Number(1e21))
+    );
+    // A large *float* is a different fault from a large integer — it says its own
+    // precision in an exponent — and it is read, not refused.
     assert_eq!(
         read(&with_effort("1e30")).expect("a float reads").records[0].value("effort"),
         Some(&JsonValue::Number(1e30))
@@ -279,7 +292,11 @@ const NOTION: &str = include_str!("../../../../../fixtures/ingest/notion.json");
 #[test]
 fn every_committed_ingest_fixture_still_reads() {
     let doc = read(&ingest_member(EXPECTED_GRAPH)).expect("the committed document reads");
-    let counts = (doc.source.as_str(), doc.collections.len(), doc.records.len());
+    let counts = (
+        doc.source.as_str(),
+        doc.collections.len(),
+        doc.records.len(),
+    );
     assert_eq!(counts, ("lib", 2, 6));
     for (name, text) in [("rows.json", ROWS), ("notion.json", NOTION)] {
         assert_eq!(

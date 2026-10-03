@@ -5,8 +5,10 @@ use crate::snapshot::{Dim, label_for};
 use crate::version::CURRENT_VERSION;
 
 mod dim;
+mod generated;
 mod shape;
 mod syntax;
+mod text;
 
 /// Every kind here is 2D, so the label is 0.3 and the text carries no `"dim"` — the
 /// pinned text below proves it. [`spaced`] builds the 3D counterpart.
