@@ -4,13 +4,16 @@
 use super::graphviz::{by_engine, default_dir, engine_parser};
 use super::spring;
 use super::{
-    BASIC_3D, CIRCULAR_HIERARCHY, CLOSED_FORM, FA2, HIERARCHICAL_3D, IGRAPH, SPECTRAL, SPRING,
-    conformance, emit, ingest,
+    BASIC_3D, CIRCULAR_HIERARCHY, CLOSED_FORM, FA2, HIERARCHICAL_3D, IGRAPH, SCALE, SPECTRAL,
+    SPRING, conformance, emit, ingest,
 };
 use crate::command::seed_count;
 use clap::Subcommand;
 use std::path::PathBuf;
 use std::process::ExitCode;
+
+/// How many cases the `scale.*` fixture table holds; the `--cases` default and its range.
+const SCALE_CASES: u32 = super::scale::CASES;
 
 #[derive(Subcommand)]
 pub enum Cli {
@@ -203,6 +206,32 @@ pub enum Cli {
         #[arg(long)]
         dir: Option<PathBuf>,
     },
+    /// Writes the `scale.*` differential's fixtures for `harness/oracle-scale.py`, the
+    /// SciGraphs arm: `lod.apply_budget`, `lod.frustum_cull_spheres` and
+    /// `simplify.build_coarse_level` over hand-built graphs.
+    ///
+    /// `--cases` counts lines, not seeds: the graphs are the ones the reference decides
+    /// something about, so there is no sweep to widen and the default is the whole table.
+    /// The comparisons are exact equality on masks and index lists, so there is no
+    /// iteration budget and `--max-iter` is ignored.
+    EmitScaleFixtures {
+        /// Number of cases, 1..=CASES.
+        #[arg(long, default_value_t = SCALE_CASES, value_parser = clap::value_parser!(u32).range(1..=i64::from(SCALE_CASES)))]
+        cases: u32,
+        /// Output directory.
+        #[arg(long, default_value = "target/scale-fixtures")]
+        out: PathBuf,
+    },
+    /// Checks the `scale.*` differential's result against exact equality and records it.
+    ///
+    /// One command for all three rows: `scale.lod`'s two reference functions and
+    /// `scale.simplify`'s are one SciGraphs arm over one fixture set, and a verdict each
+    /// would name the other two nothing.
+    OracleScale {
+        /// Directory holding the fixtures and `scale-result.json`.
+        #[arg(long, default_value = "target/scale-fixtures")]
+        dir: PathBuf,
+    },
     /// Writes the SciGraphs conformance fixtures: the graphs both arms read, the node-order
     /// mapping, and every motor layout's own coordinates over them, raw little-endian `f64`
     /// and the `f32` the snapshot narrows to.
@@ -275,6 +304,8 @@ impl Cli {
                 Some(differential) => ingest(&differential, &dir.unwrap_or(default_dir(&engine))),
                 None => unknown(&engine),
             },
+            Cli::EmitScaleFixtures { cases, out } => emit(&SCALE, cases, None, &out),
+            Cli::OracleScale { dir } => ingest(&SCALE, &dir),
             Cli::EmitConformanceFixtures { out } => conformance::emit(&out),
             Cli::ScigraphsConformance { dir } => conformance::judge(&dir),
         }

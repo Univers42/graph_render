@@ -8,6 +8,7 @@ import type { PaintInput } from "../canvas2d/input.ts";
 import { paletteTexels } from "./colour.ts";
 import { type BulkLayer, PALETTE_WIDTH } from "./layer.ts";
 import { gathered, largestHalf, nodeHalves, spreadPairs, spreadShown, visibleEdges } from "./plan.ts";
+import { measurePairs } from "./sample.ts";
 
 function upload(gl: WebGL2RenderingContext, target: GLenum, buffer: WebGLBuffer, data: ArrayBufferView): void {
   gl.bindBuffer(target, buffer);
@@ -64,17 +65,28 @@ export function syncPalette(layer: BulkLayer, palette: readonly string[]): void 
   uploaded.paletteSize = size;
 }
 
-/** The edge pairs in spread order, so that a moving frame's prefix samples the whole graph. */
-export function syncEdges(layer: BulkLayer, input: PaintInput): void {
+/**
+ * The edge pairs in spread order, so that a moving frame's prefix samples the whole graph,
+ * and what the sample step is measured from (sample.ts): re-measured whenever the pairs or
+ * the positions behind them change identity, or the view's `placed` counter moves.
+ */
+export function syncEdges(layer: BulkLayer, input: PaintInput, placed: number): void {
   const { gl, uploaded } = layer;
   const key = [input.frame.source, input.frame.target, input.style.hidden];
-  if (sameRefs(uploaded.edges, key)) return;
-  const index = spreadPairs(visibleEdges(input.frame.source, input.frame.target, input.style.hidden));
-  gl.bindVertexArray(layer.edges.vao);
-  upload(gl, gl.ELEMENT_ARRAY_BUFFER, layer.buffers.index, index);
-  gl.bindVertexArray(null);
-  uploaded.edges = key;
-  uploaded.indexCount = index.length;
+  if (!sameRefs(uploaded.edges, key)) {
+    const index = spreadPairs(visibleEdges(input.frame.source, input.frame.target, input.style.hidden));
+    gl.bindVertexArray(layer.edges.vao);
+    upload(gl, gl.ELEMENT_ARRAY_BUFFER, layer.buffers.index, index);
+    gl.bindVertexArray(null);
+    uploaded.edges = key;
+    uploaded.index = index;
+    uploaded.indexCount = index.length;
+  }
+  const shape = [...key, input.x, input.y, placed];
+  if (!sameRefs(uploaded.shapeKey, shape)) {
+    uploaded.shape = measurePairs(input.x, input.y, uploaded.index);
+    uploaded.shapeKey = shape;
+  }
 }
 
 /** The quad pass's columns, holding only `nodes`. */

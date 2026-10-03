@@ -32,3 +32,12 @@ test("the stats carry the flag, true while chunks remain and false once the pict
   assert.equal(statsOf(state(true)).refining, true);
   assert.equal(statsOf(state(false)).refining, false);
 });
+
+test("the stats carry the edge draw's GPU milliseconds, and none while no layer counted", () => {
+  // No layer was ever made, so nothing has been timed: 0, not undefined.
+  assert.equal(statsOf(state(false)).gpuEdgeMs, 0);
+  // A layer that counted reads through the slot's own reader (webgl2/hook.ts layerOf).
+  const withLayer = state(false);
+  withLayer.bulk.gpuEdgeMs = () => 12.5;
+  assert.equal(statsOf(withLayer).gpuEdgeMs, 12.5);
+});
