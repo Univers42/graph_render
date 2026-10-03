@@ -38,11 +38,11 @@ mod tests;
 /// checked against, and the one a host's own buffer has to match.
 pub use params::LEN as PARAMS_LEN;
 
-use graph_core::post::centres;
-use graph_core::{Geometry, Topology};
 #[cfg(any(test, feature = "threads"))]
 use graph_core::exec::Runner;
 use graph_core::layout::force::{ForceSession, LiveParams, NodeRow, SessionError};
+use graph_core::post::centres;
+use graph_core::{Geometry, Topology};
 use std::cell::RefCell;
 
 use crate::errors::Code;
@@ -121,13 +121,14 @@ pub fn create_warm(
 ) -> Result<u32, Code> {
     let (xs, ys) = centres(&geometry.ok_or(Code::NoGeometryYet)?.nodes);
     let widen = |column: &[f32]| column.iter().map(|&v| f64::from(v)).collect::<Vec<_>>();
-    let session = ForceSession::from_positions(topology, params, &widen(xs), &widen(ys))
-        .map_err(|error| match error {
+    let session = ForceSession::from_positions(topology, params, &widen(xs), &widen(ys)).map_err(
+        |error| match error {
             SessionError::NonFinite { field: "xs" | "ys" } | SessionError::ColumnLength { .. } => {
                 Code::TamperedGeometry
             }
             _ => Code::SessionRefused,
-        })?;
+        },
+    )?;
     insert(session, engine)
 }
 

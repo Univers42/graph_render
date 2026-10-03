@@ -10,7 +10,10 @@ use graph_core::post::centres;
 use graph_core::registry::LAYOUTS;
 
 fn ran(layout: &str, nodes: u32) -> Geometry {
-    let entry = LAYOUTS.iter().find(|entry| entry.id == layout).expect("registered");
+    let entry = LAYOUTS
+        .iter()
+        .find(|entry| entry.id == layout)
+        .expect("registered");
     (entry.run)(&model(3, nodes)).expect("the layout runs")
 }
 
@@ -39,7 +42,12 @@ fn two_layouts_seed_two_different_sessions() {
     reset();
     let topology = model(3, 24);
     let cold = create(&topology, params(), Engine::BarnesHut).expect("cold");
-    let grid = create_warm(&topology, Some(&ran("layout.grid", 24)), params(), Engine::BarnesHut);
+    let grid = create_warm(
+        &topology,
+        Some(&ran("layout.grid", 24)),
+        params(),
+        Engine::BarnesHut,
+    );
     let circle = ran("layout.circular.ring", 24);
     let circle = create_warm(&topology, Some(&circle), params(), Engine::BarnesHut);
     let (grid, circle) = (grid.expect("grid"), circle.expect("circle"));
@@ -68,5 +76,9 @@ fn a_tampered_centre_is_refused() {
     assert_eq!(refused, Err(Code::TamperedGeometry));
     let other = ran("layout.grid", 9);
     let refused = create_warm(&model(3, 8), Some(&other), params(), Engine::BarnesHut);
-    assert_eq!(refused, Err(Code::TamperedGeometry), "nine centres for eight nodes");
+    assert_eq!(
+        refused,
+        Err(Code::TamperedGeometry),
+        "nine centres for eight nodes"
+    );
 }
