@@ -12,6 +12,15 @@
 //!   the shared `pts` column.
 //! - **every registered layout**: no `NaN` or `±Inf` reaches its output (D9), and circle
 //!   packing's radii are always positive and finite.
+//!
+//! **Why the layout sweep is one `#[test]` per registry row.** Sweeping every layout in
+//! one serial test made this the landing gate's long pole: libtest runs tests in
+//! parallel, so a single long test occupies a single core while every other core idles.
+//! Splitting by registry row lets the pool spread the rows over the cores it is allowed,
+//! and the `(seed, layout)` pairs, the assertions and the messages are all unchanged.
+//! No test spawns a thread, so `RUST_TEST_THREADS` still caps the binary. The one list
+//! a new registry row has to be added to is pinned by
+//! `every_registered_layout_has_its_own_sweep`, so it cannot go unchecked.
 
 mod geometry_invariants {
     use graph_contract::geometry::{EdgeGeometry, NodeGeometry};
@@ -144,25 +153,102 @@ mod geometry_invariants {
         }
     }
 
-    #[test]
-    fn every_registered_layout_emits_no_nan_or_inf_and_circle_radii_are_positive() {
+    /// The ids the generated per-layout sweeps claim must be `registry::LAYOUTS` in
+    /// order, so a row added to the registry later fails this guard instead of slipping
+    /// past the sweep unchecked.
+    fn assert_registry_order(swept: &[&str]) {
+        let registered: Vec<&str> = registry::LAYOUTS.iter().map(|c| c.id).collect();
+        assert_eq!(
+            swept,
+            registered.as_slice(),
+            "the per-layout sweeps must list registry::LAYOUTS in order"
+        );
+    }
+
+    /// One `#[test]` per `registry::LAYOUTS` row over all `SEEDS`, plus the guard test.
+    macro_rules! per_layout_sweep {
+        ($($index:literal => $id:literal as $test:ident),* $(,)?) => {
+            /// The ids the generated sweeps below cover, in this list's order.
+            const SWEPT_IDS: &[&str] = &[$($id),*];
+            $(
+                #[test]
+                fn $test() {
+                    sweep_layout($index, $id);
+                }
+            )*
+            #[test]
+            fn every_registered_layout_has_its_own_sweep() {
+                assert_registry_order(SWEPT_IDS);
+            }
+        };
+    }
+
+    /// One layout's whole `0..SEEDS` sweep: no `NaN` or `±Inf` in its output (D9), and
+    /// positive finite radii wherever it emits circles.
+    fn sweep_layout(index: usize, id: &str) {
+        let capability = registry::LAYOUTS[index];
+        assert_eq!(
+            capability.id, id,
+            "the list claims row {index} is {id}, the registry says {}",
+            capability.id
+        );
         for seed in 0..SEEDS {
             let t = topology(seed);
-            for capability in registry::LAYOUTS {
-                let geometry = (capability.run)(&t)
-                    .unwrap_or_else(|e| panic!("seed {seed} {}: {e}", capability.id));
-                assert_finite(&geometry.nodes, capability.id, seed);
-                if let NodeGeometry::Circle { r, .. } = &geometry.nodes {
-                    for (i, &radius) in r.iter().enumerate() {
-                        assert!(
-                            radius > 0.0 && radius.is_finite(),
-                            "seed {seed} {} node {i}: r={radius}",
-                            capability.id
-                        );
-                    }
+            let geometry = (capability.run)(&t)
+                .unwrap_or_else(|e| panic!("seed {seed} {}: {e}", capability.id));
+            assert_finite(&geometry.nodes, capability.id, seed);
+            if let NodeGeometry::Circle { r, .. } = &geometry.nodes {
+                for (i, &radius) in r.iter().enumerate() {
+                    assert!(
+                        radius > 0.0 && radius.is_finite(),
+                        "seed {seed} {} node {i}: r={radius}",
+                        capability.id
+                    );
                 }
             }
         }
+    }
+
+    per_layout_sweep! {
+        0 => "layout.grid" as layout_grid,
+        1 => "layout.tree.tidy" as layout_tree_tidy,
+        2 => "layout.treemap.squarified" as layout_treemap_squarified,
+        3 => "layout.circular.radial" as layout_circular_radial,
+        4 => "layout.packing.circle" as layout_packing_circle,
+        5 => "layout.spectral" as layout_spectral,
+        6 => "layout.mds.pivot" as layout_mds_pivot,
+        7 => "layout.force.barnes_hut" as layout_force_barnes_hut,
+        8 => "layout.forceatlas2" as layout_forceatlas2,
+        9 => "layout.dag.sugiyama" as layout_dag_sugiyama,
+        10 => "layout.random" as layout_random,
+        11 => "layout.circular.ring" as layout_circular_ring,
+        12 => "layout.spiral" as layout_spiral,
+        13 => "layout.bipartite" as layout_bipartite,
+        14 => "layout.force.yifan_hu" as layout_force_yifan_hu,
+        15 => "layout.force.fruchterman_reingold" as layout_force_fruchterman_reingold,
+        16 => "layout.force.kamada_kawai" as layout_force_kamada_kawai,
+        17 => "layout.force.graphopt" as layout_force_graphopt,
+        18 => "layout.force.davidson_harel" as layout_force_davidson_harel,
+        19 => "layout.force.lgl" as layout_force_lgl,
+        20 => "layout.force.drl" as layout_force_drl,
+        21 => "layout.twopi" as layout_twopi,
+        22 => "layout.packing.osage" as layout_packing_osage,
+        23 => "layout.force.spring" as layout_force_spring,
+        24 => "layout.circular.hierarchy" as layout_circular_hierarchy,
+        25 => "layout.circular.circo" as layout_circular_circo,
+        26 => "layout.treemap.patchwork" as layout_treemap_patchwork,
+        27 => "layout.force.neato" as layout_force_neato,
+        28 => "layout.force.fdp" as layout_force_fdp,
+        29 => "layout.basic3d.sphere" as layout_basic3d_sphere,
+        30 => "layout.basic3d.helix" as layout_basic3d_helix,
+        31 => "layout.basic3d.cube" as layout_basic3d_cube,
+        32 => "layout.hierarchical3d" as layout_hierarchical3d,
+        33 => "layout.force.spring3d" as layout_force_spring3d,
+        34 => "layout.force.sfdp" as layout_force_sfdp,
+        35 => "layout.forceatlas2.barnes_hut" as layout_forceatlas2_barnes_hut,
+        36 => "layout.bipartite_3d" as layout_bipartite_3d,
+        37 => "layout.basic3d.spiral" as layout_basic3d_spiral,
+        38 => "layout.force.particle_mesh" as layout_force_particle_mesh,
     }
 
     fn assert_finite(nodes: &NodeGeometry, id: &str, seed: u32) {
