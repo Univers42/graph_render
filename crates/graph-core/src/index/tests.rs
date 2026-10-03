@@ -233,3 +233,28 @@ fn index_model_reserves_each_column_once_for_its_input() {
         (3, 3)
     );
 }
+
+/// One probe per id must not move the arena: a duplicate node interns nothing past its id,
+/// a dropped edge nothing at all, and every kept string lands in first-seen order.
+#[test]
+fn the_arena_holds_kept_strings_once_in_first_seen_order() {
+    let nodes = [node("a", "db"), node("b", ""), node("a", "db2")];
+    let edges = [
+        edge("e1", "a", "ghost"),
+        edge("e2", "b", "a"),
+        edge("e2", "a", "b"),
+        edge("e3", "a", "a"),
+    ];
+    let t = index_model(&nodes, &edges).expect("fits");
+    let order = ["a", "db", "pg", "La", "b", "Lb", "e2", "", "e3"];
+    let handles: Vec<_> = order
+        .iter()
+        .map(|s| t.strings().find(s).expect("a kept string is interned"))
+        .collect();
+    assert!(handles.windows(2).all(|w| w[0] < w[1]), "{handles:?}");
+    assert_eq!(t.strings().len(), order.len());
+    assert_eq!(
+        (t.strings().find("db2"), t.strings().find("e1")),
+        (None, None)
+    );
+}

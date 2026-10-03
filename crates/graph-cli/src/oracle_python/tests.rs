@@ -30,9 +30,51 @@ fn a_worst_over_its_ceiling_or_no_component_fails_that_layout_only() {
     assert_eq!(functions["layout.mds.pivot"]["unexplained"], 1);
 }
 
+/// A result the harness wrote under `--break` carries the case it broke: its mismatches are
+/// the control's, not a defect, so nothing in it may be read as a pass. A result with no
+/// `broken` key at all is every other differential's, and says nothing.
+#[test]
+fn a_deliberately_broken_result_is_never_a_pass() {
+    let rows = json!({ "emitted": 6, "cases": 6, "exact": 3, "ties": 3, "worst": 0.0 });
+    let honest = json!({ "layouts": { "apply_budget": rows }, "broken": null });
+    assert!(unbroken(&honest));
+    assert!(!unbroken(&json!({ "broken": "lod.budget.tie" })));
+    assert!(
+        !unbroken(&json!({ "layouts": { "apply_budget": rows }, "broken": "lod.budget.tie" })),
+        "a broken run cannot be the one the ledger records"
+    );
+}
+
 #[test]
 fn a_result_without_a_measured_worst_is_refused() {
     assert!(judge(SPECTRAL.ceilings, &json!({ "layouts": {} })).is_err());
+}
+
+/// A differential over hand-built cases states how many it emitted, and every one of them
+/// has to have been compared: `cases` are the ones the harness read and judged, split into
+/// the ones the two arms returned the same bytes for (`exact`) and the ones whose order the
+/// reference cannot decide (`ties`, compared against the rule). A run that read a case and
+/// judged none of it would otherwise report a shorter, passing table.
+#[test]
+fn a_case_the_harness_never_compared_fails_its_layout() {
+    let rows = |cases: u64, exact: u64, ties: u64| json!({ "emitted": 6, "cases": cases, "exact": exact, "ties": ties, "worst": 0.0 });
+    let with = |row: Value| {
+        json!({ "layouts": { "apply_budget": row,
+                             "frustum_cull_spheres": { "emitted": 2, "cases": 2,
+                                                        "exact": 2, "ties": 0, "worst": 0.0 },
+                             "build_coarse_level": { "emitted": 4, "cases": 4,
+                                                     "exact": 4, "ties": 0, "worst": 0.0 } } })
+    };
+    assert!(
+        judge(SCALE.ceilings, &with(rows(6, 3, 3)))
+            .expect("judged")
+            .0,
+        "every emitted case judged"
+    );
+    for bad in [rows(5, 3, 3), rows(6, 4, 3), rows(6, 2, 2), rows(7, 3, 3)] {
+        let (pass, _) = judge(SCALE.ceilings, &with(bad.clone())).expect("judged");
+        assert!(!pass, "{bad} counts a case twice or not at all");
+    }
 }
 
 #[test]

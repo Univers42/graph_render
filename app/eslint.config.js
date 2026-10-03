@@ -11,7 +11,7 @@ const ORACLE = {
 };
 const SDK = {
   regex: "crates/graph-sdk-js",
-  message: "Only the motor's own files speak to the SDK: src/motor/worker.ts and src/motor/local.ts.",
+  message: "Only the motor's own files speak to the SDK: src/motor/worker.ts, src/motor/local.ts and src/motor/helper.ts.",
 };
 const REACT = { regex: "^react(-dom)?(/|$)", message: "The renderer draws on the canvas it is given and knows no UI library." };
 const STUDIO = { regex: "graph-studio/", message: "The renderer does not know the studio." };
@@ -62,7 +62,7 @@ export default tseslint.config(
   { files: ["packages/graph-render/**"], rules: banned(ORACLE, SDK, REACT, STUDIO) },
   { files: ["packages/graph-studio/**"], rules: banned(ORACLE, SDK) },
   {
-    files: ["packages/graph-studio/src/motor/{worker,local}.ts", "packages/graph-studio/tests/*.motor.test.ts", "packages/graph-studio/tests/motor.ts"],
+    files: ["packages/graph-studio/src/motor/{worker,local,helper}.ts", "packages/graph-studio/tests/*.motor.test.ts", "packages/graph-studio/tests/motor.ts"],
     rules: banned(ORACLE),
   },
   { files: ["app/src/**"], rules: banned(ORACLE, SDK, INSIDE) },

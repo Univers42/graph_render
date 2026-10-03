@@ -3,3 +3,4 @@ backend|0|scripts/studio-backend.sh
 negctl-backend|nonzero|STUDIO_BACKEND_BREAK=1 scripts/studio-backend.sh
 smoke|0|scripts/studio-smoke.sh
 negctl-smoke|nonzero|STUDIO_SMOKE_BREAK=1 scripts/studio-smoke.sh
+negctl-settle-store|nonzero|scripts/studio-probe.sh settle 200 webgl2 negctl-store 40 50 --break
