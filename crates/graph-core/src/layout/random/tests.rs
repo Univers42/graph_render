@@ -92,6 +92,14 @@ fn empty_graph_has_no_points_and_one_node_is_in_the_unit_square() {
     assert!((0.0..1.0).contains(&one[0].0) && (0.0..1.0).contains(&one[0].1));
 }
 
+/// **This is the draw-order test, and the seed *value* is not what it pins.** It re-derives
+/// with `super::SEED` and the same generator, so it holds the **order and the count** — two
+/// draws per node, `x` before `y`, off one stream — and it stays green if `SEED` is changed
+/// to any other value. The value itself is held by
+/// [`the_first_pair_is_pinned`](the_first_pair_is_pinned) below, which asserts two literal
+/// `f32`s recomputed independently from the reference `Mulberry32` stream. Between them the
+/// two questions are answered separately, which is the point: a reader who wants to know
+/// *which* seed this id draws from reads the second test, not this one.
 #[test]
 fn positions_are_the_seeded_stream_row_major() {
     let mut rng = Mulberry32::new(super::SEED);
@@ -111,6 +119,11 @@ fn a_disconnected_graph_gets_the_same_points_as_an_edgeless_one() {
     );
 }
 
+/// **This is the seed-value test**, the pair
+/// [`positions_are_the_seeded_stream_row_major`](positions_are_the_seeded_stream_row_major)
+/// above is not: two literal `f32`s at `SEED = 0x00_5EED`, recomputed independently from the
+/// `Mulberry32` recurrence rather than read out of the layout. Changing `SEED` to anything
+/// else fails here, which is what makes the pair a pair.
 #[test]
 fn the_first_pair_is_pinned() {
     let got = points(&run(&graph(2, &[])).unwrap());

@@ -31,7 +31,8 @@ export interface LoopState {
   policy: LabelPolicy;
   scene: Scene;
   camera: Camera;
-  limits: ZoomLimits;
+  /** An accessor (`limits.ts`): built on read, so nothing may assign it. */
+  readonly limits: ZoomLimits;
   viewport: Viewport;
   /**
    * The part of `viewport` a fit puts its drawing in, in canvas pixels: the chrome a host lays

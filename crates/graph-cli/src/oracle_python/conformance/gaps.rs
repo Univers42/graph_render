@@ -19,11 +19,6 @@ pub(super) const G_GRID_ITER: Gap = Gap {
     note: "a closed placement: no iteration to bound",
     at: "crates/graph-core/src/layout/grid.rs:100",
 };
-pub(super) const G_SPRING_SEED: Gap = Gap {
-    parameter: "layout seed",
-    note: "`SpringParams` has no seed field; the reference passes `seed=get_layout_seed()` to networkx, so the start position is drawn from two different generators",
-    at: "crates/graph-core/src/layout/force/spring.rs:120",
-};
 pub(super) const G_BASIC3D_SCALE: Gap = Gap {
     parameter: "scale",
     note: "`basic_3d`'s `SCALE` is a const, not a parameter of `sphere`/`helix`/`cube`/`spiral`/`bipartite_3d`",
@@ -46,7 +41,7 @@ pub(super) const G_IGRAPH_SEED: Gap = Gap {
 };
 pub(super) const G_FORCEATLAS2_SEED: Gap = Gap {
     parameter: "layout seed",
-    note: "the seed **is** passed (`Fa2Params::seed = get_layout_seed()`), but the two streams differ: the reference draws its start from `np.random.RandomState(get_layout_seed())` and graph-core from its own Mulberry32 at the same integer, so equal seeds are not equal draws",
+    note: "the seed **is** passed (`Fa2Params::seed = get_layout_seed()` = 981798123) and Mulberry32 would consume it, but the reference never reads that integer as a start seed: it draws `randint(0, 2**31 - 1)` = 1767573729 first (`forceatlas.py:122`) and starts from `np.random.default_rng(1767573729)`, PCG64, not MT19937 (`simulation.py:1090`). Equal seeds are not equal draws, and neither is the generator",
     at: "crates/graph-core/src/layout/forceatlas2/state.rs:30",
 };
 pub(super) const G_NEATO_START: Gap = Gap {

@@ -3,9 +3,9 @@
  *
  * Two translations, and nothing else. The SDK addresses rows, so the node's id is turned
  * into its row through the studio's own id table — the same order the snapshot and the pick
- * grid use, so row 3 is node 3 everywhere. And the four knobs become four of the motor's
+ * grid use, so row 3 is node 3 everywhere. And the nine knobs become nine of the motor's
  * thirteen parameters: the rest keep the motor's own values, read back through the ABI, so
- * no copy of the defaults can go stale here.
+ * no copy of their defaults can go stale here.
  *
  * Ponytail: a restart is the ABI's own release-then-create (`ForcePort.release`, then the
  * next `forceSession`), because a fresh session seeds its own start positions — so "Animate"
@@ -24,6 +24,11 @@ const PARAMS: readonly (readonly [keyof ForceKnobs, keyof ForceParams])[] = [
   ["charge", "charge"],
   ["linkStrengthScale", "link_strength_scale"],
   ["linkDistance", "link_distance"],
+  ["collideRadius", "collide_radius"],
+  ["velocityDecay", "velocity_decay"],
+  ["alphaDecay", "alpha_decay"],
+  ["distanceMax", "distance_max"],
+  ["theta", "theta"],
 ];
 
 export interface MotorForceDeps {
@@ -56,7 +61,7 @@ function rowsOf(ids: readonly string[]): Map<string, number> {
   return rows;
 }
 
-/** A `ForceParams` the four knobs can be written into, field by field. */
+/** A `ForceParams` the knobs can be written into, field by field. */
 type Writable = { -readonly [Field in keyof ForceParams]: number };
 
 /** One table per order, not one scan per pin: a drag move asks for a row on every frame. */

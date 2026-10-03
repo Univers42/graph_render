@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { type ForceKnobs, type LiveForce, NO_ADAPTER_REASON } from "../src/motor/live.ts";
+import { DEFAULT_KNOBS, type ForceKnobs, type LiveForce, NO_ADAPTER_REASON } from "../src/motor/live.ts";
 import { ALPHA_MIN, TICKS_PER_FRAME, createForceHost } from "../src/motor/liveLoop.ts";
 import type { ForceFrame, Result } from "../src/motor/protocol.ts";
 import type { Session } from "../src/motor/session.ts";
@@ -10,7 +10,7 @@ import { serve } from "../src/motor/serve.ts";
 
 const refuse = (): never => { throw new Error("a force request must not reach the session"); };
 const NO_SESSION: Session = { open: refuse, load: refuse, layout: refuse, analysis: refuse, forces: () => null };
-const KNOBS: ForceKnobs = { gravity: 0.5, charge: -100, linkStrengthScale: 1, linkDistance: 40 };
+const KNOBS: ForceKnobs = { ...DEFAULT_KNOBS, gravity: 0.5, charge: -100, linkStrengthScale: 1, linkDistance: 40, theta: 1.2 };
 /** What the loop pushes when the session under it is released: no loop, and no session. */
 const STOPPED: Result = { type: "force-state", running: false, disabled: NO_ADAPTER_REASON, paused: false };
 
@@ -194,6 +194,37 @@ test("frames carry copies: the port's buffers are never handed over", () => {
   host.handle({ type: "force.start" });
   out.tick();
   assert.deepEqual(Array.from(lastFrame(out.emitted).xs), [1, 2]);
+});
+
+/**
+ * The columns cross the wire as f32, narrowed here in the worker.
+ *
+ * WHY here and not on the page: the page narrows anyway (`state.x` is f32, and the GPU
+ * attribute is f32), so handing over f64 spends twice the bytes on a conversion whose result
+ * is thrown away. Ponytail: narrowing is a loop, not a proof — a value that is not
+ * representable in f32 rounds to nearest, which is what the page's own `Float32Array.set`
+ * did, so the drawing is unchanged. Escape hatch: a port that already answers f32 keeps its
+ * own bits, because the copy is `Float32Array.from`, not a re-quantisation.
+ */
+test("the frame's columns are f32: the worker narrows, the page does not", () => {
+  const port = fake(0.5);
+  const { host, out } = rig(port);
+  host.handle({ type: "force.start" });
+  out.tick();
+  const frame = lastFrame(out.emitted);
+  assert.ok(frame.xs instanceof Float32Array, "x is f32 on the wire");
+  assert.ok(frame.ys instanceof Float32Array, "y is f32 on the wire");
+});
+
+/** The narrowed column carries the port's numbers, to f32 precision and no further. */
+test("narrowing to f32 keeps the port's positions to f32 precision", () => {
+  const port = fake(0.5);
+  const { host, out } = rig(port);
+  host.handle({ type: "force.start" });
+  out.tick();
+  const frame = lastFrame(out.emitted);
+  assert.deepEqual(Array.from(frame.xs), Array.from(new Float32Array(port.positions().xs)));
+  assert.deepEqual(Array.from(frame.ys), Array.from(new Float32Array(port.positions().ys)));
 });
 
 test("a pause stops the frames and keeps the pins; resume carries on from that alpha", () => {
