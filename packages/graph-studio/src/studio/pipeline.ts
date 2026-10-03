@@ -28,7 +28,7 @@ export type ViewFace = Pick<
   | "setFrame" | "setStyle" | "setTheme" | "setLabels"
   | "fit" | "reset" | "zoomBy" | "panBy" | "limits"
   | "focus" | "select" | "local" | "showAll" | "on" | "toPNG" | "setCamera" | "frame" | "viewport"
-  | "hide" | "togglePin" | "pinned"
+  | "hide" | "togglePin" | "pinned" | "selectMany"
   | "orbit" | "setOrbit" | "resetOrbit" | "projected"
 >;
 
@@ -87,7 +87,7 @@ function ms(value: number): string {
   return `${Math.round(value)} ms`;
 }
 
-function firstOf(notes: readonly string[]): readonly string[] {
+export function firstOf(notes: readonly string[]): readonly string[] {
   if (notes.length <= NOTES_SHOWN) return notes;
   return [...notes.slice(0, NOTES_SHOWN), `… and ${notes.length - NOTES_SHOWN} more while reading the document`];
 }
@@ -118,7 +118,7 @@ function sameFixture(a: Source, b: Source): boolean {
 }
 
 function sameDocument(a: Source, b: Source): boolean {
-  return a.kind === "document" && b.kind === "document" && a.name === b.name && a.text === b.text;
+  return a.kind === "document" && b.kind === "document" && a.name === b.name && a.text === b.text && a.host === b.host;
 }
 
 function restyle(rig: Rig, look: Settings): void {

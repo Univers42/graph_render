@@ -43,6 +43,7 @@ function context(applied: Settings[]): StudioContext {
     animation: { start: () => ({ message: "animating" }), cancel: () => ({ message: "cancelled" }) },
     actions: () => SOURCE_ACTIONS,
     recall: () => null,
+    open: () => undefined,
     apply: (next) => Promise.resolve({ message: `${applied.push(next)}` }),
     look: () => ({ message: "restyled" }),
     bytes: () => null,

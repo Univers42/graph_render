@@ -6,6 +6,7 @@
 import { studioActions } from "../actions/all.ts";
 import type { ForceLink } from "../actions/forces.ts";
 import type { Save, StudioContext } from "../actions/context.ts";
+import type { OpenVia } from "../host/contract.ts";
 import { type Args, type Outcome, type RawArgs, type Registry, type Resolved, createRegistry } from "../actions/registry.ts";
 import { formatCommand, parseCommand } from "../console/parse.ts";
 import { type MotorClient, MotorFailure } from "../motor/client.ts";
@@ -29,6 +30,8 @@ export interface StudioDeps {
   readonly settings?: Settings;
   /** Where settings are kept per source; absent means nothing is remembered. */
   readonly storage?: SettingsStorage;
+  /** Where a request to open a node goes; nowhere when left out. */
+  readonly open?: (id: string, via: OpenVia) => void;
 }
 
 export interface Studio {
@@ -42,8 +45,8 @@ export interface Studio {
    * the reader has to be told. Never a promise, so a caller in an event handler can ignore it.
    */
   note: (reason: string) => void;
-  /** Opens the motor and draws the settings' source. */
-  start(): Promise<LogEntry>;
+  /** Opens the motor and, unless `draw` is false, draws the settings' source. */
+  start(draw?: boolean): Promise<LogEntry>;
   neighbours(node: number): readonly number[];
   /** Keeps the text in the state, and offers it to the system clipboard where that is allowed. */
   copy(text: string): void;
@@ -78,7 +81,7 @@ function shortened(args: Args): Args {
 
 function sourceCommand(source: Source): readonly [string, RawArgs] {
   if (source.kind === "fixture") return ["source.fixture", { path: source.path }];
-  if (source.kind === "document") return ["source.document", { name: source.name, text: source.text }];
+  if (source.kind === "document") return [source.host === true ? "source.host" : "source.document", { name: source.name, text: source.text }];
   return ["source.synthetic", { nodes: source.nodes, degree: source.degree, seed: source.seed, shape: source.shape }];
 }
 
@@ -124,14 +127,18 @@ function errorOf(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
 
-async function start(desk: Desk): Promise<LogEntry> {
+async function start(desk: Desk, draw: boolean): Promise<LogEntry> {
+  const opened = (outcome: Outcome | Error): LogEntry => {
+    desk.seq += 1;
+    return finish(desk, { seq: desk.seq, command: "open", at: desk.deps.now() }, outcome);
+  };
   try {
     const catalog = await desk.deps.client.catalog();
     desk.store.update((state) => ({ ...state, catalog }));
   } catch (error) {
-    desk.seq += 1;
-    return finish(desk, { seq: desk.seq, command: "open", at: desk.deps.now() }, errorOf(error));
+    return opened(errorOf(error));
   }
+  if (!draw) return opened({ message: "the motor is open; nothing is drawn until the host loads a graph" });
   const [id, raw] = sourceCommand(desk.store.get().settings.source);
   return execute(desk, id, () => desk.registry.resolve(id, raw, desk.store.get()));
 }
@@ -198,6 +205,7 @@ function contextOf(deps: StudioDeps, store: Store<StudioState>, registry: () => 
     clearLog: () => store.update((state) => ({ ...state, log: [] })),
     actions: () => registry().actions,
     recall: (source) => (deps.storage === undefined ? null : recall(deps.storage, source)),
+    open: deps.open ?? (() => undefined),
   };
 }
 
@@ -220,7 +228,7 @@ export function createStudio(deps: StudioDeps): Studio {
       const command = parseCommand(text, registry);
       return registry.resolve(command.id, command.raw, store.get());
     }),
-    start: () => start(desk),
+    start: (draw = true) => start(desk, draw),
     note: (reason) => note(store, desk, reason),
     neighbours: (node) => context.neighbours(node),
     copy: (text) => copyText(store, text),

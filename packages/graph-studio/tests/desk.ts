@@ -116,6 +116,11 @@ function recordingView(seen: Seen, handlers: Handlers): ViewFace {
     limits: () => ({ min: 0.02, max: 40 }),
     focus: (node) => void seen.calls.push(`focus ${node}`),
     select: (node) => void seen.calls.push(`select ${node}`),
+    selectMany: (nodes) => {
+      seen.calls.push(`selectMany ${nodes.join(",")}`);
+      for (const handler of handlers.select) handler(nodes.at(-1) ?? -1);
+      for (const handler of handlers.selection) handler(nodes);
+    },
     ...pinFace(seen, pins),
     local: (node, options) => {
       seen.calls.push(`local ${node} ${JSON.stringify(options)}`);
