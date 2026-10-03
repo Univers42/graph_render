@@ -18,7 +18,7 @@ layout produces on a 2-node graph, which a per-axis divide does not.
 
 import math
 
-from gv_plain import POINTS_PER_INCH, START_SEED, printed_nodes
+from gv_plain import POINTS_PER_INCH, dot_path, graph_of, printed_nodes
 
 # The plain format prints five significant digits, so the closed-case rendering prints five
 # too: that is the resolution the oracle carries, and finer would grade our `f64` against
@@ -165,10 +165,15 @@ def rendered(points):
     )
 
 
-def closed_case(engine, tmp, name, edges, answer, start=START_SEED):
-    """One closed case: the engine's arm rendered against the closed answer, exactly."""
+def closed_case(engine, tmp, case, start=None):
+    """One closed case: the engine's arm rendered against the closed answer, exactly.
+
+    `case` is `(name, edges, answer)`, so the call takes four parameters rather than six and
+    the answer reaches `rendered` without a second lookup by name.
+    """
+    name, edges, answer = case
     count = 1 + max((max(edge) for edge in edges), default=0)
-    theirs = printed_nodes(engine, tmp, f"closed-{name}", count, edges, start)
+    theirs = printed_nodes(engine, dot_path(tmp, f"closed-{name}"), graph_of(count, edges), start)
     got = " ".join(f"{x} {y}" for x, y in theirs)
     want = rendered(answer)
     return {"nodes": count, "exact": want == got, "want": want, "got": got}

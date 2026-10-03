@@ -9,13 +9,15 @@ Run in the `ge-graphviz-oracle` image (Graphviz 16.1.0, no network):
   graph-cli oracle-twopi
 
 One file, two arms: for each fixture it writes a DOT graph, runs
-`twopi -Tplain -Gstart=1`, and compares Graphviz's node positions with ours. The DOT writer
+`twopi -Tplain -Gstart=<GM_GV_START or 1>`, and compares Graphviz's node positions with ours.
+The DOT writer
 and the `-Tplain` reader are **imported from `harness/oracle-graphviz.py`**, not copied, so
 the determinism evidence the ADR records (`cmp` over two runs of that plumbing) stays
 attached to the code that runs here. The comparison is against Graphviz, never against a
 second run of ours. Graphviz's own answer per seed is written to
 `target/gv-twopi/graphviz-twopi.jsonl`, which is the file the ADR's determinism check
-`cmp`s.
+`cmp`s. The result's `oracle` string is interpolated from the Graphviz version `dot -V`
+reports and the `-Gstart` the engine was actually run at, so it names the command that ran.
 
 **The metric** is the largest absolute node-coordinate difference in points, after both arms
 are rescaled onto the same bounding box: for each seed, Graphviz's own node-centre bounding
@@ -62,6 +64,11 @@ import math
 import os
 import sys
 import tempfile
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from oracle_common import finite, read_manifest, require_cases, require_seeds
 
 # The plain format reports inches; both of this file's arms are in points.
 POINTS_PER_INCH = 72.0
@@ -137,8 +144,25 @@ def load_oracle(here):
     return module
 
 
+def engine_version(oracle):
+    """The Graphviz the engine actually ran, asked of the binary rather than asserted."""
+    return oracle.graphviz_version()
+
+
+def engine_start(oracle):
+    """The `-Gstart` the engine ran at: the value `run_engine` used, not a literal.
+
+    `gv_plain.START_SEED` is `GM_GV_START`'s default and `run_engine` resolves it inside its
+    body, so this is the seed in every command below — `twopi` is measured INERT for it
+    (`docs/measurements/p13-gv1.patchwork.md`), which is exactly why the string has to be
+    interpolated: a hard-coded `-Gstart=1` beside a `GM_GV_START=7` run recorded a command
+    that was not the one executed.
+    """
+    return oracle.START_SEED
+
+
 def engine_points(oracle, tmp, name, count, edges):
-    """`twopi -Tplain -Gstart=1` over one DOT graph, as dense-indexed points."""
+    """`twopi -Tplain -Gstart=<seed>` over one DOT graph, as dense-indexed points."""
     source = [a for a, _ in edges]
     target = [b for _, b in edges]
     dot = os.path.join(tmp, f"{name}.dot")
@@ -242,7 +266,7 @@ def sweep(oracle, tmp, fixtures):
         points = engine_points(
             oracle, tmp, f"g{record['seed']}", record["n"], edges_of(record)
         )
-        worst = max(worst, gap(ours_of(record), points))
+        worst = max(worst, finite(gap(ours_of(record), points), "twopi gap"))
         theirs.append({"seed": record["seed"], "n": record["n"], "points": points})
     return worst, theirs
 
@@ -252,18 +276,23 @@ def main():
         sys.exit("usage: oracle-twopi.py <fixtures-dir> <graphviz-out-dir>")
     fixtures_dir, out_dir = sys.argv[1], sys.argv[2]
     oracle = load_oracle(os.path.dirname(os.path.abspath(__file__)))
-    manifest = read(os.path.join(fixtures_dir, "twopi-manifest.json"))
+    manifest, digest = read_manifest(fixtures_dir, "twopi")
     fixtures = read_lines(os.path.join(fixtures_dir, "twopi.jsonl"))
+    require_seeds(manifest, fixtures, "twopi")
     with tempfile.TemporaryDirectory() as tmp:
         worst, theirs = sweep(oracle, tmp, fixtures)
         closed = {name: closed_case(oracle, tmp, name) for name in CLOSED_CASES}
+    require_cases({"twopi": {"cases": len(theirs)}}, ("twopi",), "twopi")
     os.makedirs(out_dir, exist_ok=True)
     write_lines(os.path.join(out_dir, "graphviz-twopi.jsonl"), theirs)
     exact = all(row["exact"] for row in closed.values())
     result = {
         "fingerprint": manifest["fingerprint"],
-        "sha256": manifest["sha256"]["twopi.jsonl"],
-        "oracle": "Graphviz 16.1.0 twopi -Tplain -Gstart=1",
+        "sha256": digest,
+        "oracle": (
+            f"Graphviz {engine_version(oracle)} twopi -Tplain "
+            f"-Gstart={engine_start(oracle)}"
+        ),
         "layouts": {"twopi": {"cases": len(theirs), "worst": worst}},
         "closed": closed,
         "closed_exact": exact,
@@ -275,11 +304,6 @@ def main():
         f"closed {len(closed)} exact: {exact}"
     )
     return 0 if exact else 1
-
-
-def read(path):
-    with open(path) as handle:
-        return json.load(handle)
 
 
 def read_lines(path):

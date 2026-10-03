@@ -75,8 +75,11 @@ from gv_closed import CLOSED, answer_of, closed_case, gap
 from gv_frames import FRAMED_CLOSED, framed_cases
 from gv_plain import (
     START_SEED,
+    dot_path,
     edges_of,
     engine_points,
+    graph_of,
+    graphviz_version,
     parse_plain,
     read_json,
     read_lines,
@@ -84,6 +87,7 @@ from gv_plain import (
     write_dot,
     write_lines,
 )
+from oracle_common import finite, read_manifest, require_seeds
 
 USAGE = (
     "usage: oracle-graphviz.py <fixtures-dir> <engine> <out-dir> [--start=N] "
@@ -191,27 +195,36 @@ def engine_arms(engine, tmp, record, start):
     if "box" in record:
         return sized_points(engine, tmp, f"g{record['seed']}", record, start)
     return engine_points(
-        engine, tmp, f"g{record['seed']}", record["n"], edges_of(record), start
+        engine,
+        dot_path(tmp, f"g{record['seed']}"),
+        graph_of(record["n"], edges_of(record)),
+        start,
     )
 
 
 def closed_cases(engine, tmp, start):
-    """Every closed case one engine is graded on, or none.
+    """Every closed case one engine is graded on, and the peer names it compared nothing for.
 
     Two renderings, and the reason is the frame each engine's answers are written in:
     `osage`'s port keeps Graphviz's own translation, so its answers are printed as they
     stand; `circo`'s are in the layout's own frame, so `gv_closed.rendered` applies the
     half-node `-Tplain` translates by. An engine in neither table gets an empty mapping,
     and `graph-cli oracle-graphviz` then says nothing about byte agreement for it.
+
+    `start` reaches `framed_cases`: it used to be replaced by `START_SEED` at the call site,
+    so `--start=7` drew the framed cases at seed 1 while the `oracle` string recorded 7. For
+    `fdp` the seed is load-bearing (`docs/measurements/p13-gv2-fdp.md:364`, the
+    `fdp-oracle-start-effective` row), so the byte-agreement gate was seed-invariant while
+    claiming not to be.
     """
     if engine in CLOSED:
         return {
-            name: closed_case(engine, tmp, name, edges, answer_of(shape), start)
+            name: closed_case(engine, tmp, (name, edges, answer_of(shape)), start)
             for name, (edges, shape) in CLOSED[engine].items()
-        }
+        }, []
     if engine in FRAMED_CLOSED:
-        return framed_cases(engine, tmp, FRAMED_CLOSED[engine], START_SEED)
-    return {}
+        return framed_cases(engine, tmp, FRAMED_CLOSED[engine], start)
+    return {}, []
 
 
 def main():
@@ -257,10 +270,10 @@ def record_main(options):
     digest = hashlib.sha256(open(out_path, "rb").read()).hexdigest()
     manifest = {
         "engine": engine,
-        "start": START_SEED,
+        "start": options.start,
         "seeds": count,
         "sha256": {f"graphviz-{engine}.jsonl": digest},
-        "graphviz": "16.1.0",
+        "graphviz": graphviz_version(),
     }
     with open(manifest_path, "w") as f:
         json.dump(manifest, f, indent=1)
@@ -278,29 +291,32 @@ def differential_main(options):
     engine, shards, shard = options.engine, options.shards, options.shard
     os.makedirs(options.out_dir, exist_ok=True)
     stem = f"{engine}.jsonl"
-    manifest = read_json(os.path.join(options.fixtures_dir, f"{engine}-manifest.json"))
+    manifest, digest = read_manifest(options.fixtures_dir, engine)
     fixtures = read_lines(os.path.join(options.fixtures_dir, stem))
+    require_seeds(manifest, fixtures, engine)
     mine = [r for at, r in enumerate(fixtures) if at % shards == shard]
     worst, theirs = 0.0, []
     with tempfile.TemporaryDirectory() as tmp:
         for record in mine:
             seed, count = record["seed"], record["n"]
             points = engine_arms(engine, tmp, record, options.start)
-            worst = max(worst, gap(ours_of(record, engine), points))
+            worst = max(worst, finite(gap(ours_of(record, engine), points), f"{engine} gap"))
             theirs.append({"seed": seed, "n": count, "points": points})
         # The closed cases cost one small graph each and are the same in every shard, so
         # only shard 0 pays for them and the others record no verdict.
-        closed = closed_cases(engine, tmp, options.start) if not shard else {}
+        closed, skipped = closed_cases(engine, tmp, options.start) if not shard else ({}, [])
     suffix = "" if shards == 1 else f"-shard{shard}"
     write_lines(os.path.join(options.out_dir, f"graphviz-{engine}{suffix}.jsonl"), theirs)
     exact = all(row["exact"] for row in closed.values()) if closed else None
     result = {
         "fingerprint": manifest["fingerprint"],
-        "sha256": manifest["sha256"][stem],
-        "oracle": f"Graphviz 16.1.0 {engine} -Tplain -Gstart={options.start}",
+        "sha256": digest,
+        "oracle": f"Graphviz {graphviz_version()} {engine} -Tplain -Gstart={options.start}",
         "layouts": {engine: {"cases": len(theirs), "worst": worst}},
         "closed": closed,
     }
+    if skipped:
+        result["closed_skipped"] = skipped
     if exact is not None:
         result["closed_exact"] = exact
     where, name = (options.out_dir, f"{engine}-result{suffix}.json") if shards > 1 else (
@@ -309,7 +325,10 @@ def differential_main(options):
     )
     with open(os.path.join(where, name), "w") as out:
         json.dump(result, out, indent=1)
-    print(f"{engine} shard {shard}/{shards}: {len(theirs)} seeds, worst {worst:.3e} points")
+    print(
+        f"{engine} shard {shard}/{shards}: {len(theirs)} seeds, worst {worst:.3e} points; "
+        f"closed {len(closed)} of {len(closed) + len(skipped)} exact: {exact}"
+    )
     return 0 if exact is not False else 1
 
 
@@ -325,21 +344,23 @@ def merge_main(fixtures_dir, engine, out_dir, shards):
         read_json(os.path.join(out_dir, f"{engine}-result-shard{at}.json"))
         for at in range(shards)
     ]
-    manifest = read_json(os.path.join(fixtures_dir, f"{engine}-manifest.json"))
-    check_shards_agree(parts, manifest, engine)
+    manifest, digest = read_manifest(fixtures_dir, engine)
+    check_shards_agree(parts, manifest, digest, engine)
     cases = sum(part["layouts"][engine]["cases"] for part in parts)
     if cases != manifest["seeds"]:
         sys.exit(f"{cases} cases over {shards} shards, want {manifest['seeds']} seeds")
     worst = max(part["layouts"][engine]["worst"] for part in parts)
     result = {
         "fingerprint": manifest["fingerprint"],
-        "sha256": manifest["sha256"][f"{engine}.jsonl"],
+        "sha256": digest,
         "oracle": parts[0]["oracle"],
         "layouts": {engine: {"cases": cases, "worst": worst}},
         "closed": parts[0]["closed"],
         "closed_exact": parts[0].get("closed_exact"),
         "shards": shards,
     }
+    if parts[0].get("closed_skipped"):
+        result["closed_skipped"] = parts[0]["closed_skipped"]
     with open(os.path.join(fixtures_dir, f"{engine}-result.json"), "w") as out:
         json.dump(result, out, indent=1)
     print(
@@ -349,13 +370,15 @@ def merge_main(fixtures_dir, engine, out_dir, shards):
     return 0 if result["closed_exact"] is not False else 1
 
 
-def check_shards_agree(parts, manifest, engine):
+def check_shards_agree(parts, manifest, digest, engine):
     """Every shard must have run the same tree over the same fixtures, or the max of their
-    worsts is a max over different questions."""
+    worsts is a max over different questions. The comparison is against the digest **computed
+    here** over the fixture file on disk, so a shard that measured a truncated fixture is
+    caught even when the manifest was re-sealed to match."""
     for at, part in enumerate(parts):
         if part["fingerprint"] != manifest["fingerprint"]:
             sys.exit(f"shard {at} ran against another tree: re-emit and re-run")
-        if part["sha256"] != manifest["sha256"][f"{engine}.jsonl"]:
+        if part["sha256"] != digest:
             sys.exit(f"shard {at} ran against other fixtures than these")
 
 
