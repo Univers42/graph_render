@@ -56,8 +56,15 @@ impl Grid {
 
 /// The SciGraphs kernel over `n` nodes at `scale`, or the parameter error a bad scale is.
 ///
-/// The same rule as `spacing` in the parent (`finite and above 0`), so `run_scaled` refuses
-/// what `run` refuses instead of writing a non-finite coordinate.
+/// **Two rules, both about the coordinate and not about the drawing.** The scale is finite and
+/// above 0 — the parent's `spacing` rule, so `run_scaled` refuses what `run` refuses — and the
+/// widest coordinate the lattice can write, `(cols - 1) * scale / cols`, is inside the `f32`
+/// range. The second rule is not decoration: the `as f32` in [`ScaledLattice::at`] overflows
+/// to `inf` rather than saturating (measured, not assumed), so on this toolchain a finite scale
+/// of `1e39` put `inf` in a `Geometry` and this comment used to promise it never would.
+/// `cols - 1` bounds every cell index because `i / cols <= cols - 1` for `cols = ceil(sqrt(n))`,
+/// and `cols <= 1` writes only the origin, so neither divides by zero. See
+/// `a_scale_that_does_not_fit_the_f32_range_is_refused`.
 fn scaled_cells(n: u32, scale: f64) -> Result<ScaledLattice, StageError> {
     if !(scale.is_finite() && scale > 0.0) {
         return Err(StageError::Param {
@@ -66,6 +73,13 @@ fn scaled_cells(n: u32, scale: f64) -> Result<ScaledLattice, StageError> {
         });
     }
     let (cols, _) = dimensions(n);
+    let widest = f64::from(cols.saturating_sub(1)) * scale / f64::from(cols.max(1));
+    if widest > f64::from(f32::MAX) {
+        return Err(StageError::Param {
+            name: "scale",
+            rule: "widest coordinate inside the f32 range",
+        });
+    }
     Ok(ScaledLattice {
         count: n,
         cols,
@@ -164,11 +178,58 @@ mod tests {
     /// save a struct would cost the row. Chosen because `3 · fl32(5/9)` is *representable* in
     /// `f32` (24 significand bits, no rounding at all), so the difference below is the two
     /// formulas and not a rounding direction.
+    ///
+    /// **It runs the kernel.** `n = 65` gives `cols = 9`, so node 3 is column 3 of row 0 and
+    /// its `x` is the case; the first assertion is the gather's own bits, so a kernel folded
+    /// onto an `f32` pitch fails here rather than passing a comparison of two literals.
     #[test]
     fn a_f32_pitch_would_not_have_reached_these_bits() {
+        let got = layout(65, 5.0);
+        assert_eq!(got[3], (5.0_f32 / 3.0, 0.0), "the kernel's own bits");
         let pitch = 5.0_f32 / 9.0;
-        assert_eq!(3.0 * pitch, 1.666_666_7);
-        assert_ne!(3.0 * pitch, cell(3, 5.0, 9));
+        assert_eq!(
+            3.0 * pitch,
+            1.666_666_7,
+            "the f32 pitch the parent would have used"
+        );
+        assert_ne!(
+            got[3],
+            (3.0 * pitch, 0.0),
+            "a whole ULP: two formulas, not a rounding"
+        );
+    }
+
+    /// The rule that keeps a non-finite coordinate out, at the scale the review named: `n = 4`
+    /// gives `cols = 2`, so the widest coordinate is `1e39 / 2 = 5e38`, past `f32::MAX`, and
+    /// the `as f32` would write `inf`. The public entry point is refused, not the helper alone.
+    #[test]
+    fn a_scale_that_does_not_fit_the_f32_range_is_refused() {
+        let want = StageError::Param {
+            name: "scale",
+            rule: "widest coordinate inside the f32 range",
+        };
+        assert_eq!(scaled_cells(4, 1e39).expect_err("refused"), want);
+        assert_eq!(
+            Grid::run_scaled(&probe::graph(4, &[]), 1e39, &Serial, 1).expect_err("refused"),
+            want
+        );
+    }
+
+    /// The other side of the same comparison, so the rule is a bound and not a veto: the
+    /// largest scale whose widest coordinate *is* `f32::MAX` is placed, at exactly that value.
+    #[test]
+    fn the_largest_scale_the_f32_range_holds_is_placed() {
+        let scale = 2.0 * f64::from(f32::MAX);
+        assert!(scaled_cells(4, scale).is_ok());
+        assert_eq!(
+            layout(4, scale),
+            vec![
+                (0.0, 0.0),
+                (f32::MAX, 0.0),
+                (0.0, f32::MAX),
+                (f32::MAX, f32::MAX),
+            ]
+        );
     }
 
     #[test]

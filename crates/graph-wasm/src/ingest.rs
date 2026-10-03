@@ -18,17 +18,46 @@
 //! this ABI promises callers (`docs/contract/wasm-abi.md` "Column order").
 
 use graph_contract::canonical_json::{JsonError, Value, parse};
-use graph_core::{EdgeKind, EdgeRecord, NodeKind, NodeRecord};
+use graph_core::{EdgeRecord, NodeRecord};
+// The two kind names are named only by this module's tests: `record.rs` imports its own, so
+// the wasm32 release build has no user for them and an unconditional import warns there.
+#[cfg(test)]
+use graph_core::{EdgeKind, NodeKind};
+
+use crate::errors::Code;
 
 mod at;
 mod ids;
 mod record;
 use at::At;
-use ids::check_ids;
+pub use ids::index;
 use record::{edge, node};
 
 /// The only ingest version this reader accepts.
 pub const VERSION: u32 = 1;
+
+/// The longest ingest document [`read`] accepts, in bytes: one past this is
+/// [`IngestError::TooLarge`], checked before [`read`] parses or `from_utf8` touches a byte.
+///
+/// Measured, not chosen (`docs/decisions/wasm-ingest-limits.md`, `docs/measurements/fix-wasm-ingest.md`):
+/// the studio's own generator at its 1M-node scale target, doubling up, on the
+/// `wasm32-unknown-unknown` release artifact under Node. This is the largest document that
+/// built — 774,568,785 bytes, 3,679,984 edges — byte for byte, with no rounding: it refuses
+/// nothing that built and accepts nothing unmeasured, which is the only property a ceiling
+/// here has to keep. The next document up, 799,922,860 bytes and 3,799,984 edges, trapped
+/// inside `graph_core::index_model`'s string arena, as did 842,132,644 bytes at the studio's
+/// own `MAX_NODES`.
+///
+/// Ponytail: no margin, deliberately — it *is* the measurement, so the 25,354,075 bytes between
+/// it and the first document that trapped are untested air, not headroom, and no part of it
+/// bounds the work a document implies. The only trap the sweep found sits 30,000 nodes and
+/// 120,000 edges above this document at the same degree, so build-versus-trap is a work
+/// boundary and a length check cannot see work at all. Failing input: a document under this
+/// ceiling whose arena use outruns its bytes, so it traps where this promised nothing.
+/// Direction: refuses early on size, never on shape, and bounds nothing else. Escape hatch:
+/// `fix-ingest-scale` fixes the arena, raises this with a new measurement, and restores the
+/// decision record's power-of-two step down with it.
+pub const MAX_INGEST_BYTES: usize = 774_568_785;
 
 /// Why an ingest buffer was refused.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -48,19 +77,55 @@ pub enum IngestError {
         id: String,
     },
     /// Too many nodes or edges to index (`u32` capacity). Reachable only on a 64-bit host: on
-    /// wasm32 `usize` is `u32` (F-79). A ceiling below that is F-16's, not decided here.
+    /// wasm32 `usize` is `u32` (F-79). A ceiling on the document's bytes is
+    /// [`IngestError::TooLarge`], which is the one that bites on wasm32.
     Capacity,
+    /// The buffer is longer than [`MAX_INGEST_BYTES`]: its bytes, and the limit it was held to.
+    TooLarge { bytes: usize, limit: usize },
 }
 
-/// Parses and validates `bytes` into ingest order records, or the refusal.
+impl IngestError {
+    /// The wire code this refusal is published under (C4): every ingest refusal is
+    /// [`Code::IngestInvalid`] but the one the host can do something about — an oversized
+    /// document is not malformed, and telling a caller the two are the same would send it
+    /// looking for a bad member in a document it must instead split.
+    pub fn code(&self) -> Code {
+        match self {
+            Self::TooLarge { .. } => Code::IngestTooLarge,
+            _ => Code::IngestInvalid,
+        }
+    }
+}
+
+/// Parse and validate `bytes` into ingest order records, or the refusal.
+///
+/// The length is checked first, before [`std::str::from_utf8`] and before the parser is
+/// given anything: a buffer past [`MAX_INGEST_BYTES`] is refused by its size alone, so no
+/// work is done on a document this module has already promised not to read (F-16).
 ///
 /// The tree is consumed by value: each node's and edge's element is moved in, each string
 /// is moved out of its `Value` instead of copied with `.to_owned()`, and the element is
 /// dropped as soon as its record is built. The order is unchanged from the borrowing
 /// reader this replaced, and the differential test in [`differential`] is the judge: whole
 /// text parsed before any shape check, root checked before any node, every node before any
-/// edge, then `check_ids`.
+/// edge, then `check_ids`. Only tests call it: `gm_build` reads through [`read_records`] and
+/// [`index`], which refuse the same documents.
+#[cfg(test)]
 pub fn read(bytes: &[u8]) -> Result<(Vec<NodeRecord>, Vec<EdgeRecord>), IngestError> {
+    let (nodes, edges) = read_records(bytes)?;
+    ids::check_ids(&nodes, &edges)?;
+    Ok((nodes, edges))
+}
+
+/// [`read`] without C12's id pass, for a caller that hands the records to [`index`], which
+/// refuses the same documents.
+pub fn read_records(bytes: &[u8]) -> Result<(Vec<NodeRecord>, Vec<EdgeRecord>), IngestError> {
+    if bytes.len() > MAX_INGEST_BYTES {
+        return Err(IngestError::TooLarge {
+            bytes: bytes.len(),
+            limit: MAX_INGEST_BYTES,
+        });
+    }
     let text = std::str::from_utf8(bytes).map_err(|_| IngestError::Utf8)?;
     let Value::Object(mut root) = parse(text).map_err(IngestError::Json)? else {
         return Err(shape(At::ROOT, "expected an object"));
@@ -83,7 +148,6 @@ pub fn read(bytes: &[u8]) -> Result<(Vec<NodeRecord>, Vec<EdgeRecord>), IngestEr
     // element is dropped as its record is built.
     let nodes = read_all(nodes, node, At::list("nodes"))?;
     let edges = read_all(edges, edge, At::list("edges"))?;
-    check_ids(&nodes, &edges)?;
     Ok((nodes, edges))
 }
 

@@ -12,7 +12,7 @@ use crate::seed_ingest;
 use crate::views;
 use graph_contract::binary::Snapshot;
 use graph_core::registry::LAYOUTS;
-use graph_core::{Geometry, StageError, Topology, index_model};
+use graph_core::{Geometry, StageError, Topology};
 
 /// Registry-driven layout count (C1). p3's four new rows change this with no ABI change.
 // SAFETY: `no_mangle` exports this symbol under its Rust name; no other symbol in this
@@ -58,13 +58,17 @@ pub extern "C" fn gm_build(ingest_ptr: u32, ingest_len: u32) -> u32 {
     // caller's own later `gm_free`), so borrowing it for the duration of `ingest::read`
     // is sound, and nothing here retains the slice past this function.
     let bytes = unsafe { std::slice::from_raw_parts(ingest_ptr as *const u8, ingest_len as usize) };
-    let Ok((nodes, edges)) = ingest::read(bytes) else {
-        errors::set(Code::IngestInvalid);
-        return 0;
-    };
-    let Ok(topology) = index_model(&nodes, &edges) else {
-        errors::set(Code::IngestInvalid);
-        return 0;
+    // The records are dropped as soon as the topology holds them, not at the end of the call.
+    let indexed =
+        ingest::read_records(bytes).and_then(|(nodes, edges)| ingest::index(&nodes, &edges));
+    let topology = match indexed {
+        Ok(topology) => topology,
+        // F-16: the refusal names its own code, so an oversized document is not published
+        // as a malformed one.
+        Err(refusal) => {
+            errors::set(refusal.code());
+            return 0;
+        }
     };
     insert(topology)
 }

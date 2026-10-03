@@ -11,6 +11,8 @@ import { serve } from "../src/motor/serve.ts";
 const refuse = (): never => { throw new Error("a force request must not reach the session"); };
 const NO_SESSION: Session = { open: refuse, load: refuse, layout: refuse, analysis: refuse, forces: () => null };
 const KNOBS: ForceKnobs = { ...DEFAULT_KNOBS, gravity: 0.5, charge: -100, linkStrengthScale: 1, linkDistance: 40, theta: 1.2 };
+/** What the loop pushes when the session under it is released: no loop, and no session. */
+const STOPPED: Result = { type: "force-state", running: false, disabled: NO_ADAPTER_REASON, paused: false };
 
 interface Clock { now: number; perStep: number }
 
@@ -114,9 +116,27 @@ test("a held pin keeps the loop running past alpha_min; release lets it settle",
   assert.equal(lastFrame(out.emitted).running, true);
   assert.ok(port.calls.includes("pin a 5 6"));
   host.handle({ type: "force.release", id: "a" });
-  assert.ok(port.calls.includes("unpin a"));
+  assert.ok(!port.calls.includes("unpin a"), "a drop is not an unpin: the node keeps the position it was put at");
   for (let i = 0; i < 30; i += 1) out.tick();
-  assert.equal(lastFrame(out.emitted).running, false);
+  assert.equal(lastFrame(out.emitted).running, false, "and nothing holds the loop awake any more");
+});
+
+test("a flick — every move and the release in one batch — lands the node where it was dropped", () => {
+  // What a hand does when it is quicker than a frame: twenty moves and the release arrive
+  // together, so the frame the loop runs sees a release and nothing to place.
+  const port = fake(0.9);
+  const { host, out } = rig(port);
+  host.handle({ type: "force.drag", id: "a", x: 0, y: 0 });
+  host.handle({ type: "force.drag", id: "a", x: 30, y: 40 });
+  host.handle({ type: "force.drag", id: "a", x: 60, y: 80 });
+  host.handle({ type: "force.release", id: "a" });
+  out.tick();
+  assert.ok(port.calls.includes("pin a 60 80"), "the drop reached the motor, not only the moves before it");
+  assert.ok(!port.calls.includes("unpin a"), "and the node is not let go of where it was put");
+  port.calls.length = 0;
+  for (let i = 0; i < 20; i += 1) out.tick();
+  assert.deepEqual(port.calls.filter((c) => c.startsWith("pin")), Array.from({ length: 20 }, () => "pin a 60 80"),
+    "so it cannot drift back to the equilibrium the drag broke");
 });
 
 test("drag events before a frame collapse to the last one", () => {
@@ -233,6 +253,7 @@ test("a frame already scheduled does not step a session that was released under 
   assert.doesNotThrow(() => out.tick(), "a released session is never stepped");
   assert.equal(port.calls.filter((call) => call.startsWith("step")).length, 0);
   assert.equal(out.frames(), 0, "nothing is drawn from a session that is gone");
+  assert.deepEqual(out.emitted.at(-1), STOPPED, "but the loop says the settle ended, so the page rests");
   assert.equal(out.scheduled(), 1, "and no frame is scheduled in its place");
 });
 
@@ -252,6 +273,7 @@ test("the release notice stops the loop at once, and the next request starts a f
   const before = out.frames();
   assert.doesNotThrow(() => out.tick());
   assert.equal(out.frames(), before, "the frame the old loop had scheduled is gone");
+  assert.deepEqual(out.emitted.at(-1), STOPPED, "and the release notice says the settle ended");
   host.handle({ type: "force.start" });
   assert.ok(next.calls.includes("shuffle"), "the host still works over the new session");
 });

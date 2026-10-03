@@ -19,7 +19,7 @@ export const IDLE: StudioState = initialState();
 
 export const STATS: ViewStats = {
   backend: "canvas2d", backendFailure: "", refining: false, nodes: 3, edges: 2, drawnNodes: 3, drawnEdges: 2, drawnLabels: 2, drawnArrows: 0, arrowSize: 0, curvedEdges: 0, strokeWidth: 0,
-  draws: 12, strokeCalls: 1, edgeStyles: 1, mixedEdges: 0, gradientStrokes: 0, arrowFills: 0, glowFills: 0, spritesRasterised: 0, layoutRuns: 1, frameMs: 4.2, fps: 60, frames: 42,
+  draws: 12, strokeCalls: 1, edgeStyles: 1, mixedEdges: 0, gradientStrokes: 0, arrowFills: 0, glowFills: 0, spritesRasterised: 0, layoutRuns: 1, frameMs: 4.2, fps: 60, frames: 42, gpuEdgeMs: 0,
 };
 
 export function studioWith(state: StudioState = DRAWN, forces?: ForceLink): Desk {

@@ -5,10 +5,6 @@
 # `expect` is `0` or `nonzero`; `#` starts a comment (scripts/orch/gate.sh:2-4). Every gate needs
 # `scripts/studio.sh build` first, which the orchestrator runs before this file.
 #
-# KNOWN RED until fix-node-drag lands: `interact` fails on `int-node-drag`, where the node lands
-# 146.16 px from the pointer after a 150 px drag. The same row measures 145.89 px on origin/develop's
-# own build, so it was red before the knobs existed (prompts/jobs/fix-node-drag.md).
-
 studio-check|0|scripts/studio.sh check
 
 backend|0|scripts/studio-backend.sh

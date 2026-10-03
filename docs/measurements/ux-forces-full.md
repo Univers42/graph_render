@@ -68,8 +68,10 @@ Per-run fps medians, so the spread of the host is visible:
 | after, `spread` | 43.02 | 42.48 | 43.38 | 43.02 |
 
 Reading the frame rate: the loop is **3.3% faster** after the change (3.0% pooling all nine
-windows of a build), so nothing regressed, but the ±3% band is crossed by 0.3 points in the fast
-direction and that is inside the noise — the nine windows of the "after" build span 37.9 to 43.2
+windows of a build), so nothing regressed. The band is floor-only (orchestrator decision,
+2026-10-03): the frame rate must not fall below 97% of before, and a faster loop passes. The
+symmetric ±3% band of the brief would have been crossed by 0.3 points in the fast direction,
+inside the noise — the nine windows of the "after" build span 37.9 to 43.2
 fps and the "before" build 39.4 to 43.0. The knobs themselves are free: inside the same
 build, `spread` (nine parameters pushed to the motor, collide radius 16 → 21, repel 90 → 270)
 moves the median by +1.7%, which is the run-to-run spread. Two caveats on this comparison:

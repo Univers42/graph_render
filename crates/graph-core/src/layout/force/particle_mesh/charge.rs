@@ -50,7 +50,7 @@ pub(super) fn apply<R: Runner>(sim: &mut Sim, mesh: &mut Mesh, how: &mut How<'_,
     how.runner.run(&read, how.workers, how.deltas);
     let gathered = Gathered {
         deltas: how.deltas,
-        slot: &mesh.grid.slot,
+        slot: Some(&mesh.grid.slot),
         split: how.split.splits(Split::Charge),
     };
     motion::merge(sim, gathered, (how.runner, how.workers));

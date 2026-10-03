@@ -51,12 +51,16 @@ fn every_division_of_the_cells_is_the_one_thread_loop_bit_for_bit() {
             order: &order,
             xy: (&x, &y),
         };
-        for workers in [1, 2, 3, 7, 64] {
+        // 4096 cuts most rows into pieces, so a range starts and ends mid-row.
+        for workers in [1, 2, 3, 7, 64, 4096] {
             let (mut at, mut got) = (Vec::new(), Vec::new());
             Serial.run(&stencils, workers, &mut at);
+            let mut rows = Rows::new(side, n as u32);
+            rows.sort(&at, side);
             let deposit = Deposit {
                 stencils: &stencils,
                 at: &at,
+                rows: &rows,
             };
             Serial.run(&deposit, workers, &mut got);
             assert_eq!(got.len(), frame.cells * side);
@@ -70,4 +74,23 @@ fn every_division_of_the_cells_is_the_one_thread_loop_bit_for_bit() {
             }
         }
     }
+}
+
+#[test]
+fn rows_hold_every_finite_slot_once_ascending_in_its_row() {
+    let side = 8;
+    let at = [17, NONE, 3, 63, 16, 0, NONE, 18, 2];
+    let mut rows = Rows::new(side, at.len() as u32);
+    rows.sort(&at, side);
+    let got: Vec<&[u32]> = (0..side).map(|row| rows.of(row)).collect();
+    let want: [&[u32]; 8] = [&[2, 5, 8], &[], &[0, 4, 7], &[], &[], &[], &[], &[3]];
+    assert_eq!(got, want);
+    // A second sort over other cells reuses the buffers and leaves nothing behind.
+    rows.sort(&[9, 9, NONE, 9, NONE, NONE, NONE, NONE, NONE], side);
+    assert_eq!(rows.of(1), [0, 1, 3]);
+    assert!(
+        (0..side)
+            .filter(|&row| row != 1)
+            .all(|row| rows.of(row).is_empty())
+    );
 }

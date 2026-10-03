@@ -79,7 +79,7 @@ export function pressAt(controller: Controller, at: Point, shift: boolean): Gest
   const node = pickAt(controller.state, at);
   if (node < 0) return null;
   const { camera } = controller.state;
-  const live = controller.live === undefined ? null : liveGesture(controller.live, node, (to) => screenToWorld(camera, to), at);
+  const live = controller.live === undefined ? null : liveGesture(controller.live, node, (to) => screenToWorld(camera, to));
   return live ?? nodeGesture(controller, node);
 }
 
