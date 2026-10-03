@@ -128,25 +128,27 @@ class PrintedNodes(unittest.TestCase):
 
     graph = graph_of(2, [(0, 1)])
 
+    def printed(self, body):
+        """`printed_nodes` over `body`, with the DOT written into a scratch directory."""
+        with on_path(stub("twopi", body, "", 0)):
+            with tempfile.TemporaryDirectory() as scratch:
+                return printed_nodes(
+                    "twopi", os.path.join(scratch, "g.dot"), self.graph
+                )
+
     def test_a_complete_drawing_gives_its_own_strings(self):
-        with on_path(stub("twopi", DRAWING, "", 0)):
-            self.assertEqual(printed_nodes("twopi", "g.dot", self.graph), [("0", "0"), ("0", "36")])
+        self.assertEqual(self.printed(DRAWING), [("0", "0"), ("0", "36")])
 
     def test_a_drawing_with_no_graph_line_is_refused(self):
         body = "node n0 0 0 1 1 1 1\nnode n1 0 36 1 1 1 1\n"
-        with on_path(stub("twopi", body, "", 0)):
-            message = refused(printed_nodes, "twopi", "g.dot", self.graph)
-        self.assertIn("printed no graph line", message)
+        self.assertIn("printed no graph line", refused(self.printed, body))
 
     def test_a_truncated_drawing_is_refused_by_node_count(self):
         body = "graph 1 1 72 36\nnode n0 0 0 1 1 1 1\n"
-        with on_path(stub("twopi", body, "", 0)):
-            message = refused(printed_nodes, "twopi", "g.dot", self.graph)
-        self.assertIn("printed 1 nodes for g.dot, expected 2", message)
+        self.assertIn("printed 1 nodes", refused(self.printed, body))
 
     def test_an_empty_drawing_is_refused_not_an_index_error(self):
-        with on_path(stub("twopi", "", "", 0)):
-            self.assertIn("no graph line", refused(printed_nodes, "twopi", "g.dot", self.graph))
+        self.assertIn("no graph line", refused(self.printed, ""))
 
 
 class GraphvizVersion(unittest.TestCase):

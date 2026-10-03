@@ -75,10 +75,8 @@ from gv_closed import CLOSED, answer_of, closed_case, gap
 from gv_frames import FRAMED_CLOSED, framed_cases
 from gv_plain import (
     START_SEED,
-    dot_path,
     edges_of,
     engine_points,
-    graph_of,
     graphviz_version,
     parse_plain,
     read_json,
@@ -195,10 +193,7 @@ def engine_arms(engine, tmp, record, start):
     if "box" in record:
         return sized_points(engine, tmp, f"g{record['seed']}", record, start)
     return engine_points(
-        engine,
-        dot_path(tmp, f"g{record['seed']}"),
-        graph_of(record["n"], edges_of(record)),
-        start,
+        engine, tmp, f"g{record['seed']}", record["n"], edges_of(record), start
     )
 
 
