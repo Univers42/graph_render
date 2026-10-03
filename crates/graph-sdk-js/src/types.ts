@@ -5,6 +5,7 @@
 // `graph-cli codegen` actually writes and pins (`crates/graph-contract/src/lib.rs`'s
 // `codegen::outputs()`), never a hand-copied duplicate of its interfaces.
 import type { EdgeGeometryKind, NodeGeometryKind, SnapshotHeader } from "../../graph-contract/generated/snapshot-header.d.ts";
+import type { MotorThreads } from "./threads.ts";
 
 export type { EdgeGeometryKind, NodeGeometryKind, SnapshotHeader };
 
@@ -122,6 +123,9 @@ export interface MotorOptions {
    * this phase is `"auto"`, meaning "whatever this build supports" — the same thing
    * omitting the field means. Any other value is refused by `createMotor` (`InvalidOptionsError`). */
   exec?: "auto";
+  /** Load the threads artifact and tick live sessions on its pool (`threads.ts`). Inside a
+   * Worker only: the coordinator blocks while its helpers run. */
+  threads?: MotorThreads;
 }
 
 /** An opaque live force session id, `gm_force_session_create`'s answer
