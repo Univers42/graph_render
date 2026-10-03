@@ -158,8 +158,8 @@ function traceInterior(trace: Interior, edge: number, bx: number, by: number): b
 /**
  * The stroke width: the look's own width in world units over the 3D scale, or the floor the
  * 3D painter has always used when the look carries none, both times by `edges.scale` — the
- * 2D painter's two inputs at `canvas2d/edges.ts:223-227`, over `drawn.ppu` instead of
- * `camera.scale`.
+ * 2D painter's two inputs at `canvas2d/edges.ts:223-227`, over the 3D pixels-per-unit
+ * (`drawn.ppu` here) instead of `camera.scale`.
  *
  * Ponytail: the no-look branch keeps the old `max(1 / dpr, 1)` rather than the 2D zoom curve
  * `edgeWidth()` takes, so a lookless 3D frame's stroke does not thin out as the orbit pulls
@@ -167,10 +167,10 @@ function traceInterior(trace: Interior, edge: number, bx: number, by: number): b
  * than its nodes, whose edges read heavier than the 2D view's. The escape hatch is the
  * look's own `edgeWidth`, which this branch reads when it is there.
  */
-function strokeWidth(input: PaintInput, drawn: Drawn): number {
+export function strokeWidth(input: PaintInput, ppu: number): number {
   const carried = input.style.edgeWidth;
   const scale = input.style.edges.scale;
-  if (carried !== null && carried > 0) return carried * drawn.ppu * scale;
+  if (carried !== null && carried > 0) return carried * ppu * scale;
   return Math.max(1 / input.dpr, 1) * scale;
 }
 
@@ -179,7 +179,7 @@ function paintEdges(input: PaintInput, drawn: Drawn, counts: PaintCounts): void 
   const { ctx, frame, theme } = input;
   if (frame.edgeCount === 0) return;
   ctx.strokeStyle = theme.edge;
-  ctx.lineWidth = strokeWidth(input, drawn);
+  ctx.lineWidth = strokeWidth(input, drawn.ppu);
   ctx.globalAlpha = 1;
   ctx.beginPath();
   const interior: Interior = { input, drawn };
@@ -207,31 +207,59 @@ interface Ring {
   readonly width: number;
 }
 
+/** Where one node is drawn: its screen centre and its drawn radius, both in CSS pixels. */
+export interface Spot {
+  readonly x: number;
+  readonly y: number;
+  readonly radius: number;
+}
+
+/** The spot of one node, or null when it is behind the eye. */
+export type Locate = (node: number) => Spot | null;
+
+function spotsOf(drawn: Drawn): Locate {
+  return (node) => {
+    if ((drawn.depth[node] ?? 0) <= 0) return null;
+    return { x: drawn.x[node] ?? 0, y: drawn.y[node] ?? 0, radius: radiusOf(drawn, node) };
+  };
+}
+
 /** The ring, at the node's own projected radius, so it reads as the same node. */
-function paintRing(input: PaintInput, drawn: Drawn, counts: PaintCounts, ring: Ring): void {
+function paintRing(input: PaintInput, locate: Locate, counts: PaintCounts, ring: Ring): void {
   const { node, width } = ring;
   if (node < 0 || node >= input.frame.nodeCount || skipped(input, node)) return;
-  if ((drawn.depth[node] ?? 0) <= 0) return;
+  const spot = locate(node);
+  if (spot === null) return;
   const { ctx, theme } = input;
   ctx.beginPath();
-  ctx.arc(drawn.x[node] ?? 0, drawn.y[node] ?? 0, radiusOf(drawn, node) + RING_GAP, 0, TAU);
+  ctx.arc(spot.x, spot.y, spot.radius + RING_GAP, 0, TAU);
   ctx.strokeStyle = theme.ring;
   ctx.lineWidth = width;
   ctx.stroke();
   counts.draws += 1;
 }
 
-/** One 3D frame: the ground, then the edges, then the nodes furthest-first over them. */
-export function paint3d(input: PaintInput, drawn: Drawn, counts: PaintCounts): PaintCounts {
+/** The selection ring, then the focus ring when it is another node: over whatever drew the nodes. */
+export function paintRings(input: PaintInput, locate: Locate, counts: PaintCounts): void {
+  paintRing(input, locate, counts, { node: input.selected, width: 2 });
+  if (input.focus !== input.selected) paintRing(input, locate, counts, { node: input.focus, width: 1.5 });
+  input.ctx.globalAlpha = 1;
+}
+
+/** The ground of a 3D frame: the theme's own background, flat, under everything. */
+export function paintGround3d(input: PaintInput): void {
   const { ctx, dpr, viewport, theme } = input;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.globalAlpha = 1;
   ctx.fillStyle = theme.background;
   ctx.fillRect(0, 0, viewport.width, viewport.height);
+}
+
+/** One 3D frame: the ground, then the edges, then the nodes furthest-first over them. */
+export function paint3d(input: PaintInput, drawn: Drawn, counts: PaintCounts): PaintCounts {
+  paintGround3d(input);
   paintEdges(input, drawn, counts);
   paintNodes(input, drawn, counts);
-  paintRing(input, drawn, counts, { node: input.selected, width: 2 });
-  if (input.focus !== input.selected) paintRing(input, drawn, counts, { node: input.focus, width: 1.5 });
-  ctx.globalAlpha = 1;
+  paintRings(input, spotsOf(drawn), counts);
   return counts;
 }
