@@ -61,13 +61,21 @@ class Watcher(cdp.Page):
         return message
 
     def session_call(self, session_id, method, params=None, timeout=30):
-        """`call` on an auto-attached target, with no domain support in the shared client."""
+        """`call` on an auto-attached target, with no domain support in the shared client.
+
+        A target that detaches first never answers: a retired motor worker with a thread pool
+        takes about 3 s to end (studio-embed, isolated run, 2026-10-04) and ignores every call
+        meanwhile. That is a refusal now, not a wait for the timeout.
+        """
         self._next_id += 1
         ident = self._next_id
         self._sock.settimeout(timeout)
         self._send({"id": ident, "method": method, "params": params or {}, "sessionId": session_id})
         while True:
             reply = self._receive()
+            if (reply.get("method") == "Target.detachedFromTarget"
+                    and reply.get("params", {}).get("sessionId") == session_id):
+                raise cdp.CdpError(f"{method} on {session_id}: the target detached before it answered")
             if reply.get("id") != ident:
                 continue
             if "error" in reply:
@@ -81,9 +89,9 @@ class Watcher(cdp.Page):
     def watch_workers(self):
         """Turn the error domains on for every target auto-attached since the last call.
 
-        A target that detached before its domains were on (a page navigated away, the motor's
-        short-lived helper worker) has nothing left to watch: skipped, but only once the browser
-        has said it detached. Any other refusal still raises.
+        A target that detached before its domains were on (a page navigated away, a retired motor
+        worker) has nothing left to watch: skipped, but only once the browser has said it
+        detached. Any other refusal still raises.
         """
         for event in self.events:
             params = event.get("params", {})

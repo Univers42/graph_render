@@ -39,21 +39,27 @@ export function codeName(code: number): string {
 
 /** Base of every error this package throws. `code`/`codeName` are set on every instance
  * that came from the ABI (`gm_last_error`); the loader's own failures (never reached the
- * ABI at all) leave `code` `undefined` rather than inventing a wire value for them. */
+ * ABI at all) leave `code` `undefined` rather than inventing a wire value for them.
+ *
+ * Every class here writes its `name` as a literal, never `new.target.name`: a minifier renames
+ * classes, and the studio's production build reported a refused wasm load as `f` to its host
+ * (studio-embed, 2026-10-04). `test/error-names.test.mjs` renames each class to check. */
 export class GraphMotorError extends Error {
+  override name = "GraphMotorError";
   readonly code: number | undefined;
   readonly codeName: string | undefined;
 
   constructor(message: string, code?: number) {
     super(message);
-    this.name = new.target.name;
     this.code = code;
     this.codeName = code === undefined ? undefined : codeName(code);
   }
 }
 
 /** `gm_build` refused the ingest buffer, or the handle table is exhausted. */
-export class BuildRefusedError extends GraphMotorError {}
+export class BuildRefusedError extends GraphMotorError {
+  override name = "BuildRefusedError";
+}
 
 /** `gm_build_contract` refused the contract document: the strict reader said no
  *  (`ContractInvalid` covers both it and a derivation refusal — a caller debugging a
@@ -64,28 +70,40 @@ export class BuildRefusedError extends GraphMotorError {}
  *  different documents, so a caller that catches only this one is saying "a contract
  *  document was refused" and must not silently keep a handle it got from
  *  {@link Motor.build}, whose document means something else. */
-export class ContractRefusedError extends GraphMotorError {}
+export class ContractRefusedError extends GraphMotorError {
+  override name = "ContractRefusedError";
+}
 
 /** `gm_run` refused: an unknown handle, an unknown layout id, or non-empty params
  * (registry layouts take none this phase, C2). */
-export class RunRefusedError extends GraphMotorError {}
+export class RunRefusedError extends GraphMotorError {
+  override name = "RunRefusedError";
+}
 
 /** A handle this motor never issued, or already released (`gm_release`, C6). */
-export class InvalidHandleError extends GraphMotorError {}
+export class InvalidHandleError extends GraphMotorError {
+  override name = "InvalidHandleError";
+}
 
 /** `gm_post_run` refused: an unknown handle, a post id that is not registered, a handle
  *  with no successful layout run to read (there is nothing for a pass to draw over), or
  *  the capability's own failure. Never a silently unchanged drawing. */
-export class PostRefusedError extends GraphMotorError {}
+export class PostRefusedError extends GraphMotorError {
+  override name = "PostRefusedError";
+}
 
 /** `gm_analysis_run` refused: an unknown handle, or an analysis id that is not
  *  registered. An analysis never needs a layout run, so `NoGeometryYet` is not among
  *  these — analysing a graph straight after `build` is a supported state. */
-export class AnalysisRefusedError extends GraphMotorError {}
+export class AnalysisRefusedError extends GraphMotorError {
+  override name = "AnalysisRefusedError";
+}
 
 /** `gm_snapshot_json`/`gm_snapshot_bytes` refused: a column view wrote a non-finite value
  * into the motor's own buffer since the last run (D9 tamper re-validation, C8). */
-export class TamperedGeometryError extends GraphMotorError {}
+export class TamperedGeometryError extends GraphMotorError {
+  override name = "TamperedGeometryError";
+}
 
 /** The module answered something this ABI forbids: a framed buffer whose length runs past
  *  linear memory, a column `(ptr, len)` pair that is illegal by contract (`ptr === 0` with a
@@ -96,18 +114,23 @@ export class TamperedGeometryError extends GraphMotorError {}
  *  `gm_last_error` behind them, so `code` is `undefined` — and none is a trap either. Without
  *  it a caller caught a raw `RangeError` from `DataView`/`Float32Array` and could not tell
  *  "the module is broken" from "my own id was wrong". */
-export class AbiContractError extends GraphMotorError {}
+export class AbiContractError extends GraphMotorError {
+  override name = "AbiContractError";
+}
 
 /** `gm_alloc` refused (`AllocFailed`, code 2): the module could not reserve the buffer the
  *  call needed. Distinct from every session's and every stage's own refusal class, because
  *  nothing was asked and nothing refused — the module ran out of room first, and a caller
  *  catching a *session* refusal here would go looking for a bad parameter that is not there. */
-export class AllocationFailedError extends GraphMotorError {}
+export class AllocationFailedError extends GraphMotorError {
+  override name = "AllocationFailedError";
+}
 
 /** The wasm module trapped (`WebAssembly.RuntimeError`) during a call that should only
  * ever return a sentinel, never trap. Wrapped so it is still a `GraphMotorError`, but
  * `code` is left `undefined`: a trap has no `gm_last_error` behind it. */
 export class MotorTrapError extends GraphMotorError {
+  override name = "MotorTrapError";
   override readonly cause: unknown;
   constructor(exportName: string, cause: unknown) {
     super(`${exportName} trapped: ${String(cause)}`);
@@ -119,6 +142,7 @@ export class MotorTrapError extends GraphMotorError {
  * `initFailed` latch, `docs/cheatsheet/wasm_native/wasm-bridge.md`): the motor is not
  * coming back this session without an explicit `resetForTests()`. */
 export class WasmUnavailableError extends GraphMotorError {
+  override name = "WasmUnavailableError";
   readonly reason: unknown;
   constructor(message: string, reason?: unknown) {
     super(message);
@@ -127,13 +151,17 @@ export class WasmUnavailableError extends GraphMotorError {
 }
 
 /** A caller passed an `options`/params shape this SDK does not recognise (C16's table). */
-export class InvalidOptionsError extends GraphMotorError {}
+export class InvalidOptionsError extends GraphMotorError {
+  override name = "InvalidOptionsError";
+}
 
 /** A live force session id this motor never issued, or one already released
  * (`InvalidSession`). Distinct from {@link InvalidHandleError} rather than a subclass: the two
  * are two id spaces, and a caller catching only this one is saying "my session is gone" —
  * which must not be satisfied by a *graph* handle that happens to be dead. */
-export class InvalidSessionError extends GraphMotorError {}
+export class InvalidSessionError extends GraphMotorError {
+  override name = "InvalidSessionError";
+}
 
 /** A force session refused the request: a parameter outside its range (**never clamped**), a
  * row past the last node column, or a coordinate that is not finite (`SessionRefused`), or a
@@ -144,4 +172,6 @@ export class InvalidSessionError extends GraphMotorError {}
  *  costs the caller nothing but the one call. The field and the range are in the motor's own
  *  message text, which the wire does not carry; {@link ForceParams} documents the bounds each
  *  field has, so a host can name the offending one from its own input. */
-export class ForceSessionRefusedError extends GraphMotorError {}
+export class ForceSessionRefusedError extends GraphMotorError {
+  override name = "ForceSessionRefusedError";
+}
