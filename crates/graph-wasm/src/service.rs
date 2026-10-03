@@ -48,6 +48,18 @@ pub fn build(bytes: &[u8], source: Source) -> Result<Topology, Code> {
     }
 }
 
+/// Appends the provisional node/edge document `bytes` holds to `topology`: `gm_graph_extend`'s
+/// body (`docs/contract/delta.md`). Read by the reader [`build`] uses for [`Source::Ingest`], so
+/// a batch is refused for the reasons a whole document is ([`Code::IngestInvalid`],
+/// [`Code::IngestTooLarge`]); a batch `Topology::extend` refuses (a repeated id, a dangling
+/// endpoint) is [`Code::IngestInvalid`] too. On any refusal `topology` is unchanged.
+pub fn extend(topology: &mut Topology, bytes: &[u8]) -> Result<(), Code> {
+    let (nodes, edges) = crate::ingest::read_records(bytes).map_err(|refusal| refusal.code())?;
+    topology
+        .extend(&nodes, &edges)
+        .map_err(|_| Code::IngestInvalid)
+}
+
 /// The binary snapshot (`docs/contract/binary-layout.md`) of `layout` over `topology`, then
 /// of the POST pass `post` over that layout's geometry when one is named: the bytes
 /// `gm_snapshot_bytes` reads after `gm_run`, and after `gm_post_run` when `post` is given.

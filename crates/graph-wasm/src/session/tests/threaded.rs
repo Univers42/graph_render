@@ -11,7 +11,7 @@ const ENGINES: [Engine; 2] = [Engine::BarnesHut, Engine::ParticleMesh];
 /// Both columns after five calls of ten ticks, through `drive` on a fresh session.
 fn columns(engine: Engine, drive: impl Fn(u32)) -> (Vec<u64>, Vec<u64>) {
     reset();
-    let id = create(&model(5, 301), params(), engine).expect("in range");
+    let id = create(0, &model(5, 301), params(), engine).expect("in range");
     for _ in 0..5 {
         drive(id);
     }

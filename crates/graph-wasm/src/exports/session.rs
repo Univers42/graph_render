@@ -66,7 +66,7 @@ fn create(graph: u32, (params_ptr, params_len): (u32, u32), engine: Engine) -> u
         let Some(handle) = handles.get(graph) else {
             return refuse(Code::InvalidHandle, 0);
         };
-        match session::create(&handle.topology, params, engine) {
+        match session::create(graph, &handle.topology, params, engine) {
             Ok(id) => {
                 errors::clear();
                 id
@@ -246,7 +246,7 @@ fn read_params(ptr: u32, len: u32) -> Result<LiveParams, Code> {
 
 /// `word` on success, `0` on a refusal, with the code recorded either way (C4): the shape
 /// every `1`-means-ok export in this ABI shares.
-fn answered(outcome: Result<(), Code>, word: u32) -> u32 {
+pub(super) fn answered(outcome: Result<(), Code>, word: u32) -> u32 {
     match outcome {
         Ok(()) => {
             errors::clear();
@@ -258,7 +258,7 @@ fn answered(outcome: Result<(), Code>, word: u32) -> u32 {
 
 /// Records `code` as the reason for returning `word`, and hands `word` back — one function, so
 /// no export can return a refusal without saying why.
-fn refuse(code: Code, word: u32) -> u32 {
+pub(super) fn refuse(code: Code, word: u32) -> u32 {
     errors::set(code);
     word
 }

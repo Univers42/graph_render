@@ -21,7 +21,7 @@ pub fn model(seed: u32, nodes: u32) -> Topology {
 /// process-wide across a test binary.
 pub fn session_over(nodes: u32) -> u32 {
     reset();
-    create(&model(1, nodes), params(), Engine::BarnesHut).expect("a default session is in range")
+    create(0, &model(1, nodes), params(), Engine::BarnesHut).expect("a default session is in range")
 }
 
 /// The default parameters: the frozen force set, which is what a session created with no
