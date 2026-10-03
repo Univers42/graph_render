@@ -37,7 +37,7 @@ Facts (verified on develop 50d0015d):
   order gives that for free.
 - **Callers.** `collide::apply` (`:228-245`) builds the grid each tick on `(px, py)`. Then:
   - `Gather` reads `grid.order`, `grid.slot`, `grid.at` and `start` via `reads`;
-  - the next tick's deposit walks `grid.order` (`mesh.rs:109`);
+  - the next tick's deposit walks `grid.order` (`mesh.rs:111`);
   - `motion::integrate` reads `grid.slot` (`particle_mesh.rs:133`, `charge.rs:49`).
 
   Any change must leave `order`, `start`, `slot` and `at` bit-identical to today's.
