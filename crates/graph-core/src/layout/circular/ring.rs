@@ -1,7 +1,9 @@
 //! `layout.circular.ring`: every node on the unit circle in dense-index order, edges
 //! ignored. Reference: networkx 3.6 `circular_layout`
-//! (`networkx/drawing/layout.py:129`): angle `k * 2*pi / n` for node `k` (the duplicate
-//! `2*pi` endpoint dropped), then `rescale_layout`. A lone node sits at the centre.
+//! (`networkx/drawing/layout.py:129`): angle `(k * step) * 2*pi` for node `k`, with
+//! `step = 1/n` hoisted once — the same drawing as networkx's `k * 2*pi / n` up to that
+//! `f64` reassociation — then `rescale_layout` (the duplicate `2*pi` endpoint dropped).
+//! A lone node sits at the centre.
 //!
 //! Not `layout.circular.radial` (`super`), which is a tree radial over the repaired
 //! hierarchy, and not `layout.circular.hierarchy` (`super::hierarchy`), which is

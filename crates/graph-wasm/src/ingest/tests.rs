@@ -197,3 +197,4 @@ fn null_is_accepted_for_optional_string_members_and_a_number_is_refused_there() 
 mod ceiling;
 mod child_first;
 mod extremes;
+mod index;

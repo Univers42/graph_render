@@ -17,7 +17,7 @@ pub(super) const G_RANDOM_ITER: Gap = Gap {
 pub(super) const G_GRID_ITER: Gap = Gap {
     parameter: "iterations",
     note: "a closed placement: no iteration to bound",
-    at: "crates/graph-core/src/layout/grid.rs:101",
+    at: "crates/graph-core/src/layout/grid.rs:100",
 };
 pub(super) const G_SPRING_SEED: Gap = Gap {
     parameter: "layout seed",
