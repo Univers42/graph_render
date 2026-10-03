@@ -5,8 +5,11 @@
 # never a graph-core dependency (rule 0.2: nothing on the host).
 #
 # Ponytail: Graphviz is EPL-1.0 and is an oracle plus an algorithm reference only — it is
-# never linked, vendored, or translated line by line into crates/. The image carries no
-# network at run time and no compiler.
+# never linked, vendored, or translated line by line into crates/. The image carries no network
+# at run time. It does carry a compiler: the single-stage `build-essential` below is kept, and
+# that is deliberate, because the exact-coordinate reader `harness/scigraphs-conformance/gv_exact.c`
+# is compiled at run time against the headers installed at `/opt/graphviz/include/graphviz`, so
+# the reference arm can read coordinates without going through `-Tplain`'s `%.5g` text.
 #
 #   docker build --build-context gv="$GM_SCRATCH/refs/graphviz-16.1.0" \
 #     -f docker/graphviz-oracle.Dockerfile -t ge-graphviz-oracle .

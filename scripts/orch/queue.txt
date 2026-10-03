@@ -131,4 +131,6 @@ mrg-sg-graphviz-scale-r1|build|prompts/jobs/resolve-merge.md|scripts/orch/rows/q
 perf-pm-collide-soa|build|prompts/jobs/perf-pm-collide-soa.md|scripts/orch/rows/quick.rows|no
 perf-p4a-extend|build|prompts/jobs/perf-p4a-extend.md|scripts/orch/rows/quick.rows|no
 perf-pm-coherent-sort|build|prompts/jobs/perf-pm-coherent-sort.md|scripts/orch/rows/quick.rows|no
+render-1m-kinds|build|prompts/jobs/render-1m-kinds.md|scripts/orch/rows/perf-p5.rows|no
 perf-gpu-g0-adapter|build|prompts/jobs/perf-gpu-g0-adapter.md|scripts/orch/rows/gpu-g0.rows|no
+fix-core-base|build|prompts/jobs/fix-core-base.md|scripts/orch/rows/quick.rows|no
