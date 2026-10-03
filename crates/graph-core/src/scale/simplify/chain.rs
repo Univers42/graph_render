@@ -91,10 +91,11 @@ fn walk_chain_end(graph: &Simple, from: u32, first_step: u32, interior: &mut Vec
     }
 }
 
-/// The chain's own edges: the path `lo, path…, hi`, hop by hop, ascending. A parallel
-/// edge on one hop is removed with it — the hop is gone, so every copy of it is. Each hop
-/// is read from its interior end, so the cost is the interior nodes' degrees; the hops
-/// are distinct pairs because `lo != hi` and the path never repeats a node.
+/// The chain's own edges: the path `lo, path…, hi`, hop by hop, plus every interior
+/// node's self-loops, ascending and deduplicated. A parallel edge on one hop is removed
+/// with it — the hop is gone, so every copy of it is. Each hop is read from its interior
+/// end, so the cost is the interior nodes' degrees; the hops are distinct pairs because
+/// `lo != hi` and the path never repeats a node.
 fn chain_edges(t: &Topology, path: &[u32], lo: u32, hi: u32) -> Vec<u32> {
     let (first, last) = (path[0], path[path.len() - 1]);
     let mut edges = edges_between(t, first, lo);
@@ -102,6 +103,13 @@ fn chain_edges(t: &Topology, path: &[u32], lo: u32, hi: u32) -> Vec<u32> {
         edges.extend(edges_between(t, hop[0], hop[1]));
     }
     edges.extend(edges_between(t, last, hi));
+    for &node in path
+        .get(1..path.len().saturating_sub(1))
+        .unwrap_or_default()
+    {
+        edges.extend(self_loops(t, node));
+    }
     edges.sort_unstable();
+    edges.dedup();
     edges
 }

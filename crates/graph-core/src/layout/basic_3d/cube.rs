@@ -24,35 +24,35 @@
 //! sequence — it is not the `(+,+,+), (-,+,+), ...` sign enumeration a reader would write
 //! from scratch, which is exactly why it is transcribed and pinned rather than derived.
 //!
-//! **The interior scatter does not reproduce the reference's numbers, and this is the
-//! written seeding decision.** The reference draws from `_get_layout_rng()`
-//! (`common.py:43-52`), which is a **module-level global** `np.random.RandomState` seeded
-//! from `get_layout_seed()` on first use. That has two consequences, both of which make a
-//! coordinate-for-coordinate port impossible rather than merely hard:
+//! **The interior scatter is the reference's, draw for draw.** The corners were always a
+//! closed form; the interior is three `RandomState` draws per node, so reproducing it means
+//! reproducing *numpy's generator*, not just a uniform distribution.
 //!
-//! 1. **The stream is numpy's Mersenne Twister, not ours.** This port uses the crate's
-//!    own [`Mulberry32`] at [`SEED`], the same stream `layout.random` and the force layouts
-//!    use (D5: the motor has no global RNG and the same graph must hash the same on every
-//!    target). So **no interior coordinate equals SciGraphs' for any seed.**
-//! 2. **The reference's stream is stateful across calls.** `_get_layout_rng()` returns the
-//!    *same* `RandomState` every time, so a second `_cube_layout` call in one process
-//!    continues the stream rather than restarting it, and its interior depends on every
-//!    earlier layout that drew from it. There is no "the" interior to compare against;
-//!    only the first call after a reset is reproducible at all.
+//! **The stream is MT19937 seeded from the layout seed.** The reference draws from
+//! `_get_layout_rng()` (`common.py:43-52`), a `np.random.RandomState` built from
+//! `get_layout_seed()` = `derive_seed(42, "layout")` = [`SEED`], and that is
+//! [`Mt19937`](crate::rng::Mt19937) ported exactly — the legacy `init_genrand` recurrence
+//! and the 53-bit `random_sample`. The crate's own
+//! [`Mulberry32`](crate::synthetic::Mulberry32) **cannot** answer this row, and the reason
+//! is worth stating because it is invisible in the picture: a different generator at the
+//! same seed produces a scatter that is uniformly distributed in the same shell and shares
+//! not one coordinate with the reference. Before this port that was the written state of
+//! the row, and it was the reason the interior was compared statistically.
 //!
-//! **So the oracle compares the corners exactly and the interior statistically**, and the
-//! statistic is written into the metadata: interior coordinates uniform on
-//! `[-0.8*scale, 0.8*scale]` per axis, mean 0, variance `(1.6*scale)^2/12`. That is the
-//! same answer `registry/closed_form.rs:28-30` gives for `layout.random`, and the same
-//! reason. What *is* compared exactly is the part that is actually determined: the eight
-//! corners, the `min(n, 8)` split, the single-node origin, and the `0.8` interior radius
-//! against the cube's `1.0` — i.e. that the interior is **strictly inside** the shell,
-//! which is the property the layout exists to draw.
+//! **The layout RNG is reset before every layout call, not carried across them.**
+//! `apply_graph_layout` calls `_reset_layout_rng()` on entry (`dispatcher.py:22`), and that
+//! rebuilds `_layout_rng` as a *fresh* `np.random.RandomState(get_layout_seed())`
+//! (`common.py:53-60`). So every layout draws from the start of a fresh stream and the
+//! interior is reproducible for **every** call — not only the first after a reset, which is
+//! what an earlier version of this comment claimed, and which the reference does not do.
+//! The corners draw nothing, so the interior is the stream's first `3 * (n - min(n, 8))`
+//! values; one stream serves all three axes of all nodes, in C order (`x`, `y`, `z` per
+//! node), because that is how `rng.uniform(-1, 1, (k, 3))` fills its array.
 
 use super::{SCALE, in_space};
 use crate::layout::Geometry;
+use crate::rng::Mt19937;
 use crate::stage::StageError;
-use crate::synthetic::Mulberry32;
 
 /// The eight corners of a cube of half-side 1, in the reference's literal order
 /// (`basic.py:91-94`). Transcribed, never derived — see the module doc on why.
@@ -73,9 +73,14 @@ pub(super) const CORNERS: [[f64; 3]; 8] = [
 /// `CUBE`'s capability id, which is also its hash-gate stage.
 pub const ID: &str = "layout.basic3d.cube";
 
-/// Fixed stream seed for the interior scatter; changing it moves every hashed snapshot
-/// above eight nodes, and nothing below.
-const SEED: u32 = 0x00_C0BE;
+/// The layout seed every SciGraphs layout is handed: `derive_seed(42, "layout")`
+/// (`repro/determinism.py:56-62`, read through `get_layout_seed`, `:124`).
+///
+/// **This is the reference's number, not a house one.** It is compiled in here so the
+/// registered layout is the reference's drawing; the conformance arm passes the same
+/// constant as `LAYOUT_SEED` and the two are checked to agree by the pinned coordinates.
+/// Changing it moves every hashed snapshot above eight nodes, and nothing below.
+const SEED: u32 = 981_798_123;
 
 /// The interior's radius as a fraction of the cube's half-side: `scale * 0.8` against the
 /// corners' `scale` (`basic.py:101`). The `0.8` is what makes the scatter **strictly
@@ -117,7 +122,7 @@ pub(super) fn columns(n: u32) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
 
 /// The scatter of the `remaining` nodes no corner took (`basic.py:99-101`).
 ///
-/// Three `Mulberry32` draws per node, axis by axis (`x`, then `y`, then `z`), which is the
+/// Three [`Mt19937`] draws per node, axis by axis (`x`, then `y`, then `z`), which is the
 /// order `rng.uniform(-1, 1, (k, 3))` fills in C order. One stream for all three axes of
 /// all nodes, not one per axis: a per-axis stream would reproduce a different drawing, and
 /// the difference is invisible in the picture and total in the bytes.
@@ -126,21 +131,32 @@ pub(super) fn columns(n: u32) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
 /// that does. `SPHERE` and `HELIX` are closed form and owe no seed.
 fn interior(columns: &mut (Vec<f64>, Vec<f64>, Vec<f64>), remaining: usize) {
     let reach = SCALE * INTERIOR_RATIO;
-    let mut stream = Mulberry32::new(SEED);
+    let mut stream = Mt19937::new(SEED);
     for _ in 0..remaining {
-        columns.0.push(uniform(&mut stream, reach));
-        columns.1.push(uniform(&mut stream, reach));
-        columns.2.push(uniform(&mut stream, reach));
+        columns.0.push(uniform(&mut stream) * reach);
+        columns.1.push(uniform(&mut stream) * reach);
+        columns.2.push(uniform(&mut stream) * reach);
     }
 }
 
-/// `rng.uniform(-reach, reach)` (`basic.py:101`), which numpy computes as
-/// `low + (high - low) * next_double()`.
+/// `rng.uniform(-1.0, 1.0)` (`basic.py:99`), which numpy computes as
+/// `low + (high - low) * next_double()` — `(-1.0 + 2.0 * u)` here.
 ///
-/// Written in that operand order rather than as `(2*u - 1) * reach`: they differ in the
-/// last bit, and the reference's form is the one whose distribution `harness` measures.
-fn uniform(stream: &mut Mulberry32, reach: f64) -> f64 {
-    -reach + (reach - -reach) * stream.next_f64()
+/// Written in that operand order, and **in the unit interval**, because the reference then
+/// scales the whole array by `(scale * 0.8)`.
+///
+/// **At `reach = 4.0` the operand order makes no difference, and this is measured.** `4.0` is
+/// `2^2`, so the scale by it is exact and `(-1 + 2u) * reach`, `(2*u - 1) * reach` and
+/// `-reach + 2*reach*u` agree **bit for bit** over 2e6 draws (0 mismatches, numpy 2.3.3). The
+/// test that pins the operand order is therefore checking transcription, not arithmetic — what
+/// makes the row pass is the generator and the seed. Two of those three forms are the *same*
+/// expression parenthesised differently and can never disagree; only the third can, and it does
+/// at a `reach` that is not a power of two (at `reach = 2.96`, `-reach + 2*reach*u` differs from
+/// the reference's form on 1.007e6 of 2e6 draws). The reference's form is kept because it is
+/// `basic.py:99-101`'s own, and because that is the line a reader checking this port against the
+/// reference needs to find.
+fn uniform(stream: &mut Mt19937) -> f64 {
+    -1.0 + (1.0 - -1.0) * stream.next_f64()
 }
 
 #[cfg(test)]

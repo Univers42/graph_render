@@ -59,6 +59,7 @@
     for (const [name, slot] of Object.entries(probe.cost)) {
       if (slot.calls > 0) byMethod[name] = { calls: slot.calls, ms: +slot.ms.toFixed(2) };
     }
+    const view = window.__perf.view();
     return {
       label, steps, fps: +(1000 * steps / wallMs).toFixed(1),
       jsMeanMs: +(sorted.reduce((a, b) => a + b, 0) / Math.max(1, sorted.length)).toFixed(3),
@@ -66,6 +67,7 @@
       longTasks: probe.long.durations.length,
       longestTaskMs: +Math.max(0, ...probe.long.durations).toFixed(1),
       reactCommits: probe.react.commits, reactRendered: probe.react.rendered,
+      drawnEdges: view === null ? null : view.stats().drawnEdges,
     };
   }
 

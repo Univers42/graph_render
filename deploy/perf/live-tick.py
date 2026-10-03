@@ -9,6 +9,9 @@ the open time, the delay from the open's return to the first `force-frame` the w
 live frames a second (one tick each, `TICKS_PER_FRAME`), the median gap between them, alpha at
 the first and last frame, and the page's own animation frames a second over the same window.
 LIVE_PROFILE=1 also samples each worker over the window and prints open.py's self/inclusive rows.
+LIVE_THREADS=N adds `?threads=N` (`app/src/main.ts`). The record says whether the page was
+cross-origin isolated and how many Workers the motor worker started: without isolation the studio
+loads the serial module whatever N is, and helpers is 0 (`packages/graph-studio/src/motor/threads.ts`).
 
 A frame is not a tick: a frame after a tick that overran the loop's budget is posted without
 stepping (`liveLoop.ts`), so the gap deciles are bimodal and the long mode is the tick.
@@ -37,6 +40,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import importlib
 cpu = importlib.import_module("open")  # its profiler start and report, sampled over the live window
 PROFILE = os.environ.get("LIVE_PROFILE") == "1"
+THREADS = os.environ.get("LIVE_THREADS")
 
 COUNTER = """
 (() => {
@@ -84,6 +88,15 @@ def summary(live, opened_at, window_ms):
     }
 
 
+def helpers_of(page, workers):
+    """Workers the page's own Workers started. Auto-attach on a worker attaches its live children too."""
+    for session in workers:
+        page.session_call(session, "Target.setAutoAttach",
+                          {"autoAttach": True, "waitForDebuggerOnStart": False, "flatten": True})
+    page.evaluate("0")
+    return sum(1 for e in page.events if e["method"] == "Target.attachedToTarget" and e.get("sessionId") in workers)
+
+
 def run(page, base, nodes, seconds, layout):
     page.call("Page.enable")
     page.call("Target.setAutoAttach", {"autoAttach": True, "waitForDebuggerOnStart": False, "flatten": True})
@@ -95,7 +108,9 @@ def run(page, base, nodes, seconds, layout):
     page.evaluate(f"window.__perf.open({nodes}, {json.dumps(layout)})", timeout=900)
     open_s = round(time.monotonic() - began, 2)
     opened_at = page.evaluate("performance.now()")
-    workers = [e["params"]["sessionId"] for e in page.events if e["method"] == "Target.attachedToTarget"]
+    workers = [e["params"]["sessionId"] for e in page.events
+               if e["method"] == "Target.attachedToTarget" and "sessionId" not in e]
+    threading = {"isolated": page.evaluate("crossOriginIsolated"), "helpers": helpers_of(page, workers)}
     if PROFILE:
         for session in workers:
             cpu.start(page, session)
@@ -105,7 +120,7 @@ def run(page, base, nodes, seconds, layout):
             cpu.report(f"worker {session[:6]}", page.session_call(session, "Profiler.stop", timeout=120)["profile"], 25)
     live = page.evaluate("({frames: window.__live.frames, draws: window.__live.draws})")
     errors = page.evaluate("document.querySelector('graph-studio')?.studio?.store.get().error ?? null")
-    print(json.dumps({"nodes": nodes, "layout": layout, "open_s": open_s,
+    print(json.dumps({"nodes": nodes, "layout": layout, "threads": THREADS, **threading, "open_s": open_s,
                       **summary(live, opened_at, seconds * 1000), "store_error": errors}))
 
 
@@ -118,6 +133,7 @@ def main():
         browser = nav.launch_browser(profile, extra=["--enable-unsafe-swiftshader"])
         try:
             served = f"http://127.0.0.1:{server.server_address[1]}/?backend={backend}"
+            served += f"&threads={THREADS}" if THREADS else ""
             run(smokecdp.Watcher(nav.DEBUG_PORT), served, nodes, seconds, layout)
         finally:
             browser.terminate()

@@ -26,8 +26,12 @@ pub(super) const RANDOM: Metadata = Metadata {
     nodes: NodeGeometryKind::Point,
     edges: EdgeGeometryKind::Line,
     oracle: "networkx@3.6 random_layout — shape only (uniform points in [0,1)^2, x then y per \
-node); the stream is the crate's Mulberry32 at a fixed seed, so coordinates are pinned by unit \
-test, not compared against numpy's generator",
+node); the stream is the crate's Mulberry32 at a fixed seed, so the registered default's \
+coordinates are pinned by unit test, not compared against numpy's generator. The conformance \
+arm does compare: random::run_seeded draws SciGraphs' own _random_layout (basic.py:5-9), \
+np.random.RandomState(get_layout_seed()).rand(n, 3) * scale, off the ported MT19937 at \
+981798123, and reaches that row's coordinates exactly — a separate entry point so this \
+default's hashed snapshot does not move",
     complexity: "O(n)",
     scale_ceiling: CLOSED_FORM_CEILING,
     degradation: DEGRADATION,

@@ -100,3 +100,10 @@ fix-contract|build|prompts/jobs/fix-contract.md|scripts/orch/rows/quick.rows|no
 fix-harness-py|build|prompts/jobs/fix-harness-py.md|scripts/orch/rows/quick.rows|no
 fix-harness-mjs|build|prompts/jobs/fix-harness-mjs.md|scripts/orch/rows/quick.rows|no
 fix-tree-sugiyama|build|prompts/jobs/fix-tree-sugiyama.md|scripts/orch/rows/quick.rows|no
+fix-node-drag|build|prompts/jobs/fix-node-drag.md|scripts/orch/rows/ux-forces.rows|no
+fix-sdk|build|prompts/jobs/fix-sdk.md|scripts/orch/rows/quick.rows|no
+fix-force-session|build|prompts/jobs/fix-force-session.md|scripts/orch/rows/quick.rows|no
+fix-tree-registry|build|prompts/jobs/fix-tree-registry.md|scripts/orch/rows/quick.rows|no
+sg-basic3d-spiral-oracle|build|prompts/jobs/sg-basic3d-spiral-oracle.md|scripts/orch/rows/quick.rows|no
+sg-spring-seed|build|prompts/jobs/sg-spring-seed.md|scripts/orch/rows/quick.rows|no
+sg-fa2-seed|build|prompts/jobs/sg-fa2-seed.md|scripts/orch/rows/quick.rows|no
