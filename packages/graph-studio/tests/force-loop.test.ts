@@ -1,4 +1,4 @@
-// The live loop against a fake port: the stop condition, frame dropping, the disabled state.
+// The live loop against a fake port: the stop condition, the frame period, the disabled state.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -69,6 +69,8 @@ interface Rig {
   readonly frames: () => number;
   readonly tick: () => void;
   readonly scheduled: () => number;
+  /** The delay of every frame the loop asked for, in order. */
+  readonly delays: number[];
 }
 
 function lastFrame(emitted: readonly Result[]): ForceFrame {
@@ -77,18 +79,20 @@ function lastFrame(emitted: readonly Result[]): ForceFrame {
   return found.frame;
 }
 
-function rig(port: Fake, clock: Clock = { now: 0, perStep: 0 }, budgetMs = 8, live: () => LiveForce | null = () => port) {
+function rig(port: Fake, clock: Clock = { now: 0, perStep: 0 }, periodMs = 16, live: () => LiveForce | null = () => port) {
   const emitted: Result[] = [];
+  const delays: number[] = [];
   let next: (() => void) | null = null;
   let scheduled = 0;
   const host = createForceHost(live, {
-    schedule: (run) => { next = run; scheduled += 1; return () => { next = null; }; },
+    schedule: (run, delayMs) => { next = run; scheduled += 1; delays.push(delayMs); return () => { next = null; }; },
     now: () => clock.now,
     emit: (result) => { emitted.push(result); },
-    budgetMs,
+    periodMs,
   });
   const out: Rig = {
     emitted,
+    delays,
     frames: () => emitted.filter((r) => r.type === "force-frame").length,
     tick: () => { const run = next; next = null; run?.(); },
     scheduled: () => scheduled,
@@ -132,27 +136,28 @@ test("drag events before a frame collapse to the last one", () => {
   assert.equal(out.scheduled(), 2, "three requests, one scheduled frame, then the next");
 });
 
-test("a slow motor drops its next tick instead of running late, and never queues", () => {
+test("a slow motor ticks every frame, back to back, and never queues", () => {
   const clock = { now: 0, perStep: 20 };
   const port = fake(0.99, clock);
-  const { host, out } = rig(port, clock, 8);
+  const { host, out } = rig(port, clock, 16);
   host.handle({ type: "force.start" });
   out.tick();
-  assert.equal(port.calls.filter((c) => c.startsWith("step")).length, 1, "the tick overran the budget");
   out.tick();
-  assert.equal(port.calls.filter((c) => c.startsWith("step")).length, 1, "so the next tick was dropped");
-  assert.equal(out.frames(), 2, "and the frame was drawn anyway");
+  assert.equal(port.calls.filter((c) => c.startsWith("step")).length, 2, "no tick is dropped after a long one");
+  assert.equal(out.frames(), 2, "one frame a tick, never a frame without one");
+  assert.deepEqual(out.delays, [16, 0, 0], "a tick past the period is followed at once");
   assert.equal(out.scheduled(), 3, "exactly one frame is ever pending");
 });
 
-test("a fast motor steps once a frame, so the settle lasts as long as the animation", () => {
+test("a fast motor steps once a period, so the settle lasts as long as the animation", () => {
   const clock = { now: 0, perStep: 1 };
   const port = fake(0.999, clock);
-  const { host, out } = rig(port, clock, 8);
+  const { host, out } = rig(port, clock, 16);
   host.handle({ type: "force.start" });
   for (let i = 0; i < 5; i += 1) out.tick();
   assert.equal(port.calls.filter((c) => c.startsWith("step")).length, 5, "one tick a frame, not a budgetful");
   assert.equal(port.calls.filter((c) => c === `step ${TICKS_PER_FRAME}`).length, 5);
+  assert.deepEqual(out.delays, [16, 15, 15, 15, 15, 15], "the wait is the period less the tick");
 });
 
 test("params reach the port and reheat; stop unpins and halts", () => {
