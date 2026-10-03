@@ -3,7 +3,7 @@
 //! The id sets were `IndexSet<Interned>`: one hash and one probe into a table as large as the
 //! graph for every id admitted and every id looked up. An interned handle already is a small
 //! dense integer, so the row sits at that integer in a plain array: one write to admit, one
-//! read to look up. At 1M nodes and 2M edges the two sets cost 12% of `gm_build_columns`
+//! read to look up. At 1M nodes and 2M edges the two sets cost about 11% of `gm_build_columns`
 //! (`docs/measurements/perf-open-intern.md`).
 //!
 //! Caveat: the array is as long as the highest slot claimed, not as the rows kept, so every
