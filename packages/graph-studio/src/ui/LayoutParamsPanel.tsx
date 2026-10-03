@@ -21,7 +21,7 @@ import type { ParamValues } from "../state/settings.ts";
 import type { Studio } from "../studio/studio.ts";
 import { ControlFor } from "./controls/choose.tsx";
 import { frameScheduler } from "./frameThrottle.ts";
-import { heldValue, rowsOf, valuesOf } from "./paramSpecs.ts";
+import { heldValue, rowsOf, valuesOf, valuesPatch } from "./paramSpecs.ts";
 import { type OneRun, oneRunPerFrame } from "./oneRun.ts";
 
 export interface LayoutParamsPanelProps {
@@ -46,8 +46,9 @@ export function LayoutParamsPanel(props: LayoutParamsPanelProps): ReactElement {
   const pending = useRef<ParamValues>({});
   const once = useRef<OneRun | null>(null);
   const commit = (patch: Args): void => {
-    setDraft((current) => ({ ...current, ...patch }));
-    pending.current = { ...pending.current, ...patch };
+    const moved = valuesPatch(patch);
+    setDraft((current) => ({ ...current, ...moved }));
+    pending.current = { ...pending.current, ...moved };
     once.current ??= oneRunPerFrame(frameScheduler(), () => {
       const values = pending.current;
       pending.current = {};
@@ -67,7 +68,7 @@ export function LayoutParamsPanel(props: LayoutParamsPanelProps): ReactElement {
             choices={[]}
             disabled={reason !== null}
             named={false}
-            onDraft={(patch) => setDraft((current) => ({ ...current, ...patch }))}
+            onDraft={(patch) => setDraft((current) => ({ ...current, ...valuesPatch(patch) }))}
             onCommit={commit}
           />
         ))}

@@ -114,7 +114,7 @@ const one: StudioAction = {
     { name: "value", kind: "text", title: "Value", value: (state) => heldText(state, specsOf(state)[0]) },
   ],
   available: unavailable,
-  accept: (args, state) => reasonForOne(state, args.param, args.value),
+  accept: (args, state) => reasonForOne(state, String(args.param), args.value),
   run: (context, args) => setOne(context, textArg(args, "param"), textArg(args, "value")),
 };
 
@@ -151,8 +151,9 @@ function heldOf(state: StudioState): ParamValues {
 }
 
 function reasonForOne(state: StudioState, name: string, value: unknown): string | null {
-  const spec = specNamed(state, String(name));
-  if (spec === undefined) return `\`${name}\` is not a parameter this layout publishes`;
+  const spec = specNamed(state, name);
+  // No spec is the choices rule's refusal, already made by the registry before this runs.
+  if (spec === undefined) return null;
   const checked = checkedValue(spec, value);
   return checked.ok ? null : checked.reason;
 }

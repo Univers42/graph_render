@@ -184,9 +184,10 @@ test("a trap in the sweep fails it, not counts as a refusal", { skip: SKIP }, as
     posts: () => real.posts(),
     analyses: () => real.analyses(),
     build: (json) => real.build(json),
-    layout: () => {
+    run: () => {
       throw new MotorTrapError("gm_run", new Error("unreachable"));
     },
+    layoutParams: (layoutId) => real.layoutParams(layoutId),
     post: (handle, postId) => real.post(handle, postId),
     analysis: (handle, analysisId) => real.analysis(handle, analysisId),
     toBytes: (handle) => real.toBytes(handle),

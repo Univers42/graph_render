@@ -158,7 +158,9 @@ function draw(rig: Rig, run: RunReport, shown: { readonly look: Settings; readon
   if (shown.fresh) rig.view.select(-1);
   patch(rig, (state) => ({
     meta, run: summary, selected: shown.fresh ? -1 : state.selected, selection: shown.fresh ? [] : state.selection,
-    settings: withSettings(state.settings, { layout: run.layoutId, edges: run.postId }),
+    // The values are written here, with the layout: they are what this run was made at, and
+    // nothing else in the pipeline writes a member of the settings that a run settles.
+    settings: withSettings(state.settings, { layout: run.layoutId, edges: run.postId, params: shown.look.params }),
     // The filter the drawing was made under, and the only place it is written: the count
     // below is what a `relayout` filter is compared against to know it has already run.
     runFilter: JSON.stringify(shown.look.filter),

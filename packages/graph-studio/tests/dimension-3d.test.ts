@@ -33,7 +33,7 @@ function bytesClient(runs: readonly Uint8Array[]): MotorClient {
       const bytes = runs[Math.min(at, runs.length - 1)] ?? scriptBytes();
       at += 1;
       return Promise.resolve({
-        layoutId, postId, postError: null, bytes, digest: null,
+        layoutId, postId, postError: null, params: {}, bytes, digest: null,
         layoutMs: 1, postMs: 0, meta: SCRIPTED_META,
       });
     },
@@ -45,9 +45,10 @@ function scripted(): MotorClient {
     catalog: () => Promise.resolve({ layouts: ["layout.grid"], posts: [], analyses: [] }),
     load: () => Promise.resolve({ name: "vault seed 1", nodeCount: 3, edgeCount: 2, notes: [], buildMs: 1 }),
     layout: (layoutId, postId) => Promise.resolve({
-      layoutId, postId, postError: null, bytes: scriptBytes(), digest: null,
+      layoutId, postId, postError: null, params: {}, bytes: scriptBytes(), digest: null,
       layoutMs: 1, postMs: 0, meta: SCRIPTED_META,
     }),
+    params: () => Promise.resolve([]),
     analysis: () => Promise.reject(new Error("this test client measures nothing")),
     cancel: () => false,
     busy: () => false,
@@ -59,7 +60,7 @@ function scripted(): MotorClient {
 function dimMotor(dim: number): MotorLike<number> {
   return {
     layouts: () => ["layout.grid"], posts: () => [], analyses: () => [],
-    build: () => 1, layout: () => undefined, post: () => undefined,
+    build: () => 1, run: () => undefined, layoutParams: () => [], post: () => undefined,
     analysis: () => {
       throw new Error("this test motor analyses nothing");
     },

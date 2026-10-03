@@ -9,7 +9,7 @@ import type { Session } from "../src/motor/session.ts";
 import { serve } from "../src/motor/serve.ts";
 
 const refuse = (): never => { throw new Error("a force request must not reach the session"); };
-const NO_SESSION: Session = { open: refuse, load: refuse, layout: refuse, analysis: refuse, forces: () => null };
+const NO_SESSION: Session = { open: refuse, load: refuse, layout: refuse, params: refuse, analysis: refuse, forces: () => null };
 const KNOBS: ForceKnobs = { gravity: 0.5, charge: -100, linkStrengthScale: 1, linkDistance: 40 };
 /** What the loop pushes when the session under it is released: no loop, and no session. */
 const STOPPED: Result = { type: "force-state", running: false, disabled: NO_ADAPTER_REASON, paused: false };

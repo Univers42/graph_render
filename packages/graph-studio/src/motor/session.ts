@@ -26,13 +26,18 @@ export interface AnalysisFace {
   readonly max?: number | undefined;
 }
 
+/** What one run is asked for. `params` absent or empty means the layout's own defaults. */
+export interface RunOptions {
+  readonly params?: ParamValues;
+}
+
 export interface MotorLike<Handle> {
   layouts(): readonly string[];
   posts(): readonly string[];
   analyses(): readonly string[];
   build(ingestJson: string): Handle;
-  /** One run at `params`, or at the layout's own defaults where that is left out. */
-  run(handle: Handle, layoutId: string, params?: ParamValues): unknown;
+  /** One run at `options.params`, or at the layout's own defaults where that is left out. */
+  run(handle: Handle, layoutId: string, options?: RunOptions): unknown;
   /**
    * Every parameter `layoutId` publishes, in the order a run's buffer carries them
    * (`docs/decisions/layout-params.md`). An empty list is an answer: this layout takes none.
@@ -242,7 +247,9 @@ async function runLayout<Handle>(
   }
   const params = plan.run === ask.layoutId ? ask.params : {};
   const started = deps.now();
-  motor.run(built.handle, plan.run, params);
+  // No values means no options at all, so the run carries the empty buffer every pre-ABI-2
+  // caller sent and the motor's own defaults — the same bytes, not merely the same picture.
+  motor.run(built.handle, plan.run, Object.keys(params).length === 0 ? undefined : { params });
   const layoutMs = deps.now() - started;
   const pass = runPass(motor, built.handle, ask.postId, deps.now);
   const bytes = motor.toBytes(built.handle);

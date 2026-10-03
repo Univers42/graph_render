@@ -7,6 +7,7 @@
  * int is a number field, a bool is a switch.
  */
 import type { StudioParam } from "../actions/context.ts";
+import type { Args } from "../actions/registry.ts";
 import type { LayoutParamSpec } from "../motor/protocol.ts";
 import type { StudioState } from "../state/model.ts";
 import { type ParamValue, type ParamValues } from "../state/settings.ts";
@@ -40,6 +41,19 @@ export function knobOf(spec: LayoutParamSpec): StudioParam {
     value: () => spec.default,
     ...(spec.kind === "float" ? { control: "slider" as const } : {}),
   };
+}
+
+/**
+ * The numbers and flags out of a control's patch. A word can only come from a control that
+ * shows one, and every knob of this panel is an int, a number or a flag, so there is nothing
+ * here for it to drop.
+ */
+export function valuesPatch(patch: Args): ParamValues {
+  const values: Record<string, ParamValue> = {};
+  for (const [name, value] of Object.entries(patch)) {
+    if (typeof value !== "string") values[name] = value;
+  }
+  return values;
 }
 
 /** One published parameter and the knob that shows it. */
