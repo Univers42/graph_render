@@ -152,8 +152,14 @@ export function overBudget(counts: Pick<PaintCounts, "bulk">, nodeCount: number)
   return counts.bulk === 0 && nodeCount > TWEEN_BUDGET;
 }
 
-/** Moves the nodes towards the frame; true while they are still on their way. */
-function advance(state: LoopState, now: number): boolean {
+/**
+ * Moves the nodes towards the frame; true while they are still on their way.
+ *
+ * Exported, and narrow on purpose, so a test can step a tween to a given fraction without a
+ * browser's animation frames — node has no `requestAnimationFrame`, so the loop cannot run
+ * there at all. Nothing outside this file calls it.
+ */
+export function advance(state: LoopState, now: number): boolean {
   if (state.transitionStart < 0) return false;
   const t = (now - state.transitionStart) / TRANSITION_MS;
   const snapped = overBudget(state.counts, state.scene.frame.nodeCount);

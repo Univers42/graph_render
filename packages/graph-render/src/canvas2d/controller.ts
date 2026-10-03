@@ -6,7 +6,7 @@ import { type LiveDrag, movedScene } from "../drag.ts";
 import type { Frame } from "../frame.ts";
 import { DEFAULT_POLICY, type LabelPolicy, newLabelPlan, occupancyFor } from "../labels.ts";
 import type { LocalLayer } from "../local.ts";
-import { EMPTY_FRAME, pickIn, sceneOf } from "../scene.ts";
+import { EMPTY_FRAME, pickEased, pickIn, sceneOf } from "../scene.ts";
 import { plainStyle } from "../style.ts";
 import { DARK_THEME, type Theme } from "../theme.ts";
 import { type Orbit, boxOf, fitOrbit } from "../three/orbit.ts";
@@ -190,6 +190,9 @@ export function showFrame(state: LoopState, frame: Frame, animate: boolean): voi
   } else {
     state.scene = sceneOf(frame, state.scene.style, null);
     state.transitionStart = -1;
+    // Nothing is easing, so nothing is there to mix: the layer reads `u_eased` of 1 and a pick
+    // reads the grid. A tween cut short by a snap or a resize has to leave both.
+    state.bulk.tween = null;
     state.x = frame.x;
     state.y = frame.y;
   }
@@ -243,15 +246,23 @@ export function setPositions(state: LoopState, xs: Float32Array, ys: Float32Arra
   markMoved(state);
 }
 
-/** -1 while the nodes are moving: the grid holds where they will be, not where they are. */
+/**
+ * The node under a screen point.
+ *
+ * Mid-tween this scans the eased pose rather than asking the grid, because the grid indexes
+ * the *target* frame and every node is somewhere else until the tween ends. The scan reads the
+ * two halves and the fraction the loop already publishes for the shader, so it is the pose
+ * both backends draw; outside a tween the grid still answers, and it is O(cells) not O(nodes).
+ */
 export function pickAt(state: LoopState, at: Point): number {
-  if (state.transitionStart >= 0) return -1;
   if (state.orbit !== null) return pickInSpace(state, at);
   const world = screenToWorld(state.camera, at);
   const { scale } = state.camera;
-  return pickIn(state.scene, {
+  const query = {
     x: world.x, y: world.y, tolerance: PICK_TOLERANCE / scale, floor: MIN_SCREEN_RADIUS / scale,
-  });
+  };
+  const tween = state.bulk.tween;
+  return tween === null ? pickIn(state.scene, query) : pickEased(state.scene, query, tween);
 }
 
 /**
