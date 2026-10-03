@@ -195,22 +195,41 @@ silent partial result. That is §4's iteration-cap marker and §6's knob.
 
 ## 8. The oracle, and what it can and cannot say
 
-The oracle image is built with `libgts-dev` so `-Goverlap=prism` runs real code
-(`overlap.c:17` gates PRISM on `HAVE_GTS && SFDP`; without GTS the real body compiles out and
-every `-Goverlap` value hits the stub that prints "not built with triangulation library",
-`overlap.c:585-610`). `--with-gts=yes` is passed explicitly **and asserted** on configure's own
-summary line, because `PKG_CHECK_MODULES` reports failure by setting `use_gts=No` rather than by
-failing (`configure.ac:1532-1544`) — a silent build with prism still stubbed is the failure mode
-worth being loud about.
+**The prism-capable engine is its own image, and deliberately not the shared one.**
+`docker/graphviz-gts-oracle.Dockerfile` installs `libgts-dev`, asserts configure's own
+`gts: Yes` summary line and the linked library, and tags **only** `ge-graphviz-oracle-gts`. The
+shared `ge-graphviz-oracle` is the pinned conformance oracle for every worktree and stays byte for
+byte what `docker/graphviz-oracle.Dockerfile` builds: adding GTS to it moved the sfdp and
+yifan-hu reference bytes and turned another branch's conformance row red. That image is this row's
+**negative control** instead, which is a better use of it than a second tag would be — it has no
+GTS, so prism is unavailable and the harness must fail on it.
 
-**A measured trap, recorded because it cost a build cycle:** with GTS built,
-`adjustMode[1]` **is** PRISM (`adjust.c:775-800`), and `getAdjustMode` maps `overlap=false` to
-`adjustMode[1]` (`adjust.c:846-849`). So in a GTS build `-Goverlap=false` and `-Goverlap=prism`
-are the same algorithm and produce byte-identical output. Prism is proved live by its output
-**differing from `voronoi`** and from the no-GTS build — not by differing from `false`. A
-harness that checked the obvious thing would have concluded prism was still a stub.
+PRISM is gated at compile time on `HAVE_GTS && SFDP`, and a build without both still accepts
+`-Goverlap=prism`: it falls through `getAdjustMode`'s placeholder entry (`adjust.c:796`) and says
+so on stderr, `Overlap value "prism" unsupported - ignored` (`adjust.c:828`, the `print == 0`
+case). Configure saying `gts: Yes` is necessary and not sufficient, which is why the GTS file
+asserts the linked library as well.
 
-The differential is a **ceiling, not a bitwise match**: Graphviz's PRISM is a stress-majorising
-algorithm on a Delaunay triangulation, this is a grid sweep, and the two will never agree
-coordinate for coordinate. What is compared is quality — mean displacement and stress ratio, ours
-next to Graphviz's on the same input.
+**Three measured traps, every one of which first reported success.**
+
+1. **`false` and `prism` are the same algorithm in a GTS build.** `adjustMode[1]` **is** PRISM
+   (`adjust.c:776-780`) and `getAdjustMode` maps `overlap=false` onto `adjustMode[1]`
+   (`adjust.c:838-848`), so they print byte-identical output. Proving prism live by its differing
+   from `false` reports a *stub* on a perfectly working engine. The check here is against
+   **`voronoi`** — a different algorithm, which must differ — and it compares **bytes**, because a
+   mean displacement rounded to twelve places can agree while the drawings differ.
+2. **A tag that quietly held the wrong image.** `ge-graphviz-oracle` and
+   `ge-graphviz-oracle-nogts` were the same image id, so early runs measured the no-GTS build
+   while the report still said `prism_is_not_the_stub: true`. A control that cannot fail is not a
+   control: the harness now exits non-zero when prism is not live, and the no-GTS run must exit 1.
+3. **One unit.** `-Tplain`, `pos` and `width` share a unit (measured: pins 10 apart with
+   `width=6` print canvas 16 and margin 3). An earlier version multiplied only the *input* by 72,
+   so `mean_displacement` subtracted points from points and reported ~500 where the number is ~1.
+
+The differential is a **ceiling, not a bitwise match**: Graphviz's PRISM stress-majorises on a
+Delaunay triangulation, this is a grid sweep, and the two will never agree coordinate for
+coordinate. What is compared is quality — overlapping pairs cleared and mean displacement, ours
+next to Graphviz's, in units of each drawing's own spacing. Both reach zero: prism by moving nodes
+31–89× the local spacing, this pass by moving them 0.4–15×. The numbers, the crowding
+mismatch between the two inputs that makes it a comparison rather than a contest, and what PRISM
+being stress-majorising actually means for a caller are in `docs/measurements/ux-overlap.md`.

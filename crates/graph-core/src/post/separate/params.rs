@@ -67,13 +67,27 @@ impl Default for SeparateParams {
 
 /// Node count past which the pass stops being usable, and why this one.
 ///
-/// Measured, not estimated: `graph-cli overlap --nodes N --layout grid` reports the wall
-/// time of one pass natively in `ge-rust` (x86_64, release). The sweep is in
-/// `docs/measurements/ux-overlap.md`; re-run it to refresh this number. A pass is a one-shot
-/// redraw, so it is held to a second — the budget `post::fdeb`'s ceiling is held to — and
-/// not to the 16.67 ms frame budget, which bounds a per-frame tick rather than a redraw.
-pub const SEPARATE_CEILING: u64 = 1_000_000;
-
+/// Measured, not estimated: `graph-cli overlap --nodes N --layout layout.grid --radius 1.0`
+/// reports the wall time of one pass natively in `ge-rust` (x86_64, release), and
+/// `docs/measurements/ux-overlap.md` holds the sweep. A pass is a one-shot redraw, so it is held
+/// to a second — the budget `post::fdeb`'s ceiling is held to — and not to the 16.67 ms
+/// frame budget, which bounds a per-frame tick rather than a redraw.
+///
+/// | nodes | 1 000 | 2 000 | 10 000 | 100 000 |
+/// | --- | --- | --- | --- | --- |
+/// | pass ms | 33 | 95 | 734 | 10 487 |
+///
+/// **10 000 is the ceiling because the second runs out there**: 734 ms at 10 000 and 10.5 s at
+/// 100 000 — a decade apart in size, fourteen in time — so 1 000 ms lands just past 10 000.
+/// The pass is not *refused* above it: `Bundled::unbundled` reports exactly what is left. But a
+/// caller waiting ten seconds for a redraw is not using it as a redraw.
+///
+/// **What the ceiling does not claim.** It is a cost ceiling, and at its top the default cap is
+/// not enough to clear the invariant: 16 294 pairs still overlap at 10 000 with
+/// `max_iterations = 512`, which is 0.3% of the 5.06 M it separated. The invariant is exact only
+/// to 2 000 nodes, where the exhaustive `O(n^2)` check runs; past that the default leaves a
+/// residue and the caller trades wall time for it with `max_iterations`.
+pub const SEPARATE_CEILING: u64 = 10_000;
 /// Refuses a geometry or a parameter the pass will not guess at.
 ///
 /// **The z refusal is the one that matters**: a geometry carrying a z column is refused rather

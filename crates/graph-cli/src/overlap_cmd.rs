@@ -14,11 +14,14 @@
 //!   what makes the invariant exact rather than "usually". `--nodes` is refused above
 //!   [`BRUTE_FORCE_CEILING`] for that reason.
 //! - the **mean displacement** the pass caused, in layout units and as a fraction of the
-//!   drawing's own mean pairwise distance — the second form is what makes the number
+//!   drawing's own mean nearest-neighbour distance — the second form is what makes the number
 //!   comparable across sizes.
 //! - the **stress ratio**, layout distances against graph distances, before and after: the
 //!   quality cost of separating, which is the number a caller who cares about a readable
 //!   *and* faithful drawing wants.
+//!
+//! The instruments themselves live in [`measure`], which is also where the one `O(n^2)` in this
+//! command is explained, along with the two ratios that are deliberately not exhaustive.
 //!
 //! Exit codes: `0` the invariant held and nothing was left overlapping · `1` at least one pair
 //! still overlaps · `2` the measurement could not run (no such fixture, no such layout, a node
@@ -29,11 +32,16 @@
 //! written from a sweep of this command and says so.
 
 use crate::hashgate::knob::env_setting;
+use crate::overlap_cmd::measure::{
+    mean_displacement, mean_neighbour_distance, overlapping, stress,
+};
 use graph_core::REFERENCE_DEGREE;
-use graph_core::post::separate::{SeparateParams, sweep};
+use graph_core::post::separate::SeparateParams;
 use graph_core::{Geometry, Topology, index_model, post, registry, seeded_model};
 use std::process::ExitCode;
 use std::time::Instant;
+
+mod measure;
 
 /// The node count above which the exhaustive all-pairs invariant check is refused.
 ///
@@ -64,6 +72,13 @@ pub struct Request<'a> {
     /// numbers bracket the same quantity and agreeing at small `n` is what makes the large-`n`
     /// number worth reading.
     pub scan: bool,
+    /// The pass's iteration cap, or the default when `None`.
+    ///
+    /// **`SeparateParams::max_iterations` is 512 and that is the number a sweep has to fight.**
+    /// It is sized from a lattice of at most 2 000 nodes, where the hardest measured case needs
+    /// 448; a bigger drawing needs more, so this flag is how the cost of the cap gets measured
+    /// instead of guessed. `docs/measurements/ux-overlap.md` is written from runs of it.
+    pub max_iterations: Option<u32>,
 }
 
 /// Runs the pass, checks the invariant, prints the three numbers; `0` when nothing overlaps.
@@ -115,7 +130,7 @@ and read the pass's own grid count instead",
             topology.node_count()
         ));
     }
-    let params = controlled_params()?;
+    let params = controlled_params(request)?;
     let radii = vec![request.radius as f32; topology.node_count() as usize];
     let before = if request.scan {
         overlapping(&geometry, &radii, 0.0)
@@ -140,7 +155,7 @@ and read the pass's own grid count instead",
         resolved: bundled.pairs,
         reported: bundled.unbundled,
         displacement,
-        relative: displacement / scale(&geometry),
+        relative: displacement / mean_neighbour_distance(&geometry),
         stress_before,
         stress_after: stress(&topology, after),
         millis,
@@ -159,22 +174,32 @@ and read the pass's own grid count instead",
     Ok(out.residual)
 }
 
-/// The pass's parameters, with the negative control applied when one is set.
+/// The pass's parameters, with the negative control and `--max-iterations` applied.
 ///
 /// **Read through the gate's own [`env_setting`] rather than `std::env` directly**, so the
 /// control this command honours is the same one `hashgate` parses, with the same validity
 /// rules: a value that would be refused there is refused here, and `=0` — the control's own
 /// value — is legal rather than a parse failure. Without this the row would be green with the
 /// knob set, which is the one outcome a negative control must never have.
-fn controlled_params() -> Result<SeparateParams, String> {
+///
+/// The cap goes on top of the control rather than instead of it, because a sweep that raised
+/// the cap to clear a big drawing must still be measuring the same pass the control bites.
+fn controlled_params(request: &Request) -> Result<SeparateParams, String> {
     let setting = env_setting().map_err(|e| format!("{e}"))?;
-    Ok(match setting.overlap_relaxation() {
-        None => SeparateParams::default(),
-        Some(relaxation) => SeparateParams {
-            over_relaxation: relaxation as f32,
-            ..SeparateParams::default()
-        },
-    })
+    let default = SeparateParams::default();
+    let params = SeparateParams {
+        over_relaxation: setting
+            .overlap_relaxation()
+            .map_or(default.over_relaxation, |r| r as f32),
+        ..default
+    };
+    match request.max_iterations {
+        None => Ok(params),
+        Some(cap) => Ok(SeparateParams {
+            max_iterations: cap,
+            ..params
+        }),
+    }
 }
 
 fn print(request: &Request, topology: &Topology, m: &Measured) {
@@ -213,7 +238,8 @@ fn laid_out(request: &Request) -> Result<(Topology, Geometry), String> {
         (None, None) => return Err("give --fixture NAME or --nodes N".into()),
     };
     let topology = index_model(&nodes, &edges).map_err(|e| e.to_string())?;
-    let layout = registry::find(request.layout).ok_or_else(|| format!("no such layout: {}", request.layout))?;
+    let layout = registry::find(request.layout)
+        .ok_or_else(|| format!("no such layout: {}", request.layout))?;
     let geometry = (layout.run)(&topology).map_err(|e| e.to_string())?;
     if geometry.z.is_some() {
         return Err(format!(
@@ -229,91 +255,4 @@ fn laid_out(request: &Request) -> Result<(Topology, Geometry), String> {
     };
     let planar = geometry.with_nodes(circles);
     Ok((topology, planar))
-}
-
-/// The exhaustive all-pairs count of pairs closer than `ri + rj + 2 · margin`. `O(n²)` — the
-/// instrument, and the only `O(n²)` in the product's story.
-fn overlapping(geometry: &Geometry, radii: &[f32], margin: f64) -> u32 {
-    let graph_contract::geometry::NodeGeometry::Circle { x, y, .. } = &geometry.nodes else {
-        return 0;
-    };
-    let mut count = 0u32;
-    for i in 0..x.len() {
-        for j in i + 1..x.len() {
-            let (dx, dy) = (x[i] - x[j], y[i] - y[j]);
-            let need = radii[i] + radii[j] + 2.0 * margin as f32 - sweep::TOLERANCE;
-            if libm::sqrtf(dx * dx + dy * dy) < need {
-                count += 1;
-            }
-        }
-    }
-    count
-}
-
-/// The mean distance a node moved, in layout units.
-fn mean_displacement(before: &Geometry, after: &Geometry) -> f64 {
-    let (bx, by) = post::centres(&before.nodes);
-    let (ax, ay) = post::centres(&after.nodes);
-    if bx.is_empty() {
-        return 0.0;
-    }
-    let total: f64 = (0..bx.len())
-        .map(|i| {
-            let (dx, dy) = (f64::from(ax[i] - bx[i]), f64::from(ay[i] - by[i]));
-            libm::sqrt(dx * dx + dy * dy)
-        })
-        .sum();
-    total / bx.len() as f64
-}
-
-/// The drawing's own mean nearest-neighbour distance, so displacement is comparable across
-/// sizes. A fixed constant would make the number meaningless at 1 000 and at 100 000 nodes.
-fn scale(geometry: &Geometry) -> f64 {
-    let (x, y) = post::centres(&geometry.nodes);
-    if x.len() < 2 {
-        return 1.0;
-    }
-    let mut worst = f64::MAX;
-    for i in 0..x.len() {
-        let mut near = f64::MAX;
-        for j in 0..x.len() {
-            if i == j {
-                continue;
-            }
-            let (dx, dy) = (f64::from(x[i] - x[j]), f64::from(y[i] - y[j]));
-            near = near.min(libm::sqrt(dx * dx + dy * dy));
-        }
-        worst = worst.min(near);
-    }
-    worst.max(1e-9)
-}
-
-/// The stress ratio: mean graph distance over mean layout distance, over a fixed sample of
-/// edges. Below 1 means the drawing compresses edges; above 1 means it stretches them.
-///
-/// A **sample**, not all edges, because the graph term is the expensive one and `n = 100 000`
-/// with a full all-pairs edge scan would make this command measure itself. The sample is the
-/// first [`STRESS_SAMPLE`] edges in topology order, which is fixed — no clock, no RNG (D1–D3)
-/// — and stated here rather than left to look exhaustive.
-pub const STRESS_SAMPLE: usize = 2_000;
-
-fn stress(topology: &Topology, geometry: &Geometry) -> f64 {
-    let (x, y) = post::centres(&geometry.nodes);
-    let edges = topology.edges();
-    let take = (edges.source.len()).min(STRESS_SAMPLE);
-    if take == 0 {
-        return 1.0;
-    }
-    let mut graph_total = 0.0f64;
-    let mut layout_total = 0.0f64;
-    for e in 0..take {
-        let (s, t) = (edges.source[e] as usize, edges.target[e] as usize);
-        graph_total += 1.0;
-        let (dx, dy) = (f64::from(x[s] - x[t]), f64::from(y[s] - y[t]));
-        layout_total += libm::sqrt(dx * dx + dy * dy);
-    }
-    if layout_total == 0.0 {
-        return f64::INFINITY;
-    }
-    graph_total / layout_total
 }

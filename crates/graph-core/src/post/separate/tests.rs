@@ -267,8 +267,7 @@ fn bad_parameters_are_refused() {
             "margin",
         ),
     ] {
-        let err = separate(&topology, &input, &params)
-            .expect_err("refused");
+        let err = separate(&topology, &input, &params).expect_err("refused");
         match err {
             StageError::Param { name: got, .. } => assert_eq!(got, name),
             other => panic!("{name}: expected Param, got {other}"),
@@ -404,7 +403,10 @@ fn a_full_lattice_is_separated() {
     let topology = path_topology(n);
     let bundled = run(&topology, &gridded(n, 1.0)).expect("runs");
     assert_separated(&bundled.geometry, 1.0, 0.0, "lattice");
-    assert_eq!(bundled.unbundled, 0, "the lattice converged inside the default cap");
+    assert_eq!(
+        bundled.unbundled, 0,
+        "the lattice converged inside the default cap"
+    );
 }
 
 /// `n` discs on a lattice of pitch `spacing` — the grid layout's own shape.

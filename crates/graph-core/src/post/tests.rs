@@ -119,11 +119,7 @@ fn post_composability() {
 /// a row that refused a planar geometry, or refused for any other reason, is a bug and is
 /// panicked on. So a pass cannot pass the matrix by refusing everything, and a pass that
 /// quietly processed a z column is caught here rather than in a review.
-fn run_or_declined(
-    cap: &Capability,
-    topology: &Topology,
-    input: &Geometry,
-) -> Option<Bundled> {
+fn run_or_declined(cap: &Capability, topology: &Topology, input: &Geometry) -> Option<Bundled> {
     match (cap.run)(topology, input) {
         Ok(bundled) => Some(bundled),
         Err(StageError::Param {
@@ -248,7 +244,9 @@ fn sizes(nodes: &NodeGeometry) -> Vec<Vec<f32>> {
 /// The coordinate columns of a node kind, in a fixed order.
 fn columns(nodes: &NodeGeometry) -> Vec<(&'static str, &Vec<f32>)> {
     match nodes {
-        NodeGeometry::Point { x, y } | NodeGeometry::Circle { x, y, .. } | NodeGeometry::Box { x, y, .. } => {
+        NodeGeometry::Point { x, y }
+        | NodeGeometry::Circle { x, y, .. }
+        | NodeGeometry::Box { x, y, .. } => {
             vec![("x", x), ("y", y)]
         }
     }

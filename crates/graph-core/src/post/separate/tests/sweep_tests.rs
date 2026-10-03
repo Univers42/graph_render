@@ -110,7 +110,9 @@ fn one_hundred_random_graphs_are_separated() {
         let bundled = run(&topology, &lattice(&topology)).expect("runs");
         let worst = worst(&bundled.geometry);
         if worst > TOLERANCE {
-            failures.push(format!("seed {seed} ({count} nodes): worst overlap {worst}"));
+            failures.push(format!(
+                "seed {seed} ({count} nodes): worst overlap {worst}"
+            ));
         }
     }
     assert!(
@@ -130,7 +132,10 @@ fn one_hundred_random_graphs_are_separated() {
 fn the_two_adversarial_cases_are_separated() {
     let n = SCAN_CEILING;
     let topology = path_topology(n);
-    for (name, input) in [("one point", stacked(n, RADIUS)), ("one line", in_line(n, RADIUS))] {
+    for (name, input) in [
+        ("one point", stacked(n, RADIUS)),
+        ("one line", in_line(n, RADIUS)),
+    ] {
         let bundled = run(&topology, &input).expect("runs");
         separated(&bundled.geometry, name);
         assert_eq!(bundled.unbundled, 0, "{name}: the pass reported a residue");

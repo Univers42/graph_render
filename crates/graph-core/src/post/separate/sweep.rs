@@ -153,81 +153,87 @@ impl Workspace {
     }
 
     /// **Breaks the symmetry a stack of coincident discs has, before any sweep runs.**
-///
-/// Every disc at `(0, 0)` sees every other at distance 0, so every node's displacement is
-/// the *same* vector — the sum of identical contributions — and the whole cluster translates
-/// without a single pair separating. That is not slow convergence, it is none at all, and the
-/// invariant fails at any iteration cap. Measured: without this, a sweep leaves a stack of 500
-/// discs exactly where it found it.
-///
-/// **Only nodes that overlap something are nudged.** Nudging every node would be simpler and
-/// is wrong: it moves a drawing that had no overlaps at all, which is the opposite of what a
-/// caller asking for overlap removal wants, and it broke the test `a_clear_layout_is_left_alone`
-/// — a 100-disc drawing with no overlapping pair came back with every node displaced. Gated on
-/// *overlap* rather than on *exact coincidence*, because the packed line needs it too and an
-/// exact-coincidence gate left it stuck: measured, every interior node of a line of discs at
-/// unit spacing has its two neighbours' displacement vectors cancel exactly, so the interior
-/// never moves and the line does not converge at any cap (600 sweeps, no separation). Only a
-/// displaced node breaks that cancellation.
-///
-/// The nudge is **deterministic and derived from the dense index alone**: node `i` moves by
-/// [`NUDGE_FRACTION`] of its own radius along a fixed unit vector on the golden angle, so no
-/// two discs are given the same offset and the order of the drawing cannot change the outcome.
-///
-/// Ponytail: a nudge is a heuristic, not geometry — it moves nodes that were at the same
-/// point, which is the only thing it may do, since two discs at one point have no "right"
-/// relative position. Failing input: many discs at one point; the nudge spreads them on a
-/// spiral and the sweeps then do the real work. Direction: bounded by the radius, so it can
-/// never turn a clear pair into an overlapping one — it is applied only to a disc that was
-/// already on top of another. Escape hatch: none needed; without it the adversarial case
-/// cannot converge at all.
-fn break_symmetry(&mut self, radii: &[f32], margin: f32, side: f32) -> Result<(), StageError> {
-    if radii.is_empty() {
-        return Ok(());
-    }
-    let grid = Grid::over(&self.x, &self.y, side)?;
-    let golden = core::f32::consts::TAU * 0.618_034;
-    for node in self.overlapping(&grid, radii, margin) {
-        let angle = golden * node as f32;
-        let nudge = radii[node as usize] * NUDGE_FRACTION;
-        self.x[node as usize] += nudge * libm::cosf(angle);
-        self.y[node as usize] += nudge * libm::sinf(angle);
-    }
-    Ok(())
-}
-
-/// Every node overlapping at least one other, in dense index order.
-///
-/// Judged against **neighbours only**, through the same grid the sweeps use, so this costs
-/// `O(n · k)` and never an all-pairs scan — the gate is a full extra pass over the
-/// neighbourhood, not over the graph.
-fn overlapping(&self, grid: &Grid, radii: &[f32], margin: f32) -> Vec<u32> {
-    let mut found = Vec::new();
-    for node in 0..self.x.len() {
-        let mut touching = false;
-        each_neighbour(grid, node, |other| {
-            let other = other as usize;
-            if other == node || touching {
-                return;
-            }
-            let (dx, dy) = (self.x[node] - self.x[other], self.y[node] - self.y[other]);
-            let need = radii[node] + radii[other] + 2.0 * margin;
-            if dx * dx + dy * dy < need * need {
-                touching = true;
-            }
-        });
-        if touching {
-            found.push(node as u32);
+    ///
+    /// Every disc at `(0, 0)` sees every other at distance 0, so every node's displacement is
+    /// the *same* vector — the sum of identical contributions — and the whole cluster translates
+    /// without a single pair separating. That is not slow convergence, it is none at all, and the
+    /// invariant fails at any iteration cap. Measured: without this, a sweep leaves a stack of 500
+    /// discs exactly where it found it.
+    ///
+    /// **Only nodes that overlap something are nudged.** Nudging every node would be simpler and
+    /// is wrong: it moves a drawing that had no overlaps at all, which is the opposite of what a
+    /// caller asking for overlap removal wants, and it broke the test `a_clear_layout_is_left_alone`
+    /// — a 100-disc drawing with no overlapping pair came back with every node displaced. Gated on
+    /// *overlap* rather than on *exact coincidence*, because the packed line needs it too and an
+    /// exact-coincidence gate left it stuck: measured, every interior node of a line of discs at
+    /// unit spacing has its two neighbours' displacement vectors cancel exactly, so the interior
+    /// never moves and the line does not converge at any cap (600 sweeps, no separation). Only a
+    /// displaced node breaks that cancellation.
+    ///
+    /// The nudge is **deterministic and derived from the dense index alone**: node `i` moves by
+    /// [`NUDGE_FRACTION`] of its own radius along a fixed unit vector on the golden angle, so no
+    /// two discs are given the same offset and the order of the drawing cannot change the outcome.
+    ///
+    /// Ponytail: a nudge is a heuristic, not geometry — it moves nodes that were at the same
+    /// point, which is the only thing it may do, since two discs at one point have no "right"
+    /// relative position. Failing input: many discs at one point; the nudge spreads them on a
+    /// spiral and the sweeps then do the real work. Direction: bounded by the radius, so it can
+    /// never turn a clear pair into an overlapping one — it is applied only to a disc that was
+    /// already on top of another. Escape hatch: none needed; without it the adversarial case
+    /// cannot converge at all.
+    fn break_symmetry(&mut self, radii: &[f32], margin: f32, side: f32) -> Result<(), StageError> {
+        if radii.is_empty() {
+            return Ok(());
         }
+        let grid = Grid::over(&self.x, &self.y, side)?;
+        let golden = core::f32::consts::TAU * 0.618_034;
+        for node in self.overlapping(&grid, radii, margin) {
+            let angle = golden * node as f32;
+            let nudge = radii[node as usize] * NUDGE_FRACTION;
+            self.x[node as usize] += nudge * libm::cosf(angle);
+            self.y[node as usize] += nudge * libm::sinf(angle);
+        }
+        Ok(())
     }
-    found
-}
 
-/// One sweep: gather every node's displacement from the current positions, then apply
+    /// Every node overlapping at least one other, in dense index order.
+    ///
+    /// Judged against **neighbours only**, through the same grid the sweeps use, so this costs
+    /// `O(n · k)` and never an all-pairs scan — the gate is a full extra pass over the
+    /// neighbourhood, not over the graph.
+    fn overlapping(&self, grid: &Grid, radii: &[f32], margin: f32) -> Vec<u32> {
+        let mut found = Vec::new();
+        for node in 0..self.x.len() {
+            let mut touching = false;
+            each_neighbour(grid, node, |other| {
+                let other = other as usize;
+                if other == node || touching {
+                    return;
+                }
+                let (dx, dy) = (self.x[node] - self.x[other], self.y[node] - self.y[other]);
+                let need = radii[node] + radii[other] + 2.0 * margin;
+                if dx * dx + dy * dy < need * need {
+                    touching = true;
+                }
+            });
+            if touching {
+                found.push(node as u32);
+            }
+        }
+        found
+    }
+
+    /// One sweep: gather every node's displacement from the current positions, then apply
     /// them all. Two passes over the nodes, never interleaved — the separation is what keeps
     /// this Jacobi rather than Gauss-Seidel, and interleaving would make the result depend on
     /// the order nodes happen to be visited.
-    fn iteration(&mut self, radii: &[f32], margin: f32, omega: f32, side: f32) -> Result<u32, StageError> {
+    fn iteration(
+        &mut self,
+        radii: &[f32],
+        margin: f32,
+        omega: f32,
+        side: f32,
+    ) -> Result<u32, StageError> {
         let grid = Grid::over(&self.x, &self.y, side)?;
         let mut resolved = 0u32;
         for node in 0..self.x.len() {
@@ -366,15 +372,7 @@ fn separation(
 }
 
 /// Whether a pair is closer than it should be by more than [`TOLERANCE`].
-fn overlapping(
-    xi: f32,
-    yi: f32,
-    xj: f32,
-    yj: f32,
-    ri: f32,
-    rj: f32,
-    margin: f32,
-) -> bool {
+fn overlapping(xi: f32, yi: f32, xj: f32, yj: f32, ri: f32, rj: f32, margin: f32) -> bool {
     let (dx, dy) = (xi - xj, yi - yj);
     let need = ri + rj + 2.0 * margin - TOLERANCE;
     libm::sqrtf(dx * dx + dy * dy) < need

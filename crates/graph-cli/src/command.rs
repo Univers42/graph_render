@@ -189,6 +189,13 @@ pub enum Command {
         /// because it would cost more than the pass it checks.
         #[arg(long, default_value_t = false)]
         no_scan: bool,
+        /// The pass's iteration cap, overriding `SeparateParams::max_iterations` (512).
+        ///
+        /// The escape hatch, and the only way to see what the cap costs: the default is sized
+        /// from a lattice of at most 2 000 nodes, so a larger `--nodes` leaves a residue this
+        /// flag can be raised against. `0` is refused, by name, like any other parameter.
+        #[arg(long)]
+        max_iterations: Option<u32>,
     },
     /// D1: std against libm transcendentals, native against wasm32, bit for bit.
     DeterminismProbe {

@@ -106,12 +106,14 @@ fn main() -> ExitCode {
             layout,
             radius,
             no_scan,
+            max_iterations,
         } => overlap_cmd::run(&overlap_cmd::Request {
             fixture: fixture.as_deref(),
             nodes,
             layout: &layout,
             radius,
             scan: !no_scan,
+            max_iterations,
         }),
         Command::DeterminismProbe { out } => determinism_probe::run(&out),
         Command::Stress {
