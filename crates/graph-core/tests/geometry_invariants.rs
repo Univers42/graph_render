@@ -49,9 +49,8 @@ mod geometry_invariants {
         index_model(&nodes, &edges).expect("the gate model always indexes")
     }
 
-    /// The seed range a chunk marker stands for: `WHOLE` is the whole sweep, every other
-    /// marker a `SEEDS.div_ceil(CHUNKS)`-sized slice clamped at `SEEDS`. That a row's
-    /// listed chunks tile its sweep is the guard test's job, not this function's.
+    /// The seed range a chunk marker stands for: `WHOLE` is all of it, any other marker a
+    /// `SEEDS.div_ceil(CHUNKS)`-sized slice clamped at `SEEDS`; the guard test checks the tiling.
     fn seed_range(chunk: u32) -> Range<u32> {
         if chunk == WHOLE {
             return 0..SEEDS;
@@ -210,8 +209,7 @@ mod geometry_invariants {
         };
     }
 
-    /// One layout's sweep over `seeds`: no `NaN` or `±Inf` in its output (D9), and
-    /// positive finite radii wherever it emits circles.
+    /// One layout's sweep over `seeds`: no `NaN`/`±Inf` (D9), positive finite radii on circles.
     fn sweep_layout(index: usize, id: &str, seeds: Range<u32>) {
         let capability = registry::LAYOUTS[index];
         assert_eq!(
@@ -282,6 +280,8 @@ mod geometry_invariants {
             [37, "layout.basic3d.spiral", WHOLE, layout_basic3d_spiral],
             [38, "layout.force.particle_mesh", WHOLE, layout_force_particle_mesh],
             [39, "layout.forceatlas2.forcesim", WHOLE, layout_forceatlas2_forcesim],
+            [40, "layout.spectral3d", WHOLE, layout_spectral3d],
+            [41, "layout.mds.pivot3d", WHOLE, layout_mds_pivot3d],
         ]
     }
 
