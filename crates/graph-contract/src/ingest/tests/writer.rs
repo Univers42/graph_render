@@ -119,23 +119,68 @@ fn a_values_map_writes_the_same_text_whatever_order_it_was_read_in() {
 }
 
 #[test]
-fn a_record_with_a_repeated_key_writes_both_cells_because_the_reader_would_refuse_it() {
-    // Unreachable through `read` (a repeated key is refused there), so it is pinned on
-    // a hand-built document instead: the writer must not silently drop one.
-    let mut doc = minimal();
-    doc.records[0]
-        .values
-        .push(("name".to_string(), JsonValue::Text("Other".into())));
+fn a_repeated_values_key_collapses_to_the_first_in_document_order_and_still_reads() {
+    // `Record::values` is a `Vec` of pairs with every field `pub`, so a Rust-built
+    // record can hold two cells for one field id — unreachable through `read`, which
+    // refuses the repeat. Writing both would produce text no reader accepts, so the
+    // writer keeps the FIRST, which is what `Record::value` (`.find`) already
+    // resolves to: the writer must not contradict the reader's own lookup.
+    let mut doc = declare(minimal(), "t");
+    doc.records[0].values = vec![
+        ("t".to_string(), JsonValue::Text("a".into())),
+        ("t".to_string(), JsonValue::Text("b".into())),
+    ];
     let text = to_json(&doc);
-    let values = &text[text.find("\"values\":").unwrap()..];
-    assert_eq!(
-        values.matches("\"name\":").count(),
-        2,
-        "one cell was dropped: {values}"
+    assert!(
+        text.contains(r#""values":{"t":"a"}"#),
+        "the repeat must collapse to the first cell: {text}"
     );
-    // Sorted by value, so the shorter text comes first: a total order, not insertion.
-    let other = values.find(r#""name":"Other""#).unwrap();
-    let write = values.find(r#""name":"Write""#).unwrap();
-    assert!(other < write, "{values}");
-    assert!(read(&text).is_err(), "the reader must refuse the repeat");
+    let back = read(&text).expect("the writer's own output reads");
+    assert_eq!(
+        back.records[0].value("t"),
+        Some(&JsonValue::Text("a".into())),
+        "the round trip must land on the first cell"
+    );
+}
+
+#[test]
+fn a_repeated_key_keeps_the_first_even_when_a_later_cell_would_sort_before_it() {
+    // The collapse happens *before* the sort, so the winner is document order and not
+    // whichever text happens to compare lower. Unreachable through `read`; pinned on a
+    // hand-built record like the test above.
+    let mut doc = declare(minimal(), "t");
+    doc.records[0].values = vec![
+        ("t".to_string(), JsonValue::Text("b".into())),
+        ("t".to_string(), JsonValue::Text("a".into())),
+    ];
+    let text = to_json(&doc);
+    assert!(
+        text.contains(r#""values":{"t":"b"}"#),
+        "sorting must not decide the winner: {text}"
+    );
+    assert_eq!(
+        read(&text).expect("the output reads").records[0].value("t"),
+        Some(&JsonValue::Text("b".into()))
+    );
+}
+
+/// `minimal()` plus one declared scalar field, so a hand-built cell names a field the
+/// reader will accept. A repeat is unreachable through `read`, so this is the only way
+/// to reach the writer's rule — and the round trip needs the id to be declared.
+fn declare(mut doc: Ingest, id: &str) -> Ingest {
+    doc.collections[0].fields.push(crate::ingest::Field {
+        id: id.to_string(),
+        name: id.to_string(),
+        role: Role::Scalar,
+        link: None,
+    });
+    doc
+}
+
+#[test]
+#[should_panic(expected = "version 2 is not the ingest version 1")]
+fn to_json_refuses_a_document_whose_version_is_not_the_one_this_reader_accepts() {
+    let mut doc = minimal();
+    doc.version = VERSION + 1;
+    let _ = to_json(&doc);
 }
