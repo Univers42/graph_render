@@ -95,8 +95,12 @@ function median(values) {
 
 /** The largest `(n, ms)` that fits `budgetMs`; exactly at the budget still fits. */
 function largestFitting(samples, budgetMs) {
-  const fitting = samples.filter(([, ms]) => ms <= budgetMs).map(([n]) => n);
-  return fitting.length === 0 ? null : Math.max(...fitting);
+  let largest = null;
+  for (const [n, ms] of samples) {
+    if (ms > budgetMs) continue;
+    largest = largest === null || n > largest ? n : largest;
+  }
+  return largest;
 }
 
 /**
