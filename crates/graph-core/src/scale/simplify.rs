@@ -177,7 +177,10 @@ fn fold_leaves(t: &Topology, graph: &Simple, out: &mut Simplified) {
             continue;
         }
         let representative = out.representative[neighbour as usize];
-        let edges = edges_between(t, v, neighbour);
+        let mut edges = edges_between(t, v, neighbour);
+        edges.extend(self_loops(t, v));
+        edges.sort_unstable();
+        edges.dedup();
         for &edge in &edges {
             out.edges[edge as usize] = 0;
         }
@@ -222,4 +225,25 @@ fn edges_between(t: &Topology, a: u32, b: u32) -> Vec<u32> {
     let mut between: Vec<u32> = out.chain(inbound).copied().collect();
     between.sort_unstable();
     between
+}
+
+/// The ascending indices of `v`'s own self-loops, deduplicated: an edge the node cannot
+/// outlive. [`edges_between`] never sees one — it is asked about `a != b`, and
+/// `simple::build` drops self-loops from the adjacency the passes walk — so a pass that
+/// hides `v` has to name these separately or the edge stays drawn with nothing behind it.
+/// The reference agrees: a self-loop's `ca == cb`, so `simplify.py:216-219` never makes it
+/// one of the coarse level's super-edges.
+fn self_loops(t: &Topology, v: u32) -> Vec<u32> {
+    let edges = t.edges();
+    let mut loops: Vec<u32> = t
+        .out()
+        .row(v)
+        .iter()
+        .chain(t.inbound().row(v).iter())
+        .copied()
+        .filter(|&e| edges.source[e as usize] == v && edges.target[e as usize] == v)
+        .collect();
+    loops.sort_unstable();
+    loops.dedup();
+    loops
 }

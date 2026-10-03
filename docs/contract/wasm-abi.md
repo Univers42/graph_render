@@ -364,6 +364,7 @@ graph-core-only capability.
 | 16 | `SessionParamsInvalid` | A force session's `(params_ptr, params_len)` is neither `0` (the defaults) nor exactly the parameter buffer's length |
 | 17 | `SessionRefused` | The force session refused: a parameter out of its range (never clamped), a row past the last node, or a non-finite coordinate (D9) |
 | 18 | `AnalysisFailed` | `gm_analysis_run` ran the analysis but its report has no JSON text: a non-finite score or modularity (`NaN` is not a JSON number, D9), or a column longer than `u32` can count |
+| 19 | `IngestTooLarge` | `gm_build`'s buffer is longer than `MAX_INGEST_BYTES` (774,568,785 bytes), refused on its length before any of it is read. **Not** `IngestInvalid`: that code means the document was read and found malformed, while this one means the document must be split or shrunk |
 
 Codes are **append-only**: `ContractInvalid` was added as `14` and moved no existing
 code, which `crates/graph-wasm/src/errors.rs`'s
@@ -451,6 +452,15 @@ Rules, all refused loudly (never silently coerced or dropped):
   first-wins/drop-silently for exactly these cases, which would make ingest order diverge
   from snapshot order, the one identity this ABI promises a caller.
 - Not UTF-8, or not JSON at all, is refused before shape-checking even starts.
+- A document longer than `MAX_INGEST_BYTES` (774,568,785 bytes) is refused with
+  `IngestTooLarge` on its length alone, before it is read at all. The number is measured,
+  not chosen: it is the largest document that built on the wasm32 artifact, byte for byte,
+  and the next one up, 799,922,860 bytes, trapped inside `index_model`'s string arena
+  (`docs/measurements/fix-wasm-ingest.md`). It has no margin, because it *is* the
+  measurement — nothing between it and that first trap has been shown to build — and it is
+  a ceiling rather than a promise: a document under it with an unusually high edge-to-node
+  ratio can still exhaust memory exactly as it does today. `fix-ingest-scale` owns that
+  defect and raises this number with a new measurement once it lands.
 - A number is refused wherever JSON does not admit non-finite values in the first place —
   D9's "no NaN/Inf reaches the wire" is enforced again on the way out (`gm_snapshot_json`/
   `gm_snapshot_bytes`), since a column view can still write one in after `gm_build`.

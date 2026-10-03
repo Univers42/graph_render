@@ -1,15 +1,16 @@
 //! `_cube_layout`'s corners and interior, hand-pinned against
 //! `SciGraphs/core/scigraphs_core/mesh/layouts/basic.py:83-103`.
 //!
-//! Split from [`super::tests`] because this is the one of the three that draws from a
-//! stream, and the tests here are about **which** parts are determined (the eight corners,
-//! the `min(n, 8)` split, the single-node origin, the interior's radius) and which are not
-//! (the interior's individual coordinates — see the module doc on why, and the metadata's
-//! `oracle` field for what the differential compares instead).
+//! Split from [`super::tests`] because this is the one of the three that draws from a stream,
+//! and the tests here are about **which** parts are determined (the eight corners, the
+//! `min(n, 8)` split, the single-node origin, the interior's radius) and which are not. The
+//! interior's individual coordinates *are* determined now — the generator is the reference's —
+//! so the tests that pin them are in [`interior`], next to nothing but each other.
+
+mod interior;
 
 use super::super::cube;
 use super::super::tests::{bare, space};
-use crate::synthetic::Mulberry32;
 
 /// The corners are a unit cube of half-side 1, scaled by `scale`.
 fn corner(i: usize) -> (f64, f64, f64) {
@@ -118,10 +119,13 @@ fn the_ninth_node_is_the_first_interior_point() {
 /// The interior is **strictly inside** the shell: every axis strictly within
 /// `[-0.8*scale, 0.8*scale]` = `[-4, 4]` (`basic.py:101`).
 ///
-/// This is the property the layout exists to draw, and it is the one part of the scatter
-/// that survives the port's own stream — the interior's *numbers* are not the reference's
-/// (see the module doc), but "strictly inside, at 80% of the corner radius" is a claim
-/// both streams satisfy and this asserts it over sizes past one draw.
+/// This is the property the layout exists to draw, and it is a **weaker** claim than the one
+/// [`interior`] now makes: the interior's numbers are the reference's exactly (see
+/// [`interior::the_ninth_node_is_the_reference_interior_bit_for_bit`]), so "strictly inside, at
+/// 80% of the corner radius" is a consequence rather than the fallback. It is kept because it
+/// is the one property that holds at every size rather than at one pinned node count, and a
+/// generator that produced the right nine numbers and the wrong thousand would still pass the
+/// pinned test and fail this one.
 #[test]
 fn the_interior_is_strictly_inside_the_eighty_percent_shell() {
     for n in [9u32, 32, 257, 1000] {
@@ -138,9 +142,12 @@ fn the_interior_is_strictly_inside_the_eighty_percent_shell() {
 }
 
 /// The scatter is symmetric about the origin in distribution: `uniform(-r, r)` has mean 0,
-/// and this checks the sample mean is near it over enough draws to mean something. It is
-/// the statistical half of what the differential compares (the corners are exact) — a
-/// centred stream passes it, an off-by-one in `-reach + 2*reach*u` does not.
+/// and this checks the sample mean is near it over enough draws to mean something.
+///
+/// This is no longer half of what the differential compares — [`interior`] compares every
+/// coordinate exactly — so what it is for now is the claim that **survives a wrong generator**:
+/// a stream that is right for the first few draws and wrong afterwards, or an off-by-one in the
+/// arithmetic, is centred and therefore passes the pinned tests and fails this one.
 #[test]
 fn the_interior_is_centred_on_the_origin() {
     let n = 4096u32;
@@ -158,28 +165,6 @@ fn the_interior_is_the_same_twice_over() {
     let a = space(&cube(&bare(257)).expect("runs"));
     let b = space(&cube(&bare(257)).expect("runs"));
     assert_eq!(a, b, "two runs at n=257, byte for byte");
-}
-
-/// Three draws per node, axis by axis (`x`, then `y`, then `z`), which is the order
-/// `rng.uniform(-1, 1, (k, 3))` fills in C order.
-///
-/// The check is a recount, not a recomputation: `super::uniform` is the reference's
-/// `low + (high - low) * next_double()`, so feeding the same seed into a fresh stream
-/// reproduces the interior exactly. A per-axis stream, or a `y`-before-`x` order, would
-/// give a different drawing and this pins it.
-#[test]
-fn the_interior_draws_three_values_per_node_axis_by_axis() {
-    let n = 40u32;
-    let (x, y, z) = space(&cube(&bare(n)).expect("runs"));
-    let mut stream = Mulberry32::new(super::SEED);
-    for i in 8..n as usize {
-        let want_x = -4.0 + (4.0 - -4.0) * stream.next_f64();
-        let want_y = -4.0 + (4.0 - -4.0) * stream.next_f64();
-        let want_z = -4.0 + (4.0 - -4.0) * stream.next_f64();
-        assert_eq!(x[i], want_x as f32, "node {i} x: the draw order moved");
-        assert_eq!(y[i], want_y as f32, "node {i} y");
-        assert_eq!(z[i], want_z as f32, "node {i} z");
-    }
 }
 
 /// The seed is fixed, and changing it changes the interior while leaving the corners
