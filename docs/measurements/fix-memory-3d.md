@@ -106,14 +106,28 @@ No value changed, so nothing to report under "decisions needed".
 - `layout.basic3d.spiral` at 1 000 nodes peaks 48 % above the other three closed forms. Not
   diagnosed here; the arm is a measurement script, and the figure is recorded as it stands.
 
-## Commands
+## Commands, with their real exit codes
 
 ```
-scripts/orch/gr cargo test --release -p graph-core --test memory -- --ignored --nocapture --test-threads=1 three_d  -> 0
+scripts/orch/gr cargo test --release -p graph-core --test memory --no-run  -> 101   RED: E0583, `mod three_d;` in a crate root wants tests/three_d.rs
+scripts/orch/gr cargo test --release -p graph-core --test memory -- --ignored --nocapture --test-threads=1  -> 0   all 7 arms: 4 pre-existing + 3 new
+scripts/orch/gr cargo test --release -p graph-core --test memory -- --ignored --nocapture --test-threads=1 three_d  -> 0   the 3 new arms
+scripts/orch/gr cargo fmt --all  -> 0
 scripts/orch/gr cargo fmt --all --check  -> 0
-scripts/orch/gr cargo clippy -p graph-core --all-targets -- -D warnings  -> 0
-scripts/orch/gr cargo test -p graph-core --test memory  -> 0 (the 3 arms stay #[ignore]d, so the default run is 0 tests of these)
+scripts/orch/gr cargo clippy --workspace --all-targets -- -D warnings  -> 0
+scripts/orch/gr cargo test --workspace --no-fail-fast  -> 0   0 failed anywhere; `memory` reports 7 ignored (4 old + 3 new arms)
 scripts/orch/gr cargo build -p graph-core --target wasm32-unknown-unknown  -> 0
-scripts/orch/gr cargo test --workspace --no-fail-fast  -> 0
-scripts/scigraphs-conformance.sh  -> 0
+scripts/scigraphs-conformance.sh  -> 0   PASS
+scripts/orch/gr cargo run -q --release -p graph-cli -- capabilities --check  -> 1
 ```
+
+`capabilities --check` exits **1** with 36 problems, and this is pre-existing, not this job's:
+every one is a `gated, but no hashgate / oracle / roundtrip record: run the gate` line for a
+timed gate this job is forbidden to run. `capabilities --check | grep -iE 'ceil|3d|basic3d'`
+matches **nothing** (exit 1), so no `scale_ceiling` is reported — as expected, since no
+ceiling value changed.
+
+Not run, being timed gates the body reserves for the orchestrator: `hashgate --seeds 8` and its
+`GM_MUTATE_REFERENCE_DEGREE=9` control, `mutants.sh`, `gate.sh`. No registered layout, post,
+analysis or scale output moved — this job edits a doc comment and adds three `#[ignore]`d
+measurements, and `scripts/scigraphs-conformance.sh` exits 0 with every row unmoved.
