@@ -64,7 +64,7 @@ function arm(clock: FakeClock, run: () => void, ms: number): () => void {
 }
 
 function frame(alpha: number, running = true): ForceFrame {
-  return { xs: Float64Array.of(1, 2), ys: Float64Array.of(3, 4), alpha, running };
+  return { xs: Float32Array.of(1, 2), ys: Float32Array.of(3, 4), alpha, running };
 }
 
 /** A motor the test drives: it answers what it is sent, and can then go quiet or throw. */

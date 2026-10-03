@@ -1,8 +1,19 @@
 /**
- * The uploads of the GPU layer. Each column is sent again only when the array it came from
- * changed identity (positions also when the view's `placed` counter moved), so a camera move
- * uploads nothing but the quad pass's compact columns. Edges and shown nodes are also listed
- * in spread order (plan.ts), whose every prefix samples the whole graph.
+ * The uploads of the GPU layer: a column that fits the buffer it is going into is written into
+ * it, and only a column that outgrows its buffer reallocates.
+ *
+ * WHY: `bufferData` on a buffer that already holds the right size makes the driver throw the
+ * old store away and hand back a new one. At a million nodes the moving `x` and `y` columns
+ * are the same size every frame, so every frame was paying for an allocation to store the same
+ * number of bytes. `bufferSubData` writes into the store that is already there.
+ *
+ * Ponytail: one `Map` per layer records the byte length each buffer was last given. Failing
+ * input: a column that shrinks is still written with `bufferSubData` when it fits, which
+ * leaves the tail of the buffer holding the previous frame's numbers — harmless here because
+ * every draw reads the columns through `uploaded.shown`, a count this same function sets, and
+ * never the whole buffer. Direction: `bufferData` on growth, `bufferSubData` otherwise.
+ * Escape hatch: a store the driver discards behind our back shows up as a wrong drawing, not
+ * as an error; `gl.getError()` after a sub-data is what would catch it, and nothing calls it.
  */
 import type { PaintInput } from "../canvas2d/input.ts";
 import { paletteTexels } from "./colour.ts";
@@ -10,9 +21,43 @@ import { type BulkLayer, PALETTE_WIDTH } from "./layer.ts";
 import { gathered, largestHalf, nodeHalves, spreadPairs, spreadShown, visibleEdges } from "./plan.ts";
 import { measurePairs } from "./sample.ts";
 
-function upload(gl: WebGL2RenderingContext, target: GLenum, buffer: WebGLBuffer, data: ArrayBufferView): void {
+/**
+ * The byte length each buffer was last given, so a same-size column need not reallocate.
+ *
+ * Generic in the buffer's identity rather than taking a `WebGLBuffer`: the policy is the part
+ * worth testing, and a test that has to build a WebGL2 context to reach it is a test that does
+ * not run. Nothing here knows what a buffer is.
+ */
+export class Sizes<K> {
+  private readonly seen = new Map<K, number>();
+
+  /** True while the buffer has never been given this much room. */
+  needsAlloc(buffer: K, bytes: number): boolean {
+    return (this.seen.get(buffer) ?? -1) < bytes;
+  }
+
+  /** The buffer now holds `bytes`, so a later column of that size is written into it. */
+  record(buffer: K, bytes: number): void {
+    this.seen.set(buffer, bytes);
+  }
+}
+
+const sized = new WeakMap<BulkLayer, Sizes<WebGLBuffer>>();
+
+function subData(layer: BulkLayer, target: GLenum, buffer: WebGLBuffer, data: ArrayBufferView): void {
+  const { gl } = layer;
   gl.bindBuffer(target, buffer);
-  gl.bufferData(target, data, gl.DYNAMIC_DRAW);
+  let sizes = sized.get(layer);
+  if (sizes === undefined) {
+    sizes = new Sizes();
+    sized.set(layer, sizes);
+  }
+  if (sizes.needsAlloc(buffer, data.byteLength)) {
+    gl.bufferData(target, data, gl.DYNAMIC_DRAW);
+    sizes.record(buffer, data.byteLength);
+    return;
+  }
+  gl.bufferSubData(target, 0, data);
 }
 
 export const sameRefs = (a: readonly unknown[], b: readonly unknown[]): boolean => a.length === b.length && a.every((value, at) => value === b[at]);
@@ -26,9 +71,9 @@ function syncHalves(layer: BulkLayer, input: PaintInput): void {
   if (sameRefs(uploaded.halvesKey, key)) return;
   const halves = nodeHalves({ extent: input.extent, w, h, hidden: input.style.hidden });
   const order = spreadShown(halves);
-  upload(gl, gl.ARRAY_BUFFER, buffers.half, halves);
+  subData(layer, gl.ARRAY_BUFFER, buffers.half, halves);
   gl.bindVertexArray(layer.points.vao);
-  upload(gl, gl.ELEMENT_ARRAY_BUFFER, buffers.order, order);
+  subData(layer, gl.ELEMENT_ARRAY_BUFFER, buffers.order, order);
   gl.bindVertexArray(null);
   uploaded.halvesKey = key;
   uploaded.halves = halves;
@@ -39,14 +84,14 @@ function syncHalves(layer: BulkLayer, input: PaintInput): void {
 export function syncNodes(layer: BulkLayer, input: PaintInput, placed: number): void {
   const { gl, buffers, uploaded } = layer;
   if (uploaded.x !== input.x || uploaded.placed !== placed) {
-    upload(gl, gl.ARRAY_BUFFER, buffers.x, input.x);
-    upload(gl, gl.ARRAY_BUFFER, buffers.y, input.y);
+    subData(layer, gl.ARRAY_BUFFER, buffers.x, input.x);
+    subData(layer, gl.ARRAY_BUFFER, buffers.y, input.y);
     uploaded.x = input.x;
     uploaded.placed = placed;
   }
   syncHalves(layer, input);
   if (uploaded.slots !== input.style.colours) {
-    upload(gl, gl.ARRAY_BUFFER, buffers.slot, input.style.colours);
+    subData(layer, gl.ARRAY_BUFFER, buffers.slot, input.style.colours);
     uploaded.slots = input.style.colours;
   }
 }
@@ -76,7 +121,7 @@ export function syncEdges(layer: BulkLayer, input: PaintInput, placed: number): 
   if (!sameRefs(uploaded.edges, key)) {
     const index = spreadPairs(visibleEdges(input.frame.source, input.frame.target, input.style.hidden));
     gl.bindVertexArray(layer.edges.vao);
-    upload(gl, gl.ELEMENT_ARRAY_BUFFER, layer.buffers.index, index);
+    subData(layer, gl.ELEMENT_ARRAY_BUFFER, layer.buffers.index, index);
     gl.bindVertexArray(null);
     uploaded.edges = key;
     uploaded.index = index;
@@ -92,8 +137,8 @@ export function syncEdges(layer: BulkLayer, input: PaintInput, placed: number): 
 /** The quad pass's columns, holding only `nodes`. */
 export function syncQuads(layer: BulkLayer, input: PaintInput, nodes: Uint32Array): void {
   const { gl, buffers } = layer;
-  upload(gl, gl.ARRAY_BUFFER, buffers.quadX, gathered(input.x, nodes, 1));
-  upload(gl, gl.ARRAY_BUFFER, buffers.quadY, gathered(input.y, nodes, 1));
-  upload(gl, gl.ARRAY_BUFFER, buffers.quadHalf, gathered(layer.uploaded.halves, nodes, 2));
-  upload(gl, gl.ARRAY_BUFFER, buffers.quadSlot, gathered(input.style.colours, nodes, 1));
+  subData(layer, gl.ARRAY_BUFFER, buffers.quadX, gathered(input.x, nodes, 1));
+  subData(layer, gl.ARRAY_BUFFER, buffers.quadY, gathered(input.y, nodes, 1));
+  subData(layer, gl.ARRAY_BUFFER, buffers.quadHalf, gathered(layer.uploaded.halves, nodes, 2));
+  subData(layer, gl.ARRAY_BUFFER, buffers.quadSlot, gathered(input.style.colours, nodes, 1));
 }
