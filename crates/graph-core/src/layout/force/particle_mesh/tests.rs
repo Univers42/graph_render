@@ -2,6 +2,7 @@ use super::kernel::Law;
 use super::mesh::Mesh;
 use super::*;
 use crate::index::index_model;
+use crate::layout::force::LiveParams;
 use crate::records::build::{edge, node};
 use crate::records::{EdgeRecord, NodeRecord};
 
@@ -17,7 +18,7 @@ fn line(n: u32) -> (Vec<NodeRecord>, Vec<EdgeRecord>) {
 pub(super) fn placed(x: Vec<f64>, y: Vec<f64>, params: ForceParams) -> Sim {
     let nodes: Vec<_> = (0..x.len()).map(|i| node(&format!("n{i}"), "")).collect();
     let t = index_model(&nodes, &[]).expect("fits");
-    let mut sim = Sim::new(&t, LiveParams::from(params), SEED);
+    let mut sim = Sim::new(&t, LiveParams::from(params), 0);
     (sim.x, sim.y) = (x, y);
     sim
 }
@@ -106,10 +107,11 @@ fn mean_link(x: &[f64], y: &[f64]) -> f64 {
 fn a_chain_settles_to_barnes_hut_s_scale() {
     let (nodes, edges) = line(60);
     let t = index_model(&nodes, &edges).expect("fits");
-    let mut run = ParticleMeshRun::from_frozen(&t, &ForceParams::default()).expect("valid");
-    run.step_with(&Serial, 1, TICKS);
-    let mut bh = crate::layout::force::ForceSession::from_frozen(&t, &ForceParams::default())
-        .expect("valid");
+    let mut run = ForceSession::from_frozen(&t, &ForceParams::default())
+        .expect("valid")
+        .with_particle_mesh();
+    run.step(TICKS);
+    let mut bh = ForceSession::from_frozen(&t, &ForceParams::default()).expect("valid");
     bh.step(TICKS);
     let (pm, bh) = (mean_link(run.xs(), run.ys()), mean_link(bh.xs(), bh.ys()));
     assert!(
@@ -130,4 +132,26 @@ fn an_empty_and_a_single_node_graph_run() {
     let (nodes, edges) = line(1);
     let one = index_model(&nodes, &edges).expect("fits");
     assert!(ParticleMesh::run(&one, &ForceParams::default()).is_ok());
+}
+
+/// A mesh session carried onto its own topology keeps ticking on the mesh: it steps to the
+/// straight run's bits, which Barnes-Hut's tick does not reach.
+#[test]
+fn a_carried_session_keeps_the_mesh() {
+    let (nodes, edges) = line(40);
+    let t = index_model(&nodes, &edges).expect("fits");
+    let session = || ForceSession::new(&t, LiveParams::default()).expect("valid");
+    let mut straight = session().with_particle_mesh();
+    let mut carried = straight.carry(&t, &t).expect("its own topology");
+    let mut tree = session();
+    for run in [&mut straight, &mut carried, &mut tree] {
+        run.step(30);
+    }
+    let bits = |s: &ForceSession| s.xs().iter().map(|v| v.to_bits()).collect::<Vec<_>>();
+    assert_eq!(bits(&carried), bits(&straight), "the carry kept the mesh");
+    assert_ne!(
+        bits(&tree),
+        bits(&straight),
+        "the tree's tick is other bytes"
+    );
 }

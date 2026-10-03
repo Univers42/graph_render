@@ -47,6 +47,7 @@ use super::ForceSession;
 use super::error::SessionError;
 use crate::index::Topology;
 use crate::layout::force::barnes_hut::sim::Sim;
+use crate::layout::force::particle_mesh::Mesh;
 
 /// The same constant `barnes_hut/seed.rs` spirals on, so the offset a new node gets is the
 /// seed's own angle rather than a second one that happens to look similar.
@@ -91,7 +92,9 @@ fn carried(
         });
     }
     let mut out = ForceSession::seeded(to, session.sim.params);
-    let ForceSession { sim, deltas } = &mut out;
+    let ForceSession { sim, deltas, mesh } = &mut out;
+    // The carried session keeps its engine; the mesh's grids are sized to the new rows.
+    *mesh = session.mesh.as_ref().map(|_| Mesh::new(sim.rows()));
     sim.alpha = session.sim.alpha;
     sim.alpha_target = session.sim.alpha_target;
     sim.tick_no = session.sim.tick_no;
