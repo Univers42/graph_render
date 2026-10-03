@@ -221,7 +221,8 @@ def _block_lines(report):
 def table(report):
     head = [f"# studio-perf — {report['label']}", "",
             f"commit `{report['commit']}` · driver `{report['driver']}` · {report['browser']} · "
-            f"viewport {report['viewport'][0]}x{report['viewport'][1]} · software raster", "",
+            f"viewport {report['viewport'][0]}x{report['viewport'][1]} · renderer "
+            f"{report.get('renderer', 'not recorded')}", "",
             "| row | expectation | measured | verdict |", "|---|---|---|---|"]
     rows = [f"| `{row['row']}` | {row['expectation']} | {row['measured']} | {row['verdict']} |"
             for row in report["rows"]]

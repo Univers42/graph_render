@@ -6,7 +6,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { type LiveBridge, createLiveBridge, settlesLive } from "../src/motor/bridge.ts";
+import { type LiveBridge, createLiveBridge } from "../src/motor/bridge.ts";
+import { settlesLive } from "../src/motor/live.ts";
 import { DEFAULT_KNOBS } from "../src/motor/live.ts";
 import type { ForceFrame, ForceRequest, Result } from "../src/motor/protocol.ts";
 import { ALPHA_MIN } from "../src/motor/liveLoop.ts";

@@ -88,7 +88,7 @@ impl Stage for FruchtermanReingold {
 }
 
 pub(super) fn sqrt(v: f64) -> f64 {
-    libm::sqrt(v)
+    f64::sqrt(v)
 }
 
 /// Uniform in the square of side sqrt(n) centred on the origin.

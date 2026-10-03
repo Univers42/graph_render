@@ -44,7 +44,7 @@ use crate::stage::StageError;
 /// Step 1: the grid `pack.c:613-631` builds — `nc = ceil(sqrt(n))` columns and
 /// `nr = ceil(n / nc)` rows, row-major.
 fn grid(count: u32) -> (u32, u32) {
-    let cols = libm::ceil(libm::sqrt(f64::from(count))) as u32;
+    let cols = libm::ceil(f64::sqrt(f64::from(count))) as u32;
     (cols, count.div_ceil(cols))
 }
 

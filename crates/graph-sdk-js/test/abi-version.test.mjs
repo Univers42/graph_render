@@ -14,6 +14,7 @@ const NAMES = [
   "gm_dim", "gm_column_ptr", "gm_column_len", "gm_snapshot_json", "gm_snapshot_bytes",
   "gm_post_count", "gm_post_id", "gm_post_run", "gm_analysis_count", "gm_analysis_id",
   "gm_analysis_run", "gm_release", "gm_last_error", "gm_force_session_create",
+  "gm_force_session_create_mesh",
   "gm_force_session_set_params", "gm_force_session_params", "gm_force_session_tick",
   "gm_force_session_alpha", "gm_force_session_reheat", "gm_force_session_pin",
   "gm_force_session_unpin", "gm_force_session_unpin_all", "gm_force_session_column_ptr",

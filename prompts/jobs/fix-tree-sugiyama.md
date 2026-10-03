@@ -20,7 +20,12 @@ the Sugiyama-Tagawa-Toda priority method with the same `_PRIORITY_NODE_BUDGET = 
    the case to the registry row's `degradation` text. Coordinates unchanged.
 4. **L-13, MINOR.** `ordering.rs` drops a vertex whose layer is out of range. GREEN: `StageError`.
    RED: if no public input reaches it, test the seam and say so.
-5. **L-14, MINOR.** `routing.rs` emits a self-loop as a degenerate polyline (first point = last).
+5. **sg-sugiyama's open decision.** `registry/grid.rs`'s SUGIYAMA `ponytail` and `oracle` fields
+   still say "acyclic after FAS" / "Ponytail (FAS)", but sg-sugiyama replaced the greedy FAS (its
+   report and `docs/measurements/sg-sugiyama.md`). Reword both to what the cycle step does now and
+   correct `complexity` if it is wrong. Wording only: no `Metadata` value that codegen or
+   `capabilities` reads may move (`capabilities --check` and `codegen --check` exit 0).
+6. **L-14, MINOR.** `routing.rs` emits a self-loop as a degenerate polyline (first point = last).
    Read what SciGraphs emits for `n -> n`; match it, or document the convention in the row text.
 
 For 1 and 2, paste a `bench` row on the largest-layer case before and after (n = 10k and 100k),
@@ -29,7 +34,7 @@ control (non-zero), the dagre crossing counts in `docs/decisions/sugiyama-heuris
 and `scripts/scigraphs-conformance.sh` (exit 0).
 
 Paths: `crates/graph-core/src/layout/sugiyama/**`, `crates/graph-core/src/registry/grid.rs` (the
-sugiyama row's `degradation` text only), the contract's note-code list only if a code is added,
+sugiyama row's `degradation`, `ponytail`, `oracle` and `complexity` text only), the contract's note-code list only if a code is added,
 `docs/measurements/fix-tree-sugiyama.md` (one row per id: verdict, RED, GREEN, numbers).
 
 Done when: fix-common's done-when; every id above has a row.

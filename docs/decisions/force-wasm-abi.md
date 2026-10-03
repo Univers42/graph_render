@@ -25,7 +25,7 @@ Two inputs, and neither alone would have been right.
 | `reheat(alpha)` | `gm_force_session_reheat` |
 | `positions(): { xs: Float64Array, ys: Float64Array }` | `gm_force_session_column_ptr`/`_len` on `f64` columns |
 | — (no teardown in the port) | `gm_force_session_release` |
-| — | `gm_force_session_create`, `gm_force_session_params`, `gm_force_session_unpin_all` |
+| — | `gm_force_session_create`, `gm_force_session_create_mesh`, `gm_force_session_params`, `gm_force_session_unpin_all` |
 
 Three things that port decided and this table keeps:
 
@@ -63,6 +63,7 @@ on both targets, and no narrower than what the caller's own view already holds.
 | Export | Params | Returns | Refuses with |
 |---|---|---|---|
 | `gm_force_session_create` | `graph: u32, params_ptr: u32, params_len: u32` | session id `>= 1`, or `0` | `InvalidHandle`, `SessionParamsInvalid`, `SessionRefused`, `HandlesExhausted` |
+| `gm_force_session_create_mesh` | as `gm_force_session_create` | as `gm_force_session_create` | as `gm_force_session_create`; the session ticks on the particle mesh (`layout.force.particle_mesh`) instead of Barnes-Hut |
 | `gm_force_session_set_params` | `session: u32, params_ptr: u32, params_len: u32` | `1`, or `0` | `InvalidSession`, `SessionParamsInvalid`, `SessionRefused` |
 | `gm_force_session_params` | `session: u32` | framed 104-byte `f64` buffer, or `0` | `InvalidSession` |
 | `gm_force_session_tick` | `session: u32, ticks: u32` | `0` refused, `1` ran and cooling, `2` ran and settled | `InvalidSession` |
@@ -117,7 +118,7 @@ is reported as `0`, never truncated — a truncated heap address is a wild point
 | A parameter buffer (`gm_alloc`'d, 104 bytes) | the caller | the caller, via `gm_free` — the export copies out of it and never frees it, on a refusal too | the call returns (C7) |
 | The `gm_force_session_params` framed buffer | the motor's shared out-buffer | nothing; overwritten by the next motor call | the next call on **any** handle (C7) |
 | A session | the session table (`handle::Table`, its own id space) | `gm_force_session_release` | — the id is never reissued (C6) |
-| A position column's `(ptr, len)` | the session's own `Vec<f64>` | the session's own storage, dropped by `gm_force_session_release` | the session's life; **read it before the next call anyway**, because a wasm memory growth detaches the JS `ArrayBuffer` |
+| A position column's `(ptr, len)` | the session's own `Vec<f64>` | the session's own storage, dropped by `gm_force_session_release` | Barnes-Hut: the session's life. Particle mesh: the next tick, which swaps the columns in. **Read it before the next call anyway**, because a wasm memory growth detaches the JS `ArrayBuffer` |
 
 The session table is **not** the handle table. `graph` is a graph handle (`gm_build`'s id);
 everything else takes a session id, and a graph id passed as a session id reads

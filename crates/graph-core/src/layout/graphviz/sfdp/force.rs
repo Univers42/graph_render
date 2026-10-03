@@ -48,7 +48,7 @@ pub(super) fn average_edge_length(edges: &[(u32, u32)], x: &[f64], y: &[f64]) ->
     for &(i, j) in edges {
         let dx = x[i as usize] - x[j as usize];
         let dy = y[i as usize] - y[j as usize];
-        total += libm::sqrt(dx * dx + dy * dy);
+        total += f64::sqrt(dx * dx + dy * dy);
     }
     total / edges.len() as f64
 }
@@ -96,7 +96,7 @@ pub(super) fn attract(out: &mut [f64; 2], i: u32, j: u32, x: &[f64], y: &[f64], 
     if dist2 <= 0.0 {
         return;
     }
-    let dist = libm::sqrt(dist2);
+    let dist = f64::sqrt(dist2);
     out[0] -= crk * dx * dist;
     out[1] -= crk * dy * dist;
 }

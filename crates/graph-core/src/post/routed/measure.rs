@@ -30,7 +30,7 @@ fn spanned_layout(count: u32, pitch_cells: f64) -> NodeGeometry {
     let span = 8.0_f64;
     let pitch = pitch_cells * span / 128.0;
     // Square lattice, as wide as the count allows, so the drawing fills 0..8 on both axes.
-    let cols = (libm::sqrt(f64::from(count)).ceil() as u32).max(2);
+    let cols = (f64::sqrt(f64::from(count)).ceil() as u32).max(2);
     let (mut x, mut y) = (
         Vec::with_capacity(count as usize),
         Vec::with_capacity(count as usize),

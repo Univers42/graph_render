@@ -23,7 +23,7 @@ pub(super) fn seed_positions(n: u32) -> Vec<(f64, f64)> {
     let total = f64::from(n.max(1));
     (0..n)
         .map(|i| {
-            let radius = libm::sqrt(f64::from(i + 1) / total);
+            let radius = f64::sqrt(f64::from(i + 1) / total);
             let angle = f64::from(i) * GOLDEN_ANGLE;
             (radius * libm::cos(angle), radius * libm::sin(angle))
         })
@@ -99,7 +99,7 @@ impl FrField<'_> {
             p.0 += dx;
             p.1 += dy;
         }
-        libm::sqrt(moved_sq)
+        f64::sqrt(moved_sq)
     }
 }
 
@@ -131,7 +131,7 @@ pub(super) fn fruchterman_reingold(
     let field = FrField {
         adjacency: &adjacency,
         n,
-        k: libm::sqrt(1.0 / f64::from(n.max(1))),
+        k: f64::sqrt(1.0 / f64::from(n.max(1))),
     };
     let mut pos = seed_positions(n);
     let mut t = initial_temperature(&pos);

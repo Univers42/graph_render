@@ -1,9 +1,11 @@
 //! Declared roles, read. The vocabulary is in `graph_contract::ingest`; this is the
 //! motor's own view of a document through it.
 //!
-//! "The first field with this role" means the **lowest-id** field with it, because the
-//! contract's reader sorts a collection's fields by id on the way in. So the order in
-//! which two adapters happened to write their declarations cannot reach a derived graph.
+//! "The first field with this role" means the **lowest-id** field with it. The contract's
+//! reader sorts a collection's fields by id on the way in, and this module sorts them
+//! again rather than trusting that, because every `Ingest` field is `pub` and a document
+//! built in Rust reaches here unsorted. So the order in which two adapters happened to
+//! write their declarations cannot reach a derived graph.
 //!
 //! Every function here takes a **declared field id or a declared role** and returns what
 //! that field's value says. None of them looks at a field's *name*, its position, or a
@@ -50,9 +52,32 @@ pub fn label<'a>(doc: &'a Ingest, record: &'a Record) -> Option<&'a str> {
     text(record, field_id)
 }
 
-/// The value of the collection's first `label`-role field, as the node's `group`.
+/// The value of the collection's first `label`-role field as the node's `group`, or —
+/// for a collection that declares no `label` role at all — the first `group`-role field.
+///
+/// **The choice is the collection's, not the record's.** Whether the fallback exists is
+/// decided by the *declaration* — does this collection declare a `label` role? — and
+/// never by whether one record happens to carry a cell for it. Deciding per record would
+/// make the same collection derive two different node columns: a record whose label cell
+/// is absent would silently take its `group` cell, and one whose label cell is present
+/// would not, with nothing in the output saying which rule ran. `Role::Label` wins where
+/// both are declared, because that is what the contract's `Role::Label` says it is ("a
+/// second string, the node's `group`"); `Role::Group` is the fallback so that a document
+/// declaring it is not silently dropped — a declared role with no reader is
+/// indistinguishable from a role nobody implemented.
+///
+/// **Ponytail (two roles, one column).** Failing input: a collection declaring both a
+/// `label` and a `group` field, where the `group` field's value is the one the user
+/// expected to see. Direction: the `label` role wins, because the contract names it as the
+/// node's group; the `group` value is dropped and nothing in the output says so. Escape
+/// hatch: declare `label` on the field whose value should be the group.
 pub fn group<'a>(doc: &'a Ingest, record: &'a Record) -> Option<&'a str> {
-    role_value(doc, record, Role::Label).and_then(JsonValue::as_text)
+    let collection = doc.collection(&record.collection)?;
+    let role = match role_field(collection, Role::Label) {
+        Some(_) => Role::Label,
+        None => Role::Group,
+    };
+    role_value(doc, record, role).and_then(JsonValue::as_text)
 }
 
 /// The values of the collection's first `tags`-role field, as strings, in the order
@@ -72,6 +97,18 @@ pub fn tags(doc: &Ingest, record: &Record) -> Vec<String> {
 }
 
 /// The value of the collection's first `weight`-role field, or [`DEFAULT_WEIGHT`].
+///
+/// The number derives **as declared**, with no clamp and no refusal. `NodeRecord.weight`
+/// documents 0..1 by convention, not by validation, and both committed source fixtures
+/// declare 3, 5 and 8 — a clamp would silently rewrite every weight in the convergence
+/// dataset (three distinct nodes all to `1.0`) and a refusal would make the phase's own
+/// fixture unbuildable.
+///
+/// **Ponytail (an out-of-range weight).** Failing input: a source whose weight column is
+/// a score (`-1`, `8`, or a percentage on a 0..100 scale). Direction: the value is passed
+/// through, so a consumer that assumes 0..1 — a legend, a colour ramp, a radius — draws
+/// outside its own scale rather than being told. Escape hatch: a source that wants the
+/// convention declares a weight already inside it, or normalises before it declares.
 pub fn weight(doc: &Ingest, record: &Record) -> f64 {
     role_value(doc, record, Role::Weight)
         .and_then(JsonValue::as_number)
@@ -141,13 +178,32 @@ pub fn link_of<'a>(doc: &'a Ingest, collection_id: &str, field_id: &str) -> Opti
 /// id). The derived edge order therefore does not depend on how the document listed its
 /// fields (H6), and a tie in any downstream sort falls to the id, never to insertion.
 pub fn link_fields(collection: &Collection) -> impl Iterator<Item = &Field> {
-    collection.fields.iter().filter(|f| f.role == Role::Link)
+    canonical(collection.fields.iter().filter(|f| f.role == Role::Link)).into_iter()
 }
 
 /// The first field with `role` in the contract's canonical order, or `None`. A
-/// *declared* first, never a discovered one.
+/// *declared* first, never a discovered one — and the lowest id, never the first written.
 fn role_field(collection: &Collection, role: Role) -> Option<&Field> {
-    collection.first_with_role(role)
+    canonical(collection.fields.iter().filter(|f| f.role == role))
+        .into_iter()
+        .next()
+}
+
+/// The collection's fields with one role, in canonical order: ascending by field id.
+///
+/// The contract's reader sorts a collection's fields (`validate::check`), but every
+/// `Ingest` field is `pub`, so a document built in Rust — an adapter, a test, the SDK —
+/// reaches this module with whatever order it was written in. Sorting here rather than
+/// trusting the reader is what makes "the lowest-id field with this role" true on this
+/// tree for every document, not only the ones that came out of `read()`.
+///
+/// The sort is **stable** and the key is the id, so two fields sharing an id (a schema
+/// mistake the contract's reader refuses) keep their declared order among themselves and
+/// every other case is decided by content alone (D3, D5).
+fn canonical<'a>(fields: impl Iterator<Item = &'a Field>) -> Vec<&'a Field> {
+    let mut ordered: Vec<&Field> = fields.collect();
+    ordered.sort_by(|a, b| a.id.cmp(&b.id));
+    ordered
 }
 
 /// The value of the first field declared with `role`, or `None`. The lifetime is the

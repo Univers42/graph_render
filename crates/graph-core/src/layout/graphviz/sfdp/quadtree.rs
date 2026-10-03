@@ -141,7 +141,7 @@ impl Quadtree {
         let internal = cell.children.iter().any(|c| c.is_some());
         let dx = px - cell.cx;
         let dy = py - cell.cy;
-        let dist = libm::sqrt(dx * dx + dy * dy);
+        let dist = f64::sqrt(dx * dx + dy * dy);
         // The reference's opening test: width over distance below `bh` means supernode.
         // `dist == 0` never satisfies it, so a coincident cell always opens, which is what
         // stops coincident points from standing in for one another.

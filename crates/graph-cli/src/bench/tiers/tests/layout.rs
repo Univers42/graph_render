@@ -12,7 +12,7 @@ use super::plan;
 use super::report::{base_cells, host};
 use graph_core::Grid;
 use graph_core::Stage as _;
-use graph_core::layout::force::{BarnesHut, Split, YifanHu};
+use graph_core::layout::force::{BarnesHut, ParticleMesh, Split, YifanHu};
 use graph_core::layout::{circular::ring, spiral};
 
 /// The sweep must time **the layout the plan names**, and every routed layout must be
@@ -157,6 +157,46 @@ fn the_multilevel_layout_is_byte_equal_at_every_width_and_its_control_turns_it_r
     );
 }
 
+/// The mesh stage is byte-equal to its own serial arm at every threaded width, and its own
+/// split control turns it red — the same two claims the yifan_hu row above makes, and the
+/// negative control matters more here, because the mesh's link, charge and collide passes
+/// all read a `Split` that the stage used to hard-code off.
+#[test]
+fn the_mesh_layout_is_byte_equal_at_every_width_and_its_control_turns_it_red() {
+    let p = plan(vec![40], 1);
+    let routes = vec![ParticleMesh::ID];
+    let arms = [
+        Tier::Scalar,
+        Tier::Threads(2),
+        Tier::Threads(4),
+        Tier::Threads(7),
+    ];
+    let (cells, _) = run(&p, &routes, &arms).expect("ran");
+    assert_eq!(cells.len(), 4);
+    for cell in &cells {
+        assert!(
+            cell.equal,
+            "particle_mesh {} disagreed with its own serial arm",
+            cell.tier.arm_name()
+        );
+    }
+    let (split, _) = run_under(
+        &p,
+        &routes,
+        &[Tier::Scalar, Tier::Threads(4)],
+        Control {
+            split: Split::All,
+            ..Control::HONEST
+        },
+    )
+    .expect("ran");
+    assert!(split[0].equal, "the serial arm is its own reference");
+    assert!(
+        !split[1].equal,
+        "the particle_mesh sweep's byte check is vacuous: its control changed nothing"
+    );
+}
+
 /// The bench row and the gate row are the same claim, so the multilevel stage is in
 /// `hashgate --tiers all`'s recompute list: a stage timed threaded but hashed from the
 /// scalar column would report an `equal` in one report and compare nothing in the other.
@@ -166,5 +206,15 @@ fn the_multilevel_stage_is_in_the_gate_sweep() {
         crate::hashgate::tiered::THREADED_STAGES.contains(&YifanHu::ID),
         // and the arm that reads the list is the same one the gate drives:
         "the multilevel stage is timed threaded by the bench but not recomputed by the gate"
+    );
+}
+
+/// The mesh stage's bench row and gate row are the same claim too, so it is in the same
+/// recompute list — and, unlike the closed-form layouts, in the `split_sum` half of it.
+#[test]
+fn the_mesh_stage_is_in_the_gate_sweep() {
+    assert!(
+        crate::hashgate::tiered::THREADED_STAGES.contains(&ParticleMesh::ID),
+        "the mesh stage is timed threaded by the bench but not recomputed by the gate"
     );
 }

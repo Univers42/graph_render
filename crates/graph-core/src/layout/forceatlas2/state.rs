@@ -185,7 +185,7 @@ impl Fa2State {
         (mx, my) = (mx / n as f64, my / n as f64);
         for i in 0..n {
             let (px, py) = (self.x[i] - mx, self.y[i] - my);
-            let norm = libm::sqrt(px * px + py * py);
+            let norm = f64::sqrt(px * px + py * py);
             let (ux, uy) = if norm > 0.0 {
                 (px / norm, py / norm)
             } else {
@@ -200,9 +200,9 @@ impl Fa2State {
         let (mut swing, mut traction) = (0.0, 0.0);
         for i in 0..self.x.len() {
             let (sx, sy) = (self.x[i] - self.ux[i], self.y[i] - self.uy[i]);
-            swing += self.mass[i] * libm::sqrt(sx * sx + sy * sy);
+            swing += self.mass[i] * f64::sqrt(sx * sx + sy * sy);
             let (tx, ty) = (self.x[i] + self.ux[i], self.y[i] + self.uy[i]);
-            traction += 0.5 * self.mass[i] * libm::sqrt(tx * tx + ty * ty);
+            traction += 0.5 * self.mass[i] * f64::sqrt(tx * tx + ty * ty);
         }
         (swing, traction)
     }
@@ -211,8 +211,8 @@ impl Fa2State {
     fn estimate_factor(&mut self, swing: f64, traction: f64) {
         let n = self.x.len() as f64;
         let jt = self.params.jitter_tolerance;
-        let opt_jitter = 0.05 * libm::sqrt(n);
-        let min_jitter = libm::sqrt(opt_jitter);
+        let opt_jitter = 0.05 * f64::sqrt(n);
+        let min_jitter = f64::sqrt(opt_jitter);
         let min_speed_efficiency = 0.05;
         let other = f64::min(10.0, opt_jitter * traction / (n * n));
         let mut jitter = jt * f64::max(min_jitter, other);
@@ -240,8 +240,8 @@ impl Fa2State {
     fn apply_update(&mut self) -> f64 {
         let mut moved = 0.0;
         for i in 0..self.x.len() {
-            let norm = libm::sqrt(self.ux[i] * self.ux[i] + self.uy[i] * self.uy[i]);
-            let factor = self.speed / (1.0 + libm::sqrt(self.speed * self.mass[i] * norm));
+            let norm = f64::sqrt(self.ux[i] * self.ux[i] + self.uy[i] * self.uy[i]);
+            let factor = self.speed / (1.0 + f64::sqrt(self.speed * self.mass[i] * norm));
             let (dx, dy) = (self.ux[i] * factor, self.uy[i] * factor);
             self.x[i] += dx;
             self.y[i] += dy;

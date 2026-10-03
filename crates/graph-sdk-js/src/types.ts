@@ -109,9 +109,9 @@ export interface AnalysisResult {
   readonly kind: AnalysisValueKind;
   /** One entry per node, in the motor's dense-index order. */
   readonly values: readonly number[];
-  readonly converged?: boolean;
-  readonly modularity?: number;
-  readonly max?: number;
+  readonly converged?: boolean | undefined;
+  readonly modularity?: number | undefined;
+  readonly max?: number | undefined;
 }
 
 /** `createMotor`'s options. Reserved fields read but not yet acted on are rejected, never
@@ -170,6 +170,11 @@ export interface ForceTick {
   /** The ticks that ran: the argument, always. A chunked caller adds these up. */
   readonly ticksRun: number;
 }
+
+/** The tick a {@link ForceSessionId}'s session runs: Barnes-Hut's quadtree
+ * (`layout.force.barnes_hut`), or the particle mesh's FFT grid (`layout.force.particle_mesh`),
+ * `O(n)` per tick and the one for graphs past about 50k nodes. The two are different bytes. */
+export type ForceEngine = "barnes_hut" | "particle_mesh";
 
 /** The wire's status word, as words: `1` ran and is still cooling, `2` ran and has settled.
  * `0` never reaches here — it is the refusal, and it throws. */

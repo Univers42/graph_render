@@ -111,7 +111,7 @@ pub fn eigenvector(topology: &Topology) -> (Vec<f32>, bool) {
     if n == 0 {
         return (Vec::new(), true);
     }
-    let mut x = vec![1.0 / libm::sqrt(n as f64); n];
+    let mut x = vec![1.0 / f64::sqrt(n as f64); n];
     for _ in 0..MAX_ITERS {
         let mut next = vec![0.0; n];
         for v in 0..n as u32 {
@@ -140,7 +140,7 @@ pub fn eigenvector(topology: &Topology) -> (Vec<f32>, bool) {
 /// input: two parallel edges of strength 1.7e308. Direction: refuses, never misleads.
 /// Escape hatch: rescale strengths before ingest; the vector is scale-invariant.
 fn normalize_and_pin(next: &mut [f64], previous: &[f64]) -> Option<f64> {
-    let norm = libm::sqrt(next.iter().map(|v| v * v).sum::<f64>());
+    let norm = f64::sqrt(next.iter().map(|v| v * v).sum::<f64>());
     if norm == 0.0 || !norm.is_finite() {
         return None;
     }

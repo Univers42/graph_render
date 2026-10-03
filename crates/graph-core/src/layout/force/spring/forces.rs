@@ -30,6 +30,9 @@
 use super::{MIN_DISTANCE, MIN_LENGTH, SpringParams};
 use crate::layout::force::SimpleGraph;
 
+#[cfg(test)]
+mod tests;
+
 /// The column names D9 reports a non-finite value under, in axis order. `D` never exceeds
 /// the table, so the lookup is total.
 const COLUMN_NAMES: [&str; 3] = ["node.x", "node.y", "node.z"];
@@ -67,7 +70,7 @@ impl<'a, const D: usize> Solver<'a, D> {
         Solver {
             graph,
             n,
-            k: libm::sqrt(1.0 / f64::from(n)),
+            k: f64::sqrt(1.0 / f64::from(n)),
         }
     }
 
@@ -76,7 +79,7 @@ impl<'a, const D: usize> Solver<'a, D> {
     pub(super) fn settle(self, start: Field<D>, params: SpringParams) -> Field<D> {
         let mut cur = start;
         let mut out = Field::zeros(self.n);
-        let mut t = self.opening(&cur);
+        let mut t = opening(&cur);
         let dt = t / f64::from(params.iterations + 1);
         for _ in 0..params.iterations {
             self.gather(t, &cur, &mut out);
@@ -90,21 +93,11 @@ impl<'a, const D: usize> Solver<'a, D> {
         cur
     }
 
-    /// The opening temperature, `layout.py:705-706`: a tenth of the largest coordinate span
-    /// over the `D` columns, so the first step is bounded by the domain the start occupies.
-    fn opening(&self, cur: &Field<D>) -> f64 {
-        let mut widest = span(&cur.c[0]);
-        for axis in 1..D {
-            widest = widest.max(span(&cur.c[axis]));
-        }
-        widest * 0.1
-    }
-
     /// One gather: every `out[i]` from the start-of-step `cur` alone (D10).
     fn gather(&self, t: f64, cur: &Field<D>, out: &mut Field<D>) {
         for i in 0..self.n as usize {
             let delta = self.displacement(i as u32, cur);
-            let length = libm::sqrt(squared(&delta)).max(MIN_LENGTH);
+            let length = f64::sqrt(squared(&delta)).max(MIN_LENGTH);
             for (axis, column) in out.c.iter_mut().enumerate() {
                 column[i] = cur.c[axis][i] + delta[axis] * (t / length);
             }
@@ -162,8 +155,22 @@ impl<'a, const D: usize> Solver<'a, D> {
             }
             sum += squared(&moved);
         }
-        libm::sqrt(sum)
+        f64::sqrt(sum)
     }
+}
+
+/// The opening temperature, `layout.py:687` (dense) and `layout.py:776` (sparse): a tenth
+/// of the **x** and **y** spans of the start, `max(max(pos.T[0]) - min(pos.T[0]),
+/// max(pos.T[1]) - min(pos.T[1])) * 0.1`.
+///
+/// **Two columns, at every `dim`.** The reference indexes `pos.T[0]` and `pos.T[1]` and
+/// nothing else, so a `dim = 3` start whose `z` span is the widest still opens at
+/// `0.1 * max(xspan, yspan)`. Reading the widest of all `D` columns — as this port did
+/// until 2026-10-02 — opens a z-dominant start up to a factor `zspan / max(xspan, yspan)`
+/// hotter than networkx, which moves every coordinate of a `dim = 3` layout.
+fn opening<const D: usize>(cur: &Field<D>) -> f64 {
+    debug_assert!(D >= 2, "the reference reads pos.T[0] and pos.T[1]");
+    span(&cur.c[0]).max(span(&cur.c[1])) * 0.1
 }
 
 /// `np.linalg.norm(delta)` over the `D` columns: the squared length finished inside the
@@ -183,7 +190,7 @@ fn squared<const D: usize>(delta: &[f64; D]) -> f64 {
 /// which is what keeps an exact coincidence from dividing by zero. Every `sqrt` in the
 /// port is libm's, so it is bit-identical on every target (D1, D2).
 fn clipped<const D: usize>(delta: &[f64; D]) -> f64 {
-    libm::sqrt(squared(delta)).max(MIN_DISTANCE)
+    f64::sqrt(squared(delta)).max(MIN_DISTANCE)
 }
 
 /// The largest coordinate minus the smallest, for the opening temperature. Ascending
