@@ -18,30 +18,27 @@ import subprocess
 import sys
 import tempfile
 import threading
-from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 # The CDP client is the perf gate's, not a second copy of it: one WebSocket implementation
 # in the repository, and this gate drives the same browser the same way.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "perf"))
+# The shared HTTP handler lives in deploy/, the directory above this one.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import cdp
 import gpu
 import navrows as judge
 from drive import VIEWPORT, Studio
+# The import binds the module `serve`; the `def serve` below rebinds that name in this module.
+from serve import QuietHandler
 
 DEBUG_PORT = 9223
 
 
-class QuietHandler(SimpleHTTPRequestHandler):
-    extensions_map = {**SimpleHTTPRequestHandler.extensions_map, ".wasm": "application/wasm"}
-
-    def log_message(self, format, *args):  # noqa: A002 - the base class names it
-        pass
-
-
-def serve(dist):
-    handler = functools.partial(QuietHandler, directory=str(dist))
+def serve(dist, isolated=True):
+    handler = functools.partial(QuietHandler, directory=str(dist), isolated=isolated)
     server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server

@@ -92,7 +92,8 @@ function exchange(state: State, port: Port, body: Request): Promise<Result> {
 }
 
 async function openOn(state: State, port: Port, assets: Assets): Promise<Catalog> {
-  const opened = await exchange(state, port, { type: "open", wasmUrl: assets.wasmUrl });
+  const threads = assets.threads === undefined ? {} : { threads: assets.threads };
+  const opened = await exchange(state, port, { type: "open", wasmUrl: assets.wasmUrl, ...threads });
   if (opened.type !== "opened") throw mismatch("open", opened);
   if (state.loaded !== null) {
     await exchange(state, port, { type: "load", source: state.loaded, fixturesUrl: assets.fixturesUrl });

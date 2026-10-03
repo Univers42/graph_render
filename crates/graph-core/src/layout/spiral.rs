@@ -4,8 +4,10 @@
 //! never calls it (its `SPIRAL_3D` is a different, conical curve), so there is no
 //! SciGraphs setting to follow: the defaults are networkx's.
 //!
-//! Archimedean (the default): `i * (cos, sin)(resolution * i)`. Equidistant: chord 1, radial step 0.5, so successive nodes are one chord apart along
-//! the curve. Both are
+//! Archimedean (the default): `i * (cos, sin)(resolution * i)`. Equidistant: chord 1, radial
+//! step 0.5, so successive nodes are one chord apart along the curve to within the
+//! `1/(24 r^2)` an arc of that chord falls short by — at `resolution = 0.35` the seven gaps
+//! run 0.9838 (the first, shortest) to 0.9892. Both are
 //! then passed through `rescale_layout`. One node sits at the centre.
 //!
 //! Exact closed forms (`libm` trigonometry); the differential is a tolerance because
@@ -40,7 +42,8 @@ const RESOLUTION: f64 = 0.35;
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SpiralParams {
     /// Radians per step in the archimedean branch, the start angle in the equidistant one.
-    /// Finite and above 0.
+    /// Finite and above 0 — the rule [`run_with`] enforces, with
+    /// `StageError::Param { name: "resolution", .. }`, at every node count.
     pub resolution: f64,
     /// networkx's `equidistant`: the chord-by-chord branch, which is serial and stays so.
     pub equidistant: bool,
@@ -80,6 +83,15 @@ pub fn run_with(
 
 /// [`run_with`] with the shared merge's negative control reachable, so a host can run a
 /// *deliberately wrong* tier and the gate must go red.
+///
+/// **Five parameters, and that is the crate-wide `run_under` shape, not a spiral slip:**
+/// `topology, params, runner, workers, split` is the negative-control convention every
+/// layout that threads follows (`circular::ring`, `force::barnes_hut`,
+/// `force::yifan_hu`), so the one gate row that drives each stage's merge has a single
+/// signature to call. Folding `split` into `params` would make each layout's control its
+/// own parameter and the host's row table its own shape per stage, which is the cost the
+/// convention exists to avoid. Recorded here once so the exception is visible rather than
+/// re-reported at one call site and left inconsistent in three.
 pub fn run_under(
     topology: &Topology,
     params: &SpiralParams,
@@ -87,6 +99,7 @@ pub fn run_under(
     workers: u32,
     split: bool,
 ) -> Result<Geometry, StageError> {
+    check_resolution(params.resolution)?;
     let count = topology.node_count();
     if count < 2 {
         return Ok(point_geometry(
@@ -103,6 +116,21 @@ pub fn run_under(
     };
     rescale_under(&mut x, &mut y, split);
     Ok(point_geometry(&x, &y))
+}
+
+/// The rule [`SpiralParams::resolution`] is documented with, enforced once, for every
+/// entry point and every node count — `0.0` makes `CHORD / (STEP * theta)` a division by
+/// zero and NaN poisons every angle, so neither branch can draw from it. Refused with the
+/// parameter named rather than clamped: networkx raises on the same division.
+fn check_resolution(resolution: f64) -> Result<(), StageError> {
+    if resolution.is_finite() && resolution > 0.0 {
+        Ok(())
+    } else {
+        Err(StageError::Param {
+            name: "resolution",
+            rule: "finite and above 0",
+        })
+    }
 }
 
 /// networkx's `equidistant` branch: `theta` advances by `chord / r` per node.
@@ -150,7 +178,11 @@ impl StepRange for Archimedean {
     }
 
     fn step_range(&self, range: Range<u32>, out: &mut [(f64, f64)]) {
-        for (i, slot) in range.zip(out) {
+        let start = range.start;
+        for i in range {
+            let slot = out
+                .get_mut((i - start) as usize)
+                .expect("out is the range's own sub-column, as StepRange documents");
             let distance = f64::from(i);
             let angle = self.resolution * distance;
             *slot = (distance * libm::cos(angle), distance * libm::sin(angle));

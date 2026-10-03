@@ -123,15 +123,20 @@ pub fn partition(n: u32, workers: u32) -> Vec<Range<u32>> {
 /// [`partition`] without the list: the same ranges, yielded in order, so a runner that
 /// visits them once (every [`Serial`] pass, every tick) allocates nothing.
 pub fn ranges(n: u32, workers: u32) -> impl Iterator<Item = Range<u32>> {
+    (0..n.min(workers)).map(move |i| range_at(n, workers, i))
+}
+
+/// Range `i` of [`partition`]`(n, workers)`, in O(1): a runner whose workers claim ranges by
+/// index (a shared counter) needs no list to look them up in. Empty past the last range.
+pub fn range_at(n: u32, workers: u32, i: u32) -> Range<u32> {
     let k = n.min(workers);
-    let base = n.checked_div(k).unwrap_or(0);
-    let longer = n.checked_rem(k).unwrap_or(0);
-    (0..k).scan(0, move |at, i| {
-        let len = base + u32::from(i < longer);
-        let range = *at..*at + len;
-        *at += len;
-        Some(range)
-    })
+    if i >= k {
+        return n..n;
+    }
+    let base = n / k;
+    let longer = n % k;
+    let start = base * i + i.min(longer);
+    start..start + base + u32::from(i < longer)
 }
 
 #[cfg(test)]

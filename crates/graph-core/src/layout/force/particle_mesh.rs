@@ -35,7 +35,7 @@ mod motion;
 mod tests;
 
 use super::barnes_hut::sim::{How, Sim};
-use super::barnes_hut::{Split, link};
+use super::barnes_hut::{Split, Tier, link};
 use super::params::{ForceParams, TICKS};
 use super::session::gravity;
 use super::{ForceSession, planar_points};
@@ -93,7 +93,12 @@ impl ParticleMesh {
         split: Split,
     ) -> Result<Geometry, StageError> {
         let mut run = ForceSession::from_frozen(topology, params)?.with_particle_mesh();
-        run.step_under(runner, workers, split, TICKS);
+        let tier = Tier {
+            runner,
+            workers,
+            split,
+        };
+        run.step_under(tier, TICKS);
         planar_points(run.xs(), run.ys())
     }
 }
@@ -107,9 +112,15 @@ pub(in crate::layout::force) fn tick<R: Runner>(
 ) {
     sim.alpha += (sim.alpha_target - sim.alpha) * sim.params.alpha_decay;
     let split = how.split.splits(Split::Link);
-    link::apply_with(sim, how.runner, how.workers, how.deltas, split);
+    link::pass_with(sim, how.runner, how.workers, how.deltas);
+    let linked = Gathered {
+        deltas: how.deltas,
+        slot: None,
+        split,
+    };
+    motion::merge(sim, linked, (how.runner, how.workers));
     charge::apply(sim, mesh, how);
-    sim.center();
+    motion::center(sim, (how.runner, how.workers));
     let collided = collide::apply(sim, &mut mesh.grid, how);
     // Skipped at zero as in `barnes_hut/sim.rs`: `(0 - x) * 0.0` is a signed zero that
     // changes the bytes (`session/gravity.rs`). Collide's push is merged after this one here
@@ -119,7 +130,7 @@ pub(in crate::layout::force) fn tick<R: Runner>(
     }
     let gathered = Gathered {
         deltas: how.deltas,
-        slot: &mesh.grid.slot,
+        slot: Some(&mesh.grid.slot),
         split: how.split.splits(Split::Collide),
     };
     motion::integrate(sim, collided.then_some(gathered), (how.runner, how.workers));

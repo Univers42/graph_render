@@ -3,6 +3,7 @@ use crate::snapshot::{Dim, HEADER_LEN, label_for};
 use crate::version::{CURRENT_VERSION, NewerMajor};
 
 mod dim;
+mod paths;
 mod pinned;
 
 fn table(column: &'static str, items: &[&str]) -> StringTable {

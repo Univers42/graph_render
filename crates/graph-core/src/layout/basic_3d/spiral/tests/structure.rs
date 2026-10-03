@@ -19,7 +19,7 @@ fn bits(value: f64) -> u64 {
 #[test]
 fn z_is_the_parameter_column_through_a_second_formula() {
     for n in [1u32, 2, 7, 33] {
-        let t = super::super::parameters(n);
+        let t = super::super::parameters(n, super::super::SCALE);
         let (_, _, z) = super::super::columns(n);
         for i in 0..n as usize {
             assert_eq!(
@@ -53,7 +53,7 @@ fn the_narrowed_columns_are_the_f64_columns_rounded_once() {
 #[test]
 fn t_is_monotone_and_inside_the_unit_interval() {
     for n in [1u32, 2, 3, 7, 15, 77, 256] {
-        let t = super::super::parameters(n);
+        let t = super::super::parameters(n, super::super::SCALE);
         assert!(
             t.iter().all(|v| (0.0..=1.0).contains(v)),
             "n={n}: t left [0,1]"
@@ -75,7 +75,7 @@ fn t_is_monotone_and_inside_the_unit_interval() {
 #[test]
 fn the_two_ends_are_the_reference_endpoints_and_not_its_approximation() {
     for n in [2u32, 3, 7, 77] {
-        let t = super::super::parameters(n);
+        let t = super::super::parameters(n, super::super::SCALE);
         assert_eq!(t[0], 0.0, "n={n}: the foot is grid[0] exactly");
         assert_eq!(
             t[n as usize - 1],
@@ -169,7 +169,7 @@ fn the_floor_lifts_only_the_five_smallest_counts() {
 #[test]
 fn interp_returns_the_endpoint_values_outside_the_arc() {
     let step = super::super::grid_step();
-    let length = super::super::arc_length(step, super::super::omega(7));
+    let length = super::super::arc_length(step, super::super::omega(7), super::super::SCALE);
     let last = length.len() - 1;
     assert_eq!(
         super::super::interp(-1.0, &length, step),
@@ -195,7 +195,7 @@ fn interp_returns_the_endpoint_values_outside_the_arc() {
 #[test]
 fn the_arc_length_table_is_monotone_and_starts_at_zero() {
     let step = super::super::grid_step();
-    let length = super::super::arc_length(step, super::super::omega(7));
+    let length = super::super::arc_length(step, super::super::omega(7), super::super::SCALE);
     assert_eq!(
         length.len(),
         1 << 16,

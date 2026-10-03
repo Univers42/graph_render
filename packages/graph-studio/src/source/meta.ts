@@ -38,6 +38,8 @@ export const UNGROUPED = "(no group)";
 export const OTHER_GROUPS = "(other groups)";
 /** `group` is a Uint16 column; past this many names the rest share one entry. */
 const MAX_GROUPS = 4096;
+/** Shared by every node without tags: one empty array per node was 1M allocations at 1M. */
+const NO_TAGS: readonly string[] = Object.freeze([]);
 
 /** The snapshot and the document do not describe the same nodes. */
 export class MetaMismatch extends Error {
@@ -67,10 +69,14 @@ function groupIndex(groups: string[], slots: Map<string, number>, name: string):
   return slot;
 }
 
-function inOrder(nodes: readonly IngestNode[], order: readonly string[]): IngestNode[] {
+function inOrder(nodes: readonly IngestNode[], order: readonly string[]): readonly IngestNode[] {
   if (order.length !== nodes.length) {
     throw new MetaMismatch(`the snapshot holds ${order.length} nodes and the document ${nodes.length}`);
   }
+  // The motor's dense order is the document's (`index_model` dedupes first-wins), so the
+  // snapshot usually lists the document as is. The id map cost 349 ms at 400k nodes
+  // (perf-open-meta); one compare per node finds the common case first.
+  if (nodes.every((node, i) => node.id === order[i])) return nodes;
   const byId = new Map(nodes.map((node) => [node.id, node]));
   return order.map((id) => {
     const node = byId.get(id);
@@ -85,7 +91,9 @@ export function metaOf(nodes: readonly IngestNode[], order: readonly string[], e
   const slots = new Map<string, number>();
   const group = new Uint16Array(ordered.length);
   const weight = new Float32Array(ordered.length);
-  for (const [i, node] of ordered.entries()) {
+  for (let i = 0; i < ordered.length; i += 1) {
+    const node = ordered[i];
+    if (node === undefined) continue;
     group[i] = groupIndex(groups, slots, node.group ?? UNGROUPED);
     weight[i] = node.weight;
   }
@@ -97,7 +105,7 @@ export function metaOf(nodes: readonly IngestNode[], order: readonly string[], e
     kinds: ordered.map((node) => node.kind),
     groups, group, weight, degree,
     maxDegree: degree.reduce((max, value) => Math.max(max, value), 0),
-    tags: ordered.map((node) => node.tags ?? []),
+    tags: ordered.map((node) => node.tags ?? NO_TAGS),
     dbs: ordered.map((node) => node.database_id ?? ""),
     paths: ordered.map((node) => node.path ?? ""),
   };

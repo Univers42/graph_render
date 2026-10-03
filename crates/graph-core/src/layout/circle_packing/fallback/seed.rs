@@ -1,17 +1,23 @@
 //! Deterministic initial positions for [`super::pack`]'s force pass: a port of
-//! networkx 3.6's dense `_fruchterman_reingold` (`drawing/layout.py:660-720`), seeded by
-//! a fixed spiral instead of `numpy`'s RNG.
+//! networkx 3.6's dense `_fruchterman_reingold` (`drawing/layout.py:660-720`).
 //!
-//! Ponytail: SciGraphs seeds this fallback with `nx.spring_layout`'s own uniform-random
-//! positions (`seed.rand(nnodes, dim)`); graph-core has no RNG and no wall clock
-//! (`prompts/REFERENCES.md` house limits), so this substitutes the golden-angle spiral
-//! `src/core/layout/forceLayout.ts:63` already uses to seed the interactive force
-//! layout, normalised into the unit disk here (that one is a pixel-space spiral around a
-//! viewport centre; this one has no viewport, so it is scaled to `sqrt((i+1)/n)` instead
-//! of a fixed pixel radius). Failing input: none — every node gets a distinct point on
-//! the spiral, never a collision. Direction: a different starting layout than SciGraphs
-//! would draw for the same graph, never a wrong one — the relaxation that follows finds
-//! its own equilibrium regardless of where it started. Escape hatch: none needed; this
+//! **Two starts, one per caller, never a blend.** SciGraphs seeds this pass with
+//! `nx.spring_layout`'s own uniform-random positions, `seed.rand(nnodes, dim)`
+//! (`circle_packing.py:428`), which at an `int` seed is numpy's legacy `RandomState` — so
+//! [`start_positions`] at [`Some`] draws exactly that, bit for bit, and that is what the
+//! SciGraphs conformance arm passes. At [`None`] the golden-angle spiral stands in:
+//! `sqrt((i+1)/n)` out at `i * GOLDEN_ANGLE`, normalised into the unit disk (the spiral
+//! `src/core/layout/forceLayout.ts:63` already uses for the interactive force layout; that
+//! one is a pixel-space spiral around a viewport centre, this one has no viewport). The
+//! registered `layout.packing.circle` keeps `None`, because the spiral is a heuristic whose
+//! coordinates are hashed, and the row that needs the reference's numbers is measured by
+//! one arm that asks for them.
+//!
+//! Ponytail: the spiral is a *heuristic start*, and heuristics get a marker. Failing input:
+//! a graph whose packing is decided by where it started — but the relaxation that follows
+//! finds its own equilibrium regardless of where it started, so the direction of the error
+//! is a different (never a wrong) starting layout, and it is SciGraphs' own numbers that
+//! are wanted whenever they can be had. Escape hatch: the `seed` argument is the hatch; the
 //! whole path is already flagged by note code 3.
 
 /// The golden angle in radians, `src/core/layout/forceLayout.ts`'s `GOLDEN_ANGLE`.
@@ -19,6 +25,9 @@ pub(super) const GOLDEN_ANGLE: f64 = 2.399_963_229_728_653;
 
 /// Node `i`'s spiral seed: `sqrt((i + 1) / n)` out at angle `i * GOLDEN_ANGLE`, so `n`
 /// points fill the unit disk with no two at the same radius.
+///
+/// **`None` only.** This is the registered `layout.packing.circle`'s own start, and the
+/// SciGraphs arm is [`seeded`] — the reference's `RandomState` stream, not this spiral.
 pub(super) fn seed_positions(n: u32) -> Vec<(f64, f64)> {
     let total = f64::from(n.max(1));
     (0..n)
@@ -28,6 +37,37 @@ pub(super) fn seed_positions(n: u32) -> Vec<(f64, f64)> {
             (radius * libm::cos(angle), radius * libm::sin(angle))
         })
         .collect()
+}
+
+/// The SciGraphs arm: `np.random.RandomState(seed).rand(n, 2)` (`drawing/layout.py:610`),
+/// row-major — node `i` takes draws `2i` and `2i + 1` as `x` and `y`, which is the fill
+/// order of the `n x dim` array `spring_layout` hands `_fruchterman_reingold`.
+///
+/// networkx builds that generator from an `int` seed (`utils/misc.py:290-291`) and
+/// SciGraphs passes `seed=get_layout_seed()` (`circle_packing.py:428`), so this is the
+/// reference's own doubles: two `u32` words each, and no scaling — `dom_size` is 1 and
+/// `center` is 0 at `circle_packing.py:429`.
+///
+/// Caveat: the **dense** arm only. At `n >= 500` `spring_layout` builds `A` with
+/// `dtype="f"` (`layout.py:629`) and casts `pos` to it (`layout.py:672`), so the
+/// reference's start is float32 there and half its bits are gone before the first force. No
+/// conformance fixture reaches 500 nodes and this fallback is a non-planar-graph path, so
+/// nothing here is measured against that fork.
+fn seeded(n: u32, seed: u32) -> Vec<(f64, f64)> {
+    let mut stream = crate::rng::Mt19937::new(seed);
+    (0..n)
+        .map(|_| (stream.next_f64(), stream.next_f64()))
+        .collect()
+}
+
+/// The start [`fruchterman_reingold`] relaxes from: the reference's stream at
+/// [`Some`]`, the golden-angle spiral at `None`. One arm or the other, never a blend —
+/// a start drawn from one generator and continued from the other is neither.
+pub(super) fn start_positions(n: u32, seed: Option<u32>) -> Vec<(f64, f64)> {
+    match seed {
+        Some(s) => seeded(n, s),
+        None => seed_positions(n),
+    }
 }
 
 /// The dense adjacency SciGraphs builds with `nx.to_numpy_array` (unweighted here, so
@@ -121,11 +161,13 @@ fn initial_temperature(pos: &[(f64, f64)]) -> f64 {
 const THRESHOLD: f64 = 1e-4;
 
 /// networkx 3.6's dense `_fruchterman_reingold` (`drawing/layout.py:660-720`), `k = None`
-/// so `k = sqrt(1 / n)`, seeded by [`seed_positions`] instead of `seed.rand`.
+/// so `k = sqrt(1 / n)`, started from [`start_positions`] at `seed` — the reference's
+/// `RandomState` run, or the golden-angle spiral when there is no seed.
 pub(super) fn fruchterman_reingold(
     n: u32,
     edges: &[(u32, u32)],
     iterations: u32,
+    seed: Option<u32>,
 ) -> Vec<(f64, f64)> {
     let adjacency = adjacency_matrix(n, edges);
     let field = FrField {
@@ -133,7 +175,7 @@ pub(super) fn fruchterman_reingold(
         n,
         k: f64::sqrt(1.0 / f64::from(n.max(1))),
     };
-    let mut pos = seed_positions(n);
+    let mut pos = start_positions(n, seed);
     let mut t = initial_temperature(&pos);
     let dt = t / f64::from(iterations + 1);
     for _ in 0..iterations {

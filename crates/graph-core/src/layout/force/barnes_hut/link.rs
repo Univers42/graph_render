@@ -65,11 +65,22 @@ pub(in crate::layout::force) fn apply_with(
     deltas: &mut Vec<(f64, f64)>,
     split: bool,
 ) {
+    pass_with(sim, runner, workers, deltas);
+    super::step::merge((&mut sim.vx, &mut sim.vy), None, deltas, split);
+}
+
+/// [`apply_with`]'s deltas in node order, not yet merged: the particle mesh merges them
+/// as a range pass (`particle_mesh/motion.rs`).
+pub(in crate::layout::force) fn pass_with(
+    sim: &mut Sim,
+    runner: &impl Runner,
+    workers: u32,
+    deltas: &mut Vec<(f64, f64)>,
+) {
     let mut forces = std::mem::take(&mut sim.link_forces);
     runner.run(&LinkForces::of(sim), workers, &mut forces);
     runner.run(&LinkPass::of(sim, &forces), workers, deltas);
     sim.link_forces = forces;
-    super::step::merge((&mut sim.vx, &mut sim.vy), None, deltas, split);
 }
 
 /// Simple edge `e`'s force before the bias splits it, in `(x, y)`: the one square root and

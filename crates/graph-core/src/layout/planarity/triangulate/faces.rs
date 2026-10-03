@@ -88,6 +88,17 @@ impl Builder {
 
     /// `triangulate_face`: fans chords from `v1` across the face right of `(v1, v2)`
     /// until it is all triangles, skipping a side that already has a chord.
+    ///
+    /// **The `v1 == v2 || v1 == v3` guard is below the two `next_face_half_edge` calls, and
+    /// that is the reference's own order** (`planar_drawing.py:317-322` computes `v3`/`v4`
+    /// and then tests `v1 in (v2, v3)`), so it is ported where it sits rather than hoisted
+    /// above them. What the order costs is named here so it is not mistaken for a
+    /// reachable bug: a **digon** face (`v3 == v1`) is traced for real — a graph with a
+    /// bridge has one, and the exhaustive small-graph sweep counts them — but both
+    /// half-edges it asks about exist, so the guard still catches it and returns. Only a
+    /// **unilateral** half-edge, which `planarity::adjacency::Adjacency::simple` filters out
+    /// with every self-loop, would reach [`Self::next_face_half_edge`]'s own `expect`, and no
+    /// such input exists.
     pub(super) fn triangulate_face(&mut self, v1: u32, v2: u32) {
         let mut v3 = self.next_face_half_edge(v1, v2).1;
         let mut v4 = self.next_face_half_edge(v2, v3).1;

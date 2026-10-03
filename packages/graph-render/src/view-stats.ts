@@ -11,7 +11,7 @@ export interface StatsInput {
   readonly counts: PaintCounts;
   readonly scene: { readonly frame: { readonly nodeCount: number; readonly edgeCount: number } };
   readonly sprites: { readonly rasterised: () => number };
-  readonly bulk: Pick<BulkSlot, "failure" | "refining">;
+  readonly bulk: Pick<BulkSlot, "failure" | "refining" | "gpuEdgeMs">;
   readonly rate: Rate;
   layoutRuns: number;
   frameMs: number;
@@ -44,5 +44,6 @@ export function statsOf(state: StatsInput): ViewStats {
     frameMs: state.frameMs,
     fps: fpsOf(state.rate, performance.now()),
     frames: state.frames,
+    gpuEdgeMs: state.bulk.gpuEdgeMs(),
   };
 }

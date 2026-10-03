@@ -18,8 +18,7 @@ import { type BackendChoice, type View, createView } from "../../graph-render/sr
 /** The host reads `?backend=` with this, so it never imports the renderer itself. */
 export { backendOf } from "../../graph-render/src/view.ts";
 import type { Save } from "./actions/context.ts";
-import { type LiveBridge, NOT_ASKED, createLiveBridge } from "./motor/bridge.ts";
-import { settlesLive } from "./motor/live.ts";
+import { type LiveBridge, NOT_ASKED, createLiveBridge, watchRuns } from "./motor/bridge.ts";
 import { type MotorClient, createClient } from "./motor/client.ts";
 import { SILENCE_MS } from "./motor/watchdog.ts";
 import type { Assets, Spawn } from "./motor/protocol.ts";
@@ -37,6 +36,8 @@ export interface StudioElementOptions {
   readonly save?: Save;
   /** Who draws the graph's edges and nodes (graph-render `ViewOptions.backend`); `auto` when left out. */
   readonly backend?: BackendChoice;
+  /** Threads that tick a live settle, the motor worker's own included (`motor/threads.ts`); one per core but one, at most 8, when left out. */
+  readonly threads?: number;
 }
 
 export interface GraphStudioElement extends HTMLElement {
@@ -105,9 +106,10 @@ function within(tag: string, className: string): HTMLElement {
 }
 
 /** Made absolute here: the worker would resolve them against its own script, not the page. */
-function assetsOf(host: HTMLElement): Assets {
+function assetsOf(host: HTMLElement, threads: number | undefined): Assets {
   const absolute = (name: string, fallback: string): string => new URL(host.getAttribute(name) ?? fallback, document.baseURI).href;
-  return { wasmUrl: absolute("wasm", "graph_wasm.wasm"), fixturesUrl: absolute("fixtures", "fixtures/") };
+  const assets = { wasmUrl: absolute("wasm", "graph_wasm.wasm"), fixturesUrl: absolute("fixtures", "fixtures/") };
+  return threads === undefined ? assets : { ...assets, threads };
 }
 
 /** `localStorage`, or null where reading the property itself throws (blocked site data). */
@@ -164,27 +166,6 @@ function livePair(canvas: HTMLCanvasElement, client: MotorClient, shown: Shown, 
   return { view, bridge };
 }
 
-/**
- * A force layout is a starting position, not a picture: the loop takes it from there and the
- * strip shows the settle. Every other layout is finished, so nothing starts. A batch layout
- * run shows the same strip with no fraction of its own — one call, no progress inside it.
- */
-function watchRuns(studio: Studio, bridge: LiveBridge): () => void {
-  let settled = "";
-  let wasBusy = 0;
-  return studio.store.subscribe(() => {
-    const at = studio.store.get();
-    if (at.busy.length !== wasBusy) {
-      wasBusy = at.busy.length;
-      bridge.batch(wasBusy);
-    }
-    const layoutId = at.run?.layoutId ?? "";
-    if (layoutId === settled) return;
-    settled = layoutId;
-    if (settlesLive(layoutId)) bridge.start();
-  });
-}
-
 function mount(host: HTMLElement, options: StudioElementOptions): Mounted {
   const shadow = host.shadowRoot ?? host.attachShadow({ mode: "open" });
   const style = document.createElement("style");
@@ -195,7 +176,7 @@ function mount(host: HTMLElement, options: StudioElementOptions): Mounted {
   shadow.replaceChildren(style, canvas, chrome);
   // Focusable, so a click on the graph brings the shortcuts to this studio and no other.
   if (!host.hasAttribute("tabindex")) host.tabIndex = 0;
-  const client = createClient(options.spawn ?? spawnWorker, assetsOf(host));
+  const client = createClient(options.spawn ?? spawnWorker, assetsOf(host, options.threads));
   // The view is made before the studio, and the ids live in the studio's state: read late.
   const shown: Shown = { studio: null, note: (reason) => shown.studio?.note(reason) };
   const { view, bridge } = livePair(canvas, client, shown, options.backend ?? "auto");
@@ -209,7 +190,7 @@ function mount(host: HTMLElement, options: StudioElementOptions): Mounted {
     ...(storage === null ? {} : { storage, settings: openingSettings(storage) }),
   });
   shown.studio = studio;
-  const unwatch = watchRuns(studio, bridge);
+  const unwatch = watchRuns(studio.store, bridge);
   const root = createRoot(chrome);
   root.render(createElement(Shell, {
     studio, view, keys: host.getAttribute("keys") === "page" ? window : host, bar: bridge,

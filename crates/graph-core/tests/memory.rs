@@ -10,6 +10,15 @@
 //! the returned topology owns (the input records are freed before it returns, so they
 //! are not in it); **peak** is the highest net heap during the call, records included.
 //! This is its own test binary, so the allocator counts nothing but this file.
+//!
+//! The 3D arms live in the child module [`three_d`], so they count against the same
+//! allocator as the rows here. The `#[path]` is explicit because a crate root resolves a
+//! submodule in its own directory: a bare `mod three_d;` in `tests/memory.rs` would want
+//! `tests/three_d.rs`, which is the same trap `tests/edge_geometry_invariants.rs:30` walks
+//! around by wrapping its body in a module named after the file.
+
+#[path = "memory/three_d.rs"]
+mod three_d;
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};

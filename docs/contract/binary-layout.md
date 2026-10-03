@@ -131,16 +131,17 @@ tell an exact result from a degraded one (`notes.rs:1-24`). Columnar like the re
 | 1 | `hierarchy.cycle_edge_dropped` | the dropped edge's position |
 | 2 | `hierarchy.extra_parent_dropped` | the dropped edge's position |
 | 3 | `packing.approximate` | `4294967295` (`u32::MAX`): snapshot-wide |
-| 4 | reserved: `dag.dummy_budget_exceeded` (Phase 5) | refused as `Reserved` |
-| 5 | reserved: `dag.edge_reversed` (Phase 5) | refused as `Reserved` |
+| 4 | `dag.dummy_budget_exceeded` | the unrouted edge's position |
+| 5 | `dag.edge_reversed` | the reversed edge's position |
 | 6 | reserved: `post.route_fallback` (Phase 8) | refused as `Reserved` |
 
 - An `index` is an **edge position** — an index into the edge id table and every edge
-  column, `0..m` — or, for a snapshot-wide note, `u32::MAX`. Codes 1 and 2 need
-  `index < m`; code 3 needs `index == u32::MAX` (`notes.rs:148-170`).
-- **Closed set**, like the geometry tags: 1-3 are read; 4-6 are allocated and refused as
+  column, `0..m` — or, for a snapshot-wide note, `u32::MAX`. Codes 1, 2, 4 and 5 need
+  `index < m`; code 3 needs `index == u32::MAX` (`notes.rs:165-176`).
+- **Closed set**, like the geometry tags: 1-5 are read (Phase 5 turned 4 and 5 on,
+  `docs/decisions/sugiyama-heuristics.md`); 6 is allocated and refused as
   `NoteCodeError::Reserved`; anything else is `NoteCodeError::Unknown`
-  (`notes.rs:86-94`). Turning a reserved code on is a **minor bump**: a 0.3 reader
+  (`notes.rs:99-108`). Turning a reserved code on is a **minor bump**: a 0.3 reader
   refuses it.
 - **Canonical**: strictly ascending by `(code, index)`. That pair is the whole note, so
   the order is total and a repeated note is refused (`NoteOrder`). Producers sort before
@@ -340,11 +341,20 @@ layout exists yet).
 - **Canonical**: compact (no insignificant whitespace), object keys sorted by UTF-8 bytes
   at every depth — so the binary's fixed column order (`x, y, r` / `x, y, w, h`) is not the
   JSON key order (`kind, r, x, y` / `h, kind, w, x, y`) — arrays in snapshot/column order,
-  one trailing newline.
+  one trailing newline. That key order is UTF-8 **byte** order and deliberately not
+  JavaScript's UTF-16 code-unit order, which disagrees for a key mixing an astral character
+  with one in U+E000..U+FFFF; the one trailing newline is likewise part of the text, so a
+  comparison is over all of it, trailing byte included.
 - **Numbers**: `f32` values are written with Rust's `f32` `Display`, the shortest decimal
   that reads back as the same `f32`, never an exponent; `u32` values as a plain decimal, no
   sign or fraction. A decimal that overflows `f32` range parses to ±∞, which construction
-  then refuses (D9) rather than silently accepting it.
+  then refuses (D9) rather than silently accepting it. `-0.0` is written `-0` and reads
+  back as `-0.0`, so a negative zero crosses the JSON face with its sign bit, and the
+  binary face's byte comparison is what decides that the two are different snapshots. The
+  writer is canonical and the reader is deliberately lenient: any spelling of a number the
+  grammar allows (`1E0`, `1.0`, `1e0`) reads as the same value and is rewritten in the
+  canonical form, so a hand-written or third-party document need not spell a float the way
+  the writer would.
 - **Strictness**: the reader (`canonical_json/parse.rs`) is a dependency-free RFC 8259
   parser that refuses a key repeated in one object, an unpaired UTF-16 surrogate, and
   nesting past 32; `canonical_json/read.rs` refuses any member the shape does not name.

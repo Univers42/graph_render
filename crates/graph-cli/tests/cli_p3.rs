@@ -244,13 +244,14 @@ fn the_knob_list_carries_every_p3_control_and_nothing_else() {
         "GM_MUTATE_PACKING_OSAGE_NODES",
         "GM_MUTATE_SPLIT_SUM",
         "GM_MUTATE_SPLIT_RESCALE",
+        "GM_MUTATE_OVERLAP_RELAXATION",
     ] {
         assert!(KNOBS.contains(&knob), "{knob} is missing from KNOBS");
     }
     assert_eq!(
         KNOBS.len(),
-        47,
-        "sixteen parameter controls, then the fifteen ANALYSIS and POST stage controls, then \
+        48,
+        "seventeen parameter controls, then the fifteen ANALYSIS and POST stage controls, then \
          the six igraph layout controls, then the seven 3D layout controls, then the one \
          Graphviz packing control, then the two compute-tier controls, then the live \
          session's own: {KNOBS:?}"
