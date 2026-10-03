@@ -1,0 +1,94 @@
+{
+  "$defs": {
+    "LayoutParamKind": {
+      "description": "What a parameter's value means. `Int` must be integral and `Bool` must be `0` or `1`;\nboth travel in the same `f64` as `Float` (wire tags 0, 1, 2 — [`crate::params::ParamKind`]).",
+      "oneOf": [
+        {
+          "const": "int",
+          "description": "A whole number.",
+          "type": "string"
+        },
+        {
+          "const": "float",
+          "description": "Any finite number in range.",
+          "type": "string"
+        },
+        {
+          "const": "bool",
+          "description": "A flag.",
+          "type": "string"
+        }
+      ]
+    },
+    "LayoutParamSpec": {
+      "additionalProperties": false,
+      "description": "One parameter: name, kind, inclusive bounds, the default a run with no buffer takes,\nthe step a control should offer, and one line of documentation.",
+      "properties": {
+        "default": {
+          "description": "The value a run with no buffer takes, equal bit for bit to the field's `Default`.",
+          "format": "double",
+          "type": "number"
+        },
+        "doc": {
+          "description": "One line, for a label and a tooltip.",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/LayoutParamKind",
+          "description": "What the value means."
+        },
+        "max": {
+          "description": "Inclusive upper bound, refused the same way.",
+          "format": "double",
+          "type": "number"
+        },
+        "min": {
+          "description": "Inclusive lower bound. A value below it is refused, never clamped.",
+          "format": "double",
+          "type": "number"
+        },
+        "name": {
+          "description": "The key a caller sends: the parameter struct's own field name.",
+          "type": "string"
+        },
+        "step": {
+          "description": "The increment a control should offer. Never applied to a value.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "kind",
+        "min",
+        "max",
+        "default",
+        "step",
+        "doc"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "One layout's published parameters, as the JSON face a third-party frontend reads\n(`docs/decisions/layout-params.md`). It describes the *shape*; the values live in\ngraph-core's registry and reach a caller through `gm_layout_params`, the same split\n`SnapshotHeader` makes between its schema and any particular snapshot.",
+  "properties": {
+    "layout": {
+      "description": "The capability id these parameters belong to, e.g. `layout.force.graphopt`.",
+      "type": "string"
+    },
+    "params": {
+      "description": "Every parameter the layout publishes, in the order a run's parameter buffer\ncarries them. Empty means the layout takes no parameters — an answer, not a\nrefusal.",
+      "items": {
+        "$ref": "#/$defs/LayoutParamSpec"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "layout",
+    "params"
+  ],
+  "title": "LayoutParamsSchema",
+  "type": "object"
+}
