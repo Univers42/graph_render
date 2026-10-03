@@ -32,8 +32,8 @@ pub(super) const BASIC: [Baseline; 6] = [
         "22f7f5e01bb3ee6ce16a73796cce5d2f3a66d3bb82a3a710461a95d91915a7ec",
         "",
         1e-15,
-        "bitwise",
-        "convention",
+        "tolerance",
+        "arithmetic",
     ),
     row(
         "SPRING_3D",
