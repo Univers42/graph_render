@@ -46,6 +46,16 @@ export async function runForceSection(ctx) {
 
   const cold = session.positions();
   check("a new session has one row per node", cold.xs.length === 4 && cold.ys.length === 4);
+  // Every position the session hands back is checked for finiteness before it is compared.
+  // `after.xs[1] !== before[1]` is satisfied by `NaN`, so without this the neighbour checks
+  // below would pass on a motor returning NaN for b/c/d — and the header's own claim
+  // ("a graph with no edges would satisfy every 'positions are finite' check below") was
+  // a check that did not exist (M32).
+  check(
+    "every position a new session reports is finite",
+    [cold.xs, cold.ys].every((column) => column.every(Number.isFinite)),
+    JSON.stringify(cold),
+  );
   check("the partial parameter set is the motor's own, not a copy", session.params().gravity === 0.1);
   check("an omitted parameter keeps the motor's value", session.params().theta !== 0.1);
   check("a new session starts hot", session.alpha === 1.0);
@@ -56,14 +66,42 @@ export async function runForceSection(ctx) {
 
   // The drag: pin node 0 far off and reheat, which is the verb behind "the user moved
   // something, run it again". Nothing moves until the next tick, so tick before reading.
-  const before = Float64Array.from(cold.xs);
+  //
+  // `before` is copied *after* the ticks above and read back through a fresh view: a tick
+  // can grow wasm memory, which detaches the zero-copy view a previous `positions()` handed
+  // out, and `Float64Array.from` over a detached view yields `[]` — which would make every
+  // "it moved" comparison below vacuously true (m94).
+  const before = Float64Array.from(session.positions().xs);
   session.drag(0, 500, -500);
   session.reheat(1.0);
   session.tick(30);
   const after = session.positions();
   check("the dragged node sits exactly where it was put", after.xs[0] === 500 && after.ys[0] === -500);
-  check("its neighbour moved", after.xs[1] !== before[1]);
+  check(
+    "every position after the drag is finite",
+    [after.xs, after.ys].every((column) => column.every(Number.isFinite)),
+    JSON.stringify(after),
+  );
+  check("its neighbour moved", before.length === 4 && after.xs[1] !== before[1]);
   check("the dragged node's neighbours are not all still", after.xs[1] !== 500 && after.xs[2] !== 500);
+
+  // `pin`/`unpin` as a pair. Both `pin` calls below are refusals, so the success path of
+  // `unpin` was covered only transitively through `drag`: replace `force.ts`'s `unpin`
+  // body with `{}` and every check in this file stayed green (M33).
+  session.pin(1, -500, 500);
+  session.tick(20);
+  const pinned = session.positions();
+  check("a pinned node sits exactly where it was pinned", pinned.xs[1] === -500 && pinned.ys[1] === 500, JSON.stringify({ xs: pinned.xs[1], ys: pinned.ys[1] }));
+  session.tick(20);
+  check("and it stays there through a later tick", session.positions().xs[1] === -500);
+  session.unpin(1);
+  session.tick(20);
+  const unpinned = session.positions();
+  check(
+    "an unpinned node is free to move again",
+    unpinned.xs[1] !== -500 || unpinned.ys[1] !== 500,
+    JSON.stringify({ xs: unpinned.xs[1], ys: unpinned.ys[1] }),
+  );
 
   check(
     "a pin past the last row is refused, not silently dropped",
@@ -83,8 +121,14 @@ export async function runForceSection(ctx) {
     await refusedWith(ForceSessionRefusedError, () => motor.forceSession(handle, { charge: 1 })),
   );
 
+  // `refusedWith` discards whatever the call returned, so a negative control that
+  // unexpectedly *succeeds* leaks the session it created (m95). The leak is on the failing
+  // path only — the check below has already failed — but a second run in the same process
+  // would then hold two sessions. Nothing to do here beyond recording it: the refusal is
+  // the behaviour under test, and a success is a failure of the arm, not of the SDK.
+
   const settled = session.tick(2000);
-  check("a long run reports the motor's own settled verdict", settled.status === "settled", settled.status);
+  check("a long run reports the motor's own settled verdict", settled.status === "settled", `status ${settled.status}`);
 
   session.unpinAll();
   session.release();

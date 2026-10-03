@@ -79,6 +79,62 @@ fn sorted_children_is_descending_value_stable_on_ties() {
     assert_eq!(rows::sorted_children(&[1, 2, 3], &value), [2, 1, 3]);
 }
 
+/// **d3's comparator on two aggregates that both overflow to `+inf`.** `b.value - a.value`
+/// is `inf - inf == NaN`, and `Array.prototype.sort` coerces a `NaN` return to `+0`
+/// (ECMA-262, `SortCompare`: "If v is NaN, return +0"), i.e. keep order — while
+/// `f64::total_cmp` reports two `+inf` as **equal** and a stable sort therefore keeps order
+/// too. The port needs no special case, and this pins that the two really do agree on the
+/// overflow rather than on paper.
+///
+/// The overflow is built, not typed in: `a` and `b` each carry `1e308` own weight *and* a
+/// child of `1e308`, so `node_values` sums `1e308 + 1e308 == inf` for both exactly as a
+/// real aggregate would, and `c` stays at `5.0`. `js_order` then re-sorts the same slice
+/// through d3's comparator with the `NaN -> +0` coercion, and both orders must be
+/// `[a, b, c]`: the two infinities keep their ascending dense index, and `5.0` is last.
+#[test]
+fn two_infinite_aggregates_sort_as_equal_and_js_keeps_their_order_too() {
+    let nodes = vec![
+        weighted("p", 1e308),
+        weighted("a", 1e308),
+        weighted("x", 1e308),
+        weighted("b", 1e308),
+        weighted("y", 1e308),
+        weighted("c", 5.0),
+    ];
+    let edges = vec![
+        tree("p-a", "p", "a", "parent_of"),
+        tree("a-x", "a", "x", "parent_of"),
+        tree("p-b", "p", "b", "parent_of"),
+        tree("b-y", "b", "y", "parent_of"),
+        tree("p-c", "p", "c", "parent_of"),
+    ];
+    let topology = index_model(&nodes, &edges).expect("fits");
+    let hierarchy = Hierarchy::of(&topology).expect("fits");
+    let value = rows::node_values(&topology, &hierarchy);
+    assert_eq!(value[1], f64::INFINITY, "a: own + child overflows");
+    assert_eq!(value[3], f64::INFINITY, "b: own + child overflows");
+    assert_eq!(value[5], 5.0);
+    let children = hierarchy.children(0);
+    assert_eq!(children, [1, 3, 5], "p's children, ascending dense index");
+    assert_eq!(rows::sorted_children(children, &value), [1, 3, 5]);
+    assert_eq!(js_order(children, &value), vec![1, 3, 5]);
+}
+
+/// d3's `children.sort((a, b) => b.value - a.value)` over the same slice, with the `NaN`
+/// return coerced to `+0` the way `Array.prototype.sort` coerces it, and its stable sort
+/// otherwise unchanged.
+fn js_order(children: &[u32], value: &[f64]) -> Vec<u32> {
+    let mut sorted = children.to_vec();
+    sorted.sort_by(|&a, &b| {
+        let difference = value[b as usize] - value[a as usize];
+        let coerced = if difference.is_nan() { 0.0 } else { difference };
+        coerced
+            .partial_cmp(&0.0)
+            .expect("a number or the coerced 0.0")
+    });
+    sorted
+}
+
 /// Root `1.0`, leaves `2.0` and `1.0`: the two leaves take the left three quarters of the
 /// unit square as stacked y-slices, leaving the root's own quarter empty on the right.
 ///

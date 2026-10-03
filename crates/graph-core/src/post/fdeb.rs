@@ -107,6 +107,9 @@ pub const FDEB_CEILING: u64 = 6_900;
 pub const META: Metadata = Metadata {
     tier: 1,
     edges: EdgeGeometryKind::Polyline,
+    // A bundler never moves a node; see `post::Metadata::moves_nodes` and
+    // `docs/decisions/node-overlap.md` 3 for why that is now declared rather than assumed.
+    moves_nodes: false,
     oracle: "hand: Holten & van Wijk 2009, ported from SciGraphs \
 engine/scigraphs_engine/bundling/fdeb.py (the schedule, the four-term compatibility, the threshold \
 prune, the arc-length resample) with the CPU attraction of \

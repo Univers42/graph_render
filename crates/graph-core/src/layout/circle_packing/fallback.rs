@@ -6,10 +6,12 @@
 //! (`docs/decisions/planarity-fallback.md`).
 //!
 //! Two deviations from SciGraphs, both required by graph-core's own house limits and
-//! both recorded, not silently applied: no RNG ([`seed`]'s golden-spiral seed replaces
-//! `nx.spring_layout`'s random one), and no `cKDTree` (every close-pair scan below is the
-//! deterministic ascending-`(i, j)` scan SciGraphs itself falls back to without SciPy,
-//! `circle_packing.py:400-405`).
+//! both recorded, not silently applied: the default start is a fixed golden-angle spiral
+//! rather than a random one ([`seed::seed_positions`] takes `CirclePackingParams::seed`;
+//! at `None` it is the spiral, and the SciGraphs conformance arm passes
+//! `Some(get_layout_seed())` for the reference's own `RandomState` run), and there is no
+//! `cKDTree` (every close-pair scan below is the deterministic ascending-`(i, j)` scan
+//! SciGraphs itself falls back to without SciPy, `circle_packing.py:400-405`).
 
 mod relax;
 mod seed;
@@ -36,7 +38,7 @@ pub(super) fn pack(
 ) -> Packed {
     let scale = f64::from(params.scale);
     let radii = initial_radii(n, edges, loops, scale);
-    let mut seeded = fruchterman_reingold(n, edges, seed_iterations(n));
+    let mut seeded = fruchterman_reingold(n, edges, seed_iterations(n), params.seed);
     rescale_to(&mut seeded, scale * 0.45);
     let relax_params = RelaxParams {
         iterations: params.iterations.max(1),

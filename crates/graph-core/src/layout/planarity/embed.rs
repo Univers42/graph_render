@@ -15,11 +15,45 @@ use super::lr::Sides;
 
 /// Builds the finished embedding from `adjacency` and the LR test's [`Sides`].
 pub(super) fn build(adjacency: &Adjacency, sides: &Sides) -> Embedding {
+    debug_assert!(
+        every_back_edge_ancestor_has_a_tree_edge(adjacency, sides),
+        "every node a back edge points at owns a tree edge, so embed_from anchored that \
+         row before the back edge arrived"
+    );
     let mut builder = Builder::new(adjacency, sides);
     for root in sides.roots.clone() {
         builder.embed_from(root);
     }
     builder.into_embedding()
+}
+
+/// The invariant the two `expect`s in `Builder::insert_back_edge` rest on: **every node a
+/// back edge points at has a tree edge of its own**, so `embed_from` has already set that
+/// node's `left_ref` and `right_ref` (a tree edge is what sets them) by the time the back
+/// edge is spliced into its row.
+///
+/// Asserted here, at the one place both tables are in hand, rather than nowhere: a `Sides`
+/// that broke it would reach the splice with a `None` reference and panic, on the public
+/// fail-safe path. It holds because `embed_from` walks a parent before its children, so a
+/// strict ancestor's row is anchored before any descendant's back edge arrives.
+///
+/// A tree edge is a child's own: `parent_edge[w] == Some(ei)` for `w = neighbours[ei]`, the
+/// test `embed_from` itself uses to recognise one.
+fn every_back_edge_ancestor_has_a_tree_edge(adjacency: &Adjacency, sides: &Sides) -> bool {
+    sides.ordered.iter().all(|row| {
+        row.iter().all(|&ei| {
+            let ancestor = adjacency.slot_neighbour(ei) as usize;
+            is_tree(adjacency, sides, ei)
+                || sides.ordered[ancestor]
+                    .iter()
+                    .any(|&ej| is_tree(adjacency, sides, ej))
+        })
+    })
+}
+
+/// Whether slot `ei` is the tree edge of the node at its far end.
+fn is_tree(adjacency: &Adjacency, sides: &Sides, ei: u32) -> bool {
+    sides.parent_edge[adjacency.slot_neighbour(ei) as usize] == Some(ei)
 }
 
 /// Every table `dfs_embedding` touches, past the read-only `adjacency`/`sides` it walks:
@@ -145,12 +179,16 @@ impl<'a> Builder<'a> {
     fn insert_back_edge(&mut self, ei: u32, w: u32, v: u32) {
         let new_slot = self.adjacency.slot(w, v);
         if self.sides.side[ei as usize] == 1 {
-            let anchor = self.right_ref[w as usize]
-                .expect("an ancestor with a return edge has a right reference");
+            let anchor = self.right_ref[w as usize].expect(
+                "w owns a tree edge, so embed_from set its right reference first \
+                 (asserted in `build`)",
+            );
             self.splice_after(self.adjacency.slot(w, anchor), new_slot);
         } else {
-            let anchor = self.left_ref[w as usize]
-                .expect("an ancestor with a return edge has a left reference");
+            let anchor = self.left_ref[w as usize].expect(
+                "w owns a tree edge, so embed_from set its left reference first \
+                 (asserted in `build`)",
+            );
             let anchor_slot = self.adjacency.slot(w, anchor);
             let takes_leftmost = self.leftmost[w as usize] == Some(anchor_slot);
             self.splice_before(anchor_slot, new_slot);
@@ -163,6 +201,13 @@ impl<'a> Builder<'a> {
 
     /// Reads every row's finished clockwise cycle out into CSR form, starting each row
     /// from its lowest-numbered slot — an arbitrary but deterministic choice.
+    ///
+    /// The walk takes exactly `degree(v)` steps and **checks that it landed back on the
+    /// row's first slot**: a splice that missed one cycle would otherwise close early or
+    /// run off the end, and a wrong rotation is invisible to `euler_certificate` (every
+    /// planar rotation of a planar graph has the same `V`, `E` and `F` — see the module
+    /// doc). The assert turns "a missed splice" into a debug-build failure here instead of
+    /// a silently wrong drawing downstream.
     fn into_embedding(self) -> Embedding {
         let n = self.adjacency.node_count();
         let mut offsets = vec![0u32; n as usize + 1];
@@ -171,11 +216,16 @@ impl<'a> Builder<'a> {
             offsets[v as usize] = neighbours.len() as u32;
             let degree = self.adjacency.degree(v);
             if degree > 0 {
-                let mut slot = self.adjacency.start(v);
+                let start = self.adjacency.start(v);
+                let mut slot = start;
                 for _ in 0..degree {
                     neighbours.push(self.adjacency.slot_neighbour(slot));
                     slot = self.cw[slot as usize];
                 }
+                debug_assert_eq!(
+                    slot, start,
+                    "row {v}'s clockwise cycle closed after fewer than {degree} steps"
+                );
             }
         }
         offsets[n as usize] = neighbours.len() as u32;

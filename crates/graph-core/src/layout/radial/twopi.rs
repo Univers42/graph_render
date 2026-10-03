@@ -34,6 +34,13 @@
 //! angles is sequential, so a different order is a different drawing.
 //! [`adjacency::for_each`] is that order, and it is the only place it exists.
 //!
+//! **Every per-node column is allocated once, not once per component.** [`Scratch`] holds
+//! the seven the per-component passes write and resets only the component's own entries
+//! between components; [`adjacency::Neighbours`] and [`adjacency::Components`] are flat for
+//! the same reason. Before that, an edgeless graph — one component per node — cost
+//! `O(components x n)` where `registry/radial.rs` declares `O(n + m)`, and the two
+//! measurements are in `docs/measurements/fix-tree-twopi.md`.
+//!
 //! Ponytail: a **disconnected** graph. The reference lays out each component and then
 //! packs them apart with `packSubgraphs` (`twopiinit.c:118-143`); this port lays each
 //! component out around the origin and leaves them overlapping. Failing input: any
@@ -45,12 +52,14 @@
 mod adjacency;
 mod angles;
 mod center;
+mod scratch;
 mod tree;
 
 use crate::index::Topology;
 use crate::layout::Geometry;
 use crate::layout::coords::point_geometry;
 use crate::stage::StageError;
+use scratch::Scratch;
 
 /// The capability id, and the hash gate's stage name.
 pub const ID: &str = "layout.twopi";
@@ -106,10 +115,12 @@ pub fn run(topology: &Topology) -> Result<Geometry, StageError> {
     let mut out = Columns::new(count);
     let neighbours = adjacency::Neighbours::of(topology);
     let steps = center::steps_to_leaf(&neighbours, count);
-    for component in adjacency::components(&neighbours, count) {
-        let root = center::of(&steps, &component);
-        let tree = tree::grow(&neighbours, &component, root);
-        angles::place(&neighbours, &tree, root, &mut out);
+    let mut scratch = Scratch::new(count);
+    for component in adjacency::components(&neighbours, count).iter() {
+        let root = center::of(&steps, component);
+        scratch.reset(component);
+        tree::grow(&neighbours, component, root, &mut scratch);
+        angles::place(&neighbours, root, &mut scratch, &mut out);
     }
     Ok(out.geometry())
 }

@@ -86,6 +86,7 @@ pub(crate) fn parse_tiers(text: &str) -> Result<Tiers, String> {
 /// Runs every arm over seeds `0..seeds` and compares them line by line.
 pub fn run(seeds: u32, tiers: Tiers) -> ExitCode {
     let started = env_setting().and_then(|setting| {
+        refuse_a_control_this_gate_cannot_bite(setting.control)?;
         refuse_a_vacuous_control(seeds, setting.split_sum)?;
         let stamp = evidence::Stamp::take()?;
         Ok((setting.control, stamp, collect_arms(seeds, tiers)?))
@@ -115,6 +116,33 @@ pub fn run(seeds: u32, tiers: Tiers) -> ExitCode {
 /// statement, and it is why no `min_seeds` sibling is declared for the flag. A floor here
 /// would have been a second number to keep in agreement with that test for no extra
 /// protection.
+/// **A control that cannot reach this gate refuses the run; it does not pass it.**
+///
+/// [`Knob::OverlapRelaxation`] belongs to the node-overlap pass, and the hash gate runs every
+/// POST stage over `layout.grid` — whose nodes are `Point`s. A `Point` has no extent, so the
+/// pass is a **documented no-op on it** (`SeparateParams::point_radius` defaults to `0`): the
+/// stage hashes the same bytes with the control set and without it. Measured, not assumed —
+/// `GM_MUTATE_OVERLAP_RELAXATION=0 hashgate --seeds 4` reports `post.separate.grid: 4-way
+/// equal on 4/4 seeds` and exits **0**, a vacuous pass reading as evidence.
+///
+/// So the control is refused here rather than accepted and ignored, the same bargain
+/// `force-gate` strikes in the other direction: a control that cannot bite must not report
+/// green. Its home is the row it was written for — `graph-cli overlap`, which lays the graph
+/// out as discs and where `=0` does turn the invariant row red.
+fn refuse_a_control_this_gate_cannot_bite(control: Option<Knob>) -> Result<(), String> {
+    match control {
+        None => Ok(()),
+        Some(Knob::OverlapRelaxation) => Err(format!(
+            "{} cannot reach this gate: every POST stage here runs over layout.grid's Point \
+nodes, and the overlap pass is a no-op on a point (point_radius defaults to 0), so the \
+stage hashes the same bytes with and without the control. Run `graph-cli overlap` for this \
+control — that row gives the graph discs, and the invariant row does go red.",
+            Knob::OverlapRelaxation.env()
+        )),
+        Some(_) => Ok(()),
+    }
+}
+
 fn refuse_a_vacuous_control(seeds: u32, split: Split) -> Result<(), String> {
     let floor = split.min_seeds();
     if seeds < floor {

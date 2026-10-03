@@ -3,7 +3,7 @@
 //! The Phase 9 tick harnesses' own negative controls copy a harness, change one pinned
 //! constant in the copy and run *that*, so a self-check that cannot fail fails the test
 //! rather than passing vacuously. The copy has to sit where its own `../src` and
-//! `../crates` imports still resolve, and it must not sit anywhere the tree fingerprint
+//! `../crates` imports still resolve (its `./` sibling imports are rewritten to `../harness/`), and it must not sit anywhere the tree fingerprint
 //! can see: `harness/` is a fingerprinted entry, so a copy written there is a file the
 //! listing names for as long as it exists, and `evidence::tests` — same test binary,
 //! running in parallel — read a tree the binary was not built from and failed. They
@@ -23,7 +23,13 @@ pub fn harness_copy_with_in(name: &str, from: &str, to: &str) -> Mutant {
     );
     let dir = copy.parent().expect("the staging dir");
     std::fs::create_dir_all(dir).expect("staging dir");
-    std::fs::write(&copy, text.replacen(from, to, 1)).expect("the copy is writable");
+    // `target/` is a sibling of `harness/`, so `../src` still resolves from the copy but a
+    // harness-local `./x.mjs` does not: it is pointed back at `harness/`. Without this the
+    // copy died on ERR_MODULE_NOT_FOUND and every negative control passed vacuously.
+    let staged = text
+        .replacen(from, to, 1)
+        .replace("from \"./", "from \"../harness/");
+    std::fs::write(&copy, staged).expect("the copy is writable");
     Mutant(copy)
 }
 
