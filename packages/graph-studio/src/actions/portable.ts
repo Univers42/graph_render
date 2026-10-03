@@ -1,4 +1,5 @@
 /** Settings out and in, and a reset for each panel that keeps its own. */
+import { MAX_DOCUMENT_CHARS } from "../source/limits.ts";
 import { SECTIONS, type Section, exportSettings, importSettings, resetSection } from "../state/portable.ts";
 import type { StudioAction } from "./context.ts";
 import { textArg } from "./context.ts";
@@ -14,7 +15,7 @@ const exported: StudioAction = {
 
 const imported: StudioAction = {
   id: "settings.import", alias: "importsettings", title: "Load settings", section: "Export",
-  params: [{ name: "text", kind: "text", title: "Settings JSON", control: "file", value: () => "" }],
+  params: [{ name: "text", kind: "text", title: "Settings JSON", control: "file", max: MAX_DOCUMENT_CHARS, value: () => "" }],
   run: (context, args) => context.apply(importSettings(textArg(args, "text"))),
 };
 

@@ -59,6 +59,18 @@ impl Topology {
         }
     }
 
+    /// Node `index`'s id: [`node`](Self::node)'s first field, alone. Ten fields and five
+    /// arena lookups is what a reader of the whole node pays; `layout::snapshot` reads
+    /// only the id, at a million of them, so it asks for this instead.
+    pub fn node_id(&self, index: u32) -> &str {
+        self.strings.get(self.nodes.id[index as usize])
+    }
+
+    /// Edge `index`'s id: [`edge`](Self::edge)'s first field, alone — no endpoints.
+    pub fn edge_id(&self, index: u32) -> &str {
+        self.strings.get(self.edges.id[index as usize])
+    }
+
     /// Edge `index`'s fields, endpoints as node ids.
     pub fn edge(&self, index: u32) -> EdgeView<'_> {
         let (i, e, s) = (index as usize, &self.edges, &self.strings);

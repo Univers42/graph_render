@@ -114,7 +114,13 @@ fn the_tick_hands_the_runner_one_call_per_listed_pass() {
     );
     assert_eq!(
         BarnesHut::THREADED_PASSES,
-        ["link forces", "link", "charge", "collide"],
+        [
+            "link forces",
+            "link",
+            "charge aggregate",
+            "charge",
+            "collide"
+        ],
         "the list is in Sim::tick's own order, with center never threaded"
     );
 }

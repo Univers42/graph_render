@@ -13,8 +13,9 @@ LIVE_THREADS=N adds `?threads=N` (`app/src/main.ts`). The record says whether th
 cross-origin isolated and how many Workers the motor worker started: without isolation the studio
 loads the serial module whatever N is, and helpers is 0 (`packages/graph-studio/src/motor/threads.ts`).
 
-A frame is not a tick: a frame after a tick that overran the loop's budget is posted without
-stepping (`liveLoop.ts`), so the gap deciles are bimodal and the long mode is the tick.
+A frame is a tick: the loop steps once per frame and waits out the rest of its 16 ms period, or
+not at all when the tick took longer (`liveLoop.ts`), so past a few thousand nodes the gap is the
+tick plus the publish.
 
 How it counts: a script installed before the page loads wraps `Worker`, and counts each message
 whose body is a `force-frame`. Nothing in the studio is changed to be measured.

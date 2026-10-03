@@ -15,6 +15,7 @@ export interface ParamSpec<State> {
   readonly kind: ParamKind;
   readonly title: string;
   readonly min?: number;
+  /** The largest value; for text, the most characters. */
   readonly max?: number;
   readonly step?: number;
   readonly choices?: (state: State) => readonly string[];
@@ -124,9 +125,11 @@ function flagFrom<State>(spec: ParamSpec<State>, raw: unknown): boolean {
 }
 
 function textFrom<State>(spec: ParamSpec<State>, raw: unknown): string {
-  if (typeof raw === "string") return raw;
   if (typeof raw === "number" || typeof raw === "boolean") return String(raw);
-  throw bad(spec.name, `must be text, not ${JSON.stringify(raw)}`);
+  if (typeof raw !== "string") throw bad(spec.name, `must be text, not ${JSON.stringify(raw)}`);
+  // The length only: a refused text may be a whole file, and echoing it would copy it again.
+  if (spec.max !== undefined && raw.length > spec.max) throw bad(spec.name, `is ${raw.length} characters; at most ${spec.max}`);
+  return raw;
 }
 
 function choiceFrom<State>(spec: ParamSpec<State>, raw: unknown, state: State): string {

@@ -98,6 +98,7 @@ test("a refusal from the motor rejects with what the worker described", async ()
   answer(first(ports));
   await assert.rejects(running, (error: unknown) => error instanceof MotorFailure && error.shown.code === "code 8 (LayoutFailed)" && error.name === "RunRefusedError");
   assert.equal(client.busy(), false);
+  assert.equal(first(ports).closed, false, "a refusal leaves the worker and its graph in place");
 });
 
 test("stopping closes the worker and rejects what was running", async () => {
@@ -182,4 +183,79 @@ test("a closed client refuses every call", async () => {
   assert.equal(first(ports).closed, true);
   await assert.rejects(client.catalog(), /closed/);
   assert.equal(ports.length, 1);
+});
+
+const OTHER = { kind: "fixture", path: "dag/diamond.json" } as const;
+
+function failure(title: string): Result {
+  return { type: "failed", error: { title, code: null, detail: title, hint: "" } };
+}
+
+async function loadedClient({ ports, spawn, answer }: Rig): Promise<ReturnType<typeof createClient>> {
+  const client = createClient(spawn, ASSETS);
+  const loading = client.load(SOURCE);
+  answer(first(ports));
+  await settle();
+  answer(first(ports));
+  await loading;
+  return client;
+}
+
+/** Answers the last request sent on `port` with `body`, the way a failing worker would. */
+function replyLast(port: FakePort, body: Result): void {
+  const asked = port.sent.at(-1);
+  assert.ok(asked !== undefined, "nothing was sent");
+  port.reply(asked.seq, body);
+}
+
+async function serve(rigged: Rig, index: number, rounds = 3): Promise<void> {
+  for (let round = 0; round < rounds; round += 1) {
+    rigged.answer(first(rigged.ports, index));
+    await settle();
+  }
+}
+
+test("a new source is loaded in a new worker, and the worker that held the old one is closed", async () => {
+  const rigged = rig();
+  const client = await loadedClient(rigged);
+  const pushed: Result[] = [];
+  client.onForce?.((result) => void pushed.push(result));
+  const next = client.load(OTHER);
+  assert.equal(first(rigged.ports).closed, true);
+  assert.deepEqual(pushed.map((result) => result.type), ["force-state"]);
+  await serve(rigged, 1);
+  assert.deepEqual(await next, GRAPH);
+  assert.deepEqual(first(rigged.ports, 1).sent.map((message) => message.body), [
+    { type: "open", wasmUrl: ASSETS.wasmUrl }, { type: "load", source: OTHER, fixturesUrl: ASSETS.fixturesUrl },
+  ]);
+});
+
+for (const title of ["MotorTrapError", "RangeError"]) {
+  test(`a ${title} retires the worker, and the next one is given the graph again`, async () => {
+    const rigged = rig();
+    const client = await loadedClient(rigged);
+    const running = client.layout("layout.grid", null);
+    await settle();
+    replyLast(first(rigged.ports), failure(title));
+    await assert.rejects(running, (error: unknown) => error instanceof MotorFailure && error.name === title);
+    assert.equal(first(rigged.ports).closed, true);
+    const again = assert.rejects(client.analysis("analysis.depth.bfs"), MotorFailure);
+    await serve(rigged, 1);
+    await again;
+    assert.deepEqual(first(rigged.ports, 1).sent.map((message) => message.body.type), ["open", "load", "analysis"]);
+  });
+}
+
+test("a load that fails closes its worker, and the next one is given the graph loaded before", async () => {
+  const rigged = rig();
+  const client = await loadedClient(rigged);
+  const next = client.load(OTHER);
+  await serve(rigged, 1, 1);
+  replyLast(first(rigged.ports, 1), failure("IngestRefusal"));
+  await assert.rejects(next, (error: unknown) => error instanceof MotorFailure && error.name === "IngestRefusal");
+  assert.equal(first(rigged.ports, 1).closed, true);
+  const again = assert.rejects(client.analysis("analysis.depth.bfs"), MotorFailure);
+  await serve(rigged, 2);
+  await again;
+  assert.deepEqual(first(rigged.ports, 2).sent[1]?.body, { type: "load", source: SOURCE, fixturesUrl: ASSETS.fixturesUrl });
 });

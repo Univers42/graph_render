@@ -1,12 +1,12 @@
 /** The view's state changes: everything `createView` does to a canvas between frames. */
 import {
-  type Camera, type FitArea, type Point, fitCamera, screenToWorld,
+  type Camera, type FitArea, type Point, fitCamera,
 } from "../camera.ts";
 import { type LiveDrag, movedScene } from "../drag.ts";
 import type { Frame } from "../frame.ts";
 import { DEFAULT_POLICY, type LabelPolicy, newLabelPlan, occupancyFor } from "../labels.ts";
 import type { LocalLayer } from "../local.ts";
-import { EMPTY_FRAME, pickEased, pickIn, sceneOf } from "../scene.ts";
+import { EMPTY_FRAME, sceneOf } from "../scene.ts";
 import { plainStyle } from "../style.ts";
 import { DARK_THEME, type Theme } from "../theme.ts";
 import { type Orbit, boxOf, fitOrbit } from "../three/orbit.ts";
@@ -16,8 +16,8 @@ import { setSelection } from "./choose.ts";
 import { newCounts } from "./input.ts";
 import { type LoopState, invalidate, markMoved, relight } from "./loop.ts";
 import { currentLimits, safeOf } from "./limits.ts";
-import { MIN_SCREEN_RADIUS } from "./nodes.ts";
 import { newPace } from "./pace.ts";
+export { pickAt } from "./pick.ts";
 import { newRate } from "./rate.ts";
 import { createSpriteCache } from "./sprites.ts";
 import type { SpriteSurface } from "./surface.ts";
@@ -34,7 +34,12 @@ export interface Controller {
   readonly canvas: HTMLCanvasElement;
   readonly state: LoopState;
   readonly notify: Notify;
-  /** True until the user moves the camera: a resize then re-fits instead of cropping. */
+  /**
+   * True while the view still owns the camera, which is what `fitted` has always meant for the
+   * 2D camera and now means for the 3D one too: a resize, a new frame and a live frame fit
+   * instead of cropping, and only the user's own pan, zoom, orbit, reset or node drag takes
+   * the camera away. Everything the view does on its own asks this first.
+   */
   fitted: boolean;
   /**
    * True once the user has touched the canvas: a pan, a zoom, a drag, a box select, a click or a
@@ -56,7 +61,6 @@ export interface Setup {
 }
 
 const MAX_DPR = 2;
-const PICK_TOLERANCE = 4;
 
 function spriteSurface(): SpriteSurface | null {
   const canvas = new OffscreenCanvas(1, 1);
@@ -156,6 +160,11 @@ export function fit(controller: Controller): void {
   const orbit = fittedOrbit(state);
   if (orbit !== null) {
     moveOrbit(controller, orbit);
+    // WHY the flag is set here and not in `moveOrbit`: an orbit the view fitted is the view's
+    // own camera, the same claim the 2D fit makes, and the resize and live-frame paths read
+    // this one flag for both cameras. Every orbit gesture goes through `moveOrbit` and leaves
+    // it false.
+    controller.fitted = true;
     return;
   }
   // The safe area, not the canvas: the panels a host lays over the canvas are not drawing space,
@@ -221,7 +230,8 @@ export function showFrame(state: LoopState, frame: Frame, animate: boolean): voi
 
 /**
  * New positions for the nodes already in the frame, from a live simulation. A pair that does
- * not have one entry per node is another graph's drawing and is ignored.
+ * not have one entry per node is another graph's drawing and is ignored, and `false` says so.
+ * Whether the camera follows is `camera-api.ts`'s question, not this one's.
  *
  * The columns are adopted, not copied. The motor hands its buffers over on a transfer list
  * (`motor/liveLoop.ts`), which detaches them in the worker, so the page holds the only copy and
@@ -236,12 +246,12 @@ export function showFrame(state: LoopState, frame: Frame, animate: boolean): voi
  * not a drawing. It is the one pass over the batch this function still makes, and it is the
  * one that keeps a broken frame off the screen.
  */
-export function setPositions(state: LoopState, xs: Float32Array, ys: Float32Array): void {
+export function setPositions(state: LoopState, xs: Float32Array, ys: Float32Array): boolean {
   const count = state.scene.frame.nodeCount;
-  if (xs.length !== count || ys.length !== count) return;
+  if (xs.length !== count || ys.length !== count) return false;
   for (let node = 0; node < count; node += 1) {
     if (Number.isFinite(xs[node]) && Number.isFinite(ys[node])) continue;
-    return;
+    return false;
   }
   state.x = xs;
   state.y = ys;
@@ -250,51 +260,5 @@ export function setPositions(state: LoopState, xs: Float32Array, ys: Float32Arra
   // grid are rebuilt on it only when something reads them (`src/lazy.ts`).
   state.scene = movedScene(state.scene, { x: xs, y: ys });
   markMoved(state);
-}
-
-/**
- * The node under a screen point.
- *
- * Mid-tween this scans the eased pose rather than asking the grid, because the grid indexes
- * the *target* frame and every node is somewhere else until the tween ends. The scan reads the
- * two halves and the fraction the loop already publishes for the shader, so it is the pose
- * both backends draw; outside a tween the grid still answers, and it is O(cells) not O(nodes).
- */
-export function pickAt(state: LoopState, at: Point): number {
-  if (state.orbit !== null) return pickInSpace(state, at);
-  const world = screenToWorld(state.camera, at);
-  const { scale } = state.camera;
-  const query = {
-    x: world.x, y: world.y, tolerance: PICK_TOLERANCE / scale, floor: MIN_SCREEN_RADIUS / scale,
-  };
-  const tween = state.bulk.tween;
-  return tween === null ? pickIn(state.scene, query) : pickEased(state.scene, query, tween);
-}
-
-/**
- * The 3D hit test: the nearest node whose drawn disc is under the point. There is no
- * un-projection here, and there does not need to be — the screen points are already what the
- * painter drew, so the same radii and the same tolerance pick the same node a hand would.
- * The nearest wins, so a node in front is picked over one behind it at the same point.
- */
-function pickInSpace(state: LoopState, at: Point): number {
-  const drawn = state.drawn;
-  if (drawn === null) return -1;
-  let best = -1;
-  let bestDepth = Infinity;
-  for (let step = 0; step < drawn.drawn; step += 1) {
-    const node = drawn.order[step] ?? 0;
-    if (state.scene.style.hidden?.[node] === 1) continue;
-    const depth = drawn.depth[node] ?? 0;
-    if (depth <= 0) continue;
-    const reach = Math.max(MIN_SCREEN_RADIUS, drawn.radius[node] ?? 0) + PICK_TOLERANCE;
-    const dx = (drawn.x[node] ?? 0) - at.x;
-    const dy = (drawn.y[node] ?? 0) - at.y;
-    if (dx * dx + dy * dy > reach * reach) continue;
-    if (depth < bestDepth) {
-      best = node;
-      bestDepth = depth;
-    }
-  }
-  return best;
+  return true;
 }

@@ -52,13 +52,18 @@ def apart(a, b):
 class Studio:
     """The page, and the real input a user's hand would send."""
 
-    def __init__(self, page, url, expect_drag=None, expect_gradient=None, wait_for_settle=True):
+    def __init__(self, page, url, expect_drag=None, expect_gradient=None, wait_for_settle=True,
+                 expect_switch_stale=False):
         self.page = page
         self.url = url
         self.expect_drag = DRAG_PX if expect_drag is None else expect_drag
         # The negative control's second fault: False means the edge gradient row never turns
         # the mode on, so the row must fail against the flat drawing.
         self.expect_gradient = True if expect_gradient is None else expect_gradient
+        # The negative control's third fault: True means the layout switch row expects `f` to
+        # still move the camera after the switch, which is the fault a camera left on the
+        # layout run's frame while the live loop draws elsewhere produces.
+        self.expect_switch_stale = expect_switch_stale
         # The live gate watches the settle a force layout starts on load, so it asks for the
         # drawing NOT to be waited out; every other gate wants a still drawing.
         self.wait_for_settle = wait_for_settle
