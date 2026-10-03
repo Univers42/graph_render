@@ -34,7 +34,7 @@ fn edge<'a>(id: &'a str, source_row: u32, target_row: u32) -> RowEdge<'a> {
 }
 
 fn indexed<'a>(nodes: &[NodeView<'a>], edges: &[RowEdge<'a>]) -> Result<Topology, ColumnsRefusal> {
-    index_columns(nodes.iter().copied(), edges.iter().copied())
+    index_columns(nodes.iter().copied(), edges.iter().copied(), (0, 0))
 }
 
 /// The refusal a document earns. `Topology` is not `PartialEq` (it holds a whole arena and

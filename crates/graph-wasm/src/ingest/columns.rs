@@ -45,7 +45,8 @@ pub fn index(bytes: &[u8]) -> Result<Topology, ColumnsError> {
     }
     let doc = decode(bytes).map_err(|_| ColumnsError::Invalid)?;
     resolve_kinds(&doc)?;
-    index_columns(Nodes::new(doc), Edges::new(doc)).map_err(|_| ColumnsError::Invalid)
+    let table = (doc.string_count() as usize, doc.blob().len());
+    index_columns(Nodes::new(doc), Edges::new(doc), table).map_err(|_| ColumnsError::Invalid)
 }
 
 /// Every node kind and edge kind in the document, or the refusal. The contract carries kinds

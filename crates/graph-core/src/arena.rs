@@ -20,7 +20,8 @@ use indexmap::map::raw_entry_v1::RawEntryMut;
 pub struct Interned(NonZeroU32);
 
 impl Interned {
-    fn slot(self) -> usize {
+    /// The handle's index in its arena: dense, from 0, in first-seen order.
+    pub(crate) fn slot(self) -> usize {
         (self.0.get() - 1) as usize
     }
 }

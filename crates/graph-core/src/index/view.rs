@@ -32,13 +32,13 @@ impl Topology {
     /// The dense index of node `id`, if kept.
     pub fn node_index(&self, id: &str) -> Option<u32> {
         let handle = self.strings.find(id)?;
-        self.node_ids.get_index_of(&handle).map(|i| i as u32)
+        self.node_ids.row(handle)
     }
 
     /// The dense index of edge `id`, if kept.
     pub fn edge_index(&self, id: &str) -> Option<u32> {
         let handle = self.strings.find(id)?;
-        self.edge_ids.get_index_of(&handle).map(|i| i as u32)
+        self.edge_ids.row(handle)
     }
 
     /// Node `index`'s fields.

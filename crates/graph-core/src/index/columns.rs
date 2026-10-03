@@ -18,7 +18,7 @@
 //! testable with plain arrays.
 
 use super::Topology;
-use crate::arena::CapacityError;
+use crate::arena::{CapacityError, StringArena};
 use crate::records::{NodeView, RowEdge};
 use core::fmt;
 
@@ -70,16 +70,21 @@ impl fmt::Display for ColumnsRefusal {
 /// dense index `r`. Refuses a repeated node or edge id rather than dropping it, which is what
 /// makes an edge's endpoint row mean what it says.
 ///
-/// **Caveat:** the reservation counts rows only. The string arena is left to grow, where
-/// [`index_model`](super::index_model) also over-reserves it by exactly the distinct
-/// non-id strings the document holds — a graph whose labels are all different grows it once
-/// either way.
+/// `table` is the document's string table as `(entries, bytes)`: every string a row can
+/// name, so the arena reserves for all of them once instead of rehashing as it grows. At 1M
+/// nodes the growth was 17% of the build (`docs/measurements/perf-open-intern.md`).
+///
+/// **Caveat:** the reservation over-counts by every duplicate entry the table holds, which
+/// the contract allows; the caller already holds that table in memory, so the excess is at
+/// most the table's own size.
 pub fn index_columns<'a>(
     mut nodes: impl ExactSizeIterator<Item = NodeView<'a>>,
     mut edges: impl ExactSizeIterator<Item = RowEdge<'a>>,
+    table: (usize, usize),
 ) -> Result<Topology, ColumnsRefusal> {
     let (node_rows, edge_rows) = (nodes.len(), edges.len());
     let mut topology = Topology::with_row_capacity(node_rows, edge_rows);
+    topology.strings = StringArena::with_capacity(table.0, table.1);
     for node in &mut nodes {
         let row = topology.node_count();
         if !topology.admit_node(&node)? {
