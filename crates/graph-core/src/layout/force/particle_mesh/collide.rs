@@ -21,11 +21,12 @@
 
 use super::frame::{self, Bounds};
 use super::motion;
-use crate::exec::Runner;
+use crate::exec::{Runner, StepRange};
 use crate::layout::force::barnes_hut::sim::{How, Sim};
 use crate::rng::jiggle;
 use gather::Gather;
 use hash::{Buckets, Hash};
+use std::ops::Range;
 
 mod gather;
 mod hash;
@@ -38,7 +39,9 @@ pub(in crate::layout::force) struct Grid {
     /// The node at each sorted slot. Every node has one, a non-finite one too, so the
     /// charge deposit can walk the nodes in this order.
     pub(super) order: Vec<u32>,
-    /// Bucket `b`'s slots are `start[b]..start[b + 1]`.
+    /// Bucket `b`'s slots are `start[b]..start[b + 1]`. One entry more than the buckets
+    /// need: the sort counts two ahead and scatters one ahead, so it ends shifted into
+    /// place with no copy.
     start: Vec<u32>,
     /// Each node's bucket while the sort runs, then its slot: `order[slot[i]] == i`.
     pub(super) slot: Vec<u32>,
@@ -65,7 +68,7 @@ impl Grid {
         let buckets = (2 * n as usize).next_power_of_two().max(4);
         Grid {
             order: (0..n).collect(),
-            start: vec![0; buckets + 1],
+            start: vec![0; buckets + 2],
             slot: (0..n).collect(),
             at: vec![[0.0; 2]; n as usize],
             hash: Hash {
@@ -79,7 +82,8 @@ impl Grid {
     }
 
     /// Sorts every node into its bucket, stably: inside a bucket, by node index. The
-    /// bounds and the hashing run through `runner`; the counting sort is one thread's.
+    /// bounds, the hashing and the sorted positions run through `runner`; the counting
+    /// sort is one thread's.
     pub(super) fn build<R: Runner>(
         &mut self,
         xy: (&[f64], &[f64]),
@@ -97,23 +101,25 @@ impl Grid {
         runner.run(&Buckets { hash, xy }, workers, &mut self.slot);
         self.start.fill(0);
         for &b in &self.slot {
-            self.start[b as usize + 1] += 1;
+            self.start[b as usize + 2] += 1;
         }
         for b in 1..self.start.len() {
             self.start[b] += self.start[b - 1];
         }
-        let (x, y) = xy;
+        // `start[b + 1]` is bucket `b`'s start and its cursor; it ends as bucket `b`'s
+        // end, which is bucket `b + 1`'s start.
         for (i, slot) in self.slot.iter_mut().enumerate() {
-            let next = &mut self.start[*slot as usize];
+            let next = &mut self.start[*slot as usize + 1];
             let k = *next;
             *next += 1;
-            (self.order[k as usize], self.at[k as usize]) = (i as u32, [x[i], y[i]]);
+            self.order[k as usize] = i as u32;
             *slot = k;
         }
-        // Each `start[b]` now holds bucket `b`'s end, which is bucket `b + 1`'s start.
-        let buckets = self.start.len() - 1;
-        self.start.copy_within(0..buckets, 1);
-        self.start[0] = 0;
+        let sorted = Sorted {
+            order: &self.order,
+            xy,
+        };
+        runner.run(&sorted, workers, &mut self.at);
     }
 
     /// The slot runs a query from `cell` reads: rows `cy - 1..=cy + 1`, buckets left to
@@ -142,6 +148,27 @@ impl Grid {
             firsts[r] = first;
         }
         reads
+    }
+}
+
+/// The positions in sorted order: slot `k` reads node `order[k]`.
+struct Sorted<'a> {
+    order: &'a [u32],
+    xy: (&'a [f64], &'a [f64]),
+}
+
+impl StepRange for Sorted<'_> {
+    type Out = [f64; 2];
+
+    fn len(&self) -> u32 {
+        self.order.len() as u32
+    }
+
+    fn step_range(&self, range: Range<u32>, out: &mut [[f64; 2]]) {
+        let order = &self.order[range.start as usize..range.end as usize];
+        for (at, &i) in out.iter_mut().zip(order) {
+            *at = [self.xy.0[i as usize], self.xy.1[i as usize]];
+        }
     }
 }
 

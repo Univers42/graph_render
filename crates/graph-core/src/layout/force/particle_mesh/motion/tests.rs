@@ -42,7 +42,7 @@ fn the_passes_are_merge_and_integrate_bit_for_bit() {
         want.integrate();
         let gathered = Gathered {
             deltas: &deltas,
-            slot: &slot,
+            slot: Some(&slot),
             split,
         };
         for workers in [1, 2, 3, 7] {
@@ -71,4 +71,43 @@ fn the_projection_is_position_plus_velocity() {
         assert_eq!(sim.px[i].to_bits(), (sim.x[i] + sim.vx[i]).to_bits());
         assert_eq!(sim.py[i].to_bits(), (sim.y[i] + sim.vy[i]).to_bits());
     }
+}
+
+#[test]
+fn a_node_ordered_merge_is_the_unordered_step_merge() {
+    let n = 1000;
+    let deltas: Vec<(f64, f64)> = column(n, 0.29).into_iter().zip(column(n, 0.031)).collect();
+    for split in [false, true] {
+        let mut want = moving(n);
+        step::merge((&mut want.vx, &mut want.vy), None, &deltas, split);
+        let linked = Gathered {
+            deltas: &deltas,
+            slot: None,
+            split,
+        };
+        for workers in [1, 2, 3, 7] {
+            let mut got = moving(n);
+            merge(&mut got, linked, (&Serial, workers));
+            assert!(
+                bits(&got) == bits(&want),
+                "split {split}, workers {workers}"
+            );
+        }
+    }
+}
+
+#[test]
+fn the_centering_pass_is_sim_center_bit_for_bit() {
+    let mut want = moving(1000);
+    want.params.center_strength = 0.7;
+    want.center();
+    for workers in [1, 2, 3, 7] {
+        let mut got = moving(1000);
+        got.params.center_strength = 0.7;
+        center(&mut got, (&Serial, workers));
+        assert!(bits(&got) == bits(&want), "workers {workers}");
+    }
+    let mut empty = placed(Vec::new(), Vec::new(), ForceParams::default());
+    center(&mut empty, (&Serial, 2));
+    assert!(empty.x.is_empty());
 }
