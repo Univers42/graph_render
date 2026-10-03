@@ -35,8 +35,6 @@ pub fn ranked(count: u32, edges: &[(u32, u32)]) -> Vec<i32> {
 
 /// One row of `target/probe/rank1000.txt`: the oracle's answer for one seed.
 pub struct OracleRow {
-    /// The fixture seed.
-    pub seed: u32,
     /// The fixture edges, as (tail, head).
     pub edges: Vec<(u32, u32)>,
     /// The rank the oracle gave every node.
@@ -46,9 +44,8 @@ pub struct OracleRow {
 /// The oracle's per-seed layering, as `target/probe/rank_oracle.py --digest` wrote it:
 /// `seed n t,h ... rank rank ...`, one line per seed, the edges before the ranks.
 ///
-/// The file is a probe under `target/`, so it is absent from a clean checkout; the tests
-/// that read it say so and skip rather than fail, because a missing measurement file is not
-/// a wrong answer. It is produced by
+/// The file is a probe under `target/`, so it is absent from a clean checkout; the one test
+/// that reads it, the sweep below, is `#[ignore]`d for that reason. It is produced by
 /// `python3 target/probe/rank_oracle.py --digest target/probe/rank1000.txt` inside
 /// `ge-graphviz-oracle`, from the same fixture set as the twenty seeds in `rank_tests.rs`.
 pub fn oracle_digest() -> Vec<OracleRow> {
@@ -63,7 +60,7 @@ pub fn oracle_digest() -> Vec<OracleRow> {
     let mut rows = Vec::new();
     for line in text.lines().filter(|l| !l.starts_with('#')) {
         let mut fields = line.split_whitespace();
-        let seed: u32 = fields.next().expect("a seed").parse().expect("a seed");
+        let _seed: u32 = fields.next().expect("a seed").parse().expect("a seed");
         let count: usize = fields
             .next()
             .expect("a node count")
@@ -81,7 +78,7 @@ pub fn oracle_digest() -> Vec<OracleRow> {
             .iter()
             .map(|r| r.parse().expect("a rank"))
             .collect();
-        rows.push(OracleRow { seed, edges, ranks });
+        rows.push(OracleRow { edges, ranks });
     }
     assert!(!rows.is_empty(), "the digest has rows");
     rows
