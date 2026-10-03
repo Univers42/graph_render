@@ -121,13 +121,28 @@ def module_row(requested, cores, prefix, isolated):
                        measured, fetched == [wanted])
 
 
-def direct_row(page, at):
-    """The bundle from the service's own origin: documented to fail on the Worker's origin check."""
-    expectation = "the studio does not come up, and the failure names the Worker"
-    named = (smokerows.events(page, "Runtime.exceptionThrown")
+def refusals(page, at):
+    """Every failure the direct page reported: the browser's channels, then the studio's store and
+    banner, which is where the studio puts an error it caught at mount."""
+    texts = (smokerows.events(page, "Runtime.exceptionThrown")
              + smokerows.faults(page, "Runtime.consoleAPICalled", ("type",), ("error",))
              + smokerows.faults(page, "Log.entryAdded", ("entry", "level"), ("error",)))
+    if at is not None and at["error"] is not None:
+        texts.append(f"{at['error']['title']}: {at['error']['detail']}")
+    if at is not None and at["banner"] is not None:
+        texts.append(at["banner"])
+    return texts
+
+
+def refused(page, at):
+    return any("Worker" in text for text in refusals(page, at))
+
+
+def direct_row(page, at):
+    """The bundle from the service's own origin: documented to fail on the Worker's origin check."""
+    expectation = "the studio draws nothing, and its failure names the Worker"
+    named = refusals(page, at)
+    worker = [text for text in named if "Worker" in text]
     nodes = 0 if at is None else at["nodes"]
-    measured = f"{nodes} nodes drawn; " + ("; ".join(named) or "no error reported")
-    passed = nodes == 0 and any("Worker" in text for text in named)
-    return verdict.row("direct-refused", expectation, smokerows.short(measured), passed)
+    measured = f"{nodes} nodes drawn; " + ((worker or named or ["no error reported"])[0])
+    return verdict.row("direct-refused", expectation, smokerows.short(measured), nodes == 0 and bool(worker))

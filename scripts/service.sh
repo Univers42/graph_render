@@ -21,7 +21,7 @@
 # runs it in the background under that container name. The root filesystem is read-only, every
 # capability is dropped, and the port is published on the loopback only. KEYFILE holds
 # `<name> <sha256-hex>` lines, never a key; the process runs as uid 10001 and reads it through
-# the file's group, so the file needs g+r (0640) and no more.
+# the file's group, so the file needs g+r (0640); group- or world-writable is refused (C9).
 #
 # Exit: 0 done · 1 a step failed · 2 misuse, or the image is missing.
 set -euo pipefail
@@ -34,7 +34,10 @@ record=target/service/image
 export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-4}
 
 log() { printf '\033[1m[service]\033[0m %s\n' "$*" >&2; }
-usage() { sed -n '2,26p' "${BASH_SOURCE[0]}" >&2; exit 2; }
+usage() {
+  sed -n '2,26p' "${BASH_SOURCE[0]}" >&2
+  exit 2
+}
 
 content_hash() {
   (cd "$1" && find . -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum) | sha256sum | cut -c1-16
@@ -46,13 +49,19 @@ last_build() {
   exit 2
 }
 
-version() { last_build; cat "$stage/embed/VERSION"; }
+version() {
+  last_build
+  cat "$stage/embed/VERSION"
+}
 
 image_of() {
   local image
   last_build
   image=$(cat "$record")
-  docker image inspect "$image" >/dev/null 2>&1 || { log "no image $image: run scripts/service.sh build"; exit 2; }
+  docker image inspect "$image" >/dev/null 2>&1 || {
+    log "no image $image: run scripts/service.sh build"
+    exit 2
+  }
   printf '%s\n' "$image"
 }
 
@@ -106,18 +115,24 @@ keygen() {
   image=$(image_of)
   # stdout (the key) goes straight through; only stderr (the file line) is captured.
   { line=$(docker run --rm --network none "$image" keygen "$name" 2>&1 >&3 3>&-); } 3>&1
-  line=$(grep -E "^$name [0-9a-f]{64}$" <<<"$line") || { log "keygen printed no file line"; exit 1; }
-  if [[ -z $keys ]]; then printf '%s\n' "$line" >&2; return; fi
+  line=$(grep -E "^$name [0-9a-f]{64}$" <<<"$line") || {
+    log "keygen printed no file line"
+    exit 1
+  }
+  if [[ -z $keys ]]; then
+    printf '%s\n' "$line" >&2
+    return
+  fi
   [[ -e $keys ]] || install -m 0640 /dev/null "$keys"
   printf '%s\n' "$line" >>"$keys"
   log "appended the line for $name to $keys"
 }
 
 case ${1-} in
-  build) build ;;
-  run) run "${2-}" ;;
-  keygen) keygen "${2-}" "${3-}" ;;
-  version) version ;;
-  image) image_of ;;
-  *) usage ;;
+build) build ;;
+run) run "${2-}" ;;
+keygen) keygen "${2-}" "${3-}" ;;
+version) version ;;
+image) image_of ;;
+*) usage ;;
 esac

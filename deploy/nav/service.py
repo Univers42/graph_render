@@ -29,7 +29,7 @@ import servicerows as judge
 
 SERVICE = "http://127.0.0.1:8080"
 # Caveat: a fixed cap. The direct page fails at mount, well inside it on a quiet host; on a host
-# so loaded that it takes longer, the row reads "no error reported" and fails, never passes.
+# so loaded that it takes longer, the row reads no Worker failure and fails, never passes.
 DIRECT_CAP_S = 20.0
 # The direct page's module may never load (no CORS), and then the element is never defined.
 DIRECT_PROBE = f"(customElements.get('graph-studio') === undefined ? null : {smokerows.PROBE.strip()})"
@@ -37,7 +37,10 @@ DIRECT_PROBE = f"(customElements.get('graph-studio') === undefined ? null : {smo
 
 def browse(url, shot, read):
     """`read` over a fresh browser on `url`: a new profile, so no page meets the last one's cache."""
-    with tempfile.TemporaryDirectory() as profile:
+    # Chromium's helpers can still write the profile after the browser exits, and the cleanup then
+    # raises ENOTEMPTY (seen once in three pages). The profile is in the probe container's /tmp,
+    # which goes with the container.
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as profile:
         browser = nav.launch_browser(profile)
         try:
             page = smokecdp.Watcher(nav.DEBUG_PORT)
@@ -62,20 +65,15 @@ def embedded(requested, prefix, isolated):
     return read
 
 
-def faulted(page):
-    return any(e["method"] == "Runtime.exceptionThrown"
-               or (e["method"] == "Log.entryAdded" and e["params"].get("entry", {}).get("level") == "error")
-               for e in page.events)
-
-
 def direct(page, url, shot):
+    """Polls until the page names the Worker in a failure, draws, or runs out of time."""
     page.navigate("about:blank")
     page.navigate(url)
     deadline = time.monotonic() + DIRECT_CAP_S
-    while time.monotonic() < deadline and not faulted(page):
-        page.call("Runtime.evaluate", {"expression": "1"})
-        time.sleep(0.2)
     at = page.evaluate(DIRECT_PROBE)
+    while time.monotonic() < deadline and not judge.refused(page, at) and (at is None or at["nodes"] == 0):
+        time.sleep(0.2)
+        at = page.evaluate(DIRECT_PROBE)
     page.screenshot(shot)
     return [judge.direct_row(page, at)]
 

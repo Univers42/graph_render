@@ -24,7 +24,10 @@ root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$root"
 source scripts/orch/scratch.sh
 broken=${SERVICE_IMAGE_BREAK:-}
-[[ $broken =~ ^(|headers|leak)$ ]] || { echo "service-image: SERVICE_IMAGE_BREAK is headers or leak" >&2; exit 2; }
+[[ $broken =~ ^(|headers|leak)$ ]] || {
+  echo "service-image: SERVICE_IMAGE_BREAK is headers or leak" >&2
+  exit 2
+}
 label=${SERVICE_IMAGE_LABEL:-${broken:+negctl-$broken}}
 out=target/service-image/${label:-current}
 name=svc-image-$$
@@ -36,7 +39,10 @@ work=$(mktemp -d)
 HEALTH_CAP_S=60
 
 log() { printf '\033[1m[service-image]\033[0m %s\n' "$*" >&2; }
-cleanup() { docker rm -f "$name" >/dev/null 2>&1 || true; rm -rf "$work"; }
+cleanup() {
+  docker rm -f "$name" >/dev/null 2>&1 || true
+  rm -rf "$work"
+}
 trap cleanup EXIT
 
 # The image's file names that would leak a secret or the build host, and the build host's own paths
@@ -46,8 +52,8 @@ trap cleanup EXIT
 leaks() {
   local box
   box=$(docker create "$1")
-  docker export "$box" | tar -t \
-    | grep -E '(^|/)(\.env[^/]*|\.git|[^/]*keys?|[^/]*\.(key|pem|p12|pfx))(/|$)|goinfre|^(home|tmp)/.+' || true
+  docker export "$box" | tar -t |
+    grep -E '(^|/)(\.env[^/]*|\.git|[^/]*keys?|[^/]*\.(key|pem|p12|pfx))(/|$)|goinfre|^(home|tmp)/.+' || true
   docker export "$box" | grep -a -o -F -m 1 -e "$GM_SCRATCH" -e "$root" | sort -u | sed 's/^/contents: /' || true
   docker rm -f "$box" >/dev/null
 }

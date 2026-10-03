@@ -27,6 +27,7 @@ UNFORWARDED = {"connection", "keep-alive", "transfer-encoding", "content-length"
 
 PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>service-image host</title>
+<link rel="icon" href="data:,">
 <style>html, body {{ margin: 0; height: 100%; }} graph-studio {{ width: 100vw; height: 100vh; }}</style>
 </head><body>
 <graph-studio wasm="{base}graph_wasm.wasm"></graph-studio>
