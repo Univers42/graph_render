@@ -15,12 +15,7 @@ use crate::layout::force::{
     YifanHu,
 };
 use crate::layout::forceatlas2::{ForceAtlas2, ForceAtlas2BarnesHut};
-use crate::layout::graphviz::circo;
-use crate::layout::graphviz::fdp;
-use crate::layout::graphviz::neato;
-use crate::layout::graphviz::osage;
-use crate::layout::graphviz::patchwork;
-use crate::layout::graphviz::sfdp;
+use crate::layout::graphviz::{circo, fdp, neato, osage, patchwork, sfdp};
 use crate::layout::grid::Grid;
 use crate::layout::hierarchical_3d;
 use crate::layout::radial::twopi;
