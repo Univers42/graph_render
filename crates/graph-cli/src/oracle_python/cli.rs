@@ -1,16 +1,12 @@
 //! The subcommands of the Python-armed differentials: `emit-<name>-fixtures` and
 //! `oracle-<name>`, flattened into the top-level command.
 
-use super::graphviz::{by_engine, default_dir, engine_parser};
-use super::spring;
-use super::{
-    BASIC_3D, CIRCULAR_HIERARCHY, CLOSED_FORM, FA2, HIERARCHICAL_3D, IGRAPH, SCALE, SPECTRAL,
-    SPRING, conformance, emit, ingest,
-};
+use super::graphviz::engine_parser;
 use crate::command::seed_count;
 use clap::Subcommand;
 use std::path::PathBuf;
-use std::process::ExitCode;
+
+mod run;
 
 /// How many cases the `scale.*` fixture table holds; the `--cases` default and its range.
 const SCALE_CASES: u32 = super::scale::CASES;
@@ -45,6 +41,27 @@ pub enum Cli {
     OracleIgraph {
         /// Directory holding the fixtures and `igraph-result.json`.
         #[arg(long, default_value = "target/igraph-fixtures")]
+        dir: PathBuf,
+    },
+    /// Writes the 3D arms' fixtures, for `harness/oracle-igraph.py` at `dim = 3`.
+    ///
+    /// Its own subcommand and its own directory rather than a `--dim` on the 2D one: the
+    /// two sets need different starts and different reference kwargs, and one flag
+    /// switching between them would make the emitted set depend on a flag rather than on
+    /// the arms it holds.
+    EmitIgraph3dFixtures {
+        /// Number of seeds, 0..N.
+        #[arg(long, default_value_t = 1000, value_parser = seed_count())]
+        seeds: u32,
+        /// Output directory. Its name must end in `-fixtures`; the harness reads the
+        /// dimension off it.
+        #[arg(long, default_value = "target/igraph3d-fixtures")]
+        out: PathBuf,
+    },
+    /// Checks the 3D arms' result against its ceilings and records it.
+    OracleIgraph3d {
+        /// Directory holding the fixtures and `igraph3d-result.json`.
+        #[arg(long, default_value = "target/igraph3d-fixtures")]
         dir: PathBuf,
     },
     /// Writes the closed-form differential's fixtures for `harness/oracle-closed-form.py`.
@@ -260,61 +277,3 @@ pub enum Cli {
     },
 }
 
-impl Cli {
-    pub fn run(self) -> ExitCode {
-        match self {
-            Cli::EmitSpectralFixtures { seeds, out } => emit(&SPECTRAL, seeds, None, &out),
-            Cli::OracleSpectral { dir } => ingest(&SPECTRAL, &dir),
-            Cli::EmitIgraphFixtures { seeds, out } => emit(&IGRAPH, seeds, None, &out),
-            Cli::OracleIgraph { dir } => ingest(&IGRAPH, &dir),
-            Cli::EmitFa2Fixtures {
-                seeds,
-                max_iter,
-                out,
-            } => emit(&FA2, seeds, max_iter, &out),
-            Cli::OracleFa2 { dir } => ingest(&FA2, &dir),
-            Cli::EmitClosedFormFixtures { seeds, out } => emit(&CLOSED_FORM, seeds, None, &out),
-            Cli::OracleClosedForm { dir } => ingest(&CLOSED_FORM, &dir),
-            Cli::EmitBasic3dFixtures { seeds, out } => emit(&BASIC_3D, seeds, None, &out),
-            Cli::OracleBasic3d { dir } => ingest(&BASIC_3D, &dir),
-            Cli::EmitHierarchical3dFixtures { seeds, out } => {
-                emit(&HIERARCHICAL_3D, seeds, None, &out)
-            }
-            Cli::OracleHierarchical3d { dir } => ingest(&HIERARCHICAL_3D, &dir),
-            Cli::EmitSpringFixtures {
-                seeds,
-                max_iter,
-                out,
-            } => emit(&SPRING, seeds, max_iter, &out),
-            Cli::OracleSpring { dir } => spring::ingest::ingest(&dir),
-            Cli::EmitCircularHierarchyFixtures { seeds, out } => {
-                emit(&CIRCULAR_HIERARCHY, seeds, None, &out)
-            }
-            Cli::OracleCircularHierarchy { dir } => ingest(&CIRCULAR_HIERARCHY, &dir),
-            Cli::EmitGraphvizFixtures { engine, seeds, out } => match by_engine(&engine) {
-                Some(differential) => emit(
-                    &differential,
-                    seeds,
-                    None,
-                    &out.unwrap_or(default_dir(&engine)),
-                ),
-                None => unknown(&engine),
-            },
-            Cli::OracleGraphviz { engine, dir } => match by_engine(&engine) {
-                Some(differential) => ingest(&differential, &dir.unwrap_or(default_dir(&engine))),
-                None => unknown(&engine),
-            },
-            Cli::EmitScaleFixtures { cases, out } => emit(&SCALE, cases, None, &out),
-            Cli::OracleScale { dir } => ingest(&SCALE, &dir),
-            Cli::EmitConformanceFixtures { out } => conformance::emit(&out),
-            Cli::ScigraphsConformance { dir } => conformance::judge(&dir),
-        }
-    }
-}
-
-/// An engine name the parser should already have refused. Exit 2, the code the other
-/// "could not run" arms use, so a mistyped engine is never read as a pass.
-fn unknown(engine: &str) -> ExitCode {
-    eprintln!("oracle-graphviz: no differential for engine {engine}");
-    ExitCode::from(2)
-}

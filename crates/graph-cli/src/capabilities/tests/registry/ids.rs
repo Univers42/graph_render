@@ -16,6 +16,16 @@ pub(crate) const IGRAPH: [&str; 6] = [
     "layout.force.drl",
 ];
 
+/// The 3D arms of the igraph family, which are held to `oracle-igraph3d` rather than to
+/// `oracle-igraph`: a different differential, whose fixtures carry 3D starts and whose
+/// reference calls pass `dim = 3`, so the comparison is a different measurement rather than
+/// the 2D one rerun.
+pub(crate) const IGRAPH_3D: [&str; 3] = [
+    "layout.force.fruchterman_reingold.3d",
+    "layout.force.kamada_kawai.3d",
+    "layout.force.drl.3d",
+];
+
 /// The three graph-free 3D placements `oracle-basic-3d` actually arms: one arm file, one
 /// record, because they take the same two arguments and read no graph
 /// (`harness/oracle-basic-3d.py` compares them together under its `--function` selector).

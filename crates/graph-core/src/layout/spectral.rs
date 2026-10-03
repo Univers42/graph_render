@@ -28,6 +28,9 @@ mod neighbors;
 use graph::ComponentGraph;
 pub(crate) use neighbors::{Neighbors, find_components, local_positions, simple_neighbors};
 
+mod z_axis;
+pub(crate) use z_axis::{center_z, last_axis};
+
 /// Output dimensionality. The reference solves 3D (`dims=3`); our `Point` geometry is
 /// 2D, so every place the reference passes `dims=3` this ports as `DIMS=2`.
 pub const DIMS: usize = 2;

@@ -100,6 +100,37 @@ impl Geometry {
         }
     }
 
+    /// The point geometry a force kernel's coordinates describe: [`Self::planar`] at
+    /// `dim` 2 and [`Self::in_space`] with the third column at `dim` 3.
+    ///
+    /// **The one place a dimension becomes a geometry.** Every force kernel ends by
+    /// building one of these, and none of them builds its own: a kernel that reached for
+    /// [`Self::in_space`] directly would have to re-decide the question on every call
+    /// site, and a kernel that reached for [`Self::planar`] would silently drop z — the
+    /// F1 failure `docs/decisions/contract-3d.md` names, where a 3D run answers as 2D.
+    /// `z` is read only at `dim` 3, so a 2D caller passing a zero-length column is fine.
+    pub fn points(dim: usize, x: Vec<f32>, y: Vec<f32>, z: Vec<f32>) -> Self {
+        let nodes = NodeGeometry::Point { x, y };
+        match dim {
+            3 => Self::in_space(nodes, EdgeGeometry::Line, Vec::new(), z),
+            _ => Self::planar(nodes, EdgeGeometry::Line, Vec::new()),
+        }
+    }
+
+    /// The largest distance between two nodes along either in-plane axis: the drawing's
+    /// own size, as a caller that has no `scale` parameter can measure it.
+    ///
+    /// For [`NodeGeometry::Point`] that is the larger of the x and y ranges. Other kinds
+    /// carry sizes rather than centres in their second column, so this returns `0.0`
+    /// rather than reading a height as a y coordinate — a caller using this as a scale
+    /// wants a number it can trust is a position span.
+    pub fn extent(&self) -> f32 {
+        let NodeGeometry::Point { x, y } = &self.nodes else {
+            return 0.0;
+        };
+        span(x).max(span(y))
+    }
+
     /// `self` with its edge geometry replaced by `edges`, and its nodes, notes and z
     /// column carried through untouched. The one way a post pass rebuilds a geometry, so
     /// a pass cannot drop the z column by forgetting it: there is nowhere else to build
@@ -111,6 +142,24 @@ impl Geometry {
             notes: self.notes.clone(),
             z: self.z.clone(),
         }
+    }
+}
+
+/// `max - min` over a column, or `0.0` when it is empty or not finite. Two passes so the
+/// answer does not depend on the column's order.
+fn span(column: &[f32]) -> f32 {
+    let mut lo = f32::INFINITY;
+    let mut hi = f32::NEG_INFINITY;
+    for &v in column {
+        if v.is_finite() {
+            lo = lo.min(v);
+            hi = hi.max(v);
+        }
+    }
+    if lo.is_finite() && hi.is_finite() {
+        hi - lo
+    } else {
+        0.0
     }
 }
 
