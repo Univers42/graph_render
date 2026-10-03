@@ -86,6 +86,39 @@ function columnOrder(text, nodeTag, dim) {
 }
 
 /**
+ * The bytes the contract's pinned-example table prints, laid out at the offsets it prints
+ * them at. Every way that table can be wrong is refused: a row whose `len` disagrees with
+ * its byte column, two rows claiming one offset, a gap, or no row at offset 0.
+ *
+ * @param text the whole contract; the pinned table is found inside it.
+ */
+function pinnedBytes(text) {
+  const start = text.indexOf("## The pinned 84-byte example");
+  if (start < 0) throw new Error(`${CONTRACT}: no '## The pinned 84-byte example' section`);
+  // The first table only: the section's second table (the Curve tail) numbers its offsets
+  // "from 80" and is about a different snapshot.
+  const at = start + text.slice(start).indexOf("| offset |");
+  const table = text.slice(at, text.indexOf("\n\n", at));
+  const rows = [];
+  for (const line of table.split("\n")) {
+    const cells = line.split("|").slice(1, -1).map((cell) => cell.trim().replace(/^`|`$/g, ""));
+    if (cells.length < 4 || !/^\d+$/.test(cells[0]) || !/^[0-9A-F]{2}( [0-9A-F]{2})*$/.test(cells[1])) continue;
+    const listed = cells[1].split(" ").map((b) => Number.parseInt(b, 16));
+    if (String(listed.length) !== cells[2]) throw new Error(`the byte table lists ${cells[2]} bytes for ${cells[3]} but shows ${listed.length}`);
+    const offset = Number(cells[0]);
+    for (const [i, byte] of listed.entries()) {
+      if (rows[offset + i] !== undefined && rows[offset + i] !== byte) throw new Error(`the byte table states two different bytes at offset ${offset + i}`);
+      rows[offset + i] = byte;
+    }
+  }
+  if (rows[0] === undefined) throw new Error("the pinned example has no row at offset 0");
+  for (const [offset, byte] of rows.entries()) {
+    if (byte === undefined) throw new Error(`the pinned example has a gap at byte ${offset}`);
+  }
+  return Buffer.from(rows);
+}
+
+/**
  * Checks the contract's own pinned bytes against the rules the same document states, and
  * returns what it decoded, for the gate record. Throws on the first inconsistency.
  *
@@ -93,29 +126,7 @@ function columnOrder(text, nodeTag, dim) {
  */
 export function checkBinaryContract(root) {
   const text = readFileSync(join(root, CONTRACT), "utf8");
-  const start = text.indexOf("## The pinned 84-byte example");
-  if (start < 0) throw new Error(`${CONTRACT}: no '## The pinned 84-byte example' section`);
-  // The first table only: the section's second table (the Curve tail) numbers its offsets
-  // "from 80" and is about a different snapshot.
-  const section = text.slice(start);
-  const firstTable = section.slice(section.indexOf("| offset |"), section.indexOf("\n\n", section.indexOf("| offset |")));
-  const rows = [];
-  for (const line of firstTable.split("\n")) {
-    const cells = line.split("|").slice(1, -1).map((cell) => cell.trim().replace(/^`|`$/g, ""));
-    if (cells.length < 4 || !/^\d+$/.test(cells[0]) || !/^[0-9A-F]{2}( [0-9A-F]{2})*$/.test(cells[1])) continue;
-    const listed = cells[1].split(" ").map((b) => Number.parseInt(b, 16));
-    if (String(listed.length) !== cells[2]) throw new Error(`the byte table lists ${cells[2]} bytes for ${cells[3]} but shows ${listed.length}`);
-    const at = Number(cells[0]);
-    for (const [i, byte] of listed.entries()) {
-      if (rows[at + i] !== undefined && rows[at + i] !== byte) throw new Error(`the byte table states two different bytes at offset ${at + i}`);
-      rows[at + i] = byte;
-    }
-  }
-  if (rows[0] === undefined) throw new Error("the pinned example has no row at offset 0");
-  for (const [at, byte] of rows.entries()) {
-    if (byte === undefined) throw new Error(`the pinned example has a gap at byte ${at}`);
-  }
-  const bytes = Buffer.from(rows);
+  const bytes = pinnedBytes(text);
   const header = decodeHeader(bytes);
   const nodes = decodeTable(bytes, 28, header.nodes, "node.id table");
   const edges = decodeTable(bytes, nodes.next, header.edges, "edge.id table");

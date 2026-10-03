@@ -20,7 +20,7 @@ import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "n
 import { createHash } from "node:crypto";
 import { join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
-import { attest, sealPathFor } from "./oracle-attest.mjs";
+import { attest, refuseChangedBytes, sealPathFor } from "./oracle-attest.mjs";
 import { evaluator } from "./oracle-diff-eval.mjs";
 import { checkBinaryContract } from "./oracle-wire-bytes.mjs";
 import { checkTranscription, groupModel, h9Explains, widenedGroups } from "./oracle-h9.mjs";
@@ -107,10 +107,13 @@ function loadFixtures() {
   const expect = lines("expect.jsonl");
   if (cases.length !== expect.length) fail(`${cases.length} cases but ${expect.length} expected lines`);
   const pairs = JSON.parse(read(join(ROOT, manifest.adversarial.path))).pairs;
-  // The two files' own bytes, so the seal below attests what was measured and not only
-  // what the manifest says about it.
+  // The two files' own bytes, so the seal attests what was measured and not only what the
+  // manifest says about it. Refused here, before the run, because the manifest's digests
+  // are written by whoever wrote the fixtures: a hand-edited line plus a re-sealed digest
+  // passes every guard above, and this is what catches it.
   const digest = sha256(`${sha256(read(join(FIXTURES, "cases.jsonl")))}\0${sha256(read(join(FIXTURES, "expect.jsonl")))}`);
-  return { manifest, cases, expect, pairs, digest };
+  const seal = refuseChangedBytes({ sealPath: sealPathFor(GATES, "oracle-diff"), gate: "oracle-diff fixtures", fingerprint: manifest.fingerprint, sha256: digest });
+  return { manifest, cases, expect, pairs, digest, seal };
 }
 
 const utf8First = (s, t) => Buffer.compare(Buffer.from(s), Buffer.from(t)) <= 0;
@@ -202,26 +205,19 @@ function printReport({ manifest, cases }, result, problems) {
   }
   console.log(`  H1 pairs observed diverging: ${result.h1Pairs.size} · H9 cases crossing 255 groups: ${result.h9Crossed}`);
   for (const m of result.mismatches.slice(0, 10)) {
-    console.log(`  MISMATCH line ${m.line} seed ${m.seed} ${m.fn} ${clip(JSON.stringify(m.args))}\n    oracle ${clip(m.oracle)}\n    core   ${clip(m.core)}`);
+    console.log(`  MISMATCH line ${m.line} seed ${m.seed} ${m.fn} ${m.args}\n    oracle ${m.oracle}\n    core   ${m.core}`);
   }
   for (const p of problems) console.log(`  PROBLEM ${p}`);
 }
 
 /**
- * Records the verdict, unless the tree moved while the run was reading it. The fixture
- * bytes are sealed beside the record: the manifest's own digests are written by whoever
- * wrote the fixtures, so a hand-edited line plus a re-sealed digest passes every guard in
- * `loadFixtures`. The seal is what catches that, from the first passing run onward.
+ * Records the verdict, unless the tree moved while the run was reading it, and seals the
+ * fixture bytes beside it: `loadFixtures` already refused a changed input under an
+ * unchanged tree, so by the time this runs the seal is recording, not judging.
  */
 function writeRecord({ manifest, digest }, result, pass) {
   if (fingerprint(manifest.fingerprinted) !== manifest.fingerprint) fail("the tree changed during the run: not recorded");
-  const seal = attest({
-    sealPath: sealPathFor(GATES, "oracle-diff"),
-    gate: "oracle-diff fixtures",
-    fingerprint: manifest.fingerprint,
-    sha256: digest,
-    pass,
-  });
+  const seal = attest({ sealPath: sealPathFor(GATES, "oracle-diff"), gate: "oracle-diff fixtures", fingerprint: manifest.fingerprint, sha256: digest, pass });
   const record = {
     gate: "oracle-diff",
     fingerprint: manifest.fingerprint,
