@@ -70,13 +70,13 @@ pub use hierarchy::HIERARCHY_LAYOUT_CEILING;
 use hierarchy::{CIRCULAR, CIRCULAR_HIERARCHY, TIDY_TREE, TREEMAP};
 pub use radial::RADIAL_CEILING;
 use radial::TWOPI;
-use spectral::{PIVOT_MDS, SPECTRAL};
+use spectral::{PIVOT_MDS, PIVOT_MDS_3D, SPECTRAL, SPECTRAL_3D};
 pub use spectral::{PIVOT_MDS_CEILING, SPECTRAL_CEILING};
 pub use three_d::BASIC_3D_CEILING;
 use three_d::{BIPARTITE_3D, CUBE, HELIX, HIERARCHICAL_3D, SPHERE, SPIRAL_3D, SPRING_3D};
 
 /// Every registered layout, in the order the hash gate runs them.
-pub static LAYOUTS: [Capability; 39] = [
+pub static LAYOUTS: [Capability; 41] = [
     Capability {
         id: Grid::ID,
         run: run_default::<Grid>,
@@ -111,6 +111,21 @@ pub static LAYOUTS: [Capability; 39] = [
         id: "layout.mds.pivot",
         run: spectral_stage::pivot_mds,
         meta: PIVOT_MDS,
+    },
+    // The 3D arms of the two ids above. Separate ids rather than a `dims` parameter,
+    // because the reference's own entries are separate (`_spectral_layout_3d`,
+    // `_mds_layout_3d`) and a `layout.spectral` that drew a volume would break the bytes
+    // its own conformance row and the dagre-free differential in `harness/oracle-spectral.py`
+    // are pinned on.
+    Capability {
+        id: "layout.spectral3d",
+        run: spectral_stage::spectral_3d,
+        meta: SPECTRAL_3D,
+    },
+    Capability {
+        id: "layout.mds.pivot3d",
+        run: spectral_stage::pivot_mds_3d,
+        meta: PIVOT_MDS_3D,
     },
     Capability {
         id: BarnesHut::ID,

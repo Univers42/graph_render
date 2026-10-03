@@ -13,7 +13,7 @@ use super::width::Width;
 use super::{COMPONENT_SPACING, DIMS_3D};
 
 /// The exponent the reference's cube root is written with (`** (1.0 / 3.0)`, `:226` and
-/// `:232`). `libm::powf` and not `cbrt`, because `pow(x, 1/3)` is what the reference's `**`
+/// `:232`). `libm::pow` and not `cbrt`, because `pow(x, 1/3)` is what the reference's `**`
 /// evaluates to and the two differ in the last bit for the perfect-cube component counts a
 /// lattice size is most often derived from.
 const THIRD: f64 = 1.0 / 3.0;
@@ -55,12 +55,16 @@ pub(crate) fn pack_components(coords: &mut [f64], components: &[Vec<u32>], width
     let original = coords.to_vec();
     for (slot, &c) in component_order(components).iter().enumerate() {
         let scale = (components[c].len() as f64 / biggest).sqrt();
-        let cell = [f64::from((slot % side) as u32), f64::from((slot / side) as u32)];
+        let cell = [
+            f64::from((slot % side) as u32),
+            f64::from((slot / side) as u32),
+        ];
         let dims = width.dims();
         for &g in &components[c] {
             let base = g as usize * dims;
             for d in 0..dims {
-                coords[base + d] = original[base + d] * scale + cell[d] * COMPONENT_SPACING - offset;
+                coords[base + d] =
+                    original[base + d] * scale + cell[d] * COMPONENT_SPACING - offset;
             }
         }
     }
@@ -76,12 +80,12 @@ pub(crate) fn pack_component_blocks_3d(coords: &mut [f64], components: &[Vec<u32
         return;
     }
     let biggest = components.iter().map(Vec::len).max().unwrap_or(1) as f64;
-    let side = libm::powf(components.len() as f64, THIRD).ceil().max(1.0) as usize;
+    let side = libm::pow(components.len() as f64, THIRD).ceil().max(1.0) as usize;
     let offset = offset(side);
     let square = side * side;
     let original = coords.to_vec();
     for (slot, &c) in component_order(components).iter().enumerate() {
-        let scale = libm::powf(components[c].len() as f64 / biggest, THIRD);
+        let scale = libm::pow(components[c].len() as f64 / biggest, THIRD);
         let cell = [
             (slot % side) as f64,
             ((slot / side) % side) as f64,
@@ -90,7 +94,8 @@ pub(crate) fn pack_component_blocks_3d(coords: &mut [f64], components: &[Vec<u32
         for &g in &components[c] {
             let base = g as usize * DIMS_3D;
             for d in 0..DIMS_3D {
-                coords[base + d] = original[base + d] * scale + cell[d] * COMPONENT_SPACING - offset;
+                coords[base + d] =
+                    original[base + d] * scale + cell[d] * COMPONENT_SPACING - offset;
             }
         }
     }

@@ -28,10 +28,10 @@
 //! and that is [`run_3d`]'s own explicit branch.
 
 use crate::index::Topology;
+use crate::layout::random;
 use crate::linalg::dense_sym::eigh;
 use crate::linalg::lobpcg::lobpcg_smallest;
 use crate::linalg::{EigBlock, orthonormal, pin_signs, residual_converged};
-use crate::layout::random;
 use graph_contract::geometry::{EdgeGeometry, NodeGeometry};
 
 use super::Geometry;
@@ -130,10 +130,7 @@ fn sub_block(eig: &EigBlock, start: usize, k: usize) -> EigBlock {
 ///
 /// `width.dims()` is the reference's `dims` for the LOBPCG block (`k = min(dims + 2, n - 1)`,
 /// `:102`), and `dims_eff = min(dims, n_c - 1)` is its `:92`.
-fn solve_component(
-    graph: &ComponentGraph,
-    width: Width,
-) -> (Option<EigBlock>, Tier, Option<u32>) {
+fn solve_component(graph: &ComponentGraph, width: Width) -> (Option<EigBlock>, Tier, Option<u32>) {
     let dims = width.dims();
     let dims_eff = dims.min(graph.size() - 1);
     if graph.size() <= DENSE_EIG_LIMIT {

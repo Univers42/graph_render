@@ -5,7 +5,7 @@ use serde_json::{Value, json};
 /// Every hashgate stage's key, in `hashgate::STAGES` order, so this fixture's `equal`
 /// maps can be built at the same shape a real record has, without importing the
 /// hashgate module just for the constant.
-const STAGES: [&str; 18] = [
+const STAGES: [&str; 20] = [
     "topology",
     "layout.grid",
     "layout.tree.tidy",
@@ -15,6 +15,8 @@ const STAGES: [&str; 18] = [
     "layout.packing.osage",
     "layout.spectral",
     "layout.mds.pivot",
+    "layout.spectral3d",
+    "layout.mds.pivot3d",
     "layout.force.barnes_hut",
     "layout.forceatlas2",
     "layout.dag.sugiyama",

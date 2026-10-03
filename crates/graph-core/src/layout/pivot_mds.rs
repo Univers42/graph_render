@@ -19,15 +19,15 @@
 //! solved (`nothing_solved`, shared with `spectral`).
 
 use crate::index::Topology;
+use crate::layout::random;
 use crate::linalg::dense_sym::eigh;
 use crate::linalg::{EigBlock, orthonormal, pin_signs, residual_converged};
-use crate::layout::random;
 
 use super::Geometry;
 use super::spectral::{
-    MIN_NODES_3D, SCALE, Width, find_components, local_positions, nothing_solved,
-    pack_component_blocks_3d, pack_components, scatter, simple_neighbors, to_geometry,
-    Neighbors,
+    MIN_NODES_3D, Neighbors, SCALE, Width, find_components, local_positions, nothing_solved,
+    pack_component_blocks_3d, pack_components, rescale_to_scale, scatter, simple_neighbors,
+    to_geometry,
 };
 
 mod matrix;
@@ -56,6 +56,10 @@ pub enum MdsError {
     /// No component's solve passed the gate (C12: an explicit refusal, never a silent
     /// random fallback).
     NothingSolved,
+    /// `_random_layout` refused, which it does not do. Named rather than folded into
+    /// [`MdsError::NothingSolved`] so the `n < 4` branch cannot be mistaken for a failed
+    /// eigensolve — see [`run_3d`].
+    RandomRefused,
 }
 
 /// Hop counts from `start` to every node of its component, into `hops`, which holds
@@ -148,28 +152,52 @@ fn converged(gram: &[f64], k: usize, eig: &EigBlock) -> bool {
 
 /// One component's solve: always dense (`k <= 100 < DENSE_EIG_LIMIT`). Returns the
 /// projected, sign-pinnable coordinates (or `None` when the gate refuses them) and the
-/// pivot count used.
-fn solve_component(graph: &Neighbors) -> (Option<EigBlock>, u32) {
+/// pivot count used. `width.dims()` is the reference's `dims`; `dims_eff = min(dims, k)` is
+/// its `[:, ::-1][:, :min(dims, k)]` (`:197`).
+fn solve_component(graph: &Neighbors, width: Width) -> (Option<EigBlock>, u32) {
     let n = graph.len();
     let k = MAX_PIVOTS.min(n);
     let centered = Centered::new(pivot_hops(graph, k), n, k);
     let g = gram(&centered);
     let full = eigh(&g, k);
-    let dims_eff = DIMS.min(k);
+    let dims_eff = width.dims().min(k);
     let top = top_eigenpairs(&full, dims_eff);
     let ok = converged(&g, k, &top);
     let projected = project(&centered, &top);
     (ok.then_some(projected), k as u32)
 }
 
-/// Runs the Pivot MDS layout. `Ok` even when some components were skipped — see
-/// [`MdsError::NothingSolved`] for the only failure this returns.
+/// Runs the 2D Pivot MDS layout, byte for byte what it was before the 3D arm existed.
+/// `Ok` even when some components were skipped — see [`MdsError::NothingSolved`] for the
+/// only failure this returns.
 pub fn run(topology: &Topology) -> Result<(Geometry, Vec<ComponentReport>), MdsError> {
+    run_width(topology, Width::PivotMds2d)
+}
+
+/// `_mds_layout_3d` (`networkx_layouts.py:271-291`) at `SCALE`: the reference's three
+/// coordinates, its cubic component lattice and its `_rescale_positions`. Below
+/// [`MIN_NODES_3D`] it is `_random_layout` (`:283-284`), seeded by `seed`.
+pub fn run_3d(
+    topology: &Topology,
+    seed: u32,
+) -> Result<(Geometry, Vec<ComponentReport>), MdsError> {
+    if topology.node_count() < MIN_NODES_3D {
+        let geometry = random::run_seeded(topology, seed).map_err(|_| MdsError::RandomRefused)?;
+        return Ok((geometry, Vec::new()));
+    }
+    run_width(topology, Width::PivotMds3d)
+}
+
+/// Both arms' pipeline, `layout::spectral`'s shape with Pivot MDS's own per-component solve.
+fn run_width(
+    topology: &Topology,
+    width: Width,
+) -> Result<(Geometry, Vec<ComponentReport>), MdsError> {
     let n = topology.node_count() as usize;
     let neighbors = simple_neighbors(topology);
     let components = find_components(&neighbors);
     let local_of = local_positions(&components, n);
-    let mut coords = vec![0.0_f64; n * DIMS];
+    let mut coords = vec![0.0_f64; n * width.dims()];
     let mut reports = Vec::new();
     let mut any_solved = false;
 
@@ -177,11 +205,12 @@ pub fn run(topology: &Topology) -> Result<(Geometry, Vec<ComponentReport>), MdsE
         if members.len() < 2 {
             continue;
         }
-        let (solved, pivots) = solve_component(&neighbors.component(members, &local_of));
+        let component = neighbors.component(members, &local_of);
+        let (solved, pivots) = solve_component(&component, width);
         let ok = solved.is_some();
         if let Some(mut eig) = solved {
             pin_signs(&mut eig);
-            scatter(&mut coords, members, &eig);
+            scatter(&mut coords, members, &eig, width);
             any_solved = true;
         }
         reports.push(ComponentReport {
@@ -195,8 +224,13 @@ pub fn run(topology: &Topology) -> Result<(Geometry, Vec<ComponentReport>), MdsE
     if nothing_solved(&components, any_solved) {
         return Err(MdsError::NothingSolved);
     }
-    pack_components(&mut coords, &components);
-    Ok((to_geometry(&coords, n), reports))
+    if width.in_space() {
+        pack_component_blocks_3d(&mut coords, &components);
+        rescale_to_scale(&mut coords, width.dims(), SCALE);
+    } else {
+        pack_components(&mut coords, &components, width);
+    }
+    Ok((to_geometry(&coords, n, width), reports))
 }
 
 #[cfg(test)]

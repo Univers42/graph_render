@@ -99,8 +99,13 @@ pub const ROWS: [Row; 32] = [
         gaps: &[G_BASIC3D_SCALE],
     },
     Row {
+        // **Not `layout.spectral`.** That id is this reference's *own* kernel at `dims = 2`,
+        // which is what the 2D differential (`harness/oracle-spectral.py`) pins. SciGraphs'
+        // `SPECTRAL_3D` is `_spectral_layout_3d` (`networkx_layouts.py:249-269`): three
+        // coordinates, the cubic component lattice and `_rescale_positions`. Running the 2D
+        // id here drew a plane against a volume — grey a line, green a cluster.
         name: "SPECTRAL_3D",
-        motor: Some("layout.spectral"),
+        motor: Some("layout.spectral3d"),
         reference: Reference::Scigraphs,
         gaps: &[G_NO_ITERATIONS, G_SNAPSHOT_SCALE],
     },
@@ -155,8 +160,11 @@ pub const ROWS: [Row; 32] = [
         gaps: &[G_IGRAPH_SEED, G_SNAPSHOT_SCALE],
     },
     Row {
+        // **Not `layout.mds.pivot`**, for the same reason as `SPECTRAL_3D`: SciGraphs'
+        // `MDS_3D` is `_mds_layout_3d` (`:271-291`), the three-coordinate entry, and the 2D id
+        // is the one `harness/oracle-spectral.py` pins.
         name: "MDS_3D",
-        motor: Some("layout.mds.pivot"),
+        motor: Some("layout.mds.pivot3d"),
         reference: Reference::Scigraphs,
         gaps: &[G_NO_ITERATIONS, G_SNAPSHOT_SCALE],
     },
