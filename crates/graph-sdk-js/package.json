@@ -7,7 +7,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./adapters/rows": "./src/adapters/rows.ts",
-    "./adapters/notion": "./src/adapters/notion.ts"
+    "./adapters/notion": "./src/adapters/notion.ts",
+    "./remote": "./src/remote.ts"
   },
   "files": [
     "src",
@@ -15,7 +16,7 @@
     "EXAMPLES.md"
   ],
   "//devDependencies": "No devDependencies of its own: it type-checks against the repo root's installed `typescript` (`npm ci` at the repo root), via `tsc -p crates/graph-sdk-js/tsconfig.json --noEmit`. Adding a second, separately-versioned `typescript` here would risk two compilers disagreeing about the same generated .d.ts.",
-  "//peerDependencies": "The adapters are the only thing here that needs a runtime, and it is one already in every supported engine: `JSON.parse`/`JSON.stringify` and `TextEncoder`. There is no wasm loader dependency, no schema validator and no `fetch` — the ingest contract's reader, its canonical writer and its JSON Schema all live in the Rust side, and `graph-cli ingest` runs them. A consumer that wants to validate a document in JavaScript before sending it should read `docs/contract/ingest-schema.json` with whatever validator they already have; adding one here would be a dependency this package does not otherwise need.",
+  "//peerDependencies": "The adapters are the only thing here that needs a runtime, and it is one already in every supported engine: `JSON.parse`/`JSON.stringify` and `TextEncoder`. There is no wasm loader dependency, no schema validator, and no `fetch` outside `./remote`, which calls the platform's own (or the one a caller passes) — the ingest contract's reader, its canonical writer and its JSON Schema all live in the Rust side, and `graph-cli ingest` runs them. A consumer that wants to validate a document in JavaScript before sending it should read `docs/contract/ingest-schema.json` with whatever validator they already have; adding one here would be a dependency this package does not otherwise need.",
   "engines": {
     "node": ">=22.6"
   }
