@@ -1,0 +1,25 @@
+snapshot: seed 66, layout.dag.sugiyama, 68 nodes, 99 edges, Point/Polyline, format 0.3
+  json   scratch/dagrt/s66.fixed.json (6964 bytes)
+SNAPSHOT_EXIT=0
+same nodes
+same edges
+same version
+same notes
+same node x
+same node y
+MOVED edge pts
+edges identical: 87, moved: 12
+  edge 44 (33 -> 1): 0 -> 1 dummies over 2 layers ok
+  edge 46 (34 -> 2): 0 -> 3 dummies over 4 layers ok
+  edge 56 (42 -> 3): 0 -> 1 dummies over 2 layers ok
+  edge 65 (48 -> 3): 0 -> 1 dummies over 2 layers ok
+  edge 68 (50 -> 9): 0 -> 1 dummies over 2 layers ok
+  edge 71 (52 -> 0): 0 -> 4 dummies over 5 layers ok
+  edge 79 (56 -> 0): 0 -> 3 dummies over 4 layers ok
+  edge 87 (63 -> 2): 0 -> 2 dummies over 3 layers ok
+  edge 90 (64 -> 1): 0 -> 2 dummies over 3 layers ok
+  edge 91 (65 -> 2): 0 -> 1 dummies over 2 layers ok
+  edge 94 (67 -> 9): 0 -> 3 dummies over 4 layers ok
+  edge 97 (32 -> 0): 0 -> 2 dummies over 3 layers ok
+DIFF_EXIT=0
+### workspace floor
