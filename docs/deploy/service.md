@@ -148,6 +148,11 @@ with the local wasm build, and the typed 401 and 400. Its negative control,
 `SERVICE_IMAGE_BREAK=key`, hands it a well-formed key that the key file does not hold. On a tree
 without `live-check.mjs` the row exits 2, "could not run".
 
+A control passes only on exit 1 together with its own failure in the report: the embed header
+rows and `isolated-isolation` for `headers`, `svc-no-leak` and the planted paths in `leaks.txt`
+for `leak`, and `FAIL meta` next to a passing wrong-key check for `key`. Each also needs the
+service itself up. An exit of 2, or a red row for some other reason, turns the control red.
+
 ## What it does not do
 
 - **No TLS.** The host's proxy terminates TLS.
