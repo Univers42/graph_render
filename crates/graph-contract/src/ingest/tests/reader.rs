@@ -72,14 +72,43 @@ fn the_minimal_document_reads_to_exactly_these_collections_and_records() {
 }
 
 #[test]
-fn a_field_without_the_link_member_reads_with_link_none() {
-    let doc = minimal();
-    assert!(
-        doc.collections[0]
-            .field("name")
-            .expect("declared")
-            .link
-            .is_none()
+fn a_field_without_the_link_member_is_refused_naming_it() {
+    // `link` is required on every field, as every member is: a present `null` is how a
+    // non-`link` field says it has no target. The schema says so too
+    // (`docs/contract/ingest-schema.json` requires `link`, and `required_link` in
+    // `ingest/schema.rs` puts it there deliberately), so a reader that accepted a
+    // missing one would read a document its own schema refuses.
+    assert_eq!(
+        err(&MINIMAL.replace(
+            r#"{ "id": "name", "name": "Name", "role": "title", "link": null }"#,
+            r#"{ "id": "name", "name": "Name", "role": "title" }"#
+        )),
+        "collections[0].fields[0]: missing member `link`"
+    );
+}
+
+#[test]
+fn an_integer_past_the_exact_range_is_refused_rather_than_rounded() {
+    // D9 at the reader: an `f64` holds every integer up to 9007199254740992 exactly and
+    // rounds every other one to a neighbour, so reading `9007199254740993` as a number
+    // would rewrite the document's own bytes — `9007199254740992` — with nothing said.
+    let with_effort = |n: &str| MINIMAL.replace(r#""effort": 2"#, &format!(r#""effort": {n}"#));
+    let path = "records[0].values.effort: an integer past 9007199254740992 cannot be read exactly";
+    assert_eq!(err(&with_effort("9007199254740993")), path);
+    assert_eq!(err(&with_effort("-9007199254740993")), path);
+    // 2^53 itself is exact, so it reads as itself.
+    assert_eq!(
+        read(&with_effort("9007199254740992"))
+            .expect("2^53 is exact")
+            .records[0]
+            .value("effort"),
+        Some(&JsonValue::Number(9007199254740992.0))
+    );
+    // A large *float* is a different fault from a large integer — it says so in its own
+    // text (`1e30` has an exponent) — and it is read, not refused.
+    assert_eq!(
+        read(&with_effort("1e30")).expect("a float reads").records[0].value("effort"),
+        Some(&JsonValue::Number(1e30))
     );
 }
 
@@ -161,12 +190,15 @@ fn the_reader_refuses_every_fault_with_its_own_message() {
         err(&MINIMAL.replace(r#""cardinality": "many""#, r#""cardinality": "some""#)),
         "collections[0].fields[5].link.cardinality: unknown cardinality \"some\""
     );
-    // A `link` role with no link member at all.
+    // A `link` role with no target. The member is *present* and `null`: omitting it is a
+    // different fault, refused earlier as a missing member (the test above), because a
+    // `link` role that has to say nothing at all is a different mistake from one that
+    // says `null`.
     assert_eq!(
         err(&MINIMAL.replace(
             r#"{ "id": "blocks", "name": "Blocks", "role": "link",
           "link": { "collection": "task", "cardinality": "many", "symmetric": false } }"#,
-            r#"{ "id": "blocks", "name": "Blocks", "role": "link" }"#
+            r#"{ "id": "blocks", "name": "Blocks", "role": "link", "link": null }"#
         )),
         "collections[0].fields[5]: a `link` field must declare its `link` member"
     );
@@ -227,4 +259,44 @@ fn the_reader_refuses_every_fault_with_its_own_message() {
         read("{").unwrap_err().to_string(),
         "not JSON at byte 1: expected a key"
     );
+}
+
+// --------------------------------------------------- the committed documents
+
+/// The three committed fixtures of `fixtures/ingest`, compiled in: a missing or renamed
+/// one is a build failure rather than a test that quietly checks nothing.
+const EXPECTED_GRAPH: &str = include_str!("../../../../../fixtures/ingest/expected-graph.json");
+const ROWS: &str = include_str!("../../../../../fixtures/ingest/rows.json");
+const NOTION: &str = include_str!("../../../../../fixtures/ingest/notion.json");
+
+/// The gate every refusal above has to clear. `expected-graph.json`'s `ingest` member is
+/// the document `graph-core`'s convergence test, `graph-wasm`'s contract test and
+/// `graph-cli ingest` all hand this reader, so a refusal here is a committed document the
+/// motor can no longer accept — a failure, not a fixture to loosen. `rows.json` and
+/// `notion.json` are the source shapes the TypeScript adapters map (`tables`/`columns`,
+/// `databases`/`properties`); they are *not* ingest documents, and a reader that began
+/// accepting them would change what the contract means.
+#[test]
+fn every_committed_ingest_fixture_still_reads() {
+    let doc = read(&ingest_member(EXPECTED_GRAPH)).expect("the committed document reads");
+    let counts = (doc.source.as_str(), doc.collections.len(), doc.records.len());
+    assert_eq!(counts, ("lib", 2, 6));
+    for (name, text) in [("rows.json", ROWS), ("notion.json", NOTION)] {
+        assert_eq!(
+            read(text).unwrap_err().to_string(),
+            "the document: unknown member `_comment`",
+            "{name} is a source shape, not an ingest document"
+        );
+    }
+}
+
+/// The named member of a two-member fixture, back as wire text: `graph-core` and
+/// `graph-wasm` do the same round trip through `read_value`/`to_json_value`.
+fn ingest_member(text: &str) -> String {
+    let value = read_value(text).expect("the fixture is JSON");
+    let JsonValue::Map(members) = value else {
+        panic!("the fixture's root is not an object");
+    };
+    let member = members.iter().find(|(key, _)| key == "ingest");
+    to_json_value(member.map(|(_, v)| v).expect("no `ingest` member"))
 }

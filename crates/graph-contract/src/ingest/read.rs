@@ -11,19 +11,16 @@ impl IngestError {
     }
 }
 
-/// Reads one ingest document, or the refusal.
-///
-/// Strict throughout: every member named and required, an unknown member refused, no
-/// member given a default that changes what a graph looks like. Parsing is one pass
-/// ([`document`]); everything that needs the whole document to decide — duplicate ids,
-/// dangling references, the id grammar — is [`super::validate`]'s, run once after.
+/// Reads one ingest document, or the refusal. Strict throughout: every member named and
+/// required, an unknown member refused, no member given a default that changes what a graph
+/// looks like. Parsing is one pass ([`document`]); everything needing the whole document —
+/// duplicate ids, dangling references, the id grammar — is [`super::validate`]'s, run after.
 pub fn read(text: &str) -> Result<Ingest, IngestError> {
     super::validate::check(document(text)?)
 }
 
-/// The parse, with no cross-document check: the strict reader and the canonical writer
-/// are two directions of one format, and `write_then_read_gives_back_the_same_document`
-/// in the tests is what holds them to that.
+/// The parse, with no cross-document check: the reader and the canonical writer are two
+/// directions of one format, held to that by `write_then_read_gives_back_the_same_document`.
 fn document(text: &str) -> Result<Ingest, IngestError> {
     canonical_json::parse(text)
         .map_err(IngestError::from_json)
@@ -34,20 +31,16 @@ fn document(text: &str) -> Result<Ingest, IngestError> {
             if version != super::VERSION {
                 return Err(shape("version", format!("unsupported version {version}")));
             }
-            let mut collections = Vec::new();
-            for (i, value) in array(member(members, "collections", "")?, "collections")?
+            let collections = array(member(members, "collections", "")?, "collections")?
                 .iter()
                 .enumerate()
-            {
-                collections.push(collection(value, &format!("collections[{i}]"))?);
-            }
-            let mut records = Vec::new();
-            for (i, value) in array(member(members, "records", "")?, "records")?
+                .map(|(i, v)| collection(v, &format!("collections[{i}]")))
+                .collect::<Result<Vec<_>, _>>()?;
+            let records = array(member(members, "records", "")?, "records")?
                 .iter()
                 .enumerate()
-            {
-                records.push(record(value, &format!("records[{i}]"))?);
-            }
+                .map(|(i, v)| record(v, &format!("records[{i}]")))
+                .collect::<Result<Vec<_>, _>>()?;
             Ok(Ingest {
                 version,
                 source: text_of(member(members, "source", "")?, "")?.to_string(),
@@ -57,8 +50,8 @@ fn document(text: &str) -> Result<Ingest, IngestError> {
         })
 }
 
-/// The members a document names, exactly. Module-level rather than a `let` inside
-/// `document` (house limit: four parameters, and the array was most of the rest).
+/// The members each object names, exactly. Module-level rather than a `let` inside the
+/// function that reads them (house limit: four parameters).
 const DOCUMENT_MEMBERS: [&str; 4] = ["version", "source", "collections", "records"];
 const COLLECTION_MEMBERS: [&str; 4] = ["id", "name", "titleField", "fields"];
 const FIELD_MEMBERS: [&str; 4] = ["id", "name", "role", "link"];
@@ -68,16 +61,14 @@ const RECORD_MEMBERS: [&str; 5] = ["id", "collection", "deleted", "updatedAt", "
 fn collection(value: &Value, path: &str) -> Result<Collection, IngestError> {
     let members = object(value, path)?;
     require_only(members, &COLLECTION_MEMBERS, path)?;
-    let mut fields = Vec::new();
-    for (i, value) in array(member(members, "fields", path)?, &format!("{path}.fields"))?
+    let fields_path = format!("{path}.fields");
+    let fields = array(member(members, "fields", path)?, &fields_path)?
         .iter()
         .enumerate()
-    {
-        fields.push(field(value, &format!("{path}.fields[{i}]"))?);
-    }
+        .map(|(i, v)| field(v, &format!("{fields_path}[{i}]")))
+        .collect::<Result<Vec<_>, _>>()?;
     // Not sorted here: the per-collection checks in `validate` report the *document's*
-    // index, which is what a reader with the file open is looking at, and the canonical
-    // sort happens after them.
+    // index, which is what a reader with the file open is looking at; the sort follows.
     Ok(Collection {
         id: text_of(member(members, "id", path)?, &format!("{path}.id"))?.to_string(),
         name: text_of(member(members, "name", path)?, &format!("{path}.name"))?.to_string(),
@@ -97,16 +88,16 @@ fn field(value: &Value, path: &str) -> Result<Field, IngestError> {
     let role_name = text_of(member(members, "role", path)?, &role_path)?;
     let role = Role::from_name(role_name)
         .ok_or_else(|| shape(&role_path, format!("unknown role {role_name:?}")))?;
-    // `link` is looked up optionally rather than required, so a `link` field with no
-    // `link` member gets the refusal that names the *mistake* instead of the parser's
-    // "missing member", which would read as though any field could omit it.
-    let link = match members.iter().find(|(k, _)| k == "link") {
-        None | Some((_, Value::Null)) => None,
-        Some((_, value)) => Some(link(value, &format!("{path}.link"))?),
+    // `link` is required on every field, as every member is (the module doc, the JSON
+    // Schema's `required`, and `required_link` in `ingest/schema.rs` all say so). A present
+    // `null` is how a non-`link` field says it has no target; omitting it is the mistake.
+    let declared = member(members, "link", path)?;
+    let link = match declared {
+        Value::Null => None,
+        value => Some(link(value, &format!("{path}.link"))?),
     };
-    // Both directions are refused, and neither is defaulted: a `link` field with no
-    // target would derive no edges, and a `scalar` field with one would carry a
-    // declaration nothing reads. Either is a schema mistake said quietly.
+    // Both directions are refused, and neither is defaulted: a `link` field with no target
+    // would derive no edges, a `scalar` field with one a declaration nothing reads.
     match (role, &link) {
         (Role::Link, None) => {
             return Err(shape(path, "a `link` field must declare its `link` member"));
@@ -152,10 +143,8 @@ fn link(value: &Value, path: &str) -> Result<Link, IngestError> {
 fn record(value: &Value, path: &str) -> Result<Record, IngestError> {
     let members = object(value, path)?;
     require_only(members, &RECORD_MEMBERS, path)?;
-    // Sorted by key on the way in, so an `Ingest` is in canonical member order the
-    // moment it exists. That is the H6 fix at the type level: a record's cells are a
-    // set keyed by field id, so nothing downstream can depend on the order they
-    // happened to arrive in — and two documents describing the same data are `==`.
+    // Sorted by key on the way in, so an `Ingest` is in canonical member order the moment
+    // it exists: the H6 fix at the type level, a record's cells being a set keyed by field.
     let values_path = format!("{path}.values");
     let mut values: Vec<(String, JsonValue)> =
         object(member(members, "values", path)?, &values_path)?
@@ -186,14 +175,17 @@ fn record(value: &Value, path: &str) -> Result<Record, IngestError> {
 
 // ------------------------------------------------------------------ cells
 
-/// One cell, as [`JsonValue`]. The number branch is where D9 is enforced: the JSON
-/// grammar keeps out `NaN`/`Infinity` literals, but an exponent large enough to
-/// overflow `f64` parses as text, so it is refused here rather than on a derived field.
+/// One cell, as [`JsonValue`]. The number branch is where D9 is enforced: the JSON grammar
+/// keeps out `NaN`/`Infinity`, but an exponent that overflows `f64` parses as text, and an
+/// integer past 2^53 is refused too ([`past_exact_int`]).
 pub(super) fn cell(value: &Value, path: &str) -> Result<JsonValue, IngestError> {
     Ok(match value {
         Value::Null => JsonValue::Null,
         Value::Bool(b) => JsonValue::Bool(*b),
         Value::Number(text) => {
+            if past_exact_int(text) {
+                return Err(shape(path, EXACT_INT_FAULT.to_owned()));
+            }
             let n: f64 = text
                 .parse()
                 .map_err(|_| shape(path, "not a valid number"))?;
@@ -217,6 +209,21 @@ pub(super) fn cell(value: &Value, path: &str) -> Result<JsonValue, IngestError> 
                 .collect::<Result<_, _>>()?,
         ),
     })
+}
+
+const EXACT_INT_FAULT: &str = "an integer past 9007199254740992 cannot be read exactly";
+
+/// Whether `text` is a **bare integer** — no `.`, no `e`/`E` — whose magnitude exceeds 2^53,
+/// the largest integer an `f64` holds exactly: past it every integer lands on a neighbour,
+/// so `9007199254740993` would read back as `9007199254740992`, the document's own bytes
+/// rewritten with nothing said. A float literal (`1e30`) is not this fault, and neither is
+/// text too long for `i128` — out of `f64` range, which `cell`'s `is_finite` refusal names.
+fn past_exact_int(text: &str) -> bool {
+    if text.contains('.') || text.contains('e') || text.contains('E') {
+        return false;
+    }
+    text.parse::<i128>()
+        .is_ok_and(|n| n.unsigned_abs() > 9_007_199_254_740_992)
 }
 
 // ------------------------------------------------------------------ scalars
@@ -247,8 +254,7 @@ fn member<'a>(
         .ok_or_else(|| shape(path, format!("missing member `{key}`")))
 }
 
-/// Refuses a member the shape does not name — the strictness that turns a stray
-/// camelCase into a loud refusal instead of a silently-dropped extra.
+/// Refuses a member the shape does not name: a stray camelCase becomes a loud refusal.
 fn require_only(
     members: &[(String, Value)],
     allowed: &[&str],
@@ -276,8 +282,8 @@ fn boolean(value: &Value, path: &str) -> Result<bool, IngestError> {
     }
 }
 
-/// A `u32` written as a plain non-negative integer literal, never `1.0` or `1e0` read
-/// loosely as `1` (D6: an explicit wire integer; a version is compared, not rounded).
+/// A `u32` written as a plain non-negative integer literal, never `1.0` or `1e0` read as
+/// `1` (D6: a version is compared, not rounded).
 fn integer(value: &Value, path: &str) -> Result<u32, IngestError> {
     let Value::Number(text) = value else {
         return Err(shape(path, "expected a number"));

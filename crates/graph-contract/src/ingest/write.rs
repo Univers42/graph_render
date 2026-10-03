@@ -16,9 +16,10 @@ use value::value as write_value;
 
 /// The canonical wire text of one document.
 ///
-/// Panics if `doc.version` is not [`VERSION`]: this is a caller contract violation,
-/// not a document fault, and `read` refuses the same text — so a document the writer
-/// cannot round trip must not be written at all, loudly, at the call that made it.
+/// Panics if `doc.version` is not `super::VERSION`: this is a caller contract
+/// violation, not a document fault, and `read` refuses the same text — so a document
+/// the writer cannot round trip must not be written at all, loudly, at the call that
+/// made it.
 pub fn to_json(doc: &Ingest) -> String {
     assert!(
         doc.version == super::VERSION,

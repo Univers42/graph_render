@@ -108,10 +108,12 @@ fn a_value_member_is_a_map_so_a_duplicate_key_is_refused_not_last_wins() {
 
 #[test]
 fn a_values_map_writes_the_same_text_whatever_order_it_was_read_in() {
-    // The writer sorts a `values` map by key and, for two equal keys, by the value's
-    // own text — the same total order in both places, so there is no second rule to
-    // drift. H6 in one test: a record whose cells arrived in a different member order
-    // writes the same bytes.
+    // The writer sorts a `values` map by key, with the value's own text as the
+    // tiebreak it shares with a nested object — one total order in both places, so there
+    // is no second rule to drift. H6 in one test: a record whose cells arrived in a
+    // different member order writes the same bytes. (Record keys are distinct by now —
+    // a repeat collapses first — but the tiebreak is what makes that collapse the only
+    // rule, not a second one.)
     let mut doc = minimal();
     let record = &mut doc.records[0];
     record.values.reverse();
