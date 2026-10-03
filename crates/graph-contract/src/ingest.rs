@@ -42,6 +42,17 @@
 //! refused rather than first-wins. Each is a case where the alternative is a graph that
 //! is well-formed and wrong, with nothing in the output to say so.
 //!
+//! Two things a document may do that are **not** refusals, because both are legal data a
+//! real source produces:
+//!
+//! - **Two fields of one collection share a role.** [`Role::Scalar`] exists so a source
+//!   can declare every field it has, so this is normal input. The canonically lowest field
+//!   id wins, because the reader sorts a collection's fields by id before the derivation
+//!   reads them; a later same-role field's value is carried and never read.
+//! - **A link or parent cell names the record's own id.** The document derives a self
+//!   edge, and a self hierarchy edge, from it. The checks below police *dangling*
+//!   references, not cycles; nothing here walks a hierarchy looking for a loop.
+//!
 //! # The id grammar (H5) — decided: constrain, do not re-grammar
 //!
 //! `make_record_node_id` joins `source`, the collection id and the record id with `:`
