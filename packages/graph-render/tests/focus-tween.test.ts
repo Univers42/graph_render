@@ -46,7 +46,7 @@ function view(travelling: boolean): { controller: Controller; state: LoopState }
     advance(state, state.transitionStart + TRANSITION_MS / 2);
   }
   const notify = { hover() {}, select() {}, selection() {}, context() {}, camera() {} };
-  const controller = { canvas, state, notify, fitted: true, local: newLocalLayer() };
+  const controller = { canvas, state, notify, fitted: true, gestured: false, local: newLocalLayer() };
   return { controller, state };
 }
 
