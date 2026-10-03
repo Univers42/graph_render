@@ -81,7 +81,7 @@ and `EdgeKind::from_name` (`graph-core/src/edgekind.rs:42`), so no numeric tag n
    export list in `crates/graph-sdk-js/test/abi-version.test.mjs:13`. Test
    `crates/graph-sdk-js/test/columns.test.mjs` over the real release artifact
    (`target/wasm32-unknown-unknown/release/graph_wasm.wasm`): the same document through `build`
-   (JSON) and `buildColumns` gives equal `gm_node_count`, `gm_edge_count` and equal snapshot bytes
+   (JSON) and `buildColumns` gives equal `gm_node_count` and equal snapshot bytes
    from one deterministic layout run (pick a layout with no RNG from `Motor.layouts()`); a
    document with a −0 weight round-trips; a lone surrogate id is refused by the encoder; a module
    without `gm_build_columns` is refused by name.
