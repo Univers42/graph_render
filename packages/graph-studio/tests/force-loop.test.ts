@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { type ForceKnobs, type LiveForce, NO_ADAPTER_REASON } from "../src/motor/live.ts";
+import { DEFAULT_KNOBS, type ForceKnobs, type LiveForce, NO_ADAPTER_REASON } from "../src/motor/live.ts";
 import { ALPHA_MIN, TICKS_PER_FRAME, createForceHost } from "../src/motor/liveLoop.ts";
 import type { ForceFrame, Result } from "../src/motor/protocol.ts";
 import type { Session } from "../src/motor/session.ts";
@@ -10,7 +10,7 @@ import { serve } from "../src/motor/serve.ts";
 
 const refuse = (): never => { throw new Error("a force request must not reach the session"); };
 const NO_SESSION: Session = { open: refuse, load: refuse, layout: refuse, analysis: refuse, forces: () => null };
-const KNOBS: ForceKnobs = { gravity: 0.5, charge: -100, linkStrengthScale: 1, linkDistance: 40 };
+const KNOBS: ForceKnobs = { ...DEFAULT_KNOBS, gravity: 0.5, charge: -100, linkStrengthScale: 1, linkDistance: 40, theta: 1.2 };
 /** What the loop pushes when the session under it is released: no loop, and no session. */
 const STOPPED: Result = { type: "force-state", running: false, disabled: NO_ADAPTER_REASON, paused: false };
 
