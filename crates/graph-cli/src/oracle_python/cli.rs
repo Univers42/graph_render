@@ -106,9 +106,7 @@ pub enum Cli {
     /// arm, because the four take the same two arguments and read no graph.
     ///
     /// **Four, and that is the arm's `ARMS` list.** `--function spiral` arrived with job
-    /// `sg-basic3d-spiral-oracle`; `layout.basic3d.spiral` is read by the
-    /// `scigraphs-conformance` record rather than this one, because moving its routing in
-    /// `unproven.rs` is a change to what `capabilities --check` reports.
+    /// `sg-basic3d-spiral-oracle`.
     ///
     /// The four take no iteration budget, so `--max-iter` is ignored.
     // Named explicitly: clap would spell the variant `emit-basic3d-fixtures`, and the

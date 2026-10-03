@@ -3,17 +3,10 @@
 //!
 //! **Split out of the parent for the house line cap.** This is the routing test: it holds the
 //! `id -> (oracle_record, hash_stage)` mapping for every capability, so it is the one file a
-//! reader opens to answer "what is this row measured against". `layout.basic3d.spiral` is
-//! the newest entry in it and the reason it moved: it is routed to `scigraphs-conformance`,
-// NOT to `oracle-basic-3d`. That arm now COMPARES it too (`--function spiral`, job
-// `sg-basic3d-spiral-oracle`); what is still open is moving the routing, which is the half
-//! of that job left over.
+//! reader opens to answer "what is this row measured against".
 
 use super::super::*;
-use super::ids::{
-    BASIC_3D as BASIC_3D_IDS, BASIC_3D_UNDIFFERENTIALLED as BASIC_3D_UNDIFFERENTIALLED_IDS,
-    IGRAPH as IGRAPH_LAYOUT_IDS,
-};
+use super::ids::{BASIC_3D as BASIC_3D_IDS, IGRAPH as IGRAPH_LAYOUT_IDS};
 use super::records_of;
 use std::collections::BTreeSet;
 
@@ -62,13 +55,6 @@ fn the_registry_covers_every_oracle_function_once_its_ids_are_unique() {
         } else if BASIC_3D_IDS.contains(&r.id) {
             // One arm file, one record — `implemented` per `unproven.rs`.
             ("oracle-basic-3d", r.id, Status::Implemented)
-        } else if BASIC_3D_UNDIFFERENTIALLED_IDS.contains(&r.id) {
-            // **Not `oracle-basic-3d`, and the separation is still the point**: `unproven.rs`
-            // has not moved this id, so naming it there would claim a routing it does not
-            // make — even though that arm's `ARMS` covers the spiral as of
-            // `sg-basic3d-spiral-oracle`. Held to the conformance gate's own byte comparison
-            // against SciGraphs until the routing moves.
-            ("scigraphs-conformance", r.id, Status::Implemented)
         } else if r.id == "layout.hierarchical3d" {
             ("oracle-hierarchical-3d", r.id, Status::Implemented)
         } else if r.id == "layout.bipartite_3d" {
