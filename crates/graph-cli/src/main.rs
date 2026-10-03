@@ -17,6 +17,7 @@ mod forcecheck;
 mod hashgate;
 mod ingest_cmd;
 mod ink_cmd;
+mod mb_fidelity;
 mod oracle_fixtures;
 mod oracle_python;
 mod overlap_cmd;
@@ -123,5 +124,6 @@ fn main() -> ExitCode {
         } => stress::run(&oracle, &layout, seeds),
         Command::Bench(plan) => bench::run(&plan),
         Command::Tick(plan) => bench::tick::run(&plan),
+        Command::MbFidelity(plan) => mb_fidelity::run(&plan),
     }
 }

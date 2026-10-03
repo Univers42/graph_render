@@ -26,6 +26,10 @@ export const CODE_NAMES = [
   "SessionRefused",
   "AnalysisFailed",
   "IngestTooLarge",
+  "ParamOutOfRange",
+  "ParamsMalformed",
+  "ParamsNotAccepted",
+  "ColumnsInvalid",
 ] as const;
 
 /** One `Code`'s name, or `"Unknown(<n>)"` for a wire value this SDK does not know yet —
@@ -63,6 +67,14 @@ export class BuildRefusedError extends GraphMotorError {}
  *  {@link Motor.build}, whose document means something else. */
 export class ContractRefusedError extends GraphMotorError {}
 
+/** `gm_build_columns` refused the columnar document (`ColumnsInvalid`), or the handle table
+ *  is exhausted. A sibling of {@link BuildRefusedError} rather than a subclass: a caller
+ *  that catches only that one is saying "a provisional JSON document was refused", and the
+ *  two documents mean different things — this one is reachable for a document `build`
+ *  accepts happily (a repeated node id, which the JSON path drops and the dense-row rule
+ *  cannot). */
+export class ColumnsRefusedError extends GraphMotorError {}
+
 /** `gm_run` refused: an unknown handle, an unknown layout id, or non-empty params
  * (registry layouts take none this phase, C2). */
 export class RunRefusedError extends GraphMotorError {}
@@ -83,6 +95,23 @@ export class AnalysisRefusedError extends GraphMotorError {}
 /** `gm_snapshot_json`/`gm_snapshot_bytes` refused: a column view wrote a non-finite value
  * into the motor's own buffer since the last run (D9 tamper re-validation, C8). */
 export class TamperedGeometryError extends GraphMotorError {}
+
+/** The module answered something this ABI forbids: a framed buffer whose length runs past
+ *  linear memory, a column `(ptr, len)` pair that is illegal by contract (`ptr === 0` with a
+ *  non-zero length, an unaligned `ptr`, or one that overruns the buffer), a column id this
+ *  ABI never registered.
+ *
+ *  A distinct class because none of these is a *refusal* the motor reported — there is no
+ *  `gm_last_error` behind them, so `code` is `undefined` — and none is a trap either. Without
+ *  it a caller caught a raw `RangeError` from `DataView`/`Float32Array` and could not tell
+ *  "the module is broken" from "my own id was wrong". */
+export class AbiContractError extends GraphMotorError {}
+
+/** `gm_alloc` refused (`AllocFailed`, code 2): the module could not reserve the buffer the
+ *  call needed. Distinct from every session's and every stage's own refusal class, because
+ *  nothing was asked and nothing refused — the module ran out of room first, and a caller
+ *  catching a *session* refusal here would go looking for a bad parameter that is not there. */
+export class AllocationFailedError extends GraphMotorError {}
 
 /** The wasm module trapped (`WebAssembly.RuntimeError`) during a call that should only
  * ever return a sentinel, never trap. Wrapped so it is still a `GraphMotorError`, but

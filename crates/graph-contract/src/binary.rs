@@ -6,13 +6,19 @@
 //! A [`Snapshot`] can only be built valid ([`Snapshot::new`]), so writing one cannot
 //! fail and the decoder refuses exactly what the constructor refuses.
 
-use crate::geometry::{EdgeGeometry, NodeGeometry, Paths, check_len, index_u32};
-use crate::notes::{Notes, carries_notes};
+use crate::geometry::{EdgeGeometry, NodeGeometry, check_len, index_u32};
+use crate::notes::Notes;
 use crate::snapshot::{Dim, ReadError, SnapshotError, SnapshotHeader, StageCount, carries_dim};
 use crate::version::{FormatVersion, check_readable};
-use std::collections::BTreeSet;
+use std::collections::HashSet;
+use std::hash::{BuildHasherDefault, DefaultHasher};
 
 mod decode;
+mod write;
+
+/// Bytes to allow per id when reserving the text of a table whose length is not known
+/// before it is read.
+const ID_BYTES: usize = 16;
 
 /// Strings stored CSR-shaped: string `i` is `bytes[offsets[i]..offsets[i + 1]]`. The
 /// same shape as the adjacency and the edge paths, so one mental model covers them all.
@@ -33,20 +39,42 @@ impl Default for StringTable {
 
 impl StringTable {
     /// A table of `items` in order, refused when more than `u32` counts.
+    ///
+    /// Both buffers are reserved from the iterator's item count before anything is
+    /// written, so a million ids cost one allocation each instead of a doubling every
+    /// time one of them fills. `offsets` is then exact — `count + 1` words for `count`
+    /// items — and nothing collected: the iterator is read once, through.
+    ///
+    /// Caveat: `text` cannot be sized exactly without reading the ids twice, so
+    /// `ID_BYTES` is a guess at an id's length. Ids longer than it cost one
+    /// reallocation; ids shorter than it leave up to `ID_BYTES` bytes per id reserved
+    /// and never filled, 16 MB at a million six-byte ids. It sizes the first allocation
+    /// only: `text` still grows to whatever the ids really are, and `try_reserve` reports
+    /// a host that cannot give it even this much as [`SnapshotError::Capacity`], the same
+    /// refusal the `u32` overflow below gives.
     pub fn from_strs<'a>(
         column: &'static str,
         items: impl IntoIterator<Item = &'a str>,
     ) -> Result<Self, SnapshotError> {
-        let mut table = Self::default();
+        let items = items.into_iter();
+        let (count, _) = items.size_hint();
+        let mut offsets = Vec::new();
+        let mut text = String::new();
+        offsets
+            .try_reserve_exact(count.saturating_add(1))
+            .map_err(|_| SnapshotError::Capacity { column })?;
+        text.try_reserve(count.saturating_mul(ID_BYTES))
+            .map_err(|_| SnapshotError::Capacity { column })?;
+        offsets.push(0);
         for item in items {
-            table.text.push_str(item);
-            let end = u32::try_from(table.text.len());
+            text.push_str(item);
+            let end = u32::try_from(text.len());
             match end {
-                Ok(end) if table.offsets.len() <= u32::MAX as usize => table.offsets.push(end),
+                Ok(end) if offsets.len() <= u32::MAX as usize => offsets.push(end),
                 _ => return Err(SnapshotError::Capacity { column }),
             }
         }
-        Ok(table)
+        Ok(Self { offsets, text })
     }
 
     /// Number of strings.
@@ -84,8 +112,18 @@ impl StringTable {
     }
 
     /// The position of the first string equal to an earlier one.
+    ///
+    /// D4: the set answers membership only and is **never iterated** — the answer is a
+    /// position in this table's own order, read from `iter()`, so the set's internal
+    /// order cannot reach it. The hasher is `DefaultHasher`'s under `BuildHasherDefault`,
+    /// so it is fixed across runs and hosts (no seed, no randomness).
+    ///
+    /// Caveat: fixed keys are public, so a decoded payload built to collide can push this
+    /// from O(n) toward O(n²) time; the answer stays exact. Escape: a `BTreeSet` here,
+    /// 4x slower at a million ids (`docs/measurements/perf-snapshot-build.md`).
     fn first_repeat(&self) -> Option<u32> {
-        let mut seen = BTreeSet::new();
+        let mut seen: HashSet<&str, BuildHasherDefault<DefaultHasher>> =
+            HashSet::with_capacity_and_hasher(self.len() as usize, Default::default());
         self.iter().position(|s| !seen.insert(s)).map(index_u32)
     }
 }
@@ -187,30 +225,7 @@ impl Snapshot {
 
     /// The binary face.
     pub fn to_bytes(&self) -> Vec<u8> {
-        let parts = &self.0;
-        let mut out = Vec::new();
-        self.header().encode(&mut out);
-        put_table(&mut out, &parts.node_ids);
-        put_table(&mut out, &parts.edge_ids);
-        put_u32s(&mut out, &parts.source);
-        put_u32s(&mut out, &parts.target);
-        for (_, column) in parts.nodes.columns_dim(parts.z.as_deref()) {
-            put_f32s(&mut out, column);
-        }
-        match &parts.edges {
-            EdgeGeometry::Line => {}
-            EdgeGeometry::Polyline(paths) => put_paths(&mut out, paths),
-            EdgeGeometry::Curve { degree, paths } => {
-                put_u32s(&mut out, &[*degree]);
-                put_paths(&mut out, paths);
-            }
-        }
-        if carries_notes(parts.version) {
-            put_u32s(&mut out, &[parts.notes.len()]);
-            put_u32s(&mut out, &parts.notes.code);
-            put_u32s(&mut out, &parts.notes.index);
-        }
-        out
+        write::bytes(self)
     }
 
     /// Reads the binary face, refusing anything [`Snapshot::new`] refuses, a newer
@@ -235,29 +250,6 @@ fn check_dimmed(dim: Dim, version: FormatVersion) -> Result<(), SnapshotError> {
 /// Zero bytes that bring `len` up to a multiple of 4.
 pub(crate) const fn padding(len: usize) -> usize {
     (4 - len % 4) % 4
-}
-
-fn put_table(out: &mut Vec<u8>, table: &StringTable) {
-    put_u32s(out, table.offsets());
-    out.extend_from_slice(table.bytes());
-    out.resize(out.len() + padding(table.bytes().len()), 0);
-}
-
-fn put_paths(out: &mut Vec<u8>, paths: &Paths) {
-    put_u32s(out, &paths.offsets);
-    put_f32s(out, &paths.pts);
-}
-
-fn put_u32s(out: &mut Vec<u8>, values: &[u32]) {
-    values
-        .iter()
-        .for_each(|v| out.extend_from_slice(&v.to_le_bytes()));
-}
-
-fn put_f32s(out: &mut Vec<u8>, values: &[f32]) {
-    values
-        .iter()
-        .for_each(|v| out.extend_from_slice(&v.to_le_bytes()));
 }
 
 #[cfg(test)]

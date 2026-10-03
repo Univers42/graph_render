@@ -160,7 +160,7 @@ mod tests {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(test, target_arch = "wasm32"))]
 mod pointer_layer {
     //! The only part of this module that touches real memory: `gm_alloc` reserves
     //! exactly [`super::ALIGN`]-aligned bytes through the raw global allocator (never
@@ -263,5 +263,5 @@ mod pointer_layer {
 // already relies on), and re-exporting them by their Rust path here would be an import
 // this crate itself never uses — exactly the `unused_imports` clippy catches under a
 // wasm32, non-test build, where nothing calls them by name.
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(test, target_arch = "wasm32"))]
 pub(crate) use pointer_layer::is_live;
