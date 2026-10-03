@@ -75,12 +75,13 @@ impl Default for SeparateParams {
 ///
 /// | nodes | 1 000 | 2 000 | 10 000 | 100 000 |
 /// | --- | --- | --- | --- | --- |
-/// | pass ms | 33 | 95 | 734 | 10 487 |
+/// | pass ms (median of 3) | 41 | 146 | 1 069 | 14 937 |
 ///
-/// **10 000 is the ceiling because the second runs out there**: 734 ms at 10 000 and 10.5 s at
-/// 100 000 — a decade apart in size, fourteen in time — so 1 000 ms lands just past 10 000.
-/// The pass is not *refused* above it: `Bundled::unbundled` reports exactly what is left. But a
-/// caller waiting ten seconds for a redraw is not using it as a redraw.
+/// **10 000 is where the second runs out**, and the number straddles the line rather than
+/// clearing it: 1.07 s at 10 000 on a loaded host, 734 ms on an idle one, and 15 s at 100 000
+/// — a decade more nodes for fourteen times the time. The pass is not *refused* above the
+/// ceiling: `Bundled::unbundled` reports exactly what is left. But a caller waiting fifteen
+/// seconds for a redraw is not using it as a redraw.
 ///
 /// **What the ceiling does not claim.** It is a cost ceiling, and at its top the default cap is
 /// not enough to clear the invariant: 16 294 pairs still overlap at 10 000 with

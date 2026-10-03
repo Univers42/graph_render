@@ -16,8 +16,11 @@ orthogonal *and* four diagonal neighbours: 3 811 overlapping pairs at `n = 1 000
 times too crowded to pack. That is the worst case for a sweep, and the point of measuring it:
 a radius below 0.5 produces a lattice with no overlaps at all and the pass has nothing to do.
 
-Ponytail (timing): one run per row, no warm-up and no repeat, on a host that was not idle, so
-`pass ms` and `wall` are single samples. `wall` is the whole command; `pass ms` is the pass alone.
+Ponytail (timing): `pass ms` is the **median of three runs**, no warm-up, on a host that was
+busy — the three samples for 100 000 nodes were 11.1 s, 14.9 s and 16.8 s, so a single sample
+would have been worth ±25%. An idle host measured the same rows 33/95/734/10 487 ms, so the
+absolute numbers here are the pessimistic end of that spread and the *ratios* are the durable
+part. `wall` is the whole command; `pass ms` is the pass alone.
 
 ## 2. Quality and cost at 1 000 / 10 000 / 100 000
 
@@ -26,10 +29,10 @@ Ponytail (timing): one run per row, no warm-up and no repeat, on a host that was
 
 | nodes | overlapping before | still overlapping | mean displacement | ÷ mean NN distance | stress before → after | pass ms | wall |
 |---:|---:|---:|---:|---:|---:|---:|---:|
-| 1 000 | 3 811 | **0** | 14.786 | 14.79 | 0.0576 → 0.0315 | 33.0 | 0.03 s |
-| 2 000 | 7 733 | **0** | 20.884 | 20.88 | 0.0473 → 0.0248 | 95.1 | 0.10 s |
-| 10 000 | scan refused | **16 294** | 35.618 | 35.62 | 0.0289 → 0.0170 | 734.3 | 0.75 s |
-| 100 000 | scan refused | **383 572** | 46.114 | 46.11 | 0.0092 → 0.0081 | 10 487.3 | 10.69 s |
+| 1 000 | 3 811 | **0** | 14.786 | 14.79 | 0.0576 → 0.0315 | 41.1 | 0.05 s |
+| 2 000 | 7 733 | **0** | 20.884 | 20.88 | 0.0473 → 0.0248 | 146.4 | 0.15 s |
+| 10 000 | scan refused | **16 294** | 35.618 | 35.62 | 0.0289 → 0.0170 | 1 069.5 | 1.08 s |
+| 100 000 | scan refused | **383 572** | 46.114 | 46.11 | 0.0092 → 0.0081 | 14 937.2 | 15.09 s |
 
 - `overlapping before` is the exhaustive `O(n^2)` scan and `still overlapping` is the same scan
   afterwards; both are exact and the command exits non-zero when the second is not 0. Above 2 000
@@ -57,9 +60,10 @@ the same 3 × 3 neighbourhood the scan uses.
 
 The escape hatch is `--max-iterations`, and it is a parameter the pass validates rather than a
 silent quality dial: `0` is refused by name (`StageError::Param`, no new variant). What it buys,
-measured on the same two inputs. This is a **second sweep** of the same command, so its cap-512
-cell differs from §2's by run-to-run noise (744 ms against 734 ms) — the two are not the same
-measurement and are not meant to look like it:
+measured on the same two inputs. This is a **second sweep** of the same command on a quieter
+host, so its cap-512 cell differs from §2's by more than run-to-run noise (744 ms against
+1 069 ms) — the *pairs* are identical, which is the reproducible half, and the times are not
+meant to look like §2's:
 
 | nodes | cap 512 | cap 1 024 | cap 2 048 | cap 4 096 |
 |---:|---|---|---|---|
@@ -127,7 +131,8 @@ the one being compared against.
 - **Only n = 1 000 and 2 000 have an exact invariant here.** Past the brute-force ceiling the
   residual is the pass's own grid count, which the scan agreeing at small `n` supports but does
   not prove.
-- **Timings are one run on a loaded host**, and the pass is `--release` on x86_64; wasm32 is
+- **Timings are three runs on a loaded host** and are the pessimistic end of a ±25% spread
+  (§1), and the pass is `--release` on x86_64; wasm32 is
   bit-identical in *output* (hashgate, D1) but not measured for time.
 - **The cap column is a sweep of one input**, `layout.grid` at radius 1.0. A random cloud
   converges in a median of 16 sweeps, so these residuals are the lattice's, not the pass's in
