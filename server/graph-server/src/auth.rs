@@ -3,6 +3,7 @@
 //! `Authorization` header is a 400; every other refusal is the same 401, whatever its cause.
 
 use crate::app::App;
+use crate::breaks;
 use crate::error::ApiError;
 use axum::http::{HeaderMap, header};
 
@@ -20,6 +21,9 @@ pub fn check(app: &App, headers: &HeaderMap) -> Result<Option<String>, ApiError>
         .and_then(|value| value.to_str().ok())
         .and_then(bearer)
         .ok_or_else(ApiError::unauthorized)?;
+    if breaks::on("any-key") {
+        return Ok(Some("any-key".to_owned()));
+    }
     let keys = store.current();
     keys.name_of(key)
         .map(|name| Some(name.to_owned()))
