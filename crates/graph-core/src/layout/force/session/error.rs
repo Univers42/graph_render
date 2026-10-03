@@ -1,6 +1,7 @@
 //! Why a session said no. Every variant names the thing that was wrong, because the whole
 //! point of refusing rather than clamping is that the caller can act on the answer.
 
+use crate::stage::StageError;
 use core::fmt;
 
 /// Why a [`ForceSession`](super::ForceSession) could not be built, stepped onto, or given
@@ -53,6 +54,32 @@ impl fmt::Display for SessionError {
                 write!(f, "column {column}: {got} values for {nodes} nodes")
             }
             Self::NoSuchRow { row, rows } => write!(f, "row {row} of {rows}"),
+        }
+    }
+}
+
+impl From<SessionError> for StageError {
+    /// The frozen stage is a session with the frozen parameters, so a refusal to build one
+    /// is a refusal to run the stage. `OutOfRange` carries its rule as a `&'static str`
+    /// precisely so this conversion loses nothing.
+    ///
+    /// The other two variants cannot arise on the frozen path at all — a stage builds its
+    /// own session and addresses no row — and `StageError::Param`'s rule is a
+    /// `&'static str` with nowhere to format the numbers into. The numbers are in
+    /// [`SessionError`], which is what a session's own caller sees and what its `Display`
+    /// prints.
+    fn from(err: SessionError) -> Self {
+        match err {
+            SessionError::NonFinite { field } => Self::NonFinite { column: field },
+            SessionError::OutOfRange { field, rule } => Self::Param { name: field, rule },
+            SessionError::ColumnLength { .. } => Self::Param {
+                name: "force session columns",
+                rule: "one finite value per node",
+            },
+            SessionError::NoSuchRow { .. } => Self::Param {
+                name: "force session row",
+                rule: "a row inside the node columns",
+            },
         }
     }
 }

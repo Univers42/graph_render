@@ -71,17 +71,6 @@ const listeners = () => {
   };
 };
 
-/**
- * Ponytail: which layouts settle live is read off the id (`layout.force…`) rather than kept
- * in a table, so a force engine registered under a name nobody predicted still settles on
- * screen. Failing input: `layout.random` says nothing about force and is excluded by that
- * read, so the random layout stays a finished picture. Direction: substring, so
- * `layout.forceatlas2` and a future `layout.force.barnes_hut` both qualify.
- */
-export function settlesLive(layoutId: string): boolean {
-  return layoutId.startsWith("layout.force");
-}
-
 /** Everything the bridge remembers, and the one line that puts it on screen. */
 interface Desk {
   knobs: ForceKnobs;
