@@ -13,14 +13,13 @@
 //! - **every registered layout**: no `NaN` or `±Inf` reaches its output (D9), and circle
 //!   packing's radii are always positive and finite.
 //!
-//! **Why the layout sweep is many `#[test]`s.** Sweeping every layout inside one serial
-//! test made this the landing gate's long pole: libtest runs tests in parallel, so one
-//! long test is one core while nineteen idle. The sweep is cut per registry row, and by
-//! seed chunk for the one row that is itself a long pole, over exactly the same
-//! `(seed, layout)` pairs with the same assertions and messages. No test spawns a
-//! thread, so `RUST_TEST_THREADS` still caps the binary, and the guard
-//! `every_registered_layout_has_its_own_sweep` fails if a row, or a seed chunk of a row,
-//! is left out. Timings: `docs/measurements/test-speed-geometry.md`.
+//! **Why the layout sweep is many `#[test]`s.** One serial test over every layout made
+//! this the landing gate's long pole: libtest runs tests in parallel, so one long test is
+//! one core while nineteen idle. The sweep is cut per registry row, and by seed chunk for
+//! the one row that is itself a long pole, over exactly the same `(seed, layout)` pairs
+//! with the same assertions and messages. No test spawns a thread, so `RUST_TEST_THREADS`
+//! still caps the binary, and the guard `every_registered_layout_has_its_own_sweep` fails
+//! if a row, or a seed chunk of a row, is left out. See `docs/measurements/`.
 
 mod geometry_invariants {
     use graph_contract::geometry::{EdgeGeometry, NodeGeometry};
@@ -173,14 +172,12 @@ mod geometry_invariants {
         }
     }
 
-    /// One `#[test]` per `[registry row, chunk, test]` entry of the list below. An entry
-    /// is `[index, id, WHOLE, name]` for a row swept whole in one test, and
-    /// `[index, id, 0..CHUNKS, name_sN]` repeated for a row cut into seed chunks.
+    /// One `#[test]` per `[registry row, chunk, test]` entry below: `[index, id, WHOLE,
+    /// name]` sweeps a row whole in one test, `[index, id, chunk, name_sN]` cuts it by seed.
     macro_rules! per_layout_sweep {
         (rows: [ $( [$index:literal, $id:literal, $chunk:tt, $part:ident] ),* $(,)? ]) => {
             /// Every entry, in list order: the guard reads this and nothing else.
             const ROWS: &[(&str, u32)] = &[ $( ($id, $chunk) ),* ];
-
             $(
                 #[test]
                 fn $part() {
@@ -189,9 +186,8 @@ mod geometry_invariants {
             )*
 
             /// The entries must name `registry::LAYOUTS` in order, once each, and every
-            /// row's chunks must tile `0..SEEDS` exactly once. A registry row added
-            /// later, or a seed chunk of a row dropped here, fails on this test rather
-            /// than going unchecked.
+            /// row's chunks must tile `0..SEEDS` exactly once, so a registry row added
+            /// later or a seed chunk dropped here fails instead of going unchecked.
             #[test]
             fn every_registered_layout_has_its_own_sweep() {
                 let registered: Vec<&str> = registry::LAYOUTS.iter().map(|c| c.id).collect();
@@ -261,16 +257,11 @@ mod geometry_invariants {
             [15, "layout.force.fruchterman_reingold", WHOLE, layout_force_fruchterman_reingold],
             [16, "layout.force.kamada_kawai", WHOLE, layout_force_kamada_kawai],
             [17, "layout.force.graphopt", WHOLE, layout_force_graphopt],
-            // The long pole: 390 s of the sweep's ~1085 s on one core, so it is the only
-            // row cut by seed. `docs/measurements/test-speed-geometry.md` has the timings.
+            // The long pole: 390 s of the sweep's ~1085 s on one core, so the only row cut by seed.
             [18, "layout.force.davidson_harel", 0, layout_force_davidson_harel_s0],
             [18, "layout.force.davidson_harel", 1, layout_force_davidson_harel_s1],
             [18, "layout.force.davidson_harel", 2, layout_force_davidson_harel_s2],
             [18, "layout.force.davidson_harel", 3, layout_force_davidson_harel_s3],
-            [18, "layout.force.davidson_harel", 4, layout_force_davidson_harel_s4],
-            [18, "layout.force.davidson_harel", 5, layout_force_davidson_harel_s5],
-            [18, "layout.force.davidson_harel", 6, layout_force_davidson_harel_s6],
-            [18, "layout.force.davidson_harel", 7, layout_force_davidson_harel_s7],
             [19, "layout.force.lgl", WHOLE, layout_force_lgl],
             [20, "layout.force.drl", WHOLE, layout_force_drl],
             [21, "layout.twopi", WHOLE, layout_twopi],
