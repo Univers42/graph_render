@@ -31,6 +31,19 @@ pub fn publish(bytes: Vec<u8>) -> u32 {
     })
 }
 
+/// The last published frame, body included. Test-only: on the native 64-bit host every
+/// address is past `u32`, so `publish` refuses to return one and a test can only reach
+/// what it published by reading the buffer itself. That is the whole point of this
+/// accessor — the framed *body* is the thing under test, and the address it would be
+/// returned at is not.
+#[cfg(test)]
+pub fn last_frame() -> Vec<u8> {
+    OUT.with(|cell| {
+        let out = cell.borrow();
+        out[4..].to_vec()
+    })
+}
+
 /// A hash-gate stage's bytes, published; `None` is the pipeline refusing the seed, read
 /// as `LayoutFailed`.
 pub fn publish_stage(bytes: Option<Vec<u8>>) -> u32 {

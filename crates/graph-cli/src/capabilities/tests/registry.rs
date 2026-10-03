@@ -66,6 +66,7 @@ fn a_layout_id_no_arm_names_is_implemented_and_names_no_record() {
     let fresh = Box::leak(Box::new(graph_core::registry::Capability {
         id: "layout.registered.but.unproven",
         run: |_| unreachable!("a test never runs a capability"),
+        params: &graph_core::registry::LayoutParams::NONE,
         meta: graph_core::registry::Metadata {
             tier: 1,
             stage: "layout",

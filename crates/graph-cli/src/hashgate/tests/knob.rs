@@ -170,13 +170,14 @@ fn the_split_sum_knob_names_the_pass_it_corrupts() {
 /// Compared as a **set**, because the two lists are the same three names and the order is
 /// not the claim: the knob takes one word at a time and the stage's list is printed in the
 /// tick's own order. What must hold is that neither list has a name the other lacks. The
-/// link forces are left out: that pass ends in no merge, so it has no split to control.
+/// link forces and the charge aggregate are left out: neither pass ends in a merge, so
+/// neither has a split to control.
 #[test]
 fn every_word_the_split_knob_accepts_is_a_threaded_pass() {
     let mut accepted: Vec<&str> = ["charge", "collide", "link"].to_vec();
     let mut listed: Vec<&str> = BarnesHut::THREADED_PASSES
         .into_iter()
-        .filter(|&pass| pass != "link forces")
+        .filter(|&pass| pass != "link forces" && pass != "charge aggregate")
         .collect();
     accepted.sort_unstable();
     listed.sort_unstable();
