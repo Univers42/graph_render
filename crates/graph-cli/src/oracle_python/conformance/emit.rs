@@ -89,13 +89,9 @@ pub fn write(out: &Path) -> Result<String, String> {
 /// layout refuses is a gap in the row and the row says which, so the count of coordinates
 /// the Python arm compares is the count the motor arm produced.
 fn runs(row: &Row, set: &[Fixture]) -> Vec<Ran> {
-    let Some(id) = row.motor else {
-        return set
-            .iter()
-            .map(|_| Err("no motor layout".to_string()))
-            .collect();
-    };
-    set.iter().map(|fixture| motor::run(id, fixture)).collect()
+    set.iter()
+        .map(|fixture| motor::run_row(row, fixture))
+        .collect()
 }
 
 fn write_lines(path: &Path, rows: &[Value]) -> Result<(), String> {

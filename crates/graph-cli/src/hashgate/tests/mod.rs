@@ -6,6 +6,7 @@
 //!   and which knob moves which stage.
 //! - [`arm_lines`] — what an arm *prints*: the line order, and the threaded arm's claim to
 //!   be the scalar arm's lines verbatim.
+//! - [`stage_list`] — the stage list as a list: no id twice across all three registries.
 //! - [`knob`], [`report`], [`stages`] — the settings, the written report and the stage
 //!   bytes, each with its own claims.
 
@@ -14,6 +15,7 @@ mod compare;
 mod knob;
 mod pipeline;
 mod report;
+mod stage_list;
 mod stages;
 
 // The vocabulary the *direct* children name from here. A grandchild (`tests::stages::arm`)
@@ -40,6 +42,26 @@ pub(super) fn env(pairs: Vec<(&str, &str)>) -> impl Fn(&str) -> Result<String, V
             .map(|(_, value)| (*value).to_owned())
             .ok_or(VarError::NotPresent)
     }
+}
+
+/// [`env`]'s reader paired with the **names** those pairs carry, for
+/// [`setting_named`](super::knob::setting::setting_named)'s `GM_MUTATE_*` sweep (RG-26).
+///
+/// One helper for both halves because a test that sets a knob and a test that must be
+/// refused for a misspelled one build their pairs the same way; a test that only wants the
+/// value half uses [`env`].
+pub(super) fn named(
+    pairs: Vec<(&'static str, &'static str)>,
+) -> (
+    impl Fn(&str) -> Result<String, VarError>,
+    impl Fn() -> Vec<std::ffi::OsString>,
+) {
+    let values = pairs.clone();
+    let names = pairs
+        .iter()
+        .map(|(key, _)| std::ffi::OsString::from(*key))
+        .collect::<Vec<_>>();
+    (env(values), move || names.clone())
 }
 
 /// The compiled-in defaults: no knob set, so a test that does not name one is measuring

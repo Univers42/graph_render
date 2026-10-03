@@ -73,6 +73,23 @@ function nodeGesture(controller: Controller, node: number): Gesture {
   };
 }
 
+/**
+ * A node under a moving pointer takes the camera's claim as well as the drawing's: a live
+ * settle keeps arriving while the node is held, and a camera that follows it would slide the
+ * held node out from under the pointer. The claim goes on the first move and not on the press,
+ * so a plain click to select a node leaves the view still framing its own drawing.
+ */
+function held(controller: Controller, gesture: Gesture): Gesture {
+  return {
+    move: (at) => {
+      controller.fitted = false;
+      gesture.move(at);
+    },
+    end: (at) => gesture.end(at),
+    cancel: () => gesture.cancel?.(),
+  };
+}
+
 /** Shift takes the drag for a box; otherwise a press on a node takes it for that node. */
 export function pressAt(controller: Controller, at: Point, shift: boolean): Gesture | null {
   if (shift) return boxGesture(controller, at);
@@ -80,7 +97,7 @@ export function pressAt(controller: Controller, at: Point, shift: boolean): Gest
   if (node < 0) return null;
   const { camera } = controller.state;
   const live = controller.live === undefined ? null : liveGesture(controller.live, node, (to) => screenToWorld(camera, to));
-  return live ?? nodeGesture(controller, node);
+  return held(controller, live ?? nodeGesture(controller, node));
 }
 
 /** A secondary click acts on the node under it: it joins the selection if it is not in it. */
