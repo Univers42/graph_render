@@ -4,14 +4,27 @@
 //! `docs/decisions/sugiyama-heuristics.md` for the full citation list and every
 //! deviation.
 //!
-//! Pipeline: [`acyclic`] breaks cycles, [`layering`] assigns layers and dummy chains,
-//! [`ordering`] reduces crossings, [`coords`] assigns X, [`routing`] builds the geometry.
+//! Pipeline: [`acyclic`] orients every edge forward, [`layering`] assigns layers and dummy
+//! chains, [`ordering`] reduces crossings, [`coords`] assigns X, [`routing`] builds the
+//! geometry.
+//!
+//! **Two entry points, two sets of axes, one pipeline.** [`run`] is the registered
+//! `layout.dag.sugiyama`: X in the priority method's own units (`coords.rs`'s `GAP = 1.0`,
+//! uncentred) and Y as `layer * LAYER_SPACING`, which is what the dagre differential
+//! measures. [`run_scaled`] is the same six stages with SciGraphs' own per-axis
+//! normalisation (`hierarchical.py:679-685`), which is what a byte comparison against
+//! `apply_graph_layout` needs. They differ only in that last step.
 
 mod acyclic;
 mod coords;
 mod layering;
 mod ordering;
 mod routing;
+mod scaled;
+#[cfg(test)]
+mod stages;
+
+pub use scaled::run_scaled;
 
 use super::Geometry;
 use crate::index::Topology;
@@ -28,9 +41,12 @@ use routing::{LAYER_SPACING, Routing, edge_paths, node_positions};
 /// [`crossings_for`] share.
 fn layered(topology: &Topology) -> (Acyclic, Layering, Ordering) {
     let acyclic = Acyclic::of(topology);
-    let arcs = Arcs::new(topology, &acyclic);
-    let layer = assign_layers(&arcs);
-    let layering = Layering::build(&arcs, &layer, DUMMY_BUDGET);
+    // One sort for the whole layering phase: the arc list is built here and handed down, so
+    // `assign_layers`, `budget_plan` and `materialize` read the same list rather than each
+    // re-deriving it (the review's finding 2).
+    let list = Arcs::new(topology, &acyclic).grouped();
+    let layer = assign_layers(&list);
+    let layering = Layering::build(&list, &layer, DUMMY_BUDGET);
     let num_layers = layering.layer_of.iter().copied().max().map_or(0, |m| m + 1);
     let ordering = Ordering::build(&layering, num_layers);
     (acyclic, layering, ordering)
@@ -143,7 +159,7 @@ mod measurement {
     use graph_contract::canonical_json::{Value, parse};
     use std::fmt::Write as _;
 
-    const FIXTURES: [(&str, &str); 6] = [
+    const FIXTURES: [(&str, &str); 7] = [
         (
             "chain",
             include_str!("../../../../../fixtures/dag/chain.json"),
@@ -167,6 +183,10 @@ mod measurement {
         (
             "disconnected",
             include_str!("../../../../../fixtures/dag/disconnected.json"),
+        ),
+        (
+            "parallel-arcs",
+            include_str!("../../../../../fixtures/dag/parallel-arcs.json"),
         ),
     ];
 

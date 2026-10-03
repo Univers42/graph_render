@@ -204,7 +204,7 @@ pub enum Knob {
     IgraphLglNodes,
     /// `GM_MUTATE_FORCE_DRL_NODES`: `layout.force.drl`'s own model.
     IgraphDrlNodes,
-    /// The five natively 3D layout node controls, in
+    /// The seven natively 3D layout node controls, in
     /// [`knobs::THREE_D_LAYOUT_STAGES`] order — the same shape and the same reason as the
     /// six above, and for `sphere`, `helix` and `cube` the *only* shape available: those
     /// three read the node count and no edge, so their model is their whole input.
@@ -225,6 +225,22 @@ pub enum Knob {
     /// and names neither. This one moves `layout.force.spring3d` alone, which is what makes
     /// the divergence attributable.
     Spring3dNodes,
+    /// `GM_MUTATE_BASIC3D_SPIRAL_NODES`: `layout.basic3d.spiral`'s own model.
+    ///
+    /// The re-drawn-model probe, and like `sphere`/`helix`/`cube` above it is the *only*
+    /// shape available: the layout reads the node count and no edge
+    /// (`layout/basic_3d.rs`'s module doc), so its model is its whole input. One more node
+    /// moves `turns`, the `wanted` linspace and every coordinate after it, which is a
+    /// sharper probe here than it is for `sphere`: the arc-length table is rebuilt per call,
+    /// so a perturbed node count re-runs the whole 65 536-entry inversion.
+    Basic3dSpiralNodes,
+    /// `GM_MUTATE_BIPARTITE_3D_NODES`: `layout.bipartite_3d`'s own model.
+    ///
+    /// The same probe for the same reason, with one difference worth recording: this layout
+    /// *does* read the graph (`registry.rs`'s append comment says so), so a re-drawn model
+    /// moves it through its edges as well as its node count. That is still the right probe —
+    /// it is scoped to this stage alone, which a shared control could not be.
+    Bipartite3dNodes,
     /// `GM_MUTATE_PACKING_OSAGE_NODES`: `layout.packing.osage`'s own model.
     ///
     /// The re-drawn-model probe again, and for `osage` it is not merely the available one but
@@ -264,7 +280,7 @@ impl Knob {
     /// twenty-seven per-stage arms are spelled out there and held against those four tables
     /// by `the_analysis_and_post_controls_are_the_knobs_table`, which fails on any arm whose
     /// variable, record or stage a table disagrees with.
-    pub const ALL: [Self; 45] = arms::ALL;
+    pub const ALL: [Self; 47] = arms::ALL;
 
     /// The variable that sets it.
     pub const fn env(self) -> &'static str {

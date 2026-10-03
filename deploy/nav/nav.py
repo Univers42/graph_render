@@ -26,6 +26,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "perf"))
 
 import cdp
+import gpu
 import navrows as judge
 from drive import VIEWPORT, Studio
 
@@ -52,11 +53,16 @@ def launch_browser(profile, extra=()):
     The backend gate passes `--enable-unsafe-swiftshader` (the only WebGL2 a GPU-less container
     has, deploy/perf/run.py): the flag belongs to the browser, so it is a parameter here rather
     than a second copy of this function.
+
+    `extra` is the whole GL policy. Empty means `gpu.SOFTWARE_FLAGS`, which is what every nav gate
+    measured before this parameter: the software rasteriser, the same on every host. A perf probe
+    under GM_GPU=1 passes `gpu.chrome_flags()` instead, which leaves `--disable-gpu` off so the
+    hardware backend can be reached (deploy/nav/gpu.py).
     """
     # --no-sandbox: the container has no user namespace to build the sandbox from, and the
     # only page ever loaded is this repository's own build, served from 127.0.0.1.
     return subprocess.Popen([
-        "chromium", "--headless=new", "--no-sandbox", "--disable-gpu", *extra,
+        "chromium", "--headless=new", "--no-sandbox", *(extra or gpu.SOFTWARE_FLAGS),
         "--disable-dev-shm-usage", f"--remote-debugging-port={DEBUG_PORT}",
         f"--user-data-dir={profile}", f"--window-size={VIEWPORT[0]},{VIEWPORT[1]}",
         "about:blank",

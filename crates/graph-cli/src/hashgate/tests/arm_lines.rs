@@ -11,7 +11,7 @@ use super::env;
 use super::honest;
 use graph_core::GridParams;
 use graph_core::Stage as _;
-use graph_core::layout::force::{BarnesHut, Split, YifanHu};
+use graph_core::layout::force::{BarnesHut, ParticleMesh, Split, YifanHu};
 
 #[test]
 fn an_arm_prints_every_seed_of_one_stage_before_the_next() {
@@ -89,12 +89,12 @@ fn the_threaded_arm_prints_its_stages_in_the_same_order_as_the_scalar_one() {
 ///
 /// `GM_MUTATE_SPLIT_SUM` reaches the threaded arm only through the recompute in
 /// `stage_bytes_threaded`. So with the control on, the arm's bytes must differ from the
-/// scalar run's on **both** force stages and on nothing else — and the ids that moved must
+/// scalar run's on **every** force stage and on nothing else — and the ids that moved must
 /// be exactly the ones the arm recomputes. Without this, "10-way equal" on a force stage
 /// whose id was never in the match is a comparison of a run with itself, and the gate is
 /// green on a stage it never ran threaded.
 #[test]
-fn the_split_control_moves_both_force_stages_and_nothing_else() {
+fn the_split_control_moves_every_force_stage_and_nothing_else() {
     let split = setting(env(vec![("GM_MUTATE_SPLIT_SUM", "1")])).expect("parses");
     assert_eq!(split.split_sum, Split::All);
     let seed = 8_u32;
@@ -116,8 +116,8 @@ fn the_split_control_moves_both_force_stages_and_nothing_else() {
     // one id, which is the vacuous case this test exists to catch.
     assert_eq!(
         moved,
-        vec![BarnesHut::ID, YifanHu::ID],
-        "the control must move both force stages and no other stage — a stage missing from \
+        vec![BarnesHut::ID, YifanHu::ID, ParticleMesh::ID],
+        "the control must move every force stage and no other stage — a stage missing from \
          the match reuses the scalar bytes, so its equality is vacuous"
     );
     // And with the control off the recompute is byte-identical, at every gated width: that
@@ -131,20 +131,21 @@ fn the_split_control_moves_both_force_stages_and_nothing_else() {
     }
 }
 
-/// The recompute list the arm reads is the five stages `--tiers all` threads, and both
-/// force stages are in it: a stage in the list but out of the split control's reach is
+/// The recompute list the arm reads is the six stages `--tiers all` threads, and every
+/// force stage is in it: a stage in the list but out of the split control's reach is
 /// threaded and compared (which is the point), and a force stage outside the list would be
 /// hashed from the scalar column and compared with itself.
 ///
 /// **Spelled out rather than read from the list's own definition**, so a list that lost a
 /// stage — the vacuous case — fails here rather than agreeing with itself.
 #[test]
-fn the_recompute_list_is_the_five_stages_the_threaded_arm_claims() {
+fn the_recompute_list_is_the_six_stages_the_threaded_arm_claims() {
     assert_eq!(
         super::super::tiered::THREADED_STAGES.as_slice(),
         [
             BarnesHut::ID,
             YifanHu::ID,
+            ParticleMesh::ID,
             graph_core::Grid::ID,
             graph_core::layout::circular::ring::ID,
             graph_core::layout::spiral::ID,

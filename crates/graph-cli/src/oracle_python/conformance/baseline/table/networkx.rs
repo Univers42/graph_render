@@ -74,12 +74,12 @@ pub(super) const NETWORKX: [Baseline; 12] = [
     ),
     row(
         "SPIRAL_3D",
-        "1882ccdfd1d480b4ea3d30f3aa4fb95b9b42e20cde4113541f892cfff8f1090f",
+        "57bf83dea6a23c75322523aae4fa02852c8e43b31726673d6685fd1ac7cfe41b",
         "94502f4418b5f7c71b0137e36b5cf1e29170c4c0c74e494219cfabba7818533f",
         "",
-        1e0,
-        "shape",
-        "algorithm",
+        1e-15,
+        "tolerance",
+        "arithmetic",
     ),
     row(
         "HELIX",
@@ -92,12 +92,12 @@ pub(super) const NETWORKX: [Baseline; 12] = [
     ),
     row(
         "CUBE",
-        "551445ae12399d0464ba8853c13c3c4404db0fe3afcf875a8f9c7ff713cf8826",
+        "3b62357250ab90175272c1a4d43c270ab210f485b86f72301b59040e757bc02b",
         "2876776f43705602f42bf11b64fa165868e6f5a5078c682d5fee3a98454236ad",
         "",
-        1e0,
-        "bitwise",
-        "rng",
+        1e-16,
+        "tolerance",
+        "arithmetic",
     ),
     row(
         "HIERARCHICAL_3D",

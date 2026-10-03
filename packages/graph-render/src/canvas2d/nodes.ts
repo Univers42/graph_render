@@ -123,8 +123,17 @@ function paintSpheres(input: PaintInput, counts: PaintCounts, pass: Pass): void 
   }
 }
 
-/** True when this scene is drawn as lit spheres rather than as batched fills. */
+/**
+ * True when this scene is drawn as lit spheres rather than as batched fills.
+ *
+ * A `Box` frame never takes the impostor path: the sprite the cache hands back is a lit disc
+ * of one radius (`sphereSize` squares the drawn diameter) and there is no rect impostor baked,
+ * so blitting one would spend the node's `w`, its `h` and the rim stroke and turn every box
+ * into a round sprite. A Box frame keeps the shape the snapshot gave it and is drawn by the
+ * flat rect path — the same path a Box scene past IMPOSTOR_BUDGET already takes.
+ */
 export function impostorOf(input: PaintInput): boolean {
+  if (input.frame.nodeKind === "Box") return false;
   return input.style.spheres !== null && input.frame.nodeCount <= IMPOSTOR_BUDGET;
 }
 

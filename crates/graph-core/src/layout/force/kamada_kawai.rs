@@ -74,7 +74,7 @@ impl Stage for KamadaKawai {
 
 /// Vertices on a circle of radius `0.36 * sqrt(n)` (the spec's empirical start radius).
 fn circle_start(n: usize) -> Vec<[f64; 2]> {
-    let radius = 0.36 * libm::sqrt(n as f64);
+    let radius = 0.36 * f64::sqrt(n as f64);
     (0..n)
         .map(|i| {
             let angle = 2.0 * core::f64::consts::PI * i as f64 / n as f64;
@@ -106,7 +106,7 @@ impl Springs {
         Springs {
             n,
             dist,
-            length_per_hop: libm::sqrt(n as f64) / d_max,
+            length_per_hop: f64::sqrt(n as f64) / d_max,
             strength: params.kkconst.unwrap_or(n as f64),
         }
     }
@@ -152,7 +152,7 @@ fn all_pairs_hops(graph: &SimpleGraph, n: usize) -> Vec<f64> {
 fn pull(pos: &[[f64; 2]], springs: &Springs, m: usize, i: usize) -> [f64; 2] {
     let (k, l) = springs.spring(m, i);
     let delta = [pos[m][0] - pos[i][0], pos[m][1] - pos[i][1]];
-    let r = libm::sqrt(delta[0] * delta[0] + delta[1] * delta[1]);
+    let r = f64::sqrt(delta[0] * delta[0] + delta[1] * delta[1]);
     let shrink = if r > 0.0 { l / r } else { 0.0 };
     [
         k * (delta[0] - shrink * delta[0]),
@@ -178,7 +178,7 @@ fn newton_step(pos: &[[f64; 2]], springs: &Springs, m: usize, g: [f64; 2]) -> [f
     for i in (0..springs.n).filter(|&i| i != m) {
         let (k, l) = springs.spring(m, i);
         let (dx, dy) = (pos[m][0] - pos[i][0], pos[m][1] - pos[i][1]);
-        let r = libm::sqrt(dx * dx + dy * dy);
+        let r = f64::sqrt(dx * dx + dy * dy);
         if r == 0.0 {
             (a, c) = (a + k, c + k);
             continue;

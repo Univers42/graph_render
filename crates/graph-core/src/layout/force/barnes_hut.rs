@@ -17,11 +17,11 @@
 
 mod charge;
 mod collide;
-mod link;
+pub(in crate::layout::force) mod link;
 mod seed;
 mod settle;
 pub(in crate::layout::force) mod sim;
-mod step;
+pub(in crate::layout::force) mod step;
 
 #[cfg(test)]
 mod tests;
@@ -32,7 +32,6 @@ use crate::index::Topology;
 use crate::layout::Geometry;
 use crate::layout::force::session::ForceSession;
 use crate::stage::{Stage, StageError};
-use graph_contract::geometry::{EdgeGeometry, NodeGeometry};
 
 /// Which of the tick's range-kernel merges the negative control splits.
 ///
@@ -119,19 +118,19 @@ impl Stage for BarnesHut {
 
 impl BarnesHut {
     /// The passes of a tick that are handed to the [`crate::exec::Runner`] as range
-    /// kernels, listed in the tick's own order: `link`, then `charge`, then `collide`,
-    /// with `center` between the second and third and never threaded.
+    /// kernels, listed in the tick's own order: the link forces (one output per edge), the
+    /// link gather, then `charge`, then `collide`, with `center` between the third and
+    /// fourth and never threaded.
     ///
     /// The list exists because a measurement report states it: every speedup a threaded
     /// tier shows is this list's share of the stage, so a pass threaded without being
     /// listed here would silently misattribute a speedup. The array's **length** is what
-    /// a test can check from outside the tick — the three kernels share an output type and
-    /// a length, so a runner cannot tell them apart — and
-    /// `barnes_hut/tests/kernels.rs::the_tick_hands_the_runner_one_call_per_listed_pass`
+    /// a test can check from outside the tick — a runner cannot tell the kernels apart —
+    /// and `barnes_hut/tests/kernels.rs::the_tick_hands_the_runner_one_call_per_listed_pass`
     /// fails if the two ever disagree in count. The **order** is a claim about
     /// [`Sim::tick`]'s body, written here for the reader; a test that could hold it would
     /// need the kernels to name themselves, which `StepRange` deliberately does not ask.
-    pub const THREADED_PASSES: [&'static str; 3] = ["link", "charge", "collide"];
+    pub const THREADED_PASSES: [&'static str; 4] = ["link forces", "link", "charge", "collide"];
 
     /// The same layout, with the many-body pass handed to `runner` over `workers` workers.
     ///
@@ -175,17 +174,6 @@ impl BarnesHut {
         // 4-way hash gate are there to keep true.
         let mut session = ForceSession::from_frozen(topology, params)?;
         session.step_under(runner, workers, split, TICKS);
-        let (x, y) = (session.xs(), session.ys());
-        if x.iter().chain(y).any(|v| !v.is_finite()) {
-            return Err(StageError::NonFinite { column: "node.x" });
-        }
-        Ok(Geometry::planar(
-            NodeGeometry::Point {
-                x: x.iter().map(|&v| v as f32).collect(),
-                y: y.iter().map(|&v| v as f32).collect(),
-            },
-            EdgeGeometry::Line,
-            Vec::new(),
-        ))
+        super::planar_points(session.xs(), session.ys())
     }
 }

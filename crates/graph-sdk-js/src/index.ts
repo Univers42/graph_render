@@ -18,7 +18,7 @@ import { ColumnViews } from "./views.ts";
 import { ForceSession } from "./force.ts";
 import { AnalysisRefusedError, BuildRefusedError, ContractRefusedError, InvalidHandleError } from "./errors.ts";
 import { PostRefusedError, RunRefusedError, WasmUnavailableError, codeName } from "./errors.ts";
-import { ColumnId, type AnalysisResult, type Column, type ForceParams, type Handle } from "./types.ts";
+import { ColumnId, type AnalysisResult, type Column, type ForceEngine, type ForceParams, type Handle } from "./types.ts";
 import type { MotorOptions, PostResult, RunResult } from "./types.ts";
 import { parseAnalysisFace } from "./analysis-face.ts";
 import { INVALID_HANDLE_CODE, NO_GEOMETRY_CODE, decoder, frame, invoke, lastError } from "./calls.ts";
@@ -300,9 +300,11 @@ export class Motor {
    *  running, and the session is released with its own {@link ForceSession.release}.
    *
    *  The two have separate id spaces and separate error codes (`InvalidHandle` against
-   *  `InvalidSession`), so a caller debugging a dead one is never sent looking at the other. */
-  forceSession(handle: Handle, params?: Partial<ForceParams>): ForceSession {
-    return new ForceSession(this.#requireLoaded(), handle, params);
+   *  `InvalidSession`), so a caller debugging a dead one is never sent looking at the other.
+   *
+   *  `engine` picks the tick ({@link ForceEngine}); every other method is the same for both. */
+  forceSession(handle: Handle, params?: Partial<ForceParams>, engine?: ForceEngine): ForceSession {
+    return new ForceSession(this.#requireLoaded(), handle, params, engine);
   }
 }
 

@@ -104,7 +104,7 @@ fn a_self_loop_is_a_regular_octagon_centred_half_a_radius_above_the_node() {
     let centre = (4.0f64, 0.125f64);
     for (i, v) in loop_row.iter().enumerate() {
         let (dx, dy) = (v.0 - centre.0, v.1 - centre.1);
-        let d = libm::sqrt(dx * dx + dy * dy);
+        let d = f64::sqrt(dx * dx + dy * dy);
         assert!(
             (d - f64::from(RADIUS)).abs() <= LOOP,
             "vertex {i} is off the circle: {d}"

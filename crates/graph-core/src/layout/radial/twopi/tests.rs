@@ -188,7 +188,7 @@ fn the_radius_is_the_bfs_depth_and_the_centre_is_the_first_maximum() {
 #[track_caller]
 fn assert_radius(got: (f32, f32), want: f32, node: u32) {
     let (x, y) = (f64::from(got.0), f64::from(got.1));
-    let radius = libm::sqrt(x * x + y * y);
+    let radius = f64::sqrt(x * x + y * y);
     assert!(
         (radius - f64::from(want)).abs() < 1e-2,
         "n{node} sits {radius} points from the centre, not {want}"
