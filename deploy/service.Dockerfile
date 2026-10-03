@@ -16,6 +16,8 @@ USER 10001:10001
 EXPOSE 8080
 
 # The base has no curl: the server probes its own /healthz (docs/contract/service-api.md, C11).
+# Caveat: --timeout is the probe's own 2 s budget (server health.rs) plus 1 s for docker to start
+# the exec; on a host loaded past that margin a live server reads as unhealthy, never the reverse.
 HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --start-interval=1s --retries=3 \
   CMD ["/usr/local/bin/graph-server", "healthcheck"]
 

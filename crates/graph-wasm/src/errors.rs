@@ -32,16 +32,8 @@ pub enum Code {
     /// back when a registry run took no parameters at all (C2). A run now carries them, so
     /// the three codes after [`Self::AnalysisFailed`] answer instead. The number stays:
     /// removing the variant would renumber every code above it, and a host that switched
-    /// on `6` would silently read a different refusal.
-    // `not(test)`: this module's own tests name every code, so under `cfg(test)` the
-    // variant is used and the expectation would be unfulfilled.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "reserved: never produced again, and removing the variant would renumber every code above it"
-        )
-    )]
+    /// on `6` would silently read a different refusal. No `dead_code` expectation: `Code` is
+    /// public through `service`, and a public enum's variants are never dead.
     ParamsMustBeEmpty = 6,
     /// Every `u32` handle id has been issued in this instance; none can be reused (C6).
     HandlesExhausted = 7,
@@ -155,6 +147,9 @@ impl Code {
             Self::SessionRefused => "SessionRefused",
             Self::AnalysisFailed => "AnalysisFailed",
             Self::IngestTooLarge => "IngestTooLarge",
+            Self::ParamOutOfRange => "ParamOutOfRange",
+            Self::ParamsMalformed => "ParamsMalformed",
+            Self::ParamsNotAccepted => "ParamsNotAccepted",
         }
     }
 }
