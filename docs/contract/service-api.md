@@ -43,15 +43,24 @@ Every error body is JSON `{"error": "<code>", "message": "<one line>"}`. `code` 
 `Code` name where one applies (`IngestInvalid`, `ContractInvalid`, `UnknownLayoutId`, `LayoutFailed`,
 ...), so the browser SDK and the service name a failure the same way.
 
-| Status | When |
-|---|---|
-| 400 | malformed query, unknown `source`, unknown layout or post id |
-| 401 | no key, or a key that matches no stored hash. The body never says which |
-| 406 | `Accept` names neither face |
-| 413 | body over `GRAPH_MAX_BODY` (default 64 MiB), or over the motor's own ingest limits (`docs/decisions/wasm-ingest-limits.md`) |
-| 422 | the motor refused the document or the run |
-| 429 | every compute slot is busy and the wait queue is full; `Retry-After: 1` |
-| 503 | the request ran past `GRAPH_TIMEOUT_MS` (default 30000) |
+| Status | `error` | When |
+|---|---|---|
+| 400 | `BadRequest` | malformed, unknown or repeated query parameter, unknown `source`, more than one `post`, a key in the query, a second `Authorization` header |
+| 400 | `UnknownLayoutId` | no layout has the `layout` id |
+| 400 | `IndexOutOfRange` | no POST pass has the `post` id (the motor's own name for it) |
+| 401 | `Unauthorized` | no key, or a key that matches no stored hash. The body never says which; `WWW-Authenticate: Bearer` |
+| 404 | `NotFound` | no such route, a wrong method on a route, any `/embed/` path not in the versioned tree |
+| 406 | `NotAcceptable` | `Accept` excludes both faces |
+| 408 | `Timeout` | the body did not arrive within `GRAPH_BODY_TIMEOUT_MS` |
+| 413 | `IngestTooLarge` | body over `GRAPH_MAX_BODY` (default 64 MiB), over the motor's own ingest limits (`docs/decisions/wasm-ingest-limits.md`), or nodes or edges over the id's work cap |
+| 422 | `IngestInvalid`, `ContractInvalid`, `LayoutFailed`, `PostFailed` | the motor refused the document or the run |
+| 429 | `Busy` | every compute slot is busy and the wait queue is full; `Retry-After: 1` |
+| 500 | `Internal` | a run panicked, or the motor answered a code the service never expects (its name is in the message) |
+| 503 | `Timeout` | the request ran past `GRAPH_TIMEOUT_MS` (default 30000) |
+
+Implementation note (graph-server): the `error` column, 404, 408 and 500 were added here because
+the server had to name them; a malformed request line or a header block past
+`GRAPH_MAX_HEADER_BYTES` is refused by hyper itself (400 or 431) with no JSON body.
 
 ## API keys
 
