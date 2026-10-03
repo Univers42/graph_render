@@ -1,4 +1,4 @@
-//! The five natively 3D layout controls' variable and record names, in
+//! The seven natively 3D layout controls' variable and record names, in
 //! [`super::Knob`]'s 3D arm order.
 //!
 //! The same shape as [`super::igraph`] and the same reason: each is a node count for
@@ -24,19 +24,23 @@
 /// The variable each 3D control is set by, in 3D arm order. The order matches
 /// [`super::Knob`]'s 3D arms and
 /// [`crate::hashgate::knobs::THREE_D_LAYOUT_STAGES`]'s.
-pub const ENV: [&str; 5] = [
+pub const ENV: [&str; 7] = [
     "GM_MUTATE_BASIC3D_SPHERE_NODES",
     "GM_MUTATE_BASIC3D_HELIX_NODES",
     "GM_MUTATE_BASIC3D_CUBE_NODES",
     "GM_MUTATE_HIERARCHICAL3D_NODES",
     "GM_MUTATE_FORCE_SPRING3D_NODES",
+    "GM_MUTATE_BASIC3D_SPIRAL_NODES",
+    "GM_MUTATE_BIPARTITE_3D_NODES",
 ];
 
 /// The record each 3D control's run writes, in the same order as [`ENV`].
-pub const RECORD: [&str; 5] = [
+pub const RECORD: [&str; 7] = [
     "hashgate-control-basic3d-sphere-nodes",
     "hashgate-control-basic3d-helix-nodes",
     "hashgate-control-basic3d-cube-nodes",
     "hashgate-control-hierarchical3d-nodes",
     "hashgate-control-force-spring3d-nodes",
+    "hashgate-control-basic3d-spiral-nodes",
+    "hashgate-control-bipartite-3d-nodes",
 ];
