@@ -45,11 +45,43 @@ fn the_force_stages_are_4_way_compiled_and_hashed() {
     }
 }
 
+/// One force stage's own negative control: `(knob, value, stage, record name)`.
+type Control = (&'static str, &'static str, &'static str, &'static str);
+
+/// Both force stages' controls, listed once and given one `#[test]` each. Each control
+/// is a whole `hashgate --seeds 40`, so looping both inside a single test left this
+/// file's wall on one core while the rest of the binary idled; libtest now gives each
+/// control its own thread.
+const FORCE_CONTROLS: [Control; 2] = [
+    (
+        KNOBS[4],
+        "0.5",
+        "layout.force.barnes_hut",
+        "hashgate-control-force-theta",
+    ),
+    (
+        KNOBS[5],
+        "3",
+        "layout.forceatlas2",
+        "hashgate-control-fa2-scaling-ratio",
+    ),
+];
+
+#[test]
+fn the_force_theta_control_goes_red_on_only_the_barnes_hut_stage() {
+    control_goes_red_on_only_its_stage(FORCE_CONTROLS[0]);
+}
+
+#[test]
+fn the_fa2_scaling_ratio_control_goes_red_on_only_the_forceatlas2_stage() {
+    control_goes_red_on_only_its_stage(FORCE_CONTROLS[1]);
+}
+
 /// Each force layout's own negative control, end to end: the wasm arm runs the
 /// compiled-in default and cannot see the variable, so a wired knob shows up as exactly
 /// the cross-target divergence — and only on the stage the knob is filed under.
 ///
-/// Two things about this test are not incidental, and both were found by running it
+/// Two things about this control are not incidental, and both were found by running it
 /// rather than by reading it:
 ///
 /// - **The seed count.** `gate_node_count(seed)` is `2 + seed % 600`, so `--seeds 2`
@@ -61,64 +93,49 @@ fn the_force_stages_are_4_way_compiled_and_hashed() {
 ///   tree actually opens a cell, so the control is required to diverge on *at least
 ///   one* seed — the ledger's own bar, and the bar that makes it evidence — while
 ///   leaving the untouched stages equal on *every* seed.
-#[test]
-fn each_force_layouts_own_control_goes_red_on_only_its_stage() {
+fn control_goes_red_on_only_its_stage(control: Control) {
+    let (knob, value, stage, record_name) = control;
     const SEEDS: &str = "40";
-    for (knob, value, stage, record_name) in [
-        (
-            KNOBS[4],
-            "0.5",
-            "layout.force.barnes_hut",
-            "hashgate-control-force-theta",
-        ),
-        (
-            KNOBS[5],
-            "3",
-            "layout.forceatlas2",
-            "hashgate-control-fa2-scaling-ratio",
-        ),
+    let run = graph_cli(&["hashgate", "--seeds", SEEDS], Some((knob, value)));
+    assert_eq!(
+        run.status.code(),
+        Some(1),
+        "{knob}={value}: {}",
+        stdout(&run)
+    );
+    let out = stdout(&run);
+    // At least one seed must diverge, or the control backs nothing.
+    let line = out
+        .lines()
+        .find(|l| l.trim_start().starts_with(&format!("{stage}:")))
+        .unwrap_or_else(|| panic!("{stage} is not reported: {out}"));
+    let equal: usize = line
+        .rsplit_once("on ")
+        .and_then(|(_, rest)| rest.split('/').next())
+        .and_then(|n| n.trim().parse().ok())
+        .unwrap_or_else(|| panic!("no seed count in {line:?}"));
+    assert!(equal < 40, "{knob} did not go red on {stage}: {line}");
+    // Its own stage only: a control that moved anything else would back every
+    // stage at once and prove nothing about the stage it is filed under.
+    for other in [
+        "topology",
+        "layout.grid",
+        "layout.tree.tidy",
+        "layout.treemap.squarified",
+        "layout.circular.radial",
+        "layout.packing.circle",
     ] {
-        let run = graph_cli(&["hashgate", "--seeds", SEEDS], Some((knob, value)));
-        assert_eq!(
-            run.status.code(),
-            Some(1),
-            "{knob}={value}: {}",
-            stdout(&run)
-        );
-        let out = stdout(&run);
-        // At least one seed must diverge, or the control backs nothing.
-        let line = out
-            .lines()
-            .find(|l| l.trim_start().starts_with(&format!("{stage}:")))
-            .unwrap_or_else(|| panic!("{stage} is not reported: {out}"));
-        let equal: usize = line
-            .rsplit_once("on ")
-            .and_then(|(_, rest)| rest.split('/').next())
-            .and_then(|n| n.trim().parse().ok())
-            .unwrap_or_else(|| panic!("no seed count in {line:?}"));
-        assert!(equal < 40, "{knob} did not go red on {stage}: {line}");
-        // Its own stage only: a control that moved anything else would back every
-        // stage at once and prove nothing about the stage it is filed under.
-        for other in [
-            "topology",
-            "layout.grid",
-            "layout.tree.tidy",
-            "layout.treemap.squarified",
-            "layout.circular.radial",
-            "layout.packing.circle",
-        ] {
-            assert!(
-                out.contains(&format!("  {other}: 4-way equal on {SEEDS}/{SEEDS} seeds")),
-                "{knob} must not move {other}: {out}"
-            );
-        }
-        let control = record(record_name);
-        assert!(control.contains("\"pass\": false"), "{control}");
         assert!(
-            control.contains(&format!("\"mutation\": \"{knob}\"")),
-            "{control}"
+            out.contains(&format!("  {other}: 4-way equal on {SEEDS}/{SEEDS} seeds")),
+            "{knob} must not move {other}: {out}"
         );
     }
+    let written = record(record_name);
+    assert!(written.contains("\"pass\": false"), "{written}");
+    assert!(
+        written.contains(&format!("\"mutation\": \"{knob}\"")),
+        "{written}"
+    );
 }
 
 /// `stress --oracle d3` is the quality gate a force layout can actually be held to:
