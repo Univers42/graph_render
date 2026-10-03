@@ -48,19 +48,28 @@ const MULBERRY_FIRST_SIX: [u64; 6] = [
     0x3FE4_EE6C_2DE0_0000,
 ];
 
-/// The draws of one `start`, in the generator's order: all of x, then all of y, then z.
-fn bits<const D: usize>(n: u32, seed: Option<u32>) -> Vec<u64> {
+/// One `start`'s coordinates as bits, one entry per axis.
+fn columns<const D: usize>(n: u32, seed: Option<u32>) -> Vec<Vec<u64>> {
     start::<D>(n, seed)
         .c
         .iter()
-        .flat_map(|column| column.iter().map(|v| v.to_bits()))
+        .map(|column| column.iter().map(|v| v.to_bits()).collect())
+        .collect()
+}
+
+/// The same flat, row-major reference run spread back over `D` axes the way [`Field`]
+/// stores them: axis `a` holds draws `a, D + a, 2D + a, ...`, because `rand(n, D)` fills in
+/// C order — node `i` takes draws `D*i .. D*i + D` — and `Field` keeps one column per axis.
+fn spread<const D: usize>(flat: &[u64]) -> Vec<Vec<u64>> {
+    (0..D)
+        .map(|axis| (0..flat.len() / D).map(|i| flat[i * D + axis]).collect())
         .collect()
 }
 
 /// `SPRING_3D`'s start is `rand(2, 3)` — three axes, six doubles, two words of MT19937 each.
 #[test]
 fn a_seeded_start_is_numpys_random_sample_bit_for_bit() {
-    assert_eq!(bits::<3>(2, Some(LAYOUT_SEED)), RAND_2_3.to_vec());
+    assert_eq!(columns::<3>(2, Some(LAYOUT_SEED)), spread::<3>(&RAND_2_3));
 }
 
 /// `SPRING`'s start is the same stream at `dim = 2`: the first four draws, not a different
@@ -68,8 +77,8 @@ fn a_seeded_start_is_numpys_random_sample_bit_for_bit() {
 #[test]
 fn a_seeded_start_at_two_dimensions_is_the_same_first_four_draws() {
     assert_eq!(
-        bits::<2>(2, Some(LAYOUT_SEED)),
-        RAND_2_3[..4].to_vec(),
+        columns::<2>(2, Some(LAYOUT_SEED)),
+        spread::<2>(&RAND_2_3[..4]),
         "dim = 2 must be the same draws, truncated"
     );
 }
@@ -78,7 +87,10 @@ fn a_seeded_start_at_two_dimensions_is_the_same_first_four_draws() {
 /// would pass both vector tests above.
 #[test]
 fn a_neighbouring_seed_moves_every_draw() {
-    assert_ne!(bits::<3>(2, Some(LAYOUT_SEED + 1)), RAND_2_3.to_vec());
+    assert_ne!(
+        columns::<3>(2, Some(LAYOUT_SEED + 1)),
+        spread::<3>(&RAND_2_3)
+    );
 }
 
 /// `seed: None` is the crate's own stream, byte for byte what it was before the field
@@ -86,10 +98,10 @@ fn a_neighbouring_seed_moves_every_draw() {
 /// it, and a change here would move all of them.
 #[test]
 fn the_unseeded_start_is_still_the_crates_own_mulberry32_stream() {
-    assert_eq!(bits::<3>(2, None), MULBERRY_FIRST_SIX.to_vec());
+    assert_eq!(columns::<3>(2, None), spread::<3>(&MULBERRY_FIRST_SIX));
     assert_ne!(
-        bits::<3>(2, None),
-        RAND_2_3.to_vec(),
+        columns::<3>(2, None),
+        spread::<3>(&RAND_2_3),
         "the two streams must not be the same generator"
     );
 }
@@ -124,7 +136,10 @@ fn the_seed_parameter_reaches_the_kernel() {
             .iter()
             .map(|p| f64::from(p.0).abs().max(f64::from(p.1).abs()))
             .fold(0.0, f64::max);
-        assert!((extent - 5.0).abs() < 1e-3, "span {extent}, not 5.0: {got:?}");
+        assert!(
+            (extent - 5.0).abs() < 1e-3,
+            "span {extent}, not 5.0: {got:?}"
+        );
         let unique: HashSet<(u32, u32)> =
             got.iter().map(|p| (p.0.to_bits(), p.1.to_bits())).collect();
         assert_eq!(unique.len(), got.len(), "coincident nodes: {got:?}");

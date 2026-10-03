@@ -32,10 +32,13 @@
 //! to 0.01; it then rescales to `scale` (`layout.py:646`). Four departures, all stated
 //! rather than hidden:
 //!
-//! 1. **Initial positions** come from graph-core's own seeded `Mulberry32` at [`SEED`],
-//!    not numpy's `RandomState` (D5: there is no global RNG to reach for, and the same
-//!    graph must hash the same on every target). The reference draws `seed.rand(n, 2)`, so
-//!    no coordinate of ours equals networkx's for any seed.
+//! 1. **Initial positions** come from graph-core's own seeded `Mulberry32` at [`SEED`]
+//!    *unless* a caller sets [`SpringParams::seed`] (D5: there is no global RNG to reach for,
+//!    and the same graph must hash the same on every target). At the default the reference
+//!    draws `seed.rand(n, dim)`, so no coordinate of ours equals networkx's for any seed;
+//!    the SciGraphs conformance arm passes `Some(get_layout_seed())` and gets the
+//!    reference's own `RandomState` stream, row-major, bit for bit
+//!    (`tests/seed.rs`).
 //! 2. **The reduction is split** — repulsion over all `j`, then attraction over the node's
 //!    own row — where the reference fuses them into one pass over a dense `n x n` matrix.
 //!    The same sum, a different rounding (see [`forces`]).
@@ -206,8 +209,8 @@ fn solve<const D: usize>(
 fn start<const D: usize>(n: u32, seed: Option<u32>) -> Field<D> {
     let mut c: [Vec<f64>; D] = core::array::from_fn(|_| Vec::with_capacity(n as usize));
     match seed {
-        Some(s) => from_random_state(&mut c, s),
-        None => from_mulberry32(&mut c),
+        Some(s) => from_random_state(&mut c, n, s),
+        None => from_mulberry32(&mut c, n),
     }
     Field { c }
 }
@@ -216,9 +219,9 @@ fn start<const D: usize>(n: u32, seed: Option<u32>) -> Field<D> {
 /// an `int` seed (`utils/misc.py:290-291`) and SciGraphs passes as `seed=get_layout_seed()`
 /// (`networkx_layouts.py:16-34`). Two `u32` words per double, so this is the reference's
 /// stream rather than a generator that merely looks like it.
-fn from_random_state<const D: usize>(c: &mut [Vec<f64>; D], seed: u32) {
+fn from_random_state<const D: usize>(c: &mut [Vec<f64>; D], n: u32, seed: u32) {
     let mut stream = crate::rng::Mt19937::new(seed);
-    for _ in 0..c[0].len() + c[0].capacity() - c[0].capacity() {
+    for _ in 0..n {
         for column in c.iter_mut() {
             column.push(stream.next_f64());
         }
@@ -227,9 +230,9 @@ fn from_random_state<const D: usize>(c: &mut [Vec<f64>; D], seed: u32) {
 
 /// The registered default, byte for byte what it was before [`SpringParams::seed`] existed:
 /// this crate's `Mulberry32` at [`SEED`], so no hashed snapshot of either spring id moves.
-fn from_mulberry32<const D: usize>(c: &mut [Vec<f64>; D]) {
+fn from_mulberry32<const D: usize>(c: &mut [Vec<f64>; D], n: u32) {
     let mut stream = Mulberry32::new(SEED);
-    for _ in 0..c[0].len() + c[0].capacity() - c[0].capacity() {
+    for _ in 0..n {
         for column in c.iter_mut() {
             column.push(stream.next_f64());
         }

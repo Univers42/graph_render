@@ -2,8 +2,96 @@
 //! and the coincident-pair substitute, and the whole packing pinned bit for bit so the
 //! relaxation's own tests have something to be pinned against.
 
-use super::seed::GOLDEN_ANGLE;
+use super::seed::{GOLDEN_ANGLE, start_positions};
 use super::{initial_radii, nudge, pack, seed_iterations, separated};
+
+/// `get_layout_seed()` with no pipeline seed set: `derive_seed(42, "layout")`
+/// (`repro/determinism.py:124-129`) — the seed SciGraphs passes to the fallback's
+/// `nx.spring_layout` (`circle_packing.py:428`).
+const LAYOUT_SEED: u32 = 981_798_123;
+
+/// `np.random.RandomState(981798123).rand(2, 2)`, row-major, as bits (numpy 2.3.3): node 0
+/// takes draws 0 and 1, node 1 draws 2 and 3. The reference's own stream, bit for bit —
+/// a tolerance here would accept a generator that is merely *near* it.
+const RAND_2_2: [u64; 4] = [
+    0x3FED_2B61_1EED_9D7B,
+    0x3FE2_38BF_EACB_3589,
+    0x3FD7_C4D8_0207_BEAE,
+    0x3FC9_03DC_489C_5238,
+];
+
+#[test]
+fn a_seeded_start_is_numpys_random_sample_bit_for_bit() {
+    let got = start_positions(2, Some(LAYOUT_SEED));
+    let bits: Vec<u64> = got
+        .iter()
+        .flat_map(|&(x, y)| [x.to_bits(), y.to_bits()])
+        .collect();
+    assert_eq!(bits, RAND_2_2.to_vec());
+}
+
+/// The control: a `start_positions` that ignored its argument and hard-coded the layout seed
+/// would pass the test above.
+#[test]
+fn a_neighbouring_seed_moves_every_start_coordinate() {
+    assert_ne!(
+        start_positions(2, Some(LAYOUT_SEED + 1)),
+        start_positions(2, Some(LAYOUT_SEED))
+    );
+}
+
+/// `None` is still the golden-angle spiral, and this is the registered
+/// `layout.packing.circle`'s path: `sqrt((i + 1) / n)` out at `i * GOLDEN_ANGLE`. Pinned as
+/// the closed form rather than as bits so the claim is readable, and so a default that moved
+/// would show up as a wrong radius or a wrong angle and not only as a changed number.
+#[test]
+fn the_unseeded_start_is_still_the_golden_angle_spiral() {
+    let got = start_positions(2, None);
+    assert_eq!(got[0].0.to_bits(), libm::sqrt(0.5).to_bits());
+    assert_eq!(got[0].1.to_bits(), 0.0_f64.to_bits());
+    assert_eq!(got[1].0.to_bits(), libm::cos(GOLDEN_ANGLE).to_bits());
+    assert_eq!(got[1].1.to_bits(), libm::sin(GOLDEN_ANGLE).to_bits());
+    assert_ne!(
+        start_positions(2, None),
+        start_positions(2, Some(LAYOUT_SEED)),
+        "the two streams must not be the same generator"
+    );
+}
+
+/// The seed reaches the whole packing, not only `start_positions`: at SciGraphs' own two
+/// numbers the two starts relax to different centres.
+#[test]
+fn the_seed_parameter_reaches_the_packing() {
+    let edges: Vec<(u32, u32)> = (0..5)
+        .flat_map(|i| ((i + 1)..5).map(move |j| (i, j)))
+        .collect();
+    let at = |seed| {
+        pack(
+            5,
+            &edges,
+            &[0; 5],
+            &super::CirclePackingParams {
+                iterations: 500,
+                scale: 5.0,
+                seed,
+            },
+        )
+    };
+    let seeded = at(Some(LAYOUT_SEED));
+    let spiral = at(None);
+    assert_ne!(
+        (seeded.x.clone(), seeded.y.clone()),
+        (spiral.x.clone(), spiral.y.clone()),
+        "the seed is not reaching the packing"
+    );
+    for packed in [&seeded, &spiral] {
+        assert!(packed.approximate);
+        assert!(
+            packed.x.iter().chain(&packed.y).all(|v| v.is_finite()),
+            "a seeded start must still relax to finite centres"
+        );
+    }
+}
 
 #[test]
 fn a_separated_coincident_pair_gets_a_repeatable_direction() {
@@ -158,6 +246,7 @@ fn the_fallbacks_own_packing_is_pinned_bit_for_bit() {
         &super::CirclePackingParams {
             iterations: 500,
             scale: 5.0,
+            ..super::CirclePackingParams::default()
         },
     );
     let got: Vec<u64> = packed
