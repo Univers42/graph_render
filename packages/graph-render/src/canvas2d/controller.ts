@@ -136,12 +136,12 @@ function shownIn(bounds: Bounds | null, camera: Camera, viewport: Viewport, area
  * canvas. It is a hint about where the studio's panels are, so it is clamped to the canvas and
  * re-fitted rather than trusted: a host that hands over a stale or inverted box gets the canvas.
  *
- * WHY a panel resizing is not on its own a reason to re-fit: the chrome resizes for reasons that
- * have nothing to do with the drawing — a selection filling the Inspector is the one that bit
- * the box-select row, which then measured its box against a camera that had moved under it. So
- * the camera is re-fitted only while the drawing would not fit where it is being shown, which is
- * the case ST-4 exists for; a panel that grew and still leaves the whole drawing visible only
- * costs the limits a refresh.
+ * WHY a panel resizing moves the camera only when the drawing no longer fits: the chrome resizes
+ * for reasons that have nothing to do with the drawing — a selection filling the Inspector is the
+ * one that bit the box-select row, which then measured its box against a camera that had moved
+ * under it. A camera that is already showing the whole drawing in the old free box is left alone,
+ * and only the pan/zoom limits are refreshed; one that the new box would crop or hide is re-fitted,
+ * which is the case the safe area exists for.
  */
 export function setSafeArea(controller: Controller, area: FitArea | null): void {
   const { state } = controller;
@@ -150,13 +150,12 @@ export function setSafeArea(controller: Controller, area: FitArea | null): void 
   const same = (next?.x === state.safe?.x && next?.y === state.safe?.y
     && next?.width === state.safe?.width && next?.height === state.safe?.height) || (next === null && state.safe === null);
   if (same) return;
-  const fitted = controller.fitted;
-  const wasShown = shownIn(state.scene.bounds, state.camera, state.viewport, safeOf(state, state.viewport));
+  const was = shownIn(state.scene.bounds, state.camera, state.viewport, safeOf(state, state.viewport));
   state.safe = next;
   const free = safeOf(state, state.viewport);
   state.limits = limitsFor(state.scene.bounds, state.viewport, { area: free ?? undefined });
-  if (!fitted) return;
-  if (wasShown && shownIn(state.scene.bounds, state.camera, state.viewport, free)) invalidate(state);
+  if (!controller.fitted) return;
+  if (was && shownIn(state.scene.bounds, state.camera, state.viewport, free)) invalidate(state);
   else fit(controller);
 }
 
