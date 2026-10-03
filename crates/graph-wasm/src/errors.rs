@@ -7,6 +7,7 @@
 //!
 //! Target-independent: nothing here touches wasm memory, so it is unit-tested natively.
 
+use graph_contract::params::ParamsError;
 use std::cell::Cell;
 
 /// Why an export returned its failure sentinel (`0`, or [`Code::None`] for absent id
@@ -26,7 +27,20 @@ pub enum Code {
     IngestInvalid = 4,
     /// `gm_run`'s `layout_id` is not `< gm_layout_count()`.
     UnknownLayoutId = 5,
-    /// `gm_run`'s `params_len` was not `0` (registry runs take no parameters, C2).
+    /// **Reserved, never produced since ABI 2.** `gm_run`'s `params_len` was not `0`,
+    /// back when a registry run took no parameters at all (C2). A run now carries them, so
+    /// the three codes after [`Self::AnalysisFailed`] answer instead. The number stays:
+    /// removing the variant would renumber every code above it, and a host that switched
+    /// on `6` would silently read a different refusal.
+    // `not(test)`: this module's own tests name every code, so under `cfg(test)` the
+    // variant is used and the expectation would be unfulfilled.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "reserved: never produced again, and removing the variant would renumber every code above it"
+        )
+    )]
     ParamsMustBeEmpty = 6,
     /// Every `u32` handle id has been issued in this instance; none can be reused (C6).
     HandlesExhausted = 7,
@@ -84,6 +98,34 @@ pub enum Code {
     /// reached wasm32's address-space limit inside an infallible allocation and the host saw
     /// an `unreachable` trap it could not name (F-16).
     IngestTooLarge = 19,
+    /// `gm_run`'s parameter buffer holds a value its layout does not publish in range: it
+    /// is not finite, not integral (an `int`), not `0`/`1` (a `bool`), or outside the
+    /// spec's `[min, max]`. **Refused, never clamped and never rounded into range** — a
+    /// drawing that is not the one asked for is worse than no drawing
+    /// (`docs/decisions/layout-params.md`).
+    ParamOutOfRange = 20,
+    /// `gm_run`'s `(params_ptr, params_len)` is not exactly `specs.len() * 8` bytes, or
+    /// is not a live `gm_alloc` allocation. One code for both, as the force session's own
+    /// [`Self::SessionParamsInvalid`] is: neither has a reading to attempt, and a caller
+    /// cannot tell from a wrong length whether the count or the pointer was wrong.
+    ParamsMalformed = 21,
+    /// The layout publishes no parameters and the buffer was not empty: an answer the
+    /// schema already gives, refused because the caller sent values that would be
+    /// dropped. Never a silent "use the defaults".
+    ParamsNotAccepted = 22,
+}
+
+/// A refused parameter buffer as the wire's code. One arm per [`ParamsError`], so the
+/// graph-core rule has exactly one statement in this crate and a new kind of refusal
+/// cannot arrive here under some other code.
+impl From<ParamsError> for Code {
+    fn from(why: ParamsError) -> Self {
+        match why {
+            ParamsError::NotAccepted => Self::ParamsNotAccepted,
+            ParamsError::Malformed => Self::ParamsMalformed,
+            ParamsError::OutOfRange { .. } => Self::ParamOutOfRange,
+        }
+    }
 }
 
 thread_local! {
@@ -164,6 +206,9 @@ mod tests {
             Code::SessionRefused,
             Code::AnalysisFailed,
             Code::IngestTooLarge,
+            Code::ParamOutOfRange,
+            Code::ParamsMalformed,
+            Code::ParamsNotAccepted,
         ];
         let mut values: Vec<u32> = codes.iter().map(|&c| c as u32).collect();
         values.sort_unstable();
@@ -208,9 +253,12 @@ mod tests {
                 Code::SessionRefused as u32,
                 Code::AnalysisFailed as u32,
                 Code::IngestTooLarge as u32,
+                Code::ParamOutOfRange as u32,
+                Code::ParamsMalformed as u32,
+                Code::ParamsNotAccepted as u32,
             ],
             [
-                0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+                0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
             ],
             "every code keeps the wire value it already had"
         );

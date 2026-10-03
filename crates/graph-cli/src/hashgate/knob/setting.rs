@@ -14,6 +14,10 @@ use graph_core::layout::{circular, tidy_tree, treemap};
 use graph_core::{GridParams, REFERENCE_DEGREE, SugiyamaParams};
 use std::env::VarError;
 
+mod params;
+
+pub(crate) use params::{PARAM_DEFAULT_STAGE, param_index};
+
 use super::knobs;
 use super::{Knob, stage_of};
 
@@ -69,6 +73,11 @@ pub(crate) struct Setting {
     /// honest value inexpressible. Reach it through [`Setting::live_force_params`], which is the
     /// only reader and lives in this module with the field.
     pub(in crate::hashgate) live_gravity: Option<f64>,
+    /// Which published default [`Knob::LayoutParamDefault`] perturbs, as an index into
+    /// [`PARAM_DEFAULT_STAGE`]'s parameter list. `None` is the honest run. An index and not
+    /// a `(name, value)` pair because the control is *over the default*: the value it runs
+    /// at is the published default plus one, so it cannot drift from what it claims.
+    pub(in crate::hashgate) layout_param_default: Option<usize>,
     pub(in crate::hashgate) control: Option<Knob>,
 }
 
@@ -127,6 +136,7 @@ pub(crate) fn setting(read: impl Fn(&str) -> Result<String, VarError>) -> Result
         split_sum: Split::None,
         split_rescale: false,
         live_gravity: None,
+        layout_param_default: None,
         control: None,
     };
     for knob in Knob::ALL {
@@ -208,6 +218,9 @@ fn apply(knob: Knob, text: &str, setting: &mut Setting) -> Result<(), String> {
         // control that failed to parse cannot pass vacuously as the default.
         Knob::ForceSessionGravity => {
             setting.live_gravity = Some(text.parse().map_err(|e| bad(&e))?);
+        }
+        Knob::LayoutParamDefault => {
+            setting.layout_param_default = Some(param_index(text, knob)?);
         }
         // The twenty-one per-stage controls, the fifteen ANALYSIS and POST rows and the six
         // igraph layout rows, are one arm here: `stage_of` resolves the stage from the

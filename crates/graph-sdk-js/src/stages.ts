@@ -10,24 +10,29 @@
 // A generic shape over three such steps reads as one abstraction and is three mistakes waiting
 // to happen; three blocks of eight lines each is the honest cost of the difference.
 
-import { AnalysisRefusedError, InvalidHandleError, PostRefusedError, RunRefusedError, codeName } from "./errors.ts";
+import { AnalysisRefusedError, InvalidHandleError, PostRefusedError, codeName } from "./errors.ts";
 import { INVALID_HANDLE_CODE, NO_GEOMETRY_CODE, decoder, frame, invoke, lastError, snapshotPtr } from "./calls.ts";
 import { parseAnalysisFace } from "./analysis-face.ts";
 import { readKinds, type GeometryKinds } from "./geometry-kinds.ts";
 import type { ColumnViews } from "./views.ts";
 import type { Registries } from "./registries.ts";
+import { runAtParams, type LayoutParams, type RunAtParams } from "./params.ts";
 import type { AnalysisResult, Handle } from "./types.ts";
 import type { RawExports } from "./wasm.ts";
 
-/** What the three stages share: the module, the view epoch, the registries, and where each
- *  handle's last successful run recorded its geometry kinds. Built once per motor, so a stage
+/** What the three stages share: the module, the view epoch, the registries, each layout's
+ *  published parameters, and where each handle's last successful run recorded its kinds. Built once per motor, so a stage
  *  is three arguments and not eight. */
 export interface StageContext {
   readonly exports: RawExports;
   readonly views: ColumnViews;
   readonly registries: Registries;
   readonly kinds: Map<Handle, GeometryKinds>;
+  readonly params: LayoutParams;
 }
+
+/** A run's parameter values by published name; `undefined` is the layout's own defaults. */
+type RunValues = RunAtParams["values"];
 
 /** What a successful layout run or POST pass leaves behind, restated for the caller so it does
  *  not have to read the kinds back itself (C3: this is what decides whether a column is
@@ -46,18 +51,14 @@ function record(ctx: StageContext, handle: Handle, what: string): GeometryRun {
 }
 
 /** Runs the registered layout `layoutId` (never a hard-coded index, C1) over `handle`'s
- *  topology at its default parameters — registry layouts take none this phase (C2), so the
- *  params pointer and length are `0, 0` and the module refuses anything else. */
-export function runLayout(ctx: StageContext, handle: Handle, layoutId: string): GeometryRun {
+ *  topology, at `values` where given and at the layout's own defaults where not: the
+ *  parameter buffer, its schema and its refusal are `params.ts`'s
+ *  (`docs/decisions/layout-params.md`). */
+export function runLayout(ctx: StageContext, handle: Handle, layoutId: string, values?: RunValues): GeometryRun {
   const { exports, views } = ctx;
-  const index = ctx.registries.layoutIndex(exports, layoutId);
-  const ok = invoke("gm_run", () => exports.gm_run(handle, index, 0, 0));
-  views.bump();
-  if (ok !== 1) {
-    const code = lastError(exports);
-    if (code === INVALID_HANDLE_CODE) throw new InvalidHandleError(`handle ${handle} is not live`, code);
-    throw new RunRefusedError(`gm_run refused (${codeName(code)})`, code);
-  }
+  const layoutIndex = ctx.registries.layoutIndex(exports, layoutId);
+  const specs = values === undefined ? [] : ctx.params.read(exports, layoutId, layoutIndex);
+  runAtParams(exports, views, { handle, layoutIndex, specs, values });
   return record(ctx, handle, layoutId);
 }
 

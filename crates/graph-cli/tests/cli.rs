@@ -190,10 +190,10 @@ fn a_failed_wasm_build_is_could_not_run_and_seed_counts_are_capped() {
 fn codegen_check_finds_the_committed_files_current() {
     let check = graph_cli(&["codegen", "--check"], None);
     assert_eq!(check.status.code(), Some(0), "{}", stdout(&check));
-    // One line per committed generated file, which is the four the contract emits: the
-    // snapshot header's schema and TypeScript, the snapshot JSON face's schema, and the
-    // ingest contract's.
-    assert_eq!(stdout(&check).matches("up to date").count(), 4);
+    // One line per committed generated file, which is the six the contract emits: the
+    // snapshot header's schema and TypeScript, the snapshot JSON face's schema, the ingest
+    // contract's, and the layout parameters' schema and TypeScript.
+    assert_eq!(stdout(&check).matches("up to date").count(), 6);
 }
 
 #[test]

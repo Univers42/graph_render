@@ -22,14 +22,15 @@ import { loadMotor, toU32, type WasmSource } from "./wasm.ts";
 import { loadThreaded } from "./threads.ts";
 import { ColumnViews, isRegisteredColumn } from "./views.ts";
 import { ForceSession } from "./force.ts";
-import { AbiContractError, BuildRefusedError, ContractRefusedError, InvalidHandleError, WasmUnavailableError } from "./errors.ts";
+import { AbiContractError, InvalidHandleError, WasmUnavailableError } from "./errors.ts";
 import { INVALID_HANDLE_CODE, invoke, lastError } from "./calls.ts";
 import { ColumnId, type AnalysisResult, type Column, type ForceEngine, type ForceParams, type Handle } from "./types.ts";
-import type { MotorOptions, PostResult, RunResult } from "./types.ts";
+import type { MotorOptions, PostResult, RunOptions, RunResult } from "./types.ts";
 import { checkOptions } from "./options.ts";
 import type { GeometryKinds } from "./geometry-kinds.ts";
 import { Registries } from "./registries.ts";
-import { buildStaged } from "./staging.ts";
+import { CONTRACT_BUILD, INGEST_BUILD, buildStaged } from "./staging.ts";
+import { LayoutParams, type LayoutParamSpec } from "./params.ts";
 import { nodeCount, runAnalysis, runLayout, runPost, snapshotBytes, snapshotText, type StageContext } from "./stages.ts";
 
 /** One loaded wasm module and every graph built against it. `createMotor` is the only way
@@ -64,6 +65,7 @@ export class Motor {
         views: new ColumnViews(exports),
         registries: new Registries(),
         kinds: new Map<Handle, GeometryKinds>(),
+        params: new LayoutParams(),
       };
       return new Motor(context, null);
     } catch (error) {
@@ -125,43 +127,21 @@ export class Motor {
     return registries.analyses(exports);
   }
 
-  /** Builds a graph from `ingestJson`, the provisional ingest text
-   *  (`docs/contract/wasm-abi.md` "Ingest — PROVISIONAL"; Phase 10 owns the real contract).
-   *  Stages it through `gm_alloc`/`gm_build` and always frees the staging buffer — C7 makes
-   *  that this method's job, not its caller's, since the caller never sees the pointer. */
+  /** Builds a graph from `ingestJson`, the provisional node/edge JSON: the ABI's `gm_build`,
+   *  the document the host studio and the hash gate already speak. Staged and freed here
+   *  (C7); `staging.ts` carries what the buffer accepts and refuses, and
+   *  {@link Motor.buildContract} is the other way in. */
   build(ingestJson: string): Handle {
-    return buildStaged(this.#requireLoaded(), ingestJson, {
-      buffer: "ingest",
-      call: "gm_build",
-      refusal: "gm_build refused the ingest buffer",
-      refuse: (message, code) => new BuildRefusedError(message, code),
-    });
+    return buildStaged(this.#requireLoaded(), ingestJson, INGEST_BUILD);
   }
 
-  /** Builds a graph from `contractJson`, an **ingest contract** document — the one shape
-   *  every source maps to (`docs/contract/ingest-schema.json`, written by this package's own
-   *  `rowsToIngest`/`notionToIngest` adapters).
-   *
-   *  This is the other way in from {@link Motor.build}, which takes the provisional node/edge
-   *  JSON. The two are separate exports and stay separate: `build` is what the host studio and
-   *  the hash gate already speak, and the derivation from a contract document — roles to
-   *  nodes, tags to hubs, hierarchy to edges — is `graph_core::ingest`'s one derivation, which
-   *  this package cannot do in JS without becoming a second copy of it. So a caller maps its
-   *  source into a contract document (one of the adapters, or its own) and hands it here, and
-   *  the motor does the rest. Staged and freed exactly as {@link Motor.build} does.
-   *
-   *  A document that is not a valid contract is refused with
-   *  {@link ContractRefusedError} — an unknown member, a role outside the eight, a dangling
-   *  collection, a `:` in a coordinate that cannot round-trip — never half-read. A provisional
-   *  node/edge document is *not* one of these refusals in spirit: it is simply not a contract,
-   *  and it is refused as one. */
+  /** Builds a graph from `contractJson`, an **ingest contract** document — the one shape every
+   *  source maps to (`docs/contract/ingest-schema.json`, written by this package's own
+   *  adapters). A provisional node/edge document is refused with `ContractRefusedError`,
+   *  because it is not a contract. Staged and freed exactly as {@link Motor.build} is (C7);
+   *  `staging.ts` carries why the two ways in stay separate. */
   buildContract(contractJson: string): Handle {
-    return buildStaged(this.#requireLoaded(), contractJson, {
-      buffer: "contract",
-      call: "gm_build_contract",
-      refusal: "gm_build_contract refused the contract document",
-      refuse: (message, code) => new ContractRefusedError(message, code),
-    });
+    return buildStaged(this.#requireLoaded(), contractJson, CONTRACT_BUILD);
   }
 
   /** Nodes in `handle`'s topology — available right after {@link Motor.build}, before any run.
@@ -172,14 +152,28 @@ export class Motor {
     return nodeCount(exports, handle);
   }
 
-  /** Runs the registered layout `layoutId` (e.g. `"layout.grid"`, from
-   *  {@link Motor.layouts} — the id is resolved through `gm_layout_count`/`gm_layout_id`,
-   *  never a hard-coded index, C1) over `handle`'s topology at its default parameters
-   *  (registry layouts take none this phase, C2). */
-  layout(handle: Handle, layoutId: string): RunResult {
+  /** Every parameter the registered layout `layoutId` publishes, in the order a run's
+   *  parameter buffer carries them — `gm_layout_params` over the index {@link Motor.run}
+   *  resolves the id to, read once per motor (`docs/decisions/layout-params.md`). */
+  layoutParams(layoutId: string): LayoutParamSpec[] {
+    const { exports, registries, params } = this.#requireLoaded();
+    return params.read(exports, layoutId, registries.layoutIndex(exports, layoutId));
+  }
+
+  /** Runs the registered layout `layoutId` (from {@link Motor.layouts}; resolved through
+   *  `gm_layout_count`/`gm_layout_id`, never a hard-coded index, C1) over `handle`'s topology,
+   *  at `options.params` where given and at the layout's own defaults where not. A name
+   *  {@link Motor.layoutParams} does not publish is a `RangeError`; a value is sent as written
+   *  and the motor, not this SDK, refuses one out of range (`ParamOutOfRange`, never clamped). */
+  run(handle: Handle, layoutId: string, options?: RunOptions): RunResult {
     const ctx = this.#requireLoaded();
-    const run = runLayout(ctx, handle, layoutId);
+    const run = runLayout(ctx, handle, layoutId, options?.params);
     return { handle, nodeKind: run.nodeKind, edgeKind: run.edgeKind, nodeCount: nodeCount(ctx.exports, handle), dim: run.dim };
+  }
+
+  /** {@link Motor.run} at the layout's defaults, kept so every pre-ABI-2 caller is unchanged. */
+  layout(handle: Handle, layoutId: string): RunResult {
+    return this.run(handle, layoutId);
   }
 
   /** Runs the registered POST capability `postId` (from {@link Motor.posts}; the id is

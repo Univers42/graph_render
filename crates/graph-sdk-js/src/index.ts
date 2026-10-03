@@ -21,3 +21,4 @@ export { Motor, createMotor } from "./motor.ts";
 
 export { parseAnalysisFace } from "./analysis-face.ts";
 export * from "./adapters.ts";
+export * from "./params.ts";
