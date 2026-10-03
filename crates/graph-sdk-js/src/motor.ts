@@ -19,6 +19,7 @@
 // the one that grew every method. The three stages this class delegates to are `stages.ts`.
 
 import { loadMotor, toU32, type WasmSource } from "./wasm.ts";
+import { loadThreaded } from "./threads.ts";
 import { ColumnViews, isRegisteredColumn } from "./views.ts";
 import { ForceSession } from "./force.ts";
 import { AbiContractError, BuildRefusedError, ContractRefusedError, InvalidHandleError, WasmUnavailableError } from "./errors.ts";
@@ -57,7 +58,7 @@ export class Motor {
   static async create(source: WasmSource, options?: MotorOptions): Promise<Motor> {
     checkOptions(options);
     try {
-      const exports = await loadMotor(source);
+      const exports = await (options?.threads === undefined ? loadMotor(source) : loadThreaded(source, options.threads));
       const context: StageContext = {
         exports,
         views: new ColumnViews(exports),
@@ -290,7 +291,7 @@ export class Motor {
 }
 
 /** Loads the wasm motor (once per session — see `wasm.ts`) and returns a {@link Motor}
- *  bound to it. `options` this phase accepts only `{}` or `{ exec: "auto" }` (C16); any
+ *  bound to it. `options` accepts `exec: "auto"` and `threads` (C16, `threads.ts`); any
  *  other shape is refused before the module is even asked to load. */
 export async function createMotor(source: WasmSource, options?: MotorOptions): Promise<Motor> {
   return Motor.create(source, options);

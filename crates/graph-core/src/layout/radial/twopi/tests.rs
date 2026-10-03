@@ -7,6 +7,9 @@
 //! plain output is quoted beside each case only as the independent check that the closed
 //! answer and Graphviz agree — the oracle cannot be the oracle.
 
+mod alloc;
+mod measure;
+
 use super::run;
 use crate::layout::coords::probe::{assert_close, graph, points};
 

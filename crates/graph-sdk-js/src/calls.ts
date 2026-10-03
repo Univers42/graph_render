@@ -32,7 +32,7 @@ export function invoke<T>(name: string, fn: () => T): T {
   }
 }
 
-export function lastError(exports: RawExports): number {
+export function lastError(exports: Pick<RawExports, "gm_last_error">): number {
   return invoke("gm_last_error", () => exports.gm_last_error());
 }
 

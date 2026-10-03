@@ -2,7 +2,7 @@
 //! `fully_triangulate = false` mode only — the one SciGraphs' `_planar_triangulation`
 //! calls: join every component with a bare edge, trace every face, 2-connect any face
 //! that touches the same node twice, then fan-triangulate every face but the largest
-//! (left as the outer boundary).
+//! (left as the outer boundary; on a tie for largest, the first in trace order wins).
 //!
 //! Builds its own growable rotation over half-edge **ids** (not the fixed slots
 //! [`super::embed`] uses): triangulation adds edges the input never had, so the final
@@ -15,8 +15,13 @@ mod faces;
 use super::Embedding;
 
 /// Triangulates `embedding` (`triangulate_embedding(embedding, fully_triangulate=False)`):
-/// returns a superset embedding whose every face but one is a triangle, and that face's
+/// returns a superset embedding whose every face but one is a triangle, and **that** face's
 /// nodes as the outer boundary.
+///
+/// The face left alone is the **largest** one, and ties go to the first in trace order
+/// (strict `>`, so an equal-length face never displaces the incumbent) — so on a tie, and
+/// `K_{2,3}` ties three ways at length 4, the returned face may be an interior one. It is
+/// deterministic either way, and the reference breaks the same tie the same way.
 pub fn triangulate_embedding(embedding: &Embedding) -> (Embedding, Vec<u32>) {
     if embedding.node_count() <= 1 {
         return (embedding.clone(), (0..embedding.node_count()).collect());
@@ -26,6 +31,11 @@ pub fn triangulate_embedding(embedding: &Embedding) -> (Embedding, Vec<u32>) {
         builder.connect_pair(pair[0], pair[1]);
     }
     let faces = builder.find_faces();
+    // Nothing traced: no face to leave alone and no pair of nodes to fan from, so the
+    // fold below and its `faces[outer]` would both index an empty table.
+    if faces.is_empty() {
+        return (builder.into_embedding(), Vec::new());
+    }
     let outer =
         faces.iter().enumerate().fold(
             0,
@@ -34,7 +44,8 @@ pub fn triangulate_embedding(embedding: &Embedding) -> (Embedding, Vec<u32>) {
             },
         );
     for (i, face) in faces.iter().enumerate() {
-        if i != outer {
+        // A face with fewer than two nodes has no first edge to fan from.
+        if i != outer && face.len() >= 2 {
             builder.triangulate_face(face[0], face[1]);
         }
     }

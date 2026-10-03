@@ -13,6 +13,7 @@
 
 export type { WasmSource } from "./wasm.ts";
 export { resetForTests } from "./wasm.ts";
+export { serveHelper, type HelperStart, type MotorThreads } from "./threads.ts";
 export * from "./errors.ts";
 export * from "./types.ts";
 export { ForceSession, PARAMS_BYTES, encodeParams, decodeParams } from "./force.ts";

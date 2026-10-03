@@ -1,6 +1,7 @@
 //! Circular / radial hierarchy, `layout.circular.radial`: concentric rings by BFS depth
 //! over the repaired hierarchy ([`super::hierarchy::Hierarchy`], D-H), `Point` geometry,
-//! `O(n)`. Oracle: hand (`docs/decisions/circular-conventions.md`), read alongside
+//! `O(n + m)` — the repair walks the edges once. Oracle: hand
+//! (`docs/decisions/circular-conventions.md`), read alongside
 //! SciGraphs' `_circular_hierarchy_layout`,
 //! `SciGraphs/core/scigraphs_core/mesh/layouts/hierarchical.py:693-732`.
 //!

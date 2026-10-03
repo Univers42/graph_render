@@ -11,6 +11,8 @@ import { serve } from "../src/motor/serve.ts";
 const refuse = (): never => { throw new Error("a force request must not reach the session"); };
 const NO_SESSION: Session = { open: refuse, load: refuse, layout: refuse, analysis: refuse, forces: () => null };
 const KNOBS: ForceKnobs = { gravity: 0.5, charge: -100, linkStrengthScale: 1, linkDistance: 40 };
+/** What the loop pushes when the session under it is released: no loop, and no session. */
+const STOPPED: Result = { type: "force-state", running: false, disabled: NO_ADAPTER_REASON, paused: false };
 
 interface Clock { now: number; perStep: number }
 
@@ -233,6 +235,7 @@ test("a frame already scheduled does not step a session that was released under 
   assert.doesNotThrow(() => out.tick(), "a released session is never stepped");
   assert.equal(port.calls.filter((call) => call.startsWith("step")).length, 0);
   assert.equal(out.frames(), 0, "nothing is drawn from a session that is gone");
+  assert.deepEqual(out.emitted.at(-1), STOPPED, "but the loop says the settle ended, so the page rests");
   assert.equal(out.scheduled(), 1, "and no frame is scheduled in its place");
 });
 
@@ -252,6 +255,7 @@ test("the release notice stops the loop at once, and the next request starts a f
   const before = out.frames();
   assert.doesNotThrow(() => out.tick());
   assert.equal(out.frames(), before, "the frame the old loop had scheduled is gone");
+  assert.deepEqual(out.emitted.at(-1), STOPPED, "and the release notice says the settle ended");
   host.handle({ type: "force.start" });
   assert.ok(next.calls.includes("shuffle"), "the host still works over the new session");
 });
