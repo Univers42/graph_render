@@ -84,10 +84,11 @@ class ForceLoop {
     this.cancel = null;
     // WHY this is first: the port can die between the request that scheduled this frame and
     // the frame itself, and every call on a released session throws. There is nothing to
-    // step, nothing to draw and nothing left to schedule, so the frame just ends.
+    // step, nothing to draw and nothing left to schedule — but the page's watchdog is armed
+    // on the strip this loop is filling, so the word that the settle ended is sent without
+    // touching the session.
     if (this.live.dead === true) {
-      this.held.clear();
-      this.pinned.clear();
+      this.release();
       return;
     }
     for (const [id, at] of this.pinned) this.live.pin(id, at.x, at.y);
@@ -141,6 +142,21 @@ class ForceLoop {
     if (this.live.dead !== true) for (const id of this.pinned.keys()) this.live.unpin(id);
     this.held.clear();
     this.pinned.clear();
+  }
+
+  /**
+   * The session this loop was ticking is gone, so the settle ends here rather than at alpha_min.
+   *
+   * Ponytail: one pushed state and no frame, because a frame is drawn from the session and this
+   * one is released. Failing input: a loop that stops in silence leaves the page's watchdog armed
+   * on a strip nobody will ever fill again, and four seconds later a live graph reads as a dead
+   * worker. Direction: the word is the loop's own state, so the page hides the strip and greys
+   * the panel on the answer it would give a force request now. Escape hatch: the next layout
+   * starts a new session and the panel comes back on its own.
+   */
+  release(): void {
+    this.halt();
+    this.deps.emit({ type: "force-state", running: false, disabled: NO_ADAPTER_REASON, paused: false }, []);
   }
 
   /** One last frame saying the loop has stopped, so the bar empties instead of hanging. */
@@ -198,8 +214,10 @@ export function createForceHost(port: () => LiveForce | null, deps: LoopDeps): F
   // The loop is made on the first request that finds a port, and released with it: a
   // re-layout makes a new session, so the loop must not keep ticking on the old one.
   let loop: { readonly loop: ForceLoop; readonly port: LiveForce } | null = null;
+  // `release`, not `halt`: nothing asked for this stop, so the loop has to say how it ended or
+  // the page's watchdog reads the quiet as a dead worker (see ForceLoop.release).
   const forget = (): void => {
-    loop?.loop.halt();
+    loop?.loop.release();
     loop = null;
   };
   const live = (): ForceLoop | null => {

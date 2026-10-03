@@ -41,7 +41,12 @@ async (args) => {
     p95FrameMs: quantile(times, 0.95),
     maxFrameMs: times.length === 0 ? -1 : round(times[times.length - 1]),
     lastFrameMs: round(stats.frameMs),
-    pixelHash: await pixelHashOf(),
+    // Under GM_GPU=1 the canvas is a WebGL2 drawing buffer and the readback is a GPU->CPU copy
+    // of the whole frame — measured at 29% of the sampled settle — so the hardware arm hashes the
+    // wait's own counters instead.
+    // Ponytail: a counter hash cannot see a wrong pixel, only a wrong count: two builds that draw
+    // the same number of edges in the same order hash alike even when one draws them wrongly.
+    pixelHash: args.gpu ? counterHash(stats) : await pixelHashOf(),
   };
 
   /** Polls until the flag says the picture is full, or for `polls` polls, keeping the frame times. */
@@ -73,5 +78,13 @@ async (args) => {
     let hash = 0x811c9dc5;
     for (let at = 0; at < data.length; at += 1) hash = Math.imul(hash ^ data[at], 0x01000193) >>> 0;
     return `${canvas.width}x${canvas.height}:${hash.toString(16)}`;
+  }
+
+  /** The wait's own counters as an FNV-1a 32, for the arm that cannot read the canvas cheaply. */
+  function counterHash(stats) {
+    const text = [stats.drawnEdges, stats.refining, stats.frames, stats.edges].join(",");
+    let hash = 0x811c9dc5;
+    for (const char of text) hash = Math.imul(hash ^ char.charCodeAt(0), 0x01000193) >>> 0;
+    return `counters:${hash.toString(16)}`;
   }
 }

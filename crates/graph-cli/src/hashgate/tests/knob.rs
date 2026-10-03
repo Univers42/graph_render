@@ -16,6 +16,7 @@
 //! the ledger could call that row `gated`.
 
 mod controls;
+mod coverage;
 mod ids;
 mod neato;
 mod osage;

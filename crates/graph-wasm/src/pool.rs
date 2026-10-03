@@ -1,8 +1,9 @@
 //! Browser threads model (a) (`prompts/perf-plan.md` P3): one shared linear memory and a
 //! pool of helper threads, each one a wasm instance over that memory parked in
-//! [`Pool::serve`]. [`PoolRunner`] gives helper `i` range `i` of a pass and runs range 0 on
-//! the calling thread, so a pass costs one wake and one join, and every part writes straight
-//! into its own span of the caller's column: no per-worker buffer, no copy back.
+//! [`Pool::serve`]. [`PoolRunner`] cuts a pass into fixed chunks that the calling thread and
+//! its helpers claim from one counter, so a pass costs one wake and one join, a slow core
+//! takes fewer chunks instead of holding everyone back, and every chunk writes straight into
+//! its own span of the caller's column: no per-worker buffer, no copy back.
 //!
 //! Target-independent on purpose: std's `Mutex` and `Condvar` are futexes natively and
 //! `memory.atomic.wait32` on wasm32 built with `+atomics`, so the tests below drive this
@@ -15,8 +16,9 @@
 //! Natively a helper that panics hangs its pass the same way; only the coordinator's own part
 //! is unwind-safe ([`Joining`]).
 
-use graph_core::exec::{Runner, Serial, StepRange, partition};
+use graph_core::exec::{Runner, Serial, StepRange, range_at};
 use std::ops::Range;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
 
 /// One pass handed to the helpers: called once per part, with the part's index.
@@ -175,15 +177,25 @@ impl Drop for Joining<'_> {
     }
 }
 
-/// A [`Runner`] over a [`Pool`]: `partition(len, workers)`, capped at the helpers present
-/// plus the calling thread.
+/// A [`Runner`] over a [`Pool`]: up to `workers` threads, capped at the helpers present plus
+/// the calling thread, claim the chunks `partition(len, parts × CHUNKS_PER_PART)` one at a
+/// time. Any division is the same bytes by the [`StepRange`] contract.
 pub struct PoolRunner<'p> {
-    /// The pool whose helpers run parts 1 and up.
+    /// The pool whose helpers run beside the calling thread.
     pub pool: &'p Pool,
-    /// The negative control: with two parts or more, the last one writes nothing, so its
+    /// The negative control: with two parts or more, the last chunk writes nothing, so its
     /// span keeps `Default` and the bytes must differ from [`Serial`]'s.
     pub skip_last: bool,
 }
+
+/// Chunks per thread in a pass.
+///
+/// Caveat: static equal parts left the 1M live tick waiting on its slowest core (the host's
+/// E-cores and hyperthread siblings): the coordinator spent 32% of the tick blocked on its
+/// helpers (perf-p3-scale). 16 bounds that tail at about a sixteenth of a part. Failing
+/// input: a kernel whose per-call setup is large next to `len / (16 × parts)` outputs pays it
+/// 16 times as often. Direction: slower, never wrong.
+const CHUNKS_PER_PART: u32 = 16;
 
 /// The base of the column the parts write into, shared by every part.
 struct Column<T>(*mut T);
@@ -200,25 +212,37 @@ impl<T> Column<T> {
 
 impl Runner for PoolRunner<'_> {
     fn run<O: StepRange>(&self, kernel: &O, workers: u32, out: &mut Vec<O::Out>) {
-        let ranges = partition(kernel.len(), workers.clamp(1, self.pool.helpers() + 1));
-        if ranges.len() < 2 {
+        let len = kernel.len();
+        let parts = workers.clamp(1, self.pool.helpers() + 1).min(len);
+        if parts < 2 {
             return Serial.run(kernel, 1, out);
         }
-        out.clear();
-        out.resize(kernel.len() as usize, O::Out::default());
-        let last = ranges.len() - 1;
+        // Only a grown tail is written here; each chunk clears its own span on the thread
+        // that claims it (the `Runner` contract), so no thread clears the whole column.
+        out.resize(len as usize, O::Out::default());
+        let chunks = len.min(parts * CHUNKS_PER_PART);
+        let next = AtomicU32::new(0);
         let column = Column(out.as_mut_ptr());
-        let part = |i: u32| {
-            let i = i as usize;
-            if self.skip_last && i == last {
-                return;
+        let part = |_: u32| {
+            // Relaxed: the counter only hands out indices; the writes are published by the
+            // pool's mutex when each part finishes.
+            loop {
+                let chunk = next.fetch_add(1, Ordering::Relaxed);
+                if chunk >= chunks {
+                    return;
+                }
+                let range = range_at(len, chunks, chunk);
+                // SAFETY: each chunk index is claimed once, `range_at`'s ranges are disjoint
+                // and inside `0..len`, and `out` is `len` long and untouched by the caller
+                // until `broadcast` returns.
+                let span = unsafe { span(column.base(), &range) };
+                span.fill(O::Out::default());
+                if !(self.skip_last && chunk == chunks - 1) {
+                    kernel.step_range(range, span);
+                }
             }
-            // SAFETY: `partition`'s ranges are disjoint and inside `0..len`, `out` has
-            // `len` elements and is not touched by the caller until `broadcast` returns.
-            let span = unsafe { span(column.base(), &ranges[i]) };
-            kernel.step_range(ranges[i].clone(), span);
         };
-        self.pool.broadcast(ranges.len() as u32, &part);
+        self.pool.broadcast(parts, &part);
     }
 }
 
