@@ -180,7 +180,7 @@ pub fn verdict(
 /// threaded arms, so their agreement there is the arm compared with itself; a stage inside
 /// it is recomputed by every `native threads N` arm. Both are said out loud, because
 /// "9-way equal" reads as nine computations and is five.
-fn ways(stage: &str, arms: &[Arm]) -> String {
+pub(crate) fn ways(stage: &str, arms: &[Arm]) -> String {
     let all = arms.len();
     let threaded = arms
         .iter()

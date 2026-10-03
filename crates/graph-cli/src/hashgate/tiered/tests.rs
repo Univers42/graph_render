@@ -13,8 +13,10 @@ use super::{THREADED_STAGES, geometry};
 use crate::hashgate::Setting;
 use crate::hashgate::tests::honest;
 use graph_core::Stage as _;
+use graph_core::layout::circular::ring;
+use graph_core::layout::force::{BarnesHut, ParticleMesh, YifanHu};
 use graph_core::layout::spiral;
-use graph_core::{REFERENCE_DEGREE, Topology, gate_node_count, index_model, seeded_model};
+use graph_core::{Grid, REFERENCE_DEGREE, Topology, gate_node_count, index_model, seeded_model};
 
 /// The seed the arms run at: one small enough that every threaded stage converges inside
 /// its budget, so a test here measures the match and not a solver's iteration count.
@@ -84,23 +86,32 @@ fn spiral_is_the_stage_the_catch_all_used_to_take() {
     );
 }
 
-/// The compile-time tie between the list's length and the number of arms spelled out in
-/// [`geometry`]: five ids, five arms. Written as a test rather than a `const _` assertion
-/// so the failure says which half is short.
+/// The other direction of the tie between [`THREADED_STAGES`] and [`geometry`]: an arm may not
+/// exist without a listing. `every_threaded_stage_has_an_arm` above is the first direction (a
+/// listing may not exist without an arm); between them the two spellings cannot drift.
+///
+/// **The length is compared against the spelled-out arms, not against a literal.** A count
+/// pinned here is a third place the stage set would live, and it is a count that only ever
+/// says the tree changed: when the merge added `layout.force.particle_mesh` to
+/// `THREADED_STAGES` and to [`geometry`] — the one edit that makes this test meaningful — this
+/// test went red on `left: 6, right: 5` and was asserting that the merge had not happened.
+/// A stage added in both places now needs no edit here; one added in only one still fails,
+/// naming the id that has an arm without a listing.
 #[test]
 fn the_threaded_list_has_one_arm_each_and_no_more() {
-    assert_eq!(
-        THREADED_STAGES.len(),
-        5,
-        "one arm per listed stage; add an arm here or drop the id"
-    );
     let arms = [
-        graph_core::layout::force::BarnesHut::ID,
-        graph_core::layout::force::YifanHu::ID,
-        graph_core::Grid::ID,
-        graph_core::layout::circular::ring::ID,
+        BarnesHut::ID,
+        YifanHu::ID,
+        ParticleMesh::ID,
+        Grid::ID,
+        ring::ID,
         spiral::ID,
     ];
+    assert_eq!(
+        THREADED_STAGES.len(),
+        arms.len(),
+        "one arm per listed stage; add an arm here or drop the id"
+    );
     for arm in arms {
         assert!(
             THREADED_STAGES.contains(&arm),

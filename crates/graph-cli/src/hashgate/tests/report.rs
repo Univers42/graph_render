@@ -2,8 +2,9 @@
 //! the exit code, each pinned to its exact words, keys and counts.
 
 use super::super::compare::{C20_ARM, arm};
-use super::super::report::{arm_report, body, checked_arm_report, exit, passed};
+use super::super::report::{arm_report, body, checked_arm_report, exit, passed, ways};
 use super::super::stages::stages as stage_ids;
+use super::super::tiered::THREADED_STAGES;
 
 use super::compare::{HONEST, arms};
 use super::{Arm, Knob, Tally};
@@ -29,6 +30,72 @@ fn wide_arms(count: usize) -> Vec<Arm> {
         (*name, lines)
     })
     .collect()
+}
+
+/// The arm names the threaded tiers use, spelled out so a test can count them the way
+/// `ways` does without leaking a `String` into an `&'static str`.
+const THREADED_NAMES: [&str; 3] = ["native threads 1", "native threads 2", "native threads 4"];
+
+/// `count` threaded arms on top of the four base ones, so [`ways`]'s parenthetical is
+/// reachable at all.
+fn threaded_arms(count: usize) -> Vec<Arm> {
+    let mut arms = wide_arms(3);
+    arms.extend(
+        THREADED_NAMES[..count]
+            .iter()
+            .map(|name| (*name, vec![format!("stage0 0 {}", "a".repeat(64))])),
+    );
+    arms
+}
+
+/// A stage the gate hashes that the threaded arm does **not** recompute, found rather than
+/// spelled out: a literal here would be one more place the threaded list lives, and this test
+/// would then be checking its own constant instead of the branch it is about.
+fn hashed_but_not_recomputed() -> &'static str {
+    stage_ids()
+        .iter()
+        .copied()
+        .find(|id| !THREADED_STAGES.contains(id))
+        .expect("the gate hashes more stages than the threaded arm recomputes")
+}
+
+/// **RG-39: the N-way count is said out loud, and says which arms really recomputed.**
+///
+/// The finding was that the gate printed `"9-way equal"` for a stage where four of the nine
+/// arms had hashed the scalar arm's own bytes: the count reads as nine computations and was
+/// five. Before the fix there was no parenthetical at all, so both assertions below fail
+/// against it — the negative control for this row.
+///
+/// The shape asserted is the one the finding is about: the parenthetical appears **only**
+/// once a threaded arm is in the comparison, and which of the two it is depends on whether
+/// this stage was actually recomputed.
+#[test]
+fn the_threaded_parenthetical_only_appears_where_an_arm_was_hashed_twice() {
+    assert_eq!(
+        ways("layout.grid", &wide_arms(3)),
+        "4-way equal",
+        "no threaded arm in the comparison, so there is nothing to qualify"
+    );
+    let recomputed = THREADED_STAGES[0];
+    let copied = hashed_but_not_recomputed();
+    assert_eq!(
+        ways(recomputed, &threaded_arms(1)),
+        "5-way equal (1 of them a real threaded arm)"
+    );
+    assert_eq!(
+        ways(copied, &threaded_arms(1)),
+        "5-way equal (1 of them hashed the scalar arm's own bytes)",
+        "a stage the threaded arms copied is not a second computation, and the line must say so"
+    );
+    // Several threaded arms: the count inside the parenthetical is the arms, not a constant.
+    assert_eq!(
+        ways(recomputed, &threaded_arms(3)),
+        "7-way equal (3 of them a real threaded arm)"
+    );
+    assert_eq!(
+        ways(copied, &threaded_arms(2)),
+        "6-way equal (2 of them hashed the scalar arm's own bytes)"
+    );
 }
 
 /// The detail report: one digest line per arm, then at most three diverged lines, each
