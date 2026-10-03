@@ -1,4 +1,4 @@
-//! The five natively 3D layout controls, each moving its own stage and no other.
+//! The seven natively 3D layout controls, each moving its own stage and no other.
 //!
 //! p12-t3 appended `layout.basic3d.{sphere,helix,cube}`, `layout.hierarchical3d` and
 //! `layout.force.spring3d` to `LAYOUTS` with no control reaching any one of them alone, so
@@ -12,32 +12,37 @@
 use super::controls::only_stages_moved;
 use super::p3::stage_of;
 use super::*;
-use graph_core::layout::basic_3d::{cube, helix, sphere};
+use graph_core::layout::basic_3d::{bipartite_3d, cube, helix, sphere, spiral};
 use graph_core::layout::force::spring::{self, ID_3D as SPRING_3D};
 use graph_core::layout::hierarchical_3d;
 
 /// Every control but one more node, the value each must be set by. The variable's own
 /// environment and the stage it is filed under: one slice per control because [`env`] reads
 /// a slice of pairs.
-const NODES: [(&str, &str); 5] = [
+const NODES: [(&str, &str); 7] = [
     ("GM_MUTATE_BASIC3D_SPHERE_NODES", "1"),
     ("GM_MUTATE_BASIC3D_HELIX_NODES", "1"),
     ("GM_MUTATE_BASIC3D_CUBE_NODES", "1"),
     ("GM_MUTATE_HIERARCHICAL3D_NODES", "1"),
     ("GM_MUTATE_FORCE_SPRING3D_NODES", "1"),
+    // knobs-3d-new: the two layouts p12-t3's list predates.
+    ("GM_MUTATE_BASIC3D_SPIRAL_NODES", "1"),
+    ("GM_MUTATE_BIPARTITE_3D_NODES", "1"),
 ];
 
-/// The same five pairs beside the stage each names, so a permutation of one list cannot
+/// The same seven pairs beside the stage each names, so a permutation of one list cannot
 /// pass against the other. The ids are graph-core's own constants.
-const STAGES: [&str; 5] = [
+const STAGES: [&str; 7] = [
     sphere::ID,
     helix::ID,
     cube::ID,
     hierarchical_3d::ID,
     SPRING_3D,
+    spiral::ID,
+    bipartite_3d::ID,
 ];
 
-/// Each of the five turns the gate red for its own stage and no other — the property a
+/// Each of the seven turns the gate red for its own stage and no other — the property a
 /// negative control exists for, and the one p12-t3's shared node count could not give.
 #[test]
 fn each_three_d_layout_has_its_own_control_that_moves_only_its_stage() {

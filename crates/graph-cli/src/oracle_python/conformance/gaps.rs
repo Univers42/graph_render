@@ -12,17 +12,7 @@ use super::Gap;
 pub(super) const G_RANDOM_ITER: Gap = Gap {
     parameter: "iterations",
     note: "no iteration loop at all: a draw per node, so a budget is not applicable",
-    at: "crates/graph-core/src/layout/random.rs:33",
-};
-pub(super) const G_RANDOM_SCALE: Gap = Gap {
-    parameter: "scale",
-    note: "no rescale step; the draw is taken in the unit box as written",
-    at: "crates/graph-core/src/layout/random.rs:33",
-};
-pub(super) const G_RANDOM_SEED: Gap = Gap {
-    parameter: "layout seed",
-    note: "`SEED` is the const `0x5EED`, where the reference draws from `np.random.RandomState(get_layout_seed())`",
-    at: "crates/graph-core/src/layout/random.rs:30",
+    at: "crates/graph-core/src/layout/random.rs:59",
 };
 pub(super) const G_GRID_ITER: Gap = Gap {
     parameter: "iterations",
@@ -37,12 +27,12 @@ pub(super) const G_SPRING_SEED: Gap = Gap {
 pub(super) const G_BASIC3D_SCALE: Gap = Gap {
     parameter: "scale",
     note: "`basic_3d`'s `SCALE` is a const, not a parameter of `sphere`/`helix`/`cube`/`spiral`/`bipartite_3d`",
-    at: "crates/graph-core/src/layout/basic_3d.rs:43",
+    at: "crates/graph-core/src/layout/basic_3d.rs:53",
 };
 pub(super) const G_SNAPSHOT_SCALE: Gap = Gap {
     parameter: "scale",
-    note: "`scale` is a **const in each layout**, not a parameter of `run`: `basic_3d.rs:43`, `hierarchical_3d.rs:78` and `circular/hierarchy.rs:45` each publish `SCALE: f64 = 5.0`. Nothing in `layout::snapshot` rescales anything; the centre-and-rescale the coverage doc describes is these three constants plus each layout's own extent, and the reference writes its own units",
-    at: "crates/graph-core/src/layout/basic_3d.rs:43",
+    note: "`scale` is a **const in each layout**, not a parameter of `run`: `basic_3d.rs:53`, `hierarchical_3d.rs:78` and `circular/hierarchy.rs:45` each publish `SCALE: f64 = 5.0`. Nothing in `layout::snapshot` rescales anything; the centre-and-rescale the coverage doc describes is these three constants plus each layout's own extent, and the reference writes its own units",
+    at: "crates/graph-core/src/layout/basic_3d.rs:53",
 };
 pub(super) const G_NO_ITERATIONS: Gap = Gap {
     parameter: "iterations",
@@ -59,12 +49,6 @@ pub(super) const G_FORCEATLAS2_SEED: Gap = Gap {
     note: "the seed **is** passed (`Fa2Params::seed = get_layout_seed()`), but the two streams differ: the reference draws its start from `np.random.RandomState(get_layout_seed())` and graph-core from its own Mulberry32 at the same integer, so equal seeds are not equal draws",
     at: "crates/graph-core/src/layout/forceatlas2/state.rs:30",
 };
-pub(super) const G_CUBE_SEED: Gap = Gap {
-    parameter: "layout seed",
-    note: "the eight corners are a closed form, but the interior is drawn from the kernel's own generator where the reference draws from `np.random.RandomState(get_layout_seed())`; no seed is a parameter of `cube`",
-    at: "crates/graph-core/src/layout/basic_3d/cube.rs:78",
-};
-
 pub(super) const G_NEATO_START: Gap = Gap {
     parameter: "layout seed",
     note: "neato seeds a `drand48` initial placement from `-Gstart`, which `run_with` cannot pass: it takes only `epsilon`, so the start is whatever the engine's own default is",
