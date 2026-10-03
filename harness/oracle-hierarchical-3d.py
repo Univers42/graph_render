@@ -47,27 +47,35 @@ disconnected one rest on graph-core's own tests. The reference prints two progre
 call, so it is silenced rather than left to interleave with the result.
 """
 import contextlib
-import hashlib
 import io
 import json
 import os
 import sys
 
-sys.path.insert(0, os.path.join("SciGraphs", "core"))
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 import networkx as nx  # noqa: E402
 import numpy as np  # noqa: E402
 
+from oracle_common import (  # noqa: E402
+    finite,
+    read_manifest,
+    require_cases,
+    require_seeds,
+)
+
+sys.path.insert(0, os.path.join("SciGraphs", "core"))
 from scigraphs_core.mesh.layouts.hierarchical import (  # noqa: E402
     _hierarchical_layout_3d,
 )
 
 directory = sys.argv[1]
 name = "hierarchical-3d"
-path = os.path.join(directory, f"{name}.jsonl")
-manifest = json.load(open(os.path.join(directory, f"{name}-manifest.json")))
-digest = hashlib.sha256(open(path, "rb").read()).hexdigest()
-if digest != manifest["sha256"][f"{name}.jsonl"]:
-    sys.exit(f"{name}.jsonl does not match its manifest")
+manifest, digest = read_manifest(directory, name)
+with open(os.path.join(directory, f"{name}.jsonl")) as handle:
+    lines = handle.readlines()
+require_seeds(manifest, lines, name)
 
 
 def theirs_of(case):
@@ -111,13 +119,13 @@ def ring_split(positions):
     return splits
 
 
-cases = 0
+cases = len(lines)
 worst = 0.0
 worst_seed = None
 exact = 0
 ring_disagreements = 0
 
-for text in open(path):
+for text in lines:
     case = json.loads(text)
     ours = np.column_stack(
         [case[name]["x"], case[name]["y"], case[name]["z"]]
@@ -126,7 +134,9 @@ for text in open(path):
     if ours.shape != theirs.shape:
         sys.exit(f"seed {case['seed']}: shape {ours.shape} vs {theirs.shape}")
     gap = float(np.abs(ours - theirs).max())
-    if gap > worst:
+    # `>` is false for a NaN, so the guard is the metric and not the comparison: without it a
+    # NaN coordinate leaves `worst` at its 0.0 initialiser and the case reports as a match.
+    if finite(gap, "gap") > worst:
         worst, worst_seed = gap, case["seed"]
     if np.array_equal(ours.astype(np.float32), theirs.astype(np.float32)):
         exact += 1
@@ -136,10 +146,6 @@ for text in open(path):
     # it shows up as a number, not as a coordinate gap nobody reads.
     if ring_split(ours) != ring_split(theirs):
         ring_disagreements += 1
-    cases += 1
-
-if cases == 0:
-    sys.exit("no cases in the fixtures: a differential over nothing proves nothing")
 
 layouts = {
     name: {
@@ -150,6 +156,7 @@ layouts = {
         "ring_split_disagreements": ring_disagreements,
     }
 }
+require_cases(layouts, (name,), name)
 result = {
     "fingerprint": manifest["fingerprint"],
     "sha256": digest,
@@ -157,5 +164,6 @@ result = {
     f"{nx.__version__}, numpy {np.__version__}",
     "layouts": layouts,
 }
-json.dump(result, open(os.path.join(directory, f"{name}-result.json"), "w"), indent=1)
+with open(os.path.join(directory, f"{name}-result.json"), "w") as out:
+    json.dump(result, out, indent=1)
 print(json.dumps(layouts))
