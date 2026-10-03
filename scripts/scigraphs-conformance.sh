@@ -64,13 +64,13 @@ while [ $# -gt 0 ]; do
 done
 
 python_image() {
-  docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-python-oracle "$@"
+  "$root/scripts/orch/drun" --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-python-oracle "$@"
 }
 graphviz_image() {
-  docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle "$@"
+  "$root/scripts/orch/drun" --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle "$@"
 }
 chromium_image() {
-  docker run --rm --user 0:0 -v "$PWD:/w" -w /w gm-chromium "$@"
+  "$root/scripts/orch/drun" --rm --user 0:0 -v "$PWD:/w" -w /w gm-chromium "$@"
 }
 build() {
   docker build -q -t ge-python-oracle -f docker/python-oracle.Dockerfile \

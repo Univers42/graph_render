@@ -23,6 +23,11 @@ export function programOf(gl: WebGL2RenderingContext, vertex: string, fragment: 
   throw new Error(`webgl2: program did not link: ${log}`);
 }
 
+/** Gives the context's GPU memory back now; the browser would otherwise wait for a collection. */
+export function loseContext(gl: WebGL2RenderingContext): void {
+  gl.getExtension("WEBGL_lose_context")?.loseContext();
+}
+
 /** Uniform locations by name, looked up once per program. */
 export type Uniforms = (name: string) => WebGLUniformLocation | null;
 

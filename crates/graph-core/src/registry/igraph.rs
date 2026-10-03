@@ -42,8 +42,10 @@ pub(super) const KAMADA_KAWAI: Metadata = Metadata {
     layout stress (ours/igraph, ceiling in graph-cli oracle_python/igraph.rs)",
     complexity: "O(n^2) set-up (all-pairs BFS, one n x n matrix) + O(50 n * n) moves, so O(n^2)",
     scale_ceiling: KK_CEILING,
-    degradation: "past the ceiling there is no refusal: memory grows as 8 n^2 bytes and time as \
-    50 n^2, so a caller applies its own timeout; an edgeless graph with n >= 2 takes every \
+    degradation: "past the ceiling memory grows as 8 n^2 bytes and time as 50 n^2, so a caller \
+    applies its own timeout; past 11 585 nodes the hop matrix would pass graph_core::budget's \
+    1 GiB and the layout refuses with StageError::Param { name: \"nodes\" } before allocating; \
+    an edgeless graph with n >= 2 takes every \
     distance as 1 instead of dividing by zero; a non-finite position refuses with \
     StageError::NonFinite",
     ponytail: "Ponytail: Newton descent finds a local minimum of the spring energy, so a folded \
