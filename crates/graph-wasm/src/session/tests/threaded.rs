@@ -56,6 +56,6 @@ fn the_negative_control_moves_the_session() {
         let broken = columns(engine, |id| {
             tick_with(id, 10, &runner, 4).expect("runs");
         });
-        assert!(broken != serial, "the last part wrote nothing");
+        assert!(broken != serial, "the last chunk wrote nothing");
     });
 }
