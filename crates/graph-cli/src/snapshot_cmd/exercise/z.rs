@@ -1,9 +1,16 @@
 //! The z column's negative controls, and the two refusals its own contract demands.
 //!
 //! Split out of `exercise.rs` by the house's 300-line limit, and because the z column is the
-//! one thing in the exercise with controls of its own: no 3D layout is registered, so the
-//! `hashgate` has no 3D stage to perturb, and the z column is proved on the surface that
-//! carries one today — the `roundtrip` sweep.
+//! one thing in the exercise with a control of its own.
+//!
+//! `GM_MUTATE_NODE_Z` stays on the `roundtrip` sweep and is deliberately not a
+//! `hashgate::Knob`, though five of the seven registered 3D layouts now carry a per-stage
+//! control of their own (`hashgate::knobs::THREE_D_LAYOUT_STAGES`, `knobs.rs:127-151`).
+//! Every one of those moves a layout's coordinates. This one moves no layout at all: it
+//! perturbs a snapshot on the way into the reader, so what it proves is the reader's own
+//! refusal of a wrong-length z column (`docs/decisions/contract-3d.md`
+//! §4.3) — a property of the wire face, not of a layout stage. A `Knob` arm would have to
+//! file itself under a layout id and would then be claiming to have moved one.
 
 use graph_contract::binary::{Snapshot, SnapshotParts};
 use graph_contract::snapshot::SnapshotError;
@@ -22,11 +29,12 @@ use super::Stream;
 /// without a row that injects it, a reader that accepted a long z would sit green.
 ///
 /// Ponytail: read straight from the environment rather than through `hashgate::Knob`,
-/// because there is no 3D *stage* for it to perturb: no 3D layout is registered yet, so
-/// the hashgate has no 3D row to move and a `Knob` arm would have no stage to file itself
-/// under. Escape hatch: when the first 3D layout is registered, this becomes a real `Knob`
-/// arm and its row moves from `roundtrip` to `hashgate`; until then it perturbs the
-/// exercise alone, which is the only place a z column exists.
+/// because a `Knob` arm must file itself under a layout id and this control moves no
+/// layout — the module header gives the argument. What it does not cover: only the
+/// one-value-too-many case, never one too few; only the exercise's own 3D seeds, never a
+/// layout-produced snapshot; only the binary face's refusal, never the JSON one. Escape
+/// hatch: it is inert unless set to `1`, so an honest run is untouched — and a caller that
+/// forgets to clear it turns an honest sweep red rather than green.
 pub fn perturb_z() -> bool {
     std::env::var("GM_MUTATE_NODE_Z").is_ok_and(|text| text.trim() == "1")
 }
@@ -56,8 +64,10 @@ pub fn snapshot_or_perturbed(snapshot: Snapshot, seed: u32) -> Result<Snapshot, 
 }
 
 /// The z column's own two refusals (`docs/decisions/contract-3d.md` §4.3), each on a
-/// snapshot rebuilt here because no 3D layout produces one: a z column of the wrong length,
-/// and a z column under a label that names no dimension. A returned fault string is a
+/// snapshot rebuilt here: a z column of the wrong length, and a z column under a label that
+/// names no dimension. The rebuild is the point — a registered 3D layout emits a *valid* z
+/// column or it is a bug, so a malformed one can only be had by hand, which is what keeps
+/// these a property of the reader rather than of a layout. A returned fault string is a
 /// failure the sweep reports, so a reader that accepted either would leave the row green —
 /// which is the reason these checks are here at all.
 pub fn z_refusal_faults(snapshot: &Snapshot) -> Vec<String> {
