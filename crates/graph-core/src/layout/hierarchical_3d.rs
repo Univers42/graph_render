@@ -21,6 +21,19 @@
 //! traversal. Escape hatch: repair the digraph into a forest upstream, where the caller
 //! already owns the direction.
 //!
+//! **A level is this module's own undirected BFS depth, not a layer of the 2D Sugiyama
+//! layout.** Nothing here reads `layout::sugiyama`: the levels come from
+//! [`levels::component_roots`] plus [`levels::multi_source_levels`] (`hierarchical.py:31-52`
+//! and `:66-81`), so on a digraph they are BFS distances in the undirected projection
+//! while `sugiyama`'s `layering::assign_layers` would give longest-path layers. The two
+//! disagree wherever BFS depth and longest-path depth do — the chain `1 -> 0 -> 2` gets
+//! Sugiyama layers `1: 0, 0: 1, 2: 2` and this port BFS depths `0: 0, 1: 1, 2: 1`, because
+//! its root is the component's diameter midpoint rather than an in-degree-0 source. That is
+//! the reference's definition (its oracle is SciGraphs, and conformance row 17 is green
+//! node for node), so the fix is this sentence and not the arithmetic: this layout is an
+//! independent port of `_hierarchical_layout_3d`, never a lift of the 2D result, and a
+//! caller that needs the Sugiyama layering must run that layout.
+//!
 //! **Order is imposed, because the reference's is a `dict`'s.** `_group_by_level`
 //! (`hierarchical.py:83-88`) builds `{level: [node, ...]}` by iterating a `dict`; the port
 //! iterates **ascending level** and, inside a level, **BFS discovery order** (D2/D3). That
