@@ -140,8 +140,8 @@ pub const fn dimensions(n: u32) -> (u32, u32) {
 /// and the widest cell centre the lattice can write — `((cells - 1) / 2) * spacing` for
 /// `cells = max(cols, rows)`, which `Lattice::offset` multiplies in `f32` and which
 /// **overflows to `inf` rather than saturating** (measured, not assumed) — is inside the
-/// `f32` range. The second rule is not decoration: a *finite* `f32::MAX` at `n >= 9`
-/// (`cols = rows = 4`, so a half-integer of `1.5`) used to put `inf` in a `Geometry` and
+/// `f32` range. The second rule is not decoration: a *finite* `f32::MAX` at `n >= 10`
+/// (`cols >= 4`, so a half-integer of at least `1.5`) used to put `inf` in a `Geometry` and
 /// this comment used to promise it never would. `rows <= cols` always holds, because
 /// `cols = ceil(sqrt(n))` gives `n <= cols * cols`, so `max` is belt and braces.
 /// See `a_spacing_whose_extreme_cell_is_not_finite_is_refused`.
