@@ -51,7 +51,7 @@ negctl-twopi-nodes|nonzero|scripts/orch/gr -e GM_MUTATE_TWOPI_NODES=1 cargo run 
 # `O(tries * n^2)` with `tries = 9` and the gate model reaches n = 552, so a debug build of
 # this emit takes hours. The osage row above needs no flag because osage is closed form.
 fdp-emit-1000|0|scripts/orch/gr cargo run -q --release -p graph-cli -- emit-graphviz-fixtures --engine fdp --seeds 1000
-fdp-oracle-1000|0|docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/fdp-fixtures fdp target/gv-fdp --differential
+fdp-oracle-1000|0|scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/fdp-fixtures fdp target/gv-fdp --differential
 fdp-check-1000|0|scripts/orch/gr cargo run -q -p graph-cli -- oracle-graphviz --engine fdp
 
 # **Control A — the oracle is NOT deterministic for this engine, and that is the finding.**
@@ -70,14 +70,14 @@ fdp-check-1000|0|scripts/orch/gr cargo run -q -p graph-cli -- oracle-graphviz --
 # when they agreed would assert the opposite of what was measured, and the failure message says
 # what to do about it. Both runs' exit codes are checked to be 0 first, so a broken oracle run
 # cannot be read as a determinism result.
-fdp-oracle-nondeterminism|0|mkdir -p target/gv-fdp-nd && python3 -c "import json;[open('target/gv-fdp-nd/f.jsonl','w').write(json.dumps(r)+'\n') for r in map(json.loads, open('target/fdp-fixtures/fdp.jsonl')) if r['seed']==620]" && docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/gv-fdp-nd fdp target/gv-fdp-nd/a --fixtures=f.jsonl --start=1 && docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/gv-fdp-nd fdp target/gv-fdp-nd/b --fixtures=f.jsonl --start=1 && { cmp -s target/gv-fdp-nd/a/graphviz-fdp.jsonl target/gv-fdp-nd/b/graphviz-fdp.jsonl && echo "two runs are byte-identical: the nondeterminism finding in docs/measurements/p13-gv2-fdp.md is gone — re-measure the ceiling and this row" >&2 && exit 1; }
+fdp-oracle-nondeterminism|0|mkdir -p target/gv-fdp-nd && python3 -c "import json;[open('target/gv-fdp-nd/f.jsonl','w').write(json.dumps(r)+'\n') for r in map(json.loads, open('target/fdp-fixtures/fdp.jsonl')) if r['seed']==620]" && scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/gv-fdp-nd fdp target/gv-fdp-nd/a --fixtures=f.jsonl --start=1 && scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/gv-fdp-nd fdp target/gv-fdp-nd/b --fixtures=f.jsonl --start=1 && { cmp -s target/gv-fdp-nd/a/graphviz-fdp.jsonl target/gv-fdp-nd/b/graphviz-fdp.jsonl && echo "two runs are byte-identical: the nondeterminism finding in docs/measurements/p13-gv2-fdp.md is gone — re-measure the ceiling and this row" >&2 && exit 1; }
 
 # **Control B — the divergence is not the comparison failing to look.** One node coordinate of
 # the same seed-620 output is moved by 1e-6 points, four orders of magnitude below anything this
 # layout computes, and the byte comparison must fail. Without this, "the two runs differ" could
 # mean "the comparison never looks", which is the one thing a determinism row has to rule out.
 # It reads control A's own `a` output, so the two rows cannot drift apart.
-fdp-oracle-perturb-negctl|nonzero|docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 -c "import json; p='target/gv-fdp-nd/a/graphviz-fdp.jsonl'; rows=[json.loads(l) for l in open(p)]; rows[0]['nodes']['n0'][0] += 1e-6; open(p, 'w').write('\n'.join(json.dumps(r) for r in rows) + '\n')" && cmp target/gv-fdp-nd/a/graphviz-fdp.jsonl target/gv-fdp-nd/b/graphviz-fdp.jsonl
+fdp-oracle-perturb-negctl|nonzero|scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 -c "import json; p='target/gv-fdp-nd/a/graphviz-fdp.jsonl'; rows=[json.loads(l) for l in open(p)]; rows[0]['nodes']['n0'][0] += 1e-6; open(p, 'w').write('\n'.join(json.dumps(r) for r in rows) + '\n')" && cmp target/gv-fdp-nd/a/graphviz-fdp.jsonl target/gv-fdp-nd/b/graphviz-fdp.jsonl
 
 # **Control C — `-Gstart` is effective, not inert.** `initPositions` seeds the whole initial
 # placement from it (`tlayout.c:487`), so the same fixtures at start=1, 7 and 99 give three
@@ -86,7 +86,7 @@ fdp-oracle-perturb-negctl|nonzero|docker run --rm --pull never --user 0:0 -v "$P
 # "the first `cmp` fails", which it does on the very first seed. All three runs use the plain
 # positional call, so all three write the same record shape — comparing a `--differential`
 # output against a positional one would differ in the JSON keys alone and would prove nothing.
-fdp-oracle-start-effective|nonzero|docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/gv-fdp-nd fdp target/gv-fdp-nd/s1 --fixtures=f.jsonl --start=1 && docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/gv-fdp-nd fdp target/gv-fdp-nd/s7 --fixtures=f.jsonl --start=7 && docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/gv-fdp-nd fdp target/gv-fdp-nd/s99 --fixtures=f.jsonl --start=99 && cmp target/gv-fdp-nd/s1/graphviz-fdp.jsonl target/gv-fdp-nd/s7/graphviz-fdp.jsonl
+fdp-oracle-start-effective|nonzero|scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/gv-fdp-nd fdp target/gv-fdp-nd/s1 --fixtures=f.jsonl --start=1 && scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/gv-fdp-nd fdp target/gv-fdp-nd/s7 --fixtures=f.jsonl --start=7 && scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/gv-fdp-nd fdp target/gv-fdp-nd/s99 --fixtures=f.jsonl --start=99 && cmp target/gv-fdp-nd/s1/graphviz-fdp.jsonl target/gv-fdp-nd/s7/graphviz-fdp.jsonl
 
 # **Control D: the check cannot pass on nothing.** A directory with no recorded run must be
 # refused rather than read as a pass — the same shape `scripts/orch/rows/p13-gv1-osage.rows:67`
