@@ -37,20 +37,32 @@ fn the_neato_control_perturbs_one_stages_tolerance_and_moves_only_that_stage() {
 ///
 /// `1e-4` is `neato::EPSILON` exactly, so this asserts the gate compares the parsed value
 /// against the layout's own constant rather than against a copy of it that could drift.
+///
+/// **It is refused, not parsed** (RG-42). The control used to accept `=1e-4`, set
+/// `control = Some(NeatoEpsilon)`, and then hashed byte-for-byte the honest drawing while
+/// writing this knob's evidence record — a negative control that claimed a comparison which
+/// never happened. The claim the test makes is unchanged and is now a refusal.
 #[test]
-fn the_neato_control_at_the_default_tolerance_moves_nothing() {
+fn the_neato_control_at_the_default_tolerance_is_refused_as_a_no_op() {
     let pairs = [("GM_MUTATE_NEATO_EPSILON", "1e-4")];
-    let setting = setting(env(pairs.to_vec())).expect("parses");
+    let err = setting(env(pairs.to_vec())).expect_err("the layout's own EPSILON");
+    assert!(err.contains("perturbs nothing"), "{err}");
     assert_eq!(
-        setting.neato_epsilon(),
         graph_core::layout::graphviz::neato::EPSILON,
-        "the control's default value must be the layout's own constant"
+        1e-4,
+        "the refusal is this constant's: change it and this test's input is no longer it"
     );
+    // Zero is a *legal* tolerance and is not the compiled-in one, so it is accepted and does
+    // perturb — the no-op rule is one comparison, not a blanket ban on the honest-looking.
+    let zero = setting(env(vec![("GM_MUTATE_NEATO_EPSILON", "0")])).expect("a legal tolerance");
+    assert_eq!(zero.neato_epsilon(), 0.0);
     let base = stage_bytes(NEATO_SEED, &honest()).expect("runs");
-    let same = stage_bytes(NEATO_SEED, &setting).expect("runs");
-    for (id, bytes) in &same {
-        assert_eq!(stage_of(&base, id), bytes.as_slice(), "{id} moved");
-    }
+    let stopped = stage_bytes(NEATO_SEED, &zero).expect("runs");
+    assert_ne!(
+        stage_of(&base, graph_core::layout::graphviz::neato::ID),
+        stage_of(&stopped, graph_core::layout::graphviz::neato::ID),
+        "a zero tolerance stops the solve on the stress clause, so it is a different drawing"
+    );
 }
 
 /// A coarser tolerance must change *this* stage's bytes, which is what says the control

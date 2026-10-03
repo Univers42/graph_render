@@ -195,10 +195,10 @@ export interface View {
   /** What the view draws a node or an edge at right now (1 in the focus, faded outside it). */
   opacity(kind: "node" | "edge", index: number): number;
   /**
-   * New positions for the nodes already in the frame, from a live simulation. `xs`/`ys`
-   * are one entry per node in dense order; a length that does not match the frame's node
-   * count is ignored (the drawing is of another graph). The columns the motor handed over
-   * are read, never kept: the next frame replaces them.
+   * New positions for the nodes already in the frame, from a live simulation: one entry per
+   * node in dense order; a length that does not match the frame's node count is ignored (another
+   * graph's drawing). The columns are adopted, and a pair that is taken also fits the drawing
+   * until a pan, a zoom or a node drag makes the camera the reader's.
    */
   setPositions(xs: Float32Array, ys: Float32Array): void;
   /** The nodes whose labels the last frame placed. */

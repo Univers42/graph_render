@@ -92,20 +92,15 @@ test("a shuffle restarts the session, re-applies the knobs and answers the new a
   const rowed = box(["alpha", "beta"]);
   const force = restarts(made.force, rowed, made.calls);
   force.setParams({ ...DEFAULT_KNOBS, gravity: 0.4 });
-  // The wire's field order is the knob table's (liveSession.ts), so the string is exact.
-  const applied = `params ${JSON.stringify({
-    gravity: 0.4, charge: DEFAULT_KNOBS.charge, link_strength_scale: DEFAULT_KNOBS.linkStrengthScale,
-    link_distance: DEFAULT_KNOBS.linkDistance, collide_radius: DEFAULT_KNOBS.collideRadius,
-    velocity_decay: DEFAULT_KNOBS.velocityDecay, alpha_decay: DEFAULT_KNOBS.alphaDecay,
-    distance_max: DEFAULT_KNOBS.distanceMax, theta: DEFAULT_KNOBS.theta,
-  })}`;
   const alpha = force.shuffle?.();
   assert.equal(alpha, 1, "the alpha is the new session's own, not a reheated 1");
-  assert.deepEqual(made.calls, [
-    applied,
-    "restart",
-    applied,
-  ]);
+  // Built from DEFAULT_KNOBS, in the port's wire order, so a moved default does not break it.
+  const { charge, linkStrengthScale, linkDistance, collideRadius, velocityDecay, alphaDecay, distanceMax, theta } = DEFAULT_KNOBS;
+  const params = `params ${JSON.stringify({
+    gravity: 0.4, charge, link_strength_scale: linkStrengthScale, link_distance: linkDistance,
+    collide_radius: collideRadius, velocity_decay: velocityDecay, alpha_decay: alphaDecay, distance_max: distanceMax, theta,
+  })}`;
+  assert.deepEqual(made.calls, [params, "restart", params]);
   force.pin("beta", 2, 3);
   assert.equal(made.calls.at(-1), "pin 1 2 3", "and every call after it goes to the new session");
 });
