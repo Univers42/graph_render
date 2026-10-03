@@ -112,7 +112,9 @@ impl Table {
 
 static MARKS: Table = Table(UnsafeCell::new([0; SLOTS]));
 
-/// The linear-memory address of the mark table, for `gm_probe_base`.
+/// The linear-memory address of the mark table, for `gm_probe_base`. wasm32-only, like the
+/// export that calls it: a native build has no linear memory to find a table in.
+#[cfg(target_arch = "wasm32")]
 pub fn base() -> usize {
     MARKS.base()
 }
@@ -122,7 +124,8 @@ pub(crate) fn mark(phase: u32, bytes: Option<usize>) {
     MARKS.mark(phase, bytes.unwrap_or_else(linear_bytes));
 }
 
-/// Clears the mark table, for `gm_probe_reset`.
+/// Clears the mark table, for `gm_probe_reset`. wasm32-only, like the export that calls it.
+#[cfg(target_arch = "wasm32")]
 pub fn reset() {
     MARKS.reset();
 }
@@ -178,8 +181,14 @@ mod tests {
         // SAFETY: as above.
         let slots = unsafe { marks.read() };
         let filled = slots[0] as usize;
-        assert!(filled + 1 < SLOTS, "the table filled to {filled} of {SLOTS}");
-        assert!(!slots[1..].contains(&999), "the dropped mark was written anyway");
+        assert!(
+            filled + 1 < SLOTS,
+            "the table filled to {filled} of {SLOTS}"
+        );
+        assert!(
+            !slots[1..].contains(&999),
+            "the dropped mark was written anyway"
+        );
         marks.reset();
         // SAFETY: as above.
         assert_eq!(unsafe { marks.read() }[0], 0);

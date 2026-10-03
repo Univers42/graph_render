@@ -36,24 +36,25 @@
 //! string carrying an escape.
 
 mod text;
+mod walk;
 
 use graph_contract::canonical_json::JsonError;
 
 use super::IngestError;
 /// Deepest nesting read, as `graph_contract::canonical_json::parse` reads it.
-const MAX_DEPTH: u32 = 32;
+pub(super) const MAX_DEPTH: u32 = 32;
 
 /// Member count above which an object's duplicate-key check builds a set of the keys it has
 /// read instead of scanning them — the same threshold, and for the same reason, as the
 /// reader this replaces: a quadratic over a hostile object is a worse trade than a clone per
 /// member.
-const WIDE_OBJECT: usize = 32;
+pub(super) const WIDE_OBJECT: usize = 32;
 
 /// The depth of a root member's value: the root object is depth 0, so what it holds is
 /// depth 1, and [`Scan::array`] is entered there. Fixed rather than stored because the only
 /// arrays this walks are root members' — an element's own arrays are read as part of its
 /// text, never re-walked.
-const ROOT_MEMBER_DEPTH: u32 = 1;
+pub(super) const ROOT_MEMBER_DEPTH: u32 = 1;
 
 /// One string's unescaped text: borrowed from the document when it carries no escape, built
 /// when it does. The escape path is the rare one, so the common one allocates nothing.
@@ -123,6 +124,11 @@ pub(super) struct Member {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Document<'a> {
     text: &'a str,
+    /// Whether the root was an object at all. A document whose root is an array or a number
+    /// validates and locates no members, and the reader has to tell that apart from a
+    /// document whose root is an object that is missing `version` — the two are different
+    /// refusals, and which one comes out is the reader's published order.
+    object: bool,
     members: Vec<Member>,
 }
 
@@ -139,13 +145,25 @@ impl<'a> Document<'a> {
             return Err(scan.fault("text after the value"));
         }
         scan.at = 0;
-        let members = scan.root_members()?;
-        Ok(Self { text, members })
+        let (object, members) = scan.root_members()?;
+        Ok(Self {
+            text,
+            object,
+            members,
+        })
     }
 
     /// The document's text, so a reader that already holds it is not handed it twice.
     pub(super) fn text(&self) -> &'a str {
         self.text
+    }
+
+    /// Whether the root is an object. `false` is a shape fault the reader names, and it is
+    /// named before any member is looked at — which is only knowable here, because the walk
+    /// validates the whole text first and an empty member list is what a non-object root and
+    /// an empty object both leave behind.
+    pub(super) fn is_object(&self) -> bool {
+        self.object
     }
 
     /// The root's members, in document order.
@@ -182,12 +200,12 @@ impl<'a> Scan<'a> {
         }
     }
 
-    /// The root object's members in document order, each with its array element count. An
-    /// empty list for a root that is not an object.
-    fn root_members(&mut self) -> Result<Vec<Member>, JsonError> {
+    /// The root object's members in document order, each with its array element count, and
+    /// whether the root was an object at all. Empty for a root that is not one.
+    fn root_members(&mut self) -> Result<(bool, Vec<Member>), JsonError> {
         self.space();
         if self.byte(self.at) != Some(b'{') {
-            return Ok(Vec::new());
+            return Ok((false, Vec::new()));
         }
         let mut members = Vec::new();
         self.object(0, &mut |key: Text<'_>, value, elements| {
@@ -197,233 +215,13 @@ impl<'a> Scan<'a> {
                 elements,
             });
         })?;
-        Ok(members)
-    }
-
-    /// Every element of the array at `array`, in order, handed to `keep` as its own text.
-    ///
-    /// The span came from a root member this walk already validated, so the only refusal
-    /// that can come out is `keep`'s — and it wins over anything the re-walk finds, because
-    /// a refusal is what the caller is waiting for and a syntax fault here would be a fault
-    /// the first walk missed.
-    pub(super) fn elements(
-        &mut self,
-        array: Span,
-        keep: &mut impl FnMut(&'a str) -> Result<(), IngestError>,
-    ) -> Result<(), IngestError> {
-        let start = array
-            .bounds()
-            .map(|(start, _)| start)
-            .ok_or_else(|| IngestError::Json(self.fault("a span past the text")))?;
-        let text = self.text;
-        self.at = start;
-        let mut refused: Option<IngestError> = None;
-        let walked = self
-            .array(ROOT_MEMBER_DEPTH, &mut |span: Span| {
-                let Some((from, to)) = span.bounds() else { return };
-                let Some(element) = text.get(from..to) else { return };
-                if let Err(why) = keep(element) {
-                    refused = Some(why);
-                }
-            })
-            .map_err(IngestError::Json);
-        match refused {
-            Some(why) => Err(why),
-            None => walked,
-        }
-    }
-
-    /// Every member of the one object written in this walk's whole text, in document order:
-    /// its unescaped key and where its value is. What a record reader wants — the shape's
-    /// members as spans, with nothing built per member.
-    ///
-    /// `keep`'s refusal wins over anything the re-walk finds, for the same reason as in
-    /// [`Self::elements`]: the text was validated by [`Document::new`], so a syntax fault
-    /// here would be a fault that walk missed, and the caller is waiting on the refusal.
-    pub(super) fn members(
-        &mut self,
-        keep: &mut impl FnMut(Text<'a>, Span) -> Result<(), IngestError>,
-    ) -> Result<(), IngestError> {
-        self.at = 0;
-        let mut refused: Option<IngestError> = None;
-        let walked = self.object(0, &mut |key, value, _| {
-            if let Err(why) = keep(key, value) {
-                refused = Some(why);
-            }
-        });
-        match refused {
-            Some(why) => Err(why),
-            None => walked.map_err(IngestError::Json),
-        }
-    }
-
-    /// `JsonError::Syntax` at the cursor, as `parse` reports it.
-    pub(super) fn fault(&self, what: &'static str) -> JsonError {
-        self.fault_at(self.at, what)
-    }
-
-    /// `JsonError::Syntax` at `at`.
-    pub(super) fn fault_at(&self, at: usize, what: &'static str) -> JsonError {
-        JsonError::Syntax {
-            at: u32::try_from(at).unwrap_or(u32::MAX),
-            what,
-        }
-    }
-
-    /// The byte at `at`, or `None` past the end.
-    pub(super) fn byte(&self, at: usize) -> Option<u8> {
-        self.text.as_bytes().get(at).copied()
-    }
-
-    /// Past the whitespace, where a value or a member name may start.
-    pub(super) fn space(&mut self) {
-        while matches!(self.byte(self.at), Some(b' ' | b'\t' | b'\n' | b'\r')) {
-            self.at += 1;
-        }
-    }
-
-    /// Eats `byte` if it is next, moving the cursor only when it was.
-    pub(super) fn eat(&mut self, byte: u8) -> bool {
-        let found = self.byte(self.at) == Some(byte);
-        self.at += usize::from(found);
-        found
-    }
-
-    /// One JSON value at the cursor, at `depth`: where it is, and the cursor just past it.
-    pub(super) fn value(&mut self, depth: u32) -> Result<Span, JsonError> {
-        if depth > MAX_DEPTH {
-            return Err(self.fault("nested too deep"));
-        }
-        self.space();
-        let start = self.at;
-        match self.byte(self.at) {
-            Some(b'{') => self.object(depth, &mut |_, _, _| ())?,
-            Some(b'[') => self.array(depth, &mut |_| ())?,
-            Some(b'"') => {
-                let (_, end) = self.string(self.at)?;
-                self.at = end;
-            }
-            Some(b'-' | b'0'..=b'9') => {
-                let (_, end) = self.number(self.at)?;
-                self.at = end;
-            }
-            Some(b't') => self.literal("true")?,
-            Some(b'f') => self.literal("false")?,
-            Some(b'n') => self.literal("null")?,
-            Some(_) => return Err(self.fault("not the start of a value")),
-            None => return Err(self.fault("the text ends where a value should be")),
-        }
-        Ok(span(start, self.at))
-    }
-
-    /// One of `null`/`true`/`false` at the cursor.
-    fn literal(&mut self, word: &str) -> Result<(), JsonError> {
-        if !self.text[self.at..].starts_with(word) {
-            return Err(self.fault("not the start of a value"));
-        }
-        self.at += word.len();
-        Ok(())
-    }
-
-    /// One array at `depth`, handing each element's span to `keep`.
-    pub(super) fn array(
-        &mut self,
-        depth: u32,
-        mut keep: impl FnMut(Span),
-    ) -> Result<(), JsonError> {
-        self.at += 1;
-        self.space();
-        if self.eat(b']') {
-            return Ok(());
-        }
-        loop {
-            let span = self.value(depth + 1)?;
-            keep(span);
-            self.space();
-            if self.eat(b']') {
-                return Ok(());
-            }
-            if !self.eat(b',') {
-                return Err(self.fault("expected , or ] in an array"));
-            }
-            self.space();
-        }
-    }
-
-    /// One object at `depth`, handing each member to `keep`: its unescaped key, its value's
-    /// span, and the element count if the value is an array.
-    fn object(
-        &mut self,
-        depth: u32,
-        mut keep: impl FnMut(Text<'a>, Span, Option<usize>),
-    ) -> Result<(), JsonError> {
-        self.at += 1;
-        let base = self.keys.len();
-        let mut wide: Option<std::collections::BTreeSet<String>> = None;
-        self.space();
-        if self.eat(b'}') {
-            return Ok(());
-        }
-        loop {
-            self.space();
-            if self.byte(self.at) != Some(b'"') {
-                return Err(self.fault("expected a key"));
-            }
-            let key_at = self.at;
-            let (key, at) = self.string(self.at)?;
-            self.at = at;
-            self.space();
-            if !self.eat(b':') {
-                return Err(self.fault("expected : after a key"));
-            }
-            self.space();
-            let start = self.at;
-            let mut elements = None;
-            if self.byte(self.at) == Some(b'[') {
-                let mut count = 0usize;
-                self.array(depth + 1, &mut |_| count += 1)?;
-                elements = Some(count);
-            } else {
-                self.value(depth + 1)?;
-            }
-            if self.key_seen(base, &mut wide, &key) {
-                self.at = key_at;
-                return Err(self.fault("a key repeated in one object"));
-            }
-            self.keys.push(key.clone());
-            keep(key, span(start, self.at), elements);
-            self.space();
-            if self.eat(b'}') {
-                self.keys.truncate(base);
-                return Ok(());
-            }
-            if !self.eat(b',') {
-                return Err(self.fault("expected , or } in an object"));
-            }
-        }
-    }
-
-    /// Whether `key` is already one of this object's members. Narrow objects compare
-    /// against the keys on the stack — no allocation, and the ten members of a node cost
-    /// forty-five `memcmp`s. A wide one builds the set it always had.
-    fn key_seen(
-        &self,
-        base: usize,
-        wide: &mut Option<std::collections::BTreeSet<String>>,
-        key: &Text<'a>,
-    ) -> bool {
-        let seen = &self.keys[base..];
-        if seen.len() < WIDE_OBJECT {
-            return seen.iter().any(|k| k.as_str() == key.as_str());
-        }
-        let keys = wide.get_or_insert_with(|| seen.iter().map(|k| k.as_str().to_owned()).collect());
-        !keys.insert(key.as_str().to_owned())
+        Ok((true, members))
     }
 }
 
 /// A range as `u32`s, saturating rather than wrapping (D6). Nothing under the byte ceiling
 /// can reach the saturation; a span that did is refused where it is read, not here.
-fn span(start: usize, end: usize) -> Span {
+pub(super) fn span(start: usize, end: usize) -> Span {
     Span {
         start: u32::try_from(start).unwrap_or(u32::MAX),
         end: u32::try_from(end).unwrap_or(u32::MAX),

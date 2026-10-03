@@ -17,7 +17,10 @@ use super::{JsonError, Scan, Text};
 impl<'a> Scan<'a> {
     /// One JSON string at `start` (its opening quote): the unescaped text and one past its
     /// closing quote. A run with no escape borrows the document.
-    pub(in crate::ingest) fn string(&mut self, start: usize) -> Result<(Text<'a>, usize), JsonError> {
+    pub(in crate::ingest) fn string(
+        &mut self,
+        start: usize,
+    ) -> Result<(Text<'a>, usize), JsonError> {
         let mut at = start + 1;
         let run = at;
         while matches!(self.byte(at), Some(b) if b != b'"' && b != b'\\' && b >= 0x20) {
@@ -33,7 +36,11 @@ impl<'a> Scan<'a> {
 
     /// A string carrying at least one escape: the run before it, then one escape and one
     /// run at a time. `at` is the backslash that broke the first run.
-    fn escaped(&self, run: usize, at: usize) -> Result<(Text<'a>, usize), JsonError> {
+    pub(in crate::ingest) fn escaped(
+        &self,
+        run: usize,
+        at: usize,
+    ) -> Result<(Text<'a>, usize), JsonError> {
         let mut out = self.text[run..at].to_owned();
         let mut at = at;
         loop {
@@ -77,7 +84,7 @@ impl<'a> Scan<'a> {
 
     /// `\uXXXX` at `at`, pairing a high surrogate with the low one that must follow it:
     /// the character, and one past the whole sequence.
-    fn unicode(&self, at: usize) -> Result<(char, usize), JsonError> {
+    pub(in crate::ingest) fn unicode(&self, at: usize) -> Result<(char, usize), JsonError> {
         let (unit, mut at) = self.hex4(at)?;
         let code = match unit {
             0xD800..=0xDBFF => {
@@ -86,7 +93,7 @@ impl<'a> Scan<'a> {
                 }
                 let (low, next) = self.hex4(at + 2)?;
                 at = next;
-                if low < 0xDC00 || low > 0xDFFF {
+                if !(0xDC00..=0xDFFF).contains(&low) {
                     return Err(self.fault_at(at, "an unpaired surrogate"));
                 }
                 0x10000 + ((unit - 0xD800) << 10) + (low - 0xDC00)
@@ -101,7 +108,7 @@ impl<'a> Scan<'a> {
     }
 
     /// Four hex digits at `at`: their value, and one past them.
-    fn hex4(&self, at: usize) -> Result<(u32, usize), JsonError> {
+    pub(in crate::ingest) fn hex4(&self, at: usize) -> Result<(u32, usize), JsonError> {
         let digits = self.text.get(at..at + 4);
         let value = digits
             .filter(|d| d.bytes().all(|b| b.is_ascii_hexdigit()))
@@ -117,7 +124,7 @@ impl<'a> Scan<'a> {
     /// Every refusal is reported *past* the sign, the point or the exponent marker rather
     /// than at the number's first byte, because that is where the reader this mirrors stands
     /// when it refuses — it has already stepped over what it read.
-    pub(super) fn number(&self, start: usize) -> Result<(&str, usize), JsonError> {
+    pub(in crate::ingest) fn number(&self, start: usize) -> Result<(&str, usize), JsonError> {
         let mut at = start;
         if self.byte(at) == Some(b'-') {
             at += 1;
@@ -150,7 +157,7 @@ impl<'a> Scan<'a> {
     }
 
     /// How many decimal digits start at `at`.
-    fn digits(&self, at: usize) -> usize {
+    pub(in crate::ingest) fn digits(&self, at: usize) -> usize {
         let mut end = at;
         while matches!(self.byte(end), Some(b'0'..=b'9')) {
             end += 1;

@@ -174,17 +174,29 @@ impl<'a> Element<'a> {
         self.text.get(from..to)
     }
 
-    /// The member at `span` as a string, refusing a member of any other type at
-    /// `at.field(name)`.
-    fn text_at(&self, span: Span, name: &'static str) -> Result<Text<'a>, IngestError> {
-        if self.slice(span).is_none_or(|text| !text.starts_with('"')) {
-            return Err(shape(self.at.field(name), "expected a string"));
+    /// The member at `span` read as a string, or `Ok(None)` when it is a member of any other
+    /// type — which is a refusal the caller words, because a member that may be absent and a
+    /// member that must be a string do not name the same fault.
+    ///
+    /// A walk that refuses here is reported, not swallowed: the text was validated by
+    /// [`Document::new`](super::scan::Document::new), so this cannot happen, and turning it
+    /// into "expected a string" would dress a bug up as a well-formed refusal.
+    fn quoted(&self, span: Span) -> Result<Option<Text<'a>>, IngestError> {
+        if !self.slice(span).is_some_and(|text| text.starts_with('"')) {
+            return Ok(None);
         }
         let mut scan = Scan::new(self.text);
         let (text, _) = scan
             .string(span.start as usize)
             .map_err(IngestError::Json)?;
-        Ok(text)
+        Ok(Some(text))
+    }
+
+    /// The member at `span` as a string, refusing a member of any other type at
+    /// `at.field(name)`.
+    fn text_at(&self, span: Span, name: &'static str) -> Result<Text<'a>, IngestError> {
+        self.quoted(span)?
+            .ok_or_else(|| shape(self.at.field(name), "expected a string"))
     }
 
     /// Whether the member at `span` is the literal `null`.
@@ -199,12 +211,22 @@ impl<'a> Element<'a> {
     }
 
     /// Field `field` as a string or an explicit `null`.
-    fn opt_string(&mut self, field: usize, name: &'static str) -> Result<Option<String>, IngestError> {
+    fn opt_string(
+        &mut self,
+        field: usize,
+        name: &'static str,
+    ) -> Result<Option<String>, IngestError> {
         let span = self.span(field, name)?;
-        match self.is_null(span) {
-            true => Ok(None),
-            false => self.text_at(span, name).map(Text::into_string).map(Some),
+        if self.is_null(span) {
+            return Ok(None);
         }
+        // Worded here rather than through `text_at`: a member that may be absent refuses a
+        // wrong type by naming both the types it accepts, which is not what a member that
+        // must be a string says.
+        self.quoted(span)?
+            .map(Text::into_string)
+            .map(Some)
+            .ok_or_else(|| shape(self.at.field(name), "expected a string or null"))
     }
 
     /// Field `field` as a boolean.
@@ -223,7 +245,9 @@ impl<'a> Element<'a> {
     fn number(&mut self, field: usize, name: &'static str) -> Result<f64, IngestError> {
         let span = self.span(field, name)?;
         let at = self.at.field(name);
-        let text = self.slice(span).ok_or_else(|| shape(at, "not a valid number"))?;
+        let text = self
+            .slice(span)
+            .ok_or_else(|| shape(at, "not a valid number"))?;
         if !matches!(text.as_bytes().first(), Some(b'-' | b'0'..=b'9')) {
             return Err(shape(at, "not a valid number"));
         }
@@ -240,7 +264,10 @@ impl<'a> Element<'a> {
         let span = self.span(field::NODE_KIND, "kind")?;
         let name = self.text_at(span, "kind")?;
         NodeKind::from_name(name.as_str()).ok_or_else(|| {
-            shape(at.field("kind"), &format!("unknown node kind {:?}", name.as_str()))
+            shape(
+                at.field("kind"),
+                &format!("unknown node kind {:?}", name.as_str()),
+            )
         })
     }
 
@@ -249,7 +276,10 @@ impl<'a> Element<'a> {
         let span = self.span(field::EDGE_KIND, "kind")?;
         let name = self.text_at(span, "kind")?;
         EdgeKind::from_name(name.as_str()).ok_or_else(|| {
-            shape(at.field("kind"), &format!("unknown edge kind {:?}", name.as_str()))
+            shape(
+                at.field("kind"),
+                &format!("unknown edge kind {:?}", name.as_str()),
+            )
         })
     }
 }

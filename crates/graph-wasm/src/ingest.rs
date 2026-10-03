@@ -46,25 +46,32 @@ pub const VERSION: u32 = 1;
 /// The longest ingest document [`read`] accepts, in bytes: one past this is
 /// [`IngestError::TooLarge`], checked before [`read`] parses or `from_utf8` touches a byte.
 ///
-/// Measured, not chosen (`docs/decisions/wasm-ingest-limits.md`, `docs/measurements/fix-wasm-ingest.md`):
-/// the studio's own generator at its 1M-node scale target, doubling up, on the
-/// `wasm32-unknown-unknown` release artifact under Node. This is the largest document that
-/// built — 774,568,785 bytes, 3,679,984 edges — byte for byte, with no rounding: it refuses
-/// nothing that built and accepts nothing unmeasured, which is the only property a ceiling
-/// here has to keep. The next document up, 799,922,860 bytes and 3,799,984 edges, trapped
-/// inside `graph_core::index_model`'s string arena, as did 842,132,644 bytes at the studio's
-/// own `MAX_NODES`.
+/// Measured, then rounded down to a whole power of two (`docs/decisions/wasm-ingest-limits.md`
+/// step 4, `docs/measurements/fix-ingest-scale.md`): the studio's own generator on the
+/// `wasm32-unknown-unknown` release artifact under Node, at its 1M-node scale target and
+/// upward. The largest document that built is 1,499,403,588 bytes — 1M nodes, 7,999,936
+/// edges — at a peak of 4,117,561,344 of the 4,294,967,296 bytes wasm32 can address. The
+/// next one up, 1,663,576,802 bytes and 8,999,919 edges, trapped while the records were being
+/// read. `2^30` = 1,073,741,824 is the largest power of two at or below the largest that
+/// built, and it refuses nothing that built before the reader stopped building a `Value`
+/// tree — the previous ceiling's own document, and every document under it.
 ///
-/// Ponytail: no margin, deliberately — it *is* the measurement, so the 25,354,075 bytes between
-/// it and the first document that trapped are untested air, not headroom, and no part of it
-/// bounds the work a document implies. The only trap the sweep found sits 30,000 nodes and
-/// 120,000 edges above this document at the same degree, so build-versus-trap is a work
-/// boundary and a length check cannot see work at all. Failing input: a document under this
-/// ceiling whose arena use outruns its bytes, so it traps where this promised nothing.
-/// Direction: refuses early on size, never on shape, and bounds nothing else. Escape hatch:
-/// `fix-ingest-scale` fixes the arena, raises this with a new measurement, and restores the
-/// decision record's power-of-two step down with it.
-pub const MAX_INGEST_BYTES: usize = 774_568_785;
+/// Ponytail: the rounding is 425,661,764 bytes of margin, so unlike the number it replaced
+/// this one *does* refuse documents that build — everything from 1,073,741,825 to
+/// 1,499,403,588 bytes was measured to build and this ceiling says no. That is the trade the
+/// decision record asks for now that the arena no longer traps: a number with a rule behind
+/// it and room under it, in exchange for a band where the sweep's answer and the ceiling's
+/// disagree. It still bounds bytes and not the work they imply: the 1M-node degree-3
+/// document is 678,016,813 bytes and the degree-8 one is 1,499,403,588, both under this
+/// ceiling, but build-versus-trap runs on edges, and the trap at 8,999,919 edges sits
+/// 164,173,214 bytes *above* this number while a document 425,661,764 bytes under it is the
+/// largest this build has held. Failing input: a document whose bytes are few and whose edge
+/// count is many — the degree-9 shape at 1M nodes, 1,663,576,802 bytes, which is refused here
+/// only because it is over the ceiling, and would trap rather than refuse if the ceiling were
+/// lifted. Direction: refuses early on size, never on shape, and bounds nothing else. Escape
+/// hatch: `fix-ingest-scale`'s measurement is the only thing that sets this number, and
+/// re-running `harness/ingest-ceiling.mjs` upward is what would move it.
+pub const MAX_INGEST_BYTES: usize = 1_073_741_824;
 
 /// The byte ceiling [`read_records`] holds a document to.
 ///
@@ -167,6 +174,12 @@ pub fn read_records(bytes: &[u8]) -> Result<(Vec<NodeRecord>, Vec<EdgeRecord>), 
     let document = scan::Document::new(text).map_err(IngestError::Json)?;
     #[cfg(any(test, feature = "probe"))]
     mark(phases::PARSE, None);
+    // The root's own shape, before any member of it is looked at: a document whose root is
+    // an array validates and locates nothing, and saying "missing member `version`" for it
+    // would send a caller looking for a member it never wrote.
+    if !document.is_object() {
+        return Err(shape(At::ROOT, "expected an object"));
+    }
     let version = version_number(&document)?;
     if version != VERSION {
         return Err(shape(
@@ -249,7 +262,8 @@ fn version_number(document: &scan::Document<'_>) -> Result<u32, IngestError> {
     let member = document
         .member("version")
         .ok_or_else(|| shape(At::ROOT, "missing member `version`"))?;
-    let text = number_text(document.text(), member.value).ok_or_else(|| shape(at, "expected a number"))?;
+    let text =
+        number_text(document.text(), member.value).ok_or_else(|| shape(at, "expected a number"))?;
     text.parse()
         .map_err(|_| shape(at, "expected a plain non-negative integer"))
 }
