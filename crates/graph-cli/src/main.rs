@@ -19,6 +19,7 @@ mod ingest_cmd;
 mod ink_cmd;
 mod oracle_fixtures;
 mod oracle_python;
+mod overlap_cmd;
 mod probe_report;
 mod runner;
 mod snapshot_cmd;
@@ -98,6 +99,19 @@ fn main() -> ExitCode {
             fixture: fixture.as_deref(),
             nodes,
             layout: &layout,
+        }),
+        Command::Overlap {
+            fixture,
+            nodes,
+            layout,
+            radius,
+            no_scan,
+        } => overlap_cmd::run(&overlap_cmd::Request {
+            fixture: fixture.as_deref(),
+            nodes,
+            layout: &layout,
+            radius,
+            scan: !no_scan,
         }),
         Command::DeterminismProbe { out } => determinism_probe::run(&out),
         Command::Stress {

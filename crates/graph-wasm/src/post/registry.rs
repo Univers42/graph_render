@@ -1,7 +1,7 @@
 //! The post capability registry: the table of capabilities the ABI exposes, and the
 //! functions to query and run them.
 
-use super::bundlers::{fdeb, mingle};
+use super::bundlers::{fdeb, mingle, separate as separate_pass};
 use super::routed::route_grid;
 use super::styles::{Style, bezier, orthogonal, quadratic, straight};
 use graph_contract::binary::Snapshot;
@@ -18,10 +18,12 @@ use graph_core::post::{Bundled, PostRun};
 /// same string from the same place.
 pub const ROUTE_ID: &str = routed::ID;
 
-/// Every POST capability the ABI exposes, in registration order: the two bundlers
-/// graph-core registers, then routing, then the four styles. Append-only — a row added
-/// here is discoverable with no ABI change (the property C1 states for layouts).
-pub static CAPABILITIES: [Entry; 7] = [
+/// Every POST capability the ABI exposes, in registration order: the three capabilities
+/// graph-core registers (the two bundlers and the node-overlap pass), then routing, then the
+/// four styles. Append-only — a row added here is discoverable with no ABI change (the
+/// property C1 states for layouts), and a row added *at the end* of this table moves no
+/// index that already means something.
+pub static CAPABILITIES: [Entry; 8] = [
     Entry {
         id: graph_core::post::fdeb::ID,
         run: fdeb,
@@ -29,6 +31,10 @@ pub static CAPABILITIES: [Entry; 7] = [
     Entry {
         id: graph_core::post::mingle::ID,
         run: mingle,
+    },
+    Entry {
+        id: graph_core::post::separate::ID,
+        run: separate_pass,
     },
     Entry {
         id: ROUTE_ID,
