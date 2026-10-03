@@ -112,7 +112,18 @@ scripts/orch/gr -e GM_MUTATE_REFERENCE_DEGREE=9 cargo run -q -p graph-cli -- has
 scripts/orch/gr cargo run -q -p graph-cli -- hashgate --seeds 0            -> 2
 scripts/orch/gr -e GM_MUTATE_NODE_COUNT=0 cargo run -q -p graph-cli -- hashgate --seeds 8  -> 2
 scripts/orch/gr cargo run -q -p graph-cli -- hashgate-arm --seeds 0        -> 2
+scripts/scigraphs-conformance.sh                                           -> 0  (PASS)
+scripts/scigraphs-conformance.sh --break                                   -> 1  (caught SPRING_3D)
 ```
+
+The two scigraphs rows are the ones this job's `GM_MUTATE_*` typo sweep (RG-26) could have
+broken: `--break` sets `GM_MUTATE_SCIGRAPHS_CONFORMANCE`, a `GM_MUTATE_`-prefixed variable the
+conformance arm owns (`oracle_python/conformance/motor.rs`'s `BREAK_ENV`) and the hash gate
+does not. It reads without reaching a knob — `emit-conformance-fixtures` with the variable set
+exits 0 and flips its bit — so no knob path ever sweeps it. Both halves are pinned by
+`another_subsystems_control_variable_is_refused_loudly_rather_than_ignored`
+(`knob/env/tests.rs`): a knob path that *did* see the name would refuse it and say so, rather
+than ignore a variable it does not own.
 
 The four done-when commands and their last lines:
 
