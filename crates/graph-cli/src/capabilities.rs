@@ -123,11 +123,6 @@ pub const MAX_SCALE_CEILING: u64 = registry::TOPOLOGY_CEILING;
 /// that does not start with it is a verdict.
 pub(super) const NO_BACKED: &str = "not backed: ";
 
-/// The geometry kind name a row falls back to when graph-core grows a kind this ledger
-/// has no name for. Never borrowed from a neighbouring kind: a confidently wrong value
-/// reads as a real one, and `--check` refuses this one by name instead.
-pub(super) const UNKNOWN_GEOMETRY: &str = "unknown";
-
 /// The rows with `oracle_diff` and `hash_4way` filled from `evidence`: the verdict, or
 /// `not backed: <why>`.
 pub fn ledger(evidence: &Evidence) -> Vec<Capability> {
@@ -194,12 +189,6 @@ fn ceiling_problems(row: &Capability) -> Vec<String> {
         found.push(format!(
             "{}: scale_ceiling {} is above the largest one this tree declares ({MAX_SCALE_CEILING})",
             row.id, row.scale_ceiling
-        ));
-    }
-    if row.geometry == Some(UNKNOWN_GEOMETRY) {
-        found.push(format!(
-            "{}: geometry kind `{}`: graph-core grew a kind this ledger has no name for",
-            row.id, UNKNOWN_GEOMETRY
         ));
     }
     found

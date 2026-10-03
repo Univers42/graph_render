@@ -103,27 +103,6 @@ fn a_row_that_names_no_oracle_is_refused() {
     );
 }
 
-/// A geometry kind this ledger has no name for reads `unknown`, and `--check` says so. The
-/// catch-all used to answer `"Curve"` for anything unrecognised, so a fourth kind added to
-/// `EdgeGeometryKind` would have landed in the ledger as a confidently wrong value.
-#[test]
-fn a_row_whose_geometry_kind_this_ledger_cannot_name_is_refused() {
-    let mut unnamed = row(Status::Implemented);
-    unnamed.geometry = Some(UNKNOWN_GEOMETRY);
-    assert!(
-        problems(&[unnamed], &honest())
-            .iter()
-            .any(|p| p.contains("geometry kind `unknown`")),
-        "an unnamed kind is a finding, not a borrowed name"
-    );
-    assert!(
-        problems(&registry(), &honest())
-            .iter()
-            .all(|p| !p.contains("geometry kind `unknown`")),
-        "and no published row carries one"
-    );
-}
-
 /// The three refusals are asserted **by content**, not by count: a count still holds when
 /// one check is silently replaced by another while the total stays three.
 #[test]

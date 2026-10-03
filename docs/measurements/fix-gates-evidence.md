@@ -342,3 +342,18 @@ both RG-53 decisions and after the before/after comparison was captured, so it c
 influenced either. Its record is not named by any ledger row (see above), so it changes no count —
 `capabilities --check` re-run after the gate gives byte-identical output to the captured
 after-state, `73 rows, 36 problems`. No other record was written by this job.
+## Review fixes (2026-10-03, after the job's gate)
+
+`job-check.sh lint` reported 4 ERRORs on the job's tree. All four are fixed:
+
+- `capabilities/tests/registry.rs` (324 lines): the three POST-row tests moved to
+  `capabilities/tests/registry/post.rs` unchanged. The parent is now 199 lines.
+- `evidence/tests.rs` (388 lines): the two no-clobber tests moved to
+  `evidence/tests/clobber.rs` unchanged. The parent is now 248 lines.
+- The two `#[allow(unreachable_patterns)]` suppressions are gone. `edge_kind_name` now
+  matches every `EdgeGeometryKind` variant with no catch-all, so a new variant is a compile
+  error rather than a runtime `unknown` row. With nothing left to produce it, `UNKNOWN_GEOMETRY`,
+  its `problems()` refusal and the test of that refusal were deleted.
+
+Checks: `cargo clippy -p graph-cli --all-targets -- -D warnings` exits 0, and
+`cargo test -p graph-cli -- capabilities::tests evidence::tests` reports 58 passed.

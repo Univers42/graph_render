@@ -144,23 +144,15 @@ fn styles() -> impl Iterator<Item = Capability> {
 
 /// The ledger's name for an edge geometry kind, as `registry::layout` writes it.
 ///
-/// Every kind `graph_contract` declares is named, and the catch-all is
-/// [`UNKNOWN_GEOMETRY`](super::UNKNOWN_GEOMETRY) rather than a neighbour's name: it used
-/// to answer `"Curve"` for anything it did not recognise, so a fourth kind added to the
-/// enum would have landed in the ledger as a confidently wrong geometry, and `problems()`
-/// had no name to refuse. With `unknown` the row is a finding instead, and
-/// `a_row_whose_geometry_kind_this_ledger_cannot_name_is_refused` holds it to that.
-#[allow(
-    unreachable_patterns,
-    reason = "the catch-all is what a future kind lands on"
-)]
+/// Exhaustive on purpose, with no catch-all: it used to answer `"Curve"` for anything it
+/// did not recognise, so a fourth kind added to the enum would have landed in the ledger
+/// as a confidently wrong geometry. A new kind is now a compile error here instead.
 fn edge_kind_name(kind: graph_contract::geometry::EdgeGeometryKind) -> &'static str {
     use graph_contract::geometry::EdgeGeometryKind as K;
     match kind {
         K::Line => "Line",
         K::Polyline => "Polyline",
         K::Curve => "Curve",
-        _ => super::UNKNOWN_GEOMETRY,
     }
 }
 
