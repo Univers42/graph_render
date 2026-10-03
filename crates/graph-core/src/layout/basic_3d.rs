@@ -12,10 +12,10 @@
 //! mistake for a bug. The four ids are therefore one kernel over four closed forms, and
 //! each publishes its own id because each produces a different snapshot.
 //!
-//! **`CUBE` is the only one of the four that draws from a stream**, and this port does
-//! not: see [`cube`] for the written seeding decision. `SPHERE`, `HELIX` and `SPIRAL_3D`
-//! are closed form with no random number anywhere, so none owes a seed and none publishes
-//! one.
+//! **`CUBE` is the only one of the four that draws from a stream**, and it draws from the
+//! reference's own: see [`cube`] for the generator and the seeding decision. `SPHERE`,
+//! `HELIX` and `SPIRAL_3D` are closed form with no random number anywhere, so none owes a
+//! seed and none publishes one.
 //!
 //! **Two of the four are spirals under two different names.** [`spiral`] is SciGraphs'
 //! conical 3D spiral (`basic.py:36-63`); `layout.spiral` — a different module, one level
