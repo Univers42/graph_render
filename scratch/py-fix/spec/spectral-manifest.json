@@ -1,0 +1,22 @@
+{
+ "fingerprint": "5a2cb1a02c3735d72b3dba032d3bf623a7065e6ea2030276db70edaca2294b75",
+ "fingerprinted": [
+  "Cargo.toml",
+  "Cargo.lock",
+  ".cargo",
+  "docker",
+  "crates",
+  "harness",
+  "fixtures",
+  "src",
+  "Dockerfile",
+  "package.json",
+  "package-lock.json",
+  "tsconfig.json",
+  "tests/ts-extension-loader.mjs"
+ ],
+ "seeds": 4,
+ "sha256": {
+  "spectral.jsonl": "689a32feac0012d781c9a075e75cfba6785e8c7f61fe808b7415734bca503011"
+ }
+}

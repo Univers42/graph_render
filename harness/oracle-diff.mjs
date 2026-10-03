@@ -20,8 +20,10 @@ import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "n
 import { createHash } from "node:crypto";
 import { join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
-import { canonical, hex, unhex, node, edge, wireModel, wirePatch, wireLegend } from "./oracle-wire.mjs";
-import { checkTranscription, groupModel, h9Explains, layoutGroups, widenedGroups } from "./oracle-h9.mjs";
+import { attest, sealPathFor } from "./oracle-attest.mjs";
+import { evaluator } from "./oracle-diff-eval.mjs";
+import { checkBinaryContract } from "./oracle-wire-bytes.mjs";
+import { checkTranscription, groupModel, h9Explains, widenedGroups } from "./oracle-h9.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const FIXTURES = resolve(process.argv[2] ?? join(ROOT, "target", "oracle-fixtures"));
@@ -105,79 +107,14 @@ function loadFixtures() {
   const expect = lines("expect.jsonl");
   if (cases.length !== expect.length) fail(`${cases.length} cases but ${expect.length} expected lines`);
   const pairs = JSON.parse(read(join(ROOT, manifest.adversarial.path))).pairs;
-  return { manifest, cases, expect, pairs };
-}
-
-/** A result already in canonical form (the synthetic model, hashed or not). */
-class Canonical {
-  constructor(text) {
-    this.text = text;
-  }
-}
-
-/** Graphs are defined once per seed and read by name; each read gets fresh objects. */
-function graphStore(oracle) {
-  const graphs = new Map();
-  const fresh = (name) => {
-    const [nodes, edges] = graphs.get(name) ?? fail(`graph ${name} is not defined`);
-    return [nodes.map(node), edges.map(edge)];
-  };
-  const define = (a) => {
-    graphs.set(a.name, [a.nodes, a.edges]);
-    return null;
-  };
-  return { define, fresh, indexed: (name) => oracle.indexModel(...fresh(name)) };
-}
-
-const PATCH = ["addedNodes", "updatedNodes", "removedNodeIds", "addedEdges", "updatedEdges", "removedEdgeIds"];
-
-/** The functions over ids, strings and single values. */
-const valueFunctions = (oracle) => ({
-  makeRecordNodeId: (a) => oracle.makeRecordNodeId(a.source, a.databaseId, a.recordId),
-  makeNoteNodeId: (a) => oracle.makeNoteNodeId(a.noteId),
-  makeTagNodeId: (a) => oracle.makeTagNodeId(a.tagValue),
-  makeEdgeId: (a) => oracle.makeEdgeId(a.source, a.target, a.kind, a.label, a.directed),
-  parseNodeId: (a) => oracle.parseNodeId(a.nodeId),
-  edgeKindFromType: (a) => oracle.edgeKindFromType(a.type ?? undefined),
-  hashString: (a) => oracle.hashString(a.value),
-  nodesEqual: (a) => oracle.nodesEqual(node(a.a), node(a.b)),
-  edgesEqual: (a) => oracle.edgesEqual(edge(a.a), edge(a.b)),
-  isEmptyPatch: (a) => oracle.isEmptyPatch(Object.fromEntries(PATCH.map((k, i) => [k, new Array(a.lengths[i]).fill(0)]))),
-  emptyModel: () => wireModel(oracle.emptyModel()),
-});
-
-/** The functions over whole graphs. */
-function modelFunctions(oracle, { define, fresh, indexed }) {
-  return {
-    graph: define,
-    applyDegreeWeights: (a) => {
-      const [nodes, edges] = fresh(a.graph);
-      oracle.applyDegreeWeights(nodes, edges);
-      return nodes.map((n) => hex(n.weight));
-    },
-    indexModel: (a) => wireModel(indexed(a.graph)),
-    diffGraph: (a) => wirePatch(oracle.diffGraph(indexed(a.previous), indexed(a.next))),
-    deriveLegend: (a) => wireLegend(oracle.deriveLegend(indexed(a.graph))),
-    neighborhood: (a) => [...oracle.neighborhood(indexed(a.graph), a.id, a.depth)],
-    neighborhoodEdges: (a) => {
-      const hood = oracle.neighborhoodEdges(indexed(a.graph), a.id, a.depth);
-      return { nodeIds: [...hood.nodeIds], edgeIds: [...hood.edgeIds] };
-    },
-    buildSyntheticModel: (a) => {
-      const text = canonical(wireModel(oracle.buildSyntheticModel(unhex(a.n))));
-      return a.digest ? { sha256: sha256(text) } : new Canonical(text);
-    },
-    layoutGroups: (a) => layoutGroups(groupModel(oracle, a)),
-  };
-}
-
-function evaluator(oracle) {
-  const run = { ...valueFunctions(oracle), ...modelFunctions(oracle, graphStore(oracle)) };
-  return (fn, args) => {
-    if (!Object.hasOwn(run, fn)) fail(`unknown function ${fn}`);
-    const result = run[fn](args);
-    return result instanceof Canonical ? result.text : canonical(result);
-  };
+  // The two files' own bytes, so the seal attests what was measured and not only what the
+  // manifest says about it. The manifest's digests are written by whoever wrote the
+  // fixtures, so a hand-edited line plus a re-sealed digest passes every guard above; the
+  // seal is what catches that, and `writeRecord` consults it only on a passing verdict — a
+  // run that found a mismatch is already red, and refusing there would hide the mismatch
+  // that is the real news.
+  const digest = sha256(`${sha256(read(join(FIXTURES, "cases.jsonl")))}\0${sha256(read(join(FIXTURES, "expect.jsonl")))}`);
+  return { manifest, cases, expect, pairs, digest };
 }
 
 const utf8First = (s, t) => Buffer.compare(Buffer.from(s), Buffer.from(t)) <= 0;
@@ -192,7 +129,23 @@ function h1Explains(a, got, want) {
   return byBytes !== byLocale && JSON.parse(want) === ordered(byBytes) && JSON.parse(got) === ordered(byLocale);
 }
 
-/** `widen(args)`: the untruncated groups of a layoutGroups case, for the H9 rule. */
+/**
+ * The widest group index in an expected line, by iteration: the array is fixture-supplied
+ * and `Math.max(...array)` is a spread into the call, so a wide case overflows the stack
+ * and the arm reports "could not run" instead of a mismatch.
+ */
+function widestGroup(text) {
+  const groups = JSON.parse(text);
+  let widest = 0;
+  for (const g of groups) if (typeof g === "number" && g > widest) widest = g;
+  return widest;
+}
+
+/**
+ * `widen(args)`: the untruncated groups of a layoutGroups case, for the H9 rule. Each
+ * function's first unexplained mismatch is kept as its example, so the persisted record
+ * names the line, the seed, the arguments and both sides without stdout.
+ */
 function compare({ cases, expect }, run, widen) {
   const functions = {};
   const mismatches = [];
@@ -204,7 +157,7 @@ function compare({ cases, expect }, run, widen) {
     if (fn === "graph") continue;
     const counts = (functions[fn] ??= { cases: 0, equal: 0, declared: 0, unexplained: 0 });
     counts.cases += 1;
-    if (fn === "layoutGroups" && Math.max(0, ...JSON.parse(expect[i])) >= 256) h9Crossed += 1;
+    if (fn === "layoutGroups" && widestGroup(expect[i]) >= 256) h9Crossed += 1;
     if (got === expect[i]) counts.equal += 1;
     else if (fn === "makeEdgeId" && h1Explains(args, got, expect[i])) {
       counts.declared += 1;
@@ -212,7 +165,14 @@ function compare({ cases, expect }, run, widen) {
     } else if (fn === "layoutGroups" && h9Explains(widen(args), got, expect[i])) counts.declared += 1;
     else {
       counts.unexplained += 1;
-      mismatches.push({ line: i + 1, seed, fn, args, oracle: got, core: expect[i] });
+      counts.example ??= {
+        line: i + 1,
+        seed,
+        args: clip(JSON.stringify(args)),
+        oracle: clip(got),
+        core: clip(expect[i]),
+      };
+      mismatches.push({ line: i + 1, seed, fn, args: clip(JSON.stringify(args)), oracle: clip(got), core: clip(expect[i]) });
     }
   }
   return { functions, mismatches, h1Pairs, h9Crossed };
@@ -246,20 +206,31 @@ function printReport({ manifest, cases }, result, problems) {
   }
   console.log(`  H1 pairs observed diverging: ${result.h1Pairs.size} · H9 cases crossing 255 groups: ${result.h9Crossed}`);
   for (const m of result.mismatches.slice(0, 10)) {
-    console.log(`  MISMATCH line ${m.line} seed ${m.seed} ${m.fn} ${clip(JSON.stringify(m.args))}\n    oracle ${clip(m.oracle)}\n    core   ${clip(m.core)}`);
+    console.log(`  MISMATCH line ${m.line} seed ${m.seed} ${m.fn} ${m.args}\n    oracle ${m.oracle}\n    core   ${m.core}`);
   }
   for (const p of problems) console.log(`  PROBLEM ${p}`);
 }
 
-/** Records the verdict, unless the tree moved while the run was reading it. */
-function writeRecord(manifest, result, pass) {
+/**
+ * Records the verdict, unless the tree moved while the run was reading it.
+ *
+ * The fixture bytes are sealed beside the record, and that is where a hand-edited
+ * `expect.jsonl` with a re-sealed manifest digest is caught: this run would otherwise
+ * compare against fixtures `emit-fixtures` never wrote and report a clean pass. A failing
+ * run writes no seal — it is already red, and a refusal would replace its mismatch.
+ */
+function writeRecord({ manifest, digest }, result, pass) {
   if (fingerprint(manifest.fingerprinted) !== manifest.fingerprint) fail("the tree changed during the run: not recorded");
+  const seal = pass
+    ? attest({ sealPath: sealPathFor(GATES, "oracle-diff"), gate: "oracle-diff fixtures", fingerprint: manifest.fingerprint, scope: `seeds=${manifest.seeds}`, sha256: digest, pass })
+    : { sealed: false };
   const record = {
     gate: "oracle-diff",
     fingerprint: manifest.fingerprint,
     seeds: manifest.seeds,
     pass,
     runtime: { node: process.version, icu: process.versions.icu, locale: Intl.DateTimeFormat().resolvedOptions().locale },
+    fixtures: { sha256: digest, seal },
     functions: result.functions,
     h1: { pairs: result.h1Pairs.size },
     h9: { crossed: result.h9Crossed },
@@ -271,12 +242,14 @@ function writeRecord(manifest, result, pass) {
 async function main() {
   const fixtures = loadFixtures();
   checkTranscription(ROOT);
+  const binary = checkBinaryContract(ROOT);
   const oracle = await publicSurface();
   const result = compare(fixtures, evaluator(oracle), (args) => widenedGroups(groupModel(oracle, args)));
   const problems = [...checkDeclarations(fixtures.pairs, result.h1Pairs), ...coverageProblems(fixtures.manifest, result)];
   const pass = result.mismatches.length === 0 && problems.length === 0;
   printReport(fixtures, result, problems);
-  writeRecord(fixtures.manifest, result, pass);
+  console.log(`  binary contract (${binary.snapshot}): magic/format/dim/padding, CSR framing and node column order as documented`);
+  writeRecord(fixtures, result, pass);
   console.log(pass ? "PASS" : `FAIL: ${result.mismatches.length} unexplained mismatches, ${problems.length} problems`);
   process.exit(pass ? 0 : 1);
 }

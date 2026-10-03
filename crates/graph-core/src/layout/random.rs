@@ -2,15 +2,18 @@
 //! Reference: networkx 3.6 `random_layout` (`networkx/drawing/layout.py:64`), which is
 //! `rng.rand(n, 2)`: row-major, `x` then `y` per node.
 //!
-//! The stream is this crate's `Mulberry32` under a fixed seed, not numpy's Mersenne
-//! Twister: the motor takes no seed, and the same graph must hash the same on every
-//! target (D-rules). So the *shape* of networkx's answer is reproduced, never its numbers.
+//! The registered stream is this crate's `Mulberry32` under a fixed seed, not numpy's
+//! Mersenne Twister: [`run`] takes no seed at all — the motor hashes the same graph the
+//! same way on every target (D-rules) — and the SciGraphs arm that *does* take one is
+//! [`run_seeded`] below. So the *shape* of networkx's answer is reproduced by [`run`],
+//! never its numbers.
 //!
 //! Ponytail: uniform points overlap and cross freely; that is the layout, not a defect.
 //! Failing input: any graph read as a drawing. Escape hatch: another layout id.
 //!
 //! **No compute tier, measured, not assumed** (`docs/measurements/tier-random.md`). The
-//! one-line reason this id is absent from the threaded arm at `hashgate.rs:169`: the
+//! one-line reason this id is absent from the threaded arm's list, `THREADED_STAGES` at
+//! `crates/graph-cli/src/hashgate/tiered.rs:26-33`: the
 //! layout **is** the stream, so there is nothing to hand a `StepRange` — a threaded arm
 //! that recomputed nothing would print "10-way equal" for a stage no arm computed, which
 //! is the one claim the gate exists to make false. `GM_MUTATE_NODE_COUNT` is the control

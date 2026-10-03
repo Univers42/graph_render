@@ -2,7 +2,7 @@
 
 Why (user, 2026-10-03): "we want even faster, especially in loading or for transition of nodes".
 
-Starts after `perf-p6-live-copy` and `perf-open-path` land; it builds on both. Load time itself is
+Builds on `perf-p6-live-copy` and `perf-open-path`: your worktree is cut from `perf-p6-live-copy` (not on develop yet), and `perf-open-path` is already on develop; do not merge develop. Load time itself is
 those jobs' work.
 
 Facts (confirm on the merged tree):

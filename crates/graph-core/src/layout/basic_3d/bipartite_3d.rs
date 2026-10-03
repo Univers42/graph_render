@@ -63,16 +63,30 @@ pub(super) fn run(topology: &Topology) -> Result<Geometry, StageError> {
     Ok(in_space(&x, &y, &z))
 }
 
+/// [`run`] at the `scale` the caller asks for. Both uses of it are the reference's own
+/// (`radius = scale*0.6`, plane offset `±scale*0.5`, `hierarchical.py:234-238`), so
+/// `run_scaled(t, SCALE) == run(t)` bit for bit.
+pub(super) fn run_scaled(topology: &Topology, scale: f64) -> Result<Geometry, StageError> {
+    let (x, y, z) = columns_scaled(topology, scale);
+    Ok(in_space(&x, &y, &z))
+}
+
 /// The three `f64` columns, before the single narrowing in [`in_space`].
 ///
 /// Gather form (D10): every column is written at `node`'s own index, so the drawing does not
 /// depend on the order the two sets were placed in — only the sets themselves are ordered.
 pub(super) fn columns(topology: &Topology) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
+    columns_scaled(topology, SCALE)
+}
+
+/// [`columns`] at an explicit `scale`. Everything here is a product of the scale, so the
+/// drawing is the reference's at any scale.
+pub(super) fn columns_scaled(topology: &Topology, scale: f64) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
     let (lower, upper) = bipartite::node_sets(topology);
     let zeroed = || vec![0.0; topology.node_count() as usize];
     let mut columns = (zeroed(), zeroed(), zeroed());
     for (nodes, sign) in [(&lower, -1.0), (&upper, 1.0)] {
-        ring(&mut columns, nodes, sign * SCALE * PLANE_RATIO);
+        ring(&mut columns, nodes, sign * scale * PLANE_RATIO, scale);
     }
     columns
 }
@@ -82,9 +96,9 @@ pub(super) fn columns(topology: &Topology) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
 /// `nodes` is the set in SciGraphs' own order and `slot` is the node's index **in that
 /// order**, not its dense index — the two differ on every node the colouring moved, and using
 /// the dense index is the mistake that draws the same ring in a different order.
-fn ring(columns: &mut (Vec<f64>, Vec<f64>, Vec<f64>), nodes: &[u32], z: f64) {
+fn ring(columns: &mut (Vec<f64>, Vec<f64>, Vec<f64>), nodes: &[u32], z: f64, scale: f64) {
     let count = nodes.len();
-    let radius = SCALE * RADIUS_RATIO;
+    let radius = scale * RADIUS_RATIO;
     for (slot, &node) in nodes.iter().enumerate() {
         let angle = angle(slot, count);
         let at = node as usize;

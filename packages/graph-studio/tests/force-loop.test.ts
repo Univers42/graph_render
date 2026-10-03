@@ -2,102 +2,18 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { type ForceKnobs, type LiveForce, NO_ADAPTER_REASON } from "../src/motor/live.ts";
-import { ALPHA_MIN, TICKS_PER_FRAME, createForceHost } from "../src/motor/liveLoop.ts";
-import type { ForceFrame, Result } from "../src/motor/protocol.ts";
+import { DEFAULT_KNOBS, type ForceKnobs, type LiveForce, NO_ADAPTER_REASON } from "../src/motor/live.ts";
+import { ALPHA_MIN, TICKS_PER_FRAME } from "../src/motor/liveLoop.ts";
+import type { Result } from "../src/motor/protocol.ts";
 import type { Session } from "../src/motor/session.ts";
 import { serve } from "../src/motor/serve.ts";
+import { fake, lastFrame, mortal, rig } from "./force-rig.ts";
 
 const refuse = (): never => { throw new Error("a force request must not reach the session"); };
 const NO_SESSION: Session = { open: refuse, load: refuse, layout: refuse, analysis: refuse, forces: () => null };
-const KNOBS: ForceKnobs = { gravity: 0.5, charge: -100, linkStrengthScale: 1, linkDistance: 40 };
+const KNOBS: ForceKnobs = { ...DEFAULT_KNOBS, gravity: 0.5, charge: -100, linkStrengthScale: 1, linkDistance: 40, theta: 1.2 };
 /** What the loop pushes when the session under it is released: no loop, and no session. */
 const STOPPED: Result = { type: "force-state", running: false, disabled: NO_ADAPTER_REASON, paused: false };
-
-interface Clock { now: number; perStep: number }
-
-interface Fake extends LiveForce {
-  readonly calls: string[];
-  alpha: number;
-  decay: number;
-}
-
-function fake(decay: number, clock: Clock = { now: 0, perStep: 0 }): Fake {
-  const port: Fake = {
-    calls: [], alpha: 0, decay,
-    pin: (id, x, y) => { port.calls.push(`pin ${id} ${x} ${y}`); },
-    unpin: (id) => { port.calls.push(`unpin ${id}`); },
-    setParams: () => { port.calls.push("params"); },
-    step: (ticks) => {
-      port.calls.push(`step ${ticks}`);
-      clock.now += clock.perStep;
-      port.alpha *= port.decay;
-      return port.alpha;
-    },
-    positions: () => ({ xs: Float64Array.of(1, 2), ys: Float64Array.of(3, 4) }),
-    reheat: (alpha) => { port.alpha = alpha; port.calls.push("reheat"); },
-    shuffle: () => { port.calls.push("shuffle"); port.alpha = 1; return port.alpha; },
-  };
-  return port;
-}
-
-interface Mortal extends Fake {
-  /** Set when the graph behind the port was replaced: the session it holds is released. */
-  dead: boolean;
-}
-
-/** The motor throws `InvalidSessionError` from every call on a released session, so this does. */
-function mortal(decay: number): Mortal {
-  const base = fake(decay);
-  const guard = (call: string): void => {
-    if (mortal.dead) throw new Error(`InvalidSessionError: ${call} on a released session`);
-  };
-  const mortal: Mortal = {
-    dead: false,
-    ...base,
-    pin: (id, x, y) => { guard("pin"); base.pin(id, x, y); },
-    unpin: (id) => { guard("unpin"); base.unpin(id); },
-    step: (ticks) => { guard("step"); return base.step(ticks); },
-    reheat: (alpha) => { guard("reheat"); base.reheat(alpha); },
-    positions: () => { guard("positions"); return base.positions(); },
-  };
-  return mortal;
-}
-
-interface Rig {
-  readonly emitted: Result[];
-  readonly frames: () => number;
-  readonly tick: () => void;
-  readonly scheduled: () => number;
-  readonly delays: number[];
-}
-
-function lastFrame(emitted: readonly Result[]): ForceFrame {
-  const found = emitted.filter((r) => r.type === "force-frame").at(-1);
-  if (found?.type !== "force-frame") throw new Error("no frame was emitted");
-  return found.frame;
-}
-
-function rig(port: Fake, clock: Clock = { now: 0, perStep: 0 }, periodMs = 16, live: () => LiveForce | null = () => port) {
-  const emitted: Result[] = [];
-  const delays: number[] = [];
-  let next: (() => void) | null = null;
-  let scheduled = 0;
-  const host = createForceHost(live, {
-    schedule: (run, delayMs) => { next = run; scheduled += 1; delays.push(delayMs); return () => { next = null; }; },
-    now: () => clock.now,
-    emit: (result) => { emitted.push(result); },
-    periodMs,
-  });
-  const out: Rig = {
-    emitted,
-    delays,
-    frames: () => emitted.filter((r) => r.type === "force-frame").length,
-    tick: () => { const run = next; next = null; run?.(); },
-    scheduled: () => scheduled,
-  };
-  return { host, out };
-}
 
 test("the loop steps until alpha is under alpha_min, then stops on its own", () => {
   const port = fake(0.5);
@@ -119,9 +35,27 @@ test("a held pin keeps the loop running past alpha_min; release lets it settle",
   assert.equal(lastFrame(out.emitted).running, true);
   assert.ok(port.calls.includes("pin a 5 6"));
   host.handle({ type: "force.release", id: "a" });
-  assert.ok(port.calls.includes("unpin a"));
+  assert.ok(!port.calls.includes("unpin a"), "a drop is not an unpin: the node keeps the position it was put at");
   for (let i = 0; i < 30; i += 1) out.tick();
-  assert.equal(lastFrame(out.emitted).running, false);
+  assert.equal(lastFrame(out.emitted).running, false, "and nothing holds the loop awake any more");
+});
+
+test("a flick — every move and the release in one batch — lands the node where it was dropped", () => {
+  // What a hand does when it is quicker than a frame: twenty moves and the release arrive
+  // together, so the frame the loop runs sees a release and nothing to place.
+  const port = fake(0.9);
+  const { host, out } = rig(port);
+  host.handle({ type: "force.drag", id: "a", x: 0, y: 0 });
+  host.handle({ type: "force.drag", id: "a", x: 30, y: 40 });
+  host.handle({ type: "force.drag", id: "a", x: 60, y: 80 });
+  host.handle({ type: "force.release", id: "a" });
+  out.tick();
+  assert.ok(port.calls.includes("pin a 60 80"), "the drop reached the motor, not only the moves before it");
+  assert.ok(!port.calls.includes("unpin a"), "and the node is not let go of where it was put");
+  port.calls.length = 0;
+  for (let i = 0; i < 20; i += 1) out.tick();
+  assert.deepEqual(port.calls.filter((c) => c.startsWith("pin")), Array.from({ length: 20 }, () => "pin a 60 80"),
+    "so it cannot drift back to the equilibrium the drag broke");
 });
 
 test("drag events before a frame collapse to the last one", () => {

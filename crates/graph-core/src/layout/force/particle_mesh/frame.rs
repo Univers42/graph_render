@@ -148,22 +148,49 @@ fn widen(acc: Bounds, b: Bounds) -> Bounds {
     (lo, hi)
 }
 
-/// The CIC stencil of one position: the lower cell per axis and the weight of the upper.
-/// `None` for a non-finite position, which deposits nothing and reads no field.
-pub(super) fn stencil(frame: &Frame, (px, py): (f64, f64)) -> Option<((usize, usize), (f64, f64))> {
+/// `p` in cell units from the origin, `(NaN, NaN)` for a non-finite `p`. A finite `p` never
+/// scales to NaN: `h` is a finite power of two and the origin is finite, so `u` is finite or
+/// infinite, and NaN marks a non-finite node alone.
+///
+/// The deposit keeps this per slot, so its read and the field read split one stored value
+/// rather than each re-reading the node's position at random and dividing again.
+pub(super) fn scaled(frame: &Frame, (px, py): (f64, f64)) -> (f64, f64) {
     if !(px.is_finite() && py.is_finite()) {
+        return (f64::NAN, f64::NAN);
+    }
+    (
+        (px - frame.origin.0) / frame.h,
+        (py - frame.origin.1) / frame.h,
+    )
+}
+
+/// The lower cell of scaled coordinate `u` on one axis, inside `0..cells - 1`.
+// `as usize` truncates toward zero and saturates, which on `u >= 0` is `floor`, and sends a
+// negative `u` to 0 as `floor(u).max(0.0)` did, without libm's software floor.
+pub(super) fn cell(frame: &Frame, u: f64) -> usize {
+    (u as usize).min(frame.cells - 2)
+}
+
+/// The CIC stencil of a [`scaled`] position: the lower cell per axis and the weight of the
+/// upper. `None` for a non-finite node, which deposits nothing and reads no field.
+pub(super) fn split(frame: &Frame, (ux, uy): (f64, f64)) -> Option<((usize, usize), (f64, f64))> {
+    if ux.is_nan() {
         return None;
     }
-    // `as usize` truncates toward zero and saturates, which on `u >= 0` is `floor`, and
-    // sends a negative `u` to 0 as `floor(u).max(0.0)` did, without libm's software floor.
-    let axis = |v: f64, o: f64| {
-        let u = (v - o) / frame.h;
-        let cell = (u as usize).min(frame.cells - 2);
+    let axis = |u: f64| {
+        let cell = cell(frame, u);
         (cell, (u - cell as f64).clamp(0.0, 1.0))
     };
-    let (cx, fx) = axis(px, frame.origin.0);
-    let (cy, fy) = axis(py, frame.origin.1);
+    let (cx, fx) = axis(ux);
+    let (cy, fy) = axis(uy);
     Some(((cx, cy), (fx, fy)))
+}
+
+/// The CIC stencil of one position, [`split`] over [`scaled`]: what the tests check the
+/// kernels against.
+#[cfg(test)]
+pub(super) fn stencil(frame: &Frame, p: (f64, f64)) -> Option<((usize, usize), (f64, f64))> {
+    split(frame, scaled(frame, p))
 }
 
 /// [`place`] over the finite positions of `x`/`y`, one thread: what the tests build a frame

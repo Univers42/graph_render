@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { type ForceParams, type ForcePort } from "../src/motor/live.ts";
+import { DEFAULT_KNOBS, type ForceParams, type ForcePort, type LiveForce } from "../src/motor/live.ts";
 import { createLiveForce } from "../src/motor/liveSession.ts";
 
 const PARAMS: ForceParams = {
@@ -12,19 +12,18 @@ const PARAMS: ForceParams = {
 
 function port(): { readonly force: ForcePort; readonly calls: string[] } {
   const calls: string[] = [];
-  return {
-    calls,
-    force: {
-      tick: (ticks) => { calls.push(`tick ${ticks}`); return { alpha: 0 }; },
-      pin: (row, x, y) => { calls.push(`pin ${row} ${x} ${y}`); },
-      unpin: (row) => { calls.push(`unpin ${row}`); },
-      reheat: (alpha) => { calls.push(`reheat ${alpha}`); },
-      setParams: (params) => { calls.push(`params ${JSON.stringify(params)}`); },
-      positions: () => ({ xs: Float64Array.of(0), ys: Float64Array.of(0) }),
-      params: () => PARAMS,
-      release: () => { calls.push("release"); },
-    },
+  const made = {
+    tick: (ticks: number) => { calls.push(`tick ${ticks}`); return { alpha: 0 }; },
+    pin: (row: number, x: number, y: number) => { calls.push(`pin ${row} ${x} ${y}`); },
+    unpin: (row: number) => { calls.push(`unpin ${row}`); },
+    reheat: (alpha: number) => { calls.push(`reheat ${alpha}`); },
+    setParams: (params: Partial<ForceParams>) => { calls.push(`params ${JSON.stringify(params)}`); },
+    positions: () => ({ xs: Float64Array.of(0), ys: Float64Array.of(0) }),
+    params: () => PARAMS,
+    release: () => { calls.push("release"); },
+    alpha: 0,
   };
+  return { calls, force: made };
 }
 
 interface Rowed {
@@ -37,8 +36,20 @@ function box(initial: readonly string[]): Rowed {
   return box;
 }
 
+/** A port whose `restart` answers a second fake session, so a restart is observable. */
+function restarts(force: ForcePort, table: Rowed, calls: string[]): LiveForce {
+  return createLiveForce({
+    session: force,
+    ids: () => table.order,
+    restart: () => {
+      calls.push("restart");
+      return { ...force, alpha: 1 };
+    },
+  });
+}
+
 function live(force: ForcePort, table: Rowed) {
-  return createLiveForce({ session: force, handle: 0, ids: () => table.order, scatter: () => undefined });
+  return restarts(force, table, []);
 }
 
 test("a pin reaches the row its id sits in, and an id the order does not hold is dropped", () => {
@@ -71,7 +82,30 @@ test("a new order is picked up: a layout rebuilds the table", () => {
 test("before a layout has run there are no rows, so a pin is dropped rather than refused", () => {
   const made = port();
   const rowed: Rowed = { order: [], set: () => undefined };
-  createLiveForce({ session: made.force, handle: 0, ids: () => null, scatter: () => undefined }).pin("alpha", 1, 1);
+  createLiveForce({ session: made.force, ids: () => null, restart: () => made.force }).pin("alpha", 1, 1);
   live(made.force, rowed).pin("alpha", 1, 1);
   assert.deepEqual(made.calls, []);
+});
+
+test("a shuffle restarts the session, re-applies the knobs and answers the new alpha", () => {
+  const made = port();
+  const rowed = box(["alpha", "beta"]);
+  const force = restarts(made.force, rowed, made.calls);
+  force.setParams({ ...DEFAULT_KNOBS, gravity: 0.4 });
+  // The wire's field order is the knob table's (liveSession.ts), so the string is exact.
+  const applied = `params ${JSON.stringify({
+    gravity: 0.4, charge: DEFAULT_KNOBS.charge, link_strength_scale: DEFAULT_KNOBS.linkStrengthScale,
+    link_distance: DEFAULT_KNOBS.linkDistance, collide_radius: DEFAULT_KNOBS.collideRadius,
+    velocity_decay: DEFAULT_KNOBS.velocityDecay, alpha_decay: DEFAULT_KNOBS.alphaDecay,
+    distance_max: DEFAULT_KNOBS.distanceMax, theta: DEFAULT_KNOBS.theta,
+  })}`;
+  const alpha = force.shuffle?.();
+  assert.equal(alpha, 1, "the alpha is the new session's own, not a reheated 1");
+  assert.deepEqual(made.calls, [
+    applied,
+    "restart",
+    applied,
+  ]);
+  force.pin("beta", 2, 3);
+  assert.equal(made.calls.at(-1), "pin 1 2 3", "and every call after it goes to the new session");
 });

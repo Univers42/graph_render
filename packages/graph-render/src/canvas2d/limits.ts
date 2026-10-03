@@ -16,21 +16,9 @@
  * stale limit. Direction: identity, because every mutation of the drawing goes through a new
  * scene. Escape hatch: `held.delete(state)` forces the next read to rebuild.
  */
-import { type FitArea, type Viewport, type ZoomLimits, limitsFor } from "../camera.ts";
+import { type FitArea, type ZoomLimits, limitsFor } from "../camera.ts";
+import { safeOf } from "../gestured.ts";
 import type { LoopState } from "./loop.ts";
-
-/**
- * The part of the canvas a fit draws into: what the host declared as free of chrome, clamped to
- * the canvas itself and to at least a third of it. A host whose safe area has not been measured
- * yet says nothing, and `null` is the whole canvas.
- */
-export function safeOf(state: LoopState, viewport: Viewport): FitArea | null {
-  const wanted = state.safe;
-  if (wanted === null) return null;
-  const width = Math.max(1, Math.min(wanted.width, viewport.width));
-  const height = Math.max(1, Math.min(wanted.height, viewport.height));
-  return { x: wanted.x, y: wanted.y, width, height };
-}
 
 interface Held {
   readonly scene: unknown;

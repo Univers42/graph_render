@@ -26,7 +26,7 @@ const HINTS: ReadonlyMap<string, string> = new Map([
   ["InvalidHandleError", "The graph handle is no longer live. Load the graph again."],
   ["TamperedGeometryError", "A column view wrote a non-finite value. Reload the page and rebuild."],
   ["MotorTrapError", "The wasm module trapped. Reload the page; if it repeats, that stage is broken."],
-  ["WasmUnavailableError", "The wasm motor did not load, so no layout can run. Run scripts/studio.sh so graph_wasm.wasm is in app/public/."],
+  ["WasmUnavailableError", "The wasm motor did not load, so no layout can run. Run scripts/studio.sh wasm to build graph_wasm.wasm into app/public/, then reload."],
   ["InvalidOptionsError", "The motor rejected the options the studio passed. This is a studio bug."],
   ["IngestRefusal", "The document is not the ingest shape. Fix the JSON, or load one of the bundled fixtures."],
   ["SnapshotRefusal", "The motor's snapshot could not be read, and nothing was drawn from it. A dim past 1 is a dimension this reader does not implement; anything else is a motor or decoder bug."],
