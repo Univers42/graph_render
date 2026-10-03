@@ -108,13 +108,16 @@ export type AnalysisValueKind = "f64" | "u32";
 
 /** What `Motor.analysis` returns: the ABI's canonical JSON face, parsed and typed.
  *
- *  The three optional members are present exactly when the analysis hands one back, and
- *  each is the escape hatch that analysis's own `Ponytail` marker names — a caller told
- *  only `values` would read an un-converged eigenvector iteration as a real centrality.
- *  `converged` is the power iteration's residual-verified flag (`false` on a bipartite
- *  or disconnected graph, where the iteration oscillates and never settles);
- *  `modularity` is the quality of the partition `values` names; `max` is the deepest
- *  hierarchy level reached. */
+ *  The three optional members are **always keys on the returned object** — the parser builds
+ *  a fresh object and writes all three — so a consumer must test the *value*
+ *  (`result.max === undefined`), never the key: `"max" in result` is `true` for an analysis
+ *  that handed no level back. "Present" below means "carried a value": `converged` is the
+ *  power iteration's residual-verified flag (`false` on a bipartite or disconnected graph,
+ *  where the iteration oscillates and never settles), `modularity` the quality of the
+ *  partition `values` names, `max` the deepest hierarchy level reached. Each is the escape
+ *  hatch that analysis's own `Ponytail` marker names — a caller told only `values` would read
+ *  an un-converged eigenvector iteration as a real centrality. A member of the wrong type is
+ *  an `AnalysisRefusedError`, never a silent `undefined`. */
 export interface AnalysisResult {
   /** The analysis that produced this, e.g. `"analysis.components.weak"`. */
   readonly id: string;

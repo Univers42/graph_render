@@ -14,6 +14,14 @@
 // (`fixtures/ingest/rows.json` and `notion.json` are the same dataset in two shapes,
 // and both must produce byte-identical contract documents).
 
+// The cells, the finiteness rule and the byte comparison live in `cells.ts`, which
+// `notion.ts` reads too: one predicate, one cell map, so the two adapters cannot drift on
+// what a cell may hold or in what order it is written. `RowsAdapterError` moved there
+// with them and is re-exported here, so the package's export list and every existing
+// import path — `./adapters/rows.ts` first of all — are unchanged.
+import { bad, cellValues, compareBytes, u32 } from "./cells.ts";
+export { RowsAdapterError } from "./cells.ts";
+
 /** The eight declared roles (`crates/graph-contract/src/ingest.rs`). Exactly these, and
  * nothing else: a schema naming a role outside the set is refused by the contract's
  * reader, which is where that check belongs — not here, and not by quietly mapping an
@@ -147,30 +155,6 @@ export interface Ingest {
 
 // --------------------------------------------------------------- the mapping
 
-/** What this adapter refuses to map, with the path that says where. Each is a fact
- * about the *source* rather than about the graph, and each is a mistake that would
- * otherwise become a well-formed graph with nothing in it to show the mistake. */
-export class RowsAdapterError extends Error {
-  /** Dotted path of the offending member, e.g. `tables[0].columns[2].link`. */
-  readonly path: string;
-  /** What was wrong with it. */
-  readonly what: string;
-
-  // Written out rather than as TypeScript parameter properties: the SDK ships no build
-  // and runs its own `.ts` sources through Node's type-stripping, which does not erase
-  // parameter properties (they are not types, they are syntax it must keep).
-  constructor(path: string, what: string) {
-    super(`${path}: ${what}`);
-    this.name = "RowsAdapterError";
-    this.path = path;
-    this.what = what;
-  }
-}
-
-function bad(path: string, what: string): never {
-  throw new RowsAdapterError(path, what);
-}
-
 function field(column: RowsColumn, path: string): IngestField {
   const link = column.role === Role.Link ? column.link : undefined;
   if (column.role === Role.Link && link === undefined) {
@@ -185,11 +169,20 @@ function field(column: RowsColumn, path: string): IngestField {
     // diagnostics, and this is the one place a human string is what a consumer reads.
     name: column.label ?? column.name,
     role: column.role,
-    link:
-      link === undefined
-        ? null
-        : { collection: link.collection, cardinality: link.cardinality, symmetric: link.symmetric === true },
+    link: link === undefined ? null : wireLink(link, path),
   };
+}
+
+/** A declared link, written out. `symmetric` is read as itself or refused: the old
+ * `link.symmetric === true` turned `"yes"` and `1` into `false` and drew the edge
+ * directed, with nothing saying so. `cardinality` and `collection` are carried verbatim
+ * because the contract's reader checks them, and refusing a name here would reject a
+ * value the schema allows. An absent `symmetric` is the documented `false`. */
+function wireLink(link: RowsLink, path: string): IngestLink {
+  if (link.symmetric !== undefined && typeof link.symmetric !== "boolean") {
+    bad(path, "a declared `link.symmetric` must be a boolean");
+  }
+  return { collection: link.collection, cardinality: link.cardinality, symmetric: link.symmetric ?? false };
 }
 
 function table(source: RowsTable, path: string): IngestCollection {
@@ -207,28 +200,24 @@ function table(source: RowsTable, path: string): IngestCollection {
   };
 }
 
-/** Byte order, matching the contract's writer and `harness/adapter-convergence.mjs`.
- * `Array.sort`'s default is UTF-16 code units, which disagrees with byte order outside
- * the Basic Multilingual Plane; a column name is arbitrary text, so the rule is stated
- * rather than inherited. */
-function compareBytes(a: string, b: string): number {
-  return Buffer.compare(Buffer.from(a, "utf8"), Buffer.from(b, "utf8"));
-}
-
 function record(table: RowsTable, row: RowsRecord, path: string): IngestRecord {
-  const values: Record<string, JsonValue> = {};
+  const declared = table.columns.map((column: RowsColumn) => column.name);
+  const cells: [string, JsonValue][] = [];
   for (const [column, value] of Object.entries(row.values)) {
-    if (!table.columns.some((c) => c.name === column)) {
+    if (!declared.includes(column)) {
       bad(`${path}.values`, `table \`${table.id}\` declares no column \`${column}\``);
     }
-    values[column] = value as JsonValue;
+    cells.push([column, value as JsonValue]);
   }
   return {
     id: row.id,
     collection: table.id,
     deleted: row.deleted === true,
-    updatedAt: row.updatedAt ?? 0,
-    values,
+    // An absent version is the documented `0`; one that is present is the contract's
+    // `u32`, so `-1`, `1.5`, `2**32` and `NaN` are refused here with the row to hand
+    // rather than reaching a reader that refuses them for the wrong reason.
+    updatedAt: row.updatedAt === undefined ? 0 : u32(row.updatedAt, `${path}.updatedAt`),
+    values: cellValues(cells, `${path}.values`),
   };
 }
 

@@ -2,19 +2,16 @@
 // own ABI calls: `gm_layout_params`, and the staging of `gm_run`'s parameter buffer
 // (`docs/decisions/layout-params.md`).
 //
-// Split out of `index.ts` by the house's 300-line limit: the typed `Motor` surface stays
-// there and re-exports everything here, so the published entry point's exports are
-// unchanged. What moved is the *buffer*, not the decision about it — `index.ts` still says
-// which layout and which values, and this module is the only place a `gm_alloc`ed
-// parameter buffer exists.
+// Its own module by the house's 300-line limit: `motor.ts` holds the typed `Motor` surface and
+// `stages.ts` says which layout and which values, and this module is the only place a
+// `gm_alloc`ed parameter buffer exists. `index.ts` re-exports it.
 
 import { toU32, type RawExports } from "./wasm.ts";
-import { RunRefusedError, codeName } from "./errors.ts";
-import { frame, invoke, lastError } from "./calls.ts";
+import { InvalidHandleError, RunRefusedError, codeName } from "./errors.ts";
+import { INVALID_HANDLE_CODE, frame, invoke, lastError } from "./calls.ts";
 import type { ColumnViews } from "./views.ts";
 import type { Handle } from "./types.ts";
 import { decodeLayoutParams, encodeLayoutParams, type LayoutParamSpec } from "./layout-params.ts";
-import { runRefusal } from "./stages.ts";
 
 export * from "./layout-params.ts";
 
@@ -92,4 +89,13 @@ function stageParams(exports: RawExports, bytes: Uint8Array, len: number): numbe
   }
   new Uint8Array(exports.memory.buffer, ptr, len).set(bytes);
   return ptr;
+}
+
+/** Why `gm_run` refused, named. A parameter refusal (`ParamOutOfRange` and the rest) arrives
+ *  here as its code and leaves as a `RunRefusedError` carrying it: the motor, not this SDK,
+ *  decided the value was out of range, and a second rule here would be a second thing to keep
+ *  in step with the schema (`docs/decisions/layout-params.md`). */
+function runRefusal(handle: Handle, code: number): Error {
+  if (code === INVALID_HANDLE_CODE) return new InvalidHandleError(`handle ${handle} is not live`, code);
+  return new RunRefusedError(`gm_run refused (${codeName(code)})`, code);
 }

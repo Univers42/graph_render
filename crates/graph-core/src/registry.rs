@@ -12,11 +12,6 @@
 
 use crate::index::Topology;
 use crate::layout::Geometry;
-// The layout types and metas the array names are imported by `registry/layouts.rs`, which
-// holds the array. Only the four module ids `registry/tests.rs`'s index-pinning test
-// resolves through its `use super::*` are needed here, and only when it is compiled.
-#[cfg(test)]
-use crate::layout::{circle_packing, circular, tidy_tree, treemap};
 use crate::stage::{Stage, StageError};
 
 mod bench_cap;

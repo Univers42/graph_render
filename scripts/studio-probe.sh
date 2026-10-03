@@ -7,6 +7,7 @@
 #   NAME        open | settle | settle-pan | zoom | settle-profile (deploy/perf/NAME.py)
 #   ARGS        the probe's own argv, passed through untouched
 #   PERF_MEMORY the container's memory cap (default 10g; a 1M-node case needs about 8g)
+#   LIVE_PROFILE, LIVE_THREADS  forwarded to the probe when set (deploy/perf/live-tick.py)
 #
 # Exit: the probe's own exit code. 2 means the harness could not run, and under GM_GPU=1 also means
 # the browser drew on a software rasteriser where the GPU was asked for (deploy/nav/gpu.py).
@@ -42,5 +43,5 @@ fi
 
 mkdir -p "$root/target"
 mem=${PERF_MEMORY:-10g}
-exec docker run --rm --memory "$mem" --memory-swap "$mem" "${gpu_env[@]}" "${gpu_device[@]}" \
-  -v "$root:/w" -w /w "$image" python3 "deploy/perf/$probe.py" "${@:2}"
+exec "$root/scripts/orch/drun" --rm --memory "$mem" --memory-swap "$mem" "${gpu_env[@]}" "${gpu_device[@]}" \
+  -e LIVE_PROFILE -e LIVE_THREADS -v "$root:/w" -w /w "$image" python3 "deploy/perf/$probe.py" "${@:2}"

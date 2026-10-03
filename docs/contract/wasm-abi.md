@@ -365,7 +365,7 @@ graph-core-only capability.
 | 16 | `SessionParamsInvalid` | A force session's `(params_ptr, params_len)` is neither `0` (the defaults) nor exactly the parameter buffer's length |
 | 17 | `SessionRefused` | The force session refused: a parameter out of its range (never clamped), a row past the last node, or a non-finite coordinate (D9) |
 | 18 | `AnalysisFailed` | `gm_analysis_run` ran the analysis but its report has no JSON text: a non-finite score or modularity (`NaN` is not a JSON number, D9), or a column longer than `u32` can count |
-| 19 | `IngestTooLarge` | `gm_build`'s buffer is longer than `MAX_INGEST_BYTES` (774,568,785 bytes), refused on its length before any of it is read. **Not** `IngestInvalid`: that code means the document was read and found malformed, while this one means the document must be split or shrunk |
+| 19 | `IngestTooLarge` | `gm_build`'s buffer is longer than `MAX_INGEST_BYTES` (1,073,741,824 bytes = 2^30), refused on its length before any of it is read. **Not** `IngestInvalid`: that code means the document was read and found malformed, while this one means the document must be split or shrunk |
 | 20 | `ParamOutOfRange` | `gm_run`'s buffer holds a value its layout does not publish in range: not finite, not integral (an `int`), not `0`/`1` (a `bool`), or outside `[min, max]`. Refused, never clamped and never rounded into range |
 | 21 | `ParamsMalformed` | `gm_run`'s `(params_ptr, params_len)` is not exactly `specs.len() * 8` bytes, or is not a live `gm_alloc` allocation. One code for both, as `SessionParamsInvalid` (16) is: neither has a reading to attempt |
 | 22 | `ParamsNotAccepted` | The layout publishes no parameters and the buffer was not empty. Never a silent "use the defaults" |
@@ -456,15 +456,18 @@ Rules, all refused loudly (never silently coerced or dropped):
   first-wins/drop-silently for exactly these cases, which would make ingest order diverge
   from snapshot order, the one identity this ABI promises a caller.
 - Not UTF-8, or not JSON at all, is refused before shape-checking even starts.
-- A document longer than `MAX_INGEST_BYTES` (774,568,785 bytes) is refused with
-  `IngestTooLarge` on its length alone, before it is read at all. The number is measured,
-  not chosen: it is the largest document that built on the wasm32 artifact, byte for byte,
-  and the next one up, 799,922,860 bytes, trapped inside `index_model`'s string arena
-  (`docs/measurements/fix-wasm-ingest.md`). It has no margin, because it *is* the
-  measurement — nothing between it and that first trap has been shown to build — and it is
-  a ceiling rather than a promise: a document under it with an unusually high edge-to-node
-  ratio can still exhaust memory exactly as it does today. `fix-ingest-scale` owns that
-  defect and raises this number with a new measurement once it lands.
+- A document longer than `MAX_INGEST_BYTES` (1,073,741,824 bytes = 2^30) is refused with
+  `IngestTooLarge` on its length alone, before it is read at all. The number is measured and
+  then rounded down to a power of two: the largest document that built on the wasm32 artifact
+  is 1,499,403,588 bytes (1M nodes, 7,999,936 edges) and the next one up, 1,663,576,802
+  bytes, traps while its records are read (`docs/measurements/fix-ingest-scale.md`). 2^30 is
+  the largest power of two at or below the first of those, and it refuses nothing that built
+  before the reader stopped building a JSON value tree — the previous ceiling, 774,568,785
+  bytes, and every document under it. It has 425,661,764 bytes of margin, so it *does* refuse
+  documents between it and 1,499,403,588 bytes that this build would accept; that is the
+  trade the decision record makes in exchange for a number with a rule behind it. It is still
+  a ceiling and not a promise: it bounds bytes and not the work they imply, so a document
+  under it with an unusually high edge-to-node ratio can still exhaust memory.
 - A number is refused wherever JSON does not admit non-finite values in the first place —
   D9's "no NaN/Inf reaches the wire" is enforced again on the way out (`gm_snapshot_json`/
   `gm_snapshot_bytes`), since a column view can still write one in after `gm_build`.
@@ -572,27 +575,26 @@ returns a degraded `Motor` (see Deviations).
 
 ## File-size deviations (the house's ≤300-line limit)
 
-`crates/graph-sdk-js/src/force.ts` measures 359 lines and `harness/sdk-smoke.mjs` 727;
-`crates/graph-wasm/src/{post,analysis}/tests.rs` (379 and 404) are over it too.
-`force.ts` grew with the live force session's own surface and `sdk-smoke.mjs` with the
-build methods' coverage plus the end-to-end convergence mode; both were already at or near
-the limit before either (`force.ts` 281, `sdk-smoke.mjs` 303), and the house's own answer —
-split into child modules, never compress — is not available for `sdk-smoke.mjs` without a
-restructuring outside its envelope: it is a single top-level script whose `check`/
-`failures` counters and `process.exit` are deliberately process-global. The two test files
-are the ordinary `views.rs` → `views/tests.rs` split already applied; their parents are
-under the limit.
+**There are none.** This section used to record four, and every one of the four has since been
+retired by the house's own answer — split into child modules, never compress — so the record
+is replaced by what replaced it rather than left to mislead the next reader:
 
-**`index.ts` is no longer one of them** (292), and the exception this section used to record
-for it is closed. It used to read that splitting the `Motor` class across modules "would
-mean exporting an implementation detail or re-exporting through a barrel the type surface
-then has to mirror" — which was true of splitting the *class*, and false of splitting the
-*bodies*: `Motor` stays whole and every public export is unchanged, while three modules took
-the code that had a rule behind it. `params.ts` (95) owns the parameter buffer and the
-schema cache, `stages.ts` (88) the POST and ANALYSIS calls and every ABI refusal name,
-`staging.ts` (120) the two build documents' contracts, and `views.ts` (187) the column
-presence table, the zero-copy cache and the geometry kinds a run produced. What is left in
-`index.ts` is the typed surface and the reasoning a caller needs before calling it.
+| retired entry | what it was | where it went |
+|---|---|---|
+| `crates/graph-sdk-js/src/index.ts` at 554 | the `Motor` class *and* the entry point's export list in one file | `index.ts` is now the barrel a consumer imports (22 lines) and holds the published surface; the class is `motor.ts` (292), the blocks it delegates are `stages.ts` (124), and the parameter buffer and schema cache are `params.ts` (103) |
+| `harness/sdk-smoke.mjs` at 727 | one script with one registry of checks | `harness/sdk-smoke.mjs` (66) and `harness/sdk-smoke/{lib,build,layouts,post,analysis,transport,force,degraded,convergence}.mjs`; the `check`/`failures` counters stayed process-global in `lib.mjs`, which is what made the split possible |
+| `crates/graph-wasm/src/post/tests.rs` at 379 | one test module | `crates/graph-wasm/src/post/tests/{mod,fixtures,rows}.rs`, largest 196 |
+| `crates/graph-wasm/src/analysis/tests.rs` at 404 | one test module | `crates/graph-wasm/src/analysis/tests/{mod,fixtures,json}.rs`, largest 161 |
+
+The claim this section used to make — that splitting `index.ts` "is not available without a
+restructuring outside this task's envelope", because splitting the `Motor` class "would mean
+exporting an implementation detail or re-exporting through a barrel the type surface then has
+to mirror" — was wrong, and is withdrawn. The barrel *is* the answer for a published entry
+point: `index.ts` re-exports the class and every name the docs, the README and a harness file
+import, and `package.json`'s `"."` still points at `src/index.ts`, so no consumer path moved.
+
+`crates/graph-wasm/src/contract.rs` (79) and `contract/tests.rs` (269) are both **under** the
+limit, as recorded.
 
 ## Deviations
 

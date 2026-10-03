@@ -6,6 +6,7 @@
 #[cfg(test)]
 mod tests;
 
+use crate::budget;
 use crate::index::Topology;
 use crate::layout::Geometry;
 use crate::layout::force::{SimpleGraph, simple_graph};
@@ -55,6 +56,7 @@ impl Stage for KamadaKawai {
         let n = topology.node_count() as usize;
         let mut pos = circle_start(n);
         if n > 1 {
+            budget::quadratic(budget::square(n as u64), 8)?;
             let springs = Springs::new(&simple_graph(topology), n, params);
             descend(&mut pos, &springs, params);
         }

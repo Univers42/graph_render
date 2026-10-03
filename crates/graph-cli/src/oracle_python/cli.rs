@@ -100,17 +100,15 @@ pub enum Cli {
         #[arg(long, default_value = "target/spring-fixtures")]
         dir: PathBuf,
     },
-    /// Writes the three graph-free 3D placements' fixtures for
+    /// Writes the four graph-free 3D placements' fixtures for
     /// `harness/oracle-basic-3d.py`, the SciGraphs arm: `layout.basic3d.sphere`,
-    /// `layout.basic3d.helix` and `layout.basic3d.cube` in ONE arm, because the three take
-    /// the same two arguments and read no graph.
+    /// `layout.basic3d.helix`, `layout.basic3d.cube` and `layout.basic3d.spiral` in ONE
+    /// arm, because the four take the same two arguments and read no graph.
     ///
-    /// **Three, and that is the arm's `ARMS` list, not a count of the layouts that are like
-    /// this.** `layout.basic3d.spiral` is a fourth graph-free 3D placement and is NOT armed
-    /// here; job `sg-basic3d-spiral-oracle` adds `--function spiral`, and until then the
-    /// spiral is held to the scigraphs-conformance gate instead.
+    /// **Four, and that is the arm's `ARMS` list.** `--function spiral` arrived with job
+    /// `sg-basic3d-spiral-oracle`.
     ///
-    /// The three take no iteration budget, so `--max-iter` is ignored.
+    /// The four take no iteration budget, so `--max-iter` is ignored.
     // Named explicitly: clap would spell the variant `emit-basic3d-fixtures`, and the
     // hyphen is the difference between "basic 3d" and a single word.
     #[command(name = "emit-basic-3d-fixtures")]
@@ -122,12 +120,13 @@ pub enum Cli {
         #[arg(long, default_value = "target/basic-3d-fixtures")]
         out: PathBuf,
     },
-    /// Checks the three graph-free 3D placements' result against their ceilings.
+    /// Checks the four graph-free 3D placements' result against their ceilings.
     ///
-    /// Three ceilings in one check, because they are three functions behind one arm: a
-    /// differential that reported one number for three different reference functions would be
-    /// reporting nothing any of them can act on. Same three as above — `spiral` is not one
-    /// of them.
+    /// Four ceilings in one check, because they are four functions behind one arm: a
+    /// differential that reported one number for four different reference functions would be
+    /// reporting nothing any of them can act on. Same four as above — with `spiral`'s `t`
+    /// column inverted from the arc rather than transcribed, which is why it carries its own
+    /// ceiling rather than borrowing `CEILING`'s measurement.
     #[command(name = "oracle-basic-3d")]
     OracleBasic3d {
         /// Directory holding the fixtures and `basic-3d-result.json`.

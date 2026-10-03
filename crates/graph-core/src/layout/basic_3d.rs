@@ -3,8 +3,8 @@
 //! that take `(num_nodes, scale)` and **no topology at all**. They are ported together,
 //! in one module, for the reason the job names them together: the reference puts all four
 //! in `basic.py` behind no dispatch beyond the name, they share the same two arguments,
-//! and one differential (`harness/oracle-basic-3d.py`) arms three of them against
-//! SciGraphs -- **not** [`spiral`], which that arm's `ARMS` does not cover yet.
+//! and one differential (`harness/oracle-basic-3d.py`) arms all four against
+//! SciGraphs, with [`spiral`] the fourth since job `sg-basic3d-spiral-oracle`.
 //!
 //! **They read the node count and nothing else.** Every edge is ignored, so a graph and
 //! its edgeless version draw identically — that is the reference's own behaviour, and it

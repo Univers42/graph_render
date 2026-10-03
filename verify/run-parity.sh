@@ -57,7 +57,7 @@ docker build -q -f "$SELF/verify/Dockerfile.rig" -t "$IMAGE" "$SELF" >/dev/null
 
 docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
 printf '[parity] starting rig on 127.0.0.1:%s\n' "$PORT"
-docker run -d --name "$CONTAINER" \
+"$SELF/scripts/orch/drun" -d --name "$CONTAINER" \
   -p "127.0.0.1:${PORT}:${PORT}" \
   -v "$SELF:/work" \
   -v "$HOST_APP:/osionos:ro" \

@@ -28,9 +28,9 @@
 //! constants their own modules publish, and `each_stage_id_is_the_constant_its_own_module
 //! _publishes` holds every one against the graph-wasm registry the gate walks.
 
-use super::knob::setting::PARAM_DEFAULT_STAGE;
 mod checks;
 
+use super::knob::setting::PARAM_DEFAULT_STAGE;
 use super::{Setting, staged};
 pub(crate) use checks::node_count;
 use checks::{check, stage_list};

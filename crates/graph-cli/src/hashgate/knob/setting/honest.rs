@@ -1,7 +1,8 @@
-//! The honest run: the compiled-in defaults, and the one comparison that decides whether a
-//! setting perturbs anything (RG-42). A child of `setting.rs`, split out by the house's
-//! 300-line limit.
+//! The honest run: the compiled-in defaults, the one comparison that decides whether a
+//! setting perturbs anything, and the refusal of a control that does not (RG-42). A child of
+//! `setting.rs`, split out by the house's 300-line limit.
 
+use super::super::value;
 use super::Setting;
 use graph_core::layout::circle_packing::CirclePackingParams;
 use graph_core::layout::force::spring::SpringParams;
@@ -68,4 +69,25 @@ impl Setting {
         out.control = None;
         out
     }
+}
+
+/// **A control that perturbs nothing refuses the run** (RG-42): the parsed value is the
+/// honest run's own, so the run would hash exactly the honest bytes and write this knob's
+/// evidence record claiming the control had been exercised.
+///
+/// The message names the variable and the range it accepts, because the value the caller
+/// typed is *in* the range — refusing a legal value has to say what to type instead.
+pub(super) fn refuse_a_no_op(setting: &Setting) -> Result<(), String> {
+    let Some(knob) = setting.control else {
+        return Ok(());
+    };
+    if setting.bites() {
+        return Ok(());
+    }
+    Err(format!(
+        "{} carries the honest run's own value, so it perturbs nothing while recording this \
+         run as the exercised control; accepted range: {}",
+        knob.env(),
+        value::accepted(knob)
+    ))
 }
