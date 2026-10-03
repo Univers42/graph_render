@@ -7,6 +7,7 @@ mod digest;
 mod frozen;
 mod frozen_path;
 mod golden;
+mod grow;
 mod live;
 mod m1a;
 mod m1b;
