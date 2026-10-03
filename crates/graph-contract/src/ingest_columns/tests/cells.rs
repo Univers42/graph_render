@@ -1,8 +1,6 @@
 //! The cells a document under construction holds: two node columns' worth of `u32`s,
 //! two edge columns', and the byte offsets a negative test patches.
 
-use super::*;
-
 /// One node row's cells, before they are written. Every optional starts absent so a test
 /// only has to name the fields it cares about.
 #[derive(Clone, Copy)]
