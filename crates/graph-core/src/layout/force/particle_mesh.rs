@@ -35,7 +35,7 @@ mod motion;
 mod tests;
 
 use super::barnes_hut::sim::{How, Sim};
-use super::barnes_hut::{Split, link};
+use super::barnes_hut::{Split, Tier, link};
 use super::params::{ForceParams, TICKS};
 use super::session::gravity;
 use super::{ForceSession, planar_points};
@@ -93,7 +93,12 @@ impl ParticleMesh {
         split: Split,
     ) -> Result<Geometry, StageError> {
         let mut run = ForceSession::from_frozen(topology, params)?.with_particle_mesh();
-        run.step_under(runner, workers, split, TICKS);
+        let tier = Tier {
+            runner,
+            workers,
+            split,
+        };
+        run.step_under(tier, TICKS);
         planar_points(run.xs(), run.ys())
     }
 }
