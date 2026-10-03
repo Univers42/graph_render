@@ -5,34 +5,56 @@
 //! duplicate id or a link to a collection that does not exist cannot be decided one
 //! member at a time — and because separating them makes the list of cross-checks one
 //! list rather than something threaded through the parser.
+//!
+//! Every lookup by id goes through an index built once per document — collections by id,
+//! records by `(collection, id)`, a sorted field list searched by halving — so the whole
+//! check is `O(n log n)` in the document's size. The scans these replaced made a 64 MiB
+//! body take over 20 minutes (each record re-scanned every earlier one).
 
-use super::{Collection, Ingest, IngestError, Role};
+use super::{Collection, Field, Ingest, IngestError, Role};
+use std::collections::{BTreeMap, BTreeSet};
 
 mod cells;
+
+/// Each declared collection by id. Ids are unique by the time anything reads it.
+type Collections<'a> = BTreeMap<&'a str, &'a Collection>;
+
+/// Every record's `(collection, id)`, deleted records included.
+type Records<'a> = BTreeSet<(&'a str, &'a str)>;
 
 /// Every check that needs the whole document, in a fixed order so the refusal a
 /// document gets does not depend on which member the parser happened to reach first.
 pub(super) fn check(mut doc: Ingest) -> Result<Ingest, IngestError> {
     check_id_grammar(&doc)?;
-    check_unique_collections(&doc)?;
     // Two passes, and the order is load-bearing. Everything that *reports* runs first and
     // borrows the document immutably, so every refusal names the index the field has in
     // the file the reader has open. The canonical sort runs second: from here on the
     // field list is sorted, so the derivation's "first field with this role" and the
     // derived edge order depend on the ids and never on how the source happened to list
     // them (H6, D5).
-    for (i, collection) in doc.collections.iter().enumerate() {
-        check_fields(collection, &doc, &format!("collections[{i}]"))?;
-    }
+    check_declarations(&doc)?;
     for collection in &mut doc.collections {
         collection.fields.sort_by(|a, b| a.id.cmp(&b.id));
     }
-    check_unique_records(&doc)?;
-    check_references(&doc)?;
+    // Built again rather than kept: the first index borrows the lists the sort rewrote. It
+    // cannot refuse here, since `check_declarations` already refused a repeated id.
+    let collections = collections_by_id(&doc)?;
+    let records = record_keys(&doc)?;
+    check_references(&doc, &collections)?;
     // Last, because it walks the cells of fields whose collections `check_references` has
     // already found (see `cells`'s module doc for the order this buys).
-    cells::check_link_cells(&doc)?;
+    cells::check_link_cells(&doc, &collections, &records)?;
     Ok(doc)
+}
+
+/// Collection ids unique, then each collection's own declarations, against the field
+/// order the document wrote (see `check`).
+fn check_declarations(doc: &Ingest) -> Result<(), IngestError> {
+    let collections = collections_by_id(doc)?;
+    for (i, collection) in doc.collections.iter().enumerate() {
+        check_fields(collection, &collections, &format!("collections[{i}]"))?;
+    }
+    Ok(())
 }
 
 /// H5, decided (see the module doc): the node-id grammar is
@@ -88,35 +110,35 @@ fn check_present(coordinate: &'static str, value: &str) -> Result<(), IngestErro
     Ok(())
 }
 
-fn check_unique_collections(doc: &Ingest) -> Result<(), IngestError> {
+/// Each collection by id, or the refusal naming the first collection whose id an earlier
+/// one already has.
+fn collections_by_id(doc: &Ingest) -> Result<Collections<'_>, IngestError> {
+    let mut by_id = Collections::new();
     for (i, collection) in doc.collections.iter().enumerate() {
-        if doc.collections[..i]
-            .iter()
-            .any(|earlier| earlier.id == collection.id)
-        {
+        if by_id.insert(&collection.id, collection).is_some() {
             return Err(shape(
                 &format!("collections[{i}]"),
                 format!("duplicate collection id `{}`", collection.id),
             ));
         }
     }
-    Ok(())
+    Ok(by_id)
 }
 
 /// Per collection: field ids unique, `titleField` naming a declared `title` field,
 /// every `link.collection` naming a collection the document declares.
 /// `path` is the collection's own path, so a refusal names which collection a bad field
 /// is in — with two collections in a document, `collections.fields[1]` is not an answer.
-/// `path` is the collection's own path, so a refusal names which collection a bad field
-/// is in — with two collections in a document, `collections.fields[1]` is not an answer.
 /// The indices below are the *document's*, which is what a reader with the file open is
 /// looking at; the canonical sort happens in a later pass.
-fn check_fields(collection: &Collection, doc: &Ingest, path: &str) -> Result<(), IngestError> {
+fn check_fields(
+    collection: &Collection,
+    collections: &Collections<'_>,
+    path: &str,
+) -> Result<(), IngestError> {
+    let mut ids = BTreeSet::new();
     for (i, field) in collection.fields.iter().enumerate() {
-        if collection.fields[..i]
-            .iter()
-            .any(|earlier| earlier.id == field.id)
-        {
+        if !ids.insert(field.id.as_str()) {
             return Err(shape(
                 &format!("{path}.fields[{i}]"),
                 format!("duplicate field id `{}`", field.id),
@@ -124,7 +146,7 @@ fn check_fields(collection: &Collection, doc: &Ingest, path: &str) -> Result<(),
         }
     }
     check_title(collection, path)?;
-    check_link_targets(collection, doc, path)
+    check_link_targets(collection, collections, path)
 }
 
 /// The collection's `titleField` must name a field that exists *and* has the `title`
@@ -155,37 +177,37 @@ fn check_title(collection: &Collection, path: &str) -> Result<(), IngestError> {
 /// id is `source:collection:record`, so the same id in two collections is two records
 /// with two distinct nodes, and `graph-core`'s own duplicate check keys on the pair. The
 /// message is the one this check has always given, so a document that really does repeat
-/// an id inside one collection reads the same as it did before.
-fn check_unique_records(doc: &Ingest) -> Result<(), IngestError> {
+/// an id inside one collection reads the same as it did before. The refusal names the
+/// first record whose key an earlier record already has; the keys are what
+/// `cells::check_link_cells` resolves references against.
+fn record_keys(doc: &Ingest) -> Result<Records<'_>, IngestError> {
+    let mut keys = Records::new();
     for (i, record) in doc.records.iter().enumerate() {
-        let repeated = doc.records[..i]
-            .iter()
-            .any(|earlier| earlier.collection == record.collection && earlier.id == record.id);
-        if repeated {
+        if !keys.insert((&record.collection, &record.id)) {
             return Err(shape(
                 &format!("records[{i}]"),
                 format!("duplicate record id `{}`", record.id),
             ));
         }
     }
-    Ok(())
+    Ok(keys)
 }
 
 /// Every record names a declared collection, and every cell key names a declared field
 /// of *that* collection. A cell naming a field of some other collection is a mistake
 /// the derivation would otherwise read as absent — silently, which is the direction
 /// that matters.
-fn check_references(doc: &Ingest) -> Result<(), IngestError> {
+fn check_references(doc: &Ingest, collections: &Collections<'_>) -> Result<(), IngestError> {
     for (i, record) in doc.records.iter().enumerate() {
         let path = format!("records[{i}]");
-        let Some(collection) = doc.collection(&record.collection) else {
+        let Some(collection) = collections.get(record.collection.as_str()) else {
             return Err(shape(
                 &path,
                 format!("no collection with id `{}`", record.collection),
             ));
         };
         for (field_id, _) in &record.values {
-            if collection.field(field_id).is_none() {
+            if sorted_field(collection, field_id).is_none() {
                 return Err(shape(
                     &format!("{path}.values"),
                     format!(
@@ -204,7 +226,7 @@ fn check_references(doc: &Ingest) -> Result<(), IngestError> {
 /// say the field was dead.
 fn check_link_targets(
     collection: &Collection,
-    doc: &Ingest,
+    collections: &Collections<'_>,
     path: &str,
 ) -> Result<(), IngestError> {
     for (i, field) in collection.fields.iter().enumerate() {
@@ -214,7 +236,7 @@ fn check_link_targets(
         let Some(link) = &field.link else {
             continue;
         };
-        if doc.collection(&link.collection).is_none() {
+        if !collections.contains_key(link.collection.as_str()) {
             return Err(shape(
                 &format!("{path}.fields[{i}].link.collection"),
                 format!(
@@ -225,6 +247,18 @@ fn check_link_targets(
         }
     }
     Ok(())
+}
+
+/// The field `id` of a collection whose fields `check` has sorted: a search by halving where
+/// [`Collection::field`] scans, because it runs once per cell. It answers what that scan
+/// answers only on a sorted, duplicate-free field list, which is what every pass after the
+/// sort in `check` holds.
+fn sorted_field<'a>(collection: &'a Collection, id: &str) -> Option<&'a Field> {
+    let fields = &collection.fields;
+    let at = fields
+        .binary_search_by(|field| field.id.as_str().cmp(id))
+        .ok()?;
+    Some(&fields[at])
 }
 
 fn shape(path: &str, what: String) -> IngestError {
