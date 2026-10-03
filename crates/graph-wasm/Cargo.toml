@@ -16,6 +16,10 @@ crate-type = ["cdylib", "rlib"]
 [features]
 # Exports `gm_probe` from the wasm module, for `graph-cli determinism-probe` only.
 probe = []
+# Browser threads model (a): the `gm_thread_*` and `gm_run_threaded` exports over one shared
+# memory. Only `scripts/orch/wasm-threads.sh` turns it on, with `+atomics` and `-Z build-std`;
+# the default artifact stays import-free (`refuseImports`).
+threads = []
 
 [dependencies]
 graph-core = { path = "../graph-core" }
