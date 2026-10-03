@@ -10,12 +10,12 @@ export function fail(message) {
 }
 
 let failures = 0;
-export function check(name, condition) {
+export function check(name, condition, detail = "") {
   if (condition) {
     process.stdout.write(`ok - ${name}\n`);
   } else {
     failures += 1;
-    process.stdout.write(`not ok - ${name}\n`);
+    process.stdout.write(`not ok - ${name}${detail ? `\n#   ${detail}` : ""}\n`);
   }
 }
 
@@ -53,25 +53,68 @@ function firstDifference(a, b) {
 
 // `docs/contract/wasm-abi.md` "Columns", restated here the way a third-party consumer
 // reads it: which node/edge column ids apply to which geometry kind (`null` = every kind; a
-// string or a list of names = those kinds only). Restated rather than imported from the
-// SDK (`views.ts`'s own `columnApplies`), because a consumer checking the SDK against the
-// SDK would agree with any mistake the SDK makes.
+// string or a list of names = those kinds only; `{dim: n}` = every kind, but only on a run
+// whose `dim` says 3D or 2D). Restated rather than imported from the SDK (`views.ts`'s own
+// `columnApplies`), because a consumer checking the SDK against the SDK would agree with
+// any mistake the SDK makes.
+//
+// The ids are the contract's **literals**, not `ColumnId.*`: C3's "append-only, never
+// renumbered" is a claim about the numbers, and a table keyed by the SDK's own constants
+// restates applicability while agreeing with any renumbering the SDK made (m90).
+// `columnIdProblems` below is what pins the binding.
+const COLUMN_IDS = new Map([
+  ["NodeX", 0],
+  ["NodeY", 1],
+  ["NodeR", 2],
+  ["NodeW", 3],
+  ["NodeH", 4],
+  ["EdgeSource", 5],
+  ["EdgeTarget", 6],
+  ["NoteCode", 7],
+  ["NoteIndex", 8],
+  ["EdgeOffsets", 9],
+  ["EdgePts", 10],
+  ["EdgeCurveDegree", 11],
+  ["NodeZ", 12],
+]);
+const ID = Object.fromEntries(COLUMN_IDS);
+
+/** Why the SDK's `ColumnId` does not spell the contract's id for a name, or `null`. */
+export function columnIdProblems(sdkColumnId) {
+  const problems = [];
+  for (const [name, id] of COLUMN_IDS) {
+    if (sdkColumnId[name] !== id) {
+      problems.push(`ColumnId.${name} is ${String(sdkColumnId[name])}, not the contract's ${id}`);
+    }
+  }
+  for (const name of Object.keys(sdkColumnId)) {
+    if (!COLUMN_IDS.has(name)) problems.push(`ColumnId.${name} is a name the contract does not name`);
+  }
+  return problems;
+}
+
 const NODE_COLUMN_KINDS = new Map([
-  [ColumnId.NodeX, null],
-  [ColumnId.NodeY, null],
-  [ColumnId.NodeR, "Circle"],
-  [ColumnId.NodeW, "Box"],
-  [ColumnId.NodeH, "Box"],
+  [ID.NodeX, null],
+  [ID.NodeY, null],
+  [ID.NodeR, "Circle"],
+  [ID.NodeW, "Box"],
+  [ID.NodeH, "Box"],
+  // The one row that keys on the run's dimension rather than its node kind: every node
+  // kind carries a z on a 3D run, and a 2D run has none at all — absent, not a
+  // zero-length column a caller might read as a plane at depth 0 (M30).
+  [ID.NodeZ, { dim: 1 }],
 ]);
 const EDGE_COLUMN_KINDS = new Map([
-  [ColumnId.EdgeSource, null],
-  [ColumnId.EdgeTarget, null],
-  [ColumnId.EdgeOffsets, ["Polyline", "Curve"]],
-  [ColumnId.EdgePts, ["Polyline", "Curve"]],
-  [ColumnId.EdgeCurveDegree, ["Curve"]],
+  [ID.EdgeSource, null],
+  [ID.EdgeTarget, null],
+  [ID.EdgeOffsets, ["Polyline", "Curve"]],
+  [ID.EdgePts, ["Polyline", "Curve"]],
+  [ID.EdgeCurveDegree, ["Curve"]],
 ]);
 
-function appliesTo(kind, wanted) {
+/** Whether `wanted` (a table entry) covers a run of node kind `kind` and dimension `dim`. */
+function appliesTo(kind, dim, wanted) {
+  if (wanted !== null && typeof wanted === "object") return wanted.dim === dim;
   if (wanted === null) return true;
   return Array.isArray(wanted) ? wanted.includes(kind) : wanted === kind;
 }
@@ -148,5 +191,9 @@ export function columnProblems(motor, handle, layoutId, run) {
 
 export function finish() {
   process.stdout.write(`# ${failures === 0 ? "pass" : `${failures} failed`}\n`);
-  process.exit(failures === 0 ? 0 : 1);
+  // `process.exitCode`, not `process.exit`: POSIX stdout is asynchronous on a pipe, so
+  // `write` followed by `exit` truncates — a `not ok` line past the pipe buffer was lost
+  // from the gate log while the exit code still said 1 (m89). Setting the code lets node
+  // drain stdout before it leaves.
+  process.exitCode = failures === 0 ? 0 : 1;
 }
