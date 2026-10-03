@@ -1,4 +1,4 @@
-//! How many heap allocations one warm Barnes-Hut tick makes: a counting global allocator
+//! How many heap allocations one warm tick makes, Barnes-Hut's and particle-mesh's: a counting global allocator
 //! around `ForceSession::step`, after a warm-up that brings every buffer to capacity.
 //!
 //! Its own test binary, so the allocator counts nothing but this file, and the counter is
@@ -64,14 +64,27 @@ fn warm_ticks() -> u32 {
 /// P2 (the stackless walks and `exec::ranges`). A change that adds one turns this red.
 #[test]
 fn a_warm_tick_allocates_nothing() {
+    assert_warm_ticks_allocate_nothing(session());
+}
+
+/// The same for the particle-mesh tick: its mesh, grid and window are sized when the session
+/// is built, and a live session ticks it as often as Barnes-Hut's.
+#[test]
+fn a_warm_particle_mesh_tick_allocates_nothing() {
+    assert_warm_ticks_allocate_nothing(session().with_particle_mesh());
+}
+
+fn session() -> ForceSession {
+    let (nodes, edges) = graph_core::seeded_model(1, NODES, graph_core::REFERENCE_DEGREE);
+    let topology = graph_core::index_model(&nodes, &edges).expect("fits");
+    ForceSession::from_frozen(&topology, &ForceParams::default()).expect("valid params")
+}
+
+fn assert_warm_ticks_allocate_nothing(mut session: ForceSession) {
     let probe = calls();
     drop(std::hint::black_box(Vec::<u8>::with_capacity(1)));
     assert_eq!(calls() - probe, 1, "the counter counts an allocation");
 
-    let (nodes, edges) = graph_core::seeded_model(1, NODES, graph_core::REFERENCE_DEGREE);
-    let topology = graph_core::index_model(&nodes, &edges).expect("fits");
-    let mut session =
-        ForceSession::from_frozen(&topology, &ForceParams::default()).expect("valid params");
     session.step(warm_ticks());
     let before = calls();
     for _ in 0..TICKS {

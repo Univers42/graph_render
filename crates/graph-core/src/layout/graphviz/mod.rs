@@ -21,8 +21,10 @@
 //! in the limit, and the differential measures the limit, not the port.
 
 pub mod circo;
+pub mod dot;
 pub mod fdp;
 pub mod neato;
 pub mod osage;
 pub mod patchwork;
 pub mod sfdp;
+pub mod text_width;

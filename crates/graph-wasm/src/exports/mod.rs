@@ -14,7 +14,8 @@
 //! snapshot faces/`gm_release`);
 //! [`stages`] is the two stages downstream of LAYOUT — POST (`gm_post_*`) and ANALYSIS
 //! (`gm_analysis_*`); [`session`] is the live force session (`gm_force_session_*`, over the
-//! target-independent `crate::session`). Every `#[unsafe(no_mangle)]` function is a real wasm
+//! target-independent `crate::session`). Behind the `threads` feature, a sixth file, `threads`,
+//! is browser threads model (a) over `crate::pool`. Every `#[unsafe(no_mangle)]` function is a real wasm
 //! export regardless of which of the five files defines it — that boundary is invisible on the
 //! wire.
 
@@ -25,6 +26,8 @@ mod columns;
 mod session;
 mod stages;
 mod state;
+#[cfg(feature = "threads")]
+mod threads;
 
 /// [`crate::ABI_VERSION`]: the first call a loader makes, so a module built from another
 /// revision than the SDK is refused by number before any call whose meaning moved.

@@ -1,16 +1,20 @@
-# ux-forces-full — the nine live-force knobs as studio controls: the studio's own floor plus the
-# three browser gates the measurement doc quotes (docs/measurements/ux-forces-full.md).
+# ux-forces-full — the nine live-force knobs as studio controls: the studio's own floor, the
+# backend and smoke gates, and the three browser gates the measurement doc quotes
+# (docs/measurements/ux-forces-full.md).
 #
 # `expect` is `0` or `nonzero`; `#` starts a comment (scripts/orch/gate.sh:2-4). Every gate needs
 # `scripts/studio.sh build` first, which the orchestrator runs before this file.
 #
-# KNOWN RED: `interact` fails on `int-node-drag` — the node lands 146.16 px from the pointer after
-# a 150 px drag. The same row measures 145.89 px on origin/develop's own build
-# (deploy/nav/interact.py over target/dist-before), so it is red before the knobs existed; the drag
-# files (element.ts, motor/bridge.ts, motor/session.ts) belong to the open perf-pm-live branch.
-# It is left in, not dropped: see docs/measurements/ux-forces-full.md.
+# KNOWN RED until fix-node-drag lands: `interact` fails on `int-node-drag`, where the node lands
+# 146.16 px from the pointer after a 150 px drag. The same row measures 145.89 px on origin/develop's
+# own build, so it was red before the knobs existed (prompts/jobs/fix-node-drag.md).
 
 studio-check|0|scripts/studio.sh check
+
+backend|0|scripts/studio-backend.sh
+negctl-backend|nonzero|STUDIO_BACKEND_BREAK=1 scripts/studio-backend.sh
+smoke|0|scripts/studio-smoke.sh
+negctl-smoke|nonzero|STUDIO_SMOKE_BREAK=1 scripts/studio-smoke.sh
 
 # The live loop: settle, drag-neighbour, progress strip, dead worker — and its control.
 live|0|scripts/studio-live.sh
