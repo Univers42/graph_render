@@ -103,6 +103,34 @@ pub struct EdgeView<'a> {
     pub child_first: bool,
 }
 
+/// An edge's fields, borrowed, with endpoints as **node row numbers** instead of ids.
+///
+/// The columnar ingest path's edge (`docs/contract/ingest-columns.md`): row `r` of the node
+/// columns is the node whose dense index is `r`, which only holds because that path *refuses*
+/// a duplicate id instead of dropping it. So no lookup happens here — the endpoints arrive
+/// already resolved, and `admit_edge` takes them as they came.
+#[derive(Debug, Clone, Copy)]
+pub struct RowEdge<'a> {
+    /// Content-addressed id.
+    pub id: &'a str,
+    /// Dense index of the source node.
+    pub source_row: u32,
+    /// Dense index of the target node.
+    pub target_row: u32,
+    /// Kind.
+    pub kind: EdgeKind,
+    /// Label.
+    pub label: &'a str,
+    /// Strength.
+    pub strength: f64,
+    /// Directed flag.
+    pub directed: bool,
+    /// Backing row id.
+    pub record_id: Option<&'a str>,
+    /// `source_row` is the child (`child_of`).
+    pub child_first: bool,
+}
+
 impl NodeRecord {
     /// This record's fields, borrowed.
     pub fn view(&self) -> NodeView<'_> {
