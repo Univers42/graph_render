@@ -135,3 +135,4 @@ render-1m-kinds|build|prompts/jobs/render-1m-kinds.md|scripts/orch/rows/perf-p5.
 perf-gpu-g0-adapter|build|prompts/jobs/perf-gpu-g0-adapter.md|scripts/orch/rows/gpu-g0.rows|no
 fix-core-base|build|prompts/jobs/fix-core-base.md|scripts/orch/rows/quick.rows|no
 host-api-facts|build|prompts/jobs/host-api-facts.md|scripts/orch/rows/docs.rows|no
+render-spacing|build|prompts/jobs/render-spacing.md|scripts/orch/rows/render-spacing.rows|no
