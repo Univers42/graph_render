@@ -145,6 +145,8 @@ build() {
 embed() {
   local out=$1
   log "embed bundle into $out"
+  # Made here, so the container's root never creates (and owns) its parents.
+  mkdir -p "$root/$out"
   in_node app bash -c "node_modules/.bin/vite build -c vite.embed.config.ts --outDir '/w/$out' --emptyOutDir \
     && chown -R $(id -u):$(id -g) '/w/$out'"
   cp "$root/app/public/graph_wasm.wasm" "$root/app/public/graph_wasm_threads.wasm" "$root/$out/"
