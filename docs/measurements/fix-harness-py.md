@@ -12,6 +12,18 @@ written out separately in nine places. It exports `read_manifest`, `read_json`,
 `require_seeds`, `require_cases`, `finite`, `networkx_version`. Every arm this job touched
 calls it.
 
+**Four more modules, for the house's 300-line limit.** `oracle-twopi.py` (297) and
+`oracle-graphviz.py` (362) were both already over at the baseline commit; the fixes pushed
+them to 321 and 380. So the data and the entry points moved out:
+`twopi_closed.py` (the six closed cases and their answers — tables, and half of twopi by
+line count), `gv_sized.py` (the size-pinned DOT writer, for the one engine that sizes nodes
+from labels) and `gv_arms.py` (the record / differential / merge arms). Every file in
+`harness/` is now under 300. The split also retired `oracle-twopi.py`'s `importlib` path
+import of `oracle-graphviz.py`: it exists only because that filename carries a hyphen, and
+the plumbing it wanted (`write_dot`, `parse_plain`, `run_engine`, `graphviz_version`,
+`START_SEED`) lives in `gv_plain`, which is importable by name. That import needed a
+`sys.dont_write_bytecode` dance to keep a `__pycache__` out of the fingerprinted tree.
+
 **No arm was made looser.** No ceiling was raised, no case dropped, and every gated number
 is byte-identical to the pre-fix arm on the committed fixtures — recorded per row below.
 
@@ -93,12 +105,14 @@ probe file** `target/probe/rank1000.txt` (untracked, absent from a clean checkou
 Pre-existing and outside this job's paths: nothing under `crates/graph-core` was touched,
 and the module's own doc says the tests that read the probe should skip rather than fail.
 
-Every arm's verdict on its committed fixtures (`graph-cli oracle-*`):
+Every arm's verdict on its committed fixtures (`graph-cli oracle-*`), all exit 0:
 
 ```
-oracle-twopi PASS | oracle-graphviz --engine osage PASS | oracle-spring PASS
-oracle-closed-form PASS | oracle-fa2 PASS | oracle-spectral PASS | oracle-igraph PASS
-oracle-basic-3d PASS | oracle-circular-hierarchy PASS | oracle-hierarchical-3d PASS
+oracle-twopi PASS          oracle-graphviz --engine osage PASS
+oracle-graphviz --engine fdp PASS     oracle-spring PASS
+oracle-closed-form PASS    oracle-fa2 PASS        oracle-spectral PASS
+oracle-igraph PASS         oracle-basic-3d PASS
+oracle-circular-hierarchy PASS          oracle-hierarchical-3d PASS
 ```
 
 Conformance, 32 rows, `pass: true`, every row `unexplained: 0` and every
@@ -140,13 +154,28 @@ docker run … ge-graphviz-oracle python3 -m unittest discover -s harness -p 'te
   `emit-scigraphs-lesmis.py --out fixtures/scigraphs/lesmis.json`, which is now atomic and
   so cannot leave a truncated fixture. Everything outside `provenance` is byte-identical:
   nodes, edges, labels, radii and params all compare equal.
+- **`docs/contract/wasm-abi.md`'s igraph dimensionality** — see the last note. It records
+  `dim=3` for the igraph family; this arm's metric is 2-D and igraph refuses a 3-D
+  Kamada-Kawai start. The contract is not in this job's paths.
+  **Recommended:** the contract's owner records that the SciGraphs 2-D arms (`yifan_hu.py:74`
+  is the 3-D FR; `:406` is the 2-D DrL this arm mirrors) are the ones an `oracle-igraph`
+  stress ratio can compare against.
 
 ## Also found, not in the review
 
-- `harness/__pycache__/` had appeared **inside the fingerprinted set** (`fingerprint.rs:27`)
-  — a root-owned `.pyc` from an arm run that did not set `sys.dont_write_bytecode`. Removed,
-  and every module this job added or edited sets the flag first. Two test files that import
-  the modules directly were the source; they set it too now.
+- `harness/__pycache__/` appeared **inside the fingerprinted set** (`fingerprint.rs:27`) — a
+  root-owned `.pyc` from a test run. Removed. Note for the next reader: setting
+  `sys.dont_write_bytecode` inside a module is **not** enough for a file that `unittest
+  discover` compiles itself — CPython writes the `.pyc` while compiling the module, before its
+  first line runs. `harness/test_gv_plain.py` and `harness/test_oracle_common.py` therefore
+  document `python3 -B -m unittest …` in their docstrings, and with `-B` the tree stays clean.
+- `gv_plain.engine_points` keeps its **six** positional parameters on purpose. m63 named it
+  for the `start=START_SEED` default binding, which is fixed, and for arity only on
+  `framed_case` and `gv_closed.closed_case`, which are both now at four.
+  `harness/scigraphs-conformance/sc_graphviz.py:59` calls the six-parameter form positionally
+  and that file belongs to another job: re-aritying it broke `scigraphs-conformance.sh` with
+  `TypeError: engine_points() got multiple values for argument 'start'`, which is how the
+  dependency was found.
 - `docs/contract/wasm-abi.md` and the review's M21 both treat `dim=3` as the reference's
   setting for the igraph family. For **this arm** the metric is a two-dimensional stress
   ratio, and igraph refuses a 3-D Kamada-Kawai start matrix outright. M21 is `false` on
@@ -154,3 +183,25 @@ docker run … ge-graphviz-oracle python3 -m unittest discover -s harness -p 'te
 - `oracle-basic-3d.py`'s docstring claims the interior is "strictly inside the shell".
   Nothing measures the shell bound; only the mean and the variance are computed. Left as-is
   (not a finding id) and reported.
+- **`docs/contract/wasm-abi.md` and M21 disagree with the measurement.** Both treat `dim=3`
+  as the reference's setting for the igraph family. For **this arm** the metric is a
+  two-dimensional stress ratio and igraph refuses a 3-D Kamada-Kawai start matrix outright,
+  so `dim` is 2 here. Where the two disagree, the measurement wins (fix-common), and the
+  contract is not in this job's paths to correct — recorded under "decisions needed".
+
+## Files changed
+
+`harness/oracle_common.py` (new), `harness/twopi_closed.py` (new), `harness/gv_sized.py`
+(new), `harness/gv_arms.py` (new), `harness/test_oracle_common.py` (new),
+`harness/test_gv_plain.py` (new), and the repaired
+`oracle-twopi.py`, `oracle-graphviz.py`, `gv_plain.py`, `gv_closed.py`, `gv_frames.py`,
+`oracle-closed-form.py`, `oracle-spectral.py`, `oracle-igraph.py`, `oracle-fa2.py`,
+`fa2-chaos.py`, `oracle-spring.py`, `oracle-basic-3d.py`,
+`oracle-circular-hierarchy.py`, `oracle-hierarchical-3d.py`,
+`perturb-{closed-form,basic-3d,hierarchical-3d}.py`,
+`scigraphs_lesmis_{graph,fixture,camera,pins}.py`, `emit-scigraphs-lesmis.py`,
+`test_scigraphs_lesmis_document.py`, `crates/graph-cli/src/oracle_python/fa2.rs` (M27's doc
+comment only; `GATED_MAX_ITER = 2` untouched), and this file.
+
+`fix-gates-oracles`' RG-22 (`gv_plain.write_dot`, :37-47) and `fix-gates-conformance`'s
+RG-16 digest echo in `oracle-spring.py` were both left byte-identical, as the job requires.
