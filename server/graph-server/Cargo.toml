@@ -19,6 +19,8 @@ graph-core = { path = "../../crates/graph-core" }
 graph-wasm = { path = "../../crates/graph-wasm" }
 axum = { version = "=0.8.9", default-features = false, features = ["http1", "tokio"] }
 http-body-util = "=0.1.5"
+# Decodes the query string; already in the lock through axum.
+percent-encoding = "=2.3.2"
 hyper = { version = "=1.11.1", default-features = false, features = ["http1", "server"] }
 hyper-util = { version = "=0.1.21", default-features = false, features = ["tokio", "server", "server-graceful", "service", "http1"] }
 serde_json = { version = "=1.0.151", default-features = false, features = ["std"] }
@@ -27,6 +29,7 @@ subtle = { version = "=2.6.1", default-features = false, features = ["std"] }
 tokio = { version = "=1.53.2", features = ["rt-multi-thread", "net", "signal", "time", "sync", "io-util", "macros"] }
 
 [dev-dependencies]
+# `ServiceExt::oneshot` drives the router in the integration tests.
 tower = { version = "=0.5.3", default-features = false, features = ["util"] }
 
 [features]

@@ -161,14 +161,19 @@ pub fn keygen(name: &str) -> Result<NewKey, &'static str> {
     if !is_name(name) {
         return Err("a name is 1-64 of A-Z a-z 0-9 . _ -");
     }
-    let mut random = [0u8; KEY_BYTES];
-    let mut source = std::fs::File::open("/dev/urandom").map_err(|_| "cannot open /dev/urandom")?;
-    source
-        .read_exact(&mut random)
-        .map_err(|_| "cannot read /dev/urandom")?;
-    let key = format!("{KEY_PREFIX}{}", base64url(&random));
+    let key = format!("{KEY_PREFIX}{}", base64url(&random::<KEY_BYTES>()?));
     let line = format!("{name} {}", hex(&Sha256::digest(key.as_bytes())));
     Ok(NewKey { key, line })
+}
+
+/// `N` bytes from `/dev/urandom`.
+pub fn random<const N: usize>() -> Result<[u8; N], &'static str> {
+    let mut bytes = [0u8; N];
+    let mut source = std::fs::File::open("/dev/urandom").map_err(|_| "cannot open /dev/urandom")?;
+    source
+        .read_exact(&mut bytes)
+        .map_err(|_| "cannot read /dev/urandom")?;
+    Ok(bytes)
 }
 
 /// One non-comment line as `(name, hash)`, `None` for a blank line or a comment.

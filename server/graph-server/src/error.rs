@@ -75,6 +75,24 @@ impl ApiError {
         Self::new(StatusCode::NOT_FOUND, "NotFound", "no such route")
     }
 
+    /// 406: `Accept` excludes both faces.
+    pub fn not_acceptable() -> Self {
+        Self::new(
+            StatusCode::NOT_ACCEPTABLE,
+            "NotAcceptable",
+            "Accept allows neither application/vnd.graph-motor.snapshot nor application/json",
+        )
+    }
+
+    /// 408: the body did not arrive within `GRAPH_BODY_TIMEOUT_MS`.
+    pub fn body_timeout() -> Self {
+        Self::new(
+            StatusCode::REQUEST_TIMEOUT,
+            "Timeout",
+            "the body did not arrive within GRAPH_BODY_TIMEOUT_MS",
+        )
+    }
+
     /// 500: the server's own failure, never the caller's.
     pub fn internal(message: impl Into<String>) -> Self {
         Self::new(StatusCode::INTERNAL_SERVER_ERROR, "Internal", message)
@@ -91,9 +109,14 @@ impl IntoResponse for ApiError {
             body.to_string(),
         )
             .into_response();
-        if self.status == StatusCode::TOO_MANY_REQUESTS {
-            let retry = HeaderValue::from_static("1");
-            response.headers_mut().insert(header::RETRY_AFTER, retry);
+        let extra = match self.status {
+            StatusCode::TOO_MANY_REQUESTS => Some((header::RETRY_AFTER, "1")),
+            StatusCode::UNAUTHORIZED => Some((header::WWW_AUTHENTICATE, "Bearer")),
+            _ => None,
+        };
+        if let Some((name, value)) = extra {
+            let value = HeaderValue::from_static(value);
+            response.headers_mut().insert(name, value);
         }
         response
     }

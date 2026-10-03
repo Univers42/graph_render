@@ -1,8 +1,13 @@
-//! The state every request shares: the key store, the limits and the log sink. Built once at
-//! start from [`Settings`]; nothing in it changes per request except the key set on `SIGHUP`.
+//! The state every request shares: the key store, the limits, the admission gate, the caps,
+//! the embed tree and the log sink. Built once at start from [`Settings`]; nothing in it
+//! changes per request except the key set on `SIGHUP`.
 
+use crate::caps::Caps;
 use crate::config::{Limits, Settings};
+use crate::embed::Embed;
+use crate::gate::Gate;
 use crate::keys::{KeySet, KeyStore};
+use crate::observe::RequestIds;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -17,6 +22,25 @@ pub struct App {
     pub limits: Limits,
     /// The log line sink.
     pub log: LogSink,
+    /// The compute slots and their queue.
+    pub gate: Gate,
+    /// The per-id work caps.
+    pub caps: Caps,
+    /// The embed tree; `None` when `GRAPH_EMBED_DIR` is unset, so every `/embed/` path is 404.
+    pub embed: Option<Embed>,
+    /// The origins allowed on `/v1/`.
+    pub cors_origins: Vec<String>,
+    /// Generated request ids.
+    pub ids: RequestIds,
+    /// Test seams; empty in the binary.
+    pub hooks: Hooks,
+}
+
+/// Code the tests run inside a request, to make a run slow or make it panic.
+#[derive(Default)]
+pub struct Hooks {
+    /// Called on the blocking thread before the motor builds the graph.
+    pub before_run: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
 impl App {
@@ -29,10 +53,21 @@ impl App {
             )),
             _ => None,
         };
+        let embed = match &settings.embed_dir {
+            Some(dir) => Some(Embed::load(dir)?),
+            None => None,
+        };
+        let limits = settings.limits;
         Ok(Self {
             keys,
-            limits: settings.limits,
+            limits,
             log,
+            gate: Gate::new(limits.workers, limits.queue),
+            caps: Caps::committed()?,
+            embed,
+            cors_origins: settings.cors_origins.clone(),
+            ids: RequestIds::new()?,
+            hooks: Hooks::default(),
         })
     }
 
