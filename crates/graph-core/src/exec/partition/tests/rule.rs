@@ -89,3 +89,15 @@ fn the_slices_depend_on_nothing_but_the_two_arguments() {
     // A different worker count is the only thing that moves a boundary.
     assert_ne!(partition(220, 7), partition(220, 4));
 }
+
+#[test]
+fn range_at_is_the_list_by_index_and_empty_past_it() {
+    use super::super::range_at;
+    for (n, workers) in [(10, 3), (11, 4), (3, 7), (1_000_003, 128)] {
+        for (i, range) in partition(n, workers).into_iter().enumerate() {
+            assert_eq!(range_at(n, workers, i as u32), range, "{n}/{workers} range {i}");
+        }
+        assert_eq!(range_at(n, workers, n.min(workers)), n..n);
+    }
+    assert_eq!(range_at(5, 0, 0), 5..5, "no workers: nothing to claim");
+}
