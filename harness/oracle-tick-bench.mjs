@@ -29,7 +29,9 @@
 // d3-force is resolved as ESM first, then through `createRequire`: ESM resolution
 // ignores `NODE_PATH`, and the pinned tree can live outside the worktree. Where neither
 // finds it this is exit 2 naming the module — an arm that cannot reach its baseline is a
-// refusal, never a pass.
+// refusal, never a pass. The version the resolver landed on is checked against the pin
+// too (`harness/d3-version.mjs`): this arm's numbers are attributed to one d3, and a
+// different one would be measured as a performance difference rather than as a drift.
 //
 // It reads no environment variable. The only import hook is the TypeScript one: the
 // engine's sources import each other without extensions (`./params`), which plain ESM
@@ -39,6 +41,8 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { registerHooks } from "node:module";
 import { dirname, resolve } from "node:path";
+
+import { PINNED_D3_VERSION, resolvedD3Version, versionRefusal } from "./d3-version.mjs";
 
 /** Ticks a settle costs: d3's `alphaDecay(0.06)` down to its `alphaMin` of 0.001. */
 const SETTLE_TICKS = 112;
@@ -229,12 +233,27 @@ function markdown(plan, rows, runtime) {
   return lines.join("\n");
 }
 
+/** The model the arm timed, and the numbers it is about to report as its own. The report
+ * says `n`; `n` is a CLI argument, and `buildSyntheticModel` floors at 2 and caps at
+ * 100_000 (`src/core/model/synthetic.ts:95-98`). Reporting the argument while timing a
+ * different picture is the drift this refuses. */
+function modelFor(buildSyntheticModel, n) {
+  const model = buildSyntheticModel(n);
+  if (model.nodes.length !== n) {
+    fail(`buildSyntheticModel(${n}) produced ${model.nodes.length} nodes, not ${n}: this arm times the model it built, so the row's n must be that. Above the generator's 100_000 cap or below its floor of 2, pick a size inside it.`);
+  }
+  return model;
+}
+
 async function main() {
   const plan = parseArgs(process.argv.slice(2));
   registerTypeScript();
   if (plan.selfCheck) return selfCheck();
   const d3 = await loadD3Force();
   if (typeof d3.forceSimulation !== "function") fail("d3-force resolved to something that is not d3-force");
+  const { createRequire } = await import("node:module");
+  const mismatch = versionRefusal(resolvedD3Version(createRequire(import.meta.url).resolve));
+  if (mismatch !== null) fail(`${mismatch}; this arm's rows are attributed to d3-force@${PINNED_D3_VERSION}`);
   const [{ ForceLayout }, { DEFAULT_LAYOUT_PARAMS }, { buildSyntheticModel }] = await Promise.all([
     import("../src/core/layout/forceLayout.ts"),
     import("../src/core/layout/params.ts"),
@@ -244,7 +263,7 @@ async function main() {
   // node groups here, so this states the comparison rather than leaving it to defaults.
   const params = { ...DEFAULT_LAYOUT_PARAMS, clusterStrength: 0 };
   const rows = [];
-  for (const n of plan.sizes) rows.push(measureArm(ForceLayout, params, buildSyntheticModel(n), n, plan.repeat));
+  for (const n of plan.sizes) rows.push(measureArm(ForceLayout, params, modelFor(buildSyntheticModel, n), n, plan.repeat));
   const text = markdown(plan, rows, process.version);
   process.stdout.write(text);
   if (plan.out) write(plan.out, text);
@@ -258,4 +277,12 @@ function write(path, text) {
   writeFileSync(path, text);
 }
 
-await main();
+// The header's own table promises 2 for "could not run". A failed dynamic import, an
+// unwritable `--out`, a throw inside the TypeScript sources: all of them are that, not
+// "ran and failed", so they are named and refused here rather than surfacing as an
+// unhandled rejection (exit 1, with a stack and no arm).
+try {
+  await main();
+} catch (error) {
+  fail(error && error.message ? error.message : String(error));
+}
