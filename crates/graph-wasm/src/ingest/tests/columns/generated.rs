@@ -21,7 +21,10 @@ pub fn all() -> Vec<Document> {
 /// `fixtures/scale/n220.json`, read by the reference path. 220 nodes, 329 edges, five edge
 /// kinds, multi-byte icons and `:`-bearing ids.
 fn fixture() -> Document {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/scale/n220.json");
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../fixtures/scale/n220.json"
+    );
     let bytes = std::fs::read(path).expect("n220 is a committed fixture");
     let (nodes, edges) = crate::ingest::read_records(&bytes).expect("n220 is an ingest document");
     Document {
@@ -74,7 +77,7 @@ fn kinds() -> Document {
     let mut nodes = vec![node("k-record")];
     let names = ["note", "database", "tag"];
     for (i, kind) in NodeKind::ALL.into_iter().skip(1).enumerate() {
-        let mut n = node(&format!("k-{kind}"));
+        let mut n = node(&format!("k-{}", kind.as_str()));
         n.kind = kind;
         n.label = names[i].to_owned();
         nodes.push(n);

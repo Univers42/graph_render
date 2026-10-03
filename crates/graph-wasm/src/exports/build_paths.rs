@@ -121,7 +121,8 @@ pub extern "C" fn gm_build_columns(columns_ptr: u32, columns_len: u32) -> u32 {
     // caller still owns; the buffer outlives this whole call (freed only by the caller's
     // own later `gm_free`), so borrowing it for the duration of `columns::index` is sound,
     // and nothing here retains the slice past this function.
-    let bytes = unsafe { std::slice::from_raw_parts(columns_ptr as *const u8, columns_len as usize) };
+    let bytes =
+        unsafe { std::slice::from_raw_parts(columns_ptr as *const u8, columns_len as usize) };
     let topology = match columns::index(bytes) {
         Ok(topology) => topology,
         Err(refusal) => {

@@ -22,6 +22,7 @@ export interface RawExports {
   gm_layout_id(i: number): number;
   gm_build(ingestPtr: number, ingestLen: number): number;
   gm_build_contract(contractPtr: number, contractLen: number): number;
+  gm_build_columns(columnsPtr: number, columnsLen: number): number;
   gm_run(handle: number, layoutId: number, paramsPtr: number, paramsLen: number): number;
   gm_node_count(handle: number): number;
   gm_geometry_kind(handle: number): number;
@@ -58,7 +59,8 @@ export interface RawExports {
  * failing later as `exports.gm_dim is not a function` on the first call that needs it. */
 const EXPORT_NAMES: { readonly [K in keyof RawExports]: true } = {
   memory: true, gm_abi_version: true, gm_alloc: true, gm_free: true, gm_layout_count: true, gm_layout_id: true,
-  gm_build: true, gm_build_contract: true, gm_run: true, gm_node_count: true,
+  gm_build: true, gm_build_contract: true, gm_build_columns: true,
+  gm_run: true, gm_node_count: true,
   gm_geometry_kind: true, gm_edge_geometry_kind: true, gm_dim: true, gm_column_ptr: true,
   gm_column_len: true, gm_snapshot_json: true, gm_snapshot_bytes: true, gm_post_count: true,
   gm_post_id: true, gm_post_run: true, gm_analysis_count: true, gm_analysis_id: true,

@@ -83,7 +83,10 @@ impl Coverage {
             self.subnormal |= node.weight.is_subnormal() && node.weight != 0.0;
             self.multi_byte_id |= !node.id.is_ascii();
             self.empty_label |= node.label.is_empty();
-            let at = NodeKind::ALL.iter().position(|k| *k == node.kind).unwrap_or(0);
+            let at = NodeKind::ALL
+                .iter()
+                .position(|k| *k == node.kind)
+                .unwrap_or(0);
             self.node_kinds[at] = true;
         }
         for edge in &doc.edges {
@@ -91,7 +94,10 @@ impl Coverage {
             self.child_first |= edge.child_first;
             self.not_directed |= !edge.directed;
             self.subnormal |= edge.strength.is_subnormal() && edge.strength != 0.0;
-            let at = EdgeKind::ALL.iter().position(|k| *k == edge.kind).unwrap_or(0);
+            let at = EdgeKind::ALL
+                .iter()
+                .position(|k| *k == edge.kind)
+                .unwrap_or(0);
             self.edge_kinds[at] = true;
         }
     }

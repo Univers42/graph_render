@@ -72,7 +72,11 @@ pub fn edge_json(edge: &EdgeRecord) -> String {
 
 /// A whole document, version 1.
 pub fn document_json(nodes: &[NodeRecord], edges: &[EdgeRecord]) -> String {
-    let all: Vec<String> = nodes.iter().map(node_json).chain(edges.iter().map(edge_json)).collect();
+    let all: Vec<String> = nodes
+        .iter()
+        .map(node_json)
+        .chain(edges.iter().map(edge_json))
+        .collect();
     format!(
         "{{\"version\":1,\"nodes\":[{}],\"edges\":[{}]}}",
         all[..nodes.len()].join(","),

@@ -25,6 +25,8 @@ const HEADER: usize = 32;
 pub struct Encoded {
     /// The bytes.
     pub bytes: Vec<u8>,
+    /// Byte offset of the `node kind` column.
+    pub node_kind: usize,
     /// Byte offset of the `edge source` column.
     pub edge_source: usize,
     /// Byte offset of the `edge child_first` column.
@@ -120,7 +122,9 @@ fn columns(
     rows: &BTreeMap<String, u32>,
     table: &mut Table,
 ) -> Vec<Column> {
-    let mut node_columns: Vec<Vec<u32>> = vec![Vec::with_capacity(nodes.len()); 8];
+    let mut node_columns = (0..8)
+        .map(|_| Vec::with_capacity(nodes.len()))
+        .collect::<Vec<_>>();
     for node in nodes {
         let cells = [
             table.intern(&node.id),
@@ -136,12 +140,18 @@ fn columns(
             column.push(value);
         }
     }
-    let mut edge_columns: Vec<Vec<u32>> = vec![Vec::with_capacity(edges.len()); 8];
+    let mut edge_columns = (0..8)
+        .map(|_| Vec::with_capacity(edges.len()))
+        .collect::<Vec<_>>();
     for edge in edges {
         let cells = [
             table.intern(&edge.id),
-            *rows.get(edge.source.as_str()).expect("a source node exists"),
-            *rows.get(edge.target.as_str()).expect("a target node exists"),
+            *rows
+                .get(edge.source.as_str())
+                .expect("a source node exists"),
+            *rows
+                .get(edge.target.as_str())
+                .expect("a target node exists"),
             table.intern(edge.kind.as_str()),
             table.intern(&edge.label),
             table.optional(edge.record_id.as_deref()),
@@ -197,7 +207,8 @@ fn assemble(nodes: usize, edges: usize, table: Table, columns: Vec<Column>) -> E
     }
     Encoded {
         bytes: out,
-        edge_source: marks[11],
+        node_kind: marks[4],
+        edge_source: marks[12],
         edge_child_first: marks[18],
     }
 }

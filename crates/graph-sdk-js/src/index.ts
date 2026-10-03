@@ -27,12 +27,15 @@ import { checkOptions } from "./options.ts";
 import { readKinds, type GeometryKinds } from "./geometry-kinds.ts";
 import { Registries } from "./registries.ts";
 import { buildStaged } from "./staging.ts";
+import { ColumnsRefusedError } from "./errors.ts";
 
 export type { WasmSource } from "./wasm.ts";
 export { resetForTests } from "./wasm.ts";
 export * from "./errors.ts";
 export * from "./types.ts";
 export { ForceSession, PARAMS_BYTES, encodeParams, decodeParams } from "./force.ts";
+export { encodeColumns, ColumnsEncoderError } from "./columns.ts";
+export type { ColumnsDocument, ColumnsEdge, ColumnsNode } from "./columns.ts";
 
 export { parseAnalysisFace } from "./analysis-face.ts";
 export * from "./adapters.ts";
@@ -165,6 +168,28 @@ export class Motor {
       call: "gm_build_contract",
       refusal: "gm_build_contract refused the contract document",
       refuse: (message, code) => new ContractRefusedError(message, code),
+    });
+  }
+
+  /** Builds a graph from `bytes`, a **columnar** document — {@link encodeColumns}'s output
+   *  (`docs/contract/ingest-columns.md`). The third way in, and the additive one: this
+   *  package's own types, `gm_build`'s JSON and `gm_build_contract`'s contract all keep
+   *  working exactly as before.
+   *
+   *  The reason to prefer it is that the document arrives already shaped: no JSON parse, no
+   *  `String` per record field, no string lookup per edge endpoint. The reason it is not
+   *  simply `build` is the dense-row rule — a repeated node or edge id is *refused* here,
+   *  where the JSON path drops it, because a row-addressed endpoint cannot survive a
+   *  renumbering. So a document that `build` accepts may be refused here, and that refusal
+   *  is {@link ColumnsRefusedError}.
+   *
+   *  Staged and freed exactly as {@link build} is (C7). */
+  buildColumns(bytes: Uint8Array): Handle {
+    return buildStaged(this.#requireLoaded(), bytes, {
+      buffer: "columns",
+      call: "gm_build_columns",
+      refusal: "gm_build_columns refused the columnar document",
+      refuse: (message, code) => new ColumnsRefusedError(message, code),
     });
   }
 
