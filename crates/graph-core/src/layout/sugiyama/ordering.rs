@@ -1,7 +1,29 @@
 //! Crossing reduction: median sweeps plus adjacent transposition (Gansner, Koutsofios, North & Vo, "A Technique for Drawing Directed Graphs", 1993, as `dot` implements it), seeded by a breadth-first initial order. Bilayer crossings are counted exactly, by the accumulator tree of Barth, Jünger & Mutzel (2002). Reference: `hierarchical.py:416-563`.
 //!
 //! Ponytail: median+transpose is a local search, not a minimum-crossing solver (every crossing count itself is exact). Failing input: a layer whose optimum needs a non-adjacent swap this pass never tries. Direction: more crossings than optimal, never a wrong edge. Escape hatch: the margin in `docs/measurements/phase05-crossings.md`.
-use super::{layering::Layering, weighted_median};
+use super::layering::Layering;
+use super::weighted_median;
+use crate::stage::StageError;
+#[cfg(test)]
+use std::cell::Cell;
+
+#[cfg(test)]
+mod tests;
+mod transpose;
+
+// How many weighted medians this thread has computed. Test-only, per thread, so the cost
+// finding (the review's L-02) has a RED that counts work instead of timing it: no clock, no
+// wall time, nothing on any output path.
+#[cfg(test)]
+thread_local! {
+    static MEDIANS: Cell<u64> = const { Cell::new(0) };
+}
+
+/// Weighted medians computed so far on this thread.
+#[cfg(test)]
+pub(super) fn median_evaluations() -> u64 {
+    MEDIANS.with(Cell::get)
+}
 
 /// `up`/`down`, bundled so a sweep helper takes one parameter, not two (≤4 per house style).
 struct Adjacency<'a> {
@@ -41,8 +63,16 @@ pub(crate) struct Ordering {
 }
 
 impl Ordering {
-    /// Orders every layer of `layering` by the throttled median+transpose sweep.
-    pub(crate) fn build(layering: &Layering, num_layers: u32) -> Self {
+    /// Orders every layer of `layering` by the throttled median+transpose sweep, or refuses a
+    /// `num_layers` that does not cover every vertex's own layer: that used to index past
+    /// the end of `order` and leave the vertex out of every row (the review's L-13).
+    pub(crate) fn build(layering: &Layering, num_layers: u32) -> Result<Self, StageError> {
+        if !layer_covered(layering, num_layers) {
+            return Err(StageError::Param {
+                name: "num_layers",
+                rule: "at or above every vertex's own layer index",
+            });
+        }
         let adjacency = Adjacency {
             up: &layering.up,
             down: &layering.down,
@@ -52,8 +82,15 @@ impl Ordering {
         reindex(&layers, &mut position);
         let throttle = Throttle::for_total(layering.layer_of.len() as u32);
         let crossings = order_layers(&mut layers, &adjacency, &mut position, throttle);
-        Self { layers, crossings }
+        Ok(Self { layers, crossings })
     }
+}
+
+/// Whether `num_layers` covers every vertex's own layer. `layered` derives it from
+/// `max() + 1`, so this is the guard on [`Ordering::build`]'s own seam, not a failure a
+/// public input can reach.
+fn layer_covered(layering: &Layering, num_layers: u32) -> bool {
+    layering.layer_of.iter().all(|&l| l < num_layers)
 }
 
 /// Seeds each layer with a breadth-first walk (`up`/`down` treated as undirected) from every unvisited vertex in dense-index order, so joined vertices start out near each other.
@@ -89,86 +126,42 @@ fn init_order(num_layers: usize, layer_of: &[u32], adjacency: &Adjacency) -> Vec
 }
 
 fn median_position(neighbours: &[u32], position: &[u32]) -> f64 {
+    #[cfg(test)]
+    MEDIANS.with(|c| c.set(c.get() + 1));
     weighted_median(neighbours.iter().map(|&v| position[v as usize]).collect())
 }
 
 /// Reorders `row` by median value; a neighbourless vertex stays put, ties break on slot.
+///
+/// **Each movable vertex's median is computed once**, into the key the sort then reads (the
+/// review's L-02): the comparator used to collect and sort the neighbour positions again on
+/// every comparison, `O(W log W)` medians and allocations for a width-`W` row where `O(W)`
+/// is enough. The order is unchanged — a vertex's key is `(median, slot)` either way, and
+/// the slots the ranked vertices land in are the same ascending set.
+/// **The vertices it moved are the only ones whose key changed**, so the row is reindexed
+/// from the result rather than from the key.
 fn sort_by_median(row: &mut [u32], adjacency: &[Vec<u32>], position: &mut [u32]) {
-    let movable: Vec<(usize, u32)> = row
-        .iter()
-        .enumerate()
-        .filter(|&(_, &v)| !adjacency[v as usize].is_empty())
-        .map(|(i, &v)| (i, v))
-        .collect();
-    if movable.len() < 2 {
+    let mut slots = Vec::new();
+    let mut keyed = Vec::new();
+    for (slot, &v) in row.iter().enumerate() {
+        if !adjacency[v as usize].is_empty() {
+            keyed.push((median_position(&adjacency[v as usize], position), slot, v));
+            slots.push(slot);
+        }
+    }
+    if keyed.len() < 2 {
         return;
     }
-    let mut keyed = movable.clone();
-    keyed.sort_by(|&(i1, v1), &(i2, v2)| {
-        let (m1, m2) = (
-            median_position(&adjacency[v1 as usize], position),
-            median_position(&adjacency[v2 as usize], position),
-        );
-        m1.partial_cmp(&m2).expect("never NaN").then(i1.cmp(&i2))
+    keyed.sort_by(|a, b| {
+        a.0.partial_cmp(&b.0)
+            .expect("never NaN")
+            .then(a.1.cmp(&b.1))
     });
-    for (&(slot, _), &(_, v)) in movable.iter().zip(&keyed) {
+    for (&slot, &(_, _, v)) in slots.iter().zip(&keyed) {
         row[slot] = v;
     }
     for (i, &v) in row.iter().enumerate() {
         position[v as usize] = i as u32;
-    }
-}
-
-/// Crossings between `v`'s and `w`'s `adjacency` edges if `v` is drawn left of `w`.
-fn pair_crossings(v: u32, w: u32, adjacency: &[Vec<u32>], position: &[u32]) -> u32 {
-    let mut a: Vec<u32> = adjacency[v as usize]
-        .iter()
-        .map(|&x| position[x as usize])
-        .collect();
-    let mut b: Vec<u32> = adjacency[w as usize]
-        .iter()
-        .map(|&x| position[x as usize])
-        .collect();
-    a.sort_unstable();
-    b.sort_unstable();
-    let mut count = 0u32;
-    let mut j = 0usize;
-    for &x in &a {
-        while j < b.len() && b[j] < x {
-            j += 1;
-        }
-        count += j as u32;
-    }
-    count
-}
-
-/// Swaps adjacent pairs while that strictly reduces their crossings, up to `rounds` full passes, stopping early once a pass makes no swap.
-fn transpose(layers: &mut [Vec<u32>], adjacency: &Adjacency, position: &mut [u32], rounds: u32) {
-    let (up, down) = (adjacency.up, adjacency.down);
-    for _ in 0..rounds {
-        let mut improved = false;
-        for row in layers.iter_mut() {
-            for i in 0..row.len().saturating_sub(1) {
-                let (v, w) = (row[i], row[i + 1]);
-                let before =
-                    pair_crossings(v, w, up, position) + pair_crossings(v, w, down, position);
-                if before == 0 {
-                    continue;
-                }
-                let after =
-                    pair_crossings(w, v, up, position) + pair_crossings(w, v, down, position);
-                if after < before {
-                    improved = true;
-                    row[i] = w;
-                    row[i + 1] = v;
-                    position[v as usize] = i as u32 + 1;
-                    position[w as usize] = i as u32;
-                }
-            }
-        }
-        if !improved {
-            break;
-        }
     }
 }
 
@@ -230,7 +223,7 @@ fn order_layers(
                 sort_by_median(row, up, position);
             }
         }
-        transpose(layers, adjacency, position, throttle.transpose_rounds); // no-op at 0
+        transpose::transpose(layers, adjacency, position, throttle.transpose_rounds); // no-op at 0
         let count = total_crossings(layers, down, position);
         if count < best_count {
             best_count = count;
@@ -250,49 +243,5 @@ fn reindex(layers: &[Vec<u32>], position: &mut [u32]) {
         for (i, &v) in row.iter().enumerate() {
             position[v as usize] = i as u32;
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::index::index_model;
-    use crate::layout::sugiyama::acyclic::{Acyclic, Arcs};
-    use crate::layout::sugiyama::layering::{DUMMY_BUDGET, assign_layers};
-    use crate::records::build::{edge, node};
-
-    /// `(ordering, num_layers)` for `nodes`/`edges`.
-    fn ordering(nodes: &[&str], edges: &[(&str, &str, &str)]) -> (Ordering, u32) {
-        let n: Vec<_> = nodes.iter().map(|id| node(id, "")).collect();
-        let e: Vec<_> = edges.iter().map(|&(id, s, t)| edge(id, s, t)).collect();
-        let t = index_model(&n, &e).expect("fits");
-        let acyclic = Acyclic::of(&t);
-        let list = Arcs::new(&t, &acyclic).grouped();
-        let layer = assign_layers(&list);
-        let layering = Layering::build(&list, &layer, DUMMY_BUDGET);
-        let num_layers = layering.layer_of.iter().copied().max().map_or(0, |m| m + 1);
-        (Ordering::build(&layering, num_layers), num_layers)
-    }
-
-    #[test]
-    fn a_chain_has_one_vertex_per_layer_and_no_crossings() {
-        let (o, num_layers) = ordering(&["a", "b", "c"], &[("ab", "a", "b"), ("bc", "b", "c")]);
-        assert_eq!(
-            (num_layers, &o.layers),
-            (3, &vec![vec![0], vec![1], vec![2]])
-        );
-        assert_eq!(o.crossings, 0);
-    }
-
-    #[test]
-    fn a_solvable_crossing_is_uncrossed_and_deterministic() {
-        // a,b at layer 0; c,d at layer 1; ad and bc cross under (a,b / c,d) but not under
-        // (a,b / d,c) or (b,a / c,d): the sweep must find the 0-crossing order.
-        let nodes = ["a", "b", "c", "d"];
-        let edges = [("ac", "a", "c"), ("bd", "b", "d"), ("ad", "a", "d")];
-        let (o, _) = ordering(&nodes, &edges);
-        assert_eq!(o.crossings, 0, "layers: {:?}", o.layers);
-        let (again, _) = ordering(&nodes, &edges);
-        assert_eq!((o.layers, o.crossings), (again.layers, again.crossings));
     }
 }

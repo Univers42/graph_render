@@ -38,8 +38,9 @@ use ordering::Ordering;
 use routing::{LAYER_SPACING, Routing, edge_paths, node_positions};
 
 /// Cycle breaking through crossing reduction, the three stages [`run`] and
-/// [`crossings_for`] share.
-fn layered(topology: &Topology) -> (Acyclic, Layering, Ordering) {
+/// [`crossings_for`] share. Fails only if the layer count does not cover every vertex, which
+/// [`layered`]'s own `max() + 1` always does ([`ordering::Ordering::build`]'s guard).
+fn layered(topology: &Topology) -> Result<(Acyclic, Layering, Ordering), StageError> {
     let acyclic = Acyclic::of(topology);
     // One sort for the whole layering phase: the arc list is built here and handed down, so
     // `assign_layers`, `budget_plan` and `materialize` read the same list rather than each
@@ -48,8 +49,8 @@ fn layered(topology: &Topology) -> (Acyclic, Layering, Ordering) {
     let layer = assign_layers(&list);
     let layering = Layering::build(&list, &layer, DUMMY_BUDGET);
     let num_layers = layering.layer_of.iter().copied().max().map_or(0, |m| m + 1);
-    let ordering = Ordering::build(&layering, num_layers);
-    (acyclic, layering, ordering)
+    let ordering = Ordering::build(&layering, num_layers)?;
+    Ok((acyclic, layering, ordering))
 }
 
 /// The layered-DAG stage.
@@ -90,7 +91,7 @@ pub fn run(topology: &Topology, layer_spacing: f32) -> Result<Geometry, StageErr
             rule: "finite and above 0",
         });
     }
-    let (acyclic, layering, ordering) = layered(topology);
+    let (acyclic, layering, ordering) = layered(topology)?;
     let coords = Coords::build(&ordering, &layering, topology.node_count());
     let routing = Routing {
         layering: &layering,
@@ -114,7 +115,10 @@ pub fn run(topology: &Topology, layer_spacing: f32) -> Result<Geometry, StageErr
 /// never needs it, since the geometry it returns carries no crossing count of its own.
 #[cfg(test)]
 pub(crate) fn crossings_for(topology: &Topology) -> u64 {
-    layered(topology).2.crossings
+    layered(topology)
+        .expect("max() + 1 covers every layer")
+        .2
+        .crossings
 }
 
 /// `dot`'s weighted median (Gansner, Koutsofios, North & Vo 1993): the middle of
