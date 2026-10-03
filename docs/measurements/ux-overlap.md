@@ -56,7 +56,33 @@ at 100 000, 383 572 of 51 057 153. Both are `Bundled::unbundled`, i.e. the pass'
 the same 3 × 3 neighbourhood the scan uses.
 
 The escape hatch is `--max-iterations`, and it is a parameter the pass validates rather than a
-silent quality dial: `0` is refused by name (`StageError::Param`, no new variant).
+silent quality dial: `0` is refused by name (`StageError::Param`, no new variant). What it buys,
+measured on the same two inputs. This is a **second sweep** of the same command, so its cap-512
+cell differs from §2's by run-to-run noise (744 ms against 734 ms) — the two are not the same
+measurement and are not meant to look like it:
+
+| nodes | cap 512 | cap 1 024 | cap 2 048 | cap 4 096 |
+|---:|---|---|---|---|
+| 10 000, pairs left | 16 294 (744 ms) | 11 480 (1 294 ms) | **0** (2 099 ms) | 0 (3 158 ms) |
+| 10 000, displacement | 35.618 | 42.958 | 46.386 | 46.386 |
+| 100 000, pairs left | 383 572 (10 454 ms) | 314 713 (20 040 ms) | 242 855 (37 201 ms) | 178 784 (78 518 ms) |
+| 100 000, displacement | 46.114 | 62.295 | 82.042 | 104.961 |
+
+Three things follow, and none of them is "raise the default":
+
+- **10 000 clears, at a cap of 2 048 and a cost of 2.1 s.** The default 512 leaves 16 294 pairs
+  there, so the pass is one flag away from a complete result at exactly the size
+  `SEPARATE_CEILING` names — and that flag costs three times the redraw budget. The ceiling and
+  the default disagree on purpose: one is what fits in a second, the other what a caller must ask
+  for.
+- **Past the cap the cost is linear and the gain is not.** 100 000 nodes loses 205 000 pairs
+  between cap 1 024 and cap 4 096, for 58 seconds more. It is not converging, it is paying.
+- **The residual is not a cap-tuning problem at 100 000.** A `k × k` lattice needs information to
+  travel across the drawing at roughly one cell per sweep, so the sweeps needed grow with `√n`;
+  4 096 covers a 316-wide lattice, and the measured displacement (105 units, 105 pitches) says
+  the drawing is still expanding rather than settling. A caller at that size wants a different
+  algorithm, not a bigger number — which is what `docs/decisions/node-overlap.md` §4 decided
+  against building.
 
 ## 4. The quality differential against Graphviz
 
@@ -103,6 +129,9 @@ the one being compared against.
   not prove.
 - **Timings are one run on a loaded host**, and the pass is `--release` on x86_64; wasm32 is
   bit-identical in *output* (hashgate, D1) but not measured for time.
+- **The cap column is a sweep of one input**, `layout.grid` at radius 1.0. A random cloud
+  converges in a median of 16 sweeps, so these residuals are the lattice's, not the pass's in
+  general — which is why `max_iterations` is documented as being sized from the lattice.
 - **`radius = 1.0` is a choice, not a property.** It is four times denser than a packable drawing,
   which is what makes the lattice the binding case; a caller who separates a normal drawing
   spends far less displacement for the same invariant.
