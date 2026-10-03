@@ -21,6 +21,9 @@ measured median saving is under 3 s, the studio stays on JSON.**
 | the export | `crates/graph-wasm/src/exports/build_paths.rs` | `gm_build_columns(ptr, len)`, same handle lifecycle as `gm_build`, new code `ColumnsInvalid = 20`. |
 | the encoder | `crates/graph-sdk-js/src/columns.ts` | `encodeColumns`: one `Uint8Array` sized up front, `TextEncoder.encodeInto` into it. |
 
+Since `perf-open-intern` the columnar admit takes `NodeCells`/`EdgeCells` over a `StringTable`, resolves
+the kinds itself and interns through a per-entry memo; `RowEdge` is gone (`perf-open-intern.md`).
+
 The invariant the differential rests on: **row `r` of the node columns is dense index `r`**.
 That is why a duplicate id is a refusal here and a drop there — dropping a row renumbers
 every row after it and silently repoints every edge that follows.

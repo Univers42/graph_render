@@ -43,7 +43,8 @@ median saving is under 3 s, the studio stays on JSON.
 1. The branch starts from `perf-open-index` and merges develop once that lands.
 2. One admit path: `admit_node` takes `&NodeView`; `admit_edge` splits into endpoint resolution and
    one shared push. hashgate-8 and its negative control, oracle-diff and the arena-order test stay
-   green.
+   green. Amended by `perf-open-intern`: `index_columns` admits through `claim_*`/`push_*`
+   (`index/admit.rs`) over interned cells; `index_model` keeps `admit_node`/`admit_edge`.
 3. `index_columns` (`graph-core/src/index/columns.rs`) refuses a taken node or edge id, compared
    through the arena by content. Tests: the same id under two table indices, a duplicate in the
    last row, an edge pointing at the second duplicate.
