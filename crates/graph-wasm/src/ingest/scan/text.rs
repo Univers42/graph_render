@@ -82,7 +82,7 @@ impl<'a> Scan<'a> {
         }
     }
 
-    /// `\uXXXX` at `at`, pairing a high surrogate with the low one that must follow it:
+    /// A `\u` escape and its four hex digits at `at`, pairing a high surrogate with the low one that must follow it:
     /// the character, and one past the whole sequence.
     pub(in crate::ingest) fn unicode(&self, at: usize) -> Result<(char, usize), JsonError> {
         let (unit, mut at) = self.hex4(at)?;
