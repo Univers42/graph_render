@@ -231,10 +231,11 @@ scripts/orch/gr cargo test -p graph-core --lib layout::force::spring     -> 0 (3
 scripts/orch/gr cargo test -p graph-core --lib layout::circle_packing    -> 0 (137 passed)
 scripts/scigraphs-conformance.sh                        (after)            -> 1, names SPRING, SPRING_3D, CIRCLE_PACKING
 scripts/scigraphs-conformance.sh                        (after re-pin)     -> 0 PASS
-scripts/scigraphs-conformance.sh --break                                  -> 1 (SPRING_3D bytes)
+scripts/scigraphs-conformance.sh --break                                  -> 1 (SPRING_3D bytes, sha 3a7bf10d…)
+scripts/scigraphs-conformance.sh                        (final, re-checked) -> 0 PASS
 scripts/orch/gr cargo fmt --check                                          -> 0
 scripts/orch/gr cargo clippy --release --workspace --all-targets -- -D warnings -> 0
-scripts/orch/gr cargo test --workspace --no-fail-fast                      -> 0
+scripts/orch/gr cargo test --workspace --no-fail-fast                      -> 101, then 0 on the 7 targets it named
 scripts/orch/gr cargo run -q --release -p graph-cli -- emit-spring-fixtures --seeds 20 --out target/spring-fixtures-check20
 docker run ... ge-python-oracle python3 harness/oracle-spring.py target/spring-fixtures-check20
 scripts/orch/gr cargo run -q --release -p graph-cli -- oracle-spring --dir target/spring-fixtures-check20 -> 0
@@ -242,6 +243,23 @@ scripts/orch/gr cargo run -q --release -p graph-cli -- hashgate --seeds 8  -> 0
 scripts/orch/gr -e GM_MUTATE_REFERENCE_DEGREE=9 cargo run -q --release -p graph-cli -- hashgate --seeds 8 -> 1
 docker run ... ge-python-oracle python3 /probe/planarity.py   (check_planarity over the 24 fixtures) -> 2 of 24 non-planar
 ```
+
+**The workspace run needs a word, because its first exit code was not 0.**
+`cargo test --workspace --no-fail-fast` came back **101** with 7 targets failing: `cli_force`,
+`cli_force_gate`, `cli_igraph`, `cli_ledger`, `cli_oracles`, `cli_p3`, `snapshot`. Every one is an
+integration test that shells out to a **nested** `cargo run`, and every failure was the nested
+build exiting **2** (`cli_oracles.rs:88`, `cli_ledger.rs:202`: `left: Some(2), right: Some(0)`) —
+the machine had 0 free GB at the time, because the hash gate and a conformance run were going
+concurrently. Re-run on an idle machine, all seven pass:
+
+```
+scripts/orch/gr cargo test -p graph-cli --test cli_force --test cli_force_gate --test cli_igraph \
+    --test cli_ledger --test cli_oracles --test cli_p3 --test snapshot   -> 0
+```
+
+No lib or unit test failed in the workspace run: `graph-core` 1265 passed / 0 failed, and the
+`self-check FAILED` lines in the log are a *fixture's* expected output
+(`a_broken_copy_of_the_wasm_tick_harness_fails_its_own_self_check`), not a failure.
 
 The spring differential above is **20 seeds, not the 1000 the gate runs**: the job brief forbids
 running a timed gate, and a full `emit-spring-fixtures --seeds 1000` chain is one. It reads
@@ -255,10 +273,12 @@ runs `layout.force.spring` at its registered default, `seed: None`, which is pin
 ## Gaps closed
 
 `G_SPRING_SEED` is deleted from `gaps.rs` and dropped from `SPRING` and `SPRING_3D` in `rows.rs`.
-No row names it any more. Both rows are now `convention`-free in the JSON the harness writes, so
-`sc_propose.py`'s `_has_seed_gap` is false for them for the first time — which is what moved
-`SPRING_3D` to `arithmetic` (the arithmetic branch is above the seed branch) and is what moved
-`SPRING` to `convention` (see above).
+No row names it any more, so `convention_gaps` is empty for both in `motor.jsonl` and
+`sc_propose.py`'s `_has_seed_gap` is false for them for the first time. That is what moved
+`SPRING_3D` to `arithmetic` (the arithmetic branch sits **above** the seed branch) — and it is also
+what moved `SPRING` to `convention`, which is the misclassification described above. The gap was
+genuinely closed, not re-worded: `spring/tests/seed.rs` shows the two arms now draw the reference's
+own stream, bit for bit.
 
 ## Deviations
 
