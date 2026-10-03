@@ -8,7 +8,7 @@
 //! `graph-contract` (which owns the bytes) and `graph-core` (which owns the graph).
 
 use graph_contract::ingest_columns::{self as wire, ColumnsDoc, decode};
-use graph_core::{EdgeCells, NodeCells, EntryTable, Topology, index_columns};
+use graph_core::{EdgeCells, EntryTable, NodeCells, Topology, index_columns};
 
 use crate::errors::Code;
 

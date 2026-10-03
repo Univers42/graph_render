@@ -24,7 +24,7 @@ use crate::arena::{CapacityError, StringArena};
 use cells::Entries;
 use core::fmt;
 
-pub use cells::{EdgeCells, NodeCells, EntryTable};
+pub use cells::{EdgeCells, EntryTable, NodeCells};
 
 /// Why a columnar document could not be indexed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -120,7 +120,9 @@ pub fn index_columns<T: EntryTable + ?Sized>(
 /// **Caveat:** over-counts by repeated entries and absent optional cells, and is never more
 /// than an all-distinct build would grow to.
 fn reserved_entries(entries: usize, nodes: usize, edges: usize) -> usize {
-    let named = nodes.saturating_mul(6).saturating_add(edges.saturating_mul(3));
+    let named = nodes
+        .saturating_mul(6)
+        .saturating_add(edges.saturating_mul(3));
     entries.min(named)
 }
 
