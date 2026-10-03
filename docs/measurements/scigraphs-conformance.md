@@ -32,11 +32,14 @@ at SciGraphs' own `iterations = 50`, `scale = 5.0` and `get_layout_seed() = 9817
 (`derive_seed(42, "layout")`, `SciGraphs/core/scigraphs_core/repro/determinism.py:56-62`), and
 writes **raw little-endian `f64`** per row plus the `f32` the snapshot narrows to. A decimal
 round trip in the middle would be a rounding step between the two values whose equality is the
-question. Exactly **four** ids get an override. Three because their registered default is not
+question. Exactly **five** ids get an override. Three because their registered default is not
 SciGraphs' parameter: `CIRCLE_PACKING` (500 sweeps, not 50), `FORCEATLAS2` (`max_iter` 100, not
 50) and `GRAPHVIZ_SFDP` (`run` hard-codes `DEFAULT_SEED = 1`; the arm calls `run_seeded`). The
-fourth is `layout.dag.sugiyama`, whose registered default draws in the pipeline's own units:
-the arm calls `sugiyama::run_scaled`, which applies SciGraphs' per-axis normalisation
+other two are layouts whose *placement* is SciGraphs' rather than the registered stage's, both
+through a scaled entry point beside the registered one and both at `scale = 5.0`:
+`layout.grid`, whose arm calls `Grid::run_scaled` because `_grid_layout` starts the first cell
+at the origin and pitches it at `scale / grid_size`, and `layout.dag.sugiyama`, whose arm calls
+`sugiyama::run_scaled`, which applies SciGraphs' per-axis normalisation
 (`hierarchical.py:679-685`) at the same `scale = 5.0`. That normalisation reads the dummy
 vertices' X, which `Geometry` does not carry, so it lives beside the stages that produce it
 rather than in this arm.
@@ -91,16 +94,19 @@ one that unlocks the rest.
 | `algorithm` | anything else | a different method or a different step |
 
 **Both halves of the `arithmetic` test are needed, and the gap is the half that matters.**
-`GRID` has a disparity of 5e-32 and an absolute gap of 4.0: the same lattice, in a different
-unit at a different origin. Calling that `arithmetic` because the shape is exact would send a
-repair job to chase a summation order that is already right.
+`SUGIYAMA` has a disparity of 1.26e-16 and an absolute gap of 1.91e-07: the same drawing, one
+`f32` ULP out. Before `GRID` was repaired it sat at a disparity of 5e-32 and an absolute gap of
+4.0 — the same lattice, in a different unit at a different origin — and calling that `arithmetic`
+because the shape was exact would have sent a repair job to chase a summation order that was
+already right. `GRID` is now `f32` 1020/1020 with a gap of 2.12e-07, so the row that makes the
+argument is one this series has already fixed (`docs/measurements/sg-grid-scale.md`).
 
 **The `convention` threshold is 1e-6 and it is measured, not chosen.** Every row this
-classifier calls a convention measures between 5e-32 (`GRID`) and 4e-10 (`GRAPHVIZ_PATCHWORK`);
-every row that measures 0.08 to 0.7 does not, and its overlay says the same thing. An earlier
-0.35 threshold here called `SPECTRAL_3D`, `MDS_3D`, `GRAPHVIZ_CIRCO` and `CIRCLE_PACKING`
-conventions, and all four are a different shape in the picture — the threshold was wrong, not the
-data.
+classifier calls a convention measures between 2e-10 (`GRAPHVIZ_TWOPI`) and 4e-10
+(`GRAPHVIZ_PATCHWORK`); every row that measures 0.08 to 0.7 does not, and its overlay says the
+same thing. An earlier 0.35 threshold here called `SPECTRAL_3D`, `MDS_3D`, `GRAPHVIZ_CIRCO` and
+`CIRCLE_PACKING` conventions, and all four are a different shape in the picture — the threshold
+was wrong, not the data.
 
 **The discriminator is the worst of the median and the two named fixtures**, not the median.
 Twenty of the 24 fixtures hold 2 to 21 nodes, so the median is dominated by them:
@@ -169,17 +175,20 @@ Pictures, all 64 rendered by the script and all looked at:
 
 ## What the matrix says that a tolerance could not
 
-**1. Six rows are `f32`-identical on every one of 1020 coordinates and the rest of their gap is
-the narrowing.** `SPHERE`, `HELIX`, `HIERARCHICAL_3D`, `CIRCULAR_HIERARCHY`, `SUGIYAMA`,
-`BIPARTITE_3D` — 6 of 32. Their max gaps are 2.4e-7, 1.5e-7, 7.9e-8, 2.2e-7, 1.9e-7 and 1.2e-7, one
-`f32` ULP at that magnitude, and their Procrustes medians are ~1e-16: the same shape to machine
-precision. `CIRCULAR_HIERARCHY` and `SUGIYAMA` are the strongest rows in the matrix. `SUGIYAMA`
-came from `shape`/`algorithm` in the previous run; `docs/measurements/sg-sugiyama.md` has the
-per-stage diff and the two causes it found.
+**1. Eight rows are `f32`-identical on every one of 1020 coordinates and the rest of their gap is
+the narrowing.** `GRID`, `SPHERE`, `SPIRAL_3D`, `HELIX`, `HIERARCHICAL_3D`, `CIRCULAR_HIERARCHY`,
+`SUGIYAMA`, `BIPARTITE_3D` — 8 of 32, `GRID` and `SPIRAL_3D` the two this list used to leave out.
+Their max gaps are 2.1e-7, 2.4e-7, 2.4e-7, 1.5e-7, 7.9e-8, 2.2e-7, 1.9e-7 and 1.2e-7, one `f32` ULP
+at that magnitude, and seven of the eight measure a Procrustes median of ~1e-16 while `GRID`
+measures 3.39e-32: the same shape to machine precision. `CIRCULAR_HIERARCHY` and `SUGIYAMA` are
+the strongest rows in the matrix. `SUGIYAMA` came from `shape`/`algorithm` in the previous run;
+`docs/measurements/sg-sugiyama.md` has the per-stage diff and the two causes it found, and
+`docs/measurements/sg-grid-scale.md` has `GRID`'s.
 
-**2. Three rows are the same shape to `1e-10` or better and differ only in units.** `GRID` (5e-32),
+**2. Two rows are the same shape to `1e-10` or better and differ only in units.**
 `GRAPHVIZ_TWOPI` (2e-10), `GRAPHVIZ_PATCHWORK` (4e-10). Each is a convention fix, not an
-algorithm.
+algorithm. `GRID` (5e-32) was the third and the strongest of them until repair 1 landed it as
+`arithmetic`; it is the reason the `convention` band above now starts at 2e-10.
 
 **3. `GRAPHVIZ_SFDP` differs at the same seed on both sides.** The motor arm calls
 `sfdp::run_seeded(981798123)` and the engine is given `-Gstart=981798123`; the disparity is 0.848.
