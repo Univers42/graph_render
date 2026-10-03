@@ -81,7 +81,9 @@ const HIERARCHY_KIND = EDGE_KIND_NAMES.indexOf("hierarchy");
  *  strings are the very objects `nodes` holds — a second copy per field would be the cost this
  *  path exists to avoid. */
 function table(nodes: readonly IngestNode[], count: number, edges: number): string[] {
-  const strings: string[] = new Array(HEAD + 2 * count + edges);
+  // Sized up front and then written by index: a `push` per row would be the same number of
+  // stores plus the growth, and at 1M nodes the array is three million entries.
+  const strings = Array.from({ length: HEAD + 2 * count + edges }, (): string => "");
   NODE_KIND_NAMES.forEach((name, i) => { strings[i] = name; });
   EDGE_KIND_NAMES.forEach((name, i) => { strings[EDGE_KIND_BASE + i] = name; });
   GROUP_NAMES.forEach((name, i) => { strings[GROUP_BASE + i] = name; });

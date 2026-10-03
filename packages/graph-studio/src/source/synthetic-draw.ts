@@ -14,7 +14,7 @@
  * Deterministic: mulberry32 with integer steps, no clock, no `Math.random`, and a fixed draw
  * order per shape.
  */
-import type { IngestEdge, IngestNode, NodeKind } from "./ingest.ts";
+import type { IngestNode, NodeKind } from "./ingest.ts";
 
 export type SyntheticShape = "random" | "vault";
 
