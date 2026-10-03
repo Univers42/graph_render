@@ -66,6 +66,7 @@ const IGRAPH_LAYOUTS: [&str; 6] = [
 pub(super) fn force_record(id: &str) -> Option<(&'static str, Status)> {
     match id {
         "layout.force.barnes_hut" => Some(("stress", Status::Implemented)),
+        "layout.force.particle_mesh" => Some(("stress-pm", Status::Implemented)),
         "layout.forceatlas2" => Some(("oracle-fa2", Status::Implemented)),
         // Different but not worse than the exact dense sum, by the stress record
         // (`graph-cli` `stress/fa2.rs`); a picture of its own, so never `gated` on a hash alone.

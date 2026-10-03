@@ -27,6 +27,7 @@ PROBE = """
     error: at.error, meta: at.meta, busy: at.busy.length,
     nodes: view === null ? 0 : view.stats().nodes,
     banner: alert === null ? null : alert.textContent,
+    isolated: crossOriginIsolated,
   };
 })()
 """
@@ -37,6 +38,15 @@ def short(value, limit=DETAIL_CHARS):
     text = value if isinstance(value, str) else str(value)
     text = " ".join(text.split())
     return text if len(text) <= limit else text[:limit] + "…"
+
+
+def flag(value):
+    """A page-side boolean as JavaScript spells it: `true`, `false`, `null` for no value."""
+    if value is True:
+        return "true"
+    if value is False:
+        return "false"
+    return "null" if value is None else str(value)
 
 
 def described(event):
@@ -79,6 +89,21 @@ def dig(params, path):
     for key in path:
         value = {} if not isinstance(value, dict) else value.get(key)
     return value
+
+
+def worker_sessions(page):
+    """Every attached motor worker's session, after one more watch for a late attach."""
+    page.watch_workers()
+    return [e["params"]["sessionId"] for e in page.events
+            if e["method"] == "Target.attachedToTarget"
+            and e["params"].get("targetInfo", {}).get("type") == "worker"]
+
+
+def worker_isolated(page, session):
+    """`crossOriginIsolated` read over the worker's own session: the page's is not its."""
+    reply = page.session_call(session, "Runtime.evaluate",
+                              {"expression": "crossOriginIsolated", "returnByValue": True})
+    return reply.get("result", {}).get("value")
 
 
 def row_no_exception(page):
@@ -131,6 +156,28 @@ def row_drew_nodes(at):
     return verdict.row("smoke-drew-nodes", expectation, f"{nodes} nodes drawn", nodes > 0)
 
 
+def row_cross_origin_isolated(page, at):
+    """Both halves read where they run: the page's own flag, each worker's over its session.
+
+    The negative control is `smoke.py --break-coi`, which serves without the COOP/COEP headers:
+    neither half reports true and the row fails — with no `why`, because a page served unisolated
+    is a measured failure, not a row the harness could not read.
+    """
+    expectation = "crossOriginIsolated is true for the page and for every attached motor worker"
+    if at is None:
+        return verdict.row("smoke-cross-origin-isolated", expectation,
+                           "no studio on the page", False, "the element never defined")
+    sessions = worker_sessions(page)
+    if not sessions:
+        return verdict.row("smoke-cross-origin-isolated", expectation,
+                           "no motor worker attached", False)
+    workers = [worker_isolated(page, session) for session in sessions]
+    measured = (f"page {flag(at['isolated'])}, motor worker "
+                + ", ".join(flag(worker) for worker in workers))
+    passed = at["isolated"] is True and all(worker is True for worker in workers)
+    return verdict.row("smoke-cross-origin-isolated", expectation, measured, passed)
+
+
 def run_rows(page, at):
     return [row_no_exception(page), row_no_console_error(page), row_no_store_error(at),
-            row_no_overlay(at), row_drew_nodes(at)]
+            row_no_overlay(at), row_drew_nodes(at), row_cross_origin_isolated(page, at)]

@@ -3,7 +3,7 @@
  * nothing is scheduled while the view is parked (gate row `perf-idle`).
  */
 import { markNeighbourhood } from "../adjacency.ts";
-import type { Bounds, Camera, Viewport, ZoomLimits } from "../camera.ts";
+import type { Bounds, Camera, FitArea, Viewport, ZoomLimits } from "../camera.ts";
 import { dimAt, fadeLevel } from "../fade.ts";
 import { type LabelInput, type LabelPlan, type LabelPolicy, type Occupancy, followLabels, planLabels } from "../labels.ts";
 import type { Scene } from "../scene.ts";
@@ -33,6 +33,12 @@ export interface LoopState {
   camera: Camera;
   limits: ZoomLimits;
   viewport: Viewport;
+  /**
+   * The part of `viewport` a fit puts its drawing in, in canvas pixels: the chrome a host lays
+   * over the canvas is not drawing space. `null` is the whole canvas, which is what a view with
+   * nothing on top of it says, and what every caller said before this field existed.
+   */
+  safe: FitArea | null;
   dpr: number;
   x: Float32Array;
   y: Float32Array;

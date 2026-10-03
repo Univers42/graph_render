@@ -6,7 +6,7 @@
 //! Split from `tests.rs` by the house's 300-line limit. All native (C21): no wasm build in the
 //! loop, and the wasm32 half of the same claim is `graph-cli force-gate`.
 
-use super::super::{Status, alpha, create, params_of, pin, reheat, tick, unpin};
+use super::super::{Engine, Status, alpha, create, params_of, pin, reheat, tick, unpin};
 use super::fixture::{bits, model, params, session_over, wire_of};
 use graph_core::layout::force::{ForceSession, NodeRow};
 
@@ -51,6 +51,30 @@ fn the_wasm_facing_functions_reach_the_same_bits_as_step() {
         assert_eq!(bits(&wire_of(id, 1)), bits(direct.ys()), "the y column");
         assert_eq!(wire_of(id, 0).len(), 24, "one row per node");
     }
+}
+
+/// The determinism claim for a particle-mesh session: ticks through this module against
+/// `with_particle_mesh().step(N)`. The column is re-read after every call, because the mesh
+/// tick moves it.
+#[test]
+fn a_mesh_session_reaches_the_same_bits_as_step() {
+    let topology = model(3, 24);
+    let mut direct = ForceSession::new(&topology, params())
+        .expect("in range")
+        .with_particle_mesh();
+    let report = direct.step(50);
+
+    let id = create(&topology, params(), Engine::ParticleMesh).expect("in range");
+    for _ in 0..5 {
+        tick(id, 10).expect("runs");
+    }
+    assert_eq!(
+        alpha(id).expect("live").to_bits(),
+        report.alpha.to_bits(),
+        "alpha"
+    );
+    assert_eq!(bits(&wire_of(id, 0)), bits(direct.xs()), "the x column");
+    assert_eq!(bits(&wire_of(id, 1)), bits(direct.ys()), "the y column");
 }
 
 /// The same claim for the *verbs*, not only the ticks: a session pinned, released and reheated
@@ -130,13 +154,13 @@ fn a_long_run_settles_and_a_reheat_makes_it_run_again() {
 #[test]
 fn two_sessions_over_one_graph_are_independent() {
     let topology = model(4, 16);
-    let first = create(&topology, params()).expect("first");
-    let second = create(&topology, params()).expect("second");
+    let first = create(&topology, params(), Engine::BarnesHut).expect("first");
+    let second = create(&topology, params(), Engine::BarnesHut).expect("second");
     tick(first, 20).expect("runs");
     assert_eq!(
         wire_of(second, 0),
         {
-            let untouched = create(&topology, params()).expect("third");
+            let untouched = create(&topology, params(), Engine::BarnesHut).expect("third");
             wire_of(untouched, 0)
         },
         "the untouched session sits on the same seed spiral"

@@ -6,8 +6,10 @@
 # The row's rule is a rule about what graph-core *computes*: no `mul_add` (D2, because
 # FMA changes the rounding and breaks native/wasm32 bit-identity), no `relaxed`/FTZ/DAZ, no
 # `rayon` (the crate may not grow a dependency that schedules), no `std::thread` (the
-# executors live in their hosts, `compute-tiers.md` rule 2), and no `Instant::now` (no
-# wall-clock, D8).
+# executors live in their hosts, `compute-tiers.md` rule 2), no `Instant::now` (no
+# wall-clock, D8), and no `libm::sqrt`: libm 0.2 runs a software square root on wasm32,
+# and `f64::sqrt` is IEEE-754's correctly rounded one on both targets, so the same bytes
+# (`docs/measurements/perf-p3-sqrt.md`).
 #
 # The unscoped form of that row — `grep -rnE "...pattern..." crates/graph-core/src` — cannot
 # be used, because it matches three things that are not the rule:
@@ -52,7 +54,7 @@ esac
 # The forbidden constructs, as one extended regex. Each alternative is the *token* a
 # violation would contain; the comment filter below is what keeps the prose that names them
 # from matching.
-pattern='mul_add|relaxed(_simd)?|rayon|std::thread|Instant::now'
+pattern='mul_add|relaxed(_simd)?|rayon|std::thread|Instant::now|libm::sqrt'
 
 # Every `mod NAME;` declared under `#[cfg(test)]`, across the whole tree: a `cfg(test)`
 # module's *contents* are not product code even though the file's name looks ordinary
@@ -140,6 +142,11 @@ pub fn tick() -> std::time::Duration {
     start.elapsed()
 }
 RS
+  cat >"$dir/src/slow.rs" <<'RS'
+pub fn norm(a: f64, b: f64) -> f64 {
+    libm::sqrt(a * a + b * b)
+}
+RS
   # Product-visible violation behind a test-only module, which must be ignored.
   cat >"$dir/src/sub/mod.rs" <<'RS'
 #[cfg(test)]
@@ -187,9 +194,13 @@ if [[ $self_test == 1 ]]; then
   root=$dir/src
   hits=$(scan)
   status=0
-  # The one product violation must be found...
+  # The two product violations must be found...
   if ! grep -q 'bad.rs' <<<"$hits"; then
     echo "forbidden-constructs.sh: self-test FAILED: the planted Instant::now was not found" >&2
+    status=1
+  fi
+  if ! grep -q 'slow.rs' <<<"$hits"; then
+    echo "forbidden-constructs.sh: self-test FAILED: the planted libm::sqrt was not found" >&2
     status=1
   fi
   # ...and nothing else may be. Each of these is a shape the unscoped row used to match.
@@ -200,7 +211,7 @@ if [[ $self_test == 1 ]]; then
     fi
   done
   if [[ $status == 0 ]]; then
-    echo "forbidden-constructs.sh: self-test ok (found bad.rs only)"
+    echo "forbidden-constructs.sh: self-test ok (found bad.rs and slow.rs only)"
   fi
   exit $status
 fi

@@ -1,6 +1,7 @@
 //! The session's tests: `m1a`–`m1e` are the five determinism cases the milestone names,
 //! `live` is everything else the API does, `support` is what they share.
 
+mod carry;
 mod digest;
 mod frozen;
 mod golden;

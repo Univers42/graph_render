@@ -33,14 +33,13 @@ use crate::stage::StageError;
 
 /// `pi * (3 - sqrt(5))` (`basic.py:32`), the golden angle `2*pi/phi`.
 ///
-/// A named function rather than a `const`, because `libm::sqrt` is not a `const fn` (D1
-/// says libm transcendentals, so this is the only spelling available) and a `lazy` cell or
+/// A named function rather than a `const`, because `f64::sqrt` is not a `const fn` and a `lazy` cell or
 /// a `OnceLock` would cost more than it saves for one multiply. It is computed **once per
 /// run**, before the loop, and every node's `theta` is that one value times the node's
 /// index — never a running sum, so node `i`'s angle cannot inherit node `i - 1`'s
 /// rounding (D10).
 fn golden_angle() -> f64 {
-    core::f64::consts::PI * (3.0 - libm::sqrt(5.0))
+    core::f64::consts::PI * (3.0 - f64::sqrt(5.0))
 }
 
 /// The `SPHERE` capability id, which is also its hash-gate stage.
@@ -78,7 +77,7 @@ fn columns(n: u32) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
         // before the divide, and hoisting the reciprocal out of the loop would divide
         // once where the reference divides per node.
         let latitude = 1.0 - 2.0 * (index + 0.5) / total;
-        let radius = libm::sqrt(1.0 - latitude * latitude);
+        let radius = f64::sqrt(1.0 - latitude * latitude);
         let theta = angle * index;
         x.push(radius * libm::cos(theta) * SCALE);
         y.push(latitude * SCALE);

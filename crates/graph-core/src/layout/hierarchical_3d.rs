@@ -114,7 +114,7 @@ fn place(depths: &[(u32, u32)], n: u32) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
     );
     for (level, ring) in rings.iter().enumerate() {
         let depth = depth_z(level as u32, max_level);
-        let radius = SCALE * 0.5 * libm::sqrt(ring.len() as f64 / widest as f64);
+        let radius = SCALE * 0.5 * f64::sqrt(ring.len() as f64 / widest as f64);
         for (&node, (px, py)) in ring.iter().zip(disk(ring.len(), radius)) {
             x[node as usize] = px;
             y[node as usize] = py;

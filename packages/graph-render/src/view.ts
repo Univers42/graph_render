@@ -10,7 +10,7 @@
  * It does not: run a layout, fetch, read CSS, or keep a frame loop alive while parked.
  * Not done yet: WebGPU, pinch with two pointers, keyboard navigation of nodes.
  */
-import { type Camera, type Point, type Viewport, type ZoomLimits, panBy, zoomAt } from "./camera.ts";
+import { type Camera, type FitArea, type Point, type Viewport, type ZoomLimits, panBy, zoomAt } from "./camera.ts";
 import { cameraApi, inSpace, orbitBy, sceneApi, zoomAt3d } from "./camera-api.ts";
 import { clickAt, contextAt, pressAt } from "./canvas2d/choose.ts";
 import { type Controller, fit, hover, measure, moveTo, newState, pickAt } from "./canvas2d/controller.ts";
@@ -33,6 +33,7 @@ export type { EdgeEnds } from "./canvas2d/probe.ts";
 export type { Orbit } from "./three/orbit.ts";
 export type { Projected } from "./three/projection.ts";
 export type { CameraApi, SceneApi } from "./camera-api.ts";
+export type { FitArea, FitOptions } from "./camera.ts";
 export type { BackendChoice } from "./webgl2/plan.ts";
 export { BACKEND_CHOICES, backendOf } from "./webgl2/plan.ts";
 export interface ViewOptions {
@@ -88,6 +89,8 @@ export interface ViewStats {
   readonly layoutRuns: number;
   /** Script time of the last frame; the rasteriser's time is not in it. */
   readonly frameMs: number;
+  /** Edge-draw milliseconds the GPU counted since the layer was made: monotonic, 0 where no GPU timer ran. */
+  readonly gpuEdgeMs: number;
   /** Frames painted per second while the view moves; 0 while parked. */
   readonly fps: number;
   readonly frames: number;
@@ -126,6 +129,15 @@ export interface View {
   style(): Style;
   /** The canvas box in CSS pixels, which is what a camera's offsets are measured against. */
   viewport(): Viewport;
+  /**
+   * The part of the canvas a fit puts its drawing in and centres it on, in canvas pixels, or
+   * `null` for the whole canvas. A host whose panels lie over the canvas sets it to the box
+   * they leave visible, so a fit does not put a third of the drawing under a dock the user
+   * cannot see through. It re-fits at once when the camera is still the one a fit chose, and is
+   * clamped to the canvas: a stale or inverted box gets the canvas, not a broken camera.
+   */
+  safeArea(): FitArea | null;
+  setSafeArea(area: FitArea | null): void;
   setCamera(camera: Camera): void;
   camera(): Camera;
   fit(): void;

@@ -10,12 +10,12 @@ use super::super::{Baseline, row};
 pub(super) const STRUCTURED: [Baseline; 2] = [
     row(
         "SUGIYAMA",
-        "859ea6d867486db0fe9c79372c3f005de17c56aadcaf56a761e3bdff91d674b4",
+        "fb980d82ceb1ff44b0707ba5c38598d7b3e4e7b31b07c71b3604fbf82c8240cd",
         "308abc273e6048eb3a91c3bf70cbff7c932dd5ddc0186d62c49f793dcce56b1d",
         "",
-        1e0,
-        "shape",
-        "algorithm",
+        1e-15,
+        "tolerance",
+        "arithmetic",
     ),
     row(
         "CIRCULAR_HIERARCHY",

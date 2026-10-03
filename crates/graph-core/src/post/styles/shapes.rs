@@ -284,7 +284,7 @@ fn canonical(sheet: &Sheet<'_>, s: u32, g: u32, amount: f64) -> Pt {
 /// exists — the only square root in this module, and the only division.
 fn perpendicular_shift(p0: Pt, p1: Pt, amount: f64) -> Pt {
     let turn = Pt::quarter_turn(p0, p1);
-    let length = libm::sqrt(turn.y * turn.y + turn.x * turn.x);
+    let length = f64::sqrt(turn.y * turn.y + turn.x * turn.x);
     if length == 0.0 {
         return Pt { x: 0.0, y: 0.0 };
     }

@@ -20,7 +20,7 @@
 //! `Thresholds::MEASURED` still promotes nothing. Commands, host load, and the 1M pair the
 //! scalar control leaves inconclusive: `docs/measurements/perf-p3-split.md`.
 
-use graph_core::exec::{Runner, StepRange, partition};
+use graph_core::exec::{Runner, Serial, StepRange, partition};
 #[cfg(test)]
 use std::ops::Range;
 
@@ -41,15 +41,14 @@ pub struct Threads;
 impl Runner for Threads {
     fn run<O: StepRange>(&self, kernel: &O, workers: u32, out: &mut Vec<O::Out>) {
         let workers = workers.max(1);
-        out.clear();
-        // Sized once, before the call, for the same reason as the one-worker path below:
-        // the kernel writes `out[range]` at range-relative indices, so the buffer has to
-        // be the kernel's own length when it starts.
-        out.resize(kernel.len() as usize, O::Out::default());
         if workers < 2 {
-            kernel.step_range(0..kernel.len(), out);
+            Serial.run(kernel, 1, out);
             return;
         }
+        // Sized once, before the call: the kernel writes `out[range]` at range-relative
+        // indices, so the buffer has to be the kernel's own length when it starts. Only a
+        // grown tail is written here; each worker clears its own span.
+        out.resize(kernel.len() as usize, O::Out::default());
         // The disjoint borrow is `partition`'s contract, not a hope: its ranges are
         // ascending, contiguous and cover `0..n` exactly, so peeling `range.len()` off
         // the tail each time hands worker `i` a span starting exactly where its range
@@ -59,11 +58,14 @@ impl Runner for Threads {
             for range in partition(kernel.len(), workers) {
                 let (span, tail) = std::mem::take(&mut rest).split_at_mut(range.len());
                 rest = tail;
-                scope.spawn(move || kernel.step_range(range, span));
+                scope.spawn(move || {
+                    span.fill(O::Out::default());
+                    kernel.step_range(range, span);
+                });
             }
             // The plan's lengths add up to the column's length, so nothing is left over.
             // A `partition` that ever stopped covering `0..n` would fail this, not the
-            // equality tests: the leftovers would be defaults, and `resize` wrote them.
+            // equality tests: the leftovers would be the previous pass's values.
             debug_assert!(rest.is_empty());
         });
     }
