@@ -10,58 +10,35 @@
 //! parent is unset — the reference's `setParentNodes` reports `UINT64_MAX` there and the
 //! engine abandons the drawing, which is the disconnected case recorded as a Ponytail in
 //! `super`.
+//!
+//! Every pass writes into a [`Scratch`] the caller reset over this component, rather than
+//! into columns of its own: see L-01 in that module.
 
 use super::adjacency::Neighbours;
+use super::scratch::Scratch;
 
 /// No parent: the root, and every node outside this component.
 pub(super) const NONE: u32 = u32::MAX;
 
-/// The tree, and the per-node columns the angle sweep reads.
-pub(super) struct Tree {
-    /// `nStepsToCenter`, the ring a node is drawn on.
-    pub(super) depth: Vec<u32>,
-    /// `SPARENT`: the node it was discovered from.
-    pub(super) parent: Vec<u32>,
-    /// `STSIZE`: how many leaves hang below it, itself included when it is one.
-    pub(super) leaves: Vec<u32>,
-    /// The search order, a parent always before its children.
-    pub(super) order: Vec<u32>,
+/// `component`'s tree, rooted at `root`, into `scratch`.
+pub(super) fn grow(neighbours: &Neighbours, component: &[u32], root: u32, scratch: &mut Scratch) {
+    search(neighbours, root, scratch);
+    count_leaves(component, scratch);
 }
 
-impl Tree {
-    /// The column count: one slot per node, since the dense index is the node id here.
-    pub(super) fn slots(&self) -> usize {
-        self.depth.len()
-    }
-}
-
-/// `component`'s tree, rooted at `root`.
-pub(super) fn grow(neighbours: &Neighbours, component: &[u32], root: u32) -> Tree {
-    let (depth, parent, children, order) = search(neighbours, root);
-    let leaves = count_leaves(component, &parent, &children);
-    Tree {
-        depth,
-        parent,
-        leaves,
-        order,
-    }
-}
-
-/// The FIFO search: depth, parent, child count and the order, in one pass.
-fn search(neighbours: &Neighbours, root: u32) -> (Vec<u32>, Vec<u32>, Vec<u32>, Vec<u32>) {
-    let mut depth = vec![NONE; neighbours.rows()];
-    let mut parent = vec![NONE; neighbours.rows()];
-    let mut children = vec![0_u32; neighbours.rows()];
-    let mut order = vec![root];
-    depth[root as usize] = 0;
+/// The FIFO search: depth, parent, child count and the order, in one pass over
+/// `scratch.order`, which the caller has emptied.
+fn search(neighbours: &Neighbours, root: u32, scratch: &mut Scratch) {
+    scratch.depth[root as usize] = 0;
+    scratch.order.push(root);
     let mut at = 0;
-    while at < order.len() {
-        let node = order[at];
+    while at < scratch.order.len() {
+        let node = scratch.order[at];
         at += 1;
-        let next = depth[node as usize] + 1;
+        let next = scratch.depth[node as usize] + 1;
         let mut found = Vec::new();
         neighbours.for_each(node, |other| {
-            if next < depth[other as usize] {
+            if next < scratch.depth[other as usize] {
                 found.push(other);
             }
         });
@@ -70,16 +47,15 @@ fn search(neighbours: &Neighbours, root: u32) -> (Vec<u32>, Vec<u32>, Vec<u32>, 
             // relaxes `SPARENT` the moment it discovers a node — so the second one is
             // already discovered and must not be enqueued, or it is counted twice as a
             // child and drawn in a second slot.
-            if parent[other as usize] != NONE {
+            if scratch.parent[other as usize] != NONE {
                 continue;
             }
-            depth[other as usize] = next;
-            parent[other as usize] = node;
-            children[node as usize] += 1;
-            order.push(other);
+            scratch.depth[other as usize] = next;
+            scratch.parent[other as usize] = node;
+            scratch.children[node as usize] += 1;
+            scratch.order.push(other);
         }
     }
-    (depth, parent, children, order)
 }
 
 /// `STSIZE`: every node without children is one leaf and adds itself and each ancestor,
@@ -88,18 +64,16 @@ fn search(neighbours: &Neighbours, root: u32) -> (Vec<u32>, Vec<u32>, Vec<u32>, 
 /// Ascending node order over `component`, as `agfstnode` (`circle.c:174-182`); the counts
 /// only ever increment, so the order cannot change the result, and taking it anyway keeps
 /// the port's traversal identical to the reference's.
-fn count_leaves(component: &[u32], parent: &[u32], children: &[u32]) -> Vec<u32> {
-    let mut leaves = vec![0_u32; parent.len()];
+fn count_leaves(component: &[u32], scratch: &mut Scratch) {
     for &node in component {
-        if children[node as usize] > 0 {
+        if scratch.children[node as usize] > 0 {
             continue;
         }
-        leaves[node as usize] += 1;
-        let mut up = parent[node as usize];
+        scratch.leaves[node as usize] += 1;
+        let mut up = scratch.parent[node as usize];
         while up != NONE {
-            leaves[up as usize] += 1;
-            up = parent[up as usize];
+            scratch.leaves[up as usize] += 1;
+            up = scratch.parent[up as usize];
         }
     }
-    leaves
 }
