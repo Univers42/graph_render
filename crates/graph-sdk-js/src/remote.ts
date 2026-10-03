@@ -7,7 +7,7 @@
 // says otherwise (`dangerouslyAllowBrowser`). The key goes in `Authorization` only.
 
 import { decodeSnapshot, type Snapshot } from "./snapshot.ts";
-import { RemoteError, refusalOf, unreachable, unreadable } from "./remote/errors.ts";
+import { refusalOf, unreachable, unreadable } from "./remote/errors.ts";
 import { layoutQueryOf, remoteConfigOf, type LayoutRequest, type RemoteConfig, type RemoteOptions } from "./remote/options.ts";
 import { InvalidOptionsError } from "./errors.ts";
 
