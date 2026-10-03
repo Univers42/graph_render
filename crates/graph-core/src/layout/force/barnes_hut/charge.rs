@@ -11,13 +11,13 @@
 //! a cell's centre, its opening threshold and the index past its subtree, 40 bytes read
 //! front to back, so a query is a forward scan that jumps ahead instead of a stack.
 
+mod aggregate;
 mod threshold;
 
 use super::sim::Sim;
 use crate::exec::Runner;
-use crate::layout::force::quadtree::Quadtree;
+use crate::layout::force::quadtree::{Cell, Quadtree};
 use crate::rng::jiggle;
-use threshold::{centre, opening_threshold};
 
 const PASS_X: u32 = 2;
 const PASS_Y: u32 = 3;
@@ -44,27 +44,37 @@ pub(super) fn apply_with(
     deltas: &mut Vec<(f64, f64)>,
     split: bool,
 ) {
-    prepare(sim);
+    prepare_with(sim, runner, workers);
     runner.run(&super::step::Pass::of(&*sim), workers, deltas);
     let order = Some(sim.charge_tree.order());
     super::step::merge((&mut sim.vx, &mut sim.vy), order, deltas, split);
 }
 
-/// The single-threaded prologue every many-body pass shares: build the quadtree over this
-/// tick's positions, then aggregate masses and centres bottom-up.
+/// The prologue every many-body pass shares: build the quadtree over this tick's positions,
+/// then aggregate masses and centres bottom-up over `workers` ranges.
 ///
 /// Split out of [`apply_with`] because the range kernel ([`super::step::Pass`]) needs the
 /// same two steps in front of it and must not have its own copy — a second tree build or a
 /// second aggregate order would be a silent divergence from the serial pass, and the
 /// equality test would then be comparing two programs rather than two schedules.
-pub(super) fn prepare(sim: &mut Sim) {
+///
+/// The **build** stays single-threaded whatever the worker count: the charge walk's jiggle
+/// is keyed on each cell's shape-slot id (`node_id`), which is the order `d3`'s `add`
+/// insertion pushed its nodes in, so a build that cut the insertion differently would
+/// change the bytes (`docs/measurements/perf-bh-1m.md`). The aggregate over the built
+/// arena is divided, because a cell reads only its own subtree.
+pub(super) fn prepare_with(sim: &mut Sim, runner: &impl Runner, workers: u32) {
     sim.charge_tree.build(&sim.x, &sim.y);
-    aggregate(
-        &sim.charge_tree,
-        (&sim.x, &sim.y),
-        sim.params.theta,
-        &mut sim.bodies,
-    );
+    let pass = aggregate::Pass::of(&sim.charge_tree, (&sim.x, &sim.y), sim.params.theta);
+    runner.run(&pass, workers, &mut sim.bodies);
+    aggregate::finish(&pass, &mut sim.bodies, workers);
+}
+
+/// [`prepare_with`] over [`Serial`](crate::exec::Serial) and one worker: the serial
+/// prologue, and the reference every worker count is compared against.
+#[cfg(test)]
+pub(super) fn prepare(sim: &mut Sim) {
+    prepare_with(sim, &crate::exec::Serial, 1);
 }
 
 /// One tree cell as the walk reads it.
@@ -83,30 +93,49 @@ pub(super) struct Body {
     start: u32,
 }
 
+impl Body {
+    /// The body one cell gets, from the centre its own subtree resolved to, its opening
+    /// threshold and the cell's own extent.
+    ///
+    /// The serial loop below and the range kernel in [`aggregate`] both build the body
+    /// here, so the arithmetic, the field order and the `count = end - start` cannot drift
+    /// between one worker and seven.
+    pub(super) fn of(com: (f64, f64), open: f64, cell: &Cell) -> Self {
+        Body {
+            comx: com.0,
+            comy: com.1,
+            open,
+            count: cell.end - cell.start,
+            skip: cell.skip,
+            start: cell.start,
+        }
+    }
+}
+
 /// Bottom-up mass and centre of mass per cell (`manyBody.js`'s `accumulate`), in reverse
 /// preorder so every child is final before its parent reads it.
+///
+/// The tests' serial arm, and the reference the divided path is compared against: it hands
+/// [`centre`] the whole column, where the range kernel has to walk a span rebased at its own
+/// range's start. Two spellings of one loop, held equal by
+/// `charge::tests::aggregate::the_arena_and_the_bodies_are_worker_count_invariant_over_the_gate_seeds`.
+#[cfg(test)]
 fn aggregate(tree: &Quadtree, (x, y): (&[f64], &[f64]), theta: f64, bodies: &mut Vec<Body>) {
+    use threshold::{centre, opening_threshold};
     let theta2 = theta * theta;
     let (cells, order) = (tree.cells(), tree.order());
     bodies.clear();
     bodies.resize(cells.len(), Body::default());
     for k in (0..cells.len()).rev() {
         let cell = cells[k];
-        let (comx, comy) = if cell.skip == k as u32 + 1 {
+        let com = if cell.skip == k as u32 + 1 {
             let head = order[cell.start as usize] as usize;
             (x[head], y[head])
         } else {
             centre(bodies, k as u32 + 1, cell.skip)
         };
         let w = cell.bounds.x1 - cell.bounds.x0;
-        bodies[k] = Body {
-            comx,
-            comy,
-            open: opening_threshold(w, theta, theta2),
-            count: cell.end - cell.start,
-            skip: cell.skip,
-            start: cell.start,
-        };
+        bodies[k] = Body::of(com, opening_threshold(w, theta, theta2), &cell);
     }
 }
 
