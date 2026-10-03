@@ -85,6 +85,16 @@ pub(in crate::layout::force) fn pass_with(
 
 /// Simple edge `e`'s force before the bias splits it, in `(x, y)`: the one square root and
 /// division of the edge, computed once per tick by [`LinkForces`].
+///
+/// **Why the `l` below is divided by at all, and when it is zero.** `jiggle` no longer returns
+/// exactly `+0.0` — [`rng::jiggle_of`](crate::rng::jiggle_of) maps its one midpoint word
+/// away — so both `jiggle` branches in `force` install a non-zero axis and a fully coincident
+/// pair has `l > 0`. That is what item 1 of this repair buys, and
+/// `a_link_between_two_coincident_nodes_has_a_finite_force` tests it. The remaining way to
+/// reach `l == 0.0` is not coincidence but **magnitude**: `dx * dx` underflows for any axis
+/// below `sqrt(f64::MIN_POSITIVE) ≈ 1.5e-162`, so a pair `1e-200` apart is not coincident,
+/// takes no `jiggle` branch, and still sums to `0.0`. So the denominator is *not* provably
+/// non-zero, and the division is floored the way `charge.rs`'s is.
 pub(super) fn force(sim: &Sim, e: usize) -> (f64, f64) {
     let (lo, hi) = (sim.graph.lo[e] as usize, sim.graph.hi[e] as usize);
     let (mut dx, mut dy) = displaced(sim, hi, lo);
@@ -95,6 +105,16 @@ pub(super) fn force(sim: &Sim, e: usize) -> (f64, f64) {
         dy = jiggle(sim.seed, sim.tick_no, PASS_Y, (lo as u32, hi as u32));
     }
     let l = f64::sqrt(dx * dx + dy * dy);
+    // A separation whose square underflowed, as the doc comment above says.
+    // Ponytail: the floor contributes nothing for such a pair, so a link shorter than
+    // ~1.5e-162 gets no spring at all — what it gets wrong is dropping the push that would
+    // separate the two, never reporting a wrong one. The direction of that push is below
+    // `f64` resolution anyway, and charge.rs's `distanceMin²` floor divides to ~1e106 here.
+    // Escape hatch: distinct coordinates, which the two `jiggle` branches already give to
+    // anything at the same point.
+    if l == 0.0 {
+        return (0.0, 0.0);
+    }
     let factor = (l - sim.link_distance[e]) / l * sim.alpha * sim.link_strength[e];
     (dx * factor, dy * factor)
 }
