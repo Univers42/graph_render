@@ -177,7 +177,6 @@ function printReport(manifest, result) {
  */
 const digestOf = (manifest) => sha256(Object.keys(manifest.sha256).sort().map((f) => `${f}\0${sha256(readFileSync(join(FIXTURES, f)))}`).join("\n"));
 
-/** Records the verdict, unless the tree moved while the run was reading it. */
 /**
  * Records the verdict, unless the tree moved while the run was reading it.
  *
@@ -189,7 +188,7 @@ const digestOf = (manifest) => sha256(Object.keys(manifest.sha256).sort().map((f
 function writeRecord({ manifest, digest }, result, pass) {
   if (fingerprint(manifest.fingerprinted) !== manifest.fingerprint) fail("the tree changed during the run: not recorded");
   const seal = pass
-    ? attest({ sealPath: sealPathFor(GATES, "oracle-layouts"), gate: "oracle-layouts fixtures", fingerprint: manifest.fingerprint, sha256: digest, pass })
+    ? attest({ sealPath: sealPathFor(GATES, "oracle-layouts"), gate: "oracle-layouts fixtures", fingerprint: manifest.fingerprint, scope: `seeds=${manifest.seeds}`, sha256: digest, pass })
     : { sealed: false };
   const record = {
     gate: "oracle-layouts",

@@ -21,7 +21,7 @@ test("attest records the first sighting and reports it", () => {
   const seen = attest(seal(path));
   assert.equal(seen.attested, false);
   assert.equal(seen.sha256, DIGEST);
-  assert.deepEqual(readSeal(path), { gate: "test", fingerprint: FINGERPRINT, sha256: DIGEST, pass: true });
+  assert.deepEqual(readSeal(path), { gate: "test", fingerprint: FINGERPRINT, scope: "", sha256: DIGEST, pass: true });
 });
 
 test("refuseChangedBytes accepts the same bytes a passing run recorded", () => {
@@ -42,6 +42,13 @@ test("a tree edit starts a new epoch rather than refusing", () => {
   const next = attest(seal(path, { fingerprint: "a".repeat(64), sha256: OTHER }));
   assert.equal(next.reattested, true);
   assert.equal(next.sha256, OTHER);
+});
+
+test("a different fixture set on the same tree is a new scope, not a tamper", () => {
+  const path = sealPathFor(mkdtempSync(join(tmpdir(), "gm-seal-")), "test");
+  attest(seal(path, { scope: "seeds=8" }));
+  assert.equal(attest(seal(path, { scope: "seeds=1000", sha256: OTHER })).sha256, OTHER);
+  assert.throws(() => refuseChangedBytes(seal(path, { scope: "seeds=1000" })), /changed under an unchanged tree/);
 });
 
 test("a failing run's seal is not a baseline to defend", () => {

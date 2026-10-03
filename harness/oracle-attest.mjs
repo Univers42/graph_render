@@ -57,12 +57,15 @@ export function writeSeal(sealPath, seal) {
 
 /**
  * Throws when the bytes about to be measured differ from those a *passing* run recorded for
- * the same tree. Call this before measuring, so a tampered or re-sealed input is refused
+ * the same tree and the same `scope`. `scope` names what else the bytes are a function of
+ * (the fixture arms pass `seeds=<n>`): a 1000-seed set after an 8-seed one on one tree is a
+ * different measurement, not an edit. Call this before measuring, so a tampered or re-sealed input is refused
  * rather than measured.
  */
-export function refuseChangedBytes({ sealPath, gate, fingerprint, sha256 }) {
+export function refuseChangedBytes({ sealPath, gate, fingerprint, scope = "", sha256 }) {
   const previous = readSeal(sealPath);
-  if (previous?.pass === true && previous.fingerprint === fingerprint && previous.sha256 !== sha256) {
+  const sameInputs = previous?.fingerprint === fingerprint && (previous?.scope ?? "") === scope;
+  if (previous?.pass === true && sameInputs && previous.sha256 !== sha256) {
     throw new Error(`${gate}: the measured bytes changed under an unchanged tree since the last passing run (${previous.sha256.slice(0, 12)} -> ${sha256.slice(0, 12)}): the dump or fixture set was edited, or re-sealed by hand`);
   }
   return { fingerprint, sha256, attested: previous !== null };
@@ -79,6 +82,6 @@ export function refuseChangedBytes({ sealPath, gate, fingerprint, sha256 }) {
 export function attest(seal) {
   const seen = refuseChangedBytes(seal);
   const previous = readSeal(seal.sealPath);
-  writeSeal(seal.sealPath, { gate: seal.gate, fingerprint: seal.fingerprint, sha256: seal.sha256, pass: seal.pass });
+  writeSeal(seal.sealPath, { gate: seal.gate, fingerprint: seal.fingerprint, scope: seal.scope ?? "", sha256: seal.sha256, pass: seal.pass });
   return { ...seen, reattested: previous !== null && previous.fingerprint !== seal.fingerprint };
 }

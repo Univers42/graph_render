@@ -402,3 +402,28 @@ this is latent rather than live, but it is the shape to know about:
    `prompts/phase-10-ingest-sdk-publish.md` are not this job's paths. Resolved by the
    orchestrator: `npm run snapshot:raw` and both `EXAMPLES.md` commands now pass `--selftest`;
    the phase report and the phase prompt are history and keep the old command.
+## Review fixes (2026-10-03, after the first branch gate)
+
+The 21-row branch gate went red on two rows; neither was the seal.
+
+| Row | Cause | Fix |
+|---|---|---|
+| `test` | `cli_oracles`' two `oracle_layouts_*` tests got exit 1: the rows file ran `cargo test` before any `npm ci`, so `d3-hierarchy` was not installed | `npm-ci` is now the first row |
+| `oracle-diff` | no `emit-fixtures` row before it, so the fixtures predated the tree (exit 2) | `emit-fixtures-1000` and `oracle-layouts` rows before it |
+
+Found while reading the `test` log: the two tick-bench negative controls passed **vacuously**.
+The staged mutant sits in `target/`, and the sibling modules this job split out
+(`./d3-version.mjs`, `./wasm-tick-bench/contract.mjs`) do not resolve from there, so the copy
+died on `ERR_MODULE_NOT_FOUND` before the self-check ran. `bench/staging.rs` now rewrites the
+copy's `from "./` imports to `from "../harness/`, and each control first runs an *unchanged*
+staged copy, which must pass, so a staging fault can no longer pass as a red self-check.
+`cargo test -p graph-cli --bin graph-cli bench::tests::harness`: 4 passed, no
+`ERR_MODULE_NOT_FOUND` in the output.
+
+The seal is now scoped: `oracle-diff` and `oracle-layouts` pass `scope: "seeds=<n>"`, so an
+8-seed fixture set after a 1000-seed one on the same tree is a new measurement, not a refused
+edit. `harness/oracle-attest.test.mjs`: 11 pass, including the new scope case.
+
+Also: `harness/wasm-tick-bench/contract.mjs` line 60 held raw NUL bytes (git treated the file
+as binary); it now spells them `"\0"`. One duplicated JSDoc line removed from
+`oracle-layouts.mjs`; `d3-version.mjs` ends with a newline.

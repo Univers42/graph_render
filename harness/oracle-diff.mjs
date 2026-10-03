@@ -222,7 +222,7 @@ function printReport({ manifest, cases }, result, problems) {
 function writeRecord({ manifest, digest }, result, pass) {
   if (fingerprint(manifest.fingerprinted) !== manifest.fingerprint) fail("the tree changed during the run: not recorded");
   const seal = pass
-    ? attest({ sealPath: sealPathFor(GATES, "oracle-diff"), gate: "oracle-diff fixtures", fingerprint: manifest.fingerprint, sha256: digest, pass })
+    ? attest({ sealPath: sealPathFor(GATES, "oracle-diff"), gate: "oracle-diff fixtures", fingerprint: manifest.fingerprint, scope: `seeds=${manifest.seeds}`, sha256: digest, pass })
     : { sealed: false };
   const record = {
     gate: "oracle-diff",
