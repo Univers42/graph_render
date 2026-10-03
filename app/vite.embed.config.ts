@@ -1,8 +1,8 @@
 // The embed bundle: `<graph-studio>` and the SDK as ES modules the service serves under
 // `/embed/<version>/`, and a host page imports through its own origin, because the motor's
-// Worker must be same-origin (`docs/deploy/service.md`, host-api.md condition 13). scripts/service.sh
-// passes `--outDir` into its staging directory, beside the two wasm builds. What differs from
-// vite.config.ts, and why:
+// Worker must be same-origin (`docs/deploy/service.md`, host-api.md condition 13). `scripts/studio.sh
+// embed DIR` passes `--outDir` and adds the two wasm builds; scripts/service.sh then names the
+// directory by its content hash, the `<version>`. What differs from vite.config.ts, and why:
 //   - `build.lib`: no page; the entries are modules with stable names a script tag can name.
 //   - `define`: lib mode leaves `process.env.NODE_ENV` alone, and React reads it at import.
 //   - `publicDir: false`: app/public holds the studio page's wasm and fixtures; the service

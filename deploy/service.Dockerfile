@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1
 # graph-motor as a service: graph-server and the embed bundle (docs/deploy/service.md).
 # Built by scripts/service.sh build, whose staging directory is the whole context: this file
 # copies artifacts in and builds nothing, so no second rustup or node recipe exists. The binary
