@@ -15,7 +15,7 @@ import { newBulkSlot } from "../webgl2/hook.ts";
 import { setSelection } from "./choose.ts";
 import { newCounts } from "./input.ts";
 import { type LoopState, invalidate, markMoved, relight } from "./loop.ts";
-import { currentLimits } from "./limits.ts";
+import { currentLimits, safeOf } from "./limits.ts";
 import { MIN_SCREEN_RADIUS } from "./nodes.ts";
 import { newPace } from "./pace.ts";
 import { newRate } from "./rate.ts";

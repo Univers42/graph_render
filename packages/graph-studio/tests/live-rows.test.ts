@@ -94,11 +94,13 @@ test("a shuffle restarts the session, re-applies the knobs and answers the new a
   force.setParams({ ...DEFAULT_KNOBS, gravity: 0.4 });
   const alpha = force.shuffle?.();
   assert.equal(alpha, 1, "the alpha is the new session's own, not a reheated 1");
-  assert.deepEqual(made.calls, [
-    `params ${JSON.stringify({ gravity: 0.4, charge: -300, link_strength_scale: 1, link_distance: 30 })}`,
-    "restart",
-    `params ${JSON.stringify({ gravity: 0.4, charge: -300, link_strength_scale: 1, link_distance: 30 })}`,
-  ]);
+  // Built from DEFAULT_KNOBS, in the port's wire order, so a moved default does not break it.
+  const { charge, linkStrengthScale, linkDistance, collideRadius, velocityDecay, alphaDecay, distanceMax, theta } = DEFAULT_KNOBS;
+  const params = `params ${JSON.stringify({
+    gravity: 0.4, charge, link_strength_scale: linkStrengthScale, link_distance: linkDistance,
+    collide_radius: collideRadius, velocity_decay: velocityDecay, alpha_decay: alphaDecay, distance_max: distanceMax, theta,
+  })}`;
+  assert.deepEqual(made.calls, [params, "restart", params]);
   force.pin("beta", 2, 3);
   assert.equal(made.calls.at(-1), "pin 1 2 3", "and every call after it goes to the new session");
 });
