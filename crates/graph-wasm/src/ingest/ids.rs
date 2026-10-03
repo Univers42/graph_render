@@ -42,6 +42,21 @@ pub(super) fn check_ids(nodes: &[NodeRecord], edges: &[EdgeRecord]) -> Result<()
 /// each id once instead of twice: on a 1M-node open the id pass alone was 720 ms of wasm.
 pub fn index(nodes: &[NodeRecord], edges: &[EdgeRecord]) -> Result<Topology, IngestError> {
     let topology = index_model(nodes, edges).map_err(|_| IngestError::Capacity)?;
+    #[cfg(any(test, feature = "probe"))]
+    {
+        use super::phases;
+        phases::mark(phases::INDEX_MODEL, None);
+        // What `INDEX_MODEL`'s bytes are made of. `strings().byte_len()` is the arena's
+        // text alone, so the arena's span table and lookup hash table are the remainder
+        // between it and the marks either side; the two CSRs and the columns are exact.
+        phases::mark(phases::ARENA_TEXT, Some(topology.strings().byte_len()));
+        let columns = topology.nodes().byte_len() + topology.edges().byte_len();
+        phases::mark(phases::COLUMNS, Some(columns));
+        let csrs = topology.out().byte_len()
+            + topology.inbound().byte_len()
+            + topology.hierarchy().byte_len();
+        phases::mark(phases::CSRS, Some(csrs));
+    }
     let kept_all = topology.node_count() as usize == nodes.len()
         && topology.edge_count() as usize == edges.len();
     if !kept_all {

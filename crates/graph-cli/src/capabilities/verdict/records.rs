@@ -24,7 +24,9 @@ use std::path::Path;
 
 /// `<dir>/<name>.json` for every record in `dir`, by the name in its file name. An absent
 /// directory is an empty map: no run has recorded anything yet, which is every gate's
-/// state before its first run, not a failure to read.
+/// state before its first run, not a failure to read. A record that cannot be **parsed** is
+/// named on stderr and left out of the map, which is how "absent" reaches the rows that
+/// named it; a record that cannot be **read** at all is still an error.
 ///
 /// Takes the directory rather than reading [`crate::evidence::gates_dir`] itself, so a
 /// test reads a directory it staged instead of the process's.
@@ -40,8 +42,10 @@ pub(super) fn all(dir: &Path) -> Result<BTreeMap<String, Value>, String> {
         // A name is the file's stem. The reading order of `read_dir` is the filesystem's
         // and is not fixed, so nothing may depend on it: every record lands in a map keyed
         // by its own name and is only ever looked up by that name.
-        if let Some(name) = stem(&path) {
-            found.insert(name, read_one(&path)?);
+        if let Some(name) = stem(&path)
+            && let Some(record) = read_one(&path)?
+        {
+            found.insert(name, record);
         }
     }
     Ok(found)
@@ -56,11 +60,33 @@ fn stem(path: &Path) -> Option<String> {
     Some(path.file_stem()?.to_str()?.to_owned())
 }
 
-/// One record file, parsed. A file that is not JSON is an error rather than a skipped
-/// record: a record the ledger cannot read is not a record it may report as absent.
-fn read_one(path: &Path) -> Result<Value, String> {
+/// One record file, parsed. A file that is **not JSON** is absent, not an error: it is named
+/// on stderr and the name resolves to nothing, so every row that wanted it reads "no
+/// `<name>` record: run the gate" — which is exactly what is true of it — and the other 72
+/// rows keep their verdicts. It used to be an error, and one half-copied file then took the
+/// whole ledger down with it (`capabilities --check` exiting 2, saying nothing about any
+/// row).
+///
+/// Ponytail: "not JSON" is a syntax verdict, and the line is on stderr where a gate's own
+/// verdict is not read. A file that parses but is the wrong shape — `{}`, a list, a record
+/// with no boolean `pass` — is still **kept** in the map and refused downstream by
+/// `super::current`, which is the stricter of the two paths. Failing input: a truncated,
+/// half-copied or hand-edited record. Direction: safe, and one-way — the only direction this
+/// rule moves a claim is toward "unbacked"; no row can read a passing verdict out of a file
+/// that did not parse. Escape hatch: the stderr line names the file and the parser's own
+/// message, and [`crate::evidence::GATES_ENV`] says which directory was read.
+fn read_one(path: &Path) -> Result<Option<Value>, String> {
     let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))
+    match serde_json::from_str(&text) {
+        Ok(record) => Ok(Some(record)),
+        Err(err) => {
+            eprintln!(
+                "  {}: not a record ({err}); it backs nothing, and is left in place",
+                path.display()
+            );
+            Ok(None)
+        }
+    }
 }
 
 #[cfg(test)]

@@ -16,16 +16,15 @@
 import type { PaintCounts, PaintInput } from "../canvas2d/input.ts";
 import { MIN_SCREEN_RADIUS } from "../canvas2d/nodes.ts";
 import { type Rgba, bytesOf } from "./colour.ts";
-import { type BulkLayer, PALETTE_WIDTH, type Pass } from "./layer.ts";
+import { type BulkLayer, PALETTE_WIDTH, type Pace, type Pass, type Tween } from "./layer.ts";
 import { onScreen } from "./plan.ts";
 import { compensate, sampleStep } from "./sample.ts";
 import { syncEdges, syncNodes, syncPalette, syncQuads } from "./sync.ts";
 
-/** How the view paces the layer: its in-place move counter and the moving budget. */
-export interface Pace {
-  readonly placed: number;
-  readonly budget: number;
-}
+/** How the view paces the layer (`layer.ts`): its move counter, its moving budget and its tween. */
+export type { Pace };
+
+export type { Tween };
 
 interface Frame {
   readonly input: PaintInput;
@@ -35,6 +34,8 @@ interface Frame {
   readonly count: number;
   /** What every element's alpha is multiplied by: the dim alpha under a focus, else 1. */
   readonly alpha: number;
+  /** The layout switch the shaders mix, or null: at null `u_eased` is 1 and nothing moves. */
+  readonly tween: Tween | null;
 }
 
 function rgbaOfCss(layer: BulkLayer, css: string): Rgba {
@@ -58,6 +59,8 @@ function shared(layer: BulkLayer, pass: Pass, frame: Frame): void {
   gl.uniform1i(at("u_paletteSize"), layer.uploaded.paletteSize);
   gl.uniform1i(at("u_paletteWidth"), Math.min(PALETTE_WIDTH, layer.uploaded.paletteSize));
   gl.uniform1f(at("u_alpha"), frame.alpha);
+  // The whole cost of a layout switch past this line: one float a frame, no upload.
+  gl.uniform1f(at("u_eased"), frame.tween === null ? 1 : frame.tween.eased);
   gl.bindVertexArray(pass.vao);
 }
 
@@ -97,7 +100,7 @@ function nodeUniforms(layer: BulkLayer, pass: Pass, frame: Frame, pad: number): 
 
 function drawQuads(layer: BulkLayer, frame: Frame, nodes: Uint32Array, pad: number): number {
   if (nodes.length === 0) return 0;
-  syncQuads(layer, frame.input, nodes);
+  syncQuads(layer, frame.input, nodes, frame.tween);
   nodeUniforms(layer, layer.quads, frame, pad);
   layer.gl.drawArraysInstanced(layer.gl.TRIANGLE_STRIP, 0, 4, nodes.length);
   return nodes.length;
@@ -136,7 +139,7 @@ export function deviceSize(input: Pick<PaintInput, "viewport" | "dpr">): readonl
 }
 
 /** Sizes and clears the canvas; the overhang is as wide as the largest point and the driver's viewport allow. */
-function begin(layer: BulkLayer, input: PaintInput, alpha: number): Frame {
+function begin(layer: BulkLayer, input: PaintInput, alpha: number, tween: Tween | null): Frame {
   const { gl, canvas } = layer;
   const [width, height] = deviceSize(input);
   if (canvas.width !== width) canvas.width = width;
@@ -151,13 +154,13 @@ function begin(layer: BulkLayer, input: PaintInput, alpha: number): Frame {
   gl.activeTexture(gl.TEXTURE0);
   gl.bindTexture(gl.TEXTURE_2D, layer.palette);
   const count = Math.min(input.x.length, input.y.length, input.extent.length, input.style.colours.length);
-  return { input, overhang, count, alpha };
+  return { input, overhang, count, alpha, tween };
 }
 
-function sync(layer: BulkLayer, input: PaintInput, placed: number): void {
-  syncNodes(layer, input, placed);
+function sync(layer: BulkLayer, input: PaintInput, pace: Pace): void {
+  syncNodes(layer, input, pace);
   syncPalette(layer, input.style.palette);
-  syncEdges(layer, input, placed);
+  syncEdges(layer, input, pace);
 }
 
 /** What a GPU frame drew, in the counts the 2D painter keeps. */
@@ -175,8 +178,8 @@ export function counted(counts: PaintCounts, edges: number, nodes: number, dpr: 
  */
 export function drawBulk(layer: BulkLayer, input: PaintInput, pace: Pace, counts: PaintCounts): ImageBitmap | null {
   if (layer.gl.isContextLost()) return null;
-  sync(layer, input, pace.placed);
-  const frame = begin(layer, input, input.focus >= 0 ? input.theme.dimAlpha : 1);
+  sync(layer, input, pace);
+  const frame = begin(layer, input, input.focus >= 0 ? input.theme.dimAlpha : 1, pace.tween);
   const edges = drawEdges(layer, frame, 0, input.moving ? pace.budget : Infinity);
   const nodes = frame.count > 0 ? drawNodes(layer, frame, input.moving ? pace.budget : Infinity) : 0;
   layer.gl.bindVertexArray(null);
@@ -190,10 +193,10 @@ export interface Part {
   readonly drawn: number;
 }
 
-function part(layer: BulkLayer, input: PaintInput, placed: number, draw: (frame: Frame) => number): Part | null {
+function part(layer: BulkLayer, input: PaintInput, pace: Pace, draw: (frame: Frame) => number): Part | null {
   if (layer.gl.isContextLost()) return null;
-  sync(layer, input, placed);
-  const drawn = draw(begin(layer, input, 1));
+  sync(layer, input, pace);
+  const drawn = draw(begin(layer, input, 1, pace.tween));
   layer.gl.bindVertexArray(null);
   return { bitmap: layer.canvas.transferToImageBitmap(), drawn };
 }
@@ -205,11 +208,11 @@ export interface Range {
 }
 
 /** The edge pairs in `range`, undimmed. */
-export function edgePart(layer: BulkLayer, input: PaintInput, placed: number, range: Range): Part | null {
-  return part(layer, input, placed, (frame) => drawEdges(layer, frame, range.first, range.count));
+export function edgePart(layer: BulkLayer, input: PaintInput, pace: Pace, range: Range): Part | null {
+  return part(layer, input, pace, (frame) => drawEdges(layer, frame, range.first, range.count));
 }
 
 /** Every node, undimmed. */
-export function nodePart(layer: BulkLayer, input: PaintInput, placed: number): Part | null {
-  return part(layer, input, placed, (frame) => (frame.count > 0 ? drawNodes(layer, frame, Infinity) : 0));
+export function nodePart(layer: BulkLayer, input: PaintInput, pace: Pace): Part | null {
+  return part(layer, input, pace, (frame) => (frame.count > 0 ? drawNodes(layer, frame, Infinity) : 0));
 }

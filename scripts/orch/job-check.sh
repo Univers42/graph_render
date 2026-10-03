@@ -132,6 +132,11 @@ base_rev() {
     git rev-parse "$b"
     return
   fi
+  # ...and when <base> moved on after the merge started, MERGE_HEAD is the base that merge brings in.
+  if git rev-parse -q --verify MERGE_HEAD >/dev/null && git merge-base --is-ancestor MERGE_HEAD "$b" 2>/dev/null; then
+    git rev-parse MERGE_HEAD
+    return
+  fi
   git merge-base HEAD "$b" 2>/dev/null || die "no merge-base with '$b'"
 }
 

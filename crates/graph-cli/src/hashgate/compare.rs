@@ -9,6 +9,22 @@ use std::collections::BTreeSet;
 /// One arm: its name and its `stage seed sha256` lines, stage by stage, seed by seed.
 pub type Arm = (&'static str, Vec<String>);
 
+/// The arm the C20 tally reads: the first wasm32 arm, **named** rather than indexed.
+///
+/// `collect_arms` lists it fourth of ten under `--tiers all`, and `compare` accepts any
+/// list of at least [`MIN_ARMS`] arms — so a positional read (`arms[2]`) of the arm the
+/// transport verdict depends on was a panic waiting for a shorter list, outside the
+/// 0/1/2 exit contract (RG-36). [`arm`] turns a missing arm into a refusal instead.
+pub const C20_ARM: &str = "wasm32 run 1";
+
+/// The lines of the arm called `name`, or why there is none.
+pub fn arm<'a>(arms: &'a [Arm], name: &str) -> Result<&'a [String], String> {
+    arms.iter()
+        .find(|(arm, _)| *arm == name)
+        .map(|(_, lines)| lines.as_slice())
+        .ok_or_else(|| format!("no arm called {name:?} among {}", arms.len()))
+}
+
 /// The fewest arms a gate run may compare. Two is the minimum that can disagree at all;
 /// the honest run has four (native ×2, wasm32 ×2) and `--tiers all` has more, so a lower
 /// bound rather than an exact count is the rule that survives adding a tier.

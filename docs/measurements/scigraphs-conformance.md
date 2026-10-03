@@ -46,11 +46,53 @@ rather than in this arm.
 
 **The reference arm** calls `apply_graph_layout` itself for 23 names in `ge-python-oracle` with
 the `SciGraphs/` submodule on the path. The other nine go through `scigraphs_utils`, which is in
-neither oracle image, so they take the pinned Graphviz 16.1.0 engine's own `-Tplain` points at
-`-Gstart=981798123` — the arm `harness/oracle-graphviz.py` already drives. `YIFAN_HU` is among
-them and that is a finding rather than a placement: SciGraphs runs it through the same sfdp call
-as `GRAPHVIZ_SFDP` (`yifan_hu.py:366`, and `yifan_hu.py:11` is the name-to-engine map), so
-those two rows compare two different motor layouts against **one** reference.
+neither oracle image, so they run the pinned Graphviz 16.1.0 engine at `-Gstart=981798123` and
+then **apply SciGraphs' own five lines over the engine's points themselves**
+(`yifan_hu.py:318-325`: centre on the mean, divide by the largest extent, multiply by `scale`).
+Those five lines live inside the C++ extension that is missing, so the reference arm writes them
+out in Python (`sc_graphviz.py`, `_scigraphs_columns`) and the motor arm writes the same five in
+Rust (`motor/gv_post.rs`, `scigraphs_graphviz_post`); `YIFAN_HU` is among the nine and that is a
+finding rather than a placement: SciGraphs runs it through the same sfdp call as `GRAPHVIZ_SFDP`
+(`yifan_hu.py:366`, and `yifan_hu.py:11` is the name-to-engine map), so those two rows compare
+two different motor layouts against **one** reference.
+
+**Both arms were in the same unit all along; they were in different frames.** Measured on the
+untouched tree, the ratio between the motor's span and the `-Tplain` span is `0.999990` to
+`1.000002` for `twopi` and `0.999975` to `1.000025` for `patchwork` — both sides in **points**,
+because `gv_plain.parse_plain` multiplies the engine's inches by `POINTS_PER_INCH = 72.0`
+(`harness/gv_plain.py:24`, `:95-96`). What differed was the **origin**: the ports centre their
+own layout, while the engine reports in the page frame, so `twopi`'s `max gap` of 303 was a
+translation and not a unit, and the mean is what removes it. Repair 2 below was wrong about the
+unit and right about there being a convention.
+
+**What the `-Tplain` text cost, and how it stopped costing it.** The plain renderer
+formats every coordinate with `agxbprint(&buf, "%.5g", v)` (`lib/common/output.c:66-71`,
+`printpoint` at `:76-79` passes it inches): that is **five significant digits**, not five
+decimals (`twopi -Tplain` on a triangle prints `0.375`, `1.5023` and `0.50234`), so the step is
+`10^(floor(log10|v|) - 4)` inches and depends on magnitude — `7.2e-3` points for a coordinate in
+[1, 10) in, `7.2e-2` for one in [10, 100), `7.2e-4` only for one in [0.1, 1). That step is the
+text's and not SciGraphs': `graphviz_layout(num_nodes, edges, engine=..., ...)`
+(`yifan_hu.py:298-307`) is handed a node count and an edge list and returns an array, so it is a
+layout call rather than a rendering, and a rendering is what rounds — an inference, since the
+extension's source is not on disk, only the `scigraphs-utils==0.2.0` pin
+(`SciGraphs/constraints/linux-x64.txt:21`).
+
+**That floor is now gone, and the way it went is `gv_exact`.** The reference arm stopped
+reading `-Tplain` and reads the engine's own coordinates instead: `harness/scigraphs-conformance/gv_exact.c`
+is a C reader compiled at run time by the image's own gcc against
+`/opt/graphviz/include/graphviz`, which calls `gvLayout` and prints `ND_coord(n).x` and
+`ND_coord(n).y` with `%a` — the same translated points `-Tplain` rounds, unrounded. Measured
+residue of the two readings on a 77-node ring, which is the rounding this removes: `twopi`
+`1.9e-4` pt, `patchwork` `3.6e-3` pt, worst over the eight engines `3.6e-2` pt (`neato`,
+`fdp`, `circo`). Applying `"%.5g" % (exact/72)` to the exact coordinates reproduces `-Tplain`'s
+printed value with `0.0e+00` error for all eight, so that residue is the `%.5g` and nothing else.
+
+Consequence, measured: `GRAPHVIZ_TWOPI`'s `max gap` fell `7.46e-05 -> 1.70e-07` and
+`GRAPHVIZ_PATCHWORK`'s `2.37e-04 -> 1.81e-07`, both now **inside** `sc_propose.ARITHMETIC_GAP`
+(`1e-6`), so both rows moved `bitwise`/`convention` -> **`tolerance`/`arithmetic`**. What is left
+is the port's own arithmetic and the motor's `f32` narrowing, not the reference's grid. The other
+seven rows kept their tier and their cause: their `max gap` is a different picture, hundreds of
+points apart, and no reference precision reaches that.
 
 **Both arms' defaults are recorded.** `ref/<NAME>.json` carries the library versions the
 reference ran on and any `layout_substituted` SciGraphs reported, because agreement here is
@@ -88,7 +130,7 @@ one that unlocks the rest.
 | cause | test | what it means |
 |---|---|---|
 | `reference-absent` | the arm produced no comparable coordinates | the row cannot be measured here |
-| `arithmetic` | disparity <= 1e-3 **and** max gap <= 1e-6 | same method, different summation order or `libm` |
+| `arithmetic` | disparity <= 1e-3 **and** at most one fixture over max gap 1e-6 | same method, different summation order or `libm` |
 | `rng` | the row declares a `layout seed` gap | the two arms cannot start alike; undoing the scale would not make the bytes agree |
 | `convention` | disparity <= 1e-6 | the same shape to a part in a million, and what is left is units, centring, axis order or `z` |
 | `algorithm` | anything else | a different method or a different step |
@@ -101,10 +143,27 @@ because the shape was exact would have sent a repair job to chase a summation or
 already right. `GRID` is now `f32` 1020/1020 with a gap of 2.12e-07, so the row that makes the
 argument is one this series has already fixed (`docs/measurements/sg-grid-scale.md`).
 
-**The `convention` threshold is 1e-6 and it is measured, not chosen.** Every row this
-classifier calls a convention measures between 2e-10 (`GRAPHVIZ_TWOPI`) and 4e-10
-(`GRAPHVIZ_PATCHWORK`); every row that measures 0.08 to 0.7 does not, and its overlay says the
-same thing. An earlier 0.35 threshold here called `SPECTRAL_3D`, `MDS_3D`, `GRAPHVIZ_CIRCO` and
+**The gap half counts the fixtures that carry it, and the count is one.** A rule on the
+*largest* gap put `SPRING` one chaotic fixture away from `convention`: it is `f32`-identical on
+21 of its 24 fixtures and off by 2.37e-03 on `lesmis` alone, which no scale, centre or axis
+order accounts for. One fixture may carry the residual, because a reduction difference is a
+fixed thing and the fixture that shows it is the one with the most chaotic iterations; two may
+not, because a second one makes the difference systematic rather than amplified — and that is
+what a unit mismatch measures. `GRAPHVIZ_TWOPI` carried the whole 90.0-unit step on **all 24**
+of its fixtures before `sg-graphviz-scale` read `ND_coord`, and `GRID` carried 4.0 on all 24
+before `sg-grid-scale` fixed its scale, so both were conventions, and no other row of this matrix
+moved. A row that declares a `layout seed` gap
+is excluded from the widened half: its arms never started alike, so a residual on one fixture is
+the seed and not the summation order. The constant is `sc_propose.ARITHMETIC_RESIDUAL_FIXTURES`
+and `harness/scigraphs-conformance/test_sc_propose.py` holds it to those three measured cases;
+see `docs/measurements/sg-propose-classify.md`.
+
+**The `convention` threshold is 1e-6 and it is measured, not chosen.** Before
+`sg-graphviz-scale` read `ND_coord` instead of the `-Tplain` text and `sg-grid-scale` fixed
+`GRID`'s units, every row this classifier called a convention measured between 5e-32 (`GRID`) and
+4e-10 (`GRAPHVIZ_PATCHWORK`); now `GRID` and the two Graphviz rows (7.8e-16 and 1.6e-15) are
+`arithmetic`. Every row that measures 0.08 to 0.7 is `algorithm`, and its overlay says the same
+thing. An earlier 0.35 threshold here called `SPECTRAL_3D`, `MDS_3D`, `GRAPHVIZ_CIRCO` and
 `CIRCLE_PACKING` conventions, and all four are a different shape in the picture — the threshold
 was wrong, not the data.
 
@@ -131,7 +190,7 @@ Procrustes-aligned over it**, so a green point sitting on a grey point is a node
 |--:|---|---|---|--:|--:|--:|--:|--:|--:|--:|---|---|
 | 1 | `RANDOM` | `layout.random` | `apply_graph_layout` | `tolerance` | 0/1020 | 1020/1020 | 2.68e+08 | 2.35e-07 | 2.28e-15 | 2.95e-15 | `arithmetic` | **same shape** — the green cloud sits on the grey one, node for node; the `f64` column cannot be exact because the motor is `f32` |
 | 2 | `GRID` | `layout.grid` | `apply_graph_layout` | `tolerance` | 842/1020 | 1020/1020 | 2.39e+08 | 2.12e-07 | 3.39e-32 | 3.96e-15 | `arithmetic` | **same shape** — the aligned motor lands on every grey lattice point; only the last `f32` rounding is left |
-| 3 | `SPRING` | `layout.force.spring` | `apply_graph_layout` | `bitwise` | 362/1020 | 866/1020 | 5.17e+13 | 2.37e-03 | 3.77e-16 | 1.66e-08 | `convention` | **same shape on every fixture** (Procrustes median 3.77e-16, worst 1.66e-08), and `f32`-identical on 21 of the 23 measured ones. 153 of the 154 coordinates that are not identical are on `lesmis` (78/462) — the 77-node fixture whose 50 chaotic iterations amplify a 1.6-ulp reduction difference to 2.4e-3; `gate-16` carries the last one (53/54). The `convention` label is the classifier's, and it is wrong — see Repair 4 |
+| 3 | `SPRING` | `layout.force.spring` | `apply_graph_layout` | `tolerance` | 362/1020 | 866/1020 | 5.17e+13 | 2.37e-03 | 3.77e-16 | 1.66e-08 | `arithmetic` | **same shape on every fixture** (Procrustes median 3.77e-16, worst 1.66e-08), and `f32`-identical on 21 of the 23 measured ones. 153 of the 154 coordinates that are not identical are on `lesmis` (78/462) — the 77-node fixture whose 50 chaotic iterations amplify a 1.6-ulp reduction difference to 2.4e-3; `gate-16` carries the last one (53/54). The `convention` label this row carried until 2026-10-03 was the classifier's, and it was wrong: the residual is on **one** fixture of 24, which is what `arithmetic` now counts — see Repair 4 |
 | 4 | `SPRING_3D` | `layout.force.spring3d` | `apply_graph_layout` | `tolerance` | 24/1020 | 1020/1020 | 2.68e+08 | 2.36e-07 | 5.03e-16 | 6.67e-16 | `arithmetic` | **same shape** — the same seed, the same kernel and the same split reduction as `SPRING`, and the third column absorbs the whole difference: 1020/1020 `f32` |
 | 5 | `CIRCLE_PACKING` | `layout.packing.circle` | `apply_graph_layout` | `shape` | 344/1020 | 808/1020 | 9.22e+18 | 2.70 | 5.3e-16 | 0.863 | `algorithm` | **bit-for-bit the same packing on the 20 gate models** (5e-16) and on the two planar fixtures. `lesmis` — the non-planar one, so the only fixture whose seed moved — goes **0.517 -> 0.0895**; `bipartite` is non-planar too and still differs (0.863); `tree-balanced` (0.418) is a **tree**, so it takes the exact path and did not move |
 | 6 | `FORCEATLAS2` | `layout.forceatlas2` | `apply_graph_layout` | `bitwise` | 0/1020 | 0/1020 | 9.25e+18 | 183 | 0.241 | 0.927 | `rng` | different shape |
@@ -150,15 +209,15 @@ Procrustes-aligned over it**, so a green point sitting on a grey point is a node
 | 19 | `IGRAPH_DH` | `layout.force.davidson_harel` | `apply_graph_layout` | `bitwise` | 340/1020 | 340/1020 | 9.24e+18 | 34.7 | 0.767 | 0.99 | `rng` | different shape |
 | 20 | `IGRAPH_GRAPHOPT` | `layout.force.graphopt` | `apply_graph_layout` | `bitwise` | 340/1020 | 340/1020 | 9.26e+18 | 189 | 0.557 | 0.919 | `rng` | different shape |
 | 21 | `MDS_3D` | `layout.mds.pivot` | `apply_graph_layout` | `shape` | 0/1020 | 0/1020 | 9.22e+18 | 5.84 | 0.0783 | 0.541 | `algorithm` | different shape, and the closest of them (median 0.078) |
-| 22 | `YIFAN_HU` | `layout.force.yifan_hu` | `sfdp -Tplain` | `shape` | 340/1020 | 340/1020 | 9.29e+18 | 508 | 0.829 | 0.985 | `algorithm` | different shape: the motor is a Barnes-Hut port and the reference is Graphviz sfdp |
-| 23 | `GRAPHVIZ_DOT` | _none_ | `dot -Tplain` | `shape` | not run | not run | not run | not run | not run | not run | `reference-absent` | **not run:** not run: no motor layout for this name |
-| 24 | `GRAPHVIZ_NEATO` | `layout.force.neato` | `neato -Tplain` | `bitwise` | 340/1020 | 340/1020 | 9.26e+18 | 473 | 0.424 | 0.95 | `rng` | different shape |
-| 25 | `GRAPHVIZ_FDP` | `layout.force.fdp` | `fdp -Tplain` | `bitwise` | 344/1020 | 344/1020 | 3.10e+16 | 2.06e+03 | 0.661 | 0.944 | `rng` | different shape _(reference not pinned: the engine's own start is not seeded by -Gstart: two runs differ)_ |
-| 26 | `GRAPHVIZ_SFDP` | `layout.force.sfdp` | `sfdp -Tplain` | `shape` | 345/1020 | 345/1020 | 1.71e+16 | 345 | 0.848 | 0.978 | `algorithm` | different shape at the **same seed on both sides**: grey is a line with a fan, green a small cluster |
-| 27 | `GRAPHVIZ_TWOPI` | `layout.twopi` | `twopi -Tplain` | `bitwise` | 340/1020 | 340/1020 | 9.28e+18 | 303 | 2.04e-10 | 7.36e-10 | `convention` | **same shape** — the green ring sits on the grey ring; units only |
-| 28 | `GRAPHVIZ_CIRCO` | `layout.circular.circo` | `circo -Tplain` | `shape` | 340/1020 | 340/1020 | 9.31e+18 | 6.43e+03 | 0.284 | 0.875 | `algorithm` | **same shape on the tree** (disparity 6.5e-05) and **different on lesmis** (0.308): the ring agrees where the tree is small and the boxes are equal |
-| 29 | `GRAPHVIZ_OSAGE` | `layout.packing.osage` | `osage -Tplain` | `shape` | 387/1020 | 387/1020 | 1.95e+16 | 498 | 0.711 | 0.964 | `algorithm` | same grid of rows, different row assignment: the y coordinates agree to 1e-5 of the span, the x to 7% |
-| 30 | `GRAPHVIZ_PATCHWORK` | `layout.treemap.patchwork` | `patchwork -Tplain` | `bitwise` | 340/1020 | 340/1020 | 9.27e+18 | 139 | 4.32e-10 | 1.6e-09 | `convention` | **same shape** — green on grey |
+| 22 | `YIFAN_HU` | `layout.force.yifan_hu` | `sfdp` via `gv_exact` | `shape` | 340/1020 | 342/1020 | 9.29e+18 | 5.37 | 0.829 | 0.985 | `algorithm` | different shape: the motor is a Barnes-Hut port and the reference is Graphviz sfdp |
+| 23 | `GRAPHVIZ_DOT` | _none_ | `dot` via `gv_exact` | `shape` | not run | not run | not run | not run | not run | not run | `reference-absent` | **not run:** not run: no motor layout for this name |
+| 24 | `GRAPHVIZ_NEATO` | `layout.force.neato` | `neato` via `gv_exact` | `bitwise` | 340/1020 | 340/1020 | 9.26e+18 | 5.59 | 0.424 | 0.95 | `rng` | different shape |
+| 25 | `GRAPHVIZ_FDP` | `layout.force.fdp` | `fdp` via `gv_exact` | `bitwise` | 340/1020 | 340/1020 | 3.10e+16 | 5.72 | 0.661 | 0.944 | `rng` | different shape _(reference not pinned: the engine's own start is not seeded by -Gstart: two runs differ)_ |
+| 26 | `GRAPHVIZ_SFDP` | `layout.force.sfdp` | `sfdp` via `gv_exact` | `shape` | 340/1020 | 340/1020 | 1.71e+16 | 6.87 | 0.848 | 0.978 | `algorithm` | different shape at the **same seed on both sides**: grey is a line with a fan, green a small cluster |
+| 27 | `GRAPHVIZ_TWOPI` | `layout.twopi` | `twopi` via `gv_exact` | `tolerance` | 364/1020 | 841/1020 | 8.75e+18 | 1.70e-07 | 2.09e-16 | 7.85e-16 | `arithmetic` | **same shape** — the green ring sits on the grey ring; what is left is the port's own arithmetic and the motor's `f32` narrowing, now that the reference reads `ND_coord` and not the `-Tplain` text |
+| 28 | `GRAPHVIZ_CIRCO` | `layout.circular.circo` | `circo` via `gv_exact` | `shape` | 351/1020 | 351/1020 | 9.31e+18 | 5.08 | 0.284 | 0.875 | `algorithm` | **same shape on the tree** (disparity 6.5e-05) and **different on lesmis** (0.308): the ring agrees where the tree is small and the boxes are equal |
+| 29 | `GRAPHVIZ_OSAGE` | `layout.packing.osage` | `osage` via `gv_exact` | `shape` | 344/1020 | 355/1020 | 1.95e+16 | 5.02 | 0.711 | 0.964 | `algorithm` | same grid of rows, different row assignment: the y coordinates agree to 1e-5 of the span, the x to 7% |
+| 30 | `GRAPHVIZ_PATCHWORK` | `layout.treemap.patchwork` | `patchwork` via `gv_exact` | `tolerance` | 399/1020 | 831/1020 | 8.85e+18 | 1.81e-07 | 3.45e-16 | 1.57e-15 | `arithmetic` | **same shape** — green on grey; `f32`-identical on 831 of 1020, was 388 with the text as the reference |
 | 31 | `SUGIYAMA` | `layout.dag.sugiyama` | `apply_graph_layout` | `tolerance` | 597/1020 | **1020/1020** | 2.57e+08 | 1.91e-07 | 1.26e-16 | 4.63e-16 | `arithmetic` | **same shape**, and `f32`-identical on all 1020 coordinates |
 | 32 | `CIRCULAR_HIERARCHY` | `layout.circular.hierarchy` | `apply_graph_layout` | `tolerance` | 509/1020 | 1020/1020 | 2.67e+08 | 2.2e-07 | 4.32e-16 | 1e-15 | `arithmetic` | **same shape**, and `f32`-identical on all 1020 coordinates |
 
@@ -189,9 +248,13 @@ the target: their `f64` counts are 0/1020 and 501/1020, and every one of those c
 `f32`-exact — `RANDOM`'s because no draw is a `f32` value, `CUBE`'s because its 501 are the corner
 coordinates `CORNERS[i] * 5.0`, which are `±5.0` and `0.0`.
 
-**2. Two rows are the same shape to `1e-10` or better and differ only in units.**
-`GRAPHVIZ_TWOPI` (2e-10), `GRAPHVIZ_PATCHWORK` (4e-10). Each is a convention fix, not an
-algorithm; `GRID` (5e-32) was the third until `sg-grid-scale` fixed its units (row 2).
+**2. Three rows were the same shape to `1e-10` or better and differed only in convention.**
+`GRID` (5e-32), `GRAPHVIZ_TWOPI` (2e-10, now 7.8e-16) and `GRAPHVIZ_PATCHWORK` (4e-10, now
+1.6e-15). `sg-grid-scale` fixed `GRID`'s units (table row 2), and the two Graphviz rows reached
+`f64` rounding because the reference reads `ND_coord` rather than the `-Tplain` text. **The units
+were never the difference on either Graphviz row** — both arms are in points, and what was left
+was the origin and then the `%.5g`; see repair 2 and `docs/measurements/sg-graphviz-scale.md`.
+All three are now `tolerance`/`arithmetic`, none `bitwise`/`convention`.
 
 **3. `GRAPHVIZ_SFDP` differs at the same seed on both sides.** The motor arm calls
 `sfdp::run_seeded(981798123)` and the engine is given `-Gstart=981798123`; the disparity is 0.848.
@@ -260,14 +323,41 @@ cause `convention` → `arithmetic`: the `f64` column cannot reach 1020/1020 bec
 value is not `f32`-representable, which is the position `SPHERE`, `HELIX` and `HIERARCHICAL_3D` are
 already in. Commands, before/after lines and the `--break` run: `docs/measurements/sg-grid-scale.md`.
 
-### 2. `GRAPHVIZ_TWOPI`, `GRAPHVIZ_PATCHWORK` — `convention`, the same class, two files
-**Files:** `crates/graph-core/src/layout/radial/twopi.rs:104`,
-`crates/graph-core/src/layout/graphviz/patchwork/squarify.rs:41`. **Change:** the motor works in
-its own units and the reference arm reports the engine's points in **points**; the layout's own
-extent is the missing scale. Normalising to `scale = 5.0` the way the three layouts that already
-publish a `SCALE` const do (`basic_3d.rs:43`, `hierarchical_3d.rs:78`,
-`circular/hierarchy.rs:45`) is a one-line change per layout.
-**Expected:** max gap 303 -> ~1e-7 (twopi) and 139 -> ~1e-7 (patchwork).
+### 2. `GRAPHVIZ_TWOPI`, `GRAPHVIZ_PATCHWORK` — **done, and not the way this said** (`sg-graphviz-scale`)
+This repair was wrong in its diagnosis and right in its conclusion, so it is rewritten rather than
+deleted. **It is not the unit.** Measured, the two arms' spans agree to `1.0000` (twopi) and
+`1.0000` (patchwork) and both are in **points**: `gv_plain.parse_plain` converts the engine's
+inches with `POINTS_PER_INCH = 72.0` (`harness/gv_plain.py:24`, `:95-96`). **It is the origin** —
+the ports centre their own layout, the engine reports in the page frame, and a `max gap` of 303
+on `twopi` is a translation of `(−270, −260)` points on `lesmis`.
+
+**What changed, and where.** Not `twopi.rs` and not `squarify.rs`, and nothing at all under
+`crates/graph-core`: a Graphviz port there is gated against Graphviz 16.1.0's own output, and
+SciGraphs' centring is a layer *below* that output which the port must not absorb. Instead
+`yifan_hu.py:318-325` became one function applied to **both** arms — `scigraphs_graphviz_post` in
+`crates/graph-cli/src/oracle_python/conformance/motor/gv_post.rs` and `_scigraphs_columns` in
+`harness/scigraphs-conformance/sc_graphviz.py` — so each arm now emits what SciGraphs would.
+
+**Measured, in two steps.** First the transform alone: `max gap` 303 -> **7.5e-5** (twopi) and
+139 -> **2.4e-4** (patchwork); `f32` 340/1020 -> 362/1020 and 388/1020. The tier stayed
+`bitwise`/`convention` then, because the reference still read the `-Tplain` **text**, which
+formats coordinates with `%.5g` (`lib/common/output.c:66-71`) — five significant digits, not five
+decimals, so a coordinate in [1, 10) in lands on a step of `7.2e-3` points and `1.7e-4` after
+the rescale, and `sc_propose.ARITHMETIC_GAP` is `1e-6`. That diagnosis was wrong about the
+magnitude (five digits, not five decimals, so the step was ten times what this repair claimed)
+and it named the wrong cure: it said removing the floor needed `scigraphs_utils` in an image. It
+did not.
+
+**Then the reference arm stopped reading text at all.** `harness/scigraphs-conformance/gv_exact.c`
+is a C reader, compiled at run time by the image's own gcc against
+`/opt/graphviz/include/graphviz`, which runs `gvLayout` and prints `ND_coord(n)` with `%a` — the
+same translated points `-Tplain` rounds, unrounded. **Measured after it:** `max gap`
+**7.5e-5 -> 1.70e-7** (twopi) and **2.4e-4 -> 1.81e-7** (patchwork); `f32` 362/1020 -> **841/1020**
+and 388/1020 -> **831/1020**; Procrustes median 2.0e-10 -> **2.1e-16** and 4.3e-10 -> **3.5e-16**.
+Both rows are inside `ARITHMETIC_GAP` and both moved to **`tolerance`/`arithmetic`**. What is
+left in each is the port's own arithmetic and the motor's `f32` narrowing, which is what
+`tolerance` means.
+`docs/measurements/sg-graphviz-scale.md` has the commands and the numbers.
 
 ### 3. `CIRCLE_PACKING` — `algorithm` on the fallback, `arithmetic` once it is seeded
 **File:** `crates/graph-core/src/layout/circle_packing/fallback/seed.rs`. **Change:** the fallback
@@ -328,14 +418,18 @@ price of not materialising an `n x n` matrix. Both variants on the same start di
 2.37e-03; the identical kernel at `D = 3` turns it into 2.36e-07, which is why `SPRING_3D`
 reaches 1020/1020 and `SPRING` does not.
 
-`sc_propose.py` calls `arithmetic` only when the gap is also `<= 1e-6` (`ARITHMETIC_GAP`), so a
-row whose 2D chaos exceeds it falls through to `convention` — which is **not** what is wrong here:
-no scale, centre or axis order accounts for 2.37e-03, and undoing one would move nothing. The row
-is pinned as the classifier computed it rather than hand-edited, and the discrepancy is recorded
-here and in `docs/measurements/sg-spring-seed.md` rather than papered over. Closing it needs either
-the fused reduction (a change to the kernel of two registered layouts, their goldens, the
-1000-seed differential and a `--past-ceiling` benchmark) or a classifier rule that treats a
-fixture-counted residual as arithmetic.
+`sc_propose.py` used to call `arithmetic` only when the gap was also `<= 1e-6`
+(`ARITHMETIC_GAP`), so a row whose 2D chaos exceeds it fell through to `convention` — which is
+**not** what is wrong here: no scale, centre or axis order accounts for 2.37e-03, and undoing one
+would move nothing. The row was pinned as the classifier computed it rather than hand-edited, and
+the discrepancy was recorded here and in `docs/measurements/sg-spring-seed.md` rather than
+papered over. **Closed on the classifier side 2026-10-03** (`sg-propose-classify`): the rule now
+counts the fixtures carrying a residual instead of reading the largest one, and `lesmis` is the
+only one of `SPRING`'s 24 that carries it, so the row reads `tolerance`/`arithmetic` from its own
+measurement. The fused reduction is still open and is still the only repair that closes the
+**2.37e-03** itself — it is a change to the kernel of two registered layouts, their goldens, the
+1000-seed differential and a `--past-ceiling` benchmark. See
+`docs/measurements/sg-propose-classify.md`.
 
 **One defect repaired 2026-10-02, and it was not this one**
 (`docs/measurements/sg-fix-spring-temp.md`): the opening temperature read the widest of all
