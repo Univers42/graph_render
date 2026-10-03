@@ -116,3 +116,4 @@ fix-ingest-scale|build|prompts/jobs/fix-ingest-scale.md|scripts/orch/rows/quick.
 fix-force-jiggle|build|prompts/jobs/fix-force-jiggle.md|scripts/orch/rows/quick.rows|no
 sg-propose-classify|build|prompts/jobs/sg-propose-classify.md|scripts/orch/rows/quick.rows|no
 sg-spectral-mds|build|prompts/jobs/sg-spectral-mds.md|scripts/orch/rows/quick.rows|no
+perf-transition-pick|build|prompts/jobs/perf-transition-pick.md|scripts/orch/rows/perf-p5.rows|no
