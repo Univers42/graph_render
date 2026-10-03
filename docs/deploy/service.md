@@ -11,7 +11,7 @@ page explains how the parts fit together.
 | `deploy/service.Dockerfile` | trixie-slim pinned by digest. It copies the staged artifacts in and builds nothing |
 | `deploy/service.Dockerfile.dockerignore` | the context admits `bin/graph-server` and `embed/` only |
 | `app/vite.embed.config.ts`, `app/src/embed.ts` | the bundle (`scripts/studio.sh embed DIR`) |
-| `scripts/service-image.sh`, `scripts/orch/rows/service-image.rows` | the gate, with its two negative controls |
+| `scripts/service-image.sh`, `scripts/orch/rows/service-image.rows` | the gate and the SDK row, each with its negative controls |
 
 ## Build
 
@@ -41,8 +41,20 @@ scripts/service.sh keygen ops keys     # the key on stdout, once; `ops <sha256>`
 scripts/service.sh run keys            # 127.0.0.1:8080, read-only root, no capabilities
 ```
 
-The equivalent `docker run` is in the header of `scripts/service.sh`. Publish on `127.0.0.1` only. The
-server has no TLS, so a remote client reaches it through the host's proxy (contract, "Headers").
+In this repository `run` starts the container through `scripts/orch/drun`, which adds the memory cap
+(`DRUN_MEM`, default 4g) and the `gm.slice` ceiling. On a host without this repository, the same
+container is:
+
+```sh
+docker run -d --name graph-motor --read-only --cap-drop ALL --security-opt no-new-privileges \
+  --memory 4g --memory-swap 4g \
+  --group-add "$(stat -c %g keys)" -v "$PWD/keys:/run/graph/keys:ro" -e GRAPH_API_KEYS_FILE=/run/graph/keys \
+  -p 127.0.0.1:8080:8080 graph-motor:<tag>
+```
+
+Publish on `127.0.0.1` only. The server has no TLS, so a remote client reaches it through the
+host's proxy (contract, "Headers"). The image's `HEALTHCHECK` runs `graph-server healthcheck`,
+which exits 0 only on a 200 from `/healthz` and gives up after 2 s.
 
 The key file holds `<name> <sha256-hex>` lines and never a key, and it is mounted read-only at
 run time. The process runs as uid 10001 and reads the file through the file's group
@@ -84,18 +96,28 @@ The element resolves `wasm` against the page, so the attribute names the full pa
 element looks for `graph_wasm.wasm` next to the page. The threads build is fetched from beside the
 `wasm` URL.
 
-The host page's own headers:
+The host page's own CSP, `Content-Security-Policy: script-src 'self' 'wasm-unsafe-eval';
+worker-src 'self'`, is the least the bundle needs. The gate serves exactly this policy.
 
-- `Content-Security-Policy: script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'` is the least
-  the bundle needs. The gate serves exactly this policy.
-- For the threads build, add `Cross-Origin-Opener-Policy: same-origin` and
-  `Cross-Origin-Embedder-Policy: require-corp`. The service sends COOP, COEP and CORP on `/embed/`
-  itself. The proxy has to pass them through, which nginx does by default.
+### Threads need COOP and COEP on the host page
 
-Without isolation, the studio runs the serial build. At 1M nodes a live tick is about 700 ms
-(657–758 ms) against 158–170 ms with 8 threads (`docs/measurements/perf-p3-browser.md`, under
-SwiftShader, one run per row). Rows `isolated-wasm-build` and `plain-wasm-build` read the host's
-request log to check which build each page fetched.
+The threads build of the motor needs `SharedArrayBuffer`, which the browser grants only to a
+cross-origin isolated page. So the host page itself must send:
+
+```
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Embedder-Policy: require-corp
+```
+
+The service sends COEP and CORP on every `/embed/` file, and the proxy must pass them through
+(nginx does by default). The motor worker picks the threads build only when the page is isolated
+and the device has two cores or more.
+
+Without the two headers the studio still works, on the serial build. That fallback is about 4x
+slower on a big graph. At 1M nodes a live tick takes about 700 ms (657–758 ms) on the serial build,
+against 158–170 ms with 8 threads (`docs/measurements/perf-p3-browser.md`, under SwiftShader, one
+run per row). Rows `isolated-wasm-build` and `plain-wasm-build` read the host's request log to
+check which build each page fetched.
 
 The image serves one version: the one in `/srv/embed/VERSION`. When the image is upgraded, every
 other `<version>` returns 404, so the host updates its tags in the same release.
@@ -107,8 +129,9 @@ scripts/orch/gate.sh <logdir> scripts/orch/rows/service-image.rows
 ```
 
 `scripts/service-image.sh` builds the image, scans its files, runs it detached the way `run` does,
-and drives `deploy/nav/service.py` in `gm-chromium` on the container's network. The report goes to
-`target/service-image/<label>/` as `table.md`, `report.json` and screenshots. The rows:
+and drives `deploy/nav/service.py` in `gm-chromium` on the container's network. Every container
+goes through `scripts/orch/drun`. The report goes to `target/service-image/<label>/` as `table.md`,
+`report.json` and screenshots. The rows:
 
 - the container: `svc-non-root`, `svc-healthy`, `svc-no-leak`;
 - HTTP: `/healthz`, `/v1/meta` with and without the key, and the headers on each embed file;
@@ -118,6 +141,12 @@ and drives `deploy/nav/service.py` in `gm-chromium` on the container's network. 
 
 The negative controls are `SERVICE_IMAGE_BREAK=headers` (a pass-through strips COOP, COEP and CORP)
 and `SERVICE_IMAGE_BREAK=leak` (the scanned image gains `embed/.env` and a `.git`).
+
+Row `svc-sdk-live` (`SERVICE_IMAGE_CHECK=sdk`) runs the SDK's
+`crates/graph-sdk-js/scripts/live-check.mjs` against the same image. It checks `meta()`, parity
+with the local wasm build, and the typed 401 and 400. Its negative control,
+`SERVICE_IMAGE_BREAK=key`, hands it a well-formed key that the key file does not hold. On a tree
+without `live-check.mjs` the row exits 2, "could not run".
 
 ## What it does not do
 

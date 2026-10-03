@@ -4,3 +4,5 @@
 svc-image|0|timeout 2400 scripts/service-image.sh
 negctl-svc-image|nonzero|SERVICE_IMAGE_BREAK=headers timeout 2400 scripts/service-image.sh
 negctl-svc-image-leak|nonzero|SERVICE_IMAGE_BREAK=leak timeout 2400 scripts/service-image.sh
+svc-sdk-live|0|SERVICE_IMAGE_CHECK=sdk timeout 2400 scripts/service-image.sh
+negctl-svc-sdk-live|nonzero|SERVICE_IMAGE_CHECK=sdk SERVICE_IMAGE_BREAK=key timeout 2400 scripts/service-image.sh

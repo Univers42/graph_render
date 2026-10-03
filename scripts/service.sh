@@ -18,8 +18,9 @@
 # same bytes keep their URL across commits. target/service/image records the name for run.
 #
 # run: SERVICE_PORT picks the host port (default 8080, 0 = any free one), SERVICE_DETACH=<name>
-# runs it in the background under that container name. The root filesystem is read-only, every
-# capability is dropped, and the port is published on the loopback only. KEYFILE holds
+# runs it in the background under that container name. It starts through scripts/orch/drun (cap
+# DRUN_MEM, default 4g). The root filesystem is read-only, every capability is dropped, and the
+# port is published on the loopback only. KEYFILE holds
 # `<name> <sha256-hex>` lines, never a key; the process runs as uid 10001 and reads it through
 # the file's group, so the file needs g+r (0640); group- or world-writable is refused (C9).
 #
@@ -35,7 +36,7 @@ export CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-4}
 
 log() { printf '\033[1m[service]\033[0m %s\n' "$*" >&2; }
 usage() {
-  sed -n '2,26p' "${BASH_SOURCE[0]}" >&2
+  sed -n '2,27p' "${BASH_SOURCE[0]}" >&2
   exit 2
 }
 
@@ -103,7 +104,7 @@ run() {
   keys=$(readlink -f "$1")
   image=$(image_of)
   [[ -n ${SERVICE_DETACH-} ]] && detach=(-d --name "$SERVICE_DETACH")
-  docker run "${detach[@]}" --read-only --cap-drop ALL --security-opt no-new-privileges \
+  scripts/orch/drun "${detach[@]}" --read-only --cap-drop ALL --security-opt no-new-privileges \
     --group-add "$(stat -c %g "$keys")" -v "$keys:/run/graph/keys:ro" -e GRAPH_API_KEYS_FILE=/run/graph/keys \
     -p "127.0.0.1:${SERVICE_PORT:-8080}:8080" "$image"
 }
@@ -114,7 +115,7 @@ keygen() {
   [[ $name =~ ^[A-Za-z0-9._-]+$ ]] || usage
   image=$(image_of)
   # stdout (the key) goes straight through; only stderr (the file line) is captured.
-  { line=$(docker run --rm --network none "$image" keygen "$name" 2>&1 >&3 3>&-); } 3>&1
+  { line=$(scripts/orch/drun --rm --network none "$image" keygen "$name" 2>&1 >&3 3>&-); } 3>&1
   line=$(grep -E "^$name [0-9a-f]{64}$" <<<"$line") || {
     log "keygen printed no file line"
     exit 1
