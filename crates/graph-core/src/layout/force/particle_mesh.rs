@@ -107,9 +107,15 @@ pub(in crate::layout::force) fn tick<R: Runner>(
 ) {
     sim.alpha += (sim.alpha_target - sim.alpha) * sim.params.alpha_decay;
     let split = how.split.splits(Split::Link);
-    link::apply_with(sim, how.runner, how.workers, how.deltas, split);
+    link::pass_with(sim, how.runner, how.workers, how.deltas);
+    let linked = Gathered {
+        deltas: how.deltas,
+        slot: None,
+        split,
+    };
+    motion::merge(sim, linked, (how.runner, how.workers));
     charge::apply(sim, mesh, how);
-    sim.center();
+    motion::center(sim, (how.runner, how.workers));
     let collided = collide::apply(sim, &mut mesh.grid, how);
     // Skipped at zero as in `barnes_hut/sim.rs`: `(0 - x) * 0.0` is a signed zero that
     // changes the bytes (`session/gravity.rs`). Collide's push is merged after this one here
@@ -119,7 +125,7 @@ pub(in crate::layout::force) fn tick<R: Runner>(
     }
     let gathered = Gathered {
         deltas: how.deltas,
-        slot: &mesh.grid.slot,
+        slot: Some(&mesh.grid.slot),
         split: how.split.splits(Split::Collide),
     };
     motion::integrate(sim, collided.then_some(gathered), (how.runner, how.workers));

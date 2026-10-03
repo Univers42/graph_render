@@ -30,7 +30,7 @@ pub const ROWS: [Row; 32] = [
         name: "RANDOM",
         motor: Some("layout.random"),
         reference: Reference::Scigraphs,
-        gaps: &[G_RANDOM_ITER, G_RANDOM_SCALE, G_RANDOM_SEED],
+        gaps: &[G_RANDOM_ITER],
     },
     Row {
         name: "GRID",
@@ -120,7 +120,7 @@ pub const ROWS: [Row; 32] = [
         name: "CUBE",
         motor: Some("layout.basic3d.cube"),
         reference: Reference::Scigraphs,
-        gaps: &[G_BASIC3D_SCALE, G_CUBE_SEED],
+        gaps: &[G_BASIC3D_SCALE],
     },
     Row {
         name: "HIERARCHICAL_3D",

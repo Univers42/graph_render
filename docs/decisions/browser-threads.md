@@ -63,3 +63,11 @@ Model (b) stays on its branch as the measured alternative and is not merged.
 - The threads build needs `-Z build-std` with `RUSTC_BOOTSTRAP=1` on the pinned toolchain
   (`docker/wasm-threads.Dockerfile`). That is a pinned-toolchain exception, scoped to this one
   artifact; the default artifact is still built on stable.
+
+## Update 2026-10-03: the studio uses model (a) for its live settle
+
+The SDK loads the threads artifact through `createMotor(url, { threads })`, and the studio's motor worker
+starts the helper Workers (`docs/measurements/perf-p3-browser.md`). In a cross-origin-isolated
+page, eight threads tick the live settle 3.4× faster at 400k (245 → 72 ms) and 4.3× faster at
+1M (690 → 162 ms). The bytes are equal to serial at every helper count (`sdk-threads` row).
+The path stays dormant until a server sends COOP/COEP (perf-p3-coi).

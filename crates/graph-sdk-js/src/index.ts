@@ -27,9 +27,11 @@ import { checkOptions } from "./options.ts";
 import { readKinds, type GeometryKinds } from "./geometry-kinds.ts";
 import { Registries } from "./registries.ts";
 import { buildStaged } from "./staging.ts";
+import { loadThreaded } from "./threads.ts";
 
 export type { WasmSource } from "./wasm.ts";
 export { resetForTests } from "./wasm.ts";
+export { serveHelper, type HelperStart, type MotorThreads } from "./threads.ts";
 export * from "./errors.ts";
 export * from "./types.ts";
 export { ForceSession, PARAMS_BYTES, encodeParams, decodeParams } from "./force.ts";
@@ -63,7 +65,7 @@ export class Motor {
   static async create(source: WasmSource, options?: MotorOptions): Promise<Motor> {
     checkOptions(options);
     try {
-      const exports = await loadMotor(source);
+      const exports = await (options?.threads === undefined ? loadMotor(source) : loadThreaded(source, options.threads));
       return new Motor(exports, null);
     } catch (error) {
       const failure = error instanceof WasmUnavailableError ? error : new WasmUnavailableError("wasm module failed to load", error);
@@ -309,7 +311,7 @@ export class Motor {
 }
 
 /** Loads the wasm motor (once per session — see `wasm.ts`) and returns a {@link Motor}
- * bound to it. `options` this phase accepts only `{}` or `{ exec: "auto" }` (C16); any
+ * bound to it. `options` accepts `exec: "auto"` and `threads` (C16, `threads.ts`); any
  * other shape is refused before the module is even asked to load. */
 export async function createMotor(source: WasmSource, options?: MotorOptions): Promise<Motor> {
   return Motor.create(source, options);
