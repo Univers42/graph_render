@@ -17,29 +17,13 @@ import { readKinds, type GeometryKinds } from "./geometry-kinds.ts";
 import type { ColumnViews } from "./views.ts";
 import type { Registries } from "./registries.ts";
 import type { AnalysisResult, Handle } from "./types.ts";
-
-/** The subset of `RawExports` this module calls. Structural rather than imported, so the file
- *  states exactly which exports it depends on: a module missing one fails to typecheck here
- *  rather than at the first call in production. */
-export interface StageExports {
-  gm_run(handle: number, layoutId: number, paramsPtr: number, paramsLen: number): number;
-  gm_post_run(handle: number, postIndex: number): number;
-  gm_analysis_run(handle: number, index: number): number;
-  gm_node_count(handle: number): number;
-  gm_snapshot_json(handle: number): number;
-  gm_snapshot_bytes(handle: number): number;
-  gm_geometry_kind(handle: number): number;
-  gm_edge_geometry_kind(handle: number): number;
-  gm_dim(handle: number): number;
-  gm_last_error(): number;
-  readonly memory: WebAssembly.Memory;
-}
+import type { RawExports } from "./wasm.ts";
 
 /** What the three stages share: the module, the view epoch, the registries, and where each
  *  handle's last successful run recorded its geometry kinds. Built once per motor, so a stage
  *  is three arguments and not eight. */
 export interface StageContext {
-  readonly exports: StageExports;
+  readonly exports: RawExports;
   readonly views: ColumnViews;
   readonly registries: Registries;
   readonly kinds: Map<Handle, GeometryKinds>;
@@ -56,7 +40,7 @@ export interface GeometryRun {
 
 /** The recorded kinds, for the handle this stage just ran. */
 function record(ctx: StageContext, handle: Handle, what: string): GeometryRun {
-  const kinds = readKinds(ctx.exports as never, handle, what);
+  const kinds = readKinds(ctx.exports, handle, what);
   ctx.kinds.set(handle, kinds);
   return { nodeKind: kinds.nodeKind, edgeKind: kinds.edgeKind, dim: kinds.dim };
 }
@@ -66,11 +50,11 @@ function record(ctx: StageContext, handle: Handle, what: string): GeometryRun {
  *  params pointer and length are `0, 0` and the module refuses anything else. */
 export function runLayout(ctx: StageContext, handle: Handle, layoutId: string): GeometryRun {
   const { exports, views } = ctx;
-  const index = ctx.registries.layoutIndex(exports as never, layoutId);
+  const index = ctx.registries.layoutIndex(exports, layoutId);
   const ok = invoke("gm_run", () => exports.gm_run(handle, index, 0, 0));
   views.bump();
   if (ok !== 1) {
-    const code = lastError(exports as never);
+    const code = lastError(exports);
     if (code === INVALID_HANDLE_CODE) throw new InvalidHandleError(`handle ${handle} is not live`, code);
     throw new RunRefusedError(`gm_run refused (${codeName(code)})`, code);
   }
@@ -83,11 +67,11 @@ export function runLayout(ctx: StageContext, handle: Handle, layoutId: string): 
  *  so a failed call never serves a half-applied drawing. */
 export function runPost(ctx: StageContext, handle: Handle, postId: string): GeometryRun {
   const { exports, views } = ctx;
-  const index = ctx.registries.postIndex(exports as never, postId);
+  const index = ctx.registries.postIndex(exports, postId);
   const ok = invoke("gm_post_run", () => exports.gm_post_run(handle, index));
   views.bump();
   if (ok !== 1) {
-    const code = lastError(exports as never);
+    const code = lastError(exports);
     if (code === INVALID_HANDLE_CODE) throw new InvalidHandleError(`handle ${handle} is not live`, code);
     if (code === NO_GEOMETRY_CODE) {
       throw new PostRefusedError(`handle ${handle} has no successful layout run to draw over`, code);
@@ -103,23 +87,23 @@ export function runPost(ctx: StageContext, handle: Handle, postId: string): Geom
  *  Records no geometry: an analysis never touches any. */
 export function runAnalysis(ctx: StageContext, handle: Handle, analysisId: string): AnalysisResult {
   const { exports } = ctx;
-  const index = ctx.registries.analysisIndex(exports as never, analysisId);
+  const index = ctx.registries.analysisIndex(exports, analysisId);
   const ptr = invoke("gm_analysis_run", () => exports.gm_analysis_run(handle, index));
   if (ptr === 0) {
-    const code = lastError(exports as never);
+    const code = lastError(exports);
     if (code === INVALID_HANDLE_CODE) throw new InvalidHandleError(`handle ${handle} is not live`, code);
     throw new AnalysisRefusedError(`gm_analysis_run refused (${codeName(code)})`, code);
   }
-  return parseAnalysisFace(decoder.decode(frame(exports as never, ptr)), analysisId);
+  return parseAnalysisFace(decoder.decode(frame(exports, ptr)), analysisId);
 }
 
 /** Nodes in `handle`'s topology — available straight after a build, before any run. `0` is
  *  ambiguous on the wire (a genuinely empty graph, or an invalid handle, C4), so this
  *  resolves it through `gm_last_error` and only the real refusal throws. */
-export function nodeCount(exports: StageExports, handle: Handle): number {
+export function nodeCount(exports: RawExports, handle: Handle): number {
   const count = invoke("gm_node_count", () => exports.gm_node_count(handle));
   if (count !== 0) return count;
-  if (lastError(exports as never) === INVALID_HANDLE_CODE) {
+  if (lastError(exports) === INVALID_HANDLE_CODE) {
     throw new InvalidHandleError(`handle ${handle} is not live`, INVALID_HANDLE_CODE);
   }
   return count;
@@ -129,11 +113,11 @@ export function nodeCount(exports: StageExports, handle: Handle): number {
  *  column view wrote a non-finite value into the motor's own buffers since that run (D9
  *  re-validation, C8) — this is what makes writing NaN through a zero-copy view an error
  *  here, not a value that silently reaches JSON. */
-export function snapshotText(exports: StageExports, handle: Handle): string {
-  return decoder.decode(frame(exports as never, snapshotPtr(exports as never, "gm_snapshot_json", handle)));
+export function snapshotText(exports: RawExports, handle: Handle): string {
+  return decoder.decode(frame(exports, snapshotPtr(exports, "gm_snapshot_json", handle)));
 }
 
 /** The binary face of `handle`'s last run. Same D9 re-validation as {@link snapshotText}. */
-export function snapshotBytes(exports: StageExports, handle: Handle): Uint8Array {
-  return frame(exports as never, snapshotPtr(exports as never, "gm_snapshot_bytes", handle));
+export function snapshotBytes(exports: RawExports, handle: Handle): Uint8Array {
+  return frame(exports, snapshotPtr(exports, "gm_snapshot_bytes", handle));
 }

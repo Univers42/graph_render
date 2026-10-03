@@ -84,7 +84,13 @@ export class ForceColumns {
   read(): { readonly xs: Float64Array; readonly ys: Float64Array } {
     const { exports } = this.#loaded;
     const cached = this.#views;
-    if (cached !== null && cached.buffer === exports.memory.buffer) return { xs: cached.xs, ys: cached.ys };
+    // The cached path is checked too, and it is the *common* one: a caller that reads a frame,
+    // writes through it, and reads the next frame without ever ticking arrives here, and a
+    // gate that only ran on the first derivation would miss exactly the write it exists for.
+    if (cached !== null && cached.buffer === exports.memory.buffer) {
+      assertFinitePositions(this.#id, [cached.xs, cached.ys]);
+      return { xs: cached.xs, ys: cached.ys };
+    }
     const xs = this.#column(exports, X_AXIS);
     const ys = this.#column(exports, Y_AXIS);
     assertFinitePositions(this.#id, [xs, ys]);

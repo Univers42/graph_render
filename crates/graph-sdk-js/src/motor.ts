@@ -21,7 +21,7 @@
 import { loadMotor, toU32, type WasmSource } from "./wasm.ts";
 import { ColumnViews, isRegisteredColumn } from "./views.ts";
 import { ForceSession } from "./force.ts";
-import { AbiContractError, BuildRefusedError, ContractRefusedError, InvalidHandleError, RunRefusedError, WasmUnavailableError, codeName } from "./errors.ts";
+import { AbiContractError, BuildRefusedError, ContractRefusedError, InvalidHandleError, WasmUnavailableError } from "./errors.ts";
 import { INVALID_HANDLE_CODE, invoke, lastError } from "./calls.ts";
 import { ColumnId, type AnalysisResult, type Column, type ForceEngine, type ForceParams, type Handle } from "./types.ts";
 import type { MotorOptions, PostResult, RunResult } from "./types.ts";
@@ -51,7 +51,7 @@ export class Motor {
    *  `phase-04-wasm-sdk.md` step 5: "warn-and-degrade rather than throw on init failure"):
    *  a load failure — the kill switch, the latched `initFailed`, or the compile/instantiate
    *  itself throwing — resolves to a *degraded* `Motor` instead. Every other method on a
-   *  degraded motor fails predictably via {@link Motor.requireLoaded}, so the one place
+   *  degraded motor fails predictably via {@link Motor.#requireLoaded}, so the one place
    *  that would otherwise take the host page down with it never does; nothing is fabricated
    *  (`docs/contract/wasm-abi.md` "Deviations" explains why a fake handle would be worse). */
   static async create(source: WasmSource, options?: MotorOptions): Promise<Motor> {
@@ -90,7 +90,7 @@ export class Motor {
   /** Every method below that needs the real module calls this first: on a degraded motor
    *  (`#context` is `null`) it throws the latched load failure predictably, at first use —
    *  never at {@link create} itself, and never a fabricated handle or value. */
-  requireLoaded(): StageContext {
+  #requireLoaded(): StageContext {
     if (this.#context === null) {
       throw this.#loadError ?? new WasmUnavailableError("wasm module is not loaded");
     }
@@ -105,23 +105,23 @@ export class Motor {
    *  degraded motor rather than reporting an empty registry that would read as "this module
    *  has no layouts". */
   layouts(): readonly string[] {
-    const { exports, registries } = this.requireLoaded();
-    return [...registries.layouts(exports as never).keys()];
+    const { exports, registries } = this.#requireLoaded();
+    return registries.layouts(exports);
   }
 
   /** Every registered POST capability id, in registry order — this SDK's view of the
    *  module's own registry (`gm_post_count`/`gm_post_id`, C1). Discoverable for the same
    *  reason {@link Motor.layouts} is, and refused rather than empty on a degraded motor. */
   posts(): readonly string[] {
-    const { exports, registries } = this.requireLoaded();
-    return [...registries.posts(exports as never).keys()];
+    const { exports, registries } = this.#requireLoaded();
+    return registries.posts(exports);
   }
 
   /** Every registered analysis id, in registry order (`gm_analysis_count`/`gm_analysis_id`,
    *  C1), for the same reason and refused the same way. */
   analyses(): readonly string[] {
-    const { exports, registries } = this.requireLoaded();
-    return [...registries.analyses(exports as never).keys()];
+    const { exports, registries } = this.#requireLoaded();
+    return registries.analyses(exports);
   }
 
   /** Builds a graph from `ingestJson`, the provisional ingest text
@@ -129,7 +129,7 @@ export class Motor {
    *  Stages it through `gm_alloc`/`gm_build` and always frees the staging buffer — C7 makes
    *  that this method's job, not its caller's, since the caller never sees the pointer. */
   build(ingestJson: string): Handle {
-    return buildStaged(this.requireLoaded() as never, ingestJson, {
+    return buildStaged(this.#requireLoaded(), ingestJson, {
       buffer: "ingest",
       call: "gm_build",
       refusal: "gm_build refused the ingest buffer",
@@ -155,7 +155,7 @@ export class Motor {
    *  node/edge document is *not* one of these refusals in spirit: it is simply not a contract,
    *  and it is refused as one. */
   buildContract(contractJson: string): Handle {
-    return buildStaged(this.requireLoaded() as never, contractJson, {
+    return buildStaged(this.#requireLoaded(), contractJson, {
       buffer: "contract",
       call: "gm_build_contract",
       refusal: "gm_build_contract refused the contract document",
@@ -167,7 +167,7 @@ export class Motor {
    *  `0` is ambiguous on the wire (a genuinely empty graph, or an invalid handle, C4): this
    *  method resolves it via `gm_last_error` so only the real refusal throws. */
   nodeCount(handle: Handle): number {
-    const { exports } = this.requireLoaded();
+    const { exports } = this.#requireLoaded();
     return nodeCount(exports, handle);
   }
 
@@ -176,9 +176,9 @@ export class Motor {
    *  never a hard-coded index, C1) over `handle`'s topology at its default parameters
    *  (registry layouts take none this phase, C2). */
   layout(handle: Handle, layoutId: string): RunResult {
-    const { exports, kinds } = this.requireLoaded();
-    const run = runLayout(this.#context as StageContext, handle, layoutId);
-    return { handle, nodeKind: run.nodeKind, edgeKind: run.edgeKind, nodeCount: nodeCount(exports, handle), dim: run.dim };
+    const ctx = this.#requireLoaded();
+    const run = runLayout(ctx, handle, layoutId);
+    return { handle, nodeKind: run.nodeKind, edgeKind: run.edgeKind, nodeCount: nodeCount(ctx.exports, handle), dim: run.dim };
   }
 
   /** Runs the registered POST capability `postId` (from {@link Motor.posts}; the id is
@@ -191,9 +191,9 @@ export class Motor {
    *  Each pass reads the **layout's** edges, never the previous pass's, so running style then
    *  bundle gives the same answer as running bundle once. */
   post(handle: Handle, postId: string): PostResult {
-    const { exports } = this.requireLoaded();
-    const run = runPost(this.#context as StageContext, handle, postId);
-    return { handle, id: postId, nodeKind: run.nodeKind, edgeKind: run.edgeKind, nodeCount: nodeCount(exports, handle), dim: run.dim };
+    const ctx = this.#requireLoaded();
+    const run = runPost(ctx, handle, postId);
+    return { handle, id: postId, nodeKind: run.nodeKind, edgeKind: run.edgeKind, nodeCount: nodeCount(ctx.exports, handle), dim: run.dim };
   }
 
   /** Runs the registered analysis `analysisId` (from {@link Motor.analyses}) over
@@ -201,7 +201,7 @@ export class Motor {
    *  works straight after {@link Motor.build}; only an unknown handle or an unregistered id
    *  throws. */
   analysis(handle: Handle, analysisId: string): AnalysisResult {
-    return runAnalysis(this.#context as StageContext, handle, analysisId);
+    return runAnalysis(this.#requireLoaded(), handle, analysisId);
   }
 
   /** The column `columnId` of `handle`'s last run, or `null` if it is reserved or does not
@@ -214,7 +214,7 @@ export class Motor {
    *  this SDK that bypassed the `u32` coercion every other argument goes through, and the one
    *  place where coercion is the wrong answer, because a column id is a *name*, not a count. */
   column(handle: Handle, columnId: ColumnId): Column {
-    const { views, kinds } = this.requireLoaded();
+    const { views, kinds } = this.#requireLoaded();
     if (!isRegisteredColumn(columnId)) {
       throw new AbiContractError(`column id ${String(columnId)} is not one this ABI registers; see ColumnId`);
     }
@@ -232,13 +232,13 @@ export class Motor {
    *  {@link TamperedGeometryError} if a column view wrote a non-finite value into the motor's
    *  own buffers since that run (D9 re-validation, C8). */
   toJSON(handle: Handle): string {
-    const { exports } = this.requireLoaded();
+    const { exports } = this.#requireLoaded();
     return snapshotText(exports, handle);
   }
 
   /** The binary face of `handle`'s last run. Same D9 re-validation as {@link Motor.toJSON}. */
   toBytes(handle: Handle): Uint8Array {
-    const { exports } = this.requireLoaded();
+    const { exports } = this.#requireLoaded();
     return snapshotBytes(exports, handle);
   }
 
@@ -253,9 +253,9 @@ export class Motor {
    *  {@link InvalidHandleError} with the recorded code, and the handle stays live: nothing
    *  was released, so nothing is forgotten. */
   release(handle: Handle): void {
-    const { exports, views } = this.requireLoaded();
+    const { exports, views } = this.#requireLoaded();
     invoke("gm_release", () => exports.gm_release(handle) as unknown as number);
-    if (lastError(exports as never) === INVALID_HANDLE_CODE) {
+    if (lastError(exports) === INVALID_HANDLE_CODE) {
       throw new InvalidHandleError(`handle ${handle} is not live`, INVALID_HANDLE_CODE);
     }
     views.bump();
@@ -285,7 +285,7 @@ export class Motor {
    *
    *  `engine` picks the tick ({@link ForceEngine}); every other method is the same for both. */
   forceSession(handle: Handle, params?: Partial<ForceParams>, engine?: ForceEngine): ForceSession {
-    return new ForceSession(this.requireLoaded() as never, handle, params, engine);
+    return new ForceSession(this.#requireLoaded(), handle, params, engine);
   }
 }
 
@@ -295,7 +295,3 @@ export class Motor {
 export async function createMotor(source: WasmSource, options?: MotorOptions): Promise<Motor> {
   return Motor.create(source, options);
 }
-
-/** Re-exported here so a consumer reaching for the id-space constants has one import, and so
- *  this module's own `RunRefusedError`/`codeName` imports are not dead weight. */
-export { RunRefusedError, codeName };

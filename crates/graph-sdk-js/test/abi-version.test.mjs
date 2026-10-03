@@ -8,6 +8,17 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { ABI_VERSION, loadMotor, resetForTests } from "../src/wasm.ts";
 
+/** The ABI revision this SDK speaks, **as a literal and not as the constant it imports**.
+ *
+ *  Both tests below used to compare against the imported `ABI_VERSION`, which pinned the
+ *  constant to itself: changing `wasm.ts`'s `ABI_VERSION` to `2` left both of them green
+ *  (`999 !== 2` and `2 === 2`), so nothing in JavaScript would have noticed the SDK speaking a
+ *  revision the Rust side does not. The number is written here, and the test below asserts it
+ *  is the number the module and the loader agree on — so moving one without the other is red
+ *  in both directions. The only other place `1` is pinned is
+ *  `crates/graph-wasm/src/errors/mirrors.rs`. */
+const PINNED_ABI_VERSION = 1;
+
 const NAMES = [
   "gm_abi_version", "gm_alloc", "gm_free", "gm_layout_count", "gm_layout_id", "gm_build",
   "gm_build_contract", "gm_run", "gm_node_count", "gm_geometry_kind", "gm_edge_geometry_kind",
@@ -53,13 +64,19 @@ test("a module reporting another ABI version is refused, naming both numbers", a
   assert.equal(error.name, "WasmUnavailableError", error.message);
   const reason = String(error.reason?.message);
   assert.match(reason, /\b999\b/, reason);
-  assert.match(reason, new RegExp(`\\b${ABI_VERSION}\\b`), reason);
+  assert.match(reason, new RegExp(`\\b${PINNED_ABI_VERSION}\\b`), reason);
+  resetForTests();
+});
+
+test("this SDK's own ABI version is the pinned literal, not whatever the constant says", async () => {
+  resetForTests();
+  assert.equal(ABI_VERSION, PINNED_ABI_VERSION, "wasm.ts's ABI_VERSION moved from the literal this file pins");
   resetForTests();
 });
 
 test("a module reporting this SDK's ABI version loads", async () => {
   resetForTests();
-  const exports = await loadMotor(moduleReporting(ABI_VERSION));
-  assert.equal(exports.gm_abi_version(), ABI_VERSION);
+  const exports = await loadMotor(moduleReporting(PINNED_ABI_VERSION));
+  assert.equal(exports.gm_abi_version(), PINNED_ABI_VERSION);
   resetForTests();
 });

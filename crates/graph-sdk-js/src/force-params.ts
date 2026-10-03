@@ -6,8 +6,8 @@
 // is what both of them are actually about: a field added on the Rust side and missing from
 // `FIELDS` shows up as a length mismatch here rather than as a silently shifted parameter.
 
-import { AllocationFailedError, ForceSessionRefusedError, InvalidOptionsError } from "./errors.ts";
-import { SESSION_PARAMS_INVALID_CODE, invoke, lastError } from "./calls.ts";
+import { AllocationFailedError, ForceSessionRefusedError } from "./errors.ts";
+import { SESSION_PARAMS_INVALID_CODE, SESSION_REFUSED_CODE, invoke, lastError } from "./calls.ts";
 import { type RawExports } from "./wasm.ts";
 import type { ForceParams } from "./types.ts";
 
@@ -96,10 +96,20 @@ export function mergeParams(current: ForceParams, params: Partial<ForceParams>):
 
 /** One `u32`-shaped argument this SDK is about to send, or a refusal naming it. A `u32`
  *  count or index is exact arithmetic the caller's own value must survive (C9), so this is
- *  the check that has to come *before* `toU32`, never after. */
+ *  the check that has to come *before* `toU32`, never after — `toU32` alone turns `-1` into
+ *  `4294967295` and `NaN` into `0`, both legal words and both the wrong number.
+ *
+ *  A {@link ForceSessionRefusedError}, because that is the class already scoped to "a parameter
+ *  outside its range, never clamped": a negative tick count is the same kind of mistake as a
+ *  charge outside `-5000..=0`, caught one layer earlier so the count cannot reach the
+ *  integrator. The recorded code is `SessionRefused`, not `SessionParamsInvalid` — the latter
+ *  is about a buffer of the wrong *length*, and nothing here has a buffer. */
 export function asU32(value: number, what: string): number {
   if (!isU32(value)) {
-    throw new InvalidOptionsError(`${what} must be an integer in 0..${String(U32_MAX)} (a u32), got ${String(value)}`);
+    throw new ForceSessionRefusedError(
+      `${what} must be an integer in 0..${String(U32_MAX)} (a u32), got ${String(value)}`,
+      SESSION_REFUSED_CODE,
+    );
   }
   return value;
 }

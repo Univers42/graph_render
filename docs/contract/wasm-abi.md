@@ -557,24 +557,26 @@ returns a degraded `Motor` (see Deviations).
 
 ## File-size deviations (the house's ≤300-line limit)
 
-`crates/graph-sdk-js/src/index.ts` measures 554 lines and `harness/sdk-smoke.mjs` 727,
-both over the limit; `crates/graph-wasm/src/{post,analysis}/tests.rs` (379 and 404) are
-over it too. `index.ts` grew from 476 with `Motor#buildContract` and `sdk-smoke.mjs` from
-542 with that method's coverage plus the end-to-end convergence mode. Both were already
-at or near it before this change (`index.ts` 281, `sdk-smoke.mjs` 303), and the house's
-own answer — split into child modules, never compress — is not available for either file
-without a restructuring outside this task's envelope: `index.ts` is *the published entry
-point* (a consumer imports that one file, and splitting the `Motor` class across modules
-would mean exporting an implementation detail or re-exporting through a barrel the type
-surface then has to mirror), and `sdk-smoke.mjs` is a single top-level script whose
-`check`/`failures` counters and `process.exit` are deliberately process-global. The two
-test files are the ordinary `views.rs` → `views/tests.rs` split already applied; their
-parents are under the limit. Recorded here rather than hidden, and the two over-limit
-non-test files are the ones a reviewer should look at first.
+**There are none.** This section used to record four, and every one of the four has since been
+retired by the house's own answer — split into child modules, never compress — so the record
+is replaced by what replaced it rather than left to mislead the next reader:
 
-`crates/graph-wasm/src/contract.rs` (76) and `contract/tests.rs` (269) are both **under**
-the limit — the new module is the ordinary `ingest.rs` → `ingest/{,tests/}.rs` shape, not
-an exception to it.
+| retired entry | what it was | where it went |
+|---|---|---|
+| `crates/graph-sdk-js/src/index.ts` at 554 | the `Motor` class *and* the entry point's export list in one file | `index.ts` is now the barrel a consumer imports (22 lines) and holds the published surface; the class is `motor.ts` (297) and the four blocks it delegates are `stages.ts` (123) |
+| `harness/sdk-smoke.mjs` at 727 | one script with one registry of checks | `harness/sdk-smoke.mjs` (66) and `harness/sdk-smoke/{lib,build,layouts,post,analysis,transport,force,degraded,convergence}.mjs`; the `check`/`failures` counters stayed process-global in `lib.mjs`, which is what made the split possible |
+| `crates/graph-wasm/src/post/tests.rs` at 379 | one test module | `crates/graph-wasm/src/post/tests/{mod,fixtures,rows}.rs`, largest 196 |
+| `crates/graph-wasm/src/analysis/tests.rs` at 404 | one test module | `crates/graph-wasm/src/analysis/tests/{mod,fixtures,json}.rs`, largest 161 |
+
+The claim this section used to make — that splitting `index.ts` "is not available without a
+restructuring outside this task's envelope", because splitting the `Motor` class "would mean
+exporting an implementation detail or re-exporting through a barrel the type surface then has
+to mirror" — was wrong, and is withdrawn. The barrel *is* the answer for a published entry
+point: `index.ts` re-exports the class and every name the docs, the README and a harness file
+import, and `package.json`'s `"."` still points at `src/index.ts`, so no consumer path moved.
+
+`crates/graph-wasm/src/contract.rs` (79) and `contract/tests.rs` (269) are both **under** the
+limit, as recorded.
 
 ## Deviations
 
