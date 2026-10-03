@@ -101,6 +101,35 @@ fn a_spacing_that_is_not_finite_and_positive_is_refused() {
     assert!(cells(4, f32::MIN_POSITIVE).is_ok());
 }
 
+/// A **finite** spacing whose extreme cell centre is not finite after the one `f32`
+/// product is refused, the rule `grid/scaled.rs` already states for its `f64` kernel.
+///
+/// `f32::MAX` at `n = 16` is `cols = rows = 4`, so the widest offset is `1.5 * f32::MAX`
+/// and [`Lattice::offset`](super::Lattice) rounds that to `inf`: a `Geometry` carrying a
+/// non-finite coordinate, refused later at `snapshot` under `node.x` instead of here under
+/// the parameter that caused it. **`n = 4` is the case that does *not* overflow**
+/// (`cols = rows = 2`, offset `0.5 * f32::MAX`), so this is a bound and not a veto, and
+/// the two together are what makes the rule a rule rather than a blanket refusal.
+#[test]
+fn a_spacing_whose_extreme_cell_is_not_finite_is_refused() {
+    let want = StageError::Param {
+        name: "spacing",
+        rule: "widest cell centre inside the f32 range",
+    };
+    assert_eq!(cells(16, f32::MAX).expect_err("refused"), want);
+    assert!(
+        cells(4, f32::MAX).is_ok(),
+        "0.5 * f32::MAX is finite, so this spacing is legal at n = 4"
+    );
+    // And the rule bites through the public entry point, not the helper alone.
+    let topology = crate::layout::coords::probe::graph(16, &[]);
+    assert_eq!(
+        Grid::run_with(&topology, &GridParams { spacing: f32::MAX }, &Serial, 1)
+            .expect_err("refused"),
+        want
+    );
+}
+
 #[test]
 fn the_largest_lattice_is_still_exact_half_integers() {
     let (cols, rows) = dimensions(u32::MAX);

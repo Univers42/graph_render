@@ -116,7 +116,9 @@ layout/circular.rs (docs/decisions/circular-conventions.md), restated independen
 checked per seed by graph-cli roundtrip; no third-party circular/radial hierarchy layout is a \
 meaningful byte-for-byte oracle (SciGraphs' own hierarchical.py normalises differently, per that \
 decision doc)",
-    complexity: "O(n)",
+    complexity: "O(n + m): Hierarchy::of reads every topology edge (keep_lowest_parent_edges, \
+break_cycles) before the ring pass, which reads no structure itself — the CIRCULAR_HIERARCHY \
+row above says the same for the same family",
     scale_ceiling: HIERARCHY_LAYOUT_CEILING,
     degradation: "past the ceiling wasm32 cannot allocate and the module traps (no partial \
 result); natively, memory permitting, the snapshot refuses with SnapshotError::Capacity once an \

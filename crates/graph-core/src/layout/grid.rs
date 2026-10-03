@@ -57,7 +57,9 @@ pub struct Grid;
 /// The grid's parameters.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GridParams {
-    /// Distance between neighbouring cells, on both axes. Finite and above 0.
+    /// Distance between neighbouring cells, on both axes. Finite, above 0, and its widest
+    /// cell centre — `((cells - 1) / 2) * spacing` — inside the `f32` range. See
+    /// [`Grid::run_with`], which is where both rules are stated.
     pub spacing: f32,
 }
 
@@ -132,6 +134,17 @@ pub const fn dimensions(n: u32) -> (u32, u32) {
 ///
 /// The validation lives here, **once**: the serial stage and every threaded arm build the
 /// kernel through this, so there is no second place a spacing rule could be stated.
+///
+/// **Two rules, both about the coordinate and not about the drawing**, the pair
+/// `grid/scaled.rs` states for the SciGraphs placement. The spacing is finite and above 0,
+/// and the widest cell centre the lattice can write — `((cells - 1) / 2) * spacing` for
+/// `cells = max(cols, rows)`, which `Lattice::offset` multiplies in `f32` and which
+/// **overflows to `inf` rather than saturating** (measured, not assumed) — is inside the
+/// `f32` range. The second rule is not decoration: a *finite* `f32::MAX` at `n >= 9`
+/// (`cols = rows = 4`, so a half-integer of `1.5`) used to put `inf` in a `Geometry` and
+/// this comment used to promise it never would. `rows <= cols` always holds, because
+/// `cols = ceil(sqrt(n))` gives `n <= cols * cols`, so `max` is belt and braces.
+/// See `a_spacing_whose_extreme_cell_is_not_finite_is_refused`.
 fn cells(n: u32, spacing: f32) -> Result<Lattice, StageError> {
     if !(spacing.is_finite() && spacing > 0.0) {
         return Err(StageError::Param {
@@ -140,6 +153,13 @@ fn cells(n: u32, spacing: f32) -> Result<Lattice, StageError> {
         });
     }
     let (cols, rows) = dimensions(n);
+    let cells = cols.max(rows).saturating_sub(1);
+    if f64::from(cells) / 2.0 * f64::from(spacing) > f64::from(f32::MAX) {
+        return Err(StageError::Param {
+            name: "spacing",
+            rule: "widest cell centre inside the f32 range",
+        });
+    }
     Ok(Lattice {
         count: n,
         cols,
