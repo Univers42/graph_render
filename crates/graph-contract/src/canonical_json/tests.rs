@@ -27,7 +27,8 @@ fn snapshot(nodes: NodeGeometry, edges: EdgeGeometry) -> Snapshot {
 }
 
 /// The same snapshot in three dimensions: a z column and the 0.4 label it needs. Built by
-/// hand, since no 3D layout exists yet.
+/// hand because this crate cannot run a layout: it depends on no `graph-core`, so one is out
+/// of its reach however many the registry holds, and a z column is all it ever reads.
 fn spaced(nodes: NodeGeometry, edges: EdgeGeometry, z: Vec<f32>) -> Snapshot {
     let mut p = snapshot(nodes, edges).into_parts();
     p.z = Some(z);
