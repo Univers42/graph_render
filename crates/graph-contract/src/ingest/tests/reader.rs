@@ -72,14 +72,56 @@ fn the_minimal_document_reads_to_exactly_these_collections_and_records() {
 }
 
 #[test]
-fn a_field_without_the_link_member_reads_with_link_none() {
-    let doc = minimal();
-    assert!(
-        doc.collections[0]
-            .field("name")
-            .expect("declared")
-            .link
-            .is_none()
+fn a_field_without_the_link_member_is_refused_naming_it() {
+    // `link` is required on every field, as every member is: a present `null` is how a
+    // non-`link` field says it has no target. The schema says so too
+    // (`docs/contract/ingest-schema.json` requires `link`, and `required_link` in
+    // `ingest/schema.rs` puts it there deliberately), so a reader that accepted a
+    // missing one would read a document its own schema refuses.
+    assert_eq!(
+        err(&MINIMAL.replace(
+            r#"{ "id": "name", "name": "Name", "role": "title", "link": null }"#,
+            r#"{ "id": "name", "name": "Name", "role": "title" }"#
+        )),
+        "collections[0].fields[0]: missing member `link`"
+    );
+}
+
+#[test]
+fn an_integer_past_the_exact_range_is_refused_rather_than_rounded() {
+    // `JsonValue::Number` is an `f64`, so an integer the `f64` cannot hold lands on a
+    // neighbour: reading `9007199254740993` would make the cell `9007199254740992`, and
+    // the document's own bytes would be rewritten with nothing said.
+    let with_effort = |n: &str| MINIMAL.replace(r#""effort": 2"#, &format!(r#""effort": {n}"#));
+    let path = "records[0].values.effort: an integer past 9007199254740992 cannot be read exactly";
+    assert_eq!(err(&with_effort("9007199254740993")), path);
+    assert_eq!(err(&with_effort("-9007199254740993")), path);
+    // One past the writer's own spelling of `1e21`, which is a bare integer no `f64` holds
+    // exactly: refused too, because it is not the text the writer writes for that number.
+    assert_eq!(err(&with_effort("1000000000000000000001")), path);
+    // 2^53 itself is exact, so it reads as itself.
+    assert_eq!(
+        read(&with_effort("9007199254740992"))
+            .expect("2^53 is exact")
+            .records[0]
+            .value("effort"),
+        Some(&JsonValue::Number(9007199254740992.0))
+    );
+    // The writer's own text for a whole `f64` past 2^53 stays readable — it is the only
+    // spelling of the number the writer meant, and refusing it would break
+    // write-then-read for `1e21` (`ingest::tests::writer`).
+    assert_eq!(
+        read(&with_effort("1000000000000000000000"))
+            .expect("the writer's own spelling reads")
+            .records[0]
+            .value("effort"),
+        Some(&JsonValue::Number(1e21))
+    );
+    // A large *float* is a different fault from a large integer — it says its own
+    // precision in an exponent — and it is read, not refused.
+    assert_eq!(
+        read(&with_effort("1e30")).expect("a float reads").records[0].value("effort"),
+        Some(&JsonValue::Number(1e30))
     );
 }
 
@@ -161,12 +203,15 @@ fn the_reader_refuses_every_fault_with_its_own_message() {
         err(&MINIMAL.replace(r#""cardinality": "many""#, r#""cardinality": "some""#)),
         "collections[0].fields[5].link.cardinality: unknown cardinality \"some\""
     );
-    // A `link` role with no link member at all.
+    // A `link` role with no target. The member is *present* and `null`: omitting it is a
+    // different fault, refused earlier as a missing member (the test above), because a
+    // `link` role that has to say nothing at all is a different mistake from one that
+    // says `null`.
     assert_eq!(
         err(&MINIMAL.replace(
             r#"{ "id": "blocks", "name": "Blocks", "role": "link",
           "link": { "collection": "task", "cardinality": "many", "symmetric": false } }"#,
-            r#"{ "id": "blocks", "name": "Blocks", "role": "link" }"#
+            r#"{ "id": "blocks", "name": "Blocks", "role": "link", "link": null }"#
         )),
         "collections[0].fields[5]: a `link` field must declare its `link` member"
     );

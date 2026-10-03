@@ -1,5 +1,6 @@
 # Job sg-spectral-mds (agent build, SciGraphs conformance: SPECTRAL_3D, MDS_3D)
 
+Your worktree is cut from `sg-basic3d-spiral-oracle`, which is not on develop yet; do not merge develop.
 Read `prompts/jobs/sg-common.md` first. Needs `sg-mt19937` landed (the `n < 4` path below).
 Rows: `SPECTRAL_3D` (disparity 0.333) and `MDS_3D` (0.078), both cause `algorithm`.
 

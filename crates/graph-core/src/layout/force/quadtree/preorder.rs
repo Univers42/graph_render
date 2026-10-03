@@ -34,13 +34,11 @@ pub(super) enum Visit {
 }
 
 impl Quadtree {
-    /// Lays the pointer tree out in preorder, then appends the points no leaf holds (a NaN
-    /// coordinate) in ascending index, so `order` is a permutation of every point.
+    /// Lays the pointer tree out in preorder, then appends the points no leaf holds (a
+    /// non-finite coordinate) in ascending index, so `order` is a permutation of every
+    /// point. The arena buffers are already clear — [`Quadtree::reset`](super::Quadtree)
+    /// cleared them — so a refused build never reaches here.
     pub(super) fn flatten(&mut self, pts: Points<'_>) {
-        self.cells.clear();
-        self.key.clear();
-        self.order.clear();
-        self.pending.clear();
         self.pending
             .extend(self.root.map(|root| Visit::Open(root, self.root_bounds)));
         while let Some(visit) = self.pending.pop() {
@@ -55,7 +53,7 @@ impl Quadtree {
         }
         for i in 0..pts.xs.len() as u32 {
             let (x, y) = pts.at(i);
-            if x.is_nan() || y.is_nan() {
+            if !x.is_finite() || !y.is_finite() {
                 self.order.push(i);
             }
         }
@@ -66,7 +64,7 @@ impl Quadtree {
     fn open(&mut self, node: u32, bounds: Bounds) {
         let k = self.cells.len() as u32;
         let start = self.order.len() as u32;
-        self.key.push(node);
+        self.node_id.push(node);
         match self.shape[node as usize] {
             Shape::Leaf(head) => {
                 let mut point = Some(head);

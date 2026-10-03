@@ -35,6 +35,17 @@ pub(super) fn node_values(topology: &Topology, hierarchy: &Hierarchy) -> Vec<f64
 
 /// `node.children.sort((a, b) => b.value - a.value)`: descending value; stable, so a tie
 /// keeps the ascending dense index [`Hierarchy::children`] already hands in.
+///
+/// **`total_cmp` is the oracle's comparator on every value this module can hold.** The
+/// aggregate is a sum of [`clamp_weight`] outputs, so it is never `NaN` and never `-0.0`,
+/// and a non-finite *weight* is already clamped; `+inf` is reachable (a subtree summing
+/// past `f64::MAX`) and there the two comparators agree: `b.value - a.value` is
+/// `inf - inf == NaN`, which `Array.prototype.sort` coerces to `+0` — keep order — and
+/// `total_cmp` reports two `+inf` as equal, which a stable sort also keeps in order. The
+/// only input on which the two would differ is a `NaN` aggregate, and the clamp rules that
+/// out. `tests`'s `two_infinite_aggregates_sort_as_equal_and_js_keeps_their_order_too`
+/// builds the overflow and checks both orders. (d3's `hierarchy/sort.js` takes the
+/// comparator as an argument; the treemap itself never sorts.)
 pub(super) fn sorted_children(children: &[u32], value: &[f64]) -> Vec<u32> {
     let mut sorted = children.to_vec();
     sorted.sort_by(|&a, &b| value[b as usize].total_cmp(&value[a as usize]));
