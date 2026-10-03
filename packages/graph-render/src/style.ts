@@ -3,6 +3,7 @@
  * run and a frame outlives a restyle, so neither is rebuilt for the other.
  */
 import type { Rgb } from "./colour/srgb.ts";
+import { rankByWeight } from "./rank.ts";
 
 export interface StyleInput {
   /** One label per node; a missing one draws no label. */
@@ -117,12 +118,6 @@ export function bucketsOf(colours: Uint16Array, paletteSize: number): Pick<Style
   return { bucketStart, bucketItems };
 }
 
-export function rankOf(weights: Float32Array): Uint32Array {
-  const rank = new Uint32Array(weights.length);
-  for (let i = 0; i < rank.length; i += 1) rank[i] = i;
-  return rank.sort((a, b) => (weights[b] ?? 0) - (weights[a] ?? 0) || a - b);
-}
-
 /** Every node's drawn radius, and the largest of them. */
 export function radiiOf(weights: Float32Array, sizing: Sizing): Pick<Style, "radius" | "maxRadius"> {
   const radius = new Float32Array(weights.length);
@@ -135,17 +130,60 @@ export function radiiOf(weights: Float32Array, sizing: Sizing): Pick<Style, "rad
   return { radius, maxRadius };
 }
 
+/** Whether two keys are the same inputs: the same members, in the same order, by `Object.is`. */
+function sameKey(held: readonly unknown[], asked: readonly unknown[]): boolean {
+  if (held.length !== asked.length) return false;
+  for (let i = 0; i < held.length; i += 1) if (!Object.is(held[i], asked[i])) return false;
+  return true;
+}
+
+/** A cache of one entry: `build` runs only when `key` differs from the key it was last given. */
+function oneEntry<Value>(): (key: readonly unknown[], build: () => Value) => Value {
+  let held: { readonly key: readonly unknown[]; readonly value: Value } | null = null;
+  return (key, build) => {
+    const found = held;
+    if (found !== null && sameKey(found.key, key)) return found.value;
+    const value = build();
+    held = { key, value };
+    return value;
+  };
+}
+
+/**
+ * What `styleFrom` derives from the weights and from the colours, each held for as long as its
+ * inputs are the same objects. A reveal step changes only the hidden mask, so it reuses both and
+ * skips the O(n) radius loop, rank and bucket sort it used to redo at every step.
+ *
+ * Caveat: the arrays are keyed by identity, not by contents. A caller that rewrites a `weights` or
+ * `colours` array in place and passes the same object again gets the stale rank, radius and
+ * buckets. The studio's callers allocate a new array per change (`graph-studio/src/look/styleOf.ts`
+ * builds `weights` and `colours` behind memos keyed on the inputs that produce them, and the
+ * arrays it hands out are never written to). Escape hatch: pass a new array. One entry each, replaced
+ * on a miss, so what the cache keeps alive is bounded by the last style.
+ */
+const SIZED = oneEntry<Pick<Style, "radius" | "maxRadius" | "rank">>();
+const BUCKETED = oneEntry<Pick<Style, "bucketStart" | "bucketItems">>();
+
+function sizedOf(weights: Float32Array, sizing: Sizing): Pick<Style, "radius" | "maxRadius" | "rank"> {
+  const key = [weights, sizing.base, sizing.gain, sizing.min, sizing.max];
+  return SIZED(key, () => ({ ...radiiOf(weights, sizing), rank: rankByWeight(weights) }));
+}
+
 export function styleFrom(input: StyleInput): Style {
   const palette = input.palette.length > 0 ? input.palette : ["#9a9a9a"];
+  const { radius, maxRadius, rank } = sizedOf(input.weights, input.sizing ?? DEFAULT_SIZING);
+  const { bucketStart, bucketItems } = BUCKETED([input.colours, palette.length], () => bucketsOf(input.colours, palette.length));
   return {
     nodeCount: input.weights.length,
     labels: input.labels,
     weights: input.weights,
-    ...radiiOf(input.weights, input.sizing ?? DEFAULT_SIZING),
+    radius,
+    maxRadius,
     palette,
     colours: input.colours,
-    ...bucketsOf(input.colours, palette.length),
-    rank: rankOf(input.weights),
+    bucketStart,
+    bucketItems,
+    rank,
     hidden: input.hidden ?? null,
     placement: input.placement ?? "below",
     edgeWidth: input.edgeWidth ?? null,

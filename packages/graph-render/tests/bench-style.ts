@@ -14,7 +14,8 @@
  * before the clock starts, so a call never times the copy that made its input.
  */
 import { readFileSync } from "node:fs";
-import { bucketsOf, DEFAULT_SIZING, radiiOf, rankOf, styleFrom, type Style } from "../src/style.ts";
+import { rankByWeight } from "../src/rank.ts";
+import { bucketsOf, DEFAULT_SIZING, radiiOf, styleFrom, type Style } from "../src/style.ts";
 import { mulberry32 } from "./support.ts";
 
 const NODES = 1_000_000;
@@ -64,7 +65,7 @@ function armsOf({ weights, colours, masks }: Fixture): readonly Arm[] {
     { name: "styleFrom, fresh weights", call: (turn) => styled(pick(weights, turn), colours[0], null) },
     { name: "styleFrom, fresh weights and colours", call: (turn) => styled(pick(weights, turn), pick(colours, turn), null) },
     { name: "styleFrom, reveal step (new mask only)", call: (turn) => styled(weights[0], colours[0], pick(masks, turn)) },
-    { name: "rank alone", call: () => rankOf(weights[0]) },
+    { name: "rank alone", call: () => rankByWeight(weights[0]) },
     { name: "radius loop alone", call: () => radiiOf(weights[0], DEFAULT_SIZING) },
     { name: "bucketsOf alone", call: () => bucketsOf(colours[0], PALETTE.length) },
   ];
@@ -98,6 +99,7 @@ function loadavg(): string {
 function run(arms: readonly Arm[]): Map<string, number[]> {
   const rounds = new Map<string, number[]>(arms.map((arm) => [arm.name, []]));
   for (let round = 0; round < ROUNDS; round += 1) {
+    console.log(`round ${round + 1} loadavg: ${loadavg()}`);
     const order = round % 2 === 0 ? arms : [...arms].reverse();
     for (const arm of order) rounds.get(arm.name)?.push(timeArm(arm));
   }
@@ -107,12 +109,11 @@ function run(arms: readonly Arm[]): Map<string, number[]> {
 function main(): void {
   const arms = armsOf(fixture(20261003));
   console.log(`nodes ${NODES}, ${ROUNDS} rounds, each the median of ${CALLS} calls after ${WARMUP} warm-up`);
-  console.log(`loadavg before: ${loadavg()}`);
   for (const [name, times] of run(arms)) {
     const each = times.map((time) => time.toFixed(3)).join(", ");
     console.log(`${name.padEnd(40)} median ${median(times).toFixed(3).padStart(9)} ms  rounds ${each}`);
   }
-  console.log(`loadavg after:  ${loadavg()}`);
+  console.log(`loadavg after: ${loadavg()}`);
 }
 
 main();
