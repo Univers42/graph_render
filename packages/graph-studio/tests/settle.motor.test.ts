@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { createMotor, type Handle } from "../../../crates/graph-sdk-js/src/index.ts";
+import { assembleColumns, createMotor, type Handle } from "../../../crates/graph-sdk-js/src/index.ts";
 import { type Session, createSession } from "../src/motor/session.ts";
 import { LIVE_NODES, PARTICLE_MESH, SCATTER } from "../src/motor/settle.ts";
 import { FIXTURES_URL, SKIP, WASM } from "./motor.ts";
@@ -29,6 +29,7 @@ function spiedSession(seen: Seen): Session {
     },
     fetchText: () => Promise.reject(new Error("this test fetches nothing")),
     digest: () => Promise.resolve(null),
+    assemble: assembleColumns,
     now: () => 0,
   });
 }

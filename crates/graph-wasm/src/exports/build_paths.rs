@@ -8,7 +8,6 @@ use crate::alloc::is_live;
 use crate::contract;
 use crate::errors::{self, Code};
 use crate::ingest::{self, columns};
-use graph_core::Topology;
 
 /// Builds a graph from the provisional-ingest buffer at `(ingest_ptr, ingest_len)`,
 /// which must be a live `gm_alloc` allocation (C5) — this copies out of it and never
