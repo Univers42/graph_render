@@ -20,7 +20,14 @@
 // reads are therefore stable, but the *indices* are not an API: nothing outside this file
 // may depend on which index a given value got.
 
-import { ABSENT, ColumnsEncoderError, EDGE_COLUMNS, NODE_COLUMNS, assembleColumns } from "./columns-assemble.ts";
+import {
+  ABSENT,
+  ColumnsEncoderError,
+  EDGE_COLUMNS,
+  NODE_COLUMNS,
+  NOT_WELL_FORMED,
+  assembleColumns,
+} from "./columns-assemble.ts";
 
 export { ColumnsEncoderError } from "./columns-assemble.ts";
 export type { ColumnRows } from "./columns-assemble.ts";
@@ -83,7 +90,7 @@ export function encodeColumns(doc: ColumnsDocument): Uint8Array {
     rows.set(node.id, row);
     table.nodeCells(node, row, nodeCells, nodeCount);
   });
-  doc.edges.forEach((edge, row) => table.edgeCells(edge, row, edgeCells, edgeCount, rows));
+  doc.edges.forEach((edge, row) => table.edgeCells(edge, row, edgeCells, rows));
   return assembleColumns({
     strings: table.strings,
     nodeCells,
@@ -106,7 +113,7 @@ class Table {
     if (at !== undefined) return at;
     // `isWellFormed` is the check: `encodeInto` would otherwise replace a lone surrogate
     // with U+FFFD, and the row would read back as a different id (D9 at the string level).
-    if (!value.isWellFormed()) throw new ColumnsEncoderError(field);
+    if (!value.isWellFormed()) throw new ColumnsEncoderError(field, NOT_WELL_FORMED);
     const next = this.strings.length;
     this.strings.push(value);
     this.index.set(value, next);
@@ -129,20 +136,17 @@ class Table {
     cells[7 * count + row] = node.has_note ? 1 : 0;
   }
 
-  /** The eight edge columns of row `row`. An endpoint that names no node is refused here,
-   *  naming the field: the decoder refuses it too, but one lookup turning that into a stack
-   *  a caller can read is worth the branch. */
-  edgeCells(
-    edge: ColumnsEdge,
-    row: number,
-    cells: Uint32Array,
-    count: number,
-    rows: Map<string, number>,
-  ): void {
+  /** The eight edge columns of row `row`, at `column * count + row` where `count` is
+   *  `cells.length / EDGE_COLUMNS`. An endpoint that names no node is refused here, naming the
+   *  field: the decoder refuses it too, but one lookup turning that into a stack a caller can
+   *  read is worth the branch. */
+  edgeCells(edge: ColumnsEdge, row: number, cells: Uint32Array, rows: Map<string, number>): void {
+    const count = cells.length / EDGE_COLUMNS;
     const source = rows.get(edge.source);
     const target = rows.get(edge.target);
     if (source === undefined || target === undefined) {
-      throw new ColumnsEncoderError(`edges[${row}].${source === undefined ? "source" : "target"}`);
+      const end = source === undefined ? "source" : "target";
+      throw new ColumnsEncoderError(`edges[${row}].${end}`, "names no node");
     }
     cells[row] = this.intern(`edges[${row}].id`, edge.id);
     cells[count + row] = source;

@@ -21,7 +21,7 @@ measured median saving is under 3 s, the studio stays on JSON.**
 | the export | `crates/graph-wasm/src/exports/build_paths.rs` | `gm_build_columns(ptr, len)`, same handle lifecycle as `gm_build`, new code `ColumnsInvalid = 23` (20 at measurement time; renumbered when it merged after `ParamOutOfRange`..`ParamsNotAccepted` took 20-22). |
 | the encoder | `crates/graph-sdk-js/src/columns.ts` | `encodeColumns`: one `Uint8Array` sized up front, `TextEncoder.encodeInto` into it. |
 
-Since `perf-open-intern` the columnar admit takes `NodeCells`/`EdgeCells` over a `StringTable`, resolves
+Since `perf-open-intern` the columnar admit takes `NodeCells`/`EdgeCells` over an `EntryTable`, resolves
 the kinds itself and interns through a per-entry memo; `RowEdge` is gone (`perf-open-intern.md`).
 
 The invariant the differential rests on: **row `r` of the node columns is dense index `r`**.

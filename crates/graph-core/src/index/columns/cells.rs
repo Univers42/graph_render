@@ -16,7 +16,7 @@ use crate::columns::NodeKind;
 use crate::edgekind::EdgeKind;
 
 /// A document's string table: entries in index order, duplicates allowed.
-pub trait StringTable {
+pub trait EntryTable {
     /// How many entries the table holds.
     fn entries(&self) -> usize;
     /// The UTF-8 length of all entries together.
@@ -86,11 +86,13 @@ pub(super) struct Entries<'t, T: ?Sized> {
     edge_kinds: Memo<EdgeKind>,
 }
 
-impl<'t, T: StringTable + ?Sized> Entries<'t, T> {
-    pub(super) fn new(table: &'t T) -> Self {
+impl<'t, T: EntryTable + ?Sized> Entries<'t, T> {
+    /// `reserved` is the handle memo's starting capacity; it grows past that as entries are
+    /// named, exactly as an empty memo would.
+    pub(super) fn new(table: &'t T, reserved: usize) -> Self {
         Self {
             table,
-            handles: Memo(Vec::with_capacity(table.entries())),
+            handles: Memo(Vec::with_capacity(reserved)),
             node_kinds: Memo(Vec::new()),
             edge_kinds: Memo(Vec::new()),
         }
@@ -133,7 +135,7 @@ impl<'t, T: StringTable + ?Sized> Entries<'t, T> {
     }
 }
 
-fn text<T: StringTable + ?Sized>(table: &T, entry: u32) -> Result<&str, ColumnsRefusal> {
+fn text<T: EntryTable + ?Sized>(table: &T, entry: u32) -> Result<&str, ColumnsRefusal> {
     table
         .text(entry)
         .ok_or(ColumnsRefusal::TableEntry { entry })

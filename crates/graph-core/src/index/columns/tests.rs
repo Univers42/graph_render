@@ -2,7 +2,7 @@ use super::*;
 
 mod differential;
 
-impl<S: AsRef<str>> StringTable for [S] {
+impl<S: AsRef<str>> EntryTable for [S] {
     fn entries(&self) -> usize {
         self.len()
     }
@@ -159,6 +159,38 @@ fn an_empty_document_indexes_to_the_empty_topology() {
     let t = doc(&[], &[]).index().expect("nothing to refuse");
     assert_eq!((t.node_count(), t.edge_count()), (0, 0));
     assert_eq!(t.stats().nodes, 0);
+}
+
+/// A table that claims more entries than any buffer could hold, and holds none.
+struct Claims(usize);
+
+impl EntryTable for Claims {
+    fn entries(&self) -> usize {
+        self.0
+    }
+
+    fn bytes(&self) -> usize {
+        0
+    }
+
+    fn text(&self, _: u32) -> Option<&str> {
+        None
+    }
+}
+
+#[test]
+fn a_huge_table_under_no_rows_reserves_for_the_rows_not_the_table() {
+    // Reserving for the table's 2^40 entries is terabytes; reserving for zero rows is nothing.
+    let t = index_columns(&Claims(1 << 40), core::iter::empty(), core::iter::empty())
+        .expect("no row names an entry");
+    assert_eq!((t.node_count(), t.edge_count()), (0, 0));
+}
+
+#[test]
+fn the_reservation_is_the_smaller_count_and_saturates() {
+    assert_eq!(reserved_entries(100, 2, 1), 15);
+    assert_eq!(reserved_entries(4, 2, 1), 4);
+    assert_eq!(reserved_entries(9, usize::MAX, usize::MAX), 9);
 }
 
 #[test]

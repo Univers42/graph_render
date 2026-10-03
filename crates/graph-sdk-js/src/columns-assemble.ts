@@ -19,16 +19,19 @@
 
 import { GraphMotorError } from "./errors.ts";
 
-/** A string that cannot be encoded, with the field that holds it. */
+/** Why a string cannot be encoded as UTF-8: the reason both encoders give for it. */
+export const NOT_WELL_FORMED =
+  "is not well-formed: a lone surrogate cannot be encoded as UTF-8 and would read back as a " +
+  "different id (U+FFFD), so the document is refused instead";
+
+/** A value the encoder refuses, with the field that holds it and why. */
 export class ColumnsEncoderError extends GraphMotorError {
   /** The dotted field path, e.g. `nodes[7].icon` — a caller can branch on this. */
   readonly field: string;
 
-  constructor(field: string) {
-    super(
-      `\`${field}\` is not well-formed: a lone surrogate cannot be encoded as UTF-8 and ` +
-        `would read back as a different id (U+FFFD), so the document is refused instead`,
-    );
+  /** `reason` finishes the sentence that starts with the field, e.g. {@link NOT_WELL_FORMED}. */
+  constructor(field: string, reason: string) {
+    super(`\`${field}\` ${reason}`);
     this.field = field;
   }
 }
@@ -54,8 +57,9 @@ const ENCODER = new TextEncoder();
  * one `DataView` call per cell — at a million nodes that is the difference between sixteen
  * `set` calls and sixteen million. Failing input: a big-endian host, of which no JavaScript
  * engine is known. Direction: when this reads false the writers take the `DataView` path
- * instead, which produces the same bytes. Escape hatch: the probe is a module-load
- * `Uint16Array` store, so forcing it false in a test runs the fallback with no other change.
+ * instead, which produces the same bytes. Escape hatch: {@link assembleColumnsAs} takes the
+ * byte order as an argument, so a test on a little-endian host runs the fallback too and
+ * compares its bytes with the fast path's (`test/columns-assemble.test.mjs`).
  */
 const LITTLE_ENDIAN = new Uint8Array(new Uint16Array([1]).buffer)[0] === 1;
 
@@ -79,13 +83,20 @@ export interface ColumnRows {
  * The same refusals `encodeColumns` does not make: a non-finite `weight`, `version` or
  * `strength`, or a cell of `u32::MAX` in a required column. The decoder refuses both. */
 export function assembleColumns(rows: ColumnRows): Uint8Array {
+  return assembleColumnsAs(rows, LITTLE_ENDIAN);
+}
+
+/** {@link assembleColumns} with the host byte order given rather than probed. Not re-exported
+ *  from the package: it exists so a test can run the `DataView` writers on a little-endian
+ *  host. */
+export function assembleColumnsAs(rows: ColumnRows, littleEndian: boolean): Uint8Array {
   checkLengths(rows);
   const text = rows.strings.join("");
   // The fast path sizes the blob at one byte per code unit and asks `encodeInto` whether that
   // was enough — which it is exactly when every code unit is ASCII.
-  const fast = writeSized(rows, text, (value) => value.length, text.length);
+  const fast = writeSized(rows, text, littleEndian);
   if (fast !== null) return fast;
-  return writeExact(rows);
+  return writeExact(rows, littleEndian);
 }
 
 /** Where the blob starts: the header, then the offsets table. */
@@ -125,27 +136,23 @@ function checkLengths(rows: ColumnRows): void {
   checkColumn("edgeCells", rows.edgeCells.length, EDGE_COLUMNS * edges);
 }
 
-/** The offsets table. `offsets[0] = 0`, entry `i` is where `strings[i]` starts and the last is
- *  the blob length, so the slices exactly tile the blob and the table never decreases. */
-function writeOffsets(
-  out: Uint8Array,
-  at: number,
-  rows: ColumnRows,
-  width: (value: string) => number,
-): void {
-  const offsets = new Uint32Array(rows.strings.length + 1);
+/** The offsets table and the blob length it ends on. */
+interface TableOffsets {
+  /** `offsets[0] = 0`, entry `i` is where `strings[i]` starts and the last is the blob length,
+   *  so the slices exactly tile the blob and the table never decreases. */
+  readonly offsets: Uint32Array;
+  readonly blobBytes: number;
+}
+
+function tableOffsets(strings: readonly string[], width: (value: string) => number): TableOffsets {
+  const offsets = new Uint32Array(strings.length + 1);
   let running = 0;
-  for (const [i, value] of rows.strings.entries()) {
+  for (const [i, value] of strings.entries()) {
     offsets[i] = running;
     running += width(value);
   }
-  offsets[rows.strings.length] = running;
-  if (LITTLE_ENDIAN) {
-    new Uint32Array(out.buffer, at, offsets.length).set(offsets);
-    return;
-  }
-  const view = new DataView(out.buffer);
-  offsets.forEach((offset, i) => view.setUint32(at + 4 * i, offset, true));
+  offsets[strings.length] = running;
+  return { offsets, blobBytes: running };
 }
 
 /** The eight `u32` words: the magic, the counts, the blob length, and two reserved zeros. */
@@ -162,9 +169,14 @@ function writeHeader(out: Uint8Array, rows: ColumnRows, blobBytes: number): void
  *  `-0` and a subnormal round-trip as themselves — both ordinary finite doubles, and the JSON
  *  reader accepts them too. The offsets are multiples of 8 and `out` is fresh, so the views
  *  are always in bounds and never straddle. */
-function writeFloats(out: Uint8Array, at: number, columns: readonly Float64Array[]): void {
+function writeFloats(
+  out: Uint8Array,
+  at: number,
+  columns: readonly Float64Array[],
+  littleEndian: boolean,
+): void {
   let cursor = at;
-  const view = LITTLE_ENDIAN ? null : new DataView(out.buffer);
+  const view = littleEndian ? null : new DataView(out.buffer);
   for (const column of columns) {
     if (view === null) {
       new Float64Array(out.buffer, cursor, column.length).set(column);
@@ -175,12 +187,17 @@ function writeFloats(out: Uint8Array, at: number, columns: readonly Float64Array
   }
 }
 
-/** The sixteen `u32` columns, in contract order: eight node columns then eight edge columns,
- *  each column's rows contiguous — which is the order the contract stores them in and the
- *  order {@link ColumnRows} hands them over, so this is a copy per column and nothing else. */
-function writeInts(out: Uint8Array, at: number, columns: readonly Uint32Array[]): void {
+/** `u32` columns, one after another: the offsets table, and the sixteen cell columns in
+ *  contract order — eight node columns then eight edge columns, each column's rows contiguous,
+ *  which is the order {@link ColumnRows} hands them over, so this is a copy per column. */
+function writeInts(
+  out: Uint8Array,
+  at: number,
+  columns: readonly Uint32Array[],
+  littleEndian: boolean,
+): void {
   let cursor = at;
-  const view = LITTLE_ENDIAN ? null : new DataView(out.buffer);
+  const view = littleEndian ? null : new DataView(out.buffer);
   for (const column of columns) {
     if (view === null) {
       new Uint32Array(out.buffer, cursor, column.length).set(column);
@@ -195,35 +212,29 @@ function writeInts(out: Uint8Array, at: number, columns: readonly Uint32Array[])
 function finish(
   out: Uint8Array,
   rows: ColumnRows,
-  width: (value: string) => number,
-  blobBytes: number,
+  table: TableOffsets,
+  littleEndian: boolean,
 ): void {
-  writeHeader(out, rows, blobBytes);
+  writeHeader(out, rows, table.blobBytes);
   // The offsets table sits between the header and the blob: `string_count + 1` words at
   // `HEADER_BYTES`, so the blob begins at `blobAt(stringCount)`.
-  writeOffsets(out, HEADER_BYTES, rows, width);
-  const columns = columnsAt(rows.strings.length, blobBytes);
-  const floats = columns;
-  const ints = columns + 8 * (rows.weights.length + rows.versions.length + rows.strengths.length);
-  writeFloats(out, floats, [rows.weights, rows.versions, rows.strengths]);
-  writeInts(out, ints, [rows.nodeCells, rows.edgeCells]);
+  writeInts(out, HEADER_BYTES, [table.offsets], littleEndian);
+  const floats = columnsAt(rows.strings.length, table.blobBytes);
+  const ints = floats + 8 * (rows.weights.length + rows.versions.length + rows.strengths.length);
+  writeFloats(out, floats, [rows.weights, rows.versions, rows.strengths], littleEndian);
+  writeInts(out, ints, [rows.nodeCells, rows.edgeCells], littleEndian);
 }
 
 /** The fast path, returning `null` when the table is not ASCII after all. The buffer is sized
  *  as if the blob were `text.length` bytes, which *is* its length when every code unit is one
  *  byte; `encodeInto` reports how far it got, and both counters reaching `text.length` is the
  *  proof that it was. Nothing is measured and no string is encoded on its own. */
-function writeSized(
-  rows: ColumnRows,
-  text: string,
-  width: (value: string) => number,
-  blobBytes: number,
-): Uint8Array | null {
+function writeSized(rows: ColumnRows, text: string, littleEndian: boolean): Uint8Array | null {
   const at = blobAt(rows.strings.length);
-  const out = new Uint8Array(bufferLength(rows, blobBytes));
+  const out = new Uint8Array(bufferLength(rows, text.length));
   const written = ENCODER.encodeInto(text, out.subarray(at, at + text.length));
   if (written.read !== text.length || written.written !== text.length) return null;
-  finish(out, rows, width, blobBytes);
+  finish(out, rows, tableOffsets(rows.strings, (value) => value.length), littleEndian);
   return out;
 }
 
@@ -231,23 +242,23 @@ function writeSized(
  *  string by string and the buffer allocated to fit. Each string is checked *on its own* —
  *  two lone surrogates in two entries join into one valid pair, and a check on the joined text
  *  would pass and hand both entries back as U+FFFD. */
-function writeExact(rows: ColumnRows): Uint8Array {
-  let blobBytes = 0;
+function writeExact(rows: ColumnRows, littleEndian: boolean): Uint8Array {
   for (const [i, value] of rows.strings.entries()) {
-    if (!value.isWellFormed()) throw new ColumnsEncoderError(`strings[${i}]`);
-    blobBytes += utf8Length(value);
+    if (!value.isWellFormed()) throw new ColumnsEncoderError(`strings[${i}]`, NOT_WELL_FORMED);
   }
-  const at = blobAt(rows.strings.length);
-  const out = new Uint8Array(bufferLength(rows, blobBytes));
-  let cursor = at;
+  const table = tableOffsets(rows.strings, utf8Length);
+  const out = new Uint8Array(bufferLength(rows, table.blobBytes));
+  let cursor = blobAt(rows.strings.length);
   for (const value of rows.strings) {
     // `subarray(cursor)` runs to the end of the document, so `encodeInto` stops at the end of
     // this string rather than at a boundary this loop would have to compute twice.
     const written = ENCODER.encodeInto(value, out.subarray(cursor)).written;
-    if (written !== utf8Length(value)) throw new ColumnsEncoderError("string table");
+    if (written !== utf8Length(value)) {
+      throw new ColumnsEncoderError("string table", "encoded to a length other than it measured");
+    }
     cursor += written;
   }
-  finish(out, rows, utf8Length, blobBytes);
+  finish(out, rows, table, littleEndian);
   return out;
 }
 

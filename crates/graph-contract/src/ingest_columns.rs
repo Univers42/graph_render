@@ -180,7 +180,7 @@ impl<'a> ColumnsDoc<'a> {
     pub fn text(&self, index: u32) -> Option<&'a str> {
         let at = index as usize;
         let lo = cell_at(self.offsets, at)?;
-        let hi = cell_at(self.offsets, at + 1)?;
+        let hi = cell_at(self.offsets, at.checked_add(1)?)?;
         self.blob.get(lo as usize..hi as usize)
     }
 }

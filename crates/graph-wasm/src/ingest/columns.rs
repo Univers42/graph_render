@@ -1,14 +1,14 @@
 //! The columnar ingest path's bridge from a decoded document to graph-core's admit path
 //! (`docs/contract/ingest-columns.md`, `docs/decisions/ingest-columns.md`).
 //!
-//! graph-core knows no wire format: it takes rows whose strings are entries of a
-//! [`StringTable`], and resolves each entry, kind names included, the first time a row names
+//! graph-core knows no wire format: it takes rows whose strings are entries of an
+//! [`EntryTable`], and resolves each entry, kind names included, the first time a row names
 //! it. This module is the whole of the translation — lend the table, copy each row's cells
 //! across — and it lives here because graph-wasm is the one crate that depends on both
 //! `graph-contract` (which owns the bytes) and `graph-core` (which owns the graph).
 
 use graph_contract::ingest_columns::{self as wire, ColumnsDoc, decode};
-use graph_core::{EdgeCells, NodeCells, StringTable, Topology, index_columns};
+use graph_core::{EdgeCells, NodeCells, EntryTable, Topology, index_columns};
 
 use crate::errors::Code;
 
@@ -53,7 +53,7 @@ pub fn index(bytes: &[u8]) -> Result<Topology, ColumnsError> {
 /// trait and graph-contract the type, and only a local type may join them.
 struct Table<'d>(ColumnsDoc<'d>);
 
-impl StringTable for Table<'_> {
+impl EntryTable for Table<'_> {
     fn entries(&self) -> usize {
         self.0.string_count() as usize
     }
