@@ -41,12 +41,21 @@ import json
 import os
 import sys
 
-sys.path.insert(0, os.path.join("SciGraphs", "core"))
+# SciGraphs/core next to this file, not in the CWD: the arm has to import the same
+# reference whether the docker -w is /w, a subdirectory, or anywhere else.
+sys.path.insert(
+    0,
+    os.path.normpath(
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "SciGraphs", "core")
+    ),
+)
 import networkx as nx  # noqa: E402
 import numpy as np  # noqa: E402
 
 from scigraphs_core.repro.determinism import get_layout_seed  # noqa: E402
 
+if len(sys.argv) != 2:
+    sys.exit("usage: oracle-spring.py <fixtures-dir>")
 directory = sys.argv[1]
 name = "spring"
 path = os.path.join(directory, f"{name}.jsonl")
@@ -72,11 +81,16 @@ def theirs_of(case):
     # nodes 0..n-1 in order, so that insertion order is the dense index the fixture's x/y
     # columns are in and the values line up node for node.
     with contextlib.redirect_stdout(io.StringIO()):
+        # No threshold=: SciGraphs' own SPRING does not pass one
+        # (networkx_layouts.py:16-24, _spring_layout_2d passes iterations/dim/scale/seed
+        # only). The two agree today only because SpringParams::default().threshold is
+        # 1e-4, networkx's own default; passing the fixture's threshold would make this arm
+        # stop being SciGraphs' SPRING the moment a fixture is emitted at another
+        # threshold. The threshold gate belongs to the Rust half, which holds it.
         pos = nx.spring_layout(
             graph,
             dim=2,
             iterations=p["iterations"],
-            threshold=p["threshold"],
             scale=p["scale"],
             seed=get_layout_seed(),
         )

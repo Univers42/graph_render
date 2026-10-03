@@ -39,22 +39,30 @@ const held = new WeakSet<LiveDrag>();
  * A drag that pins `node` in the motor under the pointer. Null when the port is disabled or
  * already holds a node, so a second pointer never takes a second pin.
  *
+ * WHY the pin waits for the first move: a press that never travels is a click, and the click
+ * path never calls `end` (it selects instead), so a pin taken on press would outlive the press
+ * and leave the node nailed where the pointer first touched it — with the settle still running
+ * around it, which moves every other node out from under the pointer too. The port is reserved
+ * on press all the same, so a second pointer cannot take the node while this one is undecided.
+ *
  * Ponytail: one pin per port; a multi-touch drag of two nodes is not supported.
  */
-export function liveGesture(port: LiveDrag, node: number, world: (screen: Point) => Point, from: Point): (Gesture & { cancel(): void }) | null {
+export function liveGesture(port: LiveDrag, node: number, world: (screen: Point) => Point): (Gesture & { cancel(): void }) | null {
   if (!port.enabled() || held.has(port)) return null;
   held.add(port);
   let open = true;
-  port.drag(node, world(from));
+  let dragging = false;
   const stop = (): void => {
     if (!open) return;
     open = false;
     held.delete(port);
-    port.release(node);
+    if (dragging) port.release(node);
   };
   return {
     move: (to) => {
-      if (open) port.drag(node, world(to));
+      if (!open) return;
+      dragging = true;
+      port.drag(node, world(to));
     },
     end: stop,
     cancel: stop,

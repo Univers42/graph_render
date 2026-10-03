@@ -197,6 +197,10 @@ fn every_coordinate_is_within_the_scale() {
 
 /// The four ids are the ones the ledger and the coverage table use, spelled out here so a
 /// rename has to break this file rather than silently change a stage name.
+/// The four ids are the ones the ledger and the coverage table use, spelled out here so a
+/// rename has to break this file rather than silently change a stage name.
+mod scale;
+
 #[test]
 fn the_ids_are_the_scigraphs_names() {
     assert_eq!(sphere::ID, "layout.basic3d.sphere", "SciGraphs SPHERE");

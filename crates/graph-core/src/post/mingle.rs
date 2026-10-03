@@ -113,6 +113,9 @@ pub const MINGLE_CEILING: u64 = 3_000;
 pub const META: Metadata = Metadata {
     tier: 1,
     edges: EdgeGeometryKind::Polyline,
+    // A bundler never moves a node; see `post::Metadata::moves_nodes` and
+    // `docs/decisions/node-overlap.md` 3 for why that is now declared rather than assumed.
+    moves_nodes: false,
     oracle: "hand: Gansner et al. 2011 restated in f64, ported from \
 SciGraphs/engine/scigraphs_engine/bundling/mingle.py; the merge order, the ink accounting and the \
 tie-break are pinned per input in graph-core's post/mingle tests and re-checked per seed by \

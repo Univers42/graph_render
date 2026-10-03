@@ -73,8 +73,8 @@ fn the_walk_pulls_a_connected_graph_together_and_is_reproducible() {
         edges.push((i, i + 1));
     }
     edges.push((0, n - 1));
-    let a = fruchterman_reingold(n, &edges, 50);
-    let b = fruchterman_reingold(n, &edges, 50);
+    let a = fruchterman_reingold(n, &edges, 50, None);
+    let b = fruchterman_reingold(n, &edges, 50, None);
     assert_eq!(bits(&a), bits(&b), "same input, same bits");
     let spread = |i: u32, j: u32| {
         libm::hypot(
@@ -95,7 +95,7 @@ fn the_walk_pulls_a_connected_graph_together_and_is_reproducible() {
 fn a_graph_with_no_edges_is_left_as_the_seed_and_the_walk_spread_it_out() {
     // No springs, only repulsion: the seed's own spiral becomes the packing, and nothing
     // can collapse or blow up.
-    let pos = fruchterman_reingold(5, &[], 50);
+    let pos = fruchterman_reingold(5, &[], 50, None);
     assert_eq!(pos.len(), 5);
     assert!(pos.iter().all(|&(x, y)| x.is_finite() && y.is_finite()));
     for (i, &(x, y)) in pos.iter().enumerate() {
