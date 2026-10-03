@@ -132,8 +132,12 @@ class ForceLoop {
     this.paused = false;
     this.cancel?.();
     this.cancel = null;
+    this.drop();
+  }
+
+  /** Lets go of every pin the loop owns, dropped nodes included. */
+  private drop(): void {
     // A released session throws from an unpin too, and there is no pin left on it to lift.
-    // Every pin the loop owns, dropped or not: halt is the one verb that lets go of them all.
     if (this.live.dead !== true) for (const id of this.pinned.keys()) this.live.unpin(id);
     this.held.clear();
     this.pinned.clear();
@@ -165,6 +169,9 @@ class ForceLoop {
     if (request.type === "force.start") {
       // "Animate": the settle starts over from random positions, not from where it stopped.
       // The port answers with the alpha it re-heated to, which is the bar's new full width.
+      // A dropped node is a position the user chose, and a restart throws the nodes back to
+      // random ones — so the pins go with the positions they were holding.
+      this.drop();
       const restarted = this.live.shuffle?.();
       if (restarted !== undefined) this.alpha = restarted;
     } else if (request.type === "force.drag") {

@@ -114,9 +114,9 @@ test("a held pin keeps the loop running past alpha_min; release lets it settle",
   assert.equal(lastFrame(out.emitted).running, true);
   assert.ok(port.calls.includes("pin a 5 6"));
   host.handle({ type: "force.release", id: "a" });
-  assert.ok(port.calls.includes("unpin a"));
+  assert.ok(!port.calls.includes("unpin a"), "a drop is not an unpin: the node keeps the position it was put at");
   for (let i = 0; i < 30; i += 1) out.tick();
-  assert.equal(lastFrame(out.emitted).running, false);
+  assert.equal(lastFrame(out.emitted).running, false, "and nothing holds the loop awake any more");
 });
 
 test("a flick — every move and the release in one batch — lands the node where it was dropped", () => {
