@@ -173,7 +173,12 @@ impl BarnesHut {
         // only in the tier `How` above it — which is what the 65 golden digests and the
         // 4-way hash gate are there to keep true.
         let mut session = ForceSession::from_frozen(topology, params)?;
-        session.step_under(runner, workers, split, TICKS);
+        let tier = Tier {
+            runner,
+            workers,
+            split,
+        };
+        session.step_under(tier, TICKS);
         super::planar_points(session.xs(), session.ys())
     }
 }
