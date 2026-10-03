@@ -1,11 +1,13 @@
 //! LAYOUT (`prompt.md` §3): the pluggable seam, topology in, geometry out. The seam's own
 //! types, the [`snapshot`] call every layout goes through, and [`Geometry`]'s constructors
-//! live here; [`tests`] holds the seam's tests.
+//! live here; the `tests` module holds the seam's tests.
 //!
-//! Every layout is a [`crate::stage::Stage`] and is listed in [`crate::registry`]. Phase 2 has one,
-//! the grid; its job is to prove the pipeline, not to be interesting. Phase 3 adds the
-//! tidy tree, treemap, circular and circle-packing layouts; [`hierarchy`] is the one
-//! repaired tree the tree layouts share.
+//! Every layout is a [`crate::stage::Stage`] and is listed in [`crate::registry`]. They are
+//! `basic_3d`, `bipartite`, `circle_packing`, `circular`, `force`, `forceatlas2`,
+//! `graphviz`, `grid`, `hierarchical_3d`, `hierarchy`, `pivot_mds`, `planarity`, `radial`,
+//! `random`, `spectral`, `spectral_stage`, `spiral`, `sugiyama`, `tidy_tree` and `treemap`;
+//! `hierarchy` is the one repaired tree the tree layouts share. `adjacency` and `coords` are
+//! private, and `tests` is `#[cfg(test)]`.
 
 mod adjacency;
 pub mod basic_3d;
@@ -99,13 +101,42 @@ impl Geometry {
     }
 
     /// `self` with its edge geometry replaced by `edges`, and its nodes, notes and z
-    /// column carried through untouched. The one way a post pass rebuilds a geometry, so
-    /// a pass cannot drop the z column by forgetting it: there is nowhere else to build
-    /// one.
+    /// column carried through untouched. **The way an edge-only post pass rebuilds a
+    /// geometry**, so such a pass cannot drop the z column by forgetting it: there is
+    /// nowhere else for it to build one.
+    ///
+    /// Not the only constructor any more — [`Self::with_nodes`] is, for a pass that moves
+    /// nodes — so what this one guarantees is now read from
+    /// [`crate::post::Metadata::moves_nodes`]: a pass declaring `false` rebuilds through
+    /// this and its node columns come out byte-identical, which the composability matrix
+    /// asserts for every such row.
     pub fn with_edges(&self, edges: EdgeGeometry) -> Self {
         Self {
             nodes: self.nodes.clone(),
             edges,
+            notes: self.notes.clone(),
+            z: self.z.clone(),
+        }
+    }
+
+    /// `self` with its node geometry replaced by `nodes`, and its edges, notes and z
+    /// column carried through untouched.
+    ///
+    /// **Reachable only from a post pass whose [`crate::post::Metadata`] declares
+    /// `moves_nodes: true`** — today exactly one, [`crate::post::separate`]. That
+    /// restriction is the whole point: `with_edges` alone could guarantee the z column
+    /// survived every pass because there was nowhere else to build a geometry. Now there is,
+    /// and the invariant that constructor encoded lives on the metadata field instead, where
+    /// the matrix reads it per pass rather than assuming it. A pass declaring `moves_nodes`
+    /// must also refuse a geometry carrying a z column — separating 2D discs under a z
+    /// column would answer a question nobody asked, and
+    /// `docs/decisions/contract-3d-verdict.md` condition 6 says no POST pass rewrites node
+    /// columns. `separate` refuses with `StageError::Param` rather than moving `x`/`y` and
+    /// leaving `z` behind.
+    pub fn with_nodes(&self, nodes: NodeGeometry) -> Self {
+        Self {
+            nodes,
+            edges: self.edges.clone(),
             notes: self.notes.clone(),
             z: self.z.clone(),
         }

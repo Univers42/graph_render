@@ -8,7 +8,7 @@ Run them with Node ≥22.6, which strips the types in this package's `.ts` sourc
 
 ```sh
 node --experimental-strip-types harness/sdk-smoke.mjs --adapter-convergence
-node --experimental-strip-types harness/read-snapshot-raw.mjs
+node --experimental-strip-types harness/read-snapshot-raw.mjs --selftest
 ```
 
 ---
@@ -185,7 +185,7 @@ endpoint names a node that exists, and the version is one the reader understands
 reader meeting a **newer major** refuses rather than guessing). It is also a gate row:
 
 ```
-$ node harness/read-snapshot-raw.mjs
+$ node harness/read-snapshot-raw.mjs --selftest
 ok - every $ref in the committed schema resolves inside it
 ok - every object in the committed schema refuses an unknown member
 ok - the snapshot carries every member the schema requires

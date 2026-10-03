@@ -1,6 +1,14 @@
-use super::{SpiralParams, run, run_under, run_with};
-use crate::exec::Serial;
+use super::{Archimedean, SpiralParams, run, run_under, run_with};
+use crate::exec::{Serial, StepRange};
 use crate::layout::coords::probe::{assert_close, graph, points};
+use crate::stage::StageError;
+
+/// The one refusal `SpiralParams::resolution` can draw, named as `grid.rs` names a bad
+/// `spacing` (`StageError::Param`), so a caller reads which parameter and which rule.
+const BAD_RESOLUTION: StageError = StageError::Param {
+    name: "resolution",
+    rule: "finite and above 0",
+};
 
 #[test]
 fn empty_graph_has_no_points_and_one_node_is_the_centre() {
@@ -110,4 +118,97 @@ fn the_control_diverges_the_spiral_from_the_honest_run() {
     let stolen =
         points(&run_under(&graph(5, &[]), &SpiralParams::default(), &Serial, 3, true).unwrap());
     assert_ne!(honest, stolen, "the shared merge did not move");
+}
+
+/// The equidistant arm against networkx's own numbers, at a stated `resolution` — the
+/// only pin on `CHORD` and `STEP` (`layout.py:1329-1336` run on a 7-node graph), without
+/// which a mutation of either constant keeps every other test here green.
+#[test]
+fn the_equidistant_branch_matches_networkxs_equidistant_spiral() {
+    // spiral_layout(nx.path_graph(7), resolution=0.5, equidistant=True).
+    let want: [(f32, f32); 7] = [
+        (-0.6617275, -0.7290234),
+        (-0.2897382, -0.650238),
+        (0.0212332, -0.4288537),
+        (0.2293105, -0.1074977),
+        (0.3140252, 0.2667393),
+        (0.2723615, 0.6488734),
+        (0.1145354, 1.0),
+    ];
+    let params = SpiralParams {
+        resolution: 0.5,
+        equidistant: true,
+    };
+    assert_close(
+        &points(&run_with(&graph(7, &[]), &params, &Serial, 1).unwrap()),
+        &want,
+        2e-6,
+    );
+    // **The pin bites**, shown here rather than claimed: `resolution` is the one input that
+    // moves `CHORD / (STEP * theta)`, so these same seven numbers are what a mutation of
+    // `CHORD` or `STEP` would have to keep. One step of the arm from `0.5`, the drawing is
+    // a different one and `assert_close` above would fail — that is the mutation this test
+    // exists to catch, run as its own negative control inside the test that holds the pin.
+    let mutated = SpiralParams {
+        resolution: 0.6,
+        equidistant: true,
+    };
+    let off = points(&run_with(&graph(7, &[]), &mutated, &Serial, 1).unwrap());
+    assert!(
+        off.iter()
+            .zip(&want)
+            .any(|(g, w)| (g.0 - w.0).abs() > 2e-6 || (g.1 - w.1).abs() > 2e-6),
+        "a mutated step stayed inside the tolerance, so these values pin nothing: {off:?}"
+    );
+}
+
+/// A `resolution` that cannot produce finite geometry is refused with the parameter named,
+/// in **both** arms and at **every** node count — never clamped, never returned as `Ok`
+/// holding NaN, and not waved through by the 0- and 1-node short-circuit.
+#[test]
+fn a_resolution_that_cannot_produce_finite_geometry_is_refused() {
+    let bad = [
+        (0.0, true),
+        (-0.35, true),
+        (f64::NAN, true),
+        (f64::INFINITY, true),
+        (0.0, false),
+        (-0.35, false),
+        (f64::NAN, false),
+        (f64::INFINITY, false),
+    ];
+    for &(resolution, equidistant) in &bad {
+        let params = SpiralParams {
+            resolution,
+            equidistant,
+        };
+        for n in [0, 1, 2, 4] {
+            assert_eq!(
+                run_with(&graph(n, &[]), &params, &Serial, 1),
+                Err(BAD_RESOLUTION),
+                "resolution {resolution}, equidistant {equidistant}, n {n}"
+            );
+        }
+    }
+}
+
+/// The default is inside the rule, so the guard cannot have moved a registered layout.
+#[test]
+fn the_default_resolution_is_accepted_by_the_rule_that_refuses_the_rest() {
+    assert!(SpiralParams::default().resolution > 0.0);
+    assert!(SpiralParams::default().resolution.is_finite());
+}
+
+/// `out` is the range's own sub-column (`StepRange`'s stated contract), so a runner handing
+/// a short one is loud about it instead of leaving the tail at the default `(0.0, 0.0)`,
+/// which would stack real nodes on the origin.
+#[test]
+#[should_panic(expected = "out is the range's own sub-column")]
+fn a_runner_that_hands_a_short_out_is_refused_rather_than_truncated() {
+    let kernel = Archimedean {
+        count: 4,
+        resolution: 0.35,
+    };
+    let mut out = [(0.0, 0.0); 2];
+    kernel.step_range(0..4, &mut out);
 }

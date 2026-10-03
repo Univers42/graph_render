@@ -36,6 +36,7 @@ function live(): { readonly link: ForceLink; readonly calls: Calls } {
     pause: () => { pausedNow = true; paused.push(true); },
     resume: () => { pausedNow = false; paused.push(false); },
     paused: () => pausedNow,
+    drawn: () => 4,
   };
   return { link, calls: { sets, animated, paused } };
 }
@@ -62,23 +63,41 @@ async function typed(link: ForceLink, line: string): Promise<{ readonly ok: bool
 
 test("every forces command is callable from the console as typed", async () => {
   const { link, calls } = live();
-  const lines = ["forces.center 0.4", "forces.repel 300", "forces.link 1.5", "forces.distance 120"];
+  const lines = [
+    "forces.center 0.4", "forces.repel 300", "forces.link 1.5", "forces.distance 120", "forces.spacing 9",
+    "forces.friction 0.6", "forces.cooling 0.1", "forces.range 2000", "forces.accuracy 0.5",
+  ];
   for (const line of lines) {
     const out = await typed(link, line);
     assert.equal(out.ok, true, `${line}: ${out.message}`);
   }
-  assert.deepEqual(calls.sets.at(-1), { gravity: 0.4, charge: -300, linkStrengthScale: 1.5, linkDistance: 120 });
+  assert.deepEqual(calls.sets.at(-1), {
+    gravity: 0.4, charge: -300, linkStrengthScale: 1.5, linkDistance: 120, collideRadius: 9,
+    velocityDecay: 1 - 0.6, alphaDecay: 0.1, distanceMax: 2000, theta: 0.5,
+  });
 });
 
 test("the alias is the console name too, and it reaches the same link", async () => {
   const { link, calls } = live();
   await typed(link, "repel 250");
   assert.deepEqual(calls.sets.at(-1)?.charge, -250);
+  await typed(link, "spacing 12");
+  assert.deepEqual(calls.sets.at(-1)?.collideRadius, 12);
+});
+
+test("spread and compact are console commands, and say what they set", async () => {
+  const { link, calls } = live();
+  const spread = await typed(link, "spread");
+  assert.equal(spread.ok, true, spread.message);
+  assert.match(spread.message, /node spacing 6, repel 270/);
+  const compact = await typed(link, "forces.compact");
+  assert.equal(compact.ok, true, compact.message);
+  assert.equal(calls.sets.at(-1)?.collideRadius, 4);
 });
 
 test("forces.animate starts the settle and forces.reset puts the knobs back", async () => {
   const { link, calls } = live();
-  await typed(link, "forces.center 0.9");
+  for (const line of ["forces.center 0.9", "forces.spacing 30", "forces.range 40", "forces.accuracy 1.4"]) await typed(link, line);
   assert.deepEqual((await typed(link, "forces.reset")).ok, true);
   assert.deepEqual(calls.sets.at(-1), DEFAULT_KNOBS);
   await typed(link, "forces.animate on");
@@ -154,7 +173,11 @@ test("the forces actions are registered once each, in one section, under ids tha
   const registry = createRegistry<StudioState, StudioContext>(studioActions());
   const forces = registry.actions.filter((action) => action.section === "Forces");
   const ids = forces.map((action) => action.id);
-  assert.deepEqual(ids, ["forces.center", "forces.repel", "forces.link", "forces.distance", "forces.reset", "forces.animate", "forces.pause", "forces.resume"]);
+  assert.deepEqual(ids, [
+    "forces.center", "forces.repel", "forces.link", "forces.distance", "forces.spacing", "forces.friction",
+    "forces.cooling", "forces.range", "forces.accuracy", "forces.spread", "forces.compact",
+    "forces.reset", "forces.animate", "forces.pause", "forces.resume",
+  ]);
   assert.equal(new Set(ids).size, ids.length, "an id twice would throw at registry build");
   for (const action of forces) {
     assert.equal(registry.find(action.id), action, action.id);

@@ -42,13 +42,13 @@ pub const ROWS: [Row; 32] = [
         name: "SPRING",
         motor: Some("layout.force.spring"),
         reference: Reference::Scigraphs,
-        gaps: &[G_SPRING_SEED],
+        gaps: &[],
     },
     Row {
         name: "SPRING_3D",
         motor: Some("layout.force.spring3d"),
         reference: Reference::Scigraphs,
-        gaps: &[G_SPRING_SEED],
+        gaps: &[],
     },
     Row {
         name: "CIRCLE_PACKING",

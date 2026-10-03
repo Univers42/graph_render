@@ -1,5 +1,3 @@
-cargo-features = ["edition2024"]
-
 [package]
 name = "graph-wasm"
 description = "Thin extern \"C\" glue over graph-core for wasm32. No wasm-bindgen."
