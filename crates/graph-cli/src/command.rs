@@ -224,4 +224,10 @@ pub enum Command {
     /// The wall time of single live-session ticks on the scale model, after a warm-up: the
     /// per-tick number the whole-stage `bench` averages away, and the profilers' workload.
     Tick(crate::bench::tick::Plan),
+    /// How far each many-body solver stands from the exact all-pairs sum, at the seed
+    /// positions and after 100 Barnes-Hut ticks, at every `--n`. A `--require` solver must
+    /// be no further from the exact sum than `bh:<the frozen theta>` is, on every set and
+    /// every size — decision 2 of `docs/decisions/obsidian-force.md`. See
+    /// `docs/measurements/perf-mb-fidelity.md`.
+    MbFidelity(crate::mb_fidelity::Plan),
 }
