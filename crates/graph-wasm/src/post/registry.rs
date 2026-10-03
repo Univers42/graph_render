@@ -18,11 +18,17 @@ use graph_core::post::{Bundled, PostRun};
 /// same string from the same place.
 pub const ROUTE_ID: &str = routed::ID;
 
-/// Every POST capability the ABI exposes, in registration order: the three capabilities
-/// graph-core registers (the two bundlers and the node-overlap pass), then routing, then the
-/// four styles. Append-only — a row added here is discoverable with no ABI change (the
-/// property C1 states for layouts), and a row added *at the end* of this table moves no
-/// index that already means something.
+/// Every POST capability the ABI exposes, in registration order: the two bundlers, then
+/// routing, then the four styles, then the node-overlap pass. Append-only — a row added
+/// here is discoverable with no ABI change (the property C1 states for layouts), and a row
+/// added *at the end* of this table moves no index that already means something.
+///
+/// **The node mover is last on purpose.** It was first registered between `mingle` and
+/// `route`, which read as the tidier order and was wrong: an index that already meant
+/// something moved, and nine wasm tests that resolve an id by position went on to run
+/// the wrong capability — a routing test asserting straight edges, a fallback count of 0
+/// where 3 was the claim. "Append-only" is the whole rule; the order inside it is not a
+/// matter of taste.
 pub static CAPABILITIES: [Entry; 8] = [
     Entry {
         id: graph_core::post::fdeb::ID,
@@ -31,10 +37,6 @@ pub static CAPABILITIES: [Entry; 8] = [
     Entry {
         id: graph_core::post::mingle::ID,
         run: mingle,
-    },
-    Entry {
-        id: graph_core::post::separate::ID,
-        run: separate_pass,
     },
     Entry {
         id: ROUTE_ID,
@@ -55,6 +57,10 @@ pub static CAPABILITIES: [Entry; 8] = [
     Entry {
         id: Style::Bezier.id(),
         run: bezier,
+    },
+    Entry {
+        id: graph_core::post::separate::ID,
+        run: separate_pass,
     },
 ];
 
