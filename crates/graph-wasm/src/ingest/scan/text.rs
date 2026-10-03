@@ -17,9 +17,9 @@ use super::{JsonError, Scan, Text};
 impl<'a> Scan<'a> {
     /// One JSON string at `start` (its opening quote): the unescaped text and one past its
     /// closing quote. A run with no escape borrows the document.
-    pub(super) fn string(&mut self, start: usize) -> Result<(Text<'a>, usize), JsonError> {
+    pub(in crate::ingest) fn string(&mut self, start: usize) -> Result<(Text<'a>, usize), JsonError> {
         let mut at = start + 1;
-        let mut run = at;
+        let run = at;
         while matches!(self.byte(at), Some(b) if b != b'"' && b != b'\\' && b >= 0x20) {
             at += 1;
         }
@@ -37,10 +37,9 @@ impl<'a> Scan<'a> {
         let mut out = self.text[run..at].to_owned();
         let mut at = at;
         loop {
-            let escape = at;
             let letter = self
                 .byte(at + 1)
-                .ok_or_else(|| self.fault_at(escape, "the text ends inside a string"))?;
+                .ok_or_else(|| self.fault_at(at + 1, "the text ends inside a string"))?;
             at += 2;
             match letter {
                 b'"' => out.push('"'),
@@ -52,16 +51,21 @@ impl<'a> Scan<'a> {
                 b'r' => out.push('\r'),
                 b't' => out.push('\t'),
                 b'u' => {
-                    let (c, next) = self.unicode(at - 1)?;
+                    let (c, next) = self.unicode(at)?;
                     out.push(c);
                     at = next;
                 }
-                _ => return Err(self.fault_at(escape, "an unknown escape")),
+                // One past the letter, which is where `parse` stands when it refuses: its
+                // `escape` has already stepped over both bytes of the sequence.
+                _ => return Err(self.fault_at(at, "an unknown escape")),
             }
+            // The run of plain bytes up to the next break, appended whole: the escape just
+            // read stands where the run begins, so nothing between them is skipped.
             let run = at;
             while matches!(self.byte(at), Some(b) if b != b'"' && b != b'\\' && b >= 0x20) {
                 at += 1;
             }
+            out.push_str(&self.text[run..at]);
             match self.byte(at) {
                 Some(b'"') => return Ok((Text::owned(out), at + 1)),
                 Some(b'\\') => {}
@@ -109,6 +113,10 @@ impl<'a> Scan<'a> {
     /// One JSON number at `start`: its text as written, and one past it. The text is kept
     /// rather than the value so `version` can refuse `1.0` and `1e0`, which a reader that
     /// rounded would read as `1`.
+    ///
+    /// Every refusal is reported *past* the sign, the point or the exponent marker rather
+    /// than at the number's first byte, because that is where the reader this mirrors stands
+    /// when it refuses — it has already stepped over what it read.
     pub(super) fn number(&self, start: usize) -> Result<(&str, usize), JsonError> {
         let mut at = start;
         if self.byte(at) == Some(b'-') {
@@ -117,14 +125,14 @@ impl<'a> Scan<'a> {
         if self.byte(at) == Some(b'0') {
             at += 1;
         } else if self.digits(at) == 0 {
-            return Err(self.fault_at(start, "a number needs digits"));
+            return Err(self.fault_at(at, "a number needs digits"));
         } else {
             at += self.digits(at);
         }
         if self.byte(at) == Some(b'.') {
             at += 1;
             if self.digits(at) == 0 {
-                return Err(self.fault_at(start, "a fraction needs digits"));
+                return Err(self.fault_at(at, "a fraction needs digits"));
             }
             at += self.digits(at);
         }
@@ -134,7 +142,7 @@ impl<'a> Scan<'a> {
                 at += 1;
             }
             if self.digits(at) == 0 {
-                return Err(self.fault_at(start, "an exponent needs digits"));
+                return Err(self.fault_at(at, "an exponent needs digits"));
             }
             at += self.digits(at);
         }

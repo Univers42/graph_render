@@ -190,9 +190,9 @@ impl<'a> Scan<'a> {
             return Ok(Vec::new());
         }
         let mut members = Vec::new();
-        self.object(0, &mut |key, value, elements| {
+        self.object(0, &mut |key: Text<'_>, value, elements| {
             members.push(Member {
-                key,
+                key: key.into_string(),
                 value,
                 elements,
             });
@@ -219,7 +219,7 @@ impl<'a> Scan<'a> {
         self.at = start;
         let mut refused: Option<IngestError> = None;
         let walked = self
-            .array(ROOT_MEMBER_DEPTH, &mut |span| {
+            .array(ROOT_MEMBER_DEPTH, &mut |span: Span| {
                 let Some((from, to)) = span.bounds() else { return };
                 let Some(element) = text.get(from..to) else { return };
                 if let Err(why) = keep(element) {
@@ -355,7 +355,7 @@ impl<'a> Scan<'a> {
     fn object(
         &mut self,
         depth: u32,
-        mut keep: impl FnMut(String, Span, Option<usize>),
+        mut keep: impl FnMut(Text<'a>, Span, Option<usize>),
     ) -> Result<(), JsonError> {
         self.at += 1;
         let base = self.keys.len();
@@ -391,7 +391,7 @@ impl<'a> Scan<'a> {
                 return Err(self.fault("a key repeated in one object"));
             }
             self.keys.push(key.clone());
-            keep(key.into_string(), span(start, self.at), elements);
+            keep(key, span(start, self.at), elements);
             self.space();
             if self.eat(b'}') {
                 self.keys.truncate(base);

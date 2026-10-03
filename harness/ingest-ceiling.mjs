@@ -98,7 +98,7 @@ function readMarks(exports) {
   if (typeof exports.gm_probe_base !== "function") return null;
   const table = new Uint32Array(exports.memory.buffer, exports.gm_probe_base(), 64);
   const marks = new Map();
-  for (let i = 1; i + 1 < table[0]; i += 2) marks.set(table[i], table[i + 1]);
+  for (let i = 1; i + 2 <= table[0]; i += 2) marks.set(table[i], table[i + 1]);
   return marks;
 }
 

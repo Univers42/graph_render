@@ -259,7 +259,7 @@ pub extern "C" fn gm_last_error() -> u32 {
 #[cfg(any(test, feature = "probe"))]
 #[unsafe(no_mangle)]
 pub extern "C" fn gm_probe_base() -> u32 {
-    crate::ingest::phases::base()
+    u32::try_from(crate::ingest::phases::base()).unwrap_or(0)
 }
 
 /// Gate-only: as `gm_build` records them, a fresh run's marks.

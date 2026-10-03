@@ -174,8 +174,8 @@ pub fn read_records(bytes: &[u8]) -> Result<(Vec<NodeRecord>, Vec<EdgeRecord>), 
             &format!("unsupported version {version}"),
         ));
     }
-    let nodes = take_array(&document, "nodes", At::list("nodes"))?;
-    let edges = take_array(&document, "edges", At::list("edges"))?;
+    take_array(&document, "nodes", At::list("nodes"))?;
+    take_array(&document, "edges", At::list("edges"))?;
     require_only(document.members(), &["version", "nodes", "edges"])?;
     // Every node before any edge, exactly as the reader this replaced read them, and both
     // lists at the length the first walk counted — so neither `Vec` grows by doubling.

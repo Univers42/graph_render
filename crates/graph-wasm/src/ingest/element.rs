@@ -44,24 +44,34 @@ const EDGE_FIELDS: [&str; 9] = [
     "child_first",
 ];
 
-/// Field offsets, named so a struct literal reads as the field list does. `kind` is 1 in
-/// both shapes and is read first; the rest follow in the order the shape names them.
+/// Field offsets into [`NODE_FIELDS`] and [`EDGE_FIELDS`], named so a struct literal reads
+/// as the field list does. The two shapes share an offset only where they share a name at
+/// the same place — `id`, `label` and `child_first`'s neighbour `kind` do not line up, which
+/// is why `kind` has one constant per shape: it is 1 in a node and 3 in an edge, and both
+/// are read before any other member.
 mod field {
     pub(super) const ID: usize = 0;
-    pub(super) const KIND: usize = 1;
-    pub(super) const SOURCE: usize = 2;
-    pub(super) const TARGET: usize = 3;
-    pub(super) const LABEL: usize = 4;
-    pub(super) const STRENGTH: usize = 5;
-    pub(super) const DIRECTED: usize = 6;
-    pub(super) const RECORD_ID: usize = 7;
-    pub(super) const CHILD_FIRST: usize = 8;
+
+    // A node: id, kind, database_id, source, label, group, weight, version, has_note, icon.
+    pub(super) const NODE_KIND: usize = 1;
     pub(super) const DATABASE_ID: usize = 2;
+    pub(super) const NODE_SOURCE: usize = 3;
+    pub(super) const NODE_LABEL: usize = 4;
     pub(super) const GROUP: usize = 5;
     pub(super) const WEIGHT: usize = 6;
     pub(super) const VERSION: usize = 7;
     pub(super) const HAS_NOTE: usize = 8;
     pub(super) const ICON: usize = 9;
+
+    // An edge: id, source, target, kind, label, strength, directed, record_id, child_first.
+    pub(super) const EDGE_SOURCE: usize = 1;
+    pub(super) const EDGE_TARGET: usize = 2;
+    pub(super) const EDGE_KIND: usize = 3;
+    pub(super) const EDGE_LABEL: usize = 4;
+    pub(super) const STRENGTH: usize = 5;
+    pub(super) const DIRECTED: usize = 6;
+    pub(super) const RECORD_ID: usize = 7;
+    pub(super) const CHILD_FIRST: usize = 8;
 }
 
 /// The widest record, so one stack array serves both shapes.
@@ -77,8 +87,8 @@ pub(super) fn node(text: &str, at: At) -> Result<NodeRecord, IngestError> {
         id: element.string(field::ID, "id")?,
         kind,
         database_id: element.opt_string(field::DATABASE_ID, "database_id")?,
-        source: element.string(field::SOURCE, "source")?,
-        label: element.string(field::LABEL, "label")?,
+        source: element.string(field::NODE_SOURCE, "source")?,
+        label: element.string(field::NODE_LABEL, "label")?,
         group: element.opt_string(field::GROUP, "group")?,
         weight: element.number(field::WEIGHT, "weight")?,
         version: element.number(field::VERSION, "version")?,
@@ -93,10 +103,10 @@ pub(super) fn edge(text: &str, at: At) -> Result<EdgeRecord, IngestError> {
     let kind = element.edge_kind(at)?;
     Ok(EdgeRecord {
         id: element.string(field::ID, "id")?,
-        source: element.string(field::SOURCE, "source")?,
-        target: element.string(field::TARGET, "target")?,
+        source: element.string(field::EDGE_SOURCE, "source")?,
+        target: element.string(field::EDGE_TARGET, "target")?,
         kind,
-        label: element.string(field::LABEL, "label")?,
+        label: element.string(field::EDGE_LABEL, "label")?,
         strength: element.number(field::STRENGTH, "strength")?,
         directed: element.boolean(field::DIRECTED, "directed")?,
         record_id: element.opt_string(field::RECORD_ID, "record_id")?,
@@ -148,7 +158,7 @@ impl<'a> Element<'a> {
     }
 
     /// Where field `field` is, or the refusal a member that is not there gets.
-    fn span(&self, field: usize, name: &str) -> Result<Span, IngestError> {
+    fn span(&self, field: usize, name: &'static str) -> Result<Span, IngestError> {
         self.spans[field].ok_or_else(|| shape(self.at, &format!("missing member `{name}`")))
     }
 
@@ -166,7 +176,7 @@ impl<'a> Element<'a> {
 
     /// The member at `span` as a string, refusing a member of any other type at
     /// `at.field(name)`.
-    fn text_at(&self, span: Span, name: &str) -> Result<Text<'a>, IngestError> {
+    fn text_at(&self, span: Span, name: &'static str) -> Result<Text<'a>, IngestError> {
         if self.slice(span).is_none_or(|text| !text.starts_with('"')) {
             return Err(shape(self.at.field(name), "expected a string"));
         }
@@ -183,13 +193,13 @@ impl<'a> Element<'a> {
     }
 
     /// Field `field` as a string.
-    fn string(&mut self, field: usize, name: &str) -> Result<String, IngestError> {
+    fn string(&mut self, field: usize, name: &'static str) -> Result<String, IngestError> {
         let span = self.span(field, name)?;
         self.text_at(span, name).map(Text::into_string)
     }
 
     /// Field `field` as a string or an explicit `null`.
-    fn opt_string(&mut self, field: usize, name: &str) -> Result<Option<String>, IngestError> {
+    fn opt_string(&mut self, field: usize, name: &'static str) -> Result<Option<String>, IngestError> {
         let span = self.span(field, name)?;
         match self.is_null(span) {
             true => Ok(None),
@@ -198,7 +208,7 @@ impl<'a> Element<'a> {
     }
 
     /// Field `field` as a boolean.
-    fn boolean(&mut self, field: usize, name: &str) -> Result<bool, IngestError> {
+    fn boolean(&mut self, field: usize, name: &'static str) -> Result<bool, IngestError> {
         let at = self.at.field(name);
         match self.slice(self.span(field, name)?) {
             Some("true") => Ok(true),
@@ -210,11 +220,11 @@ impl<'a> Element<'a> {
     /// Field `field` as a finite `f64` (D9). The text is the document's own, so the JSON
     /// grammar has already had its say; what is left is an exponent large enough to
     /// overflow, which parses as `inf` and must still be refused here.
-    fn number(&mut self, field: usize, name: &str) -> Result<f64, IngestError> {
+    fn number(&mut self, field: usize, name: &'static str) -> Result<f64, IngestError> {
         let span = self.span(field, name)?;
         let at = self.at.field(name);
         let text = self.slice(span).ok_or_else(|| shape(at, "not a valid number"))?;
-        if !text.starts_with(['-', '0'..='9']) {
+        if !matches!(text.as_bytes().first(), Some(b'-' | b'0'..=b'9')) {
             return Err(shape(at, "not a valid number"));
         }
         let value: f64 = text.parse().map_err(|_| shape(at, "not a valid number"))?;
@@ -227,7 +237,7 @@ impl<'a> Element<'a> {
     /// `kind`, read before every other member and refused by name when it names no kind
     /// this build knows.
     fn node_kind(&mut self, at: At) -> Result<NodeKind, IngestError> {
-        let span = self.span(field::KIND, "kind")?;
+        let span = self.span(field::NODE_KIND, "kind")?;
         let name = self.text_at(span, "kind")?;
         NodeKind::from_name(name.as_str()).ok_or_else(|| {
             shape(at.field("kind"), &format!("unknown node kind {:?}", name.as_str()))
@@ -236,7 +246,7 @@ impl<'a> Element<'a> {
 
     /// [`Self::node_kind`] for an edge.
     fn edge_kind(&mut self, at: At) -> Result<EdgeKind, IngestError> {
-        let span = self.span(field::KIND, "kind")?;
+        let span = self.span(field::EDGE_KIND, "kind")?;
         let name = self.text_at(span, "kind")?;
         EdgeKind::from_name(name.as_str()).ok_or_else(|| {
             shape(at.field("kind"), &format!("unknown edge kind {:?}", name.as_str()))
