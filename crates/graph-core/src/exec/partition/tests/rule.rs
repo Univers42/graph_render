@@ -95,7 +95,11 @@ fn range_at_is_the_list_by_index_and_empty_past_it() {
     use super::super::range_at;
     for (n, workers) in [(10, 3), (11, 4), (3, 7), (1_000_003, 128)] {
         for (i, range) in partition(n, workers).into_iter().enumerate() {
-            assert_eq!(range_at(n, workers, i as u32), range, "{n}/{workers} range {i}");
+            assert_eq!(
+                range_at(n, workers, i as u32),
+                range,
+                "{n}/{workers} range {i}"
+            );
         }
         assert_eq!(range_at(n, workers, n.min(workers)), n..n);
     }
