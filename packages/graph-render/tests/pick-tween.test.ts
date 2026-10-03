@@ -59,7 +59,11 @@ test("at half a tween a click finds the node where the backend draws it", () => 
     const state = halfTween(backend);
     const tween = state.bulk.tween;
     assert.notEqual(tween, null, `${backend}: the loop published the tween`);
-    assert.equal(tween?.eased, 0.5, `${backend}: half the tween is half eased`);
+    // A hair off, not exact: `t` is `(now - transitionStart) / TRANSITION_MS` on a
+    // `performance.now()` that carries sub-millisecond digits, so half a tween is 0.5 to
+    // within a float. The pose below is computed from the fraction the loop published, so the
+    // pick is held to that number and not to this one.
+    assert.ok(Math.abs((tween?.eased ?? 0) - 0.5) < 1e-9, `${backend}: half the tween is half eased`);
     for (const node of [1, 2]) {
       const drawn = drawnAt(state, node);
       assert.equal(pickAt(state, drawn), node, `${backend}: node ${node} is picked where it is drawn`);
@@ -102,16 +106,21 @@ test("the settled frame after a tween picks through the grid again", () => {
  */
 test("at eased 1 the scan returns exactly what the grid returns", () => {
   const nodes = 200;
-  const { frame, scene } = sceneOf(randFrame(nodes, 2 * nodes, 3), plainStyle(nodes), null);
-  const settled: EasedPose = { fromX: frame.x.slice(), fromY: frame.y.slice(), toX: frame.x, toY: frame.y, eased: 1 };
-  const query = { x: 0, y: 0, tolerance: 4, floor: 1.25 };
+  const frame = randFrame(nodes, 2 * nodes, 3);
+  const scene = sceneOf(frame, plainStyle(nodes), null);
+  const settled: EasedPose = {
+    fromX: frame.x.slice(), fromY: frame.y.slice(), toX: frame.x, toY: frame.y, eased: 1,
+  };
   const next = mulberry32(11);
   let hits = 0;
   for (let round = 0; round < 600; round += 1) {
     const on = round % 2 === 0;
     const node = Math.floor(next() * nodes);
-    query.x = on ? (frame.x[node] ?? 0) + (next() - 0.5) * 20 : next() * 1000;
-    query.y = on ? (frame.y[node] ?? 0) + (next() - 0.5) * 20 : next() * 1000;
+    const query = {
+      x: on ? (frame.x[node] ?? 0) + (next() - 0.5) * 20 : next() * 1000,
+      y: on ? (frame.y[node] ?? 0) + (next() - 0.5) * 20 : next() * 1000,
+      tolerance: 4, floor: 1.25,
+    };
     const scanned = pickEased(scene, query, settled);
     assert.equal(scanned, pickIn(scene, query), `round ${round} at ${query.x.toFixed(2)},${query.y.toFixed(2)}`);
     if (scanned >= 0) hits += 1;
