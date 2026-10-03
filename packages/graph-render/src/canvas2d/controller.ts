@@ -35,10 +35,21 @@ export interface Controller {
   readonly notify: Notify;
   /** True until the user moves the camera: a resize then re-fits instead of cropping. */
   fitted: boolean;
+  /**
+   * True once the user has touched the canvas — a pan, a zoom, a drag, a box select, a click or
+   * a context menu. From then on a safe-area change only refreshes the limits: see
+   * {@link setSafeArea}.
+   */
+  gestured: boolean;
   /** The local graph, when one is shown: a fit frames it and not the whole graph. */
   readonly local: LocalLayer;
   /** The motor's live session, when the host gave one; a drag goes to it while it is enabled. */
   readonly live?: LiveDrag;
+}
+
+/** The first gesture on the canvas ends the automatic fit; every later one is already past it. */
+export function markGestured(controller: Controller): void {
+  controller.gestured = true;
 }
 
 export interface Setup {
@@ -116,8 +127,16 @@ export function measure(controller: Controller): void {
 
 /**
  * The area a host declared free of chrome, in canvas pixels; `null` (the default) is the whole
- * canvas. It is a hint about where the studio's panels are, so it is clamped to the canvas and
- * re-fitted rather than trusted: a host that hands over a stale or inverted box gets the canvas.
+ * canvas. It is a hint about where the studio's panels are, so it is clamped to the canvas rather
+ * than trusted: a host that hands over a stale or inverted box gets the canvas.
+ *
+ * WHY it moves the camera only while the camera is still automatic: the chrome resizes for reasons
+ * that have nothing to do with the drawing — a selection filling the Inspector is the one that
+ * mattered — and re-fitting on each of those took whatever the user was pointing at out from
+ * under the pointer, which is how a box select ended up measuring a box the camera had left. So
+ * until the first gesture the camera is still the view's own and a new free box is fitted into;
+ * after one, the camera is the user's and the area only bounds how far the drawing may be panned.
+ * A layout arriving is a new drawing, and `sceneApi.setFrame` still fits it.
  */
 export function setSafeArea(controller: Controller, area: FitArea | null): void {
   const { state } = controller;
@@ -128,7 +147,8 @@ export function setSafeArea(controller: Controller, area: FitArea | null): void 
   if (same) return;
   state.safe = next;
   state.limits = limitsFor(state.scene.bounds, state.viewport, { area: safeOf(state, state.viewport) ?? undefined });
-  if (controller.fitted) fit(controller);
+  if (controller.fitted && !controller.gestured) fit(controller);
+  else invalidate(state);
 }
 
 export function moveTo(controller: Controller, camera: Camera, byFit: boolean): void {

@@ -224,23 +224,31 @@ function toBlob(canvas: HTMLCanvasElement): Promise<Blob> {
 /** Pointer, wheel and resize; returns what undoes all three. */
 function bindInputs(controller: Controller): () => void {
   const { canvas, state } = controller;
+  // Every gesture the pointer layer reports, not the ones that happen to move the camera: a
+  // click and a node drag leave the camera where it is, and both still mean the user has taken
+  // it over from the view's automatic fit (`setSafeArea`).
+  const taken = <T extends unknown[]>(run: (...args: T) => void) =>
+    (...args: T): void => {
+      markGestured(controller);
+      run(...args);
+    };
   const unbind = bindPointer(canvas, {
-    zoom: (at, factor) => {
+    zoom: taken((at: Point, factor: number) => {
       if (state.orbit !== null) zoomAt3d(controller, factor);
       else moveTo(controller, zoomAt(state.camera, at, factor, state.limits), false);
-    },
-    pan: (delta) => moveTo(controller, panBy(state.camera, delta), false),
-    orbit: (delta, right) => orbitBy(controller, delta, right),
+    }),
+    pan: taken((delta: Point) => moveTo(controller, panBy(state.camera, delta), false)),
+    orbit: taken((delta: Point, right: boolean) => orbitBy(controller, delta, right)),
     hover: (at) => hover(controller, at === null ? -1 : pickAt(state, at)),
-    click: (at, shift) => clickAt(controller, at, shift),
-    press: (at, shift) => pressAt(controller, at, shift),
-    context: (at) => contextAt(controller, at),
-    doubleClick: (at) => {
+    click: taken((at: Point, shift: boolean) => clickAt(controller, at, shift)),
+    press: taken((at: Point, shift: boolean) => pressAt(controller, at, shift)),
+    context: taken((at: Point) => contextAt(controller, at)),
+    doubleClick: taken((at: Point) => {
       // A double-click on a node is the node's own gesture (S2); on the background it zooms.
       if (pickAt(state, at) >= 0) return;
       if (state.orbit !== null) zoomAt3d(controller, DOUBLE_CLICK_ZOOM);
       else moveTo(controller, zoomAt(state.camera, at, DOUBLE_CLICK_ZOOM, state.limits), false);
-    },
+    }),
   }, globalThis.window, () => inSpace(state));
   const observer = new ResizeObserver(() => {
     measure(controller);
@@ -271,7 +279,7 @@ export function createView(canvas: HTMLCanvasElement, options: ViewOptions = {})
     context: (node: number, at: Point): void => emit("context", { node, at }),
     camera: (camera: Camera): void => emit("camera", camera),
   };
-  const controller: Controller = { canvas, state, notify, fitted: true, local: newLocalLayer(), ...(options.live === undefined ? {} : { live: options.live }) };
+  const controller: Controller = { canvas, state, notify, fitted: true, gestured: false, local: newLocalLayer(), ...(options.live === undefined ? {} : { live: options.live }) };
   measure(controller);
   const unbind = bindInputs(controller);
   return {
