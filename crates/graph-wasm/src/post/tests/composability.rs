@@ -19,6 +19,19 @@ fn every_capability_composes_with_every_registered_layout() {
     for layout in LAYOUTS {
         let geometry = (layout.run)(&t).unwrap_or_else(|e| panic!("{}: {e}", layout.id));
         for id in IDS {
+            // A 3D layout is refused by the node mover rather than flattened, so it composes
+            // with every layout that is 2D and refuses the ones that are not. The refusal is
+            // asserted, not skipped: the point is that it is a refusal.
+            if id == NODE_MOVER && geometry.z.is_some() {
+                let refused = (crate::post::CAPABILITIES[index_of(id)].run)(&t, &geometry)
+                    .expect_err("a node mover must refuse a 3D layout");
+                assert!(
+                    refused.to_string().contains("geometry.z"),
+                    "{id} over {}: the refusal names the column, got {refused}",
+                    layout.id
+                );
+                continue;
+            }
             let bundled = run_at(&t, &geometry, id);
             // **The node mover is the one capability that rewrites `x` and `y`.** It is held
             // to the other half of the contract instead — same node kind, same node count, a
