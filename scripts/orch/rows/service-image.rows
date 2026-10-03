@@ -1,8 +1,15 @@
 # service-image.rows — the svc-image gate (docs/contract/service-api.md C10-C11, docs/deploy/service.md).
 # Run: scripts/orch/gate.sh <logdir> scripts/orch/rows/service-image.rows. Not timed: it takes no
 # host gate lock, like the other browser gates. Each run builds the image (scripts/service.sh build).
+#
+# A control passes only when the run fails for its own reason: exit 1 (ran and failed, never 2,
+# could not run) and the report naming the row the break targets, with the service itself up.
+# - negctl-svc-image: COOP, COEP and CORP dropped; the embed header rows and the isolated page fail.
+# - negctl-svc-image-leak: an .env and a .git in the scanned image; svc-no-leak fails.
+# - negctl-svc-sdk-live: a well-formed key the key file does not hold; meta fails, and the
+#   wrong-key check still passes, which proves the service answered.
 svc-image|0|timeout 2400 scripts/service-image.sh
-negctl-svc-image|nonzero|SERVICE_IMAGE_BREAK=headers timeout 2400 scripts/service-image.sh
-negctl-svc-image-leak|nonzero|SERVICE_IMAGE_BREAK=leak timeout 2400 scripts/service-image.sh
+negctl-svc-image|0|SERVICE_IMAGE_BREAK=headers timeout 2400 scripts/service-image.sh; rc=$?; t=target/service-image/negctl-headers/table.md; test $rc -eq 1 && grep -q 'svc-healthy` .*| PASS |$' $t && grep -q 'svc-embed-graph-studio.js` .*| FAIL |$' $t && grep -q 'isolated-isolation` .*| FAIL |$' $t
+negctl-svc-image-leak|0|SERVICE_IMAGE_BREAK=leak timeout 2400 scripts/service-image.sh; rc=$?; t=target/service-image/negctl-leak/table.md; test $rc -eq 1 && grep -q 'svc-healthy` .*| PASS |$' $t && grep -q 'svc-no-leak` .*| FAIL |$' $t && grep -q '/\.env$' target/service-image/negctl-leak/leaks.txt && grep -q '/\.git/' target/service-image/negctl-leak/leaks.txt
 svc-sdk-live|0|SERVICE_IMAGE_CHECK=sdk timeout 2400 scripts/service-image.sh
-negctl-svc-sdk-live|nonzero|SERVICE_IMAGE_CHECK=sdk SERVICE_IMAGE_BREAK=key timeout 2400 scripts/service-image.sh
+negctl-svc-sdk-live|0|SERVICE_IMAGE_CHECK=sdk SERVICE_IMAGE_BREAK=key timeout 2400 scripts/service-image.sh; rc=$?; t=target/service-image/negctl-key/sdk-live.txt; test $rc -eq 1 && grep -qx 'FAIL meta' $t && grep -qx 'PASS wrong key is the typed 401' $t

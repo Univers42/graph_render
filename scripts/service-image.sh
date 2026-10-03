@@ -124,9 +124,11 @@ main() {
   local image version key uid health
   source scripts/orch/image.sh
   can_run || exit 2
+  # The negctl rows read this report to tell their failure from any other, so a run that stops
+  # early must leave none from an earlier run behind.
+  rm -rf "$out" && mkdir -p "$out"
   image=$(scripts/service.sh build) || exit 1
   version=$(scripts/service.sh version)
-  mkdir -p "$out"
   [[ $check == probe ]] && scan "$image"
   key=$(scripts/service.sh keygen svc-image-gate "$work/keys") || exit 2
   SERVICE_PORT=0 SERVICE_DETACH=$name scripts/service.sh run "$work/keys" >/dev/null || exit 2
