@@ -75,7 +75,11 @@ for (const postId of posts) {
   }
   postRan += 1;
   process.stdout.write(`# ${postId}: ${result.nodeKind} nodes / ${result.edgeKind} edges\n`);
-  check(`${postId}: it reports the edge kind the contract names`, result.edgeKind === POST_EDGE_KIND.get(postId));
+  // The pass's own id, the way `analysis.mjs:31` asserts an analysis names itself. It was
+  // never checked: change `index.ts:232` to answer `id: "post.style.straight"` for every
+  // pass and every check in this file stayed green (m93).
+  check(`${postId}: it names itself`, result.id === postId, String(result.id));
+  check(`${postId}: it reports the edge kind the contract names`, result.edgeKind === POST_EDGE_KIND.get(postId), String(result.edgeKind));
   check(`${postId}: it leaves the node kind alone`, result.nodeKind === "Point");
   check(`${postId}: the node positions are the layout's, unmoved`, (() => {
     const now = Array.from(motor.column(stagedHandle, ColumnId.NodeX));

@@ -4,6 +4,9 @@ import {
   ColumnId,
 } from "../../crates/graph-sdk-js/src/index.ts";
 
+// `ColumnId` is imported for exactly one thing: `columnIdProblems` below compares the SDK's
+// own constants against this file's literals. Nothing here calls into `views.ts`.
+
 export function fail(message) {
   process.stderr.write(`sdk-smoke: could not run: ${message}\n`);
   process.exit(2);
@@ -112,11 +115,14 @@ const EDGE_COLUMN_KINDS = new Map([
   [ID.EdgeCurveDegree, ["Curve"]],
 ]);
 
-/** Whether `wanted` (a table entry) covers a run of node kind `kind` and dimension `dim`. */
+/** Whether `wanted` (a table entry) covers a run of node kind `kind` and dimension `dim`.
+ *  An array is an object, so the list form is tested first: `["Polyline","Curve"]` is a
+ *  list of kinds, not a `{dim}` rule with a `dim` of `"Polyline"`. */
 function appliesTo(kind, dim, wanted) {
-  if (wanted !== null && typeof wanted === "object") return wanted.dim === dim;
+  if (Array.isArray(wanted)) return wanted.includes(kind);
   if (wanted === null) return true;
-  return Array.isArray(wanted) ? wanted.includes(kind) : wanted === kind;
+  if (typeof wanted === "object") return wanted.dim === dim;
+  return wanted === kind;
 }
 
 export function boundsOf(motor, handle) {
@@ -129,11 +135,11 @@ export function boundsOf(motor, handle) {
     }
     return { min, max };
   };
-  const xs = span(motor.column(handle, ColumnId.NodeX));
-  const ys = span(motor.column(handle, ColumnId.NodeY));
+  const xs = span(motor.column(handle, ID.NodeX));
+  const ys = span(motor.column(handle, ID.NodeY));
   // A 2D run reads NodeZ as null; a 3D one (layout.hierarchical3d stacks its levels on z) is
   // a single point only if z is flat too.
-  const z = motor.column(handle, ColumnId.NodeZ);
+  const z = motor.column(handle, ID.NodeZ);
   const zs = z === null ? { min: 0, max: 0 } : span(z);
   return { minX: xs.min, maxX: xs.max, minY: ys.min, maxY: ys.max, minZ: zs.min, maxZ: zs.max };
 }
@@ -143,24 +149,24 @@ export function boundsOf(motor, handle) {
 // read off the source column: the table's rule is that every edge column shares one `m`.
 export function columnProblems(motor, handle, layoutId, run) {
   const problems = [];
-  const source = motor.column(handle, ColumnId.EdgeSource);
-  const target = motor.column(handle, ColumnId.EdgeTarget);
-  const offsets = motor.column(handle, ColumnId.EdgeOffsets);
+  const source = motor.column(handle, ID.EdgeSource);
+  const target = motor.column(handle, ID.EdgeTarget);
+  const offsets = motor.column(handle, ID.EdgeOffsets);
   const m = source === null ? 0 : source.length;
   for (const [id, wanted] of NODE_COLUMN_KINDS) {
     const column = motor.column(handle, id);
-    if (!appliesTo(run.nodeKind, wanted)) {
-      if (column !== null) problems.push(`node column ${id} is present but does not apply to ${run.nodeKind}`);
+    if (!appliesTo(run.nodeKind, run.dim, wanted)) {
+      if (column !== null) problems.push(`node column ${id} is present but does not apply to ${run.nodeKind} at dim ${run.dim}`);
       continue;
     }
-    if (column === null) problems.push(`node column ${id} is absent, but applies to ${run.nodeKind}`);
+    if (column === null) problems.push(`node column ${id} is absent, but applies to ${run.nodeKind} at dim ${run.dim}`);
     else if (column.length !== run.nodeCount) {
       problems.push(`node column ${id} has ${column.length} elements, not the node count ${run.nodeCount}`);
     }
   }
   for (const [id, wanted] of EDGE_COLUMN_KINDS) {
     const column = motor.column(handle, id);
-    if (!appliesTo(run.edgeKind, wanted)) {
+    if (!appliesTo(run.edgeKind, run.dim, wanted)) {
       if (column !== null) problems.push(`edge column ${id} is present but does not apply to ${run.edgeKind}`);
     } else if (column === null) {
       problems.push(`edge column ${id} is absent, but applies to ${run.edgeKind}`);
@@ -173,21 +179,20 @@ export function columnProblems(motor, handle, layoutId, run) {
   }
   if (offsets !== null) {
     if (offsets.length !== m + 1) problems.push(`edge offsets has ${offsets.length} elements, not m + 1 = ${m + 1}`);
-    const points = motor.column(handle, ColumnId.EdgePts);
+    const points = motor.column(handle, ID.EdgePts);
     const want = 2 * offsets[offsets.length - 1];
     if (points === null) problems.push("edge points are absent where edge offsets are present");
     else if (points.length !== want) problems.push(`edge points has ${points.length} elements, not 2*offsets[m] = ${want}`);
   }
-  const degree = motor.column(handle, ColumnId.EdgeCurveDegree);
+  const degree = motor.column(handle, ID.EdgeCurveDegree);
   if (degree !== null && degree.length !== 1) problems.push(`edge curve degree has ${degree.length} elements, not 1`);
-  for (const id of [ColumnId.NoteCode, ColumnId.NoteIndex]) {
+  for (const id of [ID.NoteCode, ID.NoteIndex]) {
     if (motor.column(handle, id) !== null) {
       problems.push(`reserved note column ${id} is present; it stays reserved until the notes section lands`);
     }
   }
   return problems.map((problem) => `${layoutId}: ${problem}`);
 }
-
 
 export function finish() {
   process.stdout.write(`# ${failures === 0 ? "pass" : `${failures} failed`}\n`);
