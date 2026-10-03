@@ -9,89 +9,83 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { bindPointer, type Gesture, type PointerHandlers } from "../src/pointer.ts";
+import type { Point } from "../src/camera.ts";
 
-interface Log { readonly entries: string[] }
+/** Just enough of a canvas for `bindPointer`: listeners, a box, and pointer capture. */
+class FakeCanvas {
+  private readonly listeners = new Map<string, ((event: unknown) => void)[]>();
 
-interface Rig {
-  readonly log: Log;
-  readonly canvas: HTMLCanvasElement;
-  readonly down: (at: { x: number; y: number }) => void;
-  readonly move: (at: { x: number; y: number }) => void;
-  readonly up: (at: { x: number; y: number }) => void;
+  addEventListener(type: string, handler: (event: unknown) => void): void {
+    const held = this.listeners.get(type) ?? [];
+    held.push(handler);
+    this.listeners.set(type, held);
+  }
+
+  getBoundingClientRect(): { left: number; top: number } {
+    return { left: 0, top: 0 };
+  }
+
+  setPointerCapture(): void { /* nothing is captured in a test */ }
+
+  fire(type: string, event: unknown): void {
+    for (const handler of this.listeners.get(type) ?? []) handler(event);
+  }
+}
+
+interface Press { clientX: number; clientY: number; pointerId: number; button: number; buttons: number; shiftKey: boolean }
+
+function pointer(x: number, buttons: number): Press {
+  return { clientX: x, clientY: 0, pointerId: 1, button: 0, buttons, shiftKey: false };
 }
 
 /** A gesture that records the three ways a press can be finished. */
-function gesture(log: Log, name: string): Gesture {
+function recorder(entries: string[]): Gesture {
   return {
-    move: () => log.entries.push(`${name}.move`),
-    end: () => log.entries.push(`${name}.end`),
-    cancel: () => log.entries.push(`${name}.cancel`),
+    move: () => entries.push("move"),
+    end: () => entries.push("end"),
+    cancel: () => entries.push("cancel"),
   };
 }
 
-function rig(name = "g"): Rig {
-  const log: Log = { entries: [] };
-  const canvas = { getBoundingClientRect: () => ({ left: 0, top: 0 }), addEventListener() {}, setPointerCapture() {} };
+function rig(): { entries: string[]; canvas: FakeCanvas; stop: () => void } {
+  const entries: string[] = [];
+  const canvas = new FakeCanvas();
+  const owner = { addEventListener() {}, removeEventListener() {} };
   const handlers: PointerHandlers = {
     zoom: () => undefined,
     pan: () => undefined,
     orbit: () => undefined,
     hover: () => undefined,
-    click: () => log.entries.push("click"),
-    press: () => gesture(log, name),
+    click: () => entries.push("click"),
+    press: (_at: Point) => recorder(entries),
     context: () => undefined,
     doubleClick: () => undefined,
   };
-  const owner = { addEventListener() {}, removeEventListener() {} };
   const stop = bindPointer(canvas as unknown as HTMLCanvasElement, handlers, owner as unknown as Window);
-  const at = { clientX: 0, clientY: 0, pointerId: 1, button: 0, buttons: 1, shiftKey: false };
-  // The harness's own listeners are stubs, so the events go through `press` by hand: the
-  // binding is what is under test, and it reads `press` on the way in and `end` on the way out.
-  stop();
-  return {
-    log,
-    canvas: canvas as unknown as HTMLCanvasElement,
-    down: () => log.entries.push("press"),
-    move: () => undefined,
-    up: () => undefined,
-  };
+  return { entries, canvas, stop };
 }
 
-test("a click cancels the gesture the press handed out", () => {
-  const log: Log = { entries: [] };
-  const canvas = document.createElement("canvas");
-  const handlers: PointerHandlers = {
-    zoom: () => undefined, pan: () => undefined, orbit: () => undefined, hover: () => undefined,
-    click: () => log.entries.push("click"),
-    press: () => gesture(log, "g"),
-    context: () => undefined, doubleClick: () => undefined,
-  };
-  const stop = bindPointer(canvas, handlers, window);
-  const fire = (type: string, x: number): void => {
-    canvas.dispatchEvent(new PointerEvent(type, { clientX: x, clientY: 0, pointerId: 1, button: 0, buttons: type === "pointerup" ? 0 : 1, bubbles: true }));
-  };
-  fire("pointerdown", 0);
-  fire("pointerup", 0);
+test("a click takes cancel, never end: it is the only exit a click gets", () => {
+  const { entries, canvas, stop } = rig();
+  canvas.fire("pointerdown", pointer(0, 1));
+  canvas.fire("pointerup", pointer(0, 0));
   stop();
-  assert.deepEqual(log.entries, ["g.cancel", "click"], "a click takes cancel, never end");
+  assert.deepEqual(entries, ["cancel", "click"]);
 });
 
-test("a drag that travelled ends the gesture instead", () => {
-  const log: Log = { entries: [] };
-  const canvas = document.createElement("canvas");
-  const handlers: PointerHandlers = {
-    zoom: () => undefined, pan: () => undefined, orbit: () => undefined, hover: () => undefined,
-    click: () => log.entries.push("click"),
-    press: () => gesture(log, "g"),
-    context: () => undefined, doubleClick: () => undefined,
-  };
-  const stop = bindPointer(canvas, handlers, window);
-  const fire = (type: string, x: number, buttons: number): void => {
-    canvas.dispatchEvent(new PointerEvent(type, { clientX: x, clientY: 0, pointerId: 1, button: 0, buttons, bubbles: true }));
-  };
-  fire("pointerdown", 0, 1);
-  fire("pointermove", 60, 1);
-  fire("pointerup", 60, 0);
+test("a press that travelled ends the gesture, and the click does not fire", () => {
+  const { entries, canvas, stop } = rig();
+  canvas.fire("pointerdown", pointer(0, 1));
+  canvas.fire("pointermove", pointer(60, 1));
+  canvas.fire("pointerup", pointer(60, 0));
   stop();
-  assert.deepEqual(log.entries, ["g.move", "g.end"], "a drag that moved is the gesture's, and the click does not fire");
+  assert.deepEqual(entries, ["move", "end"]);
+});
+
+test("a cancelled press — the pointer lost — cancels rather than ends", () => {
+  const { entries, canvas, stop } = rig();
+  canvas.fire("pointerdown", pointer(0, 1));
+  canvas.fire("pointercancel", pointer(0, 1));
+  stop();
+  assert.deepEqual(entries, ["cancel"]);
 });
