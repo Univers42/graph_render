@@ -25,7 +25,8 @@ pub(super) fn median_evaluations() -> u64 {
     MEDIANS.with(Cell::get)
 }
 
-/// `up`/`down`, bundled so a sweep helper takes one parameter, not two (≤4 per house style).
+/// `up`/`down`, bundled so a sweep helper takes one parameter, not two (≤4 per house style),
+/// and read by the child [`transpose`] module.
 struct Adjacency<'a> {
     up: &'a [Vec<u32>],
     down: &'a [Vec<u32>],
