@@ -47,6 +47,7 @@ mod carry;
 mod error;
 mod fidelity;
 pub(in crate::layout::force) mod gravity;
+mod grow;
 mod live_params;
 mod pin;
 mod warm;
@@ -93,6 +94,9 @@ pub struct ForceSession {
     /// The particle-mesh grids when this session ticks on them
     /// ([`with_particle_mesh`](Self::with_particle_mesh)), none for Barnes-Hut's tree.
     mesh: Option<Mesh>,
+    /// How many of its topology's raw edges the simple graph has absorbed: where the next
+    /// [`grow`](Self::grow) starts reading.
+    absorbed: u32,
 }
 
 /// What one call to [`ForceSession::step`] did.
@@ -134,6 +138,7 @@ impl ForceSession {
             sim: Sim::new(topology, params, SEED),
             deltas: Vec::new(),
             mesh: None,
+            absorbed: topology.edge_count(),
         }
     }
 

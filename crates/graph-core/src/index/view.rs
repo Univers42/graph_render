@@ -5,7 +5,7 @@
 use super::{Stats, Topology};
 use crate::arena::{Interned, StringArena};
 use crate::columns::{EdgeColumns, NodeColumns};
-use crate::csr::{Csr, Incident};
+use crate::csr::{AppendCsr, Incident};
 use crate::records::{EdgeView, NodeView};
 
 impl Topology {
@@ -154,12 +154,12 @@ impl Topology {
     }
 
     /// Node → edges it is the source of, ascending.
-    pub fn out(&self) -> &Csr {
+    pub fn out(&self) -> &AppendCsr {
         &self.out
     }
 
     /// Node → edges it is the target of, ascending.
-    pub fn inbound(&self) -> &Csr {
+    pub fn inbound(&self) -> &AppendCsr {
         &self.inbound
     }
 
@@ -167,7 +167,7 @@ impl Topology {
     /// whose [`parent`](Self::parent) is `p`, so a `child_of` edge sits in its target's
     /// row. The values are edge indices; the child of each is [`child`](Self::child),
     /// never `target` read directly.
-    pub fn hierarchy(&self) -> &Csr {
+    pub fn hierarchy(&self) -> &AppendCsr {
         &self.hierarchy
     }
 }

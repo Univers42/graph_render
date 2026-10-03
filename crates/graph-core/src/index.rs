@@ -7,11 +7,12 @@
 
 use crate::arena::{CapacityError, FixedState, Interned, StringArena};
 use crate::columns::{EdgeColumns, NodeColumns, NodeKind};
-use crate::csr::Csr;
+use crate::csr::AppendCsr;
 use crate::edgekind::EdgeKind;
 use crate::records::{EdgeRecord, NodeRecord, NodeView};
 #[cfg(test)]
 use admit::next_index;
+pub use extend::ExtendError;
 use indexmap::{IndexMap, IndexSet};
 use slots::RowBySlot;
 
@@ -36,9 +37,12 @@ pub struct Topology {
     edge_ids: RowBySlot,
     nodes: NodeColumns,
     edges: EdgeColumns,
-    out: Csr,
-    inbound: Csr,
-    hierarchy: Csr,
+    out: AppendCsr,
+    inbound: AppendCsr,
+    hierarchy: AppendCsr,
+    /// Distinct `source` values in first-seen node order: a node's group is its source's
+    /// position here. Kept so a later batch numbers new sources after the existing ones.
+    sources: IndexSet<Interned, FixedState>,
     by_database: IndexMap<Interned, Vec<u32>, FixedState>,
     notes: u32,
 }
@@ -137,10 +141,10 @@ impl Topology {
     /// hierarchy edge is filed under its parent, which for `child_of` is its target.
     fn build_adjacency(&mut self) -> Result<(), CapacityError> {
         let (n, e) = (self.node_count(), &self.edges);
-        self.out = Csr::from_pairs(n, e.source.iter().copied().zip(0..))?;
-        self.inbound = Csr::from_pairs(n, e.target.iter().copied().zip(0..))?;
+        self.out = AppendCsr::from_pairs(n, e.source.iter().copied().zip(0..))?;
+        self.inbound = AppendCsr::from_pairs(n, e.target.iter().copied().zip(0..))?;
         let tree = (0..self.edge_count()).filter(|&i| e.kind[i as usize] == EdgeKind::Hierarchy);
-        self.hierarchy = Csr::from_pairs(n, tree.map(|i| (self.parent(i), i)))?;
+        self.hierarchy = AppendCsr::from_pairs(n, tree.map(|i| (self.parent(i), i)))?;
         self.nodes.degree = (0..n)
             .map(|v| (self.out.row(v).len() + self.inbound.row(v).len()) as u32)
             .collect();
@@ -149,24 +153,25 @@ impl Topology {
 
     /// The group column, `byDatabase` and the note count, in one pass in node order.
     fn group_nodes(&mut self) {
-        let n = &mut self.nodes;
-        let mut sources = IndexSet::<Interned, FixedState>::default();
-        n.group = n
-            .source
-            .iter()
-            .map(|&s| sources.insert_full(s).0 as u32)
-            .collect();
-        for (i, database) in (0..).zip(&n.database) {
-            if let Some(database) = *database {
-                self.by_database.entry(database).or_default().push(i);
-            }
+        (0..self.node_count()).for_each(|i| self.group_node(i));
+    }
+
+    /// Files node `i`, the first one not grouped yet, in the group column, `byDatabase`
+    /// and the note count. A node's group is its source's first-seen position.
+    fn group_node(&mut self, i: u32) {
+        let (n, at) = (&mut self.nodes, i as usize);
+        n.group
+            .push(self.sources.insert_full(n.source[at]).0 as u32);
+        if let Some(database) = n.database[at] {
+            self.by_database.entry(database).or_default().push(i);
         }
-        self.notes = n.kind.iter().filter(|&&k| k == NodeKind::Note).count() as u32;
+        self.notes += u32::from(n.kind[at] == NodeKind::Note);
     }
 }
 
 mod admit;
 pub(crate) mod columns;
+mod extend;
 mod slots;
 mod view;
 

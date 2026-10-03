@@ -31,8 +31,8 @@ pub use particle_mesh::ParticleMesh;
 pub use session::{ForceSession, LiveParams, NodeRow, SessionError, StepReport};
 pub use yifan_hu::YifanHu;
 
-use crate::arena::FixedState;
-use crate::csr::Csr;
+use crate::arena::{CapacityError, FixedState};
+use crate::csr::AppendCsr;
 use crate::index::Topology;
 use crate::layout::Geometry;
 use crate::stage::StageError;
@@ -73,7 +73,7 @@ pub(crate) struct SimpleGraph {
     /// The surviving raw edge's strength, per simple edge.
     pub(crate) strength: Vec<f64>,
     /// Node → its simple-edge indices (both endpoints' rows), arrival order.
-    pub(crate) rows: Csr,
+    pub(crate) rows: AppendCsr,
 }
 
 impl SimpleGraph {
@@ -129,10 +129,51 @@ impl SimpleGraph {
     }
 }
 
+impl SimpleGraph {
+    /// Raw edge `a`–`b` taken in after every edge already here, as [`simple_graph`] takes
+    /// it at its turn: a self-loop or a pair already present is dropped, anything else
+    /// becomes the next simple edge, filed under `lo` then `hi`. Returns that edge.
+    ///
+    /// **Caveat:** the duplicate check scans the smaller endpoint's row, so an edge between
+    /// two hubs costs the smaller hub's degree rather than O(1). An `IndexMap` of pairs would
+    /// be O(1) at 16 bytes per simple edge held for the session's life.
+    pub(crate) fn absorb(
+        &mut self,
+        a: u32,
+        b: u32,
+        strength: f64,
+    ) -> Result<Option<u32>, CapacityError> {
+        let (lo, hi) = (a.min(b), a.max(b));
+        let (scan, other) = if self.degree(lo) <= self.degree(hi) {
+            (lo, hi)
+        } else {
+            (hi, lo)
+        };
+        if lo == hi
+            || self
+                .rows
+                .row(scan)
+                .iter()
+                .any(|&e| self.other(e, scan) == other)
+        {
+            return Ok(None);
+        }
+        let e = u32::try_from(self.lo.len()).map_err(|_| CapacityError {
+            what: "simple graph",
+        })?;
+        self.rows.append(lo, e)?;
+        self.rows.append(hi, e)?;
+        self.lo.push(lo);
+        self.hi.push(hi);
+        self.strength.push(strength);
+        Ok(Some(e))
+    }
+}
+
 /// Every simple edge filed under both its endpoints, arrival (simple-edge-index) order.
-fn row_csr(n: u32, lo: &[u32], hi: &[u32]) -> Csr {
+fn row_csr(n: u32, lo: &[u32], hi: &[u32]) -> AppendCsr {
     let pairs = (0..lo.len() as u32).flat_map(|e| [(lo[e as usize], e), (hi[e as usize], e)]);
-    Csr::from_pairs(n, pairs).expect("edge count fits u32")
+    AppendCsr::from_pairs(n, pairs).expect("edge count fits u32")
 }
 
 #[cfg(test)]
@@ -155,6 +196,39 @@ mod tests {
         assert_eq!((g.lo.clone(), g.hi.clone()), (vec![0, 1], vec![1, 2]));
         assert_eq!(g.strength, [edges[0].strength, edges[3].strength]);
         assert_eq!((g.degree(0), g.degree(1), g.degree(2)), (1, 2, 1));
+    }
+
+    #[test]
+    fn absorbing_raw_edges_one_by_one_builds_the_simple_graph() {
+        let nodes = [node("a", ""), node("b", ""), node("c", ""), node("d", "")];
+        let pairs = [
+            ("a", "b"),
+            ("b", "a"),
+            ("c", "c"),
+            ("b", "c"),
+            ("d", "b"),
+            ("c", "b"),
+        ];
+        let edges: Vec<_> = (0..)
+            .zip(pairs)
+            .map(|(i, (s, t))| edge(&format!("e{i}"), s, t))
+            .collect();
+        let t = index_model(&nodes, &edges).expect("fits");
+        let whole = simple_graph(&t);
+        let mut grown = SimpleGraph::from_edges(4, Vec::new(), Vec::new(), Vec::new());
+        let raw = t.edges();
+        for e in 0..edges.len() {
+            grown
+                .absorb(raw.source[e], raw.target[e], raw.strength[e])
+                .expect("fits");
+        }
+        assert_eq!(
+            (grown.lo, grown.hi, grown.strength),
+            (whole.lo, whole.hi, whole.strength)
+        );
+        for v in 0..4 {
+            assert_eq!(grown.rows.row(v), whole.rows.row(v), "row {v}");
+        }
     }
 
     #[test]

@@ -52,7 +52,7 @@ pub use ids::{
     make_tag_node_id, parse_node_id,
 };
 pub use index::columns::{ColumnsRefusal, EdgeCells, NodeCells, StringTable, index_columns};
-pub use index::{Stats, Topology, empty_model, index_model, nodes_equal};
+pub use index::{ExtendError, Stats, Topology, empty_model, index_model, nodes_equal};
 pub use layout::Geometry;
 pub use layout::grid::{Grid, GridParams};
 pub use layout::sugiyama::{Sugiyama, SugiyamaParams};

@@ -34,6 +34,11 @@ pub struct AppendCsr {
 const OVERFLOW: CapacityError = CapacityError { what: "adjacency" };
 
 impl AppendCsr {
+    /// The most live values with which no append can overflow: a moving row's new room
+    /// plus the buffer before it is at most `4 * live + 4` slots, kept within `u32`. A
+    /// caller that checks its total against this first never meets a half-done batch.
+    pub const SAFE_LIVE: u64 = (u32::MAX as u64 - 4) / 4;
+
     /// [`Csr::from_pairs`], with no slack: every row's `cap` is its `len`.
     pub fn from_pairs<I>(rows: u32, pairs: I) -> Result<Self, CapacityError>
     where
