@@ -14,7 +14,7 @@ import { ALPHA_MIN } from "../src/motor/liveLoop.ts";
 import { HIDDEN, type Bar } from "../src/ui/progress.ts";
 
 function frame(alpha: number, running = true): ForceFrame {
-  return { xs: Float64Array.of(1, 2), ys: Float64Array.of(3, 4), alpha, running };
+  return { xs: Float32Array.of(1, 2), ys: Float32Array.of(3, 4), alpha, running };
 }
 
 function rig(): {

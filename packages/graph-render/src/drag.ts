@@ -3,26 +3,23 @@
  * draws from are copied, so the frame the motor handed over is never written to; a new
  * layout replaces the whole scene and the override with it.
  *
- * Ponytail: the pick grid is rebuilt over all nodes, O(n), once when the drag ends and not
- * per pointer move (nothing is picked while a drag holds the pointer). The bounds used for
- * fitting are the layout's, so a fit after a drag ignores the moved node.
+ * Ponytail: the pick grid is never rebuilt until something picks, so a pointer move that
+ * nobody picks in and nobody fits costs O(1); the first pick pays one O(n) pass over the
+ * moved columns and every later pick on that scene reuses it. The bounds grow by the same
+ * reach `sceneOf` uses, so a fit of a moved drawing still shows whole nodes.
  */
-import type { Bounds, Point } from "./camera.ts";
-import { type Positions, gridOf } from "./grid.ts";
+import type { Point } from "./camera.ts";
+import { type Positions } from "./grid.ts";
 import type { Gesture } from "./pointer.ts";
-import { type Scene, boundsOf } from "./scene.ts";
+import type { Scene } from "./scene.ts";
+import { deferredScene } from "./lazy.ts";
 
-/** The scene with these columns as the node positions; its grid is rebuilt to match. */
+/**
+ * The scene with these columns as the node positions; its bounds and grid are read on
+ * demand, so a per-frame move does not scan the frame.
+ */
 export function movedScene(scene: Scene, positions: Positions): Scene {
-  // The bounds grow by the same reach `sceneOf` uses, so a fit of a moved drawing still
-  // shows whole nodes: over the bare positions the outermost ones are cropped by their radius.
-  const bounds: Bounds | null = boundsOf(positions, scene.reach);
-  return {
-    ...scene,
-    frame: { ...scene.frame, x: positions.x, y: positions.y },
-    grid: gridOf(positions, bounds),
-    bounds,
-  };
+  return deferredScene(scene, positions);
 }
 
 /** The motor's live session as the view sees it: positions are world coordinates. */
