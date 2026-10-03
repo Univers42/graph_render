@@ -8,7 +8,7 @@ import { dimAt, fadeLevel } from "../fade.ts";
 import { type LabelInput, type LabelPlan, type LabelPolicy, type Occupancy, followLabels, planLabels } from "../labels.ts";
 import type { Scene } from "../scene.ts";
 import type { Theme } from "../theme.ts";
-import { TRANSITION_MS, blend, easeInOutCubic } from "../transition.ts";
+import { TRANSITION_MS, blend, easeInOutCubic, markTween } from "../transition.ts";
 import { type LayoutKey, layoutChanged } from "./layout-key.ts";
 import type { PaintCounts } from "./input.ts";
 import { paintOverlay } from "./overlay.ts";
@@ -122,6 +122,7 @@ export function markMoved(state: LoopState): void {
 function advance(state: LoopState, now: number): boolean {
   if (state.transitionStart < 0) return false;
   const t = (now - state.transitionStart) / TRANSITION_MS;
+  markTween(state, state.transitionStart, t >= 1);
   if (t >= 1) {
     state.transitionStart = -1;
     state.x = state.scene.frame.x;

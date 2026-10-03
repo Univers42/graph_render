@@ -37,6 +37,12 @@ export interface Pass {
 export interface Uploaded {
   x: Float32Array | null;
   placed: number;
+  /** What `u_eased` is: 1 whenever nothing is being mixed, so the shaders read `a_x`/`a_y`. */
+  eased: number;
+  /** The `from` half of the tween the four position buffers hold, or null outside one. */
+  fromX: Float32Array | null;
+  /** The `to` half, which is `x` itself while a tween is in flight. */
+  toX: Float32Array | null;
   halvesKey: readonly unknown[];
   /** `nodeHalves`' output, kept for culling the quad pass. */
   halves: Float32Array;
@@ -57,7 +63,33 @@ export interface Uploaded {
   shape: EdgeShape | null;
 }
 
-type Column = "x" | "y" | "half" | "slot" | "index" | "order" | "quadX" | "quadY" | "quadHalf" | "quadSlot";
+type Column = "x" | "y" | "fromX" | "fromY" | "half" | "slot" | "index" | "order"
+  | "quadX" | "quadY" | "quadFromX" | "quadFromY" | "quadHalf" | "quadSlot";
+
+/**
+ * A layout switch in flight: the two columns the nodes ease between, and how far along it is.
+ * The layer uploads all four once and moves `eased` per frame, so a tween costs no upload and no
+ * CPU blend (docs/measurements/perf-transition.md).
+ */
+export interface Tween {
+  readonly fromX: Float32Array;
+  readonly fromY: Float32Array;
+  readonly toX: Float32Array;
+  readonly toY: Float32Array;
+  /** `easeInOutCubic` of the tween's clock: 0 at the `from` columns, 1 at the `to` columns. */
+  readonly eased: number;
+}
+
+/**
+ * How the view paces the layer: its in-place move counter, the moving budget, and the tween the
+ * shader is mixing. `view.ts` passes its own `BulkSlot` as this.
+ */
+export interface Pace {
+  readonly placed: number;
+  readonly budget: number;
+  /** The tween to mix, or null: at null the shaders read `a_x`/`a_y` unchanged. */
+  readonly tween: Tween | null;
+}
 
 export interface BulkLayer {
   readonly canvas: OffscreenCanvas;
@@ -93,15 +125,19 @@ function passesOf(gl: WebGL2RenderingContext, buffers: BulkLayer["buffers"]): Pi
   const slot = { name: "a_colour", buffer: buffers.slot, size: 1, slots: true };
   const half = { name: "a_half", buffer: buffers.half, size: 2 };
   const quads = passOf(gl, programOf(gl, NODE_VERTEX, NODE_FRAGMENT), (program) => {
-    const columns = [{ ...x, buffer: buffers.quadX }, { ...y, buffer: buffers.quadY }, { ...slot, buffer: buffers.quadSlot }, { ...half, buffer: buffers.quadHalf }];
+    const from = { name: "a_fx", buffer: buffers.quadFromX, size: 1 };
+    const columns = [{ ...x, buffer: buffers.quadX }, { ...y, buffer: buffers.quadY }, { ...from, buffer: buffers.quadFromY },
+      { ...slot, buffer: buffers.quadSlot }, { ...half, buffer: buffers.quadHalf }];
     for (const spec of columns) attribute(gl, program, spec, 1);
   });
   const points = passOf(gl, programOf(gl, POINT_VERTEX, POINT_FRAGMENT), (program) => {
-    for (const spec of [x, y, slot, half]) attribute(gl, program, spec, 0);
+    const from = [{ name: "a_fx", buffer: buffers.fromX, size: 1 }, { name: "a_fy", buffer: buffers.fromY, size: 1 }];
+    for (const spec of [x, y, ...from, slot, half]) attribute(gl, program, spec, 0);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, buffers.order);
   });
   const edges = passOf(gl, programOf(gl, EDGE_VERTEX, EDGE_FRAGMENT), (program) => {
-    for (const spec of [x, y, slot]) attribute(gl, program, spec, 0);
+    const from = [{ name: "a_fx", buffer: buffers.fromX, size: 1 }, { name: "a_fy", buffer: buffers.fromY, size: 1 }];
+    for (const spec of [x, y, ...from, slot]) attribute(gl, program, spec, 0);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, buffers.index);
   });
   return { quads, points, edges };
@@ -117,7 +153,8 @@ function paletteTexture(gl: WebGL2RenderingContext): WebGLTexture {
 
 function freshUploads(): Uploaded {
   return {
-    x: null, placed: -1, halvesKey: [], halves: new Float32Array(0), shown: 0, largest: 0,
+    x: null, placed: -1, eased: 1, fromX: null, toX: null,
+    halvesKey: [], halves: new Float32Array(0), shown: 0, largest: 0,
     slots: null, palette: null, paletteSize: 1, edges: [], index: new Uint32Array(0), indexCount: 0,
     shapeKey: [], shape: null,
   };
@@ -143,7 +180,10 @@ export function createBulk(): BulkLayer | null {
   const probe = new OffscreenCanvas(1, 1).getContext("2d");
   if (gl === null || probe === null) return null;
   const make = (): WebGLBuffer => gl.createBuffer();
-  const buffers = { x: make(), y: make(), half: make(), slot: make(), index: make(), order: make(), quadX: make(), quadY: make(), quadHalf: make(), quadSlot: make() };
+  const buffers = {
+    x: make(), y: make(), fromX: make(), fromY: make(), half: make(), slot: make(), index: make(), order: make(),
+    quadX: make(), quadY: make(), quadFromX: make(), quadFromY: make(), quadHalf: make(), quadSlot: make(),
+  };
   return {
     canvas, gl, buffers, ...passesOf(gl, buffers), ...limitsOf(gl), palette: paletteTexture(gl),
     normalise: normaliserOf(probe), colours: new Map(), uploaded: freshUploads(), timer: edgeTimerOf(gl),
