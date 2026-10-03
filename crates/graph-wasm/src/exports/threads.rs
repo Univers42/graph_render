@@ -75,7 +75,7 @@ pub extern "C" fn gm_seed_handle(seed: u32, n: u32) -> u32 {
 
 /// `gm_run` with the default parameters, over the pool: `workers` parts, capped at the
 /// helpers present plus this thread. Barnes-Hut and particle-mesh only, the two layouts with
-/// a `run_with`. Bit 0 of `flags` is the negative control: the last part writes nothing.
+/// a `run_with`. Bit 0 of `flags` is the negative control: the last chunk writes nothing.
 // SAFETY: as `gm_thread_block`.
 #[unsafe(no_mangle)]
 pub extern "C" fn gm_run_threaded(handle: u32, layout_id: u32, workers: u32, flags: u32) -> u32 {

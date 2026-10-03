@@ -1,6 +1,7 @@
-//! The velocity merges, the collide projection and the integrate as range passes, so the
-//! workers share them. Each is `step::merge`'s or `Sim::integrate`'s expression for one node
-//! and one axis, evaluated in the same order, so the bytes are theirs.
+//! The velocity merges, the centering shift, the collide projection and the integrate as
+//! range passes, so the workers share them. Each is `step::merge`'s, `Sim::center`'s or
+//! `Sim::integrate`'s expression for one node and one axis, evaluated in the same order, so
+//! the bytes are theirs. The centering mean stays one thread's fold (D3).
 //!
 //! `step::merge` scatters slot `k`'s delta onto node `order[k]`; [`Velocity`] gathers it
 //! from node `i`'s side, slot `slot[i]`, so each node writes only its own output. A pass
@@ -21,11 +22,12 @@ type Axis = fn((f64, f64)) -> f64;
 
 const AXES: [Axis; 2] = [|d| d.0, |d| d.1];
 
-/// A gathered pass's deltas in slot order, and each node's slot.
+/// A gathered pass's deltas in slot order, and each node's slot: `None` when the deltas
+/// are in node order, as link's are.
 #[derive(Clone, Copy)]
 pub(super) struct Gathered<'a> {
     pub(super) deltas: &'a [(f64, f64)],
-    pub(super) slot: &'a [u32],
+    pub(super) slot: Option<&'a [u32]>,
     /// `step::merge`'s negative control: add the next slot's delta too.
     pub(super) split: bool,
 }
@@ -51,7 +53,7 @@ impl StepRange for Velocity<'_> {
         for (out, i) in out.iter_mut().zip(range.start as usize..) {
             let mut v = self.v[i];
             if let Some(g) = self.merged {
-                let k = g.slot[i] as usize;
+                let k = g.slot.map_or(i, |slot| slot[i] as usize);
                 let stolen = if g.split {
                     g.deltas.get(k + 1).copied().map_or(0.0, axis)
                 } else {
@@ -91,12 +93,43 @@ impl StepRange for Position<'_> {
     }
 }
 
+/// One axis moved by a constant: `Sim::center`'s `x[i] -= dx`.
+struct Shift<'a> {
+    x: &'a [f64],
+    by: f64,
+}
+
+impl StepRange for Shift<'_> {
+    type Out = f64;
+
+    fn len(&self) -> u32 {
+        self.x.len() as u32
+    }
+
+    fn step_range(&self, range: Range<u32>, out: &mut [f64]) {
+        for (out, i) in out.iter_mut().zip(range.start as usize..) {
+            *out = self.x[i] - self.by;
+        }
+    }
+}
+
 /// Where a pass runs: the runner and its worker count.
 type On<'a, R> = (&'a R, u32);
 
 /// Adds a gathered pass onto the velocities: `step::merge`.
 pub(super) fn merge<R: Runner>(sim: &mut Sim, gathered: Gathered<'_>, on: On<'_, R>) {
     velocities(sim, Some(gathered), None, on);
+}
+
+/// `Sim::center`: the mean is one thread's fold, the shift is a pass.
+pub(super) fn center<R: Runner>(sim: &mut Sim, (runner, workers): On<'_, R>) {
+    let Some((dx, dy)) = sim.center_shift() else {
+        return;
+    };
+    runner.run(&Shift { x: &sim.x, by: dx }, workers, &mut sim.px);
+    mem::swap(&mut sim.x, &mut sim.px);
+    runner.run(&Shift { x: &sim.y, by: dy }, workers, &mut sim.py);
+    mem::swap(&mut sim.y, &mut sim.py);
 }
 
 /// Collide's projection, `p = x + v`, into `px`/`py`.

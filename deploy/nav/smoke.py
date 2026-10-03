@@ -1,6 +1,6 @@
 """Studio load-smoke gate: does the built studio come up at all, and say so if it does not.
 
-Usage: smoke.py --dist DIR --out DIR [--break] [--commit ID]   (run from this directory)
+Usage: smoke.py --dist DIR --out DIR [--break] [--break-coi] [--commit ID]   (run from this directory)
 Exit:  0 every row PASS · 1 a row FAIL or NOT-RUN · 2 the harness could not run
 
 The 2026-10-01 failure: `scripts/studio.sh` served whatever `target/` held, so the page loaded a
@@ -17,6 +17,7 @@ one console error. Nothing pokes the page to force that; the fault is in the byt
 script that throws before any studio code runs, injected over CDP, because the 2026-10-01 incident's
 `TypeError` no longer escapes anywhere: the SDK latches the loader's refusal, so the stale wasm of
 fault (1) reaches the page as state and never as an exception. See `smokecdp.INJECTED_THROW`.
+Third control: `--break-coi` serves without COOP/COEP, so `smoke-cross-origin-isolated` fails.
 """
 import argparse
 import json
@@ -66,28 +67,32 @@ def settle_drawing(page, url, at):
     return page.evaluate(judge.PROBE)
 
 
-def measure(dist, out, commit, broken):
-    """The whole run in one function, so every exit path closes the browser, the server and the copy."""
-    served, scratch = dist, None
-    if broken:
+def measure(args):
+    """The whole run in one function, so every exit path closes the browser, the server and the copy.
+
+    The arguments come as one namespace (the parity gate's shape): `--break` and `--break-coi` are
+    two faults in one run, and five positional parameters would cross the house limit of four.
+    """
+    served, scratch = args.dist, None
+    if args.broken:
         scratch = Path(tempfile.mkdtemp())
         served = scratch / "dist"
-        shutil.copytree(dist, served)
+        shutil.copytree(args.dist, served)
         (served / WASM).write_bytes(smokecdp.MEMORY_ONLY_WASM)
-    server = nav.serve(served)
+    server = nav.serve(served, isolated=not args.break_coi)
     with tempfile.TemporaryDirectory() as profile:
         browser = nav.launch_browser(profile)
         try:
             page = smokecdp.Watcher(nav.DEBUG_PORT)
             page.start_watching()
-            if broken:
+            if args.broken:
                 page.throw_on_load(smokecdp.INJECTED_THROW)
             url = f"http://127.0.0.1:{server.server_address[1]}/"
             at = settle(page, url)
             page.call("Runtime.evaluate", {"expression": "1"})  # drain what is still in the socket
             page.watch_workers()
-            page.screenshot(out / "studio-smoke.png")
-            return {"label": out.name, "commit": commit, "break": broken, "url": url,
+            page.screenshot(args.out / "studio-smoke.png")
+            return {"label": args.out.name, "commit": args.commit, "break": args.broken, "url": url,
                     "browser": page.call("Browser.getVersion").get("product"),
                     "viewport": VIEWPORT, "wasm_bytes": (served / WASM).stat().st_size,
                     "rows": judge.run_rows(page, at)}
@@ -119,6 +124,9 @@ def parse_args():
     parser.add_argument("--break", action="store_true", dest="broken",
                         help="the negative control: serve a valid wasm that exports memory only, "
                              "and throw before the page's own scripts")
+    parser.add_argument("--break-coi", action="store_true", dest="break_coi",
+                        help="the negative control: serve without the COOP/COEP headers, so "
+                             "neither the page nor the motor worker is isolated and the row must fail")
     return parser.parse_args()
 
 
@@ -126,7 +134,7 @@ def main():
     args = parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
     try:
-        report = measure(args.dist, args.out, args.commit, args.broken)
+        report = measure(args)
     except (cdp.CdpError, OSError) as failure:
         print(f"studio-smoke: could not run: {failure}", file=sys.stderr)
         return 2
