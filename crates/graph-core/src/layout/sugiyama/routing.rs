@@ -7,6 +7,18 @@
 //! to decide. A reversed edge's dummy chain was built tail-to-head in acyclic order
 //! (`hierarchical.py`'s convention); its interior points are walked back to front so the
 //! polyline still runs from the edge's real source to its real target.
+//!
+//! **A self-loop carries no interior points, by design** (the review's L-14). [`Route::Loop`]
+//! is what an edge in no arc gets — a self-loop, which `acyclic.rs` filters out by
+//! `source == target` exactly as the reference's `_acyclic_arcs` does
+//! (`hierarchical.py:307-311`) — and the reference's layout stage draws no edge geometry at
+//! all: it returns node positions only (`hierarchical.py:651-652`). The loop arc belongs to
+//! the router that runs after every layout, and the reference emits one exactly when a
+//! polyline's two endpoints coincide (`SciGraphs/core/scigraphs_core/mesh/edge_styles.py:458`),
+//! which is what an empty `Polyline` row is here too: the contract draws an empty row
+//! straight (`graph-contract`'s `EdgeGeometry`), and the motor's style post turns that
+//! coincident straight segment into the loop (`post::styles`). Inventing arc points at this
+//! stage would spend the layout's budget on geometry no oracle has.
 
 use super::acyclic::Acyclic;
 use super::coords::Coords;

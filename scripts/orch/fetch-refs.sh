@@ -73,5 +73,26 @@ if [[ ! -f $mpl/_cm_listed.py ]]; then
 fi
 sha256_is "$mpl/_cm_listed.py" ddad3698f5129ceb1792a445371286c08bc9080298e657b3054aea19c9659ef9
 
+
+# numpy's PCG64 and SeedSequence, for `default_rng` (sg-fa2-forcesim): six files from inside the
+# 2.3.3 sdist (PyPI sha256 below), kept alone like matplotlib's; the tarball is dropped after.
+np=$R/numpy-2.3.3
+if [[ ! -f $np/pcg64.h ]]; then
+  mkdir -p "$np"; t=$np/numpy-2.3.3.tar.gz
+  get https://files.pythonhosted.org/packages/source/n/numpy/numpy-2.3.3.tar.gz "$t"
+  sha256_is "$t" ddc7c39727ba62b80dfdbedf400d1c10ddfa8eefbd7ec8dcb118be8b56d31029
+  tar -xzf "$t" -C "$np" --strip-components=5 --wildcards 'numpy-2.3.3/numpy/random/src/pcg64/pcg64.[ch]'
+  tar -xzf "$t" -C "$np" --strip-components=5 numpy-2.3.3/numpy/random/src/distributions/distributions.c
+  tar -xzf "$t" -C "$np" --strip-components=3 numpy-2.3.3/numpy/random/_pcg64.pyx \
+    numpy-2.3.3/numpy/random/bit_generator.pyx numpy-2.3.3/numpy/random/_generator.pyx
+  rm -f "$t"
+fi
+sha256_is "$np/pcg64.h" 2ce9cc9366a9993cfd786a1ee63eaad35d8761c0ff9744ee5508192156f33d4a
+sha256_is "$np/pcg64.c" 21fdfe42947deb332cc2aaa870b44136d4ae23db4bdd19ef5ba7ffed4dc92718
+sha256_is "$np/distributions.c" c0b8f2b8b3c9854ea8cf45cddbc020eb45be71062110df35289580aa152d9e3e
+sha256_is "$np/_pcg64.pyx" b57fb542a52d65a485546f56b2bca15c458c44dd34159dcf8417aa20acdb9afc
+sha256_is "$np/bit_generator.pyx" 1e2e991c929c318b9a424e2e8ec3f92525c6478c382b59731f3a83e1a7306821
+sha256_is "$np/_generator.pyx" 90e4583693c3c12969f0913c3583ee1aee82e80f40780426d9c393611fab368c
+
 chmod -R a-w "$R"
-echo "fetch-refs: 10 references verified under $R"
+echo "fetch-refs: 11 references verified under $R"
