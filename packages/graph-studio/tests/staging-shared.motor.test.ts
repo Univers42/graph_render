@@ -42,17 +42,18 @@ function fakeMotor(memory: WebAssembly.Memory): { exports: StagingExports; built
 
 /** Runs `body` with `encodeInto` refusing shared views as browsers do, and counts its calls. */
 function withBrowserRule(body: () => void): number {
-  const native = encoder.encodeInto;
+  const native = encoder.encodeInto.bind(encoder);
   let calls = 0;
   encoder.encodeInto = (source, destination) => {
     calls += 1;
     if (destination.buffer instanceof SharedArrayBuffer) throw new TypeError("The provided Uint8Array value must not be shared.");
-    return native.call(encoder, source, destination);
+    return native(source, destination);
   };
   try {
     body();
   } finally {
-    encoder.encodeInto = native;
+    // The patch is an own property; deleting it uncovers the prototype's method again.
+    Reflect.deleteProperty(encoder, "encodeInto");
   }
   return calls;
 }
