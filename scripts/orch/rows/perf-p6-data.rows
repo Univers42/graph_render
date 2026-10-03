@@ -1,0 +1,5 @@
+studio-check|0|scripts/studio.sh check
+filters|0|scripts/studio-filters.sh
+negctl-filters|nonzero|STUDIO_FILTERS_BREAK=1 scripts/studio-filters.sh
+smoke|0|scripts/studio-smoke.sh
+negctl-smoke|nonzero|STUDIO_SMOKE_BREAK=1 scripts/studio-smoke.sh

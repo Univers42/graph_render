@@ -17,12 +17,7 @@ pub(super) const G_RANDOM_ITER: Gap = Gap {
 pub(super) const G_GRID_ITER: Gap = Gap {
     parameter: "iterations",
     note: "a closed placement: no iteration to bound",
-    at: "crates/graph-core/src/layout/grid.rs:101",
-};
-pub(super) const G_SPRING_SEED: Gap = Gap {
-    parameter: "layout seed",
-    note: "`SpringParams` has no seed field; the reference passes `seed=get_layout_seed()` to networkx, so the start position is drawn from two different generators",
-    at: "crates/graph-core/src/layout/force/spring.rs:120",
+    at: "crates/graph-core/src/layout/grid.rs:100",
 };
 pub(super) const G_BASIC3D_SCALE: Gap = Gap {
     parameter: "scale",

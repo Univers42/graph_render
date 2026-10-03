@@ -99,11 +99,7 @@ fn layout_names_offers_every_registered_layout_once_by_both_of_its_names() {
     let mut once = names.clone();
     once.sort_unstable();
     once.dedup();
-    assert_eq!(
-        once.len(),
-        names.len(),
-        "no layout is offered twice: {names:?}"
-    );
+    assert_eq!(once.len(), names.len(), "offered twice: {names:?}");
     for id in registry::LAYOUTS.iter().map(|l| l.id) {
         assert!(names.contains(&id), "{names:?} missing {id}");
         assert!(

@@ -22,8 +22,8 @@
 // Exit codes follow graph-cli: 0 pass, 1 ran and failed, 2 could not run.
 
 import { readFile } from "node:fs/promises";
-import { InvalidOptionsError, createMotor } from "../crates/graph-sdk-js/src/index.ts";
-import { check, fail, finish, refusedWith } from "./sdk-smoke/lib.mjs";
+import { ColumnId, InvalidOptionsError, createMotor } from "../crates/graph-sdk-js/src/index.ts";
+import { check, columnIdProblems, fail, finish, refusedWith } from "./sdk-smoke/lib.mjs";
 import { runConvergence } from "./sdk-smoke/convergence.mjs";
 import { runBuildSection } from "./sdk-smoke/build.mjs";
 import { runLayoutSection } from "./sdk-smoke/layouts.mjs";
@@ -37,30 +37,53 @@ const args = process.argv.slice(2);
 const convergenceOnly = args.includes("--adapter-convergence");
 const [wasmPath] = args.filter((arg) => !arg.startsWith("--"));
 
-if (convergenceOnly) {
-  await runConvergence(wasmPath);
-  finish();
+// The header's table promises 2 for "could not run". Every load below — the file, the
+// adapters, `createMotor` — can throw, and an uncaught one is exit 1 with a stack: the
+// documented 2 is what a gate row reads to tell "the arm could not run" from "the arm ran
+// and the SDK is wrong" (m88). `finish()` sets `process.exitCode` rather than calling
+// `process.exit`, so stdout drains first (m89).
+try {
+  await smoke();
+} catch (error) {
+  fail(error && error.message ? error.message : String(error));
 }
 
-if (!wasmPath) fail("usage: sdk-smoke.mjs <wasm> | --adapter-convergence");
+async function smoke() {
+  if (convergenceOnly) {
+    await runConvergence(wasmPath);
+    // `return`, not a fall-through: `finish()` now sets `process.exitCode` instead of
+    // calling `process.exit` (m89), so nothing stops the walk into the full smoke.
+    finish();
+    return;
+  }
 
-const bytes = await readFile(wasmPath);
+  if (!wasmPath) fail("usage: sdk-smoke.mjs <wasm> | --adapter-convergence");
 
-// C16: options this phase accept only {} and { exec: "auto" }; anything else is refused
-// before the module is even asked to load.
-await createMotor(bytes, {});
-await createMotor(bytes, { exec: "auto" });
-check("an unknown options key is refused", await refusedWith(InvalidOptionsError, () => createMotor(bytes, { bogus: true })));
-check('options.exec other than "auto" is refused', await refusedWith(InvalidOptionsError, () => createMotor(bytes, { exec: "gpu" })));
+  // C3 is append-only, never renumbered: the numbers are the contract's, so they are
+  // restated as literals here and compared (the sections' own tables are keyed by those
+  // literals, so a renumbering would otherwise be agreed with by both sides at once).
+  const idProblems = columnIdProblems(ColumnId);
+  check("the SDK's ColumnId spells the contract's ids, renumbered never", idProblems.length === 0, idProblems.join("; "));
 
-const motor = await createMotor(bytes);
+  const bytes = await readFile(wasmPath);
 
-const ctx = { bytes, motor };
-await runBuildSection(ctx);
-await runLayoutSection(ctx);
-await runPostSection(ctx);
-await runAnalysisSection(ctx);
-await runTransportSection(ctx);
-await runForceSection(ctx);
-await runDegradedSection(ctx);
-finish();
+  // C16: options this phase accept only {} and { exec: "auto" }; anything else is refused
+  // before the module is even asked to load.
+  await createMotor(bytes, {});
+  await createMotor(bytes, { exec: "auto" });
+  check("an unknown options key is refused", await refusedWith(InvalidOptionsError, () => createMotor(bytes, { bogus: true })));
+  check('options.exec other than "auto" is refused', await refusedWith(InvalidOptionsError, () => createMotor(bytes, { exec: "gpu" })));
+
+  const motor = await createMotor(bytes);
+  if (!motor.available) fail("the module did not load, so nothing below could be measured against it");
+
+  const ctx = { bytes, motor };
+  await runBuildSection(ctx);
+  await runLayoutSection(ctx);
+  await runPostSection(ctx);
+  await runAnalysisSection(ctx);
+  await runTransportSection(ctx);
+  await runForceSection(ctx);
+  await runDegradedSection(ctx);
+  finish();
+}

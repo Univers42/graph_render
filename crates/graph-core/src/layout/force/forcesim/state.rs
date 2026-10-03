@@ -2,7 +2,7 @@
 //! `_renormalize` derives (`simulation.py:363-389`).
 //!
 //! ```text
-//! k   = SIM_SCALE / max(np.cbrt(max(n, 1)), 1.0)                     np.float64
+//! k   = SIM_SCALE / max(cbrt(max(n, 1)), 1.0)                        np.float64
 //! mm  = float(mass.mean())                                           f32 reduction, then f64
 //! rep = scaling_ratio * (k ** 2 / max(mm ** 3, 1e-9))                np.float64
 //! grv = (gravity * 0.1) * (0.38 * 2.0 * SIM_SCALE ** 2
@@ -48,7 +48,7 @@ const MIN_MASS_POWER: f64 = 1e-9;
 const MIN_K: f64 = 1e-9;
 
 pub(super) struct Sim {
-    /// `self.pos`: `f32`, flat `(n, 3)` in C order — gather form (D10), never a `HashMap`.
+    /// `self.pos`: `f32`, flat `(n, 3)` in C order — gather form (D10).
     pos: Vec<f32>,
     /// `self.mass`: `(self._deg + 1)` in `f32` (`simulation.py:350`). FA2's mass is
     /// `deg + 1`, which is what separates it from FR's unit masses.

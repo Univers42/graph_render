@@ -22,7 +22,7 @@
 //! `np.float64` **scalar is not** and promotes the whole expression to `f64`. Which of the
 //! two a constant is decides the dtype of a whole force term, so each is named here:
 //!
-//! - `self.k = scale / max(np.cbrt(max(n, 1)), 1.0)` is `np.float64`, therefore
+//! - `self.k = scale / max(cbrt(max(n, 1)), 1.0)` is `np.float64`, therefore
 //!   `self._repulsion_norm = k**2 / m3` and `self._gravity_norm` are `np.float64`, and
 //!   therefore `self.repulsion` and `self.gravity` are `np.float64`. **The repulsion
 //!   coefficient block and the whole of gravity are `f64`**, narrowed to `f32` only where

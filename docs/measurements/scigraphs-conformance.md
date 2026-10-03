@@ -32,11 +32,14 @@ at SciGraphs' own `iterations = 50`, `scale = 5.0` and `get_layout_seed() = 9817
 (`derive_seed(42, "layout")`, `SciGraphs/core/scigraphs_core/repro/determinism.py:56-62`), and
 writes **raw little-endian `f64`** per row plus the `f32` the snapshot narrows to. A decimal
 round trip in the middle would be a rounding step between the two values whose equality is the
-question. **Five** ids get an override. Three because their registered default is not SciGraphs'
-parameter: `CIRCLE_PACKING` (500 sweeps, not 50), `FORCEATLAS2` (`max_iter` 100, not 50) and
-`GRAPHVIZ_SFDP` (`run` hard-codes `DEFAULT_SEED = 1`; the arm calls `run_seeded`). The fourth is
-`layout.dag.sugiyama`, whose registered default draws in the pipeline's own units: the arm
-calls `sugiyama::run_scaled`, which applies SciGraphs' per-axis normalisation
+question. Exactly **five** ids get an override. Three because their registered default is not
+SciGraphs' parameter: `CIRCLE_PACKING` (500 sweeps, not 50), `FORCEATLAS2` (`max_iter` 100, not
+50, run on `layout.forceatlas2.forcesim`, SciGraphs' own `ForceSim`) and `GRAPHVIZ_SFDP` (`run` hard-codes `DEFAULT_SEED = 1`; the arm calls `run_seeded`). The
+other two are layouts whose *placement* is SciGraphs' rather than the registered stage's, both
+through a scaled entry point beside the registered one and both at `scale = 5.0`:
+`layout.grid`, whose arm calls `Grid::run_scaled` because `_grid_layout` starts the first cell
+at the origin and pitches it at `scale / grid_size`, and `layout.dag.sugiyama`, whose arm calls
+`sugiyama::run_scaled`, which applies SciGraphs' per-axis normalisation
 (`hierarchical.py:679-685`) at the same `scale = 5.0`. That normalisation reads the dummy
 vertices' X, which `Geometry` does not carry, so it lives beside the stages that produce it
 rather than in this arm.
@@ -102,16 +105,19 @@ one that unlocks the rest.
 | `algorithm` | anything else | a different method or a different step |
 
 **Both halves of the `arithmetic` test are needed, and the gap is the half that matters.**
-`GRID` has a disparity of 5e-32 and an absolute gap of 4.0: the same lattice, in a different
-unit at a different origin. Calling that `arithmetic` because the shape is exact would send a
-repair job to chase a summation order that is already right.
+`SUGIYAMA` has a disparity of 1.26e-16 and an absolute gap of 1.91e-07: the same drawing, one
+`f32` ULP out. Before `GRID` was repaired it sat at a disparity of 5e-32 and an absolute gap of
+4.0 — the same lattice, in a different unit at a different origin — and calling that `arithmetic`
+because the shape was exact would have sent a repair job to chase a summation order that was
+already right. `GRID` is now `f32` 1020/1020 with a gap of 2.12e-07, so the row that makes the
+argument is one this series has already fixed (`docs/measurements/sg-grid-scale.md`).
 
 **The `convention` threshold is 1e-6 and it is measured, not chosen.** Every row this
-classifier calls a convention measures between 5e-32 (`GRID`) and 4e-10 (`GRAPHVIZ_PATCHWORK`);
-every row that measures 0.08 to 0.7 does not, and its overlay says the same thing. An earlier
-0.35 threshold here called `SPECTRAL_3D`, `MDS_3D`, `GRAPHVIZ_CIRCO` and `CIRCLE_PACKING`
-conventions, and all four are a different shape in the picture — the threshold was wrong, not the
-data.
+classifier calls a convention measures between 2e-10 (`GRAPHVIZ_TWOPI`) and 4e-10
+(`GRAPHVIZ_PATCHWORK`); every row that measures 0.08 to 0.7 does not, and its overlay says the
+same thing. An earlier 0.35 threshold here called `SPECTRAL_3D`, `MDS_3D`, `GRAPHVIZ_CIRCO` and
+`CIRCLE_PACKING` conventions, and all four are a different shape in the picture — the threshold
+was wrong, not the data.
 
 **The discriminator is the worst of the median and the two named fixtures**, not the median.
 Twenty of the 24 fixtures hold 2 to 21 nodes, so the median is dominated by them:
@@ -136,9 +142,9 @@ Procrustes-aligned over it**, so a green point sitting on a grey point is a node
 |--:|---|---|---|--:|--:|--:|--:|--:|--:|--:|---|---|
 | 1 | `RANDOM` | `layout.random` | `apply_graph_layout` | `tolerance` | 0/1020 | 1020/1020 | 2.68e+08 | 2.35e-07 | 2.28e-15 | 2.95e-15 | `arithmetic` | **same shape** — the green cloud sits on the grey one, node for node; the `f64` column cannot be exact because the motor is `f32` |
 | 2 | `GRID` | `layout.grid` | `apply_graph_layout` | `tolerance` | 842/1020 | 1020/1020 | 2.39e+08 | 2.12e-07 | 3.39e-32 | 3.96e-15 | `arithmetic` | **same shape** — the aligned motor lands on every grey lattice point; only the last `f32` rounding is left |
-| 3 | `SPRING` | `layout.force.spring` | `apply_graph_layout` | `bitwise` | 341/1020 | 341/1020 | 9.23e+18 | 10 | 0.377 | 0.779 | `rng` | different shape: green does not follow the grey drawing anywhere |
-| 4 | `SPRING_3D` | `layout.force.spring3d` | `apply_graph_layout` | `bitwise` | 3/1020 | 4/1020 | 9.23e+18 | 10 | 0.198 | 0.756 | `rng` | different shape: as `SPRING`, in space |
-| 5 | `CIRCLE_PACKING` | `layout.packing.circle` | `apply_graph_layout` | `shape` | 344/1020 | 808/1020 | 9.22e+18 | 3.17 | 5.3e-16 | 0.827 | `algorithm` | different on lesmis (0.517) and **bit-for-bit the same packing on the 20 gate models** (5e-16): SciGraphs' non-planar fallback is where the two part company |
+| 3 | `SPRING` | `layout.force.spring` | `apply_graph_layout` | `bitwise` | 362/1020 | 866/1020 | 5.17e+13 | 2.37e-03 | 3.77e-16 | 1.66e-08 | `convention` | **same shape on every fixture** (Procrustes median 3.77e-16, worst 1.66e-08), and `f32`-identical on 21 of the 23 measured ones. 153 of the 154 coordinates that are not identical are on `lesmis` (78/462) — the 77-node fixture whose 50 chaotic iterations amplify a 1.6-ulp reduction difference to 2.4e-3; `gate-16` carries the last one (53/54). The `convention` label is the classifier's, and it is wrong — see Repair 4 |
+| 4 | `SPRING_3D` | `layout.force.spring3d` | `apply_graph_layout` | `tolerance` | 24/1020 | 1020/1020 | 2.68e+08 | 2.36e-07 | 5.03e-16 | 6.67e-16 | `arithmetic` | **same shape** — the same seed, the same kernel and the same split reduction as `SPRING`, and the third column absorbs the whole difference: 1020/1020 `f32` |
+| 5 | `CIRCLE_PACKING` | `layout.packing.circle` | `apply_graph_layout` | `shape` | 344/1020 | 808/1020 | 9.22e+18 | 2.70 | 5.3e-16 | 0.863 | `algorithm` | **bit-for-bit the same packing on the 20 gate models** (5e-16) and on the two planar fixtures. `lesmis` — the non-planar one, so the only fixture whose seed moved — goes **0.517 -> 0.0895**; `bipartite` is non-planar too and still differs (0.863); `tree-balanced` (0.418) is a **tree**, so it takes the exact path and did not move |
 | 6 | `FORCEATLAS2` | `layout.forceatlas2.forcesim` | `apply_graph_layout` | `bitwise` | 23/1020 | 72/1020 | 1.55e+17 | 6.23e-4 | 1.40e-13 | 1.31e-9 | `convention` | **same shape** — the motor id changed to SciGraphs' own `ForceSim` in `sg-fa2-forcesim`, because `forceatlas.py:167` reaches that tier first and the networkx port cannot answer this row; the residual is three BLAS kernels this port replaces with fixed orders |
 | 7 | `IGRAPH_FR` | `layout.force.fruchterman_reingold` | `apply_graph_layout` | `bitwise` | 0/1020 | 0/1020 | 9.24e+18 | 11.6 | 0.267 | 0.901 | `rng` | different shape |
 | 8 | `IGRAPH_KK` | `layout.force.kamada_kawai` | `apply_graph_layout` | `shape` | 0/957 | 0/957 | 9.23e+18 | 7.95 | 0.812 | 0.935 | `algorithm` | different shape: grey is a blob, green is a near-straight line |
@@ -187,7 +193,8 @@ the narrowing.** `SPHERE`, `HELIX`, `HIERARCHICAL_3D`, `CIRCULAR_HIERARCHY`, `GR
 their Procrustes medians from 3.4e-32 (`GRID`) to 2.3e-15 (`RANDOM`) — all of them the same shape
 to machine precision. `CIRCULAR_HIERARCHY` and `SUGIYAMA` are the strongest rows in the matrix.
 `SUGIYAMA` came from `shape`/`algorithm` in the previous run; `docs/measurements/sg-sugiyama.md`
-has the per-stage diff and the two causes it found. The two that arrived by porting the
+has the per-stage diff and the two causes it found, and
+`docs/measurements/sg-grid-scale.md` has `GRID`'s. The two that arrived by porting the
 reference's own generator rather than by fixing a convention are the proof that `f64 k/N` is not
 the target: their `f64` counts are 0/1020 and 501/1020, and every one of those coordinates is
 `f32`-exact — `RANDOM`'s because no draw is a `f32` value, `CUBE`'s because its 501 are the corner
@@ -273,39 +280,82 @@ publish a `SCALE` const do (`basic_3d.rs:43`, `hierarchical_3d.rs:78`,
 `circular/hierarchy.rs:45`) is a one-line change per layout.
 **Expected:** max gap 303 -> ~1e-7 (twopi) and 139 -> ~1e-7 (patchwork).
 
-### 3. `CIRCLE_PACKING` — `algorithm`, and the gate models are already exact
-**File:** `crates/graph-core/src/layout/circle_packing.rs:98`. **Change:** on the 20 gate models the
-port is already exact to 5e-16; on `lesmis` it is 0.517. SciGraphs' `_circle_packing_layout`
-(`circle_packing.py:281-291`) **falls back to force-directed when the graph is non-planar**, and
-`lesmis` is non-planar. Port that fallback's branch and its solver.
-**Expected:** `lesmis` disparity 0.517 -> ~1e-16 and `bitwise f32` 808/1020 -> ~1020/1020.
+### 3. `CIRCLE_PACKING` — `algorithm` on the fallback, `arithmetic` once it is seeded
+**File:** `crates/graph-core/src/layout/circle_packing/fallback/seed.rs`. **Change:** the fallback
+exists and was ported; what it drew its start from was the whole of the remaining gap. SciGraphs
+seeds it with `nx.spring_layout`'s own uniform-random positions
+(`max(10, min(50, 20000 // n))` iterations, `scale = scale * 0.45`, `seed=get_layout_seed()`,
+`circle_packing.py:424-429`) — so `RandomState(981798123).rand(nnodes, 2)`, row-major, `f64`.
+**This repair paragraph was stale when it was written** (2026-10-02): it said "port that
+fallback", and the fallback was already there. Only the seed was missing.
 
-**Partly repaired 2026-10-02** (`docs/measurements/sg-fix-spring-temp.md`): the fallback's
-**starting degree** now counts a self-loop twice, as SciGraphs' `G.degree` does
-(`circle_packing.py:420` reads the graph `common.py:297` built with its loops still in;
-networkx counts one twice, `reportviews.py:526`). The row did **not** move — no conformance
-fixture has a self-loop — so this is correctness on the oracle's terms with no measured
-effect here, and the non-planar fallback itself is still unrepaired. The fallback's springs
-and seed still differ on a loop-carrying graph: SciGraphs feeds the loop-carrying `G` to
-`nx.spring_layout` (`:428`) and its edge array (`:432`), where this port reduces loops away.
+**Repaired 2026-10-03** (`docs/measurements/sg-spring-seed.md`): `seed_positions` became
+`start_positions(n, seed)` — the reference's `RandomState` run at `Some(s)`, the golden-angle
+spiral unchanged at `None` — and `CirclePackingParams` grew a `seed: Option<u32>` whose default
+is `None`, so the registered `layout.packing.circle` keeps every hashed byte it had and only the
+conformance arm opts in.
+**Measured:** `lesmis` disparity **0.517 -> 0.0895**, row max gap 3.17 -> 2.70. **Which
+fixtures this can move at all was measured, not assumed**: the fallback is taken exactly when
+`_planar_triangulation` returns `None` (`circle_packing.py:307-311`), and `networkx.check_planarity`
+over the 24 emitted fixtures finds **2 of 24 non-planar** — `lesmis` (77 nodes, 254 edges) and
+`bipartite` (14 nodes, 48 edges). So the 20 gate models and the two planar fixtures
+(`tree-balanced` is a 15-node tree, `dag-diamond` has 4 nodes and 4 edges) never read the seed,
+which is why the row's `f32` and `f64` totals did not move at all. `tree-balanced`'s own 0.418 is
+the **exact** path's residual and predates this repair.
 
-### 4. `SPRING`, `SPRING_3D` — `rng`, and the parameter is the whole repair
-**File:** `crates/graph-core/src/layout/force/spring.rs:120` (`SpringParams` has no `seed` field).
-**Change:** add `seed: u32` to `SpringParams`, default it to `get_layout_seed()`, and draw the
-start from a **numpy MT19937 `RandomState`** rather than the kernel's own Mulberry32 — the
-generator is the cause, not the seed. networkx's `spring_layout` takes `seed=` and SciGraphs
-passes `get_layout_seed()` (`networkx_layouts.py:18`).
-**Expected:** `bitwise f64` 341/1020 -> ~1020/1020; the cause becomes `arithmetic`.
+**Still not exact on the two that reach it, and the cause is now arithmetic.** The fallback's own
+reduction differs from the reference's in three named ways — `seed.rs` fuses nothing where
+`layout.py:703-705` forms one factor per pair, measures distance with `libm::hypot` where
+`np.linalg.norm` is `sqrt(x*x + y*y)`, and scales by `d*t/len` where numpy computes `d*(t/len)`.
+`lesmis` at 0.0895 is the size of that: 0.517 was the seed, 0.0895 is the arithmetic. The row
+keeps `shape`/`algorithm` because `sc_propose.py` reads the Procrustes **worst** (0.8629 on
+`bipartite`) and a shape a similarity does not explain is `algorithm` by that rule — which is at
+least the right neighbourhood, and unlike `SPRING`'s it is not claiming a repair that would move
+nothing.
+
+### 4. `SPRING`, `SPRING_3D` — `rng`, and the parameter was the whole repair — **done, `sg-spring-seed`**
+**File:** `crates/graph-core/src/layout/force/spring.rs`. **Change:** `SpringParams` grew
+`seed: Option<u32>`. At `Some(s)` the start is `np.random.RandomState(s).rand(n, D)`, row-major,
+bit for bit; at `None` it is this crate's own `Mulberry32` at `0x5EED`, byte for byte what it was,
+so both spring ids keep every hashed snapshot and every hash-gate record. The conformance arm
+passes `Some(LAYOUT_SEED)`. The generator, not the seed, was the cause: networkx turns an `int`
+seed into `RandomState(seed)` (`utils/misc.py:290-291`), and its `random_sample` is two `u32`
+words per double, which is [`Mt19937`](../../crates/graph-core/src/rng.rs).
+
+**Measured** (`docs/measurements/sg-spring-seed.md`): `SPRING_3D` `f32` **4/1020 -> 1020/1020**,
+`f64` 3 -> 24, max gap 10 -> 2.36e-07, Procrustes median 0.198 -> 5.03e-16, cause
+**`rng` -> `arithmetic`**, tier `bitwise` -> `tolerance`. `SPRING` `f32` **341/1020 -> 866/1020**,
+`f64` 341 -> 362, max gap 10 -> 2.37e-03, Procrustes median 0.377 -> 3.77e-16.
+
+**Why `SPRING` is 866 and not 1020, and why its recorded cause is wrong.** 153 of the 154
+coordinates that are not `f32`-identical are on `lesmis` (the 24th is one coordinate of `gate-16`);
+the other 21 fixtures are exact to the last bit. The residual is one reduction, measured in
+isolation on the smallest graph that has it (`gate-00`, two nodes, one edge, 50 iterations, no
+chaos): the reference forms **one factor per pair**, `k*k/d**2 - A*d/k`, and sums `delta*factor`
+once over `j` (`layout.py:703-705`), while `forces.rs:118-139` sums repulsion over every `j` and
+then subtracts attraction over `i`'s own CSR row — the same sum, a different rounding, and the
+price of not materialising an `n x n` matrix. Both variants on the same start differ by
+**1.78e-15** after the rescale. Fifty chaotic iterations on a 77-node 2D layout turn that into
+2.37e-03; the identical kernel at `D = 3` turns it into 2.36e-07, which is why `SPRING_3D`
+reaches 1020/1020 and `SPRING` does not.
+
+`sc_propose.py` calls `arithmetic` only when the gap is also `<= 1e-6` (`ARITHMETIC_GAP`), so a
+row whose 2D chaos exceeds it falls through to `convention` — which is **not** what is wrong here:
+no scale, centre or axis order accounts for 2.37e-03, and undoing one would move nothing. The row
+is pinned as the classifier computed it rather than hand-edited, and the discrepancy is recorded
+here and in `docs/measurements/sg-spring-seed.md` rather than papered over. Closing it needs either
+the fused reduction (a change to the kernel of two registered layouts, their goldens, the
+1000-seed differential and a `--past-ceiling` benchmark) or a classifier rule that treats a
+fixture-counted residual as arithmetic.
 
 **One defect repaired 2026-10-02, and it was not this one**
 (`docs/measurements/sg-fix-spring-temp.md`): the opening temperature read the widest of all
 `D` columns, where networkx reads `pos.T[0]` and `pos.T[1]` and nothing else at every `dim`
 (`layout.py:687` dense, `:776` sparse) — so a z-dominant `dim = 3` start opened up to 19.95x
 too hot, measured against networkx's own `t`. `SPRING_3D`'s motor bytes moved and its first
-sha was re-pinned; its disparity is **unchanged** (3/1020, max gap 10, Procrustes median
-0.1721478627737976 before and after), because the motor's near-isotropic start makes the two
-rules differ by at most 2.01% on any real fixture. `SPRING` (`D = 2`) could not move and did
-not. **The seed gap above is untouched and still open.**
+sha was re-pinned; its disparity was **unchanged** at the time (3/1020, max gap 10), because the
+motor's near-isotropic start made the two rules differ by at most 2.01% on any real fixture. The
+seed was the gap that was actually open, and it is closed above.
 
 ### 5. `RANDOM` — `rng`, the smallest possible port — **done, `sg-mt19937`**
 **File:** `crates/graph-core/src/layout/random.rs`. **Landed:** `random::run_seeded(topology, seed)`

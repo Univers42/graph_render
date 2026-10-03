@@ -190,3 +190,16 @@ fn positions_past_u32_saturate_and_lengths_compare_exactly() {
         Ok(())
     );
 }
+
+/// Every arm is spelled out, and a name this reader does not know is `None` rather than
+/// some other column's name: the silent mislabel the 3D `z` arm exists to prevent.
+#[test]
+fn an_unknown_wire_column_name_is_none_and_not_another_columns_name() {
+    assert_eq!(node_column("x"), Some("node.x"));
+    assert_eq!(node_column("y"), Some("node.y"));
+    assert_eq!(node_column("z"), Some("node.z"));
+    assert_eq!(node_column("r"), Some("node.r"));
+    assert_eq!(node_column("w"), Some("node.w"));
+    assert_eq!(node_column("h"), Some("node.h"));
+    assert_eq!(node_column("nope"), None);
+}

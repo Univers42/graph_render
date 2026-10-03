@@ -2,13 +2,14 @@
 //! that says a z column is compared rather than merely carried.
 //!
 //! Split out of `tests.rs` by the house's 300-line limit, and because 3D is a separate
-//! concern from the 2D text this file otherwise pins. No 3D layout exists yet, so every
-//! 3D snapshot here is built by hand from the parent's 2D helpers.
+//! concern from the 2D text this file otherwise pins. Every 3D snapshot here is built by
+//! hand from the parent's 2D helpers: this crate depends on no `graph-core`, so a layout is
+//! out of its reach however many the registry holds.
 
 use super::*;
 
-/// The 3D cases are built by hand, since no 3D layout exists yet: `spaced` is the whole
-/// of what a 3D layout would produce, one `z` column and the 0.4 label.
+/// The 3D cases are built by hand because this crate cannot run a layout: `spaced` is the
+/// whole of what a 3D snapshot owes a reader, one `z` column and the 0.4 label.
 #[test]
 fn a_3d_snapshot_survives_the_binary_face_byte_for_byte() {
     for (nodes, z) in [

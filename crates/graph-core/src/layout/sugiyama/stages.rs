@@ -47,7 +47,7 @@ pub(crate) fn stages(topology: &Topology) -> Stages {
     let layer = assign_layers(&list);
     let layering = Layering::build(&list, &layer, DUMMY_BUDGET);
     let num_layers = layering.layer_of.iter().copied().max().map_or(0, |m| m + 1);
-    let ordering = Ordering::build(&layering, num_layers);
+    let ordering = Ordering::build(&layering, num_layers).expect("max() + 1 covers every layer");
     let coords = Coords::build(&ordering, &layering, topology.node_count());
     Stages {
         arcs: list.pairs(),

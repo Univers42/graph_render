@@ -26,7 +26,7 @@ sys.dont_write_bytecode = True
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from gv_plain import engine_points  # noqa: E402
+from gv_plain import dot_path, engine_points, graph_of  # noqa: E402
 
 from sc_fixture import FixtureError, write_f64  # noqa: E402
 from sc_names import GRAPHVIZ_ROWS, LAYOUT_SEED, graphviz_version  # noqa: E402
@@ -56,9 +56,14 @@ def run_name(out, name, engine, fixtures):
     with tempfile.TemporaryDirectory() as scratch:
         for fixture in fixtures:
             try:
+                # `engine_points` takes the DOT path and a `Graph`, not the scratch directory
+                # and the pieces the DOT is built from; `graph_of` builds the second from the
+                # node count and the edge list. Same four parameters as before, same drawing.
                 points = engine_points(
-                    engine, scratch, "%s-%s" % (name, fixture.name),
-                    fixture.n, fixture.edges(), start=LAYOUT_SEED,
+                    engine,
+                    dot_path(scratch, "%s-%s" % (name, fixture.name)),
+                    graph_of(fixture.n, fixture.edges()),
+                    start=LAYOUT_SEED,
                 )
             except SystemExit as failure:
                 report.append({

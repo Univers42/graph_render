@@ -16,11 +16,14 @@ use graph_core::layout::grid::Grid;
 use graph_core::layout::random;
 
 /// `CirclePackingParams` at SciGraphs' two numbers, which its registered default is not:
-/// `iterations` is 500 there and `apply_graph_layout` passes 50 (`circle_packing.py:281`).
+/// `iterations` is 500 there and `apply_graph_layout` passes 50 (`circle_packing.py:281`),
+/// and the non-planar fallback's force pass is seeded from `get_layout_seed()`
+/// (`circle_packing.py:428`), which is a parameter and not a default.
 pub(super) fn packing(fixture: &Fixture) -> Result<SnapshotParts, String> {
     let params = CirclePackingParams {
         iterations: ITERATIONS,
         scale: SCALE as f32,
+        seed: Some(LAYOUT_SEED),
     };
     finish(fixture, circle_packing::ID, |t| {
         circle_packing::run_with(t, &params)
@@ -86,15 +89,22 @@ pub(super) fn sfdp_seeded(fixture: &Fixture) -> Result<SnapshotParts, String> {
     finish(fixture, sfdp::ID, |t| sfdp::run_seeded(t, LAYOUT_SEED))
 }
 
-/// The spring kernel, both dimensions, at SciGraphs' `iterations` and `scale` — which are
-/// already `SpringParams`' own defaults, so this arm writes them out anyway so a reader can
-/// see the two arms were handed the same numbers rather than the same defaults.
+/// The spring kernel, both dimensions, at SciGraphs' `iterations`, `scale` and `seed` —
+/// the first two are already `SpringParams`' own defaults, and the third is not a default at
+/// all, so all three are written out: the reader can see the two arms were handed the same
+/// numbers rather than the same defaults.
+///
+/// `seed: Some(LAYOUT_SEED)` is what SciGraphs passes (`networkx_layouts.py:16-34`) and it
+/// makes the start positions the reference's own `np.random.RandomState` run, bit for bit.
+/// The registered default stays `None` (the crate's `Mulberry32`) because every hashed
+/// snapshot of both spring ids was taken there.
 pub(super) fn spring<S: Stage<Params = SpringParams>>(
     fixture: &Fixture,
 ) -> Result<SnapshotParts, String> {
     let params = SpringParams {
         iterations: ITERATIONS,
         scale: SCALE,
+        seed: Some(LAYOUT_SEED),
         ..SpringParams::default()
     };
     finish(fixture, S::ID, |t| S::run(t, &params))

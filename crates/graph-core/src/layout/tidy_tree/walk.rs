@@ -178,11 +178,37 @@ impl<'h> Walk<'h> {
     }
 
     /// `secondWalk`, with `t.parent.m = -t.z` folded in for `root`.
+    ///
+    /// **The traversal order is breadth-first here and preorder in `tree.js`.** `tree.js`
+    /// runs `t.eachBefore(secondWalk)` (`hierarchy/eachBefore.js`, node then children
+    /// ascending); this iterates [`Hierarchy::order`], which is breadth-first, and only
+    /// `first_walk`/`normalize` use the local `preorder`/`postorder` helpers. The output is
+    /// identical for one reason: this loop reads **only** `m[parent]` — never a sibling's,
+    /// a cousin's or a descendant's value — so it only needs every parent *written* before
+    /// its child is *read*, not the order `tree.js` happens to use. Two things deliver
+    /// that, and both are asserted rather than assumed:
+    ///
+    /// - `order()[0]` is the layout root, which is what `skip(1)` drops; `breadth_first`
+    ///   seeds `order` with `root`, and the `debug_assert!` below checks it every run.
+    /// - every other node is reached after its layout parent. `tests` pins that on a
+    ///   two-root forest (`layout/tidy_tree/tests`), the shape where the virtual root is
+    ///   real and `skip(1)` has a virtual root to skip.
+    ///
+    /// Switching to `preorder(self.h, root)` would be arithmetically equivalent and cost an
+    /// allocation per run, so the order stays and the invariant is what is pinned. If it
+    /// ever stops holding, every node under a forest moves at once — hence the assert.
     fn second_walk(&mut self, root: u32) {
+        let h = self.h;
+        let order = h.order();
+        debug_assert_eq!(
+            order.first(),
+            Some(&root),
+            "order() is breadth-first from the layout root, so skip(1) drops it"
+        );
         let root_mod = -self.st.z[root as usize];
         self.st.x[root as usize] = self.st.z[root as usize] + root_mod;
         self.st.m[root as usize] += root_mod;
-        for &v in self.h.order().iter().skip(1) {
+        for &v in order.iter().skip(1) {
             let parent_mod = self.st.m[self.parent_of(v).expect("not the root") as usize];
             self.st.x[v as usize] = self.st.z[v as usize] + parent_mod;
             self.st.m[v as usize] += parent_mod;

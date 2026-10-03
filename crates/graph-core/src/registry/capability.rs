@@ -1,9 +1,9 @@
-//! The two types every registry entry is made of, split out of `registry.rs` for the house
-//! 300-line limit.
+//! The two types every registry entry is made of, and the two functions over them, split out
+//! of `registry.rs` for the house 300-line limit.
 
 use crate::index::Topology;
 use crate::layout::Geometry;
-use crate::stage::StageError;
+use crate::stage::{Stage, StageError};
 use graph_contract::geometry::{EdgeGeometryKind, NodeGeometryKind};
 
 /// What the ledger says about a layout. Every field is required.
@@ -38,4 +38,14 @@ pub struct Capability {
     pub run: fn(&Topology) -> Result<Geometry, StageError>,
     /// Its ledger metadata.
     pub meta: Metadata,
+}
+
+/// The layout registered under `id`.
+pub fn find(id: &str) -> Option<&'static Capability> {
+    super::LAYOUTS.iter().find(|layout| layout.id == id)
+}
+
+/// A registry entry's `run`: the stage at its default parameters.
+pub(super) fn run_default<S: Stage>(topology: &Topology) -> Result<Geometry, StageError> {
+    S::run(topology, &S::Params::default())
 }

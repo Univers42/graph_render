@@ -200,10 +200,7 @@
                 "format": "float",
                 "type": "number"
               },
-              "type": [
-                "array",
-                "null"
-              ]
+              "type": "array"
             }
           },
           "required": [
@@ -251,10 +248,7 @@
                 "format": "float",
                 "type": "number"
               },
-              "type": [
-                "array",
-                "null"
-              ]
+              "type": "array"
             }
           },
           "required": [
@@ -311,10 +305,7 @@
                 "format": "float",
                 "type": "number"
               },
-              "type": [
-                "array",
-                "null"
-              ]
+              "type": "array"
             }
           },
           "required": [

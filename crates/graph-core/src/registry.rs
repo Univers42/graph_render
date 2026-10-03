@@ -5,8 +5,6 @@
 //! graph-cli's `capabilities` ledger takes its layout rows from [`LAYOUTS`], and its
 //! `hashgate` hashes every layout listed here.
 
-use crate::index::Topology;
-use crate::layout::Geometry;
 use crate::layout::basic_3d;
 use crate::layout::force::spring::Spring;
 use crate::layout::force::spring::{ID_3D as SPRING_3D_ID, Spring3D};
@@ -15,12 +13,7 @@ use crate::layout::force::{
     Lgl, ParticleMesh, YifanHu,
 };
 use crate::layout::forceatlas2::{ForceAtlas2, ForceAtlas2BarnesHut};
-use crate::layout::graphviz::circo;
-use crate::layout::graphviz::fdp;
-use crate::layout::graphviz::neato;
-use crate::layout::graphviz::osage;
-use crate::layout::graphviz::patchwork;
-use crate::layout::graphviz::sfdp;
+use crate::layout::graphviz::{circo, fdp, neato, osage, patchwork, sfdp};
 use crate::layout::grid::Grid;
 use crate::layout::hierarchical_3d;
 use crate::layout::radial::twopi;
@@ -28,8 +21,9 @@ use crate::layout::sugiyama::Sugiyama;
 use crate::layout::{
     bipartite, circle_packing, circular, random, spectral_stage, spiral, tidy_tree, treemap,
 };
-use crate::stage::{Stage, StageError};
+use crate::stage::Stage;
 
+mod bench_cap;
 mod capability;
 mod closed_form;
 mod force;
@@ -47,7 +41,9 @@ mod igraph;
 mod radial;
 mod spectral;
 mod three_d;
-pub use capability::{Capability, Metadata};
+pub use bench_cap::MAX_BENCH_NODES;
+use capability::run_default;
+pub use capability::{Capability, Metadata, find};
 use closed_form::{BIPARTITE, RANDOM, RING, SPIRAL};
 use force::{BARNES_HUT, FA2, PARTICLE_MESH, SPRING, YIFAN_HU};
 pub use force::{FA2_CEILING, FORCE_CEILING, SPRING_CEILING};
@@ -226,10 +222,11 @@ pub static LAYOUTS: [Capability; 40] = [
         meta: FDP,
     },
     // ---- p12-t3, the last five SciGraphs layouts, all natively 3D. APPENDED, never
-    // inserted: `graph-wasm/src/exports/build.rs:23,32,166` maps layouts by INDEX, and
+    // inserted: `graph-wasm/src/exports/build.rs:23,32,143` maps layouts by INDEX, and
     // `bench/campaign.rs:128`'s `DEFAULT_ARM` is `LAYOUTS[3]`, so inserting before index 3
     // would repoint the default crossover arm with no compile error. Nothing above this
-    // line moved.
+    // line moved, and `registry::tests::the_index_keyed_front_of_layouts_stays_where_they_are`
+    // fails if it ever does.
     Capability {
         id: basic_3d::sphere::ID,
         run: basic_3d::sphere,
@@ -266,7 +263,7 @@ pub static LAYOUTS: [Capability; 40] = [
         meta: FA2_BH,
     },
     // APPENDED, never inserted, for the reason the block above gives: layouts are mapped by
-    // INDEX in `graph-wasm/src/exports/build.rs:23,32,166` and `bench/campaign.rs:128` pins
+    // INDEX in `graph-wasm/src/exports/build.rs:23,32,143` and `bench/campaign.rs:128` pins
     // `LAYOUTS[3]`. `layout.bipartite_3d` reads the graph where the three above it read a
     // node count, which is why its id is outside the `layout.basic3d.*` namespace those
     // three publish.
@@ -298,15 +295,6 @@ pub static LAYOUTS: [Capability; 40] = [
         meta: FA2_FORCESIM,
     },
 ];
-
-/// The layout registered under `id`.
-pub fn find(id: &str) -> Option<&'static Capability> {
-    LAYOUTS.iter().find(|layout| layout.id == id)
-}
-
-fn run_default<S: Stage>(topology: &Topology) -> Result<Geometry, StageError> {
-    S::run(topology, &S::Params::default())
-}
 
 #[cfg(test)]
 mod tests;
