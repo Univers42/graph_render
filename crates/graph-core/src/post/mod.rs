@@ -11,17 +11,26 @@
 //! geometry with node cells marked as obstacles, and [`routed`] routes edges around them. [`styles`]
 //! draws parallel edges and self-loops apart.
 //!
-//! **Two registries.** [`POSTS`] holds the two bundlers, whose entry points take nothing but
-//! the geometry. Routing ([`routed`]) and the four styles ([`styles`]) take their parameters
-//! explicitly and have no row here: their ledger rows are graph-cli's `capabilities/post.rs`,
-//! their ABI rows graph-wasm's `post.rs`. [`grid_index`] is routing's obstacle grid, not a
-//! capability. The matrix in [`tests`] reads [`POSTS`], so it covers the bundlers only.
+//! **Two registries.** [`POSTS`] holds the capabilities whose entry points take nothing but
+//! the geometry: the two bundlers, and [`separate`]. Routing ([`routed`]) and the four styles
+//! ([`styles`]) take their parameters explicitly and have no row here: their ledger rows are
+//! graph-cli's `capabilities/post.rs`, their ABI rows graph-wasm's `post.rs`.
+//! [`grid_index`] is routing's obstacle grid, not a capability. The matrix in [`tests`]
+//! reads [`POSTS`], so it covers the bundlers and [`separate`].
+//!
+//! **One pass here moves nodes.** [`separate`] pushes node discs apart, which the contract
+//! this module used to state flatly did not allow, so the rule is now
+//! [`Metadata::moves_nodes`] — declared per capability and asserted per capability in
+//! `tests::check_output`, and true for exactly one row. Nothing else about a post pass
+//! changed: same signature, same [`Bundled`], same registries, same ordering.
+//! `docs/decisions/node-overlap.md` carries the decision and its ruling.
 
 pub mod fdeb;
 pub mod grid_index;
 pub mod ink;
 pub mod mingle;
 pub mod routed;
+pub mod separate;
 pub mod styles;
 #[cfg(test)]
 mod tests;
@@ -41,7 +50,23 @@ pub struct Metadata {
     /// Delivery tier.
     pub tier: u8,
     /// The edge geometry kind it emits.
+    ///
+    /// **Pass-through for a `moves_nodes` row.** `post::separate` hands back the edges it
+    /// was given and moves only node columns, so its row names `Line` as the shape a
+    /// composed drawing normally has; there is no `EdgeGeometryKind` for "the same edges",
+    /// and inventing one would widen the wire enum for one row. Read `moves_nodes` first:
+    /// a row with it set is not claiming what it emits so much as what it leaves alone.
     pub edges: EdgeGeometryKind,
+    /// Whether this pass may move a node.
+    ///
+    /// **This field is why the contract is a field and not an assumption.** POST's rule used
+    /// to be that a post pass never moves a node, asserted over the whole registry in
+    /// `tests::check_output`. `post::separate` has to break that rule to exist, so the rule
+    /// became this: every pass declares what it does, and the matrix asserts the strong
+    /// claim — node columns byte-identical, z carried — for every row declaring `false`, and
+    /// a weaker stated one for a row declaring `true`. Decided in
+    /// `docs/decisions/node-overlap.md` §1 and §3, ruled by the `devil` agent.
+    pub moves_nodes: bool,
     /// The reference it is checked against.
     pub oracle: &'static str,
     /// Time complexity, stated and held.
@@ -70,26 +95,41 @@ pub struct Capability {
 /// positions, or which node kind it emitted.
 pub type PostRun = fn(&Topology, &Geometry) -> Result<Bundled, StageError>;
 
-/// What a bundler produced: the layout's nodes with its edges replaced by paths, and the
-/// two counts that say how much work it did.
+/// What a post pass produced: a geometry, and the two counts that say how much work it did.
+///
+/// The counts are **per-pass semantics, read from the pass that set them** — that is the
+/// established pattern here, not a new one: `pairs` already meant different things to FDEB
+/// and MINGLE before anything could move a node. So [`separate`] sets `pairs` to the
+/// overlapping node pairs its sweeps resolved and `unbundled` to the pairs still overlapping
+/// by more than [`separate::TOLERANCE`] when the iteration cap was reached.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Bundled {
-    /// The layout's node geometry, notes and z column, unchanged, and the bundled edge
-    /// paths. Every registered pass rebuilds through [`Geometry::with_edges`], so a 3D
-    /// layout keeps its dimension through the pass or the pass does not run: nothing here
-    /// drops a column, and nothing needs to.
+    /// The layout's node geometry, notes and z column, and the pass's edge paths.
+    ///
+    /// Every bundler rebuilds through [`Geometry::with_edges`], so a 3D layout keeps its
+    /// dimension through the pass or the pass does not run: nothing here drops a column, and
+    /// nothing needs to. [`separate::META`] declares [`Metadata::moves_nodes`], and it
+    /// rebuilds through [`Geometry::with_nodes`] instead — the only constructor that replaces
+    /// node columns, and reachable only from a pass that declared the flag. It refuses a z
+    /// column outright rather than moving `x`/`y` under one.
     pub geometry: Geometry,
     /// FDEB: edge pairs whose compatibility cleared the threshold, the pairs that ever
-    /// attract. MINGLE: merges accepted, over every pass of every round.
+    /// attract. MINGLE: merges accepted, over every pass of every round. SEPARATE: overlapping
+    /// node pairs a sweep resolved, summed over the sweeps that ran.
     pub pairs: u32,
     /// Edges that merged with nothing and are therefore drawn unbundled. FDEB: edges no
     /// pair cleared the threshold with, the failure its Ponytail marker names. MINGLE: edges
     /// that never joined a bundle ([`mingle::Bundles::unbundled`]).
+    ///
+    /// SEPARATE: **node pairs still overlapping by more than [`separate::TOLERANCE`] when
+    /// the iteration cap was reached** — the residue the sweeps could not remove, and the
+    /// number a caller reads instead of trusting the cap. It is 0 when the sweep converged,
+    /// which is the normal case.
     pub unbundled: u32,
 }
 
 /// Every registered POST capability, in registration order.
-pub static POSTS: [Capability; 2] = [
+pub static POSTS: [Capability; 3] = [
     Capability {
         id: fdeb::ID,
         run: fdeb::run,
@@ -99,6 +139,14 @@ pub static POSTS: [Capability; 2] = [
         id: mingle::ID,
         run: mingle::run,
         meta: mingle::META,
+    },
+    // Appended, never inserted: graph-wasm's `CAPABILITIES` table and the hash gate's stage
+    // list both resolve a capability by index, so a row inserted above these two would move
+    // what an index already means. `separate` is also the one row with `moves_nodes: true`.
+    Capability {
+        id: separate::ID,
+        run: separate::run,
+        meta: separate::META,
     },
 ];
 

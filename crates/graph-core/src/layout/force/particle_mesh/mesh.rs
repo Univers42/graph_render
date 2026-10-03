@@ -15,7 +15,7 @@
 //! through collide's.
 
 use super::collide::Grid;
-use super::deposit::{Deposit, Stencils, weights};
+use super::deposit::{Deposit, Rows, Stencils, weights};
 use super::fft::{C, Fft, MAX_SIDE, Plan};
 use super::frame::{self, Bounds, Frame};
 use super::kernel::{Kernel, Law};
@@ -41,6 +41,8 @@ pub(in crate::layout::force) struct Mesh {
     frame: Option<Frame>,
     /// Each sorted slot's lower-left cell this tick, the deposit's scratch.
     at: Vec<u32>,
+    /// `at` grouped by row, the deposit's index.
+    rows: Rows,
     /// The bounds fold's per-block boxes.
     blocks: Vec<Bounds>,
     pub(super) grid: Grid,
@@ -56,6 +58,7 @@ impl Mesh {
             kernel: Kernel::new(side),
             frame: None,
             at: vec![0; n as usize],
+            rows: Rows::new(side, n),
             blocks: Vec::with_capacity(n.div_ceil(frame::BLOCK) as usize),
             grid: Grid::new(n),
         }
@@ -108,9 +111,11 @@ impl Mesh {
             xy,
         };
         runner.run(&stencils, workers, &mut self.at);
+        self.rows.sort(&self.at, stencils.side);
         let deposit = Deposit {
             stencils: &stencils,
             at: &self.at,
+            rows: &self.rows,
         };
         runner.run(&deposit, workers, &mut self.density);
     }

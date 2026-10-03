@@ -218,6 +218,10 @@ export class Motor {
    *
    *  Each pass reads the **layout's** edges, never the previous pass's, so running style
    *  then bundle gives the same answer as running bundle once.
+   *
+   *  **Whether node positions move is per pass:** `post.bundle.fdeb`, `post.bundle.mingle`,
+   *  `post.route.grid` and the four `post.style.*` passes leave the nodes where they were;
+   *  only `post.separate.grid` ({@link Motor.separateNodes}) rewrites `x`/`y`.
    */
   post(handle: Handle, postId: string): PostResult {
     const { exports, views } = this.#requireLoaded();
@@ -232,6 +236,30 @@ export class Motor {
     }
     const { nodeKind, edgeKind, dim } = this.#recordKinds(exports, handle, postId);
     return { handle, id: postId, nodeKind, edgeKind, nodeCount: this.nodeCount(handle), dim };
+  }
+
+  /** Runs the node-overlap pass — `post.separate.grid` (`graph_core::post::separate`,
+   *  resolved by name through the same registry {@link Motor.post} uses, never a
+   *  hard-coded index) — which pushes overlapping nodes apart until none overlap.
+   *
+   *  **This is the one POST capability that MOVES nodes.** Every other pass replaces the
+   *  run's edge geometry and leaves the node positions alone; this one rewrites `x`/`y`.
+   *  So unlike {@link Motor.post} — whose doc says a pass "leaves the nodes where they
+   *  were" — a caller that drew `NodeX`/`NodeY` before this call must read them again
+   *  after it, and any earlier column view is stale.
+   *
+   *  It returns the **same {@link PostResult} shape** as {@link Motor.post} (`id` is
+   *  `"post.separate.grid"`): the pass still reads the layout's geometry, still replaces the
+   *  handle's snapshot, and a refusal still leaves the geometry untouched — so a failed
+   *  call never serves a half-separated drawing.
+   *
+   *  **It refuses a 3D geometry** — a snapshot carrying a `z` column — with a
+   *  {@link PostRefusedError}, because the pass moves `x`/`y` and cannot reach `z`
+   *  (graph-core's `post::separate::params::check` refuses `geometry.z`; the ABI reports it
+   *  as `PostFailed`). It is refused whole rather than half-processed. A 2D run is the only
+   *  thing this method accepts. */
+  separateNodes(handle: Handle): PostResult {
+    return this.post(handle, "post.separate.grid");
   }
 
   /** Runs the registered analysis `analysisId` (from {@link Motor.analyses}) over

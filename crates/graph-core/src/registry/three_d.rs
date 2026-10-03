@@ -20,33 +20,55 @@
 //! `pub(super)`, exactly as the consts were before they moved, and the children are private
 //! modules, so the consts are `pub` inside them and no wider outside.
 //!
-//! **Six rows now, not five.** `SPIRAL_3D` joined for sg-spiral3d, so the three graph-free
-//! closed forms are four: `SPIRAL_3D` takes `(num_nodes, scale)` and reads no graph exactly
-//! as the other three do. [`BASIC_3D_CEILING`]'s own doc below was measured against three
-//! and is unchanged by the fourth — the bound is what binds at 1 M nodes, which is the
-//! snapshot's memory, not the layout's.
+//! **Seven rows now, not five.** `SPIRAL_3D` joined for sg-spiral3d, so the graph-free
+//! closed forms are four, and `BIPARTITE_3D` joined after it, so three of the seven read
+//! the graph. [`BASIC_3D_CEILING`]'s own doc below says which of the six rows under it were
+//! measured and which were inherited: four carry a timing at 1 000 000 nodes, and no 3D row
+//! carries a bytes-per-node figure at all.
 
 mod bipartite_3d;
 
+use super::bench_cap::MAX_BENCH_NODES;
+
 pub(super) use bipartite_3d::BIPARTITE_3D;
 
-/// The node count the graph-free 3D placements were measured at, and why it is this one.
+/// The node count four of the six rows under this constant were run at, and what the
+/// other two inherited.
 ///
-/// **The measurement covers `sphere`, `helix` and `cube` — the three it was taken on.** Two
-/// rows now sit under this constant that it was not measured for, and each says so itself:
-/// `SPIRAL_3D` (`three_d/spiral3d.rs`, "Ponytail (UNMEASURED ceiling)") and `BIPARTITE_3D`.
-/// Read the figure below as what it is, a measurement of three layouts at one size.
+/// **Where the figure comes from.** [`MAX_BENCH_NODES`] read rather than written out, so
+/// this ceiling and the radial one are the same number by construction instead of two
+/// literals that happen to agree. `graph-cli bench` parses `--n` against it, so
+/// 1 000 000 nodes is the largest size a measurement of any layout can be taken at.
 ///
-/// `graph-cli bench` refuses a size past a layout's registered `scale_ceiling`, and its own
-/// cap is 1 000 000 nodes (`bench/scale.rs:33-34`, ten components of 100 000), so 1 M is
-/// the largest size a measurement of any layout in this file can be taken at. It is a
-/// **measured lower bound, not the wall**: those three layouts are `O(n)` in three `f64`
-/// columns with no graph and no iteration, so what binds at 1 M nodes is the 48 bytes a
-/// node costs in the snapshot's own three columns plus the 32 in the geometry's, not the
-/// layout — and wasm32's 4 GiB would put the true wall several times higher.
+/// **What was measured, and on which of the six rows.** A wall-clock `bench` run at
+/// 1 000 000 nodes and 1 549 929 edges, pasted below, which covers **four** of the six:
+/// the three graph-free closed forms and `layout.hierarchical3d`, the graph-reading one.
+/// Every digit in that block is one host's median at one size.
 ///
-/// Measured, `--release`, `--repeat 3`, medians, at 1 000 000 nodes and 1 549 929 edges on
-/// this host:
+/// **What was not measured — the honest limit of this constant.** No 3D row has a
+/// bytes-per-node figure. `crates/graph-core/tests/memory.rs` has no 3D arm: it sweeps the
+/// topology, the grid, the three hierarchy layouts and circle packing, so the 919 / 933 B
+/// per node that `GRID_CEILING` and `HIERARCHY_LAYOUT_CEILING` derive 4 GiB from were
+/// taken on 2D rows and are applied here as an argument, not as a result. The two rows
+/// here with no timing of their own — `SPIRAL_3D` and `BIPARTITE_3D` — each say so in its
+/// own `ponytail` (`three_d/spiral3d.rs`, `three_d/bipartite_3d.rs`).
+///
+/// **Why one number can still stand for six rows.** The four graph-free closed forms are
+/// `O(n)` in three `f64` columns with no graph and no iteration; the two graph-reading ones
+/// add only an `O(n + m)` pass over the same topology and snapshot substrate. What binds at
+/// 1 M nodes is therefore the snapshot's own cost — 48 bytes a node across its three columns
+/// plus the 32 in the geometry's — and not the layout, so wasm32's 4 GiB would put the true
+/// wall several times higher.
+///
+/// `layout.force.spring3d` is the exception and takes [`SPRING_CEILING`] instead: it is the
+/// dense `O(50 n^2)` kernel, not a closed form. Measured beside its 2D sibling at the same
+/// two sizes — `bench --layout layout.force.spring,layout.force.spring3d --n 10000,16000
+/// --repeat 3`: 9 307.48 ms against 9 347.65 ms at 10 000 nodes, and 23 261.70 ms against
+/// 23 443.23 ms at 16 000 — so the third column costs about 0.8% rather than 50%, and the
+/// 2D arm's ceiling stands for both.
+///
+/// The block the "four of the six" claim rests on, `--release`, `--repeat 3`, medians, at
+/// 1 000 000 nodes and 1 549 929 edges on this host:
 ///
 /// ```sh
 /// scripts/orch/gr cargo run -q --release -p graph-cli -- bench \
@@ -62,17 +84,14 @@ pub(super) use bipartite_3d::BIPARTITE_3D;
 ///   layout.hierarchical3d          306.94 ms  stress-1 0.4259  (edges=1549929)
 /// ```
 ///
-/// `layout.force.spring3d` is the exception and takes [`SPRING_CEILING`] instead: it is the
-/// dense `O(50 n^2)` kernel, not a closed form. Measured beside its 2D sibling at the same
-/// two sizes — `bench --layout layout.force.spring,layout.force.spring3d --n 10000,16000
-/// --repeat 3`: 9 307.48 ms against 9 347.65 ms at 10 000 nodes, and 23 261.70 ms against
-/// 23 443.23 ms at 16 000 — so the third column costs about 0.8% rather than 50%, and the
-/// 2D arm's ceiling stands for both.
-///
-/// Ponytail (scale_ceiling): every digit here is one host's median at one size; another host
-/// moves every one, and the bracketing is what carries the claim rather than the digits.
-/// Nothing above 1 000 000 nodes was run, so the figure understates the wall.
-pub const BASIC_3D_CEILING: u64 = 1_000_000;
+/// Ponytail (scale_ceiling): what it gets wrong — every digit in the block is one host's
+/// median at one size, so another host moves every one of them; the bracketing, not the
+/// digits, is what carries the claim. Nothing above 1 000 000 nodes was run, so the figure
+/// understates the wall. Two of the six rows under it were never run at this size at all,
+/// and no 3D row carries a bytes-per-node figure, so the memory half of the argument above
+/// is borrowed from the 2D rows. Direction: too low, never too high. Escape hatch: raise
+/// it, then measure the two rows that have so far only inherited it.
+pub const BASIC_3D_CEILING: u64 = MAX_BENCH_NODES as u64;
 
 /// The z-bearing degradation string, in the shape `registry/closed_form.rs:18` gives: what
 /// happens past the ceiling on wasm32, what happens natively, and the explicit promise

@@ -9,9 +9,11 @@
 //! refilled, never reallocated once its capacity reaches steady state (`dsa-and-memory.md`).
 
 mod bounds;
+mod build;
 mod preorder;
 
 pub(crate) use bounds::Bounds;
+use build::Builder;
 pub(crate) use preorder::Cell;
 use preorder::Visit;
 
@@ -22,7 +24,8 @@ enum Shape {
     Leaf(u32),
 }
 
-/// The point arrays, bundled so build methods stay under the 4-parameter cap.
+/// The point arrays, bundled so build methods take at most four parameters besides the
+/// receiver (`prompt.md` §0's cap, counted the way `builder.add` already needs it).
 #[derive(Clone, Copy)]
 struct Points<'a> {
     xs: &'a [f64],
@@ -35,10 +38,13 @@ impl Points<'_> {
     }
 }
 
-/// The valid (non-NaN) points' extent, `(x0, y0, x1, y1)` (d3's `addAll`, `add.js:61-70`);
-/// a NaN point is excluded, then ignored again on insertion (`add.js:8`), matching d3.
+/// The finite points' extent, `(x0, y0, x1, y1)` (d3's `addAll`, `add.js:61-70`);
+/// a non-finite point is excluded, then ignored again on insertion (`add.js:8`),
+/// matching d3. `±inf` is refused with the `NaN` it used to be admitted beside: it
+/// made `cover` grow a square that can never contain it and `insert_leaf` split for
+/// ever (`LF-02`).
 fn bounds_of(pts: Points<'_>) -> Option<(f64, f64, f64, f64)> {
-    let ok = |(&x, &y): (&f64, &f64)| (!x.is_nan() && !y.is_nan()).then_some((x, y));
+    let ok = |(&x, &y): (&f64, &f64)| (x.is_finite() && y.is_finite()).then_some((x, y));
     let mut valid = pts.xs.iter().zip(pts.ys).filter_map(ok);
     let (fx, fy) = valid.next()?;
     Some(valid.fold((fx, fy, fx, fy), |(x0, y0, x1, y1), (x, y)| {
@@ -55,7 +61,7 @@ pub(crate) struct Quadtree {
     root: Option<u32>,
     chain_next: Vec<Option<u32>>,
     cells: Vec<Cell>,
-    key: Vec<u32>,
+    node_id: Vec<u32>,
     order: Vec<u32>,
     pending: Vec<Visit>,
 }
@@ -72,10 +78,13 @@ impl Quadtree {
         &self.cells
     }
 
-    /// Cell `k`'s insertion-order node id: the key the opening-angle jiggle has always
-    /// hashed, kept so the preorder arena moves no byte.
-    pub(crate) fn key(&self, k: u32) -> u32 {
-        self.key[k as usize]
+    /// Cell `k`'s shape-arena slot: the pointer-tree node the arena was flattened from.
+    /// It is **not** a point index and not the insertion order — the two diverge as soon
+    /// as a second split happens, which `quadtree/tests.rs`'s
+    /// `a_cell_s_node_id_is_a_shape_slot_and_never_a_point_index` pins. It is the key the
+    /// opening-angle jiggle has always hashed, kept so the preorder arena moves no byte.
+    pub(crate) fn node_id(&self, k: u32) -> u32 {
+        self.node_id[k as usize]
     }
 
     /// Every point, leaf by leaf in preorder, each leaf's chain most-recent-first; the
@@ -101,14 +110,21 @@ impl Quadtree {
         }
     }
 
-    /// Rebuilds over `xs`/`ys` (same length), point `i` inserted ascending — fixed,
-    /// deterministic order. Clears and refills every buffer.
+    /// Rebuilds over `xs`/`ys` — equal lengths, both short enough for the `u32` point
+    /// index, or the build is refused and the tree is left empty — point `i` inserted
+    /// ascending, fixed, deterministic order. Clears and refills every buffer.
     pub(crate) fn build(&mut self, xs: &[f64], ys: &[f64]) {
-        self.shape.clear();
-        self.chain_next.clear();
+        self.reset();
+        // Ponytail: a mismatch and a count past `u32::MAX` are both refused as an empty
+        // tree, not as a `StageError` — `build` has no error channel and its callers are
+        // three modules wide, so the refusal is a silent empty arena where every walk
+        // contributes nothing instead of a panic or a wrapped index. Escape hatch:
+        // `force::planar_points` refuses a non-finite column before any tick, and the
+        // stage's own post-run check turns a mid-run overflow into `StageError`.
+        if xs.len() != ys.len() || u32::try_from(xs.len()).is_err() {
+            return;
+        }
         self.chain_next.resize(xs.len(), None);
-        self.root = None;
-        self.root_bounds = Bounds::default();
         let pts = Points { xs, ys };
         let Some((x0, y0, x1, y1)) = bounds_of(pts) else {
             self.flatten(pts);
@@ -121,6 +137,19 @@ impl Quadtree {
             builder.add(i);
         }
         self.flatten(pts);
+    }
+
+    /// Every buffer a build refills, cleared: a refused build leaves an empty arena rather
+    /// than the previous tick's.
+    fn reset(&mut self) {
+        self.shape.clear();
+        self.chain_next.clear();
+        self.cells.clear();
+        self.node_id.clear();
+        self.order.clear();
+        self.pending.clear();
+        self.root = None;
+        self.root_bounds = Bounds::default();
     }
 
     /// Grows the root square to cover `(x, y)` (d3's `cover.js`). Only [`build`](Self::build)
@@ -148,6 +177,20 @@ impl Quadtree {
                 2 => (b.x1, b.y0) = (b.x0 + z, b.y1 - z),
                 _ => (b.x0, b.y0) = (b.x1 - z, b.y1 - z),
             }
+            // "Stopped growing" has to mean *permanently*: a coordinate past 2^53 makes
+            // `b.x0 + z` round back to `b.x0`, so the span stays 0 for the first ~57
+            // doublings and only starts moving once `z` clears it. The dead end is `z`
+            // itself overflowing, or the span going `NaN` — both leave a square no
+            // comparison can grow.
+            //
+            // Ponytail: a bail leaves the square as it stands, so a point outside it lands
+            // in whichever quadrant its sign picks — wrong for that one point, bounded for
+            // the build, where the loop it replaces spun and allocated forever. Escape
+            // hatch: `build` refuses the non-finite coordinates that reach this, so the
+            // bail is the backstop for the ones it cannot.
+            if !(z.is_finite() && b.span().is_finite()) {
+                return;
+            }
         }
     }
 
@@ -169,84 +212,9 @@ impl Quadtree {
         self.shape.capacity()
             + self.chain_next.capacity()
             + self.cells.capacity()
-            + self.key.capacity()
+            + self.node_id.capacity()
             + self.order.capacity()
             + self.pending.capacity()
-    }
-}
-
-/// `&mut Quadtree` plus the points, so `add`/`insert_leaf` stay under the 4-param limit.
-struct Builder<'a, 'b> {
-    tree: &'a mut Quadtree,
-    pts: Points<'b>,
-}
-
-impl Builder<'_, '_> {
-    /// `add.js:7-48`: descend while internal; insert, chain a coincidence, or split.
-    fn add(&mut self, point: u32) {
-        let (x, y) = self.pts.at(point);
-        if x.is_nan() || y.is_nan() {
-            return;
-        }
-        let Some(mut node) = self.tree.root else {
-            self.tree.root = Some(self.tree.push(Shape::Leaf(point)));
-            return;
-        };
-        let mut bounds = self.tree.root_bounds;
-        let mut parent = None;
-        loop {
-            let Some(children) = self.tree.children(node) else {
-                self.insert_leaf(point, node, parent, bounds);
-                return;
-            };
-            let slot = bounds.narrow(x, y);
-            match children[slot] {
-                Some(child) => {
-                    parent = Some((node, slot));
-                    node = child;
-                }
-                None => {
-                    let leaf = self.tree.push(Shape::Leaf(point));
-                    self.tree.set_child(node, slot, leaf);
-                    return;
-                }
-            }
-        }
-    }
-
-    /// `add.js:36-47`: `node` is a leaf at `bounds`, reached via `parent`'s slot (`None`
-    /// for the root). Chains an exact coincidence in place; else splits until separated.
-    fn insert_leaf(
-        &mut self,
-        point: u32,
-        node: u32,
-        parent: Option<(u32, usize)>,
-        mut bounds: Bounds,
-    ) {
-        let (x, y) = self.pts.at(point);
-        let head = self.tree.head(node).expect("leaf holds a point");
-        let (xp, yp) = self.pts.at(head);
-        if x == xp && y == yp {
-            self.tree.chain_next[point as usize] = Some(head);
-            self.tree.shape[node as usize] = Shape::Leaf(point);
-            return;
-        }
-        let (mut at, mut slot) = parent.map_or((None, 0), |(p, s)| (Some(p), s));
-        loop {
-            let (i, j) = bounds.split_step(x, y, xp, yp);
-            let internal = self.tree.push(Shape::Internal([None; 4]));
-            match at {
-                Some(p) => self.tree.set_child(p, slot, internal),
-                None => self.tree.root = Some(internal),
-            }
-            if i != j {
-                self.tree.set_child(internal, j, node);
-                let leaf = self.tree.push(Shape::Leaf(point));
-                self.tree.set_child(internal, i, leaf);
-                return;
-            }
-            (at, slot) = (Some(internal), i);
-        }
     }
 }
 

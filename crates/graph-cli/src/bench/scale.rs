@@ -31,7 +31,11 @@ pub const COMPONENT_NODES: u32 = 100_000;
 
 /// The largest `n` the campaign will build, and the bound `bench --n` is parsed against:
 /// 10 components of [`COMPONENT_NODES`].
-pub const MAX_SCALE_NODES: u32 = COMPONENT_NODES * 10;
+///
+/// **The figure lives in the motor, not here** (`graph_core::registry::MAX_BENCH_NODES`),
+/// because the registry's own ceilings answer with this same number and the dependency
+/// runs cli -> core. Two literals that agree today are not a contract.
+pub const MAX_SCALE_NODES: u32 = graph_core::registry::MAX_BENCH_NODES;
 
 /// The members the provisional ingest reader requires of a node, sorted: the shape this
 /// module writes, pinned by reading an emitted document back.
