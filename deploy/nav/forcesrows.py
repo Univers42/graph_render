@@ -1,7 +1,8 @@
 """Rows of the forces gate. Each returns a verdict dict; input goes in as real CDP key and mouse events."""
 import time
 
-LABELS = ["Center force", "Repel force", "Link force", "Link distance"]
+LABELS = ["Center force", "Repel force", "Link force", "Link distance", "Node spacing", "Friction", "Cooling",
+          "Repel range", "Accuracy"]
 ROOT = "document.querySelector('graph-studio').shadowRoot"
 
 
@@ -54,14 +55,15 @@ def row_panel(studio):
 
 def row_sliders(studio):
     panel = read_panel(studio) or {"labels": [], "described": False}
-    return row("sliders-labelled", f"four range inputs labelled {LABELS}", str(panel["labels"]), panel["labels"] == LABELS)
+    return row("sliders-labelled", f"{len(LABELS)} range inputs labelled {LABELS}", str(panel["labels"]), panel["labels"] == LABELS)
 
 
 def row_tab(studio):
     if read_panel(studio) is None:
-        return row("sliders-tab", "Tab reaches four range inputs while disabled", "no panel", False)
-    stops = tab_stops(studio, 4)
-    return row("sliders-tab", "four Tab presses from the header land on four range inputs", str(stops), stops == ["INPUT:range"] * 4)
+        return row("sliders-tab", f"Tab reaches {len(LABELS)} range inputs while disabled", "no panel", False)
+    stops = tab_stops(studio, len(LABELS))
+    expectation = f"{len(LABELS)} Tab presses from the header land on {len(LABELS)} range inputs"
+    return row("sliders-tab", expectation, str(stops), stops == ["INPUT:range"] * len(LABELS))
 
 
 def row_reason(studio):

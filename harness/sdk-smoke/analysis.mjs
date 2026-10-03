@@ -2,8 +2,34 @@
 
 import {
   AnalysisRefusedError,
+  InvalidHandleError,
 } from "../../crates/graph-sdk-js/src/index.ts";
 import { check, refusedWith } from "./lib.mjs";
+
+// The contract's own element-type table, restated per id the way `post.mjs:51-59` restates
+// the edge-kind table. Checked as a two-value set it caught nothing: the `u32` branch only
+// adds an integrality check the f64 values satisfy, so `analysis::registry::to_json` could
+// declare `analysis.centrality.closeness` a `u32` and every loop check would pass (M34).
+const ANALYSIS_KINDS = new Map([
+  ["analysis.centrality.closeness", "f64"],
+  ["analysis.centrality.degree", "f64"],
+  ["analysis.centrality.eigenvector", "f64"],
+  ["analysis.communities.louvain", "u32"],
+  ["analysis.components.weak", "u32"],
+  ["analysis.components.strong", "u32"],
+  ["analysis.depth.bfs", "u32"],
+  ["analysis.centrality.betweenness", "f64"],
+]);
+
+/** Why a face's declared element type is not the one the table names for `id`, or `null`.
+ *  Exported so the table itself can be pinned: the review's failing input is a producer
+ *  that declares `analysis.centrality.closeness` a `u32`, which the old two-value check
+ *  accepted because its f64 values satisfy the `u32` branch's integrality test. */
+export function elementTypeProblem(id, kind) {
+  const want = ANALYSIS_KINDS.get(id);
+  if (want === undefined) return `${id} is not named in the element-type table`;
+  return kind === want ? null : `declared ${kind}, contract says ${want}`;
+}
 
 export async function runAnalysisSection(ctx) {
   const { motor, stagedHandle, posts } = ctx;
@@ -30,7 +56,14 @@ for (const analysisId of analyses) {
   process.stdout.write(`# ${analysisId}: ${result.kind} x ${result.nodeCount} = ${JSON.stringify(result.values)}\n`);
   check(`${analysisId}: it names itself`, result.id === analysisId);
   check(`${analysisId}: one value per node, in order`, result.values.length === 5);
-  check(`${analysisId}: its element type is one of the two the ABI names`, result.kind === "f64" || result.kind === "u32");
+  // The face's own node count is asserted, not just its value count: a face carrying
+  // `"nodeCount": 3` with five values parses and would otherwise pass (m92).
+  check(`${analysisId}: it reports the fixture's five nodes`, result.nodeCount === 5, String(result.nodeCount));
+  check(
+    `${analysisId}: its element type is the one the contract names for this id`,
+    elementTypeProblem(analysisId, result.kind) === null,
+    elementTypeProblem(analysisId, result.kind) ?? "",
+  );
   check(`${analysisId}: its values are finite`, result.values.every(Number.isFinite));
   if (result.kind === "u32") {
     check(`${analysisId}: a labelling is whole and non-negative`, result.values.every((v) => Number.isInteger(v) && v >= 0));
@@ -53,8 +86,23 @@ for (const analysisId of analyses) {
   }
 }
 check("every registered analysis ran through the published SDK", analysed === analyses.length && analysed > 0);
+// Every registered analysis is named in the element-type table above, so a registry that
+// grew past it is caught here rather than silently unchecked in the loop.
+check(
+  "every registered analysis is named in the element-type table",
+  analyses.every((id) => ANALYSIS_KINDS.has(id)),
+  analyses.filter((id) => !ANALYSIS_KINDS.has(id)).join(", "),
+);
+check(
+  "the element-type table names no analysis the registry does not",
+  [...ANALYSIS_KINDS.keys()].every((id) => analyses.includes(id)),
+  [...ANALYSIS_KINDS.keys()].filter((id) => !analyses.includes(id)).join(", "),
+);
 // The checks below read two named results, so they only run if both were produced.
 if (analysed === 0) {
+  // The loop's own checks said nothing could be read; the handle must still go back, or a
+  // section that never got to run leaks it (m91).
+  motor.release(stagedHandle);
   check("an analysis ran, so its values could be read at all", false);
 } else {
 
@@ -108,21 +156,29 @@ check(
   })(),
 );
 check("an unknown analysis id is refused", await refusedWith(AnalysisRefusedError, () => motor.analysis(stagedHandle, "analysis.components.none")));
-check("a released handle is refused by both stages (C6)", (() => {
+// A bare `catch { refused = true }` accepts *any* throw: a `RangeError`, a
+// `MotorTrapError`, or the wrong refusal class all reported ok. The contract names the
+// code for a released handle — `InvalidHandle` (`docs/contract/wasm-abi.md:47`) — and that
+// is what is asserted here, not the stage's own refusal class (M35).
+const releasedHandle = async () => {
   motor.release(stagedHandle);
-  let post = false;
-  let analysis2 = false;
-  try {
-    motor.post(stagedHandle, posts[0]);
-  } catch {
-    post = true;
-  }
-  try {
-    motor.analysis(stagedHandle, analyses[0]);
-  } catch {
-    analysis2 = true;
-  }
-  return post && analysis2;
-})());
+  const codes = await Promise.all(
+    [
+      ["post", () => motor.post(stagedHandle, posts[0])],
+      ["analysis", () => motor.analysis(stagedHandle, analyses[0])],
+    ].map(async ([stage, run]) => {
+      try {
+        await run();
+        return `${stage} did not throw`;
+      } catch (error) {
+        return error instanceof InvalidHandleError && error.codeName === "InvalidHandle"
+          ? null
+          : `${stage} refused with ${error?.constructor?.name}(codeName ${error?.codeName})`;
+      }
+    }),
+  );
+  return codes.every((problem) => problem === null) ? true : codes.filter(Boolean).join("; ");
+};
+check("a released handle is refused by both stages as InvalidHandle (C6)", await releasedHandle());
 }
 }

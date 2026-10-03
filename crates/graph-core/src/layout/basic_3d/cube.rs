@@ -1,6 +1,7 @@
 //! `_cube_layout` (`SciGraphs/core/scigraphs_core/mesh/layouts/basic.py:83-103`): the
 //! eight cube corners first, in the reference's literal order, then the remainder
-//! scattered strictly inside. Closed form for the corners, a stream for the interior.
+//! scattered uniformly inside the 0.8 shell. Closed form for the corners, a stream for the
+//! interior.
 //!
 //! The construction, as the reference writes it:
 //!
@@ -59,7 +60,15 @@ use crate::stage::StageError;
 ///
 /// Indexed by node, so node `i` for `i < 8` is `CORNERS[i] * scale`. The order is part of
 /// the layout and a change to it is a regression.
-pub(super) const CORNERS: [[f64; 3]; 8] = [
+///
+/// **`pub`, and re-exported as `basic_3d::CORNERS`.** `registry/three_d/basic.rs`'s `CUBE`
+/// row states this array as the escape hatch for its one VISIBLE-REGRESSION risk — "a
+/// caller can read the order rather than trust a comment" — and named the path
+/// `crate::graph_core::layout::basic_3d::CORNERS`. The constant was `pub(super)` and never
+/// re-exported, so that escape hatch did not exist and the row's own instruction could not
+/// be followed. Making the array public is what the row's argument already assumes: the
+/// order is a public contract, so it is readable at the path the ledger names.
+pub const CORNERS: [[f64; 3]; 8] = [
     [1.0, 1.0, 1.0],
     [1.0, -1.0, -1.0],
     [-1.0, 1.0, -1.0],
@@ -83,19 +92,49 @@ pub const ID: &str = "layout.basic3d.cube";
 const SEED: u32 = 981_798_123;
 
 /// The interior's radius as a fraction of the cube's half-side: `scale * 0.8` against the
-/// corners' `scale` (`basic.py:101`). The `0.8` is what makes the scatter **strictly
-/// inside** rather than in the shell, and it is the reference's whole reason for using a
-/// scaled `uniform` rather than the corners' own scale.
+/// corners' `scale` (`basic.py:101`). The `0.8` is what keeps the scatter inside the
+/// corners' own scale, and it is the reference's whole reason for using a scaled `uniform`
+/// rather than the corners' own.
+///
+/// **"Inside" is half-open, not strict.** `uniform` is `-reach + 2 * reach * u` and `u` is
+/// in `[0, 1)`, so the range is `[-0.8*scale, +0.8*scale)` — a draw of exactly `0.0`
+/// returns exactly `-reach`, a node on the shell (p ~ 2⁻³² per value). It used to say
+/// "strictly inside"; the reference's `rng.uniform` shares the property, and no test can
+/// depend on its absence.
 const INTERIOR_RATIO: f64 = 0.8;
 
-/// `_cube_layout(n, scale)` (`basic.py:83-103`) over the node count.
+/// `_cube_layout(n, scale)` (`basic.py:83-103`) over the node count, at [`SCALE`] and the
+/// reference's own [`SEED`].
 pub(super) fn run(n: u32) -> Result<Geometry, StageError> {
     let (x, y, z) = columns(n);
     Ok(in_space(&x, &y, &z))
 }
 
-/// The three `f64` columns at `n`, before narrowing.
+/// [`run`] at the `scale` the caller asks for. Both uses of it are the reference's own
+/// (`corners[:idx] * scale` and `rng.uniform(-1, 1, (k, 3)) * (scale * 0.8)`), so
+/// `run_scaled(n, SCALE) == run(n)` bit for bit.
+pub(super) fn run_scaled(n: u32, scale: f64) -> Result<Geometry, StageError> {
+    let (x, y, z) = columns_scaled(n, scale, SEED);
+    Ok(in_space(&x, &y, &z))
+}
+
+/// The three `f64` columns at `n`, before narrowing, at [`SCALE`] and [`SEED`].
 pub(super) fn columns(n: u32) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
+    columns_scaled(n, SCALE, SEED)
+}
+
+/// The three `f64` columns at `n` with the **seed spelled out** — `derive_seed(42,
+/// "layout")` is what `apply_graph_layout` hands `_get_layout_rng`
+/// (`common.py:43-52`, `repro/determinism.py:56-62`), so `seed` is the reference's own
+/// second argument and not a house parameter.
+///
+/// **It exists so the seed can be tested.** The registered layout is at [`SEED`] and moving
+/// it moves every hashed snapshot over eight nodes, so before this the only way to ask what
+/// the layout does with a *different* seed was to edit the constant — and the test named for
+/// that question compared two identical runs and passed for any value of [`SEED`]. With the
+/// parameter spelled out, `the_seed_moves_only_the_interior` compares two seeds through the
+/// production kernel, and the negative control is a kernel that ignores the argument.
+pub(super) fn columns_scaled(n: u32, scale: f64, seed: u32) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
     let mut columns = (
         Vec::with_capacity(n as usize),
         Vec::with_capacity(n as usize),
@@ -112,11 +151,11 @@ pub(super) fn columns(n: u32) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
     }
     let corners = core::cmp::min(n as usize, CORNERS.len());
     for corner in CORNERS.iter().take(corners) {
-        columns.0.push(corner[0] * SCALE);
-        columns.1.push(corner[1] * SCALE);
-        columns.2.push(corner[2] * SCALE);
+        columns.0.push(corner[0] * scale);
+        columns.1.push(corner[1] * scale);
+        columns.2.push(corner[2] * scale);
     }
-    interior(&mut columns, n as usize - corners);
+    interior(&mut columns, n as usize - corners, scale, seed);
     columns
 }
 
@@ -129,9 +168,9 @@ pub(super) fn columns(n: u32) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
 ///
 /// **The only place this module draws a random number**, and the only place in `basic_3d`
 /// that does. `SPHERE` and `HELIX` are closed form and owe no seed.
-fn interior(columns: &mut (Vec<f64>, Vec<f64>, Vec<f64>), remaining: usize) {
-    let reach = SCALE * INTERIOR_RATIO;
-    let mut stream = Mt19937::new(SEED);
+fn interior(columns: &mut (Vec<f64>, Vec<f64>, Vec<f64>), remaining: usize, scale: f64, seed: u32) {
+    let reach = scale * INTERIOR_RATIO;
+    let mut stream = Mt19937::new(seed);
     for _ in 0..remaining {
         columns.0.push(uniform(&mut stream) * reach);
         columns.1.push(uniform(&mut stream) * reach);
