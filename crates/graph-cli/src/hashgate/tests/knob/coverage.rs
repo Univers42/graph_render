@@ -39,7 +39,7 @@ enum Gap {
 /// The layout ids `knobs::all()` does not tabulate, each with what it actually has.
 ///
 /// Sorted by id so a diff reads as a change to the set rather than a reshuffle.
-const NO_PER_STAGE_CONTROL: [(&str, Gap); 26] = [
+const NO_PER_STAGE_CONTROL: [(&str, Gap); 28] = [
     ("layout.bipartite", Gap::NoControl),
     ("layout.circular.circo", Gap::NoControl),
     ("layout.circular.hierarchy", Gap::HasOwnStageNodes),
@@ -65,9 +65,13 @@ const NO_PER_STAGE_CONTROL: [(&str, Gap); 26] = [
     ("layout.forceatlas2.forcesim", Gap::NoControl),
     ("layout.grid", Gap::NoControl),
     ("layout.mds.pivot", Gap::NoControl),
+    // The 3D arms of the two ids above, same gap and for the same reason: no knob scopes
+    // `stage_nodes` to either, and the reference model moves both along with everything else.
+    ("layout.mds.pivot3d", Gap::NoControl),
     ("layout.packing.circle", Gap::NoControl),
     ("layout.random", Gap::NoControl),
     ("layout.spectral", Gap::NoControl),
+    ("layout.spectral3d", Gap::NoControl),
     ("layout.spiral", Gap::NoControl),
     ("layout.tree.tidy", Gap::HasOwnStageNodes),
     ("layout.treemap.patchwork", Gap::HasOwnStageNodes),

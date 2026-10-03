@@ -1,11 +1,12 @@
 /**
  * One layout run in the renderer's world units, as flat columns. The motor lays a graph
  * out in its own units (a grid cell is 1); the painter's sizes are pixel-scale, so one
- * uniform factor per run brings the typical node spacing to TARGET_SPACING. Uniform, so
- * the geometry stays exactly similar.
+ * uniform factor per run brings the spacing most nodes have to their neighbours to
+ * TARGET_SPACING (`readableFactor`). Uniform, so the geometry stays exactly similar.
  */
 import type { Bounds } from "./camera.ts";
 import type { EdgeKind, NodeKind, Snapshot } from "./snapshot/decode.ts";
+import { typicalSpacing } from "./spacing.ts";
 
 export const TARGET_SPACING = 56;
 
@@ -36,7 +37,7 @@ export interface Frame {
   readonly factor: number;
 }
 
-function boundsOf(x: Float32Array, y: Float32Array): Bounds | null {
+export function boundsOf(x: Float32Array, y: Float32Array): Bounds | null {
   if (x.length === 0) return null;
   let minX = Infinity;
   let minY = Infinity;
@@ -81,10 +82,12 @@ function hullWith(bounds: Bounds | null, pts: Float32Array | null): Bounds | nul
 }
 
 /**
- * Ponytail: "typical spacing" is sqrt(bounding-box area / n), the spacing of a uniform
- * spread. One dense clump with a few far outliers reads as sparse and is under-scaled
- * (the clump overlaps); a collinear layout falls back to extent / (n - 1). Zooming in is
- * the escape hatch.
+ * The floor of the world factor: the factor that brings sqrt(bounding-box area / n), the
+ * spacing of a uniform spread, to TARGET_SPACING. `readableFactor` never goes below it.
+ *
+ * Ponytail: only the floor now. One dense clump with a few far outliers reads as sparse
+ * here and would be under-scaled; `readableFactor` lifts it. A collinear layout falls back
+ * to extent / (n - 1).
  */
 export function worldFactor(bounds: Bounds | null, nodeCount: number): number {
   if (bounds === null || nodeCount < 2) return 1;
@@ -94,6 +97,25 @@ export function worldFactor(bounds: Bounds | null, nodeCount: number): number {
     ? Math.sqrt((width * height) / nodeCount)
     : Math.max(width, height) / (nodeCount - 1);
   return spacing > 0 && Number.isFinite(spacing) ? TARGET_SPACING / spacing : 1;
+}
+
+/** How far past the floor a clump may spread a drawing: far nodes stay within f32 sense. */
+export const MAX_SPREAD = 32;
+
+/**
+ * Motor units to world units: the factor that brings the spacing most nodes have to their
+ * neighbours to TARGET_SPACING, never under `worldFactor` and never over MAX_SPREAD times it.
+ *
+ * Ponytail: the median serves the majority, so a clump holding under half the nodes can
+ * still overlap; x and y only, so a 3D drawing seen edge-on can overlap; live force frames
+ * arrive in motor units and bypass the factor (`drawnRadius` in graph-studio's
+ * `state/keepForces.ts`). Zooming in is the escape hatch.
+ */
+export function readableFactor(x: Float32Array, y: Float32Array, bounds: Bounds | null): number {
+  const floor = worldFactor(bounds, x.length);
+  const spacing = typicalSpacing(x, y);
+  if (!(spacing > 0)) return floor;
+  return Math.min(Math.max(TARGET_SPACING / spacing, floor), floor * MAX_SPREAD);
 }
 
 function scaled(column: Float32Array, factor: number): Float32Array {
@@ -114,7 +136,7 @@ function scaledOrNull(column: Float32Array | null, factor: number): Float32Array
 export function frameFrom(snapshot: Snapshot): Frame {
   // The node hull alone, and only the node hull: the factor is the uniform scale of the whole
   // drawing, so an edge that swings far outside must not rescale the layout around it.
-  const factor = worldFactor(boundsOf(snapshot.x, snapshot.y), snapshot.nodeCount);
+  const factor = readableFactor(snapshot.x, snapshot.y, boundsOf(snapshot.x, snapshot.y));
   const x = scaled(snapshot.x, factor);
   const y = scaled(snapshot.y, factor);
   const pts = scaledOrNull(snapshot.pts, factor);
