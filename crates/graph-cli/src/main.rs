@@ -124,6 +124,7 @@ fn main() -> ExitCode {
         } => stress::run(&oracle, &layout, seeds),
         Command::Bench(plan) => bench::run(&plan),
         Command::Tick(plan) => bench::tick::run(&plan),
+        Command::CapProbe(plan) => bench::cap_probe::run(&plan),
         Command::MbFidelity(plan) => mb_fidelity::run(&plan),
     }
 }
