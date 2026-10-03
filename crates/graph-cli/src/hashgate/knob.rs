@@ -5,10 +5,13 @@ use super::knobs;
 
 pub(super) mod arms;
 pub(super) mod compute;
+pub(crate) mod env;
 pub(super) mod igraph;
 pub(super) mod records;
 pub(crate) mod setting;
 pub(super) mod three_d;
+pub(super) mod value;
+mod wiring;
 pub(crate) use setting::{Setting, env_setting};
 
 /// A negative control (`prompt.md` §7.2): a variable that perturbs the native arm only,
@@ -149,6 +152,25 @@ pub enum Knob {
     /// of the four that publishes `run_with`; the scale is read by the final centring and
     /// so changes every circle's centre and radius.
     PackingScale,
+    /// `GM_MUTATE_LAYOUT_PARAM_DEFAULT`: which of a published layout's parameters has its
+    /// **default** perturbed, native arm only (`docs/decisions/layout-params.md`).
+    ///
+    /// **The control for the schema itself.** Every other parameter knob moves a value
+    /// the layout would have been given anyway; this one runs
+    /// [`FruchtermanReingold::ID`](crate::layout::force::FruchtermanReingold)'s stage
+    /// through `Capability::run_params` at a buffer whose value at one index is one more
+    /// than the default the registry publishes, so the drawing is the published default
+    /// plus one. The wasm arm cannot see it: it sends `params_len == 0`, which is the
+    /// defaults, so the divergence this shows is exactly the one a wired control must
+    /// surface — and it is a control over the ABI, not over the algorithm.
+    ///
+    /// **Why one stage and not all thirteen.** A control that perturbs nothing passes
+    /// vacuously and one that perturbs everything names no stage, which is why every other
+    /// knob here is filed under exactly one. This one is filed under the first layout in
+    /// the registry that publishes anything, and the value is an index into *that* layout's
+    /// list. An index past the end is refused rather than clamped, exactly as a node count
+    /// of zero is.
+    LayoutParamDefault,
     /// `GM_MUTATE_ANALYSIS_COMPONENTS_WEAK`: weak components, native arm only.
     ///
     /// The first of the fifteen ANALYSIS and POST controls, which share one shape and are
@@ -259,38 +281,29 @@ pub enum Knob {
     /// Corrupts the closed-form point layouts' shared `coords` merge. The full argument is in
     /// [`compute`], under its own heading.
     SplitRescale,
+    /// `GM_MUTATE_OVERLAP_RELAXATION`: the overlap pass's over-relaxation factor.
+    ///
+    /// **A real parameter, and the only knob that can make the overlap invariant go red.**
+    /// Every other POST capability takes no parameters, so its control re-draws its own model
+    /// (`stage_nodes`); `post::separate` publishes [`SeparateParams::over_relaxation`], so its
+    /// control moves the real thing.
+    ///
+    /// The control's value is **`0`**, which is legal and is not clamped: it freezes every
+    /// displacement, so the pass cannot separate anything and every input overlap survives into
+    /// the snapshot. A native arm that freezes a stage the wasm arm runs normally is exactly
+    /// the cross-target divergence the gate exists to catch, and it is the perturbation that
+    /// turns `graph-cli overlap`'s invariant row red rather than merely moving a hash.
+    ///
+    /// A re-drawn model could not do this: adding a node changes the input, and the pass
+    /// separates it correctly either way, so the invariant would stay green and the control
+    /// would prove nothing about the pass's ability to separate at all.
+    OverlapRelaxation,
     /// `GM_MUTATE_FORCE_SESSION_GRAVITY`: the **live** force session's `gravity`, native arm
     /// of `force-gate` only.
     ///
     /// The one control that reaches `force-gate` rather than this gate. The full argument is
     /// in [`compute`], under its own heading.
     ForceSessionGravity,
-}
-
-impl Knob {
-    /// Every knob: the fifteen that move a parameter or re-draw one layout's model, then
-    /// the twenty-seven per-stage controls — the fifteen of
-    /// [`knobs::ANALYSIS_POST_STAGES`], the six of [`knobs::IGRAPH_LAYOUT_STAGES`], the
-    /// five of [`knobs::THREE_D_LAYOUT_STAGES`] and the one of
-    /// [`knobs::OSAGE_LAYOUT_STAGES`] — then the two compute-tier controls, then the live
-    /// session's own. The list itself is [`arms::ALL`], spelled out there.
-    ///
-    /// **A `const`, because `capabilities::verdict::Evidence::load` walks it** to collect
-    /// one control record each — a ledger read cannot be a function call per row. So the
-    /// twenty-seven per-stage arms are spelled out there and held against those four tables
-    /// by `the_analysis_and_post_controls_are_the_knobs_table`, which fails on any arm whose
-    /// variable, record or stage a table disagrees with.
-    pub const ALL: [Self; 47] = arms::ALL;
-
-    /// The variable that sets it.
-    pub const fn env(self) -> &'static str {
-        arms::env(self)
-    }
-
-    /// The record its run writes.
-    pub const fn record(self) -> &'static str {
-        records::record(self)
-    }
 }
 
 pub(super) use arms::stage_of;

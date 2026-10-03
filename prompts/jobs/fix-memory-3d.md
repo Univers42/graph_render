@@ -1,5 +1,7 @@
 # Job fix-memory-3d (agent build: follow-up of fix-tree-registry L-25)
 
+Your worktree is cut from `fix-tree-registry`, which is not on develop yet; do not merge develop.
+
 Read `prompts/jobs/fix-common.md` first. Source: `docs/measurements/fix-tree-registry.md`, row L-25
 and the "L-25 rung" note.
 

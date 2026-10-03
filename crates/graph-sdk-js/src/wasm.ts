@@ -20,6 +20,7 @@ export interface RawExports {
   gm_free(ptr: number, len: number): void;
   gm_layout_count(): number;
   gm_layout_id(i: number): number;
+  gm_layout_params(i: number): number;
   gm_build(ingestPtr: number, ingestLen: number): number;
   gm_build_contract(contractPtr: number, contractLen: number): number;
   gm_build_columns(columnsPtr: number, columnsLen: number): number;
@@ -59,9 +60,9 @@ export interface RawExports {
  * the interface's, so a module older than this SDK is refused by name when it loads instead of
  * failing later as `exports.gm_dim is not a function` on the first call that needs it. */
 const EXPORT_NAMES: { readonly [K in keyof RawExports]: true } = {
-  memory: true, gm_abi_version: true, gm_alloc: true, gm_free: true, gm_layout_count: true, gm_layout_id: true,
-  gm_build: true, gm_build_contract: true, gm_build_columns: true,
-  gm_run: true, gm_node_count: true,
+  memory: true, gm_abi_version: true, gm_alloc: true, gm_free: true, gm_layout_count: true,
+  gm_layout_id: true, gm_layout_params: true,
+  gm_build: true, gm_build_contract: true, gm_build_columns: true, gm_run: true, gm_node_count: true,
   gm_geometry_kind: true, gm_edge_geometry_kind: true, gm_dim: true, gm_column_ptr: true,
   gm_column_len: true, gm_snapshot_json: true, gm_snapshot_bytes: true, gm_post_count: true,
   gm_post_id: true, gm_post_run: true, gm_analysis_count: true, gm_analysis_id: true,
@@ -74,8 +75,14 @@ const EXPORT_NAMES: { readonly [K in keyof RawExports]: true } = {
 };
 
 /** The ABI revision this SDK speaks: `gm_abi_version()` must return exactly this
- * (`docs/contract/wasm-abi.md` "Exports"). */
-export const ABI_VERSION = 1;
+ * (`docs/contract/wasm-abi.md` "Exports").
+ *
+ *  `2` since `gm_run`'s `params_ptr`/`params_len` stopped being refused and started
+ *  carrying a layout's published parameters, and `Code::ParamsMustBeEmpty` stopped being
+ *  produced. A module from before it is refused by name at load (`gm_layout_params` is in
+ *  `EXPORT_NAMES`), which degrades the whole motor rather than only its parameters — the
+ *  price of an SDK that reads one module's schemas instead of guessing at them. */
+export const ABI_VERSION = 2;
 
 /** `instance`'s exports checked against this SDK. `memory` is given when the module imports
  * its memory instead of exporting it (the threads artifact, `threads.ts`). */
@@ -116,6 +123,9 @@ function unsignedResults(exports: WebAssembly.Exports): RawExports {
 export type WasmSource = BufferSource | string | URL;
 
 let singleton: Promise<RawExports> | null = null;
+/** The {@link sourceKey} of the source `singleton` was built from, so a later caller asking for
+ *  a different module is told rather than silently handed this one. */
+let singletonKey: string | BufferSource | null = null;
 let initFailed: unknown = null;
 
 /** `>>> 0` (C9): every `number` this SDK sends across the ABI as a `u32` argument goes
@@ -143,25 +153,65 @@ function refuseImports(module: WebAssembly.Module): void {
 
 async function compile(source: WasmSource): Promise<WebAssembly.Instance> {
   if (typeof source === "string" || source instanceof URL) {
-    if (typeof WebAssembly.instantiateStreaming === "function" && typeof fetch === "function") {
-      try {
-        const streamed = await WebAssembly.instantiateStreaming(fetch(source), {});
-        refuseImports(streamed.module);
-        return streamed.instance;
-      } catch {
-        // Some static hosts serve .wasm as the wrong MIME type, which
-        // instantiateStreaming refuses outright; retried below via a plain fetch.
-      }
+    const streamed = await streamedInstance(source);
+    if (streamed !== null) {
+      // Outside `streamedInstance`'s `catch`: a refusal thrown here must not be retried into
+      // the plain fetch below, where the same module fails to link against the empty import
+      // object and the report names only its module, never the field.
+      refuseImports(streamed.module);
+      return streamed.instance;
     }
     const response = await fetch(source);
-    const bytes = await response.arrayBuffer();
-    const { instance, module } = await WebAssembly.instantiate(bytes, {});
-    refuseImports(module);
-    return instance;
+    return instantiateBytes(await response.arrayBuffer());
   }
-  const { instance, module } = await WebAssembly.instantiate(source, {});
+  return instantiateBytes(source);
+}
+
+/** The streaming path, or `null` when it cannot be used: some static hosts serve `.wasm` as
+ *  the wrong MIME type, which `instantiateStreaming` refuses outright, and the caller then
+ *  retries through a plain fetch. Its `catch` returns `null` rather than rethrowing, so it
+ *  carries transport failures only — nothing the loader itself refuses is ever swallowed. */
+async function streamedInstance(
+  source: string | URL,
+): Promise<{ instance: WebAssembly.Instance; module: WebAssembly.Module } | null> {
+  if (typeof WebAssembly.instantiateStreaming !== "function" || typeof fetch !== "function") {
+    return null;
+  }
+  try {
+    const streamed = await WebAssembly.instantiateStreaming(fetch(source), {});
+    return { instance: streamed.instance, module: streamed.module };
+  } catch {
+    return null;
+  }
+}
+
+/** Bytes to an instance, with {@link refuseImports} between compiling and linking: the two
+ *  are separate steps, so a module carrying an import is refused by name here instead of
+ *  failing to link and reporting only `Import #0 module="m"` — the field, the part a caller
+ *  can act on, is lost. For a module that imports nothing the two are the same work. */
+async function instantiateBytes(bytes: BufferSource): Promise<WebAssembly.Instance> {
+  const module = await WebAssembly.compile(bytes);
   refuseImports(module);
-  return instance;
+  return await WebAssembly.instantiate(module, {});
+}
+
+/** How the singleton decides that two calls asked for the same module: a `string` is itself,
+ *  a `URL` is its `href` — the two spellings of one location agree — and a `BufferSource` is
+ *  compared by object identity. Two calls holding equal bytes are therefore two calls: proving
+ *  they are equal would mean hashing every load, a cost no caller asked for and no contract
+ *  promises. The cost of that choice is a caller that re-reads the file per call is refused on
+ *  the second one and must hold the bytes; `resetForTests()` is the documented way out. */
+function sourceKey(source: WasmSource): string | BufferSource {
+  if (typeof source === "string") return source;
+  if (source instanceof URL) return source.href;
+  return source;
+}
+
+/** A key as it appears in a refusal: the string keys print as themselves, a `BufferSource`
+ *  as its length, because a caller holding two distinct copies of one module would otherwise
+ *  be told only that two opaque objects disagree. */
+function describeKey(key: string | BufferSource): string {
+  return typeof key === "string" ? `"${key}"` : `<${key.byteLength} bytes>`;
 }
 
 /** Loads the motor once per session and returns its raw exports, sharing one promise
@@ -181,7 +231,18 @@ export async function loadMotor(source: WasmSource): Promise<RawExports> {
   if (initFailed !== null) {
     throw new WasmUnavailableError("a previous load already failed this session; call resetForTests() to retry", initFailed);
   }
-  if (singleton !== null) return singleton;
+  const key = sourceKey(source);
+  if (singleton !== null) {
+    // One module per session. Handing a second source's caller the first source's exports
+    // would bind it to a module it never asked for, with nothing said; naming both is the
+    // only way a caller can tell which of its two modules is live.
+    if (singletonKey === null || Object.is(singletonKey, key)) return singleton;
+    throw new WasmUnavailableError(
+      `a different wasm module is already loaded this session: already loaded ${describeKey(singletonKey)}, ` +
+        `asked for ${describeKey(key)}; call resetForTests() to load the new one`,
+    );
+  }
+  singletonKey = key;
   singleton = compile(source)
     .then((instance) => requireExports(instance))
     .catch((error: unknown) => {
@@ -196,9 +257,11 @@ export async function loadMotor(source: WasmSource): Promise<RawExports> {
   return singleton;
 }
 
-/** Clears the singleton and the `initFailed` latch. Test-only: production code has no
- * legitimate reason to load a second, different module into the same session. */
+/** Clears the singleton, the key it was built from, and the `initFailed` latch. Test-only:
+ * production code has no legitimate reason to load a second, different module into the same
+ * session. */
 export function resetForTests(): void {
   singleton = null;
+  singletonKey = null;
   initFailed = null;
 }

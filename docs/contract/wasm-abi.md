@@ -28,7 +28,7 @@ caller for an application; this document is what it is built against.
 
 | export | signature | notes |
 |---|---|---|
-| `gm_abi_version` | `() -> u32` | The ABI's revision: `gm_abi_version()` returns `1` (`crate::ABI_VERSION`). Bumped whenever an export's signature, a refusal code's meaning or an accepted document version changes; never for a registry entry, which is counted at run time (C1). The SDK calls it first and refuses any other number with a message naming both. Additive: a module built before it lacks the symbol and is refused by name, as any module older than the SDK is. |
+| `gm_abi_version` | `() -> u32` | The ABI's revision: `gm_abi_version()` returns `2` (`crate::ABI_VERSION`), raised from `1` when `gm_run`'s `params_ptr`/`params_len` stopped being refused and started carrying a layout's published parameters, and `Code::ParamsMustBeEmpty` stopped being produced. Bumped whenever an export's signature, a refusal code's meaning or an accepted document version changes; never for a registry entry, which is counted at run time (C1). The SDK calls it first and refuses any other number with a message naming both. Additive: a module built before it lacks the symbol and is refused by name, as any module older than the SDK is. |
 | `gm_alloc` | `(len: u32) -> u32` | Returns an offset into linear memory, `0` on refusal (`gm_last_error` names it). Fallible: `std::alloc::alloc` under an explicit `Layout::from_size_align(len.max(1), 4)` (C5) — never the infallible, aborting `Vec::reserve`/`Box::new` path. Zero-filled. Zero `len` still reserves 1 byte (`GlobalAlloc` with a zero-size layout is UB) but is tracked and freed as length `0`. |
 | `gm_free` | `(ptr: u32, len: u32)` | `(ptr, len)` must be exactly a live, un-freed `gm_alloc` allocation, or the call is refused (`Code::FreeRefused`) and nothing is deallocated — a double free and a length lie are both caught this way, not just an unaligned or out-of-range pointer. |
 | `gm_layout_count` | `() -> u32` | The registry's row count (`graph_core::registry::LAYOUTS`). Registry-driven (C1): a new layout changes this with no ABI change. |
@@ -36,7 +36,8 @@ caller for an application; this document is what it is built against.
 | `gm_build` | `(ingest_ptr: u32, ingest_len: u32) -> u32` | `(ingest_ptr, ingest_len)` must be a live `gm_alloc` allocation (C5); copies out of it, never frees it — the caller's buffer, the caller's job to free, always, even on refusal. Parses the **provisional** ingest JSON (below), indexes it into a topology, and returns a fresh handle, or `0` on any refusal (`IngestInvalid`, `BuildSourceInvalid`, `HandlesExhausted`). |
 | `gm_build_contract` | `(contract_ptr: u32, contract_len: u32) -> u32` | Same buffer contract and the same handle table as `gm_build`, one ownership rule for both. Takes the **phase-10 ingest contract** (`docs/contract/ingest-schema.json`) instead of the provisional node/edge JSON, and derives the graph through `graph_core::ingest`'s single derivation (`crates/graph-wasm/src/contract.rs`). `0` on any refusal (`ContractInvalid`, `BuildSourceInvalid`, `HandlesExhausted`). **Additive: `gm_build` and its provisional format are unchanged**, so nothing already speaking it moves — see "Three build paths" below. |
 | `gm_build_columns` | `(columns_ptr: u32, columns_len: u32) -> u32` | Same buffer contract, same handle table, same ownership rule as the two above. Takes the **columnar** document of `docs/contract/ingest-columns.md`: one UTF-8 string table, `u32` and `f64` columns, edge endpoints as node row numbers. No JSON parse, no `String` per record field, no arena probe per edge endpoint. `0` on any refusal (`ColumnsInvalid`, `IngestTooLarge`, `BuildSourceInvalid`, `HandlesExhausted`). **Additive**, and the third way in — see "Three build paths" below. One behavioural difference from `gm_build`, forced by the format: a repeated node or edge id is **refused**, not dropped first-wins, because a dropped row renumbers every row after it and silently repoints every edge that follows. |
-| `gm_run` | `(handle: u32, layout_id: u32, params_ptr: u32, params_len: u32) -> u32` | Runs registry layout `layout_id` over `handle`'s topology at its default parameters — every registered `run: fn(&Topology)` this phase takes none (C2), so `params_len` must be exactly `0`; any other value is refused (`ParamsMustBeEmpty`), never silently ignored, and `params_ptr` is never read. `1` on success, `0` on refusal. A failed run clears the handle's previous geometry first (`Code::NoGeometryYet` on the next read), so a refusal never serves a stale snapshot. |
+| `gm_layout_params` | `(i: u32) -> u32` | The parameters registry row `i` publishes, framed; `0` (`Code::IndexOutOfRange`) past the end. Little-endian: a `u32` count, then per parameter a `u32` name length with its UTF-8 bytes, a `u8` kind tag (`0` int, `1` float, `2` bool), four `f64`s (`min`, `max`, `default`, `step`) and a `u32` doc length with its bytes. A layout that publishes nothing answers with a count of `0` — an answer, not a refusal. The order is the buffer order, so index `i` of one is index `i` of the other. `docs/decisions/layout-params.md`. |
+| `gm_run` | `(handle: u32, layout_id: u32, params_ptr: u32, params_len: u32) -> u32` | Runs registry layout `layout_id` over `handle`'s topology. **`params_ptr`/`params_len` carry the run's parameters**: one little-endian `f64` per parameter `gm_layout_params` published for that layout, in the order it published them. `params_len == 0` is the layout's own defaults — what every caller before ABI 2 sent, so nothing that exists today moves. Any other length, a `(ptr, len)` that is not a live `gm_alloc` allocation, or a value the schema does not publish in range is **refused and never clamped** (`ParamsMalformed`, `ParamsNotAccepted`, `ParamOutOfRange`). Refusals in order: `InvalidHandle`, then `UnknownLayoutId` (the layout before the buffer, so a caller that named a layout that does not exist is told that), then the three buffer codes, then `LayoutFailed`. `1` on success, `0` on refusal. A failed run clears the handle's previous geometry first (`Code::NoGeometryYet` on the next read), so a refusal never serves a stale snapshot. |
 | `gm_node_count` | `(handle: u32) -> u32` | Nodes in `handle`'s topology, available right after `gm_build`, before any run. `0` is ambiguous (empty graph vs. invalid handle) — resolved by `gm_last_error`. |
 | `gm_geometry_kind` | `(handle: u32) -> u32` | Node geometry tag of the last successful run: `0` Point, `1` Circle, `2` Box (`docs/contract/binary-layout.md`). `u32::MAX` — never a real tag — before any run has succeeded. |
 | `gm_edge_geometry_kind` | `(handle: u32) -> u32` | Edge geometry tag: `0` Line, `1` Polyline, `2` Curve. Beyond the phase's stated minimum surface: `gm_geometry_kind` alone only names nodes, and C3 requires edge kind to be readable too. Same `u32::MAX` convention. |
@@ -352,7 +353,7 @@ graph-core-only capability.
 | 3 | `FreeRefused` | `gm_free`'s `(ptr, len)` is not exactly a live `gm_alloc` allocation |
 | 4 | `IngestInvalid` | The ingest buffer failed the provisional JSON contract |
 | 5 | `UnknownLayoutId` | `gm_run`'s `layout_id` is not `< gm_layout_count()` |
-| 6 | `ParamsMustBeEmpty` | `gm_run`'s `params_len` was not `0` |
+| 6 | `ParamsMustBeEmpty` | **Reserved, never produced since ABI 2.** A run's parameters are carried by `gm_run` itself; `ParamsNotAccepted` (21) answers a buffer a layout that publishes nothing cannot take. The number stays so a host that switched on `6` cannot silently read a different refusal |
 | 7 | `HandlesExhausted` | Every `u32` handle id has been issued this instance; none is reused (C6) |
 | 8 | `LayoutFailed` | The registered layout returned an internal error for this topology |
 | 9 | `TamperedGeometry` | A column read back NaN or infinite: a view wrote through the handle's buffers since the last run (D9, C8) |
@@ -365,8 +366,11 @@ graph-core-only capability.
 | 16 | `SessionParamsInvalid` | A force session's `(params_ptr, params_len)` is neither `0` (the defaults) nor exactly the parameter buffer's length |
 | 17 | `SessionRefused` | The force session refused: a parameter out of its range (never clamped), a row past the last node, or a non-finite coordinate (D9) |
 | 18 | `AnalysisFailed` | `gm_analysis_run` ran the analysis but its report has no JSON text: a non-finite score or modularity (`NaN` is not a JSON number, D9), or a column longer than `u32` can count |
-| 19 | `IngestTooLarge` | `gm_build`'s buffer is longer than `MAX_INGEST_BYTES` (774,568,785 bytes), refused on its length before any of it is read. **Not** `IngestInvalid`: that code means the document was read and found malformed, while this one means the document must be split or shrunk |
-| 20 | `ColumnsInvalid` | `gm_build_columns`'s buffer failed `docs/contract/ingest-columns.md`: a header word, a section total that does not equal the buffer length exactly, a decreasing offset, a slice splitting a code point, a boolean that is not `0` or `1`, a non-finite `f64`, or a repeated node or edge id. **Not** `IngestInvalid`: that is the provisional JSON's code and `gm_build` keeps it; a caller that got this one was handed bytes that are not a columnar document, not text that is bad JSON |
+| 19 | `IngestTooLarge` | `gm_build`'s buffer is longer than `MAX_INGEST_BYTES` (1,073,741,824 bytes = 2^30), refused on its length before any of it is read. **Not** `IngestInvalid`: that code means the document was read and found malformed, while this one means the document must be split or shrunk |
+| 20 | `ParamOutOfRange` | `gm_run`'s buffer holds a value its layout does not publish in range: not finite, not integral (an `int`), not `0`/`1` (a `bool`), or outside `[min, max]`. Refused, never clamped and never rounded into range |
+| 21 | `ParamsMalformed` | `gm_run`'s `(params_ptr, params_len)` is not exactly `specs.len() * 8` bytes, or is not a live `gm_alloc` allocation. One code for both, as `SessionParamsInvalid` (16) is: neither has a reading to attempt |
+| 22 | `ParamsNotAccepted` | The layout publishes no parameters and the buffer was not empty. Never a silent "use the defaults" |
+| 23 | `ColumnsInvalid` | `gm_build_columns`'s buffer failed `docs/contract/ingest-columns.md`: a header word, a section total that does not equal the buffer length exactly, a decreasing offset, a slice splitting a code point, a boolean that is not `0` or `1`, a non-finite `f64`, or a repeated node or edge id. **Not** `IngestInvalid`: that is the provisional JSON's code and `gm_build` keeps it; a caller that got this one was handed bytes that are not a columnar document, not text that is bad JSON |
 
 Codes are **append-only**: `ContractInvalid` was added as `14` and moved no existing
 code, which `crates/graph-wasm/src/errors.rs`'s
@@ -464,15 +468,18 @@ Rules, all refused loudly (never silently coerced or dropped):
   first-wins/drop-silently for exactly these cases, which would make ingest order diverge
   from snapshot order, the one identity this ABI promises a caller.
 - Not UTF-8, or not JSON at all, is refused before shape-checking even starts.
-- A document longer than `MAX_INGEST_BYTES` (774,568,785 bytes) is refused with
-  `IngestTooLarge` on its length alone, before it is read at all. The number is measured,
-  not chosen: it is the largest document that built on the wasm32 artifact, byte for byte,
-  and the next one up, 799,922,860 bytes, trapped inside `index_model`'s string arena
-  (`docs/measurements/fix-wasm-ingest.md`). It has no margin, because it *is* the
-  measurement — nothing between it and that first trap has been shown to build — and it is
-  a ceiling rather than a promise: a document under it with an unusually high edge-to-node
-  ratio can still exhaust memory exactly as it does today. `fix-ingest-scale` owns that
-  defect and raises this number with a new measurement once it lands.
+- A document longer than `MAX_INGEST_BYTES` (1,073,741,824 bytes = 2^30) is refused with
+  `IngestTooLarge` on its length alone, before it is read at all. The number is measured and
+  then rounded down to a power of two: the largest document that built on the wasm32 artifact
+  is 1,499,403,588 bytes (1M nodes, 7,999,936 edges) and the next one up, 1,663,576,802
+  bytes, traps while its records are read (`docs/measurements/fix-ingest-scale.md`). 2^30 is
+  the largest power of two at or below the first of those, and it refuses nothing that built
+  before the reader stopped building a JSON value tree — the previous ceiling, 774,568,785
+  bytes, and every document under it. It has 425,661,764 bytes of margin, so it *does* refuse
+  documents between it and 1,499,403,588 bytes that this build would accept; that is the
+  trade the decision record makes in exchange for a number with a rule behind it. It is still
+  a ceiling and not a promise: it bounds bytes and not the work they imply, so a document
+  under it with an unusually high edge-to-node ratio can still exhaust memory.
 - A number is refused wherever JSON does not admit non-finite values in the first place —
   D9's "no NaN/Inf reaches the wire" is enforced again on the way out (`gm_snapshot_json`/
   `gm_snapshot_bytes`), since a column view can still write one in after `gm_build`.
@@ -483,6 +490,15 @@ Rules, all refused loudly (never silently coerced or dropped):
 caller; `crates/graph-sdk-js/README.md` documents its own ownership and error policy in
 JS terms. `harness/sdk-smoke.mjs` is a third party exercising only that published entry
 point — it never imports from `crates/`, never touches the ABI directly.
+
+`Motor#layoutParams(id)` returns what that layout publishes, from `gm_layout_params`, and
+`Motor#run(handle, id, { params })` draws at those values: `params` is keyed by the names
+the schema published, a name it does not publish is a `RangeError`, and a published name
+left out takes its default. `Motor#layout(handle, id)` is the two-argument form of `run`,
+kept so no caller written against the pre-ABI-2 surface changes. The SDK does **not**
+range-check a value — the motor refuses it with `ParamOutOfRange`, because a second rule
+here would be a second thing to keep in step with the schema
+(`docs/decisions/layout-params.md`).
 
 `Motor#layouts()` returns every registered layout id, in registry order, from
 `gm_layout_count`/`gm_layout_id` (C1). It is the only way a consumer is meant to learn
@@ -540,10 +556,12 @@ returns a degraded `Motor` (see Deviations).
 |---|---|
 | `gm_alloc` / `gm_free` | `crates/graph-wasm/src/alloc.rs` unit tests (native); `Motor#build`'s stage/free (`harness/sdk-smoke.mjs`) |
 | `gm_layout_count` / `gm_layout_id` | `Motor#layouts` (`harness/sdk-smoke.mjs`, `harness/wasm-run.mjs`'s `layoutIndex` helper) |
+| `gm_layout_params` | `crates/graph-wasm/src/exports/build.rs` unit tests (native, the export against `graph_core`'s own encoding) |
+| `Motor#layoutParams` / `Motor#run({ params })` | `crates/graph-sdk-js/src/layout-params.ts` decoder/encoder (native, `tsc`); the motor-side round trip and every refusal through `gm_run`, in `crates/graph-wasm/src/exports/build.rs`'s unit tests |
 | `gm_build` | `crates/graph-wasm/src/ingest.rs` unit tests (native, the parser); `harness/sdk-smoke.mjs`, `harness/wasm-run.mjs --assert-zero-copy` |
 | `gm_build_contract` | `crates/graph-wasm/src/contract/tests.rs` (native, 8: the committed document derives the committed graph byte for byte, the derivation is `graph_core`'s and not a copy, the two formats are not interchangeable, every reader refusal, a tag value that cannot round-trip, deletion honoured); `harness/sdk-smoke.mjs` (via `Motor#buildContract`: node count and derivation order, both non-interchangeability directions, an unknown member refused, the code named) |
 | `gm_build_columns` | `crates/graph-contract/src/ingest_columns/tests/` (native: one refusal per contract rule, plus the sections landing where the contract says); `crates/graph-core/src/index/columns/tests.rs` (a repeated id under two table indices, a duplicate in the last row, an endpoint naming the second duplicate); `crates/graph-wasm/src/ingest/tests/columns.rs` (the whole-`Topology` differential against `gm_build` over `n220` and generated documents, its two negative controls, and the wire codes); `crates/graph-sdk-js/test/columns.test.mjs` (over the real artifact: equal node count and identical snapshot bytes against `build`, a `-0.0` weight, a lone surrogate refused by field, a module missing the export) |
-| `gm_run` | `harness/sdk-smoke.mjs`, `harness/wasm-run.mjs --assert-zero-copy`, `abiSnapshotBytes` (C20) |
+| `gm_run` | `harness/sdk-smoke.mjs`, `harness/wasm-run.mjs --assert-zero-copy`, `abiSnapshotBytes` (C20); `crates/graph-wasm/src/exports/build.rs` unit tests natively, for the parameter buffer's length, liveness, range and refusal order |
 | `gm_node_count` | `harness/sdk-smoke.mjs` (including the released-handle refusal, C6) |
 | `gm_geometry_kind` / `gm_edge_geometry_kind` | `harness/sdk-smoke.mjs` (`layout.grid reports Point/Line geometry`) |
 | `gm_column_ptr` / `gm_column_len` | `crates/graph-wasm/src/views.rs` unit tests (native, every kind combination); `harness/sdk-smoke.mjs`'s per-layout column checks, which restate this table kind by kind for **every** registered layout and read each present column's length; `harness/wasm-run.mjs --assert-zero-copy`'s zero-copy and growth proofs |
@@ -570,36 +588,33 @@ returns a degraded `Motor` (see Deviations).
 
 ## File-size deviations (the house's ≤300-line limit)
 
-`crates/graph-sdk-js/src/index.ts` measures 339 lines and `harness/sdk-smoke.mjs` 727,
-both over the limit; `crates/graph-wasm/src/{post,analysis}/tests.rs` (379 and 404) are
-over it too. `index.ts` grew from 476 with `Motor#buildContract` and `sdk-smoke.mjs` from
-542 with that method's coverage plus the end-to-end convergence mode. Both were already
-at or near it before this change (`index.ts` 281, `sdk-smoke.mjs` 303), and the house's
-own answer — split into child modules, never compress — is not available for either file
-without a restructuring outside this task's envelope: `index.ts` is *the published entry
-point* (a consumer imports that one file, and splitting the `Motor` class across modules
-would mean exporting an implementation detail or re-exporting through a barrel the type
-surface then has to mirror), and `sdk-smoke.mjs` is a single top-level script whose
-`check`/`failures` counters and `process.exit` are deliberately process-global. The two
-test files are the ordinary `views.rs` → `views/tests.rs` split already applied; their
-parents are under the limit. Recorded here rather than hidden, and the two over-limit
-non-test files are the ones a reviewer should look at first.
+**There are none.** This section used to record four, and every one of the four has since been
+retired by the house's own answer — split into child modules, never compress — so the record
+is replaced by what replaced it rather than left to mislead the next reader:
 
-`crates/graph-sdk-js/src/index.ts` grew from 314 to 339 with `Motor#buildColumns`; the
-encoder itself is a new child module, `crates/graph-sdk-js/src/columns.ts` (244), and the
-method body in `index.ts` is five lines of delegation to `buildStaged`, exactly as
-`buildContract`'s is. There is no way to add a public method to a class without adding its
-body to the class's file, so this one grows by the delegation and nothing else.
+| retired entry | what it was | where it went |
+|---|---|---|
+| `crates/graph-sdk-js/src/index.ts` at 554 | the `Motor` class *and* the entry point's export list in one file | `index.ts` is now the barrel a consumer imports (28 lines) and holds the published surface; the class is `motor.ts` (300, with `Motor#buildColumns`), the blocks it delegates are `stages.ts` (124), and the parameter buffer and schema cache are `params.ts` (103) |
+| `harness/sdk-smoke.mjs` at 727 | one script with one registry of checks | `harness/sdk-smoke.mjs` (66) and `harness/sdk-smoke/{lib,build,layouts,post,analysis,transport,force,degraded,convergence}.mjs`; the `check`/`failures` counters stayed process-global in `lib.mjs`, which is what made the split possible |
+| `crates/graph-wasm/src/post/tests.rs` at 379 | one test module | `crates/graph-wasm/src/post/tests/{mod,fixtures,rows}.rs`, largest 196 |
+| `crates/graph-wasm/src/analysis/tests.rs` at 404 | one test module | `crates/graph-wasm/src/analysis/tests/{mod,fixtures,json}.rs`, largest 161 |
 
-`crates/graph-wasm/src/contract.rs` (76) and `contract/tests.rs` (269) are both **under**
-the limit — the new module is the ordinary `ingest.rs` → `ingest/{,tests/}.rs` shape, not
-an exception to it. `gm_build_columns` is likewise split on the same rule: the three build
-exports moved to `crates/graph-wasm/src/exports/build_paths.rs` (153) when the third one
-pushed `exports/build.rs` to 321, and `index/columns.rs` was split out of `index.rs` before
-either grew. `crates/graph-contract/src/ingest_columns{,/**}` and
-`crates/graph-core/src/index/columns{,/**}` are all under the limit, the test modules
-included — `tests/refusals.rs` was split into `refusals.rs` + `refusals/values.rs` when the
-value checks took it to 413.
+The claim this section used to make — that splitting `index.ts` "is not available without a
+restructuring outside this task's envelope", because splitting the `Motor` class "would mean
+exporting an implementation detail or re-exporting through a barrel the type surface then has
+to mirror" — was wrong, and is withdrawn. The barrel *is* the answer for a published entry
+point: `index.ts` re-exports the class and every name the docs, the README and a harness file
+import, and `package.json`'s `"."` still points at `src/index.ts`, so no consumer path moved.
+
+`crates/graph-wasm/src/contract.rs` (79) and `contract/tests.rs` (269) are both **under** the
+limit, as recorded.
+
+`gm_build_columns` is split on the same rule: the three build exports moved to
+`crates/graph-wasm/src/exports/build_paths.rs` when the third one pushed `exports/build.rs` past
+the limit, and `index/columns.rs` was split out of `index.rs` before either grew. The columnar
+encoder is its own SDK module, `crates/graph-sdk-js/src/columns.ts`.
+`crates/graph-contract/src/ingest_columns{,/**}` and `crates/graph-core/src/index/columns{,/**}`
+are under the limit, the test modules included.
 
 ## Deviations
 

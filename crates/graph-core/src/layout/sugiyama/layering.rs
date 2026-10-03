@@ -191,7 +191,8 @@ impl ChainBuilder {
         self.direct(previous, head);
     }
     /// Routes one distinct arc `tail -> head`, allocating dummies from `next_dummy` if it
-    /// needs a chain.
+    /// needs a chain. `edge` is the arc's first member edge, which is what a budget note
+    /// is indexed by.
     fn place(&mut self, arc: (u32, u32, u32), next_dummy: &mut u32) -> (Route, Option<Note>) {
         let (tail, head, edge) = arc;
         let span = self.layer_of[head as usize] - self.layer_of[tail as usize];
@@ -212,18 +213,21 @@ impl ChainBuilder {
         (Route::Chain { first, count }, None)
     }
 }
-/// The ordering graph over the distinct arcs, and a [`Route`] per **edge**: every edge in an
-/// arc's range takes that arc's route, so `k` parallel edges share the one dummy chain the
-/// reference's arc set gives them, and a self-loop is `Route::Loop`.
+/// The ordering graph over the distinct arcs, and a [`Route`] per **edge**: every one of an
+/// arc's members takes that arc's route, so `k` parallel edges share the one dummy chain the
+/// reference's arc set gives them, and a self-loop is `Route::Loop`. Membership is
+/// `list.members`, the arcs' own edge list — an edge index range would hand this arc's route
+/// to every edge that happens to sit between two of its members.
 fn materialize(list: &ArcList, layer: &[u32], (max_span, dummy_count): Plan) -> Layering {
     let mut builder = ChainBuilder::new(list.nodes, layer, max_span, dummy_count);
     let mut next_dummy = list.nodes;
     let mut routes: Vec<Option<Route>> = vec![None; list.edges as usize];
     let mut notes = Vec::new();
-    for &(tail, head, ref edges) in &list.arcs {
-        let route = builder.place((tail, head, edges.start), &mut next_dummy);
+    for &(tail, head, ref span) in &list.arcs {
+        let first = list.members[span.start as usize];
+        let route = builder.place((tail, head, first), &mut next_dummy);
         notes.extend(route.1);
-        for e in edges.clone() {
+        for &e in &list.members[span.start as usize..span.end as usize] {
             routes[e as usize] = Some(route.0);
         }
     }

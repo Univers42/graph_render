@@ -35,14 +35,14 @@ function position(state: LoopState, node: number) {
 
 test("a live pair of the right length is drawn where it says", () => {
   const state = threeNodes();
-  setPositions(state, Float64Array.from([0, 150, 200]), Float64Array.from([0, 300, 0]));
+  setPositions(state, Float32Array.from([0, 150, 200]), Float32Array.from([0, 300, 0]));
   assert.deepEqual(position(state, 1), { x: 150, y: 300 });
   assert.deepEqual(position(state, 0), { x: 0, y: 0 }, "the nodes it did not move stay");
 });
 
 test("a pair of another graph's length is ignored", () => {
   const state = threeNodes();
-  setPositions(state, Float64Array.from([9, 9, 9, 9, 9]), Float64Array.from([9, 9, 9, 9, 9]));
+  setPositions(state, Float32Array.from([9, 9, 9, 9, 9]), Float32Array.from([9, 9, 9, 9, 9]));
   assert.deepEqual(position(state, 0), { x: 0, y: 0 });
   assert.equal(pickAt(state, { x: 100, y: 0 }), 1, "the drawing is the one that is on screen");
 });
@@ -57,7 +57,7 @@ test("a pair of another graph's length is ignored", () => {
 test("a batch with one non-finite coordinate is refused whole", () => {
   for (const bad of [Number.NaN, Infinity, -Infinity]) {
     const state = threeNodes();
-    setPositions(state, Float64Array.from([0, 150, 200]), Float64Array.from([0, 300, bad]));
+    setPositions(state, Float32Array.from([0, 150, 200]), Float32Array.from([0, 300, bad]));
     assert.deepEqual(position(state, 1), { x: 100, y: 0 }, `a ${bad} y on node 2 changes nothing`);
     assert.deepEqual(position(state, 2), { x: 200, y: 0 }, "not even the nodes before it move");
     assert.equal(pickAt(state, { x: 100, y: 0 }), 1, "the drawing is still the one on screen");
@@ -68,7 +68,7 @@ test("a batch with one non-finite coordinate is refused whole", () => {
 
 test("the pick grid followed the live positions, and picking did not stop", () => {
   const state = threeNodes();
-  setPositions(state, Float64Array.from([0, 150, 200]), Float64Array.from([0, 300, 0]));
+  setPositions(state, Float32Array.from([0, 150, 200]), Float32Array.from([0, 300, 0]));
   assert.equal(pickAt(state, { x: 150, y: 300 }), 1);
   assert.equal(pickAt(state, { x: 100, y: 0 }), -1, "the node left its old place");
   assert.equal(state.transitionStart, -1, "a live settle is not a transition");
@@ -76,7 +76,52 @@ test("the pick grid followed the live positions, and picking did not stop", () =
 
 test("the frame reports the positions on screen, from the drawn columns", () => {
   const state = threeNodes();
-  setPositions(state, Float64Array.from([0, 150, 200]), Float64Array.from([0, 300, 0]));
+  setPositions(state, Float32Array.from([0, 150, 200]), Float32Array.from([0, 300, 0]));
   assert.equal(state.scene.frame.x, state.x, "the frame and the drawing are one array");
   assert.deepEqual([state.scene.frame.x[1], state.scene.frame.y[1]], [150, 300]);
+});
+
+/**
+ * The columns are adopted, not copied.
+ *
+ * WHY: at 1M nodes a `state.x.set(xs)` is an 8 MB copy on the main thread every animation
+ * frame, and the page already has the array. The motor hands its buffer over with a transfer
+ * list (`liveLoop.ts`), which detaches it in the worker, so the page owns the only copy and
+ * nothing else can be writing it. The control is the row above: the frame still reports the
+ * same numbers, so adoption changed no output.
+ */
+test("the columns are adopted, not copied: no per-frame O(n) copy on the page", () => {
+  const state = threeNodes();
+  const xs = Float32Array.from([0, 150, 200]);
+  const ys = Float32Array.from([0, 300, 0]);
+  setPositions(state, xs, ys);
+  assert.equal(state.x, xs, "the drawn column IS the one the worker handed over");
+  assert.equal(state.y, ys, "and likewise y");
+  assert.equal(state.scene.frame.x, xs, "the frame's column is the same array, not a second copy");
+  assert.deepEqual(position(state, 1), { x: 150, y: 300 }, "and the drawing is unchanged");
+});
+
+/**
+ * The zoom limits follow a live frame, but installing one does not rebuild them.
+ *
+ * WHY the second half: `limitsFor` reads the bounds, and the bounds of a live frame are an
+ * O(n) scan. Nothing reads `state.limits` between two zoom gestures, so a settle that rebuilt
+ * them every animation frame paid for a scan nobody asked for. The limits are an accessor on
+ * the state (`canvas2d/limits.ts`), so `setPositions` has no way to assign them at all; the
+ * scan is paid on the read that needs it, and `src/lazy.ts` proves the bounds are not touched
+ * until then either.
+ */
+test("the limits track a live frame, and only a read rebuilds them", () => {
+  const state = threeNodes();
+  setPositions(state, Float32Array.from([0, 150, 200]), Float32Array.from([0, 300, 0]));
+  const first = state.limits;
+  assert.ok(Number.isFinite(first.min) && Number.isFinite(first.max), "the limits are a camera's");
+  assert.equal(state.limits, first, "a second read of the same drawing reuses the same limits");
+
+  setPositions(state, Float32Array.from([0, 9000, 200]), Float32Array.from([0, 300, 0]));
+  assert.notEqual(state.limits, first, "a moved drawing gets limits of its own");
+  assert.ok(Number.isFinite(state.limits.min) && Number.isFinite(state.limits.max));
+
+  const descriptor = Object.getOwnPropertyDescriptor(state, "limits");
+  assert.equal(typeof descriptor?.get, "function", "limits is an accessor, so no frame can rebuild it");
 });

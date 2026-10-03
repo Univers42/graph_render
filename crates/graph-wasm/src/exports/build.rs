@@ -1,7 +1,10 @@
 //! Graph lifecycle past the build: a run, the counts and geometry tags it produces, and the
 //! two exports that touch no handle at all (`gm_last_error`, `gm_seed_ingest`). The three
-//! build paths are [`super::build_paths`], and reading a finished run's data back out is
-//! [`super::columns`] — both splits are the house's 300-line limit, not an ABI grouping.
+//! build paths are [`super::build_paths`], reading a finished run's data back out is
+//! [`super::columns`], and the parameter ABI `gm_run` reads its buffer through is `params`
+//! — every split is the house's 300-line limit, not an ABI grouping.
+
+mod params;
 
 use super::state::{HANDLES, publish};
 use crate::errors::{self, Code};
@@ -39,16 +42,30 @@ pub extern "C" fn gm_layout_id(i: u32) -> u32 {
     }
 }
 
-/// Runs registry layout `layout_id` (an index, C1) over `handle`'s topology at its
-/// default parameters — the registry's `run: fn(&Topology)` takes none (C2), so
-/// `params_len` must be `0`; any other value is refused, never silently ignored. `1` on
-/// success, `0` on any refusal. Every refusal clears the handle's previous geometry
-/// first, so a failed run never leaves a stale snapshot to be served (C4).
-// SAFETY: as `gm_layout_count`. `params_ptr` is never read: an empty params buffer
-// carries no bytes to read, and a non-empty one is refused before any read would occur.
+/// Runs registry layout `layout_id` (an index, C1) over `handle`'s topology.
+///
+/// **`params_ptr`/`params_len` carry the run's parameters** (ABI 2,
+/// `docs/decisions/layout-params.md`): one little-endian `f64` per parameter the layout
+/// publishes, in the order `gm_layout_params` published them. `params_len == 0` is the
+/// layout's own defaults, which is what every caller before ABI 2 sent, so nothing that
+/// exists today moves. Any other length, a buffer that is not a live `gm_alloc`
+/// allocation, or a value out of range is **refused with its own code and never clamped**.
+///
+/// The refusals, in the order they are checked: a dead handle is
+/// [`Code::InvalidHandle`]; an index past the registry is [`Code::UnknownLayoutId`]; then
+/// the buffer — [`Code::ParamsNotAccepted`] for a layout that publishes nothing and a
+/// non-empty buffer, [`Code::ParamsMalformed`] for a wrong length or a dead pointer,
+/// [`Code::ParamOutOfRange`] for a value the schema does not publish; and only then the
+/// layout itself, [`Code::LayoutFailed`]. The layout is resolved before the buffer so a
+/// caller that named a layout that does not exist is told that, not told its parameters
+/// were wrong. Every refusal clears the handle's previous geometry first, so a failed run
+/// never leaves a stale snapshot to be served (C4).
+// SAFETY: as `gm_layout_count`. `params_len == 0` is never read: an absent buffer carries
+// no bytes, and `params_ptr` means nothing there. A non-empty `(ptr, len)` is checked
+// with `is_live` immediately before the one slice formed from it, and that slice does not
+// outlive this call.
 #[unsafe(no_mangle)]
 pub extern "C" fn gm_run(handle: u32, layout_id: u32, params_ptr: u32, params_len: u32) -> u32 {
-    let _ = params_ptr;
     HANDLES.with(|handles| {
         let mut handles = handles.borrow_mut();
         let Some(entry) = handles.get_mut(handle) else {
@@ -57,16 +74,28 @@ pub extern "C" fn gm_run(handle: u32, layout_id: u32, params_ptr: u32, params_le
         };
         entry.snapshot = None;
         entry.geometry = None;
-        if params_len != 0 {
-            errors::set(Code::ParamsMustBeEmpty);
-            return 0;
-        }
         let Some(layout) = LAYOUTS.get(layout_id as usize) else {
             errors::set(Code::UnknownLayoutId);
             return 0;
         };
-        let ran = (layout.run)(&entry.topology);
-        store(entry, ran)
+        let bytes = match params::read_params(layout, params_ptr, params_len) {
+            Ok(bytes) => bytes,
+            Err(code) => {
+                errors::set(code);
+                return 0;
+            }
+        };
+        // Checked here rather than left to `run_params`, so a value out of range says so
+        // (`ParamOutOfRange`) instead of arriving at `store` as the `StageError` that
+        // every layout failure shares (`LayoutFailed`).
+        let values = match layout.params_values(bytes) {
+            Ok(values) => values,
+            Err(why) => {
+                errors::set(why.into());
+                return 0;
+            }
+        };
+        store(entry, layout.run_values(&entry.topology, &values))
     })
 }
 
@@ -170,6 +199,26 @@ pub extern "C" fn gm_last_error() -> u32 {
     errors::get()
 }
 
+/// Gate-only: the linear-memory address of [`crate::ingest::phases`]' mark table, so a
+/// host can read the per-phase marks straight out of `memory.buffer` — including after a
+/// trap, which is the only way to see the phases of a document that does not finish. Not
+/// part of the published SDK surface; compiled out of the default artifact.
+// SAFETY: `gm_probe_base` is the only symbol with this name, and it reads no memory.
+#[cfg(any(test, feature = "probe"))]
+#[unsafe(no_mangle)]
+pub extern "C" fn gm_probe_base() -> u32 {
+    u32::try_from(crate::ingest::phases::base()).unwrap_or(0)
+}
+
+/// Gate-only: as `gm_build` records them, a fresh run's marks.
+// SAFETY: as `gm_probe_base`.
+#[cfg(any(test, feature = "probe"))]
+#[unsafe(no_mangle)]
+pub extern "C" fn gm_probe_reset() -> u32 {
+    crate::ingest::phases::reset();
+    1
+}
+
 /// Gate-only: the hash gate's model at `seed`, as the provisional ingest JSON `gm_build`
 /// reads (C20). Not part of the published SDK surface; `harness/sdk-smoke.mjs` never
 /// calls it, only `harness/wasm-run.mjs`'s hash mode does.
@@ -181,3 +230,6 @@ pub extern "C" fn gm_seed_ingest(seed: u32) -> u32 {
         None => errors::reply(Err(Code::IngestInvalid)),
     }
 }
+
+#[cfg(test)]
+mod tests;

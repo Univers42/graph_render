@@ -18,7 +18,7 @@ measured median saving is under 3 s, the studio stays on JSON.**
 | the columnar admit | `crates/graph-core/src/index/columns.rs` | `index_columns` over two `ExactSizeIterator`s of `NodeView` and `RowEdge`, **refusing** a taken id where `index_model` drops it. |
 | the decoder | `crates/graph-contract/src/ingest_columns.rs` (+ `header`/`layout`/`check`/`row` children) | `decode(&[u8]) -> Result<ColumnsDoc<'_>, ColumnsError>`: checked `u64` section sizes compared to the buffer length before any slice, then one pass over the values. |
 | the bridge | `crates/graph-wasm/src/ingest/columns.rs` | Resolves the two kinds and hands rows through, so graph-core sees no wire format. |
-| the export | `crates/graph-wasm/src/exports/build_paths.rs` | `gm_build_columns(ptr, len)`, same handle lifecycle as `gm_build`, new code `ColumnsInvalid = 20`. |
+| the export | `crates/graph-wasm/src/exports/build_paths.rs` | `gm_build_columns(ptr, len)`, same handle lifecycle as `gm_build`, new code `ColumnsInvalid = 23` (20 at measurement time; renumbered when it merged after `ParamOutOfRange`..`ParamsNotAccepted` took 20-22). |
 | the encoder | `crates/graph-sdk-js/src/columns.ts` | `encodeColumns`: one `Uint8Array` sized up front, `TextEncoder.encodeInto` into it. |
 
 Since `perf-open-intern` the columnar admit takes `NodeCells`/`EdgeCells` over a `StringTable`, resolves

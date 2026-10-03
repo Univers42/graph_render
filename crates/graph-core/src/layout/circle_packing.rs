@@ -68,6 +68,16 @@ pub struct CirclePackingParams {
     /// centre plus largest radius) is scaled to `0.45` of this. Must be finite and above
     /// `0`.
     pub scale: f32,
+    /// The reference's start stream for the **non-planar fallback's** force pass
+    /// (`circle_packing.py:428` passes `seed=get_layout_seed()` to `nx.spring_layout`).
+    /// `Some(s)` draws `np.random.RandomState(s).rand(n, 2)` row-major; `None` keeps this
+    /// crate's golden-angle spiral.
+    ///
+    /// **The SciGraphs arm, not this id's default.** The exact path never draws at all, and
+    /// the fallback's spiral is what every hashed snapshot of `layout.packing.circle` was
+    /// taken at, so the registered default stays `None` and the conformance arm opts in —
+    /// the same rule `crate::layout::random::run_seeded` and `sfdp::run_seeded` follow.
+    pub seed: Option<u32>,
 }
 
 impl Default for CirclePackingParams {
@@ -75,6 +85,7 @@ impl Default for CirclePackingParams {
         Self {
             iterations: 500,
             scale: 5.0,
+            seed: None,
         }
     }
 }

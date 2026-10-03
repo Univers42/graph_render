@@ -199,3 +199,4 @@ mod child_first;
 mod columns;
 mod extremes;
 mod index;
+mod scan;

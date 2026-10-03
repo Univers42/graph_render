@@ -84,7 +84,9 @@ impl Acyclic {
     }
 }
 
-/// One arc: `(tail, head)` and the half-open range of edge indices that spell it.
+/// One arc: `(tail, head)` and the half-open range of **its own edges' slots** in
+/// [`ArcList::members`] — never a range of edge indices, which two parallel edges that are
+/// not adjacent in the input cannot spell (see [`ArcList::members`]).
 pub(crate) type Arc = (u32, u32, Range<u32>);
 
 /// The arcs of one graph's ordering graph, plus the counts the layering stage needs beside
@@ -93,6 +95,13 @@ pub(crate) type Arc = (u32, u32, Range<u32>);
 pub(crate) struct ArcList {
     /// One entry per distinct non-loop pair, ascending by `(tail, head)`.
     pub(crate) arcs: Vec<Arc>,
+    /// The edge ids of every arc, in arc order: `members[arc.2]` is that arc's members and
+    /// nothing else. This is the sort scratch [`Arcs::grouped`] already built, kept instead
+    /// of a `Range<u32>` over edge indices, because an arc's members need not be adjacent
+    /// in the input — `k` parallel edges with other pairs between them are one arc whose
+    /// "range" would cover every edge in between, and `layering.rs` writes a `Route` per
+    /// index it covers.
+    pub(crate) members: Vec<u32>,
     /// Nodes in the graph the arcs came from.
     pub(crate) nodes: u32,
     /// Edges in that graph, including the self-loops and the parallel repeats the arcs
@@ -127,7 +136,7 @@ impl<'a> Arcs<'a> {
 
     /// The reference's own arcs, grouped, with the node and edge counts the layering stage
     /// needs beside them: one entry per distinct non-loop `(tail, head)` pair, ascending,
-    /// each with the half-open range of edge indices that spell it
+    /// each with the half-open range of its own members' slots in [`ArcList::members`]
     /// (`hierarchical.py:306-311`). One entry per pair because `arcs` there is a `set`, so
     /// `k` parallel edges between two nodes are one arc and route through one dummy chain,
     /// not `k`.
@@ -142,6 +151,12 @@ impl<'a> Arcs<'a> {
     /// `(tail, head, edge)` triple, sorted once; equal pairs are then adjacent, so a run of
     /// them is one arc. `layered()` builds the list once and threads it down, so the whole
     /// layering phase costs one `O(m log m)` sort rather than one per callee.
+    ///
+    /// **A group is a member list, never an edge-index range.** Two copies of `b -> f` at
+    /// edge 0 and edge 5 are one arc whose members are `0` and `5`, not everything between:
+    /// `Range<u32>` over edge indices says `0..6` and hands six edges this arc's
+    /// `Route` (`layering.rs`). So the triples' edge column is kept, in arc order, as
+    /// [`ArcList::members`], and each arc's third field indexes that.
     ///
     /// **The arcs are ordered by node index, not by rank** — `_acyclic_arcs` sorts by
     /// `(rank[a[0]], rank[a[1]])` (`:311`). The two agree exactly when `rank == index`, which
@@ -161,14 +176,18 @@ impl<'a> Arcs<'a> {
         // `sorted(arcs, key=...)` does on the reference side.
         pairs.sort_unstable();
         let mut arcs: Vec<Arc> = Vec::new();
+        let mut members: Vec<u32> = Vec::with_capacity(pairs.len());
         for &(tail, head, edge) in &pairs {
+            let slot = members.len() as u32;
             match arcs.last_mut() {
-                Some((t, h, range)) if *t == tail && *h == head => range.end = edge + 1,
-                _ => arcs.push((tail, head, edge..edge + 1)),
+                Some((t, h, span)) if *t == tail && *h == head => span.end = slot + 1,
+                _ => arcs.push((tail, head, slot..slot + 1)),
             }
+            members.push(edge);
         }
         ArcList {
             arcs,
+            members,
             nodes: self.node_count(),
             edges: self.edge_count(),
         }

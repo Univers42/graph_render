@@ -231,7 +231,7 @@ test("a repeated node id is refused as ColumnsInvalid, where build drops it", as
   assert.ok(error, "a repeated id is refused");
   assert.equal(error.name, "ColumnsRefusedError");
   assert.equal(error.codeName, "ColumnsInvalid");
-  assert.equal(error.code, 20);
+  assert.equal(error.code, 23);
 });
 
 test("a module without gm_build_columns is refused, naming the export it lacks", async () => {

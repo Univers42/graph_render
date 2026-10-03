@@ -1,66 +1,52 @@
-// The loader's ABI handshake (F-33), over real modules: a hand-assembled wasm that exports
+// The loader's ABI handshake, over real modules: a hand-assembled wasm that exports
 // every name the SDK requires, each bound to one function returning `version`. Only
 // `gm_abi_version` is ever called, so the other names need no real body.
+//
+// The bytes and the export-name list live in `test/stub-module.mjs`, shared with
+// `wasm-loader.test.mjs` — one list, checked there against `src/wasm.ts` itself.
 //
 // Run: node --test --experimental-strip-types crates/graph-sdk-js/test/
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { ABI_VERSION, loadMotor, resetForTests } from "../src/wasm.ts";
+import { reportingModule } from "./stub-module.mjs";
 
-const NAMES = [
-  "gm_abi_version", "gm_alloc", "gm_free", "gm_layout_count", "gm_layout_id", "gm_build",
-  "gm_build_contract",
-  "gm_build_columns", "gm_run", "gm_node_count", "gm_geometry_kind", "gm_edge_geometry_kind",
-  "gm_dim", "gm_column_ptr", "gm_column_len", "gm_snapshot_json", "gm_snapshot_bytes",
-  "gm_post_count", "gm_post_id", "gm_post_run", "gm_analysis_count", "gm_analysis_id",
-  "gm_analysis_run", "gm_release", "gm_last_error", "gm_force_session_create",
-  "gm_force_session_create_mesh",
-  "gm_force_session_set_params", "gm_force_session_params", "gm_force_session_tick",
-  "gm_force_session_alpha", "gm_force_session_reheat", "gm_force_session_pin",
-  "gm_force_session_unpin", "gm_force_session_unpin_all", "gm_force_session_column_ptr",
-  "gm_force_session_column_len", "gm_force_session_release",
-];
-
-const uleb = (n) => (n < 0x80 ? [n] : [(n & 0x7f) | 0x80, ...uleb(n >>> 7)]);
-const sleb = (n) => {
-  const byte = n & 0x7f;
-  const rest = n >> 7;
-  const done = (rest === 0 && !(byte & 0x40)) || (rest === -1 && byte & 0x40);
-  return done ? [byte] : [byte | 0x80, ...sleb(rest)];
-};
-const vec = (items) => [...uleb(items.length), ...items.flat()];
-const section = (id, body) => [id, ...uleb(body.length), ...body];
-const name = (text) => vec([...new TextEncoder().encode(text)].map((b) => [b]));
-
-/** A module with no imports, one page of memory, and `() -> i32 { version }` under every name. */
-function moduleReporting(version) {
-  const body = [0x00, 0x41, ...sleb(version), 0x0b];
-  const exports = [[...name("memory"), 0x02, 0x00], ...NAMES.map((n) => [...name(n), 0x00, 0x00])];
-  return new Uint8Array([
-    0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
-    ...section(1, vec([[0x60, 0x00, 0x01, 0x7f]])),
-    ...section(3, vec([[0x00]])),
-    ...section(5, vec([[0x00, 0x01]])),
-    ...section(7, vec(exports)),
-    ...section(10, vec([[...uleb(body.length), ...body]])),
-  ]);
-}
+/** The ABI revision this SDK speaks, **as a literal and not as the constant it imports**.
+ *
+ *  Both handshake tests used to compare against the imported `ABI_VERSION`, which pinned the
+ *  constant to itself: changing `wasm.ts`'s `ABI_VERSION` to `2` left both of them green
+ *  (`999 !== 2` and `2 === 2`), so nothing in JavaScript would have noticed the SDK speaking a
+ *  revision the Rust side does not. The number is written here, and the test below asserts it
+ *  is the number the module and the loader agree on — so moving one without the other is red
+ *  in both directions. The only other place the revision is pinned is
+ *  `crates/graph-wasm/src/errors/mirrors.rs`.
+ *
+ *  It is `2` because ABI revision 2 is the one where `gm_run`'s `params_ptr`/`params_len`
+ *  stopped being refused and started carrying a layout's parameters, and `gm_layout_params`
+ *  joined the module's exports (`docs/contract/wasm-abi.md`, "Exports"). */
+const PINNED_ABI_VERSION = 2;
 
 test("a module reporting another ABI version is refused, naming both numbers", async () => {
   resetForTests();
-  const error = await loadMotor(moduleReporting(999)).catch((caught) => caught);
+  const error = await loadMotor(reportingModule(999)).catch((caught) => caught);
   assert.ok(error instanceof Error, "the module loaded: nothing checked its ABI version");
   assert.equal(error.name, "WasmUnavailableError", error.message);
   const reason = String(error.reason?.message);
   assert.match(reason, /\b999\b/, reason);
-  assert.match(reason, new RegExp(`\\b${ABI_VERSION}\\b`), reason);
+  assert.match(reason, new RegExp(`\\b${PINNED_ABI_VERSION}\\b`), reason);
+  resetForTests();
+});
+
+test("this SDK's own ABI version is the pinned literal, not whatever the constant says", async () => {
+  resetForTests();
+  assert.equal(ABI_VERSION, PINNED_ABI_VERSION, "wasm.ts's ABI_VERSION moved from the literal this file pins");
   resetForTests();
 });
 
 test("a module reporting this SDK's ABI version loads", async () => {
   resetForTests();
-  const exports = await loadMotor(moduleReporting(ABI_VERSION));
-  assert.equal(exports.gm_abi_version(), ABI_VERSION);
+  const exports = await loadMotor(reportingModule(PINNED_ABI_VERSION));
+  assert.equal(exports.gm_abi_version(), PINNED_ABI_VERSION);
   resetForTests();
 });

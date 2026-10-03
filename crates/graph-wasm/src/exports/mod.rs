@@ -19,7 +19,7 @@
 //! export regardless of which of the five files defines it — that boundary is invisible on the
 //! wire.
 
-#![cfg(target_arch = "wasm32")]
+#![cfg(any(test, target_arch = "wasm32"))]
 
 mod build;
 mod build_paths;

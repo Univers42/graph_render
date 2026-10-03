@@ -27,9 +27,13 @@ pub extern "C" fn gm_build(ingest_ptr: u32, ingest_len: u32) -> u32 {
     // caller's own later `gm_free`), so borrowing it for the duration of `ingest::read`
     // is sound, and nothing here retains the slice past this function.
     let bytes = unsafe { std::slice::from_raw_parts(ingest_ptr as *const u8, ingest_len as usize) };
+    #[cfg(any(test, feature = "probe"))]
+    crate::ingest::phases::mark(crate::ingest::phases::COPY, None);
     // The records are dropped as soon as the topology holds them, not at the end of the call.
     let indexed =
         ingest::read_records(bytes).and_then(|(nodes, edges)| ingest::index(&nodes, &edges));
+    #[cfg(any(test, feature = "probe"))]
+    crate::ingest::phases::mark(crate::ingest::phases::RETURNED, None);
     let topology = match indexed {
         Ok(topology) => topology,
         // F-16: the refusal names its own code, so an oversized document is not published
