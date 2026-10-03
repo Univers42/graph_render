@@ -6,7 +6,7 @@
 //   hash  [--seeds 8] [--n 1000,20000] [--workers 1,2,3,4,7] [--layouts barnes_hut,particle_mesh] [--break]
 //     Gate seeds: gm_run_threaded on gm_seed_ingest(seed)'s model against the default artifact's
 //     gm_run, the hash gate's own wasm arm. --n: gm_seed_handle(1, n) against the same module's
-//     serial gm_run. --break sets flag bit 0 (the last part writes nothing), so cells must differ.
+//     serial gm_run. --break sets flag bit 0 (the last chunk writes nothing), so cells must differ.
 //   session [--seeds 8] [--n 20000] [--workers 1,2,3,4,7] [--layouts …] [--ticks 30] [--break]
 //     The live session, both engines: --ticks ticks of gm_force_session_tick_threaded in calls of
 //     10, then x, y and alpha as bytes, against gm_force_session_tick on the same graph (the
