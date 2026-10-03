@@ -26,6 +26,25 @@ function exactNode(meta: GraphMeta, id: string): number {
   return node;
 }
 
+/** `value` as a list of distinct strings in first-seen order, or null when it is not a list of strings. */
+export function distinctIds(value: unknown): readonly string[] | null {
+  if (!Array.isArray(value) || !value.every((id): id is string => typeof id === "string")) return null;
+  return [...new Set(value)];
+}
+
+/**
+ * The node of each id, in order, or null when any id is in no node. One pass over the frame's
+ * ids for any number of wanted ones: O(nodes + ids), not their product.
+ */
+export function nodesWithIds(meta: GraphMeta, ids: readonly string[]): number[] | null {
+  const wanted = new Map(ids.map((id) => [id, -1]));
+  meta.ids.forEach((id, node) => {
+    if (wanted.get(id) === -1) wanted.set(id, node);
+  });
+  const nodes = ids.map((id) => wanted.get(id) ?? -1);
+  return nodes.includes(-1) ? null : nodes;
+}
+
 function idList(text: string): readonly string[] {
   let value: unknown;
   try {
@@ -33,21 +52,15 @@ function idList(text: string): readonly string[] {
   } catch {
     throw new ActionRefusal("bad-value", "`ids` is not a JSON list");
   }
-  if (!Array.isArray(value) || !value.every((id): id is string => typeof id === "string")) {
-    throw new ActionRefusal("bad-value", "`ids` is not a JSON list of strings");
-  }
-  return [...new Set(value)];
+  const ids = distinctIds(value);
+  if (ids === null) throw new ActionRefusal("bad-value", "`ids` is not a JSON list of strings");
+  return ids;
 }
 
-/** One pass over the frame's ids for any number of wanted ones: O(nodes + ids), not their product. */
 function exactNodes(meta: GraphMeta, ids: readonly string[]): number[] {
-  const wanted = new Map(ids.map((id) => [id, -1]));
-  meta.ids.forEach((id, node) => {
-    if (wanted.get(id) === -1) wanted.set(id, node);
-  });
-  const unknown = ids.filter((id) => wanted.get(id) === -1);
-  if (unknown.length > 0) throw new ActionRefusal("bad-value", `no node has the id \`${unknown[0] ?? ""}\` (${unknown.length} unknown)`);
-  return ids.map((id) => wanted.get(id) ?? -1);
+  const nodes = nodesWithIds(meta, ids);
+  if (nodes === null) throw new ActionRefusal("bad-value", "an id in `ids` is in no node of this graph");
+  return nodes;
 }
 
 const goTo: StudioAction = {

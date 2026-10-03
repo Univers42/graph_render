@@ -184,6 +184,15 @@ export const STUDIO_CSS = `
 .gs-menu { display: flex; flex-direction: column; min-width: 140px; padding: 4px; gap: 2px; z-index: 5; }
 .gs-menu-item { min-height: 28px; text-align: left; }
 
+/* The hover card lets every pointer event through: it must never take the hover it shows. */
+.gs-card { pointer-events: none; max-width: 280px; padding: 6px 8px; z-index: 1; }
+.gs-preview { display: flex; flex-direction: column; gap: 2px; padding: 4px 0; overflow-wrap: anywhere; }
+.gs-preview-head { display: flex; align-items: baseline; gap: 6px; }
+.gs-preview-icon { color: var(--gs-muted); }
+.gs-preview-title { font-weight: 600; }
+.gs-preview-text { margin: 0; color: var(--gs-muted); max-height: 12em; overflow: hidden; white-space: pre-wrap; }
+.gs-open { align-self: flex-start; margin: 4px 8px; }
+
 @media (prefers-reduced-motion: reduce) {
   .gs-btn { transition: none; }
 }

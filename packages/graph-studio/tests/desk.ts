@@ -98,6 +98,18 @@ function pinFace(seen: Seen, pins: number[]): Pick<ViewFace, "pinned" | "toggleP
   };
 }
 
+/** `selectMany` tells the selection's listeners, as the real view does, so a host event can follow it. */
+function selectionFace(seen: Seen, handlers: Handlers): Pick<ViewFace, "select" | "selectMany"> {
+  return {
+    select: (node) => void seen.calls.push(`select ${node}`),
+    selectMany: (nodes) => {
+      seen.calls.push(`selectMany ${nodes.join(",")}`);
+      for (const handler of handlers.select) handler(nodes.at(-1) ?? -1);
+      for (const handler of handlers.selection) handler(nodes);
+    },
+  };
+}
+
 function recordingView(seen: Seen, handlers: Handlers): ViewFace {
   const pins: number[] = [];
   return {
@@ -115,12 +127,7 @@ function recordingView(seen: Seen, handlers: Handlers): ViewFace {
     panBy: (delta) => void seen.calls.push(`panBy ${delta.x} ${delta.y}`),
     limits: () => ({ min: 0.02, max: 40 }),
     focus: (node) => void seen.calls.push(`focus ${node}`),
-    select: (node) => void seen.calls.push(`select ${node}`),
-    selectMany: (nodes) => {
-      seen.calls.push(`selectMany ${nodes.join(",")}`);
-      for (const handler of handlers.select) handler(nodes.at(-1) ?? -1);
-      for (const handler of handlers.selection) handler(nodes);
-    },
+    ...selectionFace(seen, handlers),
     ...pinFace(seen, pins),
     local: (node, options) => {
       seen.calls.push(`local ${node} ${JSON.stringify(options)}`);
