@@ -71,9 +71,10 @@ convention",
     complexity: "O(n) exact path; O(n^2) per relaxation round on the non-planar fallback",
     scale_ceiling: PACKING_CEILING,
     degradation: "past the ceiling the fallback still runs and still returns finite geometry, \
-never a refusal or a trap — it simply gets slower at O(n^2), with no built-in cutoff, so a \
-caller must apply its own timeout; the exact planar path is unaffected and stays fast at any n \
-this crate's u32 index space allows",
+only slower at O(n^2), with no built-in cutoff, so a caller must apply its own timeout; past \
+11 585 nodes its n x n adjacency would pass graph_core::budget's 1 GiB and it refuses with \
+StageError::Param { name: \"nodes\" } before allocating; the exact planar path is unaffected \
+and stays fast at any n this crate's u32 index space allows",
     ponytail: "the packing is exact only for planar input. The failing input is any graph with a \
 K5 or K3,3 minor (or one whose planar embedding cannot be triangulated into a genuine disk, \
 treated the same defensively). Direction: overlap, the dangerous one — the fallback does not \

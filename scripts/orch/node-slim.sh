@@ -3,5 +3,5 @@
 # top-level mounted at /w.
 set -euo pipefail
 source "$(dirname "$(readlink -f "$0")")/image.sh"
-exec docker run --rm -e NPM_CONFIG_UPDATE_NOTIFIER=false -v "$(git rev-parse --show-toplevel):/w" -w /w \
+exec "$(dirname "$(readlink -f "$0")")/drun" --rm -e NPM_CONFIG_UPDATE_NOTIFIER=false -v "$(git rev-parse --show-toplevel):/w" -w /w \
   "$GM_NODE_IMAGE" "$@"

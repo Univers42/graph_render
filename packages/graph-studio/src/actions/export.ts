@@ -1,4 +1,5 @@
 /** What leaves the studio: the picture, the snapshot's bytes, and the recipe for both. */
+import { MAX_DOCUMENT_CHARS } from "../source/limits.ts";
 import type { StudioState } from "../state/model.ts";
 import { checkRecipe, expectationOf, readRecipe, recipeOf } from "../state/recipe.ts";
 import { type StudioAction, type StudioContext, textArg } from "./context.ts";
@@ -55,7 +56,7 @@ const recipe: StudioAction = {
 
 const replayed: StudioAction = {
   id: "recipe.replay", alias: "replay", title: "Replay a recipe", section: "Export",
-  params: [{ name: "text", kind: "text", title: "Recipe JSON", control: "file", value: () => "" }],
+  params: [{ name: "text", kind: "text", title: "Recipe JSON", control: "file", max: MAX_DOCUMENT_CHARS, value: () => "" }],
   run: (context, args) => replay(context, textArg(args, "text")),
 };
 

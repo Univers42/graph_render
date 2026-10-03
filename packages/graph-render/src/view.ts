@@ -28,7 +28,7 @@ import type { Style } from "./style.ts";
 import type { Theme } from "./theme.ts";
 import type { Orbit } from "./three/orbit.ts";
 import type { Projected } from "./three/projection.ts";
-
+import { releaseBulk } from "./webgl2/hook.ts";
 import type { BackendChoice } from "./webgl2/plan.ts";
 export type { EdgeEnds } from "./canvas2d/probe.ts";
 export type { Orbit } from "./three/orbit.ts";
@@ -214,7 +214,6 @@ export interface View {
 }
 
 type Handlers = { [Name in keyof ViewEvents]: Set<(payload: ViewEvents[Name]) => void> };
-
 function toBlob(canvas: HTMLCanvasElement): Promise<Blob> {
   return new Promise((resolve, reject) => {
     canvas.toBlob((blob) => {
@@ -295,6 +294,7 @@ export function createView(canvas: HTMLCanvasElement, options: ViewOptions = {})
       if (state.scheduled !== 0) cancelAnimationFrame(state.scheduled);
       if (state.settleTimer !== null) clearTimeout(state.settleTimer);
       unbind();
+      releaseBulk(state.bulk);
     },
   };
 }
