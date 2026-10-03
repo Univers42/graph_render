@@ -2,7 +2,10 @@
 //! node and edge kind, the floats a text face most easily gets wrong, ids a JSON writer
 //! must escape, and every notes case (a 0.2-labelled snapshot, none, each code) — so
 //! `roundtrip` checks the whole contract, not only the grid's half-integers. Every third
-//! seed is 3D as well, since no 3D layout exists to be swept instead.
+//! seed is 3D as well, and stays: `roundtrip` already sweeps every registered layout, the
+//! seven 3D ones included (`registry.rs:231-281`), so what this exercise adds on top of
+//! them is the same torture as above — every node and edge kind, the awkward floats, the
+//! ids to escape — carried into a z column under the 0.4 label.
 
 use graph_contract::binary::{Snapshot, SnapshotParts, StringTable};
 use graph_contract::geometry::{EdgeGeometry, NodeGeometry, Paths};
