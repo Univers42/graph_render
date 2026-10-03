@@ -125,12 +125,22 @@ STUDIO_NAV_BREAK=1 scripts/studio-nav.sh   # its negative control: expect non-ze
 scripts/studio-smoke.sh       # the load smoke over app/dist: no page error, no banner, a node drawn
 STUDIO_SMOKE_BREAK=1 scripts/studio-smoke.sh   # its negative control: expect non-zero
 scripts/studio-backend.sh      # the WebGL2 layer against Canvas2D: pixel parity, `auto`, the fallback, a lost context; STUDIO_BACKEND_BREAK=1 for its negative control
+
+# the memory guard (docs/decisions/memory-guard.md; the header of each script is its manual)
+scripts/orch/drun <docker run args>        # the only way to start a container: gm.slice, oom-score-adj 500, 4g default
+scripts/orch/drun-check.sh                 # exit 1 on a bare `docker run` in a script or rows file
+scripts/orch/gm-slice.sh check             # the aggregate ceiling over every job container (install|remove)
+scripts/orch/memwatch.sh status            # the gm-memwatch host watcher: RAM pressure, VRAM, gfx ring hangs
+scripts/orch/memwatch.sh selftest          # MEMWATCH_BREAK=1 for its negative control
+scripts/orch/memprofile.sh 10000           # the motor's heap under valgrind (massif, dhat, memcheck)
 ```
 
 - A fresh worktree needs `npm ci` before `cargo test`: the `cli_oracles` tests run the Node harness and
   fail on a missing `node_modules`.
 - Without `--no-fail-fast` cargo stops at the first failing test binary and hides the other crates.
 - `gr` caps memory at 8g (`GR_MEM`); exit 137 on a legitimate row means raise it. `GR_IMAGE` picks the image.
+- Never `docker run` directly: 11-18 uncapped job containers froze the host on 2026-10-03. Every
+  container goes through `drun`, so their sum is capped by gm.slice and an excess is an exit 137, not a freeze.
 - Node containers run `GM_NODE_IMAGE` (`scripts/orch/image.sh`): node 22.23.3 pinned by digest. Never
   run `npm` on the host: the toolchain is the image, not the host.
 - Host-local state lives under `$GM_SCRATCH` (`scripts/orch/scratch.sh`: `/goinfre/$USER` where

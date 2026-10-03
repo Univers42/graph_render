@@ -10,7 +10,8 @@
  * Deterministic: mulberry32 with integer steps, no clock, no `Math.random`, and a fixed
  * draw order per shape.
  */
-import type { IngestDoc, IngestEdge, IngestNode } from "./ingest.ts";
+import { type IngestDoc, type IngestEdge, type IngestNode, IngestRefusal } from "./ingest.ts";
+import { linksRefusal } from "./limits.ts";
 
 export type SyntheticShape = "random" | "vault";
 
@@ -206,9 +207,12 @@ function applyDegreeWeights(built: Built): Records {
   return { nodes, edges };
 }
 
+/** Refuses a graph past `MAX_LINKS` before it makes a record: the document would not fit. */
 export function syntheticRecords(spec: SyntheticSpec): Records {
   const count = clamp(spec.nodeCount, 2, MAX_NODES);
   const degree = clamp(spec.degree, 0, MAX_DEGREE);
+  const refused = linksRefusal(count, degree);
+  if (refused !== null) throw new IngestRefusal("synthetic", refused);
   const rnd = mulberry32(spec.seed);
   const built = spec.shape === "vault" ? vaultRecords(count, degree, rnd) : randomRecords(count, degree, rnd);
   return applyDegreeWeights(built);

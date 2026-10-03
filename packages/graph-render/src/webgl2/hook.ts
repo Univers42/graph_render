@@ -8,7 +8,8 @@ import type { PaintCounts, PaintInput } from "../canvas2d/input.ts";
 import { impostorOf } from "../canvas2d/nodes.ts";
 import { MOVING_BUDGET } from "../canvas2d/edges.ts";
 import { drawBulk } from "./draw.ts";
-import { paintSpace } from "./hook3d.ts";
+import { loseContext } from "./gl.ts";
+import { paintSpace, releaseSpace } from "./hook3d.ts";
 import { type BulkLayer, type Tween, createBulk } from "./layer.ts";
 import { type BackendChoice, bulkWanted, nextBudget } from "./plan.ts";
 import { type Glide, dropGlide, glideFrame, keepFrame, newGlide } from "./glide.ts";
@@ -38,6 +39,20 @@ export interface BulkSlot {
 
 export function newBulkSlot(backend: BackendChoice): BulkSlot {
   return { backend, layer: undefined, failure: "", placed: 0, budget: MOVING_BUDGET, tween: null, still: undefined, refining: false, glide: newGlide(), gpuEdgeMs: () => 0 };
+}
+
+/**
+ * Frees what the slot holds on the GPU and in pictures, and makes nothing again: a page keeps
+ * only a few live WebGL contexts, and a destroyed view must not hold one until a collection.
+ */
+export function releaseBulk(slot: BulkSlot): void {
+  dropGlide(slot.glide);
+  slot.still?.nodes?.close();
+  slot.still = null;
+  if (slot.layer) loseContext(slot.layer.gl);
+  slot.layer = null;
+  slot.failure = "the view was destroyed";
+  releaseSpace(slot);
 }
 
 function layerOf(slot: BulkSlot): BulkLayer | null {
