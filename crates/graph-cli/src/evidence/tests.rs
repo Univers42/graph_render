@@ -128,7 +128,12 @@ fn an_unparseable_record_reads_as_absent_and_a_re_run_repairs_it() {
     );
     assert!(
         matches!(
-            write_to(&dir, "hashgate", serde_json::json!({ "seeds": 8, "pass": true }), "f".into()),
+            write_to(
+                &dir,
+                "hashgate",
+                serde_json::json!({ "seeds": 8, "pass": true }),
+                "f".into()
+            ),
             Outcome::Recorded(_)
         ),
         "a re-run is not blocked by it"
@@ -161,7 +166,11 @@ fn a_record_reads_back_as_written_and_only_absence_is_none() {
     );
     assert_eq!(read_from(&dir, "absent"), Ok(None));
     std::fs::write(dir.join("torn.json"), "{").expect("write");
-    assert!(read_from(&dir, "torn").is_err());
+    assert_eq!(
+        read_from(&dir, "torn"),
+        Ok(None),
+        "a torn record is no record (its own line names it on stderr)"
+    );
     std::fs::create_dir(dir.join("dir.json")).expect("dir");
     assert!(read_from(&dir, "dir").is_err(), "unreadable is not absent");
     assert!(matches!(

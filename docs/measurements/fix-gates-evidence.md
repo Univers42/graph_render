@@ -4,12 +4,13 @@ Review: `docs/reviews/review-gates.md` (`RG-NN`). Job: `prompts/jobs/fix-gates-e
 `prompts/jobs/fix-common.md`.
 
 Every change is inside the job's five paths (`crates/graph-cli/src/capabilities.rs`,
-`capabilities/**`, `fingerprint.rs`, `evidence.rs`, `codegen.rs`) — 16 files, all under
+`capabilities/**`, `fingerprint.rs`, `evidence.rs`, `codegen.rs`) — 18 files, all under
 `crates/graph-cli/src/`. **No `graph-core` file is touched**, so no motor byte moved and
 `hashgate --seeds 8` was not re-run (see "Commands" for the diff that shows it).
 
-The untouched tree for every comparison below is commit `45fca10`, the parent of this job's first
-commit; `git diff 45fca10 HEAD --stat` is the whole change.
+`origin/develop` was merged in mid-job; this report covers the merged tree (see "Before and after"
+for the re-taken baseline). Every comparison below is against **`9178255`, develop as merged**, with
+this job's files reverted to it — the tree these repairs sit on top of.
 
 ## Verdicts
 
@@ -29,25 +30,24 @@ commit; `git diff 45fca10 HEAD --stat` is the whole change.
 | RG-33 | MINOR | fixed | `every_ingest_row_names_the_one_stage_this_file_declares` | `crates/graph-cli/src/capabilities/tests/registry.rs:236` |
 | RG-34 | MINOR | fixed, both halves | `each_bundle_row_is_named_by_the_module_whose_metadata_it_carries` (id↔META pairing) + `a_row_whose_geometry_kind_this_ledger_cannot_name_is_refused` (catch-all) | `crates/graph-cli/src/capabilities/tests/registry.rs:261`, `tests/refusals.rs:110` |
 | RG-50 | MINOR | fixed | `the_required_field_refusals_are_named_and_not_merely_counted` (+ the by-id read in `a_function_without_cases_or_with_an_unexplained_mismatch_is_refused`) | `crates/graph-cli/src/capabilities/tests/refusals.rs:130`, `:150` |
-| RG-53 | MINOR | fixed, 2 of 3 holes | `a_symlink_under_a_fingerprinted_path_is_refused_not_followed` (symlink) + `a_record_is_renamed_into_place_and_leaves_no_temporary` (atomic write) | `crates/graph-cli/src/fingerprint.rs:230`, `crates/graph-cli/src/evidence/tests.rs:273` |
+| RG-53 | MINOR | fixed, all three holes | `a_symlink_under_a_fingerprinted_path_is_refused_not_followed` (symlink) + `a_record_is_renamed_into_place_and_leaves_no_temporary` (atomic write) + `an_unparseable_record_reads_as_absent_and_a_re_run_repairs_it` and `an_absent_directory_is_empty_and_an_unparseable_record_is_absent_not_fatal` (parse error = absent) | `crates/graph-cli/src/fingerprint.rs:230`, `crates/graph-cli/src/evidence/tests.rs`, `crates/graph-cli/src/capabilities/verdict/records/tests.rs` |
 
 ### What is not closed
 
-**RG-53, two residual items, both deferred rather than done.**
+**Nothing in RG-53 is outstanding.** The first version of this report deferred two of the finding's
+items; the orchestrator ruled on both (2026-10-03) and they are now done:
 
-1. *"treat a parse error on read as a failed record rather than a fatal error"*. Not done.
-   `read_from` still returns `Err` for a corrupt file (`evidence.rs:210-219`), so `Evidence::load`
-   exits 2 and `capabilities --check` stops for the whole tree. With this job's atomic write no
-   in-tree record can be truncated mid-write any more, which was the review's stated cause; the
-   behaviour is now fail-closed (exit 2, no green claim) rather than silently green.
-   *Recommended:* an unparseable record counts as **absent** (`Ok(None)`) with the corruption named
-   on stderr, so one hand-mangled file cannot hide the other 35 rows. That changes `read_from`'s
-   contract for every caller (`verdict/records.rs`, `capabilities`), so it wants its own decision.
-2. *"`GM_GATES_DIR` is an unvalidated override"*. Not done, deliberately: it is the tests' and the
-   orchestrator's seam (`crates/graph-cli/tests/common/mod.rs:86` sets it; `evidence.rs:36-39`
-   reads it) and refusing it would break every scratch-dir test. It is documented as an escape
-   hatch at `capabilities/verdict/records.rs:18`. *Recommended:* a `Ponytail:` line on `GATES_ENV`
-   naming the override as trusted input — trusted in the same sense as the record files themselves.
+1. ~~*"treat a parse error on read as a failed record rather than a fatal error"*~~ — **done**, and
+   it took two readers, not one. `read_from` (`evidence.rs:236`) is the by-name reader; the ledger's
+   directory scan `capabilities::verdict::records::all` had its own parser (`read_one`,
+   `records.rs`), and the CLI demonstration below is what caught it: with only `read_from` fixed,
+   `capabilities --check` still exited 2. Both now name the file on stderr and return "no record",
+   and both keep a genuine **unreadable** path (a directory named `<name>.json`) as an error. See
+   "The two RG-53 decisions" below for the tests.
+2. ~~*"`GM_GATES_DIR` is an unvalidated override"*~~ — **kept, and named.** The override stays (the
+   tests and the gate rows depend on it: `crates/graph-cli/tests/common/mod.rs:86`), and
+   `GATES_ENV` now carries a `Ponytail:` line stating that it is trusted input, what a hand-written
+   record with this tree's fingerprint implies, and what the escape hatch is.
 
 ## RG-03: what the fingerprint boundary covers
 
@@ -224,20 +224,79 @@ change also breaks the routing registry test); they are named here rather than c
   (`fs::write`'s truncation window is exactly what the atomic write closes, but no test can observe
   a window that is only observable under a kill mid-write.)
 
+## The two RG-53 decisions (orchestrator ruling, 2026-10-03)
+
+Both deferred items were accepted and are implemented. They needed two tests, because the rule had
+**two** readers, and only one of them showed up in the unit tests.
+
+**RED, `read_from` (by name), `evidence/tests.rs`:**
+
+```
+---- evidence::tests::an_unparseable_record_reads_as_absent_and_a_re_run_repairs_it ----
+panicked at crates/graph-cli/src/evidence/tests.rs:120:5:
+assertion `left == right` failed: a record nobody can parse is not evidence, and is not a fatal error either
+  left: Err("/tmp/gm-evidence-corrupt-302/hashgate.json: EOF while parsing a value at line 1 column 24")
+ right: Ok(None)
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 367 filtered out
+```
+
+**RED, `records::all` (the ledger's directory scan), `verdict/records/tests.rs`:**
+
+```
+---- capabilities::verdict::records::tests::an_absent_directory_is_empty_and_an_unparseable_record_is_absent_not_fatal ----
+panicked at crates/graph-cli/src/capabilities/verdict/records/tests.rs:70:27:
+read: one mangled file is not a whole-ledger failure: "/tmp/graph-cli-records-16-ThreadId(2)/oracle-osage.json: expected ident at line 1 column 2"
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 367 filtered out
+```
+
+Two existing tests pinned the *old* rule and were updated with the decision, not weakened: the
+`torn.json` assertion in `a_record_reads_back_as_written_and_only_absence_is_none` now expects
+`Ok(None)`, and `an_absent_directory_is_empty_and_a_file_that_is_not_a_record_is_refused` was
+renamed to `…_an_unparseable_record_is_absent_not_fatal` and rewritten. Each new test carries the
+control that must **stay** an error: a path that is a *directory* is unreadable, not unparseable.
+
+**What the unit tests did not catch, and the CLI run did.** With `read_from` fixed and
+`records::read_one` not, a corrupt record in the real gates directory still took the whole ledger
+down — `gr` mounts only the repo at `/w`, so the demo has to write inside `target/gates/`:
+
+```
+$ printf '{ "pass": true, "seeds":' > target/gates/hashgate.json      # (inside the container)
+$ ./target/release/graph-cli capabilities --check
+  /w/crates/graph-cli/../../target/gates/hashgate.json: not a record (EOF while parsing a value at line 1 column 24); it backs nothing, and is left in place
+  /w/crates/graph-cli/../../target/gates/hashgate.json: not a record (EOF while parsing a value at line 1 column 24); it backs nothing, and is left in place
+  …
+capabilities --check: 73 rows, 36 problems
+EXIT=1        # was: EXIT=2, "capabilities: reading the gate records: …EOF while parsing a value"
+```
+
+Two lines because two readers report it — the by-name read and the directory scan. The count stays
+36, so the mangled record backs nothing at all, and the file is left where it is. (The demo file is
+removed in the same invocation; `target/gates/` afterwards holds only the conformance record.)
+
 ## Before and after: `capabilities --check`
 
-Baseline captured by reverting this job's 14 files to `45fca10` and building (`45fca10` is the
-parent of this job's first commit); after-state captured from this tree's release build. Both runs
-read the same `target/gates/` — empty — and the same ceilings doc.
+**Re-captured after the merge.** `origin/develop` was merged into this branch mid-job
+(`502fa3d`, parents `3ce8db1` this branch + `9178255` develop; the `capabilities.rs` conflict
+resolved in develop's favour for the scale rows, which now live in `capabilities/scale.rs` with
+`oracle_record: oracle-scale` and their functions). Develop's rows and this job's repairs coexist —
+`registry.rs:171` chains `super::scale::rows()` into the one row source — and the whole bin suite
+passes on the merged tree (368 tests).
 
-| | exit | last line |
-|---|---|---|
-| baseline (`45fca10`) | 1 | `capabilities --check: 72 rows, 36 problems` |
-| this tree | 1 | `capabilities --check: 72 rows, 36 problems` |
+So the baseline is re-taken as **`9178255` (develop as merged), with this job's 18 files reverted to
+it**: that is the tree this job's repairs sit on top of, and the only delta between the two builds
+is this job. (The pre-merge comparison, against `45fca10`, gave the same result — 36 problems either
+way, the difference being only RG-32's verdict lines — with 72 rows; develop has since added one.)
 
-**The 36 problems are identical, line for line** (`diff` of the two outputs: only `0a1,72`, i.e. 72
-lines added, none changed or removed). **The one difference is deliberate and named: RG-32 adds one
-verdict line per row before the problems** — 72 lines like
+| | rows | exit | last line |
+|---|---|---|---|
+| baseline (`9178255`, develop) | 73 | 1 | `capabilities --check: 73 rows, 36 problems` |
+| this tree (merged, repaired, + the two RG-53 decisions) | 73 | 1 | `capabilities --check: 73 rows, 36 problems` |
+
+**The 36 problems are identical, line for line**: the `diff` of the two outputs is `73` added
+lines and **zero** changed or removed. **The one difference is deliberate and named: RG-32 adds one
+verdict line per row before the problems** — 73 lines like
 `gated       layout.tree.tidy   no evidence: nothing recorded backs it`. Those are not problems and
 are not counted in the summary line; they are the finding's requested output ("a green `--check`
 distinguishes verified from not-yet-claimed"). No problem disappeared and none appeared: the
@@ -255,17 +314,17 @@ header-named reader).
 |---|---|---|
 | `scripts/orch/gr cargo fmt --all --check` | 0 | (no output) |
 | `scripts/orch/gr cargo clippy -p graph-cli --all-targets -- -D warnings` | 0 | only the four pre-existing `edition2024` manifest warnings |
-| `scripts/orch/gr cargo test -p graph-cli --bin graph-cli` | 0 | `351 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out` |
+| `scripts/orch/gr cargo test -p graph-cli --bin graph-cli` | 0 | `368 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out` (merged tree; 351 before the merge, 367 with develop's new tests, +1 for the parse-error test) |
 | `scripts/orch/gr cargo test --workspace --no-fail-fast` | 0 | 20 binaries, `1819 passed; 0 failed; 12 ignored` |
 | `scripts/orch/gr cargo build -p graph-core --target wasm32-unknown-unknown` | 0 | ``Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.29s`` |
-| `scripts/orch/gr cargo build --release -p graph-cli` (baseline `45fca10`, then this tree) | 0 | `Finished release profile … in 3.96s` / `… in 3.68s` |
-| `scripts/orch/gr ./target/release/graph-cli capabilities --check` | 1 | `capabilities --check: 72 rows, 36 problems` |
+| `scripts/orch/gr cargo build --release -p graph-cli` (baseline `9178255`, then this tree) | 0 | baseline `Finished release profile … in 28.80s`; this tree `… in 9.81s`, rebuilt `… in 12.29s` after the two RG-53 decisions |
+| `scripts/orch/gr ./target/release/graph-cli capabilities --check` | 1 | `capabilities --check: 73 rows, 36 problems` |
 | `scripts/orch/gr ./target/release/graph-cli codegen --check` | 0 | `up to date  docs/contract/ingest-schema.json` |
 | `scripts/scigraphs-conformance.sh` | 0 | `PASS` — `scigraphs-conformance: 32/32 rows reached a reference` |
 
 `hashgate --seeds 8` and `GM_MUTATE_REFERENCE_DEGREE=9` were **not** re-run: fix-common requires them
 only for a change that moves a registered layout, post, analysis or scale output, and
-`git diff 45fca10 HEAD --stat` touches no `graph-core` file — all 16 changed files are under
+`git diff 9178255 HEAD --stat` touches no `graph-core` file — all 18 changed files are under
 `crates/graph-cli/src/`. No motor byte can have moved. Both gates are also explicitly excluded from
 this job (no timed gate), and re-recording evidence from a fix job is forbidden.
 

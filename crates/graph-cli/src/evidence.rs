@@ -217,12 +217,35 @@ pub fn read(name: &str) -> Result<Option<Value>, String> {
     read_from(&gates_dir(), name)
 }
 
+/// A record that is there and cannot be parsed is **no record**, named on stderr and left in
+/// place. A parse error used to be an `Err`, so one mangled file took `Evidence::load` down
+/// and `capabilities --check` exited 2 with no verdict for any of the 72 rows: the loudest
+/// answer to "is this record real?" and the least useful, because a record nobody can read
+/// backs nothing, and the rows it would have backed have an honest answer for that ("no
+/// evidence: nothing recorded backs it"). Nothing is deleted: the ledger's job is to stop
+/// believing a file, not to tidy it away.
+///
+/// Ponytail: what "cannot be parsed" covers, and what it costs. It is a **JSON syntax** error
+/// and nothing else. A file that parses but is the wrong shape — `{}`, `[]`, a record with no
+/// boolean `pass` — is still read as a record and refused downstream by `verdict::current`, so
+/// it backs nothing too; only the reporting differs. Failing input: a truncated or half-copied
+/// record. Direction: safe, and deliberately so — the direction is toward "run the gate",
+/// never toward a weaker claim reading as current. Escape hatch: the stderr line names the file
+/// and the parser's own message, and `GM_GATES_DIR` (see [`GATES_ENV`]) is the directory a
+/// reader should be looking at.
 fn read_from(dir: &Path, name: &str) -> Result<Option<Value>, String> {
     let path = dir.join(format!("{name}.json"));
     match std::fs::read_to_string(&path) {
-        Ok(text) => serde_json::from_str(&text)
-            .map(Some)
-            .map_err(|e| format!("{}: {e}", path.display())),
+        Ok(text) => match serde_json::from_str(&text) {
+            Ok(body) => Ok(Some(body)),
+            Err(err) => {
+                eprintln!(
+                    "  {}: not a record ({err}); it backs nothing, and is left in place",
+                    path.display()
+                );
+                Ok(None)
+            }
+        },
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(err) => Err(format!("{}: {err}", path.display())),
     }
