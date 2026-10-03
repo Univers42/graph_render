@@ -12,7 +12,7 @@ orders of magnitude, and past the job's `1e-3` target by ten. A second layout,
 
 `target/gates/scigraphs-conformance.json`, `.functions.FORCEATLAS2`, and
 `target/scigraphs-conformance/metrics.json`, `.rows.FORCEATLAS2`. Ceiling `1e-12`, so the row
-passes on the median and fails on nothing.
+passes. The max gap is `6.23e-4` — one coordinate of `lesmis`, which is the worst of the 24.
 
 **No other row moved.** The judge named only `FORCEATLAS2` on the run that produced the
 proposed baseline, and every other line of the summary is byte-identical to the run before this
@@ -229,21 +229,29 @@ which is `_forceatlas2_forcesim` (`forceatlas.py:124-147`) saying so itself.
 ## Commands
 
 ```
-scripts/orch/gr cargo build --release -p graph-cli                                  -> 0
-scripts/scigraphs-conformance.sh                       (before)                        -> 0
-scripts/scigraphs-conformance.sh                       (re-pin, exit 1: FORCEATLAS2)    -> 1
-scripts/scigraphs-conformance.sh                       (after the re-pin)             -> 0
-scripts/scigraphs-conformance.sh --break                                              -> 1
-scripts/orch/gr cargo test -p graph-core --lib forcesim                               -> 0
-scripts/orch/gr cargo test -p graph-core --lib rng::pcg64                             -> 0
-scripts/orch/gr cargo test --workspace --no-fail-fast                                 -> 0
-scripts/orch/gr cargo fmt --check                                                      -> 0
-scripts/orch/gr cargo clippy --workspace --all-targets -- -D warnings                 -> 0
-scripts/orch/gr cargo run -q --release -p graph-cli -- capabilities --check            -> 0
-scripts/orch/gr cargo run -q --release -p graph-cli -- codegen --check                 -> 0
-scripts/orch/gr cargo run -q --release -p graph-cli -- hashgate --seeds 8              -> 0
-scripts/orch/gr cargo run -q --release -p graph-cli -- oracle-fa2                      -> 0
+scripts/orch/gr cargo build --release -p graph-cli                                   -> 0
+scripts/scigraphs-conformance.sh                       (before)                         -> 0
+scripts/scigraphs-conformance.sh                       (re-pin; names FORCEATLAS2)      -> 1
+scripts/scigraphs-conformance.sh                       (after the re-pin)              -> 0
+scripts/scigraphs-conformance.sh --break                                               -> 1
+scripts/orch/gr cargo test -p graph-core --lib forcesim                                -> 0  (34 passed)
+scripts/orch/gr cargo test -p graph-core --lib rng::pcg64                              -> 0  (13 passed)
+scripts/orch/gr cargo test --workspace --no-fail-fast                                  -> 0  (0 failed)
+scripts/orch/gr cargo fmt --check                                                       -> 0
+scripts/orch/gr cargo clippy --workspace --all-targets -- -D warnings                  -> 0
+scripts/orch/gr cargo run -q --release -p graph-cli -- capabilities --check             -> 0  (74 rows; no problem names forcesim)
+scripts/orch/gr cargo run -q --release -p graph-cli -- codegen --check                  -> 0  (4 artefacts up to date)
+scripts/orch/gr cargo run -q --release -p graph-cli -- hashgate --seeds 8               -> 0  (PASS, 8/8 seeds)
+scripts/orch/gr -e GM_MUTATE_REFERENCE_DEGREE=9 … hashgate --seeds 8                    -> 1  (FAIL: 8 of 8 seeds diverge)
+scripts/orch/gr cargo run -q --release -p graph-cli -- emit-fa2-fixtures --seeds 1000  -> 0
+docker run … ge-python-oracle python3 harness/oracle-fa2.py target/fa2-fixtures         -> 0  (1000 cases, worst 3.156e-8)
+scripts/orch/gr cargo run -q --release -p graph-cli -- oracle-fa2                       -> 0  (worst 3.156e-8, ceiling 1e-7: ok)
 ```
+
+**`oracle-fa2` did not move.** Its worst case is `3.1559272452132634e-8`, the figure
+`sg-fa2-seed` recorded, and it is measured on `layout.forceatlas2` — which this job did not
+touch. That is the whole reason the ForceSim port is a second layout id rather than a
+re-pointing of the first.
 
 ## Deviations from the job's file list
 
