@@ -1,0 +1,6 @@
+# service-image.rows — the svc-image gate (docs/contract/service-api.md C10-C11, docs/deploy/service.md).
+# Run: scripts/orch/gate.sh <logdir> scripts/orch/rows/service-image.rows. Not timed: it takes no
+# host gate lock, like the other browser gates. Each run builds the image (scripts/service.sh build).
+svc-image|0|timeout 2400 scripts/service-image.sh
+negctl-svc-image|nonzero|SERVICE_IMAGE_BREAK=headers timeout 2400 scripts/service-image.sh
+negctl-svc-image-leak|nonzero|SERVICE_IMAGE_BREAK=leak timeout 2400 scripts/service-image.sh

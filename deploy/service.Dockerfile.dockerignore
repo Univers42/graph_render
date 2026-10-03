@@ -1,0 +1,4 @@
+# The context is scripts/service.sh's staging directory; only these two entries go in.
+*
+!bin/graph-server
+!embed

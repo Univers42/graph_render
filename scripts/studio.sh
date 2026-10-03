@@ -7,6 +7,7 @@
 #   scripts/studio.sh test      unit tests of both packages, and the chrome's render tests
 #   scripts/studio.sh lint      eslint over app/ and packages/, --max-warnings 0
 #   scripts/studio.sh check     types, tests, lint, build: the studio's merge floor
+#   scripts/studio.sh embed DIR the embed bundle and both wasm builds into DIR, under the repo
 #
 # Exit: 0 passed · 1 a row failed, or a test was skipped · 2 misuse, or an asset is missing.
 #
@@ -131,12 +132,22 @@ $tap_verdict"
 lint() {
   log "eslint --max-warnings 0"
   # From the root: a flat config does not see files above the directory eslint runs in.
-  in_node . app/node_modules/.bin/eslint -c app/eslint.config.js --max-warnings 0 app/src app/vite.config.ts packages
+  in_node . app/node_modules/.bin/eslint -c app/eslint.config.js --max-warnings 0 app/src app/vite.config.ts app/vite.embed.config.ts packages
 }
 
 build() {
   log "production build into app/dist"
   in_node app node_modules/.bin/vite build
+}
+
+# The embed bundle (app/vite.embed.config.ts) beside the two wasm builds, for scripts/service.sh.
+# The node container runs as root, so it hands the directory back to the caller before it exits.
+embed() {
+  local out=$1
+  log "embed bundle into $out"
+  in_node app bash -c "node_modules/.bin/vite build -c vite.embed.config.ts --outDir '/w/$out' --emptyOutDir \
+    && chown -R $(id -u):$(id -g) '/w/$out'"
+  cp "$root/app/public/graph_wasm.wasm" "$root/app/public/graph_wasm_threads.wasm" "$root/$out/"
 }
 
 case "$command" in
@@ -165,6 +176,13 @@ case "$command" in
     install_deps
     lint
     ;;
+  embed)
+    [[ ${2-} =~ ^[A-Za-z0-9._/-]+$ && ${2-} != /* && ${2-} != *..* ]] || {
+      log "usage: studio.sh embed DIR, a relative path under the repository"; exit 2; }
+    install_deps
+    stage_assets
+    embed "$2"
+    ;;
   check)
     require_refs
     install_deps
@@ -177,7 +195,7 @@ case "$command" in
     log "ok"
     ;;
   *)
-    sed -n '2,12p' "${BASH_SOURCE[0]}" >&2
+    sed -n '2,13p' "${BASH_SOURCE[0]}" >&2
     exit 2
     ;;
 esac

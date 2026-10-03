@@ -71,7 +71,7 @@ export default tseslint.config(
   { files: ["app/src/parity.ts"], rules: banned(ORACLE, SDK) },
   // Config files: no tsconfig holds them, and a bundler's config is its default export.
   {
-    files: ["**/*.{js,mjs}", "app/vite.config.ts"],
+    files: ["**/*.{js,mjs}", "app/vite.config.ts", "app/vite.embed.config.ts"],
     ...tseslint.configs.disableTypeChecked,
     rules: { ...tseslint.configs.disableTypeChecked.rules, "no-restricted-syntax": "off" },
   },
