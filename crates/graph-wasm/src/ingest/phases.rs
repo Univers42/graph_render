@@ -39,8 +39,8 @@ pub(crate) const RECORDS: u32 = 2;
 /// `index_model` has returned: arena, columns and the three CSRs are all live.
 pub(crate) const INDEX_MODEL: u32 = 3;
 /// `gm_build` is about to return its handle. Recorded by `gm_build` itself, in
-/// `crate::exports`, under the same `cfg` as its one use.
-#[cfg(any(test, feature = "probe"))]
+/// `crate::exports`, which is wasm32-only: a native `cargo test` would see it unused.
+#[cfg(target_arch = "wasm32")]
 pub(crate) const RETURNED: u32 = 4;
 /// `Topology::strings().byte_len()` — the arena's string data alone.
 pub(crate) const ARENA_TEXT: u32 = 5;
