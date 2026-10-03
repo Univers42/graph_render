@@ -9,7 +9,7 @@ use child::{drain, joined, run_captured, wait_within};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 /// How long any one child (cargo, node, a gate arm) may run before it is killed. A hung
 /// child is a gate that could not run (exit 2), never one that waits forever.
@@ -199,6 +199,7 @@ pub fn run_status(command: &mut Command, limit: Duration) -> Result<ExitStatus, 
 mod tests {
     use super::resolve::on_path;
     use super::*;
+    use std::time::Instant;
 
     #[test]
     fn sha256_matches_the_fips_180_2_vector() {
