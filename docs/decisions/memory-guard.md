@@ -58,7 +58,13 @@ wraps past 65 536 nodes into a wrong, small table.
 - One budget on every host: a 64 GB host refuses at the same n as an 8 GB one. That is the price of
   bit-identical results; the refusal is part of the output.
 - Containers started outside the repo (llama-server, MCP servers) are outside `gm.slice`. The
-  watcher still sees them through PSI and VRAM; capping them is their owner's call.
+  watcher still sees them through PSI and VRAM; capping them is their owner's call. On 2026-10-03
+  the owner had llama-server capped (`docker update --memory 8g --memory-swap 8g`) and stopped: VRAM
+  in use fell from 7508 to 1806 MiB. Its compose file no longer exists, so the container keeps the cap.
+- `vm.overcommit_memory` stays at microk8s's 1. Mode 0 refuses only one mapping larger than RAM plus
+  swap: on this host it granted a 50 GiB anonymous map and refused 60 GiB (`mmap` probe, 2026-10-03).
+  It would not have stopped a freeze made of many smaller allocations, and kubelet sets 1 again at
+  each start.
 
 Risk scores: blast 3 (every container launch, three layouts), reversibility 1
 (`memwatch.sh remove`, `gm-slice.sh remove`, revert one module), cost on failure 2, confidence 2

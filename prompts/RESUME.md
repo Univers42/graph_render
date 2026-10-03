@@ -23,8 +23,8 @@ with llama-server holding 6.3 of 8.6 GB VRAM). Decision and evidence:
 - Studio: document and link caps (`packages/graph-studio/src/source/limits.ts`), the motor worker
   retired on a new source or a trap (wasm memory never shrinks), GL contexts lost on destroy, and a
   source that took the page down is not replayed at the next start.
-- Outside the repo, not changed: the llama container and two MCP servers run uncapped, and
-  `vm.overcommit_memory=1` is set by microk8s.
+- Outside the repo: the llama container is capped at 8g and stopped (`docker start
+  hellish-ai-llama-vulkan-1` brings it back). `vm.overcommit_memory` stays 1; the decision says why.
 
 ## HANDOFF 2026-10-01 (written 2026-10-02) — read this first, it overrides the 2026-09-30 block
 
