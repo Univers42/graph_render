@@ -3,18 +3,20 @@
 //! [`Pool::serve`]. [`PoolRunner`] cuts a pass into fixed chunks that the calling thread and
 //! its helpers claim from one counter, so a pass costs one wake and one join, a slow core
 //! takes fewer chunks instead of holding everyone back, and every chunk writes straight into
-//! its own span of the caller's column: no per-worker buffer, no copy back.
+//! its own span of the caller's column: no per-worker buffer, no copy back. The pass waits
+//! only for the helpers that took it: one the OS has not woken by the time the chunks run out
+//! skips it, instead of every pass paying the slowest wake (perf-p3-steal).
 //!
 //! Target-independent on purpose: std's `Mutex` and `Condvar` are futexes natively and
 //! `memory.atomic.wait32` on wasm32 built with `+atomics`, so the tests below drive this
 //! same code with `std::thread` helpers. The bytes are [`Serial`]'s by the [`StepRange`]
 //! contract (disjoint spans, start-of-pass reads); the tests check it.
 //!
-//! Caveat: a helper that traps (a panic is an abort on wasm32) never finishes its part,
-//! so the coordinator waits forever, and a blocked coordinator runs no event loop to hear of
-//! it. The host owns that: `harness/wasm-threads-helper.mjs` kills the process on a trap.
-//! Natively a helper that panics hangs its pass the same way; only the coordinator's own part
-//! is unwind-safe ([`Joining`]).
+//! Caveat: a helper that traps (a panic is an abort on wasm32) never counts itself out of
+//! its pass, so the coordinator waits forever, and a blocked coordinator runs no event loop to
+//! hear of it. The host owns that: `harness/wasm-threads-helper.mjs` kills the process on a
+//! trap. Natively a helper that panics counts itself out as it unwinds ([`Running`]), and the
+//! coordinator panics at the end of that pass instead of returning a column with a hole.
 
 use graph_core::exec::{Runner, Serial, StepRange, range_at};
 use std::ops::Range;
@@ -29,14 +31,17 @@ type Part = dyn Fn(u32) + Sync;
 struct Job(*const Part);
 
 // SAFETY: the pointee is `Sync`, and `broadcast` does not return (ending the borrow) until
-// every helper that was handed the pointer has finished calling it.
+// every helper that was handed the pointer has finished calling it ([`Running`]).
 unsafe impl Send for Job {}
 
 struct State {
     generation: u64,
     job: Option<Job>,
     parts: u32,
-    pending: u32,
+    /// Helpers inside the job in flight: the only ones the coordinator waits for.
+    running: u32,
+    /// A helper unwound out of the job (natively; wasm32 aborts), so its chunk is unwritten.
+    failed: bool,
     helpers: u32,
     closed: bool,
 }
@@ -61,7 +66,8 @@ impl Pool {
             generation: 0,
             job: None,
             parts: 0,
-            pending: 0,
+            running: 0,
+            failed: false,
             helpers: 0,
             closed: false,
         };
@@ -90,13 +96,10 @@ impl Pool {
             state.helpers += 1;
             (state.helpers, state.generation)
         };
-        while let Some((job, parts)) = self.next(&mut seen) {
-            if id < parts {
-                // SAFETY: this helper is counted in `pending`, so `broadcast` is still
-                // waiting and the job's borrow is live.
-                unsafe { (*job.0)(id) };
-                self.finish();
-            }
+        while let Some(running) = self.next(id, &mut seen) {
+            // SAFETY: `running` counts this helper into the pass until it drops, so
+            // `broadcast` is still waiting and the job's borrow is live.
+            unsafe { (*running.job.0)(id) };
         }
     }
 
@@ -106,9 +109,10 @@ impl Pool {
         self.wake.notify_all();
     }
 
-    // The next pass this helper has not seen. A pass it slept through finished without it,
-    // which is only possible when it was not one of that pass's parts.
-    fn next(&self, seen: &mut u64) -> Option<(Job, u32)> {
+    // The next pass this helper has not seen and is a part of, entered under the lock that
+    // shows it the job. A pass whose job is already cleared ran out of chunks without this
+    // helper, which skips it.
+    fn next(&self, id: u32, seen: &mut u64) -> Option<Running<'_>> {
         let mut state = self.lock();
         loop {
             if state.closed {
@@ -116,8 +120,8 @@ impl Pool {
             }
             if state.generation != *seen {
                 *seen = state.generation;
-                if let Some(job) = state.job {
-                    return Some((job, state.parts));
+                if let Some(job) = state.job.filter(|_| id < state.parts) {
+                    return Some(Running::enter(self, &mut state, job));
                 }
             }
             state = self
@@ -127,20 +131,13 @@ impl Pool {
         }
     }
 
-    fn finish(&self) {
-        let mut state = self.lock();
-        state.pending -= 1;
-        if state.pending == 0 {
-            self.done.notify_one();
-        }
-    }
-
-    // Runs `part(0)` here and `part(1..parts)` on helpers 1.., then waits for all of them
-    // (`Joining`, also on unwind).
-    // `parts` is at most `helpers() + 1`, which the caller ensures.
+    // Runs `part(0)` here and `part(id)` on every helper `id < parts` that wakes before
+    // `part(0)` returns, then waits for those (`Joining`, also on unwind). `part(0)` returns
+    // only once every chunk is claimed, so a helper that wakes later has nothing to do.
     fn broadcast(&self, parts: u32, part: &(dyn Fn(u32) + Sync + '_)) {
         // SAFETY: only the trait object's lifetime changes. This function does not return
-        // until `pending` is 0, so no helper calls the job after the borrow ends.
+        // until the job is cleared and `running` is 0, so no helper calls the job after the
+        // borrow ends.
         let job = Job(unsafe {
             std::mem::transmute::<*const (dyn Fn(u32) + Sync + '_), *const Part>(part)
         });
@@ -150,7 +147,7 @@ impl Pool {
             state.generation += 1;
             state.job = Some(job);
             state.parts = parts;
-            state.pending = parts - 1;
+            debug_assert_eq!(state.running, 0, "a helper is still inside the last pass");
         }
         self.wake.notify_all();
         let _joining = Joining(self);
@@ -158,22 +155,56 @@ impl Pool {
     }
 }
 
-/// Waits out the pass in flight and clears it, on return and on unwind alike: if `part(0)`
-/// panics (natively; wasm32 aborts), `broadcast` must still not end the job's borrow while a
-/// helper runs it. Without this a debug assertion in a part was a use-after-free (SIGSEGV).
+/// A helper inside the job in flight: counted in by [`Running::enter`] under the lock that
+/// shows it the job, counted out by its drop, on return and on unwind alike.
+struct Running<'p> {
+    pool: &'p Pool,
+    job: Job,
+}
+
+impl<'p> Running<'p> {
+    fn enter(pool: &'p Pool, state: &mut State, job: Job) -> Self {
+        state.running += 1;
+        Self { pool, job }
+    }
+}
+
+impl Drop for Running<'_> {
+    fn drop(&mut self) {
+        let mut state = self.pool.lock();
+        assert!(state.running > 0, "a helper left a pass it never entered");
+        state.running -= 1;
+        state.failed |= std::thread::panicking();
+        if state.running == 0 {
+            self.pool.done.notify_one();
+        }
+    }
+}
+
+/// Clears the pass in flight and waits out the helpers inside it, on return and on unwind
+/// alike: if `part(0)` panics (natively; wasm32 aborts), `broadcast` must still not end the
+/// job's borrow while a helper runs it. Without this a debug assertion in a part was a
+/// use-after-free (SIGSEGV). The job is cleared first, under the same lock as the count, so
+/// a helper either counted itself in before (and is waited for) or finds no job.
 struct Joining<'p>(&'p Pool);
 
 impl Drop for Joining<'_> {
     fn drop(&mut self) {
         let mut state = self.0.lock();
-        while state.pending > 0 {
+        state.job = None;
+        while state.running > 0 {
             state = self
                 .0
                 .done
                 .wait(state)
                 .unwrap_or_else(PoisonError::into_inner);
         }
-        state.job = None;
+        let failed = std::mem::take(&mut state.failed);
+        drop(state);
+        assert!(
+            !failed || std::thread::panicking(),
+            "a helper panicked inside a pass, so its chunk is unwritten"
+        );
     }
 }
 
@@ -221,6 +252,7 @@ impl Runner for PoolRunner<'_> {
         // that claims it (the `Runner` contract), so no thread clears the whole column.
         out.resize(len as usize, O::Out::default());
         let chunks = len.min(parts * CHUNKS_PER_PART);
+        debug_assert!(chunks >= parts, "a part with no chunk to claim");
         let next = AtomicU32::new(0);
         let column = Column(out.as_mut_ptr());
         let part = |_: u32| {
@@ -256,29 +288,10 @@ unsafe fn span<'a, T>(base: *mut T, range: &Range<u32>) -> &'a mut [T] {
     unsafe { std::slice::from_raw_parts_mut(base.add(range.start as usize), range.len()) }
 }
 
-/// Runs `body` over a pool served by `helpers` `std::thread`s in place of wasm instances: the
-/// same `Mutex`/`Condvar` code the shared-memory build runs. The pool is closed when `body`
-/// ends, panicking or not, so the scope can join.
 #[cfg(test)]
-pub(crate) fn with_pool(helpers: u32, body: impl FnOnce(&Pool)) {
-    struct Closing<'p>(&'p Pool);
-    impl Drop for Closing<'_> {
-        fn drop(&mut self) {
-            self.0.close();
-        }
-    }
-    let pool = Pool::new();
-    std::thread::scope(|scope| {
-        for _ in 0..helpers {
-            scope.spawn(|| pool.serve());
-        }
-        let _closing = Closing(&pool);
-        while pool.helpers() < helpers {
-            std::thread::yield_now();
-        }
-        body(&pool);
-    });
-}
+mod harness;
+#[cfg(test)]
+pub(crate) use harness::with_pool;
 
 #[cfg(test)]
 mod tests;
