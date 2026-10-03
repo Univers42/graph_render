@@ -14,6 +14,7 @@ import { type Camera, type FitArea, type Point, type Viewport, type ZoomLimits, 
 import { cameraApi, inSpace, orbitBy, sceneApi, zoomAt3d } from "./camera-api.ts";
 import { clickAt, contextAt, pressAt } from "./canvas2d/choose.ts";
 import { type Controller, fit, hover, measure, moveTo, newState, pickAt } from "./canvas2d/controller.ts";
+import { taken } from "./gestured.ts";
 import { invalidate } from "./canvas2d/loop.ts";
 import { type EdgeEnds } from "./canvas2d/probe.ts";
 import type { Frame } from "./frame.ts";
@@ -224,26 +225,21 @@ function toBlob(canvas: HTMLCanvasElement): Promise<Blob> {
 /** Pointer, wheel and resize; returns what undoes all three. */
 function bindInputs(controller: Controller): () => void {
   const { canvas, state } = controller;
-  // Every gesture the pointer layer reports, not the ones that happen to move the camera: a
-  // click and a node drag leave the camera where it is, and both still mean the user has taken
-  // it over from the view's automatic fit (`setSafeArea`).
-  const taken = <T extends unknown[]>(run: (...args: T) => void) =>
-    (...args: T): void => {
-      markGestured(controller);
-      run(...args);
-    };
+  // Every gesture the pointer layer reports, not the ones that happen to move the camera: a click
+  // and a node drag leave the camera where it is, and both still mean the user has taken it over
+  // from the view's automatic fit (`gestured.ts`).
   const unbind = bindPointer(canvas, {
-    zoom: taken((at: Point, factor: number) => {
+    zoom: taken(controller, (at: Point, factor: number) => {
       if (state.orbit !== null) zoomAt3d(controller, factor);
       else moveTo(controller, zoomAt(state.camera, at, factor, state.limits), false);
     }),
-    pan: taken((delta: Point) => moveTo(controller, panBy(state.camera, delta), false)),
-    orbit: taken((delta: Point, right: boolean) => orbitBy(controller, delta, right)),
+    pan: taken(controller, (delta: Point) => moveTo(controller, panBy(state.camera, delta), false)),
+    orbit: taken(controller, (delta: Point, right: boolean) => orbitBy(controller, delta, right)),
     hover: (at) => hover(controller, at === null ? -1 : pickAt(state, at)),
-    click: taken((at: Point, shift: boolean) => clickAt(controller, at, shift)),
-    press: taken((at: Point, shift: boolean) => pressAt(controller, at, shift)),
-    context: taken((at: Point) => contextAt(controller, at)),
-    doubleClick: taken((at: Point) => {
+    click: taken(controller, (at: Point, shift: boolean) => clickAt(controller, at, shift)),
+    press: taken(controller, (at: Point, shift: boolean) => pressAt(controller, at, shift)),
+    context: taken(controller, (at: Point) => contextAt(controller, at)),
+    doubleClick: taken(controller, (at: Point) => {
       // A double-click on a node is the node's own gesture (S2); on the background it zooms.
       if (pickAt(state, at) >= 0) return;
       if (state.orbit !== null) zoomAt3d(controller, DOUBLE_CLICK_ZOOM);
