@@ -87,6 +87,10 @@ impl Load {
     }
 
     /// What the batch would add if every string in it were new.
+    ///
+    /// Caveat: a batch that repeats strings the arena already holds is counted in full, so
+    /// near the `u32` arena limit it is refused although interning would fit it. The escape
+    /// hatch is a smaller batch.
     fn of_batch(nodes: &[NodeRecord], edges: &[EdgeRecord]) -> Self {
         let mut load = Self {
             nodes: nodes.len() as u64,

@@ -88,7 +88,10 @@ At 1M nodes this is **estimated**, by extrapolating the 100 000 row:
 | Per value | 4 B | 4 B |
 | 3 CSRs at 1M rows and about 1.55M edges | about 24.4 MB | about 48.4 MB |
 
-A force session's `SimpleGraph::rows` is a fourth `AppendCsr`, adding 8 B per row over its `Csr`.
+Every `SimpleGraph::rows` is a fourth `AppendCsr`, adding 8 B per row over its `Csr`. Seven sites
+build one: the force session, `barnes_hut/sim.rs`, `circular/hierarchy.rs`, `drl.rs`,
+`fruchterman_reingold.rs`, `kamada_kawai.rs` and `lgl.rs`. The cost is accepted in
+`docs/decisions/delta-abi.md`, "Memory".
 
 The other columns of the memory table moved between the p1 measurement and this tree for reasons
 outside this slice, such as the edge columns. Only the CSR column is compared here.

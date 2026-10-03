@@ -8,8 +8,10 @@
 //! Rows keep arrival order, as `Csr` does: appends land after the row's existing values.
 //!
 //! **Caveat:** the growth policy trades memory for moves. After any append `values` holds
-//! at most twice the live count, so a topology that only grows can carry up to 2x the
-//! frozen bytes. A compaction walks every row, so on a graph with far more rows than
+//! at most twice the live count, and `Vec`'s own doubling can reserve as much again, so a
+//! topology that only grows can hold up to 4x the frozen value bytes (`SAFE_LIVE` bounds the
+//! `4·live + 4` peak of one move). Every row costs a 12 B span against `Csr`'s 4 B offset,
+//! grown or not (`docs/decisions/delta-abi.md`, "Memory"). A compaction walks every row, so on a graph with far more rows than
 //! values (many isolated nodes) it costs O(rows) for O(live) appends since the last one.
 
 use super::Csr;
@@ -135,7 +137,8 @@ impl AppendCsr {
         self.live == 0
     }
 
-    /// Bytes held by the spans and `values`, slack and dead slots included.
+    /// Bytes in use by the spans and `values`, slack and dead slots included; a `Vec`'s
+    /// unused capacity is not counted.
     pub fn byte_len(&self) -> usize {
         self.spans.len() * size_of::<Span>() + self.values.len() * size_of::<u32>()
     }

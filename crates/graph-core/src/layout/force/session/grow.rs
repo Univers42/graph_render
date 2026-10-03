@@ -63,7 +63,11 @@ impl ForceSession {
     }
 
     /// Every refusal, before anything is written. Past it no append can fail: the simple
-    /// graph's rows gain at most two values per new raw edge.
+    /// graph's rows gain at most two values per new raw edge, so the `?`s in [`Self::grow`]
+    /// never leave a partial write.
+    ///
+    /// Caveat: it counts every new raw edge as a new simple edge, so a batch of parallel
+    /// edges near `SAFE_LIVE` is refused although dedup would fit it.
     fn check_growth(&self, topology: &Topology) -> Result<(), SessionError> {
         let (rows, nodes, edges) = (self.rows(), topology.node_count(), topology.edge_count());
         let short = |got: u32, held: u32| SessionError::ColumnLength {

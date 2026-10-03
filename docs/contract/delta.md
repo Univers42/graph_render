@@ -76,7 +76,9 @@ encoding (`stage/topology.rs`) is equal, which is what the stage hash sees.
 - The session absorbs nodes `[rows .. node_count)` and raw edges `[absorbed .. edge_count)`. It
   records the raw edge count it has absorbed.
 - Refused with `SessionError::ColumnLength { column: "grow", .. }` when `topology` has fewer nodes or
-  fewer edges than the session has absorbed. Nothing changes on refusal.
+  fewer edges than the session has absorbed, and with `SessionError::Capacity` when the new edges
+  could overflow the simple graph's `u32` adjacency (`AppendCsr::SAFE_LIVE`). Nothing changes on
+  refusal.
 - Precondition: `topology` is the topology the session was built over, extended. The motor cannot
   check this in O(batch). Breaking it is memory-safe but gives a meaningless layout. The wasm layer
   enforces it by graph id.
@@ -94,7 +96,8 @@ byte-identical too. The rules `grow` reproduces from `session/carry.rs`:
 - `px` and `py` are zeroed for every row, as `Sim::from_parts` zeroes them.
 - The particle mesh is equal to `Mesh::new(rows)`, its collide grid included: `grow` rebuilds
   `Grid::new(rows)`, because `carry` starts `grid.order` at the identity and the first deposit walks
-  it. When the mesh's side does not change, the FFT plan, the kernel and the spectrum are kept.
+  it. P4a rebuilds the whole mesh with `Mesh::new(rows)`. Keeping the FFT plan, the kernel and the
+  spectrum when the mesh's side does not change is P4c's (`prompts/jobs/perf-p4a-extend.md`).
 
 `grow` and `carry` share one placement function and one per-edge geometry function, so the two
 paths cannot drift.
@@ -110,8 +113,8 @@ Costs, all amortised per batch of `b` nodes and `k` edges:
 | link bias | O(Σ degree of every node whose degree changed) |
 | `px`, `py` zeroed | O(n) memset |
 | collide `Grid::new(rows)` | O(n) |
-| mesh, side unchanged | O(n) memset of the per-node slots |
-| mesh, side changed | `Mesh::new`, O(n + P² log P), once per doubling of the side |
+| mesh, rebuilt every batch in P4a | `Mesh::new`, O(n + P² log P) |
+| mesh, side unchanged (P4c) | O(n) memset of the per-node slots |
 | a column at capacity | O(n) copy, once per doubling of that column |
 
 The O(n) rows are memsets and sequential writes over 8 MB columns at 1M. They set the floor of a
@@ -126,8 +129,9 @@ costs about 32 bytes per simple edge.
 The simple graph's rows and the topology's three CSRs become one primitive, an append CSR. Each row
 stays contiguous and in ascending edge order.
 A row with no free slot moves to the tail with double the capacity. The rows are compacted when the
-dead slots outnumber the live ones. A graph that never grows has zero slack, so its memory and its
-row order are what `Csr` gives today. Every reader of `SimpleGraph::rows` keeps `row()` and `rows()`
+dead slots outnumber the live ones. A graph that never grows has zero slack and the row order `Csr`
+gives today, but every row pays a 12 B span against `Csr`'s 4 B offset, grown or not
+(`docs/decisions/delta-abi.md`, "Memory"). Every reader of `SimpleGraph::rows` keeps `row()` and `rows()`
 unchanged.
 
 ## The wasm ABI: two exports
