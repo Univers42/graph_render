@@ -125,9 +125,9 @@ Procrustes-aligned over it**, so a green point sitting on a grey point is a node
 |--:|---|---|---|--:|--:|--:|--:|--:|--:|--:|---|---|
 | 1 | `RANDOM` | `layout.random` | `apply_graph_layout` | `tolerance` | 0/1020 | 1020/1020 | 2.68e+08 | 2.35e-07 | 2.28e-15 | 2.95e-15 | `arithmetic` | **same shape** — the green cloud sits on the grey one, node for node; the `f64` column cannot be exact because the motor is `f32` |
 | 2 | `GRID` | `layout.grid` | `apply_graph_layout` | `tolerance` | 842/1020 | 1020/1020 | 2.39e+08 | 2.12e-07 | 3.39e-32 | 3.96e-15 | `arithmetic` | **same shape** — the aligned motor lands on every grey lattice point; only the last `f32` rounding is left |
-| 3 | `SPRING` | `layout.force.spring` | `apply_graph_layout` | `bitwise` | 362/1020 | 866/1020 | 5.17e+13 | 2.37e-03 | 3.77e-16 | 0 | `convention` | same shape on 22 of 23 fixtures (Procrustes 3.77e-16); **the 154 coordinates that are not `f32`-identical are all on `lesmis`** (78/462), the 77-node fixture whose 50 chaotic iterations amplify a 1-ulp reduction difference to 2.4e-3. The `convention` label is the classifier's, and it is wrong — see Repair 4 |
+| 3 | `SPRING` | `layout.force.spring` | `apply_graph_layout` | `bitwise` | 362/1020 | 866/1020 | 5.17e+13 | 2.37e-03 | 3.77e-16 | 1.66e-08 | `convention` | **same shape on every fixture** (Procrustes median 3.77e-16, worst 1.66e-08), and `f32`-identical on 21 of the 23 measured ones. 153 of the 154 coordinates that are not identical are on `lesmis` (78/462) — the 77-node fixture whose 50 chaotic iterations amplify a 1.6-ulp reduction difference to 2.4e-3; `gate-16` carries the last one (53/54). The `convention` label is the classifier's, and it is wrong — see Repair 4 |
 | 4 | `SPRING_3D` | `layout.force.spring3d` | `apply_graph_layout` | `tolerance` | 24/1020 | 1020/1020 | 2.68e+08 | 2.36e-07 | 5.03e-16 | 6.67e-16 | `arithmetic` | **same shape** — the same seed, the same kernel and the same split reduction as `SPRING`, and the third column absorbs the whole difference: 1020/1020 `f32` |
-| 5 | `CIRCLE_PACKING` | `layout.packing.circle` | `apply_graph_layout` | `shape` | 344/1020 | 808/1020 | 9.22e+18 | 2.70 | 5.3e-16 | 0.863 | `algorithm` | **bit-for-bit the same packing on the 20 gate models** (5e-16) and still different on the three that take the non-planar fallback — `lesmis` 0.0895 (was 0.517), `tree-balanced` 0.418, `bipartite` 0.863. The seed is now the reference's own `RandomState`; what is left is arithmetic |
+| 5 | `CIRCLE_PACKING` | `layout.packing.circle` | `apply_graph_layout` | `shape` | 344/1020 | 808/1020 | 9.22e+18 | 2.70 | 5.3e-16 | 0.863 | `algorithm` | **bit-for-bit the same packing on the 20 gate models** (5e-16) and on the two planar fixtures. `lesmis` — the non-planar one, so the only fixture whose seed moved — goes **0.517 -> 0.0895**; `bipartite` is non-planar too and still differs (0.863); `tree-balanced` (0.418) is a **tree**, so it takes the exact path and did not move |
 | 6 | `FORCEATLAS2` | `layout.forceatlas2` | `apply_graph_layout` | `bitwise` | 0/1020 | 0/1020 | 9.25e+18 | 183 | 0.241 | 0.927 | `rng` | different shape |
 | 7 | `IGRAPH_FR` | `layout.force.fruchterman_reingold` | `apply_graph_layout` | `bitwise` | 0/1020 | 0/1020 | 9.24e+18 | 11.6 | 0.267 | 0.901 | `rng` | different shape |
 | 8 | `IGRAPH_KK` | `layout.force.kamada_kawai` | `apply_graph_layout` | `shape` | 0/957 | 0/957 | 9.23e+18 | 7.95 | 0.812 | 0.935 | `algorithm` | different shape: grey is a blob, green is a near-straight line |
@@ -276,15 +276,24 @@ fallback", and the fallback was already there. Only the seed was missing.
 spiral unchanged at `None` — and `CirclePackingParams` grew a `seed: Option<u32>` whose default
 is `None`, so the registered `layout.packing.circle` keeps every hashed byte it had and only the
 conformance arm opts in.
-**Measured:** `lesmis` disparity **0.517 -> 0.0895**, max gap 3.17 -> 2.70. The 20 gate models are
-untouched (they are planar and never reach the fallback). **Not exact, and the cause is now
-arithmetic**: three fixtures take the fallback (`lesmis`, `tree-balanced`, `bipartite`) and all
-three stay different, because the fallback's own reduction differs from the reference's in three
-named ways — `seed.rs` fuses nothing where `layout.py:703-705` forms one factor per pair, measures
-distance with `libm::hypot` where `np.linalg.norm` is `sqrt(x*x + y*y)`, and scales by `d*t/len`
-where numpy computes `d*(t/len)`. The `shape`/`algorithm` label stands because
-`sc_propose.py` reads the Procrustes worst (0.863 on `bipartite`) and a shape that a similarity
-does not explain is `algorithm`; with the seed closed there is no other repair this row names.
+**Measured:** `lesmis` disparity **0.517 -> 0.0895**, row max gap 3.17 -> 2.70. **Which
+fixtures this can move at all was measured, not assumed**: the fallback is taken exactly when
+`_planar_triangulation` returns `None` (`circle_packing.py:307-311`), and `networkx.check_planarity`
+over the 24 emitted fixtures finds **2 of 24 non-planar** — `lesmis` (77 nodes, 254 edges) and
+`bipartite` (14 nodes, 48 edges). So the 20 gate models and the two planar fixtures
+(`tree-balanced` is a 15-node tree, `dag-diamond` has 4 nodes and 4 edges) never read the seed,
+which is why the row's `f32` and `f64` totals did not move at all. `tree-balanced`'s own 0.418 is
+the **exact** path's residual and predates this repair.
+
+**Still not exact on the two that reach it, and the cause is now arithmetic.** The fallback's own
+reduction differs from the reference's in three named ways — `seed.rs` fuses nothing where
+`layout.py:703-705` forms one factor per pair, measures distance with `libm::hypot` where
+`np.linalg.norm` is `sqrt(x*x + y*y)`, and scales by `d*t/len` where numpy computes `d*(t/len)`.
+`lesmis` at 0.0895 is the size of that: 0.517 was the seed, 0.0895 is the arithmetic. The row
+keeps `shape`/`algorithm` because `sc_propose.py` reads the Procrustes **worst** (0.8629 on
+`bipartite`) and a shape a similarity does not explain is `algorithm` by that rule — which is at
+least the right neighbourhood, and unlike `SPRING`'s it is not claiming a repair that would move
+nothing.
 
 ### 4. `SPRING`, `SPRING_3D` — `rng`, and the parameter was the whole repair — **done, `sg-spring-seed`**
 **File:** `crates/graph-core/src/layout/force/spring.rs`. **Change:** `SpringParams` grew
@@ -300,16 +309,17 @@ words per double, which is [`Mt19937`](../../crates/graph-core/src/rng.rs).
 **`rng` -> `arithmetic`**, tier `bitwise` -> `tolerance`. `SPRING` `f32` **341/1020 -> 866/1020**,
 `f64` 341 -> 362, max gap 10 -> 2.37e-03, Procrustes median 0.377 -> 3.77e-16.
 
-**Why `SPRING` is 866 and not 1020, and why its recorded cause is wrong.** Every one of the 154
-coordinates that is not `f32`-identical is on `lesmis`; the other 22 fixtures are exact to the
-last bit. The residual is one reduction, measured in isolation on the smallest graph that has it
-(`gate-00`, two nodes, one edge, 50 iterations, no chaos): the reference forms **one factor per
-pair**, `k*k/d**2 - A*d/k`, and sums `delta*factor` once over `j` (`layout.py:703-705`), while
-`forces.rs:118-139` sums repulsion over every `j` and then subtracts attraction over `i`'s own CSR
-row — the same sum, a different rounding, and the price of not materialising an `n x n` matrix.
-Both variants on the same start differ by **1.78e-15** after the rescale. Fifty chaotic iterations
-on a 77-node 2D layout turn that into 2.37e-03; the identical kernel at `D = 3` turns it into
-2.36e-07, which is why `SPRING_3D` reaches 1020/1020 and `SPRING` does not.
+**Why `SPRING` is 866 and not 1020, and why its recorded cause is wrong.** 153 of the 154
+coordinates that are not `f32`-identical are on `lesmis` (the 24th is one coordinate of `gate-16`);
+the other 21 fixtures are exact to the last bit. The residual is one reduction, measured in
+isolation on the smallest graph that has it (`gate-00`, two nodes, one edge, 50 iterations, no
+chaos): the reference forms **one factor per pair**, `k*k/d**2 - A*d/k`, and sums `delta*factor`
+once over `j` (`layout.py:703-705`), while `forces.rs:118-139` sums repulsion over every `j` and
+then subtracts attraction over `i`'s own CSR row — the same sum, a different rounding, and the
+price of not materialising an `n x n` matrix. Both variants on the same start differ by
+**1.78e-15** after the rescale. Fifty chaotic iterations on a 77-node 2D layout turn that into
+2.37e-03; the identical kernel at `D = 3` turns it into 2.36e-07, which is why `SPRING_3D`
+reaches 1020/1020 and `SPRING` does not.
 
 `sc_propose.py` calls `arithmetic` only when the gap is also `<= 1e-6` (`ARITHMETIC_GAP`), so a
 row whose 2D chaos exceeds it falls through to `convention` — which is **not** what is wrong here:

@@ -94,23 +94,25 @@ row-major reference back over the columns; the draw *order* is unchanged by it, 
 | | **after** | 344/1020 | 808/1020 | 2.6994058996143533 | 5.297068645513404e-16 | `shape` | `algorithm` |
 
 `SPRING_3D`'s `f64` residue of 24 is one coordinate per fixture, and `CIRCLE_PACKING`'s totals do
-not move because **the 20 gate models are planar and never reach the fallback** — what moved is
-the three that do: `lesmis` Procrustes **0.517 -> 0.0895**, `tree-balanced` 0.4176,
-`bipartite` 0.8629.
+not move because **the fallback is only reachable from a non-planar graph and 22 of the 24
+fixtures are planar** — see below.
 
-### `SPRING` is 866, not 1020, and every one of the missing 154 is on one fixture
+### `SPRING` is 866, not 1020, and 153 of the missing 154 are on one fixture
 
 | fixture | coordinates | f32 identical | max gap | Procrustes |
 |---|--:|--:|--:|--:|
-| `lesmis` (77 nodes) | 231 | 78 | 2.3736557427289084e-03 | 1.663916971293011e-08 |
+| `lesmis` (77 nodes) | 231 | **78** | 2.3736557427289084e-03 | 1.663916971293011e-08 |
+| `gate-16` (18 nodes) | 54 | **53** | — | — |
 | `tree-balanced` | 45 | 45 | 9.054289717980168e-08 | 2.3562483399955027e-16 |
 | `dag-diamond` | 12 | 12 | 1.4206554421747342e-07 | 2.954715407083551e-16 |
 | `bipartite` | 42 | 42 | 2.2464913485009674e-07 | 6.87290889271226e-16 |
-| `gate-00` .. `gate-19` | 693 | 693 | — | — |
+| the other 19 `gate-*` | 639 | 639 | — | — |
 
-22 of 23 fixtures are `f32`-identical to the last bit. `lesmis` is not, and its **Procrustes
-disparity is 1.7e-08** — the drawing is the reference's shape; only the last bits of the
-coordinates are not. That is what one ulp of arithmetic looks like after 50 chaotic iterations.
+**21 of the 23 measured fixtures are `f32`-identical to the last bit, and `gate-16` is off by one
+coordinate out of 54.** `lesmis` carries the other 153. Its **Procrustes disparity is 1.7e-08** —
+the drawing is the reference's *shape*; only the last bits of the coordinates are not. That is what
+one ulp of arithmetic looks like after 50 chaotic iterations, and the fact that 21 fixtures land
+on the last bit at all is the seed being right rather than merely close.
 
 ### The one reduction that names it, measured on the smallest graph that has it
 
@@ -170,15 +172,41 @@ Recommendation: **(2) first**, because it is a measurement rule and costs no lay
 The parameters are already the reference's and were not touched — `frame = scale * 0.45` and
 `seed_iterations = max(10, min(50, 20000 // n))` (`circle_packing.py:424-429`).
 
-Three fixtures take the fallback and all three stay different, because the fallback's own
-reduction differs from the reference's in three named ways:
+**Which fixtures this can move at all, measured rather than assumed.** The fallback is taken
+exactly when `_planar_triangulation` returns `None` (`circle_packing.py:307-311`), which for
+every fixture here means the graph is not planar, so `networkx.check_planarity` over the 24
+emitted fixtures decides it:
+
+```
+lesmis           n=77   m=254  planar=False
+tree-balanced    n=15   m=15   planar=True
+dag-diamond      n=4    m=4    planar=True
+bipartite        n=14   m=48   planar=False
+--- non-planar: 2 of 24 -> ['lesmis', 'bipartite']
+```
+
+So **22 of 24 fixtures never read the seed at all** — the 20 gate models, plus `tree-balanced`
+(a 15-node tree) and `dag-diamond`. That is why the row's `f32` (808/1020) and `f64` (344/1020)
+totals are unchanged to the digit, and it corrects a claim this file made in its first draft:
+`tree-balanced`'s Procrustes 0.4176 is the **exact** path's residual, it predates this repair, and
+the seed cannot have moved it.
+
+Of the two that do reach the fallback:
+
+| fixture | Procrustes before | after | max gap after |
+|---|--:|--:|--:|
+| `lesmis` | **0.517** | **0.08949617241773522** | 0.8547108458144601 |
+| `bipartite` | (not separately recorded before) | 0.8628699456601677 | 2.60200735558757 |
+
+`lesmis` is the measurement that matters: **0.517 was the seed, 0.0895 is the arithmetic.**
+Neither is exact, because the fallback's own reduction differs from the reference's in three named
+ways:
 
 - `FrField::displacement` fuses nothing where `layout.py:703-705` forms one factor per pair;
 - it measures distance with `libm::hypot` where `np.linalg.norm` is `sqrt(x*x + y*y)`;
 - it scales by `d * t / len` where numpy computes `d * (t / len)` (`layout.py:711`).
 
-`lesmis` at 0.0895 is the measure of that: 0.517 was the seed, 0.0895 is the arithmetic. The row
-keeps `shape`/`algorithm` because `sc_propose.py` reads the Procrustes **worst** (0.8629 on
+The row keeps `shape`/`algorithm` because `sc_propose.py` reads the Procrustes **worst** (0.8629 on
 `bipartite`) and a shape a similarity does not explain is `algorithm` by that rule — which is at
 least the right neighbourhood, and unlike `SPRING`'s it is not claiming a repair that would move
 nothing.
@@ -211,6 +239,8 @@ scripts/orch/gr cargo run -q --release -p graph-cli -- emit-spring-fixtures --se
 docker run ... ge-python-oracle python3 harness/oracle-spring.py target/spring-fixtures-check20
 scripts/orch/gr cargo run -q --release -p graph-cli -- oracle-spring --dir target/spring-fixtures-check20 -> 0
 scripts/orch/gr cargo run -q --release -p graph-cli -- hashgate --seeds 8  -> 0
+scripts/orch/gr -e GM_MUTATE_REFERENCE_DEGREE=9 cargo run -q --release -p graph-cli -- hashgate --seeds 8 -> 1
+docker run ... ge-python-oracle python3 /probe/planarity.py   (check_planarity over the 24 fixtures) -> 2 of 24 non-planar
 ```
 
 The spring differential above is **20 seeds, not the 1000 the gate runs**: the job brief forbids
