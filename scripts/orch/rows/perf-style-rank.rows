@@ -1,0 +1,7 @@
+studio-check|0|scripts/studio.sh check
+backend|0|scripts/studio-backend.sh
+negctl-backend|nonzero|STUDIO_BACKEND_BREAK=1 scripts/studio-backend.sh
+filters|0|scripts/studio-filters.sh
+negctl-filters|nonzero|STUDIO_FILTERS_BREAK=1 scripts/studio-filters.sh
+smoke|0|scripts/studio-smoke.sh
+negctl-smoke|nonzero|STUDIO_SMOKE_BREAK=1 scripts/studio-smoke.sh
