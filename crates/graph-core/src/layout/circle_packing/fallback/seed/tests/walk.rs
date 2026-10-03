@@ -17,7 +17,7 @@ fn a_cooled_step_moves_every_node_and_reports_the_whole_move() {
     let field = FrField {
         adjacency: &adjacency,
         n,
-        k: libm::sqrt(1.0 / f64::from(n)),
+        k: f64::sqrt(1.0 / f64::from(n)),
     };
     let mut pos = seed_positions(n);
     let t = initial_temperature(&pos);
@@ -41,7 +41,7 @@ fn a_cooled_step_moves_every_node_and_reports_the_whole_move() {
             dx * dx + dy * dy
         })
         .sum();
-    assert!((moved - libm::sqrt(recomputed)).abs() < 1e-12, "{moved}");
+    assert!((moved - f64::sqrt(recomputed)).abs() < 1e-12, "{moved}");
 }
 
 #[test]
@@ -53,7 +53,7 @@ fn a_zero_temperature_step_moves_nothing() {
     let field = FrField {
         adjacency: &adjacency,
         n,
-        k: libm::sqrt(0.25),
+        k: f64::sqrt(0.25),
     };
     let mut pos = seed_positions(n);
     let before = pos.clone();
@@ -121,7 +121,7 @@ fn the_threshold_stops_the_walk_once_the_average_move_is_negligible() {
     let field = FrField {
         adjacency: &adjacency,
         n,
-        k: libm::sqrt(0.25),
+        k: f64::sqrt(0.25),
     };
     let mut pos = [(0.0, 0.0); 4];
     let mut temperature = 1.0_f64;

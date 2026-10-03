@@ -9,7 +9,7 @@ use super::{Cell, Host, Tier};
 use crate::bench::Plan;
 use graph_core::Grid;
 use graph_core::Stage;
-use graph_core::layout::force::{BarnesHut, YifanHu};
+use graph_core::layout::force::{BarnesHut, ParticleMesh, YifanHu};
 use graph_core::layout::{circular::ring, spiral};
 use std::path::Path;
 
@@ -97,11 +97,18 @@ fn stage_sentence(layout: &str) -> String {
         ),
         YifanHu::ID => format!(
             "the Yifan-Hu multilevel force stage (`YifanHu::run_with`): the hierarchy and every \
-             level's settle over the same three gathered passes, `TICKS` = {TICKS} ticks on the \
+             level's settle over the same passes, `TICKS` = {TICKS} ticks on the \
              coarsest level plus 48 per refinement, so the tick budget is `{TICKS} + 48 × levels` \
              and the level count is whatever the greedy coarsening reached — coarsening and \
              prolongation are serial by nature and are in every arm (passes handed to the \
              runner: {})",
+            BarnesHut::THREADED_PASSES.join(", ")
+        ),
+        ParticleMesh::ID => format!(
+            "the particle-mesh force stage (`ParticleMesh::run_with`): the same three gathered \
+             passes over the tick, with the many-body pass's cloud-in-cell deposit and its two \
+             FFTs serial by nature and in every arm, so only the deposit's gather, the link and \
+             the collide gathers are divided by the runner (passes handed to the runner: {})",
             BarnesHut::THREADED_PASSES.join(", ")
         ),
         Grid::ID => "the grid lattice (`Grid::run_with`, one `f32` product per coordinate, no \

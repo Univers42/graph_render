@@ -200,6 +200,9 @@ pub enum Command {
         /// than as clap's error naming the possibility.
         #[arg(long, value_parser = clap::builder::PossibleValuesParser::new(["d3"]))]
         oracle: String,
+        /// The force layout measured, by registry id.
+        #[arg(long, default_value = "layout.force.barnes_hut")]
+        layout: String,
         /// Number of seeds, 1..N.
         #[arg(long, default_value_t = 8, value_parser = seed_count())]
         seeds: u32,

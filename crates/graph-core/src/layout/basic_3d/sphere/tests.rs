@@ -27,9 +27,9 @@ fn the_latitudes_are_band_midpoints_so_neither_node_lands_on_a_pole() {
     // docstring says the midpoint avoids. So the check is each node's distance from the
     // axis, `sqrt(x^2 + z^2)`, which is the radius and is 0 only at a pole.
     let (x, _, z) = space(&sphere(&bare(2)).expect("runs"));
-    let radius = 5.0 * libm::sqrt(1.0 - 0.25);
+    let radius = 5.0 * f64::sqrt(1.0 - 0.25);
     for i in 0..2usize {
-        let got = libm::sqrt(f64::from(x[i]).powi(2) + f64::from(z[i]).powi(2));
+        let got = f64::sqrt(f64::from(x[i]).powi(2) + f64::from(z[i]).powi(2));
         assert!(
             (got - radius).abs() < 1e-4,
             "node {i} is {got} from the axis, not {radius}: a pole would be 0"
@@ -55,7 +55,7 @@ fn the_single_node_is_the_equator_on_the_positive_x_axis() {
 fn node_three_is_the_third_golden_angle_and_not_an_accumulation() {
     let (x, y, z) = space(&sphere(&bare(4)).expect("runs"));
     assert_eq!(y[3], -3.75_f32, "node 3 is on the last band of four");
-    let radius = libm::sqrt(1.0 - 0.75 * 0.75) * 5.0;
+    let radius = f64::sqrt(1.0 - 0.75 * 0.75) * 5.0;
     let theta = 3.0 * golden();
     assert!(
         (f64::from(x[3]) - radius * libm::cos(theta)).abs() < 1e-4,
@@ -92,7 +92,7 @@ fn x_holds_the_cosine_and_z_the_sine_not_the_other_way_round() {
     // would be checking the wrong thing.
     for i in 0..7usize {
         let latitude = f64::from(y[i]) / 5.0;
-        let radius = libm::sqrt(1.0 - latitude * latitude) * 5.0;
+        let radius = f64::sqrt(1.0 - latitude * latitude) * 5.0;
         let t = golden() * f64::from(i as u32);
         assert!(
             (f64::from(x[i]) - radius * libm::cos(t)).abs() < 1e-3,
@@ -111,7 +111,7 @@ fn x_holds_the_cosine_and_z_the_sine_not_the_other_way_round() {
     // node 0 is at `theta = 0`, where the sine column is exactly 0 and the cosine
     // column carries the node's whole radius.
     assert!(f64::from(z[0]).abs() < 1e-6, "node 0 is at theta = 0");
-    let first = libm::sqrt(1.0 - f64::from(y[0]).powi(2) / 25.0) * 5.0;
+    let first = f64::sqrt(1.0 - f64::from(y[0]).powi(2) / 25.0) * 5.0;
     assert!((f64::from(x[0]) - first).abs() < 1e-4, "x[0] is {first}");
 }
 
@@ -122,7 +122,7 @@ fn every_node_is_on_the_shell_across_sizes() {
     for n in [1u32, 2, 3, 5, 9, 17, 64, 257] {
         let (x, y, z) = space(&sphere(&bare(n)).expect("runs"));
         for i in 0..n as usize {
-            let radius = libm::sqrt(
+            let radius = f64::sqrt(
                 f64::from(x[i]).powi(2) + f64::from(y[i]).powi(2) + f64::from(z[i]).powi(2),
             );
             assert!((radius - 5.0).abs() < 1e-3, "n={n} node {i} at {radius}");

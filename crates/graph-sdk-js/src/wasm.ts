@@ -40,6 +40,7 @@ export interface RawExports {
   gm_release(handle: number): void;
   gm_last_error(): number;
   gm_force_session_create(graph: number, paramsPtr: number, paramsLen: number): number;
+  gm_force_session_create_mesh(graph: number, paramsPtr: number, paramsLen: number): number;
   gm_force_session_set_params(session: number, paramsPtr: number, paramsLen: number): number;
   gm_force_session_params(session: number): number;
   gm_force_session_tick(session: number, ticks: number): number;
@@ -63,7 +64,7 @@ const EXPORT_NAMES: { readonly [K in keyof RawExports]: true } = {
   gm_column_len: true, gm_snapshot_json: true, gm_snapshot_bytes: true, gm_post_count: true,
   gm_post_id: true, gm_post_run: true, gm_analysis_count: true, gm_analysis_id: true,
   gm_analysis_run: true, gm_release: true, gm_last_error: true,
-  gm_force_session_create: true, gm_force_session_set_params: true,
+  gm_force_session_create: true, gm_force_session_create_mesh: true, gm_force_session_set_params: true,
   gm_force_session_params: true, gm_force_session_tick: true, gm_force_session_alpha: true,
   gm_force_session_reheat: true, gm_force_session_pin: true, gm_force_session_unpin: true,
   gm_force_session_unpin_all: true, gm_force_session_column_ptr: true,
@@ -74,12 +75,15 @@ const EXPORT_NAMES: { readonly [K in keyof RawExports]: true } = {
  * (`docs/contract/wasm-abi.md` "Exports"). */
 export const ABI_VERSION = 1;
 
-function requireExports(instance: WebAssembly.Instance): RawExports {
-  const missing = Object.keys(EXPORT_NAMES).filter((name) => !(name in instance.exports));
+/** `instance`'s exports checked against this SDK. `memory` is given when the module imports
+ * its memory instead of exporting it (the threads artifact, `threads.ts`). */
+export function requireExports(instance: WebAssembly.Instance, memory?: WebAssembly.Memory): RawExports {
+  const raw = memory === undefined ? instance.exports : { ...instance.exports, memory };
+  const missing = Object.keys(EXPORT_NAMES).filter((name) => !(name in raw));
   if (missing.length > 0) {
     throw new Error(`module lacks ${missing.join(", ")}: it is older than this SDK; rebuild it`);
   }
-  const exports = unsignedResults(instance.exports);
+  const exports = unsignedResults(raw);
   const reported = exports.gm_abi_version();
   if (reported !== ABI_VERSION) {
     throw new Error(`module speaks ABI version ${reported}, this SDK speaks ${ABI_VERSION}: build both from one tree`);
@@ -120,7 +124,7 @@ export function toU32(value: number): number {
   return value >>> 0;
 }
 
-function killSwitchIsOn(): boolean {
+export function killSwitchIsOn(): boolean {
   return (globalThis as { __GM_DISABLE_WASM__?: boolean }).__GM_DISABLE_WASM__ === true;
 }
 
@@ -177,7 +181,7 @@ export async function loadMotor(source: WasmSource): Promise<RawExports> {
   }
   if (singleton !== null) return singleton;
   singleton = compile(source)
-    .then(requireExports)
+    .then((instance) => requireExports(instance))
     .catch((error: unknown) => {
       initFailed = error;
       singleton = null;

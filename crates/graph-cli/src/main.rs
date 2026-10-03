@@ -100,7 +100,11 @@ fn main() -> ExitCode {
             layout: &layout,
         }),
         Command::DeterminismProbe { out } => determinism_probe::run(&out),
-        Command::Stress { oracle, seeds } => stress::run(&oracle, seeds),
+        Command::Stress {
+            oracle,
+            layout,
+            seeds,
+        } => stress::run(&oracle, &layout, seeds),
         Command::Bench(plan) => bench::run(&plan),
         Command::Tick(plan) => bench::tick::run(&plan),
     }

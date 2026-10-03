@@ -258,7 +258,7 @@ fn settle(ctx: &Ctx, q: &Query, key: u32, gap: Gap) -> Option<Gap> {
         l += dy * dy;
     }
     if l < ctx.dmin2 {
-        l = libm::sqrt(ctx.dmin2 * l);
+        l = f64::sqrt(ctx.dmin2 * l);
     }
     Some(Gap { dx, dy, l })
 }

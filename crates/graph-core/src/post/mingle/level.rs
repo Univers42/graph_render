@@ -149,8 +149,8 @@ pub fn prox(a: (P, P), b: (P, P)) -> f64 {
     sum
 }
 
-/// Euclidean distance. `libm`'s `sqrt`, never `powf` or `mul_add` (D1, D2).
+/// Euclidean distance. IEEE-754's `sqrt`, never `powf` or `mul_add` (D1, D2).
 pub fn dist(a: P, b: P) -> f64 {
     let (dx, dy) = (a[0] - b[0], a[1] - b[1]);
-    libm::sqrt(dx * dx + dy * dy)
+    f64::sqrt(dx * dx + dy * dy)
 }

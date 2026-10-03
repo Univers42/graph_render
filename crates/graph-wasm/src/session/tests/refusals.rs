@@ -4,8 +4,8 @@
 //! Split from `tests.rs` by the house's 300-line limit. All native (C21).
 
 use super::super::{
-    PARAMS_LEN, Status, alpha, column, create, params_of, pin, reheat, release, reset, set_params,
-    tick, to_wire, unpin, unpin_all, with,
+    Engine, PARAMS_LEN, Status, alpha, column, create, params_of, pin, reheat, release, reset,
+    set_params, tick, to_wire, unpin, unpin_all, with,
 };
 use super::fixture::{bits, model, params, session_over, wire_of};
 use crate::errors::Code;
@@ -30,12 +30,12 @@ fn the_status_words_are_one_and_two() {
 #[test]
 fn ids_are_issued_from_one_and_never_reused() {
     reset();
-    let a = create(&model(2, 3), params()).expect("first");
-    let b = create(&model(2, 3), params()).expect("second");
+    let a = create(&model(2, 3), params(), Engine::BarnesHut).expect("first");
+    let b = create(&model(2, 3), params(), Engine::BarnesHut).expect("second");
     assert_eq!((a, b), (1, 2), "0 stays the failure value");
     release(a).expect("released");
     assert_eq!(
-        create(&model(2, 3), params()),
+        create(&model(2, 3), params(), Engine::BarnesHut),
         Ok(3),
         "the freed id is never reissued"
     );
@@ -127,13 +127,16 @@ fn a_session_is_never_created_with_parameters_it_would_refuse() {
         },
     ] {
         assert_eq!(
-            create(&model(2, 4), bad),
+            create(&model(2, 4), bad, Engine::BarnesHut),
             Err(Code::SessionRefused),
             "{bad:?}"
         );
     }
     assert_eq!(
-        tick(create(&model(2, 4), params()).expect("only a valid one"), 1),
+        tick(
+            create(&model(2, 4), params(), Engine::BarnesHut).expect("only a valid one"),
+            1
+        ),
         Ok(Status::Running),
         "and the first valid creation is the first id"
     );

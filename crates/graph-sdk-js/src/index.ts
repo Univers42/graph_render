@@ -18,7 +18,7 @@ import { ColumnViews } from "./views.ts";
 import { ForceSession } from "./force.ts";
 import { AnalysisRefusedError, BuildRefusedError, ContractRefusedError, InvalidHandleError } from "./errors.ts";
 import { PostRefusedError, RunRefusedError, WasmUnavailableError, codeName } from "./errors.ts";
-import { ColumnId, type AnalysisResult, type Column, type ForceParams, type Handle } from "./types.ts";
+import { ColumnId, type AnalysisResult, type Column, type ForceEngine, type ForceParams, type Handle } from "./types.ts";
 import type { MotorOptions, PostResult, RunResult } from "./types.ts";
 import { parseAnalysisFace } from "./analysis-face.ts";
 import { INVALID_HANDLE_CODE, NO_GEOMETRY_CODE, decoder, frame, invoke, lastError } from "./calls.ts";
@@ -27,9 +27,11 @@ import { checkOptions } from "./options.ts";
 import { readKinds, type GeometryKinds } from "./geometry-kinds.ts";
 import { Registries } from "./registries.ts";
 import { buildStaged } from "./staging.ts";
+import { loadThreaded } from "./threads.ts";
 
 export type { WasmSource } from "./wasm.ts";
 export { resetForTests } from "./wasm.ts";
+export { serveHelper, type HelperStart, type MotorThreads } from "./threads.ts";
 export * from "./errors.ts";
 export * from "./types.ts";
 export { ForceSession, PARAMS_BYTES, encodeParams, decodeParams } from "./force.ts";
@@ -63,7 +65,7 @@ export class Motor {
   static async create(source: WasmSource, options?: MotorOptions): Promise<Motor> {
     checkOptions(options);
     try {
-      const exports = await loadMotor(source);
+      const exports = await (options?.threads === undefined ? loadMotor(source) : loadThreaded(source, options.threads));
       return new Motor(exports, null);
     } catch (error) {
       const failure = error instanceof WasmUnavailableError ? error : new WasmUnavailableError("wasm module failed to load", error);
@@ -300,14 +302,16 @@ export class Motor {
    *  running, and the session is released with its own {@link ForceSession.release}.
    *
    *  The two have separate id spaces and separate error codes (`InvalidHandle` against
-   *  `InvalidSession`), so a caller debugging a dead one is never sent looking at the other. */
-  forceSession(handle: Handle, params?: Partial<ForceParams>): ForceSession {
-    return new ForceSession(this.#requireLoaded(), handle, params);
+   *  `InvalidSession`), so a caller debugging a dead one is never sent looking at the other.
+   *
+   *  `engine` picks the tick ({@link ForceEngine}); every other method is the same for both. */
+  forceSession(handle: Handle, params?: Partial<ForceParams>, engine?: ForceEngine): ForceSession {
+    return new ForceSession(this.#requireLoaded(), handle, params, engine);
   }
 }
 
 /** Loads the wasm motor (once per session — see `wasm.ts`) and returns a {@link Motor}
- * bound to it. `options` this phase accepts only `{}` or `{ exec: "auto" }` (C16); any
+ * bound to it. `options` accepts `exec: "auto"` and `threads` (C16, `threads.ts`); any
  * other shape is refused before the module is even asked to load. */
 export async function createMotor(source: WasmSource, options?: MotorOptions): Promise<Motor> {
   return Motor.create(source, options);

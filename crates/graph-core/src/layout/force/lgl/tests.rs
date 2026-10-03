@@ -83,7 +83,7 @@ fn zero_iterations_leave_the_placement_alone() {
     );
     // Area n^2 = 9, so R = sqrt(9 / pi); with two layers the spacing is R and the two
     // layer-1 children sit at angles 0 and pi around the origin.
-    let radius = libm::sqrt(9.0 / std::f64::consts::PI);
+    let radius = f64::sqrt(9.0 / std::f64::consts::PI);
     assert!((dist(&x, &y, 0, 1) - radius).abs() < 1e-5);
     assert!((dist(&x, &y, 0, 2) - radius).abs() < 1e-5);
     assert!((dist(&x, &y, 1, 2) - 2.0 * radius).abs() < 1e-5);

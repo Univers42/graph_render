@@ -124,7 +124,7 @@ pub const ANALYSIS_POST_STAGES: [Stage; 15] = [
 ///
 /// **Every id here is a graph-core constant** (`<Layout>::ID` through the `Stage` trait, or
 /// the `pub const` a module with no `impl Stage` publishes), never a spelling in this file.
-pub const THREE_D_LAYOUT_STAGES: [Stage; 5] = [
+pub const THREE_D_LAYOUT_STAGES: [Stage; 7] = [
     Stage {
         id: graph_core::layout::basic_3d::sphere::ID,
         env: "GM_MUTATE_BASIC3D_SPHERE_NODES",
@@ -149,6 +149,20 @@ pub const THREE_D_LAYOUT_STAGES: [Stage; 5] = [
         id: graph_core::layout::force::spring::ID_3D,
         env: "GM_MUTATE_FORCE_SPRING3D_NODES",
         record: "hashgate-control-force-spring3d-nodes",
+    },
+    // knobs-3d-new, step 1: the two 3D layouts that were registered with no control of their
+    // own. Both read the node count and nothing else — `basic_3d.rs`'s module doc says so —
+    // so a re-drawn model is the same sharp probe the three above it use, and adding one
+    // more node is exactly what moves them.
+    Stage {
+        id: graph_core::layout::basic_3d::spiral::ID,
+        env: "GM_MUTATE_BASIC3D_SPIRAL_NODES",
+        record: "hashgate-control-basic3d-spiral-nodes",
+    },
+    Stage {
+        id: graph_core::layout::basic_3d::bipartite_3d::ID,
+        env: "GM_MUTATE_BIPARTITE_3D_NODES",
+        record: "hashgate-control-bipartite-3d-nodes",
     },
 ];
 
