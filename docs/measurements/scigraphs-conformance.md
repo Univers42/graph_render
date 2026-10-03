@@ -85,7 +85,7 @@ one that unlocks the rest.
 | cause | test | what it means |
 |---|---|---|
 | `reference-absent` | the arm produced no comparable coordinates | the row cannot be measured here |
-| `arithmetic` | disparity <= 1e-3 **and** max gap <= 1e-6 | same method, different summation order or `libm` |
+| `arithmetic` | disparity <= 1e-3 **and** at most one fixture over max gap 1e-6 | same method, different summation order or `libm` |
 | `rng` | the row declares a `layout seed` gap | the two arms cannot start alike; undoing the scale would not make the bytes agree |
 | `convention` | disparity <= 1e-6 | the same shape to a part in a million, and what is left is units, centring, axis order or `z` |
 | `algorithm` | anything else | a different method or a different step |
@@ -94,6 +94,20 @@ one that unlocks the rest.
 `GRID` has a disparity of 5e-32 and an absolute gap of 4.0: the same lattice, in a different
 unit at a different origin. Calling that `arithmetic` because the shape is exact would send a
 repair job to chase a summation order that is already right.
+
+**The gap half counts the fixtures that carry it, and the count is one.** A rule on the
+*largest* gap put `SPRING` one chaotic fixture away from `convention`: it is `f32`-identical on
+21 of its 24 fixtures and off by 2.37e-03 on `lesmis` alone, which no scale, centre or axis
+order accounts for. One fixture may carry the residual, because a reduction difference is a
+fixed thing and the fixture that shows it is the one with the most chaotic iterations; two may
+not, because a second one makes the difference systematic rather than amplified — and that is
+what a unit mismatch measures. `GRAPHVIZ_TWOPI` carries the whole 90.0-unit step on **all 24**
+of its fixtures and `GRID` carried 4.0 on all 24 before `sg-grid-scale` fixed its scale, so both
+stay conventions, and no other row of this matrix moved. A row that declares a `layout seed` gap
+is excluded from the widened half: its arms never started alike, so a residual on one fixture is
+the seed and not the summation order. The constant is `sc_propose.ARITHMETIC_RESIDUAL_FIXTURES`
+and `harness/scigraphs-conformance/test_sc_propose.py` holds it to those three measured cases;
+see `docs/measurements/sg-propose-classify.md`.
 
 **The `convention` threshold is 1e-6 and it is measured, not chosen.** Every row this
 classifier calls a convention measures between 5e-32 (`GRID`) and 4e-10 (`GRAPHVIZ_PATCHWORK`);
@@ -125,7 +139,7 @@ Procrustes-aligned over it**, so a green point sitting on a grey point is a node
 |--:|---|---|---|--:|--:|--:|--:|--:|--:|--:|---|---|
 | 1 | `RANDOM` | `layout.random` | `apply_graph_layout` | `tolerance` | 0/1020 | 1020/1020 | 2.68e+08 | 2.35e-07 | 2.28e-15 | 2.95e-15 | `arithmetic` | **same shape** — the green cloud sits on the grey one, node for node; the `f64` column cannot be exact because the motor is `f32` |
 | 2 | `GRID` | `layout.grid` | `apply_graph_layout` | `tolerance` | 842/1020 | 1020/1020 | 2.39e+08 | 2.12e-07 | 3.39e-32 | 3.96e-15 | `arithmetic` | **same shape** — the aligned motor lands on every grey lattice point; only the last `f32` rounding is left |
-| 3 | `SPRING` | `layout.force.spring` | `apply_graph_layout` | `bitwise` | 362/1020 | 866/1020 | 5.17e+13 | 2.37e-03 | 3.77e-16 | 1.66e-08 | `convention` | **same shape on every fixture** (Procrustes median 3.77e-16, worst 1.66e-08), and `f32`-identical on 21 of the 23 measured ones. 153 of the 154 coordinates that are not identical are on `lesmis` (78/462) — the 77-node fixture whose 50 chaotic iterations amplify a 1.6-ulp reduction difference to 2.4e-3; `gate-16` carries the last one (53/54). The `convention` label is the classifier's, and it is wrong — see Repair 4 |
+| 3 | `SPRING` | `layout.force.spring` | `apply_graph_layout` | `tolerance` | 362/1020 | 866/1020 | 5.17e+13 | 2.37e-03 | 3.77e-16 | 1.66e-08 | `arithmetic` | **same shape on every fixture** (Procrustes median 3.77e-16, worst 1.66e-08), and `f32`-identical on 21 of the 23 measured ones. 153 of the 154 coordinates that are not identical are on `lesmis` (78/462) — the 77-node fixture whose 50 chaotic iterations amplify a 1.6-ulp reduction difference to 2.4e-3; `gate-16` carries the last one (53/54). The `convention` label this row carried until 2026-10-03 was the classifier's, and it was wrong: the residual is on **one** fixture of 24, which is what `arithmetic` now counts — see Repair 4 |
 | 4 | `SPRING_3D` | `layout.force.spring3d` | `apply_graph_layout` | `tolerance` | 24/1020 | 1020/1020 | 2.68e+08 | 2.36e-07 | 5.03e-16 | 6.67e-16 | `arithmetic` | **same shape** — the same seed, the same kernel and the same split reduction as `SPRING`, and the third column absorbs the whole difference: 1020/1020 `f32` |
 | 5 | `CIRCLE_PACKING` | `layout.packing.circle` | `apply_graph_layout` | `shape` | 344/1020 | 808/1020 | 9.22e+18 | 2.70 | 5.3e-16 | 0.863 | `algorithm` | **bit-for-bit the same packing on the 20 gate models** (5e-16) and on the two planar fixtures. `lesmis` — the non-planar one, so the only fixture whose seed moved — goes **0.517 -> 0.0895**; `bipartite` is non-planar too and still differs (0.863); `tree-balanced` (0.418) is a **tree**, so it takes the exact path and did not move |
 | 6 | `FORCEATLAS2` | `layout.forceatlas2` | `apply_graph_layout` | `bitwise` | 0/1020 | 0/1020 | 9.25e+18 | 183 | 0.241 | 0.927 | `rng` | different shape |
@@ -321,14 +335,18 @@ price of not materialising an `n x n` matrix. Both variants on the same start di
 2.37e-03; the identical kernel at `D = 3` turns it into 2.36e-07, which is why `SPRING_3D`
 reaches 1020/1020 and `SPRING` does not.
 
-`sc_propose.py` calls `arithmetic` only when the gap is also `<= 1e-6` (`ARITHMETIC_GAP`), so a
-row whose 2D chaos exceeds it falls through to `convention` — which is **not** what is wrong here:
-no scale, centre or axis order accounts for 2.37e-03, and undoing one would move nothing. The row
-is pinned as the classifier computed it rather than hand-edited, and the discrepancy is recorded
-here and in `docs/measurements/sg-spring-seed.md` rather than papered over. Closing it needs either
-the fused reduction (a change to the kernel of two registered layouts, their goldens, the
-1000-seed differential and a `--past-ceiling` benchmark) or a classifier rule that treats a
-fixture-counted residual as arithmetic.
+`sc_propose.py` used to call `arithmetic` only when the gap was also `<= 1e-6`
+(`ARITHMETIC_GAP`), so a row whose 2D chaos exceeds it fell through to `convention` — which is
+**not** what is wrong here: no scale, centre or axis order accounts for 2.37e-03, and undoing one
+would move nothing. The row was pinned as the classifier computed it rather than hand-edited, and
+the discrepancy was recorded here and in `docs/measurements/sg-spring-seed.md` rather than
+papered over. **Closed on the classifier side 2026-10-03** (`sg-propose-classify`): the rule now
+counts the fixtures carrying a residual instead of reading the largest one, and `lesmis` is the
+only one of `SPRING`'s 24 that carries it, so the row reads `tolerance`/`arithmetic` from its own
+measurement. The fused reduction is still open and is still the only repair that closes the
+**2.37e-03** itself — it is a change to the kernel of two registered layouts, their goldens, the
+1000-seed differential and a `--past-ceiling` benchmark. See
+`docs/measurements/sg-propose-classify.md`.
 
 **One defect repaired 2026-10-02, and it was not this one**
 (`docs/measurements/sg-fix-spring-temp.md`): the opening temperature read the widest of all
