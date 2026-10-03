@@ -11,6 +11,8 @@ export interface Assets {
   readonly wasmUrl: string;
   /** Ends in a slash; a fixture's path is appended. */
   readonly fixturesUrl: string;
+  /** Threads that tick a live settle, the motor worker's own included (`threads.ts`); its default when left out. */
+  readonly threads?: number;
 }
 
 export interface Catalog {
@@ -54,7 +56,7 @@ export interface AnalysisReport {
 }
 
 export type Request =
-  | { readonly type: "open"; readonly wasmUrl: string }
+  | { readonly type: "open"; readonly wasmUrl: string; readonly threads?: number }
   | { readonly type: "load"; readonly source: Source; readonly fixturesUrl: string }
   | { readonly type: "layout"; readonly layoutId: string; readonly postId: string | null }
   | { readonly type: "analysis"; readonly analysisId: string }
