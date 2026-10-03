@@ -36,6 +36,6 @@ ensure_image "$image" || exit 2
 
 commit=$(git -C "$root" rev-parse --short HEAD 2>/dev/null || echo unknown)
 mkdir -p "$root/target"
-exec docker run --rm --memory 4g --memory-swap 4g -v "$root:/w" -w /w/deploy/three "$image" \
+exec "$root/scripts/orch/drun" --rm --memory 4g --memory-swap 4g -v "$root:/w" -w /w/deploy/three "$image" \
   python3 gl.py --dist /w/app/dist --out "/w/target/studio-3d-gl/$label" \
   --commit "$commit" "${break[@]}"

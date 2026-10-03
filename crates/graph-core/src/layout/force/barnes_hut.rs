@@ -135,8 +135,8 @@ impl Stage for BarnesHut {
 impl BarnesHut {
     /// The passes of a tick that are handed to the [`crate::exec::Runner`] as range
     /// kernels, listed in the tick's own order: the link forces (one output per edge), the
-    /// link gather, then `charge`, then `collide`, with `center` between the third and
-    /// fourth and never threaded.
+    /// link gather, the charge arena's aggregate (one output per cell), then `charge`, then
+    /// `collide`, with `center` between the fourth and fifth and never threaded.
     ///
     /// The list exists because a measurement report states it: every speedup a threaded
     /// tier shows is this list's share of the stage, so a pass threaded without being
@@ -146,7 +146,13 @@ impl BarnesHut {
     /// fails if the two ever disagree in count. The **order** is a claim about
     /// [`Sim::tick`]'s body, written here for the reader; a test that could hold it would
     /// need the kernels to name themselves, which `StepRange` deliberately does not ask.
-    pub const THREADED_PASSES: [&'static str; 4] = ["link forces", "link", "charge", "collide"];
+    pub const THREADED_PASSES: [&'static str; 5] = [
+        "link forces",
+        "link",
+        "charge aggregate",
+        "charge",
+        "collide",
+    ];
 
     /// The same layout, with the many-body pass handed to `runner` over `workers` workers.
     ///

@@ -126,7 +126,7 @@ test("a refusal is an answer, not a crash", { skip: SKIP }, async () => {
     type: "failed",
     error: {
       title: "IngestRefusal", code: null, detail: "bad.json: not JSON",
-      hint: "The document is not the ingest shape. Fix the JSON, or load one of the bundled fixtures.",
+      hint: "The document is not the ingest shape, or is larger than the studio opens. Fix the JSON, open a smaller graph, or load one of the bundled fixtures.",
     },
   });
   const unknown = await serve(session, { type: "layout", layoutId: "layout.nope", postId: null });

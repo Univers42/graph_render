@@ -31,7 +31,7 @@ const ACTIONS: readonly Action<State, null>[] = [
     params: [
       { name: "nodes", kind: "int", title: "Nodes", min: 2, max: 500, value: (state) => state.nodes },
       { name: "ratio", kind: "number", title: "Ratio", min: 0, max: 1, value: () => 0.5 },
-      { name: "name", kind: "text", title: "Name", value: () => "graph" },
+      { name: "name", kind: "text", title: "Name", max: 8, value: () => "graph" },
       { name: "dark", kind: "flag", title: "Dark", value: (state) => state.dark },
     ],
     run: () => ({ message: "generated" }),
@@ -89,6 +89,7 @@ const BAD_VALUES: readonly (readonly [string, Record<string, unknown>, RegExp])[
   ["a flag that is neither on nor off", { dark: "maybe" }, /`dark`.*on or off/],
   ["not-a-number", { ratio: Number.NaN }, /`ratio`.*number/],
   ["an object", { name: { a: 1 } }, /`name`/],
+  ["text longer than its most", { name: "abcdefghi" }, /`name`.*9 characters; at most 8/],
 ];
 
 for (const [name, raw, pattern] of BAD_VALUES) {
@@ -96,6 +97,10 @@ for (const [name, raw, pattern] of BAD_VALUES) {
     assert.throws(() => registry.resolve("synthetic", raw, STATE), refusal("bad-value", pattern));
   });
 }
+
+test("a text refused for its length is not echoed: it may be a whole file", () => {
+  assert.throws(() => registry.resolve("synthetic", { name: "secret-text" }, STATE), (error: unknown) => error instanceof Error && !error.message.includes("secret"));
+});
 
 test("a choice is matched exactly, then by the end of its id", () => {
   assert.equal(matchChoice("layout.grid", STATE.layouts), "layout.grid");

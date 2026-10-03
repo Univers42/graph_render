@@ -20,6 +20,7 @@
 
 pub mod analysis;
 mod arena;
+pub mod budget;
 mod columns;
 mod csr;
 mod csr_petgraph;

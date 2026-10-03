@@ -34,6 +34,6 @@ source "$root/scripts/orch/image.sh"
 ensure_image "$image" || exit 2
 
 mkdir -p "$root/target"
-exec docker run --rm --memory 4g --memory-swap 4g -v "$root:/w" -w /w/deploy/nav "$image" \
+exec "$root/scripts/orch/drun" --rm --memory 4g --memory-swap 4g -v "$root:/w" -w /w/deploy/nav "$image" \
   python3 smoke.py --dist /w/app/dist --out "/w/target/studio-smoke/$label" \
   --commit "$(git -C "$root" rev-parse --short HEAD)" "${break[@]}" "${coi_break[@]}"
