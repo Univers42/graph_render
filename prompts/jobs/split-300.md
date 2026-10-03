@@ -2,20 +2,23 @@
 
 Read `scripts/orch/common.md` first. A pure move: no behaviour, no output and no public path changes.
 
-Fact (2026-10-02, after the merge-p12-t4b merge, `git ls-files 'crates/*.rs' | xargs wc -l`):
+Fact (2026-10-03 23:00, develop 2f413858, `git ls-files 'crates/*.rs' | xargs wc -l`):
 
 | Lines | File |
 |---|---|
+| 437 | `crates/graph-core/src/post/tests.rs` |
+| 398 | `crates/graph-core/src/layout/graphviz/dot/rank_fixture_edges.rs` |
 | 394 | `crates/graph-core/src/layout/graphviz/osage/tests.rs` |
-| 335 | `crates/graph-cli/src/capabilities/tests/registry.rs` |
 | 325 | `crates/graph-core/src/layout/graphviz/circo/tests.rs` |
-| 325 | `crates/graph-core/src/layout/forceatlas2/state.rs` |
-| 316 | `crates/graph-core/src/layout/force/session.rs` |
-| 315 | `crates/graph-cli/src/snapshot_cmd/tests.rs` |
-| 313 | `crates/graph-core/src/layout/force/session/tests/verbs.rs` |
+| 311 | `crates/graph-cli/src/snapshot_cmd/tests.rs` |
 | 310 | `crates/graph-core/src/layout/graphviz/neato/solve.rs` |
-| 306 | `crates/graph-cli/src/oracle_python/cli.rs` |
-| 304 | `crates/graph-core/src/registry.rs` |
+
+Skip, owned by branches being merged into develop right now: everything under
+`crates/graph-cli/src/hashgate/` (ux-params-abi), `crates/graph-cli/src/oracle_python/`
+(sg-spectral-mds), `crates/graph-wasm/src/exports/build.rs` and `crates/graph-core/src/registry*`
+(sg-fa2-forcesim, merge-p12-t4b-2), `crates/graph-core/src/layout/force/kamada_kawai.rs`.
+`rank_fixture_edges.rs` is fixture data: split it only if it splits along a seam it has (one fixture
+per child); otherwise leave it and say so.
 
 Re-run the count on your tree first; the table may have moved. Skip a file a queued or running job
 also edits (`scripts/orch/oc-status.sh`, and the `Paths:` line of every brief named in
