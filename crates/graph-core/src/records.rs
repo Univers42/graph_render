@@ -103,41 +103,12 @@ pub struct EdgeView<'a> {
     pub child_first: bool,
 }
 
-/// An edge's fields, borrowed, with endpoints as **node row numbers** instead of ids.
-///
-/// The columnar ingest path's edge (`docs/contract/ingest-columns.md`): row `r` of the node
-/// columns is the node whose dense index is `r`, which only holds because that path *refuses*
-/// a duplicate id instead of dropping it. So no lookup happens here — the endpoints arrive
-/// already resolved, and `admit_edge` takes them as they came.
-#[derive(Debug, Clone, Copy)]
-pub struct RowEdge<'a> {
-    /// Content-addressed id.
-    pub id: &'a str,
-    /// Dense index of the source node.
-    pub source_row: u32,
-    /// Dense index of the target node.
-    pub target_row: u32,
-    /// Kind.
-    pub kind: EdgeKind,
-    /// Label.
-    pub label: &'a str,
-    /// Strength.
-    pub strength: f64,
-    /// Directed flag.
-    pub directed: bool,
-    /// Backing row id.
-    pub record_id: Option<&'a str>,
-    /// `source_row` is the child (`child_of`).
-    pub child_first: bool,
-}
-
 /// An edge's fields with the endpoints left out: everything a topology stores about an edge
 /// except which nodes it joins.
 ///
-/// Both [`EdgeView`] and [`RowEdge`] produce one, and that is the whole reason it exists —
-/// the two disagree only about how an endpoint is named (id, or row number), and
-/// `Topology::admit_edge` takes the endpoints as a resolved pair, so the rest of the push can
-/// be one function over both instead of a copy of itself.
+/// [`EdgeView::fields`] produces one: `Topology::admit_edge` takes the endpoints as a pair
+/// already resolved to dense indices, so it needs everything else and nothing about how the
+/// endpoints were named.
 #[derive(Debug, Clone, Copy)]
 pub struct EdgeFields<'a> {
     /// Content-addressed id.
@@ -157,21 +128,6 @@ pub struct EdgeFields<'a> {
 }
 
 impl EdgeView<'_> {
-    /// This edge's endpoint-free fields.
-    pub fn fields(&self) -> EdgeFields<'_> {
-        EdgeFields {
-            id: self.id,
-            kind: self.kind,
-            label: self.label,
-            strength: self.strength,
-            directed: self.directed,
-            record_id: self.record_id,
-            child_first: self.child_first,
-        }
-    }
-}
-
-impl RowEdge<'_> {
     /// This edge's endpoint-free fields.
     pub fn fields(&self) -> EdgeFields<'_> {
         EdgeFields {

@@ -15,9 +15,9 @@ mod error;
 mod layout;
 
 pub use error::ColumnsError;
+pub use row::{EdgeCells, NodeCells};
 
-use check::{cell, cell_at};
-use layout::ABSENT;
+use check::cell_at;
 
 /// The nineteen columns, each borrowed, in the order the contract lists them. Structure of
 /// arrays: row `r` of a column is one `u32` at `4 * r`, so reading a row touches one cache
@@ -34,15 +34,15 @@ pub(super) struct Columns<'a> {
     pub id: &'a [u8],
     /// Node kinds, string indices.
     pub kind: &'a [u8],
-    /// Node database ids, string indices or [`ABSENT`].
+    /// Node database ids, string indices or [`ABSENT`](layout::ABSENT).
     pub database: &'a [u8],
     /// Node sources, string indices.
     pub source: &'a [u8],
     /// Node labels, string indices.
     pub label: &'a [u8],
-    /// Node groups, string indices or [`ABSENT`].
+    /// Node groups, string indices or [`ABSENT`](layout::ABSENT).
     pub group: &'a [u8],
-    /// Node icons, string indices or [`ABSENT`].
+    /// Node icons, string indices or [`ABSENT`](layout::ABSENT).
     pub icon: &'a [u8],
     /// Node note flags, `0` or `1`.
     pub has_note: &'a [u8],
@@ -56,7 +56,7 @@ pub(super) struct Columns<'a> {
     pub edge_kind: &'a [u8],
     /// Edge labels, string indices.
     pub edge_label: &'a [u8],
-    /// Edge backing row ids, string indices or [`ABSENT`].
+    /// Edge backing row ids, string indices or [`ABSENT`](layout::ABSENT).
     pub record_id: &'a [u8],
     /// Edge directed flags, `0` or `1`.
     pub directed: &'a [u8],
@@ -182,14 +182,6 @@ impl<'a> ColumnsDoc<'a> {
         let lo = cell_at(self.offsets, at)?;
         let hi = cell_at(self.offsets, at + 1)?;
         self.blob.get(lo as usize..hi as usize)
-    }
-
-    /// An optional column's cell as text: `u32::MAX` is absent, anything else is an entry.
-    fn optional(&self, column: &[u8], row: u32) -> Option<&'a str> {
-        match cell(column, row) {
-            ABSENT => None,
-            index => self.text(index),
-        }
     }
 }
 

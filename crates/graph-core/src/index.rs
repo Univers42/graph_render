@@ -9,7 +9,9 @@ use crate::arena::{CapacityError, FixedState, Interned, StringArena};
 use crate::columns::{EdgeColumns, NodeColumns, NodeKind};
 use crate::csr::Csr;
 use crate::edgekind::EdgeKind;
-use crate::records::{EdgeFields, EdgeRecord, NodeRecord, NodeView};
+use crate::records::{EdgeRecord, NodeRecord, NodeView};
+#[cfg(test)]
+use admit::next_index;
 use indexmap::{IndexMap, IndexSet};
 use slots::RowBySlot;
 
@@ -101,21 +103,6 @@ pub fn nodes_equal(a: &NodeView<'_>, b: &NodeView<'_>) -> bool {
         && a.icon == b.icon
 }
 
-/// A dense index for the next entry of a set already holding `len`, or the refusal.
-fn next_index(len: usize, what: &'static str) -> Result<u32, CapacityError> {
-    u32::try_from(len)
-        .ok()
-        .filter(|&i| i < u32::MAX)
-        .ok_or(CapacityError { what })
-}
-
-fn intern_opt(
-    strings: &mut StringArena,
-    value: Option<&str>,
-) -> Result<Option<Interned>, CapacityError> {
-    value.map(|v| strings.intern(v)).transpose()
-}
-
 impl Topology {
     /// An empty topology with room for `nodes` node rows and `edges` edge rows: the id sets
     /// and the four SoA columns. The arena is left to grow — a caller that knows the
@@ -138,65 +125,12 @@ impl Topology {
         Ok(())
     }
 
-    /// Keeps `node` unless its id is taken: first wins (`model.ts:37-40`). One arena probe
-    /// and one row lookup per node: a taken id is already interned, so `intern` adds nothing.
-    ///
-    /// `false` means the id was already there and nothing was appended — the drop
-    /// `index_model` wants and [`index_columns`](super::index_columns) refuses.
-    fn admit_node(&mut self, node: &NodeView<'_>) -> Result<bool, CapacityError> {
-        let s = &mut self.strings;
-        let id = s.intern(node.id)?;
-        if self.node_ids.row(id).is_some() {
-            return Ok(false);
-        }
-        let row = next_index(self.nodes.id.len(), "node index")?;
-        self.node_ids.file(id, row);
-        let n = &mut self.nodes;
-        n.database.push(intern_opt(s, node.database_id)?);
-        n.source.push(s.intern(node.source)?);
-        n.label.push(s.intern(node.label)?);
-        n.group_label.push(intern_opt(s, node.group)?);
-        n.icon.push(intern_opt(s, node.icon)?);
-        n.id.push(id);
-        n.kind.push(node.kind);
-        n.weight.push(node.weight);
-        n.version.push(node.version);
-        n.has_note.push(node.has_note);
-        Ok(true)
-    }
-
     /// The dense indices of the nodes named `source` and `target`, or `None` if either is
-    /// not kept. Split out of [`admit_edge`](Self::admit_edge) so a caller that already
+    /// not kept. Split out of `admit_edge` so a caller that already
     /// holds resolved endpoints — the columnar path, where an endpoint is a row — pays no
     /// arena probe, and so `index_model` can resolve before it interns anything.
     pub(super) fn endpoints(&self, source: &str, target: &str) -> Option<(u32, u32)> {
         Some((self.node_index(source)?, self.node_index(target)?))
-    }
-
-    /// Keeps `edge` at the already-resolved endpoint indices `at`, unless its id is taken
-    /// (`model.ts:47-53`). `false` means the id was already there and nothing was appended.
-    ///
-    /// A dropped edge interns nothing, so it neither claims its id nor costs arena bytes: a
-    /// taken id is already interned, and the caller resolves the endpoints first.
-    fn admit_edge(&mut self, at: (u32, u32), edge: &EdgeFields<'_>) -> Result<bool, CapacityError> {
-        let s = &mut self.strings;
-        let id = s.intern(edge.id)?;
-        if self.edge_ids.row(id).is_some() {
-            return Ok(false);
-        }
-        let row = next_index(self.edges.id.len(), "edge index")?;
-        self.edge_ids.file(id, row);
-        let e = &mut self.edges;
-        e.label.push(s.intern(edge.label)?);
-        e.record_id.push(intern_opt(s, edge.record_id)?);
-        e.id.push(id);
-        e.source.push(at.0);
-        e.target.push(at.1);
-        e.kind.push(edge.kind);
-        e.strength.push(edge.strength);
-        e.directed.push(edge.directed);
-        e.child_first.push(edge.child_first);
-        Ok(true)
     }
 
     /// The out, in and hierarchy CSRs, fed in edge order, and the degree column. A
@@ -231,6 +165,7 @@ impl Topology {
     }
 }
 
+mod admit;
 pub(crate) mod columns;
 mod slots;
 mod view;
