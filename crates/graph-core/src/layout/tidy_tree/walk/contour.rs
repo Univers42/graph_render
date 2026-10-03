@@ -45,6 +45,25 @@ impl<'h> Walk<'h> {
     /// One pass of the contour walk: advances `vim`/`vip`, and — while both are still on
     /// the tree — shifts the inner subtree clear of the outer one and folds both
     /// contours' mods into `c`'s running sums. `false` once either side runs out.
+    ///
+    /// **The two `expect`s are a proof obligation, not an error path, and they mirror the
+    /// reference's own unguarded reads.** `tree.js`'s loop condition advances `vim`/`vip`
+    /// and only then steps the *outside* cursors — `vom = nextLeft(vom); vop =
+    /// nextRight(vop);` (`tree.js`, `apportion`) — with no guard, and the very next line
+    /// dereferences them (`som += vom.m`). In JS an exhausted cursor yields `undefined` and
+    /// that line throws a `TypeError`; here it is a panic on the same line. So this is not
+    /// a port that dropped a check the reference has, and a `StageError` would *depart* from
+    /// the oracle rather than reproduce it.
+    ///
+    /// No input is known that breaks the invariant (the outside contour is at least as deep
+    /// as the inside one, and `finish_contour`'s threads keep it so), and no unit seam
+    /// exists to test the failure path: `apportion`/`step_contour`/`finish_contour` are
+    /// private to this `impl` and need a whole `Walk`. Carrying the failure as an error
+    /// instead would also need a `StageError` variant that names a broken hierarchy
+    /// invariant, and `StageError` (`crates/graph-core/src/stage.rs`) has none — it is
+    /// `Copy` over four fixed variants (`Capacity`, `NonFinite`, `Param`, `Snapshot`), and
+    /// `Param` would misreport a proof failure as a bad parameter. Recorded `doc-only` for
+    /// that reason: this comment is the change.
     fn step_contour(&mut self, v: u32, ancestor: u32, c: &mut Contour) -> bool {
         c.vim = c.vim.and_then(|x| self.next_right(x));
         c.vip = c.vip.and_then(|x| self.next_left(x));

@@ -21,8 +21,13 @@
 //! - **Depth**: breadth first from the root, so under a virtual root the real roots sit
 //!   at depth 1.
 //!
-//! O(n + m): two passes over the CSR, one pointer walk touching each node once, one
-//! counting sort, one breadth-first pass. Exact and deterministic throughout.
+//! O(n + m) apart from two **stable comparison sorts**: [`notes`](Self::notes) is sorted
+//! once (`Hierarchy::of`, at most `2m` entries) and the cycle cuts once (`break_cycles`, at
+//! most one per disjoint cycle, so at most `n`), so the real bound is O(n + m log m). The
+//! rest is linear: two passes over the CSR, one pointer walk touching each node once, one
+//! breadth-first pass. Neither sort is a counting sort's worth of keys — note codes are a
+//! small closed set but the `index` half is a dense id, so a counting pass would need a
+//! second key anyway. Exact and deterministic throughout.
 
 use crate::arena::CapacityError;
 use crate::csr::Csr;
@@ -125,6 +130,24 @@ impl Hierarchy {
     }
 
     /// Node `v`'s depth below [`root`](Self::root); `v` may be the virtual root `n`.
+    ///
+    /// **The one-deep offset is deliberate, not a shift to undo.** Depth is counted *below*
+    /// `root`, so a single-rooted tree's root is at depth 0 and, under a virtual root, the
+    /// real roots sit at depth 1 ([`virtual_root`](Self::virtual_root) is `Some`). A caller
+    /// that wants the first real level at 0 subtracts 1 exactly when
+    /// [`virtual_root`](Self::virtual_root)` is `Some`. Both of this tree's depth consumers
+    /// are checked against that offset and neither disagrees with its reference:
+    ///
+    /// - `layout/circular.rs:72` indexes a `rings` column by it directly, so a forest leaves
+    ///   ring 0 empty — the SciGraphs convention as well: conformance row 32
+    ///   (`layout.circular.hierarchy`) is green and `f32`-identical on all 1020 coordinates,
+    ///   forest fixtures included, so the offset is the oracle's own.
+    /// - `tidy_tree`'s `normalize` uses it as `y = depth * (1 / max(depth(bottom), 1))`, a
+    ///   ratio in which a common shift cancels; the `max(1)` is what keeps a one-deep
+    ///   virtual-rooted forest off a division by zero.
+    ///
+    /// `max_depth` ([`Self::max_depth`]) inherits the offset for the same reason: it reads
+    /// the last element of [`order`](Self::order), so it is a *depth*, not a level count.
     ///
     /// # Precondition
     ///

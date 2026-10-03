@@ -178,6 +178,48 @@ fn the_virtual_root_never_reaches_the_output() {
     assert_eq!((x.len(), y.len()), (topology.node_count() as usize, 8));
 }
 
+/// **`second_walk` iterates `Hierarchy::order()`, breadth-first, where `tree.js` uses
+/// `eachBefore`'s preorder — and the two agree only because of these two facts** (see
+/// `walk.rs`'s `second_walk`): `order()[0]` is the layout root, which is what its
+/// `skip(1)` drops, and every other node comes after its **layout** parent in `order()`.
+///
+/// `Hierarchy::parent` cannot be used for the second one — it is `None` for a root hung
+/// off the virtual root (it tracks a real kept hierarchy edge), which is exactly the case
+/// a forest has — so the layout parent is recovered from `children`, the same CSR
+/// `walk::State::parent` is built from. Two roots, the smallest shape where the virtual
+/// root exists and `skip(1)` skips it.
+#[test]
+fn a_two_root_forest_orders_the_root_first_and_every_layout_parent_before_its_child() {
+    let topology = build(
+        &nodes(&["p", "a1", "a2", "b1", "b2"]),
+        &[
+            tree("p-a1", "p", "a1", "parent_of"),
+            tree("p-a2", "p", "a2", "parent_of"),
+            tree("b-b1", "b", "b1", "parent_of"),
+            tree("b-b2", "b", "b2", "parent_of"),
+        ],
+    );
+    let hierarchy = Hierarchy::of(&topology).expect("fits");
+    let root = hierarchy.root().expect("a virtual root over two roots");
+    assert_eq!(
+        root, 5,
+        "the virtual root is the last row, past the 5 real nodes"
+    );
+    let order = hierarchy.order();
+    assert_eq!(order.len(), 6, "5 real nodes plus the virtual root");
+    assert_eq!(order[0], root, "skip(1) in second_walk drops exactly this");
+    let at = |v: u32| order.iter().position(|&o| o == v).expect("in the order");
+    for &v in order.iter().skip(1) {
+        let parent = (0..=hierarchy.node_count())
+            .find(|&p| hierarchy.children(p).contains(&v))
+            .expect("every non-root node has a layout parent");
+        assert!(
+            at(parent) < at(v),
+            "layout parent {parent} of {v} is visited after it, so m[parent] is not final"
+        );
+    }
+}
+
 /// Every fixture: right shapes, no repeat run diverges, nothing non-finite, siblings
 /// never cross (Reingold–Tilford's whole point) and same-depth nodes share `y`.
 #[test]
