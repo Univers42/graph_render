@@ -5,6 +5,11 @@ Source: `docs/reviews/review-layout-tree.md`. Brief: `prompts/jobs/fix-tree-sugi
 row's prose in `crates/graph-core/src/registry/grid.rs`. Reference: `SciGraphs/core/
 scigraphs_core/mesh/layouts/hierarchical.py`.
 
+One structural move outside the findings: `mod.rs`'s `#[cfg(test)] mod measurement` (the
+crossing-count dump, 149 lines) became `sugiyama/measurement.rs`, because `mod.rs` crossed
+the 300-line house limit once `layered` grew its `Result`. Nothing in it changed but its
+indentation; the dump it writes is byte-identical.
+
 Settled and not reopened: the review's "no Brandes-Köpf" item. The reference's X phase is the
 Sugiyama-Tagawa-Toda priority method with the same `_PRIORITY_NODE_BUDGET = 200000`
 (`hierarchical.py:8-10,565-580`); `coords.rs` ports it.
@@ -72,13 +77,21 @@ cmp /tmp/opencode/fx/dag-crossings-before.json target/dag-crossings.json   # no 
 
 ## Bench, the largest-layer case
 
-`graph-cli bench --layout layout.dag.sugiyama --n 10000,100000 --repeat 3`, native `--release`,
-one host. `stress-1` is unchanged at both sizes — the drawings are the same, only faster.
+`graph-cli bench --layout layout.dag.sugiyama --n 10000,100000 --repeat 3`, native
+`--release`, one host. **This host's wall clock is noisy** — the same binary varied 70-117 ms
+at 10k and 199-359 ms at 100k across four runs — so the timings below are indicative and the
+load-bearing numbers are the two work counts, which are exact and reproducible:
 
-| n | before | after | stress-1 before | stress-1 after |
-|---|---|---|---|---|
-| 10 000 | 99.41 ms | 70.29 ms | 0.5977 | 0.5977 |
-| 100 000 | 495.01 ms | 220.17 ms | 0.6117 | 0.6117 |
+| measure | before | after |
+|---|---|---|
+| medians over a 2000-vertex two-layer sweep | 153 370 | <= 32 000 (`16n`) |
+| transpose buffer fills per examined pair | 7.82 | <= 3 |
+| bench, n = 10 000 | 99.41 ms | 70.3 / 117.3 / 107.3 / 112.6 / 74.6 ms |
+| bench, n = 100 000 | 495.01 ms | 220.2 / 358.6 / 201.4 / 198.6 / 213.9 ms |
+| bench `stress-1`, n = 10 000 / 100 000 | 0.5977 / 0.6117 | 0.5977 / 0.6117 (every run) |
+
+`stress-1` is unchanged at both sizes in every run, which is the independent check that the
+drawings are the same and only faster.
 
 ```
 scripts/orch/gr cargo run -q --release -p graph-cli -- bench --layout layout.dag.sugiyama --n 10000,100000 --repeat 3
@@ -156,7 +169,7 @@ transpose's neighbour positions. It now names the sweep's own cost and keeps the
 | `scripts/orch/gr cargo run -q -p graph-cli -- capabilities --check` | 1 | `73 rows, 36 problems` — identical output to before the change; the 36 are the pre-existing `hashgate --seeds 1000` / no-record problems |
 | `scripts/scigraphs-conformance.sh` | 0 | `SUGIYAMA: ok — 597 f64, 1020 f32 of 1020 coordinates, median 1.259e-16 <= 1.000e-15`, `PASS` |
 | `cargo test -p graph-core --lib dump_crossing_measurements -- --ignored` | 0 | dump byte-identical to the pre-change run |
-| `cargo run --release -p graph-cli -- bench --layout layout.dag.sugiyama --n 10000,100000 --repeat 3` | 0 | 70.29 ms / 220.17 ms |
+| `cargo run --release -p graph-cli -- bench --layout layout.dag.sugiyama --n 10000,100000 --repeat 3` | 0 | 74.64 ms / 213.89 ms (best of five runs; the host is noisy) |
 
 `cargo test --workspace --no-fail-fast` exits 101 on one test outside this job's paths and
 unrelated to it: `layout::graphviz::dot::rank_tests::the_first_twenty_fixture_seeds_rank_as_
