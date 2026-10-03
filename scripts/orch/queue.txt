@@ -114,3 +114,4 @@ fix-memory-3d|build|prompts/jobs/fix-memory-3d.md|scripts/orch/rows/quick.rows|n
 sg-fa2-forcesim|build|prompts/jobs/sg-fa2-forcesim.md|scripts/orch/rows/quick.rows|no
 fix-ingest-scale|build|prompts/jobs/fix-ingest-scale.md|scripts/orch/rows/quick.rows|no
 fix-force-jiggle|build|prompts/jobs/fix-force-jiggle.md|scripts/orch/rows/quick.rows|no
+sg-propose-classify|build|prompts/jobs/sg-propose-classify.md|scripts/orch/rows/quick.rows|no
