@@ -97,8 +97,8 @@ probe() {
   local version=$1 uid=$2 health=$3 key=$4
   GRAPH_TEST_KEY=$key scripts/orch/drun --rm --network "container:$name" -e GRAPH_TEST_KEY \
     --memory 4g --memory-swap 4g -v "$root:/w" -w /w/deploy/nav gm-chromium \
-    python3 service.py --version "$version" --uid "$uid" --health "$health" --leaks "/w/$out/leaks.txt" \
-    --out "/w/$out" --commit "$(git rev-parse --short HEAD)" "${flags[@]}"
+    python3 service.py --image "$image" --version "$version" --uid "$uid" --health "$health" \
+    --leaks "/w/$out/leaks.txt" --out "/w/$out" --commit "$(git rev-parse --short HEAD)" "${flags[@]}"
 }
 
 # The stranger key comes from the server's own keygen with no file, so it has the right format
@@ -121,7 +121,7 @@ can_run() {
 }
 
 main() {
-  local image version key uid health
+  local version key uid health
   source scripts/orch/image.sh
   can_run || exit 2
   # The negctl rows read this report to tell their failure from any other, so a run that stops

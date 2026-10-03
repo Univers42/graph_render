@@ -1,6 +1,6 @@
 """Service-image gate, the probe half: the service's HTTP surface and the embed bundle in Chromium.
 
-Usage: service.py --version V --uid UID --health STATE --leaks FILE --out DIR [--break] [--commit ID]
+Usage: service.py --image TAG --version V --uid UID --health STATE --leaks FILE --out DIR [--break] [--commit ID]
 Exit:  0 every row PASS · 1 a row FAIL or NOT-RUN · 2 the harness could not run
 
 scripts/service-image.sh runs this in gm-chromium on the service container's own network, so the
@@ -94,7 +94,7 @@ def measure(args, key):
         leaks = [line for line in args.leaks.read_text().splitlines() if line]
         rows = [*judge.container_rows(args.uid, args.health, leaks), *judge.http_rows(service, args.version, key)]
         rows += browser_rows(host, requested, args.out)
-        return {"label": args.out.name, "commit": args.commit, "version": args.version,
+        return {"label": args.out.name, "commit": args.commit, "image": args.image, "version": args.version,
                 "break": args.broken, "rows": rows}
     finally:
         host.shutdown()
@@ -104,7 +104,8 @@ def measure(args, key):
 
 def table(report):
     head = [f"# service-image — {report['label']}", "",
-            f"commit `{report['commit']}` · image graph-motor:{report['version']} · break {report['break']}"
+            f"commit `{report['commit']}` · image {report['image']} · embed {report['version']}"
+            f" · break {report['break']}"
             " · screenshots `isolated.png`, `plain.png`, `direct.png`", "",
             "| row | expectation | measured | verdict |", "|---|---|---|---|"]
     body = [f"| `{r['row']}` | {r['expectation']} | {r['measured']} | {r['verdict']} |" for r in report["rows"]]
@@ -114,6 +115,7 @@ def table(report):
 
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
+    parser.add_argument("--image", required=True)
     parser.add_argument("--version", required=True)
     parser.add_argument("--uid", required=True)
     parser.add_argument("--health", required=True)
