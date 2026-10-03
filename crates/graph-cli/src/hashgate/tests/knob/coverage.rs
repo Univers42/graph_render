@@ -39,7 +39,7 @@ enum Gap {
 /// The layout ids `knobs::all()` does not tabulate, each with what it actually has.
 ///
 /// Sorted by id so a diff reads as a change to the set rather than a reshuffle.
-const NO_PER_STAGE_CONTROL: [(&str, Gap); 24] = [
+const NO_PER_STAGE_CONTROL: [(&str, Gap); 25] = [
     ("layout.bipartite", Gap::NoControl),
     ("layout.circular.circo", Gap::NoControl),
     ("layout.circular.hierarchy", Gap::HasOwnStageNodes),
@@ -51,6 +51,9 @@ const NO_PER_STAGE_CONTROL: [(&str, Gap); 24] = [
     ("layout.force.barnes_hut", Gap::NoControl),
     ("layout.force.fdp", Gap::NoControl),
     ("layout.force.neato", Gap::NoControl),
+    // `layout.force.particle_mesh` is a tiered force (`hashgate/tiered.rs`) like
+    // `barnes_hut`: no knob scopes `stage_nodes` to it.
+    ("layout.force.particle_mesh", Gap::NoControl),
     ("layout.force.sfdp", Gap::NoControl),
     // `layout.force.spring` is reached by `Knob::SpringIterations`, a *parameter* control
     // rather than a per-stage node control, and that control reaches `spring3d` too — so
