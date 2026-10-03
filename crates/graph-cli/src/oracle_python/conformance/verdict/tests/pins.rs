@@ -1,7 +1,7 @@
 //! The two rules that decide whether a row may skip a comparison: the pin rules that let
 //! `GRAPHVIZ_DOT` pass unmeasured, and the rules that stop the exemption being a blank cheque.
 
-use super::{baseline_for, dir, judge, ok_row, pin};
+use super::harness::{baseline_for, dir, judge, ok_row, pin};
 use crate::oracle_python::conformance::baseline::{Baseline, row};
 use serde_json::json;
 

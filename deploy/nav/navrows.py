@@ -179,7 +179,14 @@ KEY_ROWS = [
 def row_fit(studio):
     """`f` fits: it moves the camera off a zoomed, panned one, it is the same camera every
     time (a fit is a function of the drawing and the viewport), and afterwards nothing is
-    drawn in the canvas' outer band — a fit that cropped a node would not be one."""
+    drawn in the canvas' outer band — a fit that cropped a node would not be one.
+
+    The row fits once before it zooms away, so `away` is ×4 into a drawing that fills the
+    view: zoomed from wherever the rows above left the camera, it can land on empty space,
+    which leaves the outer band blank before the fit and the row with nothing to measure
+    (0 → 0 edge pixels on the live-fit branch, where the load camera is the settled fit)."""
+    studio.key("f")
+    studio.settle()
     studio.key("+")
     studio.key("+")
     studio.key("ArrowRight")

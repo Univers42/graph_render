@@ -1,11 +1,15 @@
 //! Running the other programs a gate needs — cargo, node, the harness — and hashing
 //! what they produce. Shared by the hash gate and the determinism probe.
 
+mod child;
+#[path = "runner/resolve.rs"]
+mod resolve;
+
+use child::{drain, joined, run_captured, wait_within};
 use sha2::{Digest, Sha256};
-use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, ExitStatus, Stdio};
-use std::time::{Duration, Instant};
+use std::process::{Command, ExitStatus, Stdio};
+use std::time::Duration;
 
 /// How long any one child (cargo, node, a gate arm) may run before it is killed. A hung
 /// child is a gate that could not run (exit 2), never one that waits forever.
@@ -79,39 +83,85 @@ pub fn harness_mutant(name: &str) -> PathBuf {
 
 /// Builds `graph_wasm.wasm` in release mode with `features` and returns its path.
 ///
-/// The target directory is passed to cargo, not guessed after the fact: the path this
-/// returns is the one cargo just wrote, so a stale artifact elsewhere cannot be hashed.
+/// The target directory is passed to cargo, not guessed after the fact, and it is made
+/// absolute against the workspace root first: cargo resolves a relative `--target-dir`
+/// against its own `current_dir` (the root), so a relative value *returned* as-is would be
+/// read from the CLI's directory instead and name another crate's stale artifact.
+///
+/// **What makes "cargo exited 0" evidence is cargo's own artifact message, not a file this
+/// function deletes first.** RG-51 asked for the built artifact to be verified rather than
+/// an exit status trusted; deleting the artifact before building is what made that refusal
+/// bite, and it also held the shared path absent for the whole of every rebuild — so a
+/// second process already holding the path read "no such file" and refused with exit 2.
+/// That is what failed `--workspace` on a different single test each run (`tests/cli.rs`
+/// then `tests/cli_force_gate.rs`), and what a handful of concurrent `hashgate --seeds 4`
+/// runs reproduce outside any harness: one of them exits 2 with "cargo built but wrote no".
+/// Cargo is asked for JSON messages instead, and the run is refused unless one names this
+/// exact artifact path — a wrapper that built nothing cannot print that, and nobody has to
+/// make the artifact disappear for the refusal to bite. Caveat: cargo's own fingerprint
+/// still decides whether the file is rewritten, so an artifact swapped by hand *after* an
+/// honest build reads as fresh here; forcing a rebuild every run is the race this replaces.
+/// `tests/cli_wasm_build.rs` holds both halves: the wrapper is refused, the file never gone.
 pub fn build_wasm(features: &[&str]) -> Result<PathBuf, String> {
     let root = workspace_root();
-    let target =
-        std::env::var_os("CARGO_TARGET_DIR").map_or_else(|| root.join("target"), PathBuf::from);
-    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
-    let mut command = Command::new(cargo);
-    command
-        .current_dir(&root)
-        .args(["build", "--quiet", "--release"]);
+    let target = resolve::target_dir(std::env::var_os("CARGO_TARGET_DIR").as_deref(), &root);
+    let wasm = target
+        .join("wasm32-unknown-unknown")
+        .join("release")
+        .join("graph_wasm.wasm");
+    let mut command = Command::new(resolve::cargo()?);
+    command.current_dir(&root).args([
+        "build",
+        "--quiet",
+        "--release",
+        "--message-format=json-render-diagnostics",
+    ]);
     command.args(["-p", "graph-wasm", "--target", "wasm32-unknown-unknown"]);
     command.arg("--target-dir").arg(&target);
     if !features.is_empty() {
         command.args(["--features", &features.join(",")]);
     }
-    let status = run_status(&mut command, CHILD_TIMEOUT)?;
+    let (status, stdout) = run_captured(&mut command, CHILD_TIMEOUT)?;
     if !status.success() {
         return Err(format!("building graph-wasm for wasm32 failed: {status}"));
     }
-    Ok(target
-        .join("wasm32-unknown-unknown")
-        .join("release")
-        .join("graph_wasm.wasm"))
+    if !cargo_named(&stdout, &wasm) {
+        return Err(format!(
+            "cargo exited 0 without naming {} as its artifact",
+            wasm.display()
+        ));
+    }
+    if !wasm.is_file() {
+        return Err(format!("cargo built but wrote no {}", wasm.display()));
+    }
+    Ok(wasm)
 }
 
-/// `node harness/wasm-run.mjs <wasm>`, ready for the mode arguments.
-pub fn node_harness(wasm: &Path) -> Command {
-    let mut command = Command::new("node");
+/// Whether cargo's JSON messages name `wasm` as an output of *this* build. Cargo prints one
+/// `compiler-artifact` line per target with its output paths, fresh or not, so this holds
+/// for a build with nothing to do and fails for a `$CARGO` that is not cargo (RG-51): the
+/// path it must name is the one the same `target` variable built the command with.
+fn cargo_named(stdout: &[u8], wasm: &Path) -> bool {
+    let wasm = wasm.display().to_string();
+    String::from_utf8_lossy(stdout)
+        .lines()
+        .any(|line| line.contains("\"reason\":\"compiler-artifact\"") && line.contains(&wasm))
+}
+
+/// `node harness/wasm-run.mjs <wasm>`, ready for the mode arguments, or `Err` naming the
+/// interpreter that could not be found.
+///
+/// `node` is resolved from `PATH` once per process through [`resolve::on_path`], and is
+/// therefore **not fingerprinted**: which interpreter ran the hashed bytes is recorded
+/// nowhere in the gate's evidence, so a host whose `PATH` puts a different node first
+/// produces the same gate rows. Refusing a missing node is the part that is fixed here;
+/// pinning the interpreter is a change to the gate's evidence, not to this function.
+pub fn node_harness(wasm: &Path) -> Result<Command, String> {
+    let mut command = Command::new(resolve::node()?);
     command
         .arg(workspace_root().join("harness").join("wasm-run.mjs"))
         .arg(wasm);
-    command
+    Ok(command)
 }
 
 /// Runs `command` to completion and returns its stdout lines, or why it failed.
@@ -145,50 +195,11 @@ pub fn run_status(command: &mut Command, limit: Duration) -> Result<ExitStatus, 
     wait_within(&mut child, limit).map_err(|e| format!("{command:?}: {e}"))
 }
 
-/// Waits for `child`, killing it once `limit` has passed.
-fn wait_within(child: &mut Child, limit: Duration) -> Result<ExitStatus, String> {
-    let deadline = Instant::now() + limit;
-    loop {
-        if let Some(status) = child.try_wait().map_err(|e| format!("waiting: {e}"))? {
-            return Ok(status);
-        }
-        if Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(format!(
-                "killed after {}ms without exiting",
-                limit.as_millis()
-            ));
-        }
-        std::thread::sleep(Duration::from_millis(20));
-    }
-}
-
-type Drain = Option<std::thread::JoinHandle<std::io::Result<Vec<u8>>>>;
-
-/// Reads a child's pipe to the end on its own thread, so a full pipe cannot stall the child.
-fn drain(pipe: Option<impl Read + Send + 'static>) -> Drain {
-    pipe.map(|mut pipe| {
-        std::thread::spawn(move || {
-            let mut bytes = Vec::new();
-            pipe.read_to_end(&mut bytes).map(|_| bytes)
-        })
-    })
-}
-
-fn joined(drain: Drain) -> Result<Vec<u8>, String> {
-    match drain {
-        None => Ok(Vec::new()),
-        Some(handle) => handle
-            .join()
-            .map_err(|_| "a pipe reader panicked".to_owned())?
-            .map_err(|e| format!("reading a child's output: {e}")),
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use super::resolve::on_path;
     use super::*;
+    use std::time::Instant;
 
     #[test]
     fn sha256_matches_the_fips_180_2_vector() {
@@ -238,6 +249,14 @@ mod tests {
         // that silently lost that budget would stop being the check it claims to be.
         assert_eq!(CHILD_TIMEOUT, Duration::from_secs(2700));
         assert!(CHILD_TIMEOUT > Duration::from_secs(900));
+    }
+
+    #[test]
+    fn a_missing_program_is_refused_by_name() {
+        let err = on_path("gm-no-such-program", Some(std::ffi::OsStr::new("")))
+            .expect_err("nothing to find on an empty PATH");
+        assert!(err.contains("gm-no-such-program"), "{err}");
+        assert!(err.contains("PATH"), "{err}");
     }
 
     #[test]

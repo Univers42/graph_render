@@ -40,11 +40,11 @@ const IGRAPH_LAYOUTS: [&str; 6] = [
 ///   and for the reason the clause below gives, not because the comparison is weak.
 /// - the six igraph-family layouts in [`IGRAPH_LAYOUTS`] are held to
 ///   **harness/oracle-igraph.py** (`oracle-igraph`), one row per layout.
-/// - the five 3D layouts p12-t3 added — `layout.basic3d.sphere`, `.helix` and `.cube`
-///   (three closed forms over `(num_nodes, scale)` sharing one arm,
+/// - the 3D layouts — `layout.basic3d.sphere`, `.helix`, `.cube` and `.spiral`
+///   (four closed forms over `(num_nodes, scale)` sharing one arm,
 ///   `harness/oracle-basic-3d.py`), `layout.hierarchical3d` (the SciGraphs function
 ///   itself, `harness/oracle-hierarchical-3d.py`) and `layout.force.spring3d` — are held
-///   as named in their own arms below. The first four are closed forms compared within a
+///   as named in their own arms below. The first five are closed forms compared within a
 ///   coordinate tolerance, exactly like `oracle-closed-form`; `spring3d` shares
 ///   `layout.force.spring`'s record because it is that layout at `dim = 3`.
 ///
@@ -63,7 +63,11 @@ const IGRAPH_LAYOUTS: [&str; 6] = [
 pub(super) fn force_record(id: &str) -> Option<(&'static str, Status)> {
     match id {
         "layout.force.barnes_hut" => Some(("stress", Status::Implemented)),
+        "layout.force.particle_mesh" => Some(("stress-pm", Status::Implemented)),
         "layout.forceatlas2" => Some(("oracle-fa2", Status::Implemented)),
+        // Different but not worse than the exact dense sum, by the stress record
+        // (`graph-cli` `stress/fa2.rs`); a picture of its own, so never `gated` on a hash alone.
+        "layout.forceatlas2.barnes_hut" => Some(("stress", Status::Implemented)),
         // Ponytail: no differential exists for SciGraphs' own multilevel layout; the
         // stress record is the closest metric and is barnes_hut's, so `implemented` only.
         // (Graphviz's `sfdp` is a different algorithm and has its own differential below.)
@@ -109,26 +113,31 @@ pub(super) fn force_record(id: &str) -> Option<(&'static str, Status)> {
         //
         // The record is `oracle-neato`, the name `oracle_python::graphviz::NEATO.name` gives it.
         "layout.force.neato" => Some(("oracle-neato", Status::Implemented)),
-        // Ponytail: `implemented`, not `gated`, and the reason is on the **hash** side, not
-        // the oracle side: this row's `oracle-osage` record is read and passes at a measured
-        // worst gap of 6.309e-2 points under a 1e-1 ceiling
-        // (docs/measurements/p13-gv1-osage.md), but `Status::Gated` also needs a negative
-        // control that went red on the `layout.packing.osage` stage, and none does: the
-        // honest run hashes the stage 4-way on every seed, while the controls that do go
-        // red diverge `topology`, `layout.treemap.squarified` and `layout.packing.circle`
-        // and leave this stage equal. The per-stage knob for a Graphviz engine is
-        // deliberately absent from `hashgate::knobs` because that table is shared with the
-        // parallel engine jobs (scripts/orch/rows/p13-gv1-osage.rows:23-31), so promoting
-        // this row to `gated` needs that knob and a `negctl-osage-nodes` row — a change in
-        // `hashgate/`, not in the ledger. `capabilities::tests::graphviz` names the gap and
-        // shows a red control on this stage is the whole of what is missing.
-        "layout.packing.osage" => Some(("oracle-osage", Status::Implemented)),
+        // `gated`, promoted from `implemented`: the one reason it was held back is now
+        // discharged. It was never the oracle side: this row's `oracle-osage` record is read
+        // by name like any other and passes at a measured worst gap of 6.309e-2 points under
+        // a 1e-1 ceiling (docs/measurements/p13-gv1-osage.md), which `oracle_diff` reports
+        // as "within measured ceiling". It was the **hash** side — `Status::Gated` also needs
+        // a negative control that went red on this row's own stage, and none did: the honest
+        // run hashes the stage 4-way on every seed while the controls that did go red
+        // diverge `topology`, `layout.treemap.squarified` and `layout.packing.circle` and
+        // leave it equal. `GM_MUTATE_PACKING_SCALE` cannot stand in, because it is
+        // `layout.packing.circle`'s real parameter and osage reads no scale.
+        //
+        // `GM_MUTATE_PACKING_OSAGE_NODES` (record `hashgate-control-packing-osage-nodes`,
+        // tabulated in `hashgate::knobs::OSAGE_LAYOUT_STAGES`) is that control: osage
+        // publishes no `Params`, so its own re-drawn model is the only probe, and the run it
+        // makes turns the gate red on `layout.packing.osage` and on no other stage.
+        // `a_red_control_on_the_rows_own_stage_is_the_whole_of_what_is_missing` is the test
+        // that holds this line: it stands the row up as `gated` with a current oracle record
+        // and that control, and requires `problems` to be empty.
+        "layout.packing.osage" => Some(("oracle-osage", Status::Gated)),
         // Ponytail: the same honest status and the same reason as `layout.twopi` above, for
-        // the same Graphviz oracle, and a stronger reason than `layout.packing.osage` has:
-        // this differential was *run* over the 1000 gate seeds and it disagrees with
-        // Graphviz by 6.460e+04 points on 984 of them, for one named cause outside the
-        // motor — the tie order in `remove_pair_edges`'s degree sort is `qsort`'s, and
-        // glibc 2.41 does not make that stable (`docs/measurements/p13-gv1-circo.md`). The
+        // the same Graphviz oracle, and a stronger one than `layout.packing.osage` had before
+        // its control landed: this differential was *run* over the 1000 gate seeds and it
+        // disagrees with Graphviz by 6.460e+04 points on 984 of them, for one named cause
+        // outside the motor — the tie order in `remove_pair_edges`'s degree sort is `qsort`'s,
+        // and glibc 2.41 does not make that stable (`docs/measurements/p13-gv1-circo.md`). The
         // blocks, the radii and the 14 closed cases all agree, so the drawings differ only
         // in which node takes which slot, and an agreement that narrow earns `implemented`
         // and nothing more.
@@ -143,20 +152,36 @@ pub(super) fn force_record(id: &str) -> Option<(&'static str, Status)> {
         // significant digits rather than a shortfall. Numbers in
         // `docs/measurements/p13-gv1-patchwork.md`.
         "layout.treemap.patchwork" => Some(("oracle-patchwork", Status::Implemented)),
-        // ---- p12-t3: the five 3D layouts. Three closed forms over `(num_nodes, scale)`
-        // that read no graph at all, so ONE arm file covers all three and each gets its
-        // own record only because each is a different function with a different oracle
-        // (`--function sphere|helix|cube` in one arm file, `harness/oracle-basic-3d.py`).
+        // ---- p12-t3: the 3D layouts. FOUR closed forms over `(num_nodes, scale)`
+        // that read no graph at all, so ONE arm file covers all four and each gets its own
+        // record only because each is a different function with a different oracle
+        // (`--function sphere|helix|cube|spiral` in one arm file,
+        // `harness/oracle-basic-3d.py`; the spiral since job `sg-basic3d-spiral-oracle`,
+        // worst 2.384e-7 against a 1e-6 ceiling over 1000 seeds).
         // The reason they are `implemented` and not `gated` is the one the clause above
         // gives: `verdict::Evidence::oracle_record` has no arm for `oracle-basic-3d`, so a
         // `gated` row could only read back "run the gate" where a verdict belongs.
-        "layout.basic3d.sphere" | "layout.basic3d.helix" | "layout.basic3d.cube" => {
-            Some(("oracle-basic-3d", Status::Implemented))
-        }
+        //
+        // `layout.basic3d.spiral` is **not** `layout.spiral`'s oracle: that id is networkx's
+        // planar `spiral_layout` at `resolution = 0.35`, while SciGraphs has no 2D spiral and
+        // `SPIRAL_3D` reaches `_spiral_layout_3d` (`basic.py:36-63`) alone.
+        "layout.basic3d.sphere"
+        | "layout.basic3d.helix"
+        | "layout.basic3d.cube"
+        | "layout.basic3d.spiral" => Some(("oracle-basic-3d", Status::Implemented)),
         // Its own record, not `oracle-closed-form`'s: it is the SciGraphs function itself
         // being compared, and `oracle-closed-form` is the networkx arm. Same `implemented`
         // reason as the two above.
         "layout.hierarchical3d" => Some(("oracle-hierarchical-3d", Status::Implemented)),
+        // **The SciGraphs conformance gate, not a harness arm of its own.** This row is
+        // SciGraphs' `_bipartite_layout_3d` compared over the conformance fixture set, and
+        // `scripts/scigraphs-conformance.sh` step 6 already writes the record under exactly
+        // that name. `implemented` for the reason the row above gives: the record is read by
+        // name like any other, and what is missing is a 4-way negative control on this
+        // stage, not the comparison. Deliberately NOT `oracle-closed-form`: that is
+        // `layout.bipartite`'s record, and it covers networkx's two columns, none of the two
+        // rings this row draws.
+        "layout.bipartite_3d" => Some(("scigraphs-conformance", Status::Implemented)),
         // **The same record as `layout.force.spring`, deliberately.** They are one
         // algorithm at two dimensions over one kernel (`spring3d.rs` is `spring.rs` with
         // `D = 3`), so one stress-ratio measurement run at `dim = 3` is the comparison

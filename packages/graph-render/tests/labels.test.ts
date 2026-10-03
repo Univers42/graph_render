@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { IDENTITY } from "../src/camera.ts";
-import { DEFAULT_POLICY, LABEL_HEIGHT, type LabelInput, newLabelPlan, occupancyFor, planLabels, zoomAlpha } from "../src/labels.ts";
+import {
+  DEFAULT_POLICY, LABEL_HEIGHT, type LabelInput, followLabels, newLabelPlan, occupancyFor, planLabels, zoomAlpha,
+} from "../src/labels.ts";
 import { styleFrom } from "../src/style.ts";
 
 const VIEWPORT = { width: 800, height: 600 };
@@ -76,4 +78,19 @@ test("a node off screen or without a label draws none", () => {
   assert.deepEqual(planned(input([1, 1], [5000, 100])), [1]);
   const bare = input([1], [100]);
   assert.deepEqual(planned({ ...bare, style: { ...bare.style, labels: [] } }), []);
+});
+
+test("a followed plan moves with the camera, drops what leaves or fades, and adds nothing", () => {
+  const given = input([0.1, 0.9, 0.5], [50, 300, 2000]);
+  const plan = newLabelPlan(given.policy.budget);
+  planLabels(given, plan, occupancyFor(given.viewport));
+  assert.deepEqual([...plan.node.subarray(0, plan.count)], [1, 0]);
+  const before = [...plan.x.subarray(0, plan.count)];
+  followLabels({ ...given, camera: { ...given.camera, x: 30 } }, plan);
+  assert.deepEqual([...plan.node.subarray(0, plan.count)], [1, 0]);
+  assert.deepEqual([...plan.x.subarray(0, plan.count)], before.map((x) => x + 30));
+  followLabels({ ...given, camera: { ...given.camera, x: -150 } }, plan);
+  assert.deepEqual([...plan.node.subarray(0, plan.count)], [1]);
+  followLabels({ ...given, camera: { ...IDENTITY, scale: 0.1 } }, plan);
+  assert.equal(plan.count, 0);
 });

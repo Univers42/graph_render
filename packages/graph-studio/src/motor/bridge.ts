@@ -20,9 +20,10 @@
  * called after every force layout, so a re-layout makes a new session and a new loop.
  */
 import type { ForceLink } from "../actions/forces.ts";
-import { DEFAULT_KNOBS, type ForceKnobs } from "./live.ts";
+import { DEFAULT_KNOBS, type ForceKnobs, settlesLive } from "./live.ts";
 import type { ForceFrame, ForceRequest, Result } from "./protocol.ts";
 import { type Watchdog, createWatchdog, later } from "./watchdog.ts";
+import type { Store } from "../state/store.ts";
 import { type Bar, HIDDEN, batchBar, frameBar } from "../ui/progress.ts";
 
 export interface LiveDeps {
@@ -70,17 +71,6 @@ const listeners = () => {
     },
   };
 };
-
-/**
- * Ponytail: which layouts settle live is read off the id (`layout.force…`) rather than kept
- * in a table, so a force engine registered under a name nobody predicted still settles on
- * screen. Failing input: `layout.random` says nothing about force and is excluded by that
- * read, so the random layout stays a finished picture. Direction: substring, so
- * `layout.forceatlas2` and a future `layout.force.barnes_hut` both qualify.
- */
-export function settlesLive(layoutId: string): boolean {
-  return layoutId.startsWith("layout.force");
-}
 
 /** Everything the bridge remembers, and the one line that puts it on screen. */
 interface Desk {
@@ -249,4 +239,33 @@ export function createLiveBridge(deps: LiveDeps): LiveBridge {
     },
     destroy,
   };
+}
+/** What `watchRuns` reads of the studio's state: the calls in flight and the last run drawn. */
+export interface RunState {
+  readonly busy: readonly unknown[];
+  readonly run: { readonly layoutId: string } | null;
+}
+
+/**
+ * A force layout is a starting position, not a picture: the loop takes it from there and the
+ * strip shows the settle. Every other layout is finished, so nothing starts. A batch layout
+ * run shows the same strip with no fraction of its own — one call, no progress inside it.
+ *
+ * Keyed on the run, not on its layout id: a large graph reports `particle_mesh` whichever force
+ * layout was asked for, so two runs in a row can share an id. Keyed on the id, picking
+ * `particle_mesh` and then opening 400k nodes left the scatter unsettled (0 frames, 2026-10-03).
+ */
+export function watchRuns(store: Pick<Store<RunState>, "get" | "subscribe">, bridge: LiveBridge): () => void {
+  let seen: RunState["run"] = null;
+  let wasBusy = 0;
+  return store.subscribe(() => {
+    const at = store.get();
+    if (at.busy.length !== wasBusy) {
+      wasBusy = at.busy.length;
+      bridge.batch(wasBusy);
+    }
+    if (at.run === seen) return;
+    seen = at.run;
+    if (at.run !== null && settlesLive(at.run.layoutId)) bridge.start();
+  });
 }

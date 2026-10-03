@@ -30,6 +30,9 @@ wasm32-core|0|scripts/orch/gr cargo build -p graph-core --target wasm32-unknown-
 hashgate-8|0|scripts/orch/gr cargo run -q -p graph-cli -- hashgate --seeds 8
 negctl-degree|0|scripts/orch/gr -e GM_MUTATE_REFERENCE_DEGREE=9 cargo run -q -p graph-cli -- hashgate --seeds 8; test $? -eq 1
 npm-ci|0|scripts/orch/node-slim.sh npm ci --ignore-scripts
+negctl-dim-z-mismatch|0|scripts/orch/gr -e GM_MUTATE_NODE_Z=1 cargo run -q -p graph-cli -- roundtrip --seeds 8; test $? -ne 0
+force-gate-4|0|scripts/orch/gr cargo run -q -p graph-cli -- force-gate --seeds 4
+negctl-force-gravity|0|scripts/orch/gr -e GM_MUTATE_FORCE_SESSION_GRAVITY=0.5 cargo run -q -p graph-cli -- force-gate --seeds 4; test $? -eq 1
 
 # ---------------------------------------------------------------------------------------------
 # from docs/reports/phase-03.md:93 — p3 deterministic layouts: the 1000-seed gate, the fixture
@@ -53,6 +56,14 @@ wasm-release|0|scripts/orch/gr cargo build -p graph-wasm --release --target wasm
 no-bindgen|0|scripts/orch/gr bash -c 'cargo tree -p graph-wasm >target/graph-wasm-deps.txt; grep -qi wasm-bindgen target/graph-wasm-deps.txt && exit 1 || exit 0'
 oracle-diff|0|scripts/orch/node-slim.sh bash -c 'npm ci --ignore-scripts >/dev/null && node --experimental-strip-types --experimental-loader ./tests/ts-extension-loader.mjs harness/oracle-diff.mjs'
 sdk-typecheck|0|scripts/orch/node-slim.sh bash -c 'npm ci --ignore-scripts >/dev/null && npx tsc -p crates/graph-sdk-js/tsconfig.json --noEmit'
+sdk-test|0|scripts/orch/node-slim.sh npm run sdk:test
+# The control for `sdk-test` above, and it fails by breaking the test's *input*, never by
+# inverting the expected exit: the whole SDK package is copied to target/, so the copy's
+# `../src/wasm.ts` import still resolves, and the module the ABI test hands the loader is made
+# to report one version above the SDK's. The loader refuses it (C4's handshake), the second
+# test fails, the run exits non-zero. Without this row `sdk-test` could go green by testing
+# nothing at all — the same vacuous pass prompts/RESUME.md:155 records for a knob at 0.9.
+sdk-test-control|nonzero|scripts/orch/node-slim.sh bash -c 'rm -rf target/sdk-test-control && cp -R crates/graph-sdk-js target/sdk-test-control && sed -i "s/moduleReporting(ABI_VERSION)/moduleReporting(ABI_VERSION + 1)/" target/sdk-test-control/test/abi-version.test.mjs && grep -q "ABI_VERSION + 1" target/sdk-test-control/test/abi-version.test.mjs && node --test --experimental-strip-types "target/sdk-test-control/test/**/*.test.mjs"'
 sdk-lint|0|scripts/orch/node-slim.sh bash -c 'npm ci --ignore-scripts >/dev/null && npx eslint crates/graph-sdk-js/src --max-warnings=0'
 
 # ---------------------------------------------------------------------------------------------
@@ -105,10 +116,16 @@ ink-hairball|0|scripts/orch/gr cargo run -q -p graph-cli -- ink --fixture hairba
 # ---------------------------------------------------------------------------------------------
 ingest-id-grammar|0|scripts/orch/gr cargo test -p graph-core ingest_id_grammar
 wasm-contract|0|scripts/orch/gr cargo test -p graph-wasm contract
-snapshot-raw|0|scripts/orch/node-slim.sh bash -c 'npm ci --ignore-scripts >/dev/null && node --experimental-strip-types harness/read-snapshot-raw.mjs'
+# The arm reads the artifact `graph-cli` writes, not a literal pasted beside the checker
+# (M11): a snapshot from the code this row also builds is the only thing that shows drift
+# on the producer's side of the JSON face. The worked example stays reachable, behind
+# `--selftest` only — with no path at all the arm now refuses with 2 rather than fall back.
+snapshot-raw|0|scripts/orch/gr cargo run -q -p graph-cli -- snapshot --seed 0 --nodes 4 --layout layout.grid --out-json target/snapshot-raw.json && scripts/orch/node-slim.sh bash -c 'npm ci --ignore-scripts >/dev/null && node --experimental-strip-types harness/read-snapshot-raw.mjs target/snapshot-raw.json'
 sdk-smoke|0|scripts/orch/node-slim.sh bash -c 'npm ci --ignore-scripts >/dev/null && node --experimental-strip-types harness/sdk-smoke.mjs target/wasm32-unknown-unknown/release/graph_wasm.wasm'
 sdk-adapter-convergence|0|scripts/orch/node-slim.sh bash -c 'npm ci --ignore-scripts >/dev/null && node --experimental-strip-types harness/sdk-smoke.mjs --adapter-convergence target/wasm32-unknown-unknown/release/graph_wasm.wasm'
 zero-copy|0|scripts/orch/node-slim.sh bash -c 'npm ci --ignore-scripts >/dev/null && node --experimental-strip-types harness/wasm-run.mjs target/wasm32-unknown-unknown/release/graph_wasm.wasm --assert-zero-copy'
+# The harness's own node:test files (fix-harness-mjs): no npm script runs them, so this row is their only runner.
+harness-test|0|scripts/orch/node-slim.sh bash -c 'npm ci --ignore-scripts >/dev/null && node --test --experimental-strip-types "harness/**/*.test.mjs"'
 
 # ---------------------------------------------------------------------------------------------
 # from docs/reports/phase-09-progress.md:66 — p9 scale and the bench campaign: reversibility,
@@ -135,10 +152,16 @@ forbidden-constructs|0|scripts/orch/gr bash scripts/forbidden-constructs.sh crat
 forbidden-constructs-self-test|0|scripts/orch/gr bash scripts/forbidden-constructs.sh --self-test
 
 # ---------------------------------------------------------------------------------------------
-# from crates/graph-cli/src/hashgate/knob.rs:105 (Knob::ALL, 11 knobs) and
-# crates/graph-cli/tests/common/mod.rs:17 (the integration-test clear-list, 10 of them) — the
-# knob list, which exists once. One `negctl-<knob>` row per knob, `expect nonzero`: a knob
-# that fails to move the output leaves the gate agreeing with itself.
+# from crates/graph-cli/src/hashgate/knob.rs (Knob::ALL, 45 knobs) and
+# crates/graph-cli/tests/common/mod.rs (the integration-test clear-list) — the
+# knob list, which exists once. One `negctl-<knob>` row per *parameter* control,
+# `expect nonzero`: a knob that fails to move the output leaves the gate agreeing with itself.
+# The 27 per-stage node controls are not one row each; each is held by
+# `each_analysis_and_post_stage_has_its_own_control_that_moves_only_its_stage`, which drives
+# every row of `knobs::all()` through both arms of the gate at one seed.
+# `negctl-osage-nodes` is here rather than in that group because
+# `layout.packing.osage` is the one row `Status::Gated` was refused for want of a control on
+# its own stage, so this row is the evidence the ledger now reads back.
 #
 # `GM_MUTATE_FORCE_THETA=0.5`, not 0.9 — 0.9 was the default, so the control moved nothing
 # and the row passed vacuously (prompts/RESUME.md:155).
@@ -157,6 +180,7 @@ negctl-tree-tidy-nodes|nonzero|scripts/orch/gr -e GM_MUTATE_TREE_TIDY_NODES=1 ca
 negctl-treemap-nodes|nonzero|scripts/orch/gr -e GM_MUTATE_TREEMAP_NODES=1 cargo run -q -p graph-cli -- hashgate --seeds 8
 negctl-circular-nodes|nonzero|scripts/orch/gr -e GM_MUTATE_CIRCULAR_NODES=1 cargo run -q -p graph-cli -- hashgate --seeds 8
 negctl-packing-scale|nonzero|scripts/orch/gr -e GM_MUTATE_PACKING_SCALE=2 cargo run -q -p graph-cli -- hashgate --seeds 8
+negctl-osage-nodes|nonzero|scripts/orch/gr -e GM_MUTATE_PACKING_OSAGE_NODES=1 cargo run -q -p graph-cli -- hashgate --seeds 8
 negctl-split-sum|nonzero|scripts/orch/gr -e GM_MUTATE_SPLIT_SUM=collide cargo run -q -p graph-cli -- hashgate --seeds 8 --tiers all
 # the other two split-sum values, and the vacuity refusal (docs/reports/phase-11-progress.md:86-108)
 negctl-split-sum-charge|nonzero|scripts/orch/gr -e GM_MUTATE_SPLIT_SUM=charge cargo run -q -p graph-cli -- hashgate --seeds 8 --tiers all
@@ -189,6 +213,16 @@ oracle-closed-form-negctl|nonzero|scripts/orch/gr cargo run -q -p graph-cli -- o
 # ---------------------------------------------------------------------------------------------
 bench-tier1-closed-form|0|scripts/orch/gr cargo run -q --release -p graph-cli -- bench --layout layout.random --layout layout.circular.ring --layout layout.spiral --layout layout.bipartite --n 220,10000,100000 --past-ceiling --repeat 3
 bench-yifan-hu|0|scripts/orch/gr cargo run -q --release -p graph-cli -- bench --layout layout.force.yifan_hu --n 220,10000,100000 --past-ceiling --repeat 1
+
+# ---------------------------------------------------------------------------------------------
+# the studio's own floor and its load smoke over app/dist (CLAUDE.md "Commands"). `wasm` stages
+# the release graph-wasm the build bundles; `build` writes app/dist, which the smoke reads.
+# ---------------------------------------------------------------------------------------------
+studio-wasm|0|scripts/studio.sh wasm
+studio-check|0|scripts/studio.sh check
+studio-build|0|scripts/studio.sh build
+studio-smoke|0|scripts/studio-smoke.sh
+negctl-studio-smoke|nonzero|STUDIO_SMOKE_BREAK=1 scripts/studio-smoke.sh
 
 # ---------------------------------------------------------------------------------------------
 # from docs/reports/phase-g0.md:41 — the one G0 studio row that survives on this host: the

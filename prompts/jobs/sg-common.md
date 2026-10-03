@@ -7,9 +7,11 @@ Precondition: the tree has `crates/graph-cli/src/oracle_python/conformance/` and
 absent, stop and report under "decisions needed": the job cannot measure its row.
 
 The gate. `scripts/scigraphs-conformance.sh` compares every SciGraphs layout with the motor over one
-fixture set and judges each row against the pinned baseline in
-`crates/graph-cli/src/oracle_python/conformance/baseline/table.rs` (exit 0 agree, 1 a row moved,
-2 could not run). The matrix and the reasoning per row are in `docs/measurements/scigraphs-conformance.md`;
+fixture set and judges each row against the pinned baseline under
+`crates/graph-cli/src/oracle_python/conformance/baseline/table/` (exit 0 agree, 1 a row moved,
+2 could not run). One file per family: `basic.rs` (RANDOM, GRID, SPRING, SPRING_3D, CIRCLE_PACKING,
+FORCEATLAS2), `networkx.rs`, `igraph.rs`, `graphviz.rs`, `structured.rs`; `baseline/table.rs` only
+concatenates them. Where a job body says `baseline/table.rs (ROW)`, edit the family file that holds ROW. The matrix and the reasoning per row are in `docs/measurements/scigraphs-conformance.md`;
 its "Repairs" section is a hypothesis, not a spec: where it disagrees with the code or the reference,
 the code and the reference win, and you correct the doc's text for your row.
 
@@ -21,8 +23,8 @@ The loop, for each row the body names:
    on the current code. Paste the failing run.
 3. GREEN: the smallest change. Paste the passing run.
 4. Re-measure. The script now exits 1 and names your row. Copy ONLY your row's `row(...)` block from
-   `target/scigraphs-conformance/conformance-baseline-proposed.rs` into `baseline/table.rs` (never
-   retype a sha256), re-run: exit 0. Then `scripts/scigraphs-conformance.sh --break` must exit 1.
+   `target/scigraphs-conformance/conformance-baseline-proposed.rs` into the family file under
+   `baseline/table/` that holds it (never retype a sha256), re-run: exit 0. Then `scripts/scigraphs-conformance.sh --break` must exit 1.
    Any OTHER row that moved is a regression: stop and report it, do not re-pin it.
 5. When a gap is closed, delete it from the row's `gaps` in `conformance/rows.rs` (and its const in
    `gaps.rs` once no row names it); a gap left behind after the fix is a false record.
@@ -34,6 +36,8 @@ once), so the reachable exact target is the `f32 k/N` column at N/N; `f64 k/N` r
 where the reference value is itself `f32`-representable. A row whose last difference is numpy's or
 LAPACK's own arithmetic stops at `tolerance` with the reason written down; that is a result, not a
 failure. A row the reference cannot reproduce (FDP: two runs differ) is recorded, never chased.
+`metrics.json` is never byte-compared across trees: it carries the tree fingerprint, and
+GRAPHVIZ_FDP's reference moves run to run. Compare the row lines and the `motor/*.f64` shas instead.
 
 Constraints that bind every sg job:
 - Graphviz ports (`layout/graphviz/**`, `layout/radial/twopi.rs`, ...) are gated against Graphviz
@@ -46,7 +50,11 @@ Constraints that bind every sg job:
 - Determinism (prompt.md §6): `libm` for transcendentals, no FMA, fixed-order sums, no `HashMap`.
   numpy's own `sin`/`cos` may differ from `libm` in the last ulp: such a row reaches the tolerance
   tier, not bitwise, and the doc says why.
-- Edit only your row's lines in `table.rs` and the matrix; other sg jobs edit the neighbouring rows.
+- Edit only your row's lines in its `baseline/table/<family>.rs` and the matrix; other sg jobs edit the neighbouring rows.
+- igraph rows (`docs/decisions/layouts-igraph.md` rule 1): a job that implements never opens
+  `/goinfre/dlesieur/refs/igraph-0.11.9` or any igraph or python-igraph source. A silent spec is a
+  stop (`blocked: spec gap <file> <step>`); a separate spec-author job closes it. On 2026-10-02
+  `sg-igraph-dims` held both roles and its code was discarded (`sg-igraph-clean`).
 - House limits: 40 lines per function, 300 per file, 4 parameters; every heuristic carries `Ponytail:`.
 - A new registry entry fills every `Metadata` field and passes `capabilities --check` and
   `codegen --check`.

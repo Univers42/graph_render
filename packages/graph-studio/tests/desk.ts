@@ -6,6 +6,7 @@ import { EMPTY_FRAME } from "../../graph-render/src/scene.ts";
 import type { Style } from "../../graph-render/src/style.ts";
 import type { Theme } from "../../graph-render/src/theme.ts";
 import type { ViewEvents } from "../../graph-render/src/view.ts";
+import type { ForceLink } from "../src/actions/forces.ts";
 import type { MotorClient } from "../src/motor/client.ts";
 import type { GraphMeta } from "../src/source/meta.ts";
 import { metaOf } from "../src/source/meta.ts";
@@ -79,7 +80,26 @@ function spaceFace(seen: Seen): Pick<ViewFace, "orbit" | "setOrbit" | "resetOrbi
   };
 }
 
+/**
+ * The pins this desk holds, in the order they were set; `pinned()` hands the same array back,
+ * so a test reads what the view would be showing rather than what it was told to show. Hide is
+ * the third of the three node gestures the studio drives, so it is recorded beside them.
+ */
+function pinFace(seen: Seen, pins: number[]): Pick<ViewFace, "pinned" | "togglePin" | "hide"> {
+  return {
+    pinned: () => pins,
+    togglePin: (node) => {
+      const at = pins.indexOf(node);
+      if (at >= 0) pins.splice(at, 1);
+      else pins.push(node);
+      seen.calls.push(`togglePin ${node}`);
+    },
+    hide: (nodes) => void seen.calls.push(`hide ${nodes.join(" ")}`),
+  };
+}
+
 function recordingView(seen: Seen, handlers: Handlers): ViewFace {
+  const pins: number[] = [];
   return {
     setFrame: (frame, options = {}) => void seen.frames.push({ frame, animate: options.animate === true }),
     setStyle: (style) => void seen.styles.push(style),
@@ -96,6 +116,7 @@ function recordingView(seen: Seen, handlers: Handlers): ViewFace {
     limits: () => ({ min: 0.02, max: 40 }),
     focus: (node) => void seen.calls.push(`focus ${node}`),
     select: (node) => void seen.calls.push(`select ${node}`),
+    ...pinFace(seen, pins),
     local: (node, options) => {
       seen.calls.push(`local ${node} ${JSON.stringify(options)}`);
       if (node === 0 && options.depth === 2 && options.incoming && !options.outgoing && options.neighbours) {
@@ -115,7 +136,8 @@ function recordingView(seen: Seen, handlers: Handlers): ViewFace {
   };
 }
 
-export function desk(client: MotorClient, settings?: Settings): Desk {
+/** `forces` is the live link behind the Forces actions; without it they are all unavailable. */
+export function desk(client: MotorClient, settings?: Settings, forces?: ForceLink): Desk {
   const seen: Seen = { frames: [], styles: [], themes: [], policies: [], calls: [], cameras: [] };
   const handlers: Handlers = { hover: new Set(), select: new Set(), selection: new Set(), camera: new Set(), context: new Set(), frame: new Set() };
   const saved: Saved[] = [];
@@ -127,6 +149,7 @@ export function desk(client: MotorClient, settings?: Settings): Desk {
     save: (name, data) => void saved.push({ name, data }),
     now: () => (clock += 1),
     ...(settings === undefined ? {} : { settings }),
+    ...(forces === undefined ? {} : { forces }),
   });
   return {
     studio, seen, saved,

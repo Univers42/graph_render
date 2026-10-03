@@ -94,17 +94,29 @@ pub(super) const SUGIYAMA: Metadata = Metadata {
     edges: EdgeGeometryKind::Polyline,
     oracle: "dagre-d3-es 7.0.14 crossing counts (harness/oracle-layouts.mjs --dag, margin frozen \
 in docs/measurements/phase05-crossings.md) and SciGraphs hierarchical.py; per-seed structural \
-invariants (acyclic after FAS, monotone layers, contiguous dummy chains) checked by graph-cli \
-roundtrip",
-    complexity: "O(n+m) per phase; crossing reduction is a heuristic (median + transpose local \
-search), not a minimiser",
+invariants (acyclic after orienting every non-loop edge forward along the dense node order, \
+monotone layers, contiguous dummy chains) checked by graph-cli roundtrip; a self-loop is \
+emitted with no interior points, as the reference's own layout stage emits none (it returns \
+node positions only, hierarchical.py:651-652) — the loop arc is the router's, drawn from the \
+coincident endpoints (edge_styles.py:458)",
+    complexity: "one O(m log m) sort of the arc list up front, then O(n+m) per phase except \
+crossing reduction, which sorts each layer's median keys and the transpose's neighbour \
+positions once per vertex per sweep, O((n+m) log n) a sweep; crossing reduction is a heuristic \
+(median + transpose local search), not a minimiser",
     scale_ceiling: SUGIYAMA_CEILING,
     degradation: "past the dummy budget (200000) long arcs are left straight and unrouted and \
 each is reported as note 4 dag.dummy_budget_exceeded; above 150000 layered vertices the transpose \
-rounds drop to 0, so crossings rise while the drawing stays valid",
+rounds drop to 0, so crossings rise while the drawing stays valid; above 200000 layered \
+vertices the whole X phase is skipped as well and x stays the raw ordering slot index — legal, \
+maximally spread, and reported here rather than as a note, because the notes section is a \
+closed set (codes 1-5) with no code for a skipped phase and one that would have to be \
+snapshot-wide",
     ponytail: "Ponytail (crossing reduction): median + transpose is a local search; a graph \
 whose optimal order it cannot reach draws more crossings than optimal — cosmetic, never \
 incorrect. Ponytail (dummy budget): an unrouted long arc is a straight line that may pass \
 through nodes — visually wrong, the dangerous direction; escape hatch: read note 4 in the \
-snapshot. Ponytail (FAS): greedy, not minimum; extra reversed edges (note 5) are cosmetic",
+snapshot. Ponytail (cycle breaking): arcs are oriented along the dense node order, not a greedy \
+feedback-arc-set peel, so a cycle is broken at every backwards edge rather than the fewest \
+possible — extra reversed edges (note 5) are cosmetic, each one drawn head to tail rather \
+than dropped",
 };

@@ -7,7 +7,7 @@
 //! readings cannot drift, and a new id in one of these groups has to be added to the other.
 
 /// The six igraph-family layouts.
-pub(super) const IGRAPH: [&str; 6] = [
+pub(crate) const IGRAPH: [&str; 6] = [
     "layout.force.fruchterman_reingold",
     "layout.force.kamada_kawai",
     "layout.force.graphopt",
@@ -16,11 +16,12 @@ pub(super) const IGRAPH: [&str; 6] = [
     "layout.force.drl",
 ];
 
-/// The three p12-t3 graph-free 3D placements: one arm file, one record, because they take
-/// the same two arguments and read no graph (`harness/oracle-basic-3d.py` compares them
-/// together under its `--function` selector).
-pub(super) const BASIC_3D: [&str; 3] = [
+/// The four graph-free 3D placements `oracle-basic-3d` arms: one arm file, one record,
+/// because they take the same two arguments and read no graph
+/// (`harness/oracle-basic-3d.py` compares them together under its `--function` selector).
+pub(crate) const BASIC_3D: [&str; 4] = [
     "layout.basic3d.sphere",
     "layout.basic3d.helix",
     "layout.basic3d.cube",
+    "layout.basic3d.spiral",
 ];

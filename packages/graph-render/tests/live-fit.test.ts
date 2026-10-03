@@ -23,8 +23,8 @@ import { lineFrame, spaceBytes } from "./support.ts";
 
 const VIEWPORT = { width: 800, height: 600 };
 /** Far enough past the fitted box that no camera left where it was could still show it. */
-const FAR = Float64Array.from([9000, 9100, 9200]);
-const FAR_Y = Float64Array.from([9000, 9100, 9000]);
+const FAR = Float32Array.from([9000, 9100, 9200]);
+const FAR_Y = Float32Array.from([9000, 9100, 9000]);
 
 // The controller reads only getContext from the canvas; the guard stands in for a DOM that node lacks.
 function isCanvas(value: unknown): value is HTMLCanvasElement {
@@ -43,7 +43,7 @@ function showing(frame: Frame): Controller {
   state.viewport = VIEWPORT;
   state.destroyed = true; // invalidate() then schedules nothing: node has no requestAnimationFrame
   const notify = { hover: noop, select: noop, selection: noop, context: noop, camera: noop };
-  return { canvas, state, notify, fitted: false, local: newLocalLayer() };
+  return { canvas, state, notify, fitted: false, gestured: false, local: newLocalLayer() };
 }
 
 /** Three nodes on a line, fitted: the drawing both camera tests start from. */
@@ -91,7 +91,7 @@ test("a pair of another graph's length leaves the drawing and the camera alone",
   const controller = fittedLine();
   const before = [0, 1, 2].map((node) => cameraApi(controller).position(node));
   const camera = cameraApi(controller).camera();
-  const others = Float64Array.from([9, 9, 9, 9, 9]);
+  const others = Float32Array.from([9, 9, 9, 9, 9]);
   cameraApi(controller).setPositions(others, others);
   assert.deepEqual([0, 1, 2].map((node) => cameraApi(controller).position(node)), before, "no node moved");
   assert.deepEqual(cameraApi(controller).camera(), camera, "and the camera is the one it was fitted to");

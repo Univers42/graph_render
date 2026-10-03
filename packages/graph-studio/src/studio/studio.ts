@@ -10,11 +10,13 @@ import { type Args, type Outcome, type RawArgs, type Registry, type Resolved, cr
 import { formatCommand, parseCommand } from "../console/parse.ts";
 import { type MotorClient, MotorFailure } from "../motor/client.ts";
 import { type ShownError, describeError } from "../state/errors.ts";
+import { sameKnobs } from "../state/forces.ts";
+import { keepForces } from "../state/keepForces.ts";
 import { type LogEntry, type StudioState, initialState, withEntry } from "../state/model.ts";
-import type { Settings, Source } from "../state/settings.ts";
+import { type Settings, type Source, withSettings } from "../state/settings.ts";
 import { type SettingsStorage, keepSettings, recall } from "../state/persist.ts";
 import { type Store, createStore } from "../state/store.ts";
-import { type ViewFace, createPipeline } from "./pipeline.ts";
+import { type Pipeline, type ViewFace, createPipeline } from "./pipeline.ts";
 import { createReveal } from "./reveal.ts";
 
 export interface StudioDeps {
@@ -162,10 +164,26 @@ function note(store: Store<StudioState>, desk: Desk, reason: string): void {
   store.update((state) => withEntry({ ...state, error: shown }, entry));
 }
 
+/**
+ * The pipeline writes each member it drew and nothing else, and the force knobs are not
+ * drawn: an import, a recipe or a recalled source carries them, so they are written here
+ * once the drawing they belong to is on screen.
+ */
+function withForces(pipeline: Pipeline, store: Store<StudioState>): Pipeline["apply"] {
+  return async (next) => {
+    const outcome = await pipeline.apply(next);
+    if (!sameKnobs(next.forces, store.get().settings.forces)) {
+      store.update((state) => ({ ...state, settings: withSettings(state.settings, { forces: next.forces }) }));
+    }
+    return outcome;
+  };
+}
+
 function contextOf(deps: StudioDeps, store: Store<StudioState>, registry: () => Registry<StudioState, StudioContext>): StudioContext {
   const pipeline = createPipeline({ client: deps.client, view: deps.view, store });
   return {
     ...pipeline,
+    apply: withForces(pipeline, store),
     animation: createReveal({
       total: () => store.get().meta?.nodeCount ?? 0, show: (count) => pipeline.reveal(count), now: deps.now,
       schedule: (step, ms) => {
@@ -185,7 +203,10 @@ function contextOf(deps: StudioDeps, store: Store<StudioState>, registry: () => 
 
 export function createStudio(deps: StudioDeps): Studio {
   const store = createStore(initialState(deps.settings));
-  const registry = createRegistry<StudioState, StudioContext>(studioActions(deps.forces));
+  // Subscribed before the host's own watchers, so a new graph's session has the saved knobs
+  // before the host starts its settle.
+  const kept = deps.forces === undefined ? null : keepForces(store, deps.forces, deps.view);
+  const registry = createRegistry<StudioState, StudioContext>(studioActions(kept?.link));
   const context = contextOf(deps, store, () => registry);
   const desk: Desk = { deps, store, registry, context, seq: 0 };
   const unkeep = deps.storage === undefined ? () => undefined : keepSettings(store, deps.storage);
@@ -208,6 +229,7 @@ export function createStudio(deps: StudioDeps): Studio {
       unselect();
       unkeep();
       unselectMany();
+      kept?.stop();
       deps.client.close();
     },
   };

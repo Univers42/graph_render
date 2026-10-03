@@ -5,10 +5,12 @@ use super::knobs;
 
 pub(super) mod arms;
 pub(super) mod compute;
+pub(crate) mod env;
 pub(super) mod igraph;
 pub(super) mod records;
 pub(crate) mod setting;
 pub(super) mod three_d;
+pub(super) mod value;
 pub(crate) use setting::{Setting, env_setting};
 
 /// A negative control (`prompt.md` §7.2): a variable that perturbs the native arm only,
@@ -76,7 +78,8 @@ pub enum Knob {
     /// `GM_MUTATE_FA2_SCALING_RATIO`: ForceAtlas2's repulsion scale, native arm only.
     ///
     /// Its own control for the same reason, on the other side: `scaling_ratio` is
-    /// read by `Fa2State::repulsion` alone.
+    /// read by ForceAtlas2's repulsion alone, the dense pair loop and the Barnes-Hut
+    /// tree walk alike, so it moves both ForceAtlas2 stages and no other.
     Fa2ScalingRatio,
     /// `GM_MUTATE_TREE_TIDY_NODES`: nodes added to `layout.tree.tidy`'s model alone.
     ///
@@ -203,7 +206,7 @@ pub enum Knob {
     IgraphLglNodes,
     /// `GM_MUTATE_FORCE_DRL_NODES`: `layout.force.drl`'s own model.
     IgraphDrlNodes,
-    /// The five natively 3D layout node controls, in
+    /// The seven natively 3D layout node controls, in
     /// [`knobs::THREE_D_LAYOUT_STAGES`] order — the same shape and the same reason as the
     /// six above, and for `sphere`, `helix` and `cube` the *only* shape available: those
     /// three read the node count and no edge, so their model is their whole input.
@@ -224,6 +227,30 @@ pub enum Knob {
     /// and names neither. This one moves `layout.force.spring3d` alone, which is what makes
     /// the divergence attributable.
     Spring3dNodes,
+    /// `GM_MUTATE_BASIC3D_SPIRAL_NODES`: `layout.basic3d.spiral`'s own model.
+    ///
+    /// The re-drawn-model probe, and like `sphere`/`helix`/`cube` above it is the *only*
+    /// shape available: the layout reads the node count and no edge
+    /// (`layout/basic_3d.rs`'s module doc), so its model is its whole input. One more node
+    /// moves `turns`, the `wanted` linspace and every coordinate after it, which is a
+    /// sharper probe here than it is for `sphere`: the arc-length table is rebuilt per call,
+    /// so a perturbed node count re-runs the whole 65 536-entry inversion.
+    Basic3dSpiralNodes,
+    /// `GM_MUTATE_BIPARTITE_3D_NODES`: `layout.bipartite_3d`'s own model.
+    ///
+    /// The same probe for the same reason, with one difference worth recording: this layout
+    /// *does* read the graph (`registry.rs`'s append comment says so), so a re-drawn model
+    /// moves it through its edges as well as its node count. That is still the right probe —
+    /// it is scoped to this stage alone, which a shared control could not be.
+    Bipartite3dNodes,
+    /// `GM_MUTATE_PACKING_OSAGE_NODES`: `layout.packing.osage`'s own model.
+    ///
+    /// The re-drawn-model probe again, and for `osage` it is not merely the available one but
+    /// the only one: the layout publishes no `Params` and has no `impl Stage`, and what it
+    /// reads is the node count and no edge, so its model is its entire input. See
+    /// [`knobs::OSAGE_LAYOUT_STAGES`] for why this row is what `layout.packing.osage` needs
+    /// before the ledger can call the capability `gated` rather than `implemented`.
+    PackingOsageNodes,
     /// `GM_MUTATE_SPLIT_SUM`: **native arms only, and the threaded ones above all.**
     ///
     /// Names which gathered pass's merge reads a neighbouring node's delta. The full argument
@@ -234,6 +261,23 @@ pub enum Knob {
     /// Corrupts the closed-form point layouts' shared `coords` merge. The full argument is in
     /// [`compute`], under its own heading.
     SplitRescale,
+    /// `GM_MUTATE_OVERLAP_RELAXATION`: the overlap pass's over-relaxation factor.
+    ///
+    /// **A real parameter, and the only knob that can make the overlap invariant go red.**
+    /// Every other POST capability takes no parameters, so its control re-draws its own model
+    /// (`stage_nodes`); `post::separate` publishes [`SeparateParams::over_relaxation`], so its
+    /// control moves the real thing.
+    ///
+    /// The control's value is **`0`**, which is legal and is not clamped: it freezes every
+    /// displacement, so the pass cannot separate anything and every input overlap survives into
+    /// the snapshot. A native arm that freezes a stage the wasm arm runs normally is exactly
+    /// the cross-target divergence the gate exists to catch, and it is the perturbation that
+    /// turns `graph-cli overlap`'s invariant row red rather than merely moving a hash.
+    ///
+    /// A re-drawn model could not do this: adding a node changes the input, and the pass
+    /// separates it correctly either way, so the invariant would stay green and the control
+    /// would prove nothing about the pass's ability to separate at all.
+    OverlapRelaxation,
     /// `GM_MUTATE_FORCE_SESSION_GRAVITY`: the **live** force session's `gravity`, native arm
     /// of `force-gate` only.
     ///
@@ -244,18 +288,18 @@ pub enum Knob {
 
 impl Knob {
     /// Every knob: the fifteen that move a parameter or re-draw one layout's model, then
-    /// the fifteen ANALYSIS and POST stage controls in [`knobs::ANALYSIS_POST_STAGES`] order,
-    /// then the six igraph layout controls in [`knobs::IGRAPH_LAYOUT_STAGES`] order, then the
-    /// five 3D layout controls in [`knobs::THREE_D_LAYOUT_STAGES`] order, then the
-    /// two compute-tier controls, then the live session's own. The list itself is
-    /// [`arms::ALL`], spelled out there.
+    /// the twenty-seven per-stage controls — the fifteen of
+    /// [`knobs::ANALYSIS_POST_STAGES`], the six of [`knobs::IGRAPH_LAYOUT_STAGES`], the
+    /// five of [`knobs::THREE_D_LAYOUT_STAGES`] and the one of
+    /// [`knobs::OSAGE_LAYOUT_STAGES`] — then the two compute-tier controls, then the live
+    /// session's own. The list itself is [`arms::ALL`], spelled out there.
     ///
     /// **A `const`, because `capabilities::verdict::Evidence::load` walks it** to collect
     /// one control record each — a ledger read cannot be a function call per row. So the
-    /// twenty-six per-stage arms are spelled out there and held against those three tables by
-    /// `the_analysis_and_post_controls_are_the_knobs_table`, which fails on any arm whose
+    /// twenty-seven per-stage arms are spelled out there and held against those four tables
+    /// by `the_analysis_and_post_controls_are_the_knobs_table`, which fails on any arm whose
     /// variable, record or stage a table disagrees with.
-    pub const ALL: [Self; 44] = arms::ALL;
+    pub const ALL: [Self; 48] = arms::ALL;
 
     /// The variable that sets it.
     pub const fn env(self) -> &'static str {

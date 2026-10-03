@@ -4,10 +4,16 @@ The dock's Layout list is clicked with a real mouse event, and the drawing is re
 way the painter puts it on screen: `screen = world · scale + offset`, with the camera's offset
 canvas-relative, so the box a centre has to be in is `0..width` by `0..height` and not the
 viewport's own box. The row claims both halves at once — every centre inside that box, and a
-camera that is not the one from before the switch. A camera fitted to the layout run while the
-live loop redraws the graph somewhere else is what that second half is there to catch: on
-`hierarchy/tree-balanced.json`, switching to `force.drl` left 0 of 15 centres inside and the
-canvas with no drawn pixel at all, and only the fit button brought them back.
+camera that is already the fit of what is drawn, so pressing `f` afterwards moves nothing. A
+camera fitted to the layout run while the live loop redraws the graph somewhere else is what
+that second half is there to catch: on `hierarchy/tree-balanced.json`, switching to `force.drl`
+left 0 of 15 centres inside and the canvas with no drawn pixel at all, and only the fit button
+brought them back. On the studio's own graph develop dbab64cb leaves the camera at ×0.356 after
+the switch, and `f` then moves it to ×0.328.
+
+The camera is not compared with the one from before the switch: the live session seeds its
+own positions, so a switch between two force layouts can settle on the very drawing it left,
+whose fit is the camera it already had.
 
 The wait is the one every other row uses, `settle_drawing`, which polls until the positions
 stop moving (drive.py:92-96). It is only the right wait once the run has committed — a still
@@ -15,7 +21,7 @@ drawing is not a settled one — so the click is followed by a poll for the stud
 id with nothing left running.
 
 `expect_switch_stale` is the negative control: it inverts the camera half, so the row then
-claims the switch left the camera exactly where it was, and a fixed build has to fail it.
+claims `f` still moves the camera after the switch, and a fixed build has to fail it.
 """
 import json
 import time
@@ -99,9 +105,9 @@ def _claim(stale, nodes):
     """What the row holds itself to under the mode it was given, counts included."""
     if stale:
         return (f"switching the Layout to {TARGET} leaves all {nodes} node centres inside the "
-                f"canvas and leaves the camera exactly where it was")
+                f"canvas and a camera that `f` still moves")
     return (f"switching the Layout to {TARGET} leaves all {nodes} node centres inside the canvas "
-            f"and shows a camera fitted to that drawing, not the one from before the switch")
+            f"and a camera already fitted to that drawing, which `f` does not move")
 
 
 def _target():
@@ -142,16 +148,18 @@ def row_layout_switch(studio):
         return row(NAME, f"clicking {TARGET} in the Layout list runs a {LAYOUT} layout",
                    f"the Layout was still {settled_on} after {SWITCH_CAP_S:.0f} s", False)
     studio.settle_drawing()
-    return _verdict(studio, before, studio.page.evaluate(READ))
+    read = studio.page.evaluate(READ)
+    studio.key("f")
+    return _verdict(studio, before, read, studio.settle())
 
 
-def _verdict(studio, before, read):
+def _verdict(studio, before, read, refit):
     """Both halves of the claim: every centre inside the canvas, and the camera that fits them."""
     stale = studio.expect_switch_stale
     nodes, inside = read["nodes"], read["inside"]
     after = read["camera"]
-    fitted = (after == before) if stale else (after != before)
+    fitted = (after != refit) if stale else (after == refit)
     passed = read["layout"] == LAYOUT and nodes > 0 and inside == nodes and fitted
     measured = (f"{inside} of {nodes} centres inside, span {_span(read['span'])}, "
-               f"camera {_cam(before)} → {_cam(after)}")
+               f"camera {_cam(before)} → {_cam(after)}, after f {_cam(refit)}")
     return row(NAME, _claim(stale, nodes), measured, passed)

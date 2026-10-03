@@ -11,6 +11,7 @@ import { test } from "node:test";
 
 import { decodeSnapshot } from "../../graph-render/src/snapshot/decode.ts";
 import type { MotorClient } from "../src/motor/client.ts";
+import { DEFAULT_SETTINGS } from "../src/state/settings.ts";
 import { SCRIPTED_META, desk, savedBytes, scriptBytes, scriptedClient, spaceBytes } from "./desk.ts";
 
 /** The scripted motor, handing back each of `runs` in turn; the last one repeats. */
@@ -41,9 +42,9 @@ test("a 3D snapshot is drawn: the run reaches the screen with its z column", asy
   assert.ok(run !== null, "the run is on the store");
   assert.equal(state.error, null, "nothing was refused");
   assert.equal(run.dim, 1, "the summary carries the dim off the decoded snapshot");
-  // The layout the studio asked for, which is the catalog's first. The scripted motor hands
+  // The layout the studio asked for, which is its own default. The scripted motor hands
   // back 3D bytes whatever it is asked for, so what is under test is the drawing, not the id.
-  assert.equal(run.layoutId, "layout.forceatlas2");
+  assert.equal(run.layoutId, DEFAULT_SETTINGS.layout);
   const frame = seen.frames.at(-1)?.frame;
   assert.ok(frame !== undefined, "the studio drew a frame");
   assert.equal(frame.nodeCount, 3);

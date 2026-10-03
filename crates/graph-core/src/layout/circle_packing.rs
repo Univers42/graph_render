@@ -68,6 +68,16 @@ pub struct CirclePackingParams {
     /// centre plus largest radius) is scaled to `0.45` of this. Must be finite and above
     /// `0`.
     pub scale: f32,
+    /// The reference's start stream for the **non-planar fallback's** force pass
+    /// (`circle_packing.py:428` passes `seed=get_layout_seed()` to `nx.spring_layout`).
+    /// `Some(s)` draws `np.random.RandomState(s).rand(n, 2)` row-major; `None` keeps this
+    /// crate's golden-angle spiral.
+    ///
+    /// **The SciGraphs arm, not this id's default.** The exact path never draws at all, and
+    /// the fallback's spiral is what every hashed snapshot of `layout.packing.circle` was
+    /// taken at, so the registered default stays `None` and the conformance arm opts in —
+    /// the same rule `crate::layout::random::run_seeded` and `sfdp::run_seeded` follow.
+    pub seed: Option<u32>,
 }
 
 impl Default for CirclePackingParams {
@@ -75,6 +85,7 @@ impl Default for CirclePackingParams {
         Self {
             iterations: 500,
             scale: 5.0,
+            seed: None,
         }
     }
 }
@@ -125,8 +136,28 @@ fn pack(topology: &Topology, params: &CirclePackingParams) -> Packed {
     let edges = simple_pairs(topology);
     match try_exact(n, &edges, params) {
         Some(packed) => packed,
-        None => fallback::pack(n, &edges, params),
+        None => fallback::pack(n, &edges, &loop_counts(topology, n), params),
     }
+}
+
+/// Whether each node has a self-loop (0 or 1), kept out of [`simple_pairs`]'s reduction on
+/// purpose.
+///
+/// SciGraphs' fallback reads `G.degree` on the graph `_build_networkx_graph` built, which
+/// keeps its self-loops (`common.py:297`, no `u != v` filter), and networkx counts a loop
+/// twice (`reportviews.py:526`, `len(nbrs) + (n in nbrs)`). That graph is an `nx.Graph`
+/// (`common.py:238`), so a loop repeated in the edge list is stored once: the flag, not the
+/// count of loop records, is what reaches the degree. The exact path never sees loops — a
+/// triangulation has no self-edge — so only the fallback's starting degree needs them back.
+fn loop_counts(topology: &Topology, n: u32) -> Vec<u32> {
+    let e = topology.edges();
+    let mut counts = vec![0; n as usize];
+    for i in 0..topology.edge_count() as usize {
+        if e.source[i] == e.target[i] {
+            counts[e.source[i] as usize] = 1;
+        }
+    }
+    counts
 }
 
 /// Every topology edge as a dense-index pair, reduced to a simple graph: self-loops

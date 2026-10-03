@@ -47,6 +47,11 @@ def worst_js_p95(case):
     return max(phase["jsP95Ms"] for phase in case["phases"])
 
 
+def _drawn_edges(case):
+    values = [phase["drawnEdges"] for phase in case["phases"] if phase.get("drawnEdges") is not None]
+    return max(values) if values else "?"
+
+
 def _row(name, expectation, measured, verdict, gating=True):
     return {"row": name, "expectation": expectation, "measured": measured,
             "verdict": verdict, "gating": gating}
@@ -185,18 +190,19 @@ def baseline_of(report):
 
 
 def _frame_lines(report):
-    lines = ["| nodes | DPR | layout | open ms | canvas | worst fps | JS mean ms | JS p95 ms | long tasks | longest ms "
-             "| React commits | React renders | at open |", "|---:|---:|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---|"]
+    lines = ["| nodes | DPR | layout | open ms | canvas | worst fps | drawn edges | JS mean ms | JS p95 ms | long tasks "
+             "| longest ms | React commits | React renders | at open |",
+             "|---:|---:|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|"]
     for case in report["frames"]:
         if "notRun" in case:
-            lines.append(f"| {case['nodes']} | {case['dpr']} | | | not run: {case['notRun']} | | | | | | | | |")
+            lines.append(f"| {case['nodes']} | {case['dpr']} | | | not run: {case['notRun']} | | | | | | | | | |")
             continue
         phases = case["phases"]
         mean = max(phase["jsMeanMs"] for phase in phases)
         size = "x".join(str(side) for side in case["canvas"])
         at_open = case.get("reactAtOpen") or {}
         lines.append(f"| {case['nodes']} | {case['dpr']} | `{case.get('layout', '?')}` | {case.get('openMs', '?')} "
-                     f"| {size} | {worst_fps(case)} "
+                     f"| {size} | {worst_fps(case)} | {_drawn_edges(case)} "
                      f"| {mean} | {worst_js_p95(case)} | {_total(phases, 'longTasks')} "
                      f"| {max(phase['longestTaskMs'] for phase in phases)} | {_total(phases, 'reactCommits')} "
                      f"| {_total(phases, 'reactRendered')} "
@@ -221,7 +227,8 @@ def _block_lines(report):
 def table(report):
     head = [f"# studio-perf — {report['label']}", "",
             f"commit `{report['commit']}` · driver `{report['driver']}` · {report['browser']} · "
-            f"viewport {report['viewport'][0]}x{report['viewport'][1]} · software raster", "",
+            f"viewport {report['viewport'][0]}x{report['viewport'][1]} · renderer "
+            f"{report.get('renderer', 'not recorded')}", "",
             "| row | expectation | measured | verdict |", "|---|---|---|---|"]
     rows = [f"| `{row['row']}` | {row['expectation']} | {row['measured']} | {row['verdict']} |"
             for row in report["rows"]]

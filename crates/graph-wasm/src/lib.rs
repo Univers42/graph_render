@@ -26,27 +26,8 @@
 
 #[cfg(target_arch = "wasm32")]
 mod gate_exports {
+    use crate::wire::publish_stage as publish;
     use graph_core::{PipelineRun, REFERENCE_DEGREE, gate_node_count, run_with, seeded_model};
-    use std::cell::RefCell;
-
-    thread_local! {
-        static OUT: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
-    }
-
-    /// Frames `bytes` into the shared out-buffer and returns its address; 0 on failure.
-    fn publish(bytes: Option<Vec<u8>>) -> u32 {
-        let Some(bytes) = bytes else { return 0 };
-        let Ok(len) = u32::try_from(bytes.len()) else {
-            return 0;
-        };
-        OUT.with(|cell| {
-            let mut out = cell.borrow_mut();
-            out.clear();
-            out.extend_from_slice(&len.to_le_bytes());
-            out.extend_from_slice(&bytes);
-            u32::try_from(out.as_ptr() as usize).unwrap_or(0)
-        })
-    }
 
     /// The pipeline over the gate's model for `seed`, with the registered layout `id` at
     /// its default parameters and the compiled-in reference degree.
@@ -148,6 +129,12 @@ mod gate_exports {
     }
 }
 
+/// The ABI's revision, returned by `gm_abi_version`. Bumped whenever an export's
+/// signature, a refusal code's meaning or an accepted document version changes, never for
+/// a registry entry (those are counted at run time, C1). The SDK refuses a module that
+/// reports any other number (`docs/contract/wasm-abi.md` "Exports").
+pub const ABI_VERSION: u32 = 1;
+
 pub mod probe;
 
 // C21: everything below is target-independent and unit-tested natively (`cargo test`,
@@ -167,8 +154,13 @@ mod exports;
 #[cfg(any(test, target_arch = "wasm32"))]
 mod handle;
 #[cfg(any(test, target_arch = "wasm32"))]
+mod heap;
+#[cfg(any(test, target_arch = "wasm32"))]
 mod ingest;
+mod json_string;
 mod memory_measure;
+#[cfg(any(test, all(feature = "threads", target_arch = "wasm32")))]
+mod pool;
 pub mod post;
 #[cfg(any(test, target_arch = "wasm32"))]
 mod seed_ingest;
@@ -178,3 +170,10 @@ mod session;
 mod stage_exports;
 #[cfg(any(test, target_arch = "wasm32"))]
 pub(crate) mod views;
+#[cfg(any(test, target_arch = "wasm32"))]
+mod wire;
+
+/// The heap grows by an eighth at a time rather than by 64 KiB: see [`heap`].
+#[cfg(all(target_arch = "wasm32", not(test)))]
+#[global_allocator]
+static HEAP: heap::Geometric = heap::Geometric;

@@ -30,12 +30,19 @@ Do:
    draws `Mt19937::new(s)`, `next_f64()` per value, row-major. Update every `SpringParams`
    constructor in every crate (CLAUDE.md "a new struct field needs every constructor"). The
    conformance `motor.rs` passes `Some(LAYOUT_SEED)` for SPRING and SPRING_3D.
-4. The circle-packing fallback: make the fallback's seed-spring call pass the same `Some(seed)`
-   and the parameters above. Only on the path the conformance arm takes: the registered
+4. The circle-packing fallback: it does not call `SpringParams`. It runs its own dense FR,
+   `circle_packing/fallback/seed.rs` (`fruchterman_reingold`, started by `seed_positions`);
+   sg-dedupe left it separate because its arithmetic differs from `force/spring`. Make
+   `seed_positions` draw `Mt19937::new(seed)` the same way, with the parameters above. Only on the path the conformance arm takes: the registered
    `layout.packing.circle` keeps its default unless the fallback has no other caller (say which).
 5. Re-measure. The expected cause is `arithmetic` (numpy's pairwise sums vs a sequential loop):
    record it with the f32 count. Do not chase the last ulps by reordering sums unless one
-   reduction is named in a measured diff.
+   reduction is named in a measured diff. Known differences from `_fruchterman_reingold`
+   (`drawing/layout.py:697-719`), to check first if a measured diff points at the kernel:
+   networkx forms one factor per pair, `k*k/d^2 - A*d/k`, and sums `delta*factor` once over j
+   (einsum, `:703-705`), while `force/spring/forces.rs:118-139` sums repulsion and attraction in
+   two loops; `seed.rs` measures distance with `libm::hypot` where `np.linalg.norm` is
+   `sqrt(x*x + y*y)`, and scales by `d*t/len` where numpy computes `d*(t/len)` (`:711`).
 6. Close `G_SPRING_SEED` (sg-common step 5); rewrite doc repairs 3 and 4 (4's "f64 -> 1020" is
    unreachable, Geometry is f32: `basic_3d.rs:45-51`).
 

@@ -92,7 +92,7 @@ impl<'a> Solve<'a> {
             let count = self.x.len();
             for i in 0..count {
                 let force = self.force_on(&tree, i as u32, kp, crk);
-                let length = libm::sqrt(force[0] * force[0] + force[1] * force[1]);
+                let length = f64::sqrt(force[0] * force[0] + force[1] * force[1]);
                 self.norm += length;
                 if length > 0.0 {
                     let scale = step / length;

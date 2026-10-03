@@ -17,7 +17,10 @@
 //!   same pair to opposite sides.
 //!
 //! A **zero-length chord** — a self-loop, or two distinct nodes a layout placed on one
-//! spot — takes the loop shape whatever the style is. No perpendicular exists there, so
+//! spot — takes the loop shape whatever the style is. Zero is exact: the reference's
+//! `np.allclose(atol=1e-6)` (`edge_styles.py:458`) and `length < 1e-10` (`:117`, `:203`)
+//! are absolute in its mesh units, and centres here carry none, so any epsilon would loop
+//! every edge of a drawing laid out small enough. No perpendicular exists there, so
 //! its fan displacement slides the loop's centre up `y` instead, the axis the loop is
 //! already lifted along.
 
@@ -69,6 +72,12 @@ impl Pt {
             x: (a.x + b.x) * 0.5,
             y: (a.y + b.y) * 0.5,
         }
+    }
+
+    /// The chord `a -> b` turned a quarter turn clockwise, `(d.y, -d.x)`.
+    fn quarter_turn(a: Pt, b: Pt) -> Pt {
+        let (dx, dy) = (b.x - a.x, b.y - a.y);
+        Pt { x: dy, y: -dx }
     }
 }
 
@@ -133,13 +142,15 @@ impl Bend {
     /// `(target.x, source.y)` — and two for `Z`, which adds a second bend at
     /// `(elbow.x, target.y)`. Both bends sit on one `elbow_x`, which is what keeps the
     /// middle leg vertical and the row right-angled, and both take the same fan
-    /// displacement, so a fanned elbow stays a right angle. With the endpoints level the
-    /// two bends collapse onto the chord and the row is a straight line, which is exact
-    /// and needs no special case.
+    /// displacement, so a fanned `Z` stays a right angle. A fanned `L` does not: its one
+    /// bend moves while both endpoints stay on their nodes, so its legs tilt by the gap
+    /// over their length — one interior point has no second to shift with it. With the
+    /// endpoints level the two bends collapse onto the chord and the row is a straight
+    /// line, which is exact and needs no special case.
     fn orthogonal_row(&self, pts: &mut Vec<f32>) {
         let elbow_x = match self.params.orthogonal {
             Orthogonal::L => self.p1.x,
-            Orthogonal::Z => (self.p0.x + self.p1.x) * 0.5,
+            Orthogonal::Z => Pt::mid(self.p0, self.p1).x,
         };
         self.write(
             Pt {
@@ -164,7 +175,7 @@ impl Bend {
     /// One control point: the chord's midpoint pushed off it by half the bulge.
     fn quadratic_row(&self, pts: &mut Vec<f32>) {
         let control = Pt::mid(self.p0, self.p1)
-            .shift(self.perp().scale(self.bulge() * 0.5))
+            .shift(Pt::quarter_turn(self.p0, self.p1).scale(self.bulge() * 0.5))
             .shift(self.shift);
         self.write(control, pts);
     }
@@ -172,7 +183,7 @@ impl Bend {
     /// Two control points, at a quarter and three quarters of the chord, each pushed off
     /// by a quarter of the bulge — the reference's cubic.
     fn cubic_row(&self, pts: &mut Vec<f32>) {
-        let push = self.perp().scale(self.bulge() * 0.25);
+        let push = Pt::quarter_turn(self.p0, self.p1).scale(self.bulge() * 0.25);
         for t in [0.25, 0.75] {
             self.write(
                 Pt::lerp(self.p0, self.p1, t).shift(push).shift(self.shift),
@@ -213,14 +224,6 @@ impl Bend {
                 y: r * libm::sin(angle),
             });
             self.write(vertex, pts);
-        }
-    }
-
-    /// The chord turned a quarter turn clockwise, `(d.y, -d.x)`.
-    fn perp(&self) -> Pt {
-        Pt {
-            x: self.p1.y - self.p0.y,
-            y: self.p0.x - self.p1.x,
         }
     }
 
@@ -280,14 +283,10 @@ fn canonical(sheet: &Sheet<'_>, s: u32, g: u32, amount: f64) -> Pt {
 /// `(d.y, -d.x) * amount / |d|`. Zero for a zero-length chord, where no perpendicular
 /// exists — the only square root in this module, and the only division.
 fn perpendicular_shift(p0: Pt, p1: Pt, amount: f64) -> Pt {
-    let (dx, dy) = (p1.x - p0.x, p1.y - p0.y);
-    let length = libm::sqrt(dx * dx + dy * dy);
+    let turn = Pt::quarter_turn(p0, p1);
+    let length = f64::sqrt(turn.y * turn.y + turn.x * turn.x);
     if length == 0.0 {
         return Pt { x: 0.0, y: 0.0 };
     }
-    let k = amount / length;
-    Pt {
-        x: dy * k,
-        y: -dx * k,
-    }
+    turn.scale(amount / length)
 }

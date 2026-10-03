@@ -1,7 +1,16 @@
-//! Layer assignment: longest-path layering with slack reduction, then dummy vertices for spans over one layer (`hierarchical.py:313-414`), exact but for the dummy budget itself.
+//! Layer assignment: longest-path layering with slack reduction, then dummy vertices for
+//! spans over one layer (`hierarchical.py:313-414`), exact but for the dummy budget itself.
 //!
-//! Ponytail: `DUMMY_BUDGET` (200,000, `hierarchical.py:7`) is a resource cap, not a correctness rule; over budget the longest arcs draw straight and note `dag.dummy_budget_exceeded`, never silently — see `docs/decisions/sugiyama-heuristics.md` for the full write-up.
-use super::acyclic::Arcs;
+//! **Over the distinct arc list, not over edges.** The reference's `arcs` is a `set` of
+//! `(u, v)` pairs (`hierarchical.py:306`), so `k` parallel edges between two nodes are one
+//! arc: one neighbour on each side here, one dummy chain, one entry in `up`/`down`. `Route`
+//! stays per edge, so every parallel edge is still drawn — through the one chain they share.
+//!
+//! Ponytail: `DUMMY_BUDGET` (200,000, `hierarchical.py:7`) is a resource cap, not a
+//! correctness rule; over budget the longest arcs draw straight and note
+//! `dag.dummy_budget_exceeded`, never silently — see `docs/decisions/sugiyama-heuristics.md`
+//! for the full write-up.
+use super::acyclic::ArcList;
 use graph_contract::notes::{Note, NoteCode};
 /// The reference's budget (`hierarchical.py:7`); tests pass a smaller one directly, so an overflow does not need a 200k-edge fixture.
 pub(crate) const DUMMY_BUDGET: u32 = 200_000;
@@ -26,24 +35,25 @@ pub(crate) struct Layering {
     pub(crate) notes: Vec<Note>,
 }
 impl Layering {
-    /// Builds the ordering graph over `arcs` at layers `layer`, admitting spans up to `budget` dummies in total, smallest span first.
-    pub(crate) fn build(arcs: &Arcs, layer: &[u32], budget: u32) -> Self {
-        let (max_span, dummy_count) = budget_plan(arcs, layer, budget);
-        materialize(arcs, layer, max_span, dummy_count)
+    /// Builds the ordering graph over `list` at layers `layer`, admitting spans up to
+    /// `budget` dummies in total, smallest span first.
+    pub(crate) fn build(list: &ArcList, layer: &[u32], budget: u32) -> Self {
+        let plan = budget_plan(list, layer, budget);
+        materialize(list, layer, plan)
     }
 }
-/// Longest-path layers (`hierarchical.py:313-334`) then slack-reduced (`hierarchical.py:336-369`): one layer index per real node. Parallel edges are kept separate rather than deduped like the reference's `(u, v)` set (Ponytail: more dummies than it on a multigraph, cosmetic — see `docs/decisions/sugiyama-heuristics.md`).
-pub(crate) fn assign_layers(arcs: &Arcs) -> Vec<u32> {
-    let n = arcs.node_count() as usize;
+
+/// What [`budget_plan`] decided: the admitted span ceiling and the dummies it admits.
+type Plan = (Option<u32>, u32);
+/// Longest-path layers (`hierarchical.py:313-334`) then slack-reduced (`hierarchical.py:336-369`): one layer index per real node. Over the **distinct** arc list, as the reference is: its `arcs` is a `set` of `(u, v)` pairs (`hierarchical.py:306`), so `k` parallel edges between two nodes are one neighbour on each side here too, and a parallel edge does not shift the median [`reduce_slack`] slides toward.
+pub(crate) fn assign_layers(list: &ArcList) -> Vec<u32> {
+    let n = list.nodes as usize;
     let (mut preds, mut succs) = (vec![Vec::new(); n], vec![Vec::new(); n]);
-    for e in 0..arcs.edge_count() {
-        if !arcs.is_loop(e) {
-            let (tail, head) = arcs.tail_head(e);
-            succs[tail as usize].push(head);
-            preds[head as usize].push(tail);
-        }
+    for &(tail, head, _) in &list.arcs {
+        succs[tail as usize].push(head);
+        preds[head as usize].push(tail);
     }
-    let mut layer = longest_path_layers(arcs.node_count(), &succs, &preds);
+    let mut layer = longest_path_layers(list.nodes, &succs, &preds);
     reduce_slack(&preds, &succs, &mut layer);
     layer
 }
@@ -118,13 +128,11 @@ fn slide(node: u32, preds: &[Vec<u32>], succs: &[Vec<u32>], layer: &mut [u32]) -
     true
 }
 /// The admitted span ceiling and dummies needed (`hierarchical.py:381-389`): `(None, needed)` when every arc fits `budget`; otherwise the largest span still admitted (smallest spans first) paired with the dummy count it actually admits.
-fn budget_plan(arcs: &Arcs, layer: &[u32], budget: u32) -> (Option<u32>, u32) {
-    let spans: Vec<u32> = (0..arcs.edge_count())
-        .filter(|&e| !arcs.is_loop(e))
-        .map(|e| {
-            let (tail, head) = arcs.tail_head(e);
-            layer[head as usize] - layer[tail as usize]
-        })
+fn budget_plan(list: &ArcList, layer: &[u32], budget: u32) -> Plan {
+    let spans: Vec<u32> = list
+        .arcs
+        .iter()
+        .map(|&(tail, head, _)| layer[head as usize] - layer[tail as usize])
         .collect();
     let needed: u64 = spans.iter().map(|&s| u64::from(s - 1)).sum();
     if needed <= u64::from(budget) {
@@ -148,23 +156,21 @@ fn budget_plan(arcs: &Arcs, layer: &[u32], budget: u32) -> (Option<u32>, u32) {
     unreachable!("needed > budget implies the loop returns")
 }
 /// The growing ordering graph and what [`Self::place`] needs to route each edge.
-struct ChainBuilder<'a> {
+struct ChainBuilder {
     up: Vec<Vec<u32>>,
     down: Vec<Vec<u32>>,
     layer_of: Vec<u32>,
-    arcs: &'a Arcs<'a>,
     max_span: Option<u32>,
 }
-impl<'a> ChainBuilder<'a> {
-    fn new(arcs: &'a Arcs<'a>, layer: &[u32], max_span: Option<u32>, dummy_count: u32) -> Self {
-        let total = (arcs.node_count() + dummy_count) as usize;
+impl ChainBuilder {
+    fn new(node_count: u32, layer: &[u32], max_span: Option<u32>, dummy_count: u32) -> Self {
+        let total = (node_count + dummy_count) as usize;
         let mut layer_of = vec![0u32; total];
         layer_of[..layer.len()].copy_from_slice(layer);
         Self {
             up: vec![Vec::new(); total],
             down: vec![Vec::new(); total],
             layer_of,
-            arcs,
             max_span,
         }
     }
@@ -184,12 +190,11 @@ impl<'a> ChainBuilder<'a> {
         }
         self.direct(previous, head);
     }
-    /// Routes edge `e`, allocating dummies from `next_dummy` if it needs a chain.
-    fn place(&mut self, e: u32, next_dummy: &mut u32) -> (Route, Option<Note>) {
-        if self.arcs.is_loop(e) {
-            return (Route::Loop, None);
-        }
-        let (tail, head) = self.arcs.tail_head(e);
+    /// Routes one distinct arc `tail -> head`, allocating dummies from `next_dummy` if it
+    /// needs a chain. `edge` is the arc's first member edge, which is what a budget note
+    /// is indexed by.
+    fn place(&mut self, arc: (u32, u32, u32), next_dummy: &mut u32) -> (Route, Option<Note>) {
+        let (tail, head, edge) = arc;
         let span = self.layer_of[head as usize] - self.layer_of[tail as usize];
         if span == 1 {
             self.direct(tail, head);
@@ -198,7 +203,7 @@ impl<'a> ChainBuilder<'a> {
         if self.max_span.is_some_and(|max| span > max) {
             let note = Note {
                 code: NoteCode::DummyBudgetExceeded,
-                index: e,
+                index: edge,
             };
             return (Route::Straight, Some(note));
         }
@@ -208,16 +213,29 @@ impl<'a> ChainBuilder<'a> {
         (Route::Chain { first, count }, None)
     }
 }
-fn materialize(arcs: &Arcs, layer: &[u32], max_span: Option<u32>, dummy_count: u32) -> Layering {
-    let mut builder = ChainBuilder::new(arcs, layer, max_span, dummy_count);
-    let mut next_dummy = arcs.node_count();
-    let mut route = Vec::with_capacity(arcs.edge_count() as usize);
+/// The ordering graph over the distinct arcs, and a [`Route`] per **edge**: every one of an
+/// arc's members takes that arc's route, so `k` parallel edges share the one dummy chain the
+/// reference's arc set gives them, and a self-loop is `Route::Loop`. Membership is
+/// `list.members`, the arcs' own edge list — an edge index range would hand this arc's route
+/// to every edge that happens to sit between two of its members.
+fn materialize(list: &ArcList, layer: &[u32], (max_span, dummy_count): Plan) -> Layering {
+    let mut builder = ChainBuilder::new(list.nodes, layer, max_span, dummy_count);
+    let mut next_dummy = list.nodes;
+    let mut routes: Vec<Option<Route>> = vec![None; list.edges as usize];
     let mut notes = Vec::new();
-    for e in 0..arcs.edge_count() {
-        let (r, note) = builder.place(e, &mut next_dummy);
-        route.push(r);
-        notes.extend(note);
+    for &(tail, head, ref span) in &list.arcs {
+        let first = list.members[span.start as usize];
+        let route = builder.place((tail, head, first), &mut next_dummy);
+        notes.extend(route.1);
+        for &e in &list.members[span.start as usize..span.end as usize] {
+            routes[e as usize] = Some(route.0);
+        }
     }
+    // An edge with no entry is a self-loop: it is in no arc, so it was never routed.
+    let route = routes
+        .into_iter()
+        .map(|r| r.unwrap_or(Route::Loop))
+        .collect();
     Layering {
         layer_of: builder.layer_of,
         up: builder.up,
@@ -226,74 +244,6 @@ fn materialize(arcs: &Arcs, layer: &[u32], max_span: Option<u32>, dummy_count: u
         notes,
     }
 }
+
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::index::index_model;
-    use crate::layout::sugiyama::acyclic::Acyclic;
-    use crate::records::build::{edge, node};
-    /// `(layering, layer_of)` for `nodes`/`edges` at `budget`.
-    fn built(nodes: &[&str], edges: &[(&str, &str, &str)], budget: u32) -> (Layering, Vec<u32>) {
-        let n: Vec<_> = nodes.iter().map(|id| node(id, "")).collect();
-        let e: Vec<_> = edges.iter().map(|&(id, s, t)| edge(id, s, t)).collect();
-        let t = index_model(&n, &e).expect("fits");
-        let acyclic = Acyclic::of(&t);
-        let arcs = Arcs::new(&t, &acyclic);
-        let layer = assign_layers(&arcs);
-        (Layering::build(&arcs, &layer, budget), layer)
-    }
-    #[test]
-    fn a_chain_has_no_dummies_and_a_reversed_cycle_still_spans_forward() {
-        let e = [("ab", "a", "b"), ("bc", "b", "c"), ("cd", "c", "d")];
-        let (l, layer) = built(&["a", "b", "c", "d"], &e, DUMMY_BUDGET);
-        assert_eq!(layer, [0, 1, 2, 3]);
-        assert_eq!(l.route, [Route::Direct, Route::Direct, Route::Direct]);
-        assert!(l.notes.is_empty());
-        // c->a closes a cycle, reversing to a->c: still spans forward, so nothing goes Straight.
-        let e2 = [("ab", "a", "b"), ("bc", "b", "c"), ("ca", "c", "a")];
-        let (l2, layer2) = built(&["a", "b", "c"], &e2, DUMMY_BUDGET);
-        assert!(l2.route.iter().all(|r| !matches!(r, Route::Straight)));
-        assert!(layer2.iter().all(|&x| x <= 2));
-    }
-    #[test]
-    fn a_multi_span_edge_gets_one_dummy_per_intermediate_layer() {
-        let e = [
-            ("ab", "a", "b"),
-            ("bc", "b", "c"),
-            ("cd", "c", "d"),
-            ("ad", "a", "d"),
-        ];
-        let (l, layer) = built(&["a", "b", "c", "d"], &e, DUMMY_BUDGET);
-        assert_eq!(layer, [0, 1, 2, 3]);
-        assert_eq!(l.route[3], Route::Chain { first: 4, count: 2 });
-        assert_eq!(l.up.len(), 6, "4 real + 2 dummy");
-        assert_eq!(l.down[0], [1, 4], "a's direct edge, then its dummy chain");
-        assert_eq!((l.up[4][0], l.down[4][0]), (0, 5));
-        assert_eq!((l.up[5][0], l.down[5][0]), (4, 3));
-    }
-    #[test]
-    fn a_lowered_budget_leaves_the_longest_spans_straight_and_noted() {
-        // Two 2-layer edges (1 dummy each) plus a 4-layer edge (3 dummies): budget 2 admits
-        // only the two smallest spans, leaving the longest one straight.
-        let e = [
-            ("ab", "a", "b"),
-            ("bc", "b", "c"),
-            ("cd", "c", "d"),
-            ("de", "d", "e"),
-            ("ac", "a", "c"),
-            ("bd", "b", "d"),
-            ("ae", "a", "e"),
-        ];
-        let (l, _) = built(&["a", "b", "c", "d", "e"], &e, 2);
-        assert_eq!(l.route[4], Route::Chain { first: 5, count: 1 });
-        assert_eq!(l.route[5], Route::Chain { first: 6, count: 1 });
-        assert_eq!(l.route[6], Route::Straight, "the 4-layer span");
-        assert_eq!(
-            l.notes,
-            [Note {
-                code: NoteCode::DummyBudgetExceeded,
-                index: 6
-            }]
-        );
-    }
-}
+mod tests;

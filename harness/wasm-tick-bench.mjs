@@ -19,11 +19,19 @@
 // them would be the dishonest way to win the N = 220 row.
 //
 // It reads no environment variable. Exit codes follow graph-cli: 0 ran · 1 a check the
-// self-check makes failed · 2 could not run (no wasm binary, no SDK, a refused build).
+// self-check makes failed · 2 could not run (no wasm binary, no SDK, a module that did
+// not load, a refused build, an ingest document the contract would refuse).
+//
+// The member lists this arm writes into that document are read from the contract
+// (`harness/wasm-tick-bench/contract.mjs`), not restated beside the writer: a hand copy
+// checked against itself is a transcription check in name only.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { registerHooks } from "node:module";
 import { dirname, resolve } from "node:path";
+
+import { membersFromContract } from "./wasm-tick-bench/contract.mjs";
+import { documentRefusal, ingestOf } from "./wasm-tick-bench/document.mjs";
 
 /** Ticks a settle costs: d3's `alphaDecay(0.06)` down to its `alphaMin` of 0.001. */
 const SETTLE_TICKS = 112;
@@ -33,12 +41,6 @@ const FRAME_BUDGET_MS = 16.67;
 
 /** The layout whose headline number is a tick. */
 const DEFAULT_LAYOUT = "layout.force.barnes_hut";
-
-/** The members `ingest.rs` requires of a node, and refuses a document without. */
-const NODE_FIELDS = ["id", "kind", "database_id", "source", "label", "group", "weight", "version", "has_note", "icon"];
-
-/** The members `ingest.rs` requires of an edge. */
-const EDGE_FIELDS = ["id", "source", "target", "kind", "label", "strength", "directed", "record_id", "child_first"];
 
 /** The pinned six-node model, asserted on this side of the port as on the other two. */
 const PINNED_N = 6;
@@ -93,8 +95,12 @@ function median(values) {
 
 /** The largest `(n, ms)` that fits `budgetMs`; exactly at the budget still fits. */
 function largestFitting(samples, budgetMs) {
-  const fitting = samples.filter(([, ms]) => ms <= budgetMs).map(([n]) => n);
-  return fitting.length === 0 ? null : Math.max(...fitting);
+  let largest = null;
+  for (const [n, ms] of samples) {
+    if (ms > budgetMs) continue;
+    largest = largest === null || n > largest ? n : largest;
+  }
+  return largest;
 }
 
 /**
@@ -119,46 +125,6 @@ function registerTypeScript() {
   });
 }
 
-/** One node record in the provisional ingest shape, every member present. */
-function nodeOf(node) {
-  return {
-    id: node.id,
-    kind: node.kind,
-    database_id: node.databaseId ?? null,
-    source: node.source,
-    label: node.label,
-    group: node.group ?? null,
-    weight: node.weight,
-    version: node.version,
-    has_note: node.hasNote,
-    icon: node.icon ?? null,
-  };
-}
-
-/** One edge record in the provisional ingest shape, every member present. */
-function edgeOf(edge) {
-  return {
-    id: edge.id,
-    source: edge.source,
-    target: edge.target,
-    kind: edge.kind,
-    label: edge.label,
-    strength: edge.strength,
-    directed: edge.directed,
-    record_id: null,
-    child_first: false,
-  };
-}
-
-/** The model's ingest document: version 1, nodes then edges, nothing else. */
-function ingestOf(model) {
-  return JSON.stringify({
-    version: 1,
-    nodes: model.nodes.map(nodeOf),
-    edges: model.edges.map(edgeOf),
-  });
-}
-
 /** One `(n, build ms, run ms, tick ms)` row: `repeat` builds and `repeat` layouts. */
 function measureArm(motor, document, n, repeat, layout) {
   const builds = [];
@@ -180,7 +146,7 @@ function measureArm(motor, document, n, repeat, layout) {
   return row;
 }
 
-/** The pinned model, the pinned member lists and the pinned arithmetic. */
+/** The pinned model, the contract's member lists and the pinned arithmetic. */
 async function selfCheck() {
   const failures = [];
   const check = (name, got, want) => {
@@ -198,14 +164,16 @@ async function selfCheck() {
   ];
   check("the crossover is the largest n that fits", largestFitting(ladder, 16.67), 10_000);
   check("no n fits when every one is over", largestFitting(ladder, 0.5), null);
+  const members = membersFromContract(ROOT);
   const { buildSyntheticModel } = await import("../src/core/model/synthetic.ts");
   const model = buildSyntheticModel(PINNED_N);
   check("the pinned model's node count", model.nodes.length, PINNED_NODES);
   check("the pinned model's edge count", model.edges.length, PINNED_EDGES);
-  const document = JSON.parse(ingestOf(model));
+  const document = ingestOf(model);
   check("the ingest document's version", document.version, 1);
-  check("a node record carries exactly the required members", Object.keys(document.nodes[0]), NODE_FIELDS);
-  check("an edge record carries exactly the required members", Object.keys(document.edges[0]), EDGE_FIELDS);
+  check("a node record carries exactly the contract's members", Object.keys(document.nodes[0]), members.node);
+  check("an edge record carries exactly the contract's members", Object.keys(document.edges[0]), members.edge);
+  check("the ingest document is one gm_build would accept", documentRefusal(document, members), null);
   check("the ingest document round-trips its own counts", [document.nodes.length, document.edges.length], [PINNED_NODES, PINNED_EDGES]);
   process.stdout.write(failures.length === 0 ? "self-check ok\n" : `self-check FAILED: ${failures.join("; ")}\n`);
   process.exit(failures.length === 0 ? 0 : 1);
@@ -233,6 +201,26 @@ function markdown(plan, rows, initMs, runtime) {
   return lines.join("\n");
 }
 
+/**
+ * Why `motor` is not a motor this arm can time, or `null` when it is.
+ * `Motor.create` never throws — it returns a degraded Motor carrying the load error
+ * (`crates/graph-sdk-js/src/index.ts:60-71`), so an existence check alone let an
+ * unloadable module through and the failure arrived later as an uncaught
+ * `WasmUnavailableError` from `layouts()`: exit 1 with a stack, not the documented 2
+ * naming the module. `#loadError` is private, so the message is read by making the one
+ * call that rethrows it.
+ */
+function motorRefusal(motor, plan) {
+  if (motor.available) return null;
+  let why = "the SDK reported no reason";
+  try {
+    motor.layouts();
+  } catch (error) {
+    why = error && error.message ? error.message : String(error);
+  }
+  return `${plan.wasm} did not load, so no layout can be timed through it: ${why}`;
+}
+
 async function main() {
   const plan = parseArgs(process.argv.slice(2));
   registerTypeScript();
@@ -243,9 +231,17 @@ async function main() {
   const started = performance.now();
   const motor = await createMotor(readFileSync(plan.wasm));
   const initMs = performance.now() - started;
+  const unusable = motorRefusal(motor, plan);
+  if (unusable !== null) fail(unusable);
   if (!motor.layouts().includes(plan.layout)) fail(`the module does not register ${plan.layout}`);
+  const members = membersFromContract(ROOT);
   const rows = [];
-  for (const n of plan.sizes) rows.push(measureArm(motor, ingestOf(buildSyntheticModel(n)), n, plan.repeat, plan.layout));
+  for (const n of plan.sizes) {
+    const document = ingestOf(buildSyntheticModel(n));
+    const refusal = documentRefusal(document, members);
+    if (refusal !== null) fail(`n = ${n}: ${refusal}`);
+    rows.push(measureArm(motor, JSON.stringify(document), n, plan.repeat, plan.layout));
+  }
   const text = markdown(plan, rows, initMs, process.version);
   process.stdout.write(text);
   if (plan.out) write(plan.out, text);
@@ -259,4 +255,10 @@ function write(path, text) {
   writeFileSync(path, text);
 }
 
-await main();
+// The header's own table promises 2 for "could not run"; a failed dynamic import or an
+// unwritable `--out` is that, not "ran and failed".
+try {
+  await main();
+} catch (error) {
+  fail(error && error.message ? error.message : String(error));
+}

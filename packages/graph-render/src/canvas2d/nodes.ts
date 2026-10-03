@@ -123,8 +123,17 @@ function paintSpheres(input: PaintInput, counts: PaintCounts, pass: Pass): void 
   }
 }
 
-/** True when this scene is drawn as lit spheres rather than as batched fills. */
+/**
+ * True when this scene is drawn as lit spheres rather than as batched fills.
+ *
+ * A `Box` frame never takes the impostor path: the sprite the cache hands back is a lit disc
+ * of one radius (`sphereSize` squares the drawn diameter) and there is no rect impostor baked,
+ * so blitting one would spend the node's `w`, its `h` and the rim stroke and turn every box
+ * into a round sprite. A Box frame keeps the shape the snapshot gave it and is drawn by the
+ * flat rect path — the same path a Box scene past IMPOSTOR_BUDGET already takes.
+ */
 export function impostorOf(input: PaintInput): boolean {
+  if (input.frame.nodeKind === "Box") return false;
   return input.style.spheres !== null && input.frame.nodeCount <= IMPOSTOR_BUDGET;
 }
 
@@ -155,7 +164,21 @@ export function paintNodes(input: PaintInput, counts: PaintCounts): void {
   } else {
     paintPass(input, counts, "all");
   }
+  paintRings(input);
+}
+
+function paintRings(input: PaintInput): void {
   input.ctx.globalAlpha = 1;
   paintRing(input, input.selected, 2);
   if (input.focus !== input.selected) paintRing(input, input.focus, 1.5);
+}
+
+/**
+ * The lit neighbourhood at full strength and the rings, over a GPU layer that drew every
+ * node. Caveat: it walks every node to find the lit ones, as the 2D lit pass does; a
+ * million-node scene pays that walk on every frame a focus is shown.
+ */
+export function paintLitNodes(input: PaintInput, counts: PaintCounts): void {
+  if (input.focus >= 0) paintPass(input, counts, "lit");
+  paintRings(input);
 }

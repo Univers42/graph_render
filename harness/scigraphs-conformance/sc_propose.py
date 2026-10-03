@@ -26,7 +26,8 @@ unlock the rest, which is the one nearest the top of this list.
 """
 
 #: Below this disparity the two drawings are the same shape to within `scipy`'s own fit **and**
-#: their raw coordinates differ by less than this gap, so there is nothing left over: the same
+#: their raw coordinates differ by no more than [`ARITHMETIC_GAP`] on all but at most
+#: [`ARITHMETIC_RESIDUAL_FIXTURES`] of the row's fixtures, so there is nothing left over: the same
 #: method, a different summation order or a different `libm`, and nothing but that.
 #:
 #: **Both halves are needed, and the gap is the half that matters.** `GRID` has a disparity of
@@ -35,6 +36,24 @@ unlock the rest, which is the one nearest the top of this list.
 #: a summation order that is already right.
 ARITHMETIC_DISPARITY = 1e-3
 ARITHMETIC_GAP = 1e-6
+
+#: **How many fixtures may carry a gap above [`ARITHMETIC_GAP`]**, which is the smallest rule
+#: that separates the three measured cases from each other. `SPRING` is `f32`-identical on 21 of
+#: its 24 fixtures and off by 2.37e-03 on `lesmis` alone; one fixture may carry the residual
+#: because a reduction difference is a fixed thing and the fixture that shows it is the one with
+#: the most nodes and the most chaotic iterations. Two may not: a second one makes the
+#: difference systematic rather than amplified, which is exactly the measured shape of a unit or
+#: an axis mismatch — `GRAPHVIZ_TWOPI` measures the whole 90.0-unit step on all 24, and `GRID`
+#: measured 4.0 on all 24 before `sg-grid-scale` fixed its scale.
+#:
+#: **A fraction would separate nothing here.** Every row of this matrix carries its residual on
+#: 24 of 24 fixtures or on 1 of 24; there is no row between, so `1` and "one half" draw the same
+#: line on this data, and the count is the one that names what it counts.
+#:
+#: Caveat: a row whose residual is spread thinly over several *large* fixtures — say 4.0 on six
+#: of twenty-four and 0.0 on the rest — reads as `convention` here. Such a row has not been
+#: measured; if one appears, the number to raise is this one, and the direction is up.
+ARITHMETIC_RESIDUAL_FIXTURES = 1
 
 #: Below this disparity the drawings are the same shape up to a similarity, so what is left is
 #: something a similarity cannot fix: the units, the centring, the axis order, the `z`.
@@ -72,8 +91,7 @@ def classify(entry, row):
     if agrees:
         return "bitwise", "arithmetic", "the two coordinate lists are identical"
     worst = _worst_disparity(entry)
-    gap = entry.get("max_gap", float("inf"))
-    if worst <= ARITHMETIC_DISPARITY and gap <= ARITHMETIC_GAP:
+    if worst <= ARITHMETIC_DISPARITY and _same_method(entry, row):
         return "tolerance", "arithmetic", None
     # **`rng` before `convention`, and that order is the argument.** A row whose two arms
     # cannot start from the same position would still disagree after the scale and the
@@ -101,6 +119,43 @@ def _worst_disparity(entry):
         if isinstance(measured, float):
             values.append(measured)
     return max(values)
+
+
+def _same_method(entry, row):
+    """Whether what is left over is one method's own rounding, rather than a unit or an axis.
+
+    Two ways to answer yes. The narrow one, unchanged and still enough on its own: the largest
+    gap over the row is within [`ARITHMETIC_GAP`]. The widened one: the shape agrees and **at
+    most [`ARITHMETIC_RESIDUAL_FIXTURES`] fixtures** carry a gap above it, so one chaotic
+    fixture no longer decides the cause on behalf of the other twenty-three.
+
+    A row that declares a `layout seed` gap is excluded from the widened half. Its two arms never
+    started alike, so a residual that lands on one fixture is the seed rather than the summation
+    order, and `rng` is the cause a repair has to clear first.
+    """
+    if entry.get("max_gap", float("inf")) <= ARITHMETIC_GAP:
+        return True
+    if _has_seed_gap(row):
+        return False
+    residual = _residual_fixtures(entry)
+    return residual is not None and residual <= ARITHMETIC_RESIDUAL_FIXTURES
+
+
+def _residual_fixtures(entry):
+    """How many fixtures carry a gap above [`ARITHMETIC_GAP`], or `None` when uncountable.
+
+    `entry["max_gap"]` is the largest of those gaps, so it says *that* a residual exists and
+    never *how many* carry it. A row with no per-fixture numbers cannot be counted, and an
+    uncounted residual is `None` rather than `0`: only a row measured exact everywhere, or one
+    whose aggregate gap is itself within `ARITHMETIC_GAP`, gets the widened rule.
+    """
+    gaps = [
+        fixture.get("max_gap") for fixture in entry.get("per_fixture", [])
+    ]
+    gaps = [gap for gap in gaps if isinstance(gap, float)]
+    if not gaps:
+        return None
+    return sum(1 for gap in gaps if gap > ARITHMETIC_GAP)
 
 
 def _has_seed_gap(row):

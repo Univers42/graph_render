@@ -11,11 +11,15 @@
 //! itself — the fifteen parameter controls, the fifteen ANALYSIS and POST controls, and
 //! the two compute-tier controls, each held against the variable and record it claims.
 //! [`neato`] holds the Graphviz stress engine's tolerance control, which is the first one
-//! here that perturbs a *parameter* rather than re-drawing a model's size.
+//! here that perturbs a *parameter* rather than re-drawing a model's size, and [`osage`]
+//! the Graphviz packing engine's, which is the control `layout.packing.osage` needed before
+//! the ledger could call that row `gated`.
 
 mod controls;
+mod coverage;
 mod ids;
 mod neato;
+mod osage;
 mod p3;
 mod patchwork;
 mod table;
@@ -35,7 +39,7 @@ pub(super) use graph_core::layout::circular::ID as CIRCULAR;
 use graph_core::layout::force::BarnesHut;
 use graph_core::layout::force::Split;
 use graph_core::layout::force::spring::Spring;
-use graph_core::layout::forceatlas2::ForceAtlas2;
+use graph_core::layout::forceatlas2::{ForceAtlas2, ForceAtlas2BarnesHut};
 pub(super) use graph_core::layout::tidy_tree::ID as TIDY_TREE;
 pub(super) use graph_core::layout::treemap::ID as TREEMAP;
 use graph_core::layout::{circular, circular::ring, spiral};
@@ -125,8 +129,10 @@ fn assert_refuses_unreadable_variable() {
 }
 
 /// `GM_MUTATE_SPLIT_SUM` names **which** gathered pass's merge to split, and is parsed
-/// rather than treated as a presence flag: `0` is the honest run and a typo is an error
-/// instead of a silent mutation.
+/// rather than treated as a presence flag. A typo is an error instead of a silent mutation,
+/// and the words that spell the *honest* value (`0`, `false`, `none`) are refused rather
+/// than parsed: they parse, they set `control`, and they split nothing, so accepting them
+/// wrote the control's evidence record for a run that perturbed no byte (RG-42).
 #[test]
 fn the_split_sum_knob_names_the_pass_it_corrupts() {
     for (word, want) in [
@@ -134,9 +140,6 @@ fn the_split_sum_knob_names_the_pass_it_corrupts() {
         ("true", Split::All),
         ("TRUE", Split::All),
         (" 1 ", Split::All),
-        ("0", Split::None),
-        ("false", Split::None),
-        ("FALSE", Split::None),
         ("charge", Split::Charge),
         ("collide", Split::Collide),
         ("link", Split::Link),
@@ -151,6 +154,11 @@ fn the_split_sum_knob_names_the_pass_it_corrupts() {
         let err = setting(read).expect_err(typo);
         assert!(err.contains("GM_MUTATE_SPLIT_SUM"), "{err}");
     }
+    for honest_value in ["0", "false", "FALSE", "none"] {
+        let err = setting(env(vec![("GM_MUTATE_SPLIT_SUM", honest_value)]))
+            .expect_err("splits no pass, so it perturbs nothing");
+        assert!(err.contains("perturbs nothing"), "{err}");
+    }
     // And it is off by default: an unset variable must not mutate anything.
     assert_eq!(honest().split_sum, Split::None);
 }
@@ -161,11 +169,15 @@ fn the_split_sum_knob_names_the_pass_it_corrupts() {
 ///
 /// Compared as a **set**, because the two lists are the same three names and the order is
 /// not the claim: the knob takes one word at a time and the stage's list is printed in the
-/// tick's own order. What must hold is that neither list has a name the other lacks.
+/// tick's own order. What must hold is that neither list has a name the other lacks. The
+/// link forces are left out: that pass ends in no merge, so it has no split to control.
 #[test]
 fn every_word_the_split_knob_accepts_is_a_threaded_pass() {
     let mut accepted: Vec<&str> = ["charge", "collide", "link"].to_vec();
-    let mut listed: Vec<&str> = BarnesHut::THREADED_PASSES.to_vec();
+    let mut listed: Vec<&str> = BarnesHut::THREADED_PASSES
+        .into_iter()
+        .filter(|&pass| pass != "link forces")
+        .collect();
     accepted.sort_unstable();
     listed.sort_unstable();
     assert_eq!(
@@ -174,9 +186,10 @@ fn every_word_the_split_knob_accepts_is_a_threaded_pass() {
     );
 }
 
-/// `GM_MUTATE_SPLIT_RESCALE` is a flag, parsed rather than tested for presence: `0` is the
-/// honest run and a typo an error rather than a silent mutation — the same discipline as
-/// its sibling, and the reason the two cannot drift on what counts as "on".
+/// `GM_MUTATE_SPLIT_RESCALE` is a flag, parsed rather than tested for presence: a typo is
+/// an error rather than a silent mutation, and `0` — the honest value, spelled out — is
+/// refused for perturbing nothing (RG-42), the same discipline as its sibling and the reason
+/// the two cannot drift on what counts as "on".
 #[test]
 fn the_split_rescale_knob_is_a_flag_parsed_strictly() {
     for (word, want) in [
@@ -184,9 +197,8 @@ fn the_split_rescale_knob_is_a_flag_parsed_strictly() {
         ("true", true),
         ("TRUE", true),
         (" 1 ", true),
-        ("0", false),
-        ("false", false),
-        ("FALSE", false),
+        ("yes", true),
+        ("on", true),
     ] {
         let read = env(vec![("GM_MUTATE_SPLIT_RESCALE", word)]);
         let got = setting(read).expect(word);
@@ -197,6 +209,11 @@ fn the_split_rescale_knob_is_a_flag_parsed_strictly() {
         let read = env(vec![("GM_MUTATE_SPLIT_RESCALE", typo)]);
         let err = setting(read).expect_err(typo);
         assert!(err.contains("GM_MUTATE_SPLIT_RESCALE"), "{err}");
+    }
+    for honest_value in ["0", "false", "FALSE", "no", "off"] {
+        let err = setting(env(vec![("GM_MUTATE_SPLIT_RESCALE", honest_value)]))
+            .expect_err("splits no merge, so it perturbs nothing");
+        assert!(err.contains("perturbs nothing"), "{err}");
     }
     // Off by default, and inert for the other control: an unset variable must not mutate
     // anything, and the two compute-tier knobs must not share a setting.

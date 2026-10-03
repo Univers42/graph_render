@@ -1,0 +1,27 @@
+# ux-forces-full — the nine live-force knobs as studio controls: the studio's own floor, the
+# backend and smoke gates, and the three browser gates the measurement doc quotes
+# (docs/measurements/ux-forces-full.md).
+#
+# `expect` is `0` or `nonzero`; `#` starts a comment (scripts/orch/gate.sh:2-4). Every gate needs
+# `scripts/studio.sh build` first, which the orchestrator runs before this file.
+#
+studio-check|0|scripts/studio.sh check
+
+backend|0|scripts/studio-backend.sh
+negctl-backend|nonzero|STUDIO_BACKEND_BREAK=1 scripts/studio-backend.sh
+smoke|0|scripts/studio-smoke.sh
+negctl-smoke|nonzero|STUDIO_SMOKE_BREAK=1 scripts/studio-smoke.sh
+
+# The live loop: settle, drag-neighbour, progress strip, dead worker — and its control.
+live|0|scripts/studio-live.sh
+negctl-live|nonzero|STUDIO_LIVE_BREAK=1 scripts/studio-live.sh
+
+# Pointer interaction: hover, click, box select, node drag, node menu — and its control.
+interact|0|scripts/studio-interact.sh
+negctl-interact|nonzero|STUDIO_INTERACT_BREAK=1 scripts/studio-interact.sh
+
+# The overlap probe: drawn discs covering each other after a settle at the defaults and after
+# `forces.spread`, on the clustered fixture and a 10 000-node source, plus the live frame rate
+# and the four fault channels. Its control skips `spread`, so its three `spread` rows are NOT-RUN.
+overlap|0|scripts/studio-overlap.sh
+negctl-overlap|nonzero|STUDIO_OVERLAP_BREAK=1 scripts/studio-overlap.sh

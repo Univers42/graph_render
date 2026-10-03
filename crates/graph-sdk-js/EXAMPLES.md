@@ -8,7 +8,7 @@ Run them with Node ≥22.6, which strips the types in this package's `.ts` sourc
 
 ```sh
 node --experimental-strip-types harness/sdk-smoke.mjs --adapter-convergence
-node --experimental-strip-types harness/read-snapshot-raw.mjs
+node --experimental-strip-types harness/read-snapshot-raw.mjs --selftest
 ```
 
 ---
@@ -137,7 +137,7 @@ node tag:docs Tag label="docs" group=None weight=0.5 version=0
 node tag:p0 Tag label="p0" group=None weight=0.5 version=0
 node tag:graph Tag label="graph" group=None weight=0.5 version=0
 edge lib:task:t1--lib:task:t2:hierarchy: lib:task:t1 -> lib:task:t2 Hierarchy label="" strength=2 directed=false
-edge lib:task:t2->lib:task:t3:relation:Blocks lib:task:t2 -> lib:task:t3 Relation label="Blocks" strength=1 directed=true
+edge lib:task:t2->lib:task:t3:relation:blocks lib:task:t2 -> lib:task:t3 Relation label="blocks" strength=1 directed=true
 edge lib:task:t1--tag:docs:tag:docs lib:task:t1 -> tag:docs Tag label="docs" strength=0.75 directed=false
 …
 ```
@@ -185,7 +185,7 @@ endpoint names a node that exists, and the version is one the reader understands
 reader meeting a **newer major** refuses rather than guessing). It is also a gate row:
 
 ```
-$ node harness/read-snapshot-raw.mjs
+$ node harness/read-snapshot-raw.mjs --selftest
 ok - every $ref in the committed schema resolves inside it
 ok - every object in the committed schema refuses an unknown member
 ok - the snapshot carries every member the schema requires

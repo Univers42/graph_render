@@ -1,9 +1,9 @@
 /** The selected node: what the drawing knows about it, and what it is joined to. */
-import type { ReactElement } from "react";
+import { memo, type ReactElement } from "react";
 
 import type { View } from "../../../graph-render/src/view.ts";
+import type { AnalysisReport } from "../motor/protocol.ts";
 import type { GraphMeta } from "../source/meta.ts";
-import type { StudioState } from "../state/model.ts";
 import type { Studio } from "../studio/studio.ts";
 import { shortName, sig3 } from "./names.ts";
 
@@ -12,8 +12,28 @@ const SHOWN = 12;
 
 export interface InspectorProps {
   readonly studio: Studio;
-  readonly state: StudioState;
+  /** The four slices the panel draws; the rest of the state is not its news. */
+  readonly meta: GraphMeta | null;
+  readonly selected: number;
+  readonly analysis: AnalysisReport | null;
+  readonly selection: readonly number[];
+  /**
+   * WHY it is here and unread: every control in this panel is an action now, so nothing here
+   * touches the drawing itself — but `Shell` is not this change's to edit, and a prop it does
+   * not pass is a type error. It goes when the shell's call site can be.
+   */
   readonly view: Pick<View, "focus" | "select">;
+}
+
+/**
+ * WHY the id and not the index: an action takes a name and resolves it (`nodeNamed`,
+ * `actions/view.ts`), so a click is checked and refused in one place and the line it logs is
+ * the line a reader can type. A dense index means nothing outside this panel.
+ */
+function focusOn(studio: Studio, meta: GraphMeta, node: number): void {
+  const id = meta.ids[node];
+  if (id === undefined) return;
+  void studio.dispatch("view.focus", { node: id });
 }
 
 function Row(props: { readonly name: string; readonly value: string }): ReactElement {
@@ -28,11 +48,10 @@ function Row(props: { readonly name: string; readonly value: string }): ReactEle
 
 function Neighbours(props: {
   readonly studio: Studio;
-  readonly view: Pick<View, "focus">;
   readonly meta: GraphMeta;
   readonly at: number;
 }): ReactElement | null {
-  const { studio, view, meta, at } = props;
+  const { studio, meta, at } = props;
   const found = studio.neighbours(at);
   if (found.length === 0) return null;
   const rest = found.length - Math.min(found.length, SHOWN);
@@ -44,7 +63,7 @@ function Neighbours(props: {
           type="button"
           className="gs-btn"
           aria-label={`Centre ${meta.labels[node] ?? ""}`}
-          onClick={() => view.focus(node)}
+          onClick={() => focusOn(studio, meta, node)}
         >
           {meta.labels[node] ?? ""}
         </button>
@@ -55,14 +74,14 @@ function Neighbours(props: {
 }
 
 /** Several nodes selected: how many, and the first of them to jump to. */
-function Selection(props: { readonly view: Pick<View, "focus">; readonly meta: GraphMeta; readonly nodes: readonly number[] }): ReactElement | null {
-  const { view, meta, nodes } = props;
+function Selection(props: { readonly studio: Studio; readonly meta: GraphMeta; readonly nodes: readonly number[] }): ReactElement | null {
+  const { studio, meta, nodes } = props;
   if (nodes.length < 2) return null;
   return (
     <div className="gs-neighbours" role="group" aria-label="Selection">
       <span className="gs-more">{`${nodes.length} selected`}</span>
       {nodes.slice(0, SHOWN).map((node) => (
-        <button key={node} type="button" className="gs-btn" aria-label={`Centre ${meta.labels[node] ?? ""}`} onClick={() => view.focus(node)}>
+        <button key={node} type="button" className="gs-btn" aria-label={`Centre ${meta.labels[node] ?? ""}`} onClick={() => focusOn(studio, meta, node)}>
           {meta.labels[node] ?? ""}
         </button>
       ))}
@@ -71,9 +90,9 @@ function Selection(props: { readonly view: Pick<View, "focus">; readonly meta: G
   );
 }
 
-export function Inspector(props: InspectorProps): ReactElement | null {
-  const { studio, state, view } = props;
-  const { meta, selected, analysis } = state;
+/** Memoised: the panel draws one node, and re-renders when the node or the graph changes. */
+export const Inspector = memo(function Inspector(props: InspectorProps): ReactElement | null {
+  const { studio, meta, selected, analysis, selection } = props;
   if (selected < 0 || meta === null) return null;
   const label = meta.labels[selected] ?? "";
   const measured = analysis !== null && analysis.values.length === meta.nodeCount
@@ -82,16 +101,18 @@ export function Inspector(props: InspectorProps): ReactElement | null {
     <div className="gs-panel gs-inspector" aria-label="The selected node">
       <div className="gs-head">
         <h2 className="gs-head-name gs-title">{label}</h2>
-        <button type="button" className="gs-btn" aria-label="Close the inspector" onClick={() => view.select(-1)}>×</button>
+        <button type="button" className="gs-btn" aria-label="Close the inspector" onClick={() => void studio.dispatch("view.unselect")}>
+          ×
+        </button>
       </div>
-      <Selection view={view} meta={meta} nodes={state.selection} />
+      <Selection studio={studio} meta={meta} nodes={selection} />
       <Row name="Id" value={meta.ids[selected] ?? ""} />
       <Row name="Kind" value={meta.kinds[selected] ?? ""} />
       <Row name="Group" value={meta.groups[meta.group[selected] ?? 0] ?? ""} />
       <Row name="Degree" value={String(meta.degree[selected] ?? 0)} />
       <Row name="Weight" value={sig3(meta.weight[selected] ?? 0)} />
       {measured !== undefined && <Row name={shortName(analysis?.id ?? "")} value={sig3(measured)} />}
-      <Neighbours studio={studio} view={view} meta={meta} at={selected} />
+      <Neighbours studio={studio} meta={meta} at={selected} />
     </div>
   );
-}
+});

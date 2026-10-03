@@ -9,6 +9,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { type LiveBridge, createLiveBridge } from "../src/motor/bridge.ts";
+import { createForceHost } from "../src/motor/liveLoop.ts";
+import { type LiveForce, NO_ADAPTER_REASON } from "../src/motor/live.ts";
 import { SILENCE_MS, SILENCE_REASON, workerFailed } from "../src/motor/watchdog.ts";
 import type { ForceFrame, ForceRequest, Result } from "../src/motor/protocol.ts";
 import { HIDDEN } from "../src/ui/progress.ts";
@@ -51,8 +53,18 @@ function fakeClock(): FakeClock {
   };
 }
 
+/** The one bound both clocks hand out: it is due `ms` from now, and cancels like a timer. */
+function arm(clock: FakeClock, run: () => void, ms: number): () => void {
+  const timer: Timer = { run, due: clock.elapsed + ms };
+  clock.waiting.push(timer);
+  return () => {
+    const at = clock.waiting.indexOf(timer);
+    if (at >= 0) clock.waiting.splice(at, 1);
+  };
+}
+
 function frame(alpha: number, running = true): ForceFrame {
-  return { xs: Float64Array.of(1, 2), ys: Float64Array.of(3, 4), alpha, running };
+  return { xs: Float32Array.of(1, 2), ys: Float32Array.of(3, 4), alpha, running };
 }
 
 /** A motor the test drives: it answers what it is sent, and can then go quiet or throw. */
@@ -94,14 +106,7 @@ function fakeWorker(): FakeWorker {
     },
     paint: () => undefined,
     report: (reason) => notes.push(reason),
-    schedule: (run, ms) => {
-      const timer: Timer = { run, due: clock.elapsed + ms };
-      clock.waiting.push(timer);
-      return () => {
-        const at = clock.waiting.indexOf(timer);
-        if (at >= 0) clock.waiting.splice(at, 1);
-      };
-    },
+    schedule: (run, ms) => arm(clock, run, ms),
   });
   const push = (result: Result): void => {
     if (awake) listener(result);
@@ -117,6 +122,83 @@ function fakeWorker(): FakeWorker {
 }
 
 const RUNNING: Result = { type: "force-state", running: true, disabled: null, paused: false };
+
+/** What the worker's own loop paces itself with (worker.ts's FRAME_MS). */
+const FRAME_MS = 16;
+
+interface FakePort extends LiveForce {
+  /** Set when the graph behind the port was replaced: the session it holds is released. */
+  dead: boolean;
+  /** What createSession does on replace(): mark it, then release it. */
+  release(): void;
+}
+
+/**
+ * A live session that keeps settling, and refuses every call once released: the motor throws
+ * `InvalidSessionError` from each one, so a fix that reaches for the session to say the settle
+ * ended fails here rather than in a browser.
+ */
+function fakePort(): FakePort {
+  let released = false;
+  const guard = (call: string): void => {
+    if (released) throw new Error(`InvalidSessionError: ${call} on a released session`);
+  };
+  const port: FakePort = {
+    dead: false,
+    pin: () => undefined,
+    unpin: () => undefined,
+    setParams: () => undefined,
+    step: () => { guard("step"); return 0.5; },
+    positions: () => { guard("positions"); return { xs: Float64Array.of(1, 2), ys: Float64Array.of(3, 4) }; },
+    reheat: () => { guard("reheat"); },
+    release: () => { released = true; port.dead = true; },
+  };
+  return port;
+}
+
+interface Rigged {
+  readonly bridge: LiveBridge;
+  readonly clock: FakeClock;
+  readonly notes: string[];
+  /** What createSession does when a new graph replaces the one a settle is running over. */
+  readonly replaced: () => void;
+  /** How many watchdog bounds are armed; the worker's own frames share this clock. */
+  readonly watching: () => number;
+}
+
+/**
+ * The page and the worker in one rig on one clock: the bridge's `send` is the worker's request
+ * port, and what the worker's loop emits is what the page hears. So the sequence is the real one
+ * — a layout starts a session, the loop ticks, the graph is replaced — and not a scripted story
+ * of it.
+ */
+function rigged(): Rigged {
+  const notes: string[] = [];
+  const clock = fakeClock();
+  const port = fakePort();
+  const page: { hear: (result: Result) => void } = { hear: () => undefined };
+  const host = createForceHost(() => port, {
+    schedule: (run) => arm(clock, run, FRAME_MS),
+    now: () => clock.elapsed,
+    emit: (result) => page.hear(result),
+  });
+  const bridge = createLiveBridge({
+    send: (request) => void host.handle(request),
+    onPush: (handler) => {
+      page.hear = handler;
+      return () => { page.hear = () => undefined; };
+    },
+    onFail: () => () => undefined,
+    paint: () => undefined,
+    report: (reason) => notes.push(reason),
+    schedule: (run, ms) => arm(clock, run, ms),
+  });
+  return {
+    bridge, clock, notes,
+    replaced: () => { port.release(); host.forget(); },
+    watching: () => clock.waiting.filter((timer) => timer.due === clock.elapsed + SILENCE_MS).length,
+  };
+}
 
 test("a worker that goes quiet past the bound hides the strip and names the cause", () => {
   const worker = fakeWorker();
@@ -189,6 +271,22 @@ test("a dead session is not sticky: a message that arrives later brings it back"
   worker.frame(0.4);
   assert.equal(worker.bridge.bar().visible, true, "and the strip comes back with it");
   assert.equal(worker.clock.armed(), 1, "watching the new settle again");
+});
+
+test("a settle whose session is replaced ends on its own word, and is never called dead", () => {
+  const rig = rigged();
+  // What a force layout does: the strip goes up and the worker is asked to start a session.
+  rig.bridge.start();
+  rig.clock.elapse(FRAME_MS);
+  assert.equal(rig.bridge.bar().visible, true, "the strip is up while the worker ticks");
+  assert.equal(rig.watching(), 1, "and the watchdog watches that settle");
+  // The graph was replaced mid-settle: the session is released and the loop stops at once.
+  rig.replaced();
+  assert.equal(rig.bridge.bar().visible, false, "the strip goes when the settle ends");
+  assert.equal(rig.watching(), 0, "and nothing is left armed to fire");
+  assert.equal(rig.clock.elapse(SILENCE_MS * 10), 0, "so the bound never comes due");
+  assert.deepEqual(rig.notes, [], "a settle that ended is not a dead worker");
+  assert.equal(rig.bridge.link.disabled(), NO_ADAPTER_REASON, "and the panel waits for a new session");
 });
 
 test("destroy stops the watchdog, so an unmounted studio is never written to", () => {

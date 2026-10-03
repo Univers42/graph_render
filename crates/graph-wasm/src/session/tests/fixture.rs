@@ -5,7 +5,7 @@
 //! the other two files have in common — `bits.rs` needs a session and both columns,
 //! `refusals.rs` needs a session and the bit comparison.
 
-use super::super::{create, reset, with};
+use super::super::{Engine, create, reset, with};
 use graph_core::layout::force::LiveParams;
 use graph_core::{Topology, index_model, seeded_model};
 
@@ -21,7 +21,7 @@ pub fn model(seed: u32, nodes: u32) -> Topology {
 /// process-wide across a test binary.
 pub fn session_over(nodes: u32) -> u32 {
     reset();
-    create(&model(1, nodes), params()).expect("a default session is in range")
+    create(&model(1, nodes), params(), Engine::BarnesHut).expect("a default session is in range")
 }
 
 /// The default parameters: the frozen force set, which is what a session created with no
@@ -32,8 +32,8 @@ pub fn params() -> LiveParams {
 
 /// One column as the wire reads it — one `f64` per node.
 ///
-/// **The session's own slice, not a dereference of the address.** The address export truncates
-/// to `u32`, so on a 64-bit host it reports `0` and a native test cannot follow it; reading the
+/// **The session's own slice, not a dereference of the address.** The address export refuses
+/// a host address past `u32` with `IndexOutOfRange`, so a native test cannot follow it; reading the
 /// address half on wasm32 is the force gate's wasm arm's job
 /// (`crates/graph-cli/src/forcecheck/arm.mjs`), which hashes exactly these two columns through
 /// the wire's `(ptr, len)` on every seed.

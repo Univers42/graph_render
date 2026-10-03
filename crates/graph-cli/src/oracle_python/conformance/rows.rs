@@ -30,25 +30,25 @@ pub const ROWS: [Row; 32] = [
         name: "RANDOM",
         motor: Some("layout.random"),
         reference: Reference::Scigraphs,
-        gaps: &[G_RANDOM_ITER, G_RANDOM_SCALE, G_RANDOM_SEED],
+        gaps: &[G_RANDOM_ITER],
     },
     Row {
         name: "GRID",
         motor: Some("layout.grid"),
         reference: Reference::Scigraphs,
-        gaps: &[G_GRID_ITER, G_GRID_SCALE],
+        gaps: &[G_GRID_ITER],
     },
     Row {
         name: "SPRING",
         motor: Some("layout.force.spring"),
         reference: Reference::Scigraphs,
-        gaps: &[G_SPRING_SEED],
+        gaps: &[],
     },
     Row {
         name: "SPRING_3D",
         motor: Some("layout.force.spring3d"),
         reference: Reference::Scigraphs,
-        gaps: &[G_SPRING_SEED],
+        gaps: &[],
     },
     Row {
         name: "CIRCLE_PACKING",
@@ -106,9 +106,9 @@ pub const ROWS: [Row; 32] = [
     },
     Row {
         name: "SPIRAL_3D",
-        motor: Some("layout.spiral"),
+        motor: Some("layout.basic3d.spiral"),
         reference: Reference::Scigraphs,
-        gaps: &[G_NO_ITERATIONS, G_SNAPSHOT_SCALE],
+        gaps: &[G_BASIC3D_SCALE],
     },
     Row {
         name: "HELIX",
@@ -120,7 +120,7 @@ pub const ROWS: [Row; 32] = [
         name: "CUBE",
         motor: Some("layout.basic3d.cube"),
         reference: Reference::Scigraphs,
-        gaps: &[G_BASIC3D_SCALE, G_CUBE_SEED],
+        gaps: &[G_BASIC3D_SCALE],
     },
     Row {
         name: "HIERARCHICAL_3D",
@@ -130,9 +130,17 @@ pub const ROWS: [Row; 32] = [
     },
     Row {
         name: "BIPARTITE_3D",
-        motor: Some("layout.bipartite"),
+        // **Not `layout.bipartite`.** That id is networkx's `bipartite_layout`: two vertical
+        // columns in a rescaled unit box, a planar `Geometry` with no z at all. This row's
+        // reference is two horizontal rings at `z = +/- scale*0.6/2`, so the motor arm has
+        // to be a z-bearing layout or the comparison is between two different drawings.
+        motor: Some("layout.bipartite_3d"),
         reference: Reference::Scigraphs,
-        gaps: &[G_NO_ITERATIONS, G_SNAPSHOT_SCALE],
+        // `G_BASIC3D_SCALE` and not `G_SNAPSHOT_SCALE`: both name the same number at the
+        // same line (`basic_3d.rs:43`), and this row now reads its scale through
+        // `basic_3d::SCALE` like `SPHERE`, `HELIX` and `CUBE` do. `G_NO_ITERATIONS` still
+        // holds — the colouring and the placement are both closed forms.
+        gaps: &[G_NO_ITERATIONS, G_BASIC3D_SCALE],
     },
     Row {
         name: "IGRAPH_DH",
@@ -213,7 +221,13 @@ pub const ROWS: [Row; 32] = [
         name: "SUGIYAMA",
         motor: Some("layout.dag.sugiyama"),
         reference: Reference::Scigraphs,
-        gaps: &[G_NO_ITERATIONS, G_SCALE_FIXED_LAYER],
+        // No gaps. `scale` used to be one (`G_SCALE_FIXED_LAYER`) and is not any more:
+        // `sugiyama::run_scaled` takes it as a parameter, so the arm hands the reference's
+        // `scale = 5.0` to the motor too (`hierarchical.py:638`). `iterations` used to be
+        // one (`G_NO_ITERATIONS`) and was a false record: `_sugiyama_layout(G, scale)`
+        // takes no count at all and `dispatcher.py:142-143` passes it only `scale`, so there
+        // is no budget the reference ran with for this layout to have failed to bound.
+        gaps: &[],
     },
     Row {
         name: "CIRCULAR_HIERARCHY",

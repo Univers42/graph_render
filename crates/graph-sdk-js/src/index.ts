@@ -18,7 +18,7 @@ import { ColumnViews } from "./views.ts";
 import { ForceSession } from "./force.ts";
 import { AnalysisRefusedError, BuildRefusedError, ContractRefusedError, InvalidHandleError } from "./errors.ts";
 import { PostRefusedError, RunRefusedError, WasmUnavailableError, codeName } from "./errors.ts";
-import { ColumnId, type AnalysisResult, type Column, type ForceParams, type Handle } from "./types.ts";
+import { ColumnId, type AnalysisResult, type Column, type ForceEngine, type ForceParams, type Handle } from "./types.ts";
 import type { MotorOptions, PostResult, RunResult } from "./types.ts";
 import { parseAnalysisFace } from "./analysis-face.ts";
 import { INVALID_HANDLE_CODE, NO_GEOMETRY_CODE, decoder, frame, invoke, lastError } from "./calls.ts";
@@ -27,9 +27,11 @@ import { checkOptions } from "./options.ts";
 import { readKinds, type GeometryKinds } from "./geometry-kinds.ts";
 import { Registries } from "./registries.ts";
 import { buildStaged } from "./staging.ts";
+import { loadThreaded } from "./threads.ts";
 
 export type { WasmSource } from "./wasm.ts";
 export { resetForTests } from "./wasm.ts";
+export { serveHelper, type HelperStart, type MotorThreads } from "./threads.ts";
 export * from "./errors.ts";
 export * from "./types.ts";
 export { ForceSession, PARAMS_BYTES, encodeParams, decodeParams } from "./force.ts";
@@ -63,7 +65,7 @@ export class Motor {
   static async create(source: WasmSource, options?: MotorOptions): Promise<Motor> {
     checkOptions(options);
     try {
-      const exports = await loadMotor(source);
+      const exports = await (options?.threads === undefined ? loadMotor(source) : loadThreaded(source, options.threads));
       return new Motor(exports, null);
     } catch (error) {
       const failure = error instanceof WasmUnavailableError ? error : new WasmUnavailableError("wasm module failed to load", error);
@@ -216,6 +218,10 @@ export class Motor {
    *
    *  Each pass reads the **layout's** edges, never the previous pass's, so running style
    *  then bundle gives the same answer as running bundle once.
+   *
+   *  **Whether node positions move is per pass:** `post.bundle.fdeb`, `post.bundle.mingle`,
+   *  `post.route.grid` and the four `post.style.*` passes leave the nodes where they were;
+   *  only `post.separate.grid` ({@link Motor.separateNodes}) rewrites `x`/`y`.
    */
   post(handle: Handle, postId: string): PostResult {
     const { exports, views } = this.#requireLoaded();
@@ -230,6 +236,30 @@ export class Motor {
     }
     const { nodeKind, edgeKind, dim } = this.#recordKinds(exports, handle, postId);
     return { handle, id: postId, nodeKind, edgeKind, nodeCount: this.nodeCount(handle), dim };
+  }
+
+  /** Runs the node-overlap pass — `post.separate.grid` (`graph_core::post::separate`,
+   *  resolved by name through the same registry {@link Motor.post} uses, never a
+   *  hard-coded index) — which pushes overlapping nodes apart until none overlap.
+   *
+   *  **This is the one POST capability that MOVES nodes.** Every other pass replaces the
+   *  run's edge geometry and leaves the node positions alone; this one rewrites `x`/`y`.
+   *  So unlike {@link Motor.post} — whose doc says a pass "leaves the nodes where they
+   *  were" — a caller that drew `NodeX`/`NodeY` before this call must read them again
+   *  after it, and any earlier column view is stale.
+   *
+   *  It returns the **same {@link PostResult} shape** as {@link Motor.post} (`id` is
+   *  `"post.separate.grid"`): the pass still reads the layout's geometry, still replaces the
+   *  handle's snapshot, and a refusal still leaves the geometry untouched — so a failed
+   *  call never serves a half-separated drawing.
+   *
+   *  **It refuses a 3D geometry** — a snapshot carrying a `z` column — with a
+   *  {@link PostRefusedError}, because the pass moves `x`/`y` and cannot reach `z`
+   *  (graph-core's `post::separate::params::check` refuses `geometry.z`; the ABI reports it
+   *  as `PostFailed`). It is refused whole rather than half-processed. A 2D run is the only
+   *  thing this method accepts. */
+  separateNodes(handle: Handle): PostResult {
+    return this.post(handle, "post.separate.grid");
   }
 
   /** Runs the registered analysis `analysisId` (from {@link Motor.analyses}) over
@@ -300,14 +330,16 @@ export class Motor {
    *  running, and the session is released with its own {@link ForceSession.release}.
    *
    *  The two have separate id spaces and separate error codes (`InvalidHandle` against
-   *  `InvalidSession`), so a caller debugging a dead one is never sent looking at the other. */
-  forceSession(handle: Handle, params?: Partial<ForceParams>): ForceSession {
-    return new ForceSession(this.#requireLoaded(), handle, params);
+   *  `InvalidSession`), so a caller debugging a dead one is never sent looking at the other.
+   *
+   *  `engine` picks the tick ({@link ForceEngine}); every other method is the same for both. */
+  forceSession(handle: Handle, params?: Partial<ForceParams>, engine?: ForceEngine): ForceSession {
+    return new ForceSession(this.#requireLoaded(), handle, params, engine);
   }
 }
 
 /** Loads the wasm motor (once per session — see `wasm.ts`) and returns a {@link Motor}
- * bound to it. `options` this phase accepts only `{}` or `{ exec: "auto" }` (C16); any
+ * bound to it. `options` accepts `exec: "auto"` and `threads` (C16, `threads.ts`); any
  * other shape is refused before the module is even asked to load. */
 export async function createMotor(source: WasmSource, options?: MotorOptions): Promise<Motor> {
   return Motor.create(source, options);

@@ -9,11 +9,11 @@
  * camera is drawing.
  */
 import {
-  type Camera, type Point, type ZoomLimits, centreOn, panBy, resetCamera, zoomAt,
+  type Camera, type FitArea, type Point, type ZoomLimits, centreOn, panBy, resetCamera, zoomAt,
 } from "./camera.ts";
 import { setSelection } from "./canvas2d/choose.ts";
 import {
-  type Controller, fit, moveOrbit, moveTo, pickAt, select, setPositions, showFrame,
+  type Controller, fit, moveOrbit, moveTo, pickAt, select, setPositions, setSafeArea, showFrame,
 } from "./canvas2d/controller.ts";
 import { hideNodes, togglePin } from "./canvas2d/keep.ts";
 import { invalidate } from "./canvas2d/loop.ts";
@@ -122,7 +122,13 @@ function focusApi(controller: Controller, state: LoopState): Pick<CameraApi, "fo
         moveOrbit(controller, lookAt(state.orbit, state.scene.frame, node));
         return;
       }
-      const world = { x: state.scene.frame.x[node] ?? 0, y: state.scene.frame.y[node] ?? 0 };
+      // Mid-tween this aims at the frame's column, the position the node *settles* at, and not at
+// the eased pose the tween is passing through. A camera placed there stays there — `moveTo`
+// cuts, and no camera tween exists to override it — so the node walks into the middle of the
+// frame instead of the middle chasing it for 600 ms, and the focus the user asked for is the
+// focus they end up with. Aiming at the eased pose instead would mean re-aiming on every frame
+// of the tween to land anywhere at all.
+const world = { x: state.scene.frame.x[node] ?? 0, y: state.scene.frame.y[node] ?? 0 };
       const near = { ...state.camera, scale: Math.max(state.camera.scale, 1.2) };
       moveTo(controller, centreOn(near, world, state.viewport), false);
     },
@@ -137,6 +143,8 @@ export function cameraApi(controller: Controller): CameraApi {
     frame: () => state.scene.frame,
     style: () => state.scene.style,
     viewport: () => state.viewport,
+    safeArea: () => state.safe,
+    setSafeArea: (area: FitArea | null) => setSafeArea(controller, area),
     fit: () => fit(controller),
     reset: () => moveTo(controller, resetCamera(state.viewport), false),
     ...orbitApi(controller, state),

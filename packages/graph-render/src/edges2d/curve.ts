@@ -9,6 +9,10 @@
  * (x, -y) and negates the y of the control point it gets back, because the formula is not
  * invariant under that flip and would otherwise bend every edge with |dx| > |dy| the
  * other way.
+ *
+ * It also holds the general-degree evaluator (`bezierAt`) a `Curve` edge of degree 4 or
+ * more is flattened with, which is the same maths SciGraphs hands the canvas for degree 2
+ * and 3, only without a canvas call for it.
  */
 import type { Point } from "../camera.ts";
 
@@ -63,4 +67,52 @@ export function controlPoint(from: Point, to: Point, curvature = 0.5): Point | n
     x: (from.x + to.x) / 2 + perp.x * offset,
     y: (from.y + to.y) / 2 + perp.y * offset,
   };
+}
+
+/**
+ * The chords a curve of degree 4 or more is flattened to, which the 2D edges pass then
+ * issues as `lineTo`. Degrees 2 and 3 do not come through here: the canvas draws those
+ * exactly, from `quadraticCurveTo`/`bezierCurveTo`, and nothing approximates them.
+ *
+ * Ponytail: a degree-N curve drawn as M chords leaves the true curve by roughly the
+ * curvature times the chord squared, so a high-degree curve with a tight bend read at high
+ * zoom shows flat spots between its chords; raising FLAT_SEGMENTS is the escape hatch, at
+ * one more `lineTo` per curve per frame.
+ */
+export const FLAT_SEGMENTS = 16;
+
+/** de Casteljau's work triangle: two slots per control point, grown and never shrunk. */
+let work = new Float32Array(0);
+
+/** A point the evaluator writes into: `Point` is readonly, and this one is not. */
+export interface Sample {
+  x: number;
+  y: number;
+}
+
+/**
+ * The Bezier of `count` control points at `t`, read from `control` as consecutive (x, y)
+ * pairs: the general degree, so a snapshot's degree 4, 5 or 6 is drawn as a curve and not
+ * as its control polygon (binary-layout.md:112 admits any degree >= 1). de Casteljau's
+ * repeated lerp, walked in the fixed order of the triangle, over `Math` alone.
+ *
+ * `control` is left alone and `out` carries the answer, so one caller can walk a whole
+ * curve without allocating per point.
+ */
+export function bezierAt(control: Float32Array, count: number, t: number, out: Sample): Sample {
+  const span = 2 * count;
+  if (work.length < span) work = new Float32Array(span);
+  for (let at = 0; at < span; at += 1) work[at] = control[at] ?? 0;
+  const rest = 1 - t;
+  for (let row = 1; row < count; row += 1) {
+    for (let at = 0; at < count - row; at += 1) {
+      const x = 2 * at;
+      const y = x + 1;
+      work[x] = rest * (work[x] ?? 0) + t * (work[x + 2] ?? 0);
+      work[y] = rest * (work[y] ?? 0) + t * (work[y + 2] ?? 0);
+    }
+  }
+  out.x = work[0] ?? 0;
+  out.y = work[1] ?? 0;
+  return out;
 }

@@ -4,14 +4,29 @@
 //! `docs/decisions/sugiyama-heuristics.md` for the full citation list and every
 //! deviation.
 //!
-//! Pipeline: [`acyclic`] breaks cycles, [`layering`] assigns layers and dummy chains,
-//! [`ordering`] reduces crossings, [`coords`] assigns X, [`routing`] builds the geometry.
+//! Pipeline: [`acyclic`] orients every edge forward, [`layering`] assigns layers and dummy
+//! chains, [`ordering`] reduces crossings, [`coords`] assigns X, [`routing`] builds the
+//! geometry.
+//!
+//! **Two entry points, two sets of axes, one pipeline.** [`run`] is the registered
+//! `layout.dag.sugiyama`: X in the priority method's own units (`coords.rs`'s `GAP = 1.0`,
+//! uncentred) and Y as `layer * LAYER_SPACING`, which is what the dagre differential
+//! measures. [`run_scaled`] is the same six stages with SciGraphs' own per-axis
+//! normalisation (`hierarchical.py:679-685`), which is what a byte comparison against
+//! `apply_graph_layout` needs. They differ only in that last step.
 
 mod acyclic;
 mod coords;
 mod layering;
+#[cfg(test)]
+mod measurement;
 mod ordering;
 mod routing;
+mod scaled;
+#[cfg(test)]
+mod stages;
+
+pub use scaled::run_scaled;
 
 use super::Geometry;
 use crate::index::Topology;
@@ -25,15 +40,19 @@ use ordering::Ordering;
 use routing::{LAYER_SPACING, Routing, edge_paths, node_positions};
 
 /// Cycle breaking through crossing reduction, the three stages [`run`] and
-/// [`crossings_for`] share.
-fn layered(topology: &Topology) -> (Acyclic, Layering, Ordering) {
+/// [`crossings_for`] share. Fails only if the layer count does not cover every vertex, which
+/// [`layered`]'s own `max() + 1` always does ([`ordering::Ordering::build`]'s guard).
+fn layered(topology: &Topology) -> Result<(Acyclic, Layering, Ordering), StageError> {
     let acyclic = Acyclic::of(topology);
-    let arcs = Arcs::new(topology, &acyclic);
-    let layer = assign_layers(&arcs);
-    let layering = Layering::build(&arcs, &layer, DUMMY_BUDGET);
+    // One sort for the whole layering phase: the arc list is built here and handed down, so
+    // `assign_layers`, `budget_plan` and `materialize` read the same list rather than each
+    // re-deriving it (the review's finding 2).
+    let list = Arcs::new(topology, &acyclic).grouped();
+    let layer = assign_layers(&list);
+    let layering = Layering::build(&list, &layer, DUMMY_BUDGET);
     let num_layers = layering.layer_of.iter().copied().max().map_or(0, |m| m + 1);
-    let ordering = Ordering::build(&layering, num_layers);
-    (acyclic, layering, ordering)
+    let ordering = Ordering::build(&layering, num_layers)?;
+    Ok((acyclic, layering, ordering))
 }
 
 /// The layered-DAG stage.
@@ -74,7 +93,7 @@ pub fn run(topology: &Topology, layer_spacing: f32) -> Result<Geometry, StageErr
             rule: "finite and above 0",
         });
     }
-    let (acyclic, layering, ordering) = layered(topology);
+    let (acyclic, layering, ordering) = layered(topology)?;
     let coords = Coords::build(&ordering, &layering, topology.node_count());
     let routing = Routing {
         layering: &layering,
@@ -98,7 +117,10 @@ pub fn run(topology: &Topology, layer_spacing: f32) -> Result<Geometry, StageErr
 /// never needs it, since the geometry it returns carries no crossing count of its own.
 #[cfg(test)]
 pub(crate) fn crossings_for(topology: &Topology) -> u64 {
-    layered(topology).2.crossings
+    layered(topology)
+        .expect("max() + 1 covers every layer")
+        .2
+        .crossings
 }
 
 /// `dot`'s weighted median (Gansner, Koutsofios, North & Vo 1993): the middle of
@@ -130,151 +152,3 @@ where
 
 #[cfg(test)]
 mod tests;
-
-/// Dumps our own crossing counts on the 6 fixtures plus a synthetic sweep, for the oracle
-/// differential in `docs/measurements/phase05-crossings.md`. Not a correctness check: run
-/// alone, `--ignored`, and read by `harness/oracle-layouts.mjs --dag`.
-#[cfg(test)]
-mod measurement {
-    use super::*;
-    use crate::index::index_model;
-    use crate::records::build::{edge, node};
-    use crate::synthetic::Mulberry32;
-    use graph_contract::canonical_json::{Value, parse};
-    use std::fmt::Write as _;
-
-    const FIXTURES: [(&str, &str); 6] = [
-        (
-            "chain",
-            include_str!("../../../../../fixtures/dag/chain.json"),
-        ),
-        (
-            "diamond",
-            include_str!("../../../../../fixtures/dag/diamond.json"),
-        ),
-        (
-            "cyclic",
-            include_str!("../../../../../fixtures/dag/cyclic.json"),
-        ),
-        (
-            "multi-span",
-            include_str!("../../../../../fixtures/dag/multi-span.json"),
-        ),
-        (
-            "wide-layer",
-            include_str!("../../../../../fixtures/dag/wide-layer.json"),
-        ),
-        (
-            "disconnected",
-            include_str!("../../../../../fixtures/dag/disconnected.json"),
-        ),
-    ];
-
-    fn member<'a>(v: &'a Value, k: &str) -> &'a Value {
-        let Value::Object(m) = v else {
-            panic!("not an object")
-        };
-        &m.iter().find(|(key, _)| key == k).expect("member").1
-    }
-    fn text(v: &Value, k: &str) -> String {
-        match member(v, k) {
-            Value::String(s) => s.clone(),
-            other => panic!("{k}: {other:?}"),
-        }
-    }
-    fn array<'a>(v: &'a Value, k: &str) -> &'a [Value] {
-        match member(v, k) {
-            Value::Array(a) => a,
-            other => panic!("{k}: {other:?}"),
-        }
-    }
-
-    type Graph = (Vec<String>, Vec<(String, String, String)>);
-
-    /// One fixture's `(node ids, (edge id, source, target))`.
-    fn load(fixture: &str) -> Graph {
-        let root = parse(fixture).expect("valid fixture json");
-        let nodes = array(&root, "nodes")
-            .iter()
-            .map(|n| text(n, "id"))
-            .collect();
-        let edges = array(&root, "edges")
-            .iter()
-            .map(|e| (text(e, "id"), text(e, "source"), text(e, "target")))
-            .collect();
-        (nodes, edges)
-    }
-
-    /// A random DAG over `6..26` nodes, edges only `i < j` so it is acyclic and
-    /// parallel-edge-free by construction, at density 0.2, from `seed`.
-    fn synthetic_dag(seed: u32) -> Graph {
-        let mut rnd = Mulberry32::new(seed);
-        let n = 6 + rnd.pick(20) as u32;
-        let nodes: Vec<String> = (0..n).map(|i| i.to_string()).collect();
-        let mut edges = Vec::new();
-        for i in 0..n {
-            for j in (i + 1)..n {
-                if rnd.next_f64() < 0.2 {
-                    edges.push((format!("{i}-{j}"), i.to_string(), j.to_string()));
-                }
-            }
-        }
-        (nodes, edges)
-    }
-
-    fn topology_of(nodes: &[String], edges: &[(String, String, String)]) -> Topology {
-        let n: Vec<_> = nodes.iter().map(|id| node(id, "")).collect();
-        let e: Vec<_> = edges.iter().map(|(id, s, t)| edge(id, s, t)).collect();
-        index_model(&n, &e).expect("fixture and synthetic graphs always fit")
-    }
-
-    /// Appends `{"name","nodes","edges":[[s,t],...],"our_crossings"}` for one graph.
-    fn dump_one(
-        out: &mut String,
-        name: &str,
-        nodes: &[String],
-        edges: &[(String, String, String)],
-    ) {
-        let crossings = crossings_for(&topology_of(nodes, edges));
-        write!(out, r#"{{"name":{name:?},"nodes":["#).expect("string write");
-        for (i, id) in nodes.iter().enumerate() {
-            if i > 0 {
-                out.push(',');
-            }
-            write!(out, "{id:?}").expect("string write");
-        }
-        out.push_str(r#"],"edges":["#);
-        for (i, (_, s, t)) in edges.iter().enumerate() {
-            if i > 0 {
-                out.push(',');
-            }
-            write!(out, "[{s:?},{t:?}]").expect("string write");
-        }
-        write!(out, r#"],"our_crossings":{crossings}}}"#).expect("string write");
-    }
-
-    #[test]
-    #[ignore = "writes target/dag-crossings.json for the Node oracle differential"]
-    fn dump_crossing_measurements() {
-        let mut out = String::from("[");
-        for (i, (name, fixture)) in FIXTURES.into_iter().enumerate() {
-            let (nodes, edges) = load(fixture);
-            if i > 0 {
-                out.push(',');
-            }
-            dump_one(&mut out, name, &nodes, &edges);
-        }
-        for seed in 0..230u32 {
-            let (nodes, edges) = synthetic_dag(seed);
-            if edges.is_empty() {
-                continue;
-            }
-            out.push(',');
-            dump_one(&mut out, &format!("synthetic-{seed}"), &nodes, &edges);
-        }
-        out.push(']');
-        let target = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
-        std::fs::create_dir_all(&target).expect("mkdir target");
-        std::fs::write(target.join("dag-crossings.json"), out).expect("write dump");
-    }
-}

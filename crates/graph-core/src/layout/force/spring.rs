@@ -25,16 +25,20 @@
 //! branch that owns that comparison.
 //!
 //! **Reference, and where the port stops.** `spring_layout` (`layout.py:452-651`) computes
-//! `k = sqrt(1/n)`, an opening temperature of a tenth of the start's larger coordinate
-//! span, and up to `iterations` steps of [`forces::Solver::gather`], each node's
+//! `k = sqrt(1/n)`, an opening temperature of a tenth of the start's larger **x or y**
+//! span (`layout.py:687`) at either dimension, and up to `iterations` steps of
+//! [`forces::Solver::gather`], each node's
 //! displacement being `sum_j delta_ij * (k*k/d_ij^2 - A_ij * d_ij / k)` with `d` clipped
 //! to 0.01; it then rescales to `scale` (`layout.py:646`). Four departures, all stated
 //! rather than hidden:
 //!
-//! 1. **Initial positions** come from graph-core's own seeded `Mulberry32` at [`SEED`],
-//!    not numpy's `RandomState` (D5: there is no global RNG to reach for, and the same
-//!    graph must hash the same on every target). The reference draws `seed.rand(n, 2)`, so
-//!    no coordinate of ours equals networkx's for any seed.
+//! 1. **Initial positions** come from graph-core's own seeded `Mulberry32` at [`SEED`]
+//!    *unless* a caller sets [`SpringParams::seed`] (D5: there is no global RNG to reach for,
+//!    and the same graph must hash the same on every target). At the default the reference
+//!    draws `seed.rand(n, dim)`, so no coordinate of ours equals networkx's for any seed;
+//!    the SciGraphs conformance arm passes `Some(get_layout_seed())` and gets the
+//!    reference's own `RandomState` stream, row-major, bit for bit
+//!    (`tests/seed.rs`).
 //! 2. **The reduction is split** — repulsion over all `j`, then attraction over the node's
 //!    own row — where the reference fuses them into one pass over a dense `n x n` matrix.
 //!    The same sum, a different rounding (see [`forces`]).
@@ -91,6 +95,7 @@ pub use spring3d::{ID_3D, Spring3D};
 use super::simple_graph;
 use crate::index::Topology;
 use crate::layout::Geometry;
+use crate::rng::Mt19937;
 use crate::stage::{Stage, StageError};
 use crate::synthetic::Mulberry32;
 use forces::{Field, Solver};
@@ -124,6 +129,19 @@ pub struct SpringParams {
     pub threshold: f64,
     /// Final extent, `layout.py:460`.
     pub scale: f64,
+    /// The reference's start stream, `seed=` (`layout.py:449`), as a `u32` because that is
+    /// what an `int` seed narrows to. `Some(s)` draws `np.random.RandomState(s).rand(n, D)`,
+    /// row-major; `None` keeps this crate's own [`SEED`]-seeded [`Mulberry32`].
+    ///
+    /// **The SciGraphs arm, not this id's default.** networkx turns an `int` seed into
+    /// `RandomState(seed)` (`utils/misc.py:290-291`) and SciGraphs passes
+    /// `get_layout_seed()` (`networkx_layouts.py:16-34`), so `Some(981798123)` is what makes
+    /// a coordinate the reference's own. The registered layout stays on `None`, because
+    /// `SEED` is what every hashed snapshot and hash-gate record of
+    /// `layout.force.spring` and `layout.force.spring3d` was taken at; a default that moved
+    /// would invalidate all of them to fix a row only the conformance arm measures. Same rule
+    /// as `crate::layout::random::run_seeded` and `sfdp::run_seeded`.
+    pub seed: Option<u32>,
 }
 
 impl Default for SpringParams {
@@ -132,6 +150,7 @@ impl Default for SpringParams {
             iterations: 50,
             threshold: THRESHOLD,
             scale: 5.0,
+            seed: None,
         }
     }
 }
@@ -172,7 +191,7 @@ fn solve<const D: usize>(
         return Ok(Field::zeros(n));
     }
     let graph = simple_graph(topology);
-    let mut field = Solver::new(&graph, n).settle(start(n), *params);
+    let mut field = Solver::new(&graph, n).settle(start(n, params.seed), *params);
     rescale_to(&mut field, params.scale);
     if let Some(column) = forces::first_non_finite(&field) {
         return Err(StageError::NonFinite { column });
@@ -180,23 +199,52 @@ fn solve<const D: usize>(
     Ok(field)
 }
 
-/// The start positions, `layout.py:621` reading as "uniform in the unit square" — or, at
-/// `dim = 3`, in the unit cube: this crate's `Mulberry32` at [`SEED`], axis by axis per
-/// node (`x`, then `y`, then `z`), as `layout/random.rs` and `forceatlas2` do.
+/// The start positions, `layout.py:610` reading as "uniform in the unit square" — or, at
+/// `dim = 3`, in the unit cube. Which generator fills it is [`SpringParams::seed`]'s whole
+/// job: `Some(s)` is the reference's own stream, `None` this crate's.
 ///
-/// **Departure 1 in the module doc, at both dimensions.** The reference draws
-/// `seed.rand(n, dim)`; this is a different stream — mulberry32, not numpy's
-/// `RandomState` — so no coordinate of ours equals networkx's for any seed, at either `dim`.
-/// It is drawn axis-major per node, which is the order `seed.rand(n, 2)` fills in C order.
-fn start<const D: usize>(n: u32) -> Field<D> {
-    let mut stream = Mulberry32::new(SEED);
+/// Both generators are consumed in the order `seed.rand(n, D)` fills in C order — every
+/// node's `x`, then its `y`, then its `z` — because the two agree on the *sequence* and
+/// differ only on where it comes from. Drawing axis-major and filling `Field`'s columns is
+/// the same flat run of `n * D` doubles, so no transposition is involved.
+fn start<const D: usize>(n: u32, seed: Option<u32>) -> Field<D> {
     let mut c: [Vec<f64>; D] = core::array::from_fn(|_| Vec::with_capacity(n as usize));
+    match seed {
+        Some(s) => from_random_state(&mut c, n, s),
+        None => from_mulberry32(&mut c, n),
+    }
+    Field { c }
+}
+
+/// The SciGraphs arm: `np.random.RandomState(seed).rand(n, D)`, which networkx builds from
+/// an `int` seed (`utils/misc.py:290-291`) and SciGraphs passes as `seed=get_layout_seed()`
+/// (`networkx_layouts.py:16-34`). Two `u32` words per double, so this is the reference's
+/// stream rather than a generator that merely looks like it.
+///
+/// Caveat: this is the **dense** start, `n < 500` (`layout.py:640`, `method="auto"` picks
+/// `"force"` there and `"energy"` above it). At `n >= 500` the sparse branch builds `A` with
+/// `dtype="f"` (`layout.py:629`) and casts `pos` to it (`layout.py:672`), so the reference's
+/// own start is **float32** and half its bits are gone before the first force — a different
+/// answer this port does not reproduce at all, and no seed value fixes it. No conformance
+/// fixture reaches 500 nodes, so nothing here is measured against that path.
+fn from_random_state<const D: usize>(c: &mut [Vec<f64>; D], n: u32, seed: u32) {
+    let mut stream = Mt19937::new(seed);
     for _ in 0..n {
-        for column in &mut c {
+        for column in c.iter_mut() {
             column.push(stream.next_f64());
         }
     }
-    Field { c }
+}
+
+/// The registered default, byte for byte what it was before [`SpringParams::seed`] existed:
+/// this crate's `Mulberry32` at [`SEED`], so no hashed snapshot of either spring id moves.
+fn from_mulberry32<const D: usize>(c: &mut [Vec<f64>; D], n: u32) {
+    let mut stream = Mulberry32::new(SEED);
+    for _ in 0..n {
+        for column in c.iter_mut() {
+            column.push(stream.next_f64());
+        }
+    }
 }
 
 /// networkx 3.6 `rescale_layout(pos, scale)` (`layout.py:1882-1924`), which

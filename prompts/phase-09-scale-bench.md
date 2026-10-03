@@ -1,4 +1,4 @@
-> **Status (2026-09-30):** MERGED into develop (develop commit d9912ad is branch p9's head) — partly closed out: the 10^5/10^6 bench arms time out on this host. See docs/reports/phase-09-progress.md and prompts/RESUME.md.
+> **Status (2026-10-02):** MERGED into develop (develop commit d9912ad is branch p9's head) — partly closed out. The 10^5/10^6 bench arms were measured on 2026-10-01 (docs/measurements/perf-p1-baseline.md:120-124: 6338 ms per tick at 1M, so the plan's ≤120 ms exit is withdrawn), and docs/reports/perf-p1.md plus docs/reports/perf-p2.md are written. Still owed: docs/reports/phase-09-progress.md is superseded by those two. See docs/reports/STATUS.md.
 
 # Phase 9 — The SCALE stage, and the benchmarks that justify the whole project
 

@@ -1,15 +1,16 @@
 //! `_cube_layout`'s corners and interior, hand-pinned against
 //! `SciGraphs/core/scigraphs_core/mesh/layouts/basic.py:83-103`.
 //!
-//! Split from [`super::tests`] because this is the one of the three that draws from a
-//! stream, and the tests here are about **which** parts are determined (the eight corners,
-//! the `min(n, 8)` split, the single-node origin, the interior's radius) and which are not
-//! (the interior's individual coordinates — see the module doc on why, and the metadata's
-//! `oracle` field for what the differential compares instead).
+//! Split from [`super::tests`] because this is the one of the three that draws from a stream,
+//! and the tests here are about **which** parts are determined (the eight corners, the
+//! `min(n, 8)` split, the single-node origin, the interior's radius) and which are not. The
+//! interior's individual coordinates *are* determined now — the generator is the reference's —
+//! so the tests that pin them are in [`interior`], next to nothing but each other.
+
+mod interior;
 
 use super::super::cube;
 use super::super::tests::{bare, space};
-use crate::synthetic::Mulberry32;
 
 /// The corners are a unit cube of half-side 1, scaled by `scale`.
 fn corner(i: usize) -> (f64, f64, f64) {
@@ -115,15 +116,25 @@ fn the_ninth_node_is_the_first_interior_point() {
     );
 }
 
-/// The interior is **strictly inside** the shell: every axis strictly within
+/// The interior is inside the shell: every axis strictly within
 /// `[-0.8*scale, 0.8*scale]` = `[-4, 4]` (`basic.py:101`).
 ///
-/// This is the property the layout exists to draw, and it is the one part of the scatter
-/// that survives the port's own stream — the interior's *numbers* are not the reference's
-/// (see the module doc), but "strictly inside, at 80% of the corner radius" is a claim
-/// both streams satisfy and this asserts it over sizes past one draw.
+/// **The `2⁻³² caveat, stated because the bound is half-open.** `uniform` returns
+/// `-reach + 2*reach*u` with `u` in `[0, 1)`, so a draw of exactly `0.0` lands on
+/// `-4.0` and this assertion fails. It never has, at these sizes, and the reference's own
+/// `rng.uniform` has the same property — so the assertion is a live gate that a
+/// pathological stream would trip, not a structural guarantee, and the doc used to say
+/// "strictly inside" where the interval is `[-0.8*scale, +0.8*scale)`.
+///
+/// This is the property the layout exists to draw, and it is a **weaker** claim than the one
+/// [`interior`] now makes: the interior's numbers are the reference's exactly (see
+/// [`interior::the_ninth_node_is_the_reference_interior_bit_for_bit`]), so "strictly inside, at
+/// 80% of the corner radius" is a consequence rather than the fallback. It is kept because it
+/// is the one property that holds at every size rather than at one pinned node count, and a
+/// generator that produced the right nine numbers and the wrong thousand would still pass the
+/// pinned test and fail this one.
 #[test]
-fn the_interior_is_strictly_inside_the_eighty_percent_shell() {
+fn the_interior_is_inside_the_eighty_percent_shell() {
     for n in [9u32, 32, 257, 1000] {
         let (x, y, z) = space(&cube(&bare(n)).expect("runs"));
         for i in 8..n as usize {
@@ -138,9 +149,12 @@ fn the_interior_is_strictly_inside_the_eighty_percent_shell() {
 }
 
 /// The scatter is symmetric about the origin in distribution: `uniform(-r, r)` has mean 0,
-/// and this checks the sample mean is near it over enough draws to mean something. It is
-/// the statistical half of what the differential compares (the corners are exact) — a
-/// centred stream passes it, an off-by-one in `-reach + 2*reach*u` does not.
+/// and this checks the sample mean is near it over enough draws to mean something.
+///
+/// This is no longer half of what the differential compares — [`interior`] compares every
+/// coordinate exactly — so what it is for now is the claim that **survives a wrong generator**:
+/// a stream that is right for the first few draws and wrong afterwards, or an off-by-one in the
+/// arithmetic, is centred and therefore passes the pinned tests and fails this one.
 #[test]
 fn the_interior_is_centred_on_the_origin() {
     let n = 4096u32;
@@ -160,41 +174,50 @@ fn the_interior_is_the_same_twice_over() {
     assert_eq!(a, b, "two runs at n=257, byte for byte");
 }
 
-/// Three draws per node, axis by axis (`x`, then `y`, then `z`), which is the order
-/// `rng.uniform(-1, 1, (k, 3))` fills in C order.
-///
-/// The check is a recount, not a recomputation: `super::uniform` is the reference's
-/// `low + (high - low) * next_double()`, so feeding the same seed into a fresh stream
-/// reproduces the interior exactly. A per-axis stream, or a `y`-before-`x` order, would
-/// give a different drawing and this pins it.
-#[test]
-fn the_interior_draws_three_values_per_node_axis_by_axis() {
-    let n = 40u32;
-    let (x, y, z) = space(&cube(&bare(n)).expect("runs"));
-    let mut stream = Mulberry32::new(super::SEED);
-    for i in 8..n as usize {
-        let want_x = -4.0 + (4.0 - -4.0) * stream.next_f64();
-        let want_y = -4.0 + (4.0 - -4.0) * stream.next_f64();
-        let want_z = -4.0 + (4.0 - -4.0) * stream.next_f64();
-        assert_eq!(x[i], want_x as f32, "node {i} x: the draw order moved");
-        assert_eq!(y[i], want_y as f32, "node {i} y");
-        assert_eq!(z[i], want_z as f32, "node {i} z");
-    }
-}
-
 /// The seed is fixed, and changing it changes the interior while leaving the corners
 /// exactly where they were — which is the claim `registry`'s seeding decision rests on.
+///
+/// **This test used not to vary the seed at all.** It called `cube(&bare(20))` twice with
+/// identical arguments and asserted the two were equal, which is
+/// [`the_interior_is_the_same_twice_over`] a second time and no statement about `SEED`
+/// whatsoever: any value of `SEED`, including one that made the interior degenerate, left
+/// it green. It now asks the kernel for two seeds — the same seed twice is byte-identical,
+/// `SEED + 1` moves the interior and no corner — which is the negative control the name
+/// promised. `SEED` is a parameter of [`columns_scaled`](super::columns_scaled) for exactly
+/// this reason.
 #[test]
 fn the_seed_moves_only_the_interior() {
-    let a = space(&cube(&bare(20)).expect("runs"));
-    let b = space(&cube(&bare(20)).expect("runs"));
-    assert_eq!(a, b);
+    let at = |seed: u32| super::columns_scaled(20, super::SCALE, seed);
+    let (x, y, z) = at(super::SEED);
     assert_eq!(
-        (a.0[0], a.1[0], a.2[0]),
+        (x.clone(), y.clone(), z.clone()),
+        at(super::SEED),
+        "one seed twice is byte-identical"
+    );
+    let (moved_x, moved_y, moved_z) = at(super::SEED + 1);
+    for (axis, (corner_column, moved_column)) in [&x, &y, &z]
+        .into_iter()
+        .zip([&moved_x, &moved_y, &moved_z])
+        .enumerate()
+    {
+        for node in 0..8usize {
+            assert_eq!(
+                corner_column[node], moved_column[node],
+                "corner {node} axis {axis} moved with the seed"
+            );
+        }
+    }
+    assert_ne!(
+        x[8], moved_x[8],
+        "the interior did not move with the seed, so this asserts nothing"
+    );
+    let narrowed = space(&cube(&bare(20)).expect("runs"));
+    assert_eq!(
+        (narrowed.0[0], narrowed.1[0], narrowed.2[0]),
         (corner(0).0 as f32, corner(0).1 as f32, corner(0).2 as f32)
     );
     assert_ne!(
-        a.0[8], 0.0,
+        narrowed.0[8], 0.0,
         "an interior coordinate at exactly zero would be a fluke"
     );
 }

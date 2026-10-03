@@ -17,7 +17,7 @@ fn a_cooled_step_moves_every_node_and_reports_the_whole_move() {
     let field = FrField {
         adjacency: &adjacency,
         n,
-        k: libm::sqrt(1.0 / f64::from(n)),
+        k: f64::sqrt(1.0 / f64::from(n)),
     };
     let mut pos = seed_positions(n);
     let t = initial_temperature(&pos);
@@ -41,7 +41,7 @@ fn a_cooled_step_moves_every_node_and_reports_the_whole_move() {
             dx * dx + dy * dy
         })
         .sum();
-    assert!((moved - libm::sqrt(recomputed)).abs() < 1e-12, "{moved}");
+    assert!((moved - f64::sqrt(recomputed)).abs() < 1e-12, "{moved}");
 }
 
 #[test]
@@ -53,7 +53,7 @@ fn a_zero_temperature_step_moves_nothing() {
     let field = FrField {
         adjacency: &adjacency,
         n,
-        k: libm::sqrt(0.25),
+        k: f64::sqrt(0.25),
     };
     let mut pos = seed_positions(n);
     let before = pos.clone();
@@ -73,8 +73,8 @@ fn the_walk_pulls_a_connected_graph_together_and_is_reproducible() {
         edges.push((i, i + 1));
     }
     edges.push((0, n - 1));
-    let a = fruchterman_reingold(n, &edges, 50);
-    let b = fruchterman_reingold(n, &edges, 50);
+    let a = fruchterman_reingold(n, &edges, 50, None);
+    let b = fruchterman_reingold(n, &edges, 50, None);
     assert_eq!(bits(&a), bits(&b), "same input, same bits");
     let spread = |i: u32, j: u32| {
         libm::hypot(
@@ -95,7 +95,7 @@ fn the_walk_pulls_a_connected_graph_together_and_is_reproducible() {
 fn a_graph_with_no_edges_is_left_as_the_seed_and_the_walk_spread_it_out() {
     // No springs, only repulsion: the seed's own spiral becomes the packing, and nothing
     // can collapse or blow up.
-    let pos = fruchterman_reingold(5, &[], 50);
+    let pos = fruchterman_reingold(5, &[], 50, None);
     assert_eq!(pos.len(), 5);
     assert!(pos.iter().all(|&(x, y)| x.is_finite() && y.is_finite()));
     for (i, &(x, y)) in pos.iter().enumerate() {
@@ -121,7 +121,7 @@ fn the_threshold_stops_the_walk_once_the_average_move_is_negligible() {
     let field = FrField {
         adjacency: &adjacency,
         n,
-        k: libm::sqrt(0.25),
+        k: f64::sqrt(0.25),
     };
     let mut pos = [(0.0, 0.0); 4];
     let mut temperature = 1.0_f64;

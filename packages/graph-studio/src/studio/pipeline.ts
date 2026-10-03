@@ -20,6 +20,7 @@ import { type Ends, MetaMismatch } from "../source/meta.ts";
 import type { RunSummary, StudioState } from "../state/model.ts";
 import { type Appearance, type Settings, type Source, withSettings } from "../state/settings.ts";
 import type { Store } from "../state/store.ts";
+import { neighboursOf } from "./adjacency.ts";
 import { fitResults } from "./fitResults.ts";
 
 export type ViewFace = Pick<
@@ -27,6 +28,7 @@ export type ViewFace = Pick<
   | "setFrame" | "setStyle" | "setTheme" | "setLabels"
   | "fit" | "reset" | "zoomBy" | "panBy" | "limits"
   | "focus" | "select" | "local" | "showAll" | "on" | "toPNG" | "setCamera" | "frame" | "viewport"
+  | "hide" | "togglePin" | "pinned"
   | "orbit" | "setOrbit" | "resetOrbit" | "projected"
 >;
 
@@ -72,6 +74,10 @@ function policyOf(appearance: Appearance): LabelPolicy {
 }
 
 const NOTES_SHOWN = 5;
+
+/** The two ends of the motor round trip of a layout switch, for `deploy/perf/transition.py`. */
+const REQUEST_MARK = "gm:transition:request";
+const BYTES_MARK = "gm:transition:bytes";
 
 function patch(rig: Rig, change: (state: StudioState) => Partial<StudioState>): void {
   rig.store.update((state) => ({ ...state, ...change(state) }));
@@ -169,8 +175,12 @@ async function arrange(rig: Rig, next: Settings, fresh: boolean): Promise<Part> 
   // Counted before the await: a run that is cancelled while it waits was still asked for,
   // and a count that only moved on success would hide that from the studio's own tests.
   patch(rig, (state) => ({ layoutCalls: state.layoutCalls + 1 }));
+  // A switch between two layouts of the same graph is the one this measures; the marks the
+  // render side puts down are `gm:transition:moved` and `gm:transition:settled`.
+  if (!fresh) performance.mark(REQUEST_MARK);
   try {
     const run = await rig.client.layout(next.layout, next.edges);
+    if (!fresh) performance.mark(BYTES_MARK);
     return draw(rig, run, { look: next, fresh });
   } catch (error) {
     // After a load the old drawing is of another graph; after a refused layout it still holds.
@@ -241,17 +251,6 @@ async function apply(rig: Rig, next: Settings): Promise<Outcome> {
     digest: rig.store.get().run?.digest ?? null,
     notes: parts.flatMap((part) => part.notes),
   };
-}
-
-function neighboursOf(ends: Ends, node: number): readonly number[] {
-  const found = new Set<number>();
-  for (let e = 0; e < ends.source.length; e += 1) {
-    const s = ends.source[e] ?? 0;
-    const t = ends.target[e] ?? 0;
-    if (s === node && t !== node) found.add(t);
-    if (t === node && s !== node) found.add(s);
-  }
-  return [...found];
 }
 
 export function createPipeline(deps: PipelineDeps): Pipeline {

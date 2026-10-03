@@ -157,6 +157,19 @@ impl<'a> Positions<'a> {
     }
 
     /// The flat index of `x` within `v`'s rotation.
+    ///
+    /// The only caller is [`Self::next_face`], which asks about the twin of the half-edge it
+    /// is walking, so the guarantee is **reciprocity**: every `(v, x)` half-edge has its
+    /// `(x, v)` twin, which is what [`super::embed::into_embedding`] writes — it reads each
+    /// row's own `degree(v)` slots, so both endpoints of every edge get one. That is why
+    /// this is an `expect` naming the guarantee and not an error value: the rotation system
+    /// is the input's own shape, and a non-reciprocal one cannot be built by anything in
+    /// this crate — `embed::into_embedding` is the only writer of `neighbours`.
+    ///
+    /// Ponytail: nothing asserts reciprocity, so a bug in `embed` surfaces as this panic
+    /// rather than as the `None` the module doc promises.
+    /// `tests::properties::no_small_graph_reaches_an_expect_on_the_public_planarity_path`
+    /// walks all 33 868 graphs on up to six nodes to hold it.
     fn position(&self, v: u32, x: u32) -> u32 {
         let (a, b) = (
             self.embedding.offsets[v as usize],
@@ -165,7 +178,7 @@ impl<'a> Positions<'a> {
         let row = &self.by_value[a as usize..b as usize];
         let found = row
             .binary_search_by_key(&x, |&i| self.embedding.neighbours[i as usize])
-            .expect("x is a neighbour of v");
+            .expect("reciprocal: every half-edge has its twin, by embed::into_embedding");
         row[found]
     }
 

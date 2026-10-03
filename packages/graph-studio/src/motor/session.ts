@@ -12,9 +12,10 @@ import { type GraphMeta, metaOf } from "../source/meta.ts";
 import { syntheticRecords } from "../source/synthetic.ts";
 import { type ShownError, describeError } from "../state/errors.ts";
 import type { Source } from "../state/settings.ts";
-import type { ForcePort, LiveForce } from "./live.ts";
+import type { ForceEngine, ForceParams, ForcePort, LiveForce } from "./live.ts";
 import { createLiveForce } from "./liveSession.ts";
 import type { AnalysisReport, Catalog, GraphSummary, RunReport } from "./protocol.ts";
+import { planRun } from "./settle.ts";
 
 export interface AnalysisFace {
   readonly id: string;
@@ -36,18 +37,23 @@ export interface MotorLike<Handle> {
   toBytes(handle: Handle): Uint8Array;
   release(handle: Handle): void;
   /** The live session over a graph's topology, or null on a motor without one. */
-  forceSession?(handle: Handle): ForcePort | null;
+  forceSession?(handle: Handle, params?: Partial<ForceParams>, engine?: ForceEngine): ForcePort | null;
 }
 
 export interface SessionDeps<Handle> {
-  readonly motorFrom: (wasmUrl: string) => Promise<MotorLike<Handle>>;
+  readonly motorFrom: (wasmUrl: string, threads?: number) => Promise<MotorLike<Handle>>;
   readonly fetchText: (url: string) => Promise<string>;
   readonly digest: (bytes: Uint8Array) => Promise<string | null>;
   readonly now: () => number;
+  /**
+   * Told when a force session is released, so whatever is stepping it stops at once. Never
+   * called to ask whether there is a session: that would make one as a side effect.
+   */
+  readonly onForget?: () => void;
 }
 
 export interface Session {
-  open(wasmUrl: string): Promise<Catalog>;
+  open(wasmUrl: string, threads?: number): Promise<Catalog>;
   load(source: Source, fixturesUrl: string): Promise<GraphSummary>;
   layout(layoutId: string, postId: string | null): Promise<RunReport>;
   analysis(analysisId: string): AnalysisReport;
@@ -78,10 +84,9 @@ interface Built<Handle> {
   port: LiveForce | null;
   /** Node ids in the force session's dense row order; `null` until a layout has run. */
   order: readonly string[] | null;
+  /** The tick the live session is made with; a change releases the one made before. */
+  engine: ForceEngine;
 }
-
-/** The layout that throws the nodes back to random positions, for "Animate". */
-const SCATTER = "layout.random";
 
 /** Nothing can run in the state the session is in. */
 export class SessionRefusal extends Error {
@@ -186,33 +191,47 @@ function summaryOf(document: Document, buildMs: number): GraphSummary {
 function forcesOf<Handle>(motor: MotorLike<Handle> | null, built: Built<Handle> | null): LiveForce | null {
   if (motor === null || built === null || built.order === null) return null;
   if (motor.forceSession === undefined) return null;
-  built.forced ??= motor.forceSession(built.handle);
+  built.forced ??= motor.forceSession(built.handle, undefined, built.engine);
   if (built.forced === null) return null;
   // The port is cached, not rebuilt: the loop compares ports by identity and replaces itself
-  // when one changes, so a fresh object per request would stop the loop on every message.
+  // when one changes, so a fresh object per request would stop the loop on every message. So
+  // `restart` hands the new session to `built.forced`, which `forget` then releases.
   built.port ??= createLiveForce({
     session: built.forced,
-    handle: built.handle,
     ids: () => built.order,
-    scatter: (handle) => motor.layout(handle, SCATTER),
+    restart: () => {
+      built.forced?.release();
+      built.forced = motor.forceSession?.(built.handle, undefined, built.engine) ?? null;
+      if (built.forced === null) throw new SessionRefusal("the motor made no force session");
+      return built.forced;
+    },
   });
   return built.port;
 }
 
-/** One layout over the graph, with the edge pass and the digest the studio reports. */
+/**
+ * One layout over the graph, with the edge pass and the digest the studio reports. A force
+ * layout on a large graph runs as a scatter and reports the layout that settles it (`settle.ts`).
+ */
 async function runLayout<Handle>(
   live: { readonly motor: MotorLike<Handle>; readonly built: Built<Handle> },
   deps: SessionDeps<Handle>,
   layoutId: string,
   postId: string | null,
 ): Promise<RunReport> {
+  const { motor, built } = live;
+  const plan = planRun(layoutId, built.nodes.length, motor.forceSession !== undefined);
+  if (plan.engine !== built.engine) {
+    forget(built, deps.onForget);
+    built.engine = plan.engine;
+  }
   const started = deps.now();
-  live.motor.layout(live.built.handle, layoutId);
+  motor.layout(built.handle, plan.run);
   const layoutMs = deps.now() - started;
-  const pass = runPass(live.motor, live.built.handle, postId, deps.now);
-  const bytes = live.motor.toBytes(live.built.handle);
-  const meta = describe(live.built, bytes);
-  return { layoutId, ...pass, bytes, digest: await deps.digest(bytes), layoutMs, meta };
+  const pass = runPass(motor, built.handle, postId, deps.now);
+  const bytes = motor.toBytes(built.handle);
+  const meta = describe(built, bytes);
+  return { layoutId: plan.report, ...pass, bytes, digest: await deps.digest(bytes), layoutMs, meta };
 }
 
 /** One analysis over the graph, in the face the studio reports. */
@@ -226,6 +245,24 @@ function runAnalysis<Handle>(
   return reportOf(face, deps.now() - started);
 }
 
+/**
+ * Lets a built graph go: the motor's session, the port over it, and the loop stepping it.
+ *
+ * WHY the port is marked before the release: the stepping loop holds it, its next frame is
+ * already scheduled, and every call on a released session throws. WHY the notice goes last:
+ * the loop is told once the port says dead, so a frame in between reads the mark and stops
+ * on its own.
+ */
+function forget<Handle>(built: Built<Handle> | null, onForget?: () => void): void {
+  const forced = built?.forced ?? null;
+  if (built !== null && built.port !== null) built.port.dead = true;
+  forced?.release();
+  if (built === null) return;
+  built.forced = null;
+  built.port = null;
+  if (forced !== null) onForget?.();
+}
+
 export function createSession<Handle>(deps: SessionDeps<Handle>): Session {
   let motor: MotorLike<Handle> | null = null;
   let built: Built<Handle> | null = null;
@@ -234,26 +271,20 @@ export function createSession<Handle>(deps: SessionDeps<Handle>): Session {
     if (built === null) throw new SessionRefusal("no graph is loaded");
     return { motor, built };
   };
-  const forget = (): void => {
-    // The motor's session outlives its graph handle, so releasing the handle is not enough.
-    built?.forced?.release();
-    if (built === null) return;
-    built.forced = null;
-    built.port = null;
-  };
   /** Builds the next graph and lets the last one go, force session and all. */
   const replace = (document: Document, started: number): GraphSummary => {
     const open = motor;
     if (open === null) throw new SessionRefusal("the motor is not open");
     const handle = open.build(document.json);
     if (built !== null) open.release(built.handle);
-    forget();
-    built = { handle, nodes: document.nodes, described: null, forced: null, port: null, order: null };
+    forget(built, deps.onForget);
+    built = { handle, nodes: document.nodes, described: null, forced: null, port: null, order: null,
+      engine: "barnes_hut" };
     return summaryOf(document, deps.now() - started);
   };
   return {
-    open: async (wasmUrl) => {
-      motor = await deps.motorFrom(wasmUrl);
+    open: async (wasmUrl, threads) => {
+      motor = await deps.motorFrom(wasmUrl, threads);
       return { layouts: motor.layouts(), posts: motor.posts(), analyses: motor.analyses() };
     },
     load: async (source, fixturesUrl) => {

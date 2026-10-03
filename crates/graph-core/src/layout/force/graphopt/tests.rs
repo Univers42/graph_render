@@ -59,7 +59,7 @@ fn a_spring_alone_pulls_two_nodes_together() {
         ..GraphoptParams::default()
     };
     let (x, y) = points(&graph(2, &[(0, 1)]), p);
-    let d = libm::sqrt({
+    let d = f64::sqrt({
         let (dx, dy) = (f64::from(x[0] - x[1]), f64::from(y[0] - y[1]));
         dx * dx + dy * dy
     });

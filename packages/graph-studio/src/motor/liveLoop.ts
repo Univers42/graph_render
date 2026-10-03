@@ -31,15 +31,23 @@ export interface LoopDeps {
 
 export interface ForceHost {
   readonly handle: (request: ForceRequest) => Result;
+  /**
+   * The session the loop is ticking is gone: stop at once, without waiting for the next
+   * request. A graph replaced mid-settle releases its force session, and the frame already
+   * scheduled would step a session the motor has already thrown away.
+   */
+  forget(): void;
 }
 
 interface Pin { readonly x: number; readonly y: number }
 
 class ForceLoop {
   private readonly held = new Set<string>();
-  // Latest pointer position per node: a move that arrives before the frame replaces the
-  // last one, which is how a slow motor drops drag events instead of queueing them.
-  private readonly pending = new Map<string, Pin>();
+  // Where the loop's pins are: the latest pointer position per node, a move that arrives
+  // before the frame replacing the last one, which is how a slow motor drops drag events
+  // instead of queueing them. An id stays in here after its release — a dropped node is a node
+  // the user put somewhere on purpose — so the pin outlives the pointer that made it.
+  private readonly pinned = new Map<string, Pin>();
   private cancel: (() => void) | null = null;
   private alpha = 0;
   private paused = false;
@@ -74,14 +82,20 @@ class ForceLoop {
 
   private frame(): void {
     this.cancel = null;
-    for (const [id, pin] of this.pending) this.live.pin(id, pin.x, pin.y);
-    this.pending.clear();
+    // WHY this is first: the port can die between the request that scheduled this frame and
+    // the frame itself, and every call on a released session throws. There is nothing to
+    // step, nothing to draw and nothing left to schedule — but the page's watchdog is armed
+    // on the strip this loop is filling, so the word that the settle ended is sent without
+    // touching the session.
+    if (this.live.dead === true) {
+      this.release();
+      return;
+    }
+    for (const [id, at] of this.pinned) this.live.pin(id, at.x, at.y);
     if (this.dropped) this.dropped = false;
     else this.batch();
     const running = this.alpha >= ALPHA_MIN || this.held.size > 0;
-    const { xs, ys } = this.live.positions();
-    const copy = { xs: xs.slice(), ys: ys.slice(), alpha: this.alpha, running };
-    this.deps.emit({ type: "force-frame", frame: copy }, [copy.xs.buffer, copy.ys.buffer]);
+    this.publish(running);
     if (running) this.cancel = this.deps.schedule(() => this.frame());
   }
 
@@ -117,16 +131,50 @@ class ForceLoop {
     this.paused = false;
     this.cancel?.();
     this.cancel = null;
-    for (const id of this.held) this.live.unpin(id);
-    this.held.clear();
-    this.pending.clear();
+    this.drop();
   }
 
-  /** One last frame saying the loop has stopped, so the bar empties instead of hanging. */
+  /** Lets go of every pin the loop owns, dropped nodes included. */
+  private drop(): void {
+    // A released session throws from an unpin too, and there is no pin left on it to lift.
+    if (this.live.dead !== true) for (const id of this.pinned.keys()) this.live.unpin(id);
+    this.held.clear();
+    this.pinned.clear();
+  }
+
+  /**
+   * The session this loop was ticking is gone, so the settle ends here rather than at alpha_min.
+   *
+   * Ponytail: one pushed state and no frame, because a frame is drawn from the session and this
+   * one is released. Failing input: a loop that stops in silence leaves the page's watchdog armed
+   * on a strip nobody will ever fill again, and four seconds later a live graph reads as a dead
+   * worker. Direction: the word is the loop's own state, so the page hides the strip and greys
+   * the panel on the answer it would give a force request now. Escape hatch: the next layout
+   * starts a new session and the panel comes back on its own.
+   */
+  release(): void {
+    this.halt();
+    this.deps.emit({ type: "force-state", running: false, disabled: NO_ADAPTER_REASON, paused: false }, []);
+  }
+
+  /**
+   * One frame out, narrowed to f32 and handed over rather than copied.
+   *
+   * WHY narrow here: the page draws f32 and the GPU attribute is f32, so a f64 column would
+   * cross the wire at twice the size to be narrowed on the far side, into an array of exactly
+   * the length it already had. `Float32Array.from` narrows to nearest — the same rounding the
+   * page's own `Float32Array.set` performed — so the drawing is bit-identical.
+   *
+   * Ponytail: the two arrays are fresh every frame rather than taken from a pool. A pool has
+   * to be handed back before it can be filled again, and the return path crosses the same
+   * thread boundary this transfer already crosses; until that channel exists, a fresh f32
+   * pair is half the bytes of a fresh f64 pair and the page allocates nothing at all, which is
+   * the half that was on the critical path.
+   */
   private publish(running: boolean): void {
     const { xs, ys } = this.live.positions();
-    const copy = { xs: xs.slice(), ys: ys.slice(), alpha: this.alpha, running };
-    this.deps.emit({ type: "force-frame", frame: copy }, [copy.xs.buffer, copy.ys.buffer]);
+    const frame = { xs: Float32Array.from(xs), ys: Float32Array.from(ys), alpha: this.alpha, running };
+    this.deps.emit({ type: "force-frame", frame }, [frame.xs.buffer, frame.ys.buffer]);
   }
 
   apply(request: ForceRequest): void {
@@ -146,17 +194,24 @@ class ForceLoop {
     // frozen under the pointer is not what a pause was for.
     this.paused = false;
     if (request.type === "force.start") {
-      // "Animate": the settle starts over from random positions, not from where it stopped.
-      // The port answers with the alpha it re-heated to, which is the bar's new full width.
+      // "Animate": the settle starts over from where this graph's settle begins, not from
+      // where it stopped. The port answers with the alpha the new session was born at, which
+      // is the bar's new full width. A dropped node is a position the user chose, and a
+      // restart puts the nodes back at the session's start positions — so the pins go with
+      // the positions they were holding.
+      this.drop();
       const restarted = this.live.shuffle?.();
       if (restarted !== undefined) this.alpha = restarted;
     } else if (request.type === "force.drag") {
       this.held.add(request.id);
-      this.pending.set(request.id, { x: request.x, y: request.y });
+      this.pinned.set(request.id, { x: request.x, y: request.y });
     } else if (request.type === "force.release") {
-      this.pending.delete(request.id);
+      // WHY the pin stays: the motor integrates a released node from rest and the drawing
+      // settles it straight back to the equilibrium the drag just broke, so lifting the pin
+      // here makes a drop undo itself. The node keeps the position the user put it at; the
+      // graph settles around it. `held` is what the pointer is holding, and only that keeps
+      // the loop awake — so a drop lets the settle finish.
       this.held.delete(request.id);
-      this.live.unpin(request.id);
     } else this.live.setParams(request.knobs);
     this.wake();
   }
@@ -171,17 +226,19 @@ export function createForceHost(port: () => LiveForce | null, deps: LoopDeps): F
   // The loop is made on the first request that finds a port, and released with it: a
   // re-layout makes a new session, so the loop must not keep ticking on the old one.
   let loop: { readonly loop: ForceLoop; readonly port: LiveForce } | null = null;
+  // `release`, not `halt`: nothing asked for this stop, so the loop has to say how it ended or
+  // the page's watchdog reads the quiet as a dead worker (see ForceLoop.release).
+  const forget = (): void => {
+    loop?.loop.release();
+    loop = null;
+  };
   const live = (): ForceLoop | null => {
     const found = port();
     if (found === null) {
-      loop?.loop.halt();
-      loop = null;
+      forget();
       return null;
     }
-    if (loop !== null && loop.port !== found) {
-      loop.loop.halt();
-      loop = null;
-    }
+    if (loop !== null && loop.port !== found) forget();
     loop ??= { loop: new ForceLoop(found, deps), port: found };
     return loop.loop;
   };
@@ -192,5 +249,6 @@ export function createForceHost(port: () => LiveForce | null, deps: LoopDeps): F
       running.apply(request);
       return { type: "force-state", running: running.running, disabled: null, paused: running.isPaused };
     },
+    forget,
   };
 }

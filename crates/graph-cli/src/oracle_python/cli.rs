@@ -4,13 +4,16 @@
 use super::graphviz::{by_engine, default_dir, engine_parser};
 use super::spring;
 use super::{
-    BASIC_3D, CIRCULAR_HIERARCHY, CLOSED_FORM, FA2, HIERARCHICAL_3D, IGRAPH, SPECTRAL, SPRING,
-    conformance, emit, ingest,
+    BASIC_3D, CIRCULAR_HIERARCHY, CLOSED_FORM, FA2, HIERARCHICAL_3D, IGRAPH, SCALE, SPECTRAL,
+    SPRING, conformance, emit, ingest,
 };
 use crate::command::seed_count;
 use clap::Subcommand;
 use std::path::PathBuf;
 use std::process::ExitCode;
+
+/// How many cases the `scale.*` fixture table holds; the `--cases` default and its range.
+const SCALE_CASES: u32 = super::scale::CASES;
 
 #[derive(Subcommand)]
 pub enum Cli {
@@ -97,12 +100,15 @@ pub enum Cli {
         #[arg(long, default_value = "target/spring-fixtures")]
         dir: PathBuf,
     },
-    /// Writes the three graph-free 3D placements' fixtures for
+    /// Writes the four graph-free 3D placements' fixtures for
     /// `harness/oracle-basic-3d.py`, the SciGraphs arm: `layout.basic3d.sphere`,
-    /// `layout.basic3d.helix` and `layout.basic3d.cube` in ONE arm, because the three take
-    /// the same two arguments and read no graph.
+    /// `layout.basic3d.helix`, `layout.basic3d.cube` and `layout.basic3d.spiral` in ONE
+    /// arm, because the four take the same two arguments and read no graph.
     ///
-    /// The three take no iteration budget, so `--max-iter` is ignored.
+    /// **Four, and that is the arm's `ARMS` list.** `--function spiral` arrived with job
+    /// `sg-basic3d-spiral-oracle`.
+    ///
+    /// The four take no iteration budget, so `--max-iter` is ignored.
     // Named explicitly: clap would spell the variant `emit-basic3d-fixtures`, and the
     // hyphen is the difference between "basic 3d" and a single word.
     #[command(name = "emit-basic-3d-fixtures")]
@@ -114,11 +120,13 @@ pub enum Cli {
         #[arg(long, default_value = "target/basic-3d-fixtures")]
         out: PathBuf,
     },
-    /// Checks the three graph-free 3D placements' result against their ceilings.
+    /// Checks the four graph-free 3D placements' result against their ceilings.
     ///
-    /// Three ceilings in one check, because they are three functions behind one arm: a
-    /// differential that reported one number for three different reference functions would be
-    /// reporting nothing any of them can act on.
+    /// Four ceilings in one check, because they are four functions behind one arm: a
+    /// differential that reported one number for four different reference functions would be
+    /// reporting nothing any of them can act on. Same four as above — with `spiral`'s `t`
+    /// column inverted from the arc rather than transcribed, which is why it carries its own
+    /// ceiling rather than borrowing `CEILING`'s measurement.
     #[command(name = "oracle-basic-3d")]
     OracleBasic3d {
         /// Directory holding the fixtures and `basic-3d-result.json`.
@@ -197,6 +205,32 @@ pub enum Cli {
         #[arg(long)]
         dir: Option<PathBuf>,
     },
+    /// Writes the `scale.*` differential's fixtures for `harness/oracle-scale.py`, the
+    /// SciGraphs arm: `lod.apply_budget`, `lod.frustum_cull_spheres` and
+    /// `simplify.build_coarse_level` over hand-built graphs.
+    ///
+    /// `--cases` counts lines, not seeds: the graphs are the ones the reference decides
+    /// something about, so there is no sweep to widen and the default is the whole table.
+    /// The comparisons are exact equality on masks and index lists, so there is no
+    /// iteration budget and `--max-iter` is ignored.
+    EmitScaleFixtures {
+        /// Number of cases, 1..=CASES.
+        #[arg(long, default_value_t = SCALE_CASES, value_parser = clap::value_parser!(u32).range(1..=i64::from(SCALE_CASES)))]
+        cases: u32,
+        /// Output directory.
+        #[arg(long, default_value = "target/scale-fixtures")]
+        out: PathBuf,
+    },
+    /// Checks the `scale.*` differential's result against exact equality and records it.
+    ///
+    /// One command for all three rows: `scale.lod`'s two reference functions and
+    /// `scale.simplify`'s are one SciGraphs arm over one fixture set, and a verdict each
+    /// would name the other two nothing.
+    OracleScale {
+        /// Directory holding the fixtures and `scale-result.json`.
+        #[arg(long, default_value = "target/scale-fixtures")]
+        dir: PathBuf,
+    },
     /// Writes the SciGraphs conformance fixtures: the graphs both arms read, the node-order
     /// mapping, and every motor layout's own coordinates over them, raw little-endian `f64`
     /// and the `f32` the snapshot narrows to.
@@ -269,6 +303,8 @@ impl Cli {
                 Some(differential) => ingest(&differential, &dir.unwrap_or(default_dir(&engine))),
                 None => unknown(&engine),
             },
+            Cli::EmitScaleFixtures { cases, out } => emit(&SCALE, cases, None, &out),
+            Cli::OracleScale { dir } => ingest(&SCALE, &dir),
             Cli::EmitConformanceFixtures { out } => conformance::emit(&out),
             Cli::ScigraphsConformance { dir } => conformance::judge(&dir),
         }

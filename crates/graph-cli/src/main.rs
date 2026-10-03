@@ -17,8 +17,10 @@ mod forcecheck;
 mod hashgate;
 mod ingest_cmd;
 mod ink_cmd;
+mod mb_fidelity;
 mod oracle_fixtures;
 mod oracle_python;
+mod overlap_cmd;
 mod probe_report;
 mod runner;
 mod snapshot_cmd;
@@ -99,9 +101,29 @@ fn main() -> ExitCode {
             nodes,
             layout: &layout,
         }),
+        Command::Overlap {
+            fixture,
+            nodes,
+            layout,
+            radius,
+            no_scan,
+            max_iterations,
+        } => overlap_cmd::run(&overlap_cmd::Request {
+            fixture: fixture.as_deref(),
+            nodes,
+            layout: &layout,
+            radius,
+            scan: !no_scan,
+            max_iterations,
+        }),
         Command::DeterminismProbe { out } => determinism_probe::run(&out),
-        Command::Stress { oracle, seeds } => stress::run(&oracle, seeds),
+        Command::Stress {
+            oracle,
+            layout,
+            seeds,
+        } => stress::run(&oracle, &layout, seeds),
         Command::Bench(plan) => bench::run(&plan),
         Command::Tick(plan) => bench::tick::run(&plan),
+        Command::MbFidelity(plan) => mb_fidelity::run(&plan),
     }
 }

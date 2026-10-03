@@ -10,11 +10,11 @@ use crate::records::{EdgeRecord, NodeRecord};
 fn paths(nodes: &[NodeRecord], edges: &[EdgeRecord]) -> Paths {
     let t = index_model(nodes, edges).expect("fits");
     let acyclic = Acyclic::of(&t);
-    let arcs = Arcs::new(&t, &acyclic);
-    let layer = assign_layers(&arcs);
-    let layering = Layering::build(&arcs, &layer, DUMMY_BUDGET);
+    let list = Arcs::new(&t, &acyclic).grouped();
+    let layer = assign_layers(&list);
+    let layering = Layering::build(&list, &layer, DUMMY_BUDGET);
     let num_layers = layering.layer_of.iter().copied().max().map_or(0, |m| m + 1);
-    let ordering = Ordering::build(&layering, num_layers);
+    let ordering = Ordering::build(&layering, num_layers).expect("covers every layer");
     let coords = Coords::build(&ordering, &layering, t.node_count());
     let routing = Routing {
         layering: &layering,
@@ -23,6 +23,19 @@ fn paths(nodes: &[NodeRecord], edges: &[EdgeRecord]) -> Paths {
         spacing: LAYER_SPACING,
     };
     edge_paths(&routing)
+}
+
+/// L-14: a self-loop is `Route::Loop` and owns no interior point, so its `Polyline` row is
+/// empty — a straight segment between coincident endpoints, which is what the router that
+/// follows the layout turns into the loop arc (`edge_styles.py:458`). The layout stage adds
+/// no points of its own; see the module doc.
+#[test]
+fn a_self_loop_carries_no_interior_points_and_is_left_to_the_style_post() {
+    let n = ["a", "b"].map(|id| node(id, ""));
+    let e = [edge("ab", "a", "b"), edge("aa", "a", "a")];
+    let p = paths(&n, &e);
+    assert_eq!(p.offsets, [0, 0, 0], "the loop owns no interior point");
+    assert!(p.pts.is_empty(), "no arc points invented: {p:?}");
 }
 
 #[test]
@@ -94,13 +107,14 @@ use graph_contract::canonical_json::{Value, parse};
 use graph_contract::geometry::{EdgeGeometry, NodeGeometry};
 use graph_contract::notes::NoteCode;
 
-const DAG_FIXTURES: [&str; 6] = [
+const DAG_FIXTURES: [&str; 7] = [
     include_str!("../../../../../../fixtures/dag/chain.json"),
     include_str!("../../../../../../fixtures/dag/diamond.json"),
     include_str!("../../../../../../fixtures/dag/cyclic.json"),
     include_str!("../../../../../../fixtures/dag/multi-span.json"),
     include_str!("../../../../../../fixtures/dag/wide-layer.json"),
     include_str!("../../../../../../fixtures/dag/disconnected.json"),
+    include_str!("../../../../../../fixtures/dag/parallel-arcs.json"),
 ];
 type DagGraph = (Vec<String>, Vec<(String, String, String)>);
 

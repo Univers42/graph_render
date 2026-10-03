@@ -26,8 +26,11 @@
 //! The contract's reader refuses an unknown member, an unnamed role, a version it does
 //! not know and a dangling collection; the derivation refuses the one thing the reader
 //! cannot see (H5: a tag *value* containing `:`, which would parse back shifted). Both
-//! refusals are kept apart in [`ContractError`] so the export can tell them from the
-//! `0` it returns for every one of them.
+//! refusals are kept apart in [`ContractError`] for native callers and its `Display`; the
+//! wire carries **one** code for every variant, `ContractInvalid`, and a JS caller cannot
+//! tell them apart (F-93). That is the documented contract (`docs/contract/wasm-abi.md`
+//! "Errors", row 14): splitting it into new codes would change what a caller already
+//! handling `ContractInvalid` reads for the same document.
 
 use graph_contract::ingest::{IngestError, read};
 use graph_core::Topology;

@@ -18,39 +18,48 @@ import subprocess
 import sys
 import tempfile
 import threading
-from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 # The CDP client is the perf gate's, not a second copy of it: one WebSocket implementation
 # in the repository, and this gate drives the same browser the same way.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "perf"))
+# The shared HTTP handler lives in deploy/, the directory above this one.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import cdp
+import gpu
 import navrows as judge
 from drive import VIEWPORT, Studio
+# The import binds the module `serve`; the `def serve` below rebinds that name in this module.
+from serve import QuietHandler
 
 DEBUG_PORT = 9223
 
 
-class QuietHandler(SimpleHTTPRequestHandler):
-    extensions_map = {**SimpleHTTPRequestHandler.extensions_map, ".wasm": "application/wasm"}
-
-    def log_message(self, format, *args):  # noqa: A002 - the base class names it
-        pass
-
-
-def serve(dist):
-    handler = functools.partial(QuietHandler, directory=str(dist))
+def serve(dist, isolated=True):
+    handler = functools.partial(QuietHandler, directory=str(dist), isolated=isolated)
     server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server
 
 
-def launch_browser(profile):
+def launch_browser(profile, extra=()):
+    """Chromium on `profile`, with `extra` appended to the flags every nav gate shares.
+
+    The backend gate passes `--enable-unsafe-swiftshader` (the only WebGL2 a GPU-less container
+    has, deploy/perf/run.py): the flag belongs to the browser, so it is a parameter here rather
+    than a second copy of this function.
+
+    `extra` is the whole GL policy. Empty means `gpu.SOFTWARE_FLAGS`, which is what every nav gate
+    measured before this parameter: the software rasteriser, the same on every host. A perf probe
+    under GM_GPU=1 passes `gpu.chrome_flags()` instead, which leaves `--disable-gpu` off so the
+    hardware backend can be reached (deploy/nav/gpu.py).
+    """
     # --no-sandbox: the container has no user namespace to build the sandbox from, and the
     # only page ever loaded is this repository's own build, served from 127.0.0.1.
     return subprocess.Popen([
-        "chromium", "--headless=new", "--no-sandbox", "--disable-gpu",
+        "chromium", "--headless=new", "--no-sandbox", *(extra or gpu.SOFTWARE_FLAGS),
         "--disable-dev-shm-usage", f"--remote-debugging-port={DEBUG_PORT}",
         f"--user-data-dir={profile}", f"--window-size={VIEWPORT[0]},{VIEWPORT[1]}",
         "about:blank",
@@ -97,7 +106,7 @@ def parse_args():
     parser.add_argument("--break", action="store_true", dest="broken",
                         help="the negative control: the drag row expects a move that is not made, "
              "the edge gradient row never turns the gradient on, and the layout switch row "
-             "expects the camera to sit still")
+             "expects `f` to still move the camera")
     return parser.parse_args()
 
 

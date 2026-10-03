@@ -11,10 +11,13 @@
 //! a cell's centre, its opening threshold and the index past its subtree, 40 bytes read
 //! front to back, so a query is a forward scan that jumps ahead instead of a stack.
 
+mod threshold;
+
 use super::sim::Sim;
 use crate::exec::Runner;
 use crate::layout::force::quadtree::Quadtree;
 use crate::rng::jiggle;
+use threshold::{centre, opening_threshold};
 
 const PASS_X: u32 = 2;
 const PASS_Y: u32 = 3;
@@ -56,8 +59,12 @@ pub(super) fn apply_with(
 /// equality test would then be comparing two programs rather than two schedules.
 pub(super) fn prepare(sim: &mut Sim) {
     sim.charge_tree.build(&sim.x, &sim.y);
-    let theta2 = sim.params.theta * sim.params.theta;
-    aggregate(&sim.charge_tree, (&sim.x, &sim.y), theta2, &mut sim.bodies);
+    aggregate(
+        &sim.charge_tree,
+        (&sim.x, &sim.y),
+        sim.params.theta,
+        &mut sim.bodies,
+    );
 }
 
 /// One tree cell as the walk reads it.
@@ -78,7 +85,8 @@ pub(super) struct Body {
 
 /// Bottom-up mass and centre of mass per cell (`manyBody.js`'s `accumulate`), in reverse
 /// preorder so every child is final before its parent reads it.
-fn aggregate(tree: &Quadtree, (x, y): (&[f64], &[f64]), theta2: f64, bodies: &mut Vec<Body>) {
+fn aggregate(tree: &Quadtree, (x, y): (&[f64], &[f64]), theta: f64, bodies: &mut Vec<Body>) {
+    let theta2 = theta * theta;
     let (cells, order) = (tree.cells(), tree.order());
     bodies.clear();
     bodies.resize(cells.len(), Body::default());
@@ -94,28 +102,12 @@ fn aggregate(tree: &Quadtree, (x, y): (&[f64], &[f64]), theta2: f64, bodies: &mu
         bodies[k] = Body {
             comx,
             comy,
-            open: w * w / theta2,
+            open: opening_threshold(w, theta, theta2),
             count: cell.end - cell.start,
             skip: cell.skip,
             start: cell.start,
         };
     }
-}
-
-/// The mass-weighted centre of the children in `first..skip`, in slot order. An internal
-/// cell holds at least one point, so `m > 0`.
-fn centre(bodies: &[Body], first: u32, skip: u32) -> (f64, f64) {
-    let (mut m, mut cx, mut cy) = (0.0, 0.0, 0.0);
-    let mut c = first;
-    while c < skip {
-        let child = &bodies[c as usize];
-        let cm = f64::from(child.count);
-        m += cm;
-        cx += cm * child.comx;
-        cy += cm * child.comy;
-        c = child.skip;
-    }
-    (cx / m, cy / m)
 }
 
 /// Everything a query reads but does not own, gathered once per range rather than once
@@ -204,9 +196,9 @@ pub(super) fn node_delta(ctx: &Ctx, i: u32) -> (f64, f64) {
 }
 
 /// Cell `k` resolved as one blob of its whole mass; zero past `distanceMax`. The jiggle is
-/// keyed on the cell's insertion-order node id, the key it has always had.
+/// keyed on the cell's arena node id, the key it has always had.
 fn approx(ctx: &Ctx, q: &Query, k: u32, gap: Gap) -> (f64, f64) {
-    let Some(Gap { dx, dy, l }) = settle(ctx, q, ctx.tree.key(k), gap) else {
+    let Some(Gap { dx, dy, l }) = settle(ctx, q, ctx.tree.node_id(k), gap) else {
         return (0.0, 0.0);
     };
     let m = f64::from(ctx.bodies[k as usize].count);
@@ -258,7 +250,16 @@ fn settle(ctx: &Ctx, q: &Query, key: u32, gap: Gap) -> Option<Gap> {
         l += dy * dy;
     }
     if l < ctx.dmin2 {
-        l = libm::sqrt(ctx.dmin2 * l);
+        l = f64::sqrt(ctx.dmin2 * l);
+    }
+    if l == 0.0 {
+        // Ponytail: `jiggle` maps exactly one 53-bit word to `0.0` (`rng.rs`: the word
+        // with `u == 0.5`), so both axes of a fully coincident pair can come back zero and
+        // the two divisions below go infinite, then `NaN`. It costs one word in 2^53 of
+        // the keys, and it gets the whole pair wrong rather than one: `distanceMin²` is
+        // the smallest gap the layout already accepts, so the pair contributes nothing
+        // instead of a `NaN`. Escape hatch: give the two points distinct coordinates.
+        l = ctx.dmin2.max(f64::MIN_POSITIVE);
     }
     Some(Gap { dx, dy, l })
 }
