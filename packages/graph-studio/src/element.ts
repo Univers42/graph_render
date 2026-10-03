@@ -28,6 +28,7 @@ import { type SettingsStorage, openingSettings } from "./state/persist.ts";
 import { type Studio, createStudio } from "./studio/studio.ts";
 import { STUDIO_CSS } from "./styles/studio.css.ts";
 import { Shell } from "./ui/Shell.tsx";
+import { watchSafeArea } from "./ui/safeArea.ts";
 
 export interface StudioElementOptions {
   /** Where the motor runs; a worker when left out. */
@@ -72,6 +73,8 @@ interface Mounted {
   readonly bridge: LiveBridge;
   /** Stops watching the studio's state for a layout that settles live. */
   readonly unwatch: () => void;
+  /** Stops measuring the panels over the canvas (ST-4). */
+  readonly unwatchArea: () => void;
 }
 
 const HOST_CSS = `
@@ -215,12 +218,16 @@ function mount(host: HTMLElement, options: StudioElementOptions): Mounted {
     studio, view, keys: host.getAttribute("keys") === "page" ? window : host, bar: bridge,
   }));
   void studio.start();
-  return { studio, view, client, root, bridge, unwatch };
+  // The arrow, not the method: `watchSafeArea` holds this until unmount, and a bare method
+  // reference would leave `this` to chance — `view.setSafeArea(area)` names the receiver.
+  const unwatchArea = watchSafeArea(canvas, chrome, (area) => view.setSafeArea(area));
+  return { studio, view, client, root, bridge, unwatch, unwatchArea };
 }
 
 function unmount(mounted: Mounted | null): void {
   if (mounted === null) return;
   mounted.root.unmount();
+  mounted.unwatchArea();
   mounted.unwatch();
   mounted.bridge.destroy();
   mounted.studio.destroy();

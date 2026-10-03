@@ -41,6 +41,39 @@ export const IDENTITY: Camera = { x: 0, y: 0, scale: 1 };
  */
 export const DEFAULT_LIMITS: ZoomLimits = { min: 0.02, max: 40 };
 export const FIT_PADDING = 64;
+/** What `fitCamera` never zooms past: three nodes at the ceiling read as a broken view. */
+export const FIT_MAX_SCALE = 2;
+
+/**
+ * The box inside the viewport a fit puts its drawing in and centres it on. A host whose chrome
+ * lies over the canvas passes the part the chrome leaves visible; the renderer's own default is
+ * the whole canvas, which is right for a view with nothing on top of it.
+ */
+export interface FitArea {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+}
+
+/**
+ * How a fit is measured. Every field is optional and every default is the renderer's own
+ * behaviour, so a caller that passes nothing gets the fit this file had before the options.
+ */
+export interface FitOptions {
+  /** The box fitted and centred in; the whole viewport when absent. */
+  readonly area?: FitArea | undefined;
+  /** The scale ceiling; `FIT_MAX_SCALE` (2) when absent. */
+  readonly maxScale?: number | undefined;
+  /** Slack in CSS pixels on every side of `area`; `FIT_PADDING` (64) when absent. */
+  readonly padding?: number | undefined;
+  /**
+   * Slack as a factor on the room rather than in pixels: `1.12` fits the drawing into 89% of
+   * it, which is how a look states its margin (`look/presets.ts` FIT_MARGIN). 1 when absent.
+   * A pixel padding and a factor compose: the room is shrunk by the padding and then divided.
+   */
+  readonly margin?: number | undefined;
+}
 
 export function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -65,29 +98,50 @@ export function panBy(camera: Camera, delta: Point): Camera {
   return { scale: camera.scale, x: camera.x + delta.x, y: camera.y + delta.y };
 }
 
-/** The scale at which `bounds` fills the viewport minus the padding, before any clamp. */
-export function fitScale(bounds: Bounds, viewport: Viewport): number {
+/** The room inside `area` that is left once the padding and the margin are taken off it. */
+function roomOf(area: FitArea, options: FitOptions): { width: number; height: number } {
+  const padding = options.padding ?? FIT_PADDING;
+  const margin = options.margin ?? 1;
+  return {
+    width: Math.max(1, (area.width - padding * 2) / margin),
+    height: Math.max(1, (area.height - padding * 2) / margin),
+  };
+}
+
+/** `area` when the caller named one, and the whole viewport when it did not. */
+export function areaOf(viewport: Viewport, options?: FitOptions): FitArea {
+  return options?.area ?? { x: 0, y: 0, width: viewport.width, height: viewport.height };
+}
+
+/** The scale at which `bounds` fills the room, before any clamp. */
+export function fitScale(bounds: Bounds, viewport: Viewport, options?: FitOptions): number {
   const worldW = Math.max(1, bounds.maxX - bounds.minX);
   const worldH = Math.max(1, bounds.maxY - bounds.minY);
-  const roomW = Math.max(1, viewport.width - FIT_PADDING * 2);
-  const roomH = Math.max(1, viewport.height - FIT_PADDING * 2);
-  return Math.min(roomW / worldW, roomH / worldH);
+  const room = roomOf(areaOf(viewport, options), options ?? {});
+  return Math.min(room.width / worldW, room.height / worldH);
 }
 
 /** The limits that let `bounds` be seen whole: the floor drops to the fit scale. */
-export function limitsFor(bounds: Bounds | null, viewport: Viewport): ZoomLimits {
+export function limitsFor(bounds: Bounds | null, viewport: Viewport, options?: FitOptions): ZoomLimits {
   if (bounds === null) return DEFAULT_LIMITS;
-  return { min: Math.min(DEFAULT_LIMITS.min, fitScale(bounds, viewport) * 0.5), max: DEFAULT_LIMITS.max };
+  return { min: Math.min(DEFAULT_LIMITS.min, fitScale(bounds, viewport, options) * 0.5), max: DEFAULT_LIMITS.max };
 }
 
-export function fitCamera(bounds: Bounds | null, viewport: Viewport): Camera {
+export function fitCamera(bounds: Bounds | null, viewport: Viewport, options?: FitOptions): Camera {
   if (bounds === null) return IDENTITY;
-  const limits = limitsFor(bounds, viewport);
-  // Never past 2: three nodes zoomed to the ceiling read as a broken view.
-  const scale = clamp(fitScale(bounds, viewport), limits.min, Math.min(2, limits.max));
+  const area = areaOf(viewport, options);
+  const limits = limitsFor(bounds, viewport, options);
+  const ceiling = Math.min(options?.maxScale ?? FIT_MAX_SCALE, limits.max);
+  const scale = clamp(fitScale(bounds, viewport, options), limits.min, ceiling);
+  // Centred in `area`, not in the viewport: a fit that ignores the chrome puts a third of the
+  // drawing under the panels the user cannot see through.
   const centerX = (bounds.minX + bounds.maxX) / 2;
   const centerY = (bounds.minY + bounds.maxY) / 2;
-  return { scale, x: viewport.width / 2 - centerX * scale, y: viewport.height / 2 - centerY * scale };
+  return {
+    scale,
+    x: area.x + area.width / 2 - centerX * scale,
+    y: area.y + area.height / 2 - centerY * scale,
+  };
 }
 
 export function centreOn(camera: Camera, world: Point, viewport: Viewport): Camera {

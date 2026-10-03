@@ -1,7 +1,9 @@
 /**
  * Nodes drawn as lit spheres instead of flat discs, and the edge width a look carries.
  * The impostor path is one blit per node, so it is only taken for a scene small enough
- * that a frame's allowance covers it; past that the batched fills are the drawing.
+ * that a frame's allowance covers it; past that the batched fills are the drawing. It is
+ * also only taken for the kinds a baked sphere can draw: a Box keeps its rects, because
+ * the sprite in the cache is a disc of one radius and there is no rect impostor baked.
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -10,13 +12,16 @@ import { adjacencyOf } from "../src/adjacency.ts";
 import type { PaintInput } from "../src/canvas2d/input.ts";
 import type { Surface2D } from "../src/canvas2d/surface.ts";
 import { paintFrame } from "../src/canvas2d/paint.ts";
+import { IMPOSTOR_BUDGET } from "../src/canvas2d/nodes.ts";
 import type { SpriteCache } from "../src/canvas2d/sprites.ts";
+import { type Frame } from "../src/frame.ts";
+import type { NodeKind } from "../src/snapshot/decode.ts";
 import { styleFrom } from "../src/style.ts";
 import { DARK_THEME } from "../src/theme.ts";
 import type { Rgb } from "../src/colour/srgb.ts";
 import { cssOf } from "../src/colour/srgb.ts";
 import { sampleColormap } from "../src/colour/colormap.ts";
-import { type Recorder, lineFrame, randomFrame, recorder } from "./support.ts";
+import { type FrameSpec, type Recorder, lineFrame, randomFrame, recorder } from "./support.ts";
 
 const FIRST = sampleColormap("inferno", 0);
 const SECOND = sampleColormap("inferno", 1);
@@ -137,4 +142,61 @@ test("a look's edge width is in world units and overrides the zoom-driven one", 
   const plain = recorder();
   paintFrame({ ...given, ctx: plain.ctx });
   assert.equal(plain.ctx.lineWidth, 0.6);
+});
+
+/** A frame of the given node kind, carrying the size column that kind draws from. */
+function kindFrame(kind: NodeKind, spec: FrameSpec): Frame {
+  const base = lineFrame(spec);
+  const filled = (value: number): Float32Array => Float32Array.from({ length: base.nodeCount }, () => value);
+  if (kind === "Box") return { ...base, nodeKind: kind, w: filled(8), h: filled(6) };
+  if (kind === "Circle") return { ...base, nodeKind: kind, r: filled(4) };
+  return base;
+}
+
+/** A grid of `count` nodes at 15 units, every one of them on screen at the test viewport. */
+function grid(count: number): FrameSpec {
+  const side = Math.ceil(Math.sqrt(count));
+  return {
+    x: Array.from({ length: count }, (_, at) => (at % side) * 15),
+    y: Array.from({ length: count }, (_, at) => Math.floor(at / side) * 15),
+  };
+}
+
+test("a Box frame is drawn as rects with or without sphere bases in the style", () => {
+  ASKED.length = 0;
+  const sphere = recorder();
+  const flat = recorder();
+  const given = inputFor(kindFrame("Box", { x: [10, 90], y: [10, 90] }), sphere);
+  const counts = paintFrame(given);
+  paintFrame({ ...given, style: { ...given.style, spheres: null }, ctx: flat.ctx });
+  for (const record of [sphere, flat]) {
+    // Two rects, one rim stroke per bucket, and not one blit: the impostor sprite is a disc.
+    assert.equal(record.calls.get("rect"), 2, "two rects, not two discs");
+    assert.equal(record.calls.get("stroke"), 2, "a rim stroke per bucket");
+    assert.equal(record.calls.get("drawImage") ?? 0, 0, "no sprite was blitted");
+  }
+  assert.deepEqual(ASKED, [], "the sprite cache was never asked for a Box");
+  assert.equal(counts.nodes, 2);
+});
+
+test("a Circle frame under sphere bases still blits one sprite per node", () => {
+  ASKED.length = 0;
+  const record = recorder();
+  const counts = paintFrame(inputFor(kindFrame("Circle", { x: [10, 90], y: [10, 90] }), record));
+  assert.equal(counts.nodes, 2);
+  assert.equal(record.calls.get("drawImage"), 2);
+  assert.equal(record.calls.get("rect") ?? 0, 0);
+  assert.equal(ASKED.length, 2);
+});
+
+test("a Box frame at the impostor budget and past it keeps its rects", () => {
+  for (const count of [IMPOSTOR_BUDGET, IMPOSTOR_BUDGET + 1]) {
+    ASKED.length = 0;
+    const record = recorder();
+    paintFrame(inputFor(kindFrame("Box", grid(count)), record));
+    // Past the budget the flat path was already the drawing; at it the box is the boundary.
+    assert.equal(record.calls.get("rect"), count, `rects at ${count} nodes`);
+    assert.equal(record.calls.get("drawImage") ?? 0, 0, `blits at ${count} nodes`);
+    assert.deepEqual(ASKED, [], `no sprite asked for at ${count} nodes`);
+  }
 });

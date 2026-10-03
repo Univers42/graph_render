@@ -54,11 +54,6 @@ pub(super) const G_IGRAPH_SEED: Gap = Gap {
     note: "unseedable on the reference side: `_reset_layout_rng` seeds numpy and the stdlib `random` (`common.py:53-62`), and igraph reads the C library's generator, which neither call reaches",
     at: "SciGraphs/core/scigraphs_core/mesh/layouts/common.py:60",
 };
-pub(super) const G_SCALE_FIXED_LAYER: Gap = Gap {
-    parameter: "scale",
-    note: "`layer_spacing` is the only length and `LAYER_SPACING` is its default; `run` takes no scale",
-    at: "crates/graph-core/src/layout/sugiyama/mod.rs:50",
-};
 pub(super) const G_FORCEATLAS2_SEED: Gap = Gap {
     parameter: "layout seed",
     note: "the seed **is** passed (`Fa2Params::seed = get_layout_seed()`), but the two streams differ: the reference draws its start from `np.random.RandomState(get_layout_seed())` and graph-core from its own Mulberry32 at the same integer, so equal seeds are not equal draws",
