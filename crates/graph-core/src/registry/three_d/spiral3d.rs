@@ -15,10 +15,12 @@ use graph_contract::geometry::{EdgeGeometryKind, NodeGeometryKind};
 /// `resolution` to 1.0") was wrong on both counts and is corrected in
 /// `docs/measurements/sg-spiral3d.md`.
 ///
-/// **No coverage differential arms this layout yet.** `ARMS` in
-/// `harness/oracle-basic-3d.py` and `oracle_python/basic_3d.rs:35-40` cover sphere, helix
-/// and cube only, so this row must not be routed to that record. Job
-/// `sg-basic3d-spiral-oracle` adds `--function spiral` and moves it, after this branch lands.
+/// **`ARMS` in `harness/oracle-basic-3d.py` and `oracle_python/basic_3d.rs` now cover this
+/// layout too** — job `sg-basic3d-spiral-oracle` added `--function spiral`, measured worst
+/// `2.384e-7` against a `1e-6` ceiling over 1000 seeds, bit-identical on all 1000 after the
+/// `f32` narrowing. This row is **not yet routed to that record**: `unproven.rs` still sends
+/// it to `scigraphs-conformance`, and moving the routing is the half of that job left over.
+///
 /// The comparisons that exist today are the conformance gate (`scripts/scigraphs-conformance.sh`,
 /// byte-for-byte against SciGraphs over 1020 coordinates, `f32` 1020/1020) and the
 /// graph-core tests, which pin the reference's own IEEE-754 words at n = 1, 2 and 7.
