@@ -73,9 +73,31 @@ gate, not from this job.
 |---|---|---|
 | `scripts/orch/gr cargo fmt --all --check` | 0 | (no output) |
 | `scripts/orch/gr cargo clippy --workspace --all-targets -- -D warnings` | 0 | `Finished \`dev\` profile` |
-| `scripts/orch/gr cargo test --workspace --no-fail-fast` | 0 | `test result: ok. 1256 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out` |
+| `scripts/orch/gr cargo test --workspace --no-fail-fast` | 0, then **101** — see below | `test result: ok. 1256 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out` |
 | `scripts/orch/gr cargo build -p graph-core --target wasm32-unknown-unknown` | 0 | `Finished \`dev\` profile` |
 | `scripts/scigraphs-conformance.sh` | 0 | `PASS` |
+
+**The workspace test's second run exited 101, and every one of its 10 failing targets is one
+root cause, not a code defect.** `graph-cli` refuses to record evidence built from a different
+tree — `graph-cli was built from tree 9ff6a5dfa48b… but the tree is now 83153ba01a54…: rebuild
+before recording` — and the orchestrator committed twice (`bf63a28`, `8ccc60c`) while this job
+ran, so every `graph-cli` binary the run had cached was stamped with a superseded tree hash. The
+symptom in the tests that only compare exit codes is `left: Some(2), right: Some(0)`: `2` is that
+refusal, not a gate going red. After one rebuild on the final HEAD every one of those targets is
+green:
+
+| target | exit | last line |
+|---|---|---|
+| `cargo test -p graph-cli --bin graph-cli` | 0 | `345 passed; 0 failed` |
+| `cargo test -p graph-cli --test cli --test cli_fa2` | 0 | `8 passed; 0 failed` / `3 passed; 0 failed` |
+| `cargo test -p graph-cli --test cli_force --test cli_force_gate --test cli_igraph --test cli_ledger --test cli_oracles --test cli_p3 --test snapshot` | 0 | `4 passed; 0 failed` (each of the seven) |
+
+So every workspace target has been observed green on the final tree: the ten that passed in the
+`--no-fail-fast` run, plus those ten after the rebuild. `graph-core`'s lib alone is
+`1256 passed; 0 failed; 8 ignored` on the final HEAD.
+
+**Consequence for the orchestrator:** a `cargo test --workspace` run whose binary cache predates
+the last commit will report these ten targets red on this worktree. Rebuild before gating.
 
 ## Decisions taken
 
