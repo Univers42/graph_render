@@ -67,9 +67,14 @@ pub(super) const G_OSAGE_BOX: Gap = Gap {
     at: "crates/graph-core/src/layout/graphviz/osage/sizes.rs:53",
 };
 pub(super) const G_GV_UTILS: Gap = Gap {
-    parameter: "scale",
-    note: "SciGraphs' Graphviz path is `scigraphs_utils.graphviz_layout`, absent from the oracle image: the reference here is the engine's raw `-Tplain` points in points, with SciGraphs' `scale = 5.0` multiply and its z column missing",
-    at: "SciGraphs/core/scigraphs_core/mesh/layouts/yifan_hu.py:278",
+    parameter: "reference arm",
+    note: "SciGraphs' Graphviz path is `scigraphs_utils.graphviz_layout`, a C++ extension absent from both oracle images, so this arm runs the **engine itself** through `gv_exact.c` (which links libgvc, runs `gvLayout` and prints `ND_coord(n)` with `%a`) and transcribes the five lines the extension would have applied (`yifan_hu.py:318-325`, in `motor/gv_post.rs` and `sc_graphviz.py`). The engine's own **text** is deliberately not the reference: `-Tplain`'s `printdouble` is `agxbprint(&buf, \"%.5g\", v)` (`lib/common/output.c:66-71`), five significant digits and not five decimals, so a coordinate in [1, 10) in lands on a step of `1e-4` in = `7.2e-3` points, and reading that text put this arm's own floor under `GRAPHVIZ_TWOPI`'s `max_gap` at 7.5e-5. What is still missing is the extension's own source of truth: it is handed a node count and an edge list and returns an array, and both what it does to the coordinates between `gvLayout` and that array and what seed it passes down are INFERENCE, not verified — its source is not on disk, only the `scigraphs-utils==0.2.0` pin (`SciGraphs/constraints/linux-x64.txt:21`)",
+    at: "SciGraphs/core/scigraphs_core/mesh/layouts/yifan_hu.py:279",
+};
+pub(super) const G_GV_Z: Gap = Gap {
+    parameter: "graphviz_dim",
+    note: "`sfdp_dim` defaults to `\"2Z\"`, so SciGraphs hands the engine `dimension=\"2Z\"` and then replaces the z with a spectral component (`sfdp_z_method`, `sfdp_z_scale` 0.3, `yifan_hu.py:327-334`). Both arms write `z = 0`: the motor's yifan_hu is planar and the reference is `-Tplain`, which has no third column",
+    at: "SciGraphs/core/scigraphs_core/mesh/layouts/yifan_hu.py:357",
 };
 pub(super) const G_GV_DIRECTED: Gap = Gap {
     parameter: "graph kind",

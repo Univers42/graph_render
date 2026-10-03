@@ -151,8 +151,10 @@ impl Geometry {
 /// any other, checked under `node.z`.
 pub fn snapshot(topology: &Topology, mut geometry: Geometry) -> Result<Snapshot, StageError> {
     let dim = geometry.dim();
-    let node_ids = (0..topology.node_count()).map(|i| topology.node(i).id);
-    let edge_ids = (0..topology.edge_count()).map(|e| topology.edge(e).id);
+    // The id alone, not `node`/`edge`: a whole view costs ten fields and five arena
+    // lookups per node, and the snapshot keeps only the id.
+    let node_ids = (0..topology.node_count()).map(|i| topology.node_id(i));
+    let edge_ids = (0..topology.edge_count()).map(|e| topology.edge_id(e));
     let parts = SnapshotParts {
         // The label follows the geometry, not the crate: a 2D layout's snapshot is
         // labelled 0.3 and a 3D one 0.4, so no 2D byte moves when a 3D layout arrives.

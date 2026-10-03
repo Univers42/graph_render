@@ -84,7 +84,7 @@ fn every_seed_hashes_bytes_that_reach_its_own_positions() {
 /// must move — this is what makes `GM_MUTATE_FORCE_SESSION_GRAVITY` a control rather than a
 /// variable nothing reads.
 #[test]
-fn the_control_perturbs_every_seed_and_zero_is_the_honest_run() {
+fn the_control_perturbs_every_seed_and_zero_is_refused_as_a_no_op() {
     let honest_bytes: Vec<Vec<u8>> = (0..4)
         .map(|seed| native::positions(seed, &honest()).expect("runs"))
         .collect();
@@ -103,23 +103,17 @@ fn the_control_perturbs_every_seed_and_zero_is_the_honest_run() {
             );
         }
     }
-    // Zero is a real gravity — the force is skipped — and it is the honest run's value, so a row
-    // that sets it must produce the honest bytes rather than an error (and rather than a
-    // vacuous pass with a different meaning).
-    let zero = setting_for(Knob::ForceSessionGravity.env(), "0").expect("parses");
-    assert_eq!(
-        zero.live_force_params().gravity,
-        0.0,
-        "zero is a real gravity"
-    );
-    assert_eq!(zero.live_force_params().gravity, 0.0);
-    for seed in 0..2 {
-        assert_eq!(
-            native::positions(seed, &zero).expect("runs"),
-            native::positions(seed, &honest()).expect("runs"),
-            "gravity 0 is the honest run"
-        );
-    }
+    // Zero is a real gravity — the force is skipped — and it is **also** the honest run's own
+    // value, so writing it into the control variable is refused rather than parsed (RG-42):
+    // it would record this run as the exercised control having perturbed no byte. Zero is
+    // still the honest run; it is just not expressible *as a control*. The knob's own unit
+    // tests — `hashgate::knob::setting::tests::no_op_controls_are_refused` and
+    // `an_option_field_carrying_its_default_is_still_a_no_op` — are where the "0 is the
+    // honest value, spelled out explicitly" claim now lives.
+    let err = setting_for(Knob::ForceSessionGravity.env(), "0")
+        .expect_err("zero gravity is the honest run, not a control");
+    assert!(err.contains(Knob::ForceSessionGravity.env()), "{err}");
+    assert!(err.contains("perturbs nothing"), "{err}");
 }
 
 /// A typo is refused rather than read as the default — a control whose value failed to parse

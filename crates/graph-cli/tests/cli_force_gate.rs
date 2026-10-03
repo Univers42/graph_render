@@ -12,6 +12,7 @@
 mod common;
 
 use common::stdout;
+use std::path::Path;
 use std::process::Output;
 
 /// A gates directory per test: these four runs write records under the same names, and the test
@@ -132,21 +133,37 @@ fn a_control_that_cannot_reach_the_session_refuses_the_run() {
     }
 }
 
-/// `0` is a real gravity, not "no control": it skips the force and is the honest run's value, so
-/// a row that sets it must still pass. This is the check that the control's honest setting is
-/// expressible — a knob whose only spelling were a non-zero value could pass while never having
-/// run.
+/// **RG-42: `0` is the honest run's own value, so it is refused as a control.** It skips the
+/// force - gravity off *is* the frozen session - which is exactly why it cannot be written
+/// into the control variable: the run would hash the honest bytes, agree everywhere, exit 0,
+/// and write `forcegate-control-force-session-gravity` claiming the control had been
+/// exercised. Exit 2 is "could not run", which is the truth, and no record is left behind.
+///
+/// This test used to assert the opposite - that `=0` exits 0 and records a pass - which is
+/// precisely the defect RG-42 names. Zero is still a legal *gravity*; it is just not
+/// expressible *as a control*, and the knob's own unit tests
+/// (`hashgate::knob::setting::tests::no_op_controls_are_refused`) hold that half.
 #[test]
-fn a_zero_gravity_is_the_honest_run_and_still_passes() {
+fn a_zero_gravity_is_refused_as_a_no_op_control_and_records_nothing() {
     let dir = gates_dir("zero");
     let run = graph_cli(
         &dir,
         &["force-gate", "--seeds", "2"],
         Some(("GM_MUTATE_FORCE_SESSION_GRAVITY", "0")),
     );
-    assert_eq!(run.status.code(), Some(0), "{}", stdout(&run));
+    let out = said(&run);
+    assert_eq!(run.status.code(), Some(2), "{out}");
     assert!(
-        record(&dir, "forcegate-control-force-session-gravity").contains("\"pass\": true"),
-        "gravity 0 is the honest run, so it must record a pass"
+        out.contains("GM_MUTATE_FORCE_SESSION_GRAVITY"),
+        "the refusal must name the argument: {out}"
     );
+    assert!(out.contains("perturbs nothing"), "{out}");
+    assert!(
+        !Path::new(&dir)
+            .join("forcegate-control-force-session-gravity.json")
+            .exists(),
+        "a refused control must not leave a record standing as the exercised control"
+    );
+    // A real gravity still runs: `the_control_perturbs_every_seed` above is that half, and
+    // its exit 1 is what says the refusal above is about the value and not the knob.
 }
