@@ -90,7 +90,8 @@ fn a_link_between_two_coincident_nodes_has_a_finite_force() {
 
 /// A separation too small to square: `dx` is non-zero, so the `jiggle` branch does not
 /// replace it, and `dx * dx` underflows to `0.0` — the sum is `0.0` even though the pair is
-/// not. Dividing by that `l` is what makes the two divisions below `±inf`.
+/// not coincident. Dividing by that `l` in `force` is what turned both components to `-inf`
+/// before its floor.
 #[test]
 fn a_separation_whose_square_underflows_still_has_a_finite_force() {
     let nodes = [node("a", ""), node("b", "")];
