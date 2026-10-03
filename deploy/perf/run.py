@@ -26,7 +26,7 @@ import sys
 import tempfile
 import threading
 import time
-from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 import cdp
@@ -35,8 +35,12 @@ import rows as judge
 HERE = Path(__file__).resolve().parent
 # The GL backend knob and the renderer check live with the browser launcher (deploy/nav/gpu.py).
 sys.path.insert(0, str(HERE.parent / "nav"))
+# The shared HTTP handler lives in deploy/, which is this file's own directory's parent.
+sys.path.insert(0, str(HERE.parent))
 
 import gpu
+from serve import QuietHandler
+
 # A full-HD window: at DPR 2 the graph canvas is about 3000x2000, the size a desktop user has.
 VIEWPORT = (1920, 1080)
 DEBUG_PORT = 9222
@@ -55,13 +59,6 @@ BLOCK_NODES = [120, 500]
 PROFILED_CASE = (2000, 2)
 # The backend the view drew the case with, and why WebGL2 was refused if it was.
 DREW_WITH = "(({backend, backendFailure}) => ({backend, backendFailure}))(window.__perf.view().stats())"
-
-
-class QuietHandler(SimpleHTTPRequestHandler):
-    extensions_map = {**SimpleHTTPRequestHandler.extensions_map, ".wasm": "application/wasm"}
-
-    def log_message(self, format, *args):  # noqa: A002 - the base class names it
-        pass
 
 
 def serve(dist):

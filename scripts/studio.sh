@@ -70,12 +70,18 @@ build_wasm() {
 # older than the SDK, and the studio died on `exports.gm_dim is not a function` (2026-10-01).
 stage_assets() {
   local wasm=$root/target/wasm32-unknown-unknown/release/graph_wasm.wasm
+  local threads=$root/target/wasm-threads/wasm32-unknown-unknown/release/graph_wasm.wasm
   build_wasm || exit 2
+  # The motor worker loads this one instead when the page is cross-origin isolated
+  # (packages/graph-studio/src/motor/worker.ts); a page that is not keeps the serial module.
+  log "building graph-wasm with threads (scripts/orch/wasm-threads.sh)"
+  "$root/scripts/orch/wasm-threads.sh" || exit 2
   mkdir -p "$root/app/public"
   cp "$wasm" "$root/app/public/graph_wasm.wasm"
+  cp "$threads" "$root/app/public/graph_wasm_threads.wasm"
   rm -rf "$root/app/public/fixtures"
   cp -R "$root/fixtures" "$root/app/public/fixtures"
-  log "staged graph_wasm.wasm ($(wc -c <"$wasm") bytes) and fixtures/ into app/public"
+  log "staged graph_wasm.wasm ($(wc -c <"$wasm") bytes), graph_wasm_threads.wasm ($(wc -c <"$threads") bytes) and fixtures/ into app/public"
 }
 
 install_deps() {

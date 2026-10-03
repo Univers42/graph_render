@@ -3,8 +3,10 @@
  * instanced quads over the nodes on screen once the largest node outgrows a point.
  *
  * Caveat: a moving frame draws a prefix of the spread edge and node orders, `pace.budget` of
- * each, and the settled frames then fill a kept picture with all of them (still.ts); the
- * sampled nodes stack in spread order rather than index order, so where two overlap the
+ * each, and the settled frames then fill a kept picture with all of them (still.ts); on top of
+ * the budget a moving frame's edges are thinned to one in `step` of the screen's coverings with
+ * the alpha scaled to match (sample.ts), so a moving hairball at 1M nodes is a sample of the
+ * edges the settled picture then draws in full. The sampled nodes stack in spread order rather
  * other may be on top while the camera moves. Quads are never sampled: they are drawn zoomed in,
  * over the nodes on screen, and in a moving frame whose on-screen nodes fit its budget. Finding
  * them is a pass over the nodes on the CPU, which a moving frame cuts short once more than its
@@ -16,6 +18,7 @@ import { MIN_SCREEN_RADIUS } from "../canvas2d/nodes.ts";
 import { type Rgba, bytesOf } from "./colour.ts";
 import { type BulkLayer, PALETTE_WIDTH, type Pass } from "./layer.ts";
 import { onScreen } from "./plan.ts";
+import { compensate, sampleStep } from "./sample.ts";
 import { syncEdges, syncNodes, syncPalette, syncQuads } from "./sync.ts";
 
 /** How the view paces the layer: its in-place move counter and the moving budget. */
@@ -60,15 +63,22 @@ function shared(layer: BulkLayer, pass: Pass, frame: Frame): void {
 
 /** The edge pairs from `first` in spread order, `count` of them at most; how many were drawn. */
 function drawEdges(layer: BulkLayer, frame: Frame, first: number, count: number): number {
-  const { gl, edges } = layer;
+  const { gl, edges, uploaded } = layer;
   const { input } = frame;
-  const drawn = Math.max(0, Math.min(layer.uploaded.indexCount / 2 - first, count));
+  const total = uploaded.indexCount / 2;
+  const step = input.moving
+    ? sampleStep(uploaded.shape, total, { scale: input.camera.scale, width: input.viewport.width, height: input.viewport.height, dpr: input.dpr })
+    : 1;
+  const drawn = Math.max(0, Math.min(total - first, step > 1 ? Math.floor(count / step) : count));
   if (drawn === 0) return 0;
   shared(layer, edges, frame);
   const edge = rgbaOfCss(layer, input.theme.edge);
   gl.uniform1i(edges.uniforms("u_gradient"), input.style.edgeColour === "gradient" ? 1 : 0);
   gl.uniform4f(edges.uniforms("u_edge"), edge[0] / 255, edge[1] / 255, edge[2] / 255, edge[3] / 255);
+  gl.uniform1f(edges.uniforms("u_alpha"), frame.alpha * compensate(edge[3] / 255, step));
+  layer.timer.begin();
   gl.drawElements(gl.LINES, drawn * 2, gl.UNSIGNED_INT, first * 2 * Uint32Array.BYTES_PER_ELEMENT);
+  layer.timer.end();
   return drawn;
 }
 
@@ -147,7 +157,7 @@ function begin(layer: BulkLayer, input: PaintInput, alpha: number): Frame {
 function sync(layer: BulkLayer, input: PaintInput, placed: number): void {
   syncNodes(layer, input, placed);
   syncPalette(layer, input.style.palette);
-  syncEdges(layer, input);
+  syncEdges(layer, input, placed);
 }
 
 /** What a GPU frame drew, in the counts the 2D painter keeps. */

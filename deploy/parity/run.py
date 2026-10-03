@@ -16,16 +16,19 @@ import sys
 import tempfile
 import threading
 import time
-from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 # The gate drives the browser with the perf gate's own CDP client, not a second one. It is
 # appended, not prepended, so deploy/perf/rows.py cannot answer for this gate's rows.
 sys.path.append(str(Path(__file__).resolve().parent.parent / "perf"))
+# The shared HTTP handler lives in deploy/, the directory above this one.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import cdp  # noqa: E402
 import png  # noqa: E402
 import rows as judge  # noqa: E402
 import spec  # noqa: E402
+from serve import QuietHandler  # noqa: E402
 
 # The fig1 frame the fixture was projected into (05-reproducible-pipeline.qmd:660-664).
 VIEWPORT = (1920, 1080)
@@ -37,11 +40,6 @@ STATE = ("JSON.stringify(window.__parity"
          " ?? (window.__parityError ? {error: window.__parityError} : null))")
 # The page fetches the fixture and paints a frame; a slow host gets longer, not a verdict.
 STATE_SECONDS = 30
-
-
-class QuietHandler(SimpleHTTPRequestHandler):
-    def log_message(self, format, *args):  # noqa: A002 - the base class names it
-        pass
 
 
 def serve(dist):

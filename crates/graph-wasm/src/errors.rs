@@ -77,6 +77,13 @@ pub enum Code {
     /// The analysis ran but its report has no JSON text: a non-finite score or modularity
     /// (D9; `NaN` is not a JSON number), or a column longer than `u32` can count.
     AnalysisFailed = 18,
+    /// `gm_build`'s buffer is longer than `ingest::MAX_INGEST_BYTES`, refused before any
+    /// parsing. **Not** `IngestInvalid`: that code means the document was read and found
+    /// malformed, and a host that got one has a bug in its document while a host that got
+    /// this one has a document it must split or shrink. Without it the oversized document
+    /// reached wasm32's address-space limit inside an infallible allocation and the host saw
+    /// an `unreachable` trap it could not name (F-16).
+    IngestTooLarge = 19,
 }
 
 thread_local! {
@@ -156,6 +163,7 @@ mod tests {
             Code::SessionParamsInvalid,
             Code::SessionRefused,
             Code::AnalysisFailed,
+            Code::IngestTooLarge,
         ];
         let mut values: Vec<u32> = codes.iter().map(|&c| c as u32).collect();
         values.sort_unstable();
@@ -199,9 +207,10 @@ mod tests {
                 Code::SessionParamsInvalid as u32,
                 Code::SessionRefused as u32,
                 Code::AnalysisFailed as u32,
+                Code::IngestTooLarge as u32,
             ],
             [
-                0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
+                0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
             ],
             "every code keeps the wire value it already had"
         );

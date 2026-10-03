@@ -55,6 +55,8 @@ pub const fn record(knob: Knob) -> &'static str {
         Knob::Basic3dCubeNodes => three_d::RECORD[2],
         Knob::Hierarchical3dNodes => three_d::RECORD[3],
         Knob::Spring3dNodes => three_d::RECORD[4],
+        Knob::Basic3dSpiralNodes => three_d::RECORD[5],
+        Knob::Bipartite3dNodes => three_d::RECORD[6],
         Knob::PackingOsageNodes => knobs::OSAGE_LAYOUT_STAGES[0].record,
         Knob::TwopiNodes => "hashgate-control-twopi-nodes",
         Knob::NeatoEpsilon => "hashgate-control-neato-epsilon",

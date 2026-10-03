@@ -14,11 +14,9 @@ have moved the row, and the conformance doc's original repair 10 was wrong on bo
 
 ## What was measured, and on what
 
-The same 24 fixtures the whole matrix uses (340 nodes, 1020 coordinates per row, 23 of the
-24 compared), SciGraphs' own `apply_graph_layout` at `scale = 5.0`, in the pinned
-`ge-python-oracle` image (numpy 2.3.3) with the `SciGraphs/` submodule at
-`b7ccee691e368425ee3154681c43fd163e572edb`. The commands and their exit codes are in
-**Commands and exit codes** below.
+The same 24 fixtures the whole matrix uses (340 nodes, 1020 coordinates per row), SciGraphs'
+own `apply_graph_layout` at `scale = 5.0`, in the pinned `ge-python-oracle` image (numpy 2.3.3).
+Commands and exit codes are below.
 
 ## Before and after
 
@@ -139,36 +137,37 @@ Until that job lands, the spiral row's evidence is the two things this branch di
   byte-for-byte over 1020 coordinates (23 of 24 fixtures measured, 1020 coordinates each), and
 - the graph-core unit tests, which pin the reference's own IEEE-754 words at `n = 1, 2` and 7.
 
-## The hash-gate knob, which does not exist yet
+## The hash-gate knob, which this round added
 
-The new stage `layout.basic3d.spiral` has **no entry in `THREE_D_LAYOUT_STAGES`**
-(`crates/graph-cli/src/hashgate/knobs.rs:127`) and **no negative control in `KNOBS`**. This
-job deliberately did not add one: the knob and its control belong with the stages that are
-about to exist on both branches. The orchestrator's follow-up job adds the `spiral` and
-`bipartite_3d` stages **and** their negative controls, once both branches are on develop.
+**An earlier version of this report said the stage had no knob and no negative control, and
+named a follow-up job to add one.** That is no longer true: job `knobs-3d-new` was folded into
+this branch by the orchestrator and both stages now have a per-stage control.
 
-What *was* run here is a different thing and should not be read as a knob:
-`graph-cli hashgate --seeds 8`, which swept the stage as part of the default arm set and
-reported
+| stage | variable | record |
+|---|---|---|
+| `layout.basic3d.spiral` | `GM_MUTATE_BASIC3D_SPIRAL_NODES` | `hashgate-control-basic3d-spiral-nodes` |
+| `layout.bipartite_3d` | `GM_MUTATE_BIPARTITE_3D_NODES` | `hashgate-control-bipartite-3d-nodes` |
 
-```text
-layout.basic3d.spiral: 4-way equal on 8/8 seeds
-```
+Each turns `hashgate --seeds 8` red naming **only** its own stage, and each stage's digest is
+unchanged by the wiring. The runs, the coverage test that made the gap visible, and the 18
+pre-existing stages still without a control are in
+[`knobs-3d-new.md`](knobs-3d-new.md). The finding that started it is **S3-1** in
+`docs/reviews/rv-sg-spiral3d.md`, MAJOR.
 
-plus the `GM_MUTATE_REFERENCE_DEGREE=9` negative control, which exited 1 with
+The sweep that motivated the control is worth keeping in mind: a new registered layout is a new
+stage, and this one is not trivially target-independent — it carries a 65 536-entry `f64` table
+and a `partition_point` binary search, and either could in principle depend on the target. Native
+run 1, native run 2, wasm32 run 1 and wasm32 run 2 all digest the same.
+
+The shared `GM_MUTATE_REFERENCE_DEGREE=9` control still exits 1 with
 
 ```text
 FAIL: 8 of 8 seeds diverge
 ```
 
-That negative control mutates the **reference**, so it proves the seeds bite; it is not a
-per-stage knob for `layout.basic3d.spiral`. Today the stage has neither a knob of its own nor
-its own negative control.
-
-The sweep was worth running precisely because a new registered layout is a new stage and this
-one is not trivially target-independent: it carries a 65 536-entry `f64` table and a
-`partition_point` binary search, and either could in principle depend on the target. Native run
-1, native run 2, wasm32 run 1 and wasm32 run 2 all digest the same.
+and it remains **not** a substitute: it perturbs the shared reference model, so it moves every
+stage at once and names none of them. That is the difference between it and the two per-stage
+controls above.
 
 ## Commands and exit codes
 
@@ -193,10 +192,10 @@ scripts/orch/gr cargo run -q --release -p graph-cli -- codegen --check    -> 0
 scripts/orch/gr cargo test -p graph-core --lib                            -> 0   1059 passed
 ```
 
-`capabilities --check` reports **70 rows, 36 problems, exit 1**. None of the 36 names
-`layout.basic3d.*`; they are the whole-ledger "run the gate" class, on layouts this job never
-touches, and the count is 36 both before and after this change. Two message classes, both
-needing the orchestrator's own gate run:
+`capabilities --check` reports **72 rows, 36 problems, exit 1**. None of the 36 names
+`layout.basic3d.*` or `layout.bipartite*`; they are the whole-ledger "run the gate" class, on
+capabilities this job never touches. Two message classes, both needing the orchestrator's own
+gate run:
 
 - `gated, but no <record>: run the gate` — 17 lines.
 - `gated, but hashgate ran 8 seeds, need 1000` — 19 lines. **Those 19 are this job's own
@@ -275,8 +274,13 @@ with a reason to be silent about them:
   `crates/graph-cli/src/oracle_python/basic_3d.rs`'s own doc still describes the arm as
   covering three placements. Job `sg-basic3d-spiral-oracle` adds the arm. Until it lands the
   `--function` selector has no spiral to select, so the one-line doc change that would advertise
-  it would be a lie until the code exists.
-- **The hash-gate stage has no knob or negative control** — see the section above.
+  it would be a lie until the code exists. **Its brief's `Why` is also stale**: it says
+  `unproven.rs` routes the spiral to `oracle-basic-3d`, and on the merged tree it routes to
+  `scigraphs-conformance` (finding S3-7, outside this branch's delta). Rewrite that paragraph
+  before queueing it, or the job will move a row that is already correct.
+- **18 registered layouts still have no per-stage control**, pre-existing and untouched here.
+  They are now enumerated with reasons in `hashgate/tests/knob/coverage.rs` rather than
+  invisible; `knobs-3d-new.md` lists them under "Left behind".
 
 The stale "three" prose that *could* be corrected without claiming unimplemented behaviour has
 been corrected in this round: `crates/graph-cli/src/oracle_python/cli.rs` and
@@ -289,12 +293,15 @@ that the spiral is not among them.
   — the port and its tests; `basic_3d.rs` — the `spiral` wrapper and the module doc
 - `crates/graph-core/src/registry/three_d/{,basic,spiral3d,graph}.rs` — the `SPIRAL_3D`
   `Metadata`, and the split that keeps every file under 300 lines; `registry.rs` — the
-  appended `Capability`, `LAYOUTS: 35 -> 36`
+  appended `Capability`, `LAYOUTS: 37 -> 38`
 - `crates/graph-cli/src/oracle_python/conformance/{rows,gaps}.rs`, `baseline/table/networkx.rs`
 - `crates/graph-cli/src/capabilities/{registry/unproven,tests/registry{,/ids}}.rs` — the
   routing, and the two id lists that keep it honest
 - `crates/graph-cli/src/{snapshot_cmd/tests,hashgate/tests/report}.rs` — the id lists and
   record fixtures, which enumerate every registered layout
+- `crates/graph-cli/src/hashgate/{knobs,knob{,/arms,/records,/three_d}}.rs`,
+  `hashgate/tests/knob/{three_d,coverage}.rs`, `crates/graph-cli/tests/common/mod.rs` — the
+  two per-stage knobs and the coverage test; see `knobs-3d-new.md`
 - `crates/graph-cli/src/oracle_python/cli.rs`, `oracle_python/basic_3d.rs` docs — which three
   placements the coverage arm actually arms
 - `docs/measurements/scigraphs-conformance.md` — matrix row 14 and repair 10
