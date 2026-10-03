@@ -1,9 +1,10 @@
 /** The worker's entry: the session behind a message pump. Imported only as a worker. */
-import { createMotor } from "../../../../crates/graph-sdk-js/src/index.ts";
-import { createForceHost } from "./liveLoop.ts";
+import { type HelperStart, type Motor, createMotor } from "../../../../crates/graph-sdk-js/src/index.ts";
+import { createForceHost, type ForceHost } from "./liveLoop.ts";
 import { UNSOLICITED, isRequest } from "./protocol.ts";
 import { createPump } from "./pump.ts";
 import { createSession, sha256Hex } from "./session.ts";
+import { threadsFor } from "./threads.ts";
 
 interface WorkerScope {
   onmessage: ((event: MessageEvent<unknown>) => void) | null;
@@ -35,13 +36,36 @@ function pacedFrame(run: () => void): () => void {
   return () => clearTimeout(timer);
 }
 
+function spawnHelper(start: HelperStart): void {
+  new Worker(new URL("./helper.ts", import.meta.url), { type: "module" }).postMessage(start);
+}
+
+/**
+ * The threads artifact is staged beside the serial one (`scripts/studio.sh`). Caveat: a threads
+ * artifact that fails to load falls back to the serial one without a word to the page; the
+ * Workers it started are the evidence (`deploy/perf/live-tick.py` counts them).
+ */
+async function motorFrom(wasmUrl: string, asked: number | undefined): Promise<Motor> {
+  const threads = threadsFor(asked, navigator.hardwareConcurrency, crossOriginIsolated);
+  if (threads > 1) {
+    const threadsUrl = new URL("graph_wasm_threads.wasm", wasmUrl);
+    const motor = await createMotor(threadsUrl, { threads: { helpers: threads - 1, spawn: spawnHelper } });
+    if (motor.available) return motor;
+  }
+  return createMotor(wasmUrl);
+}
+
 const scope: unknown = globalThis;
 if (isWorkerScope(scope)) {
+  // The session is made before the host that could stop its loop, so the notice runs over
+  // one cell: a graph replaced mid-settle must not leave the loop stepping a dead session.
+  const notice: { host: ForceHost | null } = { host: null };
   const session = createSession({
-    motorFrom: (wasmUrl) => createMotor(wasmUrl),
+    motorFrom,
     fetchText,
     digest: sha256Hex,
     now: () => performance.now(),
+    onForget: () => notice.host?.forget(),
   });
   const forces = createForceHost(() => session.forces(), {
     schedule: pacedFrame,
@@ -49,6 +73,7 @@ if (isWorkerScope(scope)) {
     // A frame is unsolicited: it has no request of its own to be the answer to.
     emit: (result, transfer) => scope.postMessage({ seq: UNSOLICITED, body: result }, transfer),
   });
+  notice.host = forces;
   const pump = createPump(session, (message, transfer) => scope.postMessage(message, transfer), forces);
   scope.onmessage = (event) => {
     if (isRequest(event.data)) pump(event.data);

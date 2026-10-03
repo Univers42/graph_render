@@ -44,7 +44,7 @@ fn simple_neighbors_collapses_self_loops_and_parallel_edges_c6() {
     // 0-1 twice (both directions), a 1-1 self-loop, and 1-2 once: the collapsed,
     // undirected result is exactly {0: [1], 1: [0, 2], 2: [1]}.
     let t = topology(3, &[(0, 1), (1, 0), (1, 1), (1, 2)]);
-    assert_eq!(simple_neighbors(&t), vec![vec![1], vec![0, 2], vec![1]]);
+    assert_eq!(simple_neighbors(&t).rows(), [vec![1], vec![0, 2], vec![1]]);
 }
 
 #[test]

@@ -1,4 +1,4 @@
-> **Status (2026-09-30):** MERGED into develop, merge 7788d85 (branch p5 head 4caf184). Still owed: mutants and docs/reports/phase-05.md. See prompts/RESUME.md.
+> **Status (2026-10-02):** MERGED into develop, merge 7788d85 (branch p5 head 4caf184). Closed: docs/reports/phase-05.md landed (commit 622e5ac). Still owed: a mutants run for phase 5 — docs/reports/phase-05.md:188 records it as NOT RUN, ever. See docs/reports/STATUS.md.
 
 # Phase 5 — Sugiyama layered DAG
 

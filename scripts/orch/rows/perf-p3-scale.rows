@@ -1,0 +1,7 @@
+fmt|0|scripts/orch/gr cargo fmt --all --check
+clippy|0|scripts/orch/gr cargo clippy --workspace --all-targets -- -D warnings
+clippy-threads|0|scripts/orch/gr cargo clippy -p graph-wasm --features threads --lib -- -D warnings
+test|0|scripts/orch/gr cargo test --workspace --no-fail-fast
+wasm-threads|0|scripts/orch/wasm-threads.sh
+session-parity|0|scripts/orch/gr node harness/wasm-threads.mjs session
+negctl-session-parity|0|scripts/orch/gr node harness/wasm-threads.mjs session --break; test $? -eq 1

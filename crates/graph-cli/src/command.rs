@@ -162,6 +162,41 @@ pub enum Command {
         #[arg(long, default_value = "circular.radial")]
         layout: String,
     },
+    /// Node overlap removal: does the pass separate every pair, and what does it cost?
+    /// Prints the overlapping-pair count before and after (an exhaustive `O(n^2)` check, so
+    /// `--nodes` is capped), the mean displacement, and the stress ratio before and after.
+    /// Exit 1 when any pair still overlaps — which is what `GM_MUTATE_OVERLAP_RELAXATION=0`
+    /// makes it do.
+    Overlap {
+        /// A committed POST fixture, by name: `hairball`, `long-span`, `obstacles` or
+        /// `parallel-edges`.
+        #[arg(long, conflicts_with = "nodes", required_unless_present = "nodes")]
+        fixture: Option<String>,
+        /// The hairball generator's node count, any size. The exhaustive invariant scan is
+        /// refused above 2 000 — it is `O(n^2)` — so a larger run needs `--no-scan`.
+        #[arg(long)]
+        nodes: Option<u32>,
+        /// The layout that draws the graph first.
+        #[arg(long, default_value = "layout.grid")]
+        layout: String,
+        /// The node radius the pass is asked to separate, in layout units. A layout emits
+        /// `Point` centres, which have no extent, so without a radius there is nothing to
+        /// separate and the pass is a documented no-op.
+        #[arg(long, default_value_t = 1.0)]
+        radius: f64,
+        /// Skip the exhaustive `O(n^2)` invariant scan and read the pass's own grid count
+        /// instead. Only for the scale sweep: the scan is refused above 2 000 nodes anyway,
+        /// because it would cost more than the pass it checks.
+        #[arg(long, default_value_t = false)]
+        no_scan: bool,
+        /// The pass's iteration cap, overriding `SeparateParams::max_iterations` (512).
+        ///
+        /// The escape hatch, and the only way to see what the cap costs: the default is sized
+        /// from a lattice of at most 2 000 nodes, so a larger `--nodes` leaves a residue this
+        /// flag can be raised against. `0` is refused, by name, like any other parameter.
+        #[arg(long)]
+        max_iterations: Option<u32>,
+    },
     /// D1: std against libm transcendentals, native against wasm32, bit for bit.
     DeterminismProbe {
         /// Where to write the measurement, relative to the workspace root.
@@ -176,6 +211,9 @@ pub enum Command {
         /// gate comparing the implementation against itself.
         #[arg(long)]
         oracle: String,
+        /// The force layout measured, by registry id.
+        #[arg(long, default_value = "layout.force.barnes_hut")]
+        layout: String,
         /// Number of seeds, 0..N.
         #[arg(long, default_value_t = 8, value_parser = seed_count())]
         seeds: u32,

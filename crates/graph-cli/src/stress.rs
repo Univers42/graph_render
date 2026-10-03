@@ -22,14 +22,19 @@
 //!
 //! Exit codes follow graph-cli: 0 pass · 1 a case fell below the margin · 2 could not
 //! run (no `node`, no resolvable `d3-force`, no fixtures). The verdict is recorded in
-//! `<gates>/stress.json`, which is the record `layout.force.barnes_hut`'s ledger row
-//! names; a row may only stand as `gated` with it present and current.
+//! the record the measured layout's ledger row names (`<gates>/stress.json` for
+//! `layout.force.barnes_hut`, `stress-pm.json` for `layout.force.particle_mesh`); a row may
+//! only stand as `gated` with it present and current.
 
 pub(crate) mod cases;
+#[cfg(test)]
+mod fa2;
 pub(crate) mod metric;
 
 use crate::evidence::Stamp;
 use cases::Case;
+use graph_core::layout::force::{BarnesHut, ForceParams, ParticleMesh};
+use graph_core::{Geometry, Stage, StageError, Topology};
 use metric::Graph;
 use serde_json::json;
 use std::process::ExitCode;
@@ -37,15 +42,40 @@ use std::process::ExitCode;
 /// How far below d3's own correlation one case may sit and still pass.
 pub const MARGIN: f64 = -0.05;
 
-/// The layout this gate measures, named as the registry's own id so the ledger's
-/// `hash_stage` and this record cannot drift apart silently.
-const STAGE: &str = "layout.force.barnes_hut";
+/// A layout this gate measures and the record it writes for it.
+pub(crate) struct Subject {
+    /// The registry's own id, so the ledger's `hash_stage` and this record cannot drift
+    /// apart silently.
+    pub(crate) stage: &'static str,
+    /// The record the ledger's `oracle_record` names for that stage.
+    pub(crate) record: &'static str,
+    /// The stage at the frozen force set.
+    pub(crate) run: Layout,
+}
 
-/// The record this command writes, which the ledger's `oracle_record` names.
-const RECORD: &str = "stress";
+/// A force stage at given parameters.
+pub type Layout = fn(&Topology, &ForceParams) -> Result<Geometry, StageError>;
 
-/// `graph-cli stress --oracle <name> --seeds <n>`.
-pub fn run(oracle: &str, seeds: u32) -> ExitCode {
+/// Every layout `--layout` accepts; the first is the default.
+pub(crate) const SUBJECTS: [Subject; 2] = [
+    Subject {
+        stage: BarnesHut::ID,
+        record: "stress",
+        run: BarnesHut::run,
+    },
+    Subject {
+        stage: ParticleMesh::ID,
+        record: "stress-pm",
+        run: ParticleMesh::run,
+    },
+];
+
+/// `graph-cli stress --oracle <name> --layout <id> --seeds <n>`.
+pub fn run(oracle: &str, layout: &str, seeds: u32) -> ExitCode {
+    let Some(subject) = SUBJECTS.iter().find(|s| s.stage == layout) else {
+        eprintln!("stress: {layout:?} is not a layout this gate measures");
+        return ExitCode::from(2);
+    };
     if oracle != "d3" {
         eprintln!("stress: unknown oracle {oracle:?}: the only one wired is `d3`");
         return ExitCode::from(2);
@@ -54,8 +84,8 @@ pub fn run(oracle: &str, seeds: u32) -> ExitCode {
         eprintln!("stress: 0 seeds: a margin over nothing proves nothing");
         return ExitCode::from(2);
     }
-    match collect(seeds) {
-        Ok(collected) => report(collected),
+    match collect(subject, seeds) {
+        Ok(collected) => report(subject, collected),
         Err(err) => {
             eprintln!("stress: could not run: {err}");
             ExitCode::from(2)
@@ -79,8 +109,8 @@ struct Seed {
 /// The scratch directory is named by process id so two `graph-cli stress` runs cannot
 /// read each other's d3 output; it holds only the two exchanged JSONL files, which
 /// `cases` re-derives on demand rather than trusting.
-fn collect(seeds: u32) -> Result<Vec<Seed>, String> {
-    let ours: Vec<Case> = cases::ours(seeds)?;
+fn collect(subject: &Subject, seeds: u32) -> Result<Vec<Seed>, String> {
+    let ours: Vec<Case> = cases::ours(seeds, subject.run)?;
     let scratch = std::env::temp_dir().join(format!("gm-stress-{}", std::process::id()));
     std::fs::create_dir_all(&scratch).map_err(|e| format!("{}: {e}", scratch.display()))?;
     let theirs = cases::d3(&scratch, &ours);
@@ -99,7 +129,7 @@ fn collect(seeds: u32) -> Result<Vec<Seed>, String> {
 }
 
 /// Prints the per-case margins and the median, and records the verdict.
-fn report(seeds: Vec<Seed>) -> ExitCode {
+fn report(subject: &Subject, seeds: Vec<Seed>) -> ExitCode {
     let stamp = match Stamp::take() {
         Ok(stamp) => stamp,
         Err(err) => {
@@ -108,7 +138,8 @@ fn report(seeds: Vec<Seed>) -> ExitCode {
         }
     };
     println!(
-        "stress: oracle=d3-force@3.0.0 stage={STAGE} seeds={} margin={MARGIN}",
+        "stress: oracle=d3-force@3.0.0 stage={} seeds={} margin={MARGIN}",
+        subject.stage,
         seeds.len()
     );
     let mut margins = Vec::new();
@@ -158,14 +189,14 @@ fn report(seeds: Vec<Seed>) -> ExitCode {
         "median_margin": median,
         "worst_margin": margins.first().copied(),
         "functions": {
-            STAGE: {
+            subject.stage: {
                 "cases": margins.len(),
                 "declared": below.len(),
                 "unexplained": below.len(),
             }
         },
     });
-    if let Err(err) = crate::evidence::record(&stamp, RECORD, body) {
+    if let Err(err) = crate::evidence::record(&stamp, subject.record, body) {
         eprintln!("stress: not recorded: {err}");
         return ExitCode::from(2);
     }
@@ -187,34 +218,45 @@ mod tests {
     use super::*;
     use crate::capabilities::registry;
 
-    /// The record this command writes must be the one `layout.force.barnes_hut`'s
-    /// ledger row names as its `oracle_record`, and the stage it measures must be the
-    /// one the row is gated on. Either drifting apart would leave a row reading
-    /// "not backed: no stress record" against a gate that passes.
+    /// The record this command writes for each layout must be the one that layout's
+    /// ledger row names as its `oracle_record`, and the stage it measures must be the one
+    /// the row is gated on. Either drifting apart would leave a row reading "not backed:
+    /// no stress record" against a gate that passes.
     #[test]
     fn the_stage_and_the_record_are_the_ones_the_ledger_row_names() {
-        let row = registry()
-            .into_iter()
-            .find(|r| r.id == STAGE)
-            .expect("barnes-hut is registered");
-        assert_eq!(
-            row.oracle_record, RECORD,
-            "the ledger must read this record"
-        );
-        assert_eq!(row.hash_stage, STAGE);
-        assert!(
-            crate::hashgate::stages().contains(&STAGE),
-            "the 4-way gate must cover the stage this measures"
-        );
+        let rows = registry();
+        for subject in &SUBJECTS {
+            let row = rows
+                .iter()
+                .find(|r| r.id == subject.stage)
+                .expect("the measured layout is registered");
+            assert_eq!(row.oracle_record, subject.record, "{}", subject.stage);
+            assert_eq!(row.hash_stage, subject.stage);
+            assert!(
+                crate::hashgate::stages().contains(&subject.stage),
+                "the 4-way gate must cover {}",
+                subject.stage
+            );
+        }
     }
 
-    /// Only `d3` is wired; anything else is a refusal, never a silent pass.
+    /// Only `d3` and the layouts in [`SUBJECTS`] are wired; anything else is a refusal,
+    /// never a silent pass.
     #[test]
     fn an_unknown_oracle_is_refused_rather_than_run() {
         let refused = ExitCode::from(2);
         for oracle in ["d3-force", "", "networkx", "D3"] {
-            assert_eq!(run(oracle, 8), refused, "{oracle:?} must be refused");
+            assert_eq!(
+                run(oracle, BarnesHut::ID, 8),
+                refused,
+                "{oracle:?} must be refused"
+            );
         }
-        assert_eq!(run("d3", 0), refused, "0 seeds must be refused");
+        assert_eq!(
+            run("d3", BarnesHut::ID, 0),
+            refused,
+            "0 seeds must be refused"
+        );
+        assert_eq!(run("d3", "layout.grid", 8), refused, "an unmeasured layout");
     }
 }

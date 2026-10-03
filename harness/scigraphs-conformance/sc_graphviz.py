@@ -49,6 +49,7 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from gv_exact import exact_points
+from gv_plain import dot_path, graph_of
 
 from sc_fixture import FixtureError, write_f64
 from sc_names import GRAPHVIZ_ROWS, LAYOUT_SEED, SCALE, graphviz_version
@@ -84,8 +85,10 @@ def run_name(out, name, engine, fixtures):
         for fixture in fixtures:
             try:
                 points = exact_points(
-                    engine, scratch, "%s-%s" % (name, fixture.name),
-                    fixture.n, fixture.edges(), start=LAYOUT_SEED,
+                    engine,
+                    dot_path(scratch, "%s-%s" % (name, fixture.name)),
+                    graph_of(fixture.n, fixture.edges()),
+                    start=LAYOUT_SEED,
                 )
             except SystemExit as failure:
                 report.append({

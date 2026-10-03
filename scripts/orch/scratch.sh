@@ -9,3 +9,7 @@ if [[ -z ${GM_SCRATCH-} ]]; then
   if [[ -d /goinfre ]]; then GM_SCRATCH=/goinfre/$USER; else GM_SCRATCH=$HOME/goinfre; fi
 fi
 export GM_SCRATCH
+# GM_WT_STORE: where wt-new.sh puts new checkouts (unset: under $GM_SCRATCH/wt). A host-local file
+# sets it so a running queue picks it up without a restart.
+if [[ -z ${GM_WT_STORE-} && -s $GM_SCRATCH/wt-store ]]; then GM_WT_STORE=$(<"$GM_SCRATCH/wt-store"); fi
+export GM_WT_STORE=${GM_WT_STORE-}

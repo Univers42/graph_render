@@ -20,6 +20,7 @@ import { type Ends, MetaMismatch } from "../source/meta.ts";
 import type { RunSummary, StudioState } from "../state/model.ts";
 import { type Appearance, type Settings, type Source, withSettings } from "../state/settings.ts";
 import type { Store } from "../state/store.ts";
+import { neighboursOf } from "./adjacency.ts";
 import { fitResults } from "./fitResults.ts";
 
 export type ViewFace = Pick<
@@ -27,6 +28,7 @@ export type ViewFace = Pick<
   | "setFrame" | "setStyle" | "setTheme" | "setLabels"
   | "fit" | "reset" | "zoomBy" | "panBy" | "limits"
   | "focus" | "select" | "local" | "showAll" | "on" | "toPNG" | "setCamera" | "frame" | "viewport"
+  | "hide" | "togglePin" | "pinned"
   | "orbit" | "setOrbit" | "resetOrbit" | "projected"
 >;
 
@@ -241,17 +243,6 @@ async function apply(rig: Rig, next: Settings): Promise<Outcome> {
     digest: rig.store.get().run?.digest ?? null,
     notes: parts.flatMap((part) => part.notes),
   };
-}
-
-function neighboursOf(ends: Ends, node: number): readonly number[] {
-  const found = new Set<number>();
-  for (let e = 0; e < ends.source.length; e += 1) {
-    const s = ends.source[e] ?? 0;
-    const t = ends.target[e] ?? 0;
-    if (s === node && t !== node) found.add(t);
-    if (t === node && s !== node) found.add(s);
-  }
-  return [...found];
 }
 
 export function createPipeline(deps: PipelineDeps): Pipeline {

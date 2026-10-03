@@ -8,6 +8,8 @@
  */
 import { THEME_NAMES } from "../../../graph-render/src/look/themes.ts";
 import { MAX_DEGREE, MAX_NODES, SHAPES, type SyntheticShape } from "../source/synthetic.ts";
+import { DEFAULT_KNOBS, type ForceKnobs } from "../motor/live.ts";
+import { forcesOf, readForces } from "./forces.ts";
 import { type Fields, SettingsRefusal, fieldsOf, flagOf, numberOf, oneOf, textOf, textOrNull, textsOf } from "./read.ts";
 
 export { SettingsRefusal };
@@ -98,6 +100,8 @@ export interface Settings {
   /** Ordered; the first group a node matches is the group it is drawn in. */
   readonly groups: readonly Group[];
   readonly filter: Filter;
+  /** The live force knobs; a document from before they were saved loads the motor's defaults. */
+  readonly forces: ForceKnobs;
 }
 
 function sourceOf(source: Source): Source {
@@ -147,6 +151,7 @@ function settingsOf(settings: Settings): Settings {
     appearance: Object.isFrozen(settings.appearance) ? settings.appearance : appearanceOf(settings.appearance),
     groups: Object.isFrozen(settings.groups) ? settings.groups : groupsOf(settings.groups),
     filter: Object.isFrozen(settings.filter) ? settings.filter : filterOf(settings.filter),
+    forces: Object.isFrozen(settings.forces) ? settings.forces : forcesOf(settings.forces),
   });
 }
 
@@ -156,7 +161,10 @@ export const OPENING_SOURCE: Extract<Source, { kind: "synthetic" }> = Object.fre
 
 export const DEFAULT_SETTINGS: Settings = settingsOf({
   source: OPENING_SOURCE,
-  layout: "layout.forceatlas2",
+  // Barnes-Hut, not the exact sum: same layout, repulsion over a quadtree, O(n log n) and a
+  // 250 000-node ceiling against 14 000 (`docs/measurements/perf-fa2bh.md`). The exact
+  // layout stays in the catalog and stays the escape hatch.
+  layout: "layout.forceatlas2.barnes_hut",
   edges: null,
   analysis: null,
   appearance: {
@@ -170,6 +178,7 @@ export const DEFAULT_SETTINGS: Settings = settingsOf({
     query: "", text: "", hiddenKinds: [], hiddenGroups: [],
     orphans: false, existingOnly: false, minDegree: 0, relayout: false,
   },
+  forces: DEFAULT_KNOBS,
 });
 
 export function withSettings(settings: Settings, patch: Partial<Settings>): Settings {
@@ -268,7 +277,9 @@ export function readGroups(value: unknown, at = "settings.groups"): readonly Gro
 
 /** Settings from outside the studio, or a refusal naming the member that was wrong. */
 export function readSettings(value: unknown, at = "settings"): Settings {
-  const fields: Fields = fieldsOf(value, at, ["source", "layout", "edges", "analysis", "appearance", "groups", "filter"]);
+  const fields: Fields = fieldsOf(value, at, [
+    "source", "layout", "edges", "analysis", "appearance", "groups", "filter", "forces",
+  ]);
   return settingsOf({
     source: readSource(fields["source"], `${at}.source`),
     layout: textOf(fields, at, "layout"),
@@ -277,5 +288,6 @@ export function readSettings(value: unknown, at = "settings"): Settings {
     appearance: readAppearance(fields["appearance"], `${at}.appearance`),
     groups: readGroups(fields["groups"], `${at}.groups`),
     filter: readFilter(fields["filter"], `${at}.filter`),
+    forces: readForces(fields["forces"], `${at}.forces`),
   });
 }

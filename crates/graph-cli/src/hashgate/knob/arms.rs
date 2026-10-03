@@ -18,7 +18,7 @@ use super::{Knob, igraph, knobs, three_d};
 /// **A `const`, because `capabilities::verdict::Evidence::load` walks it** to collect one
 /// control record each — a ledger read cannot be a function call per row. `Knob::ALL` is
 /// this array, re-exported so the name every caller already used keeps working.
-pub const ALL: [Knob; 44] = [
+pub const ALL: [Knob; 48] = [
     Knob::ReferenceDegree,
     Knob::GridSpacing,
     Knob::SugiyamaLayerSpacing,
@@ -60,8 +60,12 @@ pub const ALL: [Knob; 44] = [
     Knob::Basic3dCubeNodes,
     Knob::Hierarchical3dNodes,
     Knob::Spring3dNodes,
+    Knob::Basic3dSpiralNodes,
+    Knob::Bipartite3dNodes,
+    Knob::PackingOsageNodes,
     Knob::SplitSum,
     Knob::SplitRescale,
+    Knob::OverlapRelaxation,
     Knob::ForceSessionGravity,
 ];
 
@@ -109,8 +113,12 @@ pub const fn env(knob: Knob) -> &'static str {
         Knob::Basic3dCubeNodes => three_d::ENV[2],
         Knob::Hierarchical3dNodes => three_d::ENV[3],
         Knob::Spring3dNodes => three_d::ENV[4],
+        Knob::Basic3dSpiralNodes => three_d::ENV[5],
+        Knob::Bipartite3dNodes => three_d::ENV[6],
+        Knob::PackingOsageNodes => knobs::OSAGE_LAYOUT_STAGES[0].env,
         Knob::SplitSum => "GM_MUTATE_SPLIT_SUM",
         Knob::SplitRescale => "GM_MUTATE_SPLIT_RESCALE",
+        Knob::OverlapRelaxation => "GM_MUTATE_OVERLAP_RELAXATION",
         Knob::ForceSessionGravity => "GM_MUTATE_FORCE_SESSION_GRAVITY",
     }
 }

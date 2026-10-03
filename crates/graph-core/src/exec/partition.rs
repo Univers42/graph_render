@@ -70,9 +70,11 @@ pub trait StepRange: Sync {
 /// The method is generic rather than `dyn`-dispatched on purpose, so a runner monomorphises
 /// per output type and the call is a direct one.
 pub trait Runner {
-    /// Computes every one of `kernel`'s outputs, appending them to `out` in ascending
-    /// order. `out` is cleared first, so the caller reuses one buffer and a steady-state
-    /// step allocates nothing.
+    /// Computes every one of `kernel`'s outputs into `out`, in ascending order, leaving it
+    /// `kernel.len()` long. Each range's span is reset to `Default` just before its range
+    /// runs, on the thread that runs it, so a kernel still starts from a cleared span and the
+    /// reset is divided like the work. A caller reuses one buffer, and a steady-state step
+    /// neither allocates nor clears the column on one thread.
     ///
     /// `workers` is the host's own count, and the plan is [`partition`]'s whatever the
     /// runner does with it: a runner that runs every range on one thread is still correct,
@@ -98,14 +100,14 @@ pub struct Serial;
 
 impl Runner for Serial {
     fn run<O: StepRange>(&self, kernel: &O, workers: u32, out: &mut Vec<O::Out>) {
-        out.clear();
         // The buffer is the kernel's own length before the first range runs: `step_range`
         // writes at range-relative indices, so a kernel given a short buffer would index
         // past its end rather than write somewhere wrong.
         out.resize(kernel.len() as usize, O::Out::default());
         for range in ranges(kernel.len(), workers.max(1)) {
-            let (start, end) = (range.start as usize, range.end as usize);
-            kernel.step_range(range, &mut out[start..end]);
+            let span = &mut out[range.start as usize..range.end as usize];
+            span.fill(O::Out::default());
+            kernel.step_range(range, span);
         }
     }
 }
@@ -121,15 +123,20 @@ pub fn partition(n: u32, workers: u32) -> Vec<Range<u32>> {
 /// [`partition`] without the list: the same ranges, yielded in order, so a runner that
 /// visits them once (every [`Serial`] pass, every tick) allocates nothing.
 pub fn ranges(n: u32, workers: u32) -> impl Iterator<Item = Range<u32>> {
+    (0..n.min(workers)).map(move |i| range_at(n, workers, i))
+}
+
+/// Range `i` of [`partition`]`(n, workers)`, in O(1): a runner whose workers claim ranges by
+/// index (a shared counter) needs no list to look them up in. Empty past the last range.
+pub fn range_at(n: u32, workers: u32, i: u32) -> Range<u32> {
     let k = n.min(workers);
-    let base = n.checked_div(k).unwrap_or(0);
-    let longer = n.checked_rem(k).unwrap_or(0);
-    (0..k).scan(0, move |at, i| {
-        let len = base + u32::from(i < longer);
-        let range = *at..*at + len;
-        *at += len;
-        Some(range)
-    })
+    if i >= k {
+        return n..n;
+    }
+    let base = n / k;
+    let longer = n % k;
+    let start = base * i + i.min(longer);
+    start..start + base + u32::from(i < longer)
 }
 
 #[cfg(test)]

@@ -21,11 +21,20 @@ The policy is the caller's (`LodParams`), and the tier ladder is the phase's own
 | ≤ 200 000 | `Decimated` | 1 in 8 by edge index | up to the budget, by degree |
 | > 200 000 | `Clustered` | none | up to the budget, by degree |
 
-What is ported from the reference (`SciGraphs/engine/scigraphs_engine/lod.py`) is the
-*shape*: a budget filled greedily in descending order of an importance key
-(`apply_budget`, `lod.py:82-92`) and its never-empty guarantee — a budget of zero still
-lets the most important visible node keep its label (`lod.py:88-90`), which
-`the_label_budget_is_never_empty_and_ranks_by_degree_then_index` pins. What is **not**
+What is ported from the reference (`SciGraphs/engine/scigraphs_engine/lod.py`, submodule pin
+`b7ccee6`) is the *shape*: the descending `argsort` of the importance key, the cumulative
+cut that keeps the longest prefix within the budget, and the mask written back through the
+order (`apply_budget`, `lod.py:81-85`), plus its never-empty guarantee for a budget of at
+least one (`lod.py:86-88`) — both sides read a budget of zero or less as *no limit*, not as
+zero labels (`lod.py:79-80`, `lod.rs:225-228`). Inside a class of **equal** keys the two
+arms are not required to agree, and the motor's rule there is its own (D2, ascending dense
+index); `harness/oracle-scale.py` decides which cases those are from the degrees and the
+budget alone, so the number of compared cases does not move with the host's sort. The two
+tests that pin the budget are
+`the_label_budget_is_never_empty_and_ranks_by_degree_then_index`
+(`crates/graph-core/src/scale/lod/tests.rs:115`) and
+`a_label_budget_of_zero_means_no_limit`
+(`crates/graph-core/src/scale/lod/mask_tests.rs:10`). What is **not**
 ported is the numbering: the reference's thresholds are on-screen pixels of a 1080-tall
 image and a headless motor has no pixels, so the tier comes from the node count and the
 cull test is a rectangle test on world coordinates (`Viewport`). The importance key is
@@ -123,8 +132,11 @@ layout is under-settled at the budget. Direction: cosmetic. Escape hatch:
   measurement campaign lives in `phase09-bench.md` and `phase09-crossover.md`.
 - It does not build a spatial index, and it does not use Phase 8's `grid_index` because
   that module is not on this branch.
-- It is not in the hash gate and has no oracle differential, so its three ledger rows are
-  `implemented`, never `gated` (`crates/graph-cli/src/capabilities.rs`'s `scale_rows`).
+- It is not in the hash gate, so its three ledger rows are `implemented`, never `gated`
+  (`crates/graph-cli/src/capabilities.rs`'s `scale_rows`). `scale.lod` and `scale.simplify`
+  are pinned by the `oracle-scale` differential all the same, against the SciGraphs arm;
+  `scale.adaptive` names no record, because `adaptive.py`'s cut has nothing on this side to
+  be compared with.
 - It emits no snapshot and no column in the contract. Hints and journals are values a
   caller asks for; wiring them into the snapshot, the wasm ABI and the JS SDK is the merge
   step's work, and `docs/reports/phase-09-progress.md` lists it.

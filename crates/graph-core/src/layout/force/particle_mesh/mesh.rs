@@ -1,0 +1,154 @@
+//! The mesh a run owns: the FFT plan, the two `P × P` buffers the convolution runs in, the
+//! kernel spectrum, and the collide grid whose node order the deposit reuses.
+//!
+//! One tick's field is: bound the nodes and place the frame, deposit every node's unit charge with CIC weights,
+//! refresh the kernel if the rung moved, transform, multiply by the kernel, transform back,
+//! the deposit and every transform pass split across the run's workers. The field then sits in rows
+//! `0..cells` of `density`, `Ex` real and `Ey` imaginary, and a node reads
+//! it with the same four CIC weights it deposited with.
+//!
+//! Caveat: the field is the law convolved at cell resolution, so it is exact at range and
+//! smooth below about two cells: two nodes closer than `2h` repel less than the direct sum
+//! says, and two nodes inside one cell barely at all. Collide and link dominate at that
+//! range, and the stress gate is what grades the result; `h` per size is in
+//! `docs/measurements/perf-p2-pm.md`. Coincident nodes get no jiggle here: they separate
+//! through collide's.
+
+use super::collide::Grid;
+use super::deposit::{Deposit, Rows, Scaled, Stencils, weights};
+use super::fft::{C, Fft, MAX_SIDE, Plan};
+use super::frame::{self, Bounds, Frame};
+use super::kernel::{Kernel, Law};
+use crate::exec::Runner;
+use crate::layout::force::barnes_hut::sim::Sim;
+
+/// The mesh side for `n` nodes: `ceil(sqrt n)` rounded up to a power of two, held to
+/// `128..=MAX_SIDE`.
+///
+/// Caveat: a fixed side trades resolution for time. At 1M nodes the side caps at 1024
+/// cells for the whole layout, so `h` grows with the span; the floor of 128 keeps a small
+/// graph's cells well under its link distance.
+pub(super) fn side_for(n: u32) -> usize {
+    let root = libm::ceil(f64::sqrt(f64::from(n))) as usize;
+    root.next_power_of_two().clamp(128, MAX_SIDE)
+}
+
+pub(in crate::layout::force) struct Mesh {
+    plan: Plan,
+    density: Vec<C>,
+    spectrum: Vec<C>,
+    kernel: Kernel,
+    frame: Option<Frame>,
+    /// Each sorted slot's position in cell units this tick: the deposit splits it, then the
+    /// field read splits it again, and neither reads a position.
+    at: Vec<Scaled>,
+    /// `at` grouped by row, the deposit's index.
+    rows: Rows,
+    /// The bounds fold's per-block boxes.
+    blocks: Vec<Bounds>,
+    pub(super) grid: Grid,
+}
+
+impl Mesh {
+    pub(in crate::layout::force) fn new(n: u32) -> Mesh {
+        let side = side_for(n);
+        Mesh {
+            plan: Plan::new(side),
+            density: vec![C::default(); side * side],
+            spectrum: vec![C::default(); side * side],
+            kernel: Kernel::new(side),
+            frame: None,
+            at: vec![(0.0, 0.0); n as usize],
+            rows: Rows::new(side, n),
+            blocks: Vec::with_capacity(n.div_ceil(frame::BLOCK) as usize),
+            grid: Grid::new(n),
+        }
+    }
+
+    /// This tick's field over `sim`'s positions, its transforms run by `runner` on
+    /// `workers`. `false` when there is none to read: fewer than two nodes, a zero
+    /// `distanceMax`, or no finite position.
+    pub(super) fn solve<R: Runner>(&mut self, sim: &Sim, runner: &R, workers: u32) -> bool {
+        let p = &sim.params;
+        let law = Law {
+            dmin2: p.distance_min * p.distance_min,
+            dmax2: p.distance_max * p.distance_max,
+        };
+        let side = self.plan.side();
+        let xy = (&sim.x[..], &sim.y[..]);
+        let found = frame::bounds(xy, runner, workers, &mut self.blocks);
+        self.frame = found.and_then(|b| frame::place(b, side, f64::sqrt(law.dmax2)));
+        let Some(frame) = self.frame.filter(|_| sim.x.len() > 1 && law.dmax2 > 0.0) else {
+            return false;
+        };
+        self.deposit(&frame, xy, runner, workers);
+        let fft = Fft {
+            plan: &self.plan,
+            runner,
+            workers,
+        };
+        self.kernel.refresh(&fft, (&frame, law), &mut self.spectrum);
+        let buffers = (&mut self.density, &mut self.spectrum);
+        fft.forward(buffers, frame.cells);
+        let buffers = (&mut self.density, &mut self.spectrum);
+        fft.inverse(buffers, &self.kernel.spectrum, frame.cells);
+        true
+    }
+
+    /// Unit charge per finite node into rows `0..cells` of `density`, the only rows the
+    /// forward transform reads. The slots go in the collide grid's order, so consecutive
+    /// nodes write neighbouring cells.
+    fn deposit<R: Runner>(
+        &mut self,
+        frame: &Frame,
+        xy: (&[f64], &[f64]),
+        runner: &R,
+        workers: u32,
+    ) {
+        let stencils = Stencils {
+            frame,
+            side: self.plan.side(),
+            order: &self.grid.order,
+            xy,
+        };
+        runner.run(&stencils, workers, &mut self.at);
+        self.rows.sort(&self.at, frame);
+        let deposit = Deposit {
+            stencils: &stencils,
+            at: &self.at,
+            rows: &self.rows,
+        };
+        runner.run(&deposit, workers, &mut self.density);
+    }
+
+    /// The field at sorted slot `k`, read with the CIC weights its deposit used; zero for a
+    /// non-finite node. Valid after a [`Mesh::solve`] that returned `true`.
+    pub(super) fn field_of(&self, k: usize) -> (f64, f64) {
+        let frame = self.frame.as_ref();
+        frame
+            .and_then(|f| frame::split(f, self.at[k]))
+            .map_or((0.0, 0.0), |s| self.read(s))
+    }
+
+    /// The field at `p`, read with the CIC weights the deposit used; zero for a non-finite
+    /// position or before any field was solved.
+    #[cfg(test)]
+    pub(super) fn field_at(&self, p: (f64, f64)) -> (f64, f64) {
+        let stencil = self.frame.and_then(|f| frame::stencil(&f, p));
+        stencil.map_or((0.0, 0.0), |s| self.read(s))
+    }
+
+    fn read(&self, ((cx, cy), (fx, fy)): ((usize, usize), (f64, f64))) -> (f64, f64) {
+        let side = self.plan.side();
+        let at = cy * side + cx;
+        let mut e = (0.0, 0.0);
+        for (cell, w) in [at, at + 1, at + side, at + side + 1]
+            .into_iter()
+            .zip(weights(fx, fy))
+        {
+            e.0 += self.density[cell].re * w;
+            e.1 += self.density[cell].im * w;
+        }
+        e
+    }
+}

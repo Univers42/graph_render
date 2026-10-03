@@ -104,7 +104,7 @@ fn a_self_loop_is_a_regular_octagon_centred_half_a_radius_above_the_node() {
     let centre = (4.0f64, 0.125f64);
     for (i, v) in loop_row.iter().enumerate() {
         let (dx, dy) = (v.0 - centre.0, v.1 - centre.1);
-        let d = libm::sqrt(dx * dx + dy * dy);
+        let d = f64::sqrt(dx * dx + dy * dy);
         assert!(
             (d - f64::from(RADIUS)).abs() <= LOOP,
             "vertex {i} is off the circle: {d}"
@@ -179,5 +179,50 @@ fn the_fan_gap_is_exact_for_every_group_size_up_to_five() {
         let span = f64::from(k - 1) * 0.5;
         let want: Vec<f64> = (0..k).map(|i| f64::from(i) - span).collect();
         assert_eq!(got, want, "a group of {k}");
+    }
+}
+
+#[test]
+fn a_chord_loops_only_at_exactly_zero_length_and_its_fan_gap_never_shrinks() {
+    // R14, recorded false. The reference loops what `np.allclose(p0, p1, atol=1e-6)` calls
+    // equal (`edge_styles.py:458`) and zeroes a fan under `length < 1e-10` (`:117`): absolute
+    // tolerances in its mesh units. Centres here carry no unit, so the convention is exact
+    // zero (`shapes.rs` module doc); pinned so that changing it is a decision.
+    let t = topology(&["a", "b"], &[("e0", "a", "b")]);
+    let near = paths(&t, &[(0.0, 0.0), (5e-7, 0.0)], &params(Style::Orthogonal));
+    let half = f64::from(5e-7_f32) * 0.5;
+    assert_eq!(row(&near, 0), vec![(half, 0.0); 2], "drawn, not looped");
+    // A 1e-11 chord in a parallel pair keeps the whole gap: the fan is a distance in node
+    // units, not a fraction of the chord.
+    let t = topology(&["a", "b"], &[("e0", "a", "b"), ("e1", "a", "b")]);
+    let pair = paths(&t, &[(0.0, 0.0), (1e-11, 0.0)], &params(Style::Orthogonal));
+    let gap = row(&pair, 0)[0].1 - row(&pair, 1)[0].1;
+    assert!((gap.abs() - f64::from(GAP)).abs() <= LOOP, "gap {gap}");
+}
+
+#[test]
+fn a_fanned_l_elbow_tilts_its_legs_where_a_fanned_z_keeps_its_right_angles() {
+    // M24, the documented exception. Chord (0,0) -> (4,3), a parallel pair: an `L` has one
+    // interior point, so the fan moves the elbow off the source's level; a `Z` moves both
+    // bends together and its middle leg stays vertical.
+    let centres = [(0.0, 0.0), (4.0, 3.0)];
+    let t = topology(&["a", "b"], &[("e0", "a", "b"), ("e1", "a", "b")]);
+    let mut l = params(Style::Orthogonal);
+    l.orthogonal = Orthogonal::L;
+    let got = paths(&t, &centres, &l);
+    for e in 0..2 {
+        assert_ne!(
+            row(&got, e)[0].1,
+            0.0,
+            "edge {e}: the first leg is not horizontal"
+        );
+    }
+    let got = paths(&t, &centres, &params(Style::Orthogonal));
+    for e in 0..2 {
+        let bends = row(&got, e);
+        assert_eq!(
+            bends[0].0, bends[1].0,
+            "edge {e}: the middle leg is vertical"
+        );
     }
 }

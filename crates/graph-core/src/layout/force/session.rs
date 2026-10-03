@@ -43,10 +43,12 @@
 //! start's columns and a [`NodeRow`]. `reheat` and `set_alpha_target` are the two setters
 //! that are not, and each says why on its own doc comment.
 
+mod carry;
 mod error;
 pub(in crate::layout::force) mod gravity;
 mod live_params;
 mod pin;
+mod warm;
 
 #[cfg(test)]
 mod tests;
@@ -58,10 +60,10 @@ pub use pin::NodeRow;
 use self::live_params::{ALPHA, ALPHA_TARGET};
 use crate::exec::{Runner, Serial};
 use crate::index::Topology;
-use crate::layout::force::barnes_hut::Split;
 use crate::layout::force::barnes_hut::sim::Sim;
+use crate::layout::force::barnes_hut::{Split, Tier};
 use crate::layout::force::params::ForceParams;
-use crate::stage::StageError;
+use crate::layout::force::particle_mesh::{self, Mesh};
 
 /// The seed every session's coincidence guard starts from. The counter hash's only job is
 /// separating two nodes at *exactly* the same point, which the golden-spiral seed does not
@@ -87,6 +89,9 @@ pub struct ForceSession {
     /// The tick's scratch, owned here so a session steps without the caller having to hand
     /// it a buffer — and reused across ticks, so a steady-state run allocates nothing.
     deltas: Vec<(f64, f64)>,
+    /// The particle-mesh grids when this session ticks on them
+    /// ([`with_particle_mesh`](Self::with_particle_mesh)), none for Barnes-Hut's tree.
+    mesh: Option<Mesh>,
 }
 
 /// What one call to [`ForceSession::step`] did.
@@ -127,24 +132,21 @@ impl ForceSession {
         Self {
             sim: Sim::new(topology, params, SEED),
             deltas: Vec::new(),
+            mesh: None,
         }
     }
 
-    /// A session that starts from `xs`/`ys` rather than from the spiral: the warm start a
-    /// caller needs to nudge a picture it already has, or to continue one it stored.
+    /// The same session ticked by the particle-mesh layout (`particle_mesh.rs`) instead of
+    /// Barnes-Hut: many-body on an FFT mesh and collide on a hashed grid, `O(n + P² log P)`
+    /// a tick where the tree is `O(n log n)` with a large constant. The pins, gravity, the
+    /// cooling schedule and the parameters are the same `Sim`'s, so every other method reads
+    /// and acts as before; the bytes are the mesh layout's, not Barnes-Hut's.
     ///
-    /// Both columns must hold exactly one value per node and be finite; the velocities
-    /// start at rest, because a position is not a velocity and inventing one here would
-    /// make the result depend on what the session happened to be before.
-    pub fn from_positions(
-        topology: &Topology,
-        params: LiveParams,
-        xs: &[f64],
-        ys: &[f64],
-    ) -> Result<Self, SessionError> {
-        let mut session = Self::new(topology, params)?;
-        session.set_positions(xs, ys)?;
-        Ok(session)
+    /// The position columns change address on every mesh tick (`particle_mesh/motion.rs`
+    /// swaps them in): a host holding a view over [`xs`](Self::xs) re-reads it after a step.
+    pub fn with_particle_mesh(mut self) -> Self {
+        self.mesh = Some(Mesh::new(self.rows()));
+        self
     }
 
     /// Runs `ticks` ticks and says what happened. The tick count is the *only* argument
@@ -152,33 +154,40 @@ impl ForceSession {
     /// same bytes (`session/tests/m1b.rs`), which is what lets one code path serve both a
     /// batch settle and an interactive loop.
     pub fn step(&mut self, ticks: u32) -> StepReport {
-        self.step_under(&Serial, 1, Split::None, ticks)
+        self.step_under(tier(&Serial, 1), ticks)
     }
 
     /// [`step`](Self::step) with the tier chosen by the caller: the same tick, with the
-    /// three gathered passes divided by `runner` over `workers` workers.
+    /// three gathered passes divided by `tier`'s runner over its workers.
     ///
     /// **This is the batch stage's path, not a parallel one.** `BarnesHut::run_under`
     /// builds a frozen session and calls this, so the 112-tick layout and an interactive
     /// loop execute one function; only the `How` differs. That is what makes a session step
     /// and a batch step the same bytes rather than two implementations that agree today.
-    pub(crate) fn step_under<R: Runner>(
-        &mut self,
-        runner: &R,
-        workers: u32,
-        split: Split,
-        ticks: u32,
-    ) -> StepReport {
+    ///
+    /// One [`Tier`] and not `(runner, workers, split)`: those three are one choice, they
+    /// travel together from the host to the tick, and a caller that handed one tick a
+    /// runner and the next a control has built a run no host intended.
+    pub(crate) fn step_under<R: Runner>(&mut self, tier: Tier<'_, R>, ticks: u32) -> StepReport {
         for _ in 0..ticks {
             let mut how = crate::layout::force::barnes_hut::sim::How {
-                runner,
-                workers,
+                runner: tier.runner,
+                workers: tier.workers,
                 deltas: &mut self.deltas,
-                split,
+                split: tier.split,
             };
-            self.sim.tick(&mut how);
+            match &mut self.mesh {
+                Some(mesh) => particle_mesh::tick(&mut self.sim, mesh, &mut how),
+                None => self.sim.tick(&mut how),
+            }
         }
         self.report(ticks)
+    }
+
+    /// [`step`](Self::step) with its gathers divided by `runner` over `workers` workers, and
+    /// no control: every runner is a schedule of the same bytes.
+    pub fn step_with(&mut self, runner: &impl Runner, workers: u32, ticks: u32) -> StepReport {
+        self.step_under(tier(runner, workers), ticks)
     }
 
     /// What the ticks that just ran did. Separate from the loop so the schedule and the
@@ -259,58 +268,16 @@ impl ForceSession {
     pub(crate) fn scratch_capacities(&self) -> Vec<usize> {
         self.sim.scratch_capacities()
     }
-
-    /// Replaces both position columns, and the velocities with zeros.
-    fn set_positions(&mut self, xs: &[f64], ys: &[f64]) -> Result<(), SessionError> {
-        self.check_column("xs", xs)?;
-        self.check_column("ys", ys)?;
-        self.sim.x.copy_from_slice(xs);
-        self.sim.y.copy_from_slice(ys);
-        self.sim.vx.iter_mut().for_each(|v| *v = 0.0);
-        self.sim.vy.iter_mut().for_each(|v| *v = 0.0);
-        Ok(())
-    }
-
-    /// One warm-start column: the right length, and finite (D9 — wasm32 does not pin a
-    /// NaN's bits).
-    fn check_column(&self, column: &'static str, values: &[f64]) -> Result<(), SessionError> {
-        let nodes = self.rows();
-        if values.len() as u64 != u64::from(nodes) {
-            return Err(SessionError::ColumnLength {
-                column,
-                got: values.len() as u64,
-                nodes,
-            });
-        }
-        if let Some(_bad) = values.iter().position(|v| !v.is_finite()) {
-            return Err(SessionError::NonFinite { field: column });
-        }
-        Ok(())
-    }
 }
 
-impl From<SessionError> for StageError {
-    /// The frozen stage is a session with the frozen parameters, so a refusal to build one
-    /// is a refusal to run the stage. `OutOfRange` carries its rule as a `&'static str`
-    /// precisely so this conversion loses nothing.
-    ///
-    /// The other two variants cannot arise on the frozen path at all — a stage builds its
-    /// own session and addresses no row — and `StageError::Param`'s rule is a
-    /// `&'static str` with nowhere to format the numbers into. The numbers are in
-    /// [`SessionError`], which is what a session's own caller sees and what its `Display`
-    /// prints.
-    fn from(err: SessionError) -> Self {
-        match err {
-            SessionError::NonFinite { field } => Self::NonFinite { column: field },
-            SessionError::OutOfRange { field, rule } => Self::Param { name: field, rule },
-            SessionError::ColumnLength { .. } => Self::Param {
-                name: "force session columns",
-                rule: "one finite value per node",
-            },
-            SessionError::NoSuchRow { .. } => Self::Param {
-                name: "force session row",
-                rule: "a row inside the node columns",
-            },
-        }
+/// The one tier a session that chose no host runner runs under: [`Serial`], one worker,
+/// no negative control. Both [`ForceSession::step`] and
+/// [`ForceSession::step_with`]'s control-free half build it here, so "the control is off"
+/// is one value in one place rather than a `Split::None` typed at each call site.
+fn tier<R: Runner>(runner: &R, workers: u32) -> Tier<'_, R> {
+    Tier {
+        runner,
+        workers,
+        split: Split::None,
     }
 }

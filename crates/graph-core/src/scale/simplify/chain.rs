@@ -5,19 +5,27 @@ use super::*;
 /// Maximal runs of degree-2 nodes between two branch nodes (degree ≠ 2) contract to one
 /// representative-level edge. A run that closes on itself is a bare ring: there is no
 /// second endpoint to imply an edge to, so it is left alone rather than half-drawn.
+///
+/// Every run is walked once: its nodes are marked seen whether or not it contracts, so a
+/// ring or a skipped run is not re-walked from each of its nodes (review R23).
+///
+/// Ponytail: a run that ends on a leaf the leaf pass folded is left whole (review R7).
+/// Failing input: a pendant path, branch node to leaf. Direction: under-reduction, its
+/// interior stays drawn; never a link to a hidden node.
 pub(super) fn contract_chains(t: &Topology, graph: &Simple, out: &mut Simplified) {
-    let mut interior = vec![false; t.node_count() as usize];
+    let mut seen = vec![false; t.node_count() as usize];
     for start in 0..t.node_count() {
-        if graph.degree(start) != 2 || out.visible[start as usize] == 0 || interior[start as usize]
-        {
+        if graph.degree(start) != 2 || out.visible[start as usize] == 0 || seen[start as usize] {
             continue;
         }
         let (lo, hi, path) = walk_chain(graph, start);
-        if lo == hi || interior[lo as usize] || interior[hi as usize] {
+        for &node in &path {
+            seen[node as usize] = true;
+        }
+        if lo == hi || out.visible[lo as usize] == 0 || out.visible[hi as usize] == 0 {
             continue;
         }
         for &node in &path {
-            interior[node as usize] = true;
             out.visible[node as usize] = 0;
             out.representative[node as usize] = lo.min(hi);
         }
@@ -83,21 +91,24 @@ fn walk_chain_end(graph: &Simple, from: u32, first_step: u32, interior: &mut Vec
     }
 }
 
-/// The chain's own edges: the path `lo, path…, hi`, edge by edge, ascending. A parallel
-/// edge on one hop is removed with it — the hop is gone, so every copy of it is.
+/// The chain's own edges: the path `lo, path…, hi`, hop by hop, plus every interior
+/// node's self-loops, ascending and deduplicated. A parallel edge on one hop is removed
+/// with it — the hop is gone, so every copy of it is. Each hop is read from its interior
+/// end, so the cost is the interior nodes' degrees; the hops are distinct pairs because
+/// `lo != hi` and the path never repeats a node.
 fn chain_edges(t: &Topology, path: &[u32], lo: u32, hi: u32) -> Vec<u32> {
-    let mut walk: Vec<u32> = Vec::with_capacity(path.len() + 2);
-    walk.push(lo);
-    walk.extend_from_slice(path);
-    walk.push(hi);
-    let ends: Vec<(u32, u32)> = walk.windows(2).map(|w| (w[0], w[1])).collect();
-    let mut edges: Vec<u32> = (0..t.edge_count())
-        .filter(|&e| {
-            let (a, b) = (t.edges().source[e as usize], t.edges().target[e as usize]);
-            ends.iter()
-                .any(|&(u, v)| (a == u && b == v) || (a == v && b == u))
-        })
-        .collect();
+    let (first, last) = (path[0], path[path.len() - 1]);
+    let mut edges = edges_between(t, first, lo);
+    for hop in path.windows(2) {
+        edges.extend(edges_between(t, hop[0], hop[1]));
+    }
+    edges.extend(edges_between(t, last, hi));
+    for &node in path
+        .get(1..path.len().saturating_sub(1))
+        .unwrap_or_default()
+    {
+        edges.extend(self_loops(t, node));
+    }
     edges.sort_unstable();
     edges.dedup();
     edges

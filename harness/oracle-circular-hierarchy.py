@@ -29,27 +29,35 @@ answers. The reference prints a progress line per call, so it is silenced rather
 to interleave with the result.
 """
 import contextlib
-import hashlib
 import io
 import json
 import os
 import sys
 
-sys.path.insert(0, os.path.join("SciGraphs", "core"))
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 import networkx as nx  # noqa: E402
 import numpy as np  # noqa: E402
 
+from oracle_common import (  # noqa: E402
+    finite,
+    read_manifest,
+    require_cases,
+    require_seeds,
+)
+
+sys.path.insert(0, os.path.join("SciGraphs", "core"))
 from scigraphs_core.mesh.layouts.hierarchical import (  # noqa: E402
     _circular_hierarchy_layout,
 )
 
 directory = sys.argv[1]
 name = "circular-hierarchy"
-path = os.path.join(directory, f"{name}.jsonl")
-manifest = json.load(open(os.path.join(directory, f"{name}-manifest.json")))
-digest = hashlib.sha256(open(path, "rb").read()).hexdigest()
-if digest != manifest["sha256"][f"{name}.jsonl"]:
-    sys.exit(f"{name}.jsonl does not match its manifest")
+manifest, digest = read_manifest(directory, name)
+with open(os.path.join(directory, f"{name}.jsonl")) as handle:
+    lines = handle.readlines()
+require_seeds(manifest, lines, name)
 
 
 def theirs_of(case):
@@ -64,26 +72,24 @@ def theirs_of(case):
     return np.asarray(positions[:, :2], dtype=float)
 
 
-cases = 0
+cases = len(lines)
 worst = 0.0
 worst_seed = None
 exact = 0
-for text in open(path):
+for text in lines:
     case = json.loads(text)
     ours = np.column_stack([case[name]["x"], case[name]["y"]]).astype(float)
     theirs = theirs_of(case)
     gap = float(np.abs(ours - theirs).max())
-    if gap > worst:
+    # `>` is false for a NaN, so the guard is the metric and not the comparison: without it a
+    # NaN coordinate leaves `worst` at its 0.0 initialiser and the case reports as a match.
+    if finite(gap, "gap") > worst:
         worst, worst_seed = gap, case["seed"]
     # Bit-for-bit after the snapshot's own f32 narrowing: ours arrives f32, so the
     # comparison is on both arms narrowed to f32. np.cos and libm::cos differ in the last
     # bits, so this is a count and not a gate — the gate is the tolerance above.
     if np.array_equal(ours.astype(np.float32), theirs.astype(np.float32)):
         exact += 1
-    cases += 1
-
-if cases == 0:
-    sys.exit("no cases in the fixtures: a differential over nothing proves nothing")
 
 layouts = {
     name: {
@@ -93,12 +99,16 @@ layouts = {
         "f32_bit_exact": exact,
     }
 }
+require_cases(layouts, (name,), name)
 result = {
+    # Checked by `verdict()` in `crates/graph-cli/src/oracle_python.rs:189-190`, which
+    # refuses when this is not `stamp.fingerprint()`; read_manifest binds the fixture bytes.
     "fingerprint": manifest["fingerprint"],
     "sha256": digest,
     "oracle": f"SciGraphs _circular_hierarchy_layout on networkx {nx.__version__}, "
     f"numpy {np.__version__}",
     "layouts": layouts,
 }
-json.dump(result, open(os.path.join(directory, f"{name}-result.json"), "w"), indent=1)
+with open(os.path.join(directory, f"{name}-result.json"), "w") as out:
+    json.dump(result, out, indent=1)
 print(json.dumps(layouts))

@@ -5,8 +5,10 @@ use crate::snapshot::{Dim, label_for};
 use crate::version::CURRENT_VERSION;
 
 mod dim;
+mod generated;
 mod shape;
 mod syntax;
+mod text;
 
 /// Every kind here is 2D, so the label is 0.3 and the text carries no `"dim"` — the
 /// pinned text below proves it. [`spaced`] builds the 3D counterpart.
@@ -27,7 +29,8 @@ fn snapshot(nodes: NodeGeometry, edges: EdgeGeometry) -> Snapshot {
 }
 
 /// The same snapshot in three dimensions: a z column and the 0.4 label it needs. Built by
-/// hand, since no 3D layout exists yet.
+/// hand because this crate cannot run a layout: it depends on no `graph-core`, so one is out
+/// of its reach however many the registry holds, and a z column is all it ever reads.
 fn spaced(nodes: NodeGeometry, edges: EdgeGeometry, z: Vec<f32>) -> Snapshot {
     let mut p = snapshot(nodes, edges).into_parts();
     p.z = Some(z);

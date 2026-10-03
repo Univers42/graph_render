@@ -39,7 +39,7 @@ pub struct Plan {
     pub fold_leaves: bool,
     /// Contract maximal degree-2 chains into a single representative-level edge.
     pub contract_chains: bool,
-    /// Collapse every community into its lowest dense index.
+    /// Collapse every community into its lowest drawn dense index.
     pub collapse_communities: bool,
 }
 
@@ -66,7 +66,7 @@ pub enum Kind {
     Leaf,
     /// A maximal run of degree-2 nodes contracted between two branch nodes.
     Chain,
-    /// A community collapsed into its lowest dense index.
+    /// A community collapsed into its lowest drawn dense index.
     Community,
 }
 
@@ -171,8 +171,16 @@ fn fold_leaves(t: &Topology, graph: &Simple, out: &mut Simplified) {
             continue;
         }
         let neighbour = graph.row(v)[0];
+        // Two leaves joined to each other: the higher index folds, so the lower survives
+        // and is never folded itself.
+        if graph.degree(neighbour) == 1 && neighbour > v {
+            continue;
+        }
         let representative = out.representative[neighbour as usize];
-        let edges = edges_between(t, v, neighbour);
+        let mut edges = edges_between(t, v, neighbour);
+        edges.extend(self_loops(t, v));
+        edges.sort_unstable();
+        edges.dedup();
         for &edge in &edges {
             out.edges[edge as usize] = 0;
         }
@@ -194,16 +202,48 @@ use community::collapse_communities;
 mod chain;
 mod community;
 #[cfg(test)]
+mod invariant_tests;
+#[cfg(test)]
+mod scaling_tests;
+#[cfg(test)]
 mod tests;
 
-/// The ascending edge indices of the edges between `a` and `b`.
+/// The ascending edge indices of the edges between `a` and `b`, `a != b`, read from
+/// `a`'s own CSR rows: `O(degree of a)`, so pass `a` as the end with the smaller degree.
 fn edges_between(t: &Topology, a: u32, b: u32) -> Vec<u32> {
-    let mut edges: Vec<u32> = (0..t.edge_count())
-        .filter(|&e| {
-            let (s, g) = (t.edges().source[e as usize], t.edges().target[e as usize]);
-            (s == a && g == b) || (s == b && g == a)
-        })
+    let edges = t.edges();
+    let out = t
+        .out()
+        .row(a)
+        .iter()
+        .filter(|&&e| edges.target[e as usize] == b);
+    let inbound = t
+        .inbound()
+        .row(a)
+        .iter()
+        .filter(|&&e| edges.source[e as usize] == b);
+    let mut between: Vec<u32> = out.chain(inbound).copied().collect();
+    between.sort_unstable();
+    between
+}
+
+/// The ascending indices of `v`'s own self-loops, deduplicated: an edge the node cannot
+/// outlive. [`edges_between`] never sees one — it is asked about `a != b`, and
+/// `simple::build` drops self-loops from the adjacency the passes walk — so a pass that
+/// hides `v` has to name these separately or the edge stays drawn with nothing behind it.
+/// The reference agrees: a self-loop's `ca == cb`, so `simplify.py:216-219` never makes it
+/// one of the coarse level's super-edges.
+fn self_loops(t: &Topology, v: u32) -> Vec<u32> {
+    let edges = t.edges();
+    let mut loops: Vec<u32> = t
+        .out()
+        .row(v)
+        .iter()
+        .chain(t.inbound().row(v).iter())
+        .copied()
+        .filter(|&e| edges.source[e as usize] == v && edges.target[e as usize] == v)
         .collect();
-    edges.sort_unstable();
-    edges
+    loops.sort_unstable();
+    loops.dedup();
+    loops
 }

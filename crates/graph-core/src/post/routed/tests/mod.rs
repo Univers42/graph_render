@@ -49,6 +49,25 @@ fn spanned(points: &[(f32, f32)]) -> Vec<(f32, f32)> {
     SPAN.iter().copied().chain(points.iter().copied()).collect()
 }
 
+/// A grid over `points` at `resolution`, with no margin, so the drawing reaches the border.
+fn bare(points: &[(f32, f32)], resolution: u32) -> (NodeGeometry, GridIndex) {
+    let nodes = NodeGeometry::Point {
+        x: points.iter().map(|p| p.0).collect(),
+        y: points.iter().map(|p| p.1).collect(),
+    };
+    let params = GridParams {
+        resolution,
+        margin: 0,
+        clearance: 0.0,
+    };
+    let mut grid = GridIndex::new();
+    grid.build(&nodes, &params).expect("builds");
+    (nodes, grid)
+}
+
+mod adapter;
+mod limits;
 mod paths;
 mod routes;
+mod stencil;
 mod ties;

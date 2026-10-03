@@ -26,6 +26,21 @@ fn run_node(script: &Path, args: &[&str]) -> std::process::ExitStatus {
     crate::runner::run_status(&mut node, std::time::Duration::from_secs(300)).expect("node runs")
 }
 
+/// Stages `name` twice and runs each copy's self-check: unchanged, where it must pass (so
+/// the staging cannot be what fails), then with `from` -> `to`, where it must not.
+fn assert_a_mutant_goes_red(name: &str, from: &str, to: &str) {
+    let same = harness_copy_with_in(name, from, from);
+    assert!(
+        run_node(&same.0, &["--self-check"]).success(),
+        "an unchanged staged copy of {name} fails its self-check: the control is vacuous"
+    );
+    let mutant = harness_copy_with_in(name, from, to);
+    assert!(
+        !run_node(&mutant.0, &["--self-check"]).success(),
+        "the mutant's self-check passed: the check cannot fail"
+    );
+}
+
 /// The Phase 9 oracle arm's own self-check, run under Node: the pure arithmetic of the
 /// campaign (median over repeats, the largest N that fits a budget) and the graph it
 /// shares with the native arm, pinned in the harness that has to agree with us.
@@ -42,17 +57,11 @@ fn the_oracle_tick_harness_self_check_passes() {
 /// changed must go red.
 #[test]
 fn a_broken_copy_of_the_oracle_harness_fails_its_own_self_check() {
-    let mutant = harness_copy_with_in(
+    assert_a_mutant_goes_red(
         "oracle-tick-bench.mjs",
         "const SETTLE_TICKS = 112;",
         "const SETTLE_TICKS = 113;",
     );
-    let ran = run_node(&mutant.0, &["--self-check"]);
-    assert!(
-        !ran.success(),
-        "the mutant's self-check passed: the check cannot fail"
-    );
-    mutant.cleanup();
 }
 
 /// The wasm32 arm's own self-check: the ingest document it hands the motor is the strict
@@ -70,14 +79,9 @@ fn the_wasm_tick_harness_self_check_passes() {
 /// The negative control for the row above: a changed constant in a copy must go red.
 #[test]
 fn a_broken_copy_of_the_wasm_tick_harness_fails_its_own_self_check() {
-    let mutant = harness_copy_with_in(
+    assert_a_mutant_goes_red(
         "wasm-tick-bench.mjs",
         "const SETTLE_TICKS = 112;",
         "const SETTLE_TICKS = 111;",
-    );
-    let ran = run_node(&mutant.0, &["--self-check"]);
-    assert!(
-        !ran.success(),
-        "the mutant's self-check passed: the check cannot fail"
     );
 }

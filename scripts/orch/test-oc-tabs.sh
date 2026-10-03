@@ -106,6 +106,9 @@ check "a missing tabs.json is created" ".cwd[\"$dir\"].tabs[0].sessionID == \"se
 printf -- '--- -a ---\n'
 wt=$tmp/scratch/wt
 mkdir -p "$wt/keep" "$wt/tiny"
+# a repo whose origin/develop already holds the branch "landed"
+g() { git -C "$tmp/here" -c user.name=t -c user.email=t@t -c commit.gpgsign=false "$@"; }
+g init -q && g commit -q --allow-empty -m base && g update-ref refs/remotes/origin/develop HEAD && g branch landed
 # rec <id> <outcome|-> <output tokens> <directory> — one session record, appended to records.json
 rec() { jq -c --arg i "$1" --arg o "$2" --argjson t "$3" --arg d "$4" '. + [{id: $i, title: "t-\($i)",
   tokens: {output: $t}, location: {directory: $d}} + (if $o == "-" then {} else {outcome: $o} end)]' \
@@ -119,6 +122,7 @@ rec r_dead succeeded 9000 "$wt/merged"
 rec r_redo succeeded 9000 "$wt/redo"
 rec r_cut interrupted 9000 "$wt/redo"
 rec r_broken interrupted 9000 "$wt/fixme"
+rec r_landed interrupted 9000 "$wt/landed"
 rec r_lost failed 9000 /nowhere/at-all
 jq -n --arg d "$dir" '{global: {tabs: [], unread: {}}, cwd: {($d): {tabs: [{sessionID: "r_probe", title: "p"},
   {sessionID: "r_dead", title: "d"}, {sessionID: "ses_other", title: "o"}, {sessionID: "r_keep", title: "k"}], unread: {}}}}' \
@@ -134,6 +138,8 @@ check "-a takes dead sessions out of the tab list" ".cwd[\"$dir\"].tabs | all(.s
 if [[ $(cat "$tmp/wtnew" 2>/dev/null) == fixme ]]; then ok "-a rebuilds only the broken job's worktree, by name"
 else no "-a rebuilds only the broken job's worktree, by name" "wt-new calls: $(paste -sd' ' "$tmp/wtnew" 2>/dev/null)"; fi
 if [[ -d $wt/fixme ]]; then ok "the rebuilt folder exists"; else no "the rebuilt folder exists" "no $wt/fixme"; fi
+check "-a drops an unfinished job whose branch is already in origin/develop" \
+  ".cwd[\"$dir\"].tabs | all(.sessionID != \"r_landed\")"
 if [[ $(cat "$tmp/launch" 2>/dev/null) == "-s r_live" ]]; then ok "-a opens OpenCode on the newest kept session"
 else no "-a opens OpenCode on the newest kept session" "launch=$(cat "$tmp/launch" 2>/dev/null)"; fi
 
@@ -145,6 +151,27 @@ rm -f "$tmp/wtfail"
 sess r_probe t-r_probe
 run -a -n r_probe
 check "-a -n with an id adds that id even when it is a probe" ".cwd[\"$dir\"].tabs | any(.sessionID == \"r_probe\")"
+
+# only <ids...> — the tab list holds exactly ses_other then <ids...>
+only() { jq -n --arg d "$dir" '{global: {tabs: [], unread: {}}, cwd: {($d): {tabs: [{sessionID: "ses_other",
+  title: "o"}, {sessionID: "r_keep", title: "k"}], unread: {}}}}' >"$OC_TABS_FILE"; }
+only
+rm -rf "$wt/fixme" "$tmp/wtnew"
+run -apn
+rc_is "-ap -> 0" $? 0
+check "-ap keeps the sessions in progress and drops the done ones" \
+  ".cwd[\"$dir\"].tabs | map(.sessionID) == [\"ses_other\",\"r_live\",\"r_broken\"]"
+if [[ $(cat "$tmp/wtnew" 2>/dev/null) == fixme ]]; then ok "-p still rebuilds a broken job's worktree"
+else no "-p still rebuilds a broken job's worktree" "wt-new calls: $(paste -sd' ' "$tmp/wtnew" 2>/dev/null)"; fi
+rm -rf "$wt/fixme" "$tmp/wtnew"
+run -dn
+check "-d keeps the done sessions and drops the ones in progress" \
+  ".cwd[\"$dir\"].tabs | map(.sessionID) == [\"ses_other\",\"r_keep\"]"
+if [[ -e $tmp/wtnew ]]; then no "-d rebuilds nothing it hides" "wt-new calls: $(paste -sd' ' "$tmp/wtnew")"
+else ok "-d rebuilds nothing it hides"; fi
+only
+run -pdn
+check "-pd is -a" ".cwd[\"$dir\"].tabs | map(.sessionID) == [\"ses_other\",\"r_keep\",\"r_live\",\"r_broken\"]"
 
 jq 'map(select(.id == "r_dead"))' "$tmp/records.json" >"$tmp/records.next" && mv "$tmp/records.next" "$tmp/records.json"
 jq -n --arg d "$dir" '{global: {tabs: [], unread: {}}, cwd: {($d): {tabs: [{sessionID: "r_dead", title: "d"}], unread: {}}}}' \

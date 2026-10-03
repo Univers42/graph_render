@@ -25,7 +25,7 @@ import {
   lastError,
   type Loaded,
 } from "./calls.ts";
-import type { ForceParams, ForceSessionId, ForceTick, Handle } from "./types.ts";
+import type { ForceEngine, ForceParams, ForceSessionId, ForceTick, Handle } from "./types.ts";
 
 /** The wire's thirteen parameter fields, in `LiveParams`' declaration order — the order
  *  `crates/graph-wasm/src/session/params.rs` encodes and decodes. One list, read in both
@@ -73,10 +73,10 @@ export class ForceSession {
   /** @internal — use {@link Motor.forceSession}. Never throws for a load failure (the motor
    *  has already been asked, and this only reaches the ABI once it has answered): every refusal
    *  below is a typed {@link GraphMotorError}, and a refused creation leaves no session behind. */
-  constructor(loaded: Loaded, graph: Handle, params?: Partial<ForceParams>) {
+  constructor(loaded: Loaded, graph: Handle, params?: Partial<ForceParams>, engine: ForceEngine = "barnes_hut") {
     this.#loaded = loaded;
     this.#graph = graph;
-    this.#id = this.#create(graph);
+    this.#id = this.#create(graph, engine);
     if (params === undefined) return;
     try {
       this.setParams(params);
@@ -119,6 +119,8 @@ export class ForceSession {
     const word = this.#call("gm_force_session_tick", (exports) =>
       exports.gm_force_session_tick(toU32(this.#id), toU32(ticks)),
     );
+    // A particle-mesh tick swaps its position columns in, so their address moves every tick.
+    this.#views = null;
     if (word !== 1 && word !== 2) {
       throw new ForceSessionRefusedError(`gm_force_session_tick answered ${String(word)}, which is not a status`);
     }
@@ -222,8 +224,8 @@ export class ForceSession {
    *  **Zero-copy**: both views alias the session's own columns, so this is the cheapest way to
    *  read a frame, and they are re-derived whenever wasm memory itself has been replaced since
    *  the last call (a growth detaches the old `ArrayBuffer`, which is silent garbage rather
-   *  than an error). The address is stable for the session's life: the motor never resizes
-   *  those columns, and each session lives behind a `Box` so no later insert moves it.
+   *  than an error) or a tick has run since: a particle-mesh tick moves the columns, so a view
+   *  is re-read after every {@link ForceSession.tick}, two pointer reads.
    *
    *  Ponytail: a held view is only as fresh as the last tick. Copy it (`.slice()`) before
    *  transferring it to a worker or keeping it past the next call, exactly as this SDK's column
@@ -255,14 +257,13 @@ export class ForceSession {
     this.#live = false;
   }
 
-  #create(graph: Handle): ForceSessionId {
+  #create(graph: Handle, engine: ForceEngine): ForceSessionId {
     const { exports } = this.#loaded;
-    const word = invoke("gm_force_session_create", () =>
-      exports.gm_force_session_create(toU32(graph), 0, 0),
-    );
+    const name = engine === "particle_mesh" ? "gm_force_session_create_mesh" : "gm_force_session_create";
+    const word = invoke(name, () => exports[name](toU32(graph), 0, 0));
     if (word !== 0) return word as ForceSessionId;
     const code = lastError(exports);
-    throw new ForceSessionRefusedError(`gm_force_session_create refused (${codeName(code)})`, code);
+    throw new ForceSessionRefusedError(`${name} refused (${codeName(code)})`, code);
   }
 
   /** One position column as a `Float64Array` over the session's own storage.

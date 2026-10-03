@@ -62,8 +62,15 @@ fn control(name: &'static str, diverged: &[&str]) -> (&'static str, Option<Value
 /// restricted here to the layouts no other control reaches, since reference degree and
 /// grid spacing already back topology/grid/treemap on their own (a real run may show it
 /// diverging those too; the ledger only needs one control per stage to hold) — and one
-/// control per stage that reaches nothing else at all: the two force layouts, and the
-/// four Phase 3 layouts, each of which now has a control filed under its own stage id.
+/// control per stage that reaches nothing else at all: the two force layouts, the
+/// four Phase 3 layouts and the one Graphviz packing layout, each of which now has a
+/// control filed under its own stage id.
+///
+/// **Every gated row has a control here**, which is what makes this the honest set rather
+/// than a convenient one: a `gated` row whose stage no control in this list diverges is
+/// refused by `hash_4way`, so leaving osage out while shipping it `gated` would put two
+/// permanent problems into every whole-ledger test below. `without_osage_control` is how a
+/// test asks for the set *without* that one row's backing.
 fn honest_controls() -> Vec<(&'static str, Option<Value>)> {
     vec![
         control(
@@ -104,7 +111,23 @@ fn honest_controls() -> Vec<(&'static str, Option<Value>)> {
             &["layout.circular.radial"],
         ),
         control("hashgate-control-packing-scale", &["layout.packing.circle"]),
+        control(
+            "hashgate-control-packing-osage-nodes",
+            &["layout.packing.osage"],
+        ),
     ]
+}
+
+/// The honest evidence with the one control that backs `layout.packing.osage` taken back out
+/// — the set `hash_4way` refuses a `gated` osage row on.
+///
+/// A helper rather than a hand-built list so the removal is by **record name**, the one
+/// `Knob::PackingOsageNodes::record()` returns: rebuilding the list instead would let a
+/// rename drift and the test would keep passing on a control the real run no longer writes.
+pub(super) fn without_osage_control(evidence: &mut Evidence) {
+    evidence
+        .controls
+        .retain(|(name, _)| *name != "hashgate-control-packing-osage-nodes");
 }
 
 fn honest() -> Evidence {
@@ -173,6 +196,13 @@ fn honest() -> Evidence {
                         "layout.spectral": hand(12),
                         "layout.mds.pivot": hand(13),
                     }
+                }),
+            ),
+            (
+                "oracle-osage".to_owned(),
+                json!({
+                    "fingerprint": "tree", "seeds": 1000, "pass": true, "tolerance": true,
+                    "functions": { "layout.packing.osage": hand(5) }
                 }),
             ),
         ]),

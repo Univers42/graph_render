@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
-# oc-tabs.sh [-a] [-n] [session-id...] — OpenCode sessions as the tabs of one OpenCode window.
+# oc-tabs.sh [-a|-p|-d] [-n] [session-id...] — OpenCode sessions as the tabs of one OpenCode window.
 # Default: the sessions the background service is running (GET /api/session/active).
 # -a: every top-level session of this directory's project, newest first, sorted on each run from the
 # service's own records: running -> tab; probe (finished with under 3000 output tokens) -> out; dead
-# (succeeded, or retried later in the same folder, and its folder is gone) -> out; broken (not
-# succeeded and its folder is gone) -> its job worktree is rebuilt by wt-new.sh, which checks the
+# (succeeded, retried later in the same folder, or its job branch already in origin/develop, and its
+# folder is gone) -> out; broken (any other session whose folder is gone) -> its job worktree is rebuilt by wt-new.sh, which checks the
 # branch out again, then tab; any other (a finished job whose worktree is still there) -> tab.
 # "Out" also removes the session from the saved tab list. No session is ever deleted.
+# -p / -d: -a narrowed to the sessions in progress (not succeeded: running, waiting, failed or
+# interrupted) or done (succeeded); the other kind is out too and its worktree is not rebuilt.
+# Either one implies -a, and -pd is -a.
 # Adds the tabs and any id given to the TUI's saved tab list for this directory, then opens OpenCode
 # on the first one. -n only writes the list: a window already open here reloads it without restart.
 # Exit 0 = tabs written (and the TUI exited 0), 1 = no session to show, 2 = could not ask the service.
@@ -24,6 +27,8 @@
 # the smallest finished job 5433. A real job that stops under 3000 is left out (pass its id).
 # Caveat: a broken session whose folder is not $GM_SCRATCH/wt/<name> is left out with a message; only
 # job worktrees can be rebuilt.
+# Caveat: "in origin/develop" is read from the last fetch, and also holds for a job whose worktree was
+# removed before its first commit (its branch is still a develop commit); such a job counts as dead.
 set -uo pipefail
 here=$(dirname "$(readlink -f "$0")")
 # shellcheck source=scripts/orch/scratch.sh
@@ -35,14 +40,19 @@ cli=${OC_CLI_JSON:-${XDG_CONFIG_HOME:-$HOME/.config}/opencode/cli.json}
 probe=3000
 open=1
 all=0
-while getopts an flag; do
+kinds=()
+while getopts adnp flag; do
   case $flag in
     a) all=1 ;;
+    d) all=1; kinds+=("done") ;;
+    p) all=1; kinds+=(progress) ;;
     n) open=0 ;;
-    *) echo "usage: oc-tabs.sh [-a] [-n] [session-id...]" >&2; exit 2 ;;
+    *) echo "usage: oc-tabs.sh [-a|-p|-d] [-n] [session-id...]" >&2; exit 2 ;;
   esac
 done
 shift $((OPTIND - 1))
+((${#kinds[@]})) || kinds=(progress "done")
+show=$(jq -nc '$ARGS.positional' --args "${kinds[@]}")
 
 # api <path> — one GET through `opencode api`, which carries the service's credentials itself
 api() { timeout 30 "$OC" api GET "$1" 2>/dev/null; }
@@ -70,17 +80,20 @@ records() {
 
 # classify — the records on stdin, each with .state: live, probe, dead, broken or keep (see the header)
 classify() {
-  local recs live dirs
+  local recs live dirs landed
   recs=$(cat)
   live=$(api /api/session/active | jq -ce '.data | keys') || return 1
+  landed=$(git for-each-ref --merged origin/develop --format='%(refname:short)' refs/heads 2>/dev/null |
+    jq -Rsc --arg wt "$GM_SCRATCH/wt/" 'split("\n")[:-1] | map($wt + .)')
   dirs=$(jq -r '.[].location.directory // empty' <<<"$recs" | sort -u |
     while IFS= read -r d; do [[ -d $d ]] && printf '%s\n' "$d"; done | jq -Rsc 'split("\n")[:-1]')
-  jq -c --argjson live "$live" --argjson dirs "$dirs" --argjson probe "$probe" '
+  jq -c --argjson live "$live" --argjson dirs "$dirs" --argjson landed "$landed" --argjson probe "$probe" '
     . as $all | to_entries | map(.key as $i | .value | .location.directory as $d | .state =
       if IN(.id; $live[]) then "live"
       elif .outcome and (.tokens.output // 0) < $probe then "probe"
       elif IN($d; $dirs[]) then "keep"
-      elif .outcome == "succeeded" or any($all[:$i][]; .location.directory == $d) then "dead"
+      elif .outcome == "succeeded" or IN($d; $landed[]) or any($all[:$i][]; .location.directory == $d)
+      then "dead"
       else "broken" end)' <<<"$recs"
 }
 
@@ -97,14 +110,18 @@ rebuild() {
 }
 
 # everything — a tab per top-level session of the project, one JSON object per line; .drop marks the
-# ones to take out of the tab list. A broken session's worktree is rebuilt first, or it is dropped.
+# ones to take out of the tab list, .hidden the kind -p/-d leaves out. A broken session's worktree is
+# rebuilt first, or it is dropped.
 everything() {
   local recs dirs d fixed=()
   recs=$(records) && recs=$(classify <<<"$recs") || return 1
-  mapfile -t dirs < <(jq -r '.[] | select(.state == "broken") | .location.directory' <<<"$recs" | sort -u)
+  recs=$(jq -c --argjson show "$show" 'map(.hidden =
+    ((if .outcome == "succeeded" then "done" else "progress" end) | IN($show[]) | not))' <<<"$recs")
+  mapfile -t dirs < <(jq -r '.[] | select(.state == "broken" and (.hidden | not)) | .location.directory' \
+    <<<"$recs" | sort -u)
   for d in "${dirs[@]}"; do rebuild "$d" && fixed+=("$d"); done
   jq -r 'group_by(.state) | map("\(length) \(.[0].state)") | "oc-tabs: " + join(", ")' <<<"$recs" >&2
-  jq -c '.[] | {sessionID: .id, title: (.title // ""), drop: (.state == "probe" or .state == "dead"
+  jq -c '.[] | {sessionID: .id, title: (.title // ""), drop: (.hidden or .state == "probe" or .state == "dead"
     or (.state == "broken" and (.location.directory | IN($ARGS.positional[]) | not)))}' \
     --args "${fixed[@]}" <<<"$recs"
 }

@@ -5,6 +5,7 @@
 // `graph-cli codegen` actually writes and pins (`crates/graph-contract/src/lib.rs`'s
 // `codegen::outputs()`), never a hand-copied duplicate of its interfaces.
 import type { EdgeGeometryKind, NodeGeometryKind, SnapshotHeader } from "../../graph-contract/generated/snapshot-header.d.ts";
+import type { MotorThreads } from "./threads.ts";
 
 export type { EdgeGeometryKind, NodeGeometryKind, SnapshotHeader };
 
@@ -109,9 +110,9 @@ export interface AnalysisResult {
   readonly kind: AnalysisValueKind;
   /** One entry per node, in the motor's dense-index order. */
   readonly values: readonly number[];
-  readonly converged?: boolean;
-  readonly modularity?: number;
-  readonly max?: number;
+  readonly converged?: boolean | undefined;
+  readonly modularity?: number | undefined;
+  readonly max?: number | undefined;
 }
 
 /** `createMotor`'s options. Reserved fields read but not yet acted on are rejected, never
@@ -122,6 +123,9 @@ export interface MotorOptions {
    * this phase is `"auto"`, meaning "whatever this build supports" — the same thing
    * omitting the field means. Any other value is refused by `createMotor` (`InvalidOptionsError`). */
   exec?: "auto";
+  /** Load the threads artifact and tick live sessions on its pool (`threads.ts`). Inside a
+   * Worker only: the coordinator blocks while its helpers run. */
+  threads?: MotorThreads;
 }
 
 /** An opaque live force session id, `gm_force_session_create`'s answer
@@ -170,6 +174,11 @@ export interface ForceTick {
   /** The ticks that ran: the argument, always. A chunked caller adds these up. */
   readonly ticksRun: number;
 }
+
+/** The tick a {@link ForceSessionId}'s session runs: Barnes-Hut's quadtree
+ * (`layout.force.barnes_hut`), or the particle mesh's FFT grid (`layout.force.particle_mesh`),
+ * `O(n)` per tick and the one for graphs past about 50k nodes. The two are different bytes. */
+export type ForceEngine = "barnes_hut" | "particle_mesh";
 
 /** The wire's status word, as words: `1` ran and is still cooling, `2` ran and has settled.
  * `0` never reaches here — it is the refusal, and it throws. */

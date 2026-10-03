@@ -62,15 +62,17 @@ fn the_cell_size_is_the_longer_span_over_the_resolution_and_cells_stay_square() 
 }
 
 #[test]
-fn a_degenerate_layout_still_produces_one_cell_per_axis() {
+fn a_single_point_is_gridded_over_the_references_floor_span() {
+    // `routed.py:55` floors each span at 1e-9, so a point with no extent is still divided
+    // into `resolution` cells per axis, as the reference divides it.
     let mut grid = GridIndex::new();
     let nodes = NodeGeometry::Point {
         x: vec![3.0],
         y: vec![3.0],
     };
     grid.build(&nodes, &small()).expect("builds");
-    assert_eq!(grid.shape(), (1, 1), "a single point has no span to divide");
-    assert_eq!(grid.cells(), 1);
+    assert_eq!(grid.shape(), (8, 8));
+    assert_eq!(grid.cells(), 64);
     assert_eq!(grid.node_cell(0), 0);
     assert!(grid.is_occupied(0));
 }

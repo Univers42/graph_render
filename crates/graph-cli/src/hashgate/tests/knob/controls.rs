@@ -158,10 +158,12 @@ fn each_force_layout_has_its_own_negative_control_that_moves_only_its_stage() {
     let scaling = setting(env(vec![("GM_MUTATE_FA2_SCALING_RATIO", "3")])).expect("parses");
     assert_eq!(scaling.control, Some(Knob::Fa2ScalingRatio));
     assert_eq!(scaling.fa2.scaling_ratio, 3.0);
-    only_stage_moved(
+    // Both ForceAtlas2 stages and no other: the tree layout's far cells and leaf pairs
+    // read the same `scaling_ratio` the dense pair loop does.
+    only_stages_moved(
         &base,
         &stage_bytes(FORCE_SEED, &scaling).expect("runs"),
-        ForceAtlas2::ID,
+        &[ForceAtlas2::ID, ForceAtlas2BarnesHut::ID],
     );
     let both = env(vec![
         ("GM_MUTATE_FORCE_THETA", "0.5"),

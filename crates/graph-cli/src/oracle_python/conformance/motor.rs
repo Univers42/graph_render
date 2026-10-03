@@ -1,6 +1,6 @@
 //! Running one motor layout the way SciGraphs would run its reference: the registered
-//! default for almost every id, and a deliberate override for the three where the registered
-//! default is not SciGraphs' parameter.
+//! default for almost every id, and a deliberate override for the six where the registered
+//! default is not SciGraphs' parameter or not SciGraphs' units.
 //!
 //! **One convention, and it is applied to both arms rather than to the motor.** A Graphviz
 //! row's reference is the engine's own `-Tplain` points, and SciGraphs never returns those:
@@ -10,29 +10,36 @@
 //! sc_graphviz.py` applies the same five lines in Python to the reference arm. What is left
 //! after it is the layout, not the unit.
 //!
-//! **Three overrides, and each is a whole row.** `CIRCLE_PACKING`'s registered budget is 500
+//! **Six overrides, and each is a whole row.** `CIRCLE_PACKING`'s registered budget is 500
 //! radius-solver sweeps where `apply_graph_layout` passes 50; `FORCEATLAS2`'s is 100 where
 //! the dispatcher passes 50 into `ForceSim`; `GRAPHVIZ_SFDP` registers `run`, whose
-//! `DEFAULT_SEED` is 1, where the engine is handed `start = get_layout_seed()`. Every other
-//! id either takes no parameter or its registered default already **is** the reference's —
+//! `DEFAULT_SEED` is 1, where the engine is handed `start = get_layout_seed()`;
+//! `layout.dag.sugiyama` draws in the priority method's own units and `layer *
+//! LAYER_SPACING`, where the reference maps each axis onto `[-scale, scale]`; `GRID`
+//! registers a lattice centred on the origin at unit pitch, where `_grid_layout` starts at
+//! the origin and pitches it at `scale / grid_size`; and `layout.random` registers
+//! networkx's planar unit-square scatter off the crate's `Mulberry32`, where SciGraphs draws
+//! `rand(n, 3) * scale` off MT19937 at the layout seed (`basic.py:5-9`). Every other id
+//! either takes no parameter or its registered default already **is** the reference's —
 //! the igraph family being the surprising half: `_igraph_davidson_harel` ignores the
 //! dispatcher's `iterations` and uses igraph's `maxiter=10`, which is our `DhParams` default
 //! too (`igraph_layouts.py:117-118`, `davidson_harel.rs:44`).
 //!
-//! Nothing here fudges a coordinate. What the layout returns, plus the convention both arms
-//! share, is what goes into the `.f64` file, and every parameter the motor could not be given
-//! is a `Gap` in [`super::rows`], not a number fudged to match.
+//! Apart from that one layout's axes and the Graphviz convention both arms share, nothing
+//! here normalises a coordinate. What the layout returns is what goes into the `.f64` file,
+//! and every parameter the motor could not be given is a `Gap` in [`super::rows`], not a
+//! number fudged to match.
 
+mod overrides;
+
+use super::SCALE;
 use super::fixtures::Fixture;
-use super::{ITERATIONS, LAYOUT_SEED, SCALE};
 use graph_contract::binary::SnapshotParts;
 use graph_contract::geometry::NodeGeometry;
 use graph_core::layout::Geometry;
-use graph_core::layout::circle_packing::{self, CirclePackingParams};
-use graph_core::layout::force::spring::{Spring, Spring3D, SpringParams};
-use graph_core::layout::forceatlas2::{Fa2Params, ForceAtlas2};
-use graph_core::layout::graphviz::sfdp;
-use graph_core::{Stage, StageError, registry, run_with};
+use graph_core::layout::force::spring::{Spring, Spring3D};
+use graph_core::{StageError, registry, run_with};
+use overrides::{fa2, grid, packing, random_seeded, sfdp_seeded, spring, sugiyama_scaled};
 use serde_json::Value;
 
 mod gv_post;
@@ -71,6 +78,9 @@ pub fn run(id: &str, fixture: &Fixture) -> Ran {
         "layout.force.sfdp" => sfdp_seeded(fixture),
         "layout.force.spring" => spring::<Spring>(fixture),
         "layout.force.spring3d" => spring::<Spring3D>(fixture),
+        "layout.dag.sugiyama" => sugiyama_scaled(fixture),
+        "layout.random" => random_seeded(fixture),
+        "layout.grid" => grid(fixture),
         _ => registered(id, fixture),
     }?;
     columns(&parts, fixture.nodes.len())
@@ -89,49 +99,6 @@ pub fn run_row(row: &super::Row, fixture: &Fixture) -> Ran {
     } else {
         Ok(points)
     }
-}
-
-/// `CirclePackingParams` at SciGraphs' two numbers, which its registered default is not:
-/// `iterations` is 500 there and `apply_graph_layout` passes 50 (`circle_packing.py:281`).
-fn packing(fixture: &Fixture) -> Result<SnapshotParts, String> {
-    let params = CirclePackingParams {
-        iterations: ITERATIONS,
-        scale: SCALE as f32,
-    };
-    finish(fixture, circle_packing::ID, |t| {
-        circle_packing::run_with(t, &params)
-    })
-}
-
-/// `Fa2Params` at the dispatcher's `iterations` and the layout seed, which its registered
-/// default is not: `max_iter` is 100 there and `seed` is 0 (`forceatlas.py:150`,
-/// `dispatcher.py:62`).
-fn fa2(fixture: &Fixture) -> Result<SnapshotParts, String> {
-    let params = Fa2Params {
-        max_iter: ITERATIONS,
-        seed: LAYOUT_SEED,
-        ..Fa2Params::default()
-    };
-    finish(fixture, ForceAtlas2::ID, |t| ForceAtlas2::run(t, &params))
-}
-
-/// sfdp at the layout seed. `sfdp::run` hard-codes `DEFAULT_SEED = 1`; the engine is handed
-/// `start = get_layout_seed()` (`yifan_hu.py:229`), so the seeded entry point is the one
-/// that answers the question.
-fn sfdp_seeded(fixture: &Fixture) -> Result<SnapshotParts, String> {
-    finish(fixture, sfdp::ID, |t| sfdp::run_seeded(t, LAYOUT_SEED))
-}
-
-/// The spring kernel, both dimensions, at SciGraphs' `iterations` and `scale` — which are
-/// already `SpringParams`' own defaults, so this arm writes them out anyway so a reader can
-/// see the two arms were handed the same numbers rather than the same defaults.
-fn spring<S: Stage<Params = SpringParams>>(fixture: &Fixture) -> Result<SnapshotParts, String> {
-    let params = SpringParams {
-        iterations: ITERATIONS,
-        scale: SCALE,
-        ..SpringParams::default()
-    };
-    finish(fixture, S::ID, |t| S::run(t, &params))
 }
 
 /// Every other id at its registered default.

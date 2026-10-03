@@ -28,6 +28,7 @@ caller for an application; this document is what it is built against.
 
 | export | signature | notes |
 |---|---|---|
+| `gm_abi_version` | `() -> u32` | The ABI's revision: `gm_abi_version()` returns `1` (`crate::ABI_VERSION`). Bumped whenever an export's signature, a refusal code's meaning or an accepted document version changes; never for a registry entry, which is counted at run time (C1). The SDK calls it first and refuses any other number with a message naming both. Additive: a module built before it lacks the symbol and is refused by name, as any module older than the SDK is. |
 | `gm_alloc` | `(len: u32) -> u32` | Returns an offset into linear memory, `0` on refusal (`gm_last_error` names it). Fallible: `std::alloc::alloc` under an explicit `Layout::from_size_align(len.max(1), 4)` (C5) — never the infallible, aborting `Vec::reserve`/`Box::new` path. Zero-filled. Zero `len` still reserves 1 byte (`GlobalAlloc` with a zero-size layout is UB) but is tracked and freed as length `0`. |
 | `gm_free` | `(ptr: u32, len: u32)` | `(ptr, len)` must be exactly a live, un-freed `gm_alloc` allocation, or the call is refused (`Code::FreeRefused`) and nothing is deallocated — a double free and a length lie are both caught this way, not just an unaligned or out-of-range pointer. |
 | `gm_layout_count` | `() -> u32` | The registry's row count (`graph_core::registry::LAYOUTS`). Registry-driven (C1): a new layout changes this with no ABI change. |
@@ -39,13 +40,13 @@ caller for an application; this document is what it is built against.
 | `gm_geometry_kind` | `(handle: u32) -> u32` | Node geometry tag of the last successful run: `0` Point, `1` Circle, `2` Box (`docs/contract/binary-layout.md`). `u32::MAX` — never a real tag — before any run has succeeded. |
 | `gm_edge_geometry_kind` | `(handle: u32) -> u32` | Edge geometry tag: `0` Line, `1` Polyline, `2` Curve. Beyond the phase's stated minimum surface: `gm_geometry_kind` alone only names nodes, and C3 requires edge kind to be readable too. Same `u32::MAX` convention. |
 | `gm_dim` | `(handle: u32) -> u32` | How many dimensions the last run carries: `0` 2D, `1` 3D (`docs/contract/binary-layout.md`, header byte 14). A reading, not a refusal — this layer transports 3D, so a consumer that cannot draw it checks this and declines. `0` with `InvalidHandle` or `NoGeometryYet` set, the same convention as the tags. |
-| `gm_column_ptr` | `(handle: u32, column_id: u32) -> u32` | Offset of column `column_id`'s data for the last run. `0` if the handle is invalid, there is no geometry yet, or the id is reserved/inapplicable to this run's kind — an ambiguous `0`, resolved by `gm_geometry_kind`/`gm_edge_geometry_kind` (present-but-empty vs. absent) and `gm_last_error` (invalid handle vs. no geometry). |
+| `gm_column_ptr` | `(handle: u32, column_id: u32) -> u32` | Offset of column `column_id`'s data for the last run. `0` if the handle is invalid, there is no geometry yet, or the id is reserved/inapplicable to this run's kind — an ambiguous `0`, resolved by `gm_geometry_kind`/`gm_edge_geometry_kind` (present-but-empty vs. absent) and `gm_last_error` (invalid handle vs. no geometry). A present but empty column also reads `0` (C3). An address the wire's `u32` cannot carry is refused (`IndexOutOfRange`), never truncated; on wasm32 every address fits, so only the native test host reaches that branch. |
 | `gm_column_len` | `(handle: u32, column_id: u32) -> u32` | Element count of the same column — never assumed from node/edge count, since a reserved notes column (below) will have its own length `k`. |
 | `gm_snapshot_json` | `(handle: u32) -> u32` | The canonical JSON face, framed UTF-8 (`graph_contract::canonical_json::to_json`). Re-validates every coordinate as finite first (D9, C8) and refuses with `Code::TamperedGeometry` if any column view wrote a non-finite value into the handle's buffers since the last run — column views are writable aliases directly into this snapshot's storage, and nothing else re-checks. |
 | `gm_snapshot_bytes` | `(handle: u32) -> u32` | The binary face, framed (`docs/contract/binary-layout.md`). Same D9 re-validation. Beyond the phase's stated minimum surface: added so `harness/wasm-run.mjs`'s hash mode can compare the real-ABI path's bytes against the retained `gm_layout_grid` shim's bytes directly (C20) — both are the binary face of the same pipeline. |
 | `gm_release` | `(handle: u32)` | Releases `handle`. Ids are monotonic and never reissued (C6): using a released id again always reads `InvalidHandle`, never a later graph that happens to reuse the number. |
 | `gm_last_error` | `() -> u32` | The `Code` (below) the most recent fallible call left behind; `0` (`Code::None`) after success. Read-only — polling it does not change it, so it can be checked after any other export without disturbing what it would report. |
-| `gm_seed_ingest` | `(seed: u32) -> u32` | Gate-only: the hash gate's model at `seed`, framed as the same provisional ingest JSON `gm_build` reads. Not part of the published SDK surface — `harness/sdk-smoke.mjs` never calls it; only `harness/wasm-run.mjs`'s hash mode does, to drive `gm_build`/`gm_run`/`gm_snapshot_bytes` over the gate's own seeded model for C20. |
+| `gm_seed_ingest` | `(seed: u32) -> u32` | Gate-only: the hash gate's model at `seed`, framed as the same provisional ingest JSON `gm_build` reads; `0` with `IngestInvalid` if the model holds a non-finite number, which JSON cannot carry (D9). Not part of the published SDK surface — `harness/sdk-smoke.mjs` never calls it; only `harness/wasm-run.mjs`'s hash mode does, to drive `gm_build`/`gm_run`/`gm_snapshot_bytes` over the gate's own seeded model for C20. |
 
 `gm_layout_count`/`gm_layout_id`/`gm_last_error`/`gm_edge_geometry_kind`/`gm_dim`/
 `gm_snapshot_bytes`/`gm_seed_ingest`/`gm_build_contract` are all beyond the phase's
@@ -175,7 +176,10 @@ retained shim's `gm_topology`/`gm_layout_grid`) writes `[len: u32 LE][len bytes]
 motor's own out-buffer and returns its address; `0` means the call was refused, not "an
 empty buffer" (an empty result is still framed: `[0][]`, a real nonzero address). The
 buffer is valid until the next call into the module, on *any* handle — a caller copies out
-of it (the SDK's `Motor#frame` does this with `.slice()`) before doing anything else.
+of it (the SDK's `Motor#frame` does this with `.slice()`) before doing anything else. The
+two refusals every framed export shares: a body longer than `u32` can count is
+`AllocFailed`, and an out-buffer address the wire cannot carry is `IndexOutOfRange`
+(native test host only). A nonzero return always clears the code (C4).
 
 ## Ownership (C7)
 
@@ -210,10 +214,11 @@ meaning.
 A column id past 12 is `Absent`, not a panic. "Absent" (reserved, or inapplicable to
 this run's geometry kind) and "present but zero-length" both read `(ptr, len) = (0, 0)`
 on the wire — the two are told apart by `gm_geometry_kind`/`gm_edge_geometry_kind`, never
-by treating a `0` pointer as "empty": a present-but-empty column's real pointer can be
-any nonzero address a bump allocator happens to hand out, so a `ptr === 0` check alone is
-not a valid presence test (`crates/graph-sdk-js/src/views.ts`'s `columnApplies` decides
-presence from the geometry kind instead, mirroring this table exactly).
+by the pointer. A present-but-empty column reads `(0, 0)` rather than its `Vec`'s
+dangling non-null address, which a view would otherwise be built over, so a `ptr === 0`
+check is not a presence test (`crates/graph-sdk-js/src/views.ts`'s `columnApplies`
+decides presence from the geometry kind instead, mirroring this table exactly). The force
+session's columns follow the same rule.
 
 Ids 7 and 8 are reserved for exactly the two fields Phase 3's `notes` section (contract
 0.3) brings — `note.code` and `note.index` — and they are numbered *before* 9/10/11
@@ -297,8 +302,11 @@ bundle, so there is no pair count to report.
 | `gm_analysis_run` | `(handle: u32, index: u32) -> u32` | Runs analysis `index` over `handle`'s topology and returns its **canonical JSON face**, framed UTF-8; `0` on refusal. |
 
 **No geometry is required.** Every analysis in `graph_core::analysis` is a pure function of
-the topology, so this works straight after `gm_build` and before any `gm_run`. The only
-refusals are `InvalidHandle` and `IndexOutOfRange`.
+the topology, so this works straight after `gm_build` and before any `gm_run`. The
+refusals are `InvalidHandle`, `IndexOutOfRange`, and `AnalysisFailed` for a report holding a
+non-finite number, which is refused rather than written as `NaN` (D9). Closeness and
+betweenness over a graph with any negative edge `strength` (ingest admits every finite
+number) are refused with `AnalysisFailed`: Dijkstra has no shortest path to state there.
 
 Rows, in order: `analysis.components.weak`, `analysis.components.strong`,
 `analysis.communities.louvain`, `analysis.centrality.{degree,closeness,betweenness,
@@ -352,12 +360,19 @@ graph-core-only capability.
 | 12 | `IndexOutOfRange` | An index argument (`gm_layout_id`, `gm_post_id`, `gm_analysis_id`) is past the end of its list |
 | 13 | `PostFailed` | The registered POST capability returned a `StageError`, or its edges did not fit the snapshot. The handle keeps the geometry it had |
 | 14 | `ContractInvalid` | `gm_build_contract`'s buffer is not a valid ingest contract document — the contract's strict reader refused it (unknown member, unnamed role, unsupported version, dangling collection, a `:` in a coordinate that cannot round-trip) **or** the derivation refused the graph it describes (a tag value containing `:`). One code for both, because "was my document accepted" is the question a caller asks and the reader's checks all run first; which of the two said no is a question about the document's content, and both are loud. |
+| 15 | `InvalidSession` | The session id does not name a live force session (never issued, or released). The session's own id space, never the graph handle's `InvalidHandle` |
+| 16 | `SessionParamsInvalid` | A force session's `(params_ptr, params_len)` is neither `0` (the defaults) nor exactly the parameter buffer's length |
+| 17 | `SessionRefused` | The force session refused: a parameter out of its range (never clamped), a row past the last node, or a non-finite coordinate (D9) |
+| 18 | `AnalysisFailed` | `gm_analysis_run` ran the analysis but its report has no JSON text: a non-finite score or modularity (`NaN` is not a JSON number, D9), or a column longer than `u32` can count |
+| 19 | `IngestTooLarge` | `gm_build`'s buffer is longer than `MAX_INGEST_BYTES` (774,568,785 bytes), refused on its length before any of it is read. **Not** `IngestInvalid`: that code means the document was read and found malformed, while this one means the document must be split or shrunk |
 
 Codes are **append-only**: `ContractInvalid` was added as `14` and moved no existing
 code, which `crates/graph-wasm/src/errors.rs`'s
 `the_new_code_appends_and_does_not_move_any_other` pins — an SDK indexes
 `CODE_NAMES` (`crates/graph-sdk-js/src/errors.ts`) by the same order, so renumbering
-would silently turn a caller's `UnknownLayoutId` into a `NoGeometryYet`. `ContractInvalid`
+would silently turn a caller's `UnknownLayoutId` into a `NoGeometryYet`. The three copies
+(`Code`, this table, `CODE_NAMES`) are pinned to one another by
+`crates/graph-wasm/src/errors/mirrors.rs`. `ContractInvalid`
 is deliberately **not** `IngestInvalid`: the two name different documents, and a code that
 did not say which was refused would let a caller handle a contract rejection as a
 node/edge rejection.
@@ -427,6 +442,9 @@ Rules, all refused loudly (never silently coerced or dropped):
 - Every member above is required; a field that may be absent is a present `null`, never
   an omitted key. An unknown member anywhere (a stray camelCase `hasNote`, say) refuses
   the whole document.
+- One exception: an edge's `child_first` is optional in version 1: omitted, it reads `false`
+  (parent-first, `graph_core::records`); present, it must be a boolean. Making it required
+  needs a version 2, since senders written to the example above omit it.
 - `kind` strings are matched by exact `NodeKind`/`EdgeKind` name, never the lossy
   `edge_kind_from_type` heuristic the TS oracle uses for legacy data.
 - A duplicate node or edge `id`, or an edge naming a `source`/`target` not present in
@@ -434,6 +452,15 @@ Rules, all refused loudly (never silently coerced or dropped):
   first-wins/drop-silently for exactly these cases, which would make ingest order diverge
   from snapshot order, the one identity this ABI promises a caller.
 - Not UTF-8, or not JSON at all, is refused before shape-checking even starts.
+- A document longer than `MAX_INGEST_BYTES` (774,568,785 bytes) is refused with
+  `IngestTooLarge` on its length alone, before it is read at all. The number is measured,
+  not chosen: it is the largest document that built on the wasm32 artifact, byte for byte,
+  and the next one up, 799,922,860 bytes, trapped inside `index_model`'s string arena
+  (`docs/measurements/fix-wasm-ingest.md`). It has no margin, because it *is* the
+  measurement — nothing between it and that first trap has been shown to build — and it is
+  a ceiling rather than a promise: a document under it with an unusually high edge-to-node
+  ratio can still exhaust memory exactly as it does today. `fix-ingest-scale` owns that
+  defect and raises this number with a new measurement once it lands.
 - A number is refused wherever JSON does not admit non-finite values in the first place —
   D9's "no NaN/Inf reaches the wire" is enforced again on the way out (`gm_snapshot_json`/
   `gm_snapshot_bytes`), since a column view can still write one in after `gm_build`.

@@ -27,6 +27,7 @@
 //! |---|---|---|
 //! | [`Pass`] (charge) | node | none — it was already a gather |
 //! | [`CollidePass`] | node | none — the same gather shape |
+//! | [`LinkForces`] | edge | none — each output is its own edge's force |
 //! | [`LinkPass`] | node | one edge writing both endpoints — see `link-gather.md` |
 //!
 //! All three share one output type — a per-node `(dvx, dvy)` — so they share the tick's
@@ -111,20 +112,49 @@ impl StepRange for CollidePass<'_> {
     }
 }
 
+/// Each simple edge's force, `(fx, fy)`, one output per edge: the square root and the
+/// division run once per edge here, where reading them from both endpoints would run them
+/// twice. Every output is its own edge's, so the pass partitions by edge.
+pub struct LinkForces<'a> {
+    sim: &'a Sim,
+}
+
+impl<'a> LinkForces<'a> {
+    /// The pass over `sim`'s simple edges, which carry their frozen geometry already.
+    pub fn of(sim: &'a Sim) -> LinkForces<'a> {
+        LinkForces { sim }
+    }
+}
+
+impl StepRange for LinkForces<'_> {
+    type Out = (f64, f64);
+
+    fn len(&self) -> u32 {
+        self.sim.graph.lo.len() as u32
+    }
+
+    fn step_range(&self, range: Range<u32>, out: &mut [(f64, f64)]) {
+        for (slot, e) in out.iter_mut().zip(range) {
+            *slot = super::link::force(self.sim, e as usize);
+        }
+    }
+}
+
 /// The per-node link gather: node `i`'s own share of every edge incident to it, summed in
-/// its CSR row's order.
+/// its CSR row's order, each edge's force read from [`LinkForces`]'s output.
 ///
 /// The gather half of `docs/decisions/link-gather.md`: the row order is the simple-edge
 /// index order the old single loop visited, so the per-node sum sees its terms in the
 /// order it saw them when the whole column was accumulated by one thread.
 pub struct LinkPass<'a> {
     sim: &'a Sim,
+    forces: &'a [(f64, f64)],
 }
 
 impl<'a> LinkPass<'a> {
-    /// The pass over `sim`, whose edges carry their frozen geometry already.
-    pub fn of(sim: &'a Sim) -> LinkPass<'a> {
-        LinkPass { sim }
+    /// The pass over `sim`, with `forces` the [`LinkForces`] output of the same state.
+    pub fn of(sim: &'a Sim, forces: &'a [(f64, f64)]) -> LinkPass<'a> {
+        LinkPass { sim, forces }
     }
 }
 
@@ -147,12 +177,9 @@ impl LinkPass<'_> {
     fn node_share(&self, node: u32) -> (f64, f64) {
         let (mut dvx, mut dvy) = (0.0, 0.0);
         for &e in self.sim.graph.rows.row(node) {
-            let ((lox, loy), (hix, hiy)) = super::link::halves(self.sim, e as usize);
-            let share = if self.sim.graph.hi[e as usize] == node {
-                (hix, hiy)
-            } else {
-                (lox, loy)
-            };
+            let e = e as usize;
+            let hi = self.sim.graph.hi[e] == node;
+            let share = super::link::share(self.forces[e], self.sim.link_bias[e], hi);
             dvx += share.0;
             dvy += share.1;
         }
@@ -168,7 +195,7 @@ impl LinkPass<'_> {
 /// three. Each node receives exactly one addition, its own delta, which is why the order
 /// the outputs are laid out in moves no byte and why the control has to *steal* a
 /// neighbour's term to move anything.
-pub(super) fn merge(
+pub(in crate::layout::force) fn merge(
     v: (&mut [f64], &mut [f64]),
     order: Option<&[u32]>,
     deltas: &[(f64, f64)],

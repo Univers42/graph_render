@@ -7,6 +7,78 @@ use crate::layout::force::session::{ForceSession, LiveParams, NodeRow};
 use crate::stage::{gate_node_count, seeded_model};
 use crate::weights::REFERENCE_DEGREE;
 
+/// The model every verb case runs: 7 nodes, so every force has a neighbour to push against
+/// and a pair far enough apart to push.
+pub(super) const SEED: u32 = 5;
+
+/// How many ticks both runs are stepped *before* the verb, so the forces have real
+/// velocities rather than the zero row the spiral seed starts from — a verb applied to
+/// an unmoved layout proves less than one applied to a running one.
+pub(super) const WARMUP: u32 = 12;
+
+/// The row `pin` and the release cases address, and a pin far outside anything the layout
+/// reaches on its own, so a pinned row cannot land where it would have landed anyway.
+pub(super) const ROW: u32 = 0;
+pub(super) const PX: f64 = -250.0;
+pub(super) const PY: f64 = 175.0;
+
+/// Two runs of the same model, stepped in lockstep, one of which will be told something
+/// the other is not. The whole of `verbs.rs` and `pins.rs` is the distance between them.
+pub(super) struct Twin {
+    /// The run nothing is ever said to: what the subject is measured against.
+    pub(super) reference: ForceSession,
+    /// The run every verb goes to.
+    pub(super) subject: ForceSession,
+}
+
+impl Twin {
+    /// Two fresh sessions over the gate's model for `seed`. A pair that differed by one
+    /// field would make every assertion compare two different problems.
+    pub(super) fn twinned(seed: u32) -> Self {
+        let topology = topology(seed);
+        let new = || ForceSession::new(&topology, LiveParams::default()).expect("in range");
+        Self {
+            reference: new(),
+            subject: new(),
+        }
+    }
+
+    /// Steps both runs the same number of ticks — the only thing that may differ between
+    /// two runs of one model, and what `m1b` pins.
+    pub(super) fn step(&mut self, ticks: u32) {
+        self.reference.step(ticks);
+        self.subject.step(ticks);
+    }
+
+    /// The two runs are the same bytes, `when` naming the point in the contract.
+    pub(super) fn assert_same(&self, when: &str) {
+        assert_eq!(bits(&self.subject), bits(&self.reference), "{when}");
+    }
+
+    /// The two runs are not the same bytes, `when` naming what was supposed to move.
+    pub(super) fn assert_differ(&self, when: &str) {
+        assert_ne!(bits(&self.subject), bits(&self.reference), "{when}");
+    }
+}
+
+/// Steps the first two steps of the contract for a changed parameter: both runs warm, both
+/// identical, the verb on the subject alone, and the positions **still** identical because
+/// a verb only ever arms the next tick. Returns the pair one tick later, for the caller to
+/// say what its force did.
+pub(super) fn diverge(seed: u32, force: &str, params: LiveParams) -> Twin {
+    let mut twin = Twin::twinned(seed);
+    twin.step(WARMUP);
+    twin.assert_same("two runs of one model are the same bytes before any verb");
+    twin.subject
+        .set_params(params)
+        .unwrap_or_else(|_| panic!("{force} is in range"));
+    twin.assert_same(&format!(
+        "{force}: set_params has moved nothing, it has armed the next tick"
+    ));
+    twin.step(1);
+    twin
+}
+
 /// The gate's own model for `seed` (`prompt.md` §7.1): 2 to 66 nodes over seeds 0..64.
 pub(super) fn topology(seed: u32) -> Topology {
     let (nodes, edges) = seeded_model(seed, gate_node_count(seed), REFERENCE_DEGREE);

@@ -2,8 +2,21 @@
 
 The document is the deliverable, so these are byte-level: the top-level keys,
 every params entry, one node record in full, the edge list's shape, the label
-set, and the guarantee that two builds agree. Run in the oracle image; see
-``harness/emit-scigraphs-lesmis.py``.
+set, and the guarantee that two builds agree.
+
+The committed file is the artifact; the twelve structural tests read a freshly
+emitted document, and ``test_the_committed_fixture_is_what_this_emitter_produces``
+binds the two by opening the committed bytes. Without it this arm compares the
+emitter against itself and a tampered artifact passes. Negative control: set
+``nodes[0]["screen"]`` to ``[0.0, 0.0]`` in ``fixtures/scigraphs/lesmis.json``
+and only that test fails. Regenerate with ``harness/emit-scigraphs-lesmis.py``;
+see that file for the write.
+
+Run it with:
+
+    docker run --rm --pull never --user 0:0 -v "$PWD:/w" \\
+      -v "$PWD/SciGraphs:/sg:ro" -w /w ge-python-oracle \\
+      python3 -m unittest discover -s harness -p 'test_scigraphs_lesmis_document.py'
 """
 
 import json
@@ -18,6 +31,17 @@ import scigraphs_lesmis_fixture as fix
 import scigraphs_lesmis_graph as gr
 import scigraphs_lesmis_pins as pins
 
+FIXTURE_PATH = os.path.normpath(os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    os.pardir, "fixtures", "scigraphs", "lesmis.json"))
+
+# The gallery figure's own four stage counts, transcribed from the reference
+# pipeline's reported losses as recorded in
+# docs/decisions/scigraphs-reference-fixture.md:130-135. Three of the four are
+# also our own pins; the unoccluded one is not (59 there, pins.UNOCCLUDED here)
+# because the two point clouds differ, and nothing is tuned to close that gap.
+GALLERY_UNOCCLUDED = 59
+
 
 def setUpModule():
     gr.scigraphs_setup(pins.SCIGRAPHS_ROOT)
@@ -26,8 +50,17 @@ def setUpModule():
 class Document(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        cls.fixture_path = FIXTURE_PATH
+        if not os.path.isfile(cls.fixture_path):
+            raise AssertionError(
+                "committed fixture is missing: %s" % cls.fixture_path)
+        with open(cls.fixture_path, "rb") as handle:
+            cls.committed = handle.read().decode("utf-8")
         cls.text = fix.emit_document(pins.SCIGRAPHS_ROOT)
         cls.doc = json.loads(cls.text)
+
+    def test_the_committed_fixture_is_what_this_emitter_produces(self):
+        self.assertEqual(self.committed, self.text)
 
     def test_top_level_keys(self):
         self.assertEqual(
@@ -134,11 +167,29 @@ class Document(unittest.TestCase):
         self.assertEqual(pins.KEPT, len(overlap) + len(only_ours))
 
     def test_the_overlap_report_names_the_four_stages(self):
+        """The report prints four counts, so build it from the pins, not literals.
+
+        Our projected / in-frame / unoccluded / kept counts are
+        ``pins.NODE_COUNT``, ``pins.IN_FRAME``, ``pins.UNOCCLUDED`` and
+        ``pins.KEPT``, each already asserted from a recomputation elsewhere in
+        this module, and the overlap total is ``len(pins.OVERLAP)`` out of the
+        ``len(fix.FIG6_NAMES)`` names legible in the PNG. The gallery quadruple
+        in the parenthetical is the reference figure's own log; three of its
+        numbers coincide with our pins and are built from them, but its
+        unoccluded count (``GALLERY_UNOCCLUDED``) has no origin inside this
+        harness — it is a transcription, so this assertion pins the format and
+        the three shared counts, not that one number.
+        """
         scene = fix.make_scene(gr.build_graph())
         report = fix.overlap_report(scene)
-        self.assertIn("77 projected, 77 in frame, 65 unoccluded, 18 kept", report)
-        self.assertIn("overlap: 8 of 18", report)
-        self.assertIn("gallery: 77 / 77 / 59 / 18", report)
+        self.assertIn("labels: %d projected, %d in frame, %d unoccluded, %d kept"
+                      % (pins.NODE_COUNT, pins.IN_FRAME, pins.UNOCCLUDED,
+                         pins.KEPT), report)
+        self.assertIn("overlap: %d of %d"
+                      % (len(pins.OVERLAP), len(fix.FIG6_NAMES)), report)
+        self.assertIn("gallery: %d / %d / %d / %d"
+                      % (pins.NODE_COUNT, pins.IN_FRAME, GALLERY_UNOCCLUDED,
+                         pins.KEPT), report)
 
 
 if __name__ == "__main__":

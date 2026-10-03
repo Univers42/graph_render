@@ -1,9 +1,8 @@
 /** The menu a secondary click on a node opens: focus, pin, hide, copy the id. */
-import { useEffect, useRef, type KeyboardEvent, type ReactElement } from "react";
+import { memo, useEffect, useRef, type KeyboardEvent, type ReactElement } from "react";
 
 import type { Point } from "../../../graph-render/src/camera.ts";
 import type { View } from "../../../graph-render/src/view.ts";
-import type { StudioState } from "../state/model.ts";
 import type { Studio } from "../studio/studio.ts";
 import { type MenuItem, entriesFor, nextEntry } from "./nodeMenu.ts";
 
@@ -12,22 +11,42 @@ export interface MenuAt {
   readonly at: Point;
 }
 
-export type MenuView = Pick<View, "focus" | "hide" | "togglePin" | "pinned">;
+/** The menu asks the view one thing: which nodes are pinned, so the entry can read Pin or Unpin. */
+export type MenuView = Pick<View, "pinned">;
 
 export interface NodeMenuProps {
   readonly studio: Studio;
-  readonly state: StudioState;
+  /** The ids of the graph as drawn, which is the one thing the menu copies out of the state. */
+  readonly ids: readonly string[] | null;
   readonly view: MenuView;
   readonly menu: MenuAt | null;
   readonly onClose: () => void;
 }
 
+/**
+ * The entries that are actions, as the id each dispatches. Copy is the one entry that is not
+ * here — it reads the id out of the state for the clipboard instead of changing the drawing —
+ * so `perform` has one branch for it and a lookup for the rest, and every entry stays named.
+ */
+const ACTION_OF: { readonly [Name in Exclude<MenuItem, "copy">]: string } = {
+  focus: "view.focus", pin: "view.pin", hide: "view.hide",
+};
+
+/**
+ * WHY the id and not the index: an action takes a name and resolves it (`nodeNamed`,
+ * `actions/view.ts`), which is what makes every gesture but Copy logged, typeable and checked
+ * once. Copy is the exception and reads out of the state instead: what it wants is the text on
+ * the clipboard, not a change to the drawing.
+ */
 function perform(item: MenuItem, props: NodeMenuProps, node: number): void {
-  const { studio, state, view } = props;
-  if (item === "focus") view.focus(node);
-  else if (item === "pin") view.togglePin(node);
-  else if (item === "hide") view.hide([node]);
-  else studio.copy(state.meta?.ids[node] ?? "");
+  const { studio, ids } = props;
+  if (item === "copy") {
+    studio.copy(ids?.[node] ?? "");
+    return;
+  }
+  const id = ids?.[node];
+  if (id === undefined) return;
+  void studio.dispatch(ACTION_OF[item], { node: id });
 }
 
 function moveFocus(list: HTMLElement | null, event: KeyboardEvent): void {
@@ -39,7 +58,8 @@ function moveFocus(list: HTMLElement | null, event: KeyboardEvent): void {
   buttons[to]?.focus();
 }
 
-export function NodeMenu(props: NodeMenuProps): ReactElement | null {
+/** Memoised: a menu that is closed draws nothing, and an open one reads four things. */
+export const NodeMenu = memo(function NodeMenu(props: NodeMenuProps): ReactElement | null {
   const { menu, onClose, view } = props;
   const list = useRef<HTMLDivElement | null>(null);
   const opened = menu !== null;
@@ -74,4 +94,4 @@ export function NodeMenu(props: NodeMenuProps): ReactElement | null {
       </div>
     </div>
   );
-}
+});

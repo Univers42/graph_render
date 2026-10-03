@@ -99,7 +99,7 @@ impl Stage for DavidsonHarel {
 
 fn anneal(topology: &Topology, params: &DhParams) -> Result<Vec<[f64; 2]>, StageError> {
     let n = topology.node_count() as usize;
-    let half = 5.0 * libm::sqrt(n as f64);
+    let half = 5.0 * f64::sqrt(n as f64);
     let (edges, adj) = edge_lists(topology);
     let shape = Shape {
         adj: &adj,

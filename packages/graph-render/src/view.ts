@@ -4,13 +4,17 @@
  *   const view = createView(canvas);
  *   view.setFrame(frameFrom(decodeSnapshot(bytes)));
  *
+ * A scene above BULK_THRESHOLD nodes draws through a WebGL2 layer (`webgl2/`) when the browser
+ * has one, and through Canvas2D otherwise or once the GL context is lost.
+ *
  * It does not: run a layout, fetch, read CSS, or keep a frame loop alive while parked.
- * Not done yet: a WebGL2 backend, pinch with two pointers, keyboard navigation of nodes.
+ * Not done yet: WebGPU, pinch with two pointers, keyboard navigation of nodes.
  */
-import { type Camera, type Point, type Viewport, type ZoomLimits, panBy, zoomAt } from "./camera.ts";
+import { type Camera, type FitArea, type Point, type Viewport, type ZoomLimits, panBy, zoomAt } from "./camera.ts";
 import { cameraApi, inSpace, orbitBy, sceneApi, zoomAt3d } from "./camera-api.ts";
 import { clickAt, contextAt, pressAt } from "./canvas2d/choose.ts";
 import { type Controller, fit, hover, measure, moveTo, newState, pickAt } from "./canvas2d/controller.ts";
+import { taken } from "./gestured.ts";
 import { invalidate } from "./canvas2d/loop.ts";
 import { type EdgeEnds } from "./canvas2d/probe.ts";
 import type { Frame } from "./frame.ts";
@@ -25,19 +29,38 @@ import type { Theme } from "./theme.ts";
 import type { Orbit } from "./three/orbit.ts";
 import type { Projected } from "./three/projection.ts";
 
+import type { BackendChoice } from "./webgl2/plan.ts";
 export type { EdgeEnds } from "./canvas2d/probe.ts";
 export type { Orbit } from "./three/orbit.ts";
 export type { Projected } from "./three/projection.ts";
 export type { CameraApi, SceneApi } from "./camera-api.ts";
+export type { FitArea, FitOptions } from "./camera.ts";
+export type { BackendChoice } from "./webgl2/plan.ts";
+export { BACKEND_CHOICES, backendOf } from "./webgl2/plan.ts";
 export interface ViewOptions {
   readonly theme?: Theme;
   readonly labels?: LabelPolicy;
   /** A live force session: a drag pins the node in it while it is enabled. */
   readonly live?: LiveDrag;
+  /**
+   * Who draws a 2D scene's edges and nodes: `auto` (the default) hands a large one to a
+   * WebGL2 layer when the browser has it, `canvas2d` never does, `webgl2` always does.
+   * Labels, rings and the lit neighbourhood stay on the 2D context either way.
+   */
+  readonly backend?: BackendChoice;
 }
 
 export interface ViewStats {
-  readonly backend: "canvas2d";
+  /** Who drew the last frame's edges and nodes. */
+  readonly backend: "canvas2d" | "webgl2";
+  /** Why the WebGL2 layer could not be used, or "". */
+  readonly backendFailure: string;
+  /**
+   * True while the GPU layer's settled picture is still filling: the last frame's still lacked
+   * edges, so the next one adds another chunk. False once the picture holds every edge, and on
+   * the frame after a camera move, which draws from the moving budget instead.
+   */
+  readonly refining: boolean;
   readonly nodes: number;
   readonly edges: number;
   readonly drawnNodes: number;
@@ -67,6 +90,8 @@ export interface ViewStats {
   readonly layoutRuns: number;
   /** Script time of the last frame; the rasteriser's time is not in it. */
   readonly frameMs: number;
+  /** Edge-draw milliseconds the GPU counted since the layer was made: monotonic, 0 where no GPU timer ran. */
+  readonly gpuEdgeMs: number;
   /** Frames painted per second while the view moves; 0 while parked. */
   readonly fps: number;
   readonly frames: number;
@@ -105,6 +130,15 @@ export interface View {
   style(): Style;
   /** The canvas box in CSS pixels, which is what a camera's offsets are measured against. */
   viewport(): Viewport;
+  /**
+   * The part of the canvas a fit puts its drawing in and centres it on, in canvas pixels, or
+   * `null` for the whole canvas. A host whose panels lie over the canvas sets it to the box
+   * they leave visible, so a fit does not put a third of the drawing under a dock the user
+   * cannot see through. It re-fits at once when the camera is still the one a fit chose, and is
+   * clamped to the canvas: a stale or inverted box gets the canvas, not a broken camera.
+   */
+  safeArea(): FitArea | null;
+  setSafeArea(area: FitArea | null): void;
   setCamera(camera: Camera): void;
   camera(): Camera;
   fit(): void;
@@ -193,23 +227,26 @@ function toBlob(canvas: HTMLCanvasElement): Promise<Blob> {
 /** Pointer, wheel and resize; returns what undoes all three. */
 function bindInputs(controller: Controller): () => void {
   const { canvas, state } = controller;
+  // Every gesture the pointer layer reports, not the ones that happen to move the camera: a click
+  // and a node drag leave the camera where it is, and both still mean the user has taken it over
+  // from the view's automatic fit (`gestured.ts`).
   const unbind = bindPointer(canvas, {
-    zoom: (at, factor) => {
+    zoom: taken(controller, (at: Point, factor: number) => {
       if (state.orbit !== null) zoomAt3d(controller, factor);
       else moveTo(controller, zoomAt(state.camera, at, factor, state.limits), false);
-    },
-    pan: (delta) => moveTo(controller, panBy(state.camera, delta), false),
-    orbit: (delta, right) => orbitBy(controller, delta, right),
+    }),
+    pan: taken(controller, (delta: Point) => moveTo(controller, panBy(state.camera, delta), false)),
+    orbit: taken(controller, (delta: Point, right: boolean) => orbitBy(controller, delta, right)),
     hover: (at) => hover(controller, at === null ? -1 : pickAt(state, at)),
-    click: (at, shift) => clickAt(controller, at, shift),
-    press: (at, shift) => pressAt(controller, at, shift),
-    context: (at) => contextAt(controller, at),
-    doubleClick: (at) => {
+    click: taken(controller, (at: Point, shift: boolean) => clickAt(controller, at, shift)),
+    press: taken(controller, (at: Point, shift: boolean) => pressAt(controller, at, shift)),
+    context: taken(controller, (at: Point) => contextAt(controller, at)),
+    doubleClick: taken(controller, (at: Point) => {
       // A double-click on a node is the node's own gesture (S2); on the background it zooms.
       if (pickAt(state, at) >= 0) return;
       if (state.orbit !== null) zoomAt3d(controller, DOUBLE_CLICK_ZOOM);
       else moveTo(controller, zoomAt(state.camera, at, DOUBLE_CLICK_ZOOM, state.limits), false);
-    },
+    }),
   }, globalThis.window, () => inSpace(state));
   const observer = new ResizeObserver(() => {
     measure(controller);
@@ -231,7 +268,7 @@ export function createView(canvas: HTMLCanvasElement, options: ViewOptions = {})
     for (const handler of handlers[name]) handler(payload);
   };
   const state = newState(canvas, {
-    theme: options.theme, policy: options.labels, onFrame: () => emit("frame", statsOf(state)),
+    theme: options.theme, policy: options.labels, backend: options.backend, onFrame: () => emit("frame", statsOf(state)),
   });
   const notify = {
     hover: (node: number): void => emit("hover", node),
@@ -240,7 +277,7 @@ export function createView(canvas: HTMLCanvasElement, options: ViewOptions = {})
     context: (node: number, at: Point): void => emit("context", { node, at }),
     camera: (camera: Camera): void => emit("camera", camera),
   };
-  const controller: Controller = { canvas, state, notify, fitted: true, local: newLocalLayer(), ...(options.live === undefined ? {} : { live: options.live }) };
+  const controller: Controller = { canvas, state, notify, fitted: true, gestured: false, local: newLocalLayer(), ...(options.live === undefined ? {} : { live: options.live }) };
   measure(controller);
   const unbind = bindInputs(controller);
   return {

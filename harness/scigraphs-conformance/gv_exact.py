@@ -22,11 +22,11 @@ global (`lib/common/globals.c` via `lib/common/globals.h:40-42`) that only the `
 ever sets (`lib/common/input.c:415-416`), and neither `gv_plain.run_engine` nor
 `gv_exact` passes it -- so plain's second column is `ND_coord(n).y` as is, which is what
 `_max_gap` below checks. Units match too: `ND_coord` is already in points, and
-`parse_plain`'s `* 72` (`gv_plain.py:24`, `:95-96`) is only undoing `PS2INCH`
+`parse_plain`'s `* POINTS_PER_INCH` (`gv_plain.py:26`, `:153-157`) is only undoing `PS2INCH`
 (`lib/common/geom.h:64`) to get back to them.
 
 Everything else is `gv_plain`'s: `write_dot` writes the same undirected DOT, so the same
-fixtures give the same graphs, and `ENGINE_BENIGN_STDERR` (`gv_plain.py:49-61`) still
+fixtures give the same graphs, and `ENGINE_BENIGN_STDERR` (`gv_plain.py:92-94`) still
 decides which stderr lines are a build notice rather than a failure -- sfdp's
 `remove_overlap` stub sets the error flag and exits 1 while stdout holds a finished layout.
 """
@@ -43,7 +43,8 @@ sys.dont_write_bytecode = True
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from gv_plain import ENGINE_BENIGN_STDERR, START_SEED, write_dot
+import gv_plain
+from gv_plain import ENGINE_BENIGN_STDERR, dot_path, graph_of, write_dot
 from gv_plain import engine_points as gv_engine_points
 
 from sc_names import graphviz_version
@@ -98,7 +99,7 @@ def run_exact(binary, engine, dot_path, start):
 
     The stderr rule is `gv_plain.run_engine`'s verbatim: a non-zero exit is a failure unless
     every line of stderr is that engine's measured build notice, which for this program means
-    sfdp alone (`gv_plain.py:49-61`).
+    sfdp alone (`gv_plain.py:92-94`).
     """
     cmd = [binary, engine, str(start), dot_path]
     proc = subprocess.run(cmd, capture_output=True, text=True)
@@ -110,19 +111,24 @@ def run_exact(binary, engine, dot_path, start):
     return proc.stdout
 
 
-def exact_points(engine, tmp, name, count, edges, start=START_SEED):
+def exact_points(engine, dot, graph, start=None):
     """The engine's own node coordinates over one DOT graph, as dense-indexed points.
 
-    The same return shape as `gv_plain.engine_points` (`gv_plain.py:105-110`) and the same
-    DOT from the same `write_dot`, so the two are interchangeable on x and on y alike (see
-    the module docstring for why no reflection has to be undone). Refuses a node count that
-    is not the fixture's, which is the one way the engine could silently answer about
-    another graph (`parse_plain`, `gv_plain.py:98-102`).
+    The same parameters and return shape as `gv_plain.engine_points` (`gv_plain.py:166-177`)
+    and the same DOT from the same `write_dot`, so the two are interchangeable on x and on y
+    alike (see the module docstring for why no reflection has to be undone). The binary is
+    built next to the DOT. `start` is resolved in the body, as `run_engine` does, so a later
+    rebind of `gv_plain.START_SEED` reaches it. Refuses a node count that is not the
+    fixture's, which is the one way the engine could silently answer about another graph
+    (`parse_plain`, `gv_plain.py:161-162`).
     """
-    dot = os.path.join(tmp, "%s.dot" % name)
-    write_dot(dot, count, [a for a, _ in edges], [b for _, b in edges])
+    if start is None:
+        start = gv_plain.START_SEED
+    count = graph.count
+    write_dot(dot, count, graph.source, graph.target)
     nodes = {}
-    for line in run_exact(exact_binary(tmp), engine, dot, start).splitlines():
+    binary = exact_binary(os.path.dirname(dot))
+    for line in run_exact(binary, engine, dot, start).splitlines():
         parts = line.split()
         if len(parts) != 3:
             continue
@@ -156,9 +162,10 @@ def _report(tmp, fixtures, engines):
     for name, count, edges in fixtures:
         print("%s (%d nodes, %d edges)" % (name, count, len(edges)))
         for engine in engines:
+            dot, graph = dot_path(tmp, name), graph_of(count, edges)
             dx, dy = _max_gap(
-                exact_points(engine, tmp, name, count, edges),
-                gv_engine_points(engine, tmp, name, count, edges),
+                exact_points(engine, dot, graph),
+                gv_engine_points(engine, dot, graph),
             )
             print("  %-10s dx %.3e pt   dy %.3e pt" % (engine, dx, dy))
 

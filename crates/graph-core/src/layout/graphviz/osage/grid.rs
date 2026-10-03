@@ -37,7 +37,7 @@ impl Grid {
         if count == 0 {
             return Self { cols: 0, rows: 0 };
         }
-        let side = libm::ceil(libm::sqrt(f64::from(count))) as u32;
+        let side = libm::ceil(f64::sqrt(f64::from(count))) as u32;
         Self {
             cols: side,
             rows: count.div_ceil(side),

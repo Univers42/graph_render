@@ -27,11 +27,11 @@ use std::process::{Command, Output};
 /// `layout.basic3d.{sphere,helix,cube}` the node count is the whole of their input, so a
 /// re-drawn model is the only control they can have.
 ///
-/// The twenty-one per-stage names are spelled out here rather than derived from the
-/// binary's own table: this list is what clears a knob out of a test run's environment, so
-/// a name it failed to carry would let a control leak in and turn an honest run red. Being
-/// an independent copy is the property; the unit test is what makes it hold.
-pub const KNOBS: [&str; 44] = [
+/// The per-stage names are spelled out here rather than derived from the binary's own table:
+/// this list is what clears a knob out of a test run's environment, so a name it failed to
+/// carry would let a control leak in and turn an honest run red. Being an independent copy is
+/// the property; the unit test is what makes it hold.
+pub const KNOBS: [&str; 48] = [
     "GM_MUTATE_REFERENCE_DEGREE",
     "GM_MUTATE_GRID_SPACING",
     "GM_MUTATE_SUGIYAMA_LAYER_SPACING",
@@ -73,8 +73,12 @@ pub const KNOBS: [&str; 44] = [
     "GM_MUTATE_BASIC3D_CUBE_NODES",
     "GM_MUTATE_HIERARCHICAL3D_NODES",
     "GM_MUTATE_FORCE_SPRING3D_NODES",
+    "GM_MUTATE_BASIC3D_SPIRAL_NODES",
+    "GM_MUTATE_BIPARTITE_3D_NODES",
+    "GM_MUTATE_PACKING_OSAGE_NODES",
     "GM_MUTATE_SPLIT_SUM",
     "GM_MUTATE_SPLIT_RESCALE",
+    "GM_MUTATE_OVERLAP_RELAXATION",
     "GM_MUTATE_FORCE_SESSION_GRAVITY",
 ];
 

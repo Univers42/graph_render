@@ -6,10 +6,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { type LiveBridge, createLiveBridge, settlesLive } from "../src/motor/bridge.ts";
+import { type LiveBridge, type RunState, createLiveBridge, watchRuns } from "../src/motor/bridge.ts";
+import { settlesLive } from "../src/motor/live.ts";
 import { DEFAULT_KNOBS } from "../src/motor/live.ts";
 import type { ForceFrame, ForceRequest, Result } from "../src/motor/protocol.ts";
 import { ALPHA_MIN } from "../src/motor/liveLoop.ts";
+import { createStore } from "../src/state/store.ts";
 import { HIDDEN, type Bar } from "../src/ui/progress.ts";
 
 function frame(alpha: number, running = true): ForceFrame {
@@ -139,4 +141,23 @@ test("a force layout settles live and the finished ones do not", () => {
   for (const id of ["layout.grid", "layout.random", "layout.circular.radial", "layout.dag.sugiyama"]) {
     assert.equal(settlesLive(id), false, id);
   }
+});
+test("every force run starts the loop, even one that reports the same layout as the last", () => {
+  const { bridge, sent } = rig();
+  const store = createStore<RunState>({ busy: [], run: null });
+  const unwatch = watchRuns(store, bridge);
+  const starts = (): number => sent.filter((request) => request.type === "force.start").length;
+  const ran = (layoutId: string): void => store.update((state) => ({ ...state, run: { layoutId } }));
+  // A large graph reports `particle_mesh` whichever force layout ran (settle.ts).
+  ran("layout.force.particle_mesh");
+  ran("layout.force.particle_mesh");
+  assert.equal(starts(), 2, "the second run's scatter is settled too");
+  store.update((state) => ({ ...state, busy: [1] }));
+  assert.equal(starts(), 2, "a change that is not a run starts nothing");
+  ran("layout.grid");
+  store.update((state) => ({ ...state, run: null }));
+  assert.equal(starts(), 2, "a finished layout and a cleared drawing start nothing");
+  unwatch();
+  ran("layout.force.particle_mesh");
+  assert.equal(starts(), 2, "nothing starts once the watch is over");
 });

@@ -99,9 +99,11 @@ pub const MAX_ROUNDS: u32 = 8;
 /// Edge count past which MINGLE stops being usable, and why it is this one.
 ///
 /// Measured, not estimated: `graph-cli ink --nodes N` sweeps the hairball generator and
-/// reports the wall time of one pass. The cost is quadratic in the edge count, because a pass
-/// scores each bundle against its `k` nearest by scanning every bundle, and
-/// `PASSES_PER_ROUND × rounds` do not change that shape. The sweep behind this number is in
+/// reports the wall time of one pass. The cost is `m² log m` in the edge count, because a
+/// pass finds each bundle's `k` nearest by sorting its whole row of distances to every other
+/// bundle, as the reference's `knn_numpy` does (`mingle.py:109-112`), and
+/// `PASSES_PER_ROUND × rounds` do not change that shape. The number is the measured wall
+/// time, so it already pays for the sort. The sweep behind this number is in
 /// `docs/measurements/phase08-ink.md`; re-run the command to refresh it. A second of
 /// bundling per redraw is past what a view absorbs, so the ceiling is the edge count that
 /// fits it, rounded down to two figures.
@@ -111,16 +113,20 @@ pub const MINGLE_CEILING: u64 = 3_000;
 pub const META: Metadata = Metadata {
     tier: 1,
     edges: EdgeGeometryKind::Polyline,
+    // A bundler never moves a node; see `post::Metadata::moves_nodes` and
+    // `docs/decisions/node-overlap.md` 3 for why that is now declared rather than assumed.
+    moves_nodes: false,
     oracle: "hand: Gansner et al. 2011 restated in f64, ported from \
 SciGraphs/engine/scigraphs_engine/bundling/mingle.py; the merge order, the ink accounting and the \
 tie-break are pinned per input in graph-core's post/mingle tests and re-checked per seed by \
 graph-cli roundtrip. No third-party MINGLE exists to differential-test against, and the reference \
 carries f32 ink where this carries f64, so a byte comparison would be lenient rather than strict",
-    complexity: "O(rounds x passes x (m^2 proximity + m x k x (MAX_GROUP + SOLVE_ITERS)))",
+    complexity: "O(rounds x passes x (m^2 log m proximity + m x k x (MAX_GROUP + SOLVE_ITERS))): \
+the proximity term sorts each of the m bundles' rows whole, as mingle.py:109-112 does",
     scale_ceiling: MINGLE_CEILING,
     degradation: "past the ceiling the run is still correct and still deterministic — nothing is \
-refused and no approximation is added — it simply stops finishing inside a frame, at O(m^2) on the \
-per-pass candidate scan. The escape hatches are Params::neighbors (fewer candidates scored per \
+refused and no approximation is added — it simply stops finishing inside a frame, at O(m^2 log m) on \
+the per-pass candidate scan and sort. The escape hatches are Params::neighbors (fewer candidates scored per \
 bundle) and Params::rounds (a shallower hierarchy); a spatial index over the bundles would remove the \
 scan and is not implemented. Single-threaded throughout, so there is no wider tier to fall back to",
     ponytail: "Ponytail (greedy): the hierarchy is a non-optimal one — two bundles that would pay only \
@@ -198,7 +204,8 @@ pub struct Bundles {
     pub ink_before: f64,
     /// The ink drawn by `paths`, deduplicated. Below `ink_before` for every input whose
     /// members are not coincident; above it for the coincident case the module doc names,
-    /// which is what a host that cares should compare.
+    /// which is what a host that cares should compare. Measured on the `f64` paths before
+    /// their rounding to `f32`, so it can count twice a segment the wire draws once.
     pub ink_after: f64,
 }
 
