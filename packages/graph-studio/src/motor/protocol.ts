@@ -71,10 +71,18 @@ export type ForceRequest =
   | { readonly type: "force.resume" }
   | { readonly type: "force.stop" };
 
-/** One frame of the live simulation: the buffers are handed over, not copied. */
+/**
+ * One frame of the live simulation: the buffers are handed over, not copied.
+ *
+ * The columns are f32. The motor's own positions are f64 (`live.ts`), and the page narrows
+ * them anyway — `LoopState.x` is f32 and so is the GPU attribute they end up in — so sending
+ * f64 spends twice the bytes on a conversion whose result is discarded. The worker narrows
+ * once, on its own side of the transfer (`liveLoop.ts`), which also halves what the transfer
+ * list detaches.
+ */
 export interface ForceFrame {
-  readonly xs: Float64Array;
-  readonly ys: Float64Array;
+  readonly xs: Float32Array;
+  readonly ys: Float32Array;
   readonly alpha: number;
   /** False on the last frame: the loop has stopped and costs nothing until the next request. */
   readonly running: boolean;

@@ -200,7 +200,7 @@ export interface View {
    * count is ignored (the drawing is of another graph). The columns the motor handed over
    * are read, never kept: the next frame replaces them.
    */
-  setPositions(xs: Float64Array, ys: Float64Array): void;
+  setPositions(xs: Float32Array, ys: Float32Array): void;
   /** The nodes whose labels the last frame placed. */
   labelled(): readonly number[];
   /** The node under a canvas-relative point, or -1. */

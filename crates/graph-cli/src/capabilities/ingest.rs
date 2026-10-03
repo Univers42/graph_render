@@ -133,6 +133,17 @@ named /^tags?$/i/\"",
     ),
 ];
 
+/// The one hash-gate stage every ingest row names, declared once rather than as four
+/// literals.
+///
+/// The gate hashes a single ingest stage, so naming four would be inventing stages it does
+/// not hash and a row that names one can never be promoted by evidence at all. What
+/// naming a shared stage must not do is let one row's evidence be read as another's
+/// without saying so, which is why this is a named constant with this comment rather than
+/// the string four times: the shared stage is a deliberate declaration, and
+/// `every_ingest_row_names_the_one_stage_this_file_declares` holds the rows to it.
+pub(super) const INGEST_STAGE: &str = "ingest.build";
+
 /// Every ingest row, its metadata carried above and its ledger shape filled in here.
 pub fn rows() -> impl Iterator<Item = Capability> {
     ROWS.iter().map(
@@ -147,7 +158,7 @@ pub fn rows() -> impl Iterator<Item = Capability> {
             // `problems()` say so rather than the row quietly claiming a verdict.
             oracle_record: "roundtrip",
             functions: &[],
-            hash_stage: "ingest.build",
+            hash_stage: INGEST_STAGE,
             oracle_diff: String::new(),
             hash_4way: String::new(),
             scale_ceiling,

@@ -3,6 +3,17 @@
 //! Split out of `knob.rs` by the house's 300-line limit — the enum above it grew to
 //! twenty-six arms, and the setting is the other half of the same concern: the one place
 //! a knob's parsed value becomes a behaviour.
+//!
+//! **Two rules turn a parsed value into a control**, and both are here rather than in each
+//! arm, so a new arm cannot route around them:
+//!
+//! - a value that *is* the honest run's own value is refused, not accepted (RG-42). Three
+//!   knobs could spell it — `GM_MUTATE_SPLIT_SUM=0`, `GM_MUTATE_SPLIT_RESCALE=0`,
+//!   `GM_MUTATE_FORCE_SESSION_GRAVITY=0` — and each of them still recorded this run as the
+//!   exercised control, so a row could write its own record having perturbed zero bytes.
+//!   [`Setting::bites`] is the one comparison, against the compiled-in defaults.
+//! - a `GM_MUTATE_*` variable that names no knob at all is refused (RG-26), in
+//!   [`env::refuse_an_unknown_knob`], before any value is read.
 
 use graph_core::layout::circle_packing::CirclePackingParams;
 use graph_core::layout::force::spring::SpringParams;
@@ -11,17 +22,18 @@ use graph_core::layout::forceatlas2::Fa2Params;
 use graph_core::layout::graphviz::patchwork;
 use graph_core::layout::radial::twopi;
 use graph_core::layout::{circular, tidy_tree, treemap};
-use graph_core::{GridParams, REFERENCE_DEGREE, SugiyamaParams};
+use graph_core::{GridParams, SugiyamaParams};
 use std::env::VarError;
+use std::ffi::OsString;
 
+mod honest;
 mod params;
-mod text;
 
-pub(crate) use params::{PARAM_DEFAULT_STAGE, param_index};
-use text::{nodes, split, tolerance, yes};
-
+use super::env;
 use super::knobs;
+use super::value;
 use super::{Knob, stage_of};
+pub(crate) use params::{PARAM_DEFAULT_STAGE, param_index};
 
 /// What the native arm runs with: the compiled-in defaults, or one knob's perturbation.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -79,7 +91,7 @@ pub(crate) struct Setting {
     ///
     /// An `Option` rather than a `f64` defaulting to the compiled-in `0`, because `0` is itself
     /// a legal gravity and a flag that could not say "set to zero" would make the control's
-    /// honest value inexpressible. Reach it through [`Setting::live_force_params`], which is the
+    /// honest value unreachable. Reach it through [`Setting::live_force_params`], which is the
     /// only reader and lives in this module with the field.
     pub(in crate::hashgate) live_gravity: Option<f64>,
     /// Which published default [`Knob::LayoutParamDefault`] perturbs, as an index into
@@ -139,28 +151,30 @@ impl Setting {
     }
 }
 
-/// Reads the knobs through `read`. At most one may be set, and a set one must parse:
-/// a typo falling back to the default would let the control pass as green. A spacing the
-/// grid refuses is left for the grid to refuse, so the rule lives in one place.
+/// Reads the knobs through `env`. At most one may be set, and a set one must parse *and
+/// perturb*: a typo falling back to the default, a variable naming no knob at all, or a knob
+/// carrying the honest run's own value would all let the control pass as green (RG-26,
+/// RG-42). A spacing the grid refuses is left for the grid to refuse, so the rule lives in
+/// one place.
+#[cfg(test)]
 pub(crate) fn setting(read: impl Fn(&str) -> Result<String, VarError>) -> Result<Setting, String> {
-    let mut setting = Setting {
-        reference_degree: REFERENCE_DEGREE,
-        grid: GridParams::default(),
-        sugiyama: SugiyamaParams::default(),
-        extra_nodes: 0,
-        force: ForceParams::default(),
-        fa2: Fa2Params::default(),
-        spring: SpringParams::default(),
-        packing: CirclePackingParams::default(),
-        neato_epsilon: None,
-        stage_nodes: None,
-        overlap_relaxation: None,
-        split_sum: Split::None,
-        split_rescale: false,
-        live_gravity: None,
-        layout_param_default: None,
-        control: None,
-    };
+    setting_named(read, Vec::new)
+}
+
+/// [`setting`], with the variable **names** this run was handed alongside its values.
+///
+/// The names are what the `GM_MUTATE_*` sweep reads (RG-26), and they are a second argument
+/// rather than part of the reader because the reader is a `Fn(&str)` every existing test
+/// seam already builds — `forcecheck`'s own included — and widening that is a rewrite of
+/// files this repair does not own. A caller that passes no name list runs **unswept**:
+/// [`setting`] is that caller, and it exists for the unit tests. The one production reader is
+/// [`env_setting`], which passes the process environment.
+pub(crate) fn setting_named(
+    read: impl Fn(&str) -> Result<String, VarError>,
+    names: impl Fn() -> Vec<OsString>,
+) -> Result<Setting, String> {
+    env::refuse_an_unknown_knob(&names())?;
+    let mut setting = Setting::compiled_in();
     for knob in Knob::ALL {
         let text = match read(knob.env()) {
             Err(VarError::NotPresent) => continue,
@@ -174,7 +188,29 @@ pub(crate) fn setting(read: impl Fn(&str) -> Result<String, VarError>) -> Result
         setting.control = Some(knob);
         apply(knob, text.trim(), &mut setting)?;
     }
+    refuse_a_no_op(&setting)?;
     Ok(setting)
+}
+
+/// **A control that perturbs nothing refuses the run** (RG-42): the parsed value is the
+/// honest run's own, so the run would hash exactly the honest bytes and write this knob's
+/// evidence record claiming the control had been exercised.
+///
+/// The message names the variable and the range it accepts, because the value the caller
+/// typed is *in* the range — refusing a legal value has to say what to type instead.
+fn refuse_a_no_op(setting: &Setting) -> Result<(), String> {
+    let Some(knob) = setting.control else {
+        return Ok(());
+    };
+    if setting.bites() {
+        return Ok(());
+    }
+    Err(format!(
+        "{} carries the honest run's own value, so it perturbs nothing while recording this \
+         run as the exercised control; accepted range: {}",
+        knob.env(),
+        value::accepted(knob)
+    ))
 }
 
 /// The one knob's perturbation, written into `setting`. Split out of [`setting`] by the
@@ -190,39 +226,44 @@ fn apply(knob: Knob, text: &str, setting: &mut Setting) -> Result<(), String> {
         Knob::SugiyamaLayerSpacing => {
             setting.sugiyama.layer_spacing = text.parse().map_err(|e| bad(&e))?;
         }
-        Knob::NodeCount => setting.extra_nodes = text.parse().map_err(|e| bad(&e))?,
+        // The one *global* count, and the one that was parsed outside [`value::nodes`] — so
+        // `=0` was accepted, the run hashed exactly the honest bytes, and the gate exited 0
+        // having recorded itself as the exercised control (RG-01). Every *per-stage* count
+        // already refused zero; this one goes through the same parser as all of them.
+        Knob::NodeCount => setting.extra_nodes = value::nodes(text, knob)?,
         Knob::ForceTheta => setting.force.theta = text.parse().map_err(|e| bad(&e))?,
         Knob::Fa2ScalingRatio => setting.fa2.scaling_ratio = text.parse().map_err(|e| bad(&e))?,
         Knob::TreeTidyNodes => {
-            setting.stage_nodes = Some((tidy_tree::ID, nodes(text, knob)?));
+            setting.stage_nodes = Some((tidy_tree::ID, value::nodes(text, knob)?));
         }
         Knob::TreemapNodes => {
-            setting.stage_nodes = Some((treemap::ID, nodes(text, knob)?));
+            setting.stage_nodes = Some((treemap::ID, value::nodes(text, knob)?));
         }
         Knob::CircularNodes => {
-            setting.stage_nodes = Some((circular::ID, nodes(text, knob)?));
+            setting.stage_nodes = Some((circular::ID, value::nodes(text, knob)?));
         }
         Knob::TwopiNodes => {
-            setting.stage_nodes = Some((twopi::ID, nodes(text, knob)?));
+            setting.stage_nodes = Some((twopi::ID, value::nodes(text, knob)?));
         }
         // Parsed as a float, not as a presence flag, for the reason every parameter knob
         // here is: a value that failed to parse must be an error rather than a silent
         // fall-back to the default, or the control would pass vacuously. A *legal* epsilon
-        // (`0`) is the honest run and is accepted.
-        Knob::NeatoEpsilon => setting.neato_epsilon = Some(tolerance(text, knob)?),
+        // (`0`) is the honest run and is accepted — and refused by [`refuse_a_no_op`] only if
+        // it happens to equal the compiled-in `EPSILON`, which it does not.
+        Knob::NeatoEpsilon => setting.neato_epsilon = Some(value::tolerance(text, knob)?),
         Knob::PatchworkNodes => {
-            setting.stage_nodes = Some((patchwork::ID, nodes(text, knob)?));
+            setting.stage_nodes = Some((patchwork::ID, value::nodes(text, knob)?));
         }
-        // Parsed, not treated as a presence flag, and `0` is refused below like every
-        // other count: an iteration budget of zero would still return the rescaled start
-        // field, which *is* a different drawing, but a control whose value cannot be
-        // typed wrong is the point of this arm. `iterations` is a `u32`, so a negative
-        // value is a parse error rather than a silent wrap.
+        // Parsed, not treated as a presence flag, and `0` is refused by [`refuse_a_no_op`]
+        // like every other honest value: an iteration budget of zero would still return the
+        // rescaled start field, which *is* a different drawing, so the parser takes it and
+        // the one no-op rule decides. `iterations` is a `u32`, so a negative value is a parse
+        // error rather than a silent wrap.
         Knob::SpringIterations => {
             setting.spring.iterations = text.parse().map_err(|e| bad(&e))?;
         }
         Knob::CircularHierarchyNodes => {
-            setting.stage_nodes = Some((circular::hierarchy::ID, nodes(text, knob)?));
+            setting.stage_nodes = Some((circular::hierarchy::ID, value::nodes(text, knob)?));
         }
         Knob::PackingScale => setting.packing.scale = text.parse().map_err(|e| bad(&e))?,
         // Parsed as a float, for the reason every parameter knob here is: `=0` must be a
@@ -230,21 +271,22 @@ fn apply(knob: Knob, text: &str, setting: &mut Setting) -> Result<(), String> {
         // silent mutation. Refused above if negative or not finite, by the pass's own `check`,
         // so the two arms cannot disagree about what a legal value is.
         Knob::OverlapRelaxation => {
-            setting.overlap_relaxation = Some(tolerance(text, knob)?);
+            setting.overlap_relaxation = Some(value::tolerance(text, knob)?);
         }
-        // Parsed rather than treated as a presence flag, so `GM_MUTATE_SPLIT_SUM=0` is
-        // the honest run and a typo (`=maybe`) is an error instead of a silent
-        // mutation. `1`/`0` are accepted beside `true`/`false` because a gate row
-        // reads `GM_MUTATE_SPLIT_SUM=1`.
-        Knob::SplitSum => setting.split_sum = split(text).ok_or_else(|| bad(&text))?,
-        // Parsed the same way, for the same reason: `=0` must be the honest run and a typo
-        // (`=maybe`) an error rather than a silent mutation.
+        // Parsed rather than treated as a presence flag, so `GM_MUTATE_SPLIT_SUM=0` reaches
+        // [`refuse_a_no_op`] as a parse and is refused there for perturbing nothing, and a
+        // typo (`=maybe`) is an error instead of a silent mutation. `1`/`0` are accepted
+        // beside `true`/`false` because a gate row reads `GM_MUTATE_SPLIT_SUM=1`.
+        Knob::SplitSum => {
+            setting.split_sum = value::split(text).ok_or_else(|| bad(&text))?;
+        }
+        // Parsed the same way, for the same reason.
         Knob::SplitRescale => {
-            setting.split_rescale = yes(text).ok_or_else(|| bad(&text))?;
+            setting.split_rescale = value::yes(text).ok_or_else(|| bad(&text))?;
         }
-        // Parsed like the other parameter knobs, and for the same reason: `=0` is a real
-        // gravity (the force is skipped, which is the honest run) and a typo is an error, so a
-        // control that failed to parse cannot pass vacuously as the default.
+        // Parsed like the other parameter knobs: `=0` is a real gravity (the force is
+        // skipped, which *is* the honest run) and so is refused by [`refuse_a_no_op`] as the
+        // one thing it is, while a typo is an error at the parse.
         Knob::ForceSessionGravity => {
             setting.live_gravity = Some(text.parse().map_err(|e| bad(&e))?);
         }
@@ -256,11 +298,17 @@ fn apply(knob: Knob, text: &str, setting: &mut Setting) -> Result<(), String> {
         // variable the knob was dispatched by, and every one of them is the same shape — a
         // node count for one stage's own model. A layout that took a real parameter would
         // get its own arm above, as Barnes-Hut and ForceAtlas2 do.
-        _ => knobs::apply(stage_of(knob), nodes(text, knob)?, setting),
+        _ => knobs::apply(stage_of(knob)?, value::nodes(text, knob)?, setting)?,
     }
     Ok(())
 }
 
+/// The production reader: this process's environment, values *and* names, so the run is
+/// swept for a `GM_MUTATE_*` variable that names no control.
 pub(crate) fn env_setting() -> Result<Setting, String> {
-    setting(|name| std::env::var(name))
+    setting_named(|name| std::env::var(name), env::control_names)
 }
+
+#[cfg(test)]
+#[path = "setting/tests.rs"]
+mod tests;

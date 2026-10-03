@@ -11,11 +11,14 @@
 //! and [`write`] refuses unless the tree is still that one. An edit at any point in
 //! between leaves no record, never a record of one tree's results under another's name.
 //!
-//! A record that did not pass never replaces one that did ([`Outcome::Refused`]). That
-//! refusal is a warning and not a failure to run: the gate ran, judged and has an exit
-//! code, which is the thing its caller reports. Only a record that is *missing* —
-//! because the tree moved or the file could not be written — leaves a verdict unbacked,
-//! and that is the one outcome callers read as "could not run" ([`record`]).
+//! A record that did not pass never replaces one that did ([`Outcome::Refused`), and only
+//! a record from the same tree counts as "one that did": a passing record another tree
+//! left behind is already void to the ledger, so it must not stand in the way of this
+//! tree's run. That refusal is a warning and not a failure to run: the gate ran, judged
+//! and has an exit code, which is the thing its caller reports. Only a record that is
+//! *missing* — because the tree moved or the file could not be written — leaves a
+//! verdict unbacked, and that is the one outcome callers read as "could not run"
+//! ([`record`]). The write is atomic, so a reader never sees half a record.
 
 pub use crate::fingerprint::FINGERPRINTED;
 use crate::fingerprint::fingerprint_of;
@@ -24,6 +27,16 @@ use serde_json::Value;
 use std::path::{Path, PathBuf};
 
 /// Overrides where records are read and written.
+///
+/// **Ponytail: this override is trusted input, and nothing here validates it.** It is kept
+/// deliberately — the tests and the orchestrator's gate rows both set it to a scratch
+/// directory (`crates/graph-cli/tests/common/mod.rs`, `crates/graph-cli/tests/cli_ledger.rs`)
+/// and refusing it would break them — so a hand-written `hashgate.json` carrying a boolean
+/// `pass` and *this* tree's fingerprint is indistinguishable from a gate that ran. Failing
+/// input: `GM_GATES_DIR` pointed at a directory someone else wrote. Direction: a forged
+/// record reads as evidence, which is the dangerous one. Escape hatch: the fingerprint in
+/// the record still has to be this tree's, so a record copied from another tree is refused;
+/// anything stronger than that belongs to the gate that writes the record, not to the reader.
 pub const GATES_ENV: &str = "GM_GATES_DIR";
 
 /// The fingerprint of the tree this binary was built from (`build.rs`).
@@ -130,7 +143,7 @@ fn handled(outcome: Outcome) -> Result<(), String> {
 }
 
 /// Writes `body` as `<dir>/<name>.json`, unless it would replace a *passing* record of
-/// the same name with one that did not pass.
+/// the same name **from this tree** with one that did not pass.
 ///
 /// A record is evidence, and the run that writes one is not always the run that is
 /// right about it: a negative control, a short `--seeds` sweep, or a run against a tree
@@ -140,16 +153,38 @@ fn handled(outcome: Outcome) -> Result<(), String> {
 /// so a record that passed is kept: a later failing run is
 /// [`refused`](Outcome::Refused) and the passing one stands. A later *passing* run does
 /// replace it, which is what re-running the gate for a fix must do.
+///
+/// Three rules, and each one is a way the guard used to read as green when it was not:
+///
+/// - `pass` must be a **boolean**. A body with no `pass`, a `null` one, or the string
+///   `"false"` is not a verdict at all, and keying the guard on the literal
+///   `false` let every one of those take the write branch and overwrite a passing record.
+/// - the standing record must be from **this** fingerprint. A passing record left by
+///   another tree is already void to the ledger (`verdict::current` refuses it), so it
+///   must not stand in the way of this tree's failing run — and refusing the write would
+///   leave exactly that void record as the file the ledger reads.
+/// - the write is **atomic** (temporary file in the same directory, then `rename`), so a
+///   concurrent reader or a kill mid-write sees the old record or the new one and never
+///   a truncated one that [`read_from`] could only report as a parse error.
 fn write_to(dir: &Path, name: &str, mut body: Value, fingerprint: String) -> Outcome {
-    let Some(object) = body.as_object_mut() else {
+    if !body.is_object() {
         return Outcome::Failed("a gate record is a JSON object".into());
-    };
+    }
+    if !body["pass"].is_boolean() {
+        return Outcome::Failed(format!(
+            "{name}: a gate record carries a boolean `pass`, and this body does not"
+        ));
+    }
+    let object = body
+        .as_object_mut()
+        .expect("checked to be a JSON object two lines above");
     object.insert("gate".into(), Value::from(name));
     object.insert("fingerprint".into(), Value::from(fingerprint));
     let path = dir.join(format!("{name}.json"));
     if body["pass"] == Value::Bool(false)
         && let Ok(Some(existing)) = read_from(dir, name)
         && existing["pass"] == Value::Bool(true)
+        && existing["fingerprint"] == body["fingerprint"]
     {
         return Outcome::Refused(format!(
             "{name}: not recorded — the existing record passed and this run did \
@@ -163,9 +198,17 @@ fn write_to(dir: &Path, name: &str, mut body: Value, fingerprint: String) -> Out
         Ok(text) => text,
         Err(err) => return Outcome::Failed(err.to_string()),
     };
-    match std::fs::write(&path, text + "\n") {
+    let temporary = dir.join(format!("{name}.json.{}.tmp", std::process::id()));
+    if let Err(err) = std::fs::write(&temporary, text + "\n") {
+        let _ = std::fs::remove_file(&temporary);
+        return Outcome::Failed(format!("{}: {err}", temporary.display()));
+    }
+    match std::fs::rename(&temporary, &path) {
         Ok(()) => Outcome::Recorded(path),
-        Err(err) => Outcome::Failed(format!("{}: {err}", path.display())),
+        Err(err) => {
+            let _ = std::fs::remove_file(&temporary);
+            Outcome::Failed(format!("{}: {err}", path.display()))
+        }
     }
 }
 
@@ -174,12 +217,35 @@ pub fn read(name: &str) -> Result<Option<Value>, String> {
     read_from(&gates_dir(), name)
 }
 
+/// A record that is there and cannot be parsed is **no record**, named on stderr and left in
+/// place. A parse error used to be an `Err`, so one mangled file took `Evidence::load` down
+/// and `capabilities --check` exited 2 with no verdict for any of the 72 rows: the loudest
+/// answer to "is this record real?" and the least useful, because a record nobody can read
+/// backs nothing, and the rows it would have backed have an honest answer for that ("no
+/// evidence: nothing recorded backs it"). Nothing is deleted: the ledger's job is to stop
+/// believing a file, not to tidy it away.
+///
+/// Ponytail: what "cannot be parsed" covers, and what it costs. It is a **JSON syntax** error
+/// and nothing else. A file that parses but is the wrong shape — `{}`, `[]`, a record with no
+/// boolean `pass` — is still read as a record and refused downstream by `verdict::current`, so
+/// it backs nothing too; only the reporting differs. Failing input: a truncated or half-copied
+/// record. Direction: safe, and deliberately so — the direction is toward "run the gate",
+/// never toward a weaker claim reading as current. Escape hatch: the stderr line names the file
+/// and the parser's own message, and `GM_GATES_DIR` (see [`GATES_ENV`]) is the directory a
+/// reader should be looking at.
 fn read_from(dir: &Path, name: &str) -> Result<Option<Value>, String> {
     let path = dir.join(format!("{name}.json"));
     match std::fs::read_to_string(&path) {
-        Ok(text) => serde_json::from_str(&text)
-            .map(Some)
-            .map_err(|e| format!("{}: {e}", path.display())),
+        Ok(text) => match serde_json::from_str(&text) {
+            Ok(body) => Ok(Some(body)),
+            Err(err) => {
+                eprintln!(
+                    "  {}: not a record ({err}); it backs nothing, and is left in place",
+                    path.display()
+                );
+                Ok(None)
+            }
+        },
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(err) => Err(format!("{}: {err}", path.display())),
     }

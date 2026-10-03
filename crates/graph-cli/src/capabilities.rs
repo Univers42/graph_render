@@ -12,9 +12,11 @@ mod ceilings;
 mod ingest;
 mod post;
 mod registry;
+mod scale;
 mod verdict;
 
-use ceilings::check_ceilings;
+use crate::runner::workspace_root;
+use ceilings::{ceiling_findings, read_ceilings_doc_at};
 use serde::Serialize;
 use std::collections::BTreeSet;
 use std::process::ExitCode;
@@ -39,6 +41,18 @@ pub enum Status {
     Implemented,
     /// Its 4-way hash and its oracle differential both passed in the current tree.
     Gated,
+}
+
+impl Status {
+    /// The word this status serialises as and prints as: one spelling, not two.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Absent => "absent",
+            Self::Stub => "stub",
+            Self::Implemented => "implemented",
+            Self::Gated => "gated",
+        }
+    }
 }
 
 /// One ledger row. Field names are the JSON keys of `prompt.md` §8.
@@ -80,97 +94,34 @@ pub struct Capability {
     pub complexity: &'static str,
 }
 
-/// Every registered capability: Phase 1/2's rows, unchanged, Phase 7's `analysis` rows
-/// (`analysis.rs`), Phase 9's three `scale` rows ([`scale_rows`]) and Phase 10's `ingest` rows (`ingest.rs`). The layout and
-/// analysis registries themselves are untouched — this only chains onto them, so the
-/// phase's authorization envelope (`capabilities.rs`, not `capabilities/registry.rs`) is
-/// what actually changed.
+/// Every registered capability, in one list built by one call.
+///
+/// The registry itself is untouched — `registry::registry()` chains every row family onto
+/// graph-core's own registries, and this only names that one entry point, so the phase's
+/// authorization envelope (`capabilities.rs`, not `capabilities/registry.rs`) is what
+/// changed.
 pub fn registry() -> Vec<Capability> {
-    let mut rows = registry::registry();
-    rows.extend(analysis::rows());
-    rows.extend(scale_rows());
-    rows.extend(ingest::rows());
-    rows
+    registry::registry()
 }
 
 /// Where Phase 9's ceiling measurements are read from, and what the row's own numbers
 /// are read against.
 pub const CEILINGS_DOC: &str = "docs/measurements/phase09-ceilings.md";
 
-/// Phase 9's three `scale` rows.
+/// The highest `scale_ceiling` a row may declare, and why this one.
 ///
-/// `Status::Implemented`, never `Gated`: `graph-core`'s scale stage is not in the hash gate's
-/// stage list (that file is outside this phase's envelope), so `gated` would be a claim
-/// `problems()` refuses for the right reason. Promoting them is the merge step's work,
-/// recorded in `docs/reports/phase-09-progress.md`.
-///
-/// `scale.lod` and `scale.simplify` are checked by the `oracle-scale` differential and name
-/// its functions, so `verdict::oracle_diff` reads each one out of that record.
-/// **`scale.adaptive` names no record at all**: `adaptive.py`'s cut needs a hierarchy of
-/// coarse levels that `build_hierarchy` builds with an infomap detector, so it is a gap row
-/// and a differential it cannot be compared by would only be a claim.
-///
-/// `scale_ceiling` here is **inherited and reasoned, not measured**: these are `O(n)` and
-/// `O(n + m)` passes over a topology that is already indexed, so they are bounded by
-/// topology's own measured per-node cost, exactly as `analysis`'s rows are. The measured
-/// ceiling campaign is [`CEILINGS_DOC`]'s subject.
-fn scale_rows() -> Vec<Capability> {
-    use registry::TOPOLOGY_CEILING;
-    let ceiling = TOPOLOGY_CEILING;
-    let common = |oracle: &'static str,
-                  complexity: &'static str,
-                  degradation: &'static str,
-                  ponytail: &'static str| Capability {
-        id: "",
-        tier: 1,
-        stage: "scale",
-        geometry: None,
-        status: Status::Implemented,
-        oracle,
-        oracle_record: "oracle-scale",
-        // Every row below names its own, because the record's `functions` are keyed by the
-        // ceiling ids of `oracle_python::SCALE` and a row may take one, two or none. A Rust
-        // literal needs the field whatever the row says.
-        functions: &[],
-        hash_stage: "topology",
-        oracle_diff: String::new(),
-        hash_4way: String::new(),
-        scale_ceiling: ceiling,
-        degradation,
-        ponytail,
-        complexity,
-    };
-    vec![
-        Capability {
-            id: "scale.lod",
-            oracle: "SciGraphs engine/scigraphs_engine/lod.py, checked by the oracle-scale differential: lod.apply_budget against lod.rs's label_mask (the greedy budget, its never-empty mask, budgets 0/1/n, and three whose cut lands inside a class of equal degrees, compared against the rule rather than np.argsort's order) and lod.frustum_cull_spheres against lod.rs's Viewport test, over a square orthographic camera. Not ported: the pixel thresholds (a headless motor has no pixels), the tier ladder (the phase's own), and the radius convention, which lod.py's two culling functions do not share between them — docs/measurements/fix-scale-oracle.md records that as a gap",
-            functions: &["scale.lod.apply_budget", "scale.lod.frustum_cull_spheres"],
-            complexity: "O(n + m), one pass each, no spatial structure",
-            degradation: "advisory by construction: the hints are columns a front may ignore entirely, and the topology is never mutated, so past the ceiling the only cost is a front that chose to draw everything",
-            ponytail: "Ponytail: the thresholds are a heuristic and it fails in the dangerous direction. Failing input: a graph whose important nodes are low-degree (a dependency graph's entry points, a star's hub the budget ranks low), where a degree-ranked label budget hides exactly what a reader came for. Direction: hiding meaningful nodes. Escape hatch: ignore the hints; they are advisory. Second heuristic, same shape: edge decimation is a stride over edge index, so a graph whose long-range edges share one stride class loses all of them",
-            ..common("", "", "", "")
-        },
-        Capability {
-            id: "scale.simplify",
-            oracle: "hand: degree-1 folding, maximal degree-2 chain walks, and Phase 7's analysis.communities (louvain) for the collapse; reversibility is graph-core's own gate row. What the oracle-scale differential checks against SciGraphs simplify.build_coarse_level is the collapse's link set — the external edges re-anchored on the representatives — and that a self-loop, and an edge between two members of one community, are in neither. Not ported: the backbone (MST/disparity/top-k), which like the coarse level is not a reversible reduction of the graph. The reference's only self-loop rule is that one, and it covers the coarse level only; leaf folding and chain contraction have no reference function at all and are gap rows",
-            functions: &["scale.simplify.build_coarse_level"],
-            complexity: "O(n + m log m) to build the simple adjacency, then O(n + m) per pass",
-            degradation: "past the ceiling, the same shape as topology: wasm32 cannot allocate and the module traps; natively, memory permitting, this refuses alongside index_model's own CapacityError. Every removal is journalled, so a front that ignored the ceiling would still be able to restore",
-            ponytail: "Ponytail: the community collapse trusts louvain, a heuristic. Failing input: near-tied modularity gains, or a graph whose communities are single-edge chains, where a collapse removes the node a reader came to see. Direction: cosmetic, because the journal still holds it — the dangerous version, an irreversible collapse, is not implemented. Escape hatch: Plan::collapse_communities off",
-            ..common("", "", "", "")
-        },
-        Capability {
-            id: "scale.adaptive",
-            oracle: "SciGraphs engine/scigraphs_engine/adaptive.py: the same intent (bounded work per settle), deliberately NOT its mechanism — it adapts from measured crowding and a camera at render time, which here would mean reading a clock, which D8 forbids inside the motor. A gap row in the oracle-scale differential: adaptive.py cuts a hierarchy of coarse levels that build_hierarchy builds with an infomap detector, and the motor has neither, so the two arms have nothing they could be given in common. Hence no oracle_record: there is no reference function this row could be compared against",
-            oracle_record: "",
-            functions: &[],
-            complexity: "O(1): a pure function of (n, m)",
-            degradation: "none: the budget never fails and never allocates. What degrades is the layout's settle at large n, which is the trade the row exists to make and the caller's iteration override takes back",
-            ponytail: "Ponytail: a large graph gets fewer ticks and a less settled layout. Failing input: any graph past ~3 000 nodes, whose tails are still moving when the budget runs out. Direction: cosmetic. Escape hatch: tick_budget_with's explicit override, honoured verbatim including 0",
-            ..common("", "", "", "")
-        },
-    ]
-}
+/// A ceiling is a node count past which the capability stops being usable, and the
+/// largest one this tree declares is the topology layer's `TOPOLOGY_CEILING`
+/// (9 700 000, `registry.rs`). Nothing above it is a measurement: `u64::MAX` was
+/// accepted before this bound existed, and every `n <= ceiling` test downstream of it is
+/// then vacuously true — a ceiling that refuses nothing is a ceiling that says nothing.
+/// Every declared ceiling is a named constant in graph-core or above, so this bound
+/// refuses only a literal nobody could mean.
+pub const MAX_SCALE_CEILING: u64 = registry::TOPOLOGY_CEILING;
+
+/// The prefix [`ledger`] puts in front of a verdict that no recorded run backs. A cell
+/// that does not start with it is a verdict.
+pub(super) const NO_BACKED: &str = "not backed: ";
 
 /// The rows with `oracle_diff` and `hash_4way` filled from `evidence`: the verdict, or
 /// `not backed: <why>`.
@@ -198,8 +149,12 @@ pub fn problems(rows: &[Capability], evidence: &Evidence) -> Vec<String> {
         if !seen.insert(row.id) {
             found.push(format!("{}: duplicate id", row.id));
         }
+        // `oracle` is in the sweep for the same reason `complexity` is: a row that names
+        // no reference and checks no function (see `verdict::oracle_diff`) is a row that
+        // claims a differential it does not have.
         for (field, value) in [
             ("stage", row.stage),
+            ("oracle", row.oracle),
             ("degradation", row.degradation),
             ("ponytail", row.ponytail),
             ("complexity", row.complexity),
@@ -208,9 +163,7 @@ pub fn problems(rows: &[Capability], evidence: &Evidence) -> Vec<String> {
                 found.push(format!("{}: required field `{field}` is empty", row.id));
             }
         }
-        if row.scale_ceiling == 0 {
-            found.push(format!("{}: scale_ceiling is 0", row.id));
-        }
+        found.extend(ceiling_problems(row));
         if row.status == Status::Gated {
             let verdicts = [
                 verdict::hash_4way(evidence, row.hash_stage),
@@ -221,6 +174,70 @@ pub fn problems(rows: &[Capability], evidence: &Evidence) -> Vec<String> {
             }
         }
     }
+    found
+}
+
+/// What one row's own numbers say about it, with no reference to any evidence: a ceiling
+/// of 0, a ceiling above [`MAX_SCALE_CEILING`], and a geometry kind this ledger has no
+/// name for.
+fn ceiling_problems(row: &Capability) -> Vec<String> {
+    let mut found = Vec::new();
+    if row.scale_ceiling == 0 {
+        found.push(format!("{}: scale_ceiling is 0", row.id));
+    }
+    if row.scale_ceiling > MAX_SCALE_CEILING {
+        found.push(format!(
+            "{}: scale_ceiling {} is above the largest one this tree declares ({MAX_SCALE_CEILING})",
+            row.id, row.scale_ceiling
+        ));
+    }
+    found
+}
+
+/// One line per row under `--check`: the status it claims and whether a recorded run backs
+/// it. A green `--check` used to say nothing about the difference between a row with
+/// evidence and a row with none, and more than half this ledger ships with none — so
+/// "0 problems" read the same either way.
+fn print_verdicts(rows: &[Capability]) {
+    for row in rows {
+        println!(
+            "  {:<11} {:<42} {}",
+            row.status.as_str(),
+            row.id,
+            how_backed(row)
+        );
+    }
+}
+
+fn how_backed(row: &Capability) -> &'static str {
+    match (
+        row.oracle_diff.starts_with(NO_BACKED),
+        row.hash_4way.starts_with(NO_BACKED),
+    ) {
+        (false, false) => "backed by a recorded run on this tree",
+        (true, true) => "no evidence: nothing recorded backs it",
+        _ => "partly backed: one verdict, not both",
+    }
+}
+
+/// Every reason the ledger is not honest, as `--check` reports it: the rows' own
+/// problems, and the ceilings table read from `ceilings_doc`.
+///
+/// The ceilings table is read by `--check` and not only by the flag that names it: a
+/// missing doc, a row the ledger does not have, or a measured cell that contradicts the
+/// ceiling the row declares is a finding about the ledger, and it used to be invisible
+/// unless `--ceilings-measured` was passed as well. The path is a parameter so the test
+/// can point it at a doc the tree does not have.
+fn check_findings(
+    rows: &[Capability],
+    evidence: &Evidence,
+    ceilings_doc: &std::path::Path,
+) -> Vec<String> {
+    let mut found = problems(rows, evidence);
+    found.extend(read_ceilings_doc_at(ceilings_doc).map_or_else(
+        |err| vec![format!("{CEILINGS_DOC}: {err}")],
+        |doc| ceiling_findings(rows, &doc),
+    ));
     found
 }
 
@@ -248,7 +265,8 @@ pub fn run(json: bool, check: bool, ceilings_measured: bool) -> ExitCode {
         }
     }
     if check {
-        let found = problems(&rows, &evidence);
+        let found = check_findings(&rows, &evidence, &workspace_root().join(CEILINGS_DOC));
+        print_verdicts(&rows);
         for problem in &found {
             println!("  {problem}");
         }
@@ -261,7 +279,7 @@ pub fn run(json: bool, check: bool, ceilings_measured: bool) -> ExitCode {
             return ExitCode::from(1);
         }
     }
-    if ceilings_measured && !check_ceilings(&rows) {
+    if ceilings_measured && !ceilings::check_ceilings(&rows) {
         return ExitCode::from(1);
     }
     ExitCode::SUCCESS
