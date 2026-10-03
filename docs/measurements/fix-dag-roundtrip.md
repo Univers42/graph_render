@@ -135,7 +135,7 @@ test result: ok. 33 passed; 0 failed; 2 ignored; 0 measured; 1231 filtered out
 ### Output moves only on the broken edges
 
 `graph-cli snapshot --seed 66 --nodes 68 --layout dag.sugiyama`, both trees, compared field
-by field (`scratch/dagrt/s66.prefix.json` against `scratch/dagrt/s66.fixed.json`):
+by field (`target/dagrt-scratch/s66.prefix.json` against `target/dagrt-scratch/s66.fixed.json`):
 
 ```
 same nodes   same edges   same version   same notes
@@ -261,8 +261,8 @@ sweep graphs with crossings: 159                sweep graphs with crossings: 159
 parallel-arcs ours 0 (4 nodes, 6 edges)         parallel-arcs ours 0 (4 nodes, 6 edges)
 ```
 
-**Byte-identical before and after** (`scratch/dagrt/dag-crossings.prefix.json` against
-`scratch/dagrt/dag-crossings.fixed.json`, same md5). The 230-seed sweep total reads **5206**
+**Byte-identical before and after** (`target/dagrt-scratch/dag-crossings.prefix.json` against
+`target/dagrt-scratch/dag-crossings.fixed.json`, same md5). The 230-seed sweep total reads **5206**
 where `phase05-crossings.md` froze **5242**: that −36 is present *identically on both sides of
 this fix*, so it is not caused by it — this job did not touch `ordering`, `coords`, the fixtures
 or the generator, and `Route` is consumed by `routing` alone. It is reported here rather than
@@ -317,9 +317,9 @@ EXIT=0
 - `scripts/orch/rows/quick-roundtrip.rows` is new (the done-when names it): `quick.rows` plus
   `roundtrip-100` and its control. No gate row was weakened, re-pinned or skipped, and no row
   was removed.
-- `scratch/dagrt/*` holds this job's working files (the seed-66 snapshots from both trees, the
-  two crossing dumps, the three evidence scripts). Untracked working files, like every other
-  job's.
+- `target/dagrt-scratch/*` held this job's working files (the seed-66 snapshots from both trees, the
+  two crossing dumps, the three evidence scripts), in the job worktree only: not versioned, the
+  commands above regenerate them.
 
 ## Decisions taken
 
