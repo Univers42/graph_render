@@ -1,6 +1,6 @@
 /** The view's state changes: everything `createView` does to a canvas between frames. */
 import {
-  type Bounds, type Camera, type FitArea, type Point, type Viewport, fitCamera, limitsFor, screenToWorld,
+  type Camera, type FitArea, type Point, type Viewport, fitCamera, limitsFor, screenToWorld,
 } from "../camera.ts";
 import { type LiveDrag, movedScene } from "../drag.ts";
 import type { Frame } from "../frame.ts";
@@ -115,33 +115,9 @@ export function measure(controller: Controller): void {
 }
 
 /**
- * Whether `camera` already shows the whole of `bounds` inside `area` — a pixel of slack, because
- * a fit rounds. `area` is the free box `safeOf` computed, never null: the whole canvas is the
- * answer when the host declared no safe area.
- */
-function shownIn(bounds: Bounds | null, camera: Camera, viewport: Viewport, area: FitArea | null): boolean {
-  if (bounds === null) return true;
-  const box = area ?? { x: 0, y: 0, width: viewport.width, height: viewport.height };
-  const { scale } = camera;
-  const left = bounds.minX * scale + camera.x;
-  const right = bounds.maxX * scale + camera.x;
-  const top = bounds.minY * scale + camera.y;
-  const bottom = bounds.maxY * scale + camera.y;
-  return left >= box.x - 1 && right <= box.x + box.width + 1
-    && top >= box.y - 1 && bottom <= box.y + box.height + 1;
-}
-
-/**
  * The area a host declared free of chrome, in canvas pixels; `null` (the default) is the whole
  * canvas. It is a hint about where the studio's panels are, so it is clamped to the canvas and
  * re-fitted rather than trusted: a host that hands over a stale or inverted box gets the canvas.
- *
- * WHY a panel resizing moves the camera only when the drawing no longer fits: the chrome resizes
- * for reasons that have nothing to do with the drawing — a selection filling the Inspector is the
- * one that bit the box-select row, which then measured its box against a camera that had moved
- * under it. A camera that is already showing the whole drawing in the old free box is left alone,
- * and only the pan/zoom limits are refreshed; one that the new box would crop or hide is re-fitted,
- * which is the case the safe area exists for.
  */
 export function setSafeArea(controller: Controller, area: FitArea | null): void {
   const { state } = controller;
@@ -150,13 +126,9 @@ export function setSafeArea(controller: Controller, area: FitArea | null): void 
   const same = (next?.x === state.safe?.x && next?.y === state.safe?.y
     && next?.width === state.safe?.width && next?.height === state.safe?.height) || (next === null && state.safe === null);
   if (same) return;
-  const was = shownIn(state.scene.bounds, state.camera, state.viewport, safeOf(state, state.viewport));
   state.safe = next;
-  const free = safeOf(state, state.viewport);
-  state.limits = limitsFor(state.scene.bounds, state.viewport, { area: free ?? undefined });
-  if (!controller.fitted) return;
-  if (was && shownIn(state.scene.bounds, state.camera, state.viewport, free)) invalidate(state);
-  else fit(controller);
+  state.limits = limitsFor(state.scene.bounds, state.viewport, { area: safeOf(state, state.viewport) ?? undefined });
+  if (controller.fitted) fit(controller);
 }
 
 export function moveTo(controller: Controller, camera: Camera, byFit: boolean): void {

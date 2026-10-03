@@ -9,7 +9,6 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { bindPointer, type Gesture, type PointerHandlers } from "../src/pointer.ts";
-import type { Point } from "../src/camera.ts";
 
 /** Just enough of a canvas for `bindPointer`: listeners, a box, and pointer capture. */
 class FakeCanvas {
@@ -47,22 +46,32 @@ function recorder(entries: string[]): Gesture {
   };
 }
 
+/** `bindPointer` takes the real DOM types; node has neither, so the stand-ins are narrowed. */
+function isCanvas(value: unknown): value is HTMLCanvasElement {
+  return typeof value === "object" && value !== null && "addEventListener" in value;
+}
+
+function isWindow(value: unknown): value is Window {
+  return typeof value === "object" && value !== null && "removeEventListener" in value;
+}
+
 function rig(): { entries: string[]; canvas: FakeCanvas; stop: () => void } {
   const entries: string[] = [];
-  const canvas = new FakeCanvas();
+  const made = new FakeCanvas();
   const owner = { addEventListener() {}, removeEventListener() {} };
+  if (!isCanvas(made) || !isWindow(owner)) throw new Error("the stand-ins lost what bindPointer binds");
   const handlers: PointerHandlers = {
     zoom: () => undefined,
     pan: () => undefined,
     orbit: () => undefined,
     hover: () => undefined,
     click: () => entries.push("click"),
-    press: (_at: Point) => recorder(entries),
+    press: () => recorder(entries),
     context: () => undefined,
     doubleClick: () => undefined,
   };
-  const stop = bindPointer(canvas as unknown as HTMLCanvasElement, handlers, owner as unknown as Window);
-  return { entries, canvas, stop };
+  const stop = bindPointer(made, handlers, owner);
+  return { entries, canvas: made, stop };
 }
 
 test("a click takes cancel, never end: it is the only exit a click gets", () => {

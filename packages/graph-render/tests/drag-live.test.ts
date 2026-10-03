@@ -1,8 +1,9 @@
-/** The live drag: press pins, move follows, up or cancel releases; disabled leaves the view-only drag. */
+/** The live drag: a move pins, up or cancel releases; disabled leaves the view-only drag. */
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { liveGesture, type LiveDrag } from "../src/drag.ts";
+import type { Point } from "../src/camera.ts";
 
 function recorder(enabled = true) {
   const calls: string[] = [];
