@@ -30,7 +30,7 @@ this job's files reverted to it — the tree these repairs sit on top of.
 | RG-33 | MINOR | fixed | `every_ingest_row_names_the_one_stage_this_file_declares` | `crates/graph-cli/src/capabilities/tests/registry.rs:236` |
 | RG-34 | MINOR | fixed, both halves | `each_bundle_row_is_named_by_the_module_whose_metadata_it_carries` (id↔META pairing) + `a_row_whose_geometry_kind_this_ledger_cannot_name_is_refused` (catch-all) | `crates/graph-cli/src/capabilities/tests/registry.rs:261`, `tests/refusals.rs:110` |
 | RG-50 | MINOR | fixed | `the_required_field_refusals_are_named_and_not_merely_counted` (+ the by-id read in `a_function_without_cases_or_with_an_unexplained_mismatch_is_refused`) | `crates/graph-cli/src/capabilities/tests/refusals.rs:130`, `:150` |
-| RG-53 | MINOR | fixed, all three holes | `a_symlink_under_a_fingerprinted_path_is_refused_not_followed` (symlink) + `a_record_is_renamed_into_place_and_leaves_no_temporary` (atomic write) + `an_unparseable_record_reads_as_absent_and_a_re_run_repairs_it` and `an_absent_directory_is_empty_and_an_unparseable_record_is_absent_not_fatal` (parse error = absent) | `crates/graph-cli/src/fingerprint.rs:230`, `crates/graph-cli/src/evidence/tests.rs`, `crates/graph-cli/src/capabilities/verdict/records/tests.rs` |
+| RG-53 | MINOR | fixed, all three holes | `a_symlink_under_a_fingerprinted_path_is_refused_not_followed` (symlink) + `a_record_is_renamed_into_place_and_leaves_no_temporary` (atomic write) + `an_unparseable_record_reads_as_absent_and_a_re_run_repairs_it` and `an_absent_directory_is_empty_and_an_unparseable_record_is_absent_not_fatal` (parse error = absent) | `crates/graph-cli/src/fingerprint.rs:230`, `crates/graph-cli/src/evidence/tests.rs:116`, `crates/graph-cli/src/capabilities/verdict/records/tests.rs:62` |
 
 ### What is not closed
 
@@ -40,10 +40,10 @@ items; the orchestrator ruled on both (2026-10-03) and they are now done:
 1. ~~*"treat a parse error on read as a failed record rather than a fatal error"*~~ — **done**, and
    it took two readers, not one. `read_from` (`evidence.rs:236`) is the by-name reader; the ledger's
    directory scan `capabilities::verdict::records::all` had its own parser (`read_one`,
-   `records.rs`), and the CLI demonstration below is what caught it: with only `read_from` fixed,
-   `capabilities --check` still exited 2. Both now name the file on stderr and return "no record",
-   and both keep a genuine **unreadable** path (a directory named `<name>.json`) as an error. See
-   "The two RG-53 decisions" below for the tests.
+   `records.rs:78`), and the CLI demonstration below is what caught it: with only `read_from`
+   fixed, `capabilities --check` still exited 2. Both now name the file on stderr and return "no
+   record", and both keep a genuine **unreadable** path (a directory named `<name>.json`) as an
+   error. See "The two RG-53 decisions" below for the tests.
 2. ~~*"`GM_GATES_DIR` is an unvalidated override"*~~ — **kept, and named.** The override stays (the
    tests and the gate rows depend on it: `crates/graph-cli/tests/common/mod.rs:86`), and
    `GATES_ENV` now carries a `Ponytail:` line stating that it is trusted input, what a hand-written
@@ -70,14 +70,20 @@ halves — every wrapper in, two hourly orchestration files out.
 
 ### Adding these paths voids today's records — expected, and nothing was re-recorded
 
-`target/gates/` held **no records at all** when the before/after comparison below was captured
-(`ls target/gates/` → empty; the only file in it now is the `scigraphs-conformance.json` this
-job's own merge-floor run wrote, after that comparison). So the fingerprint change voided nothing
-in practice. Had records existed they would now read as stale,
-which is the intended effect and the reason the job body says not to re-record from a fix job.
-No gate was re-run to refresh evidence in this job; the only record written is the one
-`scripts/scigraphs-conformance.sh` writes in its normal course as the merge-floor check, after the
-before/after comparison below was captured.
+`target/gates/` held **no records at all** when the pre-merge comparison was captured
+(`ls target/gates/` → empty), so the fingerprint change voided nothing in practice here. The one
+file in it now is `scigraphs-conformance.json`, written by this job's own conformance runs — and
+it cannot affect either side of the comparison below for a simpler reason: **no row names it**
+(`capabilities --json`: 0 of the 73 rows have `oracle_record: "scigraphs-conformance"`), so it backs
+nothing and no row's verdict ever consults it. The newest copy carries this tree's current
+fingerprint — `write` refuses a stale stamp — so it is not a void record either.
+
+Had today's other records existed they *would* read as stale: `verdict::current` refuses a record
+whose `fingerprint` is not this tree's, and the RG-17 rules require a boolean `pass` and a matching
+fingerprint before a record may stand. That is the intended effect of adding paths, and the reason
+the job body says not to re-record from a fix job: **no gate was re-run here to refresh evidence.**
+The only record this job produced is the one `scripts/scigraphs-conformance.sh` writes in its normal
+course as the merge-floor check.
 
 ## Negative controls
 
@@ -315,12 +321,12 @@ header-named reader).
 | `scripts/orch/gr cargo fmt --all --check` | 0 | (no output) |
 | `scripts/orch/gr cargo clippy -p graph-cli --all-targets -- -D warnings` | 0 | only the four pre-existing `edition2024` manifest warnings |
 | `scripts/orch/gr cargo test -p graph-cli --bin graph-cli` | 0 | `368 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out` (merged tree; 351 before the merge, 367 with develop's new tests, +1 for the parse-error test) |
-| `scripts/orch/gr cargo test --workspace --no-fail-fast` | 0 | 20 binaries, `1819 passed; 0 failed; 12 ignored` |
-| `scripts/orch/gr cargo build -p graph-core --target wasm32-unknown-unknown` | 0 | ``Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.29s`` |
+| `scripts/orch/gr cargo test --workspace --no-fail-fast` | 0 | 20 binaries, `1939 passed; 0 failed; 15 ignored` (re-run on the merged tree after both RG-53 decisions; before the merge: 1819 passed, 12 ignored) |
+| `scripts/orch/gr cargo build -p graph-core --target wasm32-unknown-unknown` | 0 | ``Finished `dev` profile [unoptimized + debuginfo] target(s)``, already current after the merge |
 | `scripts/orch/gr cargo build --release -p graph-cli` (baseline `9178255`, then this tree) | 0 | baseline `Finished release profile … in 28.80s`; this tree `… in 9.81s`, rebuilt `… in 12.29s` after the two RG-53 decisions |
 | `scripts/orch/gr ./target/release/graph-cli capabilities --check` | 1 | `capabilities --check: 73 rows, 36 problems` |
 | `scripts/orch/gr ./target/release/graph-cli codegen --check` | 0 | `up to date  docs/contract/ingest-schema.json` |
-| `scripts/scigraphs-conformance.sh` | 0 | `PASS` — `scigraphs-conformance: 32/32 rows reached a reference` |
+| `scripts/scigraphs-conformance.sh` | 0 | `PASS` — `scigraphs-conformance: 32/32 rows reached a reference` (re-run on the merged tree after both RG-53 decisions; the pre-merge run was also 0) |
 
 `hashgate --seeds 8` and `GM_MUTATE_REFERENCE_DEGREE=9` were **not** re-run: fix-common requires them
 only for a change that moves a registered layout, post, analysis or scale output, and
@@ -331,6 +337,8 @@ this job (no timed gate), and re-recording evidence from a fix job is forbidden.
 ## Conformance
 
 `scripts/scigraphs-conformance.sh` runs `graph-cli scigraphs-conformance`, which writes
-`target/gates/scigraphs-conformance.json` as its normal course. That run happened **after** the
-before/after comparison above was captured, so it cannot have influenced it. No other record was
-written by this job.
+`target/gates/scigraphs-conformance.json` as its normal course. It was run on the merged tree after
+both RG-53 decisions and after the before/after comparison was captured, so it cannot have
+influenced either. Its record is not named by any ledger row (see above), so it changes no count —
+`capabilities --check` re-run after the gate gives byte-identical output to the captured
+after-state, `73 rows, 36 problems`. No other record was written by this job.
