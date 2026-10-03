@@ -17,17 +17,27 @@ use crate::runner::{build_wasm, node_harness, run_lines};
 use std::path::Path;
 
 /// The real wasm artifact — the same build `hashgate` makes before it drives the arm, so
-/// these tests never read a stale or hand-made module. One per test, not one per
-/// invocation: `build_wasm` is a cargo build, and paying for it nine times to test nine
-/// stage names is not what this test is about.
+/// these tests never read a stale or hand-made module. **One build per test binary, not one
+/// per invocation**, because `build_wasm` is a cargo build into one shared `target/` and two
+/// of them at once raced on the artifact: the loser found it mid-write and reported "cargo
+/// built but wrote no `graph_wasm.wasm`", which is a test failure with nothing behind it.
+///
+/// A `OnceLock` rather than a `Mutex` because the cost is paid once either way, and a lock
+/// would still let the two callers interleave a *second* build between them; `OnceLock`
+/// admits one initialiser and every later caller reads its result. A failed build is **not**
+/// cached: a `cargo` that could not run once may run the next time, and caching the failure
+/// would turn a transient into a permanent.
 fn artifact() -> std::path::PathBuf {
-    build_wasm(&[]).expect("the wasm artifact")
+    static ARTIFACT: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+    ARTIFACT
+        .get_or_init(|| build_wasm(&[]).expect("the wasm artifact"))
+        .clone()
 }
 
 /// `wasm-run.mjs <wasm> hash 1 <stage>`, once: its stdout lines on success, or the failure
 /// text `run_lines` builds from the child's status and stderr.
 fn hashed(wasm: &Path, stage: &str) -> Result<Vec<String>, String> {
-    let mut command = node_harness(wasm);
+    let mut command = node_harness(wasm).expect("node on PATH");
     command.args(["hash", "1", stage]);
     run_lines(&mut command)
 }
@@ -39,7 +49,7 @@ fn the_wasm_arm_can_hash_every_stage_the_gate_asks_for() {
     // one thing that keeps them honest is that they agree. Reads the shipped
     // `harness/wasm-run.mjs` `stages` mode, so it needs the real wasm artifact; it is the
     // same build `hashgate` makes before it drives the arm.
-    let mut command = node_harness(&artifact());
+    let mut command = node_harness(&artifact()).expect("node on PATH");
     command.arg("stages");
     let offered: Vec<String> = run_lines(&mut command).expect("the arm's stage list");
     let offered: Vec<&str> = offered

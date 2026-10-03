@@ -15,7 +15,7 @@ import type { Source } from "../state/settings.ts";
 import type { ForceEngine, ForceParams, ForcePort, LiveForce } from "./live.ts";
 import { createLiveForce } from "./liveSession.ts";
 import type { AnalysisReport, Catalog, GraphSummary, RunReport } from "./protocol.ts";
-import { SCATTER, planRun } from "./settle.ts";
+import { planRun } from "./settle.ts";
 
 export interface AnalysisFace {
   readonly id: string;
@@ -194,12 +194,17 @@ function forcesOf<Handle>(motor: MotorLike<Handle> | null, built: Built<Handle> 
   built.forced ??= motor.forceSession(built.handle, undefined, built.engine);
   if (built.forced === null) return null;
   // The port is cached, not rebuilt: the loop compares ports by identity and replaces itself
-  // when one changes, so a fresh object per request would stop the loop on every message.
+  // when one changes, so a fresh object per request would stop the loop on every message. So
+  // `restart` hands the new session to `built.forced`, which `forget` then releases.
   built.port ??= createLiveForce({
     session: built.forced,
-    handle: built.handle,
     ids: () => built.order,
-    scatter: (handle) => motor.layout(handle, SCATTER),
+    restart: () => {
+      built.forced?.release();
+      built.forced = motor.forceSession?.(built.handle, undefined, built.engine) ?? null;
+      if (built.forced === null) throw new SessionRefusal("the motor made no force session");
+      return built.forced;
+    },
   });
   return built.port;
 }

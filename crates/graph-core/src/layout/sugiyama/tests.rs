@@ -33,6 +33,55 @@ fn run_builds_point_nodes_and_polyline_edges_with_the_expected_notes() {
     );
 }
 
+/// The graph [`every_edge_draws_one_dummy_per_layer_it_skips`] builds: eight nodes
+/// `a..h`, node index = position, eight edges in the order listed. `b -> f` is spelled
+/// twice and the two copies are **not** adjacent (edge 0 and edge 5), so the one arc they
+/// share has a member list that no `Range<u32>` over edge indices can spell; `h -> a` is
+/// the reversed three-layer skip edge that range used to swallow.
+const SPLIT_PAIR_GRAPH: [(&str, &str, &str); 8] = [
+    ("bf", "b", "f"),
+    ("ac", "a", "c"),
+    ("ad", "a", "d"),
+    ("af", "a", "f"),
+    ("ha", "h", "a"),
+    ("bf2", "b", "f"),
+    ("ce", "c", "e"),
+    ("eh", "e", "h"),
+];
+
+/// A unit twin of `snapshot_cmd::dag::invariants`, on the smallest graph that reproduces
+/// roundtrip seed 66's failure (`docs/measurements/fix-dag-roundtrip.md`): an edge's
+/// interior points are one per layer it skips, so `dummies == |span| - 1` on every
+/// non-loop edge, reversed ones included. Seed 66 drew `edge 44 (33 -> 1): y 3 -> 1
+/// through 0 dummies, reversed=true`: arc `(20, 28)` held edges 38 and 98, its member
+/// "range" `38..99` covered every edge in between, and arc `(1, 6)`'s one-layer
+/// `Route::Direct` landed on `edge 4` over three layers.
+#[test]
+fn every_edge_draws_one_dummy_per_layer_it_skips() {
+    let ids = ["a", "b", "c", "d", "e", "f", "g", "h"];
+    let n = ids.map(|id| node(id, ""));
+    let e = SPLIT_PAIR_GRAPH.map(|(id, s, t)| edge(id, s, t));
+    let topology = index_model(&n, &e).expect("fits");
+    let geometry = run(&topology, 1.0).expect("never fails");
+    let NodeGeometry::Point { y, .. } = &geometry.nodes else {
+        panic!("Point nodes")
+    };
+    let EdgeGeometry::Polyline(paths) = &geometry.edges else {
+        panic!("Polyline edges")
+    };
+    let at = |id: &str| ids.iter().position(|x| *x == id).expect("known id");
+    for (edge, (_, s, t)) in SPLIT_PAIR_GRAPH.iter().enumerate() {
+        let (s, t) = (at(s), at(t));
+        let dummies = (paths.offsets[edge + 1] - paths.offsets[edge]) as i32;
+        let span = (y[t] - y[s]).abs() as i32;
+        assert_eq!(
+            span,
+            dummies + 1,
+            "edge {edge} ({s} -> {t}): {dummies} dummies over {span} layers"
+        );
+    }
+}
+
 #[test]
 fn run_is_deterministic() {
     let n = ["a", "b", "c", "d"].map(|id| node(id, ""));

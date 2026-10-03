@@ -72,3 +72,56 @@ fn coincident_endpoints_read_as_positive_zero_from_either_end() {
     assert!(lox.is_finite() && loy.is_finite());
     assert!(hix.is_finite() && hiy.is_finite());
 }
+
+/// A fully coincident pair: both axes come back `+0.0`, both take the `jiggle` branch, and
+/// the edge's force is finite. `jiggle` returning exactly `+0.0` is the one thing that would
+/// break this — its midpoint word used to — and it is what the `jiggle_of` mapping rules out,
+/// so this test is the pair that says the mapping was worth making.
+#[test]
+fn a_link_between_two_coincident_nodes_has_a_finite_force() {
+    let sim = coincident_pair();
+    let (fx, fy) = force(&sim, 0);
+    assert!(fx.is_finite() && fy.is_finite(), "force ({fx}, {fy})");
+    let ((lox, loy), (hix, hiy)) = halves(&sim, 0);
+    for v in [lox, loy, hix, hiy] {
+        assert!(v.is_finite(), "half {v}");
+    }
+}
+
+/// A separation too small to square: `dx` is non-zero, so the `jiggle` branch does not
+/// replace it, and `dx * dx` underflows to `0.0` — the sum is `0.0` even though the pair is
+/// not coincident. Dividing by that `l` in `force` is what turned both components to `-inf`
+/// before its floor.
+#[test]
+fn a_separation_whose_square_underflows_still_has_a_finite_force() {
+    let nodes = [node("a", ""), node("b", "")];
+    let edges = [edge("e0", "a", "b")];
+    let t = index_model(&nodes, &edges).expect("fits");
+    let mut sim = super::super::sim::Sim::new(&t, ForceParams::default().into(), 0);
+    sim.x[0] = 0.0;
+    sim.y[0] = 0.0;
+    sim.x[1] = 1e-200;
+    sim.y[1] = 1e-200;
+    let (dx, dy) = displaced(&sim, 1, 0);
+    assert_ne!((dx, dy), (0.0, 0.0), "the pair is not coincident");
+    let l = f64::sqrt(dx * dx + dy * dy);
+    assert_eq!(l, 0.0, "the square underflows, as this test needs");
+    let (fx, fy) = force(&sim, 0);
+    assert!(fx.is_finite() && fy.is_finite(), "force ({fx}, {fy})");
+}
+
+/// A one-edge graph whose two endpoints sit on the same point, built here because both tests
+/// above need the same shape and the fields `Sim` exposes.
+fn coincident_pair() -> super::super::sim::Sim {
+    let nodes = [node("a", ""), node("b", "")];
+    let edges = [edge("e0", "a", "b")];
+    let t = index_model(&nodes, &edges).expect("fits");
+    let mut sim = super::super::sim::Sim::new(&t, ForceParams::default().into(), 0);
+    for i in 0..sim.x.len() {
+        sim.x[i] = 1.0;
+        sim.y[i] = 1.0;
+        sim.vx[i] = 0.0;
+        sim.vy[i] = 0.0;
+    }
+    sim
+}

@@ -69,8 +69,10 @@ export interface LiveForce {
   positions(): { readonly xs: Float64Array; readonly ys: Float64Array };
   reheat(alpha: number): void;
   /**
-   * Throws the nodes back to random positions and reheats from the top. Returns the alpha it
-   * left the session at, so the caller never has to guess what a restart looks like.
+   * Starts the settle over: a new session over the same graph, which seeds its own start
+   * positions, so the nodes go back to where this graph's settle begins. The knobs survive it,
+   * the pins do not. Returns the alpha the new session was born at, so the caller never has to
+   * guess what a restart looks like.
    */
   shuffle?(): number;
   /** The parameters the motor itself holds, by the wire's own field names. */
@@ -93,6 +95,9 @@ export type ForceParams = Readonly<Record<ForceParamField, number>>;
 export interface ForcePort {
   /** Runs `ticks` ticks; the alpha is in the answer. */
   tick(ticks: number): { readonly alpha: number };
+  /** The cooling schedule's own value, as the last tick left it: a session is born at its
+   * `initial_alpha`, and this reads it without running a tick. */
+  readonly alpha: number;
   pin(row: number, x: number, y: number): void;
   unpin(row: number): void;
   reheat(alpha: number): void;
