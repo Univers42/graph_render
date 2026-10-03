@@ -102,6 +102,52 @@ fn the_listing_is_path_nul_digest_lines_in_byte_order() {
     std::fs::remove_dir_all(&dir).expect("cleanup");
 }
 
+/// A record that exists but cannot be parsed **backs nothing**: it reads as *absent*, not
+/// as a fatal error, and it is named on stderr rather than deleted. The review's complaint
+/// was that one truncated file stopped `capabilities --check` for the whole tree — 72 rows
+/// read as unbacked because a `serde_json` error came out of the loader. With the atomic
+/// write no record this crate writes can be torn any more, but a half-copied or
+/// hand-mangled one still can, and it must cost its own row its evidence rather than every
+/// row's.
+///
+/// The control in the same test is the case that must **stay** an error: a path that is a
+/// directory is *unreadable*, not unparseable, and that is a real I/O failure to report.
+#[test]
+fn an_unparseable_record_reads_as_absent_and_a_re_run_repairs_it() {
+    let dir = scratch("corrupt");
+    let path = dir.join("hashgate.json");
+    std::fs::write(&path, "{ \"pass\": true, \"seeds\":").expect("a half-copied record");
+    assert_eq!(
+        read_from(&dir, "hashgate"),
+        Ok(None),
+        "a record nobody can parse is not evidence, and is not a fatal error either"
+    );
+    assert!(
+        path.exists(),
+        "and it stays where it is, for the person who has to look at it"
+    );
+    assert!(
+        matches!(
+            write_to(&dir, "hashgate", serde_json::json!({ "seeds": 8, "pass": true }), "f".into()),
+            Outcome::Recorded(_)
+        ),
+        "a re-run is not blocked by it"
+    );
+    assert_eq!(
+        read_from(&dir, "hashgate")
+            .expect("readable")
+            .expect("present")["seeds"],
+        8,
+        "so re-running the gate repairs it"
+    );
+    std::fs::create_dir(dir.join("dir.json")).expect("dir");
+    assert!(
+        read_from(&dir, "dir").is_err(),
+        "the control: unreadable is still an error, not an absence"
+    );
+    std::fs::remove_dir_all(&dir).expect("cleanup");
+}
+
 #[test]
 fn a_record_reads_back_as_written_and_only_absence_is_none() {
     let dir = scratch("records");

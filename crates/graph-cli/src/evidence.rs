@@ -27,6 +27,16 @@ use serde_json::Value;
 use std::path::{Path, PathBuf};
 
 /// Overrides where records are read and written.
+///
+/// **Ponytail: this override is trusted input, and nothing here validates it.** It is kept
+/// deliberately — the tests and the orchestrator's gate rows both set it to a scratch
+/// directory (`crates/graph-cli/tests/common/mod.rs`, `crates/graph-cli/tests/cli_ledger.rs`)
+/// and refusing it would break them — so a hand-written `hashgate.json` carrying a boolean
+/// `pass` and *this* tree's fingerprint is indistinguishable from a gate that ran. Failing
+/// input: `GM_GATES_DIR` pointed at a directory someone else wrote. Direction: a forged
+/// record reads as evidence, which is the dangerous one. Escape hatch: the fingerprint in
+/// the record still has to be this tree's, so a record copied from another tree is refused;
+/// anything stronger than that belongs to the gate that writes the record, not to the reader.
 pub const GATES_ENV: &str = "GM_GATES_DIR";
 
 /// The fingerprint of the tree this binary was built from (`build.rs`).
