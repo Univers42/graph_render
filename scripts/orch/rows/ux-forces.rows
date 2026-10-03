@@ -1,0 +1,27 @@
+# ux-forces-full — the nine live-force knobs as studio controls: the studio's own floor plus the
+# three browser gates the measurement doc quotes (docs/measurements/ux-forces-full.md).
+#
+# `expect` is `0` or `nonzero`; `#` starts a comment (scripts/orch/gate.sh:2-4). Every gate needs
+# `scripts/studio.sh build` first, which the orchestrator runs before this file.
+#
+# KNOWN RED: `interact` fails on `int-node-drag` — the node lands 146.16 px from the pointer after
+# a 150 px drag. The same row measures 145.89 px on origin/develop's own build
+# (deploy/nav/interact.py over target/dist-before), so it is red before the knobs existed; the drag
+# files (element.ts, motor/bridge.ts, motor/session.ts) belong to the open perf-pm-live branch.
+# It is left in, not dropped: see docs/measurements/ux-forces-full.md.
+
+studio-check|0|scripts/studio.sh check
+
+# The live loop: settle, drag-neighbour, progress strip, dead worker — and its control.
+live|0|scripts/studio-live.sh
+negctl-live|nonzero|STUDIO_LIVE_BREAK=1 scripts/studio-live.sh
+
+# Pointer interaction: hover, click, box select, node drag, node menu — and its control.
+interact|0|scripts/studio-interact.sh
+negctl-interact|nonzero|STUDIO_INTERACT_BREAK=1 scripts/studio-interact.sh
+
+# The overlap probe: drawn discs covering each other after a settle at the defaults and after
+# `forces.spread`, on the clustered fixture and a 10 000-node source, plus the live frame rate
+# and the four fault channels. Its control skips `spread`, so its three `spread` rows are NOT-RUN.
+overlap|0|scripts/studio-overlap.sh
+negctl-overlap|nonzero|STUDIO_OVERLAP_BREAK=1 scripts/studio-overlap.sh
