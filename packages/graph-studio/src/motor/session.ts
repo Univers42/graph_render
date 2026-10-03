@@ -41,7 +41,7 @@ export interface MotorLike<Handle> {
 }
 
 export interface SessionDeps<Handle> {
-  readonly motorFrom: (wasmUrl: string) => Promise<MotorLike<Handle>>;
+  readonly motorFrom: (wasmUrl: string, threads?: number) => Promise<MotorLike<Handle>>;
   readonly fetchText: (url: string) => Promise<string>;
   readonly digest: (bytes: Uint8Array) => Promise<string | null>;
   readonly now: () => number;
@@ -53,7 +53,7 @@ export interface SessionDeps<Handle> {
 }
 
 export interface Session {
-  open(wasmUrl: string): Promise<Catalog>;
+  open(wasmUrl: string, threads?: number): Promise<Catalog>;
   load(source: Source, fixturesUrl: string): Promise<GraphSummary>;
   layout(layoutId: string, postId: string | null): Promise<RunReport>;
   analysis(analysisId: string): AnalysisReport;
@@ -278,8 +278,8 @@ export function createSession<Handle>(deps: SessionDeps<Handle>): Session {
     return summaryOf(document, deps.now() - started);
   };
   return {
-    open: async (wasmUrl) => {
-      motor = await deps.motorFrom(wasmUrl);
+    open: async (wasmUrl, threads) => {
+      motor = await deps.motorFrom(wasmUrl, threads);
       return { layouts: motor.layouts(), posts: motor.posts(), analyses: motor.analyses() };
     },
     load: async (source, fixturesUrl) => {

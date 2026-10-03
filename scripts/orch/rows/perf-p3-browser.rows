@@ -1,0 +1,9 @@
+wasm|0|scripts/orch/gr cargo build -p graph-wasm --release --target wasm32-unknown-unknown
+wasm-threads|0|scripts/orch/wasm-threads.sh
+sdk-typecheck|0|scripts/orch/node-slim.sh npm run sdk:typecheck
+sdk-smoke|0|scripts/orch/node-slim.sh npm run sdk:smoke
+sdk-threads|0|scripts/orch/gr node --experimental-strip-types harness/sdk-threads.mjs
+negctl-sdk-threads|0|scripts/orch/gr node --experimental-strip-types harness/sdk-threads.mjs --break; test $? -eq 1
+studio-check|0|scripts/studio.sh check
+smoke|0|scripts/studio-smoke.sh
+negctl-smoke|nonzero|STUDIO_SMOKE_BREAK=1 scripts/studio-smoke.sh
