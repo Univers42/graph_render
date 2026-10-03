@@ -19,9 +19,8 @@
 //! ## The dtype trace, because it decides the arithmetic
 //!
 //! Under NEP 50 a Python `float` is **weak** and stays `f32` against an `f32` array, but an
-//! `np.float64` **scalar is not** and promotes the whole expression to `f64`. Three
-//! scalars in this kernel are `np.float64`, and all three are derived from `np.cbrt`
-//! (`simulation.py:376`), so:
+//! `np.float64` **scalar is not** and promotes the whole expression to `f64`. Which of the
+//! two a constant is decides the dtype of a whole force term, so each is named here:
 //!
 //! - `self.k = scale / max(np.cbrt(max(n, 1)), 1.0)` is `np.float64`, therefore
 //!   `self._repulsion_norm = k**2 / m3` and `self._gravity_norm` are `np.float64`, and
@@ -29,20 +28,29 @@
 //!   coefficient block and the whole of gravity are `f64`**, narrowed to `f32` only where
 //!   they are stored (`out = np.empty(..., dtype=DTYPE)` at `:74`, `.astype(DTYPE)` at
 //!   `:733`).
-//! - `self.speed` is `float(np.clip(...))`, a Python `float`, so `factor` in `_integrate`
-//!   is `f64` for a different reason: `speed * np.sqrt(swing)` promotes the `f32` array.
-//!   `disp`, `norm` and the move cap are `f64`; `self.pos += disp` is an in-place
-//!   same-kind cast, so the `f64` increment is rounded into `f32` every iteration.
+//! - `self.speed = float(np.clip(...))` is a Python `float`, so it is **weak** and
+//!   `factor = self.speed / (1.0 + self.speed * np.sqrt(swing))` stays `f32` — and so do
+//!   `disp` and `norm` with it, and `self.pos += disp` narrows nothing at all. **Reading
+//!   `speed` as `f64` because `k` and `repulsion` are is the most expensive mistake
+//!   available in this file**: it is a relative `6e-8` per move, which is one `f32` ULP, and
+//!   by iteration 5 it had moved 12 of `tree-balanced`'s 45 coordinates. The one place `f64`
+//!   does return is `cap / norm[over]`, because `cap` is `self.k`. See
+//!   [`integrate`](self::integrate).
 //! - `np.bincount(..., weights=...)` accumulates in `f64` whatever the weights' dtype
 //!   (`simulation.py:721-722`), and `_attraction` narrows with `.astype(DTYPE)` at `:723`.
-//! - `np.einsum` accumulates in the array's own dtype, so the `f32` `einsum`s stay `f32`
-//!   and the `f64` one (`norm`) is `f64`.
+//! - `np.einsum` accumulates in the array's own dtype, so the `f32` `einsum`s stay `f32`.
 //! - `total_swing = float(np.dot(self.mass, swing))` is a BLAS `sdot` on `f32` operands:
 //!   an `f32` reduction whose result `float()` only re-wraps.
+//! - `_fa2_rescale` is `f64` throughout: it is handed
+//!   `np.asarray(sim.positions, dtype=np.float64)` (`forceatlas.py:147`), so the widening
+//!   happens before the centring and the narrowing for the wire happens after.
 //!
 //! ## Reductions
 //!
-//! Named per expression in [`reduce`], with the measured order for each.
+//! Named per expression in [`reduce`], with the measured order for each. Three of the nine
+//! are BLAS and cannot be reproduced from a portable Rust; `pair_force.rs` and
+//! `integrate.rs` each say which, and what the substitution costs — measured at zero for
+//! both products and named as the row's residual cause for the `sdot`.
 //!
 //! ## Not ported
 //!
