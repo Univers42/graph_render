@@ -46,7 +46,13 @@ pub(super) const G_IGRAPH_SEED: Gap = Gap {
 };
 pub(super) const G_FORCEATLAS2_SEED: Gap = Gap {
     parameter: "layout seed",
-    note: "the seed **is** passed (`Fa2Params::seed = get_layout_seed()`), but the two streams differ: the reference draws its start from `np.random.RandomState(get_layout_seed())` and graph-core from its own Mulberry32 at the same integer, so equal seeds are not equal draws",
+    // Corrected 2026-10-03 (job `sg-fa2-seed`). The note this replaces said the reference drew
+    // its start from `np.random.RandomState(get_layout_seed())`. It does not: `FORCESIM_AVAILABLE`
+    // is true in `ge-python-oracle`, so `forceatlas.py:167` takes the ForceSim tier and the start
+    // comes from `np.random.default_rng` (PCG64) — a different generator from MT19937 — seeded
+    // with the *first draw* of `RandomState(981798123)`, not with that integer. Measured in
+    // `docs/measurements/sg-fa2-seed.md`.
+    note: "the seed **is** passed (`Fa2Params::seed = get_layout_seed()` = 981798123) and Mulberry32 would consume it, but the reference never reads that integer as a start seed: it draws `randint(0, 2**31 - 1)` = 1767573729 first (`forceatlas.py:122`) and starts from `np.random.default_rng(1767573729)`, PCG64, not MT19937 (`simulation.py:1090`). Equal seeds are not equal draws, and neither is the generator",
     at: "crates/graph-core/src/layout/forceatlas2/state.rs:30",
 };
 pub(super) const G_NEATO_START: Gap = Gap {
