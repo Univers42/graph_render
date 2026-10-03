@@ -6,8 +6,13 @@ export const TRANSITION_MS = 600;
 export const MOVED_MARK = "gm:transition:moved";
 export const SETTLED_MARK = "gm:transition:settled";
 
-/** The tween a view is already marked under, so each mark fires once per tween. */
-const tween = new WeakMap<object, number>();
+/** Where a view's marking has got to: which tween, and whether its end has been marked. */
+interface Marking {
+  readonly start: number;
+  done: boolean;
+}
+
+const marking = new WeakMap<object, Marking>();
 
 export function easeInOutCubic(t: number): number {
   const bounded = Math.min(1, Math.max(0, t));
@@ -28,18 +33,23 @@ export function blend(from: Float32Array, to: Float32Array, t: number, out: Floa
  * `settled` on the frame that ends it. Keyed by the tween's own clock rather than by a flag on
  * the view, so the next switch re-arms both without the loop carrying a field for it.
  *
+ * A tween the 2D painter snaps over its budget (`TWEEN_BUDGET` in canvas2d/loop.ts) has no
+ * moving frame at all, and marks `settled` alone: the end of that switch is a real time, and a
+ * probe waiting for it must not wait for a beginning that never comes.
+ *
  * Ponytail: keyed by a `performance.now()` value, so two switches inside one millisecond share
  * a mark. Failing input: a view that never settles leaves the entry, and the next tween marks
  * again anyway. Direction: one mark per tween, never cleared. Escape hatch: the console's
  * `performance.getEntriesByName`.
  */
 export function markTween(state: object, start: number, settled: boolean): void {
-  if (tween.get(state) === start && !settled) return;
-  if (settled) {
-    tween.delete(state);
+  const seen = marking.get(state);
+  if (seen !== undefined && seen.start === start) {
+    if (!settled || seen.done) return;
+    seen.done = true;
     performance.mark(SETTLED_MARK);
     return;
   }
-  tween.set(state, start);
-  performance.mark(MOVED_MARK);
+  marking.set(state, { start, done: settled });
+  performance.mark(settled ? SETTLED_MARK : MOVED_MARK);
 }

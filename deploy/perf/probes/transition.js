@@ -76,6 +76,8 @@ async (args) => {
     rows.push({
       round, nodes: after.nodes, edges: after.edges, backend: after.backend,
       clickMs: span("request"), workerMs: at.request === null || at.bytes === null ? null : +(at.bytes - at.request).toFixed(1),
+      // A tween the 2D painter snapped over its node budget has no moving frame at all.
+      snapped: at.settled !== null && at.moved === null,
       firstFrameMs: at.bytes === null || at.moved === null ? null : +(at.moved - at.bytes).toFixed(1),
       tweenMs: at.moved === null || at.settled === null ? null : +(at.settled - at.moved).toFixed(1),
       totalMs: span("settled"),

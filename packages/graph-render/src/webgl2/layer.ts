@@ -37,8 +37,6 @@ export interface Pass {
 export interface Uploaded {
   x: Float32Array | null;
   placed: number;
-  /** What `u_eased` is: 1 whenever nothing is being mixed, so the shaders read `a_x`/`a_y`. */
-  eased: number;
   /** The `from` half of the tween the four position buffers hold, or null outside one. */
   fromX: Float32Array | null;
   /** The `to` half, which is `x` itself while a tween is in flight. */
@@ -153,7 +151,7 @@ function paletteTexture(gl: WebGL2RenderingContext): WebGLTexture {
 
 function freshUploads(): Uploaded {
   return {
-    x: null, placed: -1, eased: 1, fromX: null, toX: null,
+    x: null, placed: -1, fromX: null, toX: null,
     halvesKey: [], halves: new Float32Array(0), shown: 0, largest: 0,
     slots: null, palette: null, paletteSize: 1, edges: [], index: new Uint32Array(0), indexCount: 0,
     shapeKey: [], shape: null,

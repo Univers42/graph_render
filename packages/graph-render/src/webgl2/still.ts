@@ -17,7 +17,7 @@
  */
 import type { PaintCounts, PaintInput } from "../canvas2d/input.ts";
 import { counted, deviceSize, edgePart, nodePart } from "./draw.ts";
-import type { BulkLayer } from "./layer.ts";
+import type { BulkLayer, Pace } from "./layer.ts";
 import { nextBudget, stillFloor } from "./plan.ts";
 import { sameRefs } from "./sync.ts";
 
@@ -74,16 +74,16 @@ function restart(still: Still, view: readonly unknown[], input: PaintInput): voi
   still.nodes = null;
 }
 
-/** The layer a picture is drawn with, and the view's in-place move counter (`BulkSlot`). */
+/** The layer a picture is drawn with, and how the view paces it (`BulkSlot`). */
 export interface Source {
   readonly layer: BulkLayer;
-  readonly placed: number;
+  readonly pace: Pace;
 }
 
 /** Adds the nodes once and one chunk of edges to the picture; false when the context is lost. */
-function grow(still: Still, { layer, placed }: Source, input: PaintInput): boolean {
+function grow(still: Still, { layer, pace }: Source, input: PaintInput): boolean {
   if (still.nodes === null) {
-    const nodes = nodePart(layer, input, placed);
+    const nodes = nodePart(layer, input, pace);
     if (nodes === null) return false;
     still.nodes = nodes.bitmap;
     still.nodeCount = nodes.drawn;
@@ -91,7 +91,7 @@ function grow(still: Still, { layer, placed }: Source, input: PaintInput): boole
   const pairs = layer.uploaded.indexCount / 2;
   if (still.drawn >= pairs) return true;
   const started = performance.now();
-  const edges = edgePart(layer, input, placed, { first: still.drawn, count: still.chunk });
+  const edges = edgePart(layer, input, pace, { first: still.drawn, count: still.chunk });
   if (edges === null) return false;
   still.chunk = nextBudget(still.chunk, performance.now() - started, pairs, stillFloor(pairs));
   still.ctx.drawImage(edges.bitmap, 0, 0);
@@ -105,7 +105,7 @@ function grow(still: Still, { layer, placed }: Source, input: PaintInput): boole
  * pairs it still lacks, or -1 when the context is lost.
  */
 export function paintStill(still: Still, source: Source, input: PaintInput, counts: PaintCounts): number {
-  const view = viewOf(input, source.placed);
+  const view = viewOf(input, source.pace.placed);
   if (!sameRefs(still.view, view)) restart(still, view, input);
   if (!grow(still, source, input)) return -1;
   const { ctx, viewport } = input;
