@@ -8,6 +8,7 @@ import type { PaintCounts, PaintInput } from "../canvas2d/input.ts";
 import { impostorOf } from "../canvas2d/nodes.ts";
 import { MOVING_BUDGET } from "../canvas2d/edges.ts";
 import { drawBulk } from "./draw.ts";
+import { paintSpace } from "./hook3d.ts";
 import { type BulkLayer, createBulk } from "./layer.ts";
 import { type BackendChoice, bulkWanted, nextBudget } from "./plan.ts";
 import { type Glide, dropGlide, glideFrame, keepFrame, newGlide } from "./glide.ts";
@@ -81,6 +82,7 @@ function paintSettled(slot: BulkSlot, layer: BulkLayer, input: PaintInput, count
  */
 export function paintBulk(slot: BulkSlot, input: PaintInput, counts: PaintCounts): boolean {
   slot.refining = false;
+  if (input.space !== null && input.space !== undefined) return paintSpace(slot, input, counts);
   if (slot.backend === "auto" && impostorOf(input)) return false;
   const elements = input.frame.nodeCount + input.frame.edgeCount;
   if (!bulkWanted(slot.backend, elements, slot.layer !== null)) return false;

@@ -35,7 +35,7 @@ function setRow(out: Float32Array, row: number, axis: Vec3, translation: number)
 }
 
 /** The camera of `orbit` over `viewport`, written into `out` (16 floats) and returned. */
-export function cameraMatrix(orbit: Orbit, viewport: Viewport, out = new Float32Array(16)): Float32Array {
+export function cameraMatrix(orbit: Orbit, viewport: Viewport, out: Float32Array<ArrayBuffer> = new Float32Array(16)): Float32Array<ArrayBuffer> {
   const { right, up, forward, target, distance } = basisOf(orbit);
   const focal = focalOf(orbit, viewport);
   const cx = viewport.width / 2;

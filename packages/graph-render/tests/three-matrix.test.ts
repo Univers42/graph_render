@@ -67,6 +67,8 @@ test("a point behind the eye has a depth at or below zero, as project() drops it
 test("a frame handed over is not projected until a column is read", () => {
   const frame = lineFrame({ x: [-100, 100], y: [0, 0], z: [0, 50], edges: [[0, 1]] });
   let reads = 0;
+  // A call, not the variable: `assert.equal(reads, 0)` would narrow it to 0 for good.
+  const readsSoFar = (): number => reads;
   const orbit = orbitOf({});
   const wanted: Projection = {
     frame, x: frame.x, y: frame.y, extent: new Float32Array([5, 5]), viewport: VIEWPORT,
@@ -74,15 +76,14 @@ test("a frame handed over is not projected until a column is read", () => {
   };
   const drawn = projectFrame(newProjection(2), wanted);
   assert.equal(drawn.wanted, wanted, "the hand-over keeps what it was given");
-  assert.equal(reads, 0, "the hand-over projected nothing");
+  assert.equal(readsSoFar(), 0, "the hand-over projected nothing");
   assert.ok((drawn.depth[1] ?? 0) > 0);
-  const projected = reads;
+  const projected = readsSoFar();
   assert.ok(projected > 0, "the first read projected");
-  void drawn.x;
-  void drawn.order;
-  assert.equal(reads, projected, "a second read reuses the projection");
+  assert.equal(drawn.x.length + drawn.order.length, 4);
+  assert.equal(readsSoFar(), projected, "a second read reuses the projection");
   assert.equal(projectFrame(drawn, wanted), drawn, "the next hand-over reuses the same value");
-  assert.equal(reads, projected, "and projects nothing either");
+  assert.equal(readsSoFar(), projected, "and projects nothing either");
 });
 
 test("negative control: a matrix of another yaw puts the node elsewhere", () => {

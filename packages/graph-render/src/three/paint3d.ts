@@ -17,6 +17,10 @@
  * The 2D path is untouched: `canvas2d/paint.ts` only reaches this module when the frame
  * carries a z column, so a 2D snapshot is drawn by the code that has always drawn it.
  *
+ * The WebGL2 3D layer (`webgl2/hook3d.ts`) draws the same frame on the GPU when the backend
+ * asks for it; this painter stays its fallback, for a browser without WebGL2 or a lost
+ * context, and its parity reference (`scripts/studio-3d-gl.sh`).
+ *
  * What a 3D frame does not draw, and why each is absent rather than half-done: labels (a
  * screen-space declutter pass run on a projection that changes every frame would have to be
  * re-planned per frame, and the 2D planner reads the 2D camera), glow and impostor spheres
@@ -255,8 +259,12 @@ export function paintGround3d(input: PaintInput): void {
   ctx.fillRect(0, 0, viewport.width, viewport.height);
 }
 
-/** One 3D frame: the ground, then the edges, then the nodes furthest-first over them. */
+/**
+ * One 3D frame: the WebGL2 3D layer's when the view's bulk hook takes it whole
+ * (`webgl2/hook3d.ts`), else the ground, then the edges, then the nodes furthest-first.
+ */
 export function paint3d(input: PaintInput, drawn: Drawn, counts: PaintCounts): PaintCounts {
+  if (input.bulk?.(input, counts) === true) return counts;
   paintGround3d(input);
   paintEdges(input, drawn, counts);
   paintNodes(input, drawn, counts);
