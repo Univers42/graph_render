@@ -54,6 +54,8 @@ export interface RawExports {
   gm_force_session_column_ptr(session: number, axis: number): number;
   gm_force_session_column_len(session: number, axis: number): number;
   gm_force_session_release(session: number): number;
+  gm_graph_extend(graph: number, ptr: number, len: number): number;
+  gm_force_session_grow(session: number, graph: number): number;
 }
 
 /** Every name in [`RawExports`], checked at load: the compiler keeps this object's keys equal to
@@ -72,6 +74,7 @@ const EXPORT_NAMES: { readonly [K in keyof RawExports]: true } = {
   gm_force_session_reheat: true, gm_force_session_pin: true, gm_force_session_unpin: true,
   gm_force_session_unpin_all: true, gm_force_session_column_ptr: true,
   gm_force_session_column_len: true, gm_force_session_release: true,
+  gm_graph_extend: true, gm_force_session_grow: true,
 };
 
 /** The ABI revision this SDK speaks: `gm_abi_version()` must return exactly this

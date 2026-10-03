@@ -242,6 +242,20 @@ export class ForceSession {
     return this.#own((columns) => columns.read());
   }
 
+  /** Takes the session onto what {@link Motor.extend} appended to `handle`, its own graph
+   *  (`gm_force_session_grow`): the same bits a fresh session carried across would hold. Every
+   *  position view is stale after it. Refused, session unchanged: `InvalidSessionError`,
+   *  `InvalidHandleError` for a released graph, `ForceSessionRefusedError` for another graph. */
+  grow(handle: Handle): void {
+    try {
+      this.#calls.call("gm_force_session_grow", (e) => e.gm_force_session_grow(this.#calls.wireId, toU32(handle)));
+    } catch (error) {
+      if (!(error instanceof ForceSessionRefusedError) || error.code !== INVALID_HANDLE_CODE) throw error;
+      throw new InvalidHandleError(`graph handle ${String(handle)} is not live`, INVALID_HANDLE_CODE);
+    }
+    this.#columns.forget();
+  }
+
   /** Releases the session. Its id is never reissued (C6), so a stale id reads
    *  {@link InvalidSessionError} rather than another session's positions. Releasing twice is
    *  refused rather than ignored: a caller surprised by a refusal has a bug, and quietly
