@@ -8,6 +8,10 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
 
+mod slots;
+use slots::cgroup_memory_max;
+pub use slots::{BASE_BYTES, PER_SLOT_BYTES, default_workers};
+
 /// Every variable the server reads, in the order the start line lists them.
 pub const NAMES: [&str; 14] = [
     "GRAPH_PORT",
@@ -25,16 +29,6 @@ pub const NAMES: [&str; 14] = [
     "GRAPH_CORS_ORIGINS",
     "GRAPH_EMBED_DIR",
 ];
-
-/// The memory one compute slot is budgeted, for the default `GRAPH_WORKERS` (condition 3).
-/// Caveat: a placeholder, not a measurement. The real figure is the body plus ingest plus the
-/// run's peak at the largest cap, which svc-caps measures; until it lands a slot is assumed to
-/// fit in 512 MiB, so a cgroup tighter than `workers × 512 MiB` is not protected from a 137.
-/// Set `GRAPH_WORKERS` explicitly until then.
-pub const PER_SLOT_BYTES: u64 = 512 << 20;
-
-/// Where cgroup v2 publishes the container's memory ceiling.
-const CGROUP_MEMORY_MAX: &str = "/sys/fs/cgroup/memory.max";
 
 /// One refused variable: its name and what is wrong, never its value.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -136,15 +130,6 @@ pub fn start_line(lookup: Lookup<'_>) -> String {
     serde_json::json!({ "event": "start", "version": version, "env": env }).to_string()
 }
 
-/// The default worker count (condition 3): `min(cores, floor(memory.max / per slot))`, at
-/// least one so the server still answers `/healthz` in a cgroup smaller than one slot.
-pub fn default_workers(cores: usize, memory_max: Option<u64>) -> usize {
-    let by_memory = memory_max.map_or(usize::MAX, |bytes| {
-        usize::try_from(bytes / PER_SLOT_BYTES).unwrap_or(usize::MAX)
-    });
-    cores.min(by_memory).max(1)
-}
-
 fn read_auth(env: &Env<'_>, bind: IpAddr) -> Result<(bool, Option<PathBuf>), ConfigError> {
     let auth = match env.text("GRAPH_AUTH")?.as_deref() {
         None | Some("on") => true,
@@ -168,12 +153,7 @@ fn read_auth(env: &Env<'_>, bind: IpAddr) -> Result<(bool, Option<PathBuf>), Con
 }
 
 fn read_limits(env: &Env<'_>, memory_max: Option<u64>) -> Result<Limits, ConfigError> {
-    let cores = std::thread::available_parallelism().map_or(1, usize::from);
-    let workers = env.number(
-        "GRAPH_WORKERS",
-        default_workers(cores, memory_max),
-        1..=1024,
-    )?;
+    let workers = read_workers(env, memory_max)?;
     Ok(Limits {
         max_body: env.number("GRAPH_MAX_BODY", 64 << 20, 1..=graph_wasm_max_ingest())?,
         workers,
@@ -181,6 +161,18 @@ fn read_limits(env: &Env<'_>, memory_max: Option<u64>) -> Result<Limits, ConfigE
         timeout: env.millis("GRAPH_TIMEOUT_MS", 30_000)?,
         body_timeout: env.millis("GRAPH_BODY_TIMEOUT_MS", 10_000)?,
     })
+}
+
+fn read_workers(env: &Env<'_>, memory_max: Option<u64>) -> Result<usize, ConfigError> {
+    let cores = std::thread::available_parallelism().map_or(1, usize::from);
+    let fallback = default_workers(cores, memory_max);
+    if fallback == 0 && env.text("GRAPH_WORKERS")?.is_none() {
+        return Err(refuse(
+            "GRAPH_WORKERS",
+            "unset, and memory.max holds no slot (docs/measurements/service-caps.md)",
+        ));
+    }
+    env.number("GRAPH_WORKERS", fallback, 1..=1024)
 }
 
 fn read_connections(env: &Env<'_>) -> Result<Connections, ConfigError> {
@@ -231,15 +223,6 @@ fn is_origin(text: &str) -> bool {
 /// `GRAPH_MAX_BODY` would only spend memory.
 fn graph_wasm_max_ingest() -> usize {
     1 << 30
-}
-
-/// The cgroup's memory ceiling, or `None` where there is none (`max`) or no cgroup v2.
-fn cgroup_memory_max() -> Option<u64> {
-    std::fs::read_to_string(CGROUP_MEMORY_MAX)
-        .ok()?
-        .trim()
-        .parse()
-        .ok()
 }
 
 fn refuse(name: &'static str, reason: &'static str) -> ConfigError {

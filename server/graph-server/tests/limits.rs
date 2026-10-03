@@ -62,6 +62,7 @@ async fn a_slow_body_is_408() {
 #[tokio::test]
 async fn a_full_queue_is_429_with_retry_after() {
     let hold = Hold::new();
+    let _release = hold.release_on_drop();
     let server = server_with(
         &[("GRAPH_WORKERS", "1"), ("GRAPH_QUEUE", "1")],
         hold.hooks(),
@@ -84,6 +85,7 @@ async fn a_full_queue_is_429_with_retry_after() {
 #[tokio::test]
 async fn a_timed_out_run_keeps_its_slot_until_it_ends() {
     let hold = Hold::new();
+    let _release = hold.release_on_drop();
     let env = [
         ("GRAPH_WORKERS", "2"),
         ("GRAPH_QUEUE", "0"),
