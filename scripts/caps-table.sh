@@ -36,9 +36,13 @@ function flag(line, name,   at, rest) {
 	sub(/ .*/, "", rest)
 	return rest
 }
-function short(text) {
+# Cut at a space, so a multibyte character is never split: mawk counts bytes.
+function short(text,   cut) {
 	sub(/[;:,] .*/, "", text)
-	return length(text) > 48 ? substr(text, 1, 45) "..." : text
+	if (length(text) <= 48) return text
+	cut = substr(text, 1, 46)
+	sub(/ [^ ]*$/, "", cut)
+	return cut "..."
 }
 FNR == NR {
 	if ($0 ~ /^    "id": /) { split($0, a, "\""); id = a[4] }

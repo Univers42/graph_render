@@ -5,13 +5,20 @@
 //! [`crate::contract::derive`]. The body text itself is built before the count starts, so
 //! it is excluded, as the server counts the body separately.
 //!
+//! `contract_read_time_by_body_size` times the contract reader alone by body size: it is
+//! quadratic in records (`graph_contract::ingest::validate`'s duplicate and link checks scan
+//! every earlier record), so the body that reads within the service's budget is far below
+//! the 64 MiB limit.
+//!
 //! ```sh
 //! scripts/orch/gr cargo test --release -p graph-wasm --lib -- --ignored --nocapture ingest_peak
+//! scripts/orch/gr cargo test --release -p graph-wasm --lib -- --ignored --nocapture contract_read_time
 //! ```
 //!
 //! Caveat: the documents are synthetic. The studio one is the seeded model (m ≈ 1.55 n); the
 //! contract one is one collection with a parent, a tag and one link per record. A body of
 //! the same size made of shorter records holds more of them, and its peak can be higher.
+//! The times are one run each, on whatever load the host carries.
 
 use super::measure;
 use std::fmt::Write;
@@ -23,21 +30,53 @@ const CONTRACT_HEAD: &str = r#"{"version":1,"source":"rows","collections":[{"id"
 #[test]
 #[ignore = "a measurement, not a check: run alone with --release -- --ignored --nocapture"]
 fn ingest_peak_at_the_service_body_limit() {
-    println!("| source | body bytes | nodes | heap peak bytes | resident rise bytes |");
-    println!("|---|---|---|---|---|");
+    println!("| source | body bytes | nodes | ms | heap peak bytes | resident rise bytes |");
+    println!("|---|---|---|---|---|---|");
     let text = studio_document(BODY);
-    let ((nodes, heap), rise) = resident_rise(|| {
+    let (((nodes, ms), heap), rise) = resident_rise(|| {
         measure(|| {
-            let (nodes, edges) = crate::ingest::read_records(text.as_bytes()).expect("valid");
-            (crate::ingest::index(&nodes, &edges).expect("fits"), nodes.len())
+            timed(|| {
+                let (nodes, edges) = crate::ingest::read_records(text.as_bytes()).expect("valid");
+                (
+                    crate::ingest::index(&nodes, &edges).expect("fits"),
+                    nodes.len(),
+                )
+            })
         })
     });
-    report("studio", text.len(), nodes.1, heap, rise);
+    report(("studio", text.len(), nodes.1, ms), heap, rise);
     drop((text, nodes));
     let text = contract_document(BODY);
-    let ((derived, heap), rise) =
-        resident_rise(|| measure(|| crate::contract::derive(text.as_bytes()).expect("derives")));
-    report("contract", text.len(), derived.0.nodes.len(), heap, rise);
+    let (((derived, ms), heap), rise) = resident_rise(|| {
+        measure(|| timed(|| crate::contract::derive(text.as_bytes()).expect("derives")))
+    });
+    report(
+        ("contract", text.len(), derived.0.nodes.len(), ms),
+        heap,
+        rise,
+    );
+}
+
+/// Doubles the contract body from 1 MiB until one read takes over 15 s, the share of
+/// `GRAPH_TIMEOUT_MS` the service caps leave to a run (`docs/measurements/service-caps.md`).
+#[test]
+#[ignore = "a measurement, not a check: run alone with --release -- --ignored --nocapture"]
+fn contract_read_time_by_body_size() {
+    println!("| body bytes | nodes | ms | heap peak bytes |");
+    println!("|---|---|---|---|");
+    for mib in [1_usize, 2, 4, 8, 16, 32, 64] {
+        let text = contract_document(mib << 20);
+        let ((derived, ms), heap) =
+            measure(|| timed(|| crate::contract::derive(text.as_bytes()).expect("derives")));
+        println!(
+            "| {} | {} | {ms} | {heap} |",
+            text.len(),
+            derived.0.nodes.len()
+        );
+        if ms > 15_000 {
+            break;
+        }
+    }
 }
 
 #[test]
@@ -50,9 +89,18 @@ fn a_small_generated_contract_document_derives_every_record_and_its_tags() {
     assert!(records > 16, "the document is long enough to use every tag");
 }
 
-fn report(source: &str, body: usize, nodes: usize, heap: usize, rise: Option<u64>) {
+/// One row: `(source, body bytes, nodes, ms)`, then the two memory figures.
+fn report(row: (&str, usize, usize, u128), heap: usize, rise: Option<u64>) {
+    let (source, body, nodes, ms) = row;
     let rise = rise.map_or_else(|| "not measured".to_owned(), |bytes| bytes.to_string());
-    println!("| {source} | {body} | {nodes} | {heap} | {rise} |");
+    println!("| {source} | {body} | {nodes} | {ms} | {heap} | {rise} |");
+}
+
+/// `run`'s value and its wall time in milliseconds.
+fn timed<T>(run: impl FnOnce() -> T) -> (T, u128) {
+    let start = std::time::Instant::now();
+    let value = run();
+    (value, start.elapsed().as_millis())
 }
 
 /// What the resident size rose by while `run` ran: VmHWM after it, less VmRSS at a peak reset
@@ -96,7 +144,8 @@ fn seeded_text(n: u32) -> String {
 }
 
 /// Records are appended until the text reaches `target` bytes. Record `i` has parent
-/// `(i - 1) / 2` and blocks one earlier record, so every link resolves.
+/// `(i - 1) / 2` and blocks one earlier record picked by a multiplicative hash, so every
+/// link resolves and the targets spread over the whole document.
 fn contract_document(target: usize) -> String {
     let mut out = String::from(CONTRACT_HEAD);
     let mut i = 0_usize;
@@ -119,23 +168,8 @@ fn record(out: &mut String, i: usize) {
     )
     .expect("a String takes every write");
     if i > 0 {
-        let (up, blocks) = ((i - 1) / 2, i.wrapping_mul(7919) % i);
-        write!(out, r#","up":"r{up}","blocks":["r{blocks}"]"#)
-            .expect("a String takes every write");
+        let (up, blocks) = ((i - 1) / 2, (i.wrapping_mul(0x9E37_79B9) >> 7) % i);
+        write!(out, r#","up":"r{up}","blocks":["r{blocks}"]"#).expect("a String takes every write");
     }
     out.push_str("}}");
-}
-
-#[test]
-#[ignore = "scratch"]
-fn scratch_contract_scaling() {
-    for mib in [2_usize, 4] {
-        let text = contract_document(mib << 20);
-        let start = std::time::Instant::now();
-        let _ = graph_contract::canonical_json::parse(&text).expect("parses");
-        println!("parse-only mib={mib} ms={}", start.elapsed().as_millis());
-        let start = std::time::Instant::now();
-        let _ = graph_contract::ingest::read(&text).expect("reads");
-        println!("read mib={mib} ms={}", start.elapsed().as_millis());
-    }
 }
