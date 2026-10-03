@@ -7,6 +7,10 @@
 //                        an exact byte count; the parser reads the same document either way
 //   ... --shape vault     the studio's other model; `random` by default
 //   ... --out-dir DIR     target/ingest-ceiling by default
+//   ... --phases          also print the per-phase linear-memory marks, for an artifact
+//                        built with `--features probe` (see `crates/graph-wasm/src/ingest/phases.rs`).
+//                        The marks are read out of `memory.buffer`, not by calling the
+//                        module, so they survive the trap they were taken to explain.
 //
 // One spec per process on purpose: the driver bounds each run with `timeout`, and a sweep
 // inside one process could not be bounded per document. Documents come from the studio's own
@@ -17,7 +21,9 @@
 // and does not need the whole text resident twice.
 //
 // Exit codes follow graph-cli: 0 built, 1 the module refused the document by name, 2 could
-// not run (no artifact, no room to write).
+// not run (no artifact, no room to write), 3 the module trapped (`unreachable`) — which is
+// what the ceiling exists to replace, so it gets a code of its own rather than reading as
+// a refusal.
 
 import { createWriteStream } from "node:fs";
 import { mkdir, readFile, stat } from "node:fs/promises";
@@ -37,6 +43,7 @@ function parseArgs(argv) {
     else if (flag === "--shape") { spec.shape = value; i += 1; }
     else if (flag === "--pad") { spec.pad = Number(value); i += 1; }
     else if (flag === "--out-dir") { spec.outDir = value; i += 1; }
+    else if (flag === "--phases") { spec.phases = true; }
     else if (flag === "--verify") { spec.verify = true; }
     else fail(`unknown flag ${flag}`);
   }
@@ -78,15 +85,47 @@ async function emit(spec, file) {
   return { expected, nodes: records.nodes.length, edges: records.edges.length };
 }
 
+/** The phase ids `crates/graph-wasm/src/ingest/phases.rs` records, in record order. */
+const PHASE_NAMES = ["copy", "parse", "records", "index_model", "returned", "arena_text", "columns", "csrs"];
+
+/** `(phase, bytes)` pairs out of the module's mark table, read from `memory.buffer`.
+ *
+ * The address comes from `gm_probe_base` and is a `static` in linear memory, so this works
+ * on an instance that already trapped: the wasm memory is still there, only the instance's
+ * call surface is gone. A module without the probe feature has no `gm_probe_base` and no
+ * marks to read. */
+function readMarks(exports) {
+  if (typeof exports.gm_probe_base !== "function") return null;
+  const table = new Uint32Array(exports.memory.buffer, exports.gm_probe_base(), 64);
+  const marks = new Map();
+  for (let i = 1; i + 1 <= table[0]; i += 2) marks.set(table[i], table[i + 1]);
+  return marks;
+}
+
+function reportPhases(marks, outcome) {
+  if (marks === null) return;
+  const rows = [...marks].map(([id, bytes]) => `  ${PHASE_NAMES[id] ?? id} ${bytes}`);
+  process.stdout.write(`phases ${outcome}: ${rows.length ? "\n" + rows.join("\n") : "none recorded"}\n`);
+}
+
 /** `gm_alloc`, copy, `gm_build`, `gm_free`: the same three calls a host makes (C5, C7). */
-async function build(wasmPath, file) {
+async function build(wasmPath, file, phases) {
   const bytes = await readFile(wasmPath);
   const exports = await loadMotor(bytes);
   const size = (await stat(file)).size;
   const ptr = exports.gm_alloc(size);
   if (ptr === 0) return { outcome: "alloc-refused", code: exports.gm_last_error() };
   new Uint8Array(exports.memory.buffer, ptr, size).set(await readFile(file));
-  const handle = exports.gm_build(ptr, size);
+  if (phases && typeof exports.gm_probe_reset === "function") exports.gm_probe_reset();
+  let handle = 0;
+  let trapped = null;
+  try {
+    handle = exports.gm_build(ptr, size);
+  } catch (error) {
+    trapped = error;
+  }
+  if (phases) reportPhases(readMarks(exports), trapped ? `trapped ${trapped.message ?? trapped}` : "returned");
+  if (trapped) return { outcome: "trapped", code: exports.gm_last_error(), handle: 0 };
   const code = exports.gm_last_error();
   exports.gm_free(ptr, size);
   return { outcome: handle === 0 ? "refused" : "built", code, handle };
@@ -104,11 +143,11 @@ async function main() {
   const counted = await emit(spec, file);
   const written = (await stat(file)).size;
   if (written !== counted.expected) fail(`streamed ${written} bytes, expected ${counted.expected}`);
-  const result = await build(spec.wasm, file);
+  const result = await build(spec.wasm, file, spec.phases);
   process.stdout.write(
     `${counted.nodes} ${counted.edges} ${spec.degree} ${written} ${result.outcome} code=${result.code}\n`,
   );
-  process.exit(result.outcome === "built" ? 0 : 1);
+  process.exit(result.outcome === "built" ? 0 : result.outcome === "trapped" ? 3 : 1);
 }
 
 await main();

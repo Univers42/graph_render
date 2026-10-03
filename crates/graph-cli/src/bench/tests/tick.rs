@@ -19,6 +19,8 @@ fn a_tick_row_has_one_cell_per_header_column_for_either_layout() {
             workers,
             grow: None,
             collide_radius: None,
+            // The timed runner on the threaded row: its table goes to stderr, its row must not move.
+            passes: workers > 1,
         };
         let row = measure(&plan).expect("a 300-node model builds");
         let columns = |line: &str| line.matches('|').count();

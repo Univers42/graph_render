@@ -1,8 +1,9 @@
 //! The charge deposit as two range kernels, so the workers share it and every cell still
 //! sums its terms in the order one thread would.
 //!
-//! [`Stencils`] finds each sorted slot's lower-left cell, one output per slot. [`Rows`]
-//! groups the slots by that cell's row, each row in slot order. [`Deposit`] then divides the
+//! [`Stencils`] scales each sorted slot's position to cell units, one output per slot, the
+//! only pass that reads the positions; the rest of the tick splits that value. [`Rows`]
+//! groups the slots by their lower-left cell's row, each row in slot order. [`Deposit`] then divides the
 //! cells, not the nodes: a row's cells take terms only from the slots of that row and the one
 //! below, so a range merges those two lists back into slot order and adds the weights that
 //! land inside it. A cell's terms arrive in slot order whichever range holds it, which is the
@@ -19,10 +20,11 @@ use super::frame::{self, Frame};
 use crate::exec::StepRange;
 use std::ops::Range;
 
-/// The cell of a slot whose node is not finite: it is in no row, so it deposits nothing.
-const NONE: u32 = u32::MAX;
+/// A slot's position in cell units, [`frame::scaled`]: NaN for a non-finite node, which is in
+/// no row, deposits nothing and reads no field.
+pub(super) type Scaled = (f64, f64);
 
-/// Each sorted slot's lower-left cell, `cy * side + cx`, or [`NONE`].
+/// Each sorted slot's [`Scaled`] position.
 pub(super) struct Stencils<'a> {
     pub(super) frame: &'a Frame,
     pub(super) side: usize,
@@ -30,26 +32,18 @@ pub(super) struct Stencils<'a> {
     pub(super) xy: (&'a [f64], &'a [f64]),
 }
 
-impl Stencils<'_> {
-    fn of(&self, i: u32) -> Option<((usize, usize), (f64, f64))> {
-        let i = i as usize;
-        frame::stencil(self.frame, (self.xy.0[i], self.xy.1[i]))
-    }
-}
-
 impl StepRange for Stencils<'_> {
-    type Out = u32;
+    type Out = Scaled;
 
     fn len(&self) -> u32 {
         self.order.len() as u32
     }
 
-    fn step_range(&self, range: Range<u32>, out: &mut [u32]) {
+    fn step_range(&self, range: Range<u32>, out: &mut [Scaled]) {
         let order = &self.order[range.start as usize..range.end as usize];
-        for (cell, &i) in out.iter_mut().zip(order) {
-            *cell = self
-                .of(i)
-                .map_or(NONE, |((cx, cy), _)| (cy * self.side + cx) as u32);
+        for (u, &i) in out.iter_mut().zip(order) {
+            let i = i as usize;
+            *u = frame::scaled(self.frame, (self.xy.0[i], self.xy.1[i]));
         }
     }
 }
@@ -71,20 +65,21 @@ impl Rows {
         }
     }
 
-    /// Regroups the slots of `at` by row; a [`NONE`] slot is in no row.
-    pub(super) fn sort(&mut self, at: &[u32], side: usize) {
+    /// Regroups the slots of `at` by the row of their lower-left cell in `frame`; a
+    /// non-finite slot is in no row.
+    pub(super) fn sort(&mut self, at: &[Scaled], frame: &Frame) {
         self.starts.fill(0);
-        for &cell in at.iter().filter(|&&cell| cell != NONE) {
-            self.starts[cell as usize / side + 1] += 1;
+        for &(_, uy) in at.iter().filter(|u| !u.0.is_nan()) {
+            self.starts[frame::cell(frame, uy) + 1] += 1;
         }
         for row in 1..self.starts.len() {
             self.starts[row] += self.starts[row - 1];
         }
         // Each row's start is its cursor; after the scatter it holds the next row's start,
         // so one shift right restores the starts.
-        for (slot, &cell) in (0u32..).zip(at) {
-            if cell != NONE {
-                let cursor = &mut self.starts[cell as usize / side];
+        for (slot, &(ux, uy)) in (0u32..).zip(at) {
+            if !ux.is_nan() {
+                let cursor = &mut self.starts[frame::cell(frame, uy)];
                 self.slots[*cursor as usize] = slot;
                 *cursor += 1;
             }
@@ -103,7 +98,7 @@ impl Rows {
 pub(super) struct Deposit<'a> {
     pub(super) stencils: &'a Stencils<'a>,
     /// [`Stencils`]' output.
-    pub(super) at: &'a [u32],
+    pub(super) at: &'a [Scaled],
     /// That output grouped by row.
     pub(super) rows: &'a Rows,
 }
@@ -154,11 +149,12 @@ impl Deposit<'_> {
 
     // The weights of `slot` that land in `cells`, into `out`, which starts at `cells.start`.
     fn add(&self, slot: u32, cells: &Range<usize>, out: &mut [C]) {
-        let slot = slot as usize;
-        let Some((_, (fx, fy))) = self.stencils.of(self.stencils.order[slot]) else {
+        let Some(((cx, cy), (fx, fy))) = frame::split(self.stencils.frame, self.at[slot as usize])
+        else {
             return;
         };
-        let (at, side) = (self.at[slot] as usize, self.stencils.side);
+        let side = self.stencils.side;
+        let at = cy * side + cx;
         for (cell, w) in [at, at + 1, at + side, at + side + 1]
             .into_iter()
             .zip(weights(fx, fy))

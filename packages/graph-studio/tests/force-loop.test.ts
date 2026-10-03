@@ -196,6 +196,21 @@ test("frames carry copies: the port's buffers are never handed over", () => {
   assert.deepEqual(Array.from(lastFrame(out.emitted).xs), [1, 2]);
 });
 
+/**
+ * The columns cross the wire as f32, narrowed in the worker: the page narrowed anyway, so f64 spent
+ * twice the bytes. Rounding to nearest is what the page's `Float32Array.set` did; the drawing is unchanged.
+ */
+test("the frame's columns are f32, narrowed in the worker to f32 precision and no further", () => {
+  const port = fake(0.5);
+  const { host, out } = rig(port);
+  host.handle({ type: "force.start" });
+  out.tick();
+  const frame = lastFrame(out.emitted);
+  assert.ok(frame.xs instanceof Float32Array && frame.ys instanceof Float32Array, "f32 on the wire");
+  assert.deepEqual(Array.from(frame.xs), Array.from(new Float32Array(port.positions().xs)));
+  assert.deepEqual(Array.from(frame.ys), Array.from(new Float32Array(port.positions().ys)));
+});
+
 test("a pause stops the frames and keeps the pins; resume carries on from that alpha", () => {
   const port = fake(0.99);
   const { host, out } = rig(port);

@@ -45,6 +45,7 @@
 
 mod carry;
 mod error;
+mod fidelity;
 pub(in crate::layout::force) mod gravity;
 mod live_params;
 mod pin;

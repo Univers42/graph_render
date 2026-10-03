@@ -1,18 +1,19 @@
-"""Differential of the three graph-free 3D placements — SPHERE, HELIX and CUBE — against
-SciGraphs' own functions (SciGraphs/core/scigraphs_core/mesh/layouts/basic.py:22-103), run in
-the ge-python-oracle image with the SciGraphs/ submodule mounted so the arm is the reference
-function itself and not a restatement of it:
+"""Differential of the four graph-free 3D placements — SPHERE, HELIX, CUBE and SPIRAL —
+against SciGraphs' own functions (SciGraphs/core/scigraphs_core/mesh/layouts/basic.py:22-103),
+run in the ge-python-oracle image with the SciGraphs/ submodule mounted so the arm is the
+reference function itself and not a restatement of it:
 
   graph-cli emit-basic-3d-fixtures --seeds 1000
   docker run --rm --user 0:0 -v $PWD:/w -w /w ge-python-oracle \
       python3 harness/oracle-basic-3d.py target/basic-3d-fixtures
   graph-cli oracle-basic-3d
 
-ONE ARM FILE FOR THREE FUNCTIONS, because the three take the same two arguments and read no
+ONE ARM FILE FOR FOUR FUNCTIONS, because the four take the same two arguments and read no
 graph at all: `_sphere_layout(num_nodes, scale)` (basic.py:22), `_helix_layout(num_nodes,
-scale)` (:65) and `_cube_layout(num_nodes, scale)` (:83). Five near-identical arm files would
-be the redundancy the library-first rule forbids, and a shared arm is what makes the
-per-function `--function` selector below the honest place for the differences to live.
+scale)` (:65), `_cube_layout(num_nodes, scale)` (:83) and `_spiral_layout_3d(num_nodes, scale)`
+(:36). Five near-identical arm files would be the redundancy the library-first rule forbids,
+and a shared arm is what makes the per-function `--function` selector below the honest place
+for the differences to live.
 
 Each function is compared in its own way, and the difference is the whole point of the
 selector:
@@ -42,26 +43,44 @@ selector:
             `crates/graph-cli/src/oracle_python/basic_3d.rs:34-41` before either number
             decided a row. The distribution this arm holds them to is uniform on
             `[-0.8*scale, 0.8*scale]` per axis, mean 0, variance `(1.6*scale)^2/12`.
+  spiral  — coordinates, within the same tolerance, over every node and all three columns,
+            and it is the one row whose parameters are NOT closed form. `t`, the position
+            along the curve, is an arc-length INVERSION (basic.py:45-56): a 65 536-point
+            `linspace`, a SEQUENTIAL `cumsum` of trapezoid speeds, then `np.interp` per
+            node. So this is the row where a tolerance is earned rather than rested on. A
+            port that reproduces `linspace` as `start + i*step`, `cumsum` in index order
+            (never a blocked sum, which is what `np.sum` does) and `interp`'s own slope
+            formula agrees to the narrowing; one that gets any of the three wrong is off by
+            orders of magnitude on `t` and therefore on every coordinate, because `t` is
+            multiplied straight into `cos`/`sin` by `omega = 2*pi*turns`. The sweep over node
+            counts also exercises the only integer the layout computes —
+            `turns = max(2, round(sqrt(n / (0.75*pi))))` (basic.py:41), which is 2 for
+            `n <= 14` and first reaches 3 at `n = 15` — so a port with the floor or the
+            half-to-even rounding wrong turns red on small graphs and nowhere else.
 
-**`worst` DOES NOT MEAN THE SAME THING IN ALL THREE ROWS**, and each row says which in a
+**`worst` DOES NOT MEAN THE SAME THING IN ALL FOUR ROWS**, and each row says which in a
 `compared` field, because the judge's gate is `worst <= ceiling` and handing it a quantity
 that is supposed to be large would gate the layout against its own correct behaviour. For
 `cube` the gated `worst` is the CORNER gap; its interior gap is reported beside it as
-`interior_gap_not_gated` and is expected to be large.
+`interior_gap_not_gated` and is expected to be large. The other three gate their coordinates,
+which are the whole of them.
 
 Metric: the largest absolute coordinate difference over the three axes, per function, for the
-two that are coordinate comparisons; for `cube`, the worst corner gap (which must be 0 after
+three that are coordinate comparisons; for `cube`, the worst corner gap (which must be 0 after
 the f32 narrowing) plus the interior's per-axis mean and variance against the uniform's. The
 result holds the worst per function and, beside it, how many seeds matched bit for bit after
 the snapshot's own f32 narrowing, and graph-cli holds the ceiling.
 
 Ponytail: the gate model is one connected random graph per seed of 2 to 601 nodes, and these
-three read only its node COUNT, so the comparison sweeps node counts rather than graph
+four read only its node COUNT, so the comparison sweeps node counts rather than graph
 shapes — which is the right axis here, and it does mean the sweep never sees n = 0. The
-empty case is held by graph-core's own tests. The reference prints no progress line (unlike
-`oracle-circular-hierarchy.py`'s arm), so nothing is silenced. The refusals this arm owes
-its result — the digest, the seed count, a layout that compared no case, and a non-finite
-gap — come from `harness/oracle_common.py` rather than from a fourth copy of them.
+empty case is held by graph-core's own tests, and for the spiral the empty case is the one
+the REFERENCE refuses (`_spiral_layout_3d(0, scale)` returns one row, not none,
+basic.py:52-55), which is the port's documented divergence rather than a gap in this sweep.
+The reference prints no progress line (unlike `oracle-circular-hierarchy.py`'s arm), so
+nothing is silenced. The refusals this arm owes its result — the digest, the seed count, a
+layout that compared no case, and a non-finite gap — come from `harness/oracle_common.py`
+rather than from a fourth copy of them.
 """
 import json
 import os
@@ -84,15 +103,23 @@ from scigraphs_core.mesh.layouts.basic import (  # noqa: E402
     _cube_layout,
     _helix_layout,
     _sphere_layout,
+    _spiral_layout_3d,
 )
 
 # The functions this arm covers, and the fixture key each is emitted under. The list is the
 # arm's own table, and it is what `--function` on the graph-cli side selects against: one
-# arm, three functions, one place the differences between them are written down.
+# arm, four functions, one place the differences between them are written down.
+#
+# `spiral` is `_spiral_layout_3d` called as `(n, scale)`, i.e. with `turns=None` — the
+# default the dispatcher reaches (dispatcher.py:106) and the only way the arm may call it:
+# `turns` is a parameter the fixture does not carry, so a hard-coded count would be
+# comparing a curve this layout never draws. Its `turns` therefore comes from `n` alone
+# (basic.py:41), and the sweep over counts is what covers it.
 ARMS = {
     "sphere": _sphere_layout,
     "helix": _helix_layout,
     "cube": _cube_layout,
+    "spiral": _spiral_layout_3d,
 }
 
 # The eight corners of a unit cube of half-side 1, in SciGraphs' literal order
@@ -198,7 +225,7 @@ def fold(case, tally):
 
 def rows_of(tally, cases):
     """The result's `layouts` table, and what each row's `worst` MEANS — it is not the same
-    quantity for all three, and a reader who assumes it is will misread the table."""
+    quantity for all four, and a reader who assumes it is will misread the table."""
     layouts = {
         key: {
             "cases": cases,
@@ -210,6 +237,9 @@ def rows_of(tally, cases):
     }
     layouts["sphere"]["compared"] = "all three columns, every node"
     layouts["helix"]["compared"] = "all three columns, every node"
+    # The spiral has no uncompared part: every column of every node is gated, and its `t`
+    # column is the arc-length inversion the whole comparison exists to hold (docstring).
+    layouts["spiral"]["compared"] = "all three columns, every node, t inverted from the arc"
     # cube's gate is its EIGHT CORNERS, which is exact (the reference's literal array times
     # scale, and its origin at n == 1), and its `worst` is therefore the corner gap rather
     # than the interior's. The interior's own gap is reported beside it and is NOT gated — it
@@ -251,8 +281,10 @@ def main():
     result = {
         "fingerprint": manifest["fingerprint"],
         "sha256": digest,
-        "oracle": f"SciGraphs _sphere_layout / _helix_layout / _cube_layout on numpy "
-        f"{np.__version__}",
+        "oracle": (
+            f"SciGraphs _sphere_layout / _helix_layout / _cube_layout / _spiral_layout_3d "
+            f"on numpy {np.__version__}"
+        ),
         "layouts": layouts,
     }
     with open(os.path.join(directory, f"{name}-result.json"), "w") as out:
@@ -261,3 +293,4 @@ def main():
 
 
 main()
+

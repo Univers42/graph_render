@@ -18,11 +18,13 @@
 //! is printed beside the numbers rather than assumed idle.
 
 pub mod grow;
+mod passes;
 
 use super::campaign::median;
 use super::scale::{MAX_SCALE_NODES, scale_model};
 use super::tiers::markdown::loadavg;
 use crate::exec_native::Threads;
+use graph_core::exec::Runner;
 use graph_core::layout::force::{ForceParams, ForceSession};
 use graph_core::{REFERENCE_DEGREE, Topology, index_model};
 use std::process::ExitCode;
@@ -73,6 +75,9 @@ pub struct Plan {
     /// without the overlaps, not the cost of a tick with no collide pass at all.
     #[arg(long, value_name = "RADIUS")]
     pub collide_radius: Option<f64>,
+    /// Also print where the timed ticks went, pass by pass, and what no pass covers.
+    #[arg(long)]
+    pub passes: bool,
 }
 
 /// The table's header, printed once above the row.
@@ -107,13 +112,7 @@ pub fn measure(plan: &Plan) -> Result<String, String> {
     let mut session = Stepper::start(plan, &topology).map_err(|e| format!("n={}: {e}", plan.n))?;
     session.step(plan.warm);
     let warm_ms = ms_since(started);
-    let samples: Vec<f64> = (0..plan.ticks)
-        .map(|_| {
-            let tick = Instant::now();
-            session.step(1);
-            ms_since(tick)
-        })
-        .collect();
+    let samples = time_ticks(plan, &mut session);
     let (min, max) = samples
         .iter()
         .fold((f64::INFINITY, 0.0_f64), |(lo, hi), &s| {
@@ -130,6 +129,27 @@ pub fn measure(plan: &Plan) -> Result<String, String> {
         session.alpha(),
         loadavg(),
     ))
+}
+
+/// `plan.ticks` single ticks' wall times; with `--passes`, the pass table on standard error.
+fn time_ticks(plan: &Plan, session: &mut Stepper) -> Vec<f64> {
+    let timed = passes::Timed::default();
+    let samples: Vec<f64> = (0..plan.ticks)
+        .map(|_| {
+            let tick = Instant::now();
+            if plan.passes {
+                session.step_on(&timed, 1);
+            } else {
+                session.step(1);
+            }
+            ms_since(tick)
+        })
+        .collect();
+    if plan.passes {
+        let total = std::time::Duration::from_secs_f64(samples.iter().sum::<f64>() / 1e3);
+        eprintln!("{}\n", timed.table(plan.ticks, total));
+    }
+    samples
 }
 
 /// A session of either layout, stepped one tick at a time.
@@ -162,7 +182,11 @@ impl Stepper {
     }
 
     fn step(&mut self, ticks: u32) {
-        self.session.step_with(&Threads, self.workers, ticks);
+        self.step_on(&Threads, ticks);
+    }
+
+    fn step_on(&mut self, runner: &impl Runner, ticks: u32) {
+        self.session.step_with(runner, self.workers, ticks);
     }
 
     fn alpha(&self) -> f64 {

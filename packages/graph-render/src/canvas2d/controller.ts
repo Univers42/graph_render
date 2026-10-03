@@ -1,21 +1,21 @@
 /** The view's state changes: everything `createView` does to a canvas between frames. */
 import {
-  type Camera, type FitArea, type Point, fitCamera, limitsFor, screenToWorld,
+  type Camera, type FitArea, type Point, fitCamera, screenToWorld,
 } from "../camera.ts";
 import { type LiveDrag, movedScene } from "../drag.ts";
 import type { Frame } from "../frame.ts";
 import { DEFAULT_POLICY, type LabelPolicy, newLabelPlan, occupancyFor } from "../labels.ts";
 import type { LocalLayer } from "../local.ts";
-import { EMPTY_FRAME, pickIn, sceneOf } from "../scene.ts";
+import { EMPTY_FRAME, pickEased, pickIn, sceneOf } from "../scene.ts";
 import { plainStyle } from "../style.ts";
 import { DARK_THEME, type Theme } from "../theme.ts";
 import { type Orbit, boxOf, fitOrbit } from "../three/orbit.ts";
 import type { BackendChoice } from "../webgl2/plan.ts";
 import { newBulkSlot } from "../webgl2/hook.ts";
-import { safeOf } from "../gestured.ts";
 import { setSelection } from "./choose.ts";
 import { newCounts } from "./input.ts";
 import { type LoopState, invalidate, markMoved, relight } from "./loop.ts";
+import { currentLimits, safeOf } from "./limits.ts";
 import { MIN_SCREEN_RADIUS } from "./nodes.ts";
 import { newPace } from "./pace.ts";
 import { newRate } from "./rate.ts";
@@ -83,7 +83,7 @@ export function newState(canvas: HTMLCanvasElement, setup: Setup): LoopState {
   const viewport = { width: 1, height: 1 };
   return {
     ctx, sprites: createSpriteCache(spriteSurface, theme), onFrame: setup.onFrame, theme, policy, scene,
-    camera: fitCamera(null, viewport), limits: limitsFor(null, viewport), viewport, safe: null, dpr: 1,
+    camera: fitCamera(null, viewport), get limits() { return currentLimits(this); }, viewport, safe: null, dpr: 1,
     x: scene.frame.x, y: scene.frame.y, fromX: scene.frame.x, fromY: scene.frame.y, transitionStart: -1,
     lit: new Uint8Array(0), hovered: -1, dimStart: -1, selected: -1, selection: [], pinned: [], marquee: null,
     plan: newLabelPlan(policy.budget), orbit: null, drawn: null,
@@ -103,7 +103,6 @@ export function measure(controller: Controller): void {
   canvas.width = Math.round(state.viewport.width * state.dpr);
   canvas.height = Math.round(state.viewport.height * state.dpr);
   state.occupancy = occupancyFor(state.viewport);
-  state.limits = limitsFor(state.scene.bounds, state.viewport, { area: safeOf(state, state.viewport) ?? undefined });
   state.sprites.reset(state.theme, state.dpr);
 }
 
@@ -127,7 +126,6 @@ export function setSafeArea(controller: Controller, area: FitArea | null): void 
     && next?.width === state.safe?.width && next?.height === state.safe?.height) || (next === null && state.safe === null);
   if (same) return;
   state.safe = next;
-  state.limits = limitsFor(state.scene.bounds, state.viewport, { area: safeOf(state, state.viewport) ?? undefined });
   if (controller.fitted && !controller.gestured) fit(controller);
   else invalidate(state);
 }
@@ -198,6 +196,9 @@ export function showFrame(state: LoopState, frame: Frame, animate: boolean): voi
   } else {
     state.scene = sceneOf(frame, state.scene.style, null);
     state.transitionStart = -1;
+    // Nothing is easing, so nothing is there to mix: the layer reads `u_eased` of 1 and a pick
+    // reads the grid. A tween cut short by a snap or a resize has to leave both.
+    state.bulk.tween = null;
     state.x = frame.x;
     state.y = frame.y;
   }
@@ -215,51 +216,59 @@ export function showFrame(state: LoopState, frame: Frame, animate: boolean): voi
     state.selection = [];
     state.pinned = [];
   }
-  state.limits = limitsFor(state.scene.bounds, state.viewport, { area: safeOf(state, state.viewport) ?? undefined });
   relight(state);
 }
 
 /**
  * New positions for the nodes already in the frame, from a live simulation. A pair that does
- * not have one entry per node is another graph's drawing and is ignored. The columns the motor
- * handed over are read, never kept: they go into the ones the view already draws.
+ * not have one entry per node is another graph's drawing and is ignored.
+ *
+ * The columns are adopted, not copied. The motor hands its buffers over on a transfer list
+ * (`motor/liveLoop.ts`), which detaches them in the worker, so the page holds the only copy and
+ * nothing else can be writing it; a `state.x.set(xs)` on top of that would be 8 MB of copying
+ * per frame at a million nodes, for an array already the right length and the right precision.
+ * The worker narrows to f32 before it sends (`motor/protocol.ts`), so the columns arrive in the
+ * precision both the drawing and the GPU attribute want.
  *
  * A batch carrying a non-finite coordinate is refused whole, the way `snapshot/decode.ts:116`
  * refuses one: a NaN is a motor bug, and half a batch of them would draw a sprite, a pick-grid
  * entry and a NaN camera, none of which the user can undo. One bad coordinate is a bug report,
- * not a drawing.
+ * not a drawing. It is the one pass over the batch this function still makes, and it is the
+ * one that keeps a broken frame off the screen.
  */
-export function setPositions(state: LoopState, xs: Float64Array, ys: Float64Array): void {
+export function setPositions(state: LoopState, xs: Float32Array, ys: Float32Array): void {
   const count = state.scene.frame.nodeCount;
   if (xs.length !== count || ys.length !== count) return;
   for (let node = 0; node < count; node += 1) {
     if (Number.isFinite(xs[node]) && Number.isFinite(ys[node])) continue;
     return;
   }
-  if (state.x.length !== count) {
-    state.x = new Float32Array(count);
-    state.y = new Float32Array(count);
-  }
-  state.x.set(xs);
-  state.y.set(ys);
+  state.x = xs;
+  state.y = ys;
   state.bulk.placed += 1;
-  // The scene is the single source of truth: it carries the frame and the grid rebuilt on it.
-  state.scene = movedScene(state.scene, { x: state.x, y: state.y });
-  state.x = state.scene.frame.x;
-  state.y = state.scene.frame.y;
-  state.limits = limitsFor(state.scene.bounds, state.viewport, { area: safeOf(state, state.viewport) ?? undefined });
+  // The scene is the single source of truth: it carries the frame, and the bounds and the pick
+  // grid are rebuilt on it only when something reads them (`src/lazy.ts`).
+  state.scene = movedScene(state.scene, { x: xs, y: ys });
   markMoved(state);
 }
 
-/** -1 while the nodes are moving: the grid holds where they will be, not where they are. */
+/**
+ * The node under a screen point.
+ *
+ * Mid-tween this scans the eased pose rather than asking the grid, because the grid indexes
+ * the *target* frame and every node is somewhere else until the tween ends. The scan reads the
+ * two halves and the fraction the loop already publishes for the shader, so it is the pose
+ * both backends draw; outside a tween the grid still answers, and it is O(cells) not O(nodes).
+ */
 export function pickAt(state: LoopState, at: Point): number {
-  if (state.transitionStart >= 0) return -1;
   if (state.orbit !== null) return pickInSpace(state, at);
   const world = screenToWorld(state.camera, at);
   const { scale } = state.camera;
-  return pickIn(state.scene, {
+  const query = {
     x: world.x, y: world.y, tolerance: PICK_TOLERANCE / scale, floor: MIN_SCREEN_RADIUS / scale,
-  });
+  };
+  const tween = state.bulk.tween;
+  return tween === null ? pickIn(state.scene, query) : pickEased(state.scene, query, tween);
 }
 
 /**
