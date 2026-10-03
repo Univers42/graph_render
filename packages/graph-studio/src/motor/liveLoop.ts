@@ -183,10 +183,11 @@ class ForceLoop {
     // frozen under the pointer is not what a pause was for.
     this.paused = false;
     if (request.type === "force.start") {
-      // "Animate": the settle starts over from random positions, not from where it stopped.
-      // The port answers with the alpha it re-heated to, which is the bar's new full width.
-      // A dropped node is a position the user chose, and a restart throws the nodes back to
-      // random ones — so the pins go with the positions they were holding.
+      // "Animate": the settle starts over from where this graph's settle begins, not from
+      // where it stopped. The port answers with the alpha the new session was born at, which
+      // is the bar's new full width. A dropped node is a position the user chose, and a
+      // restart puts the nodes back at the session's start positions — so the pins go with
+      // the positions they were holding.
       this.drop();
       const restarted = this.live.shuffle?.();
       if (restarted !== undefined) this.alpha = restarted;

@@ -127,6 +127,39 @@ test("an out-of-range knob is refused by the motor and the session keeps its val
   assert.deepEqual(Array.from(live.positions().xs), Array.from(before), "and changed nothing");
 });
 
+/** `LiveForce.shuffle` is optional on the port; a rig that cannot restart is a broken rig. */
+function shuffled(live: { shuffle?: () => number }): number {
+  if (live.shuffle === undefined) throw new Error("the port cannot restart the settle");
+  return live.shuffle();
+}
+
+test("Animate restarts the settle from the session's own start positions", { skip: SKIP }, async () => {
+  const { live } = await rig();
+  // A second real session over the same fixture, never stepped: what a settle starts from.
+  const fresh = (await rig()).live;
+  const start = { xs: Array.from(fresh.positions().xs), ys: Array.from(fresh.positions().ys) };
+  // `step(0)` reads the alpha a session is born at without running a tick.
+  const born = fresh.step(0);
+  live.setParams({ ...DEFAULT_KNOBS, gravity: 0.4, charge: -800, linkStrengthScale: 1.5, linkDistance: 120 });
+  live.step(20);
+  const alpha = shuffled(live);
+  const now = live.positions();
+  assert.deepEqual(Array.from(now.xs), start.xs, "the nodes are back where the session starts");
+  assert.deepEqual(Array.from(now.ys), start.ys);
+  assert.equal(alpha, born, "and the alpha is the one a fresh session is born at");
+  const params = motorParams(live);
+  assert.deepEqual(
+    {
+      charge: params.charge,
+      gravity: params.gravity,
+      link_strength_scale: params.link_strength_scale,
+      link_distance: params.link_distance,
+    },
+    { charge: -800, gravity: 0.4, link_strength_scale: 1.5, link_distance: 120 },
+    "the knobs set before the restart survived it",
+  );
+});
+
 test("the real port drives the loop to a stop on its own", { skip: SKIP }, async () => {
   const { live } = await rig();
   const emitted: { running: boolean; alpha: number }[] = [];
