@@ -12,18 +12,10 @@ pub(super) fn arms(fills: [[char; 6]; 4]) -> Vec<Arm> {
         "wasm32 run 1",
         "wasm32 run 2",
     ];
-    let line = |i: usize, fill: char| {
-        format!(
-            "{} {} {}",
-            stage_ids()[i / 2],
-            i % 2,
-            fill.to_string().repeat(64)
-        )
-    };
     names
         .iter()
         .zip(fills)
-        .map(|(n, f)| (*n, (0..6).map(|i| line(i, f[i])).collect()))
+        .map(|(n, f)| (*n, (0..6).map(|i| arm_line(i, f[i])).collect()))
         .collect()
 }
 
@@ -86,9 +78,52 @@ fn ten_names() -> [&'static str; 10] {
 }
 
 /// Builds the 10-arm vector where every arm has honest digests.
+///
+/// **Each arm's lines are built by its own call to [`lines`], not cloned from arm 0's**
+/// (RG-48). Cloning made "ten arms agree" a statement about one vector copied ten times: a
+/// defect in how a line is built — a wrong stage name, a wrong seed, a digest of the wrong
+/// length — would have been copied into all ten arms and read as agreement. Ten independent
+/// builds that come out equal is the same claim and is false the moment `lines()` drifts.
 fn ten_arms() -> Vec<Arm> {
-    let honest = arms(HONEST)[0].1.clone();
-    ten_names().iter().map(|n| (*n, honest.clone())).collect()
+    ten_names()
+        .iter()
+        .map(|name| (*name, lines(&HONEST[0])))
+        .collect()
+}
+
+/// Arm 0 of `arms(fills)`: its six `stage seed sha256` lines.
+fn lines(fills: &[char; 6]) -> Vec<String> {
+    (0..6).map(|i| arm_line(i, fills[i])).collect()
+}
+
+/// Line `i` of an arm: stage `i / 2`, seed `i % 2`, the digest `fill` repeated 64 times.
+fn arm_line(i: usize, fill: char) -> String {
+    format!(
+        "{} {} {}",
+        stage_ids()[i / 2],
+        i % 2,
+        fill.to_string().repeat(64)
+    )
+}
+
+/// **A name is not evidence and a line is** (RG-48): `Arm`'s name is only a tuple key, so the
+/// comparator can neither confirm nor deny that the arms it names are the arms it compared.
+/// These two assertions say which half carries the weight — permuting the ten *names* leaves
+/// the verdict untouched, and permuting one arm's *lines* is caught.
+#[test]
+fn a_permuted_name_is_inert_and_a_permuted_line_is_caught() {
+    let all = ten_arms();
+    assert_eq!(diverged(2, &test_stages(), &all), Ok(vec![]));
+    // Names swapped between arms: still ten equal arms, because no line moved.
+    let mut renamed = all.clone();
+    renamed.swap(3, 4);
+    assert_eq!(diverged(2, &test_stages(), &renamed), Ok(vec![]));
+    // One arm's lines handed to another arm's name: the comparison is over the lines, so the
+    // digest that differs is still named by its line index.
+    let mut misaligned = all.clone();
+    misaligned[4].1 = all[3].1.clone();
+    misaligned[3].1[2] = broken_line(2, "0");
+    assert_eq!(diverged(2, &test_stages(), &misaligned), Ok(vec![2]));
 }
 
 /// Creates a diverging line for line index `i` (stage `i/2`, seed `i%2`).
