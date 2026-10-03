@@ -84,7 +84,7 @@ pub struct Request<'a> {
 /// Runs the pass, checks the invariant, prints the three numbers; `0` when nothing overlaps.
 pub fn run(request: &Request) -> ExitCode {
     match measure(request) {
-        Ok(residual) if residual == 0 => ExitCode::SUCCESS,
+        Ok(0) => ExitCode::SUCCESS,
         Ok(residual) => {
             eprintln!("overlap: {residual} pairs still overlap after the pass");
             ExitCode::from(1)
@@ -185,7 +185,7 @@ and read the pass's own grid count instead",
 /// The cap goes on top of the control rather than instead of it, because a sweep that raised
 /// the cap to clear a big drawing must still be measuring the same pass the control bites.
 fn controlled_params(request: &Request) -> Result<SeparateParams, String> {
-    let setting = env_setting().map_err(|e| format!("{e}"))?;
+    let setting = env_setting().map_err(|e| e.to_string())?;
     let default = SeparateParams::default();
     let params = SeparateParams {
         over_relaxation: setting

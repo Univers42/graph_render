@@ -23,6 +23,10 @@ use super::buckets::Grid;
 use crate::stage::StageError;
 use graph_contract::geometry::NodeGeometry;
 
+mod pairs;
+
+pub use pairs::{Discs, Run, cell_side, each_neighbour, gather, overlapping as overlapping_pair};
+
 /// The over-relaxation factor: how much further than the bare penetration a node moves.
 ///
 /// The bare rule — each node moves by half of each penetration it is inside, summing over its
@@ -133,22 +137,20 @@ impl Workspace {
         &mut self,
         nodes: &NodeGeometry,
         radii: &[f32],
-        margin: f32,
-        omega: f32,
-        max_iterations: u32,
+        run: Run,
     ) -> Result<(u32, u32), StageError> {
         self.load(nodes)?;
-        let side = cell_side(radii, margin);
-        self.break_symmetry(radii, margin, side)?;
+        let side = cell_side(radii, run);
+        self.break_symmetry(radii, run, side)?;
         let mut total = 0u32;
-        for _ in 0..max_iterations {
-            let resolved = self.iteration(radii, margin, omega, side)?;
+        for _ in 0..run.max_iterations {
+            let resolved = self.iteration(radii, run, side)?;
             total += resolved;
             if resolved == 0 {
                 break;
             }
         }
-        let residual = self.residual(radii, margin, side)?;
+        let residual = self.residual(radii, run, side)?;
         Ok((total, residual))
     }
 
@@ -181,13 +183,13 @@ impl Workspace {
     /// never turn a clear pair into an overlapping one — it is applied only to a disc that was
     /// already on top of another. Escape hatch: none needed; without it the adversarial case
     /// cannot converge at all.
-    fn break_symmetry(&mut self, radii: &[f32], margin: f32, side: f32) -> Result<(), StageError> {
+    fn break_symmetry(&mut self, radii: &[f32], run: Run, side: f32) -> Result<(), StageError> {
         if radii.is_empty() {
             return Ok(());
         }
         let grid = Grid::over(&self.x, &self.y, side)?;
         let golden = core::f32::consts::TAU * 0.618_034;
-        for node in self.overlapping(&grid, radii, margin) {
+        for node in self.touching(&grid, radii, run) {
             let angle = golden * node as f32;
             let nudge = radii[node as usize] * NUDGE_FRACTION;
             self.x[node as usize] += nudge * libm::cosf(angle);
@@ -201,7 +203,7 @@ impl Workspace {
     /// Judged against **neighbours only**, through the same grid the sweeps use, so this costs
     /// `O(n · k)` and never an all-pairs scan — the gate is a full extra pass over the
     /// neighbourhood, not over the graph.
-    fn overlapping(&self, grid: &Grid, radii: &[f32], margin: f32) -> Vec<u32> {
+    fn touching(&self, grid: &Grid, radii: &[f32], run: Run) -> Vec<u32> {
         let mut found = Vec::new();
         for node in 0..self.x.len() {
             let mut touching = false;
@@ -211,7 +213,7 @@ impl Workspace {
                     return;
                 }
                 let (dx, dy) = (self.x[node] - self.x[other], self.y[node] - self.y[other]);
-                let need = radii[node] + radii[other] + 2.0 * margin;
+                let need = radii[node] + radii[other] + 2.0 * run.margin;
                 if dx * dx + dy * dy < need * need {
                     touching = true;
                 }
@@ -227,17 +229,16 @@ impl Workspace {
     /// them all. Two passes over the nodes, never interleaved — the separation is what keeps
     /// this Jacobi rather than Gauss-Seidel, and interleaving would make the result depend on
     /// the order nodes happen to be visited.
-    fn iteration(
-        &mut self,
-        radii: &[f32],
-        margin: f32,
-        omega: f32,
-        side: f32,
-    ) -> Result<u32, StageError> {
+    fn iteration(&mut self, radii: &[f32], run: Run, side: f32) -> Result<u32, StageError> {
         let grid = Grid::over(&self.x, &self.y, side)?;
         let mut resolved = 0u32;
         for node in 0..self.x.len() {
-            let (dx, dy) = gather(&grid, &self.x, &self.y, radii, margin, omega, node);
+            let discs = Discs {
+                x: &self.x,
+                y: &self.y,
+                r: radii,
+            };
+            let (dx, dy) = gather(&grid, &discs, run, node);
             resolved += u32::from(dx != 0.0 || dy != 0.0);
             self.dx[node] = dx;
             self.dy[node] = dy;
@@ -258,7 +259,7 @@ impl Workspace {
     /// lower node index of the two is the one asking. This is what `Bundled::unbundled`
     /// reports, so it is on the product path — the *tests* use a brute-force all-pairs scan
     /// instead, which is the instrument this count is checked against.
-    fn residual(&self, radii: &[f32], margin: f32, side: f32) -> Result<u32, StageError> {
+    fn residual(&self, radii: &[f32], run: Run, side: f32) -> Result<u32, StageError> {
         let grid = Grid::over(&self.x, &self.y, side)?;
         let mut count = 0u32;
         for node in 0..self.x.len() {
@@ -270,15 +271,12 @@ impl Workspace {
                 if other <= node {
                     return;
                 }
-                let close = overlapping(
-                    self.x[node],
-                    self.y[node],
-                    self.x[other],
-                    self.y[other],
-                    radii[node],
-                    radii[other],
-                    margin,
-                );
+                let discs = Discs {
+                    x: &self.x,
+                    y: &self.y,
+                    r: radii,
+                };
+                let close = overlapping_pair(discs.at(node), discs.at(other), run);
                 if close {
                     count += 1;
                 }
@@ -286,106 +284,4 @@ impl Workspace {
         }
         Ok(count)
     }
-}
-
-/// Node `node`'s neighbours: every node sharing its cell or one of the eight around it.
-///
-/// Returned as a **borrowed slice of one cell's nodes at a time**, walked by
-/// [`each_neighbour`] rather than returned as one iterator — the nine-cell walk needs to
-/// borrow the grid's buckets for the whole walk, and a returned iterator would have to own
-/// the neighbourhood to outlive it. The order is ascending flat cell index and ascending node
-/// index within each cell, so the caller's reduction is fixed-order (D2).
-fn each_neighbour(grid: &Grid, node: usize, mut visit: impl FnMut(u32)) {
-    let hood = grid.around(node);
-    for cell in hood.cells() {
-        for other in grid.buckets.of(*cell) {
-            visit(*other);
-        }
-    }
-}
-
-/// Node `node`'s displacement: the sum of every separation vector it is inside of.
-///
-/// The sum runs over an ascending node index — the buckets are a counting sort over dense
-/// node order — so the reduction is fixed-order and identical on every target (D2).
-fn gather(
-    grid: &Grid,
-    x: &[f32],
-    y: &[f32],
-    radii: &[f32],
-    margin: f32,
-    omega: f32,
-    node: usize,
-) -> (f32, f32) {
-    let mut total = (0.0f32, 0.0f32);
-    each_neighbour(grid, node, |other| {
-        let other = other as usize;
-        if other == node {
-            return;
-        }
-        let (ux, uy) = separation(
-            x[node],
-            y[node],
-            x[other],
-            y[other],
-            radii[node],
-            radii[other],
-            margin,
-            omega,
-        );
-        total.0 += ux;
-        total.1 += uy;
-    });
-    total
-}
-
-/// The separation `i` needs from `j`: half the penetration along the unit vector away from
-/// `j`, or `(0, 0)` when the pair is already clear.
-///
-/// **Coincident nodes** (`d == 0`) have no direction, so the pair separates along x — see
-/// this module's doc and [`super::META`] for why that heuristic carries a marker. Note this
-/// branch is reached only *between* nodes, not *within* one: [`Workspace::break_symmetry`]
-/// has already given every disc at one point its own offset, so `d == 0` never survives the
-/// first sweep.
-fn separation(
-    xi: f32,
-    yi: f32,
-    xj: f32,
-    yj: f32,
-    ri: f32,
-    rj: f32,
-    margin: f32,
-    omega: f32,
-) -> (f32, f32) {
-    let (dx, dy) = (xi - xj, yi - yj);
-    let need = ri + rj + 2.0 * margin;
-    let d = libm::sqrtf(dx * dx + dy * dy);
-    if d >= need {
-        return (0.0, 0.0);
-    }
-    let pen = need - d;
-    if d == 0.0 {
-        return (pen * 0.5 * omega, 0.0);
-    }
-    let scale = omega * pen * 0.5 / d;
-    (dx * scale, dy * scale)
-}
-
-/// Whether a pair is closer than it should be by more than [`TOLERANCE`].
-fn overlapping(xi: f32, yi: f32, xj: f32, yj: f32, ri: f32, rj: f32, margin: f32) -> bool {
-    let (dx, dy) = (xi - xj, yi - yj);
-    let need = ri + rj + 2.0 * margin - TOLERANCE;
-    libm::sqrtf(dx * dx + dy * dy) < need
-}
-
-/// The cell side, `2 · (largest + margin)`, and never zero: an all-zero layout has no discs
-/// and no pairs, so the sweep is a no-op and the side only has to keep the division finite.
-///
-/// The factor of 2 is exact rather than generous: the largest separation any pair can need
-/// is `largest + largest + 2 · margin`, which is this. See [`super::buckets`] for why that
-/// makes a 3 × 3 walk complete.
-fn cell_side(radii: &[f32], margin: f32) -> f32 {
-    let largest = crate::post::separate::radii::largest(radii);
-    let side = 2.0 * (largest + margin as f32);
-    if side > 0.0 { side } else { 1.0 }
 }

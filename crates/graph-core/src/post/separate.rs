@@ -164,13 +164,12 @@ fn sweep_nodes(
 ) -> Result<(graph_contract::geometry::NodeGeometry, u32, u32), StageError> {
     let radii = radii::of(&geometry.nodes, params.point_radius)?;
     let mut work = sweep::Workspace::new(radii.len());
-    let (pairs, unbundled) = work.sweep(
-        &geometry.nodes,
-        &radii,
-        params.margin as f32,
-        params.over_relaxation,
-        params.max_iterations,
-    )?;
+    let run = sweep::Run {
+        margin: params.margin as f32,
+        omega: params.over_relaxation,
+        max_iterations: params.max_iterations,
+    };
+    let (pairs, unbundled) = work.sweep(&geometry.nodes, &radii, run)?;
     let (x, y) = work.positions();
     Ok((rebuild(&geometry.nodes, x, y), pairs, unbundled))
 }

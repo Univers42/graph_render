@@ -7,6 +7,7 @@
 //! product** — nothing in `crates/` outside `#[cfg(test)]` calls it, which is the only reason
 //! it can afford to be exact where the pass is `O(n · k)`.
 
+use super::degradation::gridded;
 use super::*;
 use crate::post::fdeb;
 use crate::stage::seeded_model;
