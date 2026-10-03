@@ -9,11 +9,15 @@
 //!   through a gather would make the result depend on visit order, and later on thread
 //!   order (Phase 11) — exactly what D10 forbids. [`jiggle`] is a pure function of
 //!   `(seed, tick, pass, i, j)` instead: order-independent and thread-safe for free.
-//! - **The reference's own generator** — [`Mt19937`], numpy's legacy `RandomState`, for the
-//!   layouts whose conformance rows compare bytes against SciGraphs. It exists beside
-//!   [`Mulberry32`] rather than replacing it: only a SciGraphs arm needs these exact
-//!   numbers, and a motor-side default stays on the crate's own stream.
+//! - **The reference's own generator** — [`Mt19937`], numpy's legacy `RandomState`, and
+//!   [`Pcg64`], numpy's modern `default_rng` (PCG64), for the layouts whose conformance
+//!   rows compare bytes against SciGraphs. They exist beside [`Mulberry32`] rather than
+//!   replacing it: only a SciGraphs arm needs these exact numbers, and a motor-side default
+//!   stays on the crate's own stream.
 
+mod pcg64;
+
+pub(crate) use pcg64::Pcg64;
 pub(crate) use crate::synthetic::Mulberry32;
 
 /// MurmurHash3's `fmix64` finalizer (Austin Appleby, public domain): full avalanche of a
