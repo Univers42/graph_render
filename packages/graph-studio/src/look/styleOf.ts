@@ -7,6 +7,7 @@ import type { GraphMeta } from "../source/meta.ts";
 import type { Appearance, Filter, Group } from "../state/settings.ts";
 import { hiddenOf } from "./visibleOf.ts";
 import { type Colouring, colouringOf as byColourBy } from "./colourBy.ts";
+import { memo } from "./memo.ts";
 import { overlayGroups } from "./groupOverlay.ts";
 import { GROUP_PALETTE, MUTED } from "./palette.ts";
 import { withReveal } from "./reveal.ts";
@@ -89,19 +90,35 @@ function weightsOf(input: LookInput): Float32Array {
   return scored && analysis.values.length === meta.nodeCount ? normalised(analysis.values) : meta.weight;
 }
 
+// The three parts a restyle rebuilds that a reveal does not touch, each held for as long as its
+// own inputs are the same objects. `reveal` is in no key: it is the one input a reveal step
+// changes, and it reaches the drawing only through `withReveal`. See look/memo.ts.
+const COLOURS = memo<Colouring>();
+const WEIGHTS = memo<Float32Array>();
+const MASK = memo<Uint8Array | null>();
+
+/** The colours and the palette: what the nodes are painted, which a reveal never changes. */
+function coloursOf(input: LookInput): Colouring {
+  const { meta, appearance, analysis, groups } = input;
+  return COLOURS.read([meta, appearance.colourBy, analysis, groups], () => colouringOf(input));
+}
+
 export function styleInputOf(input: LookInput): StyleInput {
-  const { colours, palette } = colouringOf(input);
-  const { nodeScale, sizeBy, linkThickness, edgeStyle, edgeColour, arrows, glow, glowStrength, minRadius, maxRadius } = input.appearance;
+  const { meta, appearance, filter, reveal } = input;
+  const { colours: slots, palette } = coloursOf(input);
+  const { nodeScale, sizeBy, linkThickness, edgeStyle, edgeColour, arrows, glow, glowStrength, minRadius, maxRadius } = appearance;
   return {
-    labels: input.meta.labels,
-    weights: weightsOf(input),
-    colours,
+    labels: meta.labels,
+    // Held on (meta, sizeBy, analysis), and the three fields a reveal never changes.
+    weights: WEIGHTS.read([meta, appearance.sizeBy, input.analysis], () => weightsOf(input)),
+    colours: slots,
     palette,
     sizing: { base: BASE_RADIUS * nodeScale, gain: sizeBy === "uniform" ? 0 : GAIN, min: minRadius, max: maxRadius },
     edges: { scale: linkThickness, curve: edgeStyle === "curve", arrows },
     edgeColour,
     glow: glow ? glowStrength : 0,
-    hidden: withReveal(hiddenOf(input.meta, input.filter), input.reveal ?? null, input.meta.nodeCount),
+    // The filter's own mask, held on (meta, filter); the reveal is what may differ per step.
+    hidden: withReveal(MASK.read([meta, filter], () => hiddenOf(meta, filter)), reveal ?? null, meta.nodeCount),
   };
 }
 
@@ -132,7 +149,9 @@ function legendSlots(input: LookInput, colouring: Colouring, counts: Map<number,
 
 /** What each colour on screen stands for, in palette order, the first LEGEND_ROWS of them. */
 export function legendOf(input: LookInput): readonly LegendEntry[] {
-  const colouring = colouringOf(input);
+  // The same memo the pipeline's restyle reads: the legend and the drawing want one colouring of
+  // one graph, and there is no reason to count the nodes twice to get it.
+  const colouring = coloursOf(input);
   const counts = countsOf(colouring);
   return legendSlots(input, colouring, counts)
     .filter((slot) => counts.has(slot))

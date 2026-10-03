@@ -1,32 +1,37 @@
 /**
- * The worker's stepping loop over a `LiveForce`: one bounded batch per frame, one frame out,
- * and no backlog. It stops on its own once alpha is under `alphaMin` and no pin is held.
+ * The worker's stepping loop over a `LiveForce`: one tick per frame, one frame out, and no
+ * backlog. It stops on its own once alpha is under `alphaMin` and no pin is held.
  */
 import type { ForceRequest, Result } from "./protocol.ts";
 import { type LiveForce, NO_ADAPTER_REASON } from "./live.ts";
 
 /**
- * Ponytail: the budget is wall time from `now`, measured around the one batch, and a batch
- * that overran it has its NEXT tick dropped rather than run late. The default 8 ms is half a
- * 60 Hz frame: a guess, not a measurement.
+ * Ponytail: the loop asks for one frame a period, timed from the start of the frame before.
+ * A tick that takes longer than the period is followed by the next one at once, and nothing
+ * catches up: a slow motor ticks back to back, a fast one ticks once a period. The default
+ * 16 ms is a 60 Hz display's period, not a measurement of this one. Failing input: a tick
+ * that always overruns keeps the worker busy without a pause, so a drag reaches the motor one
+ * tick late, at most. Escape hatch: `periodMs`.
  *
- * The frame rate paces the simulation, not the batch size: one tick a frame makes the motor's
- * own 112-tick settle last about two seconds, which is a settle a person can watch. The
- * budget is a ceiling, never a target — a loop that filled it with more ticks would finish
- * the whole settle inside ten frames and there would be nothing on screen to look at.
+ * The period paces the simulation, not the batch size: one tick a frame makes the motor's own
+ * 112-tick settle last about two seconds, which is a settle a person can watch.
+ *
+ * WHY no tick is dropped: the loop runs in a worker, so a long tick never holds up a page
+ * frame. Dropping the tick after a slow one made every second frame at 400k nodes repost the
+ * positions it had just posted, and the simulation ran at half the motor's rate.
  */
-export const DEFAULT_BUDGET_MS = 8;
+export const DEFAULT_PERIOD_MS = 16;
 export const ALPHA_MIN = 0.001;
 const REHEAT_ALPHA = 0.3;
 /** One tick a frame. The motor's frozen settle is 112 ticks (`ForceParams::TICKS`). */
 export const TICKS_PER_FRAME = 1;
 
 export interface LoopDeps {
-  /** Calls `run` once at the next frame; returns a cancel. Never calls twice for one call. */
-  readonly schedule: (run: () => void) => () => void;
+  /** Calls `run` once after `delayMs`; returns a cancel. Never calls twice for one call. */
+  readonly schedule: (run: () => void, delayMs: number) => () => void;
   readonly now: () => number;
   readonly emit: (result: Result, transfer: ArrayBufferLike[]) => void;
-  readonly budgetMs?: number;
+  readonly periodMs?: number;
 }
 
 export interface ForceHost {
@@ -56,8 +61,6 @@ class ForceLoop {
   private cancel: (() => void) | null = null;
   private alpha = 0;
   private paused = false;
-  /** True when the last tick overran its budget, so this frame draws without stepping. */
-  private dropped = false;
 
   private readonly live: LiveForce;
   private readonly deps: LoopDeps;
@@ -76,17 +79,13 @@ class ForceLoop {
     return this.paused;
   }
 
-  private batch(): void {
-    const budget = this.deps.budgetMs ?? DEFAULT_BUDGET_MS;
-    const began = this.deps.now();
-    this.alpha = this.live.step(TICKS_PER_FRAME);
-    // One tick late is one tick too many: the next frame draws without stepping, so the
-    // simulation loses a tick rather than the page losing a frame.
-    this.dropped = this.deps.now() - began >= budget;
+  private get period(): number {
+    return this.deps.periodMs ?? DEFAULT_PERIOD_MS;
   }
 
   private frame(): void {
     this.cancel = null;
+    const began = this.deps.now();
     // WHY this is first: the port can die between the request that scheduled this frame and
     // the frame itself, and every call on a released session throws. There is nothing to
     // step, nothing to draw and nothing left to schedule — but the page's watchdog is armed
@@ -97,11 +96,11 @@ class ForceLoop {
       return;
     }
     for (const [id, at] of this.pinned) this.live.pin(id, at.x, at.y);
-    if (this.dropped) this.dropped = false;
-    else this.batch();
+    this.alpha = this.live.step(TICKS_PER_FRAME);
     const running = this.alpha >= ALPHA_MIN || this.held.size > 0;
     this.publish(running);
-    if (running) this.cancel = this.deps.schedule(() => this.frame());
+    const left = Math.max(0, this.period - (this.deps.now() - began));
+    if (running) this.cancel = this.deps.schedule(() => this.frame(), left);
   }
 
   private wake(): void {
@@ -111,7 +110,7 @@ class ForceLoop {
     const heated = Math.max(REHEAT_ALPHA, this.alpha);
     this.live.reheat(heated);
     this.alpha = heated;
-    this.cancel ??= this.deps.schedule(() => this.frame());
+    this.cancel ??= this.deps.schedule(() => this.frame(), this.period);
   }
 
   /**
@@ -129,7 +128,7 @@ class ForceLoop {
   resume(): void {
     if (!this.paused) return;
     this.paused = false;
-    this.cancel ??= this.deps.schedule(() => this.frame());
+    this.cancel ??= this.deps.schedule(() => this.frame(), this.period);
   }
 
   halt(): void {
@@ -204,7 +203,7 @@ class ForceLoop {
       // center act at any alpha (`graph-core` `force/session.rs`): one tick at alpha 0 moved a
       // 60-node DrL picture by 170 units. A scatter is born hot and settles on screen.
       this.alpha = this.live.step(0);
-      if (this.alpha >= ALPHA_MIN) this.cancel ??= this.deps.schedule(() => this.frame());
+      if (this.alpha >= ALPHA_MIN) this.cancel ??= this.deps.schedule(() => this.frame(), this.period);
       return;
     }
     if (request.type === "force.start") {

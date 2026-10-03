@@ -24,11 +24,13 @@ pub fn marked_layouts() -> [Capability; 2] {
         Capability {
             id: "layout.grid.left",
             run: marked_left,
+            params: &graph_core::registry::LayoutParams::NONE,
             meta: grid.meta,
         },
         Capability {
             id: "layout.grid.right",
             run: marked_right,
+            params: &graph_core::registry::LayoutParams::NONE,
             meta: grid.meta,
         },
     ]

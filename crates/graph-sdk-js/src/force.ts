@@ -4,7 +4,7 @@
 // a typed call, a `u32` coercion (C9), and a refusal turned into a `GraphMotorError` subclass
 // rather than a bare `0`.
 //
-// Two decisions here that the wire's table records and this file is the other half of:
+// Three decisions here that the wire's table records and this file is the other half of:
 //
 // - **Positions are `Float64Array`, not `Float32Array`.** Every other column this SDK hands
 //   out is `f32`, because every other column is a *snapshot* column. A live session's columns
@@ -13,49 +13,25 @@
 // - **The parameter defaults are read from the motor, never written here.** `params()` asks
 //   `gm_force_session_params` for the session's own thirteen values, so a partial
 //   `setParams` means "these fields, the motor's own value for the rest" and no copy of
-//   `LiveParams::default` can go stale in this package.
+//   `LiveParams::default` can go stale in this package. The wire's own half of that is
+//   `force-params.ts`; the position columns' is `force-columns.ts`.
+//
+// **The two id spaces never share a refusal.** `InvalidSession` (15/16/17) is this file's;
+// `InvalidHandle` (1) and `AllocFailed` (2) are the graph handle's and the allocator's. A
+// caller debugging a dead graph is sent to the graph's code, never to a parameter range it
+// cannot affect.
 
-import { toU32, type RawExports } from "./wasm.ts";
-import { ForceSessionRefusedError, InvalidSessionError, codeName } from "./errors.ts";
-import {
-  INVALID_SESSION_CODE,
-  SESSION_PARAMS_INVALID_CODE,
-  frame,
-  invoke,
-  lastError,
-  type Loaded,
-} from "./calls.ts";
+import { toU32 } from "./wasm.ts";
+import { ForceSessionRefusedError, InvalidSessionError } from "./errors.ts";
+import { frame, type Loaded } from "./calls.ts";
+import { ForceColumns } from "./force-columns.ts";
+import { SessionCalls } from "./force-calls.ts";
+import { PARAMS_BYTES, asU32, decodeParams, mergeParams, withStagedParams } from "./force-params.ts";
 import type { ForceParams, ForceSessionId, ForceTick, Handle } from "./types.ts";
 import { createForceSession, type ForceStart } from "./force-create.ts";
+
+export { PARAMS_BYTES, decodeParams, encodeParams } from "./force-params.ts";
 export type { ForceStart } from "./force-create.ts";
-
-/** The wire's thirteen parameter fields, in `LiveParams`' declaration order — the order
- *  `crates/graph-wasm/src/session/params.rs` encodes and decodes. One list, read in both
- *  directions here, so a field added on the Rust side and missing here shows up as a length
- *  mismatch rather than as a silently shifted parameter. */
-const FIELDS = [
-  "charge",
-  "theta",
-  "distance_min",
-  "distance_max",
-  "link_distance",
-  "link_strength_scale",
-  "collide_radius",
-  "center_strength",
-  "gravity",
-  "velocity_decay",
-  "alpha_decay",
-  "alpha_min",
-  "initial_alpha",
-] as const satisfies readonly (keyof ForceParams)[];
-
-/** The parameter buffer's byte length: thirteen little-endian `f64`s. */
-export const PARAMS_BYTES = FIELDS.length * 8;
-
-/** The `axis` argument of the two column calls that names the `x` column. */
-const X_AXIS = 0;
-/** …and the one that names `y`. */
-const Y_AXIS = 1;
 
 /** A live force simulation over one graph, driven by the caller
  *  (`docs/decisions/force-wasm-abi.md`). {@link Motor.forceSession} is the only way to get one.
@@ -68,9 +44,10 @@ export class ForceSession {
   readonly #loaded: Loaded;
   readonly #graph: Handle;
   readonly #id: ForceSessionId;
-  #live = true;
-  /** The last two position views, re-derived whenever wasm memory itself has been replaced. */
-  #views: { readonly buffer: ArrayBufferLike; readonly xs: Float64Array; readonly ys: Float64Array } | null = null;
+  /** Every verb's refusal machinery, and the session's liveness (`force-calls.ts`). */
+  readonly #calls: SessionCalls;
+  /** The session's two position columns, and D9's gate in front of them (`force-columns.ts`). */
+  readonly #columns: ForceColumns;
 
   /** @internal — use {@link Motor.forceSession}. Never throws for a load failure (the motor
    *  has already been asked, and this only reaches the ABI once it has answered): every refusal
@@ -79,12 +56,22 @@ export class ForceSession {
     this.#loaded = loaded;
     this.#graph = graph;
     this.#id = createForceSession(loaded, graph, start);
+    this.#calls = new SessionCalls(loaded, this.#id);
+    this.#columns = new ForceColumns(loaded, this.#id);
     if (params === undefined) return;
     try {
       this.setParams(params);
     } catch (error) {
       // A refusal here would otherwise leave a session this caller never received a handle to.
-      this.release();
+      // `release()` may itself refuse; that refusal must not replace the one the caller is
+      // here for, which is about their parameters and not about this cleanup. A session the
+      // module would not give back stays live inside the module until it is torn down, which
+      // is strictly better than losing the diagnostic.
+      try {
+        this.release();
+      } catch {
+        /* the original refusal is the one the caller must see */
+      }
       throw error;
     }
   }
@@ -104,47 +91,50 @@ export class ForceSession {
   /** Whether {@link ForceSession.release} has been called, or a call found the session already
    *  gone. Every method below refuses a dead session rather than answering emptily. */
   get released(): boolean {
-    return !this.#live;
+    return !this.#calls.live;
   }
 
-  /** Runs `ticks` ticks and says what happened. **Synchronous and bounded**: the whole batch
-   *  runs before this returns, which is what an interactive loop wants (one batch per frame)
-   *  and what a worker wants (the frame cannot be torn in half).
+  /** Runs `ticks` ticks and says what happened. **Synchronous**: the whole batch runs before
+   *  this returns, which is what an interactive loop wants (one batch per frame) and what a
+   *  worker wants (the frame cannot be torn in half). Bounded by `ticks` and by nothing else —
+   *  the caller picks the count, so "bounded" is a statement about *when* the work finishes,
+   *  never about how much of it there is.
    *
-   *  `ticks` is the only argument that changes the result: `tick(112)`, `112` calls of
-   *  `tick(1)` and `7` of `tick(16)` are the same positions — graph-core's guarantee, and the
-   *  reason a batch settle and an interactive loop share one code path.
+   *  `ticks` is a `u32` and is checked as one **before** it is coerced (C9). It was `toU32`'d
+   *  with nothing said, so `-1` arrived as `4294967295` and ran a four-billion-tick batch
+   *  synchronously inside one call — the documented promise was the opposite of what happened.
+   *  Anything that is not an integer in `0..0xffffffff` is refused here, so the word that
+   *  crosses the wire is the number the caller wrote.
+   *
+   *  `tick(112)`, 112 calls of `tick(1)` and 7 of `tick(16)` are the same positions —
+   *  graph-core's guarantee, and the reason a batch settle and an interactive loop share one
+   *  code path. `ticksRun` is the count that crossed the wire, not the argument's spelling.
    *
    *  Pins and parameters placed before this are what the ticks see: a verb moves nothing on its
    *  own, so a drag reads its effect on the **next** tick. */
   tick(ticks: number): ForceTick {
-    const word = this.#call("gm_force_session_tick", (exports) =>
-      exports.gm_force_session_tick(toU32(this.#id), toU32(ticks)),
+    // Refused before the call, and the finiteness gate before the ticks: a `NaN` written
+    // through `positions()` would otherwise be integrated into every later tick, silently
+    // (`sim.rs` checks nothing) and invisible to a `!==` comparison downstream.
+    const count = asU32(ticks, "ticks");
+    this.#calls.requireLive();
+    this.#own((columns) => columns.assertFinite());
+    const word = this.#calls.call("gm_force_session_tick", (exports) =>
+      exports.gm_force_session_tick(toU32(this.#id), toU32(count)),
     );
     // A particle-mesh tick swaps its position columns in, so their address moves every tick.
-    this.#views = null;
+    this.#columns.forget();
     if (word !== 1 && word !== 2) {
       throw new ForceSessionRefusedError(`gm_force_session_tick answered ${String(word)}, which is not a status`);
     }
-    const report: ForceTick = {
-      status: word === 2 ? "settled" : "running",
-      alpha: this.alpha,
-      ticksRun: ticks,
-    };
-    return report;
+    return { status: word === 2 ? "settled" : "running", alpha: this.#calls.alpha(), ticksRun: count };
   }
 
   /** The cooling schedule's current value, as the last tick left it. `0` is both a legal value
    *  and the wire's refusal value, so this resolves the ambiguity through `gm_last_error` (C4)
    *  rather than handing back a `0` a caller would read as a cold layout. */
   get alpha(): number {
-    this.#requireLive();
-    const { exports } = this.#loaded;
-    const alpha = invoke("gm_force_session_alpha", () =>
-      exports.gm_force_session_alpha(toU32(this.#id)),
-    );
-    if (lastError(exports) === INVALID_SESSION_CODE) throw this.#dead();
-    return alpha;
+    return this.#calls.alpha();
   }
 
   /** Holds the node at `row` at `(x, y)` exactly, from the next tick on.
@@ -152,12 +142,15 @@ export class ForceSession {
    *  `row` is the node's row in the two position columns — the dense order
    *  `motor.column(handle, ColumnId.NodeX)` already addresses. No node-id string crosses the
    *  ABI, so a host holding ids maps them itself (that is what the studio's drag port does).
+   *  It is checked as a `u32` before it is coerced, so `NaN` is a refusal and not row 0.
    *
-   *  A row past the last node, or a coordinate that is not finite, is refused with the session
-   *  untouched: a pin that silently did nothing would be a drag the user cannot explain. */
+   *  A row past the last node, or a coordinate that is not finite, is refused by the module
+   *  with the session untouched: a pin that silently did nothing would be a drag the user
+   *  cannot explain. */
   pin(row: number, x: number, y: number): void {
-    this.#call("gm_force_session_pin", (exports) =>
-      exports.gm_force_session_pin(toU32(this.#id), toU32(row), x, y),
+    const at = asU32(row, "row");
+    this.#calls.call("gm_force_session_pin", (exports) =>
+      exports.gm_force_session_pin(toU32(this.#id), toU32(at), x, y),
     );
   }
 
@@ -170,17 +163,19 @@ export class ForceSession {
   }
 
   /** Releases one row, which then integrates again from rest. Releasing a row that was never
-   *  pinned is not an error: it is what "let go of this node" means when nothing held it. */
+   *  pinned is not an error: it is what "let go of this node" means when nothing held it.
+   *  `row` is checked as a `u32` before it is coerced, for the reason {@link pin} is. */
   unpin(row: number): void {
-    this.#call("gm_force_session_unpin", (exports) =>
-      exports.gm_force_session_unpin(toU32(this.#id), toU32(row)),
+    const at = asU32(row, "row");
+    this.#calls.call("gm_force_session_unpin", (exports) =>
+      exports.gm_force_session_unpin(toU32(this.#id), toU32(at)),
     );
   }
 
   /** Releases every row at once: what a host does when it stops driving the loop, so no pin
    *  survives into the next run. */
   unpinAll(): void {
-    this.#call("gm_force_session_unpin_all", (exports) =>
+    this.#calls.call("gm_force_session_unpin_all", (exports) =>
       exports.gm_force_session_unpin_all(toU32(this.#id)),
     );
   }
@@ -189,25 +184,26 @@ export class ForceSession {
    *  exactly and **never clamped**: `0..=1`, and anything else is refused with the session left
    *  as it was, because a clamp would be a lie the caller cannot see. */
   reheat(alpha: number): void {
-    this.#call("gm_force_session_reheat", (exports) =>
+    this.#calls.call("gm_force_session_reheat", (exports) =>
       exports.gm_force_session_reheat(toU32(this.#id), alpha),
     );
   }
 
   /** Replaces some or all of the session's parameters.
    *
-   *  A field the caller omits keeps **the motor's own current value**, read back through
-   *  `gm_force_session_params` rather than from a copy of the defaults in this package — so a
-   *  host can send one knob without knowing the other twelve, and cannot send the wrong twelve.
-   *  Every field is range-checked and never clamped; any one of them out of range refuses the
-   *  whole call and changes nothing.
+   *  A field the caller omits — *and a field the caller passes as `undefined`* — keeps **the
+   *  motor's own current value**, read back through `gm_force_session_params` rather than from
+   *  a copy of the defaults in this package, so a host can send one knob without knowing the
+   *  other twelve, and cannot send the wrong twelve. Every field is range-checked by the module
+   *  and never clamped; any one of them out of range refuses the whole call and changes nothing.
    *
    *  Only the per-link geometry that depends on the parameters is recomputed: positions and
    *  velocities are not reset, which is what makes this a knob and not a restart. */
   setParams(params: Partial<ForceParams>): void {
-    const merged: ForceParams = { ...this.params(), ...params };
-    this.#staged(merged, (exports, ptr) =>
-      this.#call("gm_force_session_set_params", () =>
+    const merged = mergeParams(this.params(), params);
+    const { exports } = this.#loaded;
+    withStagedParams(exports, merged, (ptr) =>
+      this.#calls.call("gm_force_session_set_params", () =>
         exports.gm_force_session_set_params(toU32(this.#id), ptr, PARAMS_BYTES),
       ),
     );
@@ -215,7 +211,7 @@ export class ForceSession {
 
   /** The parameters in force, field for field, as the motor holds them. */
   params(): ForceParams {
-    const ptr = this.#call("gm_force_session_params", (exports) =>
+    const ptr = this.#calls.call("gm_force_session_params", (exports) =>
       exports.gm_force_session_params(toU32(this.#id)),
     );
     return decodeParams(frame(this.#loaded.exports, ptr));
@@ -229,22 +225,23 @@ export class ForceSession {
    *  than an error) or a tick has run since: a particle-mesh tick moves the columns, so a view
    *  is re-read after every {@link ForceSession.tick}, two pointer reads.
    *
+   *  **Writable, and D9 re-validates.** A session has no snapshot face, so nothing else
+   *  re-checks these columns: `gm_snapshot_json`'s tamper check cannot reach them and the
+   *  Rust side has no finiteness check in `sim.rs`. So this method scans both columns before
+   *  handing them over, and {@link ForceSession.tick} scans them again before integrating —
+   *  a `NaN` written here is refused as `TamperedGeometryError` on the next read **and** on
+   *  the next tick, rather than spreading one tick further per frame. A session that has been
+   *  tampered with is not repairable and says so by refusing forever.
+   *
    *  Ponytail: a held view is only as fresh as the last tick. Copy it (`.slice()`) before
    *  transferring it to a worker or keeping it past the next call, exactly as this SDK's column
    *  views must be treated (C7). Failing input: a host that stores the returned arrays and
    *  reads them after driving another session — the values are live and will have moved.
    *  Direction: reading the freshest values, which is what a renderer wants. Escape hatch:
-   *  call this method again per frame; it is two pointer reads. */
+   *  call this method again per frame; it is two pointer reads and two finiteness scans. */
   positions(): { readonly xs: Float64Array; readonly ys: Float64Array } {
-    const { exports } = this.#loaded;
-    const cached = this.#views;
-    if (cached !== null && cached.buffer === exports.memory.buffer) {
-      return { xs: cached.xs, ys: cached.ys };
-    }
-    const xs = this.#column(exports, X_AXIS);
-    const ys = this.#column(exports, Y_AXIS);
-    this.#views = { buffer: exports.memory.buffer, xs, ys };
-    return { xs, ys };
+    this.#calls.requireLive();
+    return this.#own((columns) => columns.read());
   }
 
   /** Releases the session. Its id is never reissued (C6), so a stale id reads
@@ -252,101 +249,24 @@ export class ForceSession {
    *  refused rather than ignored: a caller surprised by a refusal has a bug, and quietly
    *  accepting it would hide one. */
   release(): void {
-    this.#call("gm_force_session_release", (exports) =>
+    this.#calls.call("gm_force_session_release", (exports) =>
       exports.gm_force_session_release(toU32(this.#id)),
     );
-    this.#views = null;
-    this.#live = false;
+    this.#columns.forget();
+    this.#calls.close();
   }
 
-  /** One position column as a `Float64Array` over the session's own storage.
-   *
-   *  A `Vec<f64>`'s address is 8-aligned by construction, so the `Float64Array` constructor's
-   *  own alignment requirement is met. A `0` address is the motor refusing; a `0` length is a
-   *  graph with no nodes, which is refused too rather than handed back as an empty column that
-   *  a renderer would read as "everything is at the origin". */
-  #column(exports: RawExports, axis: number): Float64Array {
-    const address = invoke("gm_force_session_column_ptr", () =>
-      exports.gm_force_session_column_ptr(toU32(this.#id), toU32(axis)),
-    );
-    const len = invoke("gm_force_session_column_len", () =>
-      exports.gm_force_session_column_len(toU32(this.#id), toU32(axis)),
-    );
-    if (address !== 0 && len > 0) return new Float64Array(exports.memory.buffer, address, len);
-    const code = lastError(exports);
-    if (code === INVALID_SESSION_CODE) throw this.#dead();
-    throw new ForceSessionRefusedError(`the position column (axis ${axis}) is not readable (${codeName(code)})`, code);
-  }
 
-  /** Stages `params` through `gm_alloc`, hands the address to `send`, and frees it again — on a
-   *  refusal too (C7: the staging buffer is this method's job, since the caller never sees the
-   *  pointer). */
-  #staged(params: ForceParams, send: (exports: RawExports, ptr: number) => void): void {
-    const { exports } = this.#loaded;
-    const bytes = encodeParams(params);
-    const ptr = invoke("gm_alloc", () => exports.gm_alloc(PARAMS_BYTES));
-    if (ptr === 0) {
-      throw new ForceSessionRefusedError("gm_alloc could not reserve the parameter buffer", lastError(exports));
-    }
-    new Uint8Array(exports.memory.buffer, ptr, PARAMS_BYTES).set(bytes);
+  /** Every read of the session's own columns goes through here, so a session the module has
+   *  already dropped flips this object's liveness exactly once, wherever the read happened —
+   *  and only here, which is why `force-columns.ts` reports a dead session as
+   *  `InvalidSessionError` and knows nothing about liveness. */
+  #own<T>(read: (columns: ForceColumns) => T): T {
     try {
-      send(exports, ptr);
-    } finally {
-      invoke("gm_free", () => exports.gm_free(ptr, PARAMS_BYTES));
+      return read(this.#columns);
+    } catch (error) {
+      if (error instanceof InvalidSessionError) throw this.#calls.dead();
+      throw error;
     }
   }
-
-  /** Every verb's shape: call the export, turn its `0` into the typed refusal the recorded code
-   *  names, and refuse to answer at all for a session this object knows is released (C6: a
-   *  released id is never reissued, so every later call on it would read `InvalidSession`). */
-  #call(exportName: string, call: (exports: RawExports) => number): number {
-    this.#requireLive();
-    const { exports } = this.#loaded;
-    const word = invoke(exportName, () => call(exports));
-    if (word !== 0) return word;
-    const code = lastError(exports);
-    if (code === INVALID_SESSION_CODE) throw this.#dead();
-    throw new ForceSessionRefusedError(`${exportName} refused (${codeName(code)})`, code);
-  }
-
-  #dead(): InvalidSessionError {
-    this.#live = false;
-    return new InvalidSessionError(
-      `force session ${this.#id} is not live (never issued, or released)`,
-      INVALID_SESSION_CODE,
-    );
-  }
-
-  #requireLive(): void {
-    if (!this.#live) throw this.#dead();
-  }
-}
-
-/** `params` as the wire's 104 bytes: thirteen little-endian `f64`s in `FIELDS` order.
- *
- *  Written through a `DataView` rather than a `Float64Array` over the staging buffer, because
- *  `gm_alloc` hands out 4-aligned memory and a `Float64Array` view at a 4-aligned offset
- *  throws. The motor reads the same buffer bytewise for the same reason. */
-export function encodeParams(params: ForceParams): Uint8Array {
-  const bytes = new Uint8Array(PARAMS_BYTES);
-  const view = new DataView(bytes.buffer);
-  FIELDS.forEach((field, i) => view.setFloat64(i * 8, params[field], true));
-  return bytes;
-}
-
-/** The 104 bytes of a framed `gm_force_session_params` buffer as a typed set. A buffer of any
- *  other length is `SessionParamsInvalid` rather than a partly-read set. */
-export function decodeParams(bytes: Uint8Array): ForceParams {
-  if (bytes.length !== PARAMS_BYTES) {
-    throw new ForceSessionRefusedError(
-      `a parameter buffer is ${String(PARAMS_BYTES)} bytes, got ${String(bytes.length)}`,
-      SESSION_PARAMS_INVALID_CODE,
-    );
-  }
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const out: Record<string, number> = {};
-  FIELDS.forEach((field, i) => {
-    out[field] = view.getFloat64(i * 8, true);
-  });
-  return out as unknown as ForceParams;
 }

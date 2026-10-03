@@ -2,10 +2,11 @@
 //! the scale model. `bench` times the whole 112-tick stage, which averages the per-tick
 //! cost away; this is the steady workload a profiler (`scripts/orch/profile.sh`) points at.
 //!
-//! Both layouts tick a `ForceSession`. Barnes-Hut ticks run serially. Particle-mesh ticks
-//! (`with_particle_mesh`) run on `--workers` threads ([`Threads`]; 1 is the serial
-//! path), so a tick's thread scaling is read here without the whole stage `bench --tiers` times. `--warm` ticks run untimed first, so the quadtree and the scratch
-//! buffers are at capacity before the first timed tick.
+//! Both layouts tick a `ForceSession`, and both run on `--workers` threads ([`Threads`]; 1 is
+//! the serial path). A Barnes-Hut tick's bytes do not depend on the worker count (the threaded
+//! passes are gathers over fixed-order ranges), so a tick's thread scaling is read here for
+//! either layout without the whole stage `bench --tiers` times. `--warm` ticks run untimed first,
+//! so the quadtree and the scratch buffers are at capacity before the first timed tick.
 //!
 //! `--grow <BATCH>` switches to the other thing a live session is asked to do: carry itself
 //! onto a bigger topology, timed beside the indexing that topology costs
@@ -57,13 +58,23 @@ pub struct Plan {
     /// Seed of the scale model.
     #[arg(long, default_value_t = 0)]
     pub seed: u32,
-    /// Threads a particle-mesh tick's passes split across; Barnes-Hut ignores it.
+    /// Threads a tick's passes split across, for either layout.
     #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u32).range(1..=256))]
     pub workers: u32,
     /// Grow mode: carry the session from the topology without the last `BATCH` nodes onto
     /// the whole model and time that carry, instead of timing ticks.
     #[arg(long, value_name = "BATCH")]
     pub grow: Option<u32>,
+    /// Collision radius this run overrides the frozen `collideRadius` with, so the collide
+    /// pass's own share of a tick can be timed instead of argued about.
+    ///
+    /// Caveat: this is a measurement knob on a bench command, not a layout parameter: absent
+    /// it the session is built from `ForceParams::default()` and nothing about a production
+    /// tick changes. A radius of 0 still runs the pass (it is `manyBody`'s `distanceMin` an
+    /// exact overlap needs), so the row it prints is the cost of the walk and the build
+    /// without the overlaps, not the cost of a tick with no collide pass at all.
+    #[arg(long, value_name = "RADIUS")]
+    pub collide_radius: Option<f64>,
     /// Also print where the timed ticks went, pass by pass, and what no pass covers.
     #[arg(long)]
     pub passes: bool,
@@ -144,19 +155,22 @@ fn time_ticks(plan: &Plan, session: &mut Stepper) -> Vec<f64> {
 /// A session of either layout, stepped one tick at a time.
 struct Stepper {
     session: Box<ForceSession>,
-    /// Always 1 for Barnes-Hut, whose ticks this command times serially.
+    /// Worker count the session is stepped with; 1 is the serial path.
     workers: u32,
     id: &'static str,
 }
 
 impl Stepper {
     fn start(plan: &Plan, topology: &Topology) -> Result<Stepper, String> {
-        let session = ForceSession::from_frozen(topology, &ForceParams::default())
-            .map_err(|e| e.to_string())?;
+        let mut params = ForceParams::default();
+        if let Some(radius) = plan.collide_radius {
+            params.collide_radius = radius;
+        }
+        let session = ForceSession::from_frozen(topology, &params).map_err(|e| e.to_string())?;
         Ok(match plan.layout {
             Layout::BarnesHut => Stepper {
                 session: Box::new(session),
-                workers: 1,
+                workers: plan.workers,
                 id: "layout.force.barnes_hut",
             },
             Layout::ParticleMesh => Stepper {
