@@ -57,7 +57,9 @@ pub struct Grid;
 /// The grid's parameters.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GridParams {
-    /// Distance between neighbouring cells, on both axes. Finite and above 0.
+    /// Distance between neighbouring cells, on both axes. Finite, above 0, and its widest
+    /// cell centre — `((cells - 1) / 2) * spacing` — inside the `f32` range. See
+    /// [`Grid::run_with`], which is where both rules are stated.
     pub spacing: f32,
 }
 
@@ -132,6 +134,17 @@ pub const fn dimensions(n: u32) -> (u32, u32) {
 ///
 /// The validation lives here, **once**: the serial stage and every threaded arm build the
 /// kernel through this, so there is no second place a spacing rule could be stated.
+///
+/// **Two rules, both about the coordinate and not about the drawing**, the pair
+/// `grid/scaled.rs` states for the SciGraphs placement. The spacing is finite and above 0,
+/// and the widest cell centre the lattice can write — `((cells - 1) / 2) * spacing` for
+/// `cells = max(cols, rows)`, which `Lattice::offset` multiplies in `f32` and which
+/// **overflows to `inf` rather than saturating** (measured, not assumed) — is inside the
+/// `f32` range. The second rule is not decoration: a *finite* `f32::MAX` at `n >= 10`
+/// (`cols >= 4`, so a half-integer of at least `1.5`) used to put `inf` in a `Geometry` and
+/// this comment used to promise it never would. `rows <= cols` always holds, because
+/// `cols = ceil(sqrt(n))` gives `n <= cols * cols`, so `max` is belt and braces.
+/// See `a_spacing_whose_extreme_cell_is_not_finite_is_refused`.
 fn cells(n: u32, spacing: f32) -> Result<Lattice, StageError> {
     if !(spacing.is_finite() && spacing > 0.0) {
         return Err(StageError::Param {
@@ -140,6 +153,13 @@ fn cells(n: u32, spacing: f32) -> Result<Lattice, StageError> {
         });
     }
     let (cols, rows) = dimensions(n);
+    let cells = cols.max(rows).saturating_sub(1);
+    if f64::from(cells) / 2.0 * f64::from(spacing) > f64::from(f32::MAX) {
+        return Err(StageError::Param {
+            name: "spacing",
+            rule: "widest cell centre inside the f32 range",
+        });
+    }
     Ok(Lattice {
         count: n,
         cols,
@@ -188,109 +208,4 @@ impl StepRange for Lattice {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn dimensions_are_ceil_sqrt_columns_and_ceil_rows() {
-        let expected = [
-            (0, (0, 0)),
-            (1, (1, 1)),
-            (2, (2, 1)),
-            (3, (2, 2)),
-            (4, (2, 2)),
-            (5, (3, 2)),
-            (9, (3, 3)),
-            (10, (4, 3)),
-            (50, (8, 7)),
-            (601, (25, 25)),
-            (u32::MAX, (65_536, 65_536)),
-        ];
-        for (n, dims) in expected {
-            assert_eq!(dimensions(n), dims, "n = {n}");
-        }
-    }
-
-    /// Worked by hand from the two conventions, not from the code, and read back out of the
-    /// kernel the threaded arms run — so the table and the tier cannot be two drawings.
-    #[test]
-    fn the_lattice_matches_the_hand_worked_grids() {
-        let cases: [(u32, &[(f32, f32)]); 5] = [
-            (1, &[(0.0, 0.0)]),
-            (2, &[(-0.5, 0.0), (0.5, 0.0)]),
-            (3, &[(-0.5, -0.5), (0.5, -0.5), (-0.5, 0.5)]),
-            (4, &[(-0.5, -0.5), (0.5, -0.5), (-0.5, 0.5), (0.5, 0.5)]),
-            (
-                5,
-                &[
-                    (-1.0, -0.5),
-                    (0.0, -0.5),
-                    (1.0, -0.5),
-                    (-1.0, 0.5),
-                    (0.0, 0.5),
-                ],
-            ),
-        ];
-        for (n, expected) in cases {
-            assert_eq!(centres(n, 1.0), expected, "n = {n}");
-        }
-        assert_eq!(
-            centres(3, 2.5),
-            vec![(-1.25, -1.25), (1.25, -1.25), (-1.25, 1.25)]
-        );
-        assert_eq!(centres(0, 1.0), vec![]);
-    }
-
-    /// Every node's centre, gathered by the kernel itself — the one the threaded arms run.
-    fn centres(n: u32, spacing: f32) -> Vec<(f32, f32)> {
-        let lattice = cells(n, spacing).expect("a spacing the rule allows");
-        let mut out = vec![(0.0, 0.0); n as usize];
-        lattice.step_range(0..n, &mut out);
-        out
-    }
-
-    /// The gather is a per-node function, so every width writes the same cell centres: this
-    /// is the grid's byte-identity claim at the unit level, and the hash gate's per-width
-    /// arms are the same statement over the gate's own models.
-    #[test]
-    fn the_lattice_is_the_same_bytes_at_every_worker_count() {
-        for n in [0, 1, 2, 3, 5, 16, 17, 64, 1000] {
-            let want = centres(n, 1.0);
-            for workers in [1, 2, 3, 4, 7] {
-                let topology = crate::layout::coords::probe::graph(n, &[]);
-                let got = Grid::run_with(&topology, &GridParams { spacing: 1.0 }, &Serial, workers)
-                    .expect("unit spacing");
-                let NodeGeometry::Point { x, y } = got.nodes else {
-                    panic!("point nodes");
-                };
-                let pairs: Vec<(f32, f32)> = x.into_iter().zip(y).collect();
-                assert_eq!(pairs, want, "n = {n}, workers = {workers}");
-            }
-        }
-    }
-
-    #[test]
-    fn a_spacing_that_is_not_finite_and_positive_is_refused() {
-        for spacing in [0.0, -0.0, -1.0, f32::NAN, f32::INFINITY] {
-            let err = cells(4, spacing).expect_err("refused");
-            assert_eq!(
-                err,
-                StageError::Param {
-                    name: "spacing",
-                    rule: "finite and above 0"
-                },
-                "{spacing}"
-            );
-        }
-        assert!(cells(4, f32::MIN_POSITIVE).is_ok());
-    }
-
-    #[test]
-    fn the_largest_lattice_is_still_exact_half_integers() {
-        let (cols, rows) = dimensions(u32::MAX);
-        let offset = |cell: u32, cells: u32| cell as f32 - (cells - 1) as f32 / 2.0;
-        assert_eq!(offset(0, cols), -32_767.5);
-        assert_eq!(offset(cols - 1, cols), 32_767.5);
-        assert_eq!(offset(rows - 1, rows), 32_767.5);
-    }
-}
+mod tests;

@@ -116,8 +116,15 @@ fn the_ninth_node_is_the_first_interior_point() {
     );
 }
 
-/// The interior is **strictly inside** the shell: every axis strictly within
+/// The interior is inside the shell: every axis strictly within
 /// `[-0.8*scale, 0.8*scale]` = `[-4, 4]` (`basic.py:101`).
+///
+/// **The `2⁻³² caveat, stated because the bound is half-open.** `uniform` returns
+/// `-reach + 2*reach*u` with `u` in `[0, 1)`, so a draw of exactly `0.0` lands on
+/// `-4.0` and this assertion fails. It never has, at these sizes, and the reference's own
+/// `rng.uniform` has the same property — so the assertion is a live gate that a
+/// pathological stream would trip, not a structural guarantee, and the doc used to say
+/// "strictly inside" where the interval is `[-0.8*scale, +0.8*scale)`.
 ///
 /// This is the property the layout exists to draw, and it is a **weaker** claim than the one
 /// [`interior`] now makes: the interior's numbers are the reference's exactly (see
@@ -127,7 +134,7 @@ fn the_ninth_node_is_the_first_interior_point() {
 /// generator that produced the right nine numbers and the wrong thousand would still pass the
 /// pinned test and fail this one.
 #[test]
-fn the_interior_is_strictly_inside_the_eighty_percent_shell() {
+fn the_interior_is_inside_the_eighty_percent_shell() {
     for n in [9u32, 32, 257, 1000] {
         let (x, y, z) = space(&cube(&bare(n)).expect("runs"));
         for i in 8..n as usize {
@@ -169,17 +176,48 @@ fn the_interior_is_the_same_twice_over() {
 
 /// The seed is fixed, and changing it changes the interior while leaving the corners
 /// exactly where they were — which is the claim `registry`'s seeding decision rests on.
+///
+/// **This test used not to vary the seed at all.** It called `cube(&bare(20))` twice with
+/// identical arguments and asserted the two were equal, which is
+/// [`the_interior_is_the_same_twice_over`] a second time and no statement about `SEED`
+/// whatsoever: any value of `SEED`, including one that made the interior degenerate, left
+/// it green. It now asks the kernel for two seeds — the same seed twice is byte-identical,
+/// `SEED + 1` moves the interior and no corner — which is the negative control the name
+/// promised. `SEED` is a parameter of [`columns_scaled`](super::columns_scaled) for exactly
+/// this reason.
 #[test]
 fn the_seed_moves_only_the_interior() {
-    let a = space(&cube(&bare(20)).expect("runs"));
-    let b = space(&cube(&bare(20)).expect("runs"));
-    assert_eq!(a, b);
+    let at = |seed: u32| super::columns_scaled(20, super::SCALE, seed);
+    let (x, y, z) = at(super::SEED);
     assert_eq!(
-        (a.0[0], a.1[0], a.2[0]),
+        (x.clone(), y.clone(), z.clone()),
+        at(super::SEED),
+        "one seed twice is byte-identical"
+    );
+    let (moved_x, moved_y, moved_z) = at(super::SEED + 1);
+    for (axis, (corner_column, moved_column)) in [&x, &y, &z]
+        .into_iter()
+        .zip([&moved_x, &moved_y, &moved_z])
+        .enumerate()
+    {
+        for node in 0..8usize {
+            assert_eq!(
+                corner_column[node], moved_column[node],
+                "corner {node} axis {axis} moved with the seed"
+            );
+        }
+    }
+    assert_ne!(
+        x[8], moved_x[8],
+        "the interior did not move with the seed, so this asserts nothing"
+    );
+    let narrowed = space(&cube(&bare(20)).expect("runs"));
+    assert_eq!(
+        (narrowed.0[0], narrowed.1[0], narrowed.2[0]),
         (corner(0).0 as f32, corner(0).1 as f32, corner(0).2 as f32)
     );
     assert_ne!(
-        a.0[8], 0.0,
+        narrowed.0[8], 0.0,
         "an interior coordinate at exactly zero would be a fluke"
     );
 }
