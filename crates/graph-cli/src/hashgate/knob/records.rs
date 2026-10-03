@@ -61,6 +61,7 @@ pub const fn record(knob: Knob) -> &'static str {
         Knob::PatchworkNodes => "hashgate-control-patchwork-nodes",
         Knob::SplitSum => "hashgate-control-split-sum",
         Knob::SplitRescale => "hashgate-control-split-rescale",
+        Knob::LayoutParamDefault => "hashgate-control-layout-param-default",
         Knob::ForceSessionGravity => "forcegate-control-force-session-gravity",
     }
 }

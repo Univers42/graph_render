@@ -20,6 +20,7 @@ export interface RawExports {
   gm_free(ptr: number, len: number): void;
   gm_layout_count(): number;
   gm_layout_id(i: number): number;
+  gm_layout_params(i: number): number;
   gm_build(ingestPtr: number, ingestLen: number): number;
   gm_build_contract(contractPtr: number, contractLen: number): number;
   gm_run(handle: number, layoutId: number, paramsPtr: number, paramsLen: number): number;
@@ -58,7 +59,8 @@ export interface RawExports {
  * the interface's, so a module older than this SDK is refused by name when it loads instead of
  * failing later as `exports.gm_dim is not a function` on the first call that needs it. */
 const EXPORT_NAMES: { readonly [K in keyof RawExports]: true } = {
-  memory: true, gm_abi_version: true, gm_alloc: true, gm_free: true, gm_layout_count: true, gm_layout_id: true,
+  memory: true, gm_abi_version: true, gm_alloc: true, gm_free: true, gm_layout_count: true,
+  gm_layout_id: true, gm_layout_params: true,
   gm_build: true, gm_build_contract: true, gm_run: true, gm_node_count: true,
   gm_geometry_kind: true, gm_edge_geometry_kind: true, gm_dim: true, gm_column_ptr: true,
   gm_column_len: true, gm_snapshot_json: true, gm_snapshot_bytes: true, gm_post_count: true,
@@ -72,8 +74,14 @@ const EXPORT_NAMES: { readonly [K in keyof RawExports]: true } = {
 };
 
 /** The ABI revision this SDK speaks: `gm_abi_version()` must return exactly this
- * (`docs/contract/wasm-abi.md` "Exports"). */
-export const ABI_VERSION = 1;
+ * (`docs/contract/wasm-abi.md` "Exports").
+ *
+ *  `2` since `gm_run`'s `params_ptr`/`params_len` stopped being refused and started
+ *  carrying a layout's published parameters, and `Code::ParamsMustBeEmpty` stopped being
+ *  produced. A module from before it is refused by name at load (`gm_layout_params` is in
+ *  `EXPORT_NAMES`), which degrades the whole motor rather than only its parameters — the
+ *  price of an SDK that reads one module's schemas instead of guessing at them. */
+export const ABI_VERSION = 2;
 
 function requireExports(instance: WebAssembly.Instance): RawExports {
   const missing = Object.keys(EXPORT_NAMES).filter((name) => !(name in instance.exports));

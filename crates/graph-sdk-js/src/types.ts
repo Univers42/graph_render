@@ -52,6 +52,19 @@ export type Handle = number & { readonly __brand: "GraphMotorHandle" };
  * `Motor` (any handle, not just this one — C7), and never held across it. */
 export type Column = Float32Array | Uint32Array | null;
 
+/** What `Motor.run` takes besides the handle and the layout id
+ * (`docs/decisions/layout-params.md`).
+ *
+ *  `params` is keyed by the names `Motor.layoutParams` publishes; a name it does not
+ *  publish is a `RangeError`, and a published name left out takes its default. The values
+ *  are sent as written — a value out of range is refused by the motor with
+ *  `ParamOutOfRange`, never clamped — so this shape carries no bounds of its own and
+ *  cannot disagree with the schema. */
+export interface RunOptions {
+  /** One value per published parameter, by name. A `bool` travels as `0`/`1`. */
+  readonly params?: Readonly<Record<string, number | boolean>>;
+}
+
 /** What `Motor.layout` returns: everything read back right after a successful run, so a
  * caller does not have to sequence `gm_geometry_kind`/`gm_column_ptr`/... itself. */
 export interface RunResult {

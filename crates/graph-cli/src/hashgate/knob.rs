@@ -149,6 +149,25 @@ pub enum Knob {
     /// of the four that publishes `run_with`; the scale is read by the final centring and
     /// so changes every circle's centre and radius.
     PackingScale,
+    /// `GM_MUTATE_LAYOUT_PARAM_DEFAULT`: which of a published layout's parameters has its
+    /// **default** perturbed, native arm only (`docs/decisions/layout-params.md`).
+    ///
+    /// **The control for the schema itself.** Every other parameter knob moves a value
+    /// the layout would have been given anyway; this one runs
+    /// [`FruchtermanReingold::ID`](crate::layout::force::FruchtermanReingold)'s stage
+    /// through `Capability::run_params` at a buffer whose value at one index is one more
+    /// than the default the registry publishes, so the drawing is the published default
+    /// plus one. The wasm arm cannot see it: it sends `params_len == 0`, which is the
+    /// defaults, so the divergence this shows is exactly the one a wired control must
+    /// surface — and it is a control over the ABI, not over the algorithm.
+    ///
+    /// **Why one stage and not all thirteen.** A control that perturbs nothing passes
+    /// vacuously and one that perturbs everything names no stage, which is why every other
+    /// knob here is filed under exactly one. This one is filed under the first layout in
+    /// the registry that publishes anything, and the value is an index into *that* layout's
+    /// list. An index past the end is refused rather than clamped, exactly as a node count
+    /// of zero is.
+    LayoutParamDefault,
     /// `GM_MUTATE_ANALYSIS_COMPONENTS_WEAK`: weak components, native arm only.
     ///
     /// The first of the fifteen ANALYSIS and POST controls, which share one shape and are
@@ -264,7 +283,7 @@ impl Knob {
     /// twenty-seven per-stage arms are spelled out there and held against those four tables
     /// by `the_analysis_and_post_controls_are_the_knobs_table`, which fails on any arm whose
     /// variable, record or stage a table disagrees with.
-    pub const ALL: [Self; 45] = arms::ALL;
+    pub const ALL: [Self; 46] = arms::ALL;
 
     /// The variable that sets it.
     pub const fn env(self) -> &'static str {

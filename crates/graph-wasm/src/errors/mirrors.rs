@@ -14,7 +14,7 @@ const ABI_DOC: &str = include_str!("../../../../docs/contract/wasm-abi.md");
 const SDK_ERRORS: &str = include_str!("../../../graph-sdk-js/src/errors.ts");
 const SDK_WASM: &str = include_str!("../../../graph-sdk-js/src/wasm.ts");
 
-const ALL: [Code; 19] = [
+const ALL: [Code; 22] = [
     Code::None,
     Code::InvalidHandle,
     Code::AllocFailed,
@@ -34,6 +34,9 @@ const ALL: [Code; 19] = [
     Code::SessionParamsInvalid,
     Code::SessionRefused,
     Code::AnalysisFailed,
+    Code::ParamOutOfRange,
+    Code::ParamsMalformed,
+    Code::ParamsNotAccepted,
 ];
 
 /// The `Name` cell of each `| value | \`Name\` |` row of the doc's Errors section.

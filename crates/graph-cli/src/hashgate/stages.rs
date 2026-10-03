@@ -28,6 +28,7 @@
 //! constants their own modules publish, and `each_stage_id_is_the_constant_its_own_module
 //! _publishes` holds every one against the graph-wasm registry the gate walks.
 
+use super::knob::setting::PARAM_DEFAULT_STAGE;
 use super::{Setting, staged};
 use graph_core::layout::Geometry;
 use graph_core::layout::circle_packing;
@@ -130,7 +131,7 @@ pub fn stage_bytes_for(
                     run_force(&topology, |t| circle_packing::run_with(t, &setting.packing))?
                 }
                 neato::ID => run_force(&topology, |t| neato::run_with(t, setting.neato_epsilon()))?,
-                _ => layout_bytes(&topology, layout)?,
+                _ => layout_bytes(&topology, layout, setting)?,
             }
         };
         out.push((layout.id, bytes));
@@ -240,11 +241,35 @@ fn stage_bytes_from_own_model(
     let count = gate_node_count(seed) + setting.extra_nodes + extra;
     let (nodes, edges) = seeded_model(seed, count, setting.reference_degree);
     let topology = index_model(&nodes, &edges).map_err(|e| e.to_string())?;
-    layout_bytes(&topology, layout)
+    layout_bytes(&topology, layout, setting)
 }
 
-fn layout_bytes(topology: &Topology, layout: &core::Capability) -> Result<Vec<u8>, String> {
-    run_force(topology, layout.run)
+/// One stage's bytes at the registry's own defaults, or — for the one stage
+/// `GM_MUTATE_LAYOUT_PARAM_DEFAULT` is filed under — at a buffer whose value at one index
+/// is one more than the published default (`docs/decisions/layout-params.md`).
+///
+/// The honest path is the same `layout.run` the gate has always called, byte for byte:
+/// that is what keeps `hashgate --seeds 8` pinned to the registry's defaults rather than to
+/// a buffer this file assembles.
+fn layout_bytes(
+    topology: &Topology,
+    layout: &core::Capability,
+    setting: &Setting,
+) -> Result<Vec<u8>, String> {
+    let Some(index) = setting
+        .layout_param_default
+        .filter(|_| layout.id == PARAM_DEFAULT_STAGE)
+    else {
+        return run_force(topology, layout.run);
+    };
+    let view = layout.params();
+    let mut values = view.defaults();
+    let Some(value) = values.get_mut(index) else {
+        return Err(format!("{} publishes no parameter {index}", layout.id));
+    };
+    *value += 1.0;
+    let bytes: Vec<u8> = values.iter().flat_map(|v| v.to_le_bytes()).collect();
+    run_force(topology, |t| layout.run_params(t, &bytes))
 }
 
 fn run_force(

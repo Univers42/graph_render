@@ -1,5 +1,5 @@
 use super::*;
-use crate::layout::grid::GridParams;
+use crate::layout::grid::{Grid, GridParams};
 use crate::stage::{gate_node_count, run_with, seeded_model};
 use crate::weights::REFERENCE_DEGREE;
 use graph_contract::geometry::{EdgeGeometryKind, NodeGeometryKind};

@@ -19,13 +19,14 @@ import { ForceSession } from "./force.ts";
 import { AnalysisRefusedError, BuildRefusedError, ContractRefusedError, InvalidHandleError } from "./errors.ts";
 import { PostRefusedError, RunRefusedError, WasmUnavailableError, codeName } from "./errors.ts";
 import { ColumnId, type AnalysisResult, type Column, type ForceEngine, type ForceParams, type Handle } from "./types.ts";
-import type { MotorOptions, PostResult, RunResult } from "./types.ts";
+import type { MotorOptions, PostResult, RunOptions, RunResult } from "./types.ts";
 import { parseAnalysisFace } from "./analysis-face.ts";
 import { INVALID_HANDLE_CODE, NO_GEOMETRY_CODE, decoder, frame, invoke, lastError } from "./calls.ts";
 import { snapshotPtr, type Loaded } from "./calls.ts";
 import { checkOptions } from "./options.ts";
 import { readKinds, type GeometryKinds } from "./geometry-kinds.ts";
 import { Registries } from "./registries.ts";
+import { decodeLayoutParams, encodeLayoutParams, type LayoutParamSpec } from "./layout-params.ts";
 import { buildStaged } from "./staging.ts";
 
 export type { WasmSource } from "./wasm.ts";
@@ -36,6 +37,7 @@ export { ForceSession, PARAMS_BYTES, encodeParams, decodeParams } from "./force.
 
 export { parseAnalysisFace } from "./analysis-face.ts";
 export * from "./adapters.ts";
+export * from "./layout-params.ts";
 
 /** One loaded wasm module and every graph built against it. `createMotor` is the only way
  * to get one — the constructor is private so a `Motor` is never in play without having
@@ -46,6 +48,9 @@ export class Motor {
   readonly #loadError: WasmUnavailableError | null;
   readonly #kinds = new Map<Handle, GeometryKinds>();
   readonly #registries = new Registries();
+  /** One layout's published parameters per id, read once per motor: the schema cannot
+   *  change under a live module (`docs/decisions/layout-params.md`). */
+  readonly #params = new Map<string, LayoutParamSpec[]>();
 
   private constructor(exports: RawExports | null, loadError: WasmUnavailableError | null) {
     this.#exports = exports;
@@ -179,22 +184,83 @@ export class Motor {
     return count;
   }
 
+  /** Every parameter the registered layout `layoutId` publishes, in the order a run's
+   *  parameter buffer carries them — `gm_layout_params` over the same index
+   *  {@link Motor.layout} resolves the id to (`docs/decisions/layout-params.md`). Read
+   *  once per motor and cached, like the id registry: the schema cannot change under a
+   *  live module, and re-reading it per run would be a round trip per drawing.
+   *
+   *  An empty array is an answer, not a refusal: most registered layouts pin their own
+   *  conventions and publish nothing. A body this SDK cannot read is a `RangeError`
+   *  rather than an empty array, because "this module speaks a different ABI" must not
+   *  read as "this layout takes no parameters". */
+  layoutParams(layoutId: string): LayoutParamSpec[] {
+    const { exports } = this.#requireLoaded();
+    const cached = this.#params.get(layoutId);
+    if (cached !== undefined) return cached;
+    const index = this.#registries.layoutIndex(exports, layoutId);
+    const ptr = invoke("gm_layout_params", () => exports.gm_layout_params(toU32(index)));
+    if (ptr === 0) {
+      throw new RunRefusedError(`gm_layout_params(${layoutId}) refused (${codeName(lastError(exports))})`);
+    }
+    const specs = decodeLayoutParams(frame(exports, ptr));
+    this.#params.set(layoutId, specs);
+    return specs;
+  }
+
   /** Runs the registered layout `layoutId` (e.g. `"layout.grid"`, from
    * {@link Motor.layouts} — the id is resolved through `gm_layout_count`/`gm_layout_id`,
-   * never a hard-coded index, C1) over `handle`'s topology at its default parameters
-   * (registry layouts take none this phase, C2). */
-  layout(handle: Handle, layoutId: string): RunResult {
+   * never a hard-coded index, C1) over `handle`'s topology, at `options.params` where it
+   * is given and at the layout's own defaults where it is not.
+   *
+   *  `options.params` is keyed by the names {@link Motor.layoutParams} publishes; a name
+   *  it does not publish is a `RangeError` and a published name left out takes its
+   *  default. Values are sent as written — the motor, not this SDK, decides whether one
+   *  is in range, and refuses it with `ParamOutOfRange` rather than clamping it.
+   *
+   *  {@link Motor.layout} is this method with no options and is kept so every existing
+   *  caller is unchanged. */
+  run(handle: Handle, layoutId: string, options?: RunOptions): RunResult {
     const { exports, views } = this.#requireLoaded();
     const index = this.#registries.layoutIndex(exports, layoutId);
-    const ok = invoke("gm_run", () => exports.gm_run(toU32(handle), toU32(index), 0, 0));
-    views.bump();
-    if (ok !== 1) {
-      const code = lastError(exports);
-      if (code === INVALID_HANDLE_CODE) throw new InvalidHandleError(`handle ${handle} is not live`, code);
-      throw new RunRefusedError(`gm_run refused (${codeName(code)})`, code);
+    const specs = options?.params === undefined ? [] : this.layoutParams(layoutId);
+    const bytes = specs.length === 0 ? new Uint8Array(0) : encodeLayoutParams(specs, options!.params!);
+    const len = toU32(bytes.byteLength);
+    const ptr = len === 0 ? 0 : this.#stageParams(bytes, len);
+    try {
+      const ok = invoke("gm_run", () => exports.gm_run(toU32(handle), toU32(index), toU32(ptr), len));
+      views.bump();
+      if (ok !== 1) {
+        const code = lastError(exports);
+        if (code === INVALID_HANDLE_CODE) throw new InvalidHandleError(`handle ${handle} is not live`, code);
+        throw new RunRefusedError(`gm_run refused (${codeName(code)})`, code);
+      }
+    } finally {
+      if (len !== 0) {
+        invoke("gm_free", () => exports.gm_free(toU32(ptr), len));
+        views.bump();
+      }
     }
     const { nodeKind, edgeKind, dim } = this.#recordKinds(exports, handle, layoutId);
     return { handle, nodeKind, edgeKind, nodeCount: this.nodeCount(handle), dim };
+  }
+
+  /** The run's parameter buffer, staged through `gm_alloc` and freed by `run` above
+   *  (C7: the caller never sees a pointer). `0` is never a valid pointer here because
+   *  `run` only stages a non-empty buffer. */
+  #stageParams(bytes: Uint8Array, len: number): number {
+    const { exports } = this.#requireLoaded();
+    const ptr = invoke("gm_alloc", () => exports.gm_alloc(len));
+    if (ptr === 0) throw new RunRefusedError(`gm_alloc could not reserve the params buffer (${codeName(lastError(exports))})`, lastError(exports));
+    new Uint8Array(exports.memory.buffer, ptr, len).set(bytes);
+    return ptr;
+  }
+
+  /** Runs the registered layout `layoutId` over `handle`'s topology at its default
+   * parameters. The two-argument form of {@link Motor.run}, kept so no caller written
+   * against the pre-ABI-2 surface changes. */
+  layout(handle: Handle, layoutId: string): RunResult {
+    return this.run(handle, layoutId);
   }
 
   #recordKinds(exports: RawExports, handle: Handle, what: string): GeometryKinds {
