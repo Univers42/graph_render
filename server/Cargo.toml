@@ -5,3 +5,11 @@
 [workspace]
 resolver = "2"
 members = ["graph-server"]
+
+# Verdict condition 5: a panic in a run must unwind into a JoinError and a 500, never abort the
+# process with every other request in flight. Set on the workspace: member profiles are ignored.
+[profile.dev]
+panic = "unwind"
+
+[profile.release]
+panic = "unwind"

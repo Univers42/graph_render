@@ -37,10 +37,14 @@ impl ApiError {
         Self::new(StatusCode::BAD_REQUEST, "BadRequest", message)
     }
 
-    /// 401. One message for every cause: the body never says whether the key was absent,
-    /// malformed or unknown.
+    /// A 401 with one message for every cause: the body never says whether the key was
+    /// absent, malformed or unknown.
     pub fn unauthorized() -> Self {
-        Self::new(StatusCode::UNAUTHORIZED, "Unauthorized", "missing or unknown API key")
+        Self::new(
+            StatusCode::UNAUTHORIZED,
+            "Unauthorized",
+            "missing or unknown API key",
+        )
     }
 
     /// 413: the document is past a size limit.
@@ -81,7 +85,12 @@ impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let body = serde_json::json!({ "error": self.code, "message": one_line(&self.message) });
         let json = HeaderValue::from_static("application/json");
-        let mut response = (self.status, [(header::CONTENT_TYPE, json)], body.to_string()).into_response();
+        let mut response = (
+            self.status,
+            [(header::CONTENT_TYPE, json)],
+            body.to_string(),
+        )
+            .into_response();
         if self.status == StatusCode::TOO_MANY_REQUESTS {
             let retry = HeaderValue::from_static("1");
             response.headers_mut().insert(header::RETRY_AFTER, retry);
