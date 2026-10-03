@@ -1,11 +1,6 @@
 //! The knob table: every control's variable, record and stage, held against the one source
 //! of truth for the per-stage controls (the fifteen ANALYSIS and POST rows and the six
-//! igraph layout rows).
-//!
-//! Split from `knob.rs` by the house's 300-line limit. The ten parameter controls are
-//! spelled out here rather than derived from [`Knob::env`], so this test is the
-//! independent statement of what they are called; the per-stage controls are absent because
-//! their variables come from `knobs::all()`, which has its own test below.
+//! igraph layout rows). Split from `knob.rs` by the house's 300-line limit.
 
 use super::*;
 use crate::hashgate::knob::setting::setting;
