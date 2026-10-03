@@ -22,7 +22,7 @@
 //! The pin verbs are `pins.rs`'s: they place a row rather than gathering a force, and they
 //! are read against `sim.rs`'s integrate tail rather than against a parameter.
 
-use super::support::{SEED, WARMUP, Twin, diverge};
+use super::support::{SEED, Twin, WARMUP, diverge};
 use crate::layout::force::session::LiveParams;
 
 /// Repulsion is the many-body charge, and it is the one force whose sign convention is

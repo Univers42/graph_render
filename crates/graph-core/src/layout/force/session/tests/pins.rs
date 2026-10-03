@@ -8,7 +8,7 @@
 //! timing: a pin is a value the tick consumes, not a move the verb performs, and a release
 //! whose failure mode is a node stuck in a corner for ever.
 
-use super::support::{PX, PY, ROW, SEED, WARMUP, Twin};
+use super::support::{PX, PY, ROW, SEED, Twin, WARMUP};
 use crate::layout::force::session::{ForceSession, NodeRow};
 
 /// Which release verb a case is about: `unpin` frees one row, `unpin_all` frees every

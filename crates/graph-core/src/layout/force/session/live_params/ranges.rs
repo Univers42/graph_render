@@ -46,7 +46,10 @@ impl Range {
     /// `value` against this range with the upper end **open**: `min <= value < max`. One
     /// half-step's difference from [`check`](Self::check), for a field whose maximum is a
     /// value the layout cannot use.
-    pub(in crate::layout::force::session) fn check_open(&self, value: f64) -> Result<(), SessionError> {
+    pub(in crate::layout::force::session) fn check_open(
+        &self,
+        value: f64,
+    ) -> Result<(), SessionError> {
         self.check_finite(value)?;
         if value < self.min || value >= self.max {
             return Err(SessionError::OutOfRange {

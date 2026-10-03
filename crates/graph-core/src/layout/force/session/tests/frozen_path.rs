@@ -16,8 +16,8 @@
 
 use super::support;
 use crate::layout::force::ForceParams;
-use crate::layout::force::session::{ForceSession, LiveParams, SessionError};
 use crate::layout::force::params::ForceParams as Frozen;
+use crate::layout::force::session::{ForceSession, LiveParams, SessionError};
 
 /// The three values the review named: each inside `[0, 1]`-ish and finite, each **outside**
 /// the live range, and each one the frozen stage is entitled to run.
@@ -79,7 +79,11 @@ fn no_live_setter_inherits_the_frozen_paths_weaker_acceptance() {
 
     // 1. `new` — the constructor a live caller reaches first.
     let topology = support::topology(3);
-    assert_eq!(ForceSession::new(&topology, bad).err(), Some(expected), "new");
+    assert_eq!(
+        ForceSession::new(&topology, bad).err(),
+        Some(expected),
+        "new"
+    );
 
     // 2. `set_params` — the mid-run setter, on a session already running.
     let mut session = support::session(4);

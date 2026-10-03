@@ -60,8 +60,8 @@ pub use pin::NodeRow;
 use self::live_params::{ALPHA, ALPHA_TARGET};
 use crate::exec::{Runner, Serial};
 use crate::index::Topology;
-use crate::layout::force::barnes_hut::{Split, Tier};
 use crate::layout::force::barnes_hut::sim::Sim;
+use crate::layout::force::barnes_hut::{Split, Tier};
 use crate::layout::force::params::ForceParams;
 use crate::layout::force::particle_mesh::{self, Mesh};
 
