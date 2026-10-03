@@ -13,14 +13,14 @@
 //! - **every registered layout**: no `NaN` or `±Inf` reaches its output (D9), and circle
 //!   packing's radii are always positive and finite.
 //!
-//! **Why the layout sweep is one `#[test]` per registry row.** Sweeping every layout in
-//! one serial test made this the landing gate's long pole: libtest runs tests in
-//! parallel, so a single long test occupies a single core while every other core idles.
-//! Splitting by registry row lets the pool spread the rows over the cores it is allowed,
-//! and the `(seed, layout)` pairs, the assertions and the messages are all unchanged.
-//! No test spawns a thread, so `RUST_TEST_THREADS` still caps the binary. The one list
-//! a new registry row has to be added to is pinned by
-//! `every_registered_layout_has_its_own_sweep`, so it cannot go unchecked.
+//! **Why the layout sweep is many `#[test]`s.** Sweeping every layout inside one serial
+//! test made this the landing gate's long pole: libtest runs tests in parallel, so one
+//! long test is one core while nineteen idle. The sweep is cut per registry row, and by
+//! seed chunk for the one row that is itself a long pole, over exactly the same
+//! `(seed, layout)` pairs with the same assertions and messages. No test spawns a
+//! thread, so `RUST_TEST_THREADS` still caps the binary, and
+//! `every_registered_layout_has_its_own_sweep` fails if a row, or a chunk of a row, is
+//! left out. Timings: `docs/measurements/test-speed-geometry.md`.
 
 mod geometry_invariants {
     use graph_contract::geometry::{EdgeGeometry, NodeGeometry};
@@ -28,10 +28,19 @@ mod geometry_invariants {
     use graph_core::{
         REFERENCE_DEGREE, Topology, gate_node_count, index_model, layout, registry, seeded_model,
     };
+    use std::ops::Range;
 
     /// Seeds swept: enough to draw shallow and deep trees, single- and multi-root forests,
     /// and every note code, without the sweep itself taking more than a moment.
     const SEEDS: u32 = 200;
+
+    /// The chunk marker for a registry row swept whole, in one test, rather than split.
+    const WHOLE: u32 = u32::MAX;
+
+    /// Chunks a split registry row is cut into. Only a row that is itself the binary's
+    /// long pole is split; splitting all of them would multiply the tests for sweeps
+    /// that already finish in a fraction of a second.
+    const CHUNKS: u32 = 8;
 
     /// The `f32` centre/size reconstruction tolerance a treemap box's edge can be off by,
     /// restated from `layout::treemap::tests::F32_EDGE_EPSILON` (private to that module).
@@ -40,6 +49,18 @@ mod geometry_invariants {
     fn topology(seed: u32) -> Topology {
         let (nodes, edges) = seeded_model(seed, gate_node_count(seed), REFERENCE_DEGREE);
         index_model(&nodes, &edges).expect("the gate model always indexes")
+    }
+
+    /// The seed range a chunk marker stands for: `WHOLE` is the whole sweep, every other
+    /// marker a `SEEDS.div_ceil(CHUNKS)`-sized slice clamped at `SEEDS`, so a row's
+    /// chunks tile its sweep disjointly. That the caller listed them is the guard's job.
+    fn seed_range(chunk: u32) -> Range<u32> {
+        if chunk == WHOLE {
+            return 0..SEEDS;
+        }
+        let per = SEEDS.div_ceil(CHUNKS);
+        let start = (chunk * per).min(SEEDS);
+        start..(start + per).min(SEEDS)
     }
 
     /// The four columns a treemap `NodeGeometry::Box` carries, bundled so the checks
@@ -153,46 +174,56 @@ mod geometry_invariants {
         }
     }
 
-    /// The ids the generated per-layout sweeps claim must be `registry::LAYOUTS` in
-    /// order, so a row added to the registry later fails this guard instead of slipping
-    /// past the sweep unchecked.
-    fn assert_registry_order(swept: &[&str]) {
-        let registered: Vec<&str> = registry::LAYOUTS.iter().map(|c| c.id).collect();
-        assert_eq!(
-            swept,
-            registered.as_slice(),
-            "the per-layout sweeps must list registry::LAYOUTS in order"
-        );
-    }
-
-    /// One `#[test]` per `registry::LAYOUTS` row over all `SEEDS`, plus the guard test.
+    /// One `#[test]` per listed seed chunk of one `registry::LAYOUTS` row, plus the guard.
+    /// A row reads `[$index] $id [WHOLE] [$test]` to sweep all `SEEDS` in one test, or
+    /// `[$index] $id [0, 1, ...] [$test_s0, $test_s1, ...]` to cut it by seed chunk.
     macro_rules! per_layout_sweep {
-        ($($index:literal => $id:literal as $test:ident),* $(,)?) => {
-            /// The ids the generated sweeps below cover, in this list's order.
+        (rows: [ $( [$index:literal] $id:literal [$($chunk:tt),+] [$($part:ident),+] ),* ]) => {
+            /// The ids the generated sweeps cover, in this list's order.
             const SWEPT_IDS: &[&str] = &[$($id),*];
+            /// Each id's seed chunks, a lone `WHOLE` for a row swept whole.
+            const SWEPT_CHUNKS: &[(&str, &[u32])] = &[$(( $id, &[$($chunk),+] )),*];
+
             $(
-                #[test]
-                fn $test() {
-                    sweep_layout($index, $id);
-                }
+                $(
+                    #[test]
+                    fn $part() {
+                        sweep_layout($index, $id, seed_range($chunk));
+                    }
+                )+
             )*
+
+            /// The list must be `registry::LAYOUTS` in order, and every row's chunks must
+            /// tile `0..SEEDS` exactly once: a registry row added later, or a chunk of a
+            /// row dropped here, fails on this test instead of going unchecked.
             #[test]
             fn every_registered_layout_has_its_own_sweep() {
-                assert_registry_order(SWEPT_IDS);
+                let registered: Vec<&str> = registry::LAYOUTS.iter().map(|c| c.id).collect();
+                assert_eq!(
+                    SWEPT_IDS, registered.as_slice(),
+                    "the per-layout sweeps must list registry::LAYOUTS in order"
+                );
+                let seeds: Vec<u32> = (0..SEEDS).collect();
+                for (id, claimed) in SWEPT_CHUNKS {
+                    let mut covered: Vec<u32> =
+                        claimed.iter().flat_map(|&c| seed_range(c)).collect();
+                    covered.sort_unstable();
+                    assert_eq!(covered, seeds, "{id}: chunks {claimed:?} must tile 0..SEEDS");
+                }
             }
         };
     }
 
-    /// One layout's whole `0..SEEDS` sweep: no `NaN` or `±Inf` in its output (D9), and
+    /// One layout's sweep over `seeds`: no `NaN` or `±Inf` in its output (D9), and
     /// positive finite radii wherever it emits circles.
-    fn sweep_layout(index: usize, id: &str) {
+    fn sweep_layout(index: usize, id: &str, seeds: Range<u32>) {
         let capability = registry::LAYOUTS[index];
         assert_eq!(
             capability.id, id,
             "the list claims row {index} is {id}, the registry says {}",
             capability.id
         );
-        for seed in 0..SEEDS {
+        for seed in seeds {
             let t = topology(seed);
             let geometry = (capability.run)(&t)
                 .unwrap_or_else(|e| panic!("seed {seed} {}: {e}", capability.id));
@@ -210,45 +241,54 @@ mod geometry_invariants {
     }
 
     per_layout_sweep! {
-        0 => "layout.grid" as layout_grid,
-        1 => "layout.tree.tidy" as layout_tree_tidy,
-        2 => "layout.treemap.squarified" as layout_treemap_squarified,
-        3 => "layout.circular.radial" as layout_circular_radial,
-        4 => "layout.packing.circle" as layout_packing_circle,
-        5 => "layout.spectral" as layout_spectral,
-        6 => "layout.mds.pivot" as layout_mds_pivot,
-        7 => "layout.force.barnes_hut" as layout_force_barnes_hut,
-        8 => "layout.forceatlas2" as layout_forceatlas2,
-        9 => "layout.dag.sugiyama" as layout_dag_sugiyama,
-        10 => "layout.random" as layout_random,
-        11 => "layout.circular.ring" as layout_circular_ring,
-        12 => "layout.spiral" as layout_spiral,
-        13 => "layout.bipartite" as layout_bipartite,
-        14 => "layout.force.yifan_hu" as layout_force_yifan_hu,
-        15 => "layout.force.fruchterman_reingold" as layout_force_fruchterman_reingold,
-        16 => "layout.force.kamada_kawai" as layout_force_kamada_kawai,
-        17 => "layout.force.graphopt" as layout_force_graphopt,
-        18 => "layout.force.davidson_harel" as layout_force_davidson_harel,
-        19 => "layout.force.lgl" as layout_force_lgl,
-        20 => "layout.force.drl" as layout_force_drl,
-        21 => "layout.twopi" as layout_twopi,
-        22 => "layout.packing.osage" as layout_packing_osage,
-        23 => "layout.force.spring" as layout_force_spring,
-        24 => "layout.circular.hierarchy" as layout_circular_hierarchy,
-        25 => "layout.circular.circo" as layout_circular_circo,
-        26 => "layout.treemap.patchwork" as layout_treemap_patchwork,
-        27 => "layout.force.neato" as layout_force_neato,
-        28 => "layout.force.fdp" as layout_force_fdp,
-        29 => "layout.basic3d.sphere" as layout_basic3d_sphere,
-        30 => "layout.basic3d.helix" as layout_basic3d_helix,
-        31 => "layout.basic3d.cube" as layout_basic3d_cube,
-        32 => "layout.hierarchical3d" as layout_hierarchical3d,
-        33 => "layout.force.spring3d" as layout_force_spring3d,
-        34 => "layout.force.sfdp" as layout_force_sfdp,
-        35 => "layout.forceatlas2.barnes_hut" as layout_forceatlas2_barnes_hut,
-        36 => "layout.bipartite_3d" as layout_bipartite_3d,
-        37 => "layout.basic3d.spiral" as layout_basic3d_spiral,
-        38 => "layout.force.particle_mesh" as layout_force_particle_mesh,
+        rows: [
+            [0] "layout.grid" [WHOLE] [layout_grid]
+            [1] "layout.tree.tidy" [WHOLE] [layout_tree_tidy]
+            [2] "layout.treemap.squarified" [WHOLE] [layout_treemap_squarified]
+            [3] "layout.circular.radial" [WHOLE] [layout_circular_radial]
+            [4] "layout.packing.circle" [WHOLE] [layout_packing_circle]
+            [5] "layout.spectral" [WHOLE] [layout_spectral]
+            [6] "layout.mds.pivot" [WHOLE] [layout_mds_pivot]
+            [7] "layout.force.barnes_hut" [WHOLE] [layout_force_barnes_hut]
+            [8] "layout.forceatlas2" [WHOLE] [layout_forceatlas2]
+            [9] "layout.dag.sugiyama" [WHOLE] [layout_dag_sugiyama]
+            [10] "layout.random" [WHOLE] [layout_random]
+            [11] "layout.circular.ring" [WHOLE] [layout_circular_ring]
+            [12] "layout.spiral" [WHOLE] [layout_spiral]
+            [13] "layout.bipartite" [WHOLE] [layout_bipartite]
+            [14] "layout.force.yifan_hu" [WHOLE] [layout_force_yifan_hu]
+            [15] "layout.force.fruchterman_reingold" [WHOLE] [layout_force_fruchterman_reingold]
+            [16] "layout.force.kamada_kawai" [WHOLE] [layout_force_kamada_kawai]
+            [17] "layout.force.graphopt" [WHOLE] [layout_force_graphopt]
+            // The long pole: 390 s of the sweep's ~1085 s on a single core, so it is the
+            // one row cut by seed. `docs/measurements/test-speed-geometry.md` has the
+            // per-row timings that picked it.
+            [18] "layout.force.davidson_harel" [0, 1, 2, 3, 4, 5, 6, 7]
+                [layout_force_davidson_harel_s0, layout_force_davidson_harel_s1,
+                 layout_force_davidson_harel_s2, layout_force_davidson_harel_s3,
+                 layout_force_davidson_harel_s4, layout_force_davidson_harel_s5,
+                 layout_force_davidson_harel_s6, layout_force_davidson_harel_s7]
+            [19] "layout.force.lgl" [WHOLE] [layout_force_lgl]
+            [20] "layout.force.drl" [WHOLE] [layout_force_drl]
+            [21] "layout.twopi" [WHOLE] [layout_twopi]
+            [22] "layout.packing.osage" [WHOLE] [layout_packing_osage]
+            [23] "layout.force.spring" [WHOLE] [layout_force_spring]
+            [24] "layout.circular.hierarchy" [WHOLE] [layout_circular_hierarchy]
+            [25] "layout.circular.circo" [WHOLE] [layout_circular_circo]
+            [26] "layout.treemap.patchwork" [WHOLE] [layout_treemap_patchwork]
+            [27] "layout.force.neato" [WHOLE] [layout_force_neato]
+            [28] "layout.force.fdp" [WHOLE] [layout_force_fdp]
+            [29] "layout.basic3d.sphere" [WHOLE] [layout_basic3d_sphere]
+            [30] "layout.basic3d.helix" [WHOLE] [layout_basic3d_helix]
+            [31] "layout.basic3d.cube" [WHOLE] [layout_basic3d_cube]
+            [32] "layout.hierarchical3d" [WHOLE] [layout_hierarchical3d]
+            [33] "layout.force.spring3d" [WHOLE] [layout_force_spring3d]
+            [34] "layout.force.sfdp" [WHOLE] [layout_force_sfdp]
+            [35] "layout.forceatlas2.barnes_hut" [WHOLE] [layout_forceatlas2_barnes_hut]
+            [36] "layout.bipartite_3d" [WHOLE] [layout_bipartite_3d]
+            [37] "layout.basic3d.spiral" [WHOLE] [layout_basic3d_spiral]
+            [38] "layout.force.particle_mesh" [WHOLE] [layout_force_particle_mesh]
+        ]
     }
 
     fn assert_finite(nodes: &NodeGeometry, id: &str, seed: u32) {
