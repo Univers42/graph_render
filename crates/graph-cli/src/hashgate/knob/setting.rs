@@ -27,6 +27,10 @@ use graph_core::{GridParams, REFERENCE_DEGREE, SugiyamaParams};
 use std::env::VarError;
 use std::ffi::OsString;
 
+mod params;
+
+pub(crate) use params::{PARAM_DEFAULT_STAGE, param_index};
+
 use super::env;
 use super::knobs;
 use super::value;
@@ -91,6 +95,11 @@ pub(crate) struct Setting {
     /// honest value unreachable. Reach it through [`Setting::live_force_params`], which is the
     /// only reader and lives in this module with the field.
     pub(in crate::hashgate) live_gravity: Option<f64>,
+    /// Which published default [`Knob::LayoutParamDefault`] perturbs, as an index into
+    /// [`PARAM_DEFAULT_STAGE`]'s parameter list. `None` is the honest run. An index and not
+    /// a `(name, value)` pair because the control is *over the default*: the value it runs
+    /// at is the published default plus one, so it cannot drift from what it claims.
+    pub(in crate::hashgate) layout_param_default: Option<usize>,
     pub(in crate::hashgate) control: Option<Knob>,
 }
 
@@ -116,6 +125,7 @@ impl Setting {
             split_sum: Split::None,
             split_rescale: false,
             live_gravity: None,
+            layout_param_default: None,
             control: None,
         }
     }
@@ -337,6 +347,9 @@ fn apply(knob: Knob, text: &str, setting: &mut Setting) -> Result<(), String> {
         // one thing it is, while a typo is an error at the parse.
         Knob::ForceSessionGravity => {
             setting.live_gravity = Some(text.parse().map_err(|e| bad(&e))?);
+        }
+        Knob::LayoutParamDefault => {
+            setting.layout_param_default = Some(param_index(text, knob)?);
         }
         // The twenty-one per-stage controls, the fifteen ANALYSIS and POST rows and the six
         // igraph layout rows, are one arm here: `stage_of` resolves the stage from the

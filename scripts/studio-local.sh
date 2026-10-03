@@ -32,6 +32,6 @@ fi
 source "$root/scripts/orch/image.sh"
 ensure_image "$image" || exit 2
 
-exec docker run --rm --memory 4g --memory-swap 4g -v "$root:/w" -w /w/deploy/local "$image" \
+exec "$root/scripts/orch/drun" --rm --memory 4g --memory-swap 4g -v "$root:/w" -w /w/deploy/local "$image" \
   python3 local.py --dist /w/app/dist --out "/w/target/studio-local/$label" \
   --commit "$(git -C "$root" rev-parse --short HEAD)" "${break[@]}"

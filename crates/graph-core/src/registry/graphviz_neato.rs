@@ -34,10 +34,10 @@ use graph_contract::geometry::{EdgeGeometryKind, NodeGeometryKind};
 /// than the arithmetic, and at 10 000 nodes the allocation is 200 MB against 251 s of work.
 pub const NEATO_CEILING: u64 = 10_000;
 
-const DEGRADATION: &str = "past the ceiling wasm32 cannot allocate the O(n^2) packed distance \
-triangle and the module traps (no partial result); natively, memory permitting, the snapshot \
-refuses with SnapshotError::Capacity once an id table's text would pass 2^32-1 bytes — a \
-refusal, never a wrap or a truncation. Nothing degrades *within* the ceiling: the layout has no \
+const DEGRADATION: &str = "past 13 376 nodes the three O(n^2) packed f32 triangles would pass \
+graph_core::budget's 1 GiB and the layout refuses with StageError::Param { name: \"nodes\" } \
+before allocating, on wasm32 and natively alike — a refusal, never a trap, a wrap or a \
+truncation. Nothing degrades *within* the ceiling: the layout has no \
 timeout and no cut-off, so a larger graph costs quadratically more time and returns the same \
 kind of answer. The cost is quadratic in the *passes* as well as in the set-up, and the pass \
 count is not bounded by anything small: the default 200-iteration budget is reached in full on \

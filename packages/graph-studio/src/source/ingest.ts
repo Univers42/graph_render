@@ -15,6 +15,7 @@
  * module produced passes through with no notes at all. `doc` carries `tags` and
  * `path`, which `json` — the text the motor reads — never does.
  */
+import { documentRefusal } from "./limits.ts";
 
 export type NodeKind = "record" | "note" | "database" | "tag";
 export type EdgeKind = "relation" | "tag" | "note_of" | "note_link" | "hierarchy";
@@ -133,11 +134,13 @@ function optionalBoolean(value: unknown, fallback: boolean): boolean {
 }
 
 function parseDocument(source: string, text: string): Record_ {
+  const refused = documentRefusal(text.length);
+  if (refused !== null) throw new IngestRefusal(source, refused);
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
-  } catch {
-    throw new IngestRefusal(source, "not JSON");
+  } catch (error) {
+    throw new IngestRefusal(source, error instanceof RangeError ? "too large to parse in this page" : "not JSON");
   }
   if (!isObject(parsed)) throw new IngestRefusal(source, "the document is not a JSON object");
   return parsed;

@@ -41,7 +41,7 @@ in_node() {
   # `docker run -it` refuses without a terminal, which a gate never has. The update notifier is
   # off: its "npm install -g" advice is about the image's npm, and run on the host it changes nothing.
   [[ -t 0 && -t 1 ]] && tty=(-it)
-  docker run --rm "${tty[@]}" "${publish[@]}" -e NPM_CONFIG_UPDATE_NOTIFIER=false \
+  "$root/scripts/orch/drun" --rm "${tty[@]}" "${publish[@]}" -e NPM_CONFIG_UPDATE_NOTIFIER=false \
     -v "$root:/w" -w "/w/$dir" -v "$refs:/refs:ro" "$GM_NODE_IMAGE" "$@"
 }
 
