@@ -43,9 +43,11 @@ interface Pin { readonly x: number; readonly y: number }
 
 class ForceLoop {
   private readonly held = new Set<string>();
-  // Latest pointer position per node: a move that arrives before the frame replaces the
-  // last one, which is how a slow motor drops drag events instead of queueing them.
-  private readonly pending = new Map<string, Pin>();
+  // Where the loop's pins are: the latest pointer position per node, a move that arrives
+  // before the frame replacing the last one, which is how a slow motor drops drag events
+  // instead of queueing them. An id stays in here after its release — a dropped node is a node
+  // the user put somewhere on purpose — so the pin outlives the pointer that made it.
+  private readonly pinned = new Map<string, Pin>();
   private cancel: (() => void) | null = null;
   private alpha = 0;
   private paused = false;
@@ -89,14 +91,11 @@ class ForceLoop {
       this.release();
       return;
     }
-    for (const [id, pin] of this.pending) this.live.pin(id, pin.x, pin.y);
-    this.pending.clear();
+    for (const [id, at] of this.pinned) this.live.pin(id, at.x, at.y);
     if (this.dropped) this.dropped = false;
     else this.batch();
     const running = this.alpha >= ALPHA_MIN || this.held.size > 0;
-    const { xs, ys } = this.live.positions();
-    const copy = { xs: xs.slice(), ys: ys.slice(), alpha: this.alpha, running };
-    this.deps.emit({ type: "force-frame", frame: copy }, [copy.xs.buffer, copy.ys.buffer]);
+    this.publish(running);
     if (running) this.cancel = this.deps.schedule(() => this.frame());
   }
 
@@ -132,10 +131,15 @@ class ForceLoop {
     this.paused = false;
     this.cancel?.();
     this.cancel = null;
+    this.drop();
+  }
+
+  /** Lets go of every pin the loop owns, dropped nodes included. */
+  private drop(): void {
     // A released session throws from an unpin too, and there is no pin left on it to lift.
-    if (this.live.dead !== true) for (const id of this.held) this.live.unpin(id);
+    if (this.live.dead !== true) for (const id of this.pinned.keys()) this.live.unpin(id);
     this.held.clear();
-    this.pending.clear();
+    this.pinned.clear();
   }
 
   /**
@@ -153,11 +157,24 @@ class ForceLoop {
     this.deps.emit({ type: "force-state", running: false, disabled: NO_ADAPTER_REASON, paused: false }, []);
   }
 
-  /** One last frame saying the loop has stopped, so the bar empties instead of hanging. */
+  /**
+   * One frame out, narrowed to f32 and handed over rather than copied.
+   *
+   * WHY narrow here: the page draws f32 and the GPU attribute is f32, so a f64 column would
+   * cross the wire at twice the size to be narrowed on the far side, into an array of exactly
+   * the length it already had. `Float32Array.from` narrows to nearest — the same rounding the
+   * page's own `Float32Array.set` performed — so the drawing is bit-identical.
+   *
+   * Ponytail: the two arrays are fresh every frame rather than taken from a pool. A pool has
+   * to be handed back before it can be filled again, and the return path crosses the same
+   * thread boundary this transfer already crosses; until that channel exists, a fresh f32
+   * pair is half the bytes of a fresh f64 pair and the page allocates nothing at all, which is
+   * the half that was on the critical path.
+   */
   private publish(running: boolean): void {
     const { xs, ys } = this.live.positions();
-    const copy = { xs: xs.slice(), ys: ys.slice(), alpha: this.alpha, running };
-    this.deps.emit({ type: "force-frame", frame: copy }, [copy.xs.buffer, copy.ys.buffer]);
+    const frame = { xs: Float32Array.from(xs), ys: Float32Array.from(ys), alpha: this.alpha, running };
+    this.deps.emit({ type: "force-frame", frame }, [frame.xs.buffer, frame.ys.buffer]);
   }
 
   apply(request: ForceRequest): void {
@@ -177,17 +194,24 @@ class ForceLoop {
     // frozen under the pointer is not what a pause was for.
     this.paused = false;
     if (request.type === "force.start") {
-      // "Animate": the settle starts over from random positions, not from where it stopped.
-      // The port answers with the alpha it re-heated to, which is the bar's new full width.
+      // "Animate": the settle starts over from where this graph's settle begins, not from
+      // where it stopped. The port answers with the alpha the new session was born at, which
+      // is the bar's new full width. A dropped node is a position the user chose, and a
+      // restart puts the nodes back at the session's start positions — so the pins go with
+      // the positions they were holding.
+      this.drop();
       const restarted = this.live.shuffle?.();
       if (restarted !== undefined) this.alpha = restarted;
     } else if (request.type === "force.drag") {
       this.held.add(request.id);
-      this.pending.set(request.id, { x: request.x, y: request.y });
+      this.pinned.set(request.id, { x: request.x, y: request.y });
     } else if (request.type === "force.release") {
-      this.pending.delete(request.id);
+      // WHY the pin stays: the motor integrates a released node from rest and the drawing
+      // settles it straight back to the equilibrium the drag just broke, so lifting the pin
+      // here makes a drop undo itself. The node keeps the position the user put it at; the
+      // graph settles around it. `held` is what the pointer is holding, and only that keeps
+      // the loop awake — so a drop lets the settle finish.
       this.held.delete(request.id);
-      this.live.unpin(request.id);
     } else this.live.setParams(request.knobs);
     this.wake();
   }

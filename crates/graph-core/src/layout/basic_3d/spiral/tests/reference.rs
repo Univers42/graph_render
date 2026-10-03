@@ -109,7 +109,7 @@ fn the_arc_length_inversion_and_z_are_the_reference_bit_for_bit() {
         (2, &N2_T[..], &N2_Z[..]),
         (7, &N7_T[..], &N7_Z[..]),
     ] {
-        let t = super::super::parameters(n);
+        let t = super::super::parameters(n, super::super::SCALE);
         let (_, _, z) = super::super::columns(n);
         assert_eq!(t.len(), n as usize, "n={n}: t has one entry per node");
         for i in 0..n as usize {

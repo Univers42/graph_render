@@ -276,4 +276,3 @@ pub enum Cli {
         dir: PathBuf,
     },
 }
-

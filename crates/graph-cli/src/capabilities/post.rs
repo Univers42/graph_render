@@ -1,6 +1,6 @@
-//! Phase 8's POST rows: `post.route.grid` (obstacle-avoiding routing over a uniform grid
-//! of the node geometry), the two bundling rows `post.bundle.fdeb` and
-//! `post.bundle.mingle`, and the four `post.style.*` rows.
+//! The POST rows: `post.route.grid` (obstacle-avoiding routing over a uniform grid of the
+//! node geometry), the two bundling rows `post.bundle.fdeb` and `post.bundle.mingle`, the
+//! node-overlap row `post.separate.grid`, and the four `post.style.*` rows.
 //!
 //! Split out of `capabilities.rs` for the same reason Phase 7's `analysis.rs` is: the
 //! 300-line house limit, and a POST row's metadata is long and specific in a way a
@@ -13,11 +13,12 @@
 //! (`prompt.md` §8). The wiring is the merge step's, exactly as it was for Phase 7's
 //! analysis rows (`docs/measurements/phase07-analysis.md`).
 //!
-//! Only the routing row's metadata is written out here. The other six are projected from
+//! Only the routing row's metadata is written out here. The other seven are projected from
 //! the `Metadata` their own `graph-core` module already declares
-//! (`post::fdeb::META`, `post::mingle::META`, `post::styles::STYLES`), which is where the
-//! measured ceilings and the Ponytails live. Restating them here would be a second answer
-//! to the same question, free to drift from the code that carries them.
+//! (`post::fdeb::META`, `post::mingle::META`, `post::separate::META`,
+//! `post::styles::STYLES`), which is where the measured ceilings and the Ponytails live.
+//! Restating them here would be a second answer to the same question, free to drift from the
+//! code that carries them.
 
 use super::{Capability, Status};
 
@@ -111,15 +112,29 @@ pub fn rows() -> impl Iterator<Item = Capability> {
         .chain(styles())
 }
 
-/// The two bundling rows, projected from the metadata their own `graph-core` modules
-/// declare ([`graph_core::post::fdeb::META`], [`graph_core::post::mingle::META`]). Read
-/// across rather than restated: a second, looser copy of a ceiling or a Ponytail is a
-/// second answer, and the two would drift. Neither is `gated` — see the module doc.
+/// The rows projected from the metadata their own `graph-core` modules declare:
+/// [`graph_core::post::fdeb::META`], [`graph_core::post::mingle::META`] and
+/// [`graph_core::post::separate::META`].
+///
+/// Read across rather than restated: a second, looser copy of a ceiling or a Ponytail is a
+/// second answer, and the two would drift. None is `gated` — see the module doc.
+///
+/// **The id and the `META` of one module are declared together**, each taken from that
+/// module's own `ID`. They used to be `zip`ped against a list beside them, so reordering
+/// either list would silently attach one module's ceiling, oracle and Ponytail to another's
+/// stable row id, with no compile error anywhere. `separate`'s `edges` is `Line` because the
+/// pass is **pass-through** — it emits the edges it was handed — and there is no
+/// `EdgeGeometryKind` for "the same edges"; its `Metadata::moves_nodes` flag is what tells a
+/// reader to read that column that way.
 fn bundles() -> impl Iterator<Item = Capability> {
-    [graph_core::post::fdeb::META, graph_core::post::mingle::META]
-        .into_iter()
-        .zip(["post.bundle.fdeb", "post.bundle.mingle"])
-        .map(|(meta, id)| row(id, edge_kind_name(meta.edges), RowMeta::of_post(&meta)))
+    use graph_core::post::{fdeb, mingle, separate};
+    [
+        (fdeb::ID, fdeb::META),
+        (mingle::ID, mingle::META),
+        (separate::ID, separate::META),
+    ]
+    .into_iter()
+    .map(|(id, meta)| row(id, edge_kind_name(meta.edges), RowMeta::of_post(&meta)))
 }
 
 /// The four style rows, projected from [`graph_core::post::styles::STYLES`]. They differ
@@ -136,15 +151,17 @@ fn styles() -> impl Iterator<Item = Capability> {
     })
 }
 
-/// The ledger's name for an edge geometry kind, as `registry::layout` writes it. The
-/// catch-all is unreachable for every registered POST capability today and is named
-/// rather than panicking, so adding a fourth kind later is a value to fill in rather than
-/// a crash in the middle of building the ledger.
+/// The ledger's name for an edge geometry kind, as `registry::layout` writes it.
+///
+/// Exhaustive on purpose, with no catch-all: it used to answer `"Curve"` for anything it
+/// did not recognise, so a fourth kind added to the enum would have landed in the ledger
+/// as a confidently wrong geometry. A new kind is now a compile error here instead.
 fn edge_kind_name(kind: graph_contract::geometry::EdgeGeometryKind) -> &'static str {
+    use graph_contract::geometry::EdgeGeometryKind as K;
     match kind {
-        graph_contract::geometry::EdgeGeometryKind::Line => "Line",
-        graph_contract::geometry::EdgeGeometryKind::Polyline => "Polyline",
-        _ => "Curve",
+        K::Line => "Line",
+        K::Polyline => "Polyline",
+        K::Curve => "Curve",
     }
 }
 

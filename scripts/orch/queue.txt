@@ -117,3 +117,17 @@ fix-force-jiggle|build|prompts/jobs/fix-force-jiggle.md|scripts/orch/rows/quick.
 sg-propose-classify|build|prompts/jobs/sg-propose-classify.md|scripts/orch/rows/quick.rows|no
 sg-spectral-mds|build|prompts/jobs/sg-spectral-mds.md|scripts/orch/rows/quick.rows|no
 perf-transition-pick|build|prompts/jobs/perf-transition-pick.md|scripts/orch/rows/perf-p5.rows|no
+merge-p12-t4b-2|build|prompts/jobs/merge-p12-t4b-2.md|scripts/orch/rows/p12-t4b.rows|no
+perf-snapshot-build|build|prompts/jobs/perf-snapshot-build.md|scripts/orch/rows/quick.rows|no
+perf-start-shuffle|build|prompts/jobs/perf-start-shuffle.md|scripts/orch/rows/ux-forces.rows|no
+perf-mb-fidelity|build|prompts/jobs/perf-mb-fidelity.md|scripts/orch/rows/quick.rows|no
+perf-bh-1m|build|prompts/jobs/perf-bh-1m.md|scripts/orch/rows/quick.rows|no
+perf-p6-data-path|build|prompts/jobs/perf-p6-data-path.md|scripts/orch/rows/perf-p6-data.rows|no
+mrg-ux-params-abi|build|prompts/jobs/resolve-merge.md|scripts/orch/rows/ux-abi.rows|no
+mrg-sg-basic3d-spiral-oracle|build|prompts/jobs/resolve-merge.md|scripts/orch/rows/quick.rows|no
+mrg-sg-fa2-forcesim|build|prompts/jobs/resolve-merge.md|scripts/orch/rows/quick.rows|no
+perf-pm-velocity|build|prompts/jobs/perf-pm-velocity.md|scripts/orch/rows/quick.rows|no
+mrg-sg-graphviz-scale-r1|build|prompts/jobs/resolve-merge.md|scripts/orch/rows/quick.rows|no
+perf-pm-collide-soa|build|prompts/jobs/perf-pm-collide-soa.md|scripts/orch/rows/quick.rows|no
+perf-p4a-extend|build|prompts/jobs/perf-p4a-extend.md|scripts/orch/rows/quick.rows|no
+perf-pm-coherent-sort|build|prompts/jobs/perf-pm-coherent-sort.md|scripts/orch/rows/quick.rows|no

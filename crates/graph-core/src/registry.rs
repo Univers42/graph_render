@@ -15,12 +15,7 @@ use crate::layout::force::{
     YifanHu,
 };
 use crate::layout::forceatlas2::{ForceAtlas2, ForceAtlas2BarnesHut};
-use crate::layout::graphviz::circo;
-use crate::layout::graphviz::fdp;
-use crate::layout::graphviz::neato;
-use crate::layout::graphviz::osage;
-use crate::layout::graphviz::patchwork;
-use crate::layout::graphviz::sfdp;
+use crate::layout::graphviz::{circo, fdp, neato, osage, patchwork, sfdp};
 use crate::layout::grid::Grid;
 use crate::layout::hierarchical_3d;
 use crate::layout::radial::twopi;
@@ -31,6 +26,7 @@ use crate::layout::{
 use crate::stage::{Stage, StageError};
 
 mod arms_3d;
+mod bench_cap;
 mod capability;
 mod closed_form;
 mod force;
@@ -48,6 +44,7 @@ mod radial;
 mod spectral;
 mod three_d;
 use arms_3d::{DRL_3D, FA2_3D, FRUCHTERMAN_REINGOLD_3D, KAMADA_KAWAI_3D, YIFAN_HU_2Z};
+pub use bench_cap::MAX_BENCH_NODES;
 pub use capability::{Capability, Metadata};
 use closed_form::{BIPARTITE, RANDOM, RING, SPIRAL};
 use force::{BARNES_HUT, FA2, PARTICLE_MESH, SPRING, YIFAN_HU};

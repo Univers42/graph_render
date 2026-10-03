@@ -57,6 +57,32 @@ ONLY_FIG6 = ["Anzelma", "Bossuet", "Champtercier", "Cosette", "Geborand", "Gerva
              "Labarre", "Marguerite", "MlleBaptistine", "Valjean"]
 
 
+def check_label_ids(ids=None, node_count=None):
+    """Refuse any label id outside ``[0, node_count)``.
+
+    The ids index ``projected.visible``, ``projected.occluded`` and ``by_id``
+    directly. A positive out-of-range id raises ``IndexError`` at the use site,
+    but a negative one is legal Python indexing and silently aliases the tail —
+    id -1 reads node 76 and the pin passes for the wrong node. The bound is
+    therefore checked where the ids are defined, which is the only place it can
+    be checked without touching the test modules that index them.
+
+    *ids* and *node_count* default to the module's own tables; they exist so
+    the check can be exercised on a value that is not the committed one.
+    """
+    values = LABEL_IDS if ids is None else ids
+    count = NODE_COUNT if node_count is None else node_count
+    bad = [index for index in values if not 0 <= index < count]
+    if bad:
+        raise ValueError(
+            "LABEL_IDS out of range [0, %d): %s"
+            % (count, ", ".join(str(index) for index in bad)))
+    return True
+
+
+check_label_ids()
+
+
 def mid_ranks(values):
     """SciGraphs' ``_average_ranks``, written again so no pin is circular."""
     order = sorted(range(len(values)), key=lambda i: values[i])

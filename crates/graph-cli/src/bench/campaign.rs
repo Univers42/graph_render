@@ -123,14 +123,18 @@ pub fn largest_fitting(samples: &[(u32, f64)], budget_ms: f64) -> Option<u32> {
         .next_back()
 }
 
-/// The layout the crossover reports when no `--layout` names one: the force layout,
-/// the only one whose headline number is a tick.
-static DEFAULT_ARM: Capability = graph_core::registry::LAYOUTS[3];
+/// The layout the crossover reports when `--layout` resolves to nothing: the force layout,
+/// the only one whose headline number is a tick. Found by id, since registry rows move
+/// (`LAYOUTS[3]` stood here and was `layout.circular.radial`).
+const DEFAULT_ARM: &str = "layout.force.barnes_hut";
 
 /// Every `(n, derived tick ms)` the native arm measured, for [`largest_fitting`].
 pub fn ladder(plan: &super::Plan) -> Vec<(u32, f64)> {
     let entries = super::resolve(&plan.layouts).unwrap_or_default();
-    let arm = entries.first().copied().unwrap_or(&DEFAULT_ARM);
+    let found = entries.first().copied();
+    let Some(arm) = found.or_else(|| graph_core::registry::find(DEFAULT_ARM)) else {
+        return Vec::new();
+    };
     plan.sizes
         .iter()
         .filter_map(|&n| measure(plan, arm, n).ok().map(|s| (n, s.tick_ms())))

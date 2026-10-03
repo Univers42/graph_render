@@ -36,6 +36,11 @@
 # notice; that is what the recorded library versions in `ref/<NAME>.json` are for.
 
 set -euo pipefail
+# WHY steps 1-5 exit 2 on failure: under `set -e` the script would exit with the failing
+# step's own code, and a step that exits 1 would satisfy the `--break` row's `test $? -eq 1`
+# without the judge ever running. Measured 2026-10-03: the gm-chromium render died silently
+# under a loaded host and turned the negative control red with no message.
+trap 'rc=$?; printf "scigraphs-conformance: could not run: line %s exited %s\n" "$LINENO" "$rc" >&2; exit 2' ERR
 
 root=$(git rev-parse --show-toplevel)
 cd "$root"

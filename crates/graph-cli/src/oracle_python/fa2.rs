@@ -60,6 +60,15 @@ pub(crate) const CEILING_3D: f64 = 1e-7;
 /// networkx's own one-ulp self-divergence stays under 1e-6 over every gate model
 /// (`harness/fa2-chaos.py`; seeds 0..599 are the whole model set, since
 /// `gate_node_count(seed) = 2 + seed % 600`). Budget 3 already measures 1.5e-6.
+/// **Invariant, in both directions.** The chaos sweep's budget list must contain
+/// [`GATED_MAX_ITER`]: the fixtures carry the port's coordinates only at the budget the
+/// emit ran, so a list without this budget measures networkx's self-divergence and nothing
+/// else, and every row's `ours_vs_nx` comes back unmeasured. `harness/fa2-chaos.py` builds
+/// its default budget list from the fixtures' own `params.max_iter` (written from this
+/// constant) and **refuses** a requested list that omits it, naming the refusal:
+/// `no requested budget equals the gated max_iter=N (the budget graph-cli gates); add it`.
+/// Moving this constant re-measures the ceiling, and the sweep follows it instead of
+/// reporting an empty comparison as a result.
 pub const GATED_MAX_ITER: u32 = 2;
 
 /// The worst `max |ours - theirs| / extent(theirs)` at [`GATED_MAX_ITER`] over all 600
