@@ -18,7 +18,7 @@ import { ColumnViews } from "./views.ts";
 import { ForceSession } from "./force.ts";
 import { AnalysisRefusedError, BuildRefusedError, ContractRefusedError, InvalidHandleError } from "./errors.ts";
 import { PostRefusedError, RunRefusedError, WasmUnavailableError, codeName } from "./errors.ts";
-import { ColumnId, type AnalysisResult, type Column, type ForceEngine, type ForceParams, type Handle } from "./types.ts";
+import { ColumnId, type AnalysisResult, type Column, type ForceEngine, type ForceParams, type ForceSeed, type Handle } from "./types.ts";
 import type { MotorOptions, PostResult, RunResult } from "./types.ts";
 import { parseAnalysisFace } from "./analysis-face.ts";
 import { INVALID_HANDLE_CODE, NO_GEOMETRY_CODE, decoder, frame, invoke, lastError } from "./calls.ts";
@@ -34,7 +34,7 @@ export { resetForTests } from "./wasm.ts";
 export { serveHelper, type HelperStart, type MotorThreads } from "./threads.ts";
 export * from "./errors.ts";
 export * from "./types.ts";
-export { ForceSession, PARAMS_BYTES, encodeParams, decodeParams } from "./force.ts";
+export { ForceSession, type ForceStart, PARAMS_BYTES, encodeParams, decodeParams } from "./force.ts";
 
 export { parseAnalysisFace } from "./analysis-face.ts";
 export * from "./adapters.ts";
@@ -323,18 +323,19 @@ export class Motor {
    *  **never clamped**, so an out-of-range value is a {@link ForceSessionRefusedError} with the
    *  session left exactly as it was — and a refused creation leaves no session behind.
    *
-   *  **No layout run is required**, exactly as for {@link Motor.analysis}: the session is built
-   *  from the topology and seeded on the engine's own spiral, so this works straight after
-   *  {@link Motor.build}. The session does not read the graph handle's snapshot, does not
-   *  replace it, and **outlives it** — {@link Motor.release} on `handle` leaves the session
+   *  **No layout run is required** at the default `seed` (`"spiral"`), as for
+   *  {@link Motor.analysis}: the session starts on the engine's own spiral, straight after
+   *  {@link Motor.build}. `seed` `"layout"` ({@link ForceSeed}) starts it on the centres of
+   *  `handle`'s last run instead, refused with `NoGeometryYet` before one. Either way the
+   *  session never replaces the handle's snapshot, and **outlives it** — {@link Motor.release} on `handle` leaves the session
    *  running, and the session is released with its own {@link ForceSession.release}.
    *
    *  The two have separate id spaces and separate error codes (`InvalidHandle` against
    *  `InvalidSession`), so a caller debugging a dead one is never sent looking at the other.
    *
    *  `engine` picks the tick ({@link ForceEngine}); every other method is the same for both. */
-  forceSession(handle: Handle, params?: Partial<ForceParams>, engine?: ForceEngine): ForceSession {
-    return new ForceSession(this.#requireLoaded(), handle, params, engine);
+  forceSession(handle: Handle, params?: Partial<ForceParams>, engine?: ForceEngine, seed?: ForceSeed): ForceSession {
+    return new ForceSession(this.#requireLoaded(), handle, params, { engine, seed });
   }
 }
 

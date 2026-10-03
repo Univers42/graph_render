@@ -119,7 +119,7 @@ test("start shows the strip before the first frame, and destroy takes everything
   const { bridge, sent } = rig();
   bridge.start();
   assert.equal(bridge.bar().visible, true);
-  assert.equal(sent.at(-1)?.type, "force.start");
+  assert.equal(sent.at(-1)?.type, "force.settle", "a run is settled from where it is, not shuffled");
   bridge.destroy();
   assert.deepEqual(bridge.bar(), HIDDEN);
   assert.equal(sent.at(-1)?.type, "force.stop");
@@ -146,7 +146,7 @@ test("every force run starts the loop, even one that reports the same layout as 
   const { bridge, sent } = rig();
   const store = createStore<RunState>({ busy: [], run: null });
   const unwatch = watchRuns(store, bridge);
-  const starts = (): number => sent.filter((request) => request.type === "force.start").length;
+  const starts = (): number => sent.filter((request) => request.type === "force.settle").length;
   const ran = (layoutId: string): void => store.update((state) => ({ ...state, run: { layoutId } }));
   // A large graph reports `particle_mesh` whichever force layout ran (settle.ts).
   ran("layout.force.particle_mesh");

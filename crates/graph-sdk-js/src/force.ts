@@ -25,7 +25,7 @@ import {
   lastError,
   type Loaded,
 } from "./calls.ts";
-import type { ForceEngine, ForceParams, ForceSessionId, ForceTick, Handle } from "./types.ts";
+import type { ForceEngine, ForceParams, ForceSeed, ForceSessionId, ForceTick, Handle } from "./types.ts";
 
 /** The wire's thirteen parameter fields, in `LiveParams`' declaration order — the order
  *  `crates/graph-wasm/src/session/params.rs` encodes and decodes. One list, read in both
@@ -55,6 +55,12 @@ const X_AXIS = 0;
 /** …and the one that names `y`. */
 const Y_AXIS = 1;
 
+/** How {@link Motor.forceSession} starts a session: its tick and where its nodes start. */
+export interface ForceStart {
+  readonly engine?: ForceEngine;
+  readonly seed?: ForceSeed;
+}
+
 /** A live force simulation over one graph, driven by the caller
  *  (`docs/decisions/force-wasm-abi.md`). {@link Motor.forceSession} is the only way to get one.
  *
@@ -73,10 +79,10 @@ export class ForceSession {
   /** @internal — use {@link Motor.forceSession}. Never throws for a load failure (the motor
    *  has already been asked, and this only reaches the ABI once it has answered): every refusal
    *  below is a typed {@link GraphMotorError}, and a refused creation leaves no session behind. */
-  constructor(loaded: Loaded, graph: Handle, params?: Partial<ForceParams>, engine: ForceEngine = "barnes_hut") {
+  constructor(loaded: Loaded, graph: Handle, params?: Partial<ForceParams>, start: ForceStart = {}) {
     this.#loaded = loaded;
     this.#graph = graph;
-    this.#id = this.#create(graph, engine);
+    this.#id = this.#create(graph, start.engine ?? "barnes_hut", start.seed ?? "spiral");
     if (params === undefined) return;
     try {
       this.setParams(params);
@@ -257,10 +263,12 @@ export class ForceSession {
     this.#live = false;
   }
 
-  #create(graph: Handle, engine: ForceEngine): ForceSessionId {
+  #create(graph: Handle, engine: ForceEngine, seed: ForceSeed): ForceSessionId {
     const { exports } = this.#loaded;
-    const name = engine === "particle_mesh" ? "gm_force_session_create_mesh" : "gm_force_session_create";
-    const word = invoke(name, () => exports[name](toU32(graph), 0, 0));
+    const mesh = engine === "particle_mesh";
+    const name = seed === "layout" ? "gm_force_session_create_warm" : mesh ? "gm_force_session_create_mesh" : "gm_force_session_create";
+    const word = invoke(name, () =>
+      name === "gm_force_session_create_warm" ? exports[name](toU32(graph), 0, 0, mesh ? 1 : 0) : exports[name](toU32(graph), 0, 0));
     if (word !== 0) return word as ForceSessionId;
     const code = lastError(exports);
     throw new ForceSessionRefusedError(`${name} refused (${codeName(code)})`, code);

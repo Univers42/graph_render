@@ -14,6 +14,7 @@ const FORCE = "layout.forceatlas2.barnes_hut";
 interface Seen {
   readonly layouts: string[];
   readonly engines: (string | undefined)[];
+  readonly seeds: (string | undefined)[];
 }
 
 /** The real session over the real motor, recording what it runs and how each session ticks. */
@@ -24,7 +25,11 @@ function spiedSession(seen: Seen): Session {
       const layout = motor.layout.bind(motor);
       const forceSession = motor.forceSession.bind(motor);
       motor.layout = (handle: Handle, id: string) => (seen.layouts.push(id), layout(handle, id));
-      motor.forceSession = (handle, params, engine) => (seen.engines.push(engine), forceSession(handle, params, engine));
+      motor.forceSession = (handle, params, engine, seed) => {
+        seen.engines.push(engine);
+        seen.seeds.push(seed);
+        return forceSession(handle, params, engine, seed);
+      };
       return motor;
     },
     fetchText: () => Promise.reject(new Error("this test fetches nothing")),
@@ -34,7 +39,7 @@ function spiedSession(seen: Seen): Session {
 }
 
 async function forceRun(nodes: number): Promise<{ readonly session: Session; readonly seen: Seen; readonly layoutId: string }> {
-  const seen: Seen = { layouts: [], engines: [] };
+  const seen: Seen = { layouts: [], engines: [], seeds: [] };
   const session = spiedSession(seen);
   await session.open("unused");
   await session.load({ kind: "synthetic", seed: 1, nodes, degree: 2, shape: "vault" }, FIXTURES_URL);
@@ -48,6 +53,7 @@ test("a force run past LIVE_NODES scatters, reports the mesh, and settles on it"
   const port = session.forces();
   assert.ok(port !== null);
   assert.deepEqual(seen.engines, ["particle_mesh"]);
+  assert.deepEqual(seen.seeds, [undefined], "the scatter is not a picture: the session starts on its spiral");
   port.step(1);
   const { xs, ys } = port.positions();
   assert.equal(xs.length, LIVE_NODES);
@@ -59,4 +65,5 @@ test("the same run under LIVE_NODES is the frozen layout, settled on Barnes-Hut"
   assert.deepEqual([layoutId, seen.layouts], [FORCE, [FORCE]]);
   assert.ok(session.forces() !== null);
   assert.deepEqual(seen.engines, ["barnes_hut"]);
+  assert.deepEqual(seen.seeds, ["layout"], "and its session starts on the picture the layout drew");
 });

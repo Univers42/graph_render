@@ -6,16 +6,17 @@
  * page with the worker switched off, and under node with the real module.
  */
 import { decodeSnapshot, idAt } from "../../../graph-render/src/snapshot/decode.ts";
-import { FIXTURES } from "../source/fixtures.ts";
-import { type IngestNode, IngestRefusal, normaliseIngest } from "../source/ingest.ts";
+import { type Document, documentFor } from "../source/document.ts";
+import type { IngestNode } from "../source/ingest.ts";
 import { type GraphMeta, metaOf } from "../source/meta.ts";
-import { syntheticRecords } from "../source/synthetic.ts";
 import { type ShownError, describeError } from "../state/errors.ts";
 import type { Source } from "../state/settings.ts";
-import type { ForceEngine, ForceParams, ForcePort, LiveForce } from "./live.ts";
+import {
+  DEFAULT_KNOBS, type ForceEngine, type ForceKnobs, type ForceParams, type ForcePort, type ForceSeed, type LiveForce,
+} from "./live.ts";
 import { createLiveForce } from "./liveSession.ts";
 import type { AnalysisReport, Catalog, GraphSummary, RunReport } from "./protocol.ts";
-import { planRun } from "./settle.ts";
+import { type RunPlan, planRun } from "./settle.ts";
 
 export interface AnalysisFace {
   readonly id: string;
@@ -37,7 +38,7 @@ export interface MotorLike<Handle> {
   toBytes(handle: Handle): Uint8Array;
   release(handle: Handle): void;
   /** The live session over a graph's topology, or null on a motor without one. */
-  forceSession?(handle: Handle, params?: Partial<ForceParams>, engine?: ForceEngine): ForcePort | null;
+  forceSession?(handle: Handle, params?: Partial<ForceParams>, engine?: ForceEngine, seed?: ForceSeed): ForcePort | null;
 }
 
 export interface SessionDeps<Handle> {
@@ -50,6 +51,12 @@ export interface SessionDeps<Handle> {
    * called to ask whether there is a session: that would make one as a side effect.
    */
   readonly onForget?: () => void;
+  /**
+   * Told when a re-layout releases the force session: the loop stops as for `onForget`, but
+   * forces stay available, since the next request seeds a session at the new picture. Left
+   * out, a re-layout tells `onForget`.
+   */
+  readonly onRenew?: () => void;
 }
 
 export interface Session {
@@ -65,14 +72,6 @@ export interface Session {
   forces(): LiveForce | null;
 }
 
-interface Document {
-  readonly name: string;
-  readonly json: string;
-  readonly nodes: readonly IngestNode[];
-  readonly edgeCount: number;
-  readonly notes: readonly string[];
-}
-
 interface Built<Handle> {
   readonly handle: Handle;
   readonly nodes: readonly IngestNode[];
@@ -84,8 +83,12 @@ interface Built<Handle> {
   port: LiveForce | null;
   /** Node ids in the force session's dense row order; `null` until a layout has run. */
   order: readonly string[] | null;
-  /** The tick the live session is made with; a change releases the one made before. */
+  /** The tick the live session is made with, set by each run. */
   engine: ForceEngine;
+  /** True when the last run drew a picture the session starts from, false after a scatter. */
+  warm: boolean;
+  /** The knobs the last session ran with, so a re-layout keeps what the user tuned. */
+  knobs: ForceKnobs;
 }
 
 /** Nothing can run in the state the session is in. */
@@ -102,30 +105,6 @@ export async function sha256Hex(bytes: Uint8Array): Promise<string | null> {
   if (typeof crypto === "undefined" || !("subtle" in crypto)) return null;
   const digest = await crypto.subtle.digest("SHA-256", bytes.slice());
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-function generated(source: Extract<Source, { kind: "synthetic" }>): Document {
-  const { nodes, edges } = syntheticRecords({
-    seed: source.seed, nodeCount: source.nodes, degree: source.degree, shape: source.shape,
-  });
-  return {
-    name: `${source.shape} seed ${source.seed}`,
-    json: JSON.stringify({ version: 1, nodes, edges }),
-    nodes, edgeCount: edges.length, notes: [],
-  };
-}
-
-function normalised(text: string, name: string): Document {
-  const { json, doc, notes } = normaliseIngest(text, name);
-  return { name, json, nodes: doc.nodes, edgeCount: doc.edges.length, notes };
-}
-
-async function documentFor(source: Source, fixturesUrl: string, fetchText: (url: string) => Promise<string>): Promise<Document> {
-  if (source.kind === "synthetic") return generated(source);
-  if (source.kind === "document") return normalised(source.text, source.name);
-  // The path comes from settings, and settings come from recipes: only the listed files.
-  if (!FIXTURES.includes(source.path)) throw new IngestRefusal(source.path, "not a bundled fixture");
-  return normalised(await fetchText(`${fixturesUrl}${source.path}`), source.path);
 }
 
 function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
@@ -191,7 +170,7 @@ function summaryOf(document: Document, buildMs: number): GraphSummary {
 function forcesOf<Handle>(motor: MotorLike<Handle> | null, built: Built<Handle> | null): LiveForce | null {
   if (motor === null || built === null || built.order === null) return null;
   if (motor.forceSession === undefined) return null;
-  built.forced ??= motor.forceSession(built.handle, undefined, built.engine);
+  built.forced ??= startSession(motor, built);
   if (built.forced === null) return null;
   // The port is cached, not rebuilt: the loop compares ports by identity and replaces itself
   // when one changes, so a fresh object per request would stop the loop on every message. So
@@ -199,6 +178,8 @@ function forcesOf<Handle>(motor: MotorLike<Handle> | null, built: Built<Handle> 
   built.port ??= createLiveForce({
     session: built.forced,
     ids: () => built.order,
+    knobs: built.knobs,
+    // "Animate" settles from the motor's own spiral, hot, whatever the last run drew.
     restart: () => {
       built.forced?.release();
       built.forced = motor.forceSession?.(built.handle, undefined, built.engine) ?? null;
@@ -207,6 +188,30 @@ function forcesOf<Handle>(motor: MotorLike<Handle> | null, built: Built<Handle> 
     },
   });
   return built.port;
+}
+
+/**
+ * The session a force request finds: seeded at the picture the last run drew and born cold,
+ * so its first frame repaints that picture instead of replacing it, and a drag or a knob wakes
+ * it from there. A scatter (`settle.ts`) is no picture to keep: that session starts hot from
+ * the motor's spiral and settles on screen.
+ *
+ * Measured before this (2026-10-03): every force layout was replaced on the first frame by one
+ * settle from the spiral, so ForceAtlas2 and DrL drew identical bounds.
+ */
+function startSession<Handle>(motor: MotorLike<Handle>, built: Built<Handle>): ForcePort | null {
+  if (!built.warm) return motor.forceSession?.(built.handle, undefined, built.engine) ?? null;
+  const session = motor.forceSession?.(built.handle, undefined, built.engine, "layout") ?? null;
+  session?.reheat(0);
+  return session;
+}
+
+/** A run is a new picture, so the session over the last one goes. The knobs stay, the pins go. */
+function renew<Handle>(built: Built<Handle>, plan: RunPlan, deps: SessionDeps<Handle>): void {
+  built.knobs = built.port?.knobs?.() ?? built.knobs;
+  forget(built, deps.onRenew ?? deps.onForget);
+  built.engine = plan.engine;
+  built.warm = plan.run === plan.report;
 }
 
 /**
@@ -221,10 +226,7 @@ async function runLayout<Handle>(
 ): Promise<RunReport> {
   const { motor, built } = live;
   const plan = planRun(layoutId, built.nodes.length, motor.forceSession !== undefined);
-  if (plan.engine !== built.engine) {
-    forget(built, deps.onForget);
-    built.engine = plan.engine;
-  }
+  renew(built, plan, deps);
   const started = deps.now();
   motor.layout(built.handle, plan.run);
   const layoutMs = deps.now() - started;
@@ -279,7 +281,7 @@ export function createSession<Handle>(deps: SessionDeps<Handle>): Session {
     if (built !== null) open.release(built.handle);
     forget(built, deps.onForget);
     built = { handle, nodes: document.nodes, described: null, forced: null, port: null, order: null,
-      engine: "barnes_hut" };
+      engine: "barnes_hut", warm: false, knobs: DEFAULT_KNOBS };
     return summaryOf(document, deps.now() - started);
   };
   return {
