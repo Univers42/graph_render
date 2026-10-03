@@ -271,5 +271,17 @@ mod tests {
         assert_eq!(hash(b""), 0xCBF2_9CE4_8422_2325);
         assert_eq!(hash(b"a"), 0xAF63_DC4C_8601_EC8C);
         assert_eq!(hash(b"foobar"), 0x8594_4171_F739_67E8);
+        let mut int = Fnv1a::default();
+        int.write_u32(0x0102_0304);
+        assert_eq!(int.finish(), hash(&[4, 3, 2, 1]), "an integer hashes little-endian");
+    }
+
+    #[test]
+    fn the_handle_past_usize_max_is_the_capacity_error() {
+        let refused = Err(CapacityError {
+            what: "string arena",
+        });
+        assert_eq!(handle_at(usize::MAX), refused);
+        assert_eq!(handle_at(u32::MAX as usize), refused);
     }
 }

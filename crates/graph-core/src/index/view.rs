@@ -171,3 +171,6 @@ impl Topology {
         &self.hierarchy
     }
 }
+
+#[cfg(test)]
+mod tests;

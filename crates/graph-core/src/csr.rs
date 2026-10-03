@@ -169,4 +169,36 @@ mod tests {
     fn a_row_out_of_range_panics() {
         build(2, &[(2, 0)]);
     }
+
+    #[test]
+    fn a_row_count_past_the_u32_index_space_is_the_capacity_error() {
+        let refused = Csr::from_pairs(u32::MAX, std::iter::empty());
+        assert_eq!(refused, Err(CapacityError { what: "adjacency" }));
+    }
+
+    /// Yields `(0, 7)` once across all its clones: the counting walk sees one pair, the
+    /// placing walk none.
+    #[derive(Clone)]
+    struct Once(std::rc::Rc<std::cell::Cell<bool>>);
+
+    impl Iterator for Once {
+        type Item = (u32, u32);
+
+        fn next(&mut self) -> Option<(u32, u32)> {
+            (!self.0.replace(true)).then_some((0, 7))
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "different sequence on the second pass")]
+    fn a_second_pass_shorter_than_the_first_panics() {
+        let _ = Csr::from_pairs(1, Once(std::rc::Rc::default()));
+    }
+
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "Incident::merge needs ascending rows")]
+    fn merging_an_unsorted_row_panics_in_a_debug_build() {
+        let _ = Incident::merge(&[3, 1], &[2]);
+    }
 }
