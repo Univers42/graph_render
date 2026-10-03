@@ -228,9 +228,8 @@ pub static LAYOUTS: [Capability; 39] = [
     // inserted: `graph-wasm/src/exports/build.rs:23,32,143` maps layouts by INDEX, and
     // `bench/campaign.rs:128`'s `DEFAULT_ARM` is `LAYOUTS[3]`, so inserting before index 3
     // would repoint the default crossover arm with no compile error. Nothing above this
-    // line moved, and
-    // `registry::tests::the_index_keyed_front_of_layouts_stays_where_they_are` fails if it
-    // ever does.
+    // line moved, and `registry::tests::the_index_keyed_front_of_layouts_stays_where_they_are`
+    // fails if it ever does.
     Capability {
         id: basic_3d::sphere::ID,
         run: basic_3d::sphere,

@@ -33,7 +33,7 @@ use graph_contract::geometry::{EdgeGeometryKind, NodeGeometryKind};
 /// Ponytail (scale_ceiling): what it gets wrong — the fourth row's per-node cost is assumed
 /// equal to its siblings' rather than measured, so if it ever grew a per-node scratch the
 /// 933 B would be stale and the ceiling optimistic. Direction: too low, never too high, and
-/// the two rows that were measured differ by 1.2% across 100 000 nodes, so the shared
+/// the three measured rows span 922-933 B — 1.2% end to end at 100 000 nodes — so the shared
 /// figure has little room to be wrong. Escape hatch: add the row to that one test and
 /// re-derive the division.
 pub const HIERARCHY_LAYOUT_CEILING: u64 = 4_600_000;

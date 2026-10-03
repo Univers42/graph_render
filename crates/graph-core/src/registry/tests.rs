@@ -74,9 +74,10 @@ fn the_index_keyed_front_of_layouts_still_holds_the_ids_their_callers_name() {
     );
 }
 
-/// L-27: the two ceilings that answer "the largest size `bench` accepts" read one
-/// constant, so a drift in the cap is a compile error in the registry rather than a
-/// number copied twice that happens to agree.
+/// L-27: the two ceilings that answer "the largest size `bench` accepts" read the one
+/// constant the motor owns, so `bench/scale.rs` and both ceilings move together and a
+/// drift between them is this test failing rather than a number copied twice that happens
+/// to agree.
 #[test]
 fn the_radial_and_basic_3d_ceilings_are_the_one_bench_node_cap() {
     assert_eq!(RADIAL_CEILING, u64::from(MAX_BENCH_NODES));

@@ -32,7 +32,8 @@ use super::bench_cap::MAX_BENCH_NODES;
 
 pub(super) use bipartite_3d::BIPARTITE_3D;
 
-/// The node count the six rows under this constant were run at, and why it is this one.
+/// The node count four of the six rows under this constant were run at, and what the
+/// other two inherited.
 ///
 /// **Where the figure comes from.** [`MAX_BENCH_NODES`] read rather than written out, so
 /// this ceiling and the radial one are the same number by construction instead of two
@@ -46,11 +47,11 @@ pub(super) use bipartite_3d::BIPARTITE_3D;
 ///
 /// **What was not measured — the honest limit of this constant.** No 3D row has a
 /// bytes-per-node figure. `crates/graph-core/tests/memory.rs` has no 3D arm: it sweeps the
-/// grid, the three hierarchy layouts and circle packing, so the 919 / 933 B per node that
-/// `GRID_CEILING` and `HIERARCHY_LAYOUT_CEILING` derive 4 GiB from were taken on 2D rows
-/// and are applied here as an argument, not as a result. The two rows here with no timing
-/// of their own — `SPIRAL_3D` and `BIPARTITE_3D` — each say so in its own `ponytail`
-/// (`three_d/spiral3d.rs`, `three_d/bipartite_3d.rs`).
+/// topology, the grid, the three hierarchy layouts and circle packing, so the 919 / 933 B
+/// per node that `GRID_CEILING` and `HIERARCHY_LAYOUT_CEILING` derive 4 GiB from were
+/// taken on 2D rows and are applied here as an argument, not as a result. The two rows
+/// here with no timing of their own — `SPIRAL_3D` and `BIPARTITE_3D` — each say so in its
+/// own `ponytail` (`three_d/spiral3d.rs`, `three_d/bipartite_3d.rs`).
 ///
 /// **Why one number can still stand for six rows.** The four graph-free closed forms are
 /// `O(n)` in three `f64` columns with no graph and no iteration; the two graph-reading ones
