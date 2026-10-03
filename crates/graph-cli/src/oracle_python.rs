@@ -27,9 +27,11 @@ mod fdp;
 mod graphviz;
 mod hierarchical_3d;
 mod igraph;
+mod judge;
 mod neato;
 mod osage;
 mod patchwork;
+mod scale;
 mod sfdp;
 mod spectral;
 pub mod spring;
@@ -43,6 +45,7 @@ pub use closed_form::CLOSED_FORM;
 pub use fa2::FA2;
 pub use hierarchical_3d::HIERARCHICAL_3D;
 pub use igraph::IGRAPH;
+pub use scale::SCALE;
 pub use spectral::SPECTRAL;
 pub use spring::SPRING;
 
@@ -50,6 +53,7 @@ use crate::evidence::{FINGERPRINTED, Stamp};
 use crate::runner::file_sha256;
 use graph_contract::geometry::NodeGeometry;
 use graph_core::{EdgeRecord, NodeRecord, registry, run_with};
+use judge::{closed_cases, judge, unbroken};
 use serde_json::{Value, json};
 use std::io::Write;
 use std::path::Path;
@@ -196,63 +200,19 @@ fn verdict(differential: &Differential, dir: &Path) -> Result<bool, String> {
     }
     let (mut pass, functions) = judge(differential.ceilings, &result)?;
     pass &= closed_cases(&result);
+    pass &= unbroken(&result);
     let body = json!({
         "seeds": manifest["seeds"], "pass": pass, "functions": functions,
-        "oracle": result["oracle"], "tolerance": true,
+        "oracle": result["oracle"],
+        // A differential whose arms return the same bytes rather than agreeing within a
+        // measured ceiling says so in its own result; one that says nothing keeps the
+        // reading every record before it was written with.
+        "tolerance": result.get("tolerance").and_then(Value::as_bool).unwrap_or(true),
     });
     stamp.still_current()?;
     crate::evidence::record(&stamp, &format!("oracle-{name}"), body)?;
     println!("{}", if pass { "PASS" } else { "FAIL" });
     Ok(pass)
-}
-
-/// Whether a differential with analytically determined cases agrees with them **byte for
-/// byte**, when its harness reports that section.
-///
-/// A tolerance over the small cases is weaker than the truth they carry, so the harness
-/// renders both arms at the oracle's own printed precision and compares the strings; a
-/// result with a `closed` section and `closed_exact` false is a failure, not a note. The
-/// differentials with no closed cases say nothing about it and this returns true.
-fn closed_cases(result: &Value) -> bool {
-    if !result.get("closed_exact").is_some_and(Value::is_boolean) {
-        return true;
-    }
-    let exact = result["closed_exact"].as_bool().unwrap_or(false);
-    let cases = result["closed"].as_object().map_or(0, serde_json::Map::len);
-    println!(
-        "  closed cases: {cases} compared byte for byte: {}",
-        if exact { "ok" } else { "FAIL" }
-    );
-    exact && cases > 0
-}
-
-/// Each layout's verdict against its ceiling: `(all pass, ledger function entries)`. A
-/// layout with no compared case fails: a differential over nothing proves nothing.
-fn judge(
-    ceilings: &[(&str, &str, f64)],
-    result: &Value,
-) -> Result<(bool, serde_json::Map<String, Value>), String> {
-    let mut pass = true;
-    let mut functions = serde_json::Map::new();
-    for &(id, key, allowed) in ceilings {
-        let row = &result["layouts"][key];
-        let cases = row["cases"].as_u64().unwrap_or(0);
-        let worst = row["worst"]
-            .as_f64()
-            .ok_or(format!("{key}: no measured worst"))?;
-        let within = cases > 0 && worst <= allowed;
-        let verdict = if within { "ok" } else { "FAIL" };
-        println!("  {id}: {cases} cases, worst {worst:.3e}, ceiling {allowed:.0e}: {verdict}");
-        pass &= within;
-        functions.insert(
-            id.into(),
-            json!({
-                "cases": cases, "declared": 0, "unexplained": u64::from(!within),
-                "worst": worst, "ceiling": allowed,
-            }),
-        );
-    }
-    Ok((pass, functions))
 }
 
 #[cfg(test)]

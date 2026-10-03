@@ -21,5 +21,5 @@
 mod partition;
 mod select;
 
-pub use partition::{Runner, Serial, StepRange, partition};
+pub use partition::{Runner, Serial, StepRange, partition, range_at};
 pub use select::{Caps, Exec, SelectError, Thresholds, Tier, resolve, select};

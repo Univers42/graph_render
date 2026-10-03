@@ -117,16 +117,43 @@ export const FAST_MS = 12;
 export const MOVING_FLOOR = 2048;
 
 /**
+ * How many frames a settled picture's fill takes, whatever the graph's size: the fill adds a
+ * `stillFloor` share of the edge pairs a frame, so at 1M nodes it reads about 512 frames where the
+ * moving floor gave 977. Every frame pays the whole-canvas readback and the two composites that
+ * show the picture, about 10 ms of it at 1920x1080 on software raster, so the frame count is what
+ * the fill pays on top of drawing the edges.
+ *
+ * Caveat: 512 is the smallest share that took more than 3% off the 1M fill (15%, against 26% at
+ * 128) and it is a number of frames and not a number of milliseconds, so what it buys is a shorter
+ * fill and what it costs is longer settled frames: 33 ms at the moving floor against about 56 ms
+ * here, measured on the same host (docs/measurements/perf-p5b.md). A pan asked for in the middle of
+ * a settled frame waits for what is left of it; the frames a drag paints are moving frames and do
+ * not touch this (deploy/perf/settle-pan.py). It is a share of the edge count and not of the
+ * milliseconds, so a graph with few edges and expensive ones (all of them on screen, zoomed in)
+ * gets the same frame count and a longer frame.
+ */
+export const STILL_FRAMES = 512;
+
+/**
+ * The fewest edge pairs a settled frame adds to the kept picture, for `total` pairs: a STILL_FRAMES
+ * share of them, and never below MOVING_FLOOR, so a graph small enough for the moving floor to reach
+ * fills the way it always did.
+ */
+export function stillFloor(total: number): number {
+  return Math.max(MOVING_FLOOR, Math.ceil(total / STILL_FRAMES));
+}
+
+/**
  * The edges, and the nodes, the next moving frame draws, from what the last one cost: halved
- * above SLOW_MS, doubled below FAST_MS, kept between, never below MOVING_FLOOR nor above the
- * whole set.
+ * above SLOW_MS, doubled below FAST_MS, kept between, never below `floor` (MOVING_FLOOR for a
+ * moving frame, `stillFloor` for a settled one) nor above the whole set.
  * Caveat: `ms` is the time the CPU waited on the layer. A driver that returns before the GPU
  * is done (most hardware GPUs) reports less than the frame costs, so the budget climbs to the
  * whole set and a GPU-bound frame is not paced; software raster waits, and is.
  */
-export function nextBudget(budget: number, ms: number, total: number): number {
+export function nextBudget(budget: number, ms: number, total: number, floor = MOVING_FLOOR): number {
   const next = ms > SLOW_MS ? budget / 2 : ms < FAST_MS ? budget * 2 : budget;
-  return Math.max(Math.min(MOVING_FLOOR, total), Math.min(total, Math.floor(next)));
+  return Math.max(Math.min(floor, total), Math.min(total, Math.floor(next)));
 }
 
 /** What `onScreen` culls against: the 2D view's camera, in CSS pixels. */

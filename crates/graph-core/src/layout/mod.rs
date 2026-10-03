@@ -1,11 +1,13 @@
 //! LAYOUT (`prompt.md` §3): the pluggable seam, topology in, geometry out. The seam's own
 //! types, the [`snapshot`] call every layout goes through, and [`Geometry`]'s constructors
-//! live here; [`tests`] holds the seam's tests.
+//! live here; the `tests` module holds the seam's tests.
 //!
-//! Every layout is a [`crate::stage::Stage`] and is listed in [`crate::registry`]. Phase 2 has one,
-//! the grid; its job is to prove the pipeline, not to be interesting. Phase 3 adds the
-//! tidy tree, treemap, circular and circle-packing layouts; [`hierarchy`] is the one
-//! repaired tree the tree layouts share.
+//! Every layout is a [`crate::stage::Stage`] and is listed in [`crate::registry`]. They are
+//! `basic_3d`, `bipartite`, `circle_packing`, `circular`, `force`, `forceatlas2`,
+//! `graphviz`, `grid`, `hierarchical_3d`, `hierarchy`, `pivot_mds`, `planarity`, `radial`,
+//! `random`, `spectral`, `spectral_stage`, `spiral`, `sugiyama`, `tidy_tree` and `treemap`;
+//! `hierarchy` is the one repaired tree the tree layouts share. `adjacency` and `coords` are
+//! private, and `tests` is `#[cfg(test)]`.
 
 mod adjacency;
 pub mod basic_3d;

@@ -26,7 +26,7 @@ fn gauss_seidel_step(field: &FrField<'_>, pos: &mut [(f64, f64)], t: f64) -> f64
         pos[i].1 += dy;
         moved_sq += dx * dx + dy * dy;
     }
-    libm::sqrt(moved_sq)
+    f64::sqrt(moved_sq)
 }
 
 /// The whole seeded walk, in the Gauss–Seidel scheme, so a test can hold the port's own
@@ -36,7 +36,7 @@ fn gauss_seidel(n: u32, edges: &[(u32, u32)], iterations: u32) -> Vec<(f64, f64)
     let field = FrField {
         adjacency: &adjacency,
         n,
-        k: libm::sqrt(1.0 / f64::from(n.max(1))),
+        k: f64::sqrt(1.0 / f64::from(n.max(1))),
     };
     let mut pos = seed_positions(n);
     let mut t = initial_temperature(&pos);
@@ -79,7 +79,7 @@ fn a_displacement_is_repulsion_from_everyone_less_attraction_along_the_edges() {
     // ascending `j` (D3). With `A[i][j] = 1` the two terms cancel at `k^2 / d^2 = d / k`,
     // i.e. at `d = k` — the fixed point the layout relaxes toward.
     let n = 2;
-    let k: f64 = libm::sqrt(0.5); // k = sqrt(1 / n)
+    let k: f64 = f64::sqrt(0.5); // k = sqrt(1 / n)
     let adjacency = adjacency_matrix(n, &[(0, 1)]);
     let field = FrField {
         adjacency: &adjacency,
@@ -118,7 +118,7 @@ fn a_displacement_ignores_the_nodes_own_slot() {
     let field = FrField {
         adjacency: &adjacency,
         n,
-        k: libm::sqrt(1.0 / 3.0),
+        k: f64::sqrt(1.0 / 3.0),
     };
     let pos = [(0.5, -0.25), (1.5, 0.75), (-1.0, 2.0)];
     let want = field.displacement(&pos, 1);
@@ -152,7 +152,7 @@ fn a_nearly_coincident_pair_is_measured_against_the_references_own_floor() {
     // where the floor is the whole answer: 0.005 is floored to 0.01, so the repulsive term
     // is `k^2 / 1e-4` and not `k^2 / 2.5e-5`.
     let n = 2u32;
-    let k: f64 = libm::sqrt(0.5);
+    let k: f64 = f64::sqrt(0.5);
     let adjacency = adjacency_matrix(n, &[]);
     let field = FrField {
         adjacency: &adjacency,
@@ -206,7 +206,7 @@ fn the_seed_is_a_golden_spiral_filling_the_unit_disk() {
     assert!(radii[n as usize - 1] <= 1.0, "inside the unit disk");
     // Node `i`'s radius is exactly `sqrt((i + 1) / n)`, and its angle `i * GOLDEN_ANGLE`.
     for (i, &(x, y)) in pos.iter().enumerate() {
-        let r = libm::sqrt(f64::from(i as u32 + 1) / f64::from(n));
+        let r = f64::sqrt(f64::from(i as u32 + 1) / f64::from(n));
         let a = f64::from(i as u32) * GOLDEN_ANGLE;
         assert_eq!(x.to_bits(), (r * libm::cos(a)).to_bits(), "node {i} x");
         assert_eq!(y.to_bits(), (r * libm::sin(a)).to_bits(), "node {i} y");
@@ -248,13 +248,13 @@ fn the_optimal_distance_is_the_reference_sqrt_one_over_n() {
         let field = FrField {
             adjacency: &adjacency,
             n,
-            k: libm::sqrt(1.0 / f64::from(n)),
+            k: f64::sqrt(1.0 / f64::from(n)),
         };
-        let want = 1.0 / libm::sqrt(f64::from(n));
+        let want = 1.0 / f64::sqrt(f64::from(n));
         assert!((field.k - want).abs() < 1e-15, "n = {n}");
         // Wider spacing for a bigger graph, which is the point of the `1 / n`.
         if n > 2 {
-            assert!(field.k < libm::sqrt(0.5), "n = {n}: k shrinks");
+            assert!(field.k < f64::sqrt(0.5), "n = {n}: k shrinks");
         }
     }
 }

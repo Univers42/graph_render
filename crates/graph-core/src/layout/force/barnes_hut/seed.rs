@@ -12,7 +12,7 @@ pub(super) fn golden_spiral(n: u32) -> (Vec<f64>, Vec<f64>) {
     let mut x = Vec::with_capacity(n as usize);
     let mut y = Vec::with_capacity(n as usize);
     for i in 0..n {
-        let radius = 12.0 * libm::sqrt(f64::from(i) + 1.0);
+        let radius = 12.0 * f64::sqrt(f64::from(i) + 1.0);
         let angle = f64::from(i) * GOLDEN_ANGLE;
         x.push(libm::cos(angle) * radius);
         y.push(libm::sin(angle) * radius);

@@ -13,6 +13,7 @@ pub mod graphopt;
 pub mod kamada_kawai;
 pub mod lgl;
 pub(crate) mod params;
+pub(crate) mod particle_mesh;
 pub(crate) mod quadtree;
 pub(crate) mod session;
 pub mod spring;
@@ -26,13 +27,33 @@ pub use graphopt::Graphopt;
 pub use kamada_kawai::KamadaKawai;
 pub use lgl::Lgl;
 pub use params::ForceParams;
+pub use particle_mesh::ParticleMesh;
 pub use session::{ForceSession, LiveParams, NodeRow, SessionError, StepReport};
 pub use yifan_hu::YifanHu;
 
 use crate::arena::FixedState;
 use crate::csr::Csr;
 use crate::index::Topology;
+use crate::layout::Geometry;
+use crate::stage::StageError;
+use graph_contract::geometry::{EdgeGeometry, NodeGeometry};
 use indexmap::IndexMap;
+
+/// The point-and-line geometry a force run ends in, narrowed to `f32` for the wire, or
+/// the stage's refusal if any coordinate is not finite.
+pub(crate) fn planar_points(x: &[f64], y: &[f64]) -> Result<Geometry, StageError> {
+    if x.iter().chain(y).any(|v| !v.is_finite()) {
+        return Err(StageError::NonFinite { column: "node.x" });
+    }
+    Ok(Geometry::planar(
+        NodeGeometry::Point {
+            x: x.iter().map(|&v| v as f32).collect(),
+            y: y.iter().map(|&v| v as f32).collect(),
+        },
+        EdgeGeometry::Line,
+        Vec::new(),
+    ))
+}
 
 /// The undirected, deduplicated, self-loop-free adjacency every force layout shares
 /// (devil C6): a topology may hold parallel edges (the synthetic model's `earlier` draws

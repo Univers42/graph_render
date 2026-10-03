@@ -2,6 +2,16 @@
 //! and the two numpy behaviours it leans on. `count` points over a disk of `radius`, on
 //! evenly spaced concentric rings filled in order, ring `k` holding a share proportional
 //! to its circumference.
+//!
+//! **A singleton level sits at the origin, and `radius` is unused for it — the reference's
+//! own convention, kept bit-exact.** `_disk_positions` returns `[(0.0, 0.0)]` at
+//! `count == 1` (`hierarchical.py:95-96`) *before* any ring or radius is computed, so the
+//! `radius = scale * 0.5 * sqrt(count / widest)` its caller computes at `hierarchical.py:142`
+//! is discarded for a one-node level. The general path would instead give
+//! `ring_points(0, 1, r, 1) == (0.5 * radius, 0)` (`ring_points` below), so the two
+//! disagree — that is the reference disagreeing with itself, and this port follows it.
+//! `hierarchical_3d::tests`'s `a_single_node_sits_at_the_centre_of_the_negative_end` pins
+//! the placed output; `tests::parts` does not, because the value is a constant.
 
 /// `_disk_positions(count, radius)` (`hierarchical.py:90-111`), whole.
 pub(crate) fn disk(count: usize, radius: f64) -> Vec<(f64, f64)> {
@@ -25,7 +35,7 @@ pub(crate) fn disk(count: usize, radius: f64) -> Vec<(f64, f64)> {
 /// this line, but routing it through the same function keeps the one rounding rule in the
 /// module.
 pub(crate) fn ring_count(count: usize) -> usize {
-    let raw = libm::sqrt(count as f64 / core::f64::consts::PI);
+    let raw = f64::sqrt(count as f64 / core::f64::consts::PI);
     half_to_even(raw).max(1.0) as usize
 }
 

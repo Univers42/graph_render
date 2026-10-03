@@ -8,10 +8,11 @@ import type { PaintCounts, PaintInput } from "../canvas2d/input.ts";
 import { impostorOf } from "../canvas2d/nodes.ts";
 import { MOVING_BUDGET } from "../canvas2d/edges.ts";
 import { drawBulk } from "./draw.ts";
+import { paintSpace } from "./hook3d.ts";
 import { type BulkLayer, createBulk } from "./layer.ts";
 import { type BackendChoice, bulkWanted, nextBudget } from "./plan.ts";
 import { type Glide, dropGlide, glideFrame, keepFrame, newGlide } from "./glide.ts";
-import { type Still, newStill, paintStill, viewOf } from "./still.ts";
+import { type Still, newStill, paintStill, refiningOf, viewOf } from "./still.ts";
 
 export interface BulkSlot {
   backend: BackendChoice;
@@ -25,14 +26,16 @@ export interface BulkSlot {
   budget: number;
   /** Undefined until a settled frame first wants it, null where it cannot be kept. */
   still: Still | null | undefined;
-  /** True while the last frame's still picture lacked edges: the loop asks for another frame. */
+  /** True while the last frame's still picture lacked edges: the loop asks for another frame, and `view.stats()` reports it. */
   refining: boolean;
   /** The picture moving frames redraw under the camera's change (glide.ts). */
   readonly glide: Glide;
+  /** Edge-draw GPU milliseconds the layer has counted (gputimer.ts); reads 0 until a layer exists. */
+  gpuEdgeMs: () => number;
 }
 
 export function newBulkSlot(backend: BackendChoice): BulkSlot {
-  return { backend, layer: undefined, failure: "", placed: 0, budget: MOVING_BUDGET, still: undefined, refining: false, glide: newGlide() };
+  return { backend, layer: undefined, failure: "", placed: 0, budget: MOVING_BUDGET, still: undefined, refining: false, glide: newGlide(), gpuEdgeMs: () => 0 };
 }
 
 function layerOf(slot: BulkSlot): BulkLayer | null {
@@ -40,6 +43,10 @@ function layerOf(slot: BulkSlot): BulkLayer | null {
   try {
     slot.layer = createBulk();
     if (slot.layer === null) slot.failure = "this browser gives no WebGL2 context on an OffscreenCanvas";
+    else {
+      const made = slot.layer;
+      slot.gpuEdgeMs = () => made.timer.ms();
+    }
   } catch (error) {
     slot.layer = null;
     slot.failure = error instanceof Error ? error.message : String(error);
@@ -71,7 +78,7 @@ function paintSettled(slot: BulkSlot, layer: BulkLayer, input: PaintInput, count
   slot.still ??= newStill(slot.budget);
   if (slot.still === null) return paintWhole(slot, layer, input, counts);
   const lacking = paintStill(slot.still, { layer, placed: slot.placed }, input, counts);
-  slot.refining = lacking > 0;
+  slot.refining = refiningOf(lacking);
   return lacking >= 0;
 }
 
@@ -81,6 +88,7 @@ function paintSettled(slot: BulkSlot, layer: BulkLayer, input: PaintInput, count
  */
 export function paintBulk(slot: BulkSlot, input: PaintInput, counts: PaintCounts): boolean {
   slot.refining = false;
+  if (input.space !== null && input.space !== undefined) return paintSpace(slot, input, counts);
   if (slot.backend === "auto" && impostorOf(input)) return false;
   const elements = input.frame.nodeCount + input.frame.edgeCount;
   if (!bulkWanted(slot.backend, elements, slot.layer !== null)) return false;

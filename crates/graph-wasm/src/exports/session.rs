@@ -18,6 +18,7 @@ use super::state::{HANDLES, publish};
 use crate::alloc::is_live;
 use crate::errors::{self, Code};
 use crate::session;
+use crate::session::Engine;
 use crate::session::params;
 use graph_core::layout::force::LiveParams;
 
@@ -36,6 +37,23 @@ use graph_core::layout::force::LiveParams;
 // is named `gm_force_session_create`.
 #[unsafe(no_mangle)]
 pub extern "C" fn gm_force_session_create(graph: u32, params_ptr: u32, params_len: u32) -> u32 {
+    create(graph, (params_ptr, params_len), Engine::BarnesHut)
+}
+
+/// [`gm_force_session_create`] for a session that ticks on the particle mesh: the same
+/// arguments, refusals and session id space; every other `gm_force_session_*` call takes it.
+/// Its position columns move on every tick, so a host re-reads `column_ptr` after each one.
+// SAFETY: as `gm_force_session_create`.
+#[unsafe(no_mangle)]
+pub extern "C" fn gm_force_session_create_mesh(
+    graph: u32,
+    params_ptr: u32,
+    params_len: u32,
+) -> u32 {
+    create(graph, (params_ptr, params_len), Engine::ParticleMesh)
+}
+
+fn create(graph: u32, (params_ptr, params_len): (u32, u32), engine: Engine) -> u32 {
     let params = match read_params(params_ptr, params_len) {
         Ok(params) => params,
         Err(code) => return refuse(code, 0),
@@ -48,7 +66,7 @@ pub extern "C" fn gm_force_session_create(graph: u32, params_ptr: u32, params_le
         let Some(handle) = handles.get(graph) else {
             return refuse(Code::InvalidHandle, 0);
         };
-        match session::create(&handle.topology, params) {
+        match session::create(&handle.topology, params, engine) {
             Ok(id) => {
                 errors::clear();
                 id

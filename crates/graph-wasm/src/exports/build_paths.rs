@@ -3,11 +3,10 @@
 //! ([`gm_build_columns`]). Split from [`super::build`] for the house line limit; all three
 //! share one handle lifecycle, which is the [`store`] at the bottom rather than a copy of it.
 
-use super::state::HANDLES;
+use super::build::insert;
 use crate::alloc::is_live;
 use crate::contract;
 use crate::errors::{self, Code};
-use crate::handle::Handle;
 use crate::ingest::{self, columns};
 use graph_core::Topology;
 
@@ -41,7 +40,7 @@ pub extern "C" fn gm_build(ingest_ptr: u32, ingest_len: u32) -> u32 {
             return 0;
         }
     };
-    store(topology)
+    insert(topology)
 }
 
 /// Builds a graph from the **ingest contract** buffer at `(contract_ptr, contract_len)`,
@@ -85,7 +84,7 @@ pub extern "C" fn gm_build_contract(contract_ptr: u32, contract_len: u32) -> u32
         errors::set(Code::ContractInvalid);
         return 0;
     };
-    store(topology)
+    insert(topology)
 }
 
 /// Builds a graph from the **columnar ingest** buffer at `(columns_ptr, columns_len)`,
@@ -130,25 +129,5 @@ pub extern "C" fn gm_build_columns(columns_ptr: u32, columns_len: u32) -> u32 {
             return 0;
         }
     };
-    store(topology)
-}
-/// The handle lifecycle all three builds share: a live topology becomes handle `1` or more,
-/// `0` with [`Code::HandlesExhausted`] when every id has been issued. Ids are monotonic and
-/// never reused (C6), so a caller that sees `0` knows no handle was consumed.
-fn store(topology: Topology) -> u32 {
-    let handle = Handle {
-        topology,
-        snapshot: None,
-        geometry: None,
-    };
-    match HANDLES.with(|handles| handles.borrow_mut().insert(handle)) {
-        Some(id) => {
-            errors::clear();
-            id
-        }
-        None => {
-            errors::set(Code::HandlesExhausted);
-            0
-        }
-    }
+    insert(topology)
 }

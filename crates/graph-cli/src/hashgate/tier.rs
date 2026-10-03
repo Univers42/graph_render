@@ -14,8 +14,8 @@ use super::Arm;
 pub enum Tier {
     /// The compiled-in scalar path: one thread, one process.
     Scalar,
-    /// Every threaded stage — the force layout's range kernels, the grid's gather, and the
-    /// ring's and the spiral's — over this many `std::thread`s.
+    /// Every threaded stage — the three force layouts' range kernels, the grid's gather, and
+    /// the ring's and the spiral's — over this many `std::thread`s.
     Threads(u32),
 }
 
@@ -105,15 +105,15 @@ pub fn scalar_arm(seeds: u32) -> Result<Arm, String> {
     ))
 }
 
-/// The four threaded stages over `workers` `std::thread`s.
+/// The threaded stages over `workers` `std::thread`s.
 ///
 /// **Only the threaded stages change**: every other stage runs the same bytes whichever
 /// tier the graph is at, so re-running them per tier would buy no coverage and cost one
 /// full pipeline per worker count. The claim being checked is precisely that each threaded
-/// stage is worker-count-invariant — Barnes-Hut's three range kernels, the grid's gather,
-/// and the ring's and the spiral's gather over the shared serial `coords` merge — and every
-/// other stage is already covered by the four base arms. The list itself lives in
-/// [`super::threaded_bytes`]'s match, so the two cannot disagree.
+/// stage is worker-count-invariant — the three force layouts' three range kernels, the
+/// grid's gather, and the ring's and the spiral's gather over the shared serial `coords`
+/// merge — and every other stage is already covered by the four base arms. The list itself
+/// lives in [`super::threaded_bytes`]'s match, so the two cannot disagree.
 pub fn threads_arm(seeds: u32, workers: u32) -> Result<Arm, String> {
     let setting = super::env_setting()?;
     Ok((

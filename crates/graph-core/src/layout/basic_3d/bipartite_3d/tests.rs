@@ -117,7 +117,7 @@ fn a_four_cycle_draws_two_rings_with_z_following_the_set_and_not_the_index() {
     assert_eq!(z[0] - z[1], -5.0, "the plane separation is exactly `scale`");
     // One radius serves both planes, so every node is `scale * 0.6` from its own ring's axis.
     for (node, (&nx, &ny)) in x.iter().zip(&y).enumerate() {
-        let radius = libm::sqrt(nx * nx + ny * ny);
+        let radius = f64::sqrt(nx * nx + ny * ny);
         assert!(
             (radius - 3.0).abs() < 1e-6,
             "node {node} is {radius} from its plane's axis, not 3"

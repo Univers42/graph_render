@@ -19,7 +19,7 @@
 //! order [`SimpleGraph`] already fixes.
 
 use super::sim::Sim;
-use super::step::LinkPass;
+use super::step::{LinkForces, LinkPass};
 use crate::exec::Runner;
 use crate::layout::force::LiveParams;
 use crate::layout::force::SimpleGraph;
@@ -58,20 +58,34 @@ pub(super) fn geometry(graph: &SimpleGraph, params: &LiveParams) -> (Vec<f64>, V
 ///
 /// `split` is this pass's own slice of the negative control: it makes the merge read the
 /// next node's delta as well, the shape a wrong partition of the outputs would take.
-pub(super) fn apply_with(
+pub(in crate::layout::force) fn apply_with(
     sim: &mut Sim,
     runner: &impl Runner,
     workers: u32,
     deltas: &mut Vec<(f64, f64)>,
     split: bool,
 ) {
-    runner.run(&LinkPass::of(&*sim), workers, deltas);
+    pass_with(sim, runner, workers, deltas);
     super::step::merge((&mut sim.vx, &mut sim.vy), None, deltas, split);
 }
 
-/// Simple edge `e`'s two halves of the force, in `(x, y)`: the share that moves its higher
-/// endpoint and the share that moves its lower one, already weighted by the edge's bias.
-pub(super) fn halves(sim: &Sim, e: usize) -> ((f64, f64), (f64, f64)) {
+/// [`apply_with`]'s deltas in node order, not yet merged: the particle mesh merges them
+/// as a range pass (`particle_mesh/motion.rs`).
+pub(in crate::layout::force) fn pass_with(
+    sim: &mut Sim,
+    runner: &impl Runner,
+    workers: u32,
+    deltas: &mut Vec<(f64, f64)>,
+) {
+    let mut forces = std::mem::take(&mut sim.link_forces);
+    runner.run(&LinkForces::of(sim), workers, &mut forces);
+    runner.run(&LinkPass::of(sim, &forces), workers, deltas);
+    sim.link_forces = forces;
+}
+
+/// Simple edge `e`'s force before the bias splits it, in `(x, y)`: the one square root and
+/// division of the edge, computed once per tick by [`LinkForces`].
+pub(super) fn force(sim: &Sim, e: usize) -> (f64, f64) {
     let (lo, hi) = (sim.graph.lo[e] as usize, sim.graph.hi[e] as usize);
     let (mut dx, mut dy) = displaced(sim, hi, lo);
     if dx == 0.0 {
@@ -80,11 +94,33 @@ pub(super) fn halves(sim: &Sim, e: usize) -> ((f64, f64), (f64, f64)) {
     if dy == 0.0 {
         dy = jiggle(sim.seed, sim.tick_no, PASS_Y, (lo as u32, hi as u32));
     }
-    let l = libm::sqrt(dx * dx + dy * dy);
+    let l = f64::sqrt(dx * dx + dy * dy);
     let factor = (l - sim.link_distance[e]) / l * sim.alpha * sim.link_strength[e];
-    let (fx, fy) = (dx * factor, dy * factor);
-    let b = sim.link_bias[e];
-    ((fx * (1.0 - b), fy * (1.0 - b)), (-fx * b, -fy * b))
+    (dx * factor, dy * factor)
+}
+
+/// The share of an edge's force `(fx, fy)` that moves its higher endpoint when `hi`, else
+/// its lower one, weighted by the edge's bias `b`.
+pub(super) fn share((fx, fy): (f64, f64), b: f64, hi: bool) -> (f64, f64) {
+    if hi {
+        (-fx * b, -fy * b)
+    } else {
+        (fx * (1.0 - b), fy * (1.0 - b))
+    }
+}
+
+/// Simple edge `e`'s two halves of the force, in `(x, y)`: the share that moves its lower
+/// endpoint and the share that moves its higher one.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the serial reference's own split, which only tests call"
+    )
+)]
+pub(super) fn halves(sim: &Sim, e: usize) -> ((f64, f64), (f64, f64)) {
+    let (f, b) = (force(sim, e), sim.link_bias[e]);
+    (share(f, b, false), share(f, b, true))
 }
 
 /// Edge `e`'s delta scattered into both its endpoints, at `out[lo]` and `out[hi]`.

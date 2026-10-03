@@ -14,6 +14,12 @@ use super::weighted_median;
 
 /// Below this many ordering-graph vertices, X gets 4 priority-method passes; at or above
 /// it, none (`hierarchical.py:677`, `_PRIORITY_NODE_BUDGET`).
+///
+/// **The skip is silent, and cannot be a note.** A skipped phase is not one of the notes
+/// section's five codes, and it would be snapshot-wide, which only code 3 may be
+/// (`graph-contract`'s `notes.rs:174-177`) — so the registry row's `degradation` is where
+/// this is documented (the review's L-12; `above_the_priority_budget_leaves_x_at_the_raw
+/// _slot_index_and_the_snapshot_does_not_say_so` is the test that pins it).
 const PRIORITY_NODE_BUDGET: u32 = 200_000;
 /// A dummy vertex always outranks a real one (`hierarchical.py:6`, `_DUMMY_PRIORITY`).
 const DUMMY_PRIORITY: u32 = 1 << 30;
@@ -25,8 +31,21 @@ pub(crate) struct Coords(pub(crate) Vec<f64>);
 
 impl Coords {
     /// Starts each vertex at its slot index, then runs the throttled priority-method
-    /// sweep against `ordering`'s rows over `layering`'s adjacency.
+    /// sweep against `ordering`'s rows over `layering`'s adjacency, within
+    /// [`PRIORITY_NODE_BUDGET`] layered vertices.
     pub(crate) fn build(ordering: &Ordering, layering: &Layering, node_count: u32) -> Self {
+        Self::build_within(ordering, layering, node_count, PRIORITY_NODE_BUDGET)
+    }
+
+    /// [`Self::build`] with the layered-vertex ceiling spelled out, so a test can reach the
+    /// skip the production budget keeps 200k vertices away — the way [`Layering::build`]
+    /// takes its `DUMMY_BUDGET` (`super::layering::DUMMY_BUDGET`).
+    pub(crate) fn build_within(
+        ordering: &Ordering,
+        layering: &Layering,
+        node_count: u32,
+        budget: u32,
+    ) -> Self {
         let total = layering.layer_of.len() as u32;
         let mut x = vec![0.0; total as usize];
         for row in &ordering.layers {
@@ -34,7 +53,7 @@ impl Coords {
                 x[v as usize] = i as f64;
             }
         }
-        let passes = if total <= PRIORITY_NODE_BUDGET { 4 } else { 0 };
+        let passes = if total <= budget { 4 } else { 0 };
         let rows = &ordering.layers;
         for step in 0..passes {
             if step % 2 == 0 {
@@ -178,15 +197,38 @@ mod tests {
     use crate::records::build::{edge, node};
     use crate::records::{EdgeRecord, NodeRecord};
 
-    fn coords(nodes: &[NodeRecord], edges: &[EdgeRecord]) -> Vec<f64> {
+    /// `(x, each layer's own row)` for `nodes`/`edges` at the given priority-method budget.
+    fn coords_within(
+        nodes: &[NodeRecord],
+        edges: &[EdgeRecord],
+        budget: u32,
+    ) -> (Vec<f64>, Vec<Vec<u32>>) {
         let t = index_model(nodes, edges).expect("fits");
         let acyclic = Acyclic::of(&t);
-        let arcs = Arcs::new(&t, &acyclic);
-        let layer = assign_layers(&arcs);
-        let layering = Layering::build(&arcs, &layer, DUMMY_BUDGET);
+        let list = Arcs::new(&t, &acyclic).grouped();
+        let layer = assign_layers(&list);
+        let layering = Layering::build(&list, &layer, DUMMY_BUDGET);
         let num_layers = layering.layer_of.iter().copied().max().map_or(0, |m| m + 1);
-        let ordering = Ordering::build(&layering, num_layers);
-        Coords::build(&ordering, &layering, t.node_count()).0
+        let ordering = Ordering::build(&layering, num_layers).expect("covers every layer");
+        let x = Coords::build_within(&ordering, &layering, t.node_count(), budget).0;
+        (x, ordering.layers)
+    }
+
+    fn coords(nodes: &[NodeRecord], edges: &[EdgeRecord]) -> Vec<f64> {
+        coords_within(nodes, edges, PRIORITY_NODE_BUDGET).0
+    }
+
+    /// a->d spans 3 layers (b, c real siblings on layers 1, 2), so the dummy chain is what
+    /// the priority passes have to place.
+    fn spanned() -> (Vec<NodeRecord>, Vec<EdgeRecord>) {
+        let n = ["a", "b", "c", "d"].map(|id| node(id, ""));
+        let e = [
+            edge("ab", "a", "b"),
+            edge("bc", "b", "c"),
+            edge("cd", "c", "d"),
+            edge("ad", "a", "d"),
+        ];
+        (n.to_vec(), e.to_vec())
     }
 
     #[test]
@@ -201,16 +243,30 @@ mod tests {
     fn a_dummy_chain_centers_its_span_and_x_is_deterministic() {
         // a->d spans 3 layers (b, c real siblings on layers 1, 2); the dummy chain for
         // a->d should end up between the real chain's own X, not off to one side.
-        let n = ["a", "b", "c", "d"].map(|id| node(id, ""));
-        let e = [
-            edge("ab", "a", "b"),
-            edge("bc", "b", "c"),
-            edge("cd", "c", "d"),
-            edge("ad", "a", "d"),
-        ];
+        let (n, e) = spanned();
         let first = coords(&n, &e);
         let second = coords(&n, &e);
         assert_eq!(first, second, "deterministic");
         assert!(first.iter().all(|x| x.is_finite()));
+    }
+
+    /// L-12: above the budget `passes` is 0, so X is exactly the raw ordering slot index and
+    /// the drawing is legal but maximally spread. Nothing in the snapshot says so: the notes
+    /// section has no code for a skipped phase, so the behaviour is pinned here and
+    /// documented in the registry row's `degradation`.
+    #[test]
+    fn above_the_priority_budget_leaves_x_at_the_raw_slot_index_and_the_snapshot_does_not_say_so() {
+        let (n, e) = spanned();
+        let (skipped, layers) = coords_within(&n, &e, 0);
+        let (ran, _) = coords_within(&n, &e, PRIORITY_NODE_BUDGET);
+        let mut slot = vec![0.0; skipped.len()];
+        for row in &layers {
+            for (i, &v) in row.iter().enumerate() {
+                slot[v as usize] = i as f64;
+            }
+        }
+        assert_eq!(skipped, slot, "no priority pass ran: x is the slot index");
+        assert_ne!(skipped, ran, "the passes do move at least one vertex");
+        assert!(skipped.iter().all(|x| x.is_finite()));
     }
 }

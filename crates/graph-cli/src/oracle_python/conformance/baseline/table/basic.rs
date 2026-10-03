@@ -10,12 +10,12 @@ use super::super::{Baseline, row};
 pub(super) const BASIC: [Baseline; 6] = [
     row(
         "RANDOM",
-        "7ef3a5f7a9f8c45a8d1f2062bf059b1d96b6ec173e6b358f177556bf8262c8e3",
+        "79ac64fb162056eeed4ed03ed2d91f6d9463ac88d87594870b21a075e713f21e",
         "97db3956653c5a3e688903ee93ec114a69e2a063ecc9d8b1595b243c5d5555f9",
         "",
-        1e0,
-        "bitwise",
-        "rng",
+        1e-14,
+        "tolerance",
+        "arithmetic",
     ),
     row(
         "GRID",
@@ -37,7 +37,7 @@ pub(super) const BASIC: [Baseline; 6] = [
     ),
     row(
         "SPRING_3D",
-        "8b936b0c3664ac7bd1be9bfff1fb9e48f9a880e4275f1690ceb10be55630b202",
+        "7cfcdd38ce96eb9113a08ffda8a43a55f79f5dbf5f0addf40049b735139f097f",
         "0a6e3c9035a5342d6d960d99b96b4b651f35942bb2db95eede6e7c88abea9515",
         "",
         1e0,

@@ -32,10 +32,17 @@ at SciGraphs' own `iterations = 50`, `scale = 5.0` and `get_layout_seed() = 9817
 (`derive_seed(42, "layout")`, `SciGraphs/core/scigraphs_core/repro/determinism.py:56-62`), and
 writes **raw little-endian `f64`** per row plus the `f32` the snapshot narrows to. A decimal
 round trip in the middle would be a rounding step between the two values whose equality is the
-question. Exactly **three** ids get a parameter override, because exactly three have a
-registered default that is not SciGraphs' parameter: `CIRCLE_PACKING` (500 sweeps, not 50),
-`FORCEATLAS2` (`max_iter` 100, not 50) and `GRAPHVIZ_SFDP` (`run` hard-codes `DEFAULT_SEED = 1`;
-the arm calls `run_seeded`).
+question. Exactly **five** ids get an override. Three because their registered default is not
+SciGraphs' parameter: `CIRCLE_PACKING` (500 sweeps, not 50), `FORCEATLAS2` (`max_iter` 100, not
+50) and `GRAPHVIZ_SFDP` (`run` hard-codes `DEFAULT_SEED = 1`; the arm calls `run_seeded`). The
+other two are layouts whose *placement* is SciGraphs' rather than the registered stage's, both
+through a scaled entry point beside the registered one and both at `scale = 5.0`:
+`layout.grid`, whose arm calls `Grid::run_scaled` because `_grid_layout` starts the first cell
+at the origin and pitches it at `scale / grid_size`, and `layout.dag.sugiyama`, whose arm calls
+`sugiyama::run_scaled`, which applies SciGraphs' per-axis normalisation
+(`hierarchical.py:679-685`) at the same `scale = 5.0`. That normalisation reads the dummy
+vertices' X, which `Geometry` does not carry, so it lives beside the stages that produce it
+rather than in this arm.
 
 **The reference arm** calls `apply_graph_layout` itself for 23 names in `ge-python-oracle` with
 the `SciGraphs/` submodule on the path. The other nine go through `scigraphs_utils`, which is in
@@ -87,16 +94,19 @@ one that unlocks the rest.
 | `algorithm` | anything else | a different method or a different step |
 
 **Both halves of the `arithmetic` test are needed, and the gap is the half that matters.**
-`GRID` has a disparity of 5e-32 and an absolute gap of 4.0: the same lattice, in a different
-unit at a different origin. Calling that `arithmetic` because the shape is exact would send a
-repair job to chase a summation order that is already right.
+`SUGIYAMA` has a disparity of 1.26e-16 and an absolute gap of 1.91e-07: the same drawing, one
+`f32` ULP out. Before `GRID` was repaired it sat at a disparity of 5e-32 and an absolute gap of
+4.0 — the same lattice, in a different unit at a different origin — and calling that `arithmetic`
+because the shape was exact would have sent a repair job to chase a summation order that was
+already right. `GRID` is now `f32` 1020/1020 with a gap of 2.12e-07, so the row that makes the
+argument is one this series has already fixed (`docs/measurements/sg-grid-scale.md`).
 
 **The `convention` threshold is 1e-6 and it is measured, not chosen.** Every row this
-classifier calls a convention measures between 5e-32 (`GRID`) and 4e-10 (`GRAPHVIZ_PATCHWORK`);
-every row that measures 0.08 to 0.7 does not, and its overlay says the same thing. An earlier
-0.35 threshold here called `SPECTRAL_3D`, `MDS_3D`, `GRAPHVIZ_CIRCO` and `CIRCLE_PACKING`
-conventions, and all four are a different shape in the picture — the threshold was wrong, not the
-data.
+classifier calls a convention measures between 2e-10 (`GRAPHVIZ_TWOPI`) and 4e-10
+(`GRAPHVIZ_PATCHWORK`); every row that measures 0.08 to 0.7 does not, and its overlay says the
+same thing. An earlier 0.35 threshold here called `SPECTRAL_3D`, `MDS_3D`, `GRAPHVIZ_CIRCO` and
+`CIRCLE_PACKING` conventions, and all four are a different shape in the picture — the threshold
+was wrong, not the data.
 
 **The discriminator is the worst of the median and the two named fixtures**, not the median.
 Twenty of the 24 fixtures hold 2 to 21 nodes, so the median is dominated by them:
@@ -119,7 +129,7 @@ Procrustes-aligned over it**, so a green point sitting on a grey point is a node
 
 | # | SciGraphs name | motor id | reference reached | tier | f64 k/N | f32 k/N | max ULP | max gap | Procrustes med | Procrustes max | cause | shape verdict |
 |--:|---|---|---|--:|--:|--:|--:|--:|--:|--:|---|---|
-| 1 | `RANDOM` | `layout.random` | `apply_graph_layout` | `bitwise` | 0/1020 | 0/1020 | 4.62e+18 | 4.83 | 0.9 | 0.996 | `rng` | same size, different shape: two independent uniform draws |
+| 1 | `RANDOM` | `layout.random` | `apply_graph_layout` | `tolerance` | 0/1020 | 1020/1020 | 2.68e+08 | 2.35e-07 | 2.28e-15 | 2.95e-15 | `arithmetic` | **same shape** — the green cloud sits on the grey one, node for node; the `f64` column cannot be exact because the motor is `f32` |
 | 2 | `GRID` | `layout.grid` | `apply_graph_layout` | `tolerance` | 842/1020 | 1020/1020 | 2.39e+08 | 2.12e-07 | 3.39e-32 | 3.96e-15 | `arithmetic` | **same shape** — the aligned motor lands on every grey lattice point; only the last `f32` rounding is left |
 | 3 | `SPRING` | `layout.force.spring` | `apply_graph_layout` | `bitwise` | 341/1020 | 341/1020 | 9.23e+18 | 10 | 0.377 | 0.779 | `rng` | different shape: green does not follow the grey drawing anywhere |
 | 4 | `SPRING_3D` | `layout.force.spring3d` | `apply_graph_layout` | `bitwise` | 3/1020 | 4/1020 | 9.23e+18 | 10 | 0.198 | 0.756 | `rng` | different shape: as `SPRING`, in space |
@@ -132,9 +142,9 @@ Procrustes-aligned over it**, so a green point sitting on a grey point is a node
 | 11 | `IGRAPH_LGL` | `layout.force.lgl` | `apply_graph_layout` | `bitwise` | 340/1020 | 340/1020 | 9.24e+18 | 33.1 | 0.611 | 0.81 | `rng` | different shape |
 | 12 | `SPHERE` | `layout.basic3d.sphere` | `apply_graph_layout` | `tolerance` | 111/1020 | 1020/1020 | 2.68e+08 | 2.38e-07 | 4.63e-16 | 9.66e-16 | `arithmetic` | **same shape** — the green ring sits on the grey ring, node for node |
 | 13 | `SPECTRAL_3D` | `layout.spectral` | `apply_graph_layout` | `shape` | 1/1020 | 1/1020 | 9.22e+18 | 5.95 | 0.333 | 0.807 | `algorithm` | different shape: grey is a vertical line, green a small cluster at one end — and **both arms start from the origin with no RNG**, so this is the algorithm |
-| 14 | `SPIRAL_3D` | `layout.spiral` | `apply_graph_layout` | `shape` | 0/1020 | 0/1020 | 9.22e+18 | 6 | 0.585 | 0.815 | `algorithm` | different shape: grey is a 3D spiral, green one point at the centre |
+| 14 | `SPIRAL_3D` | `layout.basic3d.spiral` | `apply_graph_layout` | `tolerance` | 120/1020 | 1020/1020 | 2.68e+08 | 2.35e-07 | 3.34e-16 | 5.59e-16 | `arithmetic` | **same shape** — green covers grey node for node on 22 of 24 fixtures |
 | 15 | `HELIX` | `layout.basic3d.helix` | `apply_graph_layout` | `tolerance` | 327/1020 | 1020/1020 | 2.67e+08 | 1.51e-07 | 1.37e-16 | 4.16e-16 | `arithmetic` | **same shape**, mirrored on 4 of the 22 fitted fixtures |
-| 16 | `CUBE` | `layout.basic3d.cube` | `apply_graph_layout` | `bitwise` | 501/1020 | 501/1020 | 9.23e+18 | 7.58 | 0.202 | 0.847 | `rng` | the eight corners land on the grey corners; the interior is redrawn from another generator |
+| 16 | `CUBE` | `layout.basic3d.cube` | `apply_graph_layout` | `tolerance` | 501/1020 | 1020/1020 | 2.68e+08 | 1.19e-07 | 5.72e-17 | 3.29e-16 | `arithmetic` | **same shape** — corners and interior alike; the 501/1020 `f64` are the `3*min(n, 8)` corner coordinates of every one of the 24 fixtures, all of them `±5.0` or `0.0` and so `f32`-representable |
 | 17 | `HIERARCHICAL_3D` | `layout.hierarchical3d` | `apply_graph_layout` | `tolerance` | 374/1020 | 1020/1020 | 2.67e+08 | 7.95e-08 | 9.03e-17 | 2.93e-16 | `arithmetic` | **same shape** — green covers grey node for node |
 | 18 | `BIPARTITE_3D` | `layout.bipartite_3d` | `apply_graph_layout` | `tolerance` | 480/1020 | 1020/1020 | 2.65e+08 | 1.18e-07 | 3.57e-16 | 5.26e-16 | `arithmetic` | **same shape** — the two rings land on the reference's two rings, node for node; the f64 residue is numpy's `cos`/`sin` against `libm`'s |
 | 19 | `IGRAPH_DH` | `layout.force.davidson_harel` | `apply_graph_layout` | `bitwise` | 340/1020 | 340/1020 | 9.24e+18 | 34.7 | 0.767 | 0.99 | `rng` | different shape |
@@ -149,7 +159,7 @@ Procrustes-aligned over it**, so a green point sitting on a grey point is a node
 | 28 | `GRAPHVIZ_CIRCO` | `layout.circular.circo` | `circo -Tplain` | `shape` | 340/1020 | 340/1020 | 9.31e+18 | 6.43e+03 | 0.284 | 0.875 | `algorithm` | **same shape on the tree** (disparity 6.5e-05) and **different on lesmis** (0.308): the ring agrees where the tree is small and the boxes are equal |
 | 29 | `GRAPHVIZ_OSAGE` | `layout.packing.osage` | `osage -Tplain` | `shape` | 387/1020 | 387/1020 | 1.95e+16 | 498 | 0.711 | 0.964 | `algorithm` | same grid of rows, different row assignment: the y coordinates agree to 1e-5 of the span, the x to 7% |
 | 30 | `GRAPHVIZ_PATCHWORK` | `layout.treemap.patchwork` | `patchwork -Tplain` | `bitwise` | 340/1020 | 340/1020 | 9.27e+18 | 139 | 4.32e-10 | 1.6e-09 | `convention` | **same shape** — green on grey |
-| 31 | `SUGIYAMA` | `layout.dag.sugiyama` | `apply_graph_layout` | `shape` | 348/1020 | 349/1020 | 9.24e+18 | 49.4 | 0.384 | 0.934 | `algorithm` | different shape: the layering differs, so the columns do not line up |
+| 31 | `SUGIYAMA` | `layout.dag.sugiyama` | `apply_graph_layout` | `tolerance` | 597/1020 | **1020/1020** | 2.57e+08 | 1.91e-07 | 1.26e-16 | 4.63e-16 | `arithmetic` | **same shape**, and `f32`-identical on all 1020 coordinates |
 | 32 | `CIRCULAR_HIERARCHY` | `layout.circular.hierarchy` | `apply_graph_layout` | `tolerance` | 509/1020 | 1020/1020 | 2.67e+08 | 2.2e-07 | 4.32e-16 | 1e-15 | `arithmetic` | **same shape**, and `f32`-identical on all 1020 coordinates |
 
 Every row's **convention gaps** — the parameters of `apply_graph_layout` the motor has no slot
@@ -165,15 +175,23 @@ Pictures, all 64 rendered by the script and all looked at:
 
 ## What the matrix says that a tolerance could not
 
-**1. Five rows are `f32`-identical on every one of 1020 coordinates and the rest of their gap is
-the narrowing.** `SPHERE`, `HELIX`, `HIERARCHICAL_3D`, `CIRCULAR_HIERARCHY`, `BIPARTITE_3D` — 5 of
-32. Their max gaps are 2.4e-7, 1.5e-7, 7.9e-8, 2.2e-7 and 1.2e-7, one `f32` ULP at that magnitude,
-and their Procrustes medians are ~1e-16: the same shape to machine precision.
-`CIRCULAR_HIERARCHY` is the strongest row in the matrix.
+**1. Ten rows are `f32`-identical on every one of 1020 coordinates and the rest of their gap is
+the narrowing.** `SPHERE`, `HELIX`, `HIERARCHICAL_3D`, `CIRCULAR_HIERARCHY`, `GRID` (after
+`sg-grid-scale`), `BIPARTITE_3D`, `SPIRAL_3D`, `SUGIYAMA`, and — after `sg-mt19937` — `RANDOM` and
+`CUBE`: 10 of 32. Their max gaps run from 7.9e-8 to 2.4e-7, one `f32` ULP at that magnitude, and
+their Procrustes medians from 3.4e-32 (`GRID`) to 2.3e-15 (`RANDOM`) — all of them the same shape
+to machine precision. `CIRCULAR_HIERARCHY` and `SUGIYAMA` are the strongest rows in the matrix.
+`SUGIYAMA` came from `shape`/`algorithm` in the previous run; `docs/measurements/sg-sugiyama.md`
+has the per-stage diff and the two causes it found, and
+`docs/measurements/sg-grid-scale.md` has `GRID`'s. The two that arrived by porting the
+reference's own generator rather than by fixing a convention are the proof that `f64 k/N` is not
+the target: their `f64` counts are 0/1020 and 501/1020, and every one of those coordinates is
+`f32`-exact — `RANDOM`'s because no draw is a `f32` value, `CUBE`'s because its 501 are the corner
+coordinates `CORNERS[i] * 5.0`, which are `±5.0` and `0.0`.
 
-**2. Three rows are the same shape to `1e-10` or better and differ only in units.** `GRID` (5e-32),
+**2. Two rows are the same shape to `1e-10` or better and differ only in units.**
 `GRAPHVIZ_TWOPI` (2e-10), `GRAPHVIZ_PATCHWORK` (4e-10). Each is a convention fix, not an
-algorithm.
+algorithm; `GRID` (5e-32) was the third until `sg-grid-scale` fixed its units (row 2).
 
 **3. `GRAPHVIZ_SFDP` differs at the same seed on both sides.** The motor arm calls
 `sfdp::run_seeded(981798123)` and the engine is given `-Gstart=981798123`; the disparity is 0.848.
@@ -258,6 +276,15 @@ port is already exact to 5e-16; on `lesmis` it is 0.517. SciGraphs' `_circle_pac
 `lesmis` is non-planar. Port that fallback's branch and its solver.
 **Expected:** `lesmis` disparity 0.517 -> ~1e-16 and `bitwise f32` 808/1020 -> ~1020/1020.
 
+**Partly repaired 2026-10-02** (`docs/measurements/sg-fix-spring-temp.md`): the fallback's
+**starting degree** now counts a self-loop twice, as SciGraphs' `G.degree` does
+(`circle_packing.py:420` reads the graph `common.py:297` built with its loops still in;
+networkx counts one twice, `reportviews.py:526`). The row did **not** move — no conformance
+fixture has a self-loop — so this is correctness on the oracle's terms with no measured
+effect here, and the non-planar fallback itself is still unrepaired. The fallback's springs
+and seed still differ on a loop-carrying graph: SciGraphs feeds the loop-carrying `G` to
+`nx.spring_layout` (`:428`) and its edge array (`:432`), where this port reduces loops away.
+
 ### 4. `SPRING`, `SPRING_3D` — `rng`, and the parameter is the whole repair
 **File:** `crates/graph-core/src/layout/force/spring.rs:120` (`SpringParams` has no `seed` field).
 **Change:** add `seed: u32` to `SpringParams`, default it to `get_layout_seed()`, and draw the
@@ -266,18 +293,43 @@ generator is the cause, not the seed. networkx's `spring_layout` takes `seed=` a
 passes `get_layout_seed()` (`networkx_layouts.py:18`).
 **Expected:** `bitwise f64` 341/1020 -> ~1020/1020; the cause becomes `arithmetic`.
 
-### 5. `RANDOM` — `rng`, the smallest possible port
-**File:** `crates/graph-core/src/layout/random.rs:30`. **Change:** `SEED` is the const `0x5EED`; the
-reference draws from `np.random.RandomState(get_layout_seed())` (`basic.py:7`). Replace the
-generator with MT19937 and take the seed as a parameter.
-**Expected:** `bitwise f64` 0/1020 -> 1020/1020. The shortest path from `shape` to `bitwise` in the
-matrix and the cheapest one to check.
+**One defect repaired 2026-10-02, and it was not this one**
+(`docs/measurements/sg-fix-spring-temp.md`): the opening temperature read the widest of all
+`D` columns, where networkx reads `pos.T[0]` and `pos.T[1]` and nothing else at every `dim`
+(`layout.py:687` dense, `:776` sparse) — so a z-dominant `dim = 3` start opened up to 19.95x
+too hot, measured against networkx's own `t`. `SPRING_3D`'s motor bytes moved and its first
+sha was re-pinned; its disparity is **unchanged** (3/1020, max gap 10, Procrustes median
+0.1721478627737976 before and after), because the motor's near-isotropic start makes the two
+rules differ by at most 2.01% on any real fixture. `SPRING` (`D = 2`) could not move and did
+not. **The seed gap above is untouched and still open.**
 
-### 6. `CUBE` — `rng`, corners already correct
-**File:** `crates/graph-core/src/layout/basic_3d/cube.rs:78`. **Change:** `SEED = 0x00_C0BE` is
-compiled into the cube's interior draw (`cube.rs:129`); the eight corners are a closed form and
-stay exact. Move the interior onto MT19937.
-**Expected:** `bitwise f32` 501/1020 -> ~1020/1020 with the corners unchanged.
+### 5. `RANDOM` — `rng`, the smallest possible port — **done, `sg-mt19937`**
+**File:** `crates/graph-core/src/layout/random.rs`. **Landed:** `random::run_seeded(topology, seed)`
+draws `np.random.RandomState(seed).rand(n, 3) * SCALE` row-major through `basic_3d::in_space`,
+and the conformance arm calls it with `LAYOUT_SEED` the way it calls `sfdp::run_seeded`. The
+registered `run` keeps its own `Mulberry32` stream at `0x5EED`, 2D and unscaled, so its hash-gate
+record does not move; the generator is [`Mt19937`](../../crates/graph-core/src/rng.rs), numpy's
+legacy `RandomState` (`init_genrand` plus the 53-bit `random_sample`).
+**Measured:** `f32` 0/1020 -> **1020/1020**, disparity 0.9 -> 2.3e-15. `f64` stays 0/1020 and is
+**not** a miss: the motor's columns are `f32`, so `f64` byte equality is unreachable for a value
+the reference writes in `f64`. The row therefore ends at `tolerance`/`arithmetic`, which is the
+`tier` column's own meaning, not a partial repair. See `docs/measurements/sg-mt19937.md`.
+
+### 6. `CUBE` — `rng`, corners already correct — **done, `sg-mt19937`**
+**File:** `crates/graph-core/src/layout/basic_3d/cube.rs`. **Landed:** the interior draws from
+`Mt19937::new(981_798_123)` — `derive_seed(42, "layout")` is the reference's own seed — three
+words per node in `x, y, z` order, each `(-1.0 + 2.0 * u) * (SCALE * 0.8)`, the reference's operand
+order. This changed the **registered** layout's bytes on purpose: the reference is SciGraphs, so
+the motor's drawing is now SciGraphs' drawing. The module doc also carried a wrong sentence — that
+only the first call after a reset is reproducible — which `dispatcher.py:22`'s `_reset_layout_rng()`
+on entry of `apply_graph_layout` refutes. What makes the row pass is the generator and the seed,
+not the operand order: at `reach = 4.0` the three algebraically equal forms are bit-identical
+(2e6 draws, 0 mismatches).
+**Measured:** `f32` 501/1020 -> **1020/1020**, disparity 0.202 -> 5.7e-17. The remaining 501/1020
+`f64` are the `3 * min(n, 8)` corner coordinates of **all 24** fixtures — 24 each wherever `n >= 8`,
+and `±5.0` / `0.0` are `f32`-representable, so those are exact in both widths. Not "the small
+fixtures": only 8 fixtures have `n <= 8` and they hold 117 of the 501. See
+`docs/measurements/sg-mt19937.md`.
 
 ### 7. `GRAPHVIZ_OSAGE` — `algorithm`, and it is a row assignment
 **File:** `crates/graph-core/src/layout/graphviz/osage.rs:163`. **Change:** the y coordinates already
@@ -300,14 +352,36 @@ each side lands on. Compare one eigenvector's sign convention against networkx's
 **Expected:** `SPECTRAL_3D` 0.333 and `MDS_3D` 0.078 fall; `MDS_3D` is the closest non-matching row
 in the matrix and the most likely to close.
 
-### 10. `SPIRAL_3D` — `algorithm`, a hard-coded default
-**File:** `crates/graph-core/src/layout/spiral.rs:32`. **Change:** `RESOLUTION = 0.35` is graph-core's
-own; SciGraphs calls `nx.spiral_layout(num_nodes, scale)` with networkx's default `resolution =
-1.0`, and its `_spiral_layout_3d` (`basic.py:36`) returns three columns where the motor's planar
-layout has no `z` at all.
-**Expected:** the disparity 0.585 falls sharply; the `z` needs a `Geometry::in_space`.
+### 10. `SPIRAL_3D` — `algorithm`, and **not** `layout.spiral` (landed)
+**Files:** new `crates/graph-core/src/layout/basic_3d/spiral.rs`, `registry/three_d/spiral3d.rs`,
+`conformance/rows.rs`. **Change:** an earlier version of this paragraph said to raise
+`RESOLUTION = 0.35` to 1.0 in `layout/spiral.rs:32`. **Both halves of that were wrong, and
+correcting it is most of the repair.** (1) SciGraphs does not call `nx.spiral_layout` at all:
+`SPIRAL_3D` dispatches to its own `_spiral_layout_3d` (`basic.py:36-63`,
+`layouts/dispatcher.py:105-106`), which is a *conical 3D spiral* — radius `scale*0.5` to
+`scale`, `z` from `-scale` to `scale`, spaced evenly along its own arc length. `layout.spiral`
+is graph-core's planar Archimedean spiral and SciGraphs has no 2D spiral to compare it to, so
+no value of `resolution` could have moved this row. (2) Even the right diagnosis — three
+columns where the motor's planar layout has no `z` — does not make this a `resolution` edit:
+the new id is a 3D layout of its own, through `basic_3d`'s `in_space`, with `layout.spiral`
+left untouched. The port is an arc-length inversion, not a formula: `t = interp(wanted,
+length, grid)` over a 65 536-point grid whose `cumsum` is sequential, and numpy's `linspace`
+and `interp` each have an arithmetic of their own.
+**One correction to the shape of the work, not to the row:** the `max(2, ...)` turn-count floor is
+narrower than "for every `n <= 14`" suggests. Measured with numpy 2.3.3, the raw rounded
+`sqrt(n/(0.75*pi))` is 1 for `n = 1..5` and is already 2 for `n = 6..14`, so the floor lifts the
+value only at `n = 1, 2, 3, 4, 5` and is a no-op from 6 to 14; the first node count whose raw
+round is 3 is `n = 15`.
+**Measured:** disparity 0.585 -> 3.34e-16 median (5.59e-16 max), `f32` **1020/1020**,
+`f64` 120/1020, tier `shape` -> `tolerance`, cause `algorithm` -> `arithmetic`. The judge's own
+line for row 14 and the row's `metrics.json` cells are pasted verbatim in
+`docs/measurements/sg-spiral3d.md` ("The run those numbers come from"), which is also where the
+caveats this paragraph omits live: the cross-language oracle covers sphere, helix and cube only
+(the spiral arm arrives in a later job), and `layout.basic3d.spiral` has no
+`THREE_D_LAYOUT_STAGES` entry and no negative control yet. `n = 0` is a deliberate divergence
+from the reference, unreachable from this matrix.
 
-### 11. `SUGIYAMA`, `IGRAPH_KK`, `YIFAN_HU`, `GRAPHVIZ_NEATO`, `GRAPHVIZ_FDP`,
+### 11. `IGRAPH_KK`, `YIFAN_HU`, `GRAPHVIZ_NEATO`, `GRAPHVIZ_FDP`,
 `GRAPHVIZ_CIRCO` — `algorithm`
 Each is a different method rather than a convention or an RNG, so each needs its own porting job
 and none is a one-line change. `GRAPHVIZ_CIRCO` is the one row here that matches on the tree
@@ -325,6 +399,12 @@ layouts share SciGraphs' node sets (`_bipartite_parts`, or `_greedy_max_cut` whe
 not two-colour) and differ in every coordinate after it, which is why the new id is
 `layout.bipartite_3d` beside the networkx one rather than a change to it. The repair is
 `docs/measurements/sg-bipartite3d.md`.
+
+**`SUGIYAMA` was on this list and is no longer.** It is now `tolerance`/`arithmetic` at
+`f32 1020/1020`; the repair was the per-axis normalisation plus two stage-one causes the
+reference's own functions named (`ArcOrder::NodeIndex`, because `common.py:238` builds an
+`nx.Graph`, and the reference's `arcs` being a `set`). `docs/measurements/sg-sugiyama.md` has
+the numbers and the per-stage diff.
 
 ## Cells that say `not run`, and why
 
