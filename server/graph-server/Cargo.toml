@@ -1,0 +1,33 @@
+[package]
+name = "graph-server"
+description = "graph-motor as an HTTP microservice: the compute API and the embed assets."
+# Kept equal to the motor workspace's version: `/v1/meta` reports it and `/embed/<version>/` is
+# the immutable path the image stages the studio under.
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98"
+publish = false
+
+# Every external crate is pinned exactly (`=`): a service over untrusted input moves a
+# dependency on purpose, in a reviewed commit, never through a resolver run.
+[dependencies]
+graph-contract = { path = "../../crates/graph-contract" }
+graph-core = { path = "../../crates/graph-core" }
+graph-wasm = { path = "../../crates/graph-wasm", features = ["native"] }
+axum = { version = "=0.8.9", default-features = false, features = ["http1", "tokio"] }
+base64 = { version = "=0.23.1", default-features = false, features = ["std"] }
+http-body-util = "=0.1.5"
+percent-encoding = "=2.3.2"
+serde_json = { version = "=1.0.151", default-features = false, features = ["std"] }
+sha2 = { version = "=0.10.9", default-features = false, features = ["std"] }
+subtle = { version = "=2.6.1", default-features = false, features = ["std"] }
+tokio = { version = "=1.53.2", features = ["rt-multi-thread", "net", "signal", "time", "sync"] }
+tower-http = { version = "=0.7.1", default-features = false, features = ["fs", "cors"] }
+
+[dev-dependencies]
+tokio = { version = "=1.53.2", features = ["macros"] }
+tower = { version = "=0.5.3", default-features = false, features = ["util"] }
+
+[lints.rust]
+missing_docs = "warn"
+unsafe_code = "forbid"
