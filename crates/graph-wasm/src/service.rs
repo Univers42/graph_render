@@ -108,3 +108,6 @@ fn post_index(id: &str) -> Result<u32, Code> {
         .find(|&index| crate::post::id_at(index) == Some(id))
         .ok_or(Code::IndexOutOfRange)
 }
+
+#[cfg(test)]
+mod tests;
