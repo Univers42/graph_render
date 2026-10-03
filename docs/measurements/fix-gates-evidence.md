@@ -350,7 +350,7 @@ after-state, `73 rows, 36 problems`. No other record was written by this job.
   `capabilities/tests/registry/post.rs` unchanged. The parent is now 199 lines.
 - `evidence/tests.rs` (388 lines): the two no-clobber tests moved to
   `evidence/tests/clobber.rs` unchanged. The parent is now 248 lines.
-- The two `#[allow(unreachable_patterns)]` suppressions are gone. `edge_kind_name` now
+- The two unlinked `unreachable_patterns` suppressions are gone. `edge_kind_name` now
   matches every `EdgeGeometryKind` variant with no catch-all, so a new variant is a compile
   error rather than a runtime `unknown` row. With nothing left to produce it, `UNKNOWN_GEOMETRY`,
   its `problems()` refusal and the test of that refusal were deleted.
