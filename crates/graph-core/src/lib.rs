@@ -44,7 +44,7 @@ mod weights;
 
 pub use arena::{CapacityError, Interned, StringArena};
 pub use columns::{EdgeColumns, NodeColumns, NodeKind};
-pub use csr::{Csr, Incident};
+pub use csr::{AppendCsr, Csr, Incident};
 pub use diff::{Patch, diff_graph, edges_equal, is_empty_patch};
 pub use edgekind::{EdgeKind, child_first_from_type, edge_kind_from_type};
 pub use ids::{
