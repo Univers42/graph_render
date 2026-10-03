@@ -1,10 +1,12 @@
 use super::*;
+use crate::geometry::Paths;
 use crate::snapshot::{Dim, HEADER_LEN, label_for};
 use crate::version::{CURRENT_VERSION, NewerMajor};
 
 mod dim;
 mod paths;
 mod pinned;
+mod repeat;
 
 fn table(column: &'static str, items: &[&str]) -> StringTable {
     StringTable::from_strs(column, items.iter().copied()).expect("fits")
