@@ -4,7 +4,7 @@ import { test } from "node:test";
 
 import { initialState } from "../src/state/model.ts";
 import { createStore } from "../src/state/store.ts";
-import { type SettingsStorage, keepSettings, openingSettings, recall, remember } from "../src/state/persist.ts";
+import { STORED_DOCUMENT_CHARS, type SettingsStorage, keepSettings, openingSettings, recall, remember } from "../src/state/persist.ts";
 import { DEFAULT_SETTINGS, type Settings, withAppearance, withFilter, withSettings } from "../src/state/settings.ts";
 
 function memory(): SettingsStorage & { readonly items: Map<string, string> } {
@@ -76,6 +76,44 @@ test("keepSettings writes when the settings change and not when something else d
   assert.equal(writes, 2, "the document and the last-source pointer");
   assert.deepEqual(recall(storage, DEFAULT_SETTINGS.source), changed());
   stop();
+  assert.equal(writes, 3, "a stop marks a clean end");
   store.update((state) => ({ ...state, settings: DEFAULT_SETTINGS }));
-  assert.equal(writes, 2);
+  assert.equal(writes, 3);
 });
+
+test("a document too long to store is neither stored nor recalled", () => {
+  const storage = memory();
+  const source = { kind: "document", name: "big.json", text: "x".repeat(STORED_DOCUMENT_CHARS + 1) } as const;
+  remember(storage, withSettings(DEFAULT_SETTINGS, { source }));
+  assert.equal(storage.items.size, 0);
+  assert.equal(recall(storage, source), null);
+});
+
+test("a source whose page never ended cleanly is not opened again by itself", () => {
+  const storage = memory();
+  const second = withSettings(DEFAULT_SETTINGS, { source: other });
+  remember(storage, second);
+  assert.deepEqual(openingSettings(storage), second);
+  assert.deepEqual(openingSettings(storage), DEFAULT_SETTINGS, "the first page never said it ended");
+  assert.deepEqual(recall(storage, other), second, "picked again, it is recalled as usual");
+});
+
+test("a source the page held is opened again only after a clean end", () => {
+  const storage = memory();
+  const page = new EventTarget();
+  const store = createStore({ ...initialState(), settings: DEFAULT_SETTINGS });
+  const stop = keepSettings(store, storage, page);
+  const second = withSettings(DEFAULT_SETTINGS, { source: other });
+  store.update((state) => ({ ...state, settings: second }));
+  assert.deepEqual(openingSettings(memoryOf(storage)), DEFAULT_SETTINGS, "the page still holds it");
+  page.dispatchEvent(new Event("pagehide"));
+  assert.deepEqual(openingSettings(storage), second);
+  stop();
+});
+
+/** A copy of `storage`, so reading it as a new page would does not mark the original. */
+function memoryOf(storage: ReturnType<typeof memory>): SettingsStorage {
+  const copy = memory();
+  for (const [key, value] of storage.items) copy.items.set(key, value);
+  return copy;
+}

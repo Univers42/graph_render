@@ -47,6 +47,7 @@ mod placement;
 mod radii;
 mod triangles;
 
+use crate::budget;
 use crate::index::Topology;
 use crate::layout::Geometry;
 use crate::layout::planarity;
@@ -105,7 +106,8 @@ pub fn run(topology: &Topology) -> Result<Geometry, StageError> {
 }
 
 /// Runs circle packing over `topology`'s own edges (every kind, self-loops and
-/// multi-edges reduced away). Refused only when `scale` is not finite and above `0`.
+/// multi-edges reduced away). Refused when `scale` is not finite and above `0`, and when
+/// the fallback's n x n adjacency would pass [`crate::budget`].
 pub fn run_with(topology: &Topology, params: &CirclePackingParams) -> Result<Geometry, StageError> {
     check_scale(params.scale)?;
     let n = topology.node_count();
@@ -113,7 +115,7 @@ pub fn run_with(topology: &Topology, params: &CirclePackingParams) -> Result<Geo
         0 => empty(),
         1 => single(params.scale),
         2 => pair(params.scale),
-        _ => pack(topology, params),
+        _ => pack(topology, params)?,
     };
     Ok(to_geometry(packed))
 }
@@ -131,13 +133,15 @@ fn check_scale(scale: f32) -> Result<(), StageError> {
 
 /// `n >= 3`: the exact path, or the fallback when it cannot certify one
 /// (`circle_packing.py:308-311`).
-fn pack(topology: &Topology, params: &CirclePackingParams) -> Packed {
+/// Refused before the fallback when its n x n adjacency would not fit the budget.
+fn pack(topology: &Topology, params: &CirclePackingParams) -> Result<Packed, StageError> {
     let n = topology.node_count();
     let edges = simple_pairs(topology);
-    match try_exact(n, &edges, params) {
-        Some(packed) => packed,
-        None => fallback::pack(n, &edges, &loop_counts(topology, n), params),
+    if let Some(packed) = try_exact(n, &edges, params) {
+        return Ok(packed);
     }
+    budget::quadratic(budget::square(u64::from(n)), 8)?;
+    Ok(fallback::pack(n, &edges, &loop_counts(topology, n), params))
 }
 
 /// Whether each node has a self-loop (0 or 1), kept out of [`simple_pairs`]'s reduction on

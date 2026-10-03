@@ -1,0 +1,8 @@
+drun-check|0|scripts/orch/drun-check.sh
+negctl-drun-check|0|d=$(mktemp -d) && printf 'docker %s x\n' run >"$d/a.sh" && scripts/orch/drun-check.sh "$d"; rc=$?; rm -rf "$d"; test $rc -eq 1
+gm-slice|0|scripts/orch/gm-slice.sh check
+negctl-gm-slice|0|GM_SLICE_BREAK=1 scripts/orch/gm-slice.sh check; test $? -eq 1
+memwatch-fixtures|0|scripts/orch/memwatch.sh selftest-fixtures
+negctl-memwatch-fixtures|0|MEMWATCH_BREAK=1 scripts/orch/memwatch.sh selftest-fixtures; test $? -eq 1
+memwatch-live|0|scripts/orch/memwatch.sh selftest
+negctl-memwatch-live|0|MEMWATCH_BREAK=1 scripts/orch/memwatch.sh selftest; test $? -eq 1
