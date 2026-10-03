@@ -8,6 +8,7 @@
 pub(crate) mod barnes_hut;
 pub mod davidson_harel;
 pub mod drl;
+pub mod forcesim;
 pub mod fruchterman_reingold;
 pub mod graphopt;
 pub mod kamada_kawai;
@@ -22,6 +23,7 @@ pub(crate) mod yifan_hu;
 pub use barnes_hut::{BarnesHut, Split};
 pub use davidson_harel::DavidsonHarel;
 pub use drl::Drl;
+pub use forcesim::{Fa2ForceSimParams, ForceAtlas2ForceSim};
 pub use fruchterman_reingold::FruchtermanReingold;
 pub use graphopt::Graphopt;
 pub use kamada_kawai::KamadaKawai;
