@@ -29,7 +29,7 @@ import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "n
 import { createHash } from "node:crypto";
 import { join, relative, resolve, sep } from "node:path";
 import { hierarchy, tree, treemap, treemapSquarify } from "d3-hierarchy";
-import { attest, refuseChangedBytes, sealPathFor } from "./oracle-attest.mjs";
+import { attest, sealPathFor } from "./oracle-attest.mjs";
 import { nodeValue } from "./oracle-layout-value.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..");
@@ -86,11 +86,7 @@ function loadFixtures() {
   if (lines.length !== manifest.seeds) {
     fail(`layout-manifest.json declares ${manifest.seeds} seeds, layouts.jsonl has ${lines.length}`);
   }
-  // The manifest's digests are written by whoever wrote the fixtures, so a hand-edited line
-  // plus a re-sealed digest passes every guard above. Refused here, before the comparison.
-  const digest = digestOf(manifest);
-  refuseChangedBytes({ sealPath: sealPathFor(GATES, "oracle-layouts"), gate: "oracle-layouts fixtures", fingerprint: manifest.fingerprint, sha256: digest });
-  return { manifest, lines, digest };
+  return { manifest, lines, digest: digestOf(manifest) };
 }
 
 /** Every real node (`data.id !== null`), indexed by its dense id, from anywhere in `node`'s subtree. */
@@ -182,9 +178,19 @@ function printReport(manifest, result) {
 const digestOf = (manifest) => sha256(Object.keys(manifest.sha256).sort().map((f) => `${f}\0${sha256(readFileSync(join(FIXTURES, f)))}`).join("\n"));
 
 /** Records the verdict, unless the tree moved while the run was reading it. */
+/**
+ * Records the verdict, unless the tree moved while the run was reading it.
+ *
+ * The fixture bytes are sealed beside the record, and that is where a hand-edited
+ * `layouts.jsonl` with a re-sealed manifest digest is caught: this run would otherwise
+ * compare against fixtures `emit-fixtures` never wrote and report a clean pass. A failing
+ * run writes no seal — it is already red, and a refusal would replace its mismatch.
+ */
 function writeRecord({ manifest, digest }, result, pass) {
   if (fingerprint(manifest.fingerprinted) !== manifest.fingerprint) fail("the tree changed during the run: not recorded");
-  const seal = attest({ sealPath: sealPathFor(GATES, "oracle-layouts"), gate: "oracle-layouts fixtures", fingerprint: manifest.fingerprint, sha256: digest, pass });
+  const seal = pass
+    ? attest({ sealPath: sealPathFor(GATES, "oracle-layouts"), gate: "oracle-layouts fixtures", fingerprint: manifest.fingerprint, sha256: digest, pass })
+    : { sealed: false };
   const record = {
     gate: "oracle-layouts",
     fingerprint: manifest.fingerprint,

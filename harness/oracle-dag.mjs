@@ -93,6 +93,8 @@ async function main() {
   const digest = sha256Hex(raw);
   const source = treeFingerprint(repoRoot, DUMP_SOURCES);
   const sealPath = sealPathFor(GATES, "oracle-dag");
+  // Refused before measuring, unlike the fixture arms' seal: `our_crossings` is the arm's
+  // own subject, so a verdict computed from untrusted bytes is worse than no verdict.
   const seen = refuseChangedBytes({ sealPath, gate: "oracle-layouts --dag", fingerprint: source, sha256: digest });
   const dagreCrossings = await loadDagre();
   const forced = dagreCrossings(K44.nodes, K44.edges);
