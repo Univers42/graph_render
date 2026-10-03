@@ -95,15 +95,24 @@ scripts/orch/gr cargo clippy --workspace --all-targets -- -D warnings      -> 0
 scripts/orch/gr cargo build -p graph-core --target wasm32-unknown-unknown   -> 0
 scripts/scigraphs-conformance.sh                                           -> 0  PASS
 scripts/scigraphs-conformance.sh --break                                   -> 1  scigraphs-conformance: --break caught: SPRING_3D
-scripts/orch/gr cargo test --workspace --no-fail-fast                       -> 101  (one pre-existing failure, see below)
+scripts/orch/gr cargo test --workspace --no-fail-fast                       -> 101  (1879 pass, 1 fail, see below)
 ```
 
-`cargo test` — 1235 pass, 1 fail:
+`cargo test` — 1879 pass, 1 fail:
 `layout::graphviz::dot::rank_tests::the_first_twenty_fixture_seeds_rank_as_the_oracle_ranks_them`
 panics at `crates/graph-core/src/layout/graphviz/dot/oracle_probe.rs:58` on a **missing
-probe file** `target/probe/rank1000.txt` (untracked, absent from a clean checkout).
-Pre-existing and outside this job's paths: nothing under `crates/graph-core` was touched,
-and the module's own doc says the tests that read the probe should skip rather than fail.
+probe file** `target/probe/rank1000.txt`. Pre-existing, outside this job's paths, and fixed
+upstream: `origin/develop` (`9178255`) rewrites that module's doc to say the sweep is
+`#[ignore]`d "for that reason". The generator, `target/probe/rank_oracle.py`, lived under the
+untracked `target/` and did not survive, so the file cannot be regenerated here.
+
+**The merge the orchestrator asked for could not be run.** `git fetch` and
+`git merge origin/develop` are both denied in this sandbox — state-changing git is blocked
+(`AGENTS.md`: "Never change git state (commit, add, checkout, stash, …): it is denied"). What
+I could establish read-only: `origin/develop` is already fetched locally, is **80 commits
+ahead** of this branch (which is 7 ahead), and does contain the `#[ignore]` fix quoted above.
+The merge therefore needs one command from the orchestrator:
+`git merge -m updated origin/develop`.
 
 Every arm's verdict on its committed fixtures (`graph-cli oracle-*`), all exit 0:
 
@@ -117,6 +126,17 @@ oracle-circular-hierarchy PASS          oracle-hierarchical-3d PASS
 
 Conformance, 32 rows, `pass: true`, every row `unexplained: 0` and every
 `procrustes_median` under its pinned ceiling (`target/gates/scigraphs-conformance.json`).
+
+The SciGraphs suites, all run with `python3 -B`:
+
+```
+python3 -B -m unittest discover -s harness -p 'test_scigraphs_lesmis*.py'  -> 0  Ran 64, OK
+```
+
+M37's negative control, the review's own reproducer: `nodes[0].screen` set to `[0.0, 0.0]`
+in a scratch copy → `Ran 13, FAILED (failures=1)`, and the one failure is
+`test_the_committed_fixture_is_what_this_emitter_produces`. Before M37 all 12 document tests
+passed on that tampered artifact.
 
 New tests: `harness/test_oracle_common.py` (12) and `harness/test_gv_plain.py` (14), both
 green. Run against the **pre-fix** `gv_plain`, 7 of the 14 fail — including M26's exact
@@ -147,13 +167,21 @@ docker run … ge-graphviz-oracle python3 -m unittest discover -s harness -p 'te
 - **m109** — refused `world_bounds([])`. `scigraphs_lesmis_camera.py` is in this job's
   paths but `test_scigraphs_lesmis_branches.py`'s `WorldBounds` cases are not, and the file
   has no finding of its own. **Recommended:** add the refusal with a matching test case.
-- **m107 / m108 fixture staleness** — correcting the eight provenance strings made the
-  committed `fixtures/scigraphs/lesmis.json` differ from the emitter, which M37's new test
-  correctly reports as the one failing case among 64. `fixtures/` is not in this job's paths.
-  **Recommended:** the fixture owner re-emits with
-  `emit-scigraphs-lesmis.py --out fixtures/scigraphs/lesmis.json`, which is now atomic and
-  so cannot leave a truncated fixture. Everything outside `provenance` is byte-identical:
-  nodes, edges, labels, radii and params all compare equal.
+- **m107 / m108 — RESOLVED.** `fixtures/scigraphs/lesmis.json` was re-emitted in this branch
+  with the atomic `emit-scigraphs-lesmis.py --out fixtures/scigraphs/lesmis.json` (exit 0, no
+  leftover temp files). **Only provenance changed**, verified field by field against the
+  pre-emit bytes: `edges`, `labels`, `nodes`, `params`, `radii` and the top-level key order
+  all compare equal; within `provenance`, `layout_seed`, `networkx`, `numpy`, `ponytail` and
+  `seed` are unchanged, and `sources` / `source_digests` / `scigraphs_revision` are the three
+  that moved (38,167 → 40,524 bytes, +31 −9 lines, a content-only git diff). All **9**
+  distinct source paths now resolve from the repo root, and `colormaps.py:534-536` (the
+  QUANTILE branch) is now `527-530` (RANK). The 64 lesmis tests are green; M37's
+  byte-binding test fails on exactly one case when the artifact is tampered, which is the
+  control the review asked for.
+  One note: the emitter writes through `mkstemp`, so the re-emitted file arrived mode `0664`
+  but owned by `uid 0` (the emit ran `--user 0:0`, as every gate row does) and this sandbox
+  cannot `chown` it back. Git records a content-only change — no mode change — so the
+  orchestrator's commit is unaffected.
 - **`docs/contract/wasm-abi.md`'s igraph dimensionality** — see the last note. It records
   `dim=3` for the igraph family; this arm's metric is 2-D and igraph refuses a 3-D
   Kamada-Kawai start. The contract is not in this job's paths.
@@ -169,13 +197,12 @@ docker run … ge-graphviz-oracle python3 -m unittest discover -s harness -p 'te
   discover` compiles itself — CPython writes the `.pyc` while compiling the module, before its
   first line runs. `harness/test_gv_plain.py` and `harness/test_oracle_common.py` therefore
   document `python3 -B -m unittest …` in their docstrings, and with `-B` the tree stays clean.
-- `gv_plain.engine_points` keeps its **six** positional parameters on purpose. m63 named it
-  for the `start=START_SEED` default binding, which is fixed, and for arity only on
-  `framed_case` and `gv_closed.closed_case`, which are both now at four.
-  `harness/scigraphs-conformance/sc_graphviz.py:59` calls the six-parameter form positionally
-  and that file belongs to another job: re-aritying it broke `scigraphs-conformance.sh` with
-  `TypeError: engine_points() got multiple values for argument 'start'`, which is how the
-  dependency was found.
+- `gv_plain.engine_points` takes four parameters — `(engine, dot, graph, start)` — so it and
+  `printed_nodes` have the same shape. That re-arity broke
+  `harness/scigraphs-conformance/sc_graphviz.py:59` (`TypeError: engine_points() got multiple
+  values for argument 'start'`), which is how the dependency surfaced: the caller is now
+  updated too (`dot_path` + `graph_of`), and `scigraphs-conformance.sh` exits 0 with all 32
+  rows at `unexplained: 0`.
 - `docs/contract/wasm-abi.md` and the review's M21 both treat `dim=3` as the reference's
   setting for the igraph family. For **this arm** the metric is a two-dimensional stress
   ratio, and igraph refuses a 3-D Kamada-Kawai start matrix outright. M21 is `false` on
@@ -201,7 +228,12 @@ docker run … ge-graphviz-oracle python3 -m unittest discover -s harness -p 'te
 `perturb-{closed-form,basic-3d,hierarchical-3d}.py`,
 `scigraphs_lesmis_{graph,fixture,camera,pins}.py`, `emit-scigraphs-lesmis.py`,
 `test_scigraphs_lesmis_document.py`, `crates/graph-cli/src/oracle_python/fa2.rs` (M27's doc
-comment only; `GATED_MAX_ITER = 2` untouched), and this file.
+comment only; `GATED_MAX_ITER = 2` untouched),
+`harness/scigraphs-conformance/sc_graphviz.py` (the one caller of the re-aritied
+`engine_points`, per the orchestrator's direction), `fixtures/scigraphs/lesmis.json` (the
+re-emit, per the orchestrator's direction), and this file.
 
 `fix-gates-oracles`' RG-22 (`gv_plain.write_dot`, :37-47) and `fix-gates-conformance`'s
 RG-16 digest echo in `oracle-spring.py` were both left byte-identical, as the job requires.
+`scripts/orch/rows/` was not touched; the M28 and m112 row text above is what the owner
+needs.
