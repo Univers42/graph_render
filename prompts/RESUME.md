@@ -6,6 +6,26 @@ authority. `docs/reports/STATUS.md` and `prompts/CONTINUE.md`, both rewritten 20
 current rollups. The standing rules are still in `CLAUDE.md`, `prompt.md`,
 `prompts/ONBOARDING.md`, `prompts/AGENT_BRIEF.md`.
 
+## 2026-10-03 — the memory guard (host freezes), on develop at 19d2ae9b
+
+The host froze twice and needed a hard reset: RAM on 2026-10-03 20:32 (11-18 uncapped job
+containers under `vm.overcommit_memory=1`) and the GPU on 2026-10-02 23:36 (a gfx ring timeout
+with llama-server holding 6.3 of 8.6 GB VRAM). Decision and evidence:
+`docs/decisions/memory-guard.md`, `docs/measurements/memory-profile.md`.
+
+- Containers: every `docker run` goes through `scripts/orch/drun` into `gm.slice` (60 % of RAM, no
+  swap); `drun-check.sh` flags a bare one. An excess is now an exit 137 in one gate, not a freeze.
+- Host: `gm-memwatch.service` (`scripts/orch/memwatch.sh`) kills the largest job cgroup under RAM
+  pressure, the largest unprotected GPU client when VRAM is full, and a process that hangs the gfx
+  ring twice in 120 s.
+- Motor: `graph_core::budget` refuses quadratic tables over 1 GiB (KK above 11 585 nodes, neato
+  above 13 376). valgrind (`memprofile.sh`): about 1.2 KB of heap per node, memcheck 0 lost.
+- Studio: document and link caps (`packages/graph-studio/src/source/limits.ts`), the motor worker
+  retired on a new source or a trap (wasm memory never shrinks), GL contexts lost on destroy, and a
+  source that took the page down is not replayed at the next start.
+- Outside the repo, not changed: the llama container and two MCP servers run uncapped, and
+  `vm.overcommit_memory=1` is set by microk8s.
+
 ## HANDOFF 2026-10-01 (written 2026-10-02) — read this first, it overrides the 2026-09-30 block
 
 `docs/reports/STATUS.md` and `prompts/CONTINUE.md` were rewritten on 2026-10-02 and are the
