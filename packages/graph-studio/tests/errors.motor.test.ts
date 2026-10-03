@@ -36,7 +36,7 @@ test("an unavailable motor is reported as degraded, with the reason it carries",
   assert.equal(shown.title, "WasmUnavailableError");
   assert.equal(shown.code, null);
   assert.equal(shown.detail, "wasm module failed to load — 404");
-  assert.equal(shown.hint, "The wasm motor did not load, so no layout can run. Run scripts/studio.sh so graph_wasm.wasm is in app/public/.");
+  assert.equal(shown.hint, "The wasm motor did not load, so no layout can run. Run scripts/studio.sh wasm to build graph_wasm.wasm into app/public/, then reload.");
 });
 
 test("an unavailable motor with no reason keeps just its message", () => {

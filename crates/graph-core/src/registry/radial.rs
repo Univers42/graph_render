@@ -8,19 +8,27 @@
 //! networkx's unit box.
 
 use super::Metadata;
+use super::bench_cap::MAX_BENCH_NODES;
 use graph_contract::geometry::{EdgeGeometryKind, NodeGeometryKind};
 
-/// Node count `layout.twopi` was run at, the largest size `graph-cli bench` accepts.
+/// Node count `layout.twopi` was run at: the largest size `graph-cli bench` accepts,
+/// which [`MAX_BENCH_NODES`] is, read here rather than written out so this figure and
+/// the 3D ceiling cannot drift apart.
 ///
 /// **Measured**, `--release`, `--repeat 3` medians on one host, with
 /// `scripts/orch/gr cargo run -q --release -p graph-cli -- bench --layout layout.twopi
 /// --n 220,10000,100000,1000000 --past-ceiling --repeat 3`: 0.05 ms at 220 nodes, 2.20 ms
 /// at 10 000, 25.35 ms at 100 000 (154 978 edges) and 447.58 ms at 1 000 000 (1 549 929
 /// edges), a flat ~0.45 us per node, so the `O(n + m)` in `complexity` is what the timings
-/// show. The full table is in `docs/measurements/p13-gv1.md`. 1 000 000 is the largest size
-/// `bench` accepts and where it was run, not where it was found to stop working, so this is
-/// a measured lower bound — nothing about the layout is quadratic.
-pub const RADIAL_CEILING: u64 = 1_000_000;
+/// show. The full table is in `docs/measurements/p13-gv1.md`. The figure is where
+/// `bench` accepts and where the layout was run, not where it was found to stop working,
+/// so this is a measured lower bound — nothing about the layout is quadratic.
+///
+/// Ponytail (scale_ceiling): what it gets wrong — this is a tool's parse range, not a wall
+/// the layout found, and the timings behind it are one host's medians at one size.
+/// Direction: it understates the ceiling, never overstates it. Escape hatch: raise
+/// `MAX_BENCH_NODES` and re-measure, the one change that can move this number.
+pub const RADIAL_CEILING: u64 = MAX_BENCH_NODES as u64;
 
 const DEGRADATION: &str = "past the ceiling wasm32 cannot allocate and the module traps (no \
 partial result); natively, memory permitting, the snapshot refuses with \

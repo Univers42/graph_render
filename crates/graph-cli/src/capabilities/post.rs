@@ -1,6 +1,6 @@
-//! Phase 8's POST rows: `post.route.grid` (obstacle-avoiding routing over a uniform grid
-//! of the node geometry), the two bundling rows `post.bundle.fdeb` and
-//! `post.bundle.mingle`, and the four `post.style.*` rows.
+//! The POST rows: `post.route.grid` (obstacle-avoiding routing over a uniform grid of the
+//! node geometry), the two bundling rows `post.bundle.fdeb` and `post.bundle.mingle`, the
+//! node-overlap row `post.separate.grid`, and the four `post.style.*` rows.
 //!
 //! Split out of `capabilities.rs` for the same reason Phase 7's `analysis.rs` is: the
 //! 300-line house limit, and a POST row's metadata is long and specific in a way a
@@ -13,11 +13,12 @@
 //! (`prompt.md` §8). The wiring is the merge step's, exactly as it was for Phase 7's
 //! analysis rows (`docs/measurements/phase07-analysis.md`).
 //!
-//! Only the routing row's metadata is written out here. The other six are projected from
+//! Only the routing row's metadata is written out here. The other seven are projected from
 //! the `Metadata` their own `graph-core` module already declares
-//! (`post::fdeb::META`, `post::mingle::META`, `post::styles::STYLES`), which is where the
-//! measured ceilings and the Ponytails live. Restating them here would be a second answer
-//! to the same question, free to drift from the code that carries them.
+//! (`post::fdeb::META`, `post::mingle::META`, `post::separate::META`,
+//! `post::styles::STYLES`), which is where the measured ceilings and the Ponytails live.
+//! Restating them here would be a second answer to the same question, free to drift from the
+//! code that carries them.
 
 use super::{Capability, Status};
 
@@ -111,15 +112,32 @@ pub fn rows() -> impl Iterator<Item = Capability> {
         .chain(styles())
 }
 
-/// The two bundling rows, projected from the metadata their own `graph-core` modules
-/// declare ([`graph_core::post::fdeb::META`], [`graph_core::post::mingle::META`]). Read
-/// across rather than restated: a second, looser copy of a ceiling or a Ponytail is a
-/// second answer, and the two would drift. Neither is `gated` — see the module doc.
+/// The rows projected from the metadata their own `graph-core` modules declare:
+/// [`graph_core::post::fdeb::META`], [`graph_core::post::mingle::META`] and
+/// [`graph_core::post::separate::META`].
+///
+/// Read across rather than restated: a second, looser copy of a ceiling or a Ponytail is a
+/// second answer, and the two would drift. None is `gated` — see the module doc.
+///
+/// **The three ids come from the constants themselves, not from a list beside them.** A
+/// hand-written id string beside a `META` is a string free to drift from the registry row the
+/// hash gate hashes under, and a drifted id makes the ledger name a capability that does not
+/// exist. `separate`'s `edges` is `Line` because the pass is **pass-through** — it emits the
+/// edges it was handed — and there is no `EdgeGeometryKind` for "the same edges"; its
+/// `Metadata::moves_nodes` flag is what tells a reader to read that column that way.
 fn bundles() -> impl Iterator<Item = Capability> {
-    [graph_core::post::fdeb::META, graph_core::post::mingle::META]
-        .into_iter()
-        .zip(["post.bundle.fdeb", "post.bundle.mingle"])
-        .map(|(meta, id)| row(id, edge_kind_name(meta.edges), RowMeta::of_post(&meta)))
+    [
+        graph_core::post::fdeb::META,
+        graph_core::post::mingle::META,
+        graph_core::post::separate::META,
+    ]
+    .into_iter()
+    .zip([
+        graph_core::post::fdeb::ID,
+        graph_core::post::mingle::ID,
+        graph_core::post::separate::ID,
+    ])
+    .map(|(meta, id)| row(id, edge_kind_name(meta.edges), RowMeta::of_post(&meta)))
 }
 
 /// The four style rows, projected from [`graph_core::post::styles::STYLES`]. They differ

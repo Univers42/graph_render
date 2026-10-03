@@ -8,6 +8,8 @@
 
 use super::{Collection, Ingest, IngestError, Role};
 
+mod cells;
+
 /// Every check that needs the whole document, in a fixed order so the refusal a
 /// document gets does not depend on which member the parser happened to reach first.
 pub(super) fn check(mut doc: Ingest) -> Result<Ingest, IngestError> {
@@ -16,8 +18,9 @@ pub(super) fn check(mut doc: Ingest) -> Result<Ingest, IngestError> {
     // Two passes, and the order is load-bearing. Everything that *reports* runs first and
     // borrows the document immutably, so every refusal names the index the field has in
     // the file the reader has open. The canonical sort runs second: from here on the
-    // field list is sorted, so `first_with_role` and the derived edge order depend on the
-    // ids and never on how the source happened to list them.
+    // field list is sorted, so the derivation's "first field with this role" and the
+    // derived edge order depend on the ids and never on how the source happened to list
+    // them (H6, D5).
     for (i, collection) in doc.collections.iter().enumerate() {
         check_fields(collection, &doc, &format!("collections[{i}]"))?;
     }
@@ -26,6 +29,9 @@ pub(super) fn check(mut doc: Ingest) -> Result<Ingest, IngestError> {
     }
     check_unique_records(&doc)?;
     check_references(&doc)?;
+    // Last, because it walks the cells of fields whose collections `check_references` has
+    // already found (see `cells`'s module doc for the order this buys).
+    cells::check_link_cells(&doc)?;
     Ok(doc)
 }
 
@@ -36,22 +42,48 @@ pub(super) fn check(mut doc: Ingest) -> Result<Ingest, IngestError> {
 /// ask this phase does not take, so the coordinates are constrained instead and the
 /// refusal names the coordinate.
 ///
-/// The record id is deliberately unconstrained: it is the last segment, so a `:` in it
-/// round-trips exactly (`parse_node_id`'s `splitn(3, ':')` rejoins the remainder).
+/// Every coordinate a node id is built from is checked, and every field id with it:
+/// `source`, each collection id, each record id, each field id. Only `source` and a
+/// collection id carry the `:` rule (H5) — a record id is the last segment and a field id
+/// is a cell key, so a colon in either is never split and is left alone. **Empty** is
+/// refused for all four: `parse_node_id` splits on the first two colons and answers `Some`
+/// with an empty segment rather than `None`, so `:task:r1` is a node id no consumer can
+/// attribute back to a record and nothing downstream would say so; and a field id is not
+/// in a node id at all, but it is the key a record's cells are read by, so an empty one is
+/// the same mistake one level down.
 fn check_id_grammar(doc: &Ingest) -> Result<(), IngestError> {
     check_coordinate("source", &doc.source)?;
     for collection in &doc.collections {
         check_coordinate("collection id", &collection.id)?;
+        for field in &collection.fields {
+            check_present("field id", &field.id)?;
+        }
+    }
+    for record in &doc.records {
+        check_present("record id", &record.id)?;
     }
     Ok(())
 }
 
+/// A coordinate that goes into a node id: present, and free of `:` (H5).
 fn check_coordinate(coordinate: &'static str, value: &str) -> Result<(), IngestError> {
+    check_present(coordinate, value)?;
     if value.contains(':') {
         return Err(IngestError::IdGrammar {
             coordinate,
             value: value.to_owned(),
         });
+    }
+    Ok(())
+}
+
+/// The rule both halves share: an id is not an empty string.
+fn check_present(coordinate: &'static str, value: &str) -> Result<(), IngestError> {
+    if value.is_empty() {
+        return Err(shape(
+            coordinate,
+            "an id coordinate cannot be empty".to_owned(),
+        ));
     }
     Ok(())
 }
@@ -119,12 +151,17 @@ fn check_title(collection: &Collection, path: &str) -> Result<(), IngestError> {
     Ok(())
 }
 
+/// A record id is unique **within its collection**, not in the document: the derived node
+/// id is `source:collection:record`, so the same id in two collections is two records
+/// with two distinct nodes, and `graph-core`'s own duplicate check keys on the pair. The
+/// message is the one this check has always given, so a document that really does repeat
+/// an id inside one collection reads the same as it did before.
 fn check_unique_records(doc: &Ingest) -> Result<(), IngestError> {
     for (i, record) in doc.records.iter().enumerate() {
-        if doc.records[..i]
+        let repeated = doc.records[..i]
             .iter()
-            .any(|earlier| earlier.id == record.id)
-        {
+            .any(|earlier| earlier.collection == record.collection && earlier.id == record.id);
+        if repeated {
             return Err(shape(
                 &format!("records[{i}]"),
                 format!("duplicate record id `{}`", record.id),

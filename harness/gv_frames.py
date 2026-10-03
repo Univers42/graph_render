@@ -21,7 +21,7 @@ import os
 import sys
 
 from gv_closed import DIGITS
-from gv_plain import POINTS_PER_INCH, printed_nodes
+from gv_plain import POINTS_PER_INCH, dot_path, graph_of, printed_nodes
 
 # The `osage` closed answers, in points, **in the frame `-Tplain` prints**. The arithmetic is
 # `arrayRects`'s — a near-square grid of `58 x 40` point cells filled row by row — and each
@@ -77,7 +77,7 @@ FRAMED_CLOSED = {
     # default 0.75 x 0.5 inch box; measured identical at `-Gstart` 1, 7 and 99. The other five
     # peer cases are deliberately absent: this engine is seed-sensitive, so each prints three
     # different answers at those seeds and no closed answer exists for them
-    # (`docs/measurements/p13-gv2-sfdp.md`). `framed_cases` skips names with no answer.
+    # (`docs/measurements/p13-gv2-sfdp.md`). `framed_cases` reports them as skipped.
     "sfdp": {"one-node": [(27.0, 18.0)]},
 }
 
@@ -100,20 +100,40 @@ def peer_cases():
     return module.CLOSED_CASES
 
 
-def framed_case(engine, tmp, name, edges, answer, start):
-    """One closed case: the engine's printed node lines against the answer, exactly."""
+def framed_case(engine, tmp, case, start=None):
+    """One closed case: the engine's printed node lines against the answer, exactly.
+
+    `case` is `(name, edges, answer)`, as in `gv_closed.closed_case`, so the call takes four
+    parameters rather than six.
+    """
+    name, edges, answer = case
     count = 1 + max((max(edge) for edge in edges), default=0)
-    theirs = printed_nodes(engine, tmp, f"closed-{name}", count, edges, start)
+    theirs = printed_nodes(engine, dot_path(tmp, f"closed-{name}"), graph_of(count, edges), start)
     want = " ".join(f"{x / POINTS_PER_INCH:.{DIGITS}g} {y / POINTS_PER_INCH:.{DIGITS}g}"
                     for x, y in answer)
     got = " ".join(f"{x} {y}" for x, y in theirs)
     return {"nodes": count, "exact": want == got, "want": want, "got": got}
 
 
-def framed_cases(engine, tmp, answers, start):
-    """Every framed closed case of one engine, keyed by its own name."""
-    return {
-        name: framed_case(engine, tmp, name, edges, answers[name], start)
-        for name, edges in peer_cases().items()
+def framed_cases(engine, tmp, answers, start=None):
+    """`(<compared by name>, <peer names with no restated answer>)` for one engine.
+
+    The second list is the point of the signature. A peer case with no answer in this
+    engine's table was compared by nothing, and `oracle-graphviz.py` folds `exact` with
+    `all()` over whatever survived — so `sfdp`, whose only closed answer is `one-node`
+    (`docs/measurements/p13-gv2-sfdp.md`: it is seed-sensitive, so the other five print three
+    different answers at `-Gstart` 1, 7 and 99 and no closed answer exists for them), was
+    carrying its byte-agreement verdict on one node out of six. Naming the skips makes the
+    verdict's weight visible in the result file instead of only in a printed count; an engine
+    that skipped every case is refused, because then it compared nothing at all.
+    """
+    peers = peer_cases()
+    skipped = sorted(name for name in peers if name not in answers)
+    if peers and not [name for name in peers if name in answers]:
+        sys.exit(f"{engine}: no framed closed case has a restated answer")
+    compared = {
+        name: framed_case(engine, tmp, (name, edges, answers[name]), start)
+        for name, edges in peers.items()
         if name in answers
     }
+    return compared, skipped

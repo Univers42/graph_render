@@ -8,6 +8,17 @@ import {
 import { canonicalJson, expectedGraph, expectedIngest, ingestFromNotion, ingestFromRows } from "../adapter-convergence.mjs";
 import { check, refusedWith, reportDifference } from "./lib.mjs";
 
+/** The `codeName` `buildContract` refused `document` with, or `""` when it accepted it. */
+async function refusalCode(motor, document) {
+  try {
+    motor.buildContract(document);
+    return "";
+  } catch (error) {
+    if (!(error instanceof ContractRefusedError)) return error?.constructor?.name ?? String(error);
+    return error.codeName ?? "";
+  }
+}
+
 export async function runConvergence(wasmPath) {
   const fromRows = canonicalJson(await ingestFromRows());
   const fromNotion = canonicalJson(await ingestFromNotion());
@@ -27,7 +38,13 @@ export async function runConvergence(wasmPath) {
   // only there), so a reviewer had to read two runtimes to believe the loop was closed.
   // `gm_build_contract` means the third step is reachable from here too, so the committed
   // fixture's `graph` member is now checked *in the same process that produced `ingest`*:
-  // if the derivation moved, or a node id or a strength changed, this fails.
+  // if the derivation moved, or a node id changed, this fails.
+  //
+  // What it does **not** check, stated rather than implied (m100): an edge's `strength`.
+  // The wasm ABI has no strength column at all — `docs/contract/wasm-abi.md`'s column
+  // table ends at `EdgeCurveDegree` (11) and `NODE_Z` (12), and neither face carries one —
+  // so a strength regression is invisible from here and no assertion in this file could
+  // catch it. The claim this comment used to make ("or a strength changed") was false.
   //
   // The command is one line, and it is in `docs/contract/wasm-abi.md` ("The convergence
   // proof, one command"): a cargo build and a node run, each in its own container,
@@ -36,8 +53,16 @@ export async function runConvergence(wasmPath) {
   // which is how the pre-`gm_build_contract` gate row is written and keeps working.
   if (wasmPath) {
     const contractMotor = await createMotor(await readFile(wasmPath));
+    // The layout is resolved through the motor's own registry, never written here
+    // (C1, and the thing `layouts.mjs:9-11` says must never be done): a registry without
+    // `layout.grid` used to abort this mode with a raw `TypeError` (m101).
+    const registered = contractMotor.layouts();
+    const grid = registered.includes("layout.grid")
+      ? "layout.grid"
+      : (check("a layout to derive the snapshot with", false, `the module registers none named layout.grid (${registered.length} registered)`), null);
+    if (grid === null) return;
     const handle = contractMotor.buildContract(fromRows);
-    const snapshot = JSON.parse(contractMotor.toJSON(contractMotor.layout(handle, "layout.grid").handle));
+    const snapshot = JSON.parse(contractMotor.toJSON(contractMotor.layout(handle, grid).handle));
     const graph = await expectedGraph();
     check("the document derives the committed graph's node count", contractMotor.nodeCount(handle) === graph.nodes.length);
     check(
@@ -72,7 +97,11 @@ export async function runConvergence(wasmPath) {
     for (const [what, mutate] of mutations) {
       const mutated = mutate(fromRows);
       check(`the mutation is really a mutation: ${what}`, mutated !== fromRows);
-      check(`${what} is refused, not derived`, await refusedWith(ContractRefusedError, () => contractMotor.buildContract(mutated)));
+      // The class alone also covers `HandlesExhausted` (`errors.ts:54-63`), so all four
+      // mutation checks would pass if the handle table ran out rather than the document
+      // being refused. The code name is what the contract states (m99).
+      const refused = await refusalCode(contractMotor, mutated);
+      check(`${what} is refused as ContractInvalid, not derived`, refused === "ContractInvalid", refused);
     }
     check("a contract document with no records at all is a legal empty graph, not a refusal", (() => {
       const empty = { version: 1, source: "lib", collections: [], records: [] };
