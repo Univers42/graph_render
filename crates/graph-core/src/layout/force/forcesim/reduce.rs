@@ -135,14 +135,6 @@ pub(super) fn dot3_pair_f32(a: &[f32], b: &[f32]) -> f32 {
     (first + second) + a[2] * b[2]
 }
 
-/// [`dot3_f32`]'s `f64` twin, for `norm = sqrt(einsum(disp, disp))` on the `f64`
-/// displacement.
-pub(super) fn dot3_f64(row: &[f64]) -> f64 {
-    let a = row[0] * row[0];
-    let b = row[1] * row[1];
-    (a + b) + row[2] * row[2]
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -208,8 +200,7 @@ mod tests {
             + f64::from(row[2]) * f64::from(row[2]);
         assert_eq!(dot3_f32(&row), 49.0f32);
         assert_ne!(dot3_f32(&row), exact as f32);
-        let wide: [f64; 3] = [6.0, 2.0, 3.0];
-        assert_eq!(dot3_f64(&wide), exact);
+
     }
 
     #[test]

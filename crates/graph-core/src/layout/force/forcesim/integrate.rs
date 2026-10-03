@@ -10,12 +10,23 @@
 //! total_traction = float(np.dot(mass, traction))                     f32 reduction, then f64
 //! target = jitter_tolerance * total_traction / total_swing           f64
 //! speed  = clip(target, speed * 0.5, speed * 1.5); clip(speed, 1e-4, 10.0)
-//! factor = speed / (1.0 + speed * np.sqrt(swing))                   f64
-//! disp   = force * factor[:, None]                                   f64
-//! norm   = sqrt(einsum("ij,ij->i", disp, disp))                     f64
-//! disp[norm > k] *= k / norm[norm > k]                               f64
-//! pos += disp                                                        f32 store of an f64 delta
+//! factor = speed / (1.0 + speed * np.sqrt(swing))                   f32  <- speed is *weak*
+//! disp   = force * factor[:, None]                                   f32
+//! norm   = sqrt(einsum("ij,ij->i", disp, disp))                     f32
+//! disp[norm > k] *= k / norm[norm > k]                     f64 product, narrowed to f32
+//! pos += disp                                                        f32
 //! ```
+//!
+//! ## The weak scalar that decides this method's dtype
+//!
+//! `self.speed` is a Python `float` — `float(np.clip(...))` at `simulation.py:749-751` —
+//! and under NEP 50 a Python float is **weak**: it does not promote an `f32` array the way
+//! an `np.float64` scalar does. So `factor` above is `f32`, and so are `disp` and `norm`,
+//! and `self.pos += disp` is an `f32` addition with no narrowing at all. `self.k` is the
+//! opposite case: it comes from `np.cbrt`, so it is `np.float64`, and the one place it
+//! enters (`cap / norm[over]`) is `f64`. Reading `speed` as `f64` — which is what `k`,
+//! `self.repulsion` and `self.gravity` are — puts every move one `f32` ULP away from the
+//! reference's.
 //!
 //! ## The one reduction this port cannot reproduce
 //!
@@ -36,7 +47,7 @@
 //! on coordinates of magnitude about `2.5`. That is the row's residual cause and the reason
 //! it is not bitwise. `docs/measurements/sg-fa2-forcesim.md` has the probe and the numbers.
 
-use super::reduce::{column_means_f32, dot3_f32, dot3_f64, pairwise_f32};
+use super::reduce::{column_means_f32, dot3_f32, pairwise_f32};
 
 /// `np.clip(self.speed, 1e-4, 10.0)` (`simulation.py:751`).
 const SPEED_MIN: f64 = 1e-4;
@@ -78,6 +89,9 @@ impl Integrator {
         self.speed = self.next_speed(&swing, force, mass);
         self.move_nodes(pos, force, &swing);
         self.prev.copy_from_slice(force);
+        if std::env::var("GM_FA2_TRACE").is_ok() {
+
+        }
         recentre(pos, center_was);
     }
 
@@ -110,8 +124,15 @@ impl Integrator {
                 dot3_f32(&v).sqrt()
             })
             .collect();
-        let total_swing = pairwise_f32(&weighted(mass, swing));
-        let total_traction = pairwise_f32(&weighted(mass, &traction));
+        let w = weighted(mass, swing);
+        let total_swing = pairwise_f32(&w);
+        let t = weighted(mass, &traction);
+        let total_traction = pairwise_f32(&t);
+        if std::env::var("GM_FA2_TRACE").is_ok() {
+            eprintln!("ts 0x{:08X} tt 0x{:08X} wbits {:?}", total_swing.to_bits(),
+                total_traction.to_bits(),
+                w.iter().map(|v| format!("0x{:08X}", v.to_bits())).collect::<Vec<_>>());
+        }
         if total_swing > 0.0 {
             let target = self.jitter_tolerance * f64::from(total_traction)
                 / f64::from(total_swing);
@@ -121,29 +142,40 @@ impl Integrator {
     }
 
     /// `disp = force * factor[:, None]`, each move clipped to `k`, then `pos += disp`.
+    ///
+    /// **`factor`, `disp` and `norm` are `f32`, not `f64`** — and that is the whole reason
+    /// this method exists in this shape. `self.speed` is a Python `float`
+    /// (`float(np.clip(...))`, `simulation.py:749-751`), and under NEP 50 a Python float is
+    /// **weak**: it does not promote an `f32` array. So `speed * np.sqrt(swing)` stays
+    /// `f32`, `1.0 +` stays `f32`, `speed /` stays `f32`, and `force * factor[:, None]` is
+    /// `f32 * f32`. Reading `self.speed` as an `f64` here — which is what `self.k` and
+    /// `self.repulsion` are — is a difference of a relative `6e-8` per move, which is one
+    /// `f32` ULP, which is a different layout.
+    ///
+    /// The cap is the one place `f64` returns: `cap` is `self.k`, an `np.float64`, so
+    /// `cap / norm[over]` is `f64` and `disp[over] *= ...` narrows each product back.
     fn move_nodes(&self, pos: &mut [f32], force: &[f32], swing: &[f32]) {
-        let mut disp = [0.0f64; 3];
+        let speed = self.speed as f32;
+        let mut disp = [0.0f32; 3];
         for i in 0..swing.len() {
             // `factor = speed / (1.0 + speed * np.sqrt(swing))`. `np.sqrt(swing)` is a
             // *second* square root of an already-normalised length; that is the reference's
             // own expression (`simulation.py:753`) and `swing` is not the same number.
-            let factor = self.speed / (1.0 + self.speed * f64::from(swing[i].sqrt()));
+            let factor = speed / (1.0f32 + speed * swing[i].sqrt());
             for axis in 0..3 {
-                disp[axis] = f64::from(force[3 * i + axis]) * factor;
+                disp[axis] = force[3 * i + axis] * factor;
             }
-            // `norm` is the `f64` three-term dot of the displacement, and the cap is
+            // `norm` is the `f32` three-term dot of the displacement, and the cap is
             // applied to the *displacement* before it is added — never to the position.
-            let norm = dot3_f64(&disp).sqrt();
-            if norm > self.k {
-                let shrink = self.k / norm;
+            let norm = dot3_f32(&disp).sqrt();
+            if f64::from(norm) > self.k {
+                let shrink = self.k / f64::from(norm);
                 for value in disp.iter_mut() {
-                    *value *= shrink;
+                    *value = (f64::from(*value) * shrink) as f32;
                 }
             }
             for axis in 0..3 {
-                // `self.pos += disp` is an in-place same-kind cast, so the `f64` increment
-                // is rounded into `f32` here, every iteration.
-                pos[3 * i + axis] = (f64::from(pos[3 * i + axis]) + disp[axis]) as f32;
+                pos[3 * i + axis] += disp[axis];
             }
         }
     }
@@ -246,5 +278,12 @@ mod tests {
         sim.apply(&mut pos, &[1.0e-9, 0.0, 0.0], &mass, [0.0; 3]);
         assert!(sim.speed <= after_big * 1.5 + 1e-12, "{}", sim.speed);
         assert!(sim.speed >= SPEED_MIN);
+    }
+}
+
+impl Integrator {
+    /// Scratch accessor for the probe test.
+    pub(super) fn k_of(&self) -> f64 {
+        self.k
     }
 }
