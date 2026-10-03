@@ -70,8 +70,10 @@ halves — every wrapper in, two hourly orchestration files out.
 
 ### Adding these paths voids today's records — expected, and nothing was re-recorded
 
-`target/gates/` holds **no records at all** on this tree (`ls target/gates/` → empty), so the
-fingerprint change voided nothing in practice. Had records existed they would now read as stale,
+`target/gates/` held **no records at all** when the before/after comparison below was captured
+(`ls target/gates/` → empty; the only file in it now is the `scigraphs-conformance.json` this
+job's own merge-floor run wrote, after that comparison). So the fingerprint change voided nothing
+in practice. Had records existed they would now read as stale,
 which is the intended effect and the reason the job body says not to re-record from a fix job.
 No gate was re-run to refresh evidence in this job; the only record written is the one
 `scripts/scigraphs-conformance.sh` writes in its normal course as the merge-floor check, after the
