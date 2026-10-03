@@ -107,3 +107,4 @@ fix-tree-registry|build|prompts/jobs/fix-tree-registry.md|scripts/orch/rows/quic
 sg-basic3d-spiral-oracle|build|prompts/jobs/sg-basic3d-spiral-oracle.md|scripts/orch/rows/quick.rows|no
 sg-spring-seed|build|prompts/jobs/sg-spring-seed.md|scripts/orch/rows/quick.rows|no
 sg-fa2-seed|build|prompts/jobs/sg-fa2-seed.md|scripts/orch/rows/quick.rows|no
+fix-layout-rest-b|build|prompts/jobs/fix-layout-rest-b.md|scripts/orch/rows/quick.rows|no
