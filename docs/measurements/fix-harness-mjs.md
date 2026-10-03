@@ -319,6 +319,49 @@ node --experimental-strip-types harness/sdk-smoke.mjs --adapter-convergence <was
                                                                              -> 0  # pass (18 checks, convergence only)
 ```
 
+## Merge floor
+
+| check | exit | note |
+|---|---:|---|
+| `scripts/orch/gr cargo fmt --all --check` | 0 | |
+| `scripts/orch/gr cargo clippy --workspace --all-targets -- -D warnings` | 0 | |
+| `scripts/orch/gr cargo build -p graph-core --target wasm32-unknown-unknown` | 0 | |
+| `scripts/orch/gr cargo test --workspace --no-fail-fast` | 101 | **1647 passed, 1 failed** — see below |
+| `bash scripts/scigraphs-conformance.sh` | 0 | `PASS`, every row at its pinned ceiling |
+| `npm run sdk:smoke` | 0 | `# pass` |
+| `scripts/orch/ge-check.sh` (`npm run check`) | 0 | `typecheck` + `lint` + 27 tests, 0 failures |
+
+The single failure is **not in this job's paths and not caused by this job**:
+
+```
+---- layout::graphviz::dot::rank_tests::the_first_twenty_fixture_seeds_rank_as_the_oracle_ranks_them ----
+thread '…' panicked at crates/graph-core/src/layout/graphviz/dot/oracle_probe.rs:58:9:
+/w/crates/graph-core/../../target/probe/rank1000.txt is missing; see this module's doc for
+the command that writes it
+test result: FAILED. 0 passed; 1 failed; … 1243 filtered out
+```
+
+`crates/graph-core/src/layout/graphviz/dot/oracle_probe.rs:49-52` states the opposite of
+what the code does: *"The file is a probe under `target/`, so it is absent from a clean
+checkout; the tests that read it say so and skip rather than fail, because a missing
+measurement file is not a wrong answer."* It panics instead. The file and its generator
+(`target/probe/rank_oracle.py`, run inside `ge-graphviz-oracle`) are absent from this
+worktree, and nothing under `harness/**` is read by that test. Reported, not fixed:
+`crates/graph-core/**` belongs to `fix-core-base` / `fix-core-post`. The recommended fix is
+one `if (!path.exists()) { return Vec::new(); }` — or, better, a
+`#[ignore]`d probe test — so a clean checkout skips it as documented.
+
+Also note, from the first (discarded) workspace run: five `graph-cli` integration binaries
+(`cli_force`, `cli_force_gate`, `cli_igraph`, `cli_ledger`, `cli_oracles`) failed there and
+pass in isolation. That was self-inflicted — `scripts/scigraphs-conformance.sh`,
+`emit-fixtures`, `oracle-layouts` and `stress` were all writing into the same `target/` while
+the suite ran. The clean re-run above is the real result. Worth recording because the
+attestation seals group D added (`target/gates/<gate>.seal.json`) are keyed by **gate name**,
+not by fixture directory, so two concurrent runs of the same gate over *different* fixture
+sets would contend for one seal. `cargo test` runs its integration binaries sequentially, so
+this is latent rather than live, but it is the shape to know about:
+`harness/oracle-attest.mjs`'s `Ponytail:` line records it.
+
 ## Not run — UNKNOWN, and therefore not claimed
 
 - `gate.sh`, `hashgate --seeds 1000`, `mutants.sh`: the job body forbids timed gates; the
@@ -329,4 +372,33 @@ node --experimental-strip-types harness/sdk-smoke.mjs --adapter-convergence <was
   the paths every fix touches; every fix is a refusal or a read-only assertion placed
   **before** the timer starts.
 - `scripts/oracle-tick-bench.mjs --n 220,10000,100000 --repeat 5` — same reason.
-- `cargo test --workspace` was launched in the background; see "Merge floor" below.
+- `cargo test --workspace` was launched in the background; see "Merge floor" above.
+
+## Decisions taken
+
+1. **m100 recorded `false`, not fixed.** An edge `strength` is not observable through the
+   wasm ABI at all (`$defs.Edges.properties` is `["id","source","target"]`; the column
+   table ends at 11/12 with neither carrying strength). The contract wins over the review's
+   suggested fix per `fix-common.md`, so the comment was corrected to stop claiming what no
+   assertion here could check.
+2. **M35 asserts `InvalidHandleError`, not `Post`/`AnalysisRefusedError`.** The review
+   proposed the stage's own classes; `docs/contract/wasm-abi.md:47` names `InvalidHandle`
+   for a released handle, and that is what the SDK actually throws. Contract wins.
+3. **m82 reads the required members from the fenced JSON example in
+   `docs/contract/wasm-abi.md:415-436`, not from `docs/contract/ingest-schema.json`.** The
+   schema describes the *other* build path (`gm_build_contract`). The example omits
+   `child_first`, which `crates/graph-wasm/src/ingest/record.rs` makes optional in version 1,
+   so the arm's edge list is the contract's members ∪ `{child_first}` — stated in the code.
+4. **M24/M41 attested rather than producer-stamped.** The producer of
+   `target/dag-crossings.json` is `crates/graph-core/.../sugiyama/mod.rs:277` and the
+   manifest's writer is `graph-cli`'s; neither is in this job's paths. The additive answer
+   is `harness/oracle-attest.mjs`: a seal beside each gate record that refuses measured
+   bytes which changed under an unchanged tree since the last passing run. Its `Ponytail:`
+   line names what it does **not** buy (a first run over an unattested measurement passes;
+   a tree edit re-attests).
+5. **`npm run snapshot:raw` and three doc sites now exit 2.** M11 requires the arm to refuse
+   with no path rather than fall back to the pasted literal, and `package.json`,
+   `crates/graph-sdk-js/EXAMPLES.md`, `docs/reports/phase-10-progress.md` and
+   `prompts/phase-10-ingest-sdk-publish.md` are not this job's paths. Resolved by the
+   orchestrator: `npm run snapshot:raw` and both `EXAMPLES.md` commands now pass `--selftest`;
+   the phase report and the phase prompt are history and keep the old command.
