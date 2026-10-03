@@ -1,13 +1,14 @@
 //! Running the other programs a gate needs — cargo, node, the harness — and hashing
 //! what they produce. Shared by the hash gate and the determinism probe.
 
+mod child;
 #[path = "runner/resolve.rs"]
 mod resolve;
 
+use child::{drain, joined, run_captured, wait_within};
 use sha2::{Digest, Sha256};
-use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, ExitStatus, Stdio};
+use std::process::{Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 
 /// How long any one child (cargo, node, a gate arm) may run before it is killed. A hung
@@ -192,47 +193,6 @@ pub fn run_status(command: &mut Command, limit: Duration) -> Result<ExitStatus, 
         .spawn()
         .map_err(|e| format!("spawning {command:?}: {e}"))?;
     wait_within(&mut child, limit).map_err(|e| format!("{command:?}: {e}"))
-}
-
-/// Waits for `child`, killing it once `limit` has passed.
-fn wait_within(child: &mut Child, limit: Duration) -> Result<ExitStatus, String> {
-    let deadline = Instant::now() + limit;
-    loop {
-        if let Some(status) = child.try_wait().map_err(|e| format!("waiting: {e}"))? {
-            return Ok(status);
-        }
-        if Instant::now() >= deadline {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(format!(
-                "killed after {}ms without exiting",
-                limit.as_millis()
-            ));
-        }
-        std::thread::sleep(Duration::from_millis(20));
-    }
-}
-
-type Drain = Option<std::thread::JoinHandle<std::io::Result<Vec<u8>>>>;
-
-/// Reads a child's pipe to the end on its own thread, so a full pipe cannot stall the child.
-fn drain(pipe: Option<impl Read + Send + 'static>) -> Drain {
-    pipe.map(|mut pipe| {
-        std::thread::spawn(move || {
-            let mut bytes = Vec::new();
-            pipe.read_to_end(&mut bytes).map(|_| bytes)
-        })
-    })
-}
-
-fn joined(drain: Drain) -> Result<Vec<u8>, String> {
-    match drain {
-        None => Ok(Vec::new()),
-        Some(handle) => handle
-            .join()
-            .map_err(|_| "a pipe reader panicked".to_owned())?
-            .map_err(|e| format!("reading a child's output: {e}")),
-    }
 }
 
 #[cfg(test)]
