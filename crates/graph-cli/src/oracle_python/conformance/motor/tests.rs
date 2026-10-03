@@ -138,6 +138,7 @@ fn circle_packing_runs_fifty_sweeps_not_the_registered_five_hundred() {
             &CirclePackingParams {
                 iterations: 50,
                 scale: 5.0,
+                ..CirclePackingParams::default()
             },
         )
     });

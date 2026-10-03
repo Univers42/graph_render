@@ -15,8 +15,10 @@ use graph_core::{GridParams, REFERENCE_DEGREE, SugiyamaParams};
 use std::env::VarError;
 
 mod params;
+mod text;
 
 pub(crate) use params::{PARAM_DEFAULT_STAGE, param_index};
+use text::{nodes, split, tolerance, yes};
 
 use super::knobs;
 use super::{Knob, stage_of};
@@ -59,6 +61,13 @@ pub(crate) struct Setting {
     /// A [`Split`] and not a `bool` because the control names *which* kernel it corrupts,
     /// and each kernel needs its own row to be shown to be compared.
     pub(in crate::hashgate) split_sum: Split,
+    /// The overlap pass's over-relaxation factor ([`Knob::OverlapRelaxation`]), the
+    /// perturbation the native arm runs at.
+    ///
+    /// An `Option<f64>` rather than an `f32` field defaulting to the compiled-in factor,
+    /// because `Some(0.0)` is itself the control's value and a plain field could not say
+    /// "set to zero" without a second flag to say whether it was meant.
+    pub(in crate::hashgate) overlap_relaxation: Option<f64>,
     /// Whether the closed-form point layouts' shared `coords` merge is split
     /// ([`Knob::SplitRescale`]), the compute-tier control for the non-force threaded arms.
     ///
@@ -108,6 +117,18 @@ impl Setting {
             .unwrap_or(graph_core::layout::graphviz::neato::EPSILON)
     }
 
+    /// The overlap pass's over-relaxation factor, or the registry default when no control is
+    /// set ([`Knob::OverlapRelaxation`]).
+    ///
+    /// **Public where [`Self::neato_epsilon`] is crate-private, deliberately:** this one is
+    /// read by `graph-cli overlap`, which is outside `hashgate`'s tree, because the command
+    /// *is* the invariant gate row and it has to honour the same control the hash gate does.
+    /// One reader beside the field it reads, so the hash gate's arm and the invariant row
+    /// cannot disagree about what the honest run is.
+    pub fn overlap_relaxation(&self) -> Option<f64> {
+        self.overlap_relaxation
+    }
+
     /// Which control this run is under, if any — readable from outside this module's tree,
     /// which is what lets `force-gate` refuse a control that cannot reach a session.
     ///
@@ -133,6 +154,7 @@ pub(crate) fn setting(read: impl Fn(&str) -> Result<String, VarError>) -> Result
         packing: CirclePackingParams::default(),
         neato_epsilon: None,
         stage_nodes: None,
+        overlap_relaxation: None,
         split_sum: Split::None,
         split_rescale: false,
         live_gravity: None,
@@ -203,6 +225,13 @@ fn apply(knob: Knob, text: &str, setting: &mut Setting) -> Result<(), String> {
             setting.stage_nodes = Some((circular::hierarchy::ID, nodes(text, knob)?));
         }
         Knob::PackingScale => setting.packing.scale = text.parse().map_err(|e| bad(&e))?,
+        // Parsed as a float, for the reason every parameter knob here is: `=0` must be a
+        // legal value (it is this control's own) and a typo (`=maybe`) an error rather than a
+        // silent mutation. Refused above if negative or not finite, by the pass's own `check`,
+        // so the two arms cannot disagree about what a legal value is.
+        Knob::OverlapRelaxation => {
+            setting.overlap_relaxation = Some(tolerance(text, knob)?);
+        }
         // Parsed rather than treated as a presence flag, so `GM_MUTATE_SPLIT_SUM=0` is
         // the honest run and a typo (`=maybe`) is an error instead of a silent
         // mutation. `1`/`0` are accepted beside `true`/`false` because a gate row
@@ -232,69 +261,6 @@ fn apply(knob: Knob, text: &str, setting: &mut Setting) -> Result<(), String> {
     Ok(())
 }
 
-/// Nodes added to one stage's own model. Zero is refused: a control that perturbs by
-/// nothing passes vacuously, which is the one failure mode a negative control must not
-/// have (`cli_force.rs`'s `--seeds 2` note is the same lesson at the other end of the
-/// seed range).
-fn nodes(text: &str, knob: Knob) -> Result<u32, String> {
-    let count: u32 = text
-        .parse()
-        .map_err(|e| format!("{}={text:?}: {e}", knob.env()))?;
-    if count == 0 {
-        return Err(format!(
-            "{}={text:?}: a control that adds no node perturbs nothing",
-            knob.env()
-        ));
-    }
-    Ok(count)
-}
-
-/// A stopping tolerance, which must be a finite non-negative number.
-///
-/// **Zero is accepted and is not the same as unset.** The reference's own convergence test is
-/// `change / old < Epsilon || stress < Epsilon` (`stress.c:1059-1066`), so a zero epsilon
-/// stops the iteration on the *second* clause as soon as the stress is non-negative — a
-/// legal, different drawing, and a control that could not express it would be a control whose
-/// honest value is unreachable. A negative tolerance is refused instead: no pass can satisfy
-/// it, so the run would take the whole budget and claim a result it never converged to.
-fn tolerance(text: &str, knob: Knob) -> Result<f64, String> {
-    let value: f64 = text
-        .parse()
-        .map_err(|e| format!("{}={text:?}: {e}", knob.env()))?;
-    if !value.is_finite() || value < 0.0 {
-        return Err(format!(
-            "{}={text:?}: a stopping tolerance is a finite non-negative number",
-            knob.env()
-        ));
-    }
-    Ok(value)
-}
-
 pub(crate) fn env_setting() -> Result<Setting, String> {
     setting(|name| std::env::var(name))
-}
-
-/// Which merge `GM_MUTATE_SPLIT_SUM` corrupts: a pass's own name, or `1`/`true` for all
-/// three. An unknown word is `None`, and the caller turns that into the parse error — a
-/// control whose spelling did not work would be a control nobody runs.
-fn split(text: &str) -> Option<Split> {
-    match text.trim().to_ascii_lowercase().as_str() {
-        "1" | "true" | "all" => Some(Split::All),
-        "0" | "false" | "none" => Some(Split::None),
-        "charge" => Some(Split::Charge),
-        "collide" => Some(Split::Collide),
-        "link" => Some(Split::Link),
-        _ => None,
-    }
-}
-
-/// `GM_MUTATE_SPLIT_RESCALE`'s value: a flag, and `None` for anything else so the caller
-/// turns it into the parse error. Both a split control and its honest setting go through
-/// this one spelling, so the two cannot drift on what counts as "on".
-fn yes(text: &str) -> Option<bool> {
-    match text.trim().to_ascii_lowercase().as_str() {
-        "1" | "true" | "yes" | "on" => Some(true),
-        "0" | "false" | "no" | "off" => Some(false),
-        _ => None,
-    }
 }

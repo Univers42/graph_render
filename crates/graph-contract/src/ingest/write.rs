@@ -10,8 +10,23 @@
 use super::{Collection, Field, Ingest, JsonValue};
 use core::fmt::Write;
 
+mod value;
+
+use value::value as write_value;
+
 /// The canonical wire text of one document.
+///
+/// Panics if `doc.version` is not `super::VERSION`: this is a caller contract
+/// violation, not a document fault, and `read` refuses the same text — so a document
+/// the writer cannot round trip must not be written at all, loudly, at the call that
+/// made it.
 pub fn to_json(doc: &Ingest) -> String {
+    assert!(
+        doc.version == super::VERSION,
+        "ingest document version {} is not the ingest version {} this contract writes and reads",
+        doc.version,
+        super::VERSION,
+    );
     let mut out = String::new();
     write_members(
         &mut out,
@@ -106,14 +121,7 @@ fn records(items: &[super::Record]) -> String {
 }
 
 fn record(r: &super::Record) -> String {
-    let mut cells: Vec<(&str, String)> = r
-        .values
-        .iter()
-        .map(|(id, value)| (id.as_str(), to_json_value(value)))
-        .collect();
-    // Sorted by key, then by value for two equal keys — a total order, so the text is
-    // the same whatever order the document was read in (D5, H6).
-    cells.sort_by(|a, b| a.0.cmp(b.0).then_with(|| a.1.cmp(&b.1)));
+    let cells = cells(r);
     let mut out = String::new();
     write_members(
         &mut out,
@@ -126,6 +134,31 @@ fn record(r: &super::Record) -> String {
         ],
     );
     out
+}
+
+/// One `(field id, value text)` row per *distinct* field id, in the order the cells
+/// first appear.
+///
+/// `Record::values` is a `Vec` of pairs with every field `pub`, so a Rust-built record
+/// can hold two cells for one id — and writing both would emit `"t":"a","t":"b"`, which
+/// `canonical_json::parse` refuses ("a key repeated in one object"). So a repeat
+/// collapses to the FIRST, in document order, before the sort: that is what
+/// `Record::value` already resolves to (`find`), so the writer never contradicts the
+/// lookup a caller does on the same struct.
+fn cells(r: &super::Record) -> Vec<(&str, String)> {
+    let mut seen: Vec<&str> = Vec::new();
+    let mut rows: Vec<(&str, String)> = Vec::new();
+    for (id, value) in &r.values {
+        if seen.contains(&id.as_str()) {
+            continue;
+        }
+        seen.push(id.as_str());
+        rows.push((id.as_str(), to_json_value(value)));
+    }
+    // Sorted by key, then by value for two equal keys — a total order, so the text is
+    // the same whatever order the document was read in (D5, H6).
+    rows.sort_by(|a, b| a.0.cmp(b.0).then_with(|| a.1.cmp(&b.1)));
+    rows
 }
 
 /// `{...}` from rows already in key order. The caller sorts; this only joins, so the
@@ -147,55 +180,6 @@ fn write_members(out: &mut String, rows: &[(&str, String)]) {
         out.push_str(value);
     }
     out.push('}');
-}
-
-fn write_value(out: &mut String, value: &JsonValue) {
-    match value {
-        JsonValue::Null => out.push_str("null"),
-        JsonValue::Bool(true) => out.push_str("true"),
-        JsonValue::Bool(false) => out.push_str("false"),
-        JsonValue::Number(n) => {
-            // Rust's `Display` for f64 is the shortest decimal that reads back as the
-            // same value, and it writes a whole number without a fractional part — so
-            // `2.0` and `2` are one text, which is what keeps two adapters' documents
-            // byte-identical rather than merely equal.
-            let _ = write!(out, "{n}");
-        }
-        JsonValue::Text(text) => out.push_str(&quoted(text)),
-        JsonValue::List(items) => {
-            out.push('[');
-            for (i, item) in items.iter().enumerate() {
-                if i > 0 {
-                    out.push(',');
-                }
-                write_value(out, item);
-            }
-            out.push(']');
-        }
-        JsonValue::Map(members) => {
-            let mut rows: Vec<(&str, String)> = members
-                .iter()
-                .map(|(k, v)| {
-                    (k.as_str(), {
-                        let mut text = String::new();
-                        write_value(&mut text, v);
-                        text
-                    })
-                })
-                .collect();
-            rows.sort_by(|a, b| a.0.cmp(b.0).then_with(|| a.1.cmp(&b.1)));
-            out.push('{');
-            for (i, (key, text)) in rows.iter().enumerate() {
-                if i > 0 {
-                    out.push(',');
-                }
-                out.push_str(&quoted(key));
-                out.push(':');
-                out.push_str(text);
-            }
-            out.push('}');
-        }
-    }
 }
 
 /// A JSON string literal, escaping exactly what RFC 8259 requires and nothing else:

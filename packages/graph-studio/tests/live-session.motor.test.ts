@@ -99,25 +99,37 @@ function motorParams(live: { params?: () => ForceParams }): ForceParams {
   return live.params();
 }
 
-test("the four knobs reach the motor's own parameters, and the rest keep its values", { skip: SKIP }, async () => {
+/** The nine knobs as the motor names them, read back from its own parameters. */
+function knobsOf(params: ForceParams): Record<string, number> {
+  return {
+    gravity: params.gravity, charge: params.charge, linkStrengthScale: params.link_strength_scale,
+    linkDistance: params.link_distance, collideRadius: params.collide_radius, velocityDecay: params.velocity_decay,
+    alphaDecay: params.alpha_decay, distanceMax: params.distance_max, theta: params.theta,
+  };
+}
+
+test("the nine knobs reach the motor's own parameters, and the rest keep its values", { skip: SKIP }, async () => {
   const { live } = await rig();
   const before = motorParams(live);
-  live.setParams({ ...DEFAULT_KNOBS, gravity: 0.4, charge: -800, linkStrengthScale: 1.5, linkDistance: 120 });
+  const knobs = {
+    gravity: 0.4, charge: -800, linkStrengthScale: 1.5, linkDistance: 120, collideRadius: 7.5,
+    velocityDecay: 0.3, alphaDecay: 0.02, distanceMax: 900, theta: 1.2,
+  };
+  live.setParams(knobs);
   const after = motorParams(live);
-  assert.deepEqual(
-    {
-      charge: after.charge,
-      gravity: after.gravity,
-      link_strength_scale: after.link_strength_scale,
-      link_distance: after.link_distance,
-    },
-    { charge: -800, gravity: 0.4, link_strength_scale: 1.5, link_distance: 120 },
-  );
-  // The nine fields the studio does not name keep whatever the motor had, never a default
+  assert.deepEqual(knobsOf(after), knobs);
+  // The four fields the studio does not name keep whatever the motor had, never a default
   // copied into this package: that is the whole reason params() is asked rather than guessed.
-  for (const field of ["theta", "collide_radius", "velocity_decay", "alpha_decay", "alpha_min"] as const) {
+  for (const field of ["distance_min", "center_strength", "alpha_min", "initial_alpha"] as const) {
     assert.equal(after[field], before[field], field);
   }
+});
+
+test("the studio's default knobs are the motor's own defaults, bit for bit", { skip: SKIP }, async () => {
+  // A fresh session has had no setParams: what it reports is the motor's default, so a knob
+  // the panel shows at rest is the value the settle is really using.
+  const { live } = await rig();
+  assert.deepEqual(knobsOf(motorParams(live)), { ...DEFAULT_KNOBS });
 });
 
 test("an out-of-range knob is refused by the motor and the session keeps its values", { skip: SKIP }, async () => {

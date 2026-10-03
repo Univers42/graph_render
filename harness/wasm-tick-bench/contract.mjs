@@ -1,0 +1,67 @@
+// The provisional `gm_build` ingest document's required members, read from the contract.
+//
+// `NODE_FIELDS`/`EDGE_FIELDS` used to be a hand copy of what
+// `crates/graph-wasm/src/ingest/record.rs` requires, and the arm's self-check compared
+// `nodeOf` against that same copy — a transcription check in name only: edit both and it
+// still passed. The committed statement of the shape is the fenced example under
+// "Ingest — PROVISIONAL" in `docs/contract/wasm-abi.md`, so that is what is read here.
+//
+// `docs/contract/ingest-schema.json` is deliberately NOT the source: it describes the
+// other build path (`source`/`collections`/`records`, `gm_build_contract`), not this
+// provisional one. The contract wins over a hand copy, and where the two disagree the
+// contract is what the module enforces.
+//
+// One asymmetry, from the contract's own rules and not from this module: an edge's
+// `child_first` is optional in version 1 ("omitted, it reads `false`"), and the example
+// omits it. So the arm's edge records carry the contract's members plus that one, and the
+// check says so rather than pretending the example is exhaustive.
+
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+/** The heading whose fenced JSON block is the provisional document's worked example. */
+const HEADING = /^##\s+Ingest\s+—\s+PROVISIONAL/m;
+
+/** The edge member the contract states is optional in version 1. */
+const OPTIONAL_EDGE_MEMBER = "child_first";
+
+/** The first fenced ```json block after `HEADING` in `wasm-abi.md`, parsed. */
+export function provisionalIngestExample(markdown) {
+  const at = markdown.search(HEADING);
+  if (at < 0) throw new Error("docs/contract/wasm-abi.md states no 'Ingest — PROVISIONAL' section");
+  const rest = markdown.slice(at);
+  const fenced = /```json\n([\s\S]*?)```/.exec(rest);
+  if (fenced === null) throw new Error("the PROVISIONAL ingest section holds no ```json block");
+  return JSON.parse(fenced[1]);
+}
+
+/** The members a node record must carry, and an edge record must carry plus the optional one. */
+export function requiredMembers(example) {
+  return {
+    node: Object.keys(example.nodes[0]),
+    edge: [...Object.keys(example.edges[0]), OPTIONAL_EDGE_MEMBER],
+  };
+}
+
+/** The same lists, read from the committed contract rather than restated here. */
+export function membersFromContract(root) {
+  const markdown = readFileSync(join(root, "docs", "contract", "wasm-abi.md"), "utf8");
+  return requiredMembers(provisionalIngestExample(markdown));
+}
+
+/**
+ * Why a produced record does not carry exactly `required`, or `null` when it does. The
+ * message names the members by name in both directions, because "the check failed" is not
+ * a diagnosis: a missing member is refused by `gm_build` and an extra one is refused too.
+ */
+export function memberRefusal(what, actual, required) {
+  const got = [...actual].sort();
+  const want = [...required].sort();
+  if (got.join("\0") === want.join("\0")) return null;
+  const missing = want.filter((member) => !got.includes(member));
+  const extra = got.filter((member) => !want.includes(member));
+  const parts = [];
+  if (missing.length > 0) parts.push(`missing ${missing.join(", ")}`);
+  if (extra.length > 0) parts.push(`unexpected ${extra.join(", ")}`);
+  return `${what} does not carry exactly the contract's members: ${parts.join("; ")}`;
+}

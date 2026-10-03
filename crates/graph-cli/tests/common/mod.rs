@@ -13,16 +13,21 @@ use std::process::{Command, Output};
 /// eight ANALYSIS stages and the seven POST capabilities. The compute tier has two —
 /// `GM_MUTATE_SPLIT_SUM`, which corrupts a Barnes-Hut gather's merge, and
 /// `GM_MUTATE_SPLIT_RESCALE`, which corrupts the closed-form point layouts' shared
-/// `coords` merge. Both corrupt a merge rather than a parameter, and both are the last three
-/// entries but one here.
+/// `coords` merge. Both corrupt a merge rather than a parameter, and the two are followed
+/// here only by the three controls of surfaces that arrived after the layouts.
 ///
-/// **The last two are the controls of surfaces that arrived after the layouts.**
+/// **The last three are the controls of surfaces that arrived after the layouts.**
 /// `GM_MUTATE_LAYOUT_PARAM_DEFAULT` perturbs one *published default* of
 /// `layout.force.fruchterman_reingold`, so the gate runs that stage through the parameter
 /// ABI rather than through `Capability::run` (`docs/decisions/layout-params.md`) — which
 /// makes it the control over the ABI itself: a schema whose published defaults were not the
 /// structs' own would move this stage and nothing else. Its value is a parameter index, and
-/// an index past the end is refused rather than clamped. The last is
+/// an index past the end is refused rather than clamped. Then
+/// `GM_MUTATE_OVERLAP_RELAXATION`, the overlap pass's own control: a real parameter
+/// (`post::separate`'s published over-relaxation) read at `0`, which is legal and is not
+/// clamped, so every displacement freezes and each input overlap survives into the
+/// snapshot — the one control that can turn `graph-cli overlap`'s invariant row red rather
+/// than merely moving a hash. The last is
 /// `GM_MUTATE_FORCE_SESSION_GRAVITY` — the live force session's own control, which reaches
 /// `force-gate` and not this gate. The order is the order of `hashgate::Knob::ALL`, which the
 /// unit test `each_knob_names_its_own_variable_and_record` pins against this list's twin in
@@ -40,7 +45,7 @@ use std::process::{Command, Output};
 /// this list is what clears a knob out of a test run's environment, so a name it failed to
 /// carry would let a control leak in and turn an honest run red. Being an independent copy is
 /// the property; the unit test is what makes it hold.
-pub const KNOBS: [&str; 48] = [
+pub const KNOBS: [&str; 49] = [
     "GM_MUTATE_REFERENCE_DEGREE",
     "GM_MUTATE_GRID_SPACING",
     "GM_MUTATE_SUGIYAMA_LAYER_SPACING",
@@ -88,6 +93,7 @@ pub const KNOBS: [&str; 48] = [
     "GM_MUTATE_SPLIT_SUM",
     "GM_MUTATE_SPLIT_RESCALE",
     "GM_MUTATE_LAYOUT_PARAM_DEFAULT",
+    "GM_MUTATE_OVERLAP_RELAXATION",
     "GM_MUTATE_FORCE_SESSION_GRAVITY",
 ];
 

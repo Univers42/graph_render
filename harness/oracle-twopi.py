@@ -9,13 +9,15 @@ Run in the `ge-graphviz-oracle` image (Graphviz 16.1.0, no network):
   graph-cli oracle-twopi
 
 One file, two arms: for each fixture it writes a DOT graph, runs
-`twopi -Tplain -Gstart=1`, and compares Graphviz's node positions with ours. The DOT writer
-and the `-Tplain` reader are **imported from `harness/oracle-graphviz.py`**, not copied, so
-the determinism evidence the ADR records (`cmp` over two runs of that plumbing) stays
-attached to the code that runs here. The comparison is against Graphviz, never against a
-second run of ours. Graphviz's own answer per seed is written to
+`twopi -Tplain -Gstart=<GM_GV_START or 1>`, and compares Graphviz's node positions with ours.
+The DOT writer
+and the `-Tplain` reader are **imported from `harness/gv_plain.py`**, the one module every
+Graphviz arm shares, not copied, so the determinism evidence the ADR records (`cmp` over two
+runs of that plumbing) stays attached to the code that runs here. The comparison is against
+Graphviz, never against a second run of ours. Graphviz's own answer per seed is written to
 `target/gv-twopi/graphviz-twopi.jsonl`, which is the file the ADR's determinism check
-`cmp`s.
+`cmp`s. The result's `oracle` string is interpolated from the Graphviz version `dot -V`
+reports and the `-Gstart` the engine was actually run at, so it names the command that ran.
 
 **The metric** is the largest absolute node-coordinate difference in points, after both arms
 are rescaled onto the same bounding box: for each seed, Graphviz's own node-centre bounding
@@ -48,102 +50,73 @@ and not a tolerance. It also settles the precision the rescale cannot: five digi
 resolution the oracle carries, and a structural error (the wrong centre, a ring one step
 out, a subtree share off by one leaf) moves a digit rather than a fraction of one.
 
-Ponytail: `harness/oracle-graphviz.py` is imported by path with `importlib` because its
-filename carries a hyphen and is not importable by name. That is uglier than a relative
-`from oracle_graphviz import ...`, and it is the price of not copying the DOT writer: a copy
-would be a second definition of how the oracle is invoked, and the `cmp` in the ADR proves
-determinism of *that* one. The import runs with `sys.dont_write_bytecode` set, so it leaves no
-`__pycache__` in the fingerprinted `harness/` tree (see `load_oracle`).
+Ponytail: the Graphviz plumbing used to be imported from `harness/oracle-graphviz.py` by
+path, with `importlib`, because that filename carries a hyphen and is not importable by name.
+It now comes from `harness/gv_plain.py`, the one module every Graphviz arm shares, which is
+where those functions actually live — so the path import is gone, along with the
+`sys.dont_write_bytecode` dance it needed to keep a `__pycache__` out of the fingerprinted
+`harness/` tree (`crates/graph-cli/src/fingerprint.rs:21,37-47`). The one name still read by
+path is `CLOSED_CASES`, which `gv_frames.py` reaches here for; a copy of those six graphs
+would be a second definition of what the closed comparison is about.
 """
 
-import importlib.util
 import json
-import math
 import os
 import sys
 import tempfile
 
-# The plain format reports inches; both of this file's arms are in points.
-POINTS_PER_INCH = 72.0
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# The plain format prints five significant digits, so the closed-case rendering does too:
-# that is the resolution the oracle carries, and comparing at any finer one would grade our
-# `f64` against its rounded text.
-DIGITS = 5
+from oracle_common import finite, read_manifest, require_cases, require_seeds
 
-# Graphviz's default node size in inches, which is what makes the bounding box's lower-left
-# corner half a node outside the node-centre bounding box. The fixtures set no `width`,
-# `height` or `fixedsize`, so this is the value `-Tplain` used.
-NODE_SIZE_INCH = (0.75, 0.5)
+# The six closed cases and their answers are tables, and they were half this file by line
+# count, so they moved to `harness/twopi_closed.py`. The four names below are re-exported
+# here because `gv_frames.py` reads `CLOSED_CASES` from **this** file by path — its
+# filename is not importable by name — and a second definition of those graphs would be a
+# second thing the closed comparison could disagree with.
+from gv_plain import START_SEED, graphviz_version, parse_plain, run_engine, write_dot
 
-
-def star_angles():
-    """The four leaf angles of a star on Graphviz's defaults: 45 + k*90 degrees."""
-    return [math.pi / 4 + k * math.pi / 2 for k in range(4)]
-
-
-# The closed cases, in the shape graph-core's `probe::graph` builds them: an edge list in
-# creation order, which is the order the sibling angle sweep depends on.
-CLOSED_CASES = {
-    "one-node": [],
-    "two-nodes": [(0, 1)],
-    "three-path": [(0, 1), (1, 2)],
-    "four-cycle": [(0, 1), (1, 2), (2, 3), (3, 0)],
-    "five-star": [(0, 1), (0, 2), (0, 3), (0, 4)],
-    "six-branch": [(0, 1), (0, 2), (0, 3), (2, 4), (4, 5)],
-}
-
-# The closed answers, in points, node by node, derived from `lib/twopigen/circle.c`: the
-# centre at the origin, ring r at radius 72*r, and each subtree's share of 2*PI in
-# proportion to the leaves below it. The translation onto the drawing's lower-left corner is
-# the one degree of freedom `-Tplain` cannot show, so every case is compared after each arm
-# has had it applied — see `rendered`.
-CLOSED_ANSWERS = {
-    "one-node": [(0.0, 0.0)],
-    "two-nodes": [(0.0, 0.0), (-72.0, 0.0)],
-    "three-path": [(0.0, -72.0), (0.0, 0.0), (0.0, 72.0)],
-    "four-cycle": [(0.0, 0.0), (0.0, 72.0), (0.0, 144.0), (0.0, -72.0)],
-    "five-star": [(0.0, 0.0)]
-    + [(72.0 * math.cos(a), 72.0 * math.sin(a)) for a in star_angles()],
-    "six-branch": [
-        (-36.0, -36.0 * math.sqrt(3.0)),
-        (-144.0, 0.0),
-        (0.0, 0.0),
-        (72.0, -72.0 * math.sqrt(3.0)),
-        (36.0, 36.0 * math.sqrt(3.0)),
-        (72.0, 72.0 * math.sqrt(3.0)),
-    ],
-}
+from twopi_closed import (  # noqa: F401  (CLOSED_CASES is read by gv_frames, by path)
+    CLOSED_ANSWERS,
+    CLOSED_CASES,
+    DIGITS,
+    NODE_SIZE_INCH,
+    POINTS_PER_INCH,
+)
 
 
-def load_oracle(here):
-    """`harness/oracle-graphviz.py`, by path: its filename is not importable by name."""
-    path = os.path.join(here, "oracle-graphviz.py")
-    # `harness/` is inside `FINGERPRINTED` (`crates/graph-cli/src/fingerprint.rs:21`), and
-    # importing a module by path makes CPython write `harness/__pycache__/*.pyc` — a
-    # transient file inside a fingerprinted tree, which moves the fingerprint for as long
-    # as it exists. That would make `emit` (fingerprint without the `.pyc`) and `oracle-twopi`
-    # (fingerprint with it) disagree on a clean checkout, and the check would refuse a run
-    # that was in fact the right one. `fingerprint.rs:37-47` requires every transient path
-    # to lie outside the set, so the bytecode is never written.
-    previous = sys.dont_write_bytecode
-    sys.dont_write_bytecode = True
-    try:
-        spec = importlib.util.spec_from_file_location("oracle_graphviz", path)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-    finally:
-        sys.dont_write_bytecode = previous
-    return module
+def engine_version():
+    """The Graphviz the engine actually ran, asked of the binary rather than asserted."""
+    return graphviz_version()
 
 
-def engine_points(oracle, tmp, name, count, edges):
-    """`twopi -Tplain -Gstart=1` over one DOT graph, as dense-indexed points."""
+def engine_start():
+    """The `-Gstart` the engine ran at: the value `run_engine` used, not a literal.
+
+    `gv_plain.START_SEED` is `GM_GV_START`'s default and `run_engine` resolves it inside its
+    body, so this is the seed in every command below — `twopi` is measured INERT for it
+    (`docs/measurements/p13-gv1.patchwork.md`), which is exactly why the string has to be
+    interpolated: a hard-coded `-Gstart=1` beside a `GM_GV_START=7` run recorded a command
+    that was not the one executed.
+    """
+    return START_SEED
+
+
+def engine_points(tmp, name, count, edges):
+    """`twopi -Tplain -Gstart=<seed>` over one DOT graph, as dense-indexed points.
+
+    The DOT writer and the `-Tplain` reader are imported from `gv_plain` — the module that
+    owns them, shared with every other Graphviz arm — rather than reached through the driver
+    by path. The path import of `oracle-graphviz.py` is kept for the closed-case answers and
+    the version/seed the driver resolves, and `gv_plain` is where the plumbing actually
+    lives, so a caller that needs the plumbing reads it there.
+    """
     source = [a for a, _ in edges]
     target = [b for _, b in edges]
     dot = os.path.join(tmp, f"{name}.dot")
-    oracle.write_dot(dot, count, source, target)
-    _, nodes = oracle.parse_plain(oracle.run_engine("twopi", dot), count)
+    write_dot(dot, count, source, target)
+    _, nodes = parse_plain(run_engine("twopi", dot), count)
     return [tuple(nodes[f"n{i}"]) for i in range(count)]
 
 
@@ -202,7 +175,7 @@ def rendered(points):
     )
 
 
-def printed_nodes(oracle, tmp, name, count, edges):
+def printed_nodes(tmp, name, count, edges):
     """Graphviz's own node coordinates, as the two strings `-Tplain` printed for each.
 
     The text, not the parsed float: the comparison is byte for byte, and re-printing a
@@ -210,26 +183,26 @@ def printed_nodes(oracle, tmp, name, count, edges):
     oracle's arithmetic.
     """
     dot = os.path.join(tmp, f"{name}.dot")
-    oracle.write_dot(dot, count, [a for a, _ in edges], [b for _, b in edges])
+    write_dot(dot, count, [a for a, _ in edges], [b for _, b in edges])
     rows = {}
-    for line in oracle.run_engine("twopi", dot).splitlines():
+    for line in run_engine("twopi", dot).splitlines():
         parts = line.split()
         if len(parts) >= 4 and parts[0] == "node":
             rows[parts[1]] = (parts[2], parts[3])
     return [rows[f"n{i}"] for i in range(count)]
 
 
-def closed_case(oracle, tmp, name):
+def closed_case(tmp, name):
     """One closed case: Graphviz's arm rendered against the closed answer, exactly."""
     edges = CLOSED_CASES[name]
     count = 1 + max((max(edge) for edge in edges), default=0)
-    theirs = printed_nodes(oracle, tmp, f"closed-{name}", count, edges)
+    theirs = printed_nodes(tmp, f"closed-{name}", count, edges)
     want = rendered(CLOSED_ANSWERS[name])
     got = " ".join(f"{x} {y}" for x, y in theirs)
     return {"nodes": count, "exact": want == got, "want": want, "got": got}
 
 
-def sweep(oracle, tmp, fixtures):
+def sweep(tmp, fixtures):
     """Every fixture through the engine: the worst gap in points, and the raw output.
 
     The raw output is written to `<graphviz-out-dir>/graphviz-twopi.jsonl` so the ADR's
@@ -239,10 +212,8 @@ def sweep(oracle, tmp, fixtures):
     worst = 0.0
     theirs = []
     for record in fixtures:
-        points = engine_points(
-            oracle, tmp, f"g{record['seed']}", record["n"], edges_of(record)
-        )
-        worst = max(worst, gap(ours_of(record), points))
+        points = engine_points(tmp, f"g{record['seed']}", record["n"], edges_of(record))
+        worst = max(worst, finite(gap(ours_of(record), points), "twopi gap"))
         theirs.append({"seed": record["seed"], "n": record["n"], "points": points})
     return worst, theirs
 
@@ -251,19 +222,23 @@ def main():
     if len(sys.argv) != 3:
         sys.exit("usage: oracle-twopi.py <fixtures-dir> <graphviz-out-dir>")
     fixtures_dir, out_dir = sys.argv[1], sys.argv[2]
-    oracle = load_oracle(os.path.dirname(os.path.abspath(__file__)))
-    manifest = read(os.path.join(fixtures_dir, "twopi-manifest.json"))
+    manifest, digest = read_manifest(fixtures_dir, "twopi")
     fixtures = read_lines(os.path.join(fixtures_dir, "twopi.jsonl"))
+    require_seeds(manifest, fixtures, "twopi")
     with tempfile.TemporaryDirectory() as tmp:
-        worst, theirs = sweep(oracle, tmp, fixtures)
-        closed = {name: closed_case(oracle, tmp, name) for name in CLOSED_CASES}
+        worst, theirs = sweep(tmp, fixtures)
+        closed = {name: closed_case(tmp, name) for name in CLOSED_CASES}
+    require_cases({"twopi": {"cases": len(theirs)}}, ("twopi",), "twopi")
     os.makedirs(out_dir, exist_ok=True)
     write_lines(os.path.join(out_dir, "graphviz-twopi.jsonl"), theirs)
     exact = all(row["exact"] for row in closed.values())
     result = {
         "fingerprint": manifest["fingerprint"],
-        "sha256": manifest["sha256"]["twopi.jsonl"],
-        "oracle": "Graphviz 16.1.0 twopi -Tplain -Gstart=1",
+        "sha256": digest,
+        "oracle": (
+            f"Graphviz {engine_version()} twopi -Tplain "
+            f"-Gstart={engine_start()}"
+        ),
         "layouts": {"twopi": {"cases": len(theirs), "worst": worst}},
         "closed": closed,
         "closed_exact": exact,
@@ -275,11 +250,6 @@ def main():
         f"closed {len(closed)} exact: {exact}"
     )
     return 0 if exact else 1
-
-
-def read(path):
-    with open(path) as handle:
-        return json.load(handle)
 
 
 def read_lines(path):

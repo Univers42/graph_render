@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import type { ViewStats } from "../../../graph-render/src/view.ts";
 import type { View } from "../../../graph-render/src/view.ts";
+import type { ForceLink } from "../../src/actions/forces.ts";
 import type { LiveBridge } from "../../src/motor/bridge.ts";
 import { HIDDEN } from "../../src/ui/progress.ts";
 import { type StudioState, initialState } from "../../src/state/model.ts";
@@ -21,8 +22,8 @@ export const STATS: ViewStats = {
   draws: 12, strokeCalls: 1, edgeStyles: 1, mixedEdges: 0, gradientStrokes: 0, arrowFills: 0, glowFills: 0, spritesRasterised: 0, layoutRuns: 1, frameMs: 4.2, fps: 60, frames: 42, gpuEdgeMs: 0,
 };
 
-export function studioWith(state: StudioState = DRAWN): Desk {
-  const made = desk(refusingClient());
+export function studioWith(state: StudioState = DRAWN, forces?: ForceLink): Desk {
+  const made = desk(refusingClient(), undefined, forces);
   made.studio.store.set(state);
   return made;
 }
