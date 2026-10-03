@@ -26,9 +26,9 @@ unlock the rest, which is the one nearest the top of this list.
 """
 
 #: Below this disparity the two drawings are the same shape to within `scipy`'s own fit **and**
-#: their raw coordinates differ by less than [`ARITHMETIC_GAP`] on all but
-#: [`ARITHMETIC_RESIDUAL_FIXTURES`] of the row's fixtures, so there is nothing left over: the
-#: same method, a different summation order or a different `libm`, and nothing but that.
+#: their raw coordinates differ by no more than [`ARITHMETIC_GAP`] on all but at most
+#: [`ARITHMETIC_RESIDUAL_FIXTURES`] of the row's fixtures, so there is nothing left over: the same
+#: method, a different summation order or a different `libm`, and nothing but that.
 #:
 #: **Both halves are needed, and the gap is the half that matters.** `GRID` has a disparity of
 #: 5e-32 and an absolute gap of 4.0: the same grid, in a different unit and a different axis
