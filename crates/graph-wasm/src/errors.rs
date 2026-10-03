@@ -8,6 +8,7 @@
 //! Target-independent: nothing here touches wasm memory, so it is unit-tested natively.
 
 use graph_contract::params::ParamsError;
+#[cfg(any(test, target_arch = "wasm32"))]
 use std::cell::Cell;
 
 /// Why an export returned its failure sentinel (`0`, or [`Code::None`] for absent id
@@ -32,15 +33,6 @@ pub enum Code {
     /// the three codes after [`Self::AnalysisFailed`] answer instead. The number stays:
     /// removing the variant would renumber every code above it, and a host that switched
     /// on `6` would silently read a different refusal.
-    // `not(test)`: this module's own tests name every code, so under `cfg(test)` the
-    // variant is used and the expectation would be unfulfilled.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "reserved: never produced again, and removing the variant would renumber every code above it"
-        )
-    )]
     ParamsMustBeEmpty = 6,
     /// Every `u32` handle id has been issued in this instance; none can be reused (C6).
     HandlesExhausted = 7,
@@ -128,28 +120,67 @@ impl From<ParamsError> for Code {
     }
 }
 
+impl Code {
+    /// The code's name, as the SDK's `CODE_NAMES` and `docs/contract/wasm-abi.md`'s Errors
+    /// table spell it. Written out rather than taken from `Debug`, whose text is not a
+    /// promise; `mirrors` pins the three to one another.
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::None => "None",
+            Self::InvalidHandle => "InvalidHandle",
+            Self::AllocFailed => "AllocFailed",
+            Self::FreeRefused => "FreeRefused",
+            Self::IngestInvalid => "IngestInvalid",
+            Self::UnknownLayoutId => "UnknownLayoutId",
+            Self::ParamsMustBeEmpty => "ParamsMustBeEmpty",
+            Self::HandlesExhausted => "HandlesExhausted",
+            Self::LayoutFailed => "LayoutFailed",
+            Self::TamperedGeometry => "TamperedGeometry",
+            Self::NoGeometryYet => "NoGeometryYet",
+            Self::BuildSourceInvalid => "BuildSourceInvalid",
+            Self::IndexOutOfRange => "IndexOutOfRange",
+            Self::PostFailed => "PostFailed",
+            Self::ContractInvalid => "ContractInvalid",
+            Self::InvalidSession => "InvalidSession",
+            Self::SessionParamsInvalid => "SessionParamsInvalid",
+            Self::SessionRefused => "SessionRefused",
+            Self::AnalysisFailed => "AnalysisFailed",
+            Self::IngestTooLarge => "IngestTooLarge",
+            Self::ParamOutOfRange => "ParamOutOfRange",
+            Self::ParamsMalformed => "ParamsMalformed",
+            Self::ParamsNotAccepted => "ParamsNotAccepted",
+        }
+    }
+}
+
+// The thread-local channel is the exports' alone: a native caller reads the `Result`.
+#[cfg(any(test, target_arch = "wasm32"))]
 thread_local! {
     static LAST: Cell<Code> = const { Cell::new(Code::None) };
 }
 
 /// Records `code` as the outcome of the export now returning.
+#[cfg(any(test, target_arch = "wasm32"))]
 pub fn set(code: Code) {
     LAST.with(|cell| cell.set(code));
 }
 
 /// Records success — every export's non-error return path calls this, so a stale code
 /// from an earlier call never survives a later success (C4).
+#[cfg(any(test, target_arch = "wasm32"))]
 pub fn clear() {
     set(Code::None);
 }
 
 /// The last recorded code, as the wire's `u32`. `gm_last_error`'s body.
+#[cfg(any(test, target_arch = "wasm32"))]
 pub fn get() -> u32 {
     LAST.with(Cell::get) as u32
 }
 
 /// An export's answer: the value on success with the code cleared, `0` with the reason
 /// recorded on a refusal — so no `0` that is a refusal leaves a stale code behind.
+#[cfg(any(test, target_arch = "wasm32"))]
 pub fn reply(result: Result<u32, Code>) -> u32 {
     match result {
         Ok(value) => {
@@ -167,110 +198,4 @@ pub fn reply(result: Result<u32, Code>) -> u32 {
 mod mirrors;
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn last_write_wins_and_starts_at_none() {
-        // Cleared explicitly: the thread-local is process-wide across tests.
-        clear();
-        assert_eq!(get(), Code::None as u32);
-        set(Code::InvalidHandle);
-        assert_eq!(get(), Code::InvalidHandle as u32);
-        set(Code::AllocFailed);
-        assert_eq!(get(), Code::AllocFailed as u32, "the more recent call wins");
-        clear();
-        assert_eq!(get(), 0, "clear is the same as recording None");
-    }
-
-    #[test]
-    fn every_code_is_distinct_and_none_is_the_wires_zero() {
-        let codes = [
-            Code::None,
-            Code::InvalidHandle,
-            Code::AllocFailed,
-            Code::FreeRefused,
-            Code::IngestInvalid,
-            Code::UnknownLayoutId,
-            Code::ParamsMustBeEmpty,
-            Code::HandlesExhausted,
-            Code::LayoutFailed,
-            Code::TamperedGeometry,
-            Code::NoGeometryYet,
-            Code::BuildSourceInvalid,
-            Code::IndexOutOfRange,
-            Code::PostFailed,
-            Code::ContractInvalid,
-            Code::InvalidSession,
-            Code::SessionParamsInvalid,
-            Code::SessionRefused,
-            Code::AnalysisFailed,
-            Code::IngestTooLarge,
-            Code::ParamOutOfRange,
-            Code::ParamsMalformed,
-            Code::ParamsNotAccepted,
-        ];
-        let mut values: Vec<u32> = codes.iter().map(|&c| c as u32).collect();
-        values.sort_unstable();
-        values.dedup();
-        assert_eq!(
-            values.len(),
-            codes.len(),
-            "every Code has its own wire value"
-        );
-        assert_eq!(
-            Code::None as u32,
-            0,
-            "0 is both a data value and a code: ambiguous"
-        );
-    }
-
-    /// Append-only, and this is what makes that a promise rather than a hope: a code
-    /// added in the middle would renumber every later one, and `CODE_NAMES` in
-    /// `crates/graph-sdk-js/src/errors.ts` indexes the same order — an ABI rename that
-    /// silently turned a caller's `UnknownLayoutId` into a `NoGeometryYet`.
-    #[test]
-    fn the_new_code_appends_and_does_not_move_any_other() {
-        assert_eq!(
-            [
-                Code::None as u32,
-                Code::InvalidHandle as u32,
-                Code::AllocFailed as u32,
-                Code::FreeRefused as u32,
-                Code::IngestInvalid as u32,
-                Code::UnknownLayoutId as u32,
-                Code::ParamsMustBeEmpty as u32,
-                Code::HandlesExhausted as u32,
-                Code::LayoutFailed as u32,
-                Code::TamperedGeometry as u32,
-                Code::NoGeometryYet as u32,
-                Code::BuildSourceInvalid as u32,
-                Code::IndexOutOfRange as u32,
-                Code::PostFailed as u32,
-                Code::ContractInvalid as u32,
-                Code::InvalidSession as u32,
-                Code::SessionParamsInvalid as u32,
-                Code::SessionRefused as u32,
-                Code::AnalysisFailed as u32,
-                Code::IngestTooLarge as u32,
-                Code::ParamOutOfRange as u32,
-                Code::ParamsMalformed as u32,
-                Code::ParamsNotAccepted as u32,
-            ],
-            [
-                0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
-            ],
-            "every code keeps the wire value it already had"
-        );
-        assert_ne!(
-            Code::InvalidSession as u32,
-            Code::InvalidHandle as u32,
-            "a dead session must not read as a dead graph handle, and the other way round"
-        );
-        assert_ne!(
-            Code::ContractInvalid as u32,
-            Code::IngestInvalid as u32,
-            "a refused contract document must not read as a refused node/edge one"
-        );
-    }
-}
+mod tests;
