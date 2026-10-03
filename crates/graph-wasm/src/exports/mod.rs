@@ -21,6 +21,7 @@
 #![cfg(target_arch = "wasm32")]
 
 mod build;
+mod build_paths;
 mod columns;
 mod session;
 mod stages;

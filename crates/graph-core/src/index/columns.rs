@@ -96,18 +96,17 @@ pub fn index_columns<'a>(
 
 /// The one shared edge push: the endpoint-row check, then `admit_edge`, then the refusal a
 /// taken id earns. `row` is the edge's dense index, which is also its document row.
-fn push_edge<'a>(
-    topology: &mut Topology,
-    row: u32,
-    edge: &RowEdge<'a>,
-) -> Result<(), ColumnsRefusal> {
+fn push_edge(topology: &mut Topology, row: u32, edge: &RowEdge<'_>) -> Result<(), ColumnsRefusal> {
     let nodes = topology.node_count();
     if edge.source_row >= nodes || edge.target_row >= nodes {
         return Err(ColumnsRefusal::EndpointRow { row });
     }
     let at = (edge.source_row, edge.target_row);
-    if !topology.admit_edge(at, edge)? {
+    if !topology.admit_edge(at, &edge.fields())? {
         return Err(ColumnsRefusal::DuplicateEdgeId { row });
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;

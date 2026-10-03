@@ -27,6 +27,7 @@ use graph_core::{EdgeKind, NodeKind};
 use crate::errors::Code;
 
 mod at;
+pub mod columns;
 mod ids;
 mod record;
 use at::At;

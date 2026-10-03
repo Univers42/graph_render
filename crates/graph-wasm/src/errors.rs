@@ -84,6 +84,18 @@ pub enum Code {
     /// reached wasm32's address-space limit inside an infallible allocation and the host saw
     /// an `unreachable` trap it could not name (F-16).
     IngestTooLarge = 19,
+    /// `gm_build_columns`'s buffer failed `docs/contract/ingest-columns.md`: either the
+    /// decoder refused the document (a header word, the exact total size, the offset table,
+    /// the blob, or a value the contract forbids) or `graph_core::index_columns` refused
+    /// the graph it describes (a repeated node or edge id, which a row-addressed endpoint
+    /// cannot survive).
+    ///
+    /// **Not** `IngestInvalid`: that is the *provisional* JSON's code and `gm_build` keeps
+    /// it, for the same reason `ContractInvalid` exists. A caller that got this one handed
+    /// over bytes that are not a columnar document; one that got `IngestInvalid` handed
+    /// text that is not JSON or is JSON of the wrong shape. Collapsing them would send a
+    /// host looking for a bad member in a binary document.
+    ColumnsInvalid = 20,
 }
 
 thread_local! {
@@ -164,6 +176,7 @@ mod tests {
             Code::SessionRefused,
             Code::AnalysisFailed,
             Code::IngestTooLarge,
+            Code::ColumnsInvalid,
         ];
         let mut values: Vec<u32> = codes.iter().map(|&c| c as u32).collect();
         values.sort_unstable();
@@ -208,9 +221,10 @@ mod tests {
                 Code::SessionRefused as u32,
                 Code::AnalysisFailed as u32,
                 Code::IngestTooLarge as u32,
+                Code::ColumnsInvalid as u32,
             ],
             [
-                0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+                0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
             ],
             "every code keeps the wire value it already had"
         );

@@ -131,6 +131,61 @@ pub struct RowEdge<'a> {
     pub child_first: bool,
 }
 
+/// An edge's fields with the endpoints left out: everything a topology stores about an edge
+/// except which nodes it joins.
+///
+/// Both [`EdgeView`] and [`RowEdge`] produce one, and that is the whole reason it exists —
+/// the two disagree only about how an endpoint is named (id, or row number), and
+/// `Topology::admit_edge` takes the endpoints as a resolved pair, so the rest of the push can
+/// be one function over both instead of a copy of itself.
+#[derive(Debug, Clone, Copy)]
+pub struct EdgeFields<'a> {
+    /// Content-addressed id.
+    pub id: &'a str,
+    /// Kind.
+    pub kind: EdgeKind,
+    /// Label.
+    pub label: &'a str,
+    /// Strength.
+    pub strength: f64,
+    /// Directed flag.
+    pub directed: bool,
+    /// Backing row id.
+    pub record_id: Option<&'a str>,
+    /// The source end is the child (`child_of`).
+    pub child_first: bool,
+}
+
+impl EdgeView<'_> {
+    /// This edge's endpoint-free fields.
+    pub fn fields(&self) -> EdgeFields<'_> {
+        EdgeFields {
+            id: self.id,
+            kind: self.kind,
+            label: self.label,
+            strength: self.strength,
+            directed: self.directed,
+            record_id: self.record_id,
+            child_first: self.child_first,
+        }
+    }
+}
+
+impl RowEdge<'_> {
+    /// This edge's endpoint-free fields.
+    pub fn fields(&self) -> EdgeFields<'_> {
+        EdgeFields {
+            id: self.id,
+            kind: self.kind,
+            label: self.label,
+            strength: self.strength,
+            directed: self.directed,
+            record_id: self.record_id,
+            child_first: self.child_first,
+        }
+    }
+}
+
 impl NodeRecord {
     /// This record's fields, borrowed.
     pub fn view(&self) -> NodeView<'_> {

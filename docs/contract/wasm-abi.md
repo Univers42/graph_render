@@ -365,6 +365,7 @@ graph-core-only capability.
 | 17 | `SessionRefused` | The force session refused: a parameter out of its range (never clamped), a row past the last node, or a non-finite coordinate (D9) |
 | 18 | `AnalysisFailed` | `gm_analysis_run` ran the analysis but its report has no JSON text: a non-finite score or modularity (`NaN` is not a JSON number, D9), or a column longer than `u32` can count |
 | 19 | `IngestTooLarge` | `gm_build`'s buffer is longer than `MAX_INGEST_BYTES` (774,568,785 bytes), refused on its length before any of it is read. **Not** `IngestInvalid`: that code means the document was read and found malformed, while this one means the document must be split or shrunk |
+| 20 | `ColumnsInvalid` | `gm_build_columns`'s buffer failed `docs/contract/ingest-columns.md`: a header word, a section total that does not equal the buffer length exactly, a decreasing offset, a slice splitting a code point, a boolean that is not `0` or `1`, a non-finite `f64`, or a repeated node or edge id. **Not** `IngestInvalid`: that is the provisional JSON's code and `gm_build` keeps it; a caller that got this one was handed bytes that are not a columnar document, not text that is bad JSON |
 
 Codes are **append-only**: `ContractInvalid` was added as `14` and moved no existing
 code, which `crates/graph-wasm/src/errors.rs`'s

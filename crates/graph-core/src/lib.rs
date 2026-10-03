@@ -58,7 +58,7 @@ pub use layout::grid::{Grid, GridParams};
 pub use layout::sugiyama::{Sugiyama, SugiyamaParams};
 pub use legend::{DatabaseCount, LegendCounts, TagCount, derive_legend};
 pub use neighborhood::{Neighborhood, neighborhood, neighborhood_edges};
-pub use records::{EdgeRecord, EdgeView, NodeRecord, NodeView, RowEdge};
+pub use records::{EdgeFields, EdgeRecord, EdgeView, NodeRecord, NodeView, RowEdge};
 pub use stage::{
     PipelineRun, Stage, StageError, gate_node_count, run_pipeline, run_with, seeded_model,
 };

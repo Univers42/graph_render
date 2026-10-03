@@ -9,7 +9,7 @@ use crate::arena::{CapacityError, FixedState, Interned, StringArena};
 use crate::columns::{EdgeColumns, NodeColumns, NodeKind};
 use crate::csr::Csr;
 use crate::edgekind::EdgeKind;
-use crate::records::{EdgeRecord, NodeRecord, NodeView};
+use crate::records::{EdgeFields, EdgeRecord, NodeRecord, NodeView};
 use indexmap::{IndexMap, IndexSet};
 
 /// `GraphStats` (`types.ts:75-80`).
@@ -58,7 +58,7 @@ pub fn index_model(nodes: &[NodeRecord], edges: &[EdgeRecord]) -> Result<Topolog
         // The endpoints are resolved before anything is interned, exactly as inside
         // `admit_edge`: a dangling edge must claim no id and cost no arena bytes.
         if let Some(at) = topology.endpoints(&edge.source, &edge.target) {
-            topology.admit_edge(at, &edge.view())?;
+            topology.admit_edge(at, &edge.view().fields())?;
         }
     }
     topology.finish()?;
@@ -177,7 +177,7 @@ impl Topology {
     ///
     /// A dropped edge interns nothing, so it neither claims its id nor costs arena bytes: a
     /// taken id is already interned, and the caller resolves the endpoints first.
-    fn admit_edge(&mut self, at: (u32, u32), edge: &EdgeView<'_>) -> Result<bool, CapacityError> {
+    fn admit_edge(&mut self, at: (u32, u32), edge: &EdgeFields<'_>) -> Result<bool, CapacityError> {
         let s = &mut self.strings;
         let id = s.intern(edge.id)?;
         let (index, fresh) = self.edge_ids.insert_full(id);
