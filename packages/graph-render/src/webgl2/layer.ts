@@ -15,6 +15,7 @@
 import { type Normalise, type Rgba, normaliserOf } from "./colour.ts";
 import { type EdgeTimer, edgeTimerOf } from "./gputimer.ts";
 import { type Uniforms, attribute, programOf, uniformsOf } from "./gl.ts";
+import type { EdgeShape } from "./sample.ts";
 import { EDGE_FRAGMENT, EDGE_VERTEX, NODE_FRAGMENT, NODE_VERTEX, POINT_FRAGMENT, POINT_VERTEX } from "./shaders.ts";
 
 /**
@@ -47,7 +48,13 @@ export interface Uploaded {
   palette: readonly string[] | null;
   paletteSize: number;
   edges: readonly unknown[];
+  /** The drawn pairs themselves, so a placement change can re-measure them without a rebuild. */
+  index: Uint32Array;
   indexCount: number;
+  /** Identity of the arrays `shape` was measured from: the edge key plus positions and `placed`. */
+  shapeKey: readonly unknown[];
+  /** What the sample step is measured from (sample.ts); null before the first measure. */
+  shape: EdgeShape | null;
 }
 
 type Column = "x" | "y" | "half" | "slot" | "index" | "order" | "quadX" | "quadY" | "quadHalf" | "quadSlot";
@@ -111,7 +118,8 @@ function paletteTexture(gl: WebGL2RenderingContext): WebGLTexture {
 function freshUploads(): Uploaded {
   return {
     x: null, placed: -1, halvesKey: [], halves: new Float32Array(0), shown: 0, largest: 0,
-    slots: null, palette: null, paletteSize: 1, edges: [], indexCount: 0,
+    slots: null, palette: null, paletteSize: 1, edges: [], index: new Uint32Array(0), indexCount: 0,
+    shapeKey: [], shape: null,
   };
 }
 
