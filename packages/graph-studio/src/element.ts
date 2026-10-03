@@ -36,6 +36,8 @@ export interface StudioElementOptions {
   readonly save?: Save;
   /** Who draws the graph's edges and nodes (graph-render `ViewOptions.backend`); `auto` when left out. */
   readonly backend?: BackendChoice;
+  /** Threads that tick a live settle, the motor worker's own included (`motor/threads.ts`); one per core but one, at most 8, when left out. */
+  readonly threads?: number;
 }
 
 export interface GraphStudioElement extends HTMLElement {
@@ -102,9 +104,10 @@ function within(tag: string, className: string): HTMLElement {
 }
 
 /** Made absolute here: the worker would resolve them against its own script, not the page. */
-function assetsOf(host: HTMLElement): Assets {
+function assetsOf(host: HTMLElement, threads: number | undefined): Assets {
   const absolute = (name: string, fallback: string): string => new URL(host.getAttribute(name) ?? fallback, document.baseURI).href;
-  return { wasmUrl: absolute("wasm", "graph_wasm.wasm"), fixturesUrl: absolute("fixtures", "fixtures/") };
+  const assets = { wasmUrl: absolute("wasm", "graph_wasm.wasm"), fixturesUrl: absolute("fixtures", "fixtures/") };
+  return threads === undefined ? assets : { ...assets, threads };
 }
 
 /** `localStorage`, or null where reading the property itself throws (blocked site data). */
@@ -192,7 +195,7 @@ function mount(host: HTMLElement, options: StudioElementOptions): Mounted {
   shadow.replaceChildren(style, canvas, chrome);
   // Focusable, so a click on the graph brings the shortcuts to this studio and no other.
   if (!host.hasAttribute("tabindex")) host.tabIndex = 0;
-  const client = createClient(options.spawn ?? spawnWorker, assetsOf(host));
+  const client = createClient(options.spawn ?? spawnWorker, assetsOf(host, options.threads));
   // The view is made before the studio, and the ids live in the studio's state: read late.
   const shown: Shown = { studio: null, note: (reason) => shown.studio?.note(reason) };
   const { view, bridge } = livePair(canvas, client, shown, options.backend ?? "auto");

@@ -19,7 +19,7 @@ async function answerTo(session: Session, request: Request, forces: ForceHost | 
     return { result, transfer: [] };
   }
   if (request.type === "open") {
-    return { result: { type: "opened", catalog: await session.open(request.wasmUrl) }, transfer: [] };
+    return { result: { type: "opened", catalog: await session.open(request.wasmUrl, request.threads) }, transfer: [] };
   }
   if (request.type === "load") {
     return { result: { type: "loaded", graph: await session.load(request.source, request.fixturesUrl) }, transfer: [] };

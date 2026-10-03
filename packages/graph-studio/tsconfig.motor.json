@@ -11,6 +11,7 @@
   "include": [
     "src/motor/worker.ts",
     "src/motor/local.ts",
+    "src/motor/helper.ts",
     "tests/*.motor.test.ts",
     "tests/motor.ts"
   ],
