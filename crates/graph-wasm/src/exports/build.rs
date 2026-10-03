@@ -58,9 +58,13 @@ pub extern "C" fn gm_build(ingest_ptr: u32, ingest_len: u32) -> u32 {
     // caller's own later `gm_free`), so borrowing it for the duration of `ingest::read`
     // is sound, and nothing here retains the slice past this function.
     let bytes = unsafe { std::slice::from_raw_parts(ingest_ptr as *const u8, ingest_len as usize) };
+    #[cfg(any(test, feature = "probe"))]
+    crate::ingest::phases::mark(crate::ingest::phases::COPY, None);
     // The records are dropped as soon as the topology holds them, not at the end of the call.
     let indexed =
         ingest::read_records(bytes).and_then(|(nodes, edges)| ingest::index(&nodes, &edges));
+    #[cfg(any(test, feature = "probe"))]
+    crate::ingest::phases::mark(crate::ingest::phases::RETURNED, None);
     let topology = match indexed {
         Ok(topology) => topology,
         // F-16: the refusal names its own code, so an oversized document is not published
@@ -245,6 +249,26 @@ fn with_snapshot(handle: u32, read: impl FnOnce(&Snapshot) -> u32) -> u32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn gm_last_error() -> u32 {
     errors::get()
+}
+
+/// Gate-only: the linear-memory address of [`crate::ingest::phases`]' mark table, so a
+/// host can read the per-phase marks straight out of `memory.buffer` — including after a
+/// trap, which is the only way to see the phases of a document that does not finish. Not
+/// part of the published SDK surface; compiled out of the default artifact.
+// SAFETY: `gm_probe_base` is the only symbol with this name, and it reads no memory.
+#[cfg(any(test, feature = "probe"))]
+#[unsafe(no_mangle)]
+pub extern "C" fn gm_probe_base() -> u32 {
+    crate::ingest::phases::base()
+}
+
+/// Gate-only: as `gm_build` records them, a fresh run's marks.
+// SAFETY: as `gm_probe_base`.
+#[cfg(any(test, feature = "probe"))]
+#[unsafe(no_mangle)]
+pub extern "C" fn gm_probe_reset() -> u32 {
+    crate::ingest::phases::reset();
+    1
 }
 
 /// Gate-only: the hash gate's model at `seed`, as the provisional ingest JSON `gm_build`

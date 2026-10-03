@@ -28,9 +28,15 @@ use crate::errors::Code;
 
 mod at;
 mod ids;
+/// Per-phase linear-memory marks, for the ingest scale measurement only. Compiled out of
+/// the default artifact, so [`record`]'s call sites stay unconditional.
+#[cfg(any(test, feature = "probe"))]
+pub mod phases;
 mod record;
 use at::At;
 pub use ids::index;
+#[cfg(any(test, feature = "probe"))]
+use phases::mark;
 use record::{edge, node};
 
 /// The only ingest version this reader accepts.
@@ -58,6 +64,32 @@ pub const VERSION: u32 = 1;
 /// `fix-ingest-scale` fixes the arena, raises this with a new measurement, and restores the
 /// decision record's power-of-two step down with it.
 pub const MAX_INGEST_BYTES: usize = 774_568_785;
+
+/// The byte ceiling [`read_records`] holds a document to.
+///
+/// Identically [`MAX_INGEST_BYTES`] everywhere except the `probe` build, which lifts it so
+/// the scale sweep can watch a document the ceiling would refuse *trap* instead of be
+/// refused: the phases that trap are exactly the ones no refusing run ever reaches, and
+/// `MAX_INGEST_BYTES` is what the sweep is measuring a new value for. Only the length
+/// check moves — every byte after it, and every refusal below it, is the same code.
+///
+/// **Ponytail:** a `--features probe` artifact therefore does **not** enforce the ceiling,
+/// so it is not an artifact to ship or to gate on; the sweep's build/refuse rows come from
+/// the default artifact, and only the per-phase mark tables come from this one. Failing
+/// input: any host that loads a probe build and trusts a refusal code. Direction: lifts a
+/// limit, never lowers one. Escape hatch: `not(feature = "probe")` is the only build the
+/// ceiling exists in.
+#[cfg(not(feature = "probe"))]
+fn ceiling() -> usize {
+    MAX_INGEST_BYTES
+}
+
+#[cfg(feature = "probe")]
+fn ceiling() -> usize {
+    // `max`, not a bare `usize::MAX`: the documented ceiling stays named in both builds,
+    // so they differ in this one expression and nowhere else.
+    usize::MAX.max(MAX_INGEST_BYTES)
+}
 
 /// Why an ingest buffer was refused.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -120,16 +152,20 @@ pub fn read(bytes: &[u8]) -> Result<(Vec<NodeRecord>, Vec<EdgeRecord>), IngestEr
 /// [`read`] without C12's id pass, for a caller that hands the records to [`index`], which
 /// refuses the same documents.
 pub fn read_records(bytes: &[u8]) -> Result<(Vec<NodeRecord>, Vec<EdgeRecord>), IngestError> {
-    if bytes.len() > MAX_INGEST_BYTES {
+    if bytes.len() > ceiling() {
         return Err(IngestError::TooLarge {
             bytes: bytes.len(),
-            limit: MAX_INGEST_BYTES,
+            limit: ceiling(),
         });
     }
     let text = std::str::from_utf8(bytes).map_err(|_| IngestError::Utf8)?;
+    // `mark(PARSE)` is between these two lines on purpose: it is the whole document as a
+    // `Value` tree, which is the phase `fix-ingest-scale` measured holding the bytes.
     let Value::Object(mut root) = parse(text).map_err(IngestError::Json)? else {
         return Err(shape(At::ROOT, "expected an object"));
     };
+    #[cfg(any(test, feature = "probe"))]
+    mark(phases::PARSE, None);
     let version = version_number(&take_member(&mut root, "version", At::ROOT)?)?;
     if version != VERSION {
         return Err(shape(
@@ -148,6 +184,8 @@ pub fn read_records(bytes: &[u8]) -> Result<(Vec<NodeRecord>, Vec<EdgeRecord>), 
     // element is dropped as its record is built.
     let nodes = read_all(nodes, node, At::list("nodes"))?;
     let edges = read_all(edges, edge, At::list("edges"))?;
+    #[cfg(any(test, feature = "probe"))]
+    mark(phases::RECORDS, None);
     Ok((nodes, edges))
 }
 
