@@ -98,7 +98,7 @@ function clamped(radius: number, sizing: Sizing): number {
   return Math.min(sizing.max ?? Infinity, Math.max(sizing.min ?? 0, radius));
 }
 
-function bucketsOf(colours: Uint16Array, paletteSize: number): Pick<Style, "bucketStart" | "bucketItems"> {
+export function bucketsOf(colours: Uint16Array, paletteSize: number): Pick<Style, "bucketStart" | "bucketItems"> {
   const last = Math.max(0, paletteSize - 1);
   const bucketStart = new Uint32Array(paletteSize + 1);
   for (let i = 0; i < colours.length; i += 1) {
@@ -117,28 +117,31 @@ function bucketsOf(colours: Uint16Array, paletteSize: number): Pick<Style, "buck
   return { bucketStart, bucketItems };
 }
 
-function rankOf(weights: Float32Array): Uint32Array {
+export function rankOf(weights: Float32Array): Uint32Array {
   const rank = new Uint32Array(weights.length);
   for (let i = 0; i < rank.length; i += 1) rank[i] = i;
   return rank.sort((a, b) => (weights[b] ?? 0) - (weights[a] ?? 0) || a - b);
 }
 
-export function styleFrom(input: StyleInput): Style {
-  const sizing = input.sizing ?? DEFAULT_SIZING;
-  const radius = new Float32Array(input.weights.length);
+/** Every node's drawn radius, and the largest of them. */
+export function radiiOf(weights: Float32Array, sizing: Sizing): Pick<Style, "radius" | "maxRadius"> {
+  const radius = new Float32Array(weights.length);
   let maxRadius = 0;
   for (let i = 0; i < radius.length; i += 1) {
-    const value = clamped(radiusFor(input.weights[i] ?? 0, sizing), sizing);
+    const value = clamped(radiusFor(weights[i] ?? 0, sizing), sizing);
     radius[i] = value;
     if (value > maxRadius) maxRadius = value;
   }
+  return { radius, maxRadius };
+}
+
+export function styleFrom(input: StyleInput): Style {
   const palette = input.palette.length > 0 ? input.palette : ["#9a9a9a"];
   return {
-    nodeCount: radius.length,
+    nodeCount: input.weights.length,
     labels: input.labels,
     weights: input.weights,
-    radius,
-    maxRadius,
+    ...radiiOf(input.weights, input.sizing ?? DEFAULT_SIZING),
     palette,
     colours: input.colours,
     ...bucketsOf(input.colours, palette.length),
