@@ -572,25 +572,27 @@ returns a degraded `Motor` (see Deviations).
 
 ## File-size deviations (the house's ≤300-line limit)
 
-`crates/graph-sdk-js/src/index.ts` measures 382 lines and `harness/sdk-smoke.mjs` 727,
-both over the limit; `crates/graph-wasm/src/{post,analysis}/tests.rs` (379 and 404) are
-over it too. `index.ts` grew from 476 with `Motor#buildContract` — and again with `Motor#run`'s
-parameter options and `Motor#layoutParams`, ABI 2 — and `sdk-smoke.mjs` from 542 with that
-method's coverage plus the end-to-end convergence mode. Both were already
-at or near it before this change (`index.ts` 281, `sdk-smoke.mjs` 303), and the house's
-own answer — split into child modules, never compress — is not available for either file
-without a restructuring outside this task's envelope: `index.ts` is *the published entry
-point* (a consumer imports that one file, and splitting the `Motor` class across modules
-would mean exporting an implementation detail or re-exporting through a barrel the type
-surface then has to mirror), and `sdk-smoke.mjs` is a single top-level script whose
-`check`/`failures` counters and `process.exit` are deliberately process-global. The two
-test files are the ordinary `views.rs` → `views/tests.rs` split already applied; their
-parents are under the limit. Recorded here rather than hidden, and the two over-limit
-non-test files are the ones a reviewer should look at first.
+`crates/graph-sdk-js/src/force.ts` measures 359 lines and `harness/sdk-smoke.mjs` 727;
+`crates/graph-wasm/src/{post,analysis}/tests.rs` (379 and 404) are over it too.
+`force.ts` grew with the live force session's own surface and `sdk-smoke.mjs` with the
+build methods' coverage plus the end-to-end convergence mode; both were already at or near
+the limit before either (`force.ts` 281, `sdk-smoke.mjs` 303), and the house's own answer —
+split into child modules, never compress — is not available for `sdk-smoke.mjs` without a
+restructuring outside its envelope: it is a single top-level script whose `check`/
+`failures` counters and `process.exit` are deliberately process-global. The two test files
+are the ordinary `views.rs` → `views/tests.rs` split already applied; their parents are
+under the limit.
 
-`crates/graph-wasm/src/contract.rs` (76) and `contract/tests.rs` (269) are both **under**
-the limit — the new module is the ordinary `ingest.rs` → `ingest/{,tests/}.rs` shape, not
-an exception to it.
+**`index.ts` is no longer one of them** (292), and the exception this section used to record
+for it is closed. It used to read that splitting the `Motor` class across modules "would
+mean exporting an implementation detail or re-exporting through a barrel the type surface
+then has to mirror" — which was true of splitting the *class*, and false of splitting the
+*bodies*: `Motor` stays whole and every public export is unchanged, while three modules took
+the code that had a rule behind it. `params.ts` (95) owns the parameter buffer and the
+schema cache, `stages.ts` (88) the POST and ANALYSIS calls and every ABI refusal name,
+`staging.ts` (120) the two build documents' contracts, and `views.ts` (187) the column
+presence table, the zero-copy cache and the geometry kinds a run produced. What is left in
+`index.ts` is the typed surface and the reasoning a caller needs before calling it.
 
 ## Deviations
 
