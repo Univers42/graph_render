@@ -156,8 +156,8 @@ service itself up. An exit of 2, or a red row for some other reason, turns the c
 ## What it does not do
 
 - **No TLS.** The host's proxy terminates TLS.
-- **No persistence.** No state crosses requests, and the only file the service reads at run time is
-  the key file.
+- **No persistence.** No state crosses requests and nothing is written. The service reads the embed
+  tree once at start, into memory, and after that only the key file, again on each `SIGHUP`.
 - **No direct cross-origin embed.** That needs the proxy, as described above.
 - **No fixtures in the bundle.** The studio opens on its synthetic source.
 - **One embed version per image**, with no history of older bundles.
