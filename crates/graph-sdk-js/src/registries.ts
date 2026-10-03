@@ -13,7 +13,9 @@ export class Registries {
   /** The layout registry's id -> index map, read once per motor (C1). */
   layouts(exports: RawExports): Map<string, number> {
     if (this.#layoutIds === null) {
-      this.#layoutIds = readRegistry(exports, "gm_layout_count", "gm_layout_id");
+      // A scan that refuses is a `RunRefusedError`: `Motor#layout` is the caller, and a
+      // caller debugging a dead layout wants the layout id space, not a generic code.
+      this.#layoutIds = readRegistry(exports, "gm_layout_count", "gm_layout_id", refusedAs(RunRefusedError));
     }
     return this.#layoutIds;
   }
@@ -26,7 +28,7 @@ export class Registries {
 
   posts(exports: RawExports): Map<string, number> {
     if (this.#postIds === null) {
-      this.#postIds = readRegistry(exports, "gm_post_count", "gm_post_id");
+      this.#postIds = readRegistry(exports, "gm_post_count", "gm_post_id", refusedAs(PostRefusedError));
     }
     return this.#postIds;
   }
@@ -39,7 +41,7 @@ export class Registries {
 
   analyses(exports: RawExports): Map<string, number> {
     if (this.#analysisIds === null) {
-      this.#analysisIds = readRegistry(exports, "gm_analysis_count", "gm_analysis_id");
+      this.#analysisIds = readRegistry(exports, "gm_analysis_count", "gm_analysis_id", refusedAs(AnalysisRefusedError));
     }
     return this.#analysisIds;
   }
@@ -49,4 +51,11 @@ export class Registries {
     if (index === undefined) throw new AnalysisRefusedError(`unknown analysis id "${analysisId}"`);
     return index;
   }
+}
+
+/** The `(message, code) => Error` shape `readRegistry` refuses with, bound to one class.
+ *  Written once so the three scans name their own id space and none of them falls back to
+ *  the layout one by accident. */
+function refusedAs(errorClass: new (message: string, code: number) => Error) {
+  return (message: string, code: number): Error => new errorClass(message, code);
 }

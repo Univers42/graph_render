@@ -33,10 +33,14 @@
 // **No marker on the rest of the file.** The rest is a mechanical translation of nested
 // values into flat cells, and a translation has nothing approximate about it.
 
-import { bad, cell, seconds } from "./notion-cells.ts";
+// The shared cell map, the byte comparison and the one refusal: `cells.ts`, which the
+// rows adapter reads too. That shared module is what makes B1/B2 one rule — a `NaN` cell
+// is refused from whichever side it arrives, by the same predicate.
+import { bad, cellValues, compareBytes } from "./cells.ts";
+import { cell, seconds } from "./notion-cells.ts";
 // `import type` for the shapes, and only that: the SDK ships no build and runs its own
 // `.ts` sources through Node's type-stripping, which erases a `type`-only import but
-// cannot know a named import is a type. `RowsAdapterError` is a value and comes above.
+// cannot know a named import is a type. `bad` is a value and comes above.
 import type {
   CardinalityName,
   Ingest,
@@ -122,13 +126,6 @@ export interface NotionOverrides {
   readonly links?: Readonly<Record<string, { readonly cardinality: CardinalityName; readonly symmetric?: boolean }>>;
 }
 
-/** Byte order, matching the contract's writer and `rows.ts`'s column sort. `Array.sort`'s
- * default is UTF-16 code units, which disagrees with byte order outside the Basic
- * Multilingual Plane, and a property id is arbitrary text. */
-function compareBytes(a: string, b: string): number {
-  return Buffer.compare(Buffer.from(a, "utf8"), Buffer.from(b, "utf8"));
-}
-
 function titleOf(database: NotionDatabase): string {
   const title = database.title;
   if (title === undefined) return database.id;
@@ -138,8 +135,36 @@ function titleOf(database: NotionDatabase): string {
   return (title as { plain_text?: string }).plain_text ?? database.id;
 }
 
+/** The override key: `"<database id>.<property id>"`. The dot is not escaped, which is a
+ * real limitation of the format — databases `a.b` (property `c`) and `a` (property
+ * `b.c`) both read `a.b.c`. The format is public surface (`NotionOverrides` is exported
+ * and `harness/adapter-convergence.mjs`'s `NOTION_OVERRIDES` is written in it), so it
+ * cannot change; [`assertDistinctKeys`] makes the collision loud instead. */
 function key(databaseId: string, propertyId: string): string {
   return `${databaseId}.${propertyId}`;
+}
+
+/** Refuse two distinct property pairs that the dotted key format reads identically, naming
+ * both. Silently, one declaration landed on the other's property and the caller had no
+ * way to see it: nothing else in the mapping would notice.
+ *
+ * Only *addressed* pairs are collected — a collision nobody declares loses nothing, and
+ * refusing on it would be refusing a legal export. */
+function assertDistinctKeys(databases: readonly NotionDatabase[], overrides: NotionOverrides): void {
+  const addressed = new Set([...Object.keys(overrides.roles ?? {}), ...Object.keys(overrides.links ?? {})]);
+  const seen = new Map<string, string>();
+  for (const database of databases) {
+    for (const property of Object.values(database.properties)) {
+      const pair = key(database.id, property.id);
+      if (!addressed.has(pair)) continue;
+      const path = `databases.${database.id}.properties.${property.id}`;
+      const other = seen.get(pair);
+      if (other !== undefined) {
+        bad(`${other} and ${path}`, `both read the override key \`${pair}\`, which does not escape the dot`);
+      }
+      seen.set(pair, path);
+    }
+  }
 }
 
 /** A property's link, from the property's own `relation` config, then from the
@@ -177,7 +202,7 @@ function collection(database: NotionDatabase, overrides: NotionOverrides): Inges
   return {
     id: database.id,
     name: titleOf(database),
-    titleField: titleFieldOf(database, properties),
+    titleField: titleFieldOf(database, properties, overrides),
     // Sorted by property id, which is the contract's canonical order for a collection's
     // fields. Two exports of one database therefore produce the same document whatever
     // order the API happened to list its properties in — and so does `rows.ts`, which
@@ -186,34 +211,54 @@ function collection(database: NotionDatabase, overrides: NotionOverrides): Inges
   };
 }
 
-/** Which property is the title: Notion's own `title` type, or the caller's override. A
- * database with neither is refused, because a node whose label is nothing at all is a
- * node no consumer can identify — the contract's reader would refuse it too, and this
- * says so with the database to hand. */
-function titleFieldOf(database: NotionDatabase, properties: readonly NotionProperty[]): string {
-  const declared = properties.find((p) => p.type === "title");
-  if (declared === undefined) {
+/** Which property is the title. The caller's override first, then Notion's own `title`
+ * type — the file's own rule, a declaration outranks the table, applied here as well as in
+ * `field`. Reading only the `title` type got both directions wrong: a database whose
+ * title is declared by override was refused, and an override that *moved* the
+ * title-typed property produced a document naming a field the reader then refused.
+ *
+ * A database with neither is refused, because a node whose label is nothing at all is a
+ * node no consumer can identify, and this says so with the database to hand. */
+function titleFieldOf(
+  database: NotionDatabase,
+  properties: readonly NotionProperty[],
+  overrides: NotionOverrides,
+): string {
+  const declared = overrides.roles
+    ? properties.filter((p) => overrides.roles?.[key(database.id, p.id)] === "title")
+    : [];
+  const chosen = declared[0] ?? properties.find((p) => p.type === "title");
+  if (chosen === undefined) {
     bad(`databases.${database.id}`, "no `title` property, and the contract needs one");
   }
-  return declared.id;
+  return chosen.id;
 }
 
-function record(page: NotionPage, path: string): IngestRecord {
-  const values: Record<string, JsonValue> = {};
+function record(page: NotionPage, path: string, databaseIds: ReadonlySet<string>): IngestRecord {
+  const collection = page.parent.database_id ?? bad(path, "a page must name its parent database");
+  // A page whose parent the export does not carry derives nothing, and saying so is the
+  // whole point: the contract's reader would refuse the dangling collection. Dropping the
+  // page was the only silent record loss in either adapter, with no error, no count and
+  // no path.
+  if (!databaseIds.has(collection)) {
+    bad(path, `its parent database \`${collection}\` is absent from the export's \`databases\``);
+  }
+  // A `null` cell is an *absent* one, and the contract keeps the two apart: Notion writes
+  // `null` for a property nobody has filled in, and the rows shape simply leaves the key
+  // out. Writing the key with `null` would make two documents describing the same data
+  // differ in bytes. The surviving cells go through `cells.ts`, which is also where the
+  // `__proto__` own-key and byte-order rules live.
+  const cells: [string, JsonValue][] = [];
   for (const [propertyId, value] of Object.entries(page.properties)) {
     const cellValue = cell(value, `${path}.${propertyId}`);
-    // A `null` cell is an *absent* one, and the contract keeps the two apart: Notion
-    // writes `null` for a property nobody has filled in, and the rows shape simply
-    // leaves the key out. Writing the key with `null` would make two documents
-    // describing the same data differ in bytes.
-    if (cellValue !== null) values[propertyId] = cellValue;
+    if (cellValue !== null) cells.push([propertyId, cellValue]);
   }
   return {
     id: page.id,
-    collection: page.parent.database_id ?? bad(path, "a page must name its parent database"),
+    collection,
     deleted: page.deleted === true,
     updatedAt: seconds(page.last_edited_time, `${path}.last_edited_time`),
-    values,
+    values: cellValues(cells, path),
   };
 }
 
@@ -222,11 +267,9 @@ function record(page: NotionPage, path: string): IngestRecord {
  * nothing this file decided beyond each property's declared role.
  */
 export function notionToIngest(source: NotionSource, overrides: NotionOverrides = {}): Ingest {
+  assertDistinctKeys(source.databases, overrides);
+  const databaseIds = new Set(source.databases.map((d) => d.id));
   const collections = source.databases.map((d) => collection(d, overrides));
-  const records = source.pages
-    .map((p, i) => record(p, `pages[${i}]`))
-    // A page in a database the export does not carry derives nothing: the contract's
-    // reader would refuse the dangling collection, and saying so here names the page.
-    .filter((r) => source.databases.some((d) => d.id === r.collection));
+  const records = source.pages.map((p, i) => record(p, `pages[${i}]`, databaseIds));
   return { version: 1, source: source.source, collections, records };
 }

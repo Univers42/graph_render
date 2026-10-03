@@ -16,7 +16,8 @@ export interface StagedBuild {
   call: "gm_build" | "gm_build_contract";
   /** The message and error class of the build export's own refusal. */
   refusal: string;
-  refuse: (message: string, code: number) => Error;
+  /** `code` is absent for a refusal of the SDK's own making, which never reached the ABI. */
+  refuse: (message: string, code?: number) => Error;
 }
 
 /** One reserved buffer and the length the build export must be handed. `free` gives the
@@ -46,6 +47,13 @@ function reserve(exports: RawExports, spec: StagedBuild, chars: number): number 
  *  cut at its character count would be staged whole and the motor would read a truncated
  *  document (`packages/graph-studio/tests/staging.motor.test.ts`). */
 function stage(exports: RawExports, views: ColumnViews, spec: StagedBuild, text: string): Staged {
+  // `TextEncoder` coerces a non-string through `String()`, so `build(undefined)` shipped the
+  // nine bytes `"undefined"` and was refused by the module as an unreadable document — a
+  // refusal about the *document* when the mistake was the *argument*, with no path back to
+  // the caller's own line. Caught here, where the argument is still identifiable.
+  if (typeof text !== "string") {
+    throw spec.refuse(`the ${spec.buffer} document must be a string, got ${typeof text}`);
+  }
   const chars = toU32(text.length);
   let ptr = reserve(exports, spec, chars);
   let len = chars;
@@ -72,12 +80,24 @@ function stage(exports: RawExports, views: ColumnViews, spec: StagedBuild, text:
 
 export function buildStaged({ exports, views }: Loaded, text: string, spec: StagedBuild): Handle {
   const staged = stage(exports, views, spec, text);
+  let handle: Handle;
   try {
-    const handle = invoke(spec.call, () => exports[spec.call](staged.ptr, staged.len));
+    handle = invoke(spec.call, () => exports[spec.call](staged.ptr, staged.len)) as Handle;
     views.bump();
     if (handle === 0) throw spec.refuse(spec.refusal, lastError(exports));
-    return handle as Handle;
-  } finally {
-    staged.free();
+  } catch (error) {
+    // `free` last, and its own refusal never replaces the one in flight: a trap inside
+    // `gm_build` used to surface as `MotorTrapError("gm_free")`, so the caller never learned
+    // the build had trapped at all. A free that fails on this path is dropped on purpose —
+    // the buffer is the motor's own to reclaim, and the refusal the caller must see is the
+    // one that is already on its way out.
+    try {
+      staged.free();
+    } catch {
+      /* keep the original refusal */
+    }
+    throw error;
   }
+  staged.free();
+  return handle;
 }
