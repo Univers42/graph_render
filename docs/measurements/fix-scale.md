@@ -74,6 +74,7 @@ The first conformance run exited 1, but it was an environment failure, not a ver
 
 1. `docs/measurements/phase09-lod.md:26-28` still says "a budget of zero still lets the most
    important visible node keep its label". That is stale after R4, and the file is outside this slice's paths.
+   Resolved by docs/measurements/fix-scale-oracle.md (this job's report), which also corrected the sentence.
 2. U12: a lod/adaptive oracle differential against
    `SciGraphs/engine/scigraphs_engine/lod.py`. It needs `harness/` and `graph-cli` paths.
 3. M33 is fail-open: a NaN viewport field reads as unbounded and is not refused. Refusing it
@@ -84,6 +85,9 @@ The first conformance run exited 1, but it was an environment failure, not a ver
    - A self-loop on a folded leaf, or on a contracted interior node, stays drawn.
    - An external edge between two collapsed members stays drawn. The existing test pins it with `s.edges[6] == 1`.
    - A chain step's links can name a node that a later community step hides.
+      - The self-loop: the reference decides it is dropped (`SciGraphs/engine/scigraphs_engine/simplify.py:216-219`, `inter = ca != cb`), and it now is.
+      - The drawn cross-member external edge, with `s.edges[6] == 1` right: that edge is cross-community, so the reference draws it too, as the one super-edge between the two representatives.
+      - The links naming a hidden node: the reference has no `links` field at all, so it cannot decide it; the motor's own journal invariant decides it and the links are now re-anchored.
 6. `scripts/scigraphs-conformance.sh:121` writes into `target/`, which is root-owned in a fresh
    worktree. `wt-new.sh`, or the script, could create `target/` as the host user.
 7. `rank_by_degree` keeps a slot vector of O(max degree), at most 2m + 2 entries.

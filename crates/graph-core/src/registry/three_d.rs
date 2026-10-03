@@ -30,12 +30,17 @@ mod bipartite_3d;
 
 pub(super) use bipartite_3d::BIPARTITE_3D;
 
-/// The node count the three graph-free 3D placements were run at, and why it is this one.
+/// The node count the graph-free 3D placements were measured at, and why it is this one.
+///
+/// **The measurement covers `sphere`, `helix` and `cube` — the three it was taken on.** Two
+/// rows now sit under this constant that it was not measured for, and each says so itself:
+/// `SPIRAL_3D` (`three_d/spiral3d.rs`, "Ponytail (UNMEASURED ceiling)") and `BIPARTITE_3D`.
+/// Read the figure below as what it is, a measurement of three layouts at one size.
 ///
 /// `graph-cli bench` refuses a size past a layout's registered `scale_ceiling`, and its own
 /// cap is 1 000 000 nodes (`bench/scale.rs:33-34`, ten components of 100 000), so 1 M is
 /// the largest size a measurement of any layout in this file can be taken at. It is a
-/// **measured lower bound, not the wall**: all three layouts are `O(n)` in three `f64`
+/// **measured lower bound, not the wall**: those three layouts are `O(n)` in three `f64`
 /// columns with no graph and no iteration, so what binds at 1 M nodes is the 48 bytes a
 /// node costs in the snapshot's own three columns plus the 32 in the geometry's, not the
 /// layout — and wasm32's 4 GiB would put the true wall several times higher.
@@ -81,7 +86,7 @@ const DEGRADATION: &str = "past the ceiling wasm32 cannot allocate and the modul
 partial result); natively, memory permitting, the snapshot refuses with \
 SnapshotError::Capacity once an id table's text would pass 2^32-1 bytes, and with \
 SnapshotError::Length { column: \"node.z\" } if the z column does not match the node count — a \
-refusal, never a wrap or a truncation. None of these five layouts refuses for any input of \
+refusal, never a wrap or a truncation. None of these six layouts refuses for any input of \
 its own: every branch of each reference function is total, so there is no graph past which \
 this module's own answer stops existing";
 
