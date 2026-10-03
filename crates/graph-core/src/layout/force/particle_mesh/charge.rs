@@ -12,11 +12,10 @@ use crate::layout::force::barnes_hut::Split;
 use crate::layout::force::barnes_hut::sim::{How, Sim};
 use std::ops::Range;
 
-/// The per-node field read: `charge * alpha * E(x_i)`, node `order[k]` into slot `k`.
+/// The per-node field read: `charge * alpha * E(x_i)`, node `order[k]` into slot `k`, from
+/// the stencil the deposit stored for slot `k` rather than the node's position.
 struct Interpolate<'a> {
     mesh: &'a Mesh,
-    x: &'a [f64],
-    y: &'a [f64],
     strength: f64,
 }
 
@@ -28,9 +27,8 @@ impl StepRange for Interpolate<'_> {
     }
 
     fn step_range(&self, range: Range<u32>, out: &mut [(f64, f64)]) {
-        let order = &self.mesh.grid.order[range.start as usize..range.end as usize];
-        for (slot, &i) in out.iter_mut().zip(order) {
-            let (ex, ey) = self.mesh.field_at((self.x[i as usize], self.y[i as usize]));
+        for (slot, k) in out.iter_mut().zip(range) {
+            let (ex, ey) = self.mesh.field_of(k as usize);
             *slot = (ex * self.strength, ey * self.strength);
         }
     }
@@ -43,8 +41,6 @@ pub(super) fn apply<R: Runner>(sim: &mut Sim, mesh: &mut Mesh, how: &mut How<'_,
     }
     let read = Interpolate {
         mesh,
-        x: &sim.x,
-        y: &sim.y,
         strength: sim.params.charge * sim.alpha,
     };
     how.runner.run(&read, how.workers, how.deltas);

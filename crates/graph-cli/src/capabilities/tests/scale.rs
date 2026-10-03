@@ -97,3 +97,60 @@ fn the_ceilings_table_is_read_as_measured_unmeasured_and_unknown() {
         .any(|f| f.contains("layout.nope") && f.contains("the ledger does not have"))
     );
 }
+
+/// A `measured` cell is the **largest N this phase ran**, so it sits below the ceiling its
+/// row declares. A cell above it is a mislabelled column or a wrong declaration, and the
+/// cell used to be checked for being digits and nothing else — `measured` was read only to
+/// interpolate `declared` into the failure message, so either read as "measured" and
+/// `--ceilings-measured` exited 0.
+#[test]
+fn a_measured_cell_above_the_declared_ceiling_is_refused() {
+    let mut measured = row(Status::Implemented);
+    measured.id = "layout.grid";
+    measured.scale_ceiling = 1_000;
+    let rows = vec![measured];
+    let under = "| id | declared | measured |\n|---|---:|---|\n| layout.grid | 1000 | 220 |\n";
+    assert_eq!(ceiling_findings(&rows, under), Vec::<String>::new());
+    let over = "| id | declared | measured |\n|---|---:|---|\n| layout.grid | 1000 | 100000000 |\n";
+    let found = ceiling_findings(&rows, over);
+    assert!(
+        found
+            .iter()
+            .any(|f| f.contains("measured 100000000 is above the declared ceiling 1000")),
+        "{found:?}"
+    );
+    assert_eq!(
+        ceiling_coverage(&rows, over),
+        (1, 0),
+        "and it is still a number, so still counted"
+    );
+}
+
+/// The columns are read by the **header's own names**. `cells[1]`/`cells[3]` happened to be
+/// `id`/`measured` in the one table this phase wrote, so a reordered table, or a row written
+/// without its leading pipe, read a different column — and a plain integer in the wrong
+/// column was accepted as a measurement.
+#[test]
+fn the_columns_are_read_by_the_headers_names_not_by_position() {
+    let rows = vec![row(Status::Implemented)];
+    let reordered = "| measured | how | id |\n|---|---:|---|\n| 220 | a note | topology.index |\n";
+    assert_eq!(
+        ceiling_coverage(&rows, reordered),
+        (1, 0),
+        "`id` is column 3 here, not column 1"
+    );
+    let missing = "| how | id |\n|---:|---|\n| a note | topology.index |\n";
+    assert!(
+        ceiling_findings(&rows, missing)
+            .iter()
+            .any(|f| f.contains("no `measured` one")),
+        "a table with no `measured` column says so rather than reading `how` as one"
+    );
+    let unled = "topology.index | 9700000 | 220 |\n";
+    assert!(
+        ceiling_findings(&rows, unled)
+            .iter()
+            .any(|f| f.contains("without its leading pipe")),
+        "a row missing its leading pipe used to shift every cell by one"
+    );
+}

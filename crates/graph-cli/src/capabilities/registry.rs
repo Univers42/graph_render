@@ -2,7 +2,7 @@
 //! oracle functions whose differential backs it. Phase 2: every layout of graph-core's
 //! registry, one row each, its metadata taken from there as declared.
 
-mod layout_row;
+pub(super) mod layout_row;
 mod unproven;
 
 use super::post;
@@ -126,13 +126,23 @@ const SDK_DEGRADES: &str = "the SDK holds no per-node memory of its own: its col
 zero-copy typed-array aliases over transport.wasm.columnar's buffers, so it degrades exactly when \
 the module it loads does — same ceiling, not independently measured in JS this phase";
 
-/// Every registered capability: the topology rows, the layouts, then the transport rows
-/// Phase 4 adds. `transport.wasm.columnar` is `Gated` on the hash gate's own two
-/// verdicts — its `transport.wasm.columnar` stage 4-way equal, and the C20 tally
-/// `hashgate.json` records beside it. `sdk.js` is `Implemented`: its gate is
-/// `harness/sdk-smoke.mjs`, a smoke script over one fixture rather than a recorded seed
-/// sweep, so no record backs it yet and a `gated` claim would be one `--check` has to
-/// refuse (`docs/contract/wasm-abi.md` "Ledger"). Phase 8's POST rows (`post.rs`) come last.
+/// Every registered capability: the topology rows, the layouts, the transport rows
+/// Phase 4 adds, then Phase 7's analysis rows, Phase 8's POST rows, Phase 9's `scale.*`
+/// rows and Phase 10's ingest rows.
+///
+/// **This is the only place a row family enters the ledger.** It used to be half of one:
+/// `capabilities::registry()` chained the four families below and then `.extend`ed three
+/// more from a second iterator, so the set `--check` iterates and the set `registry()`
+/// built were not the same list by construction and nothing asserted that every row
+/// source was reached. A family added here is now reached by the same call that publishes
+/// the others, and `every_row_family_is_reached_by_the_one_registry` holds them to it.
+///
+/// `transport.wasm.columnar` is `Gated` on the hash gate's own two verdicts — its
+/// `transport.wasm.columnar` stage 4-way equal, and the C20 tally `hashgate.json` records
+/// beside it. `sdk.js` is `Implemented`: its gate is `harness/sdk-smoke.mjs`, a smoke
+/// script over one fixture rather than a recorded seed sweep, so no record backs it yet
+/// and a `gated` claim would be one `--check` has to refuse (`docs/contract/wasm-abi.md`
+/// "Ledger").
 pub fn registry() -> Vec<Capability> {
     let topology = TOPOLOGY
         .iter()
@@ -157,6 +167,9 @@ pub fn registry() -> Vec<Capability> {
         .chain(LAYOUTS.iter().map(layout))
         .chain(transport())
         .chain(post::rows())
+        .chain(super::analysis::rows())
+        .chain(super::scale::rows())
+        .chain(super::ingest::rows())
         .collect()
 }
 

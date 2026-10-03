@@ -43,6 +43,20 @@ use crate::exec::{Runner, Serial};
 use crate::index::Topology;
 use crate::layout::Geometry;
 use crate::stage::{Stage, StageError};
+/// The mesh's many-body pass and nothing else, for
+/// [`ForceSession::charge_deltas`](crate::layout::force::ForceSession::charge_deltas).
+///
+/// The twin of `barnes_hut::charge_pass`, and for the same reason: `charge` stays private
+/// to `particle_mesh` and the probe names the pass once here rather than widening a
+/// private function for one caller.
+pub(in crate::layout::force) fn charge_pass<R: Runner>(
+    sim: &mut Sim,
+    mesh: &mut Mesh,
+    how: &mut How<'_, R>,
+) {
+    charge::apply(sim, mesh, how);
+}
+
 pub(in crate::layout::force) use mesh::Mesh;
 use motion::Gathered;
 
