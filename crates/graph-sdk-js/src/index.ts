@@ -1,8 +1,8 @@
 // The published entry point (`docs/contract/wasm-abi.md` "SDK surface";
 // `harness/sdk-smoke.mjs` imports only this file, never `wasm.ts`/`views.ts` directly).
-// `createMotor` loads the module once; `Motor#build`/`#layout`/`#release` are the ABI's
-// `gm_build`/`gm_run`/`gm_release`, with u32 coercion (C9), a typed-error policy (every
-// refusal is a `GraphMotorError` subclass, never a bare string or a raw
+// `createMotor` loads the module once; `Motor#build`/`#run`/`#layout`/`#release` are the
+// ABI's `gm_build`/`gm_run`/`gm_release`, with u32 coercion (C9), a typed-error policy
+// (every refusal is a `GraphMotorError` subclass, never a bare string or a raw
 // `WebAssembly.RuntimeError`), and D9's tamper re-check surfaced as `TamperedGeometryError`
 // rather than a silent `0`.
 //
@@ -12,32 +12,34 @@
 // graph from. Each refuses the other's document with its own error class, because they are
 // different documents with different meanings — `docs/contract/wasm-abi.md` "Two build
 // paths" has the table and the reasoning.
+//
+// **What is not here is what has a buffer or a rule behind it.** The three thin methods
+// `build`, `run` and `layout` delegate to `staging.ts` and `params.ts`, which own the two
+// documents' contracts and the parameter buffer, and `views.ts` owns the column table,
+// the zero-copy cache and the geometry kinds a run produced. The surface below is this
+// class's typed face; the reasoning sits with the code that enforces it.
 
 import { loadMotor, toU32, type RawExports, type WasmSource } from "./wasm.ts";
 import { ColumnViews } from "./views.ts";
 import { ForceSession } from "./force.ts";
-import { AnalysisRefusedError, BuildRefusedError, ContractRefusedError, InvalidHandleError } from "./errors.ts";
-import { PostRefusedError, RunRefusedError, WasmUnavailableError, codeName } from "./errors.ts";
+import { InvalidHandleError, WasmUnavailableError, codeName } from "./errors.ts";
 import { ColumnId, type AnalysisResult, type Column, type ForceEngine, type ForceParams, type Handle } from "./types.ts";
 import type { MotorOptions, PostResult, RunOptions, RunResult } from "./types.ts";
-import { parseAnalysisFace } from "./analysis-face.ts";
-import { INVALID_HANDLE_CODE, NO_GEOMETRY_CODE, decoder, frame, invoke, lastError } from "./calls.ts";
-import { snapshotPtr, type Loaded } from "./calls.ts";
+import { INVALID_HANDLE_CODE, invoke, lastError, type Loaded } from "./calls.ts";
 import { checkOptions } from "./options.ts";
-import { readKinds, type GeometryKinds } from "./geometry-kinds.ts";
 import { Registries } from "./registries.ts";
-import { decodeLayoutParams, encodeLayoutParams, type LayoutParamSpec } from "./layout-params.ts";
-import { buildStaged } from "./staging.ts";
+import { LayoutParams, runAtParams, type LayoutParamSpec } from "./params.ts";
+import { CONTRACT_BUILD, INGEST_BUILD, buildStaged } from "./staging.ts";
+import { analysisRun, postRun } from "./stages.ts";
 
-export type { WasmSource } from "./wasm.ts";
-export { resetForTests } from "./wasm.ts";
+export { resetForTests, type WasmSource } from "./wasm.ts";
 export * from "./errors.ts";
 export * from "./types.ts";
 export { ForceSession, PARAMS_BYTES, encodeParams, decodeParams } from "./force.ts";
 
 export { parseAnalysisFace } from "./analysis-face.ts";
 export * from "./adapters.ts";
-export * from "./layout-params.ts";
+export * from "./params.ts";
 
 /** One loaded wasm module and every graph built against it. `createMotor` is the only way
  * to get one — the constructor is private so a `Motor` is never in play without having
@@ -46,11 +48,10 @@ export class Motor {
   readonly #exports: RawExports | null;
   readonly #views: ColumnViews | null;
   readonly #loadError: WasmUnavailableError | null;
-  readonly #kinds = new Map<Handle, GeometryKinds>();
   readonly #registries = new Registries();
-  /** One layout's published parameters per id, read once per motor: the schema cannot
-   *  change under a live module (`docs/decisions/layout-params.md`). */
-  readonly #params = new Map<string, LayoutParamSpec[]>();
+  /** This motor's published-parameter schemas, read once each: a schema cannot change
+   *  under a live module (`docs/decisions/layout-params.md`). */
+  readonly #params = new LayoutParams();
 
   private constructor(exports: RawExports | null, loadError: WasmUnavailableError | null) {
     this.#exports = exports;
@@ -114,63 +115,36 @@ export class Motor {
     return [...this.#registries.layouts(exports).keys()];
   }
 
-  /** Every registered POST capability id, in registry order — this SDK's view of the
-   *  module's own registry (`gm_post_count`/`gm_post_id`, C1). Discoverable for the same
-   *  reason {@link Motor.layouts} is: a capability registered after this SDK was written
-   *  must be usable with no SDK change. Refuses on a degraded motor rather than
-   *  answering `[]`, which would read as "this module has no post capabilities". */
+  /** Every registered POST capability id, in registry order (`gm_post_count`/
+   *  `gm_post_id`, C1). Discoverable for the reason {@link Motor.layouts} gives, and
+   *  refused on a degraded motor for the same one: `[]` would read as "this module has
+   *  no post capabilities". */
   posts(): readonly string[] {
     const { exports } = this.#requireLoaded();
     return [...this.#registries.posts(exports).keys()];
   }
 
   /** Every registered analysis id, in registry order (`gm_analysis_count`/
-   *  `gm_analysis_id`, C1) — the discoverability {@link Motor.layouts} and
-   *  {@link Motor.posts} both exist for, and refused rather than empty on a degraded
-   *  motor. */
+   *  `gm_analysis_id`, C1), for the discoverability {@link Motor.layouts} exists for. */
   analyses(): readonly string[] {
     const { exports } = this.#requireLoaded();
     return [...this.#registries.analyses(exports).keys()];
   }
 
-  /** Builds a graph from `ingestJson`, the provisional ingest text
-   * (`docs/contract/wasm-abi.md` "Ingest — PROVISIONAL"; Phase 10 owns the real contract).
-   * Stages it through `gm_alloc`/`gm_build` and always frees the staging buffer — C7 makes
-   * that this method's job, not its caller's, since the caller never sees the pointer. */
+  /** Builds a graph from `ingestJson`, the provisional node/edge JSON: the ABI's
+   *  `gm_build`, the document the host studio and the hash gate already speak. Staged and
+   *  freed here (C7); `staging.ts` carries what the buffer accepts and refuses, and
+   *  {@link buildContract} is the other way in. */
   build(ingestJson: string): Handle {
-    return buildStaged(this.#requireLoaded(), ingestJson, {
-      buffer: "ingest",
-      call: "gm_build",
-      refusal: "gm_build refused the ingest buffer",
-      refuse: (message, code) => new BuildRefusedError(message, code),
-    });
+    return buildStaged(this.#requireLoaded(), ingestJson, INGEST_BUILD);
   }
 
   /** Builds a graph from `contractJson`, an **ingest contract** document — the one shape
-   * every source maps to (`docs/contract/ingest-schema.json`, written by this package's
-   * own `rowsToIngest`/`notionToIngest` adapters).
-   *
-   *  This is the other way in from {@link build}, which takes the provisional node/edge
-   *  JSON. The two are separate exports and stay separate: `build` is what the host
-   *  studio and the hash gate already speak, and the derivation from a contract document
-   *  — roles to nodes, tags to hubs, hierarchy to edges — is `graph_core::ingest`'s one
-   *  derivation, which this package cannot do in JS without becoming a second copy of it.
-   *  So a caller maps its source into a contract document (one of the adapters, or its
-   *  own) and hands it here, and the motor does the rest. Staged and freed exactly as
-   *  {@link build} does (C7: the staging buffer is this method's job, not the caller's).
-   *
-   *  A document that is not a valid contract is refused with
-   *  {@link ContractRefusedError} — an unknown member, a role outside the eight, a
-   *  dangling collection, a `:` in a coordinate that cannot round-trip — never half-read.
-   *  A provisional node/edge document is *not* one of these refusals in spirit: it is
-   *  simply not a contract, and it is refused as one. */
+   *  every source maps to. A provisional node/edge document is refused by it, because it is
+   *  not a contract. Staged and freed exactly as {@link build} is (C7); `staging.ts` carries
+   *  the buffer's contract. */
   buildContract(contractJson: string): Handle {
-    return buildStaged(this.#requireLoaded(), contractJson, {
-      buffer: "contract",
-      call: "gm_build_contract",
-      refusal: "gm_build_contract refused the contract document",
-      refuse: (message, code) => new ContractRefusedError(message, code),
-    });
+    return buildStaged(this.#requireLoaded(), contractJson, CONTRACT_BUILD);
   }
 
   /** Nodes in `handle`'s topology — available right after {@link build}, before any run.
@@ -187,31 +161,17 @@ export class Motor {
   /** Every parameter the registered layout `layoutId` publishes, in the order a run's
    *  parameter buffer carries them — `gm_layout_params` over the same index
    *  {@link Motor.layout} resolves the id to (`docs/decisions/layout-params.md`). Read
-   *  once per motor and cached, like the id registry: the schema cannot change under a
-   *  live module, and re-reading it per run would be a round trip per drawing.
-   *
-   *  An empty array is an answer, not a refusal: most registered layouts pin their own
-   *  conventions and publish nothing. A body this SDK cannot read is a `RangeError`
-   *  rather than an empty array, because "this module speaks a different ABI" must not
-   *  read as "this layout takes no parameters". */
+   *  once per motor and cached by the `LayoutParams` this holds; the decode and the
+   *  refusal live in `params.ts`. */
   layoutParams(layoutId: string): LayoutParamSpec[] {
     const { exports } = this.#requireLoaded();
-    const cached = this.#params.get(layoutId);
-    if (cached !== undefined) return cached;
-    const index = this.#registries.layoutIndex(exports, layoutId);
-    const ptr = invoke("gm_layout_params", () => exports.gm_layout_params(toU32(index)));
-    if (ptr === 0) {
-      throw new RunRefusedError(`gm_layout_params(${layoutId}) refused (${codeName(lastError(exports))})`);
-    }
-    const specs = decodeLayoutParams(frame(exports, ptr));
-    this.#params.set(layoutId, specs);
-    return specs;
+    return this.#params.read(exports, layoutId, this.#registries.layoutIndex(exports, layoutId));
   }
 
   /** Runs the registered layout `layoutId` (e.g. `"layout.grid"`, from
-   * {@link Motor.layouts} — the id is resolved through `gm_layout_count`/`gm_layout_id`,
-   * never a hard-coded index, C1) over `handle`'s topology, at `options.params` where it
-   * is given and at the layout's own defaults where it is not.
+   *  {@link Motor.layouts} — the id is resolved through `gm_layout_count`/`gm_layout_id`,
+   *  never a hard-coded index, C1) over `handle`'s topology, at `options.params` where it
+   *  is given and at the layout's own defaults where it is not.
    *
    *  `options.params` is keyed by the names {@link Motor.layoutParams} publishes; a name
    *  it does not publish is a `RangeError` and a published name left out takes its
@@ -222,38 +182,12 @@ export class Motor {
    *  caller is unchanged. */
   run(handle: Handle, layoutId: string, options?: RunOptions): RunResult {
     const { exports, views } = this.#requireLoaded();
-    const index = this.#registries.layoutIndex(exports, layoutId);
-    const specs = options?.params === undefined ? [] : this.layoutParams(layoutId);
-    const bytes = specs.length === 0 ? new Uint8Array(0) : encodeLayoutParams(specs, options!.params!);
-    const len = toU32(bytes.byteLength);
-    const ptr = len === 0 ? 0 : this.#stageParams(bytes, len);
-    try {
-      const ok = invoke("gm_run", () => exports.gm_run(toU32(handle), toU32(index), toU32(ptr), len));
-      views.bump();
-      if (ok !== 1) {
-        const code = lastError(exports);
-        if (code === INVALID_HANDLE_CODE) throw new InvalidHandleError(`handle ${handle} is not live`, code);
-        throw new RunRefusedError(`gm_run refused (${codeName(code)})`, code);
-      }
-    } finally {
-      if (len !== 0) {
-        invoke("gm_free", () => exports.gm_free(toU32(ptr), len));
-        views.bump();
-      }
-    }
-    const { nodeKind, edgeKind, dim } = this.#recordKinds(exports, handle, layoutId);
+    const layoutIndex = this.#registries.layoutIndex(exports, layoutId);
+    const values = options?.params;
+    const specs = values === undefined ? [] : this.#params.read(exports, layoutId, layoutIndex);
+    runAtParams(exports, views, { handle, layoutIndex, specs, values });
+    const { nodeKind, edgeKind, dim } = views.record(handle, layoutId);
     return { handle, nodeKind, edgeKind, nodeCount: this.nodeCount(handle), dim };
-  }
-
-  /** The run's parameter buffer, staged through `gm_alloc` and freed by `run` above
-   *  (C7: the caller never sees a pointer). `0` is never a valid pointer here because
-   *  `run` only stages a non-empty buffer. */
-  #stageParams(bytes: Uint8Array, len: number): number {
-    const { exports } = this.#requireLoaded();
-    const ptr = invoke("gm_alloc", () => exports.gm_alloc(len));
-    if (ptr === 0) throw new RunRefusedError(`gm_alloc could not reserve the params buffer (${codeName(lastError(exports))})`, lastError(exports));
-    new Uint8Array(exports.memory.buffer, ptr, len).set(bytes);
-    return ptr;
   }
 
   /** Runs the registered layout `layoutId` over `handle`'s topology at its default
@@ -261,12 +195,6 @@ export class Motor {
    * against the pre-ABI-2 surface changes. */
   layout(handle: Handle, layoutId: string): RunResult {
     return this.run(handle, layoutId);
-  }
-
-  #recordKinds(exports: RawExports, handle: Handle, what: string): GeometryKinds {
-    const kinds = readKinds(exports, handle, what);
-    this.#kinds.set(handle, kinds);
-    return kinds;
   }
 
   /** Runs the registered POST capability `postId` (from {@link Motor.posts}; the id is
@@ -285,16 +213,8 @@ export class Motor {
    */
   post(handle: Handle, postId: string): PostResult {
     const { exports, views } = this.#requireLoaded();
-    const index = this.#registries.postIndex(exports, postId);
-    const ok = invoke("gm_post_run", () => exports.gm_post_run(toU32(handle), toU32(index)));
-    views.bump();
-    if (ok !== 1) {
-      const code = lastError(exports);
-      if (code === INVALID_HANDLE_CODE) throw new InvalidHandleError(`handle ${handle} is not live`, code);
-      if (code === NO_GEOMETRY_CODE) throw new PostRefusedError(`handle ${handle} has no successful layout run to draw over`, code);
-      throw new PostRefusedError(`gm_post_run refused (${codeName(code)})`, code);
-    }
-    const { nodeKind, edgeKind, dim } = this.#recordKinds(exports, handle, postId);
+    const postIndex = this.#registries.postIndex(exports, postId);
+    const { nodeKind, edgeKind, dim } = postRun(exports, views, { handle, postId, postIndex });
     return { handle, id: postId, nodeKind, edgeKind, nodeCount: this.nodeCount(handle), dim };
   }
 
@@ -304,24 +224,17 @@ export class Motor {
    *  {@link Motor.build}; only an unknown handle or an unregistered id throws. */
   analysis(handle: Handle, analysisId: string): AnalysisResult {
     const { exports } = this.#requireLoaded();
-    const index = this.#registries.analysisIndex(exports, analysisId);
-    const ptr = invoke("gm_analysis_run", () => exports.gm_analysis_run(toU32(handle), toU32(index)));
-    if (ptr === 0) {
-      const code = lastError(exports);
-      if (code === INVALID_HANDLE_CODE) throw new InvalidHandleError(`handle ${handle} is not live`, code);
-      throw new AnalysisRefusedError(`gm_analysis_run refused (${codeName(code)})`, code);
-    }
-    return parseAnalysisFace(decoder.decode(frame(exports, ptr)), analysisId);
+    const analysisIndex = this.#registries.analysisIndex(exports, analysisId);
+    return analysisRun(exports, { handle, analysisId, analysisIndex });
   }
 
   /** The column `columnId` of `handle`'s last run, or `null` if it is reserved or does not
    * apply to this run's geometry kind (C3) — call {@link layout} first; a handle with no
-   * successful run yet is refused, not read as "every column absent". */
+   * successful run yet is refused, not read as "every column absent". The presence table
+   * and the zero-copy cache are `views.ts`'s, which is also where the kinds this needs
+   * come from. */
   column(handle: Handle, columnId: ColumnId): Column {
-    const { views } = this.#requireLoaded();
-    const kinds = this.#kinds.get(handle);
-    if (kinds === undefined) throw new InvalidHandleError(`handle ${handle} has no successful run yet`);
-    return views.get(toU32(handle) as Handle, columnId, kinds.nodeKind, kinds.edgeKind, kinds.dim);
+    return this.#requireLoaded().views.get(toU32(handle) as Handle, columnId);
   }
 
   /** The canonical JSON face of `handle`'s last run. Refuses with
@@ -329,14 +242,12 @@ export class Motor {
    * motor's own buffers since that run (D9 re-validation, C8) — this is what makes writing
    * NaN through a zero-copy view an error here, not a value that silently reaches JSON. */
   toJSON(handle: Handle): string {
-    const { exports } = this.#requireLoaded();
-    return decoder.decode(frame(exports, snapshotPtr(exports, "gm_snapshot_json", handle)));
+    return this.#requireLoaded().views.toJSON(handle);
   }
 
   /** The binary face of `handle`'s last run. Same D9 re-validation as {@link toJSON}. */
   toBytes(handle: Handle): Uint8Array {
-    const { exports } = this.#requireLoaded();
-    return frame(exports, snapshotPtr(exports, "gm_snapshot_bytes", handle));
+    return this.#requireLoaded().views.toBytes(handle);
   }
 
   /** Releases `handle`. Its id is never reissued (C6): using it again after this always
@@ -346,7 +257,6 @@ export class Motor {
     invoke("gm_release", () => exports.gm_release(toU32(handle)));
     views.bump();
     views.forget(handle);
-    this.#kinds.delete(handle);
   }
 
   /** Starts a **live force session** over `handle`'s topology

@@ -14,6 +14,9 @@
 
 import type { RawExports } from "./wasm.ts";
 import { ColumnId, type Column, type Dim, type EdgeGeometryKind, type Handle, type NodeGeometryKind } from "./types.ts";
+import { InvalidHandleError } from "./errors.ts";
+import { decoder, frame, snapshotPtr } from "./calls.ts";
+import { readKinds, type GeometryKinds } from "./geometry-kinds.ts";
 
 // `NodeZ` is in this set and not left to the Uint32Array fallthrough below: without it the
 // motor's f32 depths would be read as u32 words, which is the SDK's silent-mislabel bug
@@ -89,6 +92,10 @@ export class ColumnViews {
   readonly #exports: RawExports;
   #epoch = 0;
   readonly #cache = new Map<string, CacheEntry>();
+  /// What each handle's last successful run produced. Here rather than on `Motor`
+  /// because every reader of it is here too, and a second `Motor` over one module must not
+  /// share it: the kinds belong to a run, and a run belongs to one motor's handle.
+  readonly #kinds = new Map<Handle, GeometryKinds>();
 
   constructor(exports: RawExports) {
     this.#exports = exports;
@@ -120,13 +127,8 @@ export class ColumnViews {
    * looks like data. Escape hatch: never hold a `Column` past the next call on this
    * `Motor` (any handle) — re-derive it via `Motor#column` after every call, which this
    * cache then serves for free when nothing actually moved. */
-  get(
-    handle: Handle,
-    columnId: ColumnId,
-    nodeKind: NodeGeometryKind,
-    edgeKind: EdgeGeometryKind,
-    dim: Dim = 0,
-  ): Column {
+  get(handle: Handle, columnId: ColumnId): Column {
+    const { nodeKind, edgeKind, dim } = this.kindsOf(handle);
     if (!columnApplies(nodeKind, edgeKind, columnId, dim)) return null;
     const ptr = this.#exports.gm_column_ptr(handle, columnId);
     const len = this.#exports.gm_column_len(handle, columnId);
@@ -141,10 +143,42 @@ export class ColumnViews {
     return view;
   }
 
-  /** Drops every cached view for `handle` (`gm_release`, C6: its id is never reissued, so
-   * nothing should ever read a view under it again — this only frees the SDK's own cache
-   * entries, the motor's memory is the wasm module's business). */
+  /** The geometry kinds `handle`'s last successful run produced, or the refusal: a handle
+   *  with no successful run yet is refused, not read as "every column absent" (C3). */
+  kindsOf(handle: Handle): GeometryKinds {
+    const kinds = this.#kinds.get(handle);
+    if (kinds === undefined) throw new InvalidHandleError(`handle ${handle} has no successful run yet`);
+    return kinds;
+  }
+
+  /** Records what the run that just succeeded produced for `handle`, so a later `get`,
+   *  `toJSON` or `toBytes` knows which columns apply (C3). `what` names the run in a
+   *  refusal, and is the id that was asked for. */
+  record(handle: Handle, what: string): GeometryKinds {
+    const kinds = readKinds(this.#exports, handle, what);
+    this.#kinds.set(handle, kinds);
+    return kinds;
+  }
+
+  /** The canonical JSON face of `handle`'s last run. Refuses with a
+   *  `TamperedGeometryError` if a column view wrote a non-finite value into the motor's own
+   *  buffers since that run (D9 re-validation, C8). */
+  toJSON(handle: Handle): string {
+    return decoder.decode(frame(this.#exports, snapshotPtr(this.#exports, "gm_snapshot_json", handle)));
+  }
+
+  /** The binary face of `handle`'s last run, under the same D9 re-validation as
+   *  {@link ColumnViews.toJSON}. */
+  toBytes(handle: Handle): Uint8Array {
+    return frame(this.#exports, snapshotPtr(this.#exports, "gm_snapshot_bytes", handle));
+  }
+
+  /** Drops every cached view for `handle`, and the kinds its last run produced
+   *  (`gm_release`, C6: its id is never reissued, so nothing should ever read a view under
+   *  it again). This frees the SDK's own state only; the motor's memory is the wasm
+   *  module's business. */
   forget(handle: Handle): void {
+    this.#kinds.delete(handle);
     const prefix = `${handle}:`;
     for (const key of this.#cache.keys()) {
       if (key.startsWith(prefix)) this.#cache.delete(key);
