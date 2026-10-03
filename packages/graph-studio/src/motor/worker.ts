@@ -1,5 +1,5 @@
 /** The worker's entry: the session behind a message pump. Imported only as a worker. */
-import { createMotor } from "../../../../crates/graph-sdk-js/src/index.ts";
+import { assembleColumns, createMotor } from "../../../../crates/graph-sdk-js/src/index.ts";
 import { createForceHost, type ForceHost } from "./liveLoop.ts";
 import { UNSOLICITED, isRequest } from "./protocol.ts";
 import { createPump } from "./pump.ts";
@@ -44,6 +44,7 @@ if (isWorkerScope(scope)) {
     motorFrom: (wasmUrl) => createMotor(wasmUrl),
     fetchText,
     digest: sha256Hex,
+    assemble: assembleColumns,
     now: () => performance.now(),
     onForget: () => notice.host?.forget(),
   });

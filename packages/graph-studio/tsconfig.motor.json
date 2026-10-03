@@ -1,12 +1,17 @@
 {
-  "//": "The files that import the motor's SDK. Its sources do not pass exactOptionalPropertyTypes or noImplicitOverride, and crates/ is not this package's to change, so these are checked with the SDK's own flags and everything else with the stricter set.",
+  "//": "The files that import the motor's SDK. Its sources do not pass exactOptionalPropertyTypes or noImplicitOverride, and crates/ is not this package's to change, so these are checked with the SDK's own flags and everything else with the stricter set. `lib` is ES2024, not the package's ES2022, because the SDK's encoder refuses a lone surrogate with String.prototype.isWellFormed and that method is ES2024; the rest of the package still targets ES2022 in tsconfig.json.",
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "exactOptionalPropertyTypes": false,
     "noImplicitOverride": false,
     "noUnusedLocals": false,
     "noUnusedParameters": false,
-    "verbatimModuleSyntax": false
+    "verbatimModuleSyntax": false,
+    "lib": [
+      "ES2024",
+      "DOM",
+      "DOM.Iterable"
+    ]
   },
   "include": [
     "src/motor/worker.ts",
