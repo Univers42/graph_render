@@ -84,3 +84,22 @@ fn the_derivation_is_a_pure_function_of_the_document() {
     assert_eq!(describe(&derived()), describe(&derived()));
     assert_eq!(derived(), derived());
 }
+
+#[test]
+fn an_index_capacity_refusal_is_a_build_error_and_says_what_overflowed() {
+    // `build_topology` maps `index_model`'s `CapacityError` instead of `.expect`ing it, so
+    // the index step's refusal is reachable through the one error type the wasm ABI
+    // already carries. A `u32` index exhaustion is not reachable from a document a test
+    // can hold, so this pins the part that is: the variant exists, and its message names
+    // what overflowed instead of saying "capacity".
+    let refusal = BuildError::Capacity { what: "edge index" };
+    assert_eq!(
+        refusal.to_string(),
+        "the derived graph needs `edge index` past the end of the `u32` index space: \
+         refused, not wrapped"
+    );
+    // And it is the *same* error a derivation refusal is, so one caller arm covers both.
+    let derivation = build(&one_of_each()).expect("derives");
+    let indexed = build_topology(&one_of_each()).expect("indexes");
+    assert_eq!(indexed.1.node_count(), derivation.nodes.len() as u32);
+}

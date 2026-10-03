@@ -10,6 +10,10 @@ runs: a scale measurement, not a gate, so its gating rows read NOT-RUN and it ex
 the 180 s open timeout). --backend opens the page at ?backend=NAME and, for any choice but
 canvas2d, lets Chromium draw WebGL2 on SwiftShader; each case records the backend that drew.
 
+GM_GPU=1 measures the same cases on the host's GPU instead (deploy/nav/gpu.py): the flags, the
+device and the check are one knob, the report names the renderer it drew on, and a browser that
+fell back to software exits 2 rather than reporting a CPU rasteriser as a GPU.
+
 Ponytail: software raster in a container on a shared host. Numbers compare run to run on
 one machine; they are not the frame rate a user's browser reaches (read the studio HUD).
 """
@@ -29,6 +33,10 @@ import cdp
 import rows as judge
 
 HERE = Path(__file__).resolve().parent
+# The GL backend knob and the renderer check live with the browser launcher (deploy/nav/gpu.py).
+sys.path.insert(0, str(HERE.parent / "nav"))
+
+import gpu
 # A full-HD window: at DPR 2 the graph canvas is about 3000x2000, the size a desktop user has.
 VIEWPORT = (1920, 1080)
 DEBUG_PORT = 9222
@@ -67,10 +75,12 @@ def launch_browser(profile, backend):
     # --no-sandbox: the container has no user namespace to build the sandbox from, and the
     # only page ever loaded is this repository's own build, served from 127.0.0.1. The same
     # reason holds for --enable-unsafe-swiftshader, the only WebGL2 a GPU-less container has.
-    # The gate itself runs without it, so its rows keep measuring the Canvas2D painter.
-    webgl = ["--enable-unsafe-swiftshader"] if backend not in (None, "canvas2d") else []
+    # The gate itself runs without it, so its rows keep measuring the Canvas2D painter. Under
+    # GM_GPU=1 that flag is replaced by the host's GL backend and the device behind it
+    # (deploy/nav/gpu.py), which makes this a measurement of another arm, not a gating row.
+    webgl = gpu.chrome_flags(draws_webgl=backend not in (None, "canvas2d"))
     return subprocess.Popen([
-        "chromium", "--headless=new", "--no-sandbox", "--disable-gpu", *webgl,
+        "chromium", "--headless=new", "--no-sandbox", *webgl,
         "--disable-dev-shm-usage", f"--remote-debugging-port={DEBUG_PORT}",
         f"--user-data-dir={profile}", f"--window-size={VIEWPORT[0]},{VIEWPORT[1]}",
         "about:blank",
@@ -166,12 +176,18 @@ def measure(args, out):
         try:
             page = cdp.Page(DEBUG_PORT)
             query = f"?backend={args.backend}" if args.backend else ""
-            studio = Studio(page, f"http://127.0.0.1:{server.server_address[1]}/{query}", args.driver, args.edge_colour)
+            url = f"http://127.0.0.1:{server.server_address[1]}/{query}"
+            # What the browser's WebGL2 backend is, before a case is opened: under GM_GPU=1 a
+            # software rasteriser here is a refusal to measure, not a slower number. Read on a
+            # loaded document — about:blank hands out no context and names no backend.
+            page.navigate(url)
+            name = gpu.check(page)
+            studio = Studio(page, url, args.driver, args.edge_colour)
             version = page.call("Browser.getVersion").get("product")
             report = {
                 "label": out.name, "driver": args.driver, "commit": args.commit,
                 "edgeColour": args.edge_colour, "backend": args.backend,
-                "browser": version, "viewport": VIEWPORT,
+                "browser": version, "viewport": VIEWPORT, "renderer": name,
             }
             if args.cases:
                 report["frames"] = measure_frames(studio, out, [(nodes, 1) for nodes in args.cases], args.layout)
@@ -210,6 +226,9 @@ def main():
     args.out.mkdir(parents=True, exist_ok=True)
     try:
         report = measure(args, args.out)
+    except gpu.SoftwareRasteriser as failure:
+        print(f"studio-perf: {failure}", file=sys.stderr)
+        return 2
     except (cdp.CdpError, OSError) as failure:
         print(f"studio-perf: could not run: {failure}", file=sys.stderr)
         return 2

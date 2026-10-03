@@ -181,9 +181,9 @@ mod tests {
     fn coords(nodes: &[NodeRecord], edges: &[EdgeRecord]) -> Vec<f64> {
         let t = index_model(nodes, edges).expect("fits");
         let acyclic = Acyclic::of(&t);
-        let arcs = Arcs::new(&t, &acyclic);
-        let layer = assign_layers(&arcs);
-        let layering = Layering::build(&arcs, &layer, DUMMY_BUDGET);
+        let list = Arcs::new(&t, &acyclic).grouped();
+        let layer = assign_layers(&list);
+        let layering = Layering::build(&list, &layer, DUMMY_BUDGET);
         let num_layers = layering.layer_of.iter().copied().max().map_or(0, |m| m + 1);
         let ordering = Ordering::build(&layering, num_layers);
         Coords::build(&ordering, &layering, t.node_count()).0

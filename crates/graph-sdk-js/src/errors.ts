@@ -88,7 +88,7 @@ export class TamperedGeometryError extends GraphMotorError {}
  * ever return a sentinel, never trap. Wrapped so it is still a `GraphMotorError`, but
  * `code` is left `undefined`: a trap has no `gm_last_error` behind it. */
 export class MotorTrapError extends GraphMotorError {
-  readonly cause: unknown;
+  override readonly cause: unknown;
   constructor(exportName: string, cause: unknown) {
     super(`${exportName} trapped: ${String(cause)}`);
     this.cause = cause;

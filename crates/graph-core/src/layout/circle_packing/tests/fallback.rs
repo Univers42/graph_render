@@ -78,21 +78,39 @@ fn a_duplicate_edge_does_not_change_the_fallback_packing() {
 }
 
 #[test]
-fn a_self_loop_does_not_change_the_fallback_packing() {
-    // A self-loop is not a spring. `G.degree` on a simple graph counts it as two of that
-    // node's incident edges, but SciGraphs' force-directed path builds its spring array
-    // with `u != v` filtered out, and this port applies the reduction once, upstream of
-    // both paths — so a self-loop must not become a zero-length spring that fights the
-    // overlap pass, nor a degree of its own.
+fn a_self_loop_reaches_the_fallback_as_a_degree_and_not_as_a_spring() {
+    // A self-loop is not a spring: SciGraphs' force-directed path builds its spring array
+    // from `G.edges()`, and a zero-length spring fights the overlap pass — this port keeps
+    // `simple_pairs`'s reduction for that half.
+    //
+    // It **is** a degree, though, and this is the half that was wrong until 2026-10-02.
+    // SciGraphs reads `G.degree(n)` (`circle_packing.py:420`) on the graph
+    // `_build_networkx_graph` built, which keeps its self-loops (`common.py:297`), and
+    // networkx counts each of them twice (`reportviews.py:526`). So a loop must move the
+    // packing — through the starting radii, and nowhere else — and the old contract pinned
+    // here ("a self-loop does not change the fallback packing") was the defect itself.
     let plain = run(&topology(5, &complete_graph(5))).expect("runs");
     for extra in [vec![(0, 0)], vec![(4, 4), (2, 2)]] {
         let mut edges = complete_graph(5);
         edges.extend_from_slice(&extra);
         let looped = run(&topology(5, &edges)).expect("runs");
-        assert_eq!(
+        assert_ne!(
             looped, plain,
-            "self-loops {extra:?} must not reach the fallback"
+            "self-loops {extra:?} are degree twice over in networkx, so they move it"
         );
+        // Still a sane packing: the loop reached the radius, not the relaxation.
+        let NodeGeometry::Circle { x, y, r } = &looped.nodes else {
+            panic!("circle packing always emits Circle geometry");
+        };
+        for value in x.iter().chain(y.iter()) {
+            assert!(value.is_finite(), "centre {value} for {extra:?}");
+        }
+        for &radius in r.iter() {
+            assert!(
+                radius.is_finite() && radius >= 0.0,
+                "radius {radius} for {extra:?}"
+            );
+        }
     }
 }
 

@@ -10,7 +10,7 @@ use super::knob::Setting;
 use super::stages;
 use crate::exec_native::Threads;
 use graph_core::Stage as _;
-use graph_core::layout::force::{BarnesHut, YifanHu};
+use graph_core::layout::force::{BarnesHut, ParticleMesh, YifanHu};
 use graph_core::layout::{circular::ring, spiral};
 use graph_core::{Grid, Topology};
 
@@ -19,18 +19,24 @@ use graph_core::{Grid, Topology};
 /// gathered passes.
 ///
 /// A named list, not an inline match, so a test can hold it against what the arm actually
-/// compared. The two force layouts are here on the same evidence that put their settles
+/// compared. The three force layouts are here on the same evidence that put their settles
 /// under a runner at all: they run the same three gathered passes through the same
 /// `Sim::tick`, once per level for the multilevel one. The closed-form point layouts end
 /// in one shared `coords` merge, which is the merge `GM_MUTATE_SPLIT_RESCALE` splits.
-pub(crate) const THREADED_STAGES: [&str; 5] =
-    [BarnesHut::ID, YifanHu::ID, Grid::ID, ring::ID, spiral::ID];
+pub(crate) const THREADED_STAGES: [&str; 6] = [
+    BarnesHut::ID,
+    YifanHu::ID,
+    ParticleMesh::ID,
+    Grid::ID,
+    ring::ID,
+    spiral::ID,
+];
 
 /// [`stage_bytes`](stages::stage_bytes) with the [`THREADED_STAGES`] run threaded, and with
 /// both compute-tier controls carried into it.
 ///
 /// Each control reaches the *stage*, not just the arm, so `GM_MUTATE_SPLIT_SUM=1 --tiers all`
-/// diverges the threaded arms on the two force stages and `GM_MUTATE_SPLIT_RESCALE=1` on the
+/// diverges the threaded arms on the three force stages and `GM_MUTATE_SPLIT_RESCALE=1` on the
 /// closed-form point layouts — and on no other stage either way. That is the shape the
 /// phase prompt asks a control to have: a mutation a threaded arm cannot survive, so the
 /// gate's red is proof the arms were compared.
@@ -57,11 +63,11 @@ pub(crate) fn stage_bytes_threaded(
 /// The stage `id` names over `workers` `std::thread`s, as snapshot bytes, or `None` for a
 /// stage this arm does not recompute — which then keeps the scalar arm's own bytes.
 ///
-/// One match for all five stages, and **one arm for the three closed-form layouts, not
+/// One match for all six stages, and **one arm for the three closed-form layouts, not
 /// three**: they share the control and the shape of the claim, and three arms spelling the
 /// same routing three times is three places a stage could be added to one and missed in
-/// another. Likewise one arm for the two force layouts, so the split control cannot reach
-/// one of them and not the other.
+/// another. Likewise one arm for the three force layouts, so the split control cannot reach
+/// one of them and not the others.
 fn threaded_bytes(
     id: &'static str,
     topology: &Topology,
@@ -91,6 +97,13 @@ fn geometry(
             setting.split_sum,
         ),
         YifanHu::ID => YifanHu::run_under(
+            topology,
+            &setting.force,
+            &Threads,
+            workers,
+            setting.split_sum,
+        ),
+        ParticleMesh::ID => ParticleMesh::run_under(
             topology,
             &setting.force,
             &Threads,

@@ -47,10 +47,7 @@ fn errors(approx: &[(f64, f64)], exact: &[(f64, f64)]) -> (f64, f64) {
         );
         (node, diff, norm) = (node + d2 / e2, diff + d2, norm + e2);
     }
-    (
-        libm::sqrt(node / exact.len() as f64),
-        libm::sqrt(diff / norm),
-    )
+    (f64::sqrt(node / exact.len() as f64), f64::sqrt(diff / norm))
 }
 
 /// A state partway into a dense run, where nodes have started to cluster.

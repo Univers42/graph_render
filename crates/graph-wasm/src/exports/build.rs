@@ -11,8 +11,8 @@ use crate::ingest;
 use crate::seed_ingest;
 use crate::views;
 use graph_contract::binary::Snapshot;
-use graph_core::index_model;
 use graph_core::registry::LAYOUTS;
+use graph_core::{Geometry, StageError, Topology, index_model};
 
 /// Registry-driven layout count (C1). p3's four new rows change this with no ABI change.
 // SAFETY: `no_mangle` exports this symbol under its Rust name; no other symbol in this
@@ -71,21 +71,7 @@ pub extern "C" fn gm_build(ingest_ptr: u32, ingest_len: u32) -> u32 {
         errors::set(Code::IngestInvalid);
         return 0;
     };
-    let handle = Handle {
-        topology,
-        snapshot: None,
-        geometry: None,
-    };
-    match HANDLES.with(|handles| handles.borrow_mut().insert(handle)) {
-        Some(id) => {
-            errors::clear();
-            id
-        }
-        None => {
-            errors::set(Code::HandlesExhausted);
-            0
-        }
-    }
+    insert(topology)
 }
 
 /// Builds a graph from the **ingest contract** buffer at `(contract_ptr, contract_len)`,
@@ -129,21 +115,7 @@ pub extern "C" fn gm_build_contract(contract_ptr: u32, contract_len: u32) -> u32
         errors::set(Code::ContractInvalid);
         return 0;
     };
-    let handle = Handle {
-        topology,
-        snapshot: None,
-        geometry: None,
-    };
-    match HANDLES.with(|handles| handles.borrow_mut().insert(handle)) {
-        Some(id) => {
-            errors::clear();
-            id
-        }
-        None => {
-            errors::set(Code::HandlesExhausted);
-            0
-        }
-    }
+    insert(topology)
 }
 
 /// Runs registry layout `layout_id` (an index, C1) over `handle`'s topology at its
@@ -172,26 +144,50 @@ pub extern "C" fn gm_run(handle: u32, layout_id: u32, params_ptr: u32, params_le
             errors::set(Code::UnknownLayoutId);
             return 0;
         };
-        let ran = (layout.run)(&entry.topology)
-            .map_err(|_| Code::LayoutFailed)
-            .and_then(|geometry| {
-                graph_core::layout::snapshot(&entry.topology, geometry.clone())
-                    .map(|snapshot| (geometry, snapshot))
-                    .map_err(|_| Code::LayoutFailed)
-            });
-        match ran {
-            Ok((geometry, snapshot)) => {
-                entry.geometry = Some(geometry);
-                entry.snapshot = Some(snapshot);
-                errors::clear();
-                1
-            }
-            Err(code) => {
-                errors::set(code);
-                0
-            }
-        }
+        let ran = (layout.run)(&entry.topology);
+        store(entry, ran)
     })
+}
+
+/// A new handle over `topology`, or `0` with [`Code::HandlesExhausted`].
+pub(super) fn insert(topology: Topology) -> u32 {
+    let handle = Handle {
+        topology,
+        snapshot: None,
+        geometry: None,
+    };
+    match HANDLES.with(|handles| handles.borrow_mut().insert(handle)) {
+        Some(id) => {
+            errors::clear();
+            id
+        }
+        None => {
+            errors::set(Code::HandlesExhausted);
+            0
+        }
+    }
+}
+
+/// Keeps a layout's result on `entry` with its snapshot: `1`, or `0` with
+/// [`Code::LayoutFailed`] and nothing kept.
+pub(super) fn store(entry: &mut Handle, ran: Result<Geometry, StageError>) -> u32 {
+    let ran = ran.map_err(|_| Code::LayoutFailed).and_then(|geometry| {
+        graph_core::layout::snapshot(&entry.topology, geometry.clone())
+            .map(|snapshot| (geometry, snapshot))
+            .map_err(|_| Code::LayoutFailed)
+    });
+    match ran {
+        Ok((geometry, snapshot)) => {
+            entry.geometry = Some(geometry);
+            entry.snapshot = Some(snapshot);
+            errors::clear();
+            1
+        }
+        Err(code) => {
+            errors::set(code);
+            0
+        }
+    }
 }
 
 /// Nodes in `handle`'s topology — available right after `gm_build`, before any run.

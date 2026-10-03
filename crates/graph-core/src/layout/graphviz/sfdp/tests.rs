@@ -53,7 +53,7 @@ fn two_nodes_stay_apart_and_finite() {
     }
     let (dx, dy) = (points[1].0 - points[0].0, points[1].1 - points[0].1);
     assert!(
-        libm::sqrt((dx * dx + dy * dy) as f64) > 1e-3,
+        f64::sqrt((dx * dx + dy * dy) as f64) > 1e-3,
         "the two nodes collapsed onto each other: {points:?}"
     );
     // The rendering translates the drawing's lower-left node-box corner to the origin, so

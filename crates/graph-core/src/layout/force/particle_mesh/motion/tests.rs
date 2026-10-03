@@ -1,0 +1,74 @@
+use super::*;
+use crate::exec::Serial;
+use crate::layout::force::ForceParams;
+use crate::layout::force::barnes_hut::step;
+use crate::layout::force::particle_mesh::tests::placed;
+
+/// A column with both signed zeros in it, so a sum that flips a zero's sign shows.
+fn column(n: usize, f: f64) -> Vec<f64> {
+    (0..n)
+        .map(|i| match i % 97 {
+            3 => -0.0,
+            5 => 0.0,
+            _ => libm::sin(i as f64 * f) * 40.0,
+        })
+        .collect()
+}
+
+/// Moving nodes, three of them pinned on one axis or both.
+fn moving(n: usize) -> Sim {
+    let mut sim = placed(column(n, 0.3), column(n, 0.7), ForceParams::default());
+    (sim.vx, sim.vy) = (column(n, 1.1), column(n, 0.13));
+    (sim.fx[4], sim.fy[9], sim.fx[9]) = (Some(12.5), Some(-3.0), Some(-0.0));
+    sim
+}
+
+fn bits(sim: &Sim) -> [Vec<u64>; 4] {
+    [&sim.x, &sim.y, &sim.vx, &sim.vy].map(|c| c.iter().map(|v| v.to_bits()).collect())
+}
+
+#[test]
+fn the_passes_are_merge_and_integrate_bit_for_bit() {
+    let n = 1000;
+    let deltas: Vec<(f64, f64)> = column(n, 0.21).into_iter().zip(column(n, 0.017)).collect();
+    let order: Vec<u32> = (0..n as u32).map(|k| (k * 389) % n as u32).collect();
+    let mut slot = vec![0; n];
+    for (k, &i) in order.iter().enumerate() {
+        slot[i as usize] = k as u32;
+    }
+    for split in [false, true] {
+        let mut want = moving(n);
+        step::merge((&mut want.vx, &mut want.vy), Some(&order), &deltas, split);
+        want.integrate();
+        let gathered = Gathered {
+            deltas: &deltas,
+            slot: &slot,
+            split,
+        };
+        for workers in [1, 2, 3, 7] {
+            let mut fused = moving(n);
+            integrate(&mut fused, Some(gathered), (&Serial, workers));
+            assert!(
+                bits(&fused) == bits(&want),
+                "fused, split {split}, workers {workers}"
+            );
+            let mut apart = moving(n);
+            merge(&mut apart, gathered, (&Serial, workers));
+            integrate(&mut apart, None, (&Serial, workers));
+            assert!(
+                bits(&apart) == bits(&want),
+                "apart, split {split}, workers {workers}"
+            );
+        }
+    }
+}
+
+#[test]
+fn the_projection_is_position_plus_velocity() {
+    let mut sim = moving(500);
+    project(&mut sim, (&Serial, 3));
+    for i in 0..500 {
+        assert_eq!(sim.px[i].to_bits(), (sim.x[i] + sim.vx[i]).to_bits());
+        assert_eq!(sim.py[i].to_bits(), (sim.y[i] + sim.vy[i]).to_bits());
+    }
+}

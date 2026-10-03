@@ -18,8 +18,8 @@ import { type BackendChoice, type View, createView } from "../../graph-render/sr
 /** The host reads `?backend=` with this, so it never imports the renderer itself. */
 export { backendOf } from "../../graph-render/src/view.ts";
 import type { Save } from "./actions/context.ts";
-import { type LiveBridge, createLiveBridge, settlesLive } from "./motor/bridge.ts";
-import { NOT_ASKED } from "./motor/bridge.ts";
+import { type LiveBridge, NOT_ASKED, createLiveBridge } from "./motor/bridge.ts";
+import { settlesLive } from "./motor/live.ts";
 import { type MotorClient, createClient } from "./motor/client.ts";
 import { SILENCE_MS } from "./motor/watchdog.ts";
 import type { Assets, Spawn } from "./motor/protocol.ts";
@@ -28,6 +28,7 @@ import { type SettingsStorage, openingSettings } from "./state/persist.ts";
 import { type Studio, createStudio } from "./studio/studio.ts";
 import { STUDIO_CSS } from "./styles/studio.css.ts";
 import { Shell } from "./ui/Shell.tsx";
+import { watchSafeArea } from "./ui/safeArea.ts";
 
 export interface StudioElementOptions {
   /** Where the motor runs; a worker when left out. */
@@ -70,6 +71,8 @@ interface Mounted {
   readonly bridge: LiveBridge;
   /** Stops watching the studio's state for a layout that settles live. */
   readonly unwatch: () => void;
+  /** Stops measuring the panels over the canvas (ST-4). */
+  readonly unwatchArea: () => void;
 }
 
 const HOST_CSS = `
@@ -212,12 +215,16 @@ function mount(host: HTMLElement, options: StudioElementOptions): Mounted {
     studio, view, keys: host.getAttribute("keys") === "page" ? window : host, bar: bridge,
   }));
   void studio.start();
-  return { studio, view, client, root, bridge, unwatch };
+  // The arrow, not the method: `watchSafeArea` holds this until unmount, and a bare method
+  // reference would leave `this` to chance — `view.setSafeArea(area)` names the receiver.
+  const unwatchArea = watchSafeArea(canvas, chrome, (area) => view.setSafeArea(area));
+  return { studio, view, client, root, bridge, unwatch, unwatchArea };
 }
 
 function unmount(mounted: Mounted | null): void {
   if (mounted === null) return;
   mounted.root.unmount();
+  mounted.unwatchArea();
   mounted.unwatch();
   mounted.bridge.destroy();
   mounted.studio.destroy();

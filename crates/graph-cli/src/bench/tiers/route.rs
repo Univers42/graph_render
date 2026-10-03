@@ -18,19 +18,27 @@ use crate::bench::Plan;
 use crate::exec_native::Threads;
 use graph_core::exec::Serial;
 use graph_core::layout::Geometry;
-use graph_core::layout::force::{BarnesHut, ForceParams, Split, YifanHu};
+use graph_core::layout::force::{BarnesHut, ForceParams, ParticleMesh, Split, YifanHu};
 use graph_core::layout::{circular::ring, spiral};
 use graph_core::{Grid, GridParams, Stage, StageError, Topology};
 
 /// Every layout `bench --tiers` can time, in the order a report prints them.
 ///
 /// Barnes-Hut is first because it is the **default** (see [`layouts`]), and it is the row
-/// every `docs/measurements/phase11-threads.md` number was measured on. The next two are
-/// the force stages, which reach a runner through the same three gathered passes per tick
-/// — the multilevel solve once per coarsening level. The last three are the stages whose
-/// hot loop is a per-node gather with no reduction crossing elements, so a width is a
-/// schedule of the same computation.
-pub const ROUTES: [&str; 5] = [BarnesHut::ID, YifanHu::ID, Grid::ID, ring::ID, spiral::ID];
+/// every `docs/measurements/phase11-threads.md` number was measured on. The next three are
+/// the force stages, which reach a runner through the same three gathered passes per tick —
+/// the multilevel solve once per coarsening level, and the mesh with the deposit and its
+/// two FFTs serial by nature. The last three are the stages whose hot loop is a per-node
+/// gather with no reduction crossing elements, so a width is a schedule of the same
+/// computation.
+pub const ROUTES: [&str; 6] = [
+    BarnesHut::ID,
+    YifanHu::ID,
+    ParticleMesh::ID,
+    Grid::ID,
+    ring::ID,
+    spiral::ID,
+];
 
 /// The layouts the plan asks for, or the error naming the ones it can time.
 ///
@@ -77,6 +85,8 @@ pub fn run_once(
         (BarnesHut::ID, Tier::Threads(w)) => barnes_hut(topology, &Threads, w, control),
         (YifanHu::ID, Tier::Scalar) => yifan_hu(topology, &Serial, 1, control),
         (YifanHu::ID, Tier::Threads(w)) => yifan_hu(topology, &Threads, w, control),
+        (ParticleMesh::ID, Tier::Scalar) => particle_mesh(topology, &Serial, 1, control),
+        (ParticleMesh::ID, Tier::Threads(w)) => particle_mesh(topology, &Threads, w, control),
         (Grid::ID, Tier::Scalar) => grid(topology, &Serial, 1),
         (Grid::ID, Tier::Threads(w)) => grid(topology, &Threads, w),
         (ring::ID, Tier::Scalar) => ring(topology, &Serial, 1, control),
@@ -113,6 +123,24 @@ fn yifan_hu(
     control: Control,
 ) -> Result<Geometry, StageError> {
     YifanHu::run_under(
+        topology,
+        &ForceParams::default(),
+        runner,
+        workers,
+        control.split,
+    )
+}
+
+/// The mesh solve: the same `ForceParams` and the same `Split` control as the other force
+/// routes, and the same three gathered passes over the tick — link, charge and collide —
+/// so its speedup is a schedule of the same computation, not a different one.
+fn particle_mesh(
+    topology: &Topology,
+    runner: &impl graph_core::exec::Runner,
+    workers: u32,
+    control: Control,
+) -> Result<Geometry, StageError> {
+    ParticleMesh::run_under(
         topology,
         &ForceParams::default(),
         runner,

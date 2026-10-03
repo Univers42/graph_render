@@ -106,9 +106,9 @@ pub const ROWS: [Row; 32] = [
     },
     Row {
         name: "SPIRAL_3D",
-        motor: Some("layout.spiral"),
+        motor: Some("layout.basic3d.spiral"),
         reference: Reference::Scigraphs,
-        gaps: &[G_NO_ITERATIONS, G_SNAPSHOT_SCALE],
+        gaps: &[G_BASIC3D_SCALE],
     },
     Row {
         name: "HELIX",
@@ -221,7 +221,13 @@ pub const ROWS: [Row; 32] = [
         name: "SUGIYAMA",
         motor: Some("layout.dag.sugiyama"),
         reference: Reference::Scigraphs,
-        gaps: &[G_NO_ITERATIONS, G_SCALE_FIXED_LAYER],
+        // No gaps. `scale` used to be one (`G_SCALE_FIXED_LAYER`) and is not any more:
+        // `sugiyama::run_scaled` takes it as a parameter, so the arm hands the reference's
+        // `scale = 5.0` to the motor too (`hierarchical.py:638`). `iterations` used to be
+        // one (`G_NO_ITERATIONS`) and was a false record: `_sugiyama_layout(G, scale)`
+        // takes no count at all and `dispatcher.py:142-143` passes it only `scale`, so there
+        // is no budget the reference ran with for this layout to have failed to bound.
+        gaps: &[],
     },
     Row {
         name: "CIRCULAR_HIERARCHY",

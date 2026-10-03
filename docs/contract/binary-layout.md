@@ -99,6 +99,14 @@ column whose length is not `n` is refused as `Length { column: "node.z" }`. Edge
 2D whatever `dim` is: a 3D edge path would be a second breaking change and is not in this
 format.
 
+Open gap: the axis orientation. This contract fixes the column order but not which way `y`
+points. SciGraphs is y-up and flips `y` only on the way into pixels
+(`text_overlay.py:231`); the studio's `worldToScreen` (`packages/graph-render/src/camera.ts`)
+does not flip, so a larger `y` draws lower (`docs/reviews/review-studio.md` ST-6). No bundled
+2D layout puts a signed quantity on `y` today, so the difference is a mirror image, not a wrong
+shape. It is decided with the parity oracle, not in a fix job, because flipping moves every
+pinned 2D screenshot.
+
 ### Edge geometry, by edge tag
 
 | edge kind | wire bytes |
