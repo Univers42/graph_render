@@ -87,6 +87,9 @@ async function inspect(subject: Rig, id: string): Promise<void> {
 
 const LONG = "\u{1F600}".repeat(300);
 
+/** Code points, the unit the contract counts in; a grapheme of several is several here too. */
+const points = (text: string): number => Array.from(text).length;
+
 async function capHolds(limits?: PreviewLimits): Promise<boolean> {
   const subject = rig(limits === undefined ? {} : { limits });
   await inspect(subject, "a");
@@ -95,8 +98,8 @@ async function capHolds(limits?: PreviewLimits): Promise<boolean> {
   subject.host.answer(0, hostile);
   await drained();
   const shown = subject.previews.shown("inspector").preview;
-  return shown !== null && [...shown.title].length === 256 && [...(shown.text ?? "")].length === 4096 &&
-    [...(shown.icon ?? "")].length === 16 && !("url" in shown) && shown.title === LONG.slice(0, 512);
+  return shown !== null && points(shown.title) === 256 && points(shown.text ?? "") === 4096 &&
+    points(shown.icon ?? "") === 16 && !("url" in shown) && shown.title === LONG.slice(0, 512);
 }
 
 test("a preview is cut to 256, 4096 and 16 code points, a pair never split, and no url kept", async () => {

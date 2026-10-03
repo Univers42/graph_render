@@ -20,6 +20,9 @@ const INSIDE = {
   message: "A host takes the element and nothing behind it.",
 };
 
+// Every DOM or React sink that parses a string as markup.
+const SINKS = ["dangerouslySetInnerHTML", "innerHTML", "outerHTML", "insertAdjacentHTML"];
+
 const banned = (...patterns) => ({ "no-restricted-imports": ["error", { patterns }] });
 
 const HOUSE = {
@@ -39,11 +42,23 @@ const HOUSE = {
     "error",
     { selector: "ExportDefaultDeclaration", message: "Named exports only." },
     { selector: "TSEnumDeclaration", message: "No enums: a union of literals." },
+    // Verdict 5 (docs/contract/host-api.md): a host's preview strings reach the page as text
+    // only, so no sink that parses a string as HTML exists anywhere for one to reach.
+    ...SINKS.map((name) => ({ selector: `JSXAttribute[name.name='${name}']`, message: `No ${name}: render text (host-api verdict 5).` })),
+    ...SINKS.map((name) => ({ selector: `Property[key.name='${name}']`, message: `No ${name}: render text (host-api verdict 5).` })),
+    ...SINKS.map((name) => ({ selector: `MemberExpression[property.name='${name}']`, message: `No ${name}: set textContent (host-api verdict 5).` })),
   ],
 };
 
 export default tseslint.config(
-  { ignores: ["app/dist/**", "app/public/**", "**/node_modules/**"] },
+  // Two breaks, each checked on its own by scripts/studio.sh: tests/breaks must fail tsc with
+  // TS2430, and tests/ui/raw-html.tsx must draw the markup-sink bans.
+  {
+    ignores: [
+      "app/dist/**", "app/public/**", "**/node_modules/**",
+      "packages/graph-studio/tests/breaks/**", "packages/graph-studio/tests/ui/raw-html.tsx",
+    ],
+  },
   ...tseslint.configs.strictTypeChecked,
   {
     languageOptions: {
