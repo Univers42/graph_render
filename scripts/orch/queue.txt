@@ -128,3 +128,4 @@ mrg-sg-basic3d-spiral-oracle|build|prompts/jobs/resolve-merge.md|scripts/orch/ro
 mrg-sg-fa2-forcesim|build|prompts/jobs/resolve-merge.md|scripts/orch/rows/quick.rows|no
 perf-pm-velocity|build|prompts/jobs/perf-pm-velocity.md|scripts/orch/rows/quick.rows|no
 mrg-sg-graphviz-scale-r1|build|prompts/jobs/resolve-merge.md|scripts/orch/rows/quick.rows|no
+perf-pm-collide-soa|build|prompts/jobs/perf-pm-collide-soa.md|scripts/orch/rows/quick.rows|no
