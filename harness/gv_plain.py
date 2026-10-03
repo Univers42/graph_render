@@ -163,21 +163,18 @@ def parse_plain(text, n):
     return bbox, nodes
 
 
-def engine_points(engine, tmp, name, count, edges, start=None):
+def engine_points(engine, dot, graph, start=None):
     """The engine's own node coordinates over one DOT graph, as dense-indexed points.
 
-    Six positional parameters, over the house's four, and left so on purpose:
-    `harness/scigraphs-conformance/sc_graphviz.py:59` calls this signature positionally and
-    that file is owned by another job, so re-aritying it here would break the conformance gate.
-    `framed_case` and `gv_closed.closed_case`, the two the review named for their arity, are
-    both down to four. What m63 also named about *these* — the `start=START_SEED` default,
-    bound once at `def` time so a later rebind never arrived — is fixed: `start` defaults to
-    `None` and `run_engine` resolves it inside its body.
+    Four parameters, taking the DOT path and the graph rather than the directory and the
+    pieces they are built from, so this and `printed_nodes` have the same shape and a caller
+    reads the same either way. `start` defaults to `None` and is resolved by `run_engine`
+    inside its body: a `def`-time `START_SEED` default froze the value the module held at
+    import, so a later rebind never arrived (m63).
     """
-    dot = dot_path(tmp, name)
-    write_dot(dot, count, [a for a, _ in edges], [b for _, b in edges])
-    _, nodes = parse_plain(run_engine(engine, dot, start), count)
-    return [tuple(nodes[f"n{i}"]) for i in range(count)]
+    write_dot(dot, graph.count, graph.source, graph.target)
+    _, nodes = parse_plain(run_engine(engine, dot, start), graph.count)
+    return [tuple(nodes[f"n{i}"]) for i in range(graph.count)]
 
 
 def printed_nodes(engine, dot, graph, start=None):

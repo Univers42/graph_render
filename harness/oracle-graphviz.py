@@ -73,7 +73,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from gv_arms import differential_main, merge_main, record_main
 from gv_closed import CLOSED, answer_of, closed_case
 from gv_frames import FRAMED_CLOSED, framed_cases
-from gv_plain import START_SEED, edges_of, engine_points
+from gv_plain import START_SEED, dot_path, edges_of, engine_points, graph_of
 from gv_sized import sized_points
 
 USAGE = (
@@ -135,7 +135,10 @@ def engine_arms(engine, tmp, record, start):
     if "box" in record:
         return sized_points(engine, tmp, f"g{record['seed']}", record, start)
     return engine_points(
-        engine, tmp, f"g{record['seed']}", record["n"], edges_of(record), start
+        engine,
+        dot_path(tmp, f"g{record['seed']}"),
+        graph_of(record["n"], edges_of(record)),
+        start,
     )
 
 
