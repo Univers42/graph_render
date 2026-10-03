@@ -56,7 +56,7 @@ fn every_division_of_the_cells_is_the_one_thread_loop_bit_for_bit() {
             let (mut at, mut got) = (Vec::new(), Vec::new());
             Serial.run(&stencils, workers, &mut at);
             let mut rows = Rows::new(side, n as u32);
-            rows.sort(&at, side);
+            rows.sort(&at, &frame);
             let deposit = Deposit {
                 stencils: &stencils,
                 at: &at,
@@ -79,18 +79,59 @@ fn every_division_of_the_cells_is_the_one_thread_loop_bit_for_bit() {
 #[test]
 fn rows_hold_every_finite_slot_once_ascending_in_its_row() {
     let side = 8;
-    let at = [17, NONE, 3, 63, 16, 0, NONE, 18, 2];
+    let frame = Frame {
+        step: 0,
+        h: 1.0,
+        origin: (0.0, 0.0),
+        cells: side,
+        reach: 0,
+    };
+    let none = (f64::NAN, f64::NAN);
+    // Rows by `floor(uy)`, held to `cells - 2`: 9.5 is clamped into row 6, -3 into row 0.
+    let at = [
+        (1.0, 2.5),
+        none,
+        (2.0, 0.0),
+        (7.9, 9.5),
+        (0.0, 2.0),
+        (0.0, -3.0),
+        none,
+    ];
     let mut rows = Rows::new(side, at.len() as u32);
-    rows.sort(&at, side);
+    rows.sort(&at, &frame);
     let got: Vec<&[u32]> = (0..side).map(|row| rows.of(row)).collect();
-    let want: [&[u32]; 8] = [&[2, 5, 8], &[], &[0, 4, 7], &[], &[], &[], &[], &[3]];
+    let want: [&[u32]; 8] = [&[2, 5], &[], &[0, 4], &[], &[], &[], &[3], &[]];
     assert_eq!(got, want);
     // A second sort over other cells reuses the buffers and leaves nothing behind.
-    rows.sort(&[9, 9, NONE, 9, NONE, NONE, NONE, NONE, NONE], side);
+    rows.sort(
+        &[(1.0, 1.0), (1.0, 1.5), none, (3.0, 1.0), none, none, none],
+        &frame,
+    );
     assert_eq!(rows.of(1), [0, 1, 3]);
     assert!(
         (0..side)
             .filter(|&row| row != 1)
             .all(|row| rows.of(row).is_empty())
     );
+}
+
+#[test]
+fn a_finite_position_never_scales_to_the_non_finite_mark() {
+    let frame = frame::place_over((&[-1e308, 1e308], &[0.0, 1.0]), 128, 520.0);
+    assert!(frame.is_none(), "a span past f64 has no frame");
+    let frame = frame::place_over((&[-5.0, 5.0], &[0.0, 1.0]), 128, 520.0).expect("finite");
+    for p in [(1e308, -1e308), (0.0, 0.0), (-1e308, 4.0)] {
+        let (ux, uy) = frame::scaled(&frame, p);
+        assert!(!ux.is_nan() && !uy.is_nan(), "{p:?}");
+    }
+    for p in [
+        (f64::NAN, 0.0),
+        (0.0, f64::INFINITY),
+        (f64::NEG_INFINITY, 1.0),
+    ] {
+        assert!(
+            frame::split(&frame, frame::scaled(&frame, p)).is_none(),
+            "{p:?}"
+        );
+    }
 }
