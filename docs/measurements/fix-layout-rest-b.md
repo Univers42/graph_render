@@ -158,12 +158,79 @@ exact path the ledger writes, `crate::graph_core::layout::basic_3d::CORNERS`, re
 
 ## Commands
 
+Every exit code below was produced in this job, through `scripts/orch/gr`.
+
 ```
-scripts/orch/gr cargo test -p graph-core --lib layout::grid              -> 0  (13 passed)
-scripts/orch/gr cargo test -p graph-core --lib layout::basic_3d          -> 0  (68 passed)
-scripts/orch/gr cargo test -p graph-core --lib layout                    -> 0  (893 passed, 5 ignored)
-scripts/orch/gr cargo fmt --all --check                                  -> 0
-scripts/orch/gr cargo clippy --workspace --all-targets -- -D warnings    -> 0
-scripts/orch/gr cargo build -p graph-core --target wasm32-unknown-unknown -> 0
-scripts/orch/gr cargo test --workspace --no-fail-fast                    -> see below
+scripts/orch/gr cargo test -p graph-core --lib layout::grid                        -> 0  (13 passed)
+scripts/orch/gr cargo test -p graph-core --lib layout::basic_3d                    -> 0  (68 passed)
+scripts/orch/gr cargo test -p graph-core --lib layout                              -> 0  (893 passed, 5 ignored)
+scripts/orch/gr cargo fmt --all --check                                            -> 0
+scripts/orch/gr cargo clippy --workspace --all-targets -- -D warnings              -> 0
+scripts/orch/gr cargo build -p graph-core --target wasm32-unknown-unknown          -> 0
+scripts/orch/gr cargo test --workspace --no-fail-fast                              -> 0  (every suite "ok", 0 failed)
+scripts/orch/gr cargo run -q -p graph-cli -- hashgate --seeds 8                    -> 0  (PASS)
+scripts/orch/gr -e GM_MUTATE_REFERENCE_DEGREE=9 cargo run -q -p graph-cli -- hashgate --seeds 8
+                                                                            -> 1  ("FAIL: 8 of 8 seeds diverge")
+scripts/scigraphs-conformance.sh                                                  -> 0  (PASS)
 ```
+
+### No registered output moved
+
+`hashgate --seeds 8` is 4-way equal on 8/8 seeds for every stage, and the stages this job touched
+report the same equality as the rest: `layout.grid`, `layout.random`, `layout.basic3d.sphere`,
+`layout.basic3d.helix`, `layout.basic3d.cube`, `layout.basic3d.spiral`, `layout.bipartite_3d`.
+
+The per-stage *digests* cannot be diffed against a pre-change baseline run from here — no git
+state change is permitted in a job, so the untouched tree cannot be rebuilt side by side. What
+stands in for that is the conformance script, which pins a `motor_sha256` per row recorded before
+this job. All four rows the job body names came back with the coordinate counts and the Procrustes
+medians already in `docs/measurements/scigraphs-conformance.md`:
+
+| row | recorded median | this run | recorded f32 / f64 | this run |
+|---|---|---|---|---|
+| `RANDOM` | 2.28e-15 | 2.281e-15 | 1020/1020, 0/1020 | 1020/1020, 0/1020 |
+| `GRID` | 3.39e-32 | 3.391e-32 | 1020/1020, 842/1020 | 1020/1020, 842/1020 |
+| `SPHERE` | 1020 f32 | 1020 f32 | 1020/1020, 111/1020 | 1020/1020, 111/1020 |
+| `CUBE` | 1020 f32 | 1020 f32 | 1020/1020, 501/1020 | 1020/1020, 501/1020 |
+
+`HELIX`, `SPIRAL_3D` and `BIPARTITE_3D` — the other ids this job's scale threading touched — held
+at 1020/1020 f32 with their recorded medians. `PASS` is the script's own verdict.
+
+The arithmetic argument for the same result, per module: `grid` gains a validation rule and no
+arithmetic change; `basic_3d`'s plain wrappers still call each submodule's `run(n)`, still multiply
+by the `SCALE` constant, and `SCALE` is exact in `f64`, so `columns(n) = columns_scaled(n, SCALE)`
+is the identical product sequence; `cube`'s interior still opens `Mt19937::new(SEED)` because
+`columns(n) = columns_scaled(n, SCALE, SEED)`; `random` is doc-only.
+
+## Decisions taken
+
+- **LR-02 and LR-08 are recorded `fixed-by sg-grid-scale` / `fixed-by sg-mt19937`**, not by the
+  names the job body used (`sg-grid-minors`). Those two are this tree's own measurement files
+  (`docs/measurements/sg-grid-scale.md:108-113` for the `scaled_cells` guard,
+  `sg-mt19937.md:29` for `random::run_seeded`), and they are the evidence, so they are what the
+  row cites.
+- **`the_interior_is_strictly_inside_the_eighty_percent_shell` was renamed** to
+  `the_interior_is_inside_the_eighty_percent_shell` — same assertions, same sizes — because LR-09
+  is about the word "strictly", and a test whose *name* asserts it cannot carry a doc that denies
+  it. `git grep` shows no other file cites the name.
+- **An external process committed this worktree twice during the job** (`03f88c0`, `11442d2`,
+  both "updated"). No git write command was run here. The working tree matches `HEAD`, and every
+  command above was run against the bytes now in `HEAD`.
+
+## Out of scope, reported not fixed
+
+- **LR-04's registry half.** `registry/three_d.rs` no longer holds the `CUBE` row: the file was
+  split into `registry/three_d/{basic,graph,spiral3d,bipartite_3d}.rs` before this job, and the
+  escape-hatch sentence LR-04 quotes is `registry/three_d/basic.rs:108-109`, outside this job's
+  paths. What landed here is the half that makes the sentence true rather than cosmetic — see the
+  LR-04 section above. Now that `CORNERS` is `pub` and re-exported, the exact path the row
+  already writes resolves, so the row itself needs no edit; if a reviewer would rather it named
+  `cube::CORNERS` explicitly, that is a one-line change in a file this job does not own.
+- **LR-12's `layout/circular.rs:3` half.** The module doc still declares `O(n)` where the cost is
+  `O(n + m)`; `layout/circular.rs` is not in this job's paths. `registry/hierarchy.rs:119` is
+  corrected, so the module doc and the ledger now disagree with each other rather than with the
+  `CIRCULAR_HIERARCHY` sibling row.
+- **`docs/measurements/tier-random.md:98,104` and `tiers-audit.md:47,105`** cite the same stale
+  `hashgate.rs:169` anchor LR-31 names, and `tiers-audit.md:47` also cites `random.rs:25`/`:26-28`
+  where `run` is `:52`. Neither file is in this job's paths; the tree's own review
+  (`review-layout-rest.md`, LR-31) already recorded the drift.
