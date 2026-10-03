@@ -1,10 +1,14 @@
-//! `layout.mds.pivot` (`docs/decisions/eigensolver.md`): pivot selection by a
-//! farthest-point BFS heuristic, double-centered squared hop-distances, then the
-//! largest `dims = 2` eigenpairs of the `k x k` `Cᵀ C` Gram matrix
-//! (`k = min(100, n_c)`), projected back to `n_c` points and sign-pinned. Ports
-//! `_pivot_mds_coordinates`/`_pivot_mds_component_coordinates`
-//! (`networkx_layouts.py:166-216`). Components, adjacency (C6) and 2D packing are
-//! `layout::spectral`'s, reused here through its `pub(crate)` items.
+//! `layout.mds.pivot` and `layout.mds.pivot3d` (`docs/decisions/eigensolver.md`): pivot
+//! selection by a farthest-point BFS heuristic, double-centered squared hop-distances, then
+//! the largest `dims` eigenpairs of the `k x k` `Cᵀ C` Gram matrix (`k = min(100, n_c)`),
+//! projected back to `n_c` points and sign-pinned. Ports
+//! `_pivot_mds_coordinates`/`_pivot_mds_component_coordinates` (`:166-216`) and
+//! `_mds_layout_3d` (`:271-291`). Components, adjacency (C6), the lattices and the rescale
+//! are `layout::spectral`'s, reused here through its `pub(crate)` items.
+//!
+//! **Two ids, two widths.** `layout.mds.pivot` solves two coordinates per node and is
+//! byte-identical to what it was before the 3D arm existed; `layout.mds.pivot3d` is the
+//! reference's own three, and is the row the conformance matrix calls `MDS_3D`.
 //!
 //! **Scope**: as `layout::spectral` — no [`crate::stage::Stage`], no external `scale`;
 //! registered through [`super::spectral_stage`].
@@ -17,11 +21,13 @@
 use crate::index::Topology;
 use crate::linalg::dense_sym::eigh;
 use crate::linalg::{EigBlock, orthonormal, pin_signs, residual_converged};
+use crate::layout::random;
 
 use super::Geometry;
 use super::spectral::{
-    DIMS, Neighbors, find_components, local_positions, nothing_solved, pack_components, scatter,
-    simple_neighbors, to_geometry,
+    MIN_NODES_3D, SCALE, Width, find_components, local_positions, nothing_solved,
+    pack_component_blocks_3d, pack_components, scatter, simple_neighbors, to_geometry,
+    Neighbors,
 };
 
 mod matrix;
