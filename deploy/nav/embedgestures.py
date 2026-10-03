@@ -138,7 +138,7 @@ def step_open(page, ctx):
 
 OVERLAP = """
 const chain = (n, p) => ({ version: 1, nodes: Array.from({ length: n }, (_, i) => ({ id: p + i })),
-  edges: Array.from({ length: n - 1 }, (_, i) => ({ source: p + i, target: p + (i + 1) })) });
+  edges: Array.from({ length: n - 1 }, (_, i) => ({ id: `${p}${i}-${i + 1}`, source: p + i, target: p + (i + 1) })) });
 const settle = (call) => call.then((r) => ({ ok: true, nodes: r.nodes, edges: r.edges }),
   (e) => ({ ok: false, name: e instanceof Error ? e.name : String(e) }));
 const start = window.__embed.heard.length;

@@ -144,13 +144,16 @@ function livePair(canvas: HTMLCanvasElement, client: MotorClient, shown: Shown, 
 
 function shadowOf(host: HTMLElement): { readonly canvas: HTMLCanvasElement; readonly chrome: HTMLElement } {
   const shadow = host.shadowRoot ?? host.attachShadow({ mode: "open" });
-  const style = document.createElement("style");
-  style.textContent = `${HOST_CSS}${STUDIO_CSS}`;
+  // A constructed sheet, not a <style> element: the CSP a host is asked for (host-api.md, verdict
+  // 13) has no 'unsafe-inline', and Chromium refused the <style> under it (studio-embed, csp run).
+  const sheet = new CSSStyleSheet();
+  sheet.replaceSync(`${HOST_CSS}${STUDIO_CSS}`);
+  shadow.adoptedStyleSheets = [sheet];
   const canvas = document.createElement("canvas");
   canvas.className = "gs-canvas";
   const chrome = document.createElement("div");
   chrome.className = "gs-root";
-  shadow.replaceChildren(style, canvas, chrome);
+  shadow.replaceChildren(canvas, chrome);
   // Focusable, so a click on the graph brings the shortcuts to this studio and no other.
   if (!host.hasAttribute("tabindex")) host.tabIndex = 0;
   return { canvas, chrome };

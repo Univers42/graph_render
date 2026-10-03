@@ -74,16 +74,35 @@ class Watcher(cdp.Page):
                 raise cdp.CdpError(f"{method} on {session_id}: {reply['error'].get('message')}")
             return reply.get("result", {})
 
+    def detached(self, session):
+        return any(event["method"] == "Target.detachedFromTarget"
+                   and event.get("params", {}).get("sessionId") == session for event in self.events)
+
     def watch_workers(self):
-        """Turn the error domains on for every target auto-attached since the last call."""
+        """Turn the error domains on for every target auto-attached since the last call.
+
+        A target that detached before its domains were on (a page navigated away, the motor's
+        short-lived helper worker) has nothing left to watch: skipped, but only once the browser
+        has said it detached. Any other refusal still raises.
+        """
         for event in self.events:
             params = event.get("params", {})
             session = params.get("sessionId") if event["method"] == "Target.attachedToTarget" else None
             if session is None or session in self.sessions:
                 continue
             self.sessions.append(session)
-            for domain in DOMAINS:
+            self.enable_on(session)
+
+    def enable_on(self, session):
+        for domain in DOMAINS:
+            if self.detached(session):
+                return
+            try:
                 self.session_call(session, f"{domain}.enable")
+            except cdp.CdpError:
+                if not self.detached(session):
+                    raise
+                return
 
     def start_watching(self):
         """Before the first navigation: the error domains, and auto-attach for the motor worker."""
