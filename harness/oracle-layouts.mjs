@@ -29,6 +29,8 @@ import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "n
 import { createHash } from "node:crypto";
 import { join, relative, resolve, sep } from "node:path";
 import { hierarchy, tree, treemap, treemapSquarify } from "d3-hierarchy";
+import { attest, sealPathFor } from "./oracle-attest.mjs";
+import { nodeValue } from "./oracle-layout-value.mjs";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const FIXTURES = resolve(process.argv[2] ?? join(ROOT, "target", "oracle-fixtures"));
@@ -72,6 +74,11 @@ function loadFixtures() {
   if (fingerprint(manifest.fingerprinted) !== manifest.fingerprint) {
     fail("the tree changed since the fixtures were emitted: re-run graph-cli emit-fixtures");
   }
+  // `seeds` is trusted from a manifest the emitter wrote, so `seeds: 0` with an empty
+  // layouts.jsonl and a re-sealed digest satisfies the check below and measures nothing.
+  if (!Number.isInteger(manifest.seeds) || manifest.seeds < 1) {
+    fail(`layout-manifest.json declares seeds=${JSON.stringify(manifest.seeds)}: a differential needs at least one case`);
+  }
   const lines = read(join(FIXTURES, "layouts.jsonl"))
     .split("\n")
     .filter((l) => l !== "")
@@ -81,13 +88,6 @@ function loadFixtures() {
   }
   return { manifest, lines };
 }
-
-/** A real (non-positive or non-finite) node weight clamps here — `treemap.rs`'s own Ponytail. */
-const WEIGHT_EPSILON = 1e-6;
-const clampWeight = (weight) => (Number.isFinite(weight) && weight > 0 ? weight : WEIGHT_EPSILON);
-
-/** `d3.hierarchy.sum`'s value function: the virtual root (no weight) contributes `0`. */
-const nodeValue = (data) => (data.weight == null ? 0 : clampWeight(data.weight));
 
 /** Every real node (`data.id !== null`), indexed by its dense id, from anywhere in `node`'s subtree. */
 function collectById(node, byId) {
@@ -171,15 +171,32 @@ function printReport(manifest, result) {
   }
 }
 
+/**
+ * The fixture bytes the run measured, over the files themselves rather than over the
+ * manifest's claim about them: a hand-edited line with a re-sealed digest changes this.
+ */
+const digestOf = (manifest) => sha256(Object.keys(manifest.sha256).sort().map((f) => `${f}\0${sha256(readFileSync(join(FIXTURES, f)))}`).join("\n"));
+
 /** Records the verdict, unless the tree moved while the run was reading it. */
 function writeRecord(manifest, result, pass) {
   if (fingerprint(manifest.fingerprinted) !== manifest.fingerprint) fail("the tree changed during the run: not recorded");
+  // The manifest's own digests are written by whoever wrote the fixtures, so a hand-edited
+  // line plus a re-sealed digest passes every guard in loadFixtures. The seal is what
+  // catches that, from the first passing run onward.
+  const seal = attest({
+    sealPath: sealPathFor(GATES, "oracle-layouts"),
+    gate: "oracle-layouts fixtures",
+    fingerprint: manifest.fingerprint,
+    sha256: digestOf(manifest),
+    pass,
+  });
   const record = {
     gate: "oracle-layouts",
     fingerprint: manifest.fingerprint,
     seeds: manifest.seeds,
     pass,
     runtime: { node: process.version },
+    fixtures: { sha256: digestOf(manifest), seal },
     functions: result.functions,
   };
   mkdirSync(GATES, { recursive: true });
@@ -198,11 +215,13 @@ function main() {
 
 // `--dag` is the layered drawing's arm (dagre-d3-es crossing counts), kept in its own
 // file because it shares nothing with the d3-hierarchy differential above but the name.
-if (process.argv[2] === "--dag") await import("./oracle-dag.mjs");
-else {
-  try {
-    main();
-  } catch (error) {
-    fail(error.stack ?? String(error));
-  }
+// `--dag` is the layered drawing's arm (dagre-d3-es crossing counts), kept in its own
+// file because it shares nothing with the d3-hierarchy differential above but the name.
+// The import is inside the try/catch like every other read this file makes: a missing or
+// renamesdag harness is "could not run" (exit 2), not an unhandled rejection (exit 1).
+try {
+  if (process.argv[2] === "--dag") await import("./oracle-dag.mjs");
+  else main();
+} catch (error) {
+  fail(error.stack ?? String(error));
 }

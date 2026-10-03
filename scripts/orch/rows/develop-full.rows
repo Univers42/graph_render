@@ -108,7 +108,11 @@ ink-hairball|0|scripts/orch/gr cargo run -q -p graph-cli -- ink --fixture hairba
 # ---------------------------------------------------------------------------------------------
 ingest-id-grammar|0|scripts/orch/gr cargo test -p graph-core ingest_id_grammar
 wasm-contract|0|scripts/orch/gr cargo test -p graph-wasm contract
-snapshot-raw|0|scripts/orch/node-slim.sh bash -c 'npm ci --ignore-scripts >/dev/null && node --experimental-strip-types harness/read-snapshot-raw.mjs'
+# The arm reads the artifact `graph-cli` writes, not a literal pasted beside the checker
+# (M11): a snapshot from the code this row also builds is the only thing that shows drift
+# on the producer's side of the JSON face. The worked example stays reachable, behind
+# `--selftest` only — with no path at all the arm now refuses with 2 rather than fall back.
+snapshot-raw|0|scripts/orch/gr cargo run -q -p graph-cli -- snapshot --seed 0 --nodes 4 --layout layout.grid --out-json target/snapshot-raw.json && scripts/orch/node-slim.sh bash -c 'npm ci --ignore-scripts >/dev/null && node --experimental-strip-types harness/read-snapshot-raw.mjs target/snapshot-raw.json'
 sdk-smoke|0|scripts/orch/node-slim.sh bash -c 'npm ci --ignore-scripts >/dev/null && node --experimental-strip-types harness/sdk-smoke.mjs target/wasm32-unknown-unknown/release/graph_wasm.wasm'
 sdk-adapter-convergence|0|scripts/orch/node-slim.sh bash -c 'npm ci --ignore-scripts >/dev/null && node --experimental-strip-types harness/sdk-smoke.mjs --adapter-convergence target/wasm32-unknown-unknown/release/graph_wasm.wasm'
 zero-copy|0|scripts/orch/node-slim.sh bash -c 'npm ci --ignore-scripts >/dev/null && node --experimental-strip-types harness/wasm-run.mjs target/wasm32-unknown-unknown/release/graph_wasm.wasm --assert-zero-copy'
