@@ -14,7 +14,7 @@ use graph_core::ingest::to_canonical_json;
 /// fixture is a build failure rather than a test that quietly checks nothing. Both
 /// members are read here: `ingest` is the document a caller hands this export, `graph`
 /// is what it must derive.
-const EXPECTED: &str = include_str!("../../../../fixtures/ingest/expected-graph.json");
+pub(crate) const EXPECTED: &str = include_str!("../../../../fixtures/ingest/expected-graph.json");
 
 /// The smallest document that still exercises a hierarchy, tags and a weight — the
 /// three roles whose derivation a swap would be visible in.
@@ -25,7 +25,7 @@ const SMALL: &str = r#"{"version":1,"source":"rows","collections":[{"id":"task",
 /// than a silent change of meaning.
 const PROVISIONAL: &str = r#"{"version":1,"nodes":[{"id":"a","kind":"record","database_id":null,"source":"s","label":"A","group":null,"weight":0.5,"version":0,"has_note":false,"icon":null}],"edges":[]}"#;
 
-fn member(text: &str, name: &str) -> String {
+pub(crate) fn member(text: &str, name: &str) -> String {
     let value = graph_contract::ingest::read_value(text).expect("the fixture is JSON");
     match value {
         JsonValue::Map(members) => members
