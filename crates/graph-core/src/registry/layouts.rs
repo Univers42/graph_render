@@ -221,10 +221,12 @@ pub static LAYOUTS: [Capability; 39] = [
         meta: FDP,
     },
     // ---- p12-t3, the last five SciGraphs layouts, all natively 3D. APPENDED, never
-    // inserted: `graph-wasm/src/exports/build.rs:23,32,166` maps layouts by INDEX, and
+    // inserted: `graph-wasm/src/exports/build.rs:26,35,159` maps layouts by INDEX, and
     // `bench/campaign.rs:128`'s `DEFAULT_ARM` is `LAYOUTS[3]`, so inserting before index 3
     // would repoint the default crossover arm with no compile error. Nothing above this
-    // line moved.
+    // line moved, and
+    // `registry::tests::the_index_keyed_front_of_layouts_still_holds_the_ids_their_callers_name`
+    // fails if it ever does.
     Capability {
         id: basic_3d::sphere::ID,
         run: basic_3d::sphere,
@@ -268,7 +270,7 @@ pub static LAYOUTS: [Capability; 39] = [
         meta: FA2_BH,
     },
     // APPENDED, never inserted, for the reason the block above gives: layouts are mapped by
-    // INDEX in `graph-wasm/src/exports/build.rs:23,32,166` and `bench/campaign.rs:128` pins
+    // INDEX in `graph-wasm/src/exports/build.rs:26,35,159` and `bench/campaign.rs:128` pins
     // `LAYOUTS[3]`. `layout.bipartite_3d` reads the graph where the three above it read a
     // node count, which is why its id is outside the `layout.basic3d.*` namespace those
     // three publish.

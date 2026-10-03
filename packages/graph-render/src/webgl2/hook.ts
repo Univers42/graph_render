@@ -9,7 +9,7 @@ import { impostorOf } from "../canvas2d/nodes.ts";
 import { MOVING_BUDGET } from "../canvas2d/edges.ts";
 import { drawBulk } from "./draw.ts";
 import { paintSpace } from "./hook3d.ts";
-import { type BulkLayer, createBulk } from "./layer.ts";
+import { type BulkLayer, type Tween, createBulk } from "./layer.ts";
 import { type BackendChoice, bulkWanted, nextBudget } from "./plan.ts";
 import { type Glide, dropGlide, glideFrame, keepFrame, newGlide } from "./glide.ts";
 import { type Still, newStill, paintStill, refiningOf, viewOf } from "./still.ts";
@@ -24,6 +24,8 @@ export interface BulkSlot {
   placed: number;
   /** Edges, and nodes, a moving frame draws, paced by what the last moving frame cost (`nextBudget`). */
   budget: number;
+  /** The layout switch in flight, or null: the loop fills it and the layer mixes it on the GPU. */
+  tween: Tween | null;
   /** Undefined until a settled frame first wants it, null where it cannot be kept. */
   still: Still | null | undefined;
   /** True while the last frame's still picture lacked edges: the loop asks for another frame, and `view.stats()` reports it. */
@@ -35,7 +37,7 @@ export interface BulkSlot {
 }
 
 export function newBulkSlot(backend: BackendChoice): BulkSlot {
-  return { backend, layer: undefined, failure: "", placed: 0, budget: MOVING_BUDGET, still: undefined, refining: false, glide: newGlide(), gpuEdgeMs: () => 0 };
+  return { backend, layer: undefined, failure: "", placed: 0, budget: MOVING_BUDGET, tween: null, still: undefined, refining: false, glide: newGlide(), gpuEdgeMs: () => 0 };
 }
 
 function layerOf(slot: BulkSlot): BulkLayer | null {
@@ -77,7 +79,7 @@ function paintSettled(slot: BulkSlot, layer: BulkLayer, input: PaintInput, count
   dropGlide(slot.glide);
   slot.still ??= newStill(slot.budget);
   if (slot.still === null) return paintWhole(slot, layer, input, counts);
-  const lacking = paintStill(slot.still, { layer, placed: slot.placed }, input, counts);
+  const lacking = paintStill(slot.still, { layer, pace: slot }, input, counts);
   slot.refining = refiningOf(lacking);
   return lacking >= 0;
 }

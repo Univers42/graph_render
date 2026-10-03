@@ -1,0 +1,4 @@
+studio-build|0|scripts/studio.sh build
+probe-software|0|sh -c 'scripts/studio-probe.sh webgpu software; test $? -ne 2'
+probe-hardware|0|sh -c 'GM_GPU=1 scripts/studio-probe.sh webgpu hardware; test $? -ne 2'
+negctl-hardware|nonzero|sh -c 'GM_GPU=1 GM_GPU_BREAK=1 scripts/studio-probe.sh webgpu hardware; test $? -eq 0'

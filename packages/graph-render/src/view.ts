@@ -14,6 +14,7 @@ import { type Camera, type FitArea, type Point, type Viewport, type ZoomLimits, 
 import { cameraApi, inSpace, orbitBy, sceneApi, zoomAt3d } from "./camera-api.ts";
 import { clickAt, contextAt, pressAt } from "./canvas2d/choose.ts";
 import { type Controller, fit, hover, measure, moveTo, newState, pickAt } from "./canvas2d/controller.ts";
+import { taken } from "./gestured.ts";
 import { invalidate } from "./canvas2d/loop.ts";
 import { type EdgeEnds } from "./canvas2d/probe.ts";
 import type { Frame } from "./frame.ts";
@@ -194,12 +195,12 @@ export interface View {
   /** What the view draws a node or an edge at right now (1 in the focus, faded outside it). */
   opacity(kind: "node" | "edge", index: number): number;
   /**
-   * New positions for the nodes already in the frame, from a live simulation. `xs`/`ys`
-   * are one entry per node in dense order; a length that does not match the frame's node
-   * count is ignored (the drawing is of another graph). The columns the motor handed over
-   * are read, never kept: the next frame replaces them.
+   * New positions for the nodes already in the frame, from a live simulation: one entry per
+   * node in dense order; a length that does not match the frame's node count is ignored (another
+   * graph's drawing). The columns are adopted, and a pair that is taken also fits the drawing
+   * until a pan, a zoom or a node drag makes the camera the reader's.
    */
-  setPositions(xs: Float64Array, ys: Float64Array): void;
+  setPositions(xs: Float32Array, ys: Float32Array): void;
   /** The nodes whose labels the last frame placed. */
   labelled(): readonly number[];
   /** The node under a canvas-relative point, or -1. */
@@ -226,23 +227,26 @@ function toBlob(canvas: HTMLCanvasElement): Promise<Blob> {
 /** Pointer, wheel and resize; returns what undoes all three. */
 function bindInputs(controller: Controller): () => void {
   const { canvas, state } = controller;
+  // Every gesture the pointer layer reports, not the ones that happen to move the camera: a click
+  // and a node drag leave the camera where it is, and both still mean the user has taken it over
+  // from the view's automatic fit (`gestured.ts`).
   const unbind = bindPointer(canvas, {
-    zoom: (at, factor) => {
+    zoom: taken(controller, (at: Point, factor: number) => {
       if (state.orbit !== null) zoomAt3d(controller, factor);
       else moveTo(controller, zoomAt(state.camera, at, factor, state.limits), false);
-    },
-    pan: (delta) => moveTo(controller, panBy(state.camera, delta), false),
-    orbit: (delta, right) => orbitBy(controller, delta, right),
+    }),
+    pan: taken(controller, (delta: Point) => moveTo(controller, panBy(state.camera, delta), false)),
+    orbit: taken(controller, (delta: Point, right: boolean) => orbitBy(controller, delta, right)),
     hover: (at) => hover(controller, at === null ? -1 : pickAt(state, at)),
-    click: (at, shift) => clickAt(controller, at, shift),
-    press: (at, shift) => pressAt(controller, at, shift),
-    context: (at) => contextAt(controller, at),
-    doubleClick: (at) => {
+    click: taken(controller, (at: Point, shift: boolean) => clickAt(controller, at, shift)),
+    press: taken(controller, (at: Point, shift: boolean) => pressAt(controller, at, shift)),
+    context: taken(controller, (at: Point) => contextAt(controller, at)),
+    doubleClick: taken(controller, (at: Point) => {
       // A double-click on a node is the node's own gesture (S2); on the background it zooms.
       if (pickAt(state, at) >= 0) return;
       if (state.orbit !== null) zoomAt3d(controller, DOUBLE_CLICK_ZOOM);
       else moveTo(controller, zoomAt(state.camera, at, DOUBLE_CLICK_ZOOM, state.limits), false);
-    },
+    }),
   }, globalThis.window, () => inSpace(state));
   const observer = new ResizeObserver(() => {
     measure(controller);
@@ -273,7 +277,7 @@ export function createView(canvas: HTMLCanvasElement, options: ViewOptions = {})
     context: (node: number, at: Point): void => emit("context", { node, at }),
     camera: (camera: Camera): void => emit("camera", camera),
   };
-  const controller: Controller = { canvas, state, notify, fitted: true, local: newLocalLayer(), ...(options.live === undefined ? {} : { live: options.live }) };
+  const controller: Controller = { canvas, state, notify, fitted: true, gestured: false, local: newLocalLayer(), ...(options.live === undefined ? {} : { live: options.live }) };
   measure(controller);
   const unbind = bindInputs(controller);
   return {

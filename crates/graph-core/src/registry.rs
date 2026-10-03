@@ -14,6 +14,7 @@ use crate::index::Topology;
 use crate::layout::Geometry;
 use crate::stage::{Stage, StageError};
 
+mod bench_cap;
 mod capability;
 mod closed_form;
 mod force;
@@ -33,6 +34,7 @@ mod radial;
 mod spectral;
 mod three_d;
 mod tunable;
+pub use bench_cap::MAX_BENCH_NODES;
 pub use capability::{Capability, Metadata};
 pub use closed_form::CLOSED_FORM_CEILING;
 pub use force::{FA2_CEILING, FORCE_CEILING, SPRING_CEILING};

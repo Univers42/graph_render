@@ -42,15 +42,30 @@ vec3 encode(vec3 c) {
 }
 `;
 
+/**
+ * Where a node is, eased between the columns a layout switch came from and the ones it is going
+ * to. `u_eased` is 1 outside a tween, and the early return then leaves the settled frame's
+ * arithmetic exactly as it was — the mix is never what draws a still picture.
+ */
+const MIX = `
+uniform float u_eased;
+vec2 place(float x, float y, float fx, float fy) {
+  if (u_eased >= 1.0) return vec2(x, y);
+  return vec2(fx + (x - fx) * u_eased, fy + (y - fy) * u_eased);
+}
+`;
+
 const NODE_INPUTS = `
 in float a_x;
 in float a_y;
+in float a_fx;
+in float a_fy;
 in vec2 a_half;
 in uint a_colour;
 uniform float u_minRadius;
 uniform float u_pad;
 uniform int u_box;
-${SCREEN}${PALETTE}
+${SCREEN}${PALETTE}${MIX}
 vec2 halfOf(vec2 half_) {
   return u_box == 1 ? max(half_ * u_camera.z, vec2(0.5)) : vec2(max(u_minRadius, half_.x * u_camera.z));
 }
@@ -66,7 +81,7 @@ void main() {
     gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
     return;
   }
-  vec2 centre = vec2(a_x, a_y) * u_camera.z + u_camera.xy;
+  vec2 centre = place(a_x, a_y, a_fx, a_fy) * u_camera.z + u_camera.xy;
   vec2 half_ = halfOf(a_half);
   vec2 corner = vec2(float(gl_VertexID & 1), float(gl_VertexID >> 1)) * 2.0 - 1.0;
   v_local = corner * (half_ + u_pad);
@@ -132,7 +147,7 @@ void main() {
   v_reach = max(v_half.x, v_half.y) + u_pad;
   v_colour = paletteOf(a_colour);
   gl_PointSize = 2.0 * v_reach * u_dpr;
-  gl_Position = clipOf(vec2(a_x, a_y) * u_camera.z + u_camera.xy);
+  gl_Position = clipOf(place(a_x, a_y, a_fx, a_fy) * u_camera.z + u_camera.xy);
 }
 `;
 
@@ -151,14 +166,16 @@ void main() {
 export const EDGE_VERTEX = `#version 300 es
 in float a_x;
 in float a_y;
+in float a_fx;
+in float a_fy;
 in uint a_colour;
 uniform int u_gradient;
-${SCREEN}${PALETTE}${TRANSFER}
+${SCREEN}${PALETTE}${TRANSFER}${MIX}
 out vec4 v_linear;
 void main() {
   vec4 colour = u_gradient == 1 ? paletteOf(a_colour) : vec4(0.0);
   v_linear = vec4(decode(colour.rgb), colour.a);
-  gl_Position = clipOf(vec2(a_x, a_y) * u_camera.z + u_camera.xy);
+  gl_Position = clipOf(place(a_x, a_y, a_fx, a_fy) * u_camera.z + u_camera.xy);
 }
 `;
 

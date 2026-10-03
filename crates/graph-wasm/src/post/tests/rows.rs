@@ -121,7 +121,10 @@ fn every_row_storing_capability_writes_a_well_formed_csr() {
             );
             continue;
         };
-        assert_eq!(id, "post.style.straight", "only straight stores no row");
+        assert!(
+            id == "post.style.straight" || id == super::fixtures::NODE_MOVER,
+            "only straight and the node mover store no row: {id} stores none and is neither"
+        );
     }
 }
 

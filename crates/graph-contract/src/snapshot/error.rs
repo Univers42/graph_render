@@ -4,7 +4,8 @@
 use super::ReadError;
 use crate::notes::NoteCodeError;
 use crate::version::FormatVersion;
-use core::fmt;
+
+mod display;
 
 /// Why a snapshot was refused, by either face or at construction. Every variant names
 /// the column (`node.id`, `edge.source`, `node.x`, `edge.pts`, …) and, where there is one,
@@ -116,51 +117,4 @@ pub enum SnapshotError {
         /// The format it declares.
         version: FormatVersion,
     },
-}
-
-impl fmt::Display for SnapshotError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {
-            Self::Header(err) => err.fmt(f),
-            Self::Truncated { column } => write!(f, "{column}: the snapshot ends inside it"),
-            Self::TrailingBytes { count } => write!(f, "{count} bytes after the last column"),
-            Self::Length {
-                column,
-                expected,
-                found,
-            } => write!(f, "{column}: {found} values, need {expected}"),
-            Self::NonFinite { column, index } => write!(f, "{column}[{index}]: NaN or infinite"),
-            Self::Negative { column, index } => write!(f, "{column}[{index}]: negative"),
-            Self::Offsets { column, index } => {
-                write!(
-                    f,
-                    "{column}[{index}]: offsets must start at 0, never decrease and end at the data's end"
-                )
-            }
-            Self::Utf8 { column, index } => write!(f, "{column}[{index}]: not UTF-8"),
-            Self::Padding { column } => write!(f, "{column}: padding bytes must be 0"),
-            Self::DuplicateId { column, index } => {
-                write!(f, "{column}[{index}]: repeats an earlier id")
-            }
-            Self::Endpoint { column, index } => write!(f, "{column}[{index}]: not a node"),
-            Self::CurveDegree => write!(f, "edge.degree: a curve needs degree 1 or more"),
-            Self::Capacity { column } => write!(f, "{column}: more than a u32 can count"),
-            Self::NoteCode { index, error } => write!(f, "note.code[{index}]: {error}"),
-            Self::NoteOrder { index } => write!(
-                f,
-                "note[{index}]: notes must be strictly ascending by (code, index)"
-            ),
-            Self::NoteTarget { index } => {
-                write!(f, "note.index[{index}]: not an index its code allows")
-            }
-            Self::NotesUnsupported { version } => write!(
-                f,
-                "notes: format {version} carries none; notes need 0.3 or later"
-            ),
-            Self::DimUnnameable { version } => write!(
-                f,
-                "node.z: format {version} names no dimension; a z column needs 0.4 or later"
-            ),
-        }
-    }
 }
