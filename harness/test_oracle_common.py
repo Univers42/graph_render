@@ -1,9 +1,12 @@
 """The refusals `harness/oracle_common.py` makes, one test each.
 
-Run in the `ge-python-oracle` image (or any python3; nothing here needs numpy):
+Run in the `ge-python-oracle` image (or any python3; nothing here needs numpy). **Pass
+`-B`**, or CPython writes `harness/__pycache__/test_oracle_common.*.pyc` while it compiles
+this very file — before the `sys.dont_write_bytecode` below can run — and `harness/` is
+inside the gate's fingerprinted set (`crates/graph-cli/src/fingerprint.rs:27`):
 
   docker run --rm --user 0:0 -v $PWD:/w -w /w ge-python-oracle \
-      python3 -m unittest discover -s harness -p 'test_oracle_common.py' -v
+      python3 -B -m unittest discover -s harness -p 'test_oracle_common.py' -v
 
 Every test is a negative control in the sense the gate means it: each one fails if the
 refusal it names is deleted, and each names the review finding it pins.

@@ -1,9 +1,13 @@
 """`harness/gv_plain.py`'s refusals, one test each, against stub engines.
 
-Run in the `ge-graphviz-oracle` image, because `graphviz_version` asks the real `dot`:
+Run in the `ge-graphviz-oracle` image, because `graphviz_version` asks the real `dot`.
+**Pass `-B`**, or CPython writes `harness/__pycache__/test_gv_plain.*.pyc` while it
+compiles this very file — before the `sys.dont_write_bytecode` below can run — and
+`harness/` is inside the gate's fingerprinted set (`crates/graph-cli/src/fingerprint.rs:27`),
+so the bytecode moves the fingerprint for as long as it exists:
 
-  docker run --rm --user 0:0 -v $PWD:/w -w /w ge-graphviz-oracle \
-      python3 -m unittest discover -s harness -p 'test_gv_plain.py' -v
+  docker run --rm --user 0:0 -v $PWD:/w -w /w ge-python-oracle \
+      python3 -B -m unittest discover -s harness -p 'test_gv_plain.py' -v
 
 The stub engines are the point: M26's reproducer is an `sfdp` that exits non-zero having
 written nothing to stderr, which no real Graphviz does, so it has to be written down.

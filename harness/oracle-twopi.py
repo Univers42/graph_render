@@ -60,7 +60,6 @@ determinism of *that* one. The import runs with `sys.dont_write_bytecode` set, s
 
 import importlib.util
 import json
-import math
 import os
 import sys
 import tempfile
@@ -70,57 +69,18 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from oracle_common import finite, read_manifest, require_cases, require_seeds
 
-# The plain format reports inches; both of this file's arms are in points.
-POINTS_PER_INCH = 72.0
-
-# The plain format prints five significant digits, so the closed-case rendering does too:
-# that is the resolution the oracle carries, and comparing at any finer one would grade our
-# `f64` against its rounded text.
-DIGITS = 5
-
-# Graphviz's default node size in inches, which is what makes the bounding box's lower-left
-# corner half a node outside the node-centre bounding box. The fixtures set no `width`,
-# `height` or `fixedsize`, so this is the value `-Tplain` used.
-NODE_SIZE_INCH = (0.75, 0.5)
-
-
-def star_angles():
-    """The four leaf angles of a star on Graphviz's defaults: 45 + k*90 degrees."""
-    return [math.pi / 4 + k * math.pi / 2 for k in range(4)]
-
-
-# The closed cases, in the shape graph-core's `probe::graph` builds them: an edge list in
-# creation order, which is the order the sibling angle sweep depends on.
-CLOSED_CASES = {
-    "one-node": [],
-    "two-nodes": [(0, 1)],
-    "three-path": [(0, 1), (1, 2)],
-    "four-cycle": [(0, 1), (1, 2), (2, 3), (3, 0)],
-    "five-star": [(0, 1), (0, 2), (0, 3), (0, 4)],
-    "six-branch": [(0, 1), (0, 2), (0, 3), (2, 4), (4, 5)],
-}
-
-# The closed answers, in points, node by node, derived from `lib/twopigen/circle.c`: the
-# centre at the origin, ring r at radius 72*r, and each subtree's share of 2*PI in
-# proportion to the leaves below it. The translation onto the drawing's lower-left corner is
-# the one degree of freedom `-Tplain` cannot show, so every case is compared after each arm
-# has had it applied — see `rendered`.
-CLOSED_ANSWERS = {
-    "one-node": [(0.0, 0.0)],
-    "two-nodes": [(0.0, 0.0), (-72.0, 0.0)],
-    "three-path": [(0.0, -72.0), (0.0, 0.0), (0.0, 72.0)],
-    "four-cycle": [(0.0, 0.0), (0.0, 72.0), (0.0, 144.0), (0.0, -72.0)],
-    "five-star": [(0.0, 0.0)]
-    + [(72.0 * math.cos(a), 72.0 * math.sin(a)) for a in star_angles()],
-    "six-branch": [
-        (-36.0, -36.0 * math.sqrt(3.0)),
-        (-144.0, 0.0),
-        (0.0, 0.0),
-        (72.0, -72.0 * math.sqrt(3.0)),
-        (36.0, 36.0 * math.sqrt(3.0)),
-        (72.0, 72.0 * math.sqrt(3.0)),
-    ],
-}
+# The six closed cases and their answers are tables, and they were half this file by line
+# count, so they moved to `harness/twopi_closed.py`. The four names below are re-exported
+# here because `gv_frames.py` reads `CLOSED_CASES` from **this** file by path — its
+# filename is not importable by name — and a second definition of those graphs would be a
+# second thing the closed comparison could disagree with.
+from twopi_closed import (  # noqa: F401  (CLOSED_CASES is read by gv_frames, by path)
+    CLOSED_ANSWERS,
+    CLOSED_CASES,
+    DIGITS,
+    NODE_SIZE_INCH,
+    POINTS_PER_INCH,
+)
 
 
 def load_oracle(here):
