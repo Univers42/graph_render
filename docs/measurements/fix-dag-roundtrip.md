@@ -213,17 +213,27 @@ EXIT=0
 
 ```
 $ scripts/orch/gr cargo run -q -p graph-cli -- hashgate --seeds 8
+hashgate: 4 arms, tiers base
+  native run 1  digest 440666ed1791f3b3f35e14a67a638050c410289f1a212c9c03781d897f9175d8
+  native run 2  digest 440666ed1791f3b3f35e14a67a638050c410289f1a212c9c03781d897f9175d8
+  wasm32 run 1  digest 440666ed1791f3b3f35e14a67a638050c410289f1a212c9c03781d897f9175d8
+  wasm32 run 2  digest 440666ed1791f3b3f35e14a67a638050c410289f1a212c9c03781d897f9175d8
+  layout.dag.sugiyama: 4-way equal on 8/8 seeds
+  … 57 stages, every one "4-way equal on 8/8 seeds" …
+  4-way equal on 8/8 seeds
+PASS
 EXIT=0
 $ scripts/orch/gr -e GM_MUTATE_REFERENCE_DEGREE=9 cargo run -q -p graph-cli -- hashgate --seeds 8
-NEGCTL_DEGREE_EXIT=1
+  4-way equal on 0/8 seeds
+FAIL: 8 of 8 seeds diverge
+EXIT=1
 ```
 
 ### Conformance
 
-```
-$ scripts/scigraphs-conformance.sh
-EXIT=0
-```
+See "Merge floor" for the pasted tail: `scripts/scigraphs-conformance.sh` exits 0, 32/32
+rows reach a reference, and the `SUGIYAMA` row is `ok` at 597 f64 / 1020 f32 with median
+1.259e-16.
 
 ### dagre crossing counts — unchanged
 
@@ -252,13 +262,14 @@ parallel-arcs ours 0 (4 nodes, 6 edges)         parallel-arcs ours 0 (4 nodes, 6
 ```
 
 **Byte-identical before and after** (`scratch/dagrt/dag-crossings.prefix.json` against
-`scratch/dagrt/dag-crossings.fixed.json`). The 230-seed sweep total reads **5206** where
-`phase05-crossings.md` froze **5242**: that −36 is drift between this tree and the 2026-09-28
-measurement, present identically on both sides of this fix, and it is reported here rather than
-quietly re-pinned (that file is not this job's to edit). The margin in it (ours ≤ 1.10 ×
-dagre's, per-fixture ≤ dagre + `max(2, ⌈10%⌉)`) is unaffected in kind: 5206 against the
-documented `sumDagre` 7657 is well inside 1.10 × 7657 = 8422.7, in the same direction as
-before (ours lower than dagre's).
+`scratch/dagrt/dag-crossings.fixed.json`, same md5). The 230-seed sweep total reads **5206**
+where `phase05-crossings.md` froze **5242**: that −36 is present *identically on both sides of
+this fix*, so it is not caused by it — this job did not touch `ordering`, `coords`, the fixtures
+or the generator, and `Route` is consumed by `routing` alone. It is reported here rather than
+quietly re-pinned, since that file is not this job's to edit. The margin stated there (ours ≤
+1.10 × dagre's over the sweep, per fixture ≤ dagre + `max(2, ⌈10%⌉)`) is unaffected in kind:
+5206 against the documented `sumDagre` 7657 is well inside 1.10 × 7657 = 8422.7, in the same
+direction as the frozen run (ours below dagre's).
 
 ### Merge floor
 
@@ -266,10 +277,17 @@ before (ours lower than dagre's).
 $ scripts/orch/gr cargo fmt --all --check
 EXIT=0
 $ scripts/orch/gr cargo clippy --workspace --all-targets -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 10.30s
 EXIT=0
 $ scripts/orch/gr cargo test --workspace --no-fail-fast
-EXIT=0
+19 test binaries, 1918 passed, 0 failed   (1258 + 345 + 147 + 120 + … , 0 "error"/"FAILED" lines)
 $ scripts/orch/gr cargo build -p graph-core --target wasm32-unknown-unknown
+    Finished `dev` profile [unoptimized + debuginfo] target(s)
+EXIT=0
+$ scripts/scigraphs-conformance.sh
+scigraphs-conformance: 32/32 rows reached a reference
+  SUGIYAMA: ok — 597 f64, 1020 f32 of 1020 coordinates, median 1.259e-16 <= 1.000e-15
+PASS
 EXIT=0
 ```
 
@@ -281,7 +299,12 @@ EXIT=0
   Same tree, same command, same binary path as the green run.
 - `negctl-dim-z-100` (new row, `scripts/orch/rows/quick-roundtrip.rows`): the 100-seed sweep
   with `GM_MUTATE_NODE_Z=1` must exit non-zero, so the row can go red on a violated comparison
-  that is not the dag arm.
+  that is not the dag arm. Run here:
+  ```
+  $ scripts/orch/gr -e GM_MUTATE_NODE_Z=1 cargo run -q --release -p graph-cli -- roundtrip --seeds 100
+  roundtrip: could not run: perturbed exercise seed 2: node.z: 4 values, need 3
+  RC=2
+  ```
 - `negctl-degree` for the hash gate: `GM_MUTATE_REFERENCE_DEGREE=9 hashgate --seeds 8` exits 1
   (`4-way equal on 0/8 seeds`, `FAIL: 8 of 8 seeds diverge`).
 - A permanent env-var control for the dag arm itself does not exist: `roundtrip` reads no
