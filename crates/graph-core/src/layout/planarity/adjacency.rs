@@ -91,13 +91,24 @@ impl Adjacency {
         self.offsets[v as usize + 1] - self.offsets[v as usize]
     }
 
-    /// The slot for edge `(v, x)`. Panics if `x` is not one of `v`'s neighbours: every
-    /// caller here only ever asks about an edge it already knows exists.
+    /// The slot for edge `(v, x)`. Panics if `x` is not one of `v`'s neighbours.
+    ///
+    /// **The caller guarantees it, and the guarantee is named here so a new caller cannot
+    /// add to it by accident:** every call site asks about an edge it is already holding a
+    /// slot for — [`super::embed::Builder`] splices a half-edge into the row of the node at
+    /// that half-edge's far end, and [`super::lr::orient`] orients an edge it has just
+    /// taken out of a row. Both take the slot from this same table, so the edge is in it by
+    /// construction; a caller that asked about a non-edge would have invented one.
+    ///
+    /// Ponytail: the guarantee lives in two callers and in this module's own `simple`
+    /// reduction, so it is not machine-checked here;
+    /// `tests::properties::no_small_graph_reaches_an_expect_on_the_public_planarity_path`
+    /// is what holds it — all 33 868 graphs on up to six nodes, plus 400 seeded ones above.
     pub(super) fn slot(&self, v: u32, x: u32) -> u32 {
         let found = self
             .row(v)
             .binary_search(&x)
-            .expect("x is a neighbour of v");
+            .expect("(v, x) is an edge: every caller holds a slot for the edge it asks about");
         self.start(v) + found as u32
     }
 

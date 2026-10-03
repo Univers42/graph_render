@@ -102,3 +102,36 @@ fn point_geometry_narrows_to_f32_and_draws_lines() {
     );
     assert!(g.notes.is_empty());
 }
+
+/// A non-finite coordinate poisons the limit instead of dividing the whole cloud by it.
+/// Divided by an infinite limit every *finite* coordinate collapses to `0.0`, so the
+/// garbage spreads from one bad node to every node; left undivided, only the bad node is
+/// non-finite, which is what `snapshot` refuses under `node.x`.
+///
+/// `inf` in `x` makes the mean `inf`, so node 0 recentres to `inf - inf = NaN` and node 1
+/// to `-inf`: hand-worked, the poisoned limit is `inf` either way.
+#[test]
+fn a_non_finite_coordinate_poisons_the_limit_rather_than_dividing_the_cloud() {
+    let (mut x, mut y) = (vec![f64::INFINITY, 1.0], vec![1.0, 0.0]);
+    rescale(&mut x, &mut y);
+    assert!(
+        y.iter().all(|v| v.is_finite()),
+        "the finite column was divided by a poisoned limit: {y:?}"
+    );
+    assert_eq!(y, vec![0.5, -0.5], "only recentred, never rescaled");
+    assert!(
+        x[0].is_nan() && x[1] == f64::NEG_INFINITY,
+        "left for snapshot to refuse"
+    );
+}
+
+/// `x` and `y` are one node's two coordinates, so a ragged pair has no meaning at all: the
+/// zip would recentre and rescale only the overlap and leave the longer column's tail
+/// holding raw coordinates, so the geometry's two columns would disagree in length. Every
+/// caller fills both columns to the node count, which is what this names.
+#[test]
+#[should_panic(expected = "one coordinate per node, as the other has")]
+fn a_ragged_pair_of_columns_is_refused_rather_than_half_transformed() {
+    let (mut x, mut y) = (vec![1.0, 1.0, 1.0], vec![0.0]);
+    rescale(&mut x, &mut y);
+}

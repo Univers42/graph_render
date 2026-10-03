@@ -166,3 +166,25 @@ fn re_edging_carries_the_z_column_and_the_notes_untouched() {
     assert_eq!(rebundled.dim(), Dim::D3, "so the label follows");
     assert_eq!(points(2).with_edges(EdgeGeometry::Line).dim(), Dim::D2);
 }
+
+#[test]
+fn a_0_node_topology_snapshots_as_a_labeled_snapshot_with_empty_id_tables() {
+    let empty = index_model(&[], &[]).expect("fits");
+    let snap = snapshot(&empty, points(0)).expect("fits");
+    let p = snap.parts();
+    assert_eq!(p.version, label_for(Dim::D2), "no z column, so 0.3");
+    assert_eq!(p.z, None);
+    assert_eq!(p.node_ids.iter().collect::<Vec<_>>(), Vec::<&str>::new());
+    assert_eq!(p.edge_ids.iter().collect::<Vec<_>>(), Vec::<&str>::new());
+}
+
+#[test]
+fn a_1_node_topology_carries_exactly_one_node_id() {
+    let one = index_model(&[node("a", "")], &[]).expect("fits");
+    let snap = snapshot(&one, points(1)).expect("fits");
+    let p = snap.parts();
+    assert_eq!(p.version, label_for(Dim::D2), "no z column, so 0.3");
+    assert_eq!(p.z, None);
+    assert_eq!(p.node_ids.iter().collect::<Vec<_>>(), ["a"]);
+    assert_eq!(p.edge_ids.iter().collect::<Vec<_>>(), Vec::<&str>::new());
+}
