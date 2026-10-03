@@ -1,0 +1,15 @@
+# render-spacing: the renderer scales a drawing by its local spacing (prompts/jobs/render-spacing.md).
+# Only packages/graph-render changes, so the Rust floor is not re-run here; land.sh runs it.
+# `expect` is `0` or `nonzero`; `#` starts a comment (scripts/orch/gate.sh:2-4).
+#
+studio-wasm|0|scripts/studio.sh wasm
+studio-build|0|scripts/studio.sh build
+studio-check|0|scripts/studio.sh check
+smoke|0|scripts/studio-smoke.sh
+negctl-smoke|nonzero|STUDIO_SMOKE_BREAK=1 scripts/studio-smoke.sh
+nav|0|scripts/studio-nav.sh
+negctl-nav|nonzero|STUDIO_NAV_BREAK=1 scripts/studio-nav.sh
+interact|0|scripts/studio-interact.sh
+negctl-interact|nonzero|STUDIO_INTERACT_BREAK=1 scripts/studio-interact.sh
+backend|0|scripts/studio-backend.sh
+negctl-backend|nonzero|STUDIO_BACKEND_BREAK=1 scripts/studio-backend.sh

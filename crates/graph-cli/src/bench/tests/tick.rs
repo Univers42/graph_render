@@ -6,6 +6,7 @@ use crate::bench::tick::{HEADER, Layout, Plan, measure};
 fn a_tick_row_has_one_cell_per_header_column_for_either_layout() {
     for (layout, id, workers) in [
         (Layout::BarnesHut, "layout.force.barnes_hut", 1),
+        (Layout::BarnesHut, "layout.force.barnes_hut", 4),
         (Layout::ParticleMesh, "layout.force.particle_mesh", 1),
         (Layout::ParticleMesh, "layout.force.particle_mesh", 3),
     ] {
@@ -17,6 +18,7 @@ fn a_tick_row_has_one_cell_per_header_column_for_either_layout() {
             seed: 0,
             workers,
             grow: None,
+            collide_radius: None,
             // The timed runner on the threaded row: its table goes to stderr, its row must not move.
             passes: workers > 1,
         };

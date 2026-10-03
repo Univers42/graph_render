@@ -58,7 +58,7 @@ fi
 source "$root/scripts/orch/image.sh"
 ensure_image "$image" || exit 2
 
-exec docker run --rm --memory 4g --memory-swap 4g -v "$root:/w" -v "$refs:/refs:ro" -w /w "$image" \
+exec "$root/scripts/orch/drun" --rm --memory 4g --memory-swap 4g -v "$root:/w" -v "$refs:/refs:ro" -w /w "$image" \
   python3 deploy/parity/run.py --dist app/dist --out "target/studio-parity/$label" \
   --root /w --reference /refs/matplotlib-3.10.0/_cm_listed.py \
   --commit "$(git -C "$root" rev-parse --short HEAD)" "${break_args[@]}"

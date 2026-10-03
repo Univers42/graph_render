@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# drun <docker run args...> — the one way this repo starts a container: `docker run` placed under
+# gm.slice (the aggregate memory ceiling, gm-slice.sh) with --oom-score-adj 500, so when the whole
+# host runs short the kernel kills a job container before the desktop.
+#
+# DRUN_MEM (default 4g) is the per-container cap, swap included, used only when the caller passes no
+# --memory of its own; a caller that passes --memory must pass --memory-swap too (docker's rule).
+# Without gm.slice or the gm-memwatch watcher (CI, another host) the container runs with its own
+# cap only, and drun says so.
+#
+# Caveat: the --memory scan reads every argument, the container's command included, so a command
+# that itself takes a `--memory` flag suppresses the default cap; pass DRUN_MEM-sized --memory then.
+set -euo pipefail
+
+has_mem=0
+for arg in "$@"; do
+  case $arg in --memory | --memory=* | -m) has_mem=1 ;; esac
+done
+guard=(--oom-score-adj 500)
+if [[ $has_mem == 0 ]]; then
+  guard+=(--memory "${DRUN_MEM:-4g}" --memory-swap "${DRUN_MEM:-4g}")
+fi
+if [[ $(systemctl show -p LoadState --value gm.slice 2>/dev/null) == loaded ]]; then
+  guard+=(--cgroup-parent gm.slice)
+elif [[ -z ${CI:-} ]]; then
+  echo "drun: gm.slice not installed, no aggregate memory ceiling (scripts/orch/gm-slice.sh install)" >&2
+fi
+if [[ -z ${CI:-} ]] && ! systemctl is-active --quiet gm-memwatch.service; then
+  echo "drun: gm-memwatch.service not active, no host RAM/GPU watcher (scripts/orch/memwatch.sh install)" >&2
+fi
+exec docker run "${guard[@]}" "$@"

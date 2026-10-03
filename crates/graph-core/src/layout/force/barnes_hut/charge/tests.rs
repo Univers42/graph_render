@@ -1,7 +1,10 @@
 //! `direct`'s own test, split from `charge.rs` for the house 300-line cap — the same
 //! split the module itself already uses (`step.rs`, `tests.rs`).
 
+use super::threshold::opening_threshold;
 use super::*;
+
+mod aggregate;
 
 /// `manyBody.js:77`: `else if (quad.length || l >= distanceMax2) return;` — a leaf
 /// reached directly (opening-angle test failed, not internal) contributes nothing

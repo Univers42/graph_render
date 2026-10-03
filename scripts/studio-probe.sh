@@ -43,5 +43,5 @@ fi
 
 mkdir -p "$root/target"
 mem=${PERF_MEMORY:-10g}
-exec docker run --rm --memory "$mem" --memory-swap "$mem" "${gpu_env[@]}" "${gpu_device[@]}" \
+exec "$root/scripts/orch/drun" --rm --memory "$mem" --memory-swap "$mem" "${gpu_env[@]}" "${gpu_device[@]}" \
   -e LIVE_PROFILE -e LIVE_THREADS -v "$root:/w" -w /w "$image" python3 "deploy/perf/$probe.py" "${@:2}"
