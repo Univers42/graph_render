@@ -203,13 +203,17 @@ test("m12: an undefined field is omitted, an omitted field is omitted, a real va
 
 // --- m29: the ABI version is pinned to a literal, not to itself ---------------------------
 
-test("m29: the ABI version this SDK speaks is 1 — a literal, not the constant it imports", () => {
+test("m29: the ABI version this SDK speaks is 2 — a literal, not the constant it imports", () => {
   // `abi-version.test.mjs` imports `ABI_VERSION` and compares the module against it, which
-  // pins the constant to itself: setting `wasm.ts`'s `ABI_VERSION` to `2` left both its tests
-  // green. This one holds the number in the test instead, so changing the constant turns it
-  // red, and the only other place `1` is pinned is the Rust side's
+  // pins the constant to itself: setting `wasm.ts`'s `ABI_VERSION` to `3` left every one of
+  // its tests green. This one holds the number in the test instead, so changing the constant
+  // turns it red, and the only other place the revision is pinned is the Rust side's
   // `crates/graph-wasm/src/errors/mirrors.rs`.
-  assert.equal(ABI_VERSION, 1, "the SDK's ABI revision moved; the Rust mirror must move with it");
+  //
+  // It is `2` because ABI revision 2 is the one where `gm_run`'s `params_ptr`/`params_len`
+  // stopped being refused and started carrying a layout's parameters, and `gm_layout_params`
+  // joined the module's exports (`docs/contract/wasm-abi.md`, "Exports").
+  assert.equal(ABI_VERSION, 2, "the SDK's ABI revision moved; the Rust mirror must move with it");
 });
 
 // --- m30: the package's own `exports` map resolves by name -------------------------------

@@ -18,7 +18,7 @@ use super::{Knob, igraph, knobs, three_d};
 /// **A `const`, because `capabilities::verdict::Evidence::load` walks it** to collect one
 /// control record each — a ledger read cannot be a function call per row. `Knob::ALL` is
 /// this array, re-exported so the name every caller already used keeps working.
-pub const ALL: [Knob; 48] = [
+pub const ALL: [Knob; 49] = [
     Knob::ReferenceDegree,
     Knob::GridSpacing,
     Knob::SugiyamaLayerSpacing,
@@ -65,6 +65,7 @@ pub const ALL: [Knob; 48] = [
     Knob::PackingOsageNodes,
     Knob::SplitSum,
     Knob::SplitRescale,
+    Knob::OverlapRelaxation,
     Knob::LayoutParamDefault,
     Knob::ForceSessionGravity,
 ];
@@ -118,6 +119,7 @@ pub const fn env(knob: Knob) -> &'static str {
         Knob::PackingOsageNodes => knobs::OSAGE_LAYOUT_STAGES[0].env,
         Knob::SplitSum => "GM_MUTATE_SPLIT_SUM",
         Knob::SplitRescale => "GM_MUTATE_SPLIT_RESCALE",
+        Knob::OverlapRelaxation => "GM_MUTATE_OVERLAP_RELAXATION",
         Knob::LayoutParamDefault => "GM_MUTATE_LAYOUT_PARAM_DEFAULT",
         Knob::ForceSessionGravity => "GM_MUTATE_FORCE_SESSION_GRAVITY",
     }
@@ -126,12 +128,19 @@ pub const fn env(knob: Knob) -> &'static str {
 /// The [`knobs::Stage`] `knob` perturbs — a function of its *variable*, not its arm index.
 ///
 /// Resolved by matching the variable name against the one table, so a control cannot be
-/// filed under a stage the table does not agree with: a variable the table does not carry
-/// is a programming error, not a runtime setting, and it panics here rather than quietly
-/// perturbing whichever stage happened to sit at that arm's position.
-pub(in crate::hashgate) fn stage_of(knob: Knob) -> knobs::Stage {
+/// filed under a stage the table does not agree with: a variable the table does not carry is
+/// a programming error, not a runtime setting.
+///
+/// **`Err`, not `panic!`** (RG-41): the old fallback aborted the process with exit 101, which
+/// is outside the 0 passed / 1 ran and failed / 2 could not run contract every gate answers
+/// in. A row whose knob has been dropped from `knobs::all()` while `Knob::ALL` still holds
+/// the arm now refuses with the exit 2 `setting` maps its `Err` to, and names the variable.
+pub(in crate::hashgate) fn stage_of(knob: Knob) -> Result<knobs::Stage, String> {
     let name = env(knob);
-    knobs::all()
-        .find(|row| row.env == name)
-        .unwrap_or_else(|| panic!("{name} is one of the per-stage controls"))
+    knobs::all().find(|row| row.env == name).ok_or_else(|| {
+        format!(
+            "{name} is one of the per-stage controls, but no row of the per-stage control \
+             table carries it: the arm and the table have drifted apart"
+        )
+    })
 }

@@ -1,32 +1,37 @@
 /**
- * The worker's stepping loop over a `LiveForce`: one bounded batch per frame, one frame out,
- * and no backlog. It stops on its own once alpha is under `alphaMin` and no pin is held.
+ * The worker's stepping loop over a `LiveForce`: one tick per frame, one frame out, and no
+ * backlog. It stops on its own once alpha is under `alphaMin` and no pin is held.
  */
 import type { ForceRequest, Result } from "./protocol.ts";
 import { type LiveForce, NO_ADAPTER_REASON } from "./live.ts";
 
 /**
- * Ponytail: the budget is wall time from `now`, measured around the one batch, and a batch
- * that overran it has its NEXT tick dropped rather than run late. The default 8 ms is half a
- * 60 Hz frame: a guess, not a measurement.
+ * Ponytail: the loop asks for one frame a period, timed from the start of the frame before.
+ * A tick that takes longer than the period is followed by the next one at once, and nothing
+ * catches up: a slow motor ticks back to back, a fast one ticks once a period. The default
+ * 16 ms is a 60 Hz display's period, not a measurement of this one. Failing input: a tick
+ * that always overruns keeps the worker busy without a pause, so a drag reaches the motor one
+ * tick late, at most. Escape hatch: `periodMs`.
  *
- * The frame rate paces the simulation, not the batch size: one tick a frame makes the motor's
- * own 112-tick settle last about two seconds, which is a settle a person can watch. The
- * budget is a ceiling, never a target — a loop that filled it with more ticks would finish
- * the whole settle inside ten frames and there would be nothing on screen to look at.
+ * The period paces the simulation, not the batch size: one tick a frame makes the motor's own
+ * 112-tick settle last about two seconds, which is a settle a person can watch.
+ *
+ * WHY no tick is dropped: the loop runs in a worker, so a long tick never holds up a page
+ * frame. Dropping the tick after a slow one made every second frame at 400k nodes repost the
+ * positions it had just posted, and the simulation ran at half the motor's rate.
  */
-export const DEFAULT_BUDGET_MS = 8;
+export const DEFAULT_PERIOD_MS = 16;
 export const ALPHA_MIN = 0.001;
 const REHEAT_ALPHA = 0.3;
 /** One tick a frame. The motor's frozen settle is 112 ticks (`ForceParams::TICKS`). */
 export const TICKS_PER_FRAME = 1;
 
 export interface LoopDeps {
-  /** Calls `run` once at the next frame; returns a cancel. Never calls twice for one call. */
-  readonly schedule: (run: () => void) => () => void;
+  /** Calls `run` once after `delayMs`; returns a cancel. Never calls twice for one call. */
+  readonly schedule: (run: () => void, delayMs: number) => () => void;
   readonly now: () => number;
   readonly emit: (result: Result, transfer: ArrayBufferLike[]) => void;
-  readonly budgetMs?: number;
+  readonly periodMs?: number;
 }
 
 export interface ForceHost {
@@ -43,14 +48,14 @@ interface Pin { readonly x: number; readonly y: number }
 
 class ForceLoop {
   private readonly held = new Set<string>();
-  // Latest pointer position per node: a move that arrives before the frame replaces the
-  // last one, which is how a slow motor drops drag events instead of queueing them.
-  private readonly pending = new Map<string, Pin>();
+  // Where the loop's pins are: the latest pointer position per node, a move that arrives
+  // before the frame replacing the last one, which is how a slow motor drops drag events
+  // instead of queueing them. An id stays in here after its release — a dropped node is a node
+  // the user put somewhere on purpose — so the pin outlives the pointer that made it.
+  private readonly pinned = new Map<string, Pin>();
   private cancel: (() => void) | null = null;
   private alpha = 0;
   private paused = false;
-  /** True when the last tick overran its budget, so this frame draws without stepping. */
-  private dropped = false;
 
   private readonly live: LiveForce;
   private readonly deps: LoopDeps;
@@ -69,17 +74,13 @@ class ForceLoop {
     return this.paused;
   }
 
-  private batch(): void {
-    const budget = this.deps.budgetMs ?? DEFAULT_BUDGET_MS;
-    const began = this.deps.now();
-    this.alpha = this.live.step(TICKS_PER_FRAME);
-    // One tick late is one tick too many: the next frame draws without stepping, so the
-    // simulation loses a tick rather than the page losing a frame.
-    this.dropped = this.deps.now() - began >= budget;
+  private get period(): number {
+    return this.deps.periodMs ?? DEFAULT_PERIOD_MS;
   }
 
   private frame(): void {
     this.cancel = null;
+    const began = this.deps.now();
     // WHY this is first: the port can die between the request that scheduled this frame and
     // the frame itself, and every call on a released session throws. There is nothing to
     // step, nothing to draw and nothing left to schedule — but the page's watchdog is armed
@@ -89,15 +90,12 @@ class ForceLoop {
       this.release();
       return;
     }
-    for (const [id, pin] of this.pending) this.live.pin(id, pin.x, pin.y);
-    this.pending.clear();
-    if (this.dropped) this.dropped = false;
-    else this.batch();
+    for (const [id, at] of this.pinned) this.live.pin(id, at.x, at.y);
+    this.alpha = this.live.step(TICKS_PER_FRAME);
     const running = this.alpha >= ALPHA_MIN || this.held.size > 0;
-    const { xs, ys } = this.live.positions();
-    const copy = { xs: xs.slice(), ys: ys.slice(), alpha: this.alpha, running };
-    this.deps.emit({ type: "force-frame", frame: copy }, [copy.xs.buffer, copy.ys.buffer]);
-    if (running) this.cancel = this.deps.schedule(() => this.frame());
+    this.publish(running);
+    const left = Math.max(0, this.period - (this.deps.now() - began));
+    if (running) this.cancel = this.deps.schedule(() => this.frame(), left);
   }
 
   private wake(): void {
@@ -107,7 +105,7 @@ class ForceLoop {
     const heated = Math.max(REHEAT_ALPHA, this.alpha);
     this.live.reheat(heated);
     this.alpha = heated;
-    this.cancel ??= this.deps.schedule(() => this.frame());
+    this.cancel ??= this.deps.schedule(() => this.frame(), this.period);
   }
 
   /**
@@ -125,17 +123,22 @@ class ForceLoop {
   resume(): void {
     if (!this.paused) return;
     this.paused = false;
-    this.cancel ??= this.deps.schedule(() => this.frame());
+    this.cancel ??= this.deps.schedule(() => this.frame(), this.period);
   }
 
   halt(): void {
     this.paused = false;
     this.cancel?.();
     this.cancel = null;
+    this.drop();
+  }
+
+  /** Lets go of every pin the loop owns, dropped nodes included. */
+  private drop(): void {
     // A released session throws from an unpin too, and there is no pin left on it to lift.
-    if (this.live.dead !== true) for (const id of this.held) this.live.unpin(id);
+    if (this.live.dead !== true) for (const id of this.pinned.keys()) this.live.unpin(id);
     this.held.clear();
-    this.pending.clear();
+    this.pinned.clear();
   }
 
   /**
@@ -153,11 +156,24 @@ class ForceLoop {
     this.deps.emit({ type: "force-state", running: false, disabled: NO_ADAPTER_REASON, paused: false }, []);
   }
 
-  /** One last frame saying the loop has stopped, so the bar empties instead of hanging. */
+  /**
+   * One frame out, narrowed to f32 and handed over rather than copied.
+   *
+   * WHY narrow here: the page draws f32 and the GPU attribute is f32, so a f64 column would
+   * cross the wire at twice the size to be narrowed on the far side, into an array of exactly
+   * the length it already had. `Float32Array.from` narrows to nearest — the same rounding the
+   * page's own `Float32Array.set` performed — so the drawing is bit-identical.
+   *
+   * Ponytail: the two arrays are fresh every frame rather than taken from a pool. A pool has
+   * to be handed back before it can be filled again, and the return path crosses the same
+   * thread boundary this transfer already crosses; until that channel exists, a fresh f32
+   * pair is half the bytes of a fresh f64 pair and the page allocates nothing at all, which is
+   * the half that was on the critical path.
+   */
   private publish(running: boolean): void {
     const { xs, ys } = this.live.positions();
-    const copy = { xs: xs.slice(), ys: ys.slice(), alpha: this.alpha, running };
-    this.deps.emit({ type: "force-frame", frame: copy }, [copy.xs.buffer, copy.ys.buffer]);
+    const frame = { xs: Float32Array.from(xs), ys: Float32Array.from(ys), alpha: this.alpha, running };
+    this.deps.emit({ type: "force-frame", frame }, [frame.xs.buffer, frame.ys.buffer]);
   }
 
   apply(request: ForceRequest): void {
@@ -177,17 +193,24 @@ class ForceLoop {
     // frozen under the pointer is not what a pause was for.
     this.paused = false;
     if (request.type === "force.start") {
-      // "Animate": the settle starts over from random positions, not from where it stopped.
-      // The port answers with the alpha it re-heated to, which is the bar's new full width.
+      // "Animate": the settle starts over from where this graph's settle begins, not from
+      // where it stopped. The port answers with the alpha the new session was born at, which
+      // is the bar's new full width. A dropped node is a position the user chose, and a
+      // restart puts the nodes back at the session's start positions — so the pins go with
+      // the positions they were holding.
+      this.drop();
       const restarted = this.live.shuffle?.();
       if (restarted !== undefined) this.alpha = restarted;
     } else if (request.type === "force.drag") {
       this.held.add(request.id);
-      this.pending.set(request.id, { x: request.x, y: request.y });
+      this.pinned.set(request.id, { x: request.x, y: request.y });
     } else if (request.type === "force.release") {
-      this.pending.delete(request.id);
+      // WHY the pin stays: the motor integrates a released node from rest and the drawing
+      // settles it straight back to the equilibrium the drag just broke, so lifting the pin
+      // here makes a drop undo itself. The node keeps the position the user put it at; the
+      // graph settles around it. `held` is what the pointer is holding, and only that keeps
+      // the loop awake — so a drop lets the settle finish.
       this.held.delete(request.id);
-      this.live.unpin(request.id);
     } else this.live.setParams(request.knobs);
     this.wake();
   }

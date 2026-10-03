@@ -184,11 +184,18 @@ export class Motor {
    *  which is the point: POST is a stage, not a second transport.
    *
    *  Each pass reads the **layout's** edges, never the previous pass's, so running style then
-   *  bundle gives the same answer as running bundle once. */
+   *  bundle gives the same answer as running bundle once. Only `post.separate.grid`
+   *  ({@link Motor.separateNodes}) moves nodes; every other pass leaves `x`/`y` alone. */
   post(handle: Handle, postId: string): PostResult {
     const ctx = this.#requireLoaded();
     const run = runPost(ctx, handle, postId);
     return { handle, id: postId, nodeKind: run.nodeKind, edgeKind: run.edgeKind, nodeCount: nodeCount(ctx.exports, handle), dim: run.dim };
+  }
+
+  /** `post.separate.grid`, the one pass that MOVES nodes: read `NodeX`/`NodeY` again after it,
+   *  since an earlier view is stale. A 3D snapshot is refused whole ({@link PostRefusedError}). */
+  separateNodes(handle: Handle): PostResult {
+    return this.post(handle, "post.separate.grid");
   }
 
   /** Runs the registered analysis `analysisId` (from {@link Motor.analyses}) over

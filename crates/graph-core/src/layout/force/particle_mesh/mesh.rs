@@ -15,7 +15,7 @@
 //! through collide's.
 
 use super::collide::Grid;
-use super::deposit::{Deposit, Stencils, weights};
+use super::deposit::{Deposit, Rows, Scaled, Stencils, weights};
 use super::fft::{C, Fft, MAX_SIDE, Plan};
 use super::frame::{self, Bounds, Frame};
 use super::kernel::{Kernel, Law};
@@ -39,8 +39,11 @@ pub(in crate::layout::force) struct Mesh {
     spectrum: Vec<C>,
     kernel: Kernel,
     frame: Option<Frame>,
-    /// Each sorted slot's lower-left cell this tick, the deposit's scratch.
-    at: Vec<u32>,
+    /// Each sorted slot's position in cell units this tick: the deposit splits it, then the
+    /// field read splits it again, and neither reads a position.
+    at: Vec<Scaled>,
+    /// `at` grouped by row, the deposit's index.
+    rows: Rows,
     /// The bounds fold's per-block boxes.
     blocks: Vec<Bounds>,
     pub(super) grid: Grid,
@@ -55,7 +58,8 @@ impl Mesh {
             spectrum: vec![C::default(); side * side],
             kernel: Kernel::new(side),
             frame: None,
-            at: vec![0; n as usize],
+            at: vec![(0.0, 0.0); n as usize],
+            rows: Rows::new(side, n),
             blocks: Vec::with_capacity(n.div_ceil(frame::BLOCK) as usize),
             grid: Grid::new(n),
         }
@@ -108,19 +112,33 @@ impl Mesh {
             xy,
         };
         runner.run(&stencils, workers, &mut self.at);
+        self.rows.sort(&self.at, frame);
         let deposit = Deposit {
             stencils: &stencils,
             at: &self.at,
+            rows: &self.rows,
         };
         runner.run(&deposit, workers, &mut self.density);
     }
 
+    /// The field at sorted slot `k`, read with the CIC weights its deposit used; zero for a
+    /// non-finite node. Valid after a [`Mesh::solve`] that returned `true`.
+    pub(super) fn field_of(&self, k: usize) -> (f64, f64) {
+        let frame = self.frame.as_ref();
+        frame
+            .and_then(|f| frame::split(f, self.at[k]))
+            .map_or((0.0, 0.0), |s| self.read(s))
+    }
+
     /// The field at `p`, read with the CIC weights the deposit used; zero for a non-finite
     /// position or before any field was solved.
+    #[cfg(test)]
     pub(super) fn field_at(&self, p: (f64, f64)) -> (f64, f64) {
-        let Some(((cx, cy), (fx, fy))) = self.frame.and_then(|f| frame::stencil(&f, p)) else {
-            return (0.0, 0.0);
-        };
+        let stencil = self.frame.and_then(|f| frame::stencil(&f, p));
+        stencil.map_or((0.0, 0.0), |s| self.read(s))
+    }
+
+    fn read(&self, ((cx, cy), (fx, fy)): ((usize, usize), (f64, f64))) -> (f64, f64) {
         let side = self.plan.side();
         let at = cy * side + cx;
         let mut e = (0.0, 0.0);

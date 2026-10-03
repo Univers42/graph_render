@@ -20,6 +20,7 @@ import { type Projection, setupOf } from "../three/projection.ts";
 import { project, radiusOnScreen } from "../three/orbit.ts";
 import { counted } from "./draw.ts";
 import { drawSpace } from "./draw3d.ts";
+import { loseContext } from "./gl.ts";
 import type { BulkSlot } from "./hook.ts";
 import { type SpaceLayer, createSpace, fits } from "./layer3d.ts";
 import type { BackendChoice } from "./plan.ts";
@@ -41,6 +42,13 @@ export const SPACE_THRESHOLD = 44_000;
 export function spaceWanted(choice: BackendChoice, elements: number, available: boolean): boolean {
   if (!available || choice === "canvas2d") return false;
   return choice === "webgl2" || elements >= SPACE_THRESHOLD;
+}
+
+/** Gives the slot's 3D context back, and never makes another for it. */
+export function releaseSpace(slot: BulkSlot): void {
+  const layer = layers.get(slot);
+  if (layer) loseContext(layer.gl);
+  layers.set(slot, null);
 }
 
 /** Under `auto` a software rasteriser is a choice, not a failure: it leaves `failure` empty. */

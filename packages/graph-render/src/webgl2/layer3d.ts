@@ -10,7 +10,7 @@
  * a larger frame is refused by `fits` and the Canvas2D painter draws it.
  */
 import { type Normalise, normaliserOf } from "./colour.ts";
-import { type Uniforms, attribute, programOf, uniformsOf } from "./gl.ts";
+import { type Uniforms, attribute, loseContext, programOf, uniformsOf } from "./gl.ts";
 import type { Pass } from "./layer.ts";
 import { NODE_FRAGMENT } from "./shaders.ts";
 import { SPACE_EDGE_FRAGMENT, SPACE_EDGE_VERTEX, SPACE_NODE_VERTEX } from "./shaders3d.ts";
@@ -135,7 +135,7 @@ export function createSpace(hardwareOnly: boolean): SpaceLayer | null {
   const probe = new OffscreenCanvas(1, 1).getContext("2d");
   if (gl === null || probe === null) return null;
   if (hardwareOnly && softwareNamed(rendererOf(gl))) {
-    gl.getExtension("WEBGL_lose_context")?.loseContext();
+    loseContext(gl);
     return null;
   }
   const buffers = { half: gl.createBuffer(), slot: gl.createBuffer(), ends: gl.createBuffer() };

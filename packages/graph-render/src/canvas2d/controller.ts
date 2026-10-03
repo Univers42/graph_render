@@ -1,12 +1,12 @@
 /** The view's state changes: everything `createView` does to a canvas between frames. */
 import {
-  type Camera, type FitArea, type Point, type Viewport, fitCamera, limitsFor, screenToWorld,
+  type Camera, type FitArea, type Point, fitCamera,
 } from "../camera.ts";
 import { type LiveDrag, movedScene } from "../drag.ts";
 import type { Frame } from "../frame.ts";
 import { DEFAULT_POLICY, type LabelPolicy, newLabelPlan, occupancyFor } from "../labels.ts";
 import type { LocalLayer } from "../local.ts";
-import { EMPTY_FRAME, pickIn, sceneOf } from "../scene.ts";
+import { EMPTY_FRAME, sceneOf } from "../scene.ts";
 import { plainStyle } from "../style.ts";
 import { DARK_THEME, type Theme } from "../theme.ts";
 import { type Orbit, boxOf, fitOrbit } from "../three/orbit.ts";
@@ -15,8 +15,9 @@ import { newBulkSlot } from "../webgl2/hook.ts";
 import { setSelection } from "./choose.ts";
 import { newCounts } from "./input.ts";
 import { type LoopState, invalidate, markMoved, relight } from "./loop.ts";
-import { MIN_SCREEN_RADIUS } from "./nodes.ts";
+import { currentLimits, safeOf } from "./limits.ts";
 import { newPace } from "./pace.ts";
+export { pickAt } from "./pick.ts";
 import { newRate } from "./rate.ts";
 import { createSpriteCache } from "./sprites.ts";
 import type { SpriteSurface } from "./surface.ts";
@@ -33,8 +34,18 @@ export interface Controller {
   readonly canvas: HTMLCanvasElement;
   readonly state: LoopState;
   readonly notify: Notify;
-  /** True until the user moves the camera: a resize then re-fits instead of cropping. */
+  /**
+   * True while the view still owns the camera, which is what `fitted` has always meant for the
+   * 2D camera and now means for the 3D one too: a resize, a new frame and a live frame fit
+   * instead of cropping, and only the user's own pan, zoom, orbit, reset or node drag takes
+   * the camera away. Everything the view does on its own asks this first.
+   */
   fitted: boolean;
+  /**
+   * True once the user has touched the canvas: a pan, a zoom, a drag, a box select, a click or a
+   * context menu. From then on a safe-area change only refreshes the limits; see `setSafeArea`.
+   */
+  gestured: boolean;
   /** The local graph, when one is shown: a fit frames it and not the whole graph. */
   readonly local: LocalLayer;
   /** The motor's live session, when the host gave one; a drag goes to it while it is enabled. */
@@ -50,7 +61,6 @@ export interface Setup {
 }
 
 const MAX_DPR = 2;
-const PICK_TOLERANCE = 4;
 
 function spriteSurface(): SpriteSurface | null {
   const canvas = new OffscreenCanvas(1, 1);
@@ -77,7 +87,7 @@ export function newState(canvas: HTMLCanvasElement, setup: Setup): LoopState {
   const viewport = { width: 1, height: 1 };
   return {
     ctx, sprites: createSpriteCache(spriteSurface, theme), onFrame: setup.onFrame, theme, policy, scene,
-    camera: fitCamera(null, viewport), limits: limitsFor(null, viewport), viewport, safe: null, dpr: 1,
+    camera: fitCamera(null, viewport), get limits() { return currentLimits(this); }, viewport, safe: null, dpr: 1,
     x: scene.frame.x, y: scene.frame.y, fromX: scene.frame.x, fromY: scene.frame.y, transitionStart: -1,
     lit: new Uint8Array(0), hovered: -1, dimStart: -1, selected: -1, selection: [], pinned: [], marquee: null,
     plan: newLabelPlan(policy.budget), orbit: null, drawn: null,
@@ -86,19 +96,6 @@ export function newState(canvas: HTMLCanvasElement, setup: Setup): LoopState {
     counts: newCounts(), frameMs: 0, frames: 0, rate: newRate(), pace: newPace(),
     bulk: newBulkSlot(setup.backend ?? "auto"),
   };
-}
-
-/**
- * The part of the canvas a fit draws into: what the host declared as free of chrome, clamped to
- * the canvas itself and to at least a third of it. A host whose safe area has not been measured
- * yet says nothing, and `null` is the whole canvas.
- */
-function safeOf(state: LoopState, viewport: Viewport): FitArea | null {
-  const wanted = state.safe;
-  if (wanted === null) return null;
-  const width = Math.max(1, Math.min(wanted.width, viewport.width));
-  const height = Math.max(1, Math.min(wanted.height, viewport.height));
-  return { x: wanted.x, y: wanted.y, width, height };
 }
 
 /** Reads the canvas's CSS box and sizes its backing store to it. */
@@ -110,14 +107,20 @@ export function measure(controller: Controller): void {
   canvas.width = Math.round(state.viewport.width * state.dpr);
   canvas.height = Math.round(state.viewport.height * state.dpr);
   state.occupancy = occupancyFor(state.viewport);
-  state.limits = limitsFor(state.scene.bounds, state.viewport, { area: safeOf(state, state.viewport) ?? undefined });
   state.sprites.reset(state.theme, state.dpr);
 }
 
 /**
  * The area a host declared free of chrome, in canvas pixels; `null` (the default) is the whole
- * canvas. It is a hint about where the studio's panels are, so it is clamped to the canvas and
- * re-fitted rather than trusted: a host that hands over a stale or inverted box gets the canvas.
+ * canvas. It is clamped to the canvas rather than trusted: a host that hands over a stale or
+ * inverted box gets the canvas.
+ *
+ * WHY it moves the camera only while the camera is still automatic: the chrome resizes for reasons
+ * that have nothing to do with the drawing — a selection filling the Inspector is the one that
+ * mattered — and re-fitting on each of those took whatever the user was pointing at out from under
+ * the pointer. Until the first gesture the camera is the view's own and a new free box is fitted
+ * into; after one it is the user's, and the area only bounds how far the drawing may be panned. A
+ * layout arriving is a new drawing, and `sceneApi.setFrame` still fits it.
  */
 export function setSafeArea(controller: Controller, area: FitArea | null): void {
   const { state } = controller;
@@ -127,8 +130,8 @@ export function setSafeArea(controller: Controller, area: FitArea | null): void 
     && next?.width === state.safe?.width && next?.height === state.safe?.height) || (next === null && state.safe === null);
   if (same) return;
   state.safe = next;
-  state.limits = limitsFor(state.scene.bounds, state.viewport, { area: safeOf(state, state.viewport) ?? undefined });
-  if (controller.fitted) fit(controller);
+  if (controller.fitted && !controller.gestured) fit(controller);
+  else invalidate(state);
 }
 
 export function moveTo(controller: Controller, camera: Camera, byFit: boolean): void {
@@ -157,6 +160,11 @@ export function fit(controller: Controller): void {
   const orbit = fittedOrbit(state);
   if (orbit !== null) {
     moveOrbit(controller, orbit);
+    // WHY the flag is set here and not in `moveOrbit`: an orbit the view fitted is the view's
+    // own camera, the same claim the 2D fit makes, and the resize and live-frame paths read
+    // this one flag for both cameras. Every orbit gesture goes through `moveOrbit` and leaves
+    // it false.
+    controller.fitted = true;
     return;
   }
   // The safe area, not the canvas: the panels a host lays over the canvas are not drawing space,
@@ -197,6 +205,9 @@ export function showFrame(state: LoopState, frame: Frame, animate: boolean): voi
   } else {
     state.scene = sceneOf(frame, state.scene.style, null);
     state.transitionStart = -1;
+    // Nothing is easing, so nothing is there to mix: the layer reads `u_eased` of 1 and a pick
+    // reads the grid. A tween cut short by a snap or a resize has to leave both.
+    state.bulk.tween = null;
     state.x = frame.x;
     state.y = frame.y;
   }
@@ -214,77 +225,40 @@ export function showFrame(state: LoopState, frame: Frame, animate: boolean): voi
     state.selection = [];
     state.pinned = [];
   }
-  state.limits = limitsFor(state.scene.bounds, state.viewport, { area: safeOf(state, state.viewport) ?? undefined });
   relight(state);
 }
 
 /**
  * New positions for the nodes already in the frame, from a live simulation. A pair that does
- * not have one entry per node is another graph's drawing and is ignored. The columns the motor
- * handed over are read, never kept: they go into the ones the view already draws.
+ * not have one entry per node is another graph's drawing and is ignored, and `false` says so.
+ * Whether the camera follows is `camera-api.ts`'s question, not this one's.
+ *
+ * The columns are adopted, not copied. The motor hands its buffers over on a transfer list
+ * (`motor/liveLoop.ts`), which detaches them in the worker, so the page holds the only copy and
+ * nothing else can be writing it; a `state.x.set(xs)` on top of that would be 8 MB of copying
+ * per frame at a million nodes, for an array already the right length and the right precision.
+ * The worker narrows to f32 before it sends (`motor/protocol.ts`), so the columns arrive in the
+ * precision both the drawing and the GPU attribute want.
  *
  * A batch carrying a non-finite coordinate is refused whole, the way `snapshot/decode.ts:116`
  * refuses one: a NaN is a motor bug, and half a batch of them would draw a sprite, a pick-grid
  * entry and a NaN camera, none of which the user can undo. One bad coordinate is a bug report,
- * not a drawing.
+ * not a drawing. It is the one pass over the batch this function still makes, and it is the
+ * one that keeps a broken frame off the screen.
  */
-export function setPositions(state: LoopState, xs: Float64Array, ys: Float64Array): void {
+export function setPositions(state: LoopState, xs: Float32Array, ys: Float32Array): boolean {
   const count = state.scene.frame.nodeCount;
-  if (xs.length !== count || ys.length !== count) return;
+  if (xs.length !== count || ys.length !== count) return false;
   for (let node = 0; node < count; node += 1) {
     if (Number.isFinite(xs[node]) && Number.isFinite(ys[node])) continue;
-    return;
+    return false;
   }
-  if (state.x.length !== count) {
-    state.x = new Float32Array(count);
-    state.y = new Float32Array(count);
-  }
-  state.x.set(xs);
-  state.y.set(ys);
+  state.x = xs;
+  state.y = ys;
   state.bulk.placed += 1;
-  // The scene is the single source of truth: it carries the frame and the grid rebuilt on it.
-  state.scene = movedScene(state.scene, { x: state.x, y: state.y });
-  state.x = state.scene.frame.x;
-  state.y = state.scene.frame.y;
-  state.limits = limitsFor(state.scene.bounds, state.viewport, { area: safeOf(state, state.viewport) ?? undefined });
+  // The scene is the single source of truth: it carries the frame, and the bounds and the pick
+  // grid are rebuilt on it only when something reads them (`src/lazy.ts`).
+  state.scene = movedScene(state.scene, { x: xs, y: ys });
   markMoved(state);
-}
-
-/** -1 while the nodes are moving: the grid holds where they will be, not where they are. */
-export function pickAt(state: LoopState, at: Point): number {
-  if (state.transitionStart >= 0) return -1;
-  if (state.orbit !== null) return pickInSpace(state, at);
-  const world = screenToWorld(state.camera, at);
-  const { scale } = state.camera;
-  return pickIn(state.scene, {
-    x: world.x, y: world.y, tolerance: PICK_TOLERANCE / scale, floor: MIN_SCREEN_RADIUS / scale,
-  });
-}
-
-/**
- * The 3D hit test: the nearest node whose drawn disc is under the point. There is no
- * un-projection here, and there does not need to be — the screen points are already what the
- * painter drew, so the same radii and the same tolerance pick the same node a hand would.
- * The nearest wins, so a node in front is picked over one behind it at the same point.
- */
-function pickInSpace(state: LoopState, at: Point): number {
-  const drawn = state.drawn;
-  if (drawn === null) return -1;
-  let best = -1;
-  let bestDepth = Infinity;
-  for (let step = 0; step < drawn.drawn; step += 1) {
-    const node = drawn.order[step] ?? 0;
-    if (state.scene.style.hidden?.[node] === 1) continue;
-    const depth = drawn.depth[node] ?? 0;
-    if (depth <= 0) continue;
-    const reach = Math.max(MIN_SCREEN_RADIUS, drawn.radius[node] ?? 0) + PICK_TOLERANCE;
-    const dx = (drawn.x[node] ?? 0) - at.x;
-    const dy = (drawn.y[node] ?? 0) - at.y;
-    if (dx * dx + dy * dy > reach * reach) continue;
-    if (depth < bestDepth) {
-      best = node;
-      bestDepth = depth;
-    }
-  }
-  return best;
+  return true;
 }

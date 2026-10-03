@@ -33,21 +33,21 @@ FIG6_NAMES = (
 )
 
 SOURCES = (
-    "SciGraphs/core/mesh/geometry.py:259-287",
-    "SciGraphs/core/repro/executor.py:285-307",
-    "SciGraphs/core/repro/executor.py:388-509",
-    "SciGraphs/core/repro/executor.py:606-650",
-    "SciGraphs/core/repro/executor.py:652-744",
+    "SciGraphs/SciGraphs/core/mesh/geometry.py:259-287",
+    "SciGraphs/SciGraphs/core/repro/executor.py:285-307",
+    "SciGraphs/SciGraphs/core/repro/executor.py:388-509",
+    "SciGraphs/SciGraphs/core/repro/executor.py:606-650",
+    "SciGraphs/SciGraphs/core/repro/executor.py:652-744",
     "SciGraphs/core/scigraphs_core/algorithms/analysis.py:149-153",
     "SciGraphs/core/scigraphs_core/algorithms/analysis.py:62-76",
     "SciGraphs/core/scigraphs_core/coloring/colormaps.py:462-469",
-    "SciGraphs/core/scigraphs_core/coloring/colormaps.py:534-536",
+    "SciGraphs/core/scigraphs_core/coloring/colormaps.py:527-530",
     "SciGraphs/core/scigraphs_core/mesh/layouts/dispatcher.py:57-58",
     "SciGraphs/core/scigraphs_core/mesh/layouts/networkx_layouts.py:26-34",
     "SciGraphs/core/scigraphs_core/repro/determinism.py:56-62",
-    "SciGraphs/core/visualization/text_overlay.py:139-247",
-    "SciGraphs/core/visualization/text_overlay.py:250-299",
-    "SciGraphs/core/visualization/text_overlay.py:302-326",
+    "SciGraphs/SciGraphs/core/visualization/text_overlay.py:139-247",
+    "SciGraphs/SciGraphs/core/visualization/text_overlay.py:250-299",
+    "SciGraphs/SciGraphs/core/visualization/text_overlay.py:302-326",
     "SciGraphs/docs/examples/05-reproducible-pipeline.qmd:591-680",
 )
 
@@ -171,7 +171,24 @@ def _provenance():
     networkx_version, numpy_version = gr.library_versions()
     return {"networkx": networkx_version, "numpy": numpy_version,
             "seed": gr.BASE_SEED, "layout_seed": gr.layout_seed(),
-            "sources": sorted(SOURCES), "ponytail": sorted(PONYTAIL)}
+            "sources": sorted(SOURCES),
+            "source_digests": _source_digests(),
+            "scigraphs_revision": gr.scigraphs_revision(),
+            "ponytail": sorted(PONYTAIL)}
+
+
+def _source_digests():
+    """``file:line`` -> the sha256 of the file that line range lives in.
+
+    A ``file:line`` names a place, not a revision: it resolves to different code
+    after any edit, and the line numbers here are not re-checked when SciGraphs
+    moves, so the string alone cannot say which tree produced the numbers. The
+    digest is the same file read now, so any later edit that moves the cited
+    code shows up as a changed value. Sorted, so the key order is fixed rather
+    than whatever the table happens to iterate in (D2).
+    """
+    return {source: gr.digest_of(source.split(":", 1)[0])
+            for source in sorted(SOURCES)}
 
 
 def _params(scene):

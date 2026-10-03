@@ -8,6 +8,8 @@
  */
 import { THEME_NAMES } from "../../../graph-render/src/look/themes.ts";
 import type { SyntheticShape } from "../source/synthetic.ts";
+import { DEFAULT_KNOBS, type ForceKnobs } from "../motor/live.ts";
+import { forcesOf } from "./forces.ts";
 import { type ParamValue, type ParamsByLayout, type ParamValues, paramsOf, valuesOf } from "./paramValues.ts";
 import { SettingsRefusal } from "./read.ts";
 
@@ -103,6 +105,8 @@ export interface Settings {
   /** Ordered; the first group a node matches is the group it is drawn in. */
   readonly groups: readonly Group[];
   readonly filter: Filter;
+  /** The live force knobs; a document from before they were saved loads the motor's defaults. */
+  readonly forces: ForceKnobs;
 }
 
 function sourceOf(source: Source): Source {
@@ -153,6 +157,7 @@ export function settingsOf(settings: Settings): Settings {
     appearance: Object.isFrozen(settings.appearance) ? settings.appearance : appearanceOf(settings.appearance),
     groups: Object.isFrozen(settings.groups) ? settings.groups : groupsOf(settings.groups),
     filter: Object.isFrozen(settings.filter) ? settings.filter : filterOf(settings.filter),
+    forces: Object.isFrozen(settings.forces) ? settings.forces : forcesOf(settings.forces),
   });
 }
 
@@ -183,6 +188,7 @@ export const DEFAULT_SETTINGS: Settings = settingsOf({
     query: "", text: "", hiddenKinds: [], hiddenGroups: [],
     orphans: false, existingOnly: false, minDegree: 0, relayout: false,
   },
+  forces: DEFAULT_KNOBS,
 });
 
 export function withSettings(settings: Settings, patch: Partial<Settings>): Settings {

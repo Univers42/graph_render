@@ -9,8 +9,13 @@
 # Rows: a 200 px drag moves the camera offset 200 px ±0.5; a wheel notch and a ctrlKey pinch
 # at (x,y) leave the world point under the cursor within 0.5 px; a double-click on the
 # background zooms ×2 at the cursor; F, 0, +, -, the arrows and Escape each do what they
-# name and the scale stays in [0.02, 40]; space+drag and middle-drag pan; and the edge
-# gradient mode is switched from the dock and read back off one known mixed edge.
+# name and the scale stays in [0.02, 40]; space+drag and middle-drag pan; the edge gradient
+# mode is switched from the dock and read back off one known mixed edge; and switching the
+# Layout to force.drl leaves every node centre inside the canvas on a camera fitted to that
+# drawing, not the camera from before the switch.
+#
+# STUDIO_NAV_BREAK=1 inverts three of those claims: the drag expects a move that is not made,
+# the gradient mode is never turned on, and the layout switch expects the camera to sit still.
 #
 # Exit: 0 every row PASS · 1 a row FAIL or NOT-RUN · 2 could not run.
 # Build first: scripts/studio.sh build. Never takes the host gate lock.
@@ -32,6 +37,6 @@ fi
 source "$root/scripts/orch/image.sh"
 ensure_image "$image" || exit 2
 
-exec docker run --rm --memory 4g --memory-swap 4g -v "$root:/w" -w /w/deploy/nav "$image" \
+exec "$root/scripts/orch/drun" --rm --memory 4g --memory-swap 4g -v "$root:/w" -w /w/deploy/nav "$image" \
   python3 nav.py --dist /w/app/dist --out "/w/target/studio-nav/$label" \
   --commit "$(git -C "$root" rev-parse --short HEAD)" "${break[@]}"

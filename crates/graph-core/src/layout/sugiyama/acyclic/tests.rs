@@ -72,6 +72,49 @@ fn a_self_loop_is_excluded_and_never_reversed() {
 }
 
 #[test]
+fn an_arc_owns_exactly_its_own_edges_even_when_they_are_not_adjacent() {
+    // `b -> f` twice, at edge 0 and edge 5: one arc, two members, and every edge index in
+    // between belongs to some other pair. A member list spelled as a `Range<u32>` over edge
+    // indices cannot say that — it claims the whole `0..6` — and `layering.rs` then routes
+    // every edge in it through this arc's chain. Seed 66's arc `(20, 28)`, members 38 and
+    // 98, range `38..99`: see `docs/measurements/fix-dag-roundtrip.md`.
+    let t = topology(
+        &["a", "b", "c", "d", "e", "f", "g", "h"],
+        &[
+            ("bf", "b", "f"),
+            ("ac", "a", "c"),
+            ("ad", "a", "d"),
+            ("af", "a", "f"),
+            ("ha", "h", "a"),
+            ("bf2", "b", "f"),
+            ("ce", "c", "e"),
+            ("eh", "e", "h"),
+        ],
+    );
+    let acyclic = Acyclic::of(&t);
+    let arcs = Arcs::new(&t, &acyclic);
+    let list = arcs.grouped();
+    for &(tail, head, ref span) in &list.arcs {
+        let at = span.start as usize..span.end as usize;
+        assert!(
+            at.end <= list.members.len(),
+            "arc ({tail}, {head}) over-reads"
+        );
+        for &e in &list.members[at] {
+            assert_eq!(
+                arcs.tail_head(e),
+                (tail, head),
+                "edge {e} is not in arc ({tail}, {head}): it belongs elsewhere"
+            );
+        }
+    }
+    let mut routed: Vec<u32> = list.members.clone();
+    routed.sort_unstable();
+    assert_eq!(routed, [0, 1, 2, 3, 4, 5, 6, 7], "every edge routed once");
+    assert_eq!(list.edges, 8, "self-loops aside");
+}
+
+#[test]
 fn an_empty_topology_produces_empty_acyclic_state() {
     let t = index_model(&[], &[]).expect("fits");
     let acyclic = Acyclic::of(&t);

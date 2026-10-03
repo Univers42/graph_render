@@ -63,7 +63,7 @@ the SDK's behaviour is fixed inside the SDK, and every harness change is inside
 | m26 | MINOR | fixed | `m26: a page whose parent database the export does not carry is refused` | `src/adapters/notion.ts:237` |
 | m27 | MINOR | fixed | `m27: a stamp outside the contract's u32 seconds is refused` | `src/adapters/notion-cells.ts:117` |
 | m28 | MINOR | fixed | `M28: the barrel re-exports typeToRole` (asserted by `m30: every subpath … resolves`) | `src/adapters.ts:30` |
-| m29 | MINOR | fixed | `m29: the ABI version this SDK speaks is 1 — a literal, not the constant it imports` + `this SDK's own ABI version is the pinned literal` | `test/abi-version.test.mjs`, `test/internals.test.mjs` |
+| m29 | MINOR | fixed | `this SDK's own ABI version is the pinned literal` + `m29: the ABI version this SDK speaks is 2 — a literal, not the constant it imports` | `test/abi-version.test.mjs`, `test/internals.test.mjs` |
 | m30 | MINOR | fixed | `m30: every subpath the docs name resolves through the package's exports map` | `test/internals.test.mjs` (imports `@graph-motor/sdk-js`, `/adapters/rows`, `/adapters/notion` by name) |
 | m31 | MINOR | fixed | live: `every override key is one the fixture declares` × 6 | `harness/adapter-convergence.mjs:283-296` |
 | m113 | MINOR | fixed | doc-only: the four recorded deviations are retired and replaced by where each went | `docs/contract/wasm-abi.md` "File-size deviations" |
@@ -95,6 +95,12 @@ scripts/orch/node-slim.sh npm run sdk:smoke                              -> 0   
 scripts/orch/node-slim.sh npx eslint crates/graph-sdk-js/src --max-warnings=0 -> 0
 scripts/orch/node-slim.sh node --experimental-strip-types harness/sdk-smoke.mjs \
     --adapter-convergence target/wasm32-unknown-unknown/release/graph_wasm.wasm -> 0  "# pass"
+
+# ABI revision 2 (params_ptr/params_len carry a layout's parameters; gm_layout_params joined
+# the exports) landed while this job was open, and the gate's `sdk-test` row caught the two
+# hand-maintained copies of the stub export list. Re-run after moving the tests:
+scripts/orch/gr cargo build -p graph-wasm --release --target wasm32-unknown-unknown -> 0
+scripts/orch/node-slim.sh npm run sdk:test                               -> 0   # tests 86  # pass 86  # fail 0
 
 # the negative control the job body asks for: the same run with the B1/B2 finiteness
 # predicate disabled (two `if (false && …)` edits, reverted immediately afterwards)
@@ -155,11 +161,40 @@ Every claim the review made about these six held.
    an arbitrary tick ceiling would be a new policy the ABI does not have; the doc now says the
    batch is bounded by `ticks` and by nothing else.
 
+## After the ABI moved to revision 2
+
+The gate's `sdk-test` row failed on this tree (7 of 86) after ABI revision 2 landed, and the
+cause was entirely in the tests, not in `src/`:
+
+- `abi-version.test.mjs` and `wasm-loader.test.mjs` each carried their own copy of the
+  export-name list a stub module must satisfy. Both were one name short (`gm_layout_params`),
+  so `requireExports` refused every stub in `requireExports` before the check each test
+  existed to make — three handshake tests and three m9 tests, none of them about the loader.
+- Both `abi-version.test.mjs` and `internals.test.mjs` pinned the revision as the literal `1`.
+
+Fixed in the tests only, `src/` untouched:
+
+- **`test/stub-module.mjs` (new)** — the one place the bytes and the name list live, imported
+  by both files. It checks its own list against `EXPORT_NAMES` read out of `src/wasm.ts` at
+  load, and throws naming the missing or extra names. Negative control, run in this job:
+  deleting `gm_layout_params` from the list makes the module throw
+  `test/stub-module.mjs is behind src/wasm.ts's EXPORT_NAMES — missing gm_layout_params`
+  before a single test runs. That is the guard the old layout did not have: the drift was
+  loud, but it was loud *seven times over* and none of the seven said what was wrong.
+- The pinned literal is `2`, with the one-line reason (`params_ptr`/`params_len` stopped being
+  refused and started carrying a layout's parameters; `gm_layout_params` joined the exports,
+  `docs/contract/wasm-abi.md` "Exports").
+
 ## Deviations
 
 `crates/graph-sdk-js/src/{motor,stages,force,force-calls,force-columns,force-params}.ts` are new
 or rewritten files inside the allowed `crates/graph-sdk-js/**`; `harness/adapter-convergence.mjs`
 gained its negative cases, M14's guard and m31's check; `docs/contract/wasm-abi.md` was edited
 only in its own "File-size deviations" section (m113), leaving the ingest ceiling's number alone.
-No file outside the job's paths was modified — `git status --porcelain` shows exactly ten
-entries, all inside them.
+No file outside the job's paths was modified.
+
+One thing this job's paths cannot cover: the two test files that failed were failing because a
+*different* job (`fix-wasm-ingest`, ABI revision 2) changed `src/wasm.ts` mid-flight. The gate
+caught it, which is the point of the row. Nothing here is a claim that the SDK is unaffected by
+the revision — `sdk:typecheck`, `sdk:smoke` and the adapter-convergence run were all re-run
+after the move and are green (`0`, `# pass`, `# pass`, `0` for lint).

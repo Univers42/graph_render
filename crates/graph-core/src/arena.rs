@@ -20,7 +20,9 @@ use indexmap::map::raw_entry_v1::RawEntryMut;
 pub struct Interned(NonZeroU32);
 
 impl Interned {
-    fn slot(self) -> usize {
+    /// The arena slot this handle names, `0` for the first string interned. Public to
+    /// the crate so a build can table slot → dense index; the wire never sees it.
+    pub(crate) fn slot(self) -> usize {
         (self.0.get() - 1) as usize
     }
 }

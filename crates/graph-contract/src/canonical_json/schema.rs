@@ -69,6 +69,19 @@ fn note_codes(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
     })
 }
 
+/// A z column: an array of `f32` and nothing else, never `null`. `Option` would make
+/// schemars admit `null` as well, which the reader refuses (`read/geometry.rs` takes a
+/// z column or refuses, and a `null` is neither); absence is the whole of what `Option`
+/// means here, because whether `z` must be there follows the top-level `dim`, which JSON
+/// Schema cannot tie a member's presence to — so `z` stays out of `required` and the
+/// reader decides. The doc comment still lands as the `description`.
+fn z_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    schemars::json_schema!({
+        "type": "array",
+        "items": { "type": "number", "format": "float" }
+    })
+}
+
 /// Node identity.
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -112,6 +125,7 @@ pub enum NodeGeometry {
         y: Vec<f32>,
         /// Depth centre. Present iff the snapshot's `dim` is 1.
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(schema_with = "z_schema")]
         z: Option<Vec<f32>>,
     },
     /// Centres and radii.
@@ -124,6 +138,7 @@ pub enum NodeGeometry {
         y: Vec<f32>,
         /// Depth centre. Present iff the snapshot's `dim` is 1.
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(schema_with = "z_schema")]
         z: Option<Vec<f32>>,
     },
     /// Boxes.
@@ -138,6 +153,7 @@ pub enum NodeGeometry {
         y: Vec<f32>,
         /// Depth centre. Present iff the snapshot's `dim` is 1.
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(schema_with = "z_schema")]
         z: Option<Vec<f32>>,
     },
 }

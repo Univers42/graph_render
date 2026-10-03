@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { type LiveBridge, createLiveBridge } from "../src/motor/bridge.ts";
-import { createForceHost } from "../src/motor/liveLoop.ts";
+import { DEFAULT_PERIOD_MS, createForceHost } from "../src/motor/liveLoop.ts";
 import { type LiveForce, NO_ADAPTER_REASON } from "../src/motor/live.ts";
 import { SILENCE_MS, SILENCE_REASON, workerFailed } from "../src/motor/watchdog.ts";
 import type { ForceFrame, ForceRequest, Result } from "../src/motor/protocol.ts";
@@ -64,7 +64,7 @@ function arm(clock: FakeClock, run: () => void, ms: number): () => void {
 }
 
 function frame(alpha: number, running = true): ForceFrame {
-  return { xs: Float64Array.of(1, 2), ys: Float64Array.of(3, 4), alpha, running };
+  return { xs: Float32Array.of(1, 2), ys: Float32Array.of(3, 4), alpha, running };
 }
 
 /** A motor the test drives: it answers what it is sent, and can then go quiet or throw. */
@@ -123,8 +123,8 @@ function fakeWorker(): FakeWorker {
 
 const RUNNING: Result = { type: "force-state", running: true, disabled: null, paused: false };
 
-/** What the worker's own loop paces itself with (worker.ts's FRAME_MS). */
-const FRAME_MS = 16;
+/** The worker loop's period when a tick takes no time (liveLoop.ts's DEFAULT_PERIOD_MS). */
+const FRAME_MS = DEFAULT_PERIOD_MS;
 
 interface FakePort extends LiveForce {
   /** Set when the graph behind the port was replaced: the session it holds is released. */
@@ -178,7 +178,7 @@ function rigged(): Rigged {
   const port = fakePort();
   const page: { hear: (result: Result) => void } = { hear: () => undefined };
   const host = createForceHost(() => port, {
-    schedule: (run) => arm(clock, run, FRAME_MS),
+    schedule: (run, ms) => arm(clock, run, ms),
     now: () => clock.elapsed,
     emit: (result) => page.hear(result),
   });

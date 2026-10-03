@@ -6,6 +6,7 @@ import { EMPTY_FRAME } from "../../graph-render/src/scene.ts";
 import type { Style } from "../../graph-render/src/style.ts";
 import type { Theme } from "../../graph-render/src/theme.ts";
 import type { ViewEvents } from "../../graph-render/src/view.ts";
+import type { ForceLink } from "../src/actions/forces.ts";
 import type { MotorClient } from "../src/motor/client.ts";
 import type { GraphMeta } from "../src/source/meta.ts";
 import { metaOf } from "../src/source/meta.ts";
@@ -135,7 +136,8 @@ function recordingView(seen: Seen, handlers: Handlers): ViewFace {
   };
 }
 
-export function desk(client: MotorClient, settings?: Settings): Desk {
+/** `forces` is the live link behind the Forces actions; without it they are all unavailable. */
+export function desk(client: MotorClient, settings?: Settings, forces?: ForceLink): Desk {
   const seen: Seen = { frames: [], styles: [], themes: [], policies: [], calls: [], cameras: [] };
   const handlers: Handlers = { hover: new Set(), select: new Set(), selection: new Set(), camera: new Set(), context: new Set(), frame: new Set() };
   const saved: Saved[] = [];
@@ -147,6 +149,7 @@ export function desk(client: MotorClient, settings?: Settings): Desk {
     save: (name, data) => void saved.push({ name, data }),
     now: () => (clock += 1),
     ...(settings === undefined ? {} : { settings }),
+    ...(forces === undefined ? {} : { forces }),
   });
   return {
     studio, seen, saved,

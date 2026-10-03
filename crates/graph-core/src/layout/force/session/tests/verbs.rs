@@ -18,99 +18,12 @@
 //! `setters.rs` is the other half — a **refused** verb changes nothing at all, and an
 //! accepted one changes exactly the next tick. Together the two files are the whole
 //! setter contract: take the value exactly, or leave the session alone.
+//!
+//! The pin verbs are `pins.rs`'s: they place a row rather than gathering a force, and they
+//! are read against `sim.rs`'s integrate tail rather than against a parameter.
 
-use super::support;
-use crate::layout::force::session::{ForceSession, LiveParams, NodeRow};
-
-/// The model both runs of every case here share: 7 nodes, so every force has a
-/// neighbour to push against and a pair far enough apart to push.
-const SEED: u32 = 5;
-
-/// How many ticks both runs are stepped *before* the verb, so the forces have real
-/// velocities rather than the zero row the spiral seed starts from — a verb applied to
-/// an unmoved layout proves less than one applied to a running one.
-const WARMUP: u32 = 12;
-
-/// The row `pin` and the release case address, and a pin far outside anything the layout
-/// reaches on its own, so a pinned row cannot land where it would have landed anyway.
-const ROW: u32 = 0;
-const PX: f64 = -250.0;
-const PY: f64 = 175.0;
-
-/// Which release verb a case is about: `unpin` frees one row, `unpin_all` frees every
-/// row. The same contract with a different blast radius, so both are worth one case.
-#[derive(Clone, Copy)]
-enum Release {
-    /// [`ForceSession::unpin`], on [`ROW`] alone.
-    Row,
-    /// [`ForceSession::unpin_all`].
-    Everything,
-}
-
-/// Two runs of the same model, stepped in lockstep, one of which will be told something
-/// the other is not. The whole file is the distance between them.
-struct Twin {
-    /// The run nothing is ever said to: what the subject is measured against.
-    reference: ForceSession,
-    /// The run every verb in this file goes to.
-    subject: ForceSession,
-}
-
-impl Twin {
-    /// Two fresh sessions over the gate's model for `seed`. A pair that differed by one
-    /// field would make every assertion here compare two different problems.
-    fn twinned(seed: u32) -> Self {
-        let topology = support::topology(seed);
-        let new = || ForceSession::new(&topology, LiveParams::default()).expect("in range");
-        Self {
-            reference: new(),
-            subject: new(),
-        }
-    }
-
-    /// Steps both runs the same number of ticks — the only thing that may differ between
-    /// two runs of one model, and what `m1b` pins.
-    fn step(&mut self, ticks: u32) {
-        self.reference.step(ticks);
-        self.subject.step(ticks);
-    }
-
-    /// The two runs are the same bytes, `when` naming the point in the contract.
-    fn assert_same(&self, when: &str) {
-        assert_eq!(
-            support::bits(&self.subject),
-            support::bits(&self.reference),
-            "{when}"
-        );
-    }
-
-    /// The two runs are not the same bytes, `when` naming what was supposed to move.
-    fn assert_differ(&self, when: &str) {
-        assert_ne!(
-            support::bits(&self.subject),
-            support::bits(&self.reference),
-            "{when}"
-        );
-    }
-}
-
-/// Steps `diverge`'s steps 1–2 for a changed parameter: both runs warm, both identical,
-/// the verb on the subject alone, and the positions **still** identical because a verb
-/// only ever arms the next tick. Returns the pair one tick later, for the caller to say
-/// what its force did.
-fn diverge(seed: u32, force: &str, params: LiveParams) -> Twin {
-    let mut twin = Twin::twinned(seed);
-    twin.step(WARMUP);
-    twin.assert_same("two runs of one model are the same bytes before any verb");
-    twin.subject
-        .set_params(params)
-        .unwrap_or_else(|_| panic!("{force} is in range"));
-    twin.assert_same(&format!(
-        "{force}: set_params has moved nothing, it has armed the next tick"
-    ));
-    twin.step(1);
-    twin
-}
+use super::support::{SEED, Twin, WARMUP, diverge};
+use crate::layout::force::session::LiveParams;
 
 /// Repulsion is the many-body charge, and it is the one force whose sign convention is
 /// worth a test: it is stored as a negative potential term, so the "changed" value here is
@@ -202,72 +115,6 @@ fn drag_changes_the_next_tick_and_nothing_before_it() {
     twin.assert_differ("the velocity the subject integrates with is nearly killed");
 }
 
-/// A pin is consumed at the *tail* of the next tick, in `integrate`, which places the row
-/// exactly and zeroes its velocity. So the row's own bits are the pin's bits — a nearly
-/// exact pin is a node that springs back under the cursor, which `m1d.rs` watches over
-/// many ticks and this watches for the tick the verb was given on.
-#[test]
-fn a_pin_changes_the_next_tick_and_nothing_before_it() {
-    let mut twin = Twin::twinned(SEED);
-    twin.step(WARMUP);
-    twin.assert_same("two runs of one model are the same bytes before any verb");
-    twin.subject
-        .pin(NodeRow::new(ROW), PX, PY)
-        .expect("row 0 exists and both coordinates are finite");
-    twin.assert_same("a pin is not a move: the row is still where the forces left it");
-    twin.step(1);
-    twin.assert_differ("and one tick later it has been placed, not integrated");
-    assert_eq!(
-        (
-            twin.subject.xs()[ROW as usize].to_bits(),
-            twin.subject.ys()[ROW as usize].to_bits()
-        ),
-        (PX.to_bits(), PY.to_bits()),
-        "a pinned row is placed at the pin, bit for bit"
-    );
-}
-
-/// Releasing is the verb whose failure is a node stuck in the corner forever, and it is
-/// the one with no argument a caller can get wrong: `unpin` frees the row it is given,
-/// `unpin_all` frees every row. Both are the pin contract run backwards — nothing moves
-/// at the verb, and the row is handed back to the forces by the next tick's tail.
-#[test]
-fn releasing_a_pin_changes_the_next_tick_and_nothing_before_it() {
-    for release in [Release::Row, Release::Everything] {
-        let mut twin = Twin::twinned(SEED);
-        for run in [&mut twin.reference, &mut twin.subject] {
-            run.pin(NodeRow::new(ROW), PX, PY).expect("row 0 exists");
-        }
-        twin.step(WARMUP);
-        twin.assert_same("both runs are pinned the same way, so both are the same bytes");
-        release_from(&mut twin.subject, release);
-        twin.assert_same("a release is not a move: nothing has been integrated yet");
-        twin.step(1);
-        twin.assert_differ("and one tick later the released rows are the forces' again");
-        match release {
-            Release::Row => {
-                assert_eq!(
-                    twin.reference.xs()[ROW as usize].to_bits(),
-                    PX.to_bits(),
-                    "the reference is still exactly on its pin"
-                );
-                assert_ne!(
-                    twin.subject.xs()[ROW as usize].to_bits(),
-                    PX.to_bits(),
-                    "and the subject's row is the forces' again"
-                );
-            }
-            Release::Everything => assert!(
-                twin.subject
-                    .xs()
-                    .iter()
-                    .any(|&x| x.to_bits() != PX.to_bits()),
-                "every row was released, so none of them is still sitting on a pin"
-            ),
-        }
-    }
-}
-
 /// The verb behind "the user moved something, run it again": `alpha` is read at the top
 /// of the next tick, so the same "nothing now, everything next" contract holds for the
 /// schedule itself. `live.rs` owns the exact cooling arithmetic and the one-tick
@@ -298,16 +145,4 @@ fn an_alpha_target_changes_the_next_tick_and_nothing_before_it() {
     twin.assert_same("a target is not a move: nothing has been integrated yet");
     twin.step(1);
     twin.assert_differ("and the next tick cools toward the target rather than toward zero");
-}
-
-/// One release verb on the subject, `force::Session` having refused nothing here.
-fn release_from(session: &mut ForceSession, release: Release) {
-    let freed = match release {
-        Release::Row => session.unpin(NodeRow::new(ROW)),
-        Release::Everything => {
-            session.unpin_all();
-            Ok(())
-        }
-    };
-    freed.expect("row 0 exists");
 }

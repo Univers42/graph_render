@@ -6,165 +6,24 @@
 //! the caller cannot see, and a force layout that quietly ran with `theta = 1.5` instead of
 //! the `2.0` that was asked for still returns a plausible picture.
 //!
-//! The ranges are this file's constants and nothing else — no other module states a bound,
-//! so a bound can only move here, and `session/tests/m1e.rs` pins both ends of every one.
+//! The ranges themselves are `ranges.rs`'s consts and nothing else — no other module states
+//! a bound, so a bound can only move there, and `session/tests/m1e.rs` pins both ends of
+//! every one. What is here is the struct, the two *relations* between fields that no single
+//! range can express ([`relations`](Self::relations)), and the one order both validators walk.
 
-use super::error::SessionError;
-use crate::layout::force::params::ForceParams;
+mod ranges;
 
 #[cfg(test)]
 mod tests;
 
-/// One field's accepted range, and the sentence its refusal carries. `rule` is a
-/// `&'static str` rather than formatted text so it can be handed straight to
-/// `StageError::Param` and across the ABI without an allocation.
-pub(super) struct Range {
-    /// The `LiveParams` field's name.
-    name: &'static str,
-    /// Inclusive lower bound.
-    min: f64,
-    /// Inclusive upper bound.
-    max: f64,
-    /// The rule, with the numbers in it.
-    rule: &'static str,
-}
+use self::ranges::{
+    ALPHA_DECAY, ALPHA_MIN, CENTER_STRENGTH, CHARGE, COLLIDE_RADIUS, DISTANCE_MAX, DISTANCE_MIN,
+    GRAVITY, INITIAL_ALPHA, LINK_DISTANCE, LINK_STRENGTH_SCALE, Range, THETA, VELOCITY_DECAY,
+};
+use super::error::SessionError;
+use crate::layout::force::params::ForceParams;
 
-impl Range {
-    /// `value` against this range: finite first, then the bounds. A NaN fails the first
-    /// test and an infinity the second, which is why both are refused and neither is
-    /// clamped.
-    pub(super) fn check(&self, value: f64) -> Result<(), SessionError> {
-        if !value.is_finite() {
-            return Err(SessionError::NonFinite { field: self.name });
-        }
-        if value < self.min || value > self.max {
-            return Err(SessionError::OutOfRange {
-                field: self.name,
-                rule: self.rule,
-            });
-        }
-        Ok(())
-    }
-
-    /// `value` against this range with the upper end **open**: `min <= value < max`. One
-    /// half-step's difference from [`check`](Self::check), for a field whose maximum is a
-    /// value the layout cannot use.
-    pub(super) fn check_open(&self, value: f64) -> Result<(), SessionError> {
-        self.check_finite(value)?;
-        if value < self.min || value >= self.max {
-            return Err(SessionError::OutOfRange {
-                field: self.name,
-                rule: self.rule,
-            });
-        }
-        Ok(())
-    }
-
-    /// `value` for finiteness only. What this range's *bounds* are is not this method's
-    /// business: the frozen stage has no bounds, only the D9 rule.
-    fn check_finite(&self, value: f64) -> Result<(), SessionError> {
-        if value.is_finite() {
-            return Ok(());
-        }
-        Err(SessionError::NonFinite { field: self.name })
-    }
-}
-
-const CHARGE: Range = Range {
-    name: "charge",
-    min: -5000.0,
-    max: 0.0,
-    rule: "charge: finite, -5000..=0",
-};
-const THETA: Range = Range {
-    name: "theta",
-    min: 0.3,
-    max: 1.5,
-    rule: "theta: finite, 0.3..=1.5",
-};
-const DISTANCE_MIN: Range = Range {
-    name: "distance_min",
-    min: 0.0,
-    max: 1000.0,
-    rule: "distance_min: finite, 0..=1000",
-};
-const DISTANCE_MAX: Range = Range {
-    name: "distance_max",
-    min: 1.0,
-    max: 1_000_000.0,
-    rule: "distance_max: finite, 1..=1000000",
-};
-const LINK_DISTANCE: Range = Range {
-    name: "link_distance",
-    min: 1.0,
-    max: 2000.0,
-    rule: "link_distance: finite, 1..=2000",
-};
-const LINK_STRENGTH_SCALE: Range = Range {
-    name: "link_strength_scale",
-    min: 0.0,
-    max: 4.0,
-    rule: "link_strength_scale: finite, 0..=4",
-};
-const COLLIDE_RADIUS: Range = Range {
-    name: "collide_radius",
-    min: 0.0,
-    max: 400.0,
-    rule: "collide_radius: finite, 0..=400",
-};
-const CENTER_STRENGTH: Range = Range {
-    name: "center_strength",
-    min: 0.0,
-    max: 1.0,
-    rule: "center_strength: finite, 0..=1",
-};
-const GRAVITY: Range = Range {
-    name: "gravity",
-    min: 0.0,
-    max: 1.0,
-    rule: "gravity: finite, 0..=1",
-};
-const VELOCITY_DECAY: Range = Range {
-    name: "velocity_decay",
-    min: 0.01,
-    max: 0.99,
-    rule: "velocity_decay: finite, 0.01..=0.99",
-};
-const ALPHA_DECAY: Range = Range {
-    name: "alpha_decay",
-    min: 0.0,
-    max: 1.0,
-    rule: "alpha_decay: finite, 0..=1",
-};
-const ALPHA_MIN: Range = Range {
-    name: "alpha_min",
-    min: 0.0,
-    max: 1.0,
-    rule: "alpha_min: finite, 0..=1",
-};
-const INITIAL_ALPHA: Range = Range {
-    name: "initial_alpha",
-    min: 0.0,
-    max: 1.0,
-    rule: "initial_alpha: finite, 0..=1",
-};
-/// The cooling schedule's own value, `alpha`: `0..=1`, and both ends are values a run can
-/// actually be in — a layout held at full heat, and one at rest.
-pub(super) const ALPHA: Range = Range {
-    name: "alpha",
-    min: 0.0,
-    max: 1.0,
-    rule: "alpha: finite, 0..=1",
-};
-/// The value `alpha` moves *toward*, which is not a [`LiveParams`] field: the upper end is
-/// open, because a target of exactly 1 holds the layout at full heat forever and
-/// [`StepReport::settled`](super::StepReport::settled) can never be true again.
-pub(super) const ALPHA_TARGET: Range = Range {
-    name: "alpha_target",
-    min: 0.0,
-    max: 1.0,
-    rule: "alpha_target: finite, 0..<1",
-};
+pub(super) use self::ranges::{ALPHA, ALPHA_TARGET};
 
 /// Everything a force session can be told. [`Default`] is the frozen force set
 /// (`layout::force::ForceParams`), field for field, because the frozen layout *is* a
@@ -214,27 +73,65 @@ pub struct LiveParams {
 }
 
 impl LiveParams {
-    /// Every field against its range, in field order, so the first bad one is named.
+    /// Every field against its range, then every relation between two of them.
+    ///
+    /// The per-field half walks [`ordered`](Self::ordered) — the same list
+    /// [`validate_finite`](Self::validate_finite) walks — so the two can never name a
+    /// different "first bad field". [`relations`](Self::relations) runs **after** every
+    /// field has passed its own range, so a value that is wrong on its own is still
+    /// reported as the field that is wrong.
     pub fn validate(&self) -> Result<(), SessionError> {
-        CHARGE.check(self.charge)?;
-        THETA.check(self.theta)?;
-        DISTANCE_MIN.check(self.distance_min)?;
-        DISTANCE_MAX.check(self.distance_max)?;
-        LINK_DISTANCE.check(self.link_distance)?;
-        LINK_STRENGTH_SCALE.check(self.link_strength_scale)?;
-        COLLIDE_RADIUS.check(self.collide_radius)?;
-        CENTER_STRENGTH.check(self.center_strength)?;
-        GRAVITY.check(self.gravity)?;
-        VELOCITY_DECAY.check(self.velocity_decay)?;
-        ALPHA_DECAY.check(self.alpha_decay)?;
-        ALPHA_MIN.check(self.alpha_min)?;
-        INITIAL_ALPHA.check(self.initial_alpha)
+        for (range, value) in self.ordered() {
+            range.check(value)?;
+        }
+        self.relations()
+    }
+
+    /// The two cross-field invariants, each of which thirteen independent per-field ranges
+    /// cannot express. Refused, like every other bad value, and for the same reason: a pair
+    /// the layout cannot use is not a layout.
+    ///
+    /// - **`distance_min < distance_max`.** The two are read as an inner and an outer
+    ///   radius of one many-body shell (`barnes_hut/charge.rs`'s `dmin2`/`dmax2`,
+    ///   `particle_mesh/mesh.rs`'s `Law`), so an inside-out pair describes a shell no pair
+    ///   of nodes is inside: every repulsion term is skipped and the picture comes back
+    ///   plausible with no repulsion in it.
+    /// - **`initial_alpha >= alpha_min`.** The first is the heat a session is *born* at and
+    ///   the second is the heat below which it calls itself settled, so a session born
+    ///   below its own threshold reports `settled` on tick 0, before any force has been
+    ///   gathered.
+    ///
+    /// Ponytail (`distance_min < distance_max`, strict): the degenerate value this refuses
+    /// is `distance_min == distance_max`, a shell of zero width, which is the same
+    /// no-repulsion picture rather than a different one. Failing input: a caller who meant
+    /// "no repulsion" and wrote it as an empty shell. Direction: over-refusing — a caller
+    /// who wants no repulsion must now write `charge = 0`, which says what it means.
+    /// Escape hatch: `charge = 0.0`, in range, and the honest spelling.
+    fn relations(&self) -> Result<(), SessionError> {
+        if self.distance_min >= self.distance_max {
+            return Err(SessionError::OutOfRange {
+                field: "distance_min",
+                rule: "distance_min: finite, 0..=1000, and < distance_max",
+            });
+        }
+        if self.initial_alpha < self.alpha_min {
+            return Err(SessionError::OutOfRange {
+                field: "initial_alpha",
+                rule: "initial_alpha: finite, 0..=1, and >= alpha_min",
+            });
+        }
+        Ok(())
     }
 
     /// Finiteness alone, in [`validate`](Self::validate)'s field order, so the first
-    /// non-finite field is the one named. No bounds and no clamping: the frozen stage's
-    /// parameter set predates the live ranges, and the only thing it refuses is a value
-    /// whose bits wasm32 does not pin (D9).
+    /// non-finite field is the one named. No bounds, no relations and no clamping: the
+    /// frozen stage's parameter set predates the live ranges, and the only thing it refuses
+    /// is a value whose bits wasm32 does not pin (D9).
+    ///
+    /// This is the one acceptance path that is *not* [`validate`](Self::validate), and
+    /// `session/tests/frozen_path.rs` is what says so: it is reached only from
+    /// [`ForceSession::from_frozen`](super::ForceSession::from_frozen), never from a live
+    /// setter, so no setter can inherit its weaker promise.
     pub fn validate_finite(&self) -> Result<(), SessionError> {
         for (range, value) in self.ordered() {
             range.check_finite(value)?;

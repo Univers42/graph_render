@@ -18,5 +18,5 @@ for v in CARGO_BUILD_JOBS RUST_TEST_THREADS; do [[ -n ${!v-} ]] && envs+=(-e "$v
 mem=${GR_MEM:-8g}
 image=${GR_IMAGE:-ge-rust}
 ensure_image "$image"
-exec docker run --rm --pull never --memory "$mem" --memory-swap "$mem" ${envs[@]+"${envs[@]}"} -v "$top:/w" -w /w \
+exec "$(dirname "$(readlink -f "$0")")/drun" --rm --pull never --memory "$mem" --memory-swap "$mem" ${envs[@]+"${envs[@]}"} -v "$top:/w" -w /w \
   -v ge-cargo-registry:/opt/cargo/registry "$image" "$@"

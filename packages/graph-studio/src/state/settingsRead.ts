@@ -6,6 +6,7 @@
  * JSON. The types come from there and are erased, so the dependency runs one way only.
  */
 import { MAX_DEGREE, MAX_NODES, SHAPES } from "../source/synthetic.ts";
+import { readForces } from "./forces.ts";
 import { readParams } from "./paramValues.ts";
 import { type Fields, SettingsRefusal, fieldsOf, flagOf, numberOf, oneOf, textOf, textOrNull, textsOf } from "./read.ts";
 import {
@@ -90,7 +91,9 @@ export function readGroups(value: unknown, at = "settings.groups"): readonly Gro
 
 /** Settings from outside the studio, or a refusal naming the member that was wrong. */
 export function readSettings(value: unknown, at = "settings"): Settings {
-  const fields: Fields = fieldsOf(value, at, ["source", "layout", "edges", "analysis", "params", "appearance", "groups", "filter"]);
+  const fields: Fields = fieldsOf(value, at, [
+    "source", "layout", "edges", "analysis", "params", "appearance", "groups", "filter", "forces",
+  ]);
   return settingsOf({
     source: readSource(fields["source"], `${at}.source`),
     layout: textOf(fields, at, "layout"),
@@ -100,5 +103,6 @@ export function readSettings(value: unknown, at = "settings"): Settings {
     appearance: readAppearance(fields["appearance"], `${at}.appearance`),
     groups: readGroups(fields["groups"], `${at}.groups`),
     filter: readFilter(fields["filter"], `${at}.filter`),
+    forces: readForces(fields["forces"], `${at}.forces`),
   });
 }
