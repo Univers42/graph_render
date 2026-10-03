@@ -5,7 +5,7 @@
 use super::super::aggregate::{self, Pass, finish};
 use super::super::{Body, prepare, prepare_with};
 use crate::REFERENCE_DEGREE;
-use crate::exec::{Runner, Serial};
+use crate::exec::{Runner, Serial, StepRange, range_at};
 use crate::index::index_model;
 use crate::layout::force::barnes_hut::sim::Sim;
 use crate::layout::force::params::ForceParams;
@@ -132,8 +132,29 @@ fn a_parallel_aggregate_over_coincident_points_is_the_serial_one() {
     for workers in WORKERS {
         let mut divided = vec![Body::default(); serial.len()];
         Serial.run(&pass, workers, &mut divided);
-        finish(&pass, &mut divided, workers);
+        finish(&pass, &mut divided);
         assert_eq!(bits(&divided), bits(&serial), "{workers} workers");
+    }
+}
+
+/// The division is the runner's, not `workers`': the wasm pool cuts a pass into 16 chunks
+/// per thread. Chunk counts that are no worker count, over a model deep enough that every
+/// boundary cuts a subtree, must still finish to the serial bodies.
+#[test]
+fn any_division_of_the_aggregate_finishes_to_the_serial_one() {
+    let sim = seeded_sim(5, 400, 1);
+    let pass = Pass::of(&sim.charge_tree, (&sim.x, &sim.y), sim.params.theta);
+    let mut serial = vec![Body::default(); pass.cells.len()];
+    aggregate::serial(&pass, &mut serial);
+    for chunks in [2, 3, 16, 48, 112, pass.len()] {
+        let mut divided = vec![Body::default(); serial.len()];
+        for i in 0..chunks {
+            let range = range_at(pass.len(), chunks, i);
+            let span = &mut divided[range.start as usize..range.end as usize];
+            pass.step_range(range, span);
+        }
+        finish(&pass, &mut divided);
+        assert_eq!(bits(&divided), bits(&serial), "{chunks} chunks");
     }
 }
 

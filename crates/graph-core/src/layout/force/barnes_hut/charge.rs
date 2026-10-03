@@ -67,7 +67,7 @@ pub(super) fn prepare_with(sim: &mut Sim, runner: &impl Runner, workers: u32) {
     sim.charge_tree.build(&sim.x, &sim.y);
     let pass = aggregate::Pass::of(&sim.charge_tree, (&sim.x, &sim.y), sim.params.theta);
     runner.run(&pass, workers, &mut sim.bodies);
-    aggregate::finish(&pass, &mut sim.bodies, workers);
+    aggregate::finish(&pass, &mut sim.bodies);
 }
 
 /// [`prepare_with`] over [`Serial`](crate::exec::Serial) and one worker: the serial

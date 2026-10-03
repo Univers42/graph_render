@@ -9,12 +9,18 @@
 //! per-cell arithmetic is the one [`Body::of`] the serial loop calls — same function, same
 //! order, so a worker count is a schedule and not a second program.
 //!
-//! **The cells a range boundary cuts.** `partition` divides by output count, not by subtree,
+//! **The cells a range boundary cuts.** A runner divides by output count, not by subtree,
 //! so a range can end in the middle of a subtree: cell `k` may need a child at an index
 //! another worker is writing this instant. Such a cell is left at its `Default` and
-//! [`finish`] computes it after the barrier, when every child is final. There are at most
-//! `workers` such cells per boundary and they are the ancestors of the boundary cell, so
-//! the serial tail is `O(workers × depth)` cells of work over one `O(cells)` scan.
+//! [`finish`] computes it after the barrier, when every child is final. The cut cells of a
+//! boundary are the boundary cell's ancestors, so the serial tail is `O(ranges × depth)`
+//! cells of work over one `O(cells)` scan.
+//!
+//! [`finish`] finds them by their `Default` (`skip == 0`; a computed body's `skip` is past
+//! its own index), not by recomputing the division: `Runner` fixes the bytes, not the
+//! ranges. The wasm pool cuts a pass into 16 chunks per thread, and a `finish` that assumed
+//! `workers` ranges left the chunk-boundary cells at `Default`, whose `skip` of 0 sent the
+//! charge walk back to the root forever (`graph-wasm` `pool::tests`, 2026-10-03).
 //!
 //! Caveat: the scan that finds them is serial and touches every cell, so the parallel
 //! aggregate only wins once the cells outnumber `workers` by a wide margin — measured at
@@ -25,7 +31,7 @@ use std::ops::Range;
 
 use super::Body;
 use super::threshold::{centre, opening_threshold};
-use crate::exec::{StepRange, range_at};
+use crate::exec::StepRange;
 use crate::layout::force::quadtree::{Cell, Quadtree};
 
 /// One tick's aggregate: the arena it reads and the constants every cell resolves against.
@@ -132,20 +138,15 @@ pub(super) fn serial(pass: &Pass<'_>, bodies: &mut [Body]) {
 }
 
 /// The tail every range leaves: the cells a boundary cut, computed now that every child is
-/// final. `workers` is the count `run` was given, since the plan is a pure function of it.
+/// final, whichever division the runner chose.
 ///
-/// **Descending, ranges and cells both.** A cut cell's children sit at higher indices, some
-/// of them in the next range — which `run` has finished, but whose *cut* cells this loop has
-/// not. Walking down from the last cell therefore reaches a cell only once every cell above
-/// it is final, whichever range wrote it.
-pub(super) fn finish(pass: &Pass<'_>, bodies: &mut [Body], workers: u32) {
-    let (n, workers) = (bodies.len() as u32, workers.max(1));
-    for i in (0..n.min(workers)).rev() {
-        let range = range_at(n, workers, i);
-        for k in (range.start..range.end).rev() {
-            if pass.cut(k, &range) {
-                bodies[k as usize] = pass.body(bodies, k, 0);
-            }
+/// **Descending.** A cut cell's children sit at higher indices, some of them cut cells of
+/// a later range. Walking down from the last cell reaches a cell only once every cell above
+/// it is final.
+pub(super) fn finish(pass: &Pass<'_>, bodies: &mut [Body]) {
+    for k in (0..bodies.len()).rev() {
+        if bodies[k].skip == 0 {
+            bodies[k] = pass.body(bodies, k as u32, 0);
         }
     }
 }
