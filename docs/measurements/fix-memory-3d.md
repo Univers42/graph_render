@@ -79,7 +79,7 @@ honest limit recorded in `three_d.rs:60`.
 
 ## What the measurement says about the ceiling
 
-`BASIC_3D_CEILING` is `MAX_BENCH_NODES` = 1 000 000 (`registry/three_d.rs:118`), and the
+`BASIC_3D_CEILING` is `MAX_BENCH_NODES` = 1 000 000 (`registry/three_d.rs:119`), and the
 measurement does not move it:
 
 - measured 3D peak **919.3 B/node** at 100 000 nodes, against the 919 B/node `GRID_CEILING`

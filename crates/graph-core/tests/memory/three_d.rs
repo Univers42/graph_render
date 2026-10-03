@@ -46,9 +46,13 @@ fn bipartite_3d_pipeline_memory_per_node() {
 }
 
 /// The four graph-free closed forms: `layout.basic3d.sphere`, `helix`, `cube` and
-/// `spiral`. Each reads the node count and no edge, so one arm standing for all four is
-/// only claimed where the numbers back it — see `docs/measurements/fix-memory-3d.md` for
-/// which pairs agreed inside 5 %.
+/// `spiral`. Each reads the node count and no edge, so one arm standing for all four is a
+/// claim about their allocation shape — and it is measured here rather than assumed: at
+/// 10 000 and at 100 000 nodes all four peak at the same byte (8 199 698 and 91 930 690),
+/// 0 % apart rather than merely inside 5 %. At 1 000 nodes three of the four are 887 903 B
+/// and `spiral` is 1 315 703 B, so the shared shape is stated at the two larger sizes and
+/// the smallest size is where it does not hold. Blocks pasted at
+/// `docs/measurements/fix-memory-3d.md`.
 #[test]
 #[ignore = "a measurement, not a check: run alone with --release -- --ignored --nocapture"]
 fn basic_3d_closed_form_pipeline_memory_per_node() {
