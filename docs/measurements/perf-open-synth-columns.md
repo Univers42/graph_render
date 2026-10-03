@@ -116,6 +116,28 @@ ingest saving. The profile agrees about where the JSON went — in the before ar
 `decode` (the `TextDecoder` over the JSON text) and `StringArena::intern` are both on the hot
 list at 1M and both disappear from the after arm's top rows.
 
+## Re-measured before landing, 2026-10-03
+
+`PERF_MEMORY=10g scripts/studio-probe.sh open 1000000 webgl2`, SwiftShader, arms alternated, 3
+rounds, medians only. Logs: `$GM_SCRATCH/orch/logs/open-1m-ab.log` and `open-1m-p4a-ab.log`.
+
+| arm | tree | `open s`, 3 runs | median | 1-min load |
+|---|---|---|---|---|
+| before | develop `873f168e` | 10.25, 10.51, 11.11 | **10.51 s** | 5.4–6.5 |
+| after | `perf-open-synth-columns` `e8c00beb` | 3.73, 3.73, 3.75 | **3.73 s** | 5.4–6.5 |
+| after | `perf-open-synth-columns` `e8c00beb` | 4.77, 3.57, 4.17 | **4.17 s** | 11.7–12.2 |
+| after + P4a | `perf-p4a-extend` `635abfb8` | 4.86, 3.97, 3.41 | **3.97 s** | 11.7–12.2 |
+
+The open stack takes the 1M open from 10.51 s to 3.73 s, against P5's 12.45 s baseline. P4a's
+append CSRs cost nothing measurable on the open: 3.97 s against 4.17 s in the same session, inside
+the run-to-run spread.
+
+On the `e8c00beb` arm the probe printed its open time and then exited 1:
+`Profiler.stop ... Session with given id not found`. The open stack starts every new source in a
+new worker (`motor/client.ts`, `loadFresh`), so the worker the probe attached to before the open is
+gone afterwards. `deploy/perf/open.py` now reports that worker as retired and exits 0; the worker
+that builds the graph is not profiled (its Caveat).
+
 ## What this does not do
 
 - The documents and fixtures stay on JSON. `normaliseIngest` is the JSON reader's contract and
