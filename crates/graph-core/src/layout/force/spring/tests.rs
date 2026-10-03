@@ -22,6 +22,8 @@
 
 #[path = "tests/golden.rs"]
 mod golden;
+#[path = "tests/seed.rs"]
+mod seed;
 
 use super::{ID, Spring, SpringParams};
 use crate::layout::coords::probe::{graph, points};

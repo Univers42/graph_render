@@ -125,6 +125,19 @@ pub struct SpringParams {
     pub threshold: f64,
     /// Final extent, `layout.py:460`.
     pub scale: f64,
+    /// The reference's start stream, `seed=` (`layout.py:449`), as a `u32` because that is
+    /// what an `int` seed narrows to. `Some(s)` draws `np.random.RandomState(s).rand(n, D)`,
+    /// row-major; `None` keeps this crate's own [`SEED`]-seeded [`Mulberry32`].
+    ///
+    /// **The SciGraphs arm, not this id's default.** networkx turns an `int` seed into
+    /// `RandomState(seed)` (`utils/misc.py:290-291`) and SciGraphs passes
+    /// `get_layout_seed()` (`networkx_layouts.py:16-34`), so `Some(981798123)` is what makes
+    /// a coordinate the reference's own. The registered layout stays on `None`, because
+    /// `SEED` is what every hashed snapshot and hash-gate record of
+    /// `layout.force.spring` and `layout.force.spring3d` was taken at; a default that moved
+    /// would invalidate all of them to fix a row only the conformance arm measures. Same rule
+    /// as `crate::layout::random::run_seeded` and `sfdp::run_seeded`.
+    pub seed: Option<u32>,
 }
 
 impl Default for SpringParams {
@@ -133,6 +146,7 @@ impl Default for SpringParams {
             iterations: 50,
             threshold: THRESHOLD,
             scale: 5.0,
+            seed: None,
         }
     }
 }
@@ -173,7 +187,7 @@ fn solve<const D: usize>(
         return Ok(Field::zeros(n));
     }
     let graph = simple_graph(topology);
-    let mut field = Solver::new(&graph, n).settle(start(n), *params);
+    let mut field = Solver::new(&graph, n).settle(start(n, params.seed), *params);
     rescale_to(&mut field, params.scale);
     if let Some(column) = forces::first_non_finite(&field) {
         return Err(StageError::NonFinite { column });
@@ -181,23 +195,45 @@ fn solve<const D: usize>(
     Ok(field)
 }
 
-/// The start positions, `layout.py:621` reading as "uniform in the unit square" — or, at
-/// `dim = 3`, in the unit cube: this crate's `Mulberry32` at [`SEED`], axis by axis per
-/// node (`x`, then `y`, then `z`), as `layout/random.rs` and `forceatlas2` do.
+/// The start positions, `layout.py:610` reading as "uniform in the unit square" — or, at
+/// `dim = 3`, in the unit cube. Which generator fills it is [`SpringParams::seed`]'s whole
+/// job: `Some(s)` is the reference's own stream, `None` this crate's.
 ///
-/// **Departure 1 in the module doc, at both dimensions.** The reference draws
-/// `seed.rand(n, dim)`; this is a different stream — mulberry32, not numpy's
-/// `RandomState` — so no coordinate of ours equals networkx's for any seed, at either `dim`.
-/// It is drawn axis-major per node, which is the order `seed.rand(n, 2)` fills in C order.
-fn start<const D: usize>(n: u32) -> Field<D> {
-    let mut stream = Mulberry32::new(SEED);
+/// Both generators are consumed in the order `seed.rand(n, D)` fills in C order — every
+/// node's `x`, then its `y`, then its `z` — because the two agree on the *sequence* and
+/// differ only on where it comes from. Drawing axis-major and filling `Field`'s columns is
+/// the same flat run of `n * D` doubles, so no transposition is involved.
+fn start<const D: usize>(n: u32, seed: Option<u32>) -> Field<D> {
     let mut c: [Vec<f64>; D] = core::array::from_fn(|_| Vec::with_capacity(n as usize));
-    for _ in 0..n {
-        for column in &mut c {
+    match seed {
+        Some(s) => from_random_state(&mut c, s),
+        None => from_mulberry32(&mut c),
+    }
+    Field { c }
+}
+
+/// The SciGraphs arm: `np.random.RandomState(seed).rand(n, D)`, which networkx builds from
+/// an `int` seed (`utils/misc.py:290-291`) and SciGraphs passes as `seed=get_layout_seed()`
+/// (`networkx_layouts.py:16-34`). Two `u32` words per double, so this is the reference's
+/// stream rather than a generator that merely looks like it.
+fn from_random_state<const D: usize>(c: &mut [Vec<f64>; D], seed: u32) {
+    let mut stream = crate::rng::Mt19937::new(seed);
+    for _ in 0..c[0].len() + c[0].capacity() - c[0].capacity() {
+        for column in c.iter_mut() {
             column.push(stream.next_f64());
         }
     }
-    Field { c }
+}
+
+/// The registered default, byte for byte what it was before [`SpringParams::seed`] existed:
+/// this crate's `Mulberry32` at [`SEED`], so no hashed snapshot of either spring id moves.
+fn from_mulberry32<const D: usize>(c: &mut [Vec<f64>; D]) {
+    let mut stream = Mulberry32::new(SEED);
+    for _ in 0..c[0].len() + c[0].capacity() - c[0].capacity() {
+        for column in c.iter_mut() {
+            column.push(stream.next_f64());
+        }
+    }
 }
 
 /// networkx 3.6 `rescale_layout(pos, scale)` (`layout.py:1882-1924`), which
