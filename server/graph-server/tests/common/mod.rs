@@ -14,6 +14,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tower::ServiceExt;
 
 /// A server under test.
@@ -178,4 +179,25 @@ pub fn doc(n: usize, m: usize) -> String {
 pub fn fixture(path: &str) -> Vec<u8> {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     std::fs::read(root.join(path)).unwrap_or_else(|_| panic!("fixture {path}"))
+}
+
+/// A body whose first read is an error.
+pub fn failing_body() -> Body {
+    let chunk: Result<Bytes, std::io::Error> = Err(std::io::Error::other("read"));
+    Body::from_stream(futures_util::stream::iter([chunk]))
+}
+
+/// A chunked body (no `Content-Length`) of `count` chunks of `size` bytes, `pause` apart.
+pub fn chunked(size: usize, count: usize, pause: Duration) -> Body {
+    let chunks = futures_util::stream::unfold(0, move |sent| async move {
+        if sent == count {
+            return None;
+        }
+        if !pause.is_zero() {
+            tokio::time::sleep(pause).await;
+        }
+        let chunk: Result<Bytes, std::io::Error> = Ok(Bytes::from(vec![b' '; size]));
+        Some((chunk, sent + 1))
+    });
+    Body::from_stream(chunks)
 }

@@ -31,6 +31,9 @@ tokio = { version = "=1.53.2", features = ["rt-multi-thread", "net", "signal", "
 [dev-dependencies]
 # `ServiceExt::oneshot` drives the router in the integration tests.
 tower = { version = "=0.5.3", default-features = false, features = ["util"] }
+# Streamed request bodies (chunked, slow, failing) for the limit tests; already in the lock
+# through axum.
+futures-util = { version = "=0.3.34", default-features = false }
 
 [features]
 # The negative controls' server-side breaks (`src/breaks.rs`). Off in every shipped build.
