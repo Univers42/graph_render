@@ -32,13 +32,16 @@ fn a_negative_zero_survives_the_json_face_with_its_sign_bit() {
     assert_eq!(back.to_bytes(), s.to_bytes(), "so the bytes compare equal");
 }
 
-/// What it gets wrong: `to_json` writes an endpoint as a node id and has no error channel,
-/// so an out-of-range endpoint position would come out as `""` — an id no snapshot defines.
-/// The escape hatch is [`Snapshot::new`], which refuses such a snapshot outright, and the
-/// only two ways to hold a [`Snapshot`] — `Snapshot::new` and `Snapshot::from_bytes`, which
-/// decodes through it — both go through that refusal; the second half below shows the reader
-/// refusing before it can build one. `Ponytail:` kept as-is because making it an error would
-/// change `to_json`'s public signature; the invariant is a constructor's, not a writer's.
+/// An endpoint id is never one no node declares, so `canonical_json.rs`'s
+/// `p.node_ids.get(i).unwrap_or("")` is unreachable and is left as it is: making it an
+/// error would change `to_json`'s public signature, which returns `String`.
+///
+/// Ponytail: it gets a wrong answer only if a `Snapshot` exists with an endpoint position
+/// outside the node table, which would be written as the empty id — a node id nothing
+/// defines. Failing input: none reachable. Direction: unreachable, so nothing is invented.
+/// Escape hatch: [`Snapshot::new`], which refuses such a snapshot; the only two ways to
+/// hold a `Snapshot` are `Snapshot::new` and `Snapshot::from_bytes`, and the second decodes
+/// through the first. The second half of this test shows the reader refusing too.
 #[test]
 fn an_endpoint_that_is_not_a_node_is_refused_before_any_writer_can_see_it() {
     let mut parts = snapshot(point(), EdgeGeometry::Line).into_parts();
