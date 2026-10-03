@@ -75,6 +75,25 @@ fn a_lower_cased_control_variable_is_refused_too() {
     assert!(err.contains("no negative control"), "{err}");
 }
 
+/// **Another subsystem's `GM_MUTATE_*` variable is refused loudly, not ignored — and the two
+/// facts together are what keeps the conformance negative control working.** The conformance
+/// gate perturbs its motor arm with `GM_MUTATE_SCIGRAPHS_CONFORMANCE`
+/// (`oracle_python/conformance/motor.rs`'s `BREAK_ENV`), which
+/// `emit-conformance-fixtures` reads without ever reaching a knob. The two subsystems share
+/// the `GM_MUTATE_` prefix by accident, so both halves are pinned here: a knob path that sees
+/// the conformance variable refuses it and names it, and the emit path sees no sweep at all
+/// (run `emit-conformance-fixtures` with the variable set: exit 0, bit flipped).
+#[test]
+fn another_subsystems_control_variable_is_refused_loudly_rather_than_ignored() {
+    let name = "GM_MUTATE_SCIGRAPHS_CONFORMANCE";
+    let err = refuse_an_unknown_knob(&[OsString::from(name)]).expect_err("not one of ours");
+    assert!(
+        err.contains(name),
+        "the refusal must name the variable: {err}"
+    );
+    assert!(err.contains("no negative control"), "{err}");
+}
+
 /// The sweep reads the **whole** environment, so it has to see past the names it knows: the
 /// `setting` loop over `Knob::ALL` can only ever look at the ones it lists.
 #[test]
