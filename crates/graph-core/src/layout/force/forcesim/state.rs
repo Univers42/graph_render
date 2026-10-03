@@ -118,21 +118,6 @@ impl Sim {
         force
     }
 
-    /// Scratch: the three force terms separately, for the `scratch_prints` probe.
-    pub(super) fn terms_debug(&self) -> (Vec<f32>, Vec<f32>, Vec<f32>) {
-        let repulsion = Direct::new(&self.pos, &self.mass, self.repulsion, self.soften).run();
-        let mut attraction = vec![0.0f32; self.pos.len()];
-        attraction::accumulate(&mut attraction, &self.pos, &self.mass, &self.edges);
-        let mut gravity = vec![0.0f32; self.pos.len()];
-        gravity::accumulate(&mut gravity, &self.pos, &self.mass, self.gravity);
-        (repulsion, attraction, gravity)
-    }
-
-    /// Scratch: the squared softening.
-    pub(super) fn soften_debug(&self) -> f32 {
-        self.soften
-    }
-
     /// `_fa2_rescale(np.asarray(self.pos, dtype=np.float64), scale)`.
     pub(super) fn rescaled(&self, scale: f64) -> Vec<f64> {
         rescale::rescale(&self.pos, scale)
@@ -154,23 +139,4 @@ fn renormalize(mass: &[f32], params: Fa2ForceSimParams) -> (f64, f64, f64) {
     let repulsion = params.scaling_ratio * (k * k / m3);
     let norm = GRAVITY_FIT * 2.0 * (SIM_SCALE * SIM_SCALE) / (k.max(MIN_K) * m2);
     (k, repulsion, params.gravity * GRAVITY_NORM * norm)
-}
-
-impl Sim {
-    /// Scratch accessors for the `scratch_prints_the_constants_and_first_state` probe.
-    pub(super) fn k_debug(&self) -> f64 {
-        self.integrator.k_of()
-    }
-    pub(super) fn repulsion_debug(&self) -> f64 {
-        self.repulsion
-    }
-    pub(super) fn gravity_debug(&self) -> f64 {
-        self.gravity
-    }
-    pub(super) fn mass_debug(&self) -> Vec<f32> {
-        self.mass.clone()
-    }
-    pub(super) fn pos_debug(&self) -> Vec<f32> {
-        self.pos.clone()
-    }
 }

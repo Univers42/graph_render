@@ -32,14 +32,25 @@ at SciGraphs' own `iterations = 50`, `scale = 5.0` and `get_layout_seed() = 9817
 (`derive_seed(42, "layout")`, `SciGraphs/core/scigraphs_core/repro/determinism.py:56-62`), and
 writes **raw little-endian `f64`** per row plus the `f32` the snapshot narrows to. A decimal
 round trip in the middle would be a rounding step between the two values whose equality is the
-question. Exactly **four** ids get an override. Three because their registered default is not
-SciGraphs' parameter: `CIRCLE_PACKING` (500 sweeps, not 50), `FORCEATLAS2` (`max_iter` 100, not
-50) and `GRAPHVIZ_SFDP` (`run` hard-codes `DEFAULT_SEED = 1`; the arm calls `run_seeded`). The
-fourth is `layout.dag.sugiyama`, whose registered default draws in the pipeline's own units:
-the arm calls `sugiyama::run_scaled`, which applies SciGraphs' per-axis normalisation
+question. **Five** ids get an override. Three because their registered default is not SciGraphs'
+parameter: `CIRCLE_PACKING` (500 sweeps, not 50), `FORCEATLAS2` (`max_iter` 100, not 50) and
+`GRAPHVIZ_SFDP` (`run` hard-codes `DEFAULT_SEED = 1`; the arm calls `run_seeded`). The fourth is
+`layout.dag.sugiyama`, whose registered default draws in the pipeline's own units: the arm
+calls `sugiyama::run_scaled`, which applies SciGraphs' per-axis normalisation
 (`hierarchical.py:679-685`) at the same `scale = 5.0`. That normalisation reads the dummy
 vertices' X, which `Geometry` does not carry, so it lives beside the stages that produce it
 rather than in this arm.
+
+**The fifth is `FORCEATLAS2`, and it is a different layout id, not a different parameter.**
+`forceatlas.py:167` takes `_forceatlas2_forcesim` — SciGraphs' own `ForceSim`, `model='FA2'` —
+before it ever looks at `networkx.forceatlas2_layout`, and in `ge-python-oracle` the networkx
+branch below it is dead code (`docs/measurements/sg-fa2-seed.md`). So the row runs
+`layout.forceatlas2.forcesim` and is handed the seed the reference *draws*
+(`FORCESIM_SEED` = 1767573729, `forceatlas.py:122`) rather than the layout seed, which
+`default_rng` — not `RandomState` — consumes. `layout.forceatlas2` stays the networkx port and
+stays gated against networkx 3.6 by `oracle-fa2`; the two layouts differ in the generator, the
+state width, the gravity constant, the move cap and `dim`, so neither can stand in for the
+other.
 
 **The reference arm** calls `apply_graph_layout` itself for 23 names in `ge-python-oracle` with
 the `SciGraphs/` submodule on the path. The other nine go through `scigraphs_utils`, which is in
@@ -128,7 +139,7 @@ Procrustes-aligned over it**, so a green point sitting on a grey point is a node
 | 3 | `SPRING` | `layout.force.spring` | `apply_graph_layout` | `bitwise` | 341/1020 | 341/1020 | 9.23e+18 | 10 | 0.377 | 0.779 | `rng` | different shape: green does not follow the grey drawing anywhere |
 | 4 | `SPRING_3D` | `layout.force.spring3d` | `apply_graph_layout` | `bitwise` | 3/1020 | 4/1020 | 9.23e+18 | 10 | 0.198 | 0.756 | `rng` | different shape: as `SPRING`, in space |
 | 5 | `CIRCLE_PACKING` | `layout.packing.circle` | `apply_graph_layout` | `shape` | 344/1020 | 808/1020 | 9.22e+18 | 3.17 | 5.3e-16 | 0.827 | `algorithm` | different on lesmis (0.517) and **bit-for-bit the same packing on the 20 gate models** (5e-16): SciGraphs' non-planar fallback is where the two part company |
-| 6 | `FORCEATLAS2` | `layout.forceatlas2` | `apply_graph_layout` | `bitwise` | 0/1020 | 0/1020 | 9.25e+18 | 183 | 0.241 | 0.927 | `rng` | different shape |
+| 6 | `FORCEATLAS2` | `layout.forceatlas2.forcesim` | `apply_graph_layout` | `bitwise` | 23/1020 | 72/1020 | 1.55e+17 | 6.23e-4 | 1.40e-13 | 1.31e-9 | `convention` | **same shape** — the motor id changed to SciGraphs' own `ForceSim` in `sg-fa2-forcesim`, because `forceatlas.py:167` reaches that tier first and the networkx port cannot answer this row; the residual is three BLAS kernels this port replaces with fixed orders |
 | 7 | `IGRAPH_FR` | `layout.force.fruchterman_reingold` | `apply_graph_layout` | `bitwise` | 0/1020 | 0/1020 | 9.24e+18 | 11.6 | 0.267 | 0.901 | `rng` | different shape |
 | 8 | `IGRAPH_KK` | `layout.force.kamada_kawai` | `apply_graph_layout` | `shape` | 0/957 | 0/957 | 9.23e+18 | 7.95 | 0.812 | 0.935 | `algorithm` | different shape: grey is a blob, green is a near-straight line |
 | 9 | `IGRAPH_DRL` | `layout.force.drl` | `apply_graph_layout` | `bitwise` | 0/1020 | 0/1020 | 9.25e+18 | 52.8 | 0.536 | 0.881 | `rng` | both are near-collinear; green runs along the grey line with different spacing |

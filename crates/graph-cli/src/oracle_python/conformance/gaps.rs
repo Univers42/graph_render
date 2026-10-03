@@ -44,17 +44,13 @@ pub(super) const G_IGRAPH_SEED: Gap = Gap {
     note: "unseedable on the reference side: `_reset_layout_rng` seeds numpy and the stdlib `random` (`common.py:53-62`), and igraph reads the C library's generator, which neither call reaches",
     at: "SciGraphs/core/scigraphs_core/mesh/layouts/common.py:60",
 };
-pub(super) const G_FORCEATLAS2_SEED: Gap = Gap {
-    parameter: "layout seed",
-    // Corrected 2026-10-03 (job `sg-fa2-seed`). The note this replaces said the reference drew
-    // its start from `np.random.RandomState(get_layout_seed())`. It does not: `FORCESIM_AVAILABLE`
-    // is true in `ge-python-oracle`, so `forceatlas.py:167` takes the ForceSim tier and the start
-    // comes from `np.random.default_rng` (PCG64) — a different generator from MT19937 — seeded
-    // with the *first draw* of `RandomState(981798123)`, not with that integer. Measured in
-    // `docs/measurements/sg-fa2-seed.md`.
-    note: "the seed **is** passed (`Fa2Params::seed = get_layout_seed()` = 981798123) and Mulberry32 would consume it, but the reference never reads that integer as a start seed: it draws `randint(0, 2**31 - 1)` = 1767573729 first (`forceatlas.py:122`) and starts from `np.random.default_rng(1767573729)`, PCG64, not MT19937 (`simulation.py:1090`). Equal seeds are not equal draws, and neither is the generator",
-    at: "crates/graph-core/src/layout/forceatlas2/state.rs:30",
-};
+// `G_FORCEATLAS2_SEED` is GONE as of job `sg-fa2-forcesim` (2026-10-03), and the const with
+// it: the row now runs `layout.forceatlas2.forcesim`, whose `seed` parameter *is* the integer
+// the reference draws (`FORCESIM_SEED` = 1767573729, `forceatlas.py:122`), and whose start is
+// produced by graph-core's own PCG64 — the same `np.random.default_rng` the reference uses.
+// The seed is now honoured end to end, so the gap would be a false record. What is left is
+// `G_SNAPSHOT_SCALE`, which is about `scale` and not about the seed. Measured in
+// `docs/measurements/sg-fa2-forcesim.md`.
 pub(super) const G_NEATO_START: Gap = Gap {
     parameter: "layout seed",
     note: "neato seeds a `drand48` initial placement from `-Gstart`, which `run_with` cannot pass: it takes only `epsilon`, so the start is whatever the engine's own default is",

@@ -82,7 +82,10 @@ fn pcg64_next_u64_is_numpys_raw_output_at_the_layout_seed() {
 
 #[test]
 fn pcg64_seeding_reaches_the_state_and_inc_numpy_reports() {
-    assert_eq!(Pcg64::new(1_767_573_729).seeded(), (LAYOUT_SEED_STATE, LAYOUT_SEED_INC));
+    assert_eq!(
+        Pcg64::new(1_767_573_729).seeded(),
+        (LAYOUT_SEED_STATE, LAYOUT_SEED_INC)
+    );
 }
 
 /// The negative control. Without it, every test above would also pass against a generator

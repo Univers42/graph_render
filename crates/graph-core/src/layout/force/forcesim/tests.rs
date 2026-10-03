@@ -30,7 +30,11 @@ fn graph(n: usize, pairs: &[(u32, u32)]) -> Topology {
         .iter()
         .enumerate()
         .map(|(i, &(a, b))| {
-            edge(&format!("e{i:03}"), &format!("n{a:02}"), &format!("n{b:02}"))
+            edge(
+                &format!("e{i:03}"),
+                &format!("n{a:02}"),
+                &format!("n{b:02}"),
+            )
         })
         .collect();
     index_model(&nodes, &edges).expect("fits")
@@ -95,8 +99,20 @@ const TREE: &[(u32, u32)] = &[
 ];
 
 const TREE_X: [u32; 15] = [
-    0xBF31_B6C9, 0xC00A_F28C, 0xC03C_E39C, 0xC002_5F77, 0xBEDC_AE74, 0xBB47_04E5, 0xBF2B_75BB,
-    0x3F89_7283, 0xBE18_BCE2, 0xBFAF_023C, 0xBDC6_76AF, 0x402E_25C4, 0x4068_8EA7, 0x4037_1CAC,
+    0xBF31_B6C9,
+    0xC00A_F28C,
+    0xC03C_E39C,
+    0xC002_5F77,
+    0xBEDC_AE74,
+    0xBB47_04E5,
+    0xBF2B_75BB,
+    0x3F89_7283,
+    0xBE18_BCE2,
+    0xBFAF_023C,
+    0xBDC6_76AF,
+    0x402E_25C4,
+    0x4068_8EA7,
+    0x4037_1CAC,
     0x3E8F_F4C8,
 ];
 
@@ -248,24 +264,4 @@ fn the_defaults_are_the_dispatcher_s_and_the_reference_s_own_seed() {
     assert_eq!(p.jitter_tolerance, 1.0);
     assert_eq!(p.seed, 1_767_573_729);
     assert_eq!(ForceAtlas2ForceSim::ID, "layout.forceatlas2.forcesim");
-}
-
-#[test]
-fn scratch_prints_the_constants_and_the_rescaled_state() {
-    let n: usize = std::env::var("GM_FA2_N").ok().and_then(|v| v.parse().ok()).unwrap_or(4);
-    let pairs: Vec<(u32, u32)> = TREE.to_vec();
-    let g = graph(n, &pairs);
-    let simple = crate::layout::force::simple_graph(&g);
-    let mut sim = state::Sim::new(n, &simple, Fa2ForceSimParams::default());
-    eprintln!("k        {:.17}", sim.k_debug());
-    eprintln!("mass     {:?}", sim.mass_debug().iter().map(|x| format!("{x}")).collect::<Vec<_>>());
-    eprintln!("soften 0x{:08X}", sim.soften_debug().to_bits());
-    let (r, a, g) = sim.terms_debug();
-    for (name, v) in [("rep", r), ("att", a), ("gra", g)] {
-        eprintln!("{name}  {:?}", v.iter().map(|x| format!("0x{:08X}", x.to_bits())).collect::<Vec<_>>());
-    }
-    for step in 1..=50u32 {
-        sim.step(1);
-        eprintln!("pos{step}  {:?}", sim.pos_debug().iter().map(|x| format!("0x{:08X}", x.to_bits())).collect::<Vec<_>>());
-    }
 }

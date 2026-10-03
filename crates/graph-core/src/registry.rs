@@ -11,8 +11,8 @@ use crate::layout::basic_3d;
 use crate::layout::force::spring::Spring;
 use crate::layout::force::spring::{ID_3D as SPRING_3D_ID, Spring3D};
 use crate::layout::force::{
-    BarnesHut, DavidsonHarel, Drl, FruchtermanReingold, Graphopt, KamadaKawai, Lgl, ParticleMesh,
-    YifanHu,
+    BarnesHut, DavidsonHarel, Drl, ForceAtlas2ForceSim, FruchtermanReingold, Graphopt, KamadaKawai,
+    Lgl, ParticleMesh, YifanHu,
 };
 use crate::layout::forceatlas2::{ForceAtlas2, ForceAtlas2BarnesHut};
 use crate::layout::graphviz::circo;
@@ -34,6 +34,7 @@ mod capability;
 mod closed_form;
 mod force;
 mod forceatlas2_bh;
+mod forceatlas2_forcesim;
 mod graphviz_circo;
 mod graphviz_fdp;
 mod graphviz_neato;
@@ -52,6 +53,8 @@ use force::{BARNES_HUT, FA2, PARTICLE_MESH, SPRING, YIFAN_HU};
 pub use force::{FA2_CEILING, FORCE_CEILING, SPRING_CEILING};
 use forceatlas2_bh::FA2_BH;
 pub use forceatlas2_bh::FA2_BH_CEILING;
+use forceatlas2_forcesim::FA2_FORCESIM;
+pub use forceatlas2_forcesim::FA2_FORCESIM_CEILING;
 use graphviz_circo::CIRCO;
 pub use graphviz_circo::GRAPHVIZ_CIRCO_CEILING;
 use graphviz_fdp::FDP;
@@ -76,7 +79,7 @@ pub use three_d::BASIC_3D_CEILING;
 use three_d::{BIPARTITE_3D, CUBE, HELIX, HIERARCHICAL_3D, SPHERE, SPIRAL_3D, SPRING_3D};
 
 /// Every registered layout, in the order the hash gate runs them.
-pub static LAYOUTS: [Capability; 39] = [
+pub static LAYOUTS: [Capability; 40] = [
     Capability {
         id: Grid::ID,
         run: run_default::<Grid>,
@@ -285,6 +288,14 @@ pub static LAYOUTS: [Capability; 39] = [
         id: ParticleMesh::ID,
         run: run_default::<ParticleMesh>,
         meta: PARTICLE_MESH,
+    },
+    // ---- sg-fa2-forcesim: SciGraphs' own ForceSim, the algorithm the FORCEATLAS2
+    // conformance row's reference actually runs. APPENDED for the same reason as every
+    // entry above it.
+    Capability {
+        id: ForceAtlas2ForceSim::ID,
+        run: run_default::<ForceAtlas2ForceSim>,
+        meta: FA2_FORCESIM,
     },
 ];
 

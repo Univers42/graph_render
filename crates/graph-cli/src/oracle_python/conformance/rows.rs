@@ -58,9 +58,13 @@ pub const ROWS: [Row; 32] = [
     },
     Row {
         name: "FORCEATLAS2",
-        motor: Some("layout.forceatlas2"),
+        // `layout.forceatlas2.forcesim`, not `layout.forceatlas2`: `forceatlas.py:167`
+        // reaches SciGraphs' own `ForceSim` first and the networkx branch below it never
+        // runs in the oracle image, so the networkx port cannot answer this row
+        // (`docs/measurements/sg-fa2-seed.md`).
+        motor: Some("layout.forceatlas2.forcesim"),
         reference: Reference::Scigraphs,
-        gaps: &[G_FORCEATLAS2_SEED, G_SNAPSHOT_SCALE],
+        gaps: &[G_SNAPSHOT_SCALE],
     },
     Row {
         name: "IGRAPH_FR",

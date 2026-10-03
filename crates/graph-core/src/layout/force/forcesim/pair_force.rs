@@ -77,6 +77,9 @@ impl<'a> Direct<'a> {
     }
 
     /// `coeff` for targets `lo..hi`: the `f64` `(hi - lo) * n` block, diagonal zeroed.
+    ///
+    /// `coeff` is exactly `rows * n` long, so `chunks_exact_mut(n)` walks one row per
+    /// target and `lo + i` is the global index of the row being filled.
     fn fill(&self, coeff: &mut [f64], s2: &[f32], lo: usize) {
         let n = self.mass.len();
         for (i, slot) in coeff.chunks_exact_mut(n).enumerate() {
@@ -105,7 +108,6 @@ impl<'a> Direct<'a> {
     /// `coeff.sum(axis=1)` is numpy's pairwise `f64`; `coeff @ sources` is the `dgemm` this
     /// port replaces with a sequential `f64` dot (see the module doc).
     fn write(&self, row: &[f64], i: usize, out: &mut [f32]) {
-        let n = self.mass.len();
         let total = pairwise_f64(row);
         for c in 0..3 {
             let mut product = 0.0f64;

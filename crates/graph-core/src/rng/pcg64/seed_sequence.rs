@@ -164,8 +164,7 @@ mod tests {
     /// `SeedSequence(1767575729).pool`, the four words `mix_entropy` leaves. Not
     /// observable from Python; it is what the first hashed pass must produce for the
     /// second to land on [`LAYOUT_SEED_WORDS`].
-    const LAYOUT_SEED_POOL: [u32; POOL_SIZE] =
-        [0xfd3b_e523, 0x8e66_9e33, 0xc482_920b, 0x6cf1_2044];
+    const LAYOUT_SEED_POOL: [u32; POOL_SIZE] = [0xfd3b_e523, 0x8e66_9e33, 0xc482_920b, 0x6cf1_2044];
 
     /// `SeedSequence(1767575729).generate_state(4, np.uint64)`, the four words
     /// `pcg64_set_seed` receives. These two constants together are the whole hash chain:
@@ -185,7 +184,12 @@ mod tests {
     #[test]
     fn seedsequence_generate_state_is_the_four_u64_words_pcg64_is_seeded_with() {
         let words = SeedSequence::pool(1_767_573_729).generate_state();
-        let got = [words.state_high, words.state_low, words.inc_high, words.inc_low];
+        let got = [
+            words.state_high,
+            words.state_low,
+            words.inc_high,
+            words.inc_low,
+        ];
         assert_eq!(got, LAYOUT_SEED_WORDS);
     }
 
@@ -198,7 +202,12 @@ mod tests {
         let other = SeedSequence::pool(1_767_573_728);
         assert_ne!(other.pool, LAYOUT_SEED_POOL);
         let words = other.generate_state();
-        let got = [words.state_high, words.state_low, words.inc_high, words.inc_low];
+        let got = [
+            words.state_high,
+            words.state_low,
+            words.inc_high,
+            words.inc_low,
+        ];
         assert_ne!(got, LAYOUT_SEED_WORDS);
     }
 

@@ -89,9 +89,6 @@ impl Integrator {
         self.speed = self.next_speed(&swing, force, mass);
         self.move_nodes(pos, force, &swing);
         self.prev.copy_from_slice(force);
-        if std::env::var("GM_FA2_TRACE").is_ok() {
-
-        }
         recentre(pos, center_was);
     }
 
@@ -124,18 +121,10 @@ impl Integrator {
                 dot3_f32(&v).sqrt()
             })
             .collect();
-        let w = weighted(mass, swing);
-        let total_swing = pairwise_f32(&w);
-        let t = weighted(mass, &traction);
-        let total_traction = pairwise_f32(&t);
-        if std::env::var("GM_FA2_TRACE").is_ok() {
-            eprintln!("ts 0x{:08X} tt 0x{:08X} wbits {:?}", total_swing.to_bits(),
-                total_traction.to_bits(),
-                w.iter().map(|v| format!("0x{:08X}", v.to_bits())).collect::<Vec<_>>());
-        }
+        let total_swing = pairwise_f32(&weighted(mass, swing));
+        let total_traction = pairwise_f32(&weighted(mass, &traction));
         if total_swing > 0.0 {
-            let target = self.jitter_tolerance * f64::from(total_traction)
-                / f64::from(total_swing);
+            let target = self.jitter_tolerance * f64::from(total_traction) / f64::from(total_swing);
             self.speed = target.clamp(self.speed * 0.5, self.speed * 1.5);
         }
         self.speed.clamp(SPEED_MIN, SPEED_MAX)
@@ -183,10 +172,7 @@ impl Integrator {
 
 /// `mass[i] * values[i]` in `f32` — the operands of the two `np.dot` calls.
 fn weighted(mass: &[f32], values: &[f32]) -> Vec<f32> {
-    mass.iter()
-        .zip(values)
-        .map(|(&m, &v)| m * v)
-        .collect()
+    mass.iter().zip(values).map(|(&m, &v)| m * v).collect()
 }
 
 /// `self.pos -= (self.pos.mean(axis=0) - center_was).astype(DTYPE)`
@@ -198,7 +184,7 @@ fn weighted(mass: &[f32], values: &[f32]) -> Vec<f32> {
 /// `f32` difference is a no-op.
 fn recentre(pos: &mut [f32], center_was: [f32; 3]) {
     let center_now = column_means_f32(pos, pos.len() / 3);
-    for chunk in pos.chunks_exact_mut(3) {
+    for chunk in pos.as_chunks_mut::<3>().0 {
         for (axis, value) in chunk.iter_mut().enumerate() {
             *value -= center_now[axis] - center_was[axis];
         }
@@ -239,7 +225,12 @@ mod tests {
         let force = [1.0e-6f32, 0.0, 0.0, -1.0e-6, 0.0, 0.0];
         let mut sim = integrator(1.0);
         sim.apply(&mut pos, &force, &mass, [0.0; 3]);
-        assert!(f64::from(pos[0]).abs() < 1e-9, "moved {}", pos[0]);
+        // The previous force is zero, so `traction` is half of `swing`, the target is 0.5,
+        // and the move is `force * 0.5 / (1 + 0.5 * sqrt(1e-6))` — three orders of magnitude
+        // inside the cap of 1.0, so nothing rescales it.
+        let factor = 0.5f32 / (1.0f32 + 0.5f32 * 1.0e-6f32.sqrt());
+        assert!((f64::from(pos[0]) - 1.0e-6 * f64::from(factor)).abs() < 1e-12);
+        assert!(f64::from(pos[0]).abs() < 1.0, "the cap is not binding here");
     }
 
     #[test]
@@ -278,12 +269,5 @@ mod tests {
         sim.apply(&mut pos, &[1.0e-9, 0.0, 0.0], &mass, [0.0; 3]);
         assert!(sim.speed <= after_big * 1.5 + 1e-12, "{}", sim.speed);
         assert!(sim.speed >= SPEED_MIN);
-    }
-}
-
-impl Integrator {
-    /// Scratch accessor for the probe test.
-    pub(super) fn k_of(&self) -> f64 {
-        self.k
     }
 }

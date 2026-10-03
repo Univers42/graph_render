@@ -71,6 +71,11 @@ pub(super) fn force_record(id: &str) -> Option<(&'static str, Status)> {
         // Different but not worse than the exact dense sum, by the stress record
         // (`graph-cli` `stress/fa2.rs`); a picture of its own, so never `gated` on a hash alone.
         "layout.forceatlas2.barnes_hut" => Some(("stress", Status::Implemented)),
+        // `stress`, and **not** `oracle-fa2`, because that record is a differential against
+        // networkx's own `forceatlas2_layout` — which is this layout's *sibling*
+        // (`layout.forceatlas2`), not this layout. This layout's own oracle is the
+        // SciGraphs FORCEATLAS2 conformance row.
+        "layout.forceatlas2.forcesim" => Some(("stress", Status::Implemented)),
         // Ponytail: no differential exists for SciGraphs' own multilevel layout; the
         // stress record is the closest metric and is barnes_hut's, so `implemented` only.
         // (Graphviz's `sfdp` is a different algorithm and has its own differential below.)

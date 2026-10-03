@@ -44,14 +44,17 @@ mod tests {
 
     #[test]
     fn gravity_pulls_every_node_towards_the_centre_of_mass() {
-        // Two nodes symmetric about x = 0: the pull must be inward on both.
+        // Two nodes symmetric about x = 0: both must be pulled inwards, and neither the y
+        // nor the z component may move at all.
         let pos = [-2.0f32, 0.0, 0.0, 2.0, 0.0, 0.0];
         let mass = [1.0f32, 1.0];
         let mut force = [0.0f32; 6];
         accumulate(&mut force, &pos, &mass, 0.028_008_094_259_695_266);
-        assert!(force[0] < 0.0 && force[3] > 0.0, "{force:?}");
+        assert!(force[0] > 0.0 && force[3] < 0.0, "inwards, got {force:?}");
         assert_eq!(force[1], 0.0);
         assert_eq!(force[4], 0.0);
+        // Symmetric: equal and opposite.
+        assert_eq!(force[0], -force[3]);
     }
 
     /// A node exactly on the centre has `dist = 0`, and `1/0` is floored rather than

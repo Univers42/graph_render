@@ -45,6 +45,7 @@ fn the_registry_covers_every_oracle_function_once_its_ids_are_unique() {
         } else if r.id == "layout.force.barnes_hut"
             || r.id == "layout.force.yifan_hu"
             || r.id == "layout.forceatlas2.barnes_hut"
+            || r.id == "layout.forceatlas2.forcesim"
         {
             ("stress", r.id, Status::Implemented)
         } else if r.id == "layout.force.particle_mesh" {

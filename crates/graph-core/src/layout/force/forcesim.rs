@@ -159,7 +159,14 @@ fn in_space(points: Vec<f64>) -> Result<Geometry, StageError> {
     if points.iter().any(|v| !v.is_finite()) {
         return Err(StageError::NonFinite { column: "node.x" });
     }
-    let narrow = |c: usize| points.iter().skip(c).step_by(3).map(|&v| v as f32).collect();
+    let narrow = |c: usize| {
+        points
+            .iter()
+            .skip(c)
+            .step_by(3)
+            .map(|&v| v as f32)
+            .collect()
+    };
     Ok(Geometry::in_space(
         NodeGeometry::Point {
             x: narrow(0),

@@ -17,8 +17,8 @@
 
 mod pcg64;
 
-pub(crate) use pcg64::Pcg64;
 pub(crate) use crate::synthetic::Mulberry32;
+pub(crate) use pcg64::Pcg64;
 
 /// MurmurHash3's `fmix64` finalizer (Austin Appleby, public domain): full avalanche of a
 /// 64-bit word using only xor/shift/`wrapping_mul` — never a transcendental, so it is

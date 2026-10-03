@@ -92,6 +92,8 @@ fn layout_names_offers_every_registered_layout_once_by_both_of_its_names() {
             "basic3d.spiral",
             "layout.force.particle_mesh",
             "force.particle_mesh",
+            "layout.forceatlas2.forcesim",
+            "forceatlas2.forcesim",
         ]
     );
     let mut once = names.clone();
