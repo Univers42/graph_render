@@ -13,5 +13,5 @@ source "$here/docker-env.sh"
 mkdir -p "$GM_SCRATCH/mcp-out"
 origins="http://127.0.0.1:5173;http://127.0.0.1:5174;http://127.0.0.1:5175"
 origins+=";http://localhost:5173;http://localhost:5174;http://localhost:5175"
-exec docker run --pull never -i --rm --network host --user 0:0 -v "$GM_SCRATCH/mcp-out:/out" \
+exec "$here/drun" --memory 8g --memory-swap 8g --pull never -i --rm --network host --user 0:0 -v "$GM_SCRATCH/mcp-out:/out" \
   gm-mcp-browser --allowed-origins "$origins"

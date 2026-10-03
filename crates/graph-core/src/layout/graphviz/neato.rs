@@ -64,6 +64,7 @@ mod matrix;
 mod rng;
 mod solve;
 
+use crate::budget;
 use crate::index::Topology;
 use crate::layout::Geometry;
 use crate::layout::coords::point_geometry;
@@ -122,6 +123,8 @@ pub fn run_with(topology: &Topology, epsilon: f64) -> Result<Geometry, StageErro
         // leaving every coordinate where it was: the origin.
         return Ok(point_geometry(&vec![0.0; count], &vec![0.0; count]));
     }
+    // Three f32 triangles: the hop distances, their weights and the weighted Laplacian.
+    budget::quadratic(budget::triangle(count as u64), 12)?;
     let pairs = undirected(topology);
     let neighbours = crate::csr::Csr::from_pairs(topology.node_count(), pairs.into_iter())
         .map_err(StageError::Capacity)?;

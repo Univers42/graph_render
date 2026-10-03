@@ -39,8 +39,8 @@ pub(crate) const RECORDS: u32 = 2;
 /// `index_model` has returned: arena, columns and the three CSRs are all live.
 pub(crate) const INDEX_MODEL: u32 = 3;
 /// `gm_build` is about to return its handle. Recorded by `gm_build` itself, in
-/// `crate::exports`, which is wasm32-only: a native `cargo test` would see it unused.
-#[cfg(target_arch = "wasm32")]
+/// `crate::exports`, which compiles only under test or for wasm32, so it does too.
+#[cfg(any(test, target_arch = "wasm32"))]
 pub(crate) const RETURNED: u32 = 4;
 /// `Topology::strings().byte_len()` — the arena's string data alone.
 pub(crate) const ARENA_TEXT: u32 = 5;
@@ -111,9 +111,9 @@ impl Table {
 
 static MARKS: Table = Table(UnsafeCell::new([0; SLOTS]));
 
-/// The linear-memory address of the mark table, for `gm_probe_base`. wasm32-only, like the
-/// export that calls it: a native build has no linear memory to find a table in.
-#[cfg(target_arch = "wasm32")]
+/// The linear-memory address of the mark table, for `gm_probe_base`. Compiled where the
+/// export that calls it is: under test or for wasm32.
+#[cfg(any(test, target_arch = "wasm32"))]
 pub fn base() -> usize {
     MARKS.base()
 }
@@ -123,8 +123,8 @@ pub(crate) fn mark(phase: u32, bytes: Option<usize>) {
     MARKS.mark(phase, bytes.unwrap_or_else(linear_bytes));
 }
 
-/// Clears the mark table, for `gm_probe_reset`. wasm32-only, like the export that calls it.
-#[cfg(target_arch = "wasm32")]
+/// Clears the mark table, for `gm_probe_reset`. Compiled where the export that calls it is.
+#[cfg(any(test, target_arch = "wasm32"))]
 pub fn reset() {
     MARKS.reset();
 }

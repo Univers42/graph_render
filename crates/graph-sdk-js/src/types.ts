@@ -53,6 +53,19 @@ export type Handle = number & { readonly __brand: "GraphMotorHandle" };
  * `Motor` (any handle, not just this one — C7), and never held across it. */
 export type Column = Float32Array | Uint32Array | null;
 
+/** What `Motor.run` takes besides the handle and the layout id
+ * (`docs/decisions/layout-params.md`).
+ *
+ *  `params` is keyed by the names `Motor.layoutParams` publishes; a name it does not
+ *  publish is a `RangeError`, and a published name left out takes its default. The values
+ *  are sent as written — a value out of range is refused by the motor with
+ *  `ParamOutOfRange`, never clamped — so this shape carries no bounds of its own and
+ *  cannot disagree with the schema. */
+export interface RunOptions {
+  /** One value per published parameter, by name. A `bool` travels as `0`/`1`. */
+  readonly params?: Readonly<Record<string, number | boolean>>;
+}
+
 /** What `Motor.layout` returns: everything read back right after a successful run, so a
  * caller does not have to sequence `gm_geometry_kind`/`gm_column_ptr`/... itself. */
 export interface RunResult {
@@ -95,13 +108,16 @@ export type AnalysisValueKind = "f64" | "u32";
 
 /** What `Motor.analysis` returns: the ABI's canonical JSON face, parsed and typed.
  *
- *  The three optional members are present exactly when the analysis hands one back, and
- *  each is the escape hatch that analysis's own `Ponytail` marker names — a caller told
- *  only `values` would read an un-converged eigenvector iteration as a real centrality.
- *  `converged` is the power iteration's residual-verified flag (`false` on a bipartite
- *  or disconnected graph, where the iteration oscillates and never settles);
- *  `modularity` is the quality of the partition `values` names; `max` is the deepest
- *  hierarchy level reached. */
+ *  The three optional members are **always keys on the returned object** — the parser builds
+ *  a fresh object and writes all three — so a consumer must test the *value*
+ *  (`result.max === undefined`), never the key: `"max" in result` is `true` for an analysis
+ *  that handed no level back. "Present" below means "carried a value": `converged` is the
+ *  power iteration's residual-verified flag (`false` on a bipartite or disconnected graph,
+ *  where the iteration oscillates and never settles), `modularity` the quality of the
+ *  partition `values` names, `max` the deepest hierarchy level reached. Each is the escape
+ *  hatch that analysis's own `Ponytail` marker names — a caller told only `values` would read
+ *  an un-converged eigenvector iteration as a real centrality. A member of the wrong type is
+ *  an `AnalysisRefusedError`, never a silent `undefined`. */
 export interface AnalysisResult {
   /** The analysis that produced this, e.g. `"analysis.components.weak"`. */
   readonly id: string;

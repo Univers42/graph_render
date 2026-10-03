@@ -8,7 +8,7 @@
 #   scripts/orch/timed scripts/orch/gate.sh <logdir> scripts/orch/rows/p12-t3.rows
 # (`timed` takes the host-wide lock).
 #
-# Everything goes through scripts/orch/gr (the ge-rust image) or `docker run … ge-python-oracle`
+# Everything goes through scripts/orch/gr (the ge-rust image) or `scripts/orch/drun … ge-python-oracle`
 # (the Python oracle arms). Never a bare cargo or python3.
 #
 # The first block is scripts/orch/rows/quick.rows verbatim, so this file gates the same
@@ -131,16 +131,16 @@ negctl-spring3d|0|scripts/orch/gr bash -c 'out=$(GM_MUTATE_FORCE_SPRING3D_NODES=
 # different stream), so perturbing it would turn nothing red and the control would pass for
 # the wrong reason.
 emit-basic-3d-1000|0|scripts/orch/gr cargo run -q --release -p graph-cli -- emit-basic-3d-fixtures --seeds 1000
-oracle-basic-3d-py|0|docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-python-oracle python3 harness/oracle-basic-3d.py target/basic-3d-fixtures
+oracle-basic-3d-py|0|scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-python-oracle python3 harness/oracle-basic-3d.py target/basic-3d-fixtures
 oracle-basic-3d|0|scripts/orch/gr cargo run -q --release -p graph-cli -- oracle-basic-3d
 oracle-basic-3d-negctl|nonzero|scripts/orch/gr cargo run -q --release -p graph-cli -- oracle-basic-3d --dir target/basic-3d-fixtures-absent
-oracle-basic-3d-perturb-negctl|nonzero|docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-python-oracle python3 harness/perturb-basic-3d.py target/basic-3d-fixtures target/basic-3d-perturbed && docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-python-oracle python3 harness/oracle-basic-3d.py target/basic-3d-perturbed && scripts/orch/gr cargo run -q --release -p graph-cli -- oracle-basic-3d --dir target/basic-3d-perturbed
+oracle-basic-3d-perturb-negctl|nonzero|scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-python-oracle python3 harness/perturb-basic-3d.py target/basic-3d-fixtures target/basic-3d-perturbed && scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-python-oracle python3 harness/oracle-basic-3d.py target/basic-3d-perturbed && scripts/orch/gr cargo run -q --release -p graph-cli -- oracle-basic-3d --dir target/basic-3d-perturbed
 
 emit-hierarchical-3d-1000|0|scripts/orch/gr cargo run -q --release -p graph-cli -- emit-hierarchical-3d-fixtures --seeds 1000
-oracle-hierarchical-3d-py|0|docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-python-oracle python3 harness/oracle-hierarchical-3d.py target/hierarchical-3d-fixtures
+oracle-hierarchical-3d-py|0|scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-python-oracle python3 harness/oracle-hierarchical-3d.py target/hierarchical-3d-fixtures
 oracle-hierarchical-3d|0|scripts/orch/gr cargo run -q --release -p graph-cli -- oracle-hierarchical-3d
 oracle-hierarchical-3d-negctl|nonzero|scripts/orch/gr cargo run -q --release -p graph-cli -- oracle-hierarchical-3d --dir target/hierarchical-3d-fixtures-absent
-oracle-hierarchical-3d-perturb-negctl|nonzero|docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-python-oracle python3 harness/perturb-hierarchical-3d.py target/hierarchical-3d-fixtures target/hierarchical-3d-perturbed && docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-python-oracle python3 harness/oracle-hierarchical-3d.py target/hierarchical-3d-perturbed && scripts/orch/gr cargo run -q --release -p graph-cli -- oracle-hierarchical-3d --dir target/hierarchical-3d-perturbed
+oracle-hierarchical-3d-perturb-negctl|nonzero|scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-python-oracle python3 harness/perturb-hierarchical-3d.py target/hierarchical-3d-fixtures target/hierarchical-3d-perturbed && scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-python-oracle python3 harness/oracle-hierarchical-3d.py target/hierarchical-3d-perturbed && scripts/orch/gr cargo run -q --release -p graph-cli -- oracle-hierarchical-3d --dir target/hierarchical-3d-perturbed
 
 # `roundtrip --seeds 100` is what makes the five reach the CONTRACT side rather than only the
 # hash gate: it runs every registered layout over both faces and requires binary -> JSON ->
