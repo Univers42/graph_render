@@ -55,6 +55,17 @@ fn hashgate_passes_on_an_honest_run() {
 /// The degree control moves the topology stage only: the grid ignores weights, and the
 /// transport stage restates the grid's bytes, so neither follows it.
 #[test]
+fn overlap_refuses_a_zero_iteration_cap_by_name() {
+    // The escape hatch is a parameter the pass validates, so the refusal has to name the
+    // parameter. A bare exit 2 would not do: an unknown flag is also exit 2, and this test
+    // would pass on a command that never had `--max-iterations` at all.
+    let refused = graph_cli(&["overlap", "--nodes", "8", "--max-iterations", "0"], None);
+    let stderr = String::from_utf8_lossy(&refused.stderr);
+    assert_eq!(refused.status.code(), Some(2), "{stderr}");
+    assert!(stderr.contains("max_iterations"), "{stderr}");
+}
+
+#[test]
 fn the_degree_control_goes_red_on_the_topology_stage_only() {
     let degree = graph_cli(&["hashgate", "--seeds", "4"], Some((KNOBS[0], "9")));
     assert_eq!(degree.status.code(), Some(1), "{}", stdout(&degree));

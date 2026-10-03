@@ -243,18 +243,19 @@ impl Paths {
     }
 }
 
-/// A wire column name as the refusals name it. Every arm is spelled out: a name that
-/// fell through to the last would be reported under the wrong column, which is the
-/// silent-mislabel bug the 3D `z` arm exists to prevent.
-fn node_column(name: &str) -> &'static str {
-    match name {
+/// A wire column name as the refusals name it. Every arm is spelled out, and a name this
+/// reader does not know is `None` rather than the last arm's: reporting it under `node.h`
+/// is the silent-mislabel bug the 3D `z` arm exists to prevent.
+fn node_column(name: &str) -> Option<&'static str> {
+    Some(match name {
         "x" => "node.x",
         "y" => "node.y",
         "z" => "node.z",
         "r" => "node.r",
         "w" => "node.w",
-        _ => "node.h",
-    }
+        "h" => "node.h",
+        _ => return None,
+    })
 }
 
 /// `Ok` when `found` is `expected`.

@@ -17,6 +17,7 @@ fn every_post_capability_is_a_row_beside_the_routing_one() {
         "post.route.grid",
         "post.bundle.fdeb",
         "post.bundle.mingle",
+        "post.separate.grid",
         "post.style.straight",
         "post.style.orthogonal",
         "post.style.quadratic",
@@ -31,7 +32,7 @@ fn every_post_capability_is_a_row_beside_the_routing_one() {
         ids, want,
         "one row per registered POST capability: none missing, none invented"
     );
-    assert_eq!(post.len(), 7, "seven POST rows, not a duplicate of one");
+    assert_eq!(post.len(), 8, "eight POST rows, not a duplicate of one");
     for row in post {
         assert_eq!(
             row.status,

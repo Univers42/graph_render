@@ -30,7 +30,7 @@ mod at;
 mod ids;
 mod record;
 use at::At;
-use ids::check_ids;
+pub use ids::index;
 use record::{edge, node};
 
 /// The only ingest version this reader accepts.
@@ -108,8 +108,18 @@ impl IngestError {
 /// dropped as soon as its record is built. The order is unchanged from the borrowing
 /// reader this replaced, and the differential test in [`differential`] is the judge: whole
 /// text parsed before any shape check, root checked before any node, every node before any
-/// edge, then `check_ids`.
+/// edge, then `check_ids`. Only tests call it: `gm_build` reads through [`read_records`] and
+/// [`index`], which refuse the same documents.
+#[cfg(test)]
 pub fn read(bytes: &[u8]) -> Result<(Vec<NodeRecord>, Vec<EdgeRecord>), IngestError> {
+    let (nodes, edges) = read_records(bytes)?;
+    ids::check_ids(&nodes, &edges)?;
+    Ok((nodes, edges))
+}
+
+/// [`read`] without C12's id pass, for a caller that hands the records to [`index`], which
+/// refuses the same documents.
+pub fn read_records(bytes: &[u8]) -> Result<(Vec<NodeRecord>, Vec<EdgeRecord>), IngestError> {
     if bytes.len() > MAX_INGEST_BYTES {
         return Err(IngestError::TooLarge {
             bytes: bytes.len(),
@@ -138,7 +148,6 @@ pub fn read(bytes: &[u8]) -> Result<(Vec<NodeRecord>, Vec<EdgeRecord>), IngestEr
     // element is dropped as its record is built.
     let nodes = read_all(nodes, node, At::list("nodes"))?;
     let edges = read_all(edges, edge, At::list("edges"))?;
-    check_ids(&nodes, &edges)?;
     Ok((nodes, edges))
 }
 

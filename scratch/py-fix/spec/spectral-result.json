@@ -1,0 +1,17 @@
+{
+ "fingerprint": "5a2cb1a02c3735d72b3dba032d3bf623a7065e6ea2030276db70edaca2294b75",
+ "sha256": "689a32feac0012d781c9a075e75cfba6785e8c7f61fe808b7415734bca503011",
+ "oracle": "SciGraphs networkx_layouts on scipy 1.16.2, numpy 2.3.3",
+ "layouts": {
+  "spectral": {
+   "cases": 2,
+   "degenerate": 1,
+   "worst": 0.0
+  },
+  "pivot_mds": {
+   "cases": 2,
+   "degenerate": 1,
+   "worst": 1.4660793912213421e-08
+  }
+ }
+}

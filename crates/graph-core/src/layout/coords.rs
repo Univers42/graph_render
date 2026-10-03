@@ -35,6 +35,14 @@ pub(super) fn rescale(x: &mut [f64], y: &mut [f64]) {
 /// graph-core reads no clock, no environment and no hardware, and the host supplies even
 /// the mutation.
 pub(super) fn rescale_under(x: &mut [f64], y: &mut [f64], split: bool) {
+    // The two columns are one node's two coordinates, and every caller fills both to the
+    // node count, so a ragged pair is a bug at the call site and not a shape this pass
+    // could half-do. Named here rather than left to the zip to truncate.
+    assert_eq!(
+        x.len(),
+        y.len(),
+        "one coordinate per node, as the other has"
+    );
     if x.is_empty() {
         return;
     }
@@ -72,16 +80,34 @@ fn merge(column: &[f64], split: bool) -> f64 {
 /// Subtract the centroid, then divide by the largest absolute coordinate.
 ///
 /// **One pass, and serial, deliberately.** It is an `f64` max fold and a divide over the
-/// whole cloud: splitting it would split nothing worth splitting, and the fold's order is
-/// part of the bytes as much as the sum's is.
+/// whole cloud: splitting it would split nothing worth splitting, and the divide has to
+/// see every coordinate before it can scale any of them. The fold's own order is not
+/// load-bearing — `f64::max` is associative and commutative on non-NaN operands — so only
+/// the divide's is, and one pass over the column is what gives it that.
+///
+/// **A non-finite coordinate poisons the limit instead of joining it.** `f64::max` hands
+/// back its non-NaN operand, so a NaN would slip past the fold and survive the divide;
+/// poisoning raises the limit to `INFINITY`, which the finite gate below then refuses, so
+/// the cloud is left recentred and the non-finite node reaches `snapshot` as the one
+/// coordinate `NonFinite` names, instead of an infinite limit silently scaling every
+/// *finite* node to `0.0`.
+///
+/// Ponytail: the refusal says only "this cloud cannot be scaled" — it does not name the
+/// node or the column, and it cannot, because the poison is a single `INFINITY` that every
+/// non-finite entry would have set. Naming the coordinate is [`super::snapshot`]'s job, and
+/// it does it from the `f32` column, which is where a caller reads it.
 fn recentre(x: &mut [f64], y: &mut [f64], mean_x: f64, mean_y: f64) {
     let mut limit = 0.0_f64;
     for (px, py) in x.iter_mut().zip(y.iter_mut()) {
         *px -= mean_x;
         *py -= mean_y;
-        limit = limit.max(px.abs()).max(py.abs());
+        limit = if px.is_finite() && py.is_finite() {
+            limit.max(px.abs()).max(py.abs())
+        } else {
+            f64::INFINITY
+        };
     }
-    if limit > 0.0 {
+    if limit.is_finite() && limit > 0.0 {
         for value in x.iter_mut().chain(y.iter_mut()) {
             *value /= limit;
         }

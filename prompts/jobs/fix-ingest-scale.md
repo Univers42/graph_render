@@ -1,5 +1,7 @@
 # Job fix-ingest-scale (agent build: the 1M-node document must build on wasm32)
 
+Your worktree is cut from `open-core-slot`, which is not on develop yet; do not merge develop.
+
 Read `prompts/jobs/fix-common.md` first for the loop and the report shape.
 
 Why. The studio targets 1M nodes (`packages/graph-studio/src/source/synthetic.ts`, `MAX_NODES`).

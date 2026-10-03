@@ -2,11 +2,13 @@
 // SDK's job, not the caller's, since the caller never sees the pointer). Shared by
 // `Motor#build` and `Motor#buildContract`, which differ only in the export they call and
 // the error class a refusal takes. ASCII text is encoded straight into the staging buffer
-// (`encodeInto`), so a document crosses into linear memory with one copy, not three.
+// (`encodeInto`), so a document crosses into linear memory with one copy, not three. A shared
+// memory (the threads artifact) takes the encoded array instead: browsers refuse `encodeInto`
+// into a shared view, and Node does not, so only a browser run shows it (`studio-smoke.sh`).
 
 import { type RawExports, toU32 } from "./wasm.ts";
 import { BuildRefusedError } from "./errors.ts";
-import { encoder, invoke, lastError, type Loaded } from "./calls.ts";
+import { encoder, invoke, lastError } from "./calls.ts";
 import type { ColumnViews } from "./views.ts";
 import type { Handle } from "./types.ts";
 
@@ -27,39 +29,36 @@ interface Staged {
   free(): void;
 }
 
-function reserve(exports: RawExports, spec: StagedBuild, chars: number): number {
+/** The exports staging calls, and no more, so a test can stage into a shared memory of its own. */
+export type StagingExports = Pick<RawExports, "memory" | "gm_alloc" | "gm_free" | "gm_last_error" | StagedBuild["call"]>;
+
+/** What {@link buildStaged} needs of a loaded motor; a `Loaded` is one. */
+export interface StagingTarget {
+  readonly exports: StagingExports;
+  readonly views: Pick<ColumnViews, "bump">;
+}
+
+function reserve(exports: StagingExports, spec: StagedBuild, chars: number): number {
   const ptr = invoke("gm_alloc", () => exports.gm_alloc(toU32(chars)));
   if (ptr === 0) throw new BuildRefusedError(`gm_alloc could not reserve the ${spec.buffer} buffer`, lastError(exports));
   return ptr;
 }
 
-/** Stages `text` in linear memory, one copy where the text allows it.
+// `typeof` first: a page that is not cross-origin isolated has no `SharedArrayBuffer` at all.
+function isShared(buffer: ArrayBufferLike): boolean {
+  return typeof SharedArrayBuffer !== "undefined" && buffer instanceof SharedArrayBuffer;
+}
+
+/** Stages `text` in linear memory, one copy where the text and the memory allow it.
  *
  *  A character outside ASCII is more than one byte, so the encoded bytes are longer than the
  *  character count: those bytes do not fit the buffer reserved for the characters, and that
  *  buffer is given back before the encoded array is staged the long way. ASCII — every
  *  document the studio generates, and most a user drops in — fills the reservation in place,
- *  so no second byte array is ever built.
- *
- *  The branch is on `read`, the characters `encodeInto` consumed, and never on `written`, the
- *  bytes it wrote: a truncated encoding still fills the buffer to the brim, so a document
- *  cut at its character count would be staged whole and the motor would read a truncated
- *  document (`packages/graph-studio/tests/staging.motor.test.ts`). */
-function stage(exports: RawExports, views: ColumnViews, spec: StagedBuild, text: string): Staged {
-  const chars = toU32(text.length);
-  let ptr = reserve(exports, spec, chars);
-  let len = chars;
-  // `exports.memory.buffer` is read per call: `gm_alloc` may have grown the memory.
-  const read = encoder.encodeInto(text, new Uint8Array(exports.memory.buffer, ptr, chars)).read;
-  if (read !== chars) {
-    // No `bump()` for this free: the buffer never held a view, and `free()` below bumps for
-    // the reservation that did, so the fallback epoch sequence is the same one as before.
-    invoke("gm_free", () => exports.gm_free(ptr, chars));
-    const bytes = encoder.encode(text);
-    len = toU32(bytes.length);
-    ptr = reserve(exports, spec, len);
-    new Uint8Array(exports.memory.buffer, ptr, len).set(bytes);
-  }
+ *  so no second byte array is ever built. A shared memory always goes the long way. */
+function stage(exports: StagingExports, views: StagingTarget["views"], spec: StagedBuild, text: string): Staged {
+  const placed = isShared(exports.memory.buffer) ? undefined : inPlace(exports, spec, text);
+  const { ptr, len } = placed ?? copied(exports, spec, text);
   return {
     ptr,
     len,
@@ -70,7 +69,33 @@ function stage(exports: RawExports, views: ColumnViews, spec: StagedBuild, text:
   };
 }
 
-export function buildStaged({ exports, views }: Loaded, text: string, spec: StagedBuild): Handle {
+/** `text` encoded straight into its reservation, or `undefined` with the reservation given back.
+ *
+ *  The branch is on `read`, the characters `encodeInto` consumed, and never on `written`, the
+ *  bytes it wrote: a truncated encoding still fills the buffer to the brim, so a document
+ *  cut at its character count would be staged whole and the motor would read a truncated
+ *  document (`packages/graph-studio/tests/staging.motor.test.ts`). */
+function inPlace(exports: StagingExports, spec: StagedBuild, text: string): { ptr: number; len: number } | undefined {
+  const chars = toU32(text.length);
+  const ptr = reserve(exports, spec, chars);
+  // `exports.memory.buffer` is read per call: `gm_alloc` may have grown the memory.
+  const read = encoder.encodeInto(text, new Uint8Array(exports.memory.buffer, ptr, chars)).read;
+  if (read === chars) return { ptr, len: chars };
+  // No `bump()` for this free: the buffer never held a view, and `free()` bumps for the
+  // reservation that did, so the fallback epoch sequence is the same one as before.
+  invoke("gm_free", () => exports.gm_free(ptr, chars));
+  return undefined;
+}
+
+function copied(exports: StagingExports, spec: StagedBuild, text: string): { ptr: number; len: number } {
+  const bytes = encoder.encode(text);
+  const len = toU32(bytes.length);
+  const ptr = reserve(exports, spec, len);
+  new Uint8Array(exports.memory.buffer, ptr, len).set(bytes);
+  return { ptr, len };
+}
+
+export function buildStaged({ exports, views }: StagingTarget, text: string, spec: StagedBuild): Handle {
   const staged = stage(exports, views, spec, text);
   try {
     const handle = invoke(spec.call, () => exports[spec.call](staged.ptr, staged.len));

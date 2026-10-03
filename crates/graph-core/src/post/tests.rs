@@ -98,18 +98,70 @@ fn post_composability() {
         let (x, y) = centres(&geometry.nodes);
         for input in [geometry.clone(), lines(x, y)] {
             for cap in &POSTS {
-                let bundled = (cap.run)(&topology, &input)
-                    .unwrap_or_else(|e| panic!("{} over {}: {e}", cap.id, layout.id));
+                let Some(bundled) = run_or_declined(cap, &topology, &input) else {
+                    continue;
+                };
                 check_output(&bundled, cap, &topology, layout.id, &input);
             }
         }
     }
 }
 
-/// A bundled result is valid only if it is the right kind, fits the topology, holds the node
-/// positions it was given, and is finite everywhere. The node check is what makes the pass a
-/// *post* pass: a bundler that moved a node would not be composing with the layout, it would
-/// be replacing it.
+/// One capability's run, or `None` when it **declined** the geometry for a stated reason.
+///
+/// The matrix runs every capability over every layout, and five layouts emit a z column. A
+/// `moves_nodes: true` row refuses those on purpose — separating 2D discs under a z column
+/// would answer a question nobody asked (`docs/decisions/node-overlap.md` §3) — so a refusal
+/// is a legitimate outcome, and this is where it is recognised rather than panicked on.
+///
+/// **The refusal is checked, not merely tolerated.** It must be exactly
+/// `Param { name: "geometry.z" }`, and it must only happen when a z column is actually there:
+/// a row that refused a planar geometry, or refused for any other reason, is a bug and is
+/// panicked on. So a pass cannot pass the matrix by refusing everything, and a pass that
+/// quietly processed a z column is caught here rather than in a review.
+fn run_or_declined(cap: &Capability, topology: &Topology, input: &Geometry) -> Option<Bundled> {
+    match (cap.run)(topology, input) {
+        Ok(bundled) => Some(bundled),
+        Err(StageError::Param {
+            name: "geometry.z",
+            rule: "must be absent",
+        }) => {
+            assert!(
+                input.z.is_some(),
+                "{} refused a planar geometry: the z refusal is the only one it may make",
+                cap.id
+            );
+            assert!(
+                cap.meta.moves_nodes,
+                "{} refused a z column without declaring moves_nodes: only a pass that moves \
+nodes can need the refusal, and it must say so",
+                cap.id
+            );
+            None
+        }
+        Err(e) => panic!("{} over the test graph: {e}", cap.id),
+    }
+}
+
+/// A bundled result is valid only if it is the right kind, fits the topology, and is finite
+/// everywhere — and what it must do with the node positions it was handed depends on what the
+/// capability **declared**.
+///
+/// That declaration is the point. The rule used to be flat: *a post pass may not move a node*,
+/// asserted over every row. [`separate`] has to break that rule to exist, so the rule became
+/// [`Metadata::moves_nodes`] and the assert follows it:
+///
+/// - `moves_nodes: false` — **the original assert, unchanged and still exact.** Node columns
+///   byte-identical to the input. Every bundler and every style is held to the strong claim,
+///   which is the point of declaring it rather than assuming it.
+/// - `moves_nodes: true` — a weaker but still stated one. The node **kind** is preserved (a
+///   pass that turned `Circle`s into `Point`s would be silently downgrading the drawing), the
+///   size columns are untouched, every position is finite, and the edges are **byte-identical**
+///   to the input, because this row declares `edges` pass-through.
+///
+/// The z-column assert applies to **both**: a pass carries `z` on or it is not a pass, it is a
+/// silent downgrade of a 3D drawing to 2D. `separate` refuses a z column outright rather than
+/// moving `x`/`y` under one, so it never reaches here with a `z` in hand.
 fn check_output(
     bundled: &Bundled,
     cap: &Capability,
@@ -119,18 +171,20 @@ fn check_output(
 ) {
     let where_ = format!("{} over {}", cap.id, layout);
     let expected = find(cap.id).expect("registered").meta.edges;
-    assert_eq!(bundled.geometry.edges.kind(), expected, "{where_}");
+    if cap.meta.moves_nodes {
+        check_moved_nodes(bundled, &where_, input);
+    } else {
+        assert_eq!(bundled.geometry.edges.kind(), expected, "{where_}");
+        assert_eq!(
+            bundled.geometry.nodes, input.nodes,
+            "{where_}: a post pass may not move a node"
+        );
+    }
     bundled
         .geometry
         .edges
         .check(topology.edge_count())
         .unwrap_or_else(|e| panic!("{where_}: {e}"));
-    assert_eq!(
-        bundled.geometry.nodes, input.nodes,
-        "{where_}: a post pass may not move a node"
-    );
-    // The same claim about the third dimension: a pass carries the z column on or it is
-    // not a pass, it is a silent downgrade of a 3D drawing to 2D.
     assert_eq!(
         bundled.geometry.z, input.z,
         "{where_}: a post pass may not drop the z column"
@@ -140,19 +194,76 @@ fn check_output(
         .nodes
         .check(topology.node_count(), None)
         .unwrap_or_else(|e| panic!("{where_}: {e}"));
-    bundled
-        .geometry
-        .edges
-        .check(topology.edge_count())
-        .unwrap_or_else(|e| panic!("{where_}: {e}"));
-    assert!(bundled.pairs <= edges_squared(topology), "{where_}");
-    assert!(bundled.unbundled <= topology.edge_count(), "{where_}");
+    // Per-capability bounds, not one edge-shaped pair: `separate` counts **node** pairs, so
+    // an edge-shaped bound would refuse it at two nodes and mean nothing above three. Neither
+    // bound is deleted — each row is held to the count space it actually reports in.
+    let (nodes_squared, edges_squared) = if cap.meta.moves_nodes {
+        (nodes_squared(topology), topology.node_count())
+    } else {
+        (edges_squared(topology), topology.edge_count())
+    };
+    assert!(bundled.pairs <= nodes_squared, "{where_}: pairs");
+    assert!(bundled.unbundled <= edges_squared, "{where_}: unbundled");
 }
 
-/// The largest pair count a pass can report: every unordered pair of distinct edges.
+/// What a `moves_nodes: true` row owes instead: the kind and the sizes survive, every
+/// coordinate is finite, and the edges come out exactly as they went in.
+fn check_moved_nodes(bundled: &Bundled, where_: &str, input: &Geometry) {
+    assert_eq!(
+        bundled.geometry.nodes.kind(),
+        input.nodes.kind(),
+        "{where_}: a pass may not change the node kind"
+    );
+    assert_eq!(
+        sizes(&bundled.geometry.nodes),
+        sizes(&input.nodes),
+        "{where_}: a pass may not resize a node"
+    );
+    assert_eq!(
+        bundled.geometry.edges, input.edges,
+        "{where_}: this row declares edges pass-through, so they must be untouched"
+    );
+    for (label, column) in columns(&bundled.geometry.nodes) {
+        assert!(
+            column.iter().all(|v| v.is_finite()),
+            "{where_}: {label} is not finite"
+        );
+    }
+}
+
+/// The size columns of a node kind, in a fixed order, so two kinds of the same size compare
+/// equal — which is what makes "a pass may not resize a node" mean something across kinds.
+fn sizes(nodes: &NodeGeometry) -> Vec<Vec<f32>> {
+    match nodes {
+        NodeGeometry::Point { .. } => Vec::new(),
+        NodeGeometry::Circle { r, .. } => vec![r.clone()],
+        NodeGeometry::Box { w, h, .. } => vec![w.clone(), h.clone()],
+    }
+}
+
+/// The coordinate columns of a node kind, in a fixed order.
+fn columns(nodes: &NodeGeometry) -> Vec<(&'static str, &Vec<f32>)> {
+    match nodes {
+        NodeGeometry::Point { x, y }
+        | NodeGeometry::Circle { x, y, .. }
+        | NodeGeometry::Box { x, y, .. } => {
+            vec![("x", x), ("y", y)]
+        }
+    }
+}
+
+/// The largest pair count an **edge**-shaped pass can report: every unordered pair of
+/// distinct edges.
 fn edges_squared(topology: &Topology) -> u32 {
     let m = topology.edge_count();
     m.saturating_mul(m.saturating_sub(1)) / 2
+}
+
+/// The largest pair count a **node**-shaped pass can report: every unordered pair of distinct
+/// nodes. `separate` counts node pairs, so this is its ceiling.
+fn nodes_squared(topology: &Topology) -> u32 {
+    let n = topology.node_count();
+    n.saturating_mul(n.saturating_sub(1)) / 2
 }
 
 /// Every registered POST capability declares its metadata, and every one in the matrix is
@@ -231,6 +342,25 @@ fn a_3d_geometries_z_column_survives_every_registered_capability() {
     );
     assert_eq!(geometry.dim(), Dim::D3, "the fixture is 3D");
     for cap in &POSTS {
+        if cap.meta.moves_nodes {
+            // A node-moving pass is refused here rather than run, and that refusal is what
+            // keeps the *other* half of this test true. If it ran, it would have to leave z
+            // alone while moving x and y under it — the silent downgrade this test exists to
+            // catch. `docs/decisions/node-overlap.md` §3 is the decision, and this line is
+            // its enforcement: the refusal is asserted, not merely tolerated, so a pass
+            // cannot make this green by refusing nothing.
+            let err = (cap.run)(&topology, &geometry).expect_err("a node-moving pass refuses 3D");
+            assert_eq!(
+                err,
+                StageError::Param {
+                    name: "geometry.z",
+                    rule: "must be absent",
+                },
+                "{}: a node-moving pass must refuse a z column, not half-process it",
+                cap.id
+            );
+            continue;
+        }
         let bundled = (cap.run)(&topology, &geometry)
             .unwrap_or_else(|e| panic!("{} over a 3D geometry: {e}", cap.id));
         assert_eq!(bundled.geometry.z, Some(z.clone()), "{}: z dropped", cap.id);
@@ -249,6 +379,14 @@ fn a_3d_geometries_z_column_survives_every_registered_capability() {
 ///
 /// This is the negative control for the whole slice: a pass that emitted the layout's own
 /// straight edges, or that moved nothing, passes every test above and fails here.
+///
+/// **Rows are selected by what they claim, not by skipping a failure.** The loop covers the
+/// `moves_nodes: false` rows — the bundlers this test is named for — and the
+/// `moves_nodes: true` rows are excluded because ink is not what they are for: they move
+/// nodes, and a node move can raise or lower ink freely. Every bundler is still asserted with
+/// the identical bound, so nothing is weakened. `separate` gets its own equivalent control in
+/// its own test module — `it_actually_resolves_pairs` — which is the same question asked of it
+/// in the units it reports in, and fails if the pass ever becomes a no-op.
 #[test]
 fn both_bundlers_reduce_ink_on_the_long_span_fixture() {
     let (records, edges) = fdeb::load("long-span").expect("the fixture is committed");
@@ -256,7 +394,13 @@ fn both_bundlers_reduce_ink_on_the_long_span_fixture() {
     let grid = crate::registry::find("layout.grid").expect("registered");
     let geometry = (grid.run)(&topology).expect("the grid lays it out");
     let before = measure(&topology, &geometry);
-    for cap in &POSTS {
+    let bundlers: Vec<_> = POSTS.iter().filter(|cap| !cap.meta.moves_nodes).collect();
+    assert!(
+        bundlers.len() >= 2,
+        "the test is named for the bundlers and needs at least two, found {}",
+        bundlers.len()
+    );
+    for cap in bundlers {
         let bundled = (cap.run)(&topology, &geometry).expect("runs");
         let after = measure(&topology, &bundled.geometry);
         assert!(
