@@ -4,7 +4,7 @@
 use super::*;
 use crate::columns::NodeKind;
 use crate::edgekind::EdgeKind;
-use crate::index::{index_model, nodes_equal};
+use crate::index::index_model;
 use crate::records::{EdgeRecord, NodeRecord};
 
 /// Strings shared across fields and rows: node 7's label is node 9's id, interned two rows
@@ -119,33 +119,11 @@ fn deduped_reversed() -> Doc {
     }
 }
 
-/// Every handle column, the arena's size, and every row read back by text.
+/// Every field of both topologies. Derived `Debug` prints contents, never capacity, so equal
+/// strings mean an equal arena, columns, CSRs, database index and note count. Stricter than
+/// `==` on floats, as "the same build" should be: `-0.0` and `0.0` print differently.
 fn same(a: &Topology, b: &Topology) -> bool {
-    let (x, y) = (&a.nodes, &b.nodes);
-    let (p, q) = (&a.edges, &b.edges);
-    (a.strings.len(), a.strings.byte_len()) == (b.strings.len(), b.strings.byte_len())
-        && (
-            &x.id,
-            &x.database,
-            &x.source,
-            &x.label,
-            &x.group_label,
-            &x.icon,
-        ) == (
-            &y.id,
-            &y.database,
-            &y.source,
-            &y.label,
-            &y.group_label,
-            &y.icon,
-        )
-        && (&x.kind, &x.weight, &x.version, &x.has_note)
-            == (&y.kind, &y.weight, &y.version, &y.has_note)
-        && (&p.id, &p.label, &p.record_id, &p.kind) == (&q.id, &q.label, &q.record_id, &q.kind)
-        && (&p.source, &p.target, &p.strength) == (&q.source, &q.target, &q.strength)
-        && (&p.directed, &p.child_first) == (&q.directed, &q.child_first)
-        && (0..a.node_count())
-            .all(|r| a.node(r).id == b.node(r).id && nodes_equal(&a.node(r), &b.node(r)))
+    format!("{a:?}") == format!("{b:?}")
 }
 
 #[test]
@@ -171,4 +149,14 @@ fn the_comparison_sees_two_rows_trade_labels() {
     let (a, b) = (doc.nodes[1].label, doc.nodes[2].label);
     (doc.nodes[1].label, doc.nodes[2].label) = (b, a);
     assert!(!same(&model, &doc.index().expect("still valid")));
+}
+
+#[test]
+fn the_comparison_sees_a_field_no_row_reads_back() {
+    // The note count is in no row: the field-by-field comparison this replaced never saw it.
+    let (nodes, edges) = records();
+    let model = index_model(&nodes, &edges).expect("fits");
+    let mut columns = per_cell().index().expect("every id is fresh");
+    columns.notes += 1;
+    assert!(!same(&model, &columns));
 }

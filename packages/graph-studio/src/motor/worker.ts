@@ -22,18 +22,26 @@ async function fetchText(url: string): Promise<string> {
 }
 
 /**
- * Ponytail: a worker has no `requestAnimationFrame`, so the loop is paced by a timer. This is
- * a fixed period rather than the page's vsync, so a busy main thread delays a frame rather
- * than skipping one, and the loop's own budget drops ticks instead. Failing input: a tab in
- * the background has its timers clamped to about 1 Hz, so the settle crawls there.
- * Direction: 16 ms, the period a 60 Hz display would give. Escape hatch: the `now()` the loop
- * budgets against is `performance.now()`, so a clamped timer shows up as a long frame.
+ * Ponytail: a worker has no `requestAnimationFrame`, so the loop is paced by a timer, and the
+ * loop says how long to wait (`LoopDeps.schedule`). A frame owed at once goes through a message
+ * channel instead of `setTimeout(run, 0)`: the loop's frames are nested timers, and from the
+ * fifth nesting level on the browser clamps a zero timeout to 4 ms, which is a tenth of a tick
+ * at 400k nodes. A message task still queues behind the page's requests, so a drag is read
+ * between two ticks. Failing input: a tab in the background has its timers clamped to about
+ * 1 Hz, so a small graph's settle crawls there; a large one, which never waits, does not.
  */
-const FRAME_MS = 16;
-
-function pacedFrame(run: () => void): () => void {
-  const timer = setTimeout(run, FRAME_MS);
-  return () => clearTimeout(timer);
+function pacedFrame(run: () => void, delayMs: number): () => void {
+  if (delayMs > 0) {
+    const timer = setTimeout(run, delayMs);
+    return () => clearTimeout(timer);
+  }
+  const channel = new MessageChannel();
+  channel.port1.onmessage = () => {
+    channel.port1.close();
+    run();
+  };
+  channel.port2.postMessage(null);
+  return () => channel.port1.close();
 }
 
 function spawnHelper(start: HelperStart): void {

@@ -15,7 +15,7 @@ studio's synthetic document repeats a few hundred distinct strings across millio
 | Piece | Where | What changed |
 |---|---|---|
 | id → row | `graph-core/src/index/slots.rs` `RowBySlot` | the node and edge id sets are a `Vec<u32>` indexed by the interned handle's arena slot: one write to admit, one read to look up, no hash (`e088944`) |
-| cells | `graph-core/src/index/columns/cells.rs` | `index_columns` takes `NodeCells`/`EdgeCells` (string-table entry numbers) over a `StringTable`, not decoded `&str` rows. `RowEdge` is gone (`91946a6`) |
+| cells | `graph-core/src/index/columns/cells.rs` | `index_columns` takes `NodeCells`/`EdgeCells` (string-table entry numbers) over an `EntryTable`, not decoded `&str` rows. `RowEdge` is gone (`91946a6`) |
 | memo | `cells.rs` `Memo<V>` | one `Option<V>` per table entry: an entry's handle, node kind or edge kind is resolved once and read back by index after that. `EdgeKind::from_name` runs once per distinct kind, not once per edge |
 | admit | `graph-core/src/index/admit.rs` | `claim_*` (refuse a taken id) and `push_*` (append the row) are shared by the columnar path; `index_model` keeps `admit_node`/`admit_edge` |
 | decoder | `graph-contract/src/ingest_columns/row.rs` | `node_cells`/`edge_cells` yield entry numbers; the text is read only on the memo's first miss |

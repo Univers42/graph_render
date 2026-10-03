@@ -47,7 +47,7 @@ negctl-split-rescale|nonzero|scripts/orch/gr -e GM_MUTATE_SPLIT_RESCALE=1 cargo 
 # image, then check the result against the measured ceiling and record it. The oracle row is
 # the only one here that talks to Docker.
 twopi-emit-1000|0|scripts/orch/gr cargo run -q -p graph-cli -- emit-twopi-fixtures --seeds 1000
-twopi-oracle-1000|0|docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-twopi.py target/twopi-fixtures target/gv-twopi
+twopi-oracle-1000|0|scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-twopi.py target/twopi-fixtures target/gv-twopi
 twopi-check-1000|0|scripts/orch/gr cargo run -q -p graph-cli -- oracle-twopi
 # The differential's own negative control, in the shape
 # `scripts/orch/rows/develop-full.rows:184` uses for the closed-form oracle: a directory with

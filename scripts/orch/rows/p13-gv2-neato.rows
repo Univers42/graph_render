@@ -63,7 +63,7 @@ negctl-split-rescale|nonzero|scripts/orch/gr -e GM_MUTATE_SPLIT_RESCALE=1 cargo 
 # fixtures the emit above wrote, and it imports the metric from `harness/oracle-twopi.py`
 # rather than carrying a second definition of the number the ceiling is measured against.
 neato-emit-1000|0|scripts/orch/gr cargo run -q --release -p graph-cli -- emit-graphviz-fixtures --engine neato --seeds 1000
-neato-oracle-1000|0|docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/neato-fixtures neato target/gv-neato --differential
+neato-oracle-1000|0|scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/neato-fixtures neato target/gv-neato --differential
 neato-check-1000|0|scripts/orch/gr cargo run -q -p graph-cli -- oracle-graphviz --engine neato
 # The differential's own negative control, in the shape `p13-gv1.rows` uses for twopi: a
 # directory with no recorded run must be refused rather than read as a pass.

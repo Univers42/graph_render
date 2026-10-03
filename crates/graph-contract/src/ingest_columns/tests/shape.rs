@@ -22,14 +22,18 @@ fn an_empty_document_decodes_to_an_empty_doc() {
 }
 
 #[test]
-fn a_full_document_hands_out_every_row_it_declares() {
+fn a_full_document_is_exactly_as_long_as_its_counts_say() {
     let encoded = full().encode();
     let doc = decode(&encoded.bytes).expect("the fixture is valid");
     assert_eq!(encoded.bytes.len(), encoded.marks.child_first + 4);
-    assert_eq!(doc.node_count(), 2);
-    assert_eq!(doc.edge_count(), 1);
+    assert_eq!((doc.node_count(), doc.edge_count()), (2, 1));
+}
+
+#[test]
+fn a_full_document_hands_out_its_populated_node() {
+    let encoded = full().encode();
+    let doc = decode(&encoded.bytes).expect("the fixture is valid");
     let first = doc.node(0).expect("row 0");
-    let second = doc.node(1).expect("row 1");
     assert_eq!(
         (
             first.id,
@@ -52,6 +56,13 @@ fn a_full_document_hands_out_every_row_it_declares() {
             true
         )
     );
+}
+
+#[test]
+fn a_full_document_hands_out_its_bare_node() {
+    let encoded = full().encode();
+    let doc = decode(&encoded.bytes).expect("the fixture is valid");
+    let second = doc.node(1).expect("row 1");
     assert_eq!(
         (
             second.id,
@@ -63,6 +74,12 @@ fn a_full_document_hands_out_every_row_it_declares() {
         ("n-1", "note", None, None, None)
     );
     assert!(!second.has_note);
+}
+
+#[test]
+fn a_full_document_hands_out_its_edge() {
+    let encoded = full().encode();
+    let doc = decode(&encoded.bytes).expect("the fixture is valid");
     let edge = doc.edge(0).expect("row 0");
     assert_eq!(
         (
@@ -102,6 +119,15 @@ fn text_is_none_past_the_table_and_the_blob_is_one_borrow() {
         doc.blob(),
         "n-0n-1db-0studioGraph notesEpsilon\u{1f33f}recordnoterelatione-0rec-7"
     );
+}
+
+#[test]
+fn a_cell_whose_byte_offset_overflows_is_none_rather_than_a_wrap() {
+    let column = [1u8, 0, 0, 0, 2, 0, 0, 0];
+    assert_eq!(cell_at(&column, 1), Some(2));
+    assert_eq!(cell_at(&column, usize::MAX / 2), None);
+    // `4 * cell` wraps to exactly 0 here: unchecked, a release build would read cell 0.
+    assert_eq!(cell_at(&column, usize::MAX / 4 + 1), None);
 }
 
 #[test]

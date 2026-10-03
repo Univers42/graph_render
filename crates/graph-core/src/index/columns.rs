@@ -15,7 +15,7 @@
 //! # What graph-core owns and graph-contract does not
 //!
 //! graph-core sees no wire format. A row arrives as [`NodeCells`] or [`EdgeCells`], every
-//! string an entry of a [`StringTable`], so the decoder that produced them stays in
+//! string an entry of an [`EntryTable`], so the decoder that produced them stays in
 //! `graph-contract` and this module stays testable with a plain `[&str]`.
 
 use super::Topology;
@@ -24,7 +24,7 @@ use crate::arena::{CapacityError, StringArena};
 use cells::Entries;
 use core::fmt;
 
-pub use cells::{EdgeCells, NodeCells, StringTable};
+pub use cells::{EdgeCells, EntryTable, NodeCells};
 
 /// Why a columnar document could not be indexed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -92,20 +92,17 @@ impl fmt::Display for ColumnsRefusal {
 /// dense index `r`. Refuses a repeated node or edge id rather than dropping it, which is what
 /// makes an edge's endpoint row mean what it says.
 ///
-/// The arena reserves for the whole table once instead of rehashing as it grows; at 1M nodes
-/// the growth was 17% of the build (`docs/measurements/perf-open-intern.md`).
-///
-/// **Caveat:** the reservation over-counts by every duplicate entry the table holds, which
-/// the contract allows; the caller already holds that table in memory, so the excess is at
-/// most the table's own size.
-pub fn index_columns<T: StringTable + ?Sized>(
+/// The arena reserves once, up front, instead of rehashing as it grows; at 1M nodes the
+/// growth was 17% of the build (`docs/measurements/perf-open-intern.md`).
+pub fn index_columns<T: EntryTable + ?Sized>(
     table: &T,
     nodes: impl ExactSizeIterator<Item = NodeCells>,
     edges: impl ExactSizeIterator<Item = EdgeCells>,
 ) -> Result<Topology, ColumnsRefusal> {
     let mut topology = Topology::with_row_capacity(nodes.len(), edges.len());
-    topology.strings = StringArena::with_capacity(table.entries(), table.bytes());
-    let mut entries = Entries::new(table);
+    let reserved = reserved_entries(table.entries(), nodes.len(), edges.len());
+    topology.strings = StringArena::with_capacity(reserved, table.bytes());
+    let mut entries = Entries::new(table, reserved);
     for node in nodes {
         index_node(&mut topology, &mut entries, &node)?;
     }
@@ -116,8 +113,21 @@ pub fn index_columns<T: StringTable + ?Sized>(
     Ok(topology)
 }
 
+/// How many distinct strings to reserve for: never more than the rows can name — six per node
+/// (id, database, source, label, group, icon) and three per edge (id, label, record id) — so a
+/// table far larger than its rows (the contract does not forbid one) reserves for the rows.
+///
+/// **Caveat:** over-counts by repeated entries and absent optional cells, and is never more
+/// than an all-distinct build would grow to.
+fn reserved_entries(entries: usize, nodes: usize, edges: usize) -> usize {
+    let named = nodes
+        .saturating_mul(6)
+        .saturating_add(edges.saturating_mul(3));
+    entries.min(named)
+}
+
 /// Admits the next node row, interning its strings in `admit_node`'s order.
-fn index_node<T: StringTable + ?Sized>(
+fn index_node<T: EntryTable + ?Sized>(
     topology: &mut Topology,
     entries: &mut Entries<'_, T>,
     cells: &NodeCells,
@@ -144,7 +154,7 @@ fn index_node<T: StringTable + ?Sized>(
 }
 
 /// Admits the next edge row: the endpoint-row check, then `admit_edge`'s intern order.
-fn index_edge<T: StringTable + ?Sized>(
+fn index_edge<T: EntryTable + ?Sized>(
     topology: &mut Topology,
     entries: &mut Entries<'_, T>,
     cells: &EdgeCells,

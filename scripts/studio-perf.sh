@@ -93,7 +93,7 @@ baseline=()
 source "$root/scripts/orch/gpu.sh"
 
 mem=${PERF_MEMORY:-4g}
-exec docker run --rm --memory "$mem" --memory-swap "$mem" -e STUDIO_PERF_BREAK="${STUDIO_PERF_BREAK:-}" \
+exec "$root/scripts/orch/drun" --rm --memory "$mem" --memory-swap "$mem" -e STUDIO_PERF_BREAK="${STUDIO_PERF_BREAK:-}" \
   "${gpu_env[@]}" "${gpu_device[@]}" -v "$root:/w" -w /w "$image" \
   python3 deploy/perf/run.py --dist app/dist --out "target/studio-perf/$label" \
   --driver "$driver" --edge-colour "$edge_colour" --commit "$(git -C "$root" rev-parse --short HEAD)" \

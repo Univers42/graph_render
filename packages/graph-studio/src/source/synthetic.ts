@@ -16,11 +16,15 @@
  * Deterministic: mulberry32 with integer steps, no clock, no `Math.random`, and a fixed draw
  * order per shape.
  */
-import type { IngestDoc, IngestEdge, IngestNode } from "./ingest.ts";
+import { type IngestDoc, type IngestEdge, type IngestNode, IngestRefusal } from "./ingest.ts";
+import { linksRefusal } from "./limits.ts";
 import {
   EDGE_KIND_NAMES,
   EDGE_STRENGTH,
+  MAX_DEGREE,
+  MAX_NODES,
   applyDegreeWeights,
+  clamp,
   drawGraph,
 } from "./synthetic-draw.ts";
 import type { Drawn, SyntheticSpec } from "./synthetic-draw.ts";
@@ -54,10 +58,12 @@ function edgesOf(drawn: Drawn): IngestEdge[] {
 }
 
 /** The records the JSON document is built from: the draws, with the degree weights applied and
- *  the edges named by id. Same signature, same field values, same order as before the columns
- *  path existed — the ids come from the node that owns them, so an endpoint is a lookup and
- *  not a second concatenation. */
+ *  the edges named by id. Refuses a graph past `MAX_LINKS` before it draws: the document would
+ *  not fit. The ids come from the node that owns them, so an endpoint is a lookup and not a
+ *  second concatenation. */
 export function syntheticRecords(spec: SyntheticSpec): Records {
+  const refused = linksRefusal(clamp(spec.nodeCount, 2, MAX_NODES), clamp(spec.degree, 0, MAX_DEGREE));
+  if (refused !== null) throw new IngestRefusal("synthetic", refused);
   const drawn = drawGraph(spec);
   applyDegreeWeights(drawn.nodes, drawn.counts);
   return { nodes: drawn.nodes, edges: edgesOf(drawn) };

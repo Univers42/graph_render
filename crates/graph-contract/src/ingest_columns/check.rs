@@ -28,10 +28,11 @@ pub(super) fn float(column: &[u8], row: u32) -> f64 {
 
 /// The `u32` in cell `cell` of `column`, or `None` if the column has no such cell. Used by
 /// `ColumnsDoc::text`, which is handed a string index by a host and must not read one past
-/// the offset table to find out.
+/// the offset table to find out. Checked, so a cell past `usize::MAX / 4` is `None` rather
+/// than a wrapped index into cell 0 (a release build on wasm32 does not trap on overflow).
 pub(super) fn cell_at(column: &[u8], cell: usize) -> Option<u32> {
-    let at = 4 * cell;
-    let four: [u8; 4] = column.get(at..at + 4)?.try_into().ok()?;
+    let at = cell.checked_mul(4)?;
+    let four: [u8; 4] = column.get(at..at.checked_add(4)?)?.try_into().ok()?;
     Some(u32::from_le_bytes(four))
 }
 

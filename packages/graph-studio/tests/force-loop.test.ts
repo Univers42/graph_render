@@ -1,100 +1,19 @@
-// The live loop against a fake port: the stop condition, frame dropping, the disabled state.
+// The live loop against a fake port: the stop condition, the frame period, the disabled state.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { DEFAULT_KNOBS, type ForceKnobs, type LiveForce, NO_ADAPTER_REASON } from "../src/motor/live.ts";
-import { ALPHA_MIN, TICKS_PER_FRAME, createForceHost } from "../src/motor/liveLoop.ts";
-import type { ForceFrame, Result } from "../src/motor/protocol.ts";
+import { ALPHA_MIN, TICKS_PER_FRAME } from "../src/motor/liveLoop.ts";
+import type { Result } from "../src/motor/protocol.ts";
 import type { Session } from "../src/motor/session.ts";
 import { serve } from "../src/motor/serve.ts";
+import { fake, lastFrame, mortal, rig } from "./force-rig.ts";
 
 const refuse = (): never => { throw new Error("a force request must not reach the session"); };
 const NO_SESSION: Session = { open: refuse, load: refuse, layout: refuse, analysis: refuse, forces: () => null };
 const KNOBS: ForceKnobs = { ...DEFAULT_KNOBS, gravity: 0.5, charge: -100, linkStrengthScale: 1, linkDistance: 40, theta: 1.2 };
 /** What the loop pushes when the session under it is released: no loop, and no session. */
 const STOPPED: Result = { type: "force-state", running: false, disabled: NO_ADAPTER_REASON, paused: false };
-
-interface Clock { now: number; perStep: number }
-
-interface Fake extends LiveForce {
-  readonly calls: string[];
-  alpha: number;
-  decay: number;
-}
-
-function fake(decay: number, clock: Clock = { now: 0, perStep: 0 }): Fake {
-  const port: Fake = {
-    calls: [], alpha: 0, decay,
-    pin: (id, x, y) => { port.calls.push(`pin ${id} ${x} ${y}`); },
-    unpin: (id) => { port.calls.push(`unpin ${id}`); },
-    setParams: () => { port.calls.push("params"); },
-    step: (ticks) => {
-      port.calls.push(`step ${ticks}`);
-      clock.now += clock.perStep;
-      port.alpha *= port.decay;
-      return port.alpha;
-    },
-    positions: () => ({ xs: Float64Array.of(1, 2), ys: Float64Array.of(3, 4) }),
-    reheat: (alpha) => { port.alpha = alpha; port.calls.push("reheat"); },
-    shuffle: () => { port.calls.push("shuffle"); port.alpha = 1; return port.alpha; },
-  };
-  return port;
-}
-
-interface Mortal extends Fake {
-  /** Set when the graph behind the port was replaced: the session it holds is released. */
-  dead: boolean;
-}
-
-/** The motor throws `InvalidSessionError` from every call on a released session, so this does. */
-function mortal(decay: number): Mortal {
-  const base = fake(decay);
-  const guard = (call: string): void => {
-    if (mortal.dead) throw new Error(`InvalidSessionError: ${call} on a released session`);
-  };
-  const mortal: Mortal = {
-    dead: false,
-    ...base,
-    pin: (id, x, y) => { guard("pin"); base.pin(id, x, y); },
-    unpin: (id) => { guard("unpin"); base.unpin(id); },
-    step: (ticks) => { guard("step"); return base.step(ticks); },
-    reheat: (alpha) => { guard("reheat"); base.reheat(alpha); },
-    positions: () => { guard("positions"); return base.positions(); },
-  };
-  return mortal;
-}
-
-interface Rig {
-  readonly emitted: Result[];
-  readonly frames: () => number;
-  readonly tick: () => void;
-  readonly scheduled: () => number;
-}
-
-function lastFrame(emitted: readonly Result[]): ForceFrame {
-  const found = emitted.filter((r) => r.type === "force-frame").at(-1);
-  if (found?.type !== "force-frame") throw new Error("no frame was emitted");
-  return found.frame;
-}
-
-function rig(port: Fake, clock: Clock = { now: 0, perStep: 0 }, budgetMs = 8, live: () => LiveForce | null = () => port) {
-  const emitted: Result[] = [];
-  let next: (() => void) | null = null;
-  let scheduled = 0;
-  const host = createForceHost(live, {
-    schedule: (run) => { next = run; scheduled += 1; return () => { next = null; }; },
-    now: () => clock.now,
-    emit: (result) => { emitted.push(result); },
-    budgetMs,
-  });
-  const out: Rig = {
-    emitted,
-    frames: () => emitted.filter((r) => r.type === "force-frame").length,
-    tick: () => { const run = next; next = null; run?.(); },
-    scheduled: () => scheduled,
-  };
-  return { host, out };
-}
 
 test("the loop steps until alpha is under alpha_min, then stops on its own", () => {
   const port = fake(0.5);
@@ -150,27 +69,26 @@ test("drag events before a frame collapse to the last one", () => {
   assert.equal(out.scheduled(), 2, "three requests, one scheduled frame, then the next");
 });
 
-test("a slow motor drops its next tick instead of running late, and never queues", () => {
+test("a slow motor ticks every frame, back to back, and never queues", () => {
   const clock = { now: 0, perStep: 20 };
   const port = fake(0.99, clock);
-  const { host, out } = rig(port, clock, 8);
+  const { host, out } = rig(port, clock, 16);
   host.handle({ type: "force.start" });
-  out.tick();
-  assert.equal(port.calls.filter((c) => c.startsWith("step")).length, 1, "the tick overran the budget");
-  out.tick();
-  assert.equal(port.calls.filter((c) => c.startsWith("step")).length, 1, "so the next tick was dropped");
-  assert.equal(out.frames(), 2, "and the frame was drawn anyway");
-  assert.equal(out.scheduled(), 3, "exactly one frame is ever pending");
+  for (let i = 0; i < 2; i += 1) out.tick();
+  assert.equal(port.calls.filter((c) => c.startsWith("step")).length, 2, "no tick is dropped after a long one");
+  assert.equal(out.frames(), 2, "one frame a tick, never a frame without one");
+  assert.deepEqual(out.delays, [16, 0, 0], "a tick past the period is followed at once, and one frame is ever pending");
 });
 
-test("a fast motor steps once a frame, so the settle lasts as long as the animation", () => {
+test("a fast motor steps once a period, so the settle lasts as long as the animation", () => {
   const clock = { now: 0, perStep: 1 };
   const port = fake(0.999, clock);
-  const { host, out } = rig(port, clock, 8);
+  const { host, out } = rig(port, clock, 16);
   host.handle({ type: "force.start" });
   for (let i = 0; i < 5; i += 1) out.tick();
   assert.equal(port.calls.filter((c) => c.startsWith("step")).length, 5, "one tick a frame, not a budgetful");
   assert.equal(port.calls.filter((c) => c === `step ${TICKS_PER_FRAME}`).length, 5);
+  assert.deepEqual(out.delays, [16, 15, 15, 15, 15, 15], "the wait is the period less the tick");
 });
 
 test("params reach the port and reheat; stop unpins and halts", () => {
