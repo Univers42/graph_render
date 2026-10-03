@@ -1,16 +1,19 @@
 //! The indexed model (`src/core/model/model.ts`): dense indices over stable ids, the
 //! string arena, the SoA columns and three CSR adjacencies, built in one O(n + m) pass.
 //!
-//! Identity is an insertion-ordered set of interned ids — `IndexSet`, never `HashMap`
-//! (H2, D4) — so a node's dense index is the position the oracle's `Map` gives it. The
+//! A node's dense index is its admission order, the position the oracle's `Map` gives it,
+//! filed under its interned id's arena slot ([`RowBySlot`]; never a `HashMap`, H2, D4). The
 //! dense index is internal: only the stable string id crosses the wire.
 
 use crate::arena::{CapacityError, FixedState, Interned, StringArena};
 use crate::columns::{EdgeColumns, NodeColumns, NodeKind};
 use crate::csr::Csr;
 use crate::edgekind::EdgeKind;
-use crate::records::{EdgeFields, EdgeRecord, NodeRecord, NodeView};
+use crate::records::{EdgeRecord, NodeRecord, NodeView};
+#[cfg(test)]
+use admit::next_index;
 use indexmap::{IndexMap, IndexSet};
+use slots::RowBySlot;
 
 /// `GraphStats` (`types.ts:75-80`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -29,8 +32,8 @@ pub struct Stats {
 #[derive(Debug, Clone, Default)]
 pub struct Topology {
     strings: StringArena,
-    node_ids: IndexSet<Interned, FixedState>,
-    edge_ids: IndexSet<Interned, FixedState>,
+    node_ids: RowBySlot,
+    edge_ids: RowBySlot,
     nodes: NodeColumns,
     edges: EdgeColumns,
     out: Csr,
@@ -100,29 +103,14 @@ pub fn nodes_equal(a: &NodeView<'_>, b: &NodeView<'_>) -> bool {
         && a.icon == b.icon
 }
 
-/// A dense index for the next entry of a set already holding `len`, or the refusal.
-fn next_index(len: usize, what: &'static str) -> Result<u32, CapacityError> {
-    u32::try_from(len)
-        .ok()
-        .filter(|&i| i < u32::MAX)
-        .ok_or(CapacityError { what })
-}
-
-fn intern_opt(
-    strings: &mut StringArena,
-    value: Option<&str>,
-) -> Result<Option<Interned>, CapacityError> {
-    value.map(|v| strings.intern(v)).transpose()
-}
-
 impl Topology {
     /// An empty topology with room for `nodes` node rows and `edges` edge rows: the id sets
     /// and the four SoA columns. The arena is left to grow — a caller that knows the
     /// document's string shape replaces it, as [`index_model`] does.
     pub(super) fn with_row_capacity(nodes: usize, edges: usize) -> Self {
         Self {
-            node_ids: IndexSet::with_capacity_and_hasher(nodes, FixedState::default()),
-            edge_ids: IndexSet::with_capacity_and_hasher(edges, FixedState::default()),
+            node_ids: RowBySlot::with_capacity(nodes),
+            edge_ids: RowBySlot::with_capacity(edges),
             nodes: NodeColumns::with_capacity(nodes),
             edges: EdgeColumns::with_capacity(edges),
             ..Self::default()
@@ -137,65 +125,12 @@ impl Topology {
         Ok(())
     }
 
-    /// Keeps `node` unless its id is taken: first wins (`model.ts:37-40`). One arena probe
-    /// and one set probe per node: a taken id is already interned, so `intern` adds nothing.
-    ///
-    /// `false` means the id was already there and nothing was appended — the drop
-    /// `index_model` wants and [`index_columns`](super::index_columns) refuses.
-    fn admit_node(&mut self, node: &NodeView<'_>) -> Result<bool, CapacityError> {
-        let s = &mut self.strings;
-        let id = s.intern(node.id)?;
-        let (index, fresh) = self.node_ids.insert_full(id);
-        if !fresh {
-            return Ok(false);
-        }
-        next_index(index, "node index")?;
-        let n = &mut self.nodes;
-        n.database.push(intern_opt(s, node.database_id)?);
-        n.source.push(s.intern(node.source)?);
-        n.label.push(s.intern(node.label)?);
-        n.group_label.push(intern_opt(s, node.group)?);
-        n.icon.push(intern_opt(s, node.icon)?);
-        n.id.push(id);
-        n.kind.push(node.kind);
-        n.weight.push(node.weight);
-        n.version.push(node.version);
-        n.has_note.push(node.has_note);
-        Ok(true)
-    }
-
     /// The dense indices of the nodes named `source` and `target`, or `None` if either is
-    /// not kept. Split out of [`admit_edge`](Self::admit_edge) so a caller that already
+    /// not kept. Split out of `admit_edge` so a caller that already
     /// holds resolved endpoints — the columnar path, where an endpoint is a row — pays no
     /// arena probe, and so `index_model` can resolve before it interns anything.
     pub(super) fn endpoints(&self, source: &str, target: &str) -> Option<(u32, u32)> {
         Some((self.node_index(source)?, self.node_index(target)?))
-    }
-
-    /// Keeps `edge` at the already-resolved endpoint indices `at`, unless its id is taken
-    /// (`model.ts:47-53`). `false` means the id was already there and nothing was appended.
-    ///
-    /// A dropped edge interns nothing, so it neither claims its id nor costs arena bytes: a
-    /// taken id is already interned, and the caller resolves the endpoints first.
-    fn admit_edge(&mut self, at: (u32, u32), edge: &EdgeFields<'_>) -> Result<bool, CapacityError> {
-        let s = &mut self.strings;
-        let id = s.intern(edge.id)?;
-        let (index, fresh) = self.edge_ids.insert_full(id);
-        if !fresh {
-            return Ok(false);
-        }
-        next_index(index, "edge index")?;
-        let e = &mut self.edges;
-        e.label.push(s.intern(edge.label)?);
-        e.record_id.push(intern_opt(s, edge.record_id)?);
-        e.id.push(id);
-        e.source.push(at.0);
-        e.target.push(at.1);
-        e.kind.push(edge.kind);
-        e.strength.push(edge.strength);
-        e.directed.push(edge.directed);
-        e.child_first.push(edge.child_first);
-        Ok(true)
     }
 
     /// The out, in and hierarchy CSRs, fed in edge order, and the degree column. A
@@ -230,7 +165,9 @@ impl Topology {
     }
 }
 
+mod admit;
 pub(crate) mod columns;
+mod slots;
 mod view;
 
 #[cfg(test)]

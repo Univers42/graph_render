@@ -1,8 +1,9 @@
 //! [`index_columns`]: the indexed model from rows, for the columnar ingest document
 //! (`docs/contract/ingest-columns.md`).
 //!
-//! Same admit path as [`index_model`](super::index_model) — `admit_node` and `admit_edge`
-//! are the only places a row becomes a column entry — but the *policy* on a taken id is the
+//! Same admit path as [`index_model`](super::index_model) — `claim_*` and `push_*`
+//! (`index/admit.rs`) are the only places a row becomes a column entry — but the *policy* on
+//! a taken id is the
 //! opposite. `index_model` drops the duplicate, first wins, because a JSON document may name
 //! the same id twice and there is no answer a caller could act on. A columnar document cannot
 //! afford that: its edge endpoints are **row numbers**, so a dropped row would renumber every
@@ -13,14 +14,17 @@
 //!
 //! # What graph-core owns and graph-contract does not
 //!
-//! graph-core sees no wire format. The iterators below carry borrowed `&str` and resolved
-//! kinds, so the decoder that produced them stays in `graph-contract` and this module stays
-//! testable with plain arrays.
+//! graph-core sees no wire format. A row arrives as [`NodeCells`] or [`EdgeCells`], every
+//! string an entry of a [`StringTable`], so the decoder that produced them stays in
+//! `graph-contract` and this module stays testable with a plain `[&str]`.
 
 use super::Topology;
-use crate::arena::CapacityError;
-use crate::records::{NodeView, RowEdge};
+use super::admit::{InternedEdge, InternedNode};
+use crate::arena::{CapacityError, StringArena};
+use cells::Entries;
 use core::fmt;
+
+pub use cells::{EdgeCells, NodeCells, StringTable};
 
 /// Why a columnar document could not be indexed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,6 +47,21 @@ pub enum ColumnsRefusal {
         /// The edge row carrying it.
         row: u32,
     },
+    /// A cell names a string-table entry past the table's end.
+    TableEntry {
+        /// The entry named.
+        entry: u32,
+    },
+    /// Row `row`'s kind is no node kind's name.
+    NodeKind {
+        /// The node row carrying it.
+        row: u32,
+    },
+    /// Row `row`'s kind is no edge kind's name.
+    EdgeKind {
+        /// The edge row carrying it.
+        row: u32,
+    },
     /// The `u32` index space ran out, as in [`index_model`](super::index_model).
     Capacity(CapacityError),
 }
@@ -59,54 +78,99 @@ impl fmt::Display for ColumnsRefusal {
             Self::DuplicateNodeId { row } => write!(f, "node row {row} repeats an id"),
             Self::DuplicateEdgeId { row } => write!(f, "edge row {row} repeats an id"),
             Self::EndpointRow { row } => write!(f, "edge row {row} names a node row that is gone"),
+            Self::TableEntry { entry } => write!(f, "string-table entry {entry} does not exist"),
+            Self::NodeKind { row } => write!(f, "node row {row} names no node kind"),
+            Self::EdgeKind { row } => write!(f, "edge row {row} names no edge kind"),
             Self::Capacity(inner) => fmt::Display::fmt(inner, f),
         }
     }
 }
 
-/// Indexes nodes and edges given as rows, in document order.
+/// Indexes nodes and edges given as rows over `table`, in document order.
 ///
 /// `nodes` and `edges` must both be in the document's own row order: row `r` admitted is
 /// dense index `r`. Refuses a repeated node or edge id rather than dropping it, which is what
 /// makes an edge's endpoint row mean what it says.
 ///
-/// **Caveat:** the reservation counts rows only. The string arena is left to grow, where
-/// [`index_model`](super::index_model) also over-reserves it by exactly the distinct
-/// non-id strings the document holds — a graph whose labels are all different grows it once
-/// either way.
-pub fn index_columns<'a>(
-    mut nodes: impl ExactSizeIterator<Item = NodeView<'a>>,
-    mut edges: impl ExactSizeIterator<Item = RowEdge<'a>>,
+/// The arena reserves for the whole table once instead of rehashing as it grows; at 1M nodes
+/// the growth was 17% of the build (`docs/measurements/perf-open-intern.md`).
+///
+/// **Caveat:** the reservation over-counts by every duplicate entry the table holds, which
+/// the contract allows; the caller already holds that table in memory, so the excess is at
+/// most the table's own size.
+pub fn index_columns<T: StringTable + ?Sized>(
+    table: &T,
+    nodes: impl ExactSizeIterator<Item = NodeCells>,
+    edges: impl ExactSizeIterator<Item = EdgeCells>,
 ) -> Result<Topology, ColumnsRefusal> {
-    let (node_rows, edge_rows) = (nodes.len(), edges.len());
-    let mut topology = Topology::with_row_capacity(node_rows, edge_rows);
-    for node in &mut nodes {
-        let row = topology.node_count();
-        if !topology.admit_node(&node)? {
-            return Err(ColumnsRefusal::DuplicateNodeId { row });
-        }
+    let mut topology = Topology::with_row_capacity(nodes.len(), edges.len());
+    topology.strings = StringArena::with_capacity(table.entries(), table.bytes());
+    let mut entries = Entries::new(table);
+    for node in nodes {
+        index_node(&mut topology, &mut entries, &node)?;
     }
-    for edge in &mut edges {
-        let row = topology.edge_count();
-        push_edge(&mut topology, row, &edge)?;
+    for edge in edges {
+        index_edge(&mut topology, &mut entries, &edge)?;
     }
     topology.finish()?;
     Ok(topology)
 }
 
-/// The one shared edge push: the endpoint-row check, then `admit_edge`, then the refusal a
-/// taken id earns. `row` is the edge's dense index, which is also its document row.
-fn push_edge(topology: &mut Topology, row: u32, edge: &RowEdge<'_>) -> Result<(), ColumnsRefusal> {
-    let nodes = topology.node_count();
-    if edge.source_row >= nodes || edge.target_row >= nodes {
-        return Err(ColumnsRefusal::EndpointRow { row });
+/// Admits the next node row, interning its strings in `admit_node`'s order.
+fn index_node<T: StringTable + ?Sized>(
+    topology: &mut Topology,
+    entries: &mut Entries<'_, T>,
+    cells: &NodeCells,
+) -> Result<(), ColumnsRefusal> {
+    let row = topology.node_count();
+    let id = entries.string(&mut topology.strings, cells.id)?;
+    if !topology.claim_node(id)? {
+        return Err(ColumnsRefusal::DuplicateNodeId { row });
     }
-    let at = (edge.source_row, edge.target_row);
-    if !topology.admit_edge(at, &edge.fields())? {
-        return Err(ColumnsRefusal::DuplicateEdgeId { row });
-    }
+    let s = &mut topology.strings;
+    let node = InternedNode {
+        database: entries.optional(s, cells.database_id)?,
+        source: entries.string(s, cells.source)?,
+        label: entries.string(s, cells.label)?,
+        group: entries.optional(s, cells.group)?,
+        icon: entries.optional(s, cells.icon)?,
+        kind: entries.node_kind(cells.kind, row)?,
+        weight: cells.weight,
+        version: cells.version,
+        has_note: cells.has_note,
+    };
+    topology.push_node(id, node);
     Ok(())
 }
+
+/// Admits the next edge row: the endpoint-row check, then `admit_edge`'s intern order.
+fn index_edge<T: StringTable + ?Sized>(
+    topology: &mut Topology,
+    entries: &mut Entries<'_, T>,
+    cells: &EdgeCells,
+) -> Result<(), ColumnsRefusal> {
+    let (row, nodes) = (topology.edge_count(), topology.node_count());
+    if cells.source_row >= nodes || cells.target_row >= nodes {
+        return Err(ColumnsRefusal::EndpointRow { row });
+    }
+    let id = entries.string(&mut topology.strings, cells.id)?;
+    if !topology.claim_edge(id)? {
+        return Err(ColumnsRefusal::DuplicateEdgeId { row });
+    }
+    let s = &mut topology.strings;
+    let edge = InternedEdge {
+        label: entries.string(s, cells.label)?,
+        record_id: entries.optional(s, cells.record_id)?,
+        kind: entries.edge_kind(cells.kind, row)?,
+        strength: cells.strength,
+        directed: cells.directed,
+        child_first: cells.child_first,
+    };
+    topology.push_edge(id, (cells.source_row, cells.target_row), edge);
+    Ok(())
+}
+
+mod cells;
 
 #[cfg(test)]
 mod tests;

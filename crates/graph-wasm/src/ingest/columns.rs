@@ -1,19 +1,14 @@
 //! The columnar ingest path's bridge from a decoded document to graph-core's admit path
 //! (`docs/contract/ingest-columns.md`, `docs/decisions/ingest-columns.md`).
 //!
-//! graph-core knows no wire format: it takes borrowed `&str`, a resolved kind, and endpoint
-//! *rows*. This module is the whole of the translation — resolve the two kinds, lend the
-//! strings, hand the rows through — and it lives here because graph-wasm is the one crate
-//! that depends on both `graph-contract` (which owns the bytes) and `graph-core` (which owns
-//! the graph).
-//!
-//! **Caveat:** the kinds are resolved in a pass of their own, before the admit pass, because
-//! `Iterator::next` cannot refuse and an unknown kind has to be a refusal rather than a
-//! silently short document. That pass is a string compare per row and no allocation; it is
-//! paid once and buys the admit pass a `NodeKind` per row with no `Option` in the loop.
+//! graph-core knows no wire format: it takes rows whose strings are entries of a
+//! [`StringTable`], and resolves each entry, kind names included, the first time a row names
+//! it. This module is the whole of the translation — lend the table, copy each row's cells
+//! across — and it lives here because graph-wasm is the one crate that depends on both
+//! `graph-contract` (which owns the bytes) and `graph-core` (which owns the graph).
 
-use graph_contract::ingest_columns::{ColumnsDoc, EdgeRow, decode};
-use graph_core::{EdgeKind, NodeKind, NodeView, RowEdge, Topology, index_columns};
+use graph_contract::ingest_columns::{self as wire, ColumnsDoc, decode};
+use graph_core::{EdgeCells, NodeCells, StringTable, Topology, index_columns};
 
 use crate::errors::Code;
 
@@ -39,133 +34,64 @@ impl ColumnsError {
 }
 
 /// Reads a columnar document and indexes it, or the refusal.
+///
+/// Row `r` becomes dense index `r`, which is what an edge's endpoint rows name — and it only
+/// holds because `index_columns` refuses a repeated id instead of dropping the row.
 pub fn index(bytes: &[u8]) -> Result<Topology, ColumnsError> {
     if bytes.len() > crate::ingest::MAX_INGEST_BYTES {
         return Err(ColumnsError::TooLarge);
     }
     let doc = decode(bytes).map_err(|_| ColumnsError::Invalid)?;
-    resolve_kinds(&doc)?;
-    index_columns(Nodes::new(doc), Edges::new(doc)).map_err(|_| ColumnsError::Invalid)
+    let nodes =
+        (0..doc.node_count()).map(|row| node(doc.node_cells(row).expect("a row below the count")));
+    let edges =
+        (0..doc.edge_count()).map(|row| edge(doc.edge_cells(row).expect("a row below the count")));
+    index_columns(&Table(doc), nodes, edges).map_err(|_| ColumnsError::Invalid)
 }
 
-/// Every node kind and edge kind in the document, or the refusal. The contract carries kinds
-/// as string-table entries precisely so the enum needs no numeric mirror here; this is the
-/// one place that vocabulary is applied.
-fn resolve_kinds(doc: &ColumnsDoc<'_>) -> Result<(), ColumnsError> {
-    for row in 0..doc.node_count() {
-        if NodeKind::from_name(doc.node(row).expect("a row below the count").kind).is_none() {
-            return Err(ColumnsError::Invalid);
-        }
-    }
-    for row in 0..doc.edge_count() {
-        if EdgeKind::from_name(doc.edge(row).expect("a row below the count").kind).is_none() {
-            return Err(ColumnsError::Invalid);
-        }
-    }
-    Ok(())
-}
+/// The document's string table, lent to graph-core. A newtype because graph-core owns the
+/// trait and graph-contract the type, and only a local type may join them.
+struct Table<'d>(ColumnsDoc<'d>);
 
-/// Node rows `0..node_count`, in document order. Row `r` becomes dense index `r`, which is
-/// what the endpoint rows on [`Edges`] name — and it only holds because `index_columns`
-/// refuses a repeated id instead of dropping the row that repeats it.
-struct Nodes<'d> {
-    doc: ColumnsDoc<'d>,
-    next: u32,
-}
-
-impl<'d> Nodes<'d> {
-    fn new(doc: ColumnsDoc<'d>) -> Self {
-        Self { doc, next: 0 }
+impl StringTable for Table<'_> {
+    fn entries(&self) -> usize {
+        self.0.string_count() as usize
     }
 
-    fn view(&self, row: u32) -> NodeView<'d> {
-        let n = self.doc.node(row).expect("a row below the count");
-        NodeView {
-            id: n.id,
-            kind: NodeKind::from_name(n.kind).expect("`resolve_kinds` resolved every kind"),
-            database_id: n.database_id,
-            source: n.source,
-            label: n.label,
-            group: n.group,
-            weight: n.weight,
-            version: n.version,
-            has_note: n.has_note,
-            icon: n.icon,
-        }
+    fn bytes(&self) -> usize {
+        self.0.blob().len()
+    }
+
+    fn text(&self, entry: u32) -> Option<&str> {
+        self.0.text(entry)
     }
 }
 
-impl<'d> Iterator for Nodes<'d> {
-    type Item = NodeView<'d>;
-
-    fn next(&mut self) -> Option<NodeView<'d>> {
-        let row = self.next;
-        if row >= self.doc.node_count() {
-            return None;
-        }
-        self.next += 1;
-        Some(self.view(row))
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        let n = self.len();
-        (n, Some(n))
+fn node(c: wire::NodeCells) -> NodeCells {
+    NodeCells {
+        id: c.id,
+        kind: c.kind,
+        database_id: c.database_id,
+        source: c.source,
+        label: c.label,
+        group: c.group,
+        weight: c.weight,
+        version: c.version,
+        has_note: c.has_note,
+        icon: c.icon,
     }
 }
 
-impl ExactSizeIterator for Nodes<'_> {
-    fn len(&self) -> usize {
-        (self.doc.node_count() - self.next) as usize
-    }
-}
-
-/// Edge rows `0..edge_count`, in document order.
-struct Edges<'d> {
-    doc: ColumnsDoc<'d>,
-    next: u32,
-}
-
-impl<'d> Edges<'d> {
-    fn new(doc: ColumnsDoc<'d>) -> Self {
-        Self { doc, next: 0 }
-    }
-
-    fn row(&self, row: u32) -> RowEdge<'d> {
-        let e: EdgeRow<'d> = self.doc.edge(row).expect("a row below the count");
-        RowEdge {
-            id: e.id,
-            source_row: e.source_row,
-            target_row: e.target_row,
-            kind: EdgeKind::from_name(e.kind).expect("`resolve_kinds` resolved every kind"),
-            label: e.label,
-            strength: e.strength,
-            directed: e.directed,
-            record_id: e.record_id,
-            child_first: e.child_first,
-        }
-    }
-}
-
-impl<'d> Iterator for Edges<'d> {
-    type Item = RowEdge<'d>;
-
-    fn next(&mut self) -> Option<RowEdge<'d>> {
-        let row = self.next;
-        if row >= self.doc.edge_count() {
-            return None;
-        }
-        self.next += 1;
-        Some(self.row(row))
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        let n = self.len();
-        (n, Some(n))
-    }
-}
-
-impl ExactSizeIterator for Edges<'_> {
-    fn len(&self) -> usize {
-        (self.doc.edge_count() - self.next) as usize
+fn edge(c: wire::EdgeCells) -> EdgeCells {
+    EdgeCells {
+        id: c.id,
+        source_row: c.source_row,
+        target_row: c.target_row,
+        kind: c.kind,
+        label: c.label,
+        strength: c.strength,
+        directed: c.directed,
+        record_id: c.record_id,
+        child_first: c.child_first,
     }
 }
