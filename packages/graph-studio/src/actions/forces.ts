@@ -7,8 +7,7 @@
 import { DEFAULT_KNOBS, type ForceKnobs, KNOB_LIMITS, type KnobName, NO_ADAPTER_REASON } from "../motor/live.ts";
 import type { StudioState } from "../state/model.ts";
 import { flagArg, numberArg } from "./context.ts";
-import { presetActions } from "./forcePresets.ts";
-import type { Action } from "./registry.ts";
+import { type Action, ActionRefusal } from "./registry.ts";
 
 /** No action here reads its context, so any context will do. */
 type ForceAction<Context> = Action<StudioState, Context>;
@@ -46,7 +45,7 @@ export const NO_FORCE_LINK: ForceLink = {
   paused: () => false,
 };
 
-export const SECTION = "Forces";
+const SECTION = "Forces";
 
 /** How the panel shows a knob: as the motor holds it, negated (repel), or as `1 - it` (friction). */
 type Face = "same" | "negated" | "complement";
@@ -107,6 +106,64 @@ function knobActions<Context>(link: ForceLink): readonly ForceAction<Context>[] 
   ];
 }
 
+/**
+ * Spread leaves half a radius again around the largest drawn disc, and repels at three times
+ * the motor's default unless the repel is already stronger.
+ *
+ * Ponytail: both numbers were picked, then checked on two sources only (the clustered
+ * fixture and a 10 000-node synthetic graph, `docs/measurements/ux-forces-full.md`). A graph
+ * with long chains may need more repel than this, which the Repel slider still gives.
+ */
+const SPREAD_MARGIN = 0.5;
+const SPREAD_CHARGE = 3 * DEFAULT_KNOBS.charge;
+/** Ponytail: picked, not measured — tighter than the defaults, still kept apart by the spacing. */
+const COMPACT = { charge: -30, linkDistance: 30, gravity: 0.05 };
+
+/**
+ * The spacing that keeps two discs of the drawn size from touching, plus `margin` of a radius,
+ * on the slider's half-unit grid.
+ *
+ * Ponytail: one spacing for every node, sized to the largest disc — small nodes in a graph
+ * of very mixed sizes get room meant for the big one (looser, never tighter). The 1.25 px
+ * floor of a tiny disc is taken at the zoom of the press: zoom in later and the spacing is
+ * wider than the discs now drawn; pressing again re-sizes it.
+ */
+function spacingFor(link: ForceLink, margin: number): number {
+  const drawn = link.drawn?.() ?? null;
+  if (drawn === null || !Number.isFinite(drawn)) {
+    throw new ActionRefusal("unavailable", "nothing is drawn to size the node spacing on");
+  }
+  return Math.min(KNOB_LIMITS.collideRadius.max, Math.ceil(drawn * (1 + margin) * 2) / 2);
+}
+
+function spoken(knobs: ForceKnobs): string {
+  return `node spacing ${knobs.collideRadius}, repel ${-knobs.charge}, link distance ${knobs.linkDistance}`;
+}
+
+function presetActions<Context>(link: ForceLink): readonly ForceAction<Context>[] {
+  return [
+    {
+      id: "forces.spread", alias: "spread", title: "Spread", section: SECTION, params: [],
+      available: () => link.disabled(),
+      run: () => {
+        const now = link.knobs();
+        const next = { ...now, collideRadius: spacingFor(link, SPREAD_MARGIN), charge: Math.min(now.charge, SPREAD_CHARGE) };
+        link.set(next);
+        return { message: `spread: ${spoken(next)}` };
+      },
+    },
+    {
+      id: "forces.compact", alias: "compact", title: "Compact", section: SECTION, params: [],
+      available: () => link.disabled(),
+      run: () => {
+        const next = { ...link.knobs(), ...COMPACT, collideRadius: spacingFor(link, 0) };
+        link.set(next);
+        return { message: `compact: ${spoken(next)}` };
+      },
+    },
+  ];
+}
+
 function controlActions<Context>(link: ForceLink): readonly ForceAction<Context>[] {
   return [
     {
@@ -141,5 +198,3 @@ export function forceActions<Context>(link: ForceLink): readonly ForceAction<Con
   return [...knobActions<Context>(link), ...presetActions<Context>(link), ...controlActions<Context>(link)];
 }
 
-// Re-exported for the panel and the tests, which know the knobs by these and nothing else.
-export type { ForceKnobs };
