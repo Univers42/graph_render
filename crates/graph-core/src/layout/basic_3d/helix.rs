@@ -49,17 +49,30 @@ const RADIUS_RATIO: f64 = 0.3;
 /// `HELIX`'s capability id, which is also its hash-gate stage.
 pub const ID: &str = "layout.basic3d.helix";
 
-/// `_helix_layout(n, scale)` (`basic.py:65-81`) over the node count.
+/// `_helix_layout(n, scale)` (`basic.py:65-81`) over the node count, at [`SCALE`].
 pub(super) fn run(n: u32) -> Result<Geometry, StageError> {
     let (x, y, z) = columns(n);
     Ok(in_space(&x, &y, &z))
 }
 
-/// The three `f64` columns at `n`, before narrowing.
+/// [`run`] at the `scale` the caller asks for. Both uses of it are the reference's own
+/// (`radius = scale * 0.3` and `z = t*scale*2 - scale`), so
+/// `run_scaled(n, SCALE) == run(n)` bit for bit.
+pub(super) fn run_scaled(n: u32, scale: f64) -> Result<Geometry, StageError> {
+    let (x, y, z) = columns_scaled(n, scale);
+    Ok(in_space(&x, &y, &z))
+}
+
+/// The three `f64` columns at `n`, before narrowing, at [`SCALE`].
 ///
 /// The `levels` guard is [`turn`], and it is a function of the whole count rather than a
 /// branch inside the loop, so the degenerate case is decided once rather than per node.
 pub(super) fn columns(n: u32) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
+    columns_scaled(n, SCALE)
+}
+
+/// [`columns`] at an explicit `scale` (`basic.py:71-81`).
+pub(super) fn columns_scaled(n: u32, scale: f64) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
     // `(n + 1) // 2` (`basic.py:68`), which is `n.div_ceil(2)` — the same integer, and the
     // reading that says what it is: the number of *pairs* of nodes a helix of `n` holds.
     let levels = n.div_ceil(2);
@@ -68,13 +81,13 @@ pub(super) fn columns(n: u32) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
         Vec::with_capacity(n as usize),
         Vec::with_capacity(n as usize),
     );
-    let radius = SCALE * RADIUS_RATIO;
+    let radius = scale * RADIUS_RATIO;
     for i in 0..n {
         let t = turn(i, levels);
         let angle = t * 4.0 * core::f64::consts::PI + f64::from(i % 2) * STRAND;
         columns.0.push(radius * libm::cos(angle));
         columns.1.push(radius * libm::sin(angle));
-        columns.2.push(t * SCALE * 2.0 - SCALE);
+        columns.2.push(t * scale * 2.0 - scale);
     }
     columns
 }
@@ -82,10 +95,11 @@ pub(super) fn columns(n: u32) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
 /// `t` for node `i` (`basic.py:71-74`): which turn of the helix it sits on.
 ///
 /// **The degenerate case is the point of this function.** `levels - 1` is zero exactly
-/// when `n` is 0 or 1 (`(n + 1) // 2` is 0 at `n = 0` and 1 at both `n = 1` and
-/// `n = 2`), and the reference returns `0.5` for every node then — the helix's midpoint.
-/// Written as one `if` over a `t` computed by a single division so the zero cannot be
-/// divided by anywhere else.
+/// when `n < 3` (`(n + 1) // 2` is 0 at `n = 0` and 1 at both `n = 1` and `n = 2`), and
+/// the reference returns `0.5` for every node then — the helix's midpoint. (This comment
+/// used to say "when `n` is 0 or 1" and then list three node counts two lines later; `n = 2`
+/// takes the `else` branch too.) Written as one `if` over a `t` computed by a single
+/// division so the zero cannot be divided by anywhere else.
 fn turn(i: u32, levels: u32) -> f64 {
     if levels > 1 {
         f64::from(i / 2) / f64::from(levels - 1)

@@ -101,10 +101,14 @@ pub fn index_of(id: &str) -> usize {
         .unwrap_or_else(|| panic!("{id} is not one of the pinned ids"))
 }
 
+/// The one capability that rewrites node geometry rather than edge geometry, named so a
+/// test that branches on it cannot branch on a literal that has drifted from the table.
+pub const NODE_MOVER: &str = "post.separate.grid";
+
 /// The ids this table must answer with, in order. Written out as literals rather than
 /// read back from the table: a registry that answered for whatever it happened to hold
 /// would pass a test that only checks it against itself.
-pub const IDS: [&str; 7] = [
+pub const IDS: [&str; 8] = [
     "post.bundle.fdeb",
     "post.bundle.mingle",
     "post.route.grid",
@@ -112,4 +116,5 @@ pub const IDS: [&str; 7] = [
     "post.style.orthogonal",
     "post.style.quadratic",
     "post.style.bezier",
+    "post.separate.grid",
 ];

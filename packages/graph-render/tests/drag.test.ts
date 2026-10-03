@@ -58,7 +58,7 @@ function dragOneNode() {
   showFrame(state, frame, false);
   state.camera = { x: 0, y: 0, scale: 1 };
   state.destroyed = true; // invalidate() then schedules nothing: node has no requestAnimationFrame
-  const controller = { canvas, state, notify: { hover() {}, select() {}, selection() {}, context() {}, camera() {} }, fitted: true, local: newLocalLayer() };
+  const controller = { canvas, state, notify: { hover() {}, select() {}, selection() {}, context() {}, camera() {} }, fitted: true, gestured: false, local: newLocalLayer() };
   return { state, frame, controller };
 }
 

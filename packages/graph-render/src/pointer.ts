@@ -107,8 +107,16 @@ function finishDrag(canvas: HTMLCanvasElement, handlers: PointerHandlers, done: 
     return;
   }
   if (ended.kind !== "select") return;
-  if (isClick(ended.travelled)) handlers.click(localPoint(canvas, event), event.shiftKey);
-  else ended.gesture?.end(localPoint(canvas, event));
+  if (isClick(ended.travelled)) {
+    // WHY the cancel: a press that never travelled is a click, and the click path is the only
+    // exit it takes — `end` is never called. A gesture that reserved something on the press
+    // (the live drag reserves its port) would hold that reservation for the rest of the
+    // session, so every later drag on it is silently refused.
+    ended.gesture?.cancel?.();
+    handlers.click(localPoint(canvas, event), event.shiftKey);
+    return;
+  }
+  ended.gesture?.end(localPoint(canvas, event));
 }
 
 /**

@@ -126,6 +126,7 @@ fn a_sweep_budget_is_twenty_times_the_iterations_not_twenty_more() {
             &CirclePackingParams {
                 iterations,
                 scale: 5.0,
+                ..CirclePackingParams::default()
             },
         )
         .expect("runs")
@@ -156,6 +157,7 @@ fn a_scale_the_reference_would_never_produce_is_still_refused() {
         let params = CirclePackingParams {
             iterations: 10,
             scale: bad,
+            ..CirclePackingParams::default()
         };
         let err = crate::layout::circle_packing::run_with(&topology(3, &[(0, 1)]), &params)
             .expect_err("refused");
@@ -170,6 +172,7 @@ fn a_scale_the_reference_would_never_produce_is_still_refused() {
     let tiny = CirclePackingParams {
         iterations: 5,
         scale: 1e-30,
+        ..CirclePackingParams::default()
     };
     let (n, edges) = grid(3, 3);
     let geometry =

@@ -22,6 +22,7 @@ use graph_core::layout::forceatlas2::Fa2Params;
 use graph_core::layout::graphviz::{neato, patchwork};
 use graph_core::layout::radial::twopi;
 use graph_core::layout::{circular, tidy_tree, treemap};
+use graph_core::post::separate::SeparateParams;
 use graph_core::{GridParams, REFERENCE_DEGREE, SugiyamaParams};
 use std::env::VarError;
 use std::ffi::OsString;
@@ -69,6 +70,13 @@ pub(crate) struct Setting {
     /// A [`Split`] and not a `bool` because the control names *which* kernel it corrupts,
     /// and each kernel needs its own row to be shown to be compared.
     pub(in crate::hashgate) split_sum: Split,
+    /// The overlap pass's over-relaxation factor ([`Knob::OverlapRelaxation`]), the
+    /// perturbation the native arm runs at.
+    ///
+    /// An `Option<f64>` rather than an `f32` field defaulting to the compiled-in factor,
+    /// because `Some(0.0)` is itself the control's value and a plain field could not say
+    /// "set to zero" without a second flag to say whether it was meant.
+    pub(in crate::hashgate) overlap_relaxation: Option<f64>,
     /// Whether the closed-form point layouts' shared `coords` merge is split
     /// ([`Knob::SplitRescale`]), the compute-tier control for the non-force threaded arms.
     ///
@@ -104,6 +112,7 @@ impl Setting {
             packing: CirclePackingParams::default(),
             neato_epsilon: None,
             stage_nodes: None,
+            overlap_relaxation: None,
             split_sum: Split::None,
             split_rescale: false,
             live_gravity: None,
@@ -137,6 +146,18 @@ impl Setting {
             .unwrap_or(graph_core::layout::graphviz::neato::EPSILON)
     }
 
+    /// The overlap pass's over-relaxation factor, or the registry default when no control is
+    /// set ([`Knob::OverlapRelaxation`]).
+    ///
+    /// **Public where [`Self::neato_epsilon`] is crate-private, deliberately:** this one is
+    /// read by `graph-cli overlap`, which is outside `hashgate`'s tree, because the command
+    /// *is* the invariant gate row and it has to honour the same control the hash gate does.
+    /// One reader beside the field it reads, so the hash gate's arm and the invariant row
+    /// cannot disagree about what the honest run is.
+    pub fn overlap_relaxation(&self) -> Option<f64> {
+        self.overlap_relaxation
+    }
+
     /// Which control this run is under, if any — readable from outside this module's tree,
     /// which is what lets `force-gate` refuse a control that cannot reach a session.
     ///
@@ -168,6 +189,10 @@ impl Setting {
         }
         if out.live_force_params().gravity == LiveParams::default().gravity {
             out.live_gravity = None;
+        }
+        let default_relaxation = SeparateParams::default().over_relaxation;
+        if out.overlap_relaxation.map(|r| r as f32) == Some(default_relaxation) {
+            out.overlap_relaxation = None;
         }
         out.control = None;
         out
@@ -289,6 +314,13 @@ fn apply(knob: Knob, text: &str, setting: &mut Setting) -> Result<(), String> {
             setting.stage_nodes = Some((circular::hierarchy::ID, value::nodes(text, knob)?));
         }
         Knob::PackingScale => setting.packing.scale = text.parse().map_err(|e| bad(&e))?,
+        // Parsed as a float, for the reason every parameter knob here is: `=0` must be a
+        // legal value (it is this control's own) and a typo (`=maybe`) an error rather than a
+        // silent mutation. Refused above if negative or not finite, by the pass's own `check`,
+        // so the two arms cannot disagree about what a legal value is.
+        Knob::OverlapRelaxation => {
+            setting.overlap_relaxation = Some(value::tolerance(text, knob)?);
+        }
         // Parsed rather than treated as a presence flag, so `GM_MUTATE_SPLIT_SUM=0` reaches
         // [`refuse_a_no_op`] as a parse and is refused there for perturbing nothing, and a
         // typo (`=maybe`) is an error instead of a silent mutation. `1`/`0` are accepted

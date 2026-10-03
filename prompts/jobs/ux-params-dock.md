@@ -1,6 +1,6 @@
 # Job ux-params-dock (agent build: a Layout settings panel filled from the motor's own schema)
 
-Starts after `ux-params-abi` lands. Read `docs/decisions/layout-params.md` first. The SDK there
+Your worktree is cut from `fix-sdk`, which carries `ux-params-abi` and is not on develop yet; do not merge develop. Read `docs/decisions/layout-params.md` first. The SDK there
 gives `motor.layoutParams(id)` and `motor.run(id, { params })`.
 
 Goal: every layout's parameters can be changed from the dock and from the console, with no

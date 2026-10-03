@@ -10,7 +10,7 @@ mod walk;
 
 use super::{
     FrField, GOLDEN_ANGLE, THRESHOLD, adjacency_matrix, fruchterman_reingold, initial_temperature,
-    rescale_to, seed_positions,
+    rescale_to, start_positions,
 };
 
 /// The in-place (Gauss–Seidel) step `step` had before the Jacobi fix: node `i` is moved
@@ -38,7 +38,7 @@ fn gauss_seidel(n: u32, edges: &[(u32, u32)], iterations: u32) -> Vec<(f64, f64)
         n,
         k: f64::sqrt(1.0 / f64::from(n.max(1))),
     };
-    let mut pos = seed_positions(n);
+    let mut pos = start_positions(n, None);
     let mut t = initial_temperature(&pos);
     let dt = t / f64::from(iterations + 1);
     for _ in 0..iterations {
@@ -63,7 +63,7 @@ fn a_step_is_jacobi_so_no_node_sees_another_nodes_move() {
     // Three nodes in a path: the smallest graph on which the two schemes can differ at
     // all (with two or fewer nodes there is nothing for a later node to read).
     let edges = [(0, 1), (1, 2)];
-    let jacobi = fruchterman_reingold(3, &edges, 10);
+    let jacobi = fruchterman_reingold(3, &edges, 10, None);
     let sequential = gauss_seidel(3, &edges, 10);
     assert_ne!(
         bits(&jacobi),
@@ -194,7 +194,7 @@ fn the_seed_is_a_golden_spiral_filling_the_unit_disk() {
     // `sqrt((i + 1) / n)` and angle `i * GOLDEN_ANGLE`, so no two nodes share a radius
     // and none is at the origin.
     let n = 8;
-    let pos = seed_positions(n);
+    let pos = start_positions(n, None);
     assert_eq!(pos.len(), n as usize);
     let mut radii: Vec<f64> = pos.iter().map(|&(x, y)| libm::hypot(x, y)).collect();
     radii.sort_by(f64::total_cmp);

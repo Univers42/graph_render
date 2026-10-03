@@ -40,6 +40,10 @@ pub struct Topology {
     notes: u32,
 }
 
+/// The slot-table entry of a string no node claims. `next_index` refuses to hand out
+/// `u32::MAX`, so a live dense index is never this value and one sentinel is enough.
+const NO_NODE: u32 = u32::MAX;
+
 /// `indexModel` (`model.ts:36-71`): nodes de-duplicated first-wins, then edges kept in
 /// order unless their id was already taken or an endpoint is missing.
 ///
@@ -57,11 +61,12 @@ pub fn index_model(nodes: &[NodeRecord], edges: &[EdgeRecord]) -> Result<Topolog
         edges: EdgeColumns::with_capacity(edges.len()),
         ..Topology::default()
     };
+    let mut slots = Vec::new();
     for node in nodes {
-        topology.admit_node(node)?;
+        topology.admit_node(node, &mut slots)?;
     }
     for edge in edges {
-        topology.admit_edge(edge)?;
+        topology.admit_edge(edge, &slots)?;
     }
     topology.build_adjacency()?;
     topology.group_nodes();
@@ -119,14 +124,26 @@ fn intern_opt(
 }
 
 impl Topology {
-    /// Keeps `node` unless its id is taken: first wins (`model.ts:37-40`).
-    fn admit_node(&mut self, node: &NodeRecord) -> Result<(), CapacityError> {
-        if self.node_index(&node.id).is_some() {
-            return Ok(());
-        }
-        next_index(self.node_ids.len(), "node index")?;
+    /// The node `id` names, resolved through the build's slot table: one probe of the
+    /// arena's lookup and a read of `slots`, where [`node_index`](Self::node_index)
+    /// spends a second hash probe in `node_ids`. `None` covers both `id` was never
+    /// interned and it is interned but no node claims it — a label or a source some
+    /// other node carries.
+    fn resolve_node(&self, id: &str, slots: &[u32]) -> Option<u32> {
+        let index = *slots.get(self.strings.find(id)?.slot())?;
+        (index != NO_NODE).then_some(index)
+    }
+
+    /// Keeps `node` unless its id is taken: first wins (`model.ts:37-40`). One arena probe
+    /// and one set probe per node: a taken id is already interned, so `intern` adds nothing.
+    fn admit_node(&mut self, node: &NodeRecord, slots: &mut Vec<u32>) -> Result<(), CapacityError> {
         let s = &mut self.strings;
         let id = s.intern(&node.id)?;
+        let (index, fresh) = self.node_ids.insert_full(id);
+        if !fresh {
+            return Ok(());
+        }
+        let index = next_index(index, "node index")?;
         let n = &mut self.nodes;
         n.database.push(intern_opt(s, node.database_id.as_deref())?);
         n.source.push(s.intern(&node.source)?);
@@ -138,24 +155,30 @@ impl Topology {
         n.weight.push(node.weight);
         n.version.push(node.version);
         n.has_note.push(node.has_note);
-        self.node_ids.insert(id);
+        // Every string interned above is a slot this table must account for, and only
+        // the id's slot names a node.
+        slots.resize(self.strings.len(), NO_NODE);
+        slots[id.slot()] = index;
         Ok(())
     }
 
     /// Keeps `edge` unless its id is taken or an endpoint is missing (`model.ts:47-53`).
-    /// A dropped edge interns nothing, so it neither claims its id nor costs arena bytes.
-    fn admit_edge(&mut self, edge: &EdgeRecord) -> Result<(), CapacityError> {
-        if self.edge_index(&edge.id).is_some() {
-            return Ok(());
-        }
-        let (Some(source), Some(target)) =
-            (self.node_index(&edge.source), self.node_index(&edge.target))
-        else {
+    /// A dropped edge interns nothing, so it neither claims its id nor costs arena bytes:
+    /// the endpoints are resolved first, and a taken id is already interned.
+    fn admit_edge(&mut self, edge: &EdgeRecord, slots: &[u32]) -> Result<(), CapacityError> {
+        let (Some(source), Some(target)) = (
+            self.resolve_node(&edge.source, slots),
+            self.resolve_node(&edge.target, slots),
+        ) else {
             return Ok(());
         };
-        next_index(self.edge_ids.len(), "edge index")?;
         let s = &mut self.strings;
         let id = s.intern(&edge.id)?;
+        let (index, fresh) = self.edge_ids.insert_full(id);
+        if !fresh {
+            return Ok(());
+        }
+        next_index(index, "edge index")?;
         let e = &mut self.edges;
         e.label.push(s.intern(&edge.label)?);
         e.record_id.push(intern_opt(s, edge.record_id.as_deref())?);
@@ -166,7 +189,6 @@ impl Topology {
         e.strength.push(edge.strength);
         e.directed.push(edge.directed);
         e.child_first.push(edge.child_first);
-        self.edge_ids.insert(id);
         Ok(())
     }
 
