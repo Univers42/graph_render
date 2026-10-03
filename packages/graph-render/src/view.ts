@@ -88,6 +88,8 @@ export interface ViewStats {
   readonly layoutRuns: number;
   /** Script time of the last frame; the rasteriser's time is not in it. */
   readonly frameMs: number;
+  /** Edge-draw milliseconds the GPU counted since the layer was made: monotonic, 0 where no GPU timer ran. */
+  readonly gpuEdgeMs: number;
   /** Frames painted per second while the view moves; 0 while parked. */
   readonly fps: number;
   readonly frames: number;

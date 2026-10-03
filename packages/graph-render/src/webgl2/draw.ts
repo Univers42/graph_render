@@ -68,7 +68,9 @@ function drawEdges(layer: BulkLayer, frame: Frame, first: number, count: number)
   const edge = rgbaOfCss(layer, input.theme.edge);
   gl.uniform1i(edges.uniforms("u_gradient"), input.style.edgeColour === "gradient" ? 1 : 0);
   gl.uniform4f(edges.uniforms("u_edge"), edge[0] / 255, edge[1] / 255, edge[2] / 255, edge[3] / 255);
+  layer.timer.begin();
   gl.drawElements(gl.LINES, drawn * 2, gl.UNSIGNED_INT, first * 2 * Uint32Array.BYTES_PER_ELEMENT);
+  layer.timer.end();
   return drawn;
 }
 

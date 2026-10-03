@@ -13,6 +13,7 @@
  * the host asks for `webgl2`.
  */
 import { type Normalise, type Rgba, normaliserOf } from "./colour.ts";
+import { type EdgeTimer, edgeTimerOf } from "./gputimer.ts";
 import { type Uniforms, attribute, programOf, uniformsOf } from "./gl.ts";
 import { EDGE_FRAGMENT, EDGE_VERTEX, NODE_FRAGMENT, NODE_VERTEX, POINT_FRAGMENT, POINT_VERTEX } from "./shaders.ts";
 
@@ -67,6 +68,8 @@ export interface BulkLayer {
   readonly normalise: Normalise;
   readonly colours: Map<string, Rgba>;
   readonly uploaded: Uploaded;
+  /** The edge draw's GPU time on this context (gputimer.ts), silent where the browser has no query. */
+  readonly timer: EdgeTimer;
 }
 
 function passOf(gl: WebGL2RenderingContext, program: WebGLProgram, wire: (program: WebGLProgram) => void): Pass {
@@ -135,6 +138,6 @@ export function createBulk(): BulkLayer | null {
   const buffers = { x: make(), y: make(), half: make(), slot: make(), index: make(), order: make(), quadX: make(), quadY: make(), quadHalf: make(), quadSlot: make() };
   return {
     canvas, gl, buffers, ...passesOf(gl, buffers), ...limitsOf(gl), palette: paletteTexture(gl),
-    normalise: normaliserOf(probe), colours: new Map(), uploaded: freshUploads(),
+    normalise: normaliserOf(probe), colours: new Map(), uploaded: freshUploads(), timer: edgeTimerOf(gl),
   };
 }
