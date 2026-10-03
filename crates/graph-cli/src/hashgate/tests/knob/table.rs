@@ -60,6 +60,10 @@ const PARAMETER_KNOBS: [(&str, &str); 17] = [
         "GM_MUTATE_FORCE_SESSION_GRAVITY",
         "forcegate-control-force-session-gravity",
     ),
+    (
+        "GM_MUTATE_OVERLAP_RELAXATION",
+        "hashgate-control-overlap-relaxation",
+    ),
 ];
 
 /// The six igraph layout controls, spelled out by variable and record rather than read off
@@ -100,10 +104,6 @@ const IGRAPH_KNOBS: [(&str, &str, &str); 6] = [
         "GM_MUTATE_FORCE_DRL_NODES",
         "hashgate-control-force-drl-nodes",
         "layout.force.drl",
-    ),
-    (
-        "GM_MUTATE_OVERLAP_RELAXATION",
-        "hashgate-control-overlap-relaxation",
     ),
 ];
 
