@@ -1,103 +1,140 @@
-# Perf open synth-columns: the studio opens a synthetic graph through `buildColumns`
+# Perf open synth columns: the studio's synthetic graph goes to the motor as GMC1, never as JSON
 
-Measured 2026-10-03 on branch `perf-open-synth-columns`, which carries `perf-open-columns` (the
-`gm_build_columns` export and the SDK encoder) and `perf-open-intern` (`RowBySlot` and the memo,
-`docs/measurements/perf-open-intern.md`), merged with develop `accd14e`. Host: dlesieur42,
-i5-13600KF, 32 GB. Node from `scripts/orch/node-slim.sh`, Chromium from `scripts/studio-probe.sh`
-(gm-chromium, SwiftShader).
+Measured 2026-10-03 on branch `perf-open-synth-columns`, from base `5f71999`. Host:
+dlesieur42, i5-13600KF, 20 cores, 31 GB. Node from `scripts/orch/node-slim.sh`
+(node:22-slim), Rust from `scripts/orch/gr`, the browser from
+`scripts/studio-probe.sh` (gm-chromium, software rasteriser).
 
-Why: opening 1M synthetic nodes built a JSON document of 490 MiB, then parsed it in wasm with
-`gm_build`, which peaked at 2651 MiB of linear memory and took about 15 s. The generator already
-holds the graph as columns, so the text round trip was pure waste.
+Why: opening a 400k synthetic graph in the studio took 4.4–6.9 s, and a CPU profile of the
+open (`deploy/perf/open.py 400000 webgl2`) put about 3.3 s of it in the JSON round trip —
+building the records and `JSON.stringify` about 0.78 s, staging the text into wasm memory
+about 0.6 s, and `gm_build`'s parse, record strings and `index_model` about 1.98 s.
+`docs/decisions/ingest-columns.md` set the bar: **if the measured median saving is under 3 s,
+the studio stays on JSON** (lines 39 and 71). This branch exists to answer that with a
+generator that does not pay the encoder's `Map` dedupe.
 
 ## Design
 
 | Piece | Where | What changed |
 |---|---|---|
-| assembler | `graph-sdk-js/src/columns-assemble.ts` | `assembleColumns(rows)` writes the binary columns document straight from typed columns plus a string table; `encodeColumns` (records in) and it give the same bytes |
-| generator | `graph-studio/src/source/synthetic.ts`, `synthetic-draw.ts` | edges stay as columns (`Uint32Array` endpoints, kind and weight columns); no record object per edge |
-| columns | `graph-studio/src/source/synthetic-columns.ts` | `syntheticColumns(spec)` gives the rows the assembler takes; `syntheticIngest` (JSON) is unchanged byte for byte |
-| session | `graph-studio/src/motor/session.ts`, `documents.ts`, `worker.ts` | a synthetic source opens with `motor.buildColumns(deps.assemble(rows))`; `assemble` is injected, because the session may not import the SDK |
-| staging | `graph-sdk-js/src/staging.ts` | a columns document is already bytes, so it takes the copied path; text keeps develop's in-place `encodeInto` path |
+| the assembler | `crates/graph-sdk-js/src/columns-assemble.ts` (new) | `assembleColumns(rows)`: one buffer sized before a byte is written, from a string table and columns the producer already holds. An ASCII fast path (size the blob at one byte per code unit, let `encodeInto` say whether that was enough, take the offsets as the running code-unit sums) and an exact path for a table with a wider code point. Typed-array views for the `f64` and `u32` columns behind a module-load endianness probe. |
+| the general encoder | `crates/graph-sdk-js/src/columns.ts` | `encodeColumns` keeps its `Map` intern and its endpoint check, then builds a `ColumnRows` and calls the assembler. Its bytes do not change. |
+| the draws | `packages/graph-studio/src/source/synthetic-draw.ts` (new) | Both generators write each edge into preallocated `from`/`to` `Uint32Array` and a `kind` `Uint8Array`, and each node's kind and group into `Uint8Array`s. The edge count is a formula over the loops, known before the first draw, and a mismatch throws. One draw order, shared by both wire formats. |
+| the JSON half | `packages/graph-studio/src/source/synthetic.ts` | `syntheticRecords` turns the columns into an `IngestEdge[]`; `syntheticIngest` is unchanged. Same signature, same field values, same order. |
+| the column half | `packages/graph-studio/src/source/synthetic-columns.ts` (new) | `syntheticColumns(spec)` → `{ rows, nodes, edgeCount }`. A fixed head of 34 table entries, then each node's id and label (the very strings `nodes` holds), then `e-${j}`. One sequential pass per column; no `Map`, no per-row object. |
+| the session | `packages/graph-studio/src/motor/{session,documents,worker,local}.ts` | `Document.payload` is `{kind:"json";text}` or `{kind:"columns";bytes}`; `replace` dispatches on it. `buildColumns` added to `MotorLike`. `assemble` injected into `SessionDeps` like `digest`, because the SDK owns the encoder. |
 
-The merge with develop removed a second handle-insert helper in `graph-wasm/src/exports/build_paths.rs`
-(develop's `build::insert` does the same thing) and an import only the native build used.
+The invariant the differential rests on: **row `r` of the node columns is dense index `r`**.
+The generator knows every endpoint as a row, so it needs no id → row lookup and the encoder
+needs no endpoint resolution — which is exactly the work `encodeColumns` spent a `Map` on.
 
 ## Gates
 
-| Check | Result |
-|---|---|
-| `cargo fmt --all --check`, `clippy --workspace --all-targets -D warnings` | 0, 0 |
-| `cargo build -p graph-wasm --release --target wasm32-unknown-unknown` | 0, no warning after `8bd428a` |
-| `sdk:typecheck`, `sdk:test`, `sdk:smoke` | 0; `sdk:test` 14 of 14 (`abi-version` 2, `columns` 12) |
-| `scripts/studio.sh check` | ok: tsc ×3, eslint, vite build; 1114 tests, 1114 pass, 0 fail, 0 skipped |
-| `scripts/studio-smoke.sh` / `STUDIO_SMOKE_BREAK=1` | PASS, 6 of 6 rows / exit 1, as the negative control expects |
-| `scripts/orch/gate.sh … rows/perf-open-synth-columns.rows` | see the commit after this doc; `land.sh` re-runs `quick.rows` on the merged tree |
-
-The first `studio.sh check` after the merge failed: two develop tests built a session without
-`assemble` and a staging fake without `gm_build_columns`. Both were fixed in `8bd428a`.
-
-## Node: the open path at 400k and 1M
-
 ```
-for r in 1 2 3; do for n in 400000 1000000; do for arm in json columns; do
-  ARM=$arm scripts/orch/node-slim.sh node --experimental-strip-types --max-old-space-size=12288 \
-    deploy/perf/wasm-open.ts $n layout.forceatlas2.barnes_hut > target/bench-columns/n$n-$arm-r$r.json
-done; done; done
+scripts/orch/gate.sh target/gate-synth-columns scripts/orch/rows/perf-open-synth-columns.rows
 ```
 
-Both arms run this branch's wasm. `json` = generate records, `JSON.stringify`, `gm_build`;
-`columns` = `syntheticColumns`, `assembleColumns`, `gm_build_columns`. `total` = generate +
-encode/assemble + build. Medians of 3 runs, ms; MiB is wasm linear memory.
+Every row of that file was also run individually by this job; the results are in the return
+block. A timed gate was not run here — the orchestrator runs it.
 
-| n | arm | total, 3 runs | generate | encode / assemble | build | total | document MiB | build MiB |
-|---:|---|---|---:|---:|---:|---:|---:|---:|
-| 400000 | json | 4989, 4852, 5550 | 552 | 518 | 3952 | **4989** | 195 | 1086 |
-| 400000 | columns | 1447, 1670, 1203 | 458 | 208 | 820 | **1447** | 70 | 263 |
-| 1000000 | json | 18076, 16814, 17632 | 1389 | 1297 | 14946 | **17632** | 490 | 2651 |
-| 1000000 | columns | 6885, 4470, 4281 | 1688 | 464 | 2493 | **4470** | 177 | 730 |
-
-400k: −71% open, −76% build memory. 1M: −75% open, −72% build memory. Layout time and the snapshot
-bytes are the same work in both arms (the bytes are equal, `synthetic-columns.motor.test.ts`).
-
-## Browser: `scripts/studio-probe.sh open N webgl2`
+## Bench: the open path under Node
 
 ```
-PERF_MEMORY=10g scripts/studio-probe.sh open 400000 webgl2     # then 1000000
+scripts/orch/gr cargo build -p graph-wasm --release --target wasm32-unknown-unknown
+scripts/orch/node-slim.sh env ARM=json     node --experimental-strip-types --no-warnings \
+  --max-old-space-size=12288 deploy/perf/wasm-open.ts 400000 layout.forceatlas2.barnes_hut
+scripts/orch/node-slim.sh env ARM=columns  node --experimental-strip-types --no-warnings \
+  --max-old-space-size=12288 deploy/perf/wasm-open.ts 400000 layout.forceatlas2.barnes_hut
 ```
 
-Run one at a time, alternated before, after, before, after; raw output in
-`~/goinfre/logs/synth-merge/probe/`. "Before" is the studio build of `perf-pm-serial` (`ab8487b`),
-which is develop plus the particle-mesh deposit and has develop's JSON open path. "After" is this
-branch at `8bd428a`.
+`ARM` is set with `env` on purpose: `node-slim.sh` forwards argv into the container and does
+not forward the host environment, so `ARM=columns node …` silently runs the json arm.
 
-| n | before open s | after open s | change | first frame ms, before / after | load (1 min) |
-|---:|---:|---:|---:|---|---|
-| 400000 | 5.09 | 2.14 | −58% | 133 / 134 | 14.6–15.5 |
-| 1000000 | 12.41 | 5.72 | −54% | 137 / 134 | 14.6–15.5 |
+One artifact (`graph_wasm.wasm`, 1 372 711 bytes). One process per run so each arm starts with
+fresh linear memory, three runs per arm per size, arms alternated. `totalMs` is generate +
+encode + build: the open path only. The document is the generator's own — `random`, seed 1,
+degree 2 past 5000 nodes — so 400 000 nodes and 799 996 edges, and 1 000 000 nodes and
+1 999 996 edges.
 
-Where the 1M open goes after (self time, sampled): the motor worker is busy about 4.8 s of 6.64 s.
-The top rows are the worker's own JavaScript, the generator and assembler (936 ms), GC (519 ms),
-`Snapshot::new` (353 ms), the id `decode` (343 ms) and the arena's `IndexMap` probe (275 ms). On the
-main thread `transferToImageBitmap` is 639 ms, which is SwiftShader rasterising, not a GPU.
+| nodes | arm | generate, 3 runs | encode, 3 runs | build, 3 runs | median total | document | wasm after build |
+|---|---|---|---|---|---|---|---|
+| 400 000 | `json` | 795, 552, 809 | 1108, 518, 736 | 8835, 3952, 4715 | **4989 ms** | 195 MiB | 1086 MiB |
+| 400 000 | `columns` | 543, 458, 505 | 237, 208, 199 | 888, 820, 851 | **1447 ms** | 70 MiB | 263 MiB |
+| 1 000 000 | `json` | 1574, 1389, 1698 | 1276, 1297, 1290 | 13586, 14946, 15856 | **17 632 ms** | 490 MiB | 2651 MiB |
+| 1 000 000 | `columns` | 1568, 1621, 1548 | 531, 474, 572 | 3114, 3377, 3369 | **5729 ms** | 177 MiB | 730 MiB |
 
-## What it does not do
+Medians, not means: the raw runs are in the table because the spread is the story. The
+document is 2.8× smaller and wasm linear memory after the build is a quarter of the JSON arm's
+at 400k and 0.28× at 1M — 1921 MiB saved at 1M.
 
-- A file or fixture source still opens through `build(json)`. Only synthetic sources take the
-  columns path.
-- The generator still runs in the worker before the build, serially: 936 ms at 1M. Generating
-  straight into the document bytes would drop the intermediate columns.
-- `Snapshot::new` and the per-id `decode` that follows the build are untouched; at 1M they cost
-  about 0.7 s together.
-- Caveat: the host was shared (load 12.4–22.9 over the node bench, 14.6–15.5 over the probes;
-  landers and OpenCode jobs ran alongside). The 1M columns runs 1 and 2 first overlapped each
-  other and were re-run serially; run 1 (6885 ms, load 18.6) is still the outlier. Only medians
-  are claimed for the node bench, and each browser number is a single run.
-- Caveat: the browser "before" is `perf-pm-serial`, not this branch's base commit, as the brief
-  asked. Its diff against develop is the particle-mesh deposit and one test, neither on the open
-  path, so the arms differ only by the open path.
-- `ColumnsInvalid = 20` collides with `fix-sdk` (`ParamOutOfRange = 20`, `ParamsMalformed = 21`,
-  `ParamsNotAccepted = 22`). The codes are dense, so whichever lands second renumbers; this branch
-  takes 23 if `fix-sdk` lands first.
-- `crates/graph-sdk-js/src/index.ts` is 345 lines after the merge, over the 300-line limit; develop's
-  copy was already over it at 318.
+**The median saving at 1M is 11 903 ms.** `docs/decisions/ingest-columns.md` set the bar at
+3 s and the studio stayed on JSON when the general encoder came in 1774 ms short of it. This
+arm clears it by a factor of four.
+
+Where it comes from, at the 1M medians: the build 14 946 → 3377 ms (−11 569), the encode
+1297 → 474 ms (−823), the generator itself unchanged (1389 → 1621 ms, +232, inside the spread).
+The generator is the same draws with the same order; it costs a little more only because it
+also fills the columns, which is work the encoder used to do instead.
+
+## Browser open: before and after
+
+`before` is the base commit `5f71999` built and served from its own tree; `after` is this
+branch. Both arms ran the **same** probe harness (`scripts/studio-probe.sh` plus
+`deploy/perf/` and `deploy/nav/` synced into the base tree), because the harness was reworked
+under this job and a `before` run on the old probe would not be comparable.
+
+```
+scripts/studio.sh build
+PERF_MEMORY=10g scripts/studio-probe.sh open 400000  webgl2
+PERF_MEMORY=10g scripts/studio-probe.sh open 1000000 webgl2
+```
+
+Runs one at a time, three per arm per size, arms alternated.
+
+| nodes | arm | open, 3 runs | median | load average at each run |
+|---|---|---|---|---|
+| 400 000 | before | 6.41, 4.90, 4.27 | **4.90 s** | 17.7, 22.7, 22.5 |
+| 400 000 | after | 2.80, 2.04, 1.98 | **2.04 s** | 19.9, 22.1, 21.6 |
+| 1 000 000 | before | 15.02, 12.27, 13.56 | **13.56 s** | 21.2, 18.3, 16.1 |
+| 1 000 000 | after | 5.68, 4.92, 5.47 | **5.47 s** | 18.9, 16.7, 15.1 |
+
+**Verdict against the bar: met at 1M (8.09 s median saving), missed at 400k (2.86 s).**
+The bar is written about the 1M open, and 1M is where the format's advantage is
+superlinear — the JSON arm's parse and per-record strings scale with document size, while the
+columns arm's fixed head does not.
+
+`Caveat:` the load average was 15–23 on a 20-core host for the whole session, so both arms
+were measured on a loaded machine. The medians are interleaved, so the comparison is fair even
+though neither number is absolute; treat the browser medians as good to about ±1 s and the
+Node medians as the tighter measurement.
+
+`Caveat, and what this number is not:` `open s` is the driver's `source.synthetic` dispatch,
+which includes laying out the graph it just built with the studio's persisted layout — it is
+not a pure ingest measurement. That is why the browser saving (8.09 s) is smaller than the
+Node saving (11 903 ms): a large fixed layout sits inside the browser's span and dilutes the
+ingest saving. The profile agrees about where the JSON went — in the before arm's worker,
+`decode` (the `TextDecoder` over the JSON text) and `StringArena::intern` are both on the hot
+list at 1M and both disappear from the after arm's top rows.
+
+## What this does not do
+
+- The documents and fixtures stay on JSON. `normaliseIngest` is the JSON reader's contract and
+  the columns path would be a second spelling of it; only the generator, which already holds
+  columns, moves.
+- `encodeColumns` is untouched in behaviour and still on the SDK's index. Nothing outside
+  `crates/graph-sdk-js` calls it, and `deploy/perf/open.py` never did.
+- `assembleColumns` does not dedupe the table, so the blob carries a repeat for every repeated
+  value (`"studio"`, `db-3`, a shared label). The contract allows it and the decoder's arena
+  interns by content, so the cost is bytes in transit: 177 MiB against 70 MiB for a table that
+  was deduped. A generator whose labels were all distinct would close that gap and the format
+  would still win, by more.
+- The generator's own cost is unchanged and is now *inside* the arm it is measuring. It was
+  always building `IngestNode` objects (the studio UI reads weights off them); what it no
+  longer builds is the `IngestEdge` per edge and the JSON text per document.
+- Nothing here is a gate. `scripts/orch/rows/perf-open-synth-columns.rows` runs the studio's
+  `check` and the SDK's tests; neither asserts a time. The differential
+  (`packages/graph-studio/tests/synthetic-columns.motor.test.ts`) is what stands between the
+  columns path and a silent regression: 64 specs decoding to exactly `syntheticRecords`,
+  byte-identical snapshot bytes from either path, and a negative control that fails both
+  comparisons when two edges' target rows are swapped in the bytes.
+- The browser arm ran on SwiftShader, not a GPU, and the GPU arm was not requested.
