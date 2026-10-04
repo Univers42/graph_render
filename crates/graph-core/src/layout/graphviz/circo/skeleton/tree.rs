@@ -30,10 +30,6 @@ pub(super) fn spanning_tree(work: &Work) -> Tree {
             descend(start, &kept, &mut visited, &mut parents, &mut rows);
         }
     }
-    if std::env::var_os("CIRCO_TRACE").is_some() {
-        eprintln!("TRACE kept rows {kept:?}");
-        eprintln!("TRACE parents {parents:?} degrees {:?}", rows.iter().map(|r| r.len()).collect::<Vec<_>>());
-    }
     Tree {
         parents,
         degrees: rows.iter().map(|row| row.len() as u32).collect(),
@@ -94,12 +90,6 @@ pub(super) fn longest_path(tree: &Tree) -> Vec<u32> {
             common = Some(node);
             longest = length;
         }
-    }
-    if std::env::var_os("CIRCO_TRACE").is_some() {
-        eprintln!(
-            "TRACE longest best={:?} runner={:?} d1={:?} d2={:?} common={common:?} parents={:?}",
-            leaves.best, leaves.runner_up, leaves.longest, leaves.second, tree.parents
-        );
     }
     let Some(common) = common else {
         return path;

@@ -164,14 +164,48 @@ fn a_node_carried_twice_is_counted_a_second_time() {
     assert_eq!(both_ways(4, &edges, &[0, 1, 0, 2, 3]), (3, 3));
 }
 
-/// `K2,2` over the parts `{n0, n1}` and `{n2, n3}`, drawn as `n0, n2, n1, n3`. Its four chords
-/// are `n0 n2`, `n0 n3`, `n1 n2`, `n1 n3`; four of the six pairs share a node, and `n0 n3`
-/// lies wholly around `n1 n2`, so nothing crosses. Drawn as `n0, n1, n2, n3` the same four edges
-/// are `n0 n2`, `n0 n3`, `n1 n2`, `n1 n3` in position terms and `n0 n2` now interleaves with
-/// `n1 n3` — one crossing. One edge set, two orders, one pair apart.
+/// `K2,2` over the parts `{n0, n1}` and `{n2, n3}`, drawn as `n0, n2, n1, n3` and again as
+/// `n0, n1, n2, n3`. Its four chords are `n0 n2`, `n0 n3`, `n1 n2`, `n1 n3`, and the two orders
+/// differ by how late `n0 n3` is opened relative to `n1 n3`.
+///
+/// Worked from the walk, first order (`n0` opens `n0 n2` and `n0 n3` at 1, `n2` opens `n1 n2` at
+/// 2, `n1` opens `n1 n3` at 3, `n3` closes all three of its row):
+///
+/// - `n3` closes `n0 n3` (opened at 1) against the still-open `n1 n2` (2) and `n1 n3` (3). The
+///   first touches no node of `n3`, **1**; the second shares `n3` and the node test drops it.
+/// - `n3` then closes `n1 n3` (3) with nothing opened after it — 0.
+///
+/// **1**. In the second order `n1` opens `n1 n2` and `n1 n3` both at 2, and `n2` closes `n0 n2`
+/// against both of them: `n1 n2` shares `n2` and is dropped, `n1 n3` does not and counts **1**;
+/// `n3` then closes `n0 n3` against `n1 n2` for another **1**. **2**. One edge set, two orders,
+/// one pair apart, and both are larger than the interleaving count the old sweep reported.
 #[test]
-fn k22_crosses_one_pair_in_one_order_and_none_in_the_other() {
+fn k22_crosses_one_pair_in_one_order_and_two_in_the_other() {
     let edges = [(0, 2), (0, 3), (1, 2), (1, 3)];
-    assert_eq!(both_ways(4, &edges, &[0, 2, 1, 3]), (0, 0));
-    assert_eq!(both_ways(4, &edges, &[0, 1, 2, 3]), (1, 1));
+    assert_eq!(both_ways(4, &edges, &[0, 2, 1, 3]), (1, 1));
+    assert_eq!(both_ways(4, &edges, &[0, 1, 2, 3]), (2, 2));
+}
+
+/// The five-node block of seed 8 of the differential (`docs/measurements/p13-gv1-circo.md` §8),
+/// in the circle order its long path reads: `n3, n1, n4, n2, n0`. Not a hand-derived number —
+/// this one is what Graphviz's own `count_all_crossings` printed for that order, read off an
+/// instrumented 16.1.0 build, and it is **3** where the interleaving count is **0**. Three is
+/// what makes `reduce_edge_crossings` fire on this block and land on `[n3, n0, n1, n4, n2]`,
+/// which is the circle order Graphviz draws.
+///
+/// Worked from the walk: `n3` opens `n3 n0` and `n3 n1` at 1; `n1` opens `n1 n0` and `n4 n1` at
+/// 2; `n4` opens `n4 n2` at 3; `n2` opens `n2 n0` at 4; `n0` then closes its three.
+/// `n0 n0`'s row is `n1 n0` (2), `n2 n0` (4), `n3 n0` (1):
+///
+/// - closing `n1 n0` (2) against what is open and later: `n4 n2` (3) counts **1** and `n2 n0`
+///   (4) shares `n0`, so the node test drops it;
+/// - closing `n2 n0` (4) against what is open and later: nothing, 0;
+/// - closing `n3 n0` (1): `n4 n1` (2) counts **1** and `n4 n2` (3) counts **1**; `n1 n0` and
+///   `n2 n0` share `n0` and are dropped.
+///
+/// **3**.
+#[test]
+fn seed8_five_node_block_crosses_three_where_nothing_interleaves() {
+    let edges = [(0, 1), (0, 2), (0, 3), (1, 3), (1, 4), (2, 4)];
+    assert_eq!(both_ways(5, &edges, &[3, 1, 4, 2, 0]), (3, 3));
 }

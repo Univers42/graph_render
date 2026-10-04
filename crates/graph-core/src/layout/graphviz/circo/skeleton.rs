@@ -44,9 +44,6 @@ struct Work {
 impl Work {
     /// The working copy: the block's induced subgraph, every edge live and kept.
     fn new(block: &BlockGraph) -> Self {
-        if std::env::var_os("CIRCO_TRACE").is_some() {
-            eprintln!("TRACE ends {:?}", block.ends());
-        }
         let ends: Vec<(u32, u32)> = block.ends().to_vec();
         let mut rows: Vec<Vec<u32>> = (0..block.nodes.len()).map(|_| Vec::new()).collect();
         for (id, &(tail, head)) in ends.iter().enumerate() {
@@ -145,15 +142,6 @@ fn remove_pair_edges(mut work: Work) -> Work {
         let Some(current) = list.pop() else {
             break;
         };
-        let trace = std::env::var_os("CIRCO_TRACE").is_some();
-        if trace {
-            eprintln!(
-                "TRACE step current={current} dl={:?} deg={:?}",
-                list,
-                work.degree
-            );
-            eprintln!("TRACE step row={:?}", work.row(current));
-        }
         let neighbours = work
             .row(current)
             .into_iter()
@@ -168,18 +156,9 @@ fn remove_pair_edges(mut work: Work) -> Work {
             list.push(other);
         }
         sort_by_degree(&mut list, &work);
-        if trace {
-            eprintln!(
-                "TRACE step keep={:?} live={:?} dl={:?} deg={:?}",
-                work.keep, work.live, list, work.degree
-            );
-        }
         for id in work.rows[current as usize].clone() {
             work.live[id as usize] = false;
         }
-    }
-    if std::env::var_os("CIRCO_TRACE").is_some() {
-        eprintln!("TRACE ends keep={:?}", work.keep);
     }
     work
 }
