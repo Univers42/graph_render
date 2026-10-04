@@ -120,6 +120,61 @@ test("graph-load waits for the new graph's frame, then is sent once", () => {
   assert.deepEqual(subject.heard, ['graph-load {"nodes":3,"edges":1,"notes":["n1","n2"]}']);
 });
 
+const hoversOf = (heard: readonly string[]): string[] => heard.filter((line) => line.startsWith("node-hover"));
+
+/** A reset and a pointer move inside one frame, over a graph that is not the one on screen. */
+test("a reset on a new graph shares the hover's frame, so the pair is one node-hover", () => {
+  const scheduler = frames();
+  const subject = watched(DRAWN, scheduler);
+  const graph = (name: string) => ({ name, nodeCount: 3, edgeCount: 1, notes: ["n1", "n2"], buildMs: 1 });
+  subject.hover(0);
+  scheduler.flush();
+  subject.store.set({ ...DRAWN, graph: graph("first"), meta: { ...META } });
+  subject.hover(0);
+  scheduler.flush();
+  assert.deepEqual(hoversOf(subject.heard), ['node-hover {"id":"a"}'], "the reset and the hover are one frame");
+  subject.store.set({ ...DRAWN, graph: graph("second"), meta: { ...META } });
+  scheduler.flush();
+  assert.deepEqual(hoversOf(subject.heard), ['node-hover {"id":"a"}', 'node-hover {"id":null}'], "a lone reset still lands");
+});
+
+/** A detail a host built with a cycle in it: the clone keeps the cycle, so the walk must as well. */
+function cyclicSelect(): HostEvents["node-select"] {
+  const node: { self?: unknown } = {};
+  node.self = node;
+  return { ids: ["a"], node } as unknown as HostEvents["node-select"];
+}
+
+/** True when a walk gives up by throwing, which is what a walk with no visited set does on a cycle. */
+function overflows(walk: () => unknown): boolean {
+  try {
+    walk();
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+test("emit sends a detail that refers to itself instead of overflowing the stack", () => {
+  const target = new EventTarget();
+  const detail = cyclicSelect();
+  const held: Event[] = [];
+  target.addEventListener("node-select", (event) => held.push(event));
+  emit(target, "node-select", detail);
+  const heard = (held[0] as CustomEvent<HostEvents["node-select"]>).detail;
+  const node = (heard as { node: { self?: unknown } }).node;
+  assert.equal(Object.isFrozen(node), true);
+  assert.equal(Object.isFrozen(node.self), true);
+});
+
+test("negative control: the test's own walk has no visited set, and a cycle is what stops it", () => {
+  const node: { self?: unknown } = {};
+  node.self = node;
+  Object.freeze(node);
+  assert.equal(overflows(() => deepFrozen(node)), true);
+  assert.equal(deepFrozen(Object.freeze({ ids: Object.freeze(["a"]) })), true);
+});
+
 const REFUSED: ShownError = { title: "RunRefusedError", code: "LayoutRefused", detail: "the layout refused", hint: "" };
 
 test("graph-error is sent once per error, named by its code, else by its title", () => {
