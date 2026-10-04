@@ -45,8 +45,9 @@ pub(crate) fn last_axis(topology: &Topology) -> Option<Vec<f64>> {
             continue;
         }
         let graph = ComponentGraph::build(members, &neighbors, &local_of);
-        let (solved, _, _) = solve_component(&graph, Width::Spectral2d);
-        let Some(mut eig) = solved else { continue };
+        let Some(mut eig) = solve_component(&graph, Width::Spectral2d).eig else {
+            continue;
+        };
         any_solved = true;
         pin_signs(&mut eig);
         let source = eig.k - 1;
