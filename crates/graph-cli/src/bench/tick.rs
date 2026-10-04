@@ -19,6 +19,7 @@
 
 pub mod grow;
 mod passes;
+pub mod stream;
 
 use super::campaign::median;
 use super::scale::{MAX_SCALE_NODES, scale_model};
@@ -27,6 +28,7 @@ use crate::exec_native::Threads;
 use graph_core::exec::Runner;
 use graph_core::layout::force::{ForceParams, ForceSession};
 use graph_core::{REFERENCE_DEGREE, Topology, index_model};
+use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Instant;
 
@@ -78,6 +80,22 @@ pub struct Plan {
     /// Also print where the timed ticks went, pass by pass, and what no pass covers.
     #[arg(long)]
     pub passes: bool,
+    /// Stream mode: the batch size, in nodes, of the line-at-a-time stream this run either
+    /// writes (`--emit`) or replays (`--from`). `--grow` and `--stream` are two different
+    /// measurements of the same question and refuse to be asked at once: `--grow` carries a
+    /// session across a re-index, `--stream` appends to the topology the session already holds.
+    #[arg(long, value_name = "BATCH")]
+    pub stream: Option<u32>,
+    /// How many batches follow line 0 in the stream `--emit` writes and `--from` replays.
+    #[arg(long, default_value_t = 10, value_parser = clap::value_parser!(u32).range(1..))]
+    pub batches: u32,
+    /// Stream mode: write the stream file here. `target/bench/` by convention; the file is
+    /// generated, never committed.
+    #[arg(long, value_name = "PATH")]
+    pub emit: Option<PathBuf>,
+    /// Stream mode: replay the stream file written by `--emit`.
+    #[arg(long, value_name = "PATH")]
+    pub from: Option<PathBuf>,
 }
 
 /// The table's header, printed once above the row.
@@ -87,6 +105,9 @@ pub const HEADER: &str = "| layout | n | m | index ms | warm ms | ticks | worker
 pub fn run(plan: &Plan) -> ExitCode {
     if let Some(batch) = plan.grow {
         return grow::report(plan.n, plan.seed, batch);
+    }
+    if plan.stream.is_some() {
+        return stream::report(plan);
     }
     match measure(plan) {
         Ok(row) => {
@@ -187,6 +208,16 @@ impl Stepper {
 
     fn step_on(&mut self, runner: &impl Runner, ticks: u32) {
         self.session.step_with(runner, self.workers, ticks);
+    }
+
+    /// Takes the session onto `topology`, the graph the host has just appended to. `topology`
+    /// must be the one `Stepper::start` took: the grow maps ids across that pair, and it is
+    /// refused for a graph this session was not started from.
+    ///
+    /// Caveat: the time this returns is the map alone. A host also pays the tick after it,
+    /// which [`stream::arm`] times separately and untimed so neither half carries the other.
+    fn grow(&mut self, topology: &Topology) -> Result<(), String> {
+        self.session.grow(topology).map_err(|e| e.to_string())
     }
 
     fn alpha(&self) -> f64 {

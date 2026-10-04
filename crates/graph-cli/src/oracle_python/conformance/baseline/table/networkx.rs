@@ -5,13 +5,27 @@
 //! **A move, not a change.** Every value below is the byte-for-byte content of the one
 //! table `table.rs` held before it was split along its row families; a re-pinned row is
 //! still edited here and nowhere else.
+//!
+//! **Re-pinned 2026-10-04, `sg-igraph-3d`.** The five `IGRAPH_` rows move their **motor** sha
+//! and nothing else, and the cause is two edits, both in this crate. (i) The reference helper
+//! ends in `_igraph_fit_positions` (`igraph_layouts.py:24-42`), so the motor arm now applies the
+//! same fit (`conformance/motor/fit.rs`) — a uniform translation and scale. (ii) `IGRAPH_FR`,
+//! `IGRAPH_KK` and `IGRAPH_DRL` now name the `.3d` motor layouts, because SciGraphs calls all
+//! three at `dim = 3` (`igraph_layouts.py:74`, `:99`, `:342`) and the 2-D siblings are not what
+//! this reference runs. **The reference shas are unchanged in every row**, which is the
+//! reproducibility result the seed correction rests on: two `--reference` runs over the same
+//! fixtures gave byte-identical files on all 32 rows. `IGRAPH_DRL_2D` and `IGRAPH_LGL` keep
+//! their planar motor layouts and moved only under (i); their motor shas are identical to the
+//! ones the `sg-igraph-clean` branch pinned, which is the cross-check that this tree's 2-D
+//! kernels are that branch's byte for byte. Medians in
+//! `docs/measurements/scigraphs-conformance.md`.
 
 use super::super::{Baseline, row};
 
 pub(super) const NETWORKX: [Baseline; 12] = [
     row(
         "IGRAPH_FR",
-        "1f84882c79fc1887a1bf1150aded1ee17b6fbff9fffb3db100a0669c8494ddc2",
+        "86bce46cf87a8d476244d254929c9e2ca75964ff835061e4e494c92c29cd6678",
         "0cf3c05e67d79c08c152d0902dfe70dd5e3ef1cf4f9785448b394d24c8cfb170",
         "",
         1e0,
@@ -20,7 +34,7 @@ pub(super) const NETWORKX: [Baseline; 12] = [
     ),
     row(
         "IGRAPH_KK",
-        "516c88116704a2f7dbd7f498f8bf6be46cd67ddb41c81f944e0fe92fb4e48bb6",
+        "bbfac51b54ec26cb256e5ecfe3736803738ec0404fe994de7c99bada1d68128d",
         "a89c503e5fb39b8756fcbef3a6985ae6335770f874fd2e6cd06773bea5d0264a",
         "",
         1e0,
@@ -29,7 +43,7 @@ pub(super) const NETWORKX: [Baseline; 12] = [
     ),
     row(
         "IGRAPH_DRL",
-        "ea94de23d7c52d2504326bfc56b2e42edf8b04ecf8a04d9ab3ed14e1df12bca5",
+        "9341c5093c1e7b9abaff88be524809aba7ed9da20bffe92cbfcf617909d54aa5",
         "19706b910225f374945f8e72c8594361dbb20d93e0716acaacec835c6ecf2b88",
         "",
         1e0,
@@ -38,7 +52,7 @@ pub(super) const NETWORKX: [Baseline; 12] = [
     ),
     row(
         "IGRAPH_DRL_2D",
-        "ea94de23d7c52d2504326bfc56b2e42edf8b04ecf8a04d9ab3ed14e1df12bca5",
+        "0d43b8f201bfb7c14d21d4a52b1ac9efd6aaf83613ec01d5d8a9a683b5fcfc77",
         "79434cc8e4a271f57891b8170d454ca02a685d22f83a5ab1ed9606215a7b3fa0",
         "",
         1e0,
@@ -47,7 +61,7 @@ pub(super) const NETWORKX: [Baseline; 12] = [
     ),
     row(
         "IGRAPH_LGL",
-        "09cf01e5c51eb5d716499e0610c285c138158a9419443e5d7effc7a954e996b2",
+        "41100b0d1dd4d83fa79eccd8db6f80f5768cdfb3c7a553f05ace0f661dacc49b",
         "a619ed3bc32e31f78056fbed6186352c5bf382457b40ffea5d0742645f71c3fd",
         "",
         1e0,

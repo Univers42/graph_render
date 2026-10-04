@@ -277,17 +277,7 @@ pub enum Knob {
     /// **A real parameter, and the only knob that can make the overlap invariant go red.**
     /// Every other POST capability takes no parameters, so its control re-draws its own model
     /// (`stage_nodes`); `post::separate` publishes [`SeparateParams::over_relaxation`], so its
-    /// control moves the real thing.
-    ///
-    /// The control's value is **`0`**, which is legal and is not clamped: it freezes every
-    /// displacement, so the pass cannot separate anything and every input overlap survives into
-    /// the snapshot. A native arm that freezes a stage the wasm arm runs normally is exactly
-    /// the cross-target divergence the gate exists to catch, and it is the perturbation that
-    /// turns `graph-cli overlap`'s invariant row red rather than merely moving a hash.
-    ///
-    /// A re-drawn model could not do this: adding a node changes the input, and the pass
-    /// separates it correctly either way, so the invariant would stay green and the control
-    /// would prove nothing about the pass's ability to separate at all.
+    /// control moves the real thing. The full argument is in [`compute`], under its own heading.
     OverlapRelaxation,
     /// `GM_MUTATE_FORCE_SESSION_GRAVITY`: the **live** force session's `gravity`, native arm
     /// of `force-gate` only, and the one control that reaches `force-gate` rather than this

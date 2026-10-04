@@ -29,12 +29,23 @@ the score is a stress ratio between two drawings of the same dimension, so the `
 below is `2` for every layout here and is passed explicitly rather than left to igraph's
 own default. SciGraphs' 3-D arms (`igraph_layouts.py:74`, `:99`, `:342`) pass `dim=3`, but
 those are the *3-D* layouts; the 2-D DrL at `:406` passes `dim=2`, which is the one this
-comparison is against. Measured: `layout_kamada_kawai(dim=3)` **refuses** outright on a
-2-column start matrix (`igraph/_igraph.InternalError: Invalid start position matrix size in
-3d Kamada-Kawai layout`), so `dim=3` is not available to this arm at all, and forcing it on
-`drl` moves its worst from 0.494 to 0.894 by comparing a 3-D drawing to a 2-D metric. M21
-proposed `dim=3` for `drl` and `kamada_kawai`; both halves are recorded `false` in
-`docs/measurements/fix-harness-py.md` with that measurement as the evidence.
+comparison is against.
+
+**`dim=3` *is* available to `kamada_kawai` and `fruchterman_reingold`; an earlier version of this
+note said otherwise and was wrong.** What igraph refuses is a **start matrix of the wrong width**,
+not the dimension: `layout_kamada_kawai(dim=3)` raises `InternalError: Invalid start position
+matrix size in 3d Kamada-Kawai layout` (`kamada_kawai.c:439`) on a 2-column start and returns
+normally on a 3-column one; `layout_fruchterman_reingold(dim=3)` behaves the same way
+(`fruchterman_reingold.c:503`). Measured 2026-10-04 in `ge-python-oracle` (python-igraph 0.11.9,
+C core 0.10.16) over the 3-node path and the 3-node triangle: 2-column start refused at both
+`dim=2` and `dim=3`, 3-column start accepted at `dim=3`, and the conclusion "`dim=3` is not
+available to this arm at all" does not hold — it was a statement about this file's 2-column
+`initial`, which is why the 3-D arms live in the `igraph3d` set above, where `initial_3d` is
+three columns wide. Forcing `dim=3` onto the `drl` row of *this* set still moves its worst from
+0.494 to 0.894, because that is a 3-D drawing scored against a 2-D metric — a reason to use the
+other fixture set, not a reason `dim=3` is refused. M21 proposed `dim=3` for `drl` and
+`kamada_kawai`; both halves are recorded `false` in `docs/measurements/fix-harness-py.md`, and
+that record is superseded on the `kamada_kawai` half by the measurement above.
 
 `drl` is given `options="default"` explicitly. That is the preset the port mirrors
 (`igraph_layouts.py:200-214`, `edge_cut = 32.0/40.0 = 0.8` = `drl.rs:58`) and it is also
