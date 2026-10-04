@@ -28,7 +28,7 @@ use graph_contract::params::ParamSpec;
 
 /// A parameter struct a registered layout can be drawn at other than its `Default`.
 ///
-/// Implemented only through the [`tunable!`] macro, never by hand.
+/// Implemented only through the `tunable!` macro, never by hand.
 pub trait Tunable: Copy + Default {
     /// The published parameters, in schema order — which is also the order the macro
     /// invocation lists the fields in.

@@ -20,7 +20,23 @@ const D3_ORACLE_LAYOUTS: [&str; 2] = [
 
 /// Layouts held to `harness/oracle-spectral.py`'s scipy/networkx differential, to a
 /// measured ceiling rather than byte equality.
-const SCIPY_ORACLE_LAYOUTS: [&str; 2] = ["layout.spectral", "layout.mds.pivot"];
+///
+/// **The 3-D arms are here, and they are still routed to `scigraphs-conformance`.**
+/// `layout.spectral3d` and `layout.mds.pivot3d` are the same two run functions as their 2-D
+/// siblings at `dims = 3`, and `harness/oracle-spectral.py` now pins all four ids, so the
+/// pair belongs in this list rather than falling out of it. They do not reach the
+/// `oracle-spectral` row, because `force_record` is matched first
+/// (`unproven.rs:213`) and names `scigraphs-conformance` for them — which is correct and
+/// deliberate: `scripts/scigraphs-conformance.sh` writes that record by byte comparison over
+/// the conformance fixtures, a stronger claim than this differential's subspace angle, and a
+/// row must not be moved onto a weaker one. Listing them keeps the declaration honest if
+/// that ever changes.
+const SCIPY_ORACLE_LAYOUTS: [&str; 4] = [
+    "layout.spectral",
+    "layout.mds.pivot",
+    "layout.spectral3d",
+    "layout.mds.pivot3d",
+];
 
 /// Layouts held to the hand oracle `roundtrip`, which records each under its own id
 /// (`snapshot_cmd::hand_oracles`).

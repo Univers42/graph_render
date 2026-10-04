@@ -113,7 +113,7 @@ pub fn scalar_arm(seeds: u32) -> Result<Arm, String> {
 /// stage is worker-count-invariant — the three force layouts' three range kernels, the
 /// grid's gather, and the ring's and the spiral's gather over the shared serial `coords`
 /// merge — and every other stage is already covered by the four base arms. The list itself
-/// lives in [`super::threaded_bytes`]'s match, so the two cannot disagree.
+/// lives in `super::tiered::threaded_bytes`'s match, so the two cannot disagree.
 pub fn threads_arm(seeds: u32, workers: u32) -> Result<Arm, String> {
     let setting = super::env_setting()?;
     Ok((

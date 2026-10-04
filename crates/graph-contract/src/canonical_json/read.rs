@@ -210,7 +210,7 @@ fn version(value: Option<Value>) -> Result<FormatVersion, JsonError> {
 
 /// The top-level `dim`: `0` or `1`, absent reads as `0` (2D), the same optional-member
 /// rule as `notes`. A `dim` no reader implements is refused with the contract's own
-/// [`ReadError`], so the message names the value it refused.
+/// [`crate::snapshot::ReadError`], so the message names the value it refused.
 fn dim(value: Option<Value>) -> Result<Dim, JsonError> {
     let Some(value) = value else {
         return Ok(Dim::D2);

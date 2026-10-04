@@ -54,7 +54,7 @@ impl Default for Fa2Params {
 }
 
 /// The widest point this port keeps; see
-/// [`crate::layout::force::fruchterman_reingold::MAX_DIM`].
+/// `crate::layout::force::fruchterman_reingold::MAX_DIM`.
 pub const MAX_DIM: usize = 3;
 
 pub(super) struct Fa2State {
@@ -263,7 +263,7 @@ fn norm2(v: &[f64; MAX_DIM], dim: usize) -> f64 {
 
 /// networkx's own initial positions are `nx.random_layout` (uniform in the unit
 /// `dim`-cube, `numpy`'s RNG); this port uses the crate's one sequential generator,
-/// [`Mulberry32`], seeded explicitly (devil C8's "two kinds, and only two" — `rng.rs`).
+/// `Mulberry32`, seeded explicitly (devil C8's "two kinds, and only two" — `rng.rs`).
 /// Public so the networkx differential can start the reference from the very same
 /// positions.
 ///

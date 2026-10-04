@@ -1,9 +1,7 @@
 #[cfg(doc)]
 use super::super::knobs;
 #[cfg(doc)]
-use super::Setting;
-#[cfg(doc)]
-use super::compute;
+use super::{Setting, compute};
 #[cfg(doc)]
 use graph_core::post::separate::SeparateParams;
 
@@ -282,17 +280,10 @@ pub enum Knob {
     /// control moves the real thing. The full argument is in [`compute`], under its own heading.
     OverlapRelaxation,
     /// `GM_MUTATE_FORCE_SESSION_GRAVITY`: the **live** force session's `gravity`, native arm
-    /// of `force-gate` only.
-    ///
-    /// The one control that reaches `force-gate` rather than this gate. The full argument is
-    /// in [`compute`], under its own heading.
+    /// of `force-gate` only, and the one control that reaches `force-gate` rather than this
+    /// gate. The full argument is in [`compute`], under its own heading.
     ForceSessionGravity,
-    /// `GM_MUTATE_DROP_DELTA`: the batch of the force gate's **stream** stage that the
-    /// native arm skips outright — no `extend`, no `grow` — native arm of `force-gate` only.
-    ///
-    /// The control for the growth path rather than for the session's parameters: it drops
-    /// input the wasm arm still receives, so the two sessions must diverge, and the gate has
-    /// to name the first batch where they did. The full argument is in [`compute`], under its
-    /// own heading.
+    /// `GM_MUTATE_DROP_DELTA`: the batch of `force-gate`'s **stream** stage that its native arm
+    /// skips outright (no `extend`, no `grow`). The full argument is in [`compute`].
     DropDelta,
 }

@@ -28,7 +28,7 @@ pub(super) fn rescale(x: &mut [f64], y: &mut [f64]) {
 /// [`rescale`] with the merge's negative control reachable, so a host can run a
 /// *deliberately wrong* tier and the gate must go red.
 ///
-/// `split` is [`coords`]' own slice of that control, exactly the shape
+/// `split` is [`coords`](crate::layout::coords)' own slice of that control, exactly the shape
 /// `barnes_hut::charge`'s is: it makes the centroid merge read the **next** node's term
 /// into this node's, which is the shape a wrong partition of the outputs takes. It is a
 /// parameter rather than a `cfg` or an environment read for the same reason that one is —

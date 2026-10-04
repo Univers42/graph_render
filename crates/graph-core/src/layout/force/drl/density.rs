@@ -24,7 +24,7 @@ const MID_VIEW: f64 = 2000.0;
 const WALL: f64 = 10_000.0;
 
 /// The widest point this port keeps; see
-/// [`super::fruchterman_reingold::MAX_DIM`].
+/// `force::fruchterman_reingold::MAX_DIM`.
 pub(super) const MAX_DIM: usize = 3;
 
 /// Grid cell of `at`, `None` inside the border margin or outside the view.

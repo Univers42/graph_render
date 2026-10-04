@@ -21,7 +21,7 @@
 //! **`-Gstart` is load-bearing here, and that is the whole difference from `twopi`.** twopi
 //! is closed form and reads no `start`; neato's `initLayout` seeds a generator and reads
 //! two draws per node, so the drawing is a function of the seed. Measured: all 1000
-//! differential fixtures draw differently at `-Gstart` 1, 7 and 99. [`rng`] is therefore
+//! differential fixtures draw differently at `-Gstart` 1, 7 and 99. `rng` is therefore
 //! part of the port, not a convenience — reproducing the layout and not the generator
 //! would be reproducing half of it.
 //!

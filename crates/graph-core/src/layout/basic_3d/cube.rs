@@ -31,10 +31,10 @@
 //!
 //! **The stream is MT19937 seeded from the layout seed.** The reference draws from
 //! `_get_layout_rng()` (`common.py:43-52`), a `np.random.RandomState` built from
-//! `get_layout_seed()` = `derive_seed(42, "layout")` = [`SEED`], and that is
-//! [`Mt19937`](crate::rng::Mt19937) ported exactly — the legacy `init_genrand` recurrence
+//! `get_layout_seed()` = `derive_seed(42, "layout")` = `SEED`, and that is
+//! `Mt19937` ported exactly — the legacy `init_genrand` recurrence
 //! and the 53-bit `random_sample`. The crate's own
-//! [`Mulberry32`](crate::synthetic::Mulberry32) **cannot** answer this row, and the reason
+//! `Mulberry32` **cannot** answer this row, and the reason
 //! is worth stating because it is invisible in the picture: a different generator at the
 //! same seed produces a scatter that is uniformly distributed in the same shell and shares
 //! not one coordinate with the reference. Before this port that was the written state of

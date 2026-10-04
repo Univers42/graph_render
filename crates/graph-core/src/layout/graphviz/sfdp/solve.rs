@@ -6,9 +6,9 @@
 //! each node's total force to unit length, and moves it by `step`.
 //!
 //! **Gather form (D10), and this is a deviation from the oracle.** [`Solve::relax`] gathers
-//! every node's total force from the positions at the *start* of the iteration — [`gather`]
+//! every node's total force from the positions at the *start* of the iteration — [`gather`](Solve::gather)
 //! reads `self.x` and writes only a scratch buffer — and only then moves every node, by the
-//! step **as it stands at that point** ([`advance`]). The reference does the opposite: it
+//! step **as it stands at that point** ([`advance`](Solve::advance)). The reference does the opposite: it
 //! normalises and moves vertex `i` inside the same loop that computes the next vertex's force
 //! (`spring_electrical.c:630-638`), so a node's move can depend on which nodes were moved
 //! before it.

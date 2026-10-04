@@ -10,7 +10,7 @@
 //!
 //! `--grow <BATCH>` switches to the other thing a live session is asked to do: carry itself
 //! onto a bigger topology, timed beside the indexing that topology costs
-//! ([`grow`](self::grow)).
+//! ([`grow`]).
 //!
 //! Caveat: a tick's cost follows alpha, because the layout's spread sets the tree's depth,
 //! so a short warm measures the early, most expensive ticks; raise `--warm` to measure a

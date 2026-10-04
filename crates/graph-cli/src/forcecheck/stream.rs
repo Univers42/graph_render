@@ -8,14 +8,14 @@
 //! been *resized in place* on one target and *carried* through the ABI on the other, batch by
 //! batch, rather than two fresh sessions over the same final graph.
 //!
-//! **Its own comparator.** [`hashgate::compare`] needs a rectangular `seeds × stages` matrix,
+//! **Its own comparator.** [`hashgate::compare`](crate::hashgate::compare) needs a rectangular `seeds × stages` matrix,
 //! and a stream's output is ragged: three fixtures of different batch counts. So the arms are
 //! compared here by [`first_divergence`], which does the one thing the seed stage's
 //! comparator cannot — name the first fixture and batch on which any arm disagreed with the
 //! first native arm — and refuses an arm that printed a different number of lines rather
 //! than comparing what it has.
 //!
-//! **The negative control.** [`Knob::DropDelta`] makes the native arm skip one batch, so
+//! **The negative control.** [`Knob::DropDelta`](crate::hashgate::Knob::DropDelta) makes the native arm skip one batch, so
 //! this stage has a control that bites rather than passing vacuously; the wasm arm reads no
 //! environment variable and cannot see it, which is what makes the divergence certain.
 

@@ -1,11 +1,12 @@
 # D-3D — dim once per snapshot, a z column, 2D bytes unchanged
 
-Status: **proposed** — written for the devil verdict (`prompts/RESUME.md:247`: "an opus devil
-verdict on contract-3d, then the 3D implementation"). No code. Scope: the snapshot contract
-(`crates/graph-contract`, `docs/contract/`), its consumers (`graph-wasm`, `graph-sdk-js`,
-`graph-render`, the studio), and the first 3D layouts. Decides the byte layout, the JSON
-shape, the version bump, and the consumer obligations. Leaves open: the exact 3D layout
-set, the random-3D oracle, and whether edge paths ever go 3D.
+Status: **accepted, with conditions** — the verdict is `docs/decisions/contract-3d-verdict.md`
+(2026-09-30); condition 5 is superseded by `docs/decisions/studio-3d.md:4`. **Date:** 2026-09-30.
+Scope: the snapshot contract (`crates/graph-contract`, `docs/contract/`), its consumers
+(`graph-wasm`, `graph-sdk-js`, `graph-render`, the studio), and the first 3D layouts.
+Decides the byte layout, the JSON shape, the version bump, and the consumer obligations.
+Leaves open: the exact 3D layout set, the random-3D oracle, and whether edge paths ever go 3D.
+Still open, not blocking: the 1.0 declaration (`docs/decisions/contract-3d-verdict.md:90`).
 
 ## Context
 
