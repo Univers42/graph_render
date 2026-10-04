@@ -1,4 +1,4 @@
-use super::{run, run_seeded};
+use super::{run, run_3d, run_seeded};
 use crate::layout::Geometry;
 use crate::layout::basic_3d::SCALE;
 use crate::layout::coords::probe::{graph, points};
@@ -129,3 +129,66 @@ fn the_first_pair_is_pinned() {
     let got = points(&run(&graph(2, &[])).unwrap());
     assert_eq!(got[0], (0.71003205, 0.28633666));
 }
+
+/// `layout.random.3d` is the 3-D placement and nothing else: `x`, `y`, `z` or a panic, and
+/// `dim()` says `D3`. A 2-D geometry here would answer the oracle's third column wrongly
+/// and quietly, since the harness would compare two columns against a uniform cube.
+#[test]
+fn run_3d_is_a_three_column_draw() {
+    let geometry = run_3d(&graph(3, &[(0, 1)])).expect("never refuses");
+    assert_eq!(geometry.dim(), Dim::D3, "the arm is 3D");
+    let (x, y, z) = space(&geometry);
+    assert_eq!((x.len(), y.len(), z.len()), (3, 3, 3));
+    for column in [&x, &y, &z] {
+        assert!(
+            column.iter().all(|v| (0.0..1.0).contains(v)),
+            "uniform [0,1)^3, unscaled: {column:?}"
+        );
+    }
+}
+
+/// **This is the draw-order test for the 3-D arm**, and like its 2-D sibling it re-derives
+/// with [`super::SEED`] rather than pinning literals, so it holds the ORDER and the COUNT —
+/// three draws per node, `x`, `y`, `z` — and not the seed's value.
+///
+/// The cross-arm half says what the widths really are, because it is the part that is easy
+/// to get wrong: the two arms read ONE stream at two widths, so they agree on node 0's `x`
+/// and `y` (draws 0 and 1) and part company immediately after. The 2-D arm's node 1 `x` is
+/// draw 2, which is this arm's node 0 `z`. A `draw` that read a fresh stream per node, or a
+/// 3-D arm built on a second implementation, would move node 0 and fail here.
+#[test]
+fn run_3d_draws_three_per_node_off_the_same_stream() {
+    let mut rng = Mulberry32::new(super::SEED);
+    let want: Vec<(f32, f32, f32)> = (0..3)
+        .map(|_| (rng.next_f64() as f32, rng.next_f64() as f32, rng.next_f64() as f32))
+        .collect();
+    let (x, y, z) = space(&run_3d(&graph(3, &[(0, 1)])).expect("runs"));
+    let got: Vec<(f32, f32, f32)> = (0..3).map(|i| (x[i], y[i], z[i])).collect();
+    assert_eq!(got, want);
+
+    let planar = points(&run(&graph(3, &[(0, 1)])).expect("runs"));
+    assert_eq!((planar[0].0, planar[0].1), (x[0], y[0]), "node 0: draws 0 and 1");
+    assert_eq!(planar[1].0, z[0], "the 2D arm's node 1 x is this arm's node 0 z");
+    assert_ne!(
+        (planar[1].0, planar[1].1),
+        (x[1], y[1]),
+        "node 1 is where the two widths part company"
+    );
+}
+
+/// **The control for the row above, and the claim that makes it a pair.** The registered 2-D
+/// snapshot is hashed by the gate, so `run_3d` must not move a single byte of it. One extra
+/// draw per node in the 2-D arm would shift every node after the first and turn the gate
+/// red; `draw` is what keeps it green, and this is the test that would notice.
+#[test]
+fn run_3d_leaves_the_registered_2d_snapshot_exactly_where_it_was() {
+    let planar = run(&graph(4, &[(0, 1), (2, 3)])).expect("runs");
+    assert_eq!(planar.dim(), Dim::D2, "run stays planar");
+    assert_eq!(points(&planar)[0], (0.71003205, 0.28633666), "the seed is unmoved");
+    let mut rng = Mulberry32::new(super::SEED);
+    let want: Vec<(f32, f32)> = (0..4)
+        .map(|_| (rng.next_f64() as f32, rng.next_f64() as f32))
+        .collect();
+    assert_eq!(points(&planar), want, "two draws per node, in node order");
+}
+

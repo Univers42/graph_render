@@ -1,20 +1,48 @@
-"""Differential of layout.circular.ring, layout.spiral and layout.bipartite against
-networkx 3.6's circular_layout, spiral_layout and bipartite_layout, run in the
-ge-python-oracle image:
+"""Differential of layout.circular.ring, layout.spiral, layout.bipartite, layout.random.3d,
+layout.basic3d.spiral and layout.bipartite_3d against networkx 3.6's circular_layout,
+spiral_layout and bipartite_layout plus SciGraphs' _spiral_layout_3d and
+_bipartite_layout_3d, run in the ge-python-oracle image:
 
   graph-cli emit-closed-form-fixtures --seeds 1000
   docker run --rm --user 0:0 -v $PWD:/w -w /w ge-python-oracle \
       python3 harness/oracle-closed-form.py target/closed-form-fixtures
+  docker run --rm --user 0:0 -v $PWD:/w -w /w ge-python-oracle \
+      python3 harness/oracle-closed-form.py target/closed-form-fixtures /w/SciGraphs/core
   graph-cli oracle-closed-form
 
-Metric per layout: the largest absolute coordinate difference (both arms are rescaled to
-unit scale). The result holds the worst value per layout; graph-cli holds the ceiling.
+The second argv is the SciGraphs core directory the two closed-form 3-D references live
+in; omitted it defaults to <repo>/SciGraphs/core, which is where the submodule lands.
+
+Metric per 2-D layout: the largest absolute coordinate difference (both arms are rescaled
+to unit scale). The result holds the worst value per layout; graph-cli holds the ceiling.
 The bipartite arm passes networkx our own first column as `nodes=` (see the graph-cli
 module's Ponytail) and compares x per node and y as sorted values per column.
+
+Metric per 3-D layout:
+  layout.random.3d      distribution only: the worst per-axis error in the sample mean
+                        against 0.5 and in the sample variance against 1/12. A coordinate
+                        comparison is impossible (our stream is Mulberry32, the
+                        reference's is numpy's Mersenne Twister), so this arm is a
+                        distribution metric, not a coordinate metric.
+  layout.basic3d.spiral largest absolute coordinate difference against
+                        `_spiral_layout_3d(n, 5.0)`; 5.0 is `basic_3d::SCALE`, the
+                        dispatcher's `scale = 5.0` and what layout.basic3d.spiral draws.
+  layout.bipartite_3d   largest absolute coordinate difference against
+                        `_bipartite_layout_3d(G, 5.0)`, comparing each of the two rings
+                        as a SET of (x, y, z) points.
 
 Ponytail: the bipartite comparison checks geometry given a partition, not the partition
 rule, and not the order of nodes inside a column. The gate model is one connected graph
 per seed, so an empty graph, one node and a disconnected graph are not exercised here.
+Ponytail (3-D): the bipartite_3d comparison inherits that caveat and adds the node order
+inside a ring, which is the partition's own; a partition that is correct but rotated
+within its plane passes. _bipartite_layout_3d prints progress on stdout and falls back to
+a greedy maximum cut on a non-bipartite graph, so the print (not the gate) is the only
+warning that the partition under test was not the two-colouring.
+Ponytail (3-D random): the distribution metric cannot see a wrong but unbiased stream --
+a mis-scaled axis, a dropped draw's successor or a stream that is uniform in the wrong
+sub-range can all pass while every coordinate is wrong. The escape hatch is the gate's
+ceiling on the mean/variance error, not a coordinate comparison.
 """
 import json
 import os
@@ -34,9 +62,25 @@ from oracle_common import (  # noqa: E402
     require_seeds,
 )
 
-if len(sys.argv) != 2:
-    sys.exit("usage: oracle-closed-form.py <fixtures-dir>")
+if len(sys.argv) not in (2, 3):
+    sys.exit(
+        "usage: oracle-closed-form.py <fixtures-dir> [SciGraphs-core-dir]"
+    )
 fixtures_dir = sys.argv[1]
+core = sys.argv[2] if len(sys.argv) == 3 else os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "SciGraphs", "core"
+)
+# sys.path silently ignores a directory that is not there, so the two closed-form 3-D
+# references would surface as an ImportError with no hint about which path was wrong.
+if not os.path.isdir(core):
+    sys.exit(f"oracle-closed-form.py: SciGraphs core directory not found: {core}")
+sys.path.insert(0, core)
+from scigraphs_core.mesh.layouts import basic as ref_basic  # noqa: E402
+from scigraphs_core.mesh.layouts import hierarchical as ref_hier  # noqa: E402
+
+# The only scale the 3-D dispatcher hands these two layouts (dispatcher.py:14).
+SCALE_3D = 5.0
+
 networkx_version(nx)
 manifest, digest = read_manifest(fixtures_dir, "closed-form")
 # One open, one pass: the digest and the measurement read the same handle's bytes. Two
@@ -48,7 +92,12 @@ require_seeds(manifest, lines, "closed-form")
 
 
 def block(case, key):
-    return np.column_stack([case[key]["x"], case[key]["y"]]).astype(float)
+    """A case's columns as an (n, d) float array: xy, or xyz when the layout is 3D."""
+    ours = case[key]
+    columns = [ours["x"], ours["y"]]
+    if "z" in ours:
+        columns.append(ours["z"])
+    return np.column_stack(columns).astype(float)
 
 
 def gap(ours, theirs):
@@ -79,7 +128,92 @@ def reference_points(graph, n):
     }
 
 
-layouts = {key: {"cases": 0, "worst": 0.0} for key in ("ring", "spiral", "bipartite")}
+def random_3d_gap(case, key):
+    """Worst per-axis deviation of our draw from the uniform the contract names: the sample
+    mean against 0.5 and the sample variance against 1/12, six numbers, worst wins.
+
+    This is a DISTRIBUTION metric and not a coordinate metric, and no coordinate comparison
+    is possible: our stream is Mulberry32 and the reference's is numpy's Mersenne Twister,
+    so the two draw different values at the same index however correct either is.
+
+    Ponytail: failing input is a stream that is uniform but wrong (biased index, wrong
+    sub-range, one draw in every 2^32 skipped) — it passes here and fails in production.
+    Direction is always optimistic, never conservative. Escape hatch: tighten the gate's
+    ceiling on this number, or compare against the reference draw's own mean and variance
+    instead of the contract's constants.
+    """
+    ours = block(case, key)
+    worst = 0.0
+    for axis in range(3):
+        column = ours[:, axis]
+        worst = max(
+            worst,
+            finite(abs(float(column.mean()) - 0.5), f"random_3d mean gap axis {axis}"),
+            finite(abs(float(column.var()) - 1.0 / 12.0), f"random_3d var gap axis {axis}"),
+        )
+    return float(worst)
+
+
+def spiral_3d_gap(case, n):
+    """Worst coordinate gap against SciGraphs' conical 3-D spiral at the dispatched scale.
+
+    `SCALE_3D` (5.0) is `basic_3d::SCALE`, the `scale = 5.0` the 3-D dispatcher passes and
+    the value `layout.basic3d.spiral` draws at; passing 1.0 instead would compare a unit
+    cone against a five-unit one. `_spiral_layout_3d` prints nothing.
+    """
+    theirs = np.asarray(ref_basic._spiral_layout_3d(n, SCALE_3D), dtype=float)
+    return gap(block(case, "spiral_3d"), theirs)
+
+
+def bipartite_3d_gap(graph, ours):
+    """Worst coordinate gap against SciGraphs' two 3-D rings, each side compared as a SET.
+
+    The reference puts each node set on its own plane at z = +-{scale*0.5} and walks the
+    ring in the partition's own node order, so a node order that differs inside a ring is
+    not a geometry error and is not compared: x and y are compared as sorted values per
+    side, and z against the plane. `_bipartite_layout_3d` prints progress and can fall back
+    to a greedy maximum cut on a non-bipartite graph; a wrong partition shows up as the
+    count assertion below rather than as a coordinate gap.
+
+    Ponytail: failing input is a correct partition rotated within its plane, or a partition
+    that is valid but not the one the reference's two-colouring picks. Direction is
+    optimistic. Escape hatch: pass our own set0 as the reference's partition, or assert the
+    partition itself before comparing geometry.
+    """
+    theirs = np.asarray(ref_hier._bipartite_layout_3d(graph, SCALE_3D), dtype=float)
+    worst = 0.0
+    for plane in (-0.5 * SCALE_3D, 0.5 * SCALE_3D):
+        ours_side = ours[np.isclose(ours[:, 2], plane, atol=1e-6, rtol=0.0)]
+        theirs_side = theirs[np.isclose(theirs[:, 2], plane, atol=1e-9, rtol=0.0)]
+        # An empty side is a FAILURE, not a skip. A `continue` here was measured to read as a
+        # perfect match: an empty `worst` is 0.0, so a layout that put every node on one plane,
+        # or at the wrong scale, would score 0.0 on both rings and the row would go green on
+        # a layout that draws no second ring at all. A partition that puts every node on one
+        # side is a real answer too, so the reference's side may legitimately be empty -- but
+        # only when OURS is empty as well, and then the two counts still have to agree.
+        assert len(ours_side) == len(theirs_side), (
+            f"plane {plane}: {len(ours_side)} of our nodes vs {len(theirs_side)} of the "
+            "reference's -- the partition disagrees, not the geometry, or a ring is missing "
+            f"from our drawing (our z runs {ours[:, 2].min()}..{ours[:, 2].max()} against the "
+            f"reference's planes at +-{0.5 * SCALE_3D})"
+        )
+        if not len(ours_side):
+            continue
+        # Our z is written to f32, the reference's is exact, so compare z to f32 too.
+        worst = max(
+            worst,
+            finite(float(np.abs(ours_side[:, 2] - plane).max()), "bipartite_3d z gap"),
+        )
+        for axis in (0, 1):
+            worst = max(
+                worst,
+                gap(np.sort(ours_side[:, axis]), np.sort(theirs_side[:, axis])),
+            )
+    return worst
+
+
+KEYS = ("ring", "spiral", "bipartite", "random_3d", "spiral_3d", "bipartite_3d")
+layouts = {key: {"cases": 0, "worst": 0.0} for key in KEYS}
 for text in lines:
     case = json.loads(text)
     graph = nx.Graph()
@@ -90,6 +224,9 @@ for text in lines:
         "ring": gap(block(case, "ring"), theirs["ring"]),
         "spiral": gap(block(case, "spiral"), theirs["spiral"]),
         "bipartite": bipartite_gap(graph, block(case, "bipartite")),
+        "random_3d": random_3d_gap(case, "random_3d"),
+        "spiral_3d": spiral_3d_gap(case, case["n"]),
+        "bipartite_3d": bipartite_3d_gap(graph, block(case, "bipartite_3d")),
     }
     for key, metric in metrics.items():
         layouts[key]["cases"] += 1
@@ -99,12 +236,15 @@ for text in lines:
             layouts[key]["worst"], finite(metric, f"{key} gap")
         )
 
-require_cases(layouts, ("ring", "spiral", "bipartite"), "closed-form")
+require_cases(layouts, KEYS, "closed-form")
 
 result = {
     "fingerprint": manifest["fingerprint"],
     "sha256": digest,
-    "oracle": f"networkx {nx.__version__}, numpy {np.__version__}",
+    "oracle": (
+        f"networkx {nx.__version__}, numpy {np.__version__}, "
+        "SciGraphs basic/hierarchical"
+    ),
     "layouts": layouts,
 }
 with open(os.path.join(sys.argv[1], "closed-form-result.json"), "w") as out:

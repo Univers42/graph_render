@@ -207,9 +207,13 @@ pub(super) fn force_record(id: &str) -> Option<(&'static str, Status)> {
         // rings this row draws.
         //
         // `layout.spectral3d` and `layout.mds.pivot3d` stand on the same record for the same
-        // reason: they are SciGraphs' `SPECTRAL_3D` and `MDS_3D` rows of that gate, and
-        // `harness/oracle-spectral.py` pins only the 2D ids. They used to fall through to
-        // `roundtrip`, which has no hand oracle for them and records neither.
+        // reason: they are SciGraphs' `SPECTRAL_3D` and `MDS_3D` rows of that gate. They used
+        // to fall through to `roundtrip`, which has no hand oracle for them and records
+        // neither. `harness/oracle-spectral.py` now pins all four spectral ids, so they are
+        // also in `layout_row::SCIPY_ORACLE_LAYOUTS`; this arm is matched first and keeps
+        // them on the stronger record, because `scripts/scigraphs-conformance.sh` compares
+        // them byte for byte over the conformance fixtures and a row must not be moved onto a
+        // weaker claim just because a second differential exists.
         "layout.bipartite_3d" | "layout.spectral3d" | "layout.mds.pivot3d" => {
             Some(("scigraphs-conformance", Status::Implemented))
         }
