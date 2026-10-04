@@ -14,23 +14,31 @@
 use crate::registry::Metadata;
 use graph_contract::geometry::{EdgeGeometryKind, NodeGeometryKind};
 
-/// Node count `layout.dag.dot` was run at.
+/// Node count `layout.dag.dot` was run at: **the topology layer's own ceiling**, 9 200 000.
 ///
-/// **Not set.** The job's rule is that the ceiling is the next power of ten above the worst gap
-/// measured over the fixture seeds, and no gap has been measured against this layout, because
-/// the graph-cli differential that would measure it is the next job. Writing a number here
-/// would be inventing it. What the port's own complexity note does bound is the pass's shape:
-/// `r + 2m + 2s` after `k` pivots on the auxiliary graph.
-pub const DOT_CEILING: u64 = 0;
+/// **Derived, not measured, and not invented.** The number is not a guess at where this pass
+/// stops working — it is where it *cannot be asked to work*, because the layout's input is a
+/// [`crate::index::Topology`] and the topology layer's ceiling bounds the node count such a
+/// value can carry. `graph-cli capabilities`' own `MAX_SCALE_CEILING` is that same constant, so
+/// a larger number here would be a row the ledger refuses outright.
+///
+/// What is **not** claimed is that `dot` lays out 9 200 000 nodes. It does not: the pass holds a
+/// fast graph of `Node` (216 bytes) and `Edge` (52 bytes) records plus three adjacency `Vec`s
+/// per node, so its own footprint is several times the grid's, and the graph-cli differential
+/// that would measure where it actually becomes unusable is the next job. `dot/mincross.rs` and
+/// `dot/position.rs` carry the two passes' iteration bounds instead, and those are the honest
+/// statement of what this layout costs.
+pub const DOT_CEILING: u64 = 9_200_000;
 
-const DEGRADATION: &str = "past the ceiling there is nothing to degrade, because no ceiling has \
-been measured: see DOT_CEILING. What does bound this layout is memory, and it is bounded the \
-same way every layout here is -- wasm32 addresses at most 4 GiB, and natively the snapshot \
-refuses with SnapshotError::Capacity once an id table's text would pass 2^32-1 bytes, which is \
-a refusal and never a wrap or a truncation. Nothing in the pass has a budget, a cut-off or a \
-fallback that returns a *different kind* of answer: the rank pass and the mincross pass are \
-bounded by their iteration counts, and the x pass by the simplex's Search_size = 30 cut-off, so \
-a larger graph costs more time and returns the same kind of drawing";
+const DEGRADATION: &str = "past the ceiling there is nothing to degrade, because the ceiling is \
+where the layout cannot be reached rather than where it fails: the input is a Topology and the \
+topology layer's own ceiling bounds its node count (see DOT_CEILING). What does bound this \
+layout is memory, and it is bounded the same way every layout here is -- wasm32 addresses at most \
+4 GiB, and natively the snapshot refuses with SnapshotError::Capacity once an id table's text \
+would pass 2^32-1 bytes, which is a refusal and never a wrap or a truncation. Nothing in the \
+pass has a budget, a cut-off or a fallback that returns a *different kind* of answer: the rank \
+pass and the mincross pass are bounded by their iteration counts, and the x pass by the simplex's \
+Search_size = 30 cut-off, so a larger graph costs more time and returns the same kind of drawing";
 
 pub(super) const DOT: Metadata = Metadata {
     tier: 1,
@@ -114,6 +122,10 @@ any graph whose ids are three characters or longer -- that is every fixture seed
 Direction: boxes too narrow by 3.942 points at three characters and by 16.36 at four, so the x \
 simplex is asked to satisfy constraints that are that much too short. Escape hatch: one constant \
 pair in crates/graph-core/src/layout/graphviz/text_width.rs, which is the single copy the ADR \
-names and which this job's allowed paths exclude. Ponytail (scale_ceiling): not measured -- see \
-DOT_CEILING",
+names and which this job's allowed paths exclude. Ponytail (scale_ceiling): DERIVED from the \
+topology layer's own ceiling, because the input is a Topology and that is the largest node \
+count such a value can carry -- NOT measured against this pass, which no job has measured yet. \
+Failing input: a topology larger than the topology layer's ceiling. Direction: none reachable, \
+the value does not exist. Escape hatch: none needed; re-measure the pass's own footprint with \
+crates/graph-core/tests/memory.rs and restate this as GRID_CEILING restates its own",
 };

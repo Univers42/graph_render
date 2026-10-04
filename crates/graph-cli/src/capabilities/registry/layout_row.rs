@@ -30,11 +30,17 @@ const SCIPY_ORACLE_LAYOUTS: [&str; 2] = ["layout.spectral", "layout.mds.pivot"];
 /// same `gated` claim on the same record. An id in no arm at all is now
 /// [`Status::Implemented`] naming a record no gate writes, so registering a layout is a
 /// decision somebody makes here rather than a claim it picks up.
-const ROUNDTRIP_LAYOUTS: [&str; 4] = [
+///
+/// `layout.dag.dot` is the fifth for the same reason `layout.dag.sugiyama` is the fourth: it has
+/// no oracle differential of its own yet — `docs/measurements/p13-gv2-dot.md` names that as the
+/// next job — so `roundtrip`'s hand oracle, which records every layout under its own id, is the
+/// only thing that can back it.
+const ROUNDTRIP_LAYOUTS: [&str; 5] = [
     "layout.grid",
     "layout.circular.radial",
     "layout.packing.circle",
     "layout.dag.sugiyama",
+    "layout.dag.dot",
 ];
 
 /// The record a row of no consequence names when it names no oracle at all. No gate
