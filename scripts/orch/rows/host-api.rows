@@ -4,3 +4,16 @@ studio-embed|0|scripts/studio-embed.sh
 # The control needs its own fresh report, not only exit 1: a SyntaxError in smokecdp.py (a merge
 # conflict, 2026-10-04) also exits 1, and the bare `test $? -eq 1` row passed on it. 19 = the targeted rows.
 negctl-studio-embed|0|r=target/studio-embed/break/report.json; rm -f $r; STUDIO_EMBED_BREAK=1 scripts/studio-embed.sh; test $? -eq 1 && test "$(grep -c '"verdict": "FAIL"' $r)" -ge 19 && ! grep -Eq '"verdict": "(PASS|NOT-RUN)"' $r
+# The pack rows, from target/wf/studio-pack.rows. Each builds into its own outdir: the control must
+# leave a whole pack behind for studio-pack-embed, which serves target/pack/graph-studio-0.1.0.
+studio-pack|0|scripts/studio-pack.sh target/pack
+# Its own outdir, and the reason read from its log, not only from $?: a build that never ran is not a
+# control that bit. The verify must name the file it deleted.
+negctl-studio-pack|0|log=target/pack-break.log; STUDIO_PACK_BREAK=1 scripts/studio-pack.sh target/pack-break >$log 2>&1; test $? -eq 1 && grep -q graph_wasm_threads.wasm $log
+# One tree, two outdirs, one digest. A commit landing between the two builds moves pack.json's
+# source_rev and the digests differ: that is the row saying the tree was not the same tree.
+studio-pack-repro|0|scripts/studio-pack.sh target/pack-a >/dev/null && scripts/studio-pack.sh target/pack-b >/dev/null && cmp <(sha256sum < target/pack-a/graph-studio-0.1.0.tgz) <(sha256sum < target/pack-b/graph-studio-0.1.0.tgz)
+studio-pack-embed|0|STUDIO_EMBED_PACK=target/pack/graph-studio-0.1.0 scripts/studio-embed.sh
+# As negctl-studio-embed, over the pack, for the same reason: a SyntaxError in the harness also
+# exits 1. 19 = the targeted rows, every one of them FAIL, none left NOT-RUN.
+negctl-studio-pack-embed|0|r=target/studio-embed/break-pack/report.json; rm -f $r; STUDIO_EMBED_PACK=target/pack/graph-studio-0.1.0 STUDIO_EMBED_BREAK=1 scripts/studio-embed.sh; test $? -eq 1 && test "$(grep -c '"verdict": "FAIL"' $r)" -ge 19 && ! grep -Eq '"verdict": "(PASS|NOT-RUN)"' $r

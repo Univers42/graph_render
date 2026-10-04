@@ -1,6 +1,6 @@
 # CONTINUE.md — how to work on this host (read after `docs/reports/STATUS.md`)
 
-Written 2026-10-02. You are the orchestrator for graph-motor, a pure-Rust graph geometry motor
+Written 2026-10-04. You are the orchestrator for graph-motor, a pure-Rust graph geometry motor
 whose output is bit-identical native vs wasm32. Drive work to merged-and-green **without**
 re-deciding what is already decided. The standing rules live in `CLAUDE.md`, `prompt.md` §0 and
 §6, `prompts/ONBOARDING.md` and `prompts/AGENT_BRIEF.md` (`AGENTS.md` links to it). Do not modify
@@ -50,6 +50,17 @@ scripts/orch/gate.sh <logdir> scripts/orch/rows/quick.rows   # <logdir>/summary.
 
 A fresh worktree needs `npm ci` before `cargo test` (`cli_oracles`) — `wt-new.sh` already does it.
 
+The **full develop gate** is `scripts/orch/rows/develop-full.rows`: **100 rows**, **20 of them
+`negctl-*`**, and it now carries the studio rows `studio-wasm` / `-check` / `-build` / `-smoke` plus
+`negctl-studio-smoke` (`:221-225`). Run it under the host lock — `scripts/orch/timed` takes it:
+
+```sh
+scripts/orch/timed scripts/orch/gate.sh <logdir> scripts/orch/rows/develop-full.rows
+```
+
+`hashgate-1000` (3052 s, `docs/reports/phase-03.md:104`) and the 10^5/10^6 bench arms sit last under
+`# slow:` because they time out on a host of this class.
+
 ## 2. The orchestration, as it stands
 
 Four scripts do everything. `scripts/orch/scratch.sh` sets `GM_SCRATCH` (on `dlesieur42` that is
@@ -74,14 +85,15 @@ Four scripts do everything. `scripts/orch/scratch.sh` sets `GM_SCRATCH` (on `dle
   — **0** done and gate green, **2** the agent did not return `done`, **1** the gate is red, **3**
   the worktree could not be proven free (`oc-job.sh:4-5`). `land` is written only when rc=0 and
   the row says `land=yes` (`queue.sh:61-64`): **0** merged, **1** red after the merge, **2** could
-  not run. `land=-` means the file is absent.
+  not run. `land=-` means the file is absent; the state dir also uses the words `landed`,
+  `superseded` and `discarded` for outcomes the three numbers do not cover.
 - **Requeue a job**: delete its `.pid` and `.rc` (`queue.sh:13`). A `.pid` with no `.rc` means the
   runner was killed mid-job and the label will read `live` forever.
 
 ### 2.2 `oc-job.sh` — one worker
 
 `scripts/orch/oc-job.sh <label> <worktree> <agent> <body-file> [rows-file]` (`oc-job.sh:2`).
-The body file is the queue row's `brief`, i.e. `prompts/jobs/<label>.md` (66 briefs today). It:
+The body file is the queue row's `brief`, i.e. `prompts/jobs/<label>.md`. It:
 
 1. refuses (exit **3**) unless the worktree is free — `oc-live.sh` asks the OpenCode service
    whether a session is draining there and a `pgrep` scan is the second fence (`oc-job.sh:17-26`);
@@ -99,7 +111,8 @@ host-wide `flock` that makes it the bottleneck.
 
 ### 2.3 `land` — the landing step
 
-There is no `land.sh`: it is `queue.sh land <label>` → `land()` at `queue.sh:28-42`, called
+There is no `land.sh` in `scripts/orch/` (do not go looking for one): it is `queue.sh land <label>`
+→ `land()` at `queue.sh:28-42`, called
 automatically when rc=0 and `land=yes`. Under `flock` on `$GM_SCRATCH/orch/queue/land.lock` it
 `cd`s to `$GM_SCRATCH/wt/<label>`, fetches, **merges develop into the branch** (aborting with
 exit 1 on conflict), runs `timed gate.sh target/land-<label> scripts/orch/rows/quick.rows`, then
@@ -107,11 +120,11 @@ exit 1 on conflict), runs `timed gate.sh target/land-<label> scripts/orch/rows/q
 when the develop move touched nothing outside `docs/`, `prompts/`, `scripts/orch/` and `*.md`.
 
 So **setting `land=yes` in `queue.txt` is how you authorise a merge** (`queue.sh:61`). But the
-column is **not the authority** and `queue.txt` alone will mislead you: `p13-gv2-sfdp`,
-`trap-followups`, `p12-t3-knobs`, `studio-3d`, `graphviz-verdict` and `wasm-gm-build-trap` all
-carry `land=0` in the state dir and their work **is** on develop, yet every one of their committed
-rows reads `land=no`. Read the tree, not the column. Nothing is at risk of being re-run —
-`run()` skips any label that still has a `.pid` (`queue.sh:94`) — the risk is only misreading.
+column is **not the authority** and `queue.txt` alone will mislead you. On 2026-10-04, `osage-knob`
+reads `land=2` ("could not run") and `contract-3d` / `p12-t4b` read `land=1` ("red after the
+merge"), yet all three landed their work. Read the tree, not the column. Nothing is at risk of
+being re-run — `run()` skips any label that still has a `.pid` (`queue.sh:94`) — the risk is only
+misreading.
 
 ### 2.4 The rest of `scripts/orch/`
 
@@ -130,45 +143,55 @@ for a structured return block: status, changed paths, each command with its real
 findings, deviations, decisions needed. A free-model outage means the queue **waits** (user,
 2026-09-30): no paid fallback, so probe before a launch rather than burning the queue on a 429.
 
-## 3. What is in flight (2026-10-02)
+## 3. What is in flight (2026-10-04)
 
-`scripts/orch/queue.sh status`: 47 rows — 43 `done`, 2 `live` (`studio-switch-fit`,
-`status-refresh`), 2 `pending` (`osage-knob`, `sg-conformance-split`). develop = **701b46a**,
-436 commits.
+`scripts/orch/queue.sh status`: **135 labels, every one `done`** — zero `live`, zero `pending`. The
+split is 65 `rc=0`, 58 `rc=2`, 10 `rc=1`, 2 `rc=3`. develop = **fba1a288**, **1429 commits**.
+`rc=2` does not mean the work is missing: it means the agent did not write `status: done`. (Read the
+status column, not the label: `studio-live` and `perf-p6-live-copy` are `done` rows.)
 
-Twelve remote branches are unmerged. The ones that carry work, and what to do with each, are in
-`docs/reports/STATUS.md` §2 — three are worth landing (`p12-t4a`, `p13-gv2-dot`, `perf-p2-pm`),
-three are superseded and can be deleted (`p12-t2`, `tier-settle`, `studio-force`), one is dropped
-(`studio-ux`), three are docs (`review-*`), one is a pure-move (`sg-dedupe`), and
-**`p13-gv2-dot-rank` is the same commit as `p13-gv2-dot`** (`f098188`, empty diff) — one branch
-wears two names because two queue rows pointed at it.
+Fourteen remote branches are unmerged (`docs/reports/STATUS.md` §2 has the table with heads and
+ahead counts — and it moved twice while being written, so re-run the `for-each-ref` yourself).
+Three need a decision before anything else can be scheduled:
+
+- **`svc-image`** (3bf7223, **73 commits**, 96 files) is the whole `server/graph-server`
+  workspace. There is **no server at all** on develop — `server-and-write-path.md:3` and
+  `server-dependencies.md:3` are still "accepted in principle" / "proposed" and owe a devil
+  verdict. It is the largest unlanded thing in the repo.
+- **`p12-t4a`** (971318dc, dated 2026-10-01) is **stale**: its deliverable reached develop by
+  another route, through the `sg-*` conformance series. Diff it before spending a merge on it.
+- **`p13-gv2-dot-mincross`** (ab760496) and **`p13-gv3-dot-position`** (535d1f10) **overlap** —
+  the position pass was written without mincross merged. Diff them against each other before
+  landing either, or one will clobber the other.
 
 ## 4. The next work, in order
 
-1. **Run the full gate on develop 701b46a and repair its red rows.**
-   `scripts/orch/gate.sh <logdir> scripts/orch/rows/develop-full.rows` — 88 rows. This has not
-   been run on this tree; every red row is unknown until it is, and UNKNOWN = FAIL.
-2. **Land `p12-t4a`** (`origin/p12-t4a`, 971318d, 40 files): the 3D arms of random, spiral,
-   bipartite, spectral and mds.pivot. Merge develop into the branch, run the floor, then set
-   `land=yes` on `queue.txt:32` or `queue.sh land p12-t4a` by hand.
-3. **Land `p13-gv2-dot`** (f098188, 7 files): the `dot` layered port. The brief orders the passes
-   rank → mincross → position (`prompts/jobs/p13-gv2-dot.md`); the branch already carries the
-   split. Land the branch first, then run `p13-gv2-dot-rank`'s brief as a follow-up job against
-   it — and delete the duplicate queue row.
-4. **Launch `p12-t4b`** (queued, no branch): the 3D arms of forceatlas2 / yifan_hu / FR / KK /
-   DRL plus `layout.force.yifan_hu.2z`. `wt-new.sh p12-t4b` first.
-5. **Let the two pending jobs run**: `osage-knob` (unblocks `layout.packing.osage`'s promotion to
-   `gated`) and `sg-conformance-split` (three conformance files over 300 lines).
-6. **Land the three `review-*` docs branches and `sg-dedupe`** — they are one commit each and merge
-   without a floor fight.
-7. **`perf-p2-pm`** (2 commits): `layout.force.particle_mesh`, the P2 replacement the plan asks
-   for. It is a new capability id and needs its own quality gate, so it is a bigger job than 2–3.
-8. **Small repairs found while writing this file**, each already cited in
-   `docs/reports/STATUS.md` §5: add `negctl-node-z` to `develop-full.rows` (the full sweep
-   currently skips the z control that `quick.rows:7` runs), fix the stale
-   "no 3D layout is registered" comment in `crates/graph-cli/src/snapshot_cmd/exercise/z.rs:5-6`,
-   and add a studio render row to the gate — `develop-full.rows` runs none (`:198 env-ignored` is
-   the only studio-related row; the `scripts/studio-*.sh` gates are run by hand).
+1. **Run the full gate on develop and repair its red rows.**
+   `scripts/orch/timed scripts/orch/gate.sh <logdir> scripts/orch/rows/develop-full.rows` — 100
+   rows, 20 negative controls. This has not been run on this tree; every red row is unknown until
+   it is, and UNKNOWN = FAIL.
+2. **Rule on `svc-image`.** Either land it behind its owed devil verdict, or say it is parked. It
+   is too big to leave ambiguous across sessions.
+3. **Land `p12-3d-oracles`** (dae8b2c1, 9 commits, 28 files): the 3D igraph differential for the
+   five `*.3d` ids, which are registered on develop with **no** oracle. Merge develop into the
+   branch, run the floor, then `queue.sh land p12-3d-oracles` by hand.
+4. **`p13-gv2-dot`, second pass**: the rank pass has landed
+   (`crates/graph-core/src/layout/graphviz/dot.rs:1-19`). The other two passes are each on their
+   own unmerged branch and they **overlap** — `p13-gv2-dot-mincross` (ab760496, `dot_mincross` +
+   `harness/oracle-dot-probe.py`) and `p13-gv3-dot-position` (535d1f10, `dot_position`). Diff them
+   against each other, land one merge, then rebase the other's intent onto it by merge. Until both
+   are on develop, `GRAPHVIZ_DOT` stays `shape` and there is no `layout.dag.dot` row.
+5. **Add `negctl-node-z` to `develop-full.rows`.** The full sweep still does not run the z control
+   that `quick.rows:7` and `p12-t3.rows:84` do — a one-line gap that makes the full gate weaker
+   than the floor on exactly the column 3D added.
+6. **`studio-switch-fit`** is still open: 0 node pixels for 6 s after a layout switch.
+   `deploy/nav/switchrows.py` exists; `deploy/nav/nav.py` has no switch probe to run it.
+7. **`perf-fps` has never passed** (`docs/measurements/studio-s7.md:13,31`; 45.5 fps against a
+   floor of 54 at 120 nodes). Until it does, every studio perf and edge-gradient row exits 1 and its
+   negative control proves nothing (`studio-edge-gradient.md:51,57-62`).
+8. **Review `p12-t4a` against develop** (item 3 above) and delete it if the `sg-*` series already
+   covered it. Also review `perf-p3-steal`: `git` reports **multiple merge bases** against
+   develop, so it needs a real merge decision, not a fast-forward.
 9. **Do not** run the 1000-seed hashgate, `mutants.sh` or `gate.sh` concurrently with anything
    else; `scripts/orch/timed` serialises them and that queue is the bottleneck.
 
@@ -179,9 +202,9 @@ scripts/orch/scratch.sh                      # GM_SCRATCH
 git fetch origin && git log --oneline -1 origin/develop
 scripts/orch/queue.sh status                 # the ledger
 git for-each-ref --no-merged origin/develop --format='%(refname:short)' refs/remotes/origin
-scripts/orch/gr cargo run -q -p graph-cli -- capabilities --json   # 69 rows
+scripts/orch/gr cargo run -q -p graph-cli -- capabilities --json   # 82 rows, 47 layouts
 ```
 
 The last one prints `not backed: no <record>: run the gate` on every row in a fresh worktree —
-that is the missing `target/gates/`, not a red develop. Read
-`docs/reports/STATUS.md` §3.3 before drawing any conclusion from it.
+that is the missing `target/gates/`, not a red develop. Read `docs/reports/STATUS.md` §3.3 before
+drawing any conclusion from it.
