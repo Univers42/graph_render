@@ -78,10 +78,10 @@ fn default_workers_is_the_smaller_of_cores_and_memory_slots() {
     );
     assert_eq!(default_workers(2, Some(64 * PER_SLOT_BYTES)), 2);
     assert_eq!(default_workers(8, Some(PER_SLOT_BYTES - 1)), 0);
-    assert_eq!(default_workers(8, Some(4 << 30)), 1, "4 GiB holds one slot");
+    assert_eq!(default_workers(8, Some(8 << 30)), 1, "8 GiB holds one slot");
     assert_eq!(
         default_workers(64, Some(64 << 30)),
-        19,
+        14,
         "the doc's 64 GiB row"
     );
 }
