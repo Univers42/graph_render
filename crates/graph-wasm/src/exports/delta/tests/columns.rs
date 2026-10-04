@@ -89,6 +89,13 @@ fn a_refused_batch_leaves_the_graph_unchanged() {
     dangling.1.push(ghost);
     let mut truncated = batch(&batch_records);
     truncated.truncate(truncated.len() - 1);
+    // A non-finite float is reachable from the records alone — the writer copies the bits, so
+    // the decoder's `finite` rule is what refuses it. The cell rules with no record-level
+    // spelling (a boolean `2`, a `u32::MAX` in a required column, a nonzero pad) need byte
+    // surgery and stay pinned in `ingest_columns/tests/`, one test each.
+    let (mut nan, mut infinite) = (batch_records.clone(), batch_records.clone());
+    nan.0[0].weight = f64::NAN;
+    infinite.1[0].strength = f64::INFINITY;
     let refusals = [
         (batch(&taken), "a node id the graph already holds"),
         (batch(&twice), "an edge id twice in the batch"),
@@ -96,6 +103,8 @@ fn a_refused_batch_leaves_the_graph_unchanged() {
         (truncated, "a buffer one byte short"),
         (patched(1, 2), "a version the contract does not name"),
         (patched(6, 1), "a nonzero reserved word"),
+        (batch(&nan), "a NaN weight"),
+        (batch(&infinite), "an infinite strength"),
         (b"{".to_vec(), "JSON is not a batch"),
     ];
     for (refused, why) in refusals {

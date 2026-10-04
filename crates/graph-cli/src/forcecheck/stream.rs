@@ -177,7 +177,8 @@ fn fixture_lines(setting: &Setting, name: &str, route: Route) -> Result<String, 
 /// The columns route reads the line with **the JSON reader `service::extend` uses** and
 /// re-encodes it, untimed: this stage hashes what the two appends leave behind, and a host's
 /// own batch preparation is not what it is judging. The re-encode is `graph_wasm`'s one writer,
-/// the same `tick --path columns` and the wasm SDK's `encodeBatch` write through.
+/// the same `tick --path columns` encodes through, and the one the SDK's `encodeBatch` is to be
+/// written against (`docs/decisions/extend-columns.md`, item 5).
 fn append(topology: &mut Topology, doc: &[u8], route: Route) -> Result<(), String> {
     let named = |code: Code| code.name().to_owned();
     match route {

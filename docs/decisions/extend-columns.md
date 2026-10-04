@@ -278,3 +278,12 @@ Written before the code, so they can fail it.
   native `--path columns` arm.
 - **P4e-sdk** (after P4e-motor lands): `encodeBatch`, `Motor.extendColumns`, `sdk:test`, the wasm
   `--path columns` arm, the studio switch, the 1M measurement and its report.
+
+## Early read (P4e-motor)
+
+One round, native Barnes-Hut, 1M nodes, 10 × 10 000-node batches, `--from target/bench/p4e-1m.jsonl`, `GR_MEM=12g`; not P4e-sdk's 3-round median, no wasm arm, and A1/A2 answered in the columns path's favour on this round only. The two `extend` columns measure different spans: `json` reads *and* appends, `columns` decodes and appends with its read and encode untimed.
+```
+| `--path`         | extend median      | grow median | sum median                         | load start → end |
+| `json` (two runs) | 28.80 / 29.10 ms | 3.54 / 3.64 ms | 32.48 / 33.75 ms (over the budget) | 9.51→8.20, 13.15→12.98 |
+| `columns`        | 16.35 ms           | 5.15 ms     | **21.79 ms**, under the 30 ms budget | 9.49→11.80 |
+```

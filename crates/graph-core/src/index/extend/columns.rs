@@ -4,17 +4,16 @@
 //! validation, same refusals, same intern order, and afterwards the topology is byte-identical
 //! to the record path over the same rows; `extend_columns_matches_extend` is that claim.
 //!
-//! [`index_node`], [`index_edge`] and [`Entries`] are *reached*, not copied — `index_columns`’s
-//! own pieces, widened to `pub(in crate::index)` — and they are what holds this path’s intern
-//! order equal to `admit_node`’s. On top of them this adds what `index_columns` leaves to
-//! `finish()`: the three `csr.push_row()` calls, `degree.push(0)` and `group_node` per node,
+//! [`index_node`], [`index_edge`] and [`Entries`] are *reached*, not copied — the whole-document
+//! columnar build's own pieces, widened to `pub(in crate::index)` — and they are what holds this
+//! path's intern order equal to `admit_node`'s. On top of them this adds what that build leaves
+//! to `finish()`: the three `csr.push_row()` calls, `degree.push(0)` and `group_node` per node,
 //! `file_edge` per edge.
 //!
-//! [`index_columns`] itself is **not** called: it builds a *fresh* `Topology` and admits as it
-//! walks, so on a live handle it would replace the graph. Everything here is validated before
-//! the first intern — an id probe, an endpoint resolution and a kind lookup per row, all reads.
-//!
-//! [`index_columns`]: super::columns::index_columns
+//! The whole-document build itself is **not** called, and must never be: it constructs a *fresh*
+//! `Topology` and admits as it walks, so on a live handle it would replace the graph. Everything
+//! here is validated before the first intern — an id probe, an endpoint resolution and a kind
+//! lookup per row, all of which only read.
 
 use super::{ExtendError, Load, Topology, row_of};
 use crate::arena::{CapacityError, FixedState};
@@ -96,9 +95,8 @@ impl<'t, T: EntryTable + ?Sized> Plan<'t, T> {
         nodes: N,
     ) -> Result<(), BatchRefusal> {
         for (index, node) in (0..).zip(nodes) {
-            let named = [node.id, node.source, node.label];
             let optional = [node.database_id, node.group, node.icon];
-            self.in_table([named[0], node.kind], optional)?;
+            self.in_table([node.id, node.kind], optional)?;
             let id = self.text(node.id)?;
             if topology.node_index(id).is_some() || !self.ids.insert(id) {
                 return Err(BatchRefusal::Extend(ExtendError::NodeId { index }));
@@ -212,8 +210,8 @@ impl Topology {
         self.append_column_edges(&mut plan, edges, &at)
     }
 
-    /// Each node row through `index_columns`'s own admit, then the empty CSR rows, the zero
-    /// degree and the group `extend` gives it. Nothing here can refuse but the arena, whose
+    /// Each node row through the whole-document build's own admit, then the empty CSR rows, the
+    /// zero degree and the group `extend` gives it. Nothing here can refuse but the arena, whose
     /// limit [`batch_load`] has already cleared.
     fn append_column_nodes<T, N>(
         &mut self,
