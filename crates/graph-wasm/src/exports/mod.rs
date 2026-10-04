@@ -5,7 +5,7 @@
 //! `errors` modules (C21) — every one of those is unit-tested natively; only the
 //! functions below need the real target to exist at all.
 //!
-//! Split across five files by the house's 300-line limit, not by any ABI grouping (and
+//! Split across files by the house's 300-line limit, not by any ABI grouping (and
 //! `gm_abi_version`, below, the one export that belongs to none of them):
 //! [`state`] holds the shared handle table and out-buffer every export below reaches
 //! into; [`build`] is graph lifecycle (`gm_build`/`gm_build_contract`/`gm_run`/
@@ -14,16 +14,18 @@
 //! snapshot faces/`gm_release`);
 //! [`stages`] is the two stages downstream of LAYOUT — POST (`gm_post_*`) and ANALYSIS
 //! (`gm_analysis_*`); [`session`] is the live force session (`gm_force_session_*`, over the
-//! target-independent `crate::session`). Behind the `threads` feature, a sixth file, `threads`,
-//! is browser threads model (a) over `crate::pool`. Every `#[unsafe(no_mangle)]` function is a real wasm
-//! export regardless of which of the five files defines it — that boundary is invisible on the
-//! wire.
+//! target-independent `crate::session`); [`delta`] is live growth (`gm_graph_extend`,
+//! `gm_force_session_grow`, `docs/contract/delta.md`). Behind the `threads` feature, one more
+//! file, `threads`, is browser threads model (a) over `crate::pool`. Every
+//! `#[unsafe(no_mangle)]` function is a real wasm export regardless of which file defines it —
+//! that boundary is invisible on the wire.
 
 #![cfg(any(test, target_arch = "wasm32"))]
 
 mod build;
 mod build_paths;
 mod columns;
+mod delta;
 mod session;
 mod stages;
 mod state;

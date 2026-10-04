@@ -138,14 +138,14 @@ unchanged.
 
 | export | signature | notes |
 |---|---|---|
-| `gm_graph_extend` | `(graph: u32, ptr: u32, len: u32) -> u32` | `(ptr, len)` is a live `gm_alloc` buffer holding one batch (C5). It is copied, never freed (C7). Returns `1` when appended, `0` on refusal: `InvalidHandle`, `IngestInvalid` or `IngestTooLarge`. On success it clears the handle's snapshot and geometry, so the next read is `NoGeometryYet` until a `gm_run`, and every column address read from that handle before is invalid. |
+| `gm_graph_extend` | `(graph: u32, ptr: u32, len: u32) -> u32` | `(ptr, len)` is a live `gm_alloc` buffer holding one batch (C5). It is copied, never freed (C7). Returns `1` when appended, `0` on refusal: `InvalidHandle`, `BuildSourceInvalid` (the buffer is not a live allocation, as `gm_build`), `IngestInvalid` or `IngestTooLarge`. On success it clears the handle's snapshot and geometry, so the next read is `NoGeometryYet` until a `gm_run`, and every column address read from that handle before is invalid. |
 | `gm_force_session_grow` | `(session: u32, graph: u32) -> u32` | Absorbs what `graph` gained since the session last saw it. Returns `1`, or `0` on refusal: `InvalidSession` (as every `gm_force_session_*` call), `InvalidHandle`, and `SessionRefused` when `graph` is not the graph the session was created over or has fewer nodes or edges than it absorbed. Every column address read from the session before is invalid: its columns may have moved. |
 
 - The session records its graph id at `gm_force_session_create`. Graph ids are never reissued (C6), so
   a recorded id cannot alias a later graph. A released graph refuses with `InvalidHandle`.
 - No new error code. Codes 20 to 23 are being claimed by other branches, so reusing the existing ones
   avoids a renumbering.
-- `gm_abi_version` stays 1. Adding an export changes no signature, no code's meaning and no
+- `gm_abi_version` stays 2. Adding an export changes no signature, no code's meaning and no
   document version (`crates/graph-wasm/src/lib.rs:132-136`, `wasm-abi.md:31`). The two exports add
   invalidation events to C7, but a host that never calls them sees no change. P4b writes that rule
   into `wasm-abi.md`'s version line and C7. It also rewrites the comments that promise a fixed
@@ -186,7 +186,7 @@ unchanged.
 
 - `graph-cli emit-stream-fixtures` writes `fixtures/stream-*.jsonl`: one batch per line, the first
   line being the initial graph.
-- A hash gate `stream` arm replays a fixture natively twice and in wasm twice. It ticks a fixed
+- The `force-gate` stream stage replays a fixture natively twice and in wasm twice. It ticks a fixed
   count between batches and hashes the session's columns after each batch. All four hashes must be
   equal per batch. A native-only check also compares each batch's session against the rebuild plus
   `carry` reference.
@@ -199,7 +199,7 @@ unchanged.
   wasm, as the median of 3 alternated rounds. The p95 and the max are reported beside it, with the
   host load. A miss is recorded, and the row stays `implemented`.
 - The structure snapshot cost at 1M is measured and reported.
-- The stream arm is green and its negative control is red.
+- The `force-gate` stream stage is green and its negative control is red.
 
 ## What v1 does not do
 

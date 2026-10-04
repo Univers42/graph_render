@@ -52,6 +52,7 @@
     "src/motor/local.ts",
     "src/motor/helper.ts",
     "tests/*.motor.test.ts",
-    "tests/motor.ts"
+    "tests/motor.ts",
+    "tests/breaks"
   ]
 }

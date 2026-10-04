@@ -1,9 +1,7 @@
 #[cfg(doc)]
 use super::super::knobs;
 #[cfg(doc)]
-use super::Setting;
-#[cfg(doc)]
-use super::compute;
+use super::{Setting, compute};
 #[cfg(doc)]
 use graph_core::post::separate::SeparateParams;
 
@@ -292,9 +290,10 @@ pub enum Knob {
     /// would prove nothing about the pass's ability to separate at all.
     OverlapRelaxation,
     /// `GM_MUTATE_FORCE_SESSION_GRAVITY`: the **live** force session's `gravity`, native arm
-    /// of `force-gate` only.
-    ///
-    /// The one control that reaches `force-gate` rather than this gate. The full argument is
-    /// in [`compute`], under its own heading.
+    /// of `force-gate` only, and the one control that reaches `force-gate` rather than this
+    /// gate. The full argument is in [`compute`], under its own heading.
     ForceSessionGravity,
+    /// `GM_MUTATE_DROP_DELTA`: the batch of `force-gate`'s **stream** stage that its native arm
+    /// skips outright (no `extend`, no `grow`). The full argument is in [`compute`].
+    DropDelta,
 }

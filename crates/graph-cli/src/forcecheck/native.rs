@@ -40,11 +40,21 @@ pub fn session(seed: u32, setting: &Setting) -> Result<ForceSession, String> {
 pub fn positions(seed: u32, setting: &Setting) -> Result<Vec<u8>, String> {
     let mut session = session(seed, setting)?;
     session.step(TICKS);
+    Ok(columns(&session))
+}
+
+/// The two position columns as the bytes every arm hashes: `x` then `y`, one `f64` per node,
+/// in row order, little-endian.
+///
+/// **The one writer of these bytes for the whole gate**, so the seed arm and the stream arm
+/// cannot hash two layouts that look alike: they call this, and `stream-arm.mjs` reproduces
+/// it through a `Float64Array` read on the other side of the same comparison.
+pub fn columns(session: &ForceSession) -> Vec<u8> {
     let mut out = Vec::with_capacity(8 * (session.xs().len() + session.ys().len()));
     for column in [session.xs(), session.ys()] {
         for value in column {
             out.extend_from_slice(&value.to_le_bytes());
         }
     }
-    Ok(out)
+    out
 }

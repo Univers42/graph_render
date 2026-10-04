@@ -28,10 +28,11 @@ use crate::rng::jiggle;
 const PASS_X: u32 = 0;
 const PASS_Y: u32 = 1;
 
-/// Each simple edge's fixed `(distance, strength, bias)` (`forceLayout.ts:206-207`):
-/// the topology never changes across ticks, so neither do these — but the *parameters*
-/// can, mid-run, so this is recomputed whenever they are replaced
-/// ([`Sim::set_params`]).
+/// Each simple edge's `(distance, strength, bias)` (`forceLayout.ts:206-207`): a tick
+/// never changes the topology, so a tick never changes these. Two calls between ticks do:
+/// replaced *parameters* recompute every edge's ([`Sim::set_params`]), and a growth
+/// (`ForceSession::grow`, after `Topology::extend`) appends the new edges' and recomputes
+/// those of the edges whose endpoints' degrees moved ([`edge_geometry`]).
 pub(super) fn geometry(graph: &SimpleGraph, params: &LiveParams) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
     let m = graph.lo.len();
     let (mut distance, mut strength, mut bias) = (

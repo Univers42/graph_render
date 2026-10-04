@@ -166,9 +166,17 @@ mod memory_measure;
 #[cfg(any(test, all(feature = "threads", target_arch = "wasm32")))]
 mod pool;
 pub mod post;
-#[cfg(any(test, target_arch = "wasm32"))]
-mod seed_ingest;
+pub mod seed_ingest;
 pub mod service;
+/// The provisional ingest document for `nodes` and `edges` — the v1 JSON both
+/// [`service::build`] reads and `gm_graph_extend` appends, under the name a native
+/// caller reaches it by.
+///
+/// Re-exported rather than spelled as a path because `graph-cli emit-stream-fixtures`
+/// writes its stream fixtures through it: the bytes a fixture holds and the bytes the ABI
+/// parses can only be one writer's if the gate that reads them is to be a check at all.
+/// Ungated, unlike the module's other gates, because this caller is native.
+pub use seed_ingest::document as ingest_document;
 #[cfg(any(test, target_arch = "wasm32"))]
 mod session;
 #[cfg(any(test, target_arch = "wasm32"))]

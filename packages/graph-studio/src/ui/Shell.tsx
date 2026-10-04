@@ -2,10 +2,12 @@
  * The chrome: floating panels over a canvas the studio does not own. It reads the slices
  * the panels draw and knows only what is open — the console, the dock.
  */
-import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactElement } from "react";
 
 import { isLightTheme } from "../../../graph-render/src/look/themes.ts";
 import type { View } from "../../../graph-render/src/view.ts";
+import type { NodePreview } from "../host/contract.ts";
+import type { Previews } from "../host/previews.ts";
 import type { LiveBridge } from "../motor/bridge.ts";
 import type { AnalysisReport } from "../motor/protocol.ts";
 import type { GraphMeta } from "../source/meta.ts";
@@ -16,6 +18,7 @@ import type { Studio } from "../studio/studio.ts";
 import { KeyOverlay } from "./KeyOverlay.tsx";
 import { Console } from "./Console.tsx";
 import { Dock } from "./Dock.tsx";
+import { HoverCard } from "./HoverCard.tsx";
 import { Hud } from "./Hud.tsx";
 import { Inspector } from "./Inspector.tsx";
 import { Legend } from "./Legend.tsx";
@@ -34,6 +37,8 @@ export interface ShellProps {
   readonly keys: Pick<EventTarget, "addEventListener" | "removeEventListener">;
   /** The live loop's own store: read at its own rate, never with the rest of the chrome. */
   readonly bar: Pick<LiveBridge, "bar" | "onBar">;
+  /** What the host said about the hovered and the inspected node (`host/previews.ts`). */
+  readonly previews: Pick<Previews, "subscribe" | "shown">;
 }
 
 interface NodeMenuOpening {
@@ -96,9 +101,17 @@ function useSlices(studio: Studio): Slices {
   };
 }
 
+/** The host's answer for the node the inspector shows, or null while there is none for it. */
+function useInspected(previews: ShellProps["previews"], meta: GraphMeta | null, selected: number): NodePreview | null {
+  const read = (): ReturnType<typeof previews.shown> => previews.shown("inspector");
+  const shown = useSyncExternalStore(previews.subscribe, read, read);
+  return meta !== null && selected >= 0 && shown.id === meta.ids[selected] ? shown.preview : null;
+}
+
 export function Shell(props: ShellProps): ReactElement {
-  const { studio, view, keys, bar } = props;
+  const { studio, view, keys, bar, previews } = props;
   const { settings, meta, analysis, selection, run, busy, failure, selected } = useSlices(studio);
+  const inspected = useInspected(previews, meta, selected);
   const [consoleOpen, setOpen] = useState(false);
   const [helpOpen, setHelp] = useState(false);
   const toggleHelp = useCallback(() => setHelp((open) => !open), []);
@@ -120,7 +133,7 @@ export function Shell(props: ShellProps): ReactElement {
       <ProgressBar bar={bar.bar} onBar={bar.onBar} />
       <div className="gs-left">
         <Search studio={studio} meta={meta} text={settings.filter.text} inputRef={searchInput} />
-        <Inspector studio={studio} meta={meta} selected={selected} analysis={analysis} selection={selection} view={view} />
+        <Inspector studio={studio} meta={meta} selected={selected} analysis={analysis} selection={selection} view={view} preview={inspected} />
       </div>
       <Toast studio={studio} busy={busy} error={failure} />
       <Dock studio={studio} bar={bar} open={dockOpen} onToggle={toggleDock} />
@@ -129,6 +142,7 @@ export function Shell(props: ShellProps): ReactElement {
         <Hud run={run} view={view} />
         <NavBar studio={studio} />
       </div>
+      <HoverCard previews={previews} meta={meta} view={view} />
       <KeyOverlay open={helpOpen} onClose={toggleHelp} />
       <NodeMenu studio={studio} ids={meta?.ids ?? null} view={view} menu={menu} onClose={closeMenu} />
       {consoleOpen && <Console studio={studio} onClose={closeConsole} />}

@@ -34,6 +34,7 @@ impl Setting {
             split_sum: Split::None,
             split_rescale: false,
             live_gravity: None,
+            drop_delta: None,
             layout_param_default: None,
             control: None,
         }

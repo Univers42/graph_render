@@ -2,10 +2,12 @@
 import { memo, type ReactElement } from "react";
 
 import type { View } from "../../../graph-render/src/view.ts";
+import type { NodePreview } from "../host/contract.ts";
 import type { AnalysisReport } from "../motor/protocol.ts";
 import type { GraphMeta } from "../source/meta.ts";
 import type { Studio } from "../studio/studio.ts";
 import { shortName, sig3 } from "./names.ts";
+import { PreviewBody } from "./Preview.tsx";
 
 /** More neighbours than this and the panel is a list of the graph, not of one node. */
 const SHOWN = 12;
@@ -23,6 +25,8 @@ export interface InspectorProps {
    * not pass is a type error. It goes when the shell's call site can be.
    */
   readonly view: Pick<View, "focus" | "select">;
+  /** What the host said about this node, when it said it: the hover card's text, for the keyboard. */
+  readonly preview?: NodePreview | null;
 }
 
 /**
@@ -92,9 +96,10 @@ function Selection(props: { readonly studio: Studio; readonly meta: GraphMeta; r
 
 /** Memoised: the panel draws one node, and re-renders when the node or the graph changes. */
 export const Inspector = memo(function Inspector(props: InspectorProps): ReactElement | null {
-  const { studio, meta, selected, analysis, selection } = props;
+  const { studio, meta, selected, analysis, selection, preview = null } = props;
   if (selected < 0 || meta === null) return null;
   const label = meta.labels[selected] ?? "";
+  const id = meta.ids[selected] ?? "";
   const measured = analysis !== null && analysis.values.length === meta.nodeCount
     ? analysis.values[selected] : undefined;
   return (
@@ -105,8 +110,12 @@ export const Inspector = memo(function Inspector(props: InspectorProps): ReactEl
           ×
         </button>
       </div>
+      {preview !== null && <PreviewBody preview={preview} />}
+      <button type="button" className="gs-btn gs-open" onClick={() => void studio.dispatch("node.open", { id, via: "inspector" })}>
+        Open
+      </button>
       <Selection studio={studio} meta={meta} nodes={selection} />
-      <Row name="Id" value={meta.ids[selected] ?? ""} />
+      <Row name="Id" value={id} />
       <Row name="Kind" value={meta.kinds[selected] ?? ""} />
       <Row name="Group" value={meta.groups[meta.group[selected] ?? 0] ?? ""} />
       <Row name="Degree" value={String(meta.degree[selected] ?? 0)} />

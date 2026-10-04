@@ -29,7 +29,7 @@ fn a_warm_session_starts_on_the_layouts_centres() {
     let (xs, ys) = centres(&geometry.nodes);
     for engine in [Engine::BarnesHut, Engine::ParticleMesh] {
         reset();
-        let id = create_warm(&model(3, 24), Some(&geometry), params(), engine).expect("warm");
+        let id = create_warm(0, (&model(3, 24), Some(&geometry)), params(), engine).expect("warm");
         assert_eq!(bits(&wire_of(id, 0)), bits(&widened(xs)), "{engine:?} x");
         assert_eq!(bits(&wire_of(id, 1)), bits(&widened(ys)), "{engine:?} y");
     }
@@ -41,15 +41,15 @@ fn a_warm_session_starts_on_the_layouts_centres() {
 fn two_layouts_seed_two_different_sessions() {
     reset();
     let topology = model(3, 24);
-    let cold = create(&topology, params(), Engine::BarnesHut).expect("cold");
+    let cold = create(0, &topology, params(), Engine::BarnesHut).expect("cold");
     let grid = create_warm(
-        &topology,
-        Some(&ran("layout.grid", 24)),
+        0,
+        (&topology, Some(&ran("layout.grid", 24))),
         params(),
         Engine::BarnesHut,
     );
     let circle = ran("layout.circular.ring", 24);
-    let circle = create_warm(&topology, Some(&circle), params(), Engine::BarnesHut);
+    let circle = create_warm(0, (&topology, Some(&circle)), params(), Engine::BarnesHut);
     let (grid, circle) = (grid.expect("grid"), circle.expect("circle"));
     assert_ne!(bits(&wire_of(grid, 0)), bits(&wire_of(circle, 0)));
     assert_ne!(bits(&wire_of(cold, 0)), bits(&wire_of(grid, 0)));
@@ -58,7 +58,7 @@ fn two_layouts_seed_two_different_sessions() {
 #[test]
 fn a_graph_with_no_run_has_nothing_to_seed_from() {
     reset();
-    let refused = create_warm(&model(3, 8), None, params(), Engine::BarnesHut);
+    let refused = create_warm(0, (&model(3, 8), None), params(), Engine::BarnesHut);
     assert_eq!(refused, Err(Code::NoGeometryYet));
 }
 
@@ -72,10 +72,15 @@ fn a_tampered_centre_is_refused() {
     | NodeGeometry::Circle { x, .. }
     | NodeGeometry::Box { x, .. }) = &mut geometry.nodes;
     x[0] = f32::NAN;
-    let refused = create_warm(&model(3, 8), Some(&geometry), params(), Engine::BarnesHut);
+    let refused = create_warm(
+        0,
+        (&model(3, 8), Some(&geometry)),
+        params(),
+        Engine::BarnesHut,
+    );
     assert_eq!(refused, Err(Code::TamperedGeometry));
     let other = ran("layout.grid", 9);
-    let refused = create_warm(&model(3, 8), Some(&other), params(), Engine::BarnesHut);
+    let refused = create_warm(0, (&model(3, 8), Some(&other)), params(), Engine::BarnesHut);
     assert_eq!(
         refused,
         Err(Code::TamperedGeometry),
