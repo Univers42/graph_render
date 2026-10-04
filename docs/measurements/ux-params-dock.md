@@ -72,6 +72,14 @@ the gesture every row here depends on. Five of the seven rows go red (`params-sl
 `params-one-run`, `params-console`, `params-reset`, `params-layered`) and the gate exits 1; the two
 that stay green are the rows that claim no change — the panel's own contents, and a refusal.
 
+After the merge with develop 96b81e43 (2026-10-04), four rows went red: `params-slider`,
+`params-one-run`, `params-reset` and `params-layered`, with 0 layout calls for 20 pointer moves. The
+studio was not at fault. Develop's taller Layout section put the settings below the dock's visible
+area (threshold track top at y = 963 in a 720 px viewport, measured with the pw MCP), so the press
+landed outside the control. The same drag on the control scrolled into view committed one run
+(0.0001 → 0.997). `paramspage.py` now scrolls the control and the section header into view before
+pressing, as a hand would. Re-run: 7 of 7 PASS. `STUDIO_PARAMS_BREAK=1` exits 1 with 5 FAIL.
+
 ## The pw pass
 
 Driven against this worktree's dev server with the `pw` MCP server, at 1280x720. One parameter of
