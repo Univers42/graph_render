@@ -77,6 +77,30 @@ fn an_ingest_check_must_name_the_member_it_parses() {
     assert!(parses(&write).is_ok());
 }
 
+/// The arm's shard, as the parser read it.
+fn arm_shard(args: &[&str]) -> Result<Shard, clap::Error> {
+    match parses(args)?.command {
+        Command::HashgateArm { shard, .. } => Ok(shard),
+        other => panic!("not hashgate-arm: {other:?}"),
+    }
+}
+
+/// `--shard` defaults to the whole run, so an unflagged `hashgate-arm` still hashes every
+/// seed; and a shard that names a slice of a run that does not exist is refused at the
+/// parser, not by the merge discovering a hole in the arm afterwards.
+#[test]
+fn hashgate_arm_defaults_to_the_whole_run_and_refuses_an_impossible_shard() {
+    assert_eq!(arm_shard(&["hashgate-arm", "--seeds", "4"]), Ok(Shard::WHOLE));
+    assert_eq!(
+        arm_shard(&["hashgate-arm", "--seeds", "4", "--shard", "2/3"]),
+        Ok(Shard { index: 2, count: 3 })
+    );
+    assert_eq!(arm_shard(&["hashgate-arm", "--seeds", "4"]).map(|s| s.to_string()), Ok("0/1".into()));
+    for bad in ["1/0", "3/3", "x/2", "2"] {
+        assert!(arm_shard(&["hashgate-arm", "--seeds", "4", "--shard", bad]).is_err(), "{bad}");
+    }
+}
+
 #[test]
 fn the_two_oracle_subcommands_still_accept_the_default_fixture_directory() {
     // RG-51's `--fixtures` half is **not** fixed here: making it required would fail the

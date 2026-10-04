@@ -31,6 +31,14 @@ pub fn parse_tiers() -> impl TypedValueParser {
         .try_map(|word| hashgate::parse_tiers(word.as_str()))
 }
 
+/// `--shard`, parsed by `hashgate/shard.rs`'s own `Shard::parse`, so the flag and the
+/// stride cannot drift: a shard the parser accepts and the merge cannot place would be an
+/// arm with a hole in it.
+pub fn parse_shard() -> impl TypedValueParser {
+    clap::builder::StringValueParser::new()
+        .try_map(|text: String| hashgate::shard::Shard::parse(&text))
+}
+
 #[derive(Subcommand)]
 pub enum Command {
     /// The snapshot hash gate: every arm must agree on every seed, per stage.
@@ -44,12 +52,17 @@ pub enum Command {
         #[arg(long, default_value = "base", value_parser = parse_tiers())]
         tiers: hashgate::Tiers,
     },
-    /// One native arm of the gate, printing `stage seed sha256` lines. Spawned by `hashgate`.
+    /// One native arm of the gate, printing `stage seed sha256` lines. Spawned by `hashgate`,
+    /// once per shard of its seeds.
     #[command(hide = true)]
     HashgateArm {
         /// Number of seeds, 1..N.
         #[arg(long, value_parser = seed_count())]
         seeds: u32,
+        /// Which shard of those seeds this arm runs: `i/K`, `i` below `K`. Absent means the
+        /// whole run, which is what a hand-run probe wants.
+        #[arg(long, default_value = "0/1", value_parser = parse_shard())]
+        shard: hashgate::shard::Shard,
     },
     /// The live force session's own hash gate: native ×2 against wasm32 ×2 over the positions
     /// after a fixed number of ticks, driven through `gm_force_session_*`. See

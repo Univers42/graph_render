@@ -18,6 +18,7 @@ pub(crate) mod compare;
 pub(crate) mod knob;
 mod knobs;
 pub(crate) mod report;
+pub(crate) mod shard;
 mod staged;
 mod stages;
 mod tier;
@@ -26,6 +27,7 @@ mod transport;
 
 use crate::evidence;
 use crate::runner::{build_wasm, file_sha256, node_harness, run_lines, sha256_hex};
+use std::path::Path;
 pub(crate) use compare::{Arm, Tally, diverged, per_stage};
 use graph_core::layout::force::Split;
 use graph_core::layout::force::spring::SpringParams;
@@ -156,9 +158,14 @@ fn refuse_a_vacuous_control(seeds: u32, split: Split) -> Result<(), String> {
     Ok(())
 }
 
-/// Body of the hidden `hashgate-arm` subcommand: one native run, every stage.
-pub fn arm(seeds: u32) -> ExitCode {
-    match env_setting().and_then(|setting| arm_lines(seeds, &setting)) {
+/// Body of the hidden `hashgate-arm` subcommand: one native run, every stage, over the
+/// seeds `shard` names.
+///
+/// One shard, not the whole run: `collect_arms` splits an arm across
+/// `shard::per_arm()` children and merges the lines back, and a child that ran the whole
+/// seed range would do the work the split exists to divide.
+pub fn arm(seeds: u32, shard: shard::Shard) -> ExitCode {
+    match env_setting().and_then(|setting| arm_lines(seeds, shard, &setting)) {
         Ok(lines) => {
             print!("{lines}");
             ExitCode::SUCCESS
@@ -178,12 +185,16 @@ pub fn arm(seeds: u32) -> ExitCode {
 /// and by this module's own tests, and the shape it has to refuse is the same one
 /// `compare::diverged` already refuses: a loop over no seed concatenates zero blocks, prints
 /// nothing, and an arm that printed nothing is a comparison of nothing that reads as a pass.
-fn arm_lines(seeds: u32, setting: &Setting) -> Result<String, String> {
+///
+/// Only `shard`'s seeds. `shard::merge` puts the lines back at the slots they came from, so
+/// the block-per-stage shape and the seed-minor order inside a shard are what make the merge
+/// an identity rather than a reshuffle.
+fn arm_lines(seeds: u32, shard: shard::Shard, setting: &Setting) -> Result<String, String> {
     if seeds == 0 {
         return Err("0 seeds: an arm over nothing prints nothing and proves nothing".into());
     }
     let mut blocks = vec![String::new(); stages().len()];
-    for seed in 0..seeds {
+    for seed in shard.seeds(seeds) {
         let stages = stage_bytes(seed, setting).map_err(|err| format!("seed {seed}: {err}"))?;
         for (block, (stage, bytes)) in blocks.iter_mut().zip(stages) {
             block.push_str(&format!("{stage} {seed} {}\n", sha256_hex(&bytes)));
@@ -208,9 +219,18 @@ fn arm_lines(seeds: u32, setting: &Setting) -> Result<String, String> {
 /// refused as malformed at its first line. The two functions must keep the same shape;
 /// `the_threaded_arm_prints_its_stages_in_the_same_order_as_the_scalar_one` holds them to
 /// it.
-fn threads_lines(seeds: u32, setting: &Setting, workers: u32) -> Result<Vec<String>, String> {
+///
+/// Only `shard`'s seeds, for the reason [`arm_lines`] gives, and the same
+/// `shard::merge` reassembles the shards: an arm that hashed every seed but merged them in
+/// stride order would compare equal to itself and to nothing else.
+fn threads_lines(
+    seeds: u32,
+    shard: shard::Shard,
+    setting: &Setting,
+    workers: u32,
+) -> Result<Vec<String>, String> {
     let mut blocks = vec![String::new(); stages().len()];
-    for seed in 0..seeds {
+    for seed in shard.seeds(seeds) {
         let bytes = stage_bytes_threaded(seed, setting, workers)
             .map_err(|err| format!("seed {seed}: {err}"))?;
         for (block, (id, bytes)) in blocks.iter_mut().zip(bytes) {
@@ -223,9 +243,14 @@ fn threads_lines(seeds: u32, setting: &Setting, workers: u32) -> Result<Vec<Stri
 fn collect_arms(seeds: u32, tiers: Tiers) -> Result<Vec<Arm>, String> {
     let exe = std::env::current_exe().map_err(|e| format!("locating graph-cli: {e}"))?;
     let wasm = build_wasm(&[])?;
-    let count = seeds.to_string();
-    let native = || run_lines(Command::new(&exe).args(["hashgate-arm", "--seeds", &count]));
-    let wasm32 = || run_lines(node_harness(&wasm)?.args(["hash", &count]).args(stages()));
+    let native = || sharded_child(seeds, |shard| {
+        let count = seeds.to_string();
+        run_lines(Command::new(&exe).args(["hashgate-arm", "--seeds", &count, "--shard", &shard.to_string()]))
+    });
+    let wasm32 = || sharded_child(seeds, |shard| {
+        let count = seeds.to_string();
+        run_lines(node_harness(&wasm)?.args(["hash", &count, "--shard", &shard.to_string()]).args(stages()))
+    });
     let mut arms = vec![
         ("native run 1", native()?),
         ("native run 2", native()?),
@@ -240,6 +265,21 @@ fn collect_arms(seeds: u32, tiers: Tiers) -> Result<Vec<Arm>, String> {
         file_sha256(&wasm)?
     );
     Ok(arms)
+}
+
+/// One arm, as `shard::per_arm()` concurrent children, merged back into one arm's lines.
+///
+/// Each child goes through the existing `run_lines`, so each keeps its own `CHILD_TIMEOUT`:
+/// the budget bounds **one shard of one arm**, and a shard that hangs is reported as the
+/// shard it was rather than as the whole arm. The four arms themselves stay sequential —
+/// only an arm's seeds are split — so a slow host slows the run rather than multiplying
+/// it, and the merged arm is the same list of lines an unsharded one printed.
+fn sharded_child<F>(seeds: u32, child: F) -> Result<Vec<String>, String>
+where
+    F: Fn(shard::Shard) -> Result<Vec<String>, String> + Sync,
+{
+    let shards = shard::gathered(shard::concurrent(shard::per_arm(), child))?;
+    shard::merge(seeds, &stages(), &shards)
 }
 
 #[cfg(test)]
