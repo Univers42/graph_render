@@ -41,6 +41,8 @@ mod class2_tests;
 #[cfg(test)]
 mod mincross_tests;
 #[cfg(test)]
+mod oracle_crossings;
+#[cfg(test)]
 mod oracle_probe;
 #[cfg(test)]
 mod order_tests;

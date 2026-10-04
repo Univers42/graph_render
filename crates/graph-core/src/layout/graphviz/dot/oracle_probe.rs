@@ -17,6 +17,7 @@
 
 use super::fast::Fast;
 use super::mincross::{self, crossings};
+use super::oracle_crossings::edge_crossings as crossings_of;
 use super::rank::rank;
 use super::{add_edges, empty_graph};
 
@@ -203,12 +204,12 @@ fn acyclic_edges(count: u32, edges: &[(u32, u32)]) -> Vec<(u32, u32, i64)> {
 /// drawing has the same number of edge crossings — and the second is the one that says
 /// whether a disagreement is a different arrangement of the same drawing or a worse drawing.
 ///
-/// The crossing count is [`edge_crossings`], not the pass's own count, and that is a
-/// decision: the pass counts over the chains and the chain dummies, `-Tplain` prints no
-/// dummies and no count at all, so the pass's count has no counterpart on the oracle's side
-/// to be compared with. `edge_crossings` reads nothing but a rank and a row, so one
-/// implementation computes both sides and the two cannot differ for any reason other than
-/// the orders themselves.
+/// The crossing count is [`oracle_crossings::edge_crossings`], not the pass's own count, and
+/// that is a decision: the pass counts over the chains and the chain dummies, `-Tplain`
+/// prints no dummies and no count at all, so the pass's count has no counterpart on the
+/// oracle's side to be compared with. `edge_crossings` reads nothing but a rank and a row, so
+/// one implementation computes both sides and the two cannot differ for any reason other
+/// than the orders themselves.
 #[test]
 #[ignore = "needs target/probe/dot1000.txt, written by the oracle probe"]
 fn order_agreement_over_1000_seeds() {
@@ -216,6 +217,7 @@ fn order_agreement_over_1000_seeds() {
     let mut same_ranks = 0usize;
     let mut same_order = 0usize;
     let mut same_crossings = 0usize;
+    let mut ties = 0usize;
     for row in &rows {
         let count = u32::try_from(row.ranks.len()).expect("a node count fits u32");
         let g = ranked_and_ordered(count, &row.edges);
@@ -225,17 +227,25 @@ fn order_agreement_over_1000_seeds() {
         same_ranks += 1;
         let ours = crossings::real_rows(&g);
         let theirs = row.rows();
+        let ours_cross = crossings_of(&ours, &row.edges);
+        let theirs_cross = crossings_of(&theirs, &row.edges);
         if ours == theirs {
             same_order += 1;
         }
-        if edge_crossings(&ours, &row.edges) == edge_crossings(&theirs, &row.edges) {
+        if ours_cross == theirs_cross {
             same_crossings += 1;
+        } else if ours != theirs {
+            ties += 0;
+        }
+        if ours != theirs && ours_cross == theirs_cross {
+            ties += 1;
         }
     }
     eprintln!(
         "of {same_ranks} rank-agreeing seeds, {same_order} agree on every rank's order and \
-         {same_crossings} on the crossing count, out of {}",
-        rows.len()
+         {same_crossings} on the crossing count; {ties} of the {same_order} \
+         disagreements keep the crossing count",
+        same_order = same_ranks - same_order
     );
     assert_eq!(same_ranks, RECORDED_RANK_AGREEMENT, "seeds whose ranks agree");
     assert_eq!(same_order, RECORDED_ORDER_AGREEMENT, "seeds whose order agrees");
@@ -251,151 +261,3 @@ fn order_agreement_over_1000_seeds() {
 const RECORDED_RANK_AGREEMENT: usize = 0;
 const RECORDED_ORDER_AGREEMENT: usize = 0;
 const RECORDED_CROSSING_AGREEMENT: usize = 0;
-
-/// One input edge as the straight segment its two endpoints describe.
-struct Segment {
-    /// The lower of the two ranks.
-    low: usize,
-    /// The tail's place on [`Segment::low`].
-    from: i64,
-    /// The higher of the two ranks.
-    high: usize,
-    /// The head's place on [`Segment::high`].
-    to: i64,
-}
-
-/// Where every node of a drawing sits: its rank and its place on it, read once so the pair
-/// loop below is a comparison rather than two searches.
-struct Layout {
-    rank: Vec<i32>,
-    place: Vec<i64>,
-}
-
-impl Layout {
-    fn of(rows: &[Vec<u32>]) -> Self {
-        let highest = rows.len();
-        let mut rank = vec![-1; highest * 4];
-        let mut place = vec![0; highest * 4];
-        for (r, row) in rows.iter().enumerate() {
-            for (i, &node) in row.iter().enumerate() {
-                if let Some(slot) = node_index(node, rank.len()) {
-                    rank[slot] = r as i32;
-                    place[slot] = i as i64;
-                }
-            }
-        }
-        Self { rank, place }
-    }
-
-    fn rank_of(&self, node: u32) -> Option<i32> {
-        let slot = node_index(node, self.rank.len())?;
-        (self.rank[slot] >= 0).then_some(self.rank[slot])
-    }
-
-    fn place_of(&self, node: u32) -> i64 {
-        node_index(node, self.place.len()).map_or(0, |slot| self.place[slot])
-    }
-}
-
-/// A node's slot in a per-node array, or `None` when the array is too small for it — which
-/// only happens if a row holds a node the arrays were not sized for.
-fn node_index(node: u32, len: usize) -> Option<usize> {
-    (usize::try_from(node).expect("a node index fits usize") < len).then_some(node as usize)
-}
-
-/// The number of pairs of input edges that cross in a drawing, from nothing but its rows.
-///
-/// **What is drawn.** Each input edge is the straight segment between its two endpoints,
-/// with a rank as the vertical coordinate and a node's place in its row as the horizontal
-/// one. Two edges that share an endpoint do not count — they touch, and the reference's own
-/// count does not charge one node's edges against each other either — and two edges whose
-/// bands meet only at a single rank do not count, because they share no band.
-///
-/// **How the crossing is decided.** Over the band the two segments share, the left-to-right
-/// order is read at the bottom of the band and at the top; if it is not the same way round,
-/// they crossed. A segment's horizontal position at a rank is its endpoints' positions
-/// interpolated, which is a ratio of integers, and two ratios are compared by
-/// cross-multiplying — so the whole count is integer arithmetic and reads the same on both
-/// targets (`prompt.md` §6 D3).
-///
-/// **Both sides see real nodes only.** A chain dummy is the pass's internal state and the
-/// plain format prints none of them, so a row carrying them would not be the same row on
-/// both sides and the interpolation would not be the same interpolation. Rows of real nodes
-/// are therefore what this takes, which is also what makes the count a property of the
-/// *drawing* and not of the chains inside it.
-fn edge_crossings(rows: &[Vec<u32>], edges: &[(u32, u32)]) -> i64 {
-    let layout = Layout::of(rows);
-    let mut cross = 0i64;
-    for (index, first) in edges.iter().enumerate() {
-        for second in &edges[index + 1..] {
-            cross += i64::from(crosses(&layout, *first, *second));
-        }
-    }
-    cross
-}
-
-/// Whether these two edges cross, as [`edge_crossings`] counts it.
-fn crosses(layout: &Layout, first: (u32, u32), second: (u32, u32)) -> bool {
-    let shared = [first.0, first.1].iter().any(|n| [second.0, second.1].contains(n));
-    if shared {
-        return false;
-    }
-    let (Some(a), Some(b)) = (segment(layout, first), segment(layout, second)) else {
-        return false;
-    };
-    let (bottom, top) = (a.low.max(b.low), a.high.min(b.high));
-    (bottom < top) && (left_of(&a, &b, bottom) != left_of(&a, &b, top))
-}
-
-/// An edge as the segment its endpoints describe, lower rank first, or `None` when an
-/// endpoint is on no row at all.
-fn segment(layout: &Layout, edge: (u32, u32)) -> Option<Segment> {
-    let first = (layout.rank_of(edge.0)?, layout.place_of(edge.0));
-    let second = (layout.rank_of(edge.1)?, layout.place_of(edge.1));
-    let (low, high) = if first.0 <= second.0 { (first, second) } else { (second, first) };
-    Some(Segment { low: low.0 as usize, from: low.1, high: high.0 as usize, to: high.1 })
-}
-
-/// Whether segment `a` is left of segment `b` at rank `y`.
-fn left_of(a: &Segment, b: &Segment, y: usize) -> bool {
-    let (an, ad) = interpolated(a, y);
-    let (bn, bd) = interpolated(b, y);
-    an * bd < bn * ad
-}
-
-/// A segment's horizontal position at rank `y`, as a numerator over the segment's span.
-fn interpolated(segment: &Segment, y: usize) -> (i64, i64) {
-    let span = (segment.high - segment.low) as i64;
-    let walked = y as i64 - segment.low as i64;
-    (segment.from * span + (segment.to - segment.from) * walked, span)
-}
-
-#[test]
-#[ignore = "debug"]
-fn debug_first_disagreements() {
-    let rows = oracle_digest();
-    let mut shown = 0;
-    for row in rows.iter().take(200) {
-        let count = u32::try_from(row.ranks.len()).expect("u32");
-        let g = ranked_and_ordered(count, &row.edges);
-        if crossings::real_ranks(&g) != row.ranks {
-            continue;
-        }
-        let ours = crossings::real_rows(&g);
-        if ours == row.rows() {
-            continue;
-        }
-        shown += 1;
-        if shown > 6 {
-            break;
-        }
-        eprintln!("seed {} n={} edges={:?}", row.ranks.len(), row.ranks.len(), row.edges);
-        eprintln!("  ours   {ours:?}");
-        eprintln!("  theirs {:?}", row.rows());
-        eprintln!(
-            "  drawn crossings ours {} theirs {}",
-            edge_crossings(&ours, &row.edges),
-            edge_crossings(&row.rows(), &row.edges)
-        );
-    }
-}
