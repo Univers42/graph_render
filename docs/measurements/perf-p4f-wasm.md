@@ -12,10 +12,12 @@ so `extend − encode` is everything else that one call does; a CPU profile of t
 says what "everything else" is.
 
 **The finding: the JS encoder is the wasm32 premium.** On both engines `encodeBatch` is about
-four fifths of the timed `extend`, and the copy into linear memory plus the whole wasm32 motor
-together are the remaining fifth. P4e's A1 guessed the walk and `JSON.stringify`; the truth is
-that the *encoder* is the cost, on either format, and the wasm motor was never where the
-premium was.
+four fifths of the timed `extend` — 31.18 ms of 37.33 on Barnes-Hut, 29.52 of 37.14 on particle
+mesh — and the copy into linear memory plus the whole wasm32 motor together are the remaining
+6.15 and 7.62 ms. P4e's A1 guessed the walk and `JSON.stringify`; the truth is that the *encoder*
+is the cost, and the wasm motor was never where the premium was. Removing the encoder's wasted
+work took 40 % off it and **20 % off both wasm sums**, which is not the 25 ms the budget needed:
+**both wasm arms remain a miss**, and the next cost is named below.
 
 ## Method
 
