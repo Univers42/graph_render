@@ -1,10 +1,51 @@
 # Resume prompt — graph-motor, first written 2026-09-29 before a host shutdown
 
-This is an append-only handoff log. **The newest block is the HANDOFF 2026-10-01 at the top**;
-older blocks are kept as history and several of their claims are now false — the tree is the
-authority. `docs/reports/STATUS.md` and `prompts/CONTINUE.md`, both rewritten 2026-10-02, are the
-current rollups. The standing rules are still in `CLAUDE.md`, `prompt.md`,
+This is an append-only handoff log. **The newest block is the 2026-10-04 status refresh at the
+top**; older blocks are kept as history and several of their claims are now false — the tree is
+the authority. `docs/reports/STATUS.md` and `prompts/CONTINUE.md`, both rewritten 2026-10-04, are
+the current rollups. The standing rules are still in `CLAUDE.md`, `prompt.md`,
 `prompts/ONBOARDING.md`, `prompts/AGENT_BRIEF.md`.
+
+## 2026-10-04 — status refresh, on develop at fba1a288 (1429 commits)
+
+A docs-only job (`prompts/jobs/status-refresh.md`) re-derived every claim from the tree. Nothing
+below is from a brief; each line cites a commit, a `file:line` or a command.
+
+- **Develop moved 993 commits in two days.** The 2026-10-02 rollup was written against `701b46a`
+  (436 commits); develop is now `fba1a288` (1429). The ref moved *while this file was being
+  written* — `origin/ux-params-dock` landed and took the branch head with it — so re-read the ref
+  before quoting a sha (`docs/reports/STATUS.md:9-13`).
+- **`LAYOUTS` is 47, not 35** (`crates/graph-core/src/registry/layouts.rs:47`,
+  `[Capability; 47]`). The ledger is **82 rows**, **18 gated** (8 topology, 9 layout, 1 transport),
+  64 implemented. `layout.packing.osage` is the ninth gated layout, discharged by the
+  `negctl-osage-nodes` row at `scripts/orch/rows/develop-full.rows:183`.
+- **`dot` is half-landed**: the rank pass is ported
+  (`crates/graph-core/src/layout/graphviz/dot.rs:1-19`) with `class2` and `simplex` beside it, but
+  mincross and position are not assembled and there is still **no `layout.dag.dot` row**
+  (`p13-gv2-dot-mincross`, ab760496, is unmerged).
+- **The studio now has gate rows** — `studio-wasm` / `-check` / `-build` / `-smoke` and
+  `negctl-studio-smoke` at `develop-full.rows:221-225`. The full gate is 100 rows with 20 negative
+  controls. The 2026-10-02 claim "the gate runs no studio row" is false.
+- **Conformance is the scoreboard**: 32 SciGraphs rows, 11 `bitwise` / 14 `tolerance` / 7 `shape`,
+  10 of 32 `f32`-identical on all 1020 coordinates
+  (`docs/measurements/scigraphs-conformance.md:200-252`). No row is `f64`-exact and none can be —
+  the motor is `f32` end to end (`:119-124`).
+- **13 branches unmerged.** The one that matters: **`svc-image`** (3bf7223, **73 commits**,
+  96 files) is the entire `server/graph-server` workspace, and develop has no server at all.
+- **The queue is idle**: 135 labels, every one `done`, no `live` and no `pending`. `rc=2` (58 of
+  them) means the agent did not write `status: done`, not that the work is missing.
+- **New decisions on develop** (all 2026-10-03/04): `browser-threads`, `delta-abi`,
+  `force-session-warm-seed`, `gpu-force-tier`, `ingest-columns`, `layout-params`, `memory-guard`,
+  `node-overlap`, `obsidian-force`, `bh-jiggle-key`, `note-code-7-deferred`, `wasm-ingest-limits`,
+  `sfdp-gather-form`, `render-readable-spacing` — the list is in `STATUS.md` §8, do not re-ask.
+- **Still open**: `perf-fps` has never passed (`studio-s7.md:13,31`), `studio-switch-fit`,
+  `layout.circular.circo` (16 of 1000 seeds), `layout.force.yifan_hu` and `.2z` (no oracle at all),
+  `simd_nodes` inert (`tier-thresholds.md:15,116`), no `negctl-node-z` in `develop-full.rows`.
+
+The next session's first page is `prompts/CONTINUE.md` §4. The first task is unchanged in kind and
+larger in scope: **run the full gate on develop and repair its red rows.** The 10^5/10^6 bench
+arms and `hashgate-1000` (3052 s) time out on this host class, so run them under
+`scripts/orch/timed`, last.
 
 ## 2026-10-03 — the memory guard (host freezes), on develop at 19d2ae9b
 
