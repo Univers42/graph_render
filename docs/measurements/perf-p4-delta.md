@@ -121,12 +121,12 @@ graph-core change, both outside this slice's paths. So the split is not claimed.
 
 What the data does say, from the per-batch rows above and the emit table:
 
-- **`extend` does not scale with the batch's own bytes.** Batch 1 is 4 714 034 bytes and batch
-  10 is 5 097 861 — **+8.1 %** — while `extend` over batches 2 to 10 sits in 39.7–48.9 ms
-  natively (all four engine/parse combinations) with no upward trend, and 63.0–82.9 ms in
-  wasm32. Whatever a per-byte parse costs, it is the flat floor of `extend`, not a growing
-  part of it: what grows with the batch number is work at the size of the accumulated
-  topology, not work on the batch.
+- **`extend` is flat across batches, and that does not separate its two candidates.** Batch 1
+  is 4 714 034 bytes and batch 10 is 5 097 861 (**+8.1 %**), while the topology grows from
+  900 000 to 1 000 000 nodes (**+11 %**). `extend` over batches 2 to 10 sits in 39.7–48.9 ms
+  natively (all four engine/parse combinations) and 63.0–82.9 ms in wasm32, with no trend
+  either way. A per-byte parse and a pass over the accumulated topology would both move by
+  less than that spread, so this data cannot tell them apart.
 - **A full re-index prices the index side separately**: the reference arm builds the whole
   1 000 000-node / 1 549 929-edge model from records in **733.83 ms** (median of 3:
   740.60, 717.78, 733.83) and carries onto it in **255.00 ms** (255.10, 255.00, 254.51). So
