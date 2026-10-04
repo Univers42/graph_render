@@ -76,7 +76,7 @@ impl Discs<'_> {
 pub fn separation(a: Disc, b: Disc, run: Run) -> (f32, f32) {
     let (dx, dy) = (a.x - b.x, a.y - b.y);
     let need = a.r + b.r + 2.0 * run.margin;
-    let d = libm::sqrtf(dx * dx + dy * dy);
+    let d = f32::sqrt(dx * dx + dy * dy);
     if d >= need {
         return (0.0, 0.0);
     }
@@ -92,7 +92,7 @@ pub fn separation(a: Disc, b: Disc, run: Run) -> (f32, f32) {
 pub fn overlapping(a: Disc, b: Disc, run: Run) -> bool {
     let (dx, dy) = (a.x - b.x, a.y - b.y);
     let need = a.r + b.r + 2.0 * run.margin - super::TOLERANCE;
-    libm::sqrtf(dx * dx + dy * dy) < need
+    f32::sqrt(dx * dx + dy * dy) < need
 }
 
 /// The cell side, `2 · (largest + margin)`, and never zero: an all-zero layout has no discs

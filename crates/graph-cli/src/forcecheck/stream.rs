@@ -179,6 +179,11 @@ fn fixture_lines(setting: &Setting, name: &str, route: Route) -> Result<String, 
 /// own batch preparation is not what it is judging. The re-encode is `graph_wasm`'s one writer,
 /// the same `tick --path columns` encodes through, and the one the SDK's `encodeBatch` is to be
 /// written against (`docs/decisions/extend-columns.md`, item 5).
+///
+/// Caveat: what is compared is the digest of the graph each append left, never the bytes the
+/// two were handed, so a matching digest proves the two appends agreed and not that the columns
+/// arm read the line the JSON arm read — the batch writer interns an endpoint name on demand,
+/// which the document's writer cannot, and that difference is invisible here.
 fn append(topology: &mut Topology, doc: &[u8], route: Route) -> Result<(), String> {
     let named = |code: Code| code.name().to_owned();
     match route {

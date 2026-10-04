@@ -61,7 +61,7 @@ fn prolong3d(
     link_distance: f64,
 ) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
     let radius = 0.25 * link_distance;
-    let golden = core::f64::consts::PI * (3.0 - libm::sqrt(5.0));
+    let golden = core::f64::consts::PI * (3.0 - f64::sqrt(5.0));
     let mut out = (Vec::new(), Vec::new(), Vec::new());
     for (i, &p) in map.iter().enumerate() {
         let (ux, uy, uz) = sphere_offset(i, map.len(), radius, golden);
@@ -77,7 +77,7 @@ fn prolong3d(
 /// own `n`.
 fn sphere_offset(i: usize, n: usize, radius: f64, golden: f64) -> (f64, f64, f64) {
     let y = 1.0 - 2.0 * (i as f64 + 0.5) / n as f64;
-    let r = libm::sqrt((1.0 - y * y).max(0.0));
+    let r = f64::sqrt((1.0 - y * y).max(0.0));
     let angle = golden * i as f64;
     (
         radius * r * libm::cos(angle),

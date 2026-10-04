@@ -80,7 +80,7 @@ fn a_new_node_starts_beside_its_carried_neighbours_and_nowhere_else() {
         };
         let at = row as usize;
         let (dx, dy) = (carried.xs()[at] - mean.0, carried.ys()[at] - mean.1);
-        let chord = libm::sqrt(dx * dx + dy * dy);
+        let chord = f64::sqrt(dx * dx + dy * dy);
         assert!(
             chord <= OFFSET_RADIUS + 1e-9,
             "row {row} is {chord} from its neighbours' mean, not within {OFFSET_RADIUS}"

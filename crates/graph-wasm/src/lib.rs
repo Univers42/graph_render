@@ -169,13 +169,18 @@ pub mod post;
 pub mod seed_ingest;
 pub mod service;
 /// The provisional ingest JSON **reader** `service::extend` reads, under the name a native
-/// caller reaches it by. The force-gate's columns arm and `tick --path columns` need the
-/// records to re-encode as a batch, and the point of both is that the line is read by the
-/// same reader the JSON path uses — so it is this one and not a second parse.
+/// caller reaches it by. Native callers: `graph-cli`'s `forcecheck` columns arm
+/// (`forcecheck/stream.rs`) and `bench tick --path columns` (`bench/tick/stream/arm.rs`), which
+/// need the records to re-encode as a batch, and the point of both is that the line is read by
+/// the same reader the JSON path uses — so it is this one and not a second parse.
 pub use ingest::read_records as ingest_records;
 /// The `GMX1` batch document for `nodes` and `edges` — what `gm_graph_extend_columns`
 /// appends, written by the same argument as [`ingest_document`] is written by: the bytes a
 /// measurement times and the bytes the ABI parses have to be one writer's.
+///
+/// Native callers: `graph-cli`'s `forcecheck` columns arm (`forcecheck/stream.rs`) and
+/// `bench tick --path columns` (`bench/tick/stream/arm.rs`), the two routes that re-encode a
+/// stream line into the batch the export is handed.
 ///
 /// An edge endpoint names a node id, so a batch may point at a node the graph already holds;
 /// this writer interns such a name on demand, which is the one thing a whole document's

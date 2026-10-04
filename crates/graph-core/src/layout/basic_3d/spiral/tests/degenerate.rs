@@ -61,7 +61,7 @@ fn every_node_is_inside_the_cone_the_reference_draws() {
     for n in [1u32, 2, 7, 77, 256] {
         let (x, y, z) = super::super::columns(n);
         for i in 0..n as usize {
-            let r = libm::sqrt(x[i] * x[i] + y[i] * y[i]);
+            let r = f64::sqrt(x[i] * x[i] + y[i] * y[i]);
             assert!(r <= 5.0 + 1e-12, "n={n} node {i}: radius {r}");
             assert!(
                 z[i] >= -5.0 - 1e-12 && z[i] <= 5.0 + 1e-12,

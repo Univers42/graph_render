@@ -6,7 +6,7 @@
 //! two endpoint senses.
 
 use super::*;
-use graph_contract::ingest_columns::{Format, NodeRow, decode, decode_batch};
+use graph_contract::ingest_columns::{ColumnsDoc, Format, NodeRow, decode, decode_batch};
 use graph_core::{EdgeKind, NodeKind};
 
 /// Two nodes and the three edges a batch may carry: between its own rows, a loop, and one
@@ -46,13 +46,8 @@ fn batch() -> (Vec<NodeRecord>, Vec<EdgeRecord>) {
     )
 }
 
-#[test]
-fn a_batch_round_trips_to_the_records_it_was_written_from() {
-    let (nodes, edges) = batch();
-    let bytes = columns_batch(&nodes, &edges);
-    let doc = decode_batch(&bytes).expect("this writer writes a batch");
-    assert_eq!(doc.format(), Format::Batch);
-    assert_eq!((doc.node_count(), doc.edge_count()), (2, 3));
+/// Every node row the writer wrote is the record it was written from, field for field.
+fn assert_nodes_round_trip(doc: &ColumnsDoc<'_>, nodes: &[NodeRecord]) {
     for (row, node) in nodes.iter().enumerate() {
         assert_eq!(
             doc.node(row as u32),
@@ -71,6 +66,11 @@ fn a_batch_round_trips_to_the_records_it_was_written_from() {
             "node row {row}"
         );
     }
+}
+
+/// Every edge row likewise, and both endpoints by the text behind their entry: an endpoint cell
+/// is an entry, not a row, so only the table says which node it names.
+fn assert_edges_round_trip(doc: &ColumnsDoc<'_>, edges: &[EdgeRecord]) {
     for (row, edge) in edges.iter().enumerate() {
         let read = doc.edge(row as u32).expect("edge row");
         assert_eq!(read.id, edge.id, "edge row {row}");
@@ -84,10 +84,20 @@ fn a_batch_round_trips_to_the_records_it_was_written_from() {
             edge.strength.to_bits(),
             "edge row {row}"
         );
-        // The endpoints are entries, so what they mean is the text behind them.
         assert_eq!(doc.text(read.source_row), Some(edge.source.as_str()));
         assert_eq!(doc.text(read.target_row), Some(edge.target.as_str()));
     }
+}
+
+#[test]
+fn a_batch_round_trips_to_the_records_it_was_written_from() {
+    let (nodes, edges) = batch();
+    let bytes = columns_batch(&nodes, &edges);
+    let doc = decode_batch(&bytes).expect("this writer writes a batch");
+    assert_eq!(doc.format(), Format::Batch);
+    assert_eq!((doc.node_count(), doc.edge_count()), (2, 3));
+    assert_nodes_round_trip(&doc, &nodes);
+    assert_edges_round_trip(&doc, &edges);
 }
 
 #[test]

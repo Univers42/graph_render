@@ -47,7 +47,7 @@ fn a_neighbouring_seed_moves_every_start_coordinate() {
 #[test]
 fn the_unseeded_start_is_still_the_golden_angle_spiral() {
     let got = start_positions(2, None);
-    assert_eq!(got[0].0.to_bits(), libm::sqrt(0.5).to_bits());
+    assert_eq!(got[0].0.to_bits(), f64::sqrt(0.5).to_bits());
     assert_eq!(got[0].1.to_bits(), 0.0_f64.to_bits());
     assert_eq!(got[1].0.to_bits(), libm::cos(GOLDEN_ANGLE).to_bits());
     assert_eq!(got[1].1.to_bits(), libm::sin(GOLDEN_ANGLE).to_bits());
@@ -208,7 +208,7 @@ fn a_self_loop_counts_twice_in_the_starting_radii_as_it_does_in_networkx() {
     let degrees = [0.0, 1.0, 1.0, 2.0]; // networkx `G.degree`: the loop at 3 counts twice
     let raw: Vec<f64> = degrees.iter().map(|&d| 0.3 + 0.7 * (d / 2.0)).collect();
     let sum_sq: f64 = raw.iter().map(|r| r * r).sum();
-    let factor = libm::sqrt(0.35 * 2.25 * 2.25 / sum_sq);
+    let factor = f64::sqrt(0.35 * 2.25 * 2.25 / sum_sq);
     for (got, want) in radii.iter().zip(&raw) {
         assert_eq!(
             got.to_bits(),
