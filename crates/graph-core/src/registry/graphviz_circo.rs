@@ -37,9 +37,11 @@ cost is not the O(n + m) headline either — the crossing reduction is O(k^3) in
 block's size k, and the measured per-node cost climbs about 5x per doubling past 256 nodes \
 (149 ms at 256, 894 ms at 512, 5 557 ms at 1 024, 33 982 ms at 2 000), so a graph whose blocks \
 are large rather than numerous costs far more per node than a graph of the same size with many \
-small blocks. Past the ceiling there is no truncation and no fallback: the one escape from the \
-cubic is Graphviz's own -Goneblock, which skips the crossing reduction and returns a worse \
-drawing, and this port exposes no such knob";
+small blocks. That cubic is paid, not skipped: the reduction fires on a block whenever the \
+reference's own crossing count is non-zero at the long path's order, which is most blocks of \
+four nodes or more (docs/measurements/p13-gv1-circo.md §8). Past the ceiling there is no \
+truncation and no fallback: the one escape from the cubic is Graphviz's own -Goneblock, which \
+skips the crossing reduction and returns a worse drawing, and this port exposes no such knob";
 
 pub(super) const CIRCO: Metadata = Metadata {
     tier: 1,
@@ -59,10 +61,12 @@ ORDER, not a radius: the block decomposition, the radius N*(min_dist+largest_nod
 a 4-cycle, a 5-cycle, a 6-cycle, a chorded 5-cycle, K4, K5, a 5-star and two glued blocks) all \
 agree, the last group byte for byte at the plain format's own printed precision — ours node by \
 node in crates/graph-core/src/layout/graphviz/circo/tests.rs, Graphviz's in the harness — \
-because a tolerance is weaker than the truth those cases carry. What differs is which node \
-takes which slot on a block's circle, because remove_pair_edges orders its degree list with \
-LIST_SORT (qsort, which glibc 2.41 does not make stable) and this port sorts stably; see the \
-Ponytail (tie order in the skeleton) marker below and docs/measurements/p13-gv1-circo.md",
+because a tolerance is weaker than the truth those cases carry. What differed was which node \
+takes which slot on a block's circle, and the cause was the crossing count reduce_edge_crossings \
+feeds on: the reference's open-edge set never loses an entry (its remove_edge looks up the other \
+Agedge_t of an undirected edge than the one it opened with), so it counts edges the port's \
+counter had already retired and moves the circle order where the port's did not; see the \
+Ponytail (tie order in the skeleton) marker below and docs/measurements/p13-gv1-circo.md §8",
     complexity: "O(n + m) to find the blocks and O(k^3) to order each one, where k is the \
 largest block's node count: per block a lowlink pass, then the skeleton pass (at most k - 3 \
 rounds over the node's own edges), a spanning tree, the longest-path walk, a residual pass, and \

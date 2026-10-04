@@ -245,6 +245,8 @@ carries a repeat) rather than tidying it away, because tidying it would change t
 
 ## 5. The named cause: `qsort`'s tie order in the skeleton
 
+Superseded by §8: glibc 2.41's `qsort` is stable.
+
 The gap is a **circle order**, not a radius, and the port's own instrumentation shows it:
 
 - On seed 8 (`n = 10`) the two arms agree on the block `{0,1,5,8,9}` and on its radius, and the
@@ -433,3 +435,137 @@ loss, parity wins.
 - **The aggregate numbers do not say parity is free downstream.** With the repeat, the crossing
   walk closes the repeated node's edges a second time and counts them again, as Graphviz's does;
   the measured effect is the two seeds above, in the other direction.
+
+## 8. The real cause (2026-10-04)
+
+§5 named `glibc 2.41`'s `qsort` and was wrong twice over: the tie order it blamed is not a tie
+order, and the cause is not a sort at all.
+
+### 8.1 The falsification
+
+Measured in the pinned oracle image, libc `qsort` called through `ctypes` with `cmp` returning 0
+on ties and keys descending from four values, 20 trials at each size:
+
+```
+scripts/orch/drun --rm --pull never --user 0:0 -v "$GM_SCRATCH/circo-trace:/s" ge-graphviz-oracle python3 /s/qsort_stable.py
+glibc 2.41
+n=5 stable 20/20  ... n=552 stable 20/20 ... n=100000 stable 20/20
+```
+
+Every trial kept equal keys in input order. So `LIST_SORT(&dl, cmpDegree)` (`blockpath.c:96`) and
+this port's `sort_by_degree` (`circo/skeleton.rs`) agree on every tie, and the 984-of-1000 figure
+in §3 and §5 has no cause behind it. Two further readings close the remaining room:
+
+- `gv_list_sort_` calls `qsort` on a list it has already rotated flat (`gv_list_sync_`,
+  `lib/util/list.c:322-352`), so the order `qsort` sees is the *logical* order and not a
+  ring-buffer artefact — there is nothing address-dependent to inherit.
+- `LIST_REMOVE` (`lib/util/list.h:222-235`) drops the **first** occurrence, and the working list
+  never holds a node twice: it is built by `getList` from `agfstnode` and every append is one of a
+  node's distinct neighbours in a strict graph.
+
+### 8.2 Seed 8, narrowed by hand and then by measurement
+
+Seed 8 (`n = 10`) has one five-node block `{0,1,5,8,9}` — the triangle `0-1-8` and the four-cycle
+`0-1-9-5` share the **edge** `0-1`, which is what makes them one biconnected component. Reading
+the reference's own rules over the DOT file `harness/gv_plain.py` writes for that seed, and
+confirming each step against this port, the skeleton is **not** where the two arms part:
+
+| step | what it gives | the port agrees |
+|---|---|---|
+| block-local degrees | `[3, 3, 2, 2, 2]` for `n0 n1 n5 n8 n9` | yes |
+| pass 1 | `n9` is at the back; `n1 -- n5` is linked, `n9`'s degree put back up | yes |
+| pass 2 | `n5` is at the back; `n1 -- n0` is the pair edge and is deleted from `outg` | yes |
+| `outg` | the five-cycle `0-5-9-1-8-0`, both arms' rows identical | yes |
+| spanning tree | parents `n5<-n0`, `n9<-n5`, `n1<-n9`, `n8<-n1`, `n0` the root | yes |
+| `find_longest_path` | `DISTONE` = `[4, 1, 3, 0, 2]`, branch `n0`, path `[n8, n1, n9, n5, n0]` | yes |
+
+The first divergent step is therefore **`reduce_edge_crossings`**, and it confirms neither H1 (node
+order) nor H2 (edge row order): the reference's `agfstnode` order is ascending `AGSEQ`, which the
+harness's dense `n0..n{n-1}` DOT makes equal to the dense index, and both arms' `agfstedge` rows
+are the out-half then the in-half each ascending by the other endpoint (`lib/cgraph/edge.c:388`).
+What differs is the **crossing count** that step feeds on.
+
+### 8.3 What the reference's crossing count actually is
+
+`count_all_crossings` (`blockpath.c:386-431`) walks the order and, at every edge it closes, counts
+the open edges stamped later (`EDgelist.c:59-70`). It is meant to retire the closed edge from the
+open set — and **it never does**:
+
+- `remove_edge` (`lib/circogen/edgelist.c:64-70`) hands `dtdelete` the `Agedge_t *` the walk is
+  holding, and `cmpItem` (`edgelist.c:25-34`) keys the set on that pointer.
+- An undirected edge is **two** `Agedge_t`: the out image its tail's row yields and the in image
+  its head's row yields (`lib/cgraph/edge.c:210-215`).
+- An edge is *opened* at whichever endpoint comes first in the order and *closed* at the other, so
+  the pointer handed to `dtdelete` is never the pointer that was inserted. The lookup misses; the
+  entry stays for the rest of the walk.
+- Both images share one attribute record, so `EDGEORDER` is the same number on each and the edges
+  still close on time. Only the removal is lost.
+
+So the set is append-only, and a position counts **every** edge opened after the closing one, not
+only those still open. That is strictly more than the interleaving count: on seed 8's block order
+`[n8, n1, n9, n5, n0]` it is **3** where the interleaving count is **0** — no two chords there
+interleave at all, and the reference still moves the circle order because of it.
+
+Measured, not derived: an instrumented Graphviz 16.1.0 built from
+`$GM_SCRATCH/refs/graphviz-16.1.0/graphviz-16.1.0.tar.gz` (autotools; `dot_static -Kcirco`, the
+tarball's layout plugins built in) under `$GM_SCRATCH/circo-trace/`, with `fprintf` traces added to
+`lib/circogen/blockpath.c`. **Nothing of that build is in the repository.** Its own words for seed 8:
+
+```
+TRACE before reduce [n3 n1 n4 n2 n0 ]
+TRACE count input [n3 n1 n4 n2 n0 ]
+TRACE     open n3->n0 ord=1 ... TRACE     open n2->n0 ord=4
+TRACE crossings=3
+TRACE reduce entry [n3 n1 n4 n2 n0 ]
+TRACE count input [n3 n0 n1 n4 n2 ]   TRACE crossings=2
+...
+TRACE reduce exit [n3 n0 n1 n4 n2 ]
+TRACE final order: n3 n0 n1 n4 n2
+```
+
+Three crossings, the reduction moves `n0` in front of `n1` (`insertNodelist(&list, n0, n1, 1)` —
+the second of the two slots, the first try having been refused), stops at two because nothing
+lowers it, and the order is `[n0, n1, n9, n5, n8]` — which is exactly what Graphviz's `-Tplain`
+angles say, `n0` at 0 degrees and the rest 72 apart. §5's `[0, 1, 9, 5, 8]` against our
+`[1, 9, 5, 0, 8]` is this, and nothing else.
+
+The same trace rules out the two named hypotheses on the way: it prints `getList nodes agfstnode
+order: n0 n1 n2 n3 n4`, the identity, and `outg rows` identical to the port's
+`kept_row`, on the very block §5 used as its example.
+
+### 8.4 The fix
+
+`circo/crossings.rs`. The Fenwick sweep no longer retires an edge when it closes: `live` only
+grows, and `suffix` is the count of everything opened in `(open(e), here)`. The reference's node
+test — skip an open edge that touches the node being walked — used to come for free from the
+retirement, so it is now applied explicitly, as `opened_here` less the row's own stamps in that
+interval, two binary searches over the row's sorted stamps. The `#[cfg(test)]` oracle
+`count_all_crossings` loses its `open.retain(..)` for the same reason, so the two still agree.
+
+Integer and index arithmetic only, no `HashMap`, no new dependency, and the sweep is still
+`O((n + m) log n)` per count. What moved, and why each number moved, is in
+`circo/tests/crossings.rs`: `K4` in its own order goes 1 → 2, `K2,2` 0 → 1 and 1 → 2, the
+five-node block of seed 8 0 → 3. The triangle, the two parallel chords and the carried-twice case
+are unchanged, and the 2 000-random-block agreement test is unchanged.
+
+### 8.5 Before and after
+
+Strided 50-seed subset, `--shards 20 --shard 0`, before and after the fix, both arms' points
+rescaled onto Graphviz's own node-centre bounding box with one uniform `max` scale (`harness/
+gv_closed.py`'s `gap`):
+
+```
+scripts/orch/gr cargo run -q -p graph-cli -- emit-graphviz-fixtures --engine circo --seeds 1000
+scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle \
+  python3 harness/oracle-graphviz.py target/circo-fixtures circo target/gv-circo-sub \
+    --differential --shards 20 --shard 0
+```
+
+| | cases agreeing to within 1 point | worst gap | worst seed |
+|---|---|---|---|
+| before | **2 of 50** | **4.256e+04** points | 520 (`n = 522`) |
+| after | see §8.6 | see §8.6 | |
+
+### 8.6 The full sweep
+
+§8.7 carries the four rows' output.
