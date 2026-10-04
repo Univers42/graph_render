@@ -13,6 +13,11 @@ export interface Assets {
   readonly fixturesUrl: string;
   /** Threads that tick a live settle, the motor worker's own included (`threads.ts`); its default when left out. */
   readonly threads?: number;
+  /**
+   * The gate's negative control (`?break-deltas=1`): the worker drops the `grow` that follows
+   * an extend, so a batch is applied and nothing moves. Never set by a page that did not ask.
+   */
+  readonly breakDeltas?: boolean;
 }
 
 export interface Catalog {
@@ -55,11 +60,51 @@ export interface AnalysisReport {
   readonly ms: number;
 }
 
+/**
+ * One node of a delta batch: the same shape `gm_build` reads, which the studio's own ingest
+ * reader also fills (`source/ingest.ts`). Named here in the wire's own field names, so the
+ * batch a host hands over is the batch the motor stages without a translation.
+ */
+export interface DeltaNode {
+  readonly id: string;
+  readonly kind: string;
+  readonly database_id: string | null;
+  readonly source: string;
+  readonly label: string;
+  readonly group: string | null;
+  readonly weight: number;
+  readonly version: number;
+  readonly has_note: boolean;
+  readonly icon: string | null;
+}
+
+/** One edge of a delta batch; an endpoint may name a node of the same batch. */
+export interface DeltaEdge {
+  readonly id: string;
+  readonly source: string;
+  readonly target: string;
+  readonly kind: string;
+  readonly label: string;
+  readonly strength: number;
+  readonly directed: boolean;
+  readonly record_id: string | null;
+  readonly child_first: boolean;
+}
+
+/** What `applyDeltas` adds in one call, whole or not at all (`docs/contract/delta.md`). */
+export interface GraphBatch {
+  readonly nodes: readonly DeltaNode[];
+  readonly edges: readonly DeltaEdge[];
+}
+
 export type Request =
-  | { readonly type: "open"; readonly wasmUrl: string; readonly threads?: number }
+  | { readonly type: "open"; readonly wasmUrl: string; readonly threads?: number; readonly breakDeltas?: boolean }
   | { readonly type: "load"; readonly source: Source; readonly fixturesUrl: string }
   | { readonly type: "layout"; readonly layoutId: string; readonly postId: string | null }
   | { readonly type: "analysis"; readonly analysisId: string }
+  // Not a `ForceRequest`: a force request is answered synchronously from the loop's own state,
+  // and this one is answered by the tick that applied it.
+  | { readonly type: "force.deltas"; readonly batch: GraphBatch }
   | ForceRequest;
 
 export type ForceRequest =
@@ -95,7 +140,14 @@ export type Result =
   | { readonly type: "analysed"; readonly analysis: AnalysisReport }
   | { readonly type: "failed"; readonly error: ShownError }
   | { readonly type: "force-state"; readonly running: boolean; readonly disabled: string | null; readonly paused: boolean }
-  | { readonly type: "force-frame"; readonly frame: ForceFrame };
+  | { readonly type: "force-frame"; readonly frame: ForceFrame }
+  /** One batch applied whole, with the node count the graph has at that tick. */
+  | { readonly type: "deltas-applied"; readonly applied: number; readonly nodeCount: number }
+  /**
+   * The structure snapshot rebuilt after a batch, pushed rather than asked for: no request is
+   * waiting for it, and the page draws the nodes it describes.
+   */
+  | { readonly type: "deltas-structure"; readonly run: RunReport };
 
 /**
  * The seq an unsolicited answer carries: a live frame, which no request is waiting for. The
@@ -127,8 +179,11 @@ export type Spawn = () => Port;
 const FORCE_REQUESTS: readonly string[] = [
   "force.start", "force.drag", "force.release", "force.params", "force.pause", "force.resume", "force.stop",
 ];
-const REQUESTS: readonly string[] = ["open", "load", "layout", "analysis", ...FORCE_REQUESTS];
-const RESULTS: readonly string[] = ["opened", "loaded", "laid-out", "analysed", "failed", "force-state", "force-frame"];
+const REQUESTS: readonly string[] = ["open", "load", "layout", "analysis", "force.deltas", ...FORCE_REQUESTS];
+const RESULTS: readonly string[] = [
+  "opened", "loaded", "laid-out", "analysed", "failed", "force-state", "force-frame",
+  "deltas-applied", "deltas-structure",
+];
 
 export function isForceRequest(request: Request): request is ForceRequest {
   return FORCE_REQUESTS.includes(request.type);

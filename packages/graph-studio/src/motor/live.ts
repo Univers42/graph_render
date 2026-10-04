@@ -3,6 +3,7 @@
  * graph-core's `ForceSession`; the studio never simulates. With no adapter the panel is
  * visible and disabled, and says why.
  */
+import type { GraphBatch } from "./protocol.ts";
 
 export interface ForceKnobs {
   /** Center force: pull toward the middle, 0..1. */
@@ -75,6 +76,18 @@ export interface LiveForce {
    * guess what a restart looks like.
    */
   shuffle?(): number;
+  /**
+   * Appends one batch of nodes and edges to the graph behind this port. Whole or not at all:
+   * it throws and the graph is as it was. Absent on a port over a motor with no extend path,
+   * which a delta batch is then refused by rather than dropped.
+   */
+  extend?(batch: GraphBatch): void;
+  /**
+   * Grows the live session over the graph's new node count. One grow a tick for every batch
+   * queued since the last one (`docs/contract/delta.md`): growing per batch would rebuild the
+   * session's own arrays once per call.
+   */
+  grow?(): void;
   /** The parameters the motor itself holds, by the wire's own field names. */
   params?(): ForceParams;
 }
@@ -106,6 +119,12 @@ export interface ForcePort {
   positions(): { readonly xs: Float64Array; readonly ys: Float64Array };
   /** Every parameter the motor holds, read back through the ABI rather than copied. */
   params(): ForceParams;
+  /**
+   * Covers the graph's new node count, after an extend. Optional because a session the studio
+   * made before P4b — and every test double — has no such member, and a delta batch is then
+   * refused instead of silently applied to a session that does not cover it.
+   */
+  grow?(): void;
   release(): void;
 }
 

@@ -2,8 +2,10 @@
  * The worker's stepping loop over a `LiveForce`: one tick per frame, one frame out, and no
  * backlog. It stops on its own once alpha is under `alphaMin` and no pin is held.
  */
-import type { ForceRequest, Result } from "./protocol.ts";
+import { type DeltaQueue, type GrowMark, DeltaRefusal, createDeltaQueue } from "./deltas.ts";
+import type { ForceRequest, GraphBatch, Result, RunReport } from "./protocol.ts";
 import { type LiveForce, NO_ADAPTER_REASON } from "./live.ts";
+import { describeError } from "../state/errors.ts";
 
 /**
  * Ponytail: the loop asks for one frame a period, timed from the start of the frame before.
@@ -32,10 +34,24 @@ export interface LoopDeps {
   readonly now: () => number;
   readonly emit: (result: Result, transfer: ArrayBufferLike[]) => void;
   readonly periodMs?: number;
+  /**
+   * Rebuilds the structure snapshot a delta batch needs drawn, throttled by the queue. Absent
+   * where there is no session to grow — the batch still answers, and the page keeps the node
+   * count it has.
+   */
+  readonly structure?: () => Promise<RunReport | null>;
 }
 
 export interface ForceHost {
   readonly handle: (request: ForceRequest) => Result;
+  /**
+   * Queues one batch of nodes and edges and answers with what the tick that applied it made of
+   * it. One answer per call, refused whole or applied whole; the extends themselves are
+   * coalesced per tick with one grow between them.
+   */
+  deltas(batch: GraphBatch): Promise<Result>;
+  /** The grows the queue has done, oldest first, at most 1024. */
+  grows(): readonly GrowMark[];
   /**
    * The session the loop is ticking is gone: stop at once, without waiting for the next
    * request. A graph replaced mid-settle releases its force session, and the frame already
@@ -45,6 +61,15 @@ export interface ForceHost {
 }
 
 interface Pin { readonly x: number; readonly y: number }
+
+/**
+ * A port whose motor has no extend path, or a live session that cannot grow. Thrown where the
+ * batch would have gone in, so the batch is refused with a reason and the graph stays as it
+ * was — a dropped batch would answer `applied` for a graph that never changed.
+ */
+function growless(): never {
+  throw new DeltaRefusal("this motor cannot add to a built graph, or its live session cannot grow");
+}
 
 class ForceLoop {
   private readonly held = new Set<string>();
@@ -56,6 +81,9 @@ class ForceLoop {
   private cancel: (() => void) | null = null;
   private alpha = 0;
   private paused = false;
+  private ticks = 0;
+  /** The batches a host is waiting on; drained at the top of every frame. */
+  private readonly deltas: DeltaQueue;
 
   private readonly live: LiveForce;
   private readonly deps: LoopDeps;
@@ -64,6 +92,16 @@ class ForceLoop {
   constructor(live: LiveForce, deps: LoopDeps) {
     this.live = live;
     this.deps = deps;
+    this.deltas = createDeltaQueue({
+      extend: (batch) => { if (live.extend === undefined) growless(); else live.extend(batch); },
+      grow: () => { if (live.grow === undefined) growless(); else live.grow(); },
+      reheat: (alpha) => this.live.reheat(alpha),
+      alpha: () => this.alpha,
+      nodeCount: () => this.live.positions().xs.length,
+      ...(deps.structure === undefined ? {} : { structure: deps.structure }),
+      emit: deps.emit,
+      now: deps.now,
+    });
   }
 
   get running(): boolean {
@@ -90,6 +128,11 @@ class ForceLoop {
       this.release();
       return;
     }
+    this.ticks += 1;
+    // Before the pins and the step, and not awaited: a drain extends and grows synchronously and
+    // only then rebuilds the snapshot, so the tick below steps a session that covers the new
+    // nodes and the frame it publishes has a position for every one of them.
+    void this.deltas.drain(this.ticks);
     for (const [id, at] of this.pinned) this.live.pin(id, at.x, at.y);
     this.alpha = this.live.step(TICKS_PER_FRAME);
     const running = this.alpha >= ALPHA_MIN || this.held.size > 0;
@@ -130,6 +173,9 @@ class ForceLoop {
     this.paused = false;
     this.cancel?.();
     this.cancel = null;
+    // A batch waiting for a tick that will never come is refused, not left hanging: the page's
+    // `applyDeltas` promise is the only thing that would notice, and it must not hang on a stop.
+    this.deltas.refuse("the live session ended before the batch was applied");
     this.drop();
   }
 

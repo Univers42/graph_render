@@ -13,7 +13,7 @@ import { type ShownError, describeError } from "../state/errors.ts";
 import type { Source } from "../state/settings.ts";
 import type { ForceEngine, ForceParams, ForcePort, LiveForce } from "./live.ts";
 import { createLiveForce } from "./liveSession.ts";
-import type { AnalysisReport, Catalog, GraphSummary, RunReport } from "./protocol.ts";
+import type { AnalysisReport, Catalog, GraphBatch, GraphSummary, RunReport } from "./protocol.ts";
 import { planRun } from "./settle.ts";
 
 export interface AnalysisFace {
@@ -42,6 +42,13 @@ export interface MotorLike<Handle> {
   analysis(handle: Handle, analysisId: string): AnalysisFace;
   toBytes(handle: Handle): Uint8Array;
   release(handle: Handle): void;
+  /**
+   * Appends a batch to a built graph (`Motor.extend`); whole or not at all, and the graph is
+   * as it was when it refuses. Optional so a motor built before the extend path — and every
+   * test double — still satisfies this interface, and a delta batch is refused with a reason
+   * rather than dropped.
+   */
+  extend?(handle: Handle, batch: GraphBatch): void;
   /** The live session over a graph's topology, or null on a motor without one. */
   forceSession?(handle: Handle, params?: Partial<ForceParams>, engine?: ForceEngine): ForcePort | null;
 }
@@ -176,8 +183,9 @@ function forcesOf<Handle>(motor: MotorLike<Handle> | null, built: Built<Handle> 
   // The port is cached, not rebuilt: the loop compares ports by identity and replaces itself
   // when one changes, so a fresh object per request would stop the loop on every message. So
   // `restart` hands the new session to `built.forced`, which `forget` then releases.
+  const session = built.forced;
   built.port ??= createLiveForce({
-    session: built.forced,
+    session,
     ids: () => built.order,
     restart: () => {
       built.forced?.release();
@@ -185,8 +193,21 @@ function forcesOf<Handle>(motor: MotorLike<Handle> | null, built: Built<Handle> 
       if (built.forced === null) throw new SessionRefusal("the motor made no force session");
       return built.forced;
     },
+    // Both refusals are the loop's to answer: `force.deltas` turns a throw here into a
+    // `failed` result carrying the message, and the graph is untouched either way.
+    extend: (batch) => appendTo(motor, built.handle, batch),
+    grow: () => {
+      if (session.grow === undefined) throw new SessionRefusal("this motor's live session cannot grow");
+      session.grow();
+    },
   });
   return built.port;
+}
+
+/** One batch into the built graph, or a refusal naming a motor that has no extend path. */
+function appendTo<Handle>(motor: MotorLike<Handle>, handle: Handle, batch: GraphBatch): void {
+  if (motor.extend === undefined) throw new SessionRefusal("this motor cannot add to a built graph");
+  motor.extend(handle, batch);
 }
 
 /**
