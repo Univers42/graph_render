@@ -3,7 +3,7 @@
 //! subtree is the run `k..skip`, so a pruned walk is `k = skip` and a descent is `k += 1` —
 //! no stack, and the cells are read front to back.
 
-use super::{Bounds3, Octree, Points3, Shape, OCTANTS};
+use super::{Bounds3, OCTANTS, Octree, Points3, Shape};
 
 /// One tree node in preorder, children in slot order `0..7`.
 ///
@@ -84,8 +84,7 @@ impl Octree {
                 self.pending.push(Visit::Close(k));
                 for slot in (0..OCTANTS).rev() {
                     if let Some(child) = children[slot] {
-                        self.pending
-                            .push(Visit::Open(child, bounds.octant(slot)));
+                        self.pending.push(Visit::Open(child, bounds.octant(slot)));
                     }
                 }
             }

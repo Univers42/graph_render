@@ -25,7 +25,6 @@
 //!   arm has no worker-count dimension to hash-equal across. That is the same position
 //!   `layout.force.fruchterman_reingold.3d` and the other dense 3D arms are in.
 
-use crate::index::Topology;
 use crate::layout::force::octree::charge::{self as octree_charge, Terms, Walk};
 use crate::layout::force::octree::{Octree, Points3};
 use crate::layout::force::{LiveParams, SimpleGraph};
@@ -61,17 +60,6 @@ pub(in crate::layout::force) struct Sim3 {
 }
 
 impl Sim3 {
-    /// A simulation over `topology` from the 3D golden sphere.
-    pub(in crate::layout::force) fn new(
-        topology: &Topology,
-        params: LiveParams,
-        seed: u32,
-    ) -> Self {
-        let graph = crate::layout::force::simple_graph(topology);
-        let (x, y, z) = super::seed::golden_sphere(topology.node_count());
-        Self::from_parts(graph, params, seed, (x, y, z))
-    }
-
     /// A simulation over `graph` starting from the given positions (one per node).
     pub(in crate::layout::force) fn from_parts(
         graph: SimpleGraph,
@@ -155,7 +143,11 @@ impl Sim3 {
             bodies,
             ..
         } = self;
-        let pts = Points3 { xs: x, ys: y, zs: z };
+        let pts = Points3 {
+            xs: x,
+            ys: y,
+            zs: z,
+        };
         charge_tree.build(pts);
         octree_charge::aggregate(charge_tree, pts, params.theta, bodies);
         let terms = Terms::of(params, (*alpha, *seed, *tick_no));

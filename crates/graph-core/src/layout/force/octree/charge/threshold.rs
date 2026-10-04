@@ -48,7 +48,11 @@ pub(in crate::layout::force::octree) fn opening_threshold(w: f64, theta: f64, th
 /// which `insert_leaf` fills a slot of before it can become one, so `m > 0` and the
 /// division is exact. `octree`'s `every_internal_cell_has_a_child_so_the_centre_never_divides_by_zero`
 /// is what pins it.
-pub(in crate::layout::force::octree) fn centre(bodies: &[Body], first: u32, skip: u32) -> (f64, f64, f64) {
+pub(in crate::layout::force::octree) fn centre(
+    bodies: &[Body],
+    first: u32,
+    skip: u32,
+) -> (f64, f64, f64) {
     let (mut m, mut cx, mut cy, mut cz) = (0.0, 0.0, 0.0, 0.0);
     let mut c = first;
     while c < skip {

@@ -73,10 +73,7 @@ fn all_three_axes_carry_a_live_column() {
     assert!(spread(&y) > 1.0, "y spread {}", spread(&y));
     assert!(spread(&z) > 1.0, "z spread {}", spread(&z));
     assert_ne!(z, x, "z is not a copy of x");
-    assert!(
-        z.iter().any(|&v| v != 0.0),
-        "z is not a column of zeros"
-    );
+    assert!(z.iter().any(|&v| v != 0.0), "z is not a column of zeros");
 }
 
 #[test]
@@ -118,7 +115,10 @@ fn a_link_between_two_coincident_nodes_has_a_finite_three_axis_force() {
     );
     link3d::apply(&mut sim);
     let v = [sim.vx[0], sim.vy[0], sim.vz[0]];
-    assert!(v.iter().all(|x| x.is_finite()), "the gather stays finite: {v:?}");
+    assert!(
+        v.iter().all(|x| x.is_finite()),
+        "the gather stays finite: {v:?}"
+    );
     for axis in 0..3 {
         assert!(
             v[axis] * [sim.vx[1], sim.vy[1], sim.vz[1]][axis] <= 0.0,
@@ -169,10 +169,17 @@ fn the_3d_start_is_a_sphere_and_not_a_plane() {
     for i in 0..x.len() {
         let r = f64::sqrt(x[i] * x[i] + y[i] * y[i] + z[i] * z[i]);
         let want = 12.0 * f64::sqrt(i as f64 + 1.0);
-        assert!((r - want).abs() < 1e-9, "row {i} off the sphere: {r} vs {want}");
+        assert!(
+            (r - want).abs() < 1e-9,
+            "row {i} off the sphere: {r} vs {want}"
+        );
     }
     // Pure function of the index, as the 2D spiral is: one row alone, so a level that grows
     // seeds its own row without the rows before it.
     assert_eq!(sphere_point(7), sphere_point(7));
-    assert_ne!(spiral_point(7).0, sphere_point(7).0, "a different point from the 2D spiral");
+    assert_ne!(
+        spiral_point(7).0,
+        sphere_point(7).0,
+        "a different point from the 2D spiral"
+    );
 }

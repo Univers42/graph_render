@@ -158,8 +158,7 @@ pub(super) const YIFAN_HU_2Z: Metadata = Metadata {
 /// The one row here whose force run **is** three-dimensional: `z` is a coordinate in the
 /// same difference vectors as `x` and `y`, pushed by many-body, link and collide and pushing
 /// back. That is what separates it from [`YIFAN_HU_2Z`] above, whose `z` is derived from the
-/// graph after the run and never steers it. The per-level solver is a sibling 3D tick over
-/// an octree, not the 2D one — see `layout/force/yifan_hu/arm3d.rs`.
+/// graph after the run and never steers it. See `layout/force/yifan_hu/arm3d.rs`.
 pub(super) const YIFAN_HU_3D: Metadata = Metadata {
     tier: 1,
     stage: "layout",
@@ -191,8 +190,7 @@ pub(super) const YIFAN_HU_3D: Metadata = Metadata {
     threaded tier, so unlike the 2D arm this row has no worker-count dimension to \
     hash-equal across - one schedule, one set of bytes. Ponytail (scale_ceiling): inherited \
     from the 2D arm and NOT re-measured in 3D; the octree makes many-body O(n log n) in \
-    three dimensions exactly as in two, and the constant grows by a factor near 1 that a \
-    measurement would not resolve",
+    three dimensions exactly as in two, and the constant grows by a factor near 1",
 };
 
 /// `layout.forceatlas2.3d`: [`super::force::FA2`] at `dim = 3`, which is what SciGraphs'

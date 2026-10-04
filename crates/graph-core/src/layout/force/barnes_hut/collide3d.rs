@@ -58,7 +58,11 @@ pub(in crate::layout::force) fn prepare(sim: &mut Sim3) {
         py[i] = y[i] + vy[i];
         pz[i] = z[i] + vz[i];
     }
-    collide_tree.build(Points3 { xs: px, ys: py, zs: pz });
+    collide_tree.build(Points3 {
+        xs: px,
+        ys: py,
+        zs: pz,
+    });
 }
 
 /// `(2 * collideRadius)²`: the squared diameter two nodes must be closer than to overlap.

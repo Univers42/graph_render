@@ -234,29 +234,12 @@ pub(in crate::layout::force::octree) fn settle(
     key: u32,
     gap: Gap,
 ) -> Option<Gap> {
-    let Gap {
-        mut dx,
-        mut dy,
-        mut dz,
-        mut l,
-    } = gap;
-    if l >= terms.dmax2 {
+    let (dx, dy, dz, l0) = (gap.dx, gap.dy, gap.dz, gap.l);
+    if l0 >= terms.dmax2 {
         return None;
     }
-    if dx == 0.0 {
-        dx = jiggle(terms.seed, terms.tick, PASS_X, (q.i, key));
-        l += dx * dx;
-    }
-    if dy == 0.0 {
-        dy = jiggle(terms.seed, terms.tick, PASS_Y, (q.i, key));
-        l += dy * dy;
-    }
-    // The third axis installs its jiggle on its own lane, so the same `(seed, tick, i, cell)`
-    // cannot produce the same word here as in the 2D walk.
-    if dz == 0.0 {
-        dz = jiggle(terms.seed, terms.tick, PASS_Z, (q.i, key));
-        l += dz * dz;
-    }
+    let (dx, dy, dz, l) = jiggled(terms, q, key, (dx, dy, dz, l0));
+    let mut l = l;
     if l < terms.dmin2 {
         l = f64::sqrt(terms.dmin2 * l);
     }
@@ -268,4 +251,28 @@ pub(in crate::layout::force::octree) fn settle(
         l = terms.dmin2.max(f64::MIN_POSITIVE);
     }
     Some(Gap { dx, dy, dz, l })
+}
+
+/// Every exactly-zero axis replaced by its jiggle and `l` re-summed, in axis order `x`, `y`,
+/// `z`.
+///
+/// The three lanes are the 2D walk's `PASS_X`/`PASS_Y` **shifted up by two**, and `PASS_Z` is
+/// six, so a 3D key can never collide with a 2D one for the same `(seed, tick, i, cell)` —
+/// the lane is an input to the hash, not a label.
+fn jiggled(terms: &Terms, q: &Query, key: u32, gap: (f64, f64, f64, f64)) -> (f64, f64, f64, f64) {
+    let (mut dx, mut dy, mut dz, mut l) = gap;
+    let pair = (q.i, key);
+    if dx == 0.0 {
+        dx = jiggle(terms.seed, terms.tick, PASS_X, pair);
+        l += dx * dx;
+    }
+    if dy == 0.0 {
+        dy = jiggle(terms.seed, terms.tick, PASS_Y, pair);
+        l += dy * dy;
+    }
+    if dz == 0.0 {
+        dz = jiggle(terms.seed, terms.tick, PASS_Z, pair);
+        l += dz * dz;
+    }
+    (dx, dy, dz, l)
 }

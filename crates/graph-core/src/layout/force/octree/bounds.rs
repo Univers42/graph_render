@@ -64,7 +64,8 @@ impl Bounds3 {
     pub(super) fn split_step(&mut self, p: (f64, f64, f64), q: (f64, f64, f64)) -> (usize, usize) {
         let (xm, ym, zm) = self.mid();
         let i = self.narrow(p.0, p.1, p.2);
-        let j = (((q.2 >= zm) as usize) << 2) | (((q.1 >= ym) as usize) << 1) | ((q.0 >= xm) as usize);
+        let j =
+            (((q.2 >= zm) as usize) << 2) | (((q.1 >= ym) as usize) << 1) | ((q.0 >= xm) as usize);
         (i, j)
     }
 

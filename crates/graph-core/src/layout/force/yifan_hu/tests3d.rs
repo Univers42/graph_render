@@ -43,12 +43,7 @@ fn the_3d_arm_has_its_own_id_and_the_2d_arms_keep_theirs() {
     assert_eq!(ID_3D, "layout.force.yifan_hu.3d");
     assert_eq!(ID_2Z, "layout.force.yifan_hu.2z");
     assert_eq!(<YifanHu as Stage>::ID, "layout.force.yifan_hu");
-    let ids = [
-        <YifanHu as Stage>::ID,
-        ID_2Z,
-        ID_3D,
-        BarnesHut::ID,
-    ];
+    let ids = [<YifanHu as Stage>::ID, ID_2Z, ID_3D, BarnesHut::ID];
     let mut sorted = ids;
     sorted.sort_unstable();
     assert_eq!(sorted.len(), 4, "four distinct ids: {ids:?}");
@@ -89,10 +84,7 @@ fn the_3d_arm_is_not_the_2d_run_with_a_column_pasted_onto_it() {
     assert_ne!(y3, y, "on both in-plane axes");
     let z_span = spread(&z3);
     assert!(z_span > 1.0, "z spread {z_span} is a layout, not noise");
-    assert!(
-        z3.iter().any(|&v| v != 0.0),
-        "z is not a column of zeros"
-    );
+    assert!(z3.iter().any(|&v| v != 0.0), "z is not a column of zeros");
 }
 
 /// The 3D arm shares the 2D arm's coarsening: the same hierarchy, because the hierarchy is a

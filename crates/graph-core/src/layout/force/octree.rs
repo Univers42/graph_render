@@ -25,9 +25,9 @@
 //! different axis each level, so the arena, the cell order and `node_id` all differ — which
 //! is why the 3D arms can have their own bytes and the 2D ones keep theirs.
 
-pub(crate) mod charge;
 mod bounds;
 mod build;
+pub(crate) mod charge;
 mod preorder;
 #[cfg(test)]
 mod tests;
@@ -72,9 +72,8 @@ impl Points3<'_> {
 /// reason: `±inf` would make `cover` grow a cube that can never contain it and
 /// `insert_leaf` split for ever.
 fn bounds_of(pts: Points3<'_>) -> Option<(f64, f64, f64, f64, f64, f64)> {
-    let ok = |p: (f64, f64, f64)| {
-        (p.0.is_finite() && p.1.is_finite() && p.2.is_finite()).then_some(p)
-    };
+    let ok =
+        |p: (f64, f64, f64)| (p.0.is_finite() && p.1.is_finite() && p.2.is_finite()).then_some(p);
     let mut valid = pts
         .xs
         .iter()
@@ -83,9 +82,11 @@ fn bounds_of(pts: Points3<'_>) -> Option<(f64, f64, f64, f64, f64, f64)> {
         .map(|((&x, &y), &z)| (x, y, z))
         .filter_map(ok);
     let (fx, fy, fz) = valid.next()?;
-    Some(valid.fold((fx, fy, fz, fx, fy, fz), |(a, b, c, d, e, f), (x, y, z)| {
-        (a.min(x), b.min(y), c.min(z), d.max(x), e.max(y), f.max(z))
-    }))
+    Some(
+        valid.fold((fx, fy, fz, fx, fy, fz), |(a, b, c, d, e, f), (x, y, z)| {
+            (a.min(x), b.min(y), c.min(z), d.max(x), e.max(y), f.max(z))
+        }),
+    )
 }
 
 /// One doubling: the axis the point is *below* keeps its far edge and takes a new near one,
@@ -178,12 +179,8 @@ impl Octree {
     /// as a `StageError` — `build` has no error channel, so the refusal is a silent empty
     /// arena where every walk contributes nothing instead of a panic. Escape hatch: the
     /// stage's own post-run check turns a non-finite column into `StageError::NonFinite`.
-    pub(crate) fn build(&mut self, pts: Points3<'_>) {
+    pub(in crate::layout::force) fn build(&mut self, pts: Points3<'_>) {
         self.reset();
-        // Ponytail: a mismatch and a count past `u32::MAX` are refused as an empty tree,
-        // not as a `StageError` — `build` has no error channel, so the refusal is a silent
-        // empty arena where every walk contributes nothing instead of a panic. Escape hatch:
-        // the stage's own post-run check turns a non-finite column into `StageError::NonFinite`.
         if pts.xs.len() != pts.ys.len()
             || pts.xs.len() != pts.zs.len()
             || u32::try_from(pts.xs.len()).is_err()
@@ -222,7 +219,11 @@ impl Octree {
     /// does.
     fn cover(&mut self, p: (f64, f64, f64)) {
         if self.root_bounds.x0.is_nan() {
-            let (x, y, z) = (libm::floor(p.0) + 1.0, libm::floor(p.1) + 1.0, libm::floor(p.2) + 1.0);
+            let (x, y, z) = (
+                libm::floor(p.0) + 1.0,
+                libm::floor(p.1) + 1.0,
+                libm::floor(p.2) + 1.0,
+            );
             self.root_bounds = Bounds3 {
                 x0: x - 1.0,
                 y0: y - 1.0,

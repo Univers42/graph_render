@@ -41,11 +41,7 @@ pub fn run_3d(topology: &Topology, params: &ForceParams) -> Result<Geometry, Sta
 /// The levels, each settled under the 3D tick: the coarse solve first, then every
 /// refinement from its parent's positions. Sequential in the levels by construction, exactly
 /// as the 2D arm is.
-fn multilevel3d(
-    fine: SimpleGraph,
-    n: u32,
-    params: ForceParams,
-) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
+fn multilevel3d(fine: SimpleGraph, n: u32, params: ForceParams) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
     let (levels, maps) = hierarchy(fine, n);
     let (top, top_n) = levels.last().expect("one level").clone();
     let mut pos = settle3d(top, params, golden_sphere(top_n), (TICKS, 1.0));
@@ -94,9 +90,7 @@ fn sphere_offset(i: usize, n: usize, radius: f64, golden: f64) -> (f64, f64, f64
 ///
 /// The check covers `z` as well as `x` and `y`: a 3D arm that validated only its in-plane
 /// columns would ship a `NaN` z as a finite-looking picture.
-fn space_points(
-    (x, y, z): (Vec<f64>, Vec<f64>, Vec<f64>),
-) -> Result<Geometry, StageError> {
+fn space_points((x, y, z): (Vec<f64>, Vec<f64>, Vec<f64>)) -> Result<Geometry, StageError> {
     if x.iter().chain(&y).chain(&z).any(|v| !v.is_finite()) {
         return Err(StageError::NonFinite { column: "node.x" });
     }

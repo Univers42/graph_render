@@ -5,7 +5,7 @@
 
 use std::cmp::Ordering;
 
-use super::{Bounds3, Octree, Points3, Shape, OCTANTS};
+use super::{Bounds3, OCTANTS, Octree, Points3, Shape};
 
 /// `&mut Octree` plus the points, so `add`/`insert_leaf` take at most four parameters
 /// besides the receiver.

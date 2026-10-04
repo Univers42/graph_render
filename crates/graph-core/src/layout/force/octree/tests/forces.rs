@@ -11,7 +11,7 @@
 //! directions), so comparing two such sums relative to the answer would demand more than
 //! `f64` can deliver and the row would be unfalsifiable in the wrong direction.
 
-use super::super::charge::{self, threshold, Body, Gap, Query, Terms, Walk};
+use super::super::charge::{self, Body, Gap, Query, Terms, Walk, threshold};
 use super::super::{Octree, Points3};
 use crate::layout::force::{ForceParams, LiveParams};
 
@@ -84,10 +84,7 @@ fn pairwise(cols: &(Vec<f64>, Vec<f64>, Vec<f64>), i: u32) -> Ref {
     let (xs, ys, zs) = cols;
     let pts = Points3 { xs, ys, zs };
     let terms = terms();
-    let q = Query {
-        i,
-        p: pts.at(i),
-    };
+    let q = Query { i, p: pts.at(i) };
     let mut delta = (0.0, 0.0, 0.0);
     let mut work = 0.0;
     for j in 0..pts.len() as u32 {
@@ -203,10 +200,7 @@ fn the_opening_threshold_is_the_cube_edge_over_theta_squared() {
         w * w / (theta * theta)
     );
     // A `NaN` ratio opens nothing rather than approximating, as in 2D.
-    assert_eq!(
-        threshold::opening_threshold(0.0, 0.0, 0.0),
-        f64::INFINITY
-    );
+    assert_eq!(threshold::opening_threshold(0.0, 0.0, 0.0), f64::INFINITY);
     assert_eq!(
         threshold::opening_threshold(f64::INFINITY, 2.0, 4.0),
         f64::INFINITY
