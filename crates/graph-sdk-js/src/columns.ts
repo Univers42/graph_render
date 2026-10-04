@@ -103,8 +103,12 @@ export function encodeColumns(doc: ColumnsDocument): Uint8Array {
 
 /** The string table, interned in first-seen order. A `Map`, never a hash map iterated for
  *  output: an entry's index is its position in `strings`, and `Map` preserves insertion
- *  order, so the same document always produces the same bytes on every engine (D4). */
-class Table {
+ *  order, so the same document always produces the same bytes on every engine (D4).
+ *
+ *  Exported for `columns-batch.ts`, which walks a batch through the same interning — the two
+ *  differ in one thing, `edgeCellsByName` against `edgeCells`, and everything else (the two
+ *  passes, the table, the lone-surrogate check, the buffer) is this class. */
+export class Table {
   readonly strings: string[] = [];
   readonly index = new Map<string, number>();
 
@@ -151,6 +155,29 @@ class Table {
     cells[row] = this.intern(`edges[${row}].id`, edge.id);
     cells[count + row] = source;
     cells[2 * count + row] = target;
+    this.edgeTail(edge, row, cells);
+  }
+
+  /** The eight edge columns of row `row` under `GMX1`, where an endpoint is a **string entry
+   *  naming a node id** rather than a row of this document
+   *  (`docs/contract/ingest-columns.md`). So it is interned like any other string and is never
+   *  looked up: a batch's edge may name a node the graph already holds, which is the one thing
+   *  a document's endpoint may not do and the reason this method exists beside `edgeCells`.
+   *
+   *  A name is still refused here when it is not well-formed, by field name, exactly as a
+   *  document's endpoint id is — the decoder would refuse the entry, and a `U+FFFD` id would
+   *  resolve to a different node, or to none. */
+  edgeCellsByName(edge: ColumnsEdge, row: number, cells: Uint32Array): void {
+    const count = cells.length / EDGE_COLUMNS;
+    cells[row] = this.intern(`edges[${row}].id`, edge.id);
+    cells[count + row] = this.intern(`edges[${row}].source`, edge.source);
+    cells[2 * count + row] = this.intern(`edges[${row}].target`, edge.target);
+    this.edgeTail(edge, row, cells);
+  }
+
+  /** The five columns after the two endpoints, which both formats spell identically. */
+  private edgeTail(edge: ColumnsEdge, row: number, cells: Uint32Array): void {
+    const count = cells.length / EDGE_COLUMNS;
     cells[3 * count + row] = this.intern(`edges[${row}].kind`, edge.kind);
     cells[4 * count + row] = this.intern(`edges[${row}].label`, edge.label);
     cells[5 * count + row] = this.optional(`edges[${row}].record_id`, edge.record_id);

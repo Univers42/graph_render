@@ -16,6 +16,12 @@
 // **Caveat:** the table is not deduped. The blob carries a repeat for every repeated value and
 // the decoder's arena interns it back down by content, so the cost is bytes in transit and
 // nothing downstream.
+//
+// A batch (`GMX1`) is the same sections, the same order and the same arithmetic as a document
+// (`GMC1`), which is why this module writes both: the one word that says which reader the bytes
+// are for is the magic, and it travels with the rows (`ColumnRows.magic`). What an endpoint
+// *means* is not this module's business — it copies the cells it is handed, so the dense rows of
+// a document and the string indices of a batch are both just `u32`s by the time they arrive.
 
 import { GraphMotorError } from "./errors.ts";
 
@@ -73,11 +79,18 @@ export interface ColumnRows {
   readonly strings: readonly string[];
   /** The 8 node `u32` columns, column-major: column c of row r is at `c * nodeCount + r`. */
   readonly nodeCells: Uint32Array;
-  /** The 8 edge `u32` columns, column-major, endpoints as node rows. */
+  /** The 8 edge `u32` columns, column-major. Endpoints are node rows under `GMC1` and string
+   *  entries naming node ids under `GMX1`; which one is written is {@link ColumnRows.magic}'s
+   *  answer, and the encoder is what produces the matching cells. */
   readonly edgeCells: Uint32Array;
   readonly weights: Float64Array;
   readonly versions: Float64Array;
   readonly strengths: Float64Array;
+  /** Which reader these bytes are for: {@link DOCUMENT_MAGIC} (the default) or
+   *  {@link BATCH_MAGIC}. It travels with the rows because it is a property of the document
+   *  being written, not of the writer: the sections are the same either way and only this one
+   *  header word differs, so every producer that writes whole documents names nothing. */
+  readonly magic?: number;
 }
 
 /** Assembles `rows` into the binary document `gm_build_columns` reads, or throws.
@@ -159,10 +172,11 @@ function tableOffsets(strings: readonly string[], width: (value: string) => numb
   return { offsets, blobBytes: running };
 }
 
-/** The eight `u32` words: the magic, the counts, the blob length, and two reserved zeros. */
+/** The eight `u32` words: the magic, the counts, the blob length, and two reserved zeros. The
+ *  magic is the only word that says which reader these bytes are for. */
 function writeHeader(out: Uint8Array, rows: ColumnRows, blobBytes: number): void {
   const header = [
-    MAGIC, VERSION, rows.weights.length, rows.strengths.length,
+    rows.magic ?? DOCUMENT_MAGIC, VERSION, rows.weights.length, rows.strengths.length,
     rows.strings.length, blobBytes, 0, 0,
   ];
   const view = new DataView(out.buffer);

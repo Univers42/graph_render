@@ -56,6 +56,7 @@ export interface RawExports {
   gm_force_session_column_len(session: number, axis: number): number;
   gm_force_session_release(session: number): number;
   gm_graph_extend(graph: number, ptr: number, len: number): number;
+  gm_graph_extend_columns(graph: number, ptr: number, len: number): number;
   gm_force_session_grow(session: number, graph: number): number;
 }
 
