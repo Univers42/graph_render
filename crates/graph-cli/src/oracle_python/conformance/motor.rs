@@ -28,11 +28,13 @@
 //! `maxiter=10`, which is our `DhParams` default too (`igraph_layouts.py:117-118`,
 //! `davidson_harel.rs:44`).
 //!
-//! Apart from that one layout's axes and the Graphviz convention both arms share, nothing
+//! Apart from that one layout's axes and the two conventions both arms share — the Graphviz
+//! centre-and-rescale above and the igraph `_igraph_fit_positions` in [`fit`] — nothing
 //! here normalises a coordinate. What the layout returns is what goes into the `.f64` file,
 //! and every parameter the motor could not be given is a `Gap` in [`super::rows`], not a
 //! number fudged to match.
 
+mod fit;
 mod overrides;
 
 use super::LAYOUT_SEED;
@@ -78,6 +80,12 @@ pub type Ran = Result<Vec<[f64; 3]>, String>;
 
 /// Run `id` over `fixture` with SciGraphs' parameters, through the same `run_with` the
 /// pipeline uses — so the coordinates compared are the snapshot's, not the geometry's.
+///
+/// **A fitted id gets [`fit::fit`] and nothing else does.** Every igraph helper in
+/// `igraph_layouts.py` ends with `_igraph_fit_positions` (`:24-42`), so an un-fitted igraph row
+/// compares the motor's own coordinate units against the reference's fitted ones and reads as a
+/// different *scale* when it is really the same drawing; [`fit::FITTED`] names the five ids, and
+/// the fit runs on the columns the comparison reads rather than inside a motor layout.
 pub fn run(id: &str, fixture: &Fixture) -> Ran {
     let parts = match id {
         "layout.packing.circle" => packing(fixture),
@@ -93,7 +101,11 @@ pub fn run(id: &str, fixture: &Fixture) -> Ran {
         "layout.mds.pivot3d" => pivot_mds_3d_seeded(fixture),
         _ => registered(id, fixture),
     }?;
-    columns(&parts, fixture.nodes.len())
+    let mut points = columns(&parts, fixture.nodes.len())?;
+    if fit::FITTED.contains(&id) {
+        fit::fit(&mut points, SCALE);
+    }
+    Ok(points)
 }
 
 /// [`run`], then the one convention a Graphviz row carries: SciGraphs' centre-and-rescale

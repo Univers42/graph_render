@@ -85,6 +85,20 @@
 // ---------------------------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------------------------
+// `GM_MUTATE_OVERLAP_RELAXATION` — `Knob::OverlapRelaxation`.
+//
+// The control's value is **`0`**, which is legal and is not clamped: it freezes every
+// displacement, so the pass cannot separate anything and every input overlap survives into
+// the snapshot. A native arm that freezes a stage the wasm arm runs normally is exactly
+// the cross-target divergence the gate exists to catch, and it is the perturbation that
+// turns `graph-cli overlap`'s invariant row red rather than merely moving a hash.
+//
+// A re-drawn model could not do this: adding a node changes the input, and the pass
+// separates it correctly either way, so the invariant would stay green and the control
+// would prove nothing about the pass's ability to separate at all.
+// ---------------------------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------------------------
 // `GM_MUTATE_DROP_DELTA` — `Knob::DropDelta`.
 //
 // The second control to reach `force-gate` rather than this gate, and the first that reaches

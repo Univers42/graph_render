@@ -44,6 +44,7 @@ The method minimises `E` by moving one vertex at a time, choosing the vertex wit
      stated in the source (`kamada_kawai.c:161-167`): it makes the start close to the equilibrium of a
      cycle graph. The paper recommends 0.5.
    - If `n <= 1`, return here.
+
 2. **Distances.** Compute all-pairs shortest-path distances `d_ij` on the graph treated as undirected,
    with edge weights as lengths (Dijkstra from every vertex). Let `d_max` be the largest finite one. Every
    infinite distance (different components) is replaced by `d_max`; that also makes every entry at most
@@ -67,6 +68,54 @@ The method minimises `E` by moving one vertex at a time, choosing the vertex wit
       add), then clamp to bounds where given.
    5. Update the gradients incrementally: for every other vertex `i`, remove the old contribution of
       pair `(m, i)` and add the new one; recompute `g_m` from scratch. Cost `O(n)`.
+
+## The 3D start: the sphere (spec gap closed 2026-10-04)
+
+Step 1's third case said "sphere … using igraph's sphere layouts" and left the placement itself
+unwritten, which left the implementer with nothing to port. Closed here, as rule 1 of
+`docs/decisions/layouts-igraph.md` requires: the spec author read the C and wrote the formula, and
+the formula is all that follows.
+
+`igraph_layout_kamada_kawai_3d` calls `igraph_layout_sphere` on the empty matrix and then scales it
+by `0.36 * L0` (`kamada_kawai.c:476-485`), where `L0 = sqrt(n)`. `igraph_layout_sphere`
+(`vendor/source/igraph/src/layout/circular.c:153-183`) walks `i = 0 .. n-1` in vertex-id order with
+`phi = 0` carried across iterations and writes, per `i`:
+
+| case | `z` | `r` | `phi` |
+|---|---|---|---|
+| `i == 0` | `-1` | `0` | unchanged |
+| `i == n-1` | `+1` | `0` | unchanged |
+| otherwise | `-1 + 2 i / (n - 1)` | `sqrt(1 - z*z)` | `phi += 3.6 / (sqrt(n) * r)` |
+
+and then `x = r * cos(phi)`, `y = r * sin(phi)`. The first and last rows are special-cased in the
+source to avoid a division by zero and to keep `1 - z*z` from going slightly negative, so a port
+branches on them rather than guarding afterwards. Note `phi` advances only on interior rows, so
+row 0 sits at `(0, 0, -1)` and the last row at `(0, 0, +1)` whatever `n` is.
+
+The `3.6` is in radians per unit of `(sqrt(n) * r)`: it is the Saff–Kuijlaars spiral's constant, and
+the paper the function cites is E. B. Saff and A. B. J. Kuijlaars, "Distributing many points on a
+sphere", *Mathematical Intelligencer* 19(1), 5–11, 1997, <https://doi.org/10.1007/BF03024331>.
+
+**What this tree's port actually starts from, and why it is not that formula.** The 3-D arm starts
+from a **closed-form Fibonacci sphere of the same radius `0.36 * sqrt(n)`**
+(`crates/graph-core/src/layout/force/kamada_kawai/start.rs:46`): `y` uniform on `[-1, 1)`,
+`r = sqrt(1 - y^2)`, azimuth stepping by the golden angle `pi (3 - sqrt 5)`. That is a stated
+departure from the table above and it is deliberate, on two counts. (i) The property the 3-D Newton
+step actually needs is that the start is **a sphere and not a plane** — a start with `z = 0`
+everywhere leaves every `zz` entry of the first Hessian at zero, the block is singular, the solve
+guard returns a zero step and the arm answers with a column of zeros (test:
+`kamada_kawai/start.rs:72`), and both formulas satisfy it. (ii) The step 5.1 tie-break is by lowest
+index and the whole run is deterministic, so a closed form keeps the start a function of `n` alone;
+the Saff–Kuijlaars `phi` recurrence carries state across iterations and is a longer thing to
+re-derive than to replace. **Ponytail:** igraph starts its own 3-D KK from the spiral above, not
+from this one, so the two pictures differ from the first move. That is cosmetic — the descent finds
+a local minimum and the differential scores stress, not coordinates — and the escape hatch is the
+one-line formula in `sphere`.
+
+**Not specified here, and left to the port:** the 2D circle's own angles. `igraph_layout_circle`
+(`circular.c:104-122`) advances `phi += 2 pi / (n - 1)`, so its first and last vertices land on the
+same point. That is a 2D fact, the 2D id is pinned byte-for-byte, and nothing in the 3D path calls
+it; the 3D port therefore does not need it and this spec does not bless it.
 
 ## Cooling and stopping
 
