@@ -145,10 +145,15 @@ fn every_measured_closed_form_worst_stays_under_its_own_ceiling() {
 }
 
 /// **The control for the row above, and it is the distribution arm.** `layout.random.3d`'s
-/// ceiling is 0.5 — a sampling-noise floor, not a coordinate tolerance — so the only way to
-/// know it still bites is to push a worst past it and watch the row go red while both
-/// coordinate arms stay green at their `f32` floors. A ceiling widened to 1.0 here would
-/// pass this test and fail the one above, which is the pair's whole point.
+/// ceiling is 0.5 — a sampling-noise bound, not a coordinate tolerance — so the only way to
+/// know the judge reads it at all is to push a worst past it and watch the row go red while
+/// both coordinate arms stay green at their `f32` floors. It fails HERE at 0.6 and the row
+/// above still passes, so the pair says the ceiling is load-bearing rather than decorative.
+///
+/// **It is not the control for the row's real teeth, and nothing in this file is.** The
+/// metric's worst is bounded by 0.5 for any data in `[0, 1)`, so no value this file can write
+/// into a result proves a constant or duplicated axis is caught — that is an assertion in
+/// `harness/oracle-closed-form.py` and it is exercised by the differential, not here.
 #[test]
 fn a_skewed_random_3d_stream_fails_only_its_own_row() {
     let measured = json!({ "layouts": {

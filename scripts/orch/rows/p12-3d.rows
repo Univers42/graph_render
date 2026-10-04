@@ -96,11 +96,18 @@ negctl-bipartite-3d-model|nonzero|scripts/orch/gr -e GM_MUTATE_BIPARTITE_3D_NODE
 # component (257 nodes) is above `DENSE_EIG_LIMIT` = 256 and so reaches the iterative path
 # at all; every seed below it took the dense branch and passed.
 #
-# **This row has no `expect nonzero` partner, and the reason is worth stating.** The bug was
-# a loud refusal, not a silent pass, so there is no perturbation that reproduces it from the
-# outside; a control for it has to live where the defect was, and it does — the pair
-# `every_start_column_is_filled_at_every_block_width` (fails at block = 5 with the old table)
-# and `the_start_block_of_every_2d_run_is_unchanged` (fails if `alpha_for` moves a pinned 2-D
-# byte) in `crates/graph-core/src/linalg/lobpcg/tests.rs`, both reached by the `test` row.
+# `spectral3d-differs-from-2d` is the row's control, and it CAN fail: the 3-D arm's x column
+# must not be the 2-D arm's. A `dims` threading that collapsed to two columns, or a start
+# block whose fifth column collapsed onto one of the first four, would leave the two runs'
+# coordinates equal and this row would exit 1. Measured: -0.073418 against -0.014684 at
+# node 0. (The 2-D snapshot merely having no `dim` key is NOT a control — that is true of
+# every 2-D layout whatever path it took through the eigensolver.)
+#
+# The defect's own controls live where the defect was, and the `test` row reaches them: the
+# pair `every_start_column_is_filled_at_every_block_width` (fails at block = 5 with the old
+# table) and `the_start_block_of_every_2d_run_is_unchanged` (fails if `alpha_for` moves a
+# pinned 2-D byte) in `crates/graph-core/src/linalg/lobpcg/tests.rs`. There is no `expect
+# nonzero` row for the refusal itself: it was a loud exit 2, not a silent pass, so nothing
+# outside the kernel can be perturbed into reproducing it.
 spectral3d-above-dense-limit|0|scripts/orch/gr cargo run -q --release -p graph-cli -- snapshot --seed 255 --layout layout.spectral3d --out-json - | grep -q '"dim":1'
-spectral2d-at-the-same-seed|0|out=$(scripts/orch/gr cargo run -q --release -p graph-cli -- snapshot --seed 255 --layout layout.spectral --out-json - 2>/dev/null); ! echo "$out" | grep -q '"dim":1'
+spectral3d-differs-from-2d|0|x3=$(scripts/orch/gr cargo run -q --release -p graph-cli -- snapshot --seed 255 --layout layout.spectral3d --out-json - 2>/dev/null | grep -o '"x":\[[^]]*\]'); x2=$(scripts/orch/gr cargo run -q --release -p graph-cli -- snapshot --seed 255 --layout layout.spectral --out-json - 2>/dev/null | grep -o '"x":\[[^]]*\]'); [ -n "$x3" ] && [ "$x3" != "$x2" ]

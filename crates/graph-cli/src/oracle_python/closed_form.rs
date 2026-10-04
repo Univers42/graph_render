@@ -52,13 +52,18 @@ pub(crate) const CEILING: f64 = 1e-6;
 /// +/-5 where the 2-D arms run to +/-1, and the snapshot's `f32` floor is *relative*. Over
 /// the 1000 gate seeds, measured on this tree
 /// (`docs/measurements/p12-3d-oracles.md`): `spiral_3d` 2.384e-7, `bipartite_3d` 1.192e-7.
-/// Both are 2^-22 and 2^-23, i.e. the `f32` spacing at that magnitude and nothing else, and
-/// both round up to the same power of ten. The 2-D arms measure 2.980e-8 at +/-1, the same
-/// figure scaled down by the same five.
+/// Those are 2^-22 and 2^-23 -- the `f32` half-ulp and quarter-ulp at that magnitude, i.e.
+/// the narrowing and nothing else -- and both round up to the same power of ten. The 2-D arms
+/// measure 2.980e-8 at +/-1, the same figure scaled down by the same five.
 ///
-/// This is also the ceiling `oracle-basic-3d` already carries for these two ids over the same
-/// 1000 seeds (`registry/three_d/spiral3d.rs:19`), which is the cross-check that the number
-/// is the layout's and not this arm's: two independent harness paths, one figure.
+/// **The cross-check covers the spiral half only, and it is worth being exact about which.**
+/// `oracle-basic-3d` (`oracle_python/basic_3d.rs`) runs sphere, helix, cube and `spiral`, and
+/// it measures `spiral` at 2.384e-7 against this same 1e-6 over the same 1000 seeds
+/// (`registry/three_d/spiral3d.rs:19`) — so for `layout.basic3d.spiral` there are two
+/// independent harness paths and one figure. `layout.bipartite_3d` is NOT in that
+/// differential: it is a `scigraphs-conformance` row (`registry/unproven.rs`), byte-compared
+/// over the conformance fixtures instead. Its half of this ceiling rests on the `f32`
+/// argument above and on its own measurement alone.
 pub(crate) const CEILING_3D_COORDS: f64 = 1e-6;
 
 /// **`layout.random.3d`'s ceiling, and it is not a coordinate tolerance.** Our stream is
@@ -67,17 +72,25 @@ pub(crate) const CEILING_3D_COORDS: f64 = 1e-6;
 /// DISTRIBUTION instead: the worst per-axis error in the sample mean (target 1/2) and in
 /// the sample variance (target 1/12).
 ///
-/// That metric's floor is the **smallest graph in the sweep**, not our arithmetic. Measured
-/// over the 1000 gate seeds the worst is 0.30300, and it happens at `n = 2`, where the
-/// expected `|sample mean - 1/2|` for two uniform draws is 0.204 — the same order, and the
-/// figure a two-point sample can reach at worst is 0.5. It falls as `1/sqrt(n)` (0.0384 over
-/// the cases with `n >= 100`), which is the signature of sampling noise rather than of a
-/// skewed stream.
+/// **This ceiling cannot turn the row red on its own, and the harness is where the row's
+/// teeth are.** For any data in `[0, 1)` the sample mean is in `[0, 1)` so
+/// `|mean - 1/2| < 0.5`, and the sample variance is in `[0, 1/4]` so `|var - 1/12| <= 0.167`;
+/// the metric's worst is therefore bounded by 0.5 for *every possible input*, which is this
+/// constant. Measured, not argued: an all-zeros z column scores exactly 0.5 and passes.
+/// What catches that is `random_3d_gap`'s two exact assertions — a uniform draw of `n >= 2`
+/// points spans its axis and does not repeat another axis, both with probability zero under
+/// the reference's `rand(n, 3)`, so they are asserted rather than scored. Those are the
+/// load-bearing checks for this id, and they exist because this job found a column of an
+/// eigensolver's start block left all zero by a silently truncated table.
 ///
-/// So the ceiling is the measured worst rounded up to the next half — 0.5, one significant
-/// figure above it, so the row still bites if the stream ever skews — and NOT the 1e-6 the
-/// two coordinate arms carry. `docs/measurements/p12-3d-oracles.md` records the measured
-/// worst and the `n` it happened at; the ceiling is measured and never widened to green.
+/// What is left to the number itself is sampling noise. Its floor is the **smallest graph in
+/// the sweep**: the measured worst is 0.30300, at `n = 2`, where the standard deviation of
+/// the sample mean is `1/sqrt(24) = 0.204` and the expected absolute deviation is `1/6 =
+/// 0.167` — the same order. It falls as `1/sqrt(n)` (0.0384 over the cases with `n >= 100`),
+/// the signature of sampling noise rather than of a skewed stream. So 0.5 is the measured
+/// worst rounded up to the next half, and NOT the 1e-6 the two coordinate arms carry.
+/// `docs/measurements/p12-3d-oracles.md` records the measured worst and the `n` it happened
+/// at; the ceiling is measured and never widened to green.
 pub(crate) const CEILING_3D_RANDOM: f64 = 0.5;
 
 /// One seed's line. The layouts take no iteration budget, so `--max-iter` is ignored.

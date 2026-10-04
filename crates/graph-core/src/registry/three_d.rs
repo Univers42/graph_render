@@ -26,8 +26,8 @@
 //! children are private modules, so the consts are `pub` inside them and no wider outside.
 //!
 //! **Eight rows now, not five.** `SPIRAL_3D` joined for sg-spiral3d, so the graph-free
-//! closed forms are five, and `BIPARTITE_3D` and `RANDOM_3D` joined after it, so four of the
-//! eight read the graph. [`BASIC_3D_CEILING`]'s own doc below says which of the seven rows
+//! closed forms are five, and `BIPARTITE_3D` joined after it, so three of the eight read the
+//! graph; `RANDOM_3D` reads none but draws. [`BASIC_3D_CEILING`]'s own doc below says which of the seven rows
 //! under it were measured and which were inherited: four carry a timing at 1 000 000 nodes,
 //! six carry a measured peak, 919.3 bytes a node at 100 000 nodes, from
 //! `crates/graph-core/tests/memory/three_d.rs`, and `RANDOM_3D` is the seventh's exception on

@@ -136,20 +136,43 @@ def random_3d_gap(case, key):
     is possible: our stream is Mulberry32 and the reference's is numpy's Mersenne Twister,
     so the two draw different values at the same index however correct either is.
 
-    Ponytail: failing input is a stream that is uniform but wrong (biased index, wrong
-    sub-range, one draw in every 2^32 skipped) — it passes here and fails in production.
-    Direction is always optimistic, never conservative. Escape hatch: tighten the gate's
-    ceiling on this number, or compare against the reference draw's own mean and variance
-    instead of the contract's constants.
+    **The two assertions below are the load-bearing part, and they are exact.** The mean and
+    variance terms cannot detect a broken stream: for ANY data in [0, 1) the mean lies in
+    [0, 1) so `|mean - 0.5| < 0.5`, and the variance lies in [0, 1/4] so `|var - 1/12| <=
+    0.167`. Their worst is therefore bounded by 0.5 for every possible input, which is
+    exactly `CEILING_3D_RANDOM`, so on their own they can never turn the row red — measured,
+    not argued. An all-zeros z column scores `|0 - 0.5| = 0.5` and PASSES. That is the same
+    shape of defect this job found in the LOBPCG start block, where one column of the block
+    was left all zeros, so it is the one that had to be caught here.
+
+    A uniform draw of `n >= 2` points spans its axis and does not repeat another axis, both
+    with probability zero under `rand(n, 3)`. Those two are properties of the reference
+    itself, not tolerances, so they are asserted rather than scored.
+
+    Ponytail: what is left uncaught is a stream that is uniform but WRONG in a way that keeps
+    its range and its independence — uniform on a sub-interval, or drawn in the wrong order.
+    Failing input: a stream uniform on [0, 0.5) scores a mean gap of 0.25 and passes.
+    Direction: always optimistic. Escape hatch: compare against the reference's OWN draw at
+    the same `n` rather than against the contract's constants, which turns the metric into a
+    two-sample test and costs the independence this arm relies on.
     """
     ours = block(case, key)
     worst = 0.0
     for axis in range(3):
         column = ours[:, axis]
+        assert column.max() > column.min(), (
+            f"random_3d axis {axis} is constant at {column[0]}: {case['n']} draws off a "
+            "uniform stream do not repeat"
+        )
         worst = max(
             worst,
             finite(abs(float(column.mean()) - 0.5), f"random_3d mean gap axis {axis}"),
             finite(abs(float(column.var()) - 1.0 / 12.0), f"random_3d var gap axis {axis}"),
+        )
+    for a, b in ((0, 1), (0, 2), (1, 2)):
+        assert not np.array_equal(ours[:, a], ours[:, b]), (
+            f"random_3d axes {a} and {b} are the same draws: the stream reuses a column "
+            "rather than drawing three"
         )
     return float(worst)
 
@@ -175,10 +198,14 @@ def bipartite_3d_gap(graph, ours):
     to a greedy maximum cut on a non-bipartite graph; a wrong partition shows up as the
     count assertion below rather than as a coordinate gap.
 
-    Ponytail: failing input is a correct partition rotated within its plane, or a partition
-    that is valid but not the one the reference's two-colouring picks. Direction is
-    optimistic. Escape hatch: pass our own set0 as the reference's partition, or assert the
-    partition itself before comparing geometry.
+    Ponytail: x and y are compared as SORTED values per side, so anything that permutes one
+    axis independently of the other is invisible — a correct partition rotated within its
+    plane, an x/y axis swap, and any independent reordering of one axis all score 0.0. Only
+    z, which has one value per plane, is compared per node. A partition that is valid but not
+    the one the reference's two-colouring picks is also uncaught, except through the side
+    counts. Direction: optimistic. Escape hatch: compare x and y per node in the reference's
+    own node order once the partition is asserted, which is what the conformance gate already
+    does for this id byte for byte.
     """
     theirs = np.asarray(ref_hier._bipartite_layout_3d(graph, SCALE_3D), dtype=float)
     worst = 0.0

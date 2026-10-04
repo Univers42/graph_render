@@ -59,14 +59,17 @@ One reason, and it is measurable. `layout.basic3d.spiral` and `layout.bipartite_
 the 3-D dispatcher's `scale = 5.0` (`SciGraphs/core/scigraphs_core/mesh/layouts/dispatcher.py:14`),
 so their coordinates run to about +/-5, where the 2-D arms run to +/-1 — and the snapshot's
 `f32` floor is **relative**, not absolute. 2.384e-7 is 2^-22 and 1.192e-7 is 2^-23: the `f32`
-spacing at that magnitude and nothing else. The 2-D arms measure 2.980e-8 at +/-1, which is
-the same figure scaled down by the same five.
+half-ulp and quarter-ulp at that magnitude and nothing else. The 2-D arms measure 2.980e-8 at
++/-1, which is the same figure scaled down by the same five.
 
-The cross-check is that **1e-6 is the ceiling `oracle-basic-3d` already carried** for these same
-two ids over these same 1000 seeds: `crates/graph-core/src/registry/three_d/spiral3d.rs:19`
-records worst 2.384e-7 against a 1e-6 ceiling. Two independent harness paths, one figure, so
-the number belongs to the layout rather than to this arm's oracle. The shared constant is
-`CEILING_3D_COORDS` (`oracle_python/closed_form.rs:62`).
+**The cross-check covers the spiral half only.** `oracle-basic-3d` (`oracle_python/basic_3d.rs`)
+runs sphere, helix, cube and `spiral`, and measures `spiral` at 2.384e-7 against this same 1e-6
+over the same 1000 seeds — `crates/graph-core/src/registry/three_d/spiral3d.rs:19` records it —
+so for `layout.basic3d.spiral` there are two independent harness paths and one figure, and the
+number belongs to the layout rather than to this arm's oracle. `layout.bipartite_3d` is **not**
+in that differential: it is a `scigraphs-conformance` row, byte-compared over the conformance
+fixtures. Its half of the ceiling rests on the `f32` argument above and on its own measurement
+alone. The shared constant is `CEILING_3D_COORDS` (`oracle_python/closed_form.rs:67`).
 
 **t4a's numbers for these two rows do not reproduce here, and the reason is a scale, not a
 regression.** t4a recorded 2.9802e-8 and 2.9798e-8 — the 2-D magnitudes. Its
@@ -86,15 +89,26 @@ seed**. The arm therefore compares the DISTRIBUTION: per axis, the error in the 
 (`harness/oracle-closed-form.py:131`, `:151-152`). That is what `random_3d_gap` scores and what
 `CEILING_3D_RANDOM = 0.5` (`oracle_python/closed_form.rs:81`) bounds.
 
-**The floor is the smallest graph in the sweep, not our arithmetic.** The measured worst
-0.30300 happens at `n = 2`, where the expected `|sample mean - 1/2|` for two uniform draws is
-0.204 — the same order, and 0.5 is the furthest a two-point sample can reach. The figure falls
-as `1/sqrt(n)` (0.0384 over the cases with `n >= 100`), which is the signature of sampling
-noise rather than of a skewed stream. Hence 0.5: one significant figure above the measured
-worst, so the row still bites on a stream that drifts.
+**The ceiling cannot turn this row red on its own, and that is a measurement, not a worry.**
+For any data in `[0, 1)` the sample mean is in `[0, 1)` so `|mean - 1/2| < 0.5`, and the sample
+variance is in `[0, 1/4]` so `|var - 1/12| <= 0.167`; the metric's worst is bounded by 0.5 for
+*every possible input*, which is the ceiling. An all-zeros z column scores exactly 0.5 and
+**passes**. That is the same shape of defect this job found in the LOBPCG start block — one
+column of the block left all zero by a silently truncated table — so it is the one that had to
+be caught here, and it is caught by two **exact** assertions in `random_3d_gap` rather than by
+the ceiling: a uniform draw of `n >= 2` points spans its axis, and does not repeat another
+axis, both with probability zero under `rand(n, 3)`. What is left to the number is sampling
+noise, whose floor is the smallest graph in the sweep: the measured worst 0.30300 happens at
+`n = 2`, where the standard deviation of the sample mean is `1/sqrt(24) = 0.204` and the
+expected absolute deviation is `1/6 = 0.167`. The figure falls as `1/sqrt(n)` (0.0384 over the
+cases with `n >= 100`), the signature of sampling noise rather than of a skewed stream. Hence
+0.5: the measured worst rounded up to the next half. **The residual gap, stated rather than
+papered over: a stream that is uniform but wrong in a way that keeps its range and its
+independence — uniform on a sub-interval, drawn in the wrong order — still passes.**
 
 `layout::random::run_seeded` is the **other** arm and does compare coordinates — off the ported
-MT19937 at the layout seed 981798123 (`layout/random.rs:98-100`). It is deliberately a separate
+MT19937 at the layout seed 981798123 (`layout/random/tests.rs:13-20` pins the six IEEE-754
+words it draws). It is deliberately a separate
 entry point and not this id, so this id's registered snapshot does not move when either changes.
 That is stated on the arm itself (`layout/random.rs:56-66`) and on the metadata row
 (`registry/three_d/random3d.rs:42-64`).
@@ -126,8 +140,8 @@ fix seed 255 solves and the differential passes. Two unit tests assert the prope
 in `crates/graph-core/src/linalg/lobpcg/tests.rs`: `every_start_column_is_filled_at_every_block_width`
 (`:60`) and `the_start_block_of_every_2d_run_is_unchanged` (`:84`).
 
-The gate row that holds this in place is `spectral3d-above-dense-limit` in
-`scripts/orch/rows/p12-3d.rows`, with `spectral2d-at-the-same-seed` as its 2-D control.
+The gate rows that hold this in place are `spectral3d-above-dense-limit` and its control
+`spectral3d-differs-from-2d` in `scripts/orch/rows/p12-3d.rows`.
 
 ## What was deliberately not ported
 
