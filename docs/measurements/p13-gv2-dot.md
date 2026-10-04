@@ -250,6 +250,68 @@ the edge pairs), **a second run of the same network simplex with `LR_balance`**,
 `remove_aux_edges`, and the frame. The second simplex is a call through `simplex::Params`, not a
 copy, which is what `Params` was split into `top_bottom()` and `left_right()` for.
 
+## What the pass costs, and the 1757 s that was not the pass
+
+**The reviewer's hypothesis was wrong and the measurement says so: `fdeb` is not the cost.**
+`fdeb::run` over `layout.dag.dot`'s geometry on `fixtures/post/hairball.json` (42 nodes, 178
+edges) takes **3.1 ms** in debug and survives 158 pairs. The layout alone takes 2.81 s in debug
+after the fix below and 1758 s before it.
+
+The cost was the pass's own **x-coordinate simplex**, and specifically the `#[cfg(test)]`
+invariant re-derivation that `rank2` runs after **every pivot**
+(`dot/simplex/checks.rs`). The rank pass checks a 42-node graph; the position pass checks the
+*auxiliary* graph, and the auxiliary graph carries one chain dummy per rank an input edge spans,
+so the hairball arrives as **3860 nodes and 8170 edges** (1864 after `class2`, 1996 slack nodes
+from `make_edge_pairs`, 1824 rank constraints and 3992 pair edges). `check_cut_values` was
+`O(n * (n + m))` per call — one depth-first walk of the tree and one sweep of every edge *per
+tree edge* — so it cost about **1.2 s per pivot** over ~1550 pivots.
+
+Measured per step, debug, after the fix:
+
+| step | before | after |
+|---|---|---|
+| `rank` | 1.14 ms | 0.33 ms |
+| `mincross` | 318.8 ms | 237.9 ms |
+| `Rows::of` | — | 0.29 ms |
+| `ycoords::run` | — | 0.06 ms |
+| `aux::build` | — | 1.27 ms |
+| **`simplex::rank2` (the x pass)** | **1757.76 s** | **2.55 s** |
+| `xcoords::run` | — | 0.02 ms |
+| `frame::run` | — | 0.02 ms |
+| **position total** | **1757.76 s** | **2.57 s** |
+| `dot` total | 1758.08 s | 2.81 s |
+
+`graph-cli snapshot --seed 0 --nodes 42 --layout layout.dag.dot`, release, three runs: **0.02 s
+of user CPU** each (0.27–0.30 s wall, which is the cargo wrapper). So the whole 1757 s was the
+test-only check and the shipped library was never slow — which is also why the reviewer saw it
+in a test binary and not in a gate row.
+
+**The fix, and why it is not a weakened assertion.** `check_cut_values` now derives every tree
+edge's cut value from **one** pre-order walk of the tree and one reverse pass, instead of one
+per edge: the cut value is the outgoing weight of the subtree at the edge's *deeper* endpoint
+less the incoming weight there, negated when that endpoint is the edge's head. That negation is
+`x_val`'s `dir` and it is the one thing that makes the identity exact — dropping it is what made
+the first attempt of this fix disagree on half the test suite. The number is the same one the
+per-edge loop summed (an interior edge adds its weight to both totals and cancels, a leaving
+edge adds, an entering edge subtracts, and an interior tree edge's own cut value telescopes into
+the same sum), and it is still a **from-scratch** recomputation: it reads only the tree's shape
+and the edge weights, never the incremental cut values the pass maintains. Every assertion stands,
+the cost is `O(n + m)` per check, and all 59 `dot::` tests pass unchanged — including the 1000-seed
+rank and order sweeps, which are the two things that would catch a wrong cut value.
+
+The graph size is *not* the bug and was not touched: Graphviz builds the same dummies, and the
+reference has no per-pivot check to slow down.
+
+### The two timings the reviewer asked for
+
+| measurement | before | after |
+|---|---|---|
+| `cargo test -p graph-core --lib fdeb_surviving_pairs` | **1335 s** (reviewer's measurement, /proc utime, one test thread) | **5.32 s** wall / 0.02 s user (`test result: ok. 1 passed`) |
+| `cargo test -p graph-core --test geometry_invariants` | develop: 697.76 s, 53 tests | **291.99 s** wall / **291.67 s** test time, **56 tests** |
+
+`geometry_invariants` benefits from the same fix, because it runs every registered layout and
+`layout.dag.dot` is one of them.
+
 ## The line the reference hides in a macro
 
 `allocate_aux_edges` (`position.c:201-217`) looks like a capacity hint and is not one.
