@@ -26,6 +26,7 @@ As built, 2026-10-04 (`packages/graph-studio/src/host/contract.ts`). The draft's
 interface GraphStudioHost {
   readonly hostApi: 2;                                   // bumped on a breaking change only
   loadGraph(doc: object): Promise<LoadResult>;           // replaces the whole graph
+  loadColumns(rows: ColumnRowsLike): Promise<LoadResult>; // the host's own columnar document
   focusNode(id: string): Promise<boolean>;               // centres and selects; false: no node has this exact id
   selectNodes(ids: readonly string[]): Promise<boolean>; // [] clears; false: an id is unknown, nothing changes
   readonly selectedIds: readonly string[];
@@ -40,6 +41,10 @@ type LoadResult = { nodes: number; edges: number; notes: readonly string[] };  /
 - `loadGraph` serialises the object and runs the normaliser behind the `fixtures` attribute and the
   paste action (`source/ingest.ts`), so it refuses what they refuse, with the same typed error. It
   resolves when the new graph's frame is set (verdict 7).
+- `loadColumns` takes the host's own columnar document (`docs/contract/ingest-columns.md`) and is
+  detected with `"loadColumns" in el`, as every addition here is. The rows are assembled in the
+  worker, so the host page never imports the motor's SDK. `ColumnRowsLike` is exported from the one
+  file a host imports (`packages/graph-studio/src/element.ts`). Its own clause is condition 7.
 - `focusNode` and `selectNodes` answer with a promise, and it settles when the command has run; the
   camera still animates. It takes no options: the draft's `select` and `zoom` had no caller, and an
   options argument can be added later without a break. `hostApi` is 2 for this: at 1 both answered
@@ -141,6 +146,31 @@ disagree, the condition wins.
    - The rejection's `name` equals `graph-error.detail.error`, which equals `ShownError.code`.
    - The byte cap is the motor's `IngestTooLarge` at 1 GiB (`crates/graph-wasm/src/ingest.rs:76`).
    - Row `studio-embed`: two overlapping loads give one `graph-load` and one `CancelledError`.
+   - **`loadColumns`.** Every clause above it, kept: it resolves on `setFrame`; a superseded call
+     rejects `CancelledError` and emits no `graph-load` **across both verbs** — a `loadColumns` that
+     overtakes a `loadGraph` rejects the loser, and the other way round, because the token is the
+     studio's own generation and not the verb's; a call while disconnected rejects at once with
+     `InvalidStateError`; `notes` is the bounded `firstOf` list, which is `[]` on this path; and
+     **nothing is persisted**, because the columns source carries the same `host: true` marker
+     `loadGraph`'s does and `state/persist.ts` reads. `hostApi` stays `2`; hosts detect it with
+     `"loadColumns" in el`.
+   - **Its cap is the motor's `MAX_INGEST_BYTES`, 1,073,741,824, refused as `IngestTooLarge`**
+     (`crates/graph-core/src/ingest.rs:77`) — **not** `loadGraph`'s `MAX_DOCUMENT_CHARS` of 2^28,
+     because this path writes no JSON string. A host that applies 2^28 to columns and 1 GiB to a
+     document is wrong in both directions.
+   - **A refusal names the class, not the code.** The rejection's `name` is `ColumnsRefusedError`
+     (`crates/graph-sdk-js/src/errors.ts:86`), the sibling of `BuildRefusedError`; the ABI code
+     behind it is `ColumnsInvalid`, and that is what the one `graph-error` carries in
+     `detail.error`. `loadGraph` names a refusal by its wire code instead, so on this verb the two
+     are deliberately not the same string, as they are for `loadGraph`.
+   - A refused *field* — `rows` that is not an object, a column that is not the typed array
+     `ColumnRowsLike` names, a cell array that is not a whole number of rows, or an `f64` column
+     whose length is not the count `ingest-columns.md:19-21` states — rejects with a `TypeError`
+     naming that field, before anything is dispatched and with no `graph-error`, exactly as a
+     non-object does for `loadGraph`.
+   - Caveat: the typed arrays reach the worker by structured clone — `Port.send` carries no
+     transfer list — so the page holds the columns and the worker's copy of them at once, and a
+     transfer would have detached the very arrays `Document.nodes` is built from.
 8. **`applyDeltas` is outside the v1 promise.** It landed with P4c (`packages/graph-studio/src/element.ts:104`,
    `host/contract.ts:88`); the batch, its refusals and the ABI under it are `docs/contract/delta.md`, and
    the measurement is `docs/measurements/perf-p4c-studio.md`. Hosts feature-test with `"applyDeltas" in el`.

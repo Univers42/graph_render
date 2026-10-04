@@ -3,9 +3,7 @@
  * checks what the host passed, then goes through the registry like a click or a typed command,
  * so arguments are refused in one place and every call is in the log.
  */
-import { distinctIds, nodesWithIds } from "../actions/nodes.ts";
-import { offerColumns } from "../actions/nodes.ts";
-import type { ColumnRowsLike } from "../source/synthetic-columns.ts";
+import { distinctIds, nodesWithIds, offerColumns } from "../actions/nodes.ts";
 import type { LogEntry } from "../state/model.ts";
 import { firstOf } from "../studio/pipeline.ts";
 import type { Studio } from "../studio/studio.ts";
@@ -15,7 +13,9 @@ import { emit } from "./events.ts";
 
 export interface HostVerbs {
   loadGraph(doc: unknown): Promise<LoadResult>;
-  loadColumns(rows: ColumnRowsLike): Promise<LoadResult>;
+  /** `unknown`, as `loadGraph` is: the verb checks it and the contract narrows what a host may
+   *  pass (`host/contract.ts`, `loadColumns(rows: ColumnRowsLike)`). */
+  loadColumns(rows: unknown): Promise<LoadResult>;
   focusNode(id: unknown): Promise<boolean>;
   selectNodes(ids: unknown): Promise<boolean>;
   selectedIds(): readonly string[];

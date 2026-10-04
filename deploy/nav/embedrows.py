@@ -82,6 +82,44 @@ def row_host_load(health, fixture):
                        f"state `{shown['state']}`; first graph-load {judge.short(told)}", passed)
 
 
+# A columnar document the motor must refuse: both node rows carry the id 0, and the refusal is that
+# repeated id alone — `index_columns` refuses a duplicate rather than merging the two rows, so nothing
+# else in the document is at fault (`docs/contract/ingest-columns.md`, the refusal table). The cells
+# are one `u32` column per field at `2 * r + column` for the two rows, in the contract's order: id,
+# kind, database, source, label, group, icon, has_note. `absent` is `u32::MAX`, the mark of a column
+# the rows leave out.
+COLUMNS_REFUSED = """
+const start = window.__embed.heard.length;
+const absent = 0xffffffff; const ids = [0, 0]; const kind = [1, 1]; const source = [2, 2];
+const nodeCells = new Uint32Array(16);
+for (let r = 0; r < 2; r += 1) {
+  nodeCells[r] = ids[r]; nodeCells[2 + r] = kind[r]; nodeCells[4 + r] = absent; nodeCells[6 + r] = source[r];
+  nodeCells[8 + r] = ids[r]; nodeCells[10 + r] = absent; nodeCells[12 + r] = absent; nodeCells[14 + r] = 0;
+}
+const rows = { strings: ["a", "record", "file"], nodeCells, edgeCells: new Uint32Array(0), weights: new Float64Array([0.5, 0.5]), versions: new Float64Array([0, 0]), strengths: new Float64Array(0) };
+let name = 'resolved';
+try { await el.loadColumns(rows); } catch (error) { name = error instanceof Error ? error.name : String(error); }
+await new Promise((done) => setTimeout(done, 300));
+return { name, errors: window.__embed.heard.slice(start).filter((h) => h.type === 'graph-error').map((h) => h.detail), hint: el.studio && el.studio.store.get().error ? el.studio.store.get().error.hint : null };
+"""
+
+
+def step_columns_refused(page, ctx):
+    """The refused columnar load: the class name, the ABI code behind it, and the studio's own hint."""
+    name = "embed-columns-refused"
+    expectation = ("loadColumns on a two-row columnar document whose node id is repeated rejects as "
+                   "ColumnsRefusedError, the one graph-error `document` hears says `code 32 (ColumnsInvalid)`, "
+                   "and the studio's own error carries a hint that is not the default one")
+    refused = embedpage.on_element(page, COLUMNS_REFUSED)
+    errors, hint = refused["errors"], refused["hint"]
+    passed = (refused["name"] == "ColumnsRefusedError" and len(errors) == 1
+              and errors[0]["error"] == "code 32 (ColumnsInvalid)"
+              and isinstance(hint, str) and "Unexpected studio error" not in hint)
+    measured = judge.short(f"rejected as {json.dumps(refused['name'])}; graph-error {json.dumps(errors)}; "
+                           f"hint {json.dumps(hint)}", 400)
+    return [verdict.row(name, expectation, measured, passed)]
+
+
 def step_pick(page, ctx):
     """The node nearest the centre that a pointer can reach now; re-run after a panel opens."""
     ctx["point"] = page.evaluate(embedpage.NODE_POINT)
