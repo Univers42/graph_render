@@ -185,7 +185,7 @@ fn every_seed_is_reported_before_it_is_worked() {
         assert_eq!(line, &progress_line(i as u32, 5));
         assert!(line.contains(&format!("seed {i}/5")), "{line}");
         assert!(
-            line.contains(&format!("nodes {}", super::gate_node_count(i as u32))),
+            line.contains(&format!("nodes {}", graph_core::gate_node_count(i as u32))),
             "{line}"
         );
     }
