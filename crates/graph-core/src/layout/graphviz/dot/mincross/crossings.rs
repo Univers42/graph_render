@@ -107,6 +107,19 @@ pub fn rank_rows(g: &Fast) -> Vec<Vec<u32>> {
     }
     rows
 }
+/// Every real node's rank, the chain dummies dropped.
+///
+/// The dummies exist only because a long edge needs a node on each rank it crosses, so a
+/// row read after the chains are built has more nodes in it than the drawing has; this is
+/// the same list the rank pass alone produces, which is what makes the two comparable.
+pub fn real_ranks(g: &Fast) -> Vec<i32> {
+    g.nodes
+        .iter()
+        .filter(|node| node.kind == Kind::Normal)
+        .map(|node| node.rank)
+        .collect()
+}
+
 /// Every rank's **real** nodes in their current order, the chain dummies dropped.
 ///
 /// This is the same thing the oracle's own order column holds — the plain format prints no

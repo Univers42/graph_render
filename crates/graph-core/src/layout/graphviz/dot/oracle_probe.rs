@@ -219,7 +219,7 @@ fn order_agreement_over_1000_seeds() {
     for row in &rows {
         let count = u32::try_from(row.ranks.len()).expect("a node count fits u32");
         let g = ranked_and_ordered(count, &row.edges);
-        if ranks_of(&g) != row.ranks {
+        if crossings::real_ranks(&g) != row.ranks {
             continue;
         }
         same_ranks += 1;

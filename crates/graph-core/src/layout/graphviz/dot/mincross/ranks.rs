@@ -81,7 +81,8 @@ pub fn row_of(g: &Fast, node: u32) -> usize {
 
 impl Ranks {
     /// Size every row for the whole graph: one slot per node on the rank, one per edge that
-    /// spans it (which is where the chain dummies go), and one spare.
+    /// spans it (which is where the chain dummies go), and one spare. Every row starts
+    /// empty, which is the state the first walk begins from.
     ///
     /// The count is over the *input* edges, which is what the reference walks — a merged
     /// multi-edge spans the ranks its twin does without needing slots of its own, so the
@@ -96,17 +97,29 @@ impl Ranks {
                 span_counts(g, &g.edges[edge as usize], &mut counts);
             }
         }
-        let rows = (0..=max + 1)
+        let mut rows: Vec<Row> = (0..=max)
             .map(|r| Row {
                 av: vec![NONE; counts[r] as usize + 1],
                 v0: 0,
-                n: counts[r] + 1,
+                n: 0,
                 an: counts[r] + 1,
                 cache_nc: 0,
                 valid: false,
                 candidate: false,
             })
             .collect();
+        // The row past the last rank is empty, not a spare slot: the reference allocates it
+        // with the array and never fills it in, and the transverse pass reads its count of
+        // zero to find out that the band below the top rank is empty.
+        rows.push(Row {
+            av: Vec::new(),
+            v0: 0,
+            n: 0,
+            an: 0,
+            cache_nc: 0,
+            valid: false,
+            candidate: false,
+        });
         Self { rows, max, nlist: Vec::new(), scratch: Vec::new() }
     }
 

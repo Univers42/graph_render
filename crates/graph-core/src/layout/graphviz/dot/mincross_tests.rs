@@ -77,16 +77,19 @@ fn an_even_number_of_neighbours_averages_the_two_middle_values() {
     assert_eq!(mval(&g, 4), 384.0);
 }
 
-/// **The even case where the weights differ.** Four neighbours numbered 0, 1, 2 and 5: the
-/// gap above the middle is three times the gap below it, so the answer is pulled a third of
-/// the way from the lower middle towards the upper one — 320, not the 384 an unweighted
-/// average would give. This is the one place the pass leaves integer arithmetic, and it is
-/// why the values are scaled first.
+/// **The even case where the weights differ.** Six nodes on the rank above and two below:
+/// `n6` takes four of the six as in-edges, numbered 0, 1, 2 and 5. The gap above the middle
+/// of its values is three times the gap below, so the answer is pulled a third of the way
+/// from the lower middle towards the upper one — 320, not the 384 an unweighted average
+/// gives. This is the one place the pass leaves integer arithmetic, and it is why the values
+/// are scaled before they are divided.
 #[test]
 fn an_uneven_gap_pulls_the_even_median_towards_the_nearer_end() {
-    let (mut g, mut ranks) = staged(6, &[(0, 5), (1, 5), (2, 5), (3, 5)], &[0, 1, 2, 3, 4, 5]);
-    assert!(!median::medians(&mut g, &mut ranks, 1, 0), "the node has four edges");
-    assert_eq!(mval(&g, 5), 320.0);
+    let edges = [(0, 6), (1, 6), (2, 6), (5, 6), (3, 7), (4, 7)];
+    let (mut g, mut ranks) = staged(8, &edges, &[0, 1, 2, 3, 4, 5, 6, 7]);
+    assert!(!median::medians(&mut g, &mut ranks, 1, 0), "both nodes have in-edges");
+    assert_eq!(mval(&g, 6), 320.0, "four neighbours, unevenly spaced");
+    assert_eq!(mval(&g, 7), 896.0, "two neighbours: their plain average");
 }
 
 /// **A node with no edge has no opinion**, and says so with -1 — which is below every real
