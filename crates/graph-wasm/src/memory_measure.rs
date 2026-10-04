@@ -30,6 +30,8 @@
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 
+mod ingest_peak;
+
 struct Counting;
 
 // Signed: a thread that frees a block another thread allocated goes below its base.

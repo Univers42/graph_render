@@ -53,15 +53,19 @@ function hoverTo(deps: WatchDeps, seen: Seen, id: string | null): void {
   deps.previews.want("hover", id);
 }
 
-/** A new graph: nothing asked about the last one is kept, and the pointer is over nothing yet. */
-function newGraph(deps: WatchDeps, seen: Seen, state: StudioState): void {
+/**
+ * A new graph: nothing asked about the last one is kept, and the pointer is over nothing yet.
+ *
+ * WHY the reset goes through the frame and not straight to `hoverTo`: a host that swaps the
+ * graph and moves the pointer inside one frame would otherwise hear two `node-hover` (verdict
+ * 10). The pointer is over nothing, so `seen.node` is -1 and a frame already waiting for the
+ * hover announces the reset rather than the node the pointer left.
+ */
+function newGraph(deps: WatchDeps, seen: Seen, frames: FrameScheduler, state: StudioState): void {
   seen.graph = state.graph;
   seen.awaited = { meta: state.meta };
-  seen.cancelFrame?.();
-  seen.cancelFrame = null;
-  seen.node = -1;
   deps.previews.clear();
-  hoverTo(deps, seen, null);
+  hovered(deps, seen, frames, -1);
 }
 
 function loaded(deps: WatchDeps, seen: Seen, state: StudioState): void {
@@ -85,9 +89,9 @@ function failed(deps: WatchDeps, seen: Seen, state: StudioState): void {
   if (state.error !== null) emit(deps.host, "graph-error", { error: wireError(state.error), message: state.error.detail });
 }
 
-function changed(deps: WatchDeps, seen: Seen): void {
+function changed(deps: WatchDeps, seen: Seen, frames: FrameScheduler): void {
   const state = deps.store.get();
-  if (state.graph !== seen.graph) newGraph(deps, seen, state);
+  if (state.graph !== seen.graph) newGraph(deps, seen, frames, state);
   loaded(deps, seen, state);
   selected(deps, seen, state);
   failed(deps, seen, state);
@@ -113,7 +117,7 @@ export function watchHost(deps: WatchDeps): () => void {
     graph: state.graph, awaited: null, announced: idsOf(state), error: state.error, hovered: null, node: -1, cancelFrame: null,
   };
   const frames = deps.frames ?? frameScheduler();
-  const unsubscribe = deps.store.subscribe(() => changed(deps, seen));
+  const unsubscribe = deps.store.subscribe(() => changed(deps, seen, frames));
   const unhover = deps.view.on("hover", (node) => hovered(deps, seen, frames, node));
   return () => {
     unsubscribe();

@@ -1,25 +1,30 @@
 //! One node or edge element, read out of the document's own text.
 //!
 //! The reader this replaces took the element as a `canonical_json::Value` and moved each
-//! string out of it; this one takes the element's text and reads its members in place. The
-//! two agree member for member: every key is checked against the shape *before* any member
-//! is read (so a stray `hasNote` is a loud refusal, not a dropped extra), `kind` is read
-//! before any other member, the rest are read in field order whatever order the document
-//! wrote them in, and an edge's optional `child_first` is read last.
+//! string out of it; this one has the element's members located in place, by the walk that
+//! reads the array they sit in ([`table::Element`]). The two agree member for member: every
+//! key is checked against the shape *before* any member is read (so a stray `hasNote` is a
+//! loud refusal, not a dropped extra), `kind` is read before any other member, the rest are
+//! read in field order whatever order the document wrote them in, and an edge's optional
+//! `child_first` is read last.
 //!
-//! A record's members land in a fixed-size `[Option<Span>; 10]` on the stack — one pass over
-//! the element, nothing allocated per member — and are still *read* in the fixed order
-//! afterwards, which is what makes a node with two bad members refuse for the same one a
-//! reader that built a `Value` refused for.
+//! A record's members land in a fixed-size table on the stack — nothing allocated per
+//! member — and are still *read* in the fixed order afterwards, which is what makes a node
+//! with two bad members refuse for the same one a reader that built a `Value` refused for.
+//! The table holds each string member's own text as well as its span, because the walk has
+//! just read those bytes: lexing them again per field was among the largest costs the walk
+//! could give away (`docs/measurements/perf-p4d-extend.md`).
 
+use super::IngestError;
 use super::at::At;
-use super::scan::{Scan, Span, Text};
-use super::{IngestError, shape};
-use graph_core::{EdgeKind, EdgeRecord, NodeKind, NodeRecord};
+use graph_core::{EdgeRecord, NodeRecord};
 
-/// Field names `node` requires, exactly. Module-level rather than a `let` inside the
+mod table;
+pub(in crate::ingest) use table::Element;
+
+/// Field names a node record has, exactly. Module-level rather than a `let` inside the
 /// function (house limit: the array was most of what pushed it past 40 lines).
-const NODE_FIELDS: [&str; 10] = [
+pub(super) const NODE_FIELDS: [&str; 10] = [
     "id",
     "kind",
     "database_id",
@@ -32,7 +37,7 @@ const NODE_FIELDS: [&str; 10] = [
     "icon",
 ];
 
-const EDGE_FIELDS: [&str; 9] = [
+pub(super) const EDGE_FIELDS: [&str; 9] = [
     "id",
     "source",
     "target",
@@ -49,7 +54,7 @@ const EDGE_FIELDS: [&str; 9] = [
 /// the same place — `id`, `label` and `child_first`'s neighbour `kind` do not line up, which
 /// is why `kind` has one constant per shape: it is 1 in a node and 3 in an edge, and both
 /// are read before any other member.
-mod field {
+pub(super) mod field {
     pub(super) const ID: usize = 0;
 
     // A node: id, kind, database_id, source, label, group, weight, version, has_note, icon.
@@ -74,212 +79,60 @@ mod field {
     pub(super) const CHILD_FIRST: usize = 8;
 }
 
-/// The widest record, so one stack array serves both shapes.
-const WIDEST: usize = NODE_FIELDS.len();
+/// The record shape [`read_all`](super::read_all) reads one list with: the members it
+/// names, and the record those members make.
+pub(super) trait Shape: Sized {
+    /// The members this shape names, in the order they are read.
+    const FIELDS: &'static [&'static str];
 
-/// The node element written in `text`, or the refusal naming `at`.
-pub(super) fn node(text: &str, at: At) -> Result<NodeRecord, IngestError> {
-    let mut element = Element::read(text, &NODE_FIELDS, at)?;
-    // `kind` first, exactly as the reader that built a `Value` read it: a node naming no
-    // known kind is refused before any other member of it is looked at.
-    let kind = element.node_kind(at)?;
-    Ok(NodeRecord {
-        id: element.string(field::ID, "id")?,
-        kind,
-        database_id: element.opt_string(field::DATABASE_ID, "database_id")?,
-        source: element.string(field::NODE_SOURCE, "source")?,
-        label: element.string(field::NODE_LABEL, "label")?,
-        group: element.opt_string(field::GROUP, "group")?,
-        weight: element.number(field::WEIGHT, "weight")?,
-        version: element.number(field::VERSION, "version")?,
-        has_note: element.boolean(field::HAS_NOTE, "has_note")?,
-        icon: element.opt_string(field::ICON, "icon")?,
-    })
+    /// The record the members located in `element` make, or the refusal naming `at`.
+    fn read(element: &mut Element<'_>, at: At) -> Result<Self, IngestError>;
 }
 
-/// The edge element written in `text`, or the refusal naming `at`.
-pub(super) fn edge(text: &str, at: At) -> Result<EdgeRecord, IngestError> {
-    let mut element = Element::read(text, &EDGE_FIELDS, at)?;
-    let kind = element.edge_kind(at)?;
-    Ok(EdgeRecord {
-        id: element.string(field::ID, "id")?,
-        source: element.string(field::EDGE_SOURCE, "source")?,
-        target: element.string(field::EDGE_TARGET, "target")?,
-        kind,
-        label: element.string(field::EDGE_LABEL, "label")?,
-        strength: element.number(field::STRENGTH, "strength")?,
-        directed: element.boolean(field::DIRECTED, "directed")?,
-        record_id: element.opt_string(field::RECORD_ID, "record_id")?,
-        // Optional, and read last in field position: an edge written before p3's hierarchy
-        // direction reads as parent-first, the same default as `graph-cli`'s
-        // `oracle_fixtures/wire.rs`. An edge with both a bad `directed` and a bad
-        // `child_first` is refused for `directed`.
-        child_first: match element.written(field::CHILD_FIRST) {
-            true => element.boolean(field::CHILD_FIRST, "child_first")?,
-            false => false,
-        },
-    })
-}
+impl Shape for NodeRecord {
+    const FIELDS: &'static [&'static str] = &NODE_FIELDS;
 
-/// One record's members, held as spans and read on demand.
-///
-/// # Precondition
-///
-/// `text` is one whole object value that a [`Scan`] has already validated: it comes from
-/// [`Scan::elements`](super::scan::Scan::elements), so it is well-formed and complete.
-/// Every refusal here is therefore a *shape* fault — a member the shape does not name, one
-/// that is missing, or one of the wrong type — never a syntax fault.
-struct Element<'a> {
-    text: &'a str,
-    spans: [Option<Span>; WIDEST],
-    at: At,
-}
-
-impl<'a> Element<'a> {
-    /// Every member of the object written in `text`, checked against `fields` in document
-    /// order. A member the shape does not name is refused here, before any member is read.
-    fn read(text: &'a str, fields: &[&'static str], at: At) -> Result<Self, IngestError> {
-        let mut element = Self {
-            text,
-            spans: [None; WIDEST],
-            at,
-        };
-        let Self { spans, .. } = &mut element;
-        let mut scan = Scan::new(text);
-        scan.members(&mut |key, span| {
-            let field = fields
-                .iter()
-                .position(|name| *name == key.as_str())
-                .ok_or_else(|| shape(at, &format!("unknown member `{}`", key.as_str())))?;
-            spans[field] = Some(span);
-            Ok(())
-        })?;
-        Ok(element)
-    }
-
-    /// Where field `field` is, or the refusal a member that is not there gets.
-    fn span(&self, field: usize, name: &'static str) -> Result<Span, IngestError> {
-        self.spans[field].ok_or_else(|| shape(self.at, &format!("missing member `{name}`")))
-    }
-
-    /// [`Self::span`] for a member that may be absent: whether it is there.
-    fn written(&self, field: usize) -> bool {
-        self.spans[field].is_some()
-    }
-
-    /// The text of `span`, or `None` if the span does not fit the element — which the walk
-    /// that produced it cannot produce, and which is refused rather than sliced.
-    fn slice(&self, span: Span) -> Option<&'a str> {
-        let (from, to) = span.bounds()?;
-        self.text.get(from..to)
-    }
-
-    /// The member at `span` read as a string, or `Ok(None)` when it is a member of any other
-    /// type — which is a refusal the caller words, because a member that may be absent and a
-    /// member that must be a string do not name the same fault.
-    ///
-    /// A walk that refuses here is reported, not swallowed: the text was validated by
-    /// [`Document::new`](super::scan::Document::new), so this cannot happen, and turning it
-    /// into "expected a string" would dress a bug up as a well-formed refusal.
-    fn quoted(&self, span: Span) -> Result<Option<Text<'a>>, IngestError> {
-        if !self.slice(span).is_some_and(|text| text.starts_with('"')) {
-            return Ok(None);
-        }
-        let mut scan = Scan::new(self.text);
-        let (text, _) = scan
-            .string(span.start as usize)
-            .map_err(IngestError::Json)?;
-        Ok(Some(text))
-    }
-
-    /// The member at `span` as a string, refusing a member of any other type at
-    /// `at.field(name)`.
-    fn text_at(&self, span: Span, name: &'static str) -> Result<Text<'a>, IngestError> {
-        self.quoted(span)?
-            .ok_or_else(|| shape(self.at.field(name), "expected a string"))
-    }
-
-    /// Whether the member at `span` is the literal `null`.
-    fn is_null(&self, span: Span) -> bool {
-        self.slice(span) == Some("null")
-    }
-
-    /// Field `field` as a string.
-    fn string(&mut self, field: usize, name: &'static str) -> Result<String, IngestError> {
-        let span = self.span(field, name)?;
-        self.text_at(span, name).map(Text::into_string)
-    }
-
-    /// Field `field` as a string or an explicit `null`.
-    fn opt_string(
-        &mut self,
-        field: usize,
-        name: &'static str,
-    ) -> Result<Option<String>, IngestError> {
-        let span = self.span(field, name)?;
-        if self.is_null(span) {
-            return Ok(None);
-        }
-        // Worded here rather than through `text_at`: a member that may be absent refuses a
-        // wrong type by naming both the types it accepts, which is not what a member that
-        // must be a string says.
-        self.quoted(span)?
-            .map(Text::into_string)
-            .map(Some)
-            .ok_or_else(|| shape(self.at.field(name), "expected a string or null"))
-    }
-
-    /// Field `field` as a boolean.
-    fn boolean(&mut self, field: usize, name: &'static str) -> Result<bool, IngestError> {
-        let at = self.at.field(name);
-        match self.slice(self.span(field, name)?) {
-            Some("true") => Ok(true),
-            Some("false") => Ok(false),
-            _ => Err(shape(at, "expected a boolean")),
-        }
-    }
-
-    /// Field `field` as a finite `f64` (D9). The text is the document's own, so the JSON
-    /// grammar has already had its say; what is left is an exponent large enough to
-    /// overflow, which parses as `inf` and must still be refused here.
-    fn number(&mut self, field: usize, name: &'static str) -> Result<f64, IngestError> {
-        let span = self.span(field, name)?;
-        let at = self.at.field(name);
-        let text = self
-            .slice(span)
-            .ok_or_else(|| shape(at, "not a valid number"))?;
-        if !matches!(text.as_bytes().first(), Some(b'-' | b'0'..=b'9')) {
-            return Err(shape(at, "not a valid number"));
-        }
-        let value: f64 = text.parse().map_err(|_| shape(at, "not a valid number"))?;
-        if !value.is_finite() {
-            return Err(shape(at, "not finite"));
-        }
-        Ok(value)
-    }
-
-    /// `kind`, read before every other member and refused by name when it names no kind
-    /// this build knows.
-    fn node_kind(&mut self, at: At) -> Result<NodeKind, IngestError> {
-        let span = self.span(field::NODE_KIND, "kind")?;
-        let name = self.text_at(span, "kind")?;
-        NodeKind::from_name(name.as_str()).ok_or_else(|| {
-            shape(
-                at.field("kind"),
-                &format!("unknown node kind {:?}", name.as_str()),
-            )
+    fn read(element: &mut Element<'_>, at: At) -> Result<Self, IngestError> {
+        // `kind` first, exactly as the reader that built a `Value` read it: a node naming
+        // no known kind is refused before any other member of it is looked at.
+        let kind = element.node_kind(at)?;
+        Ok(NodeRecord {
+            id: element.string(field::ID, "id")?,
+            kind,
+            database_id: element.opt_string(field::DATABASE_ID, "database_id")?,
+            source: element.string(field::NODE_SOURCE, "source")?,
+            label: element.string(field::NODE_LABEL, "label")?,
+            group: element.opt_string(field::GROUP, "group")?,
+            weight: element.number(field::WEIGHT, "weight")?,
+            version: element.number(field::VERSION, "version")?,
+            has_note: element.boolean(field::HAS_NOTE, "has_note")?,
+            icon: element.opt_string(field::ICON, "icon")?,
         })
     }
+}
 
-    /// [`Self::node_kind`] for an edge.
-    fn edge_kind(&mut self, at: At) -> Result<EdgeKind, IngestError> {
-        let span = self.span(field::EDGE_KIND, "kind")?;
-        let name = self.text_at(span, "kind")?;
-        EdgeKind::from_name(name.as_str()).ok_or_else(|| {
-            shape(
-                at.field("kind"),
-                &format!("unknown edge kind {:?}", name.as_str()),
-            )
+impl Shape for EdgeRecord {
+    const FIELDS: &'static [&'static str] = &EDGE_FIELDS;
+
+    fn read(element: &mut Element<'_>, at: At) -> Result<Self, IngestError> {
+        let kind = element.edge_kind(at)?;
+        Ok(EdgeRecord {
+            id: element.string(field::ID, "id")?,
+            source: element.string(field::EDGE_SOURCE, "source")?,
+            target: element.string(field::EDGE_TARGET, "target")?,
+            kind,
+            label: element.string(field::EDGE_LABEL, "label")?,
+            strength: element.number(field::STRENGTH, "strength")?,
+            directed: element.boolean(field::DIRECTED, "directed")?,
+            record_id: element.opt_string(field::RECORD_ID, "record_id")?,
+            // Optional, and read last in field position: an edge written before p3's
+            // hierarchy direction reads as parent-first, the same default as `graph-cli`'s
+            // `oracle_fixtures/wire.rs`. An edge with both a bad `directed` and a bad
+            // `child_first` is refused for `directed`.
+            child_first: match element.written(field::CHILD_FIRST) {
+                true => element.boolean(field::CHILD_FIRST, "child_first")?,
+                false => false,
+            },
         })
     }
 }
