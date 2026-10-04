@@ -15,5 +15,5 @@ mod wiring;
 pub(crate) use setting::{Setting, env_setting};
 
 mod kind;
-pub use kind::Knob;
 pub(super) use arms::stage_of;
+pub use kind::Knob;

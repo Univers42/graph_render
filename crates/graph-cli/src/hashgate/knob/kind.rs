@@ -1,7 +1,7 @@
 #[cfg(doc)]
-use super::Setting;
-#[cfg(doc)]
 use super::super::knobs;
+#[cfg(doc)]
+use super::Setting;
 #[cfg(doc)]
 use super::compute;
 #[cfg(doc)]
@@ -150,7 +150,7 @@ pub enum Knob {
     ///
     /// **The control for the schema itself.** Every other parameter knob moves a value
     /// the layout would have been given anyway; this one runs
-    /// [`FruchtermanReingold::ID`](crate::layout::force::FruchtermanReingold)'s stage
+    /// [`FruchtermanReingold::ID`](graph_core::layout::force::FruchtermanReingold)'s stage
     /// through `Capability::run_params` at a buffer whose value at one index is one more
     /// than the default the registry publishes, so the drawing is the published default
     /// plus one. The wasm arm cannot see it: it sends `params_len == 0`, which is the
