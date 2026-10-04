@@ -13,7 +13,8 @@
 //! the same `Box` so an insert cannot move an already-handed-out pointer, the same
 //! `0`-is-not-an-id rule — and a second table with those four properties copied into it
 //! would be four properties free to drift. [`Handles`] is this module's own table over
-//! [`Handle`], and [`crate::session`] holds the same table over a `ForceSession`.
+//! [`Handle`], and [`crate::session`] holds the same table over a `ForceSession` and the
+//! graph it was created over.
 
 use crate::errors::Code;
 use graph_contract::binary::Snapshot;
@@ -21,11 +22,13 @@ use graph_core::Geometry;
 use graph_core::Topology;
 use std::collections::BTreeMap;
 
-/// One built graph: its topology (fixed at `gm_build`), and the last successful
-/// [`gm_run`](crate::exports::gm_run)'s geometry, cleared on a failed run (C4).
+/// One built graph: its topology (built by `gm_build`, appended to by each
+/// `gm_graph_extend`), and the last successful [`gm_run`](crate::exports::gm_run)'s
+/// geometry, cleared on a failed run and on an appended batch (C4).
 #[derive(Default)]
 pub struct Handle {
-    /// The ingested, indexed graph. Never replaced after `gm_build`.
+    /// The ingested, indexed graph. Never replaced after `gm_build`; `gm_graph_extend`
+    /// appends to it in place, so every row and edge index it had keeps its meaning.
     pub topology: Topology,
     /// The last run's geometry, or `None` before the first successful run, or right
     /// after a run that failed.

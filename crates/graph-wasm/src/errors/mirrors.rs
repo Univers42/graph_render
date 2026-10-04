@@ -1,7 +1,8 @@
 //! The wire's codes and its revision are written in three places that ship together:
-//! `Code` and `ABI_VERSION` here, the Errors table in `docs/contract/wasm-abi.md`, and the
-//! SDK's `CODE_NAMES` and `ABI_VERSION`. A code added to one and not the others is a
-//! caller reading a refusal under the wrong name, or under none.
+//! `Code`, `Code::name` and `ABI_VERSION` here, the Errors table in
+//! `docs/contract/wasm-abi.md`, and the SDK's `CODE_NAMES` and `ABI_VERSION`. A code
+//! added to one and not the others is a caller reading a refusal under the wrong name, or
+//! under none.
 //!
 //! Ponytail: a text scan, not a Markdown or TypeScript parser. Failing input: a
 //! `CODE_NAMES` written with single quotes, or an Errors row not shaped
@@ -14,7 +15,7 @@ const ABI_DOC: &str = include_str!("../../../../docs/contract/wasm-abi.md");
 const SDK_ERRORS: &str = include_str!("../../../graph-sdk-js/src/errors.ts");
 const SDK_WASM: &str = include_str!("../../../graph-sdk-js/src/wasm.ts");
 
-const ALL: [Code; 23] = [
+const ALL: [Code; 24] = [
     Code::None,
     Code::InvalidHandle,
     Code::AllocFailed,
@@ -38,6 +39,7 @@ const ALL: [Code; 23] = [
     Code::ParamOutOfRange,
     Code::ParamsMalformed,
     Code::ParamsNotAccepted,
+    Code::ColumnsInvalid,
 ];
 
 /// The `Name` cell of each `| value | \`Name\` |` row of the doc's Errors section.
@@ -66,9 +68,14 @@ fn sdk_names() -> Vec<&'static str> {
 
 #[test]
 fn every_code_has_one_name_in_the_doc_and_in_the_sdk_in_wire_order() {
-    let names: Vec<String> = ALL.iter().map(|code| format!("{code:?}")).collect();
+    let names: Vec<&str> = ALL.iter().map(Code::name).collect();
     for (value, code) in ALL.iter().enumerate() {
         assert_eq!(*code as usize, value, "{code:?} is not at its wire value");
+        assert_eq!(
+            code.name(),
+            format!("{code:?}"),
+            "`Code::name` is not the variant's"
+        );
     }
     assert_eq!(documented_names(), names, "wasm-abi.md's Errors table");
     assert_eq!(sdk_names(), names, "graph-sdk-js CODE_NAMES");

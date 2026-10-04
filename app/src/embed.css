@@ -1,0 +1,7 @@
+/* The embed example's own chrome (app/embed.html). The studio is styled inside its shadow root. */
+html, body { margin: 0; height: 100%; background: #f4f4f6; color: #1b1b1f; font: 14px/1.4 system-ui, sans-serif; }
+.host-bar {
+  box-sizing: border-box; height: 48px; display: flex; align-items: center; gap: 16px;
+  padding: 0 16px; border-bottom: 1px solid #d0d0d6;
+}
+#frame { position: absolute; top: 48px; left: 0; right: 0; bottom: 0; }

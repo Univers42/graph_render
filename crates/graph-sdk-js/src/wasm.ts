@@ -23,6 +23,7 @@ export interface RawExports {
   gm_layout_params(i: number): number;
   gm_build(ingestPtr: number, ingestLen: number): number;
   gm_build_contract(contractPtr: number, contractLen: number): number;
+  gm_build_columns(columnsPtr: number, columnsLen: number): number;
   gm_run(handle: number, layoutId: number, paramsPtr: number, paramsLen: number): number;
   gm_node_count(handle: number): number;
   gm_geometry_kind(handle: number): number;
@@ -42,6 +43,7 @@ export interface RawExports {
   gm_last_error(): number;
   gm_force_session_create(graph: number, paramsPtr: number, paramsLen: number): number;
   gm_force_session_create_mesh(graph: number, paramsPtr: number, paramsLen: number): number;
+  gm_force_session_create_warm(graph: number, paramsPtr: number, paramsLen: number, engine: number): number;
   gm_force_session_set_params(session: number, paramsPtr: number, paramsLen: number): number;
   gm_force_session_params(session: number): number;
   gm_force_session_tick(session: number, ticks: number): number;
@@ -53,6 +55,8 @@ export interface RawExports {
   gm_force_session_column_ptr(session: number, axis: number): number;
   gm_force_session_column_len(session: number, axis: number): number;
   gm_force_session_release(session: number): number;
+  gm_graph_extend(graph: number, ptr: number, len: number): number;
+  gm_force_session_grow(session: number, graph: number): number;
 }
 
 /** Every name in [`RawExports`], checked at load: the compiler keeps this object's keys equal to
@@ -61,16 +65,18 @@ export interface RawExports {
 const EXPORT_NAMES: { readonly [K in keyof RawExports]: true } = {
   memory: true, gm_abi_version: true, gm_alloc: true, gm_free: true, gm_layout_count: true,
   gm_layout_id: true, gm_layout_params: true,
-  gm_build: true, gm_build_contract: true, gm_run: true, gm_node_count: true,
+  gm_build: true, gm_build_contract: true, gm_build_columns: true, gm_run: true, gm_node_count: true,
   gm_geometry_kind: true, gm_edge_geometry_kind: true, gm_dim: true, gm_column_ptr: true,
   gm_column_len: true, gm_snapshot_json: true, gm_snapshot_bytes: true, gm_post_count: true,
   gm_post_id: true, gm_post_run: true, gm_analysis_count: true, gm_analysis_id: true,
   gm_analysis_run: true, gm_release: true, gm_last_error: true,
-  gm_force_session_create: true, gm_force_session_create_mesh: true, gm_force_session_set_params: true,
+  gm_force_session_create: true, gm_force_session_create_mesh: true,
+  gm_force_session_create_warm: true, gm_force_session_set_params: true,
   gm_force_session_params: true, gm_force_session_tick: true, gm_force_session_alpha: true,
   gm_force_session_reheat: true, gm_force_session_pin: true, gm_force_session_unpin: true,
   gm_force_session_unpin_all: true, gm_force_session_column_ptr: true,
   gm_force_session_column_len: true, gm_force_session_release: true,
+  gm_graph_extend: true, gm_force_session_grow: true,
 };
 
 /** The ABI revision this SDK speaks: `gm_abi_version()` must return exactly this

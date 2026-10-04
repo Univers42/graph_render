@@ -1,0 +1,16 @@
+# The SDK's remote client (`crates/graph-sdk-js/src/remote.ts`, `docs/contract/service-api.md`
+# "Gates"): `svc-sdk` runs the remote tests against a fake service that serves the real wasm
+# build's bytes, and the snapshot reader's tests on the contract's pinned bytes.
+# Run: scripts/orch/gate.sh <logdir> scripts/orch/rows/sdk-remote.rows
+#
+# The parity cases load the release wasm, so it is built first. Each control breaks one input
+# by `GM_SDK_REMOTE_BREAK` and passes only when the run fails for that reason: a red run
+# that fails anywhere else (a missing build, a decode error) turns the control red too.
+# - negctl-svc-sdk: the fake answers 429 with a renamed `error` (verdict C6). Exactly one test
+#   fails, the 429 case, on its typed name.
+# - negctl-svc-sdk-key: the parity cases present a key the fake does not hold. Only parity
+#   tests fail, each on the typed 401.
+wasm-release|0|scripts/orch/gr cargo build -p graph-wasm --release --target wasm32-unknown-unknown
+svc-sdk|0|scripts/orch/node-slim.sh node --test --experimental-strip-types crates/graph-sdk-js/test/remote.test.mjs crates/graph-sdk-js/test/snapshot.test.mjs
+negctl-svc-sdk|0|scripts/orch/node-slim.sh bash -c 'out=$(env GM_SDK_REMOTE_BREAK=rename-name node --test --test-reporter=tap --experimental-strip-types crates/graph-sdk-js/test/remote.test.mjs 2>&1); rc=$?; printf "%s\n" "$out"; test $rc -ne 0 && grep -qx "# fail 1" <<<"$out" && grep -q "429 names Busy" <<<"$out"'
+negctl-svc-sdk-key|0|scripts/orch/node-slim.sh bash -c 'out=$(env GM_SDK_REMOTE_BREAK=wrong-key node --test --test-reporter=tap --experimental-strip-types crates/graph-sdk-js/test/remote.test.mjs 2>&1); rc=$?; printf "%s\n" "$out"; test $rc -ne 0 && grep -q "HTTP 401 Unauthorized" <<<"$out" && ! grep "^not ok" <<<"$out" | grep -qv "decodes to the wasm Motor"'

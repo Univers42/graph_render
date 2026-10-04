@@ -6,12 +6,14 @@
 #[cfg(test)]
 mod tests;
 
+mod solve;
+mod start;
+
 use crate::budget;
 use crate::index::Topology;
 use crate::layout::Geometry;
 use crate::layout::force::{SimpleGraph, simple_graph};
 use crate::stage::{Stage, StageError};
-use graph_contract::geometry::{EdgeGeometry, NodeGeometry};
 
 /// Parameters SciGraphs leaves at igraph's defaults.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -22,6 +24,9 @@ pub struct KkParams {
     pub epsilon: f64,
     /// Spring strength constant; `None` means `n`.
     pub kkconst: Option<f64>,
+    /// How many coordinates every node carries: `2`, or `3` for
+    /// `layout.force.kamada_kawai.3d` — one kernel, the dimension a parameter.
+    pub dim: usize,
 }
 
 impl Default for KkParams {
@@ -30,9 +35,14 @@ impl Default for KkParams {
             maxiter: None,
             epsilon: 0.0,
             kkconst: None,
+            dim: 2,
         }
     }
 }
+
+/// The widest point this port keeps; see
+/// [`super::fruchterman_reingold::MAX_DIM`].
+const MAX_DIM: usize = 3;
 
 /// Node count past which the O(n^2) matrices and 50 n^2 moves are no longer usable.
 pub const KK_CEILING: u64 = 2_000;
@@ -48,41 +58,55 @@ const KK_EPS: f64 = 1e-13;
 /// port takes every distance as 1 instead, so it draws a regular polygon-like cloud.
 pub struct KamadaKawai;
 
+/// SciGraphs' `IGRAPH_KK` asks igraph for `dim = 3` (`igraph_layouts.py:99`); this is the
+/// same kernel at 3.
+pub const ID_3D: &str = "layout.force.kamada_kawai.3d";
+
 impl Stage for KamadaKawai {
     type Params = KkParams;
     const ID: &'static str = "layout.force.kamada_kawai";
 
     fn run(topology: &Topology, params: &Self::Params) -> Result<Geometry, StageError> {
-        let n = topology.node_count() as usize;
-        let mut pos = circle_start(n);
-        if n > 1 {
-            budget::quadratic(budget::square(n as u64), 8)?;
-            let springs = Springs::new(&simple_graph(topology), n, params);
-            descend(&mut pos, &springs, params);
-        }
-        if pos.iter().flatten().any(|v| !v.is_finite()) {
-            return Err(StageError::NonFinite { column: "node.x" });
-        }
-        Ok(Geometry::planar(
-            NodeGeometry::Point {
-                x: pos.iter().map(|p| p[0] as f32).collect(),
-                y: pos.iter().map(|p| p[1] as f32).collect(),
-            },
-            EdgeGeometry::Line,
-            Vec::new(),
-        ))
+        run_at_dim(topology, params, params.dim)
     }
 }
 
-/// Vertices on a circle of radius `0.36 * sqrt(n)` (the spec's empirical start radius).
-fn circle_start(n: usize) -> Vec<[f64; 2]> {
-    let radius = 0.36 * f64::sqrt(n as f64);
-    (0..n)
-        .map(|i| {
-            let angle = 2.0 * core::f64::consts::PI * i as f64 / n as f64;
-            [radius * libm::cos(angle), radius * libm::sin(angle)]
-        })
-        .collect()
+/// The 3D arm: [`Stage::run`] with `dim` forced to 3. See
+/// [`super::fruchterman_reingold::run_3d`] for why it is a function and not a second
+/// `Stage` impl.
+pub fn run_3d(topology: &Topology, params: &KkParams) -> Result<Geometry, StageError> {
+    run_at_dim(topology, params, MAX_DIM)
+}
+
+fn run_at_dim(topology: &Topology, params: &KkParams, dim: usize) -> Result<Geometry, StageError> {
+    if !(2..=MAX_DIM).contains(&dim) {
+        return Err(StageError::Param {
+            name: "dim",
+            rule: "2 or 3 coordinates per node",
+        });
+    }
+    let n = topology.node_count() as usize;
+    let mut pos = start::circle_start(n, dim);
+    if n > 1 {
+        budget::quadratic(budget::square(n as u64), 8)?;
+        let springs = Springs::new(&simple_graph(topology), n, params);
+        descend(&mut pos, &springs, params, dim);
+    }
+    if pos.iter().flatten().take(dim).any(|v| !v.is_finite()) {
+        return Err(StageError::NonFinite { column: "node.x" });
+    }
+    let column = |a: usize| pos.iter().map(|p| p[a] as f32).collect();
+    Ok(Geometry::points(dim, column(0), column(1), column(2)))
+}
+
+/// `sum of squares` over the live axes, ascending — the same order the 2D arm summed
+/// `dx*dx + dy*dy` in, so the 2D bits do not move.
+fn norm2(v: &[f64; MAX_DIM], dim: usize) -> f64 {
+    let mut sum = 0.0;
+    for x in v.iter().take(dim) {
+        sum += x * x;
+    }
+    sum
 }
 
 /// Hop distances and the two per-pair constants derived from them.
@@ -151,74 +175,117 @@ fn all_pairs_hops(graph: &SimpleGraph, n: usize) -> Vec<f64> {
 
 /// Gradient contribution on `m` of its spring to `i`; a coincident pair contributes its
 /// pure stretch term only (the direction is undefined, D9).
-fn pull(pos: &[[f64; 2]], springs: &Springs, m: usize, i: usize) -> [f64; 2] {
+fn pull(
+    pos: &[[f64; MAX_DIM]],
+    springs: &Springs,
+    m: usize,
+    i: usize,
+    dim: usize,
+) -> [f64; MAX_DIM] {
     let (k, l) = springs.spring(m, i);
-    let delta = [pos[m][0] - pos[i][0], pos[m][1] - pos[i][1]];
-    let r = f64::sqrt(delta[0] * delta[0] + delta[1] * delta[1]);
+    let mut delta = [0.0; MAX_DIM];
+    for a in 0..dim {
+        delta[a] = pos[m][a] - pos[i][a];
+    }
+    let r = f64::sqrt(norm2(&delta, dim));
     let shrink = if r > 0.0 { l / r } else { 0.0 };
-    [
-        k * (delta[0] - shrink * delta[0]),
-        k * (delta[1] - shrink * delta[1]),
-    ]
+    let mut out = [0.0; MAX_DIM];
+    for a in 0..dim {
+        out[a] = k * (delta[a] - shrink * delta[a]);
+    }
+    out
 }
 
-fn full_gradient(pos: &[[f64; 2]], springs: &Springs, m: usize) -> [f64; 2] {
-    let mut g = [0.0; 2];
+fn full_gradient(
+    pos: &[[f64; MAX_DIM]],
+    springs: &Springs,
+    m: usize,
+    dim: usize,
+) -> [f64; MAX_DIM] {
+    let mut g = [0.0; MAX_DIM];
     for i in (0..springs.n).filter(|&i| i != m) {
-        let p = pull(pos, springs, m, i);
-        g = [g[0] + p[0], g[1] + p[1]];
+        let p = pull(pos, springs, m, i, dim);
+        for a in 0..dim {
+            g[a] += p[a];
+        }
     }
     g
 }
 
 /// The Newton step `H^-1 g` for vertex `m` alone; zero at equilibrium or a singular block.
-fn newton_step(pos: &[[f64; 2]], springs: &Springs, m: usize, g: [f64; 2]) -> [f64; 2] {
-    if g[0] * g[0] + g[1] * g[1] < KK_EPS * KK_EPS {
-        return [0.0; 2];
+///
+/// `h` is the symmetric `dim x dim` Hessian, upper triangle only (`h[a][b]`, `a <= b`),
+/// accumulated in ascending spring order so the sum is the same one the 2D arm always
+/// made. Solving it is the one place the two dimensions genuinely differ: at 2 the
+/// adjugate is two terms, at 3 it is nine, so [`solve`] carries both rather than
+/// pretending one formula covers both.
+fn newton_step(
+    pos: &[[f64; MAX_DIM]],
+    springs: &Springs,
+    m: usize,
+    g: [f64; MAX_DIM],
+    dim: usize,
+) -> [f64; MAX_DIM] {
+    if norm2(&g, dim) < KK_EPS * KK_EPS {
+        return [0.0; MAX_DIM];
     }
-    let (mut a, mut b, mut c) = (0.0, 0.0, 0.0);
+    let mut h = [[0.0; MAX_DIM]; MAX_DIM];
     for i in (0..springs.n).filter(|&i| i != m) {
         let (k, l) = springs.spring(m, i);
-        let (dx, dy) = (pos[m][0] - pos[i][0], pos[m][1] - pos[i][1]);
-        let r = f64::sqrt(dx * dx + dy * dy);
+        let mut delta = [0.0; MAX_DIM];
+        for a in 0..dim {
+            delta[a] = pos[m][a] - pos[i][a];
+        }
+        let r = f64::sqrt(norm2(&delta, dim));
         if r == 0.0 {
-            (a, c) = (a + k, c + k);
+            // A coincident pair contributes its pure stretch term: `k` on the diagonal,
+            // nothing off it, the 2D arm's own `(a, c) = (a + k, c + k)`.
+            for d in h.iter_mut().take(dim) {
+                d[0] += k;
+            }
             continue;
         }
         let r3 = r * r * r;
-        a += k * (1.0 - l * dy * dy / r3);
-        c += k * (1.0 - l * dx * dx / r3);
-        b += k * l * dx * dy / r3;
+        for a in 0..dim {
+            h[a][a] += k * (1.0 - l * delta[a] * delta[a] / r3);
+            for b in (a + 1)..dim {
+                h[a][b] += k * l * delta[a] * delta[b] / r3;
+            }
+        }
     }
-    let det = a * c - b * b;
-    if det == 0.0 || !det.is_finite() {
-        return [0.0; 2];
-    }
-    [(c * g[0] - b * g[1]) / det, (a * g[1] - b * g[0]) / det]
+    solve::solve(&h, &g, dim)
 }
 
-fn descend(pos: &mut [[f64; 2]], springs: &Springs, params: &KkParams) {
+fn descend(pos: &mut [[f64; MAX_DIM]], springs: &Springs, params: &KkParams, dim: usize) {
     let n = springs.n;
-    let mut grad: Vec<[f64; 2]> = (0..n).map(|m| full_gradient(pos, springs, m)).collect();
+    let mut grad: Vec<[f64; MAX_DIM]> = (0..n)
+        .map(|m| full_gradient(pos, springs, m, dim))
+        .collect();
     let maxiter = params.maxiter.unwrap_or(50 * n as u32);
     for _ in 0..maxiter {
         let (m, worst) = grad.iter().enumerate().fold((0, -1.0), |best, (i, g)| {
-            let norm = g[0] * g[0] + g[1] * g[1];
+            let norm = norm2(g, dim);
             if norm > best.1 { (i, norm) } else { best }
         });
         if worst < params.epsilon {
             break;
         }
-        let step = newton_step(pos, springs, m, grad[m]);
+        let step = newton_step(pos, springs, m, grad[m], dim);
         for i in (0..n).filter(|&i| i != m) {
-            let old = pull(pos, springs, i, m);
-            grad[i] = [grad[i][0] - old[0], grad[i][1] - old[1]];
+            let old = pull(pos, springs, i, m, dim);
+            for a in 0..dim {
+                grad[i][a] -= old[a];
+            }
         }
-        pos[m] = [pos[m][0] - step[0], pos[m][1] - step[1]];
+        for a in 0..dim {
+            pos[m][a] -= step[a];
+        }
         for i in (0..n).filter(|&i| i != m) {
-            let new = pull(pos, springs, i, m);
-            grad[i] = [grad[i][0] + new[0], grad[i][1] + new[1]];
+            let new = pull(pos, springs, i, m, dim);
+            for a in 0..dim {
+                grad[i][a] += new[a];
+            }
         }
-        grad[m] = full_gradient(pos, springs, m);
+        grad[m] = full_gradient(pos, springs, m, dim);
     }
 }

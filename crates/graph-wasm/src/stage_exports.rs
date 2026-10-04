@@ -10,6 +10,7 @@ use crate::analysis;
 use crate::errors::Code;
 use crate::handle::Handles;
 use crate::post;
+use crate::service;
 use graph_contract::binary::Snapshot;
 
 #[cfg(test)]
@@ -48,11 +49,9 @@ pub fn post_run(handles: &mut Handles, handle: u32, post_index: u32) -> Result<&
     };
     // The snapshot itself is `crate::post::snapshot`, the same call the hash gate's native
     // arm makes: one byte path for both arms, so a POST stage's divergence is about wasm32
-    // and not about two writers of the same face (see `hashgate/stages.rs`).
-    let Some(ran) = post::snapshot(post_index, &entry.topology, geometry) else {
-        return Err(Code::IndexOutOfRange);
-    };
-    let snapshot = ran.map_err(|_| Code::PostFailed)?;
+    // and not about two writers of the same face (see `hashgate/stages.rs`). Through
+    // `service::post_pass`, the call the native service makes too.
+    let snapshot = service::post_pass(&entry.topology, geometry, post_index)?;
     Ok(entry.snapshot.insert(snapshot))
 }
 

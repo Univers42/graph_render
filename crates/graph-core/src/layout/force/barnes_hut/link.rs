@@ -28,10 +28,11 @@ use crate::rng::jiggle;
 const PASS_X: u32 = 0;
 const PASS_Y: u32 = 1;
 
-/// Each simple edge's fixed `(distance, strength, bias)` (`forceLayout.ts:206-207`):
-/// the topology never changes across ticks, so neither do these — but the *parameters*
-/// can, mid-run, so this is recomputed whenever they are replaced
-/// ([`Sim::set_params`]).
+/// Each simple edge's `(distance, strength, bias)` (`forceLayout.ts:206-207`): a tick
+/// never changes the topology, so a tick never changes these. Two calls between ticks do:
+/// replaced *parameters* recompute every edge's ([`Sim::set_params`]), and a growth
+/// (`ForceSession::grow`, after `Topology::extend`) appends the new edges' and recomputes
+/// those of the edges whose endpoints' degrees moved ([`edge_geometry`]).
 pub(super) fn geometry(graph: &SimpleGraph, params: &LiveParams) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
     let m = graph.lo.len();
     let (mut distance, mut strength, mut bias) = (
@@ -40,16 +41,31 @@ pub(super) fn geometry(graph: &SimpleGraph, params: &LiveParams) -> (Vec<f64>, V
         Vec::with_capacity(m),
     );
     for e in 0..m {
-        let s = graph.strength[e];
-        distance.push(params.link_distance / f64::max(0.4, s));
-        strength.push(f64::min(0.7, params.link_strength_scale * s));
-        let (dlo, dhi) = (
-            f64::from(graph.degree(graph.lo[e])),
-            f64::from(graph.degree(graph.hi[e])),
-        );
-        bias.push(dlo / (dlo + dhi));
+        let (d, s, b) = edge_geometry(graph, params, e);
+        distance.push(d);
+        strength.push(s);
+        bias.push(b);
     }
     (distance, strength, bias)
+}
+
+/// Simple edge `e`'s `(distance, strength, bias)` under `params` and `graph`'s current
+/// degrees: the one formula [`geometry`] and a session that grows in place both use.
+pub(in crate::layout::force) fn edge_geometry(
+    graph: &SimpleGraph,
+    params: &LiveParams,
+    e: usize,
+) -> (f64, f64, f64) {
+    let s = graph.strength[e];
+    let (dlo, dhi) = (
+        f64::from(graph.degree(graph.lo[e])),
+        f64::from(graph.degree(graph.hi[e])),
+    );
+    (
+        params.link_distance / f64::max(0.4, s),
+        f64::min(0.7, params.link_strength_scale * s),
+        dlo / (dlo + dhi),
+    )
 }
 
 /// One Jacobi pass over every simple edge (`link.js`'s own `iterations` defaults to,

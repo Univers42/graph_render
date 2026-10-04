@@ -211,7 +211,7 @@ Procrustes-aligned over it**, so a green point sitting on a grey point is a node
 | 10 | `IGRAPH_DRL_2D` | `layout.force.drl` | `apply_graph_layout` | `bitwise` | 340/1020 | 340/1020 | 9.25e+18 | 50.4 | 0.514 | 0.971 | `rng` | different shape (the same motor layout as `IGRAPH_DRL`, run without its z) |
 | 11 | `IGRAPH_LGL` | `layout.force.lgl` | `apply_graph_layout` | `bitwise` | 340/1020 | 340/1020 | 9.24e+18 | 33.1 | 0.611 | 0.81 | `rng` | different shape |
 | 12 | `SPHERE` | `layout.basic3d.sphere` | `apply_graph_layout` | `tolerance` | 111/1020 | 1020/1020 | 2.68e+08 | 2.38e-07 | 4.63e-16 | 9.66e-16 | `arithmetic` | **same shape** — the green ring sits on the grey ring, node for node |
-| 13 | `SPECTRAL_3D` | `layout.spectral` | `apply_graph_layout` | `shape` | 1/1020 | 1/1020 | 9.22e+18 | 5.95 | 0.333 | 0.807 | `algorithm` | different shape: grey is a vertical line, green a small cluster at one end — and **both arms start from the origin with no RNG**, so this is the algorithm |
+| 13 | `SPECTRAL_3D` | `layout.spectral3d` | `apply_graph_layout` | `bitwise` | 13/1020 | 676/1020 | 9.23e+18 | 10 | 4.67e-16 | 0.587 | `convention` | **same shape** on 16 of the 23 measured fixtures — green sits on grey node for node; the row used to name `layout.spectral`, the two-column port of this same kernel, which drew a plane against a volume (repair 9). The 7 that stay apart each have a repeated Laplacian eigenvalue inside the three asked for (`bipartite` ×7, `gate-06` ×3, `gate-07` ×5, `gate-08` ×4, `gate-09` ×4, `gate-10` ×5, `gate-11` ×5), so a rotation inside that eigenspace is a legal answer |
 | 14 | `SPIRAL_3D` | `layout.basic3d.spiral` | `apply_graph_layout` | `tolerance` | 120/1020 | 1020/1020 | 2.68e+08 | 2.35e-07 | 3.34e-16 | 5.59e-16 | `arithmetic` | **same shape** — green covers grey node for node on 22 of 24 fixtures |
 | 15 | `HELIX` | `layout.basic3d.helix` | `apply_graph_layout` | `tolerance` | 327/1020 | 1020/1020 | 2.67e+08 | 1.51e-07 | 1.37e-16 | 4.16e-16 | `arithmetic` | **same shape**, mirrored on 4 of the 22 fitted fixtures |
 | 16 | `CUBE` | `layout.basic3d.cube` | `apply_graph_layout` | `tolerance` | 501/1020 | 1020/1020 | 2.68e+08 | 1.19e-07 | 5.72e-17 | 3.29e-16 | `arithmetic` | **same shape** — corners and interior alike; the 501/1020 `f64` are the `3*min(n, 8)` corner coordinates of every one of the 24 fixtures, all of them `±5.0` or `0.0` and so `f32`-representable |
@@ -219,7 +219,7 @@ Procrustes-aligned over it**, so a green point sitting on a grey point is a node
 | 18 | `BIPARTITE_3D` | `layout.bipartite_3d` | `apply_graph_layout` | `tolerance` | 480/1020 | 1020/1020 | 2.65e+08 | 1.18e-07 | 3.57e-16 | 5.26e-16 | `arithmetic` | **same shape** — the two rings land on the reference's two rings, node for node; the f64 residue is numpy's `cos`/`sin` against `libm`'s |
 | 19 | `IGRAPH_DH` | `layout.force.davidson_harel` | `apply_graph_layout` | `bitwise` | 340/1020 | 340/1020 | 9.24e+18 | 34.7 | 0.767 | 0.99 | `rng` | different shape |
 | 20 | `IGRAPH_GRAPHOPT` | `layout.force.graphopt` | `apply_graph_layout` | `bitwise` | 340/1020 | 340/1020 | 9.26e+18 | 189 | 0.557 | 0.919 | `rng` | different shape |
-| 21 | `MDS_3D` | `layout.mds.pivot` | `apply_graph_layout` | `shape` | 0/1020 | 0/1020 | 9.22e+18 | 5.84 | 0.0783 | 0.541 | `algorithm` | different shape, and the closest of them (median 0.078) |
+| 21 | `MDS_3D` | `layout.mds.pivot3d` | `apply_graph_layout` | `bitwise` | 25/1020 | 903/1020 | 9.23e+18 | 9.73 | 3.11e-16 | 0.256 | `convention` | **same shape** on 19 of the 23 measured fixtures; the row used to name `layout.mds.pivot`, the two-column port, against a three-dimensional reference (repair 9). The 4 that stay apart are the same repeated-eigenvalue fixtures as row 13 |
 | 22 | `YIFAN_HU` | `layout.force.yifan_hu` | `sfdp` via `gv_exact` | `shape` | 340/1020 | 342/1020 | 9.29e+18 | 5.37 | 0.829 | 0.985 | `algorithm` | different shape: the motor is a Barnes-Hut port and the reference is Graphviz sfdp |
 | 23 | `GRAPHVIZ_DOT` | _none_ | `dot` via `gv_exact` | `shape` | not run | not run | not run | not run | not run | not run | `reference-absent` | **not run:** not run: no motor layout for this name |
 | 24 | `GRAPHVIZ_NEATO` | `layout.force.neato` | `neato` via `gv_exact` | `bitwise` | 340/1020 | 340/1020 | 9.26e+18 | 5.59 | 0.424 | 0.95 | `rng` | different shape |
@@ -302,11 +302,17 @@ takes the worst of the three.
 the y coordinates of both arms and differencing them gives 1e-5 of the span; the x coordinates give
 7%. Same rows, different columns — a much smaller repair than "the layouts differ".
 
-**9. `SPECTRAL_3D` and `MDS_3D` have no RNG on either side.** Both graph-core layouts start from
-`vec![0.0; n * DIMS]` (`spectral.rs:245`, `pivot_mds.rs:240`) and both SciGraphs wrappers
-delegate to networkx's eigen-decomposition. So their cause is `algorithm` — the degenerate
-eigenvector's sign and scale are resolved differently — and not the `rng` an earlier reading of
-this table gave them.
+**9. `SPECTRAL_3D` and `MDS_3D` were compared with the wrong motor layout, not with a
+different solver.** Both rows named a two-dimensional id: `layout.spectral` and
+`layout.mds.pivot` port this reference's own kernels at `dims = 2` (the pair
+`harness/oracle-spectral.py` pins), while `SPECTRAL_3D` and `MDS_3D` are
+`_spectral_layout_3d` (`networkx_layouts.py:249-269`) and `_mds_layout_3d` (`:271-291`) —
+**SciGraphs' own code, not a delegation to networkx.** Nothing on either side drew from an
+RNG: both graph-core layouts start from `vec![0.0; n * DIMS]` and so does the reference. The
+whole 0.333 / 0.078 was the motor returning a plane where the reference returns a volume —
+grey a vertical line, green a cluster at one end. Repaired by job `sg-spectral-mds`, which
+registered `layout.spectral3d` and `layout.mds.pivot3d`; the cause is now `convention` at a
+median disparity of 4.7e-16 and 3.1e-16.
 
 **10. `IGRAPH_KK` is not close, and it is deterministic.** igraph's Kamada-Kawai is documented as
 deterministic, so its `rng` cause does not apply; the disparity of 0.812 is a different solver.
@@ -493,12 +499,29 @@ sfdp iteration's force evaluation against Graphviz 16.1.0's `spring_electrical.c
 **Expected:** the disparity falls; whether it reaches `bitwise` is the open question, which is
 why it is not first on this list.
 
-### 9. `SPECTRAL_3D`, `MDS_3D` — `algorithm`, a degenerate eigenvector resolved two ways
-**Files:** `crates/graph-core/src/layout/spectral.rs:241`, `pivot_mds.rs:236`. **Change:** both
-start from the origin and neither draws, so the difference is which eigenvector sign and scale
-each side lands on. Compare one eigenvector's sign convention against networkx's.
-**Expected:** `SPECTRAL_3D` 0.333 and `MDS_3D` 0.078 fall; `MDS_3D` is the closest non-matching row
-in the matrix and the most likely to close.
+### 9. `SPECTRAL_3D`, `MDS_3D` — `convention`, the two-dimensional id against a three-dimensional reference (landed)
+**Files:** `crates/graph-core/src/layout/spectral.rs`, `spectral/{width,pack}.rs`, `pivot_mds.rs`,
+`registry.rs`, `registry/spectral.rs`, `conformance/{rows,motor}.rs`. **Change:** the row named
+`layout.spectral`, whose kernel is this reference's own at `dims = 2`; the reference's
+`SPECTRAL_3D` is `_spectral_layout_3d`, three coordinates, the cubic component lattice and
+`_rescale_positions`. So: a `Width` enum the component kernels take instead of a hard-wired
+`DIMS`, two new registered ids (`layout.spectral3d`, `layout.mds.pivot3d`), and
+`pack_component_blocks_3d` + `rescale_to_scale` as one primitive each. The 2D ids keep every
+byte they had, which is why they are separate ids and not a new default.
+**Measured:** `SPECTRAL_3D` median Procrustes 0.333 → 4.67e-16, `f64` 1/1020 → 13/1020,
+`f32` 1/1020 → 676/1020; `MDS_3D` 0.0783 → 3.11e-16, `f64` 0 → 25, `f32` 0 → 903. Both rows
+are now `bitwise` at a 1e-15 ceiling with cause `convention`.
+**Still apart, and named rather than tuned:** seven fixtures keep a Procrustes above 1e-6 on
+`SPECTRAL_3D` (`bipartite` 0.587, `gate-07` 0.459, `gate-10` 0.561, `gate-06` 0.371,
+`gate-11` 0.203, `gate-08` 0.210, `gate-09` 0.135) and four on `MDS_3D` (`gate-07` 0.256,
+`bipartite` 0.097, `gate-08` 0.036, `gate-06` 1.0e-5). Every one of them has a **repeated
+Laplacian eigenvalue inside the three the 3D row asks for**, so any rotation inside that
+eigenspace is a legal answer and no basis can agree: `bipartite` λ = 6 with multiplicity 7;
+`gate-06` λ = 1 ×3, `gate-07` ×5, `gate-08` ×4, `gate-09` ×4, `gate-10` ×5 (one per pendant
+node), `gate-11` λ₄ = 1 ×5. A second, smaller effect is `_fix_eigenvector_signs`' tie: a
+column whose largest magnitude is attained at two or more indices has its sign decided by the
+solver's last bit, which is why the six-node-path differential compares each column up to its
+own sign (`layout/spectral/tests/three_d.rs`).
 
 ### 10. `SPIRAL_3D` — `algorithm`, and **not** `layout.spiral` (landed)
 **Files:** new `crates/graph-core/src/layout/basic_3d/spiral.rs`, `registry/three_d/spiral3d.rs`,

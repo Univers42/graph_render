@@ -10,7 +10,7 @@ import { serve } from "../src/motor/serve.ts";
 import { fake, lastFrame, mortal, rig } from "./force-rig.ts";
 
 const refuse = (): never => { throw new Error("a force request must not reach the session"); };
-const NO_SESSION: Session = { open: refuse, load: refuse, layout: refuse, analysis: refuse, forces: () => null };
+const NO_SESSION: Session = { open: refuse, load: refuse, layout: refuse, analysis: refuse, structure: refuse, forces: () => null };
 const KNOBS: ForceKnobs = { ...DEFAULT_KNOBS, gravity: 0.5, charge: -100, linkStrengthScale: 1, linkDistance: 40, theta: 1.2 };
 /** What the loop pushes when the session under it is released: no loop, and no session. */
 const STOPPED: Result = { type: "force-state", running: false, disabled: NO_ADAPTER_REASON, paused: false };
@@ -106,6 +106,16 @@ test("params reach the port and reheat; stop unpins and halts", () => {
   assert.equal(out.frames(), before);
 });
 
+test("params reheat to 0.3 by default, and to the heat the request names", () => {
+  const port = fake(0.5);
+  const { host } = rig(port);
+  host.handle({ type: "force.params", knobs: KNOBS });
+  assert.equal(port.alpha, 0.3, "a slider nudges the drawing on screen");
+  host.handle({ type: "force.params", knobs: KNOBS, heat: 1 });
+  assert.equal(port.alpha, 1, "a preset reheats it as hot as a fresh settle, from where it is");
+  assert.ok(!port.calls.includes("shuffle"), "and never restarts it");
+});
+
 test("frames carry copies: the port's buffers are never handed over", () => {
   const port = fake(0.5);
   const { host, out } = rig(port);
@@ -173,6 +183,38 @@ test("force.start throws the nodes back to random positions before it settles ag
   host.handle({ type: "force.start" });
   assert.equal(port.calls[0], "shuffle", "the restart is a shuffle, not a resume");
   assert.ok(port.alpha > 0.9, "and it reheats to the top, so the bar fills again");
+});
+
+test("force.settle runs no tick on a session born cold, and settles a scatter born hot", () => {
+  const port = fake(0.5);
+  const { host, out } = rig(port);
+  const answer = host.handle({ type: "force.settle" });
+  out.tick();
+  assert.deepEqual(port.calls, ["step 0"], "collide and center act at any alpha: a warm picture is not ticked");
+  assert.equal(out.scheduled(), 0);
+  assert.deepEqual(answer, { type: "force-state", running: false, disabled: null, paused: false });
+  const hot = fake(0.5);
+  hot.alpha = 1;
+  const scatter = rig(hot);
+  scatter.host.handle({ type: "force.settle" });
+  for (let i = 0; i < 3; i += 1) scatter.out.tick();
+  assert.ok(!hot.calls.includes("shuffle") && !hot.calls.includes("reheat"), "a settle neither shuffles nor reheats");
+  assert.equal(lastFrame(scatter.out.emitted).running, true, "a scatter born hot settles on screen");
+});
+
+test("a renew stops the loop but leaves the forces enabled, and the next settle runs a new session", () => {
+  const port = fake(0.9);
+  let live: LiveForce = port;
+  const { host, out } = rig(port, { now: 0, perStep: 0 }, 8, () => live);
+  host.handle({ type: "force.drag", id: "a", x: 1, y: 2 });
+  out.tick();
+  const next = fake(0.5);
+  live = next;
+  host.renew();
+  assert.deepEqual(out.emitted.at(-1), { type: "force-state", running: false, disabled: null, paused: false });
+  assert.ok(port.calls.includes("unpin a"), "the pins of the last picture go with it");
+  host.handle({ type: "force.settle" });
+  assert.deepEqual(next.calls, ["step 0"], "the new session is the one asked");
 });
 
 test("a frame already scheduled does not step a session that was released under it", () => {

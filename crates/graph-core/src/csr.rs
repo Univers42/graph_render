@@ -7,6 +7,31 @@
 
 use crate::arena::CapacityError;
 
+mod append;
+pub use append::AppendCsr;
+
+/// The most bytes the `offsets` table of one adjacency may take: 1 GiB, the ceiling
+/// [`crate::budget::QUADRATIC_BYTES_MAX`] puts on a quadratic table. It bounds `rows` at
+/// 2²⁸ − 1, far above every graph the registry admits (the largest bench model is
+/// [`crate::registry::MAX_BENCH_NODES`], 1 000 000).
+///
+/// Ponytail: a request, not a measurement — the check asks whether the table *would* fit
+/// in 1 GiB, never whether this host has 1 GiB free, so the same graph is built or
+/// refused on every machine (D4). Direction: `rows` past the ceiling is a
+/// [`CapacityError`] where it used to be an abort inside the allocator. Escape hatch:
+/// [`AppendCsr`] grows one row at a time and answers to
+/// [`AppendCsr::SAFE_LIVE`] instead, for an adjacency that starts near the ceiling.
+pub(crate) const TABLE_BYTES_MAX: u64 = 1 << 30;
+
+/// `len` `u32` elements, or `None` when the table would pass [`TABLE_BYTES_MAX`]. Counted
+/// in `u64` so a 32-bit `usize` cannot wrap the product, and so the answer is the same on
+/// every target (D6, budget.rs).
+fn table_len(len: u64) -> Option<usize> {
+    len.checked_mul(size_of::<u32>() as u64)
+        .filter(|bytes| *bytes <= TABLE_BYTES_MAX)
+        .map(|bytes| bytes as usize / size_of::<u32>())
+}
+
 /// One adjacency, row `r`'s values being `values[offsets[r]..offsets[r + 1]]`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Csr {
@@ -26,13 +51,16 @@ impl Default for Csr {
 impl Csr {
     /// Builds `rows` rows from `(row, value)` pairs, keeping arrival order within a row.
     /// `pairs` is walked twice (count, then place), so it must yield the same sequence
-    /// both times. A row index `>= rows` is a caller bug and panics.
+    /// both times; a second walk that does not is a caller bug and panics. A row index
+    /// `>= rows` is a caller bug and panics. A `rows` past [`TABLE_BYTES_MAX`] is
+    /// [`CapacityError`], refused before anything is allocated.
     pub fn from_pairs<I>(rows: u32, pairs: I) -> Result<Self, CapacityError>
     where
         I: Iterator<Item = (u32, u32)> + Clone,
     {
         let overflow = CapacityError { what: "adjacency" };
-        let mut offsets = vec![0u32; rows as usize + 1];
+        let width = table_len(u64::from(rows).checked_add(1).ok_or(overflow)?).ok_or(overflow)?;
+        let mut offsets = vec![0u32; width];
         for (row, _) in pairs.clone() {
             assert!(row < rows, "row {row} of {rows}");
             let slot = &mut offsets[row as usize + 1];
@@ -44,12 +72,24 @@ impl Csr {
             *slot = total;
         }
         let mut cursor = offsets.clone();
-        let mut values = vec![0u32; offsets[rows as usize] as usize];
+        let mut values = vec![0u32; table_len(u64::from(total)).ok_or(overflow)?];
+        let mut placed = 0usize;
         for (row, value) in pairs {
+            let end = offsets[row as usize + 1];
             let at = &mut cursor[row as usize];
+            assert!(
+                *at < end && placed < values.len(),
+                "a different sequence on the second pass"
+            );
             values[*at as usize] = value;
             *at += 1;
+            placed += 1;
         }
+        assert_eq!(
+            placed,
+            values.len(),
+            "a different sequence on the second pass"
+        );
         Ok(Self { offsets, values })
     }
 
@@ -90,7 +130,21 @@ pub struct Incident<'a> {
 
 impl<'a> Incident<'a> {
     /// Merges `out` and `inbound`, each ascending.
+    ///
+    /// # Precondition
+    ///
+    /// Both rows ascending. [`Csr::from_pairs`] keeps *arrival* order within a row
+    /// (`csr.rs:3-6`), so a row built from unsorted pairs is **not** ascending and the
+    /// merge below is not a merge: it emits the two rows interleaved by first element, in
+    /// no order at all. [`Topology`](crate::Topology) never hands such a row over — its
+    /// out/inbound tables are filled by ascending edge index (`index.rs`) — so a
+    /// violation is a caller bug, caught in a debug build rather than answered with
+    /// silently wrong incident lists.
     pub fn merge(out: &'a [u32], inbound: &'a [u32]) -> Self {
+        debug_assert!(
+            out.is_sorted() && inbound.is_sorted(),
+            "Incident::merge needs ascending rows"
+        );
         Self { out, inbound }
     }
 }
@@ -168,5 +222,37 @@ mod tests {
     #[should_panic(expected = "row 2 of 2")]
     fn a_row_out_of_range_panics() {
         build(2, &[(2, 0)]);
+    }
+
+    #[test]
+    fn a_row_count_past_the_u32_index_space_is_the_capacity_error() {
+        let refused = Csr::from_pairs(u32::MAX, std::iter::empty());
+        assert_eq!(refused, Err(CapacityError { what: "adjacency" }));
+    }
+
+    /// Yields `(0, 7)` once across all its clones: the counting walk sees one pair, the
+    /// placing walk none.
+    #[derive(Clone)]
+    struct Once(std::rc::Rc<std::cell::Cell<bool>>);
+
+    impl Iterator for Once {
+        type Item = (u32, u32);
+
+        fn next(&mut self) -> Option<(u32, u32)> {
+            (!self.0.replace(true)).then_some((0, 7))
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "different sequence on the second pass")]
+    fn a_second_pass_shorter_than_the_first_panics() {
+        let _ = Csr::from_pairs(1, Once(std::rc::Rc::default()));
+    }
+
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "Incident::merge needs ascending rows")]
+    fn merging_an_unsorted_row_panics_in_a_debug_build() {
+        let _ = Incident::merge(&[3, 1], &[2]);
     }
 }

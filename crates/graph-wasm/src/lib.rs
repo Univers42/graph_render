@@ -141,32 +141,42 @@ pub const ABI_VERSION: u32 = 2;
 pub mod probe;
 
 // C21: everything below is target-independent and unit-tested natively (`cargo test`,
-// no wasm32 target needed) — but its only *non-test* caller is `exports.rs`, which is
-// itself wasm32-only. Gated on `any(test, target_arch = "wasm32")` so a plain native
+// no wasm32 target needed). A module whose only *non-test* caller is `exports.rs`, itself
+// wasm32-only, is gated on `any(test, target_arch = "wasm32")`, so a plain native
 // `cargo build`/`clippy` (neither test nor wasm32) does not compile modules it cannot
 // call, which is what a `-D warnings` dead-code lint would otherwise catch on that one
 // build; `cargo test` and the wasm32 release build both still get the real thing.
+// `contract`, `errors` and `ingest` are not gated: `service`, the native façade the HTTP
+// service links, calls them, so they have a native caller. They stay private and reach a
+// native caller only through `service`; the thread-local error channel inside `errors`
+// keeps the gate, because only the exports publish through it.
 #[cfg(any(test, target_arch = "wasm32"))]
 mod alloc;
 pub mod analysis;
-#[cfg(any(test, target_arch = "wasm32"))]
 mod contract;
-#[cfg(any(test, target_arch = "wasm32"))]
 mod errors;
 mod exports;
 #[cfg(any(test, target_arch = "wasm32"))]
 mod handle;
 #[cfg(any(test, target_arch = "wasm32"))]
 mod heap;
-#[cfg(any(test, target_arch = "wasm32"))]
 mod ingest;
 mod json_string;
 mod memory_measure;
 #[cfg(any(test, all(feature = "threads", target_arch = "wasm32")))]
 mod pool;
 pub mod post;
-#[cfg(any(test, target_arch = "wasm32"))]
-mod seed_ingest;
+pub mod seed_ingest;
+pub mod service;
+/// The provisional ingest document for `nodes` and `edges` — the v1 JSON both
+/// [`service::build`] reads and `gm_graph_extend` appends, under the name a native
+/// caller reaches it by.
+///
+/// Re-exported rather than spelled as a path because `graph-cli emit-stream-fixtures`
+/// writes its stream fixtures through it: the bytes a fixture holds and the bytes the ABI
+/// parses can only be one writer's if the gate that reads them is to be a check at all.
+/// Ungated, unlike the module's other gates, because this caller is native.
+pub use seed_ingest::document as ingest_document;
 #[cfg(any(test, target_arch = "wasm32"))]
 mod session;
 #[cfg(any(test, target_arch = "wasm32"))]

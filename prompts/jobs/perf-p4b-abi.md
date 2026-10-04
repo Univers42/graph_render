@@ -4,48 +4,61 @@ Why: P4's second slice (`docs/contract/delta.md`, accepted with conditions 4, 5,
 `docs/decisions/delta-abi.md`). P4a gave graph-core `Topology::extend` and `ForceSession::grow`. This
 slice puts them on the wire, in the SDK and under a cross-target hash gate. No studio, no bench (P4c).
 
-Facts (verified on perf-p4a-extend f15c9b64; re-check each on the tree you start from, which is
-perf-p4a-extend after P4a's commits):
+Facts (re-verified on perf-p4a-extend 2c4ca13e, which this branch starts from; it already holds
+P4a, the open stack and `svc-native-seam`):
 
 - **Spec.** `docs/contract/delta.md` §"The wasm ABI: two exports" and §"The SDK" are the spec. They name
   `gm_graph_extend(graph, ptr, len) -> u32` and `gm_force_session_grow(session, graph) -> u32`, with no
   new error code.
-- **ABI version.** `crates/graph-wasm/src/lib.rs:132-139` `ABI_VERSION = 2`, and `wasm-abi.md:31` says
+- **ABI version.** `crates/graph-wasm/src/lib.rs:139` `ABI_VERSION = 2`, and `wasm-abi.md:31` says
   the same. `delta.md` still says "`gm_abi_version` stays 1"; it stays **2**. Adding an export bumps
-  nothing (`lib.rs:132-135`).
-- **Codes** (`crates/graph-wasm/src/errors.rs`): `InvalidHandle = 1` (`:21`), `IngestInvalid = 4`
-  (`:27`), `InvalidSession = 15` (`:79`), `SessionRefused = 17` (`:90`), `IngestTooLarge = 19` (`:100`).
-- **Ingest.** `crates/graph-wasm/src/ingest.rs:165` `read_records(bytes)` reads JSON v1 into
-  `(Vec<NodeRecord>, Vec<EdgeRecord>)`. A batch goes through it, then `Topology::extend`.
-- **Build exports.** `exports/build_paths.rs:20` `gm_build`, `:117` `gm_build_columns`. Model the
+  nothing (the doc above `lib.rs:139`).
+- **Codes** (`crates/graph-wasm/src/errors.rs`): `InvalidHandle = 1` (`:22`), `IngestInvalid = 4`
+  (`:28`), `InvalidSession = 15` (`:71`), `SessionRefused = 17` (`:82`), `IngestTooLarge = 19` (`:92`).
+  `Code::name` (`:139`) needs no new arm: no new code.
+- **The service façade exists.** `crates/graph-wasm/src/service.rs:39` `build(bytes, Source) ->
+  Result<Topology, Code>`; for `Source::Ingest` it is `ingest::read_records` (`ingest.rs:128`, which
+  refuses an oversized buffer with `IngestTooLarge` before parsing) then `ingest::index`, mapped by
+  `refusal.code()`. Exports and the native HTTP server share this one path
+  (`docs/contract/service-api.md` condition 1). So `gm_graph_extend` calls a new
+  `service::extend(topology: &mut Topology, bytes: &[u8]) -> Result<(), Code>` there
+  (`read_records` then `Topology::extend`, an `ExtendError` mapped to `IngestInvalid`), and the
+  export stays thin. `service.rs` is compiled natively too: keep it free of wasm-only items.
+- **graph-core.** `Topology::extend(&mut self, nodes, edges) -> Result<(), ExtendError>`
+  (`crates/graph-core/src/index/extend.rs:145`, `ExtendError` at `:21`): validates everything, then
+  mutates; on `Err` the topology is unchanged. `ForceSession::grow(&mut self, &Topology) ->
+  Result<(), SessionError>` (`layout/force/session/grow.rs:43`), which may also refuse with
+  `SessionError::Capacity` (`AppendCsr::SAFE_LIVE`); every refusal maps to `SessionRefused`.
+- **Build exports.** `exports/build_paths.rs:22` `gm_build`, `:106` `gm_build_columns`. Model the
   `(ptr, len)` copy-never-free handling (C5, C7) on `gm_build`.
-- **Sessions.** `exports/session.rs:39` `gm_force_session_create(graph, params_ptr, params_len)`;
-  `session.rs:103` `create(topology, params, engine)` does not record the graph id. It must, for
-  `gm_force_session_grow`'s `SessionRefused` on a foreign graph.
+- **Sessions.** `exports/session.rs:39` `gm_force_session_create(graph, params_ptr, params_len)` and
+  `:48` `gm_force_session_create_mesh`; `session.rs:103` `create(topology, params, engine)` does not
+  record the graph id. It must, for `gm_force_session_grow`'s `SessionRefused` on a foreign graph.
 - **Comments that P4 makes false** (condition 4; rewrite them, don't delete them):
-  - `graph-wasm/src/handle.rs:24-28`: "topology (fixed at `gm_build`)", "Never replaced after `gm_build`";
-  - `graph-wasm/src/session.rs:198-205`: "no path in this ABI resizes" the session columns. After
-    `grow`, a column address is valid until the next `gm_force_session_grow` or tick;
-  - `graph-core/src/layout/force/barnes_hut/link.rs:31-34`: "the topology never changes across ticks".
+  - `graph-wasm/src/handle.rs:24` "topology (fixed at `gm_build`)" and `:28` "Never replaced after
+    `gm_build`";
+  - `graph-wasm/src/session.rs:26` (module doc) and `:198` "no path in this ABI resizes" the session
+    columns. After `grow`, a column address is valid until the next `gm_force_session_grow` or tick;
+  - `graph-core/src/layout/force/barnes_hut/link.rs:32`: "the topology never changes across ticks".
 - **SDK** (condition 5):
-  - `crates/graph-sdk-js/src/wasm.ts:62-75` `EXPORT_NAMES`; add both names so an older module is
+  - `crates/graph-sdk-js/src/wasm.ts:62` `EXPORT_NAMES`; add both names so an older module is
     refused by name at load;
   - `motor.ts:264` shows `views.bump()` after a mutating export; `Motor.extend` does the same;
-  - `force-columns.ts:112` sets `#views = null`; `ForceSession.grow` does the same, and `force.ts:117-128`
+  - `force-columns.ts:112` sets `#views = null`; `ForceSession.grow` does the same, and `force.ts:113`
     (`tick`) is the call pattern, `#columns.forget()` included.
 - **The live-session gate is `force-gate`, not `hashgate`.** `crates/graph-cli/src/forcecheck.rs`:
   native ×2 against wasm ×2 (`forcecheck/native.rs`, `forcecheck/arm.mjs`), one stage `STAGE`
-  (`:51`), `TICKS = 50` (`:60`), compared by `hashgate::compare`. Its control is
-  `Knob::ForceSessionGravity` (`hashgate/knob.rs:301-306`, `knob/arms.rs:70,124`,
-  `knob/records.rs:68`). `delta.md` says "a hash gate `stream` arm"; put it in `force-gate` and
+  (`:51`), `TICKS = 50` (`:60`), `STAGES = 1` (`:64`), compared by `hashgate::compare`. Its control is
+  `Knob::ForceSessionGravity` (`hashgate/knob.rs:306`, `knob/arms.rs:70,124`, `knob/records.rs:68`,
+  `knob/compute.rs:67`). `delta.md` says "a hash gate `stream` arm"; put it in `force-gate` and
   correct `delta.md`'s wording.
-- **Knob list.** `crates/graph-cli/tests/common/mod.rs:44-69` is the one list of `GM_MUTATE_*` names.
-- **Peer branch.** `origin/svc-native-seam` (peer 41) edits `graph-wasm/src/{lib.rs,errors.rs,
-  exports/build.rs,stage_exports.rs}` and adds `service.rs`. Edit `lib.rs` and `errors.rs` additively
-  only; whichever lands second merges develop and keeps both intents.
-  - If `crates/graph-wasm/src/service.rs` exists on your tree (the native façade: exports and the
-    HTTP server share one path, `docs/contract/service-api.md` condition 1), `gm_graph_extend` calls a
-    new `service::extend(&mut Topology, &[u8]) -> Result<(), Code>` there, and the export stays thin.
+- **Knob list.** `crates/graph-cli/tests/common/mod.rs:43-93` `KNOBS: [&str; 49]` is the one list of
+  `GM_MUTATE_*` names; adding one makes it 50.
+- **Peers.** Other branches edit `graph-wasm/src/{lib.rs,errors.rs}`, `graph-cli/src/main.rs` and
+  `Cargo.lock`: edit those additively only.
+- **Load.** The host runs other gates. Every cargo call goes through `scripts/orch/gr` with
+  `CARGO_BUILD_JOBS=3 RUST_TEST_THREADS=3`. Don't take `~/goinfre/orch/timed.lock`, and run no
+  `hashgate --seeds 1000` or mutants.
 
 Do, in order:
 

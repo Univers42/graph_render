@@ -21,7 +21,7 @@
  */
 import type { ForceLink } from "../actions/forces.ts";
 import { DEFAULT_KNOBS, type ForceKnobs, settlesLive } from "./live.ts";
-import type { ForceFrame, ForceRequest, Result } from "./protocol.ts";
+import type { ForceFrame, ForceRequest, Result, RunReport } from "./protocol.ts";
 import { type Watchdog, createWatchdog, later } from "./watchdog.ts";
 import type { Store } from "../state/store.ts";
 import { type Bar, HIDDEN, batchBar, frameBar } from "../ui/progress.ts";
@@ -39,6 +39,11 @@ export interface LiveDeps {
   readonly onFail?: (handler: (detail: string) => void) => () => void;
   /** One line in the console, naming why a live session ended; absent in a bare test. */
   readonly report?: (reason: string) => void;
+  /**
+   * The structure snapshot the worker rebuilt after a delta batch, so the new nodes are drawn.
+   * Absent where nothing draws: the frames still paint.
+   */
+  readonly structure?: (run: RunReport) => void;
   /** Over the watchdog's timer; the wall clock when left out. */
   readonly schedule?: (run: () => void, ms: number) => () => void;
 }
@@ -149,9 +154,9 @@ function linkOf(desk: Desk, deps: LiveDeps, publish: () => void): ForceLink {
   return {
     disabled: () => reasonFor(desk, deps),
     knobs: () => desk.knobs,
-    set: (next) => {
+    set: (next, heat) => {
       desk.knobs = next;
-      deps.send({ type: "force.params", knobs: next });
+      deps.send(heat === undefined ? { type: "force.params", knobs: next } : { type: "force.params", knobs: next, heat });
     },
     animate: (on) => {
       desk.running = on;
@@ -189,6 +194,12 @@ function absorb(desk: Desk, deps: LiveDeps, publish: () => void): (result: Resul
       show(desk, publish);
       return;
     }
+    if (result.type === "deltas-structure") {
+      // No `show`: a structure snapshot is a drawing, not a claim that a settle is talking, so
+      // it must not re-arm the watchdog on its own.
+      deps.structure?.(result.run);
+      return;
+    }
     if (result.type === "force-state") {
       desk.available = result.disabled;
       desk.running = result.running;
@@ -215,7 +226,7 @@ export function createLiveBridge(deps: LiveDeps): LiveBridge {
     // The strip appears before the first frame, so a settle is never invisible.
     desk.settling = { visible: true, fraction: 1, label: "settling" };
     show(desk, publish);
-    deps.send({ type: "force.start" });
+    deps.send({ type: "force.settle" });
   };
   const destroy = (): void => {
     onPush();
@@ -247,8 +258,9 @@ export interface RunState {
 }
 
 /**
- * A force layout is a starting position, not a picture: the loop takes it from there and the
- * strip shows the settle. Every other layout is finished, so nothing starts. A batch layout
+ * A force layout settles live: the loop steps the session the run left, which keeps the run's
+ * picture, or settles a large graph's scatter on screen (`settle.ts`). Every other layout is
+ * finished, so nothing starts. A batch layout
  * run shows the same strip with no fraction of its own — one call, no progress inside it.
  *
  * Keyed on the run, not on its layout id: a large graph reports `particle_mesh` whichever force

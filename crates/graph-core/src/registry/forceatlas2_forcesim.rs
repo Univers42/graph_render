@@ -1,7 +1,9 @@
 //! Ledger metadata for `layout.forceatlas2.forcesim`, kept apart from `registry.rs` for
 //! the house line cap, exactly as `forceatlas2_bh.rs` is.
 
-use super::Metadata;
+use super::{Capability, LayoutParams, Metadata, run_default};
+use crate::layout::force::ForceAtlas2ForceSim;
+use crate::stage::Stage;
 use graph_contract::geometry::{EdgeGeometryKind, NodeGeometryKind};
 
 /// Node count past which `layout.forceatlas2.forcesim` stops being usable.
@@ -58,4 +60,13 @@ pub(super) const FA2_FORCESIM: Metadata = Metadata {
      edge_weight_influence are fixed at their forceatlas.py defaults rather than exposed — \
      the last is inert without edge weights, and the others select force laws this port does \
      not implement (layout/force/forcesim.rs says which)",
+};
+
+/// sg-fa2-forcesim: SciGraphs' own ForceSim, which the FORCEATLAS2 conformance row runs. Kept
+/// here because `registry/layouts.rs` is at the 300-line cap; its slot in `LAYOUTS` is unchanged.
+pub(super) const FA2_FORCESIM_LAYOUT: Capability = Capability {
+    id: ForceAtlas2ForceSim::ID,
+    run: run_default::<ForceAtlas2ForceSim>,
+    params: &LayoutParams::NONE,
+    meta: FA2_FORCESIM,
 };
