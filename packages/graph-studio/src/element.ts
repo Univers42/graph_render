@@ -11,6 +11,8 @@
  * draws nothing until its host calls `loadGraph` (`docs/contract/host-api.md`).
  */
 import type { View } from "../../graph-render/src/view.ts";
+import { type Deltas, createDeltas } from "./actions/registry.ts";
+import { emit } from "./host/events.ts";
 import { HOST_API, type GraphStudioElement, type LoadResult, type Resolve } from "./host/contract.ts";
 import { SILENCE_MS } from "./motor/watchdog.ts";
 import { type Mounted, type StudioElementOptions, mount, unmount } from "./mount.ts";
@@ -97,6 +99,12 @@ class GraphStudio extends HTMLElement implements GraphStudioElement {
     if (typeof id === "string") this.#mounted?.previews.invalidate(id);
   }
 
+  /** A batch into the live graph, through the registry's verb. A refusal is reported twice:
+   * the promise rejects, and the same error's name is sent as `graph-error`. */
+  applyDeltas(batch: unknown): Promise<{ readonly applied: number }> {
+    return applyTo(this, this.#mounted, batch);
+  }
+
   stopMotor(): void {
     // `close`, not `destroy`: the studio and its chrome stay, so the page reads as a studio
     // that lost its motor rather than one that was taken down.
@@ -114,6 +122,23 @@ class GraphStudio extends HTMLElement implements GraphStudioElement {
   disconnectedCallback(): void {
     unmount(this.#mounted);
     this.#mounted = null;
+  }
+}
+
+async function applyTo(host: HTMLElement, mounted: Mounted | null, batch: unknown): Promise<{ readonly applied: number }> {
+  if (mounted === null) throw new Error("the studio is not in a document");
+  const send = mounted.client.deltas?.bind(mounted.client);
+  if (send === undefined) throw new Error("this motor client cannot add to a built graph");
+  const deltas: Deltas = createDeltas(
+    () => (mounted.studio.store.get().graph === null ? "no graph is loaded" : null),
+    async (one) => (await send(one)).applied,
+  );
+  try {
+    return { applied: await deltas.apply(batch) };
+  } catch (error) {
+    const refusal = error instanceof Error ? error : new Error(String(error));
+    emit(host, "graph-error", { error: refusal.name, message: refusal.message });
+    throw refusal;
   }
 }
 

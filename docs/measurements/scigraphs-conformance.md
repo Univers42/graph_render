@@ -205,11 +205,11 @@ Procrustes-aligned over it**, so a green point sitting on a grey point is a node
 | 4 | `SPRING_3D` | `layout.force.spring3d` | `apply_graph_layout` | `tolerance` | 24/1020 | 1020/1020 | 2.68e+08 | 2.36e-07 | 5.03e-16 | 6.67e-16 | `arithmetic` | **same shape** — the same seed, the same kernel and the same split reduction as `SPRING`, and the third column absorbs the whole difference: 1020/1020 `f32` |
 | 5 | `CIRCLE_PACKING` | `layout.packing.circle` | `apply_graph_layout` | `shape` | 344/1020 | 808/1020 | 9.22e+18 | 2.70 | 5.3e-16 | 0.863 | `algorithm` | **bit-for-bit the same packing on the 20 gate models** (5e-16) and on the two planar fixtures. `lesmis` — the non-planar one, so the only fixture whose seed moved — goes **0.517 -> 0.0895**; `bipartite` is non-planar too and still differs (0.863); `tree-balanced` (0.418) is a **tree**, so it takes the exact path and did not move |
 | 6 | `FORCEATLAS2` | `layout.forceatlas2.forcesim` | `apply_graph_layout` | `bitwise` | 23/1020 | 72/1020 | 1.55e+17 | 6.23e-4 | 1.40e-13 | 1.31e-9 | `convention` | **same shape** — the motor id changed to SciGraphs' own `ForceSim` in `sg-fa2-forcesim`, because `forceatlas.py:167` reaches that tier first and the networkx port cannot answer this row; the residual is three BLAS kernels this port replaces with fixed orders |
-| 7 | `IGRAPH_FR` | `layout.force.fruchterman_reingold` | `apply_graph_layout` | `bitwise` | 0/1020 | 0/1020 | 9.24e+18 | 11.6 | 0.267 | 0.901 | `rng` | different shape |
-| 8 | `IGRAPH_KK` | `layout.force.kamada_kawai` | `apply_graph_layout` | `shape` | 0/957 | 0/957 | 9.23e+18 | 7.95 | 0.812 | 0.935 | `algorithm` | different shape: grey is a blob, green is a near-straight line |
-| 9 | `IGRAPH_DRL` | `layout.force.drl` | `apply_graph_layout` | `bitwise` | 0/1020 | 0/1020 | 9.25e+18 | 52.8 | 0.536 | 0.881 | `rng` | both are near-collinear; green runs along the grey line with different spacing |
-| 10 | `IGRAPH_DRL_2D` | `layout.force.drl` | `apply_graph_layout` | `bitwise` | 340/1020 | 340/1020 | 9.25e+18 | 50.4 | 0.514 | 0.971 | `rng` | different shape (the same motor layout as `IGRAPH_DRL`, run without its z) |
-| 11 | `IGRAPH_LGL` | `layout.force.lgl` | `apply_graph_layout` | `bitwise` | 340/1020 | 340/1020 | 9.24e+18 | 33.1 | 0.611 | 0.81 | `rng` | different shape |
+| 7 | `IGRAPH_FR` | `layout.force.fruchterman_reingold.3d` | `apply_graph_layout` | `bitwise` | 2/1020 | 4/1020 | 9.23e+18 | 10 | 0.166 | 0.921 | `rng` | different shape, and closer: **the motor id is the `.3d` layout, because SciGraphs calls FR at `dim=3`** (`igraph_layouts.py:74`) — median 0.267 → 0.166, and that arm's own stress differential measures 1.19 (`docs/measurements/p12-t4b.md`) |
+| 8 | `IGRAPH_KK` | `layout.force.kamada_kawai.3d` | `apply_graph_layout` | `shape` | 0/957 | 0/957 | 9.23e+18 | 10 | 0.784 | 0.925 | `algorithm` | different shape, closer: **`dim=3`** (`igraph_layouts.py:99`), from this tree's Fibonacci-sphere start — median 0.812 → 0.784; the 957 are a **reference defect** on `gate-01`, below |
+| 9 | `IGRAPH_DRL` | `layout.force.drl.3d` | `apply_graph_layout` | `bitwise` | 3/1020 | 3/1020 | 9.25e+18 | 10 | 0.395 | 0.798 | `rng` | different shape, and closer: SciGraphs calls DrL at `dim=3` (`igraph_layouts.py:342`) and this tree registers that arm (`crates/graph-core/src/registry/arms_3d.rs:236`), so the row names it — median 0.536 → 0.395. That arm's own stress differential measures 1.26 (`p12-t4b.md`) |
+| 10 | `IGRAPH_DRL_2D` | `layout.force.drl` | `apply_graph_layout` | `bitwise` | 341/1020 | 341/1020 | 9.25e+18 | 10 | 0.514 | 0.971 | `rng` | different shape (the planar motor layout, against the reference's `dim=2` call at `igraph_layouts.py:406`) |
+| 11 | `IGRAPH_LGL` | `layout.force.lgl` | `apply_graph_layout` | `bitwise` | 344/1020 | 345/1020 | 9.24e+18 | 33.1 | 0.611 | 0.81 | `rng` | different shape; LGL is 2-D in igraph too (`igraph_layouts.py:453`), so the third column is the whole of the difference |
 | 12 | `SPHERE` | `layout.basic3d.sphere` | `apply_graph_layout` | `tolerance` | 111/1020 | 1020/1020 | 2.68e+08 | 2.38e-07 | 4.63e-16 | 9.66e-16 | `arithmetic` | **same shape** — the green ring sits on the grey ring, node for node |
 | 13 | `SPECTRAL_3D` | `layout.spectral3d` | `apply_graph_layout` | `bitwise` | 13/1020 | 676/1020 | 9.23e+18 | 10 | 4.67e-16 | 0.587 | `convention` | **same shape** on 16 of the 23 measured fixtures — green sits on grey node for node; the row used to name `layout.spectral`, the two-column port of this same kernel, which drew a plane against a volume (repair 9). The 7 that stay apart each have a repeated Laplacian eigenvalue inside the three asked for (`bipartite` ×7, `gate-06` ×3, `gate-07` ×5, `gate-08` ×4, `gate-09` ×4, `gate-10` ×5, `gate-11` ×5), so a rotation inside that eigenspace is a legal answer |
 | 14 | `SPIRAL_3D` | `layout.basic3d.spiral` | `apply_graph_layout` | `tolerance` | 120/1020 | 1020/1020 | 2.68e+08 | 2.35e-07 | 3.34e-16 | 5.59e-16 | `arithmetic` | **same shape** — green covers grey node for node on 22 of 24 fixtures |
@@ -280,11 +280,24 @@ divergences remain and neither is a seed: the coarsening permutation stream, and
 `sfdpinit.c:213`) while this port coarsens through four. Both are named in
 `docs/measurements/sg-sfdp-collapse.md`; the second belongs to `sg-sfdp-step`.
 
-**4. igraph's RNG cannot be seeded from Python at all.** `_reset_layout_rng`
+**4. igraph's reference is seedable and reproducible; its RNG stream is simply out of licence.**
+An earlier version of this finding said `_reset_layout_rng`
 (`SciGraphs/core/scigraphs_core/mesh/layouts/common.py:60`) seeds `np.random.RandomState` and the
-stdlib `random`; igraph reads the C library's generator, which neither call reaches. So
-`IGRAPH_FR`, `IGRAPH_DRL`, `IGRAPH_DRL_2D`, `IGRAPH_LGL`, `IGRAPH_DH` and `IGRAPH_GRAPHOPT` have
-**no seedable reference start at all**, and their `rng` cause is not a missing port.
+stdlib `random` while igraph reads "the C library's generator, which neither call reaches", and
+concluded the six seeded rows had "no seedable reference start at all". That is wrong for
+python-igraph: it installs the stdlib `random` module *as* igraph's RNG at import
+(`src/_igraph/random.c:295-325`, `igraphmodule_init_rng` → `igraph_rng_Python_set_generator`; the
+rngtype is declared at `:54-58` with `is_seeded = 1`, and `igraph_rng_Python_get` at `:167-` draws
+from `random.getrandbits`/`random.random`), so line 60's `random.seed(...)` does reseed igraph.
+The evidence on this tree is the re-pin of 2026-10-04: the five `IGRAPH_` rows' motor shas all
+moved and **not one reference sha did**, so the same reference bytes were reproduced run to run
+across every arm that reads them. `IGRAPH_FR`, `IGRAPH_DRL`, `IGRAPH_DRL_2D`, `IGRAPH_LGL`,
+`IGRAPH_DH` and `IGRAPH_GRAPHOPT` are therefore gated on a reference that reproduces exactly, and
+their `rng` cause is a **licence** gap rather than an unreachable seed —
+`docs/decisions/layouts-igraph.md` rule 4 forbids reproducing igraph's generator, so graph-core
+keeps Mulberry32 and the two streams part company at the first draw. The reachable target for those
+rows is shape (the Procrustes column), not bytes. `G_IGRAPH_SEED` in
+`crates/graph-cli/src/oracle_python/conformance/gaps.rs` now says this.
 
 **5. One row's reference is not reproducible.** Two consecutive `--graphviz` runs over the same
 fixtures and the same `-Gstart` were compared file by file: 31 of 32 reference files were
@@ -575,7 +588,7 @@ caveats this paragraph omits live: the cross-language oracle covers sphere, heli
 `THREE_D_LAYOUT_STAGES` entry and no negative control yet. `n = 0` is a deliberate divergence
 from the reference, unreachable from this matrix.
 
-### 11. `IGRAPH_KK`, `YIFAN_HU`, `GRAPHVIZ_NEATO`, `GRAPHVIZ_FDP`,
+### 11. `YIFAN_HU`, `GRAPHVIZ_NEATO`, `GRAPHVIZ_FDP`,
 `GRAPHVIZ_CIRCO` — `algorithm`
 Each is a different method rather than a convention or an RNG, so each needs its own porting job
 and none is a one-line change. `GRAPHVIZ_CIRCO` is the one row here that matches on the tree
@@ -600,6 +613,136 @@ reference's own functions named (`ArcOrder::NodeIndex`, because `common.py:238` 
 `nx.Graph`, and the reference's `arcs` being a `set`). `docs/measurements/sg-sugiyama.md` has
 the numbers and the per-stage diff.
 
+**`IGRAPH_KK` has been partly repaired and is no longer in this list (`sg-igraph-3d`).** Its 0.812
+was not a solver disagreement in the first place: the motor was drawing in **two** dimensions and
+the reference in three (`igraph_layouts.py:99` passes `dim = 3`). With
+`layout.force.kamada_kawai.3d` on the row and SciGraphs' `_igraph_fit_positions` applied to both
+arms, the median falls **0.812 → 0.784** (worst 0.935 → 0.925). `IGRAPH_FR` moved the same way,
+**0.267 → 0.166** (worst 0.901 → 0.921), and `IGRAPH_DRL` **0.536 → 0.395** (worst 0.881 →
+0.798). All three moves are in the direction of a closer fit and all three are the same single
+cause: SciGraphs calls all three layouts at `dim = 3`, so the row's motor has to be the 3-D arm.
+The `f64`/`f32` columns barely moved (FR 0/0 → 2/4) because a uniform translation and scale is
+exactly what the Procrustes column is invariant to.
+
+**What is left on `IGRAPH_KK` is the third column and which local minimum the descent reached**, and
+`algorithm` is the honest cause for that. The three `.3d` arms are separately gated on igraph's own
+stress ratio in their own differential (`oracle-igraph3d`, ceilings in
+`crates/graph-cli/src/oracle_python/igraph.rs`, measured in `docs/measurements/p12-t4b.md`): FR 1.19,
+DrL 1.26, KK 18.9. KK's 18.9 is not a rounding accident — the 2-D arm measures 1.35 at the same
+budget, a Newton step solves a 3x3 block here where igraph's own 3-D descent takes a different
+route, and a local method settles in whichever basin it started in. So this matrix's 0.784 and that
+differential's 18.9 are two measurements of two different things and neither refutes the other.
+
+## The `_igraph_fit_positions` step, and why five motor shas moved
+
+Every igraph helper in `SciGraphs/core/scigraphs_core/mesh/layouts/igraph_layouts.py` ends with
+`_igraph_fit_positions(coords, scale)` (`:24-42`): centre each axis on its mean, divide by the
+largest magnitude over **all three** axes, multiply by `scale`. Until 2026-10-04 the motor arm did
+not apply it, so each igraph row compared the motor's own coordinate units against the reference's
+fitted ones — a difference in *scale* that read as a difference in shape. The step is SciGraphs'
+convention, not igraph's, so it lives in the arm
+(`crates/graph-cli/src/oracle_python/conformance/motor/fit.rs`) and **not** inside a motor layout:
+a port of a igraph layout is igraph's algorithm and nothing else, and moving the fit into
+`graph-core` would put a SciGraphs convention inside a layout whose oracle is the C library and
+make the layout's own `scale` parameter mean two things. `FITTED` names the five ids that reach it
+— `layout.force.fruchterman_reingold.3d`, `layout.force.kamada_kawai.3d`, `layout.force.drl.3d`,
+`layout.force.drl`, `layout.force.lgl`. `IGRAPH_DH` and `IGRAPH_GRAPHOPT` go through the same
+reference helper and are deliberately not listed: re-pinning their bytes is another job's
+measurement, and naming them here would move bytes this change has no number for.
+
+One departure from the reference is stated in `fit.rs`: `positions.mean(axis=0)` is numpy's pairwise
+summation and the port's is a fixed ascending-index sum (D3), so the two can differ in the last ulp
+of the mean. That is a uniform translation, which the Procrustes alignment this matrix reports is
+invariant to, and the `bitwise` counts above are the check that it stayed small.
+
+**Measured, all five rows, `scripts/scigraphs-conformance.sh` 2026-10-04:**
+
+| row | motor sha before | motor sha after | reference sha | Procrustes median |
+|---|---|---|---|---|
+| `IGRAPH_FR` | `1f84882c79fc1887` | `86bce46cf87a8d47` | **unchanged** | 0.267 → **0.166** |
+| `IGRAPH_KK` | `516c88116704a2f7` | `bbfac51b54ec26cb` | **unchanged** | 0.812 → **0.784** |
+| `IGRAPH_DRL` | `ea94de23d7c52d25` | `9341c5093c1e7b9a` | **unchanged** | 0.536 → **0.395** |
+| `IGRAPH_DRL_2D` | `ea94de23d7c52d25` | `0d43b8f201bfb7c1` | **unchanged** | 0.514 → **0.514** |
+| `IGRAPH_LGL` | `09cf01e5c51eb5d7` | `41100b0d1dd4d83f` | **unchanged** | 0.611 → **0.611** |
+
+`IGRAPH_DRL_2D` and `IGRAPH_LGL` are the cross-check on the fit itself: they keep their planar
+motor layouts, so nothing but the fit moved, and their medians are **identical to the digit**
+(0.5137309417828342 and 0.6107848260444024) — which is what a uniform translation and scale must do
+to a Procrustes number. Their two motor shas also come out equal to the ones the `sg-igraph-clean`
+branch pinned for the same rows, which says this tree's 2-D kernels are that branch's byte for byte
+and that the fit is the whole of the difference.
+
+## `dim = 3` in `harness/oracle-igraph.py`: which of two claims held
+
+Two jobs wrote down opposite things about the same call. `harness/oracle-igraph.py` said
+`layout_kamada_kawai(dim = 3)` "**refuses** outright on a 2-column start matrix … so `dim=3` is not
+available to this arm at all"; the `sg-igraph-clean` branch passed a 3-column start and said it
+worked. **Both halves of the file's sentence are wrong, and the branch is right about the call.**
+Measured 2026-10-04 in `ge-python-oracle` (python-igraph 0.11.9, C core 0.10.16), over the 3-node
+path `1-0-2` and the 3-node triangle, `seed=` a start of each width and `dim` of 2 and 3:
+
+| method | `dim` | start width | result |
+|---|--:|--:|---|
+| `layout_kamada_kawai` | 2 | 2 | ok, finite |
+| `layout_kamada_kawai` | 2 | 3 | `InternalError` … `Invalid start position matrix size in Kamada-Kawai layout` (`kamada_kawai.c:129`) |
+| `layout_kamada_kawai` | 3 | 2 | `InternalError` … `Invalid start position matrix size in 3d Kamada-Kawai layout` (`kamada_kawai.c:439`) |
+| `layout_kamada_kawai` | 3 | 3 | **ok, finite** |
+| `layout_fruchterman_reingold` | 3 | 2 | `InternalError` … `Invalid start position matrix size in Fruchterman-Reingold layout` (`fruchterman_reingold.c:503`) |
+| `layout_fruchterman_reingold` | 3 | 3 | **ok, finite** |
+
+So the refusal is real and it is about the **width of the `seed` matrix**, not about `dim = 3`: it
+fires symmetrically at `dim = 2` with a 3-column start, and a 3-column start at `dim = 3` is
+accepted. `dim = 3` was never unavailable to these two arms. What *was* true is narrower — that
+file's own `initial` is two columns wide, so the row cannot simply be switched to `dim = 3` in
+place — and that is already how this tree is built, with the 3-D arms in their own `igraph3d`
+fixture set whose `initial_3d` is three columns wide (`harness/oracle-igraph.py:8-19`, `:186`). The
+comment at `harness/oracle-igraph.py:34-48` now says this, and the `kamada_kawai` half of the
+`docs/measurements/fix-harness-py.md` record it contradicts is superseded.
+
+The same probe settles what the KK infinities are **not**. With a 3-column `seed` of our own,
+`layout_kamada_kawai(dim = 3)` is finite on both three-node graphs; with **igraph's own start** —
+which is what SciGraphs uses, since `_igraph_kamada_kawai` passes no `seed`
+(`igraph_layouts.py:97-99`) — it returns three infinite coordinates out of nine in **all six**
+vertex orderings of the path `1-0-2`, while the same graph at `dim = 2` is finite in all six:
+
+```
+order (0, 1, 2) dim=2 own-start finite=True
+order (0, 1, 2) dim=3 own-start finite=False [[…, …, …], […, …, …], [-inf, inf, inf]]
+… six orderings, six non-finite cases, and the same six for the triangle …
+non-finite own-start cases: 6
+```
+
+That is the defect recorded as `G_KK_NON_FINITE`, and it is a **reference** defect rather than this
+port's: `layout.force.kamada_kawai.3d` returns a zero step instead of dividing by a near-singular
+3x3 (`kamada_kawai/solve.rs:30`) and is finite there.
+
+**The three `.3d` arms re-measured on this tree, through the invocation
+`scripts/orch/rows/p12-t4b.rows` already names** — `emit-igraph3d-fixtures --seeds 1000`, then
+`harness/oracle-igraph.py target/igraph3d-fixtures` in `ge-python-oracle`, then
+`graph-cli oracle-igraph3d`. Exit 0, `PASS`, and every worst landed on its pinned ceiling to the
+digit, so the ceilings in `crates/graph-cli/src/oracle_python/igraph.rs` are this tree's numbers
+and not the branch's:
+
+```
+$ scripts/orch/gr cargo run -q --release -p graph-cli -- emit-igraph3d-fixtures --seeds 1000 --out target/igraph3d-fixtures
+$ scripts/orch/drun --rm -v $PWD:/w -w /w ge-python-oracle python3 harness/oracle-igraph.py target/igraph3d-fixtures
+{"drl":                  {"cases": 1000, "worst": 1.261682819553074,  "reference_worst": 2.107081283294582, "unscoreable": 0, "unscoreable_reference": 0},
+ "fruchterman_reingold": {"cases": 1000, "worst": 1.1948456288535538, "reference_worst": 1.6643221828445076, "unscoreable": 0, "unscoreable_reference": 0},
+ "kamada_kawai":         {"cases":  999, "worst": 18.89773341481319,  "reference_worst": 2.511628967714305, "unscoreable": 1, "unscoreable_reference": 1}}
+$ scripts/orch/gr cargo run -q --release -p graph-cli -- oracle-igraph3d --dir target/igraph3d-fixtures
+  layout.force.fruchterman_reingold.3d: 1000 cases, worst 1.195e0, ceiling 1e1: ok
+  layout.force.kamada_kawai.3d:          999 cases, worst 1.890e1, ceiling 1e2: ok
+  layout.force.drl.3d:                  1000 cases, worst 1.262e0, ceiling 1e1: ok
+PASS
+```
+
+This is the harness whose `dim = 3` calls the section above measures, and it is the check that the
+refusal has nothing to do with `dim = 3`: 1000 of 1000 FR cases and 999 of 1000 KK cases are scored
+at `dim = 3` on this tree, from three-column `initial_3d` starts. The **one** unscoreable KK seed is
+a *reference* degeneration and is counted, not hidden — `harness/oracle-igraph.py:199` names it
+(igraph's own 3-D KK returns a NaN stress on seed 601, n = 3, a triangle), which is the same
+near-singular 3x3 block as the conformance row's `gate-01` and the same defect from the other side.
+
 ## Cells that say `not run`, and why
 
 No cell in the matrix is blank. Three kinds say `not run` and each carries its reason:
@@ -609,10 +752,41 @@ No cell in the matrix is blank. Three kinds say `not run` and each carries its r
   the judge passes it only while it still says exactly that **and** both pairs of bytes still
   match. Its shape panels are not drawn: there is nothing to draw beside the reference, and the
   contact sheet says so in a card rather than showing a broken image.
-- **`IGRAPH_KK` on `gate-19`** — `apply_graph_layout` returned `False`, having raised
+- **`IGRAPH_KK` on `gate-01`** — `apply_graph_layout` returned `False`, having raised
   `IGRAPH_KK produced 9 non-finite coordinate(s)` (`common.py:183`, caught and reported `False` by
   `dispatcher.py:169-174`), so the row compares 957 coordinates rather than 1020 and names the
-  fixture it is missing.
+  fixture it is missing. **An earlier version of this cell said `gate-19`; the fixture is
+  `gate-01`**, read out of `ref/IGRAPH_KK.json` rather than inferred from the coordinate count:
+
+  ```
+  $ python3 -c "…json.load(open('target/scigraphs-conformance/ref/IGRAPH_KK.json'))['fixtures']…"
+  gate-00 {"fixture": "gate-00", "layout_substituted": null, "status": "ok"}
+  gate-01 {"detail": "apply_graph_layout returned False", "fixture": "gate-01",
+           "layout_substituted": null, "status": "not run"}
+  gate-19 {"fixture": "gate-19", "layout_substituted": null, "status": "ok"}
+  ```
+
+  `gate-01` is the three-node path `1-0-2`; `gate-19` (21 nodes) lays out fine and is not the
+  failing one. What breaks is not component count, not an isolated node and not degree — `gate-01`
+  is connected, has no isolated node and has degrees 2, 1, 1 — but the **3x3 Newton block going
+  non-finite at three vertices**, measured directly in the section above. This is a **recorded
+  reference defect**: `layout.force.kamada_kawai.3d` guards the block
+  (`kamada_kawai/solve.rs:30`) and is finite on that exact fixture.
+
+  **One thing this cell does not claim, stated so it is not read into it:** `metrics.json`
+  attributes the missing coordinates to the *last* fixture of the row —
+
+  ```
+  {"fixture": "gate-19", "metrics": "not run: IGRAPH_KK holds 1011 coordinates, gate-19 needs 1020"}
+  ```
+
+  — while `ref/IGRAPH_KK.json` puts them on `gate-01`, and the two do not agree (1011 is 1020 less
+  the 9 coordinates of the *three-node* fixture, yet `gate-19`'s own 63 are what the row is short).
+  The 957 total is right either way and is unchanged by this repair, so the matrix above is not
+  affected; but which fixture the metrics step names is a discrepancy in that step's fixture
+  alignment, it is **pre-existing** (the count and the `gate-19` text are already in the pre-repair
+  row 8 and pre-repair cell above), and it is left for the job that owns `harness/scigraphs-
+  conformance/sc_metrics.py` rather than papered over here.
 - **`GRAPHVIZ_FDP`'s reference sha** — not reproducible run to run, above.
 
 ## What this does not measure

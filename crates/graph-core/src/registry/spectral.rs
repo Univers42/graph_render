@@ -7,16 +7,34 @@ use super::{Capability, LayoutParams, Metadata};
 use crate::layout::spectral_stage;
 use graph_contract::geometry::{EdgeGeometryKind, NodeGeometryKind};
 
-/// Node count past which `layout.spectral` stops being reliable, and why it is this one.
+/// **The node ceiling, and what it is a ceiling *of*.** `700` is the largest **path-like**
+/// component — the worst spectral-gap shape there is, `O(1/n^2)` — that the iterative tier
+/// was measured to place with LOBPCG alone. It is *not* a node limit on the layout: a 100x100
+/// grid (10 000 nodes) and the gate model at 100 000 nodes both converge, and 100 000 is
+/// four orders of magnitude above this number.
 ///
-/// Measured, release build (`docs/measurements/phase06-eigen.md`): the worst input is a
-/// path, whose spectral gap is O(1/n^2). A 700-node path solves in 131 ms (747 LOBPCG
-/// iterations); an 800-node path exhausts `maxiter = 1500` and fails the residual gate,
-/// as do 900 to 4096. A 100x100 grid (10 000 nodes) solves in 1.3 s and the gate model
-/// at 100 000 nodes in 6.9 s, so the ceiling is a property of the spectrum, not of n.
+/// **What the ceiling bounds, precisely.** Since LF-09 and LF-10, `layout.spectral` no longer
+/// skips a component it cannot place — `spectral_stage` refuses the run — so "past the
+/// ceiling" is a *refusal*, not a degradation, and it refuses exactly when the **per-component
+/// spectral gap** is too tight for LOBPCG's 1500 iterations. That gap threshold is not a node
+/// count and is not this constant: it is measured per component, by the residual and
+/// orthonormality gate in `layout::spectral::solve`, and the two happen to agree on 700 only
+/// for a path. `shift_invert::DENSE_INVERT_LIMIT` (1024) is a third, separate number and a
+/// budget rather than a threshold — see that constant's Ponytail line.
+///
+/// Measured, release build (`docs/measurements/phase06-eigen.md`, and re-measured for
+/// `docs/measurements/fix-spectral.md` on the shift-invert cascade): a 700-node path solved
+/// in 131 ms on 747 LOBPCG iterations; an 800-node path exhausted `maxiter = 1500`, as did
+/// 900 to 4096, and **now solves through the shift-invert retry** (peak residual `7.3e-11` at
+/// 800, `1.9e-10` at 1024) — the retry's own budget, `DENSE_INVERT_LIMIT = 1024`, is what
+/// stops it, one node later. A 100x100 grid solves in 1.3 s and the gate model at 100 000
+/// nodes in 6.9 s.
 pub const SPECTRAL_CEILING: u64 = 700;
 
-/// Node count past which `layout.mds.pivot` is not measured, and why it is this one.
+/// **The node ceiling, and what it is a ceiling *of*.** The largest size at which
+/// `layout.mds.pivot` was measured — nothing here is a threshold at all. Unlike
+/// [`SPECTRAL_CEILING`] no shape of this layout fails at any size: the solve is a dense
+/// `k x k` eigensolve with `k = min(100, n_c)`, so it is `n`, not the spectrum, that runs out.
 ///
 /// Measured, release build, gate model: 273 ms at 10 000 nodes, 795 ms at 30 000 and
 /// 4.3 s at 100 000 (`graph-cli bench`). Its O(n k) distance matrix is 80 MB at 100 000
@@ -35,21 +53,27 @@ pub(super) const SPECTRAL: Metadata = Metadata {
 principal angle between the two 2-column spans over the 1000 gate seeds \
 (harness/oracle-spectral.py); tolerance, not bytes, because the two solvers differ",
     complexity: "O(c^3) per component of c <= 256 nodes (tred2/tql2); above that LOBPCG, \
-O(iterations * (m + n b^2)) with block b = 4 and at most 1500 iterations",
+O(iterations * (m + n b^2)) with block b = 4 and at most 1500 iterations; when that misses the \
+gate and c <= 1024, one dense Cholesky of (L + 1e-3 I) at O(c^3/3) plus LOBPCG on its inverse \
+at O(iterations * c^2)",
     scale_ceiling: SPECTRAL_CEILING,
-    degradation: "past the ceiling a path-like component (spectral gap O(1/n^2)) may not \
-converge in 1500 iterations; it then fails the residual gate and is skipped, its nodes left at \
-the origin and its packing cell, and the run is refused with StageError::Param if no component \
-solved — never a random layout (C12). Grid-like and gate-model components converged to 100 000 \
-nodes",
+    degradation: "a component whose spectral gap is too tight for LOBPCG's 1500 iterations \
+gets the reference's shift-invert retry, which resolves the same matrices to a peak residual \
+of 1e-10 or better; past the retry's own dense budget of 1024 nodes the component still misses \
+the gate, and the run is then REFUSED with StageError::Param naming it (spectral_stage no \
+longer skips a component: its nodes used to collapse onto one point at their packing cell with \
+the residual printed nowhere). Never a random layout, and never a partial picture (C12). \
+Grid-like and gate-model components converged to 100 000 nodes",
     ponytail: "Ponytail (solver): the block start uses a Weyl sequence and a constant-diagonal \
 preconditioner, so LOBPCG converges slower than the reference's random start; failing input: a \
-single path or cycle of 800 nodes or more. Direction: under-reporting is impossible (the \
-residual and orthonormality gate decides, not the iteration count) and the failure is a skipped \
-component, not a wrong one. Ponytail (sign): inside a degenerate eigenspace the chosen sign \
-and rotation are an artifact of the solver, so a symmetric graph may be mirrored relative to \
-the reference; cosmetic. Ponytail (scale_ceiling): measured on the spectrum above, see \
-SPECTRAL_CEILING.",
+single path or cycle whose gap O(1/n^2) no iteration count reaches. Direction: under-reporting \
+is impossible (the residual and orthonormality gate decides, not the iteration count) and the \
+failure is a refusal, not a wrong picture. Ponytail (shift_invert budget): the retry \
+factorises densely and stops at 1024 nodes, so a path of 1025 or more is refused where 800 is \
+placed; direction is under-reporting only. Ponytail (sign): inside a degenerate eigenspace the \
+chosen sign and rotation are an artifact of the solver, so a symmetric graph may be mirrored \
+relative to the reference; cosmetic. Ponytail (scale_ceiling): a per-shape spectral-gap \
+threshold measured on the worst spectrum, not a node limit; see SPECTRAL_CEILING.",
 };
 
 pub(super) const PIVOT_MDS: Metadata = Metadata {
@@ -67,13 +91,18 @@ is dense",
     degradation: "past the measured ceiling nothing changes in kind: time and the n x k \
 distance matrix grow linearly and wasm32 traps when it cannot allocate; unreachable pivots \
 (other components) are zeroed, which distorts geometry rather than failing, and a component \
-whose k x k solve fails the residual gate is skipped as in spectral",
+whose k x k solve misses the residual or orthonormality gate is REFUSED as in spectral, with \
+StageError::Param naming it",
     ponytail: "Ponytail (pivots): farthest-point selection starts at index 0 and breaks ties by \
 the lowest index, so the pivot set is a heuristic covering, not an optimum; failing input: a \
 graph whose farthest node is one of many equally far, which changes the pivots and so the \
 picture, not its validity. Ponytail (distance): unreachable pairs count as 0 hops, which pulls \
-nodes of different components together inside a block. Ponytail (scale_ceiling): the ceiling \
-is the largest size measured, not a limit found.",
+nodes of different components together inside a block. Ponytail (tie): inside a tied group of \
+Gram eigenvalues the basis is canonicalised before projection (pivot_mds::tied), so the drawing \
+no longer carries the solver's rotation; over-grouping two eigenvalues that are merely close \
+replaces them by a canonical basis of their span, which is a valid answer to the same \
+eigenproblem and not a detectable difference. Ponytail (scale_ceiling): the largest size \
+measured, not a limit found.",
 };
 
 /// `layout.spectral3d`: `_spectral_layout_3d` (`networkx_layouts.py:249-269`) — the same
@@ -92,23 +121,30 @@ pub(super) const SPECTRAL_3D: Metadata = Metadata {
 absolute difference over the conformance fixture set; tolerance, not bytes, because the two \
 solvers are JAMA tred2/tql2 and LAPACK syevd",
     complexity: "O(c^3) per component of c <= 256 nodes (tred2/tql2); above that LOBPCG, \
-O(iterations * (m + n b^2)) with block b = 5 and at most 1500 iterations",
+O(iterations * (m + n b^2)) with block b = 5 and at most 1500 iterations; when that misses the \
+gate and c <= 1024, one dense Cholesky of (L + 1e-3 I) at O(c^3/3) plus LOBPCG on its inverse \
+at O(iterations * c^2)",
     scale_ceiling: SPECTRAL_CEILING,
-    degradation: "past the ceiling a path-like component (spectral gap O(1/n^2)) may not \
-converge in 1500 iterations; it then fails the residual gate and is skipped, its nodes left at \
-the origin and its packing cell, and the run is refused with StageError::Param if no component \
-solved — never a random layout (C12). Below four nodes the whole graph is a random layout \
-instead, which is the reference's own guard (_spectral_layout_3d:257-258) and not a fallback: \
-that branch draws layout::random's seeded port",
+    degradation: "a component whose spectral gap is too tight for LOBPCG's 1500 iterations \
+gets the reference's shift-invert retry, which resolves the same matrices to a peak residual \
+of 1e-10 or better; past the retry's own dense budget of 1024 nodes the component still misses \
+the gate, and the run is then REFUSED with StageError::Param naming it (spectral_stage no \
+longer skips a component: its nodes used to collapse onto one point at their packing cell with \
+the residual printed nowhere). Never a random layout, and never a partial picture (C12). Below \
+four nodes the whole graph is a random layout instead, which is the reference's own guard \
+(_spectral_layout_3d:257-258) and not a fallback: that branch draws layout::random's seeded port",
     ponytail: "Ponytail (solver): the block start uses a Weyl sequence and a constant-diagonal \
 preconditioner, so LOBPCG converges slower than the reference's random start; failing input: a \
-single path or cycle of 800 nodes or more. Direction: under-reporting is impossible (the \
-residual and orthonormality gate decides, not the iteration count). Ponytail (sign): inside a \
-degenerate eigenspace — a path or a regular grid has lambda2 == lambda3 — the chosen basis is \
-an artifact of the solver, so such a fixture may stay apart from the reference in all three \
-coordinates at once; cosmetic. Ponytail (scale): scale is the dispatcher default 5.0 as a \
-constant, not a parameter (basic_3d.rs:53 states the convention). Ponytail (scale_ceiling): \
-measured on the spectrum above, see SPECTRAL_CEILING.",
+single path or cycle whose gap O(1/n^2) no iteration count reaches. Direction: under-reporting \
+is impossible (the residual and orthonormality gate decides, not the iteration count). \
+Ponytail (shift_invert budget): the retry factorises densely and stops at 1024 nodes, so a \
+path of 1025 or more is refused where 800 is placed; direction is under-reporting only. \
+Ponytail (sign): inside a degenerate eigenspace — a path or a regular grid has lambda2 == \
+lambda3 — the chosen basis is an artifact of the solver, so such a fixture may stay apart from \
+the reference in all three coordinates at once; cosmetic. Ponytail (scale): scale is the \
+dispatcher default 5.0 as a constant, not a parameter (basic_3d.rs:53 states the convention). \
+Ponytail (scale_ceiling): a per-shape spectral-gap threshold measured on the worst spectrum, \
+not a node limit; see SPECTRAL_CEILING.",
 };
 
 /// `layout.mds.pivot3d`: `_mds_layout_3d` (`networkx_layouts.py:271-291`) — [`PIVOT_MDS`] at
@@ -126,15 +162,17 @@ is dense",
     scale_ceiling: PIVOT_MDS_CEILING,
     degradation: "past the measured ceiling nothing changes in kind: time and the n x k \
 distance matrix grow linearly and wasm32 traps when it cannot allocate; a component whose k x k \
-solve fails the residual gate is skipped as in spectral, and a graph below four nodes is a \
-random layout by the reference's own guard (_mds_layout_3d:283-284)",
+solve misses the residual or orthonormality gate is REFUSED as in spectral, and a graph below \
+four nodes is a random layout by the reference's own guard (_mds_layout_3d:283-284)",
     ponytail: "Ponytail (pivots): farthest-point selection starts at index 0 and breaks ties by \
 the lowest index, so the pivot set is a heuristic covering, not an optimum; failing input: a \
 graph whose farthest node is one of many equally far, which changes the pivots and so the \
-picture, not its validity. Ponytail (sign): inside a degenerate eigenspace of the k x k Gram \
-matrix the chosen basis is a solver artifact, so such a fixture may differ from the reference \
-in all three coordinates. Ponytail (scale): scale is the dispatcher default 5.0 as a \
-constant. Ponytail (scale_ceiling): the ceiling is the largest size measured, not a limit found.",
+picture, not its validity. Ponytail (tie): inside a tied group of Gram eigenvalues the basis is \
+canonicalised before projection (pivot_mds::tied), so a symmetric input no longer differs from \
+the reference by a rotation of a degenerate eigenspace; over-grouping two merely-close \
+eigenvalues replaces them by a canonical basis of their span, a valid answer to the same \
+eigenproblem. Ponytail (scale): scale is the dispatcher default 5.0 as a constant. \
+Ponytail (scale_ceiling): the largest size measured, not a limit found.",
 };
 
 /// The `layout.spectral3d` entry, appended to `LAYOUTS`. Separate ids rather than a `dims`

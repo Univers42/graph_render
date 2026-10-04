@@ -29,14 +29,14 @@
 //! than implying it, and every reduction below is fixed-order so a parallel version, if one
 //! were ever written, would have an order to agree with.
 
+mod initial;
+
 use super::conjugate;
 use super::distance::Packed;
-use super::matrix::{
-    OVERFLOW, centre_f64, dot, invert, invert_sqrt_in_place, right_mult, row_sums, sqrt_into,
-};
-use super::rng::Drand48;
+use super::matrix::{OVERFLOW, dot, invert, invert_sqrt_in_place, right_mult, row_sums, sqrt_into};
 use super::{CG_TOLERANCE, STRESS_WEIGHT};
 use crate::csr::Csr;
+use initial::initial_placement;
 
 /// The drawing, in the reference's own units: the `double` columns `initLayout` wrote and
 /// the iteration left behind (`stress.c:1093-1098`).
@@ -70,24 +70,6 @@ pub(super) fn majorize(
         }
     }
     Solution { x, y }
-}
-
-/// `initLayout` (`stress.c:131-160`): two `drand48` draws per node, then each column
-/// centred in `double`.
-///
-/// The centring is `double` here and `float` inside the iteration, in that order, because
-/// the reference centres before it narrows (`stress.c:897` narrows, `:907` is the last
-/// `orthog1` before it). Centring after the narrowing would be a different drawing.
-fn initial_placement(count: usize, seed: u32) -> (Vec<f64>, Vec<f64>) {
-    let mut rng = Drand48::seeded(seed);
-    let (mut x, mut y) = (Vec::with_capacity(count), Vec::with_capacity(count));
-    for _ in 0..count {
-        x.push(rng.next());
-        y.push(rng.next());
-    }
-    centre_f64(&mut x);
-    centre_f64(&mut y);
-    (x, y)
 }
 
 /// Every buffer the passes share, allocated once as the reference allocates them once

@@ -13,8 +13,10 @@
 //! scale)` and igraph's own `maxiter=10` wins (`igraph_layouts.py:461`), likewise graphopt's
 //! `niter=500` (`:493`) and LGL's `maxiter=150` (`:423`). The motor's registered defaults are
 //! those same numbers, so the arms agree on the budget without either being told. What they
-//! cannot agree on is the seed, which is [`G_IGRAPH_SEED`] — and igraph's is not reachable from
-//! Python at all.
+//! cannot agree on is the seed, which is [`G_IGRAPH_SEED`] — and the reason is a licence, not an
+//! unreachable reference: python-igraph installs the stdlib `random` as igraph's RNG
+//! (`src/_igraph/random.c:295-325`), so `common.py:60` does reseed the reference and the
+//! reference reproduces exactly, but reproducing its Mersenne Twister stream is forbidden.
 
 use super::{Reference, Row};
 
@@ -68,33 +70,42 @@ pub const ROWS: [Row; 32] = [
     },
     Row {
         name: "IGRAPH_FR",
-        motor: Some("layout.force.fruchterman_reingold"),
+        // `dim = 3` (`igraph_layouts.py:74`), so the 3-D id is the one the reference runs. The 2-D
+        // layout is still registered and still pinned; it is simply not this row's motor.
+        motor: Some("layout.force.fruchterman_reingold.3d"),
         reference: Reference::Scigraphs,
-        gaps: &[G_IGRAPH_SEED, G_SNAPSHOT_SCALE],
+        // `G_IGRAPH_FIT` and not `G_SNAPSHOT_SCALE`: both name the same `scale = 5.0`, but this
+        // row's scale is the reference's own `_igraph_fit_positions`, not a `SCALE` const inside
+        // a layout (`motor/fit.rs`).
+        gaps: &[G_IGRAPH_SEED, G_IGRAPH_FIT],
     },
     Row {
         name: "IGRAPH_KK",
-        motor: Some("layout.force.kamada_kawai"),
+        // `dim = 3` (`igraph_layouts.py:99`), from igraph's own start.
+        motor: Some("layout.force.kamada_kawai.3d"),
         reference: Reference::Scigraphs,
-        gaps: &[G_SNAPSHOT_SCALE],
+        gaps: &[G_IGRAPH_FIT, G_KK_NON_FINITE],
     },
     Row {
         name: "IGRAPH_DRL",
-        motor: Some("layout.force.drl"),
+        // `dim = 3` (`igraph_layouts.py:342`), so the 3-D DrL arm rather than the planar one.
+        motor: Some("layout.force.drl.3d"),
         reference: Reference::Scigraphs,
-        gaps: &[G_IGRAPH_SEED, G_SNAPSHOT_SCALE],
+        gaps: &[G_IGRAPH_SEED, G_IGRAPH_FIT],
     },
     Row {
         name: "IGRAPH_DRL_2D",
+        // Same motor layout as `IGRAPH_DRL` two rows up, compared against the reference's
+        // `dim = 2` call (`igraph_layouts.py:406`).
         motor: Some("layout.force.drl"),
         reference: Reference::Scigraphs,
-        gaps: &[G_IGRAPH_SEED, G_SNAPSHOT_SCALE],
+        gaps: &[G_IGRAPH_SEED, G_IGRAPH_FIT],
     },
     Row {
         name: "IGRAPH_LGL",
         motor: Some("layout.force.lgl"),
         reference: Reference::Scigraphs,
-        gaps: &[G_IGRAPH_SEED, G_SNAPSHOT_SCALE],
+        gaps: &[G_IGRAPH_SEED, G_IGRAPH_FIT],
     },
     Row {
         name: "SPHERE",

@@ -5,15 +5,16 @@
 import { decodeSnapshot, idAt } from "../../../graph-render/src/snapshot/decode.ts";
 import type { IngestNode } from "../source/ingest.ts";
 import { type GraphMeta, metaOf } from "../source/meta.ts";
-import type { ForceEngine, ForceKnobs, ForcePort, LiveForce } from "./live.ts";
+import type { ForceEngine, ForceKnobs, ForcePort, Growable, LiveForce } from "./live.ts";
 
 export interface Built<Handle> {
   readonly handle: Handle;
-  readonly nodes: readonly IngestNode[];
+  /** The graph's nodes as the studio knows them; an extend appends to it (`metaOf` reads this). */
+  nodes: readonly IngestNode[];
   /** The id table the description was last built against; `null` before the first run. */
   described: Uint8Array | null;
   /** The motor's live session over this graph, made when one is first asked for. */
-  forced: ForcePort | null;
+  forced: (ForcePort & Growable<Handle>) | null;
   /** The port over it, cached so the loop sees one object for one session. */
   port: LiveForce | null;
   /** Node ids in the force session's dense row order; `null` until a layout has run. */
