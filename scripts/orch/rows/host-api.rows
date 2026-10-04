@@ -1,0 +1,4 @@
+studio-check|0|scripts/studio.sh check
+studio-build|0|scripts/studio.sh build
+studio-embed|0|scripts/studio-embed.sh
+negctl-studio-embed|0|STUDIO_EMBED_BREAK=1 scripts/studio-embed.sh; test $? -eq 1

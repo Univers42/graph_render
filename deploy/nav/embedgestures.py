@@ -1,8 +1,11 @@
-"""The embed gate's steps that act: the three ways to open a node, and two loads raced.
+"""The embed gate's steps that act: the three ways to open a node, and three loads raced.
 
 Every gesture is real input over CDP (`drive.Studio`), so nothing passes that a user's hand could
 not do. The page API is called only where the row is about the page API: `selectNodes` sets up a
 selection a gesture then acts on, and `loadGraph` is what the overlap and refusal rows measure.
+The overlap rows come in two, because they are two claims: `embed-overlap` is about the counts when
+two calls are made back to back, and `embed-overlap-reentrant` is about the `CancelledError` when
+the second call is made from inside the first one's own `graph-load` handler.
 """
 import json
 import time

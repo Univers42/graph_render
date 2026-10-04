@@ -27,7 +27,8 @@ function sameSource(a: Source, b: Source): boolean {
 // The kinds are disjoint, so each helper re-reads `b`'s kind rather than narrowing it against
 // `a`'s: a union narrows on a discriminant it can see, and it cannot see this one.
 function sameSynthetic(a: Source, b: Source): boolean {
-  return a.kind === "synthetic" && b.kind === "synthetic" && a.seed === b.seed && a.nodes === b.nodes && a.degree === b.degree && a.shape === b.shape;
+  return a.kind === "synthetic" && b.kind === "synthetic"
+    && a.seed === b.seed && a.nodes === b.nodes && a.degree === b.degree && a.shape === b.shape;
 }
 
 function sameFixture(a: Source, b: Source): boolean {
@@ -35,7 +36,8 @@ function sameFixture(a: Source, b: Source): boolean {
 }
 
 function sameDocument(a: Source, b: Source): boolean {
-  return a.kind === "document" && b.kind === "document" && a.name === b.name && a.text === b.text && a.host === b.host;
+  return a.kind === "document" && b.kind === "document"
+    && a.name === b.name && a.text === b.text && a.host === b.host;
 }
 
 export interface Plan {

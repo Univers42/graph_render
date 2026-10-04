@@ -88,9 +88,12 @@ BREAKS = (
     RunSpec("break-exception", ("load", "channels"), faults=(smokecdp.INJECTED_THROW,),
             keep=("embed-no-exception",)),
     # The wasm that exports memory only: the loader refuses it in the motor worker, which is a
-    # console line, a store error and no drawing. No page fault, so the wasm path is what breaks.
+    # console line and a refused load. No page fault, so the wasm path is what breaks. It is NOT
+    # the exception row's control and cannot be: the loader latches its refusal instead of throwing
+    # (`smokecdp.py`, the note above `INJECTED_THROW`), so `embed-no-exception` passes here —
+    # measured, 2026-10-04. `break-exception` is that row's control.
     RunSpec("break-wasm", ("load", "channels"), broken_wasm=True,
-            keep=("embed-no-console-error", "embed-no-exception", "embed-host-load")),
+            keep=("embed-no-console-error", "embed-host-load")),
     RunSpec("break-remember", ("load", "storage"), faults=("remember",), keep=("embed-storage",)),
     RunSpec("break-overlap", ("load", "overlap"), keep=("embed-overlap",), overlap_awaits=True),
     RunSpec("break-supersede", ("load", "overlap"), faults=("supersede",),
