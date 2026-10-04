@@ -16,7 +16,9 @@ Exact tasks:
 1. Before any edit, record the baseline into `target/circo-before/`: for every seed 0..=49, run
    `scripts/orch/gr cargo run -q --release -p graph-cli -- snapshot --seed <s> --layout layout.circular.circo --out-bin target/circo-before/<s>.bin`.
    Then the timing baseline: `scripts/orch/gr cargo run -q --release -p graph-cli -- bench --layout layout.circular.circo --past-ceiling --repeat 3`
-   (read `bench --help` first; if the node sizes differ from §4's table, use what it prints).
+   Read `bench --help` first and pass the sizes explicitly so no size runs past 3 520 nodes
+   (§4's table is 64, 128, 220, 256, 440, 512, 880, 1 000, 1 024, 1 760, 2 000, 3 520). Run it under
+   `timeout 1800`; a size that does not finish is recorded as such, never extrapolated.
 2. In `circle.rs` (or a child module `circo/crossings.rs` if `circle.rs` would pass 300 lines),
    write the `O(E log E)` count. Integer arithmetic only, no `HashMap`, no new dependency, no float.
    Describe the method in your own words in a doc comment. Keep the old count as a test-only
