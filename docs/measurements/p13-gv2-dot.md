@@ -124,8 +124,8 @@ seed n  t,h t,h ...  <n ranks>  <n order>
 ```
 
 where `order` is the per-rank left-to-right node lists concatenated, rank 0 first. The
-digest is `target/probe/dot1000.txt`, read by `dot/oracle_probe.rs`, which holds both
-`#[ignore]`d sweeps and the shared scaffolding.
+digest is `target/probe/dot1000.txt`, read by `dot/oracle_digest.rs`; the two `#[ignore]`d
+sweeps that compare against it are in `dot/oracle_probe.rs`.
 
 ```sh
 scripts/orch/gr cargo run -q -p graph-cli --release -- \
