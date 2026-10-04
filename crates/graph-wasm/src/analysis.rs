@@ -29,8 +29,8 @@
 //!
 //! One concern per child, so no file here has to grow past the house's 300-line limit and
 //! so a reader looking for one thing has one place to look:
-//! [`report`] holds the two types the face is written from and the writer itself,
-//! [`registry`] holds the table and the four functions the export delegates to, and
+//! `report` holds the two types the face is written from and the writer itself,
+//! `registry` holds the table and the four functions the export delegates to, and
 //! `components`/`communities`/`centrality`/`depth` each hold one family of adapters — one
 //! per row, so a row and the graph-core function it calls cannot be confused.
 //!

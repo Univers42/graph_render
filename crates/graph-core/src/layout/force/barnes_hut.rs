@@ -152,7 +152,7 @@ impl BarnesHut {
     /// a test can check from outside the tick — a runner cannot tell the kernels apart —
     /// and `barnes_hut/tests/kernels.rs::the_tick_hands_the_runner_one_call_per_listed_pass`
     /// fails if the two ever disagree in count. The **order** is a claim about
-    /// [`Sim::tick`]'s body, written here for the reader; a test that could hold it would
+    /// `Sim::tick`'s body, written here for the reader; a test that could hold it would
     /// need the kernels to name themselves, which `StepRange` deliberately does not ask.
     pub const THREADED_PASSES: [&'static str; 5] = [
         "link forces",

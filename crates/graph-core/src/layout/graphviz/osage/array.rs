@@ -28,7 +28,7 @@
 //! the port's order is the reference's for every node. `tests.rs` pins that invariant
 //! rather than trusting it.
 //!
-//! **Not a gather, unlike [`grid.rs`], and honestly so.** Node `i`'s cell depends on which
+//! **Not a gather, unlike `grid.rs`, and honestly so.** Node `i`'s cell depends on which
 //! column and row the *sort* put it in, and a column's width is a maximum over every box in
 //! it — so one node's coordinate is a function of all the sizes, not of `i` and the node
 //! count. The layout stays deterministic (the sort is a total order under the fixture

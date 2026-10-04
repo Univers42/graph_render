@@ -1,5 +1,5 @@
 //! The native arm of the force gate: one live session over the gate's own model for one seed,
-//! stepped [`TICKS`](super::TICKS) times, and the two position columns as the bytes both arms
+//! stepped [`TICKS`] times, and the two position columns as the bytes both arms
 //! hash.
 //!
 //! **The model is the gate's, at the compiled-in degree and node count** — not

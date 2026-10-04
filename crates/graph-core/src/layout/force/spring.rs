@@ -7,8 +7,8 @@
 //! (`networkx_layouts.py:26-34`, one wrapper over `spring_layout` with the dimension
 //! literal changed and nothing else), and SciGraphs offers both names for the one
 //! algorithm. So it is shipped as [`Spring3D`] — this same kernel at `D = 3`, in
-//! [`spring3d`], **not** a second kernel: the dimension is a const parameter of
-//! [`forces::Field`] and [`forces::Solver`], and at `D = 2` it performs the operations, in
+//! `spring3d`, **not** a second kernel: the dimension is a const parameter of
+//! `forces::Field` and `forces::Solver`, and at `D = 2` it performs the operations, in
 //! the order, that this file performed before the dimension was a parameter, so no 2D byte
 //! moves (`tests::the_two_dimensional_kernel_is_bit_identical_to_its_pre_dimension_form`
 //! pins the coordinates it pinned). The difference between the two stages is the geometry
@@ -27,12 +27,12 @@
 //! **Reference, and where the port stops.** `spring_layout` (`layout.py:452-651`) computes
 //! `k = sqrt(1/n)`, an opening temperature of a tenth of the start's larger **x or y**
 //! span (`layout.py:687`) at either dimension, and up to `iterations` steps of
-//! [`forces::Solver::gather`], each node's
+//! `forces::Solver::gather`, each node's
 //! displacement being `sum_j delta_ij * (k*k/d_ij^2 - A_ij * d_ij / k)` with `d` clipped
 //! to 0.01; it then rescales to `scale` (`layout.py:646`). Four departures, all stated
 //! rather than hidden:
 //!
-//! 1. **Initial positions** come from graph-core's own seeded `Mulberry32` at [`SEED`]
+//! 1. **Initial positions** come from graph-core's own seeded `Mulberry32` at `SEED`
 //!    *unless* a caller sets [`SpringParams::seed`] (D5: there is no global RNG to reach for,
 //!    and the same graph must hash the same on every target). At the default the reference
 //!    draws `seed.rand(n, dim)`, so no coordinate of ours equals networkx's for any seed;
@@ -41,9 +41,9 @@
 //!    (`tests/seed.rs`).
 //! 2. **The reduction is split** — repulsion over all `j`, then attraction over the node's
 //!    own row — where the reference fuses them into one pass over a dense `n x n` matrix.
-//!    The same sum, a different rounding (see [`forces`]).
+//!    The same sum, a different rounding (see `forces`).
 //! 3. **The graph is the undirected simple one**
-//!    ([`crate::layout::force::simple_graph`]), so a parallel edge is one edge and a
+//!    (`crate::layout::force::simple_graph`), so a parallel edge is one edge and a
 //!    self-loop none, and `A[i, j]` is 0 or 1 and never an edge weight. The reference's
 //!    `weight="weight"` reads a networkx attribute the SciGraphs caller never sets, so 0/1
 //!    is what it sees too.
@@ -120,7 +120,7 @@ const MIN_LENGTH: f64 = 0.01;
 ///
 /// The defaults are **networkx 3.6's own**, which is also what SciGraphs passes for
 /// `iterations` and `scale` (`dispatcher.py:14`): `iterations=50`, `scale=5.0`,
-/// `threshold=1e-4`. `scale` is applied by [`rescale_to`], after the solve.
+/// `threshold=1e-4`. `scale` is applied by `rescale_to`, after the solve.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SpringParams {
     /// Maximum gathers, `layout.py:457`'s `iterations`.
@@ -131,7 +131,7 @@ pub struct SpringParams {
     pub scale: f64,
     /// The reference's start stream, `seed=` (`layout.py:449`), as a `u32` because that is
     /// what an `int` seed narrows to. `Some(s)` draws `np.random.RandomState(s).rand(n, D)`,
-    /// row-major; `None` keeps this crate's own [`SEED`]-seeded [`Mulberry32`].
+    /// row-major; `None` keeps this crate's own `SEED`-seeded `Mulberry32`.
     ///
     /// **The SciGraphs arm, not this id's default.** networkx turns an `int` seed into
     /// `RandomState(seed)` (`utils/misc.py:290-291`) and SciGraphs passes

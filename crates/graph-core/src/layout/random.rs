@@ -57,7 +57,7 @@ pub fn run(topology: &Topology) -> Result<Geometry, StageError> {
 ///
 /// SciGraphs `_random_layout` (`basic.py:5-9`) is `rng.rand(n, 3) * scale` — already 3D,
 /// the one name here whose reference needs no 2-D port at all. What is *not* reproduced is
-/// the numbers: the stream here is the crate's [`Mulberry32`] at [`SEED`], not numpy's
+/// the numbers: the stream here is the crate's `Mulberry32` at `SEED`, not numpy's
 /// Mersenne Twister off `get_layout_seed()`, so the arm's oracle is the DISTRIBUTION (per
 /// axis, mean 1/2 and variance 1/12) and never a coordinate. See [`run_seeded`] for the
 /// arm that does compare coordinates, at an explicit seed.

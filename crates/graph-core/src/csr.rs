@@ -52,7 +52,7 @@ impl Csr {
     /// Builds `rows` rows from `(row, value)` pairs, keeping arrival order within a row.
     /// `pairs` is walked twice (count, then place), so it must yield the same sequence
     /// both times; a second walk that does not is a caller bug and panics. A row index
-    /// `>= rows` is a caller bug and panics. A `rows` past [`TABLE_BYTES_MAX`] is
+    /// `>= rows` is a caller bug and panics. A `rows` past `TABLE_BYTES_MAX` is
     /// [`CapacityError`], refused before anything is allocated.
     pub fn from_pairs<I>(rows: u32, pairs: I) -> Result<Self, CapacityError>
     where

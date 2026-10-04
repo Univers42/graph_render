@@ -35,7 +35,7 @@
 //!   available in this file**: it is a relative `6e-8` per move, which is one `f32` ULP, and
 //!   by iteration 5 it had moved 12 of `tree-balanced`'s 45 coordinates. The one place `f64`
 //!   does return is `cap / norm[over]`, because `cap` is `self.k`. See
-//!   [`integrate`](self::integrate).
+//!   `integrate`.
 //! - `np.bincount(..., weights=...)` accumulates in `f64` whatever the weights' dtype
 //!   (`simulation.py:721-722`), and `_attraction` narrows with `.astype(DTYPE)` at `:723`.
 //! - `np.einsum` accumulates in the array's own dtype, so the `f32` `einsum`s stay `f32`.
@@ -47,7 +47,7 @@
 //!
 //! ## Reductions
 //!
-//! Named per expression in [`reduce`], with the measured order for each. Three of the nine
+//! Named per expression in `reduce`, with the measured order for each. Three of the nine
 //! are BLAS and cannot be reproduced from a portable Rust; `pair_force.rs` and
 //! `integrate.rs` each say which, and what the substitution costs — measured at zero for
 //! both products and named as the row's residual cause for the `sdot`.
@@ -71,7 +71,7 @@
 //! which a seeded random start in `[-2.5, 2.5]` does not: the widest gap among `n` uniform
 //! draws over that interval is over `1e-3` at `n = 3`. Direction: a planar start would stay
 //! planar here and collapse in the reference's place. Escape hatch: none needed — every
-//! caller of this layout draws its start from [`crate::rng::Pcg64`], which is uniform.
+//! caller of this layout draws its start from `crate::rng::Pcg64`, which is uniform.
 //!
 //! `Ponytail (params)`: `strong_gravity`, `lin_log_mode`, `barnes_hut_optimize`,
 //! `barnes_hut_theta` and `edge_weight_influence` are fixed at their `forceatlas.py`
@@ -105,8 +105,8 @@ use state::Sim;
 ///
 /// Ponytail: force layouts are chaotic — the same graph with one node added or removed is
 /// a different picture, not a perturbed one — so this is a *different layout* from
-/// [`super::forceatlas2::ForceAtlas2`], not a variant of it. It exists because it is what
-/// the `FORCEATLAS2` conformance row's reference actually runs.
+/// [`ForceAtlas2`](crate::layout::forceatlas2::ForceAtlas2), not a variant of it. It
+/// exists because it is what the `FORCEATLAS2` conformance row's reference actually runs.
 pub struct ForceAtlas2ForceSim;
 
 /// The parameters `apply_graph_layout` reaches `_forceatlas2_layout` with for `FORCEATLAS2`

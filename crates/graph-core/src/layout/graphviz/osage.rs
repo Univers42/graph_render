@@ -34,7 +34,7 @@
 //!
 //! Determinism: `-Gstart` is INERT for this engine (measured — `docs/measurements/
 //! p13-gv1-osage.md`), the engine is closed form, and the only arithmetic is the exact
-//! `f64` multiply and add of [`grid`], whose two `libm` calls are the reference's own
+//! `f64` multiply and add of `grid`, whose two `libm` calls are the reference's own
 //! `ceil(sqrt(n))`. The kernel **is** in gather form (D10): node `i`'s box depends only on
 //! `i` and the node count and never on a neighbour, so one ordered pass places the grid.
 //! There is no reduction whose order could move the bytes except the origin fold, which is
@@ -184,7 +184,7 @@ pub fn run(topology: &Topology) -> Result<Geometry, StageError> {
 ///
 /// - **the ledger row** runs [`run`] — the default answer, a pure function of the node
 ///   count, unchanged by this entry point and by the fixtures;
-/// - **the differential** runs this one, over [`Boxes::of`], and the DOT the harness feeds
+/// - **the differential** runs this one, over [`Boxes::table`], and the DOT the harness feeds
 ///   Graphviz pins the same sizes with `fixedsize=true` (`docs/measurements/p13-gv1-osage.md`).
 ///
 /// Refuses a table that is not one box per node, rather than reading a truncated or over-long

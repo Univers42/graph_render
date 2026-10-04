@@ -1,6 +1,6 @@
 //! One record element's members, held as the walk located them and read on demand.
 //!
-//! Split from [`super`](super) for the house line limit: the field names and the record
+//! Split from [`super`] for the house line limit: the field names and the record
 //! builders are the parent's, the table is this module's.
 //!
 //! A table is built once per list and refilled per element — it is 300 bytes of stack, and

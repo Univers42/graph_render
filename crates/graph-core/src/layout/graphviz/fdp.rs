@@ -53,7 +53,7 @@
 //! Direction: the last ulp against the reference, amplified by 300 ticks into 2.7e-3 points
 //! on the two-node case (2.5e-3 became 5.2e-3 in `x`) — a *different* drawing at the same
 //! scale, never a wrong one. Escape hatch: a `sqrt`-based `hypot` is a one-line change in
-//! [`distance`] if a target pair ever needs the reference's exact function, and it would cost
+//! `distance` if a target pair ever needs the reference's exact function, and it would cost
 //! the native/wasm32 identity.
 //!
 //! Ponytail: **the oracle is not reproducible, so this port cannot be gated.** Running the
@@ -76,7 +76,7 @@
 //! `expandCluster` and its `bport_t` ports on the enclosing ellipse are not ported.
 //! Failing input: any DOT graph with a `subgraph cluster_*`. Direction: this port lays the
 //! cluster's nodes out as ordinary nodes and gives no cluster box. Escape hatch: none
-//! inside the motor — the motor's [`Topology`](crate::index::Topology) is a flat node set
+//! inside the motor — the motor's [`Topology`] is a flat node set
 //! with no cluster membership to lay out.
 //!
 //! Ponytail: **disconnected graphs are laid out as one component.** The reference splits

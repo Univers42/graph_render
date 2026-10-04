@@ -20,7 +20,7 @@
 //!   quality cost of separating, which is the number a caller who cares about a readable
 //!   *and* faithful drawing wants.
 //!
-//! The instruments themselves live in [`measure`], which is also where the one `O(n^2)` in this
+//! The instruments themselves live in [`mod@measure`], which is also where the one `O(n^2)` in this
 //! command is explained, along with the two ratios that are deliberately not exhaustive.
 //!
 //! Exit codes: `0` the invariant held and nothing was left overlapping · `1` at least one pair

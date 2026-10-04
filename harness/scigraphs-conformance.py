@@ -150,15 +150,20 @@ def _metrics(directory, fixtures, rows):
 def _row_metrics(directory, fixtures, row):
     """One name: the motor's coordinates beside the reference's, fixture by fixture.
 
-    A fixture the reference did not reach is dropped rather than compared against nothing,
+    A fixture **either arm did not reach** is reported rather than compared against nothing,
     and the row's cell count falls with it — so `coordinates` is always the number of
     coordinates that were **actually compared**, which is the only reading under which the
     bitwise counts mean anything.
+
+    **Which arm refused, and why, is read from that arm's own record** and not re-derived from
+    the length of its file; the slicing itself, and the offsets that make it honest, are
+    `sc_arms`' (`sc_arms.refusals`, `sc_arms.Arm.take`), which is where the 2026-10-04
+    `IGRAPH_KK` misalignment is written down.
     """
-    from sc_metrics import aggregate, fixture_metrics
+    from sc_arms import Arm, MOTOR, REFERENCE, per_fixture, refusals
+    from sc_metrics import aggregate
 
     name = row["name"]
-    motor = os.path.join(directory, "motor", "%s.f64" % name)
     reference = os.path.join(directory, "ref", "%s.f64" % name)
     if not os.path.exists(reference):
         return {"metrics": "not run: the reference arm wrote no %s.f64" % name}
@@ -170,39 +175,18 @@ def _row_metrics(directory, fixtures, row):
         # `not run:` is stripped because this line adds its own.
         reason = row["motor"].removeprefix("not run: ")
         return {"metrics": "not run: %s" % reason}
-    theirs = read_f64(reference)
-    ours = read_f64(motor)
-    at_motor = at_reference = 0
-    per_fixture = []
-    for fixture in fixtures:
-        try:
-            their_points, at_reference = _slice(theirs, fixture, at_reference, name)
-            our_points, at_motor = _slice(ours, fixture, at_motor, name)
-        except FixtureError as failure:
-            per_fixture.append({
-                "fixture": fixture.name,
-                "metrics": "not run: %s" % failure,
-            })
-            continue
-        entry = fixture_metrics(their_points, our_points)
-        entry["fixture"] = fixture.name
-        per_fixture.append(entry)
-    summary = aggregate([e for e in per_fixture if "metrics" not in e])
-    if not per_fixture:
+    pairs = refusals(directory, row, fixtures)
+    cells = per_fixture(
+        Arm(REFERENCE, name, read_f64(reference)),
+        Arm(MOTOR, name, read_f64(os.path.join(directory, "motor", "%s.f64" % name))),
+        fixtures, pairs,
+    )
+    summary = aggregate([entry for entry in cells if "metrics" not in entry])
+    if not cells:
         summary["metrics"] = "not run: no fixture held coordinates on both arms"
-    summary["per_fixture"] = per_fixture
+    summary["per_fixture"] = cells
     summary["name"] = name
     return summary
-
-
-def _slice(values, fixture, offset, name):
-    """One fixture's coordinates out of a file, and the offset after them."""
-    end = offset + 3 * fixture.n
-    if end > len(values):
-        raise FixtureError("%s holds %d coordinates, %s needs %d" % (
-            name, len(values), fixture.name, end,
-        ))
-    return values[offset:end], end
 
 
 def _write_metrics(directory, manifest, fixtures, measured, shapes):

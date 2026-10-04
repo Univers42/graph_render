@@ -4,10 +4,10 @@
 //! ## Additive, and deliberately so
 //!
 //! [`crate::ingest`] still reads the **provisional** node/edge JSON for
-//! [`gm_build`](crate::exports::gm_build), and it stays exactly as it was: that format
+//! `gm_build`, and it stays exactly as it was: that format
 //! is what the host studio and the hash gate's C20 stage already speak, and rewriting it
 //! would move a published ABI's meaning without adding anything. This module is the
-//! *other* way in — [`gm_build_contract`](crate::exports::gm_build_contract) — and the two
+//! *other* way in — `gm_build_contract` — and the two
 //! documents are not interchangeable: each reader refuses the other's, which is what
 //! keeps the two exports from drifting into one meaning by accident (a test, here:
 //! `the_two_ingest_formats_are_not_interchangeable`).
@@ -16,7 +16,7 @@
 //!
 //! Graph derivation existed in three copies in the host and they had already diverged, so
 //! two live code paths produced different layouts for the same data. There is now one
-//! derivation, [`graph_core::ingest::build`], and this module *calls* it. What lives here
+//! derivation, [`graph_core::ingest::build()`], and this module *calls* it. What lives here
 //! is only the boundary: UTF-8, the contract's strict reader, and the error's trip
 //! across an ABI that speaks a `u32`. There is no graph logic in this file, and the
 //! tests below assert the identity rather than describing it — a copy of the derivation

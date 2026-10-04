@@ -1,6 +1,6 @@
 # The live force session
 
-**Status:** decided (M1 landed; M2–M4 not started). **Date:** 2026-09-29.
+**Status:** decided (M1–M3 landed; M4 not started). **Date:** 2026-09-29. **Addendum:** 2026-10-04, at the end.
 **Code:** `crates/graph-core/src/layout/force/session{.rs,/}` — `ForceSession`, `LiveParams`,
 `NodeRow`. **Numbering:** this is the twelfth ADR; the eleven before it are unnumbered files
 (`circular-conventions.md` … `sugiyama-heuristics.md`), so `12-` is a count, not a phase.
@@ -103,3 +103,19 @@ re-opens a settled question.
 - **M4 — the layouts that need it.** The force family beyond the frozen set: Yifan Hu as
   multilevel coarsening over *this* session (registered under a name that says it is not
   Graphviz's `sfdp`, per `phase-06` step 4), and whatever the studio panels ask for.
+
+## Addendum 2026-10-04
+
+The status line above said "M2–M4 not started"; M2 and M3's loop are on develop, the rest is not.
+
+**M2 — landed**, `crates/graph-wasm/src/exports/session.rs`: open `:39`, warm `:63`, params
+`:115`, tick `:151`, alpha `:166`, reheat `:184`, pin/unpin `:196`/`:205`, columns `:223`,
+release `:252`; threaded tick `threads.rs:113`, grow `delta.rs:63`.
+
+**M3 — the loop landed, the measurement did not.** `packages/graph-studio/src/motor/liveSession.ts`
+steps it (`createLiveForce` `:138`, `tick` `:157`, `pin` `:150`, `reheat` `:159`), paced by
+`liveLoop.ts:18`. Still owed: one tick per frame against `prompt.md` §5.2's 16.67 ms; develop's
+16.67 ms readings are one-shot crossovers (`crates/graph-cli/src/bench/campaign.rs:40`).
+
+**M4 — not started**: `layout.force.yifan_hu` exists and is already named as not `sfdp`
+(`crates/graph-core/src/layout/force/yifan_hu.rs:5`), but it is a one-shot run, not a session.

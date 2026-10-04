@@ -73,7 +73,7 @@ pub const SCALE: Differential = Differential {
 pub const EXACT: f64 = 0.0;
 
 /// How many lines `emit-scale-fixtures --cases` writes by default: one per case in
-/// [`line`]. The cases are hand-built, so the count is a property of this file rather
+/// [`line()`]. The cases are hand-built, so the count is a property of this file rather
 /// than a budget a caller raises.
 pub const CASES: u32 = 12;
 
