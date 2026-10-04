@@ -35,15 +35,28 @@ export function encodeBatch(batch: GraphBatch): Uint8Array {
   const edges = batch.edges.length;
   const nodeCells = new Uint32Array(NODE_COLUMNS * nodes);
   const edgeCells = new Uint32Array(EDGE_COLUMNS * edges);
-  batch.nodes.forEach((node, row) => table.nodeCells(node, row, nodeCells, nodes));
-  batch.edges.forEach((edge, row) => table.edgeCellsByName(edge, row, edgeCells));
+  for (const [row, node] of batch.nodes.entries()) table.nodeCells(node, row, nodeCells, nodes);
+  for (const [row, edge] of batch.edges.entries()) table.edgeCellsByName(edge, row, edgeCells);
   return assembleColumns({
     strings: table.strings,
     nodeCells,
     edgeCells,
-    weights: Float64Array.from(batch.nodes, (node) => node.weight),
-    versions: Float64Array.from(batch.nodes, (node) => node.version),
-    strengths: Float64Array.from(batch.edges, (edge) => edge.strength),
+    weights: column(batch.nodes, "weight"),
+    versions: column(batch.nodes, "version"),
+    strengths: column(batch.edges, "strength"),
     magic: BATCH_MAGIC,
   });
+}
+
+/** One `f64` column, read straight into its own `Float64Array`.
+ *
+ *  `Float64Array.from(nodes, (node) => node.weight)` allocates an intermediate JavaScript array of
+ *  every value and then copies it into the typed array — at 10 000 nodes that is three such arrays
+ *  a batch, and `docs/measurements/perf-p4f-wasm.md` measured `encodeBatch`'s own frame in the
+ *  wasm32 `extend` profile. The values are already numbers and already in order, so they are
+ *  written where they belong and nothing else is allocated. */
+function column<T extends object, K extends keyof T>(rows: readonly T[], field: K): Float64Array {
+  const out = new Float64Array(rows.length);
+  for (const [row, item] of rows.entries()) out[row] = item[field] as number;
+  return out;
 }
