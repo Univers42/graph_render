@@ -64,7 +64,18 @@ sdk-test|0|scripts/orch/node-slim.sh npm run sdk:test
 # test fails, the run exits non-zero. Without this row `sdk-test` could go green by testing
 # nothing at all — the same vacuous pass prompts/RESUME.md:155 records for a knob at 0.9.
 sdk-test-control|nonzero|scripts/orch/node-slim.sh bash -c 'rm -rf target/sdk-test-control && cp -R crates/graph-sdk-js target/sdk-test-control && sed -i "s/moduleReporting(ABI_VERSION)/moduleReporting(ABI_VERSION + 1)/" target/sdk-test-control/test/abi-version.test.mjs && grep -q "ABI_VERSION + 1" target/sdk-test-control/test/abi-version.test.mjs && node --test --experimental-strip-types "target/sdk-test-control/test/**/*.test.mjs"'
-sdk-lint|0|scripts/orch/node-slim.sh bash -c 'npm ci --ignore-scripts >/dev/null && npx eslint crates/graph-sdk-js/src --max-warnings=0'
+# `sdk-lint` now lints the whole SDK package — `test/` and `scripts/` as well as `src`. It used
+# to name `crates/graph-sdk-js/src` only, which is how 52 errors in the `.mjs` files (a dead
+# import, a face that sent `null` instead of `1e999`, and 50 undeclared Node/web globals) sat
+# unseen through every develop gate.
+sdk-lint|0|scripts/orch/node-slim.sh bash -c 'npm ci --ignore-scripts >/dev/null && npm run sdk:lint'
+# The control for `sdk-lint` above. It breaks the lint the same way a real defect breaks it —
+# by naming a global that is not declared — rather than inverting the expected exit, and it
+# writes nothing under `crates/`: the source arrives on eslint's stdin under a `.mjs` filename
+# the new config object matches, so the row proves that object is live and that an undeclared
+# name still fails. Were the object missing, or scoped to another path, the stdin file would
+# report no-undef anyway only by accident; the `no-undef` grep pins what the report was about.
+negctl-sdk-lint|0|scripts/orch/node-slim.sh bash -c 'npm ci --ignore-scripts >/dev/null && { printf "undefinedGlobalForNegctl;\n" | npx eslint --max-warnings=0 --stdin --stdin-filename crates/graph-sdk-js/test/negctl.mjs >target/negctl-sdk-lint.txt 2>&1; test $? -eq 1 && grep -q no-undef target/negctl-sdk-lint.txt; }'
 
 # ---------------------------------------------------------------------------------------------
 # from docs/reports/phase-05.md:87 — p5 Sugiyama: the layout invariants and the layered
