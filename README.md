@@ -68,7 +68,7 @@ src/
   react/       GraphView + GraphConsole + console panels + export
   styles/      graph.css (tokens only — CSP-safe, no inline styles)
 tests/
-  graph-engine.test.ts   unit suite for core (node --test)
+  graph-engine-*.test.ts unit suite for core (node --test)
 ```
 
 ## Standalone usage

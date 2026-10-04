@@ -11,19 +11,19 @@
 //!
 //! The pass in the reference's order:
 //!
-//! 1. [`init_graph`] — clear the tree lists, zero the cut values, and ask whether the
+//! 1. `init_graph` — clear the tree lists, zero the cut values, and ask whether the
 //!    ranks already in hand satisfy every edge.
-//! 2. [`init_rank`] if they do not: longest path from the sources.
-//! 3. [`tree::feasible_tree`] — a maximal tight spanning tree, built from the maximal
+//! 2. `init_rank` if they do not: longest path from the sources.
+//! 3. `tree::feasible_tree` — a maximal tight spanning tree, built from the maximal
 //!    tight subtrees merged smallest first, then the initial cut values.
-//! 4. The pivot loop — [`pivot::leave_edge`], [`enter::enter_edge`], [`pivot::update`] —
+//! 4. The pivot loop — `pivot::leave_edge`, `enter::enter_edge`, `pivot::update` —
 //!    until no tree edge has a negative cut value.
-//! 5. One of the three balance passes in [`balance`].
+//! 5. One of the three balance passes in `balance`.
 //!
-//! The children are the reference's own split, one module per part of `ns.c`: [`tree`] and
-//! [`tight`] build the warm start, [`cutval`] and [`xval`] number the tree and turn weights
-//! into cut values, [`pivot`] and [`enter`] are the loop, [`balance`] finishes, and
-//! [`subtree`] is the union find and the heap the warm start merges through.
+//! The children are the reference's own split, one module per part of `ns.c`: `tree` and
+//! `tight` build the warm start, `cutval` and `xval` number the tree and turn weights
+//! into cut values, `pivot` and `enter` are the loop, `balance` finishes, and
+//! `subtree` is the union find and the heap the warm start merges through.
 //!
 //! **`balance` is a parameter, not a constant**, because `dot` runs this twice: `rank1`
 //! ranks with `TB_balance` and `dot_position` runs the same engine over its auxiliary

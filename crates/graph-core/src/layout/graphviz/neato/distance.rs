@@ -12,7 +12,7 @@
 //! **The packing is load-bearing.** The reference stores only the upper triangle, row-major,
 //! row `i` holding `n - i` entries starting at `i*n - i*(i-1)/2`; every later pass walks it
 //! with that stride and nothing indexes it as a matrix. Re-deriving the stride in
-//! [`Packed::at`] rather than storing an index per entry is what keeps that the only place
+//! `Packed::at` rather than storing an index per entry is what keeps that the only place
 //! the layout depends on it.
 //!
 //! **The unreachable-node fixup is the one place this port does not reproduce a choice.**

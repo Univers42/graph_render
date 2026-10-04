@@ -142,7 +142,7 @@ impl Routed {
 
 /// This module's capability id, the one the hash gate's POST stage list names.
 ///
-/// Not a [`META`](crate::post::META) entry: routing has no `PostRun`-shaped entry point
+/// Not a [`META`](crate::post::separate::META) entry: routing has no `PostRun`-shaped entry point
 /// of its own (it needs a grid index and a node geometry, not a handle's snapshot), so
 /// graph-core's POST registry does not hold it. It still owns the id — a caller asking for
 /// `post.route.grid` is asking for *this* code — so the string lives here, the way

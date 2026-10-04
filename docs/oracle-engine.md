@@ -26,11 +26,11 @@ npm ci                  # once; tests fail with ERR_MODULE_NOT_FOUND on d3-force
 npm run check           # THE gate: typecheck + lint + test (tsc --noEmit, eslint src --max-warnings=0, node --test)
 npm run typecheck
 npm run lint
-npm test                # 27 tests in tests/graph-engine.test.ts
+npm test                # 27 tests in tests/graph-engine-*.test.ts
 
 # one test, by name pattern (the loader flag is mandatory — src/ imports are extensionless)
 node --test --experimental-strip-types --experimental-loader ./tests/ts-extension-loader.mjs \
-  --test-name-pattern 'camera' tests/graph-engine.test.ts
+  --test-name-pattern 'camera' tests/graph-engine-view.test.ts
 
 # the same gate, reproducibly, without depending on the host's Node
 docker build -t graph-engine-check . && docker run --rm graph-engine-check

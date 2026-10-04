@@ -32,7 +32,7 @@ pub const TICK_WORK: f64 = 6.0e6;
 pub const MIN_TICKS: u32 = 8;
 
 /// The ceiling: the full `alphaDecay(0.06)` settle to `alphaMin` 0.001
-/// (`layout::force::params::TICKS`), which anything at or under [`FULL_TICKS_N`] earns.
+/// (`layout::force::params::TICKS`), which anything at or under `FULL_TICKS_N` earns.
 pub const MAX_TICKS: u32 = 112;
 
 /// The largest power of two at or below [`MAX_TICKS`]: the top of the quantised ladder.

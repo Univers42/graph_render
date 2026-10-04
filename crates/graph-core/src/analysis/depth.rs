@@ -12,7 +12,7 @@
 //! check of that convention ([`bfs_depth`] refuses an out-of-range root and two roots
 //! with no virtual root) and the root offset, read with p3's own `roots.len() >= 2`.
 //!
-//! **The re-point has happened.** p3's [`Hierarchy`](crate::layout::hierarchy::Hierarchy)
+//! **The re-point has happened.** p3's [`Hierarchy`]
 //! implements [`Roots`] below, by delegation and nothing else, so the two are one
 //! convention with two names:
 //!
@@ -90,7 +90,7 @@ pub trait Roots {
     fn children(&self, v: u32) -> &[u32];
 }
 
-/// The re-point: p3's repaired [`Hierarchy`](crate::layout::hierarchy::Hierarchy) *is*
+/// The re-point: p3's repaired [`Hierarchy`] *is*
 /// the root/forest convention, so it reads as a [`Roots`] by delegation. The four
 /// methods are that type's own accessors called through their inherent path, never
 /// through this trait's — an inherent method wins method resolution, so spelling it out

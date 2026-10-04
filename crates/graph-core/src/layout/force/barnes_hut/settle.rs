@@ -16,7 +16,7 @@ use crate::layout::force::params::ForceParams;
 /// The tier a [`settle`] runs under: who runs the tick's three gathered passes, over how
 /// many workers, and which merge the negative control splits.
 ///
-/// The three fields [`sim::How`] already carries per tick, lifted to the level of a whole
+/// The three fields [`sim::How`](super::sim::How) already carries per tick, lifted to the level of a whole
 /// level's settle — so a caller that owns hundreds of ticks hands the same choice down
 /// once instead of rebuilding it per tick, and cannot pair one tick's runner with another
 /// tick's control by accident.
@@ -28,7 +28,7 @@ use crate::layout::force::params::ForceParams;
 pub(crate) struct Tier<'a, R: crate::exec::Runner> {
     /// Who runs the ranges.
     pub(crate) runner: &'a R,
-    /// How many workers it may use; below 2 is [`Serial`]'s own serial path.
+    /// How many workers it may use; below 2 is [`Serial`](crate::exec::Serial)'s own serial path.
     pub(crate) workers: u32,
     /// The negative control: which merge, if any, reads a neighbouring node's delta.
     pub(crate) split: Split,

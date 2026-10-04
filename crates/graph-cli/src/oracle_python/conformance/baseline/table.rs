@@ -1,4 +1,4 @@
-//! The measured matrix, in [`super::ROWS`] order: 32 lines of seven pinned values each.
+//! The measured matrix, in `super::ROWS` order: 32 lines of seven pinned values each.
 //!
 //! **One module per row family, and this file is the index that reads them back in matrix
 //! order.** `basic.rs` holds rows 1-6, `networkx.rs` 7-18, `igraph.rs` 19-21, `graphviz.rs`
@@ -6,7 +6,7 @@
 //! that owns it; nothing here states a sha256, so a diff of a repair names the row and the
 //! family in the same breath.
 //!
-//! The families are contiguous blocks of [`super::ROWS`] rather than free groups, so the
+//! The families are contiguous blocks of `super::ROWS` rather than free groups, so the
 //! table is still read top to bottom in matrix order — [`BASELINE`] is that order, and the
 //! per-family sizes are in the arrays' own types.
 //!
@@ -33,7 +33,7 @@ const N_NETWORKX: usize = NETWORKX.len();
 const N_IGRAPH: usize = IGRAPH.len();
 const N_GRAPHVIZ: usize = GRAPHVIZ.len();
 
-/// The pinned matrix, the five families laid end to end in [`super::ROWS`] order.
+/// The pinned matrix, the five families laid end to end in `super::ROWS` order.
 ///
 /// **Copied out of the families one row at a time, in a `const fn`,** because
 /// `std::array::from_fn` is not callable in a const item on stable and a `LazyLock` would
@@ -68,5 +68,5 @@ const fn table() -> [super::Baseline; 32] {
     out
 }
 
-/// The pinned matrix, the five families read back in [`super::ROWS`] order.
+/// The pinned matrix, the five families read back in `super::ROWS` order.
 pub const BASELINE: &[super::Baseline] = &table();

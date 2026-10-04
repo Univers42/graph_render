@@ -24,7 +24,7 @@ pub struct Run {
     pub margin: f32,
     /// The over-relaxation factor; see [`super::OVER_RELAXATION`].
     pub omega: f32,
-    /// The iteration cap; see [`super::sweep`]'s `max_iterations`.
+    /// The iteration cap; see [`crate::post::separate::sweep`]'s `max_iterations`.
     pub max_iterations: u32,
 }
 
@@ -99,7 +99,7 @@ pub fn overlapping(a: Disc, b: Disc, run: Run) -> bool {
 /// and no pairs, so the sweep is a no-op and the side only has to keep the division finite.
 ///
 /// The factor of 2 is exact rather than generous: the largest separation any pair can need
-/// is `largest + largest + 2 · margin`, which is this. See [`super::super::buckets`] for why that
+/// is `largest + largest + 2 · margin`, which is this. See `buckets` for why that
 /// makes a 3 × 3 walk complete.
 pub fn cell_side(radii: &[f32], run: Run) -> f32 {
     let largest = crate::post::separate::largest(radii);

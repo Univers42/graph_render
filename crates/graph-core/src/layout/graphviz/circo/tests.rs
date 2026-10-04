@@ -14,6 +14,7 @@
 use super::run;
 use crate::layout::coords::probe::{assert_close, graph, points};
 
+mod crossings;
 mod skeleton;
 
 /// `min_dist + largest_node` = `1.0 + 0.75`, the pair every circle's radius is `N` times over

@@ -1,7 +1,7 @@
 //! Ingest: the neutral contract, in three parts.
 //!
 //! - [`roles`] — the eight declared roles, and how a document is read through them.
-//! - [`build`] — ingest → nodes and edges. **One** derivation, for every source.
+//! - [`mod@build`] — ingest → nodes and edges. **One** derivation, for every source.
 //! - [`strength`] — the one edge-strength table by edge kind.
 //!
 //! ## Why the contract exists at all
@@ -16,11 +16,11 @@
 //!
 //! A **declared** role has neither problem. The declaration is what is read, so a
 //! document's meaning does not depend on its field names or its member order, and the
-//! derivation in [`build`] is written once for every source instead of once per vendor.
+//! derivation in [`mod@build`] is written once for every source instead of once per vendor.
 //!
 //! Graph derivation used to exist in three places with three constant tables that had
 //! already diverged, so two live code paths produced different layouts for the same
-//! data. [`strength`] is the table that replaced them, and [`build`] is the single
+//! data. [`strength`] is the table that replaced them, and [`mod@build`] is the single
 //! reader of it — this module is where the host's three copies become one.
 
 pub mod build;

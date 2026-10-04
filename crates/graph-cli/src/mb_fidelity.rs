@@ -25,9 +25,9 @@
 //! Before any row is trusted, Barnes-Hut at `bh:0` is measured against the same reference.
 //! At `theta = 0` the opening threshold is infinite, so the walk descends to every leaf and
 //! sums every pair — the exact sum in a different order, and therefore equal to it to
-//! rounding. A self-check above [`SELF_CHECK_TOLERANCE`] means one of the two sums is wrong,
-//! and the run says so and exits **1** — it ran, and it failed — rather than letting a table
-//! nobody should read go out as a result.
+//! rounding. A self-check above [`exact::SELF_CHECK_TOLERANCE`] means one of the two sums is
+//! wrong, and the run says so and exits **1** — it ran, and it failed — rather than letting
+//! a table nobody should read go out as a result.
 //!
 //! # Exit codes
 //!

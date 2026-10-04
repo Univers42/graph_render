@@ -6,7 +6,7 @@
 //! Keeping them in the same `Capability` literal is what stops a layout from publishing
 //! parameters the dispatcher has no path for — the two cannot be added apart.
 //!
-//! Ponytail (the empty list): a layout registered with [`NONE`] is not one that *cannot*
+//! Ponytail (the empty list): a layout registered with [`LayoutParams::NONE`] is not one that *cannot*
 //! be drawn differently. `layout.force.barnes_hut`, `layout.force.yifan_hu` and
 //! `layout.force.particle_mesh` all take a `ForceParams` with twelve fields, and publish
 //! none of them, because each of the three reads a different subset: publishing the union
