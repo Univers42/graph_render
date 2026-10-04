@@ -2,11 +2,11 @@
 //! the document declares.
 //!
 //! A child module for one reason — `validate.rs` sits at the house's 300-line limit and
-//! this is the longest walk in it (every record, every field of its collection, every
-//! cell of those fields).
+//! this is the longest walk in it (every record, every cell it carries, every id in those
+//! cells).
 
-use super::{Ingest, IngestError, Role, shape};
-use crate::ingest::{Field, JsonValue, Record};
+use super::{Collections, IngestError, Records, Role, shape, sorted_field};
+use crate::ingest::{Collection, Field, Ingest, JsonValue, Record};
 
 /// Every `link` and `parent` cell names records of **one** collection: a `link` field's
 /// declared `link.collection`, or the record's own collection for a `parent` field, which
@@ -25,34 +25,40 @@ use crate::ingest::{Field, JsonValue, Record};
 /// collection's fields, which `check_references` has already established exist. A document
 /// wrong in both ways is refused as the undeclared collection or cell key first — the fact
 /// nearer the top of the document, and the one that makes the later walk meaningless.
-pub(super) fn check_link_cells(doc: &Ingest) -> Result<(), IngestError> {
+pub(super) fn check_link_cells(
+    doc: &Ingest,
+    collections: &Collections<'_>,
+    records: &Records<'_>,
+) -> Result<(), IngestError> {
     for (i, record) in doc.records.iter().enumerate() {
-        let Some(collection) = doc.collection(&record.collection) else {
+        let Some(collection) = collections.get(record.collection.as_str()) else {
             continue;
         };
-        let path = format!("records[{i}]");
-        for field in &collection.fields {
-            if matches!(field.role, Role::Link | Role::Parent) {
-                check_field(doc, record, field, &path)?;
-            }
-        }
+        check_record(record, collection, records, i)?;
     }
     Ok(())
 }
 
-fn check_field(
-    doc: &Ingest,
+/// One record's reference cells, walked in key order. `read` sorted the cells by key and
+/// `check` sorted the fields by id, so this meets the reference fields in the order the
+/// field list holds them and the refusal is the first bad cell by field id, as it was when
+/// the walk went field by field; it costs one search per cell the record carries instead
+/// of one scan of the cells per field the collection declares.
+fn check_record(
     record: &Record,
-    field: &Field,
-    path: &str,
+    collection: &Collection,
+    records: &Records<'_>,
+    index: usize,
 ) -> Result<(), IngestError> {
-    let (Some(target), Some(cell)) = (target_of(record, field), record.value(&field.id)) else {
-        return Ok(());
-    };
-    for id in referenced_ids(cell) {
-        if !declares(doc, target, id) {
+    for (field_id, cell) in &record.values {
+        let Some(target) = sorted_field(collection, field_id).and_then(|f| target_of(record, f))
+        else {
+            continue;
+        };
+        let mut ids = referenced_ids(cell).into_iter();
+        if let Some(id) = ids.find(|id| !records.contains(&(target, *id))) {
             return Err(shape(
-                &format!("{path}.values.{}", field.id),
+                &format!("records[{index}].values.{field_id}"),
                 format!(
                     "record `{}` names `{id}`, which is not a record of collection `{target}`",
                     record.id
@@ -93,13 +99,4 @@ fn referenced_ids(cell: &JsonValue) -> Vec<&str> {
         JsonValue::List(items) => items.iter().filter_map(JsonValue::as_text).collect(),
         _ => Vec::new(),
     }
-}
-
-/// Whether `id` is a record of `collection`, deleted ones included (see the module doc).
-/// A linear scan, the shape `check_unique_records` already uses: linear in practice,
-/// quadratic in the worst case, which is this reader's existing bound.
-fn declares(doc: &Ingest, collection: &str, id: &str) -> bool {
-    doc.records
-        .iter()
-        .any(|record| record.collection == collection && record.id == id)
 }

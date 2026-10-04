@@ -13,13 +13,15 @@ use layout_row::layout;
 /// Node count past which the topology layer stops being usable, and why it is this one.
 ///
 /// Estimated, not measured on the target (`docs/measurements/p1-topology-memory.md`,
-/// reproduced by `crates/graph-core/tests/memory.rs`): natively, `index_model` holds
+/// reproduced by `crates/graph-core/tests/memory.rs`): natively, `index_model` held
 /// **442 B per node** at 100 000 synthetic nodes and 154 978 edges — 396 B of columns,
-/// CSRs and indices, plus 46 B of string arena. wasm32 addresses at most 4 GiB of linear
-/// memory, so 4 GiB / 442 B = 9.7 M nodes, rounded down to two figures. The two `u32`
+/// CSRs and indices, plus 46 B of string arena. The three CSRs became append CSRs
+/// (`docs/decisions/delta-abi.md`, "Memory"), 8 B more per row each, so **466 B per
+/// node**. wasm32 addresses at most 4 GiB of linear memory, so 4 GiB / 466 B = 9.2 M
+/// nodes, rounded down to two figures. The two `u32`
 /// limits bind later: the arena's 2^32 − 1 bytes at ~92 M nodes of this shape, the
 /// dense index space at 4.29 G. The index row's Ponytail says what the estimate misses.
-pub const TOPOLOGY_CEILING: u64 = 9_700_000;
+pub const TOPOLOGY_CEILING: u64 = 9_200_000;
 
 const ORACLE: &str = "src/core/model (TypeScript, this repo)";
 

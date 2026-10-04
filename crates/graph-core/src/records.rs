@@ -103,6 +103,45 @@ pub struct EdgeView<'a> {
     pub child_first: bool,
 }
 
+/// An edge's fields with the endpoints left out: everything a topology stores about an edge
+/// except which nodes it joins.
+///
+/// [`EdgeView::fields`] produces one: `Topology::admit_edge` takes the endpoints as a pair
+/// already resolved to dense indices, so it needs everything else and nothing about how the
+/// endpoints were named.
+#[derive(Debug, Clone, Copy)]
+pub struct EdgeFields<'a> {
+    /// Content-addressed id.
+    pub id: &'a str,
+    /// Kind.
+    pub kind: EdgeKind,
+    /// Label.
+    pub label: &'a str,
+    /// Strength.
+    pub strength: f64,
+    /// Directed flag.
+    pub directed: bool,
+    /// Backing row id.
+    pub record_id: Option<&'a str>,
+    /// The source end is the child (`child_of`).
+    pub child_first: bool,
+}
+
+impl EdgeView<'_> {
+    /// This edge's endpoint-free fields.
+    pub fn fields(&self) -> EdgeFields<'_> {
+        EdgeFields {
+            id: self.id,
+            kind: self.kind,
+            label: self.label,
+            strength: self.strength,
+            directed: self.directed,
+            record_id: self.record_id,
+            child_first: self.child_first,
+        }
+    }
+}
+
 impl NodeRecord {
     /// This record's fields, borrowed.
     pub fn view(&self) -> NodeView<'_> {

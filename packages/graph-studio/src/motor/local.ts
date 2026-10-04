@@ -3,7 +3,7 @@
  * then freezes the page for as long as it runs: this exists to measure that (the perf
  * gate's negative control) and for a host that forbids workers. Nothing can be stopped.
  */
-import { createMotor } from "../../../../crates/graph-sdk-js/src/index.ts";
+import { assembleColumns, createMotor } from "../../../../crates/graph-sdk-js/src/index.ts";
 import type { Envelope, Port, Result } from "./protocol.ts";
 import { createPump } from "./pump.ts";
 import { createSession, sha256Hex } from "./session.ts";
@@ -20,6 +20,7 @@ export function spawnLocal(): Port {
     motorFrom: (wasmUrl) => createMotor(wasmUrl),
     fetchText,
     digest: sha256Hex,
+    assemble: assembleColumns,
     now: () => performance.now(),
   });
   const pump = createPump(session, (message) => handler?.(message));

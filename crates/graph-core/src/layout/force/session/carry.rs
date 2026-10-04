@@ -46,6 +46,7 @@
 use super::ForceSession;
 use super::error::SessionError;
 use crate::index::Topology;
+use crate::layout::force::SimpleGraph;
 use crate::layout::force::barnes_hut::sim::Sim;
 use crate::layout::force::particle_mesh::Mesh;
 
@@ -92,7 +93,9 @@ fn carried(
         });
     }
     let mut out = ForceSession::seeded(to, session.sim.params);
-    let ForceSession { sim, deltas, mesh } = &mut out;
+    let ForceSession {
+        sim, deltas, mesh, ..
+    } = &mut out;
     // The carried session keeps its engine; the mesh's grids are sized to the new rows.
     *mesh = session.mesh.as_ref().map(|_| Mesh::new(sim.rows()));
     sim.alpha = session.sim.alpha;
@@ -120,7 +123,7 @@ struct Placement<'a> {
     ///
     /// Built once, ascending, before anything is placed. It is the whole id mapping of the
     /// carry, and it is an array rather than a lookup per question because the questions are
-    /// not one per row: [`carried_mean`](Self::carried_mean) asks once per incident edge,
+    /// not one per row: [`carried_mean`] asks once per incident edge,
     /// which is an `O(m)` hash of an id string per batch instead of an `O(n)` array read.
     /// Sized once at the row count and never grown — no per-node allocation (D6).
     carried: Vec<u32>,
@@ -180,37 +183,64 @@ impl Placement<'_> {
 
     /// A new row: beside its carried neighbours when it has any, and where the seed already
     /// put it when it has none.
+    ///
+    /// A carried neighbour's position is read from `old` by `from`'s row, never from `out`:
+    /// a carried neighbour further along `to` has not been copied yet when an earlier new
+    /// row asks for it, so its position is only trustworthy in the columns the run had.
     fn place_new(&mut self, row: u32, fresh: u32) {
-        let Some((mean_x, mean_y)) = self.carried_mean(row) else {
-            // `Sim::new` seeded this row on the golden spiral, and that spiral point *is*
-            // the golden-spiral position of row `row` in `to` — the same function, the same
-            // row. Writing it again would only be a second spelling of it.
+        let old = self.old;
+        let carried_at = |v: u32| {
+            let at = self.carried_row(v)? as usize;
+            Some((old.x[at], old.y[at]))
+        };
+        // With no carried neighbour, `Sim::new` seeded this row on the golden spiral, and
+        // that spiral point *is* the golden-spiral position of row `row` in `to` — the
+        // same function, the same row. Writing it again would only be a second spelling.
+        let Some((x, y)) = beside_carried(&self.out.graph, row, fresh, carried_at) else {
             return;
         };
-        let angle = f64::from(fresh) * GOLDEN_ANGLE;
-        let at = row as usize;
-        self.out.x[at] = mean_x + OFFSET_RADIUS * libm::cos(angle);
-        self.out.y[at] = mean_y + OFFSET_RADIUS * libm::sin(angle);
+        self.out.x[row as usize] = x;
+        self.out.y[row as usize] = y;
     }
+}
 
-    /// The mean position of `row`'s **carried** neighbours in `to`, or `None` when it has
-    /// none. Read from `old` by `from`'s row, never from `out`: a carried neighbour further
-    /// along `to` has not been copied yet when an earlier new row asks for it, so its
-    /// position is only trustworthy in the columns the run already had.
-    ///
-    /// The walk is the new graph's own simple row — deduplicated, self-loops dropped, in
-    /// edge-index order — so a parallel edge weighs once and the sum is over a fixed
-    /// sequence.
-    fn carried_mean(&self, row: u32) -> Option<(f64, f64)> {
-        let (mut sum_x, mut sum_y, mut count) = (0.0_f64, 0.0_f64, 0_u32);
-        for &e in self.out.graph.rows.row(row) {
-            let Some(old) = self.carried_row(self.out.graph.other(e, row)) else {
-                continue;
-            };
-            sum_x += self.old.x[old as usize];
-            sum_y += self.old.y[old as usize];
-            count += 1;
-        }
-        (count > 0).then(|| (sum_x / f64::from(count), sum_y / f64::from(count)))
+/// Where new row `row` of `graph` starts when it has carried neighbours: their mean
+/// position plus the `fresh`-th phyllotaxis offset. `None` when it has none.
+/// `carried_at` is a neighbour's carried position, or `None` for a new one.
+///
+/// The one placement rule: [`ForceSession::carry`] and [`ForceSession::grow`] both call it,
+/// so the two cannot place a row differently.
+pub(super) fn beside_carried(
+    graph: &SimpleGraph,
+    row: u32,
+    fresh: u32,
+    carried_at: impl Fn(u32) -> Option<(f64, f64)>,
+) -> Option<(f64, f64)> {
+    let (mean_x, mean_y) = carried_mean(graph, row, carried_at)?;
+    let angle = f64::from(fresh) * GOLDEN_ANGLE;
+    Some((
+        mean_x + OFFSET_RADIUS * libm::cos(angle),
+        mean_y + OFFSET_RADIUS * libm::sin(angle),
+    ))
+}
+
+/// The mean position of `row`'s **carried** neighbours, or `None` when it has none.
+///
+/// The walk is the new graph's own simple row — deduplicated, self-loops dropped, in
+/// edge-index order — so a parallel edge weighs once and the sum is over a fixed sequence.
+fn carried_mean(
+    graph: &SimpleGraph,
+    row: u32,
+    carried_at: impl Fn(u32) -> Option<(f64, f64)>,
+) -> Option<(f64, f64)> {
+    let (mut sum_x, mut sum_y, mut count) = (0.0_f64, 0.0_f64, 0_u32);
+    for &e in graph.rows.row(row) {
+        let Some((x, y)) = carried_at(graph.other(e, row)) else {
+            continue;
+        };
+        sum_x += x;
+        sum_y += y;
+        count += 1;
     }
+    (count > 0).then(|| (sum_x / f64::from(count), sum_y / f64::from(count)))
 }

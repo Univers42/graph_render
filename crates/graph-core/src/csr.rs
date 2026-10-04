@@ -7,6 +7,9 @@
 
 use crate::arena::CapacityError;
 
+mod append;
+pub use append::AppendCsr;
+
 /// One adjacency, row `r`'s values being `values[offsets[r]..offsets[r + 1]]`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Csr {
