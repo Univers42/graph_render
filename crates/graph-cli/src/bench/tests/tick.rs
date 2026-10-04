@@ -1,6 +1,6 @@
 //! `graph-cli tick`: one row per run, with every column the header names.
 
-use crate::bench::tick::{HEADER, Layout, Plan, measure};
+use crate::bench::tick::{BatchPath, HEADER, Layout, Plan, measure};
 
 #[test]
 fn a_tick_row_has_one_cell_per_header_column_for_either_layout() {
@@ -26,6 +26,9 @@ fn a_tick_row_has_one_cell_per_header_column_for_either_layout() {
             batches: 10,
             emit: None,
             from: None,
+            // Stream mode is not what this row measures, and neither route is chosen: the
+            // flag's default is what every command without it means.
+            path: BatchPath::Json,
         };
         let row = measure(&plan).expect("a 300-node model builds");
         let columns = |line: &str| line.matches('|').count();

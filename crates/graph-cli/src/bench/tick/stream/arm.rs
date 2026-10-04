@@ -1,23 +1,25 @@
 //! The native arm of the stream measurement: replay `--from <path.jsonl>` through the export's
 //! own body, [`graph_wasm::service`], so this and `harness/wasm-stream-bench.mjs` time the same
-//! work — parse the line, append it — rather than two different ones.
+//! work — append the batch — rather than two different ones.
 //!
-//! Inside each batch, two timers run back to back and neither contains the other:
-//! `service::extend` (`ingest::read_records` then `Topology::extend`) and `ForceSession::grow`
-//! onto the topology that extend just appended to. Outside both: reading the line off disk, the
-//! `step(10)` after line 0, and the `step(1)` after each batch. The `step(1)` is untimed on
-//! purpose — the contract is `extend` plus `grow`, and a tick inside the timer would fold a
-//! whole tick into a batch number.
+//! Inside each batch, two timers run back to back and neither contains the other: the append —
+//! `service::extend` (`ingest::read_records` then `Topology::extend`), or on `--path columns`
+//! `service::extend_columns` (decode, then append) over a `GMX1` batch — and
+//! `ForceSession::grow` onto the topology the append just wrote. Outside both: reading the line
+//! off disk, re-encoding it as a `GMX1` batch, the `step(10)` after line 0, and the `step(1)`
+//! after each batch. The `step(1)` is untimed on purpose — the contract is the append plus
+//! `grow`, and a tick inside the timer would fold a whole tick into a batch number.
 //!
 //! Caveat: a p95 over ten batches is one interpolated value, not a tail (see
-//! [`super::stats`]). The `extend` column carries both halves of an append and this file does
-//! not separate them: naming parse against index needs graph-core's own timers, which are not
-//! on this path. Wall clock on a shared host is inflated, so `/proc/loadavg` is printed at both
+//! [`super::stats`]). The two routes' `extend` columns measure different spans — the JSON one
+//! reads and appends, the columns one decodes and appends, with the read and the encode outside
+//! it — so `P4d`'s split is what the columns number is to be read against, not this table's
+//! other column. Wall clock on a shared host is inflated, so `/proc/loadavg` is printed at both
 //! ends rather than assumed idle.
 
 use super::stats::{max, p95};
 use crate::bench::campaign::median;
-use crate::bench::tick::{Layout, Plan, Stepper};
+use crate::bench::tick::{BatchPath, Layout, Plan, Stepper};
 use crate::bench::tiers::markdown::loadavg;
 use graph_core::Topology;
 use graph_wasm::service::{self, Source};
@@ -65,6 +67,7 @@ struct Run<'a> {
     path: &'a Path,
     topology: Topology,
     session: Stepper,
+    route: BatchPath,
 }
 
 impl<'a> Run<'a> {
@@ -81,16 +84,15 @@ impl<'a> Run<'a> {
             path,
             topology,
             session,
+            route: plan.path,
         })
     }
 
-    /// One batch: read it untimed, `extend` and `grow` timed apart, then one untimed tick.
+    /// One batch: read it untimed, append it timed, then one untimed tick.
     fn batch(&mut self, line_no: u32) -> Result<Batch, String> {
         let line = read_line(&mut self.file, self.path, line_no)?;
-        let started = Instant::now();
-        service::extend(&mut self.topology, &line)
-            .map_err(|e| format!("line {line_no}: {}", e.name()))?;
-        let extend_ms = ms_since(started);
+        let batch = self.encoded(&line, line_no)?;
+        let extend_ms = self.append(&batch, line_no)?;
         let started = Instant::now();
         self.session.grow(&self.topology)?;
         let grow_ms = ms_since(started);
@@ -101,6 +103,36 @@ impl<'a> Run<'a> {
             extend_ms,
             grow_ms,
         })
+    }
+
+    /// The bytes the append reads: the line itself on the JSON route, or the `GMX1` batch the
+    /// same records encode to.
+    ///
+    /// **Untimed on both routes**, and that is what the brief asks for: on the columns route
+    /// the JSON read and the encode are a host's own preparation, which `gm_graph_extend_columns`
+    /// never sees (the SDK hands it a batch). Caveat: the two rows' `extend` columns therefore
+    /// measure different spans — `service::extend` reads *and* appends, `service::extend_columns`
+    /// decodes and appends — so the comparison to read is against `P4d`'s split, not against the
+    /// other column of this table.
+    fn encoded(&self, line: &[u8], line_no: u32) -> Result<Vec<u8>, String> {
+        if self.route == BatchPath::Json {
+            return Ok(line.to_vec());
+        }
+        let (nodes, edges) = graph_wasm::ingest_records(line)
+            .map_err(|e| format!("line {line_no}: the batch did not read: {e:?}"))?;
+        Ok(graph_wasm::columns_batch(&nodes, &edges))
+    }
+
+    /// The append, timed alone: `grow` and this never contain each other.
+    fn append(&mut self, batch: &[u8], line_no: u32) -> Result<f64, String> {
+        let started = Instant::now();
+        match self.route {
+            BatchPath::Json => service::extend(&mut self.topology, batch)
+                .map_err(|e| format!("line {line_no}: {}", e.name()))?,
+            BatchPath::Columns => service::extend_columns(&mut self.topology, batch)
+                .map_err(|e| format!("line {line_no}: {}", e.name()))?,
+        }
+        Ok(ms_since(started))
     }
 }
 

@@ -10,7 +10,7 @@
 use super::arm;
 use super::emit;
 use super::prefix;
-use crate::bench::tick::{Layout, Plan};
+use crate::bench::tick::{BatchPath, Layout, Plan};
 use graph_core::{REFERENCE_DEGREE, seeded_model};
 use std::path::PathBuf;
 
@@ -33,6 +33,7 @@ fn plan() -> Plan {
         batches: BATCHES,
         emit: None,
         from: None,
+        path: BatchPath::Json,
     }
 }
 
@@ -129,6 +130,31 @@ fn a_missing_stream_is_a_refusal() {
 #[test]
 fn a_stream_with_no_endpoint_is_a_refusal() {
     assert!(super::run(&plan()).is_err());
+}
+
+/// Both routes replay one stream and end on the same graph, which is what makes the two summary
+/// rows comparable: only the timed append differs, never what it appended.
+///
+/// The node count is read out of the summary row's `n` column, so this asserts the reported
+/// measurement rather than a private field of the run.
+#[test]
+fn both_routes_replay_the_stream_to_the_same_node_count() {
+    let path = path("routes");
+    write("routes");
+    let counts = |route: BatchPath| {
+        let plan = Plan {
+            path: route,
+            ..plan()
+        };
+        let table = arm::report(&plan, BATCH, &path).expect("the stream replays");
+        let summary = table.lines().last().expect("a summary row");
+        let fields: Vec<&str> = summary.split('|').map(str::trim).collect();
+        fields[3].to_owned()
+    };
+    let (json, columns) = (counts(BatchPath::Json), counts(BatchPath::Columns));
+    assert_eq!(json, columns, "the two routes must end on the same graph");
+    assert_eq!(json, N.to_string(), "and on the whole model");
+    std::fs::remove_file(&path).ok();
 }
 
 /// `prefix` refuses to be a second copy: the edge count it keeps is the model's own, checked
