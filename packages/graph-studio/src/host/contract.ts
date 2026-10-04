@@ -75,6 +75,17 @@ export interface GraphStudioElement extends HTMLElement, GraphStudioHost {
    * watch a dead worker from the outside; the next layout opens a new worker as usual.
    */
   stopMotor(): void;
+  /**
+   * Adds one batch of nodes and edges to the graph the live settle is running on, and grows that
+   * session to cover them. Atomic per call, never coalesced across calls: the batch goes in whole
+   * or is refused whole, and each call resolves with the nodes it added. Outside v1 (host-api.md
+   * condition 8): a host feature-tests it with `"applyDeltas" in el`.
+   *
+   * Caveat: the new nodes move from the tick that applied them but are drawn only once the
+   * structure snapshot lands, at most 500 ms later. A refusal rejects with the motor's own typed
+   * error and sends `graph-error`, whose `detail.error` is that error's `name`.
+   */
+  applyDeltas(batch: unknown): Promise<{ readonly applied: number }>;
   /** @internal How long the watchdog waits before it calls a silent worker dead, in ms. */
   readonly watchdogBoundMs: number;
 }
