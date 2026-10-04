@@ -69,12 +69,13 @@ sdk-test-control|nonzero|scripts/orch/node-slim.sh bash -c 'rm -rf target/sdk-te
 # import, a face that sent `null` instead of `1e999`, and 50 undeclared Node/web globals) sat
 # unseen through every develop gate.
 sdk-lint|0|scripts/orch/node-slim.sh bash -c 'npm ci --ignore-scripts >/dev/null && npm run sdk:lint'
-# The control for `sdk-lint` above. It breaks the lint the same way a real defect breaks it —
-# by naming a global that is not declared — rather than inverting the expected exit, and it
-# writes nothing under `crates/`: the source arrives on eslint's stdin under a `.mjs` filename
-# the new config object matches, so the row proves that object is live and that an undeclared
-# name still fails. Were the object missing, or scoped to another path, the stdin file would
-# report no-undef anyway only by accident; the `no-undef` grep pins what the report was about.
+# The control for `sdk-lint` above: eslint must go red on an undeclared name, or the row above
+# is measuring a linter that never fires. It writes nothing under `crates/` — the source
+# arrives on eslint's stdin under a `.mjs` filename the new config object matches — and it
+# fails by the defect's own shape (a `no-undef` report, exit 1) rather than by inverting the
+# expected exit. What it does NOT cover is the eight names themselves: deleting one of them
+# from the globals list would leave this row green and turn `sdk-lint` red, so the pair pins
+# both directions only because `sdk-lint` also runs.
 negctl-sdk-lint|0|scripts/orch/node-slim.sh bash -c 'npm ci --ignore-scripts >/dev/null && { printf "undefinedGlobalForNegctl;\n" | npx eslint --max-warnings=0 --stdin --stdin-filename crates/graph-sdk-js/test/negctl.mjs >target/negctl-sdk-lint.txt 2>&1; test $? -eq 1 && grep -q no-undef target/negctl-sdk-lint.txt; }'
 
 # ---------------------------------------------------------------------------------------------
