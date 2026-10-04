@@ -174,6 +174,13 @@ mod geometry_invariants {
             ["layout.force.kamada_kawai.3d", WHOLE, layout_force_kamada_kawai_3d],
             ["layout.force.drl.3d", WHOLE, layout_force_drl_3d],
             ["layout.forceatlas2.3d", WHOLE, layout_forceatlas2_3d],
+            // p13-gv3-dot-position: Graphviz's own layered engine, appended after the 3D
+            // arms for the same reason they were — the registry is append-only and this list
+            // must name it in order. The assertions are the same as every other row's (D9:
+            // no NaN or infinite coordinate reaches the output), which for `dot` is the whole
+            // of what this sweep can say: the layout's own agreement is
+            // `dot/position_tests.rs` and the 1000-seed sweep in `dot/oracle_probe.rs`.
+            ["layout.dag.dot", WHOLE, layout_dag_dot],
         ]
     }
 
