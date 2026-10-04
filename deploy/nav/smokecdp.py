@@ -46,71 +46,62 @@ PAGE_DOMAINS = (*DOMAINS, "Page")
 INJECTED_THROW = "throw new Error('studio-smoke negative control: the page threw on load');"
 
 
+class Detached(cdp.CdpError):
+    """The target went away before it answered: a motor worker the studio closed."""
+
+
 class Watcher(cdp.Page):
     """One page target, plus every event frame seen from load onwards."""
 
     def __init__(self, port):
         self.events = []
         self.sessions = []
+        self.gone = set()
         super().__init__(port)
 
     def _receive(self):
         message = super()._receive()
         if "method" in message:
             self.events.append(message)
+        if message.get("method") == "Target.detachedFromTarget":
+            self.gone.add(message["params"].get("sessionId"))
         return message
 
     def session_call(self, session_id, method, params=None, timeout=30):
         """`call` on an auto-attached target, with no domain support in the shared client.
 
-        A target that detaches first never answers: a retired motor worker with a thread pool
-        takes about 3 s to end (studio-embed, isolated run, 2026-10-04) and ignores every call
-        meanwhile. That is a refusal now, not a wait for the timeout.
+        A worker closed mid-call never answers: Chromium sends `Target.detachedFromTarget` and
+        drops the reply, so the call raises `Detached` on that event instead of waiting out
+        `timeout` (2026-10-04: a source change closes the motor worker, and the overlap probe's
+        `Runtime.enable` on it hung 30 s and aborted the run).
         """
         self._next_id += 1
         ident = self._next_id
         self._sock.settimeout(timeout)
         self._send({"id": ident, "method": method, "params": params or {}, "sessionId": session_id})
         while True:
+            if session_id in self.gone:
+                raise Detached(f"{method} on {session_id}: the target detached")
             reply = self._receive()
-            if (reply.get("method") == "Target.detachedFromTarget"
-                    and reply.get("params", {}).get("sessionId") == session_id):
-                raise cdp.CdpError(f"{method} on {session_id}: the target detached before it answered")
             if reply.get("id") != ident:
                 continue
             if "error" in reply:
                 raise cdp.CdpError(f"{method} on {session_id}: {reply['error'].get('message')}")
             return reply.get("result", {})
 
-    def detached(self, session):
-        return any(event["method"] == "Target.detachedFromTarget"
-                   and event.get("params", {}).get("sessionId") == session for event in self.events)
-
     def watch_workers(self):
-        """Turn the error domains on for every target auto-attached since the last call.
-
-        A target that detached before its domains were on (a page navigated away, a retired motor
-        worker) has nothing left to watch: skipped, but only once the browser has said it
-        detached. Any other refusal still raises.
-        """
+        """Turn the error domains on for every target auto-attached since the last call."""
         for event in self.events:
             params = event.get("params", {})
             session = params.get("sessionId") if event["method"] == "Target.attachedToTarget" else None
-            if session is None or session in self.sessions:
+            if session is None or session in self.sessions or session in self.gone:
                 continue
             self.sessions.append(session)
-            self.enable_on(session)
-
-    def enable_on(self, session):
-        for domain in DOMAINS:
-            if self.detached(session):
-                return
             try:
-                self.session_call(session, f"{domain}.enable")
-            except cdp.CdpError:
-                if not self.detached(session):
-                    raise
-                return
+                for domain in DOMAINS:
+                    self.session_call(session, f"{domain}.enable")
+            except Detached:
+                continue
 
     def start_watching(self):
         """Before the first navigation: the error domains, and auto-attach for the motor worker."""

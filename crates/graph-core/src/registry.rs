@@ -14,6 +14,7 @@ use crate::index::Topology;
 use crate::layout::Geometry;
 use crate::stage::{Stage, StageError};
 
+mod arms_3d;
 mod bench_cap;
 mod capability;
 mod closed_form;

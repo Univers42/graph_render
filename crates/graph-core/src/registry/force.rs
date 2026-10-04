@@ -1,7 +1,9 @@
 //! Ledger metadata for the Phase 6 force family (`layout.force.barnes_hut`,
 //! `layout.forceatlas2`), kept apart from `registry.rs` for the house line cap.
 
-use super::Metadata;
+use super::{Capability, LayoutParams, Metadata, run_default};
+use crate::layout::force::ParticleMesh;
+use crate::stage::Stage;
 use graph_contract::geometry::{EdgeGeometryKind, NodeGeometryKind};
 
 /// Node count past which `layout.force.barnes_hut` stops being usable, and why it is
@@ -284,4 +286,13 @@ pub(super) const YIFAN_HU: Metadata = Metadata {
     one added node is a different picture. Ponytail (scale_ceiling): measured, single run, 60.9 s at 100 000 nodes / 154 978 edges \
     (3.1 s at 10 000); nothing was run above it, so it is a lower bound on the wall, and one \
     timing on one host is not a median",
+};
+
+/// The `layout.force.particle_mesh` entry (perf-p2), kept here because `registry/layouts.rs`
+/// is at the 300-line cap; its slot in `LAYOUTS` is unchanged.
+pub(super) const PARTICLE_MESH_LAYOUT: Capability = Capability {
+    id: ParticleMesh::ID,
+    run: run_default::<ParticleMesh>,
+    params: &LayoutParams::NONE,
+    meta: PARTICLE_MESH,
 };
