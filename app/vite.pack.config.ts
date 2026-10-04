@@ -27,7 +27,7 @@ import { defineConfig } from "vite";
 
 import studio from "./vite.config.ts";
 
-const host = studio as UserConfig;
+const host: UserConfig = studio;
 const ELEMENT = fileURLToPath(new URL("../packages/graph-studio/src/element.ts", import.meta.url));
 const EMBED_PAGE = fileURLToPath(new URL("./embed.html", import.meta.url));
 const ENTRY = "graph-studio.js";

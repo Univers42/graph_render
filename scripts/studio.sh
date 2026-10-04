@@ -149,7 +149,7 @@ $escape_break"
 lint() {
   log "eslint --max-warnings 0"
   # From the root: a flat config does not see files above the directory eslint runs in.
-  in_node . app/node_modules/.bin/eslint -c app/eslint.config.js --max-warnings 0 app/src app/vite.config.ts packages
+  in_node . app/node_modules/.bin/eslint -c app/eslint.config.js --max-warnings 0 app/src app/vite.config.ts app/vite.pack.config.ts packages
   # Row lint, its negative control (verdict 5): the fixture holding every markup sink, which the
   # run above ignores, must draw exactly the five bans and nothing else.
   log "eslint over tests/ui/raw-html.tsx (expect the five markup-sink bans)"
