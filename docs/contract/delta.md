@@ -180,7 +180,7 @@ unchanged.
 - No new error code. Codes 20 to 23 are being claimed by other branches, so reusing the existing ones
   avoids a renumbering.
 - `gm_abi_version` stays 2. Adding an export changes no signature, no code's meaning and no
-  document version (`crates/graph-wasm/src/lib.rs:132-136`, `wasm-abi.md:31`). The exports add
+  document version (`crates/graph-wasm/src/lib.rs:139`, `wasm-abi.md:31`). The exports add
   invalidation events to C7, but a host that never calls them sees no change. P4b writes that rule
   into `wasm-abi.md`'s version line and C7. It also rewrites the comments that promise a fixed
   topology or never-resized session columns: `graph-wasm/src/handle.rs:24-28`,
