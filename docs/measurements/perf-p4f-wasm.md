@@ -233,9 +233,86 @@ the same table layout on every run and every target. Speeding it up while produc
 hash is possible in principle and is not cheap; that is the next thing to measure, and it is named
 here rather than guessed at.
 
-<!-- AFTER-TABLE -->
+### After
 
-<!-- VERDICTS -->
+The same four arms, the same stream, the same gate, the same order, run back to back with the
+fixed encoder. Every process exited 0.
+
+| round | arm | encode median | extend median | grow median | sum median | sum p95 | sum max | load start → end |
+|---:|---|---:|---:|---:|---:|---:|---:|---|
+| 1 | native BH | — | 13.41 | 3.60 | 16.31 | 34.09 | 45.83 | 3.59 3.95 4.95 → 4.14 4.05 4.94 |
+| 2 | native BH | — | 12.72 | 3.76 | 16.98 | 31.84 | 41.88 | 2.83 3.69 4.75 → 2.50 3.49 4.64 |
+| 3 | native BH | — | 11.74 | 3.56 | 15.33 | 32.31 | 42.38 | 2.40 3.26 4.47 → 2.27 3.12 4.37 |
+| 1 | wasm BH | 18.37 | 29.73 | 4.36 | 33.97 | 84.44 | 122.58 | 4.14 4.05 4.94 → 3.26 3.84 4.83 |
+| 2 | wasm BH | 18.74 | 28.10 | 4.33 | 33.00 | 83.78 | 123.91 | 2.50 3.49 4.64 → 2.61 3.38 4.54 |
+| 3 | wasm BH | 18.95 | 27.92 | 4.44 | 32.64 | 83.45 | 123.10 | 2.27 3.12 4.37 → 2.55 3.07 4.30 |
+| 1 | native PM | — | 11.52 | 6.75 | 18.92 | 35.91 | 48.28 | 3.26 3.84 4.83 → 3.07 3.78 4.80 |
+| 2 | native PM | — | 12.49 | 6.83 | 19.18 | 38.33 | 50.91 | 2.61 3.38 4.54 → 2.52 3.33 4.52 |
+| 3 | native PM | — | 11.84 | 7.24 | 19.07 | 37.20 | 50.51 | 2.55 3.07 4.30 → 2.47 3.04 4.27 |
+| 1 | wasm PM | 18.20 | 27.66 | 9.95 | 37.90 | 50.52 | 56.86 | 3.07 3.78 4.80 → 2.83 3.69 4.75 |
+| 2 | wasm PM | 18.16 | 27.35 | 10.27 | 37.62 | 50.28 | 56.69 | 2.52 3.33 4.52 → 2.40 3.26 4.47 |
+| 3 | wasm PM | 18.06 | 27.78 | 10.18 | 37.93 | 51.07 | 57.52 | 2.47 3.04 4.27 → 2.59 3.03 4.25 |
+
+### Before against after, median of 3 medians
+
+| arm | encode | extend | grow | **sum** | sum vs 30 ms | change |
+|---|---:|---:|---:|---:|---:|---:|
+| native BH columns | — | 12.36 → 12.72 | 3.59 → 3.60 | **17.41 → 16.31** | 0.58× → **0.54× met** | −6 % |
+| native PM columns | — | 12.85 → 11.84 | 7.30 → 6.83 | **20.69 → 19.07** | 0.69× → **0.64× met** | −8 % |
+| wasm BH columns | **31.18 → 18.74** | 37.33 → 28.10 | 4.37 → 4.36 | **41.46 → 33.00** | 1.38× → **1.10× missed** | **−20 %** |
+| wasm PM columns | **29.52 → 18.16** | 37.14 → 27.66 | 10.33 → 10.18 | **47.55 → 37.90** | 1.58× → **1.26× missed** | **−20 %** |
+
+`encodeBatch` lost **12.44 ms (BH) and 11.36 ms (PM) — 40 % and 38 % of itself** — and that is
+almost exactly what `extend` lost (9.23 and 9.48 ms), the difference being run-to-run spread.
+**The native arms moved 6–8 %, and they run the same encoder.** That is the host: the after run
+sat at 2.27–4.14 where the before run sat at 3.05–11.87. It is the reason the native columns are
+in the table as a control, and it bounds how much of the 20 % to believe — the *paired* change,
+encode against itself in the same process, is the number to trust, and it is 40 %.
+
+### Verdicts
+
+| arm | sum median | vs 30 ms | verdict |
+|---|---:|---:|---|
+| native, Barnes-Hut, `columns` | 16.31 ms | 0.54× | **met** |
+| native, particle mesh, `columns` | 19.07 ms | 0.64× | **met** |
+| wasm32, Barnes-Hut, `columns` | 33.00 ms | 1.10× | **MISSED** — 3.00 ms over |
+| wasm32, particle mesh, `columns` | 37.90 ms | 1.26× | **MISSED** — 7.90 ms over |
+
+**Both wasm arms are still a miss, and they are recorded as one.** The encoder was the whole
+premium and removing its waste took 20 % off both, which is real and reproducible; it is not the
+25 ms the budget needed.
+
+**Next cost, named.** A profile of the fixed encoder, same window, same 100 µs interval:
+
+| group | before | after |
+|---|---:|---:|
+| (a) the JS encode | 40.01 % | **32.90 %** |
+| (b) the staging copy | 0.25 % | 0.22 % |
+| (c) the wasm32 motor | 25.05 % | **28.66 %** |
+| harness (read + `JSON.parse`, untimed) | 16.06 % | 17.28 % |
+
+and inside what is left of (a), the top frame is still `Table.intern` — **12.48 %, down from
+14.46 %**, but now it is the `Map.get` and the *inherent* cost of the format: the GMX1 string
+table is deduped in first-seen order (D4), so 160 000 probes a batch are what makes the bytes a
+pure function of the document. That is not waste and there is no cheaper way to do it.
+`measureBlob` (4.24 %) and `placeBlob` (2.23 %) are now one pass each, and `join` is gone from
+the profile entirely.
+
+So the next cost is **(c), the wasm32 motor — `StringArena::find` at 9.43 % and
+`StringArena::intern` at 5.79 %**, which is the FNV-1a in `crates/graph-core/src/arena.rs:47-52`
+walking an id byte at a time, once per lookup. It was **not** taken in this slice, and the
+reason is stated above rather than left implicit: the hash is a serial recurrence, so making it
+faster means changing the value it produces, and the arena's map layout — and so every dense
+index the index hands out — follows from that value. The brief forbids changing an output byte
+and D4 requires the same layout on every target. Doing it while producing the *same* hash is
+possible and is not cheap; it is the next thing to measure.
+
+One smaller, safe item is left on the table and is named here rather than taken: `utf8Length`
+(`columns-blob.ts`) walks a string with a code-point iterator, which allocates a one-character
+string per code unit, and it is what `measureBlob`'s 4.24 % is. A `charCodeAt` walk computes the
+same number for every input including a lone surrogate. It is worth perhaps 1–2 ms of the
+remaining 18; against a 3.00 ms and 7.90 ms gap, and at the cost of another full 12-process
+round to measure honestly, it was not worth taking blind.
 
 ## Reproducing
 
