@@ -38,6 +38,9 @@ layout.forceatlas2.barnes_hut	65536	262144
 layout.bipartite_3d	1000000	4000000
 layout.basic3d.spiral	1000000	4000000
 layout.force.particle_mesh	262144	406717
+layout.forceatlas2.forcesim	2000	8000
+layout.spectral3d	256	1024
+layout.mds.pivot3d	100000	400000
 post.route.grid	3225	4988
 post.bundle.fdeb	4451	6900
 post.bundle.mingle	1935	3000
