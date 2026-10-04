@@ -29,7 +29,16 @@ def main():
             print("opened", flush=True)
             studio.page.evaluate(f"{HOST}.studio.dispatch('forces.animate', {{ on: true }})")
             print("animate", flush=True)
-            for call in range(3):
+            studio.page.evaluate(f"""
+            (() => {{
+              const el = {HOST};
+              window.__frames = 0;
+              const set = el.view.setFrame.bind(el.view);
+              el.view.setFrame = (...args) => {{ window.__frames += 1; return set(...args); }};
+            }})()
+            """)
+            print("patched", flush=True)
+            for call in range(1):
                 batch = delta.batch_json(f"probe-{call}", 10)
                 began = time.monotonic()
                 try:
@@ -46,7 +55,13 @@ def main():
                     print(f"call {call} took {time.monotonic() - began:.2f}s -> {json.dumps(out)}", flush=True)
                 except Exception as failure:  # noqa: BLE001 — a probe prints what it saw
                     print(f"call {call} hung after {time.monotonic() - began:.2f}s: {failure}", flush=True)
-                page.watch_workers()
+                for _ in range(8):
+                    time.sleep(0.25)
+                    studio.page.watch_workers()
+                    counts = studio.page.evaluate(
+                        f"[{HOST}.view.frame().nodeCount, {HOST}.studio.store.get().meta.nodeCount]")
+                    print("counts", counts, "setFrame calls",
+                          studio.page.evaluate("window.__frames"), flush=True)
                 print("events", json.dumps([e["method"] for e in page.events])[:600], flush=True)
                 print("console", json.dumps(smokerows.events(page, "Runtime.consoleAPICalled"))[:1500], flush=True)
                 print("exc", json.dumps(smokerows.events(page, "Runtime.exceptionThrown"))[:1500], flush=True)

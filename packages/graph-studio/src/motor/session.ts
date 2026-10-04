@@ -44,8 +44,7 @@ export interface MotorLike<Handle> {
   release(handle: Handle): void;
   /**
    * Appends a batch to a built graph (`Motor.extend`); whole or not at all. Optional so a motor
-   * without it — and every test double — still satisfies this interface, and a delta batch is
-   * then refused with a reason rather than dropped.
+   * without it — and every test double — still satisfies it, and a batch is then refused.
    */
   extend?(handle: Handle, batch: GraphBatch): void;
   /** The live session over a graph's topology, or null on a motor without one. */
@@ -87,7 +86,8 @@ export interface Session {
 
 interface Built<Handle> {
   readonly handle: Handle;
-  readonly nodes: readonly IngestNode[];
+  /** The graph's nodes as the studio knows them; an extend appends to it (`metaOf` reads this). */
+  nodes: readonly IngestNode[];
   /** The id table the description was last built against; `null` before the first run. */
   described: Uint8Array | null;
   /** The motor's live session over this graph, made when one is first asked for. */
@@ -122,7 +122,7 @@ function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
   return true;
 }
 
-/** The description of the graph in the order this snapshot uses, if that order is news. */
+/** The description of the graph in this snapshot's order, if that order is news. */
 function describe<Handle>(built: Built<Handle>, bytes: Uint8Array): GraphMeta | null {
   const snapshot = decodeSnapshot(bytes);
   const table = snapshot.nodeIds.bytes;
@@ -171,9 +171,8 @@ function summaryOf(document: Document, buildMs: number): GraphSummary {
 }
 
 /**
- * The live force port over the graph as it is now drawn, or null when there is none. Null
- * rather than a refusal: a force request before a graph is loaded is "no session yet", which
- * is the same answer as a motor that has none.
+ * The live force port over the graph as it is now drawn, or null when there is none: a force
+ * request before a graph is loaded is "no session yet", the same answer as a motor with none.
  */
 function forcesOf<Handle>(motor: MotorLike<Handle> | null, built: Built<Handle> | null, deps: SessionDeps<Handle>): LiveForce | null {
   if (motor === null || built === null || built.order === null) return null;
@@ -183,9 +182,8 @@ function forcesOf<Handle>(motor: MotorLike<Handle> | null, built: Built<Handle> 
   // The port is cached, not rebuilt: the loop compares ports by identity and replaces itself
   // when one changes, so a fresh object per request would stop the loop on every message. So
   // `restart` hands the new session to `built.forced`, which `forget` then releases.
-  const session = built.forced;
   built.port ??= createLiveForce({
-    session,
+    session: built.forced,
     ids: () => built.order,
     restart: () => {
       built.forced?.release();
@@ -198,20 +196,22 @@ function forcesOf<Handle>(motor: MotorLike<Handle> | null, built: Built<Handle> 
     extend: (batch) => {
       if (motor.extend === undefined) throw new SessionRefusal("this motor cannot add to a built graph");
       motor.extend(built.handle, batch);
+      // After the motor: a refusal leaves the graph and this list as they were.
+      built.nodes = [...built.nodes, ...batch.nodes];
     },
     grow: () => {
       if (deps.breakDeltas?.() === true) return;
-      if (session.grow === undefined) throw new SessionRefusal("this motor's live session cannot grow");
-      session.grow(built.handle);
+      // Read late: "Animate" restarts the session, so a captured binding is a released one.
+      const running = built.forced;
+      if (running === null || running.grow === undefined) throw new SessionRefusal("this motor's live session cannot grow");
+      running.grow(built.handle);
     },
   });
   return built.port;
 }
 
-/**
- * One layout over the graph, with the edge pass and the digest the studio reports. A force
- * layout on a large graph runs as a scatter and reports the layout that settles it (`settle.ts`).
- */
+/** One layout with the edge pass and the digest the studio reports; a large force layout runs
+ * as a scatter and reports the layout that settles it (`settle.ts`). */
 async function runLayout<Handle>(
   live: { readonly motor: MotorLike<Handle>; readonly built: Built<Handle> },
   deps: SessionDeps<Handle>,

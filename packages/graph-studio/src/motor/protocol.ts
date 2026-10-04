@@ -3,6 +3,7 @@
  * freeze the page, so everything it is asked and everything it answers is one of these.
  */
 import type { ForceKnobs } from "./live.ts";
+import type { EdgeKind, NodeKind } from "../source/ingest.ts";
 import type { GraphMeta } from "../source/meta.ts";
 import type { ShownError } from "../state/errors.ts";
 import type { Source } from "../state/settings.ts";
@@ -67,7 +68,8 @@ export interface AnalysisReport {
  */
 export interface DeltaNode {
   readonly id: string;
-  readonly kind: string;
+  /** One of the studio's own `NodeKind`s, which is what the motor's ingest shape names. */
+  readonly kind: NodeKind;
   readonly database_id: string | null;
   readonly source: string;
   readonly label: string;
@@ -83,7 +85,7 @@ export interface DeltaEdge {
   readonly id: string;
   readonly source: string;
   readonly target: string;
-  readonly kind: string;
+  readonly kind: EdgeKind;
   readonly label: string;
   readonly strength: number;
   readonly directed: boolean;

@@ -37,6 +37,7 @@ export function createDeltasPage(view: DeltasView, described: () => GraphMeta | 
    * most twice a second and not once per batch. Escape hatch: a re-layout draws the whole graph.
    */
   const structure = (run: RunReport): void => {
+    console.log("DELTA page structure", run.bytes.length, run.meta?.nodeCount ?? "no-meta");
     const snapshot = decodeSnapshot(run.bytes);
     const frame = frameFrom(snapshot);
     const meta = run.meta ?? described() ?? null;

@@ -75,7 +75,7 @@ test("a burst that never pauses rebuilds at most twice a simulated second", asyn
   assert.ok(structures >= 1, "a batch that applied must be drawn at least once");
 });
 
-test("a burst with no idle tick rebuilds at t=0, then once a cadence: two a simulated second", async () => {
+test("a burst with no idle tick rebuilds at t=0, then once a cadence: t=500, t=1000", async () => {
   const { queue, emitted, at } = cadence();
   for (const ms of [0, 100, 200, 300, 400, 500, 600, 700, 800, 900]) await at(ms);
   const drawn = (): number => emitted.filter((one) => one.type === "deltas-structure").length;

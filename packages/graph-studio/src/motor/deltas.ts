@@ -87,26 +87,36 @@ interface Refused {
  * this one found nothing queued — that is the burst being over, and there is nothing to wait for.
  */
 interface Cadence {
-  /** Runs the rebuild if one is due after a burst that landed `landed` batches. */
-  readonly run: (landed: number, wasIdle: boolean) => Promise<void>;
+  /** A batch went in and nothing has drawn it yet: a rebuild is owed. */
+  readonly owe: () => void;
+  /** Runs the rebuild if one is due; `wasIdle` says the tick before this one was empty. */
+  readonly run: (wasIdle: boolean) => Promise<void>;
   readonly count: () => number;
 }
 
 function cadence(deps: QueueDeps): Cadence {
   let done = 0;
   let last = Number.NEGATIVE_INFINITY;
+  let owed = false;
   let building = false;
   const push = (run: RunReport): void => deps.emit({ type: "deltas-structure", run }, [run.bytes.buffer]);
-  const due = (landed: number, wasIdle: boolean): boolean => landed > 0
-    && (deps.now() - last >= STRUCTURE_MS || wasIdle);
   return {
-    run: async (landed, wasIdle) => {
-      if (deps.structure === undefined || building || !due(landed, wasIdle)) return;
+    owe: () => { owed = true; },
+    run: async (wasIdle) => {
+      // Owed, and either the tick before was empty (the burst is over, so draw it now) or the
+      // cadence has come round. Every frame asks, which is what draws a burst's last batch after
+      // the host has stopped calling: the queue is only drained by a tick, and nothing is queued.
+      if (deps.structure === undefined || building || !owed) return;
+      if (!wasIdle && deps.now() - last < STRUCTURE_MS) return;
+      console.log("DELTA rebuild start", deps.now() - last, wasIdle);
       building = true;
+      owed = false;
       last = deps.now();
       done += 1;
       try {
-        const run = await deps.structure();
+        let run = null;
+        try { run = await deps.structure(); } catch (error) { console.log("DELTA structure threw", String(error)); }
+        console.log("DELTA structure done", run === null ? "null" : String(run.bytes.length));
         if (run !== null) push(run);
       } catch {
         // A refused rebuild leaves the snapshot the page already has; the next batch tries again.
@@ -128,6 +138,31 @@ function extendAll(deps: QueueDeps, burst: readonly Queued[]): (Applied | Refuse
       return { queued, error: describeError(error) };
     }
   });
+}
+
+/**
+ * One grow and one reheat for the whole burst, and the node count the session covers after it.
+ *
+ * Caveat: a grow that throws leaves the batch in the graph and the session short of it, so the
+ * count is the one from before and the answer still says the nodes went in — which happened.
+ * Direction: the reheat is `max(alpha, GROW_ALPHA)`, so a port just reheated is not cooled down.
+ * Escape hatch: `grow` left out answers with the count the session had.
+ */
+function growFor(deps: QueueDeps): number {
+  const read = (): number => {
+    try {
+      return deps.nodeCount();
+    } catch {
+      return 0;
+    }
+  };
+  try {
+    deps.grow?.();
+    deps.reheat(Math.max(GROW_ALPHA, deps.alpha()));
+    return deps.nodeCount();
+  } catch {
+    return read();
+  }
 }
 
 /** The ring's marks for the burst, in order, and the count of batches that went in. */
@@ -164,25 +199,24 @@ export function createDeltaQueue(deps: QueueDeps): DeltaQueue {
    */
   async function drain(tick: number): Promise<void> {
     const burst = pending.splice(0, pending.length);
-    const landed = burst.length;
-    // Read before it is written: what `due` wants to know is whether the tick BEFORE this one
-    // found nothing, which is what says this burst is the last one.
+    // Read before it is written: what the cadence wants to know is whether the tick BEFORE this
+    // one found nothing, which is what says this burst is the last one.
     const wasIdle = drainedLast;
-    drainedLast = landed === 0;
-    if (landed === 0) return;
+    drainedLast = burst.length === 0;
+    if (burst.length === 0) {
+      await snapshots.run(wasIdle);
+      return;
+    }
     const applied = extendAll(deps, burst);
     const any = mark(applied, ring, tick);
-    if (any > 0) {
-      deps.grow?.();
-      deps.reheat(Math.max(GROW_ALPHA, deps.alpha()));
-    }
-    const count = deps.nodeCount();
+    const count = any > 0 ? growFor(deps) : deps.nodeCount();
     for (const one of applied) {
       one.queued.answer("error" in one
         ? { type: "failed", error: one.error }
         : { type: "deltas-applied", applied: one.applied, nodeCount: count });
     }
-    if (any > 0) await snapshots.run(landed, wasIdle);
+    if (any > 0) snapshots.owe();
+    await snapshots.run(wasIdle);
   }
 
   return {
