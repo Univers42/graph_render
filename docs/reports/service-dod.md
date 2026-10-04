@@ -65,7 +65,23 @@ at `packages/graph-studio/src/studio/pipeline.ts:63-66,130-131,136,142,212,258`,
 
 ## 5. The full gate
 
-Filled in by the orchestrator when develop-full.rows finishes.
+`scripts/orch/rows/develop-full.rows` ran once on develop `178cef49` (worktree `full-gate`,
+2026-10-04): **110 rows, 102 PASS, 8 FAIL — not green.** The summary is kept host-local at
+`$GM_SCRATCH/orch/evidence/svc-evidence/summary-full-gate-178cef49.txt`. Every repair below is
+on develop or landing, but none has been re-run on one tree, so this section reads red until the
+gate runs again.
+
+| Red row | Exit | Cause (its log) | Repair |
+|---|---|---|---|
+| `only-petgraph-added` | 1 | the grep matched graph-core's own root line in `cargo tree` | the pattern skips `^graph-core v`; `negctl-only-petgraph-added` added |
+| `ink-hairball` | 1 | the row as written on 178c | rewritten with `negctl-ink-hairball` |
+| `capabilities-ceilings-measured` | 1 | 20 problems: 8-seed hashgate and missing oracle records on this tree | folded into `capabilities-check`, which now passes `--ceilings-measured` |
+| `forbidden-constructs` | 1 | `libm::sqrtf` in `post/separate` (`radii.rs:51`, `sweep/pairs.rs:79`, `:95`) | `f32::sqrt` (42703172) |
+| `hashgate-1000`, `hashgate-1000-tiers-all` | 2 | a debug build ran past `CHILD_TIMEOUT` (2700 s) | `--release`, and `negctl-hashgate-release`; re-run in progress |
+| `bench-p9-campaign` | 137 | killed at 6854 s: the campaign ran spectral (ceiling 700) and ForceAtlas2 (ceiling 14 000) at 10⁶, because it skipped the `scale_ceiling` refusal plain `bench` makes | the campaign refuses past the ceiling unless `--past-ceiling` is passed (`crates/graph-cli/src/bench/campaign.rs`, `refused`), and a test pins it (`bench/tests/plan.rs`); re-run owed |
+| `capabilities-check` | 1 | 19 problems: the 1000-seed hashgate and oracle records are not on this tree | follows from the rows above, on one tree |
+
+The repairs since 178c: `git log 178cef49..origin/develop -- scripts/orch/rows/develop-full.rows`.
 
 ## 6. What is not done
 
@@ -73,7 +89,7 @@ Filled in by the orchestrator when develop-full.rows finishes.
 |---|---|---|
 | Step 2, the host contract | met, with two ruled deviations | Versioned (`hostApi: 2`, `host-api.md:27`), typed, with a devil verdict (`PROCEED-WITH-CONDITIONS`, `:95-97`). Deviation 1, the spelling: `focus(id)` cannot exist on an `HTMLElement` subclass — it fails `tsc` with TS2430 against `HTMLElement.focus(options?)` — so verdict condition 1 renames it `focusNode(id)` (`:111-115`), and row `host-api-types` (`packages/graph-studio/tests/host-types.test.ts`, its break `tests/breaks/focus-name.ts`, run by `studio-check`) keeps the native `focus()` callable; `load(columns)` is `loadColumns(rows)` beside `loadGraph(doc)` (`:29`). Deviation 2: `applyDeltas(batch)` is typed and documented (`:175-180`, `docs/contract/delta.md`) and gated by the embed replay rows, but labelled outside the v1 promise (verdict condition 8) until Step 3 meets its 30 ms target |
 | Step 3, P4 live growth end to end | not met | 33.15 ms per 10k batch at 1M against a 30 ms target (`perf-p4d-extend.md:9-12`), and the verdict line says missed in all four arms (`:8`). `gm_force_session_apply` does not exist — the exports are `gm_graph_extend` and `gm_force_session_grow` (`docs/contract/delta.md:156`). The SDK carries no `applyDeltas` and no per-animation-frame coalescing; coalescing is in the studio (`packages/graph-studio/src/motor/deltas.ts:3`) and `host-api.md:147` forbids coalescing across calls, so the two halves of the step cannot both hold as written |
-| Step 6, the full gate | not run | `develop-full.rows` is still executing; `target/evidence/` is empty on this tree, so `review-svc-r3.md` conditions R2-5 and 13 stay *partly* |
+| Step 6, the full gate | ran, red | 8 of 110 rows red on `178cef49` (§5). The repairs are on develop or landing, but the gate has not run again on one tree, so `review-svc-r3.md` conditions R2-5 and 13 stay *partly* |
 | `review-host-api.md` LOW, LRU dispose hook | won't fix (YAGNI) | The review calls it harmless today: the one holder caches frozen plain data (`previews.ts:162`). No hook without a caller; the limit is now the `Caveat:` at `packages/graph-studio/src/host/lru.ts:5-9`, which names the trigger for `onEvict` |
 | `review-svc-r3.md` condition 5 | open | `hashgate --seeds 1000` and the full gate, owed on develop |
 | Merge to main | not attempted | The merge to main needs the user's go-ahead. This job wrote one file and changed nothing else under version control |
