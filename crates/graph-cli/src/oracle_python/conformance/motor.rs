@@ -1,5 +1,5 @@
 //! Running one motor layout the way SciGraphs would run its reference: the registered
-//! default for almost every id, and a deliberate override for the six where the registered
+//! default for almost every id, and a deliberate override for the eight where the registered
 //! default is not SciGraphs' parameter or not SciGraphs' units.
 //!
 //! **One convention, and it is applied to both arms rather than to the motor.** A Graphviz
@@ -10,20 +10,23 @@
 //! sc_graphviz.py` applies the same five lines in Python to the reference arm. What is left
 //! after it is the layout, not the unit.
 //!
-//! **Six overrides, and each is a whole row.** `CIRCLE_PACKING`'s registered budget is 500
+//! **Seven overrides, and each is a whole row.** `CIRCLE_PACKING`'s registered budget is 500
 //! radius-solver sweeps where `apply_graph_layout` passes 50; `FORCEATLAS2`'s is 100 where
-//! the dispatcher passes 50 into `ForceSim`; `GRAPHVIZ_SFDP` registers `run`, whose
-//! `DEFAULT_SEED` is 1, where the engine is handed `start = get_layout_seed()`;
-//! `layout.dag.sugiyama` draws in the priority method's own units and `layer *
-//! LAYER_SPACING`, where the reference maps each axis onto `[-scale, scale]`; `GRID`
-//! registers a lattice centred on the origin at unit pitch, where `_grid_layout` starts at
-//! the origin and pitches it at `scale / grid_size`; and `layout.random` registers
-//! networkx's planar unit-square scatter off the crate's `Mulberry32`, where SciGraphs draws
-//! `rand(n, 3) * scale` off MT19937 at the layout seed (`basic.py:5-9`). Every other id
-//! either takes no parameter or its registered default already **is** the reference's —
-//! the igraph family being the surprising half: `_igraph_davidson_harel` ignores the
-//! dispatcher's `iterations` and uses igraph's `maxiter=10`, which is our `DhParams` default
-//! too (`igraph_layouts.py:117-118`, `davidson_harel.rs:44`).
+//! the dispatcher passes 50 into `ForceSim`, and it runs on a *different layout id* —
+//! `layout.forceatlas2.forcesim`, SciGraphs' own `ForceSim`, because that is what
+//! `forceatlas.py:167` reaches first and the networkx branch below it is dead code in this
+//! image; `GRAPHVIZ_SFDP` registers `run`, whose `DEFAULT_SEED` is 1, where the engine is
+//! handed `start = get_layout_seed()`; `layout.dag.sugiyama` draws in the priority method's
+//! own units and `layer * LAYER_SPACING`, where the reference maps each axis onto
+//! `[-scale, scale]`; `GRID` registers a lattice centred on the origin at unit pitch, where
+//! `_grid_layout` starts at the origin and pitches it at `scale / grid_size`; and
+//! `layout.random` registers networkx's planar unit-square scatter off the crate's
+//! `Mulberry32`, where SciGraphs draws `rand(n, 3) * scale` off MT19937 at the layout seed
+//! (`basic.py:5-9`). Every other id either takes no parameter or its registered default
+//! already **is** the reference's — the igraph family being the surprising half:
+//! `_igraph_davidson_harel` ignores the dispatcher's `iterations` and uses igraph's
+//! `maxiter=10`, which is our `DhParams` default too (`igraph_layouts.py:117-118`,
+//! `davidson_harel.rs:44`).
 //!
 //! Apart from that one layout's axes and the Graphviz convention both arms share, nothing
 //! here normalises a coordinate. What the layout returns is what goes into the `.f64` file,
@@ -32,14 +35,18 @@
 
 mod overrides;
 
+use super::LAYOUT_SEED;
 use super::SCALE;
 use super::fixtures::Fixture;
 use graph_contract::binary::SnapshotParts;
 use graph_contract::geometry::NodeGeometry;
 use graph_core::layout::Geometry;
 use graph_core::layout::force::spring::{Spring, Spring3D};
+use graph_core::layout::spectral_stage;
 use graph_core::{StageError, registry, run_with};
-use overrides::{fa2, grid, packing, random_seeded, sfdp_seeded, spring, sugiyama_scaled};
+use overrides::{
+    fa2, fa2_forcesim, grid, packing, random_seeded, sfdp_seeded, spring, sugiyama_scaled,
+};
 use serde_json::Value;
 
 mod gv_post;
@@ -75,12 +82,15 @@ pub fn run(id: &str, fixture: &Fixture) -> Ran {
     let parts = match id {
         "layout.packing.circle" => packing(fixture),
         "layout.forceatlas2" => fa2(fixture),
+        "layout.forceatlas2.forcesim" => fa2_forcesim(fixture),
         "layout.force.sfdp" => sfdp_seeded(fixture),
         "layout.force.spring" => spring::<Spring>(fixture),
         "layout.force.spring3d" => spring::<Spring3D>(fixture),
         "layout.dag.sugiyama" => sugiyama_scaled(fixture),
         "layout.random" => random_seeded(fixture),
         "layout.grid" => grid(fixture),
+        "layout.spectral3d" => spectral_3d_seeded(fixture),
+        "layout.mds.pivot3d" => pivot_mds_3d_seeded(fixture),
         _ => registered(id, fixture),
     }?;
     columns(&parts, fixture.nodes.len())
@@ -99,6 +109,28 @@ pub fn run_row(row: &super::Row, fixture: &Fixture) -> Ran {
     } else {
         Ok(points)
     }
+}
+
+/// `layout.spectral3d` at the layout seed, which its registered default does not use.
+///
+/// `_spectral_layout_3d:257-258` sends a graph of fewer than four nodes to
+/// `_random_layout`, and that draws `np.random.RandomState(get_layout_seed()).rand(n, 3) *
+/// scale` (`basic.py:5-9`). The registered default pins a seed of its own — the rule
+/// `layout::random` states for itself — so the row needs the seeded entry point, the same
+/// shape as `sfdp::run_seeded` two arms above. `layout.spectral`'s 2D bytes are untouched:
+/// this is a different id, not a different default.
+fn spectral_3d_seeded(fixture: &Fixture) -> Result<SnapshotParts, String> {
+    finish(fixture, "layout.spectral3d", |t| {
+        spectral_stage::spectral_3d_seeded(t, LAYOUT_SEED)
+    })
+}
+
+/// `layout.mds.pivot3d` at the layout seed: `_mds_layout_3d:283-284` has the same `n < 4`
+/// guard on the same line of the reference, so the same arm answers both rows.
+fn pivot_mds_3d_seeded(fixture: &Fixture) -> Result<SnapshotParts, String> {
+    finish(fixture, "layout.mds.pivot3d", |t| {
+        spectral_stage::pivot_mds_3d_seeded(t, LAYOUT_SEED)
+    })
 }
 
 /// Every other id at its registered default.

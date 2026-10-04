@@ -91,6 +91,7 @@ pub(crate) fn accepted(knob: Knob) -> &'static str {
         Knob::SplitRescale => "1, true, yes or on",
         Knob::NeatoEpsilon => "a finite non-negative tolerance, and not the compiled-in one",
         Knob::SpringIterations | Knob::ReferenceDegree => "a u32 that is not the compiled-in one",
+        Knob::LayoutParamDefault => "an index into the stage's published parameters",
         _ => "a finite number the layout accepts, and not the compiled-in one",
     }
 }
