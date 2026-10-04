@@ -32,8 +32,7 @@ REPLAY = "fixtures/embed/replay.jsonl"
 BUTTON = "#replay"
 
 # What `fixtures/embed/replay.jsonl` holds, as its rows promise: six lines, five of them eight
-# nodes, and the sixth one node that line 1 already added.
-LINES = 6
+# nodes, and the sixth — `REFUSAL_LINE`, which is also the last — one node line 1 already added.
 NODE_BATCH = 8
 REFUSAL_LINE = 6
 # The refusal's `name`, measured through the host API on 2026-10-04 and cited in the module
