@@ -4,18 +4,15 @@
 //! error. The comments inside the array carry that reason per block.
 
 mod graphviz_dot;
-
 use super::capability::Capability;
-use super::params;
-use super::run_default;
 use super::{
     arms_3d, closed_form, force, forceatlas2_bh, forceatlas2_forcesim, graphviz_circo,
     graphviz_fdp, graphviz_neato, graphviz_osage, graphviz_patchwork, graphviz_sfdp, grid,
     hierarchy, igraph, radial, spectral, three_d,
 };
+use super::{params, run_default};
 use crate::layout::basic_3d;
-use crate::layout::force::spring::Spring;
-use crate::layout::force::spring::{ID_3D as SPRING_3D_ID, Spring3D};
+use crate::layout::force::spring::{ID_3D as SPRING_3D_ID, Spring, Spring3D};
 use crate::layout::force::{
     BarnesHut, DavidsonHarel, Drl, FruchtermanReingold, Graphopt, KamadaKawai, Lgl, YifanHu,
 };
@@ -292,9 +289,8 @@ pub static LAYOUTS: [Capability; 48] = [
     arms_3d::KAMADA_KAWAI_3D_LAYOUT,
     arms_3d::DRL_3D_LAYOUT,
     arms_3d::FA2_3D_LAYOUT,
-    // ---- p13-gv3-dot-position: Graphviz's own layered engine, the fourth Graphviz family
-    // to be registered after osage, patchwork, circo, fdp, neato and sfdp. Appended last by
-    // the append-only rule above, so every index-keyed consumer keeps its index.
+    // ---- p13-gv3-dot-position: Graphviz's own layered engine, the last Graphviz family to be
+    // registered and the last entry here, by the append-only rule the header records.
     Capability {
         id: dot::ID,
         run: dot::run,
