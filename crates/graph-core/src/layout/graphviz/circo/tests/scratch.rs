@@ -4,7 +4,7 @@ use super::super::blocks;
 use super::super::circle;
 use super::super::graph::{BlockGraph, Derived};
 use super::super::skeleton;
-use crate::layout::coords::probe::graph;
+use crate::layout::coords::probe::{graph, points};
 use crate::layout::graphviz::circo::Layout;
 
 const CASES: &[(&str, u32, &[(u32, u32)])] = &[

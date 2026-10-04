@@ -16,6 +16,7 @@ use crate::layout::coords::probe::{assert_close, graph, points};
 
 mod crossings;
 mod path;
+mod scratch;
 mod seed8;
 mod skeleton;
 
