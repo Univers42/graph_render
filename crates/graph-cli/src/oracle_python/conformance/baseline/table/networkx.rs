@@ -65,12 +65,12 @@ pub(super) const NETWORKX: [Baseline; 12] = [
     ),
     row(
         "SPECTRAL_3D",
-        "70ac87fc4a9b0c6c717b6380bf4e51d1740b585a72464a7579051aaba81fe50c",
+        "8c8342bd944917806c777cab05678bdc2895a9c24a3b1a258db3d89181a32a02",
         "42af0e266a9b4a80596762308f6bdd38e5efaf07ad34d493ff8addf7a8f280a6",
         "",
-        1e0,
-        "shape",
-        "algorithm",
+        1e-15,
+        "bitwise",
+        "convention",
     ),
     row(
         "SPIRAL_3D",

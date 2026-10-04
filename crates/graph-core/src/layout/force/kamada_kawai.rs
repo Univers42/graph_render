@@ -9,6 +9,7 @@ mod tests;
 mod solve;
 mod start;
 
+use crate::budget;
 use crate::index::Topology;
 use crate::layout::Geometry;
 use crate::layout::force::{SimpleGraph, simple_graph};
@@ -87,6 +88,7 @@ fn run_at_dim(topology: &Topology, params: &KkParams, dim: usize) -> Result<Geom
     let n = topology.node_count() as usize;
     let mut pos = start::circle_start(n, dim);
     if n > 1 {
+        budget::quadratic(budget::square(n as u64), 8)?;
         let springs = Springs::new(&simple_graph(topology), n, params);
         descend(&mut pos, &springs, params, dim);
     }

@@ -10,8 +10,8 @@
 //! `_igraph_kamada_kawai` (`:85`, `dim` at `:99`), `_igraph_drl` (`:281`, `dim` at `:342`)
 //! and `_yifan_hu_layout`'s `'2Z'` mode (`yifan_hu.py:344`, `:327-333`).
 
-use super::Metadata;
 use super::force::{FA2_CEILING, FORCE_CEILING};
+use super::{Capability, LayoutParams, Metadata};
 use crate::index::Topology;
 use crate::layout::Geometry;
 use crate::layout::force::drl::DRL_CEILING;
@@ -212,3 +212,36 @@ pub(super) fn run_fa2_3d(topology: &Topology) -> Result<Geometry, StageError> {
 pub(super) fn run_yifan_2z(topology: &Topology) -> Result<Geometry, StageError> {
     crate::layout::force::yifan_hu::run_2z(topology, &crate::layout::force::ForceParams::default())
 }
+
+// The five entries `LAYOUTS` appends after `layout.mds.pivot3d`, in this order (append only:
+// the wasm module maps a layout by index).
+pub(super) const YIFAN_HU_2Z_LAYOUT: Capability = Capability {
+    id: crate::layout::force::yifan_hu::ID_2Z,
+    run: run_yifan_2z,
+    params: &LayoutParams::NONE,
+    meta: YIFAN_HU_2Z,
+};
+pub(super) const FRUCHTERMAN_REINGOLD_3D_LAYOUT: Capability = Capability {
+    id: crate::layout::force::fruchterman_reingold::ID_3D,
+    run: run_fr_3d,
+    params: &LayoutParams::NONE,
+    meta: FRUCHTERMAN_REINGOLD_3D,
+};
+pub(super) const KAMADA_KAWAI_3D_LAYOUT: Capability = Capability {
+    id: crate::layout::force::kamada_kawai::ID_3D,
+    run: run_kk_3d,
+    params: &LayoutParams::NONE,
+    meta: KAMADA_KAWAI_3D,
+};
+pub(super) const DRL_3D_LAYOUT: Capability = Capability {
+    id: crate::layout::force::drl::ID_3D,
+    run: run_drl_3d,
+    params: &LayoutParams::NONE,
+    meta: DRL_3D,
+};
+pub(super) const FA2_3D_LAYOUT: Capability = Capability {
+    id: crate::layout::forceatlas2::ID_3D,
+    run: run_fa2_3d,
+    params: &LayoutParams::NONE,
+    meta: FA2_3D,
+};

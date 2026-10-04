@@ -298,6 +298,11 @@ Still true: UNKNOWN = FAIL, SKIP is not a pass, a gate that did not run is "not 
 it under `$GM_SCRATCH` = `$HOME/goinfre`: `wt/` (one worktree per job, `wt-new.sh`), `refs/` (the
 pinned read-only references, `fetch-refs.sh`), `orch/{bin,logs,locks}`, `mcp-out/`.
 
+Memory guard since 2026-10-03 (`docs/decisions/memory-guard.md`): job containers run through
+`scripts/orch/drun` under `gm.slice` (`gm-slice.sh check`), and `gm-memwatch.service`
+(`memwatch.sh status`) watches RAM pressure, VRAM and gfx ring hangs. A new host needs
+`gm-slice.sh install` and `memwatch.sh install`; without them drun warns and caps each container alone.
+
 ## 8. Decisions already taken (do not re-ask)
 
 - **2026-09-30 — free-model outage means the queue waits.** No paid fallback model.

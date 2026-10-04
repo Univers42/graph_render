@@ -24,6 +24,10 @@ export {
 } from "./adapters/rows.ts";
 export {
   notionToIngest,
+  // The mapping table the module doc makes an escape hatch against: a caller who wants a
+  // property read as something other than what its `type` says needs to see the table the
+  // default comes from, and the published entry point was hiding it.
+  typeToRole,
   type NotionDatabase,
   type NotionOverrides,
   type NotionPage,

@@ -19,18 +19,21 @@ use graph_core::layout::circle_packing::CirclePackingParams;
 use graph_core::layout::force::spring::SpringParams;
 use graph_core::layout::force::{ForceParams, LiveParams, Split};
 use graph_core::layout::forceatlas2::Fa2Params;
-use graph_core::layout::graphviz::{neato, patchwork};
+use graph_core::layout::graphviz::patchwork;
 use graph_core::layout::radial::twopi;
 use graph_core::layout::{circular, tidy_tree, treemap};
-use graph_core::post::separate::SeparateParams;
-use graph_core::{GridParams, REFERENCE_DEGREE, SugiyamaParams};
+use graph_core::{GridParams, SugiyamaParams};
 use std::env::VarError;
 use std::ffi::OsString;
+
+mod honest;
+mod params;
 
 use super::env;
 use super::knobs;
 use super::value;
 use super::{Knob, stage_of};
+pub(crate) use params::{PARAM_DEFAULT_STAGE, param_index};
 
 /// What the native arm runs with: the compiled-in defaults, or one knob's perturbation.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -91,35 +94,15 @@ pub(crate) struct Setting {
     /// honest value unreachable. Reach it through [`Setting::live_force_params`], which is the
     /// only reader and lives in this module with the field.
     pub(in crate::hashgate) live_gravity: Option<f64>,
+    /// Which published default [`Knob::LayoutParamDefault`] perturbs, as an index into
+    /// [`PARAM_DEFAULT_STAGE`]'s parameter list. `None` is the honest run. An index and not
+    /// a `(name, value)` pair because the control is *over the default*: the value it runs
+    /// at is the published default plus one, so it cannot drift from what it claims.
+    pub(in crate::hashgate) layout_param_default: Option<usize>,
     pub(in crate::hashgate) control: Option<Knob>,
 }
 
 impl Setting {
-    /// The compiled-in defaults: the honest run, with no knob set.
-    ///
-    /// Named, and not a `Default` impl, because "the honest run" is the value
-    /// [`Setting::bites`] compares every control against — it is a second definition of what
-    /// the gate runs when nothing perturbs it, and there is one of them.
-    pub(crate) fn compiled_in() -> Setting {
-        Setting {
-            reference_degree: REFERENCE_DEGREE,
-            grid: GridParams::default(),
-            sugiyama: SugiyamaParams::default(),
-            extra_nodes: 0,
-            force: ForceParams::default(),
-            fa2: Fa2Params::default(),
-            spring: SpringParams::default(),
-            packing: CirclePackingParams::default(),
-            neato_epsilon: None,
-            stage_nodes: None,
-            overlap_relaxation: None,
-            split_sum: Split::None,
-            split_rescale: false,
-            live_gravity: None,
-            control: None,
-        }
-    }
-
     /// The live force parameters `force-gate`'s native arm runs at: the frozen force set —
     /// which is `LiveParams::default()`, because the frozen layout *is* a default session
     /// (`docs/decisions/live-force-session.md`) — with `gravity` replaced when
@@ -166,37 +149,6 @@ impl Setting {
     pub(crate) fn control(&self) -> Option<Knob> {
         self.control
     }
-
-    /// **Whether this run perturbs anything at all** (RG-42) — one comparison against the
-    /// compiled-in defaults, so every knob is covered by the rule rather than by an arm
-    /// remembering to apply it.
-    ///
-    /// `control` is left out: it names *which* knob was set, not what the run computes. The
-    /// two `Option` fields are normalised through their accessors first, because `neato`'s
-    /// `EPSILON` and the live session's `0` gravity are the honest values spelled out
-    /// explicitly — a flag that could not say "the default" would make those two controls
-    /// inexpressible, and a field comparison alone would call them perturbations.
-    pub(crate) fn bites(&self) -> bool {
-        self.normalised() != Self::compiled_in().normalised()
-    }
-
-    /// `self` with every field that is only an `Option` *because* it has to be able to say
-    /// "unset" collapsed to unset, and `control` cleared.
-    fn normalised(self) -> Setting {
-        let mut out = self;
-        if out.neato_epsilon() == neato::EPSILON {
-            out.neato_epsilon = None;
-        }
-        if out.live_force_params().gravity == LiveParams::default().gravity {
-            out.live_gravity = None;
-        }
-        let default_relaxation = SeparateParams::default().over_relaxation;
-        if out.overlap_relaxation.map(|r| r as f32) == Some(default_relaxation) {
-            out.overlap_relaxation = None;
-        }
-        out.control = None;
-        out
-    }
 }
 
 /// Reads the knobs through `env`. At most one may be set, and a set one must parse *and
@@ -236,29 +188,8 @@ pub(crate) fn setting_named(
         setting.control = Some(knob);
         apply(knob, text.trim(), &mut setting)?;
     }
-    refuse_a_no_op(&setting)?;
+    honest::refuse_a_no_op(&setting)?;
     Ok(setting)
-}
-
-/// **A control that perturbs nothing refuses the run** (RG-42): the parsed value is the
-/// honest run's own, so the run would hash exactly the honest bytes and write this knob's
-/// evidence record claiming the control had been exercised.
-///
-/// The message names the variable and the range it accepts, because the value the caller
-/// typed is *in* the range — refusing a legal value has to say what to type instead.
-fn refuse_a_no_op(setting: &Setting) -> Result<(), String> {
-    let Some(knob) = setting.control else {
-        return Ok(());
-    };
-    if setting.bites() {
-        return Ok(());
-    }
-    Err(format!(
-        "{} carries the honest run's own value, so it perturbs nothing while recording this \
-         run as the exercised control; accepted range: {}",
-        knob.env(),
-        value::accepted(knob)
-    ))
 }
 
 /// The one knob's perturbation, written into `setting`. Split out of [`setting`] by the
@@ -337,6 +268,9 @@ fn apply(knob: Knob, text: &str, setting: &mut Setting) -> Result<(), String> {
         // one thing it is, while a typo is an error at the parse.
         Knob::ForceSessionGravity => {
             setting.live_gravity = Some(text.parse().map_err(|e| bad(&e))?);
+        }
+        Knob::LayoutParamDefault => {
+            setting.layout_param_default = Some(param_index(text, knob)?);
         }
         // The twenty-one per-stage controls, the fifteen ANALYSIS and POST rows and the six
         // igraph layout rows, are one arm here: `stage_of` resolves the stage from the

@@ -7,7 +7,7 @@
 #   scripts/orch/timed scripts/orch/gate.sh <logdir> scripts/orch/rows/p12-t2.rows
 # (`timed` takes the host-wide lock).
 #
-# Everything goes through scripts/orch/gr (the ge-rust image) or `docker run … ge-python-oracle`
+# Everything goes through scripts/orch/gr (the ge-rust image) or `scripts/orch/drun … ge-python-oracle`
 # (the Python oracle arms). Never a bare cargo or python3.
 #
 # The first block is scripts/orch/rows/quick.rows verbatim, so this file gates the same
@@ -54,13 +54,13 @@ negctl-circular-hierarchy-nodes|nonzero|scripts/orch/gr -e GM_MUTATE_CIRCULAR_HI
 # indistinguishable from a disagreement between two layouts (harness/stress-d3.mjs says the
 # same about the d3 arm, and crates/graph-cli/src/stress/metric.rs:17-19 says it outright).
 emit-spring-1000|0|scripts/orch/gr cargo run -q --release -p graph-cli -- emit-spring-fixtures --seeds 1000
-oracle-spring-py|0|docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-python-oracle python3 harness/oracle-spring.py target/spring-fixtures
+oracle-spring-py|0|scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-python-oracle python3 harness/oracle-spring.py target/spring-fixtures
 oracle-spring|0|scripts/orch/gr cargo run -q --release -p graph-cli -- oracle-spring
 oracle-spring-negctl|nonzero|scripts/orch/gr cargo run -q --release -p graph-cli -- oracle-spring --dir target/spring-fixtures-absent
-oracle-spring-mutated|nonzero|scripts/orch/gr -e GM_MUTATE_SPRING_ITERATIONS=3 cargo run -q --release -p graph-cli -- emit-spring-fixtures --seeds 20 --out target/spring-fixtures-mutated && docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-python-oracle python3 harness/oracle-spring.py target/spring-fixtures-mutated && scripts/orch/gr cargo run -q --release -p graph-cli -- oracle-spring --dir target/spring-fixtures-mutated
+oracle-spring-mutated|nonzero|scripts/orch/gr -e GM_MUTATE_SPRING_ITERATIONS=3 cargo run -q --release -p graph-cli -- emit-spring-fixtures --seeds 20 --out target/spring-fixtures-mutated && scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-python-oracle python3 harness/oracle-spring.py target/spring-fixtures-mutated && scripts/orch/gr cargo run -q --release -p graph-cli -- oracle-spring --dir target/spring-fixtures-mutated
 
 emit-circular-hierarchy-1000|0|scripts/orch/gr cargo run -q --release -p graph-cli -- emit-circular-hierarchy-fixtures --seeds 1000
-oracle-circular-hierarchy-py|0|docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-python-oracle python3 harness/oracle-circular-hierarchy.py target/circular-hierarchy-fixtures
+oracle-circular-hierarchy-py|0|scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-python-oracle python3 harness/oracle-circular-hierarchy.py target/circular-hierarchy-fixtures
 oracle-circular-hierarchy|0|scripts/orch/gr cargo run -q --release -p graph-cli -- oracle-circular-hierarchy
 oracle-circular-hierarchy-negctl|nonzero|scripts/orch/gr cargo run -q --release -p graph-cli -- oracle-circular-hierarchy --dir target/circular-hierarchy-fixtures-absent
 

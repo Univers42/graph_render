@@ -1,10 +1,11 @@
 /** Where the graph comes from. Each of these loads, lays out and draws. */
 import { FIXTURES } from "../source/fixtures.ts";
+import { MAX_DOCUMENT_CHARS, linksRefusal } from "../source/limits.ts";
 import { MAX_DEGREE, MAX_NODES, SHAPES } from "../source/synthetic.ts";
 import type { StudioState } from "../state/model.ts";
 import { OPENING_SOURCE, type Source, withSettings } from "../state/settings.ts";
 import { type StudioAction, type StudioContext, chosen, numberArg, textArg } from "./context.ts";
-import type { Outcome } from "./registry.ts";
+import { ActionRefusal, type Outcome } from "./registry.ts";
 
 const SEED_MAX = 4294967295;
 
@@ -25,13 +26,14 @@ const synthetic: StudioAction = {
     { name: "seed", kind: "int", title: "Seed", min: 0, max: SEED_MAX, control: "number", value: (state) => generated(state).seed },
     { name: "shape", kind: "choice", title: "Shape", choices: () => SHAPES, control: "segmented", value: (state) => generated(state).shape },
   ],
-  run: (context, args) => open(context, {
-    kind: "synthetic",
-    nodes: numberArg(args, "nodes"),
-    degree: numberArg(args, "degree"),
-    seed: numberArg(args, "seed"),
-    shape: chosen(SHAPES, textArg(args, "shape"), OPENING_SOURCE.shape),
-  }),
+  run: (context, args) => {
+    const [nodes, degree] = [numberArg(args, "nodes"), numberArg(args, "degree")];
+    // Each value is in range on its own; their product is what the worker must hold.
+    const refused = linksRefusal(nodes, degree);
+    if (refused !== null) throw new ActionRefusal("bad-value", refused);
+    const shape = chosen(SHAPES, textArg(args, "shape"), OPENING_SOURCE.shape);
+    return open(context, { kind: "synthetic", nodes, degree, seed: numberArg(args, "seed"), shape });
+  },
 };
 
 const fixture: StudioAction = {
@@ -51,7 +53,7 @@ const document: StudioAction = {
       value: (state) => (state.settings.source.kind === "document" ? state.settings.source.name : "document.json"),
     },
     {
-      name: "text", kind: "text", title: "Ingest JSON", control: "file",
+      name: "text", kind: "text", title: "Ingest JSON", control: "file", max: MAX_DOCUMENT_CHARS,
       value: (state) => (state.settings.source.kind === "document" ? state.settings.source.text : ""),
     },
   ],

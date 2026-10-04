@@ -133,29 +133,33 @@ mod gate_exports {
 /// signature, a refusal code's meaning or an accepted document version changes, never for
 /// a registry entry (those are counted at run time, C1). The SDK refuses a module that
 /// reports any other number (`docs/contract/wasm-abi.md` "Exports").
-pub const ABI_VERSION: u32 = 1;
+/// Bumped to `2` when `gm_run`'s `params_ptr`/`params_len` stopped being refused and
+/// started carrying a layout's published parameters, and `Code::ParamsMustBeEmpty`
+/// stopped being produced (`docs/contract/wasm-abi.md` "Exports").
+pub const ABI_VERSION: u32 = 2;
 
 pub mod probe;
 
 // C21: everything below is target-independent and unit-tested natively (`cargo test`,
-// no wasm32 target needed) — but its only *non-test* caller is `exports.rs`, which is
-// itself wasm32-only. Gated on `any(test, target_arch = "wasm32")` so a plain native
+// no wasm32 target needed). A module whose only *non-test* caller is `exports.rs`, itself
+// wasm32-only, is gated on `any(test, target_arch = "wasm32")`, so a plain native
 // `cargo build`/`clippy` (neither test nor wasm32) does not compile modules it cannot
 // call, which is what a `-D warnings` dead-code lint would otherwise catch on that one
 // build; `cargo test` and the wasm32 release build both still get the real thing.
+// `contract`, `errors` and `ingest` are not gated: `service`, the native façade the HTTP
+// service links, calls them, so they have a native caller. They stay private and reach a
+// native caller only through `service`; the thread-local error channel inside `errors`
+// keeps the gate, because only the exports publish through it.
 #[cfg(any(test, target_arch = "wasm32"))]
 mod alloc;
 pub mod analysis;
-#[cfg(any(test, target_arch = "wasm32"))]
 mod contract;
-#[cfg(any(test, target_arch = "wasm32"))]
 mod errors;
 mod exports;
 #[cfg(any(test, target_arch = "wasm32"))]
 mod handle;
 #[cfg(any(test, target_arch = "wasm32"))]
 mod heap;
-#[cfg(any(test, target_arch = "wasm32"))]
 mod ingest;
 mod json_string;
 mod memory_measure;
@@ -164,6 +168,7 @@ mod pool;
 pub mod post;
 #[cfg(any(test, target_arch = "wasm32"))]
 mod seed_ingest;
+pub mod service;
 #[cfg(any(test, target_arch = "wasm32"))]
 mod session;
 #[cfg(any(test, target_arch = "wasm32"))]

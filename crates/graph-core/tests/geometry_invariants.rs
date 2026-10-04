@@ -28,8 +28,7 @@ mod geometry_invariants {
     };
     use std::ops::Range;
 
-    /// Seeds swept: enough to draw shallow and deep trees, single- and multi-root forests,
-    /// and every note code, without the sweep itself taking more than a moment.
+    /// Seeds swept: shallow and deep trees, single- and multi-root forests, every note code.
     const SEEDS: u32 = 200;
 
     /// The chunk marker for a registry row swept whole, in one test, rather than split.
@@ -45,9 +44,8 @@ mod geometry_invariants {
         index_model(&nodes, &edges).expect("the gate model always indexes")
     }
 
-    /// The seed range a chunk marker stands for: `WHOLE` is the whole sweep, every other
-    /// marker a `SEEDS.div_ceil(CHUNKS)`-sized slice clamped at `SEEDS`. That a row's
-    /// listed chunks tile its sweep is the guard test's job, not this function's.
+    /// The seed range a chunk marker stands for: `WHOLE` is all of it, any other marker a
+    /// `SEEDS.div_ceil(CHUNKS)`-sized slice clamped at `SEEDS`; the guard test checks the tiling.
     fn seed_range(chunk: u32) -> Range<u32> {
         if chunk == WHOLE {
             return 0..SEEDS;
@@ -99,8 +97,7 @@ mod geometry_invariants {
         };
     }
 
-    /// One layout's sweep over `seeds`: no `NaN` or `±Inf` in its output (D9), and
-    /// positive finite radii wherever it emits circles.
+    /// One layout's sweep over `seeds`: no `NaN`/`±Inf` (D9), positive finite radii on circles.
     fn sweep_layout(id: &str, seeds: Range<u32>) {
         let capability = registry::LAYOUTS
             .iter()
@@ -140,11 +137,8 @@ mod geometry_invariants {
             ["layout.spiral", WHOLE, layout_spiral],
             ["layout.bipartite", WHOLE, layout_bipartite],
             ["layout.force.yifan_hu", WHOLE, layout_force_yifan_hu],
-            ["layout.force.yifan_hu.2z", WHOLE, layout_force_yifan_hu_2z],
             ["layout.force.fruchterman_reingold", WHOLE, layout_force_fruchterman_reingold],
-            ["layout.force.fruchterman_reingold.3d", WHOLE, layout_force_fruchterman_reingold_3d],
             ["layout.force.kamada_kawai", WHOLE, layout_force_kamada_kawai],
-            ["layout.force.kamada_kawai.3d", WHOLE, layout_force_kamada_kawai_3d],
             ["layout.force.graphopt", WHOLE, layout_force_graphopt],
             // The long pole: 390 s of the sweep's ~1085 s on one core, so the only row cut by seed.
             ["layout.force.davidson_harel", 0, layout_force_davidson_harel_s0],
@@ -153,8 +147,6 @@ mod geometry_invariants {
             ["layout.force.davidson_harel", 3, layout_force_davidson_harel_s3],
             ["layout.force.lgl", WHOLE, layout_force_lgl],
             ["layout.force.drl", WHOLE, layout_force_drl],
-            ["layout.force.drl.3d", WHOLE, layout_force_drl_3d],
-            ["layout.forceatlas2.3d", WHOLE, layout_forceatlas2_3d],
             ["layout.twopi", WHOLE, layout_twopi],
             ["layout.packing.osage", WHOLE, layout_packing_osage],
             ["layout.force.spring", WHOLE, layout_force_spring],
@@ -173,6 +165,15 @@ mod geometry_invariants {
             ["layout.bipartite_3d", WHOLE, layout_bipartite_3d],
             ["layout.basic3d.spiral", WHOLE, layout_basic3d_spiral],
             ["layout.force.particle_mesh", WHOLE, layout_force_particle_mesh],
+            ["layout.forceatlas2.forcesim", WHOLE, layout_forceatlas2_forcesim],
+            ["layout.spectral3d", WHOLE, layout_spectral3d],
+            ["layout.mds.pivot3d", WHOLE, layout_mds_pivot3d],
+            // merge-p12-t4b: the five 3D arms, appended after `layout.mds.pivot3d`.
+            ["layout.force.yifan_hu.2z", WHOLE, layout_force_yifan_hu_2z],
+            ["layout.force.fruchterman_reingold.3d", WHOLE, layout_force_fruchterman_reingold_3d],
+            ["layout.force.kamada_kawai.3d", WHOLE, layout_force_kamada_kawai_3d],
+            ["layout.force.drl.3d", WHOLE, layout_force_drl_3d],
+            ["layout.forceatlas2.3d", WHOLE, layout_forceatlas2_3d],
         ]
     }
 

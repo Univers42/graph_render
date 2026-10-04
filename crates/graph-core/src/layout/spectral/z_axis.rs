@@ -10,7 +10,7 @@
 
 use super::graph::ComponentGraph;
 use super::{
-    DIMS, find_components, local_positions, nothing_solved, pin_signs, simple_neighbors,
+    Width, find_components, local_positions, nothing_solved, pin_signs, simple_neighbors,
     solve_component,
 };
 use crate::index::Topology;
@@ -45,8 +45,7 @@ pub(crate) fn last_axis(topology: &Topology) -> Option<Vec<f64>> {
             continue;
         }
         let graph = ComponentGraph::build(members, &neighbors, &local_of);
-        let dims_eff = DIMS.min(graph.size() - 1);
-        let (solved, _, _) = solve_component(&graph, dims_eff);
+        let (solved, _, _) = solve_component(&graph, Width::Spectral2d);
         let Some(mut eig) = solved else { continue };
         any_solved = true;
         pin_signs(&mut eig);

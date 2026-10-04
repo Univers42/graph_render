@@ -37,7 +37,7 @@ use graph_core::Topology;
 use graph_core::ingest::{BuildError, Derived, build_topology};
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 /// Why a contract document was refused at this boundary.
 ///

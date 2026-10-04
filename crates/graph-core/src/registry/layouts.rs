@@ -1,248 +1,292 @@
-//! The layout table itself, split out of `registry.rs` for the house's 300-line limit.
-//!
-//! **A pure move.** Every `Capability` row, its order and its `run` pointer are unchanged;
-//! only the file they are written in. The order is load-bearing and is documented where
-//! the rows are: `graph-wasm/src/exports/build.rs:23,32,166` maps layouts by INDEX, and
-//! `bench/campaign.rs:128` pins `LAYOUTS[3]`, so an inserted row repoints an index-keyed
-//! consumer with no compile error. Nothing here may be reordered.
+//! Every registered layout, in the order the hash gate runs them. Split out of
+//! `registry.rs` by the house 300-line limit, and **append only**: the wasm module maps a
+//! layout by INDEX, so an insertion repoints every index-keyed consumer with no compile
+//! error. The comments inside the array carry that reason per block.
 
-use super::*;
+use super::capability::Capability;
+use super::params;
+use super::run_default;
+use super::{
+    arms_3d, closed_form, force, forceatlas2_bh, forceatlas2_forcesim, graphviz_circo,
+    graphviz_fdp, graphviz_neato, graphviz_osage, graphviz_patchwork, graphviz_sfdp, grid,
+    hierarchy, igraph, radial, spectral, three_d,
+};
+use crate::layout::basic_3d;
+use crate::layout::force::spring::Spring;
+use crate::layout::force::spring::{ID_3D as SPRING_3D_ID, Spring3D};
+use crate::layout::force::{
+    BarnesHut, DavidsonHarel, Drl, FruchtermanReingold, Graphopt, KamadaKawai, Lgl, YifanHu,
+};
+use crate::layout::forceatlas2::{ForceAtlas2, ForceAtlas2BarnesHut};
+use crate::layout::graphviz::{circo, fdp, neato, osage, patchwork, sfdp};
+use crate::layout::grid::Grid;
+use crate::layout::hierarchical_3d;
+use crate::layout::radial::twopi;
+use crate::layout::sugiyama::Sugiyama;
+use crate::layout::{
+    bipartite, circle_packing, circular, random, spectral_stage, spiral, tidy_tree, treemap,
+};
+use crate::stage::Stage;
+
+use closed_form::{BIPARTITE, RANDOM, RING, SPIRAL};
+use force::{BARNES_HUT, FA2, SPRING, YIFAN_HU};
+use forceatlas2_bh::FA2_BH;
+use graphviz_circo::CIRCO;
+use graphviz_fdp::FDP;
+use graphviz_neato::NEATO;
+use graphviz_osage::OSAGE;
+use graphviz_patchwork::PATCHWORK;
+use graphviz_sfdp::SFDP;
+use grid::{GRID, PACKING, SUGIYAMA};
+use hierarchy::{CIRCULAR, CIRCULAR_HIERARCHY, TIDY_TREE, TREEMAP};
+use radial::TWOPI;
+use spectral::{PIVOT_MDS, SPECTRAL};
+use three_d::{BIPARTITE_3D, CUBE, HELIX, HIERARCHICAL_3D, SPHERE, SPIRAL_3D, SPRING_3D};
 
 /// Every registered layout, in the order the hash gate runs them.
-pub static LAYOUTS: [Capability; 44] = [
+pub static LAYOUTS: [Capability; 47] = [
     Capability {
         id: Grid::ID,
         run: run_default::<Grid>,
+        params: &params::GRID,
         meta: GRID,
     },
     Capability {
         id: tidy_tree::ID,
         run: tidy_tree::run,
+        params: &params::LayoutParams::NONE,
         meta: TIDY_TREE,
     },
     Capability {
         id: treemap::ID,
         run: treemap::run,
+        params: &params::LayoutParams::NONE,
         meta: TREEMAP,
     },
     Capability {
         id: circular::ID,
         run: circular::run,
+        params: &params::LayoutParams::NONE,
         meta: CIRCULAR,
     },
     Capability {
         id: circle_packing::ID,
         run: circle_packing::run,
+        params: &params::PACKING,
         meta: PACKING,
     },
     Capability {
         id: "layout.spectral",
         run: spectral_stage::spectral,
+        params: &params::LayoutParams::NONE,
         meta: SPECTRAL,
     },
     Capability {
         id: "layout.mds.pivot",
         run: spectral_stage::pivot_mds,
+        params: &params::LayoutParams::NONE,
         meta: PIVOT_MDS,
     },
     Capability {
         id: BarnesHut::ID,
         run: run_default::<BarnesHut>,
+        params: &params::LayoutParams::NONE,
         meta: BARNES_HUT,
     },
     Capability {
         id: ForceAtlas2::ID,
         run: run_default::<ForceAtlas2>,
+        params: &params::FORCEATLAS2,
         meta: FA2,
     },
     Capability {
         id: Sugiyama::ID,
         run: run_default::<Sugiyama>,
+        params: &params::SUGIYAMA,
         meta: SUGIYAMA,
     },
     Capability {
         id: random::ID,
         run: random::run,
+        params: &params::LayoutParams::NONE,
         meta: RANDOM,
     },
     Capability {
         id: circular::ring::ID,
         run: circular::ring::run,
+        params: &params::LayoutParams::NONE,
         meta: RING,
     },
     Capability {
         id: spiral::ID,
         run: spiral::run,
+        params: &params::LayoutParams::NONE,
         meta: SPIRAL,
     },
     Capability {
         id: bipartite::ID,
         run: bipartite::run,
+        params: &params::LayoutParams::NONE,
         meta: BIPARTITE,
     },
     Capability {
         id: YifanHu::ID,
         run: run_default::<YifanHu>,
+        params: &params::LayoutParams::NONE,
         meta: YIFAN_HU,
-    },
-    Capability {
-        id: crate::layout::force::yifan_hu::ID_2Z,
-        run: arms_3d::run_yifan_2z,
-        meta: YIFAN_HU_2Z,
     },
     Capability {
         id: FruchtermanReingold::ID,
         run: run_default::<FruchtermanReingold>,
+        params: &params::FRUCHTERMAN_REINGOLD,
         meta: igraph::FRUCHTERMAN_REINGOLD,
-    },
-    Capability {
-        id: crate::layout::force::fruchterman_reingold::ID_3D,
-        run: arms_3d::run_fr_3d,
-        meta: FRUCHTERMAN_REINGOLD_3D,
     },
     Capability {
         id: KamadaKawai::ID,
         run: run_default::<KamadaKawai>,
+        params: &params::KAMADA_KAWAI,
         meta: igraph::KAMADA_KAWAI,
-    },
-    Capability {
-        id: crate::layout::force::kamada_kawai::ID_3D,
-        run: arms_3d::run_kk_3d,
-        meta: KAMADA_KAWAI_3D,
     },
     Capability {
         id: Graphopt::ID,
         run: run_default::<Graphopt>,
+        params: &params::GRAPHOPT,
         meta: igraph::GRAPHOPT,
     },
     Capability {
         id: DavidsonHarel::ID,
         run: run_default::<DavidsonHarel>,
+        params: &params::DAVIDSON_HAREL,
         meta: igraph::DAVIDSON_HAREL,
     },
     Capability {
         id: Lgl::ID,
         run: run_default::<Lgl>,
+        params: &params::LGL,
         meta: igraph::LGL,
     },
     Capability {
         id: Drl::ID,
         run: run_default::<Drl>,
+        params: &params::DRL,
         meta: igraph::DRL,
-    },
-    Capability {
-        id: crate::layout::force::drl::ID_3D,
-        run: arms_3d::run_drl_3d,
-        meta: DRL_3D,
-    },
-    Capability {
-        id: crate::layout::forceatlas2::ID_3D,
-        run: arms_3d::run_fa2_3d,
-        meta: FA2_3D,
     },
     Capability {
         id: twopi::ID,
         run: twopi::run,
+        params: &params::LayoutParams::NONE,
         meta: TWOPI,
     },
     Capability {
         id: osage::ID,
         run: osage::run,
+        params: &params::LayoutParams::NONE,
         meta: OSAGE,
     },
     Capability {
         id: Spring::ID,
         run: run_default::<Spring>,
+        params: &params::SPRING,
         meta: SPRING,
     },
     Capability {
         id: circular::hierarchy::ID,
         run: circular::hierarchy::run,
+        params: &params::LayoutParams::NONE,
         meta: CIRCULAR_HIERARCHY,
     },
     Capability {
         id: circo::ID,
         run: circo::run,
+        params: &params::LayoutParams::NONE,
         meta: CIRCO,
     },
     Capability {
         id: patchwork::ID,
         run: patchwork::run,
+        params: &params::LayoutParams::NONE,
         meta: PATCHWORK,
     },
     Capability {
         id: neato::ID,
         run: neato::run,
+        params: &params::LayoutParams::NONE,
         meta: NEATO,
     },
     Capability {
         id: fdp::ID,
         run: fdp::run,
+        params: &params::LayoutParams::NONE,
         meta: FDP,
     },
-    // ---- p12-t3, the last five SciGraphs layouts, all natively 3D. APPENDED, never
-    // inserted: `graph-wasm/src/exports/build.rs:23,32,166` maps layouts by INDEX, and
-    // `bench/campaign.rs:128`'s `DEFAULT_ARM` is `LAYOUTS[3]`, so inserting before index 3
-    // would repoint the default crossover arm with no compile error. p12-t4b's five 3D arms
-    // are the one exception, and they are all after index 3: each sits beside the 2D layout
-    // it arms, so the pairs stay readable in `hashgate`'s order.
+    // ---- p12-t3, the last five SciGraphs layouts, all natively 3D. Appended (see the header);
+    // `registry::tests::the_index_keyed_front_of_layouts_still_holds_the_ids_their_callers_name`
+    // fails if anything above this line moves.
     Capability {
         id: basic_3d::sphere::ID,
         run: basic_3d::sphere,
+        params: &params::LayoutParams::NONE,
         meta: SPHERE,
     },
     Capability {
         id: basic_3d::helix::ID,
         run: basic_3d::helix,
+        params: &params::LayoutParams::NONE,
         meta: HELIX,
     },
     Capability {
         id: basic_3d::cube::ID,
         run: basic_3d::cube,
+        params: &params::LayoutParams::NONE,
         meta: CUBE,
     },
     Capability {
         id: hierarchical_3d::ID,
         run: hierarchical_3d::run,
+        params: &params::LayoutParams::NONE,
         meta: HIERARCHICAL_3D,
     },
     Capability {
         id: SPRING_3D_ID,
         run: run_default::<Spring3D>,
+        params: &params::SPRING_3D,
         meta: SPRING_3D,
     },
     Capability {
         id: sfdp::ID,
         run: sfdp::run,
+        params: &params::LayoutParams::NONE,
         meta: SFDP,
     },
     Capability {
         id: ForceAtlas2BarnesHut::ID,
         run: run_default::<ForceAtlas2BarnesHut>,
+        params: &params::FORCEATLAS2_BARNES_HUT,
         meta: FA2_BH,
     },
-    // APPENDED, never inserted, for the reason the block above gives: layouts are mapped by
-    // INDEX in `graph-wasm/src/exports/build.rs:23,32,166` and `bench/campaign.rs:128` pins
-    // `LAYOUTS[3]`. `layout.bipartite_3d` reads the graph where the three above it read a
-    // node count, which is why its id is outside the `layout.basic3d.*` namespace those
-    // three publish.
+    // `layout.bipartite_3d` reads the graph where the three above it read a node count, which
+    // is why its id is outside the `layout.basic3d.*` namespace those three publish.
     Capability {
         id: basic_3d::bipartite_3d::ID,
         run: basic_3d::bipartite_3d,
+        params: &params::LayoutParams::NONE,
         meta: BIPARTITE_3D,
     },
     // ---- sg-spiral3d: SciGraphs' SPIRAL_3D, the conical 3D spiral of `basic.py:36-63`.
-    // APPENDED for the same reason as the block above it: inserting would repoint every
-    // index-keyed consumer with no compile error.
     Capability {
         id: basic_3d::spiral::ID,
         run: basic_3d::spiral,
+        params: &params::LayoutParams::NONE,
         meta: SPIRAL_3D,
     },
-    // perf-p2: appended after the entries above, for the same reason.
-    Capability {
-        id: ParticleMesh::ID,
-        run: run_default::<ParticleMesh>,
-        meta: PARTICLE_MESH,
-    },
+    force::PARTICLE_MESH_LAYOUT,
+    forceatlas2_forcesim::FA2_FORCESIM_LAYOUT,
+    spectral::SPECTRAL_3D_LAYOUT,
+    spectral::PIVOT_MDS_3D_LAYOUT,
+    // merge-p12-t4b: the 3D arms of the force family and yifan_hu's 2Z variant.
+    arms_3d::YIFAN_HU_2Z_LAYOUT,
+    arms_3d::FRUCHTERMAN_REINGOLD_3D_LAYOUT,
+    arms_3d::KAMADA_KAWAI_3D_LAYOUT,
+    arms_3d::DRL_3D_LAYOUT,
+    arms_3d::FA2_3D_LAYOUT,
 ];
