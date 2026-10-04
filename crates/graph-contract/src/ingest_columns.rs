@@ -7,7 +7,7 @@
 //! a walk of section lengths rather than a parse.
 //!
 //! Every refusal is one [`ColumnsError`] variant and has its own test in
-//! [`tests`](self::tests). The ABI collapses them all into `Code::ColumnsInvalid`; the
+//! `tests`. The ABI collapses them all into `Code::ColumnsInvalid`; the
 //! variants are here so a test can say which rule it broke.
 
 mod check;

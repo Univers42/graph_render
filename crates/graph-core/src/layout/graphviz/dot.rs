@@ -4,9 +4,9 @@
 //! Reference: `lib/dotgen/dotinit.c:301-340` (`dotLayout`), which is the whole contract:
 //!
 //! 1. `dot_rank` — `acyclic`, then one network simplex per connected component. **Ported**;
-//!    see [`rank`].
+//!    see [`mod@rank`].
 //! 2. `dot_mincross` — `build_ranks` for the initial order, then median/transpose passes.
-//!    Not ported; [`class2`], the edge classification this pass needs, is.
+//!    **Ported**; see [`mincross`].
 //! 3. `dot_position` — y from the rank heights, then a second network simplex over an
 //!    auxiliary graph for x. Not ported; the engine it needs, [`simplex`], is.
 //! 4. `dot_splines` — edges as splines through the virtual nodes. Not needed: the motor
@@ -32,13 +32,22 @@ pub mod class1;
 pub mod class2;
 pub mod decomp;
 pub mod fast;
+pub mod mincross;
 pub mod rank;
 pub mod simplex;
 
 #[cfg(test)]
 mod class2_tests;
 #[cfg(test)]
+mod mincross_tests;
+#[cfg(test)]
+mod oracle_crossings;
+#[cfg(test)]
+mod oracle_digest;
+#[cfg(test)]
 mod oracle_probe;
+#[cfg(test)]
+mod order_tests;
 #[cfg(test)]
 mod rank_fixture_edges;
 #[cfg(test)]

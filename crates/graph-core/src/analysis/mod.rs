@@ -13,7 +13,7 @@
 //! Exposing these results in the snapshot/JSON/SDK, and folding them into the 4-way
 //! hashgate as their own stage, is deferred to the merge step (`graph-wasm` and the
 //! hashgate's `STAGES` array are outside this phase's authorization envelope). Every
-//! function here is still exercised by [`analysis_determinism`] below: same input,
+//! function here is still exercised by `analysis_determinism` below: same input,
 //! same output, bit for bit, on this target — the property the hashgate would check
 //! across targets once wired in.
 

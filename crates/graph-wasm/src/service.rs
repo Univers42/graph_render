@@ -3,7 +3,7 @@
 //! thread-local error. The HTTP service links this crate as an rlib and calls only this
 //! module, so a request it answers and the same request made through the wasm module are
 //! answered by one code path: `gm_build`, `gm_build_contract`, `gm_run` and `gm_post_run`
-//! call [`build`], [`snapshot_of`] and [`post_pass`] too (`docs/contract/service-api.md`
+//! call [`build`], `snapshot_of` and `post_pass` too (`docs/contract/service-api.md`
 //! "Verdict", condition 1).
 //!
 //! A caller reads the [`Result`]; [`Code`] is the same refusal the export would publish

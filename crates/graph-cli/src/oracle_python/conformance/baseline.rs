@@ -46,7 +46,7 @@ pub struct Baseline {
 /// `harness/scigraphs-conformance.py --metrics` measured it and
 /// `target/scigraphs-conformance/conformance-baseline-proposed.rs` wrote it.
 ///
-/// The tier and cause on each row are [`sc_propose.classify`]'s own output, decided from that
+/// The tier and cause on each row are `sc_propose.classify`'s own output, decided from that
 /// run's numbers and the row's declared gaps; a `// …` after a row is the reason the classifier
 /// gave where it had one. Two rows carry a fact a shas column cannot hold: `GRAPHVIZ_DOT`'s
 /// motor digest is the **empty file's** — the emit writes a zero-byte file for a name with no

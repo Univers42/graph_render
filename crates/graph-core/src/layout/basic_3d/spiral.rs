@@ -29,7 +29,7 @@
 //!   element with `stop`.** Not `stop*i/(num-1)`, and not `stop*(i/(num-1))`. Reproduced bit
 //!   for bit over all 65 536 grid points. **The overwrite and the plain product agree here**:
 //!   `65535 * step` is exactly `1.0`, measured and pinned, so there is no last-element
-//!   special case to port — see [`grid_at`].
+//!   special case to port — see `grid_at`.
 //! - **`cumsum` is sequential.** `length[i] = length[i-1] + step`, 65 535 additions in a
 //!   fixed order, never a pairwise or blocked reduction (which is what `np.sum` does). The
 //!   order *is* the value here: a blocked sum of 65 535 terms lands a few ulp away and the

@@ -119,8 +119,9 @@ fn spring(positions: &[(f64, f64)], field: &RelaxField, edge: (u32, u32)) -> (f6
 
 /// `incidence[i]`: every index into `edges` incident to node `i`, ascending — the order
 /// the edge loop visited them in, and the order the gather must sum them in to stay
-/// bit-identical. A self-loop (which [`super::simple_pairs`] filters out, but a caller
-/// may pass) appears twice, so its `+` then `-` on the same node survives the rewrite.
+/// bit-identical. A self-loop (which [`crate::layout::circle_packing::simple_pairs`]
+/// filters out, but a caller may pass) appears twice, so its `+` then `-` on the same
+/// node survives the rewrite.
 fn incidence_lists(edges: &[(u32, u32)], n: usize) -> Vec<Vec<usize>> {
     let mut incidence = vec![Vec::new(); n];
     for (i, &(u, v)) in edges.iter().enumerate() {

@@ -34,9 +34,9 @@ impl Grid {
     /// `run_scaled(..., &Serial, 1)` is a serial stage and any other runner is a
     /// *schedule* of the same computation.
     ///
-    /// The registered [`Grid::run`] is not this and does not move: it keeps the centred
-    /// lattice at `GridParams::spacing`, which is what the pipeline's registered
-    /// `layout.grid` and its snapshot hash are.
+    /// The registered [`Stage::run`](crate::stage::Stage::run) is not this and does not move:
+    /// it keeps the centred lattice at `GridParams::spacing`, which is what the pipeline's
+    /// registered `layout.grid` and its snapshot hash are.
     pub fn run_scaled(
         topology: &Topology,
         scale: f64,

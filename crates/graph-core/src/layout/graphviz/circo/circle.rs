@@ -11,14 +11,17 @@
 //! 3. The angular placement — node `k` of `n` sits at `k * 2*PI / n` on a circle of radius
 //!    `n * (min_dist + largest_node) / 2*PI`.
 //!
-//! **The crossing count is order-free, which is what makes this reproducible.** The reference
-//! holds the open edges in a `Dtoset` keyed on the edge *pointer* (`edgelist.c:27-37`), so it
-//! walks them in address order — but it only ever asks whether an open edge's `EDGEORDER` is
-//! greater than the current edge's and whether it touches the current node. Both questions
-//! have the same answer whichever open edge is examined first, so the count is a function of
-//! the node order alone and this port keeps the open edges in a `Vec`.
+//! **The crossing count is order-free, which is what makes this reproducible**, and it is not
+//! what this file computes: [`crossings`](super::crossings) holds the count, now a Fenwick sweep over the
+//! positions rather than the reference's quadratic walk, and this file only asks for it. The
+//! reference holds the open edges in a `Dtoset` keyed on the edge *pointer* (`edgelist.c:27-37`),
+//! so it walks them in address order — but it only ever asks whether an open edge's `EDGEORDER`
+//! is greater than the current edge's and whether it touches the current node. Both questions
+//! have the same answer whichever open edge is examined first, so the count is a function of the
+//! node order alone and the sweep can take it without an order of its own.
 
 use super::NODE_SIZE_INCH;
+use super::crossings::Counter;
 use super::graph::BlockGraph;
 
 /// `CROSS_ITER` (`blockpath.c:433`): how many times the reduction is allowed to run.
@@ -35,7 +38,7 @@ pub(super) const LARGEST_NODE: f64 = if NODE_SIZE_INCH.0 > NODE_SIZE_INCH.1 {
 
 /// Every node of `block`, in the order the circle will carry them: the long path plus the
 /// residual pass plus the crossing reduction.
-pub(super) fn order_of(block: &mut BlockGraph, order: Vec<u32>) -> Vec<u32> {
+pub(super) fn order_of(block: &BlockGraph, order: Vec<u32>) -> Vec<u32> {
     let nodes = block.nodes.len() as u32;
     let mut placed = vec![false; nodes as usize];
     for &node in &order {
@@ -89,16 +92,18 @@ fn first_marked(order: &[u32], marked: &[u32]) -> Option<usize> {
     order.iter().position(|node| marked.contains(node))
 }
 
-/// `reduce_edge_crossings` (`blockpath.c:477-492`).
-fn reduce(block: &mut BlockGraph, order: Vec<u32>) -> Vec<u32> {
-    let mut crossings = count_all_crossings(block, &order);
+/// `reduce_edge_crossings` (`blockpath.c:477-492`). One counter and one scratch order are
+/// built here and threaded through every pass, so the whole reduction allocates O(1) times.
+fn reduce(block: &BlockGraph, order: Vec<u32>) -> Vec<u32> {
+    let mut counter = Counter::default();
+    let mut crossings = counter.count(block, &order);
     let mut order = order;
     if crossings == 0 {
         return order;
     }
     for _ in 0..CROSS_ITER {
         let before = crossings;
-        order = pass(block, order, &mut crossings);
+        order = pass(block, order, &mut crossings, &mut counter);
         if before == crossings || crossings == 0 {
             return order;
         }
@@ -108,18 +113,32 @@ fn reduce(block: &mut BlockGraph, order: Vec<u32>) -> Vec<u32> {
 
 /// `reduce` (`blockpath.c:439-475`): every node, then every one of its edges, then the two
 /// slots beside that neighbour — keep the move only while the crossing count drops.
-fn pass(block: &mut BlockGraph, mut order: Vec<u32>, crossings: &mut u32) -> Vec<u32> {
+///
+/// **The same moves are kept as before**, which is the point: the candidate is still the whole
+/// order with one node moved, and it is still kept only on a strict drop. What changed is the
+/// bookkeeping — the row is borrowed instead of copied, the candidate is written into one
+/// scratch `Vec` and swapped in rather than cloned per try, and the count is the sweep's
+/// `O(E log E)` instead of the reference's quadratic walk. A kept move therefore costs a `swap`
+/// rather than a clone, and a rejected one costs a copy into the scratch.
+fn pass(
+    block: &BlockGraph,
+    mut order: Vec<u32>,
+    crossings: &mut u32,
+    counter: &mut Counter,
+) -> Vec<u32> {
     let nodes = block.nodes.len() as u32;
+    let mut scratch = Vec::new();
     for current in 0..nodes {
-        for edge in block.row(current).to_vec() {
+        for &edge in block.row(current) {
             let neighbour = block.other(edge, current);
             for slot in 0..2 {
-                let mut candidate = order.clone();
-                insert(&mut candidate, current, neighbour, slot);
-                let found = count_all_crossings(block, &candidate);
+                scratch.clear();
+                scratch.extend_from_slice(&order);
+                insert(&mut scratch, current, neighbour, slot);
+                let found = counter.count(block, &scratch);
                 if found < *crossings {
                     *crossings = found;
-                    order = candidate;
+                    std::mem::swap(&mut order, &mut scratch);
                     if *crossings == 0 {
                         return order;
                     }
@@ -141,39 +160,6 @@ fn insert(order: &mut Vec<u32>, node: u32, neighbour: u32, slot: usize) {
     if let Some(at) = order.iter().position(|&n| n == neighbour) {
         order.insert(at + slot, node);
     }
-}
-
-/// `count_all_crossings` (`blockpath.c:386-431`): walk the order, close the edges it leaves
-/// behind, and count every crossing that closing creates.
-fn count_all_crossings(block: &mut BlockGraph, order: &[u32]) -> u32 {
-    block.clear_orders();
-    let mut open: Vec<u32> = Vec::new();
-    let mut crossings = 0;
-    for (at, &node) in order.iter().enumerate() {
-        let row = block.row(node).to_vec();
-        for &edge in &row {
-            if block.order(edge) > 0 {
-                let mine = block.order(edge);
-                for &other in &open {
-                    if block.order(other) > mine
-                        && block.head(other) != node
-                        && block.tail(other) != node
-                    {
-                        crossings += 1;
-                    }
-                }
-                open.retain(|&kept| kept != edge);
-            }
-        }
-        let stamp = i32::try_from(at + 1).expect("a block has fewer than 2^31 nodes");
-        for &edge in &row {
-            if block.order(edge) == 0 {
-                block.set_order(edge, stamp);
-                open.push(edge);
-            }
-        }
-    }
-    crossings
 }
 
 /// `realignNodelist` (`nodelist.c:38-45`): rotate the order left so the node at `at` comes

@@ -18,12 +18,12 @@
 //! `neighbors` then means successors. The motor's [`Topology`] has no whole-graph
 //! directedness — `edges().directed` is per edge (`crates/graph-core/src/columns.rs:118`)
 //! and every layout here reads the undirected projection
-//! ([`crate::layout::force::SimpleGraph`]) — so this port takes the undirected branch
+//! (`crate::layout::force::SimpleGraph`) — so this port takes the undirected branch
 //! (`_component_roots`, `hierarchical.py:31-52`) and the differential's SciGraphs arm
 //! builds an `nx.Graph` to match it.
 //!
 //! The node set is the undirected, deduplicated, self-loop-free one every force layout
-//! already shares ([`crate::layout::force::simple_graph`]), so the SciGraphs arm sees one
+//! already shares (`crate::layout::force::simple_graph`), so the SciGraphs arm sees one
 //! graph too: `nx.Graph` merges a repeated unordered pair silently and its `neighbors`
 //! yields insertion order, which is the CSR row order this module walks.
 
@@ -49,7 +49,7 @@ const SCALE: f64 = 5.0;
 /// reference it ports: every branch of it is total.
 ///
 /// The BFS half — `_component_roots`, `_multi_source_levels`, `_group_by_level` — is not
-/// here: it is [`crate::layout::hierarchical_3d::levels`], shared verbatim with
+/// here: it is `crate::layout::hierarchical_3d::levels`, shared verbatim with
 /// `layout.hierarchical3d`, the other layout that ports the same SciGraphs functions.
 /// `points` below is the only thing this port owns.
 pub fn run(topology: &Topology) -> Result<Geometry, StageError> {

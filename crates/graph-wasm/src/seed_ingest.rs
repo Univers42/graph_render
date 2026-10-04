@@ -6,7 +6,7 @@
 //! so the two can be asserted equal.
 //!
 //! Target-independent: pure string building, no wasm pointer. Round-tripped through
-//! [`crate::ingest::read`] in this module's own tests, so the two are proven consistent
+//! `crate::ingest::read` (test-only) in this module's own tests, so the two are proven consistent
 //! natively, with no wasm build in the loop.
 
 use crate::json_string::push_quoted as string;

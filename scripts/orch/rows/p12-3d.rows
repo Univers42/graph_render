@@ -1,0 +1,102 @@
+# p12-3d.rows — the gate for prompts/jobs/p12-3d-oracles.md: `layout.random.3d` and the
+# 3-D oracle arms of `oracle-closed-form` and `oracle-spectral`, ported from `p12-t4a`
+# under Option A (`docs/decisions/3d-ids.md`).
+#
+# Format: `name|expect|cmd`, one per line; expect is `0` or `nonzero`; cmd runs from the
+# worktree root under bash (scripts/orch/gate.sh:9-12). `#` lines and blanks are skipped
+# (scripts/orch/gate.sh:10). Run:
+#   scripts/orch/gate.sh target/gate-p12-3d-own scripts/orch/rows/p12-3d.rows
+#
+# Everything goes through scripts/orch/gr (the ge-rust image) or
+# `scripts/orch/drun … ge-python-oracle` (the Python oracle arms). Never a bare cargo or
+# python3.
+#
+# The first block is scripts/orch/rows/quick.rows verbatim, so this file gates the same
+# invariants the quick gate does, with this phase's rows and controls added below it.
+
+fmt|0|scripts/orch/gr cargo fmt --all --check
+clippy|0|scripts/orch/gr cargo clippy --workspace --all-targets -- -D warnings
+test|0|scripts/orch/gr cargo test --workspace --no-fail-fast
+wasm32-core|0|scripts/orch/gr cargo build -p graph-core --target wasm32-unknown-unknown
+hashgate-8|0|scripts/orch/gr cargo run -q -p graph-cli -- hashgate --seeds 8
+negctl-degree|0|scripts/orch/gr -e GM_MUTATE_REFERENCE_DEGREE=9 cargo run -q -p graph-cli -- hashgate --seeds 8; test $? -eq 1
+negctl-dim-z-mismatch|0|scripts/orch/gr -e GM_MUTATE_NODE_Z=1 cargo run -q -p graph-cli -- roundtrip --seeds 8; test $? -ne 0
+force-gate-4|0|scripts/orch/gr cargo run -q -p graph-cli -- force-gate --seeds 4
+negctl-force-gravity|0|scripts/orch/gr -e GM_MUTATE_FORCE_SESSION_GRAVITY=0.5 cargo run -q -p graph-cli -- force-gate --seeds 4; test $? -eq 1
+scigraphs-conformance|0|scripts/scigraphs-conformance.sh
+negctl-scigraphs-conformance|0|scripts/scigraphs-conformance.sh --break; test $? -eq 1
+
+# ---------------------------------------------------------------------------------------------
+# The new id is registered, is 3-D on the wire, and is APPEND-ONLY.
+#
+# `dim3d-json` checks the canonical JSON carries the 3-D marker and the 2-D ids do not.
+# The `"dim":1` that is grepped is the JSON-Schema field of the `dim` field, not the
+# dimensionality: the 2-D snapshot has no `dim` key at all, so its presence is the test.
+# `dim2d-json-unchanged` is the control for it — a 3-D marker leaking into a 2-D snapshot
+# would make the first row pass for the wrong reason.
+#
+# `dim3d-z-on-the-wire` is the binary half: a 3-D snapshot is strictly larger than its 2-D
+# sibling because the z column is on the wire, not reconstructed by the reader. All five
+# pairs are measured at seed 3: 328 bytes against 308, every one of them.
+dim3d-json|0|for l in layout.random.3d layout.basic3d.spiral layout.bipartite_3d layout.spectral3d layout.mds.pivot3d; do scripts/orch/gr cargo run -q --release -p graph-cli -- snapshot --seed 3 --layout $l --out-json - 2>/dev/null | grep -q '"dim":1' || exit 1; done
+dim2d-json-unchanged|0|for l in layout.random layout.spiral layout.bipartite layout.spectral layout.mds.pivot; do out=$(scripts/orch/gr cargo run -q --release -p graph-cli -- snapshot --seed 3 --layout $l --out-json - 2>/dev/null); if echo "$out" | grep -q '"dim"'; then exit 1; fi; done
+dim3d-z-on-the-wire|0|for pair in random:random.3d spectral:spectral3d mds.pivot:mds.pivot3d spiral:basic3d.spiral bipartite:bipartite_3d; do two=${pair%%:*}; three=${pair##*:}; a=$(scripts/orch/gr cargo run -q --release -p graph-cli -- snapshot --seed 3 --layout layout.$three --out-bin - 2>/dev/null | wc -c); b=$(scripts/orch/gr cargo run -q --release -p graph-cli -- snapshot --seed 3 --layout layout.$two --out-bin - 2>/dev/null | wc -c); [ "$a" -gt "$b" ] || exit 1; done
+
+# The new stage is hashed, and a model that moves moves it.
+hashgate-3d-random|0|scripts/orch/gr cargo run -q --release -p graph-cli -- hashgate --seeds 8 2>&1 | grep -q 'layout.random.3d: 4-way equal on 8/8 seeds'
+negctl-random-3d-model|nonzero|scripts/orch/gr -e GM_MUTATE_NODE_COUNT=2 cargo run -q --release -p graph-cli -- hashgate --seeds 8
+negctl-random-3d-node-z|nonzero|scripts/orch/gr -e GM_MUTATE_NODE_Z=1 cargo run -q --release -p graph-cli -- roundtrip --seeds 8
+
+# ---------------------------------------------------------------------------------------------
+# The three-arm chain per differential, in order: emit the fixtures, run the reference arm in
+# the oracle image with the SciGraphs/ submodule mounted, then ingest. A step run before its
+# predecessor reads nothing and reports a vacuous pass.
+#
+# The SciGraphs core dir is passed EXPLICITLY rather than left to the harness default: the
+# two closed-form 3-D references (`_spiral_layout_3d`, `_bipartite_layout_3d`) live in that
+# package, and a relative path that resolved somewhere else would surface as an ImportError
+# naming neither the module nor the path.
+#
+# Measured over these 1000 seeds on this tree (`docs/measurements/p12-3d-oracles.md`):
+#   layout.random.3d      worst 3.030e-1  ceiling 5e-1
+#   layout.basic3d.spiral worst 2.384e-7  ceiling 1e-6
+#   layout.bipartite_3d   worst 1.192e-7  ceiling 1e-6
+#   layout.spectral3d     worst 9.641e-6  ceiling 1e-4
+#   layout.mds.pivot3d    worst 4.838e-8  ceiling 1e-7
+emit-closed-form-1000|0|scripts/orch/gr cargo run -q --release -p graph-cli -- emit-closed-form-fixtures --seeds 1000
+oracle-closed-form-py|0|scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-python-oracle python3 harness/oracle-closed-form.py target/closed-form-fixtures /w/SciGraphs/core
+oracle-closed-form|0|scripts/orch/gr cargo run -q --release -p graph-cli -- oracle-closed-form
+emit-spectral-1000|0|scripts/orch/gr cargo run -q --release -p graph-cli -- emit-spectral-fixtures --seeds 1000
+oracle-spectral-py|0|scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-python-oracle python3 harness/oracle-spectral.py /w/SciGraphs/core target/spectral-fixtures
+oracle-spectral|0|scripts/orch/gr cargo run -q --release -p graph-cli -- oracle-spectral
+
+# Each differential's own negative control: the ingest reading fixtures it cannot have. A
+# missing directory must exit nonzero, not read as agreement. These two are the arms'
+# fail-closed paths, and they are the only controls here that cost nothing.
+negctl-closed-form-absent|nonzero|scripts/orch/gr cargo run -q --release -p graph-cli -- oracle-closed-form --dir target/closed-form-fixtures-absent
+negctl-spectral-absent|nonzero|scripts/orch/gr cargo run -q --release -p graph-cli -- oracle-spectral --dir target/spectral-fixtures-absent
+
+# Per-stage controls for the two 3-D coordinate arms, which DO have knobs of their own
+# (`GM_MUTATE_BASIC3D_SPIRAL_NODES`, `GM_MUTATE_BIPARTITE_3D_NODES`,
+# `hashgate/knob/three_d.rs:33-34`). Re-drawing a layout's own model must move its
+# coordinates, so these turn the gate red where `negctl-random-3d-model` cannot: that one
+# moves the WHOLE model, which moves every stage at once and so proves nothing about this
+# one.
+negctl-spiral-3d-model|nonzero|scripts/orch/gr -e GM_MUTATE_BASIC3D_SPIRAL_NODES=1 cargo run -q --release -p graph-cli -- hashgate --seeds 8
+negctl-bipartite-3d-model|nonzero|scripts/orch/gr -e GM_MUTATE_BIPARTITE_3D_NODES=1 cargo run -q --release -p graph-cli -- hashgate --seeds 8
+
+# ---------------------------------------------------------------------------------------------
+# The 3-D spectral arm above the dense limit, as a gate row.
+#
+# Seed 255 is the FIRST gate seed whose component (257 nodes) is above `DENSE_EIG_LIMIT` = 256
+# and so reaches LOBPCG at all; every seed below it takes the dense branch. Before develop's
+# shift-invert retry tier (LF-09) this command exited 2 ("no component passed the eigensolver's
+# residual and orthonormality gate"): the 3-D block `dims + 2 = 5` leaves a zero start column
+# (`docs/measurements/p12-3d-oracles.md`, "The spectral internals").
+#
+# `spectral3d-differs-from-2d` is the row's control, and it CAN fail: the 3-D arm's x column
+# must not be the 2-D arm's. A `dims` threading that collapsed to two columns would leave the
+# two runs' coordinates equal and this row would exit 1. (The 2-D snapshot merely having no
+# `dim` key is NOT a control: that is true of every 2-D layout.)
+spectral3d-above-dense-limit|0|scripts/orch/gr cargo run -q --release -p graph-cli -- snapshot --seed 255 --layout layout.spectral3d --out-json - | grep -q '"dim":1'
+spectral3d-differs-from-2d|0|x3=$(scripts/orch/gr cargo run -q --release -p graph-cli -- snapshot --seed 255 --layout layout.spectral3d --out-json - 2>/dev/null | grep -o '"x":\[[^]]*\]'); x2=$(scripts/orch/gr cargo run -q --release -p graph-cli -- snapshot --seed 255 --layout layout.spectral --out-json - 2>/dev/null | grep -o '"x":\[[^]]*\]'); [ -n "$x3" ] && [ "$x3" != "$x2" ]

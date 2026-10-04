@@ -245,7 +245,7 @@ impl Sim {
     ///
     /// `pub(in crate::layout::force)` rather than private because the phase-11 range
     /// kernel's tests drive the same pass sequence the tick does
-    /// ([`crate::layout::force::barnes_hut::tests`]), and a test that rebuilt the tick in
+    /// (`crate::layout::force::barnes_hut::tests`), and a test that rebuilt the tick in
     /// its own words would be testing its own arithmetic rather than the kernel's.
     pub(in crate::layout::force) fn integrate(&mut self) {
         let decay = self.params.velocity_decay;

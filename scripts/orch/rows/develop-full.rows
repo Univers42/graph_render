@@ -43,7 +43,6 @@ roundtrip-1000|0|scripts/orch/gr cargo run -q --release -p graph-cli -- roundtri
 emit-fixtures-1000|0|scripts/orch/gr cargo run -q -p graph-cli -- emit-fixtures --seeds 1000
 oracle-layouts|0|scripts/orch/gr cargo run -q -p graph-cli -- oracle-layouts
 geometry-invariants|0|scripts/orch/gr cargo test -p graph-core geometry_invariants
-capabilities-check|0|scripts/orch/gr cargo run -q -p graph-cli -- capabilities --check
 codegen-check|0|scripts/orch/gr cargo run -q -p graph-cli -- codegen --check
 ge-check|0|scripts/orch/ge-check.sh
 
@@ -186,6 +185,9 @@ negctl-reference-degree|nonzero|scripts/orch/gr -e GM_MUTATE_REFERENCE_DEGREE=9 
 negctl-grid-spacing|nonzero|scripts/orch/gr -e GM_MUTATE_GRID_SPACING=2 cargo run -q -p graph-cli -- hashgate --seeds 8
 negctl-sugiyama-layer-spacing|nonzero|scripts/orch/gr -e GM_MUTATE_SUGIYAMA_LAYER_SPACING=2 cargo run -q -p graph-cli -- hashgate --seeds 8
 negctl-node-count|nonzero|scripts/orch/gr -e GM_MUTATE_NODE_COUNT=1 cargo run -q -p graph-cli -- hashgate --seeds 8
+# copied verbatim from scripts/orch/rows/p12-t3.rows:84 — the strong form of `negctl-dim-z-mismatch`
+# above, which only checks `ne 0` and so would pass on an exit 2 for the wrong reason.
+negctl-node-z|0|scripts/orch/gr bash -c 'out=$(GM_MUTATE_NODE_Z=1 cargo run -q -p graph-cli -- roundtrip --seeds 8 2>&1); rc=$?; [ "$rc" = 2 ] || { echo "expected exit 2 (the z-length refusal), got $rc"; echo "$out"; exit 1; }; echo "$out" | grep -q "perturbed exercise seed .*: node\.z: 4 values, need 3" || { echo "the run did not refuse on the z column it perturbed:"; echo "$out"; exit 1; }'
 negctl-force-theta|nonzero|scripts/orch/gr -e GM_MUTATE_FORCE_THETA=0.5 cargo run -q -p graph-cli -- hashgate --seeds 8
 negctl-fa2-scaling-ratio|nonzero|scripts/orch/gr -e GM_MUTATE_FA2_SCALING_RATIO=3 cargo run -q -p graph-cli -- hashgate --seeds 8
 negctl-tree-tidy-nodes|nonzero|scripts/orch/gr -e GM_MUTATE_TREE_TIDY_NODES=1 cargo run -q -p graph-cli -- hashgate --seeds 8
@@ -277,3 +279,15 @@ cargo-deny-server|0|GR_IMAGE=ge-audit scripts/orch/gr cargo deny --manifest-path
 npm-audit-app|0|scripts/orch/node-slim.sh bash -c 'cd app && npm audit --omit=dev --audit-level=high'
 negctl-cargo-deny-advisory|0|d=target/audit-negctl; mkdir -p $d/src; : >$d/src/lib.rs; printf '%s\n' '[package]' 'name = "audit-negctl"' 'version = "0.0.0"' 'edition = "2021"' '' '[workspace]' '' '[dependencies]' 'time = "=0.1.44"' >$d/Cargo.toml; GR_IMAGE=ge-audit scripts/orch/gr bash -c "cd $d && cargo generate-lockfile -q" || exit 1; rc=0; GR_IMAGE=ge-audit scripts/orch/gr cargo deny --manifest-path $d/Cargo.toml check advisories >target/audit-negctl-advisories.log 2>&1 || rc=$?; test $rc -ne 0 && grep -q RUSTSEC-2020-0071 target/audit-negctl-advisories.log && cat target/audit-negctl-advisories.log
 negctl-cargo-deny-license|0|sed '/^    "MIT",$/d' deny.toml >target/deny-negctl.toml; grep -q '"MIT"' target/deny-negctl.toml && exit 1; rc=0; GR_IMAGE=ge-audit scripts/orch/gr cargo deny --manifest-path Cargo.toml --config target/deny-negctl.toml check licenses >target/audit-negctl-licenses.log 2>&1 || rc=$?; test $rc -ne 0 && grep -q 'MIT - MIT License:' target/audit-negctl-licenses.log && head -n 20 target/audit-negctl-licenses.log
+
+# The osage differential (scripts/orch/rows/p13-gv1-osage.rows): `layout.packing.osage` is gated
+# on an `oracle-osage` record, and no other row here writes one.
+osage-emit-1000|0|scripts/orch/gr cargo run -q -p graph-cli -- emit-graphviz-fixtures --engine osage --seeds 1000
+osage-oracle-1000|0|scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/osage-fixtures osage target/gv-osage --differential
+osage-check-1000|0|scripts/orch/gr cargo run -q -p graph-cli -- oracle-graphviz --engine osage
+osage-check-negctl|nonzero|scripts/orch/gr cargo run -q -p graph-cli -- oracle-graphviz --engine osage --dir target/osage-fixtures-absent
+
+# Last: `capabilities --check` reads the records every gate above writes for this tree
+# (hashgate, roundtrip, oracle-diff, oracle-spectral, oracle-osage). Run earlier, it reports
+# each one missing or stale (2026-10-04, gate-develop-bff2: 34 problems at row 46).
+capabilities-check|0|scripts/orch/gr cargo run -q -p graph-cli -- capabilities --check

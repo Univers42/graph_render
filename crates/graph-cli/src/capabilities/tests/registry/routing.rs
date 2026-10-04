@@ -46,6 +46,9 @@ fn the_registry_covers_every_oracle_function_once_its_ids_are_unique() {
             // own and rides barnes_hut's stress record; `implemented`, never `gated`, for the
             // reason `unproven.rs` gives.
             || r.id == "layout.force.yifan_hu.2z"
+            // The 3D arm too: it is a real 3D force run, but it is still not sfdp and the
+            // stress record is still the 2-axis barnes_hut one, so it routes the same way.
+            || r.id == "layout.force.yifan_hu.3d"
             || r.id == "layout.forceatlas2.forcesim"
         {
             ("stress", r.id, Status::Implemented)
@@ -80,7 +83,9 @@ fn the_registry_covers_every_oracle_function_once_its_ids_are_unique() {
         {
             // The conformance gate's own record, and not `oracle-closed-form`: that is
             // `layout.bipartite`'s, over networkx's two columns. The two spectral 3D ids
-            // likewise, not `oracle-spectral`: that differential pins only the 2D ids.
+            // likewise, not `oracle-spectral` — the harness now pins all four spectral ids,
+            // but `unproven.rs` keeps them on the stronger record, which compares them byte
+            // for byte over the conformance fixtures.
             ("scigraphs-conformance", r.id, Status::Implemented)
         } else if r.id == "layout.circular.hierarchy" {
             // A closed form with a SciGraphs-arm differential, `implemented` rather than
@@ -92,6 +97,7 @@ fn the_registry_covers_every_oracle_function_once_its_ids_are_unique() {
             "layout.circular.ring",
             "layout.spiral",
             "layout.bipartite",
+            "layout.random.3d",
         ]
         .contains(&r.id)
         {
