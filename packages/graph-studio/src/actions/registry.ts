@@ -1,6 +1,6 @@
 /**
- * The one list of things the studio can do. The dock, the console, the shortcuts and a
- * host all go through `resolve`, so a value is read, checked and refused in one place.
+ * The one list of things the studio can do. The dock, the console, the shortcuts and a host all
+ * go through `resolve`, so a value is read, checked and refused in one place.
  */
 
 export type ArgValue = string | number | boolean;
@@ -108,7 +108,7 @@ export function matchChoice(input: string, choices: readonly string[]): string |
   return holding.length === 1 && holding[0] !== undefined ? holding[0] : holding;
 }
 
-function bad(name: string, message: string): ActionRefusal {
+export function bad(name: string, message: string): ActionRefusal {
   return new ActionRefusal("bad-value", `\`${name}\` ${message}`);
 }
 

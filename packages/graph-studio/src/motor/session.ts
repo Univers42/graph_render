@@ -5,16 +5,16 @@
  * Knows the motor only by the members it calls, so it runs the same in a worker, on the
  * page with the worker switched off, and under node with the real module.
  */
-import { type Built, describe } from "./built.ts";
-import { runPass } from "./edgePass.ts";
+import type { Built } from "./built.ts";
 import { type Assembler, type Document, documentFor } from "./documents.ts";
 import type { ParamValues, Source } from "../state/settings.ts";
 import {
-  DEFAULT_KNOBS, type ForceEngine, type ForceParams, type ForcePort, type ForceSeed, type LiveForce,
+  DEFAULT_KNOBS, type ForceEngine, type ForceParams, type ForcePort, type ForceSeed, type Growable, type LiveForce,
 } from "./live.ts";
 import { createLiveForce } from "./liveSession.ts";
-import type { AnalysisReport, Catalog, GraphSummary, LayoutParamSpec, RunReport } from "./protocol.ts";
-import { type RunPlan, planRun } from "./settle.ts";
+import type { AnalysisReport, Catalog, GraphBatch, GraphSummary, LayoutParamSpec, RunReport } from "./protocol.ts";
+import { type Live, type Shot, runAnalysis, snapshot } from "./run.ts";
+import { type RunPlan, SCATTER, planRun } from "./settle.ts";
 
 export interface AnalysisFace {
   readonly id: string;
@@ -53,8 +53,13 @@ export interface MotorLike<Handle> {
   analysis(handle: Handle, analysisId: string): AnalysisFace;
   toBytes(handle: Handle): Uint8Array;
   release(handle: Handle): void;
+  /**
+   * Appends a batch to a built graph (`Motor.extend`); whole or not at all. Optional so a motor
+   * without it — and every test double — still satisfies it, and a batch is then refused.
+   */
+  extend?(handle: Handle, batch: GraphBatch): void;
   /** The live session over a graph's topology, or null on a motor without one. */
-  forceSession?(handle: Handle, params?: Partial<ForceParams>, engine?: ForceEngine, seed?: ForceSeed): ForcePort | null;
+  forceSession?(handle: Handle, params?: Partial<ForceParams>, engine?: ForceEngine, seed?: ForceSeed): (ForcePort & Growable<Handle>) | null;
 }
 
 export interface SessionDeps<Handle> {
@@ -73,6 +78,8 @@ export interface SessionDeps<Handle> {
    * called to ask whether there is a session: that would make one as a side effect.
    */
   readonly onForget?: () => void;
+  /** The gate's negative control: true drops the grow after an extend, so nothing moves. */
+  readonly breakDeltas?: () => boolean;
   /**
    * Told when a re-layout releases the force session: the loop stops as for `onForget`, but
    * forces stay available, since the next request seeds a session at the new picture. Left
@@ -89,6 +96,8 @@ export interface Session {
   /** The schema a caller resolves a name against, read from the motor and nowhere else. */
   params(layoutId: string): readonly LayoutParamSpec[];
   analysis(analysisId: string): AnalysisReport;
+  /** The scatter a delta batch needs drawn, over the graph as it now is; the force session stays. */
+  structure(): Promise<RunReport>;
   /**
    * The live force port over the graph as it is now drawn, or null when there is none: the
    * motor behind this session has no live session, or no layout has run to order the rows.
@@ -113,18 +122,6 @@ export async function sha256Hex(bytes: Uint8Array): Promise<string | null> {
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-function reportOf(face: AnalysisFace, ms: number): AnalysisReport {
-  return {
-    id: face.id,
-    kind: face.kind,
-    values: face.kind === "u32" ? Uint32Array.from(face.values) : Float64Array.from(face.values),
-    converged: face.converged ?? null,
-    modularity: face.modularity ?? null,
-    max: face.max ?? null,
-    ms,
-  };
-}
-
 function summaryOf(document: Document, buildMs: number): GraphSummary {
   return {
     name: document.name, nodeCount: document.nodes.length, edgeCount: document.edgeCount,
@@ -133,12 +130,10 @@ function summaryOf(document: Document, buildMs: number): GraphSummary {
 }
 
 /**
- * The live force port over the graph as it is now drawn, or null when there is none.
- *
- * Null rather than a refusal: a force request that arrives before a graph is loaded is "no
- * session yet", which is the same answer as a motor that has none.
+ * The live force port over the graph as it is now drawn, or null when there is none: a force
+ * request before a graph is loaded is "no session yet", the same answer as a motor with none.
  */
-function forcesOf<Handle>(motor: MotorLike<Handle> | null, built: Built<Handle> | null): LiveForce | null {
+function forcesOf<Handle>(motor: MotorLike<Handle> | null, built: Built<Handle> | null, deps: SessionDeps<Handle>): LiveForce | null {
   if (motor === null || built === null || built.order === null) return null;
   if (motor.forceSession === undefined) return null;
   built.forced ??= startSession(motor, built);
@@ -157,6 +152,21 @@ function forcesOf<Handle>(motor: MotorLike<Handle> | null, built: Built<Handle> 
       if (built.forced === null) throw new SessionRefusal("the motor made no force session");
       return built.forced;
     },
+    // Both refusals are the queue's to answer: `force.deltas` turns a throw here into a
+    // `failed` result carrying the message, and the graph is untouched either way.
+    extend: (batch) => {
+      if (motor.extend === undefined) throw new SessionRefusal("this motor cannot add to a built graph");
+      motor.extend(built.handle, batch);
+      // After the motor: a refusal leaves the graph and this list as they were.
+      built.nodes = [...built.nodes, ...batch.nodes];
+    },
+    grow: () => {
+      if (deps.breakDeltas?.() === true) return;
+      // Read late: "Animate" restarts the session, so a captured binding is a released one.
+      const running = built.forced;
+      if (running === null || running.grow === undefined) throw new SessionRefusal("this motor's live session cannot grow");
+      running.grow(built.handle);
+    },
   });
   return built.port;
 }
@@ -170,7 +180,7 @@ function forcesOf<Handle>(motor: MotorLike<Handle> | null, built: Built<Handle> 
  * Measured before this (2026-10-03): every force layout was replaced on the first frame by one
  * settle from the spiral, so ForceAtlas2 and DrL drew identical bounds.
  */
-function startSession<Handle>(motor: MotorLike<Handle>, built: Built<Handle>): ForcePort | null {
+function startSession<Handle>(motor: MotorLike<Handle>, built: Built<Handle>): (ForcePort & Growable<Handle>) | null {
   if (!built.warm) return motor.forceSession?.(built.handle, undefined, built.engine) ?? null;
   const session = motor.forceSession?.(built.handle, undefined, built.engine, "layout") ?? null;
   session?.reheat(0);
@@ -186,10 +196,8 @@ function renew<Handle>(built: Built<Handle>, plan: RunPlan, deps: SessionDeps<Ha
 }
 
 /** What one run was asked for: the layout, the edge pass, and the values to run it at. */
-interface RunAsk {
+interface RunAsk extends Shot {
   readonly layoutId: string;
-  readonly postId: string | null;
-  readonly params: ParamValues;
 }
 
 /**
@@ -201,41 +209,16 @@ interface RunAsk {
  * which is what the studio compares the next plan against, so the substitution costs no second
  * run.
  */
-async function runLayout<Handle>(
-  live: { readonly motor: MotorLike<Handle>; readonly built: Built<Handle> },
-  deps: SessionDeps<Handle>,
-  ask: RunAsk,
-): Promise<RunReport> {
-  const { motor, built } = live;
-  const plan = planRun(ask.layoutId, built.nodes.length, motor.forceSession !== undefined);
-  renew(built, plan, deps);
-  const params = plan.run === ask.layoutId ? ask.params : {};
-  const started = deps.now();
-  // No values means no options at all, so the run carries the empty buffer every pre-ABI-2
-  // caller sent and the motor's own defaults — the same bytes, not merely the same picture.
-  motor.run(built.handle, plan.run, Object.keys(params).length === 0 ? undefined : { params });
-  const layoutMs = deps.now() - started;
-  const pass = runPass(motor, built.handle, ask.postId, deps.now);
-  const bytes = motor.toBytes(built.handle);
-  const meta = describe(built, bytes);
-  return { layoutId: plan.report, ...pass, params, bytes, digest: await deps.digest(bytes), layoutMs, meta };
+async function runLayout<Handle>(live: Live<Handle>, deps: SessionDeps<Handle>, ask: RunAsk): Promise<RunReport> {
+  const plan = planRun(ask.layoutId, live.built.nodes.length, live.motor.forceSession !== undefined);
+  renew(live.built, plan, deps);
+  return snapshot(live, deps, plan, { postId: ask.postId, params: plan.run === ask.layoutId ? ask.params : {} });
 }
 
 /** The schema of one layout, from the motor; an empty list is a layout that publishes none. */
 function layoutParams<Handle>(motor: MotorLike<Handle> | null, layoutId: string): readonly LayoutParamSpec[] {
   if (motor === null) throw new SessionRefusal("the motor is not open");
   return motor.layoutParams(layoutId);
-}
-
-/** One analysis over the graph, in the face the studio reports. */
-function runAnalysis<Handle>(
-  live: { readonly motor: MotorLike<Handle>; readonly built: Built<Handle> },
-  deps: SessionDeps<Handle>,
-  analysisId: string,
-): AnalysisReport {
-  const started = deps.now();
-  const face = live.motor.analysis(live.built.handle, analysisId);
-  return reportOf(face, deps.now() - started);
 }
 
 /**
@@ -259,7 +242,7 @@ function forget<Handle>(built: Built<Handle> | null, onForget?: () => void): voi
 export function createSession<Handle>(deps: SessionDeps<Handle>): Session {
   let motor: MotorLike<Handle> | null = null;
   let built: Built<Handle> | null = null;
-  const ready = (): { readonly motor: MotorLike<Handle>; readonly built: Built<Handle> } => {
+  const ready = (): Live<Handle> => {
     if (motor === null) throw new SessionRefusal("the motor is not open");
     if (built === null) throw new SessionRefusal("no graph is loaded");
     return { motor, built };
@@ -290,6 +273,8 @@ export function createSession<Handle>(deps: SessionDeps<Handle>): Session {
     layout: async (layoutId, postId, params = {}) => runLayout(ready(), deps, { layoutId, postId, params }),
     params: (layoutId) => layoutParams(motor, layoutId),
     analysis: (analysisId) => runAnalysis(ready(), deps, analysisId),
-    forces: () => forcesOf(motor, built),
+    // Not `layout`: a run renews the force session, and a delta batch's snapshot must not.
+    structure: async () => snapshot(ready(), deps, { run: SCATTER, report: SCATTER }, { postId: null, params: {} }),
+    forces: () => forcesOf(motor, built, deps),
   };
 }
