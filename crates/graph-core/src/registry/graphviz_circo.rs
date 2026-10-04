@@ -70,17 +70,14 @@ up to ten crossing-reduction rounds that each move a node twice per incident edg
 every crossing of the block",
     scale_ceiling: GRAPHVIZ_CIRCO_CEILING,
     degradation: DEGRADATION,
-    ponytail: "Ponytail (tie order in the skeleton): remove_pair_edges sorts its degree list with \
-LIST_SORT, which is qsort (lib/util/list.c:363), and glibc 2.41 does not make that stable, so \
-this port's stable sort is a different — and, as far as the algorithm says, equally valid — \
-choice on a tie. Failing input: a block with two nodes of equal degree, which is most blocks \
-of four nodes or more: measured, 984 of the 1000 gate seeds land on a different circle order \
-than Graphviz's and the worst gap is 6.460e+04 points. Direction: a different DRAWING, not a \
-wrong one — the blocks, the radii and the 14 closed cases all agree, and only which node sits in \
-which slot differs, so the gap is about the size of the circle rather than a misplaced node. \
-Escape hatch: one of the closed cases, where no skeleton pass runs at all, and the per-n table \
-in docs/measurements/p13-gv1-circo.md; matching Graphviz exactly here needs glibc's qsort, not \
-a better algorithm. Ponytail (disconnected input): Graphviz lays out each connected component \
+    ponytail: "Ponytail (tie order in the skeleton): the degree list remove_pair_edges sorts is \
+ordered by a STABLE sort here and by glibc 2.41's qsort there, and the two agree, so a tie is not \
+a source of disagreement — measured in the oracle image, 20 of 20 trials at each of n = 5, 20, \
+141, 552, 1000, 5000, 10000 and 100000 with keys drawn from four values \
+(docs/measurements/p13-gv1-circo.md §8). The 984-of-1000 figure this field used to carry was \
+measured against a crossing count that retired each edge when it closed; the reference's own \
+remove_edge never retires anything, and that, not this sort, is what moved the circle orders. \
+Ponytail (disconnected input): Graphviz lays out each connected component \
 and then packs them apart with packSubgraphs; this port lays each component out around the \
 origin and leaves them overlapping. Failing input: any graph with two components. Direction: \
 overlap, the cosmetic one — every node still lands at a finite point on its own block's circle, \
