@@ -1,31 +1,35 @@
 // Stages a document through `gm_alloc` and frees it again (C7: the staging buffer is the
-// SDK's job, not the caller's, since the caller never sees the pointer). Shared by
-// `Motor#build` and `Motor#buildContract`, which differ only in the export they call and
-// the error class a refusal takes. ASCII text is encoded straight into the staging buffer
+// SDK's job, not the caller's, since the caller never sees the pointer). Shared by the three
+// build paths, which differ only in the export they call, the payload they carry and the
+// error class a refusal takes. ASCII text is encoded straight into the staging buffer
 // (`encodeInto`), so a document crosses into linear memory with one copy, not three. A shared
 // memory (the threads artifact) takes the encoded array instead: browsers refuse `encodeInto`
 // into a shared view, and Node does not, so only a browser run shows it (`studio-smoke.sh`).
+// A columnar document arrives already encoded (`encodeColumns`) and is copied through as is.
 
 import { type RawExports, toU32 } from "./wasm.ts";
-import { BuildRefusedError, ContractRefusedError } from "./errors.ts";
+import { BuildRefusedError, ColumnsRefusedError, ContractRefusedError } from "./errors.ts";
 import { encoder, invoke, lastError } from "./calls.ts";
 import type { ColumnViews } from "./views.ts";
 import type { Handle } from "./types.ts";
 
 export interface StagedBuild {
-  /** Names the buffer in the `gm_alloc` refusal: "ingest" or "contract". */
+  /** Names the buffer in the `gm_alloc` refusal: "ingest", "contract" or "columns". */
   buffer: string;
-  call: "gm_build" | "gm_build_contract";
+  call: "gm_build" | "gm_build_contract" | "gm_build_columns";
   /** The message and error class of the build export's own refusal. */
   refusal: string;
   /** `code` is absent for a refusal of the SDK's own making, which never reached the ABI. */
   refuse: (message: string, code?: number) => Error;
 }
 
+/** A text document (`build`, `buildContract`) or an encoded columnar one (`buildColumns`). */
+type Payload = string | Uint8Array;
+
 /** The provisional-ingest build: `gm_build` over the document the host studio and the
  *  hash gate already speak — node/edge JSON, not a contract.
  *
- *  `Motor#build` is the two build paths' first half (`docs/contract/wasm-abi.md` "Two
+ *  `Motor#build` is the first of the three build paths (`docs/contract/wasm-abi.md` "Three
  *  build paths"); what it accepts and what it refuses is here rather than on the method,
  *  because the buffer is what carries a document into linear memory and the buffer is
  *  this module's whole subject. */
@@ -58,6 +62,17 @@ export const CONTRACT_BUILD: StagedBuild = {
   refuse: (message, code) => new ContractRefusedError(message, code),
 };
 
+/** The columnar build: `gm_build_columns` over an `encodeColumns` document
+ *  (`docs/contract/ingest-columns.md`). A repeated node or edge id is refused here, where
+ *  `gm_build` drops it, because a row-addressed endpoint cannot survive a renumbering; that
+ *  refusal is a `ColumnsRefusedError`. */
+export const COLUMNS_BUILD: StagedBuild = {
+  buffer: "columns",
+  call: "gm_build_columns",
+  refusal: "gm_build_columns refused the columnar document",
+  refuse: (message, code) => new ColumnsRefusedError(message, code),
+};
+
 
 /** One reserved buffer and the length the build export must be handed. `free` gives the
  *  buffer back with the length it was reserved under, which is not `len` on the fallback. */
@@ -87,6 +102,17 @@ function isShared(buffer: ArrayBufferLike): boolean {
   return typeof SharedArrayBuffer !== "undefined" && buffer instanceof SharedArrayBuffer;
 }
 
+/** `TextEncoder` coerces a non-string through `String()`, so `build(undefined)` shipped the
+ *  nine bytes `"undefined"` and was refused by the module as an unreadable document — a
+ *  refusal about the *document* when the mistake was the *argument*, with no path back to the
+ *  caller's own line. Caught here, where the argument is still identifiable. The columnar
+ *  build takes bytes and the two text builds take a string. */
+function checkPayload(spec: StagedBuild, payload: unknown): void {
+  const bytes = spec.call === "gm_build_columns";
+  if (bytes ? payload instanceof Uint8Array : typeof payload === "string") return;
+  throw spec.refuse(`the ${spec.buffer} document must be ${bytes ? "a Uint8Array" : "a string"}, got ${typeof payload}`);
+}
+
 /** Stages `text` in linear memory, one copy where the text and the memory allow it.
  *
  *  A character outside ASCII is more than one byte, so the encoded bytes are longer than the
@@ -94,16 +120,11 @@ function isShared(buffer: ArrayBufferLike): boolean {
  *  buffer is given back before the encoded array is staged the long way. ASCII — every
  *  document the studio generates, and most a user drops in — fills the reservation in place,
  *  so no second byte array is ever built. A shared memory always goes the long way. */
-function stage(exports: StagingExports, views: StagingTarget["views"], spec: StagedBuild, text: string): Staged {
-  // `TextEncoder` coerces a non-string through `String()`, so `build(undefined)` shipped the
-  // nine bytes `"undefined"` and was refused by the module as an unreadable document — a
-  // refusal about the *document* when the mistake was the *argument*, with no path back to
-  // the caller's own line. Caught here, where the argument is still identifiable.
-  if (typeof text !== "string") {
-    throw spec.refuse(`the ${spec.buffer} document must be a string, got ${typeof text}`);
-  }
-  const placed = isShared(exports.memory.buffer) ? undefined : inPlace(exports, spec, text);
-  const { ptr, len } = placed ?? copied(exports, spec, text);
+function stage(exports: StagingExports, views: StagingTarget["views"], spec: StagedBuild, payload: Payload): Staged {
+  checkPayload(spec, payload);
+  const placed =
+    typeof payload === "string" && !isShared(exports.memory.buffer) ? inPlace(exports, spec, payload) : undefined;
+  const { ptr, len } = placed ?? copied(exports, spec, payload);
   return {
     ptr,
     len,
@@ -132,16 +153,16 @@ function inPlace(exports: StagingExports, spec: StagedBuild, text: string): { pt
   return undefined;
 }
 
-function copied(exports: StagingExports, spec: StagedBuild, text: string): { ptr: number; len: number } {
-  const bytes = encoder.encode(text);
+function copied(exports: StagingExports, spec: StagedBuild, payload: Payload): { ptr: number; len: number } {
+  const bytes = typeof payload === "string" ? encoder.encode(payload) : payload;
   const len = toU32(bytes.length);
   const ptr = reserve(exports, spec, len);
   new Uint8Array(exports.memory.buffer, ptr, len).set(bytes);
   return { ptr, len };
 }
 
-export function buildStaged({ exports, views }: StagingTarget, text: string, spec: StagedBuild): Handle {
-  const staged = stage(exports, views, spec, text);
+export function buildStaged({ exports, views }: StagingTarget, payload: Payload, spec: StagedBuild): Handle {
+  const staged = stage(exports, views, spec, payload);
   let handle: Handle;
   try {
     handle = invoke(spec.call, () => exports[spec.call](staged.ptr, staged.len)) as Handle;

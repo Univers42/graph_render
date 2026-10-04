@@ -26,6 +26,9 @@ use graph_core::{EdgeRecord, NodeRecord};
 use graph_core::{EdgeKind, NodeKind};
 
 mod at;
+// Only `gm_build_columns` reads it, and the exports are wasm32-only (C21 in `lib.rs`).
+#[cfg(any(test, target_arch = "wasm32"))]
+pub mod columns;
 mod element;
 mod ids;
 /// Per-phase linear-memory marks, for the ingest scale measurement only. Compiled out of

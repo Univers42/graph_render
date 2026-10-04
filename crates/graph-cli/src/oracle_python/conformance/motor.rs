@@ -1,5 +1,5 @@
 //! Running one motor layout the way SciGraphs would run its reference: the registered
-//! default for almost every id, and a deliberate override for the six where the registered
+//! default for almost every id, and a deliberate override for the eight where the registered
 //! default is not SciGraphs' parameter or not SciGraphs' units.
 //!
 //! **One convention, and it is applied to both arms rather than to the motor.** A Graphviz
@@ -35,12 +35,14 @@
 
 mod overrides;
 
+use super::LAYOUT_SEED;
 use super::SCALE;
 use super::fixtures::Fixture;
 use graph_contract::binary::SnapshotParts;
 use graph_contract::geometry::NodeGeometry;
 use graph_core::layout::Geometry;
 use graph_core::layout::force::spring::{Spring, Spring3D};
+use graph_core::layout::spectral_stage;
 use graph_core::{StageError, registry, run_with};
 use overrides::{
     fa2, fa2_forcesim, grid, packing, random_seeded, sfdp_seeded, spring, sugiyama_scaled,
@@ -87,6 +89,8 @@ pub fn run(id: &str, fixture: &Fixture) -> Ran {
         "layout.dag.sugiyama" => sugiyama_scaled(fixture),
         "layout.random" => random_seeded(fixture),
         "layout.grid" => grid(fixture),
+        "layout.spectral3d" => spectral_3d_seeded(fixture),
+        "layout.mds.pivot3d" => pivot_mds_3d_seeded(fixture),
         _ => registered(id, fixture),
     }?;
     columns(&parts, fixture.nodes.len())
@@ -105,6 +109,28 @@ pub fn run_row(row: &super::Row, fixture: &Fixture) -> Ran {
     } else {
         Ok(points)
     }
+}
+
+/// `layout.spectral3d` at the layout seed, which its registered default does not use.
+///
+/// `_spectral_layout_3d:257-258` sends a graph of fewer than four nodes to
+/// `_random_layout`, and that draws `np.random.RandomState(get_layout_seed()).rand(n, 3) *
+/// scale` (`basic.py:5-9`). The registered default pins a seed of its own — the rule
+/// `layout::random` states for itself — so the row needs the seeded entry point, the same
+/// shape as `sfdp::run_seeded` two arms above. `layout.spectral`'s 2D bytes are untouched:
+/// this is a different id, not a different default.
+fn spectral_3d_seeded(fixture: &Fixture) -> Result<SnapshotParts, String> {
+    finish(fixture, "layout.spectral3d", |t| {
+        spectral_stage::spectral_3d_seeded(t, LAYOUT_SEED)
+    })
+}
+
+/// `layout.mds.pivot3d` at the layout seed: `_mds_layout_3d:283-284` has the same `n < 4`
+/// guard on the same line of the reference, so the same arm answers both rows.
+fn pivot_mds_3d_seeded(fixture: &Fixture) -> Result<SnapshotParts, String> {
+    finish(fixture, "layout.mds.pivot3d", |t| {
+        spectral_stage::pivot_mds_3d_seeded(t, LAYOUT_SEED)
+    })
 }
 
 /// Every other id at its registered default.

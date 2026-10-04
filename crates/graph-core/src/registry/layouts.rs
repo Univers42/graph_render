@@ -46,7 +46,7 @@ use spectral::{PIVOT_MDS, SPECTRAL};
 use three_d::{BIPARTITE_3D, CUBE, HELIX, HIERARCHICAL_3D, SPHERE, SPIRAL_3D, SPRING_3D};
 
 /// Every registered layout, in the order the hash gate runs them.
-pub static LAYOUTS: [Capability; 40] = [
+pub static LAYOUTS: [Capability; 42] = [
     Capability {
         id: Grid::ID,
         run: run_default::<Grid>,
@@ -288,12 +288,13 @@ pub static LAYOUTS: [Capability; 40] = [
         params: &params::LayoutParams::NONE,
         meta: PARTICLE_MESH,
     },
-    // sg-fa2-forcesim: SciGraphs' own ForceSim, the algorithm the FORCEATLAS2 conformance
-    // row's reference runs.
+    // sg-fa2-forcesim: SciGraphs' own ForceSim, which the FORCEATLAS2 conformance row runs.
     Capability {
         id: ForceAtlas2ForceSim::ID,
         run: run_default::<ForceAtlas2ForceSim>,
         params: &params::LayoutParams::NONE,
         meta: FA2_FORCESIM,
     },
+    spectral::SPECTRAL_3D_LAYOUT,
+    spectral::PIVOT_MDS_3D_LAYOUT,
 ];
