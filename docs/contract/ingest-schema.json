@@ -61,7 +61,7 @@
               "type": "null"
             }
           ],
-          "description": "What a `link` field points at; `null` for every other role. Required in the\nschema even though it is nullable, so \"no link\" is stated rather than omitted —\nsee [`required_link`], which is what puts it there."
+          "description": "What a `link` field points at; `null` for every other role. Required in the\nschema even though it is nullable, so \"no link\" is stated rather than omitted —\nsee `required_link`, which is what puts it there."
         },
         "name": {
           "description": "Human name, for diagnostics only.",
