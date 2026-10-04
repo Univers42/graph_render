@@ -413,7 +413,7 @@ are both purely additive: a new symbol, a new code, a path that did not exist be
 `gm_force_session_grow` and `gm_graph_extend_columns` were all added at `2`
 (`gm_run`'s parameters were what raised it from `1`, and the row above says which).
 
-**The three formats are deliberately **not interchangeable**, and each reader refuses the
+**The three formats are deliberately not interchangeable, and each reader refuses the
 others' documents** — `crates/graph-wasm/src/contract/tests.rs`'s
 `the_two_ingest_formats_are_not_interchangeable` pins both directions of that pair,
 `crates/graph-wasm/src/ingest/tests/columns.rs`'s `a_mutation_that_does_not_stay_legal_is_refused_never_a_panic`

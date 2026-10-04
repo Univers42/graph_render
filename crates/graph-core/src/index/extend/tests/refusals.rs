@@ -2,10 +2,10 @@
 //! table to walk: a batch whose load a graph at the limit cannot take is refused before any
 //! row is read, so no topology exists to walk.
 //!
-//! Six of the eight rows are the same batch refused the same way by `extend` and by
-//! `extend_columns`. The other two are [`columns::Damage`] edits, because
-//! [`BatchRefusal`]'s `NodeKind`, `EdgeKind` and `TableEntry` variants name a cell no record
-//! type can carry — see the enum for the whole argument.
+//! Five of the eight rows are the same batch refused the same way by `extend` and by
+//! `extend_columns`. The other three are [`columns::Damage`] edits, because [`BatchRefusal`]'s
+//! `NodeKind`, `EdgeKind` and `TableEntry` variants name a cell no record type can carry — see
+//! the enum for the whole argument.
 
 use super::columns::Doc;
 use super::*;
@@ -19,13 +19,40 @@ enum Want {
     Columns(columns::Damage, BatchRefusal),
 }
 
-/// The eight refusals, in the order the validate passes find them: the five the record path
-/// gives, then the three the columnar path adds because a batch's cells are entries rather
-/// than enum-typed fields.
-fn refusals() -> [(&'static str, Batch, Want); 8] {
+/// The graph every row is judged against, and the two batches it is judged with: the records it
+/// was built from, and the next valid batch a refused row must still accept afterwards.
+struct Held {
+    base: Topology,
+    first: Batch,
+    next: Batch,
+}
+
+fn held() -> Held {
+    let first: Batch = (
+        vec![node("a", "db"), node("b", "")],
+        vec![edge("e1", "a", "b")],
+    );
+    let next: Batch = (
+        vec![node("c", "db")],
+        vec![edge("e2", "c", "a"), edge("e3", "c", "c")],
+    );
+    let base = index_model(&first.0, &first.1).expect("fits");
+    Held { base, first, next }
+}
+
+/// The eight refusals in the order the validate passes find them.
+fn refusals() -> Vec<(&'static str, Batch, Want)> {
+    record_refusals()
+        .into_iter()
+        .chain(columns_refusals())
+        .collect()
+}
+
+/// The five the record path gives, which the columnar path gives the same way: an id already
+/// held, and an endpoint naming no node.
+fn record_refusals() -> [(&'static str, Batch, Want); 5] {
     use ExtendError::{EdgeId, Endpoint, NodeId};
     let c = || node("c", "db");
-    let one_edge = || (vec![c()], vec![edge("e2", "c", "a")]);
     [
         (
             "node id in the graph",
@@ -55,6 +82,15 @@ fn refusals() -> [(&'static str, Batch, Want); 8] {
             ),
             Want::Both(Endpoint { index: 1 }),
         ),
+    ]
+}
+
+/// The three the columnar path adds, each a batch no record set can spell: a kind name the
+/// vocabulary does not hold, and a cell naming an entry the table does not have.
+fn columns_refusals() -> [(&'static str, Batch, Want); 3] {
+    let c = || node("c", "db");
+    let one_edge = || (vec![c()], vec![edge("e2", "c", "a")]);
+    [
         (
             "node kind names no node kind",
             (vec![c()], vec![]),
@@ -85,53 +121,71 @@ fn refusals() -> [(&'static str, Batch, Want); 8] {
     ]
 }
 
-/// Every row refused leaves the topology byte-identical: the same stage bytes, the same arena
-/// length, the same graph a rebuild over the accepted batches would give — so a refused batch
-/// claimed no id and no arena slot, on the record path and the columnar one alike.
+/// The record path half of one row, which is also what the columnar half expects to be
+/// refused with — the same four refusals under [`BatchRefusal::Extend`].
+fn assert_record_refusal(
+    held: &Held,
+    name: &str,
+    batch: &Batch,
+    refusal: ExtendError,
+) -> BatchRefusal {
+    let mut t = held.base.clone();
+    assert_eq!(t.extend(&batch.0, &batch.1), Err(refusal), "{name}");
+    assert_eq!(bytes(&t), bytes(&held.base), "{name}: the bytes");
+    assert_eq!(
+        t.strings().len(),
+        held.base.strings().len(),
+        "{name}: the arena"
+    );
+    t.extend(&held.next.0, &held.next.1)
+        .expect("the next valid batch");
+    assert_matches_rebuild(&t, &[held.first.clone(), held.next.clone()], name);
+    BatchRefusal::Extend(refusal)
+}
+
+/// The columnar half: the same untouched topology, the same arena length, and the next valid
+/// batch still landing on the rebuild — so the row claimed no id and no arena slot on this path.
+fn assert_columns_refusal(held: &Held, name: &str, doc: &Doc, want: BatchRefusal) {
+    let mut columns = held.base.clone();
+    assert_eq!(
+        doc.append(&mut columns),
+        Err(want),
+        "{name}: the columns path"
+    );
+    assert_eq!(
+        bytes(&columns),
+        bytes(&held.base),
+        "{name}: the columns bytes"
+    );
+    assert_eq!(
+        columns.strings().len(),
+        held.base.strings().len(),
+        "{name}: the columns arena"
+    );
+    Doc::of(&held.next.0, &held.next.1)
+        .append(&mut columns)
+        .expect("the next valid batch, in columns");
+    assert_matches_rebuild(&columns, &[held.first.clone(), held.next.clone()], name);
+}
+
+/// Every row refused leaves the topology byte-identical — the stage bytes, the arena and the
+/// graph a rebuild over the accepted batches gives — on the record path and the columnar one.
 #[test]
 fn extend_refusal_leaves_topology_unchanged() {
-    let first: Batch = (
-        vec![node("a", "db"), node("b", "")],
-        vec![edge("e1", "a", "b")],
-    );
-    let base = index_model(&first.0, &first.1).expect("fits");
-    let next: Batch = (
-        vec![node("c", "db")],
-        vec![edge("e2", "c", "a"), edge("e3", "c", "c")],
-    );
-    for (name, (nodes, edges), want) in refusals() {
+    let held = held();
+    for (name, batch, want) in refusals() {
         let (want, doc) = match want {
-            Want::Both(refusal) => {
-                let mut t = base.clone();
-                assert_eq!(t.extend(&nodes, &edges), Err(refusal), "{name}");
-                assert_eq!(bytes(&t), bytes(&base), "{name}: the bytes");
-                assert_eq!(t.strings().len(), base.strings().len(), "{name}: the arena");
-                t.extend(&next.0, &next.1).expect("the next valid batch");
-                assert_matches_rebuild(&t, &[first.clone(), next.clone()], name);
-                (BatchRefusal::Extend(refusal), Doc::of(&nodes, &edges))
-            }
+            Want::Both(refusal) => (
+                assert_record_refusal(&held, name, &batch, refusal),
+                Doc::of(&batch.0, &batch.1),
+            ),
             Want::Columns(damage, refusal) => {
-                let mut doc = Doc::of(&nodes, &edges);
+                let mut doc = Doc::of(&batch.0, &batch.1);
                 doc.damage(damage);
                 (refusal, doc)
             }
         };
-        let mut columns = base.clone();
-        assert_eq!(
-            doc.append(&mut columns),
-            Err(want),
-            "{name}: the columns path"
-        );
-        assert_eq!(bytes(&columns), bytes(&base), "{name}: the columns bytes");
-        assert_eq!(
-            columns.strings().len(),
-            base.strings().len(),
-            "{name}: the columns arena"
-        );
-        Doc::of(&next.0, &next.1)
-            .append(&mut columns)
-            .expect("the next valid batch, in columns");
-        assert_matches_rebuild(&columns, &[first.clone(), next.clone()], name);
+        assert_columns_refusal(&held, name, &doc, want);
     }
 }
 
