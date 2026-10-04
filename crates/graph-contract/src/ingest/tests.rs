@@ -4,6 +4,7 @@
 mod fixtures;
 mod reader;
 mod roles;
+mod scaling;
 mod schema;
 mod support;
 mod writer;

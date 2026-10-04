@@ -112,6 +112,15 @@ pub fn run_with(
     })
 }
 
+/// The topology stage's bytes for `t`: what the stage hash sees, for the tests that prove
+/// a topology built another way (`Topology::extend`) equal to `index_model`'s.
+#[cfg(test)]
+pub(crate) fn topology_bytes(t: &Topology) -> Result<Vec<u8>, StageError> {
+    let mut bytes = Vec::new();
+    topology::encode(t, &mut bytes)?;
+    Ok(bytes)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

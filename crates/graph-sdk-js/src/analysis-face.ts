@@ -1,3 +1,4 @@
+import { compareBytes } from "./adapters/cells.ts";
 import { AnalysisRefusedError } from "./errors.ts";
 import type { AnalysisResult, AnalysisValueKind } from "./types.ts";
 
@@ -59,7 +60,7 @@ function requireAscendingKeys(face: Record<string, unknown>, asked: string): voi
   for (const [index, current] of keys.entries()) {
     const previous = keys[index - 1];
     if (previous === undefined || previous === current) continue;
-    const order = Buffer.compare(Buffer.from(previous, "utf8"), Buffer.from(current, "utf8"));
+    const order = compareBytes(previous, current);
     if (order >= 0) {
       throw new AnalysisRefusedError(
         `${asked}: keys are not in ascending byte order, "${previous}" came before "${current}" ` +

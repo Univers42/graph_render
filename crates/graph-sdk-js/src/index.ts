@@ -18,6 +18,10 @@ export * from "./errors.ts";
 export * from "./types.ts";
 export { ForceSession, PARAMS_BYTES, encodeParams, decodeParams } from "./force.ts";
 export { Motor, createMotor } from "./motor.ts";
+export { encodeColumns, ColumnsEncoderError } from "./columns.ts";
+export type { ColumnsDocument, ColumnsEdge, ColumnsNode } from "./columns.ts";
+export { assembleColumns } from "./columns-assemble.ts";
+export type { ColumnRows } from "./columns-assemble.ts";
 
 export { parseAnalysisFace } from "./analysis-face.ts";
 export * from "./adapters.ts";

@@ -29,6 +29,7 @@ export const CODE_NAMES = [
   "ParamOutOfRange",
   "ParamsMalformed",
   "ParamsNotAccepted",
+  "ColumnsInvalid",
 ] as const;
 
 /** One `Code`'s name, or `"Unknown(<n>)"` for a wire value this SDK does not know yet —
@@ -73,6 +74,14 @@ export class BuildRefusedError extends GraphMotorError {
 export class ContractRefusedError extends GraphMotorError {
   override name = "ContractRefusedError";
 }
+
+/** `gm_build_columns` refused the columnar document (`ColumnsInvalid`), or the handle table
+ *  is exhausted. A sibling of {@link BuildRefusedError} rather than a subclass: a caller
+ *  that catches only that one is saying "a provisional JSON document was refused", and the
+ *  two documents mean different things — this one is reachable for a document `build`
+ *  accepts happily (a repeated node id, which the JSON path drops and the dense-row rule
+ *  cannot). */
+export class ColumnsRefusedError extends GraphMotorError {}
 
 /** `gm_run` refused: an unknown handle, an unknown layout id, or non-empty params
  * (registry layouts take none this phase, C2). */

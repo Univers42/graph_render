@@ -14,6 +14,11 @@ mangled Rust symbols, and the page's own JavaScript is minified, so a JavaScript
 minified function: find it in app/dist/assets/<chunk>.js. Profiling slows the open by a few
 percent; compare open times only between runs of this probe, and only between arms — the GPU arm
 (profiling off would be fairer, and this probe never turns it off).
+
+Caveat: a new source starts in a new worker (graph-studio `motor/client.ts`, `loadFresh`), so the
+worker that builds the opened graph starts after the profiler did and is never sampled; a worker
+attached before the open is reported as retired instead. The open time and the main thread's
+profile are unaffected.
 """
 import collections
 import sys
@@ -24,6 +29,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "nav"))
 
 import nav  # first: it puts the perf gate's CDP client on the path
+import cdp
 import gpu
 import smokecdp
 
@@ -112,7 +118,14 @@ def run(page, base, nodes, rows):
     print("first frame ms", page.evaluate(FIRST_FRAME, timeout=30))
     report("main", page.call("Profiler.stop")["profile"], rows)
     for session in workers:
-        report(f"worker {session[:6]}", page.session_call(session, "Profiler.stop", timeout=120)["profile"], rows)
+        try:
+            profile = page.session_call(session, "Profiler.stop", timeout=120)["profile"]
+        except cdp.CdpError as error:
+            if "not found" not in str(error):
+                raise
+            print(f"== worker {session[:6]}: retired during the open, not profiled")
+            continue
+        report(f"worker {session[:6]}", profile, rows)
 
 
 def main():

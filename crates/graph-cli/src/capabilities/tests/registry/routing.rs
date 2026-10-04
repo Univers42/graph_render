@@ -58,9 +58,16 @@ fn the_registry_covers_every_oracle_function_once_its_ids_are_unique() {
             ("oracle-basic-3d", r.id, Status::Implemented)
         } else if r.id == "layout.hierarchical3d" {
             ("oracle-hierarchical-3d", r.id, Status::Implemented)
-        } else if r.id == "layout.bipartite_3d" {
+        } else if [
+            "layout.bipartite_3d",
+            "layout.spectral3d",
+            "layout.mds.pivot3d",
+        ]
+        .contains(&r.id)
+        {
             // The conformance gate's own record, and not `oracle-closed-form`: that is
-            // `layout.bipartite`'s, over networkx's two columns.
+            // `layout.bipartite`'s, over networkx's two columns. The two spectral 3D ids
+            // likewise, not `oracle-spectral`: that differential pins only the 2D ids.
             ("scigraphs-conformance", r.id, Status::Implemented)
         } else if r.id == "layout.circular.hierarchy" {
             // A closed form with a SciGraphs-arm differential, `implemented` rather than

@@ -162,9 +162,12 @@ export function overBudget(counts: Pick<PaintCounts, "bulk">, nodeCount: number)
 export function advance(state: LoopState, now: number): boolean {
   if (state.transitionStart < 0) return false;
   const t = (now - state.transitionStart) / TRANSITION_MS;
+  // Compared on the clock, not on t: (start + T) - start can round below T, so a frame stamped
+  // exactly at the end left the tween one frame short (focus-tween test, start 825.880174).
+  const ended = now >= state.transitionStart + TRANSITION_MS;
   const snapped = overBudget(state.counts, state.scene.frame.nodeCount);
-  markTween(state, state.transitionStart, t >= 1 || snapped);
-  if (t >= 1 || snapped) {
+  markTween(state, state.transitionStart, ended || snapped);
+  if (ended || snapped) {
     arrive(state);
     return false;
   }
