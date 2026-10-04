@@ -119,11 +119,16 @@ fn check_cut_values(g: &Fast, nodes: &[u32], ctx: &Ctx, when: &str) {
     for &edge in &ctx.tree_edge {
         assert_eq!(slack(g, edge), 0, "tree edge {edge} is not tight {when}");
         let (t, h) = (g.edges[edge as usize].tail, g.edges[edge as usize].head);
-        let child = if totals.low[t as usize] > totals.low[h as usize] { t } else { h };
+        let child = if totals.low[t as usize] > totals.low[h as usize] {
+            t
+        } else {
+            h
+        };
         let balance = totals.outgoing[child as usize] - totals.incoming[child as usize];
         let want = if child == t { balance } else { -balance };
         assert_eq!(
-            i64::from(g.edges[edge as usize].cutvalue), want,
+            i64::from(g.edges[edge as usize].cutvalue),
+            want,
             "cut value of {edge} {when}"
         );
     }
@@ -156,7 +161,11 @@ fn subtree_totals(g: &Fast, nodes: &[u32], ctx: &Ctx) -> SubtreeTotals {
             }
         }
     }
-    SubtreeTotals { low, incoming, outgoing }
+    SubtreeTotals {
+        low,
+        incoming,
+        outgoing,
+    }
 }
 
 /// Each node's own incoming and outgoing edge weight. One pass over every edge, in adjacency
