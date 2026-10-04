@@ -18,6 +18,7 @@ export * from "./errors.ts";
 export * from "./types.ts";
 export { ForceSession, type ForceStart, PARAMS_BYTES, encodeParams, decodeParams } from "./force.ts";
 export { Motor, createMotor } from "./motor.ts";
+export type { GraphBatch } from "./extend.ts";
 export { encodeColumns, ColumnsEncoderError } from "./columns.ts";
 export type { ColumnsDocument, ColumnsEdge, ColumnsNode } from "./columns.ts";
 export { assembleColumns } from "./columns-assemble.ts";

@@ -3,6 +3,7 @@
  * graph-core's `ForceSession`; the studio never simulates. With no adapter the panel is
  * visible and disabled, and says why.
  */
+import type { GraphBatch } from "./protocol.ts";
 
 export interface ForceKnobs {
   /** Center force: pull toward the middle, 0..1. */
@@ -75,6 +76,18 @@ export interface LiveForce {
    * guess what a restart looks like.
    */
   shuffle?(): number;
+  /**
+   * Appends one batch of nodes and edges to the graph behind this port. Whole or not at all:
+   * it throws and the graph is as it was. Absent on a port over a motor with no extend path,
+   * which a delta batch is then refused by rather than dropped.
+   */
+  extend?(batch: GraphBatch): void;
+  /**
+   * Grows the live session over the graph's new node count. One grow a tick for every batch
+   * queued since the last one (`docs/contract/delta.md`): growing per batch would rebuild the
+   * session's own arrays once per call.
+   */
+  grow?(): void;
   /** The parameters the motor itself holds, by the wire's own field names. */
   params?(): ForceParams;
   /** The knobs last set on this port, which the next session over the graph starts with. */
@@ -109,6 +122,20 @@ export interface ForcePort {
   /** Every parameter the motor holds, read back through the ABI rather than copied. */
   params(): ForceParams;
   release(): void;
+}
+
+/**
+ * The motor's own grow, which the studio's port does not name: it takes the graph handle, and
+ * `ForcePort` addresses rows and ids rather than handles. Intersected with `ForcePort` where a
+ * graph is grown (`session.ts`), so the motor's session satisfies it as it stands.
+ *
+ * Ponytail: optional, because a port without it — every test double — has no grow and a delta
+ * batch is then refused rather than applied to a session that does not cover the new nodes.
+ * Failing input: a motor whose grow takes something other than the handle. Direction: the
+ * motor's own signature. Escape hatch: an adapter may widen it, as `MotorLike` is structural.
+ */
+export interface Growable<Handle> {
+  grow?(handle: Handle): void;
 }
 
 /**

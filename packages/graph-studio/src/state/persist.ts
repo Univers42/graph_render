@@ -34,6 +34,8 @@ function hashOf(text: string): string {
 /** The storage key of one source, or null for a document too long to store. */
 export function sourceKey(source: Source): string | null {
   if (source.kind !== "document") return `${PREFIX}${JSON.stringify(source)}`;
+  // A host's document is the host's data: it is never written to the page's storage (verdict 3).
+  if (source.host === true) return null;
   if (source.text.length > STORED_DOCUMENT_CHARS) return null;
   return `${PREFIX}document:${source.name}:${source.text.length}:${hashOf(source.text)}`;
 }

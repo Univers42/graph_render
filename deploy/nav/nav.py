@@ -37,8 +37,8 @@ from serve import QuietHandler
 DEBUG_PORT = 9223
 
 
-def serve(dist, isolated=True):
-    handler = functools.partial(QuietHandler, directory=str(dist), isolated=isolated)
+def serve(dist, isolated=True, csp=None):
+    handler = functools.partial(QuietHandler, directory=str(dist), isolated=isolated, csp=csp)
     server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server

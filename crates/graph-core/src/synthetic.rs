@@ -50,7 +50,15 @@ impl Mulberry32 {
     }
 
     /// `Math.floor(rnd() * len)` — an index into a table of `len` entries.
+    ///
+    /// `len == 0` has no index to return: the JS would read `undefined` off the empty
+    /// table and carry `undefined` into the record, where it becomes `"undefined"` or a
+    /// `NaN` weight downstream. Every call site passes a table's own length
+    /// (`EMOJI`, `ICONS`, `SOURCES`, `EdgeKind::ALL`) or `count`, which
+    /// [`synthetic_records`] holds at `MAX_SYNTHETIC_NODES`, so the assert cannot fire for
+    /// any count this module accepts.
     pub(crate) fn pick(&mut self, len: usize) -> usize {
+        debug_assert!(len > 0, "pick from a table of at least one entry");
         libm::floor(self.next_f64() * len as f64) as usize
     }
 }
@@ -70,6 +78,17 @@ pub(crate) fn synthetic_count(n: f64) -> u32 {
 }
 
 /// The raw nodes and edges of the `count`-node model, weights not yet applied.
+///
+/// `count` is the **caller's**, not the oracle's: `synthetic_count` clamps a requested `n`
+/// to `2..=MAX_SYNTHETIC_NODES`, but `seeded_model` (public) hands this whatever the
+/// pipeline asks for and the bench campaign asks for up to
+/// [`MAX_BENCH_NODES`](crate::registry::MAX_BENCH_NODES) = 10 × that. So the oracle's
+/// clamp is *not* re-applied here: it would refuse every bench fixture above 100 000
+/// nodes, and those fixtures are hashed by the gate.
+///
+/// **Caveat:** a `count` of 0 or 1 is accepted and builds the 0- or 1-node model the
+/// oracle would build; the oracle never asks for one, because `synthetic_count` floors at
+/// 2. Nothing else refuses it.
 pub(crate) fn synthetic_records(count: u32) -> (Vec<NodeRecord>, Vec<EdgeRecord>) {
     let mut rnd = Mulberry32::new(SEED);
     let nodes: Vec<_> = (0..count).map(|i| synthetic_node(i, &mut rnd)).collect();
@@ -110,7 +129,10 @@ fn synthetic_node(i: u32, rnd: &mut Mulberry32) -> NodeRecord {
 /// extras. Each endpoint is drawn before the edge's strength, as JS evaluates a call's
 /// arguments before its body; a self-edge draws no strength.
 fn synthetic_edges(count: u32, rnd: &mut Mulberry32, nodes: &[NodeRecord]) -> Vec<EdgeRecord> {
-    let mut edges = Vec::with_capacity(count as usize * 2);
+    // `count as usize * 2` wraps on wasm32 (a 32-bit `usize`) at `count > 2³¹` and
+    // panics in the allocator's `capacity overflow` check; `saturating_mul` on the `u32`
+    // hands the same figure a 64-bit host would, so both targets ask for the same buffer.
+    let mut edges = Vec::with_capacity(count.saturating_mul(2) as usize);
     let mut push = |rnd: &mut Mulberry32, a: usize, b: usize, kind: EdgeKind| {
         if a == b {
             return;
@@ -148,79 +170,4 @@ fn synthetic_edges(count: u32, rnd: &mut Mulberry32, nodes: &[NodeRecord]) -> Ve
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn count_floors_clamps_and_reads_non_finite_as_two() {
-        let cases = [
-            (6.0, 6),
-            (2.9, 2),
-            (f64::NAN, 2),
-            (f64::INFINITY, 2),
-            (f64::NEG_INFINITY, 2),
-            (-4.0, 2),
-            (1e9, 100_000),
-            (100_000.5, 100_000),
-            (99_999.99, 99_999),
-        ];
-        for (n, want) in cases {
-            assert_eq!(synthetic_count(n), want, "{n}");
-        }
-    }
-
-    /// Why `<` and `<=` are one mutant here (`.cargo/mutants.toml`): the largest model
-    /// draws at most 2 per node, 7 per attachment step and 3 per extra edge — under
-    /// 1 000 000 — and none of the first 1 000 000 draws is exactly one half.
-    #[test]
-    fn no_draw_a_synthetic_model_can_reach_is_exactly_one_half() {
-        let mut rnd = Mulberry32::new(SEED);
-        assert!((0..1_000_000).all(|_| rnd.next_f64() != 0.5));
-    }
-
-    /// `buildSyntheticModel(6)` printed by the oracle under node:22-slim.
-    #[test]
-    fn six_nodes_match_the_oracle() {
-        let t = build_synthetic_model(6.0).expect("fits");
-        let icons: Vec<_> = (0..6).map(|i| t.node(i).icon).collect();
-        let want = [
-            "\u{1F33F}",
-            "icon:map",
-            "\u{1F4C8}",
-            "icon:rocket",
-            "\u{1F5FA}\u{FE0F}",
-            "\u{1F5FA}\u{FE0F}",
-        ];
-        assert_eq!(icons, want.map(Some));
-        let first = t.node(0);
-        assert_eq!(
-            (first.id, first.kind, first.has_note),
-            ("bench:db-0:0", NodeKind::Note, true)
-        );
-        assert_eq!(
-            (first.group, first.weight),
-            (Some("Active"), 0.908_497_499_664_568_9)
-        );
-        let ends: Vec<_> = (0..t.edge_count())
-            .map(|e| (t.edge(e).source, t.edge(e).target))
-            .collect();
-        assert_eq!(ends.len(), 9);
-        assert_eq!(ends[8], ("bench:db-5:5", "bench:db-1:1"));
-        let e0 = t.edge(0);
-        assert_eq!(
-            (e0.id, e0.strength, e0.directed),
-            ("bench-e-0", 0.534_562_692_884_355_9, true)
-        );
-    }
-
-    #[test]
-    fn stats_match_the_oracle_at_40_nodes_and_at_the_cap() {
-        let forty = build_synthetic_model(40.0).expect("fits");
-        assert_eq!(forty.stats().edges, 57);
-        let note_links = (0..57).filter(|&e| forty.edge(e).kind == EdgeKind::NoteLink);
-        assert_eq!(note_links.count(), 2);
-        let (nodes, edges) = synthetic_records(MAX_SYNTHETIC_NODES);
-        let notes = nodes.iter().filter(|n| n.kind == NodeKind::Note).count();
-        assert_eq!((nodes.len(), edges.len(), notes), (100_000, 154_978, 4348));
-    }
-}
+mod tests;

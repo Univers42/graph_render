@@ -1,6 +1,21 @@
 //! Degree weights (`src/core/model/weights.ts:12-29`): a node's visual weight from its
 //! degree on a log scale, normalised against a *fixed* reference degree so everyday
 //! counts spread across the size range instead of being flattened by a few hubs.
+//!
+//! **D10 waiver — the degree pass is a scatter, deliberately** (`prompt.md` §6). D10 reads
+//! "**Per-step kernels are gathers**: element `i` reads only start-of-step state and
+//! writes only `out[i]`, summing its terms in a fixed order; no scatter into another
+//! element's accumulator", and its recorded reason is that the SIMD, threaded and GPU
+//! tiers (Phase 11) "either race or reorder sums" — a per-step kernel of an iterative
+//! solver, of which this pass is not one. It is a single ingest walk, and it has to run
+//! **before** indexing, over the raw edge records, so that an edge to a missing node, a
+//! repeated id and a self-loop count exactly as the oracle counts them
+//! (`synthetic.ts:103-104`). The gather D10 asks for is not reachable here: the only CSR
+//! in the crate is built by `index_model`, which drops dangling endpoints and duplicate
+//! ids, so a gather over it would count fewer edges and move every weight in the gate.
+//! What the scatter does cost is two string hashes per edge endpoint — ponytail, not a
+//! determinism defect: the result is a per-key counter, so no sum is reordered and no
+//! target reads it differently.
 
 use crate::arena::FixedState;
 use crate::records::{EdgeRecord, NodeRecord};
@@ -125,5 +140,29 @@ mod tests {
         assert_eq!(js_clamp(-3.0, 0.2, 1.0), 0.2);
         assert_eq!(js_clamp(3.0, 0.2, 1.0), 1.0);
         assert_eq!(js_clamp(0.5, 0.2, 1.0), 0.5);
+    }
+
+    /// F-06, evidence for the D10 waiver in the module docs: every key owns its counter,
+    /// so the scatter sums nothing across elements and the weights cannot depend on the
+    /// order the edges arrive in — the one thing a reordered sum would change.
+    #[test]
+    fn the_weights_do_not_depend_on_the_order_the_edges_arrive_in() {
+        let edges = [
+            edge("e1", "a", "b"),
+            edge("e2", "b", "c"),
+            edge("e3", "c", "a"),
+            edge("e4", "a", "a"),
+        ];
+        let weights = |order: [usize; 4]| {
+            let mut nodes = [node("a", ""), node("b", ""), node("c", "")];
+            let ordered: Vec<_> = order.iter().map(|&i| edges[i].clone()).collect();
+            apply_degree_weights(&mut nodes, &ordered);
+            nodes.map(|n| n.weight.to_bits())
+        };
+        let forward = weights([0, 1, 2, 3]);
+        assert_eq!(forward, weights([3, 2, 1, 0]));
+        assert_eq!(forward, weights([1, 3, 0, 2]));
+        // a: e1, e3, e4, e4 → 4; b: e1, e2 → 2; c: e2, e3 → 2.
+        assert_eq!(forward, [ORACLE_BITS[4], ORACLE_BITS[2], ORACLE_BITS[2]]);
     }
 }

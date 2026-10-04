@@ -188,3 +188,6 @@ fn a_1_node_topology_carries_exactly_one_node_id() {
     assert_eq!(p.node_ids.iter().collect::<Vec<_>>(), ["a"]);
     assert_eq!(p.edge_ids.iter().collect::<Vec<_>>(), Vec::<&str>::new());
 }
+
+#[cfg(test)]
+mod digest;
