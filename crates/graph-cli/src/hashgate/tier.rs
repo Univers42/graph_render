@@ -104,9 +104,8 @@ pub fn scalar_arm(seeds: u32) -> Result<Arm, String> {
     Ok((
         Tier::Scalar.arm_name(),
         super::sharded_child(seeds, |shard| {
-            super::arm_lines(seeds, shard, &setting).map(|printed| {
-                printed.lines().map(str::to_owned).collect::<Vec<String>>()
-            })
+            super::arm_lines(seeds, shard, &setting)
+                .map(|printed| printed.lines().map(str::to_owned).collect::<Vec<String>>())
         })?,
     ))
 }

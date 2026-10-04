@@ -86,7 +86,7 @@ fn an_ingest_check_must_name_the_member_it_parses() {
 fn arm_shard(args: &[&str]) -> Result<Shard, String> {
     match parses(args).map_err(|e| e.to_string())?.command {
         Command::HashgateArm { shard, .. } => Ok(shard),
-        Command::HashgateArm { .. } => unreachable!(),
+        _ => Err("not the hashgate-arm subcommand".to_owned()),
     }
 }
 
@@ -95,7 +95,10 @@ fn arm_shard(args: &[&str]) -> Result<Shard, String> {
 /// parser, not by the merge discovering a hole in the arm afterwards.
 #[test]
 fn hashgate_arm_defaults_to_the_whole_run_and_refuses_an_impossible_shard() {
-    assert_eq!(arm_shard(&["hashgate-arm", "--seeds", "4"]), Ok(Shard::WHOLE));
+    assert_eq!(
+        arm_shard(&["hashgate-arm", "--seeds", "4"]),
+        Ok(Shard::WHOLE)
+    );
     assert_eq!(
         arm_shard(&["hashgate-arm", "--seeds", "4", "--shard", "2/3"]),
         Ok(Shard { index: 2, count: 3 })
@@ -105,7 +108,10 @@ fn hashgate_arm_defaults_to_the_whole_run_and_refuses_an_impossible_shard() {
         Ok("0/1".to_owned())
     );
     for bad in ["1/0", "3/3", "x/2", "2"] {
-        assert!(arm_shard(&["hashgate-arm", "--seeds", "4", "--shard", bad]).is_err(), "{bad}");
+        assert!(
+            arm_shard(&["hashgate-arm", "--seeds", "4", "--shard", bad]).is_err(),
+            "{bad}"
+        );
     }
 }
 

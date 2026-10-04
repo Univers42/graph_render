@@ -4,6 +4,7 @@ use clap::{Subcommand, builder::TypedValueParser};
 use std::path::PathBuf;
 
 use crate::hashgate;
+use crate::hashgate::shard::Shard;
 
 /// Most seeds one gate run may ask for. Every seed is four child computations; past this
 /// a typo (`--seeds 1000000000`) would look like a hang rather than an error.
@@ -35,8 +36,7 @@ pub fn parse_tiers() -> impl TypedValueParser {
 /// stride cannot drift: a shard the parser accepts and the merge cannot place would be an
 /// arm with a hole in it.
 pub fn parse_shard() -> impl TypedValueParser {
-    clap::builder::StringValueParser::new()
-        .try_map(|text: String| hashgate::shard::Shard::parse(&text))
+    clap::builder::StringValueParser::new().try_map(|text: String| Shard::parse(&text))
 }
 
 #[derive(Subcommand)]
@@ -60,9 +60,10 @@ pub enum Command {
         #[arg(long, value_parser = seed_count())]
         seeds: u32,
         /// Which shard of those seeds this arm runs: `i/K`, `i` below `K`. Absent means the
-        /// whole run, which is what a hand-run probe wants.
-        #[arg(long, default_value = "0/1", value_parser = parse_shard())]
-        shard: hashgate::shard::Shard,
+        /// whole run, which is what a hand-run probe wants — `default_value_t` prints
+        /// `Shard::WHOLE`, so the default is the one the parser's own shape names.
+        #[arg(long, default_value_t = Shard::WHOLE, value_parser = parse_shard())]
+        shard: Shard,
     },
     /// The live force session's own hash gate: native ×2 against wasm32 ×2 over the positions
     /// after a fixed number of ticks, driven through `gm_force_session_*`. See

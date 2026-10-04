@@ -97,17 +97,25 @@ pub fn per_arm() -> u32 {
 
 /// `work` once per shard of `count`, concurrently, and the results **in shard order**.
 ///
+/// The work itself returns a [`Result`], so a failure is a value in the list rather than a
+/// panic through `join`: one shard's refusal must not take the others' work down with it,
+/// and [`gathered`] then reports the first one in shard order.
+///
 /// Collected by index and never by completion: a merge whose input order depended on which
 /// thread finished first would be the one determinism hole in this module, and
 /// [`merge`] would then place the same lines in the same slots by luck of the scheduler.
 /// `count` below one is one shard, so a caller that asks for no parallelism at all still
 /// gets a well-formed shard list.
-pub fn concurrent<T: Send, F>(count: u32, work: F) -> Vec<Result<T, String>>
+pub fn concurrent<T, F>(count: u32, work: F) -> Vec<Result<T, String>>
 where
-    F: Fn(Shard) -> T + Sync,
+    T: Send,
+    F: Fn(Shard) -> Result<T, String> + Sync + Send,
 {
     let count = count.max(1);
     std::thread::scope(|scope| {
+        // `&work`, so each thread calls one shared closure instead of moving a copy of it
+        // into `count` threads: `F: Fn + Sync` is what makes that sharing sound.
+        let work = &work;
         let handles: Vec<_> = (0..count)
             .map(|index| scope.spawn(move || work(Shard { index, count })))
             .collect();
@@ -171,7 +179,7 @@ pub fn merge(seeds: u32, stages: &[&str], shards: &[Vec<String>]) -> Result<Vec<
                     "slot {slot} ({} {}) is empty: no shard ran it",
                     stages[slot / seeds as usize],
                     slot % seeds as usize
-                ))
+                ));
             }
         }
     }
@@ -185,13 +193,19 @@ fn slot_of(line: &str, seeds: u32, stages: &[&str]) -> Result<Option<(usize, u32
         return Ok(None);
     };
     let Some(stage_index) = stages.iter().position(|id| id == stage) else {
-        return Err(format!("{line:?} names stage {stage:?}, which is not in the gate's list"));
+        return Err(format!(
+            "{line:?} names stage {stage:?}, which is not in the gate's list"
+        ));
     };
     let Ok(seed) = seed.parse::<u32>() else {
-        return Err(format!("{line:?} names seed {seed:?}, which is not a seed number"));
+        return Err(format!(
+            "{line:?} names seed {seed:?}, which is not a seed number"
+        ));
     };
     if seed >= seeds {
-        return Err(format!("{line:?} names seed {seed}, outside the run's {seeds} seeds"));
+        return Err(format!(
+            "{line:?} names seed {seed}, outside the run's {seeds} seeds"
+        ));
     }
     Ok(Some((stage_index, seed)))
 }

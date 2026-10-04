@@ -3,10 +3,10 @@
 
 use super::super::knob::Setting;
 use super::super::knob::setting::setting;
+use super::super::shard::Shard;
 use super::super::stages::stage_bytes;
 use super::super::stages::stages as stage_ids;
 use super::super::transport;
-use super::super::shard::Shard;
 use super::super::{LAYOUT, TRANSPORT, arm_lines, stage_bytes_threaded, threads_lines};
 use super::env;
 use super::honest;

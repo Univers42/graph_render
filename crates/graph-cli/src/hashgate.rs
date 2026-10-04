@@ -242,14 +242,28 @@ fn threads_lines(
 fn collect_arms(seeds: u32, tiers: Tiers) -> Result<Vec<Arm>, String> {
     let exe = std::env::current_exe().map_err(|e| format!("locating graph-cli: {e}"))?;
     let wasm = build_wasm(&[])?;
-    let native = || sharded_child(seeds, |shard| {
-        let count = seeds.to_string();
-        run_lines(Command::new(&exe).args(["hashgate-arm", "--seeds", &count, "--shard", &shard.to_string()]))
-    });
-    let wasm32 = || sharded_child(seeds, |shard| {
-        let count = seeds.to_string();
-        run_lines(node_harness(&wasm)?.args(["hash", &count, "--shard", &shard.to_string()]).args(stages()))
-    });
+    let native = || {
+        sharded_child(seeds, |shard| {
+            let count = seeds.to_string();
+            run_lines(Command::new(&exe).args([
+                "hashgate-arm",
+                "--seeds",
+                &count,
+                "--shard",
+                &shard.to_string(),
+            ]))
+        })
+    };
+    let wasm32 = || {
+        sharded_child(seeds, |shard| {
+            let count = seeds.to_string();
+            run_lines(
+                node_harness(&wasm)?
+                    .args(["hash", &count, "--shard", &shard.to_string()])
+                    .args(stages()),
+            )
+        })
+    };
     let mut arms = vec![
         ("native run 1", native()?),
         ("native run 2", native()?),
@@ -275,7 +289,7 @@ fn collect_arms(seeds: u32, tiers: Tiers) -> Result<Vec<Arm>, String> {
 /// it, and the merged arm is the same list of lines an unsharded one printed.
 fn sharded_child<F>(seeds: u32, child: F) -> Result<Vec<String>, String>
 where
-    F: Fn(shard::Shard) -> Result<Vec<String>, String> + Sync,
+    F: Fn(shard::Shard) -> Result<Vec<String>, String> + Sync + Send,
 {
     let shards = shard::gathered(shard::concurrent(shard::per_arm(), child))?;
     shard::merge(seeds, &stages(), &shards)
