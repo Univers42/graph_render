@@ -11,15 +11,34 @@
 //! names: the gallery graph and a lattice. A port whose step control is wrong is finite,
 //! deterministic and direction-independent, and only these two catch it.
 
-use super::multilevel::{self, Level};
+use super::multilevel::Level;
+use super::prolongation::{self, DELTA_SCALE, Lay};
+use super::shape::{assert_spread, grid_edges, lesmis};
 use super::solve::Solve;
+use super::start;
 use super::*;
 use crate::layout::coords::probe;
-use graph_contract::canonical_json::{Value, parse};
 
-/// The gallery graph, 77 nodes and 254 edges (`fixtures/scigraphs/lesmis.json`, the same file
-/// `conformance/fixtures/named.rs` reads for the `GRAPHVIZ_SFDP` row).
-const LESMIS: &str = include_str!("../../../../../../fixtures/scigraphs/lesmis.json");
+/// One prolongation, at an explicit `k` so the test states the jitter scale it is checking.
+///
+/// The `seed` is the stream's: the jitter comes from the same `drand()` the random start is
+/// drawn from, so a test that wants a particular draw seeds a generator and hands it over.
+fn prolongate_onto(
+    coarse: &[(f64, f64)],
+    level: &Level,
+    edges: &[(u32, u32)],
+    k: f64,
+    seed: u32,
+) -> (Vec<f64>, Vec<f64>) {
+    let lay = Lay {
+        level,
+        edges,
+        count: level.pair.len() as u32,
+        delta: prolongation::delta(k),
+    };
+    let (x, y): (Vec<f64>, Vec<f64>) = coarse.iter().copied().unzip();
+    prolongation::prolongate(&x, &y, &lay, &mut start::Glibc::seeded(seed))
+}
 
 /// The two-node level every step test runs on: one edge, `K = 2`, so the force on node 0 is
 /// `0.4` of attraction against `2.0` of repulsion and the node moves along `-x`.
@@ -28,7 +47,7 @@ const LESMIS: &str = include_str!("../../../../../../fixtures/scigraphs/lesmis.j
 /// `CRK = C/K = 0.1`, and `dist = 2`, so the first iteration's total force is `0.4 - 2·1 = -1.6`
 /// and the second is `0.441 - 1.905 = -1.464`. Both are negative, so both nodes move along `-x`
 /// and the two displacements add.
-fn two_nodes() -> Solve<'static> {
+fn two_nodes() -> Solve {
     Solve::with_k(vec![0.0, 2.0], vec![0.0, 0.0], &[(0u32, 1u32)], 2.0)
 }
 
@@ -125,17 +144,59 @@ fn a_fine_level_converges_in_forty_four_iterations() {
 #[test]
 fn prolongation_pulls_a_node_toward_its_neighbours_mean() {
     let level = Level {
-        pair: vec![0, 0, 1],
-        coarse: 2,
+        pair: vec![0, 1, 2],
+        coarse: 3,
     };
-    let (x, _) = multilevel::prolongate(&[10.0, 20.0], &[0.0, 0.0], &level, 3, 7);
-    // `P` gives `[10, 10, 20]`. Then, on the path `0-1-2`, node 1 takes the mean of its two
-    // neighbours: `0.5·10 + 0.25·(10 + 20) = 12.5`, and node 2 then sees the *moved* node 1:
-    // `0.5·20 + 0.5·12.5 = 16.25`.
+    let (x, _) = prolongate_onto(
+        &[(10.0, 0.0), (20.0, 0.0), (30.0, 0.0)],
+        &level,
+        &[(0u32, 1u32), (1, 2)],
+        0.0,
+        1,
+    );
+    // `P` gives `[10, 20, 30]`. Then on the path `0-1-2`, in row order: node 0 takes the mean of
+    // itself and node 1, `0.5·10 + 0.5·20 = 15`; node 1 sees the **moved** node 0 and takes
+    // `0.5·20 + 0.25·(15 + 30) = 21.25`; node 2 sees the moved node 1 and takes
+    // `0.5·30 + 0.5·21.25 = 25.625`.
+    assert!((x[0] - 15.0).abs() < 1e-12, "node 0 at {}", x[0]);
+    assert!((x[1] - 21.25).abs() < 1e-12, "node 1 at {}", x[1]);
     assert!(
-        (x[1] - 12.5).abs() < 1e-3,
-        "node 1 at {}, want 12.5: interpolate_coord did not run",
-        x[1]
+        (x[2] - 25.625).abs() < 1e-12,
+        "node 2 at {}: interpolate_coord ran Jacobi, not Gauss-Seidel",
+        x[2]
+    );
+}
+
+/// Defect d, part two. The reference's third step adds `K·0.001·(drand() - 0.5)` per coordinate
+/// to **every member of an `R` row after the first** (`spring_electrical.c:843-852`), which is
+/// what stops a matched pair from being bit-coincident. The port it replaced used a ±5e-7
+/// absolute jiggle, five hundred times smaller at `K = 1` and independent of the level's scale:
+/// on `lesmis` that is what left 40 pairs of output points within `1e-6` of the drawing's span.
+///
+/// The bound is the assertion: `delta/2` per coordinate, so the pair's separation is at most
+/// `delta·√2/2` and at least a fraction of `delta`. Both ends matter — a jitter that were zero
+/// would leave the pair stacked, and one that were unbounded would move the drawing.
+#[test]
+fn prolongation_jitters_a_matched_pair_by_the_reference_s_own_scale() {
+    let delta = 0.1f64;
+    let k = delta / DELTA_SCALE;
+    let level = Level {
+        pair: vec![0, 0],
+        coarse: 1,
+    };
+    let (x, y) = prolongate_onto(&[(10.0, 30.0)], &level, &[(0u32, 1u32)], k, 1);
+    // The pair is coincident after `P` and after `interpolate_coord` (a two-node level pulls
+    // each node to the mean, which is the point itself), so all of the separation is the jitter.
+    let (dx, dy) = (x[0] - x[1], y[0] - y[1]);
+    let apart = dx.hypot(dy);
+    assert!(
+        apart > 0.0 && apart <= delta * 0.708,
+        "the matched pair is {apart} apart, want at most {}",
+        delta * 0.708
+    );
+    assert!(
+        apart > delta / 4.0,
+        "the matched pair is {apart} apart, which is jiggle-scale not delta-scale"
     );
 }
 
@@ -157,98 +218,4 @@ fn the_layout_spreads_on_a_ten_by_ten_grid() {
     let edges = grid_edges(10);
     let points = probe::points(&run(&probe::graph(100, &edges)).expect("the grid lays out"));
     assert_spread(&points);
-}
-
-/// The 10x10 lattice's edges, in row-major order.
-fn grid_edges(side: u32) -> Vec<(u32, u32)> {
-    let index = |r: u32, c: u32| r * side + c;
-    let mut out = Vec::new();
-    for r in 0..side {
-        for c in 0..side {
-            if c + 1 < side {
-                out.push((index(r, c), index(r, c + 1)));
-            }
-            if r + 1 < side {
-                out.push((index(r, c), index(r + 1, c)));
-            }
-        }
-    }
-    out
-}
-
-/// No two points within `1e-6` of the drawing's own span, and a shape ratio above 0.15.
-fn assert_spread(points: &[(f32, f32)]) {
-    let n = points.len() as f64;
-    let (mut mx, mut my) = (0.0f64, 0.0f64);
-    for (x, y) in points {
-        mx += f64::from(*x);
-        my += f64::from(*y);
-    }
-    (mx, my) = (mx / n, my / n);
-    let (mut sxx, mut syy, mut sxy) = (0.0f64, 0.0f64, 0.0f64);
-    let (mut lo, mut hi) = (f64::MAX, f64::MIN);
-    for (x, y) in points {
-        let (dx, dy) = (f64::from(*x) - mx, f64::from(*y) - my);
-        (sxx, syy, sxy) = (sxx + dx * dx, syy + dy * dy, sxy + dx * dy);
-        lo = lo.min(f64::from(*x)).min(f64::from(*y));
-        hi = hi.max(f64::from(*x)).max(f64::from(*y));
-    }
-    let (sxx, syy, sxy) = (sxx / n, syy / n, sxy / n);
-    let half = 0.5 * (sxx + syy);
-    let disc = (0.5 * (sxx - syy) * (sxx - syy) + sxy * sxy).sqrt();
-    let ratio = (half - 0.5 * disc) / (half + 0.5 * disc);
-    assert!(
-        ratio > 0.15,
-        "shape ratio {ratio}: the drawing is a strip or a point"
-    );
-    let near = 1e-6 * (hi - lo);
-    for i in 0..points.len() {
-        for j in i + 1..points.len() {
-            let (dx, dy) = (points[i].0 - points[j].0, points[i].1 - points[j].1);
-            assert!(
-                f64::from(dx.hypot(dy)) > near,
-                "nodes {i} and {j} are {} apart, under {near}",
-                dx.hypot(dy)
-            );
-        }
-    }
-}
-
-/// `lesmis.json` as `(node count, edges)`. Its node ids are integers that are also their own
-/// positions, which is what `conformance/fixtures/named.rs:28-46` checks, so an edge's ends
-/// are used as dense indices unchanged.
-fn lesmis() -> (u32, Vec<(u32, u32)>) {
-    let root = parse(LESMIS).expect("lesmis json");
-    let Value::Object(fields) = &root else {
-        panic!("lesmis is an object");
-    };
-    let listed = fields
-        .iter()
-        .find(|(key, _)| key == "nodes")
-        .map(|(_, value)| match value {
-            Value::Array(items) => items.len(),
-            other => panic!("lesmis nodes: {other:?}"),
-        })
-        .expect("lesmis has nodes");
-    let edges = fields
-        .iter()
-        .find(|(key, _)| key == "edges")
-        .map(|(_, value)| match value {
-            Value::Array(items) => items
-                .iter()
-                .map(|item| match item {
-                    Value::Array(pair) => {
-                        let mut ends = pair.iter().map(|v| match v {
-                            Value::Number(text) => text.parse::<u32>().expect("node id"),
-                            other => panic!("edge end: {other:?}"),
-                        });
-                        (ends.next().expect("from"), ends.next().expect("to"))
-                    }
-                    other => panic!("edge: {other:?}"),
-                })
-                .collect(),
-            other => panic!("lesmis edges: {other:?}"),
-        })
-        .expect("lesmis has edges");
-    (listed as u32, edges)
 }

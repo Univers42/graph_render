@@ -23,20 +23,16 @@ use crate::csr::Csr;
 pub(super) const FIRST_STEP: f64 = STEP;
 
 /// The seeded random start: Graphviz's `x[i] = drand()` in dense index order
-/// (`spring_electrical.c:282-284`), from the glibc-compatible generator in [`start`].
+/// (`spring_electrical.c:282-284`), from the glibc-compatible generator in [`start`], and
+/// x and y interleaved per node — entry `i` consumes draws `2i` and `2i+1`.
+/// The random start from a generator the caller keeps, so that a later step can draw from the
+/// same stream: `count` entries, x and y interleaved per node.
 ///
-/// The x and y columns come out interleaved per node, so entry `i` consumes draws `2i` and
-/// `2i+1` of the stream — gather form (D10), and the reason a permutation of the node order
-/// would give a different drawing.
-pub(super) fn random_start(count: u32, seed: u32) -> (Vec<f64>, Vec<f64>) {
-    random_start_from(&mut start::Glibc::seeded(seed), count)
-}
-
-/// [`random_start`] from a generator the caller keeps, so that a later step can draw from the
-/// same stream. The reference's `prolongate` does exactly that (`:1155`), and the jitter it adds
-/// is the same `drand()` the start came from.
+/// **The driver keeps the generator rather than a seed.** The reference draws its prolongation
+/// jitter from this same stream (`spring_electrical.c:1155`) and nothing re-seeds in between, so
+/// a port that reseeds per step lands its jitter somewhere else entirely.
 pub(super) fn random_start_from(rng: &mut start::Glibc, count: u32) -> (Vec<f64>, Vec<f64>) {
-    let positions: Vec<[f64; 2]> = (0..count).map(|_| [rng.unit(), rng.unit()]).collect();
+    let positions = rng.positions(count);
     let x = positions.iter().map(|p| p[0]).collect();
     let y = positions.iter().map(|p| p[1]).collect();
     (x, y)

@@ -41,7 +41,13 @@ const ALPHA: f64 = 0.5;
 
 /// `delta = K * 0.001` (`spring_electrical.c:1155`): the jitter is a thousandth of the ideal
 /// edge length, and the reference's is 1000 times smaller than the coarse spacing.
-const DELTA_SCALE: f64 = 0.001;
+pub(super) const DELTA_SCALE: f64 = 0.001;
+
+/// [`DELTA_SCALE`] as the driver reads it: the reference's `prolongate(..., ctrl->K * 0.001)`
+/// at `spring_electrical.c:1155`, with the `K` the level up solved at.
+pub(super) fn delta(k: f64) -> f64 {
+    k * DELTA_SCALE
+}
 
 /// Everything one prolongation needs beyond the coarse positions: the level to lay down, the
 /// fine graph to interpolate over, how many fine nodes there are, and the jitter scale.
@@ -88,7 +94,7 @@ fn multiply_p(coarse_x: &[f64], coarse_y: &[f64], lay: &Lay<'_>) -> (Vec<f64>, V
 /// the sums into a second array first would be a different algorithm, and on a path it gives a
 /// different drawing.
 fn interpolate(rows: &Csr, x: &mut [f64], y: &mut [f64]) {
-    for (i, slot) in x.iter_mut().enumerate() {
+    for i in 0..x.len() {
         let mut sum_x = 0.0;
         let mut sum_y = 0.0;
         let mut nz = 0u32;
@@ -101,7 +107,7 @@ fn interpolate(rows: &Csr, x: &mut [f64], y: &mut [f64]) {
             continue;
         }
         let beta = (1.0 - ALPHA) / f64::from(nz);
-        *slot = ALPHA * *slot + beta * sum_x;
+        x[i] = ALPHA * x[i] + beta * sum_x;
         y[i] = ALPHA * y[i] + beta * sum_y;
     }
 }
@@ -174,16 +180,16 @@ mod tests {
     /// result is the mean of the two, which is the boundary case of the `(1-alpha)/nz` form.
     #[test]
     fn a_leaf_is_pulled_half_way_to_its_neighbour() {
-        let level = level_of(vec![0, 0], 1);
+        let level = level_of(vec![0, 0, 1], 2);
         let lay = Lay {
             level: &level,
-            edges: &[(0u32, 1u32)],
-            count: 2,
+            edges: &[(1u32, 2)],
+            count: 3,
             delta: 0.0,
         };
-        let (x, _) = prolongate(&[0.0], &[10.0], &lay, &mut Glibc::seeded(1));
-        assert!((x[0] - 5.0).abs() < 1e-12, "node 0 at {} want 5", x[0]);
+        let (x, _) = prolongate(&[0.0, 10.0], &[0.0; 2], &lay, &mut Glibc::seeded(1));
         assert!((x[1] - 5.0).abs() < 1e-12, "node 1 at {} want 5", x[1]);
+        assert!((x[0] - 0.0).abs() < 1e-12, "node 0 at {} want 0", x[0]);
     }
 
     /// `interpolate_coord` is Gauss-Seidel: node 0 reads node 2 *after* node 1 moved it.
@@ -197,11 +203,28 @@ mod tests {
             delta: 0.0,
         };
         let (x, _) = prolongate(&[0.0, 10.0, 20.0], &[0.0; 3], &lay, &mut Glibc::seeded(1));
-        // Row order: node 0 -> mean(0,10) = 5; node 1 -> mean(5,20) = 12.5;
-        // node 2 -> mean(12.5, 20) = 16.25. Jacobi would give 15 for the last.
+        // Row order: node 0 -> mean(0,10) = 5; node 1 -> 0.5·10 + 0.25·(5 + 20) = 11.25;
+        // node 2 -> mean(11.25, 20) = 15.625. Jacobi would give 15 for node 1 and 17.5 for
+        // node 2, so the last one is what separates the two.
         assert!((x[0] - 5.0).abs() < 1e-12, "node 0 at {}", x[0]);
-        assert!((x[1] - 12.5).abs() < 1e-12, "node 1 at {}", x[1]);
-        assert!((x[2] - 16.25).abs() < 1e-12, "node 2 at {}", x[2]);
+        assert!((x[1] - 11.25).abs() < 1e-12, "node 1 at {}", x[1]);
+        assert!((x[2] - 15.625).abs() < 1e-12, "node 2 at {}", x[2]);
+    }
+
+    /// Two nodes of one coarse node are coincident, and the interpolation is a fixed point
+    /// there: each pulls halfway toward the mean of itself and its twin, which is itself. This
+    /// is why the reference's third step exists — without it the pair never separates at all.
+    #[test]
+    fn a_coincident_pair_is_a_fixed_point_of_the_interpolation() {
+        let level = level_of(vec![0, 0], 1);
+        let lay = Lay {
+            level: &level,
+            edges: &[(0u32, 1u32)],
+            count: 2,
+            delta: 0.0,
+        };
+        let (x, y) = prolongate(&[10.0], &[30.0], &lay, &mut Glibc::seeded(1));
+        assert_eq!((x, y), (vec![10.0, 10.0], vec![30.0, 30.0]));
     }
 
     /// A coarse node's **first** member is never jittered; every other member is, and by at most

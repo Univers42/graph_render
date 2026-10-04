@@ -76,6 +76,8 @@ mod start;
 #[cfg(test)]
 mod contract;
 #[cfg(test)]
+mod shape;
+#[cfg(test)]
 mod tests;
 
 use crate::index::Topology;
@@ -192,7 +194,7 @@ fn layout(edges: &[(u32, u32)], count: u32, seed: u32) -> (Vec<f64>, Vec<f64>) {
             level: &step.level,
             edges: &step.edges,
             count,
-            delta: k * prolongation::DELTA_SCALE,
+            delta: prolongation::delta(k),
         };
         let (nx, ny) = prolongation::prolongate(&solve.x, &solve.y, &lay, &mut rng);
         k = multilevel::decay_k(k);
