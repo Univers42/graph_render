@@ -19,7 +19,7 @@
 //! (`spring_electrical.c:39-42`), with an adaptive step that cools when the force norm stops
 //! improving and warms when it does (`spring_electrical.c:171-185`).
 //!
-//! **Three reference behaviours are reproduced deliberately, and each is a place a
+//! **Five reference behaviours are reproduced deliberately, and each is a place a
 //! reimplementation silently diverges:**
 //!
 //! 1. **The random start is glibc's `rand()`.** `srand(seed)` then `drand()` per coordinate
@@ -27,43 +27,66 @@
 //!    (`lib/sparse/general.c:25-27`) — the divisor is `RAND_MAX` = 2^31-1, not 2^31. `start`
 //!    implements glibc's TYPE_3 additive-feedback generator and pins its first eight outputs
 //!    for seeds 1 and 2 against the system libc, because a recurrence that is merely *similar*
-//!    to TYPE_3 starts every layout somewhere else and still passes a determinism test.
-//! 2. **`K` is the mean edge length of the current positions**, recomputed at every level
+//!    to TYPE_3 starts every layout somewhere else and still passes a determinism test. It is
+//!    **one** generator for the whole layout: `prolongate`'s jitter draws from the same stream
+//!    (`:1155`) and nothing re-seeds in between.
+//! 2. **`K` is the mean edge length of the coarsest level's positions**
 //!    (`spring_electrical.c:153-169`), and shrunk by 0.75 on the way down
 //!    (`spring_electrical.c:1159`). A port that fixes `K` once lays out at the wrong scale.
 //! 3. **The step control holds still while the force norm is within 5% of the previous one**
-//!    (`spring_electrical.c:179`). Without that hold the step decays monotonically and the
-//!    layout stops short of its own convergence test.
+//!    (`spring_electrical.c:179`), and **only at the coarsest level**: the driver switches
+//!    `adaptive_cooling` off below it (`:1160`), so a fine level cools by `cool` and nothing
+//!    else. Without the hold the step decays monotonically; without the switch every level
+//!    runs an adaptive loop the reference never runs there.
+//! 4. **A node is moved by the step, not by `step / length`.** The reference normalises the
+//!    force to unit length and multiplies by the step as it stands at the start of the
+//!    iteration (`:634-638`). A port that divides by the force length against the *initial*
+//!    step never converges however long it runs.
+//! 5. **The stop test is `step > tol` absolute** (`tol = 0.001`, `:47`, `:650`) inside a
+//!    `do`-while, so a fine level runs `ceil(log(0.001/0.1)/log(0.9)) = 44` iterations whatever
+//!    `K` is. The reference's own comment above the constant says `tol / K`; its loop test is
+//!    what runs.
 //!
 //! **And one behaviour is deliberately *not* reproduced, because it cannot be**: the reference
 //! draws a random permutation to order its coarsening matchings and re-`srand`s between levels.
 //! `docs/measurements/p13-gv2-sfdp.md` records what that costs — the oracle compared *against
-//! itself* at `-Gstart` 7 rather than 1 differs from its `-Gstart` 1 output by up to 292 points
-//! on the metric the differential uses, so no port that does not draw glibc's exact permutation
-//! stream can land inside a tolerance far below that. The row is `Status::Implemented` and the
-//! measured gaps are recorded, rather than the ceiling being widened to make it pass.
+//! itself* at `-Gstart` 7 rather than 1 differs from its `-Gstart` 1 output by 481 points on
+//! the metric the differential uses, more than our own arm's worst gap, so no port that does
+//! not draw glibc's exact permutation stream can land inside a tolerance far below that. The row
+//! is `Status::Implemented` and the measured gaps are recorded, rather than the ceiling being
+//! widened to make it pass.
 //!
-//! Determinism (D1-D10): the only randomness is the seeded generator in `start`, every force is
-//! gathered (node `i` reads positions and writes only its own), every reduction runs in dense
-//! index order, and no hash map is ever iterated. Native and wasm32 outputs are bit-identical.
+//! **One thing this port does that the engine's defaults never do.** `sfdp`'s `levels` graph
+//! attribute defaults to `0` (`sfdpinit.c:213`), and `Multilevel_establish` stops when
+//! `grid->level >= ctrl.maxlevel - 1` (`Multilevel.c:163`), so at its defaults Graphviz runs
+//! **one** level: no coarsening, no `prolongate`, no `K` decay. This port always coarsens.
+//! Measured on `lesmis`, that is the largest single remaining disagreement with the oracle and
+//! it is named, not hidden — `docs/measurements/sg-sfdp-collapse.md` carries the number and
+//! `sg-sfdp-step` owns the coarsening.
+//!
+//! Determinism (D1-D10): the only randomness is the seeded generator in `start`; the spring
+//! iteration gathers every node's force before moving any of them (`solve.rs`); every reduction
+//! runs in dense index order; no hash map is ever iterated. Native and wasm32 outputs are
+//! bit-identical. The one place the code is **not** in gather form is `prolongation`'s
+//! `interpolate_coord`, which is Gauss-Seidel in the reference and here — see
+//! `docs/decisions/sfdp-gather-form.md`.
 //!
 //! Ponytail: **the coarsening matching is deterministic where the reference's is random**, and
-//! **two refinement steps are simplified**. Each pass groups nodes with identical neighbour
+//! **the level count is not the reference's**. Each pass groups nodes with identical neighbour
 //! sets first, four at a time, then matches every other node to an unmatched neighbour, as the
-//! reference's `maximal_independent_edge_set_heavest_edge_pernode_supernodes_first` does; but
+//! reference's `maximal_independent_edge_set_heaviest_edge_pernode_supernodes_first` does; but
 //! it visits nodes in dense index order where the reference draws a random permutation
 //! (`gv_permutation`) and re-`srand`s between levels, and with unit weights "heaviest" is the
-//! first neighbour. Prolongation copies the coarse position and adds a 1e-6 jitter, without the
-//! reference's `interpolate_coord` smoothing pass, and `p` stays -1 where the reference switches
-//! to -1.8 on a power-law degree distribution. Failing input: every graph, in the last digits;
-//! a power-law graph by more, its hubs packed tighter than Graphviz packs them. Direction: a
-//! different but equally valid sfdp layout, never a collapsed one (`tests.rs` checks a 400-node
-//! graph spreads in both axes with distinct positions). The two-node case keeps a residual
-//! rotation (0.04 rad): two nodes sit in Barnes-Hut cells with different centres of mass, so
-//! their forces are only nearly antiparallel. Escape hatch: `run_seeded` is the seam; a port
+//! first neighbour. Coarsening stops at `COARSEST_FLOOR` nodes, and `p` stays -1 where the
+//! reference switches to -1.8 on a power-law degree distribution. Failing input: every graph,
+//! in the last digits; a power-law graph by more, its hubs packed tighter than Graphviz packs
+//! them. Direction: a different but equally valid sfdp layout, never a collapsed one
+//! (`contract.rs` checks the gallery graph and a 10x10 lattice both spread, with no two points
+//! closer than `1e-6` of the drawing's extent). Escape hatch: `run_seeded` is the seam; a port
 //! that drew glibc's permutation stream would only have to replace `multilevel::coarsen` and
-//! re-`srand` per level, and the differential would then be a check on one number rather than
-//! a measurement of an unmatchable one.
+//! re-`srand` per level, and a port that ran one level would have to make `layout`'s coarsening
+//! loop optional; either way the differential would then be a check on one number rather than a
+//! measurement of an unmatchable one.
 
 mod force;
 mod matching;

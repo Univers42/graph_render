@@ -6,10 +6,14 @@
 //! spring-electrical **iteration** and the **prolongation**, which is where a port silently
 //! diverges while still drawing something plausible.
 //!
-//! `prompts/jobs/sg-sfdp-collapse.md` defects a-e are a, b, c, d, e; f (the D10 record) is a
-//! document, not a test. The last two tests are the collapse itself, on the two graphs the job
-//! names: the gallery graph and a lattice. A port whose step control is wrong is finite,
-//! deterministic and direction-independent, and only these two catch it.
+//! One test per defect of `prompts/jobs/sg-sfdp-collapse.md` a-e — a and b share one test,
+//! because the reference's two statements are one behaviour — plus the collapse itself on the two
+//! graphs the job names. Defect f is a document and has none:
+//! `docs/decisions/sfdp-gather-form.md`.
+//!
+//! A port whose step control is wrong is finite, deterministic, direction-independent and
+//! bit-reproducible, so every test in `tests.rs` passes on a collapsed layout. Only the last two
+//! here catch it, which is why they are in this module.
 
 use super::multilevel::Level;
 use super::prolongation::{self, DELTA_SCALE, Lay};
@@ -19,16 +23,17 @@ use super::start;
 use super::*;
 use crate::layout::coords::probe;
 
-/// One prolongation, at an explicit `k` so the test states the jitter scale it is checking.
+/// One prolongation at seed 1, at an explicit `k` so the test states the jitter scale it is
+/// checking.
 ///
-/// The `seed` is the stream's: the jitter comes from the same `drand()` the random start is
-/// drawn from, so a test that wants a particular draw seeds a generator and hands it over.
+/// **Seed 1 is the same seed the oracle differential pins** (`sfdp::DEFAULT_SEED`), so the draws
+/// the jitter takes here are the draws it takes there. The generator is handed over rather than
+/// re-seeded per step because the reference does not re-seed either.
 fn prolongate_onto(
     coarse: &[(f64, f64)],
     level: &Level,
     edges: &[(u32, u32)],
     k: f64,
-    seed: u32,
 ) -> (Vec<f64>, Vec<f64>) {
     let lay = Lay {
         level,
@@ -37,7 +42,7 @@ fn prolongate_onto(
         delta: prolongation::delta(k),
     };
     let (x, y): (Vec<f64>, Vec<f64>) = coarse.iter().copied().unzip();
-    prolongation::prolongate(&x, &y, &lay, &mut start::Glibc::seeded(seed))
+    prolongation::prolongate(&x, &y, &lay, &mut start::Glibc::seeded(1))
 }
 
 /// The two-node level every step test runs on: one edge, `K = 2`, so the force on node 0 is
@@ -152,7 +157,6 @@ fn prolongation_pulls_a_node_toward_its_neighbours_mean() {
         &level,
         &[(0u32, 1u32), (1, 2)],
         0.0,
-        1,
     );
     // `P` gives `[10, 20, 30]`. Then on the path `0-1-2`, in row order: node 0 takes the mean of
     // itself and node 1, `0.5·10 + 0.5·20 = 15`; node 1 sees the **moved** node 0 and takes
@@ -184,7 +188,7 @@ fn prolongation_jitters_a_matched_pair_by_the_reference_s_own_scale() {
         pair: vec![0, 0],
         coarse: 1,
     };
-    let (x, y) = prolongate_onto(&[(10.0, 30.0)], &level, &[(0u32, 1u32)], k, 1);
+    let (x, y) = prolongate_onto(&[(10.0, 30.0)], &level, &[(0u32, 1u32)], k);
     // The pair is coincident after `P` and after `interpolate_coord` (a two-node level pulls
     // each node to the mean, which is the point itself), so all of the separation is the jitter.
     let (dx, dy) = (x[0] - x[1], y[0] - y[1]);

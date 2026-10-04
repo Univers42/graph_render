@@ -3,10 +3,14 @@
 //! The reference is an iterative force layout whose output depends on glibc's `rand()` and on
 //! the order its multilevel matchings are drawn, so the port is NOT pinned node-for-node
 //! against Graphviz — see `docs/measurements/p13-gv2-sfdp.md`, which records the measured
-//! seed-to-seed spread of the oracle itself (292 points at `-Gstart` 1 against 7). What is
+//! seed-to-seed spread of the oracle itself (481 points at `-Gstart` 1 against 7). What is
 //! pinned here is the set of properties a *correct* implementation must have and that a broken
 //! one loses: determinism, finiteness, direction-independence, and the two closed cases the
 //! engine really does answer exactly.
+//!
+//! The properties that catch a **collapsed** layout — shape and coincidence — are in
+//! [`super::contract`], and the numbers behind them are in
+//! `docs/measurements/sg-sfdp-collapse.md`.
 
 use super::*;
 use crate::layout::coords::probe;

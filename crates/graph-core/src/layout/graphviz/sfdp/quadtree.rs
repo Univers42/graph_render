@@ -11,7 +11,15 @@
 //! tree because that one serves d3's force model, with a different charge and opening test.
 //!
 //! **Gather form (D10).** [`Quadtree::repulsion`] reads the tree and the positions and returns
-//! node `i`'s force alone. The tree is immutable once built.
+//! node `i`'s force alone. The tree is immutable once built. This is the *shape* of the
+//! reference's `QuadTree_get_supernodes`; the arithmetic is the reference's, and the decision to
+//! compute it a whole iteration at a time is `docs/decisions/sfdp-gather-form.md`.
+//!
+//! **Below 45 nodes this tree does not run at all.** `quadtree_size = 45`
+//! (`spring_electrical.c:39`) and `n >= quadtree_size` (`:543`) is the reference's own test, so
+//! [`super::solve::Solve::gather`] sums all pairs exactly on a small level. The previous port
+//! always walked the tree, which put a cell's **centre** where the reference puts a cell's
+//! **centre of mass** — on a 4-node level that is a different force entirely.
 
 use super::force::{self, BH};
 

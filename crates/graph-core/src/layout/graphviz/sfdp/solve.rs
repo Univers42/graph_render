@@ -5,13 +5,20 @@
 //! repulsive force on every node, gathers the attractive force along every edge, normalises
 //! each node's total force to unit length, and moves it by `step`.
 //!
-//! **Gather form (D10).** Node `i`'s displacement is computed entirely from the positions at
-//! the *start* of the iteration, so the result does not depend on the order nodes are updated
-//! in, and is bit-identical native vs wasm32. The reference moves each vertex as it goes,
-//! which makes its result sequential in the vertex loop; the same model with the dependency
-//! removed is what runs here.
+//! **Gather form (D10), and this is a deviation from the oracle.** [`Solve::relax`] gathers
+//! every node's total force from the positions at the *start* of the iteration — [`gather`]
+//! reads `self.x` and writes only a scratch buffer — and only then moves every node, by the
+//! step **as it stands at that point** ([`advance`]). The reference does the opposite: it
+//! normalises and moves vertex `i` inside the same loop that computes the next vertex's force
+//! (`spring_electrical.c:630-638`), so a node's move can depend on which nodes were moved
+//! before it.
 //!
-//! **Fixed-order reductions (D2).** `norm` is accumulated over nodes in dense index order and
+//! Before this repair the two were the same code with the opposite comment: the loop updated
+//! `self.x[i]` in place, exactly the reference's order, under a doc that claimed gather. The
+//! repair made the code match the doc — see `docs/decisions/sfdp-gather-form.md` for why the
+//! doc's claim was the thing to keep and what it costs against Graphviz's own output.
+//!
+//! **Fixed-order reductions (D2).** `Fnorm` is accumulated over nodes in dense index order and
 //! nothing iterates a hash map, so the sum is one specific order every run.
 
 use super::force::{self, MAX_ITER, QUADTREE_SIZE, STEP, TOL};

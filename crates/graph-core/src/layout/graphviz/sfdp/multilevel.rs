@@ -1,10 +1,16 @@
-//! The multilevel hierarchy: maximal matching up, prolongation back down.
+//! The multilevel hierarchy: maximal matching up.
 //!
-//! Reference: `Multilevel.c` (`Multilevel_new`, `Multilevel_get_coarsest`, `coarsen`) and
-//! `prolongate` at `lib/sfdpgen/post_process.c`, read as an algorithm reference. A level is
-//! `pair(coarse_node, fine_node)`; coarsening repeats matching passes ([`matching`]) until the
-//! level is small enough; prolongation lays a coarse solution back down by giving every fine
-//! node its coarse node's position, jittered.
+//! Reference: `Multilevel.c` (`Multilevel_new`, `Multilevel_get_coarsest`, `Multilevel_coarsen`,
+//! `maximal_independent_edge_set_heaviest_edge_pernode_supernodes_first`), read as an algorithm
+//! reference. A level is `pair(fine_node) -> coarse_node`; coarsening repeats matching passes
+//! ([`matching`]) until the level has shrunk to `min_coarsen_factor` of the one below or a pass
+//! stops making progress. Laying a coarse solution back down is [`super::prolongation`].
+//!
+//! **Graphviz's `sfdp` never reaches this module at its defaults.** `sfdp`'s `levels` attribute
+//! defaults to `0` (`sfdpinit.c:213`) and `Multilevel_establish` returns at
+//! `grid->level >= ctrl.maxlevel - 1` (`Multilevel.c:163`), so the engine runs a single level.
+//! This port always coarsens; `docs/measurements/sg-sfdp-collapse.md` measures what that costs
+//! and `sg-sfdp-step` owns closing it.
 
 use super::matching;
 
