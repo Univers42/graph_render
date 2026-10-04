@@ -51,7 +51,10 @@ impl Layout {
     /// times the rank count long, which is far more than any fixture's node index.
     fn of(rows: &[Vec<u32>]) -> Self {
         let len = rows.len() * 4;
-        let mut layout = Self { rank: vec![-1; len], place: vec![0; len] };
+        let mut layout = Self {
+            rank: vec![-1; len],
+            place: vec![0; len],
+        };
         for (r, row) in rows.iter().enumerate() {
             for (i, &node) in row.iter().enumerate() {
                 if let Some(slot) = slot_of(node, len) {
@@ -95,7 +98,10 @@ pub fn edge_crossings(rows: &[Vec<u32>], edges: &[(u32, u32)]) -> i64 {
 
 /// Whether these two edges cross, as [`edge_crossings`] counts it.
 fn crosses(layout: &Layout, first: (u32, u32), second: (u32, u32)) -> bool {
-    if [first.0, first.1].iter().any(|n| [second.0, second.1].contains(n)) {
+    if [first.0, first.1]
+        .iter()
+        .any(|n| [second.0, second.1].contains(n))
+    {
         return false;
     }
     let (Some(a), Some(b)) = (band(layout, first), band(layout, second)) else {
@@ -108,8 +114,16 @@ fn crosses(layout: &Layout, first: (u32, u32), second: (u32, u32)) -> bool {
 fn band(layout: &Layout, edge: (u32, u32)) -> Option<Band> {
     let first = (layout.rank_of(edge.0)?, layout.place_of(edge.0));
     let second = (layout.rank_of(edge.1)?, layout.place_of(edge.1));
-    let (low, high) = if first.0 <= second.0 { (first, second) } else { (second, first) };
-    (high.0 == low.0 + 1).then_some(Band { low: low.0 as usize, from: low.1, to: high.1 })
+    let (low, high) = if first.0 <= second.0 {
+        (first, second)
+    } else {
+        (second, first)
+    };
+    (high.0 == low.0 + 1).then_some(Band {
+        low: low.0 as usize,
+        from: low.1,
+        to: high.1,
+    })
 }
 
 /// The closed case this count is pinned on: the K2,2 the mincross tests draw by hand, with
@@ -119,9 +133,17 @@ fn band(layout: &Layout, edge: (u32, u32)) -> Option<Band> {
 #[test]
 fn the_crossing_count_of_a_hand_drawn_k22_is_one() {
     let rows = vec![vec![0, 1], vec![2, 3]];
-    assert_eq!(edge_crossings(&rows, &[(0, 2), (0, 3), (1, 2), (1, 3)]), 1, "the diagonals");
+    assert_eq!(
+        edge_crossings(&rows, &[(0, 2), (0, 3), (1, 2), (1, 3)]),
+        1,
+        "the diagonals"
+    );
     let rows = vec![vec![0, 1], vec![2, 3, 4]];
-    assert_eq!(edge_crossings(&rows, &[(0, 2), (0, 3), (1, 3), (1, 4)]), 0, "already in order");
+    assert_eq!(
+        edge_crossings(&rows, &[(0, 2), (0, 3), (1, 3), (1, 4)]),
+        0,
+        "already in order"
+    );
 }
 
 /// **The negative control for the case above**: the same K2,2 still crosses once when either
@@ -131,9 +153,21 @@ fn the_crossing_count_of_a_hand_drawn_k22_is_one() {
 #[test]
 fn the_crossing_count_follows_the_order_it_is_given() {
     let edges = [(0, 2), (0, 3), (1, 2), (1, 3)];
-    assert_eq!(edge_crossings(&vec![vec![1, 0], vec![2, 3]], &edges), 1, "top reversed");
-    assert_eq!(edge_crossings(&vec![vec![0, 1], vec![3, 2]], &edges), 1, "bottom reversed");
-    assert_eq!(edge_crossings(&vec![vec![1, 0], vec![3, 2]], &edges), 1, "both reversed");
+    assert_eq!(
+        edge_crossings(&[vec![1, 0], vec![2, 3]], &edges),
+        1,
+        "top reversed"
+    );
+    assert_eq!(
+        edge_crossings(&[vec![0, 1], vec![3, 2]], &edges),
+        1,
+        "bottom reversed"
+    );
+    assert_eq!(
+        edge_crossings(&[vec![1, 0], vec![3, 2]], &edges),
+        1,
+        "both reversed"
+    );
 }
 
 /// An edge that jumps a rank is not counted, and neither is a pair that shares an endpoint:
@@ -142,7 +176,15 @@ fn the_crossing_count_follows_the_order_it_is_given() {
 fn the_count_leaves_out_what_it_cannot_know() {
     let edges = [(0, 4), (1, 2)];
     let rows = vec![vec![0, 1], vec![2, 3], vec![4, 5]];
-    assert_eq!(edge_crossings(&rows, &edges), 0, "the long edge shares no band");
+    assert_eq!(
+        edge_crossings(&rows, &edges),
+        0,
+        "the long edge shares no band"
+    );
     let shared = [(0, 2), (0, 3)];
-    assert_eq!(edge_crossings(&rows, &shared), 0, "one node, two edges: a fan, not a crossing");
+    assert_eq!(
+        edge_crossings(&rows, &shared),
+        0,
+        "one node, two edges: a fan, not a crossing"
+    );
 }

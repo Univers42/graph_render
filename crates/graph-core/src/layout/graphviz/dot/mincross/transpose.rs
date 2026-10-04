@@ -89,7 +89,10 @@ fn transpose_step(g: &mut Fast, ranks: &mut Ranks, r: usize, reverse: bool) -> i
             // the next round has to look at again. `wrapping_sub` keeps rank 0 from naming a
             // rank above the top, and the bound drops the one below the bottom.
             let last = ranks.max();
-            for touched in [r.wrapping_sub(1), r + 1].into_iter().filter(|t| *t <= last) {
+            for touched in [r.wrapping_sub(1), r + 1]
+                .into_iter()
+                .filter(|t| *t <= last)
+            {
                 ranks.rows[touched].valid = false;
                 ranks.rows[touched].candidate = true;
             }

@@ -75,7 +75,11 @@ pub fn mincross(g: &mut Fast, ranks: &mut Ranks, startpass: i32) -> i64 {
 
 /// How many sweeps this pass is allowed.
 fn rounds_for(pass: i32) -> i32 {
-    if pass <= 1 { FIRST_ROUNDS.min(MAX_SWEEPS) } else { MAX_SWEEPS }
+    if pass <= 1 {
+        FIRST_ROUNDS.min(MAX_SWEEPS)
+    } else {
+        MAX_SWEEPS
+    }
 }
 
 impl Counts {
@@ -87,9 +91,15 @@ impl Counts {
         if startpass > 1 {
             let count = super::crossings::ncross(g, ranks);
             ranks.save_best(g);
-            Self { cur: count, best: count }
+            Self {
+                cur: count,
+                best: count,
+            }
         } else {
-            Self { cur: i64::MAX, best: i64::MAX }
+            Self {
+                cur: i64::MAX,
+                best: i64::MAX,
+            }
         }
     }
 }
@@ -147,7 +157,11 @@ fn one_step(g: &mut Fast, ranks: &mut Ranks, iteration: i32) {
     // A downward sweep starts one rank below the top, because the top rank's order was just
     // decided by the walk; an upward sweep ends one rank above the bottom, because the
     // bottom rank's order is the one the walk decided and is not its own to change.
-    let visited: Vec<i32> = if step > 0 { (1..=max).collect() } else { (0..max).rev().collect() };
+    let visited: Vec<i32> = if step > 0 {
+        (1..=max).collect()
+    } else {
+        (0..max).rev().collect()
+    };
     for r in visited {
         let fixed = super::median::medians(g, ranks, r as usize, (r - step) as usize);
         super::median::reorder(g, ranks, r as usize, &Sweep { reverse, fixed });

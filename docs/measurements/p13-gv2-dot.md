@@ -17,7 +17,7 @@ puts `GD_maxrank` at the *bottom* and stacks every rank below it higher up, so *
 top row** and `y = y_of_rank_0 - rank * (height + ranksep)`. That direction is the whole
 measurement: reading y the other way round gives every one of the six closed cases upside
 down, which is what the mirror test in `dot/rank_tests.rs` is there to catch.
-`target/probe/rank_oracle.py` reports the largest distance any printed y sits from that
+`harness/oracle-dot-probe.py` reports the largest distance any printed y sits from that
 grid, over every node of every seed, and it is **0.0000 of a step** — so every node of every
 fixture lands exactly on a rank, and the table is the oracle's own layering rather than a
 rounded guess at it.
@@ -34,10 +34,10 @@ scripts/orch/gr cargo run -q -p graph-cli --release -- \
     emit-graphviz-fixtures --engine twopi --seeds 1000 --out target/dot-probe1000
 cp target/dot-probe1000/twopi.jsonl target/dotfix/dot.jsonl
 cp target/dot-probe1000/twopi-manifest.json target/dotfix/dot-manifest.json
-docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle \
+scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle \
     python3 harness/oracle-graphviz.py target/dotfix dot target/gv-dot-det-a --fixtures=dot.jsonl
-docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle \
-    python3 target/probe/rank_oracle.py --digest target/probe/rank1000.txt
+scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle \
+    python3 harness/oracle-dot-probe.py target/dotfix --fixtures=dot.jsonl --digest=target/probe/dot1000.txt
 scripts/orch/gr cargo test -p graph-core --lib -- --ignored \
     rank_agreement_over_1000_seeds --nocapture
 # 692 of 1000 seeds agree node for node; 993 have equal cost; 6 are worse
@@ -79,7 +79,7 @@ scripts/orch/gr cargo run -q -p graph-cli -- emit-graphviz-fixtures --engine two
 # the fixture file is the engine's own key; rename it so the harness reads it as dot's
 cp target/dot-probe1000/twopi.jsonl        target/dotfix/dot.jsonl
 cp target/dot-probe1000/twopi-manifest.json target/dotfix/dot-manifest.json
-docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle \
+scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle \
 python3 harness/oracle-graphviz.py target/dotfix dot target/gv-dot-det-a --fixtures=dot.jsonl
 
 # …and again into target/gv-dot-det-b, then
@@ -93,7 +93,7 @@ The same 1000 fixtures at `-Gstart` 1, 7 and 99, all through the plain positiona
 call so all three write the same record shape:
 ```sh
 for s in 1 7 99; do
-docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle \
+scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle \
 python3 harness/oracle-graphviz.py target/dotfix dot "target/gv-dot-s$s" \
 --fixtures=dot.jsonl --start=$s
 done
@@ -108,6 +108,136 @@ seeded initial placement* — is **it does not**. `dot` draws no random numbers 
 path: there is no `-Gstart` sensitivity to match, no initial-position dependence, and
 no chaos to blame for a gap. Any difference from Graphviz is an algorithmic difference
 or nothing. So there is nothing for a `Ponytail` marker to say about the seed.
+
+# Mincross — the order within a rank, measured over the same 1000 seeds
+
+## The probe is committed, so the numbers below are reproducible
+
+`target/probe/rank_oracle.py` was never committed, so the rank numbers above could not be
+re-derived from a clean checkout. **`harness/oracle-dot-probe.py` replaces it** and is in the
+repository, and it writes **both** answers per seed in one `-Tplain` run: the rank of every
+node, derived from its printed y, and **the order of the nodes inside each rank**, derived
+from their printed x. One row per seed:
+
+```
+seed n  t,h t,h ...  <n ranks>  <n order>
+```
+
+where `order` is the per-rank left-to-right node lists concatenated, rank 0 first. The
+digest is `target/probe/dot1000.txt`, read by `dot/oracle_probe.rs`, which holds both
+`#[ignore]`d sweeps and the shared scaffolding.
+
+```sh
+scripts/orch/gr cargo run -q -p graph-cli --release -- \
+    emit-graphviz-fixtures --engine twopi --seeds 1000 --out target/dot-probe1000
+cp target/dot-probe1000/twopi.jsonl target/dotfix/dot.jsonl
+cp target/dot-probe1000/twopi-manifest.json target/dotfix/dot-manifest.json
+scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle \
+    python3 harness/oracle-dot-probe.py target/dotfix --fixtures=dot.jsonl \
+    --digest=target/probe/dot1000.txt
+# 1000 seeds -> target/probe/dot1000.txt
+# largest distance from the rank grid: 0.0000 of a step
+```
+
+The derivation is measured, not assumed: the probe reports the largest distance any printed
+y sits from the 72-point rank grid, and it is **0.0000 of a step** over every node of every
+seed — the same number the rank section records, read by the same run now. One `dot` per
+seed, 1000 seeds in **67 s**.
+
+**Measured over the probe's own rank column: no fixture seed of the 1000 has an edge whose
+two ends land on the same rank** (0 of 1000, 0 of 400 280 edges). That is the escape hatch
+for the one part of the reference's pass this port does not have — the same-rank edge
+precedence matrix — and it is measured rather than assumed, below.
+
+## What the port has, and how far it agrees
+
+`dot/mincross.rs` and `dot/mincross/{ranks,build,median,transpose,crossings,driver}.rs`,
+each step in its own words in the doc comment above it. `allocate_ranks` (one row per rank,
+one slot per node and per edge that spans it, one spare), `build_ranks` in both directions
+(the BFS from the in-sources, then from the out-sinks), `medians` with `MC_SCALE = 256` and
+its weighted-median branch, `reorder`, `transpose`, `rcross`/`ncross` with the per-band
+cache, `save_best`/`restore_best`, and the three passes: 0 and 1 with at most 4 sweeps, 2
+with `MaxIter = 24`, `MinQuit = 8`, `Convergence = 0.995`, keeping the best order seen.
+Integer arithmetic wherever the reference has it; the one `double` is the weighted median's
+ratio, as the reference's is.
+
+Over the seeds whose **ranks** already agree node for node — an order is only comparable
+when the rows it orders are the same rows:
+
+| measurement | of the 692 rank-agreeing seeds |
+|---|---|
+| the same order in **every** rank | **408** |
+| the same number of edge crossings | **446** |
+| a disagreement that keeps the crossing count | **38** |
+| a disagreement where the port draws **fewer** crossings | **119** |
+| a disagreement where the port draws **more** crossings | **127** |
+
+```sh
+scripts/orch/gr cargo test -p graph-core --lib -- --ignored \
+    order_agreement_over_1000_seeds --nocapture
+# 692 of 1000 seeds agree on the ranks; of those 408 on every rank's order, 446 on the
+# crossing count. Of the 284 disagreements: 38 keep the crossing count, 119 draw fewer
+# crossings and 127 draw more
+```
+
+**What the two numbers say.** The order is not reproduced on 284 of the 692, and the
+crossing count is a coin flip across them: 119 draw fewer crossings than the oracle and 127
+draw more. So the disagreements are **not** the port drawing something worse — it is the
+pass reaching a *different local minimum of a heuristic*, which is what a 24-sweep
+best-of-what-it-found pass does, and the pass's own answer is deterministic
+(`order_tests::two_runs_order_identically` is the check). **Nineteen of the twenty fixture
+seeds** (`n` = 2 to 21) reproduce exactly, and all six closed cases' orders are pinned.
+
+### What the crossing count is, and is not
+
+`-Tplain` prints no crossing count and prints no chain dummy, so **the pass's own count has
+no counterpart on the oracle's side**: it counts over the chains, weighting each link by its
+penalty, and the dummies it places are internal state the plain format never shows. The
+comparison above is therefore over a count that reads nothing but a rank and a row — two
+edges cross when they span the same pair of *adjacent* ranks with their ends in opposite
+orders — which one implementation computes on both sides, so the two can only differ
+because the orders do. Its two stated limits are pinned as tests in `oracle_crossings.rs`:
+an edge that jumps a rank is not counted (72.8% of the fixture edges span exactly one rank),
+and neither is a pair that shares an endpoint. Over the 1000 seeds, 400 280 edges, so the
+count is most of a drawing's crossings but not all of them, and the gap is named rather than
+approximated.
+
+### Seed 4, the smallest disagreement, worked out by hand
+
+Seed 4 is `n1 -- n0` twice, `n2 -- n1`, `n2 -- n0`, `n3 -- n0`, `n4 -- n0` twice and
+`n5 -- n1` twice: six nodes, ranks `[2, 1, 0, 1, 1, 0]`, one chain dummy. The top rank
+holds `n2` and `n5`, and **both orders of that pair draw with no crossing at all** — `n2`
+reaches `n1` and reaches `n0` through the dummy, `n5` reaches only `n1`, and whichever of
+the two sits left, the dummy and `n1` end up on the same side of it. The oracle's rows are
+`[n2, n5] / [n1, n3, n4] / [n0]`; the port's are `[n5, n2] / [n1, n3, n4] / [n0]`. Both are
+pinned, in `order_tests.rs`, together with the check that the crossing count is the same
+either way round — so the seed is a recorded finding and not a hole in the table.
+
+**What is not traced.** Which of the two the pass reaches is decided by the initial walk plus
+the transverse pass's first round, and the port's answer is the one a faithful reading of
+`build_ranks` and `transpose_step` produces: on these rows the top rank's adjacent pair
+crosses twice as `n2`-left and not at all as `n5`-left, so the transverse pass swaps it.
+Turning the transverse pass's rank loop round instead makes seed 4 agree and **seed 8
+disagree**, at the same rate — so the direction of that loop is not what the 284 come from,
+and the cause is not isolated. It is a finding with its seeds, not a reason to stop: the
+pass is bit-deterministic, it is not systematically worse, and the next thing to try is the
+initial walk's node order, which the rank pass's agreement does not pin (the simplex is far
+less sensitive to it than a BFS is).
+
+## The same-rank edge precedence, and what it would cost
+
+The reference's transverse pass refuses to swap two nodes joined by an edge whose ends share
+a rank, through a per-rank adjacency matrix built by a depth-first search over those edges.
+This port has no such matrix and answers "swap allowed" for every pair, with a `Ponytail`
+line on `transpose::order_is_pinned` naming the direction of the omission. The escape hatch
+is measured: **0 of the 1000 fixture seeds has a same-rank edge**, so nothing measured here
+can see it, and a graph that has one is the failing input.
+
+Two smaller omissions, both consequences of the same absence of ports and clusters, are
+named in `dot/mincross.rs`: the port-local half of the crossing count (the reference counts
+inversions between two edges *out of the same node* against each other's port positions, and
+this port has no ports), and the edge `ordering` attribute's virtual edges (a no-op when the
+attribute is absent, which it always is here).
 
 # What is ported
 `crates/graph-core/src/layout/graphviz/dot.rs` and its children, with their own tests:
@@ -127,10 +257,16 @@ or nothing. So there is nothing for a `Ponytail` marker to say about the seed.
   four no-op stages named as no-ops, `cleanup1`.
 - `class2.rs` — chains for edges spanning more than one rank, merged parallel edges,
   `virtual_weight`, and the flat and other lists.
-- `rank_tests.rs` (the six closed cases and twenty fixture seeds), `class2_tests.rs` (each
-  of `class2`'s three outcomes) and `oracle_probe.rs` (the 1000-seed sweep, `#[ignore]`d,
-  which also holds the shared scaffolding). `simplex/checks.rs` re-derives the pass's
-  invariants from scratch under `cfg(test)` after **every** pivot.
+- `mincross.rs` and `mincross/{ranks,build,median,transpose,crossings,driver}.rs` — the
+  order pass: the per-rank rows, the two initial walks, `medians`/`reorder`, `transpose`,
+  `rcross`/`ncross` and the three passes with `save_best`/`restore_best`.
+- `rank_tests.rs` (the six closed cases and twenty fixture seeds), `order_tests.rs` (the
+  same twenty, ordered), `mincross_tests.rs` (one closed case per step),
+  `class2_tests.rs` (each of `class2`'s three outcomes), `oracle_crossings.rs` (the one
+  crossing count both sides of an oracle comparison can be computed with) and
+  `oracle_probe.rs` (both 1000-seed sweeps, `#[ignore]`d, which also holds the shared
+  scaffolding). `simplex/checks.rs` re-derives the pass's invariants from scratch under
+  `cfg(test)` after **every** pivot.
 
 Twenty-three tests in `dot/`, all passing, and one earns its place twice over: **a two-node
 cycle collapses to a single edge, not two.** `reverse_edge` (`acyclic.c:22-33`) unhooks the
@@ -184,7 +320,7 @@ this job.
 | pass | reference | size | ported |
 |---|---|---|---|
 | 1 rank | `acyclic.c` 70, `decomp.c` 117, `ns.c` 1414, `rank.c` 1113, `class2.c` 294 | ~3000 lines | **yes** — see the rank section above |
-| 2 mincross | `mincross.c` 1794 | ~1800 | no |
+| 2 mincross | `mincross.c` 1794 | ~1800 | **yes** — see the mincross section |
 | 3 position | `position.c` 1133, plus a second `ns.c` run | ~1100 | no |
 | 4 splines | `dotsplines.c` 2316 | ~2300 | not needed (polylines) |
 Pass 1 alone is three times the size of `layout.packing.osage` and most of
@@ -213,11 +349,14 @@ more than one rank, `merge_chain` for parallel edges, `virtual_weight`'s
 `table[endpoint_class][endpoint_class]`, and the backward-edge shadowing. The
 fixtures have no self-loops (`synthetic_edges` skips `a == b`) and no clusters, so
 `interclrep` and `realFillRanks` drop out.
-! 4. **`mincross.rs`.** `allocate_ranks`, `build_ranks` in both passes (the BFS from
+4. **`mincross.rs`. Done** — `allocate_ranks`, `build_ranks` in both passes (the BFS from
 in-sources then out-sinks), then `mincross(g, 0)`: passes 0 and 1 with
 `maxthispass = min(4, MaxIter)` and pass 2 with `MaxIter = 24`, `MinQuit = 8`,
 `Convergence = 0.995`, `medians` (with `MC_SCALE = 256` and the weighted-median
 branch), `reorder`, `transpose`, `rcross`/`ncross`, `save_best`/`restore_best`.
+**Not** ported, with the measured reason in the mincross section: the same-rank edge
+precedence matrix (no fixture seed of the 1000 has a same-rank edge), the port-local half
+of the crossing count (no ports) and the cluster path (no clusters).
 ! 5. **`position.rs`.** `set_ycoords` (rank heights, `pht1`/`pht2`, `ranksep`), then
 !    `create_aux_edges` = `make_LR_constraints` + `make_edge_pairs`, `rank(g, 2, …)`,
 !    `set_xcoords`, `set_aspect` (a no-op at the default ratio), `remove_aux_edges`.
@@ -256,7 +395,7 @@ cases are `0`, `0,1`, `0,1,2`, `0,1,2,3`, `0,1,1,1,1` and `0,1,1,1,2,3`, pinned 
 Reproduce the table:
 ```sh
 printf 'graph g {\n  n0; n1; n2; n3;\n  n0 -- n1;\n  n1 -- n2;\n  n2 -- n3;\n  n3 -- n0;\n}\n' > /tmp/cyc4.dot
-docker run --rm --pull never --user 0:0 -v /tmp:/w -w /w ge-graphviz-oracle \
+scripts/orch/drun --rm --pull never --user 0:0 -v /tmp:/w -w /w ge-graphviz-oracle \
 dot -Tplain -Gstart=1 /tmp/cyc4.dot
 ```
 

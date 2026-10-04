@@ -38,8 +38,9 @@ pub fn rcross(g: &Fast, top: &[u32], bottom: &[u32]) -> i64 {
         if max > 0 {
             for &edge in &g.out[node as usize] {
                 let (landed, penalty) = landing(g, edge);
-                for slot in (landed + 1)..=max {
-                    cross += count[slot] * i64::from(penalty);
+                if landed < max {
+                    let reached = count[(landed + 1)..=max].iter().sum::<i64>();
+                    cross += reached * i64::from(penalty);
                 }
             }
         }
@@ -56,7 +57,10 @@ pub fn rcross(g: &Fast, top: &[u32], bottom: &[u32]) -> i64 {
 /// position within that rank, and its penalty.
 fn landing(g: &Fast, edge: u32) -> (usize, i32) {
     let record = &g.edges[edge as usize];
-    (g.nodes[record.head as usize].order as usize, record.xpenalty)
+    (
+        g.nodes[record.head as usize].order as usize,
+        record.xpenalty,
+    )
 }
 
 /// The total crossings of the graph, one cached count per band.

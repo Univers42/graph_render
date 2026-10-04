@@ -88,37 +88,55 @@ impl OracleRow {
 /// target/probe/dot1000.txt` inside `ge-graphviz-oracle`, from the same fixture set as the
 /// twenty seeds in `rank_tests.rs`.
 pub fn oracle_digest() -> Vec<OracleRow> {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../target/probe/dot1000.txt");
+    let path = digest_path();
     let Ok(text) = std::fs::read_to_string(&path) else {
         panic!(
             "{} is missing; see this module's doc for the command that writes it",
             path.display()
         );
     };
-    let mut rows = Vec::new();
-    for line in text.lines().filter(|l| !l.starts_with('#')) {
-        let mut fields = line.split_whitespace();
-        let _seed: u32 = fields.next().expect("a seed").parse().expect("a seed");
-        let count: usize = fields.next().expect("a node count").parse().expect("a count");
-        let rest: Vec<&str> = fields.collect();
-        let (pairs, tail) = rest.split_at(rest.len() - 2 * count);
-        let edges: Vec<(u32, u32)> = pairs
+    let rows: Vec<OracleRow> = text
+        .lines()
+        .filter(|l| !l.starts_with('#'))
+        .map(parse_row)
+        .collect();
+    assert!(!rows.is_empty(), "the digest has rows");
+    rows
+}
+
+/// Where the probe writes its rows: under `target/`, so a clean checkout has none.
+fn digest_path() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/probe/dot1000.txt")
+}
+
+/// One digest line as an [`OracleRow`]: `seed n`, the edges, the ranks, then the order.
+fn parse_row(line: &str) -> OracleRow {
+    let mut fields = line.split_whitespace();
+    let _seed: u32 = fields.next().expect("a seed").parse().expect("a seed");
+    let count: usize = fields
+        .next()
+        .expect("a node count")
+        .parse()
+        .expect("a count");
+    let rest: Vec<&str> = fields.collect();
+    let (pairs, tail) = rest.split_at(rest.len() - 2 * count);
+    let numbers = |slice: &[&str]| -> Vec<i32> {
+        slice.iter().map(|n| n.parse().expect("a number")).collect()
+    };
+    OracleRow {
+        edges: pairs
             .iter()
             .map(|pair| {
                 let (tail, head) = pair.split_once(',').expect("a tail,head pair");
                 (tail.parse().expect("a tail"), head.parse().expect("a head"))
             })
-            .collect();
-        let numbers = |slice: &[&str]| -> Vec<i32> {
-            slice.iter().map(|n| n.parse().expect("a number")).collect()
-        };
-        let ranks = numbers(&tail[..count]);
-        let order: Vec<u32> = numbers(&tail[count..]).into_iter().map(|n| n as u32).collect();
-        rows.push(OracleRow { edges, ranks, order });
+            .collect(),
+        ranks: numbers(&tail[..count]),
+        order: numbers(&tail[count..])
+            .into_iter()
+            .map(|n| n as u32)
+            .collect(),
     }
-    assert!(!rows.is_empty(), "the digest has rows");
-    rows
 }
 
 /// The 1000-seed rank agreement, which is what `docs/measurements/p13-gv2-dot.md` records.
@@ -214,50 +232,98 @@ fn acyclic_edges(count: u32, edges: &[(u32, u32)]) -> Vec<(u32, u32, i64)> {
 #[ignore = "needs target/probe/dot1000.txt, written by the oracle probe"]
 fn order_agreement_over_1000_seeds() {
     let rows = oracle_digest();
-    let mut same_ranks = 0usize;
-    let mut same_order = 0usize;
-    let mut same_crossings = 0usize;
-    let mut ties = 0usize;
-    for row in &rows {
-        let count = u32::try_from(row.ranks.len()).expect("a node count fits u32");
-        let g = ranked_and_ordered(count, &row.edges);
-        if crossings::real_ranks(&g) != row.ranks {
-            continue;
-        }
-        same_ranks += 1;
-        let ours = crossings::real_rows(&g);
-        let theirs = row.rows();
-        let ours_cross = crossings_of(&ours, &row.edges);
-        let theirs_cross = crossings_of(&theirs, &row.edges);
-        if ours == theirs {
-            same_order += 1;
-        }
-        if ours_cross == theirs_cross {
-            same_crossings += 1;
-        } else if ours != theirs {
-            ties += 0;
-        }
-        if ours != theirs && ours_cross == theirs_cross {
-            ties += 1;
-        }
-    }
+    let tally = sweep_order(&rows);
     eprintln!(
-        "of {same_ranks} rank-agreeing seeds, {same_order} agree on every rank's order and \
-         {same_crossings} on the crossing count; {ties} of the {same_order} \
-         disagreements keep the crossing count",
-        same_order = same_ranks - same_order
+        "{} of {} seeds agree on the ranks; of those {} on every rank's order, {} on the \
+         crossing count. Of the {} disagreements: {} keep the crossing count, {} draw fewer \
+         crossings and {} draw more",
+        tally.same_ranks,
+        rows.len(),
+        tally.same_order,
+        tally.same_crossings,
+        tally.same_ranks - tally.same_order,
+        tally.tied,
+        tally.better,
+        tally.worse,
     );
-    assert_eq!(same_ranks, RECORDED_RANK_AGREEMENT, "seeds whose ranks agree");
-    assert_eq!(same_order, RECORDED_ORDER_AGREEMENT, "seeds whose order agrees");
     assert_eq!(
-        same_crossings, RECORDED_CROSSING_AGREEMENT,
+        tally.same_ranks, RECORDED_RANK_AGREEMENT,
+        "seeds whose ranks agree"
+    );
+    assert_eq!(
+        tally.same_order, RECORDED_ORDER_AGREEMENT,
+        "seeds whose order agrees"
+    );
+    assert_eq!(
+        tally.same_crossings, RECORDED_CROSSING_AGREEMENT,
         "seeds whose crossing count agrees"
     );
 }
 
-/// The three numbers `docs/measurements/p13-gv2-dot.md` records for the order sweep. They
-/// are filled in from the run the measurement file quotes; a change in any of them is a
-/// change someone has to look at.
-const RECORDED_RANK_AGREEMENT: usize = 0;
-const RECORDED_ORDER_AGREEMENT: usize = 0;
-const RECORDED_CROSSING_AGREEMENT: usize = 0;
+/// Count the order agreement over every row of the digest, one pass and no allocation per
+/// seed beyond the graph itself.
+fn sweep_order(rows: &[OracleRow]) -> Tally {
+    let mut tally = Tally::default();
+    for row in rows {
+        let g = tally.graph(row);
+        if crossings::real_ranks(&g) != row.ranks {
+            continue;
+        }
+        tally.same_ranks += 1;
+        tally.grade(row, &g);
+    }
+    tally
+}
+
+/// What the order sweep counts, and how a disagreement is graded.
+///
+/// The grade is the one question a disagreement raises: is the port's drawing a different
+/// arrangement of the same drawing, a better one, or a worse one? Three counters, and the
+/// crossing count is the same [`edge_crossings`](super::oracle_crossings::edge_crossings)
+/// on both sides.
+#[derive(Default)]
+struct Tally {
+    same_ranks: usize,
+    same_order: usize,
+    same_crossings: usize,
+    tied: usize,
+    better: usize,
+    worse: usize,
+}
+
+impl Tally {
+    /// One seed that agrees on its ranks: compare the port's rows with the oracle's, and
+    /// grade a disagreement by which of the two drawings has fewer crossings.
+    fn grade(&mut self, row: &OracleRow, g: &Fast) {
+        let ours = crossings::real_rows(g);
+        let theirs = row.rows();
+        if ours == theirs {
+            self.same_order += 1;
+        }
+        let ours_cross = crossings_of(&ours, &row.edges);
+        let theirs_cross = crossings_of(&theirs, &row.edges);
+        if ours_cross == theirs_cross {
+            self.same_crossings += 1;
+        } else if ours != theirs {
+            match ours_cross.cmp(&theirs_cross) {
+                std::cmp::Ordering::Less => self.better += 1,
+                std::cmp::Ordering::Greater => self.worse += 1,
+                std::cmp::Ordering::Equal => self.tied += 1,
+            }
+        }
+    }
+
+    /// The port's own run of one fixture seed, kept on the tally so [`Tally::grade`] reads
+    /// one row and one graph.
+    fn graph(&self, row: &OracleRow) -> Fast {
+        let count = u32::try_from(row.ranks.len()).expect("a node count fits u32");
+        ranked_and_ordered(count, &row.edges)
+    }
+}
+
+/// The three numbers `docs/measurements/p13-gv2-dot.md` records for the order sweep, as the
+/// run quoted there measured them. They are named so the assertions above say which
+/// measurement they check, and so a change in any of them is a change someone must look at.
+const RECORDED_RANK_AGREEMENT: usize = 692;
+const RECORDED_ORDER_AGREEMENT: usize = 408;
+const RECORDED_CROSSING_AGREEMENT: usize = 446;

@@ -70,7 +70,11 @@ pub fn medians(g: &mut Fast, ranks: &mut Ranks, r0: usize, r1: usize) -> bool {
 /// crossing count ignores, so the pass has no reason to order by it.
 fn neighbour_values<'a>(g: &Fast, node: u32, downward: bool, out: &'a mut Vec<i32>) -> &'a [i32] {
     out.clear();
-    let edges = if downward { &g.out[node as usize] } else { &g.inn[node as usize] };
+    let edges = if downward {
+        &g.out[node as usize]
+    } else {
+        &g.inn[node as usize]
+    };
     for &edge in edges {
         let record = &g.edges[edge as usize];
         if record.xpenalty > 0 {

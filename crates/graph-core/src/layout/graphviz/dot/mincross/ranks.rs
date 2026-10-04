@@ -120,7 +120,12 @@ impl Ranks {
             valid: false,
             candidate: false,
         });
-        Self { rows, max, nlist: Vec::new(), scratch: Vec::new() }
+        Self {
+            rows,
+            max,
+            nlist: Vec::new(),
+            scratch: Vec::new(),
+        }
     }
 
     /// The highest rank in use.
@@ -232,7 +237,8 @@ impl Ranks {
         }
         for r in 0..=self.max {
             self.rows[r].valid = false;
-            self.window_mut(r).sort_by_key(|&node| g.nodes[node as usize].order);
+            self.window_mut(r)
+                .sort_by_key(|&node| g.nodes[node as usize].order);
         }
     }
 
@@ -263,7 +269,7 @@ fn span_counts(g: &Fast, edge: &super::super::fast::Edge, counts: &mut [u32]) {
     if low > high {
         std::mem::swap(&mut low, &mut high);
     }
-    for r in (low + 1)..high {
-        counts[r] += 1;
+    for count in counts.iter_mut().take(high).skip(low + 1) {
+        *count += 1;
     }
 }

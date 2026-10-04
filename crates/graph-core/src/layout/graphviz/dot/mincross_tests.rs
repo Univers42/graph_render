@@ -62,7 +62,10 @@ fn mval(g: &Fast, node: u32) -> f64 {
 #[test]
 fn an_odd_number_of_neighbours_gives_the_middle_value() {
     let (mut g, mut ranks) = staged(4, &[(0, 3), (1, 3), (2, 3)], &[0, 1, 2, 3]);
-    assert!(!median::medians(&mut g, &mut ranks, 1, 0), "the node has three edges");
+    assert!(
+        !median::medians(&mut g, &mut ranks, 1, 0),
+        "the node has three edges"
+    );
     assert_eq!(mval(&g, 3), 256.0);
 }
 
@@ -73,7 +76,10 @@ fn an_odd_number_of_neighbours_gives_the_middle_value() {
 #[test]
 fn an_even_number_of_neighbours_averages_the_two_middle_values() {
     let (mut g, mut ranks) = staged(5, &[(0, 4), (1, 4), (2, 4), (3, 4)], &[0, 1, 2, 3, 4]);
-    assert!(!median::medians(&mut g, &mut ranks, 1, 0), "the node has four edges");
+    assert!(
+        !median::medians(&mut g, &mut ranks, 1, 0),
+        "the node has four edges"
+    );
     assert_eq!(mval(&g, 4), 384.0);
 }
 
@@ -87,7 +93,10 @@ fn an_even_number_of_neighbours_averages_the_two_middle_values() {
 fn an_uneven_gap_pulls_the_even_median_towards_the_nearer_end() {
     let edges = [(0, 6), (1, 6), (2, 6), (5, 6), (3, 7), (4, 7)];
     let (mut g, mut ranks) = staged(8, &edges, &[0, 1, 2, 3, 4, 5, 6, 7]);
-    assert!(!median::medians(&mut g, &mut ranks, 1, 0), "both nodes have in-edges");
+    assert!(
+        !median::medians(&mut g, &mut ranks, 1, 0),
+        "both nodes have in-edges"
+    );
     assert_eq!(mval(&g, 6), 320.0, "four neighbours, unevenly spaced");
     assert_eq!(mval(&g, 7), 896.0, "two neighbours: their plain average");
 }
@@ -99,7 +108,10 @@ fn an_uneven_gap_pulls_the_even_median_towards_the_nearer_end() {
 #[test]
 fn a_node_with_no_edge_has_no_opinion() {
     let (mut g, mut ranks) = staged(3, &[(0, 1)], &[0, 1, 2]);
-    assert!(median::medians(&mut g, &mut ranks, 0, 1), "node 2 has no edge at all");
+    assert!(
+        median::medians(&mut g, &mut ranks, 0, 1),
+        "node 2 has no edge at all"
+    );
     assert_eq!(mval(&g, 2), -1.0);
 }
 
@@ -121,7 +133,11 @@ fn a_k22_has_exactly_one_crossing() {
 #[test]
 fn a_k22_with_a_third_node_below_has_no_crossing() {
     let (g, _ranks) = staged(5, &[(0, 2), (0, 3), (1, 3), (1, 4)], &[0, 1, 2, 3, 4]);
-    assert_eq!(crossings::crossings(&g), 0, "the edges are already in order");
+    assert_eq!(
+        crossings::crossings(&g),
+        0,
+        "the edges are already in order"
+    );
 }
 
 /// **A transverse pass that removes one crossing.** Five nodes: `n0`, `n1`, `n2` on the top
@@ -132,9 +148,17 @@ fn a_k22_with_a_third_node_below_has_no_crossing() {
 #[test]
 fn a_transpose_removes_one_crossing() {
     let (mut g, mut ranks) = staged(5, &[(0, 3), (1, 3), (1, 4), (2, 4)], &[1, 0, 2, 3, 4]);
-    assert_eq!(crossings::crossings(&g), 1, "the order starts with one crossing");
+    assert_eq!(
+        crossings::crossings(&g),
+        1,
+        "the order starts with one crossing"
+    );
     transpose::transpose(&mut g, &mut ranks, false);
-    assert_eq!(crossings::rank_rows(&g)[0], vec![0, 1, 2], "the swap undid the crossing");
+    assert_eq!(
+        crossings::rank_rows(&g)[0],
+        vec![0, 1, 2],
+        "the swap undid the crossing"
+    );
     assert_eq!(crossings::crossings(&g), 0);
 }
 
@@ -147,7 +171,11 @@ fn a_transpose_leaves_a_non_crossing_pair_alone() {
     let (mut g, mut ranks) = staged(5, &[(0, 3), (1, 3), (1, 4), (2, 4)], &[0, 1, 2, 3, 4]);
     assert_eq!(crossings::crossings(&g), 0, "nothing to remove");
     transpose::transpose(&mut g, &mut ranks, false);
-    assert_eq!(crossings::rank_rows(&g)[0], vec![0, 1, 2], "no swap on a tie");
+    assert_eq!(
+        crossings::rank_rows(&g)[0],
+        vec![0, 1, 2],
+        "no swap on a tie"
+    );
 }
 
 /// **The initial order is the walk, and it is what the pass starts from.** Four nodes on two
@@ -165,7 +193,11 @@ fn both_walks_agree_on_a_graph_whose_order_is_not_a_choice() {
         ranks.enter_component(0, &[0, 1, 2, 3]);
         build::build_ranks(&mut g, &mut ranks, pass);
         ranks.install_complete_ranks(&mut g);
-        assert_eq!(crossings::rank_rows(&g), vec![vec![0, 1], vec![2, 3]], "pass {pass}");
+        assert_eq!(
+            crossings::rank_rows(&g),
+            vec![vec![0, 1], vec![2, 3]],
+            "pass {pass}"
+        );
     }
 }
 
@@ -192,7 +224,10 @@ fn a_swap_walk_finishes_on_two_independent_ranks() {
     for node in [0, 1, 2, 3] {
         assert!(ranks.append(&mut g, node), "rank row {node} has room");
     }
-    let sweep = Sweep { reverse: false, fixed: false };
+    let sweep = Sweep {
+        reverse: false,
+        fixed: false,
+    };
     let moved = median::reorder(&mut g, &mut ranks, 0, &sweep);
     assert!(!moved, "nothing wanted to move");
     assert_eq!(crossings::rank_rows(&g)[0], vec![0, 1]);

@@ -68,7 +68,11 @@ fn reset(g: &mut Fast, ranks: &mut Ranks) {
 /// A seed is a node with no edge running *against* the walk: no in-edge going down, no
 /// out-edge going up.
 fn is_seed(g: &Fast, node: u32, pass: usize) -> bool {
-    let against = if pass == 0 { &g.inn[node as usize] } else { &g.out[node as usize] };
+    let against = if pass == 0 {
+        &g.inn[node as usize]
+    } else {
+        &g.out[node as usize]
+    };
     against.is_empty()
 }
 
@@ -91,15 +95,15 @@ fn walk_from(g: &mut Fast, ranks: &mut Ranks, seed: u32, pass: usize) {
 /// pointer and this can too.
 fn enqueue(g: &mut Fast, queue: &mut VecDeque<u32>, node: u32, pass: usize) {
     let node = node as usize;
-    let edges: &[u32] = if pass == 0 { &g.out[node] } else { &g.inn[node] };
+    let edges: &[u32] = if pass == 0 {
+        &g.out[node]
+    } else {
+        &g.inn[node]
+    };
     for &edge in edges {
         let other = {
             let record = &g.edges[edge as usize];
-            if pass == 0 {
-                record.head
-            } else {
-                record.tail
-            }
+            if pass == 0 { record.head } else { record.tail }
         };
         let mark = &mut g.nodes[other as usize].mark;
         if !*mark {
