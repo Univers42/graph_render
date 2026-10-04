@@ -174,6 +174,7 @@ mod geometry_invariants {
             ["layout.force.kamada_kawai.3d", WHOLE, layout_force_kamada_kawai_3d],
             ["layout.force.drl.3d", WHOLE, layout_force_drl_3d],
             ["layout.forceatlas2.3d", WHOLE, layout_forceatlas2_3d],
+            ["layout.random.3d", WHOLE, layout_random_3d],
         ]
     }
 

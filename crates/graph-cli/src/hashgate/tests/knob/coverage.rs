@@ -39,7 +39,7 @@ enum Gap {
 /// The layout ids `knobs::all()` does not tabulate, each with what it actually has.
 ///
 /// Sorted by id so a diff reads as a change to the set rather than a reshuffle.
-const NO_PER_STAGE_CONTROL: [(&str, Gap); 33] = [
+const NO_PER_STAGE_CONTROL: [(&str, Gap); 34] = [
     ("layout.bipartite", Gap::NoControl),
     ("layout.circular.circo", Gap::NoControl),
     ("layout.circular.hierarchy", Gap::HasOwnStageNodes),
@@ -77,6 +77,11 @@ const NO_PER_STAGE_CONTROL: [(&str, Gap); 33] = [
     ("layout.mds.pivot3d", Gap::NoControl),
     ("layout.packing.circle", Gap::NoControl),
     ("layout.random", Gap::NoControl),
+    // `layout.random.3d` is the same gap as the id above and for the same reason: no knob
+    // scopes `stage_nodes` to either, and the reference model moves both along with every
+    // other stage. It is a separate entry rather than a widened one because the list is
+    // keyed by id, and the gate is what says the hash is over the stage.
+    ("layout.random.3d", Gap::NoControl),
     ("layout.spectral", Gap::NoControl),
     ("layout.spectral3d", Gap::NoControl),
     ("layout.spiral", Gap::NoControl),
