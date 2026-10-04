@@ -31,6 +31,7 @@ pub mod spiral;
 pub mod sugiyama;
 #[cfg(test)]
 mod tests;
+
 pub mod tidy_tree;
 pub mod treemap;
 

@@ -98,6 +98,11 @@ pub struct ComponentReport {
     /// caller needs to say *why* a component was skipped (C12). `None` only when no
     /// candidate was produced at all — the retry's Cholesky refused — never when one was
     /// produced and the gate said no.
+    ///
+    /// **Not the whole reason.** The gate has two halves, and a component can be `!solved` at
+    /// a residual four orders of magnitude inside its own limit when the *orthonormality*
+    /// check is what refused (`solve::accept`, and the 1025-node path in `spectral_stage`'s
+    /// tests). `solved` is the verdict; this is one of its two inputs.
     pub peak_residual: Option<f64>,
 }
 
