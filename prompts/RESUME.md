@@ -41,9 +41,13 @@ below is from a brief; each line cites a commit, a `file:line` or a command.
   `force-session-warm-seed`, `gpu-force-tier`, `ingest-columns`, `layout-params`, `memory-guard`,
   `node-overlap`, `obsidian-force`, `bh-jiggle-key`, `note-code-7-deferred`, `wasm-ingest-limits`,
   `sfdp-gather-form`, `render-readable-spacing` — the list is in `STATUS.md` §8, do not re-ask.
-- **Still open**: `perf-fps` has never passed (`studio-s7.md:13,31`), `studio-switch-fit`,
-  `layout.circular.circo` (16 of 1000 seeds), `layout.force.yifan_hu` and `.2z` (no oracle at all),
-  `simd_nodes` inert (`tier-thresholds.md:15,116`), no `negctl-node-z` in `develop-full.rows`.
+- **Still open**: `perf-fps` has never passed (`studio-s7.md:13,31`), `layout.circular.circo` (16 of
+  1000 seeds), `layout.force.yifan_hu` / `.2z` / `.3d` (**no coordinate oracle** — the registry names
+  `stress` for all three, `unproven.rs:103,89,94`), `simd_nodes` inert (`tier-thresholds.md:15,116`).
+  Three items from this list have since closed: `studio-switch-fit` (the probe is
+  `deploy/nav/switchrows.py`, wired at `navrows.py:242`, `nav.py:78` passes
+  `expect_switch_stale=broken`, run by the `nav` / `negctl-nav` rows in `force-warm.rows:27-28`);
+  `negctl-node-z` **is** in `develop-full.rows` at `:191`; `p12-t4a` is the tag `archive/p12-t4a`.
 
 The next session's first page is `prompts/CONTINUE.md` §4. The first task is unchanged in kind and
 larger in scope: **run the full gate on develop and repair its red rows.** The 10^5/10^6 bench
@@ -98,10 +102,13 @@ current rollups. This block is the dated handoff; everything below it is history
 
 ### Still open
 
-`p12-t4a` (3D arms of the five closed-form/spectral names, branch `971318d` holds all 40 files),
+`p12-t4a` (3D arms of the five closed-form/spectral names, branch `971318d` holds all 40 files —
+**since archived**: it is now the tag `archive/p12-t4a` and no `origin/p12-t4a` exists),
 `p12-t4b` (3D arms of the force names, **no branch yet**), `p13-gv2-dot` (the `dot` port,
 `f098188`; the brief orders rank → mincross → position), `osage-knob` (unblocks osage's promotion
-to `gated`), `sg-conformance-split`, `studio-switch-fit` (live), `trap-followups` (**landed** — the brief's item
+to `gated`), `sg-conformance-split`, `studio-switch-fit` (**since landed** — `switchrows.py` is the
+probe and `nav.py:78` passes `expect_switch_stale=broken`; the 2026-10-02 claim "nav.py has no switch
+probe" was false from the start), `trap-followups` (**landed** — the brief's item
 list is satisfied), `studio-3d` (**landed**). `p12-t3-knobs` is **partial**: the five knobs are in
 `hashgate/knobs.rs:125-151`, and the brief's "exit 1" goal was replaced by pinning
 `negctl-node-z` to exit **2** with the cause written (`scripts/orch/rows/p12-t3.rows:84`).
@@ -111,7 +118,8 @@ Full table with evidence: `docs/reports/STATUS.md` §4.1.
 
 Superseded and deletable: `p12-t2` (b1aa19d), `tier-settle` (6ab44f9), `studio-force` (15ce426) —
 develop carries the same work and has since grown past each. `studio-ux` (855a876) stays
-**dropped** by the user, 2026-09-30: do not plan work on it. Work in them: `p12-t4a` (971318d),
+**dropped** by the user, 2026-09-30: do not plan work on it. Work in them: `p12-t4a` (971318d —
+**archived as the tag `archive/p12-t4a`, its deliverable already on develop**),
 `p13-gv2-dot` (f098188), `perf-p2-pm` (e64e8df, `layout.force.particle_mesh`), `sg-dedupe`
 (4357222), and three docs-only review branches (62529fa, ebeeb9d, 7dfb5cf).
 
@@ -136,7 +144,7 @@ any label that still has a `.pid` (`queue.sh:94`), so nothing gets re-run, only 
 
 1. `scripts/orch/gate.sh <logdir> scripts/orch/rows/develop-full.rows` on develop, one timed gate
    at a time. Red rows become repair tasks.
-2. Land `p12-t4a`, then `p13-gv2-dot`, then `perf-p2-pm` — each: merge develop into the branch,
+2. ~~Land `p12-t4a`, then~~ `p13-gv2-dot`, then `perf-p2-pm` — each: merge develop into the branch,
    run `scripts/orch/rows/quick.rows` on the merged tree, then `scripts/orch/queue.sh land <label>`
    or set `land=yes`.
 3. `wt-new.sh p12-t4b` and launch it; it has no branch yet.
@@ -168,7 +176,8 @@ declaration is still open (`contract-3d-verdict.md:90`).
   that file first.
 - fdp and sfdp cannot be gated tighter than the Graphviz oracle meets itself
   (`p13-gv2-fdp.md:22`, `p13-gv2-sfdp.md:17`).
-- `layout.force.yifan_hu` is the one layout row with **no oracle at all**.
+- `layout.force.yifan_hu` is the layout row group with **no coordinate oracle** — the registry reads
+  `stress`, not `none`, for it, `.2z` and `.3d` (`unproven.rs:103,89,94`).
 - Studio `perf-fps` has never passed and every studio perf run exits 1 on it, so its negative
   control proves nothing (`docs/measurements/studio-s7.md:18,31`).
 

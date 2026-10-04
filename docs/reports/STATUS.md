@@ -5,11 +5,11 @@ Read this first, then `prompts/CONTINUE.md` (how to work on this host) and `prom
 `docs/reports/HANDOFF.md`, `docs/reports/phase-NN*.md`. The tree and `git` are the final
 authority over all three.
 
-Every fact below was checked on 2026-10-04 against `origin/develop` = **fba1a288** (2026-10-04,
-**1429 commits**). The previous edition of this file was written on 2026-10-02 against **701b46a**
-(436 commits), so **993 commits landed in two days**. That ref moved under the writer
-(`origin/develop` read 802f0f30 mid-session, then fba1a288 — `origin/ux-params-dock` landed and
-took the branch with it), so re-read the ref before quoting a sha. Check any row yourself:
+Every fact below was checked on 2026-10-04 against `origin/develop` = **11664d74** (2026-10-04,
+**1668 commits**; `origin/ci-green` and `origin/perf-p4e-columns` sit on the same sha). The previous
+edition of this file was written on 2026-10-02 against **701b46a** (436 commits), so **1232 commits
+landed in two days**. The ref moved under the previous writer (it read 802f0f30 mid-session, then
+fba1a288), so re-read the ref before quoting a sha. Check any row yourself:
 `git log --oneline origin/develop..origin/<branch>` — 0 lines = merged.
 
 ## 1. What is on develop, by layer
@@ -118,35 +118,32 @@ layer and `server/graph-server` exists only on the unmerged branch `svc-image` (
   `studio-smoke` and `negctl-studio-smoke` at `scripts/orch/rows/develop-full.rows:221-225`. This
   closes the 2026-10-02 gap "the gate runs no studio row".
 
-## 2. Branches pushed, not merged (14)
+## 2. Branches pushed, not merged (7)
 
 `git for-each-ref --no-merged=origin/develop --format='%(refname:short)' refs/remotes/origin`
 
 **Every path named in the "What / why" column below is on the branch, not on develop** — read them
 with `git show origin/<branch>:<path>`. Ahead counts are `git rev-list --count
-origin/develop..origin/<branch>`.
+origin/develop..origin/<branch>`; the last column is `git diff --stat origin/develop...<branch> |
+tail -n 1`.
 
 | Branch | Head | Ahead | Verdict | What / why |
 |---|---|---|---|---|
-| `svc-image` | 3bf7223 | 73 | **not landed, the big one** | the whole `server/graph-server` workspace: 96 files, 10 699 insertions, incl. `tests/{start,shutdown}.rs`. Nothing on develop has a server |
-| `p12-3d-oracles` | dae8b2c1 | 9 | **not landed** | the 3D igraph oracle arm, `scripts/orch/rows/p12-3d.rows`, 28 files. The six `*.3d` ids are registered but their differential is not on develop |
-| `p13-gv2-dot-mincross` | ab760496 | 9 | **not landed** | `dot_mincross` + `harness/oracle-dot-probe.py`; the rank half already landed (§1.1) |
-| `p13-gv3-dot-position` | 535d1f10 | 11 | **not landed, appeared mid-session** | `dot_position`, 20 files. Written *after* the mincross branch, so the two overlap — see §4.1 before landing either |
-| `p12-t4a` | 971318dc | 1 | **not landed, stale** | dated 2026-10-01, 40 files. Its deliverable (3D arms of random/spiral/bipartite/spectral/mds.pivot) is **already on develop** via the conformance series (§1.2) — diff before landing |
-| `yifan-hu-octree` | 186972c9 | 7 | **not landed** | the yifan_hu octree, `docs/measurements/yifan-hu-3d.md`, 32 files |
-| `perf-p4d-extend` | e8014ca2 | 4 | **not landed** | `docs/measurements/perf-p4d-extend.md` (400 lines) |
-| `perf-p3-wasm-replicas` | 2c337dc7 | 8 | **not landed** | `harness/wasm-replicas.mjs` + a worker pool |
-| `perf-p3-steal` | 59869720 | 2 | **not landed** | worker stealing, `docs/measurements/perf-p3-steal.md`. Note: `git` warns "multiple merge bases" against develop |
-| `studio-pack` | 4c3907b5 | 4 | **not landed** | `scripts/studio-pack.sh` (159 lines) + its brief |
-| `assess-3d` | 8f345042 | 1 | **docs only** | `docs/measurements/assess-3d-branches.md`, 280 lines |
-| `fix-rows-drift` | 673fdf5b | 1 | **repair** | two rows files disagree with develop |
-| `fix-rustdoc` | 9f5fb6a2 | 9 | **repair** | 99 files, rustdoc fixes |
-| `fix-sc-misalign` | ea75c086 | 4 | **repair** | `test_sc_metrics_slice.py` (255 lines) + its brief |
+| `p13-gv3-dot-position` | b879c74b | 16 | **not landed** | the third `dot` pass: `layout/graphviz/dot/position{.rs,/}` + `harness/oracle-dot-probe.py`, `docs/measurements/p13-gv2-dot.md`, 27 files, 2262 insertions (§4.1) |
+| `circo-dup-leaf` | 9c787964 | 6 | **not landed** | the circo skeleton tree and its `path` tests, `docs/measurements/p13-gv1-circo.md`, 5 files, 244 insertions |
+| `circo-cross-fast` | e9dbed2f | 5 | **tree already identical to develop** | 5 commits over `.github/workflows/floor.yml`, `scripts/orch/fetch-refs.sh`, `scripts/scigraphs-conformance.sh`; `git diff --stat origin/develop origin/circo-cross-fast` is **empty**, so only the ancestry is unmerged |
+| `gate-repair-178c` | 488e90c3 | 3 | **repair** | `crates/graph-cli/src/ink_cmd.rs` + one `develop-full.rows` row, 2 files, 15 insertions |
+| `perf-p4e-motor-fix` | c1c28bef | 2 | **not landed** | the P4e incremental-append fix in the motor and wasm: `index/extend/`, `exports/delta/`, `forcecheck/stream.rs`, `graph-wasm/src/lib.rs`, `docs/contract/wasm-abi.md`, 9 files |
+| `perf-p4e-sdk` | dccd07c1 | 1 | **not landed** | the SDK/studio half of P4e: `graph-sdk-js/src/columns-assemble.ts` + its two test arms, 3 files, 356 insertions |
+| `status-refresh-3` | 5a9f3ecc | 1 | **docs only** | this file and `prompts/RESUME.md` |
 
-`origin/sg-igraph-3d` **is** merged. **`origin/ux-params-dock` (fba1a288) landed mid-session and is
-the current develop head**, and **`origin/p13-gv3-dot-position` was pushed mid-session**: this
-section was 14 entries, became 13, and is 14 again, all while this file was being written. Re-run
-the command above before acting on the count.
+`origin` now lists only **12 refs** (`git for-each-ref refs/remotes/origin`), so the 2026-10-04
+edition's other twelve — `svc-image`, `p12-3d-oracles`, `p13-gv2-dot-mincross`, `yifan-hu-octree`,
+`perf-p4d-extend`, `perf-p3-wasm-replicas`, `perf-p3-steal`, `studio-pack`, `assess-3d`,
+`fix-rows-drift`, `fix-rustdoc`, `fix-sc-misalign` — **no longer exist on the remote at all**; which
+of them landed and which were deleted is not recorded here. `p12-t4a` survives only as the tag
+`archive/p12-t4a` (2026-10-01, 971318dc). Re-run the `--no-merged` command above before acting on
+the count; it moved twice while the previous edition was written.
 
 ## 3. The capability ledger, row by row
 
@@ -184,7 +181,7 @@ other **64** are `implemented`.
 | `layout.circular.ring` | networkx 3.6 `circular_layout` | — |
 | `layout.spiral` | networkx 3.6 `spiral_layout` | — |
 | `layout.bipartite` | networkx 3.6 `bipartite_layout` | — |
-| `layout.force.yifan_hu` | **none** | no differential exists for this id |
+| `layout.force.yifan_hu` | `stress` | a stress differential, no coordinate oracle (`crates/graph-cli/src/capabilities/registry/unproven.rs:103`) |
 | `layout.force.fruchterman_reingold` | python-igraph 0.11.9 | — |
 | `layout.force.kamada_kawai` | python-igraph 0.11.9 | — |
 | `layout.force.graphopt` | python-igraph 0.11.9 | ceiling 15.39 (`p12-igraph-ceilings.md:48-56`) |
@@ -208,7 +205,7 @@ other **64** are `implemented`.
 | `layout.mds.pivot3d` | SciGraphs `_mds_layout_3d` | `bitwise` tier, Proc median 3.11e-16 (same file) |
 | `layout.force.spring` | networkx 3.6 `spring_layout` at dim=2 | median stress deficit 7.288e-3 against a 1e-1 ceiling; the ceiling is bracketed, not a run (`p12-t2.md:49,137`) |
 | `layout.force.spring3d` | networkx 3.6 `spring_layout` at dim=3 | shares `layout.force.spring`'s kernel with the dimension as a parameter; its stress deficit against the 16 000 ceiling was **not re-measured** (`p12-t3.md:37`, *Not measured* at `:313`) |
-| `layout.force.yifan_hu.2z` | **none** | "no coordinate oracle exists and none is claimed" (the registry's own oracle string) |
+| `layout.force.yifan_hu.2z` | `stress` | a stress differential, no coordinate oracle (`unproven.rs:89`; `.3d` likewise at `:94`) |
 | `layout.force.fruchterman_reingold.3d` | python-igraph 0.11.9 at dim=3 | the `p12-3d-oracles` arm is unmerged (§2) |
 | `layout.force.kamada_kawai.3d` | python-igraph 0.11.9 at dim=3 | same |
 | `layout.force.drl.3d` | python-igraph 0.11.9 at dim=3 | same |
@@ -248,24 +245,29 @@ authority** (`scripts/orch/queue.sh:61`) — read the tree.
 | job | deliverable | state on develop |
 |---|---|---|
 | `p13-gv2-dot` | the `dot` layered port: rank, then mincross, then position | **partial**: rank landed (`layout/graphviz/dot.rs:1-19`); mincross and position are each on their own unmerged branch (`p13-gv2-dot-mincross` ab760496, `p13-gv3-dot-position` 535d1f10) and **they overlap** — position was written without mincross merged, so diff them against each other first. No `layout.dag.dot` row |
-| `p12-t4a` | 3D arms of random / spiral / bipartite / spectral / mds.pivot | **landed by another route** (the `sg-*` conformance series); branch `971318dc` is 3 days stale — diff it |
+| `p12-t4a` | 3D arms of random / spiral / bipartite / spectral / mds.pivot | **closed**: the deliverable landed by another route (the `sg-*` conformance series) and the branch is now the tag `archive/p12-t4a` (2026-10-01, 971318dc) — there is no `origin/p12-t4a` and no local `p12-t4a` to diff |
 | `p12-t4b` | 3D arms of forceatlas2 / yifan_hu / FR / KK / DRL, plus `yifan_hu.2z` | **landed**: all five ids are in `LAYOUTS`; `land=1` (red after the merge) |
 | `p12-3d-oracles` | the 3D igraph differential for those five | **not landed**: branch `dae8b2c1`, 9 commits |
-| `studio-switch-fit` | 0 node pixels for 6 s after a layout switch | **open**: `deploy/nav/switchrows.py` exists, `deploy/nav/nav.py` has no switch probe |
+| `studio-switch-fit` | 0 node pixels for 6 s after a layout switch | **landed**: `deploy/nav/switchrows.py` is the probe, `deploy/nav/navrows.py:16,242` calls `row_layout_switch`, and `deploy/nav/nav.py:78` passes `expect_switch_stale=broken` under `--break` (`deploy/nav/nav.py:106`), which `scripts/studio-nav.sh:31,41` passes for `STUDIO_NAV_BREAK=1`. It runs under the `nav` / `negctl-nav` rows at `scripts/orch/rows/force-warm.rows:27-28` and `scripts/orch/rows/render-spacing.rows:10-11` — **not** in `develop-full.rows` |
 | `sg-conformance-split` | pure-move split of three over-300-line conformance files | **open**: `split-300.md` is dated 2026-10-04 and covers Rust files; the conformance files are a separate split |
 | `trap-followups` | the wasm force session returns a `Code`, never traps | **landed** (`crates/graph-wasm/src/session.rs:230-237`) |
 
-**Closed since 2026-10-02**: `p12-t2`, `p12-t3`, `p12-t3-knobs`, `p12-t4b`, `p13-3d`, `p13-3d-seam`,
+**Closed since 2026-10-02**: `p12-t2`, `p12-t3`, `p12-t3-knobs`, `p12-t4a`, `p12-t4b`, `p13-3d`,
+`p13-3d-seam`,
 the seven Graphviz engines and their differentials, the osage differential gate and its knob,
 `graphviz-verdict`, `wasm-gm-build-trap`, `trap-followups`, `studio-live`, `studio-watchdog`,
-`studio-edge-gradient`, `studio-smoke`, `studio-3d`, `ux-params-abi`, `ux-overlap`, `scigraphs-conformance`,
-`split-300`, and the whole `sg-*` conformance repair series.
+`studio-edge-gradient`, `studio-smoke`, `studio-3d`, `studio-switch-fit`, `ux-params-abi`, `ux-overlap`,
+`scigraphs-conformance`,
+`split-300`, the whole `sg-*` conformance repair series, and the `scratch/` hygiene commit (624d50e9,
+2026-10-04): the tracked `g.dot`, `g.dot.dot` and `scratch/*/` run outputs are gone and `/scratch/`
+is in `.gitignore:35` (`scratch/stress.mjs` is still tracked).
 
 ## 5. Known gaps, each with the file that records it
 
 **Motor**
-- `layout.force.yifan_hu` and `layout.force.yifan_hu.2z` have **no coordinate oracle at all** — the
-  only two layout rows whose oracle field reads `none`.
+- `layout.force.yifan_hu`, `.2z` and `.3d` have **no coordinate oracle**: the registry now names
+  `stress` for all three (`crates/graph-cli/src/capabilities/registry/unproven.rs:103,89,94`), so
+  they are gated on a stress differential, not on coordinates.
 - `layout.circular.circo` does not reproduce Graphviz on 984 of 1000 seeds; the `qsort` tie order is
   not reproducible and `p13-gv1-circo.md:177,187,208` lists the closers not done. `GRAPHVIZ_CIRCO`
   and `GRAPHVIZ_OSAGE` are still `shape` in the conformance matrix.
@@ -286,15 +288,18 @@ the seven Graphviz engines and their differentials, the osage differential gate 
   (`tiers-audit.md:12,91`).
 - The LOBPCG iteration cap can under-report, tie signs are ambiguous, and the 4096-node path fails to
   converge (`docs/decisions/eigensolver.md:63,105,115,199,301,341`).
-- Live force session M2–M4 are not started (`docs/decisions/live-force-session.md:3`); the snapshot
-  cache's build id does not exist, so D2 is blocked (`docs/decisions/snapshot-cache.md:33-34`).
-- The 3D contract decision is still marked **proposed** (`docs/decisions/contract-3d.md:3`) while its
-  verdict is "accepted, with conditions" (`contract-3d-verdict.md:3`), condition 5 is superseded by
-  `studio-3d.md:4`, and the 1.0 declaration is still open (`contract-3d-verdict.md:90`).
+- Live force session **M1–M3 landed; M4 is not started** (`docs/decisions/live-force-session.md:3`,
+  addendum 2026-10-04); the snapshot cache's build id does not exist, so D2 is blocked
+  (`docs/decisions/snapshot-cache.md:33-34`).
+- The 3D contract decision is now **accepted, with conditions** (`docs/decisions/contract-3d.md:3`,
+  no longer "proposed") and its verdict is "accepted, with conditions" (`contract-3d-verdict.md:3`),
+  condition 5 is superseded by `studio-3d.md:4`, and the 1.0 declaration is still open
+  (`contract-3d-verdict.md:90`).
 - `server-and-write-path.md:3` and `server-dependencies.md:3` are still "accepted in principle" /
   "proposed" and owe a devil verdict; the code is 73 commits away on `svc-image` (§2).
-- **There is still no `negctl-node-z` row in `develop-full.rows`** — the full sweep would not
-  exercise the z control that `quick.rows:7` and `p12-t3.rows:84` do run.
+- `develop-full.rows` **does** carry the z control: `negctl-node-z` at
+  `scripts/orch/rows/develop-full.rows:191` (the strong form — it pins the exit to **2** and greps the
+  z-column refusal, copied from `p12-t3.rows:84`), so the full sweep does exercise it.
 - Every Rust file is back under the 300-line house limit (`docs/measurements/split-300.md`,
   2026-10-04, tree `43ab3af6`).
 
@@ -325,8 +330,8 @@ The floor is `scripts/orch/rows/quick.rows` — **11 rows**, of which **4 are ne
 `force-gate-4`, `negctl-force-gravity`, `scigraphs-conformance`, `negctl-scigraphs-conformance`. The
 land step gates on exactly this file (`scripts/orch/queue.sh:37`).
 
-The full develop gate is `scripts/orch/rows/develop-full.rows` — **100 rows**, **20 of them negative
-controls** (`negctl-*`), and it now carries the studio rows (§1.3). Run it under the host lock:
+The full develop gate is `scripts/orch/rows/develop-full.rows` — **113 rows**, **27 of them negative
+controls** (`negctl-*`; counted on develop c2578d07 with `grep -c '^negctl-'`), and it now carries the studio rows (§1.3). Run it under the host lock:
 `scripts/orch/timed scripts/orch/gate.sh <logdir> scripts/orch/rows/develop-full.rows`.
 
 Per merge: `git merge develop` into the branch (never rebase — history is published), resolve
