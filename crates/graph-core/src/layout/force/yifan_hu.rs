@@ -16,9 +16,14 @@
 //! `layout.force.barnes_hut` runs, which is where essentially all of this stage's time
 //! goes (`registry/force.rs`'s `O(n log n) × (112 + 48 × levels)` sizing).
 
+mod arm3d;
 mod coarsen;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests3d;
+
+pub use arm3d::{ID_3D, run_3d};
 
 use super::barnes_hut::{Split, Tier, golden_seed, settle};
 use super::params::{ForceParams, TICKS};

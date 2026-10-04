@@ -46,7 +46,7 @@ use three_d::{
 };
 
 /// Every registered layout, in the order the hash gate runs them.
-pub static LAYOUTS: [Capability; 48] = [
+pub static LAYOUTS: [Capability; 49] = [
     Capability {
         id: Grid::ID,
         run: run_default::<Grid>,
@@ -294,4 +294,7 @@ pub static LAYOUTS: [Capability; 48] = [
     // merge-p12-3d-oracles: the seeded 3D arm of the random family, the one row of p12-t4a
     // that develop had no id for (`docs/decisions/3d-ids.md`).
     RANDOM_3D_LAYOUT,
+    // merge-yifan-hu-octree: the 3D arm of yifan_hu, appended at the END so every existing
+    // index — and every 2D byte and force-session digest behind it — keeps its position.
+    arms_3d::YIFAN_HU_3D_LAYOUT,
 ];

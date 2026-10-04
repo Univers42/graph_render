@@ -175,6 +175,12 @@ mod geometry_invariants {
             ["layout.force.drl.3d", WHOLE, layout_force_drl_3d],
             ["layout.forceatlas2.3d", WHOLE, layout_forceatlas2_3d],
             ["layout.random.3d", WHOLE, layout_random_3d],
+            // merge-yifan-hu-octree: the 3D arm of yifan_hu, appended after
+            // `layout.forceatlas2.3d` so every existing row keeps its index. Its z column is
+            // not checked here — `assert_finite` reads `NodeGeometry`, which has no z — but a
+            // non-finite z refuses the run as `StageError::NonFinite` before this point, so
+            // the sweep still cannot pass with a NaN in it.
+            ["layout.force.yifan_hu.3d", WHOLE, layout_force_yifan_hu_3d],
         ]
     }
 
