@@ -13,6 +13,9 @@
     <header class="host-bar">
       <strong>A host page</strong>
       <span>Opened: <output id="opened" aria-live="polite">nothing yet</output></span>
+      <!-- The host API's one verb, on demand: app/src/embedReplay.ts streams
+           fixtures/embed/replay.jsonl through applyDeltas, a batch at a time. -->
+      <button id="replay" type="button">Replay deltas</button>
     </header>
     <main id="frame" aria-label="The graph"></main>
     <script type="module" src="/src/embed.ts"></script>
