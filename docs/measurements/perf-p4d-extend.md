@@ -233,10 +233,10 @@ than a probe, because it is in no id table yet. `append_edges` takes the pairs.
   `version`. Folding the *record* pass into it would reorder those refusals, which
   `ingest/differential.rs` is right to call a change. It is 41.7 % of the timer and it stays.
 - **`Scan::string`'s byte loop** is still the single largest leaf at 11.5 %. It is now called
-  twice per string byte (once per walk) where it was called four times. A `slice::position`
-  form would likely beat the bounds-checked `matches!` loop, and is the obvious next cut —
-  but it is a leaf rewrite of the one function `canonical_json::parse` is mirrored against,
-  and it is not needed to make the budget.
+  twice per string byte — once by the validating walk, once by the record walk — where it was
+  called four times. A `slice::position` form would likely beat the bounds-checked
+  `matches!` loop, and is the obvious next cut — but it is a leaf rewrite of the one function
+  `canonical_json::parse` is mirrored against, and it is not needed to close a 3 ms gap.
 
 ## Step 4 — the re-measurement at 1M
 
@@ -375,12 +375,17 @@ smallest sum, the same R7 rule in both arms), not a tail.
 
 | file | what |
 |---|---|
+| `crates/graph-wasm/src/ingest.rs` | `read_all` drives `records` over `T: Shape`; `from_utf8` untouched |
 | `crates/graph-wasm/src/ingest/scan.rs` | `Document::new` locates the root on the validating pass; new `Field` |
-| `crates/graph-wasm/src/ingest/scan/walk.rs` | new `root` and `records`; `value_text`; `object` yields `Field`; `rebase` |
-| `crates/graph-wasm/src/ingest/element.rs` | field lists, the `Shape` trait and the two record builders |
-| `crates/graph-wasm/src/ingest/element/table.rs` | **new**: the element's member table, filled by the walk |
-| `crates/graph-wasm/src/ingest.rs` | `read_all` over `records`; `from_utf8` unchanged |
+| `crates/graph-wasm/src/ingest/scan/walk.rs` | `value_text` hands a string value's own text over; `object` yields `Field` |
+| `crates/graph-wasm/src/ingest/scan/walk/pass.rs` | **new**: the two whole-document passes, `root` and `records`, plus `rebase` |
+| `crates/graph-wasm/src/ingest/element.rs` | the field lists, the `Shape` trait and the two record builders |
+| `crates/graph-wasm/src/ingest/element/table.rs` | **new**: the element's member table, filled by the walk and read on demand |
 | `crates/graph-core/src/index/extend.rs` | `check_edges` resolves the endpoints; `append_edges` takes them; `row_of` |
+
+The three `walk.rs` files exist because of the 300-line limit: the profile's
+`Scan::value`/`Scan::records` rows are `walk.rs`'s and `walk/pass.rs`'s functions under the
+names they had when it was taken. No file here is over 300 lines and no function over 40.
 
 Not touched: the wasm exports (`lib.rs`, `gm_*`), the SDK, `packages/`, `app/`, `harness/`,
 `scripts/`, any `Cargo.toml`. No new dependency, no `unsafe`. `IndexSet`/`IndexMap` with
