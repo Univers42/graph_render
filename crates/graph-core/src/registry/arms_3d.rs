@@ -153,12 +153,10 @@ pub(super) const YIFAN_HU_2Z: Metadata = Metadata {
 };
 
 /// `layout.force.yifan_hu.3d`: the 3D yifan_hu, as SciGraphs' `'3'` mode asks for
-/// (`yifan_hu.py:344`).
-///
-/// The one row here whose force run **is** three-dimensional: `z` is a coordinate in the
-/// same difference vectors as `x` and `y`, pushed by many-body, link and collide and pushing
-/// back. That is what separates it from [`YIFAN_HU_2Z`] above, whose `z` is derived from the
-/// graph after the run and never steers it. See `layout/force/yifan_hu/arm3d.rs`.
+/// (`yifan_hu.py:344`). The one row here whose force run **is** three-dimensional: `z` is a
+/// coordinate in the same difference vectors as `x` and `y`, pushed by many-body, link and
+/// collide and pushing back — which is what separates it from [`YIFAN_HU_2Z`] above, whose
+/// `z` is derived from the graph after the run and never steers it.
 pub(super) const YIFAN_HU_3D: Metadata = Metadata {
     tier: 1,
     stage: "layout",
