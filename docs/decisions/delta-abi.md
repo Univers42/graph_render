@@ -20,7 +20,10 @@ Status: accepted, 2026-10-03, under full autonomy, with the devil verdict
 2. **`ForceSession::grow`** absorbs what the topology gained. Afterwards the session is byte-identical
    to `carry(prev, topology)`, and so is every later tick. `carry` stays the reference.
 3. **Two wasm exports**, `gm_graph_extend` and `gm_force_session_grow`, with no new error code.
-   `ABI_VERSION` stays 1:
+   `ABI_VERSION` stays 1 — corrected 2026-10-04: it is `2` now. The bump this decision did not
+   anticipate is `gm_run`'s `params_ptr`/`params_len` starting to carry a layout's published
+   parameters (`crates/graph-wasm/src/lib.rs`, `docs/contract/wasm-abi.md` "Exports"), and none of
+   the three clauses below changed for the exports this decision added:
    - no existing signature changes;
    - no existing refusal code changes its meaning;
    - no accepted document version changes.

@@ -68,35 +68,27 @@ fn each_reader_refuses_the_other_formats_bytes_on_the_code() {
     assert_eq!(counts(graph), before, "and nothing was appended");
 }
 
-/// One row per refusal the export can reach: a header word, the exact length, and the four
-/// graph faults. Each is `ColumnsInvalid`, and each leaves the graph exactly as it was.
-#[test]
-fn a_refused_batch_leaves_the_graph_unchanged() {
-    let (base, batch_records) = split(22, 30, 20);
-    let graph = insert(indexed(&base));
-    let before = counts(graph);
-    let (mut taken, mut twice, mut dangling) = (
-        batch_records.clone(),
-        batch_records.clone(),
-        batch_records.clone(),
-    );
+/// The nine refusals the export reaches below its own two checks: a header word, the exact
+/// length, and the four graph faults, each spelled over the records `records` carries.
+fn refused_batches(base: &Records, records: &Records) -> Vec<(Vec<u8>, &'static str)> {
+    let (mut taken, mut twice, mut dangling) = (records.clone(), records.clone(), records.clone());
     taken.0.push(base.0[0].clone());
-    let mut same_id = batch_records.1[0].clone();
+    let mut same_id = records.1[0].clone();
     same_id.source = same_id.target.clone();
     twice.1.push(same_id);
-    let mut ghost = batch_records.1[0].clone();
+    let mut ghost = records.1[0].clone();
     ghost.target = "no such node".to_owned();
     dangling.1.push(ghost);
-    let mut truncated = batch(&batch_records);
+    let mut truncated = batch(records);
     truncated.truncate(truncated.len() - 1);
     // A non-finite float is reachable from the records alone — the writer copies the bits, so
     // the decoder's `finite` rule is what refuses it. The cell rules with no record-level
     // spelling (a boolean `2`, a `u32::MAX` in a required column, a nonzero pad) need byte
     // surgery and stay pinned in `ingest_columns/tests/`, one test each.
-    let (mut nan, mut infinite) = (batch_records.clone(), batch_records.clone());
+    let (mut nan, mut infinite) = (records.clone(), records.clone());
     nan.0[0].weight = f64::NAN;
     infinite.1[0].strength = f64::INFINITY;
-    let refusals = [
+    vec![
         (batch(&taken), "a node id the graph already holds"),
         (batch(&twice), "an edge id twice in the batch"),
         (batch(&dangling), "an endpoint that names no node"),
@@ -106,8 +98,17 @@ fn a_refused_batch_leaves_the_graph_unchanged() {
         (batch(&nan), "a NaN weight"),
         (batch(&infinite), "an infinite strength"),
         (b"{".to_vec(), "JSON is not a batch"),
-    ];
-    for (refused, why) in refusals {
+    ]
+}
+
+/// One row per refusal the export can reach: a header word, the exact length, and the four
+/// graph faults. Each is `ColumnsInvalid`, and each leaves the graph exactly as it was.
+#[test]
+fn a_refused_batch_leaves_the_graph_unchanged() {
+    let (base, batch_records) = split(22, 30, 20);
+    let graph = insert(indexed(&base));
+    let before = counts(graph);
+    for (refused, why) in refused_batches(&base, &batch_records) {
         assert_eq!(
             extend_columns(graph, &refused),
             Err(Code::ColumnsInvalid),
@@ -125,6 +126,12 @@ fn a_refused_batch_leaves_the_graph_unchanged() {
 
 /// The ceiling `gm_build` holds a document to holds a batch too, by its own code: the length is
 /// refused before a byte of it is decoded.
+///
+/// Caveat: this goes in one step below the export, because the ceiling *through*
+/// `gm_graph_extend_columns` needs a live `gm_alloc` allocation of over a gibibyte and
+/// `gm_alloc` hands out `u32` offsets only, which a 64-bit host cannot give; the order the
+/// ceiling is checked in is pinned by
+/// `the_columns_export_refuses_a_dead_graph_before_it_looks_at_the_buffer` instead.
 #[test]
 fn a_batch_past_the_ingest_ceiling_is_refused_as_too_large() {
     let (base, _) = split(24, 10, 10);
@@ -161,15 +168,28 @@ fn the_same_fault_is_ingest_invalid_through_json_and_columns_invalid_through_col
 
 /// The export's own checks, before the buffer: a dead graph is `InvalidHandle` whatever the
 /// buffer, and a live graph with a buffer that is no live allocation is `BuildSourceInvalid`.
+///
+/// The order `exports/delta.rs` documents is pinned by giving each row a length over
+/// `MAX_INGEST_BYTES`: the ceiling is only reached once both earlier checks have passed, so a
+/// buffer that fails either one is refused by it whatever its length. `IngestTooLarge` itself
+/// is one step below, in `a_batch_past_the_ingest_ceiling_is_refused_as_too_large`.
 #[test]
 fn the_columns_export_refuses_a_dead_graph_before_it_looks_at_the_buffer() {
     let (base, batch_records) = split(26, 12, 8);
     let graph = insert(indexed(&base));
+    let before = counts(graph);
+    let over = u32::try_from(MAX_INGEST_BYTES + 1).expect("the ceiling fits a u32 length");
     refused_with(
         gm_graph_extend_columns(graph, 0, 0),
         Code::BuildSourceInvalid,
     );
+    refused_with(
+        gm_graph_extend_columns(graph, 0, over),
+        Code::BuildSourceInvalid,
+    );
+    assert_eq!(counts(graph), before, "a refused buffer claimed nothing");
     gm_release(graph);
+    refused_with(gm_graph_extend_columns(graph, 0, over), Code::InvalidHandle);
     refused_with(gm_graph_extend_columns(graph, 0, 0), Code::InvalidHandle);
     assert_eq!(
         extend_columns(graph, &batch(&batch_records)),
