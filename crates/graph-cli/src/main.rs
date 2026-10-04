@@ -42,7 +42,7 @@ struct Cli {
 fn main() -> ExitCode {
     match Cli::parse().command {
         Command::Hashgate { seeds, tiers } => hashgate::run(seeds, tiers),
-        Command::HashgateArm { seeds } => hashgate::arm(seeds),
+        Command::HashgateArm { seeds, shard } => hashgate::arm(seeds, shard),
         Command::ForceGate { seeds } => forcecheck::run(seeds),
         Command::ForceGateArm { seeds } => forcecheck::arm(seeds),
         Command::ForceGateStreamArm => forcecheck::stream::arm(),
