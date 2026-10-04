@@ -344,7 +344,9 @@ branch node's best and runner-up leaf "can be the same one". It cannot: `measure
 (`blockpath.c:224-260`) executes exactly one arm per (leaf, ancestor) visit, the arms that write
 `LEAFONE` (`:241`, `:250`) and `LEAFTWO` (`:253`) are mutually exclusive, and a leaf reaches any
 ancestor at most once in a forest, so the two leaves are always distinct nodes. **A forest is
-also not the mechanism** — a connected tree has the same shared stretch. The mechanism is the
+also not the mechanism** — a connected tree has the same shared stretch, and that is an argument
+from the arithmetic below rather than a measured case, the case measured here being a forest.
+The mechanism is the
 arithmetic: at the branch node the sum of the two best arms is `a + b`, and at the node where
 those two arms diverge it is `a + b - 2d` for the shared length `d > 0`, so the branch node wins
 and its two walks overlap by construction.
@@ -418,8 +420,8 @@ further from Graphviz, and both already disagreed by 5 000 points for §5's reas
   names a node twice finds **4**: seeds **68, 94, 668, 694**, one block each. Seed 68 is §4b's
   44-node block. The other two, 68 and 668, are in the "998 unchanged" row because a per-seed gap
   is a maximum over its nodes, so a block whose gap another node already sets cannot show the
-  change. That walk is a scratch under `target/`, not a permanent test: 45 s in release, too slow
-  to sit in `cargo test`.
+  change. That walk was run as a scratch test over the 1000 gate models and deliberately not
+  kept: 45 s in release, too slow to sit in `cargo test`, and its answer is the four seeds above.
 - **Seed 68's own slot count was not read off the oracle.** A multi-block drawing's circles are
   moved and widened by `circpos` to clear each other, so fitting circles to seed 68's `-Tplain`
   coordinates gives radii that are not whole numbers of slots and says nothing. The repeat is
