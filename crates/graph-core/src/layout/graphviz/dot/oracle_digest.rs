@@ -1,11 +1,15 @@
 //! What `harness/oracle-dot-probe.py` wrote: one row per fixture seed, holding the oracle's
-//! rank for every node and the oracle's order within every rank.
+//! rank for every node, the oracle's order within every rank, and the coordinates `-Tplain`
+//! printed for every node.
 //!
 //! The probe is the only thing that can produce this, and it runs inside the oracle image;
 //! [`oracle_digest`] reads what it left in `target/probe/dot1000.txt` and is the reason both
 //! sweeps are `#[ignore]`d — a clean checkout has no `target/`. The file's line format is the
-//! probe's, and the parse is strict: a field that is not a number is a panic, not a zero,
-//! because a silently miscounted row would be a silently wrong measurement.
+//! probe's, and the parse is strict: the ranks and the order are parsed, so a field that is
+//! not a number is a panic rather than a zero, and the coordinates are **not** parsed but kept
+//! as the text the probe printed, because the position comparison is byte for byte and a
+//! round-trip through `f64` would grade our arithmetic against the oracle's own rounding. A
+//! silently miscounted row would be a silently wrong measurement.
 
 /// One row of `target/probe/dot1000.txt`: the oracle's answer for one seed.
 pub struct OracleRow {
@@ -16,6 +20,14 @@ pub struct OracleRow {
     /// The nodes of every rank left to right, rank 0 first: a permutation of `ranks.len()`
     /// node indices, which is what the probe's order column is.
     pub order: Vec<u32>,
+    /// Every node's printed x, in inches, as the string `-Tplain` printed for it: `n0`, `n1`,
+    /// ... in node-index order, and the oracle's own characters, because the position sweep
+    /// compares them byte for byte against the plain format's five-significant-digit precision.
+    #[allow(dead_code)] // read by the position sweep, which does not exist yet
+    pub xs: Vec<String>,
+    /// Every node's printed y: the same node order, the same spelling, as [`Self::xs`].
+    #[allow(dead_code)] // read by the position sweep, which does not exist yet
+    pub ys: Vec<String>,
 }
 
 impl OracleRow {
@@ -32,7 +44,8 @@ impl OracleRow {
 }
 
 /// The oracle's per-seed layering and order, as `harness/oracle-dot-probe.py --digest` wrote
-/// it: `seed n t,h ... <n ranks> <n order>`, one line per seed.
+/// it: `seed n t,h ... <n ranks> <n order> <n xs> <n ys>`, one line per seed, where `xs` and
+/// `ys` are the inch strings the plain format printed per node, in node-index order.
 ///
 /// The file is a probe output under `target/`, so it is absent from a clean checkout; the two
 /// tests that read it are `#[ignore]`d for that reason. It is produced by
@@ -61,7 +74,8 @@ fn digest_path() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/probe/dot1000.txt")
 }
 
-/// One digest line as an [`OracleRow`]: `seed n`, the edges, the ranks, then the order.
+/// One digest line as an [`OracleRow`]: `seed n`, the edges, then the four trailing groups of
+/// `count` tokens — the ranks, the order, and the two printed coordinate columns.
 fn parse_row(line: &str) -> OracleRow {
     let mut fields = line.split_whitespace();
     let _seed: u32 = fields.next().expect("a seed").parse().expect("a seed");
@@ -71,9 +85,12 @@ fn parse_row(line: &str) -> OracleRow {
         .parse()
         .expect("a count");
     let rest: Vec<&str> = fields.collect();
-    let (pairs, tail) = rest.split_at(rest.len() - 2 * count);
+    let (pairs, tail) = rest.split_at(rest.len() - 4 * count);
     let numbers = |slice: &[&str]| -> Vec<i32> {
         slice.iter().map(|n| n.parse().expect("a number")).collect()
+    };
+    let printed = |slice: &[&str]| -> Vec<String> {
+        slice.iter().map(|s| s.to_string()).collect()
     };
     OracleRow {
         edges: pairs
@@ -84,9 +101,11 @@ fn parse_row(line: &str) -> OracleRow {
             })
             .collect(),
         ranks: numbers(&tail[..count]),
-        order: numbers(&tail[count..])
+        order: numbers(&tail[count..2 * count])
             .into_iter()
             .map(|n| n as u32)
             .collect(),
+        xs: printed(&tail[2 * count..3 * count]),
+        ys: printed(&tail[3 * count..]),
     }
 }
