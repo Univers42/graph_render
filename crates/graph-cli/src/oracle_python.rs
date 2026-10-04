@@ -44,7 +44,7 @@ pub use cli::Cli;
 pub use closed_form::CLOSED_FORM;
 pub use fa2::FA2;
 pub use hierarchical_3d::HIERARCHICAL_3D;
-pub use igraph::IGRAPH;
+pub use igraph::{IGRAPH, IGRAPH_3D};
 pub use scale::SCALE;
 pub use spectral::SPECTRAL;
 pub use spring::SPRING;

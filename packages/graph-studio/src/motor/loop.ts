@@ -159,9 +159,9 @@ export class ForceLoop {
    * the panel on the answer it would give a force request now. Escape hatch: the next layout
    * starts a new session and the panel comes back on its own.
    */
-  release(): void {
+  release(disabled: string | null = NO_ADAPTER_REASON): void {
     this.halt();
-    this.deps.emit({ type: "force-state", running: false, disabled: NO_ADAPTER_REASON, paused: false }, []);
+    this.deps.emit({ type: "force-state", running: false, disabled, paused: false }, []);
   }
 
   /**
@@ -218,6 +218,15 @@ export class ForceLoop {
     // A drag wakes the loop even from a pause: the user is holding the graph, and a drawing
     // frozen under the pointer is not what a pause was for.
     this.paused = false;
+    if (request.type === "force.settle") {
+      // A new run. `step(0)` reads the alpha the session was born at and runs no tick. A session
+      // born cold sits on the layout's picture and is not ticked at all, because collide and
+      // center act at any alpha (`graph-core` `force/session.rs`): one tick at alpha 0 moved a
+      // 60-node DrL picture by 170 units. A scatter is born hot and settles on screen.
+      this.alpha = this.live.step(0);
+      if (this.alpha >= ALPHA_MIN) this.cancel ??= this.deps.schedule(() => this.frame(), this.period);
+      return;
+    }
     if (request.type === "force.start") {
       // "Animate": the settle starts over from where this graph's settle begins, not from
       // where it stopped. The port answers with the alpha the new session was born at, which

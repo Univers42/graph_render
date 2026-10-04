@@ -5,16 +5,16 @@
  * Knows the motor only by the members it calls, so it runs the same in a worker, on the
  * page with the worker switched off, and under node with the real module.
  */
-import { decodeSnapshot, idAt } from "../../../graph-render/src/snapshot/decode.ts";
-import type { IngestNode } from "../source/ingest.ts";
-import { type GraphMeta, metaOf } from "../source/meta.ts";
+import type { Built } from "./built.ts";
 import { type Assembler, type Document, documentFor } from "./documents.ts";
-import { type ShownError, describeError } from "../state/errors.ts";
 import type { Source } from "../state/settings.ts";
-import type { ForceEngine, ForceParams, ForcePort, Growable, LiveForce } from "./live.ts";
+import {
+  DEFAULT_KNOBS, type ForceEngine, type ForceParams, type ForcePort, type ForceSeed, type Growable, type LiveForce,
+} from "./live.ts";
 import { createLiveForce } from "./liveSession.ts";
 import type { AnalysisReport, Catalog, GraphBatch, GraphSummary, RunReport } from "./protocol.ts";
-import { planRun } from "./settle.ts";
+import { type Live, runAnalysis, snapshot } from "./run.ts";
+import { type RunPlan, SCATTER, planRun } from "./settle.ts";
 
 export interface AnalysisFace {
   readonly id: string;
@@ -48,7 +48,7 @@ export interface MotorLike<Handle> {
    */
   extend?(handle: Handle, batch: GraphBatch): void;
   /** The live session over a graph's topology, or null on a motor without one. */
-  forceSession?(handle: Handle, params?: Partial<ForceParams>, engine?: ForceEngine): (ForcePort & Growable<Handle>) | null;
+  forceSession?(handle: Handle, params?: Partial<ForceParams>, engine?: ForceEngine, seed?: ForceSeed): (ForcePort & Growable<Handle>) | null;
 }
 
 export interface SessionDeps<Handle> {
@@ -69,6 +69,12 @@ export interface SessionDeps<Handle> {
   readonly onForget?: () => void;
   /** The gate's negative control: true drops the grow after an extend, so nothing moves. */
   readonly breakDeltas?: () => boolean;
+  /**
+   * Told when a re-layout releases the force session: the loop stops as for `onForget`, but
+   * forces stay available, since the next request seeds a session at the new picture. Left
+   * out, a re-layout tells `onForget`.
+   */
+  readonly onRenew?: () => void;
 }
 
 export interface Session {
@@ -76,28 +82,14 @@ export interface Session {
   load(source: Source, fixturesUrl: string): Promise<GraphSummary>;
   layout(layoutId: string, postId: string | null): Promise<RunReport>;
   analysis(analysisId: string): AnalysisReport;
+  /** The scatter a delta batch needs drawn, over the graph as it now is; the force session stays. */
+  structure(): Promise<RunReport>;
   /**
    * The live force port over the graph as it is now drawn, or null when there is none: the
    * motor behind this session has no live session, or no layout has run to order the rows.
    * A new load releases the last one, so a port is never a session of another graph.
    */
   forces(): LiveForce | null;
-}
-
-interface Built<Handle> {
-  readonly handle: Handle;
-  /** The graph's nodes as the studio knows them; an extend appends to it (`metaOf` reads this). */
-  nodes: readonly IngestNode[];
-  /** The id table the description was last built against; `null` before the first run. */
-  described: Uint8Array | null;
-  /** The motor's live session over this graph, made when one is first asked for. */
-  forced: (ForcePort & Growable<Handle>) | null;
-  /** The port over it, cached so the loop sees one object for one session. */
-  port: LiveForce | null;
-  /** Node ids in the force session's dense row order; `null` until a layout has run. */
-  order: readonly string[] | null;
-  /** The tick the live session is made with; a change releases the one made before. */
-  engine: ForceEngine;
 }
 
 /** Nothing can run in the state the session is in. */
@@ -116,53 +108,6 @@ export async function sha256Hex(bytes: Uint8Array): Promise<string | null> {
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i += 1) if (a[i] !== b[i]) return false;
-  return true;
-}
-
-/** The description of the graph in this snapshot's order, if that order is news. */
-function describe<Handle>(built: Built<Handle>, bytes: Uint8Array): GraphMeta | null {
-  const snapshot = decodeSnapshot(bytes);
-  const table = snapshot.nodeIds.bytes;
-  if (built.described !== null && sameBytes(built.described, table)) return null;
-  const order = Array.from({ length: snapshot.nodeCount }, (_, i) => idAt(snapshot.nodeIds, i));
-  built.described = table.slice();
-  built.order = order;
-  return metaOf(built.nodes, order, snapshot);
-}
-
-interface Pass {
-  readonly postId: string | null;
-  readonly postError: ShownError | null;
-  readonly postMs: number;
-}
-
-function runPass<Handle>(motor: MotorLike<Handle>, handle: Handle, postId: string | null, now: () => number): Pass {
-  if (postId === null) return { postId, postError: null, postMs: 0 };
-  const started = now();
-  try {
-    motor.post(handle, postId);
-    return { postId, postError: null, postMs: now() - started };
-  } catch (error) {
-    // A refused pass leaves the layout's own edges in place, so the run is still drawn.
-    return { postId: null, postError: describeError(error), postMs: now() - started };
-  }
-}
-
-function reportOf(face: AnalysisFace, ms: number): AnalysisReport {
-  return {
-    id: face.id,
-    kind: face.kind,
-    values: face.kind === "u32" ? Uint32Array.from(face.values) : Float64Array.from(face.values),
-    converged: face.converged ?? null,
-    modularity: face.modularity ?? null,
-    max: face.max ?? null,
-    ms,
-  };
-}
-
 function summaryOf(document: Document, buildMs: number): GraphSummary {
   return {
     name: document.name, nodeCount: document.nodes.length, edgeCount: document.edgeCount,
@@ -177,7 +122,7 @@ function summaryOf(document: Document, buildMs: number): GraphSummary {
 function forcesOf<Handle>(motor: MotorLike<Handle> | null, built: Built<Handle> | null, deps: SessionDeps<Handle>): LiveForce | null {
   if (motor === null || built === null || built.order === null) return null;
   if (motor.forceSession === undefined) return null;
-  built.forced ??= motor.forceSession(built.handle, undefined, built.engine);
+  built.forced ??= startSession(motor, built);
   if (built.forced === null) return null;
   // The port is cached, not rebuilt: the loop compares ports by identity and replaces itself
   // when one changes, so a fresh object per request would stop the loop on every message. So
@@ -185,6 +130,8 @@ function forcesOf<Handle>(motor: MotorLike<Handle> | null, built: Built<Handle> 
   built.port ??= createLiveForce({
     session: built.forced,
     ids: () => built.order,
+    knobs: built.knobs,
+    // "Animate" settles from the motor's own spiral, hot, whatever the last run drew.
     restart: () => {
       built.forced?.release();
       built.forced = motor.forceSession?.(built.handle, undefined, built.engine) ?? null;
@@ -210,38 +157,38 @@ function forcesOf<Handle>(motor: MotorLike<Handle> | null, built: Built<Handle> 
   return built.port;
 }
 
-/** One layout with the edge pass and the digest the studio reports; a large force layout runs
- * as a scatter and reports the layout that settles it (`settle.ts`). */
-async function runLayout<Handle>(
-  live: { readonly motor: MotorLike<Handle>; readonly built: Built<Handle> },
-  deps: SessionDeps<Handle>,
-  layoutId: string,
-  postId: string | null,
-): Promise<RunReport> {
-  const { motor, built } = live;
-  const plan = planRun(layoutId, built.nodes.length, motor.forceSession !== undefined);
-  if (plan.engine !== built.engine) {
-    forget(built, deps.onForget);
-    built.engine = plan.engine;
-  }
-  const started = deps.now();
-  motor.layout(built.handle, plan.run);
-  const layoutMs = deps.now() - started;
-  const pass = runPass(motor, built.handle, postId, deps.now);
-  const bytes = motor.toBytes(built.handle);
-  const meta = describe(built, bytes);
-  return { layoutId: plan.report, ...pass, bytes, digest: await deps.digest(bytes), layoutMs, meta };
+/**
+ * The session a force request finds: seeded at the picture the last run drew and born cold,
+ * so its first frame repaints that picture instead of replacing it, and a drag or a knob wakes
+ * it from there. A scatter (`settle.ts`) is no picture to keep: that session starts hot from
+ * the motor's spiral and settles on screen.
+ *
+ * Measured before this (2026-10-03): every force layout was replaced on the first frame by one
+ * settle from the spiral, so ForceAtlas2 and DrL drew identical bounds.
+ */
+function startSession<Handle>(motor: MotorLike<Handle>, built: Built<Handle>): (ForcePort & Growable<Handle>) | null {
+  if (!built.warm) return motor.forceSession?.(built.handle, undefined, built.engine) ?? null;
+  const session = motor.forceSession?.(built.handle, undefined, built.engine, "layout") ?? null;
+  session?.reheat(0);
+  return session;
 }
 
-/** One analysis over the graph, in the face the studio reports. */
-function runAnalysis<Handle>(
-  live: { readonly motor: MotorLike<Handle>; readonly built: Built<Handle> },
-  deps: SessionDeps<Handle>,
-  analysisId: string,
-): AnalysisReport {
-  const started = deps.now();
-  const face = live.motor.analysis(live.built.handle, analysisId);
-  return reportOf(face, deps.now() - started);
+/** A run is a new picture, so the session over the last one goes. The knobs stay, the pins go. */
+function renew<Handle>(built: Built<Handle>, plan: RunPlan, deps: SessionDeps<Handle>): void {
+  built.knobs = built.port?.knobs?.() ?? built.knobs;
+  forget(built, deps.onRenew ?? deps.onForget);
+  built.engine = plan.engine;
+  built.warm = plan.run === plan.report;
+}
+
+/**
+ * One layout over the graph, with the edge pass and the digest the studio reports. A force
+ * layout on a large graph runs as a scatter and reports the layout that settles it (`settle.ts`).
+ */
+async function runLayout<Handle>(live: Live<Handle>, deps: SessionDeps<Handle>, layoutId: string, postId: string | null): Promise<RunReport> {
+  const plan = planRun(layoutId, live.built.nodes.length, live.motor.forceSession !== undefined);
+  renew(live.built, plan, deps);
+  return snapshot(live, deps, plan, postId);
 }
 
 /**
@@ -265,7 +212,7 @@ function forget<Handle>(built: Built<Handle> | null, onForget?: () => void): voi
 export function createSession<Handle>(deps: SessionDeps<Handle>): Session {
   let motor: MotorLike<Handle> | null = null;
   let built: Built<Handle> | null = null;
-  const ready = (): { readonly motor: MotorLike<Handle>; readonly built: Built<Handle> } => {
+  const ready = (): Live<Handle> => {
     if (motor === null) throw new SessionRefusal("the motor is not open");
     if (built === null) throw new SessionRefusal("no graph is loaded");
     return { motor, built };
@@ -281,7 +228,7 @@ export function createSession<Handle>(deps: SessionDeps<Handle>): Session {
     if (built !== null) open.release(built.handle);
     forget(built, deps.onForget);
     built = { handle, nodes: document.nodes, described: null, forced: null, port: null, order: null,
-      engine: "barnes_hut" };
+      engine: "barnes_hut", warm: false, knobs: DEFAULT_KNOBS };
     return summaryOf(document, deps.now() - started);
   };
   return {
@@ -295,6 +242,8 @@ export function createSession<Handle>(deps: SessionDeps<Handle>): Session {
     },
     layout: async (layoutId, postId) => runLayout(ready(), deps, layoutId, postId),
     analysis: (analysisId) => runAnalysis(ready(), deps, analysisId),
+    // Not `layout`: a run renews the force session, and a delta batch's snapshot must not.
+    structure: async () => snapshot(ready(), deps, { run: SCATTER, report: SCATTER }, null),
     forces: () => forcesOf(motor, built, deps),
   };
 }

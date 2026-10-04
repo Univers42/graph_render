@@ -83,3 +83,27 @@
 // rather than a silent no-op — the same rule every other parameter knob obeys, for the same
 // reason.
 // ---------------------------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------------------------
+// `GM_MUTATE_DROP_DELTA` — `Knob::DropDelta`.
+//
+// The second control to reach `force-gate` rather than this gate, and the first that reaches
+// the *stream* stage rather than the session's parameters: the native arm skips one batch
+// outright — no `extend`, no `grow` — while the wasm arm, which reads no environment variable,
+// still receives it. So the two sessions carry different node counts from that batch on, and
+// every later digest must differ.
+//
+// **Why the control drops input rather than moving a parameter.** A gravity that merely
+// differs would also work, and `Knob::ForceSessionGravity` already proves the tick is
+// compared. This one is for the growth path specifically: `Topology::extend` and
+// `ForceSession::grow` are the two exports this slice added, and a control that perturbs
+// nothing *about growth* would leave both of them untested — the gate could agree on every
+// batch because it never disagreed about what to grow. Dropping batch `k` puts the native
+// session one batch behind forever, which is the failure the stream stage exists to catch.
+//
+// It bites from the batch it names onward, never before: batches `0..k` are still processed
+// identically on both arms, so a gate that reported "diverged at batch 0" would be pointing
+// at the wrong line. `=0` is refused at the parse rather than at the no-op check, because
+// batch 0 is the initial graph — the one line that is not a delta — and skipping it would
+// drop nothing while still recording this run as the exercised control.
+// ---------------------------------------------------------------------------------------------

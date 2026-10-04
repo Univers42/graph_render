@@ -37,7 +37,7 @@ use graph_core::layout::force::LiveParams;
 // is named `gm_force_session_create`.
 #[unsafe(no_mangle)]
 pub extern "C" fn gm_force_session_create(graph: u32, params_ptr: u32, params_len: u32) -> u32 {
-    create(graph, (params_ptr, params_len), Engine::BarnesHut)
+    create(graph, (params_ptr, params_len), Engine::BarnesHut, false)
 }
 
 /// [`gm_force_session_create`] for a session that ticks on the particle mesh: the same
@@ -50,10 +50,31 @@ pub extern "C" fn gm_force_session_create_mesh(
     params_ptr: u32,
     params_len: u32,
 ) -> u32 {
-    create(graph, (params_ptr, params_len), Engine::ParticleMesh)
+    create(graph, (params_ptr, params_len), Engine::ParticleMesh, false)
 }
 
-fn create(graph: u32, (params_ptr, params_len): (u32, u32), engine: Engine) -> u32 {
+/// [`gm_force_session_create`] (`engine` `0`) or [`gm_force_session_create_mesh`] (`1`),
+/// seeded on the node centres of the graph's last layout run instead of on the spiral, so
+/// the session continues the picture the host is already drawing. The same arguments,
+/// refusals and id space, plus `NoGeometryYet` before any run, `TamperedGeometry` for a
+/// centre that is not finite, and `SessionParamsInvalid` for an `engine` past `1`.
+// SAFETY: as `gm_force_session_create`.
+#[unsafe(no_mangle)]
+pub extern "C" fn gm_force_session_create_warm(
+    graph: u32,
+    params_ptr: u32,
+    params_len: u32,
+    engine: u32,
+) -> u32 {
+    let engine = match engine {
+        0 => Engine::BarnesHut,
+        1 => Engine::ParticleMesh,
+        _ => return refuse(Code::SessionParamsInvalid, 0),
+    };
+    create(graph, (params_ptr, params_len), engine, true)
+}
+
+fn create(graph: u32, (params_ptr, params_len): (u32, u32), engine: Engine, warm: bool) -> u32 {
     let params = match read_params(params_ptr, params_len) {
         Ok(params) => params,
         Err(code) => return refuse(code, 0),
@@ -66,7 +87,17 @@ fn create(graph: u32, (params_ptr, params_len): (u32, u32), engine: Engine) -> u
         let Some(handle) = handles.get(graph) else {
             return refuse(Code::InvalidHandle, 0);
         };
-        match session::create(graph, &handle.topology, params, engine) {
+        let made = if warm {
+            session::create_warm(
+                graph,
+                (&handle.topology, handle.geometry.as_ref()),
+                params,
+                engine,
+            )
+        } else {
+            session::create(graph, &handle.topology, params, engine)
+        };
+        match made {
             Ok(id) => {
                 errors::clear();
                 id

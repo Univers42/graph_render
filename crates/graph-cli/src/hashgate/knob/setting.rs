@@ -26,6 +26,7 @@ use graph_core::{GridParams, SugiyamaParams};
 use std::env::VarError;
 use std::ffi::OsString;
 
+mod delta;
 mod honest;
 mod params;
 
@@ -94,6 +95,9 @@ pub(crate) struct Setting {
     /// honest value unreachable. Reach it through [`Setting::live_force_params`], which is the
     /// only reader and lives in this module with the field.
     pub(in crate::hashgate) live_gravity: Option<f64>,
+    /// Which batch of the force gate's stream stage the native arm skips
+    /// ([`Knob::DropDelta`]). `None` is the honest run. Read through [`Setting::drop_delta`].
+    pub(in crate::hashgate) drop_delta: Option<u32>,
     /// Which published default [`Knob::LayoutParamDefault`] perturbs, as an index into
     /// [`PARAM_DEFAULT_STAGE`]'s parameter list. `None` is the honest run. An index and not
     /// a `(name, value)` pair because the control is *over the default*: the value it runs
@@ -269,6 +273,7 @@ fn apply(knob: Knob, text: &str, setting: &mut Setting) -> Result<(), String> {
         Knob::ForceSessionGravity => {
             setting.live_gravity = Some(text.parse().map_err(|e| bad(&e))?);
         }
+        Knob::DropDelta => setting.drop_delta = Some(delta::batch(text, knob)?),
         Knob::LayoutParamDefault => {
             setting.layout_param_default = Some(param_index(text, knob)?);
         }

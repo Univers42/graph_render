@@ -150,8 +150,8 @@ fn a_session_is_never_created_with_parameters_it_would_refuse() {
 /// so it is stated where it is true: `Sim`'s columns are resized only by `ForceSession::grow`,
 /// behind `gm_force_session_grow`, after which a host re-reads the address (C7) — the other
 /// writer that could, `ForceSession::set_positions`, is behind `from_positions`, which this ABI
-/// does not export — and the session table holds each session behind a `Box` so an insert
-/// cannot move it.
+/// calls only to build a new session — and the session table holds each session behind a
+/// `Box` so an insert cannot move it.
 /// `graph-cli force-gate`'s wasm arm reads these columns through the wire's `(ptr, len)` on every
 /// seed, which is where a moved address would show up.
 #[test]

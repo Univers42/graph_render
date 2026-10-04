@@ -145,20 +145,21 @@ function shuffled(live: { shuffle?: () => number }): number {
   return live.shuffle();
 }
 
-test("Animate restarts the settle from the session's own start positions", { skip: SKIP }, async () => {
+test("Animate restarts the settle from the spiral, whatever ran before it", { skip: SKIP }, async () => {
   const { live } = await rig();
-  // A second real session over the same fixture, never stepped: what a settle starts from.
+  // A second real session over the same fixture, never stepped: its restart is the reference.
   const fresh = (await rig()).live;
+  const drawn = Array.from(fresh.positions().xs);
+  const born = shuffled(fresh);
   const start = { xs: Array.from(fresh.positions().xs), ys: Array.from(fresh.positions().ys) };
-  // `step(0)` reads the alpha a session is born at without running a tick.
-  const born = fresh.step(0);
+  assert.notDeepEqual(start.xs, drawn, "a restart leaves the layout's picture the session was seeded on");
   live.setParams({ ...DEFAULT_KNOBS, gravity: 0.4, charge: -800, linkStrengthScale: 1.5, linkDistance: 120 });
   live.step(20);
   const alpha = shuffled(live);
   const now = live.positions();
-  assert.deepEqual(Array.from(now.xs), start.xs, "the nodes are back where the session starts");
+  assert.deepEqual(Array.from(now.xs), start.xs, "the nodes are back on the spiral a cold session starts from");
   assert.deepEqual(Array.from(now.ys), start.ys);
-  assert.equal(alpha, born, "and the alpha is the one a fresh session is born at");
+  assert.equal(alpha, born, "and the alpha is the one a cold session is born at");
   const params = motorParams(live);
   assert.deepEqual(
     {

@@ -304,6 +304,14 @@ pub enum Knob {
     /// The one control that reaches `force-gate` rather than this gate. The full argument is
     /// in [`compute`], under its own heading.
     ForceSessionGravity,
+    /// `GM_MUTATE_DROP_DELTA`: the batch of the force gate's **stream** stage that the
+    /// native arm skips outright — no `extend`, no `grow` — native arm of `force-gate` only.
+    ///
+    /// The control for the growth path rather than for the session's parameters: it drops
+    /// input the wasm arm still receives, so the two sessions must diverge, and the gate has
+    /// to name the first batch where they did. The full argument is in [`compute`], under its
+    /// own heading.
+    DropDelta,
 }
 
 pub(super) use arms::stage_of;

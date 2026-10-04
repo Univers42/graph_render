@@ -14,7 +14,7 @@
  * them is dropped rather than refused — the drag then does nothing visible, which a re-layout
  * (which makes a new session) is the fix for. Direction: `positions()` is a zero-copy view of
  * the session's own columns, so it is only as fresh as the last tick. Escape hatch:
- * `createSession` makes a new session per layout, which re-reads the knobs.
+ * `createSession` makes a new session per layout run, handed the knobs this port last held.
  */
 import { DEFAULT_KNOBS, type ForceKnobs, type ForceParams, type ForcePort, type LiveForce } from "./live.ts";
 import type { GraphBatch } from "./protocol.ts";
@@ -50,6 +50,8 @@ export interface MotorForceDeps {
   readonly extend?: (batch: GraphBatch) => void;
   /** Covers the graph's new node count in the session. Left out with `extend`. */
   readonly grow?: () => void;
+  /** Knobs to start with, written into the session at once; left out, the motor's own. */
+  readonly knobs?: ForceKnobs;
 }
 
 /**
@@ -105,14 +107,19 @@ interface SessionState {
   setParams(knobs: ForceKnobs): void;
   /** Restarts the settle and answers the alpha the new session was born at. */
   restart(): number;
+  readonly knobs: ForceKnobs;
 }
 
 function sessionState(deps: MotorForceDeps): SessionState {
   let session = deps.session;
-  let knobs: ForceKnobs = DEFAULT_KNOBS;
+  let knobs: ForceKnobs = deps.knobs ?? DEFAULT_KNOBS;
+  if (deps.knobs !== undefined) session.setParams(knobParams(deps.knobs));
   return {
     get session() {
       return session;
+    },
+    get knobs() {
+      return knobs;
     },
     setParams: (next) => {
       // Kept, not just forwarded: a restart makes a session at the motor's own defaults, and
@@ -153,5 +160,6 @@ export function createLiveForce(deps: MotorForceDeps): LiveForce {
     shuffle: () => state.restart(),
     ...deltas,
     params: () => state.session.params(),
+    knobs: () => state.knobs,
   };
 }

@@ -3,7 +3,6 @@ import { type HelperStart, type Motor, assembleColumns, createMotor } from "../.
 import { createForceHost, type ForceHost } from "./liveLoop.ts";
 import { UNSOLICITED, isRequest } from "./protocol.ts";
 import { createPump } from "./pump.ts";
-import { SCATTER } from "./settle.ts";
 import { createSession, sha256Hex } from "./session.ts";
 import { threadsFor } from "./threads.ts";
 
@@ -79,6 +78,7 @@ if (isWorkerScope(scope)) {
     now: () => performance.now(),
     onForget: () => notice.host?.forget(),
     breakDeltas: () => gate.breakDeltas,
+    onRenew: () => notice.host?.renew(),
   });
   const forces = createForceHost(() => session.forces(), {
     schedule: pacedFrame,
@@ -86,7 +86,7 @@ if (isWorkerScope(scope)) {
     // A frame is unsolicited: it has no request of its own to be the answer to.
     emit: (result, transfer) => scope.postMessage({ seq: UNSOLICITED, body: result }, transfer),
     // The structure snapshot a delta batch needs drawn: an O(n) scatter, `toBytes`, `describe`.
-    structure: () => session.layout(SCATTER, null),
+    structure: () => session.structure(),
   });
   notice.host = forces;
   const pump = createPump(

@@ -43,6 +43,11 @@ export interface ForceHost {
    * scheduled would step a session the motor has already thrown away.
    */
   forget(): void;
+  /**
+   * A re-layout released the session: stop as `forget` does, but say forces are still there,
+   * because the next request makes a session over the new picture.
+   */
+  renew(): void;
 }
 
 export function createForceHost(port: () => LiveForce | null, deps: LoopDeps): ForceHost {
@@ -51,8 +56,8 @@ export function createForceHost(port: () => LiveForce | null, deps: LoopDeps): F
   let loop: { readonly loop: ForceLoop; readonly port: LiveForce } | null = null;
   // `release`, not `halt`: nothing asked for this stop, so the loop has to say how it ended or
   // the page's watchdog reads the quiet as a dead worker (see ForceLoop.release).
-  const forget = (): void => {
-    loop?.loop.release();
+  const forget = (disabled?: string | null): void => {
+    loop?.loop.release(disabled);
     loop = null;
   };
   const live = (): ForceLoop | null => {
@@ -80,6 +85,7 @@ export function createForceHost(port: () => LiveForce | null, deps: LoopDeps): F
         : running.deltas(batch);
     },
     grows: () => loop?.loop.grows() ?? [],
-    forget,
+    forget: () => forget(),
+    renew: () => forget(null),
   };
 }
