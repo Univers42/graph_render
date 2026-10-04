@@ -1,20 +1,21 @@
-// The string table's **blob**: where it starts, how wide each entry is, and the one loop that
+// The string table's **blob**: where it starts, how wide each entry is, and the one call that
 // puts the bytes there. Split out of `columns-assemble.ts`, which was over the house's line limit
-// once this file's subject — and its two paths — grew a module of its own.
+// once this file's subject — and its two measuring paths — grew a module of its own.
 //
-// Two paths, and which one runs is decided by **one pass that measures nothing**:
+// Two **measuring** paths, and which one runs is decided by **one pass that measures nothing**:
 //
-//   * every code unit ASCII — the table is joined and placed by a single `encodeInto`, and each
-//     entry's width is its code-unit count;
-//   * anything wider — every entry is measured and placed into the slot its own width names.
+//   * every code unit ASCII — each entry's width is its code-unit count;
+//   * anything wider — every entry is walked and measured with {@link utf8Length}.
 //
-// Both write the same bytes for the same table, which is what `test/columns-blob.test.mjs` pins.
-// The split is worth a module of its own because the two cost very different amounts and the
-// studio's own data — icons `🌿` and `📈` — is on the second one.
+// **Both are placed the same way**, by one `encodeInto` over the joined text: the measuring
+// pass is where the width classes and the refusals live, and the writing pass is one call.
+// The studio's own data — icons `🌿` and `📈` — is on the second measuring path, and
+// `docs/measurements/perf-p4g-wasm.md` is where both the per-entry placement this replaced
+// and the join P4f removed are measured.
 //
 // **Caveat:** the ASCII test is a code-unit scan, so a string that is *well-formed but wide*
-// (an emoji, an `é`) takes the exact path, and a table of only-ASCII takes the joined one. Both
-// produce the same document; only the cost differs.
+// (an emoji, an `é`) takes the exact measuring path, and a table of only-ASCII takes the
+// cheap one. Both produce the same document; only the measuring cost differs.
 
 import { GraphMotorError } from "./errors.ts";
 
@@ -86,20 +87,33 @@ export function measureBlob(
   return { widths, table: { offsets, blobBytes: running } };
 }
 
-/** Puts every entry's bytes into `out` at the slot its measured width names, starting at `at`.
+/** Puts the whole table's bytes into `out` at `at`, in **one** `encodeInto`, over the joined
+ *  text: `measureBlob` has already measured every entry and `exactWidth` has already refused
+ *  every entry that cannot be encoded, and a well-formed entry can neither open with a low
+ *  surrogate nor close with a high one — so the join encodes to exactly the concatenation its
+ *  entries' widths named. Both halves of that are checked: `read` is the whole joined text
+ *  consumed and `written` is the measured total, so a table that measured and a table that
+ *  encoded cannot disagree.
  *
- *  `out.subarray(cursor, end)` is the slot, and `encodeInto` stops at `end` — so an entry cannot
- *  spill into its neighbour's bytes even if it were to encode wider than it measured, which is
- *  what the `written` check turns into a refusal rather than a corrupt document. */
-export function placeBlob(out: Uint8Array, at: number, strings: readonly string[], widths: Uint32Array): void {
-  let cursor = at;
-  for (const [i, value] of strings.entries()) {
-    const width = widths[i] ?? 0;
-    const written = ENCODER.encodeInto(value, out.subarray(cursor, cursor + width)).written;
-    if (written !== width) {
-      throw new ColumnsEncoderError("string table", "encoded to a length other than it measured");
-    }
-    cursor += width;
+ *  This is where the exact path's cost went. Placing entry by entry meant a `subarray` object
+ *  per entry — 160 000 throwaway views a batch — and `docs/measurements/perf-p4g-wasm.md`
+ *  measures that form at **9.76 ms** against this one's **3.80 ms** for the same 160 000
+ *  entries and 1.76 MB of blob. The cost was the views, not the encoding.
+ *
+ *  Caveat: this allocates the joined text, a copy of the blob. It is **read**, not discarded —
+ *  which is the whole difference from the copy `perf-p4f-wasm.md` removed, where a join was
+ *  made, sized at the code-unit count, found too short and thrown away. */
+export function placeTable(
+  out: Uint8Array,
+  at: number,
+  strings: readonly string[],
+  widths: Uint32Array,
+): void {
+  const blobBytes = widths.reduce((sum, width) => sum + width, 0);
+  const text = joinTable(strings);
+  const written = ENCODER.encodeInto(text, out.subarray(at, at + blobBytes));
+  if (written.read !== text.length || written.written !== blobBytes) {
+    throw new ColumnsEncoderError("string table", "encoded to a length other than it measured");
   }
 }
 
@@ -120,20 +134,9 @@ export function allAscii(strings: readonly string[]): boolean {
 }
 
 /** One code unit is one byte, so an ASCII entry's width is its length. The only `width` that
- *  does not walk the string, and the reason the joined path is one `encodeInto` for the lot. */
+ *  does not walk the string, and the reason an ASCII table's measuring pass is cheaper. */
 export function asciiWidth(value: string): number {
   return value.length;
-}
-
-/** {@link placeBlob} for a table {@link allAscii} cleared: one `encodeInto` over the joined text,
- *  placed at `at`. The widths are not read here — for an ASCII table `text.length` *is* the blob
- *  length, which is the whole reason this path exists — so they are not taken. */
-export function placeJoined(out: Uint8Array, at: number, strings: readonly string[]): void {
-  const text = joinTable(strings);
-  const written = ENCODER.encodeInto(text, out.subarray(at, at + text.length));
-  if (written.read !== text.length || written.written !== text.length) {
-    throw new ColumnsEncoderError("string table", "encoded to a length other than it measured");
-  }
 }
 
 /** One entry's UTF-8 width, and its well-formedness, in a single walk.
@@ -149,19 +152,52 @@ export function exactWidth(value: string, index: number): number {
 }
 
 /** One string's UTF-8 length, counted rather than encoded: a million `encode` calls would be
- *  a million throwaway arrays, and this runs before the writing one. */
+ *  a million throwaway arrays, and this runs before the writing one.
+ *
+ *  Counted in **code units**, not code points: a `for…of` over a string yields one string per
+ *  code point, so it allocates a throwaway string per character — a megabyte of garbage a
+ *  batch on the stream in `docs/measurements/perf-p4g-wasm.md`, for a number `charCodeAt`
+ *  gives directly. The three width classes are the UTF-8 encoding's own (`< 0x80` one byte,
+ *  `< 0x800` two, the rest three), with the surrogate range as the fourth: a high surrogate
+ *  and the low one after it are one code point and four bytes.
+ *
+ *  Every input, the same number as the code-point walk it replaces. **Caveat:** the index is
+ *  widened past the low half of a *whole* pair and past nothing else, so a lone high
+ *  surrogate counts three and the code unit after it is still counted — three bytes is what
+ *  the walk it replaced counted, and `encodeInto` refuses the row outright.
+ *  `exactWidth` refuses a lone surrogate before this is reached, by index. */
 export function utf8Length(value: string): number {
   let bytes = 0;
-  for (const chunk of value) {
-    const point = chunk.codePointAt(0) ?? 0;
-    bytes += point < 0x80 ? 1 : point < 0x800 ? 2 : point < 0x1_0000 ? 3 : 4;
+  for (let i = 0; i < value.length; i += 1) {
+    const unit = value.charCodeAt(i);
+    if (unit < 0x80) {
+      bytes += 1;
+    } else if (unit < 0x800) {
+      bytes += 2;
+    } else if (unit < 0xd800 || unit >= 0xe000) {
+      bytes += 3;
+    } else if (unit < 0xdc00 && lowSurrogate(value, i + 1)) {
+      // One code point in two code units: four bytes, and the low half is not counted again.
+      bytes += 4;
+      i += 1;
+    } else {
+      bytes += 3;
+    }
   }
   return bytes;
 }
 
-/** The joined text of an all-ASCII table, which is the whole blob in one string. The exact path
- *  never calls this: joining a table it is about to place entry by entry would be a whole extra
- *  copy of the blob, allocated and discarded. */
+/** Whether code unit `i` is a low surrogate, so the high one before it is half a pair. Past the
+ *  end `charCodeAt` reads `NaN`, which is in no range, so a high surrogate last is lone. */
+function lowSurrogate(value: string, i: number): boolean {
+  const unit = value.charCodeAt(i);
+  return unit >= 0xdc00 && unit < 0xe000;
+}
+
+/** The joined text of the table, which is the whole blob in one string and the one thing
+ *  {@link placeTable} encodes: a well-formed entry can neither open with a low surrogate nor
+ *  close with a high one, so the join encodes to exactly the concatenation its entries' widths
+ *  named. */
 export function joinTable(strings: readonly string[]): string {
   return strings.join("");
 }

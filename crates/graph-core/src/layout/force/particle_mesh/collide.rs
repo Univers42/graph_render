@@ -63,9 +63,14 @@ struct Contact {
 }
 
 impl Grid {
+    /// The bucket count `n` nodes get: a power of two so [`Hash`] masks instead of
+    /// dividing, and at least four so a row's three buckets are three distinct ones.
+    fn buckets(n: u32) -> usize {
+        (2 * n as usize).next_power_of_two().max(4)
+    }
+
     pub(super) fn new(n: u32) -> Grid {
-        // At least four, so a row's three buckets are three distinct ones.
-        let buckets = (2 * n as usize).next_power_of_two().max(4);
+        let buckets = Self::buckets(n);
         Grid {
             order: (0..n).collect(),
             start: vec![0; buckets + 2],
@@ -79,6 +84,34 @@ impl Grid {
             },
             blocks: Vec::with_capacity(n.div_ceil(frame::BLOCK) as usize),
         }
+    }
+
+    /// This grid over `n` nodes, in place. [`build`] refills `start`, `order`, `slot` and
+    /// `at` on every tick, so only their lengths matter — except `order` and `slot`, which
+    /// the tick's charge reads *before* that tick's collide rebuilds them (the charge pass
+    /// comes first in [`tick`](super::tick)), and [`Hash`], which is keyed on the bucket
+    /// count the node count sets.
+    ///
+    /// So `order` and `slot` are put back to the identity permutation a fresh grid holds:
+    /// a charge read against the last sort's permutation would deposit the new rows into
+    /// the cells of whatever nodes the last sort put in their slots.
+    pub(super) fn grow(&mut self, n: u32) {
+        let buckets = Self::buckets(n);
+        self.start.resize(buckets + 2, 0);
+        self.hash = Hash {
+            shift: 64 - buckets.trailing_zeros(),
+            mask: buckets as u64 - 1,
+            origin: (0.0, 0.0),
+            size: 1.0,
+        };
+        let n = n as usize;
+        self.order.resize(n, 0);
+        for (i, node) in self.order.iter_mut().enumerate() {
+            *node = i as u32;
+        }
+        self.slot.resize(n, 0);
+        self.slot.clone_from_slice(&self.order);
+        self.at.resize(n, [0.0; 2]);
     }
 
     /// Sorts every node into its bucket, stably: inside a bucket, by node index. The

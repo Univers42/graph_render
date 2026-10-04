@@ -266,10 +266,13 @@ fixed encoder. Every process exited 0.
 
 `encodeBatch` lost **12.44 ms (BH) and 11.36 ms (PM) — 40 % and 38 % of itself** — and that is
 almost exactly what `extend` lost (9.23 and 9.48 ms), the difference being run-to-run spread.
-**The native arms moved 6–8 %, and they run the same encoder.** That is the host: the after run
-sat at 2.27–4.14 where the before run sat at 3.05–11.87. It is the reason the native columns are
-in the table as a control, and it bounds how much of the 20 % to believe — the *paired* change,
-encode against itself in the same process, is the number to trust, and it is 40 %.
+**The native arms moved 6–8 %, and they do not run the JS encoder at all** — the bytes their
+`service::extend_columns` receives were written by a Rust encoder outside the timer, which is
+what "What each `extend` column contains" above says, so the 6–8 % is the host and nothing
+else: the after run sat at 2.27–4.14 where the before run sat at 3.05–11.87. It is the reason
+the native columns are in the table as a control, and it bounds how much of the 20 % to believe —
+the *paired* change, encode against itself in the same process, is the number to trust, and it
+is 40 %.
 
 ### Verdicts
 
