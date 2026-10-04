@@ -223,3 +223,11 @@ did.
 4. **`cap-probe` is in the brief but not in the tree.** It arrived in `fd3ef725` on an unmerged
    branch. Either that commit lands before the next job needs it, or the brief should name
    `snapshot` for size-ladder questions.
+
+## Decision: MDS_3D re-pinned (orchestrator, 2026-10-04)
+
+The tie's orientation has no right answer, so one pin has to move. LF-11 keeps the row within
+its 1e-15 ceiling (median 3.134e-16 against 3.114e-16 before). The motor sha in
+`crates/graph-cli/src/oracle_python/conformance/baseline/table/igraph.rs` is now
+`b625226d3aff504a24664766917e89b564c2da727f99ffdfc959a3695a9f584a`. Narrowing LF-11 to the 2D arm
+was rejected: it would leave `layout.mds.pivot3d` oriented by the solver.

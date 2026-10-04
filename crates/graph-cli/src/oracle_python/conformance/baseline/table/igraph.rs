@@ -26,9 +26,12 @@ pub(super) const IGRAPH: [Baseline; 3] = [
         "bitwise",
         "rng",
     ),
+    // Re-pinned 2026-10-04 by LF-11 (`pivot_mds/tied.rs`): a tied eigenvalue's basis is now
+    // canonicalised, so the orientation is the motor's rule, not `eigh`'s. Median vs SciGraphs
+    // 3.134e-16 (was 3.114e-16), max gap 9.730 both (`docs/measurements/fix-spectral.md`).
     row(
         "MDS_3D",
-        "49e3d8aaa70c8273d1205dc682fc62f0370418ad2760b2d8ce127fded381aa09",
+        "b625226d3aff504a24664766917e89b564c2da727f99ffdfc959a3695a9f584a",
         "603f394d3446e83ad9e0dd88ba272b9feb6a2fc8107404bc63e4a06ca29ebc0f",
         "",
         1e-15,
