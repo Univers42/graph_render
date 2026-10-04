@@ -68,6 +68,8 @@ if (isWorkerScope(scope)) {
   // The session is made before the host that could stop its loop, so the notice runs over
   // one cell: a graph replaced mid-settle must not leave the loop stepping a dead session.
   const notice: { host: ForceHost | null } = { host: null };
+  // The gate's negative control, set by the page that asked for it and read by the grow.
+  const gate: { breakDeltas: boolean } = { breakDeltas: false };
   const session = createSession({
     motorFrom,
     fetchText,
@@ -75,6 +77,7 @@ if (isWorkerScope(scope)) {
     assemble: assembleColumns,
     now: () => performance.now(),
     onForget: () => notice.host?.forget(),
+    breakDeltas: () => gate.breakDeltas,
     onRenew: () => notice.host?.renew(),
   });
   const forces = createForceHost(() => session.forces(), {
@@ -82,9 +85,16 @@ if (isWorkerScope(scope)) {
     now: () => performance.now(),
     // A frame is unsolicited: it has no request of its own to be the answer to.
     emit: (result, transfer) => scope.postMessage({ seq: UNSOLICITED, body: result }, transfer),
+    // The structure snapshot a delta batch needs drawn: an O(n) scatter, `toBytes`, `describe`.
+    structure: () => session.structure(),
   });
   notice.host = forces;
-  const pump = createPump(session, (message, transfer) => scope.postMessage(message, transfer), forces);
+  const pump = createPump(
+    session,
+    (message, transfer) => scope.postMessage(message, transfer),
+    forces,
+    (request) => { if (request.type === "open") gate.breakDeltas = request.breakDeltas === true; },
+  );
   scope.onmessage = (event) => {
     if (isRequest(event.data)) pump(event.data);
   };
