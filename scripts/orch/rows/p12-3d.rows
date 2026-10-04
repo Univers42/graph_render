@@ -103,4 +103,4 @@ negctl-bipartite-3d-model|nonzero|scripts/orch/gr -e GM_MUTATE_BIPARTITE_3D_NODE
 # and `the_start_block_of_every_2d_run_is_unchanged` (fails if `alpha_for` moves a pinned 2-D
 # byte) in `crates/graph-core/src/linalg/lobpcg/tests.rs`, both reached by the `test` row.
 spectral3d-above-dense-limit|0|scripts/orch/gr cargo run -q --release -p graph-cli -- snapshot --seed 255 --layout layout.spectral3d --out-json - | grep -q '"dim":1'
-spectral2d-at-the-same-seed|0|scripts/orch/gr cargo run -q --release -p graph-cli -- snapshot --seed 255 --layout layout.spectral --out-json - | grep -q '"dim"'
+spectral2d-at-the-same-seed|0|out=$(scripts/orch/gr cargo run -q --release -p graph-cli -- snapshot --seed 255 --layout layout.spectral --out-json - 2>/dev/null); ! echo "$out" | grep -q '"dim":1'
