@@ -15,4 +15,4 @@
 svc-limits|0|timeout 1800 scripts/service-limits.sh
 negctl-svc-limits|0|SERVICE_LIMITS_MEM=1g timeout 1800 scripts/service-limits.sh; test $? -eq 1 && grep -q '^FAIL oom' target/service-limits/negctl/report.txt
 svc-caps-time|0|timeout 5400 scripts/service-caps-time.sh
-negctl-svc-caps-time|0|SERVICE_CAPS_TIME_TIMEOUT_MS=1 timeout 5400 scripts/service-caps-time.sh; test $? -eq 1 && test "$(grep -c '^FAIL' target/service-caps-time/negctl/report.tsv)" -ge 50
+negctl-svc-caps-time|0|SERVICE_CAPS_TIME_TIMEOUT_MS=1 timeout 5400 scripts/service-caps-time.sh; test $? -eq 1 && test "$(grep -c '^FAIL' target/service-caps-time/negctl/report.tsv)" -eq "$(grep -vc '^id' docs/measurements/service-caps.tsv)"

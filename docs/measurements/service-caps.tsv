@@ -41,6 +41,11 @@ layout.force.particle_mesh	262144	406717
 layout.forceatlas2.forcesim	2000	8000
 layout.spectral3d	256	1024
 layout.mds.pivot3d	100000	400000
+layout.force.yifan_hu.2z	32768	131072
+layout.force.fruchterman_reingold.3d	2000	8000
+layout.force.kamada_kawai.3d	2000	8000
+layout.force.drl.3d	2048	8192
+layout.forceatlas2.3d	8192	32768
 post.route.grid	3225	4988
 post.bundle.fdeb	4451	6900
 post.bundle.mingle	1935	3000

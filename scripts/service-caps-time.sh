@@ -35,7 +35,7 @@
 #                                  every row must answer 503, which proves the row reads the time.
 #
 # Bodies: cached under target/service-caps-time/bodies/n<n>.json and shared by every row at that n
-# (22 of the 50 rows ask at one n), which is why the negative control is not a second 10 minutes of
+# (22 of the 50 rows of 2026-10-03 ask at one n), which is why the negative control is not a second 10 minutes of
 # generation. The generator is deterministic, so a cached body is the body the row would have built;
 # an emit that is interrupted writes to a private name and is never renamed into the cache, so a
 # partial file is never reused. The cache is about 900 MB.
@@ -154,7 +154,9 @@ while IFS=$'\t' read -r id cn cm; do
   cap_n_by[$id]=$cn
   cap_m_by[$id]=$cm
 done <"$tsv"
-((${#cap_n_by[@]} == 50)) || die "the caps table holds ${#cap_n_by[@]} rows, not 50"
+# tests/caps.rs pins one tsv row per service id, so the tsv is the count; an empty one is a broken read.
+expected=${#cap_n_by[@]}
+((expected > 0)) || die "the caps table $tsv holds no row"
 
 # The input layout of each post id, docs/measurements/service-caps.md:112-119.
 input_of() {
@@ -239,4 +241,4 @@ load_end=$(cut -d' ' -f1 /proc/loadavg)
 say "# load1 end $load_end ($(cat /proc/loadavg))"
 say "# rows $rows, failing $fails"
 log "$rows rows, $fails failing, load1 $load_start -> $load_end"
-((fails == 0 && rows == 50))
+((fails == 0 && rows == expected))

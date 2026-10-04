@@ -11,6 +11,7 @@ isolate the page and admit the bundle, so every later row sees a service that do
 """
 import functools
 import threading
+from pathlib import Path
 import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -32,16 +33,27 @@ PAGE = """<!doctype html>
 </head><body>
 <graph-studio wasm="{base}graph_wasm.wasm"></graph-studio>
 <script type="module" src="{base}graph-studio.js"></script>
+<script type="module" src="/host.js"></script>
 </body></html>
 """
+# The host's half of host-api.md condition 3: an element without `remember` draws nothing until the
+# host's first `loadGraph`. A file of the host's own, because the CSP refuses an inline script; the
+# graph is the one app/src/embed.ts loads, and the host serves it because the service serves no fixtures.
+HOST_JS = """await customElements.whenDefined("graph-studio");
+const doc = await (await fetch("/graph.json")).json();
+await document.querySelector("graph-studio").loadGraph(doc);
+"""
+GRAPH = Path(__file__).resolve().parents[2] / "fixtures/force/clustered.json"
+HTML, JS, JSON = "text/html; charset=utf-8", "text/javascript", "application/json"
 
 
 def host_pages(version, service):
-    """Path -> (html, isolated, csp) for the three pages the host serves."""
+    """Path -> (body, isolated, csp, type) for the three pages the host serves and their two files."""
     proxied = PAGE.format(base=f"/embed/{version}/")
     direct = PAGE.format(base=f"{service}/embed/{version}/")
-    return {"/isolated/": (proxied, True, CSP), "/plain/": (proxied, False, CSP),
-            "/direct/": (direct, False, DIRECT_CSP.format(service=service))}
+    return {"/isolated/": (proxied, True, CSP, HTML), "/plain/": (proxied, False, CSP, HTML),
+            "/direct/": (direct, False, DIRECT_CSP.format(service=service), HTML),
+            "/host.js": (HOST_JS, False, CSP, JS), "/graph.json": (GRAPH.read_text(), False, CSP, JSON)}
 
 
 class PassThrough(BaseHTTPRequestHandler):
@@ -57,10 +69,10 @@ class PassThrough(BaseHTTPRequestHandler):
         else:
             self.forward()
 
-    def send_page(self, html, isolated, csp):
-        body = html.encode()
+    def send_page(self, text, isolated, csp, content_type):
+        body = text.encode()
         self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Type", content_type)
         self.send_header("Content-Security-Policy", csp)
         for name, value in (ISOLATION.items() if isolated else ()):
             self.send_header(name, value)

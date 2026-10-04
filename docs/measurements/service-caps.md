@@ -108,6 +108,11 @@ not order.
 | `layout.forceatlas2.forcesim` | layout | O(n^2) per iteration (one f64 coefficient... | 2000 | 2000 (3075) | 621.2 | 38.7 | 8000 / 1136.2 | 2000 | 8000 |
 | `layout.spectral3d` | layout | O(c^3) per component of c <= 256 nodes... | 700 | 256 (390) | 72.6 | 7.3 | 1024 / 61.2 | 256 | 1024 |
 | `layout.mds.pivot3d` | layout | O(k (n + m)) time and O(n k) memory | 100000 | 100000 (154978) | 314.6 | 156.8 | 400000 / 460.3 | 100000 | 400000 |
+| `layout.force.yifan_hu.2z` | layout | O(n log n) x (112 + 48 x levels) for the 2D... | 100000 | 65536 (101565) | 19452.9 | 132.1 | 131072 / 7680.2 | 32768 | 131072 |
+| `layout.force.fruchterman_reingold.3d` | layout | O(niter * (n^2 + m)) with niter = 500 | 2000 | 2000 (3075) | 4721.3 | 8.5 | 8000 / 4761.6 | 2000 | 8000 |
+| `layout.force.kamada_kawai.3d` | layout | O(n^2) set-up (all-pairs BFS | 2000 | 2000 (3075) | 7582.3 | 38.3 | 8000 / 8534.5 | 2000 | 8000 |
+| `layout.force.drl.3d` | layout | O(S * n * deg) with S about 550 sweeps | 5000 | 2048 (3152) | 12491.5 | 8.6 | 8192 / 13623.8 | 2048 | 8192 |
+| `layout.forceatlas2.3d` | layout | O(n^2) per iteration | 14000 | 14000 (21712) | 27039.5 | 25.3 | 32768 / 14486.7 | 8192 | 32768 |
 largest peak at cap: 257.7 MiB (`layout.mds.pivot3d`)
 | `post.route.grid` | post, over `layout.grid` | O(m · cells · log cells) | 5000 | 3225 (4988) | 9447 | 35.3 | 12900 / 34524.9 | 3225 | 4988 |
 | `post.bundle.fdeb` | post, over `layout.grid` | O(m^2) to build the pair list once | 6900 | 4451 (6867) | 558.4 | 30.5 | 17804 / 2488.7 | 4451 | 6900 |
@@ -141,6 +146,8 @@ them ran on the loaded host, so they could rise on a re-run.
 | `post.separate.grid` | n 6451 over `layout.packing.circle` | killed at 40 s | |
 
 `layout.spectral3d` is bound by a refusal, not by time: at n 512 the motor refused the seeded graph with "parameter topology: no component passed the eigensolver's residual and orthonormality gate", while `layout.spectral` ran to its ceiling of 700. Its cap of 256 nodes and 1024 edges is the last rung that ran. The three rows `layout.forceatlas2.forcesim`, `layout.spectral3d` and `layout.mds.pivot3d` came from one later ladder run (2026-10-04, load1 14.9 on 20 cores), with the commands above and those three ids.
+
+The five rows `layout.force.yifan_hu.2z`, `layout.force.fruchterman_reingold.3d`, `layout.force.kamada_kawai.3d`, `layout.force.drl.3d` and `layout.forceatlas2.3d` came from one more ladder run (2026-10-04, 34 rungs, load1 11.5 to 30.1 on 20 cores), with the commands above and those five ids, after develop registered them. `layout.force.yifan_hu.2z`, `layout.force.drl.3d` (its n 4096 rung was killed past 40 s) and `layout.forceatlas2.3d` are bound by time; the two others are at their ceiling of 2000.
 
 The `post.separate.grid` kill comes from its input. `layout.packing.circle` runs untimed before the post
 and is slow at 6451 nodes. Over `layout.treemap.squarified` the post reached 6451 nodes in 1.58 s. Its cap
