@@ -157,14 +157,12 @@ function overflows(walk: () => unknown): boolean {
 
 test("emit sends a detail that refers to itself instead of overflowing the stack", () => {
   const target = new EventTarget();
-  const detail = cyclicSelect();
-  const held: Event[] = [];
-  target.addEventListener("node-select", (event) => held.push(event));
-  emit(target, "node-select", detail);
-  const heard = (held[0] as CustomEvent<HostEvents["node-select"]>).detail;
-  const node = (heard as { node: { self?: unknown } }).node;
-  assert.equal(Object.isFrozen(node), true);
-  assert.equal(Object.isFrozen(node.self), true);
+  const held: CustomEvent<Record<string, unknown>>[] = [];
+  target.addEventListener("node-select", (event) => void held.push(event as CustomEvent<Record<string, unknown>>));
+  emit(target, "node-select", cyclicSelect());
+  const node = held[0]?.detail.node as { readonly self?: unknown };
+  assert.equal(Object.isFrozen(node), true, "the object that holds the cycle is frozen");
+  assert.equal(Object.isFrozen(node.self), true, "and so is what it points at");
 });
 
 test("negative control: the test's own walk has no visited set, and a cycle is what stops it", () => {

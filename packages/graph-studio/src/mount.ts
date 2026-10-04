@@ -178,6 +178,38 @@ function shadowOf(host: HTMLElement): { readonly canvas: HTMLCanvasElement; read
 
 type Parts = Pick<Mounted, "studio" | "view" | "client" | "bridge" | "deltas">;
 
+/**
+ * The parts a mount has made so far, every member optional: a `throw` part-way leaves only what was
+ * made before it, and `release` is what takes those back.
+ *
+ * No member for the client: its worker is spawned on the motor's first call, which happens inside
+ * `studio.start` — after the studio is on here, and `studio.destroy` closes it.
+ */
+export interface Building {
+  studio?: Studio;
+  view?: View;
+  bridge?: LiveBridge;
+  root?: Root;
+  unwatch?: () => void;
+  unwatchArea?: () => void;
+  unhost?: () => void;
+}
+
+/**
+ * The one definition of released. `unmount` and a mount that threw part-way both call this, so the
+ * two cannot drift: the steps are `unmount`'s, in `unmount`'s order, and each one runs only if its
+ * part was made. A studio here ends its worker; the rest stop watching and free what they made.
+ */
+export function release(parts: Building): void {
+  parts.unhost?.();
+  parts.root?.unmount();
+  parts.unwatchArea?.();
+  parts.unwatch?.();
+  parts.bridge?.destroy();
+  parts.studio?.destroy();
+  parts.view?.destroy();
+}
+
 function studioOf(host: HTMLElement, options: StudioElementOptions, canvas: HTMLCanvasElement): Parts {
   const client = createClient(options.spawn ?? spawnWorker, assetsOf(host, options.threads));
   // The view is made before the studio, and the ids live in the studio's state: read late.
@@ -199,36 +231,46 @@ function studioOf(host: HTMLElement, options: StudioElementOptions, canvas: HTML
 
 /** `resolve` is read through `resolver` on every call, so the host may set it at any time. */
 export function mount(host: HTMLElement, options: StudioElementOptions, resolver: () => Resolve | null): Mounted {
-  const { canvas, chrome } = shadowOf(host);
-  const { studio, view, client, bridge, deltas } = studioOf(host, options, canvas);
-  const previews = createPreviews({ resolver });
-  // Before `start`: a studio that remembers draws at once, and that load is announced too.
-  const unwatchHost = watchHost({ host, store: studio.store, view, previews });
-  const unwatchGestures = watchGestures({ host, canvas, studio, view });
-  const unwatch = watchRuns(studio.store, bridge);
-  const root = createRoot(chrome);
-  root.render(createElement(Shell, {
-    studio, view, keys: host.getAttribute("keys") === "page" ? window : host, bar: bridge, previews,
-  }));
-  const started = studio.start(host.hasAttribute("remember"));
-  // The arrow, not the method: `watchSafeArea` holds this until unmount, and a bare method
-  // reference would leave `this` to chance — `view.setSafeArea(area)` names the receiver.
-  const unwatchArea = watchSafeArea(canvas, chrome, (area) => view.setSafeArea(area));
-  const unhost = (): void => {
-    unwatchHost();
-    unwatchGestures();
-    previews.clear();
-  };
-  return { studio, view, client, root, bridge, deltas, unwatch, unwatchArea, verbs: hostVerbs(host, studio, started), previews, unhost };
+  const parts: Building = {};
+  try {
+    const { canvas, chrome } = shadowOf(host);
+    const { studio, view, client, bridge, deltas } = studioOf(host, options, canvas);
+    Object.assign(parts, { studio, view, bridge });
+    const previews = createPreviews({ resolver });
+    // Grown as the parts are made, so a throw between two of them releases both. The release steps
+    // themselves are `release`'s and `unmount`'s, and none of them is written out twice here.
+    const unhosted: (() => void)[] = [() => previews.clear()];
+    // Before `start`: a studio that remembers draws at once, and that load is announced too.
+    const unwatchHost = watchHost({ host, store: studio.store, view, previews });
+    unhosted.push(unwatchHost);
+    const unwatchGestures = watchGestures({ host, canvas, studio, view });
+    unhosted.push(unwatchGestures);
+    const unhost = (): void => {
+      for (const stop of unhosted) stop();
+    };
+    parts.unhost = unhost;
+    const unwatch = watchRuns(studio.store, bridge);
+    parts.unwatch = unwatch;
+    const root = createRoot(chrome);
+    parts.root = root;
+    root.render(createElement(Shell, {
+      studio, view, keys: host.getAttribute("keys") === "page" ? window : host, bar: bridge, previews,
+    }));
+    const started = studio.start(host.hasAttribute("remember"));
+    // The arrow, not the method: `watchSafeArea` holds this until unmount, and a bare method
+    // reference would leave `this` to chance — `view.setSafeArea(area)` names the receiver.
+    const unwatchArea = watchSafeArea(canvas, chrome, (area) => view.setSafeArea(area));
+    parts.unwatchArea = unwatchArea;
+    return { studio, view, client, root, bridge, deltas, unwatch, unwatchArea, verbs: hostVerbs(host, studio, started), previews, unhost };
+  } catch (error) {
+    // `element.ts` hands `#mounted` only what this returns, so a throw part-way leaves the host
+    // with nothing to unmount: what was made is released here, and the error raised unchanged.
+    release(parts);
+    throw error;
+  }
 }
 
 export function unmount(mounted: Mounted | null): void {
   if (mounted === null) return;
-  mounted.unhost();
-  mounted.root.unmount();
-  mounted.unwatchArea();
-  mounted.unwatch();
-  mounted.bridge.destroy();
-  mounted.studio.destroy();
-  mounted.view.destroy();
+  release(mounted);
 }
