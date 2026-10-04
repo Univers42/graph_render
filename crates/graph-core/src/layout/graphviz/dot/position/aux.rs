@@ -77,15 +77,22 @@ impl Aux {
     }
 }
 
-/// `create_aux_edges`: copy the adjacency aside, then the rank constraints, then the edge pairs.
+/// `create_aux_edges`: save and **empty** the adjacency, then the rank constraints, then the edge
+/// pairs.
 ///
-/// The copy is the reference's `allocate_aux_edges`, which saves the two list pointers and hands
-/// the node fresh, larger lists. Here the lists are `Vec`s that grow, so saving them *is* copying
-/// them and putting the copy back is the whole of `remove_aux_edges`.
+/// The emptying is `allocate_aux_edges`, and it is the load-bearing half. The reference's
+/// `alloc_elist` sets a list's size to zero and hands it a fresh array, so the graph the
+/// x-coordinate simplex walks holds *only* the constraints made here — not the graph's own
+/// edges. That is what leaves two nodes joined by one edge directly above each other in the
+/// drawing: the one-point pair says their centres are not the same point, and the pair is
+/// satisfied at zero separation. Keep the real edges and every node would be pushed one point
+/// right of its in-neighbour.
 pub fn build(g: &mut Fast, rows: &Rows) -> Aux {
     let nlist: Vec<u32> = decomp::decompose(g).into_iter().flatten().collect();
-    let saved_out = g.out.clone();
-    let saved_in = g.inn.clone();
+    let saved_out = std::mem::take(&mut g.out);
+    let saved_in = std::mem::take(&mut g.inn);
+    g.out = vec![Vec::new(); g.nodes.len()];
+    g.inn = vec![Vec::new(); g.nodes.len()];
     let mut edges: Vec<u32> = Vec::new();
     lr_constraints(g, rows, &mut edges);
     let slack = edge_pairs(g, &saved_out, &nlist, &mut edges);

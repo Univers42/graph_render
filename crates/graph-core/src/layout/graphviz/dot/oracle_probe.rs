@@ -57,6 +57,14 @@ pub fn ordered(count: u32, edges: &[(u32, u32)]) -> Vec<Vec<u32>> {
     crossings::real_rows(&ranked_and_ordered(count, edges))
 }
 
+/// The **wrong** variant of [`positioned`]: every node on Graphviz's default box rather than on
+/// the box its own id measures to. This is the port the rank pass stopped at, kept as the
+/// negative control for the width table — it is right exactly as long as every label fits
+/// inside the default box.
+pub fn default_box(count: u32, edges: &[(u32, u32)]) -> Fast {
+    positioned_over(graph(count, edges))
+}
+
 /// Every node's id as the oracle's fixtures name them: `n0`, `n1`, … `n{count - 1}`.
 ///
 /// This is the one place the port turns a dense index into text, and it is why the size of a
@@ -71,7 +79,12 @@ pub fn fixture_ids(count: u32) -> Vec<String> {
 pub fn positioned(count: u32, edges: &[(u32, u32)]) -> Fast {
     let ids: Vec<String> = fixture_ids(count);
     let borrowed: Vec<&str> = ids.iter().map(String::as_str).collect();
-    let mut g = super::build(&borrowed, edges);
+    positioned_over(super::build(&borrowed, edges))
+}
+
+/// The three passes over a graph already built, so the sized and the default-box variants differ
+/// in nothing but the box.
+fn positioned_over(mut g: Fast) -> Fast {
     rank(&mut g).expect("the fixture graphs are connected and acyclic after the pass");
     mincross::run(&mut g);
     position(&mut g).expect("the fixture graphs are connected after the pass");
