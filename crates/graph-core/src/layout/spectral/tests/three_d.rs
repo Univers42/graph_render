@@ -141,7 +141,7 @@ fn six_node_path_block_is_numpys_eigh_after_sign_fixing() {
     let local_of = local_positions(std::slice::from_ref(&members), 6);
     let graph = ComponentGraph::build(&members, &neighbors, &local_of);
     let mut eig = solve_component(&graph, Width::Spectral3d)
-        .0
+        .eig
         .expect("6 <= DENSE_EIG_LIMIT solves");
     pin_signs(&mut eig);
     let mut coords = vec![0.0_f64; 6 * 3];
@@ -206,7 +206,7 @@ fn a_six_path_eigenvector_has_a_tied_largest_magnitude_entry() {
     let local_of = local_positions(std::slice::from_ref(&members), 6);
     let graph = ComponentGraph::build(&members, &neighbors, &local_of);
     let mut eig = solve_component(&graph, Width::Spectral3d)
-        .0
+        .eig
         .expect("6 <= DENSE_EIG_LIMIT solves");
     pin_signs(&mut eig);
     let ties: Vec<usize> = (0..eig.k)
