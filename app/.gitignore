@@ -1,6 +1,7 @@
 # Build artefacts, not source.
 node_modules/
 dist/
+dist-embed/
 
 # Staged by scripts/studio.sh from target/wasm32-unknown-unknown/release and from
 # the repository's fixtures/ — both are generated, and both are large.

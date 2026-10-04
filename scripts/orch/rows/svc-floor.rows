@@ -3,3 +3,14 @@ svc-fmt|0|scripts/orch/gr cargo fmt --manifest-path server/Cargo.toml --all --ch
 svc-clippy|0|scripts/orch/gr cargo clippy --manifest-path server/Cargo.toml --workspace --all-targets -- -D warnings
 svc-test|0|scripts/orch/gr cargo test --manifest-path server/Cargo.toml --workspace --no-fail-fast
 root-fmt|0|scripts/orch/gr cargo fmt --all --check
+# Condition 4 (docs/reviews/review-svc-r3.md new conditions): the test hooks are behind the
+# `test-hooks` feature, which the crate's dev-dependency on itself turns on for the tests and no
+# binary build turns on. `cargo rustc -- --print cfg` is the reading: it prints the feature cfgs
+# rustc was actually given, one per line, for exactly the target it was asked for.
+# - hooks-gated: the release binary is compiled with no `feature="test-hooks"`, and the `limits`
+#   test target is compiled with it (that target calls `Hooks::before_run`, so a test build without
+#   the feature would not compile at all).
+# - negctl-hooks-gated: the same command with `--features test-hooks` forced on must print it, so a
+#   green hooks-gated cannot be a `cargo rustc` that ignored the flag.
+hooks-gated|0|d=target/hooks-gated; mkdir -p $d && scripts/orch/gr cargo rustc --manifest-path server/Cargo.toml -p graph-server --release --bin graph-server -- --print cfg >$d/release.cfg 2>/dev/null && ! grep -qx 'feature="test-hooks"' $d/release.cfg && scripts/orch/gr cargo rustc --manifest-path server/Cargo.toml -p graph-server --profile test --test limits -- --print cfg >$d/test.cfg 2>/dev/null && grep -qx 'feature="test-hooks"' $d/test.cfg
+negctl-hooks-gated|0|d=target/hooks-gated; mkdir -p $d && scripts/orch/gr cargo rustc --manifest-path server/Cargo.toml -p graph-server --release --bin graph-server --features test-hooks -- --print cfg >$d/forced.cfg 2>/dev/null && grep -qx 'feature="test-hooks"' $d/forced.cfg

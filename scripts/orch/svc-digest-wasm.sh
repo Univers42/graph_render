@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+# svc-digest-wasm.sh — the wasm32 arm of the digest manifest (`docs/contract/service-api.md`
+# "Verdict", condition 7): every row of server/graph-server/tests/digest/manifest.json run
+# through the real wasm artifact, compared with the digests the native arm committed.
+#
+#   scripts/orch/svc-digest-wasm.sh [--break]
+#
+# Two images, so two commands:
+#
+#   1. scripts/orch/gr  cargo build -p graph-wasm --release --target wasm32-unknown-unknown
+#   2. scripts/orch/node-slim.sh node server/graph-server/tests/digest/wasm-arm.mjs <wasm> <manifest>
+#
+# `wasm-arm.mjs` prints one tab-separated line per row — fixture, source, layout, the POST id
+# or `-`, then the SHA-256 of the framed snapshot bytes — and this script compares those lines
+# with the manifest's own rows, sorted, so a difference is a diff and not a join.
+#
+# The build is the default artifact: no `threads`, no RUSTFLAGS. `scripts/orch/wasm-threads.sh`
+# builds a different one, and comparing that here would be comparing two artifacts, not the
+# wasm32 build against the native one.
+#
+# `--break` is the negative control: it rewrites one row's committed digest in a scratch copy
+# of the manifest, points the wasm arm at that copy, and lets the comparison run. The control
+# therefore exercises the real comparison and not a stub of it — the scratch manifest differs
+# from the real one in one hash and nothing else, so the exit is 1 because the two disagree,
+# not because a flag short-circuited the diff.
+#
+# Exit: 0 every row agrees · 1 a row does not · 2 could not build or could not run
+#
+# Writes: nothing in the tree. `--break` writes target/svc-digest-wasm/manifest.json.
+
+set -uo pipefail
+here=$(dirname "$(readlink -f "$0")")
+root=$(git -C "$here" rev-parse --show-toplevel)
+cd "$root" || exit 2
+
+break=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --break) break=1; shift ;;
+    # The manual is the header, printed from the file so it cannot drift from the comment
+    # block a reader sees before running anything (scripts/scigraphs-conformance.sh does this).
+    --help|-h)
+      sed -n "2,/^$/p" "$0" | sed -e 's/^# \{0,1\}//' -e '/^$/d'
+      exit 0
+      ;;
+    *)
+      echo "svc-digest-wasm: unknown argument: $1" >&2
+      exit 2
+      ;;
+  esac
+done
+
+# WHY the build's failure is 2 and not 1: a row that cannot run is not a row that disagrees.
+# A `nonzero` gate row would be satisfied by a broken toolchain, so the two are kept apart.
+wasm=target/wasm32-unknown-unknown/release/graph_wasm.wasm
+manifest=server/graph-server/tests/digest/manifest.json
+if [ "$break" = 1 ]; then
+  scratch=target/svc-digest-wasm
+  mkdir -p "$scratch" || exit 2
+  manifest=$scratch/manifest.json
+  # The one digest the control moves, named here rather than at the call site so the header,
+  # the code and the row agree on what `--break` perturbs. The byte moved is the first hex
+  # digit of the first row's hash, so the scratch manifest is still a valid manifest: a
+  # control that made the file unparseable would exit on the parse, not on the comparison.
+  python3 - server/graph-server/tests/digest/manifest.json "$manifest" <<'PY' || exit 2
+import json, sys
+
+# WHY json and not sed: the first row's hash is a 64-character string and the row it must not
+# touch is the fixture path above it, so a line-oriented edit would need the row's line number.
+source, target = sys.argv[1], sys.argv[2]
+rows = json.load(open(source))["entries"]
+rows[0]["hash"] = ("f" if rows[0]["hash"][0] != "f" else "0") + rows[0]["hash"][1:]
+json.dump({"entries": rows}, open(target, "w"), indent=2)
+PY
+fi
+
+"$here/gr" cargo build -p graph-wasm --release --target wasm32-unknown-unknown || {
+  echo "svc-digest-wasm: could not build $wasm" >&2
+  exit 2
+}
+[[ -s $wasm ]] || {
+  echo "svc-digest-wasm: no artifact at $wasm" >&2
+  exit 2
+}
+
+got=$(mktemp) || exit 2
+trap 'rm -f "$got"' EXIT
+if ! "$here/node-slim.sh" node server/graph-server/tests/digest/wasm-arm.mjs "$wasm" "$manifest" >"$got"; then
+  echo "svc-digest-wasm: could not run the wasm arm" >&2
+  exit 2
+fi
+
+# The manifest's rows, spelled the way wasm-arm.mjs spells them. `python3` reads the committed
+# file rather than a second copy of the row shape in this script: two spellings would drift,
+# and a drift here would read as a motor difference.
+want=$(mktemp) || exit 2
+python3 - "$manifest" >"$want" <<'PY' || exit 2
+import json, sys
+for entry in json.load(open(sys.argv[1]))["entries"]:
+    print("\t".join([entry["fixture"], entry["source"], entry["layout"],
+                     entry["post"] or "-", entry["hash"]]))
+PY
+
+rows=$(wc -l <"$want")
+if [[ $(wc -l <"$got") -ne $rows ]]; then
+  echo "svc-digest-wasm: the wasm arm printed $(wc -l <"$got") rows, the manifest has $rows" >&2
+  exit 1
+fi
+if ! diff -u <(sort "$want") <(sort "$got"); then
+  echo "svc-digest-wasm: the wasm32 digests differ from the manifest above" >&2
+  exit 1
+fi
+echo "svc-digest-wasm: $rows rows, wasm32 and native agree"

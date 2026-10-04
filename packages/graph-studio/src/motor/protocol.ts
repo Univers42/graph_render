@@ -6,7 +6,17 @@ import type { ForceKnobs } from "./live.ts";
 import type { EdgeKind, NodeKind } from "../source/ingest.ts";
 import type { GraphMeta } from "../source/meta.ts";
 import type { ShownError } from "../state/errors.ts";
-import type { Source } from "../state/settings.ts";
+import type { ParamValues, Source } from "../state/settings.ts";
+
+/**
+ * The parameter specs `gm_layout_params` publishes, in the order a run's buffer carries them.
+ * The generated wire declaration, not the SDK's own: this module is shared with the page, and
+ * the SDK is the motor's boundary (`app/eslint.config.js`). It is the same interface, from the
+ * one file codegen checks, so a schema that changes shape changes here too.
+ */
+import type { LayoutParamSpec } from "../../../../crates/graph-contract/generated/layout-params.d.ts";
+
+export type { LayoutParamSpec };
 
 export interface Assets {
   readonly wasmUrl: string;
@@ -41,6 +51,12 @@ export interface RunReport {
   /** The edge pass that ran: `null` when none was asked for, or the one asked for refused. */
   readonly postId: string | null;
   readonly postError: ShownError | null;
+  /**
+   * The values the motor was run at, and `{}` when they were not the ones asked for: a force
+   * layout past the live threshold is run as a scatter (`settle.ts`), and that layout
+   * publishes nothing.
+   */
+  readonly params: ParamValues;
   /** The snapshot's binary face. */
   readonly bytes: Uint8Array;
   /** sha256 of `bytes`, or `null` where the platform offers no digest. */
@@ -102,7 +118,14 @@ export interface GraphBatch {
 export type Request =
   | { readonly type: "open"; readonly wasmUrl: string; readonly threads?: number; readonly breakDeltas?: boolean }
   | { readonly type: "load"; readonly source: Source; readonly fixturesUrl: string }
-  | { readonly type: "layout"; readonly layoutId: string; readonly postId: string | null }
+  | { readonly type: "params"; readonly layoutId: string }
+  | {
+      readonly type: "layout";
+      readonly layoutId: string;
+      readonly postId: string | null;
+      /** What to run this layout at; absent or empty means the motor's own defaults. */
+      readonly params?: ParamValues;
+    }
   | { readonly type: "analysis"; readonly analysisId: string }
   // Not a `ForceRequest`: a force request is answered synchronously from the loop's own state,
   // and this one is answered by the tick that applied it.
@@ -140,6 +163,7 @@ export interface ForceFrame {
 export type Result =
   | { readonly type: "opened"; readonly catalog: Catalog }
   | { readonly type: "loaded"; readonly graph: GraphSummary }
+  | { readonly type: "params"; readonly layoutId: string; readonly specs: readonly LayoutParamSpec[] }
   | { readonly type: "laid-out"; readonly run: RunReport }
   | { readonly type: "analysed"; readonly analysis: AnalysisReport }
   | { readonly type: "failed"; readonly error: ShownError }
@@ -183,9 +207,9 @@ export type Spawn = () => Port;
 const FORCE_REQUESTS: readonly string[] = [
   "force.start", "force.settle", "force.drag", "force.release", "force.params", "force.pause", "force.resume", "force.stop",
 ];
-const REQUESTS: readonly string[] = ["open", "load", "layout", "analysis", "force.deltas", ...FORCE_REQUESTS];
+const REQUESTS: readonly string[] = ["open", "load", "params", "layout", "analysis", "force.deltas", ...FORCE_REQUESTS];
 const RESULTS: readonly string[] = [
-  "opened", "loaded", "laid-out", "analysed", "failed", "force-state", "force-frame",
+  "opened", "loaded", "params", "laid-out", "analysed", "failed", "force-state", "force-frame",
   "deltas-applied", "deltas-structure",
 ];
 

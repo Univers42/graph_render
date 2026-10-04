@@ -26,7 +26,10 @@ wraps past 65 536 nodes into a wrong, small table.
 1. **A ceiling for every job.** `scripts/orch/drun` is the one way the repo starts a container:
    under `gm.slice` (MemoryMax 60 % of RAM, no swap; `scripts/orch/gm-slice.sh`), with
    `--oom-score-adj 500` and a 4 GiB default cap. `scripts/orch/drun-check.sh` fails on a bare
-   `docker run` in any shell script or rows file.
+   `docker run` in any shell script or rows file. The service is the one exception:
+   `scripts/service.sh run` passes `DRUN_MEM=8g`, because one worker slot is 4.32 GiB
+   (`docs/measurements/service-caps.md`, "Memory per slot") and 4 GiB holds none, so the default
+   would refuse the service at start.
 2. **A watcher.** `gm-memwatch.service` (`scripts/orch/memwatch.sh`) watches RAM (PSI full and
    MemAvailable), VRAM (DRM fdinfo per client) and the kernel log for gfx ring timeouts. Under RAM
    pressure it kills the largest job cgroup, and with no job to blame it calls the kernel OOM

@@ -7,7 +7,7 @@
 import { frameFrom } from "../../../graph-render/src/frame.ts";
 import { DEFAULT_POLICY, type LabelPolicy } from "../../../graph-render/src/labels.ts";
 import { EMPTY_FRAME } from "../../../graph-render/src/scene.ts";
-import { type Snapshot, decodeSnapshot } from "../../../graph-render/src/snapshot/decode.ts";
+import { decodeSnapshot } from "../../../graph-render/src/snapshot/decode.ts";
 import { styleFrom } from "../../../graph-render/src/style.ts";
 import { backdropTheme } from "../../../graph-render/src/look/backdrop.ts";
 import { isLightTheme, themeNamed } from "../../../graph-render/src/look/themes.ts";
@@ -17,12 +17,14 @@ import { styleInputOf } from "../look/styleOf.ts";
 import { CancelledError, type MotorClient } from "../motor/client.ts";
 import type { AnalysisReport, GraphSummary, RunReport } from "../motor/protocol.ts";
 import { type Ends, MetaMismatch } from "../source/meta.ts";
-import type { RunSummary, StudioState } from "../state/model.ts";
-import { type Appearance, type Settings, type Source, withSettings } from "../state/settings.ts";
+import type { StudioState } from "../state/model.ts";
+import { type Appearance, type ParamValues, type Settings, type Source, withSettings } from "../state/settings.ts";
 import type { Store } from "../state/store.ts";
 import { neighboursOf } from "./adjacency.ts";
 import { fitResults } from "./fitResults.ts";
 import { planOf } from "./plan.ts";
+import { summaryOf } from "./runSummary.ts";
+import { schemaOf } from "./schema.ts";
 
 export type ViewFace = Pick<
   View,
@@ -142,27 +144,6 @@ async function load(rig: Rig, token: number, source: Source): Promise<Part> {
   return { message: `${graph.name}: ${graph.nodeCount} nodes, ${graph.edgeCount} links`, notes: firstOf(graph.notes) };
 }
 
-function degradations(snapshot: Snapshot): string[] {
-  const counts = new Map<string, number>();
-  for (const note of snapshot.notes) {
-    const name = note.name ?? `note ${note.code}`;
-    counts.set(name, (counts.get(name) ?? 0) + 1);
-  }
-  return [...counts].map(([name, count]) => (count === 1 ? name : `${name} ×${count}`));
-}
-
-function summaryOf(run: RunReport, snapshot: Snapshot): RunSummary {
-  const refused = run.postError === null ? [] : [`${run.postError.title}: ${run.postError.detail} — the layout's own edges are shown`];
-  return {
-    layoutId: run.layoutId, postId: run.postId, postError: run.postError, digest: run.digest,
-    byteLength: run.bytes.byteLength, nodeKind: snapshot.nodeKind, edgeKind: snapshot.edgeKind,
-    // The dim off the decoded snapshot, not off the layout id: the z column's presence is
-    // what the painter branches on, so that is what the badge has to report.
-    dim: snapshot.dim,
-    layoutMs: run.layoutMs, postMs: run.postMs, notes: [...degradations(snapshot), ...refused],
-  };
-}
-
 function draw(rig: Rig, token: number, run: RunReport, shown: { readonly look: Settings; readonly fresh: boolean }): Part {
   guard(rig, token);
   const snapshot = decodeSnapshot(run.bytes);
@@ -177,10 +158,15 @@ function draw(rig: Rig, token: number, run: RunReport, shown: { readonly look: S
   if (shown.fresh) rig.view.select(-1);
   patch(rig, (state) => ({
     meta, run: summary, selected: shown.fresh ? -1 : state.selected, selection: shown.fresh ? [] : state.selection,
-    settings: withSettings(state.settings, { layout: run.layoutId, edges: run.postId }),
+    // The values are written here, with the layout: they are what this run was made at, and
+    // nothing else in the pipeline writes a member of the settings that a run settles.
+    settings: withSettings(state.settings, { layout: run.layoutId, edges: run.postId, params: shown.look.params }),
     // The filter the drawing was made under, and the only place it is written: the count
     // below is what a `relayout` filter is compared against to know it has already run.
     runFilter: JSON.stringify(shown.look.filter),
+    // The values, the same way: what the motor was actually run at, which is not what was asked
+    // for when a force layout on a large graph ran as a scatter instead.
+    runParams: JSON.stringify(run.params),
   }));
   restyle(rig, shown.look);
   const pass = run.postId === null ? "" : ` + ${run.postId} ${ms(run.postMs)}`;
@@ -194,10 +180,12 @@ async function arrange(rig: Rig, token: number, next: Settings, fresh: boolean):
   // A switch between two layouts of the same graph is the one this measures; the marks the
   // render side puts down are `gm:transition:moved` and `gm:transition:settled`.
   if (!fresh) performance.mark(REQUEST_MARK);
+  const asked: ParamValues = next.params[next.layout] ?? {};
   try {
-    const run = await rig.client.layout(next.layout, next.edges);
+    const run = await rig.client.layout(next.layout, next.edges, asked);
     if (!fresh) performance.mark(BYTES_MARK);
-    return draw(rig, token, run, { look: next, fresh });
+    const part = draw(rig, token, run, { look: next, fresh });
+    return { message: part.message, notes: [...part.notes, ...await schemaOf(rig.client, rig.store, run.layoutId)] };
   } catch (error) {
     // After a load the old drawing is of another graph; after a refused layout it still holds.
     // A superseded call clears nothing: the drawing on screen is the newer call's.
