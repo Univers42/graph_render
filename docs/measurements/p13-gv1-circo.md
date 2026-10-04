@@ -171,6 +171,10 @@ filed at the position it opened at, answers "how many open edges opened after th
 suffix sum. That is `crates/graph-core/src/layout/graphviz/circo/crossings.rs`; `pass` now calls
 it, and the reference's walk is kept beside it as a `#[cfg(test)]` oracle.
 
+**Superseded in part by §8: "the ordinary chord-crossing number" is wrong.** The sweep's `O(E log
+E)` reading stands; retiring each edge when it closes, which is what made it the interleaving
+count, is not what the reference does.
+
 Same command, same host, same `--release` build, and the sizes are named because `--n` defaults
 to `220,10000,100000`:
 
@@ -561,10 +565,56 @@ scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-or
     --differential --shards 20 --shard 0
 ```
 
-| | cases agreeing to within 1 point | worst gap | worst seed |
-|---|---|---|---|
-| before | **2 of 50** | **4.256e+04** points | 520 (`n = 522`) |
-| after | see §8.6 | see §8.6 | |
+| | cases agreeing to within 1 point | within 1 000 points | worst gap | worst seed |
+|---|---|---|---|---|
+| before | **2 of 50** | 4 | 4.256e+04 points | 520 (`n = 522`) |
+| after | **4 of 50** | **12** | 4.690e+04 points | 540 (`n = 542`) |
+
+Every one of the two seeds that were exact stays exact (0 and 600, the two-node fixture), and
+**the 46 that moved all moved down**: seed 40 from 1 242 to 8.4 points, seed 20 from 868 to 0.8,
+seed 60 from 2 780 to 1.6, seed 80 from 1 677 to 1.1, seed 200 from 8 687 to 167, and the four
+largest-but-one from 31 928–42 557 down to 26 194–30 040. The **worst gap rose**, 4.256e+04 to
+4.690e+04, and the reason is the metric rather than the drawing: `gap` normalises by the drawing's
+own extent, so on a seed where the fix moved one block's circle order onto a different node the
+gap can land on a different pair and be larger. Seed 540 is that seed — it went from second-worst to
+worst while every other seed improved. **The ceiling is unchanged at 1e+05** and still holds.
+
+### 8.6 What is still not matching, and where
+
+The subset rose, so the fix is real and it is not the whole story. On seed 100 (`n = 102`) the
+rescaled gap is 4 687 points and the instrumented build says why, on the block of 74 nodes:
+
+```
+TRACE longest_path [n38 n17 n28 n95 n71 n48 n1 n21 n16 n20 n5 n26 n4 n86 n63 n37
+                    n6 n24 n3 n8 n49 n64 n15 n11 n36 n89 n27 n92 n94 n12 n2 n29 n9 n7 n0 ]
+```
+
+against this port's
+
+```
+[30, 81, 37, 63, 86, 4, 26, 5, 20, 16, 21, 1, 48, 99, 6, 24, 3, 8, 49, 64, 15, 11, 36, 89, 27,
+ 92, 94, 12, 2, 29, 9, 7, 0]
+```
+
+The two agree from `n6` outward — the same branch node, the same `DISTTWO` walk — and disagree on
+the `LEAFONE` walk: the reference's climbs `38-17-28-95-71-48-1-21-16-20-5-26-4-86-63-37-6`, ours
+climbs the same middle chain in the **opposite** direction, `30-81-37-63-86-4-26-5-20-16-21-1-48-99-6`.
+So on a block this size the two spanning trees are different edges, which puts the divergence
+**upstream of the crossing reduction, in `remove_pair_edges` or in the tree it leaves behind** — a
+second and separate cause, not a residue of §8.3. It is not the sort: `remove_pair_edges`'s degree
+list is `nodeCount - 3` = 41 rounds on a block this size, and the two arms' long paths share their
+branch node and their whole second branch, which a tie in the degree list would not produce.
+
+**Not narrowed further here.** Pinning it needs the same instrumented trace read step by step over
+41 rounds of a 74-node block, which is the next job's work, not this one's. What is settled and
+measured is §8.3: the crossing count, which is what moved the seeds that moved.
+
+### 8.7 The full sweep
+
+The four rows of `scripts/orch/rows/p13-gv1-circo.rows`, on the tree this section describes. See
+§8.8 for the output.
+
+
 
 ### 8.6 The full sweep
 
