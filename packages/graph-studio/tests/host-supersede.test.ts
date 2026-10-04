@@ -11,11 +11,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { hostVerbs } from "../src/host/api.ts";
+import { hostVerbs, type HostVerbs } from "../src/host/api.ts";
 import { createPreviews } from "../src/host/previews.ts";
 import { watchHost } from "../src/host/watch.ts";
 import type { MotorClient } from "../src/motor/client.ts";
 import type { GraphSummary } from "../src/motor/protocol.ts";
+import type { ColumnRowsLike } from "../src/source/synthetic-columns.ts";
+import type { Source } from "../src/state/settings.ts";
 import { SCRIPTED_META, desk, scriptedClient } from "./desk.ts";
 
 /** Three nodes each, told apart by their edges: what each call hands back says which is which. */
@@ -50,9 +52,17 @@ function counting(): MotorClient {
     const edges = "edges" in doc && Array.isArray(doc.edges) ? doc.edges.length : 0;
     return { name: "counted", nodeCount: nodes, edgeCount: edges, notes: [], buildMs: 1 };
   };
+  // A columnar document has no text to parse: its counts are the lengths the contract gives
+  // (`docs/contract/ingest-columns.md:19-21`), one `f64` per node and per edge.
+  const countOf = (source: Source): GraphSummary | null => {
+    if (source.kind === "columns") {
+      return { name: "counted", nodeCount: source.rows.weights.length, edgeCount: source.rows.edgeCells.length / 8, notes: [], buildMs: 1 };
+    }
+    return source.kind === "document" ? counted(source.text) : null;
+  };
   return {
     ...scripted,
-    load: (source) => Promise.resolve(source.kind === "document" ? counted(source.text) : scripted.load(source)),
+    load: (source) => Promise.resolve(countOf(source) ?? scripted.load(source)),
     layout: async (layout, post) => ({ ...(await scripted.layout(layout, post)), meta: { ...SCRIPTED_META } }),
   };
 }
@@ -102,5 +112,80 @@ test("a loadGraph made from inside the graph-load handler supersedes the one tha
   assert.deepEqual(await subject.second(), { nodes: 3, edges: 1, notes: [] }, "B resolves with B's own counts");
   await settled();
   assert.deepEqual(subject.loads, [0, 1], "one graph-load per graph that reached a frame, and B's exactly once");
+  assert.deepEqual(subject.errors, [], "a superseded call is not a failure the host is told about");
+});
+
+/** Three nodes and two edges, as columns: the counting motor reads the two lengths and nothing
+ *  else, because the scripted load never builds a document from them. */
+const ROWS: ColumnRowsLike = {
+  strings: [],
+  nodeCells: new Uint32Array(8 * 3),
+  edgeCells: new Uint32Array(8 * 2),
+  weights: new Float64Array(3),
+  versions: new Float64Array(3),
+  strengths: new Float64Array(2),
+};
+
+/**
+ * A motor that holds the first load it is given until a second arrives, then refuses the first the
+ * way the client refuses a cancelled request. What the two verbs race over is the studio's own
+ * generation token, so which of them was called first is all this leaves open.
+ */
+function holding(): MotorClient {
+  const counted = counting();
+  const held: { reject: ((error: Error) => void) | null } = { reject: null };
+  let loads = 0;
+  return {
+    ...counted,
+    load: (source) => {
+      loads += 1;
+      if (loads !== 1) return counted.load(source);
+      return new Promise((_, reject) => (held.reject = reject));
+    },
+    busy: () => held.reject !== null,
+    cancel: () => {
+      held.reject?.(Object.assign(new Error("cancelled"), { name: "CancelledError" }));
+      held.reject = null;
+      return true;
+    },
+  };
+}
+
+/** The verbs of one run over the holding motor, counting what the host would hear. */
+function listening(): { readonly verbs: HostVerbs; readonly loads: number[]; readonly errors: string[] } {
+  const made = desk(holding());
+  const host = new EventTarget();
+  const loads: number[] = [];
+  const errors: string[] = [];
+  for (const name of ["graph-load", "graph-error"]) {
+    host.addEventListener(name, (event) => {
+      const detail = detailOf(event);
+      if (detail === null) return;
+      if (name === "graph-load") loads.push(detail.edges); else errors.push(detail.error ?? "?");
+    });
+  }
+  watchHost({ host, store: made.studio.store, view: { on: () => () => undefined }, previews: createPreviews({ resolver: () => null }) });
+  return { verbs: hostVerbs(host, made.studio, Promise.resolve()), loads, errors };
+}
+
+test("a loadColumns made before a loadGraph settles supersedes it, and only the columns are announced", async () => {
+  const subject = listening();
+  const overtaken = subject.verbs.loadGraph(A).then(() => "resolved", nameOf);
+  await settled();
+  const winner = await subject.verbs.loadColumns(ROWS);
+  assert.equal(await overtaken, "CancelledError", "the overtaken loadGraph keeps no frame");
+  assert.deepEqual(winner, { nodes: 3, edges: 2, notes: [] }, "the columns resolve with their own counts");
+  assert.deepEqual(subject.loads, [2], "exactly one graph-load, and it is the columns'");
+  assert.deepEqual(subject.errors, [], "a superseded call is not a failure the host is told about");
+});
+
+test("a loadGraph made before a loadColumns settles supersedes it, and only the document is announced", async () => {
+  const subject = listening();
+  const overtaken = subject.verbs.loadColumns(ROWS).then(() => "resolved", nameOf);
+  await settled();
+  const winner = await subject.verbs.loadGraph(B);
+  assert.equal(await overtaken, "CancelledError", "the overtaken loadColumns keeps no frame");
+  assert.deepEqual(winner, { nodes: 3, edges: 1, notes: [] }, "B resolves with B's own counts");
+  assert.deepEqual(subject.loads, [1], "exactly one graph-load, and it is B's");
   assert.deepEqual(subject.errors, [], "a superseded call is not a failure the host is told about");
 });

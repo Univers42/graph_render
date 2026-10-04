@@ -81,6 +81,9 @@ function shortened(args: Args): Args {
 
 function sourceCommand(source: Source): readonly [string, RawArgs] {
   if (source.kind === "fixture") return ["source.fixture", { path: source.path }];
+  // The columns are the host's own typed arrays and travel outside the registry, so this names
+  // the command a host has to call again: with nothing offered, `columns` refuses itself.
+  if (source.kind === "columns") return ["source.columns", { name: source.name }];
   if (source.kind === "document") return [source.host === true ? "source.host" : "source.document", { name: source.name, text: source.text }];
   return ["source.synthetic", { nodes: source.nodes, degree: source.degree, seed: source.seed, shape: source.shape }];
 }

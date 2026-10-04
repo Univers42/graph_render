@@ -58,9 +58,10 @@ export interface SyntheticColumns {
 
 /** `u32::MAX` in an optional column: the field is absent, exactly as the JSON reader's `null`. */
 const ABSENT = 0xffff_ffff;
-/** The `u32` columns on each side, per the contract's table. */
-const NODE_COLUMNS = 8;
-const EDGE_COLUMNS = 8;
+/** The `u32` columns on each side, per the contract's table. Exported because the host boundary
+ *  and the worker's own document builder count rows with them, and one count is one number. */
+export const NODE_COLUMNS = 8;
+export const EDGE_COLUMNS = 8;
 
 // The fixed head, in index order. Every value the columns name repeatedly lives here, so the
 // per-row part of the table is only the ids and labels — the two fields that are unique by
