@@ -45,7 +45,8 @@ trap 'rc=$?; printf "scigraphs-conformance: could not run: line %s exited %s\n" 
 root=$(git rev-parse --show-toplevel)
 cd "$root"
 dir=target/scigraphs-conformance
-images="gm-chromium ge-python-oracle ge-graphviz-oracle"
+# The two oracle images this script builds itself; gm-chromium comes from image.sh below.
+images="ge-python-oracle ge-graphviz-oracle"
 break=0
 # The one row the negative control perturbs. Named here rather than at the call site so the
 # gate row and this script agree on which row `--break` is about.
@@ -79,13 +80,17 @@ build() {
     --build-context gv="$gv" . >/dev/null
 }
 
-# `scratch.sh` exports GM_SCRATCH and is meant to be sourced, not run: its output is empty, so
-# running it would leave this script building from a path it never learned.
-# shellcheck source=scripts/orch/scratch.sh
-source scripts/orch/scratch.sh
+# `image.sh` sources `scratch.sh`, which exports GM_SCRATCH. Both are meant to be sourced, not
+# run: their output is empty, so running them would leave this script building from a path it
+# never learned.
+# shellcheck source=scripts/orch/image.sh
+source scripts/orch/image.sh
 refs=$GM_SCRATCH/refs
 nx=$refs/networkx-3.6 ig=$refs/igraph-0.11.9 gv=$refs/graphviz-16.1.0
 
+# WHY ensure_image: `build` makes only the two oracle images. On a host without gm-chromium
+# (every CI runner) step 5 asked Docker Hub for it, which has no such image.
+ensure_image gm-chromium || { printf 'scigraphs-conformance: could not build gm-chromium\n' >&2; exit 2; }
 for image in $images; do
   if ! docker image inspect "$image" >/dev/null 2>&1; then
     printf 'scigraphs-conformance: building %s\n' "$image" >&2
