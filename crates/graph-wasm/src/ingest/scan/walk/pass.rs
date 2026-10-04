@@ -76,47 +76,81 @@ impl<'a> Scan<'a> {
             .ok_or_else(|| IngestError::Json(self.fault("a span past the text")))?;
         self.at = start;
         let mut refused: Option<IngestError> = None;
+        self.space();
+        if self.eat(b'[') && !self.eat(b']') {
+            self.elements(element, keep, &mut refused)?;
+        }
+        match refused {
+            Some(why) => Err(why),
+            None => Ok(()),
+        }
+    }
+
+    /// The elements of the array the cursor is just inside, the last refusal among them in
+    /// `refused`, and the array's own shape: brackets, commas, closing.
+    ///
+    /// This is [`Scan::array`] with the element walk inlined, because `array` reads each
+    /// element as a *value* first and the record pass must read it as an object's members
+    /// instead — the same bytes, once. Ten lines of `array`'s body are therefore spelled out
+    /// here rather than shared, and `array` keeps its own copy for every other caller.
+    fn elements(
+        &mut self,
+        element: &mut Element<'a>,
+        keep: &mut impl FnMut(&mut Element<'a>) -> Result<(), IngestError>,
+        refused: &mut Option<IngestError>,
+    ) -> Result<(), IngestError> {
         // The element's position in the list, advanced only once an element has been read
         // into a record. A refused element leaves it where it was, so the element after it
         // is refused at the *same* position — which is what the reader that numbered the
         // elements in its own loop did, and what the frozen reader names.
         let mut index = 0usize;
-        self.space();
-        if self.eat(b'[') && !self.eat(b']') {
-            'elements: loop {
-                self.space();
-                let from = self.at;
-                element.seek(index);
-                element.reset();
-                match element.fill(self) {
-                    Ok(Err(why)) => refused = Some(why),
-                    // A fault in the element's own bytes stops the walk, as reading the
-                    // element as one value did. Its offset is moved onto the element,
-                    // because that is where the pass this replaces counted from.
-                    Err(fault) => {
-                        refused = Some(IngestError::Json(rebase(fault, from)));
-                        break 'elements;
-                    }
-                    Ok(Ok(())) => {
-                        if let Err(why) = keep(element) {
-                            refused = Some(why);
-                        } else {
-                            index += 1;
-                        }
-                    }
+        loop {
+            self.space();
+            let from = self.at;
+            element.seek(index);
+            element.reset();
+            match self.read_element(from, element, keep) {
+                Ok(Err(why)) => *refused = Some(why),
+                // A fault in the element's own bytes stops the walk, as reading the element
+                // as one value did. Its offset is moved onto the element, because that is
+                // where the pass this replaces counted from.
+                Err(fault) => {
+                    *refused = Some(IngestError::Json(rebase(fault, from)));
+                    return Ok(());
                 }
-                self.space();
-                if self.eat(b']') {
-                    break;
-                }
-                if !self.eat(b',') {
-                    return Err(IngestError::Json(self.fault("expected , or ] in an array")));
-                }
+                Ok(Ok(())) => index += 1,
+            }
+            self.space();
+            if self.eat(b']') {
+                return Ok(());
+            }
+            if !self.eat(b',') {
+                return Err(IngestError::Json(self.fault("expected , or ] in an array")));
             }
         }
-        match refused {
-            Some(why) => Err(why),
-            None => Ok(()),
+    }
+
+    /// The element at `from`, read into `element`: the refusal it raised, or `Ok(())`,
+    /// or — for a fault in the element's own bytes — that fault, which stops the array.
+    ///
+    /// The same three outcomes as [`Element::fill`], with the record built on top of the
+    /// members it located. `keep` is asked only once the members are in, and its refusal is
+    /// the same kind: an `Err` inside an `Ok`.
+    fn read_element(
+        &mut self,
+        from: usize,
+        element: &mut Element<'a>,
+        keep: &mut impl FnMut(&mut Element<'a>) -> Result<(), IngestError>,
+    ) -> Result<Result<(), IngestError>, JsonError> {
+        match element.fill(self)? {
+            Err(why) => Ok(Err(why)),
+            Ok(()) => match self.text.get(from..self.at) {
+                Some(_) => Ok(keep(element)),
+                // A span the walk produced that does not fit the text it walked cannot
+                // happen; the element is skipped rather than read as an empty record, which
+                // is what the pass that handed out element texts did with the same span.
+                None => Ok(Ok(())),
+            },
         }
     }
 }
