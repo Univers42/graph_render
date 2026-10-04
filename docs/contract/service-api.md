@@ -252,3 +252,41 @@ the condition wins.
     - Rows: the develop full gate and `svc-sdk`.
 
 Round 2 (re-submission once 1–3 hold): pending.
+
+### As built (2026-10-04, conditions 3, 4, 9, 11, 12)
+
+Where each condition now holds in `server/`, and the row in `scripts/orch/rows/service.rows` that
+proves it. Not-run rows are named as such.
+
+**3. Memory budget.** The worker count is `min(cores, floor(memory.max / 3_552_117_680))` at
+`server/graph-server/src/config/slots.rs:24`; an unset `GRAPH_WORKERS` with a `memory.max` holding
+no slot is a refusal at `src/config.rs:166-174`, exit 2 via `src/main.rs:69`. The slots are the
+gate's semaphore (`src/gate.rs:24`). Rows `svc-memory` / `negctl-memory` cover the container, and
+the derivation itself is proved by `src/config/tests.rs:73`.
+Caveat: the derivation is not in `src/caps.rs` (that file is the per-id size table), and no log
+line carries the worker count — `config::start_line` logs `set`/`unset` per variable and no value,
+by the rule in condition 9. `svc-memory` and `negctl-memory` are NOT RUN: no `graph-server` image
+exists yet (`scripts/orch/drun` has only `ge-rust` and the oracle images), so the rows assert the
+start and the refusal rather than a logged figure.
+
+**4. Request order and connection limits.** The order is auth, query, admission, then the streamed
+body read: `src/layout.rs:59`, `:60-63`, `:64`, `:65`. The body read is `src/body.rs:12`, bounded by
+`GRAPH_MAX_BODY` and `GRAPH_BODY_TIMEOUT_MS` for chunked bodies too. The header timeout and the
+header-size cap are per connection at `src/serve.rs:112-113`, and the connection cap is a
+pre-accept permit at `src/serve.rs:94`. Rows `svc-preauth`, `negctl-preauth` (break
+`body-before-auth`) and `negctl-slow-headers` (break `no-header-timeout`).
+
+**9. Auth.** `src/auth.rs:11` is the only key check; a group- or world-writable key file is refused
+at `src/keys.rs:60` and every refusal at start is exit 2 (`src/main.rs:69`). `SIGHUP` re-reads and
+swaps the whole set at `src/serve.rs:126-135`. Rows `svc-exit2`, `negctl-exit2` (break
+`accept-group-writable`), `svc-sighup`, `negctl-sighup` (break `ignore-sighup`).
+
+**11. Image.** The `HEALTHCHECK` command is `src/main.rs:61` over `src/health.rs:15`, which is true
+only on a 200 from `src/lib.rs:45`; the image itself is not built here. Rows `svc-healthcheck`,
+`negctl-healthcheck` (break `always-healthy`).
+
+**12. Operability.** `SIGTERM` and `SIGINT` break the accept loop (`src/serve.rs:50-51`), the
+listener is dropped at `src/serve.rs:68` so a new connection is refused at once, and
+`src/serve.rs:144` drains for up to `GRAPH_TIMEOUT_MS` before the process exits 0. Rows
+`svc-shutdown`, `negctl-shutdown` (break `no-drain`). The `X-Request-Id` and JSON-log halves of this
+condition are not covered by this job.

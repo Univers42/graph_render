@@ -46,7 +46,10 @@ pub fn setup(env: &[(&str, &str)]) -> Setup {
     let mut vars = vec![
         ("GRAPH_PORT".to_owned(), "0".to_owned()),
         ("GRAPH_WORKERS".to_owned(), "2".to_owned()),
-        ("GRAPH_API_KEYS_FILE".to_owned(), keys_file.display().to_string()),
+        (
+            "GRAPH_API_KEYS_FILE".to_owned(),
+            keys_file.display().to_string(),
+        ),
     ];
     vars.extend(env.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())));
     Setup {
@@ -67,7 +70,9 @@ pub fn write_private(path: &Path, text: &str) {
 impl Setup {
     fn command(&self) -> Command {
         let mut command = Command::new(env!("CARGO_BIN_EXE_graph-server"));
-        command.env_clear().envs(self.env.iter().map(|(k, v)| (k, v)));
+        command
+            .env_clear()
+            .envs(self.env.iter().map(|(k, v)| (k, v)));
         if let Some(breaks) = std::env::var_os("GM_SVC_BREAK") {
             command.env("GM_SVC_BREAK", breaks);
         }
@@ -223,7 +228,9 @@ pub fn exchange(addr: SocketAddr, request: &[u8]) -> (u16, String) {
 
 /// The status code of an answer's text, 0 when it holds no status line.
 pub fn status_of(text: &str) -> u16 {
-    let code = text.strip_prefix("HTTP/1.1 ").and_then(|rest| rest.get(..3));
+    let code = text
+        .strip_prefix("HTTP/1.1 ")
+        .and_then(|rest| rest.get(..3));
     code.and_then(|c| c.parse().ok()).unwrap_or(0)
 }
 

@@ -28,7 +28,10 @@ fn a_sigterm_drains_the_request_in_flight_and_exits_0() {
     let mut child = setup(&[("GRAPH_TIMEOUT_MS", DRAIN_MS)]).spawn();
     let body = doc(GRAPH.0, GRAPH.1);
     let (status, answer) = drain_the_request(&mut child, body.as_bytes());
-    assert_eq!(status, 200, "the request in flight did not finish: {answer}");
+    assert_eq!(
+        status, 200,
+        "the request in flight did not finish: {answer}"
+    );
     let stopped = child.wait_line(|line| line["event"] == "stopped");
     assert_eq!(stopped["drained"], true, "{stopped}");
     let status = child
@@ -65,7 +68,9 @@ fn drain_the_request(child: &mut Child, body: &[u8]) -> (u16, String) {
         "a new connection to {} was served after SIGTERM",
         child.addr
     );
-    stream.write_all(&body[half..]).expect("the rest of the body");
+    stream
+        .write_all(&body[half..])
+        .expect("the rest of the body");
     read_answer(stream)
 }
 
@@ -78,7 +83,9 @@ fn open_mid_body(child: &Child, body: &[u8], sent: usize) -> TcpStream {
     let mut stream = TcpStream::connect(child.addr).expect("connect");
     stream.set_read_timeout(Some(PATIENCE)).expect("timeout");
     stream.write_all(head.as_bytes()).expect("the head");
-    stream.write_all(&body[..sent]).expect("the first of the body");
+    stream
+        .write_all(&body[..sent])
+        .expect("the first of the body");
     stream
 }
 

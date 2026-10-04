@@ -10,11 +10,21 @@ use std::os::unix::fs::PermissionsExt;
 /// Runs `setup` to its refusal and checks exit 2, `wanted` in stderr and none of `hidden`.
 fn refuses(setup: &Setup, wanted: &str, hidden: &[&str]) {
     let (status, stderr) = setup.refused();
-    assert_eq!(status.code(), Some(2), "exit status {status}, stderr {stderr:?}");
-    assert!(stderr.contains(wanted), "stderr {stderr:?} lacks {wanted:?}");
+    assert_eq!(
+        status.code(),
+        Some(2),
+        "exit status {status}, stderr {stderr:?}"
+    );
+    assert!(
+        stderr.contains(wanted),
+        "stderr {stderr:?} lacks {wanted:?}"
+    );
     let path = setup.keys_file.display().to_string();
     for secret in hidden.iter().copied().chain([path.as_str()]) {
-        assert!(!stderr.contains(secret), "stderr {stderr:?} holds {secret:?}");
+        assert!(
+            !stderr.contains(secret),
+            "stderr {stderr:?} holds {secret:?}"
+        );
     }
 }
 
@@ -61,25 +71,41 @@ fn a_malformed_line_is_exit_2_naming_its_number_only() {
 #[test]
 fn a_duplicate_name_is_exit_2() {
     let line = format!("tester {}", "ab".repeat(32));
-    refuses(&second_line(&line), "key file line 2: duplicate name", &[&line]);
+    refuses(
+        &second_line(&line),
+        "key file line 2: duplicate name",
+        &[&line],
+    );
 }
 
 #[test]
 fn a_control_character_in_a_name_is_exit_2() {
     let line = format!("bad\u{7}name {}", "ab".repeat(32));
-    refuses(&second_line(&line), "key file line 2: control character", &["bad"]);
+    refuses(
+        &second_line(&line),
+        "key file line 2: control character",
+        &["bad"],
+    );
 }
 
 #[test]
 fn a_non_hex_hash_is_exit_2() {
     let line = format!("other {}", "zz".repeat(32));
-    refuses(&second_line(&line), "key file line 2: the hash is not 64 hex", &["zzzz"]);
+    refuses(
+        &second_line(&line),
+        "key file line 2: the hash is not 64 hex",
+        &["zzzz"],
+    );
 }
 
 #[test]
 fn auth_off_on_a_public_bind_is_exit_2() {
     let setup = setup(&[("GRAPH_AUTH", "off"), ("GRAPH_BIND", "0.0.0.0")]);
-    refuses(&setup, "GRAPH_AUTH: `off` refuses a non-loopback GRAPH_BIND", &["0.0.0.0"]);
+    refuses(
+        &setup,
+        "GRAPH_AUTH: `off` refuses a non-loopback GRAPH_BIND",
+        &["0.0.0.0"],
+    );
 }
 
 #[test]

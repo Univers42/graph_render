@@ -1,0 +1,49 @@
+# The service gate (docs/contract/service-api.md "Round 1", conditions 2, 3, 4, 9, 11, 12).
+# Format `name|expect|cmd`, the same as scripts/orch/rows/quick.rows; run by scripts/orch/gate.sh.
+# A `negctl-` row re-runs the test above with one break on and passes only when that test goes
+# red for its own reason. The breaks live in server/graph-server/src/breaks.rs and exist only
+# under the `negctl` feature, so every `negctl-` row builds with `--features negctl` and names
+# its break in `GM_SVC_BREAK`.
+# Caveat: a `negctl-` row asserts exit 101, not 1: `cargo test` maps a test failure to 101, and
+# also maps a build failure to 101, so a broken build reads as a passing control. The build is
+# covered by the positive row above each control.
+
+# Condition 4, request order and connection limits: a keyless body is refused before a byte of it
+# is buffered, and a head sent at 1 byte/s is cut at GRAPH_HEADER_TIMEOUT_MS.
+svc-preauth|0|scripts/orch/gr cargo test --manifest-path server/Cargo.toml --test preauth
+negctl-preauth|0|scripts/orch/gr -e GM_SVC_BREAK=body-before-auth cargo test -q --manifest-path server/Cargo.toml --features negctl --test preauth; test $? -eq 101
+negctl-slow-headers|0|scripts/orch/gr -e GM_SVC_BREAK=no-header-timeout cargo test -q --manifest-path server/Cargo.toml --features negctl --test preauth; test $? -eq 101
+
+# Condition 9 at start: every refused key file and every refused setting is exit 2, naming the
+# line number or the variable and never the line, the path or the value.
+svc-exit2|0|scripts/orch/gr cargo test --manifest-path server/Cargo.toml --test start
+negctl-exit2|0|scripts/orch/gr -e GM_SVC_BREAK=accept-group-writable cargo test -q --manifest-path server/Cargo.toml --features negctl --test start; test $? -eq 101
+
+# Condition 9, SIGHUP: the whole file is parsed, then the key set is swapped at once; a bad or
+# empty file keeps the old set.
+svc-sighup|0|scripts/orch/gr cargo test --manifest-path server/Cargo.toml --test reload
+negctl-sighup|0|scripts/orch/gr -e GM_SVC_BREAK=ignore-sighup cargo test -q --manifest-path server/Cargo.toml --features negctl --test reload; test $? -eq 101
+
+# Condition 11: `graph-server healthcheck`, the image's HEALTHCHECK, exits 0 only on a live server
+# and 1 on a closed port or a listener that never answers.
+svc-healthcheck|0|scripts/orch/gr cargo test --manifest-path server/Cargo.toml --test health
+negctl-healthcheck|0|scripts/orch/gr -e GM_SVC_BREAK=always-healthy cargo test -q --manifest-path server/Cargo.toml --features negctl --test health; test $? -eq 101
+
+# Condition 12: SIGTERM stops new connections at once, the request in flight finishes with its
+# normal status, and the process exits 0 within GRAPH_TIMEOUT_MS.
+svc-shutdown|0|scripts/orch/gr cargo test --manifest-path server/Cargo.toml --test shutdown
+negctl-shutdown|0|scripts/orch/gr -e GM_SVC_BREAK=no-drain cargo test -q --manifest-path server/Cargo.toml --features negctl --test shutdown; test $? -eq 101
+
+# Condition 2, work caps: cap + 1 for every registry id is a 413 IngestTooLarge within a second.
+# `--release` because that one-second bound is for an optimised build and is ignored in debug.
+svc-caps|0|scripts/orch/gr cargo test --manifest-path server/Cargo.toml --release --test caps
+negctl-caps|0|scripts/orch/gr -e GM_SVC_BREAK=lift-caps cargo test -q --manifest-path server/Cargo.toml --features negctl --release --test caps; test $? -eq 101
+
+# Condition 3, memory budget: the worker count is min(cores, floor(memory.max / 3_552_117_680)),
+# from src/config/slots.rs. Eight GiB holds two slots, so the server starts and serves; one GiB
+# holds none, so it refuses to start with exit 2. GRAPH_WORKERS is left unset in both rows: an
+# explicit count overrides the derivation (src/config.rs:166-175).
+# Caveat: the derivation itself is proved by config/tests.rs:73, not here; this row only proves
+# the container's memory.max reaches the server and that it is refused when it does not.
+svc-memory|0|out=$(timeout -s TERM 20 scripts/orch/drun --rm --memory 8g --memory-swap 8g -e GRAPH_AUTH=off -e GRAPH_BIND=127.0.0.1 graph-server:latest 2>&1); grep -q '"event":"listening"' <<<"$out"
+negctl-memory|0|out=$(scripts/orch/drun --rm --memory 1g --memory-swap 1g -e GRAPH_AUTH=off -e GRAPH_BIND=127.0.0.1 graph-server:latest 2>&1); rc=$?; test $rc -eq 2 && grep -q 'GRAPH_WORKERS: unset, and memory.max holds no slot' <<<"$out"

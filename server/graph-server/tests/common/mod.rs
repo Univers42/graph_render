@@ -1,7 +1,11 @@
 //! What the integration tests share: a server state built the way the binary builds it, with a
 //! key minted in the test (never committed), a captured log, and one-shot requests through
 //! `tower::ServiceExt::oneshot`.
-#![allow(dead_code, unused_imports, reason = "each test binary uses a part of this module")]
+#![allow(
+    dead_code,
+    unused_imports,
+    reason = "each test binary uses a part of this module"
+)]
 
 use axum::Router;
 use axum::body::{Body, Bytes};

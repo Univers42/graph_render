@@ -91,5 +91,8 @@ fn headers_at_one_byte_a_second_are_cut_at_the_timeout() {
     });
     let cut = cut.expect("a head sent at 1 byte/s was still open after 10 s");
     let window = Duration::from_millis(1500)..Duration::from_secs(5);
-    assert!(window.contains(&cut), "cut after {cut:?}, not near the 2 s timeout");
+    assert!(
+        window.contains(&cut),
+        "cut after {cut:?}, not near the 2 s timeout"
+    );
 }
