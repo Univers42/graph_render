@@ -39,7 +39,7 @@ enum Gap {
 /// The layout ids `knobs::all()` does not tabulate, each with what it actually has.
 ///
 /// Sorted by id so a diff reads as a change to the set rather than a reshuffle.
-const NO_PER_STAGE_CONTROL: [(&str, Gap); 34] = [
+const NO_PER_STAGE_CONTROL: [(&str, Gap); 35] = [
     ("layout.bipartite", Gap::NoControl),
     ("layout.circular.circo", Gap::NoControl),
     ("layout.circular.hierarchy", Gap::HasOwnStageNodes),
