@@ -14,6 +14,7 @@ pub mod graphopt;
 pub mod kamada_kawai;
 pub mod lgl;
 pub(crate) mod params;
+pub(crate) mod octree;
 pub(crate) mod particle_mesh;
 pub(crate) mod quadtree;
 pub(crate) mod session;

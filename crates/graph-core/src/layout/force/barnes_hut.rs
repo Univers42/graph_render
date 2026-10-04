@@ -17,14 +17,20 @@
 
 mod charge;
 mod collide;
+mod collide3d;
+mod link3d;
 pub(in crate::layout::force) mod link;
 mod seed;
 mod settle;
+mod settle3d;
+mod sim3d;
 pub(in crate::layout::force) mod sim;
 pub(in crate::layout::force) mod step;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests3d;
 
 use super::params::{ForceParams, TICKS};
 use crate::exec::Serial;

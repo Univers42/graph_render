@@ -50,19 +50,19 @@ enum Shape {
 /// The three position columns, bundled so build methods take at most four parameters
 /// besides the receiver (`prompt.md` §0's cap) — the quadtree's `Points` at one more axis.
 #[derive(Clone, Copy)]
-struct Points3<'a> {
+pub(in crate::layout::force) struct Points3<'a> {
     xs: &'a [f64],
     ys: &'a [f64],
     zs: &'a [f64],
 }
 
 impl Points3<'_> {
-    fn at(&self, i: u32) -> (f64, f64, f64) {
+    pub(in crate::layout::force) fn at(&self, i: u32) -> (f64, f64, f64) {
         let i = i as usize;
         (self.xs[i], self.ys[i], self.zs[i])
     }
 
-    fn len(&self) -> usize {
+    pub(in crate::layout::force) fn len(&self) -> usize {
         self.xs.len()
     }
 }
@@ -72,14 +72,42 @@ impl Points3<'_> {
 /// reason: `±inf` would make `cover` grow a cube that can never contain it and
 /// `insert_leaf` split for ever.
 fn bounds_of(pts: Points3<'_>) -> Option<(f64, f64, f64, f64, f64, f64)> {
-    let ok = |(&x, &y, &z): (&f64, &f64, &f64)| {
-        (x.is_finite() && y.is_finite() && z.is_finite()).then_some((x, y, z))
+    let ok = |p: (f64, f64, f64)| {
+        (p.0.is_finite() && p.1.is_finite() && p.2.is_finite()).then_some(p)
     };
-    let mut valid = pts.xs.iter().zip(pts.ys).zip(pts.zs).map(|((&x, &y), &z)| (x, y, z)).filter_map(ok);
+    let mut valid = pts
+        .xs
+        .iter()
+        .zip(pts.ys)
+        .zip(pts.zs)
+        .map(|((&x, &y), &z)| (x, y, z))
+        .filter_map(ok);
     let (fx, fy, fz) = valid.next()?;
     Some(valid.fold((fx, fy, fz, fx, fy, fz), |(a, b, c, d, e, f), (x, y, z)| {
         (a.min(x), b.min(y), c.min(z), d.max(x), e.max(y), f.max(z))
     }))
+}
+
+/// One doubling: the axis the point is *below* keeps its far edge and takes a new near one,
+/// and every other axis keeps its near edge and takes a new far one — which is the
+/// quadtree's four-armed `match` with the two bit tests written per axis, so the shape
+/// keeps one side length and stays a cube.
+fn grow(b: &mut Bounds3, p: (f64, f64, f64), size: f64) {
+    if p.0 < b.x0 {
+        b.x0 = b.x1 - size;
+    } else {
+        b.x1 = b.x0 + size;
+    }
+    if p.1 < b.y0 {
+        b.y0 = b.y1 - size;
+    } else {
+        b.y1 = b.y0 + size;
+    }
+    if p.2 < b.z0 {
+        b.z0 = b.z1 - size;
+    } else {
+        b.z1 = b.z0 + size;
+    }
 }
 
 /// A reused Barnes-Hut octree: rebuild every tick with [`build`](Octree::build), no
@@ -151,20 +179,77 @@ impl Octree {
     /// arena where every walk contributes nothing instead of a panic. Escape hatch: the
     /// stage's own post-run check turns a non-finite column into `StageError::NonFinite`.
     pub(crate) fn build(&mut self, pts: Points3<'_>) {
-        unimplemented!("RED: build")
+        self.reset();
+        // Ponytail: a mismatch and a count past `u32::MAX` are refused as an empty tree,
+        // not as a `StageError` — `build` has no error channel, so the refusal is a silent
+        // empty arena where every walk contributes nothing instead of a panic. Escape hatch:
+        // the stage's own post-run check turns a non-finite column into `StageError::NonFinite`.
+        if pts.xs.len() != pts.ys.len()
+            || pts.xs.len() != pts.zs.len()
+            || u32::try_from(pts.xs.len()).is_err()
+        {
+            return;
+        }
+        self.chain_next.resize(pts.len(), None);
+        let Some((x0, y0, z0, x1, y1, z1)) = bounds_of(pts) else {
+            self.flatten(pts);
+            return;
+        };
+        self.cover((x0, y0, z0));
+        self.cover((x1, y1, z1));
+        let mut builder = Builder { tree: self, pts };
+        for i in 0..pts.len() as u32 {
+            builder.add(i);
+        }
+        self.flatten(pts);
     }
 
     /// Every buffer a build refills, cleared: a refused build leaves an empty arena rather
     /// than the previous tick's.
     fn reset(&mut self) {
-        unimplemented!("RED: reset")
+        self.shape.clear();
+        self.chain_next.clear();
+        self.cells.clear();
+        self.node_id.clear();
+        self.order.clear();
+        self.pending.clear();
+        self.root = None;
+        self.root_bounds = Bounds3::default();
     }
 
-    /// Grows the root cube to cover `(x, y, z)`. Only [`build`](Self::build) calls it,
-    /// always on an empty tree, so it never has to re-root an existing cube the way the
-    /// quadtree's never does.
+    /// Grows the root cube to cover `p`. Only [`build`](Self::build) calls it, always on an
+    /// empty tree, so it never has to re-root an existing cube the way the quadtree's never
+    /// does.
     fn cover(&mut self, p: (f64, f64, f64)) {
-        unimplemented!("RED: cover")
+        if self.root_bounds.x0.is_nan() {
+            let (x, y, z) = (libm::floor(p.0) + 1.0, libm::floor(p.1) + 1.0, libm::floor(p.2) + 1.0);
+            self.root_bounds = Bounds3 {
+                x0: x - 1.0,
+                y0: y - 1.0,
+                z0: z - 1.0,
+                x1: x,
+                y1: y,
+                z1: z,
+            };
+            return;
+        }
+        let b = &mut self.root_bounds;
+        let mut size = if b.x1 - b.x0 != 0.0 { b.x1 - b.x0 } else { 1.0 };
+        while b.x0 > p.0 || p.0 >= b.x1 || b.y0 > p.1 || p.1 >= b.y1 || b.z0 > p.2 || p.2 >= b.z1 {
+            size *= 2.0;
+            grow(b, p, size);
+            // "Stopped growing" has to mean *permanently*: a coordinate past 2^53 makes
+            // `b.x0 + size` round back to `b.x0`, so the edge stays 0 for the first ~57
+            // doublings. The dead end is `size` itself overflowing, or the edge going `NaN`.
+            //
+            // Ponytail: a bail leaves the cube as it stands, so a point outside it lands in
+            // whichever octant its signs pick — wrong for that one point, bounded for the
+            // build, where the loop it replaces spun and allocated forever. Escape hatch:
+            // `bounds_of` refuses the non-finite coordinates that reach this.
+            if !(size.is_finite() && b.span().is_finite()) {
+                return;
+            }
+        }
     }
 
     fn push(&mut self, shape: Shape) -> u32 {

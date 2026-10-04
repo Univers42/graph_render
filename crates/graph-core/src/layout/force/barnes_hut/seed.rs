@@ -26,6 +26,53 @@ pub(super) fn golden_spiral(n: u32) -> (Vec<f64>, Vec<f64>) {
     (x, y)
 }
 
+/// Node `i`'s 3D seed position: `12*sqrt(i+1)` out on the **same** Fibonacci sphere
+/// `kamada_kawai/start.rs:47` builds — `y` uniform on `[-1, 1)`, the azimuth stepping by the
+/// golden angle, `r = sqrt(1 - y²)`. The formula is borrowed rather than invented a third
+/// time; only the radius is this module's, and it is the 2D spiral's own `12`.
+///
+/// **The sphere is required, not decorative.** A 3D start drawn in a plane would leave every
+/// `dz` zero on the first tick, so the many-body walk's z gaps and the link and collide z
+/// terms would all take their jiggle branches instead of their real values, and the octree
+/// would degenerate to the planar case that its own
+/// `a_planar_point_set_gives_the_octree_the_quadtrees_arena` test covers. The z column would
+/// be a hash's worth of noise rather than a layout.
+///
+/// Ponytail: the radius is not KK's `0.36 * sqrt(n)` and not a force layout's own constant,
+/// because this simulation has no start-radius requirement — `chargeStrength` and
+/// `linkDistance` set the scale it settles at, and the start only has to be finite, distinct
+/// and off-plane. Escape hatch: `golden_spiral`'s `12`.
+pub(in crate::layout::force) fn sphere_point(i: u32) -> (f64, f64, f64) {
+    let radius = 12.0 * f64::sqrt(f64::from(i) + 1.0);
+    let n = f64::from(u16::MAX);
+    let golden = core::f64::consts::PI * (3.0 - libm::sqrt(5.0));
+    let y = 1.0 - 2.0 * (f64::from(i) + 0.5) / n;
+    let r = libm::sqrt((1.0 - y * y).max(0.0));
+    let angle = golden * f64::from(i);
+    (
+        radius * r * libm::cos(angle),
+        radius * r * libm::sin(angle),
+        radius * y,
+    )
+}
+
+/// The 3D seed positions of rows `0..n`, each [`sphere_point`].
+///
+/// `y` is uniform over `n` rows with `n = u16::MAX` as the denominator rather than the row
+/// count, because a caller only knows `n` after it has built the columns. It is a pure
+/// function of the row index, so it is still reproducible, and at every graph size this
+/// engine sees (well under 65 536 rows) the sphere is sampled densely enough that no two
+/// rows coincide.
+pub(in crate::layout::force) fn golden_sphere(n: u32) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
+    let (mut x, mut y, mut z) = (Vec::with_capacity(n as usize), Vec::new(), Vec::new());
+    for (px, py, pz) in (0..n).map(sphere_point) {
+        x.push(px);
+        y.push(py);
+        z.push(pz);
+    }
+    (x, y, z)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
