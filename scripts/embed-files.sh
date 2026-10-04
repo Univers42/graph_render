@@ -78,8 +78,11 @@ check_assets() {
 }
 
 main() {
-  local dir=$1
+  local dir
+  # The arity check first: `$1` under `set -u` with no argument is the shell's own error, not this
+  # script's exit code, and a usage message is what a caller needs.
   (($# == 1)) || { printf 'usage: scripts/embed-files.sh DIR\n' >&2; exit 2; }
+  dir=$1
   [[ -d $dir ]] || { printf 'embed-files: no directory: %s\n' "$dir" >&2; exit 2; }
   documented >/dev/null || { printf 'embed-files: %s has no %s bullet\n' "$DOC" "$LABEL" >&2; exit 2; }
   check_all_named
