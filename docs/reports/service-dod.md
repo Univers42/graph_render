@@ -77,7 +77,7 @@ gate runs again.
 | `ink-hairball` | 1 | the row as written on 178c | rewritten with `negctl-ink-hairball` |
 | `capabilities-ceilings-measured` | 1 | 20 problems: 8-seed hashgate and missing oracle records on this tree | folded into `capabilities-check`, which now passes `--ceilings-measured` |
 | `forbidden-constructs` | 1 | `libm::sqrtf` in `post/separate` (`radii.rs:51`, `sweep/pairs.rs:79`, `:95`) | `f32::sqrt` (42703172) |
-| `hashgate-1000`, `hashgate-1000-tiers-all` | 2 | a debug build ran past `CHILD_TIMEOUT` (2700 s) | `--release`, and `negctl-hashgate-release`; re-run in progress |
+| `hashgate-1000`, `hashgate-1000-tiers-all` | 2 | one arm ran past `CHILD_TIMEOUT` (2700 s): debug on `178cef49`, and again in `--release` on `0c1f32eb` (exit 2 at 2700 s and 2710 s; `negctl-hashgate-release` PASS). 67 stages per seed on one core: the layouts alone take 2.8 s per seed at n=300, `layout.force.davidson_harel` 1.04 s of it | shard every arm's seeds across concurrent children and merge them into the order `compare::diverged` validates (job `hg-shard`), then re-run on its own |
 | `bench-p9-campaign` | 137 | killed at 6854 s: the campaign ran spectral (ceiling 700) and ForceAtlas2 (ceiling 14 000) at 10⁶, because it skipped the `scale_ceiling` refusal plain `bench` makes | the campaign refuses past the ceiling unless `--past-ceiling` is passed (`crates/graph-cli/src/bench/campaign.rs`, `refused`), and a test pins it (`bench/tests/plan.rs`); re-run owed |
 | `capabilities-check` | 1 | 19 problems: the 1000-seed hashgate and oracle records are not on this tree | follows from the rows above, on one tree |
 
