@@ -19,6 +19,12 @@ function batch(tag: string): GraphBatch {
   };
 }
 
+/** The detail of a refusal, or a failure naming what came back instead. */
+function failedOf(result: Result): string {
+  if (result.type !== "failed") throw new Error(`expected failed, got ${result.type}`);
+  return result.error.detail;
+}
+
 function report(nodeCount: number): RunReport {
   return {
     layoutId: "layout.random", postId: null, postError: null,
@@ -122,8 +128,7 @@ test("a queue whose port has no extend path refuses every batch without queueing
     now: () => 0,
   });
   const answer = await queue.push(batch("one"));
-  assert.equal(answer.type, "failed");
-  if (answer.type === "failed") assert.match(answer.error.detail, /cannot add to a built graph/);
+  assert.match(failedOf(answer), /cannot add to a built graph/);
   assert.equal(queue.rebuilds(), 0);
   await queue.drain(1);
   assert.deepEqual(queue.grows(), []);

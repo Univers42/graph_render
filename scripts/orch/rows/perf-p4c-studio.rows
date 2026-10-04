@@ -1,0 +1,6 @@
+studio-check|0|scripts/studio.sh check
+delta|0|scripts/studio-delta.sh
+negctl-delta|nonzero|STUDIO_DELTA_BREAK=1 scripts/studio-delta.sh
+live|0|scripts/studio-live.sh
+smoke|0|scripts/studio-smoke.sh
+negctl-smoke|nonzero|STUDIO_SMOKE_BREAK=1 scripts/studio-smoke.sh

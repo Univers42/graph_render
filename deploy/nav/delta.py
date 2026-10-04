@@ -72,13 +72,15 @@ def push(studio):
     the middle is one answer among ten, not the end of the run. A rejection is caught here and
     answered as data: a refused batch is a row's expectation, not a page fault.
     """
-    batches = [batch_json(f"delta-{call}", BATCH) for call in range(CALLS)]
+    # Each batch is already JSON text and is spliced into the page's own source, so the list is
+    # joined by hand: `json.dumps` over them would encode ten strings where ten objects belong.
+    batches = "[" + ", ".join(batch_json(f"delta-{call}", BATCH) for call in range(CALLS)) + "]"
     return studio.page.evaluate(f"""
     (async () => {{
       const el = {liverows.HOST};
       if (typeof el.applyDeltas !== 'function') return {{ missing: true }};
       const calls = [];
-      for (const batch of {json.dumps(batches)}) {{
+      for (const batch of {batches}) {{
         try {{ calls.push({{ ok: true, answer: await el.applyDeltas(batch) }}); }}
         catch (failure) {{
           calls.push({{ ok: false, name: failure.name, detail: String(failure.message) }});
@@ -136,9 +138,9 @@ def row_drawn(driven):
         return not_run("deltas-drawn", expectation)
     calls = driven["pushed"]["calls"]
     applied = sum(one["answer"]["applied"] for one in calls if one["ok"])
-    refused = [one["name"] for one in calls if not one["ok"]]
+    refused = [f"{one['name']}: {one['detail']}" for one in calls if not one["ok"]]
     measured = (f"{driven['drawn']} drawn of {driven['want']} wanted, {applied} nodes applied"
-                + (f", refused as {', '.join(refused)}" if refused else "")
+                + (f", refused as {'; '.join(refused)}" if refused else "")
                 + f", after {driven['waited']:.2f}s")
     return verdict.row("deltas-drawn", expectation, measured, driven["drawn"] >= driven["want"])
 

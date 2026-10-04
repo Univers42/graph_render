@@ -118,14 +118,9 @@ function cadence(deps: QueueDeps): Cadence {
   };
 }
 
-export function createDeltaQueue(deps: QueueDeps): DeltaQueue {
-  const pending: Queued[] = [];
-  const ring: GrowMark[] = [];
-  /** Whether the tick before this one found nothing queued: the burst that just landed is over. */
-  let drainedLast = true;
-  const snapshots = cadence(deps);
-
-  const extendAll = (burst: readonly Queued[]): (Applied | Refused)[] => burst.map((queued) => {
+/** One extend per batch, in arrival order: a refusal is the batch's own answer. */
+function extendAll(deps: QueueDeps, burst: readonly Queued[]): (Applied | Refused)[] {
+  return burst.map((queued) => {
     try {
       deps.extend?.(queued.batch);
       return { queued, applied: queued.batch.nodes.length };
@@ -133,12 +128,28 @@ export function createDeltaQueue(deps: QueueDeps): DeltaQueue {
       return { queued, error: describeError(error) };
     }
   });
+}
 
-  const answer = (one: Applied | Refused, nodeCount: number): void => {
-    one.queued.answer("error" in one
-      ? { type: "failed", error: one.error }
-      : { type: "deltas-applied", applied: one.applied, nodeCount });
-  };
+/** The ring's marks for the burst, in order, and the count of batches that went in. */
+function mark(applied: readonly (Applied | Refused)[], ring: GrowMark[], tick: number): number {
+  let any = 0;
+  for (const one of applied) {
+    if ("error" in one) continue;
+    any += 1;
+    // Bounded here rather than at the reader: a session that runs for hours must not keep a
+    // mark per grow forever, and 1024 is a ring, not a growing log.
+    if (ring.length >= RING_LIMIT) ring.shift();
+    ring.push({ tick, batch: applied.indexOf(one) });
+  }
+  return any;
+}
+
+export function createDeltaQueue(deps: QueueDeps): DeltaQueue {
+  const pending: Queued[] = [];
+  const ring: GrowMark[] = [];
+  /** Whether the tick before this one found nothing queued: the burst that just landed is over. */
+  let drainedLast = true;
+  const snapshots = cadence(deps);
 
   /**
    * One grow and one reheat for the whole burst, then one answer per batch.
@@ -159,23 +170,19 @@ export function createDeltaQueue(deps: QueueDeps): DeltaQueue {
     const wasIdle = drainedLast;
     drainedLast = landed === 0;
     if (landed === 0) return;
-    const applied = extendAll(burst);
-    let any = false;
-    for (const one of applied) {
-      if ("error" in one) continue;
-      any = true;
-      // Bounded here rather than at the reader: a session that runs for hours must not keep a
-      // mark per grow forever, and 1024 is a ring, not a growing log.
-      if (ring.length >= RING_LIMIT) ring.shift();
-      ring.push({ tick, batch: applied.indexOf(one) });
-    }
-    if (any) {
+    const applied = extendAll(deps, burst);
+    const any = mark(applied, ring, tick);
+    if (any > 0) {
       deps.grow?.();
       deps.reheat(Math.max(GROW_ALPHA, deps.alpha()));
     }
     const count = deps.nodeCount();
-    for (const one of applied) answer(one, count);
-    if (any) await snapshots.run(landed, wasIdle);
+    for (const one of applied) {
+      one.queued.answer("error" in one
+        ? { type: "failed", error: one.error }
+        : { type: "deltas-applied", applied: one.applied, nodeCount: count });
+    }
+    if (any > 0) await snapshots.run(landed, wasIdle);
   }
 
   return {

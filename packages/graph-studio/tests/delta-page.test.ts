@@ -7,7 +7,8 @@ import { test } from "node:test";
 
 import { APPLY_DELTAS, ActionRefusal, createDeltas, deltaBatch } from "../src/actions/registry.ts";
 import { type DeltasView, createDeltasPage } from "../src/motor/deltasPage.ts";
-import type { GraphMeta, NodeKind } from "../src/source/meta.ts";
+import type { NodeKind } from "../src/source/ingest.ts";
+import type { GraphMeta } from "../src/source/meta.ts";
 
 function node(id: string): Record<string, unknown> {
   return {
@@ -30,8 +31,9 @@ test("a batch of records is taken member by member, not passed through", () => {
 });
 
 test("anything that is not `{ nodes, edges }` of objects is refused, with the member named", () => {
-  for (const raw of [null, 42, "batch", [], { nodes: [] }, { nodes: {}, edges: [] }, { nodes: [1], edges: [] }]) {
-    assert.throws(() => deltaBatch(raw), ActionRefusal, `expected a refusal for ${JSON.stringify(raw) ?? "null"}`);
+  const wrong: readonly unknown[] = [null, 42, "batch", [], { nodes: [] }, { nodes: {}, edges: [] }, { nodes: [1], edges: [] }];
+  for (const [at, raw] of wrong.entries()) {
+    assert.throws(() => deltaBatch(raw), ActionRefusal, `expected a refusal for case ${at}`);
   }
 });
 

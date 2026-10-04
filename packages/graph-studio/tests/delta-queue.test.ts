@@ -20,6 +20,14 @@ function appliedOf(result: Result | undefined): number {
   return result.applied;
 }
 
+/** The graph's size a `deltas-applied` answer carries, or a failure naming what came back. */
+function nodeCountOf(result: Result | undefined): number {
+  if (result === undefined || result.type !== "deltas-applied") {
+    throw new Error(`expected deltas-applied, got ${result?.type ?? "nothing"}`);
+  }
+  return result.nodeCount;
+}
+
 /** The title of a `failed` answer, or a failure naming what came back instead. */
 function failedOf(result: Result | undefined): string {
   if (result === undefined || result.type !== "failed") {
@@ -112,7 +120,7 @@ test("every answer carries the nodes of its own batch and the graph's size after
   tick();
   const settled = await Promise.all(answers);
   assert.deepEqual(settled.map(appliedOf), [2, 3]);
-  assert.deepEqual(settled.map((one) => (one as { nodeCount: number }).nodeCount), [15, 15]);
+  assert.deepEqual(settled.map(nodeCountOf), [15, 15]);
 });
 
 /** The negative control: a refused middle batch answers `failed` and the other two apply. */
@@ -125,7 +133,7 @@ test("a refused middle batch answers failed, and the other two still go in", asy
   assert.deepEqual(fake.calls, ["extend 2", "extend 3", "extend 4", "grow", "reheat 0.3"]);
   assert.equal(fake.nodes, 16);
   assert.equal(failedOf(settled[1]), "BuildRefusedError");
-  assert.deepEqual(settled.map(appliedOf), [2, 4]);
+  assert.deepEqual([appliedOf(settled[0]), appliedOf(settled[2])], [2, 4]);
 });
 
 test("every batch in a burst of refusals is refused, and no grow runs", async () => {
@@ -145,7 +153,7 @@ test("no live session refuses the batch and the graph is untouched", async () =>
     now: () => 0,
     emit: (result) => { emitted.push(result); },
   });
-  assert.match(failedDetail(host, batch(2, "a")), /live forces need the motor session/);
+  assert.match(await failedDetail(host, batch(2, "a")), /live forces need the motor session/);
   assert.deepEqual(emitted, []);
 });
 

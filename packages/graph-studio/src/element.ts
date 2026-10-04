@@ -51,14 +51,14 @@ export interface GraphStudioElement extends HTMLElement {
    */
   readonly view: View | null;
   /**
-   * Adds one batch of nodes and edges to the graph the live settle is running on, and grows
-   * that session to cover them. Atomic per call, never coalesced across calls: the batch goes
-   * in whole or is refused whole, and each call resolves with the nodes it added. The work is
-   * coalesced per animation frame (`docs/contract/delta.md`).
+   * Adds one batch of nodes and edges to the graph the live settle is running on, and grows that
+   * session to cover them. Atomic per call, never coalesced across calls: the batch goes in whole
+   * or is refused whole, and each call resolves with the nodes it added. The work is coalesced
+   * per animation frame.
    *
    * Caveat: the new nodes move from the tick that applied them but are drawn only once the
-   * structure snapshot lands, at most 500 ms later. A refusal rejects with the motor's own
-   * typed error and dispatches `graph-error` here, whose `detail.error` is that error's `name`.
+   * structure snapshot lands, at most 500 ms later. A refusal rejects with the motor's own typed
+   * error and dispatches `graph-error` here, whose `detail.error` is that error's `name`.
    */
   applyDeltas(batch: unknown): Promise<{ readonly applied: number }>;
   /**
@@ -141,7 +141,7 @@ function pageStorage(): SettingsStorage | null {
 
 /**
  * The live bridge and the view it paints, wired together and handed back: a frame from the
- * worker goes to `view.setPositions` and the forces link is the bridge's.
+ * worker goes to the view and the forces link is the bridge's.
  *
  * `shown.note` is filled in once the studio exists — the bridge is made first — so a watchdog
  * that fires later still has a console to write its one line into.
@@ -239,6 +239,24 @@ function unmount(mounted: Mounted | null): void {
   mounted.view.destroy();
 }
 
+async function applyTo(host: HTMLElement, mounted: Mounted | null, batch: unknown): Promise<{ readonly applied: number }> {
+  if (mounted === null) throw new Error("the studio is not in a document");
+  const send = mounted.client.deltas?.bind(mounted.client);
+  if (send === undefined) throw new Error("this motor client cannot add to a built graph");
+  const deltas: Deltas = createDeltas(
+    () => (mounted.studio.store.get().graph === null ? "no graph is loaded" : null),
+    async (one) => (await send(one)).applied,
+  );
+  try {
+    return { applied: await deltas.apply(batch) };
+  } catch (error) {
+    const refusal = error instanceof Error ? error : new Error(String(error));
+    const detail = { error: refusal.name, detail: refusal.message };
+    host.dispatchEvent(new CustomEvent("graph-error", { detail }));
+    throw refusal;
+  }
+}
+
 /** Registers the element once; a second call, or a tag already taken, changes nothing. */
 export function defineGraphStudio(options: StudioElementOptions = {}, tag = "graph-studio"): void {
   if (customElements.get(tag) !== undefined) return;
@@ -259,26 +277,10 @@ export function defineGraphStudio(options: StudioElementOptions = {}, tag = "gra
       this.#mounted?.client.close();
     }
 
-    /** One batch into the live graph, through the registry's own verb, so the arguments are
-     * checked where every other value is. A refusal is reported twice: the promise rejects, and
-     * the same error's name is dispatched, because a host that only listens sees no promise. */
-    async applyDeltas(batch: unknown): Promise<{ readonly applied: number }> {
-      const mounted = this.#mounted;
-      if (mounted === null) throw new Error("the studio is not in a document");
-      const send = mounted.client.deltas;
-      if (send === undefined) throw new Error("this motor client cannot add to a built graph");
-      const deltas: Deltas = createDeltas(
-        () => (this.#mounted === null ? "the element is not in a document" : null),
-        async (batch) => (await send(batch)).applied,
-      );
-      try {
-        return { applied: await deltas.apply(batch) };
-      } catch (error) {
-        const refusal = error instanceof Error ? error : new Error(String(error));
-        const detail = { error: refusal.name, detail: refusal.message };
-        this.dispatchEvent(new CustomEvent("graph-error", { detail }));
-        throw refusal;
-      }
+    /** A batch into the live graph, through the registry's verb. A refusal is reported twice:
+     * the promise rejects, and the same error's name is dispatched to the hosts that listen. */
+    applyDeltas(batch: unknown): Promise<{ readonly applied: number }> {
+      return applyTo(this, this.#mounted, batch);
     }
 
     get watchdogBoundMs(): number {
