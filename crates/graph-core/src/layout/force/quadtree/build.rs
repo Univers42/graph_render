@@ -79,14 +79,12 @@ impl Builder<'_, '_> {
             // overflowed — written as `partial_cmp` because `>=` would say nothing about
             // the incomparable case.
             if bounds.span().partial_cmp(&before) != Some(Ordering::Less) {
+                self.attach(at, slot, node);
                 self.chain(point, node);
                 return;
             }
             let internal = self.tree.push(Shape::Internal([None; 4]));
-            match at {
-                Some(p) => self.tree.set_child(p, slot, internal),
-                None => self.tree.root = Some(internal),
-            }
+            self.attach(at, slot, internal);
             if i != j {
                 self.tree.set_child(internal, j, node);
                 let leaf = self.tree.push(Shape::Leaf(point));
@@ -94,6 +92,16 @@ impl Builder<'_, '_> {
                 return;
             }
             (at, slot) = (Some(internal), i);
+        }
+    }
+
+    /// Hangs `child` at `parent`'s `slot`, or makes it the root. A bail re-hangs the leaf
+    /// it split from at the deepest internal node pushed so far: without that, a bail
+    /// after the first split left both points in no leaf (`order` lost them).
+    fn attach(&mut self, parent: Option<u32>, slot: usize, child: u32) {
+        match parent {
+            Some(p) => self.tree.set_child(p, slot, child),
+            None => self.tree.root = Some(child),
         }
     }
 

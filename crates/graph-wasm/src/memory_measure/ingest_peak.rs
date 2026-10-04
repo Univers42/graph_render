@@ -6,9 +6,8 @@
 //! it is excluded, as the server counts the body separately.
 //!
 //! `contract_read_time_by_body_size` times the contract reader alone by body size: it is
-//! quadratic in records (`graph_contract::ingest::validate`'s duplicate and link checks scan
-//! every earlier record), so the body that reads within the service's budget is far below
-//! the 64 MiB limit.
+//! linear in records (after `fix-contract-quadratic`; time doubles per body doubling), so
+//! the 64 MiB body reads within the service's budget.
 //!
 //! ```sh
 //! scripts/orch/gr cargo test --release -p graph-wasm --lib -- --ignored --nocapture ingest_peak

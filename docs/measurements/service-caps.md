@@ -151,39 +151,55 @@ per_slot = body + ingest peak + run peak at cap.
 |---|---:|---|
 | body | 67,108,864 | `GRAPH_MAX_BODY` default, 64 MiB |
 | ingest, `source=studio` | 141,099,952 | heap peak (counting allocator, `crates/graph-wasm/src/memory_measure.rs`) of `ingest::read_records` + `ingest::index` over a 68,459,255 B seeded document (141,879 nodes, 538 ms). VmHWM rise was 115,249,152 and 126,001,152 B over two runs |
-| ingest, `source=contract` | **pending fix-contract-quadratic** | see below |
+| ingest, `source=contract` | 1,224,659,341 | heap peak (counting allocator, `crates/graph-wasm/src/memory_measure.rs`) of `contract::derive` over a 67,108,938 B document (405,773 nodes, 3,257 ms and 5,045 ms over two runs). VmHWM rise was 1,943,719,936 and 2,120,769,536 B over the same two runs |
 | run peak at cap | 3,343,908,864 | 3189 MiB, rounded up from 3188.2 MiB: VmHWM of `post.style.orthogonal` over `layout.circular.radial`, dense rung n 1048576, m 4194304 (`ladder.log` line 499). The next highest are `post.style.bezier` at 3187.9 MiB and bezier over grid at 3089.7 MiB |
-| **per_slot** | **3,552,117,680** | 3.31 GiB, using the studio ingest term |
+| **per_slot** | **4,635,677,069** | 4.32 GiB, using the contract ingest term |
 
 - Container limit for N workers is N × per_slot + base. Here `base` is the server's idle RSS, which
   `svc-limits` measures.
-  - N = 1: 3,552,117,680 B
-  - N = 2: 7,104,235,360 B
-  - N = 4: 14,208,470,720 B
-  - N = 20 (one per core here): 71,042,353,600 B
+  - N = 1: 4,635,677,069 B
+  - N = 2: 9,271,354,138 B
+  - N = 4: 18,542,708,276 B
+  - N = 20 (one per core here): 92,713,541,380 B
 - Rule: `workers = min(cores, floor((memory.max − base) / per_slot))`, and the server refuses to start
   when this is 0. With base = 0 this is `min(cores, floor(memory.max / per_slot))`.
-  - memory.max 4 GiB gives 1 worker.
-  - memory.max 8 GiB gives 2.
-  - memory.max 16 GiB gives 4.
-  - memory.max 32 GiB gives 9.
-  - memory.max 64 GiB gives 19.
+  - memory.max 4 GiB gives 0 workers (4,294,967,296 / 4,635,677,069 = 0.93 → 0).
+  - memory.max 8 GiB gives 1.
+  - memory.max 16 GiB gives 3.
+  - memory.max 32 GiB gives 7.
+  - memory.max 64 GiB gives 14.
 
-### Ingest term for `source=contract`: pending fix-contract-quadratic
+### Ingest term for `source=contract`
 
-The contract reader is quadratic in records, so its term is not final. `graph_contract::ingest::validate`
-scans earlier records for every record:
+The contract reader was quadratic in records (`graph_contract::ingest::validate` scanned earlier records
+for every record: `check_unique_records` scanned `doc.records[..i]` for each record, `declares` scanned
+every record for each link). Branch `fix-contract-quadratic` fixed the cause. These are the measurements
+after the fix, from `scripts/orch/gr cargo test --release -p graph-wasm --lib -- --ignored --nocapture
+ingest_peak` and `contract_read_time`. The generated document has one collection, a parent, a tag and one
+link per record.
 
-- `check_unique_records` scans `doc.records[..i]` for each record
-  (`crates/graph-contract/src/ingest/validate.rs:158-171`);
-- `declares` scans every record for each link (`crates/graph-contract/src/ingest/validate/cells.rs:101`);
-- `collection()` is a linear find (`crates/graph-contract/src/ingest.rs:241`).
+After the fix, `contract_read_time` doubles the body from 1 MiB to 64 MiB:
 
-Branch `fix-contract-quadratic` fixes the cause. The 64 MiB run was stopped because it measured the bug.
-These are the measurements before the fix, from
-`scripts/orch/gr cargo test --release -p graph-wasm --lib -- --ignored --nocapture contract_read_time`. The
-generated document has one collection, a parent, a tag and one link per record. The test doubles the body
-and stops after the first read over 15 s.
+| body bytes | nodes | ms | heap peak bytes | heap / body |
+|---|---:|---:|---:|---:|
+| 1,048,681 | 6,728 | 39 | 19,355,531 | 18.46 |
+| 2,097,295 | 13,328 | 125 | 38,637,325 | 18.42 |
+| 4,194,445 | 26,341 | 271 | 77,095,288 | 18.38 |
+| 8,388,753 | 52,172 | 324 | 153,814,381 | 18.34 |
+| 16,777,249 | 103,764 | 701 | 307,241,473 | 18.31 |
+| 33,554,583 | 205,183 | 2,117 | 613,816,759 | 18.29 |
+| 67,108,938 | 405,773 | 4,764 | 1,224,659,341 | 18.25 |
+
+- Time grows about 2× per doubling (linear), not 4×. The largest contract body that reads within 15 s is
+  now 64 MiB.
+- The heap is about 18.3× the body, and grows linearly with it. At 64 MiB the heap peak is 1,224,659,341 B
+  (1.14 GiB), which is the contract ingest term that binds per_slot.
+
+`ingest_peak` confirms the contract row at 64 MiB over two runs: body 67,108,938 B, 405,773 nodes,
+3,257 ms and 5,045 ms, heap peak 1,224,659,341 B, VmHWM rise 1,943,719,936 and 2,120,769,536 B.
+
+Before the fix, `contract_read_time` stopped at 4 MiB (the first read over 15 s). Those measurements, from
+the same test on the unfixed reader:
 
 | body bytes | nodes | ms, run 1 | ms, run 2 | heap peak bytes | heap / body |
 |---|---:|---:|---:|---:|---:|
@@ -192,14 +208,7 @@ and stops after the first read over 15 s.
 | 4,194,445 | 26,341 | 3,403 | 3,511 | 77,095,288 | 18.38 |
 | 8,388,753 | 52,172 | 16,050 | 17,705 | 153,814,381 | 18.34 |
 
-- Time grows about 4× per doubling. Before the fix, the largest contract body that reads within 15 s is
-  4 MiB.
-- The heap is about 18.3× the body, and grows linearly with it.
-  - Estimated at 64 MiB: 18.3 × 67,108,864 ≈ 1.23 GB. That would make per_slot about 4,639,109,939 B
-    (4.32 GiB).
-  - With a contract body limit of 4 MiB, the term is 77,095,288 B. The studio term then binds and per_slot
-    stays 3,552,117,680 B.
-- These figures will be re-measured with `ingest_peak` once the fix lands.
+- Time grew about 4× per doubling (quadratic). The largest contract body that read within 15 s was 4 MiB.
 
 ## Caveat
 
@@ -224,6 +233,5 @@ The caps and per_slot are measurements of one machine under load, not bounds. In
     body limit. A tighter bound would be the run peak at the largest n a 64 MiB body can carry.
   - The double count and the unreachable size both raise per_slot, so the error is on the safe side.
 - **Not covered.**
-  - The contract ingest term: pending, see above.
   - Chained posts at cap: these are bounded by `GRAPH_TIMEOUT_MS`, not by the caps.
   - Allocator fragmentation across many requests in a long-lived server process.
