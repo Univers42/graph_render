@@ -37,6 +37,7 @@
 
 mod blocks;
 mod circle;
+mod crossings;
 mod graph;
 mod position;
 mod rotation;
@@ -144,9 +145,9 @@ impl Layout {
     /// `layout_block`'s order for `at`: the long path, the residual pass, the crossing
     /// reduction, and the one rotation that puts the block's `PARENT_F` node first.
     fn circle_of(&self, derived: &Derived, at: usize) -> Vec<u32> {
-        let mut graph = BlockGraph::of(derived, &self.blocks[at]);
+        let graph = BlockGraph::of(derived, &self.blocks[at]);
         let mut order = skeleton::order_of(&graph);
-        order = circle::order_of(&mut graph, order);
+        order = circle::order_of(&graph, order);
         let nodes = &self.blocks[at].nodes;
         if let Some(at) = order
             .iter()
