@@ -58,10 +58,15 @@ impl<'a> Element<'a> {
         self.at
     }
 
-    /// Forgets the last element, so the walk can fill this table again.
+    /// Forgets the last element's members, so the walk can fill this table again.
+    ///
+    /// `quoted` is *not* cleared, and does not need to be: every accessor checks
+    /// [`Self::span`] before it reads that slot, so a member this element did not write is
+    /// refused as missing and never reaches a stale text. An owned (escaped) string left in
+    /// a slot is freed when the next element writes over it, or when the table is dropped —
+    /// which is the same `Text` the old table dropped per field anyway.
     pub(in crate::ingest) fn reset(&mut self) {
         self.spans = [None; WIDEST];
-        self.quoted.iter_mut().for_each(|field| *field = None);
     }
 
     /// The members of the object the cursor is on, into this table.
