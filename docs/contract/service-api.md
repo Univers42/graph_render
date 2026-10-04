@@ -258,14 +258,15 @@ Round 2 (re-submission once 1–3 hold): pending.
 Where each condition now holds in `server/`, and the row in `scripts/orch/rows/service.rows` that
 proves it. Not-run rows are named as such.
 
-**3. Memory budget.** The worker count is `min(cores, floor(memory.max / 3_552_117_680))` at
-`server/graph-server/src/config/slots.rs:24`; an unset `GRAPH_WORKERS` with a `memory.max` holding
+**3. Memory budget.** The worker count is `min(cores, floor(memory.max / PER_SLOT_BYTES))` at
+`server/graph-server/src/config/slots.rs:24`, with `PER_SLOT_BYTES` = 4_635_677_069: the
+`source=contract` ingest term binds (`docs/measurements/service-caps.md` "Memory per slot"), so a
+4 GiB container holds no slot and 8 GiB holds one; an unset `GRAPH_WORKERS` with a `memory.max` holding
 no slot is a refusal at `src/config.rs:166-174`, exit 2 via `src/main.rs:69`. The slots are the
 gate's semaphore (`src/gate.rs:24`). Rows `svc-memory` / `negctl-memory` cover the container, and
 the derivation itself is proved by `src/config/tests.rs:73`.
-Caveat: the derivation is not in `src/caps.rs` (that file is the per-id size table), and no log
-line carries the worker count — `config::start_line` logs `set`/`unset` per variable and no value,
-by the rule in condition 9. `svc-memory` and `negctl-memory` are NOT RUN: no `graph-server` image
+No log line carries the worker count: `config::start_line` logs `set`/`unset` per variable and no
+value, by the rule in condition 9. `svc-memory` and `negctl-memory` are NOT RUN: no `graph-server` image
 exists yet (`scripts/orch/drun` has only `ge-rust` and the oracle images), so the rows assert the
 start and the refusal rather than a logged figure.
 

@@ -46,10 +46,12 @@ pub fn run(settings: &Settings, app: Arc<App>) -> ExitCode {
 
 async fn serve(settings: &Settings, app: Arc<App>) -> io::Result<()> {
     let listener = TcpListener::bind((settings.bind, settings.port)).await?;
-    app.log(&json!({ "event": "listening", "addr": listener.local_addr()?.to_string() }));
     let mut terminate = signal(SignalKind::terminate())?;
     let mut interrupt = signal(SignalKind::interrupt())?;
     spawn_reload(&app, settings.keys_file.clone())?;
+    // `listening` is the readiness line, so it comes after every handler: logged first, a SIGHUP
+    // sent on it met the default action and killed the server (tests/reload.rs, 1 run in 5).
+    app.log(&json!({ "event": "listening", "addr": listener.local_addr()?.to_string() }));
     let graceful = GracefulShutdown::new();
     let accept = Acceptor::new(crate::router(Arc::clone(&app)), settings.connections);
     loop {
