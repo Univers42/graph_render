@@ -264,6 +264,45 @@ struct Segment {
     to: i64,
 }
 
+/// Where every node of a drawing sits: its rank and its place on it, read once so the pair
+/// loop below is a comparison rather than two searches.
+struct Layout {
+    rank: Vec<i32>,
+    place: Vec<i64>,
+}
+
+impl Layout {
+    fn of(rows: &[Vec<u32>]) -> Self {
+        let highest = rows.len();
+        let mut rank = vec![-1; highest * 4];
+        let mut place = vec![0; highest * 4];
+        for (r, row) in rows.iter().enumerate() {
+            for (i, &node) in row.iter().enumerate() {
+                if let Some(slot) = node_index(node, rank.len()) {
+                    rank[slot] = r as i32;
+                    place[slot] = i as i64;
+                }
+            }
+        }
+        Self { rank, place }
+    }
+
+    fn rank_of(&self, node: u32) -> Option<i32> {
+        let slot = node_index(node, self.rank.len())?;
+        (self.rank[slot] >= 0).then_some(self.rank[slot])
+    }
+
+    fn place_of(&self, node: u32) -> i64 {
+        node_index(node, self.place.len()).map_or(0, |slot| self.place[slot])
+    }
+}
+
+/// A node's slot in a per-node array, or `None` when the array is too small for it — which
+/// only happens if a row holds a node the arrays were not sized for.
+fn node_index(node: u32, len: usize) -> Option<usize> {
+    (usize::try_from(node).expect("a node index fits usize") < len).then_some(node as usize)
+}
+
 /// The number of pairs of input edges that cross in a drawing, from nothing but its rows.
 ///
 /// **What is drawn.** Each input edge is the straight segment between its two endpoints,
@@ -285,35 +324,36 @@ struct Segment {
 /// are therefore what this takes, which is also what makes the count a property of the
 /// *drawing* and not of the chains inside it.
 fn edge_crossings(rows: &[Vec<u32>], edges: &[(u32, u32)]) -> i64 {
+    let layout = Layout::of(rows);
     let mut cross = 0i64;
     for (index, first) in edges.iter().enumerate() {
         for second in &edges[index + 1..] {
-            cross += i64::from(crosses(rows, *first, *second));
+            cross += i64::from(crosses(&layout, *first, *second));
         }
     }
     cross
 }
 
 /// Whether these two edges cross, as [`edge_crossings`] counts it.
-fn crosses(rows: &[Vec<u32>], first: (u32, u32), second: (u32, u32)) -> bool {
+fn crosses(layout: &Layout, first: (u32, u32), second: (u32, u32)) -> bool {
     let shared = [first.0, first.1].iter().any(|n| [second.0, second.1].contains(n));
     if shared {
         return false;
     }
-    let (Some(a), Some(b)) = (segment(rows, first), segment(rows, second)) else {
+    let (Some(a), Some(b)) = (segment(layout, first), segment(layout, second)) else {
         return false;
     };
     let (bottom, top) = (a.low.max(b.low), a.high.min(b.high));
     (bottom < top) && (left_of(&a, &b, bottom) != left_of(&a, &b, top))
 }
 
-/// An edge as the segment its endpoints describe, lower rank first, or `None` when a node is
-/// on no row at all.
-fn segment(rows: &[Vec<u32>], edge: (u32, u32)) -> Option<Segment> {
-    let first = (rank_of(rows, edge.0)?, place(rows, edge.0));
-    let second = (rank_of(rows, edge.1)?, place(rows, edge.1));
+/// An edge as the segment its endpoints describe, lower rank first, or `None` when an
+/// endpoint is on no row at all.
+fn segment(layout: &Layout, edge: (u32, u32)) -> Option<Segment> {
+    let first = (layout.rank_of(edge.0)?, layout.place_of(edge.0));
+    let second = (layout.rank_of(edge.1)?, layout.place_of(edge.1));
     let (low, high) = if first.0 <= second.0 { (first, second) } else { (second, first) };
-    Some(Segment { low: low.0, from: low.1, high: high.0, to: high.1 })
+    Some(Segment { low: low.0 as usize, from: low.1, high: high.0 as usize, to: high.1 })
 }
 
 /// Whether segment `a` is left of segment `b` at rank `y`.
@@ -330,14 +370,32 @@ fn interpolated(segment: &Segment, y: usize) -> (i64, i64) {
     (segment.from * span + (segment.to - segment.from) * walked, span)
 }
 
-/// The rank a node is on, or `None` when no row holds it.
-fn rank_of(rows: &[Vec<u32>], node: u32) -> Option<usize> {
-    rows.iter().position(|row| row.contains(&node))
-}
-
-/// A node's place in its own row.
-fn place(rows: &[Vec<u32>], node: u32) -> i64 {
-    let row = rows.iter().find(|r| r.contains(&node)).expect("the node is on a row");
-    i64::try_from(row.iter().position(|n| *n == node).expect("the node is in its row"))
-        .expect("a place fits i64")
+#[test]
+#[ignore = "debug"]
+fn debug_first_disagreements() {
+    let rows = oracle_digest();
+    let mut shown = 0;
+    for row in rows.iter().take(200) {
+        let count = u32::try_from(row.ranks.len()).expect("u32");
+        let g = ranked_and_ordered(count, &row.edges);
+        if crossings::real_ranks(&g) != row.ranks {
+            continue;
+        }
+        let ours = crossings::real_rows(&g);
+        if ours == row.rows() {
+            continue;
+        }
+        shown += 1;
+        if shown > 6 {
+            break;
+        }
+        eprintln!("seed {} n={} edges={:?}", row.ranks.len(), row.ranks.len(), row.edges);
+        eprintln!("  ours   {ours:?}");
+        eprintln!("  theirs {:?}", row.rows());
+        eprintln!(
+            "  drawn crossings ours {} theirs {}",
+            edge_crossings(&ours, &row.edges),
+            edge_crossings(&row.rows(), &row.edges)
+        );
+    }
 }
