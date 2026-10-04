@@ -1,0 +1,41 @@
+# audit.rows — the supply-chain gate (the quality bar's "a known-vuln dependency fails the
+# gate", .claude/rules/devil/quality-bar.md layer 5). Run:
+#   scripts/orch/gate.sh <logdir> scripts/orch/rows/audit.rows
+#
+# Caveat: every row here needs the network. cargo-deny clones the RustSec advisory-db and
+# `npm audit` reads the registry advisory endpoint, both at run time, so these rows can turn red
+# with no change in the tree, the day an advisory is published. That is the purpose of the gate,
+# not a flake. The corollary: an offline host gets exit non-zero on every cargo-deny row and
+# gate.sh reports FAIL. Read the row's log before calling that a finding — the fetch failure
+# names the URL it could not reach, a finding names a crate.
+#
+# Two lockfiles, because there are two workspaces: `Cargo.lock` for the motor and
+# `server/Cargo.lock` for the internet-facing service (server/graph-server). A green motor row
+# says nothing about the service, so both run. One policy file, deny.toml at the repo top,
+# passed to the service with --config.
+#
+# A control passes only when the run fails for its own reason: exit non-zero *and* the output
+# naming the thing the control removed. Exit 0 (the control passed the check) is red too.
+# - negctl-cargo-deny-advisory: a one-crate project depending on time 0.1.44, which is under
+#   RUSTSEC-2020-0071 (no patch for the 0.1 line; 0.2.23 or the 0.3 series is unaffected).
+# - negctl-cargo-deny-license: the same deny.toml with MIT out of `licenses.allow`, so the
+#   motor's own MIT dependencies are rejected.
+
+# The motor workspace. All four checks: RustSec advisories, duplicate versions, the SPDX allow
+# list, and crate provenance. Network: the RustSec advisory-db clone.
+cargo-deny-motor|0|GR_IMAGE=ge-audit scripts/orch/gr cargo deny --manifest-path Cargo.toml check advisories bans licenses sources
+
+# The service workspace, same policy by --config. Network: the same advisory-db clone.
+cargo-deny-server|0|GR_IMAGE=ge-audit scripts/orch/gr cargo deny --manifest-path server/Cargo.toml --config deny.toml check advisories bans licenses sources
+
+# The shipped bundle (app/vite.embed.config.ts ships app/package.json's runtime deps, so
+# --omit=dev is the right cut). Network: the registry advisory endpoint.
+npm-audit-app|0|scripts/orch/node-slim.sh bash -c 'cd app && npm audit --omit=dev --audit-level=high'
+
+# The advisory control, hand-built rather than scripted: one crate under RUSTSEC-2020-0071.
+# Network: the crates.io index (cargo generate-lockfile) and the advisory-db clone.
+negctl-cargo-deny-advisory|0|d=target/audit-negctl; mkdir -p $d/src; : >$d/src/lib.rs; printf '%s\n' '[package]' 'name = "audit-negctl"' 'version = "0.0.0"' 'edition = "2021"' '' '[workspace]' '' '[dependencies]' 'time = "=0.1.44"' >$d/Cargo.toml; GR_IMAGE=ge-audit scripts/orch/gr bash -c "cd $d && cargo generate-lockfile -q" || exit 1; rc=0; GR_IMAGE=ge-audit scripts/orch/gr cargo deny --manifest-path $d/Cargo.toml check advisories >target/audit-negctl-advisories.log 2>&1 || rc=$?; test $rc -ne 0 && grep -q RUSTSEC-2020-0071 target/audit-negctl-advisories.log && cat target/audit-negctl-advisories.log
+
+# The licence control: deny.toml minus one allowed licence. Network: the advisory-db clone is
+# not needed by `check licenses`, but the ge-audit image build itself pulls crates once.
+negctl-cargo-deny-license|0|sed '/^    "MIT",$/d' deny.toml >target/deny-negctl.toml; grep -q '"MIT"' target/deny-negctl.toml && exit 1; rc=0; GR_IMAGE=ge-audit scripts/orch/gr cargo deny --manifest-path Cargo.toml --config target/deny-negctl.toml check licenses >target/audit-negctl-licenses.log 2>&1 || rc=$?; test $rc -ne 0 && grep -q 'MIT - MIT License:' target/audit-negctl-licenses.log && head -n 20 target/audit-negctl-licenses.log
