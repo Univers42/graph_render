@@ -42,12 +42,14 @@ scripts/service.sh run keys            # 127.0.0.1:8080, read-only root, no capa
 ```
 
 In this repository `run` starts the container through `scripts/orch/drun`, which adds the memory cap
-(`DRUN_MEM`, default 4g) and the `gm.slice` ceiling. On a host without this repository, the same
+(`DRUN_MEM`, default 8g for `run`) and the `gm.slice` ceiling. 8 GiB is the minimum: one worker
+slot is 4.32 GiB (`docs/measurements/service-caps.md`, "Memory per slot"), so a 4 GiB container
+holds no slot and the server exits 2 at start. On a host without this repository, the same
 container is:
 
 ```sh
 docker run -d --name graph-motor --read-only --cap-drop ALL --security-opt no-new-privileges \
-  --memory 4g --memory-swap 4g \
+  --memory 8g --memory-swap 8g \
   --group-add "$(stat -c %g keys)" -v "$PWD/keys:/run/graph/keys:ro" -e GRAPH_API_KEYS_FILE=/run/graph/keys \
   -p 127.0.0.1:8080:8080 graph-motor:<tag>
 ```

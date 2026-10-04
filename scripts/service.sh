@@ -19,7 +19,8 @@
 #
 # run: SERVICE_PORT picks the host port (default 8080, 0 = any free one), SERVICE_DETACH=<name>
 # runs it in the background under that container name. It starts through scripts/orch/drun (cap
-# DRUN_MEM, default 4g). The root filesystem is read-only, every capability is dropped, and the
+# DRUN_MEM, default 8g here: one worker slot is 4.32 GiB, so 4g holds none and the server refuses
+# to start, docs/measurements/service-caps.md "Memory per slot"). The root filesystem is read-only, every capability is dropped, and the
 # port is published on the loopback only. KEYFILE holds
 # `<name> <sha256-hex>` lines, never a key; the process runs as uid 10001 and reads it through
 # the file's group, so the file needs g+r (0640); group- or world-writable is refused (C9).
@@ -104,7 +105,7 @@ run() {
   keys=$(readlink -f "$1")
   image=$(image_of)
   [[ -n ${SERVICE_DETACH-} ]] && detach=(-d --name "$SERVICE_DETACH")
-  scripts/orch/drun "${detach[@]}" --read-only --cap-drop ALL --security-opt no-new-privileges \
+  DRUN_MEM=${DRUN_MEM:-8g} scripts/orch/drun "${detach[@]}" --read-only --cap-drop ALL --security-opt no-new-privileges \
     --group-add "$(stat -c %g "$keys")" -v "$keys:/run/graph/keys:ro" -e GRAPH_API_KEYS_FILE=/run/graph/keys \
     -p "127.0.0.1:${SERVICE_PORT:-8080}:8080" "$image"
 }
