@@ -40,7 +40,8 @@
 # an emit that is interrupted writes to a private name and is never renamed into the cache, so a
 # partial file is never reused. The cache is about 900 MB.
 #
-# Report: target/service-caps-time/<tag>/report.tsv, one line per row, tab-separated:
+# Report: target/service-caps-time/<tag>/report.tsv, one tab-separated line per row, `id<TAB>cap_n<TAB>cap_m`
+#   in the table's own order:
 #   PASS|FAIL <id> <status> <ms> <cap_n> <cap_m> <layout> <post|-> <n> <m> <source> <reduced|->,
 # with `#` lines for the image, the mark, the columns and the load1 at each end of the run.
 #
