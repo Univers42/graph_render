@@ -40,7 +40,7 @@ set -euo pipefail
 # step's own code, and a step that exits 1 would satisfy the `--break` row's `test $? -eq 1`
 # without the judge ever running. Measured 2026-10-03: the gm-chromium render died silently
 # under a loaded host and turned the negative control red with no message.
-trap 'rc=$?; printf "scigraphs-conformance: could not run: line %s exited %s\n" "$LINENO" "$rc" >&2; exit 2' ERR
+trap 'printf "scigraphs-conformance: could not run: line %s exited %s\n" "$LINENO" "$?" >&2; exit 2' ERR
 
 root=$(git rev-parse --show-toplevel)
 cd "$root"
@@ -125,11 +125,12 @@ chromium_image python3 harness/scigraphs-conformance/render.py "$dir/shapes" --o
 
 # 6. the verdict. The exit code is this script's: 0, 1 or 2.
 status=0
-# The log lives beside the fixture directory, not inside it: the fixture tree is written by
-# containers running as root, so the host shell cannot create a file in there.
+# WHY the container writes the log, not the host shell: under a rootful Docker (every CI runner)
+# the containers create `target/` itself as root, and a host redirect into it was "Permission
+# denied" (CI run 37196508462; fix-analysis.md, fix-post-routed.md and fix-scale.md hit the same).
 log=target/scigraphs-conformance-judge.log
-scripts/orch/gr cargo run -q --release -p graph-cli -- scigraphs-conformance --dir "$dir" \
-  >"$log" 2>&1 || status=$?
+scripts/orch/gr sh -c "cargo run -q --release -p graph-cli -- scigraphs-conformance --dir $dir >$log 2>&1" \
+  || status=$?
 cat "$log"
 if [ "$status" = 2 ]; then
   printf 'scigraphs-conformance: could not run (exit 2)\n' >&2
