@@ -79,7 +79,11 @@ fn a_batch_round_trips_to_the_records_it_was_written_from() {
         assert_eq!(read.record_id, edge.record_id.as_deref(), "edge row {row}");
         assert_eq!(read.directed, edge.directed, "edge row {row}");
         assert_eq!(read.child_first, edge.child_first, "edge row {row}");
-        assert_eq!(read.strength.to_bits(), edge.strength.to_bits(), "edge row {row}");
+        assert_eq!(
+            read.strength.to_bits(),
+            edge.strength.to_bits(),
+            "edge row {row}"
+        );
         // The endpoints are entries, so what they mean is the text behind them.
         assert_eq!(doc.text(read.source_row), Some(edge.source.as_str()));
         assert_eq!(doc.text(read.target_row), Some(edge.target.as_str()));
@@ -137,7 +141,10 @@ fn the_written_buffer_is_exactly_the_length_the_reader_demands() {
     let (nodes, edges) = batch();
     let bytes = columns_batch(&nodes, &edges);
     let short = &bytes[..bytes.len() - 1];
-    assert!(decode_batch(short).is_err(), "a byte less is a different length");
+    assert!(
+        decode_batch(short).is_err(),
+        "a byte less is a different length"
+    );
     assert!(decode_batch(&[bytes.clone(), vec![0u8]].concat()).is_err());
 }
 
@@ -147,5 +154,8 @@ fn the_written_buffer_is_exactly_the_length_the_reader_demands() {
 fn an_empty_batch_is_a_batch() {
     let bytes = columns_batch(&[], &[]);
     let doc = decode_batch(&bytes).expect("empty is valid");
-    assert_eq!((doc.node_count(), doc.edge_count(), doc.string_count()), (0, 0, 0));
+    assert_eq!(
+        (doc.node_count(), doc.edge_count(), doc.string_count()),
+        (0, 0, 0)
+    );
 }

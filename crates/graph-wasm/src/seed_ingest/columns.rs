@@ -112,9 +112,10 @@ impl<'a> Table<'a> {
     /// bug — a cell whose text the interning pass never saw — so it is named rather than
     /// written as an entry that is not there.
     fn entry(&self, text: &'a str) -> u32 {
-        self.at.get(text).copied().unwrap_or_else(|| {
-            panic!("a cell naming a string the table never interned: {text:?}")
-        })
+        self.at
+            .get(text)
+            .copied()
+            .unwrap_or_else(|| panic!("a cell naming a string the table never interned: {text:?}"))
     }
 
     /// [`entry`](Self::entry) for an optional cell.
@@ -214,7 +215,9 @@ impl Marks {
 fn write_floats(out: &mut [u8], at: usize, nodes: &[NodeRecord], edges: &[EdgeRecord]) {
     f64_column(out, at, nodes.len(), |i| nodes[i].weight);
     f64_column(out, at + 8 * nodes.len(), nodes.len(), |i| nodes[i].version);
-    f64_column(out, at + 16 * nodes.len(), edges.len(), |i| edges[i].strength);
+    f64_column(out, at + 16 * nodes.len(), edges.len(), |i| {
+        edges[i].strength
+    });
 }
 
 /// The eight `u32` node columns, in contract order, each `4 * rows` long and adjacent to the
@@ -223,11 +226,17 @@ fn write_nodes(out: &mut [u8], table: &Table<'_>, nodes: &[NodeRecord], at: usiz
     let step = 4 * nodes.len();
     u32_column(out, at, nodes, |n| table.entry(&n.id));
     u32_column(out, at + step, nodes, |n| table.entry(n.kind.as_str()));
-    u32_column(out, at + 2 * step, nodes, |n| table.optional(n.database_id.as_deref()));
+    u32_column(out, at + 2 * step, nodes, |n| {
+        table.optional(n.database_id.as_deref())
+    });
     u32_column(out, at + 3 * step, nodes, |n| table.entry(&n.source));
     u32_column(out, at + 4 * step, nodes, |n| table.entry(&n.label));
-    u32_column(out, at + 5 * step, nodes, |n| table.optional(n.group.as_deref()));
-    u32_column(out, at + 6 * step, nodes, |n| table.optional(n.icon.as_deref()));
+    u32_column(out, at + 5 * step, nodes, |n| {
+        table.optional(n.group.as_deref())
+    });
+    u32_column(out, at + 6 * step, nodes, |n| {
+        table.optional(n.icon.as_deref())
+    });
     u32_column(out, at + 7 * step, nodes, |n| u32::from(n.has_note));
     at + 8 * step
 }
@@ -242,7 +251,9 @@ fn write_edges(out: &mut [u8], table: &Table<'_>, edges: &[EdgeRecord], at: usiz
     u32_column(out, at + 2 * step, edges, |e| table.entry(&e.target));
     u32_column(out, at + 3 * step, edges, |e| table.entry(e.kind.as_str()));
     u32_column(out, at + 4 * step, edges, |e| table.entry(&e.label));
-    u32_column(out, at + 5 * step, edges, |e| table.optional(e.record_id.as_deref()));
+    u32_column(out, at + 5 * step, edges, |e| {
+        table.optional(e.record_id.as_deref())
+    });
     u32_column(out, at + 6 * step, edges, |e| u32::from(e.directed));
     u32_column(out, at + 7 * step, edges, |e| u32::from(e.child_first));
 }

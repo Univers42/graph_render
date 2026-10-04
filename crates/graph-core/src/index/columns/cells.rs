@@ -119,7 +119,11 @@ impl<'t, T: EntryTable + ?Sized> Entries<'t, T> {
     }
 
     /// The node kind entry `entry` names, refused as node row `row`'s if it names none.
-    pub(in crate::index) fn node_kind(&mut self, entry: u32, row: u32) -> Result<NodeKind, ColumnsRefusal> {
+    pub(in crate::index) fn node_kind(
+        &mut self,
+        entry: u32,
+        row: u32,
+    ) -> Result<NodeKind, ColumnsRefusal> {
         let table = self.table;
         self.node_kinds.get(entry, || {
             NodeKind::from_name(text(table, entry)?).ok_or(ColumnsRefusal::NodeKind { row })
@@ -127,7 +131,11 @@ impl<'t, T: EntryTable + ?Sized> Entries<'t, T> {
     }
 
     /// The edge kind entry `entry` names, refused as edge row `row`'s if it names none.
-    pub(in crate::index) fn edge_kind(&mut self, entry: u32, row: u32) -> Result<EdgeKind, ColumnsRefusal> {
+    pub(in crate::index) fn edge_kind(
+        &mut self,
+        entry: u32,
+        row: u32,
+    ) -> Result<EdgeKind, ColumnsRefusal> {
         let table = self.table;
         self.edge_kinds.get(entry, || {
             EdgeKind::from_name(text(table, entry)?).ok_or(ColumnsRefusal::EdgeKind { row })

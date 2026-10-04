@@ -19,37 +19,11 @@
 use super::{ExtendError, Load, Topology, row_of};
 use crate::arena::{CapacityError, FixedState};
 use crate::index::columns::{
-    ColumnsRefusal, EdgeCells, Entries, EntryTable, NodeCells, index_edge, index_node,
-    reserved_entries,
+    BatchEdgeCells, ColumnsRefusal, EdgeCells, Entries, EntryTable, NodeCells, batch_load,
+    index_edge, index_node, reserved_entries,
 };
 use core::fmt;
 use indexmap::IndexSet;
-
-/// One `GMX1` edge row: every string a table entry, both endpoints **entries naming node ids**.
-/// This is where a batch differs from a whole document, whose endpoints are dense rows: a
-/// batch's edge may name a node the graph already holds, and a row number would have leaked an
-/// index that never crosses the wire.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct BatchEdgeCells {
-    /// Entry of the content-addressed id.
-    pub id: u32,
-    /// Entry of the source node's id.
-    pub source_entry: u32,
-    /// Entry of the target node's id.
-    pub target_entry: u32,
-    /// Entry of the kind name.
-    pub kind: u32,
-    /// Entry of the label.
-    pub label: u32,
-    /// Entry of the backing row id, if any.
-    pub record_id: Option<u32>,
-    /// Strength.
-    pub strength: f64,
-    /// Directed flag.
-    pub directed: bool,
-    /// `source_entry` is the child (`child_of`).
-    pub child_first: bool,
-}
 
 /// Why a `GMX1` batch was refused. The topology is unchanged on every variant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -88,51 +62,6 @@ impl fmt::Display for BatchRefusal {
 /// call sites need one conversion rather than three matches.
 fn capacity(error: CapacityError) -> BatchRefusal {
     BatchRefusal::Extend(error.into())
-}
-
-/// What `nodes` and `edges` would add to a graph, counting every string as new: the same count
-/// [`Load::of_batch`] makes over records, over entries instead of `String`s. Six strings per node
-/// (id, database, source, label, group, icon), three per edge (id, label, record id). A kind
-/// name is **not** one: it resolves to a `NodeKind` or an `EdgeKind` and is never interned, on
-/// either path. Nor is an endpoint's entry — it names a node id, counted where that node is
-/// carried, or already interned by the graph.
-///
-/// `pub(in crate::index)` so the columns twin of [`Topology::extend`](super::extend)'s capacity
-/// test can pin this rule on the production count.
-pub(in crate::index) fn batch_load<T, N, E>(table: &T, nodes: N, edges: E) -> Load
-where
-    T: EntryTable + ?Sized,
-    N: ExactSizeIterator<Item = NodeCells>,
-    E: ExactSizeIterator<Item = BatchEdgeCells>,
-{
-    let mut load = Load {
-        strings: 0,
-        bytes: 0,
-        nodes: nodes.len() as u64,
-        edges: edges.len() as u64,
-    };
-    for node in nodes {
-        let cells = [node.id, node.database_id, node.source, node.label, node.group, node.icon];
-        for entry in cells.map(Some) {
-            counted(&mut load, table, entry);
-        }
-    }
-    for edge in edges {
-        for entry in [Some(edge.id), Some(edge.label), edge.record_id] {
-            counted(&mut load, table, entry);
-        }
-    }
-    load
-}
-
-/// One named string counted as new. An entry the table does not have counts for nothing: the
-/// decoder refused such a batch before graph-core saw it, and a count is not the place to
-/// refuse it twice.
-fn counted<T: EntryTable + ?Sized>(load: &mut Load, table: &T, entry: Option<u32>) {
-    if let Some(text) = entry.and_then(|entry| table.text(entry)) {
-        load.strings += 1;
-        load.bytes += text.len() as u64;
-    }
 }
 
 /// Everything the validate pass resolved, kept for the append: the batch's node ids (what an
@@ -193,7 +122,8 @@ impl<'t, T: EntryTable + ?Sized> Plan<'t, T> {
     ) -> Result<(), BatchRefusal> {
         let mut ids = IndexSet::with_capacity_and_hasher(self.at.capacity(), FixedState::default());
         for (index, edge) in (0..).zip(edges) {
-            self.in_table([edge.id, edge.kind], [edge.record_id, edge.source_entry, edge.target_entry])?;
+            let ends = [edge.source_entry, edge.target_entry].map(Some);
+            self.in_table([edge.id, edge.kind], [edge.record_id, ends[0], ends[1]])?;
             let id = self.text(edge.id)?;
             if topology.edge_index(id).is_some() || !ids.insert(id) {
                 return Err(BatchRefusal::Extend(ExtendError::EdgeId { index }));
@@ -217,14 +147,10 @@ impl<'t, T: EntryTable + ?Sized> Plan<'t, T> {
     /// Every cell of one row inside the table. Resolving an entry interns and interning
     /// writes, so this rule is settled before the first intern rather than during it — which
     /// is also why [`text`](Self::text) below cannot come back empty.
-    fn in_table(
-        &self,
-        required: [u32; 2],
-        optional: [Option<u32>; 3],
-    ) -> Result<(), BatchRefusal> {
-        for cell in required.into_iter().map(Some).chain(optional) {
-            if *cell as usize >= self.table.entries() {
-                return Err(BatchRefusal::TableEntry { entry: *cell });
+    fn in_table(&self, required: [u32; 2], optional: [Option<u32>; 3]) -> Result<(), BatchRefusal> {
+        for cell in required.into_iter().map(Some).chain(optional).flatten() {
+            if cell as usize >= self.table.entries() {
+                return Err(BatchRefusal::TableEntry { entry: cell });
             }
         }
         Ok(())
@@ -232,7 +158,9 @@ impl<'t, T: EntryTable + ?Sized> Plan<'t, T> {
 
     /// The text `entry` names, which the two checks above have proved it names.
     fn text(&self, entry: u32) -> Result<&'t str, BatchRefusal> {
-        self.table.text(entry).ok_or(BatchRefusal::TableEntry { entry })
+        self.table
+            .text(entry)
+            .ok_or(BatchRefusal::TableEntry { entry })
     }
 
     /// A refusal from [`index_node`] or [`index_edge`] in this path's own rows: the validate
@@ -241,14 +169,18 @@ impl<'t, T: EntryTable + ?Sized> Plan<'t, T> {
         match error {
             ColumnsRefusal::Capacity(inner) => BatchRefusal::Extend(inner.into()),
             ColumnsRefusal::DuplicateNodeId { row } | ColumnsRefusal::NodeKind { row } => {
-                BatchRefusal::Extend(ExtendError::NodeId { index: row - self.base.0 })
+                BatchRefusal::Extend(ExtendError::NodeId {
+                    index: row - self.base.0,
+                })
             }
             ColumnsRefusal::DuplicateEdgeId { row } | ColumnsRefusal::EdgeKind { row } => {
-                BatchRefusal::Extend(ExtendError::EdgeId { index: row - self.base.1 })
+                BatchRefusal::Extend(ExtendError::EdgeId {
+                    index: row - self.base.1,
+                })
             }
-            ColumnsRefusal::EndpointRow { row } => {
-                BatchRefusal::Extend(ExtendError::Endpoint { index: row - self.base.1 })
-            }
+            ColumnsRefusal::EndpointRow { row } => BatchRefusal::Extend(ExtendError::Endpoint {
+                index: row - self.base.1,
+            }),
             ColumnsRefusal::TableEntry { entry } => BatchRefusal::TableEntry { entry },
         }
     }
@@ -283,7 +215,11 @@ impl Topology {
     /// Each node row through `index_columns`'s own admit, then the empty CSR rows, the zero
     /// degree and the group `extend` gives it. Nothing here can refuse but the arena, whose
     /// limit [`batch_load`] has already cleared.
-    fn append_column_nodes<T, N>(&mut self, plan: &mut Plan<'_, T>, nodes: N) -> Result<(), BatchRefusal>
+    fn append_column_nodes<T, N>(
+        &mut self,
+        plan: &mut Plan<'_, T>,
+        nodes: N,
+    ) -> Result<(), BatchRefusal>
     where
         T: EntryTable + ?Sized,
         N: Iterator<Item = NodeCells>,

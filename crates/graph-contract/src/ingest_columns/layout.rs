@@ -6,8 +6,8 @@
 //! allocates, so "no allocation is sized from a header field" is not a promise about this
 //! function — it is simply that there is none.
 
-use super::{Columns, Format};
 use super::error::ColumnsError;
+use super::{Columns, Format};
 
 /// `0x31434D47`, the four bytes `"GMC1"` read as a little-endian `u32`.
 pub(super) const MAGIC: u32 = 0x3143_4D47;

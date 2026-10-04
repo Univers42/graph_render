@@ -13,8 +13,9 @@
 //! `extend_refusal_leaves_topology_unchanged` for both.
 
 use super::*;
+use crate::index::columns::{BatchEdgeCells, batch_load};
 use crate::index::columns::{EntryTable, NodeCells};
-use crate::index::extend::columns::{BatchEdgeCells, BatchRefusal, batch_load};
+use crate::index::extend::columns::BatchRefusal;
 
 /// The batch's string table, lent to graph-core. A newtype rather than a second `impl
 /// EntryTable for [S]`: the whole-document tests already implement the trait for slices, and
@@ -171,7 +172,9 @@ fn extend_columns_matches_extend() {
         let mut from_columns = empty_model();
         for (k, batch) in batches.iter().enumerate() {
             from_records.extend(&batch.0, &batch.1).expect("strict");
-            Doc::of(&batch.0, &batch.1).append(&mut from_columns).expect("strict");
+            Doc::of(&batch.0, &batch.1)
+                .append(&mut from_columns)
+                .expect("strict");
             let what = format!("seed {seed}, batch {k}");
             assert_eq!(
                 bytes(&from_columns),
@@ -250,9 +253,7 @@ fn a_columns_batch_that_could_overflow_a_count_is_refused_before_anything_is_cou
     };
     assert_eq!(
         refused(nodes),
-        Some(ExtendError::Capacity {
-            what: "node index"
-        })
+        Some(ExtendError::Capacity { what: "node index" })
     );
     let edges = Load {
         edges: 2,
@@ -260,8 +261,6 @@ fn a_columns_batch_that_could_overflow_a_count_is_refused_before_anything_is_cou
     };
     assert_eq!(
         refused(edges),
-        Some(ExtendError::Capacity {
-            what: "adjacency"
-        })
+        Some(ExtendError::Capacity { what: "adjacency" })
     );
 }

@@ -83,7 +83,9 @@ fn a_document_endpoint_must_be_a_row_and_a_batch_endpoint_must_be_an_entry() {
     let mut as_batch = batch();
     as_batch.patch_u32(as_batch.marks.edge_source, 0, 5);
     assert_eq!(
-        decode_batch(&as_batch.bytes).expect("entry 5 names a string").format(),
+        decode_batch(&as_batch.bytes)
+            .expect("entry 5 names a string")
+            .format(),
         Format::Batch
     );
 }

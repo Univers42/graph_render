@@ -60,6 +60,19 @@ pub fn extend(topology: &mut Topology, bytes: &[u8]) -> Result<(), Code> {
         .map_err(|_| Code::IngestInvalid)
 }
 
+/// Appends the `GMX1` batch document `bytes` holds to `topology`:
+/// `gm_graph_extend_columns`'s body (`docs/decisions/extend-columns.md`). The same work
+/// [`extend`] does, over bytes that are already shaped as columns.
+///
+/// Every refusal is [`Code::ColumnsInvalid`] — the format fault *and* the graph fault, a
+/// repeated id or a dangling endpoint alike — because that code's published meaning is already
+/// "the columnar path refused this buffer" in both clauses. **Caveat:** the same fault under
+/// `gm_graph_extend` is `IngestInvalid`, so a host that swaps one call for the other loses its
+/// error handling unless it reads both rows of the contract.
+pub fn extend_columns(topology: &mut Topology, bytes: &[u8]) -> Result<(), Code> {
+    crate::ingest::columns::extend_batch(topology, bytes).map_err(|refusal| refusal.code())
+}
+
 /// The binary snapshot (`docs/contract/binary-layout.md`) of `layout` over `topology`, then
 /// of the POST pass `post` over that layout's geometry when one is named: the bytes
 /// `gm_snapshot_bytes` reads after `gm_run`, and after `gm_post_run` when `post` is given.
