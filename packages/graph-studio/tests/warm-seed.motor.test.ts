@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { createMotor, type ForceSession, type Handle } from "../../../crates/graph-sdk-js/src/index.ts";
+import { assembleColumns, createMotor, type ForceSession, type Handle } from "../../../crates/graph-sdk-js/src/index.ts";
 import { decodeSnapshot } from "../../graph-render/src/snapshot/decode.ts";
 import { DEFAULT_KNOBS, type ForceKnobs } from "../src/motor/live.ts";
 import { type Session, createSession } from "../src/motor/session.ts";
@@ -29,6 +29,7 @@ async function opened(made: ForceSession[]): Promise<Session> {
     },
     fetchText: () => Promise.reject(new Error("this test fetches nothing")),
     digest: () => Promise.resolve(null),
+    assemble: assembleColumns,
     now: () => 0,
   });
   await session.open("unused");
