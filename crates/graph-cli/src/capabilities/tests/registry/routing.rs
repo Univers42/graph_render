@@ -46,6 +46,9 @@ fn the_registry_covers_every_oracle_function_once_its_ids_are_unique() {
             // own and rides barnes_hut's stress record; `implemented`, never `gated`, for the
             // reason `unproven.rs` gives.
             || r.id == "layout.force.yifan_hu.2z"
+            // The 3D arm too: it is a real 3D force run, but it is still not sfdp and the
+            // stress record is still the 2-axis barnes_hut one, so it routes the same way.
+            || r.id == "layout.force.yifan_hu.3d"
             || r.id == "layout.forceatlas2.forcesim"
         {
             ("stress", r.id, Status::Implemented)

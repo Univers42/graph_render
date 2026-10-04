@@ -87,6 +87,11 @@ pub(super) fn force_record(id: &str) -> Option<(&'static str, Status)> {
         // to point at and none is claimed — the 2D yifan_hu row above says the same about
         // itself. The stress record is barnes_hut's, so `implemented` only.
         "layout.force.yifan_hu.2z" => Some(("stress", Status::Implemented)),
+        // The 3D arm, on the same record and for the same reason: it is not sfdp, no sfdp
+        // output was compared, and the stress metric is a 2-axis one. `implemented`, never
+        // `gated` — the arm's own evidence is its unit rows, and a `gated` row here could
+        // only read back "no record: run the gate".
+        "layout.force.yifan_hu.3d" => Some(("stress", Status::Implemented)),
         // `stress`, and **not** `oracle-fa2`, because that record is a differential against
         // networkx's own `forceatlas2_layout` — which is this layout's *sibling*
         // (`layout.forceatlas2`), not this layout. This layout's own oracle is the
