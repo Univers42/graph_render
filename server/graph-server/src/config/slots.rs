@@ -11,11 +11,15 @@
 /// explicit `GRAPH_WORKERS` overrides it.
 pub const PER_SLOT_BYTES: u64 = 4_635_677_069;
 
-/// The server's idle footprint, kept out of the slots.
-/// Caveat: 0, not measured: the idle RSS is a few MiB against a 4.3 GiB slot, so the error only
-/// bites when memory.max sits within that much of a whole number of slots, where it grants one
-/// slot too many.
-pub const BASE_BYTES: u64 = 0;
+/// The server's idle footprint, kept out of the slots: 11 MiB, the largest of three readings of
+/// the image's `memory.current` taken right after `listening` (11,534,336 / 10,940,416 /
+/// 8,011,776 B, `docs/measurements/service-caps.md` "Base").
+/// Caveat: one sample's high-water mark, and idle. The three readings of a server with no request
+/// in flight differ by 3.5 MiB, `memory.current` counts page cache and socket buffers the process
+/// never held as RSS, and nothing here says what a busy slot's allocator arenas add on top — which
+/// is what [`PER_SLOT_BYTES`] carries instead. Understating it grants one slot too many when
+/// `memory.max` sits within it of a whole number of slots.
+pub const BASE_BYTES: u64 = 11_534_336;
 
 /// Where cgroup v2 publishes the container's memory ceiling.
 const CGROUP_MEMORY_MAX: &str = "/sys/fs/cgroup/memory.max";
