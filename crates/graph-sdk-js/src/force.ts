@@ -22,8 +22,8 @@
 // cannot affect.
 
 import { toU32 } from "./wasm.ts";
-import { ForceSessionRefusedError, InvalidSessionError } from "./errors.ts";
-import { frame, type Loaded } from "./calls.ts";
+import { ForceSessionRefusedError, InvalidHandleError, InvalidSessionError } from "./errors.ts";
+import { INVALID_HANDLE_CODE, frame, type Loaded } from "./calls.ts";
 import { ForceColumns } from "./force-columns.ts";
 import { SessionCalls } from "./force-calls.ts";
 import { PARAMS_BYTES, asU32, decodeParams, mergeParams, withStagedParams } from "./force-params.ts";
