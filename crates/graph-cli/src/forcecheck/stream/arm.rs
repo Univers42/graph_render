@@ -5,11 +5,14 @@
 //! module that reads as one gate.
 
 use super::super::TICKS;
-use super::{FIXTURES, batch_count, first_divergence, fixture_path, stream_script};
+use super::{FIXTURES, ROUTE_ENV, batch_count, first_divergence, fixture_path, stream_script};
 use crate::hashgate::compare::Arm;
 use crate::runner::run_lines;
 use std::path::Path;
 use std::process::Command;
+
+/// The hidden subcommand each native arm of this stage runs.
+const ARM: &str = "force-gate-stream-arm";
 
 /// Both stages' arms, and the stream stage's verdict on them.
 ///
@@ -38,17 +41,21 @@ pub struct StreamReport {
     pub refusal: Option<String>,
 }
 
-/// Runs the stream stage's four arms and compares them.
+/// Runs the stream stage's arms and compares them.
 ///
-/// Native ×2 and wasm32 ×2, each arm its own process — the same four as the seed stage and
-/// for the same reason: run-to-run equality is half of what D7 claims, and one run per target
-/// would compare the two targets while saying nothing about reproducibility within one.
+/// Native ×3 and wasm32 ×2, each arm its own process — the same four as the seed stage plus
+/// one: run-to-run equality is half of what D7 claims, and the third native arm is the
+/// columns path, which must print the digests the JSON arms print (`forcecheck/stream/tests.rs`
+/// asserts that directly). One run per target would compare the two targets while saying
+/// nothing about reproducibility within one.
 pub fn collect(exe: &Path, wasm: &Path) -> Result<Collected, String> {
-    let native = || run_lines(Command::new(exe).arg("force-gate-stream-arm"));
+    let native = || run_lines(Command::new(exe).arg(ARM));
+    let columns = || run_lines(Command::new(exe).arg(ARM).env(ROUTE_ENV, "columns"));
     let wasm32 = || run_lines(wasm_arm(wasm).args(arguments()));
     let stream = vec![
         ("native run 1", native()?),
         ("native run 2", native()?),
+        ("native columns", columns()?),
         ("wasm32 run 1", wasm32()?),
         ("wasm32 run 2", wasm32()?),
     ];

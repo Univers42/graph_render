@@ -1,9 +1,12 @@
 use super::*;
 use crate::columns::NodeKind;
+use crate::index::extend::columns::BatchRefusal;
 use crate::index::{empty_model, index_model};
 use crate::records::build::{edge, node};
 use crate::rng::Mt19937;
 use crate::stage::topology_bytes;
+
+mod columns;
 
 type Batch = (Vec<NodeRecord>, Vec<EdgeRecord>);
 
@@ -158,6 +161,26 @@ fn extend_refusal_leaves_topology_unchanged() {
         assert_eq!(t.extend(&nodes, &edges), Err(refusal), "{name}");
         assert_eq!(bytes(&t), bytes(&base), "{name}: the bytes");
         assert_eq!(t.strings().len(), base.strings().len(), "{name}: the arena");
+        // The same batch through the columnar path: the same refusal, the same untouched
+        // topology, and the next valid batch still lands on the rebuild — so the refused
+        // rows claimed no id and no arena slot on either path.
+        let mut columns = base.clone();
+        let doc = columns::Doc::of(&nodes, &edges);
+        assert_eq!(
+            doc.append(&mut columns),
+            Err(BatchRefusal::Extend(refusal)),
+            "{name}: the columns path"
+        );
+        assert_eq!(bytes(&columns), bytes(&base), "{name}: the columns bytes");
+        assert_eq!(
+            columns.strings().len(),
+            base.strings().len(),
+            "{name}: the columns arena"
+        );
+        columns::Doc::of(&next.0, &next.1)
+            .append(&mut columns)
+            .expect("the next valid batch, in columns");
+        assert_matches_rebuild(&columns, &[first.clone(), next.clone()], name);
         t.extend(&next.0, &next.1).expect("the next valid batch");
         assert_matches_rebuild(&t, &[first.clone(), next.clone()], name);
     }
