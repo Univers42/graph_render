@@ -285,8 +285,8 @@ why no rank or order test could tell them apart — but only the seven-edge grap
 | 0 to 8 | two characters | 5 of 9 |
 | 9 to 19 | three characters | 0 of 11 |
 
-`dot/position_tests.rs` pins all twenty of the oracle's printed rows and asserts the measured
-count, naming every disagreeing seed. The two causes are separated by that split, and each is
+`dot/position_fixture_points.rs` holds all twenty of the oracle's printed rows and
+`dot/position_tests.rs` asserts the measured count, naming every disagreeing seed. The two causes are separated by that split, and each is
 pinned as its own test:
 
 **Cause 1, seeds 9 to 19, all eleven: the width table is the default box below four
@@ -384,8 +384,10 @@ accounted for by the two causes above, neither of which is an algorithmic differ
   and `make_edge_pairs`' weighted pair per input edge), **a second run of the same simplex with
   `LR_balance`**, `set_xcoords` with `remove_aux_edges`, and the frame. Each step is described
   in the port's own words above it, and every omission is named where it is dropped.
-- `position_tests.rs` (the six closed cases and the twenty fixture seeds, byte for byte at the
-  printed precision, with both disagreement causes isolated), `position_steps.rs` (one closed
+- `position_tests.rs` (the six closed cases, byte for byte at the printed precision and again in
+  points), `position_fixture_points.rs` (the twenty fixture seeds' printed rows, and the count
+  the pass agrees on), `position_findings.rs` (both measured causes of the disagreements, each
+  with its seeds), `position_steps.rs` (one closed
   case per step), `rank_tests.rs` (the six closed cases and twenty fixture seeds),
   `order_tests.rs` (the same twenty, ordered), `mincross_tests.rs` (one closed case per step),
   `class2_tests.rs` (each of `class2`'s three outcomes), `oracle_crossings.rs` (the one
