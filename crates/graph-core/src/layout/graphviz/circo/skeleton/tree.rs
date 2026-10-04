@@ -100,7 +100,16 @@ pub(super) fn longest_path(tree: &Tree) -> Vec<u32> {
         let mut second = Vec::new();
         climb(leaves.runner_up(common), common, tree, &mut second);
         second.reverse();
-        path.extend(second);
+        // The two walks can share the stretch between `common` and the node their leaves diverge
+        // below, and the reference's own output then names that node twice — `circo -Tplain` on
+        // the chorded 8-cycle of `tests/path.rs` is a nine-slot circle on eight nodes, with one
+        // slot empty. Naming a node once is the laziest way back to a permutation, and the first
+        // mention is the one kept, so the shared stretch is the part that drops out.
+        let fresh: Vec<u32> = second
+            .into_iter()
+            .filter(|node| !path.contains(node))
+            .collect();
+        path.extend(fresh);
     }
     path
 }
