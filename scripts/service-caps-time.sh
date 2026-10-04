@@ -224,12 +224,14 @@ while IFS=$'\t' read -r id cap_n cap_m; do
   ask "$layout" "$post_id" studio "$body"
   read -r seen_n seen_m <<<"$(logged_size)"
   log "$id: $status ${ms}ms n=$seen_n m=$seen_m ${reduced:-at cap}"
-  if [[ $status == 200 && $ms -lt $mark ]]; then
-    say "PASS $id $status $ms $cap_n $cap_m $layout $post_id $seen_n $seen_m studio ${reduced:--}"
-  else
-    say "FAIL $id $status $ms $cap_n $cap_m $layout $post_id $seen_n $seen_m studio ${reduced:--}"
+  verdict=PASS
+  if [[ $status != 200 || $ms -ge $mark ]]; then
+    verdict=FAIL
     fails=$((fails + 1))
   fi
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$verdict" "$id" "$status" "$ms" "$cap_n" "$cap_m" "$layout" "$post_id" \
+    "$seen_n" "$seen_m" studio "${reduced:--}" >>"$report"
 done <"$tsv"
 
 load_end=$(cut -d' ' -f1 /proc/loadavg)
