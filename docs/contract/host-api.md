@@ -80,10 +80,12 @@ worker or a backend.
 `app/src/embed.ts` is the host page the gate drives, and it streams: its Replay button reads
 `fixtures/embed/replay.jsonl` and hands each line to `applyDeltas` one batch at a time, awaiting
 every answer before the next call, because the verb is atomic per call and is not coalesced across
-calls (condition 8). A refused line pushes the motor's error `name` and the replay goes on; the page
-keeps the outcome on `window.__embed.replay` and the gate reads it there. Rows
-`embed-replay-applied`, `embed-replay-refused` and `embed-replay-drawn` (`deploy/nav/embedreplay.py`);
-`break-replay` serves the file a line short and both of the others must FAIL.
+calls (condition 8). A refused line pushes the motor's error `name` — `ColumnsRefusedError`, because
+the studio extends through `extendColumns` where the motor has it (`docs/contract/delta.md:206`) —
+and the replay goes on; the page keeps the outcome on `window.__embed.replay` and the gate reads it
+there. Rows `embed-replay-applied`, `embed-replay-refused` and `embed-replay-drawn`
+(`deploy/nav/embedreplay.py`); `break-replay` serves the file a line short and both of the others
+must FAIL.
 
 ## Gates
 
