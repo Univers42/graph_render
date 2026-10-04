@@ -80,6 +80,8 @@ pub(super) struct BlockGraph {
     /// `EDGEORDER`, zero = unset. **Only the reference's own walk still writes it**, which
     /// is now a `#[cfg(test)]` function kept as the oracle for [`crate::layout::graphviz::circo::crossings::Counter`];
     /// the sweep that replaced it needs no scratch on the graph at all, so this is gated with it.
+    /// One `i32` per edge, not two: the reference's two `Agedge_t` per undirected edge share one
+    /// attribute record, so both images read and write the same `EDGEORDER` here too.
     #[cfg(test)]
     order: Vec<i32>,
 }

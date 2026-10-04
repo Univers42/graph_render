@@ -11,14 +11,21 @@
 //! 3. The angular placement — node `k` of `n` sits at `k * 2*PI / n` on a circle of radius
 //!    `n * (min_dist + largest_node) / 2*PI`.
 //!
-//! **The crossing count is order-free, which is what makes this reproducible**, and it is not
-//! what this file computes: [`crossings`](super::crossings) holds the count, now a Fenwick sweep over the
-//! positions rather than the reference's quadratic walk, and this file only asks for it. The
-//! reference holds the open edges in a `Dtoset` keyed on the edge *pointer* (`edgelist.c:27-37`),
-//! so it walks them in address order — but it only ever asks whether an open edge's `EDGEORDER`
-//! is greater than the current edge's and whether it touches the current node. Both questions
-//! have the same answer whichever open edge is examined first, so the count is a function of the
-//! node order alone and the sweep can take it without an order of its own.
+//! **The crossing count is a function of the node order alone**, and it is not what this file
+//! computes: [`crossings`](super::crossings) holds the count, a Fenwick sweep over the positions
+//! rather than the reference's quadratic walk, and this file only asks for it. The reference holds
+//! the open edges in a `Dtoset` keyed on the edge *pointer* (`edgelist.c:25-40`), so it walks
+//! them in address order — but it only ever asks whether an edge's `EDGEORDER` is greater than the
+//! current edge's and whether it touches the current node, and both questions have the same
+//! answer whichever edge is examined first. So the count is a function of the node order alone,
+//! and the sweep can take it without an order of its own.
+//!
+//! **What that count is, is not the number of interleaved chords.** The reference's `remove_edge`
+//! never matches — the set is keyed on the `Agedge_t *` of one image of an undirected edge and
+//! the walk closes with the other — so nothing is ever retired and a position counts every edge
+//! opened after its own, not only those still open. `circo/crossings.rs` says what that is and
+//! `docs/measurements/p13-gv1-circo.md` §8 has the measurement; the consequence here is that
+//! step 2 is not a no-op on most blocks, which is what it used to be.
 
 use super::NODE_SIZE_INCH;
 use super::crossings::Counter;

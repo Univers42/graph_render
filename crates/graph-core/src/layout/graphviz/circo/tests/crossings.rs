@@ -114,13 +114,24 @@ fn the_sweep_agrees_with_the_walk_on_two_thousand_random_blocks() {
     );
 }
 
-/// `K4` in the order `n0, n1, n2, n3`: six chords, of which `n0 n1`, `n0 n3` and `n2 n3` run
-/// along the circle's own rim and `n1 n2` sits inside them, so the only pair whose four
-/// endpoints interleave is `n0 n2` with `n1 n3` — one crossing.
+/// `K4` in the order `n0, n1, n2, n3`: six chords, and **two** crossings by the walk's own rule.
+///
+/// `n0` opens `n0 n1`, `n0 n2` and `n0 n3` at 1; `n1` opens `n1 n2` and `n1 n3` at 2 and closes
+/// `n0 n1` with nothing opened after it — 0; `n2` closes `n0 n2` against the two edges opened at
+/// 2, of which `n1 n2` shares `n2` and the node test drops, leaving `n1 n3` for **1**, and opens
+/// `n2 n3` at 3; `n3` then closes its whole row — `n0 n3` (1), `n1 n3` (2), `n2 n3` (3). Only
+/// `n1 n2` was opened after `n0 n3` and it touches no node of `n3`, so **1** more, and the two
+/// later stamps have nothing after them. **2**.
+///
+/// This was **1** while the port's counter retired each edge as it closed: that gave the
+/// interleaving count, where `n0 n2` against `n1 n3` is the only interleaving pair. The walk does
+/// not retire, so `n1 n3` also counts against `n0 n2` at `n2` even though they share nothing, and
+/// again against `n0 n3` at `n3`. See the module doc of
+/// [`crate::layout::graphviz::circo::crossings`].
 #[test]
-fn a_complete_four_in_its_own_order_crosses_exactly_once() {
+fn a_complete_four_in_its_own_order_crosses_twice() {
     let edges = [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)];
-    assert_eq!(both_ways(4, &edges, &[0, 1, 2, 3]), (1, 1));
+    assert_eq!(both_ways(4, &edges, &[0, 1, 2, 3]), (2, 2));
 }
 
 /// A triangle: `n0 n1`, `n1 n2` and `n0 n2`. Every pair of the three chords shares a node, and a
@@ -145,19 +156,18 @@ fn two_parallel_chords_cross_nothing() {
 /// position at a time:
 ///
 /// - `n0` opens `n0 n1` and `n0 n2` at 1, so nothing closes — 0.
-/// - `n1` closes `n0 n1`, and `n0 n2` opened at the same position 1, so not after it — 0. `n1 n3`
-///   opens at 2.
-/// - **`n0` again.** Both its chords were closed at positions 1 and 1, and the walk closes and
-///   counts them a *second* time. `n1 n3` is open, opened at 2 which is after 1, and it touches
-///   neither `n1 n2`... it touches `n1`, not `n0`, so the node test cannot see the shared node:
-///   each of the two chords counts it, **2**. `n0 n2` then leaves the open set; `n1 n3` stays.
+/// - `n1` closes `n0 n1` (1), and `n0 n2` opened at the same position 1, so not after it — 0.
+///   `n1 n3` opens at 2.
+/// - **`n0` again.** Both its chords were closed already, and the walk closes and counts them a
+///   *second* time. `n1 n3` is in the set, opened at 2 which is after 1, and it shares `n1` with
+///   nothing here, so the node test cannot see the repeat: each of the two chords counts it,
+///   **2**.
 /// - `n2` closes `n0 n2` again and counts `n1 n3`, opened later — **1**.
-/// - `n3` closes `n1 n3`, which is all that is left and has nothing after it — 0.
+/// - `n3` closes `n1 n3`, which has nothing after it — 0.
 ///
-/// So **3**, and the two of the three that come from the repeat are the number the port has
-/// always produced for such a block. The sweep reproduces them rather than correcting them, which
-/// is why this is a closed case and not a comment: it is the difference between the new count and
-/// the old one on the input that actually occurs.
+/// So **3**, and two of the three come from the repeat. The number is unchanged by the never-retire
+/// rule — nothing here retires either way — which is why it is here: it pins the repeat behaviour
+/// that the rule must not break.
 #[test]
 fn a_node_carried_twice_is_counted_a_second_time() {
     let edges = [(0, 1), (0, 2), (1, 3)];

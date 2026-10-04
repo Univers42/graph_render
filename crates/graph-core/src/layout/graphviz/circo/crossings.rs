@@ -59,6 +59,9 @@ pub(super) struct Counter {
     bit: Vec<u32>,
     /// How many edges the tree holds, which is how many the walk's set holds.
     live: u32,
+    /// Scratch: one position per edge of the row being walked, sorted, so the node test is a
+    /// pair of binary searches instead of a scan of the row per edge of the row.
+    stamps: Vec<u32>,
 }
 
 impl Counter {
@@ -135,16 +138,26 @@ impl Counter {
     }
 
     /// What one position contributes: the walk's closing half. Every edge of this node's row that
-    /// opened at an earlier position is closed here and asks how many edges the set holds that
-    /// opened after it and before here. An edge that opened at an earlier position and was
-    /// closed earlier is asked again, which is a node carried twice, and the walk counts that
-    /// again too.
+    /// opened at an earlier position is closed here, and for each the walk counts the set's edges
+    /// opened after it and before here, less those that touch `node` — its own node test, which
+    /// the sweep used to get for free by retiring edges and can no longer get that way.
+    ///
+    /// An edge of the row opened at an earlier position and closed earlier is asked again, which
+    /// is a node carried twice, and the walk counts that again too.
     fn ask(&mut self, block: &BlockGraph, node: u32, here: u32) -> u32 {
+        self.stamps.clear();
+        self.stamps
+            .extend(block.row(node).iter().map(|&e| self.opens[e as usize]));
+        self.stamps.sort_unstable();
+        let opened_here = self.stamps.partition_point(|&at| at < here) as u32;
         let mut crossings = 0;
         for &edge in block.row(node) {
             let opens = self.opens[edge as usize];
             if opens < here {
-                crossings += self.suffix(opens);
+                // The suffix less the row's own edges in `(opens, here)`, which share this node.
+                let touching = opened_here
+                    - self.stamps.partition_point(|&at| at <= opens) as u32;
+                crossings += self.suffix(opens) - touching;
             }
         }
         crossings
