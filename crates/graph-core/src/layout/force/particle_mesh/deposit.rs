@@ -65,6 +65,16 @@ impl Rows {
         }
     }
 
+    /// Room for `n` slots over a mesh `side` cells wide, reusing what a same-side mesh
+    /// already holds: [`sort`] counts every start from zero and writes every slot it
+    /// scatters, so a longer mesh needs the room and none of the contents.
+    pub(super) fn grow(&mut self, side: usize, n: u32) {
+        if self.starts.len() != side + 1 {
+            self.starts.resize(side + 1, 0);
+        }
+        self.slots.resize(n as usize, 0);
+    }
+
     /// Regroups the slots of `at` by the row of their lower-left cell in `frame`; a
     /// non-finite slot is in no row.
     pub(super) fn sort(&mut self, at: &[Scaled], frame: &Frame) {
