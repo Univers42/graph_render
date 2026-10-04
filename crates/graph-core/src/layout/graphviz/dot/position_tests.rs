@@ -113,7 +113,7 @@ fn the_six_closed_cases_are_placed_as_the_oracle_places_them() {
     for (name, edges, want_x, want_y) in CLOSED {
         let count = case_nodes(name);
         let got = centres(&positioned(count, edges));
-        assert_eq!(inch_columns(&got), (want_x, want_y), "{name}");
+        assert_eq!(inch_columns(&got), (want_x.to_string(), want_y.to_string()), "{name}");
     }
 }
 
@@ -265,7 +265,11 @@ fn the_first_twenty_fixture_seeds_are_placed_as_the_oracle_places_them() {
             .unwrap_or_else(|| panic!("seed {seed} has no printed table"));
         let count = nodes_of(edges);
         let got = centres(&positioned(count, edges));
-        assert_eq!(inch_columns(&got), (*want_x, *want_y), "seed {seed}");
+        assert_eq!(
+            inch_columns(&got),
+            (want_x.to_string(), want_y.to_string()),
+            "seed {seed}"
+        );
     }
 }
 
@@ -334,14 +338,14 @@ fn case_nodes(name: &str) -> u32 {
 /// The two inch strings the plain format would print for a drawing's centres: the x column and
 /// the y column, space separated, in node order.
 fn inch_columns(points: &[(f64, f64)]) -> (String, String) {
-    let column = |at: usize| {
+    let column = |pick: fn(&(f64, f64)) -> f64| {
         points
             .iter()
-            .map(|p| plain_g(p[at] / 72.0))
+            .map(|p| plain_g(pick(p) / 72.0))
             .collect::<Vec<_>>()
             .join(" ")
     };
-    (column(0), column(1))
+    (column(|p| p.0), column(|p| p.1))
 }
 
 /// This crate's copy of the plain format's number formatter: `%g` at five significant digits,
@@ -370,7 +374,7 @@ fn plain_g(inches: f64) -> String {
 /// this file would be weaker than it claims.
 #[test]
 fn the_comparison_is_not_coarser_than_the_oracles_printing() {
-    let (_, edges, want_x, want_y) = CLOSED[0];
+    let (_, edges, want_x, _) = CLOSED[0];
     let got = centres(&positioned(1, edges));
     assert_eq!(plain_g(got[0].0 / 72.0), want_x);
     assert_ne!(finer(got[0].0 / 72.0, 6), want_x, "six decimals is a finer grid");
@@ -388,3 +392,32 @@ fn a_graph_is_named_n0_to_n_count_minus_one() {
     let ids = fixture_ids(3);
     assert_eq!(ids, vec!["n0", "n1", "n2"]);
 }
+
+    #[test]
+    fn dbg_two() {
+        use super::position::{Rows, aux, xcoords, ycoords};
+        let ids = fixture_ids(2);
+        let b: Vec<&str> = ids.iter().map(String::as_str).collect();
+        let mut g = super::build(&b, &[(0, 1)]);
+        super::rank::rank(&mut g).unwrap();
+        super::mincross::run(&mut g);
+        let rows = Rows::of(&g);
+        ycoords::run(&mut g, &rows);
+        let aux = aux::build(&mut g, &rows);
+        for n in 0..g.nodes.len() {
+            println!("after aux: node {n} rank={}", g.nodes[n].rank);
+        }
+        let nlist = aux.node_list();
+        println!("nlist = {nlist:?}");
+        for (i, e) in g.edges.iter().enumerate() {
+            println!("  e{i}: {}->{} ml={} w={} live={}", e.tail, e.head, e.minlen, e.weight, e.live);
+        }
+        super::simplex::rank2(&mut g, &nlist, &super::simplex::Params::left_right()).unwrap();
+        for n in 0..g.nodes.len() {
+            println!("after sim: node {n} rank={}", g.nodes[n].rank);
+        }
+        xcoords::run(&mut g, &rows);
+        for n in 0..g.nodes.len() {
+            println!("after x: node {n} rank={} coord.x={}", g.nodes[n].rank, g.nodes[n].coord.x);
+        }
+    }

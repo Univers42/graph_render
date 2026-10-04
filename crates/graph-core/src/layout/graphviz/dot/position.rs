@@ -50,7 +50,8 @@ pub mod ycoords;
 
 use super::fast::Fast;
 use super::simplex::{self, Error, Params};
-use rows::Rows;
+
+pub use rows::Rows;
 
 /// Run the whole position pass over a graph that has been through [`rank`](super::rank) and
 /// [`mincross`](super::mincross).
