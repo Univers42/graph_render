@@ -77,15 +77,14 @@ fn node_counts_match_the_shape_each_fixture_claims() {
     for (name, counts) in expected {
         let documents = lines_of(name);
         assert_eq!(documents.len(), counts.len(), "{name}: line count");
-        let got: Vec<usize> = documents.iter().map(|d| nodes_in(d)).collect();
-        let running: Vec<usize> = counts
+        let got: Vec<usize> = documents
             .iter()
-            .scan(0usize, |total, want| {
-                *total = *total + want;
+            .scan(0usize, |total, d| {
+                *total += nodes_in(d);
                 Some(*total)
             })
             .collect();
-        assert_eq!(got, running, "{name}: nodes per line");
+        assert_eq!(got, *counts, "{name}: nodes after each line");
     }
 }
 
@@ -107,7 +106,8 @@ fn the_hub_fixture_carries_parallel_edges_and_exactly_one_self_loop() {
             );
             if pair.0 == pair.1 {
                 loops += 1;
-                assert_eq!(batch, 3, "the self-loop belongs to batch 3");
+                // `batch` is a line index; line 0 is the initial graph, so batch 3 is line 4.
+                assert_eq!(batch, 4, "the self-loop belongs to batch 3");
             }
             pairs.push(pair);
         }
@@ -176,6 +176,9 @@ fn no_batch_edge_names_a_node_that_does_not_exist_yet() {
         for document in &documents {
             let value: serde_json::Value = serde_json::from_str(document).expect("JSON");
             let mut arriving: Vec<String> = Vec::new();
+            for node in value["nodes"].as_array().expect("nodes") {
+                arriving.push(node["id"].as_str().expect("id").to_owned());
+            }
             for edge in value["edges"].as_array().expect("edges") {
                 for end in ["source", "target"] {
                     let id = edge[end].as_str().expect("endpoint").to_owned();
@@ -184,9 +187,6 @@ fn no_batch_edge_names_a_node_that_does_not_exist_yet() {
                         "{name}: {end} {id} names no node"
                     );
                 }
-            }
-            for node in value["nodes"].as_array().expect("nodes") {
-                arriving.push(node["id"].as_str().expect("id").to_owned());
             }
             known.extend(arriving);
         }

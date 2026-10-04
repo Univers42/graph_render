@@ -71,7 +71,14 @@ fn main() -> ExitCode {
             })
         }
         Command::EmitStreamFixtures { out } => {
-            stream_fixtures::run(&out.unwrap_or_else(stream_fixtures::default_out))
+            let out = out.unwrap_or_else(stream_fixtures::default_out);
+            match stream_fixtures::run(&out) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(err) => {
+                    eprintln!("emit-stream-fixtures: {err}");
+                    ExitCode::from(2)
+                }
+            }
         }
         Command::EmitFixtures { seeds, out } => {
             oracle_fixtures::run(seeds, &out.unwrap_or_else(oracle_fixtures::default_out))

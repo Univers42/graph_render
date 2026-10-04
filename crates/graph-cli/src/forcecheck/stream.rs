@@ -98,10 +98,18 @@ pub fn arm_lines(setting: &Setting) -> Result<String, String> {
 
 /// One fixture's lines: batch 0 from the initial graph, then one per batch after it.
 ///
-/// The control is read once, here, and it decides only whether this batch is *applied*. A
-/// dropped batch still ticks and still prints, which is what keeps the arms' line counts
-/// equal: a stage that printed fewer lines under a control would be refused as an
-/// incomparable arm rather than reported as a divergence.
+/// The control decides only whether a batch is *applied*. A dropped batch still ticks and
+/// still prints, which is what keeps the arms' line counts equal: a stage that printed fewer
+/// lines under a control would be refused as an incomparable arm rather than reported as a
+/// divergence.
+///
+/// **A dropped batch takes the ones after it with it.** `Topology::extend` refuses an edge
+/// whose endpoint names no node, and batch `b + 1` names the nodes batch `b` brought, so a
+/// native arm that skipped only batch `k` would exit 2 on batch `k + 1` — a refusal, not a
+/// divergence, and the gate's answer to the control would be "could not run". So once the
+/// arm is behind it stays behind: every later batch is skipped too, the session keeps
+/// stepping and the gate reports the batch where the arms first differed, which is the one
+/// the control named. The wasm arm, which reads no environment variable, keeps every batch.
 fn fixture_lines(setting: &Setting, name: &str) -> Result<String, String> {
     let docs = documents(name)?;
     let mut topology = service::build(&docs[0], Source::Ingest)
@@ -110,8 +118,10 @@ fn fixture_lines(setting: &Setting, name: &str) -> Result<String, String> {
         .map_err(|e| format!("{name} line 0: the force session refused the graph: {e}"))?;
     session.step(TICKS);
     let mut out = line(name, 0, &super::native::columns(&session));
+    let mut behind = false;
     for (batch, doc) in docs.iter().enumerate().skip(1) {
-        if setting.drop_delta() != Some(batch as u32) {
+        behind = behind || setting.drop_delta() == Some(batch as u32);
+        if !behind {
             service::extend(&mut topology, doc)
                 .map_err(|code| format!("{name} batch {batch}: {}", code.name()))?;
             session

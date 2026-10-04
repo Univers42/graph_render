@@ -279,7 +279,7 @@ fn report(
     report::arm_report(&mut detail, &arms.seed, &lines);
     print!("{detail}");
     let tally = compare::per_stage(seeds, STAGES, &lines);
-    let ways = arms.len();
+    let ways = arms.seed.len();
     println!(
         "  {STAGE}: {ways}-way equal on {}/{} seeds",
         tally.equal[0], seeds

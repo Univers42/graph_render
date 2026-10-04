@@ -18,7 +18,7 @@ use super::{Knob, igraph, knobs, three_d};
 /// **A `const`, because `capabilities::verdict::Evidence::load` walks it** to collect one
 /// control record each — a ledger read cannot be a function call per row. `Knob::ALL` is
 /// this array, re-exported so the name every caller already used keeps working.
-pub const ALL: [Knob; 49] = [
+pub const ALL: [Knob; 50] = [
     Knob::ReferenceDegree,
     Knob::GridSpacing,
     Knob::SugiyamaLayerSpacing,
