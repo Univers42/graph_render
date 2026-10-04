@@ -44,7 +44,7 @@ In-repo harness, `lesmis` in **numeric** node order (`shape::lesmis`), the graph
 | develop `d73b3869` | 0.3338 / 10 | 0.3375 / 16 | 0.3387 / 40 |
 | port of `force-look`, defects a+b+c+e | 0.7246 / 0 | 0.6033 / 0 | 0.6219 / 0 |
 | **+ defect d, this branch** | **0.7077 / 0** | **0.5794 / 0** | **0.5542 / 0** |
-| Graphviz 16.1.0, same arm as the table above | 0.414 (reference arm, byte order) | — | — |
+| Graphviz 16.1.0's own answer (conformance arm, **byte** order — not this table's node order) | 0.4137 | — | — |
 
 The job's own probe reported develop at 0.0047 for seed 1 and 0.006 for the row seed. Those are
 the byte-order numbers; develop's numeric-order drawing is 0.334, not 0.0047. **The collapse is
@@ -220,6 +220,21 @@ the 0.15 the done-when allows, and the step that would close it is named above.
 This is the single largest known disagreement with the oracle after the coarsening permutation
 stream, and it is stated in `sfdp.rs`'s module doc rather than left for the next reader.
 
+## Gaps: none closed, and why that is correct
+
+`GRAPHVIZ_SFDP` carries exactly one convention gap, `G_GV_UTILS` (`conformance/gaps.rs:69`):
+SciGraphs' Graphviz path is `scigraphs_utils.graphviz_layout`, a C++ extension whose source is not
+on disk, so this arm runs the engine itself through `gv_exact` and transcribes the five lines the
+extension would have applied. **That gap is untouched by this repair and still true** — nothing
+here touched the reference arm, and the extension's source is still inference rather than a file.
+So `conformance/rows.rs` and `conformance/gaps.rs` are unchanged, and a gap left behind after a
+fix would have been the false record.
+
+The collapse was never recorded as a gap, and should not have been: a `Gap` is a parameter
+`apply_graph_layout` passes that the motor has no slot for, and "the port's step control is wrong"
+is not that. It was a bug in a port, found by measurement, and the row's own tier could not see
+it — which is the finding this job exists to record.
+
 ## Commands
 
 | command | exit |
@@ -228,9 +243,33 @@ stream, and it is stated in `sfdp.rs`'s module doc rather than left for the next
 | `scripts/scigraphs-conformance.sh` (untouched tree) | 0 |
 | `scripts/orch/gr cargo test -p graph-core --lib sfdp` (develop, RED) | 101 (4 failed) |
 | `scripts/orch/gr cargo test -p graph-core --lib sfdp` (this branch) | 0 |
+| `scripts/orch/gr cargo build -p graph-core --target wasm32-unknown-unknown` | 0 |
+| `scripts/orch/gr cargo run -q -p graph-cli -- hashgate --seeds 8` | 0 (`layout.force.sfdp: 4-way equal on 8/8 seeds`) |
+| `scripts/orch/gr cargo fmt --all --check` | 0 |
 | `scripts/orch/gr cargo clippy --workspace --all-targets -- -D warnings` | 0 |
 | `scripts/orch/gr cargo run -q -p graph-cli -- oracle-graphviz --engine sfdp` | 0 |
 | `scripts/scigraphs-conformance.sh` (re-pinned) | 0 |
+| `scripts/orch/gate.sh target/gate-job target/wf/sg-sfdp-collapse.rows` | see `target/gate-job/summary.txt` |
 
-Full gate: `scripts/orch/gate.sh target/gate-job target/wf/sg-sfdp-collapse.rows` — see
-`target/gate-job/summary.txt`.
+`hashgate --seeds 8` reporting `layout.force.sfdp: 4-way equal on 8/8 seeds` is the D10 check for
+this job: two native and two wasm32 arms agree bit for bit, which is what
+`docs/decisions/sfdp-gather-form.md` claims and the only reason that claim is checkable.
+
+### One measurement was voided by its own tree, and is worth writing down
+
+The first full gate run failed its `test` row, every failure of one kind:
+
+```
+graph-cli was built from tree 04611be1cfbc… but the tree is now 61680ef0a497…: rebuild before recording
+```
+
+Three different tree fingerprints appear in that log. Nothing in the port was broken: the
+fingerprint is a SHA-256 over `crates/`, `harness/`, `docker/`, `Cargo.*`, `.cargo`, `fixtures/`
+and the five gate wrappers (`crates/graph-cli/src/fingerprint.rs:59`), and the `test` row was
+compiling and running while `sfdp/contract.rs` and `sfdp/tests.rs` were edited under it — doc
+comments only, but inside the hashed set. A rebuild on the final tree is green.
+
+The generalisable half: **a `graph-cli` test that shells out to `graph-cli` is a measurement of
+the binary, and a source edit mid-row invalidates every one of them at once.** A red `test` row
+whose failures all quote two tree hashes is that, not a regression — read the hashes before
+reading the assertions.
