@@ -30,11 +30,11 @@
 //!
 //! # Determinism (D1 to D10)
 //!
-//! `libm::sqrt` and arithmetic only — no `mul_add`, no `powi`, no relaxed SIMD. Every
-//! reduction runs over the buckets, which a counting sort fills in ascending dense node order,
-//! so the sum is fixed-order (D2, D4); nothing iterates a hash map. No clock, no RNG. `usize`
-//! never on the wire. The same input gives the same bits on every target, native and wasm32
-//! alike, which the hash gate checks four ways.
+//! `f32::sqrt` (correctly rounded on both targets) and arithmetic only — no `mul_add`, no `powi`,
+//! no relaxed SIMD. Every reduction runs over the buckets, which a counting sort fills in ascending
+//! dense node order, so the sum is fixed-order (D2, D4); nothing iterates a hash map. No clock, no
+//! RNG. `usize` never on the wire. The same input gives the same bits on every target, native and
+//! wasm32 alike, which the hash gate checks four ways.
 //!
 //! # The z column
 //!

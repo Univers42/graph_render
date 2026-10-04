@@ -162,7 +162,7 @@ bench-wasm-tick|0|scripts/orch/node-slim.sh bash -c 'npm ci --ignore-scripts >/d
 # negative control, `--self-test`: a checker that cannot go red proves nothing.
 # ---------------------------------------------------------------------------------------------
 hashgate-8-tiers-all|0|scripts/orch/gr cargo run -q -p graph-cli -- hashgate --seeds 8 --tiers all
-hashgate-1000-tiers-all|0|scripts/orch/gr cargo run -q -p graph-cli -- hashgate --seeds 1000 --tiers all
+hashgate-1000-tiers-all|0|scripts/orch/gr cargo run -q --release -p graph-cli -- hashgate --seeds 1000 --tiers all
 wasm-simd128|0|scripts/orch/gr bash -c 'RUSTFLAGS="-C target-feature=+simd128" cargo build -p graph-wasm --release --target wasm32-unknown-unknown'
 bench-tiers-threads|0|scripts/orch/gr cargo run -q -p graph-cli -- bench --n 220,10000,100000 --tiers scalar,threads --repeat 5
 forbidden-constructs|0|scripts/orch/gr bash scripts/forbidden-constructs.sh crates/graph-core/src
@@ -252,11 +252,12 @@ negctl-studio-smoke|nonzero|STUDIO_SMOKE_BREAK=1 scripts/studio-smoke.sh
 env-ignored|0|grep -qx '.env' .dockerignore
 
 # ---------------------------------------------------------------------------------------------
-# slow: the 1000-seed gate and the 10^5 / 10^6 arms. They time out on a host of this class
-# (docs/reports/phase-03.md:104 records hashgate-1000 at 3052 s; docs/reports/phase-09-progress.md:72
-# records the 10^6 campaign as not passing for the same reason), so they run last.
+# slow: the 1000-seed gate and the 10^5 / 10^6 arms, so they run last. The hashgate-1000 rows run
+# release: debug's first native arm hit CHILD_TIMEOUT 2700 s (gate-develop-178c); release arm output
+# is byte-identical and 10x faster. Caveat: release drops debug_assert!; the 8-seed rows keep them.
 # ---------------------------------------------------------------------------------------------
-hashgate-1000|0|scripts/orch/gr cargo run -q -p graph-cli -- hashgate --seeds 1000
+hashgate-1000|0|scripts/orch/gr cargo run -q --release -p graph-cli -- hashgate --seeds 1000
+negctl-hashgate-release|nonzero|scripts/orch/gr -e GM_MUTATE_REFERENCE_DEGREE=9 cargo run -q --release -p graph-cli -- hashgate --seeds 8
 stress-d3-1000|0|scripts/orch/gr cargo run -q -p graph-cli -- stress --oracle d3 --seeds 1000
 bench-force-1e5|0|scripts/orch/gr cargo run -q --release -p graph-cli -- bench --layout layout.force.barnes_hut --n 220,10000,100000
 bench-fa2-1e5|0|scripts/orch/gr cargo run -q --release -p graph-cli -- bench --layout layout.forceatlas2 --n 220,10000,100000
@@ -293,8 +294,7 @@ osage-oracle-1000|0|scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" 
 osage-check-1000|0|scripts/orch/gr cargo run -q -p graph-cli -- oracle-graphviz --engine osage
 osage-check-negctl|nonzero|scripts/orch/gr cargo run -q -p graph-cli -- oracle-graphviz --engine osage --dir target/osage-fixtures-absent
 
-# Last: `capabilities --check` reads the records every gate above writes for this tree
-# (hashgate, roundtrip, oracle-diff, oracle-spectral, oracle-osage). Run earlier, it reports
-# each one missing or stale (2026-10-04, gate-develop-bff2: 34 problems at row 46; gate-develop-178c:
-# `--ceilings-measured` at row 56 read the 8-seed hashgate record, 20 problems), so both flags run here.
+# Last: `capabilities --check --ceilings-measured` reads the records every gate above writes for
+# this tree (hashgate, roundtrip, oracle-diff, oracle-spectral, oracle-osage). Run earlier, it
+# reports them missing or stale (gate-develop-bff2: 34 problems at row 46; 178c: 20 at row 56).
 capabilities-check|0|scripts/orch/gr cargo run -q -p graph-cli -- capabilities --check --ceilings-measured

@@ -100,7 +100,7 @@ fn cholesky(a: &mut [f64], n: usize) -> Option<()> {
         if !diag.is_finite() || diag <= CHOL_MIN_PIVOT {
             return None;
         }
-        a[j * n + j] = libm::sqrt(diag);
+        a[j * n + j] = f64::sqrt(diag);
         for i in (j + 1)..n {
             let mut acc = a[i * n + j];
             for k in 0..j {

@@ -38,7 +38,7 @@ fn worst(geometry: &Geometry) -> f32 {
     for i in 0..x.len() {
         for j in i + 1..x.len() {
             let (dx, dy) = (x[i] - x[j], y[i] - y[j]);
-            worst = worst.max(2.0 * RADIUS - libm::sqrtf(dx * dx + dy * dy));
+            worst = worst.max(2.0 * RADIUS - f32::sqrt(dx * dx + dy * dy));
         }
     }
     worst
