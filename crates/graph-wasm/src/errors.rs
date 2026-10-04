@@ -1,7 +1,7 @@
 //! The ABI's error channel (`docs/contract/wasm-abi.md` "Errors", C4): `0` is the
 //! generic failure return for a handle or a pointer, and it is genuinely ambiguous —
 //! `gm_node_count` on a bad handle and on a freshly built empty graph both read `0`.
-//! [`gm_last_error`](crate::gm_last_error) resolves it: every fallible export sets this
+//! `gm_last_error` resolves it: every fallible export sets this
 //! thread-local to [`Code::None`] on success and to the specific reason on failure,
 //! last write wins, so the code always describes the most recent call.
 //!
@@ -105,17 +105,20 @@ pub enum Code {
     /// schema already gives, refused because the caller sent values that would be
     /// dropped. Never a silent "use the defaults".
     ParamsNotAccepted = 22,
-    /// `gm_build_columns`'s buffer failed `docs/contract/ingest-columns.md`: either the
-    /// decoder refused the document (a header word, the exact total size, the offset table,
-    /// the blob, or a value the contract forbids) or `graph_core::index_columns` refused
-    /// the graph it describes (a repeated node or edge id, which a row-addressed endpoint
-    /// cannot survive).
+    /// `gm_build_columns`'s or `gm_graph_extend_columns`'s buffer failed
+    /// `docs/contract/ingest-columns.md`: either the decoder refused the document (a header
+    /// word, the exact total size, the offset table, the blob, or a value the contract
+    /// forbids) or `graph_core` refused the graph it describes (a repeated node or edge id,
+    /// which a row-addressed endpoint cannot survive, and on the extend path an endpoint that
+    /// names no node).
     ///
-    /// **Not** `IngestInvalid`: that is the *provisional* JSON's code and `gm_build` keeps
-    /// it, for the same reason `ContractInvalid` exists. A caller that got this one handed
-    /// over bytes that are not a columnar document; one that got `IngestInvalid` handed
-    /// text that is not JSON or is JSON of the wrong shape. Collapsing them would send a
-    /// host looking for a bad member in a binary document.
+    /// **Not** `IngestInvalid`: that is the *provisional* JSON's code and `gm_build` and
+    /// `gm_graph_extend` keep it, for the same reason `ContractInvalid` exists. A caller that
+    /// got this one handed over bytes that are not a columnar document; one that got
+    /// `IngestInvalid` handed text that is not JSON or is JSON of the wrong shape. Collapsing
+    /// them would send a host looking for a bad member in a binary document. The cost of that
+    /// ruling is published: the two extend exports give different codes for the same logical
+    /// refusal (`docs/contract/delta.md`, "The wasm ABI: three exports").
     ColumnsInvalid = 23,
 }
 

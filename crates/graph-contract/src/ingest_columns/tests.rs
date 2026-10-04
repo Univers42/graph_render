@@ -1,5 +1,6 @@
 use super::*;
 
+mod batch;
 mod cells;
 mod encode;
 

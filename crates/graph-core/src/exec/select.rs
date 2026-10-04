@@ -104,7 +104,7 @@ pub enum Tier {
 pub enum Exec {
     /// Pick by threshold. The default, and the only value that can refuse nothing.
     Auto,
-    /// A named tier, or [`Exec::Threads`] for the host's own worker count.
+    /// A named tier, or [`Tier::Threads`] for the host's own worker count.
     Named(Tier),
 }
 

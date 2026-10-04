@@ -1,5 +1,5 @@
 //! The ingest contract's shape as Rust types, for `docs/contract/ingest-schema.json`.
-//! They describe; they do not read or write — [`super::read`] and [`super::to_json`]
+//! They describe; they do not read or write — [`super::read()`] and [`super::to_json`]
 //! do. The tests hold the two together: `write_then_read_gives_back_the_same_document`
 //! reads back what the writer writes, and the schema's own tests check the committed
 //! file against the contract's rules rather than against this file.
@@ -102,7 +102,7 @@ pub struct Field {
     pub id: String,
     /// What a `link` field points at; `null` for every other role. Required in the
     /// schema even though it is nullable, so "no link" is stated rather than omitted —
-    /// see [`required_link`], which is what puts it there.
+    /// see `required_link`, which is what puts it there.
     pub link: Option<Link>,
     /// Human name, for diagnostics only.
     pub name: String,

@@ -16,7 +16,7 @@
 //!
 //! ## Where the rule runs, and why there
 //!
-//! On `top`, the `k x dims_eff` block of Gram eigenvectors, **before** [`matrix::project`].
+//! On `top`, the `k x dims_eff` block of Gram eigenvectors, **before** [`matrix::project`](super::matrix::project).
 //! `project` is `C @ top`, linear in `top`'s columns, so canonicalising before it and
 //! projecting after is the same arithmetic as projecting first and canonicalising the
 //! `n_c`-dimensional result — and `k <= 100` against `n_c` unbounded is the difference between

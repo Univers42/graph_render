@@ -20,6 +20,11 @@ const DEFAULT_HINT = "Unexpected studio error — see the browser console for th
 
 const HINTS: ReadonlyMap<string, string> = new Map([
   ["BuildRefusedError", "The ingest document was refused. Check the JSON, or regenerate the synthetic graph."],
+  // The sibling of `BuildRefusedError` for the columnar path (`crates/graph-sdk-js/src/errors.ts`),
+  // whose ABI code is `ColumnsInvalid`: every one of its refusals is a document the contract lists
+  // at `docs/contract/ingest-columns.md:79-98`, and a repeated node id is the one the JSON path
+  // would have dropped for the host.
+  ["ColumnsRefusedError", "The columnar document was refused. A repeated node or edge id is an error here and not a merge, and every other refusal is listed at docs/contract/ingest-columns.md."],
   ["RunRefusedError", "The layout refused to run on this graph. Pick another layout, or load a graph it accepts."],
   ["PostRefusedError", "The edge pass refused: it needs a finished layout run on the same graph. The layout's own edges are shown instead."],
   ["AnalysisRefusedError", "The analysis refused this graph. It is a function of the topology: pick another analysis, or load the graph again."],

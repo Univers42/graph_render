@@ -26,8 +26,10 @@ use graph_core::{EdgeRecord, NodeRecord};
 use graph_core::{EdgeKind, NodeKind};
 
 mod at;
-// Only `gm_build_columns` reads it, and the exports are wasm32-only (C21 in `lib.rs`).
-#[cfg(any(test, target_arch = "wasm32"))]
+// Only `gm_build_columns` reads it, and the exports are wasm32-only (C21 in `lib.rs`) — but
+// `service::extend_columns` is the native façade's, and the force-gate's columns arm and
+// `tick --path columns` call that natively, so this module is ungated for the same reason
+// `contract` and `errors` are (C21 in `lib.rs`).
 pub mod columns;
 mod element;
 mod ids;
@@ -38,7 +40,6 @@ pub mod phases;
 mod refusal;
 mod scan;
 use at::At;
-use element::{edge, node};
 pub use ids::index;
 #[cfg(any(test, feature = "probe"))]
 use phases::mark;
@@ -47,8 +48,8 @@ pub use refusal::IngestError;
 /// The only ingest version this reader accepts.
 pub const VERSION: u32 = 1;
 
-/// The longest ingest document [`read`] accepts, in bytes: one past this is
-/// [`IngestError::TooLarge`], checked before [`read`] parses or `from_utf8` touches a byte.
+/// The longest ingest document `read` accepts, in bytes: one past this is
+/// [`IngestError::TooLarge`], checked before `read` parses or `from_utf8` touches a byte.
 ///
 /// Measured, then rounded down to a whole power of two (`docs/decisions/wasm-ingest-limits.md`
 /// step 4, `docs/measurements/fix-ingest-scale.md`): the studio's own generator on the
@@ -123,7 +124,7 @@ pub fn read(bytes: &[u8]) -> Result<(Vec<NodeRecord>, Vec<EdgeRecord>), IngestEr
     Ok((nodes, edges))
 }
 
-/// [`read`] without C12's id pass, for a caller that hands the records to [`index`], which
+/// `read` without C12's id pass, for a caller that hands the records to [`index`], which
 /// refuses the same documents.
 pub fn read_records(bytes: &[u8]) -> Result<(Vec<NodeRecord>, Vec<EdgeRecord>), IngestError> {
     if bytes.len() > ceiling() {
@@ -133,9 +134,9 @@ pub fn read_records(bytes: &[u8]) -> Result<(Vec<NodeRecord>, Vec<EdgeRecord>), 
         });
     }
     let text = std::str::from_utf8(bytes).map_err(|_| IngestError::Utf8)?;
-    // One validating walk of the whole text, and one locating walk for the root's members.
-    // No `Value` tree: that tree measured 3.2x the text at 1M nodes and is what stopped a
-    // document under 1 GiB from building inside wasm32's 4 GiB
+    // One validating walk of the whole text, which locates the root's members on the same
+    // pass. No `Value` tree: that tree measured 3.2x the text at 1M nodes and is what stopped
+    // a document under 1 GiB from building inside wasm32's 4 GiB
     // (`docs/measurements/fix-ingest-scale.md`).
     let document = scan::Document::new(text).map_err(IngestError::Json)?;
     #[cfg(any(test, feature = "probe"))]
@@ -158,8 +159,8 @@ pub fn read_records(bytes: &[u8]) -> Result<(Vec<NodeRecord>, Vec<EdgeRecord>), 
     require_only(document.members(), &["version", "nodes", "edges"])?;
     // Every node before any edge, exactly as the reader this replaced read them, and both
     // lists at the length the first walk counted — so neither `Vec` grows by doubling.
-    let nodes = read_all(&document, "nodes", node, At::list("nodes"))?;
-    let edges = read_all(&document, "edges", edge, At::list("edges"))?;
+    let nodes = read_all::<NodeRecord>(&document, "nodes", At::list("nodes"))?;
+    let edges = read_all::<EdgeRecord>(&document, "edges", At::list("edges"))?;
     #[cfg(any(test, feature = "probe"))]
     mark(phases::RECORDS, None);
     Ok((nodes, edges))
@@ -181,21 +182,23 @@ fn take_array<'a>(
     Ok(member)
 }
 
-/// Every element of the root member `key`, in order, through `one`, at the length the
-/// validating walk counted — so the `Vec` is allocated once and never grown.
-fn read_all<T>(
+/// Every element of the root member `key`, in order, at the length the validating walk
+/// counted — so the `Vec` is allocated once and never grown.
+///
+/// The walk locates each element's members as it reads them, so a record costs one pass
+/// over its own text and none over the document after it (`table::Element`).
+fn read_all<T: element::Shape>(
     document: &scan::Document<'_>,
     key: &str,
-    one: fn(&str, At) -> Result<T, IngestError>,
     at: At,
 ) -> Result<Vec<T>, IngestError> {
     let member = take_array(document, key, at)?;
     let mut out = Vec::with_capacity(member.elements.unwrap_or(0));
-    let mut index = 0usize;
     let mut scan = scan::Scan::new(document.text());
-    scan.elements(member.value, &mut |item| {
-        out.push(one(item, at.item(index))?);
-        index += 1;
+    let mut element = element::Element::new(document.text(), T::FIELDS, at);
+    scan.records(member.value, &mut element, &mut |element| {
+        let at = element.at();
+        out.push(T::read(element, at)?);
         Ok(())
     })?;
     Ok(out)

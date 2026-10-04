@@ -23,10 +23,10 @@
 //!
 //! # The algorithm
 //!
-//! One radius per node ([`radii`]), then up to [`SeparateParams::max_iterations`] Jacobi
+//! One radius per node (`radii`), then up to [`SeparateParams::max_iterations`] Jacobi
 //! sweeps over a uniform grid ([`sweep`]). The cell side is `2 · (largest radius + margin)`,
 //! which is what makes the 3 × 3 neighbourhood complete **by construction** rather than by
-//! search. See [`buckets`] for the grid and [`sweep`] for the kernel.
+//! search. See `buckets` for the grid and [`sweep`] for the kernel.
 //!
 //! # Determinism (D1 to D10)
 //!

@@ -33,6 +33,7 @@ npm-ci|0|scripts/orch/node-slim.sh npm ci --ignore-scripts
 negctl-dim-z-mismatch|0|scripts/orch/gr -e GM_MUTATE_NODE_Z=1 cargo run -q -p graph-cli -- roundtrip --seeds 8; test $? -ne 0
 force-gate-4|0|scripts/orch/gr cargo run -q -p graph-cli -- force-gate --seeds 4
 negctl-force-gravity|0|scripts/orch/gr -e GM_MUTATE_FORCE_SESSION_GRAVITY=0.5 cargo run -q -p graph-cli -- force-gate --seeds 4; test $? -eq 1
+negctl-drop-delta|0|scripts/orch/gr -e GM_MUTATE_DROP_DELTA=1 cargo run -q -p graph-cli -- force-gate --seeds 4; test $? -eq 1
 
 # ---------------------------------------------------------------------------------------------
 # from docs/reports/phase-03.md:93 — p3 deterministic layouts: the 1000-seed gate, the fixture
@@ -43,7 +44,6 @@ roundtrip-1000|0|scripts/orch/gr cargo run -q --release -p graph-cli -- roundtri
 emit-fixtures-1000|0|scripts/orch/gr cargo run -q -p graph-cli -- emit-fixtures --seeds 1000
 oracle-layouts|0|scripts/orch/gr cargo run -q -p graph-cli -- oracle-layouts
 geometry-invariants|0|scripts/orch/gr cargo test -p graph-core geometry_invariants
-capabilities-check|0|scripts/orch/gr cargo run -q -p graph-cli -- capabilities --check
 codegen-check|0|scripts/orch/gr cargo run -q -p graph-cli -- codegen --check
 ge-check|0|scripts/orch/ge-check.sh
 
@@ -64,7 +64,19 @@ sdk-test|0|scripts/orch/node-slim.sh npm run sdk:test
 # test fails, the run exits non-zero. Without this row `sdk-test` could go green by testing
 # nothing at all — the same vacuous pass prompts/RESUME.md:155 records for a knob at 0.9.
 sdk-test-control|nonzero|scripts/orch/node-slim.sh bash -c 'rm -rf target/sdk-test-control && cp -R crates/graph-sdk-js target/sdk-test-control && sed -i "s/moduleReporting(ABI_VERSION)/moduleReporting(ABI_VERSION + 1)/" target/sdk-test-control/test/abi-version.test.mjs && grep -q "ABI_VERSION + 1" target/sdk-test-control/test/abi-version.test.mjs && node --test --experimental-strip-types "target/sdk-test-control/test/**/*.test.mjs"'
-sdk-lint|0|scripts/orch/node-slim.sh bash -c 'npm ci --ignore-scripts >/dev/null && npx eslint crates/graph-sdk-js/src --max-warnings=0'
+# `sdk-lint` now lints the whole SDK package — `test/` and `scripts/` as well as `src`. It used
+# to name `crates/graph-sdk-js/src` only, which is how 52 errors in the `.mjs` files (a dead
+# import, a face that sent `null` instead of `1e999`, and 50 undeclared Node/web globals) sat
+# unseen through every develop gate.
+sdk-lint|0|scripts/orch/node-slim.sh bash -c 'npm ci --ignore-scripts >/dev/null && npm run sdk:lint'
+# The control for `sdk-lint` above: eslint must go red on an undeclared name, or the row above
+# is measuring a linter that never fires. It writes nothing under `crates/` — the source
+# arrives on eslint's stdin under a `.mjs` filename the new config object matches — and it
+# fails by the defect's own shape (a `no-undef` report, exit 1) rather than by inverting the
+# expected exit. What it does NOT cover is the eight names themselves: deleting one of them
+# from the globals list would leave this row green and turn `sdk-lint` red, so the pair pins
+# both directions only because `sdk-lint` also runs.
+negctl-sdk-lint|0|scripts/orch/node-slim.sh bash -c 'npm ci --ignore-scripts >/dev/null && { printf "undefinedGlobalForNegctl;\n" | npx eslint --max-warnings=0 --stdin --stdin-filename crates/graph-sdk-js/test/negctl.mjs >target/negctl-sdk-lint.txt 2>&1; test $? -eq 1 && grep -q no-undef target/negctl-sdk-lint.txt; }'
 
 # ---------------------------------------------------------------------------------------------
 # from docs/reports/phase-05.md:87 — p5 Sugiyama: the layout invariants and the layered
@@ -87,7 +99,7 @@ eigen-determinism|0|scripts/orch/gr cargo test -p graph-core eigen_determinism
 stress-d3|0|scripts/orch/gr cargo run -q -p graph-cli -- stress --oracle d3
 bench|0|scripts/orch/gr cargo run -q -p graph-cli -- bench --n 220,10000,100000
 emit-spectral-1000|0|scripts/orch/gr cargo run -q -p graph-cli -- emit-spectral-fixtures --seeds 1000
-oracle-spectral-py|0|scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-python-oracle python3 harness/oracle-spectral.py target/spectral-fixtures
+oracle-spectral-py|0|scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-python-oracle python3 harness/oracle-spectral.py /w/SciGraphs/core target/spectral-fixtures
 oracle-spectral|0|scripts/orch/gr cargo run -q -p graph-cli -- oracle-spectral
 bench-spectral|0|scripts/orch/gr cargo run -q -p graph-cli -- bench --layout layout.spectral --n 220,10000,100000
 bench-mds|0|scripts/orch/gr cargo run -q -p graph-cli -- bench --layout layout.mds.pivot --n 220,10000,100000
@@ -100,7 +112,10 @@ bench-mds|0|scripts/orch/gr cargo run -q -p graph-cli -- bench --layout layout.m
 bellman-ford-negative-weight|0|scripts/orch/gr cargo test -p graph-core bellman_ford_negative_weight
 negative-cycle-detected|0|scripts/orch/gr cargo test -p graph-core negative_cycle_detected
 analysis-determinism|0|scripts/orch/gr cargo test -p graph-core analysis_determinism
-only-petgraph-added|0|scripts/orch/gr bash -c 'cargo tree -p graph-core --depth 1 >target/graph-core-deps.txt; grep -vE "libm|indexmap|petgraph|graph-contract" target/graph-core-deps.txt && exit 1 || exit 0'
+only-petgraph-added|0|scripts/orch/gr bash -c 'cargo tree -p graph-core --depth 1 >target/graph-core-deps.txt; grep -vE "^graph-core v|libm|indexmap|petgraph|graph-contract" target/graph-core-deps.txt && exit 1 || exit 0'
+# negctl-only-petgraph-added: the same filter over the same tree plus one dependency outside the
+# allow-list must leave a residual, so a green row is the list and not a filter that drops everything.
+negctl-only-petgraph-added|0|scripts/orch/gr bash -c '{ cargo tree -p graph-core --depth 1; echo "├── serde v1.0.0"; } | grep -vE "^graph-core v|libm|indexmap|petgraph|graph-contract"'
 
 # ---------------------------------------------------------------------------------------------
 # from docs/reports/phase-08.md:119 — p8 post-processing and bundling.
@@ -108,6 +123,9 @@ only-petgraph-added|0|scripts/orch/gr bash -c 'cargo tree -p graph-core --depth 
 edge-geometry-invariants|0|scripts/orch/gr cargo test -p graph-core edge_geometry_invariants
 post-composability|0|scripts/orch/gr cargo test -p graph-core post_composability
 ink-hairball|0|scripts/orch/gr cargo run -q -p graph-cli -- ink --fixture hairball
+# negctl-ink-hairball: at 400 hairball nodes the 128x128 raster saturates and FDEB saves no cell
+# (docs/reports/phase-08.md, ink), so the same rule must exit 1 there: exit 2 would be a run that failed.
+negctl-ink-hairball|0|scripts/orch/gr cargo run -q -p graph-cli -- ink --nodes 400; test $? -eq 1
 
 # ---------------------------------------------------------------------------------------------
 # from docs/reports/phase-10-progress.md:260 — p10 ingest, SDK publish and the wasm ABI.
@@ -135,7 +153,6 @@ simplify-reversible|0|scripts/orch/gr cargo test -p graph-core simplify_reversib
 bench-crossover|0|scripts/orch/gr cargo run -q -p graph-cli -- bench --crossover --budget-ms 16.67
 bench-oracle-tick|0|scripts/orch/node-slim.sh bash -c 'npm ci --ignore-scripts >/dev/null && node --experimental-strip-types --experimental-loader ./tests/ts-extension-loader.mjs harness/oracle-tick-bench.mjs --n 220,10000,100000 --repeat 5'
 bench-wasm-tick|0|scripts/orch/node-slim.sh bash -c 'npm ci --ignore-scripts >/dev/null && node --experimental-strip-types harness/wasm-tick-bench.mjs --n 220,10000,100000 --repeat 5'
-capabilities-ceilings-measured|0|scripts/orch/gr cargo run -q -p graph-cli -- capabilities --check --ceilings-measured
 
 # ---------------------------------------------------------------------------------------------
 # from prompts/phase-11-compute-tiers.md:124 and docs/reports/phase-11-progress.md:170 — p11
@@ -174,6 +191,9 @@ negctl-reference-degree|nonzero|scripts/orch/gr -e GM_MUTATE_REFERENCE_DEGREE=9 
 negctl-grid-spacing|nonzero|scripts/orch/gr -e GM_MUTATE_GRID_SPACING=2 cargo run -q -p graph-cli -- hashgate --seeds 8
 negctl-sugiyama-layer-spacing|nonzero|scripts/orch/gr -e GM_MUTATE_SUGIYAMA_LAYER_SPACING=2 cargo run -q -p graph-cli -- hashgate --seeds 8
 negctl-node-count|nonzero|scripts/orch/gr -e GM_MUTATE_NODE_COUNT=1 cargo run -q -p graph-cli -- hashgate --seeds 8
+# copied verbatim from scripts/orch/rows/p12-t3.rows:84 — the strong form of `negctl-dim-z-mismatch`
+# above, which only checks `ne 0` and so would pass on an exit 2 for the wrong reason.
+negctl-node-z|0|scripts/orch/gr bash -c 'out=$(GM_MUTATE_NODE_Z=1 cargo run -q -p graph-cli -- roundtrip --seeds 8 2>&1); rc=$?; [ "$rc" = 2 ] || { echo "expected exit 2 (the z-length refusal), got $rc"; echo "$out"; exit 1; }; echo "$out" | grep -q "perturbed exercise seed .*: node\.z: 4 values, need 3" || { echo "the run did not refuse on the z column it perturbed:"; echo "$out"; exit 1; }'
 negctl-force-theta|nonzero|scripts/orch/gr -e GM_MUTATE_FORCE_THETA=0.5 cargo run -q -p graph-cli -- hashgate --seeds 8
 negctl-fa2-scaling-ratio|nonzero|scripts/orch/gr -e GM_MUTATE_FA2_SCALING_RATIO=3 cargo run -q -p graph-cli -- hashgate --seeds 8
 negctl-tree-tidy-nodes|nonzero|scripts/orch/gr -e GM_MUTATE_TREE_TIDY_NODES=1 cargo run -q -p graph-cli -- hashgate --seeds 8
@@ -254,3 +274,27 @@ scigraphs-conformance|0|scripts/scigraphs-conformance.sh
 # that moved nothing, or moved more than one row, would exit 0 here and the gate would be
 # measuring nothing.
 negctl-scigraphs-conformance|nonzero|scripts/scigraphs-conformance.sh --break
+
+# The supply-chain gate (scripts/orch/rows/audit.rows): RustSec advisories, the SPDX allow list,
+# duplicate versions and crate provenance over both lockfiles, plus the shipped bundle's runtime
+# deps. Each row needs the network (the advisory-db clone, the registry advisory endpoint), so it
+# can turn red with no change in the tree the day an advisory is published; an offline host is a
+# fetch failure in the log, not a finding. The controls break the policy itself.
+cargo-deny-motor|0|GR_IMAGE=ge-audit scripts/orch/gr cargo deny --manifest-path Cargo.toml check advisories bans licenses sources
+cargo-deny-server|0|GR_IMAGE=ge-audit scripts/orch/gr cargo deny --manifest-path server/Cargo.toml --config deny.toml check advisories bans licenses sources
+npm-audit-app|0|scripts/orch/node-slim.sh bash -c 'cd app && npm audit --omit=dev --audit-level=high'
+negctl-cargo-deny-advisory|0|d=target/audit-negctl; mkdir -p $d/src; : >$d/src/lib.rs; printf '%s\n' '[package]' 'name = "audit-negctl"' 'version = "0.0.0"' 'edition = "2021"' '' '[workspace]' '' '[dependencies]' 'time = "=0.1.44"' >$d/Cargo.toml; GR_IMAGE=ge-audit scripts/orch/gr bash -c "cd $d && cargo generate-lockfile -q" || exit 1; rc=0; GR_IMAGE=ge-audit scripts/orch/gr cargo deny --manifest-path $d/Cargo.toml check advisories >target/audit-negctl-advisories.log 2>&1 || rc=$?; test $rc -ne 0 && grep -q RUSTSEC-2020-0071 target/audit-negctl-advisories.log && cat target/audit-negctl-advisories.log
+negctl-cargo-deny-license|0|sed '/^    "MIT",$/d' deny.toml >target/deny-negctl.toml; grep -q '"MIT"' target/deny-negctl.toml && exit 1; rc=0; GR_IMAGE=ge-audit scripts/orch/gr cargo deny --manifest-path Cargo.toml --config target/deny-negctl.toml check licenses >target/audit-negctl-licenses.log 2>&1 || rc=$?; test $rc -ne 0 && grep -q 'MIT - MIT License:' target/audit-negctl-licenses.log && head -n 20 target/audit-negctl-licenses.log
+
+# The osage differential (scripts/orch/rows/p13-gv1-osage.rows): `layout.packing.osage` is gated
+# on an `oracle-osage` record, and no other row here writes one.
+osage-emit-1000|0|scripts/orch/gr cargo run -q -p graph-cli -- emit-graphviz-fixtures --engine osage --seeds 1000
+osage-oracle-1000|0|scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/osage-fixtures osage target/gv-osage --differential
+osage-check-1000|0|scripts/orch/gr cargo run -q -p graph-cli -- oracle-graphviz --engine osage
+osage-check-negctl|nonzero|scripts/orch/gr cargo run -q -p graph-cli -- oracle-graphviz --engine osage --dir target/osage-fixtures-absent
+
+# Last: `capabilities --check` reads the records every gate above writes for this tree
+# (hashgate, roundtrip, oracle-diff, oracle-spectral, oracle-osage). Run earlier, it reports
+# each one missing or stale (2026-10-04, gate-develop-bff2: 34 problems at row 46; gate-develop-178c:
+# `--ceilings-measured` at row 56 read the 8-seed hashgate record, 20 problems), so both flags run here.
+capabilities-check|0|scripts/orch/gr cargo run -q -p graph-cli -- capabilities --check --ceilings-measured

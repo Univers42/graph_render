@@ -11,10 +11,10 @@
 //!
 //! **The walk is clipped to the box, and used to be marked outside it.** A segment was
 //! walked in half-cell steps along its whole length, and every step outside the box landed
-//! in a border cell through the clamp in [`cell`], so a stroke leaving the drawing marked
+//! in a border cell through the clamp in `cell`, so a stroke leaving the drawing marked
 //! cells it never crossed and cost half a cell of walk per unit it travelled — an edge point
-//! at `1e7` on a box of 1 is 2.56e9 steps. [`Raster::mark`] now walks the part inside the
-//! box ([`clip`]) and marks nothing outside it, which is the honest count: an ink saving is
+//! at `1e7` on a box of 1 is 2.56e9 steps. `Raster::mark` now walks the part inside the
+//! box (`clip`) and marks nothing outside it, which is the honest count: an ink saving is
 //! a claim about the drawing, and a point at 1e7 is not in it. A cell *inside* the box is
 //! marked exactly as before, so no figure in `docs/measurements/phase08-ink.md` moves, and
 //! `Ink::length` is unaffected — it is still every segment's whole length, so the two

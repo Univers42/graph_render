@@ -25,6 +25,10 @@ mesh (42.34 of 50.92 ms) and 94 % in wasm32 on Barnes-Hut (69.57 of 73.88 ms), w
 `extend` it is cannot be told from this arm** — see "The split of `extend`" below. This slice
 changes no graph-core, so it can name the cost and not remove it.
 
+Split and cut in [`perf-p4d-extend.md`](perf-p4d-extend.md), which separates `extend` into
+parse and index, removes three redundant passes over every byte of a batch, and re-measures
+these four arms on the same stream.
+
 ## How the numbers were taken
 
 One input, two arms. `graph-cli tick --stream 10000 --batches 10 --n 1000000 --emit

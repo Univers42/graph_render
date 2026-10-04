@@ -120,8 +120,8 @@ pub const ANALYSIS_POST_STAGES: [Stage; 15] = [
 /// registry's own `run` closure, at the compiled-in defaults its module pins, so there is
 /// no real parameter to perturb. That leaves the honest probe the three Phase 3 layout
 /// controls use — re-draw **this** stage's model with one more node, for this stage alone —
-/// which is exactly what [`Setting::stage_nodes`] and [`stage_bytes_from_own_model`] do for
-/// a layout id.
+/// which is exactly what [`Setting::stage_nodes`] and
+/// `super::stages::stage_bytes_from_own_model` do for a layout id.
 ///
 /// A shared control would not do: `GM_MUTATE_NODE_COUNT` grows the gate's one model, so it
 /// moves all six at once and names none of them, which is the failure mode the whole
@@ -237,7 +237,7 @@ pub fn by_env(env: &str) -> Option<Stage> {
 /// used to store whatever id it was handed, so a row added to this table with a stage the
 /// gate does not hash put a `stage_nodes` entry that no stage ever reads — a control that
 /// perturbs nothing and still recorded itself as exercised. The one reader that can tell is
-/// [`super::stages`], so the check is here rather than left to every future caller.
+/// [`super::stages()`], so the check is here rather than left to every future caller.
 pub fn apply(stage: Stage, count: u32, setting: &mut Setting) -> Result<(), String> {
     if !super::stages().contains(&stage.id) {
         return Err(format!(

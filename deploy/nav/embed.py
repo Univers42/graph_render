@@ -37,10 +37,12 @@ from pathlib import Path
 import nav  # first: it puts the perf gate's CDP client on the path
 import embedpage
 import smokecdp
+import embedreplay
 from drive import Studio
 from embedgestures import step_dblclick, step_enter, step_open, step_overlap, step_refused
-from embedrows import (step_channels, step_composed, step_load, step_pick, step_resolve, step_select,
-                       step_storage)
+from embedreplay import step_replay
+from embedrows import (step_channels, step_columns_refused, step_composed, step_load, step_pick,
+                       step_resolve, step_select, step_storage)
 
 # Verdict 13: what a host serving the studio must allow, and nothing more.
 HOST_CSP = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; img-src 'self' data:"
@@ -50,12 +52,16 @@ WASM = "graph_wasm.wasm"
 
 STEPS = {"load": step_load, "pick": step_pick, "select": step_select, "resolve": step_resolve,
          "dblclick": step_dblclick, "enter": step_enter, "open": step_open, "overlap": step_overlap,
-         "refused": step_refused, "channels": step_channels, "composed": step_composed,
-         "storage": step_storage}
-# The order matters: `pick` again once the inspector is open, the error channels after the refused
-# load, and `composed` (which reads the whole page's history) before `storage` reloads the page.
+         "refused": step_refused, "columns-refused": step_columns_refused,
+         "channels": step_channels, "composed": step_composed,
+         "storage": step_storage, "replay": step_replay}
+# The order matters: `pick` again once the inspector is open, the error channels after both refused
+# loads (each raises one `graph-error` of its own), and `composed` (which reads the whole page's
+# history) before `storage` reloads the page. `replay` is last of all: it counts nodes and reads a
+# `graph-error` of its own, so every row before it must have read the 60-node fixture, and `storage`
+# leaves the page freshly loaded.
 FULL = ("load", "pick", "select", "resolve", "pick", "dblclick", "enter", "open", "overlap", "refused",
-        "channels", "composed", "storage")
+        "columns-refused", "channels", "composed", "storage", "replay")
 
 
 @dataclass(frozen=True)
@@ -73,10 +79,17 @@ class RunSpec:
     keep: tuple | None = None
     broken_wasm: bool = False
     overlap_awaits: bool = False
+    replay_missing: bool = False
 
 
 GATE = (RunSpec("plain", FULL), RunSpec("isolated", FULL, isolated=True),
-        RunSpec("csp", ("load", "channels"), csp=HOST_CSP))
+        # `pick` then `select` is what opens the hover card: the pointer move in `select`
+        # (`embedrows.step_select`, the `mouseMoved` dispatch) is the hover the card follows, and
+        # `pick` is the node it moves onto. `resolve` then reads the inspector the same gesture
+        # opened. All three render React inline styles (`ui/HoverCard.tsx`), which is the claim
+        # under test here: a host CSP without 'unsafe-inline' admits them, and the proof is
+        # `embed-no-console-error` PASSing over a run that opened one.
+        RunSpec("csp", ("load", "pick", "select", "resolve", "channels", "replay"), csp=HOST_CSP))
 
 # One run per fault, and one fault per row it targets: a row with no fault of its own, or with a
 # fault that leaves it NOT-RUN, is a row whose regression nothing would ever catch.
@@ -99,6 +112,10 @@ BREAKS = (
     RunSpec("break-supersede", ("load", "overlap"), faults=("supersede",),
             keep=("embed-overlap-reentrant",)),
     RunSpec("break-name", ("load", "refused"), faults=("name",), keep=("embed-load-refused",)),
+    # The same `name` fault over the columnar load: it renames the graph-error detail's `error`, so
+    # this is the control that turns the ABI code the row asserts into a FAIL.
+    RunSpec("break-columns", ("load", "columns-refused"), faults=("name",),
+            keep=("embed-columns-refused",)),
     RunSpec("break-composed", ("load", "pick", "select", "pick", "dblclick", "refused", "composed"),
             faults=("composed",), keep=("embed-composed",)),
     RunSpec("break-dblclick", ("load", "pick", "dblclick"), faults=("dblclick",), keep=("embed-dblclick",)),
@@ -108,6 +125,10 @@ BREAKS = (
             keep=("embed-resolve-upgrade",)),
     RunSpec("break-csp", ("load", "channels"), csp=NO_WASM_CSP,
             keep=("embed-no-console-error", "embed-drew-nodes", "embed-host-load")),
+    # `replay.jsonl` served a line short: the page's own account is four batches and a refusal,
+    # and the drawing settles 8 nodes below what the file promised. Its own rows only.
+    RunSpec("break-replay", ("load", "replay"), replay_missing=True,
+            keep=("embed-replay-applied", "embed-replay-drawn")),
 )
 
 
@@ -116,14 +137,24 @@ def fixture_counts(served):
     return {"nodes": len(doc["nodes"]), "edges": len(doc["edges"])}
 
 
-def served_copy(dist, broken_wasm):
-    """`dist` itself, or a scratch copy whose wasm exports memory only; (served, scratch)."""
-    if not broken_wasm:
+def served_copy(dist, spec):
+    """`dist` itself, or a scratch copy carrying the faults `spec` asks for; (served, scratch).
+
+    Two kinds, both in the bytes rather than in `app/` or `packages/`: `broken_wasm` replaces the
+    module with one that exports memory only, and `embedreplay.served_faults` rewrites a text file
+    the page fetches. The scratch copy is served instead of the build, so nothing is touched.
+    """
+    faults = embedreplay.served_faults(spec)
+    if not spec.broken_wasm and not faults:
         return dist, None
     scratch = Path(tempfile.mkdtemp())
-    shutil.copytree(dist, scratch / "dist")
-    (scratch / "dist" / WASM).write_bytes(smokecdp.MEMORY_ONLY_WASM)
-    return scratch / "dist", scratch
+    served = scratch / "dist"
+    shutil.copytree(dist, served)
+    if spec.broken_wasm:
+        (served / WASM).write_bytes(smokecdp.MEMORY_ONLY_WASM)
+    for fault in faults:
+        fault(served)
+    return served, scratch
 
 
 def drive(page, spec, ctx):
@@ -137,7 +168,7 @@ def drive(page, spec, ctx):
 
 def measure_run(spec, args):
     """One run in its own server and browser; every exit path closes both and the copy."""
-    served, scratch = served_copy(args.dist, spec.broken_wasm)
+    served, scratch = served_copy(args.dist, spec)
     server = nav.serve(served, isolated=spec.isolated, csp=spec.csp)
     with tempfile.TemporaryDirectory() as profile:
         browser = nav.launch_browser(profile)
@@ -167,8 +198,10 @@ def measure(args):
 
 def table(report):
     mode = "negative control" if report["break"] else "gate"
+    # A pack run says which pack it served; the plain gate has no `pack` key at all.
+    pack = f" · pack `{report['pack']}`" if report.get("pack") else ""
     head = [f"# studio-embed — {report['label']} ({mode})", "",
-            f"commit `{report['commit']}` · {report['browser']} · runs {', '.join(report['runs'])} · "
+            f"commit `{report['commit']}`{pack} · {report['browser']} · runs {', '.join(report['runs'])} · "
             "screenshots `studio-embed-<run>.png`", "",
             "| run | row | expectation | measured | verdict |", "|---|---|---|---|---|"]
     body = [f"| {r['run']} | `{r['row']}` | {r['expectation']} | {r['measured'].replace('|', '/')} | {r['verdict']} |"
@@ -201,6 +234,9 @@ def parse_args():
     parser.add_argument("--dist", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--commit", default="unknown")
+    parser.add_argument("--pack", type=Path,
+                        help="serve the host page over this pack instead of over app/dist "
+                             "(deploy/nav/embedpack.py)")
     parser.add_argument("--break", action="store_true", dest="broken",
                         help="the negative control: one run per fault, each reporting the rows it targets")
     return parser.parse_args()
@@ -210,7 +246,12 @@ def main():
     args = parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
     try:
-        report = measure(args)
+        if args.pack is None:
+            report = measure(args)
+        else:
+            # A late import: embedpack imports this module for its runs, steps and rows.
+            from embedpack import run_pack
+            report = run_pack(args)
     except Exception as failure:
         # Exit 2, never 1: a fault of the harness's own is not a row that failed, and the two must
         # not look alike to whatever reads this code (`scripts/studio-embed.sh`: 1 is a red row).

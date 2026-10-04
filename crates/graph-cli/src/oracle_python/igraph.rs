@@ -8,7 +8,7 @@
 //! worse than the reference our layout is on the same graph.
 //!
 //! A layout that is not yet registered writes no `ours` column, so the harness compares
-//! nothing for it and [`super::judge`] fails it (no compared case): NOT-RUN, never green.
+//! nothing for it and [`super::judge()`] fails it (no compared case): NOT-RUN, never green.
 //!
 //! Ponytail: stress rewards a layout for matching graph distance, which FR and Graphopt do
 //! not try to do (they balance forces), so their ratio is a quality floor, not a

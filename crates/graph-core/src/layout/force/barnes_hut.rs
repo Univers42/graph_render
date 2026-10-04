@@ -17,14 +17,20 @@
 
 mod charge;
 mod collide;
+mod collide3d;
 pub(in crate::layout::force) mod link;
-mod seed;
+mod link3d;
+pub(in crate::layout::force) mod seed;
 mod settle;
+pub(in crate::layout::force) mod settle3d;
 pub(in crate::layout::force) mod sim;
+mod sim3d;
 pub(in crate::layout::force) mod step;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests3d;
 
 use super::params::{ForceParams, TICKS};
 use crate::exec::Serial;
@@ -108,7 +114,9 @@ pub(in crate::layout::force) fn charge_pass(
     charge::apply_with(sim, runner, workers, deltas, false);
 }
 
+pub(in crate::layout::force) use seed::golden_sphere;
 pub(crate) use settle::{Tier, golden_seed, settle};
+pub(in crate::layout::force) use settle3d::settle3d;
 
 /// Barnes-Hut approximated force layout (`prompt.md` §3.1).
 ///
@@ -144,7 +152,7 @@ impl BarnesHut {
     /// a test can check from outside the tick — a runner cannot tell the kernels apart —
     /// and `barnes_hut/tests/kernels.rs::the_tick_hands_the_runner_one_call_per_listed_pass`
     /// fails if the two ever disagree in count. The **order** is a claim about
-    /// [`Sim::tick`]'s body, written here for the reader; a test that could hold it would
+    /// `Sim::tick`'s body, written here for the reader; a test that could hold it would
     /// need the kernels to name themselves, which `StepRange` deliberately does not ask.
     pub const THREADED_PASSES: [&'static str; 5] = [
         "link forces",

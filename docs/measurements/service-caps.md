@@ -113,6 +113,8 @@ not order.
 | `layout.force.kamada_kawai.3d` | layout | O(n^2) set-up (all-pairs BFS | 2000 | 2000 (3075) | 7582.3 | 38.3 | 8000 / 8534.5 | 2000 | 8000 |
 | `layout.force.drl.3d` | layout | O(S * n * deg) with S about 550 sweeps | 5000 | 2048 (3152) | 12491.5 | 8.6 | 8192 / 13623.8 | 2048 | 8192 |
 | `layout.forceatlas2.3d` | layout | O(n^2) per iteration | 14000 | 14000 (21712) | 27039.5 | 25.3 | 32768 / 14486.7 | 8192 | 32768 |
+| `layout.random.3d` | layout | O(n) | 1000000 | 1000000 (1549929) | 581.7 | 1399.7 | 4000000 / 1346 | 1000000 | 4000000 |
+| `layout.force.yifan_hu.3d` | layout | O(n log n) x (112 + 48 x levels) for the... | 100000 | 65536 (101565) | 20743.1 | 140.4 | 131072 / 6671.2 | 32768 | 131072 |
 largest peak at cap: 257.7 MiB (`layout.mds.pivot3d`)
 | `post.route.grid` | post, over `layout.grid` | O(m · cells · log cells) | 5000 | 3225 (4988) | 9447 | 35.3 | 12900 / 34524.9 | 3225 | 4988 |
 | `post.bundle.fdeb` | post, over `layout.grid` | O(m^2) to build the pair list once | 6900 | 4451 (6867) | 558.4 | 30.5 | 17804 / 2488.7 | 4451 | 6900 |
@@ -142,12 +144,15 @@ them ran on the loaded host, so they could rise on a re-run.
 | `layout.force.sfdp` | n 32768 | 21355 | 34.8 |
 | `layout.forceatlas2.barnes_hut` | n 131072 | 15157 | 38.75 |
 | `layout.force.particle_mesh` | n 524288 at 30025; dense n 262144 is 15424 | 30025 | 28.3 |
+| `layout.force.yifan_hu.3d` | n 65536 | 20743 | 12.44 |
 | `post.route.grid` | dense, over radial 21945 and over grid 34525 | 34525 | |
 | `post.separate.grid` | n 6451 over `layout.packing.circle` | killed at 40 s | |
 
 `layout.spectral3d` is bound by a refusal, not by time: at n 512 the motor refused the seeded graph with "parameter topology: no component passed the eigensolver's residual and orthonormality gate", while `layout.spectral` ran to its ceiling of 700. Its cap of 256 nodes and 1024 edges is the last rung that ran. The three rows `layout.forceatlas2.forcesim`, `layout.spectral3d` and `layout.mds.pivot3d` came from one later ladder run (2026-10-04, load1 14.9 on 20 cores), with the commands above and those three ids.
 
 The five rows `layout.force.yifan_hu.2z`, `layout.force.fruchterman_reingold.3d`, `layout.force.kamada_kawai.3d`, `layout.force.drl.3d` and `layout.forceatlas2.3d` came from one more ladder run (2026-10-04, 34 rungs, load1 11.5 to 30.1 on 20 cores), with the commands above and those five ids, after develop registered them. `layout.force.yifan_hu.2z`, `layout.force.drl.3d` (its n 4096 rung was killed past 40 s) and `layout.forceatlas2.3d` are bound by time; the two others are at their ceiling of 2000.
+
+The two rows `layout.random.3d` and `layout.force.yifan_hu.3d` came from one more ladder run (2026-10-04, 25 rungs, load1 8.48 to 12.90 on 20 cores), with the commands above and those two ids, after develop registered them; `tests/caps.rs` had been red on develop without them. `layout.random.3d` is at its ceiling of 1000000. `layout.force.yifan_hu.3d` is bound by time: n 65536 took 20743 ms, so its cap is the n 32768 rung (11183 ms), with the dense rung at 131072 edges in 6671 ms. The larger dense peak of the two, 2491.6 MiB for `layout.random.3d` at n 1000000, is under the run peak at cap below, so the per-slot budget is unchanged.
 
 The `post.separate.grid` kill comes from its input. `layout.packing.circle` runs untimed before the post
 and is slow at 6451 nodes. Over `layout.treemap.squarified` the post reached 6451 nodes in 1.58 s. Its cap
@@ -335,6 +340,7 @@ first run covered the 50 rows before `layout.mds.pivot3d`, load1 5.67 → 17.73,
 ran under load and still passed; the five rows after `layout.mds.pivot3d` were added on 2026-10-04 with
 their caps and the second run covered all 55 (image `graph-motor:5145db1479a10e68`, load1
 9.79 → 10.19), none failed. The table below is the 55-row run.
+`layout.random.3d` and `layout.force.yifan_hu.3d` were added after that run and are not in it: svc-caps-time has not run over them.
 
 | id | cap_n | cap_m | layout asked | n | status | ms | reduced |
 |---|---:|---:|---|---:|---:|---:|---|

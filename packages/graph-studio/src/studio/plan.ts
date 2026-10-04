@@ -21,6 +21,7 @@ function sameSource(a: Source, b: Source): boolean {
   if (a === b) return true;
   if (a.kind === "synthetic") return sameSynthetic(a, b);
   if (a.kind === "fixture") return sameFixture(a, b);
+  if (a.kind === "columns") return sameColumns(a, b);
   return sameDocument(a, b);
 }
 
@@ -38,6 +39,16 @@ function sameFixture(a: Source, b: Source): boolean {
 function sameDocument(a: Source, b: Source): boolean {
   return a.kind === "document" && b.kind === "document"
     && a.name === b.name && a.text === b.text && a.host === b.host;
+}
+
+/**
+ * The rows by identity, and nothing else: they are megabytes of typed arrays, so comparing them
+ * would cost more than the load the comparison is there to skip. A host that hands the *same*
+ * object over twice gets no second load, which is the case this answers; a host that builds a
+ * new one gets the graph it asked for.
+ */
+function sameColumns(a: Source, b: Source): boolean {
+  return a.kind === "columns" && b.kind === "columns" && a.name === b.name && a.rows === b.rows;
 }
 
 export interface Plan {

@@ -50,7 +50,7 @@ pub fn scigraphs_graphviz_post(points: &[[f64; 3]], dims: usize, scale: f64) -> 
 /// here. Measured in the oracle image on `(n, 2)` C-contiguous arrays at
 /// n = 1, 2, 3, 5, 8, 9, 16, 17, 33, 64, 127, 128, 129, 300: left-to-right equals numpy at every
 /// length and on both columns, and a pairwise sum of the same values differs at every n >= 8 —
-/// pinned by [`tests::the_mean_of_an_n_by_2_array_is_the_left_to_right_sum`], which pastes numpy's
+/// pinned by `tests::the_mean_of_an_n_by_2_array_is_the_left_to_right_sum`, which pastes numpy's
 /// own hex. The caveat that is left: a Fortran-ordered `raw` would restore the pairwise sum, and
 /// `scigraphs_utils` is a C++ extension with no source on disk to read its allocation from.
 fn mean_over(points: &[[f64; 3]], axes: usize) -> Vec<f64> {

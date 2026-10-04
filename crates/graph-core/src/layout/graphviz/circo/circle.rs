@@ -12,7 +12,7 @@
 //!    `n * (min_dist + largest_node) / 2*PI`.
 //!
 //! **The crossing count is order-free, which is what makes this reproducible**, and it is not
-//! what this file computes: [`crossings`] holds the count, now a Fenwick sweep over the
+//! what this file computes: [`crossings`](super::crossings) holds the count, now a Fenwick sweep over the
 //! positions rather than the reference's quadratic walk, and this file only asks for it. The
 //! reference holds the open edges in a `Dtoset` keyed on the edge *pointer* (`edgelist.c:27-37`),
 //! so it walks them in address order — but it only ever asks whether an open edge's `EDGEORDER`

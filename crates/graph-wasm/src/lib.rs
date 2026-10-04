@@ -3,8 +3,8 @@
 //! plain numbers. A buffer comes back as a pointer to `[len: u32 LE][len bytes]`,
 //! valid until the next export call.
 //!
-//! Two ways to build a handle, and that is not an accident: [`exports::gm_build`] reads
-//! the **provisional** node/edge JSON (C13) and is unchanged; [`exports::gm_build_contract`]
+//! Two ways to build a handle, and that is not an accident: `exports::gm_build` reads
+//! the **provisional** node/edge JSON (C13) and is unchanged; `exports::gm_build_contract`
 //! reads the phase-10 **ingest contract** (`docs/contract/ingest-schema.json`) and derives
 //! the graph through `graph_core::ingest`'s single derivation. Each reader refuses the other
 //! format's document, so neither can quietly drift into the other's meaning — see
@@ -13,7 +13,7 @@
 //! `gm_topology` and one `gm_layout_*` export per registered layout are the hash gate's
 //! stages: each runs the pipeline over the gate's model for a seed and returns its own
 //! stage's bytes, always at the compiled-in defaults (the wasm arm never sees a negative
-//! control's mutation — `hashgate.rs`'s [`Knob`]s perturb the native arm only, so a wired
+//! control's mutation — `hashgate.rs`'s `Knob`s perturb the native arm only, so a wired
 //! one surfaces as exactly the divergence against this honest wasm baseline). With the
 //! `probe` feature it also exports `gm_probe`, which carries the D1 measurement to wasm32
 //! so it can be compared bit for bit against the same code run natively; the shipped
@@ -168,6 +168,19 @@ mod pool;
 pub mod post;
 pub mod seed_ingest;
 pub mod service;
+/// The provisional ingest JSON **reader** `service::extend` reads, under the name a native
+/// caller reaches it by. The force-gate's columns arm and `tick --path columns` need the
+/// records to re-encode as a batch, and the point of both is that the line is read by the
+/// same reader the JSON path uses — so it is this one and not a second parse.
+pub use ingest::read_records as ingest_records;
+/// The `GMX1` batch document for `nodes` and `edges` — what `gm_graph_extend_columns`
+/// appends, written by the same argument as [`ingest_document`] is written by: the bytes a
+/// measurement times and the bytes the ABI parses have to be one writer's.
+///
+/// An edge endpoint names a node id, so a batch may point at a node the graph already holds;
+/// this writer interns such a name on demand, which is the one thing a whole document's
+/// writer cannot do.
+pub use seed_ingest::columns_batch;
 /// The provisional ingest document for `nodes` and `edges` — the v1 JSON both
 /// [`service::build`] reads and `gm_graph_extend` appends, under the name a native
 /// caller reaches it by.

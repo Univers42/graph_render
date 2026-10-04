@@ -4,7 +4,7 @@
 //! in one module, for the reason the job names them together: the reference puts all four
 //! in `basic.py` behind no dispatch beyond the name, they share the same two arguments,
 //! and one differential (`harness/oracle-basic-3d.py`) arms all four against
-//! SciGraphs, with [`spiral`] the fourth since job `sg-basic3d-spiral-oracle`.
+//! SciGraphs, with [`mod@spiral`] the fourth since job `sg-basic3d-spiral-oracle`.
 //!
 //! **They read the node count and nothing else.** Every edge is ignored, so a graph and
 //! its edgeless version draw identically — that is the reference's own behaviour, and it
@@ -13,14 +13,14 @@
 //! each publishes its own id because each produces a different snapshot.
 //!
 //! **`CUBE` is the only one of the four that draws from a stream**, and it draws from the
-//! reference's own: see [`cube`] for the generator and the seeding decision. `SPHERE`,
+//! reference's own: see [`mod@cube`] for the generator and the seeding decision. `SPHERE`,
 //! `HELIX` and `SPIRAL_3D` are closed form with no random number anywhere, so none owes a
 //! seed and none publishes one.
 //!
-//! **Two of the four are spirals under two different names.** [`spiral`] is SciGraphs'
+//! **Two of the four are spirals under two different names.** [`mod@spiral`] is SciGraphs'
 //! conical 3D spiral (`basic.py:36-63`); `layout.spiral` — a different module, one level
 //! up — is graph-core's planar Archimedean spiral, a port of networkx's `spiral_layout`.
-//! SciGraphs calls only the first. See [`spiral`]'s own header.
+//! SciGraphs calls only the first. See [`mod@spiral`]'s own header.
 //!
 //! No rescale, and that is deliberate: networkx's `rescale_layout` is not in the
 //! reference for any of these four — `_sphere_layout`, `_helix_layout`, `_cube_layout` and
@@ -33,12 +33,12 @@ use crate::index::Topology;
 use crate::stage::StageError;
 use graph_contract::geometry::{EdgeGeometry, NodeGeometry};
 
-/// [`sphere`], [`helix`], [`cube`] and [`spiral`] are `pub` because each publishes the
-/// capability id the registry registers it under; their `run` functions stay `pub(super)`,
-/// because the id and the [`Topology`]-taking wrapper above are the module's whole public
-/// surface. [`CORNERS`] is re-exported here because the `CUBE` row of the ledger names
-/// `layout::basic_3d::CORNERS` as its escape hatch, and an escape hatch has to be the path
-/// the ledger says it is.
+/// [`mod@sphere`], [`mod@helix`], [`mod@cube`] and [`mod@spiral`] are `pub` because each
+/// publishes the capability id the registry registers it under; their `run` functions stay
+/// `pub(super)`, because the id and the [`Topology`]-taking wrapper above are the module's
+/// whole public surface. [`CORNERS`] is re-exported here because the `CUBE` row of the
+/// ledger names `layout::basic_3d::CORNERS` as its escape hatch, and an escape hatch has to
+/// be the path the ledger says it is.
 pub mod bipartite_3d;
 pub mod cube;
 pub mod helix;
@@ -129,38 +129,38 @@ pub(super) fn count(topology: &Topology) -> u32 {
     topology.node_count()
 }
 
-/// [`sphere::run`], the `SPHERE` placement at [`SCALE`]. Never refuses.
+/// `sphere::run`, the `SPHERE` placement at [`SCALE`]. Never refuses.
 pub fn sphere(topology: &Topology) -> Result<Geometry, StageError> {
     sphere::run(count(topology))
 }
 
-/// [`sphere::run_scaled`]: `SPHERE` at the scale the caller asks for, which is what
+/// `sphere::run_scaled`: `SPHERE` at the scale the caller asks for, which is what
 /// SciGraphs' `layout_scale` slider passes (`scene_properties.py:478-483`).
 pub fn sphere_scaled(topology: &Topology, scale: f64) -> Result<Geometry, StageError> {
     sphere::run_scaled(count(topology), checked(scale)?)
 }
 
-/// [`helix::run`], the `HELIX` placement at [`SCALE`]. Never refuses.
+/// `helix::run`, the `HELIX` placement at [`SCALE`]. Never refuses.
 pub fn helix(topology: &Topology) -> Result<Geometry, StageError> {
     helix::run(count(topology))
 }
 
-/// [`helix::run_scaled`]: `HELIX` at an explicit `scale`.
+/// `helix::run_scaled`: `HELIX` at an explicit `scale`.
 pub fn helix_scaled(topology: &Topology, scale: f64) -> Result<Geometry, StageError> {
     helix::run_scaled(count(topology), checked(scale)?)
 }
 
-/// [`cube::run`], the `CUBE` placement at [`SCALE`]. Never refuses.
+/// `cube::run`, the `CUBE` placement at [`SCALE`]. Never refuses.
 pub fn cube(topology: &Topology) -> Result<Geometry, StageError> {
     cube::run(count(topology))
 }
 
-/// [`cube::run_scaled`]: `CUBE` at an explicit `scale`, with the reference's own seed.
+/// `cube::run_scaled`: `CUBE` at an explicit `scale`, with the reference's own seed.
 pub fn cube_scaled(topology: &Topology, scale: f64) -> Result<Geometry, StageError> {
     cube::run_scaled(count(topology), checked(scale)?)
 }
 
-/// [`spiral::run`], the `SPIRAL_3D` placement at [`SCALE`]. Never refuses.
+/// `spiral::run`, the `SPIRAL_3D` placement at [`SCALE`]. Never refuses.
 ///
 /// **Its own id, not `layout.spiral`'s.** That id is the planar Archimedean spiral; this
 /// one is the reference's conical 3D spiral, a different curve under a different name.
@@ -168,15 +168,15 @@ pub fn spiral(topology: &Topology) -> Result<Geometry, StageError> {
     spiral::run(count(topology))
 }
 
-/// [`spiral::run_scaled`]: `SPIRAL_3D` at an explicit `scale`.
+/// `spiral::run_scaled`: `SPIRAL_3D` at an explicit `scale`.
 pub fn spiral_scaled(topology: &Topology, scale: f64) -> Result<Geometry, StageError> {
     spiral::run_scaled(count(topology), checked(scale)?)
 }
 
-/// [`bipartite_3d::run`], the `BIPARTITE_3D` placement at [`SCALE`]. Never refuses.
+/// `bipartite_3d::run`, the `BIPARTITE_3D` placement at [`SCALE`]. Never refuses.
 ///
 /// **The one member of this module that reads the graph**, and the only reason it lives here
-/// rather than beside `layout.bipartite` is that it shares [`SCALE`] and [`in_space`] with
+/// rather than beside `layout.bipartite` is that it shares [`SCALE`] and `in_space` with
 /// the others and nothing else — the module doc's "reads the node count and nothing
 /// else" is true of `SPHERE`, `HELIX`, `CUBE` and `SPIRAL_3D`, and is stated here so it is not read as a
 /// claim about this one. Its id is `layout.bipartite_3d`, deliberately outside the
@@ -185,7 +185,7 @@ pub fn bipartite_3d(topology: &Topology) -> Result<Geometry, StageError> {
     bipartite_3d::run(topology)
 }
 
-/// [`bipartite_3d::run_scaled`]: `BIPARTITE_3D` at an explicit `scale`.
+/// `bipartite_3d::run_scaled`: `BIPARTITE_3D` at an explicit `scale`.
 pub fn bipartite_3d_scaled(topology: &Topology, scale: f64) -> Result<Geometry, StageError> {
     bipartite_3d::run_scaled(topology, checked(scale)?)
 }

@@ -70,11 +70,21 @@ pub struct Differential {
     pub line: fn(u32, Option<u32>) -> Result<Value, String>,
 }
 
-/// `id`'s registered run over the model, as `{x, y}` columns.
+/// `id`'s registered run over the model, as `{x, y}` columns plus `z` when the layout
+/// carries one.
+///
+/// The z column is read from the snapshot's parts rather than from the geometry, because its
+/// *presence* is what makes the run 3-D (`SnapshotParts::dim`), and a harness that compared
+/// a 3-D layout as if it were flat would quietly compare the wrong thing.
 fn coords(id: &str, nodes: &[NodeRecord], edges: &[EdgeRecord]) -> Result<Value, String> {
     let layout = registry::find(id).ok_or_else(|| format!("{id}: not registered"))?;
     let run = run_with(nodes, edges, layout.id, layout.run).map_err(|e| e.to_string())?;
-    points(id, &run.snapshot.parts().nodes)
+    let parts = run.snapshot.parts();
+    let mut columns = points(id, &parts.nodes)?;
+    if let Some(z) = &parts.z {
+        columns["z"] = json!(z);
+    }
+    Ok(columns)
 }
 
 /// A layout's node geometry as `{x, y}` columns. Only a point layout is a coordinate
