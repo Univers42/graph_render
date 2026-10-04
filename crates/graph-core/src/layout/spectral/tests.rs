@@ -117,10 +117,13 @@ fn check_spectrum(neighbors: Vec<Vec<u32>>, n: usize, want: &[f64], expected_tie
     let local_of = local_positions(std::slice::from_ref(&members), n);
     let graph = ComponentGraph::build(&members, &neighbors, &local_of);
     let dims_eff = DIMS.min(n - 1);
-    let (solved, tier, iterations) = solve_component(&graph, Width::Spectral2d);
-    assert_eq!(tier, expected_tier, "n={n}");
-    let eig = solved.unwrap_or_else(|| {
-        panic!("n={n} tier={tier:?} did not solve (lobpcg iterations={iterations:?})")
+    let solve = solve_component(&graph, Width::Spectral2d);
+    assert_eq!(solve.tier, expected_tier, "n={n}");
+    let eig = solve.eig.unwrap_or_else(|| {
+        panic!(
+            "n={n} tier={:?} did not solve (lobpcg iterations={:?}, residual={:?})",
+            solve.tier, solve.iterations, solve.peak_residual
+        )
     });
     for (i, (&got, &want)) in eig.values.iter().zip(&want[1..1 + dims_eff]).enumerate() {
         let rel = (got - want).abs() / want.abs().max(1.0);
