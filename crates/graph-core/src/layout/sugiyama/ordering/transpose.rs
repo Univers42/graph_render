@@ -4,7 +4,7 @@
 //! **One buffer per vertex, reused.** The crossing count of an adjacent pair needs each
 //! vertex's neighbour positions sorted, and a swap moves both of them — so [`Sorted`] keeps
 //! one buffer per vertex per direction and refills it only after a swap has invalidated it.
-//! Before (the review's L-03) [`pair_crossings`] collected and sorted two `Vec`s per call
+//! Before (the review's L-03) `pair_crossings` collected and sorted two `Vec`s per call
 //! and was called four times per pair: eight buffers filled per examined pair, ~500k of them
 //! for the 64k pairs of a 2000-vertex two-layer sweep.
 //!

@@ -3,11 +3,11 @@
 //! smuggled onto the mesh object out of band, `circle_packing.py:15-36`). A port of
 //! SciGraphs' `_circle_packing_layout` (`circle_packing.py:281-393`) over the planar
 //! embedding [`planarity`] certifies, plus its own non-planar fallback (`:407-542`,
-//! [`fallback`]).
+//! `fallback`).
 //!
 //! Unlike the other three Phase 3 layouts, circle packing is not a hierarchy layout: it
 //! runs over the topology's own edges (every kind, self-loops and multi-edges reduced
-//! away once, in [`simple_pairs`], exactly as SciGraphs' own `simple` reduction does, so
+//! away once, in `simple_pairs`, exactly as SciGraphs' own `simple` reduction does, so
 //! that both paths below read the same graph),
 //! not the repaired hierarchy tree [`crate::layout::hierarchy::Hierarchy`] builds. It
 //! therefore carries no note codes 1 or 2, and needs neither roots nor children; only
@@ -16,9 +16,9 @@
 //! **Exact path** (`n >= 3`, `[try_exact]`): plane-test the graph
 //! ([`planarity::planar_embedding`]), triangulate the certified embedding
 //! ([`planarity::triangulate_embedding`]), build every vertex's triangle flower
-//! ([`triangles`]), solve for radii whose corners close on their target angle sum
-//! ([`radii`]), walk the triangulation's dual to place centres, and relax the walk's
-//! rounding drift back toward tangency ([`placement`]). Every graph edge is part of the
+//! (`triangles`), solve for radii whose corners close on their target angle sum
+//! (`radii`), walk the triangulation's dual to place centres, and relax the walk's
+//! rounding drift back toward tangency (`placement`). Every graph edge is part of the
 //! triangulation (triangulating only adds edges), so every one ends up tangent.
 //!
 //! **Fallback** (`[fallback]`): whenever the exact path cannot certify a genuine

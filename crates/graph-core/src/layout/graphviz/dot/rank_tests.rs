@@ -2,20 +2,21 @@
 //! node by node, plus the edge classification `class2` does next.
 //!
 //! **Ranks, not coordinates.** The oracle prints a y coordinate; the rank is *derived* from
-//! it by `target/probe/rank_oracle.py` as `(y - NODE_H / 2) / (NODE_H + RANKSEP)`, and the
-//! probe reports the largest distance any of the 1000 seeds' printed y values sits from that
-//! grid. It is **0.0000 of a step over every seed**, so every node of every fixture lands
-//! exactly on a rank and the table below is the oracle's own layering rather than a rounded
-//! guess at it. Deriving the rank is what makes this test independent of the position pass:
-//! nothing here needs an x coordinate, and nothing here is sensitive to the node box width,
-//! which is still open.
+//! it by `harness/oracle-dot-probe.py` as `round((y_max - y) / (NODE_H + RANKSEP))`, and
+//! the probe reports the largest distance any of the 1000 seeds' printed y values sits from
+//! that grid. It is **0.0000 of a step over every seed**, so every node of every fixture
+//! lands exactly on a rank and the table below is the oracle's own layering rather than a
+//! rounded guess at it. Deriving the rank is what makes this test independent of the position
+//! pass: nothing here needs an x coordinate, and nothing here is sensitive to the node
+//! box width, which is still open.
 //!
-//! Reproduce the closed cases:
+//! Reproduce the closed cases. Every container goes through `scripts/orch/drun`, which adds
+//! the memory cap and the cgroup; a bare `docker run` is what the house rules forbid:
 //!
 //! ```sh
 //! printf 'graph g {\n  n0; n1; n2; n3;\n  n0 -- n1;\n  n1 -- n2;\n  n2 -- n3;\n  n3 -- n0;\n}\n' \
 //!     > target/probe/cyc4.dot
-//! docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle \
+//! scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle \
 //!     dot -Tplain target/probe/cyc4.dot
 //! ```
 //!
@@ -25,10 +26,10 @@
 //! scripts/orch/gr cargo run -q -p graph-cli --release -- \
 //!     emit-graphviz-fixtures --engine twopi --seeds 1000 --out target/dot-probe1000
 //! cp target/dot-probe1000/twopi.jsonl target/dotfix/dot.jsonl
-//! docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle \
+//! scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle \
 //!     python3 harness/oracle-graphviz.py target/dotfix dot target/gv-dot-det-a --fixtures=dot.jsonl
-//! docker run --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle \
-//!     python3 target/probe/rank_oracle.py --table 20
+//! scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle \
+//!     python3 harness/oracle-dot-probe.py target/dotfix --fixtures=dot.jsonl --table=20
 //! ```
 //!
 //! Determinism: `rank` is a pure function of the graph, and the two runs in
@@ -36,7 +37,7 @@
 
 use super::oracle_probe::{graph, ranked, ranks_of};
 use super::rank::rank;
-use super::rank_fixture_edges::FIXTURE_EDGES;
+use super::rank_fixture_edges::all as fixture_edges;
 
 /// One closed case: a name, the input edges, and the rank the oracle gave every node.
 type Closed = (&'static str, &'static [(u32, u32)], &'static [i32]);
@@ -132,8 +133,8 @@ const FIXTURES: &[(u32, &[i32])] = &[
 
 #[test]
 fn the_first_twenty_fixture_seeds_rank_as_the_oracle_ranks_them() {
-    assert_eq!(FIXTURE_EDGES.len(), FIXTURES.len());
-    for ((seed, edges), (want_seed, want)) in FIXTURE_EDGES.iter().zip(FIXTURES) {
+    assert_eq!(fixture_edges().len(), FIXTURES.len());
+    for ((seed, edges), (want_seed, want)) in fixture_edges().iter().zip(FIXTURES) {
         assert_eq!(
             seed, want_seed,
             "the two tables list the same seeds in order"

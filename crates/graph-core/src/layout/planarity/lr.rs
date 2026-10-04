@@ -1,8 +1,8 @@
 //! The Left-Right planarity test (Brandes 2009), ported from networkx 3.6's
 //! `LRPlanarity` (`algorithms/planarity.py`): orient the graph by DFS
-//! ([`orient`](self::orient)), test the orientation for a valid left-right partition
-//! ([`testing`](self::testing)), then resolve each edge's absolute side
-//! ([`sign`](self::sign)) so [`super::embed`] can lay out the rotation. [`test`] returns
+//! ([`orient`]), test the orientation for a valid left-right partition
+//! ([`testing`]), then resolve each edge's absolute side
+//! ([`sign`]) so [`super::embed`] can lay out the rotation. [`test()`] returns
 //! `None` the moment any of that fails — the graph is not planar.
 //!
 //! Every recursive method in the reference has an iterative twin using an explicit

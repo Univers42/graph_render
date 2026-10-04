@@ -2,7 +2,7 @@
 //! of it and locates the root's members in the same walk, and [`Scan::records`], which
 //! reads one root member's array and each element's members with it.
 //!
-//! Split from [`super`](super) for the house line limit. Both are `Scan` methods, so
+//! Split from [`super`] for the house line limit. Both are `Scan` methods, so
 //! `Scan`'s fields are the parent's and these two share its cursor.
 
 use graph_contract::canonical_json::JsonError;

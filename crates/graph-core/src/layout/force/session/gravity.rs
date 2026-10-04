@@ -7,7 +7,7 @@
 //! this motor is gated on bits.
 //!
 //! The tick **skips** this function when `gravity == 0` rather than calling it with a zero
-//! strength; [`applying_it_at_zero_is_not_the_same_bytes`] is why, and it is a test in this
+//! strength; `applying_it_at_zero_is_not_the_same_bytes` is why, and it is a test in this
 //! file because the skip lives in `sim.rs` and the reason belongs next to the arithmetic.
 
 use crate::layout::force::barnes_hut::sim::Sim;

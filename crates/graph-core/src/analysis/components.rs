@@ -4,7 +4,7 @@
 //!
 //! Component ids are assigned in **ascending dense-index-of-first-member order**, not
 //! discovery order (which depends on where a traversal or a union-find union happened to
-//! start): [`canonicalize`] renumbers by scanning nodes `0..n` and handing out the next
+//! start): `canonicalize` renumbers by scanning nodes `0..n` and handing out the next
 //! id the first time each raw label is seen.
 
 use crate::csr_petgraph::{CsrDigraph, NodeIx};
@@ -48,7 +48,7 @@ pub fn weak(topology: &Topology) -> Vec<u32> {
 
 /// Strongly connected components: an edge counts only in its own direction (an
 /// undirected edge, both). Tarjan's algorithm, reused from petgraph over
-/// [`CsrDigraph`]; the canonicalisation is ours, same as [`weak`].
+/// `CsrDigraph`; the canonicalisation is ours, same as [`weak`].
 pub fn strong(topology: &Topology) -> Vec<u32> {
     let n = topology.node_count() as usize;
     let sccs = petgraph::algo::tarjan_scc(CsrDigraph::new(topology));

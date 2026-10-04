@@ -4,8 +4,8 @@
 //! `docs/decisions/sugiyama-heuristics.md` for the full citation list and every
 //! deviation.
 //!
-//! Pipeline: [`acyclic`] orients every edge forward, [`layering`] assigns layers and dummy
-//! chains, [`ordering`] reduces crossings, [`coords`] assigns X, [`routing`] builds the
+//! Pipeline: `acyclic` orients every edge forward, `layering` assigns layers and dummy
+//! chains, `ordering` reduces crossings, `coords` assigns X, `routing` builds the
 //! geometry.
 //!
 //! **Two entry points, two sets of axes, one pipeline.** [`run`] is the registered
@@ -40,7 +40,7 @@ use ordering::Ordering;
 use routing::{LAYER_SPACING, Routing, edge_paths, node_positions};
 
 /// Cycle breaking through crossing reduction, the three stages [`run`] and
-/// [`crossings_for`] share. Fails only if the layer count does not cover every vertex, which
+/// `crossings_for` share. Fails only if the layer count does not cover every vertex, which
 /// [`layered`]'s own `max() + 1` always does ([`ordering::Ordering::build`]'s guard).
 fn layered(topology: &Topology) -> Result<(Acyclic, Layering, Ordering), StageError> {
     let acyclic = Acyclic::of(topology);

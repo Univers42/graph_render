@@ -46,8 +46,8 @@ pub use refusal::IngestError;
 /// The only ingest version this reader accepts.
 pub const VERSION: u32 = 1;
 
-/// The longest ingest document [`read`] accepts, in bytes: one past this is
-/// [`IngestError::TooLarge`], checked before [`read`] parses or `from_utf8` touches a byte.
+/// The longest ingest document `read` accepts, in bytes: one past this is
+/// [`IngestError::TooLarge`], checked before `read` parses or `from_utf8` touches a byte.
 ///
 /// Measured, then rounded down to a whole power of two (`docs/decisions/wasm-ingest-limits.md`
 /// step 4, `docs/measurements/fix-ingest-scale.md`): the studio's own generator on the
@@ -122,7 +122,7 @@ pub fn read(bytes: &[u8]) -> Result<(Vec<NodeRecord>, Vec<EdgeRecord>), IngestEr
     Ok((nodes, edges))
 }
 
-/// [`read`] without C12's id pass, for a caller that hands the records to [`index`], which
+/// `read` without C12's id pass, for a caller that hands the records to [`index`], which
 /// refuses the same documents.
 pub fn read_records(bytes: &[u8]) -> Result<(Vec<NodeRecord>, Vec<EdgeRecord>), IngestError> {
     if bytes.len() > ceiling() {

@@ -1,7 +1,7 @@
 //! The live parameter set: what a session can be told, and what it will refuse.
 //!
 //! Every field is finite and range-checked, and a refusal is a
-//! [`SessionError`](super::SessionError), never a clamp. The reasoning is in
+//! [`SessionError`], never a clamp. The reasoning is in
 //! `docs/decisions/live-force-session.md`; the short version is that a clamp is a lie
 //! the caller cannot see, and a force layout that quietly ran with `theta = 1.5` instead of
 //! the `2.0` that was asked for still returns a plausible picture.
@@ -9,7 +9,7 @@
 //! The ranges themselves are `ranges.rs`'s consts and nothing else — no other module states
 //! a bound, so a bound can only move there, and `session/tests/m1e.rs` pins both ends of
 //! every one. What is here is the struct, the two *relations* between fields that no single
-//! range can express ([`relations`](Self::relations)), and the one order both validators walk.
+//! range can express (`relations`), and the one order both validators walk.
 
 mod ranges;
 
@@ -75,9 +75,9 @@ pub struct LiveParams {
 impl LiveParams {
     /// Every field against its range, then every relation between two of them.
     ///
-    /// The per-field half walks [`ordered`](Self::ordered) — the same list
+    /// The per-field half walks `ordered` — the same list
     /// [`validate_finite`](Self::validate_finite) walks — so the two can never name a
-    /// different "first bad field". [`relations`](Self::relations) runs **after** every
+    /// different "first bad field". `relations` runs **after** every
     /// field has passed its own range, so a value that is wrong on its own is still
     /// reported as the field that is wrong.
     pub fn validate(&self) -> Result<(), SessionError> {

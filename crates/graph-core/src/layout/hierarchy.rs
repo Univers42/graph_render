@@ -21,7 +21,7 @@
 //! - **Depth**: breadth first from the root, so under a virtual root the real roots sit
 //!   at depth 1.
 //!
-//! O(n + m) apart from two **stable comparison sorts**: [`notes`](Self::notes) is sorted
+//! O(n + m) apart from two **stable comparison sorts**: [`notes`](Hierarchy::notes) is sorted
 //! once (`Hierarchy::of`, at most `2m` entries) and the cycle cuts once (`break_cycles`, at
 //! most one per disjoint cycle, so at most `n`), so the real bound is O(n + m log m). The
 //! rest is linear: two passes over the CSR, one pointer walk touching each node once, one

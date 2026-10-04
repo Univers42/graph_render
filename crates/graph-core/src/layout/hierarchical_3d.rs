@@ -23,7 +23,7 @@
 //!
 //! **A level is this module's own undirected BFS depth, not a layer of the 2D Sugiyama
 //! layout.** Nothing here reads `layout::sugiyama`: the levels come from
-//! [`levels::component_roots`] plus [`levels::multi_source_levels`] (`hierarchical.py:31-52`
+//! `levels::component_roots` plus `levels::multi_source_levels` (`hierarchical.py:31-52`
 //! and `:66-81`), so on a digraph they are BFS distances in the undirected projection
 //! while `sugiyama`'s `layering::assign_layers` would give longest-path layers. The two
 //! disagree wherever BFS depth and longest-path depth do — the chain `1 -> 0 -> 2` gets
@@ -45,14 +45,14 @@
 //!
 //! **Two numpy behaviours are load-bearing and spelled out rather than approximated.**
 //!
-//! * `np.round` / Python's `round` is **ties to even**. [`disk::half_to_even`] is that rule;
+//! * `np.round` / Python's `round` is **ties to even**. `disk::half_to_even` is that rule;
 //!   `f64::round` is ties *away from zero* and disagrees at every exact half. At `count =
 //!   10` the reference's own `take` is `np.round([2.5, 7.5]) = [2, 8]`, where a naive round
 //!   gives `[3, 8]`, the reference's own `while take.sum() > count` loop then moves one unit
 //!   to the argmax, and the drawing comes out `[3, 7]` — a different picture, not a
 //!   different rounding.
 //! * `np.argmax` returns the **first** maximum, so a tie between two rings takes the lower
-//!   ring index ([`disk`]'s `argmax`). `Iterator::max` would take the last.
+//!   ring index (`disk`'s `argmax`). `Iterator::max` would take the last.
 //!
 //! **The `widest` guard.** The reference guards `z`'s denominator with `max(1, max_level)`
 //! and uses `widest` bare (`hierarchical.py:140`, `:142`). `widest` cannot be 0 on this
@@ -68,7 +68,7 @@
 //! capability id is [`ID`], which is not a `Stage::ID` for the same reason.
 //!
 //! The node set is the undirected, deduplicated, self-loop-free projection every force
-//! layout shares ([`crate::layout::force::simple_graph`]), so a parallel pair and a 2-cycle
+//! layout shares (`crate::layout::force::simple_graph`), so a parallel pair and a 2-cycle
 //! are one edge here, as they are one edge in the `nx.Graph` the differential builds.
 
 use super::Geometry;
