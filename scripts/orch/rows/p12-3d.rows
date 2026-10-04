@@ -39,7 +39,7 @@ negctl-scigraphs-conformance|0|scripts/scigraphs-conformance.sh --break; test $?
 # sibling because the z column is on the wire, not reconstructed by the reader. All five
 # pairs are measured at seed 3: 328 bytes against 308, every one of them.
 dim3d-json|0|for l in layout.random.3d layout.basic3d.spiral layout.bipartite_3d layout.spectral3d layout.mds.pivot3d; do scripts/orch/gr cargo run -q --release -p graph-cli -- snapshot --seed 3 --layout $l --out-json - 2>/dev/null | grep -q '"dim":1' || exit 1; done
-dim2d-json-unchanged|0|for l in layout.random layout.spiral layout.bipartite layout.spectral layout.mds.pivot; do out=$(scripts/orch/gr cargo run -q --release -p graph-cli -- snapshot --seed 3 --layout $l --out-json - 2>/dev/null); echo "$out" | grep -q '"dim"' && exit 1; done
+dim2d-json-unchanged|0|for l in layout.random layout.spiral layout.bipartite layout.spectral layout.mds.pivot; do out=$(scripts/orch/gr cargo run -q --release -p graph-cli -- snapshot --seed 3 --layout $l --out-json - 2>/dev/null); if echo "$out" | grep -q '"dim"'; then exit 1; fi; done
 dim3d-z-on-the-wire|0|for pair in random:random.3d spectral:spectral3d mds.pivot:mds.pivot3d spiral:basic3d.spiral bipartite:bipartite_3d; do two=${pair%%:*}; three=${pair##*:}; a=$(scripts/orch/gr cargo run -q --release -p graph-cli -- snapshot --seed 3 --layout layout.$three --out-bin - 2>/dev/null | wc -c); b=$(scripts/orch/gr cargo run -q --release -p graph-cli -- snapshot --seed 3 --layout layout.$two --out-bin - 2>/dev/null | wc -c); [ "$a" -gt "$b" ] || exit 1; done
 
 # The new stage is hashed, and a model that moves moves it.
