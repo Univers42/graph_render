@@ -1,0 +1,73 @@
+# p12-t4b — the 3D arms of the force SciGraphs names.
+# Format: `name|expect|cmd`, expect is `0` or `nonzero`; `#` lines and blanks are skipped.
+#
+# Four of the five ids this job lists are here; `layout.force.yifan_hu.3d` is not, and
+# docs/measurements/p12-t4b.md says why in its own section. `layout.force.yifan_hu.2z` is.
+#
+# The chain per oracle is the p12-t2 three-arm shape: emit fixtures, run the harness in the
+# python image, ingest the verdict. Both oracles run over the 1000 gate seeds.
+#
+# The `*-py` rows are plain `docker run` rather than `scripts/orch/gr`, because the harness
+# needs the `ge-python-oracle` image and not the Rust one; every other row goes through `gr`.
+# The two longer checks live in `harness/` scripts rather than inline shell, so this file
+# stays readable and the logic is testable.
+
+# 1. Build and clippy, the whole workspace, so a 3D arm that did not compile cannot pass.
+fmt|0|scripts/orch/gr cargo fmt --all --check
+clippy|0|scripts/orch/gr cargo clippy --workspace --all-targets -- -D warnings
+# `test` is `quick.rows`'s own row, repeated here for the same reason. It is **flaky** on
+# this tree and on develop, for a reason this job did not cause:
+# `bench/tests/harness.rs`'s negative controls write a mutated copy to the workspace root
+# (`bench/staging.rs:18,26`), which changes `evidence::tree_fingerprint()`, so any
+# concurrently running recording command refuses with "not recorded". Measured: green on one
+# run of this tree (19 suites), 11 failures on another, and 2 failures on an unmodified HEAD
+# — every failing test green when its own suite runs alone. The fix is to stage the mutant
+# under `target/`, in `runner.rs::harness_mutant`, and it should land before the next batch
+# of layout ids. Full write-up in `docs/measurements/p12-t4b.md`; deliberately NOT worked
+# around here, because a change that turned this green without explaining the mechanism would
+# be the wrong move.
+test|0|scripts/orch/gr cargo test --workspace --no-fail-fast
+
+# 2. Every 2D layout's snapshot bytes are unchanged. `harness/golden-2d.sh` sweeps the 28
+#    pre-3D layouts over seeds 0..7 and hashes each snapshot's binary face; the sweep
+#    refuses to write a line whose digest is the empty-input hash, so an id that does not
+#    exist fails the row instead of silently pinning a constant.
+golden-sweep|0|scripts/orch/gr bash /w/harness/golden-2d.sh /w/target/golden-now.txt
+#    The claim itself: the sweep against `harness/golden-2d-before.txt`, the pin taken
+#    before the first edit. `grep -v '^#'` on both sides because the pin carries a
+#    provenance header and the sweep does not. Exit 0 means no 2D byte moved.
+golden-2d|0|scripts/orch/gr bash -c "diff <(grep -v '^#' /w/harness/golden-2d-before.txt) /w/target/golden-now.txt"
+# 2b. The negative control. A pin that cannot differ cannot prove equality, so this row
+#    diffs the pin against a *perturbed* copy: one digit changed, which must exit
+#    non-zero. Without it `golden-2d` would pass just as happily against a pin that had
+#    been overwritten with whatever the tree currently produces.
+golden-2d-negctl|nonzero|scripts/orch/gr bash -c "sed 's/^layout.grid 0 ./layout.grid 0 f/' /w/harness/golden-2d-before.txt > /w/target/golden-perturbed.txt; diff <(grep -v '^#' /w/harness/golden-2d-before.txt) /w/target/golden-perturbed.txt"
+
+# 3. The 3D igraph arms. Fixtures carry 3D starts and `dim = 3` reference calls, which is
+#    why this is a separate set from the 2D `oracle-igraph`.
+emit-igraph3d-1000|0|scripts/orch/gr cargo run -q -p graph-cli -- emit-igraph3d-fixtures --seeds 1000 --out target/igraph3d-fixtures
+igraph3d-py|0|docker run --rm -v $PWD:/w -w /w ge-python-oracle python3 harness/oracle-igraph.py target/igraph3d-fixtures
+igraph3d|0|scripts/orch/gr cargo run -q -p graph-cli -- oracle-igraph3d --dir target/igraph3d-fixtures
+# The negative control: no fixtures, so no measured worst, so the differential is NOT-RUN
+# rather than green. Exit 2, and the row expects non-zero.
+igraph3d-negctl|nonzero|scripts/orch/gr cargo run -q -p graph-cli -- oracle-igraph3d --dir target/igraph3d-fixtures-absent
+
+# 4. FA2's 3D arm, on the same harness as the 2D one but under its own key (`fa2_3d`) and
+#    its own measured ceiling.
+emit-fa2-1000|0|scripts/orch/gr cargo run -q -p graph-cli -- emit-fa2-fixtures --seeds 1000 --out target/fa2-fixtures
+fa2-py|0|docker run --rm -v $PWD:/w -w /w ge-python-oracle python3 harness/oracle-fa2.py target/fa2-fixtures
+fa2|0|scripts/orch/gr cargo run -q -p graph-cli -- oracle-fa2 --dir target/fa2-fixtures
+fa2-negctl|nonzero|scripts/orch/gr cargo run -q -p graph-cli -- oracle-fa2 --dir target/fa2-fixtures-absent
+
+# 5. The hash gate over the five new ids, and its negative control. The knobs and the
+#    Split controls are the 2D arms' own and still bite (see barnes_hut.rs's min_seeds):
+#    a 3D arm that ignored a perturbed z column would still be caught by stage_bytes, which
+#    hashes to_bytes() without inspecting a column.
+hashgate-8|0|scripts/orch/gr cargo run -q -p graph-cli -- hashgate --seeds 8
+negctl-degree|nonzero|scripts/orch/gr -e GM_MUTATE_REFERENCE_DEGREE=9 cargo run -q -p graph-cli -- hashgate --seeds 8; test $? -eq 1
+
+# 6. The ledger, read back through the registry as the studio picker reads it: the five new
+#    ids are layout rows, each `implemented` (never `gated` on a hash alone), each naming
+#    the oracle its own differential uses. In a script rather than inline because it is a
+#    loop over five ids and the row file is read by people.
+ledger|0|scripts/orch/gr bash /w/harness/check-3d-ledger.sh

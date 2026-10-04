@@ -55,11 +55,11 @@ pub(super) const BASIC: [Baseline; 6] = [
     ),
     row(
         "FORCEATLAS2",
-        "e58ef84a2bf7c7393d91ada550f095a5c476189a92554db087bdf9c0f1f42b49",
+        "82ce9bfb8d69cb73399638e5e9d88477b0a37d39796e02702718cf4a1ec3bc37",
         "adc82f0e73c0abcf66242d5ebc452967404aff4d8b1392119a99aa140b34b2cb",
         "",
-        1e0,
+        1e-12,
         "bitwise",
-        "rng",
+        "convention",
     ),
 ];

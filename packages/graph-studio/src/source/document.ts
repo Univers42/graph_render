@@ -1,14 +1,8 @@
-/**
- * What one source is before the motor has it: the document to build from, the nodes the studio
- * describes with, and what reading it filled in or had to drop.
- *
- * Its own module so the session is about running a graph and this is about reading one; the
- * two change for different reasons, and `session.ts` was over the house's 300 lines with both.
- */
-import { type IngestNode, IngestRefusal, normaliseIngest } from "../source/ingest.ts";
-import { FIXTURES } from "../source/fixtures.ts";
-import { syntheticRecords } from "../source/synthetic.ts";
+/** A source turned into the ingest document the motor builds, with what the summary reports of it. */
 import type { Source } from "../state/settings.ts";
+import { FIXTURES } from "./fixtures.ts";
+import { type IngestNode, IngestRefusal, normaliseIngest } from "./ingest.ts";
+import { syntheticRecords } from "./synthetic.ts";
 
 export interface Document {
   readonly name: string;
@@ -34,18 +28,10 @@ function normalised(text: string, name: string): Document {
   return { name, json, nodes: doc.nodes, edgeCount: doc.edges.length, notes };
 }
 
-/**
- * The document `source` is, fetched where it has to be. A document source is the text the
- * caller holds; a fixture is one of the listed files, and the path comes from settings, which
- * come from recipes — so an unlisted path is refused here rather than fetched.
- */
-export async function documentFor(
-  source: Source,
-  fixturesUrl: string,
-  fetchText: (url: string) => Promise<string>,
-): Promise<Document> {
+export async function documentFor(source: Source, fixturesUrl: string, fetchText: (url: string) => Promise<string>): Promise<Document> {
   if (source.kind === "synthetic") return generated(source);
   if (source.kind === "document") return normalised(source.text, source.name);
+  // The path comes from settings, and settings come from recipes: only the listed files.
   if (!FIXTURES.includes(source.path)) throw new IngestRefusal(source.path, "not a bundled fixture");
   return normalised(await fetchText(`${fixturesUrl}${source.path}`), source.path);
 }

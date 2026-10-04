@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { readFile } from "node:fs/promises";
 
-import { createMotor, type Handle, MotorTrapError } from "../../../crates/graph-sdk-js/src/index.ts";
+import { assembleColumns, createMotor, type Handle, MotorTrapError } from "../../../crates/graph-sdk-js/src/index.ts";
 import { decodeSnapshot, idAt } from "../../graph-render/src/snapshot/decode.ts";
 import { serve } from "../src/motor/serve.ts";
 import { type MotorLike, type Session, createSession, sha256Hex } from "../src/motor/session.ts";
@@ -184,6 +184,7 @@ test("a trap in the sweep fails it, not counts as a refusal", { skip: SKIP }, as
     posts: () => real.posts(),
     analyses: () => real.analyses(),
     build: (json) => real.build(json),
+    buildColumns: (bytes) => real.buildColumns(bytes),
     run: () => {
       throw new MotorTrapError("gm_run", new Error("unreachable"));
     },
@@ -197,6 +198,7 @@ test("a trap in the sweep fails it, not counts as a refusal", { skip: SKIP }, as
     motorFrom: () => Promise.resolve(trapping),
     fetchText: (url) => readFile(new URL(url.replace("fixtures:/", ""), FIXTURE_ROOT), "utf8"),
     digest: sha256Hex,
+    assemble: assembleColumns,
     now: () => performance.now(),
   });
   const { layouts } = await session.open("unused");

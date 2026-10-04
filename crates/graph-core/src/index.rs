@@ -1,16 +1,20 @@
 //! The indexed model (`src/core/model/model.ts`): dense indices over stable ids, the
 //! string arena, the SoA columns and three CSR adjacencies, built in one O(n + m) pass.
 //!
-//! Identity is an insertion-ordered set of interned ids — `IndexSet`, never `HashMap`
-//! (H2, D4) — so a node's dense index is the position the oracle's `Map` gives it. The
+//! A node's dense index is its admission order, the position the oracle's `Map` gives it,
+//! filed under its interned id's arena slot ([`RowBySlot`]; never a `HashMap`, H2, D4). The
 //! dense index is internal: only the stable string id crosses the wire.
 
 use crate::arena::{CapacityError, FixedState, Interned, StringArena};
 use crate::columns::{EdgeColumns, NodeColumns, NodeKind};
-use crate::csr::Csr;
+use crate::csr::AppendCsr;
 use crate::edgekind::EdgeKind;
 use crate::records::{EdgeRecord, NodeRecord, NodeView};
+#[cfg(test)]
+use admit::next_index;
+pub use extend::ExtendError;
 use indexmap::{IndexMap, IndexSet};
+use slots::RowBySlot;
 
 /// `GraphStats` (`types.ts:75-80`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -29,20 +33,19 @@ pub struct Stats {
 #[derive(Debug, Clone, Default)]
 pub struct Topology {
     strings: StringArena,
-    node_ids: IndexSet<Interned, FixedState>,
-    edge_ids: IndexSet<Interned, FixedState>,
+    node_ids: RowBySlot,
+    edge_ids: RowBySlot,
     nodes: NodeColumns,
     edges: EdgeColumns,
-    out: Csr,
-    inbound: Csr,
-    hierarchy: Csr,
+    out: AppendCsr,
+    inbound: AppendCsr,
+    hierarchy: AppendCsr,
+    /// Distinct `source` values in first-seen node order: a node's group is its source's
+    /// position here. Kept so a later batch numbers new sources after the existing ones.
+    sources: IndexSet<Interned, FixedState>,
     by_database: IndexMap<Interned, Vec<u32>, FixedState>,
     notes: u32,
 }
-
-/// The slot-table entry of a string no node claims. `next_index` refuses to hand out
-/// `u32::MAX`, so a live dense index is never this value and one sentinel is enough.
-const NO_NODE: u32 = u32::MAX;
 
 /// `indexModel` (`model.ts:36-71`): nodes de-duplicated first-wins, then edges kept in
 /// order unless their id was already taken or an endpoint is missing.
@@ -52,24 +55,20 @@ const NO_NODE: u32 = u32::MAX;
 /// different still grows it once — and `node_ids`/`edge_ids` over-reserve by exactly the
 /// ids this pass drops: duplicate node ids, and edges whose endpoints are missing.
 pub fn index_model(nodes: &[NodeRecord], edges: &[EdgeRecord]) -> Result<Topology, CapacityError> {
+    let mut topology = Topology::with_row_capacity(nodes.len(), edges.len());
     let (strings, bytes) = size_hint(nodes, edges);
-    let mut topology = Topology {
-        strings: StringArena::with_capacity(strings, bytes),
-        node_ids: IndexSet::with_capacity_and_hasher(nodes.len(), FixedState::default()),
-        edge_ids: IndexSet::with_capacity_and_hasher(edges.len(), FixedState::default()),
-        nodes: NodeColumns::with_capacity(nodes.len()),
-        edges: EdgeColumns::with_capacity(edges.len()),
-        ..Topology::default()
-    };
-    let mut slots = Vec::new();
+    topology.strings = StringArena::with_capacity(strings, bytes);
     for node in nodes {
-        topology.admit_node(node, &mut slots)?;
+        topology.admit_node(&node.view())?;
     }
     for edge in edges {
-        topology.admit_edge(edge, &slots)?;
+        // The endpoints are resolved before anything is interned, exactly as inside
+        // `admit_edge`: a dangling edge must claim no id and cost no arena bytes.
+        if let Some(at) = topology.endpoints(&edge.source, &edge.target) {
+            topology.admit_edge(at, &edge.view().fields())?;
+        }
     }
-    topology.build_adjacency()?;
-    topology.group_nodes();
+    topology.finish()?;
     Ok(topology)
 }
 
@@ -108,98 +107,44 @@ pub fn nodes_equal(a: &NodeView<'_>, b: &NodeView<'_>) -> bool {
         && a.icon == b.icon
 }
 
-/// A dense index for the next entry of a set already holding `len`, or the refusal.
-fn next_index(len: usize, what: &'static str) -> Result<u32, CapacityError> {
-    u32::try_from(len)
-        .ok()
-        .filter(|&i| i < u32::MAX)
-        .ok_or(CapacityError { what })
-}
-
-fn intern_opt(
-    strings: &mut StringArena,
-    value: Option<&str>,
-) -> Result<Option<Interned>, CapacityError> {
-    value.map(|v| strings.intern(v)).transpose()
-}
-
 impl Topology {
-    /// The node `id` names, resolved through the build's slot table: one probe of the
-    /// arena's lookup and a read of `slots`, where [`node_index`](Self::node_index)
-    /// spends a second hash probe in `node_ids`. `None` covers both `id` was never
-    /// interned and it is interned but no node claims it — a label or a source some
-    /// other node carries.
-    fn resolve_node(&self, id: &str, slots: &[u32]) -> Option<u32> {
-        let index = *slots.get(self.strings.find(id)?.slot())?;
-        (index != NO_NODE).then_some(index)
+    /// An empty topology with room for `nodes` node rows and `edges` edge rows: the id sets
+    /// and the four SoA columns. The arena is left to grow — a caller that knows the
+    /// document's string shape replaces it, as [`index_model`] does.
+    pub(super) fn with_row_capacity(nodes: usize, edges: usize) -> Self {
+        Self {
+            node_ids: RowBySlot::with_capacity(nodes),
+            edge_ids: RowBySlot::with_capacity(edges),
+            nodes: NodeColumns::with_capacity(nodes),
+            edges: EdgeColumns::with_capacity(edges),
+            ..Self::default()
+        }
     }
 
-    /// Keeps `node` unless its id is taken: first wins (`model.ts:37-40`). One arena probe
-    /// and one set probe per node: a taken id is already interned, so `intern` adds nothing.
-    fn admit_node(&mut self, node: &NodeRecord, slots: &mut Vec<u32>) -> Result<(), CapacityError> {
-        let s = &mut self.strings;
-        let id = s.intern(&node.id)?;
-        let (index, fresh) = self.node_ids.insert_full(id);
-        if !fresh {
-            return Ok(());
-        }
-        let index = next_index(index, "node index")?;
-        let n = &mut self.nodes;
-        n.database.push(intern_opt(s, node.database_id.as_deref())?);
-        n.source.push(s.intern(&node.source)?);
-        n.label.push(s.intern(&node.label)?);
-        n.group_label.push(intern_opt(s, node.group.as_deref())?);
-        n.icon.push(intern_opt(s, node.icon.as_deref())?);
-        n.id.push(id);
-        n.kind.push(node.kind);
-        n.weight.push(node.weight);
-        n.version.push(node.version);
-        n.has_note.push(node.has_note);
-        // Every string interned above is a slot this table must account for, and only
-        // the id's slot names a node.
-        slots.resize(self.strings.len(), NO_NODE);
-        slots[id.slot()] = index;
+    /// The tail every ingest path shares, in this order: the three adjacencies and the
+    /// degree column, then the group column, `by_database` and the note count.
+    pub(super) fn finish(&mut self) -> Result<(), CapacityError> {
+        self.build_adjacency()?;
+        self.group_nodes();
         Ok(())
     }
 
-    /// Keeps `edge` unless its id is taken or an endpoint is missing (`model.ts:47-53`).
-    /// A dropped edge interns nothing, so it neither claims its id nor costs arena bytes:
-    /// the endpoints are resolved first, and a taken id is already interned.
-    fn admit_edge(&mut self, edge: &EdgeRecord, slots: &[u32]) -> Result<(), CapacityError> {
-        let (Some(source), Some(target)) = (
-            self.resolve_node(&edge.source, slots),
-            self.resolve_node(&edge.target, slots),
-        ) else {
-            return Ok(());
-        };
-        let s = &mut self.strings;
-        let id = s.intern(&edge.id)?;
-        let (index, fresh) = self.edge_ids.insert_full(id);
-        if !fresh {
-            return Ok(());
-        }
-        next_index(index, "edge index")?;
-        let e = &mut self.edges;
-        e.label.push(s.intern(&edge.label)?);
-        e.record_id.push(intern_opt(s, edge.record_id.as_deref())?);
-        e.id.push(id);
-        e.source.push(source);
-        e.target.push(target);
-        e.kind.push(edge.kind);
-        e.strength.push(edge.strength);
-        e.directed.push(edge.directed);
-        e.child_first.push(edge.child_first);
-        Ok(())
+    /// The dense indices of the nodes named `source` and `target`, or `None` if either is
+    /// not kept. Split out of `admit_edge` so a caller that already
+    /// holds resolved endpoints — the columnar path, where an endpoint is a row — pays no
+    /// arena probe, and so `index_model` can resolve before it interns anything.
+    pub(super) fn endpoints(&self, source: &str, target: &str) -> Option<(u32, u32)> {
+        Some((self.node_index(source)?, self.node_index(target)?))
     }
 
     /// The out, in and hierarchy CSRs, fed in edge order, and the degree column. A
     /// hierarchy edge is filed under its parent, which for `child_of` is its target.
     fn build_adjacency(&mut self) -> Result<(), CapacityError> {
         let (n, e) = (self.node_count(), &self.edges);
-        self.out = Csr::from_pairs(n, e.source.iter().copied().zip(0..))?;
-        self.inbound = Csr::from_pairs(n, e.target.iter().copied().zip(0..))?;
+        self.out = AppendCsr::from_pairs(n, e.source.iter().copied().zip(0..))?;
+        self.inbound = AppendCsr::from_pairs(n, e.target.iter().copied().zip(0..))?;
         let tree = (0..self.edge_count()).filter(|&i| e.kind[i as usize] == EdgeKind::Hierarchy);
-        self.hierarchy = Csr::from_pairs(n, tree.map(|i| (self.parent(i), i)))?;
+        self.hierarchy = AppendCsr::from_pairs(n, tree.map(|i| (self.parent(i), i)))?;
         self.nodes.degree = (0..n)
             .map(|v| (self.out.row(v).len() + self.inbound.row(v).len()) as u32)
             .collect();
@@ -208,22 +153,26 @@ impl Topology {
 
     /// The group column, `byDatabase` and the note count, in one pass in node order.
     fn group_nodes(&mut self) {
-        let n = &mut self.nodes;
-        let mut sources = IndexSet::<Interned, FixedState>::default();
-        n.group = n
-            .source
-            .iter()
-            .map(|&s| sources.insert_full(s).0 as u32)
-            .collect();
-        for (i, database) in (0..).zip(&n.database) {
-            if let Some(database) = *database {
-                self.by_database.entry(database).or_default().push(i);
-            }
+        (0..self.node_count()).for_each(|i| self.group_node(i));
+    }
+
+    /// Files node `i`, the first one not grouped yet, in the group column, `byDatabase`
+    /// and the note count. A node's group is its source's first-seen position.
+    fn group_node(&mut self, i: u32) {
+        let (n, at) = (&mut self.nodes, i as usize);
+        n.group
+            .push(self.sources.insert_full(n.source[at]).0 as u32);
+        if let Some(database) = n.database[at] {
+            self.by_database.entry(database).or_default().push(i);
         }
-        self.notes = n.kind.iter().filter(|&&k| k == NodeKind::Note).count() as u32;
+        self.notes += u32::from(n.kind[at] == NodeKind::Note);
     }
 }
 
+mod admit;
+pub(crate) mod columns;
+mod extend;
+mod slots;
 mod view;
 
 #[cfg(test)]

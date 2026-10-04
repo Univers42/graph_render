@@ -13,17 +13,16 @@ use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::process::Output;
 
-/// The reference arm, pinned: networkx 3.6's own `forceatlas2_layout` over the gate
-/// model's first 64 seeds at the gated budget, written by
-/// `python3 harness/fa2-chaos.py <dir> --write-reference`. Re-pin it only together with a
-/// re-measurement (`docs/measurements/fa2-chaos.md`): a stale pin would make the control
-/// below pass or fail for a reason that has nothing to do with the port.
+/// The reference arm, pinned: networkx 3.6's own `forceatlas2_layout` over the gate model's
+/// first 64 seeds at the gated budget, written by `python3 harness/fa2-chaos.py <dir>
+/// --write-reference`. Re-pin it only together with a re-measurement
+/// (`docs/measurements/fa2-chaos.md`): a stale pin would make the control below pass or fail
+/// for a reason that has nothing to do with the port.
 const NX_REFERENCE: &str = "tests/fixtures/fa2-nx-reference.jsonl";
 
-/// The budget both arms run at, the seeds the pin covers, and the ceiling measured at
-/// that budget. Pinned as literal numbers rather than read back from the crate: the point
-/// of a pin is that changing the constant fails here and forces a re-measurement, which a
-/// self-referential assertion cannot do.
+/// The budget both arms run at, the seeds the pin covers, and the ceiling at that budget.
+/// Pinned as literals rather than read back from the crate: changing one must fail here and
+/// force a re-measurement, which a self-referential assertion cannot do.
 const GATED_MAX_ITER: u64 = 2;
 const PINNED_SEEDS: u64 = 64;
 const CEILING: f64 = 1e-7;
@@ -159,6 +158,16 @@ fn the_ceiling_is_pinned_and_oracle_fa2_judges_against_it() {
         Some(1),
         "one ulp over the ceiling must fail"
     );
+    // The two keys must be able to disagree: 2D one ulp over its ceiling while 3D sits at
+    // the measured worst is a state where `fa2` FAILs and `fa2_3d` is ok, so neither
+    // verdict rides on the other's number.
+    let split = oracle_fa2_split(&out, f64::from_bits(CEILING.to_bits() + 1), worst);
+    assert_eq!(split.status.code(), Some(1), "{}", stdout(&split));
+    assert!(
+        stdout(&split).contains("layout.forceatlas2: "),
+        "{}",
+        stdout(&split)
+    );
     assert!(stdout(&above).contains("FAIL"), "{}", stdout(&above));
     let empty = oracle_fa2(&out, 0.0, 0);
     assert_eq!(
@@ -169,12 +178,9 @@ fn the_ceiling_is_pinned_and_oracle_fa2_judges_against_it() {
 }
 
 /// The negative control, at the gated budget: `GM_MUTATE_FA2_SCALING_RATIO` perturbs
-/// `Fa2State::repulsion`'s own variable, and the perturbed port must miss the very same
-/// pinned reference by six orders of magnitude over the ceiling.
-///
-/// The budget is 2, which is where a short run could make the gate vacuous — a control
-/// that only failed because the trajectory had time to diverge would be worth nothing
-/// here — so this asserts the margin, not just the redness.
+/// `Fa2State::repulsion`'s own variable, and the perturbed port must miss the very same pinned
+/// reference by six orders of magnitude over the ceiling. The budget is 2, where a short run
+/// could make the gate vacuous, so this asserts the margin and not just the redness.
 #[test]
 fn a_perturbed_port_goes_red_at_the_gated_budget() {
     let honest_out = dir("control-honest");
@@ -198,25 +204,34 @@ fn a_perturbed_port_goes_red_at_the_gated_budget() {
     );
 }
 
-/// `oracle-fa2` on `out` with a result carrying `worst` as its measured gap over `cases`
-/// seeds. The fingerprint and digest are the fixture set's own, so only the comparison is
-/// under test — and `cases = 0` is the "a differential over nothing proves nothing" arm.
+/// `oracle-fa2` on `out` carrying `worst` over `cases` seeds; `cases = 0` is the
+/// "over nothing proves nothing" arm.
 fn oracle_fa2(out: &str, worst: f64, cases: u64) -> Output {
-    let manifest: Value = serde_json::from_str(
-        &std::fs::read_to_string(Path::new(out).join("fa2-manifest.json")).expect("manifest"),
-    )
-    .expect("manifest json");
+    write_result(out, worst, worst, cases)
+}
+
+/// As [`oracle_fa2`], with a different gap per key — what shows they are judged separately.
+fn oracle_fa2_split(out: &str, worst_2d: f64, worst_3d: f64) -> Output {
+    write_result(out, worst_2d, worst_3d, PINNED_SEEDS)
+}
+
+/// The `<out>/fa2-result.json` both verdicts read, with the fixture set's own fingerprint
+/// and digest so only the comparison is under test.
+fn write_result(out: &str, worst_2d: f64, worst_3d: f64, cases: u64) -> Output {
+    let path = Path::new(out).join("fa2-manifest.json");
+    let manifest: Value = serde_json::from_str(&std::fs::read_to_string(path).expect("manifest"))
+        .expect("manifest json");
     let result = serde_json::json!({
         "fingerprint": manifest["fingerprint"],
         "sha256": manifest["sha256"]["fa2.jsonl"],
         "oracle": "networkx 3.6 forceatlas2_layout, pinned in the test",
-        "layouts": { "fa2": { "cases": cases, "worst": worst } },
+        "layouts": {
+            "fa2": { "cases": cases, "worst": worst_2d },
+            "fa2_3d": { "cases": cases, "worst": worst_3d },
+        },
     });
-    std::fs::write(
-        Path::new(out).join("fa2-result.json"),
-        serde_json::to_string_pretty(&result).expect("result json") + "\n",
-    )
-    .expect("write result");
+    let result = serde_json::to_string_pretty(&result).expect("result json") + "\n";
+    std::fs::write(Path::new(out).join("fa2-result.json"), result).expect("write result");
     graph_cli(&["oracle-fa2", "--dir", out], None)
 }
 
@@ -251,8 +266,9 @@ fn worst_gap(lines: &[Value]) -> f64 {
     worst
 }
 
-/// `max |ours - theirs|` over both coordinates, over the larger side of the reference's
-/// own bounding box: the harness's normalization, so a graph's scale cannot move the gap.
+/// `max |ours - theirs|` over both coordinates, over the larger side of the reference's own
+/// bounding box: the harness's normalization. Over `["x", "y"]` because the pinned reference
+/// is the **2D** arm's; the 3D arm's worst is measured against its own fixture set.
 fn gap(ours: &Value, theirs: &Value) -> f64 {
     let mut worst: f64 = 0.0;
     let mut extent: f64 = 0.0;

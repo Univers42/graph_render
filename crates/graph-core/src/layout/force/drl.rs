@@ -15,7 +15,6 @@ use crate::layout::Geometry;
 use crate::rng::Mulberry32;
 use crate::stage::{Stage, StageError};
 use density::Density;
-use graph_contract::geometry::{EdgeGeometry, NodeGeometry};
 use schedule::Schedule;
 
 /// One phase of the schedule.
@@ -41,6 +40,10 @@ pub struct DrlParams {
     pub phases: [Phase; 6],
     /// Seeds the jitter (D5).
     pub seed: u32,
+    /// How many coordinates every node carries: `2`, or `3` for `layout.force.drl.3d`.
+    /// SciGraphs' `IGRAPH_DRL` is the 3D one and `IGRAPH_DRL_2D` the 2D, so this
+    /// parameter is what the two dispatcher arms differ on.
+    pub dim: usize,
 }
 
 const fn phase(iterations: u32, temperature: f64, attraction: f64, damping_mult: f64) -> Phase {
@@ -65,12 +68,17 @@ impl Default for DrlParams {
                 phase(100, 250.0, 0.5, 0.0),
             ],
             seed: 0,
+            dim: 2,
         }
     }
 }
 
 /// Node count past which a run is no longer interactive.
 pub const DRL_CEILING: u64 = 5_000;
+
+/// The widest point this port keeps; see
+/// [`super::fruchterman_reingold::MAX_DIM`].
+const MAX_DIM: usize = 3;
 
 /// DrL layout stage.
 ///
@@ -84,28 +92,44 @@ pub const DRL_CEILING: u64 = 5_000;
 /// sweep the source adds is omitted.
 pub struct Drl;
 
+/// SciGraphs' `IGRAPH_DRL` asks igraph for `dim = 3` (`igraph_layouts.py:342`); this is
+/// the same kernel at 3. `DRL_2D` (`_igraph_drl_2d`, `igraph_layouts.py:307`) stays on
+/// `layout.force.drl`, which is this arm at `dim` 2.
+pub const ID_3D: &str = "layout.force.drl.3d";
+
 impl Stage for Drl {
     type Params = DrlParams;
     const ID: &'static str = "layout.force.drl";
 
     fn run(topology: &Topology, params: &Self::Params) -> Result<Geometry, StageError> {
-        let n = topology.node_count() as usize;
-        let mut pos = vec![[0.0; 2]; n];
-        if n > 0 {
-            sweeps(topology, params, &mut pos);
-        }
-        if pos.iter().flatten().any(|v| !v.is_finite()) {
-            return Err(StageError::NonFinite { column: "node.x" });
-        }
-        Ok(Geometry::planar(
-            NodeGeometry::Point {
-                x: pos.iter().map(|p| p[0] as f32).collect(),
-                y: pos.iter().map(|p| p[1] as f32).collect(),
-            },
-            EdgeGeometry::Line,
-            Vec::new(),
-        ))
+        run_at_dim(topology, params, params.dim)
     }
+}
+
+/// The 3D arm: [`Stage::run`] with `dim` forced to 3. See
+/// [`super::fruchterman_reingold::run_3d`] for why it is a function and not a second
+/// `Stage` impl.
+pub fn run_3d(topology: &Topology, params: &DrlParams) -> Result<Geometry, StageError> {
+    run_at_dim(topology, params, MAX_DIM)
+}
+
+fn run_at_dim(topology: &Topology, params: &DrlParams, dim: usize) -> Result<Geometry, StageError> {
+    if !(2..=MAX_DIM).contains(&dim) {
+        return Err(StageError::Param {
+            name: "dim",
+            rule: "2 or 3 coordinates per node",
+        });
+    }
+    let n = topology.node_count() as usize;
+    let mut pos = vec![[0.0; MAX_DIM]; n];
+    if n > 0 {
+        sweeps(topology, params, dim, &mut pos);
+    }
+    if pos.iter().flatten().take(dim).any(|v| !v.is_finite()) {
+        return Err(StageError::NonFinite { column: "node.x" });
+    }
+    let column = |a: usize| pos.iter().map(|p| p[a] as f32).collect();
+    Ok(Geometry::points(dim, column(0), column(1), column(2)))
 }
 
 /// Neighbour lists, one per node, mutable so edge cutting can drop one direction.
@@ -122,10 +146,10 @@ fn adjacency(topology: &Topology) -> Adjacency {
     adj
 }
 
-fn sweeps(topology: &Topology, params: &DrlParams, pos: &mut [[f64; 2]]) {
+fn sweeps(topology: &Topology, params: &DrlParams, dim: usize, pos: &mut [[f64; MAX_DIM]]) {
     let mut adj = adjacency(topology);
     let mut schedule = Schedule::new(params);
-    let mut field = Density::new();
+    let mut field = Density::new(dim);
     let mut rng = Mulberry32::new(params.seed);
     let mut first = true;
     while !schedule.finished() {
@@ -137,7 +161,7 @@ fn sweeps(topology: &Topology, params: &DrlParams, pos: &mut [[f64; 2]]) {
             if !first {
                 field.remove(v as u32, from);
             }
-            pos[v] = better_position(v, (&*pos, &mut adj), &schedule, (&field, &mut rng));
+            pos[v] = better_position(v, (&*pos, &mut adj), &schedule, (&field, &mut rng), dim);
             field.add(v as u32, pos[v]);
         }
         first = false;
@@ -148,27 +172,29 @@ fn sweeps(topology: &Topology, params: &DrlParams, pos: &mut [[f64; 2]]) {
 /// Node `v`'s next position: the lower-energy of the analytic candidate and its jitter.
 fn better_position(
     v: usize,
-    (pos, adj): (&[[f64; 2]], &mut Adjacency),
+    (pos, adj): (&[[f64; MAX_DIM]], &mut Adjacency),
     schedule: &Schedule,
     (field, rng): (&Density, &mut Mulberry32),
-) -> [f64; 2] {
-    let Some(centroid) = centroid(&adj[v], pos) else {
+    dim: usize,
+) -> [f64; MAX_DIM] {
+    let Some(centroid) = centroid(&adj[v], pos, dim) else {
         return pos[v];
     };
     if schedule.cutting() {
-        cut_farthest(v, centroid, (pos, adj), schedule);
+        cut_farthest(v, centroid, (pos, adj), schedule, dim);
     }
     let damping = 1.0 - schedule.damping_mult();
-    let analytic = [
-        damping * pos[v][0] + (1.0 - damping) * centroid[0],
-        damping * pos[v][1] + (1.0 - damping) * centroid[1],
-    ];
+    let mut analytic = [0.0; MAX_DIM];
+    let mut jittered = [0.0; MAX_DIM];
     let scale = 0.01 * schedule.temperature();
-    let jittered = [
-        analytic[0] + (0.5 - rng.next_f64()) * scale,
-        analytic[1] + (0.5 - rng.next_f64()) * scale,
-    ];
-    let energy = |at: [f64; 2]| node_energy(v as u32, at, (pos, &adj[v]), (field, schedule));
+    // Ascending axis, and the jitter draws in the same order, so the 2D arm reads exactly
+    // the two `rng.next_f64()` calls it always read, in the same sequence.
+    for a in 0..dim {
+        analytic[a] = damping * pos[v][a] + (1.0 - damping) * centroid[a];
+        jittered[a] = analytic[a] + (0.5 - rng.next_f64()) * scale;
+    }
+    let energy =
+        |at: [f64; MAX_DIM]| node_energy(v as u32, at, (pos, &adj[v]), (field, schedule), dim);
     if energy(jittered) <= energy(analytic) {
         jittered
     } else {
@@ -176,15 +202,21 @@ fn better_position(
     }
 }
 
-fn centroid(neighbours: &[u32], pos: &[[f64; 2]]) -> Option<[f64; 2]> {
+fn centroid(neighbours: &[u32], pos: &[[f64; MAX_DIM]], dim: usize) -> Option<[f64; MAX_DIM]> {
     if neighbours.is_empty() {
         return None;
     }
-    let sum = neighbours.iter().fold([0.0; 2], |acc, &u| {
-        [acc[0] + pos[u as usize][0], acc[1] + pos[u as usize][1]]
-    });
+    let mut sum = [0.0; MAX_DIM];
+    for &u in neighbours {
+        for a in 0..dim {
+            sum[a] += pos[u as usize][a];
+        }
+    }
     let count = neighbours.len() as f64;
-    Some([sum[0] / count, sum[1] / count])
+    for slot in sum.iter_mut().take(dim) {
+        *slot /= count;
+    }
+    Some(sum)
 }
 
 /// Drops the one neighbour of `v` that is farthest from the centroid (weighted by the
@@ -192,20 +224,21 @@ fn centroid(neighbours: &[u32], pos: &[[f64; 2]]) -> Option<[f64; 2]> {
 /// neighbours. The edge stays in the other node's list.
 fn cut_farthest(
     v: usize,
-    centroid: [f64; 2],
-    (pos, adj): (&[[f64; 2]], &mut Adjacency),
+    centroid: [f64; MAX_DIM],
+    (pos, adj): (&[[f64; MAX_DIM]], &mut Adjacency),
     schedule: &Schedule,
+    dim: usize,
 ) {
     if (adj[v].len() as f64) < schedule.min_edges() {
         return;
     }
     let mut worst: Option<(usize, f64)> = None;
     for (slot, &u) in adj[v].iter().enumerate() {
-        let d = [
-            pos[u as usize][0] - centroid[0],
-            pos[u as usize][1] - centroid[1],
-        ];
-        let away = sqrt(adj[u as usize].len() as f64) * (d[0] * d[0] + d[1] * d[1]);
+        let mut d = [0.0; MAX_DIM];
+        for a in 0..dim {
+            d[a] = pos[u as usize][a] - centroid[a];
+        }
+        let away = sqrt(adj[u as usize].len() as f64) * norm2(&d, dim);
         if worst.is_none_or(|(_, best)| away > best) {
             worst = Some((slot, away));
         }
@@ -220,16 +253,30 @@ fn cut_farthest(
 /// `sum of w * A * q(s)` over the neighbours plus the density term.
 fn node_energy(
     v: u32,
-    at: [f64; 2],
-    (pos, neighbours): (&[[f64; 2]], &[u32]),
+    at: [f64; MAX_DIM],
+    (pos, neighbours): (&[[f64; MAX_DIM]], &[u32]),
     (field, schedule): (&Density, &Schedule),
+    dim: usize,
 ) -> f64 {
     let a2 = schedule.attraction() * schedule.attraction();
     let a = 0.02 * (a2 * a2);
     let mut energy = field.energy(v, at, pos);
     for &u in neighbours {
-        let d = [at[0] - pos[u as usize][0], at[1] - pos[u as usize][1]];
-        energy += a * schedule.pull(d[0] * d[0] + d[1] * d[1]);
+        let mut d = [0.0; MAX_DIM];
+        for k in 0..dim {
+            d[k] = at[k] - pos[u as usize][k];
+        }
+        energy += a * schedule.pull(norm2(&d, dim));
     }
     energy
+}
+
+/// `sum of squares` over the live axes, ascending — the 2D arm's `d[0]*d[0] + d[1]*d[1]`
+/// in the same order and the same bits.
+fn norm2(v: &[f64; MAX_DIM], dim: usize) -> f64 {
+    let mut sum = 0.0;
+    for x in v.iter().take(dim) {
+        sum += x * x;
+    }
+    sum
 }

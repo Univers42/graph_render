@@ -36,6 +36,27 @@ struct Body {
 pub(super) struct Tree {
     quadtree: Quadtree,
     bodies: Vec<Body>,
+    /// The x and y columns gathered out of the row-major positions once per iteration.
+    /// The quadtree wants one contiguous slice per axis (`Quadtree::build`), and the state
+    /// now carries `(n, dim)` rows, so the columns are materialised here rather than by a
+    /// second per-node field on the state. Both are rebuilt every iteration alongside
+    /// `quadtree`, so nothing is carried across an iteration.
+    xs: Vec<f64>,
+    ys: Vec<f64>,
+}
+
+impl Tree {
+    /// Gathers the two live axes of `state`'s rows into the contiguous columns the
+    /// quadtree builds over. Axis order is ascending, so `xs` then `ys` is the order the
+    /// dense 2D arm always drew its two coordinates in.
+    fn gather(&mut self, state: &Fa2State) {
+        self.xs.clear();
+        self.ys.clear();
+        for row in &state.p {
+            self.xs.push(row[0]);
+            self.ys.push(row[1]);
+        }
+    }
 }
 
 impl Tree {
@@ -68,8 +89,8 @@ fn leaf_sum(state: &Fa2State, points: &[u32]) -> Body {
     for &p in points {
         let (m, p) = (state.mass[p as usize], p as usize);
         sum.mass += m;
-        sum.cx += m * state.x[p];
-        sum.cy += m * state.y[p];
+        sum.cx += m * state.p[p][0];
+        sum.cy += m * state.p[p][1];
     }
     sum
 }
@@ -92,13 +113,14 @@ impl Fa2State {
     /// The repulsion pass over `tree`, at opening angle² `theta2`: the dense
     /// [`repulsion`](Fa2State::repulsion)'s forces, approximated far away.
     pub(super) fn repel_tree(&mut self, tree: &mut Tree, theta2: f64) {
-        tree.quadtree.build(&self.x, &self.y);
+        tree.gather(self);
+        tree.quadtree.build(&tree.xs, &tree.ys);
         tree.aggregate(self);
         let order = tree.quadtree.order();
         for (p, &i) in order.iter().enumerate() {
             let (fx, fy) = self.walk(tree, p as u32, theta2);
-            self.ux[i as usize] += fx;
-            self.uy[i as usize] += fy;
+            self.u[i as usize][0] += fx;
+            self.u[i as usize][1] += fy;
         }
     }
 
@@ -107,8 +129,8 @@ impl Fa2State {
         let (cells, order) = (tree.quadtree.cells(), tree.quadtree.order());
         let i = order[p as usize];
         let (xi, yi, mi) = (
-            self.x[i as usize],
-            self.y[i as usize],
+            self.p[i as usize][0],
+            self.p[i as usize][1],
             self.mass[i as usize],
         );
         let k_ratio = self.params.scaling_ratio;
@@ -142,12 +164,17 @@ impl Fa2State {
         let k_ratio = self.params.scaling_ratio;
         let (mut fx, mut fy) = (0.0, 0.0);
         for &j in leaf.iter().filter(|&&j| j != i) {
-            let (dx, dy) = if i < j {
+            // `repel_delta` is antisymmetric, the coincidence jiggle included, so the
+            // pair is taken from the lower index and negated when `i` is the higher one.
+            // Only the two in-plane axes are read: the tree arm pins `dim` at 2, so this
+            // is an axis projection of the row, never a truncation of it.
+            let d = if i < j {
                 self.repel_delta(i, j)
             } else {
-                let (dx, dy) = self.repel_delta(j, i);
-                (-dx, -dy)
+                let d = self.repel_delta(j, i);
+                [-d[0], -d[1], d[2]]
             };
+            let (dx, dy) = (d[0], d[1]);
             let d2 = dx * dx + dy * dy;
             let f = self.mass[i as usize] * self.mass[j as usize] / d2 * k_ratio;
             (fx, fy) = (fx + dx * f, fy + dy * f);

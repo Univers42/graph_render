@@ -106,6 +106,20 @@ The verdict also found two gaps in the first draft of `delta.md`, now fixed ther
 
 P4b starts from P4a once P4a lands. P4c starts from P4b.
 
+## Memory
+
+Accepted on 2026-10-03, after the P4a review: every topology pays for the append path, whether it
+grows or not. Each of the three CSRs holds a 12 B span per row against `Csr`'s 4 B offset, so the
+topology costs 24 B more per node: about +24 MB at 1M nodes, 442 → 466 B per node, and
+`TOPOLOGY_CEILING` falls from 9.7 M to 9.2 M nodes (`POST_STYLE_CEILING` from 9.1 M to 8.6 M). Every
+`SimpleGraph` adds 8 B per node on top. Seven sites build one: the force session,
+`barnes_hut/sim.rs`, `circular/hierarchy.rs`, `drl.rs`, `fruchterman_reingold.rs`,
+`kamada_kawai.rs` and `lgl.rs`. These are estimates scaled from the 100 000-node measurement in
+`docs/measurements/perf-p4a-extend.md`, not runs at 1M.
+
+Ponytail: one primitive for frozen and growing graphs costs about 5 % of the topology at 1M. The
+way out is to keep `Csr` until the first `extend` and convert then, O(edges) once.
+
 ## Consequences
 
 - Removals and attribute edits still go through a rebuild plus `carry`.

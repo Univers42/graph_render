@@ -95,6 +95,21 @@ pub fn run_pipeline<S: Stage>(
 /// The pipeline driver: indexes the records, writes the topology's bytes, runs `layout`
 /// over the finished topology, and turns its geometry into a snapshot. The layout gets a
 /// shared borrow of a topology no stage can change.
+///
+/// **Empty input is a valid no-op, not an error.** No records is a legal document — an
+/// empty database, a filter that matched nothing — and the run is `Ok` with an empty
+/// topology, a 0-node snapshot and the layout's own label. This is why there is no
+/// `StageError` for "nothing to lay out": adding one would turn an exported `Ok` into an
+/// `Err` for every caller that ingests an empty record set (the wasm `build` export and
+/// the conformance fixtures among them), which is a change to the public path, not an
+/// addition to it.
+///
+/// `id` labels the layout stage's bytes and is **the caller's word for it**: nothing here
+/// checks it against the closure that ran, so `run_with(nodes, edges, "layout.helix", …)`
+/// over grid geometry returns a run labelled `layout.helix`. Use [`run_pipeline`], which
+/// takes the id from `S::ID` and cannot mislabel, unless you are naming a layout this
+/// crate does not register — the hash gate and the conformance runner are the two that
+/// do, and both pass the registry's own `layout.id` beside the same `layout.run`.
 pub fn run_with(
     nodes: &[NodeRecord],
     edges: &[EdgeRecord],
@@ -112,9 +127,19 @@ pub fn run_with(
     })
 }
 
+/// The topology stage's bytes for `t`: what the stage hash sees, for the tests that prove
+/// a topology built another way (`Topology::extend`) equal to `index_model`'s.
+#[cfg(test)]
+pub(crate) fn topology_bytes(t: &Topology) -> Result<Vec<u8>, StageError> {
+    let mut bytes = Vec::new();
+    topology::encode(t, &mut bytes)?;
+    Ok(bytes)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::index::empty_model;
     use crate::layout::grid::{Grid, GridParams};
     use crate::weights::REFERENCE_DEGREE;
 
@@ -178,5 +203,30 @@ mod tests {
         for (message, needle) in cases {
             assert!(message.contains(needle), "{message:?} lacks {needle:?}");
         }
+    }
+
+    /// F-42: empty input is a valid no-op, pinned so the day a `StageError` for it appears
+    /// this test is what says the exported `Ok` became an `Err`.
+    #[test]
+    fn an_empty_input_is_a_valid_no_op() {
+        let run = run_pipeline::<Grid>(&[], &[], &GridParams::default()).expect("runs");
+        assert_eq!(run.layout, "layout.grid");
+        assert_eq!(run.snapshot.parts().node_ids.len(), 0);
+        assert_eq!(run.topology, topology_bytes(&empty_model()).expect("bytes"));
+    }
+
+    /// F-43: `run_with` cannot tell the label from the closure, so it publishes the label
+    /// it was given. [`run_pipeline`] is the form that cannot mislabel; this pins the
+    /// difference rather than pretending it is checked.
+    #[test]
+    fn the_layout_label_is_the_word_the_caller_passed() {
+        let (nodes, edges) = seeded(3);
+        let named = |id| {
+            run_with(&nodes, &edges, id, |t| Grid::run(t, &GridParams::default())).expect("runs")
+        };
+        let mislabelled = named("layout.helix");
+        assert_eq!(mislabelled.layout, "layout.helix");
+        assert_eq!(mislabelled.topology, named("layout.grid").topology);
+        assert_eq!(mislabelled.snapshot, named("layout.grid").snapshot);
     }
 }

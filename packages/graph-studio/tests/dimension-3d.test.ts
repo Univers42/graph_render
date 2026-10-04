@@ -61,6 +61,9 @@ function dimMotor(dim: number): MotorLike<number> {
   return {
     layouts: () => ["layout.grid"], posts: () => [], analyses: () => [],
     build: () => 1, run: () => undefined, layoutParams: () => [], post: () => undefined,
+    // The generated graph arrives as columns now, and this fake really is asked to build it,
+    // so it answers the same as `build` does above: one handle, whatever the argument was.
+    buildColumns: () => 1,
     analysis: () => {
       throw new Error("this test motor analyses nothing");
     },
@@ -74,6 +77,9 @@ function dimSession(dim: number): Session {
     fetchText: () => Promise.reject(new Error("this test motor fetches nothing")),
     digest: () => Promise.resolve(null),
     now: () => 0,
+    // The bytes are never read: `dimMotor` answers `buildColumns` with the same handle it
+    // answers `build` with. An empty document is the honest stand-in for "not looked at".
+    assemble: () => new Uint8Array(0),
   });
 }
 

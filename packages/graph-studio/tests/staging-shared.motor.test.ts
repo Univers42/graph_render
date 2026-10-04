@@ -36,6 +36,7 @@ function fakeMotor(memory: WebAssembly.Memory): { exports: StagingExports; built
     gm_last_error: () => 0,
     gm_build: build,
     gm_build_contract: build,
+    gm_build_columns: build,
   };
   return { exports, built };
 }

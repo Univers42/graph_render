@@ -1,0 +1,5 @@
+# The service workspace's merge floor (server/ is its own Cargo workspace), plus the root fmt.
+svc-fmt|0|scripts/orch/gr cargo fmt --manifest-path server/Cargo.toml --all --check
+svc-clippy|0|scripts/orch/gr cargo clippy --manifest-path server/Cargo.toml --workspace --all-targets -- -D warnings
+svc-test|0|scripts/orch/gr cargo test --manifest-path server/Cargo.toml --workspace --no-fail-fast
+root-fmt|0|scripts/orch/gr cargo fmt --all --check

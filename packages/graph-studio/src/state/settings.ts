@@ -20,7 +20,8 @@ export { type ParamValue, type ParamsByLayout, type ParamValues };
 export type Source =
   | { readonly kind: "synthetic"; readonly seed: number; readonly nodes: number; readonly degree: number; readonly shape: SyntheticShape }
   | { readonly kind: "fixture"; readonly path: string }
-  | { readonly kind: "document"; readonly name: string; readonly text: string };
+  /** `host`: handed over by the page that embeds the studio, and never kept in its storage. */
+  | { readonly kind: "document"; readonly name: string; readonly text: string; readonly host?: true };
 
 export const THEMES: readonly string[] = THEME_NAMES;
 /**
@@ -111,7 +112,10 @@ export interface Settings {
 
 function sourceOf(source: Source): Source {
   if (source.kind === "fixture") return Object.freeze({ kind: source.kind, path: source.path });
-  if (source.kind === "document") return Object.freeze({ kind: source.kind, name: source.name, text: source.text });
+  if (source.kind === "document") {
+    const document = { kind: source.kind, name: source.name, text: source.text };
+    return Object.freeze(source.host === true ? { ...document, host: true } : document);
+  }
   return Object.freeze({
     kind: source.kind, seed: source.seed, nodes: source.nodes, degree: source.degree, shape: source.shape,
   });

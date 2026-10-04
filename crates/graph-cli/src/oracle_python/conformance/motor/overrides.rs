@@ -2,12 +2,13 @@
 //! defaults out: where the registered default is not SciGraphs' parameter or units.
 
 use super::super::fixtures::Fixture;
-use super::super::{ITERATIONS, LAYOUT_SEED, SCALE};
+use super::super::{FORCESIM_SEED, ITERATIONS, LAYOUT_SEED, SCALE};
 use super::finish;
 use graph_contract::binary::SnapshotParts;
 use graph_core::Stage;
 use graph_core::exec::Serial;
 use graph_core::layout::circle_packing::{self, CirclePackingParams};
+use graph_core::layout::force::forcesim::{Fa2ForceSimParams, ForceAtlas2ForceSim};
 use graph_core::layout::force::spring::SpringParams;
 use graph_core::layout::forceatlas2::{Fa2Params, ForceAtlas2};
 use graph_core::layout::graphviz::sfdp;
@@ -57,6 +58,28 @@ pub(super) fn fa2(fixture: &Fixture) -> Result<SnapshotParts, String> {
         ..Fa2Params::default()
     };
     finish(fixture, ForceAtlas2::ID, |t| ForceAtlas2::run(t, &params))
+}
+
+/// `Fa2ForceSimParams` at the seed the reference's FA2 actually starts from.
+///
+/// **A different seed from [`fa2`] above, and that is the whole row.** `_forceatlas2_forcesim`
+/// does not hand the layout seed to a generator; it draws one from it —
+/// `seed = _get_layout_rng().randint(0, 2**31 - 1)` (`forceatlas.py:122`) — and hands
+/// *that* to `random_positions`, i.e. to `np.random.default_rng` (`simulation.py:1090`).
+/// The draw is deterministic: `apply_graph_layout` calls `_reset_layout_rng()` at
+/// `dispatcher.py:22`, so every fixture starts from the same `RandomState(981798123)` and
+/// the same first draw. Measured in `ge-python-oracle` and recorded in
+/// `docs/measurements/sg-fa2-forcesim.md`.
+pub(super) fn fa2_forcesim(fixture: &Fixture) -> Result<SnapshotParts, String> {
+    let params = Fa2ForceSimParams {
+        iterations: ITERATIONS,
+        scale: SCALE,
+        seed: FORCESIM_SEED,
+        ..Fa2ForceSimParams::default()
+    };
+    finish(fixture, ForceAtlas2ForceSim::ID, |t| {
+        ForceAtlas2ForceSim::run(t, &params)
+    })
 }
 
 /// sfdp at the layout seed. `sfdp::run` hard-codes `DEFAULT_SEED = 1`; the engine is handed

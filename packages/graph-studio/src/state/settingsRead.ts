@@ -16,11 +16,12 @@ import {
 } from "./settings.ts";
 
 function readSource(value: unknown, at: string): Source {
-  const kind = oneOf(fieldsOf(value, at, ["kind", "seed", "nodes", "degree", "shape", "path", "name", "text"]), at, "kind", ["synthetic", "fixture", "document"]);
+  const kind = oneOf(fieldsOf(value, at, ["kind", "seed", "nodes", "degree", "shape", "path", "name", "text", "host"]), at, "kind", ["synthetic", "fixture", "document"]);
   if (kind === "fixture") return { kind, path: textOf(fieldsOf(value, at, ["kind", "path"]), at, "path") };
   if (kind === "document") {
-    const fields = fieldsOf(value, at, ["kind", "name", "text"]);
-    return { kind, name: textOf(fields, at, "name"), text: textOf(fields, at, "text") };
+    const fields = fieldsOf(value, at, ["kind", "name", "text", "host"]);
+    const document = { kind, name: textOf(fields, at, "name"), text: textOf(fields, at, "text") };
+    return Reflect.get(fields, "host") === true ? { ...document, host: true } : document;
   }
   const fields = fieldsOf(value, at, ["kind", "seed", "nodes", "degree", "shape"]);
   return {

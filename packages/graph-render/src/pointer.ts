@@ -48,7 +48,7 @@ interface Drag {
   travelled: number;
 }
 
-function localPoint(canvas: HTMLCanvasElement, event: MouseEvent): Point {
+export function localPoint(canvas: HTMLCanvasElement, event: MouseEvent): Point {
   const box = canvas.getBoundingClientRect();
   return { x: event.clientX - box.left, y: event.clientY - box.top };
 }

@@ -12,7 +12,7 @@ const CANDIDATES_SHOWN = 8;
  */
 export const MAX_PAN = 2000;
 
-function described(state: StudioState): string | null {
+export function described(state: StudioState): string | null {
   return state.meta === null ? "nothing is drawn" : null;
 }
 

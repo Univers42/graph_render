@@ -3,246 +3,126 @@
  * attributes. Everything it draws is inside its own shadow root: the host page's styles
  * do not reach the panels, and the panels' styles do not reach the host page.
  *
- *   <graph-studio wasm="/graph_wasm.wasm" fixtures="/fixtures/" keys="page"></graph-studio>
+ *   <graph-studio wasm="/graph_wasm.wasm" fixtures="/fixtures/" keys="page" remember></graph-studio>
  *
  * `keys="page"` listens for shortcuts on the window; without it only while the element or
  * something in it has the focus, which is what a page that embeds it next to its own
- * inputs wants.
+ * inputs wants. `remember` reopens the last graph the page drew; without it the element
+ * draws nothing until its host calls `loadGraph` (`docs/contract/host-api.md`).
  */
-import { createElement } from "react";
-import { type Root, createRoot } from "react-dom/client";
-
-import { createLiveDrag } from "./motor/liveDrag.ts";
-import { type BackendChoice, type View, createView } from "../../graph-render/src/view.ts";
+import type { View } from "../../graph-render/src/view.ts";
+import { HOST_API, type GraphStudioElement, type LoadResult, type Resolve } from "./host/contract.ts";
+import { SILENCE_MS } from "./motor/watchdog.ts";
+import { type Mounted, type StudioElementOptions, mount, unmount } from "./mount.ts";
+import type { Studio } from "./studio/studio.ts";
 
 /** The host reads `?backend=` with this, so it never imports the renderer itself. */
 export { backendOf } from "../../graph-render/src/view.ts";
-import type { Save } from "./actions/context.ts";
-import { type LiveBridge, NOT_ASKED, createLiveBridge, watchRuns } from "./motor/bridge.ts";
-import { type MotorClient, createClient } from "./motor/client.ts";
-import { SILENCE_MS } from "./motor/watchdog.ts";
-import type { Assets, Spawn } from "./motor/protocol.ts";
-import { workerPort } from "./motor/workerPort.ts";
-import { type SettingsStorage, openingSettings } from "./state/persist.ts";
-import { type Studio, createStudio } from "./studio/studio.ts";
-import { STUDIO_CSS } from "./styles/studio.css.ts";
-import { Shell } from "./ui/Shell.tsx";
-import { watchSafeArea } from "./ui/safeArea.ts";
+export type { StudioElementOptions } from "./mount.ts";
+/** The host API, from the one file a host may import (`app/eslint.config.js`, INSIDE). */
+export { HOST_API, OPEN_VIAS } from "./host/contract.ts";
+export type {
+  GraphStudioElement, GraphStudioHost, HostEvents, LoadResult, NodePreview, OpenVia, Resolve,
+} from "./host/contract.ts";
 
-export interface StudioElementOptions {
-  /** Where the motor runs; a worker when left out. */
-  readonly spawn?: Spawn;
-  /** What an export does with its file; a download when left out. */
-  readonly save?: Save;
-  /** Who draws the graph's edges and nodes (graph-render `ViewOptions.backend`); `auto` when left out. */
-  readonly backend?: BackendChoice;
-  /** Threads that tick a live settle, the motor worker's own included (`motor/threads.ts`); one per core but one, at most 8, when left out. */
-  readonly threads?: number;
+const NONE: readonly string[] = Object.freeze([]);
+
+/** A type guard, not a cast: the host may hand anything to `resolve`, and only a function is kept. */
+function isResolve(value: unknown): value is Resolve {
+  return typeof value === "function";
 }
 
-export interface GraphStudioElement extends HTMLElement {
-  /** `null` while the element is not in a document. */
-  readonly studio: Studio | null;
-  /**
-   * The view the studio draws on, so a host can move the camera or read it. `null` while
-   * the element is not in a document. The studio keeps its own; this is the same one.
-   */
-  readonly view: View | null;
-  /**
-   * Stops the motor worker where it stands and lets nothing replace it: the live settle
-   * ends at once, and the watchdog puts the strip away and names the cause. This is the
-   * one verb a gate needs to watch a dead worker from the outside; the studio never calls
-   * it itself, and the next layout opens a new worker as usual.
-   */
-  stopMotor(): void;
-  /**
-   * How long the watchdog waits, in milliseconds, before it calls a silent worker dead.
-   * Exposed so a gate can say "within the bound" without carrying its own copy of the
-   * number, which would drift from it silently. Read-only, and not a setting.
-   */
-  readonly watchdogBoundMs: number;
-}
-
-interface Mounted {
-  readonly studio: Studio;
-  readonly view: View;
-  readonly client: MotorClient;
-  readonly root: Root;
-  /** The live bridge: the drag, the forces panel and the progress strip all read it. */
-  readonly bridge: LiveBridge;
-  /** Stops watching the studio's state for a layout that settles live. */
-  readonly unwatch: () => void;
-  /** Stops measuring the panels over the canvas (ST-4). */
-  readonly unwatchArea: () => void;
-}
-
-const HOST_CSS = `
-:host { display: block; position: relative; overflow: hidden; outline: none; }
-.gs-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-.gs-root { position: absolute; inset: 0; pointer-events: none; }
-`;
-
-const REVOKE_AFTER_MS = 60_000;
-
-function spawnWorker(): ReturnType<Spawn> {
-  return workerPort(new Worker(new URL("./motor/worker.ts", import.meta.url), { type: "module" }));
-}
-
-// Ponytail: the object URL is released a minute after the click, because a click only
-// starts a download and nothing says when it ended. A download that takes longer than
-// that to START is cut short; the largest export here is a PNG of the canvas.
-function download(name: string, data: Blob): void {
-  const link = document.createElement("a");
-  link.href = URL.createObjectURL(data);
-  link.download = name;
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(link.href), REVOKE_AFTER_MS);
-}
-
-function within(tag: string, className: string): HTMLElement {
-  const element = document.createElement(tag);
-  element.className = className;
-  return element;
-}
-
-/** Made absolute here: the worker would resolve them against its own script, not the page. */
-function assetsOf(host: HTMLElement, threads: number | undefined): Assets {
-  const absolute = (name: string, fallback: string): string => new URL(host.getAttribute(name) ?? fallback, document.baseURI).href;
-  const assets = { wasmUrl: absolute("wasm", "graph_wasm.wasm"), fixturesUrl: absolute("fixtures", "fixtures/") };
-  return threads === undefined ? assets : { ...assets, threads };
-}
-
-/** `localStorage`, or null where reading the property itself throws (blocked site data). */
-function pageStorage(): SettingsStorage | null {
-  try {
-    return window.localStorage;
-  } catch {
-    return null;
-  }
+function notConnected(): Promise<never> {
+  return Promise.reject(new DOMException("<graph-studio> is not in a document", "InvalidStateError"));
 }
 
 /**
- * The live bridge and the view it paints, wired together and handed back: a frame from the
- * worker goes to `view.setPositions` and the forces link is the bridge's.
- *
- * `shown.note` is filled in once the studio exists — the bridge is made first — so a watchdog
- * that fires later still has a console to write its one line into.
+ * The element. Each `defineGraphStudio` call makes its own subclass, which only supplies the
+ * options it was given: a custom element's constructor takes no arguments.
  */
-/** What the parts made before the studio need from it, read late through this. */
-interface Shown {
-  studio: Studio | null;
-  /** One line in the console log, naming why a live session ended. */
-  note(reason: string): void;
-}
+class GraphStudio extends HTMLElement implements GraphStudioElement {
+  #mounted: Mounted | null = null;
+  #resolve: Resolve | null = null;
+  readonly hostApi = HOST_API;
 
-function livePair(canvas: HTMLCanvasElement, client: MotorClient, shown: Shown, backend: BackendChoice): {
-  readonly view: View;
-  readonly bridge: LiveBridge;
-} {
-  const wires: { bridge: LiveBridge | null } = { bridge: null };
-  // WHY an explicit `undefined` test and not `??`: the link answers `null` when the simulation
-  // CAN run, and `null ?? x` is `x`, so that fallback reads a working session as a missing one
-  // and every drag quietly falls back to the view-only one.
-  const why = (): string | null => {
-    const reason = wires.bridge?.link.disabled();
-    return reason === undefined ? NOT_ASKED : reason;
-  };
-  const view = createView(canvas, {
-    backend,
-    live: createLiveDrag({
-      ids: () => shown.studio?.store.get().meta?.ids ?? null,
-      disabled: why,
-      send: (request) => client.force?.(request),
-    }),
-  });
-  const bridge = createLiveBridge({
-    send: (request) => client.force?.(request),
-    onPush: (handler) => client.onForce?.(handler) ?? (() => undefined),
-    onFail: (handler) => client.onFail?.(handler) ?? (() => undefined),
-    paint: (frame) => view.setPositions(frame.xs, frame.ys),
-    report: (reason) => shown.note(reason),
-  });
-  wires.bridge = bridge;
-  return { view, bridge };
-}
+  /**
+   * WHY: a host that set `resolve` before the element was defined set a plain property on the
+   * element, which hides this class's accessor; it is taken back through the setter (verdict 12).
+   */
+  constructor() {
+    super();
+    if (!Object.hasOwn(this, "resolve")) return;
+    const early: unknown = Reflect.get(this, "resolve");
+    Reflect.deleteProperty(this, "resolve");
+    this.resolve = isResolve(early) ? early : null;
+  }
 
-function mount(host: HTMLElement, options: StudioElementOptions): Mounted {
-  const shadow = host.shadowRoot ?? host.attachShadow({ mode: "open" });
-  const style = document.createElement("style");
-  style.textContent = `${HOST_CSS}${STUDIO_CSS}`;
-  const canvas = document.createElement("canvas");
-  canvas.className = "gs-canvas";
-  const chrome = within("div", "gs-root");
-  shadow.replaceChildren(style, canvas, chrome);
-  // Focusable, so a click on the graph brings the shortcuts to this studio and no other.
-  if (!host.hasAttribute("tabindex")) host.tabIndex = 0;
-  const client = createClient(options.spawn ?? spawnWorker, assetsOf(host, options.threads));
-  // The view is made before the studio, and the ids live in the studio's state: read late.
-  const shown: Shown = { studio: null, note: (reason) => shown.studio?.note(reason) };
-  const { view, bridge } = livePair(canvas, client, shown, options.backend ?? "auto");
-  const storage = pageStorage();
-  const studio = createStudio({
-    client,
-    view,
-    save: options.save ?? download,
-    now: () => performance.now(),
-    forces: bridge.link,
-    ...(storage === null ? {} : { storage, settings: openingSettings(storage) }),
-  });
-  shown.studio = studio;
-  const unwatch = watchRuns(studio.store, bridge);
-  const root = createRoot(chrome);
-  root.render(createElement(Shell, {
-    studio, view, keys: host.getAttribute("keys") === "page" ? window : host, bar: bridge,
-  }));
-  void studio.start();
-  // The arrow, not the method: `watchSafeArea` holds this until unmount, and a bare method
-  // reference would leave `this` to chance — `view.setSafeArea(area)` names the receiver.
-  const unwatchArea = watchSafeArea(canvas, chrome, (area) => view.setSafeArea(area));
-  return { studio, view, client, root, bridge, unwatch, unwatchArea };
-}
+  protected get options(): StudioElementOptions {
+    return {};
+  }
 
-function unmount(mounted: Mounted | null): void {
-  if (mounted === null) return;
-  mounted.root.unmount();
-  mounted.unwatchArea();
-  mounted.unwatch();
-  mounted.bridge.destroy();
-  mounted.studio.destroy();
-  mounted.view.destroy();
+  get studio(): Studio | null {
+    return this.#mounted?.studio ?? null;
+  }
+
+  get view(): View | null {
+    return this.#mounted?.view ?? null;
+  }
+
+  get resolve(): Resolve | null {
+    return this.#resolve;
+  }
+
+  set resolve(value: Resolve | null) {
+    this.#resolve = isResolve(value) ? value : null;
+  }
+
+  get selectedIds(): readonly string[] {
+    return this.#mounted?.verbs.selectedIds() ?? NONE;
+  }
+
+  loadGraph(doc: object): Promise<LoadResult> {
+    return this.#mounted === null ? notConnected() : this.#mounted.verbs.loadGraph(doc);
+  }
+
+  focusNode(id: string): Promise<boolean> {
+    return this.#mounted?.verbs.focusNode(id) ?? Promise.resolve(false);
+  }
+
+  selectNodes(ids: readonly string[]): Promise<boolean> {
+    return this.#mounted?.verbs.selectNodes(ids) ?? Promise.resolve(false);
+  }
+
+  invalidate(id: string): void {
+    if (typeof id === "string") this.#mounted?.previews.invalidate(id);
+  }
+
+  stopMotor(): void {
+    // `close`, not `destroy`: the studio and its chrome stay, so the page reads as a studio
+    // that lost its motor rather than one that was taken down.
+    this.#mounted?.client.close();
+  }
+
+  get watchdogBoundMs(): number {
+    return SILENCE_MS;
+  }
+
+  connectedCallback(): void {
+    this.#mounted ??= mount(this, this.options, () => this.#resolve);
+  }
+
+  disconnectedCallback(): void {
+    unmount(this.#mounted);
+    this.#mounted = null;
+  }
 }
 
 /** Registers the element once; a second call, or a tag already taken, changes nothing. */
 export function defineGraphStudio(options: StudioElementOptions = {}, tag = "graph-studio"): void {
   if (customElements.get(tag) !== undefined) return;
-  customElements.define(tag, class extends HTMLElement implements GraphStudioElement {
-    #mounted: Mounted | null = null;
-
-    get studio(): Studio | null {
-      return this.#mounted?.studio ?? null;
-    }
-
-    get view(): View | null {
-      return this.#mounted?.view ?? null;
-    }
-
-    stopMotor(): void {
-      // `close`, not `destroy`: the studio and its chrome stay, so the page reads as a studio
-      // that lost its motor rather than one that was taken down.
-      this.#mounted?.client.close();
-    }
-
-    get watchdogBoundMs(): number {
-      return SILENCE_MS;
-    }
-
-    connectedCallback(): void {
-      this.#mounted ??= mount(this, options);
-    }
-
-    disconnectedCallback(): void {
-      unmount(this.#mounted);
-      this.#mounted = null;
+  customElements.define(tag, class extends GraphStudio {
+    protected override get options(): StudioElementOptions {
+      return options;
     }
   });
 }
