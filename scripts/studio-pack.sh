@@ -94,8 +94,12 @@ write_manifest() {
 }
 
 write_tarball() {
+  # --mode normalises what the file system hands over: a pack directory that already existed with
+  # a group-writable mode would otherwise tar differently from a fresh one, and the tarball's
+  # sha256 is a claim about the tree, not about the umask that built it.
   tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner --format=gnu \
-    -cf - -C "$out" "$name-$version" | gzip -n -9 >"$out/$name-$version.tgz" || exit 2
+    --mode=u+rw,go=rX,go-w -cf - -C "$out" "$name-$version" |
+    gzip -n -9 >"$out/$name-$version.tgz" || exit 2
 }
 
 # Every file of pack.json, as `<path> <bytes> <sha256>`, in the order it was written. Only the
