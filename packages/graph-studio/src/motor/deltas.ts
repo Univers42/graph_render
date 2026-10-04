@@ -108,15 +108,12 @@ function cadence(deps: QueueDeps): Cadence {
       // the host has stopped calling: the queue is only drained by a tick, and nothing is queued.
       if (deps.structure === undefined || building || !owed) return;
       if (!wasIdle && deps.now() - last < STRUCTURE_MS) return;
-      console.log("DELTA rebuild start", deps.now() - last, wasIdle);
       building = true;
       owed = false;
       last = deps.now();
       done += 1;
       try {
-        let run = null;
-        try { run = await deps.structure(); } catch (error) { console.log("DELTA structure threw", String(error)); }
-        console.log("DELTA structure done", run === null ? "null" : String(run.bytes.length));
+        const run = await deps.structure();
         if (run !== null) push(run);
       } catch {
         // A refused rebuild leaves the snapshot the page already has; the next batch tries again.
