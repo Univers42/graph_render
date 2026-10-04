@@ -75,6 +75,7 @@ if (isWorkerScope(scope)) {
     assemble: assembleColumns,
     now: () => performance.now(),
     onForget: () => notice.host?.forget(),
+    onRenew: () => notice.host?.renew(),
   });
   const forces = createForceHost(() => session.forces(), {
     schedule: pacedFrame,

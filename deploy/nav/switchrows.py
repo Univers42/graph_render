@@ -11,9 +11,8 @@ left 0 of 15 centres inside and the canvas with no drawn pixel at all, and only 
 brought them back. On the studio's own graph develop dbab64cb leaves the camera at ×0.356 after
 the switch, and `f` then moves it to ×0.328.
 
-The camera is not compared with the one from before the switch: the live session seeds its
-own positions, so a switch between two force layouts can settle on the very drawing it left,
-whose fit is the camera it already had.
+The camera is not compared with the one from before the switch: two layouts can draw the
+same extent, whose fit is the camera it already had.
 
 The wait is the one every other row uses, `settle_drawing`, which polls until the positions
 stop moving (drive.py:92-96). It is only the right wait once the run has committed — a still
