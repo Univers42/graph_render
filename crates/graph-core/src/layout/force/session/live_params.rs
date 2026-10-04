@@ -1,7 +1,7 @@
 //! The live parameter set: what a session can be told, and what it will refuse.
 //!
 //! Every field is finite and range-checked, and a refusal is a
-//! [`SessionError`](super::SessionError), never a clamp. The reasoning is in
+//! [`SessionError`], never a clamp. The reasoning is in
 //! `docs/decisions/live-force-session.md`; the short version is that a clamp is a lie
 //! the caller cannot see, and a force layout that quietly ran with `theta = 1.5` instead of
 //! the `2.0` that was asked for still returns a plausible picture.

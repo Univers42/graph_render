@@ -4,7 +4,7 @@
 //! Reference: `lib/dotgen/dotinit.c:301-340` (`dotLayout`), which is the whole contract:
 //!
 //! 1. `dot_rank` — `acyclic`, then one network simplex per connected component. **Ported**;
-//!    see [`rank`].
+//!    see [`mod@rank`].
 //! 2. `dot_mincross` — `build_ranks` for the initial order, then median/transpose passes.
 //!    Not ported; [`class2`], the edge classification this pass needs, is.
 //! 3. `dot_position` — y from the rank heights, then a second network simplex over an

@@ -252,7 +252,7 @@ impl Fa2State {
 }
 
 /// networkx's own initial positions are `nx.random_layout` (uniform in the unit square,
-/// `numpy`'s RNG); this port uses the crate's one sequential generator, [`Mulberry32`],
+/// `numpy`'s RNG); this port uses the crate's one sequential generator, `Mulberry32`,
 /// seeded explicitly (devil C8's "two kinds, and only two" — `rng.rs`). Public so the
 /// networkx differential can start the reference from the very same positions.
 pub fn initial_positions(n: u32, seed: u32) -> (Vec<f64>, Vec<f64>) {

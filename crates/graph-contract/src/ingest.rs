@@ -2,7 +2,7 @@
 //!
 //! Two faces of the same idea, exactly as `prompt.md` §4.1 requires. The **types**
 //! below are the semantic face — the vocabulary every adapter writes and
-//! `docs/contract/ingest-schema.json` describes. The **strict reader** ([`read`]) and
+//! `docs/contract/ingest-schema.json` describes. The **strict reader** ([`read()`]) and
 //! the **canonical writer** ([`to_json`]) are the two directions of the wire text, and
 //! they are the *only* ones: an adapter is a mapping into [`Ingest`], never a place
 //! where a graph is built.

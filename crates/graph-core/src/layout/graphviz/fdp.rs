@@ -76,7 +76,7 @@
 //! `expandCluster` and its `bport_t` ports on the enclosing ellipse are not ported.
 //! Failing input: any DOT graph with a `subgraph cluster_*`. Direction: this port lays the
 //! cluster's nodes out as ordinary nodes and gives no cluster box. Escape hatch: none
-//! inside the motor — the motor's [`Topology`](crate::index::Topology) is a flat node set
+//! inside the motor — the motor's [`Topology`] is a flat node set
 //! with no cluster membership to lay out.
 //!
 //! Ponytail: **disconnected graphs are laid out as one component.** The reference splits

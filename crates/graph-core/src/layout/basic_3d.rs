@@ -4,7 +4,7 @@
 //! in one module, for the reason the job names them together: the reference puts all four
 //! in `basic.py` behind no dispatch beyond the name, they share the same two arguments,
 //! and one differential (`harness/oracle-basic-3d.py`) arms all four against
-//! SciGraphs, with [`spiral`] the fourth since job `sg-basic3d-spiral-oracle`.
+//! SciGraphs, with [`mod@spiral`] the fourth since job `sg-basic3d-spiral-oracle`.
 //!
 //! **They read the node count and nothing else.** Every edge is ignored, so a graph and
 //! its edgeless version draw identically — that is the reference's own behaviour, and it
@@ -13,14 +13,14 @@
 //! each publishes its own id because each produces a different snapshot.
 //!
 //! **`CUBE` is the only one of the four that draws from a stream**, and it draws from the
-//! reference's own: see [`cube`] for the generator and the seeding decision. `SPHERE`,
+//! reference's own: see [`mod@cube`] for the generator and the seeding decision. `SPHERE`,
 //! `HELIX` and `SPIRAL_3D` are closed form with no random number anywhere, so none owes a
 //! seed and none publishes one.
 //!
-//! **Two of the four are spirals under two different names.** [`spiral`] is SciGraphs'
+//! **Two of the four are spirals under two different names.** [`mod@spiral`] is SciGraphs'
 //! conical 3D spiral (`basic.py:36-63`); `layout.spiral` — a different module, one level
 //! up — is graph-core's planar Archimedean spiral, a port of networkx's `spiral_layout`.
-//! SciGraphs calls only the first. See [`spiral`]'s own header.
+//! SciGraphs calls only the first. See [`mod@spiral`]'s own header.
 //!
 //! No rescale, and that is deliberate: networkx's `rescale_layout` is not in the
 //! reference for any of these four — `_sphere_layout`, `_helix_layout`, `_cube_layout` and
@@ -33,8 +33,9 @@ use crate::index::Topology;
 use crate::stage::StageError;
 use graph_contract::geometry::{EdgeGeometry, NodeGeometry};
 
-/// [`sphere`], [`helix`], [`cube`] and [`spiral`] are `pub` because each publishes the
-/// capability id the registry registers it under; their `run` functions stay `pub(super)`,
+/// [`mod@sphere`], [`mod@helix`], [`mod@cube`] and [`mod@spiral`] are `pub` because each
+/// publishes the capability id the registry registers it under; their `run` functions stay
+/// `pub(super)`,
 /// because the id and the [`Topology`]-taking wrapper above are the module's whole public
 /// surface. [`CORNERS`] is re-exported here because the `CUBE` row of the ledger names
 /// `layout::basic_3d::CORNERS` as its escape hatch, and an escape hatch has to be the path
