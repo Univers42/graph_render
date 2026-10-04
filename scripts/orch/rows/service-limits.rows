@@ -1,0 +1,27 @@
+# service-limits.rows — the memory budget of one slot, GRAPH_MAX_BODY inside that budget, and the
+# time bound of every cap, on the image (docs/reviews/review-svc-r2.md new conditions 1 and 3,
+# docs/reviews/review-svc-r3.md new condition 1, docs/measurements/service-caps.md "Measured on the
+# image").
+# Format `name|expect|cmd`, as scripts/orch/gate.sh reads it:
+#   scripts/orch/gate.sh <logdir> scripts/orch/rows/service-limits.rows
+# Three of the four scripts build no image: they start the last one scripts/service.sh build made,
+# under a unique container name, and remove it on every exit path. scripts/service-max-body.sh
+# builds when there is no build to reuse.
+#gate:image
+# The directive above asks gate.sh for the image tag on every row below, as `image=<16 hex>` or
+# `image=?` when the row's script printed no `image graph-motor:<16 hex>` line.
+#
+# The three negctl rows pass only when the row above them goes red for its own reason, and each
+# proves what its row reads:
+# - negctl-svc-limits: a 1g container cannot hold one slot, so the kernel OOM-kills the server during
+#   the first request; the row is red only if the report says it saw the kill.
+# - negctl-svc-max-body: the default 64 MiB body at 8 GiB holds a slot, so the server starts and the
+#   script writes `FAIL started`; the row is red only if that line is there.
+# - negctl-svc-caps-time: GRAPH_TIMEOUT_MS=1 answers 503 on every row whatever the cap, so a green
+#   svc-caps-time can only be a reading of the status and the elapsed time.
+svc-limits|0|timeout 1800 scripts/service-limits.sh
+negctl-svc-limits|0|SERVICE_LIMITS_MEM=1g timeout 1800 scripts/service-limits.sh; test $? -eq 1 && grep -q '^FAIL oom' target/service-limits/negctl/report.txt
+svc-max-body|0|timeout 900 scripts/service-max-body.sh
+negctl-svc-max-body|0|SVC_MAX_BODY=67108864 timeout 900 scripts/service-max-body.sh; test $? -eq 1 && grep -q '^FAIL started' target/service-max-body/negctl/report.txt
+svc-caps-time|0|timeout 5400 scripts/service-caps-time.sh
+negctl-svc-caps-time|0|SERVICE_CAPS_TIME_TIMEOUT_MS=1 timeout 5400 scripts/service-caps-time.sh; test $? -eq 1 && test "$(grep -c '^FAIL' target/service-caps-time/negctl/report.tsv)" -eq "$(grep -vc '^id' docs/measurements/service-caps.tsv)"

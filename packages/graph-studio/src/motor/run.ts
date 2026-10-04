@@ -4,8 +4,9 @@
  * renews it is the caller's call (`session.ts`), since a delta batch's snapshot must not.
  */
 import { type Built, describe } from "./built.ts";
+import { runPass } from "./edgePass.ts";
 import type { AnalysisFace, MotorLike, SessionDeps } from "./session.ts";
-import { type ShownError, describeError } from "../state/errors.ts";
+import type { ParamValues } from "../state/settings.ts";
 import type { AnalysisReport, RunReport } from "./protocol.ts";
 import type { RunPlan } from "./settle.ts";
 
@@ -16,39 +17,30 @@ export interface Live<Handle> {
 
 type Clock<Handle> = Pick<SessionDeps<Handle>, "now" | "digest">;
 
-interface Pass {
+/** What a snapshot runs with: the edge pass, and the values (empty: the layout's own defaults). */
+export interface Shot {
   readonly postId: string | null;
-  readonly postError: ShownError | null;
-  readonly postMs: number;
+  readonly params: ParamValues;
 }
 
-function runPass<Handle>(motor: MotorLike<Handle>, handle: Handle, postId: string | null, now: () => number): Pass {
-  if (postId === null) return { postId, postError: null, postMs: 0 };
-  const started = now();
-  try {
-    motor.post(handle, postId);
-    return { postId, postError: null, postMs: now() - started };
-  } catch (error) {
-    // A refused pass leaves the layout's own edges in place, so the run is still drawn.
-    return { postId: null, postError: describeError(error), postMs: now() - started };
-  }
-}
-
-/** Runs `plan.run` and reports it as `plan.report`, with the edge pass and the digest. */
+/** Runs `plan.run` at `shot.params` and reports it as `plan.report`, with the edge pass and the digest. */
 export async function snapshot<Handle>(
   live: Live<Handle>,
   deps: Clock<Handle>,
   plan: Pick<RunPlan, "run" | "report">,
-  postId: string | null,
+  shot: Shot,
 ): Promise<RunReport> {
   const { motor, built } = live;
+  const { params } = shot;
   const started = deps.now();
-  motor.layout(built.handle, plan.run);
+  // No values means no options at all, so the run carries the empty buffer every pre-ABI-2
+  // caller sent and the motor's own defaults — the same bytes, not merely the same picture.
+  motor.run(built.handle, plan.run, Object.keys(params).length === 0 ? undefined : { params });
   const layoutMs = deps.now() - started;
-  const pass = runPass(motor, built.handle, postId, deps.now);
+  const pass = runPass(motor, built.handle, shot.postId, deps.now);
   const bytes = motor.toBytes(built.handle);
   const meta = describe(built, bytes);
-  return { layoutId: plan.report, ...pass, bytes, digest: await deps.digest(bytes), layoutMs, meta };
+  return { layoutId: plan.report, ...pass, params, bytes, digest: await deps.digest(bytes), layoutMs, meta };
 }
 
 function reportOf(face: AnalysisFace, ms: number): AnalysisReport {

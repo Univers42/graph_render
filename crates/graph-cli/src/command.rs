@@ -267,6 +267,9 @@ pub enum Command {
     /// The wall time of single live-session ticks on the scale model, after a warm-up: the
     /// per-tick number the whole-stage `bench` averages away, and the profilers' workload.
     Tick(crate::bench::tick::Plan),
+    /// One layout or post at one size: its wall time and peak resident memory as one
+    /// `key=value` line, the rung of `scripts/caps-ladder.sh` (`docs/measurements/service-caps.md`).
+    CapProbe(crate::bench::cap_probe::Plan),
     /// How far each many-body solver stands from the exact all-pairs sum, at the seed
     /// positions and after 100 Barnes-Hut ticks, at every `--n`. A `--require` solver must
     /// be no further from the exact sum than `bh:<the frozen theta>` is, on every set and
