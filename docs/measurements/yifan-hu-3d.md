@@ -233,6 +233,28 @@ canonical-orientation claim at three axes).
 - **No threaded tier**, so unlike the 2D arm there is no worker-count dimension to hash-equal
   across: one schedule, one set of bytes.
 
+## One file outside the job's allowed paths
+
+`crates/graph-core/tests/geometry_invariants.rs` keeps a registry-order sweep ledger, and its
+guard `every_registered_layout_has_its_own_sweep` fails unless the table lists
+`registry::LAYOUTS` in order. Appending an id therefore **has** to move one line there, and
+it is not in the job's allowed-path list. It was added anyway, because the alternative is a red
+merge floor, and it is one additive line plus its comment — trivially revertable:
+
+```rust
+["layout.force.yifan_hu.3d", WHOLE, layout_force_yifan_hu_3d],
+```
+
+The row sweeps the arm over the guard's own 200-seed model and costs **10.07 s** — negligible
+next to the binary's ~313 s, whose long pole is `layout.force.davidson_harel`.
+
+Its z column is not checked by that sweep, because `assert_finite` reads `NodeGeometry`, which
+has no z. That is a pre-existing gap shared with the five 3D arms p12-t4b added, and it does
+not open a hole for this one: a non-finite z refuses the run as `StageError::NonFinite` inside
+`space_points` before the sweep ever sees the geometry, and `sweep_layout` panics on a
+`StageError`. Left alone rather than widened, since widening it would be a change to another
+job's test.
+
 ## Commands
 
 ```sh
