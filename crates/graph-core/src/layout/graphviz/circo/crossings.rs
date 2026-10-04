@@ -11,14 +11,14 @@
 //! keeping it costs nothing but the test build. It is also why [`BlockGraph`] still carries its
 //! mutable `EDGEORDER` scratch.
 //!
-//! **The order can carry a node twice, and the count is taken over the walk, not over an
-//! assumed permutation.** `longest_path`'s two climbs both start at a leaf of a node, so when the
-//! block's thinned tree is a forest the branch node's best and runner-up leaf can be the same
-//! one and the path repeats a branch; `place_residual_nodes` then adds nothing, because every
-//! node is already placed. Seed 68 of the invariant sweep is such a block: 44 nodes, an order of
-//! 45. So [`Counter::count`] walks the order the way the reference walks it, and derives each
-//! edge's opening and closing position from the **first** and **second** visit of its
-//! endpoints, rather than from a permutation it cannot assume.
+//! **The count is taken over the walk, not over an assumed permutation, because the order can
+//! carry a node twice.** `longest_path` reads its two halves off two leaves, so when the block's
+//! thinned tree is a forest the branch node's best and runner-up leaf can be the same one and the
+//! path repeats a branch; `place_residual_nodes` then adds nothing, because every node is
+//! already placed. Seed 68 of the invariant sweep is such a block: 44 nodes, an order of 45.
+//! [`Counter::mark`] therefore takes each node's first and second visit rather than one position
+//! per node, and the second visit is what makes the count what it has always been: the walk
+//! closes a node's already-closed edges a second time and counts them again, and so does this.
 //!
 //! Determinism: integer arithmetic, dense indices, no map and no pointer takes part in a count
 //! (`prompt.md` §6 D2, D10).
@@ -31,19 +31,19 @@ use super::graph::BlockGraph;
 /// Every array is a `Vec` indexed by a dense position, a dense node index or a dense edge id.
 #[derive(Default)]
 pub(super) struct Counter {
-    /// Node -> the one-based position of its **first** visit in the order, 0 while the order
-    /// has not carried it. This is the reference's `EDGEORDER` for every edge the node opens.
-    opened_at: Vec<u32>,
-    /// Node -> the one-based position of its **second** visit, or `u32::MAX` when it is
-    /// visited once, which is the common case.
-    closed_at: Vec<u32>,
-    /// Edge -> the position it opens at: the earlier of its two endpoints' first visits.
+    /// Node -> the one-based position of its **first** visit in the order, 0 while the order has
+    /// not carried it. This is the reference's `EDGEORDER` for every edge the node opens.
+    first: Vec<u32>,
+    /// Node -> the one-based position of its **second** visit, or `u32::MAX` when the order
+    /// carries it once, which is the common case.
+    second: Vec<u32>,
+    /// Edge -> the position it opens at: the first visit to either of its endpoints.
     opens: Vec<u32>,
-    /// Edge -> the position it closes at: the first visit to either endpoint after that, so the
-    /// later of the earlier endpoint's second visit and the other endpoint's first visit.
+    /// Edge -> the position it closes at: the first visit to either endpoint after that, or
+    /// `u32::MAX` when there is none, which leaves the edge open to the end as the walk does.
     closes: Vec<u32>,
-    /// The Fenwick tree over positions, one counter per **open** edge filed at the position it
-    /// opened at: `bit[p]` counts the open edges that opened at `p`.
+    /// The Fenwick tree over positions: one counter per **open** edge, filed at the position it
+    /// opened at, so `bit[p]` counts the open edges that opened at `p`.
     bit: Vec<u32>,
     /// How many edges the tree holds, which is how many are open.
     live: u32,
@@ -53,23 +53,30 @@ impl Counter {
     /// `count_all_crossings` (`blockpath.c:386-431`) for `order`: how many pairs of the block's
     /// edges cross as chords of this circle.
     ///
-    /// **The rule the walk implements, and what it becomes here.** At a position, the reference
-    /// closes every edge of that node's row that was stamped at an earlier position, and counts
-    /// for each of them the open edges stamped *later* than it, skipping any that touch the
-    /// node. Two chords cross exactly when their four endpoints interleave, so that is the
-    /// interleaving count `l1 < l2 < r1 < r2` — and the one thing the walk needs the open set
-    /// for is the suffix "opened after `l`". A Fenwick tree over opening positions answers
-    /// that in `O(log n)`, and one counter per open edge filed at its opening position is the
-    /// whole data structure.
+    /// **The rule the walk implements.** At a position, the walk closes every edge of that
+    /// node's row that carries an `EDGEORDER` from an earlier position, and counts for each of
+    /// them the still-open edges stamped *later* than it, skipping any that touch the node. Two
+    /// chords cross exactly when their four endpoints interleave, so the number wanted is the
+    /// interleaving count `l1 < l2 < r1 < r2`, and the only thing the walk needs the open set
+    /// for is the suffix "opened after `l`". A Fenwick tree with one counter per open edge,
+    /// filed at its opening position, answers that in `O(log n)`, and it is the whole data
+    /// structure.
     ///
-    /// **The node test cancels, and that is what makes the tree enough.** An edge incident to
-    /// the node at a position cannot still be open there: it opened at that node's own first
-    /// visit, or earlier, and this position is a visit to one of its endpoints, so it closed
-    /// no later than now. The only edges of that row the walk can still see in its open set
-    /// are the ones it has not closed *yet* in this very row — and those are precisely the ones
-    /// its node test throws away. What is added and what is subtracted are the same suffix, so
-    /// the crossings at a position are the plain sum over the row of "open edges that opened
-    /// after this one", with no test at all.
+    /// **The node test, and where it goes.** An edge that touches the node at a position cannot
+    /// still be open across it — it opened at that node's own first visit or earlier, and this
+    /// position is a visit to one of its endpoints, so it closes no later than here. So the only
+    /// edges of that row the walk can still see open are the ones it has not closed *yet* in
+    /// this same row, and those are exactly what its node test throws away. Retiring every edge
+    /// that closes at a position *before* asking the tree anything therefore reproduces the test
+    /// rather than dropping it: what is left in the tree when a position asks are the edges
+    /// spanning it, and no two of those share a node. What the test excluded is already gone.
+    ///
+    /// **A second visit counts again, and so does this.** A node carried twice has every one of
+    /// its edges stamped already, so the walk closes and counts all of them a second time
+    /// against whatever is still open — including chords that share a node with them, which the
+    /// node test cannot see because the shared node is not the one being walked. Nothing here
+    /// suppresses that: the row is asked about at every visit, and the tree is left holding
+    /// exactly what the walk's open set would hold.
     pub(super) fn count(&mut self, block: &BlockGraph, order: &[u32]) -> u32 {
         self.mark(block, order);
         self.bit.clear();
@@ -77,91 +84,124 @@ impl Counter {
         self.live = 0;
         let mut crossings = 0;
         for (at, &node) in order.iter().enumerate() {
-            self.close(block, node, at as u32 + 1);
-            crossings += self.open_now(block, node, at as u32 + 1);
+            let here = at as u32 + 1;
+            self.close(block, node, here);
+            crossings += self.ask(block, node, here);
+            self.give(block, node, here);
         }
         crossings
     }
 
-    /// Each node's first and second visit, and from those each edge's opening and closing
-    /// position: the earlier endpoint's first visit opens the edge, and the first visit to
-    /// either endpoint after that closes it. An edge the order never opens — the order carries
-    /// neither endpoint — opens and closes nowhere, so it enters no tree and is counted by
-    /// neither side.
+    /// Each node's first and second visit in `order`, and from those every edge's opening and
+    /// closing position: an edge opens at the first visit to either of its endpoints and closes
+    /// at the first visit after that. An edge the order never opens — it carries neither
+    /// endpoint — is in no row, so neither side of the count ever reaches it.
     fn mark(&mut self, block: &BlockGraph, order: &[u32]) {
-        self.opened_at.clear();
-        self.opened_at.resize(block.nodes.len(), 0);
-        self.closed_at.clear();
-        self.closed_at.resize(block.nodes.len(), u32::MAX);
+        self.first.clear();
+        self.first.resize(block.nodes.len(), 0);
+        self.second.clear();
+        self.second.resize(block.nodes.len(), u32::MAX);
         for (at, &node) in order.iter().enumerate() {
             let stamp = u32::try_from(at + 1).expect("a block has fewer than 2^31 nodes");
-            if self.opened_at[node as usize] == 0 {
-                self.opened_at[node as usize] = stamp;
-            } else if self.closed_at[node as usize] == u32::MAX {
-                self.closed_at[node as usize] = stamp;
+            if self.first[node as usize] == 0 {
+                self.first[node as usize] = stamp;
+            } else if self.second[node as usize] == u32::MAX {
+                self.second[node as usize] = stamp;
             }
         }
         self.opens.clear();
         self.closes.clear();
         for &(tail, head) in block.ends() {
-            let (open, close) = self.span(tail, head);
-            self.opens.push(open);
-            self.closes.push(close);
+            let opens = self.opens_at(tail, head);
+            self.opens.push(opens);
+            let one = self.after(tail, opens);
+            let other = self.after(head, opens);
+            self.closes.push(one.min(other));
         }
     }
 
-    /// One edge's opening and closing position from its endpoints' first and second visits. The
-    /// endpoint visited first opens it, and the next visit to *either* endpoint closes it.
-    fn span(&self, tail: u32, head: u32) -> (u32, u32) {
-        let (first, later) = (self.opened_at[tail as usize], self.opened_at[head as usize]);
-        let (twice, after) = if first < later {
-            (self.closed_at[tail as usize], later)
-        } else {
-            (self.closed_at[head as usize], first)
+    /// The position an edge opens at: the first visit to either endpoint. An endpoint the order
+    /// never carries has no first visit and cannot open the edge, so the other one does.
+    fn opens_at(&self, tail: u32, head: u32) -> u32 {
+        let (one, other) = (self.first[tail as usize], self.first[head as usize]);
+        let carried = match (one == 0, other == 0) {
+            (true, true) => return 0,
+            (true, false) => other,
+            (false, true) => one,
+            (false, false) => one.min(other),
         };
-        (first.min(later), twice.min(after))
+        carried
     }
 
-    /// Take out of the tree every edge that closes at `here`, so what is left is exactly the
-    /// edges open across this position.
+    /// The first visit to `node` strictly after `at`, or `u32::MAX`: its first visit when that
+    /// is later than `at`, else its second, else nothing.
+    fn after(&self, node: u32, at: u32) -> u32 {
+        let first = self.first[node as usize];
+        if first > at {
+            first
+        } else if self.second[node as usize] > at {
+            self.second[node as usize]
+        } else {
+            u32::MAX
+        }
+    }
+
+    /// Retire every edge that closes at `here`, so what the tree still holds is the set of edges
+    /// spanning this position — which, as [`Counter::count`] says, is what the walk's node test
+    /// leaves behind.
     fn close(&mut self, block: &BlockGraph, node: u32, here: u32) {
         for &edge in block.row(node) {
             if self.closes[edge as usize] == here {
-                self.release(self.opens[edge as usize]);
+                self.take(self.opens[edge as usize]);
             }
         }
     }
 
-    /// The crossings one position contributes, and the edges that open at it. An edge of this
-    /// row that opened at an earlier position closes here (this is its first close, or a repeat
-    /// of one the walk has already counted — it counts it again, and so does this).
-    fn open_now(&mut self, block: &BlockGraph, node: u32, here: u32) -> u32 {
+    /// What one position contributes: the walk's closing half. Every edge of this node's row that
+    /// opened at an earlier position is closed here and asks how many open edges opened after it.
+    /// An edge that opened at an earlier position and has already been closed is asked again,
+    /// which is a node carried twice, and the walk counts that again too.
+    fn ask(&mut self, block: &BlockGraph, node: u32, here: u32) -> u32 {
         let mut crossings = 0;
         for &edge in block.row(node) {
             let opens = self.opens[edge as usize];
             if opens < here {
-                crossings += self.after(opens);
-            } else if opens == here {
-                self.live = self.live + 1;
-                self.bit_add(opens, 1);
+                crossings += self.suffix(opens);
             }
         }
         crossings
     }
 
+    /// The walk's opening half: every edge whose opening position is this one joins the open set.
+    /// It runs **after** the closing half above, exactly as the reference runs its two loops —
+    /// an edge opening at this position must not be in the open set while its row-mates close.
+    fn give(&mut self, block: &BlockGraph, node: u32, here: u32) {
+        for &edge in block.row(node) {
+            if self.opens[edge as usize] == here {
+                self.enter(self.opens[edge as usize]);
+            }
+        }
+    }
+
     /// How many open edges opened after position `at`: the suffix sum the tree exists for.
-    fn after(&self, at: u32) -> u32 {
+    fn suffix(&self, at: u32) -> u32 {
         self.live - self.upto(at)
     }
 
+    /// Put one edge into the open set, filed at the position it opened at.
+    fn enter(&mut self, at: u32) {
+        self.live = self.live + 1;
+        self.add(at, 1);
+    }
+
     /// Take one edge out of the open set.
-    fn release(&mut self, at: u32) {
+    fn take(&mut self, at: u32) {
         self.live = self.live - 1;
-        self.bit_add(at, -1);
+        self.add(at, -1);
     }
 
     /// One counter at position `at`, in a tree over `1..=self.bit.len() - 1`.
-    fn bit_add(&mut self, at: u32, delta: i32) {
+    fn add(&mut self, at: u32, delta: i32) {
         let mut slot = at as usize;
         while slot < self.bit.len() {
             self.bit[slot] = (self.bit[slot] as i32 + delta) as u32;
@@ -185,7 +225,7 @@ impl Counter {
 /// order, close the edges it leaves behind, and count every crossing that closing creates.
 ///
 /// This is the oracle [`Counter::count`] is measured against, on 2 000 random blocks and on the
-/// five closed cases in [`super::tests::crossings`].
+/// closed cases in [`super::tests::crossings`].
 #[cfg(test)]
 pub(super) fn count_all_crossings(block: &mut BlockGraph, order: &[u32]) -> u32 {
     block.clear_orders();

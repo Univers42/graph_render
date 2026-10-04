@@ -17,37 +17,6 @@ fn both_ways(count: u32, edges: &[(u32, u32)], order: &[u32]) -> (u32, u32) {
     (swept, count_all_crossings(&mut block, order))
 }
 
-#[test]
-fn tmp_order_lengths() {
-    use crate::index::index_model;
-    use crate::{REFERENCE_DEGREE, gate_node_count, seeded_model};
-    for seed in 0..200u32 {
-        let (nodes, edges) = seeded_model(seed, gate_node_count(seed), REFERENCE_DEGREE);
-        let topology = index_model(&nodes, &edges).expect("indexes");
-        let count = topology.node_count();
-        let derived = Derived::of(&topology);
-        let found = super::super::blocks::decompose(&derived, count);
-        let layout = super::super::Layout::of(found, count);
-        for at in 0..layout.blocks.len() {
-            let order = layout.circle_of(&derived, at);
-            let spec = &layout.blocks[at].nodes;
-            if order.len() != spec.len() {
-                let mut sorted = order.clone();
-                sorted.sort_unstable();
-                let mut uniq = sorted.clone();
-                uniq.dedup();
-                panic!(
-                    "seed {seed} block {at}: {} nodes, order len {}, distinct {} of {}",
-                    spec.len(),
-                    order.len(),
-                    uniq.len(),
-                    order.len()
-                );
-            }
-        }
-    }
-}
-
 /// A fixed-seed 64-bit LCG: the multiplier `6 364 136 223 846 793 005` and the increment
 /// `1 442 695 040 888 963 407` of Numerical Recipes' `ranqd1`, modulo `2^64` by `wrapping_*`,
 /// with the top 32 bits as the draw. Integer arithmetic only, no clock, so the case list is the
@@ -86,7 +55,10 @@ fn edges(rng: &mut Draws, count: u32) -> Vec<(u32, u32)> {
 }
 
 /// A random circle order of `count` nodes: the identity walked once, each draw taking one node
-/// out of the middle of what is left.
+/// out of the middle of what is left, and then — because `longest_path` can carry a node twice
+/// and `order_of` does not deduplicate — a draw in four inserts a second copy of a node already
+/// placed. One case in four is therefore a **repeated** order, the shape seed 68 of the
+/// invariant sweep hands the sweep in anger.
 fn order(rng: &mut Draws, count: u32) -> Vec<u32> {
     let mut left: Vec<u32> = (0..count).collect();
     let mut order = Vec::with_capacity(count as usize);
@@ -94,26 +66,36 @@ fn order(rng: &mut Draws, count: u32) -> Vec<u32> {
         let at = rng.below(left.len() as u32) as usize;
         order.push(left.remove(at));
     }
+    if rng.below(4) == 0 && !order.is_empty() {
+        let at = rng.below(order.len() as u32) as usize;
+        order.insert(at, order[at]);
+    }
     order
 }
 
-/// 2 000 random blocks of 2 to 40 nodes, each with a random circle order: the sweep and the
-/// walk must return the same number on every one of them.
+/// 2 000 random blocks of 2 to 40 nodes, each with a random circle order — one in four of them
+/// carrying a node twice, as `longest_path`'s repeated branch does. The sweep and the walk must
+/// return the same number on every one.
 ///
-/// The count is a function of the *cyclic* order alone — no rotation of a circle moves one
-/// chord past another — so a random order of a fixed graph is not independent coverage, and
-/// that is what the closed cases below are for. What the 2 000 cases do buy is the sweep's own
-/// index arithmetic over many shapes: which chord closes first, what the tree holds when it
-/// does, which pairs share a node, and how the counters carry.
+/// A permutation's count is a function of the *cyclic* order alone — no rotation of a circle
+/// moves one chord past another — so a random permutation of a fixed graph is not independent
+/// coverage, and the closed cases below are what pin the number itself. What the 2 000 cases buy
+/// is the sweep's own arithmetic over many shapes and both order kinds: which chord opens and
+/// which closes first, what the tree holds between two positions, an edge the order never
+/// opens, and the second visit that closes a node's edges a second time.
 #[test]
 fn the_sweep_agrees_with_the_walk_on_two_thousand_random_blocks() {
     let mut rng = Draws(20_260_403);
     let mut cases = 0;
+    let mut repeated = 0;
     let mut crossed = 0u64;
     for _ in 0..2_000 {
         let count = 2 + rng.below(39);
         let edges = edges(&mut rng, count);
         let order = order(&mut rng, count);
+        if order.len() > count as usize {
+            repeated += 1;
+        }
         let (swept, walked) = both_ways(count, &edges, &order);
         assert_eq!(
             swept, walked,
@@ -124,6 +106,7 @@ fn the_sweep_agrees_with_the_walk_on_two_thousand_random_blocks() {
         cases += 1;
     }
     assert_eq!(cases, 2_000, "every case ran");
+    assert!(repeated > 0, "some orders carried a node twice");
     assert!(crossed > 0, "the cases crossed something, so this is not a zero-versus-zero pass");
 }
 
@@ -150,6 +133,33 @@ fn a_triangle_crosses_nothing() {
 fn two_parallel_chords_cross_nothing() {
     let edges = [(0, 1), (2, 3)];
     assert_eq!(both_ways(4, &edges, &[0, 1, 2, 3]), (0, 0));
+}
+
+
+
+/// **A node carried twice**, which is the shape `longest_path` hands the layout when the
+/// thinned tree is a forest and its branch node's two best leaves are the same one. The block is
+/// `n0 n1`, `n0 n2`, `n1 n3` and the order is `n0, n1, n0, n2, n3`. Worked from the walk, one
+/// position at a time:
+///
+/// - `n0` opens `n0 n1` and `n0 n2` at 1, so nothing closes — 0.
+/// - `n1` closes `n0 n1`, and `n0 n2` opened at the same position 1, so not after it — 0. `n1 n3`
+///   opens at 2.
+/// - **`n0` again.** Both its chords were closed at positions 1 and 1, and the walk closes and
+///   counts them a *second* time. `n1 n3` is open, opened at 2 which is after 1, and it touches
+///   neither `n1 n2`... it touches `n1`, not `n0`, so the node test cannot see the shared node:
+///   each of the two chords counts it, **2**. `n0 n2` then leaves the open set; `n1 n3` stays.
+/// - `n2` closes `n0 n2` again and counts `n1 n3`, opened later — **1**.
+/// - `n3` closes `n1 n3`, which is all that is left and has nothing after it — 0.
+///
+/// So **3**, and the two of the three that come from the repeat are the number the port has
+/// always produced for such a block. The sweep reproduces them rather than correcting them, which
+/// is why this is a closed case and not a comment: it is the difference between the new count and
+/// the old one on the input that actually occurs.
+#[test]
+fn a_node_carried_twice_is_counted_a_second_time() {
+    let edges = [(0, 1), (0, 2), (1, 3)];
+    assert_eq!(both_ways(4, &edges, &[0, 1, 0, 2, 3]), (3, 3));
 }
 
 /// `K2,2` over the parts `{n0, n1}` and `{n2, n3}`, drawn as `n0, n2, n1, n3`. Its four chords
