@@ -158,3 +158,48 @@ fn a_lone_node_and_a_path_are_both_finite() {
         assert!(x.is_finite() && y.is_finite(), "node {i} at ({x}, {y})");
     }
 }
+
+/// A 400-node random graph, two edges per node to an earlier one: the studio's default size.
+fn random_graph(count: u32) -> Vec<(u32, u32)> {
+    let mut state = 12_345u64;
+    let mut edges = Vec::new();
+    for i in 1..count {
+        for _ in 0..2 {
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            edges.push((i, ((state >> 33) % u64::from(i)) as u32));
+        }
+    }
+    edges
+}
+
+/// The drawing spreads over both axes and keeps its nodes apart. On 2026-10-01 a node's own
+/// quadtree leaf repelled it, so 400 nodes fell onto 11 distinct x values in a strip 0.07 tall
+/// while one node flew 180 units away.
+#[test]
+fn a_400_node_graph_spreads_in_two_dimensions() {
+    let points = probe::points(&run(&probe::graph(400, &random_graph(400))).expect("lays out"));
+    let span = |axis: fn(&(f32, f32)) -> f32| {
+        let values: Vec<f32> = points.iter().map(axis).collect();
+        values.iter().copied().fold(f32::MIN, f32::max)
+            - values.iter().copied().fold(f32::MAX, f32::min)
+    };
+    let (wide, tall) = (span(|p| p.0), span(|p| p.1));
+    assert!(
+        tall > 0.3 * wide && wide > 0.3 * tall,
+        "a strip: {wide} x {tall}"
+    );
+    let cell = wide.max(tall) * 1e-3;
+    let mut seen: Vec<(i64, i64)> = points
+        .iter()
+        .map(|p| ((p.0 / cell) as i64, (p.1 / cell) as i64))
+        .collect();
+    seen.sort_unstable();
+    seen.dedup();
+    assert!(
+        seen.len() >= 380,
+        "only {} of 400 positions are distinct",
+        seen.len()
+    );
+}

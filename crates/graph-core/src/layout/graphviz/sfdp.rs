@@ -48,20 +48,25 @@
 //! index order, and no hash map is ever iterated. Native and wasm32 outputs are bit-identical.
 //!
 //! Ponytail: **the coarsening matching is deterministic where the reference's is random**, and
-//! **the two-node case keeps a residual rotation**. The reference draws a random permutation to
-//! order its matchings (`Multilevel.c`, via `gv_permutation`) and re-`srand`s between levels;
-//! this port matches in dense index order, which yields one of the maximal matchings the
-//! reference could have drawn but not necessarily the one it did. Failing input: every graph,
-//! in the last digits — the hierarchy it builds can differ from the reference's. Direction: the
-//! drawing is a different but equally valid sfdp layout of the same graph, not a wrong one, and
-//! the residual rotation on a two-node graph (measured at 0.04 rad) is the same phenomenon seen
-//! in miniature: two nodes sit in Barnes-Hut cells with different centres of mass, so their two
-//! forces are only nearly antiparallel. Escape hatch: `run_seeded` is the seam — a port that
-//! drew glibc's permutation stream would only have to replace `multilevel::coarsen` and
+//! **two refinement steps are simplified**. Each pass groups nodes with identical neighbour
+//! sets first, four at a time, then matches every other node to an unmatched neighbour, as the
+//! reference's `maximal_independent_edge_set_heavest_edge_pernode_supernodes_first` does; but
+//! it visits nodes in dense index order where the reference draws a random permutation
+//! (`gv_permutation`) and re-`srand`s between levels, and with unit weights "heaviest" is the
+//! first neighbour. Prolongation copies the coarse position and adds a 1e-6 jitter, without the
+//! reference's `interpolate_coord` smoothing pass, and `p` stays -1 where the reference switches
+//! to -1.8 on a power-law degree distribution. Failing input: every graph, in the last digits;
+//! a power-law graph by more, its hubs packed tighter than Graphviz packs them. Direction: a
+//! different but equally valid sfdp layout, never a collapsed one (`tests.rs` checks a 400-node
+//! graph spreads in both axes with distinct positions). The two-node case keeps a residual
+//! rotation (0.04 rad): two nodes sit in Barnes-Hut cells with different centres of mass, so
+//! their forces are only nearly antiparallel. Escape hatch: `run_seeded` is the seam; a port
+//! that drew glibc's permutation stream would only have to replace `multilevel::coarsen` and
 //! re-`srand` per level, and the differential would then be a check on one number rather than
 //! a measurement of an unmatchable one.
 
 mod force;
+mod matching;
 mod multilevel;
 mod quadtree;
 mod solve;
@@ -124,40 +129,34 @@ pub fn run_seeded(topology: &Topology, seed: u32) -> Result<Geometry, StageError
     Ok(point_geometry(&x, &y))
 }
 
-/// The undirected edge list, deduplicated and self-loop free, in dense index order.
+/// The undirected edge list, deduplicated and self-loop free, sorted by `(low, high)` endpoint.
 ///
 /// The reference symmetrises the adjacency matrix before laying it out
 /// (`spring_electrical.c:1075-1078`) and removes the diagonal, so a self loop contributes
 /// nothing and an edge is one spring however it was declared.
 fn symmetrised(topology: &Topology) -> Vec<(u32, u32)> {
     let columns = topology.edges();
-    let mut out: Vec<(u32, u32)> = Vec::with_capacity(topology.edge_count() as usize);
-    for i in 0..topology.edge_count() as usize {
-        let (a, b) = (columns.source[i], columns.target[i]);
-        if a == b {
-            continue;
-        }
-        let key = if a <= b { (a, b) } else { (b, a) };
-        if !out.contains(&key) {
-            out.push(key);
-        }
-    }
+    let mut out: Vec<(u32, u32)> = (0..topology.edge_count() as usize)
+        .map(|i| (columns.source[i], columns.target[i]))
+        .filter(|&(a, b)| a != b)
+        .map(|(a, b)| (a.min(b), a.max(b)))
+        .collect();
+    // Sorted rather than `contains`-checked: the scan was O(E^2) and is the order the
+    // per-level edge lists use anyway (`multilevel::coarse_edges`).
+    out.sort_unstable();
+    out.dedup();
     out
 }
 
 /// The whole multilevel solve: coarsen to the floor, lay out, then refine back down.
 ///
-/// Four levels rather than a fixed number, chosen so the coarsest level is small enough to lay
-/// out directly (`COARSEST_FLOOR`) and the loop terminates for any input, including the ones
-/// where matching makes no progress.
+/// Coarsening stops at `COARSEST_FLOOR` nodes or when a level makes no progress, so the loop
+/// terminates for any input.
 fn layout(edges: &[(u32, u32)], count: u32, seed: u32) -> (Vec<f64>, Vec<f64>) {
-    let (x, y) = solve::random_start(count, seed);
     let mut coarse = edges.to_vec();
     let mut coarse_count = count;
-    // One entry per level above the finest, coarsest last, each carrying **its own** edge
-    // list. Carrying the edges matters: a level's node ids are its own dense ids, so relaxing
-    // a middle level against the finest level's edges would index past the end of its
-    // positions.
+    // One entry per level above the finest, coarsest last. A level's node ids are its own
+    // dense ids, so each level is relaxed against its own edge list.
     let mut levels: Vec<Step> = Vec::new();
     while coarse_count > COARSEST_FLOOR {
         let next = multilevel::coarsen(coarse_count, &coarse);
@@ -165,13 +164,16 @@ fn layout(edges: &[(u32, u32)], count: u32, seed: u32) -> (Vec<f64>, Vec<f64>) {
             break;
         }
         let above = multilevel::coarse_edges(&next, &coarse);
+        coarse_count = next.coarse;
         levels.push(Step {
             level: next,
-            edges: above.clone(),
+            edges: std::mem::replace(&mut coarse, above),
         });
-        coarse = above;
-        coarse_count = levels[levels.len() - 1].level.coarse;
     }
+    // The random start covers the coarsest level only (`xc` in `spring_electrical.c:1108`). On
+    // 2026-10-01 it covered every fine node, so the coarsest solve carried the surplus as
+    // phantom nodes with no edges.
+    let (x, y) = solve::random_start(coarse_count, seed);
     let mut solve = solve::Solve::new(x, y, &coarse);
     solve.relax(solve::FIRST_STEP, MAX_ITER);
     // Walk back down, relaxing each level against its own edges. `K` shrinks by 0.75 at each
@@ -189,7 +191,9 @@ fn layout(edges: &[(u32, u32)], count: u32, seed: u32) -> (Vec<f64>, Vec<f64>) {
     (solve.x, solve.y)
 }
 
-/// One level of the hierarchy, with the edge list **of that level**.
+/// One level of the hierarchy, with the edge list of its **finer** side: the graph its prolonged
+/// positions are relaxed against. On 2026-10-01 it carried the coarser side's edges, so every
+/// level, the finest included, was relaxed against the graph one level up.
 struct Step {
     level: Level,
     edges: Vec<(u32, u32)>,

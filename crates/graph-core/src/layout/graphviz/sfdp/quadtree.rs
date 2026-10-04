@@ -1,75 +1,83 @@
 //! The Barnes-Hut quadtree behind sfdp's repulsive force.
 //!
-//! Reference: `lib/neatogen/quadtree.c` and `QuadTree_get_repulsive_force` at
-//! `lib/sfdpgen/spring_electrical.c:311`, read as an algorithm reference. One cell per square
-//! quadrant; a cell far enough from node `i`, relative to its own width, stands in for every
-//! node inside it, which is what makes the repulsion `O(n log n)` instead of `O(n²)`.
+//! Reference: `lib/sparse/QuadTree.c` (`QuadTree_new_from_point_list`, `QuadTree_add_internal`,
+//! `QuadTree_get_supernodes_internal`) and its caller at `lib/sfdpgen/spring_electrical.c:586`,
+//! read as an algorithm reference. A cell holds one point until a second arrives, then splits
+//! and pushes both down; at the depth cap it keeps a list instead. Node `i` sees every point in
+//! the leaves it opens exactly (itself excluded), and an internal cell far enough away as one
+//! supernode of its whole weight at its **centre of mass**.
 //!
 //! The motor already ships a Barnes-Hut for `layout.force.barnes_hut`. This is a separate small
-//! tree rather than a reuse of it, and the reason is in the module `Ponytail` note: that tree
-//! serves a different force model with a different cell charge and opening test, and widening
-//! it to also serve sfdp would put a hash-gate stage's behaviour behind this stage's
-//! parameters.
+//! tree because that one serves d3's force model, with a different charge and opening test.
 //!
-//! **Gather form (D10).** [`Quadtree::repulsion`] reads the positions and writes node `i`'s
-//! force alone. The tree is immutable once built, so the answer never depends on visit order.
+//! **Gather form (D10).** [`Quadtree::repulsion`] reads the tree and the positions and returns
+//! node `i`'s force alone. The tree is immutable once built.
 
-use super::force::{BH, P};
+use super::force::{self, BH};
 
-/// How deep the tree may get before a cell stops splitting and keeps its points as one mass.
+/// The reference's `max_qtree_level` (`spring_electrical.c:62`). It also keeps coincident points
+/// terminating: splitting cannot separate them, so at this depth a cell keeps a list instead.
 ///
-/// The reference subdivides to `max_qtree_level = 10`. This port stops at the same depth for
-/// the same reason, and the depth cap is also what keeps a stack of *coincident* points
-/// terminating: splitting cannot separate points that share every coordinate, so without a cap
-/// the build would recurse forever.
+/// Ponytail: the reference retunes this depth every iteration with `oned_optimizer`
+/// (`spring_electrical.c:579`, `:627`) to minimise the walk's cost; here it stays at 10.
+/// Failing input: none in the drawing (the depth decides which cells are opened, so the forces
+/// differ in the last digits); the cost is a deeper tree than the optimiser would pick on
+/// dense clusters. Escape hatch: the constant.
 const MAX_DEPTH: u32 = 10;
 
-/// A cell: its square box, the charge it stands for, its depth, and its four children. A cell
-/// with no children is a leaf holding however many points landed in it.
+/// No point, no child.
+const NONE: u32 = u32::MAX;
+
+/// One square cell: its centre and half-width, the points it stands for, and either a list of
+/// points (`head`, linked through [`Quadtree::next`]) or up to four children.
 struct Cell {
     cx: f64,
     cy: f64,
-    side: f64,
-    charge: f64,
-    depth: u32,
-    children: [Option<usize>; 4],
+    half: f64,
+    count: u32,
+    sum_x: f64,
+    sum_y: f64,
+    head: u32,
+    children: [u32; 4],
 }
 
 impl Cell {
-    /// A cell covering the square of side `side` centred on `(cx, cy)`.
-    fn new(cx: f64, cy: f64, side: f64, depth: u32) -> Self {
+    fn new(cx: f64, cy: f64, half: f64) -> Self {
         Self {
             cx,
             cy,
-            side,
-            charge: 0.0,
-            depth,
-            children: [None; 4],
+            half,
+            count: 0,
+            sum_x: 0.0,
+            sum_y: 0.0,
+            head: NONE,
+            children: [NONE; 4],
         }
     }
 
-    /// The quadrant of `(x, y)`: bit 0 is high x, bit 1 is high y.
+    /// The quadrant of `(x, y)`: bit 0 is high x, bit 1 is high y (`QuadTree_get_quadrant`).
     fn quadrant(&self, x: f64, y: f64) -> usize {
-        usize::from(x >= self.cx) | (usize::from(y >= self.cy) << 1)
+        usize::from(x - self.cx >= 0.0) | (usize::from(y - self.cy >= 0.0) << 1)
+    }
+
+    fn is_internal(&self) -> bool {
+        self.children.iter().any(|&c| c != NONE)
     }
 }
 
-/// A built tree. Cells live in one arena, so a traversal is index arithmetic.
-pub(super) struct Quadtree {
+/// A built tree over borrowed positions. Cells live in one arena, so a walk is index arithmetic.
+pub(super) struct Quadtree<'a> {
     cells: Vec<Cell>,
-    /// The root square's side, kept so the module's own test can assert the margin without
-    /// reaching into `cells`.
-    #[cfg(test)]
-    side: f64,
+    /// `next[i]`: the point after `i` in its leaf's list.
+    next: Vec<u32>,
+    x: &'a [f64],
+    y: &'a [f64],
 }
 
-/// The margin the root square leaves around the point cloud, so coincident points do not
-/// produce a zero-width box that every cell then fails to open out of.
-const MARGIN: f64 = 0.05;
-
-impl Quadtree {
-    /// A tree over `x`/`y`, occupying the tightest square with a margin around the points.
-    pub(super) fn of(x: &[f64], y: &[f64]) -> Self {
+impl<'a> Quadtree<'a> {
+    /// A tree over `x`/`y`. The root is centred on the bounding box, with a half-width of 0.52
+    /// times its larger span, floored at `1e-5` for a single point (`QuadTree.c:333-336`).
+    pub(super) fn of(x: &'a [f64], y: &'a [f64]) -> Self {
         let (mut lo_x, mut hi_x) = (f64::MAX, f64::MIN);
         let (mut lo_y, mut hi_y) = (f64::MAX, f64::MIN);
         for i in 0..x.len() {
@@ -78,96 +86,107 @@ impl Quadtree {
             lo_y = lo_y.min(y[i]);
             hi_y = hi_y.max(y[i]);
         }
-        if !lo_x.is_finite() || !hi_x.is_finite() {
-            lo_x = 0.0;
-            hi_x = 1.0;
-            lo_y = 0.0;
-            hi_y = 1.0;
+        if x.is_empty() {
+            (lo_x, hi_x, lo_y, hi_y) = (0.0, 0.0, 0.0, 0.0);
         }
-        let span = (hi_x - lo_x).max(hi_y - lo_y);
-        let side = span * (1.0 + 2.0 * MARGIN);
+        let half = (hi_x - lo_x).max(hi_y - lo_y).max(1e-5) * 0.52;
+        let root = Cell::new((lo_x + hi_x) * 0.5, (lo_y + hi_y) * 0.5, half);
+        let mut cells = Vec::with_capacity(2 * x.len() + 1);
+        cells.push(root);
         let mut tree = Self {
-            cells: vec![Cell::new((lo_x + hi_x) / 2.0, (lo_y + hi_y) / 2.0, side, 0)],
-            #[cfg(test)]
-            side,
+            cells,
+            next: vec![NONE; x.len()],
+            x,
+            y,
         };
-        for i in 0..x.len() {
-            tree.insert(x[i], y[i]);
+        for i in 0..x.len() as u32 {
+            tree.add(0, i, 0);
         }
         tree
     }
 
-    /// Add one point, descending into quadrants until a leaf or the depth cap is reached.
-    fn insert(&mut self, x: f64, y: f64) {
-        let mut node = 0usize;
-        loop {
-            self.cells[node].charge += 1.0;
-            if self.cells[node].depth >= MAX_DEPTH {
-                return;
-            }
-            let quadrant = self.cells[node].quadrant(x, y);
-            let side = self.cells[node].side / 2.0;
-            let child = match self.cells[node].children[quadrant] {
-                Some(index) => index,
-                None => {
-                    let index = self.cells.len();
-                    let (cx, cy) = (self.cells[node].cx, self.cells[node].cy);
-                    let depth = self.cells[node].depth + 1;
-                    let ox = if quadrant & 1 == 0 { -side } else { side };
-                    let oy = if quadrant & 2 == 0 { -side } else { side };
-                    self.cells.push(Cell::new(cx + ox, cy + oy, side, depth));
-                    self.cells[node].children[quadrant] = Some(index);
-                    index
-                }
-            };
-            node = child;
+    /// `QuadTree_add_internal`: an empty cell takes the point; below the depth cap a cell
+    /// splits and sends both the new point and the one it held down a level; at the cap it
+    /// keeps a list.
+    fn add(&mut self, node: usize, id: u32, level: u32) {
+        let (px, py) = (self.x[id as usize], self.y[id as usize]);
+        let cell = &mut self.cells[node];
+        cell.count += 1;
+        cell.sum_x += px;
+        cell.sum_y += py;
+        if cell.count == 1 || level >= MAX_DEPTH {
+            self.next[id as usize] = cell.head;
+            cell.head = id;
+            return;
+        }
+        let held = std::mem::replace(&mut cell.head, NONE);
+        self.add_below(node, id, level);
+        if held != NONE {
+            self.add_below(node, held, level);
         }
     }
 
-    /// The repulsive force on node `i`, written into `out`.
-    ///
-    /// The reference's form (`spring_electrical.c:41-42`) is `f_r = K^(1-p) / d^(1-p)` per
-    /// pair, accumulated over supernodes, so a cell contributes `kp · charge · d^(p-1)`.
-    /// `p = -1` here, so the distance exponent is 2 and the `1/d` direction stays explicit.
-    pub(super) fn repulsion(&self, out: &mut [f64; 2], x: &[f64], y: &[f64], i: usize, kp: f64) {
-        let mut force = [0.0f64; 2];
-        self.walk(0, &mut force, x[i], y[i], kp);
-        *out = force;
+    /// Sends `id` into its quadrant of `node`, creating that child on first use.
+    fn add_below(&mut self, node: usize, id: u32, level: u32) {
+        let (px, py) = (self.x[id as usize], self.y[id as usize]);
+        let parent = &self.cells[node];
+        let quadrant = parent.quadrant(px, py);
+        let mut child = parent.children[quadrant];
+        if child == NONE {
+            let half = parent.half / 2.0;
+            let cx = parent.cx + if quadrant & 1 == 0 { -half } else { half };
+            let cy = parent.cy + if quadrant & 2 == 0 { -half } else { half };
+            child = self.cells.len() as u32;
+            self.cells.push(Cell::new(cx, cy, half));
+            self.cells[node].children[quadrant] = child;
+        }
+        self.add(child as usize, id, level + 1);
     }
 
-    /// One level: open a cell unless it is far enough away to stand for everything inside it.
-    fn walk(&self, node: usize, out: &mut [f64; 2], px: f64, py: f64, kp: f64) {
+    /// The repulsive force on node `i`, `kp` being the reference's `K^(1-p)`.
+    pub(super) fn repulsion(&self, i: u32, kp: f64) -> [f64; 2] {
+        let mut out = [0.0f64; 2];
+        let at = [self.x[i as usize], self.y[i as usize]];
+        self.walk(0, i, at, kp, &mut out);
+        out
+    }
+
+    /// `QuadTree_get_supernodes_internal` with the force summed as it goes: a cell's own
+    /// points exactly, then the cell as one supernode if `half < bh · dist`, else its children.
+    fn walk(&self, node: usize, i: u32, at: [f64; 2], kp: f64, out: &mut [f64; 2]) {
         let cell = &self.cells[node];
-        let internal = cell.children.iter().any(|c| c.is_some());
-        let dx = px - cell.cx;
-        let dy = py - cell.cy;
-        let dist = f64::sqrt(dx * dx + dy * dy);
-        // The reference's opening test: width over distance below `bh` means supernode.
-        // `dist == 0` never satisfies it, so a coincident cell always opens, which is what
-        // stops coincident points from standing in for one another.
-        if !internal || (dist > 0.0 && cell.side / dist < BH) {
-            self.push(out, cell, dx, dy, dist, kp);
+        let mut point = cell.head;
+        while point != NONE {
+            if point != i {
+                let delta = [
+                    at[0] - self.x[point as usize],
+                    at[1] - self.y[point as usize],
+                ];
+                force::repel(out, delta, kp);
+            }
+            point = self.next[point as usize];
+        }
+        if !cell.is_internal() {
             return;
         }
-        for child in cell.children.iter().flatten() {
-            self.walk(*child, out, px, py, kp);
-        }
-    }
-
-    /// Accumulate one cell's charge as a point mass at its centre.
-    fn push(&self, out: &mut [f64; 2], cell: &Cell, dx: f64, dy: f64, dist: f64, kp: f64) {
-        if cell.charge <= 0.0 || dist == 0.0 {
+        let (dx, dy) = (at[0] - cell.cx, at[1] - cell.cy);
+        if cell.half < BH * f64::sqrt(dx * dx + dy * dy) {
+            let weight = f64::from(cell.count);
+            let delta = [at[0] - cell.sum_x / weight, at[1] - cell.sum_y / weight];
+            force::repel(out, delta, weight * kp);
             return;
         }
-        let magnitude = kp * cell.charge / libm::pow(dist, 1.0 - P);
-        out[0] += magnitude * dx / dist;
-        out[1] += magnitude * dy / dist;
+        for &child in &cell.children {
+            if child != NONE {
+                self.walk(child as usize, i, at, kp, out);
+            }
+        }
     }
 
     /// The root square's side, for the module's own tests.
     #[cfg(test)]
     fn side(&self) -> f64 {
-        self.side
+        2.0 * self.cells[0].half
     }
 }
 
@@ -175,86 +194,93 @@ impl Quadtree {
 mod tests {
     use super::*;
 
-    /// An array's two coordinates as bits, so a comparison is exact rather than approximate.
-    fn bits(v: [f64; 2]) -> [u64; 2] {
-        [v[0].to_bits(), v[1].to_bits()]
+    /// The pairwise sum the tree approximates, for comparison.
+    fn exact(x: &[f64], y: &[f64], i: usize, kp: f64) -> [f64; 2] {
+        let mut out = [0.0, 0.0];
+        for j in (0..x.len()).filter(|&j| j != i) {
+            force::repel(&mut out, [x[i] - x[j], y[i] - y[j]], kp);
+        }
+        out
     }
 
     #[test]
     fn a_single_node_gets_a_finite_zero_repulsion() {
-        let x = [1.0];
-        let y = [2.0];
-        let tree = Quadtree::of(&x, &y);
-        let mut out = [f64::NAN, f64::NAN];
-        tree.repulsion(&mut out, &x, &y, 0, 1.0);
-        assert_eq!(out, [0.0, 0.0], "a lone node has nothing to push against");
+        let tree = Quadtree::of(&[1.0], &[2.0]);
+        assert_eq!(
+            tree.repulsion(0, 1.0),
+            [0.0, 0.0],
+            "a lone node has nothing to push against"
+        );
     }
 
-    /// Two nodes repel: each is pushed away from the other. A tree that got the sign or the
-    /// charge wrong fails here.
+    /// Two nodes push each other apart, equally and oppositely. On 2026-10-01 each node was also
+    /// pushed by its own leaf from that leaf's centre, so the two forces pointed anywhere.
     #[test]
-    fn two_nodes_push_each_other_apart() {
-        let x = [0.0, 1.0];
-        let y = [0.0, 0.0];
+    fn two_nodes_push_each_other_apart_equally() {
+        let (x, y) = ([0.0, 2.0], [0.0, 0.0]);
         let tree = Quadtree::of(&x, &y);
-        let mut a = [0.0, 0.0];
-        let mut b = [0.0, 0.0];
-        tree.repulsion(&mut a, &x, &y, 0, 1.0);
-        tree.repulsion(&mut b, &x, &y, 1, 1.0);
-        assert!(a[0] < 0.0 && b[0] > 0.0, "not pushed apart: {a:?} {b:?}");
+        assert_eq!(
+            (tree.repulsion(0, 1.0), tree.repulsion(1, 1.0)),
+            ([-0.5, 0.0], [0.5, 0.0])
+        );
     }
 
-    /// Coincident points are what the depth cap exists for: the repulsion must stay finite and
-    /// the build must terminate rather than splitting forever.
+    /// Coincident points are what the depth cap exists for: the build terminates, and a
+    /// coincident pair adds nothing rather than dividing by zero.
     #[test]
     fn coincident_points_stay_finite() {
-        let x = [0.0, 0.0, 0.0, 0.0];
-        let y = [0.0, 0.0, 0.0, 0.0];
+        let (x, y) = ([0.0; 4], [0.0; 4]);
         let tree = Quadtree::of(&x, &y);
         for i in 0..4 {
-            let mut out = [f64::NAN, f64::NAN];
-            tree.repulsion(&mut out, &x, &y, i, 1.0);
-            assert!(
-                out[0].is_finite() && out[1].is_finite(),
-                "node {i}: {out:?}"
-            );
+            assert_eq!(tree.repulsion(i, 1.0), [0.0, 0.0], "node {i}");
         }
     }
 
     #[test]
     fn the_root_square_covers_the_span_with_a_margin() {
-        let x = [0.0, 1.0];
-        let y = [0.0, 1.0];
+        let tree = Quadtree::of(&[0.0, 1.0], &[0.0, 1.0]);
+        assert!((tree.side() - 1.04).abs() < 1e-12, "side {}", tree.side());
+    }
+
+    /// The approximation stays close to the exact sum on a spread-out cloud: supernodes sit at
+    /// their centre of mass, so a far cluster pulls the way its points do. The error is measured
+    /// against the gross force, the sum of every pair's magnitude, because the net force nearly
+    /// cancels for a node inside the cloud: against the net, node 28 reads 36% off while its
+    /// absolute error is 5.5% of what the pairs exert at worst (node 119). The reference's own criterion,
+    /// `width < 0.6 * dist` on the cell's *half*-width, is theta 1.2 in side/distance terms.
+    #[test]
+    fn the_tree_agrees_with_the_exact_sum() {
+        let x: Vec<f64> = (0..200)
+            .map(|i| libm::sin(f64::from(i) * 1.7) * 10.0)
+            .collect();
+        let y: Vec<f64> = (0..200)
+            .map(|i| libm::cos(f64::from(i) * 2.3) * 10.0)
+            .collect();
         let tree = Quadtree::of(&x, &y);
-        assert!(tree.side() > 1.0, "side {} leaves no margin", tree.side());
+        let mut total = 0.0;
+        for i in 0..200 {
+            let (a, b) = (tree.repulsion(i as u32, 1.0), exact(&x, &y, i, 1.0));
+            let gross: f64 = (0..200)
+                .filter(|&j| j != i)
+                .map(|j| 1.0 / libm::hypot(x[i] - x[j], y[i] - y[j]))
+                .sum();
+            let error = libm::hypot(a[0] - b[0], a[1] - b[1]) / gross;
+            assert!(
+                error < 0.1,
+                "node {i}: tree {a:?}, exact {b:?}, gross {gross}"
+            );
+            total += error;
+        }
+        assert!(total / 200.0 < 0.02, "mean error {}", total / 200.0);
     }
 
     /// Gathering twice gives the same answer: nothing accumulates across calls.
     #[test]
     fn repulsion_is_a_pure_function_of_the_positions() {
-        let x = [0.0, 1.0, 0.5, -1.0];
-        let y = [0.0, 1.0, -1.0, 0.5];
+        let (x, y) = ([0.0, 1.0, 0.5, -1.0], [0.0, 1.0, -1.0, 0.5]);
         let tree = Quadtree::of(&x, &y);
-        for (i, point) in x.iter().enumerate() {
-            let _ = point;
-            let mut a = [0.0, 0.0];
-            let mut b = [0.0, 0.0];
-            tree.repulsion(&mut a, &x, &y, i, 1.0);
-            tree.repulsion(&mut b, &x, &y, i, 1.0);
-            assert_eq!(bits(a), bits(b), "node {i} differs between two reads");
+        for i in 0..4 {
+            assert_eq!(tree.repulsion(i, 1.0), tree.repulsion(i, 1.0), "node {i}");
         }
-    }
-
-    /// A node far from a dense cluster must not descend to every leaf: that bounded cost is
-    /// the whole reason the approximation exists.
-    #[test]
-    fn a_distant_node_costs_a_bounded_number_of_visits() {
-        let mut x: Vec<f64> = (0..64).map(|i| i as f64 * 0.01).collect();
-        let y = vec![0.0; 64];
-        x[0] = 1e6;
-        let tree = Quadtree::of(&x, &y);
-        let mut out = [0.0, 0.0];
-        tree.repulsion(&mut out, &x, &y, 0, 1.0);
-        assert!(out[0].is_finite(), "{out:?}");
     }
 }
