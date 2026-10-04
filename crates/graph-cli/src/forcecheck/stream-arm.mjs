@@ -92,7 +92,8 @@ function digest(session, fixture, batch) {
 
 /// Hands `bytes` to the module through `gm_alloc`, calls `body(ptr, len)`, frees, and returns
 /// whatever `body` answered. One helper so every batch's copy-never-free dance is written once.
-function withAlloc(len, what, fixture, batch, body) {
+function withAlloc(bytes, what, fixture, batch, body) {
+  const len = bytes.length;
   const ptr = exports.gm_alloc(len);
   if (ptr === 0) refuse(`gm_alloc(${len})`, fixture, batch);
   new Uint8Array(exports.memory.buffer, ptr, len).set(bytes);
@@ -116,7 +117,7 @@ async function documents(path) {
 async function linesFor(path) {
   const fixture = basename(path, ".jsonl");
   const docs = await documents(path);
-  const handle = withAlloc(docs[0].length, "gm_alloc", fixture, 0, (ptr, len) =>
+  const handle = withAlloc(docs[0], "gm_alloc", fixture, 0, (ptr, len) =>
     exports.gm_build(ptr, len),
   );
   if (handle === 0) refuse("gm_build", fixture, 0);
@@ -124,10 +125,10 @@ async function linesFor(path) {
   const session = exports.gm_force_session_create(handle, 0, 0);
   if (session === 0) refuse("gm_force_session_create", fixture, 0);
 
-  const out = [`${STAGE} ${fixture} 0 `];
+  const out = [];
   for (let batch = 0; batch < docs.length; batch += 1) {
     if (batch > 0) {
-      const grown = withAlloc(docs[batch].length, "gm_alloc", fixture, batch, (ptr, len) =>
+      const grown = withAlloc(docs[batch], "gm_alloc", fixture, batch, (ptr, len) =>
         exports.gm_graph_extend(handle, ptr, len),
       );
       if (grown !== 1) refuse("gm_graph_extend", fixture, batch);
@@ -138,7 +139,7 @@ async function linesFor(path) {
     const status = exports.gm_force_session_tick(session, ticks);
     if (status === 0) refuse("gm_force_session_tick", fixture, batch);
     if (status !== 1 && status !== 2) fail(`gm_force_session_tick answered ${status}`);
-    out[batch] = `${out[batch]}${digest(session, fixture, batch)}\n`;
+    out.push(`${STAGE} ${fixture} ${batch} ${digest(session, fixture, batch)}\n`);
   }
 
   if (exports.gm_force_session_release(session) !== 1) fail("gm_force_session_release refused");

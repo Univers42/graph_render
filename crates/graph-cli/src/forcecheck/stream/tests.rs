@@ -47,8 +47,7 @@ fn merged(documents: &[Vec<u8>], up_to: usize) -> Vec<u8> {
         nodes.extend(value["nodes"].as_array().expect("nodes").clone());
         edges.extend(value["edges"].as_array().expect("edges").clone());
     }
-    serde_json::to_vec(&json!({ "version": 1, "nodes": nodes, "edges": edges }))
-        .expect("writes")
+    serde_json::to_vec(&json!({ "version": 1, "nodes": nodes, "edges": edges })).expect("writes")
 }
 
 fn build(document: &[u8]) -> Topology {
@@ -108,7 +107,11 @@ fn every_grown_session_equals_a_rebuild_carried() {
 /// read: every one of them, and every batch of each, through the real ABI reader.
 #[test]
 fn every_fixture_reaches_the_stage_with_its_batches() {
-    let expected = [("stream-small", 9usize), ("stream-hub", 6), ("stream-pow2", 6)];
+    let expected = [
+        ("stream-small", 9usize),
+        ("stream-hub", 6),
+        ("stream-pow2", 6),
+    ];
     for (name, lines) in expected {
         assert_eq!(documents(name).expect("emitted").len(), lines, "{name}");
     }
@@ -156,7 +159,10 @@ fn first_divergence_names_the_batch_and_refuses_a_ragged_arm() {
     assert!(err.contains("printed 1 lines, need 2"), "{err}");
 
     let one: [Arm; 1] = [("native run 1", vec![good.clone()])];
-    assert!(first_divergence(&one).is_err(), "one arm has nothing to disagree with");
+    assert!(
+        first_divergence(&one).is_err(),
+        "one arm has nothing to disagree with"
+    );
 }
 
 /// **The negative control has teeth, natively.** Dropping batch 2 must move the native arm
@@ -176,7 +182,9 @@ fn the_dropped_batch_is_reported_as_a_divergence_at_that_batch() {
         "a dropped batch must still print its line, or the arms are incomparable"
     );
     let arms: [Arm; 2] = [honest_arm, dropped_arm];
-    let reported = first_divergence(&arms).expect("comparable").expect("diverged");
+    let reported = first_divergence(&arms)
+        .expect("comparable")
+        .expect("diverged");
     assert!(
         reported.starts_with("stream-small batch 2 ("),
         "the first divergence must be the dropped batch: {reported}"
@@ -215,6 +223,9 @@ fn the_wasm_stream_script_agrees_with_this_crate() {
         "gm_force_session_tick",
         "gm_release",
     ] {
-        assert!(script.contains(name), "{name} is missing from the stream arm");
+        assert!(
+            script.contains(name),
+            "{name} is missing from the stream arm"
+        );
     }
 }

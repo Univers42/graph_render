@@ -10,7 +10,12 @@ use graph_wasm::service::{self, Source};
 /// Every fixture's lines, as the reader sees them.
 fn lines_of(name: &str) -> Vec<String> {
     std::fs::read_to_string(fixture_path(name))
-        .unwrap_or_else(|e| panic!("{}: {e}; run emit-stream-fixtures", fixture_path(name).display()))
+        .unwrap_or_else(|e| {
+            panic!(
+                "{}: {e}; run emit-stream-fixtures",
+                fixture_path(name).display()
+            )
+        })
         .lines()
         .map(str::to_owned)
         .collect()

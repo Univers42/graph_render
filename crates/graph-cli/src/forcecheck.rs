@@ -167,12 +167,13 @@ fn collect_arms(seeds: u32) -> Result<Collected, String> {
 fn collect_stream_arms(exe: &Path, wasm: &Path) -> Result<Vec<Arm>, String> {
     let native = || run_lines(Command::new(exe).arg("force-gate-stream-arm"));
     let wasm32 = || {
-        let mut paths: Vec<String> = stream::FIXTURES
-            .iter()
-            .map(|name| stream::fixture_path(name).display().to_string())
-            .collect();
-        paths.push(TICKS.to_string());
-        run_lines(wasm_stream_arm(wasm).args(&paths))
+        let mut args = vec![TICKS.to_string()];
+        args.extend(
+            stream::FIXTURES
+                .iter()
+                .map(|name| stream::fixture_path(name).display().to_string()),
+        );
+        run_lines(wasm_stream_arm(wasm).args(&args))
     };
     Ok(vec![
         ("native run 1", native()?),
@@ -293,14 +294,14 @@ fn report(
         eprintln!("force-gate: stream arms not comparable: {text}");
         return ExitCode::from(2);
     }
-    if tally.diverged_seeds == 0 && stream.diverged {
-        println!("PASS");
-        return ExitCode::SUCCESS;
+    if tally.diverged_seeds != 0 || stream.diverged {
+        if tally.diverged_seeds != 0 {
+            println!("FAIL: {} of {seeds} seeds diverge", tally.diverged_seeds);
+        }
+        return ExitCode::from(1);
     }
-    if tally.diverged_seeds != 0 {
-        println!("FAIL: {} of {seeds} seeds diverge", tally.diverged_seeds);
-    }
-    ExitCode::from(1)
+    println!("PASS");
+    ExitCode::SUCCESS
 }
 
 /// What the stream stage reported, and the refusal that stops the gate being read as a pass.
@@ -326,9 +327,9 @@ fn report_stream(arms: &Collected) -> StreamReport {
             refusal: None,
         };
     };
-    let refusal = text.starts_with("arms not comparable: ").then(|| {
-        text.trim_start_matches("arms not comparable: ").to_owned()
-    });
+    let refusal = text
+        .starts_with("arms not comparable: ")
+        .then(|| text.trim_start_matches("arms not comparable: ").to_owned());
     if refusal.is_none() {
         println!("force-gate: stream diverged at {text}");
     }

@@ -68,9 +68,8 @@ pub fn fixture_path(name: &str) -> PathBuf {
 fn bytes(name: &str) -> Result<Vec<u8>, String> {
     let mut out = Vec::new();
     for (index, line) in lines(name).into_iter().enumerate() {
-        let text = graph_wasm::ingest_document(&line.nodes, &line.edges).ok_or_else(|| {
-            format!("{name} line {index}: a non-finite value JSON cannot spell")
-        })?;
+        let text = graph_wasm::ingest_document(&line.nodes, &line.edges)
+            .ok_or_else(|| format!("{name} line {index}: a non-finite value JSON cannot spell"))?;
         out.extend_from_slice(text.as_bytes());
         out.push(b'\n');
     }
@@ -179,9 +178,9 @@ fn pow2() -> Vec<Line> {
 fn node(i: u32) -> NodeRecord {
     NodeRecord {
         id: format!("n{i}"),
-        kind: match i % 23 {
-            0 => NodeKind::Note,
-            _ => NodeKind::Record,
+        kind: match i.is_multiple_of(23) {
+            true => NodeKind::Note,
+            false => NodeKind::Record,
         },
         database_id: Some(format!("db-{}", i % 4)),
         source: "bench".into(),
@@ -189,7 +188,7 @@ fn node(i: u32) -> NodeRecord {
         group: Some(format!("g{}", i % 3)),
         weight: 0.5,
         version: 0.0,
-        has_note: i % 17 == 0,
+        has_note: i.is_multiple_of(17),
         icon: None,
     }
 }

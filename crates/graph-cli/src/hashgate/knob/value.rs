@@ -90,7 +90,9 @@ pub(crate) fn accepted(knob: Knob) -> &'static str {
         Knob::SplitSum => "1, true, all, charge, collide or link",
         Knob::SplitRescale => "1, true, yes or on",
         Knob::NeatoEpsilon => "a finite non-negative tolerance, and not the compiled-in one",
-        Knob::DropDelta => "a batch index 1..=4294967295; batch 0 is the initial graph, not a delta",
+        Knob::DropDelta => {
+            "a batch index 1..=4294967295; batch 0 is the initial graph, not a delta"
+        }
         Knob::SpringIterations | Knob::ReferenceDegree => "a u32 that is not the compiled-in one",
         _ => "a finite number the layout accepts, and not the compiled-in one",
     }
