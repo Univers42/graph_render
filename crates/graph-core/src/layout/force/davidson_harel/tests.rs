@@ -1,4 +1,4 @@
-use super::energy::{Field, Probe, crossings_at, delta};
+use super::energy::{Field, Probe, delta, resting};
 use super::{DavidsonHarel, DhParams};
 use crate::index::{Topology, empty_model, index_model};
 use crate::records::build::{edge, node};
@@ -104,10 +104,9 @@ fn edge_length_energy_rewards_a_shorter_edge() {
 /// The probe `try_node` builds for node `v` at `at`: the field plus that position's own
 /// crossings, so the tests below read the same cache the layout does.
 fn probe<'a>(field: &'a Field<'a>, v: u32, at: [f64; 2]) -> Probe<'a, 'a> {
-    let old = crossings_at(field, v, at);
     // Leaked so the probe's borrow outlives this call: a test's field is a stack local and
-    // the flags are read only inside the assertion that follows.
-    Probe::new(Field { ..*field }, Box::leak(old.into_boxed_slice()))
+    // the recorded values are read only inside the assertion that follows.
+    Probe::new(Field { ..*field }, Box::leak(Box::new(resting(field, v, at))))
 }
 
 #[test]
@@ -151,13 +150,19 @@ fn the_crossing_cache_is_one_flag_per_pair_and_agrees_with_recomputing() {
     // Neighbours of 0: just 1 (adj[0] = [1]). Non-skipped edges for (0,1): every edge but
     // (0,1) itself and (1,4), which has an end at the neighbour — (2,3) only. So one flag,
     // and it is 1: 0--1 crosses 2--3 from both endpoints.
-    let old = crossings_at(&field, 0, [0.0, 0.0]);
-    assert_eq!(old, [1]);
+    let rest = resting(&field, 0, [0.0, 0.0]);
+    assert_eq!(rest.crossings, [1]);
     assert_eq!(delta(&probe(&field, 0, [0.0, 0.0]), &w, 0, ([0.0, 0.0], [0.0, 0.0])), 0.0);
     // Node 1's neighbour list repeats 0 and adds 4, and (0,1) and (1,4) are skipped for
     // both, leaving (2,3) three times over: the cache has one flag per pair, duplicates
     // included, and only the neighbour 0 reaches across 2--3.
-    assert_eq!(crossings_at(&field, 1, [10.0, 0.0]), [1, 0, 1]);
+    assert_eq!(resting(&field, 1, [10.0, 0.0]).crossings, [1, 0, 1]);
+    // The repulsion half is indexed by node, one reciprocal distance each, zero at the node
+    // itself: 0's own slot is 0 and every other slot is `1 / d2(at, pos[u])`.
+    assert_eq!(rest.repulsion[0], 0.0);
+    assert_eq!(rest.repulsion[1], 1.0 / 100.0);
+    assert_eq!(rest.repulsion[2], 1.0 / 50.0);
+    assert_eq!(resting(&field, 1, [10.0, 0.0]).repulsion[1], 0.0);
     // Moving 1 out of the crossing loses both of the crossings it made through the repeated
     // neighbour 0, so the delta is -2: the cache counts a multi-edge neighbour list twice,
     // as the reduction it replaced did.
