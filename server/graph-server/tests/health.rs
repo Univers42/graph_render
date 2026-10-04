@@ -9,14 +9,16 @@ use std::process::Command;
 use std::time::{Duration, Instant};
 
 /// `graph-server healthcheck` against `port`: its exit code and how long it took.
+/// `GM_SVC_BREAK` rides through, so the negative control can switch a break on.
 fn healthcheck(port: u16) -> (Option<i32>, Duration) {
     let start = Instant::now();
-    let status = Command::new(env!("CARGO_BIN_EXE_graph-server"))
-        .arg("healthcheck")
-        .env_clear()
-        .env("GRAPH_PORT", port.to_string())
-        .status()
-        .expect("healthcheck runs");
+    let mut command = Command::new(env!("CARGO_BIN_EXE_graph-server"));
+    command.arg("healthcheck").env_clear();
+    command.env("GRAPH_PORT", port.to_string());
+    if let Some(breaks) = std::env::var_os("GM_SVC_BREAK") {
+        command.env("GM_SVC_BREAK", breaks);
+    }
+    let status = command.status().expect("healthcheck runs");
     (status.code(), start.elapsed())
 }
 

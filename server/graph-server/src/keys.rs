@@ -3,6 +3,7 @@
 //! against every stored hash in constant time. A refused file names the line number, never the
 //! line, because a line can be a key pasted by mistake.
 
+use crate::breaks;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 use std::io::Read;
@@ -56,7 +57,7 @@ impl KeySet {
         if !meta.is_file() {
             return Err(whole("is not a regular file"));
         }
-        if meta.permissions().mode() & 0o022 != 0 {
+        if meta.permissions().mode() & 0o022 != 0 && !breaks::on("accept-group-writable") {
             return Err(whole(
                 "is group- or world-writable (0640 or stricter is accepted)",
             ));

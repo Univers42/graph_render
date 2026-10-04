@@ -105,9 +105,11 @@ impl Acceptor {
         app: &Arc<App>,
     ) {
         let mut builder = http1::Builder::new();
+        let header_timeout =
+            (!breaks::on("no-header-timeout")).then_some(self.connections.header_timeout);
         builder
             .timer(TokioTimer::new())
-            .header_read_timeout(self.connections.header_timeout)
+            .header_read_timeout(header_timeout)
             .max_buf_size(self.connections.max_header_bytes);
         let service = TowerToHyperService::new(self.router.clone());
         let connection = graceful.watch(builder.serve_connection(TokioIo::new(stream), service));
@@ -122,12 +124,16 @@ impl Acceptor {
 }
 
 /// `SIGHUP` re-reads the key file. The handler is installed even with auth off: the default
-/// action of `SIGHUP` would end the process.
+/// action of `SIGHUP` would end the process. The break keeps the handler and drops the reload, so
+/// the process still survives the signal — ignoring `SIGHUP`, not dying of it.
 fn spawn_reload(app: &Arc<App>, path: Option<PathBuf>) -> io::Result<()> {
     let mut hangup = signal(SignalKind::hangup())?;
     let app = Arc::clone(app);
     tokio::spawn(async move {
         while hangup.recv().await.is_some() {
+            if breaks::on("ignore-sighup") {
+                continue;
+            }
             app.reload_keys(path.as_deref());
         }
     });

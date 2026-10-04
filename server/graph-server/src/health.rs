@@ -1,6 +1,7 @@
 //! `graph-server healthcheck` (Verdict condition 11): the image's `HEALTHCHECK`, without curl and
 //! without an HTTP client crate. One `GET /healthz` over a std socket; exit 0 only on a 200.
 
+use crate::breaks;
 use std::io::{self, Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpStream};
 use std::time::{Duration, Instant};
@@ -13,6 +14,9 @@ const MAX_STATUS_LINE: usize = 1024;
 
 /// True only when `127.0.0.1:port/healthz` answers 200 within [`BUDGET`].
 pub fn healthcheck(port: u16) -> bool {
+    if breaks::on("always-healthy") {
+        return true;
+    }
     probe(SocketAddr::from((Ipv4Addr::LOCALHOST, port)), BUDGET).unwrap_or(false)
 }
 
