@@ -6,6 +6,7 @@
 //! and need no `Option`, no `expect` and no bounds guess of its own.
 
 use super::Columns;
+use super::Format;
 use super::error::ColumnsError;
 use super::layout::{ABSENT, Shape};
 
@@ -129,11 +130,20 @@ fn optional(column: &[u8], name: &'static str, row: u32, shape: Shape) -> Result
     Err(ColumnsError::StringIndex { column: name, row })
 }
 
-/// An endpoint row, which names a node — never the absent marker, never past the last node.
+/// An edge endpoint, which names a node in the only way this format's magic allows: a
+/// **node row number** under `GMC1`, a **string index naming a node id** under `GMX1`.
+///
+/// One function with two arms, not two checkers, because every other rule above is shared
+/// and a second file would be a second copy of them. The batch arm is [`required`]: a batch
+/// endpoint may name a node the graph already holds, so it is a name like any other — never
+/// `u32::MAX`, and an entry past the table names nothing.
 fn endpoint(column: &[u8], name: &'static str, row: u32, shape: Shape) -> Result<(), ColumnsError> {
-    match cell(column, row) < shape.nodes as u32 {
-        true => Ok(()),
-        false => Err(ColumnsError::EndpointRow { column: name, row }),
+    match shape.format {
+        Format::Batch => required(column, name, row, shape),
+        Format::Document => match cell(column, row) < shape.nodes as u32 {
+            true => Ok(()),
+            false => Err(ColumnsError::EndpointRow { column: name, row }),
+        },
     }
 }
 
