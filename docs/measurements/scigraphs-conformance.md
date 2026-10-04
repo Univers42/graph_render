@@ -672,8 +672,8 @@ fires symmetrically at `dim = 2` with a 3-column start, and a 3-column start at 
 accepted. `dim = 3` was never unavailable to these two arms. What *was* true is narrower — that
 file's own `initial` is two columns wide, so the row cannot simply be switched to `dim = 3` in
 place — and that is already how this tree is built, with the 3-D arms in their own `igraph3d`
-fixture set whose `initial_3d` is three columns wide (`harness/oracle-igraph.py:8-19`, `:175`). The
-comment at `harness/oracle-igraph.py:27-46` now says this, and the `kamada_kawai` half of the
+fixture set whose `initial_3d` is three columns wide (`harness/oracle-igraph.py:8-19`, `:186`). The
+comment at `harness/oracle-igraph.py:34-48` now says this, and the `kamada_kawai` half of the
 `docs/measurements/fix-harness-py.md` record it contradicts is superseded.
 
 The same probe settles what the KK infinities are **not**. With a 3-column `seed` of our own,
@@ -692,6 +692,33 @@ non-finite own-start cases: 6
 That is the defect recorded as `G_KK_NON_FINITE`, and it is a **reference** defect rather than this
 port's: `layout.force.kamada_kawai.3d` returns a zero step instead of dividing by a near-singular
 3x3 (`kamada_kawai/solve.rs:30`) and is finite there.
+
+**The three `.3d` arms re-measured on this tree, through the invocation
+`scripts/orch/rows/p12-t4b.rows` already names** — `emit-igraph3d-fixtures --seeds 1000`, then
+`harness/oracle-igraph.py target/igraph3d-fixtures` in `ge-python-oracle`, then
+`graph-cli oracle-igraph3d`. Exit 0, `PASS`, and every worst landed on its pinned ceiling to the
+digit, so the ceilings in `crates/graph-cli/src/oracle_python/igraph.rs` are this tree's numbers
+and not the branch's:
+
+```
+$ scripts/orch/gr cargo run -q --release -p graph-cli -- emit-igraph3d-fixtures --seeds 1000 --out target/igraph3d-fixtures
+$ scripts/orch/drun --rm -v $PWD:/w -w /w ge-python-oracle python3 harness/oracle-igraph.py target/igraph3d-fixtures
+{"drl":                  {"cases": 1000, "worst": 1.261682819553074,  "reference_worst": 2.107081283294582, "unscoreable": 0, "unscoreable_reference": 0},
+ "fruchterman_reingold": {"cases": 1000, "worst": 1.1948456288535538, "reference_worst": 1.6643221828445076, "unscoreable": 0, "unscoreable_reference": 0},
+ "kamada_kawai":         {"cases":  999, "worst": 18.89773341481319,  "reference_worst": 2.511628967714305, "unscoreable": 1, "unscoreable_reference": 1}}
+$ scripts/orch/gr cargo run -q --release -p graph-cli -- oracle-igraph3d --dir target/igraph3d-fixtures
+  layout.force.fruchterman_reingold.3d: 1000 cases, worst 1.195e0, ceiling 1e1: ok
+  layout.force.kamada_kawai.3d:          999 cases, worst 1.890e1, ceiling 1e2: ok
+  layout.force.drl.3d:                  1000 cases, worst 1.262e0, ceiling 1e1: ok
+PASS
+```
+
+This is the harness whose `dim = 3` calls the section above measures, and it is the check that the
+refusal has nothing to do with `dim = 3`: 1000 of 1000 FR cases and 999 of 1000 KK cases are scored
+at `dim = 3` on this tree, from three-column `initial_3d` starts. The **one** unscoreable KK seed is
+a *reference* degeneration and is counted, not hidden — `harness/oracle-igraph.py:199` names it
+(igraph's own 3-D KK returns a NaN stress on seed 601, n = 3, a triangle), which is the same
+near-singular 3x3 block as the conformance row's `gate-01` and the same defect from the other side.
 
 ## Cells that say `not run`, and why
 
