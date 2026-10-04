@@ -111,7 +111,8 @@ host-wide `flock` that makes it the bottleneck.
 
 ### 2.3 `land` — the landing step
 
-There is no `land.sh`: it is `queue.sh land <label>` → `land()` at `queue.sh:28-42`, called
+There is no `land.sh` in `scripts/orch/` (do not go looking for one): it is `queue.sh land <label>`
+→ `land()` at `queue.sh:28-42`, called
 automatically when rc=0 and `land=yes`. Under `flock` on `$GM_SCRATCH/orch/queue/land.lock` it
 `cd`s to `$GM_SCRATCH/wt/<label>`, fetches, **merges develop into the branch** (aborting with
 exit 1 on conflict), runs `timed gate.sh target/land-<label> scripts/orch/rows/quick.rows`, then
@@ -144,12 +145,14 @@ findings, deviations, decisions needed. A free-model outage means the queue **wa
 
 ## 3. What is in flight (2026-10-04)
 
-`scripts/orch/queue.sh status`: **135 labels, every one `done`** — no `live`, no `pending`. The
+`scripts/orch/queue.sh status`: **135 labels, every one `done`** — zero `live`, zero `pending`. The
 split is 65 `rc=0`, 58 `rc=2`, 10 `rc=1`, 2 `rc=3`. develop = **fba1a288**, **1429 commits**.
-`rc=2` does not mean the work is missing: it means the agent did not write `status: done`.
+`rc=2` does not mean the work is missing: it means the agent did not write `status: done`. (Read the
+status column, not the label: `studio-live` and `perf-p6-live-copy` are `done` rows.)
 
-Thirteen remote branches are unmerged (`docs/reports/STATUS.md` §2 has the table with heads and
-ahead counts). Two need a decision before anything else can be scheduled:
+Fourteen remote branches are unmerged (`docs/reports/STATUS.md` §2 has the table with heads and
+ahead counts — and it moved twice while being written, so re-run the `for-each-ref` yourself).
+Three need a decision before anything else can be scheduled:
 
 - **`svc-image`** (3bf7223, **73 commits**, 96 files) is the whole `server/graph-server`
   workspace. There is **no server at all** on develop — `server-and-write-path.md:3` and
@@ -157,6 +160,9 @@ ahead counts). Two need a decision before anything else can be scheduled:
   verdict. It is the largest unlanded thing in the repo.
 - **`p12-t4a`** (971318dc, dated 2026-10-01) is **stale**: its deliverable reached develop by
   another route, through the `sg-*` conformance series. Diff it before spending a merge on it.
+- **`p13-gv2-dot-mincross`** (ab760496) and **`p13-gv3-dot-position`** (535d1f10) **overlap** —
+  the position pass was written without mincross merged. Diff them against each other before
+  landing either, or one will clobber the other.
 
 ## 4. The next work, in order
 
@@ -170,10 +176,11 @@ ahead counts). Two need a decision before anything else can be scheduled:
    five `*.3d` ids, which are registered on develop with **no** oracle. Merge develop into the
    branch, run the floor, then `queue.sh land p12-3d-oracles` by hand.
 4. **`p13-gv2-dot`, second pass**: the rank pass has landed
-   (`crates/graph-core/src/layout/graphviz/dot.rs:1-19`); `p13-gv2-dot-mincross` (ab760496, 9
-   commits) carries `dot_mincross` and `harness/oracle-dot-probe.py`. Land it, then run the
-   `position` pass as its own job. Until then `GRAPHVIZ_DOT` stays `shape` and there is no
-   `layout.dag.dot` row.
+   (`crates/graph-core/src/layout/graphviz/dot.rs:1-19`). The other two passes are each on their
+   own unmerged branch and they **overlap** — `p13-gv2-dot-mincross` (ab760496, `dot_mincross` +
+   `harness/oracle-dot-probe.py`) and `p13-gv3-dot-position` (535d1f10, `dot_position`). Diff them
+   against each other, land one merge, then rebase the other's intent onto it by merge. Until both
+   are on develop, `GRAPHVIZ_DOT` stays `shape` and there is no `layout.dag.dot` row.
 5. **Add `negctl-node-z` to `develop-full.rows`.** The full sweep still does not run the z control
    that `quick.rows:7` and `p12-t3.rows:84` do — a one-line gap that makes the full gate weaker
    than the floor on exactly the column 3D added.

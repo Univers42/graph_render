@@ -118,15 +118,20 @@ layer and `server/graph-server` exists only on the unmerged branch `svc-image` (
   `studio-smoke` and `negctl-studio-smoke` at `scripts/orch/rows/develop-full.rows:221-225`. This
   closes the 2026-10-02 gap "the gate runs no studio row".
 
-## 2. Branches pushed, not merged (13)
+## 2. Branches pushed, not merged (14)
 
 `git for-each-ref --no-merged=origin/develop --format='%(refname:short)' refs/remotes/origin`
+
+**Every path named in the "What / why" column below is on the branch, not on develop** — read them
+with `git show origin/<branch>:<path>`. Ahead counts are `git rev-list --count
+origin/develop..origin/<branch>`.
 
 | Branch | Head | Ahead | Verdict | What / why |
 |---|---|---|---|---|
 | `svc-image` | 3bf7223 | 73 | **not landed, the big one** | the whole `server/graph-server` workspace: 96 files, 10 699 insertions, incl. `tests/{start,shutdown}.rs`. Nothing on develop has a server |
 | `p12-3d-oracles` | dae8b2c1 | 9 | **not landed** | the 3D igraph oracle arm, `scripts/orch/rows/p12-3d.rows`, 28 files. The six `*.3d` ids are registered but their differential is not on develop |
 | `p13-gv2-dot-mincross` | ab760496 | 9 | **not landed** | `dot_mincross` + `harness/oracle-dot-probe.py`; the rank half already landed (§1.1) |
+| `p13-gv3-dot-position` | 535d1f10 | 11 | **not landed, appeared mid-session** | `dot_position`, 20 files. Written *after* the mincross branch, so the two overlap — see §4.1 before landing either |
 | `p12-t4a` | 971318dc | 1 | **not landed, stale** | dated 2026-10-01, 40 files. Its deliverable (3D arms of random/spiral/bipartite/spectral/mds.pivot) is **already on develop** via the conformance series (§1.2) — diff before landing |
 | `yifan-hu-octree` | 186972c9 | 7 | **not landed** | the yifan_hu octree, `docs/measurements/yifan-hu-3d.md`, 32 files |
 | `perf-p4d-extend` | e8014ca2 | 4 | **not landed** | `docs/measurements/perf-p4d-extend.md` (400 lines) |
@@ -138,8 +143,10 @@ layer and `server/graph-server` exists only on the unmerged branch `svc-image` (
 | `fix-rustdoc` | 9f5fb6a2 | 9 | **repair** | 99 files, rustdoc fixes |
 | `fix-sc-misalign` | ea75c086 | 4 | **repair** | `test_sc_metrics_slice.py` (255 lines) + its brief |
 
-`origin/sg-igraph-3d` **is** merged. `origin/ux-params-dock` (fba1a288) landed mid-session and is
-the current develop head, so §2 shrank from 14 entries to 13 while this file was written.
+`origin/sg-igraph-3d` **is** merged. **`origin/ux-params-dock` (fba1a288) landed mid-session and is
+the current develop head**, and **`origin/p13-gv3-dot-position` was pushed mid-session**: this
+section was 14 entries, became 13, and is 14 again, all while this file was being written. Re-run
+the command above before acting on the count.
 
 ## 3. The capability ledger, row by row
 
@@ -220,8 +227,11 @@ only backed by a record whose `fingerprint` equals the current tree's
 
 ## 4. Work in flight and queued
 
-`scripts/orch/queue.sh status` on 2026-10-04: **135 labels, and every one reads `done`** — no
-`live`, no `pending`. `rc` is `oc-job.sh`'s exit code (0 = done **and** gate green, 2 = the agent
+`scripts/orch/queue.sh status` on 2026-10-04: **135 labels, and every one reads `done`** — zero rows
+`live`, zero `pending`. (Grep the status column, not the whole line: `studio-live` and
+`perf-p6-live-copy` are `done` labels whose *names* contain "live".)
+
+`rc` is `oc-job.sh`'s exit code (0 = done **and** gate green, 2 = the agent
 did not return `done`, 1 = gate red, 3 = the worktree could not be proven free); `land` is `land()`'s,
 written only when rc=0 and the row's `land=yes`. The split is **65 `rc=0`, 58 `rc=2`, 10 `rc=1`,
 2 `rc=3`**. `rc=2` does **not** mean the work is missing — the 2026-10-02 edition listed eleven
@@ -237,7 +247,7 @@ authority** (`scripts/orch/queue.sh:61`) — read the tree.
 
 | job | deliverable | state on develop |
 |---|---|---|
-| `p13-gv2-dot` | the `dot` layered port: rank, then mincross, then position | **partial**: rank landed (`layout/graphviz/dot.rs:1-19`), mincross on branch `p13-gv2-dot-mincross`, no `layout.dag.dot` row |
+| `p13-gv2-dot` | the `dot` layered port: rank, then mincross, then position | **partial**: rank landed (`layout/graphviz/dot.rs:1-19`); mincross and position are each on their own unmerged branch (`p13-gv2-dot-mincross` ab760496, `p13-gv3-dot-position` 535d1f10) and **they overlap** — position was written without mincross merged, so diff them against each other first. No `layout.dag.dot` row |
 | `p12-t4a` | 3D arms of random / spiral / bipartite / spectral / mds.pivot | **landed by another route** (the `sg-*` conformance series); branch `971318dc` is 3 days stale — diff it |
 | `p12-t4b` | 3D arms of forceatlas2 / yifan_hu / FR / KK / DRL, plus `yifan_hu.2z` | **landed**: all five ids are in `LAYOUTS`; `land=1` (red after the merge) |
 | `p12-3d-oracles` | the 3D igraph differential for those five | **not landed**: branch `dae8b2c1`, 9 commits |

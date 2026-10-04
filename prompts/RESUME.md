@@ -30,9 +30,12 @@ below is from a brief; each line cites a commit, a `file:line` or a command.
   10 of 32 `f32`-identical on all 1020 coordinates
   (`docs/measurements/scigraphs-conformance.md:200-252`). No row is `f64`-exact and none can be —
   the motor is `f32` end to end (`:119-124`).
-- **13 branches unmerged.** The one that matters: **`svc-image`** (3bf7223, **73 commits**,
-  96 files) is the entire `server/graph-server` workspace, and develop has no server at all.
-- **The queue is idle**: 135 labels, every one `done`, no `live` and no `pending`. `rc=2` (58 of
+- **14 branches unmerged**, and the list moved twice while this was written — `ux-params-dock`
+  landed (taking develop's head with it) and `p13-gv3-dot-position` was pushed. The one that
+  matters most: **`svc-image`** (3bf7223, **73 commits**, 96 files) is the entire
+  `server/graph-server` workspace, and develop has no server at all. The two `dot` branches
+  (`p13-gv2-dot-mincross`, `p13-gv3-dot-position`) **overlap** — diff them before landing either.
+- **The queue is idle**: 135 labels, every one `done`, zero `live` and zero `pending`. `rc=2` (58 of
   them) means the agent did not write `status: done`, not that the work is missing.
 - **New decisions on develop** (all 2026-10-03/04): `browser-threads`, `delta-abi`,
   `force-session-warm-seed`, `gpu-force-tier`, `ingest-columns`, `layout-params`, `memory-guard`,
