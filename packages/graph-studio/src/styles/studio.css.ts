@@ -1,6 +1,13 @@
 /**
- * The whole stylesheet, as one string: the host puts it in a `<style>` inside the shadow
- * root, so nothing here can reach the page and nothing on the page reaches in.
+ * The whole stylesheet, as one string: `mount.ts` builds a `CSSStyleSheet` from it and adopts it
+ * on the shadow root (`adoptedStyleSheets`), which is why nothing here needs a `<style>` element
+ * and a host need not allow `'unsafe-inline'` — under that CSP the browser refuses a `<style>`.
+ *
+ * The shadow root is `mode: "open"` so that a host can reach the studio's own chrome when it has
+ * to (`host.shadowRoot.querySelector`, as the gates do), and so that `view`, the panels' geometry
+ * and a11y tree are inspectable from the page. That is a deliberate trade, not an isolation claim:
+ * host script CAN walk in, so the rule below is that nothing the host supplies is ever put where
+ * a stylesheet could reach it — every host string is rendered as text.
  *
  * No backdrop-filter, no filter, no animation: each of them makes the browser recomposite
  * the canvas under the panels on every frame the graph draws.
@@ -183,6 +190,15 @@ export const STUDIO_CSS = `
 .gs-menu-scrim { position: absolute; inset: 0; pointer-events: auto; z-index: 4; }
 .gs-menu { display: flex; flex-direction: column; min-width: 140px; padding: 4px; gap: 2px; z-index: 5; }
 .gs-menu-item { min-height: 28px; text-align: left; }
+
+/* The hover card lets every pointer event through: it must never take the hover it shows. */
+.gs-card { pointer-events: none; max-width: 280px; padding: 6px 8px; z-index: 1; }
+.gs-preview { display: flex; flex-direction: column; gap: 2px; padding: 4px 0; overflow-wrap: anywhere; }
+.gs-preview-head { display: flex; align-items: baseline; gap: 6px; }
+.gs-preview-icon { color: var(--gs-muted); }
+.gs-preview-title { font-weight: 600; }
+.gs-preview-text { margin: 0; color: var(--gs-muted); max-height: 12em; overflow: hidden; white-space: pre-wrap; }
+.gs-open { align-self: flex-start; margin: 4px 8px; }
 
 @media (prefers-reduced-motion: reduce) {
   .gs-btn { transition: none; }
