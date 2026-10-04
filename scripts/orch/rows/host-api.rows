@@ -1,4 +1,6 @@
 studio-check|0|scripts/studio.sh check
 studio-build|0|scripts/studio.sh build
 studio-embed|0|scripts/studio-embed.sh
-negctl-studio-embed|0|STUDIO_EMBED_BREAK=1 scripts/studio-embed.sh; test $? -eq 1
+# The control needs its own fresh report, not only exit 1: a SyntaxError in smokecdp.py (a merge
+# conflict, 2026-10-04) also exits 1, and the bare `test $? -eq 1` row passed on it. 19 = the targeted rows.
+negctl-studio-embed|0|r=target/studio-embed/break/report.json; rm -f $r; STUDIO_EMBED_BREAK=1 scripts/studio-embed.sh; test $? -eq 1 && test "$(grep -c '"verdict": "FAIL"' $r)" -ge 19 && ! grep -Eq '"verdict": "(PASS|NOT-RUN)"' $r
