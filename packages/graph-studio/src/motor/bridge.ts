@@ -215,7 +215,7 @@ export function createLiveBridge(deps: LiveDeps): LiveBridge {
     // The strip appears before the first frame, so a settle is never invisible.
     desk.settling = { visible: true, fraction: 1, label: "settling" };
     show(desk, publish);
-    deps.send({ type: "force.start" });
+    deps.send({ type: "force.settle" });
   };
   const destroy = (): void => {
     onPush();
@@ -247,8 +247,9 @@ export interface RunState {
 }
 
 /**
- * A force layout is a starting position, not a picture: the loop takes it from there and the
- * strip shows the settle. Every other layout is finished, so nothing starts. A batch layout
+ * A force layout settles live: the loop steps the session the run left, which keeps the run's
+ * picture, or settles a large graph's scatter on screen (`settle.ts`). Every other layout is
+ * finished, so nothing starts. A batch layout
  * run shows the same strip with no fraction of its own — one call, no progress inside it.
  *
  * Keyed on the run, not on its layout id: a large graph reports `particle_mesh` whichever force

@@ -2,10 +2,10 @@
  * What one layout request runs on a graph of a given size, and which engine its live session
  * ticks on.
  *
- * WHY a force layout on a large graph is not run frozen: the live loop starts on every force
- * run, and the session it steps seeds its own positions, so the frozen picture is replaced on
- * the first frame. At 400k nodes that frozen run blocked the worker for minutes and was then
- * thrown away. Past `LIVE_NODES` the graph is scattered in O(n) instead and settles on screen.
+ * WHY a force layout on a large graph is not run frozen: at 400k nodes the frozen run blocked
+ * the worker for minutes before the first frame. Past `LIVE_NODES` the graph is scattered in
+ * O(n) instead and settles on screen; under it, the live session starts cold on the frozen
+ * picture, which stays put until a drag or a knob reheats it (`session.ts`, `startSession`).
  */
 import { type ForceEngine, settlesLive } from "./live.ts";
 

@@ -6,7 +6,7 @@
 // position the drag can move: a graph with no edges would satisfy every "positions are finite"
 // check below and prove nothing about a pin.
 
-import { ForceSessionRefusedError, InvalidSessionError } from "../../crates/graph-sdk-js/src/index.ts";
+import { ColumnId, ForceSessionRefusedError, InvalidSessionError } from "../../crates/graph-sdk-js/src/index.ts";
 import { check, refusedWith } from "./lib.mjs";
 
 const EDGE = (id, source, target) => ({
@@ -140,5 +140,24 @@ export async function runForceSection(ctx) {
 
   // The graph handle outlives the session: releasing one must not disturb the other.
   check("the graph is still usable after the session is released", motor.nodeCount(handle) === 4);
+  await checkWarmSeed(motor, handle);
   motor.release(handle);
+}
+
+/** `seed` `"layout"`: a session that starts on the graph's last layout run rather than on the
+ * spiral, for both engines, and refused before any run. */
+async function checkWarmSeed(motor, handle) {
+  check(
+    "a session seeded on a layout is refused before any layout run",
+    await refusedWith(ForceSessionRefusedError, () => motor.forceSession(handle, undefined, undefined, "layout")),
+  );
+  motor.layout(handle, "layout.grid");
+  const drawn = [Array.from(motor.column(handle, ColumnId.NodeX)), Array.from(motor.column(handle, ColumnId.NodeY))];
+  for (const engine of ["barnes_hut", "particle_mesh"]) {
+    const session = motor.forceSession(handle, undefined, engine, "layout");
+    const { xs, ys } = session.positions();
+    const same = (column, axis) => column.length === 4 && column.every((value, row) => value === drawn[axis][row]);
+    check(`a ${engine} session seeded on the layout starts on its centres`, same(xs, 0) && same(ys, 1), JSON.stringify({ xs, drawn }));
+    session.release();
+  }
 }

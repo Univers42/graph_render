@@ -38,10 +38,11 @@ mod tests;
 /// checked against, and the one a host's own buffer has to match.
 pub use params::LEN as PARAMS_LEN;
 
-use graph_core::Topology;
 #[cfg(any(test, feature = "threads"))]
 use graph_core::exec::Runner;
-use graph_core::layout::force::{ForceSession, LiveParams, NodeRow};
+use graph_core::layout::force::{ForceSession, LiveParams, NodeRow, SessionError};
+use graph_core::post::centres;
+use graph_core::{Geometry, Topology};
 use std::cell::RefCell;
 
 use crate::errors::Code;
@@ -102,6 +103,36 @@ pub enum Engine {
 /// session that exists is a session whose parameters it will accept.
 pub fn create(topology: &Topology, params: LiveParams, engine: Engine) -> Result<u32, Code> {
     let session = ForceSession::new(topology, params).map_err(|_| Code::SessionRefused)?;
+    insert(session, engine)
+}
+
+/// [`create`] seeded on `geometry`'s node centres, the picture the graph's last layout run
+/// drew, instead of on the engine's spiral: the session continues that picture rather than
+/// replacing it with one of its own (`docs/decisions/force-session-warm-seed.md`).
+///
+/// Refused with [`Code::NoGeometryYet`] before any run, and with [`Code::TamperedGeometry`]
+/// for a centre that is not finite or a column that is not one value per node. The `f32`
+/// centres widen to `f64` exactly, so the session starts on the drawn coordinates bit for bit.
+pub fn create_warm(
+    topology: &Topology,
+    geometry: Option<&Geometry>,
+    params: LiveParams,
+    engine: Engine,
+) -> Result<u32, Code> {
+    let (xs, ys) = centres(&geometry.ok_or(Code::NoGeometryYet)?.nodes);
+    let widen = |column: &[f32]| column.iter().map(|&v| f64::from(v)).collect::<Vec<_>>();
+    let session = ForceSession::from_positions(topology, params, &widen(xs), &widen(ys)).map_err(
+        |error| match error {
+            SessionError::NonFinite { field: "xs" | "ys" } | SessionError::ColumnLength { .. } => {
+                Code::TamperedGeometry
+            }
+            _ => Code::SessionRefused,
+        },
+    )?;
+    insert(session, engine)
+}
+
+fn insert(session: ForceSession, engine: Engine) -> Result<u32, Code> {
     let session = match engine {
         Engine::BarnesHut => session,
         Engine::ParticleMesh => session.with_particle_mesh(),
@@ -198,7 +229,8 @@ pub fn unpin_all(id: u32) -> Result<(), Code> {
 /// The address is the session's own column, which **no path in this ABI resizes**, so it
 /// stays valid for the session's whole life rather than only until the next call (C7) —
 /// `set_positions`, the only writer that could move a `Vec`'s storage, is reachable solely
-/// from `ForceSession::from_positions`, which this ABI does not export. A host still
+/// from `ForceSession::from_positions`, which this ABI calls only to build a new session
+/// ([`create_warm`]), never on a live one. A host still
 /// treats a view as good only until the next motor call, because a wasm memory growth
 /// detaches its `ArrayBuffer`; that is the JS side's hazard, not this address's. An address
 /// or length the wire's `u32` cannot carry is refused with [`Code::IndexOutOfRange`], never
