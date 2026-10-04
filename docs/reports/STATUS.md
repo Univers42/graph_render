@@ -26,6 +26,9 @@ took the branch with it), so re-read the ref before quoting a sha. Check any row
   (`crates/graph-contract/src/snapshot.rs:150,178`). 2D bytes unchanged — `binary/tests/pinned.rs`
   green unedited, `hashgate --seeds 8` PASS (`p13-3d-seam.md:38`). Seven 3D layouts are registered
   (`registry/three_d/{basic,bipartite_3d,spiral3d,graph}.rs`).
+- **SciGraphs name coverage is complete**: `missing = 0`
+  (`docs/measurements/scigraphs-coverage.md:82`, counted 2026-09-30, re-checked 2026-10-01 after
+  p12-t3). Coverage is not agreement, though — the byte-level answer is §1.2.
 - **The `dot` engine, partial** (`crates/graph-core/src/layout/graphviz/dot.rs:1-19`): the rank pass
   is **ported** (`dot/{acyclic,class1,simplex,rank}.rs`), and `class2` + `simplex` are ported as the
   building blocks `dot_mincross` and `dot_position` need — but **neither pass is assembled** and
