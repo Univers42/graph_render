@@ -45,5 +45,5 @@ negctl-caps|0|out=$(scripts/orch/gr -e GM_SVC_BREAK=lift-caps cargo test -q --ma
 # explicit count overrides the derivation (src/config.rs:166-175).
 # Caveat: the derivation itself is proved by config/tests.rs:73, not here; this row only proves
 # the container's memory.max reaches the server and that it is refused when it does not.
-svc-memory|0|out=$(timeout -s TERM 20 scripts/orch/drun --rm --memory 8g --memory-swap 8g -e GRAPH_AUTH=off -e GRAPH_BIND=127.0.0.1 graph-server:latest 2>&1); grep -q '"event":"listening"' <<<"$out"
-negctl-memory|0|out=$(scripts/orch/drun --rm --memory 1g --memory-swap 1g -e GRAPH_AUTH=off -e GRAPH_BIND=127.0.0.1 graph-server:latest 2>&1); rc=$?; test $rc -eq 2 && grep -q 'GRAPH_WORKERS: unset, and memory.max holds no slot' <<<"$out"
+svc-memory|0|out=$(timeout -s TERM 20 scripts/orch/drun --rm --memory 8g --memory-swap 8g -e GRAPH_AUTH=off -e GRAPH_BIND=127.0.0.1 "$(scripts/service.sh image)" 2>&1); grep -q '"event":"listening"' <<<"$out"
+negctl-memory|0|out=$(scripts/orch/drun --rm --memory 1g --memory-swap 1g -e GRAPH_AUTH=off -e GRAPH_BIND=127.0.0.1 "$(scripts/service.sh image)" 2>&1); rc=$?; test $rc -eq 2 && grep -q 'GRAPH_WORKERS: unset, and memory.max holds no slot' <<<"$out"
