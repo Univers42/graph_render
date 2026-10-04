@@ -153,7 +153,6 @@ simplify-reversible|0|scripts/orch/gr cargo test -p graph-core simplify_reversib
 bench-crossover|0|scripts/orch/gr cargo run -q -p graph-cli -- bench --crossover --budget-ms 16.67
 bench-oracle-tick|0|scripts/orch/node-slim.sh bash -c 'npm ci --ignore-scripts >/dev/null && node --experimental-strip-types --experimental-loader ./tests/ts-extension-loader.mjs harness/oracle-tick-bench.mjs --n 220,10000,100000 --repeat 5'
 bench-wasm-tick|0|scripts/orch/node-slim.sh bash -c 'npm ci --ignore-scripts >/dev/null && node --experimental-strip-types harness/wasm-tick-bench.mjs --n 220,10000,100000 --repeat 5'
-capabilities-ceilings-measured|0|scripts/orch/gr cargo run -q -p graph-cli -- capabilities --check --ceilings-measured
 
 # ---------------------------------------------------------------------------------------------
 # from prompts/phase-11-compute-tiers.md:124 and docs/reports/phase-11-progress.md:170 — p11
@@ -296,5 +295,6 @@ osage-check-negctl|nonzero|scripts/orch/gr cargo run -q -p graph-cli -- oracle-g
 
 # Last: `capabilities --check` reads the records every gate above writes for this tree
 # (hashgate, roundtrip, oracle-diff, oracle-spectral, oracle-osage). Run earlier, it reports
-# each one missing or stale (2026-10-04, gate-develop-bff2: 34 problems at row 46).
-capabilities-check|0|scripts/orch/gr cargo run -q -p graph-cli -- capabilities --check
+# each one missing or stale (2026-10-04, gate-develop-bff2: 34 problems at row 46; gate-develop-178c:
+# `--ceilings-measured` at row 56 read the 8-seed hashgate record, 20 problems), so both flags run here.
+capabilities-check|0|scripts/orch/gr cargo run -q -p graph-cli -- capabilities --check --ceilings-measured
