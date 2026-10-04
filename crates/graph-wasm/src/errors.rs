@@ -1,7 +1,7 @@
 //! The ABI's error channel (`docs/contract/wasm-abi.md` "Errors", C4): `0` is the
 //! generic failure return for a handle or a pointer, and it is genuinely ambiguous —
 //! `gm_node_count` on a bad handle and on a freshly built empty graph both read `0`.
-//! [`gm_last_error`](crate::gm_last_error) resolves it: every fallible export sets this
+//! `gm_last_error` resolves it: every fallible export sets this
 //! thread-local to [`Code::None`] on success and to the specific reason on failure,
 //! last write wins, so the code always describes the most recent call.
 //!

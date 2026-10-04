@@ -45,7 +45,7 @@ pub struct StyleParams {
     /// their centres, not their circles.
     pub self_loop_radius: f32,
     /// A self-loop's vertex count, from 3 — a one- or two-gon is not a loop — to
-    /// [`MAX_LOOP_SEGMENTS`].
+    /// `MAX_LOOP_SEGMENTS`.
     pub self_loop_segments: u32,
 }
 

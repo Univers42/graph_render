@@ -19,7 +19,7 @@
 //! Split in two because the reader this replaces parses the *entire* text before it looks at
 //! the root, so a syntax fault in `edges[4000000]` is reported ahead of a missing `version`.
 //! One walk that located as it validated would report them the other way round, which the
-//! differential test in [`super::differential`] would rightly call a change of refusal
+//! differential test in `super::differential` would rightly call a change of refusal
 //! order.
 //!
 //! The container methods are a deliberate line-for-line mirror of `canonical_json::parse`,

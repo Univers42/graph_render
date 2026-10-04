@@ -17,8 +17,8 @@ impl IngestError {
 
 /// Reads one ingest document, or the refusal. Strict throughout: every member named and
 /// required, an unknown member refused, no member given a default that changes what a graph
-/// looks like. Parsing is one pass ([`document`]); everything needing the whole document —
-/// duplicate ids, dangling references, the id grammar — is [`super::validate`]'s, run after.
+/// looks like. Parsing is one pass (`document`); everything needing the whole document —
+/// duplicate ids, dangling references, the id grammar — is `super::validate`'s, run after.
 pub fn read(text: &str) -> Result<Ingest, IngestError> {
     super::validate::check(document(text)?)
 }

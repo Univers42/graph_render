@@ -79,9 +79,9 @@ const SEED: u32 = 0;
 /// the same commands and the same parameters give the same bytes on every target, which
 /// `session/tests/m1a.rs`–`m1e.rs` pin.
 ///
-/// **It owns the one [`Sim`], and [`step`](Self::step) is the batch stage's tick under a
-/// serial [`How`]** — not a second loop. `BarnesHut::run_under` calls
-/// [`step_under`](Self::step_under) with the host's runner and worker count; this type's
+/// **It owns the one `Sim`, and [`step`](Self::step) is the batch stage's tick under a
+/// serial `How`** — not a second loop. `BarnesHut::run_under` calls
+/// `step_under` with the host's runner and worker count; this type's
 /// own [`step`](Self::step) is that call with `Serial` and one worker. The difference
 /// between an interactive step and a batch step is therefore *only* the schedule, which is
 /// the claim `session/tests/m1b.rs` and the 4-way hash gate both check.

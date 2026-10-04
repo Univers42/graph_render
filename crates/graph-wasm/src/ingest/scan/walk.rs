@@ -55,8 +55,9 @@ impl<'a> Scan<'a> {
     /// members as spans, with nothing built per member.
     ///
     /// `keep`'s refusal wins over anything the re-walk finds, for the same reason as in
-    /// [`Self::elements`]: the text was validated by [`Document::new`], so a syntax fault
-    /// here would be a fault that walk missed, and the caller is waiting on the refusal.
+    /// [`Self::elements`]: the text was validated by [`Document::new`](super::Document::new),
+    /// so a syntax fault here would be a fault that walk missed, and the caller is waiting
+    /// on the refusal.
     pub(in crate::ingest) fn members(
         &mut self,
         keep: &mut impl FnMut(Text<'a>, Span) -> Result<(), IngestError>,

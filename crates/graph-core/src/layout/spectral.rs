@@ -10,7 +10,7 @@
 //! `DIMS=2`, so `SPECTRAL_3D` compared a plane against a volume (grey a line, green a
 //! cluster). `layout.spectral` keeps `DIMS = 2` and every byte it had; `layout.spectral3d`
 //! is the reference's own pipeline, and the difference between the two arms is exactly the
-//! [`Width`] this module passes down.
+//! `Width` this module passes down.
 //!
 //! **Scope**: this layout does not implement [`crate::stage::Stage`] (no `Params`); it is
 //! registered through [`super::spectral_stage`], which drops the reports. There is

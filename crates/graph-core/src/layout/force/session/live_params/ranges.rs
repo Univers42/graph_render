@@ -7,7 +7,7 @@
 //!
 //! The ranges are *this* file's constants and nothing else — no other module states a
 //! bound, so a bound can only move here. The two relations between fields that no single
-//! range can express are `live_params.rs`'s [`relations`](super::relations), which is the
+//! range can express are `live_params.rs`'s `relations`, which is the
 //! only other place a pair of these numbers is read against each other.
 
 use crate::layout::force::session::error::SessionError;
@@ -157,9 +157,10 @@ pub(in crate::layout::force::session) const ALPHA: Range = Range {
     max: 1.0,
     rule: "alpha: finite, 0..=1",
 };
-/// The value `alpha` moves *toward*, which is not a [`LiveParams`] field: the upper end is
-/// open, because a target of exactly 1 holds the layout at full heat forever and
-/// [`StepReport::settled`](super::super::StepReport::settled) can never be true again.
+/// The value `alpha` moves *toward*, which is not a [`LiveParams`](super::LiveParams)
+/// field: the upper end is open, because a target of exactly 1 holds the layout at full
+/// heat forever and [`StepReport::settled`](super::super::StepReport::settled) can never be
+/// true again.
 pub(in crate::layout::force::session) const ALPHA_TARGET: Range = Range {
     name: "alpha_target",
     min: 0.0,

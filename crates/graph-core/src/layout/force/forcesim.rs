@@ -35,7 +35,7 @@
 //!   available in this file**: it is a relative `6e-8` per move, which is one `f32` ULP, and
 //!   by iteration 5 it had moved 12 of `tree-balanced`'s 45 coordinates. The one place `f64`
 //!   does return is `cap / norm[over]`, because `cap` is `self.k`. See
-//!   [`integrate`].
+//!   `integrate`.
 //! - `np.bincount(..., weights=...)` accumulates in `f64` whatever the weights' dtype
 //!   (`simulation.py:721-722`), and `_attraction` narrows with `.astype(DTYPE)` at `:723`.
 //! - `np.einsum` accumulates in the array's own dtype, so the `f32` `einsum`s stay `f32`.
@@ -105,9 +105,8 @@ use state::Sim;
 ///
 /// Ponytail: force layouts are chaotic — the same graph with one node added or removed is
 /// a different picture, not a perturbed one — so this is a *different layout* from
-/// [`ForceAtlas2`](crate::layout::forceatlas2::ForceAtlas2), not a variant of it. It exists
-/// because it is what
-/// the `FORCEATLAS2` conformance row's reference actually runs.
+/// [`ForceAtlas2`](crate::layout::forceatlas2::ForceAtlas2), not a variant of it. It
+/// exists because it is what the `FORCEATLAS2` conformance row's reference actually runs.
 pub struct ForceAtlas2ForceSim;
 
 /// The parameters `apply_graph_layout` reaches `_forceatlas2_layout` with for `FORCEATLAS2`

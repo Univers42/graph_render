@@ -1,6 +1,6 @@
 //! Phase 3: resolve each oriented slot's side from the reference chain `add_constraints`
 //! left behind (`LRPlanarity.sign`), then bake it into the nesting depth so
-//! [`super::orient::order_by_nesting_depth`]'s second pass gives [`super::embed`] the
+//! [`Lr::order_by_nesting_depth`]'s second pass gives [`super::super::embed`] the
 //! true rotation order.
 //!
 //! The reference's `sign(e)` allocates its `old_ref` fresh per call, so a slot already

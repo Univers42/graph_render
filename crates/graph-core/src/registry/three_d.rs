@@ -81,7 +81,7 @@ pub(super) use bipartite_3d::BIPARTITE_3D;
 /// own cost — 48 bytes a node across its three columns plus the 32 in the geometry's — and
 /// not the layout, so wasm32's 4 GiB would put the true wall several times higher.
 ///
-/// `layout.force.spring3d` is the exception and takes [`SPRING_CEILING`] instead: it is the
+/// `layout.force.spring3d` is the exception and takes [`super::SPRING_CEILING`] instead: it is the
 /// dense `O(50 n^2)` kernel, not a closed form. Measured beside its 2D sibling at the same
 /// two sizes — `bench --layout layout.force.spring,layout.force.spring3d --n 10000,16000
 /// --repeat 3`: 9 307.48 ms against 9 347.65 ms at 10 000 nodes, and 23 261.70 ms against

@@ -3,8 +3,8 @@
 //! circle_packing.py:46-92`, `_planar_triangulation`). Two ports of networkx 3.6:
 //!
 //! - [`planar_embedding`]: the Left-Right planarity test of Brandes 2009
-//!   (`algorithms/planarity.py`, `LRPlanarity`/`check_planarity`), in [`lr`] and
-//!   [`embed`]. **Never trust a planarity test's "planar" on its own** (user decision,
+//!   (`algorithms/planarity.py`, `LRPlanarity`/`check_planarity`), in `lr` and
+//!   `embed`. **Never trust a planarity test's "planar" on its own** (user decision,
 //!   `docs/decisions/planarity-fallback.md`): the returned [`Embedding`] goes through
 //!   [`euler_certificate`] before it is handed back, and that gate is worth stating
 //!   exactly, because it is narrower than "a wrong embedding is caught".
@@ -28,7 +28,7 @@
 //!
 //! Every recursive method in the references has an iterative twin using an explicit
 //! stack; only those are ported, so a 100k-node path does not recurse 100k deep. Multi-
-//! edges and self-loops are removed first ([`adjacency::Adjacency::simple`], SciGraphs'
+//! edges and self-loops are removed first (`adjacency::Adjacency::simple`, SciGraphs'
 //! own `simple` reduction), and every remaining order — a row's neighbours, the DFS
 //! itself — is over the dense index, never a hash: [`planar_embedding`] is
 //! deterministic, byte for byte, on the same `(n, edges)`.
@@ -133,7 +133,8 @@ impl Faces {
 
 /// A row-sorted index over `embedding`'s neighbours, so `position(v, x)` — "at which
 /// flat index does `x` sit in `v`'s rotation" — is a binary search instead of a scan.
-/// Shared by [`faces`], [`euler_certificate`] and [`triangulate::rebuild`].
+/// Shared by [`faces`], [`euler_certificate`] and `triangulate`'s own row scan
+/// (`Builder::find`).
 struct Positions<'a> {
     embedding: &'a Embedding,
     by_value: Vec<u32>,
@@ -160,7 +161,7 @@ impl<'a> Positions<'a> {
     ///
     /// The only caller is [`Self::next_face`], which asks about the twin of the half-edge it
     /// is walking, so the guarantee is **reciprocity**: every `(v, x)` half-edge has its
-    /// `(x, v)` twin, which is what [`super::embed::into_embedding`] writes — it reads each
+    /// `(x, v)` twin, which is what `embed::into_embedding` writes — it reads each
     /// row's own `degree(v)` slots, so both endpoints of every edge get one. That is why
     /// this is an `expect` naming the guarantee and not an error value: the rotation system
     /// is the input's own shape, and a non-reciprocal one cannot be built by anything in

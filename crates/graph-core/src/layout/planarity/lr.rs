@@ -2,7 +2,7 @@
 //! `LRPlanarity` (`algorithms/planarity.py`): orient the graph by DFS
 //! ([`orient`]), test the orientation for a valid left-right partition
 //! ([`testing`]), then resolve each edge's absolute side
-//! ([`sign`]) so [`super::embed`] can lay out the rotation. [`test`] returns
+//! ([`sign`]) so [`super::embed`] can lay out the rotation. [`test()`] returns
 //! `None` the moment any of that fails — the graph is not planar.
 //!
 //! Every recursive method in the reference has an iterative twin using an explicit

@@ -53,7 +53,7 @@
 //! Direction: the last ulp against the reference, amplified by 300 ticks into 2.7e-3 points
 //! on the two-node case (2.5e-3 became 5.2e-3 in `x`) — a *different* drawing at the same
 //! scale, never a wrong one. Escape hatch: a `sqrt`-based `hypot` is a one-line change in
-//! [`distance`] if a target pair ever needs the reference's exact function, and it would cost
+//! `distance` if a target pair ever needs the reference's exact function, and it would cost
 //! the native/wasm32 identity.
 //!
 //! Ponytail: **the oracle is not reproducible, so this port cannot be gated.** Running the
