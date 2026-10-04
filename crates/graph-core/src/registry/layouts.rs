@@ -7,16 +7,15 @@ use super::capability::Capability;
 use super::params;
 use super::run_default;
 use super::{
-    closed_form, force, forceatlas2_bh, forceatlas2_forcesim, graphviz_circo, graphviz_fdp,
-    graphviz_neato, graphviz_osage, graphviz_patchwork, graphviz_sfdp, grid, hierarchy, igraph,
-    radial, spectral, three_d,
+    arms_3d, closed_form, force, forceatlas2_bh, forceatlas2_forcesim, graphviz_circo,
+    graphviz_fdp, graphviz_neato, graphviz_osage, graphviz_patchwork, graphviz_sfdp, grid,
+    hierarchy, igraph, radial, spectral, three_d,
 };
 use crate::layout::basic_3d;
 use crate::layout::force::spring::Spring;
 use crate::layout::force::spring::{ID_3D as SPRING_3D_ID, Spring3D};
 use crate::layout::force::{
-    BarnesHut, DavidsonHarel, Drl, ForceAtlas2ForceSim, FruchtermanReingold, Graphopt, KamadaKawai,
-    Lgl, ParticleMesh, YifanHu,
+    BarnesHut, DavidsonHarel, Drl, FruchtermanReingold, Graphopt, KamadaKawai, Lgl, YifanHu,
 };
 use crate::layout::forceatlas2::{ForceAtlas2, ForceAtlas2BarnesHut};
 use crate::layout::graphviz::{circo, fdp, neato, osage, patchwork, sfdp};
@@ -30,9 +29,8 @@ use crate::layout::{
 use crate::stage::Stage;
 
 use closed_form::{BIPARTITE, RANDOM, RING, SPIRAL};
-use force::{BARNES_HUT, FA2, PARTICLE_MESH, SPRING, YIFAN_HU};
+use force::{BARNES_HUT, FA2, SPRING, YIFAN_HU};
 use forceatlas2_bh::FA2_BH;
-use forceatlas2_forcesim::FA2_FORCESIM;
 use graphviz_circo::CIRCO;
 use graphviz_fdp::FDP;
 use graphviz_neato::NEATO;
@@ -46,7 +44,7 @@ use spectral::{PIVOT_MDS, SPECTRAL};
 use three_d::{BIPARTITE_3D, CUBE, HELIX, HIERARCHICAL_3D, SPHERE, SPIRAL_3D, SPRING_3D};
 
 /// Every registered layout, in the order the hash gate runs them.
-pub static LAYOUTS: [Capability; 42] = [
+pub static LAYOUTS: [Capability; 47] = [
     Capability {
         id: Grid::ID,
         run: run_default::<Grid>,
@@ -281,20 +279,14 @@ pub static LAYOUTS: [Capability; 42] = [
         params: &params::LayoutParams::NONE,
         meta: SPIRAL_3D,
     },
-    // perf-p2.
-    Capability {
-        id: ParticleMesh::ID,
-        run: run_default::<ParticleMesh>,
-        params: &params::LayoutParams::NONE,
-        meta: PARTICLE_MESH,
-    },
-    // sg-fa2-forcesim: SciGraphs' own ForceSim, which the FORCEATLAS2 conformance row runs.
-    Capability {
-        id: ForceAtlas2ForceSim::ID,
-        run: run_default::<ForceAtlas2ForceSim>,
-        params: &params::LayoutParams::NONE,
-        meta: FA2_FORCESIM,
-    },
+    force::PARTICLE_MESH_LAYOUT,
+    forceatlas2_forcesim::FA2_FORCESIM_LAYOUT,
     spectral::SPECTRAL_3D_LAYOUT,
     spectral::PIVOT_MDS_3D_LAYOUT,
+    // merge-p12-t4b: the 3D arms of the force family and yifan_hu's 2Z variant.
+    arms_3d::YIFAN_HU_2Z_LAYOUT,
+    arms_3d::FRUCHTERMAN_REINGOLD_3D_LAYOUT,
+    arms_3d::KAMADA_KAWAI_3D_LAYOUT,
+    arms_3d::DRL_3D_LAYOUT,
+    arms_3d::FA2_3D_LAYOUT,
 ];

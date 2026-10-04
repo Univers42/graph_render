@@ -15,8 +15,8 @@ import { defineConfig } from "vite";
 
 const modules = fileURLToPath(new URL("./node_modules/", import.meta.url));
 const repoRoot = fileURLToPath(new URL("../", import.meta.url));
-// The studio, and the parity page beside it: the gate screenshots /parity.html out of the
-// same dist, so both are built by one command (scripts/studio.sh build).
+// The studio, the parity page and the embed example beside it: the gates load /parity.html and
+// /embed.html out of the same dist, so all three are built by one command (scripts/studio.sh build).
 const page = (name: string): string => fileURLToPath(new URL(name, import.meta.url));
 
 export default defineConfig({
@@ -38,6 +38,6 @@ export default defineConfig({
   },
   build: {
     outDir: "dist", emptyOutDir: true, target: "es2022",
-    rollupOptions: { input: { studio: page("index.html"), parity: page("parity.html") } },
+    rollupOptions: { input: { studio: page("index.html"), parity: page("parity.html"), embed: page("embed.html") } },
   },
 });

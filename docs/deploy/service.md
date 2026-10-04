@@ -9,7 +9,7 @@ page explains how the parts fit together.
 |---|---|
 | `scripts/service.sh` | `build`, `run`, `keygen`, `version`, `image` |
 | `deploy/service.Dockerfile` | trixie-slim pinned by digest. It copies the staged artifacts in and builds nothing |
-| `app/vite.embed.config.ts`, `app/src/embed.ts` | the bundle (`scripts/studio.sh embed DIR`) |
+| `app/vite.embed.config.ts`, `app/src/embed-bundle.ts` | the bundle (`scripts/studio.sh embed DIR`) |
 | `scripts/service-image.sh`, `scripts/orch/rows/service-image.rows` | the gate and the SDK row, each with its negative controls |
 
 ## Build

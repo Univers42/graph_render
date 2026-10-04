@@ -41,7 +41,8 @@ in_node() {
   # `docker run -it` refuses without a terminal, which a gate never has. The update notifier is
   # off: its "npm install -g" advice is about the image's npm, and run on the host it changes nothing.
   [[ -t 0 && -t 1 ]] && tty=(-it)
-  "$root/scripts/orch/drun" --rm "${tty[@]}" "${publish[@]}" -e NPM_CONFIG_UPDATE_NOTIFIER=false \
+  # HOST_API_ESCAPE_BREAK reaches the render tests only when set: the break of row host-api-escape.
+  "$root/scripts/orch/drun" --rm "${tty[@]}" "${publish[@]}" -e NPM_CONFIG_UPDATE_NOTIFIER=false -e HOST_API_ESCAPE_BREAK \
     -v "$root:/w" -w "/w/$dir" -v "$refs:/refs:ro" "$GM_NODE_IMAGE" "$@"
 }
 
@@ -98,6 +99,14 @@ types() {
     log "tsc $config"
     in_node app node_modules/.bin/tsc --noEmit -p "../$config"
   done
+  # Row host-api-types, its break (verdict 1): the contract with the name `focus` put back must
+  # not compile, and must fail with TS2430 only; any other code means the fixture itself rotted.
+  log "tsc packages/graph-studio/tests/breaks (expect TS2430 and nothing else)"
+  # shellcheck disable=SC2016 # expanded by the shell inside the container
+  in_node app bash -c 'out=$(node_modules/.bin/tsc --noEmit -p ../packages/graph-studio/tests/breaks/tsconfig.json) && { echo "the break compiled"; exit 1; }
+codes=$(printf "%s\n" "$out" | grep -oE "error TS[0-9]+" | sort -u)
+[ "$codes" = "error TS2430" ] || { printf "%s\n" "$out"; exit 1; }
+echo "TS2430, as expected"'
 }
 
 # node:test counts a skipped test as not failed; here a skip is a row that did not run.
@@ -119,6 +128,14 @@ $tap_verdict"
   done
 }
 
+# Row host-api-escape, its break (verdict 5): the same test over a body rendered through
+# dangerouslySetInnerHTML must fail. The bundle reads the variable at run time, so no rebuild.
+# shellcheck disable=SC2016 # expanded by the shell inside the container, not by this one
+escape_break='
+HOST_API_ESCAPE_BREAK=1 node --test --test-reporter=tap ../target/ui-tests/host-escape.test.js >/tmp/break.log 2>&1 && { echo "host-api-escape: its break passed"; exit 1; }
+grep -q "^# fail [1-9]" /tmp/break.log || { tail -20 /tmp/break.log; exit 1; }
+echo "host-api-escape break: red, as expected"'
+
 # The chrome is JSX, which node does not run: bundled first, with the app's React.
 render_tests() {
   log "render tests packages/graph-studio/tests/ui"
@@ -126,13 +143,27 @@ render_tests() {
 rm -rf ../target/ui-tests
 node_modules/.bin/rolldown -c ../packages/graph-studio/ui-tests.config.mjs >/dev/null || exit 1
 node --test --test-reporter=tap '../target/ui-tests/*.test.js' >/tmp/tap.log 2>&1 || code=\$?
-$tap_verdict"
+$tap_verdict
+$escape_break"
 }
 
 lint() {
   log "eslint --max-warnings 0"
   # From the root: a flat config does not see files above the directory eslint runs in.
   in_node . app/node_modules/.bin/eslint -c app/eslint.config.js --max-warnings 0 app/src app/vite.config.ts app/vite.embed.config.ts packages
+  # Row lint, its negative control (verdict 5): the fixture holding every markup sink, which the
+  # run above ignores, must draw exactly the five bans and nothing else.
+  log "eslint over tests/ui/raw-html.tsx (expect the five markup-sink bans)"
+  # shellcheck disable=SC2016 # expanded by the shell inside the container
+  in_node . bash -c 'out=$(app/node_modules/.bin/eslint -c app/eslint.config.js --no-ignore packages/graph-studio/tests/ui/raw-html.tsx); code=$?
+[ "$code" -eq 1 ] || { printf "%s\n" "$out"; echo "eslint exit $code, not 1"; exit 1; }
+for ban in dangerouslySetInnerHTML innerHTML outerHTML insertAdjacentHTML; do
+  printf "%s\n" "$out" | grep -q "No $ban:" || { printf "%s\n" "$out"; echo "no ban on $ban"; exit 1; }
+done
+found=$(printf "%s\n" "$out" | grep -cE "^ +[0-9]+:[0-9]+ +error")
+banned=$(printf "%s\n" "$out" | grep -E "^ +[0-9]+:[0-9]+ +error" | grep -c "no-restricted-syntax$")
+[ "$found" -eq 5 ] && [ "$banned" -eq 5 ] || { printf "%s\n" "$out"; exit 1; }
+echo "five markup-sink bans, as expected"'
 }
 
 build() {

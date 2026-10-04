@@ -24,6 +24,7 @@ mod overlap_cmd;
 mod probe_report;
 mod runner;
 mod snapshot_cmd;
+mod stream_fixtures;
 mod stress;
 
 use clap::Parser;
@@ -44,6 +45,7 @@ fn main() -> ExitCode {
         Command::HashgateArm { seeds } => hashgate::arm(seeds),
         Command::ForceGate { seeds } => forcecheck::run(seeds),
         Command::ForceGateArm { seeds } => forcecheck::arm(seeds),
+        Command::ForceGateStreamArm => forcecheck::stream::arm(),
         Command::Capabilities {
             json,
             check,
@@ -67,6 +69,16 @@ fn main() -> ExitCode {
                 out: check.or(out),
                 mode,
             })
+        }
+        Command::EmitStreamFixtures { out } => {
+            let out = out.unwrap_or_else(stream_fixtures::default_out);
+            match stream_fixtures::run(&out) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(err) => {
+                    eprintln!("emit-stream-fixtures: {err}");
+                    ExitCode::from(2)
+                }
+            }
         }
         Command::EmitFixtures { seeds, out } => {
             oracle_fixtures::run(seeds, &out.unwrap_or_else(oracle_fixtures::default_out))

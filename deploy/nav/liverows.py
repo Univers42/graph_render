@@ -96,7 +96,14 @@ def wait_settled(studio, seconds=6.0):
 
 
 def row_settle(studio):
-    expectation = f"node positions change between two samples {SAMPLE_S}s apart, with no input"
+    """A settle moves the drawing with nothing else sent.
+
+    A small graph's layout run starts its session cold, on the picture the layout drew, so the
+    drawing rests until something asks: the row asks the way the Animate button does.
+    """
+    expectation = f"after Animate, node positions change between two samples {SAMPLE_S}s apart, with no other input"
+    studio.page.evaluate(f"{HOST}.studio.dispatch('forces.animate', {{ on: true }})")
+    wait_shown(studio)
     first = positions(studio)
     if not first:
         return not_run("live-settle", expectation, "no nodes drawn", "the view reports an empty frame")

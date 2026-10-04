@@ -196,6 +196,11 @@ export interface ForceTick {
  * `O(n)` per tick and the one for graphs past about 50k nodes. The two are different bytes. */
 export type ForceEngine = "barnes_hut" | "particle_mesh";
 
+/** Where a new session's nodes start: the engine's own spiral over the topology, or the node
+ * centres of the graph's last layout run (`gm_force_session_create_warm`), which continues the
+ * picture a host is already drawing instead of replacing it. `"layout"` needs a run first. */
+export type ForceSeed = "spiral" | "layout";
+
 /** The wire's status word, as words: `1` ran and is still cooling, `2` ran and has settled.
  * `0` never reaches here — it is the refusal, and it throws. */
 export type ForceStatus = "running" | "settled";

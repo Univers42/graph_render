@@ -26,6 +26,7 @@ use super::{SimpleGraph, simple_graph};
 use crate::exec::Serial;
 use crate::index::Topology;
 use crate::layout::Geometry;
+use crate::layout::spectral::last_axis;
 use crate::stage::{Stage, StageError};
 use coarsen::coarsen;
 use graph_contract::geometry::{EdgeGeometry, NodeGeometry};
@@ -101,6 +102,75 @@ impl YifanHu {
         };
         positions(multilevel(graph, n, *params, tier))
     }
+}
+
+/// `layout.force.yifan_hu.2z`: the 2D multilevel layout, then a third axis derived from
+/// graph structure — SciGraphs' `'2Z'` mode (`yifan_hu.py:346`, `:327-333`).
+///
+/// **Not a dimension of the force run.** `'2Z'` is `'2'` in the plane plus a `z` from
+/// `_generate_z_component`, which reads the graph and never the simulation: the last axis
+/// of a 2D spectral solve per component, peak-normalised, centred, scaled. So this arm is
+/// the 2D kernel unchanged plus one column, and it is its own id because it is a different
+/// picture and a different claim.
+pub const ID_2Z: &str = "layout.force.yifan_hu.2z";
+
+/// `_sfdp_z_scale`, the reference default (`yifan_hu.py:331`).
+const Z_SCALE: f64 = 0.3;
+
+/// The 2Z arm: [`YifanHu::run`] over the same 2D kernel, then the derived column.
+///
+/// Separate from `run_under` because the z is added *after* the whole multilevel run and
+/// after its finiteness check, exactly as the reference adds it after sfdp returns
+/// (`yifan_hu.py:327-333`); putting it inside the descent would let z steer the layout,
+/// which the reference never does.
+pub fn run_2z(topology: &Topology, params: &ForceParams) -> Result<Geometry, StageError> {
+    let flat = <YifanHu as Stage>::run(topology, params)?;
+    let z = derived_z(topology, flat.extent());
+    let NodeGeometry::Point { x, y } = flat.nodes else {
+        return Err(StageError::NonFinite { column: "node.z" });
+    };
+    if z.len() != x.len() {
+        return Err(StageError::NonFinite { column: "node.z" });
+    }
+    Ok(Geometry::in_space(
+        NodeGeometry::Point { x, y },
+        flat.edges,
+        flat.notes,
+        z,
+    ))
+}
+
+/// The z column: `_generate_z_component(..., 'SPECTRAL')`, then the reference's own
+/// `z * z_scale * scale` (`yifan_hu.py:330-333`).
+///
+/// Three departures, each because a step the reference takes does not exist here:
+///
+/// - **the scale is the layout's own extent**, where the reference passes its `scale`
+///   argument: our 2D port has no rescale step, so the ratio the reference means by
+///   `z * z_scale * scale` — z is 0.3 of the drawing — is kept against the extent the
+///   drawing actually has. A degenerate extent (a single node, or a layout that did not
+///   move) yields a column of zeros rather than a division by zero.
+/// - **a failed solve falls back to degree**, which is what `_generate_z_component`'s own
+///   `except` branch does (`networkx_layouts.py:336-338`). Refusing instead would fail
+///   `2Z` on exactly the graphs the 2D arm already lays out, for want of a third axis.
+/// - **the peak normalisation is per component**, as the reference's loop over
+///   `components` is (`:330-334`); that is [`last_axis`]'s own job, not this one's.
+fn derived_z(topology: &Topology, extent: f32) -> Vec<f32> {
+    let graph = simple_graph(topology);
+    let raw = last_axis(topology).unwrap_or_else(|| degrees(&graph));
+    crate::layout::spectral::center_z(&raw)
+        .into_iter()
+        .map(|v| (v * Z_SCALE * f64::from(extent)) as f32)
+        .collect()
+}
+
+/// The reference's `DEGREE` fallback: `G.degree(n)` less two per self-loop
+/// (`networkx_layouts.py:311-312`). Read over the shared [`SimpleGraph`], which has
+/// already dropped the self-loops, so the subtraction is already done.
+fn degrees(graph: &SimpleGraph) -> Vec<f64> {
+    (0..graph.rows.rows())
+        .map(|v| f64::from(graph.degree(v)))
+        .collect()
 }
 
 /// The stage's own points, refused if any coordinate is not finite.

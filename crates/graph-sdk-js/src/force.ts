@@ -22,14 +22,16 @@
 // cannot affect.
 
 import { toU32 } from "./wasm.ts";
-import { ForceSessionRefusedError, InvalidHandleError, InvalidSessionError, codeName } from "./errors.ts";
-import { INVALID_HANDLE_CODE, frame, invoke, lastError, type Loaded } from "./calls.ts";
+import { ForceSessionRefusedError, InvalidHandleError, InvalidSessionError } from "./errors.ts";
+import { INVALID_HANDLE_CODE, frame, type Loaded } from "./calls.ts";
 import { ForceColumns } from "./force-columns.ts";
 import { SessionCalls } from "./force-calls.ts";
 import { PARAMS_BYTES, asU32, decodeParams, mergeParams, withStagedParams } from "./force-params.ts";
-import type { ForceEngine, ForceParams, ForceSessionId, ForceTick, Handle } from "./types.ts";
+import type { ForceParams, ForceSessionId, ForceTick, Handle } from "./types.ts";
+import { createForceSession, type ForceStart } from "./force-create.ts";
 
 export { PARAMS_BYTES, decodeParams, encodeParams } from "./force-params.ts";
+export type { ForceStart } from "./force-create.ts";
 
 /** A live force simulation over one graph, driven by the caller
  *  (`docs/decisions/force-wasm-abi.md`). {@link Motor.forceSession} is the only way to get one.
@@ -50,10 +52,10 @@ export class ForceSession {
   /** @internal — use {@link Motor.forceSession}. Never throws for a load failure (the motor
    *  has already been asked, and this only reaches the ABI once it has answered): every refusal
    *  below is a typed {@link GraphMotorError}, and a refused creation leaves no session behind. */
-  constructor(loaded: Loaded, graph: Handle, params?: Partial<ForceParams>, engine: ForceEngine = "barnes_hut") {
+  constructor(loaded: Loaded, graph: Handle, params?: Partial<ForceParams>, start: ForceStart = {}) {
     this.#loaded = loaded;
     this.#graph = graph;
-    this.#id = this.#create(graph, engine);
+    this.#id = createForceSession(loaded, graph, start);
     this.#calls = new SessionCalls(loaded, this.#id);
     this.#columns = new ForceColumns(loaded, this.#id);
     if (params === undefined) return;
@@ -242,6 +244,20 @@ export class ForceSession {
     return this.#own((columns) => columns.read());
   }
 
+  /** Takes the session onto what {@link Motor.extend} appended to `handle`, its own graph
+   *  (`gm_force_session_grow`): the same bits a fresh session carried across would hold. Every
+   *  position view is stale after it. Refused, session unchanged: `InvalidSessionError`,
+   *  `InvalidHandleError` for a released graph, `ForceSessionRefusedError` for another graph. */
+  grow(handle: Handle): void {
+    try {
+      this.#calls.call("gm_force_session_grow", (e) => e.gm_force_session_grow(this.#calls.wireId, toU32(handle)));
+    } catch (error) {
+      if (!(error instanceof ForceSessionRefusedError) || error.code !== INVALID_HANDLE_CODE) throw error;
+      throw new InvalidHandleError(`graph handle ${String(handle)} is not live`, INVALID_HANDLE_CODE);
+    }
+    this.#columns.forget();
+  }
+
   /** Releases the session. Its id is never reissued (C6), so a stale id reads
    *  {@link InvalidSessionError} rather than another session's positions. Releasing twice is
    *  refused rather than ignored: a caller surprised by a refusal has a bug, and quietly
@@ -254,22 +270,6 @@ export class ForceSession {
     this.#calls.close();
   }
 
-  /** The graph handle's id space, read as itself: code 1 is `InvalidHandle` and code 2 is
-   *  `AllocFailed`, and neither is a session's refusal. Mapping every non-zero word to
-   *  {@link ForceSessionRefusedError} sent a caller debugging a released *graph* handle to a
-   *  parameter range it cannot affect, and `InvalidSessionError` — the class that is scoped to
-   *  exactly this id space — was unreachable here. */
-  #create(graph: Handle, engine: ForceEngine): ForceSessionId {
-    const { exports } = this.#loaded;
-    const name = engine === "particle_mesh" ? "gm_force_session_create_mesh" : "gm_force_session_create";
-    const word = invoke(name, () => exports[name](toU32(graph), 0, 0));
-    if (word !== 0) return word as ForceSessionId;
-    const code = lastError(exports);
-    if (code === INVALID_HANDLE_CODE) {
-      throw new InvalidHandleError(`graph handle ${String(graph)} is not live`, code);
-    }
-    throw new ForceSessionRefusedError(`${name} refused (${codeName(code)})`, code);
-  }
 
   /** Every read of the session's own columns goes through here, so a session the module has
    *  already dropped flips this object's liveness exactly once, wherever the read happened —

@@ -25,7 +25,7 @@ Two inputs, and neither alone would have been right.
 | `reheat(alpha)` | `gm_force_session_reheat` |
 | `positions(): { xs: Float64Array, ys: Float64Array }` | `gm_force_session_column_ptr`/`_len` on `f64` columns |
 | — (no teardown in the port) | `gm_force_session_release` |
-| — | `gm_force_session_create`, `gm_force_session_create_mesh`, `gm_force_session_params`, `gm_force_session_unpin_all` |
+| — | `gm_force_session_create`, `gm_force_session_create_mesh`, `gm_force_session_create_warm`, `gm_force_session_params`, `gm_force_session_unpin_all` |
 
 Three things that port decided and this table keeps:
 
@@ -64,6 +64,7 @@ on both targets, and no narrower than what the caller's own view already holds.
 |---|---|---|---|
 | `gm_force_session_create` | `graph: u32, params_ptr: u32, params_len: u32` | session id `>= 1`, or `0` | `InvalidHandle`, `SessionParamsInvalid`, `SessionRefused`, `HandlesExhausted` |
 | `gm_force_session_create_mesh` | as `gm_force_session_create` | as `gm_force_session_create` | as `gm_force_session_create`; the session ticks on the particle mesh (`layout.force.particle_mesh`) instead of Barnes-Hut |
+| `gm_force_session_create_warm` | as `gm_force_session_create`, then `engine: u32` (`0` Barnes-Hut, `1` particle mesh) | as `gm_force_session_create` | as `gm_force_session_create`, plus `NoGeometryYet` before any layout run, `TamperedGeometry` for a centre that is not finite, and `SessionParamsInvalid` for an `engine` past `1`; the session starts on the node centres of the graph's last layout run instead of on the spiral (`force-session-warm-seed.md`) |
 | `gm_force_session_set_params` | `session: u32, params_ptr: u32, params_len: u32` | `1`, or `0` | `InvalidSession`, `SessionParamsInvalid`, `SessionRefused` |
 | `gm_force_session_params` | `session: u32` | framed 104-byte `f64` buffer, or `0` | `InvalidSession` |
 | `gm_force_session_tick` | `session: u32, ticks: u32` | `0` refused, `1` ran and cooling, `2` ran and settled | `InvalidSession` |

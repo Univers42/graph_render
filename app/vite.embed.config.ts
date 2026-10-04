@@ -27,7 +27,7 @@ export default defineConfig({
   build: {
     outDir: "dist-embed", emptyOutDir: true, target: "es2022",
     lib: {
-      entry: { "graph-studio": source("src/embed.ts"), "graph-sdk": source("../crates/graph-sdk-js/src/index.ts") },
+      entry: { "graph-studio": source("src/embed-bundle.ts"), "graph-sdk": source("../crates/graph-sdk-js/src/index.ts") },
       formats: ["es"],
       fileName: (_format, name) => `${name}.js`,
     },

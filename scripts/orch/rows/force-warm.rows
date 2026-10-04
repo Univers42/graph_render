@@ -1,0 +1,32 @@
+# force-warm-seed: the live session starts on the layout's picture
+# (docs/decisions/force-session-warm-seed.md). The motor gains `gm_force_session_create_warm`,
+# the SDK its `"layout"` seed, the studio `renew` and `force.settle`.
+#
+# `expect` is `0` or `nonzero`; `#` starts a comment (scripts/orch/gate.sh:2-4).
+#
+fmt|0|scripts/orch/gr cargo fmt --all --check
+clippy|0|scripts/orch/gr cargo clippy --workspace --all-targets -- -D warnings
+test|0|scripts/orch/gr cargo test --workspace --no-fail-fast
+wasm32-core|0|scripts/orch/gr cargo build -p graph-core --target wasm32-unknown-unknown
+hashgate-8|0|scripts/orch/gr cargo run -q -p graph-cli -- hashgate --seeds 8
+negctl-degree|0|scripts/orch/gr -e GM_MUTATE_REFERENCE_DEGREE=9 cargo run -q -p graph-cli -- hashgate --seeds 8; test $? -eq 1
+
+wasm-release|0|scripts/orch/gr cargo build -p graph-wasm --release --target wasm32-unknown-unknown
+sdk-typecheck|0|scripts/orch/node-slim.sh npm run sdk:typecheck
+sdk-test|0|scripts/orch/node-slim.sh npm run sdk:test
+sdk-smoke|0|scripts/orch/node-slim.sh npm run sdk:smoke
+
+# The browser gates read app/dist, so the wasm is staged and the app built first.
+studio-wasm|0|scripts/studio.sh wasm
+studio-build|0|scripts/studio.sh build
+studio-check|0|scripts/studio.sh check
+
+# `live-settle` now presses Animate before it samples; `layout-switch` lives in the nav gate.
+live|0|scripts/studio-live.sh
+negctl-live|nonzero|STUDIO_LIVE_BREAK=1 scripts/studio-live.sh
+nav|0|scripts/studio-nav.sh
+negctl-nav|nonzero|STUDIO_NAV_BREAK=1 scripts/studio-nav.sh
+smoke|0|scripts/studio-smoke.sh
+negctl-smoke|nonzero|STUDIO_SMOKE_BREAK=1 scripts/studio-smoke.sh
+backend|0|scripts/studio-backend.sh
+negctl-backend|nonzero|STUDIO_BACKEND_BREAK=1 scripts/studio-backend.sh
