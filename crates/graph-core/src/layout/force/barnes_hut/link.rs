@@ -40,16 +40,31 @@ pub(super) fn geometry(graph: &SimpleGraph, params: &LiveParams) -> (Vec<f64>, V
         Vec::with_capacity(m),
     );
     for e in 0..m {
-        let s = graph.strength[e];
-        distance.push(params.link_distance / f64::max(0.4, s));
-        strength.push(f64::min(0.7, params.link_strength_scale * s));
-        let (dlo, dhi) = (
-            f64::from(graph.degree(graph.lo[e])),
-            f64::from(graph.degree(graph.hi[e])),
-        );
-        bias.push(dlo / (dlo + dhi));
+        let (d, s, b) = edge_geometry(graph, params, e);
+        distance.push(d);
+        strength.push(s);
+        bias.push(b);
     }
     (distance, strength, bias)
+}
+
+/// Simple edge `e`'s `(distance, strength, bias)` under `params` and `graph`'s current
+/// degrees: the one formula [`geometry`] and a session that grows in place both use.
+pub(in crate::layout::force) fn edge_geometry(
+    graph: &SimpleGraph,
+    params: &LiveParams,
+    e: usize,
+) -> (f64, f64, f64) {
+    let s = graph.strength[e];
+    let (dlo, dhi) = (
+        f64::from(graph.degree(graph.lo[e])),
+        f64::from(graph.degree(graph.hi[e])),
+    );
+    (
+        params.link_distance / f64::max(0.4, s),
+        f64::min(0.7, params.link_strength_scale * s),
+        dlo / (dlo + dhi),
+    )
 }
 
 /// One Jacobi pass over every simple edge (`link.js`'s own `iterations` defaults to,

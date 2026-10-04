@@ -17,8 +17,9 @@ use graph_contract::geometry::{EdgeGeometryKind, NodeGeometryKind};
 /// Estimated, not measured on the target: a style adds at most two interior points per
 /// edge — 16 B of `f32` — plus one `u32` offset per edge, so at the synthetic model's
 /// 1.55 edges per node that is **31 B per node** on top of the topology layer's measured
-/// 442 B per node (`docs/measurements/p1-topology-memory.md`) for **473 B per node**. wasm32
-/// addresses at most 4 GiB, so 4 GiB / 473 B = 9.08 M nodes, rounded down to two figures.
+/// 466 B per node (`docs/measurements/p1-topology-memory.md`, plus the append CSRs of
+/// `docs/decisions/delta-abi.md`) for **497 B per node**. wasm32 addresses at most 4 GiB,
+/// so 4 GiB / 497 B = 8.64 M nodes, rounded down to two figures.
 /// The style's own `u32` limit binds far later: a self-loop row is the longest at
 /// `self_loop_segments` points, and 2^32 - 1 points across a graph is hundreds of
 /// millions of edges.
@@ -26,7 +27,7 @@ use graph_contract::geometry::{EdgeGeometryKind, NodeGeometryKind};
 /// Ponytail (loop rows): the synthetic model has no self-loops, and a loop row holds up to
 /// 32 points (256 B), so on a loop-heavy graph this over-states the ceiling by up to 8x.
 /// Re-measure with `crates/graph-core/tests/memory.rs` on such a graph.
-pub const POST_STYLE_CEILING: u64 = 9_100_000;
+pub const POST_STYLE_CEILING: u64 = 8_600_000;
 
 const ORACLE: &str = "hand: the conventions stated in the parent module's doc, restated in f64 and \
 pinned per generator by graph-core post/styles/tests.rs and at every CSR boundary by \
