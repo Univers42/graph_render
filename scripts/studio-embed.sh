@@ -23,7 +23,11 @@
 # `document` listener across two shadow roots, node-open by double click, by Enter (and not by Enter
 # from the search box, with two selected, or once blurred) and by the inspector's Open button (also
 # reached by Tab), two overlapping loads (one CancelledError, one graph-load), a refused load whose
-# error name matches its graph-error, and no graph-studio.* key in localStorage across a reload.
+# error name matches its graph-error, no graph-studio.* key in localStorage across a reload, and
+# the Replay button streaming fixtures/embed/replay.jsonl through applyDeltas a batch at a time
+# (`embed-replay-applied` five batches of eight, `embed-replay-refused` line 6's one refusal and
+# the graph-error naming it, `embed-replay-drawn` the drawing at 100 nodes, read as the element's
+# own view.frame().nodeCount).
 #
 # The negative control is one run per fault, each injected over CDP or in the bytes served, never a
 # product switch; each run reports only the rows its fault targets, and every one must FAIL.
