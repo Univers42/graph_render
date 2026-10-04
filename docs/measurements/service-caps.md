@@ -263,7 +263,7 @@ name through `scripts/orch/drun`, mints its own key, and removes the container o
 | `svc-limits` | `timeout 1800 scripts/service-limits.sh` | 0 |
 | `negctl-svc-limits` | `SERVICE_LIMITS_MEM=1g …`, then `test $? -eq 1 && grep -q '^FAIL oom' …` | 0 |
 | `svc-caps-time` | `timeout 5400 scripts/service-caps-time.sh` | 0 |
-| `negctl-svc-caps-time` | `SERVICE_CAPS_TIME_TIMEOUT_MS=1 …`, then the `grep -c '^FAIL' … -ge 50` | 0 |
+| `negctl-svc-caps-time` | `SERVICE_CAPS_TIME_TIMEOUT_MS=1 …`, then the `grep -c '^FAIL' …` equal to the tsv's row count | 0 |
 
 ### svc-limits: one slot inside M
 
@@ -303,7 +303,9 @@ ladder used, `graph-cli bench --n <cap_n> --seed 1 --emit-scale-fixture`, whose 
 `reduced:n>1000000` marks a row asked at 1,000,000 nodes because `graph-cli`'s own ceiling
 (`graph_core::registry::MAX_BENCH_NODES`) is below the row's cap_n; `reduced:m>cap_m` would mark a graph
 whose edges are past the cap, and no row hit it. All 50 rows answered 200; load1 went 5.67 → 17.73 over the
-run, so the tail of the table ran under load and still passed.
+run, so the tail of the table ran under load and still passed. The five rows after `layout.mds.pivot3d` were
+added on 2026-10-04 with their caps and come from a second run over all 55 rows (image
+`graph-motor:5145db1479a10e68`, load1 9.79 → 10.19): 55 answered 200, none failed.
 
 | id | cap_n | cap_m | layout asked | n | status | ms | reduced |
 |---|---:|---:|---|---:|---:|---:|---|
@@ -349,6 +351,11 @@ run, so the tail of the table ran under load and still passed.
 | `layout.forceatlas2.forcesim` | 2000 | 8000 | `layout.forceatlas2.forcesim` | 2000 | 200 | 1048 | - |
 | `layout.spectral3d` | 256 | 1024 | `layout.spectral3d` | 256 | 200 | 84 | - |
 | `layout.mds.pivot3d` | 100000 | 400000 | `layout.mds.pivot3d` | 100000 | 200 | 993 | - |
+| `layout.force.yifan_hu.2z` | 32768 | 131072 | `layout.force.yifan_hu.2z` | 32768 | 200 | 6684 | - |
+| `layout.force.fruchterman_reingold.3d` | 2000 | 8000 | `layout.force.fruchterman_reingold.3d` | 2000 | 200 | 2418 | - |
+| `layout.force.kamada_kawai.3d` | 2000 | 8000 | `layout.force.kamada_kawai.3d` | 2000 | 200 | 4282 | - |
+| `layout.force.drl.3d` | 2048 | 8192 | `layout.force.drl.3d` | 2048 | 200 | 6224 | - |
+| `layout.forceatlas2.3d` | 8192 | 32768 | `layout.forceatlas2.3d` | 8192 | 200 | 8073 | - |
 | `post.route.grid` | 3225 | 4988 | `layout.grid` | 3225 | 200 | 11510 | - |
 | `post.bundle.fdeb` | 4451 | 6900 | `layout.grid` | 4451 | 200 | 378 | - |
 | `post.bundle.mingle` | 1935 | 3000 | `layout.grid` | 1935 | 200 | 391 | - |
@@ -360,7 +367,7 @@ run, so the tail of the table ran under load and still passed.
 
 No cap was lowered: every row came in under `GRAPH_TIMEOUT_MS`, the slowest being
 `layout.force.yifan_hu` at 19,514 ms, 65% of the mark. The negative control,
-`SERVICE_CAPS_TIME_TIMEOUT_MS=1`, answers 503 on all 50 rows (load1 6.49 → 6.37), so the PASS above is a
+`SERVICE_CAPS_TIME_TIMEOUT_MS=1`, answers 503 on all 50 rows (load1 6.49 → 6.37), and on all 55 in the second run, so the PASS above is a
 reading of the status and of the elapsed time and not of anything else.
 
 ### Caveat of this section
