@@ -1,4 +1,4 @@
-use super::energy::{Field, delta};
+use super::energy::{Field, Probe, crossings_at, delta};
 use super::{DavidsonHarel, DhParams};
 use crate::index::{Topology, empty_model, index_model};
 use crate::records::build::{edge, node};
@@ -97,8 +97,17 @@ fn edge_length_energy_rewards_a_shorter_edge() {
     };
     let mut w = DhParams::default().weights;
     (w.node_dist, w.edge_crossings, w.node_edge_dist) = (0.0, 0.0, 0.0);
-    let e = delta(&field, &w, 0, ([0.0, 0.0], [4.0, 0.0]));
+    let e = delta(&probe(&field, 0, [0.0, 0.0]), &w, 0, ([0.0, 0.0], [4.0, 0.0]));
     assert_eq!(e, 36.0 - 100.0);
+}
+
+/// The probe `try_node` builds for node `v` at `at`: the field plus that position's own
+/// crossings, so the tests below read the same cache the layout does.
+fn probe<'a>(field: &'a Field<'a>, v: u32, at: [f64; 2]) -> Probe<'a, 'a> {
+    let old = crossings_at(field, v, at);
+    // Leaked so the probe's borrow outlives this call: a test's field is a stack local and
+    // the flags are read only inside the assertion that follows.
+    Probe::new(Field { ..*field }, Box::leak(old.into_boxed_slice()))
 }
 
 #[test]
@@ -115,7 +124,45 @@ fn a_crossing_costs_one_and_parallel_segments_none() {
     let mut w = DhParams::default().weights;
     (w.node_dist, w.edge_lengths, w.node_edge_dist) = (0.0, 0.0, 0.0);
     // old vs new position: same crossing, gained a crossing, lost a crossing
-    assert_eq!(delta(&field, &w, 0, ([0.0, 0.0], [0.0, 0.0])), 0.0);
-    assert_eq!(delta(&field, &w, 0, ([0.0, 20.0], [0.0, 0.0])), 1.0);
-    assert_eq!(delta(&field, &w, 0, ([0.0, 0.0], [20.0, 0.0])), -1.0);
+    assert_eq!(delta(&probe(&field, 0, [0.0, 0.0]), &w, 0, ([0.0, 0.0], [0.0, 0.0])), 0.0);
+    assert_eq!(delta(&probe(&field, 0, [0.0, 20.0]), &w, 0, ([0.0, 20.0], [0.0, 0.0])), 1.0);
+    assert_eq!(delta(&probe(&field, 0, [0.0, 0.0]), &w, 0, ([0.0, 0.0], [20.0, 0.0])), -1.0);
+}
+
+/// The cache is the layout's whole crossings term: it must record exactly the flags
+/// `delta` used to recompute per candidate, one per non-skipped `(neighbour, edge)` pair.
+/// A cache that dropped or reordered one would change every layout's coordinates, so this
+/// pins the count on a graph with a self-loop-free crossing, a shared edge and a
+/// multi-edge neighbour list, and pins that reading the cache equals recomputing.
+#[test]
+fn the_crossing_cache_is_one_flag_per_pair_and_agrees_with_recomputing() {
+    //0--1 crosses 2--3; 0--1 shares an edge with 1--4; 2 repeats as 2's neighbour.
+    let pos = [[0.0, 0.0], [10.0, 0.0], [5.0, -5.0], [5.0, 5.0], [20.0, 0.0]];
+    let adj = vec![vec![1], vec![0, 4, 0], vec![3], vec![2], vec![1]];
+    let edges = [(0, 1), (1, 4), (2, 3)];
+    let field = Field {
+        pos: &pos,
+        adj: &adj,
+        edges: &edges,
+        half_width: 50.0,
+    };
+    let mut w = DhParams::default().weights;
+    (w.node_dist, w.edge_lengths, w.node_edge_dist) = (0.0, 0.0, 0.0);
+    // Neighbours of 0: just 1 (adj[0] = [1]). Non-skipped edges for (0,1): every edge but
+    // (0,1) itself and (1,4), which has an end at the neighbour — (2,3) only. So one flag,
+    // and it is 1: 0--1 crosses 2--3 from both endpoints.
+    let old = crossings_at(&field, 0, [0.0, 0.0]);
+    assert_eq!(old, [1]);
+    assert_eq!(delta(&probe(&field, 0, [0.0, 0.0]), &w, 0, ([0.0, 0.0], [0.0, 0.0])), 0.0);
+    // Node 1's neighbour list repeats 0 and adds 4, and (0,1) and (1,4) are skipped for
+    // both, leaving (2,3) three times over: the cache has one flag per pair, duplicates
+    // included, and only the neighbour 0 reaches across 2--3.
+    assert_eq!(crossings_at(&field, 1, [10.0, 0.0]), [1, 0, 1]);
+    // Moving 1 out of the crossing loses both of the crossings it made through the repeated
+    // neighbour 0, so the delta is -2: the cache counts a multi-edge neighbour list twice,
+    // as the reduction it replaced did.
+    assert_eq!(
+        delta(&probe(&field, 1, [10.0, 0.0]), &w, 1, ([10.0, 0.0], [10.0, 40.0])),
+        -2.0
+    );
 }
