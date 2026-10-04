@@ -6,7 +6,9 @@
 //! reader opens to answer "what is this row measured against".
 
 use super::super::*;
-use super::ids::{BASIC_3D as BASIC_3D_IDS, IGRAPH as IGRAPH_LAYOUT_IDS};
+use super::ids::{
+    BASIC_3D as BASIC_3D_IDS, IGRAPH as IGRAPH_LAYOUT_IDS, IGRAPH_3D as IGRAPH_3D_LAYOUT_IDS,
+};
 use super::records_of;
 use std::collections::BTreeSet;
 
@@ -40,15 +42,26 @@ fn the_registry_covers_every_oracle_function_once_its_ids_are_unique() {
         } else if r.id == "layout.force.barnes_hut"
             || r.id == "layout.force.yifan_hu"
             || r.id == "layout.forceatlas2.barnes_hut"
+            // `2Z` is a 2D run plus a derived column, so it has no coordinate oracle of its
+            // own and rides barnes_hut's stress record; `implemented`, never `gated`, for the
+            // reason `unproven.rs` gives.
+            || r.id == "layout.force.yifan_hu.2z"
             || r.id == "layout.forceatlas2.forcesim"
         {
             ("stress", r.id, Status::Implemented)
         } else if r.id == "layout.force.particle_mesh" {
             ("stress-pm", r.id, Status::Implemented)
-        } else if r.id == "layout.forceatlas2" {
+        } else if r.id == "layout.forceatlas2" || r.id == "layout.forceatlas2.3d" {
+            // One harness file and one record, as `unproven.rs` says: the `fa2_3d` key and
+            // its ceiling are inside the harness, not a second differential here.
             ("oracle-fa2", r.id, Status::Implemented)
         } else if IGRAPH_LAYOUT_IDS.contains(&r.id) {
             ("oracle-igraph", r.id, Status::Implemented)
+        } else if IGRAPH_3D_LAYOUT_IDS.contains(&r.id) {
+            // Its own record, not `oracle-igraph`: the 3D arms' fixtures carry 3D starts
+            // and their reference calls pass `dim = 3`, so the comparison is a different
+            // measurement rather than the 2D one rerun (`ids.rs` gives the reason).
+            ("oracle-igraph3d", r.id, Status::Implemented)
         } else if r.id == "layout.force.spring" || r.id == "layout.force.spring3d" {
             // **One record for both, deliberately**: one algorithm at two dimensions over one
             // kernel, so one stress run at `dim = 3` is spring3d's comparison.

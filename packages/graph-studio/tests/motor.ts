@@ -1,5 +1,5 @@
 /** The real motor for the tests that need one: the SDK over the built wasm module. */
-import { createMotor } from "../../../crates/graph-sdk-js/src/index.ts";
+import { assembleColumns, createMotor } from "../../../crates/graph-sdk-js/src/index.ts";
 import { readFile } from "node:fs/promises";
 
 import { type MotorClient, createClient } from "../src/motor/client.ts";
@@ -21,6 +21,7 @@ export function realSession(): Session {
     motorFrom: () => createMotor(WASM ?? new Uint8Array(0)),
     fetchText: (url) => readFile(new URL(url.replace("fixtures:/", ""), FIXTURE_ROOT), "utf8"),
     digest: sha256Hex,
+    assemble: assembleColumns,
     now: () => performance.now(),
   });
 }

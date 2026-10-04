@@ -45,20 +45,21 @@ mod weights;
 
 pub use arena::{CapacityError, Interned, StringArena};
 pub use columns::{EdgeColumns, NodeColumns, NodeKind};
-pub use csr::{Csr, Incident};
+pub use csr::{AppendCsr, Csr, Incident};
 pub use diff::{Patch, diff_graph, edges_equal, is_empty_patch};
 pub use edgekind::{EdgeKind, child_first_from_type, edge_kind_from_type};
 pub use ids::{
     EdgeIdParts, RecordRef, hash_string, make_edge_id, make_note_node_id, make_record_node_id,
     make_tag_node_id, parse_node_id,
 };
-pub use index::{Stats, Topology, empty_model, index_model, nodes_equal};
+pub use index::columns::{ColumnsRefusal, EdgeCells, EntryTable, NodeCells, index_columns};
+pub use index::{ExtendError, Stats, Topology, empty_model, index_model, nodes_equal};
 pub use layout::Geometry;
 pub use layout::grid::{Grid, GridParams};
 pub use layout::sugiyama::{Sugiyama, SugiyamaParams};
 pub use legend::{DatabaseCount, LegendCounts, TagCount, derive_legend};
 pub use neighborhood::{Neighborhood, neighborhood, neighborhood_edges};
-pub use records::{EdgeRecord, EdgeView, NodeRecord, NodeView};
+pub use records::{EdgeFields, EdgeRecord, EdgeView, NodeRecord, NodeView};
 pub use stage::{
     PipelineRun, Stage, StageError, gate_node_count, run_pipeline, run_with, seeded_model,
 };

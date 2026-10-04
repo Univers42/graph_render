@@ -21,7 +21,8 @@ out of the way. Choosing a renderer is the consumer's, and it should be: the tra
 zero-copy precisely so it can feed any of them.
 
 **Not a data source.** Nothing here connects to a database, issues a query, listens for
-changes, or writes anything back. There is no fetch, no driver, no ORM. The adapters
+changes, or writes anything back. There is no driver and no ORM, and no `fetch` outside
+`./remote` (below), which calls a graph-motor service and nothing else. The adapters
 below map a structure **you already have** in memory; getting it is your problem, and
 should be, because the shape you can get differs per source and the motor does not care.
 
@@ -248,3 +249,90 @@ This phase, `createMotor(source, options)` accepts only `{}` or `{ exec: "auto" 
 (`docs/decisions/compute-tiers.md` reserves `exec` for Phase 11's compute tiers). Any other
 key, or any other `exec` value, is refused before the module is even asked to load —
 `options` is never silently ignored.
+
+## Remote
+
+`@graph-motor/sdk-js/remote` (`src/remote.ts`) calls the graph-motor HTTP service
+(`docs/contract/service-api.md`) instead of a local `Motor`. The service sends the binary face
+by default. The SDK's own snapshot reader decodes it, so `column` answers with the same
+`ColumnId`s and typed arrays that `Motor#column` does for the same run.
+
+This example comes from the passing test `README: a remote layout reads like a local one`
+(`test/remote.test.mjs`). In that test, `service` is the fake service, `key` is a key generated per run,
+and `document` is a fixture's ingest document:
+
+```js
+const remote = createRemote({ baseUrl: "http://graph.test", apiKey: key, fetch: service.fetch });
+const meta = await remote.meta();
+const snapshot = await remote.layout(document, { layout: "layout.tree.tidy" });
+const x = snapshot.column(ColumnId.NodeX); // Float32Array, one entry per node, in nodeIds order
+```
+
+Against a real service, omit `fetch` and the platform's `globalThis.fetch` is used.
+
+- **`createRemote({ baseUrl, apiKey?, fetch?, dangerouslyAllowBrowser? })`.**
+  - `baseUrl` is `http:` or `https:`. It may carry a path prefix, and a trailing slash is
+    ignored. It is refused if it carries credentials, a query or a fragment.
+  - `apiKey` is sent as `Authorization: Bearer <key>`, and never in a URL.
+  - An unknown option, or a key that is not an RFC 6750 bearer token, throws
+    `InvalidOptionsError` before any request is made.
+- **`meta()`.** Returns `{ api, abi, version, layouts, posts }`. Fields a newer service adds are
+  dropped.
+- **`layout(doc, { layout, post?, source?, format? })`.**
+  - `doc` is a JSON string or an object.
+  - `post` takes one id: the service runs at most one post. `"a,b"`, an array, or `""` is
+    refused before any request. To chain posts, use a local `Motor`.
+  - `source: "contract"` sends the ingest contract document instead of the provisional
+    ingest.
+  - `format: "json"` returns the canonical JSON face, parsed, instead of a decoded snapshot.
+
+### Errors
+
+Every failure is a `RemoteError`, which is a `GraphMotorError`.
+
+- `status` is the HTTP status. It is `0` when no response arrived, and `200` when the response
+  was in the wrong face or could not be read.
+- `codeName` is the body's `error` name, typed: either the motor's `Code` names
+  (`CODE_NAMES`, for example `UnknownLayoutId`, `IngestInvalid` or `IngestTooLarge`), or
+  the service's own names (`SERVICE_ERROR_NAMES`: `BadRequest`, `Unauthorized`, `NotFound`,
+  `NotAcceptable`, `Busy`, `Internal`, `Timeout`).
+- `code` is the wire value for a motor name, and `undefined` for a service name.
+- A status with no error body, such as a proxy's HTML page, or a name the SDK does not type,
+  gives `codeName` `undefined`. The message still quotes an unknown name. It never quotes
+  the body.
+- `retryAfter` is the whole seconds of `Retry-After` on any refusal that sends one (a 429
+  does). It is `undefined` otherwise, including for the HTTP-date form.
+- No message carries the URL, a header, or the key. If the server's own message contains
+  the key, the key is cut out.
+
+### What it does not do
+
+- **No retries and no backoff.** `retryAfter` is the caller's input.
+- **No key in a browser.** With an `apiKey`, `createRemote` throws when it sees `window`,
+  `document` or `WorkerGlobalScope`, because the key would ship to every visitor. Call the service
+  from a server, or pass `dangerouslyAllowBrowser: true` if you accept that.
+- **No redirects.** A redirect is a failure (`redirect: "error"`), so the key never follows
+  one to another host.
+- **No `fetch` anywhere else in the SDK.** Only `./remote` touches the network.
+
+### Live check
+
+`scripts/live-check.mjs` runs four checks against a running service. Build the release wasm first:
+`scripts/orch/gr cargo build -p graph-wasm --release --target wasm32-unknown-unknown`.
+
+```sh
+GRAPH_API_KEY=<key> node --experimental-strip-types crates/graph-sdk-js/scripts/live-check.mjs <baseUrl>
+```
+
+The checks:
+
+- `meta()` lists the layouts and posts that the parity cases use.
+- Each parity case matches the local wasm `Motor`, column for column.
+- A wrong key gets the typed 401 `Unauthorized`.
+- `post=a,b` gets a typed 400.
+
+It prints one `PASS`/`FAIL` line per check and never prints the key. Exit codes:
+
+- 0: every check passed.
+- 1: a check failed.
+- 2: it could not run (no `baseUrl`, no key, no wasm build, or no response).

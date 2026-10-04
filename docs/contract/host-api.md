@@ -14,40 +14,43 @@ note body) never enters the element, the worker, the motor or the renderer. The 
 content when it needs to (`resolve`, below). Every id that crosses this API is the host's own string;
 the dense index never leaves the element.
 
-## Surface (all additive; `studio`, `view` and `stopMotor` stay as they are)
+## Surface (all additive)
+
+As built, 2026-10-04 (`packages/graph-studio/src/host/contract.ts`). The draft's `load`, `focus`,
+`select`, `selection`, `applyDeltas` and `NodePreview.url` are gone, per the verdict below.
 
 ```ts
-interface GraphStudioElement extends HTMLElement {
-  readonly hostApi: 1;                                    // bumped on any breaking change
-  load(doc: IngestDoc): Promise<LoadResult>;              // replaces the whole graph
-  applyDeltas(batch: DeltaBatch): Promise<DeltaResult>;   // docs/contract/delta.md; coalesced per frame
-  focus(id: string, opts?: { select?: boolean; zoom?: number }): boolean; // false: unknown id
-  select(ids: readonly string[]): void;                   // [] clears
-  readonly selection: readonly string[];
+interface GraphStudioHost {
+  readonly hostApi: 2;                                   // bumped on a breaking change only
+  loadGraph(doc: object): Promise<LoadResult>;           // replaces the whole graph
+  focusNode(id: string): Promise<boolean>;               // centres and selects; false: no node has this exact id
+  selectNodes(ids: readonly string[]): Promise<boolean>; // [] clears; false: an id is unknown, nothing changes
+  readonly selectedIds: readonly string[];
   resolve: ((id: string, signal: AbortSignal) => Promise<NodePreview>) | null;  // set by the host
+  invalidate(id: string): void;                          // forgets id's cached preview and asks again
 }
-interface NodePreview { title: string; text?: string; url?: string; icon?: string }
-type LoadResult  = { nodes: number; edges: number; notes: readonly string[] };   // notes: fills/drops (ingest.ts)
-type DeltaResult = { applied: number; refused: readonly { id: string; error: string }[] };
+interface GraphStudioElement extends HTMLElement, GraphStudioHost {}  // plus @internal studio, view, stopMotor, watchdogBoundMs
+interface NodePreview { title: string; text?: string; icon?: string }
+type LoadResult = { nodes: number; edges: number; notes: readonly string[] };  // notes: fills/drops (ingest.ts)
 ```
 
-- `load` is the documented path for what the `fixtures` attribute and a file drop do today. It runs the
-  same normaliser (`source/ingest.ts`), so it refuses exactly what a drop refuses, with the same typed
-  error. It resolves once the first frame of the new graph is drawn.
-- `applyDeltas` belongs to service-dod step 3 (live growth). Until that lands, it rejects with
-  `NotYetSupported`, and the element still declares it, so a host can feature-test.
-- `focus` moves the camera to the node and returns at once; the camera animates. An unknown id
-  returns `false` and moves nothing.
+- `loadGraph` serialises the object and runs the normaliser behind the `fixtures` attribute and the
+  paste action (`source/ingest.ts`), so it refuses what they refuse, with the same typed error. It
+  resolves when the new graph's frame is set (verdict 7).
+- `focusNode` and `selectNodes` answer with a promise, and it settles when the command has run; the
+  camera still animates. It takes no options: the draft's `select` and `zoom` had no caller, and an
+  options argument can be added later without a break. `hostApi` is 2 for this: at 1 both answered
+  with a boolean at once, which a `loadGraph` landing in the same turn could contradict.
 
 ## Events (DOM `CustomEvent`, `bubbles: true`, `composed: true`)
 
 | Event | `detail` | When |
 |---|---|---|
 | `graph-load` | `LoadResult` | a graph finished loading, from any source |
-| `node-select` | `{ ids: string[] }` | the selection changed, from a click, a box or `select()` |
+| `node-select` | `{ ids: string[] }` | the selection changed, from a click, a box or `selectNodes()` |
 | `node-open` | `{ id: string, via: "dblclick" \| "enter" \| "inspector" }` | the user asked to open a node. The element opens nothing itself |
 | `node-hover` | `{ id: string \| null }` | the pointer entered a node, or left all nodes. Throttled to one event per animation frame |
-| `graph-error` | `{ error: string, message: string }` | a load, a delta or the motor failed; the same code the UI shows |
+| `graph-error` | `{ error: string, message: string }` | a load, a refused command or the motor failed. `error` is the code the UI shows, else the error's name (`wireError`) |
 
 `detail` holds ids and plain data only, never a live object, so a host can post it straight to a
 worker or a backend.
@@ -57,20 +60,24 @@ worker or a backend.
 - The host sets `element.resolve`. The element calls it for the hover card and the inspector only,
   never for layout or drawing.
 - The calls are debounced (hover: 150 ms). They are aborted through `signal` when the pointer moves on,
-  and cached in a bounded LRU of 256 previews keyed by id. `load` clears it, and so does a delta that
-  touches the id.
+  and cached in a bounded LRU of 256 previews keyed by id. A new graph, from any source, clears it.
 - Caveat: the LRU holds what the host returned and never re-validates it. A preview edited on the host
-  side shows stale until the next `load`, a delta on that id, or eviction. A host that needs fresher
-  previews calls `element.invalidate(id)`.
+  side shows stale until the next graph or eviction. A host that needs fresher previews calls
+  `element.invalidate(id)`.
 - When `resolve` is `null`, the card shows `label`, `kind` and `path` from the node's own metadata, as
   today.
 
 ## Gates
 
+As built. The first four run inside `scripts/studio.sh check`.
+
 | Row | Passes when | Negative control |
 |---|---|---|
-| `host-api-unit` | `node:test` over a fake DOM: each method and event, the LRU bound, abort on move, `focus` on an unknown id | drop the `composed` flag: the shadow-crossing test is red |
-| `studio-embed` | browser gate over `app/embed.html`: loads columns through `load`, gets `node-open` with the clicked id, shows a `resolve`d preview, and streams deltas when step 3 has landed | `STUDIO_EMBED_BREAK=1` stops dispatching `node-open`: red |
+| `host-api-unit` | `node:test` (`tests/host-*.test.ts`): each verb and event, exact ids, the LRU bound, the generation, the uncached rejection, abort on move, `loadGraph` superseded and disconnected, and `loadGraph` re-entered from its own `graph-load` handler | each check also runs on a subject broken the way it exists to catch, and must fail there; `tests/host-supersede.test.ts` was run with the pipeline's token check removed and failed there |
+| `host-api-types` | `tests/host-types.test.ts`: the element is an `HTMLElement`, and `focus({preventScroll:true})` still works | `tests/breaks/focus-name.ts` puts the name `focus` back; `tsc` must fail with TS2430 only |
+| `host-api-escape` | `renderToStaticMarkup` over hostile labels, paths and previews: no raw tag, no `on*`, no `href` | `HOST_API_ESCAPE_BREAK=1` renders through `dangerouslySetInnerHTML` |
+| `lint` | ESLint bans the five markup sinks in `packages/` | `tests/ui/raw-html.tsx` must raise all five |
+| `studio-embed` | `scripts/studio-embed.sh` over `app/embed.html`, three runs: `plain` (no COOP/COEP), `isolated`, `csp` (verdict 13's CSP). Rows: the load as the smoke gate judges it, `loadGraph`, a pre-upgrade `resolve`, dblclick, Enter, Open, an overlapping load and one re-entered from its `graph-load` handler, a refused load, `composed` events and storage (row `host-api-storage` is `embed-storage` here) | `STUDIO_EMBED_BREAK=1`: fifteen runs, one fault each, injected over CDP or in the bytes served; every targeted row must FAIL for its own reason, and a targeted row that could not be measured at all (`NOT-RUN`) counts as a control that did not bite |
 
 ## Verdict
 
@@ -147,9 +154,59 @@ disagree, the condition wins.
     keeps an older definition (`element.ts:216-217`). A `resolve` set before the element upgrades is
     picked up. Row `studio-embed` sets `resolve` before `define`; its break skips the upgrade step.
 13. **Host requirements.**
-    - The worker and the wasm are served from the host's own origin: `element.ts:88` builds the worker
+    - The worker and the wasm are served from the host's own origin: `mount.ts:66` builds the worker
       URL from `import.meta.url`, and a Worker must be same-origin. The service's `/embed/` is therefore
       reverse-proxied under the host's origin.
     - The CSP needs `script-src 'wasm-unsafe-eval'` and `worker-src 'self'`.
     - COOP/COEP are optional. Without them the motor runs on one thread.
     - Row `studio-embed` includes one run without the cross-origin-isolation headers.
+
+## As built: where the code departs from a condition (2026-10-04)
+
+Each item was forced by the implementation or by a measurement. Evidence is in the file named.
+
+- **4.** No `via:"card"`. The hover card is `aria-hidden` and holds no control, so the card's way to
+  open a node is the inspector's Open button, `via:"inspector"`.
+- **7, the supersede.** Each `apply` carries a generation token (`studio/pipeline.ts`, `Rig.generation`),
+  checked at every commit that writes the drawing: after `client.load`, before `draw`, after
+  `client.analysis`, and once more before the call reports its outcome. The decision is the token's own,
+  not the motor's `busy()`/`cancel()`: `busy()` is false while the worker starts and while the studio
+  patches and draws, so a `loadGraph` made from inside a `graph-load` handler re-entered `apply` with a
+  graph already on screen and nothing to cancel. Row `host-supersede.test.ts` makes that call.
+  - The answer is given up one microtask after the frame is set, because that re-entrant call reaches
+    `apply` on the next turn of the queue and not inside the drawing commit.
+  - Two `graph-load` events can be heard in that case, one per graph that reached a frame: the studio
+    cannot un-announce the frame it had already committed when the handler ran. The superseded call
+    still rejects with `CancelledError` and emits no `graph-error`. Row `embed-overlap-reentrant`
+    measures both halves; its break is the regression injected as the `supersede` fault.
+- **7, the name.** `graph-error.detail.error` is `ShownError.code ?? ShownError.title`
+  (`host/contract.ts`, `wireError`), and the rejection's `name` is the same string. `code` is null for
+  a loader failure, so the error's name stands in.
+  - The SDK's error classes now write their `name` as a literal. With `new.target.name`, the production
+    build reported a refused wasm load to its host as `f` (studio-embed break runs, 2026-10-04).
+    `crates/graph-sdk-js/test/error-names.test.mjs` renames each class to check this.
+- **7, the cap.** The cap is the studio's `MAX_DOCUMENT_CHARS`, 2^28 UTF-16 code units
+  (`source/limits.ts`), not the motor's 1 GiB. V8 builds no string past 2^29 characters, so a
+  serialised document never reaches 1 GiB.
+- **7, other rejections.**
+  - A call on a disconnected element rejects with a `DOMException` named `InvalidStateError`.
+  - A non-object rejects with a `TypeError`, and so does one that serialises to nothing.
+  - A document `JSON.stringify` throws on (a cycle, or a `toJSON` that refuses, or a document past
+    V8's string ceiling) rejects as `IngestRefusal` and emits one `graph-error` carrying that same
+    name: the studio never saw the document, so nothing else would have been announced.
+  - None of these three emits a `graph-error` except the ingest refusal above, and a `CancelledError`
+    never does.
+  - Loading the document already on screen resolves without a second `graph-load`.
+- **3.** An element without `remember` draws nothing until the host's first `loadGraph`. Row
+  `embed-storage` is stricter than the condition: it finds no `graph-studio.*` key at all.
+- **10.** `graph-error` also fires for a refused command, the same entry the console shows.
+- **11.** The Tab check is part of `embed-open` and has no break of its own. Under `break-open`, Tab
+  still reached the button after 3 presses.
+- **13.** The shadow root's styles are an adopted `CSSStyleSheet` (`mount.ts`, `shadowOf`), not a
+  `<style>` element. Under the CSP above, Chromium refused the `<style>` (run `csp`), so a host needs
+  no `style-src 'unsafe-inline'`.
+- `focusNode` and `selectNodes` return a promise that settles when the command has run, and its answer
+  is what the command said: the exact-id check is made against the frame on screen, and if a
+  `loadGraph` replaced that frame while the command was in flight, only `entry.ok` counts. While the
+  frame is the one the check was made against, the check is the answer. `hostApi` is 2 for this.
+- `selectedIds` is a getter and `watchdogBoundMs` is `@internal`.

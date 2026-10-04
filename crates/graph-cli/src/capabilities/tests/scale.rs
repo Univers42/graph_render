@@ -78,10 +78,9 @@ fn the_ceilings_table_is_read_as_measured_unmeasured_and_unknown() {
     let findings = ceiling_findings(&rows, table);
     assert_eq!(
         findings,
-        vec![
-            "layout.other: the table's measured cell is `not measured`, not a number (declared 9700000)"
-                .to_string(),
-        ]
+        vec![format!(
+            "layout.other: the table's measured cell is `not measured`, not a number (declared {MAX_SCALE_CEILING})"
+        )]
     );
     assert_eq!(
         ceiling_coverage(&rows, table),

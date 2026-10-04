@@ -183,4 +183,29 @@ mod tests {
         nan.strength = f64::NAN;
         assert!(!edges_equal(&nan.view(), &nan.view()), "NaN !== NaN");
     }
+
+    /// Oracle parity (`diff.ts:31-41`): `NaN !== NaN`, so the oracle's `diffGraph` lists
+    /// a NaN-strength edge as updated against its own model, and so does this one.
+    #[test]
+    fn a_nan_strength_edge_is_updated_against_its_own_model() {
+        let mut nan = edge("e", "a", "b");
+        nan.strength = f64::NAN;
+        let t = index_model(&[node("a", ""), node("b", "")], &[nan]).expect("fits");
+        let patch = diff_graph(&t, &t);
+        assert_eq!(patch.updated_edges, [0]);
+        assert!(!is_empty_patch(&patch));
+    }
+
+    /// Oracle parity: `-0 === 0`, so a zero strength or weight changing sign is no change.
+    #[test]
+    fn a_zero_changing_sign_is_no_change() {
+        let (mut positive, mut negative) = (edge("e", "a", "b"), edge("e", "a", "b"));
+        (positive.strength, negative.strength) = (0.0, -0.0);
+        assert!(edges_equal(&positive.view(), &negative.view()), "-0 === 0");
+        let (mut a, mut b) = (node("a", ""), node("a", ""));
+        (a.weight, b.weight) = (0.0, -0.0);
+        let p = index_model(&[a, node("b", "")], &[positive]).expect("fits");
+        let n = index_model(&[b, node("b", "")], &[negative]).expect("fits");
+        assert!(is_empty_patch(&diff_graph(&p, &n)));
+    }
 }

@@ -64,9 +64,11 @@ export type Request =
 
 export type ForceRequest =
   | { readonly type: "force.start" }
+  | { readonly type: "force.settle" }
   | { readonly type: "force.drag"; readonly id: string; readonly x: number; readonly y: number }
   | { readonly type: "force.release"; readonly id: string }
-  | { readonly type: "force.params"; readonly knobs: ForceKnobs }
+  // `heat`: the alpha the loop reheats to at least; absent is the loop's own nudge.
+  | { readonly type: "force.params"; readonly knobs: ForceKnobs; readonly heat?: number }
   | { readonly type: "force.pause" }
   | { readonly type: "force.resume" }
   | { readonly type: "force.stop" };
@@ -125,7 +127,7 @@ export interface Port {
 export type Spawn = () => Port;
 
 const FORCE_REQUESTS: readonly string[] = [
-  "force.start", "force.drag", "force.release", "force.params", "force.pause", "force.resume", "force.stop",
+  "force.start", "force.settle", "force.drag", "force.release", "force.params", "force.pause", "force.resume", "force.stop",
 ];
 const REQUESTS: readonly string[] = ["open", "load", "layout", "analysis", ...FORCE_REQUESTS];
 const RESULTS: readonly string[] = ["opened", "loaded", "laid-out", "analysed", "failed", "force-state", "force-frame"];

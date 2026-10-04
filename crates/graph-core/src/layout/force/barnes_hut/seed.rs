@@ -7,15 +7,21 @@
 
 const GOLDEN_ANGLE: f64 = 2.399963229728653;
 
-/// Node `i`'s seed position is `12*sqrt(i+1)` out along the golden-angle spiral.
+/// Node `i`'s seed position: `12*sqrt(i+1)` out along the golden-angle spiral. One row
+/// alone, so a session that grows in place seeds a new row without the rows before it.
+pub(in crate::layout::force) fn spiral_point(i: u32) -> (f64, f64) {
+    let radius = 12.0 * f64::sqrt(f64::from(i) + 1.0);
+    let angle = f64::from(i) * GOLDEN_ANGLE;
+    (libm::cos(angle) * radius, libm::sin(angle) * radius)
+}
+
+/// The seed positions of rows `0..n`, each [`spiral_point`].
 pub(super) fn golden_spiral(n: u32) -> (Vec<f64>, Vec<f64>) {
     let mut x = Vec::with_capacity(n as usize);
     let mut y = Vec::with_capacity(n as usize);
-    for i in 0..n {
-        let radius = 12.0 * f64::sqrt(f64::from(i) + 1.0);
-        let angle = f64::from(i) * GOLDEN_ANGLE;
-        x.push(libm::cos(angle) * radius);
-        y.push(libm::sin(angle) * radius);
+    for (px, py) in (0..n).map(spiral_point) {
+        x.push(px);
+        y.push(py);
     }
     (x, y)
 }

@@ -17,7 +17,8 @@ export interface ForceLink {
   readonly disabled: () => string | null;
   /** The knobs as `state` holds them, or as they are now when no state is given. */
   readonly knobs: (state?: StudioState) => ForceKnobs;
-  readonly set: (knobs: ForceKnobs) => void;
+  /** `heat`: the alpha the settle is reheated to at least; absent, the loop's own nudge. */
+  readonly set: (knobs: ForceKnobs, heat?: number) => void;
   /** Runs the settle from random positions, or stops it. */
   readonly animate: (on: boolean) => void;
   readonly animating: () => boolean;
@@ -118,6 +119,13 @@ const SPREAD_MARGIN = 0.5;
 const SPREAD_CHARGE = 3 * DEFAULT_KNOBS.charge;
 /** Ponytail: picked, not measured — tighter than the defaults, still kept apart by the spacing. */
 const COMPACT = { charge: -30, linkDistance: 30, gravity: 0.05 };
+/**
+ * A preset reheats as hot as a fresh settle, from the drawing on screen. WHY not the loop's
+ * 0.3 nudge: a preset moves several knobs at once, and at 0.3 the settle cools before the new
+ * spacing has pushed the discs apart — `spread` on the 10k fixture cut overlaps by 49.3% at
+ * 0.3 and by 69.7% at 1 (docs/measurements/ux-forces-full.md).
+ */
+export const PRESET_HEAT = 1;
 
 /**
  * The spacing that keeps two discs of the drawn size from touching, plus `margin` of a radius,
@@ -148,7 +156,7 @@ function presetActions<Context>(link: ForceLink): readonly ForceAction<Context>[
       run: () => {
         const now = link.knobs();
         const next = { ...now, collideRadius: spacingFor(link, SPREAD_MARGIN), charge: Math.min(now.charge, SPREAD_CHARGE) };
-        link.set(next);
+        link.set(next, PRESET_HEAT);
         return { message: `spread: ${spoken(next)}` };
       },
     },
@@ -157,7 +165,7 @@ function presetActions<Context>(link: ForceLink): readonly ForceAction<Context>[
       available: () => link.disabled(),
       run: () => {
         const next = { ...link.knobs(), ...COMPACT, collideRadius: spacingFor(link, 0) };
-        link.set(next);
+        link.set(next, PRESET_HEAT);
         return { message: `compact: ${spoken(next)}` };
       },
     },

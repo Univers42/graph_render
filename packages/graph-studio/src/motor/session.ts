@@ -5,17 +5,16 @@
  * Knows the motor only by the members it calls, so it runs the same in a worker, on the
  * page with the worker switched off, and under node with the real module.
  */
-import { decodeSnapshot, idAt } from "../../../graph-render/src/snapshot/decode.ts";
-import { FIXTURES } from "../source/fixtures.ts";
-import { type IngestNode, IngestRefusal, normaliseIngest } from "../source/ingest.ts";
-import { type GraphMeta, metaOf } from "../source/meta.ts";
-import { syntheticRecords } from "../source/synthetic.ts";
+import { type Built, describe } from "./built.ts";
+import { type Assembler, type Document, documentFor } from "./documents.ts";
 import { type ShownError, describeError } from "../state/errors.ts";
 import type { Source } from "../state/settings.ts";
-import type { ForceEngine, ForceParams, ForcePort, LiveForce } from "./live.ts";
+import {
+  DEFAULT_KNOBS, type ForceEngine, type ForceParams, type ForcePort, type ForceSeed, type LiveForce,
+} from "./live.ts";
 import { createLiveForce } from "./liveSession.ts";
 import type { AnalysisReport, Catalog, GraphSummary, RunReport } from "./protocol.ts";
-import { planRun } from "./settle.ts";
+import { type RunPlan, planRun } from "./settle.ts";
 
 export interface AnalysisFace {
   readonly id: string;
@@ -31,25 +30,44 @@ export interface MotorLike<Handle> {
   posts(): readonly string[];
   analyses(): readonly string[];
   build(ingestJson: string): Handle;
+  /**
+   * Builds a graph from the **binary** columnar document (`docs/contract/ingest-columns.md`).
+   * Separate from `build` because it is a separate export in the module and stays separate: a
+   * caller holding columns must not be routed through a JSON text it would have to build
+   * first, and a caller holding text must not be routed through an encoder it does not need.
+   */
+  buildColumns(bytes: Uint8Array): Handle;
   layout(handle: Handle, layoutId: string): unknown;
   post(handle: Handle, postId: string): unknown;
   analysis(handle: Handle, analysisId: string): AnalysisFace;
   toBytes(handle: Handle): Uint8Array;
   release(handle: Handle): void;
   /** The live session over a graph's topology, or null on a motor without one. */
-  forceSession?(handle: Handle, params?: Partial<ForceParams>, engine?: ForceEngine): ForcePort | null;
+  forceSession?(handle: Handle, params?: Partial<ForceParams>, engine?: ForceEngine, seed?: ForceSeed): ForcePort | null;
 }
 
 export interface SessionDeps<Handle> {
   readonly motorFrom: (wasmUrl: string, threads?: number) => Promise<MotorLike<Handle>>;
   readonly fetchText: (url: string) => Promise<string>;
   readonly digest: (bytes: Uint8Array) => Promise<string | null>;
+  /**
+   * Turns a generated graph's columns into the binary document. Injected for the same reason
+   * `digest` is: this module may not import the motor's SDK (`app/eslint.config.js`), and the
+   * SDK owns the encoder.
+   */
+  readonly assemble: Assembler;
   readonly now: () => number;
   /**
    * Told when a force session is released, so whatever is stepping it stops at once. Never
    * called to ask whether there is a session: that would make one as a side effect.
    */
   readonly onForget?: () => void;
+  /**
+   * Told when a re-layout releases the force session: the loop stops as for `onForget`, but
+   * forces stay available, since the next request seeds a session at the new picture. Left
+   * out, a re-layout tells `onForget`.
+   */
+  readonly onRenew?: () => void;
 }
 
 export interface Session {
@@ -63,29 +81,6 @@ export interface Session {
    * A new load releases the last one, so a port is never a session of another graph.
    */
   forces(): LiveForce | null;
-}
-
-interface Document {
-  readonly name: string;
-  readonly json: string;
-  readonly nodes: readonly IngestNode[];
-  readonly edgeCount: number;
-  readonly notes: readonly string[];
-}
-
-interface Built<Handle> {
-  readonly handle: Handle;
-  readonly nodes: readonly IngestNode[];
-  /** The id table the description was last built against; `null` before the first run. */
-  described: Uint8Array | null;
-  /** The motor's live session over this graph, made when one is first asked for. */
-  forced: ForcePort | null;
-  /** The port over it, cached so the loop sees one object for one session. */
-  port: LiveForce | null;
-  /** Node ids in the force session's dense row order; `null` until a layout has run. */
-  order: readonly string[] | null;
-  /** The tick the live session is made with; a change releases the one made before. */
-  engine: ForceEngine;
 }
 
 /** Nothing can run in the state the session is in. */
@@ -102,47 +97,6 @@ export async function sha256Hex(bytes: Uint8Array): Promise<string | null> {
   if (typeof crypto === "undefined" || !("subtle" in crypto)) return null;
   const digest = await crypto.subtle.digest("SHA-256", bytes.slice());
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-function generated(source: Extract<Source, { kind: "synthetic" }>): Document {
-  const { nodes, edges } = syntheticRecords({
-    seed: source.seed, nodeCount: source.nodes, degree: source.degree, shape: source.shape,
-  });
-  return {
-    name: `${source.shape} seed ${source.seed}`,
-    json: JSON.stringify({ version: 1, nodes, edges }),
-    nodes, edgeCount: edges.length, notes: [],
-  };
-}
-
-function normalised(text: string, name: string): Document {
-  const { json, doc, notes } = normaliseIngest(text, name);
-  return { name, json, nodes: doc.nodes, edgeCount: doc.edges.length, notes };
-}
-
-async function documentFor(source: Source, fixturesUrl: string, fetchText: (url: string) => Promise<string>): Promise<Document> {
-  if (source.kind === "synthetic") return generated(source);
-  if (source.kind === "document") return normalised(source.text, source.name);
-  // The path comes from settings, and settings come from recipes: only the listed files.
-  if (!FIXTURES.includes(source.path)) throw new IngestRefusal(source.path, "not a bundled fixture");
-  return normalised(await fetchText(`${fixturesUrl}${source.path}`), source.path);
-}
-
-function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i += 1) if (a[i] !== b[i]) return false;
-  return true;
-}
-
-/** The description of the graph in the order this snapshot uses, if that order is news. */
-function describe<Handle>(built: Built<Handle>, bytes: Uint8Array): GraphMeta | null {
-  const snapshot = decodeSnapshot(bytes);
-  const table = snapshot.nodeIds.bytes;
-  if (built.described !== null && sameBytes(built.described, table)) return null;
-  const order = Array.from({ length: snapshot.nodeCount }, (_, i) => idAt(snapshot.nodeIds, i));
-  built.described = table.slice();
-  built.order = order;
-  return metaOf(built.nodes, order, snapshot);
 }
 
 interface Pass {
@@ -191,7 +145,7 @@ function summaryOf(document: Document, buildMs: number): GraphSummary {
 function forcesOf<Handle>(motor: MotorLike<Handle> | null, built: Built<Handle> | null): LiveForce | null {
   if (motor === null || built === null || built.order === null) return null;
   if (motor.forceSession === undefined) return null;
-  built.forced ??= motor.forceSession(built.handle, undefined, built.engine);
+  built.forced ??= startSession(motor, built);
   if (built.forced === null) return null;
   // The port is cached, not rebuilt: the loop compares ports by identity and replaces itself
   // when one changes, so a fresh object per request would stop the loop on every message. So
@@ -199,6 +153,8 @@ function forcesOf<Handle>(motor: MotorLike<Handle> | null, built: Built<Handle> 
   built.port ??= createLiveForce({
     session: built.forced,
     ids: () => built.order,
+    knobs: built.knobs,
+    // "Animate" settles from the motor's own spiral, hot, whatever the last run drew.
     restart: () => {
       built.forced?.release();
       built.forced = motor.forceSession?.(built.handle, undefined, built.engine) ?? null;
@@ -207,6 +163,30 @@ function forcesOf<Handle>(motor: MotorLike<Handle> | null, built: Built<Handle> 
     },
   });
   return built.port;
+}
+
+/**
+ * The session a force request finds: seeded at the picture the last run drew and born cold,
+ * so its first frame repaints that picture instead of replacing it, and a drag or a knob wakes
+ * it from there. A scatter (`settle.ts`) is no picture to keep: that session starts hot from
+ * the motor's spiral and settles on screen.
+ *
+ * Measured before this (2026-10-03): every force layout was replaced on the first frame by one
+ * settle from the spiral, so ForceAtlas2 and DrL drew identical bounds.
+ */
+function startSession<Handle>(motor: MotorLike<Handle>, built: Built<Handle>): ForcePort | null {
+  if (!built.warm) return motor.forceSession?.(built.handle, undefined, built.engine) ?? null;
+  const session = motor.forceSession?.(built.handle, undefined, built.engine, "layout") ?? null;
+  session?.reheat(0);
+  return session;
+}
+
+/** A run is a new picture, so the session over the last one goes. The knobs stay, the pins go. */
+function renew<Handle>(built: Built<Handle>, plan: RunPlan, deps: SessionDeps<Handle>): void {
+  built.knobs = built.port?.knobs?.() ?? built.knobs;
+  forget(built, deps.onRenew ?? deps.onForget);
+  built.engine = plan.engine;
+  built.warm = plan.run === plan.report;
 }
 
 /**
@@ -221,10 +201,7 @@ async function runLayout<Handle>(
 ): Promise<RunReport> {
   const { motor, built } = live;
   const plan = planRun(layoutId, built.nodes.length, motor.forceSession !== undefined);
-  if (plan.engine !== built.engine) {
-    forget(built, deps.onForget);
-    built.engine = plan.engine;
-  }
+  renew(built, plan, deps);
   const started = deps.now();
   motor.layout(built.handle, plan.run);
   const layoutMs = deps.now() - started;
@@ -271,15 +248,18 @@ export function createSession<Handle>(deps: SessionDeps<Handle>): Session {
     if (built === null) throw new SessionRefusal("no graph is loaded");
     return { motor, built };
   };
-  /** Builds the next graph and lets the last one go, force session and all. */
+  /** Builds the next graph and lets the last one go, force session and all. Which build is
+   *  called follows the document: a generated graph is already columns, a document or a
+   *  fixture is already text, and neither is ever converted to the other's form. */
   const replace = (document: Document, started: number): GraphSummary => {
     const open = motor;
     if (open === null) throw new SessionRefusal("the motor is not open");
-    const handle = open.build(document.json);
+    const payload = document.payload;
+    const handle = payload.kind === "columns" ? open.buildColumns(payload.bytes) : open.build(payload.text);
     if (built !== null) open.release(built.handle);
     forget(built, deps.onForget);
     built = { handle, nodes: document.nodes, described: null, forced: null, port: null, order: null,
-      engine: "barnes_hut" };
+      engine: "barnes_hut", warm: false, knobs: DEFAULT_KNOBS };
     return summaryOf(document, deps.now() - started);
   };
   return {
@@ -288,7 +268,7 @@ export function createSession<Handle>(deps: SessionDeps<Handle>): Session {
       return { layouts: motor.layouts(), posts: motor.posts(), analyses: motor.analyses() };
     },
     load: async (source, fixturesUrl) => {
-      const document = await documentFor(source, fixturesUrl, deps.fetchText);
+      const document = await documentFor(source, fixturesUrl, deps.fetchText, deps.assemble);
       return replace(document, deps.now());
     },
     layout: async (layoutId, postId) => runLayout(ready(), deps, layoutId, postId),
