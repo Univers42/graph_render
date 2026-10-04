@@ -73,7 +73,9 @@ pub fn source_of(name: &str) -> Result<Source, String> {
     match name {
         "studio" => Ok(Source::Ingest),
         "contract" => Ok(Source::Contract),
-        other => Err(format!("`source` is `{other}`, neither `studio` nor `contract`")),
+        other => Err(format!(
+            "`source` is `{other}`, neither `studio` nor `contract`"
+        )),
     }
 }
 
@@ -171,7 +173,10 @@ pub fn render(entries: &[Entry]) -> String {
 /// One rendered row, its strings quoted and escaped by `serde_json`.
 fn fields(entry: &Entry) -> String {
     let quote = |text: &str| serde_json::to_string(text).expect("a string is quotable");
-    let post = entry.post.as_deref().map_or_else(|| "null".to_owned(), quote);
+    let post = entry
+        .post
+        .as_deref()
+        .map_or_else(|| "null".to_owned(), quote);
     format!(
         r#"{{"fixture":{},"source":{},"layout":{},"post":{},"hash":{}}}"#,
         quote(&entry.fixture),
@@ -192,5 +197,6 @@ pub fn root() -> PathBuf {
 /// only with `GM_SVC_DIGEST_EMIT=1`.
 pub fn write(entries: &[Entry]) {
     let path = root().join(PATH);
-    std::fs::write(&path, render(entries)).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+    std::fs::write(&path, render(entries))
+        .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
 }

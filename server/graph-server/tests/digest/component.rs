@@ -13,10 +13,9 @@ use std::collections::BTreeMap;
 /// The node count of the largest weakly connected component of a studio ingest document, or a
 /// refusal naming what could not be read.
 pub fn largest_component(bytes: &[u8]) -> Result<usize, String> {
-    let value: Value = serde_json::from_slice(bytes).map_err(|error| format!("not JSON: {error}"))?;
-    let nodes = value["nodes"]
-        .as_array()
-        .ok_or("no `nodes` array")?;
+    let value: Value =
+        serde_json::from_slice(bytes).map_err(|error| format!("not JSON: {error}"))?;
+    let nodes = value["nodes"].as_array().ok_or("no `nodes` array")?;
     let dense = dense_index(nodes)?;
     let mut forest = Forest::new(dense.len());
     for edge in value["edges"].as_array().ok_or("no `edges` array")? {

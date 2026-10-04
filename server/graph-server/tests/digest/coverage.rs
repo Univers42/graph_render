@@ -25,19 +25,27 @@ pub fn by_fixture<'a>(entries: &'a [Entry]) -> BTreeMap<&'a str, Vec<&'a Entry>>
 /// off the topology the seam built rather than off the document, so a reader that drops a node
 /// is caught by the caps and not only by the hash.
 pub fn size(source: Source, bytes: &[u8]) -> Result<(u32, u32), String> {
-    let topology = motor::build(bytes, source).map_err(|code| refused(code))?;
+    let topology = motor::build(bytes, source).map_err(refused)?;
     Ok((topology.node_count(), topology.edge_count()))
 }
 
 /// The ids of `ids` whose cap admits a graph of `size`, sorted. An id with no row in the table
 /// admits nothing: a missing cap row means 0, never "uncapped" (`Caps::admit`).
-pub fn admitting<'a>(ids: impl Iterator<Item = &'a str>, caps: &Caps, size: (u32, u32)) -> BTreeSet<String> {
-    ids.filter(|id| admits(caps, id, size)).map(str::to_owned).collect()
+pub fn admitting<'a>(
+    ids: impl Iterator<Item = &'a str>,
+    caps: &Caps,
+    size: (u32, u32),
+) -> BTreeSet<String> {
+    ids.filter(|id| admits(caps, id, size))
+        .map(str::to_owned)
+        .collect()
 }
 
 /// Whether `id`'s committed cap admits a graph of `size`.
 pub fn admits(caps: &Caps, id: &str, size: (u32, u32)) -> bool {
-    let cap = caps.get(id).unwrap_or(graph_server::caps::Cap { nodes: 0, edges: 0 });
+    let cap = caps
+        .get(id)
+        .unwrap_or(graph_server::caps::Cap { nodes: 0, edges: 0 });
     u64::from(size.0) <= cap.nodes && u64::from(size.1) <= cap.edges
 }
 

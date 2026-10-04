@@ -82,8 +82,29 @@ scratch_setup() {
 # moved. The path is dropped from both sides alike, so what is compared is exactly the tuple
 # the condition names.
 closure() {
-  "$here/gr" cargo tree --manifest-path "$1" -e normal,features --prefix none \
-    -p graph-wasm 2>"$2.err" | sed -e 's| (/[^)]*)$||' | LC_ALL=C sort >"$2"
+  local manifest_path=$1 out=$2
+  # Two cargo tree reads, both with `--prefix none`, concatenated into one sorted list.
+  #
+  # The first is the closure: every crate graph-wasm reaches normally, with the features on
+  # each of their edges.
+  #
+  # The second exists because the first cannot see graph-wasm's OWN features. `-p graph-wasm`
+  # makes graph-wasm the root of the printed tree, and cargo does not label the root's edges —
+  # so `graph-wasm feature "probe"` is absent from the closure output and present only in the
+  # inverted view, which is what prints a crate's incoming feature edges. Without the second
+  # read a feature added to the service's graph-wasm edge would be invisible here, and the
+  # condition's "enabled features" would be only the features of the crates below graph-wasm.
+  {
+    "$here/gr" cargo tree --manifest-path "$manifest_path" -e normal,features --prefix none \
+      -p graph-wasm 2>"$out.err"
+    "$here/gr" cargo tree --manifest-path "$manifest_path" -e features --prefix none \
+      -i graph-wasm 2>>"$out.err" | grep '^graph-wasm feature'
+  # WHY ` (command-line)` is stripped along with the path: cargo labels a feature edge with
+    # why that feature is on, and that reason differs between the two workspaces for a reason
+    # that has nothing to do with parity — graph-wasm is a workspace member in the root and a
+    # path dependency in `server/`, so the same `default` feature carries a different label on
+    # each side. The condition compares which features are enabled, not why cargo says so.
+  } | sed -e 's| (/[^)]*)$||' -e 's| (command-line)$||' | LC_ALL=C sort >"$out"
 }
 
 # WHY 2 and not 1 when cargo cannot run: a check that could not look is not a check that found

@@ -87,9 +87,11 @@ fn broken(bytes: &[u8]) -> std::borrow::Cow<'_, [u8]> {
 /// a reader that loses a field on the way out and a writer that drops one on the way back
 /// cancel exactly once.
 pub fn json_round_trips(bytes: &[u8]) -> Result<(), String> {
-    let snapshot = Snapshot::from_bytes(bytes).map_err(|error| format!("not a snapshot: {error}"))?;
+    let snapshot =
+        Snapshot::from_bytes(bytes).map_err(|error| format!("not a snapshot: {error}"))?;
     let json = canonical_json::to_json(&snapshot);
-    let read = canonical_json::from_json(&json).map_err(|error| format!("its own JSON: {error}"))?;
+    let read =
+        canonical_json::from_json(&json).map_err(|error| format!("its own JSON: {error}"))?;
     let again = read.to_bytes();
     if again != bytes {
         return Err(format!("{} bytes in, {} back", bytes.len(), again.len()));

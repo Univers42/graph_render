@@ -10,7 +10,7 @@
 //! What else the condition asks of the manifest, asserted here so the manifest cannot quietly
 //! stop covering something:
 //!
-//! - both readers (`studio`, `contract`) appear, and every fixture appears under each;
+//! - both readers (`studio`, `contract`) appear, and every fixture's rows agree on one;
 //! - every layout and POST id whose committed cap admits a fixture appears for it, computed
 //!   from `Caps::committed()` and the motor's registries, so dropping a row fails;
 //! - a fixture carries a connected component in spectral's 257–700 node window;
@@ -40,7 +40,7 @@ mod seam;
 
 use graph_server::caps::Caps;
 use graph_server::motor;
-use manifest::{Entry, COMPONENT_CEILING, COMPONENT_FLOOR, PATH};
+use manifest::{COMPONENT_CEILING, COMPONENT_FLOOR, Entry, PATH};
 use std::collections::BTreeSet;
 
 /// The fixture the LOBPCG window is checked on: one component of 400 nodes.
@@ -63,14 +63,23 @@ fn every_row_hashes_to_its_committed_digest() {
             ));
         }
     }
-    assert!(moved.is_empty(), "{} of {} rows moved:\n{}", moved.len(), entries.len(), moved.join("\n"));
+    assert!(
+        moved.is_empty(),
+        "{} of {} rows moved:\n{}",
+        moved.len(),
+        entries.len(),
+        moved.join("\n")
+    );
 }
 
 /// Both readers are covered, and each fixture is read by the reader its rows name.
 #[test]
 fn both_readers_are_covered() {
     let entries = manifest::entries();
-    let sources: BTreeSet<&str> = entries.iter().map(|entry| manifest::name_of(entry.source)).collect();
+    let sources: BTreeSet<&str> = entries
+        .iter()
+        .map(|entry| manifest::name_of(entry.source))
+        .collect();
     assert_eq!(
         sources.iter().copied().collect::<Vec<&str>>(),
         vec!["contract", "studio"],
@@ -110,13 +119,19 @@ fn every_id_whose_cap_admits_a_fixture_is_pinned() {
             .map(|entry| entry.layout.clone())
             .collect();
         let wanted = coverage::admitting(motor::layout_ids(), &caps, size);
-        assert_eq!(layouts, wanted, "{fixture} at {size:?}: the pinned layouts differ");
+        assert_eq!(
+            layouts, wanted,
+            "{fixture} at {size:?}: the pinned layouts differ"
+        );
         let posts: BTreeSet<String> = rows.iter().filter_map(|entry| entry.post.clone()).collect();
         let missing: Vec<String> = coverage::admitting(motor::post_ids(), &caps, size)
             .difference(&posts)
             .cloned()
             .collect();
-        assert!(missing.is_empty(), "{fixture} at {size:?}: POST passes not pinned: {missing:?}");
+        assert!(
+            missing.is_empty(),
+            "{fixture} at {size:?}: POST passes not pinned: {missing:?}"
+        );
     }
 }
 
@@ -146,9 +161,14 @@ fn the_json_face_round_trips_to_the_same_bytes() {
     let entries = manifest::entries();
     let mut checked = 0;
     for (fixture, rows) in coverage::by_fixture(&entries) {
-        for entry in [first_layout(&rows), first_post(&rows)].into_iter().flatten() {
+        for entry in [first_layout(&rows), first_post(&rows)]
+            .into_iter()
+            .flatten()
+        {
             let outcome = seam::run_row(entry, &common::fixture(fixture));
-            let bytes = outcome.bytes().unwrap_or_else(|why| panic!("{fixture}: {why}"));
+            let bytes = outcome
+                .bytes()
+                .unwrap_or_else(|why| panic!("{fixture}: {why}"));
             seam::json_round_trips(bytes).unwrap_or_else(|why| panic!("{}: {why}", entry.line()));
             checked += 1;
         }
