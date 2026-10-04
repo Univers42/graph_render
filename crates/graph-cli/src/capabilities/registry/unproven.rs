@@ -112,9 +112,19 @@ pub(super) fn force_record(id: &str) -> Option<(&'static str, Status)> {
         "layout.circular.hierarchy" => Some(("oracle-circular-hierarchy", Status::Implemented)),
         // Ponytail: `implemented`, not `gated`: the closed-form differential has no
         // recorded run on this tree, and a hash alone never earns `gated`.
-        "layout.random" | "layout.circular.ring" | "layout.spiral" | "layout.bipartite" => {
-            Some(("oracle-closed-form", Status::Implemented))
-        }
+        //
+        // `layout.random.3d` joined the same record rather than a new one, and the reason is
+        // that it is the SAME differential: `harness/oracle-closed-form.py` gained its
+        // `random_3d` arm and `oracle_python/closed_form.rs` its row, both keyed to
+        // `docs/decisions/3d-ids.md`. It shares a record with `layout.random` and shares no
+        // metric with it — that id is compared on nothing (its stream is the crate's
+        // Mulberry32, which is no reference's) while this one is compared on a distribution
+        // — so a reader who finds one figure under the record must read which id it is for.
+        "layout.random"
+        | "layout.circular.ring"
+        | "layout.spiral"
+        | "layout.bipartite"
+        | "layout.random.3d" => Some(("oracle-closed-form", Status::Implemented)),
         // Ponytail: `implemented`, not `gated`, and the reason is the oracle's own printed
         // resolution rather than a shortfall: `-Tplain` carries five significant digits, so
         // the twopi differential compares coordinates within a measured 7.1e-2 points (ceiling
