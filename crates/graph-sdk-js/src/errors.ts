@@ -81,7 +81,9 @@ export class ContractRefusedError extends GraphMotorError {
  *  two documents mean different things — this one is reachable for a document `build`
  *  accepts happily (a repeated node id, which the JSON path drops and the dense-row rule
  *  cannot). */
-export class ColumnsRefusedError extends GraphMotorError {}
+export class ColumnsRefusedError extends GraphMotorError {
+  override name = "ColumnsRefusedError";
+}
 
 /** `gm_run` refused: an unknown handle, an unknown layout id, or non-empty params
  * (registry layouts take none this phase, C2). */

@@ -30,12 +30,12 @@ fn the_status_words_are_one_and_two() {
 #[test]
 fn ids_are_issued_from_one_and_never_reused() {
     reset();
-    let a = create(&model(2, 3), params(), Engine::BarnesHut).expect("first");
-    let b = create(&model(2, 3), params(), Engine::BarnesHut).expect("second");
+    let a = create(0, &model(2, 3), params(), Engine::BarnesHut).expect("first");
+    let b = create(0, &model(2, 3), params(), Engine::BarnesHut).expect("second");
     assert_eq!((a, b), (1, 2), "0 stays the failure value");
     release(a).expect("released");
     assert_eq!(
-        create(&model(2, 3), params(), Engine::BarnesHut),
+        create(0, &model(2, 3), params(), Engine::BarnesHut),
         Ok(3),
         "the freed id is never reissued"
     );
@@ -127,14 +127,14 @@ fn a_session_is_never_created_with_parameters_it_would_refuse() {
         },
     ] {
         assert_eq!(
-            create(&model(2, 4), bad, Engine::BarnesHut),
+            create(0, &model(2, 4), bad, Engine::BarnesHut),
             Err(Code::SessionRefused),
             "{bad:?}"
         );
     }
     assert_eq!(
         tick(
-            create(&model(2, 4), params(), Engine::BarnesHut).expect("only a valid one"),
+            create(0, &model(2, 4), params(), Engine::BarnesHut).expect("only a valid one"),
             1
         ),
         Ok(Status::Running),
@@ -147,9 +147,11 @@ fn a_session_is_never_created_with_parameters_it_would_refuse() {
 /// wild pointer in JavaScript, and the refusal is a named code the host reads back (C4).
 ///
 /// The address's *stability* is not testable here — on a 64-bit host it is never reportable —
-/// so it is stated where it is true: `Sim`'s columns are never resized (the only writer that
-/// could is `ForceSession::set_positions`, behind `from_positions`, which this ABI calls only to
-/// build a new session), and the session table holds each session behind a `Box` so an insert cannot move it.
+/// so it is stated where it is true: `Sim`'s columns are resized only by `ForceSession::grow`,
+/// behind `gm_force_session_grow`, after which a host re-reads the address (C7) — the other
+/// writer that could, `ForceSession::set_positions`, is behind `from_positions`, which this ABI
+/// calls only to build a new session — and the session table holds each session behind a
+/// `Box` so an insert cannot move it.
 /// `graph-cli force-gate`'s wasm arm reads these columns through the wire's `(ptr, len)` on every
 /// seed, which is where a moved address would show up.
 #[test]
