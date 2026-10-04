@@ -152,3 +152,50 @@ fn two_runs_order_identically() {
         .collect::<Vec<_>>();
     assert_eq!(ordered(11, &edges), ordered(11, &edges));
 }
+
+#[test]
+#[ignore = "debug: is the pass reproducible inside one process"]
+fn debug_repeatability() {
+    let rows = super::oracle_probe::oracle_digest();
+    let mut diff = 0;
+    for row in rows.iter().take(80) {
+        let count = u32::try_from(row.ranks.len()).expect("u32");
+        let a = ordered(count, &row.edges);
+        let b = ordered(count, &row.edges);
+        if a != b {
+            diff += 1;
+            eprintln!("seed {} differs between two runs", row.ranks.len());
+        }
+    }
+    eprintln!("{diff} of 80 seeds differ between two runs in one process");
+    assert_eq!(diff, 0);
+}
+
+#[test]
+#[ignore = "debug: who has the better drawing when the orders disagree"]
+fn debug_crossing_verdict() {
+    use super::oracle_crossings::edge_crossings;
+    let rows = super::oracle_probe::oracle_digest();
+    let (mut better, mut worse, mut tie, mut agree) = (0, 0, 0, 0);
+    for row in &rows {
+        let count = u32::try_from(row.ranks.len()).expect("u32");
+        let g = super::oracle_probe::ranked_and_ordered(count, &row.edges);
+        if super::mincross::crossings::real_ranks(&g) != row.ranks {
+            continue;
+        }
+        let ours = super::mincross::crossings::real_rows(&g);
+        let theirs = row.rows();
+        if ours == theirs {
+            agree += 1;
+            continue;
+        }
+        let a = edge_crossings(&ours, &row.edges);
+        let b = edge_crossings(&theirs, &row.edges);
+        match a.cmp(&b) {
+            std::cmp::Ordering::Less => better += 1,
+            std::cmp::Ordering::Greater => worse += 1,
+            std::cmp::Ordering::Equal => tie += 1,
+        }
+    }
+    eprintln!("agree {agree}; of the rest: better {better}, worse {worse}, tie {tie}");
+}
