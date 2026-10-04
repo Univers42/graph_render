@@ -43,7 +43,6 @@ roundtrip-1000|0|scripts/orch/gr cargo run -q --release -p graph-cli -- roundtri
 emit-fixtures-1000|0|scripts/orch/gr cargo run -q -p graph-cli -- emit-fixtures --seeds 1000
 oracle-layouts|0|scripts/orch/gr cargo run -q -p graph-cli -- oracle-layouts
 geometry-invariants|0|scripts/orch/gr cargo test -p graph-core geometry_invariants
-capabilities-check|0|scripts/orch/gr cargo run -q -p graph-cli -- capabilities --check
 codegen-check|0|scripts/orch/gr cargo run -q -p graph-cli -- codegen --check
 ge-check|0|scripts/orch/ge-check.sh
 
@@ -64,7 +63,19 @@ sdk-test|0|scripts/orch/node-slim.sh npm run sdk:test
 # test fails, the run exits non-zero. Without this row `sdk-test` could go green by testing
 # nothing at all — the same vacuous pass prompts/RESUME.md:155 records for a knob at 0.9.
 sdk-test-control|nonzero|scripts/orch/node-slim.sh bash -c 'rm -rf target/sdk-test-control && cp -R crates/graph-sdk-js target/sdk-test-control && sed -i "s/moduleReporting(ABI_VERSION)/moduleReporting(ABI_VERSION + 1)/" target/sdk-test-control/test/abi-version.test.mjs && grep -q "ABI_VERSION + 1" target/sdk-test-control/test/abi-version.test.mjs && node --test --experimental-strip-types "target/sdk-test-control/test/**/*.test.mjs"'
-sdk-lint|0|scripts/orch/node-slim.sh bash -c 'npm ci --ignore-scripts >/dev/null && npx eslint crates/graph-sdk-js/src --max-warnings=0'
+# `sdk-lint` now lints the whole SDK package — `test/` and `scripts/` as well as `src`. It used
+# to name `crates/graph-sdk-js/src` only, which is how 52 errors in the `.mjs` files (a dead
+# import, a face that sent `null` instead of `1e999`, and 50 undeclared Node/web globals) sat
+# unseen through every develop gate.
+sdk-lint|0|scripts/orch/node-slim.sh bash -c 'npm ci --ignore-scripts >/dev/null && npm run sdk:lint'
+# The control for `sdk-lint` above: eslint must go red on an undeclared name, or the row above
+# is measuring a linter that never fires. It writes nothing under `crates/` — the source
+# arrives on eslint's stdin under a `.mjs` filename the new config object matches — and it
+# fails by the defect's own shape (a `no-undef` report, exit 1) rather than by inverting the
+# expected exit. What it does NOT cover is the eight names themselves: deleting one of them
+# from the globals list would leave this row green and turn `sdk-lint` red, so the pair pins
+# both directions only because `sdk-lint` also runs.
+negctl-sdk-lint|0|scripts/orch/node-slim.sh bash -c 'npm ci --ignore-scripts >/dev/null && { printf "undefinedGlobalForNegctl;\n" | npx eslint --max-warnings=0 --stdin --stdin-filename crates/graph-sdk-js/test/negctl.mjs >target/negctl-sdk-lint.txt 2>&1; test $? -eq 1 && grep -q no-undef target/negctl-sdk-lint.txt; }'
 
 # ---------------------------------------------------------------------------------------------
 # from docs/reports/phase-05.md:87 — p5 Sugiyama: the layout invariants and the layered
@@ -87,7 +98,7 @@ eigen-determinism|0|scripts/orch/gr cargo test -p graph-core eigen_determinism
 stress-d3|0|scripts/orch/gr cargo run -q -p graph-cli -- stress --oracle d3
 bench|0|scripts/orch/gr cargo run -q -p graph-cli -- bench --n 220,10000,100000
 emit-spectral-1000|0|scripts/orch/gr cargo run -q -p graph-cli -- emit-spectral-fixtures --seeds 1000
-oracle-spectral-py|0|scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-python-oracle python3 harness/oracle-spectral.py target/spectral-fixtures
+oracle-spectral-py|0|scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-python-oracle python3 harness/oracle-spectral.py /w/SciGraphs/core target/spectral-fixtures
 oracle-spectral|0|scripts/orch/gr cargo run -q -p graph-cli -- oracle-spectral
 bench-spectral|0|scripts/orch/gr cargo run -q -p graph-cli -- bench --layout layout.spectral --n 220,10000,100000
 bench-mds|0|scripts/orch/gr cargo run -q -p graph-cli -- bench --layout layout.mds.pivot --n 220,10000,100000
@@ -254,3 +265,26 @@ scigraphs-conformance|0|scripts/scigraphs-conformance.sh
 # that moved nothing, or moved more than one row, would exit 0 here and the gate would be
 # measuring nothing.
 negctl-scigraphs-conformance|nonzero|scripts/scigraphs-conformance.sh --break
+
+# The supply-chain gate (scripts/orch/rows/audit.rows): RustSec advisories, the SPDX allow list,
+# duplicate versions and crate provenance over both lockfiles, plus the shipped bundle's runtime
+# deps. Each row needs the network (the advisory-db clone, the registry advisory endpoint), so it
+# can turn red with no change in the tree the day an advisory is published; an offline host is a
+# fetch failure in the log, not a finding. The controls break the policy itself.
+cargo-deny-motor|0|GR_IMAGE=ge-audit scripts/orch/gr cargo deny --manifest-path Cargo.toml check advisories bans licenses sources
+cargo-deny-server|0|GR_IMAGE=ge-audit scripts/orch/gr cargo deny --manifest-path server/Cargo.toml --config deny.toml check advisories bans licenses sources
+npm-audit-app|0|scripts/orch/node-slim.sh bash -c 'cd app && npm audit --omit=dev --audit-level=high'
+negctl-cargo-deny-advisory|0|d=target/audit-negctl; mkdir -p $d/src; : >$d/src/lib.rs; printf '%s\n' '[package]' 'name = "audit-negctl"' 'version = "0.0.0"' 'edition = "2021"' '' '[workspace]' '' '[dependencies]' 'time = "=0.1.44"' >$d/Cargo.toml; GR_IMAGE=ge-audit scripts/orch/gr bash -c "cd $d && cargo generate-lockfile -q" || exit 1; rc=0; GR_IMAGE=ge-audit scripts/orch/gr cargo deny --manifest-path $d/Cargo.toml check advisories >target/audit-negctl-advisories.log 2>&1 || rc=$?; test $rc -ne 0 && grep -q RUSTSEC-2020-0071 target/audit-negctl-advisories.log && cat target/audit-negctl-advisories.log
+negctl-cargo-deny-license|0|sed '/^    "MIT",$/d' deny.toml >target/deny-negctl.toml; grep -q '"MIT"' target/deny-negctl.toml && exit 1; rc=0; GR_IMAGE=ge-audit scripts/orch/gr cargo deny --manifest-path Cargo.toml --config target/deny-negctl.toml check licenses >target/audit-negctl-licenses.log 2>&1 || rc=$?; test $rc -ne 0 && grep -q 'MIT - MIT License:' target/audit-negctl-licenses.log && head -n 20 target/audit-negctl-licenses.log
+
+# The osage differential (scripts/orch/rows/p13-gv1-osage.rows): `layout.packing.osage` is gated
+# on an `oracle-osage` record, and no other row here writes one.
+osage-emit-1000|0|scripts/orch/gr cargo run -q -p graph-cli -- emit-graphviz-fixtures --engine osage --seeds 1000
+osage-oracle-1000|0|scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-graphviz-oracle python3 harness/oracle-graphviz.py target/osage-fixtures osage target/gv-osage --differential
+osage-check-1000|0|scripts/orch/gr cargo run -q -p graph-cli -- oracle-graphviz --engine osage
+osage-check-negctl|nonzero|scripts/orch/gr cargo run -q -p graph-cli -- oracle-graphviz --engine osage --dir target/osage-fixtures-absent
+
+# Last: `capabilities --check` reads the records every gate above writes for this tree
+# (hashgate, roundtrip, oracle-diff, oracle-spectral, oracle-osage). Run earlier, it reports
+# each one missing or stale (2026-10-04, gate-develop-bff2: 34 problems at row 46).
+capabilities-check|0|scripts/orch/gr cargo run -q -p graph-cli -- capabilities --check

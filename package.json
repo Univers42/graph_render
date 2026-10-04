@@ -52,6 +52,7 @@
     "oracle:diff": "node --experimental-strip-types --experimental-loader ./tests/ts-extension-loader.mjs harness/oracle-diff.mjs",
     "sdk:typecheck": "tsc -p crates/graph-sdk-js/tsconfig.json --noEmit",
     "sdk:test": "node --test --experimental-strip-types \"crates/graph-sdk-js/test/**/*.test.mjs\"",
+    "sdk:lint": "eslint crates/graph-sdk-js --max-warnings=0",
     "sdk:smoke": "node --experimental-strip-types harness/sdk-smoke.mjs target/wasm32-unknown-unknown/release/graph_wasm.wasm",
     "sdk:convergence": "node --experimental-strip-types harness/sdk-smoke.mjs --adapter-convergence",
     "sdk:convergence:wasm": "node --experimental-strip-types harness/sdk-smoke.mjs --adapter-convergence target/wasm32-unknown-unknown/release/graph_wasm.wasm",

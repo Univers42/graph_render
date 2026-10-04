@@ -1,0 +1,46 @@
+# deny.toml — the supply-chain policy for both Rust workspaces (scripts/orch/rows/audit.rows).
+#
+# One file serves both: the motor workspace at the top level (`cargo deny --manifest-path
+# Cargo.toml ...`) and the internet-facing service (`--manifest-path server/Cargo.toml
+# --config deny.toml`). Their lockfiles are separate — `Cargo.lock` and `server/Cargo.lock` —
+# so a green motor run says nothing about the service; both rows run.
+#
+# [advisories] RustSec. Left at the defaults: a known-vuln dependency fails the gate
+#   (`.claude/rules/devil/quality-bar.md` layer 5), which is the whole point of the gate.
+#   There is deliberately NO `ignore` entry. An `ignore` needs a linked issue and a one-line
+#   reason on the entry itself, and it is a suppression: never add one to make a row green.
+#   The advisory DB is fetched from the network at run time, so this row can turn red with no
+#   change in the tree, the day an advisory is published. That is the purpose, not a flake.
+#
+# [licenses] The allow list, measured with `cargo deny list` over both lockfiles, not guessed.
+#   Re-measure it the same way when a dependency is added; widening it is a policy decision.
+#   `confidence-threshold` stays at its default.
+#
+# [bans] Duplicate versions are a warning, not a failure: a transitive crate pinned twice is
+#   normal, and this repo has no binary-size or single-version rule that would justify red.
+#
+# [sources] Provenance. A dependency from an unknown registry, or from a git source we do not
+#   name, is denied: the lockfiles' only sources are crates.io and path crates in this repo.
+
+[advisories]
+
+[licenses]
+# The workspace's own crates carry `publish = false` and no license field; they are first-party
+# code, not a dependency, so `private.ignore` skips them. Every third-party crate is checked.
+private.ignore = true
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-3-Clause",
+    "MIT",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+]
+
+[bans]
+multiple-versions = "warn"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
