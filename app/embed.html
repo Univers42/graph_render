@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>graph-motor studio, embedded in a host page</title>
+    <link rel="icon" href="data:," />
+    <!-- A stylesheet and no inline <style>: the page runs under the CSP a host is asked for
+         (docs/contract/host-api.md, verdict 13), whose style-src is 'self'. -->
+    <link rel="stylesheet" href="/src/embed.css" />
+  </head>
+  <body>
+    <header class="host-bar">
+      <strong>A host page</strong>
+      <span>Opened: <output id="opened" aria-live="polite">nothing yet</output></span>
+    </header>
+    <main id="frame" aria-label="The graph"></main>
+    <script type="module" src="/src/embed.ts"></script>
+  </body>
+</html>

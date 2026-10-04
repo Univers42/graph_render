@@ -17,7 +17,8 @@ export { SettingsRefusal };
 export type Source =
   | { readonly kind: "synthetic"; readonly seed: number; readonly nodes: number; readonly degree: number; readonly shape: SyntheticShape }
   | { readonly kind: "fixture"; readonly path: string }
-  | { readonly kind: "document"; readonly name: string; readonly text: string };
+  /** `host`: handed over by the page that embeds the studio, and never kept in its storage. */
+  | { readonly kind: "document"; readonly name: string; readonly text: string; readonly host?: true };
 
 export const THEMES: readonly string[] = THEME_NAMES;
 /**
@@ -106,7 +107,10 @@ export interface Settings {
 
 function sourceOf(source: Source): Source {
   if (source.kind === "fixture") return Object.freeze({ kind: source.kind, path: source.path });
-  if (source.kind === "document") return Object.freeze({ kind: source.kind, name: source.name, text: source.text });
+  if (source.kind === "document") {
+    const document = { kind: source.kind, name: source.name, text: source.text };
+    return Object.freeze(source.host === true ? { ...document, host: true } : document);
+  }
   return Object.freeze({
     kind: source.kind, seed: source.seed, nodes: source.nodes, degree: source.degree, shape: source.shape,
   });
@@ -202,11 +206,12 @@ export function sameSettings(a: Settings, b: Settings): boolean {
 }
 
 function readSource(value: unknown, at: string): Source {
-  const kind = oneOf(fieldsOf(value, at, ["kind", "seed", "nodes", "degree", "shape", "path", "name", "text"]), at, "kind", ["synthetic", "fixture", "document"]);
+  const kind = oneOf(fieldsOf(value, at, ["kind", "seed", "nodes", "degree", "shape", "path", "name", "text", "host"]), at, "kind", ["synthetic", "fixture", "document"]);
   if (kind === "fixture") return { kind, path: textOf(fieldsOf(value, at, ["kind", "path"]), at, "path") };
   if (kind === "document") {
-    const fields = fieldsOf(value, at, ["kind", "name", "text"]);
-    return { kind, name: textOf(fields, at, "name"), text: textOf(fields, at, "text") };
+    const fields = fieldsOf(value, at, ["kind", "name", "text", "host"]);
+    const document = { kind, name: textOf(fields, at, "name"), text: textOf(fields, at, "text") };
+    return Reflect.get(fields, "host") === true ? { ...document, host: true } : document;
   }
   const fields = fieldsOf(value, at, ["kind", "seed", "nodes", "degree", "shape"]);
   return {

@@ -83,3 +83,41 @@
 // rather than a silent no-op — the same rule every other parameter knob obeys, for the same
 // reason.
 // ---------------------------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------------------------
+// `GM_MUTATE_OVERLAP_RELAXATION` — `Knob::OverlapRelaxation`.
+//
+// The control's value is **`0`**, which is legal and is not clamped: it freezes every
+// displacement, so the pass cannot separate anything and every input overlap survives into
+// the snapshot. A native arm that freezes a stage the wasm arm runs normally is exactly
+// the cross-target divergence the gate exists to catch, and it is the perturbation that
+// turns `graph-cli overlap`'s invariant row red rather than merely moving a hash.
+//
+// A re-drawn model could not do this: adding a node changes the input, and the pass
+// separates it correctly either way, so the invariant would stay green and the control
+// would prove nothing about the pass's ability to separate at all.
+// ---------------------------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------------------------
+// `GM_MUTATE_DROP_DELTA` — `Knob::DropDelta`.
+//
+// The second control to reach `force-gate` rather than this gate, and the first that reaches
+// the *stream* stage rather than the session's parameters: the native arm skips one batch
+// outright — no `extend`, no `grow` — while the wasm arm, which reads no environment variable,
+// still receives it. So the two sessions carry different node counts from that batch on, and
+// every later digest must differ.
+//
+// **Why the control drops input rather than moving a parameter.** A gravity that merely
+// differs would also work, and `Knob::ForceSessionGravity` already proves the tick is
+// compared. This one is for the growth path specifically: `Topology::extend` and
+// `ForceSession::grow` are the two exports this slice added, and a control that perturbs
+// nothing *about growth* would leave both of them untested — the gate could agree on every
+// batch because it never disagreed about what to grow. Dropping batch `k` puts the native
+// session one batch behind forever, which is the failure the stream stage exists to catch.
+//
+// It bites from the batch it names onward, never before: batches `0..k` are still processed
+// identically on both arms, so a gate that reported "diverged at batch 0" would be pointing
+// at the wrong line. `=0` is refused at the parse rather than at the no-op check, because
+// batch 0 is the initial graph — the one line that is not a delta — and skipping it would
+// drop nothing while still recording this run as the exercised control.
+// ---------------------------------------------------------------------------------------------

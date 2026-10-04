@@ -81,7 +81,8 @@ test("a knob change reaches the worker, and the panel reads the value back", () 
   const { bridge, sent } = rig();
   const knobs = { ...DEFAULT_KNOBS, charge: -700 };
   bridge.link.set(knobs);
-  assert.deepEqual(sent, [{ type: "force.params", knobs }]);
+  bridge.link.set(knobs, 1);
+  assert.deepEqual(sent, [{ type: "force.params", knobs }, { type: "force.params", knobs, heat: 1 }]);
   assert.deepEqual(bridge.link.knobs(), knobs);
 });
 

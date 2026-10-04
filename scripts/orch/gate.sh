@@ -4,14 +4,17 @@
 # A row whose command cannot run still records its real exit code: SKIP never counts as a pass.
 # A missing rows file, or one with no row, is exit 2: svc-supply's job passed on a missing file
 # (2026-10-04), because the loop read nothing and `fail` stayed 0.
+# The last row runs even without a trailing newline: `read` returns 1 on it, which silently dropped
+# the final negctl of p12-t3, p13-gv1, p13-gv1-circo and p13-gv1-patchwork (found by svc-r2-limits,
+# 2026-10-04). A row's command reads /dev/null, never the rest of the rows file. test-gate.sh checks both.
 set -uo pipefail
 source "$(dirname "$(readlink -f "$0")")/docker-env.sh"
 logdir=$1 rows=$2
 mkdir -p "$logdir" || exit 2; summary=$logdir/summary.txt; : >"$summary"; fail=0 ran=0
-while IFS='|' read -r name expect cmd; do
+while IFS='|' read -r name expect cmd || [[ -n $name ]]; do
   [[ -z $name || $name == \#* ]] && continue
   start=$SECONDS ran=$((ran + 1))
-  bash -c "$cmd" >"$logdir/$name.log" 2>&1; rc=$?
+  bash -c "$cmd" >"$logdir/$name.log" 2>&1 </dev/null; rc=$?
   case $expect in
     0) [[ $rc -eq 0 ]] && ok=PASS || ok=FAIL ;;
     nonzero) [[ $rc -ne 0 ]] && ok=PASS || ok=FAIL ;;

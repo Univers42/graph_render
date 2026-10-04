@@ -1,5 +1,6 @@
 /** What an action may touch. The studio builds it; an action never reaches past it. */
 import type { StudioState } from "../state/model.ts";
+import type { OpenVia } from "../host/contract.ts";
 import type { Settings, Source } from "../state/settings.ts";
 import type { Pipeline, ViewFace } from "../studio/pipeline.ts";
 import type { Reveal } from "../studio/reveal.ts";
@@ -19,6 +20,8 @@ export interface StudioContext extends Pipeline {
   readonly actions: () => readonly StudioAction[];
   /** The settings last kept for `source`, or null. */
   readonly recall: (source: Source) => Settings | null;
+  /** Tells the host the user asked to open `id`; the studio opens nothing itself. */
+  readonly open: (id: string, via: OpenVia) => void;
 }
 
 export type StudioAction = Action<StudioState, StudioContext>;

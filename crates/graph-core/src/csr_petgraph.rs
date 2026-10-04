@@ -233,7 +233,12 @@ impl NodeIndexable for CsrDigraph<'_> {
         a.0 as usize
     }
     fn from_index(&self, i: usize) -> NodeIx {
-        NodeIx(i as u32)
+        // `NodeCompactIndexable` promises one node per index below `node_bound()`, which
+        // is the node count, so `i < u32::MAX` holds for every index this graph hands
+        // petgraph. `expect`, not `as u32`: a silent truncation would answer a different
+        // node — `from_index(2³²) == NodeIx(0)` reads node 0's adjacency — and a reindexing
+        // algorithm would never know.
+        NodeIx(u32::try_from(i).expect("node index exceeds u32"))
     }
 }
 impl NodeCompactIndexable for CsrDigraph<'_> {}

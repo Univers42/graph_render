@@ -2,21 +2,24 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { type ForceLink, NO_FORCE_LINK, forceActions } from "../src/actions/forces.ts";
+import { type ForceLink, NO_FORCE_LINK, PRESET_HEAT, forceActions } from "../src/actions/forces.ts";
 import { ActionRefusal, createRegistry } from "../src/actions/registry.ts";
 import { DEFAULT_KNOBS, type ForceKnobs, NO_ADAPTER_REASON } from "../src/motor/live.ts";
 import { type StudioState, initialState } from "../src/state/model.ts";
 
 /** A link over a plain variable; `drawn` is the radius the presets read, `null` for nothing drawn. */
-function live(drawn: number | null = 4): { readonly link: ForceLink; readonly sets: ForceKnobs[]; readonly animated: boolean[] } {
+function live(drawn: number | null = 4): {
+  readonly link: ForceLink; readonly sets: ForceKnobs[]; readonly heats: (number | undefined)[]; readonly animated: boolean[];
+} {
   const sets: ForceKnobs[] = [];
+  const heats: (number | undefined)[] = [];
   const animated: boolean[] = [];
   let knobs = DEFAULT_KNOBS;
   let paused = false;
   const link: ForceLink = {
     disabled: () => null,
     knobs: () => knobs,
-    set: (next) => { knobs = next; sets.push(next); },
+    set: (next, heat) => { knobs = next; sets.push(next); heats.push(heat); },
     animate: (on) => { animated.push(on); },
     animating: () => animated.at(-1) ?? false,
     pause: () => { paused = true; },
@@ -24,7 +27,7 @@ function live(drawn: number | null = 4): { readonly link: ForceLink; readonly se
     paused: () => paused,
     drawn: () => drawn,
   };
-  return { link, sets, animated };
+  return { link, sets, heats, animated };
 }
 
 function registryOf(link: ForceLink) {
@@ -150,6 +153,15 @@ test("compact pulls in to the drawn radius with no margin, and spacing never pas
   const huge = live(1000);
   await pressed(huge.link, "spread");
   assert.equal(huge.sets.at(-1)?.collideRadius, 400);
+});
+
+test("the presets reheat fully from the drawing on screen; a knob does not", async () => {
+  const { link, heats } = live(4);
+  await pressed(link, "spread");
+  await pressed(link, "compact");
+  await registryOf(link).resolve("repel", { value: 300 }, STATE).action.run(context, { value: 300 });
+  assert.deepEqual(heats, [PRESET_HEAT, PRESET_HEAT, undefined]);
+  assert.equal(PRESET_HEAT, 1);
 });
 
 test("a preset with nothing drawn, or a link that cannot see the drawing, refuses and sets nothing", async () => {

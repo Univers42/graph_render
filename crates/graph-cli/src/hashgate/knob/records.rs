@@ -66,5 +66,6 @@ pub const fn record(knob: Knob) -> &'static str {
         Knob::OverlapRelaxation => "hashgate-control-overlap-relaxation",
         Knob::LayoutParamDefault => "hashgate-control-layout-param-default",
         Knob::ForceSessionGravity => "forcegate-control-force-session-gravity",
+        Knob::DropDelta => "forcegate-control-drop-delta",
     }
 }

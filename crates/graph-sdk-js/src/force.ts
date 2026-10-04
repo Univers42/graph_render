@@ -22,8 +22,8 @@
 // cannot affect.
 
 import { toU32 } from "./wasm.ts";
-import { ForceSessionRefusedError, InvalidSessionError } from "./errors.ts";
-import { frame, type Loaded } from "./calls.ts";
+import { ForceSessionRefusedError, InvalidHandleError, InvalidSessionError } from "./errors.ts";
+import { INVALID_HANDLE_CODE, frame, type Loaded } from "./calls.ts";
 import { ForceColumns } from "./force-columns.ts";
 import { SessionCalls } from "./force-calls.ts";
 import { PARAMS_BYTES, asU32, decodeParams, mergeParams, withStagedParams } from "./force-params.ts";
@@ -242,6 +242,20 @@ export class ForceSession {
   positions(): { readonly xs: Float64Array; readonly ys: Float64Array } {
     this.#calls.requireLive();
     return this.#own((columns) => columns.read());
+  }
+
+  /** Takes the session onto what {@link Motor.extend} appended to `handle`, its own graph
+   *  (`gm_force_session_grow`): the same bits a fresh session carried across would hold. Every
+   *  position view is stale after it. Refused, session unchanged: `InvalidSessionError`,
+   *  `InvalidHandleError` for a released graph, `ForceSessionRefusedError` for another graph. */
+  grow(handle: Handle): void {
+    try {
+      this.#calls.call("gm_force_session_grow", (e) => e.gm_force_session_grow(this.#calls.wireId, toU32(handle)));
+    } catch (error) {
+      if (!(error instanceof ForceSessionRefusedError) || error.code !== INVALID_HANDLE_CODE) throw error;
+      throw new InvalidHandleError(`graph handle ${String(handle)} is not live`, INVALID_HANDLE_CODE);
+    }
+    this.#columns.forget();
   }
 
   /** Releases the session. Its id is never reissued (C6), so a stale id reads

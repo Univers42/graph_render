@@ -13,7 +13,7 @@ import type { ShownError } from "../state/errors.ts";
 import type { Source } from "../state/settings.ts";
 import { NO_ADAPTER_REASON } from "./live.ts";
 import type {
-  AnalysisReport, Assets, Catalog, Envelope, ForceRequest, GraphSummary, Port, Request, Result, RunReport, Spawn,
+  AnalysisReport, Assets, Catalog, Envelope, ForceRequest, GraphBatch, GraphSummary, Port, Request, Result, RunReport, Spawn,
 } from "./protocol.ts";
 
 export class CancelledError extends Error {
@@ -34,11 +34,23 @@ export class MotorFailure extends Error {
   }
 }
 
+/** What `deltas-applied` carries: the nodes of the batch that went in, and the graph's size. */
+export interface DeltasApplied {
+  readonly applied: number;
+  readonly nodeCount: number;
+}
+
 export interface MotorClient {
   catalog(): Promise<Catalog>;
   load(source: Source): Promise<GraphSummary>;
   layout(layoutId: string, postId: string | null): Promise<RunReport>;
   analysis(analysisId: string): Promise<AnalysisReport>;
+  /**
+   * One batch of nodes and edges into the graph, answered by the tick that applied it. Refused
+   * whole or applied whole: a `failed` answer throws the motor's own typed error. Optional so a
+   * test double need not carry it.
+   */
+  deltas?(batch: GraphBatch): Promise<DeltasApplied>;
   /** Stops what is running. False when nothing was. */
   cancel(): boolean;
   busy(): boolean;
@@ -107,7 +119,10 @@ function exchange(state: State, port: Port, body: Request): Promise<Result> {
 
 async function openOn(state: State, port: Port, assets: Assets): Promise<Catalog> {
   const threads = assets.threads === undefined ? {} : { threads: assets.threads };
-  const opened = await exchange(state, port, { type: "open", wasmUrl: assets.wasmUrl, ...threads });
+  // The gate's negative control, carried on `open` because that is the one request the worker
+  // sees before anything else; a page that did not ask for it never sends the member.
+  const gate = assets.breakDeltas === true ? { breakDeltas: true } : {};
+  const opened = await exchange(state, port, { type: "open", wasmUrl: assets.wasmUrl, ...threads, ...gate });
   if (opened.type !== "opened") throw mismatch("open", opened);
   if (state.loaded !== null) {
     await exchange(state, port, { type: "load", source: state.loaded, fixturesUrl: assets.fixturesUrl });
@@ -115,9 +130,10 @@ async function openOn(state: State, port: Port, assets: Assets): Promise<Catalog
   return opened.catalog;
 }
 
-/** A live frame, and the loop's own state: neither answers a request, so neither is waited for. */
+/** A live frame, the loop's own state, and a delta batch's structure snapshot: none answers a
+ * request the page made, so none is waited for. */
 function isPushed(result: Result): boolean {
-  return result.type === "force-frame" || result.type === "force-state";
+  return result.type === "force-frame" || result.type === "force-state" || result.type === "deltas-structure";
 }
 
 function connect(state: State, spawn: Spawn, assets: Assets): Link {
@@ -231,6 +247,11 @@ export function createClient(spawn: Spawn, assets: Assets): MotorClient {
     load: async (source) => loadFresh(state, source, () => call({ type: "load", source, fixturesUrl: assets.fixturesUrl })),
     layout: async (layoutId, postId) => laidOut(await call({ type: "layout", layoutId, postId })),
     analysis: async (analysisId) => analysed(await call({ type: "analysis", analysisId })),
+    deltas: async (batch) => {
+      const applied = await call({ type: "force.deltas", batch });
+      if (applied.type !== "deltas-applied") throw mismatch("force.deltas", applied);
+      return { applied: applied.applied, nodeCount: applied.nodeCount };
+    },
     cancel: () => cancelWaiting(state),
     busy: () => state.waiting.size > 0,
     force: (body) => fireAndForget(state, body),

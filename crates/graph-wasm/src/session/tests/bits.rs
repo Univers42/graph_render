@@ -64,7 +64,7 @@ fn a_mesh_session_reaches_the_same_bits_as_step() {
         .with_particle_mesh();
     let report = direct.step(50);
 
-    let id = create(&topology, params(), Engine::ParticleMesh).expect("in range");
+    let id = create(0, &topology, params(), Engine::ParticleMesh).expect("in range");
     for _ in 0..5 {
         tick(id, 10).expect("runs");
     }
@@ -154,13 +154,13 @@ fn a_long_run_settles_and_a_reheat_makes_it_run_again() {
 #[test]
 fn two_sessions_over_one_graph_are_independent() {
     let topology = model(4, 16);
-    let first = create(&topology, params(), Engine::BarnesHut).expect("first");
-    let second = create(&topology, params(), Engine::BarnesHut).expect("second");
+    let first = create(0, &topology, params(), Engine::BarnesHut).expect("first");
+    let second = create(0, &topology, params(), Engine::BarnesHut).expect("second");
     tick(first, 20).expect("runs");
     assert_eq!(
         wire_of(second, 0),
         {
-            let untouched = create(&topology, params(), Engine::BarnesHut).expect("third");
+            let untouched = create(0, &topology, params(), Engine::BarnesHut).expect("third");
             wire_of(untouched, 0)
         },
         "the untouched session sits on the same seed spiral"

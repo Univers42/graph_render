@@ -21,7 +21,7 @@
 use crate::index::Topology;
 use crate::layout::random;
 use crate::linalg::dense_sym::eigh;
-use crate::linalg::{EigBlock, orthonormal, pin_signs, residual_converged};
+use crate::linalg::{EigBlock, orthonormal, pin_signs};
 
 use super::Geometry;
 use super::spectral::{
@@ -31,10 +31,21 @@ use super::spectral::{
 };
 
 mod matrix;
+mod tied;
 use matrix::{Centered, gram, project};
+use tied::canonicalise;
 
 /// `_MDS_PIVOTS` (reference constant).
 pub const MAX_PIVOTS: usize = 100;
+
+/// Relative width within which two Gram eigenvalues count as **tied** for LF-11's
+/// canonicalisation (`pivot_mds/tied.rs` states the rule and where this number comes from;
+/// it is the sole knob of that rule).
+const TIE_TOL: f64 = 1e-9;
+
+/// A row of a tied group's block whose norm is below this is linearly dependent on the rows
+/// already taken. The same floor `linalg::lobpcg` drops a collapsing Gram-Schmidt column at.
+const COLLAPSE_NORM: f64 = 1e-10;
 
 /// One component's outcome — Pivot MDS's half of C12, the same shape as
 /// [`super::spectral::ComponentReport`] minus the tier (Pivot MDS is always dense).
@@ -48,6 +59,9 @@ pub struct ComponentReport {
     pub pivots: u32,
     /// Passed both the residual and orthonormality gate.
     pub solved: bool,
+    /// `max_j ‖Gv_j − λ_j v_j‖` on the `k x k` Gram solve, the number the residual gate
+    /// decides on and the one a caller needs to say *why* a component was skipped (C12).
+    pub peak_residual: f64,
 }
 
 /// Why [`run`] produced nothing at all.
@@ -140,31 +154,54 @@ fn top_eigenpairs(full: &EigBlock, dims_eff: usize) -> EigBlock {
 /// `_eig_converged` plus the orthonormality check, run on the small `k x k` eigensolve
 /// (`docs/decisions/eigensolver.md`'s residual/orthonormality section covers this file
 /// too: "the reference trusts `eigh`... we verify anyway because it is cheap" applies
-/// just as well to Pivot MDS's own dense solve).
-fn converged(gram: &[f64], k: usize, eig: &EigBlock) -> bool {
-    let matvec = |x: &[f64], y: &mut [f64]| {
+/// just as well to Pivot MDS's own dense solve), plus the peak residual the C12 report has
+/// to name. Same arithmetic as `crate::linalg::residual_converged`, which returns only the
+/// verdict; `layout::spectral::tests` pins the two against each other.
+fn converged(gram: &[f64], k: usize, eig: &EigBlock) -> (bool, f64) {
+    let mut residual = 0.0_f64;
+    let mut av = vec![0.0; k];
+    for j in 0..eig.k {
         for row in 0..k {
-            y[row] = (0..k).map(|col| gram[row * k + col] * x[col]).sum();
+            av[row] = (0..k)
+                .map(|col| gram[row * k + col] * eig.column(j)[col])
+                .sum();
         }
-    };
-    residual_converged(matvec, eig, 1e-2) && orthonormal(eig, 1e-6)
+        let norm: f64 = av
+            .iter()
+            .zip(eig.column(j))
+            .map(|(a, v)| {
+                let diff = a - eig.values[j] * v;
+                diff * diff
+            })
+            .sum::<f64>()
+            .sqrt();
+        residual = residual.max(norm);
+    }
+    let scale = eig
+        .values
+        .iter()
+        .fold(0.0_f64, |m, v| m.max(v.abs()))
+        .max(1e-12);
+    let passed = residual <= 1e-2 * scale && orthonormal(eig, 1e-6);
+    (passed, residual)
 }
 
 /// One component's solve: always dense (`k <= 100 < DENSE_EIG_LIMIT`). Returns the
-/// projected, sign-pinnable coordinates (or `None` when the gate refuses them) and the
-/// pivot count used. `width.dims()` is the reference's `dims`; `dims_eff = min(dims, k)` is
-/// its `[:, ::-1][:, :min(dims, k)]` (`:197`).
-fn solve_component(graph: &Neighbors, width: Width) -> (Option<EigBlock>, u32) {
+/// projected, sign-pinnable coordinates (or `None` when the gate refuses them), the pivot
+/// count used, and the peak residual. `width.dims()` is the reference's `dims`;
+/// `dims_eff = min(dims, k)` is its `[:, ::-1][:, :min(dims, k)]` (`:197`).
+fn solve_component(graph: &Neighbors, width: Width) -> (Option<EigBlock>, u32, f64) {
     let n = graph.len();
     let k = MAX_PIVOTS.min(n);
     let centered = Centered::new(pivot_hops(graph, k), n, k);
     let g = gram(&centered);
     let full = eigh(&g, k);
     let dims_eff = width.dims().min(k);
-    let top = top_eigenpairs(&full, dims_eff);
-    let ok = converged(&g, k, &top);
+    let mut top = top_eigenpairs(&full, dims_eff);
+    let (ok, peak_residual) = converged(&g, k, &top);
+    canonicalise(&mut top);
     let projected = project(&centered, &top);
-    (ok.then_some(projected), k as u32)
+    (ok.then_some(projected), k as u32, peak_residual)
 }
 
 /// Runs the 2D Pivot MDS layout, byte for byte what it was before the 3D arm existed.
@@ -206,7 +243,7 @@ fn run_width(
             continue;
         }
         let component = neighbors.component(members, &local_of);
-        let (solved, pivots) = solve_component(&component, width);
+        let (solved, pivots, peak_residual) = solve_component(&component, width);
         let ok = solved.is_some();
         if let Some(mut eig) = solved {
             pin_signs(&mut eig);
@@ -218,6 +255,7 @@ fn run_width(
             size: members.len() as u32,
             pivots,
             solved: ok,
+            peak_residual,
         });
     }
 

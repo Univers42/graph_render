@@ -60,6 +60,7 @@ function studio(settings: Settings = BASE): Studio {
     animation: { start: () => ({ message: "animating" }), cancel: () => ({ message: "cancelled" }) },
     actions: () => ACTIONS,
     recall: () => null,
+    open: () => undefined,
     apply: (next) => Promise.resolve(look(next)),
     look,
     bytes: () => null,

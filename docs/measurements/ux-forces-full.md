@@ -25,7 +25,8 @@ Sources: `fixtures/force/clustered.json` (60 nodes) and the studio's own synthet
 `{nodes: 10000, degree: 2, seed: 1, shape: "random"}`, both reached through the registry
 (`source.fixture`, `source.synthetic`). The defaults rows run on a freshly loaded page, so the
 knobs are the motor's own defaults; the `spread` rows press `forces.spread` on the drawing
-already on screen, the way a user does, then settle again.
+already on screen, the way a user does, then settle again (but see the correction at the end:
+the 317-pair figure below measured two settles, not one).
 
 Re-run (three builds, interleaved, because the host is shared):
 
@@ -150,3 +151,36 @@ already red: the control has to fail on its own row, not on the one above.
 warnings 0, `store.error` null, the `.gs-alert` banner null, `busy` empty. Before and after the
 change are visually what the numbers say: the clusters touch at the defaults and stand apart after
 `spread`.
+
+## Correction (2026-10-04): the 317-pair figure measured two settles
+
+`overlap-10k-spread` went red on develop (`9179728e`: 1288 → 760 pairs, −41%, the bar is −50%).
+A probe of each tree with the harness changed one variable at a time found two causes:
+
+- The harness pressed `spread` and then Animate. At `e5cdfa4` Animate was `layout.random` on the
+  graph handle plus `reheat(1)`. That handle never moved, so the session settled on from the
+  drawing already on screen, at alpha 1: a second full settle. On develop, Animate releases the
+  session and starts a fresh one from the spiral, which measures the knobs and not the button.
+  `spread_case` now measures the settle that `spread` itself wakes, from the drawing on screen
+  (`deploy/nav/overlaprows.py`).
+- That settle started at the loop's 0.3 nudge (`REHEAT_ALPHA`), which is too cool for a change
+  that moves several knobs at once. The presets now send `heat` 1 with their params
+  (`PRESET_HEAT`, `packages/graph-studio/src/actions/forces.ts`), and the settings wrapper
+  (`state/keepForces.ts`) passes it on: the first gate run of this fix still read 653 because
+  that wrapper dropped the argument.
+
+| Tree | Engine at 10k | Harness | Defaults | After `spread` | Cut |
+|---|---|---|---|---|---|
+| `e5cdfa4` | Barnes-Hut | `spread`, then Animate (in place, alpha 1, by accident) | 1833 | 317 | −82.7% |
+| `9179728e` | particle mesh | `spread`, then Animate (fresh restart) | 1288 | 760 | −41.0% |
+| `e5cdfa4` | Barnes-Hut | in place, reheat 0.3 | 1833 | 487 | −73.4% |
+| `9179728e` | particle mesh | in place, reheat 0.3 | 1288 | 653 | −49.3% |
+| `9179728e` | particle mesh | in place, reheat 1 (probe: `REHEAT_ALPHA` = 1) | 1288 | 390 | −69.7% |
+| `bccdf383` + this fix | particle mesh | in place, `spread` sends heat 1 | 1288 | 390 | −69.7% |
+
+The last row is `scripts/studio-overlap.sh` on the fix (exit 0, every row PASS;
+`STUDIO_OVERLAP_BREAK=1` exits 1). Particle mesh repels two close nodes less than Barnes-Hut does
+(`crates/graph-core/src/layout/force/particle_mesh.rs`), so `spread`'s stronger repel buys less
+there, and the 0.3 settle fell just short. The −82.7% above is not a number any one press of
+`spread` produced.
+

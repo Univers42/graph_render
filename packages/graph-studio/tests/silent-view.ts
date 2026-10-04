@@ -14,6 +14,7 @@ export function silentView(calls: string[]): ViewFace {
     zoomBy: () => void calls.push("zoomBy"), panBy: () => void calls.push("panBy"),
     limits: () => ({ min: 0.02, max: 40 }),
     focus: () => void calls.push("focus"), select: () => void calls.push("select"),
+    selectMany: () => void calls.push("selectMany"),
     local: (node) => [node], showAll: () => void calls.push("showAll"),
     pinned: () => [], togglePin: () => void calls.push("togglePin"), hide: () => void calls.push("hide"),
     on: () => noop,
