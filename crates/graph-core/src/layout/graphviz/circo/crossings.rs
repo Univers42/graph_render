@@ -155,8 +155,7 @@ impl Counter {
             let opens = self.opens[edge as usize];
             if opens < here {
                 // The suffix less the row's own edges in `(opens, here)`, which share this node.
-                let touching = opened_here
-                    - self.stamps.partition_point(|&at| at <= opens) as u32;
+                let touching = opened_here - self.stamps.partition_point(|&at| at <= opens) as u32;
                 crossings += self.suffix(opens) - touching;
             }
         }

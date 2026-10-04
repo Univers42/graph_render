@@ -55,9 +55,8 @@ fn seed8_five_node_block_reads_its_circle_order_off_the_reference_rules() {
     };
     let block = &layout.blocks[at];
     let view = BlockGraph::of(&derived, block);
-    let named = |local: &[u32]| -> Vec<u32> {
-        local.iter().map(|&at| block.nodes[at as usize]).collect()
-    };
+    let named =
+        |local: &[u32]| -> Vec<u32> { local.iter().map(|&at| block.nodes[at as usize]).collect() };
 
     let path = skeleton::order_of(&view);
     let mut order = circle::order_of(&view, path.clone());
@@ -68,7 +67,10 @@ fn seed8_five_node_block_reads_its_circle_order_off_the_reference_rules() {
         circle::realign(&mut order, at);
     }
 
-    println!("five-node block at {at}, block-local nodes {:?}", block.nodes);
+    println!(
+        "five-node block at {at}, block-local nodes {:?}",
+        block.nodes
+    );
     for node in 0..10u32 {
         println!("  n{node} derives to {:?}", derived.neighbours(node));
     }
@@ -81,7 +83,10 @@ fn seed8_five_node_block_reads_its_circle_order_off_the_reference_rules() {
             .collect();
         println!("  n{} row {row:?}", block.nodes[local as usize]);
     }
-    println!("  skeleton long path (local) {path:?} -> {:?}", named(&path));
+    println!(
+        "  skeleton long path (local) {path:?} -> {:?}",
+        named(&path)
+    );
     println!("  circle order (local) {order:?} -> {:?}", named(&order));
     println!("  realigned at {realigned:?}");
 
