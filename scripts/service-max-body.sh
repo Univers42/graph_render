@@ -104,26 +104,19 @@ note "GRAPH_MAX_BODY $body, GRAPH_WORKERS unset, container --memory $memory --me
 note "per_slot_bytes($body) = $per_slot_at_body B against $limit B of memory.max"
 note "load1 start $load_start ($(cat /proc/loadavg))"
 
-scripts/orch/drun --rm --name "$name" --memory "$memory" --memory-swap "$memory" \
+# Foreground, so the container's own exit code is this command's. `timeout` is the bound: a server
+# that started keeps running until the bound stops it, and the trap removes whatever is left. The
+# refusal lands on stderr and the start line on stdout, in two files, because the two are read
+# apart.
+rc=0
+timeout --foreground "$CAP_S" scripts/orch/drun --rm --name "$name" \
+  --memory "$memory" --memory-swap "$memory" \
   --read-only --cap-drop ALL --security-opt no-new-privileges \
   --group-add "$(stat -c %g "$work/keys")" -v "$(readlink -f "$work/keys"):/run/graph/keys:ro" \
   -e GRAPH_API_KEYS_FILE=/run/graph/keys -e "GRAPH_MAX_BODY=$body" \
-  "$image" >"$work/stdout.log" 2>"$work/stderr.log" &
-runner=$!
-
-# Either `listening` or the refusal line ends the wait; anything else is a container that would
-# keep running, which the trap stops.
-settled=0
-for _ in $(seq 1 $((CAP_S * 10))); do
-  if grep -q '"event":"listening"' "$work/stdout.log" 2>/dev/null; then settled=1; break; fi
-  if grep -q 'holds no slot' "$work/stderr.log" 2>/dev/null; then settled=1; break; fi
-  kill -0 "$runner" 2>/dev/null || break
-  sleep 0.1
-done
-rc=0
-wait "$runner" || rc=$?
+  "$image" >"$work/stdout.log" 2>"$work/stderr.log" || rc=$?
 docker rm -f "$name" >/dev/null 2>&1 || true
-log "the container settled=$settled, exit $rc"
+log "the container exited $rc (124 is the $CAP_S s bound stopping a server that started)"
 
 served=$(grep -c '"event":"listening"' "$work/stdout.log" || true)
 refusal=$(grep -c 'GRAPH_WORKERS: unset, and memory.max holds no slot' "$work/stderr.log" || true)
