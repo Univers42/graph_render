@@ -30,7 +30,6 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 import embed
-import embedpage
 import nav
 import smokecdp
 import verdict
@@ -81,12 +80,12 @@ def wasm_names(paths):
 
 
 def cdp_names(page):
-    """What the page target's own Network domain saw, page and workers alike."""
+    """What the page target's own `Network` domain saw. The worker never appears here."""
     names = set()
     for event in page.events:
         params = event.get("params", {})
         if event.get("method") == "Network.requestWillBeSent":
-            names |= wasm_names([params.get("request", {}).get("url", "")])
+            names.update(wasm_names([params.get("request", {}).get("url", "")]))
     return sorted(names)
 
 
@@ -94,9 +93,9 @@ def wasm_row(spec, seen, cdp):
     """`pack-wasm-<run>`: the worker fetched the module this run's isolation allows, and no other."""
     want = EXPECTED_WASM[spec.name]
     got = wasm_names(seen)
-    measured = (f"the worker fetched {', '.join(got) or 'no wasm at all'}; "
-                f"the page's Network domain saw {', '.join(cdp) or 'nothing'}; "
-                f"{spec.name} expects {want}")
+    measured = (f"the server was asked for {', '.join(got) or 'no wasm at all'}, and the motor "
+                f"worker is the only thing here that asks for one; the page's Network domain saw "
+                f"{', '.join(cdp) or 'nothing'}; {spec.name} expects {want}")
     return verdict.row(f"pack-wasm-{spec.name}", f"fetched {want} and nothing else", measured,
                        got == [want])
 

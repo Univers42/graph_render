@@ -87,7 +87,10 @@ function hostBuild(out: string, pack: string): UserConfig {
       rollupOptions: {
         input: EMBED_PAGE,
         external: [packed],
-        output: { format: "es", paths: (id: string) => (id === packed ? `./${ENTRY}` : id) },
+        // Flat, because the page's only script import is `./graph-studio.js`: a chunk under
+        // `assets/` would resolve that to `assets/graph-studio.js`, which no host serves.
+        output: { format: "es", entryFileNames: "[name].js", chunkFileNames: "[name].js",
+                  paths: (id: string) => (id === packed ? `./${ENTRY}` : id) },
       },
     },
   };

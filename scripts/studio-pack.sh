@@ -11,9 +11,9 @@
 # Steps, in order: `scripts/studio.sh wasm` (both artifacts, built fresh, staged into app/public),
 # the vite pack build (app/vite.pack.config.ts, PACK_MODE=pack), both wasm copied beside the
 # bundle, pack.json, then the deterministic tarball `<outdir>/graph-studio-<version>.tgz`
-# (`tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner --format=gnu`, piped through
-# `gzip -n`). Then the verify. The outdir must be inside the worktree: the container sees the
-# repository at /w and nothing else. Default: target/pack.
+# (`tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner --format=gnu --mode=...`,
+# piped through `gzip -n`). Then the verify. The outdir must be inside the worktree: the container
+# sees the repository at /w and nothing else. Default: target/pack.
 #
 # pack.json: {name, version, abi_version, source_rev, files: {<path>: {bytes, sha256}}}, the file
 # keys in byte order, over every file of the pack but pack.json itself. `version` is
@@ -31,7 +31,7 @@
 # Finally one line per file with its size, then the tarball's sha256.
 #
 # Exit: 0 built and verified · 1 the pack is bad · 2 could not build.
-# Never takes the host gate lock. Puts the wasm, the fixtures and the pack under target/.
+# Never takes the host gate lock. The wasm it stages land in app/public (target/ holds the pack).
 set -uo pipefail
 
 here=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)

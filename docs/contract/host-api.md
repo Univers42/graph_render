@@ -5,6 +5,9 @@ override the draft text above them.
 Today a host reaches into `element.studio.store` (`packages/graph-studio/src/element.ts:43-64`); this
 contract replaces those reaches. Everything not listed here is internal and may change without notice.
 
+How a host ships the files behind this API — the ESM pack, both wasm artifacts, the CSP and the
+COOP/COEP it needs, and what the serial fallback costs — is [`packaging.md`](packaging.md).
+
 ## The rule: a node is a reference
 
 A node carries a stable string **id** plus light, fixed metadata: `label`, `kind`, `group`,

@@ -167,8 +167,10 @@ def measure(args):
 
 def table(report):
     mode = "negative control" if report["break"] else "gate"
+    # A pack run says which pack it served; the plain gate has no `pack` key at all.
+    pack = f" · pack `{report['pack']}`" if report.get("pack") else ""
     head = [f"# studio-embed — {report['label']} ({mode})", "",
-            f"commit `{report['commit']}` · {report['browser']} · runs {', '.join(report['runs'])} · "
+            f"commit `{report['commit']}`{pack} · {report['browser']} · runs {', '.join(report['runs'])} · "
             "screenshots `studio-embed-<run>.png`", "",
             "| run | row | expectation | measured | verdict |", "|---|---|---|---|---|"]
     body = [f"| {r['run']} | `{r['row']}` | {r['expectation']} | {r['measured'].replace('|', '/')} | {r['verdict']} |"
@@ -201,6 +203,9 @@ def parse_args():
     parser.add_argument("--dist", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--commit", default="unknown")
+    parser.add_argument("--pack", type=Path,
+                        help="serve the host page over this pack instead of over app/dist "
+                             "(deploy/nav/embedpack.py)")
     parser.add_argument("--break", action="store_true", dest="broken",
                         help="the negative control: one run per fault, each reporting the rows it targets")
     return parser.parse_args()
@@ -210,7 +215,12 @@ def main():
     args = parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
     try:
-        report = measure(args)
+        if args.pack is None:
+            report = measure(args)
+        else:
+            # A late import: embedpack imports this module for its runs, steps and rows.
+            from embedpack import run_pack
+            report = run_pack(args)
     except Exception as failure:
         # Exit 2, never 1: a fault of the harness's own is not a row that failed, and the two must
         # not look alike to whatever reads this code (`scripts/studio-embed.sh`: 1 is a red row).
