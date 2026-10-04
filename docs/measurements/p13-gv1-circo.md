@@ -355,9 +355,9 @@ and its two walks overlap by construction.
 `n0..n7` plus `n0 n3`, `n0 n4`, `n0 n6`, `n1 n4`, `n1 n5`, `n2 n4`, `n4 n7`, `n5 n7`. Its thinned
 forest roots `n0` above `n1`, with two leaves under `n1` on either side, so `n0`'s two best leaves
 — `n7` at distance 4 and `n3` at distance 3 — are both in `n1`'s subtree and their walks share
-`n1`. `n4` is in no tree at all, so the residual pass is what names it. The test
-`the_circle_order_of_a_chorded_eight_cycle_is_a_permutation` was observed RED before the change,
-with the order `[7, 6, 5, 4, 1, 2, 3, 0, 1]` — nine names for eight nodes, `n1` twice.
+`n1`. `n4` is in no tree at all, so the residual pass is what names it. The port's order is
+`[7, 6, 5, 4, 1, 2, 3, 0, 1]` — nine names for eight nodes, `n1` twice — and
+`the_circle_order_of_a_chorded_eight_cycle_names_n1_twice_as_the_reference_does` pins it.
 
 **What the reference does with that input: the same thing.** `circo -Tplain -Gstart=1` over the
 same graph in the pinned image prints eight node lines, and fitting a circle to them gives centre
@@ -373,11 +373,13 @@ duplicate is **the reference's own behaviour, reproduced**, not a port defect �
 node choice that both keeps Graphviz's answer and yields a permutation, because the overlap is
 what makes the branch node the argmax.
 
-**The fix** is in `circo/skeleton/tree.rs`: the second walk extends the order with the nodes the
-order does not already name (`extend_once`), so the shared stretch is what drops out and the first
-mention wins. That is a **deliberate divergence from Graphviz** on the shape above, taken because
-the geometry downstream reads the order as a permutation (radius, slot, `POSITION`) and because the
-cost is measured below rather than assumed.
+**The decision: parity.** The job measured one alternative, `extend_once` in
+`circo/skeleton/tree.rs` (the second walk adds only the nodes the order does not already name,
+so the order becomes a permutation). It was **reverted** on review (2026-10-04): Graphviz engines
+must match Graphviz output (user decision, 2026-09-30), and the repeat above is Graphviz's own
+output. The port keeps `path.extend(second)` with a comment pointing here, and
+`circo/tests/path.rs` pins the repeat: the chorded 8-cycle's order is nine entries with `n1`
+twice. The rows below are the alternative's measured cost, kept so the question is not re-asked.
 
 **The cost, measured.** The four differential rows of `scripts/orch/rows/p13-gv1-circo.rows` were
 run by hand on both arms, each arm against its own fingerprint (the check row refuses a sweep whose
@@ -409,10 +411,11 @@ two arms are compared against the same Graphviz:
 | seeds that moved | — | 2 grew, 0 shrank, 998 unchanged |
 | the two that grew | — | seed 94 and seed 694: 5.0262e+03 → 6.0838e+03 |
 
-**Agreement did not drop, so the change is kept**: the 16 agreeing seeds are the same 16, the
-worst case is the same seed at the same figure, and all 14 closed cases are still byte-exact — so
-no analytically determined case ever carried a repeat. Two seeds of 1000 get about one slot
-further from Graphviz, and both already disagreed by 5 000 points for §5's reason.
+**What the alternative would have bought: nothing measurable.** The 16 agreeing seeds are the
+same 16 on both arms, the worst case is the same seed at the same figure, and all 14 closed cases
+are byte-exact on both — so no analytically determined case ever carried a repeat. Two seeds of
+1000 get about one slot further from Graphviz under the alternative. With no gain and a measured
+loss, parity wins.
 
 **What this section does not claim.**
 
@@ -427,8 +430,6 @@ further from Graphviz, and both already disagreed by 5 000 points for §5's reas
   coordinates gives radii that are not whole numbers of slots and says nothing. The repeat is
   *proven* on the single-block input above, where nothing moves the circle, and *derived* for seed
   68 from the same code path; it is not measured there.
-- **The aggregate numbers do not say the fix is free.** They say the cost is under the 1-point
-  agreement line and under the ceiling, on 2 seeds. Reverting is one function
-  (`extend_once` in `circo/skeleton/tree.rs`) and one call; whether this port should carry a
-  deliberate divergence from Graphviz on a shape Graphviz itself gets wrong is a decision for the
-  reviewer, not a measurement.
+- **The aggregate numbers do not say parity is free downstream.** With the repeat, the crossing
+  walk closes the repeated node's edges a second time and counts them again, as Graphviz's does;
+  the measured effect is the two seeds above, in the other direction.

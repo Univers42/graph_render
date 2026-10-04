@@ -100,25 +100,12 @@ pub(super) fn longest_path(tree: &Tree) -> Vec<u32> {
         let mut second = Vec::new();
         climb(leaves.runner_up(common), common, tree, &mut second);
         second.reverse();
-        extend_once(&mut path, second);
+        // The two walks can share a stretch below `common`, so a node can be named twice. The
+        // reference does the same and sizes its circle by this list (`blockpath.c:568`), so the
+        // repeat is kept for parity: `docs/measurements/p13-gv1-circo.md` §4c.
+        path.extend(second);
     }
     path
-}
-
-/// Append the second walk's nodes, minus the ones `path` already names.
-///
-/// The two walks can share the stretch between `common` and the node their leaves diverge below,
-/// and the reference's own output then names that node twice: `circo -Tplain` on the chorded
-/// 8-cycle of `tests/path.rs` is a nine-slot circle on eight nodes with one slot empty, and
-/// `layout_block`'s `N = LIST_SIZE(&longest_path)` (`blockpath.c:568`) is what makes that circle
-/// nine slots wide. Naming a node once is the laziest way back to a permutation of the block's
-/// own nodes, and the first mention is the one kept, so the shared stretch is what drops out.
-fn extend_once(path: &mut Vec<u32>, second: Vec<u32>) {
-    let fresh: Vec<u32> = second
-        .into_iter()
-        .filter(|node| !path.contains(node))
-        .collect();
-    path.extend(fresh);
 }
 
 /// `LEAFONE`/`DISTONE` and `LEAFTWO`/`DISTTWO`, per node.
