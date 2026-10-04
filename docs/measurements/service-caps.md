@@ -161,19 +161,46 @@ per_slot = body + ingest peak + run peak at cap.
 | run peak at cap | 3,343,908,864 | 3189 MiB, rounded up from 3188.2 MiB: VmHWM of `post.style.orthogonal` over `layout.circular.radial`, dense rung n 1048576, m 4194304 (`ladder.log` line 499). The next highest are `post.style.bezier` at 3187.9 MiB and bezier over grid at 3089.7 MiB |
 | **per_slot** | **4,635,677,069** | 4.32 GiB, using the contract ingest term |
 
-- Container limit for N workers is N × per_slot + base. Here `base` is the server's idle RSS, which
-  `svc-limits` measures.
+- Container limit for N workers is N × per_slot + base. Here `base` is the server's idle footprint,
+  measured on the image below ("Base").
   - N = 1: 4,635,677,069 B
   - N = 2: 9,271,354,138 B
   - N = 4: 18,542,708,276 B
   - N = 20 (one per core here): 92,713,541,380 B
 - Rule: `workers = min(cores, floor((memory.max − base) / per_slot))`, and the server refuses to start
-  when this is 0. With base = 0 this is `min(cores, floor(memory.max / per_slot))`.
-  - memory.max 4 GiB gives 0 workers (4,294,967,296 / 4,635,677,069 = 0.93 → 0).
+  when this is 0. With base = 11 MiB (`BASE_BYTES`) and per_slot = 4,635,677,069 B:
+  - memory.max 4 GiB gives 0 workers (4,283,386,880 / 4,635,677,069 = 0.92 → 0).
   - memory.max 8 GiB gives 1.
   - memory.max 16 GiB gives 3.
   - memory.max 32 GiB gives 7.
   - memory.max 64 GiB gives 14.
+
+### Base
+
+`BASE_BYTES` (`server/graph-server/src/config/slots.rs`) is the server's idle footprint, kept out of
+the slots so a slot is never short of it. Measured 2026-10-04 on the image
+`graph-motor:4412ecaad92ed124`: three starts at `--memory 8g --memory-swap 8g`, each read with
+`docker exec <name> cat /sys/fs/cgroup/memory.current` once the `listening` line was in the log, no
+request in flight.
+
+| run | memory.current (B) |
+|---|---:|
+| 1 | 11,534,336 |
+| 2 | 10,940,416 |
+| 3 | 8,011,776 |
+
+`BASE_BYTES = 11,534,336`, the largest of the three and already a whole MiB (11 MiB). What the
+constant gets wrong:
+
+- The three readings of an idle server differ by 3.5 MiB, so this is one sample's high-water mark, not
+  an idle floor. It is the largest reading on purpose: `base` is subtracted from the budget, so
+  overstating it grants one slot too few and understating it grants one too many.
+- `memory.current` is the cgroup's, not the process's: it counts page cache and socket buffers the
+  process never held as resident memory. The binary's own RSS is below it.
+- It says nothing about what a busy slot's allocator arenas add on top. That is what `per_slot`
+  carries, and `per_slot` is measured, not derived from `base`.
+- It was measured on this host with an idle server, once. A different kernel, cgroup or base image
+  moves it, and nothing in a row re-measures it.
 
 ### Ingest term for `source=contract`
 
