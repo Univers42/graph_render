@@ -30,6 +30,12 @@ impl Interned {
 /// FNV-1a, 64-bit. A fixed hash, so a map's internal layout — not only its iteration
 /// order — is the same on every run and every target (D4). Not collision-resistant;
 /// nothing here is adversarial.
+///
+/// The integer writers are little-endian, as core's defaults are not: `write_u32` and
+/// `write_usize` serialise with `to_ne_bytes`, so an integer key hashed on a big-endian
+/// target lands in a different bucket than the same key on x86_64 or wasm32, and
+/// `neighborhood.rs` keys its tables on `u32`. `to_le_bytes` is the same 4 bytes core
+/// already writes on every little-endian target, so nothing moves here.
 pub struct Fnv1a(u64);
 
 impl Default for Fnv1a {
@@ -43,6 +49,14 @@ impl Hasher for Fnv1a {
         for &byte in bytes {
             self.0 = (self.0 ^ u64::from(byte)).wrapping_mul(0x100_0000_01B3);
         }
+    }
+
+    fn write_u32(&mut self, value: u32) {
+        self.write(&value.to_le_bytes());
+    }
+
+    fn write_usize(&mut self, value: usize) {
+        self.write(&value.to_le_bytes());
     }
 
     fn finish(&self) -> u64 {
@@ -181,12 +195,17 @@ impl StringArena {
 /// The handle for the string interned at map position `index`. Interning only ever
 /// appends, so the map's insertion order and `spans` are the same order and a
 /// position names its handle (D4).
+///
+/// `index + 1` is checked, not wrapped: `usize::MAX` is a position a `Vec` cannot hold, so
+/// the add would overflow-panic in a debug build on wasm32 before the `try_from` could
+/// refuse it.
 fn handle_at(index: usize) -> Result<Interned, CapacityError> {
     let overflow = CapacityError {
         what: "string arena",
     };
-    u32::try_from(index + 1)
-        .ok()
+    index
+        .checked_add(1)
+        .and_then(|slot| u32::try_from(slot).ok())
         .and_then(NonZeroU32::new)
         .map(Interned)
         .ok_or(overflow)
@@ -273,7 +292,11 @@ mod tests {
         assert_eq!(hash(b"foobar"), 0x8594_4171_F739_67E8);
         let mut int = Fnv1a::default();
         int.write_u32(0x0102_0304);
-        assert_eq!(int.finish(), hash(&[4, 3, 2, 1]), "an integer hashes little-endian");
+        assert_eq!(
+            int.finish(),
+            hash(&[4, 3, 2, 1]),
+            "an integer hashes little-endian"
+        );
     }
 
     #[test]

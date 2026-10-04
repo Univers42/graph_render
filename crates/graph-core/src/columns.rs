@@ -92,10 +92,27 @@ impl NodeColumns {
     }
 
     /// Bytes held by the columns' elements (not their spare capacity).
+    ///
+    /// Each column is counted by **its own** length, not by `id.len()`: a build that dies
+    /// between two pushes leaves the set ragged, and a total derived from `id` alone
+    /// would report the memory of a column set that does not exist.
     pub fn byte_len(&self) -> usize {
-        let n = self.id.len();
-        n * (6 * size_of::<Interned>() + size_of::<NodeKind>() + 2 * size_of::<f64>())
-            + n * (size_of::<bool>() + 2 * size_of::<u32>())
+        [
+            self.id.len() * size_of::<Interned>(),
+            self.kind.len() * size_of::<NodeKind>(),
+            self.database.len() * size_of::<Option<Interned>>(),
+            self.source.len() * size_of::<Interned>(),
+            self.label.len() * size_of::<Interned>(),
+            self.group_label.len() * size_of::<Option<Interned>>(),
+            self.weight.len() * size_of::<f64>(),
+            self.version.len() * size_of::<f64>(),
+            self.has_note.len() * size_of::<bool>(),
+            self.icon.len() * size_of::<Option<Interned>>(),
+            self.group.len() * size_of::<u32>(),
+            self.degree.len() * size_of::<u32>(),
+        ]
+        .into_iter()
+        .sum()
     }
 }
 
@@ -138,11 +155,22 @@ impl EdgeColumns {
         }
     }
 
-    /// Bytes held by the columns' elements (not their spare capacity).
+    /// Bytes held by the columns' elements (not their spare capacity). Each column by its
+    /// own length, as [`NodeColumns::byte_len`].
     pub fn byte_len(&self) -> usize {
-        let m = self.id.len();
-        m * (3 * size_of::<Interned>() + 2 * size_of::<u32>() + size_of::<EdgeKind>())
-            + m * (size_of::<f64>() + 2 * size_of::<bool>())
+        [
+            self.id.len() * size_of::<Interned>(),
+            self.source.len() * size_of::<u32>(),
+            self.target.len() * size_of::<u32>(),
+            self.kind.len() * size_of::<EdgeKind>(),
+            self.label.len() * size_of::<Interned>(),
+            self.strength.len() * size_of::<f64>(),
+            self.directed.len() * size_of::<bool>(),
+            self.record_id.len() * size_of::<Option<Interned>>(),
+            self.child_first.len() * size_of::<bool>(),
+        ]
+        .into_iter()
+        .sum()
     }
 }
 

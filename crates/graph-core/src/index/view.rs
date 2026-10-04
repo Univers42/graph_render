@@ -42,6 +42,14 @@ impl Topology {
     }
 
     /// Node `index`'s fields.
+    ///
+    /// # Precondition
+    ///
+    /// `index < self.node_count()`. This indexes the columns directly and **panics** on an
+    /// out-of-range `index`; the same reasoning as [`parent`](Self::parent) applies, and
+    /// `empty_model()` — a public constructor — makes the empty case reachable from safe
+    /// code. The `Option`-returning counterparts are
+    /// [`node_index`](Self::node_index) and [`edge_index`](Self::edge_index).
     pub fn node(&self, index: u32) -> NodeView<'_> {
         let (i, n, s) = (index as usize, &self.nodes, &self.strings);
         let text = |h: Option<Interned>| h.map(|h| s.get(h));
@@ -72,6 +80,11 @@ impl Topology {
     }
 
     /// Edge `index`'s fields, endpoints as node ids.
+    ///
+    /// # Precondition
+    ///
+    /// `index < self.edge_count()`, exactly as for [`node`](Self::node); the same
+    /// reasoning, and the same panic, apply.
     pub fn edge(&self, index: u32) -> EdgeView<'_> {
         let (i, e, s) = (index as usize, &self.edges, &self.strings);
         EdgeView {
@@ -127,6 +140,13 @@ impl Topology {
 
     /// The oracle's `adjacency.get(id)` for node `node`: every incident edge in edge
     /// order, a self-loop twice. A merge of the out and in rows, both ascending.
+    ///
+    /// # Precondition
+    ///
+    /// `node < self.node_count()` — the rows are read by index, so an out-of-range `node`
+    /// panics inside [`Csr::row`] rather than answering an empty adjacency; see
+    /// [`node`](Self::node). Both rows ascending, which [`Csr::from_pairs`] does not
+    /// promise and [`Incident::merge`] asserts in a debug build.
     pub fn incident(&self, node: u32) -> Incident<'_> {
         Incident::merge(self.out.row(node), self.inbound.row(node))
     }
