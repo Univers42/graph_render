@@ -94,6 +94,8 @@ fn honest_controls() -> Vec<(&'static str, Option<Value>)> {
                 "layout.packing.circle",
                 "layout.spectral",
                 "layout.mds.pivot",
+                "layout.spectral3d",
+                "layout.mds.pivot3d",
             ],
         ),
         control("hashgate-control-force-theta", &["layout.force.barnes_hut"]),

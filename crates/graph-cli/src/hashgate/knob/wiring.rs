@@ -9,7 +9,7 @@
 use super::{Knob, arms, records};
 
 impl Knob {
-    /// Every knob: the fifteen that move a parameter or re-draw one layout's model, then
+    /// Every knob: those that move a parameter or re-draw one layout's model, then
     /// the twenty-seven per-stage controls — the fifteen of
     /// [`super::knobs::ANALYSIS_POST_STAGES`], the six of [`super::knobs::IGRAPH_LAYOUT_STAGES`], the
     /// five of [`super::knobs::THREE_D_LAYOUT_STAGES`] and the one of

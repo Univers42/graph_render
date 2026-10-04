@@ -7,16 +7,15 @@ use super::capability::Capability;
 use super::params;
 use super::run_default;
 use super::{
-    closed_form, force, forceatlas2_bh, graphviz_circo, graphviz_fdp, graphviz_neato,
-    graphviz_osage, graphviz_patchwork, graphviz_sfdp, grid, hierarchy, igraph, radial, spectral,
-    three_d,
+    arms_3d, closed_form, force, forceatlas2_bh, forceatlas2_forcesim, graphviz_circo,
+    graphviz_fdp, graphviz_neato, graphviz_osage, graphviz_patchwork, graphviz_sfdp, grid,
+    hierarchy, igraph, radial, spectral, three_d,
 };
 use crate::layout::basic_3d;
 use crate::layout::force::spring::Spring;
 use crate::layout::force::spring::{ID_3D as SPRING_3D_ID, Spring3D};
 use crate::layout::force::{
-    BarnesHut, DavidsonHarel, Drl, FruchtermanReingold, Graphopt, KamadaKawai, Lgl, ParticleMesh,
-    YifanHu,
+    BarnesHut, DavidsonHarel, Drl, FruchtermanReingold, Graphopt, KamadaKawai, Lgl, YifanHu,
 };
 use crate::layout::forceatlas2::{ForceAtlas2, ForceAtlas2BarnesHut};
 use crate::layout::graphviz::{circo, fdp, neato, osage, patchwork, sfdp};
@@ -30,7 +29,7 @@ use crate::layout::{
 use crate::stage::Stage;
 
 use closed_form::{BIPARTITE, RANDOM, RING, SPIRAL};
-use force::{BARNES_HUT, FA2, PARTICLE_MESH, SPRING, YIFAN_HU};
+use force::{BARNES_HUT, FA2, SPRING, YIFAN_HU};
 use forceatlas2_bh::FA2_BH;
 use graphviz_circo::CIRCO;
 use graphviz_fdp::FDP;
@@ -45,7 +44,7 @@ use spectral::{PIVOT_MDS, SPECTRAL};
 use three_d::{BIPARTITE_3D, CUBE, HELIX, HIERARCHICAL_3D, SPHERE, SPIRAL_3D, SPRING_3D};
 
 /// Every registered layout, in the order the hash gate runs them.
-pub static LAYOUTS: [Capability; 39] = [
+pub static LAYOUTS: [Capability; 47] = [
     Capability {
         id: Grid::ID,
         run: run_default::<Grid>,
@@ -220,13 +219,9 @@ pub static LAYOUTS: [Capability; 39] = [
         params: &params::LayoutParams::NONE,
         meta: FDP,
     },
-    // ---- p12-t3, the last five SciGraphs layouts, all natively 3D. APPENDED, never
-    // inserted: `graph-wasm/src/exports/build.rs:26,35,159` maps layouts by INDEX, and
-    // `bench/campaign.rs:128`'s `DEFAULT_ARM` is `LAYOUTS[3]`, so inserting before index 3
-    // would repoint the default crossover arm with no compile error. Nothing above this
-    // line moved, and
+    // ---- p12-t3, the last five SciGraphs layouts, all natively 3D. Appended (see the header);
     // `registry::tests::the_index_keyed_front_of_layouts_still_holds_the_ids_their_callers_name`
-    // fails if it ever does.
+    // fails if anything above this line moves.
     Capability {
         id: basic_3d::sphere::ID,
         run: basic_3d::sphere,
@@ -269,11 +264,8 @@ pub static LAYOUTS: [Capability; 39] = [
         params: &params::FORCEATLAS2_BARNES_HUT,
         meta: FA2_BH,
     },
-    // APPENDED, never inserted, for the reason the block above gives: layouts are mapped by
-    // INDEX in `graph-wasm/src/exports/build.rs:26,35,159` and `bench/campaign.rs:128` pins
-    // `LAYOUTS[3]`. `layout.bipartite_3d` reads the graph where the three above it read a
-    // node count, which is why its id is outside the `layout.basic3d.*` namespace those
-    // three publish.
+    // `layout.bipartite_3d` reads the graph where the three above it read a node count, which
+    // is why its id is outside the `layout.basic3d.*` namespace those three publish.
     Capability {
         id: basic_3d::bipartite_3d::ID,
         run: basic_3d::bipartite_3d,
@@ -281,19 +273,20 @@ pub static LAYOUTS: [Capability; 39] = [
         meta: BIPARTITE_3D,
     },
     // ---- sg-spiral3d: SciGraphs' SPIRAL_3D, the conical 3D spiral of `basic.py:36-63`.
-    // APPENDED for the same reason as the block above it: inserting would repoint every
-    // index-keyed consumer with no compile error.
     Capability {
         id: basic_3d::spiral::ID,
         run: basic_3d::spiral,
         params: &params::LayoutParams::NONE,
         meta: SPIRAL_3D,
     },
-    // perf-p2: appended after the entries above, for the same reason.
-    Capability {
-        id: ParticleMesh::ID,
-        run: run_default::<ParticleMesh>,
-        params: &params::LayoutParams::NONE,
-        meta: PARTICLE_MESH,
-    },
+    force::PARTICLE_MESH_LAYOUT,
+    forceatlas2_forcesim::FA2_FORCESIM_LAYOUT,
+    spectral::SPECTRAL_3D_LAYOUT,
+    spectral::PIVOT_MDS_3D_LAYOUT,
+    // merge-p12-t4b: the 3D arms of the force family and yifan_hu's 2Z variant.
+    arms_3d::YIFAN_HU_2Z_LAYOUT,
+    arms_3d::FRUCHTERMAN_REINGOLD_3D_LAYOUT,
+    arms_3d::KAMADA_KAWAI_3D_LAYOUT,
+    arms_3d::DRL_3D_LAYOUT,
+    arms_3d::FA2_3D_LAYOUT,
 ];

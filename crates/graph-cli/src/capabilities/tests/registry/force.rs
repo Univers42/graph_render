@@ -17,6 +17,7 @@ fn a_force_row_is_implemented_and_names_its_own_oracle_record() {
     for (id, record) in [
         ("layout.force.barnes_hut", "stress"),
         ("layout.forceatlas2", "oracle-fa2"),
+        ("layout.forceatlas2.forcesim", "stress"),
         ("layout.force.fruchterman_reingold", "oracle-igraph"),
         ("layout.force.kamada_kawai", "oracle-igraph"),
         ("layout.force.drl", "oracle-igraph"),

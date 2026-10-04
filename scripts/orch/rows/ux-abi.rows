@@ -14,5 +14,5 @@ wasm-release|0|scripts/orch/gr cargo build -p graph-wasm --release --target wasm
 sdk-typecheck|0|scripts/orch/node-slim.sh npm run sdk:typecheck
 sdk-smoke|0|scripts/orch/node-slim.sh npm run sdk:smoke
 overlap-invariant|0|scripts/orch/gr cargo run -q -p graph-cli -- overlap --nodes 500 --layout layout.grid
-negctl-overlap-relaxation|1|scripts/orch/gr -e GM_MUTATE_OVERLAP_RELAXATION=0 cargo run -q -p graph-cli -- overlap --nodes 500 --layout layout.grid
+negctl-overlap-relaxation|0|scripts/orch/gr -e GM_MUTATE_OVERLAP_RELAXATION=0 cargo run -q -p graph-cli -- overlap --nodes 500 --layout layout.grid; test $? -eq 1
 overlap-fixtures|0|scripts/orch/gr cargo run -q -p graph-cli -- overlap --fixture hairball

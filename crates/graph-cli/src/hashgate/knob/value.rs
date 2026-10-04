@@ -94,6 +94,7 @@ pub(crate) fn accepted(knob: Knob) -> &'static str {
             "a batch index 1..=4294967295; batch 0 is the initial graph, not a delta"
         }
         Knob::SpringIterations | Knob::ReferenceDegree => "a u32 that is not the compiled-in one",
+        Knob::LayoutParamDefault => "an index into the stage's published parameters",
         _ => "a finite number the layout accepts, and not the compiled-in one",
     }
 }

@@ -28,11 +28,11 @@ pub(super) const IGRAPH: [Baseline; 3] = [
     ),
     row(
         "MDS_3D",
-        "f3f03ccf252574e194a3b421ea7542baf5a1e0a05ff34182b112138cf5641e1a",
+        "49e3d8aaa70c8273d1205dc682fc62f0370418ad2760b2d8ce127fded381aa09",
         "603f394d3446e83ad9e0dd88ba272b9feb6a2fc8107404bc63e4a06ca29ebc0f",
         "",
-        1e-1,
-        "shape",
-        "algorithm",
+        1e-15,
+        "bitwise",
+        "convention",
     ),
 ];
