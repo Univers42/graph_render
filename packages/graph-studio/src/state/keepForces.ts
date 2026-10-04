@@ -82,17 +82,17 @@ function follow(at: StudioState, held: Held, push: (knobs: ForceKnobs) => void):
 
 export function keepForces(store: Store<StudioState>, inner: ForceLink, view: Pick<ViewFace, "on" | "frame">): KeptForces {
   const held: Held = { graph: null, before: null, knobs: DEFAULT_KNOBS, scale: 1 };
-  const push = (knobs: ForceKnobs): void => {
+  const push = (knobs: ForceKnobs, heat?: number): void => {
     held.knobs = knobs;
-    inner.set(knobs);
+    inner.set(knobs, heat);
   };
   const unstore = store.subscribe(() => follow(store.get(), held, push));
   const uncamera = view.on("camera", (camera) => { held.scale = camera.scale; });
   const link: ForceLink = {
     ...inner,
     knobs: (state) => (state ?? store.get()).settings.forces,
-    set: (knobs) => {
-      push(knobs);
+    set: (knobs, heat) => {
+      push(knobs, heat);
       store.update((state) => ({ ...state, settings: withSettings(state.settings, { forces: knobs }) }));
     },
     drawn: () => drawnRadius(store.get(), view.frame(), held.scale),

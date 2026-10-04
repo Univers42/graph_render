@@ -10,10 +10,8 @@
 // (the ingest contract) and `buildColumns` (an `encodeColumns` document). Each refuses the
 // others' documents with its own error class; `staging.ts` carries why they stay separate.
 //
-// The class lives here and `index.ts` is the barrel that publishes it, because the class is
-// the implementation and the barrel is the promise: a consumer imports one file name and gets
-// the whole surface, and the file that has to stay small (the barrel's export list) is not
-// the one that grew every method. The three stages this class delegates to are `stages.ts`.
+// The class lives here and `index.ts`, the barrel, publishes it. The stages it delegates to are
+// `stages.ts`, and growing a built graph is `extend.ts`.
 
 import { loadMotor, toU32, type WasmSource } from "./wasm.ts";
 import { loadThreaded } from "./threads.ts";
@@ -27,6 +25,7 @@ import { checkOptions } from "./options.ts";
 import type { GeometryKinds } from "./geometry-kinds.ts";
 import { Registries } from "./registries.ts";
 import { COLUMNS_BUILD, CONTRACT_BUILD, INGEST_BUILD, buildStaged } from "./staging.ts";
+import { extendGraph, type GraphBatch } from "./extend.ts";
 import { LayoutParams, type LayoutParamSpec } from "./params.ts";
 import { nodeCount, runAnalysis, runLayout, runPost, snapshotBytes, snapshotText, type StageContext } from "./stages.ts";
 
@@ -145,6 +144,13 @@ export class Motor {
     return buildStaged(this.#requireLoaded(), bytes, COLUMNS_BUILD);
   }
 
+  /** Appends `batch` to `handle`'s graph (`gm_graph_extend`, `docs/contract/delta.md`). The last
+   *  run is cleared and every view taken before is stale; a session sees the batch after
+   *  {@link ForceSession.grow}. Refused, graph unchanged, as InvalidHandleError or BuildRefusedError. */
+  extend(handle: Handle, batch: GraphBatch): void {
+    extendGraph(this.#requireLoaded(), handle, batch);
+  }
+
   /** Nodes in `handle`'s topology — available right after {@link Motor.build}, before any run.
    *  `0` is ambiguous on the wire (a genuinely empty graph, or an invalid handle, C4): this
    *  method resolves it via `gm_last_error` so only the real refusal throws. */
@@ -211,11 +217,9 @@ export class Motor {
    *  apply to this run's geometry kind (C3) — call {@link Motor.layout} first; a handle with
    *  no successful run yet is refused, not read as "every column absent".
    *
-   *  `columnId` is checked against the registered ids *before* it reaches the ABI. `WebAssembly`
-   *  coerces an argument to `i32` on the way in, so `motor.column(handle, {} as any)` arrived
-   *  as column `0` and was served as `NODE_X` without a word of complaint — the one place in
-   *  this SDK that bypassed the `u32` coercion every other argument goes through, and the one
-   *  place where coercion is the wrong answer, because a column id is a *name*, not a count. */
+   *  `columnId` is checked against the registered ids before it reaches the ABI: `WebAssembly`
+   *  coerces an argument to `i32`, so `{}` would arrive as column `0` and be served as `NODE_X`.
+   *  Coercion is the wrong answer here, because a column id is a *name*, not a count. */
   column(handle: Handle, columnId: ColumnId): Column {
     const { views, kinds } = this.#requireLoaded();
     if (!isRegisteredColumn(columnId)) {
@@ -248,13 +252,9 @@ export class Motor {
   /** Releases `handle`. Its id is never reissued (C6): using it again after this always
    *  reads {@link InvalidHandleError}, never a different, later graph.
    *
-   *  The module's own answer is read, which it was not before: `gm_release` returns `void` and
-   *  sets `Code::InvalidHandle` on a refusal, and `invoke` — which inspects a *return word* —
-   *  therefore could not see it. Releasing a handle twice, or releasing one this motor never
-   *  issued, returned exactly as if it had succeeded, and the second release silently
-   *  released the next graph's id instead. A refused release is now
-   *  {@link InvalidHandleError} with the recorded code, and the handle stays live: nothing
-   *  was released, so nothing is forgotten. */
+   *  `gm_release` returns `void`, so its refusal is read from `gm_last_error`: a second release,
+   *  or one of a handle this motor never issued, is {@link InvalidHandleError} with the recorded
+   *  code, and the handle stays live. */
   release(handle: Handle): void {
     const { exports, views } = this.#requireLoaded();
     invoke("gm_release", () => exports.gm_release(handle) as unknown as number);

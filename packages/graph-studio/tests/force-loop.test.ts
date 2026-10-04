@@ -106,6 +106,16 @@ test("params reach the port and reheat; stop unpins and halts", () => {
   assert.equal(out.frames(), before);
 });
 
+test("params reheat to 0.3 by default, and to the heat the request names", () => {
+  const port = fake(0.5);
+  const { host } = rig(port);
+  host.handle({ type: "force.params", knobs: KNOBS });
+  assert.equal(port.alpha, 0.3, "a slider nudges the drawing on screen");
+  host.handle({ type: "force.params", knobs: KNOBS, heat: 1 });
+  assert.equal(port.alpha, 1, "a preset reheats it as hot as a fresh settle, from where it is");
+  assert.ok(!port.calls.includes("shuffle"), "and never restarts it");
+});
+
 test("frames carry copies: the port's buffers are never handed over", () => {
   const port = fake(0.5);
   const { host, out } = rig(port);

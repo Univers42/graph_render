@@ -27,6 +27,7 @@ const SPREAD: ForceKnobs = { ...DEFAULT_KNOBS, collideRadius: 9, charge: -270 };
 interface Rig {
   readonly store: Store<StudioState>;
   readonly sent: ForceKnobs[];
+  readonly heats: (number | undefined)[];
   readonly zoom: (scale: number) => void;
   readonly stop: () => void;
   readonly link: ForceLink;
@@ -45,14 +46,19 @@ function fakeView(frame: Frame, handlers: Handlers): Pick<ViewFace, "on" | "fram
 function rig(state: StudioState = DRAWN, frame: Frame = DISCS): Rig {
   const store = createStore(state);
   const sent: ForceKnobs[] = [];
+  const heats: (number | undefined)[] = [];
   const handlers: Handlers = { hover: new Set(), select: new Set(), selection: new Set(), camera: new Set(), context: new Set(), frame: new Set() };
-  const inner = { ...NO_FORCE_LINK, disabled: () => null, set: (knobs: ForceKnobs) => void sent.push(knobs) };
+  const set = (knobs: ForceKnobs, heat?: number): void => {
+    sent.push(knobs);
+    heats.push(heat);
+  };
+  const inner = { ...NO_FORCE_LINK, disabled: () => null, set };
   const kept = keepForces(store, inner, fakeView(frame, handlers));
   const zoom = (scale: number): void => {
     const camera: Camera = { x: 0, y: 0, scale };
     for (const handler of handlers.camera) handler(camera);
   };
-  return { store, sent, zoom, stop: kept.stop, link: kept.link };
+  return { store, sent, heats, zoom, stop: kept.stop, link: kept.link };
 }
 
 function withForces(state: StudioState, forces: ForceKnobs): StudioState {
@@ -144,4 +150,12 @@ test("the link's drawn radius follows the camera", () => {
   assert.equal(drawn(), 5, "at the starting scale of 1");
   zoom(0.05);
   assert.equal(drawn(), 25);
+});
+
+test("a set's heat reaches the motor; a knob set without one asks for none", () => {
+  const { link, heats, stop } = rig();
+  link.set(SPREAD, 1);
+  link.set(DEFAULT_KNOBS);
+  assert.deepEqual(heats, [1, undefined]);
+  stop();
 });

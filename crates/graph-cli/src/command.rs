@@ -67,6 +67,14 @@ pub enum Command {
         #[arg(long, value_parser = seed_count())]
         seeds: u32,
     },
+    /// One native arm of the force gate's **stream** stage, printing
+    /// `force.session.stream <fixture> <batch> <sha256>` a line per batch. Spawned by
+    /// `force-gate`.
+    ///
+    /// Takes no seed count: the stream fixtures are three fixed files rather than a seed
+    /// family, so a `--seeds` here would be a number nothing reads.
+    #[command(hide = true)]
+    ForceGateStreamArm,
     /// The capabilities ledger, generated from the registry.
     Capabilities {
         /// Print every row as JSON.
@@ -118,6 +126,17 @@ pub enum Command {
         #[arg(long, value_parser = seed_count())]
         seeds: u32,
         /// Output directory; `target/oracle-fixtures` by default.
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
+    /// Writes the stream fixtures the force gate's stream stage reads:
+    /// `fixtures/stream-{small,hub,pow2}.jsonl`, one JSON v1 document per line, the first
+    /// line the initial graph and every later line one batch.
+    ///
+    /// The same command generates the fixtures and the gate row that diffs them, so a
+    /// fixture that drifted from the emitter is caught rather than read.
+    EmitStreamFixtures {
+        /// Output directory; the workspace's own `fixtures/` by default.
         #[arg(long)]
         out: Option<PathBuf>,
     },

@@ -90,7 +90,8 @@ export type ForceRequest =
   | { readonly type: "force.settle" }
   | { readonly type: "force.drag"; readonly id: string; readonly x: number; readonly y: number }
   | { readonly type: "force.release"; readonly id: string }
-  | { readonly type: "force.params"; readonly knobs: ForceKnobs }
+  // `heat`: the alpha the loop reheats to at least; absent is the loop's own nudge.
+  | { readonly type: "force.params"; readonly knobs: ForceKnobs; readonly heat?: number }
   | { readonly type: "force.pause" }
   | { readonly type: "force.resume" }
   | { readonly type: "force.stop" };
