@@ -44,7 +44,7 @@ scripts/orch/gr cargo run -q --release -p graph-cli -- oracle-spectral
 |---|---|---|---|---|
 | `layout.spectral` | 984 | 14 | 7.178e-6 | 1e-5 (pre-existing, unchanged) |
 | `layout.mds.pivot` | 996 | 2 | 3.691e-8 | 1e-7 (pre-existing, unchanged) |
-| `layout.spectral3d` | 982 | 16 | **1.030e-5** | **1e-4** |
+| `layout.spectral3d` | 982 | 16 | **9.641e-6** | **1e-4** |
 | `layout.mds.pivot3d` | 990 | 8 | **4.838e-8** | **1e-7** |
 
 The `degenerate` column is the harness's own: seeds whose eigenspace is degenerate inside
@@ -113,35 +113,32 @@ entry point and not this id, so this id's registered snapshot does not move when
 That is stated on the arm itself (`layout/random.rs:56-66`) and on the metadata row
 (`registry/three_d/random3d.rs:42-64`).
 
-## The one kernel fix, and it is the whole of the spectral internals work
+## The spectral internals: a defect found, and not fixed here
 
-Develop's `spectral_stage::spectral_3d` **refused** on the gate model.
+When this job first ran, develop's `spectral_stage::spectral_3d` **refused** on the gate model:
 `emit-spectral-fixtures --seeds 1000` exited 2 at seed 255 with "parameter topology: no component
-passed the eigensolver's residual and orthonormality gate" — the refusal constant at
-`crates/graph-core/src/layout/spectral_stage.rs:12`.
+passed the eigensolver's residual and orthonormality gate". Seed 255 is the first gate seed whose
+component (257 nodes) is above `DENSE_EIG_LIMIT = 256` (`layout/spectral.rs:65`) and so reaches
+LOBPCG at all.
 
-Cause: `start_block` in `crates/graph-core/src/linalg/lobpcg/ops.rs` drew its Weyl irrationals
-from a fixed `[f64; 3]` read with `.take(block - 1)`. The reference's block is
-`k = min(dims + 2, n_c - 1)`, so `dims = 3` asks for `block = 5` while the 2-D arm asks for 4 —
-and a three-element table over `block = 5` leaves column 4 **entirely zero**. A start column of
-all zeros is one LOBPCG cannot move off, so the solve returns the Laplacian's trivial
-eigenvector (eigenvalue 0.0) and the residual gate refuses.
+Cause, as this job measured it: `start_block` in `crates/graph-core/src/linalg/lobpcg/ops.rs` reads
+its Weyl irrationals from a fixed three-element table with `.take(block - 1)`. The 3-D arm's block
+is `dims + 2 = 5`, so column 4 of the start block is left **entirely zero**, and LOBPCG cannot move
+a zero start column.
 
-Why seed 255 was the first failure and not an arbitrary one: only components above
-`DENSE_EIG_LIMIT = 256` (`layout/spectral.rs:65`) reach the iterative path at all, and seed
-255's component is 257 nodes — the first gate seed that reaches it. Every seed below it took
-the dense branch and passed.
+This job's fix (generate the phase past column 3, keep the first three values) is **not on this
+branch**. While it waited to land, develop gained the reference's shift-invert retry tier (LF-09,
+`layout/spectral/tests/shift_invert.rs`), which answers the same 3-D arm by re-solving, and whose
+tests assert that the 3-D block collapses and reaches that tier. The kernel fix stops the collapse
+and so turns those three tests red (merge floor, 2026-10-04: `test=101`, 1516 passed, 3 failed).
+LOBPCG and the retry tier belong to the spectral work, not to this job, so this branch keeps
+develop's `ops.rs` and `lobpcg/tests.rs` byte for byte, and the zero start column is handed to that
+owner as a finding.
 
-Fix: `alpha_for(col)` **generates** the phase (`frac(col * PHI)`) past column 3 instead of
-tabulating it (`ops.rs:59-72`), keeping the three historical values verbatim for columns 1..=3
-so every 2-D start block stays bit-identical and no 2-D snapshot moves. Generating also removes
-the failure mode itself — there is no fixed table length left to forget to raise. After the
-fix seed 255 solves and the differential passes. Two unit tests assert the properties directly,
-in `crates/graph-core/src/linalg/lobpcg/tests.rs`: `every_start_column_is_filled_at_every_block_width`
-(`:60`) and `the_start_block_of_every_2d_run_is_unchanged` (`:84`).
-
-The gate rows that hold this in place are `spectral3d-above-dense-limit` and its control
-`spectral3d-differs-from-2d` in `scripts/orch/rows/p12-3d.rows`.
+Re-measured on develop's solver after the revert (the six spectral rows of `scripts/orch/rows/p12-3d.rows`,
+`emit-spectral-1000` to `spectral3d-differs-from-2d`, run through `scripts/orch/gate.sh`, all PASS): `layout.spectral3d` 982 cases, worst 9.641e-6, ceiling
+1e-4; `layout.mds.pivot3d` 990 cases, worst 4.838e-8, ceiling 1e-7; `spectral3d-above-dense-limit`
+(seed 255) and its control `spectral3d-differs-from-2d` exit 0.
 
 ## What was deliberately not ported
 
@@ -151,8 +148,7 @@ The gate rows that hold this in place are `spectral3d-above-dense-limit` and its
   (`layout/spectral.rs:55`). t4a's `space.rs` is the same refactor against a tree that had no
   3-D arms at all; porting it would be a second implementation of what develop has.
 - **`crates/graph-core/examples/diag_{block,lobpcg,seed}.rs`.** Diagnostic examples for work this
-  tree does not have. The two unit tests named above replace them and assert the property
-  directly instead of printing it.
+  tree does not have. The defect they diagnosed is recorded above.
 - **t4a's `registry/spectral.rs` entries and `*_3D_CEILING` aliases, `registry/closed_form.rs`'s
   `SPIRAL_3D`/`BIPARTITE_3D` rows, `registry/tests.rs`, and `layout/spiral/spiral_3d.rs`** — all
   duplicates of develop's ids, superseded under Option A (`docs/decisions/3d-ids.md` §Decision,
