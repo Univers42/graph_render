@@ -1,10 +1,58 @@
 # Resume prompt — graph-motor, first written 2026-09-29 before a host shutdown
 
-This is an append-only handoff log. **The newest block is the HANDOFF 2026-10-01 at the top**;
-older blocks are kept as history and several of their claims are now false — the tree is the
-authority. `docs/reports/STATUS.md` and `prompts/CONTINUE.md`, both rewritten 2026-10-02, are the
-current rollups. The standing rules are still in `CLAUDE.md`, `prompt.md`,
+This is an append-only handoff log. **The newest block is the 2026-10-04 status refresh at the
+top**; older blocks are kept as history and several of their claims are now false — the tree is
+the authority. `docs/reports/STATUS.md` and `prompts/CONTINUE.md`, both rewritten 2026-10-04, are
+the current rollups. The standing rules are still in `CLAUDE.md`, `prompt.md`,
 `prompts/ONBOARDING.md`, `prompts/AGENT_BRIEF.md`.
+
+## 2026-10-04 — status refresh, on develop at fba1a288 (1429 commits)
+
+A docs-only job (`prompts/jobs/status-refresh.md`) re-derived every claim from the tree. Nothing
+below is from a brief; each line cites a commit, a `file:line` or a command.
+
+- **Develop moved 993 commits in two days.** The 2026-10-02 rollup was written against `701b46a`
+  (436 commits); develop is now `fba1a288` (1429). The ref moved *while this file was being
+  written* — `origin/ux-params-dock` landed and took the branch head with it — so re-read the ref
+  before quoting a sha (`docs/reports/STATUS.md:9-13`).
+- **`LAYOUTS` is 47, not 35** (`crates/graph-core/src/registry/layouts.rs:47`,
+  `[Capability; 47]`). The ledger is **82 rows**, **18 gated** (8 topology, 9 layout, 1 transport),
+  64 implemented. `layout.packing.osage` is the ninth gated layout, discharged by the
+  `negctl-osage-nodes` row at `scripts/orch/rows/develop-full.rows:183`.
+- **`dot` is half-landed**: the rank pass is ported
+  (`crates/graph-core/src/layout/graphviz/dot.rs:1-19`) with `class2` and `simplex` beside it, but
+  mincross and position are not assembled and there is still **no `layout.dag.dot` row**
+  (`p13-gv2-dot-mincross`, ab760496, is unmerged).
+- **The studio now has gate rows** — `studio-wasm` / `-check` / `-build` / `-smoke` and
+  `negctl-studio-smoke` at `develop-full.rows:221-225`. The full gate is 100 rows with 20 negative
+  controls. The 2026-10-02 claim "the gate runs no studio row" is false.
+- **Conformance is the scoreboard**: 32 SciGraphs rows, 11 `bitwise` / 14 `tolerance` / 7 `shape`,
+  10 of 32 `f32`-identical on all 1020 coordinates
+  (`docs/measurements/scigraphs-conformance.md:200-252`). No row is `f64`-exact and none can be —
+  the motor is `f32` end to end (`:119-124`).
+- **14 branches unmerged**, and the list moved twice while this was written — `ux-params-dock`
+  landed (taking develop's head with it) and `p13-gv3-dot-position` was pushed. The one that
+  matters most: **`svc-image`** (3bf7223, **73 commits**, 96 files) is the entire
+  `server/graph-server` workspace, and develop has no server at all. The two `dot` branches
+  (`p13-gv2-dot-mincross`, `p13-gv3-dot-position`) **overlap** — diff them before landing either.
+- **The queue is idle**: 135 labels, every one `done`, zero `live` and zero `pending`. `rc=2` (58 of
+  them) means the agent did not write `status: done`, not that the work is missing.
+- **New decisions on develop** (all 2026-10-03/04): `browser-threads`, `delta-abi`,
+  `force-session-warm-seed`, `gpu-force-tier`, `ingest-columns`, `layout-params`, `memory-guard`,
+  `node-overlap`, `obsidian-force`, `bh-jiggle-key`, `note-code-7-deferred`, `wasm-ingest-limits`,
+  `sfdp-gather-form`, `render-readable-spacing` — the list is in `STATUS.md` §8, do not re-ask.
+- **Still open**: `perf-fps` has never passed (`studio-s7.md:13,31`), `layout.circular.circo` (16 of
+  1000 seeds), `layout.force.yifan_hu` / `.2z` / `.3d` (**no coordinate oracle** — the registry names
+  `stress` for all three, `unproven.rs:103,89,94`), `simd_nodes` inert (`tier-thresholds.md:15,116`).
+  Three items from this list have since closed: `studio-switch-fit` (the probe is
+  `deploy/nav/switchrows.py`, wired at `navrows.py:242`, `nav.py:78` passes
+  `expect_switch_stale=broken`, run by the `nav` / `negctl-nav` rows in `force-warm.rows:27-28`);
+  `negctl-node-z` **is** in `develop-full.rows` at `:191`; `p12-t4a` is the tag `archive/p12-t4a`.
+
+The next session's first page is `prompts/CONTINUE.md` §4. The first task is unchanged in kind and
+larger in scope: **run the full gate on develop and repair its red rows.** The 10^5/10^6 bench
+arms and `hashgate-1000` (3052 s) time out on this host class, so run them under
+`scripts/orch/timed`, last.
 
 ## 2026-10-03 — the memory guard (host freezes), on develop at 19d2ae9b
 
@@ -54,10 +102,13 @@ current rollups. This block is the dated handoff; everything below it is history
 
 ### Still open
 
-`p12-t4a` (3D arms of the five closed-form/spectral names, branch `971318d` holds all 40 files),
+`p12-t4a` (3D arms of the five closed-form/spectral names, branch `971318d` holds all 40 files —
+**since archived**: it is now the tag `archive/p12-t4a` and no `origin/p12-t4a` exists),
 `p12-t4b` (3D arms of the force names, **no branch yet**), `p13-gv2-dot` (the `dot` port,
 `f098188`; the brief orders rank → mincross → position), `osage-knob` (unblocks osage's promotion
-to `gated`), `sg-conformance-split`, `studio-switch-fit` (live), `trap-followups` (**landed** — the brief's item
+to `gated`), `sg-conformance-split`, `studio-switch-fit` (**since landed** — `switchrows.py` is the
+probe and `nav.py:78` passes `expect_switch_stale=broken`; the 2026-10-02 claim "nav.py has no switch
+probe" was false from the start), `trap-followups` (**landed** — the brief's item
 list is satisfied), `studio-3d` (**landed**). `p12-t3-knobs` is **partial**: the five knobs are in
 `hashgate/knobs.rs:125-151`, and the brief's "exit 1" goal was replaced by pinning
 `negctl-node-z` to exit **2** with the cause written (`scripts/orch/rows/p12-t3.rows:84`).
@@ -67,7 +118,8 @@ Full table with evidence: `docs/reports/STATUS.md` §4.1.
 
 Superseded and deletable: `p12-t2` (b1aa19d), `tier-settle` (6ab44f9), `studio-force` (15ce426) —
 develop carries the same work and has since grown past each. `studio-ux` (855a876) stays
-**dropped** by the user, 2026-09-30: do not plan work on it. Work in them: `p12-t4a` (971318d),
+**dropped** by the user, 2026-09-30: do not plan work on it. Work in them: `p12-t4a` (971318d —
+**archived as the tag `archive/p12-t4a`, its deliverable already on develop**),
 `p13-gv2-dot` (f098188), `perf-p2-pm` (e64e8df, `layout.force.particle_mesh`), `sg-dedupe`
 (4357222), and three docs-only review branches (62529fa, ebeeb9d, 7dfb5cf).
 
@@ -92,7 +144,7 @@ any label that still has a `.pid` (`queue.sh:94`), so nothing gets re-run, only 
 
 1. `scripts/orch/gate.sh <logdir> scripts/orch/rows/develop-full.rows` on develop, one timed gate
    at a time. Red rows become repair tasks.
-2. Land `p12-t4a`, then `p13-gv2-dot`, then `perf-p2-pm` — each: merge develop into the branch,
+2. ~~Land `p12-t4a`, then~~ `p13-gv2-dot`, then `perf-p2-pm` — each: merge develop into the branch,
    run `scripts/orch/rows/quick.rows` on the merged tree, then `scripts/orch/queue.sh land <label>`
    or set `land=yes`.
 3. `wt-new.sh p12-t4b` and launch it; it has no branch yet.
@@ -124,7 +176,8 @@ declaration is still open (`contract-3d-verdict.md:90`).
   that file first.
 - fdp and sfdp cannot be gated tighter than the Graphviz oracle meets itself
   (`p13-gv2-fdp.md:22`, `p13-gv2-sfdp.md:17`).
-- `layout.force.yifan_hu` is the one layout row with **no oracle at all**.
+- `layout.force.yifan_hu` is the layout row group with **no coordinate oracle** — the registry reads
+  `stress`, not `none`, for it, `.2z` and `.3d` (`unproven.rs:103,89,94`).
 - Studio `perf-fps` has never passed and every studio perf run exits 1 on it, so its negative
   control proves nothing (`docs/measurements/studio-s7.md:18,31`).
 

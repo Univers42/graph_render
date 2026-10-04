@@ -8,6 +8,7 @@
  * the noun it acts on (verdict condition 1).
  */
 import type { View } from "../../../graph-render/src/view.ts";
+import type { ColumnRowsLike } from "../source/synthetic-columns.ts";
 import type { ShownError } from "../state/errors.ts";
 import type { Studio } from "../studio/studio.ts";
 
@@ -51,6 +52,17 @@ export interface GraphStudioHost {
   readonly hostApi: typeof HOST_API;
   /** Replaces the whole graph; resolves once its frame is set, rejects when overtaken. */
   loadGraph(doc: object): Promise<LoadResult>;
+  /**
+   * Replaces the whole graph with the host's own columnar document
+   * (`docs/contract/ingest-columns.md`); it is assembled in the worker. A host feature-tests it
+   * with `"loadColumns" in el`, as every addition here is detected.
+   *
+   * Caveat: the cap is the motor's 1 GiB, not `loadGraph`'s 2^28 characters — this path writes no
+   * JSON string — and the arrays are copied into the worker rather than transferred, so the page
+   * holds them twice while the load is in flight. A motor refusal rejects with the name
+   * `ColumnsRefusedError`, whose ABI code is `ColumnsInvalid`.
+   */
+  loadColumns(rows: ColumnRowsLike): Promise<LoadResult>;
   /** Centres and selects the node with exactly this id; false, and nothing moves, when none has it. */
   focusNode(id: string): Promise<boolean>;
   /** Selects exactly these ids, the last one primary; `[]` clears. False, and nothing changes, when one is unknown. */
@@ -75,6 +87,17 @@ export interface GraphStudioElement extends HTMLElement, GraphStudioHost {
    * watch a dead worker from the outside; the next layout opens a new worker as usual.
    */
   stopMotor(): void;
+  /**
+   * Adds one batch of nodes and edges to the graph the live settle is running on, and grows that
+   * session to cover them. Atomic per call, never coalesced across calls: the batch goes in whole
+   * or is refused whole, and each call resolves with the nodes it added. Outside v1 (host-api.md
+   * condition 8): a host feature-tests it with `"applyDeltas" in el`.
+   *
+   * Caveat: the new nodes move from the tick that applied them but are drawn only once the
+   * structure snapshot lands, at most 500 ms later. A refusal rejects with the motor's own typed
+   * error and sends `graph-error`, whose `detail.error` is that error's `name`.
+   */
+  applyDeltas(batch: unknown): Promise<{ readonly applied: number }>;
   /** @internal How long the watchdog waits before it calls a silent worker dead, in ms. */
   readonly watchdogBoundMs: number;
 }

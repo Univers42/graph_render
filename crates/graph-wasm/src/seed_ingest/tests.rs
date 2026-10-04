@@ -2,6 +2,8 @@ use super::*;
 use crate::ingest;
 use graph_core::{gate_node_count, index_model, seeded_model};
 
+mod columns;
+
 #[test]
 fn a_seeds_document_reads_back_to_the_same_node_and_edge_ids_in_order() {
     for seed in [0u32, 1, 5, 37] {

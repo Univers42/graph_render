@@ -23,3 +23,15 @@ layouts. Adding a dependency is a stop.
 
 Done when: quick.rows green (wasm32-core, hashgate-8 and negctl included), the step-1 digests unchanged
 (paste before and after), the octree tests green, and the measurement file committed.
+
+Addendum (2026-10-04, orchestrator):
+- `LAYOUTS` (`crates/graph-core/src/registry/layouts.rs`) is APPEND ONLY: add the new entry at the very
+  END of the list, never insert or reorder. Count literals that move with it (snapshot totals, ledger
+  rows, hashgate report tests) are regenerated from the test output, never hand-guessed.
+- Files ≤ 300 lines, functions ≤ 40 lines and ≤ 4 parameters; split into child modules.
+- Paths allowed: `crates/graph-core/src/layout/force/**`, `crates/graph-core/src/registry/**`,
+  `crates/graph-cli/**` (rows, counts, capabilities), `docs/measurements/yifan-hu-3d.md`,
+  `docs/layouts/layout.force.yifan_hu*.md`, `prompts/jobs/yifan-hu-octree.md`. Not allowed:
+  `crates/graph-contract/**`, `crates/graph-wasm/**`, `packages/**`, `app/**`, `server/**`, `deploy/**`.
+- The step-1 digests: `force-gate` and `hashgate --seeds 8` outputs before and after, pasted in the
+  measurement file.

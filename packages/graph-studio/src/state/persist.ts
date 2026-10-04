@@ -33,6 +33,9 @@ function hashOf(text: string): string {
 
 /** The storage key of one source, or null for a document too long to store. */
 export function sourceKey(source: Source): string | null {
+  // A host's columns are the host's data in the host's own typed arrays: there is no text to key
+  // them by, and nothing here would read them back, so they are never written (verdict 3).
+  if (source.kind === "columns") return null;
   if (source.kind !== "document") return `${PREFIX}${JSON.stringify(source)}`;
   // A host's document is the host's data: it is never written to the page's storage (verdict 3).
   if (source.host === true) return null;

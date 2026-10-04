@@ -10,7 +10,7 @@
 //! `DIMS=2`, so `SPECTRAL_3D` compared a plane against a volume (grey a line, green a
 //! cluster). `layout.spectral` keeps `DIMS = 2` and every byte it had; `layout.spectral3d`
 //! is the reference's own pipeline, and the difference between the two arms is exactly the
-//! [`Width`] this module passes down.
+//! `Width` this module passes down.
 //!
 //! **Scope**: this layout does not implement [`crate::stage::Stage`] (no `Params`); it is
 //! registered through [`super::spectral_stage`], which drops the reports. There is
@@ -29,9 +29,7 @@
 
 use crate::index::Topology;
 use crate::layout::random;
-use crate::linalg::dense_sym::eigh;
-use crate::linalg::lobpcg::lobpcg_smallest;
-use crate::linalg::{EigBlock, orthonormal, pin_signs, residual_converged};
+use crate::linalg::{EigBlock, pin_signs};
 use graph_contract::geometry::{EdgeGeometry, NodeGeometry};
 
 use super::Geometry;
@@ -39,10 +37,13 @@ use super::Geometry;
 mod graph;
 mod neighbors;
 mod pack;
+mod shift_invert;
+pub(super) mod solve;
 mod width;
 use graph::ComponentGraph;
 pub(crate) use neighbors::{Neighbors, find_components, local_positions, simple_neighbors};
 pub(crate) use pack::{pack_component_blocks_3d, pack_components, rescale_to_scale};
+use solve::solve_component;
 pub(crate) use width::Width;
 
 mod z_axis;
@@ -77,6 +78,9 @@ pub enum Tier {
     Dense,
     /// `n_c > 256`: LOBPCG.
     Lobpcg,
+    /// LOBPCG's block missed the gate and the shift-invert retry solved it instead
+    /// (`networkx_layouts.py:120-126`, `spectral/shift_invert.rs`).
+    ShiftInvert,
 }
 
 /// One component's outcome — graph-core's half of C12's "show per-component residuals
@@ -91,8 +95,18 @@ pub struct ComponentReport {
     pub tier: Tier,
     /// Passed both the residual and orthonormality gate.
     pub solved: bool,
-    /// LOBPCG iterations run, or `None` on the dense tier.
+    /// LOBPCG iterations run, or `None` on the dense tier and on the shift-invert retry.
     pub iterations: Option<u32>,
+    /// `max_j ‖Lv_j − λ_j v_j‖`, the number the residual gate decides on and the one a
+    /// caller needs to say *why* a component was skipped (C12). `None` only when no
+    /// candidate was produced at all — the retry's Cholesky refused — never when one was
+    /// produced and the gate said no.
+    ///
+    /// **Not the whole reason.** The gate has two halves, and a component can be `!solved` at
+    /// a residual four orders of magnitude inside its own limit when the *orthonormality*
+    /// check is what refused (`solve::accept`, and the 1025-node path in `spectral_stage`'s
+    /// tests). `solved` is the verdict; this is one of its two inputs.
+    pub peak_residual: Option<f64>,
 }
 
 /// Why [`run`] produced nothing at all.
@@ -105,53 +119,6 @@ pub enum SpectralError {
     /// [`SpectralError::NothingSolved`] so the `n < 4` branch cannot be mistaken for a
     /// failed eigensolve.
     RandomRefused,
-}
-
-/// `_eig_converged` plus the orthonormality check, both applied on the caller's side
-/// even for the dense tier (`docs/decisions/eigensolver.md`: "the reference trusts
-/// `eigh` for dense; we verify anyway because it is cheap").
-fn converged(graph: &ComponentGraph, eig: &EigBlock) -> bool {
-    let matvec = |x: &[f64], y: &mut [f64]| graph.matvec(x, y);
-    residual_converged(matvec, eig, 1e-2) && orthonormal(eig, 1e-6)
-}
-
-fn sub_block(eig: &EigBlock, start: usize, k: usize) -> EigBlock {
-    let mut vectors = Vec::with_capacity(eig.n * k);
-    for j in start..(start + k) {
-        vectors.extend_from_slice(eig.column(j));
-    }
-    EigBlock {
-        values: eig.values[start..start + k].to_vec(),
-        vectors,
-        n: eig.n,
-        k,
-    }
-}
-
-/// One component's solve: dense when `n_c <= 256`, else LOBPCG. Returns the accepted
-/// eigenvectors (already sign-pinned) or `None` when the gate refuses them.
-///
-/// `width.dims()` is the reference's `dims` for the LOBPCG block (`k = min(dims + 2, n - 1)`,
-/// `:102`), and `dims_eff = min(dims, n_c - 1)` is its `:92`.
-fn solve_component(graph: &ComponentGraph, width: Width) -> (Option<EigBlock>, Tier, Option<u32>) {
-    let dims = width.dims();
-    let dims_eff = dims.min(graph.size() - 1);
-    if graph.size() <= DENSE_EIG_LIMIT {
-        let full = eigh(&graph.dense_matrix(), graph.size());
-        let candidate = sub_block(&full, 1, dims_eff);
-        let ok = converged(graph, &candidate);
-        return (ok.then_some(candidate), Tier::Dense, None);
-    }
-    let block = (dims + 2).min(graph.size() - 1);
-    let matvec = |x: &[f64], y: &mut [f64]| graph.matvec(x, y);
-    let outcome = lobpcg_smallest(matvec, &graph.degree, graph.size(), block);
-    let candidate = sub_block(&outcome.eig, 0, dims_eff);
-    let ok = converged(graph, &candidate);
-    (
-        ok.then_some(candidate),
-        Tier::Lobpcg,
-        Some(outcome.iterations),
-    )
 }
 
 /// Writes one solved component's (already sign-pinned, peak-normalised) coordinates into the
@@ -225,9 +192,9 @@ fn run_width(
             continue;
         }
         let graph = ComponentGraph::build(members, &neighbors, &local_of);
-        let (solved, tier, iterations) = solve_component(&graph, width);
-        let ok = solved.is_some();
-        if let Some(mut eig) = solved {
+        let solve = solve_component(&graph, width);
+        let ok = solve.eig.is_some();
+        if let Some(mut eig) = solve.eig {
             pin_signs(&mut eig);
             scatter(&mut coords, members, &eig, width);
             any_solved = true;
@@ -235,9 +202,10 @@ fn run_width(
         reports.push(ComponentReport {
             min_index: members[0],
             size: members.len() as u32,
-            tier,
+            tier: solve.tier,
             solved: ok,
-            iterations,
+            iterations: solve.iterations,
+            peak_residual: solve.peak_residual,
         });
     }
 

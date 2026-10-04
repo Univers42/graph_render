@@ -21,6 +21,7 @@ function sameSource(a: Source, b: Source): boolean {
   if (a === b) return true;
   if (a.kind === "synthetic") return sameSynthetic(a, b);
   if (a.kind === "fixture") return sameFixture(a, b);
+  if (a.kind === "columns") return sameColumns(a, b);
   return sameDocument(a, b);
 }
 
@@ -40,6 +41,16 @@ function sameDocument(a: Source, b: Source): boolean {
     && a.name === b.name && a.text === b.text && a.host === b.host;
 }
 
+/**
+ * The rows by identity, and nothing else: they are megabytes of typed arrays, so comparing them
+ * would cost more than the load the comparison is there to skip. A host that hands the *same*
+ * object over twice gets no second load, which is the case this answers; a host that builds a
+ * new one gets the graph it asked for.
+ */
+function sameColumns(a: Source, b: Source): boolean {
+  return a.kind === "columns" && b.kind === "columns" && a.name === b.name && a.rows === b.rows;
+}
+
 export interface Plan {
   readonly load: boolean;
   readonly layout: boolean;
@@ -52,7 +63,11 @@ export function planOf(state: StudioState, next: Settings): Plan {
   // A filter that asks to be laid out again is one the last run was not made under, or the
   // layout would repeat the drawing already on screen for a filter nobody changed.
   const relayout = next.filter.relayout && JSON.stringify(next.filter) !== state.runFilter;
-  const layout = load || run === null || run.layoutId !== next.layout || run.postId !== next.edges || relayout;
+  // A value the last run was not made at is the same thing: the picture on screen is not the
+  // one these settings ask for.
+  const params = JSON.stringify(next.params[next.layout] ?? {});
+  const layout = load || run === null || run.layoutId !== next.layout || run.postId !== next.edges
+    || relayout || params !== state.runParams;
   const asked = next.analysis !== null && (load || state.analysis?.id !== next.analysis);
   return { load, layout, analysis: asked || (next.analysis === null && state.analysis !== null) };
 }

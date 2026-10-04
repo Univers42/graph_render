@@ -39,16 +39,52 @@ use crate::synthetic::Mulberry32;
 /// The layout's capability id, which is also its hash-gate stage.
 pub const ID: &str = "layout.random";
 
+/// The 3-D arm's capability id, and the one that SciGraphs' own `_random_layout` is
+/// (`docs/decisions/3d-ids.md`, `docs/measurements/p12-3d-oracles.md`).
+pub const ID_3D: &str = "layout.random.3d";
+
 /// Fixed stream seed; changing it moves every hashed snapshot.
 const SEED: u32 = 0x00_5EED;
 
 /// Runs the random layout; never refuses.
 pub fn run(topology: &Topology) -> Result<Geometry, StageError> {
-    let mut stream = Mulberry32::new(SEED);
-    let (x, y): (Vec<f64>, Vec<f64>) = (0..topology.node_count())
-        .map(|_| (stream.next_f64(), stream.next_f64()))
-        .unzip();
+    let (x, y, _) = draw(topology, 2);
     Ok(point_geometry(&x, &y))
+}
+
+/// `layout.random.3d`: the same kernel at three coordinates, so the third draw becomes
+/// the z column rather than a second implementation of the same idea.
+///
+/// SciGraphs `_random_layout` (`basic.py:5-9`) is `rng.rand(n, 3) * scale` — already 3D,
+/// the one name here whose reference needs no 2-D port at all. What is *not* reproduced is
+/// the numbers: the stream here is the crate's `Mulberry32` at `SEED`, not numpy's
+/// Mersenne Twister off `get_layout_seed()`, so the arm's oracle is the DISTRIBUTION (per
+/// axis, mean 1/2 and variance 1/12) and never a coordinate. See [`run_seeded`] for the
+/// arm that does compare coordinates, at an explicit seed.
+pub fn run_3d(topology: &Topology) -> Result<Geometry, StageError> {
+    let (x, y, z) = draw(topology, 3);
+    let z = z.expect("dims = 3 draws a z column");
+    Ok(in_space(&x, &y, &z))
+}
+
+/// `dims` draws per node, row-major (`x`, `y`, then `z` at 3), in node order.
+///
+/// One function, so the two arms cannot drift in *how* they draw — only in how many. At
+/// `dims = 2` this is the exact sequence the 2-D arm has always consumed, which is what
+/// keeps `layout.random`'s bytes where they were: a third draw per node in the 2-D arm
+/// would move every node after the first, and the hash gate would (correctly) go red.
+fn draw(topology: &Topology, dims: usize) -> (Vec<f64>, Vec<f64>, Option<Vec<f64>>) {
+    let mut stream = Mulberry32::new(SEED);
+    let (mut x, mut y) = (Vec::new(), Vec::new());
+    let mut z = (dims >= 3).then(Vec::new);
+    for _ in 0..topology.node_count() {
+        x.push(stream.next_f64());
+        y.push(stream.next_f64());
+        if let Some(column) = z.as_mut() {
+            column.push(stream.next_f64());
+        }
+    }
+    (x, y, z)
 }
 
 /// `_random_layout(num_nodes, scale, seed)` (`basic.py:5-9`) at an explicit `seed`:

@@ -88,6 +88,11 @@ pub(super) fn force_record(id: &str) -> Option<(&'static str, Status)> {
         // to point at and none is claimed — the 2D yifan_hu row above says the same about
         // itself. The stress record is barnes_hut's, so `implemented` only.
         "layout.force.yifan_hu.2z" => Some(("stress", Status::Implemented)),
+        // The 3D arm, on the same record and for the same reason: it is not sfdp, no sfdp
+        // output was compared, and the stress metric is a 2-axis one. `implemented`, never
+        // `gated` — the arm's own evidence is its unit rows, and a `gated` row here could
+        // only read back "no record: run the gate".
+        "layout.force.yifan_hu.3d" => Some(("stress", Status::Implemented)),
         // `stress`, and **not** `oracle-fa2`, because that record is a differential against
         // networkx's own `forceatlas2_layout` — which is this layout's *sibling*
         // (`layout.forceatlas2`), not this layout. This layout's own oracle is the
@@ -113,9 +118,19 @@ pub(super) fn force_record(id: &str) -> Option<(&'static str, Status)> {
         "layout.circular.hierarchy" => Some(("oracle-circular-hierarchy", Status::Implemented)),
         // Ponytail: `implemented`, not `gated`: the closed-form differential has no
         // recorded run on this tree, and a hash alone never earns `gated`.
-        "layout.random" | "layout.circular.ring" | "layout.spiral" | "layout.bipartite" => {
-            Some(("oracle-closed-form", Status::Implemented))
-        }
+        //
+        // `layout.random.3d` joined the same record rather than a new one, and the reason is
+        // that it is the SAME differential: `harness/oracle-closed-form.py` gained its
+        // `random_3d` arm and `oracle_python/closed_form.rs` its row, both keyed to
+        // `docs/decisions/3d-ids.md`. It shares a record with `layout.random` and shares no
+        // metric with it — that id is compared on nothing (its stream is the crate's
+        // Mulberry32, which is no reference's) while this one is compared on a distribution
+        // — so a reader who finds one figure under the record must read which id it is for.
+        "layout.random"
+        | "layout.circular.ring"
+        | "layout.spiral"
+        | "layout.bipartite"
+        | "layout.random.3d" => Some(("oracle-closed-form", Status::Implemented)),
         // Ponytail: `implemented`, not `gated`, and the reason is the oracle's own printed
         // resolution rather than a shortfall: `-Tplain` carries five significant digits, so
         // the twopi differential compares coordinates within a measured 7.1e-2 points (ceiling
@@ -208,9 +223,13 @@ pub(super) fn force_record(id: &str) -> Option<(&'static str, Status)> {
         // rings this row draws.
         //
         // `layout.spectral3d` and `layout.mds.pivot3d` stand on the same record for the same
-        // reason: they are SciGraphs' `SPECTRAL_3D` and `MDS_3D` rows of that gate, and
-        // `harness/oracle-spectral.py` pins only the 2D ids. They used to fall through to
-        // `roundtrip`, which has no hand oracle for them and records neither.
+        // reason: they are SciGraphs' `SPECTRAL_3D` and `MDS_3D` rows of that gate. They used
+        // to fall through to `roundtrip`, which has no hand oracle for them and records
+        // neither. `harness/oracle-spectral.py` now pins all four spectral ids, so they are
+        // also in `layout_row::SCIPY_ORACLE_LAYOUTS`; this arm is matched first and keeps
+        // them on the stronger record, because `scripts/scigraphs-conformance.sh` compares
+        // them byte for byte over the conformance fixtures and a row must not be moved onto a
+        // weaker claim just because a second differential exists.
         "layout.bipartite_3d" | "layout.spectral3d" | "layout.mds.pivot3d" => {
             Some(("scigraphs-conformance", Status::Implemented))
         }

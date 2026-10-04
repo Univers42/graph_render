@@ -159,6 +159,90 @@ every crossing of the block each time. The gate's own models top out at `n = 601
 row is well inside the ceiling; 10 000 nodes was not run and 1 000 000 was never a claim, which
 is what the registry's `Ponytail (scale_ceiling)` marker says.
 
+## 4b. After the Fenwick crossing count (2026-10-04)
+
+§4 named the cause as the crossing reduction: `reduce` (`blockpath.c:439-475`) tries two moves per
+incident edge per node, and each try called `count_all_crossings` (`blockpath.c:386-431`), which
+walks **every open edge for every closed one** — `O(E^2)` a count, and the same number
+independently of what the count is. The count is the ordinary chord-crossing number of the
+drawing, which reads off in `O(E log E)`: two chords cross exactly when their four endpoints
+interleave, so sweeping the positions with a Fenwick tree holding one counter per open edge,
+filed at the position it opened at, answers "how many open edges opened after this one" as a
+suffix sum. That is `crates/graph-core/src/layout/graphviz/circo/crossings.rs`; `pass` now calls
+it, and the reference's walk is kept beside it as a `#[cfg(test)]` oracle.
+
+Same command, same host, same `--release` build, and the sizes are named because `--n` defaults
+to `220,10000,100000`:
+
+```sh
+scripts/orch/gr cargo run -q --release -p graph-cli -- bench --layout layout.circular.circo \
+  --n 64,128,220,256,440,512,880,1000,1024,1760,2000,3520 --past-ceiling --repeat 3
+```
+
+Before, on this host (`target/bench-before.txt`, 5 min 14 s for the twelve sizes):
+
+| n | edges | time | per node |
+|---|---|---|---|
+| 64 | 97 | 1.73 ms | 27.0 us |
+| 128 | 198 | 6.41 ms | 50.1 us |
+| 220 | 329 | 27.46 ms | 124.8 us |
+| 256 | 390 | 93.83 ms | 366.5 us |
+| 440 | 676 | 532.32 ms | 1.21 ms |
+| 512 | 792 | 557.88 ms | 1.09 ms |
+| 880 | 1 356 | 4 537.13 ms | 5.16 ms |
+| 1 000 | 1 541 | 4 914.63 ms | 4.91 ms |
+| 1 024 | 1 579 | 4 734.33 ms | 4.62 ms |
+| 1 760 | 2 721 | 36 456.80 ms | 20.7 ms |
+| 2 000 | 3 075 | 32 695.63 ms | 16.3 ms |
+| 3 520 | 5 454 | 229 259.76 ms | 65.1 ms |
+
+After (`target/bench-after.txt`, 38 s for the same twelve):
+
+| n | edges | time | per node |
+|---|---|---|---|
+| 64 | 97 | 1.17 ms | 18.3 us |
+| 128 | 198 | 4.76 ms | 37.2 us |
+| 220 | 329 | 20.04 ms | 91.1 us |
+| 256 | 390 | 43.92 ms | 171.6 us |
+| 440 | 676 | 200.83 ms | 456 us |
+| 512 | 792 | 193.71 ms | 378 us |
+| 880 | 1 356 | 1 347.09 ms | 1.53 ms |
+| 1 000 | 1 541 | 1 249.17 ms | 1.25 ms |
+| 1 024 | 1 579 | 1 001.81 ms | 978 us |
+| 1 760 | 2 721 | 6 308.86 ms | 3.58 ms |
+| 2 000 | 3 075 | 5 340.31 ms | 2.67 ms |
+| 3 520 | 5 454 | 21 978.40 ms | 6.24 ms |
+
+**The growth per doubling drops from about 6.3x to about 3.5x** over the largest pair (1 760 ->
+3 520 edges: 2 721 -> 5 454), and the per-node cost at 3 520 falls from 65.1 ms to 6.24 ms, a
+10.4x. What the curve shows now is not the count: the count is `O(E log E)`, but `pass` still
+makes **4E** of them — two moves per incident edge per node — so a pass is `Theta(E^2 log E)` and
+that quadratic, four edges' worth of candidate recounts, is what is left to remove. The cubic of
+§4 is gone; a quadratic is not.
+
+**The drawings did not move.** The `stress-1` column is identical in both runs to all four
+decimals at every one of the twelve sizes, and seeds 0..=49 of the §3 model are byte-identical
+before and after (`target/circo-before/` against `target/circo-after/`, 50 of 50 identical), so
+every number in the after table is the same drawing measured faster.
+
+**What these numbers would support, and what is not claimed.** Per-node cost is now 1.25 ms at
+1 000 nodes and 6.24 ms at 3 520, both inside a frame budget's neighbourhood for a one-shot
+layout; the 1 000-node ceiling in `GRAPHVIZ_CIRCO_CEILING` was set from §4's per-node curve
+climbing about 5x per doubling, and the curve no longer climbs that way, so the ceiling is now a
+pessimism rather than a bound. **The registry entry is not touched here** — raising `scale_ceiling`
+is a separate decision with its own hash-gate and oracle evidence, and the numbers above are
+reported, not applied. The §3 1 000-seed sweep's 4.7 h is likewise **not re-measured**; nothing
+here claims a new figure for it.
+
+**One thing the change had to reproduce rather than fix.** The circle order can carry a node
+twice: `longest_path` reads its two halves off two leaves, so on a block whose thinned tree is a
+forest the branch node's best and runner-up leaf can be the same one, and `place_residual_nodes`
+then adds nothing because every node is already placed. Seed 68 of the invariant sweep is such a
+block — 44 nodes, an order of 45 — and there the walk closes a node's already-closed edges a
+second time and counts them again. The sweep reproduces that (`tests::crossings::
+a_node_carried_twice_is_counted_a_second_time`, and one case in four of the 2 000 random blocks
+carries a repeat) rather than tidying it away, because tidying it would change the output bytes.
+
 ## 5. The named cause: `qsort`'s tie order in the skeleton
 
 The gap is a **circle order**, not a radius, and the port's own instrumentation shows it:

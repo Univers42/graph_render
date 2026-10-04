@@ -242,10 +242,12 @@ export function scriptedClient(): MotorClient {
   return {
     catalog: () => Promise.resolve({ layouts: ["layout.forceatlas2", "layout.grid"], posts: [], analyses: [] }),
     load: () => Promise.resolve({ name: "scripted", nodeCount: 3, edgeCount: 2, notes: [], buildMs: 1 }),
-    layout: (layoutId, postId) => Promise.resolve({
-      layoutId, postId, postError: null, bytes: scriptBytes(), digest: null,
+    // The values are echoed back, as the motor does: the studio reads them off the run report.
+    layout: (layoutId, postId, params = {}) => Promise.resolve({
+      layoutId, postId, postError: null, params, bytes: scriptBytes(), digest: null,
       layoutMs: 1, postMs: 0, meta: SCRIPTED_META,
     }),
+    params: () => Promise.resolve([]),
     analysis: () => Promise.reject(new Error("the scripted motor measures nothing")),
     cancel: () => false,
     busy: () => false,
@@ -262,6 +264,7 @@ export function refusingClient(): MotorClient {
     catalog: () => never("open"),
     load: () => never("load"),
     layout: () => never("lay out"),
+    params: () => never("publish a schema"),
     analysis: () => never("analyse"),
     cancel: () => false,
     busy: () => false,

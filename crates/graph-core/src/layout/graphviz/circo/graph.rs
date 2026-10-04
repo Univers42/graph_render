@@ -77,6 +77,10 @@ pub(super) struct BlockGraph {
     pub(super) nodes: Vec<u32>,
     ends: Vec<(u32, u32)>,
     rows: Vec<Vec<u32>>,
+    /// `EDGEORDER`, zero = unset. **Only the reference's own walk still writes it**, which
+    /// is now a `#[cfg(test)]` function kept as the oracle for [`crate::layout::graphviz::circo::crossings::Counter`];
+    /// the sweep that replaced it needs no scratch on the graph at all, so this is gated with it.
+    #[cfg(test)]
     order: Vec<i32>,
 }
 
@@ -116,6 +120,7 @@ impl BlockGraph {
         }
         Self {
             nodes,
+            #[cfg(test)]
             order: vec![0; ends.len()],
             ends,
             rows,
@@ -167,16 +172,19 @@ impl BlockGraph {
     }
 
     /// `EDGEORDER(edge)`.
+    #[cfg(test)]
     pub(super) fn order(&self, edge: u32) -> i32 {
         self.order[edge as usize]
     }
 
     /// `EDGEORDER(edge) = value`.
+    #[cfg(test)]
     pub(super) fn set_order(&mut self, edge: u32, value: i32) {
         self.order[edge as usize] = value;
     }
 
     /// Clears every `EDGEORDER`, as `count_all_crossings` does before its sweep.
+    #[cfg(test)]
     pub(super) fn clear_orders(&mut self) {
         self.order.iter_mut().for_each(|slot| *slot = 0);
     }

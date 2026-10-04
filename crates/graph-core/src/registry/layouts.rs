@@ -41,10 +41,12 @@ use grid::{GRID, PACKING, SUGIYAMA};
 use hierarchy::{CIRCULAR, CIRCULAR_HIERARCHY, TIDY_TREE, TREEMAP};
 use radial::TWOPI;
 use spectral::{PIVOT_MDS, SPECTRAL};
-use three_d::{BIPARTITE_3D, CUBE, HELIX, HIERARCHICAL_3D, SPHERE, SPIRAL_3D, SPRING_3D};
+use three_d::{
+    BIPARTITE_3D, CUBE, HELIX, HIERARCHICAL_3D, RANDOM_3D_LAYOUT, SPHERE, SPIRAL_3D, SPRING_3D,
+};
 
 /// Every registered layout, in the order the hash gate runs them.
-pub static LAYOUTS: [Capability; 48] = [
+pub static LAYOUTS: [Capability; 50] = [
     Capability {
         id: Grid::ID,
         run: run_default::<Grid>,
@@ -289,8 +291,14 @@ pub static LAYOUTS: [Capability; 48] = [
     arms_3d::KAMADA_KAWAI_3D_LAYOUT,
     arms_3d::DRL_3D_LAYOUT,
     arms_3d::FA2_3D_LAYOUT,
+    // merge-p12-3d-oracles: the seeded 3D arm of the random family, the one row of p12-t4a
+    // that develop had no id for (`docs/decisions/3d-ids.md`).
+    RANDOM_3D_LAYOUT,
+    // merge-yifan-hu-octree: the 3D arm of yifan_hu, appended at the END so every existing
+    // index — and every 2D byte and force-session digest behind it — keeps its position.
+    arms_3d::YIFAN_HU_3D_LAYOUT,
     // ---- p13-gv3-dot-position: Graphviz's own layered engine, the last Graphviz family to be
-    // registered and the last entry here, by the append-only rule the header records.
+    // registered, appended after the 3D arms by the append-only rule the header records.
     Capability {
         id: dot::ID,
         run: dot::run,

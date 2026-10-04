@@ -17,12 +17,13 @@ scripts/orch/gr cargo run -q -p graph-cli -- oracle-graphviz --engine sfdp
 **This engine is seed-sensitive, and its own seed-to-seed spread is larger than the gap between
 our arm and its.** The oracle compared *against itself* at `-Gstart` 7 rather than 1 — same
 binary, same image, same 1000 fixtures, only the seed changed — disagrees by **4.81e+02 points**
-on the differential's own metric, while our arm's worst gap is **3.881e+02**. Our drawing is
+on the differential's own metric, while our arm's worst gap is **3.887e+02**. Our drawing is
 therefore *closer* to Graphviz's than Graphviz's own drawing at a different seed.
 
 | comparison | worst max abs coordinate gap (points), 1000 seeds |
 |---|---|
-| our arm vs Graphviz at `-Gstart=1` | 3.881e+02 |
+| our arm vs Graphviz at `-Gstart=1`, 2026-10-04 (`sg-sfdp-collapse`) | 3.887e+02 |
+| our arm vs Graphviz at `-Gstart=1`, 2026-10-01 (this table's first measurement) | 3.881e+02 |
 | **Graphviz vs itself, `-Gstart=1` vs `-Gstart=7`** | **4.809e+02** |
 | Graphviz vs itself, `-Gstart=1` vs `-Gstart=99` | 4.506e+02 |
 
@@ -30,8 +31,48 @@ That is not an excuse for a wide tolerance; it is the measurement that says **wh
 achievable**. The named cause is in the module's `Ponytail` note: the reference draws a random
 permutation to order its multilevel matchings and re-`srand`s between levels
 (`lib/sfdpgen/Multilevel.c`, via `gv_permutation`), so its layout is a function of a random
-permutation stream this port does not reproduce. Everything else *is* reproduced — including
-glibc's `rand()` itself, to the bit (below).
+permutation stream this port does not reproduce. The *solver* is reproduced — glibc's `rand()` to
+the bit (below), the cooled step, the absolute stop test, the exact all-pairs repulsion below 45
+nodes, and `prolongate` with its `interpolate_coord` pass. What is not reproduced is the
+**multilevel driver**, and there is a second, larger reason the gap cannot close:
+
+> **At its defaults `sfdp` never coarsens at all.** `sfdpinit.c:213` reads the `levels` graph
+> attribute with default `0`; `spring_electrical.c:56` comments that value *"if <=1, single
+> level"*; and `Multilevel_establish` returns at `grid->level >= ctrl.maxlevel - 1`
+> (`Multilevel.c:163`), which is `0 >= -1`. So the engine runs `spring_electrical_embedding` once
+> on the whole graph: no coarsening, no `prolongate`, no `K` decay, no `adaptive_cooling = false`.
+> This port always coarsens, down to `COARSEST_FLOOR = 8`.
+> `docs/measurements/sg-sfdp-collapse.md` carries the measured cost; `sg-sfdp-step` owns it.
+
+## The blind spot this ceiling cannot see
+
+**The 1e3 ceiling is a coordinate ceiling, and the failure that actually happened was not a
+coordinate failure.** On 2026-10-04 (`sg-sfdp-collapse`) the port's `lesmis` layout was found to
+be a **one-dimensional strip**: shape ratio 0.006 against Graphviz's 0.414, with 40 of the 77
+output points lying within `1e-6` of the drawing's own extent. After the repair the ratio is 0.271
+and the coincident pairs are 0 — and over the same 1000 differential seeds the worst coordinate
+gap moved from 3.881e+02 to 3.887e+02, i.e. **not at all**.
+
+Two consequences, both about what a ceiling is evidence *for*:
+
+1. **This differential cannot detect a collapsed layout.** A drawing squeezed onto a line is
+   *closer* to a reference that is also narrow, and a strip running the wrong way is a large gap
+   on an axis the metric does not weigh separately. The ceiling says the coordinates are within
+   1e3 points; it says nothing about whether the drawing is a layout.
+2. **No ceiling can be tightened on this row from this metric.** 3.887e+02 is 0.6% above the
+   previous 3.881e+02, and both are below Graphviz's own 4.809e+02 seed-to-seed spread, so a
+   smaller number would be a claim about luck rather than about agreement.
+
+The check that *does* see it is a property test, not a distance test, and that is where this
+ceiling's scope has to stop:
+
+| property | where | what it would have caught |
+|---|---|---|
+| shape ratio > 0.15 on the gallery graph and on a 10x10 lattice | `sfdp/contract.rs::{the_layout_spreads_on_lesmis, the_layout_spreads_on_a_ten_by_ten_grid}` | the strip |
+| no two output points within `1e-6` of the drawing's extent | `sfdp/shape.rs::assert_spread` | the 40 coincident pairs |
+| the reference's own arithmetic, to 1e-12, on a level small enough to sum by hand | `sfdp/contract.rs`, all six tests | defects a-e one at a time |
+
+Any future narrowing of this ceiling needs one of those to come with it.
 
 ## The differential
 
@@ -42,11 +83,12 @@ never against a second native run.
 
 | layout | cases | worst max abs coordinate gap (points) | ceiling |
 |---|---|---|---|
-| `layout.force.sfdp` | 1000 | 3.881e+02 | 1e3 |
+| `layout.force.sfdp` | 1000 | 3.887e+02 | 1e3 |
 
 The ceiling is 1e3, the next power of ten above the measured worst gap. It was **not** widened to
 make the row pass, and it was not narrowed to hide anything: the measurement above is the reason
-no smaller number is meaningful.
+no smaller number is meaningful. It was also **not** narrowed on 2026-10-04, when the repair moved
+the worst case from 3.881e+02 to 3.887e+02 — a change of 0.6%, which supports no ceiling at all.
 
 ## Determinism, measured before anything else
 

@@ -36,8 +36,29 @@ pub(super) const G_NO_ITERATIONS: Gap = Gap {
 };
 pub(super) const G_IGRAPH_SEED: Gap = Gap {
     parameter: "layout seed",
-    note: "unseedable on the reference side: `_reset_layout_rng` seeds numpy and the stdlib `random` (`common.py:53-62`), and igraph reads the C library's generator, which neither call reaches",
-    at: "SciGraphs/core/scigraphs_core/mesh/layouts/common.py:60",
+    // **The reference is seedable; reproducing its stream is what is forbidden.** An earlier
+    // version of this note claimed the opposite — that `_reset_layout_rng` seeds numpy and the
+    // stdlib `random` while igraph reads "the C library's generator", which neither call reaches.
+    // That is false for python-igraph: it installs the stdlib `random` module *as* igraph's RNG
+    // at import (`src/_igraph/random.c:295-325`, `igraphmodule_init_rng` →
+    // `igraph_rng_Python_set_generator(random_module)`), so `common.py:60`'s `random.seed(...)`
+    // does reseed igraph. Two full `--reference` runs over the same fixtures gave
+    // byte-identical files on all 64 rows, the igraph ones included, so the reference is
+    // reproducible. What remains is the licence: `docs/decisions/layouts-igraph.md` rule 4 says
+    // igraph's own RNG is never reproduced, so the motor keeps Mulberry32 and the two streams
+    // differ from the first draw on.
+    note: "the seed **is** passed on both sides (`common.py:60` seeds the stdlib `random`, which python-igraph installs as igraph's RNG at `src/_igraph/random.c:295-325`), and the reference is reproducible; the two streams are still different generators: graph-core draws from Mulberry32 and igraph from Mersenne Twister, and `docs/decisions/layouts-igraph.md` rule 4 forbids reproducing the latter",
+    at: "crates/graph-core/src/rng.rs:14",
+};
+pub(super) const G_IGRAPH_FIT: Gap = Gap {
+    parameter: "scale",
+    note: "the reference writes its own units until `_igraph_fit_positions` (`igraph_layouts.py:24-42`) centres every axis on its mean and scales the whole drawing so the largest magnitude over **all three** axes is `scale`; that step is SciGraphs' convention, not igraph's, so it lives in the motor arm (`conformance/motor/fit.rs`) and never inside a motor layout — five ids reach it, named in `FITTED`",
+    at: "crates/graph-cli/src/oracle_python/conformance/motor/fit.rs:35",
+};
+pub(super) const G_KK_NON_FINITE: Gap = Gap {
+    parameter: "iterations",
+    note: "**the reference returns infinities, this port does not.** python-igraph 0.11.9 returns three infinite coordinates out of nine from `layout_kamada_kawai(dim=3)` on the fixture `gate-01` (3 nodes, the path `1-0-2`, degrees 2, 1, 1) — in all six vertex orderings, and at `dim=2` the same graph is finite. SciGraphs passes no `seed=` for KK (`igraph_layouts.py:97-99`), so this is igraph's own 3-D start and not a start of ours, which is also why a 3-column start of our own would not reproduce it. It is not component count, not an isolated node and not degree: the graph is connected with those degrees, so the cause is the 3x3 Newton block going non-finite at three vertices. `_igraph_fit_positions` then turns those three infinities into all nine, because `extent` is `inf`, the factor is `0` and `inf * 0` is NaN, and SciGraphs' own `_check_positions` (`common.py:183`) then raises `IGRAPH_KK produced 9 non-finite coordinate(s)`, so the row reaches a reference on 23 of its 24 fixtures and the judge scores **1011** coordinates, the motor's 1020 less that fixture's 9. `layout.force.kamada_kawai.3d` returns a zero step rather than the division (`kamada_kawai/solve.rs:30`) and is finite there. Measured 2026-10-04, `scripts/scigraphs-conformance.sh`",
+    at: "crates/graph-core/src/layout/force/kamada_kawai/solve.rs:30",
 };
 // `G_FORCEATLAS2_SEED` is GONE as of job `sg-fa2-forcesim` (2026-10-03), and the const with
 // it: the row now runs `layout.forceatlas2.forcesim`, whose `seed` parameter *is* the integer

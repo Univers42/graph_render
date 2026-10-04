@@ -6,7 +6,7 @@
 //! module — same acceptance, same `JsonError::Syntax` offsets, same messages. The ingest
 //! reader validates with this instead of `parse` so no `Value` tree is ever built, and the
 //! two must therefore refuse the same bytes for the same reason at the same offset; the
-//! differential test in [`super::differential`] is what holds them to it.
+//! differential test in `super::differential` is what holds them to it.
 //!
 //! A string borrows the document unless it carries an escape, in which case it is built and
 //! owned ([`Text::Owned`]) — the common case costs no allocation at all, which is the whole

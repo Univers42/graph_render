@@ -5,70 +5,80 @@
 //! repulsive force on every node, gathers the attractive force along every edge, normalises
 //! each node's total force to unit length, and moves it by `step`.
 //!
-//! **Gather form (D10).** Node `i`'s displacement is computed entirely from the positions at
-//! the *start* of the iteration, so the result does not depend on the order nodes are updated
-//! in, and is bit-identical native vs wasm32. The reference moves each vertex as it goes,
-//! which makes its result sequential in the vertex loop; the same model with the dependency
-//! removed is what runs here.
+//! **Gather form (D10), and this is a deviation from the oracle.** [`Solve::relax`] gathers
+//! every node's total force from the positions at the *start* of the iteration — [`gather`](Solve::gather)
+//! reads `self.x` and writes only a scratch buffer — and only then moves every node, by the
+//! step **as it stands at that point** ([`advance`](Solve::advance)). The reference does the opposite: it
+//! normalises and moves vertex `i` inside the same loop that computes the next vertex's force
+//! (`spring_electrical.c:630-638`), so a node's move can depend on which nodes were moved
+//! before it.
 //!
-//! **Fixed-order reductions (D2).** `norm` is accumulated over nodes in dense index order and
+//! Before this repair the two were the same code with the opposite comment: the loop updated
+//! `self.x[i]` in place, exactly the reference's order, under a doc that claimed gather. The
+//! repair made the code match the doc — see `docs/decisions/sfdp-gather-form.md` for why the
+//! doc's claim was the thing to keep and what it costs against Graphviz's own output.
+//!
+//! **Fixed-order reductions (D2).** `Fnorm` is accumulated over nodes in dense index order and
 //! nothing iterates a hash map, so the sum is one specific order every run.
 
-use super::force::{self, MAX_ITER, STEP, TOL};
+use super::force::{self, MAX_ITER, QUADTREE_SIZE, STEP, TOL};
 use super::quadtree::Quadtree;
 use super::start;
+use crate::csr::Csr;
 
 /// The reference's first step size (`spring_electrical.c:58`, `ctrl.step = 0.1`).
 pub(super) const FIRST_STEP: f64 = STEP;
 
 /// The seeded random start: Graphviz's `x[i] = drand()` in dense index order
-/// (`spring_electrical.c:282-284`), from the glibc-compatible generator in [`start`].
+/// (`spring_electrical.c:282-284`), from the glibc-compatible generator in [`start`], and
+/// x and y interleaved per node — entry `i` consumes draws `2i` and `2i+1`.
+/// The random start from a generator the caller keeps, so that a later step can draw from the
+/// same stream: `count` entries, x and y interleaved per node.
 ///
-/// The x and y columns come out interleaved per node, so entry `i` consumes draws `2i` and
-/// `2i+1` of the stream — gather form (D10), and the reason a permutation of the node order
-/// would give a different drawing.
-pub(super) fn random_start(count: u32, seed: u32) -> (Vec<f64>, Vec<f64>) {
-    let positions = start::start_positions(count, seed);
+/// **The driver keeps the generator rather than a seed.** The reference draws its prolongation
+/// jitter from this same stream (`spring_electrical.c:1155`) and nothing re-seeds in between, so
+/// a port that reseeds per step lands its jitter somewhere else entirely.
+pub(super) fn random_start_from(rng: &mut start::Glibc, count: u32) -> (Vec<f64>, Vec<f64>) {
+    let positions = rng.positions(count);
     let x = positions.iter().map(|p| p[0]).collect();
     let y = positions.iter().map(|p| p[1]).collect();
     (x, y)
 }
 
-/// A solve over one level's graph: the positions, the edges, the ideal edge length `K`, and
-/// the force norm the last iteration ended on.
-pub(super) struct Solve<'a> {
+/// A solve over one level's graph: the positions, each node's neighbours, the ideal edge
+/// length `K`, and whether the step adapts to the force norm.
+pub(super) struct Solve {
     pub(super) x: Vec<f64>,
     pub(super) y: Vec<f64>,
-    pub(super) edges: &'a [(u32, u32)],
+    rows: Csr,
     k: f64,
-    norm: f64,
+    adaptive: bool,
 }
 
-impl<'a> Solve<'a> {
-    /// A solve over `edges`, positioned at `x`/`y`, with `K` taken from the mean edge length.
-    pub(super) fn new(x: Vec<f64>, y: Vec<f64>, edges: &'a [(u32, u32)]) -> Self {
+impl Solve {
+    /// The coarsest level: `K` is the mean edge length of the start, and the step adapts.
+    pub(super) fn new(x: Vec<f64>, y: Vec<f64>, edges: &[(u32, u32)]) -> Self {
         let k = force::average_edge_length(edges, &x, &y);
+        Self::with_k(x, y, edges, k).adaptive()
+    }
+
+    /// A finer level, at the `K` the driver carried down and without adaptive cooling: the
+    /// reference overwrites `ctrl->K` with the decayed value and switches the adaptive step off
+    /// below the coarsest level (`spring_electrical.c:1156-1159`).
+    pub(super) fn with_k(x: Vec<f64>, y: Vec<f64>, edges: &[(u32, u32)], k: f64) -> Self {
+        let rows = neighbours(x.len() as u32, edges);
         Self {
             x,
             y,
-            edges,
+            rows,
             k,
-            norm: f64::MAX,
+            adaptive: false,
         }
     }
 
-    /// A solve at an explicit `K`, which is what every level below the coarsest uses: the
-    /// driver carries the decayed `K` down rather than recomputing the mean at each level,
-    /// because the reference overwrites `ctrl->K` with the decayed value instead
-    /// (`spring_electrical.c:1159`).
-    pub(super) fn with_k(x: Vec<f64>, y: Vec<f64>, edges: &'a [(u32, u32)], k: f64) -> Self {
-        Self {
-            x,
-            y,
-            edges,
-            k,
-            norm: f64::MAX,
-        }
+    fn adaptive(mut self) -> Self {
+        self.adaptive = true;
+        self
     }
 
     /// The ideal edge length this level is solving at.
@@ -76,53 +86,77 @@ impl<'a> Solve<'a> {
         self.k
     }
 
-    /// Iterate until the step falls below `TOL / K` or `max_iter` is reached.
+    /// Iterate until the step falls to `TOL` or `max_iter` iterations have run
+    /// (`spring_electrical.c:567-650`, a do-while: at least one iteration runs).
     pub(super) fn relax(&mut self, step: f64, max_iter: u32) {
         let limit = if max_iter == 0 { MAX_ITER } else { max_iter };
-        let crk = force::crk(self.k);
-        let kp = force::kp(self.k);
-        // The first iteration has no previous norm to compare against; the reference seeds
-        // `Fnorm0` with 0, which makes the first step always cool, and so does this.
-        let mut current = step;
-        let mut iter = 0u32;
-        while current > TOL / self.k && iter < limit {
-            let previous = if iter == 0 { 0.0 } else { self.norm };
-            self.norm = 0.0;
-            let tree = Quadtree::of(&self.x, &self.y);
-            let count = self.x.len();
-            for i in 0..count {
-                let force = self.force_on(&tree, i as u32, kp, crk);
-                let length = f64::sqrt(force[0] * force[0] + force[1] * force[1]);
-                self.norm += length;
-                if length > 0.0 {
-                    let scale = step / length;
-                    self.x[i] += force[0] * scale;
-                    self.y[i] += force[1] * scale;
-                }
-            }
-            current = force::update_step(current, self.norm, previous);
+        let (crk, kp) = (force::crk(self.k), force::kp(self.k));
+        let mut forces = vec![[0.0f64; 2]; self.x.len()];
+        // The reference starts `Fnorm` at 0, so the first iteration always cools.
+        let (mut step, mut norm, mut iter) = (step, 0.0, 0u32);
+        loop {
+            self.gather(&mut forces, kp, crk);
+            let previous = norm;
+            norm = self.advance(&forces, step);
+            step = force::update_step(self.adaptive, step, norm, previous);
             iter += 1;
+            if step <= TOL || iter >= limit {
+                return;
+            }
         }
     }
 
-    /// The gathered total force on node `i`: repulsion from the tree, then attraction along
-    /// every edge `i` is an endpoint of.
-    fn force_on(&self, tree: &Quadtree, i: u32, kp: f64, crk: f64) -> [f64; 2] {
-        let mut out = [0.0f64; 2];
-        tree.repulsion(&mut out, &self.x, &self.y, i as usize, kp);
-        for &(a, b) in self.edges {
-            // The spring pulls `i` toward the *other* end. A self loop contributes nothing, and
-            // is skipped rather than adding a zero, which is what the reference's
-            // `if (ja[j] == i) continue` does.
-            match (a == i, b == i) {
-                (true, true) => continue,
-                (true, false) => force::attract(&mut out, i, b, &self.x, &self.y, crk),
-                (false, true) => force::attract(&mut out, i, a, &self.x, &self.y, crk),
-                (false, false) => continue,
+    /// Every node's total force from the positions at the start of the iteration: attraction
+    /// along its edges, then repulsion, exact below [`QUADTREE_SIZE`] nodes and through the
+    /// quadtree above it (`spring_electrical.c:543`).
+    fn gather(&self, forces: &mut [[f64; 2]], kp: f64, crk: f64) {
+        let tree = (self.x.len() >= QUADTREE_SIZE).then(|| Quadtree::of(&self.x, &self.y));
+        for (i, slot) in (0u32..).zip(forces.iter_mut()) {
+            let mut out = [0.0f64; 2];
+            for &j in self.rows.row(i) {
+                force::attract(&mut out, i, j, &self.x, &self.y, crk);
             }
+            let push = match &tree {
+                Some(tree) => tree.repulsion(i, kp),
+                None => self.all_pairs(i as usize, kp),
+            };
+            *slot = [out[0] + push[0], out[1] + push[1]];
+        }
+    }
+
+    /// The exact repulsion on node `i` from every other node.
+    fn all_pairs(&self, i: usize, kp: f64) -> [f64; 2] {
+        let mut out = [0.0f64; 2];
+        for j in (0..self.x.len()).filter(|&j| j != i) {
+            force::repel(&mut out, [self.x[i] - self.x[j], self.y[i] - self.y[j]], kp);
         }
         out
     }
+
+    /// Moves every node by `step` along its unit force, returning the sum of the force lengths
+    /// (`Fnorm`), accumulated in dense index order (D2).
+    fn advance(&mut self, forces: &[[f64; 2]], step: f64) -> f64 {
+        let mut norm = 0.0;
+        for (i, f) in forces.iter().enumerate() {
+            let length = f64::sqrt(f[0] * f[0] + f[1] * f[1]);
+            norm += length;
+            if length > 0.0 {
+                self.x[i] += step * (f[0] / length);
+                self.y[i] += step * (f[1] / length);
+            }
+        }
+        norm
+    }
+}
+
+/// Each node's neighbours, both directions of every edge, self loops dropped (the reference's
+/// `if (ja[j] == i) continue`).
+fn neighbours(count: u32, edges: &[(u32, u32)]) -> Csr {
+    let pairs = edges
+        .iter()
+        .filter(|&&(a, b)| a != b)
+        .flat_map(|&(a, b)| [(a, b), (b, a)]);
+    Csr::from_pairs(count, pairs).expect("an edge count fits u32")
 }
 
 #[cfg(test)]
@@ -191,15 +225,15 @@ mod tests {
 
     #[test]
     fn a_self_loop_contributes_no_force() {
-        let with = Solve::new(vec![0.0, 1.0], vec![0.0, 0.0], &[(0u32, 0u32)]);
-        let without = Solve::new(vec![0.0, 1.0], vec![0.0, 0.0], &[]);
-        let tree = Quadtree::of(&with.x, &with.y);
-        let a = with.force_on(&tree, 0, 1.0, 1.0);
-        let tree = Quadtree::of(&without.x, &without.y);
-        let b = without.force_on(&tree, 0, 1.0, 1.0);
+        let gathered = |edges: &[(u32, u32)]| {
+            let solve = Solve::new(vec![0.0, 1.0], vec![0.0, 0.0], edges);
+            let mut forces = vec![[0.0; 2]; 2];
+            solve.gather(&mut forces, 1.0, 1.0);
+            forces
+        };
         assert_eq!(
-            [a[0].to_bits(), a[1].to_bits()],
-            [b[0].to_bits(), b[1].to_bits()],
+            gathered(&[(0, 0)]),
+            gathered(&[]),
             "a self loop moved node 0"
         );
     }

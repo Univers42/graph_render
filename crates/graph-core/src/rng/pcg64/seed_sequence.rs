@@ -5,7 +5,7 @@
 //!
 //! Two passes, both integer-only (`bit_generator.pyx:341-450`):
 //!
-//! 1. **`mix_entropy`** fills a four-word pool — each entropy word through [`hashmix`],
+//! 1. **`mix_entropy`** fills a four-word pool — each entropy word through `hashmix`,
 //!    which advances a shared multiplier so word `i` depends on every word before it —
 //!    and then a full `4 x 4` sweep of [`mix`], so a late entropy bit reaches an early
 //!    pool word.

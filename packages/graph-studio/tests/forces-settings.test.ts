@@ -10,12 +10,14 @@ import { DEFAULT_KNOBS, type ForceKnobs } from "../src/motor/live.ts";
 import { readForces } from "../src/state/forces.ts";
 import { type SettingsStorage, recall, remember } from "../src/state/persist.ts";
 import { exportSettings, importSettings } from "../src/state/portable.ts";
-import { DEFAULT_SETTINGS, SettingsRefusal, withSettings } from "../src/state/settings.ts";
+import { SettingsRefusal, withSettings } from "../src/state/settings.ts";
 import { desk, refusingClient } from "./desk.ts";
 import { DRAWN } from "./drawn.ts";
 
 const SPREAD: ForceKnobs = { ...DEFAULT_KNOBS, collideRadius: 9, charge: -270, theta: 1.2 };
-const SPREAD_SETTINGS = withSettings(DEFAULT_SETTINGS, { forces: SPREAD });
+/** The drawn document's own settings, so importing one that differs only in its knobs plans no relayout. */
+const BASE = DRAWN.settings;
+const SPREAD_SETTINGS = withSettings(BASE, { forces: SPREAD });
 
 /** The exported document with its `forces` member taken out: what a studio before this one wrote. */
 function olderDocument(): string {
@@ -51,7 +53,7 @@ test("a member that is not a knob is refused, not dropped", () => {
 test("export then import keeps every knob, in one fixed order", () => {
   assert.deepEqual(importSettings(exportSettings(SPREAD_SETTINGS)).forces, SPREAD);
   const reordered = { ...Object.fromEntries(Object.entries(SPREAD).reverse()) };
-  const text = exportSettings(withSettings(DEFAULT_SETTINGS, { forces: readForces(reordered) }));
+  const text = exportSettings(withSettings(BASE, { forces: readForces(reordered) }));
   assert.equal(text, exportSettings(SPREAD_SETTINGS));
 });
 
@@ -59,7 +61,7 @@ test("the knobs are remembered per source with the rest of the settings", () => 
   const items = new Map<string, string>();
   const storage: SettingsStorage = { getItem: (key) => items.get(key) ?? null, setItem: (key, value) => void items.set(key, value) };
   remember(storage, SPREAD_SETTINGS);
-  assert.deepEqual(recall(storage, DEFAULT_SETTINGS.source)?.forces, SPREAD);
+  assert.deepEqual(recall(storage, BASE.source)?.forces, SPREAD);
 });
 
 test("settings.import writes the document's knobs into the studio, and an older one the defaults", async () => {

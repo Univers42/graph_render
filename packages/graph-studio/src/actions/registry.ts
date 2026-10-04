@@ -1,6 +1,6 @@
 /**
- * The one list of things the studio can do. The dock, the console, the shortcuts and a
- * host all go through `resolve`, so a value is read, checked and refused in one place.
+ * The one list of things the studio can do. The dock, the console, the shortcuts and a host all
+ * go through `resolve`, so a value is read, checked and refused in one place.
  */
 
 export type ArgValue = string | number | boolean;
@@ -40,6 +40,11 @@ export interface Action<State, Context> {
   readonly params: readonly ParamSpec<State>[];
   /** Why it cannot run now, or `null`. */
   readonly available?: (state: State) => string | null;
+  /**
+   * Why `args` do not hang together, or `null`: the one place a rule that needs two parameters
+   * at once is checked, so the dock's control and the typed line are refused alike.
+   */
+  readonly accept?: (args: Args, state: State) => string | null;
   readonly run: (context: Context, args: Args) => Promise<Outcome> | Outcome;
 }
 
@@ -73,6 +78,9 @@ const FLAGS: ReadonlyMap<string, boolean> = new Map([
   ["off", false], ["false", false], ["0", false], ["no", false],
 ]);
 
+/** The words a flag takes, on the console and anywhere else. Exported so one rule, not two. */
+export const FLAG_WORDS = FLAGS;
+
 function distance(a: string, b: string): number {
   let row = Array.from({ length: b.length + 1 }, (_, j) => j);
   for (let i = 1; i <= a.length; i += 1) {
@@ -100,7 +108,7 @@ export function matchChoice(input: string, choices: readonly string[]): string |
   return holding.length === 1 && holding[0] !== undefined ? holding[0] : holding;
 }
 
-function bad(name: string, message: string): ActionRefusal {
+export function bad(name: string, message: string): ActionRefusal {
   return new ActionRefusal("bad-value", `\`${name}\` ${message}`);
 }
 
@@ -194,7 +202,11 @@ export function createRegistry<State, Context>(actions: readonly Action<State, C
       // and "is not one of:" would hide the reason that matters.
       const reason = action.available?.(state) ?? null;
       if (reason !== null) throw new ActionRefusal("unavailable", `\`${action.alias}\` cannot run: ${reason}`);
-      return { action, args: argsFrom(action, raw, state) };
+      const args = argsFrom(action, raw, state);
+      // After the values, never before: a rule about two parameters needs both of them read.
+      const refused = action.accept?.(args, state) ?? null;
+      if (refused !== null) throw new ActionRefusal("bad-value", `\`${action.alias}\`: ${refused}`);
+      return { action, args };
     },
   };
 }

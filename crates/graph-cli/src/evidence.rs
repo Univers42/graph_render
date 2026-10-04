@@ -8,7 +8,7 @@
 //!
 //! A run is pinned to one tree from build to record: it takes a [`Stamp`] before it
 //! does anything, which refuses unless the tree is the one this binary was built from,
-//! and [`write`] refuses unless the tree is still that one. An edit at any point in
+//! and [`write()`] refuses unless the tree is still that one. An edit at any point in
 //! between leaves no record, never a record of one tree's results under another's name.
 //!
 //! A record that did not pass never replaces one that did ([`Outcome::Refused`), and only
@@ -130,7 +130,7 @@ pub fn record(stamp: &Stamp, name: &str, body: Value) -> Result<(), String> {
     handled(write(stamp, name, body))
 }
 
-/// [`write`]'s outcome as a caller reads it: the one shape every gate handles alike.
+/// [`write()`]'s outcome as a caller reads it: the one shape every gate handles alike.
 fn handled(outcome: Outcome) -> Result<(), String> {
     match outcome {
         Outcome::Recorded(_) => Ok(()),

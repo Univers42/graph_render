@@ -13,6 +13,8 @@
  *     CSP a host is asked for (verdict 13), and that CSP refuses inline styles.
  */
 import { HOST_API, type GraphStudioElement, type NodePreview, defineGraphStudio } from "../../packages/graph-studio/src/element.ts";
+import { type ReplayState, fresh, replay } from "./embedReplay.ts";
+import { columnsOf } from "./embedColumns.ts";
 
 const EVENTS = ["graph-load", "node-select", "node-open", "node-hover", "graph-error"] as const;
 const FIXTURE = "fixtures/force/clustered.json";
@@ -31,10 +33,12 @@ interface EmbedState {
   readonly heard: Heard[];
   /** Every id the element asked `resolve` about, in order. */
   readonly asked: string[];
-  /** How many events had been heard when the page called `loadGraph`; -1 before it did. */
+  /** How many events had been heard when the page called its load verb; -1 before it did. */
   loadCalledAt: number;
   /** `pending`, `loaded <nodes>`, `refused <error name>` or `failed <message>`. */
   state: string;
+  /** The Replay button's own account of `fixtures/embed/replay.jsonl` (`app/src/embedReplay.ts`). */
+  replay: ReplayState;
 }
 
 function deepFrozen(value: unknown): boolean {
@@ -88,25 +92,36 @@ async function fixture(): Promise<object> {
   return doc;
 }
 
+/** The page's Replay button: the host API's one verb, streamed from a file, on demand. */
+function wire(element: GraphStudioElement, button: HTMLElement, embed: EmbedState): void {
+  button.addEventListener("click", () => {
+    void replay(element, embed.replay);
+  });
+}
+
 async function main(embed: EmbedState): Promise<void> {
   const frame = document.getElementById("frame");
   const opened = document.getElementById("opened");
-  if (frame === null || opened === null) throw new Error("embed.html has lost its #frame or #opened");
+  const replayed = document.getElementById("replay");
+  if (frame === null || opened === null || replayed === null) {
+    throw new Error("embed.html has lost its #frame, its #opened or its #replay");
+  }
   listen(embed, opened);
   const element = studioIn(frame, embed);
   defineGraphStudio();
   await customElements.whenDefined("graph-studio");
   if (!isStudio(element)) throw new Error(`<graph-studio> does not speak host API ${HOST_API}`);
+  wire(element, replayed, embed);
   const doc = await fixture();
   embed.loadCalledAt = embed.heard.length;
   try {
-    embed.state = `loaded ${(await element.loadGraph(doc)).nodes}`;
+    embed.state = `loaded ${(await element.loadColumns(columnsOf(doc))).nodes}`;
   } catch (error) {
     embed.state = `refused ${error instanceof Error ? error.name : "a non-Error"}`;
   }
 }
 
-const embed: EmbedState = { heard: [], asked: [], loadCalledAt: -1, state: "pending" };
+const embed: EmbedState = { heard: [], asked: [], loadCalledAt: -1, state: "pending", replay: fresh() };
 Reflect.set(window, "__embed", embed);
 main(embed).catch((error: unknown) => {
   embed.state = `failed ${error instanceof Error ? error.message : "a non-Error"}`;

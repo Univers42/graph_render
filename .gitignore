@@ -32,3 +32,4 @@ verify/dist/
 .scratch/
 __pycache__/
 /tmp/
+/scratch/

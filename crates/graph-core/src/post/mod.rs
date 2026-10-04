@@ -15,7 +15,7 @@
 //! the geometry: the two bundlers, and [`separate`]. Routing ([`routed`]) and the four styles
 //! ([`styles`]) take their parameters explicitly and have no row here: their ledger rows are
 //! graph-cli's `capabilities/post.rs`, their ABI rows graph-wasm's `post.rs`.
-//! [`grid_index`] is routing's obstacle grid, not a capability. The matrix in [`tests`]
+//! [`grid_index`] is routing's obstacle grid, not a capability. The matrix in `tests`
 //! reads [`POSTS`], so it covers the bundlers and [`separate`].
 //!
 //! **One pass here moves nodes.** [`separate`] pushes node discs apart, which the contract

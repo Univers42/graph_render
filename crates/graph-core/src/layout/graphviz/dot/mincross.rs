@@ -10,8 +10,8 @@
 //!
 //! 1. [`class2`] — chain every edge that spans more than one rank, so an edge has a node on
 //!    every rank it crosses. The crossings are counted over these chains, not over the input
-//!    edges. (Already ported; see [`class2`](super::class2).)
-//! 2. [`decomp::decompose`] — the connected components, each with its own node order. The
+//!    edges. (Already ported; see [`class2`].)
+//! 2. [`decomp::decompose`](super::decomp::decompose) — the connected components, each with its own node order. The
 //!    pass runs per component, because a component's rows are the only rows its edges reach.
 //! 3. [`ranks::Ranks::allocate`] — one array per rank, sized for every node on it and every
 //!    edge crossing it.
@@ -24,7 +24,7 @@
 //! ## What the pass produces
 //!
 //! Every node — real or a chain dummy — carries its position within its rank in
-//! [`Node::order`], and the total number of crossings the order has is [`run`]'s return
+//! [`Node::order`](super::fast::Node::order), and the total number of crossings the order has is [`run`]'s return
 //! value. That count is a property of the *order*, so [`crossings::crossings`] recomputes it
 //! from the nodes rather than reading a cache: it is what the 1000-seed sweep compares.
 //!
@@ -64,7 +64,7 @@ use ranks::Ranks;
 /// Run the whole pass over a ranked graph, returning the number of crossings the order it
 /// leaves has.
 ///
-/// The graph must have been through [`rank`](super::rank): this pass reads the ranks and
+/// The graph must have been through [`rank`](mod@super::rank): this pass reads the ranks and
 /// builds the chains it works on, and both come from there.
 pub fn run(g: &mut Fast) -> i64 {
     class2::run(g);

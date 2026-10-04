@@ -58,6 +58,25 @@ export default [
       react: { version: "detect" },
     },
   },
+  // The SDK's `.mjs` files run under Node and name a handful of Node/web globals, none of
+  // which a bare `eslint <dir>` config knows about. The list is inline rather than the
+  // `globals` package because `globals` is not a direct dependency and eight names do not
+  // justify one; the ninth global a `.mjs` file needs is added to this list.
+  {
+    files: ["crates/graph-sdk-js/**/*.mjs"],
+    languageOptions: {
+      globals: {
+        Buffer: "readonly",
+        Response: "readonly",
+        TextEncoder: "readonly",
+        URL: "readonly",
+        WebAssembly: "readonly",
+        console: "readonly",
+        fetch: "readonly",
+        process: "readonly",
+      },
+    },
+  },
   {
     files: ["src/core/**/*.{ts,tsx}"],
     rules: {

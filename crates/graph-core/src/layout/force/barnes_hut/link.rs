@@ -103,7 +103,7 @@ pub(in crate::layout::force) fn pass_with(
 /// division of the edge, computed once per tick by [`LinkForces`].
 ///
 /// **Why the `l` below is divided by at all, and when it is zero.** `jiggle` no longer returns
-/// exactly `+0.0` — [`rng::jiggle_of`](crate::rng::jiggle_of) maps its one midpoint word
+/// exactly `+0.0` — `rng::jiggle_of` maps its one midpoint word
 /// away — so both `jiggle` branches in `force` install a non-zero axis and a fully coincident
 /// pair has `l > 0`. That is what item 1 of this repair buys, and
 /// `a_link_between_two_coincident_nodes_has_a_finite_force` tests it. The remaining way to

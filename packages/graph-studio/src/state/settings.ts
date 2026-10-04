@@ -7,18 +7,34 @@
  * drawing's, and a recipe that carried them would replay someone else's scrolling.
  */
 import { THEME_NAMES } from "../../../graph-render/src/look/themes.ts";
-import { MAX_DEGREE, MAX_NODES, SHAPES, type SyntheticShape } from "../source/synthetic.ts";
+import type { SyntheticShape } from "../source/synthetic.ts";
+import type { ColumnRowsLike } from "../source/synthetic-columns.ts";
 import { DEFAULT_KNOBS, type ForceKnobs } from "../motor/live.ts";
-import { forcesOf, readForces } from "./forces.ts";
-import { type Fields, SettingsRefusal, fieldsOf, flagOf, numberOf, oneOf, textOf, textOrNull, textsOf } from "./read.ts";
+import { forcesOf } from "./forces.ts";
+import { type ParamValue, type ParamsByLayout, type ParamValues, paramsOf, valuesOf } from "./paramValues.ts";
+import { SettingsRefusal } from "./read.ts";
 
 export { SettingsRefusal };
+export { readGroups, readSettings } from "./settingsRead.ts";
+export { type ColumnRowsLike } from "../source/synthetic-columns.ts";
+export { type ParamValue, type ParamsByLayout, type ParamValues };
 
 export type Source =
   | { readonly kind: "synthetic"; readonly seed: number; readonly nodes: number; readonly degree: number; readonly shape: SyntheticShape }
   | { readonly kind: "fixture"; readonly path: string }
   /** `host`: handed over by the page that embeds the studio, and never kept in its storage. */
-  | { readonly kind: "document"; readonly name: string; readonly text: string; readonly host?: true };
+  | { readonly kind: "document"; readonly name: string; readonly text: string; readonly host?: true }
+  /**
+   * `host`: the host's own columnar document (`docs/contract/ingest-columns.md`), assembled in the
+   * worker and never kept in the page's storage either.
+   *
+   * Caveat: the typed arrays reach the worker by structured clone — `Port.send` carries no
+   * transfer list — so while the load is in flight the page holds the columns *and* the worker's
+   * copy of them. At the 1M-node document of `docs/measurements/perf-open-columns.md` that is
+   * about 238 MB twice; transfer would detach the host's own arrays, which `Document.nodes` is
+   * then built from.
+   */
+  | { readonly kind: "columns"; readonly name: string; readonly rows: ColumnRowsLike; readonly host: true };
 
 export const THEMES: readonly string[] = THEME_NAMES;
 /**
@@ -97,6 +113,8 @@ export interface Settings {
   /** A POST pass over the layout's edges, or `null` for the edges as the layout drew them. */
   readonly edges: string | null;
   readonly analysis: string | null;
+  /** What each layout is run at. Not the schema: that is the motor's, read from the motor. */
+  readonly params: ParamsByLayout;
   readonly appearance: Appearance;
   /** Ordered; the first group a node matches is the group it is drawn in. */
   readonly groups: readonly Group[];
@@ -107,6 +125,7 @@ export interface Settings {
 
 function sourceOf(source: Source): Source {
   if (source.kind === "fixture") return Object.freeze({ kind: source.kind, path: source.path });
+  if (source.kind === "columns") return Object.freeze({ kind: source.kind, name: source.name, rows: source.rows, host: true });
   if (source.kind === "document") {
     const document = { kind: source.kind, name: source.name, text: source.text };
     return Object.freeze(source.host === true ? { ...document, host: true } : document);
@@ -146,12 +165,13 @@ export function groupsOf(groups: readonly Group[]): readonly Group[] {
 }
 
 /** Members in one fixed order, so two equal documents are equal as text. */
-function settingsOf(settings: Settings): Settings {
+export function settingsOf(settings: Settings): Settings {
   return Object.freeze({
     source: Object.isFrozen(settings.source) ? settings.source : sourceOf(settings.source),
     layout: settings.layout,
     edges: settings.edges,
     analysis: settings.analysis,
+    params: Object.isFrozen(settings.params) ? settings.params : paramsOf(settings.params),
     appearance: Object.isFrozen(settings.appearance) ? settings.appearance : appearanceOf(settings.appearance),
     groups: Object.isFrozen(settings.groups) ? settings.groups : groupsOf(settings.groups),
     filter: Object.isFrozen(settings.filter) ? settings.filter : filterOf(settings.filter),
@@ -171,6 +191,10 @@ export const DEFAULT_SETTINGS: Settings = settingsOf({
   layout: "layout.forceatlas2.barnes_hut",
   edges: null,
   analysis: null,
+  // Every layout at the motor's own defaults: the published defaults reproduce the registered
+  // run byte for byte, so an empty map and a map of defaults draw the same picture
+  // (docs/decisions/layout-params.md).
+  params: {},
   appearance: {
     theme: "dark", colourBy: "group", sizeBy: "weight", nodeScale: 1, labels: "auto",
     arrows: false, textFade: 0, linkThickness: 1, edgeStyle: "straight", edgeColour: "flat",
@@ -201,98 +225,32 @@ export function withGroups(settings: Settings, groups: readonly Group[]): Settin
   return settingsOf({ ...settings, groups: groupsOf(groups) });
 }
 
+/**
+ * What one layout is run at, with `values` merged into what it is already run at. A layout
+ * left with no values at all loses its entry, so a document says nothing about a layout that
+ * is run at the defaults and two equal drawings have equal bytes.
+ */
+export function withParams(settings: Settings, layoutId: string, values: ParamValues): Settings {
+  const held = valuesOf({ ...settings.params[layoutId], ...values });
+  const params = Object.keys(held).length === 0
+    ? withoutLayout(settings.params, layoutId)
+    : paramsOf({ ...settings.params, [layoutId]: held });
+  return settingsOf({ ...settings, params });
+}
+
+export function withoutParams(settings: Settings, layoutId: string): Settings {
+  return settingsOf({ ...settings, params: withoutLayout(settings.params, layoutId) });
+}
+
+/**
+ * What one layout is run at, with nothing of its own: the motor's defaults again. A fresh copy
+ * without it, because a document that names a layout at the defaults says nothing the reader
+ * needs, and this repository does not `delete` a computed key.
+ */
+function withoutLayout(params: ParamsByLayout, layoutId: string): ParamsByLayout {
+  return paramsOf(Object.fromEntries(Object.entries(params).filter(([held]) => held !== layoutId)));
+}
+
 export function sameSettings(a: Settings, b: Settings): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
-}
-
-function readSource(value: unknown, at: string): Source {
-  const kind = oneOf(fieldsOf(value, at, ["kind", "seed", "nodes", "degree", "shape", "path", "name", "text", "host"]), at, "kind", ["synthetic", "fixture", "document"]);
-  if (kind === "fixture") return { kind, path: textOf(fieldsOf(value, at, ["kind", "path"]), at, "path") };
-  if (kind === "document") {
-    const fields = fieldsOf(value, at, ["kind", "name", "text", "host"]);
-    const document = { kind, name: textOf(fields, at, "name"), text: textOf(fields, at, "text") };
-    return Reflect.get(fields, "host") === true ? { ...document, host: true } : document;
-  }
-  const fields = fieldsOf(value, at, ["kind", "seed", "nodes", "degree", "shape"]);
-  return {
-    kind,
-    seed: numberOf(fields, at, "seed", { min: 0, max: 4294967295, whole: true }),
-    nodes: numberOf(fields, at, "nodes", { min: 2, max: MAX_NODES, whole: true }),
-    degree: numberOf(fields, at, "degree", { min: 0, max: MAX_DEGREE, whole: true }),
-    shape: oneOf(fields, at, "shape", SHAPES),
-  };
-}
-
-function readAppearance(value: unknown, at: string): Appearance {
-  const fields = fieldsOf(value, at, [
-    "theme", "colourBy", "sizeBy", "nodeScale", "labels", "arrows", "textFade", "linkThickness", "edgeStyle", "edgeColour",
-    "glow", "glowStrength", "background", "minRadius", "maxRadius",
-  ]);
-  return {
-    theme: oneOf(fields, at, "theme", THEMES),
-    colourBy: oneOf(fields, at, "colourBy", COLOUR_BY),
-    sizeBy: oneOf(fields, at, "sizeBy", SIZE_BY),
-    nodeScale: numberOf(fields, at, "nodeScale", NODE_SCALE),
-    labels: oneOf(fields, at, "labels", LABEL_MODES),
-    arrows: flagOf(fields, at, "arrows"),
-    textFade: numberOf(fields, at, "textFade", TEXT_FADE),
-    linkThickness: numberOf(fields, at, "linkThickness", LINK_THICKNESS),
-    edgeStyle: oneOf(fields, at, "edgeStyle", EDGE_STYLES),
-    edgeColour: oneOf(fields, at, "edgeColour", EDGE_COLOURS),
-    glow: flagOf(fields, at, "glow"),
-    glowStrength: numberOf(fields, at, "glowStrength", GLOW_STRENGTH),
-    background: oneOf(fields, at, "background", BACKGROUNDS),
-    ...readRadii(fields, at),
-  };
-}
-
-function readRadii(fields: Fields, at: string): Pick<Appearance, "minRadius" | "maxRadius"> {
-  const minRadius = numberOf(fields, at, "minRadius", NODE_PX);
-  const maxRadius = numberOf(fields, at, "maxRadius", NODE_PX);
-  if (minRadius > maxRadius) throw new SettingsRefusal(`${at}.minRadius`, `above maxRadius (${maxRadius})`);
-  return { minRadius, maxRadius };
-}
-
-function readFilter(value: unknown, at: string): Filter {
-  const fields = fieldsOf(value, at, [
-    "query", "text", "hiddenKinds", "hiddenGroups", "orphans", "existingOnly", "minDegree", "relayout",
-  ]);
-  return {
-    query: textOf(fields, at, "query"),
-    text: textOf(fields, at, "text"),
-    hiddenKinds: textsOf(fields, at, "hiddenKinds"),
-    hiddenGroups: textsOf(fields, at, "hiddenGroups"),
-    orphans: flagOf(fields, at, "orphans"),
-    existingOnly: flagOf(fields, at, "existingOnly"),
-    minDegree: numberOf(fields, at, "minDegree", { min: 0, max: 4294967295, whole: true }),
-    relayout: flagOf(fields, at, "relayout"),
-  };
-}
-
-function readGroup(value: unknown, at: string): Group {
-  const fields = fieldsOf(value, at, ["name", "query", "colour"]);
-  return { name: textOf(fields, at, "name"), query: textOf(fields, at, "query"), colour: textOf(fields, at, "colour") };
-}
-
-/** The document's own list of groups, in the order the document gave them. */
-export function readGroups(value: unknown, at = "settings.groups"): readonly Group[] {
-  if (!Array.isArray(value)) throw new SettingsRefusal(at, "not a list");
-  return groupsOf(value.map((group, i) => readGroup(group, `${at}[${i}]`)));
-}
-
-/** Settings from outside the studio, or a refusal naming the member that was wrong. */
-export function readSettings(value: unknown, at = "settings"): Settings {
-  const fields: Fields = fieldsOf(value, at, [
-    "source", "layout", "edges", "analysis", "appearance", "groups", "filter", "forces",
-  ]);
-  return settingsOf({
-    source: readSource(fields["source"], `${at}.source`),
-    layout: textOf(fields, at, "layout"),
-    edges: textOrNull(fields, at, "edges"),
-    analysis: textOrNull(fields, at, "analysis"),
-    appearance: readAppearance(fields["appearance"], `${at}.appearance`),
-    groups: readGroups(fields["groups"], `${at}.groups`),
-    filter: readFilter(fields["filter"], `${at}.filter`),
-    forces: readForces(fields["forces"], `${at}.forces`),
-  });
 }

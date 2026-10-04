@@ -5,7 +5,7 @@ import { test } from "node:test";
 
 import {
   COLOUR_BY, DEFAULT_SETTINGS, type Group, SettingsRefusal, readSettings, sameSettings, withAppearance, withFilter,
-  withGroups, withSettings,
+  withGroups, withParams, withSettings, withoutParams,
 } from "../src/state/settings.ts";
 
 const NOTHING_FILTER = {
@@ -153,3 +153,46 @@ for (const [name, groups, message] of BAD_GROUPS) {
     );
   });
 }
+
+const PARAMS = { "layout.force.graphopt": { niter: 3, spring_length: 1.5 }, "layout.grid": { spacing: 12 } };
+
+test("what each layout is run at is one member, frozen like the rest", () => {
+  const settings = withParams(DEFAULT_SETTINGS, "layout.force.graphopt", { niter: 3 });
+  assert.deepEqual(settings.params, { "layout.force.graphopt": { niter: 3 } });
+  assert.ok(Object.isFrozen(settings.params), "the map is frozen");
+  assert.ok(Object.isFrozen(settings.params["layout.force.graphopt"]), "and so is a layout's own values");
+});
+
+test("values merge into what a layout is already run at, and a layout with none loses its entry", () => {
+  const held = withParams(DEFAULT_SETTINGS, "layout.force.graphopt", { niter: 3, seed: 7 });
+  assert.deepEqual(held.params["layout.force.graphopt"], { niter: 3, seed: 7 });
+  const fewer = withParams(held, "layout.force.graphopt", { niter: 4 });
+  assert.deepEqual(fewer.params["layout.force.graphopt"], { niter: 4, seed: 7 });
+  assert.deepEqual(withoutParams(fewer, "layout.force.graphopt").params, {});
+});
+
+test("the values of every layout survive a document round trip", () => {
+  assert.deepEqual(readSettings(withParams(DEFAULT_SETTINGS, "layout.grid", { spacing: 12 })).params, { "layout.grid": { spacing: 12 } });
+  assert.deepEqual(readSettings({ ...DEFAULT_SETTINGS, params: PARAMS }).params, PARAMS);
+});
+
+const BAD_PARAMS: readonly (readonly [string, unknown, RegExp])[] = [
+  ["params that are not an object", [], /settings\.params: not an object/],
+  ["a layout's values that are not an object", { "layout.grid": 3 }, /settings\.params\["layout\.grid"\]: not an object/],
+  ["a value that is text", { "layout.grid": { spacing: "wide" } }, /settings\.params\["layout\.grid"\]\.spacing/],
+  ["a value that is not finite", { "layout.grid": { spacing: null } }, /settings\.params\["layout\.grid"\]\.spacing/],
+];
+
+for (const [name, params, message] of BAD_PARAMS) {
+  test(`${name} is refused`, () => {
+    assert.throws(
+      () => readSettings({ ...DEFAULT_SETTINGS, params }),
+      (error: unknown) => error instanceof SettingsRefusal && message.test(error.message),
+    );
+  });
+}
+
+test("a bool is a value the document holds, and a number beside it", () => {
+  const params = { "layout.packing.circle": { iterations: 3, scale: 1.5 } };
+  assert.deepEqual(readSettings({ ...DEFAULT_SETTINGS, params }).params, params);
+});

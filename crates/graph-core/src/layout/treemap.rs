@@ -11,8 +11,8 @@
 //! d3.treemap().tile(d3.treemapSquarify).size([1, 1])(root); // no padding, no round
 //! ```
 //!
-//! `clampWeight` is [`clamp_weight`]: a real node's own value is its topology weight, or
-//! [`WEIGHT_EPSILON`] when non-positive or non-finite; the virtual root (never a real
+//! `clampWeight` is `clamp_weight`: a real node's own value is its topology weight, or
+//! `WEIGHT_EPSILON` when non-positive or non-finite; the virtual root (never a real
 //! node) contributes `0`. `sum` totals own **and** children (`hierarchy/sum.js`), added
 //! last-child-first in `f64` so a future oracle matches bit for bit. `sort` is stable, so
 //! with children already ascending dense index, sorting only by descending value
@@ -22,7 +22,7 @@
 //! is centre and size — converted once, at the very end, cast to `f32` only then
 //! (`to_geometry`).
 //!
-//! Ponytail: a non-positive or non-finite weight clamps to [`WEIGHT_EPSILON`]
+//! Ponytail: a non-positive or non-finite weight clamps to `WEIGHT_EPSILON`
 //! (`clamp_weight`) rather than vanishing or handing squarify a zero/NaN value — the
 //! oracle applies the identical clamp. Direction: cosmetic under-representation (a
 //! hairline, never a wrong containment); escape hatch: fix the weight upstream.

@@ -19,7 +19,6 @@ import { dirname, join } from "node:path";
 import {
   AbiContractError,
   AllocationFailedError,
-  BuildRefusedError,
   ForceSessionRefusedError,
   InvalidHandleError,
   InvalidSessionError,

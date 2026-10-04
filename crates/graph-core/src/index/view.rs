@@ -144,8 +144,8 @@ impl Topology {
     /// # Precondition
     ///
     /// `node < self.node_count()` — the rows are read by index, so an out-of-range `node`
-    /// panics inside [`Csr::row`] rather than answering an empty adjacency; see
-    /// [`node`](Self::node). Both rows ascending, which [`Csr::from_pairs`] does not
+    /// panics inside [`Csr::row`](crate::csr::Csr::row) rather than answering an empty adjacency; see
+    /// [`node`](Self::node). Both rows ascending, which [`Csr::from_pairs`](crate::csr::Csr::from_pairs) does not
     /// promise and [`Incident::merge`] asserts in a debug build.
     pub fn incident(&self, node: u32) -> Incident<'_> {
         Incident::merge(self.out.row(node), self.inbound.row(node))

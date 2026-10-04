@@ -14,7 +14,7 @@ use graph_contract::geometry::{EdgeGeometryKind, NodeGeometryKind};
 /// The same refusal `super::DEGRADATION` states, written for this layout alone.
 ///
 /// **Not `super::DEGRADATION`, and the reason is blast radius rather than wording.** That
-/// string is the `degradation` field of five other rows, and the repair-job rule is to edit
+/// string is the `degradation` field of six other rows, and the repair-job rule is to edit
 /// only your own row's lines; rewording a shared constant to change its count from five to
 /// six would move five other capabilities' published metadata to say one word more about a
 /// layout that did not change. One string, restated, beats that.
