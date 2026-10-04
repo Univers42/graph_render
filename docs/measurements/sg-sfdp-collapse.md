@@ -249,11 +249,37 @@ it — which is the finding this job exists to record.
 | `scripts/orch/gr cargo clippy --workspace --all-targets -- -D warnings` | 0 |
 | `scripts/orch/gr cargo run -q -p graph-cli -- oracle-graphviz --engine sfdp` | 0 |
 | `scripts/scigraphs-conformance.sh` (re-pinned) | 0 |
-| `scripts/orch/gate.sh target/gate-job target/wf/sg-sfdp-collapse.rows` | see `target/gate-job/summary.txt` |
+| `scripts/orch/gate.sh target/gate-job target/wf/sg-sfdp-collapse.rows` | **0** |
+
+### The gate, `target/gate-job/summary.txt`
 
 `hashgate --seeds 8` reporting `layout.force.sfdp: 4-way equal on 8/8 seeds` is the D10 check for
 this job: two native and two wasm32 arms agree bit for bit, which is what
 `docs/decisions/sfdp-gather-form.md` claims and the only reason that claim is checkable.
+
+```
+PASS fmt                    exit=0   expect=0       1s
+PASS clippy                 exit=0   expect=0       0s
+PASS test                   exit=0   expect=0       1212s
+PASS wasm32-core            exit=0   expect=0       0s
+PASS hashgate-8             exit=0   expect=0       22s
+PASS negctl-degree          exit=0   expect=0       17s
+PASS negctl-dim-z-mismatch  exit=0   expect=0       2s
+PASS force-gate-4           exit=0   expect=0       2s
+PASS negctl-force-gravity   exit=0   expect=0       1s
+PASS scigraphs-conformance  exit=0   expect=0       149s
+PASS negctl-scigraphs-conformance exit=0   expect=0       152s
+PASS sfdp-emit-1000         exit=0   expect=0       55s
+PASS sfdp-oracle-1000       exit=0   expect=0       82s
+PASS sfdp-check-1000        exit=0   expect=0       2s
+PASS sfdp-check-negctl      exit=2   expect=nonzero 1s
+GATE EXIT=0
+```
+
+`scigraphs-conformance` is the re-pinned `GRAPHVIZ_SFDP` (exit 0). `negctl-scigraphs-conformance`
+is `--break`, which exits 1 **and names `SPRING_3D`** in the judge's own log — the control a judge
+that passed everything would fail. `sfdp-check-1000` is the p13 oracle at 1000 seeds against the
+1e3 ceiling.
 
 ### One measurement was voided by its own tree, and is worth writing down
 

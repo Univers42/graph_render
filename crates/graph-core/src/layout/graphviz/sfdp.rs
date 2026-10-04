@@ -181,23 +181,7 @@ fn symmetrised(topology: &Topology) -> Vec<(u32, u32)> {
 /// Coarsening stops at `COARSEST_FLOOR` nodes or when a level makes no progress, so the loop
 /// terminates for any input.
 fn layout(edges: &[(u32, u32)], count: u32, seed: u32) -> (Vec<f64>, Vec<f64>) {
-    let mut coarse = edges.to_vec();
-    let mut coarse_count = count;
-    // One entry per level above the finest, coarsest last. A level's node ids are its own
-    // dense ids, so each level is relaxed against its own edge list.
-    let mut levels: Vec<Step> = Vec::new();
-    while coarse_count > COARSEST_FLOOR {
-        let next = multilevel::coarsen(coarse_count, &coarse);
-        if next.coarse >= coarse_count {
-            break;
-        }
-        let above = multilevel::coarse_edges(&next, &coarse);
-        coarse_count = next.coarse;
-        levels.push(Step {
-            level: next,
-            edges: std::mem::replace(&mut coarse, above),
-        });
-    }
+    let (levels, coarse, coarse_count) = coarsen_levels(edges, count);
     // The random start covers the coarsest level only (`xc` in `spring_electrical.c:1108`). On
     // 2026-10-01 it covered every fine node, so the coarsest solve carried the surplus as
     // phantom nodes with no edges.
@@ -226,6 +210,28 @@ fn layout(edges: &[(u32, u32)], count: u32, seed: u32) -> (Vec<f64>, Vec<f64>) {
         solve = next;
     }
     (solve.x, solve.y)
+}
+
+/// The levels above the finest, coarsest last, with the coarsest level's edges and node count.
+///
+/// A level's node ids are its own dense ids, so each level is relaxed against its own edge list.
+fn coarsen_levels(edges: &[(u32, u32)], count: u32) -> (Vec<Step>, Vec<(u32, u32)>, u32) {
+    let mut coarse = edges.to_vec();
+    let mut coarse_count = count;
+    let mut levels: Vec<Step> = Vec::new();
+    while coarse_count > COARSEST_FLOOR {
+        let next = multilevel::coarsen(coarse_count, &coarse);
+        if next.coarse >= coarse_count {
+            break;
+        }
+        let above = multilevel::coarse_edges(&next, &coarse);
+        coarse_count = next.coarse;
+        levels.push(Step {
+            level: next,
+            edges: std::mem::replace(&mut coarse, above),
+        });
+    }
+    (levels, coarse, coarse_count)
 }
 
 /// The coarsest level's random start: `dim·n` draws from the one `srand`-seeded stream, x and y
