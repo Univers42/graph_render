@@ -87,7 +87,7 @@ eigen-determinism|0|scripts/orch/gr cargo test -p graph-core eigen_determinism
 stress-d3|0|scripts/orch/gr cargo run -q -p graph-cli -- stress --oracle d3
 bench|0|scripts/orch/gr cargo run -q -p graph-cli -- bench --n 220,10000,100000
 emit-spectral-1000|0|scripts/orch/gr cargo run -q -p graph-cli -- emit-spectral-fixtures --seeds 1000
-oracle-spectral-py|0|scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-python-oracle python3 harness/oracle-spectral.py target/spectral-fixtures
+oracle-spectral-py|0|scripts/orch/drun --rm --pull never --user 0:0 -v "$PWD:/w" -w /w ge-python-oracle python3 harness/oracle-spectral.py /w/SciGraphs/core target/spectral-fixtures
 oracle-spectral|0|scripts/orch/gr cargo run -q -p graph-cli -- oracle-spectral
 bench-spectral|0|scripts/orch/gr cargo run -q -p graph-cli -- bench --layout layout.spectral --n 220,10000,100000
 bench-mds|0|scripts/orch/gr cargo run -q -p graph-cli -- bench --layout layout.mds.pivot --n 220,10000,100000
