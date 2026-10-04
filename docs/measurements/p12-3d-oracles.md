@@ -28,7 +28,7 @@ scripts/orch/gr cargo run -q --release -p graph-cli -- oracle-closed-form
 | `layout.bipartite_3d` | **1.192e-7** | 1e-6 | SciGraphs `_bipartite_layout_3d(G, 5.0)` (`hierarchical.py:213`) |
 
 The first three rows are `docs/measurements/closed-form-oracle.md`'s, re-run here and
-unchanged: the ceilings are declared at `oracle_python/closed_form.rs:31-33` and the
+unchanged: the ceilings are declared at `oracle_python/closed_form.rs:45` and `:62`, `:81`, and the
 three 3-D rows at `:34-36`.
 
 ## `oracle-spectral`
@@ -50,8 +50,8 @@ scripts/orch/gr cargo run -q --release -p graph-cli -- oracle-spectral
 The `degenerate` column is the harness's own: seeds whose eigenspace is degenerate inside
 the reference's span are counted, not compared (`harness/oracle-spectral.py:23`, `:276`).
 `layout.spectral3d`'s ceiling is the only one that moved, and it is `CEILING_SPECTRAL_3D`
-(`oracle_python/spectral.rs:45`) — one power of ten above the 2-D arm's 1e-5. `layout.mds.pivot3d`
-keeps 1e-7 because it measured as its 2-D sibling (`spectral.rs:36`).
+(`oracle_python/spectral.rs:46`) — one power of ten above the 2-D arm's 1e-5. `layout.mds.pivot3d`
+keeps 1e-7 because it measured as its 2-D sibling (`spectral.rs:35`).
 
 ## Why the two 3-D closed-form rows take 1e-6 and not the 1e-7 their 2-D siblings take
 
@@ -169,7 +169,7 @@ would move every snapshot after it.
 `registry/three_d.rs:125`). That figure is **inherited** for this id, and its own `ponytail`
 field says so (`random3d.rs:70-95`): it is the seventh row under that constant and the only
 one with neither a `bench` timing at 1 000 000 nodes nor a memory arm. The constant's own
-comment records that six of the seven have one or both (`registry/three_d.rs:85-87`).
+comment records that six of the seven have one or both (`registry/three_d.rs:85-86`).
 
 ## Reproducing
 
