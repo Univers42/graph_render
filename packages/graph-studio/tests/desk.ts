@@ -98,6 +98,18 @@ function pinFace(seen: Seen, pins: number[]): Pick<ViewFace, "pinned" | "toggleP
   };
 }
 
+/** `selectMany` tells the selection's listeners, as the real view does, so a host event can follow it. */
+function selectionFace(seen: Seen, handlers: Handlers): Pick<ViewFace, "select" | "selectMany"> {
+  return {
+    select: (node) => void seen.calls.push(`select ${node}`),
+    selectMany: (nodes) => {
+      seen.calls.push(`selectMany ${nodes.join(",")}`);
+      for (const handler of handlers.select) handler(nodes.at(-1) ?? -1);
+      for (const handler of handlers.selection) handler(nodes);
+    },
+  };
+}
+
 function recordingView(seen: Seen, handlers: Handlers): ViewFace {
   const pins: number[] = [];
   return {
@@ -115,7 +127,7 @@ function recordingView(seen: Seen, handlers: Handlers): ViewFace {
     panBy: (delta) => void seen.calls.push(`panBy ${delta.x} ${delta.y}`),
     limits: () => ({ min: 0.02, max: 40 }),
     focus: (node) => void seen.calls.push(`focus ${node}`),
-    select: (node) => void seen.calls.push(`select ${node}`),
+    ...selectionFace(seen, handlers),
     ...pinFace(seen, pins),
     local: (node, options) => {
       seen.calls.push(`local ${node} ${JSON.stringify(options)}`);
@@ -230,10 +242,12 @@ export function scriptedClient(): MotorClient {
   return {
     catalog: () => Promise.resolve({ layouts: ["layout.forceatlas2", "layout.grid"], posts: [], analyses: [] }),
     load: () => Promise.resolve({ name: "scripted", nodeCount: 3, edgeCount: 2, notes: [], buildMs: 1 }),
-    layout: (layoutId, postId) => Promise.resolve({
-      layoutId, postId, postError: null, bytes: scriptBytes(), digest: null,
+    // The values are echoed back, as the motor does: the studio reads them off the run report.
+    layout: (layoutId, postId, params = {}) => Promise.resolve({
+      layoutId, postId, postError: null, params, bytes: scriptBytes(), digest: null,
       layoutMs: 1, postMs: 0, meta: SCRIPTED_META,
     }),
+    params: () => Promise.resolve([]),
     analysis: () => Promise.reject(new Error("the scripted motor measures nothing")),
     cancel: () => false,
     busy: () => false,
@@ -250,6 +264,7 @@ export function refusingClient(): MotorClient {
     catalog: () => never("open"),
     load: () => never("load"),
     layout: () => never("lay out"),
+    params: () => never("publish a schema"),
     analysis: () => never("analyse"),
     cancel: () => false,
     busy: () => false,

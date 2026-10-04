@@ -92,10 +92,27 @@ impl NodeColumns {
     }
 
     /// Bytes held by the columns' elements (not their spare capacity).
+    ///
+    /// Each column is counted by **its own** length, not by `id.len()`: a build that dies
+    /// between two pushes leaves the set ragged, and a total derived from `id` alone
+    /// would report the memory of a column set that does not exist.
     pub fn byte_len(&self) -> usize {
-        let n = self.id.len();
-        n * (6 * size_of::<Interned>() + size_of::<NodeKind>() + 2 * size_of::<f64>())
-            + n * (size_of::<bool>() + 2 * size_of::<u32>())
+        [
+            self.id.len() * size_of::<Interned>(),
+            self.kind.len() * size_of::<NodeKind>(),
+            self.database.len() * size_of::<Option<Interned>>(),
+            self.source.len() * size_of::<Interned>(),
+            self.label.len() * size_of::<Interned>(),
+            self.group_label.len() * size_of::<Option<Interned>>(),
+            self.weight.len() * size_of::<f64>(),
+            self.version.len() * size_of::<f64>(),
+            self.has_note.len() * size_of::<bool>(),
+            self.icon.len() * size_of::<Option<Interned>>(),
+            self.group.len() * size_of::<u32>(),
+            self.degree.len() * size_of::<u32>(),
+        ]
+        .into_iter()
+        .sum()
     }
 }
 
@@ -138,11 +155,22 @@ impl EdgeColumns {
         }
     }
 
-    /// Bytes held by the columns' elements (not their spare capacity).
+    /// Bytes held by the columns' elements (not their spare capacity). Each column by its
+    /// own length, as [`NodeColumns::byte_len`].
     pub fn byte_len(&self) -> usize {
-        let m = self.id.len();
-        m * (3 * size_of::<Interned>() + 2 * size_of::<u32>() + size_of::<EdgeKind>())
-            + m * (size_of::<f64>() + 2 * size_of::<bool>())
+        [
+            self.id.len() * size_of::<Interned>(),
+            self.source.len() * size_of::<u32>(),
+            self.target.len() * size_of::<u32>(),
+            self.kind.len() * size_of::<EdgeKind>(),
+            self.label.len() * size_of::<Interned>(),
+            self.strength.len() * size_of::<f64>(),
+            self.directed.len() * size_of::<bool>(),
+            self.record_id.len() * size_of::<Option<Interned>>(),
+            self.child_first.len() * size_of::<bool>(),
+        ]
+        .into_iter()
+        .sum()
     }
 }
 
@@ -197,19 +225,47 @@ mod tests {
         assert!(caps.iter().all(|&c| c >= 9), "{caps:?}");
     }
 
+    fn handle() -> Interned {
+        crate::arena::StringArena::default()
+            .intern("a")
+            .expect("fits")
+    }
+
     #[test]
-    fn byte_len_counts_one_element_of_every_column() {
-        let mut nodes = NodeColumns::with_capacity(4);
+    fn node_byte_len_counts_each_column_by_its_own_length() {
+        let (mut nodes, h) = (NodeColumns::with_capacity(4), handle());
         assert_eq!(nodes.byte_len(), 0);
-        nodes.id.push(
-            crate::arena::StringArena::default()
-                .intern("a")
-                .expect("fits"),
-        );
+        nodes.id.push(h);
+        assert_eq!(nodes.byte_len(), 4, "one handle, eleven empty columns");
+        nodes.source.push(h);
+        nodes.label.push(h);
+        nodes.kind.push(NodeKind::Note);
+        nodes.database.push(None);
+        nodes.group_label.push(None);
+        nodes.icon.push(None);
+        nodes.weight.push(0.5);
+        nodes.version.push(0.0);
+        nodes.has_note.push(true);
+        nodes.group.push(0);
+        nodes.degree.push(0);
         // 6 handles × 4 + kind 1 + weight/version 2 × 8 + has_note 1 + group/degree 2 × 4.
         assert_eq!(nodes.byte_len(), 24 + 1 + 16 + 1 + 8);
-        let mut edges = EdgeColumns::with_capacity(4);
-        edges.id.push(nodes.id[0]);
+    }
+
+    #[test]
+    fn edge_byte_len_counts_each_column_by_its_own_length() {
+        let (mut edges, h) = (EdgeColumns::with_capacity(4), handle());
+        assert_eq!(edges.byte_len(), 0);
+        edges.id.push(h);
+        assert_eq!(edges.byte_len(), 4, "one handle, eight empty columns");
+        edges.label.push(h);
+        edges.record_id.push(None);
+        edges.kind.push(EdgeKind::Tag);
+        edges.source.push(0);
+        edges.target.push(1);
+        edges.strength.push(0.5);
+        edges.directed.push(true);
+        edges.child_first.push(false);
         // 3 handles × 4 + source/target 2 × 4 + kind 1 + strength 8 + directed and
         // child_first 2 × 1.
         assert_eq!(edges.byte_len(), 12 + 8 + 1 + 8 + 2);

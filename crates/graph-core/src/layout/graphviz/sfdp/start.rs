@@ -78,16 +78,19 @@ impl Glibc {
 
     /// glibc's `RAND_MAX` for `rand()`, which is `2^31 - 1`.
     const RAND_MAX: u32 = 2_147_483_647;
-}
 
-/// The seeded start positions, node by node: Graphviz fills `x[0..dim*n]` from `drand()` in
-/// index order (`spring_electrical.c:284`), x and y interleaved per node.
-///
-/// Gather form (D10): entry `i` depends on draws `2i` and `2i+1` of the stream and on nothing
-/// else, so the sequence is reproducible and the order is the dense node order.
-pub fn start_positions(count: u32, seed: u32) -> Vec<[f64; 2]> {
-    let mut rng = Glibc::seeded(seed);
-    (0..count).map(|_| [rng.unit(), rng.unit()]).collect()
+    /// `count` start positions, node by node: Graphviz fills `x[0..dim*n]` from `drand()` in
+    /// index order (`spring_electrical.c:284`), x and y interleaved per node.
+    ///
+    /// **On a generator the caller keeps, not on a seed.** The reference draws the prolongation
+    /// jitter from the same stream the start came from (`spring_electrical.c:1155`), so a port
+    /// that reseeds per step places every node somewhere else.
+    ///
+    /// Gather form (D10): entry `i` depends on draws `2i` and `2i+1` and on nothing else, so
+    /// the sequence is reproducible and the order is the dense node order.
+    pub fn positions(&mut self, count: u32) -> Vec<[f64; 2]> {
+        (0..count).map(|_| [self.unit(), self.unit()]).collect()
+    }
 }
 
 #[cfg(test)]
@@ -184,14 +187,29 @@ mod tests {
     /// Start positions are `2 * count` draws in index order, so entry `i` is reproducible on
     /// its own and the whole vector is gather-stable.
     #[test]
-    fn start_positions_are_index_order_and_reproducible() {
-        let positions = start_positions(5, 1);
+    fn positions_are_index_order_and_reproducible() {
+        let draw = |seed| Glibc::seeded(seed).positions(5);
+        let positions = draw(1);
         assert_eq!(positions.len(), 5);
-        assert_eq!(positions, start_positions(5, 1));
+        assert_eq!(positions, draw(1));
+        assert_ne!(positions, draw(2));
         for (i, p) in positions.iter().enumerate() {
             for c in p {
                 assert!((0.0..=1.0).contains(c), "node {i} at {c}");
             }
         }
+    }
+
+    /// The stream continues rather than restarting: two draws of `count` in a row are the same
+    /// sequence of values as one draw of `2 * count`, which is what lets the reference's
+    /// `prolongate` take its jitter from the start's generator.
+    #[test]
+    fn positions_continue_the_stream_they_are_given() {
+        let mut split = Glibc::seeded(1);
+        let first = split.positions(2);
+        let second = split.positions(2);
+        let whole = Glibc::seeded(1).positions(4);
+        assert_eq!(first, whole[..2].to_vec());
+        assert_eq!(second, whole[2..].to_vec());
     }
 }

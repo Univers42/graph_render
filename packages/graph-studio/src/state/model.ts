@@ -2,7 +2,7 @@
  * Everything the studio's chrome reads, as one value in one store. Replaced, never
  * edited: a reader holding the old value still holds what was true when it read it.
  */
-import type { AnalysisReport, Catalog, GraphSummary } from "../motor/protocol.ts";
+import type { AnalysisReport, Catalog, GraphSummary, LayoutParamSpec } from "../motor/protocol.ts";
 import type { GraphMeta } from "../source/meta.ts";
 import type { ShownError } from "./errors.ts";
 import { DEFAULT_SETTINGS, type Settings } from "./settings.ts";
@@ -52,6 +52,12 @@ export interface StudioState {
   readonly meta: GraphMeta | null;
   readonly run: RunSummary | null;
   readonly analysis: AnalysisReport | null;
+  /**
+   * What the motor publishes for each layout, by layout id, read once per layout and never
+   * invented here. A layout with no entry is one the motor has not been asked about yet, which
+   * is not the same as one it publishes nothing for.
+   */
+  readonly schemas: Readonly<Record<string, readonly LayoutParamSpec[]>>;
   readonly busy: readonly Running[];
   /** The last failure, until something succeeds or it is dismissed. */
   readonly error: ShownError | null;
@@ -62,6 +68,12 @@ export interface StudioState {
   readonly layoutCalls: number;
   /** The filter in force when the last layout ran, as JSON; "" before the first one. */
   readonly runFilter: string;
+  /**
+   * The values the last layout ran at, as JSON in the names the motor published; "" before the
+   * first one. A settings change that moves this is a request for another run, exactly as a
+   * change of filter with `relayout` on is.
+   */
+  readonly runParams: string;
   /** Every selected node, the primary last; `[]` when none. */
   readonly selection: readonly number[];
   /** The last text the studio copied: what the page holds when the browser refuses a read. */
@@ -77,7 +89,7 @@ export function initialState(settings: Settings = DEFAULT_SETTINGS): StudioState
   return {
     settings, catalog: null, graph: null, meta: null, run: null, analysis: null,
     busy: [], error: null, log: [], selected: -1, selection: [], clipboard: "", reveal: null,
-    layoutCalls: 0, runFilter: "",
+    layoutCalls: 0, runFilter: "", runParams: "", schemas: {},
   };
 }
 

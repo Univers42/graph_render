@@ -7,28 +7,31 @@
 import { frameFrom } from "../../../graph-render/src/frame.ts";
 import { DEFAULT_POLICY, type LabelPolicy } from "../../../graph-render/src/labels.ts";
 import { EMPTY_FRAME } from "../../../graph-render/src/scene.ts";
-import { type Snapshot, decodeSnapshot } from "../../../graph-render/src/snapshot/decode.ts";
+import { decodeSnapshot } from "../../../graph-render/src/snapshot/decode.ts";
 import { styleFrom } from "../../../graph-render/src/style.ts";
 import { backdropTheme } from "../../../graph-render/src/look/backdrop.ts";
 import { isLightTheme, themeNamed } from "../../../graph-render/src/look/themes.ts";
 import type { View } from "../../../graph-render/src/view.ts";
 import type { Outcome } from "../actions/registry.ts";
 import { styleInputOf } from "../look/styleOf.ts";
-import type { MotorClient } from "../motor/client.ts";
+import { CancelledError, type MotorClient } from "../motor/client.ts";
 import type { AnalysisReport, GraphSummary, RunReport } from "../motor/protocol.ts";
 import { type Ends, MetaMismatch } from "../source/meta.ts";
-import type { RunSummary, StudioState } from "../state/model.ts";
-import { type Appearance, type Settings, type Source, withSettings } from "../state/settings.ts";
+import type { StudioState } from "../state/model.ts";
+import { type Appearance, type ParamValues, type Settings, type Source, withSettings } from "../state/settings.ts";
 import type { Store } from "../state/store.ts";
 import { neighboursOf } from "./adjacency.ts";
 import { fitResults } from "./fitResults.ts";
+import { planOf } from "./plan.ts";
+import { summaryOf } from "./runSummary.ts";
+import { schemaOf } from "./schema.ts";
 
 export type ViewFace = Pick<
   View,
   | "setFrame" | "setStyle" | "setTheme" | "setLabels"
   | "fit" | "reset" | "zoomBy" | "panBy" | "limits"
   | "focus" | "select" | "local" | "showAll" | "on" | "toPNG" | "setCamera" | "frame" | "viewport"
-  | "hide" | "togglePin" | "pinned"
+  | "hide" | "togglePin" | "pinned" | "selectMany"
   | "orbit" | "setOrbit" | "resetOrbit" | "projected"
 >;
 
@@ -56,6 +59,13 @@ interface Rig extends PipelineDeps {
   held: { readonly bytes: Uint8Array; readonly ends: Ends } | null;
   /** The look the view was last given; `null` before the first. */
   shown: Appearance | null;
+  /**
+   * The token of the newest `apply` call. A call that comes back from the motor with an older
+   * token has been superseded, and says so rather than writing over the newer drawing.
+   */
+  generation: number;
+  /** How many `apply` calls are between here and their outcome; what a `cancel` is for. */
+  running: number;
 }
 
 interface Part {
@@ -87,38 +97,9 @@ function ms(value: number): string {
   return `${Math.round(value)} ms`;
 }
 
-function firstOf(notes: readonly string[]): readonly string[] {
+export function firstOf(notes: readonly string[]): readonly string[] {
   if (notes.length <= NOTES_SHOWN) return notes;
   return [...notes.slice(0, NOTES_SHOWN), `… and ${notes.length - NOTES_SHOWN} more while reading the document`];
-}
-
-/**
- * Whether two sources name the same graph, member by member.
- *
- * Not `JSON.stringify`: a `document` source carries the whole document text, so serialising both
- * sides to compare them built two strings as long as the document on every settings change. Every
- * member is a string or a number, so `===` answers it and allocates nothing.
- */
-function sameSource(a: Source, b: Source): boolean {
-  if (a === b) return true;
-  if (a.kind === "synthetic") return sameSynthetic(a, b);
-  if (a.kind === "fixture") return sameFixture(a, b);
-  return sameDocument(a, b);
-}
-
-// The kinds are disjoint, so each helper re-reads `b`'s kind rather than narrowing it against
-// `a`'s: a union narrows on a discriminant it can see, and it cannot see this one.
-function sameSynthetic(a: Source, b: Source): boolean {
-  return a.kind === "synthetic" && b.kind === "synthetic"
-    && a.seed === b.seed && a.nodes === b.nodes && a.degree === b.degree && a.shape === b.shape;
-}
-
-function sameFixture(a: Source, b: Source): boolean {
-  return a.kind === "fixture" && b.kind === "fixture" && a.path === b.path;
-}
-
-function sameDocument(a: Source, b: Source): boolean {
-  return a.kind === "document" && b.kind === "document" && a.name === b.name && a.text === b.text;
 }
 
 function restyle(rig: Rig, look: Settings): void {
@@ -146,34 +127,25 @@ function clear(rig: Rig): void {
   patch(rig, () => ({ meta: null, run: null, selected: -1, selection: [], reveal: null }));
 }
 
-async function load(rig: Rig, source: Source): Promise<Part> {
+/**
+ * WHY a token and not the motor's own `busy()`: `busy()` is false between a request going out
+ * and the reply coming back — while the worker starts, and while this module patches and draws —
+ * so a call made inside a `graph-load` handler re-entered here with a graph already on screen and
+ * nothing to cancel. The token is this call's own: newer or older, on every path.
+ */
+function guard(rig: Rig, token: number): void {
+  if (rig.generation !== token) throw new CancelledError();
+}
+
+async function load(rig: Rig, token: number, source: Source): Promise<Part> {
   const graph: GraphSummary = await rig.client.load(source);
+  guard(rig, token);
   patch(rig, (state) => ({ graph, analysis: null, reveal: null, settings: withSettings(state.settings, { source }) }));
   return { message: `${graph.name}: ${graph.nodeCount} nodes, ${graph.edgeCount} links`, notes: firstOf(graph.notes) };
 }
 
-function degradations(snapshot: Snapshot): string[] {
-  const counts = new Map<string, number>();
-  for (const note of snapshot.notes) {
-    const name = note.name ?? `note ${note.code}`;
-    counts.set(name, (counts.get(name) ?? 0) + 1);
-  }
-  return [...counts].map(([name, count]) => (count === 1 ? name : `${name} ×${count}`));
-}
-
-function summaryOf(run: RunReport, snapshot: Snapshot): RunSummary {
-  const refused = run.postError === null ? [] : [`${run.postError.title}: ${run.postError.detail} — the layout's own edges are shown`];
-  return {
-    layoutId: run.layoutId, postId: run.postId, postError: run.postError, digest: run.digest,
-    byteLength: run.bytes.byteLength, nodeKind: snapshot.nodeKind, edgeKind: snapshot.edgeKind,
-    // The dim off the decoded snapshot, not off the layout id: the z column's presence is
-    // what the painter branches on, so that is what the badge has to report.
-    dim: snapshot.dim,
-    layoutMs: run.layoutMs, postMs: run.postMs, notes: [...degradations(snapshot), ...refused],
-  };
-}
-
-function draw(rig: Rig, run: RunReport, shown: { readonly look: Settings; readonly fresh: boolean }): Part {
+function draw(rig: Rig, token: number, run: RunReport, shown: { readonly look: Settings; readonly fresh: boolean }): Part {
+  guard(rig, token);
   const snapshot = decodeSnapshot(run.bytes);
   const frame = frameFrom(snapshot);
   const meta = run.meta ?? rig.store.get().meta;
@@ -186,30 +158,38 @@ function draw(rig: Rig, run: RunReport, shown: { readonly look: Settings; readon
   if (shown.fresh) rig.view.select(-1);
   patch(rig, (state) => ({
     meta, run: summary, selected: shown.fresh ? -1 : state.selected, selection: shown.fresh ? [] : state.selection,
-    settings: withSettings(state.settings, { layout: run.layoutId, edges: run.postId }),
+    // The values are written here, with the layout: they are what this run was made at, and
+    // nothing else in the pipeline writes a member of the settings that a run settles.
+    settings: withSettings(state.settings, { layout: run.layoutId, edges: run.postId, params: shown.look.params }),
     // The filter the drawing was made under, and the only place it is written: the count
     // below is what a `relayout` filter is compared against to know it has already run.
     runFilter: JSON.stringify(shown.look.filter),
+    // The values, the same way: what the motor was actually run at, which is not what was asked
+    // for when a force layout on a large graph ran as a scatter instead.
+    runParams: JSON.stringify(run.params),
   }));
   restyle(rig, shown.look);
   const pass = run.postId === null ? "" : ` + ${run.postId} ${ms(run.postMs)}`;
   return { message: `${run.layoutId} ${ms(run.layoutMs)}${pass}`, notes: summary.notes };
 }
 
-async function arrange(rig: Rig, next: Settings, fresh: boolean): Promise<Part> {
+async function arrange(rig: Rig, token: number, next: Settings, fresh: boolean): Promise<Part> {
   // Counted before the await: a run that is cancelled while it waits was still asked for,
   // and a count that only moved on success would hide that from the studio's own tests.
   patch(rig, (state) => ({ layoutCalls: state.layoutCalls + 1 }));
   // A switch between two layouts of the same graph is the one this measures; the marks the
   // render side puts down are `gm:transition:moved` and `gm:transition:settled`.
   if (!fresh) performance.mark(REQUEST_MARK);
+  const asked: ParamValues = next.params[next.layout] ?? {};
   try {
-    const run = await rig.client.layout(next.layout, next.edges);
+    const run = await rig.client.layout(next.layout, next.edges, asked);
     if (!fresh) performance.mark(BYTES_MARK);
-    return draw(rig, run, { look: next, fresh });
+    const part = draw(rig, token, run, { look: next, fresh });
+    return { message: part.message, notes: [...part.notes, ...await schemaOf(rig.client, rig.store, run.layoutId)] };
   } catch (error) {
     // After a load the old drawing is of another graph; after a refused layout it still holds.
-    if (fresh) clear(rig);
+    // A superseded call clears nothing: the drawing on screen is the newer call's.
+    if (fresh && rig.generation === token) clear(rig);
     throw error;
   }
 }
@@ -226,7 +206,7 @@ function forget(rig: Rig): void {
   patch(rig, (state) => ({ analysis: null, settings: withSettings(state.settings, { analysis: null }) }));
 }
 
-async function measure(rig: Rig, next: Settings): Promise<Part> {
+async function measure(rig: Rig, token: number, next: Settings): Promise<Part> {
   if (next.analysis === null) {
     forget(rig);
     restyle(rig, next);
@@ -234,41 +214,50 @@ async function measure(rig: Rig, next: Settings): Promise<Part> {
   }
   try {
     const analysis = await rig.client.analysis(next.analysis);
+    guard(rig, token);
     patch(rig, (state) => ({ analysis, settings: withSettings(state.settings, { analysis: analysis.id }) }));
     restyle(rig, next);
     return { message: `${analysis.id} ${ms(analysis.ms)}`, notes: measured(analysis) };
   } catch (error) {
-    forget(rig);
-    restyle(rig, rig.store.get().settings);
+    // A superseded call leaves the newer call's analysis on the state; its own is forgotten.
+    if (rig.generation === token) {
+      forget(rig);
+      restyle(rig, rig.store.get().settings);
+    }
     throw error;
   }
 }
 
-interface Plan {
-  readonly load: boolean;
-  readonly layout: boolean;
-  readonly analysis: boolean;
-}
-
-function planOf(state: StudioState, next: Settings): Plan {
-  const load = state.graph === null || !sameSource(state.settings.source, next.source);
-  const { run } = state;
-  // A filter that asks to be laid out again is one the last run was not made under, or the
-  // layout would repeat the drawing already on screen for a filter nobody changed.
-  const relayout = next.filter.relayout && JSON.stringify(next.filter) !== state.runFilter;
-  const layout = load || run === null || run.layoutId !== next.layout || run.postId !== next.edges || relayout;
-  const asked = next.analysis !== null && (load || state.analysis?.id !== next.analysis);
-  return { load, layout, analysis: asked || (next.analysis === null && state.analysis !== null) };
-}
-
+/**
+ * The call that takes the drawing. Every commit below carries the token this call took, so a
+ * newer call — from a second `loadGraph`, or from inside a `graph-load` handler — owns the frame
+ * and this one rejects with a `CancelledError` instead of writing over it.
+ */
 async function apply(rig: Rig, next: Settings): Promise<Outcome> {
+  const token = rig.generation + 1;
+  rig.generation = token;
+  rig.running += 1;
+  try {
+    return await drawOut(rig, token, next);
+  } finally { rig.running -= 1; }
+}
+
+async function drawOut(rig: Rig, token: number, next: Settings): Promise<Outcome> {
   const plan = planOf(rig.store.get(), next);
   const parts: Part[] = [];
   // The latest request wins: what the motor is doing is for a drawing nobody waits for now.
-  if ((plan.load || plan.layout || plan.analysis) && rig.client.busy()) rig.client.cancel();
-  if (plan.load) parts.push(await load(rig, next.source));
-  if (plan.layout) parts.push(await arrange(rig, next, plan.load));
-  if (plan.analysis) parts.push(await measure(rig, next));
+  // Cancelled only when this studio's own older call is still in flight, so a newer call is
+  // never rejected by an older one's cancel.
+  if ((plan.load || plan.layout || plan.analysis) && rig.running > 0) rig.client.cancel();
+  if (plan.load) parts.push(await load(rig, token, next.source));
+  if (plan.layout) parts.push(await arrange(rig, token, next, plan.load));
+  if (plan.analysis) parts.push(await measure(rig, token, next));
+  // One turn of the queue before the answer. A host that calls `loadGraph` from inside the
+  // `graph-load` handler it was just given re-enters on the next turn, not inside this frame, and
+  // the token is only raised once that call reaches `apply`: without the turn this call would
+  // report the counts of a frame the host had already taken back.
+  await Promise.resolve();
+  guard(rig, token);
   showLook(rig, next);
   if (parts.length === 0) restyle(rig, next);
   return {
@@ -279,7 +268,7 @@ async function apply(rig: Rig, next: Settings): Promise<Outcome> {
 }
 
 export function createPipeline(deps: PipelineDeps): Pipeline {
-  const rig: Rig = { ...deps, held: null, shown: null };
+  const rig: Rig = { ...deps, held: null, shown: null, generation: 0, running: 0 };
   return {
     apply: (next) => apply(rig, next),
     look: (next) => {

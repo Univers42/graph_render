@@ -72,6 +72,12 @@ pub fn parse_node_id(node_id: &str) -> Option<RecordRef<'_>> {
 /// name opposite parents. Direction: two distinct hierarchy facts collapse to one id and
 /// the later is dropped as a duplicate by `index_model`. Escape hatch: the host gives
 /// the two edges distinct labels (or ids of its own).
+///
+/// Ponytail: not injective, for oracle parity (`eval.rs` diffs this against `makeEdgeId`)
+/// — `->`, `--` and `:` inside an endpoint or label are not escaped, so undirected
+/// `("a--b", "c")` and `("a", "b--c")` share the id `a--b--c:…`. Direction: two distinct
+/// edges collapse to one id and `index_model` drops the later as a duplicate. Escape
+/// hatch: the same as above, distinct labels or ids of the host's own.
 pub fn make_edge_id(edge: &EdgeIdParts<'_>) -> String {
     let EdgeIdParts {
         source,
@@ -210,6 +216,22 @@ mod tests {
             id(("x", "x"), EdgeKind::Relation, "", false),
             "x--x:relation:"
         );
+    }
+
+    #[test]
+    fn a_separator_inside_an_endpoint_collides_as_documented() {
+        let undirected = |source, target| {
+            make_edge_id(&EdgeIdParts {
+                source,
+                target,
+                kind: EdgeKind::Relation,
+                label: "",
+                directed: false,
+            })
+        };
+        let left = undirected("pg:db:a--pg:db:b", "pg:db:c");
+        assert_eq!(left, "pg:db:a--pg:db:b--pg:db:c:relation:");
+        assert_eq!(left, undirected("pg:db:a", "pg:db:b--pg:db:c"));
     }
 
     #[test]

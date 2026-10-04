@@ -121,9 +121,12 @@ def wait_idle(studio, cap=SETTLE_CAP_S):
     return False
 
 
-def settle(studio):
-    """A fresh settle from random positions, waited out, then fitted: the whole graph on screen."""
-    studio.page.evaluate(f"{HOST}.studio.dispatch('forces.animate', {{ on: true }})")
+def settle(studio, restart=True):
+    """A settle waited out, then fitted: the whole graph on screen. `restart` starts it over
+    from the session's start positions (Animate); without it, the settle a request already
+    woke runs on from the drawing on screen."""
+    if restart:
+        studio.page.evaluate(f"{HOST}.studio.dispatch('forces.animate', {{ on: true }})")
     liverows.wait_shown(studio)
     began = time.monotonic()
     done = liverows.wait_settled(studio, SETTLE_CAP_S)
@@ -182,10 +185,10 @@ def has(studio, action):
     return studio.page.evaluate(f"{HOST}.studio.registry.find({json.dumps(action)}) !== undefined")
 
 
-def measured_case(studio, name, shot):
-    """A settle from random positions at the knobs already set, then the count: (row, count or None)."""
+def measured_case(studio, name, shot, restart=True):
+    """A settle at the knobs already set, then the count: (row, count or None)."""
     expectation = "a settle that ends, and every drawn disc counted"
-    done, took = settle(studio)
+    done, took = settle(studio, restart)
     at = counted(studio)
     if shot is not None:
         shoot(studio.page, shot)
@@ -204,9 +207,11 @@ def judged_spread(name, before, after_row, after):
 
 
 def spread_case(studio, name, before, shot):
-    """`spread` on the drawing already on screen, the way a user presses it, then a settle."""
+    """`spread` on the drawing already on screen, the way a user presses it, and the settle it
+    wakes, from that drawing. WHY no Animate: Animate restarts from the session's start
+    positions, which measures the knobs and not the button (docs/measurements/ux-forces-full.md)."""
     entry = dispatch(studio, "forces.spread", {})
-    case_row, at = measured_case(studio, name, shot)
+    case_row, at = measured_case(studio, name, shot, restart=False)
     case_row["measured"] += f"; spread said: {(entry or {}).get('message')}"
     return judged_spread(name, before, case_row, at)
 

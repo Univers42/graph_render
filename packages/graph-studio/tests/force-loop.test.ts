@@ -10,7 +10,9 @@ import { serve } from "../src/motor/serve.ts";
 import { fake, lastFrame, mortal, rig } from "./force-rig.ts";
 
 const refuse = (): never => { throw new Error("a force request must not reach the session"); };
-const NO_SESSION: Session = { open: refuse, load: refuse, layout: refuse, analysis: refuse, forces: () => null };
+const NO_SESSION: Session = {
+  open: refuse, load: refuse, layout: refuse, params: refuse, analysis: refuse, structure: refuse, forces: () => null,
+};
 const KNOBS: ForceKnobs = { ...DEFAULT_KNOBS, gravity: 0.5, charge: -100, linkStrengthScale: 1, linkDistance: 40, theta: 1.2 };
 /** What the loop pushes when the session under it is released: no loop, and no session. */
 const STOPPED: Result = { type: "force-state", running: false, disabled: NO_ADAPTER_REASON, paused: false };
@@ -104,6 +106,16 @@ test("params reach the port and reheat; stop unpins and halts", () => {
   const before = out.frames();
   out.tick();
   assert.equal(out.frames(), before);
+});
+
+test("params reheat to 0.3 by default, and to the heat the request names", () => {
+  const port = fake(0.5);
+  const { host } = rig(port);
+  host.handle({ type: "force.params", knobs: KNOBS });
+  assert.equal(port.alpha, 0.3, "a slider nudges the drawing on screen");
+  host.handle({ type: "force.params", knobs: KNOBS, heat: 1 });
+  assert.equal(port.alpha, 1, "a preset reheats it as hot as a fresh settle, from where it is");
+  assert.ok(!port.calls.includes("shuffle"), "and never restarts it");
 });
 
 test("frames carry copies: the port's buffers are never handed over", () => {
