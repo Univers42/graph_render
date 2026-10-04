@@ -1,6 +1,10 @@
 //! The frame: `dot_compute_bb` (`position.c:831-876`) followed by `translate_drawing`
 //! (`postproc.c:153-168`) at the default `rankdir=TB`.
 //!
+//! At the default ratio `set_aspect` (`position.c:904-971`) is `rec_bb` and nothing else — no
+//! `ratio_kind`, no drawing size, so no rescale — so this module is that whole function and not
+//! a part of it.
+//!
 //! Every coordinate so far is relative to nothing in particular: the x simplex is free to put
 //! the drawing anywhere along its line, and `set_ycoords` counts up from the lowest rank's own
 //! half-height. `-Tplain` prints a coordinate whose node's **box** has its lower-left corner at

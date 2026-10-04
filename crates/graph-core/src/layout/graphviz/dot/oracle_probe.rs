@@ -15,10 +15,11 @@
 //! Determinism: each sweep is 1000 independent runs of a pure function, so its result is a
 //! measurement and not a sample.
 
-use super::fast::Fast;
+use super::fast::{Fast, Kind};
 use super::mincross::{self, crossings};
 use super::oracle_crossings::edge_crossings as crossings_of;
 use super::oracle_digest::{OracleRow, oracle_digest};
+use super::position::position;
 use super::rank::rank;
 use super::{add_edges, empty_graph};
 
@@ -54,6 +55,38 @@ pub fn ranked_and_ordered(count: u32, edges: &[(u32, u32)]) -> Fast {
 /// left to right. Rank 0 is the top row, so the first row is the first one printed.
 pub fn ordered(count: u32, edges: &[(u32, u32)]) -> Vec<Vec<u32>> {
     crossings::real_rows(&ranked_and_ordered(count, edges))
+}
+
+/// Every node's id as the oracle's fixtures name them: `n0`, `n1`, … `n{count - 1}`.
+///
+/// This is the one place the port turns a dense index into text, and it is why the size of a
+/// node's box is the measured table's rather than a constant: the reference sizes a node from
+/// its rendered label, and the label is the id.
+pub fn fixture_ids(count: u32) -> Vec<String> {
+    (0..count).map(|i| format!("n{i}")).collect()
+}
+
+/// Run all three passes over a graph whose nodes are named `n0`…`n{count - 1}`, and hand back
+/// the graph the position pass left: every node's centre, in the frame `-Tplain` prints.
+pub fn positioned(count: u32, edges: &[(u32, u32)]) -> Fast {
+    let ids: Vec<String> = fixture_ids(count);
+    let borrowed: Vec<&str> = ids.iter().map(String::as_str).collect();
+    let mut g = super::build(&borrowed, edges);
+    rank(&mut g).expect("the fixture graphs are connected and acyclic after the pass");
+    mincross::run(&mut g);
+    position(&mut g).expect("the fixture graphs are connected after the pass");
+    g
+}
+
+/// The centre of every **real** node, in the frame `-Tplain` prints, in dense-index order.
+///
+/// Chain dummies are dropped: the plain format prints no dummy, so there is nothing on the
+/// oracle's side to compare one against.
+pub fn centres(g: &Fast) -> Vec<(f64, f64)> {
+    let count = g.nodes.iter().filter(|n| n.kind == Kind::Normal).count() as u32;
+    (0..count)
+        .map(|n| (g.nodes[n as usize].coord.x, g.nodes[n as usize].coord.y))
+        .collect()
 }
 
 /// The 1000-seed rank agreement, which is what `docs/measurements/p13-gv2-dot.md` records.

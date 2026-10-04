@@ -38,6 +38,9 @@ use super::super::{NODESEP, decomp};
 /// displaced by the constraints, together with what this pass added.
 pub struct Aux {
     /// `ND_save_out`: every node's out-edges as they were before the constraints went in.
+    ///
+    /// This is what `make_edge_pairs` walks rather than the live list, and it is what
+    /// `remove_aux_edges` puts back.
     saved_out: Vec<Vec<u32>>,
     /// `ND_save_in`: the same for in-edges.
     saved_in: Vec<Vec<u32>>,
@@ -74,13 +77,17 @@ impl Aux {
     }
 }
 
-/// `create_aux_edges`: take the adjacency aside, then the rank constraints, then the edge pairs.
+/// `create_aux_edges`: copy the adjacency aside, then the rank constraints, then the edge pairs.
+///
+/// The copy is the reference's `allocate_aux_edges`, which saves the two list pointers and hands
+/// the node fresh, larger lists. Here the lists are `Vec`s that grow, so saving them *is* copying
+/// them and putting the copy back is the whole of `remove_aux_edges`.
 pub fn build(g: &mut Fast, rows: &Rows) -> Aux {
     let nlist: Vec<u32> = decomp::decompose(g).into_iter().flatten().collect();
+    let saved_out = g.out.clone();
+    let saved_in = g.inn.clone();
     let mut edges: Vec<u32> = Vec::new();
     lr_constraints(g, rows, &mut edges);
-    let saved_out = std::mem::take(&mut g.out);
-    let saved_in = std::mem::take(&mut g.inn);
     let slack = edge_pairs(g, &saved_out, &nlist, &mut edges);
     Aux {
         saved_out,
@@ -117,7 +124,7 @@ fn lr_constraints(g: &mut Fast, rows: &Rows, edges: &mut Vec<u32>) {
         for pair in row.windows(2) {
             let (u, v) = (pair[0], pair[1]);
             let width = g.nodes[u as usize].rw + g.nodes[v as usize].lw + NODESEP;
-            edges.push(aux_edge(g, u, v, width, 0));
+            edges.push(aux_edge(g, (u, v), width, 0));
             last += width;
             g.nodes[v as usize].rank = last as i32;
         }
@@ -145,8 +152,8 @@ fn edge_pairs(g: &mut Fast, saved_out: &[Vec<u32>], nlist: &[u32], edges: &mut V
             let weight = g.edges[edge as usize].weight;
             let node = g.add_node(Node::virtual_node(NODESEP));
             slack.push(node);
-            edges.push(aux_edge(g, node, tail, 1.0, weight));
-            edges.push(aux_edge(g, node, head, 1.0, weight));
+            edges.push(aux_edge(g, (node, tail), 1.0, weight));
+            edges.push(aux_edge(g, (node, head), 1.0, weight));
             let (t, h) = (g.nodes[tail as usize].rank, g.nodes[head as usize].rank);
             g.nodes[node as usize].rank = t.min(h) - 1;
         }
@@ -157,7 +164,7 @@ fn edge_pairs(g: &mut Fast, saved_out: &[Vec<u32>], nlist: &[u32], edges: &mut V
 /// `make_aux_edge` (`position.c:183-199`): a constraint edge of the given minimum length,
 /// rounded, and the given weight. The length is capped on the way in so a width past `int`
 /// cannot wrap round into a negative constraint — the reference's own `largeMinlen` guard.
-fn aux_edge(g: &mut Fast, tail: u32, head: u32, len: f64, weight: i32) -> u32 {
+fn aux_edge(g: &mut Fast, ends: (u32, u32), len: f64, weight: i32) -> u32 {
     let capped = if len > f64::from(i32::MAX) { f64::from(i32::MAX) } else { len };
-    g.add_aux(tail, head, round(capped), weight)
+    g.add_aux(ends.0, ends.1, round(capped), weight)
 }

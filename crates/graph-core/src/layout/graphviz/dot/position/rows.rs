@@ -16,6 +16,11 @@
 //! rank pass may leave a rank with nothing on it, and the reference's array has a row for it
 //! whatever its count.
 //!
+//! **A chain dummy has no box, so it is never the edge of the drawing.** The rows hold them —
+//! they sit on real ranks and the LR constraints chain them like any other node — but the
+//! bounding box and the per-rank order a reader cares about are measured over real nodes only,
+//! which is why [`Rows::first_real`] and [`Rows::last_real`] exist.
+//!
 //! Determinism: nodes are collected in dense-index order and each row is sorted on a key that
 //! is unique within it, so the array is a function of the ranks and orders alone
 //! (`prompt.md` §6 D1-D10).

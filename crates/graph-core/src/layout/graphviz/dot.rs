@@ -12,15 +12,21 @@
 //! 4. `dot_splines` — edges as splines through the virtual nodes. Not needed: the motor
 //!    emits polylines through the virtual nodes.
 //!
-//! The node box Graphviz gives a node is sized from its *rendered label*, and that width is
-//! an input to the x-coordinate network simplex — which is why the port reaches the rank
-//! pass and stops, and why the width itself is pinned in `layout::graphviz::text_width`.
-//! `docs/measurements/p13-gv2-dot.md` has the measurement and `docs/decisions/graphviz-oracle.md`
-//! the decision.
+//! **What is and is not reproduced.** The three passes are ported and the engine draws a graph.
+//! What is *not* reproduced is byte-exact agreement with Graphviz's own drawing, and the
+//! measurement says why in numbers: over the 1000 seeded fixtures 692 agree node for node on the
+//! ranks and 408 on every rank's order, which is the *face* of the simplex's optimum rather
+//! than a defect — two correct implementations reach different vertices of one optimal face.
+//! `docs/measurements/p13-gv2-dot.md` has the counts and the position pass's own sweep.
+//!
+//! The node box Graphviz gives a node is sized from its *rendered label*, and that width is an
+//! input to the x-coordinate network simplex. The motor ships no font engine, so the width comes
+//! from the measured table in [`layout::graphviz::text_width`](super::text_width) through
+//! [`node_box`] — that file is the only source of node widths this port uses, and
+//! `docs/decisions/graphviz-oracle.md` records the decision.
 //!
 //! The module doc of `layout::graphviz` says why these engines are reimplemented rather
-//! than translated, and `docs/decisions/graphviz-oracle.md` records that decision; the
-//! two ports next to this one, `osage` and `patchwork`, are the same shape.
+//! than translated; the two ports next to this one, `osage` and `patchwork`, are the same shape.
 //!
 //! Determinism: the port's own order is the dense node index throughout; the oracle is
 //! **not** seed-sensitive — `docs/measurements/p13-gv2-dot.md` records the same fixture
@@ -50,6 +56,8 @@ mod oracle_probe;
 #[cfg(test)]
 mod order_tests;
 #[cfg(test)]
+mod position_tests;
+#[cfg(test)]
 mod rank_fixture_edges;
 #[cfg(test)]
 mod rank_tests;
@@ -58,7 +66,7 @@ mod tests;
 
 use decomp::decompose;
 use fast::{Edge, Fast, Node};
-use text_width::{node_width, text_width};
+use super::text_width as measured;
 
 pub use position::position;
 pub use rank::rank;
@@ -83,7 +91,7 @@ pub const RANKSEP: f64 = 0.5 * 72.0;
 /// labels the fixtures carry (`n` and ASCII digits, up to four characters, measured — see
 /// `text_width`'s own caveat for the rest).
 pub fn node_box(id: &str) -> (f64, f64) {
-    let width = text_width::node_width(text_width::text_width(id));
+    let width = measured::node_width(measured::text_width(id));
     (width / 2.0, width / 2.0)
 }
 
